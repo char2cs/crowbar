@@ -74,8 +74,72 @@ func (stubLSP) CodeAction(
 	_ string,
 	_ string,
 	_ domlsp.Range,
+	_ json.RawMessage,
 ) (json.RawMessage, error) {
 	return nil, nil
+}
+
+func (stubLSP) SignatureHelp(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ domlsp.Position,
+) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (stubLSP) CodeLens(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (stubLSP) CodeLensResolve(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ json.RawMessage,
+) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (stubLSP) Formatting(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ domlsp.FormattingOptions,
+) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (stubLSP) Status(
+	_ string,
+	_ string,
+) domlsp.ServerStatus {
+	return domlsp.ServerStatus{State: domlsp.ServerStopped}
+}
+
+func (stubLSP) Restart(
+	_ context.Context,
+	_ string,
+	_ string,
+) (domlsp.ServerStatus, error) {
+	return domlsp.ServerStatus{State: domlsp.ServerStopped}, nil
+}
+
+func (stubLSP) DidSave(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+) error {
+	return nil
 }
 
 func (stubLSP) DocumentSymbol(
@@ -151,9 +215,16 @@ func editorSurface() []struct {
 		{http.MethodPost, "/lsp/rename"},
 		{http.MethodPost, "/lsp/codeAction"},
 		{http.MethodPost, "/lsp/documentSymbol"},
+		{http.MethodPost, "/lsp/signatureHelp"},
+		{http.MethodPost, "/lsp/codeLens"},
+		{http.MethodPost, "/lsp/codeLensResolve"},
+		{http.MethodPost, "/lsp/formatting"},
+		{http.MethodGet, "/lsp/status?path=main.go"},
+		{http.MethodPost, "/lsp/restart"},
 		{http.MethodGet, "/lsp/diagnostics"},
 		{http.MethodPost, "/lsp/didOpen"},
 		{http.MethodPost, "/lsp/didChange"},
+		{http.MethodPost, "/lsp/didSave"},
 		{http.MethodPost, "/lsp/didClose"},
 	}
 }

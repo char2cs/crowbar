@@ -62,35 +62,6 @@ describe('settings normalization', () => {
     expect(normalizeSettingValue('fileTreeDensity', 'dense' as 'default')).toBe('default')
   })
 
-  it('disables blank custom editor engine settings', () => {
-    const normalized = normalizeSettings({
-      ...getDefaultSettingsSnapshot(),
-      editorEngine: 'custom',
-      customEditorCommand: '',
-    })
-
-    expect(normalized.editorEngine).toBe('monaco')
-  })
-
-  it('normalizes unsupported editor engines', () => {
-    const normalized = normalizeSettings({
-      ...getDefaultSettingsSnapshot(),
-      editorEngine: 'emacs' as never,
-    })
-
-    expect(normalized.editorEngine).toBe('monaco')
-  })
-
-  it('migrates legacy external editor settings into editor engine', () => {
-    const normalized = normalizeSettings({
-      ...getDefaultSettingsSnapshot(),
-      editorEngine: 'monaco',
-      externalEditor: 'helix',
-    })
-
-    expect(normalized.editorEngine).toBe('helix')
-  })
-
   describe('themeMode migration', () => {
     it('sets themeMode to system when syncSystemTheme was true', () => {
       const result = normalizeSettings({

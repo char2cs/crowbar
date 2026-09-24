@@ -10,14 +10,11 @@ import type {
   MarkdownPreviewContent,
   HtmlPreviewContent,
   CsvPreviewContent,
-  ExternalEditorContent,
   ClosedBuffer,
   PendingClose,
 } from '@/features/panes/types/pane-content'
 import { shouldStartLsp, isEditorContent } from '@/features/panes/types/pane-content'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
-import { useHistoryStore } from '@/features/editor/stores/history-store'
-import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-history-tracking'
 // Leaf module (zustand only, no Plate) — a static import here keeps the rich
 // editor's chunk out of the base bundle while still giving closeBuffer a
 // synchronous way to release the buffer's rich/source preference.
@@ -31,9 +28,8 @@ import { bestEffort } from '@/lib/best-effort'
 
 // A pane with zero editorTabIds falls back to rendering its New Tab surface
 // for free (PaneContainer) — there is no placeholder buffer to protect any
-// more, only the always-live externalEditor/terminal types stay exempt from
-// auto-eviction.
-const AUTO_EVICTION_PROTECTED = new Set<PaneContent['type']>(['externalEditor', 'terminal'])
+// more, only the always-live terminal type stays exempt from auto-eviction.
+const AUTO_EVICTION_PROTECTED = new Set<PaneContent['type']>(['terminal'])
 
 // ── Actions ──────────────────────────────────────────────────────────
 
@@ -163,14 +159,6 @@ export const createBufferSlice: StateCreator<
             return get().buffers.find(
               (b) =>
                 b.type === 'csvPreview' && b.path === spec.path && b.workspaceId === workspaceId,
-            )
-          }
-          if (spec.type === 'externalEditor') {
-            return get().buffers.find(
-              (b) =>
-                b.type === 'externalEditor' &&
-                b.path === spec.path &&
-                b.workspaceId === workspaceId,
             )
           }
           return undefined
@@ -327,7 +315,8 @@ export const createBufferSlice: StateCreator<
             isPreview: false,
             workspaceId,
           } satisfies HtmlPreviewContent
-        } else if (spec.type === 'csvPreview') {
+        } else {
+          // spec.type === 'csvPreview'
           buf = {
             id,
             type: 'csvPreview',
@@ -339,18 +328,6 @@ export const createBufferSlice: StateCreator<
             isPreview: false,
             workspaceId,
           } satisfies CsvPreviewContent
-        } else {
-          // spec.type === 'externalEditor'
-          buf = {
-            id,
-            type: 'externalEditor',
-            path: spec.path,
-            name: spec.name,
-            terminalConnectionId: spec.terminalConnectionId,
-            isPinned: false,
-            isPreview: false,
-            workspaceId,
-          } satisfies ExternalEditorContent
         }
 
         set((state) => {
@@ -437,9 +414,10 @@ export const createBufferSlice: StateCreator<
         // used above for terminal/chat to avoid circular slice → git-feature deps.
         if (buf && isEditorContent(buf) && buf.path) {
           const filePath = buf.path
+          const wsId = buf.workspaceId
           bestEffort(
-            import('@/features/git/stores/git-blame-store').then(({ useGitBlameStore }) => {
-              useGitBlameStore.getState().clearBlameForFile(filePath)
+            import('@/features/git/stores/git-blame-store').then(({ clearBlame }) => {
+              clearBlame(wsId, filePath)
             }),
             'clear blame for closed buffer',
           )
@@ -449,11 +427,6 @@ export const createBufferSlice: StateCreator<
         // without this it grows for the life of the session (no-ops when the
         // buffer never had one).
         useMarkdownViewStore.getState().clearView(id)
-        // Free full-content history snapshots so closed buffers don't leak memory.
-        // clearHistory drops up to 100 HistoryEntry objects each holding a full copy
-        // of the file text — the dominant source of memory growth in long sessions.
-        cleanupBufferHistoryTracking(id)
-        useHistoryStore.getState().actions.clearHistory(id)
         set((state) => {
           state.buffers = state.buffers.filter((b) => b.id !== id)
         })

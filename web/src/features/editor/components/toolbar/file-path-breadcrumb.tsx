@@ -7,7 +7,7 @@ import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { Button } from '@/components/ui/button'
 import { Dropdown, dropdownItemClassName } from '@/components/ui/dropdown'
-import { getBaseName, getRelativePath, normalizePath } from '@/utils/path-helpers'
+import { getRelativePath, normalizePath } from '@/utils/path-helpers'
 import { breadcrumbSegmentPath, loadDirectoryEntries } from './breadcrumb-directory'
 import { PathBreadcrumb } from './path-breadcrumb'
 
@@ -36,18 +36,6 @@ export function FilePathBreadcrumb({
 
   const getPathSegments = () => {
     if (!filePath) return []
-
-    if (filePath.startsWith('remote://')) {
-      const pathWithoutRemote = filePath.replace(/^remote:\/\/[^/]+/, '')
-      return pathWithoutRemote.split('/').filter(Boolean)
-    }
-
-    if (filePath.startsWith('local-history://')) {
-      const encodedSourcePath = filePath.replace(/^local-history:\/\/[^/]+\/?/, '')
-      const sourcePath = encodedSourcePath ? decodeURIComponent(encodedSourcePath) : ''
-      const fileName = sourcePath ? getBaseName(sourcePath, 'snapshot') : 'snapshot'
-      return ['Local History', fileName]
-    }
 
     if (filePath.includes('://')) {
       return [filePath.split('://')[1] || filePath]

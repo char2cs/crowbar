@@ -69,7 +69,7 @@ describe('ReviewThreadItem', () => {
     const thread = makeThread()
     render(<ReviewThreadItem thread={thread} {...defaultProps} />)
 
-    // "world" should be bolded — react-markdown renders <strong>world</strong>
+    // "world" should be bolded — the markdown renderer renders <strong>world</strong>
     const bold = document.querySelector('strong')
     expect(bold).not.toBeNull()
     expect(bold?.textContent).toBe('world')

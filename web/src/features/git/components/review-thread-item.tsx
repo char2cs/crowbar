@@ -30,7 +30,8 @@ import {
 import { useStore } from 'zustand'
 import { cn } from '@/utils/cn'
 import { CommentComposer } from '@/features/panes/components/comment-composer'
-import { MarkdownPreview } from '@/features/panes/lib/markdown'
+import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
+import { MARKDOWN_PROSE_CLASS } from '@/features/panes/lib/markdown-prose'
 import { toast } from '@/features/window/stores/toast-store'
 import { ProviderIcon } from '@/components/ui/provider-icon'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
@@ -349,7 +350,9 @@ function MessageRow({
             />
           </div>
         ) : (
-          <MarkdownPreview className="text-sm">{message.body}</MarkdownPreview>
+          <MarkdownMessageStatic className={MARKDOWN_PROSE_CLASS}>
+            {message.body}
+          </MarkdownMessageStatic>
         )}
       </div>
     </div>

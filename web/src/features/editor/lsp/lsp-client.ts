@@ -1,51 +1,17 @@
 // LSP client backed by the Go daemon: document sync (didOpen/didChange/
-// didClose) over REST and diagnostics over the /v0/ws/lsp topic. The
-// position-addressed features (completion/hover/…) remain no-ops for now; only
-// the diagnostics path is wired, which is what renders editor squiggles.
+// didSave/didClose) over REST, diagnostics over the chat's /lsp/ws topic, and
+// the feature requests the Monaco providers (monaco-lsp-providers.ts) make.
 
-import type { CompletionItem } from 'vscode-languageserver-types'
 import { apiFetch } from '@/lib/api'
 import { wsManager } from '@/lib/ws/manager'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { isHomeWorkspace, lspBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
-export interface LspLocation {
-  uri: string
-  range: {
-    start: { line: number; character: number }
-    end: { line: number; character: number }
-  }
-}
-
-// The daemon owns the workspace root and is the only side that knows it, so it
-// relativizes the language server's absolute `file://` URIs before answering
-// (internal/engine/lsp). A definition therefore names a WORKSPACE-RELATIVE
-// path — the same form buffers are keyed by and the files API accepts — except
-// for a target the worktree does not contain (a stdlib / module-cache source),
-// which stays absolute precisely so callers can tell it apart and say so.
-export interface Definition {
-  filePath: string
-  range: {
-    start: { line: number; character: number }
-    end: { line: number; character: number }
-  }
-}
-
-export interface TextEdit {
-  range: {
-    start: { line: number; character: number }
-    end: { line: number; character: number }
-  }
-  newText: string
-}
-
-export interface InlayHint {
-  line: number
-  character: number
-  label: string
-  kind?: string
-  paddingLeft: boolean
-  paddingRight: boolean
+/** The daemon's lifecycle view of the server for one file's language. */
+export interface LspServerStatus {
+  languageId?: string
+  command?: string
+  state: 'unsupported' | 'notInstalled' | 'stopped' | 'running'
 }
 
 export interface LspDiagnostic {
@@ -67,6 +33,13 @@ interface DiagnosticsEvent {
 
 // wsId is the workspace the batch was computed FOR — see dispatch()'s own
 // doc for why a handler must check it, not just filePath.
+/** The owner the LSP diagnostics markers are published under in Monaco. */
+export const LSP_MARKER_OWNER = 'crowbar-lsp'
+
+// Trailing quiet period before an edited document's text is sent to the
+// server (requests flush it early, see flushChange).
+const CHANGE_DEBOUNCE_MS = 400
+
 type DiagnosticsHandler = (filePath: string, diagnostics: LspDiagnostic[], wsId: string) => void
 
 class LspClientImpl {
@@ -81,28 +54,26 @@ class LspClientImpl {
   private wsId: string | null = null
   private unsubscribe: (() => void) | null = null
   private lastByFile = new Map<string, LspDiagnostic[]>()
-  // Open refcount per file (I4): the retained-editor path has TWO independent
-  // owners that each open/close the same managed file — the satellite hook
-  // (diagnostics lifecycle) and `useLspIntegration` (server start + rich
-  // services). Reference-count opens so exactly ONE `/didOpen` POST goes out
-  // (the first opener) and `/didClose` only fires when the LAST holder closes.
+  // Open refcount per file (I4): every pane showing a file opens it (the
+  // satellite hook's diagnostics lifecycle). Reference-count opens so exactly
+  // ONE `/didOpen` POST goes out (the first opener) and `/didClose` only fires
+  // when the LAST holder closes.
   private openRefs = new Map<string, number>()
   // Opens whose `/didOpen` POST never went out because the owning chat id
   // wasn't recorded yet (see ensureSubscribed) — flushed once it arrives.
   // Without this, a file the editor already refcounts as "open" would never
   // actually get opened on the server, and would never get diagnostics.
   private pendingOpens = new Map<string, { content: string; languageId: string }>()
+  private openListeners = new Set<(filePath: string) => void>()
+  // Debounced didChange per open document (see scheduleChange/flushChange).
+  private pendingChanges = new Map<
+    string,
+    { read: () => string | null; timer: ReturnType<typeof setTimeout> }
+  >()
   // wsId this instance is currently waiting on an owning-chat-id for, and the
   // unsubscribe for that wait — see ensureSubscribed/awaitOwningChatId.
   private awaitingScopeFor: string | null = null
   private stopAwaitingScope: (() => void) | null = null
-
-  isRunning(): boolean {
-    return this.unsubscribe !== null
-  }
-  isAvailable(): boolean {
-    return true
-  }
 
   // Subscribe to the workspace's diagnostics topic. Snapshot-on-subscribe
   // replays current diagnostics; later batches arrive live.
@@ -145,7 +116,7 @@ class LspClientImpl {
 
   // Re-entrant wait for `wsId`'s owning chat id: a no-op while already waiting
   // on the SAME wsId (ensureSubscribed is called from onDiagnosticsUpdate,
-  // documentOpen and startServer alike, often several times before the id
+  // documentOpen and onDiagnosticsUpdate alike, often several times before the id
   // lands), and drops any wait on a DIFFERENT wsId so switching workspaces
   // mid-wait can't leak a stale listener.
   private awaitOwningChatId(wsId: string): void {
@@ -175,11 +146,31 @@ class LspClientImpl {
     const opens = this.pendingOpens
     this.pendingOpens = new Map()
     for (const [filePath, { content, languageId }] of opens) {
-      void apiFetch(`${base}/didOpen`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: filePath, languageId, text: content }),
-      }).catch(() => {})
+      void this.postOpen(base, filePath, languageId, content).catch(() => {})
+    }
+  }
+
+  // didOpen is what spawns a server daemon-side, so its completion is when a
+  // status indicator should look again.
+  private async postOpen(
+    base: string,
+    filePath: string,
+    languageId: string,
+    content: string,
+  ): Promise<void> {
+    await apiFetch(`${base}/didOpen`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: filePath, languageId, text: content }),
+    })
+    for (const listener of this.openListeners) listener(filePath)
+  }
+
+  /** Called with the path each time a document's didOpen reached the daemon. */
+  onDocumentOpened(listener: (filePath: string) => void): () => void {
+    this.openListeners.add(listener)
+    return () => {
+      this.openListeners.delete(listener)
     }
   }
 
@@ -222,132 +213,50 @@ class LspClientImpl {
     return lspBaseForWorkspace(wsId)
   }
 
-  async startServer(_filePath: string): Promise<void> {
-    this.ensureSubscribed()
-  }
-  async stopServer(): Promise<void> {}
-
-  async getCompletions(
-    _filePath: string,
-    _line: number,
-    _character: number,
-    _trigger?: string,
-  ): Promise<CompletionItem[]> {
-    return []
-  }
-  async getHover(_filePath: string, _line: number, _character: number): Promise<null> {
-    return null
-  }
-  // Resolve a symbol through the daemon's textDocument/definition proxy. Errors
-  // are NOT swallowed: a wedged or failing language server must reach the caller
-  // so the editor can tell the user, rather than looking like "no definition".
-  async getDefinition(
-    filePath: string,
-    line: number,
-    character: number,
-  ): Promise<Definition[] | null> {
-    const base = this.wsBase()
-    if (!base) return null
-    const locations = await apiFetch<Definition[] | null>(`${base}/definition`, {
+  /**
+   * POST a feature request to `wsId`'s LSP route. Resolves null when the
+   * workspace has no LSP surface yet (home workspace, owning chat not
+   * recorded) — the same "nothing to do" the daemon answers for a language
+   * with no server. Daemon failures propagate so providers can surface them.
+   */
+  async request<T>(
+    wsId: string,
+    route: string,
+    body: unknown,
+    signal?: AbortSignal,
+  ): Promise<T | null> {
+    if (isHomeWorkspace(wsId) || !getOwningChatId(wsId)) return null
+    const result = await apiFetch<T | null>(`${lspBaseForWorkspace(wsId)}/${route}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: filePath, position: { line, character } }),
+      body: JSON.stringify(body),
+      signal,
     })
-    return locations && locations.length > 0 ? locations : null
-  }
-  async getReferences(
-    _filePath: string,
-    _line: number,
-    _character: number,
-  ): Promise<LspLocation[]> {
-    return []
-  }
-  async getDocumentSymbols(_filePath: string): Promise<unknown[]> {
-    return []
-  }
-  async formatDocument(_filePath: string, _content?: string): Promise<string | null> {
-    return null
-  }
-  async formatRange(
-    _filePath: string,
-    _content?: string,
-    _range?: unknown,
-  ): Promise<string | null> {
-    return null
-  }
-  async getCodeActions(_filePath: string, _line: number, _character: number): Promise<unknown[]> {
-    return []
-  }
-  async applyCodeAction(_filePath: string, _action: unknown): Promise<{ success: boolean }> {
-    return { success: false }
+    return result ?? null
   }
 
-  async prepareRename(
-    _filePath: string,
-    _line: number,
-    _character: number,
-  ): Promise<{
-    range: { start: { line: number; character: number }; end: { line: number; character: number } }
-    start: { line: number; character: number }
-    end: { line: number; character: number }
-    placeholder: string
-  } | null> {
-    return null
+  async status(wsId: string, filePath: string): Promise<LspServerStatus | null> {
+    if (isHomeWorkspace(wsId) || !getOwningChatId(wsId)) return null
+    return apiFetch<LspServerStatus>(
+      `${lspBaseForWorkspace(wsId)}/status?path=${encodeURIComponent(filePath)}`,
+    )
   }
 
-  async rename(
-    _filePath: string,
-    _line: number,
-    _character: number,
-    _newName: string,
-  ): Promise<null> {
-    return null
+  /** Restart the running server for `filePath`'s language (daemon-side). */
+  restart(wsId: string, filePath: string): Promise<LspServerStatus | null> {
+    return this.request<LspServerStatus>(wsId, 'restart', { path: filePath })
   }
 
-  async getInlayHints(
-    _filePath: string,
-    _startLine: number,
-    _endLine: number,
-  ): Promise<InlayHint[]> {
-    return []
-  }
-
-  async getSemanticTokens(
-    _filePath: string,
-  ): Promise<
-    { line: number; startChar: number; length: number; tokenType: number; tokenModifiers: number }[]
-  > {
-    return []
-  }
-
-  async getCodeLens(
-    _filePath: string,
-  ): Promise<{ line: number; title: string; command?: string; arguments?: unknown[] }[]> {
-    return []
-  }
-
-  async getSignatureHelp(
-    _filePath: string,
-    _line: number,
-    _character: number,
-  ): Promise<{
-    signatures: {
-      label: string
-      documentation?: { kind: string; value: string } | string
-      parameters?: {
-        label: string | [number, number]
-        documentation?: { kind: string; value: string } | string
-      }[]
-      activeParameter?: number
-    }[]
-    activeSignature?: number
-    activeParameter?: number
-  } | null> {
-    return null
-  }
-
-  async getSignatureTriggerCharacters(_filePath: string): Promise<string[]> {
-    return []
+  /**
+   * Start the server for an open document whose server is not running (it
+   * crashed, or was never installed when the file opened): re-send didOpen.
+   * The daemon spawns on didOpen and holds the ref until the one didClose the
+   * refcount above will eventually send.
+   */
+  async reopen(filePath: string, content: string, languageId: string): Promise<void> {
+    const base = this.wsBase()
+    if (!base || !this.openRefs.has(filePath)) return
+    await this.postOpen(base, filePath, languageId, content)
   }
 
   // Document lifecycle: opening a file subscribes to diagnostics and tells the
@@ -369,11 +278,7 @@ class LspClientImpl {
       this.pendingOpens.set(filePath, { content, languageId })
       return
     }
-    await apiFetch(`${base}/didOpen`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: filePath, languageId, text: content }),
-    }).catch(() => {})
+    await this.postOpen(base, filePath, languageId, content).catch(() => {})
   }
 
   async documentChange(filePath: string, content: string): Promise<void> {
@@ -386,7 +291,17 @@ class LspClientImpl {
     }).catch(() => {})
   }
 
-  async documentSave(_filePath: string, _content?: string): Promise<void> {}
+  async documentSave(filePath: string): Promise<void> {
+    // Only a document the server has open can be saved on it.
+    if (!this.openRefs.has(filePath)) return
+    const base = this.wsBase()
+    if (!base) return
+    await apiFetch(`${base}/didSave`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: filePath }),
+    }).catch(() => {})
+  }
 
   async documentClose(filePath: string): Promise<void> {
     // Only the LAST holder closes the document; a close for a never-opened (or
@@ -398,6 +313,7 @@ class LspClientImpl {
       return
     }
     this.openRefs.delete(filePath)
+    this.cancelChange(filePath)
     // Closed before its didOpen ever went out (still waiting on the owning
     // chat id) — nothing pending to flush, and nothing on the server to close.
     this.pendingOpens.delete(filePath)
@@ -408,6 +324,41 @@ class LspClientImpl {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: filePath }),
     }).catch(() => {})
+  }
+
+  /**
+   * Debounce a full-text didChange for an open document. `read` is called when
+   * the change is actually sent, so a burst of edits costs one read + POST;
+   * it returns null when the text is gone (model disposed) and nothing is sent.
+   */
+  scheduleChange(filePath: string, read: () => string | null): void {
+    const pending = this.pendingChanges.get(filePath)
+    if (pending) clearTimeout(pending.timer)
+    this.pendingChanges.set(filePath, {
+      read,
+      timer: setTimeout(() => void this.flushChange(filePath), CHANGE_DEBOUNCE_MS),
+    })
+  }
+
+  /**
+   * Send a scheduled didChange now. Position-addressed requests (completion,
+   * signature help, …) await this first so the server answers against the
+   * text the user sees, not the text from before the debounce window.
+   */
+  async flushChange(filePath: string): Promise<void> {
+    const pending = this.pendingChanges.get(filePath)
+    if (!pending) return
+    clearTimeout(pending.timer)
+    this.pendingChanges.delete(filePath)
+    const text = pending.read()
+    if (text !== null) await this.documentChange(filePath, text)
+  }
+
+  private cancelChange(filePath: string): void {
+    const pending = this.pendingChanges.get(filePath)
+    if (!pending) return
+    clearTimeout(pending.timer)
+    this.pendingChanges.delete(filePath)
   }
 
   onDiagnosticsUpdate(handler: DiagnosticsHandler): () => void {
@@ -424,43 +375,6 @@ class LspClientImpl {
       this.handlers.delete(handler)
     }
   }
-
-  notifyDocumentOpen(filePath: string, content: string, languageId = 'plaintext'): Promise<void> {
-    return this.documentOpen(filePath, content, languageId)
-  }
-  notifyDocumentClose(filePath: string): Promise<void> {
-    return this.documentClose(filePath)
-  }
-  // The editor calls this with incremental edits; full-text didChange is driven
-  // separately by the Monaco component effect, so this stays a no-op.
-  async notifyDocumentChange(
-    _filePath: string,
-    _changes: unknown,
-    _version?: number,
-  ): Promise<void> {}
-  notifyDocumentSave(filePath: string, content?: string): Promise<void> {
-    return this.documentSave(filePath, content)
-  }
-
-  async startForFile(
-    _filePath: string,
-    _rootFolderPath?: string,
-    _opts?: { forceRetry?: boolean },
-  ): Promise<boolean> {
-    return false
-  }
-  async stopForFile(_filePath: string): Promise<void> {}
-  getActiveServerEntries(): { key: string; displayName: string }[] {
-    return []
-  }
-  async getActiveServerEntryForFile(_filePath: string, _languageId?: string): Promise<null> {
-    return null
-  }
-  async restartTrackedServer(_serverId: string): Promise<void> {}
-  async stopTrackedServer(_serverId: string): Promise<void> {}
 }
 
 export { LspClientImpl as LspClient }
-export type { LspClientImpl as LspClientType }
-export const lspClient = new LspClientImpl()
-export default lspClient

@@ -2,7 +2,6 @@
 import { createStore, type StoreApi } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import type { WorkspaceState } from './workspace-store.types'
-import { createLspSlice } from './slices/lsp-slice'
 import { createTerminalSlice } from './slices/terminal-slice'
 import { createFileWatcherSlice } from './slices/file-watcher-slice'
 import { createRecentFilesSlice } from './slices/recent-files-slice'
@@ -65,7 +64,6 @@ export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot)
   const store = createStore<WorkspaceState>()(
     immer((set, get, api): WorkspaceState => ({
       workspaceId: wsId,
-      ...createLspSlice(set, get, api),
       ...createTerminalSlice(set, get, api),
       ...createFileWatcherSlice(set, get, api),
       ...createRecentFilesSlice(set, get, api),

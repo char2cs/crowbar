@@ -609,3 +609,84 @@ func TestServer_PendingRequestFailsOnClose(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrClosed)
 }
+
+// TestServer_ReplayRepeatsHandshakeAndReopensLatestText pins "restart
+// language server": the respawned process gets initialize/initialized before
+// any didOpen (a server ignores everything before initialize), and the
+// reopened text is the latest didChange, not the text the file was opened
+// with.
+func TestServer_ReplayRepeatsHandshakeAndReopensLatestText(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	fake1 := newFakeServer(serverConn)
+
+	fakes := make(chan *fakeServer, 1)
+	spawn := func(
+		_ context.Context,
+	) (io.ReadWriteCloser, error) {
+		c, s := net.Pipe()
+		fakes <- newFakeServer(s)
+		return c, nil
+	}
+
+	srv := newOverTransport(clientConn, spawn)
+	t.Cleanup(func() { _ = srv.Close() })
+
+	initDone := make(chan error, 1)
+	go func() { initDone <- srv.Initialize(context.Background(), "/repo") }()
+	req := <-fake1.gotReq
+	fake1.respond(req.ID, map[string]any{"capabilities": map[string]any{}})
+	require.NoError(t, <-initDone)
+	<-fake1.gotNotif // initialized
+
+	ctx := context.Background()
+	require.NoError(t, srv.Notify(ctx, "textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri": "file:///repo/main.go", "languageId": "go", "version": 1, "text": "v1",
+		},
+	}))
+	<-fake1.gotNotif
+	require.NoError(t, srv.Notify(ctx, "textDocument/didChange", map[string]any{
+		"textDocument":   map[string]any{"uri": "file:///repo/main.go", "version": 7},
+		"contentChanges": []any{map[string]any{"text": "v2"}},
+	}))
+	<-fake1.gotNotif
+
+	replayDone := make(chan error, 1)
+	go func() { replayDone <- srv.Replay(ctx) }()
+	fake2 := <-fakes
+	initReq := <-fake2.gotReq
+	assert.Equal(t, "initialize", initReq.Method)
+	fake2.respond(initReq.ID, map[string]any{"capabilities": map[string]any{}})
+	require.NoError(t, <-replayDone)
+
+	first := <-fake2.gotNotif
+	assert.Equal(t, "initialized", first.Method)
+	reopen := <-fake2.gotNotif
+	assert.Equal(t, "textDocument/didOpen", reopen.Method)
+	assert.JSONEq(t,
+		`{"textDocument":{"uri":"file:///repo/main.go","languageId":"go","version":7,"text":"v2"}}`,
+		string(reopen.Params))
+}
+
+func TestServer_InitializeDeclaresEditorCapabilities(t *testing.T) {
+	srv, fake := newTestServer(t)
+
+	go func() { _ = srv.Initialize(context.Background(), "/repo") }()
+	req := <-fake.gotReq
+
+	var params struct {
+		Capabilities struct {
+			TextDocument map[string]json.RawMessage `json:"textDocument"`
+		} `json:"capabilities"`
+	}
+	require.NoError(t, json.Unmarshal(req.Params, &params))
+	for _, feature := range []string{
+		"hover", "completion", "signatureHelp", "documentSymbol", "codeAction", "codeLens",
+		"formatting", "rename", "references", "definition",
+	} {
+		assert.Contains(t, params.Capabilities.TextDocument, feature)
+	}
+	assert.Contains(t,
+		string(params.Capabilities.TextDocument["codeAction"]), "codeActionLiteralSupport")
+	fake.respond(req.ID, map[string]any{})
+}

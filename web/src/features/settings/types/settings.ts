@@ -4,7 +4,6 @@ import type { BuildChannel } from '@/lib/build-info'
 export type Theme = string
 export type ThemeMode = 'light' | 'dark' | 'system'
 export type RenderWhitespaceMode = 'none' | 'boundary' | 'trailing' | 'all'
-export type EditorEngine = 'monaco' | 'nvim' | 'helix' | 'vim' | 'custom'
 
 export interface Settings {
   // General
@@ -12,7 +11,6 @@ export interface Settings {
   sidebarPosition: 'left' | 'right'
   // Editor
   fontFamily: string
-  editorEngine: EditorEngine
   fontSize: number
   /** Base type size for the rich markdown editor. See lib/markdown-font-size.ts. */
   markdownFontSize: number
@@ -64,13 +62,10 @@ export interface Settings {
   // Keyboard
   // Language
   formatOnSave: boolean
-  formatter: string
-  lintOnSave: boolean
+  /** Show the cursor line's git blame after the line. */
+  inlineBlame: boolean
   autoCompletion: boolean
   parameterHints: boolean
-  // External Editor
-  externalEditor: 'none' | 'nvim' | 'helix' | 'vim' | 'custom'
-  customEditorCommand: string
   // Features
   coreFeatures: CoreFeaturesState
   // Advanced

@@ -20,7 +20,6 @@ export type EditorTabContentType =
   | 'markdownPreview'
   | 'htmlPreview'
   | 'csvPreview'
-  | 'externalEditor'
   | 'branchReview'
 
 /** Every content type this build can render.
@@ -35,7 +34,6 @@ export const PANE_CONTENT_TYPES: ReadonlySet<EditorTabContentType> = new Set<Edi
   'markdownPreview',
   'htmlPreview',
   'csvPreview',
-  'externalEditor',
   'branchReview',
 ])
 
@@ -124,11 +122,6 @@ export interface CsvPreviewContent extends EditorTabBase {
   sourceFilePath: string
 }
 
-export interface ExternalEditorContent extends EditorTabBase {
-  type: 'externalEditor'
-  terminalConnectionId: string
-}
-
 export interface BranchReviewContent extends EditorTabBase {
   type: 'branchReview'
   wsId: string
@@ -143,7 +136,6 @@ export type PaneContent =
   | MarkdownPreviewContent
   | HtmlPreviewContent
   | CsvPreviewContent
-  | ExternalEditorContent
   | BranchReviewContent
 
 // ── Type guards ─────────────────────────────────────────────────────
@@ -250,13 +242,6 @@ export type OpenEditorTabSpec =
       name: string
       content: string
       sourceFilePath: string
-      workspaceId?: string
-    }
-  | {
-      type: 'externalEditor'
-      path: string
-      name: string
-      terminalConnectionId: string
       workspaceId?: string
     }
   | {

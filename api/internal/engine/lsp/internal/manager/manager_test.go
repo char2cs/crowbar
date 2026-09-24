@@ -987,3 +987,45 @@ func (c *countingServer) Close() error {
 	c.closedN.Add(1)
 	return c.fakeServer.Close()
 }
+
+// TestStatus_ReflectsRegistryInstallAndPool pins the lifecycle states the
+// editor's language-server status UI shows: unsupported → notInstalled →
+// stopped → running → stopped again after the last release.
+func TestStatus_ReflectsRegistryInstallAndPool(
+	t *testing.T,
+) {
+	spawn := func(
+		_ context.Context,
+		_ registry.ServerSpec,
+		_ string,
+	) (server.Server, error) {
+		return &fakeServer{}, nil
+	}
+	installed := false
+	m := New(registry.New(nil), spawn, WithLookPath(func(command string) (string, error) {
+		if !installed {
+			return "", exec.ErrNotFound
+		}
+		return "/usr/bin/" + command, nil
+	}))
+	ctx := context.Background()
+
+	assert.Equal(t, domlsp.ServerUnsupported, m.Status("ws1", "README").State)
+
+	st := m.Status("ws1", "main.go")
+	assert.Equal(t, domlsp.ServerNotInstalled, st.State)
+	assert.Equal(t, "gopls", st.Command)
+	assert.Equal(t, "go", st.LanguageID)
+
+	installed = true
+	assert.Equal(t, domlsp.ServerStopped, m.Status("ws1", "main.go").State)
+
+	_, err := m.ServerForFile(ctx, "ws1", "/repo", "main.go")
+	require.NoError(t, err)
+	assert.Equal(t, domlsp.ServerRunning, m.Status("ws1", "main.go").State)
+	assert.Equal(t, domlsp.ServerStopped, m.Status("ws2", "main.go").State,
+		"another workspace's server is not this one's")
+
+	m.Release(ctx, "ws1", "go")
+	assert.Equal(t, domlsp.ServerStopped, m.Status("ws1", "main.go").State)
+}

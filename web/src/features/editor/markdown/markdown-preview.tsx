@@ -4,14 +4,14 @@ import { useStore } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
-import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
 import { exists } from '@/features/file-system/controllers/platform'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { hasTextContent } from '@/features/panes/types/pane-content'
 import { openExternalUrl } from '@/lib/external-open'
 import { useSettingsStore } from '@/features/settings/store'
 import { logger } from '../utils/logger'
-import { parseMarkdown } from './parser'
+import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
+import { splitFrontmatter } from './plate/markdown-frontmatter'
 import { resolvePreviewLinkPath } from './resolve-preview-link'
 
 export interface MarkdownPreviewProps {
@@ -22,6 +22,27 @@ export interface MarkdownPreviewProps {
    * which falls back to the active pane's buffer and keeps no scroll.
    */
   bufferId?: string
+}
+
+/** GitHub-style heading slug: `## Getting Started` → `getting-started`. */
+function slugify(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]/gu, '')
+    .replace(/\s+/g, '-')
+}
+
+/** An element with that id, else the heading whose slug is that id. */
+function findAnchorTarget(root: HTMLElement | null, id: string): Element | null {
+  if (!root) return null
+  const byId = root.querySelector(`#${CSS.escape(id)}`)
+  if (byId) return byId
+  const wanted = decodeURIComponent(id).toLowerCase()
+  for (const heading of root.querySelectorAll('h1, h2, h3, h4, h5, h6')) {
+    if (slugify(heading.textContent ?? '') === wanted) return heading
+  }
+  return null
 }
 
 export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
@@ -48,23 +69,21 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
       }
     }),
   )
-  const fontSize = useEditorSettingsStore.use.fontSize()
+  const fontSize = useSettingsStore((state) => state.settings.fontSize)
   const uiFontFamily = useSettingsStore((state) => state.settings.uiFontFamily)
   const handleFileSelect = useFileSystemStore((s) => s.handleFileSelect)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Derived during render, not mirrored into state by an effect. parseMarkdown
-  // is synchronous, so state + effect only bought an extra commit — and that
-  // extra commit is precisely what this pane cannot afford: the scroll restore
-  // below gates on `html !== ''`, so publishing the HTML a commit late delayed
-  // every restore by a frame.
-  const html = useMemo(() => (sourceContent ? parseMarkdown(sourceContent) : ''), [sourceContent])
+  // Rendered by the app's one read-only markdown renderer (Plate static, the
+  // same one chat messages and review comments use). Frontmatter is metadata,
+  // not prose: markdown would read its `---` fences as a rule and a heading.
+  const body = useMemo(() => splitFrontmatter(sourceContent).body, [sourceContent])
 
   // A tab switch unmounts this pane entirely (PaneContainer renders only the
   // active buffer), so the scroll offset has to be retained outside the
-  // component. Restored once the parsed HTML is in the DOM — before that the
-  // scroll box is empty and any offset would be clamped away.
-  usePreservedScroll(containerRef, bufferId ?? null, html !== '')
+  // component. Restored once the rendered document is in the DOM — before
+  // that the scroll box is empty and any offset would be clamped away.
+  usePreservedScroll(containerRef, bufferId ?? null, body !== '')
 
   const handleLinkClick = useCallback(
     async (e: React.MouseEvent<HTMLDivElement>) => {
@@ -80,8 +99,7 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
       e.stopPropagation()
 
       if (href.startsWith('#')) {
-        const elementId = href.substring(1)
-        const targetElement = containerRef.current?.querySelector(`#${CSS.escape(elementId)}`)
+        const targetElement = findAnchorTarget(containerRef.current, href.substring(1))
         if (targetElement) {
           targetElement.scrollIntoView({ behavior: 'smooth' })
         }
@@ -163,11 +181,9 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
       onClick={handleLinkClick}
       onWheelCapture={handleWheelCapture}
     >
-      <div
-        className="markdown-content w-full max-w-3xl"
-        // react-doctor-disable-next-line dangerous-html-sink -- `html` is the output of parseMarkdown(), which returns DOMPurify.sanitize(rawHtml) (parser.ts:217). Already flows through the existing DOMPurify usage; the rule can't trace the sanitizer across the useMemo into another module.
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      <div className="markdown-content w-full max-w-3xl">
+        {body && <MarkdownMessageStatic>{body}</MarkdownMessageStatic>}
+      </div>
     </div>
   )
 }

@@ -1,9 +1,6 @@
 import type { CSSProperties } from 'react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  useBuffersByIds,
-  useBufferActions,
-} from '@/features/workspace/stores/hooks/use-buffer-store'
+import { useBuffersByIds } from '@/features/workspace/stores/hooks/use-buffer-store'
 import {
   useWorkspaceStore,
   useWorkspaceStoreContext,
@@ -68,11 +65,6 @@ import {
   usePaneViewPresentation,
 } from '@/features/agent/hooks/use-chat-presentation'
 
-const ExternalEditorTerminal = lazy(() =>
-  import('@/features/editor/components/external-editor-terminal').then((m) => ({
-    default: m.ExternalEditorTerminal,
-  })),
-)
 const BranchReviewPane = lazy(() =>
   import('@/features/git/components/branch-review-pane').then((m) => ({
     default: m.BranchReviewPane,
@@ -129,8 +121,6 @@ export function PaneContainer({
   // have anything to redraw.
   const isActiveInStore = useIsActivePane(pane.id)
   const { activateEditorTabInPane, setActivePane } = usePaneActions()
-  const bufferActions = useBufferActions()
-  const { closeBuffer: closeBufferForce } = bufferActions
 
   // THE CHAT'S OWN WORKSPACE, not the one that happens to be on screen.
   //
@@ -495,26 +485,6 @@ export function PaneContainer({
     [handleFileOpen, pane.id, addExistingTabToPane],
   )
 
-  const handleExternalEditorExit = useCallback(() => {
-    if (activeBuffer?.type === 'externalEditor') {
-      // The external process is already gone, so this buffer must be torn down
-      // regardless of how many panes still list it (an externalEditor buffer is
-      // shareable across a split, same as an ordinary editor — see
-      // getShareableSplitBufferId). closeBuffer only tears a buffer down once NO
-      // pane references the id any more, reading any remaining membership as a
-      // SIBLING still showing a live split — which this is not. Strip every
-      // pane's membership first.
-      const bufferId = activeBuffer.id
-      const state = windowPaneStore.getState()
-      for (const p of Object.values(state.panes)) {
-        if (p.editorTabIds.includes(bufferId)) {
-          state.paneActions.removeEditorTabFromPane(p.id, bufferId)
-        }
-      }
-      closeBufferForce(bufferId)
-    }
-  }, [activeBuffer, closeBufferForce])
-
   // Listen for file tree drops on this pane
   useEffect(() => {
     const syncHover = () => {
@@ -757,18 +727,6 @@ export function PaneContainer({
             />
           )
 
-        case 'externalEditor':
-          return (
-            <ExternalEditorTerminal
-              // Inherited from EditorTabBase as optional; every real
-              // 'externalEditor' tab is constructed with a genuine path.
-              filePath={buffer.path ?? ''}
-              fileName={buffer.name}
-              terminalConnectionId={buffer.terminalConnectionId}
-              onEditorExit={handleExternalEditorExit}
-            />
-          )
-
         case 'branchReview':
           return (
             <BranchReviewPane
@@ -797,7 +755,7 @@ export function PaneContainer({
           return null
       }
     },
-    [handleExternalEditorExit, isActivePane, pane.id],
+    [isActivePane, pane.id],
   )
 
   // Everything pane.editorTabIds holds — files, terminals, branch review,

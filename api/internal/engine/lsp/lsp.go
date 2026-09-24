@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -80,15 +81,65 @@ type Engine interface {
 		pos domlsp.Position,
 		newName string,
 	) (domlsp.WorkspaceEdit, error)
-	// CodeAction returns the raw textDocument/codeAction result, passed through
-	// unchanged.
+	// CodeAction returns the raw textDocument/codeAction result. diagnostics
+	// (a JSON array of LSP Diagnostics, or nil) is forwarded as the request
+	// context so servers can offer quick fixes for them. Every workspace edit
+	// in the result is rewritten to workspace-relative paths.
 	CodeAction(
 		ctx context.Context,
 		wsID string,
 		worktreePath string,
 		filePath string,
 		rng domlsp.Range,
+		diagnostics json.RawMessage,
 	) (json.RawMessage, error)
+	// SignatureHelp returns the raw textDocument/signatureHelp result.
+	SignatureHelp(
+		ctx context.Context,
+		wsID string,
+		worktreePath string,
+		filePath string,
+		pos domlsp.Position,
+	) (json.RawMessage, error)
+	// CodeLens returns the raw textDocument/codeLens result.
+	CodeLens(
+		ctx context.Context,
+		wsID string,
+		worktreePath string,
+		filePath string,
+	) (json.RawMessage, error)
+	// CodeLensResolve returns the raw codeLens/resolve result for one lens
+	// previously returned by CodeLens.
+	CodeLensResolve(
+		ctx context.Context,
+		wsID string,
+		worktreePath string,
+		filePath string,
+		lens json.RawMessage,
+	) (json.RawMessage, error)
+	// Formatting returns the raw textDocument/formatting result (TextEdit[]).
+	Formatting(
+		ctx context.Context,
+		wsID string,
+		worktreePath string,
+		filePath string,
+		options domlsp.FormattingOptions,
+	) (json.RawMessage, error)
+	// Status reports which server serves filePath's language in wsID and
+	// whether it is running. It never spawns.
+	Status(
+		wsID string,
+		filePath string,
+	) domlsp.ServerStatus
+	// Restart respawns the running server for filePath's language, repeating
+	// the handshake and reopening every open document with its latest text.
+	// A server that is not running is left alone (it starts on the next open);
+	// either way the resulting status is returned.
+	Restart(
+		ctx context.Context,
+		wsID string,
+		filePath string,
+	) (domlsp.ServerStatus, error)
 	// DocumentSymbol returns the raw textDocument/documentSymbol result, passed
 	// through unchanged.
 	DocumentSymbol(
@@ -115,6 +166,15 @@ type Engine interface {
 		worktreePath string,
 		filePath string,
 		text string,
+	) error
+	// DidSave forwards a textDocument/didSave notification to the running
+	// server (servers such as rust-analyzer and gopls re-check on save). It
+	// never spawns and never changes the refcount.
+	DidSave(
+		ctx context.Context,
+		wsID string,
+		worktreePath string,
+		filePath string,
 	) error
 	// DidClose forwards a textDocument/didClose notification and drops the URI
 	// from the server's open-document set.
@@ -158,6 +218,10 @@ type Engine interface {
 	)
 }
 
+// restartTimeout bounds a restart: respawn plus the initialize handshake,
+// which is slow on a cold language server.
+const restartTimeout = 30 * time.Second
+
 // DefaultRequestTimeout bounds each synchronous LSP feature request and each
 // document-sync notification. A wedged language server degrades to a timeout
 // error instead of hanging the handler goroutine forever (10 §5).
@@ -170,6 +234,10 @@ type engine struct {
 	mu         sync.Mutex
 	snap       map[string][]domlsp.Diagnostic
 	userCB     func(domlsp.DiagnosticsEvent)
+	// versions is the per-open-document version counter, keyed by
+	// docKey(wsID, uri). LSP requires every didChange to carry a version
+	// greater than the last one.
+	versions map[string]int
 }
 
 // New returns an Engine backed by a registry seeded with overrides and a
@@ -191,6 +259,7 @@ func newWithManager(
 		mgr:        mgr,
 		reqTimeout: DefaultRequestTimeout,
 		snap:       make(map[string][]domlsp.Diagnostic),
+		versions:   make(map[string]int),
 	}
 	e.mgr.OnDiagnostics(e.onDiagnostics)
 	e.mgr.OnReleaseEmpty(e.evictSnapshot)
@@ -203,6 +272,50 @@ func (e *engine) evictSnapshot(
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	delete(e.snap, wsID)
+	prefix := wsID + "|"
+	for key := range e.versions {
+		if strings.HasPrefix(key, prefix) {
+			delete(e.versions, key)
+		}
+	}
+}
+
+func docKey(
+	wsID string,
+	uri string,
+) string {
+	return wsID + "|" + uri
+}
+
+// openVersion resets a document's version on (re)open and returns it.
+func (e *engine) openVersion(
+	key string,
+) int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.versions[key] = 1
+	return 1
+}
+
+// nextVersion returns the version for the next didChange of a document.
+func (e *engine) nextVersion(
+	key string,
+) int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.versions[key]++
+	if e.versions[key] < 2 {
+		e.versions[key] = 2
+	}
+	return e.versions[key]
+}
+
+func (e *engine) forgetVersion(
+	key string,
+) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	delete(e.versions, key)
 }
 
 func spawnProcess(
@@ -303,9 +416,83 @@ func (e *engine) CodeAction(
 	worktreePath string,
 	filePath string,
 	rng domlsp.Range,
+	diagnostics json.RawMessage,
 ) (json.RawMessage, error) {
-	params := convert.CodeActionParams(absFilePath(worktreePath, filePath), rng)
-	return e.rawRequest(ctx, wsID, worktreePath, filePath, "textDocument/codeAction", params)
+	params := convert.CodeActionParams(absFilePath(worktreePath, filePath), rng, diagnostics)
+	raw, err := e.rawRequest(ctx, wsID, worktreePath, filePath, "textDocument/codeAction", params)
+	if err != nil || raw == nil {
+		return raw, err
+	}
+	return convert.RelCodeActions(worktreePath, raw), nil
+}
+
+func (e *engine) SignatureHelp(
+	ctx context.Context,
+	wsID string,
+	worktreePath string,
+	filePath string,
+	pos domlsp.Position,
+) (json.RawMessage, error) {
+	params := convert.TextDocumentPositionParams(absFilePath(worktreePath, filePath), pos)
+	return e.rawRequest(ctx, wsID, worktreePath, filePath, "textDocument/signatureHelp", params)
+}
+
+func (e *engine) CodeLens(
+	ctx context.Context,
+	wsID string,
+	worktreePath string,
+	filePath string,
+) (json.RawMessage, error) {
+	params := convert.DocumentSymbolParams(absFilePath(worktreePath, filePath))
+	return e.rawRequest(ctx, wsID, worktreePath, filePath, "textDocument/codeLens", params)
+}
+
+func (e *engine) CodeLensResolve(
+	ctx context.Context,
+	wsID string,
+	worktreePath string,
+	filePath string,
+	lens json.RawMessage,
+) (json.RawMessage, error) {
+	return e.rawRequest(ctx, wsID, worktreePath, filePath, "codeLens/resolve", lens)
+}
+
+func (e *engine) Formatting(
+	ctx context.Context,
+	wsID string,
+	worktreePath string,
+	filePath string,
+	options domlsp.FormattingOptions,
+) (json.RawMessage, error) {
+	params := convert.FormattingParams(absFilePath(worktreePath, filePath), options)
+	return e.rawRequest(ctx, wsID, worktreePath, filePath, "textDocument/formatting", params)
+}
+
+func (e *engine) Status(
+	wsID string,
+	filePath string,
+) domlsp.ServerStatus {
+	return e.mgr.Status(wsID, filePath)
+}
+
+func (e *engine) Restart(
+	ctx context.Context,
+	wsID string,
+	filePath string,
+) (domlsp.ServerStatus, error) {
+	srv, err := e.mgr.RunningServerForFile(wsID, filePath)
+	if errors.Is(err, manager.ErrNoServer) {
+		return e.mgr.Status(wsID, filePath), nil
+	}
+	if err != nil {
+		return e.mgr.Status(wsID, filePath), fmt.Errorf("lsp: restart: %w", err)
+	}
+	restartCtx, cancel := context.WithTimeout(ctx, restartTimeout)
+	defer cancel()
+	if err := srv.Replay(restartCtx); err != nil {
+		return e.mgr.Status(wsID, filePath), fmt.Errorf("lsp: restart: %w", err)
+	}
+	return e.mgr.Status(wsID, filePath), nil
 }
 
 func (e *engine) DocumentSymbol(
@@ -435,11 +622,12 @@ func (e *engine) DidOpen(
 	languageID string,
 	text string,
 ) error {
+	uri := convert.URIFromPath(absFilePath(worktreePath, filePath))
 	params := map[string]any{
 		"textDocument": map[string]any{
-			"uri":        convert.URIFromPath(absFilePath(worktreePath, filePath)),
+			"uri":        uri,
 			"languageId": languageID,
-			"version":    1,
+			"version":    e.openVersion(docKey(wsID, uri)),
 			"text":       text,
 		},
 	}
@@ -458,10 +646,11 @@ func (e *engine) DidChange(
 	filePath string,
 	text string,
 ) error {
+	uri := convert.URIFromPath(absFilePath(worktreePath, filePath))
 	params := map[string]any{
 		"textDocument": map[string]any{
-			"uri":     convert.URIFromPath(absFilePath(worktreePath, filePath)),
-			"version": 2,
+			"uri":     uri,
+			"version": e.nextVersion(docKey(wsID, uri)),
 		},
 		"contentChanges": []any{map[string]any{"text": text}},
 	}
@@ -477,9 +666,11 @@ func (e *engine) DidClose(
 	worktreePath string,
 	filePath string,
 ) error {
+	uri := convert.URIFromPath(absFilePath(worktreePath, filePath))
 	params := map[string]any{
-		"textDocument": map[string]any{"uri": convert.URIFromPath(absFilePath(worktreePath, filePath))},
+		"textDocument": map[string]any{"uri": uri},
 	}
+	e.forgetVersion(docKey(wsID, uri))
 	// DidClose forwards on the ref the matching DidOpen already holds, then drops
 	// that ref. RunningServerForFile does NOT acquire, so the single releaseFile
 	// below returns the refcount to its pre-open baseline (open→…→close is
@@ -501,6 +692,34 @@ func (e *engine) DidClose(
 
 	if err := srv.Notify(notifyCtx, "textDocument/didClose", params); err != nil {
 		return fmt.Errorf("lsp: textDocument/didClose: %w", err)
+	}
+	return nil
+}
+
+func (e *engine) DidSave(
+	ctx context.Context,
+	wsID string,
+	worktreePath string,
+	filePath string,
+) error {
+	params := map[string]any{
+		"textDocument": map[string]any{
+			"uri": convert.URIFromPath(absFilePath(worktreePath, filePath)),
+		},
+	}
+	// Like didClose, didSave only makes sense for a document the server has
+	// open, so it rides the running server without acquiring a ref.
+	srv, err := e.mgr.RunningServerForFile(wsID, filePath)
+	if errors.Is(err, manager.ErrNoServer) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lsp: textDocument/didSave: %w", err)
+	}
+	notifyCtx, cancel := context.WithTimeout(ctx, e.reqTimeout)
+	defer cancel()
+	if err := srv.Notify(notifyCtx, "textDocument/didSave", params); err != nil {
+		return fmt.Errorf("lsp: textDocument/didSave: %w", err)
 	}
 	return nil
 }

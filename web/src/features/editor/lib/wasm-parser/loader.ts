@@ -14,7 +14,7 @@ import type { LoadedParser, ParserConfig } from './types'
 // highlighting layer is simply absent — Monaco's built-in highlighting still
 // works), so callers treat it as "no tokens" rather than logging it as a
 // failure. Distinct type so it can be caught without swallowing real errors.
-export class TreeSitterUnavailableError extends Error {
+class TreeSitterUnavailableError extends Error {
   constructor() {
     super('Tree-sitter assets are not provisioned under /tree-sitter')
     this.name = 'TreeSitterUnavailableError'

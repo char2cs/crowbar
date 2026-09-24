@@ -19,7 +19,7 @@ import { FileExplorerIcon } from './file-explorer-icon'
 // (file-explorer-tree.tsx's own `px-1.5`).
 export const FILE_TREE_BASE_INDENT = 6
 
-export interface FileTreeGuideTarget {
+interface FileTreeGuideTarget {
   path: string
   name: string
   isDir: boolean
@@ -72,7 +72,7 @@ interface FileExplorerTreeItemProps {
 
 // Reserves the same leading slot on every row (file or folder) so icons line
 // up in one column — only directories draw a caret into it, rotated 90° open
-// (the same disclosure convention as SearchReplaceToggle in ui/search.tsx).
+// (a rotated caret is the disclosure convention).
 function DirectoryChevron({ isDir, isExpanded }: { isDir: boolean; isExpanded: boolean }) {
   return (
     <span

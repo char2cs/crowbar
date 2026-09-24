@@ -37,8 +37,6 @@ export interface UIState {
   setSettingsInitialTab: (tab: SettingsTab) => void
   isSettingsOpen: boolean
   setIsSettingsOpen: (open: boolean) => void
-  isFindVisible: boolean
-  setIsFindVisible: (v: boolean) => void
   activeBottomTab: BottomPaneTab
   setActiveBottomTab: (tab: BottomPaneTab) => void
   bottomPaneActiveTab: BottomPaneTab
@@ -81,8 +79,6 @@ export const useUIState = create<UIState>((set) => ({
   setSettingsInitialTab: (tab) => set({ settingsInitialTab: tab }),
   isSettingsOpen: false,
   setIsSettingsOpen: (open) => set({ isSettingsOpen: open }),
-  isFindVisible: false,
-  setIsFindVisible: (v) => set({ isFindVisible: v }),
   activeBottomTab: 'terminal' as BottomPaneTab,
   setActiveBottomTab: (tab) => set({ activeBottomTab: tab, bottomPaneActiveTab: tab }),
   bottomPaneActiveTab: 'terminal' as BottomPaneTab,

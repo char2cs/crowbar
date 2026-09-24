@@ -1,58 +1,51 @@
 import { create } from 'zustand'
-import { getGitBlame } from '../api/git-blame-api'
-import type { GitBlame, GitBlameLine } from '../types/git-types'
-import { loading, success, failed, idle, dataOf, type Loadable } from '@/lib/loadable'
+import { failed, idle, loading, success, type Loadable } from '@/lib/loadable'
+import { getBlame, type BlameEntry } from '../api/git-blame-api'
 
+/**
+ * Per-file blame from the daemon, keyed by workspace + workspace-relative
+ * path (sibling worktrees share relative paths). Entries are dropped when the
+ * file's buffer closes and invalidated when it is saved, so the map is
+ * bounded by the open files.
+ */
 interface GitBlameState {
-  blame: Map<string, Loadable<GitBlame>>
-  fileToRepo: Map<string, string>
-  loadBlameForFile: (repoPath: string, filePath: string) => Promise<void>
-  clearBlameForFile: (filePath: string) => void
-  clearAllBlame: () => void
-  getBlameForLine: (filePath: string, lineNumber: number) => GitBlameLine | null
-  getRepoPath: (filePath: string) => string | null
+  blame: Record<string, Loadable<BlameEntry[]>>
 }
 
-export const useGitBlameStore = create<GitBlameState>((set, get) => ({
-  blame: new Map(),
-  fileToRepo: new Map(),
+export const useGitBlameStore = create<GitBlameState>(() => ({ blame: {} }))
 
-  loadBlameForFile: async (repoPath, filePath) => {
-    const current = get().blame.get(filePath)
-    if (current && (current.status === 'success' || current.status === 'loading')) return
-    set({ blame: new Map(get().blame).set(filePath, loading(current ?? idle())) })
-    try {
-      const data = await getGitBlame(repoPath, filePath)
-      if (!data) throw new Error('Failed to load blame data')
-      set({
-        blame: new Map(get().blame).set(filePath, success(data)),
-        fileToRepo: new Map(get().fileToRepo).set(filePath, repoPath),
-      })
-    } catch (err) {
-      set({ blame: new Map(get().blame).set(filePath, failed(err as Error, current ?? idle())) })
-    }
-  },
+export function blameKey(wsId: string, path: string): string {
+  return `${wsId}\u0000${path}`
+}
 
-  clearBlameForFile: (filePath) => {
-    const blame = new Map(get().blame)
-    blame.delete(filePath)
-    const fileToRepo = new Map(get().fileToRepo)
-    fileToRepo.delete(filePath)
-    set({ blame, fileToRepo })
-  },
+function setEntry(key: string, value: Loadable<BlameEntry[]> | undefined): void {
+  useGitBlameStore.setState((s) => {
+    const blame = { ...s.blame }
+    if (value) blame[key] = value
+    else delete blame[key]
+    return { blame }
+  })
+}
 
-  clearAllBlame: () => set({ blame: new Map(), fileToRepo: new Map() }),
+/** Load blame once per (workspace, file) until it is invalidated. */
+export async function loadBlame(wsId: string, path: string): Promise<void> {
+  const key = blameKey(wsId, path)
+  const current = useGitBlameStore.getState().blame[key]
+  if (current && (current.status === 'success' || current.status === 'loading')) return
+  setEntry(key, loading(current ?? idle()))
+  try {
+    const entries = await getBlame(wsId, path)
+    // Invalidated (saved/closed) while in flight: drop the stale answer.
+    if (useGitBlameStore.getState().blame[key]?.status !== 'loading') return
+    setEntry(key, entries ? success(entries) : idle())
+  } catch (error) {
+    if (useGitBlameStore.getState().blame[key]?.status !== 'loading') return
+    setEntry(key, failed(error as Error, current ?? idle()))
+  }
+}
 
-  getBlameForLine: (filePath, lineNumber) => {
-    const data = dataOf(get().blame.get(filePath))
-    if (!data) return null
-    for (const line of data.lines) {
-      const start = line.line_number
-      const end = start + line.total_lines - 1
-      if (lineNumber >= start && lineNumber <= end) return line
-    }
-    return null
-  },
-
-  getRepoPath: (filePath) => get().fileToRepo.get(filePath) ?? null,
-}))
+/** Forget a file's blame (it was saved, or its buffer closed). */
+export function clearBlame(wsId: string, path: string): void {
+  const key = blameKey(wsId, path)
+  if (useGitBlameStore.getState().blame[key]) setEntry(key, undefined)
+}

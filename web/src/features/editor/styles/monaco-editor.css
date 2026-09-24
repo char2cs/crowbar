@@ -13,12 +13,10 @@
   background-color: var(--background) !important;
 }
 
-.editor-container .monaco-search-match {
-  background-color: color-mix(in srgb, var(--accent) 26%, transparent);
-}
-
-.editor-container .monaco-search-match-current {
-  outline: 1px solid color-mix(in srgb, var(--accent) 72%, white 8%);
+.editor-container .crowbar-inline-blame {
+  color: var(--muted-foreground);
+  opacity: 0.7;
+  font-style: italic;
 }
 
 .monaco-vim-statusbar {

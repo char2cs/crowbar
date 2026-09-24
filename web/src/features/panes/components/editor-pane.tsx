@@ -1,5 +1,4 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { EditorSurface } from '@/features/editor/components/editor-surface'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { useBufferById } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
@@ -7,6 +6,14 @@ import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-r
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { isMarkdownPath } from '@/features/editor/markdown/plate/is-markdown-path'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
+
+// Lazy so Monaco (3.5 MB, half of all boot JS) loads when an editor pane first
+// renders, not at app boot.
+const EditorSurface = lazy(() =>
+  import('@/features/editor/components/editor-surface').then((m) => ({
+    default: m.EditorSurface,
+  })),
+)
 
 // Lazy so Plate (and its dependency graph) stays out of the base pane chunk —
 // only buffers that actually route to the rich surface pull it in.
@@ -183,19 +190,21 @@ export function EditorPane({
         </div>
       }
     >
-      {/* Keyed by paneId so a buffer/tab switch swaps the model imperatively
-          (via usePaneEditorController) instead of remounting the shell. */}
-      <EditorSurface
-        key={paneId}
-        paneId={paneId}
-        bufferId={bufferId}
-        workspaceId={workspaceId}
-        isActiveSurface={isActiveSurface}
-        isPreview={isPreview}
-        onPromote={onPromote}
-        showToolbar={showToolbar}
-        className={className}
-      />
+      <Suspense fallback={null}>
+        {/* Keyed by paneId so a buffer/tab switch swaps the model imperatively
+            (via usePaneEditorController) instead of remounting the shell. */}
+        <EditorSurface
+          key={paneId}
+          paneId={paneId}
+          bufferId={bufferId}
+          workspaceId={workspaceId}
+          isActiveSurface={isActiveSurface}
+          isPreview={isPreview}
+          onPromote={onPromote}
+          showToolbar={showToolbar}
+          className={className}
+        />
+      </Suspense>
     </ErrorBoundary>
   )
 }

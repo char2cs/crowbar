@@ -25,6 +25,15 @@ export function fileUri(workspaceId: string, fsPath: string): string {
   return PREFIX + encodeURIComponent(workspaceId) + '/' + encodeURIComponent(fsPath)
 }
 
+/** Workspace id half of a {@link fileUri}; null for any other uri. */
+export function uriToWorkspaceId(uri: string): string | null {
+  if (!uri.startsWith(PREFIX)) return null
+  const rest = uri.slice(PREFIX.length)
+  const separatorIndex = rest.indexOf('/')
+  if (separatorIndex <= 0) return null
+  return decodeURIComponent(rest.slice(0, separatorIndex))
+}
+
 export function uriToFsPath(uri: string): string {
   const rest = uri.slice(PREFIX.length)
   const separatorIndex = rest.indexOf('/')

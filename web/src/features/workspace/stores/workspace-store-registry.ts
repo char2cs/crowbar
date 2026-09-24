@@ -1,7 +1,5 @@
 import { createWorkspaceStore, type WorkspaceStore } from './workspace-store'
 import { loadFromLocalStorage } from './workspace-persistence'
-import { useHistoryStore } from '@/features/editor/stores/history-store'
-import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-history-tracking'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { setActiveScopeWorkspaceId } from '@/lib/workspace-scope'
 import { bestEffort } from '@/lib/best-effort'
@@ -365,30 +363,18 @@ export function destroyWorkspaceStore(wsId: string): void {
           (b) => b.workspaceId === wsId && !openEditorTabIds.has(b.id),
         )
 
-        // Free cached git-blame for this workspace's open files. The blame store is a
-        // global singleton keyed by file path, so clearAllBlame() would wipe blame for
-        // OTHER still-active workspaces; we instead clear only this workspace's editor
-        // buffer paths.
+        // Free cached git-blame for this workspace's no-longer-shown files.
         const editorPaths: string[] = []
         for (const b of buffers) {
           if (isEditorContent(b) && b.path) editorPaths.push(b.path)
         }
         if (editorPaths.length > 0) {
           bestEffort(
-            import('@/features/git/stores/git-blame-store').then(({ useGitBlameStore }) => {
-              const { clearBlameForFile } = useGitBlameStore.getState()
-              for (const path of editorPaths) {
-                clearBlameForFile(path)
-              }
+            import('@/features/git/stores/git-blame-store').then(({ clearBlame }) => {
+              for (const path of editorPaths) clearBlame(wsId, path)
             }),
             'clear blame for disposed workspace',
           )
-        }
-
-        // Cleanup undo tracker and history for each buffer
-        for (const buf of buffers) {
-          cleanupBufferHistoryTracking(buf.id)
-          useHistoryStore.getState().actions.clearHistory(buf.id)
         }
 
         // Dispose editor resources (only if the workspace ever armed the

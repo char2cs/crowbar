@@ -19,19 +19,37 @@ const readWorkspaceFile = vi.fn(async (_wsId: string, _path: string) => 'reopene
 vi.mock('@/features/file-system/controllers/platform', () => ({
   readWorkspaceFile: (wsId: string, path: string) => readWorkspaceFile(wsId, path),
 }))
-vi.mock('@/features/editor/extensions/api', () => ({
-  editorAPI: { setCursorPosition: vi.fn() },
+vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@/features/workspace/stores/workspace-store-registry')
+  >()),
+  getWorkspaceStore: () => store,
+  getActiveWorkspaceStore: () => store,
 }))
-vi.mock('@/features/editor/stores/ui-store', () => ({
-  useEditorUIStore: {
-    getState: () => ({
-      actions: { setIsLspCompletionVisible: vi.fn(), setLastInputTimestamp: vi.fn() },
-    }),
-  },
-}))
-vi.mock('@/features/editor/stores/state-store', () => ({
-  useEditorStateStore: { getState: () => ({ actions: { setScroll: vi.fn() } }) },
-}))
+
+/**
+ * Stand-in for the editor controller: whenever the root pane activates an
+ * editor buffer, publish "the pane's editor shows it" — which is what
+ * navigateToJumpEntry (via reveal) waits for before placing the cursor.
+ */
+const editor = {
+  setSelection: vi.fn(),
+  revealPositionInCenterIfOutsideViewport: vi.fn(),
+  setScrollPosition: vi.fn(),
+  focus: vi.fn(),
+}
+function publishShownBuffer() {
+  const state = windowPaneStore.getState()
+  const active = state.buffers.find((b) => b.id === state.panes[ROOT_PANE_ID]?.activeEditorTabId)
+  if (!active?.path) return
+  store.activeEditorRegistry.set(ROOT_PANE_ID, {
+    paneId: ROOT_PANE_ID,
+    uri: `crowbar://editor/${active.workspaceId}/${active.path}`,
+    filePath: active.path,
+    editor,
+  })
+}
+windowPaneStore.subscribe(publishShownBuffer)
 
 const { navigateToJumpEntry } = await import('@/features/editor/utils/jump-navigation')
 

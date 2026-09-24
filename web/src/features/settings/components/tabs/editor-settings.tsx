@@ -232,7 +232,7 @@ export const EditorSettings = () => {
         </SettingRow>
         <SettingRow
           label="Format on Save"
-          description="Automatically format code when saving"
+          description="Format with the language server when saving (manual saves only)"
           onReset={() => updateSetting('formatOnSave', getDefaultSetting('formatOnSave'))}
           canReset={settings.formatOnSave !== getDefaultSetting('formatOnSave')}
         >
@@ -244,14 +244,14 @@ export const EditorSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Lint on Save"
-          description="Run linter when saving files"
-          onReset={() => updateSetting('lintOnSave', getDefaultSetting('lintOnSave'))}
-          canReset={settings.lintOnSave !== getDefaultSetting('lintOnSave')}
+          label="Inline Blame"
+          description="Show who last changed the cursor's line, and when"
+          onReset={() => updateSetting('inlineBlame', getDefaultSetting('inlineBlame'))}
+          canReset={settings.inlineBlame !== getDefaultSetting('inlineBlame')}
         >
           <Switch
-            checked={settings.lintOnSave}
-            onChange={(checked) => updateSetting('lintOnSave', checked)}
+            checked={settings.inlineBlame}
+            onChange={(checked) => updateSetting('inlineBlame', checked)}
             size="sm"
           />
         </SettingRow>

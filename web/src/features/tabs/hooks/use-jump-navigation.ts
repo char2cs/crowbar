@@ -35,8 +35,8 @@ export function useJumpNavigation() {
             line: editorState.cursorPosition.line,
             column: editorState.cursorPosition.column,
             offset: editorState.cursorPosition.offset,
-            scrollTop: editorState.scrollTop,
-            scrollLeft: editorState.scrollLeft,
+            scrollTop: 0,
+            scrollLeft: 0,
           }
         : undefined
 

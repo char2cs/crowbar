@@ -3,29 +3,18 @@ import '../monaco/language-contributions'
 import 'monaco-editor/min/vs/editor/editor.main.css'
 import '../styles/monaco-editor.css'
 
-import type React from 'react'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
-import { useEditorScroll } from '@/features/editor/hooks/use-scroll'
+import { useCallback, useEffect, useRef } from 'react'
+import { useStore } from 'zustand'
 import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useSettingsStore } from '@/features/settings/store'
-import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
-import { useEditorAppStore } from '@/features/editor/stores/editor-app-store'
+import { setBufferContent } from '@/features/editor/lib/buffer-save'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { hasTextContent } from '@/features/panes/types/pane-content'
-import type {
-  EditorCoordinateResolver,
-  EditorModelPositionResolver,
-} from '@/features/editor/view-model/view-layout'
-import { editorAPI } from '../extensions/api'
-import { ScrollDebugOverlay } from './debug/scroll-debug-overlay'
+import { registerLspProviders } from '../lsp/monaco-lsp-providers'
 import { EditorStylesheet } from './stylesheet'
 import Breadcrumb, { type BreadcrumbProps } from './toolbar/breadcrumb'
-import FindBar from './toolbar/find-bar'
-import { PaneLspLayer } from './pane-lsp-layer'
-import { PaneEditorStateBridge } from './pane-editor-state-bridge'
-import type { PaneOverlayMouseHandlers } from './pane-overlay-handlers'
 import { usePaneEditorController } from '../hooks/use-pane-editor-controller'
 import { usePaneEditorSatellites } from '../hooks/use-pane-editor-satellites'
 import { defineMonacoTheme } from '../monaco/define-theme'
@@ -38,6 +27,10 @@ import {
   releaseSelectionDrag,
 } from '../lib/selection-drag'
 import type * as Monaco from 'monaco-editor'
+
+// Language features (completion, hover, rename, …) are Monaco providers over
+// the daemon's /lsp routes; registered once, with the editor chunk.
+registerLspProviders()
 
 /**
  * How often the cursor/selection store write is allowed to land WHILE a
@@ -93,11 +86,6 @@ export interface EditorSurfaceProps {
  * leaf children that each subscribe independently, so a tab switch updates only
  * those leaves instead of reconciling this whole subtree:
  *  - {@link Breadcrumb} self-resolves the active path via `paneId`.
- *  - {@link PaneLspLayer} owns LSP + in-file search + go-to-line, subscribing to
- *    the active-editor registry (`filePath`); it reads buffer CONTENT imperatively
- *    (no render subscription) so a keystroke never re-renders it.
- *  - {@link PaneEditorStateBridge} mirrors the active buffer's identity into the
- *    shared editor-state store (status-bar view-key + legacy seam).
  */
 // react-doctor-disable-next-line no-giant-component -- accepted: cohesive editor surface — hosts one Monaco viewport plus its overlays/resize observer sharing the same editor ref; splitting fragments that ref coordination.
 export function EditorSurface({
@@ -113,11 +101,6 @@ export function EditorSurface({
 }: EditorSurfaceProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const overlayContainerRef = useRef<HTMLDivElement>(null)
-  const codeLensRef = useRef<HTMLDivElement>(null)
-  const renameInputRef = useRef<HTMLDivElement>(null)
-  const editorCoordinateResolverRef = useRef<EditorCoordinateResolver | null>(null)
-  const editorModelPositionResolverRef = useRef<EditorModelPositionResolver | null>(null)
-  const mouseHandlersRef = useRef<PaneOverlayMouseHandlers | null>(null)
 
   // Resolved by the buffer's OWN workspace id (see the `workspaceId` prop
   // doc), not ambient context. Non-null: EditorPane awaits
@@ -128,11 +111,9 @@ export function EditorSurface({
   const editorManager = workspaceStore.editorManager!
   const registry = workspaceStore.activeEditorRegistry
 
-  const { setRefs, setCursorAndSelection } = useEditorStateStore.use.actions()
+  const { setActiveEditorViewKey, setCursorAndSelection } = useEditorStateStore.use.actions()
 
   const zoomLevel = useZoomStore.use.editorZoomLevel()
-
-  const enableInteractiveServices = isActiveSurface
 
   // ── Imperative buffer-switch controller (model swap + content seam) ───────
   // Cursor/selection sync is rAF-COALESCED off the per-cursor hot path: a burst
@@ -149,7 +130,6 @@ export function EditorSurface({
     setCursorAndSelection(
       toEditorPosition(model, position),
       selection ? toEditorRange(model, selection) : undefined,
-      { ensureVisible: false },
     )
   }, [editorManager, paneId, setCursorAndSelection])
 
@@ -179,15 +159,12 @@ export function EditorSurface({
   const mountPane = useCallback(
     (container: HTMLElement) => {
       editorManager.mountPane(paneId, container)
-      editorAPI.setTextareaRef(null)
-      editorAPI.setViewportRef(container as HTMLDivElement)
 
       const raw = editorManager.getRawEditor(paneId) as Monaco.editor.IStandaloneCodeEditor | null
       // Initial theme to avoid a flash; the satellites theme effect (which also
       // subscribes to theme changes) is authoritative right after mount.
-      const editorSettingsTheme = useEditorSettingsStore.getState().theme
       raw?.updateOptions({
-        theme: defineMonacoTheme(useSettingsStore.getState().settings.theme || editorSettingsTheme),
+        theme: defineMonacoTheme(useSettingsStore.getState().settings.theme || 'crowbar-dark'),
       })
 
       let layoutRafId: number | null = null
@@ -269,7 +246,6 @@ export function EditorSurface({
   const unmountPane = useCallback(() => {
     resizeCleanupRef.current?.()
     resizeCleanupRef.current = null
-    editorAPI.setViewportRef(null)
     editorManager.unmountPane(paneId)
   }, [editorManager, paneId])
 
@@ -283,12 +259,11 @@ export function EditorSurface({
   const isActiveSurfaceRef = useRef(isActiveSurface)
   isActiveSurfaceRef.current = isActiveSurface
   const externalApplyRef = useRef<string | null>(null)
-  const { handleContentChange } = useEditorAppStore.use.actions()
 
   // Shared write core. `targetBufferId` (when known) pins the write to a SPECIFIC
   // buffer so a flush during a fast tab switch attributes content to the edited
-  // buffer, not the now-active one (I3). When omitted, handleContentChange falls
-  // back to the active buffer (legacy seam behavior).
+  // buffer, not the now-active one (I3). When omitted, the write targets this
+  // pane's active buffer.
   const writeContent = useCallback(
     (content: string, targetBufferId?: string) => {
       if (externalApplyRef.current === content) {
@@ -297,17 +272,12 @@ export function EditorSurface({
       }
       if (!isActiveSurfaceRef.current) return
       if (isPreviewRef.current) onPromoteRef.current?.()
-      void handleContentChange(content, undefined, undefined, undefined, {
-        contentAlreadyApplied: false,
-        targetBufferId,
-      })
+      const bufferId =
+        targetBufferId ?? windowPaneStore.getState().panes[paneId]?.activeEditorTabId ?? null
+      if (bufferId) setBufferContent(bufferId, content)
     },
-    [handleContentChange],
+    [paneId],
   )
-
-  // Legacy 5-arg seam handed to the state bridge / editorAPI (no bufferId →
-  // active buffer). Identity is stable; extra legacy args are ignored here.
-  const onContentChange = useCallback((content: string) => writeContent(content), [writeContent])
 
   // Controller seam: the imperative ContentSink flush passes the buffer it was
   // tracking so the write targets the edited buffer (I3 fix).
@@ -356,96 +326,32 @@ export function EditorSurface({
     editorManager,
   )
 
-  // ── Retained-widget satellite concerns (settings, theme, decorations, LSP) ─
-  const syncLspOverlayTransform = useCallback((scrollTop: number, scrollLeft: number) => {
-    const transform = `translate(-${scrollLeft}px, -${scrollTop}px)`
-    for (const ref of [codeLensRef, renameInputRef]) {
-      if (ref.current) ref.current.style.transform = transform
-    }
-  }, [])
-
-  const handleCoordinateResolverChange = useCallback(
-    (resolver: EditorCoordinateResolver | null) => {
-      editorCoordinateResolverRef.current = resolver
-    },
-    [],
-  )
-  const handleModelPositionResolverChange = useCallback(
-    (resolver: EditorModelPositionResolver | null) => {
-      editorModelPositionResolverRef.current = resolver
-    },
-    [],
-  )
-
+  // ── Retained-widget satellite concerns (settings, theme, LSP document sync) ─
   usePaneEditorSatellites(paneId, {
     registry,
     editorManager,
     workspaceId,
-    onScrollOffsetChange: syncLspOverlayTransform,
-    onCoordinateResolverChange: handleCoordinateResolverChange,
-    onModelPositionResolverChange: handleModelPositionResolverChange,
     isActiveSurface,
     readOnly: false,
     scrollable: true,
     externalApplyRef,
   })
 
-  // ── Editor-state store refs (active surface only) ──────────────────────────
+  // ── Status-bar cursor: which pane/buffer the mirrored cursor belongs to ───
+  const activeBufferId = useStore(
+    windowPaneStore,
+    useCallback((state) => state.panes[paneId]?.activeEditorTabId ?? null, [paneId]),
+  )
   useEffect(() => {
-    if (!isActiveSurface) return
-    setRefs({ editorRef: overlayContainerRef })
-  }, [isActiveSurface, setRefs])
+    if (isActiveSurface)
+      setActiveEditorViewKey(activeBufferId ? `${paneId}:${activeBufferId}` : null)
+  }, [activeBufferId, isActiveSurface, paneId, setActiveEditorViewKey])
 
-  // Stable resolvers forwarded to the LSP layer; read the live model via refs.
-  const resolveEditorPosition = useCallback<EditorCoordinateResolver>(
-    (clientX, clientY) => editorCoordinateResolverRef.current?.(clientX, clientY) ?? null,
-    [],
-  )
-  const resolveModelPosition = useCallback<EditorModelPositionResolver>(
-    (line, column) => editorModelPositionResolverRef.current?.(line, column) ?? null,
-    [],
-  )
-
-  // Stable container mouse handlers — forward to the LSP layer's latest set so a
-  // buffer switch never changes the container's handler identity.
-  //
-  // Dead while a selection drag is in flight: this handler exists for the HOVER
-  // affordances (the LSP tooltip's delay timer, the cmd-hover definition link),
-  // none of which can fire with the button held down — Monaco owns the pointer
-  // and is painting a selection. It was still running on every pointer move of
-  // the drag, arming and clearing the hover timer and pushing the event through
-  // React's synthetic dispatch each time. Measured live in the Tauri app on a
-  // 200-move drag-select: the synchronous per-frame cost inside the move
-  // dispatch fell 1.95/1.73ms → 1.63/1.45ms and the gesture ran 79.6/81.4 →
-  // 82.5/88 fps with this path cut out.
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (isSelectionDragging()) return
-    mouseHandlersRef.current?.handleMouseMove(e)
-  }, [])
-  const handleMouseLeave = useCallback(() => {
-    mouseHandlersRef.current?.handleMouseLeave()
-  }, [])
-  const handleMouseEnter = useCallback(() => {
-    mouseHandlersRef.current?.handleMouseEnter()
-  }, [])
-  const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    mouseHandlersRef.current?.handleClick(e)
-  }, [])
-
-  useEditorScroll(overlayContainerRef, null)
-
-  const interactiveHandlers = useMemo(
-    () =>
-      enableInteractiveServices
-        ? {
-            onMouseMove: handleMouseMove,
-            onMouseLeave: handleMouseLeave,
-            onMouseEnter: handleMouseEnter,
-            onClick: handleClick,
-          }
-        : {},
-    [enableInteractiveServices, handleMouseMove, handleMouseLeave, handleMouseEnter, handleClick],
-  )
+  // The toolbar's search button opens Monaco's own find widget.
+  const openFind = useCallback(() => {
+    const editor = editorManager.getRawEditor(paneId) as Monaco.editor.IStandaloneCodeEditor | null
+    void editor?.getAction('actions.find')?.run()
+  }, [editorManager, paneId])
 
   // `bufferId` is the parent's stable-mount hint (the surface keys off paneId and
   // its leaves read the active buffer reactively); referenced to satisfy
@@ -455,12 +361,7 @@ export function EditorSurface({
   return (
     <>
       <EditorStylesheet />
-      <PaneEditorStateBridge
-        paneId={paneId}
-        isActiveSurface={isActiveSurface}
-        onContentChange={onContentChange}
-        registry={registry}
-      />
+
       <div className="absolute inset-0 flex flex-col overflow-hidden">
         {/* `bufferId` passed explicitly — see EditorHostRegistry's own doc:
             this EditorSurface can now be the pane's RETAINED editor while a
@@ -470,39 +371,27 @@ export function EditorSurface({
             live-caught as the breadcrumb reading "branch-review://..." while
             still showing this file's content. `bufferId` is always the
             buffer THIS surface is actually showing, active tab or not. */}
-        {showToolbar && <Breadcrumb {...breadcrumbProps} paneId={paneId} bufferId={bufferId} />}
-
-        {showToolbar && enableInteractiveServices && <FindBar />}
+        {showToolbar && (
+          <Breadcrumb
+            {...breadcrumbProps}
+            paneId={paneId}
+            bufferId={bufferId}
+            onFind={isActiveSurface ? openFind : undefined}
+          />
+        )}
 
         <div
           ref={overlayContainerRef}
           className={`editor-container relative min-h-0 flex-1 overflow-hidden ${className || ''}`}
           data-zoom-level={zoomLevel}
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-          {...interactiveHandlers}
         >
-          <PaneLspLayer
-            paneId={paneId}
-            registry={registry}
-            workspaceId={workspaceId}
-            isActiveSurface={isActiveSurface}
-            overlayContainerRef={overlayContainerRef}
-            mouseHandlersRef={mouseHandlersRef}
-            resolveEditorPosition={resolveEditorPosition}
-            resolveModelPosition={resolveModelPosition}
-            syncLspOverlayTransform={syncLspOverlayTransform}
-            codeLensRef={codeLensRef}
-            renameInputRef={renameInputRef}
-          />
-
           {/* Stable Monaco slot — the retained per-pane widget mounts here. */}
           <div className="absolute inset-0 bg-transparent">
             <div ref={containerRef} className="absolute inset-0" data-monaco-editor-scroll />
           </div>
         </div>
       </div>
-
-      {enableInteractiveServices && <ScrollDebugOverlay />}
     </>
   )
 }

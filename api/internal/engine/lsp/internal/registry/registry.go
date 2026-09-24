@@ -65,7 +65,7 @@ func buildDefaults() map[string]ServerSpec {
 		Extensions: []string{".ts", ".tsx", ".js", ".jsx"},
 	}
 	pySpec := ServerSpec{
-		Command:    "pyright",
+		Command:    "pyright-langserver",
 		Args:       []string{"--stdio"},
 		LanguageID: "python",
 		Extensions: []string{".py"},

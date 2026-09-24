@@ -4,6 +4,7 @@ import { getReviewFiles } from '@/features/git/api/review-api'
 import { reviewFilesSummaryToChangedFiles } from '@/features/git/utils/review-file-summary-to-git-diff'
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 import type { GitDiff } from '@/features/git/types/git-types'
+import { onGitStatusChanged } from '@/features/git/stores/git-refresh'
 
 export interface UseReviewFilesSummaryResult {
   files: GitDiff[]
@@ -17,15 +18,9 @@ export interface UseReviewFilesSummaryResult {
 // across renders and workspaces (see use-review-diff.ts).
 const EMPTY_FILES: GitDiff[] = []
 
-// The daemon can fire `git-status-changed` at ~2-3Hz while a terminal churns the
-// working tree. Debounce (trailing) coalesces a burst into a single refetch —
-// the same coalescing Task 6 established for the full diff, applied here to the
-// cheap summary so it stays cheap even under a busy tree.
-const GIT_STATUS_DEBOUNCE_MS = 250
-
 /**
  * Fetches the files-only branch-review summary for a workspace on mount and on
- * every (debounced) `git-status-changed` tick. The payload is O(file count) and
+ * every git status change of the workspace. The payload is O(file count) and
  * carries no line content, so — unlike the full review diff — it is safe to pull
  * continuously; it is the always-on source for the sidebar's full changed-files
  * list (committed + working-tree, with +N/-N counts).
@@ -61,7 +56,7 @@ export function useReviewFilesSummary(
   // that records one races WorkspaceView's own (often faster) hydration, so on
   // a workspace that just activated this can still be null; firing anyway used
   // to hit the throw, land in the catch below, and leave the summary empty
-  // until an unrelated git-status-changed tick happened to retry it.
+  // until an unrelated git status change happened to retry it.
   // Subscribing makes the id a piece of React state so the effect re-runs the
   // moment the sidebar records one — same fix as useWorkspaceEffects'
   // useOwningChatId.
@@ -75,7 +70,6 @@ export function useReviewFilesSummary(
     if (owningChatId === null) return
 
     let cancelled = false
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
     const fetchSummary = async () => {
       try {
@@ -101,19 +95,12 @@ export function useReviewFilesSummary(
         cancelled = true
       }
 
-    const handler = () => {
-      if (debounceTimer) clearTimeout(debounceTimer)
-      debounceTimer = setTimeout(() => {
-        debounceTimer = null
-        void fetchSummary()
-      }, GIT_STATUS_DEBOUNCE_MS)
-    }
-    window.addEventListener('git-status-changed', handler)
+    // Status changes arrive already coalesced by the workspace's git effect.
+    const stop = onGitStatusChanged(wsId, () => void fetchSummary())
 
     return () => {
       cancelled = true
-      if (debounceTimer) clearTimeout(debounceTimer)
-      window.removeEventListener('git-status-changed', handler)
+      stop()
     }
   }, [wsId, commit, owningChatId])
 

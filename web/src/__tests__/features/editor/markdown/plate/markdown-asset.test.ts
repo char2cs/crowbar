@@ -65,13 +65,13 @@ describe('loadLocalImage resolve override', () => {
     expect(readWorkspaceFile).not.toHaveBeenCalled()
   })
 
-  it('utf8-encodes an svg read (pre-existing behaviour)', async () => {
+  it('utf8-encodes an svg read', async () => {
     vi.mocked(readWorkspaceFile).mockResolvedValue('<svg></svg>')
     const asset: MarkdownAssetInfo = { wsId: 'ws1', fileDir: '' }
 
     const result = await loadLocalImage(asset, 'icon.svg')
 
-    expect(result).toBe(`data:image/svg+xml;utf8,${encodeURIComponent('<svg></svg>')}`)
+    expect(result).toBe(`data:image/svg+xml;charset=utf-8,${encodeURIComponent('<svg></svg>')}`)
   })
 
   it('returns null when readWorkspaceFile rejects (pre-existing behaviour)', async () => {

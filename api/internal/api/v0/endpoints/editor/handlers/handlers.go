@@ -1,8 +1,9 @@
 // Package handlers holds the gin handlers backing the editor endpoint: git
 // blame, the synchronous LSP feature requests (completion, hover, definition,
-// references, rename, code action, document symbol), the document-sync
-// notifications (didOpen, didChange, didClose), and the diagnostics snapshot
-// (02 §2.5, 04 §3, 10).
+// references, rename, code action, document symbol, signature help, code lens,
+// formatting), the document-sync notifications (didOpen, didChange, didSave,
+// didClose), the language-server status/restart lifecycle, and the
+// diagnostics snapshot (02 §2.5, 04 §3, 10).
 //
 // The LSP engine is graceful-absent: when no language server is installed for a
 // file's language the feature methods return empty results and a nil error
@@ -71,7 +72,50 @@ type LSPEngine interface {
 		worktreePath string,
 		filePath string,
 		rng domlsp.Range,
+		diagnostics json.RawMessage,
 	) (json.RawMessage, error)
+	SignatureHelp(
+		ctx context.Context,
+		wsID string,
+		worktreePath string,
+		filePath string,
+		pos domlsp.Position,
+	) (json.RawMessage, error)
+	CodeLens(
+		ctx context.Context,
+		wsID string,
+		worktreePath string,
+		filePath string,
+	) (json.RawMessage, error)
+	CodeLensResolve(
+		ctx context.Context,
+		wsID string,
+		worktreePath string,
+		filePath string,
+		lens json.RawMessage,
+	) (json.RawMessage, error)
+	Formatting(
+		ctx context.Context,
+		wsID string,
+		worktreePath string,
+		filePath string,
+		options domlsp.FormattingOptions,
+	) (json.RawMessage, error)
+	Status(
+		wsID string,
+		filePath string,
+	) domlsp.ServerStatus
+	Restart(
+		ctx context.Context,
+		wsID string,
+		filePath string,
+	) (domlsp.ServerStatus, error)
+	DidSave(
+		ctx context.Context,
+		wsID string,
+		worktreePath string,
+		filePath string,
+	) error
 	DocumentSymbol(
 		ctx context.Context,
 		wsID string,

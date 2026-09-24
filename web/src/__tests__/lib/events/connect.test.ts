@@ -1,5 +1,6 @@
 import '@/lib/transport/polyfill'
 import { connectDaemonEvents } from '@/lib/events/connect'
+import { useGitRefreshStore } from '@/features/git/stores/git-refresh'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const mockFetch = vi.fn().mockResolvedValue(undefined)
@@ -27,12 +28,10 @@ describe('connectDaemonEvents', () => {
     expect(mockFetch).toHaveBeenCalled()
   })
 
-  it('dispatches git-status-changed CustomEvent on git:changed', () => {
-    const handler = vi.fn()
-    window.addEventListener('git-status-changed', handler)
+  it("bumps that workspace's git status revision on git:changed", () => {
+    const before = useGitRefreshStore.getState().changed['ws-1'] ?? 0
     window.__CROWBAR__.emit('git:changed', { workspaceId: 'ws-1' })
-    expect(handler).toHaveBeenCalled()
-    window.removeEventListener('git-status-changed', handler)
+    expect(useGitRefreshStore.getState().changed['ws-1']).toBe(before + 1)
   })
 
   it('dispatches file-external-change CustomEvent on file:changed', () => {

@@ -31,7 +31,12 @@ export default defineConfig({
     include: ['@tauri-apps/api/event'],
   },
   resolve: {
-    alias: { '@': path.resolve(__dirname, './src') },
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+      // @platejs/markdown imports remark-mdx only for an optional plugin we
+      // never enable; the real one pulls acorn into the markdown chunk.
+      'remark-mdx': path.resolve(__dirname, './src/lib/stubs/remark-mdx.ts'),
+    },
     // Force a single copy of react/react-dom — pnpm's virtual store can
     // resolve multiple versions when peer deps differ across packages.
     dedupe: ['react', 'react-dom'],

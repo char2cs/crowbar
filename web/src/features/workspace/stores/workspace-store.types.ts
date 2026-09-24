@@ -1,5 +1,4 @@
 // web/src/features/workspace/stores/workspace-store.types.ts
-import type { LspSlice } from './slices/lsp-slice'
 import type { TerminalSlice } from './slices/terminal-slice'
 import type { FileWatcherSlice } from './slices/file-watcher-slice'
 import type { RecentFilesSlice } from './slices/recent-files-slice'
@@ -17,7 +16,6 @@ export interface WorkspaceBaseState {
 // resources (an LSP connection, a terminal PTY, a file watcher, the agent
 // chat list) — not declarative pane/buffer layout.
 export type WorkspaceState = WorkspaceBaseState &
-  LspSlice &
   TerminalSlice &
   FileWatcherSlice &
   RecentFilesSlice &

@@ -40,7 +40,7 @@ func Register(
 	mount(chatScoped, "", h, lspWSHandle)
 }
 
-// mount registers the 13-route editor surface under prefix on rg.
+// mount registers the editor surface under prefix on rg.
 func mount(
 	rg *gin.RouterGroup,
 	prefix string,
@@ -55,9 +55,16 @@ func mount(
 	rg.POST(prefix+"/lsp/rename", h.Rename)
 	rg.POST(prefix+"/lsp/codeAction", h.CodeAction)
 	rg.POST(prefix+"/lsp/documentSymbol", h.DocumentSymbol)
+	rg.POST(prefix+"/lsp/signatureHelp", h.SignatureHelp)
+	rg.POST(prefix+"/lsp/codeLens", h.CodeLens)
+	rg.POST(prefix+"/lsp/codeLensResolve", h.CodeLensResolve)
+	rg.POST(prefix+"/lsp/formatting", h.Formatting)
+	rg.GET(prefix+"/lsp/status", h.Status)
+	rg.POST(prefix+"/lsp/restart", h.Restart)
 	rg.GET(prefix+"/lsp/diagnostics", h.Diagnostics)
 	rg.POST(prefix+"/lsp/didOpen", h.DidOpen)
 	rg.POST(prefix+"/lsp/didChange", h.DidChange)
+	rg.POST(prefix+"/lsp/didSave", h.DidSave)
 	rg.POST(prefix+"/lsp/didClose", h.DidClose)
 	rg.GET(prefix+"/lsp/ws", lspWSHandle)
 }

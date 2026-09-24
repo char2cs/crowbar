@@ -21,7 +21,6 @@ vi.mock('@/features/window/stores/toast-store', async (importOriginal) => {
 
 import {
   hydrateWorkspace,
-  hydratePreferences,
   hydrateSidebar,
   hydrateWindowPaneLayout,
 } from '@/lib/persistence/hydrate'
@@ -611,24 +610,6 @@ describe('reconcileWorkspaceBuffersWithDisk (keep-alive warm return)', () => {
     expect(buf.content).toBe('content when hidden')
     expect(buf.hasExternalChange).toBeUndefined()
     expect(toastWarning).not.toHaveBeenCalled()
-  })
-})
-
-describe('hydratePreferences', () => {
-  beforeEach(async () => {
-    resetDB()
-    globalThis.indexedDB = new IDBFactory()
-  })
-
-  it('returns null when no prefs are stored', async () => {
-    const prefs = await hydratePreferences()
-    expect(prefs).toBeNull()
-  })
-
-  it('returns stored preferences', async () => {
-    const { prefs } = await seedDB('ws-test')
-    const result = await hydratePreferences()
-    expect(result?.theme).toBe(prefs.theme)
   })
 })
 

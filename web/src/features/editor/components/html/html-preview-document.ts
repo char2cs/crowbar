@@ -1,192 +1,91 @@
-// Crowbar stub — FUTURE: replace with Go API url conversion
-const convertFileSrc = (path: string): string => path
-import { getDirName, joinPath } from '@/utils/path-helpers'
+import { isSelfLoading } from '@/features/editor/lib/asset-data-url'
 
-type ConvertFilePathToUrl = (path: string) => string
+/**
+ * Loads one local asset reference (as written in the HTML) as a URL the
+ * sandboxed preview can fetch — a `data:` URL — or null to leave it as-is.
+ */
+export type LoadAsset = (reference: string) => Promise<string | null>
 
-interface BuildHtmlPreviewDocumentOptions {
-  sourcePath?: string
-  rootFolderPath?: string
-  convertFilePathToUrl?: ConvertFilePathToUrl
-}
-
+// The preview iframe is sandboxed with an opaque origin and loads from srcdoc,
+// so a relative `src` resolves against nothing and a path is not a URL the
+// frame can fetch. Local references are therefore inlined as data: URLs.
+const TAG_PATTERN = /<([a-z][a-z0-9-]*)\b[^>]*>/gi
 const URL_ATTRIBUTE_PATTERN = /\b(src|href|poster)=(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi
 const SRCSET_ATTRIBUTE_PATTERN = /\bsrcset=(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi
-const MODULE_SCRIPT_PATTERN =
-  /<script\b(?=[^>]*\btype\s*=\s*(?:"module"|'module'|module)(?:\s|>|\/))[^>]*>([\s\S]*?)<\/script>/gi
-const STATIC_MODULE_SPECIFIER_PATTERN =
-  /\b((?:import|export)\s+(?:[^"']*?\s+from\s*)?)(["'])(\/(?!\/)[^"']+)\2/g
-const DYNAMIC_MODULE_SPECIFIER_PATTERN = /\b(import\s*\(\s*)(["'])(\/(?!\/)[^"']+)\2/g
 
 function escapeHtmlAttribute(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
 }
 
-function splitUrlSuffix(value: string): { path: string; suffix: string } {
-  const suffixIndex = value.search(/[?#]/)
-  if (suffixIndex < 0) {
-    return { path: value, suffix: '' }
-  }
-
-  return {
-    path: value.slice(0, suffixIndex),
-    suffix: value.slice(suffixIndex),
-  }
+/** `href` is a resource only on <link>; on <a> it is navigation and stays. */
+function isResourceAttribute(tag: string, attribute: string): boolean {
+  return attribute.toLowerCase() !== 'href' || tag.toLowerCase() === 'link'
 }
 
-function shouldLeaveUrlUntouched(value: string): boolean {
-  return (
-    value.length === 0 ||
-    value.startsWith('#') ||
-    value.startsWith('//') ||
-    /^[a-z][a-z\d+.-]*:/i.test(value)
-  )
-}
-
-function rewriteRootRelativeUrl(
-  value: string,
-  rootPath: string | undefined,
-  convertFilePathToUrl: ConvertFilePathToUrl,
-): string {
-  if (shouldLeaveUrlUntouched(value) || !value.startsWith('/') || !rootPath) {
-    return value
-  }
-
-  const { path, suffix } = splitUrlSuffix(value)
-  const filePath = joinPath(rootPath, path.slice(1))
-
-  return `${convertFilePathToUrl(filePath)}${suffix}`
-}
-
-function rewriteSrcSet(
-  value: string,
-  rootPath: string | undefined,
-  convertFilePathToUrl: ConvertFilePathToUrl,
-): string {
+function srcsetUrls(value: string): string[] {
   return value
     .split(',')
-    .map((candidate) => {
-      const trimmed = candidate.trim()
-      const [url, ...descriptors] = trimmed.split(/\s+/)
-      if (!url) return candidate
-
-      const rewrittenUrl = rewriteRootRelativeUrl(url, rootPath, convertFilePathToUrl)
-      return [rewrittenUrl, ...descriptors].join(' ')
-    })
-    .join(', ')
+    .map((candidate) => candidate.trim().split(/\s+/)[0] ?? '')
+    .filter(Boolean)
 }
 
-function rewriteRootRelativeAttributes(
-  content: string,
-  rootPath: string | undefined,
-  convertFilePathToUrl: ConvertFilePathToUrl,
-): string {
-  const rewrittenUrlAttributes = content.replace(
-    URL_ATTRIBUTE_PATTERN,
-    (
-      match,
-      attributeName: string,
-      doubleQuoted?: string,
-      singleQuoted?: string,
-      unquoted?: string,
-    ) => {
-      const value = doubleQuoted ?? singleQuoted ?? unquoted ?? ''
-      const rewrittenValue = rewriteRootRelativeUrl(value, rootPath, convertFilePathToUrl)
-
-      if (rewrittenValue === value) {
-        return match
+function collectLocalReferences(html: string): Set<string> {
+  const references = new Set<string>()
+  for (const [tagSource, tag = ''] of html.matchAll(TAG_PATTERN)) {
+    for (const [, attribute = '', dq, sq, uq] of tagSource.matchAll(URL_ATTRIBUTE_PATTERN)) {
+      const value = dq ?? sq ?? uq ?? ''
+      if (isResourceAttribute(tag, attribute) && !isSelfLoading(value)) references.add(value)
+    }
+    for (const [, dq, sq, uq] of tagSource.matchAll(SRCSET_ATTRIBUTE_PATTERN)) {
+      for (const url of srcsetUrls(dq ?? sq ?? uq ?? '')) {
+        if (!isSelfLoading(url)) references.add(url)
       }
-
-      return `${attributeName}="${escapeHtmlAttribute(rewrittenValue)}"`
-    },
-  )
-
-  return rewrittenUrlAttributes.replace(
-    SRCSET_ATTRIBUTE_PATTERN,
-    (match, doubleQuoted?: string, singleQuoted?: string, unquoted?: string) => {
-      const value = doubleQuoted ?? singleQuoted ?? unquoted ?? ''
-      const rewrittenValue = rewriteSrcSet(value, rootPath, convertFilePathToUrl)
-
-      if (rewrittenValue === value) {
-        return match
-      }
-
-      return `srcset="${escapeHtmlAttribute(rewrittenValue)}"`
-    },
-  )
+    }
+  }
+  return references
 }
 
-function rewriteRootRelativeModuleSpecifiers(
-  content: string,
-  rootPath: string | undefined,
-  convertFilePathToUrl: ConvertFilePathToUrl,
-): string {
-  return content.replace(MODULE_SCRIPT_PATTERN, (scriptTag, scriptContent: string) => {
-    const rewrittenScriptContent = scriptContent
+function rewriteTags(html: string, resolved: Map<string, string>): string {
+  return html.replace(TAG_PATTERN, (tagSource: string, tag: string) =>
+    tagSource
       .replace(
-        STATIC_MODULE_SPECIFIER_PATTERN,
-        (match, prefix: string, quote: string, value: string) => {
-          const rewrittenValue = rewriteRootRelativeUrl(value, rootPath, convertFilePathToUrl)
-          return rewrittenValue === value ? match : `${prefix}${quote}${rewrittenValue}${quote}`
+        URL_ATTRIBUTE_PATTERN,
+        (match, attribute: string, dq?: string, sq?: string, uq?: string) => {
+          const value = dq ?? sq ?? uq ?? ''
+          const url = isResourceAttribute(tag, attribute) ? resolved.get(value) : undefined
+          return url ? `${attribute}="${escapeHtmlAttribute(url)}"` : match
         },
       )
-      .replace(
-        DYNAMIC_MODULE_SPECIFIER_PATTERN,
-        (match, prefix: string, quote: string, value: string) => {
-          const rewrittenValue = rewriteRootRelativeUrl(value, rootPath, convertFilePathToUrl)
-          return rewrittenValue === value ? match : `${prefix}${quote}${rewrittenValue}${quote}`
-        },
-      )
-
-    return scriptTag.replace(scriptContent, rewrittenScriptContent)
-  })
+      .replace(SRCSET_ATTRIBUTE_PATTERN, (match, dq?: string, sq?: string, uq?: string) => {
+        const value = dq ?? sq ?? uq ?? ''
+        const rewritten = value
+          .split(',')
+          .map((candidate) => {
+            const [url = '', ...descriptors] = candidate.trim().split(/\s+/)
+            return [resolved.get(url) ?? url, ...descriptors].join(' ')
+          })
+          .join(', ')
+        return rewritten === value ? match : `srcset="${escapeHtmlAttribute(rewritten)}"`
+      }),
+  )
 }
 
-function injectBaseTag(content: string, baseUrl: string): string {
-  if (!baseUrl || /<base\b/i.test(content)) {
-    return content
-  }
-
-  const baseTag = `<base href="${escapeHtmlAttribute(baseUrl)}">`
-
-  if (/<head\b[^>]*>/i.test(content)) {
-    return content.replace(/<head\b[^>]*>/i, (headTag) => `${headTag}\n${baseTag}`)
-  }
-
-  if (/<html\b[^>]*>/i.test(content)) {
-    return content.replace(/<html\b[^>]*>/i, (htmlTag) => `${htmlTag}\n<head>${baseTag}</head>`)
-  }
-
-  return `${baseTag}\n${content}`
-}
-
-export function buildHtmlPreviewDocument(
-  sourceContent: string,
-  {
-    sourcePath,
-    rootFolderPath,
-    convertFilePathToUrl = convertFileSrc,
-  }: BuildHtmlPreviewDocumentOptions = {},
-): string {
-  if (!sourcePath) {
-    return sourceContent
-  }
-
-  const sourceDirPath = getDirName(sourcePath)
-  const assetBaseUrl = sourceDirPath ? convertFilePathToUrl(sourceDirPath) : ''
-  const normalizedAssetBaseUrl =
-    assetBaseUrl && !assetBaseUrl.endsWith('/') ? `${assetBaseUrl}/` : assetBaseUrl
-  const rootRelativeAssetPath = rootFolderPath || sourceDirPath
-  const contentWithRewrittenAttributes = rewriteRootRelativeAttributes(
-    sourceContent,
-    rootRelativeAssetPath,
-    convertFilePathToUrl,
+/**
+ * The preview document for `html`: every local resource reference (img/
+ * script/video/audio/source `src`, `poster`, `srcset`, and `<link href>`)
+ * inlined via `loadAsset`. References that do not load are left untouched.
+ */
+export async function buildHtmlPreviewDocument(
+  html: string,
+  loadAsset: LoadAsset,
+): Promise<string> {
+  const references = [...collectLocalReferences(html)]
+  if (references.length === 0) return html
+  const loaded = await Promise.all(
+    references.map(async (reference) => [reference, await loadAsset(reference).catch(() => null)]),
   )
-  const content = rewriteRootRelativeModuleSpecifiers(
-    contentWithRewrittenAttributes,
-    rootRelativeAssetPath,
-    convertFilePathToUrl,
+  const resolved = new Map(
+    loaded.filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
   )
-
-  return injectBaseTag(content, normalizedAssetBaseUrl)
+  return resolved.size === 0 ? html : rewriteTags(html, resolved)
 }

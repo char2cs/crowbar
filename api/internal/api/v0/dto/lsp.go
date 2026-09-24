@@ -1,6 +1,8 @@
 package dto
 
 import (
+	"encoding/json"
+
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
 )
 
@@ -12,11 +14,26 @@ type LSPPositionRequest struct {
 	Position domlsp.Position `json:"position"`
 }
 
-// LSPRangeRequest is the body for the code-action route: the file path and the
-// selection range the actions apply to.
+// LSPRangeRequest is the body for the code-action route: the file path, the
+// selection range the actions apply to, and (optionally) the LSP Diagnostics
+// in that range the actions should address.
 type LSPRangeRequest struct {
-	Path  string       `json:"path" binding:"required"`
-	Range domlsp.Range `json:"range"`
+	Path        string          `json:"path" binding:"required"`
+	Range       domlsp.Range    `json:"range"`
+	Diagnostics json.RawMessage `json:"diagnostics,omitempty"`
+}
+
+// LSPFormattingRequest is the body for the document-formatting route.
+type LSPFormattingRequest struct {
+	Path    string                   `json:"path" binding:"required"`
+	Options domlsp.FormattingOptions `json:"options"`
+}
+
+// LSPCodeLensResolveRequest is the body for the code-lens resolve route: the
+// file the lens belongs to and the raw lens to resolve.
+type LSPCodeLensResolveRequest struct {
+	Path string          `json:"path" binding:"required"`
+	Lens json.RawMessage `json:"lens" binding:"required"`
 }
 
 // LSPRenameRequest is the body for the rename route: the file path, the symbol
@@ -27,8 +44,8 @@ type LSPRenameRequest struct {
 	NewName  string          `json:"newName" binding:"required"`
 }
 
-// LSPPathRequest is the body for the path-only LSP routes (document symbol and
-// document close): the workspace-relative file path.
+// LSPPathRequest is the body for the path-only LSP routes (document symbol,
+// code lens, document save/close, restart): the workspace-relative file path.
 type LSPPathRequest struct {
 	Path string `json:"path" binding:"required"`
 }

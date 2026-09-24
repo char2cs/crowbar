@@ -82,8 +82,10 @@ type Server interface {
 	)
 	// OpenDocs returns the content-free set of currently open document URIs.
 	OpenDocs() *OpenDocs
-	// Replay respawns the underlying process and re-sends didOpen for every
-	// tracked URI.
+	// Replay respawns the underlying process, repeats the initialize
+	// handshake (when Initialize ran before) and re-sends didOpen for every
+	// tracked URI with its latest text. It is the "restart language server"
+	// operation: the pool entry, its refcount and the open documents survive.
 	Replay(
 		ctx context.Context,
 	) error
@@ -102,6 +104,7 @@ type server struct {
 	onDiag     func(lsp.DiagnosticsEvent)
 	onExit     func()
 	closed     bool
+	rootDir    string
 	openParams map[string]json.RawMessage
 
 	writeMu sync.Mutex
@@ -176,25 +179,83 @@ func (s *server) Initialize(
 	ctx context.Context,
 	rootDir string,
 ) error {
+	s.mu.Lock()
+	s.rootDir = rootDir
+	s.mu.Unlock()
+	return s.handshake(ctx, rootDir)
+}
+
+func (s *server) handshake(
+	ctx context.Context,
+	rootDir string,
+) error {
 	rootURI := convert.URIFromPath(rootDir)
 	params := map[string]any{
-		"processId": os.Getpid(),
-		"rootUri":   rootURI,
-		"capabilities": map[string]any{
-			"textDocument": map[string]any{
-				"synchronization":    map[string]any{"didSave": true},
-				"publishDiagnostics": map[string]any{"relatedInformation": true},
-			},
-			"workspace": map[string]any{"workspaceFolders": true},
-		},
-		"workspaceFolders": []any{
-			map[string]any{"uri": rootURI, "name": "root"},
-		},
+		"processId":        os.Getpid(),
+		"rootUri":          rootURI,
+		"capabilities":     clientCapabilities(),
+		"workspaceFolders": []any{map[string]any{"uri": rootURI, "name": "root"}},
 	}
 	if _, err := s.Request(ctx, "initialize", params); err != nil {
 		return fmt.Errorf("initialize: %w", err)
 	}
 	return s.Notify(ctx, "initialized", map[string]any{})
+}
+
+// clientCapabilities declares what the editor (Monaco, via the daemon's /lsp
+// routes) can consume. Servers shape their answers by it: without
+// codeActionLiteralSupport a server returns bare commands instead of edits,
+// without hierarchicalDocumentSymbolSupport a flat symbol list, without a
+// markdown contentFormat plain-text hovers.
+func clientCapabilities() map[string]any {
+	markup := []string{"markdown", "plaintext"}
+	return map[string]any{
+		"textDocument": map[string]any{
+			"synchronization":    map[string]any{"didSave": true, "dynamicRegistration": false},
+			"publishDiagnostics": map[string]any{"relatedInformation": true},
+			"hover":              map[string]any{"contentFormat": markup},
+			"completion": map[string]any{
+				"contextSupport": true,
+				"completionItem": map[string]any{
+					"snippetSupport":          true,
+					"documentationFormat":     markup,
+					"deprecatedSupport":       true,
+					"labelDetailsSupport":     true,
+					"insertReplaceSupport":    false,
+					"commitCharactersSupport": false,
+				},
+			},
+			"signatureHelp": map[string]any{
+				"contextSupport": true,
+				"signatureInformation": map[string]any{
+					"documentationFormat":    markup,
+					"activeParameterSupport": true,
+					"parameterInformation":   map[string]any{"labelOffsetSupport": true},
+				},
+			},
+			"definition":     map[string]any{"linkSupport": false},
+			"references":     map[string]any{},
+			"documentSymbol": map[string]any{"hierarchicalDocumentSymbolSupport": true},
+			"codeAction": map[string]any{
+				"isPreferredSupport": true,
+				"codeActionLiteralSupport": map[string]any{
+					"codeActionKind": map[string]any{
+						"valueSet": []string{
+							"", "quickfix", "refactor", "refactor.extract", "refactor.inline",
+							"refactor.rewrite", "source", "source.organizeImports", "source.fixAll",
+						},
+					},
+				},
+			},
+			"codeLens":   map[string]any{},
+			"formatting": map[string]any{},
+			"rename":     map[string]any{"prepareSupport": false},
+		},
+		"workspace": map[string]any{
+			"workspaceFolders": true,
+			"workspaceEdit":    map[string]any{"documentChanges": false},
+		},
+	}
 }
 
 func (s *server) OnDiagnostics(
@@ -308,6 +369,15 @@ func (s *server) Replay(
 		return fmt.Errorf("replay: spawn: %w", err)
 	}
 	s.swapTransport(transport)
+
+	s.mu.Lock()
+	rootDir := s.rootDir
+	s.mu.Unlock()
+	if rootDir != "" {
+		if err := s.handshake(ctx, rootDir); err != nil {
+			return fmt.Errorf("replay: %w", err)
+		}
+	}
 
 	for _, uri := range s.openURIs() {
 		params := s.didOpenParams(uri)
@@ -432,35 +502,82 @@ func (s *server) swapTransport(
 	go s.readLoop(transport, reader)
 }
 
+// trackDoc keeps the replay state for open documents: didOpen records the
+// params, didChange folds the new full text into them (so a restart reopens
+// what the editor holds now, not what it held at open), didClose drops them.
 func (s *server) trackDoc(
 	method string,
 	params json.RawMessage,
 ) {
-	if method != "textDocument/didOpen" && method != "textDocument/didClose" {
+	switch method {
+	case "textDocument/didOpen", "textDocument/didClose", "textDocument/didChange":
+	default:
 		return
 	}
 	var p struct {
 		TextDocument struct {
-			URI string `json:"uri"`
+			URI     string `json:"uri"`
+			Version int    `json:"version"`
 		} `json:"textDocument"`
+		ContentChanges []struct {
+			Range *json.RawMessage `json:"range"`
+			Text  string           `json:"text"`
+		} `json:"contentChanges"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return
 	}
-	if p.TextDocument.URI == "" {
+	uri := p.TextDocument.URI
+	if uri == "" {
 		return
 	}
-	if method == "textDocument/didOpen" {
-		s.docs.Add(p.TextDocument.URI)
+	switch method {
+	case "textDocument/didOpen":
+		s.docs.Add(uri)
 		s.mu.Lock()
-		s.openParams[p.TextDocument.URI] = params
+		s.openParams[uri] = params
 		s.mu.Unlock()
+	case "textDocument/didClose":
+		s.docs.Remove(uri)
+		s.mu.Lock()
+		delete(s.openParams, uri)
+		s.mu.Unlock()
+	case "textDocument/didChange":
+		// Only full-document syncs are sent; an incremental change (with a
+		// range) cannot be folded without the base text, so it is ignored.
+		if len(p.ContentChanges) != 1 || p.ContentChanges[0].Range != nil {
+			return
+		}
+		s.foldChange(uri, p.TextDocument.Version, p.ContentChanges[0].Text)
+	}
+}
+
+func (s *server) foldChange(
+	uri string,
+	version int,
+	text string,
+) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	open, ok := s.openParams[uri]
+	if !ok {
 		return
 	}
-	s.docs.Remove(p.TextDocument.URI)
-	s.mu.Lock()
-	delete(s.openParams, p.TextDocument.URI)
-	s.mu.Unlock()
+	var doc struct {
+		TextDocument map[string]any `json:"textDocument"`
+	}
+	if err := json.Unmarshal(open, &doc); err != nil || doc.TextDocument == nil {
+		return
+	}
+	doc.TextDocument["text"] = text
+	if version > 0 {
+		doc.TextDocument["version"] = version
+	}
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		return
+	}
+	s.openParams[uri] = raw
 }
 
 func marshalParams(
