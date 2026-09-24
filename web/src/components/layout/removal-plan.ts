@@ -1,12 +1,6 @@
 import { buildSidebarTree, indexSidebarTree } from './workspace-tree-utils'
-import {
-  getPostDeleteNavigationTarget,
-  EMPTY_CHATS,
-  EMPTY_FOLDERS,
-  type Chat,
-  type Folder,
-  type Repo,
-} from '@/lib/store/sidebar'
+import { type Chat, type Folder, type Repo } from '@/lib/store/sidebar'
+import { getPostDeleteNavigationTarget, EMPTY_CHATS, EMPTY_FOLDERS } from '@/lib/store/repo-tree'
 import type { RemovalDraft, RemovalEntry } from '@/lib/store/sidebar-removal'
 import type { DragSubjectBase } from '@/components/tree-dnd/drop-core'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'

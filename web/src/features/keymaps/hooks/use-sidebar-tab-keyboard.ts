@@ -8,7 +8,7 @@ import {
   SIDEBAR_TAB_CHATS,
 } from '@/features/keymaps/registry'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import type { SidebarTab } from '@/lib/store/sidebar'
+import type { SidebarTab } from '@/lib/store/sidebar-ui'
 
 // Strip order — same order as the registry and the tab bar itself.
 //

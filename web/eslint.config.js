@@ -72,7 +72,6 @@ const MAX_LINES_BASELINE = [
   'src/lib/crowbar-bridge.ts',
   'src/lib/mock/files.ts',
   'src/lib/mock/scenarios/extreme.ts',
-  'src/lib/store/sidebar.ts',
 ]
 
 // Findings that predate these rules, in areas being rewritten by the

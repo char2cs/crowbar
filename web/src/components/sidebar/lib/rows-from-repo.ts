@@ -1,10 +1,5 @@
-import {
-  EMPTY_CHATS,
-  EMPTY_FOLDERS,
-  type Chat,
-  type Repo,
-  type Workspace,
-} from '@/lib/store/sidebar'
+import { type Chat, type Repo, type Workspace } from '@/lib/store/sidebar'
+import { EMPTY_CHATS, EMPTY_FOLDERS } from '@/lib/store/repo-tree'
 import { buildSidebarTree, type SidebarTreeNode } from '@/components/layout/workspace-tree-utils'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { placeholderKind, placeholderReason } from '@/lib/workspace/placeholder'

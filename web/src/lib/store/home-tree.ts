@@ -3,7 +3,8 @@ import { wsManager } from '@/lib/ws/manager'
 import { fetchHomeChats, fetchHomeFolders, fetchRepos } from '@/lib/api'
 import { toSidebarChat, toSidebarFolder } from '@/lib/store/build-repo-tree'
 import { applyRepoPlacements, type RowPlacement } from '@/lib/store/applied-placement'
-import { EMPTY_CHATS, EMPTY_FOLDERS, type Chat, type Folder } from '@/lib/store/sidebar'
+import { type Chat, type Folder } from '@/lib/store/sidebar'
+import { EMPTY_CHATS, EMPTY_FOLDERS } from '@/lib/store/repo-tree'
 import { NON_STRUCTURAL_CHAT_KINDS } from '@/features/workspace/stores/hooks/use-workspace-agent-chats-stream'
 import {
   ensureHomeWorkspaceResolved,
