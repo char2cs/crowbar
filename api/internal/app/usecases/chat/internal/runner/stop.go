@@ -88,7 +88,7 @@ func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Ru
 	if err != nil {
 		slog.WarnContext(ctx, "agent: stop: read turn state (assuming idle)", "chat_id", chatID, "err", err)
 	}
-	if !(gentle && open && rs.interruptTurn(ctx, live)) {
+	if !gentle || !open || !rs.interruptTurn(ctx, live) {
 		rs.retire(ctx, live)
 	}
 	if !open {

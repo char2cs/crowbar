@@ -275,7 +275,7 @@ func TestRegression_UpdateRepo_AnnouncesACollaterallyShiftedHomeChat(t *testing.
 	}
 	var frames []frame
 	uc := project.New(mocks.NewProjectStore(), repos, workspaces, mocks.NewFolderStore(), nodes, nil,
-		func(id, workspaceID string, kind domain.NodeKind, event string) {
+		func(_ context.Context, id, workspaceID string, kind domain.NodeKind, event string) {
 			frames = append(frames, frame{id, workspaceID, kind, event})
 		},
 	)

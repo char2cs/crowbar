@@ -772,11 +772,11 @@ func announceHomeRow(
 	h *hub.Hub,
 	chatSnapshots *agentusecase.ChatSnapshots,
 ) project.HomeRowAnnouncer {
-	return func(id, workspaceID string, kind domain.NodeKind, event string) {
+	return func(ctx context.Context, id, workspaceID string, kind domain.NodeKind, event string) {
 		if kind == domain.NodeKindChat {
 			// A versioned snapshot, like every other chat frame: its placement
 			// is read from the Node this write just moved.
-			chatSnapshots.Announce(context.Background(), id, event)
+			chatSnapshots.Announce(ctx, id, event)
 			return
 		}
 		h.BroadcastAgentChatFolder(id, workspaceID, event)

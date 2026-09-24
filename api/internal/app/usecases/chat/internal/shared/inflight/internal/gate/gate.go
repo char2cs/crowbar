@@ -99,14 +99,7 @@ func (g *Gate) acquire(
 
 	park, cancel := context.WithCancelCause(ctx)
 	g.mu.Lock()
-	if preempt {
-		e.preempting--
-	} else {
-		e.park = cancel
-		if e.preempting > 0 {
-			cancel(ErrPreempted)
-		}
-	}
+	enterLocked(e, preempt, cancel)
 	g.mu.Unlock()
 
 	return park, func() {
@@ -120,6 +113,20 @@ func (g *Gate) acquire(
 		// preempt was already counted down on entry.
 		g.unref(key, e, false)
 	}, nil
+}
+
+// enterLocked records the caller as e's new holder. A preempting holder only retires its
+// preempt claim; an ordinary holder publishes its park cancel so a later Preempt can reach
+// it, and is parked at once if a preempt is already waiting. Caller holds g.mu.
+func enterLocked(e *entry, preempt bool, cancel context.CancelCauseFunc) {
+	if preempt {
+		e.preempting--
+		return
+	}
+	e.park = cancel
+	if e.preempting > 0 {
+		cancel(ErrPreempted)
+	}
 }
 
 // Lock blocks until key's gate is free and returns the release func. It
