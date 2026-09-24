@@ -99,7 +99,7 @@ func (m *vtModel) escanStep(
 // the 8-bit C1 CSI introducer 0x9B is deliberately NOT honoured, because the emulator is fed
 // a UTF-8 byte stream where 0x9B is a valid continuation byte (e.g. '‛' U+201B = E2 80 9B),
 // and framing it as a CSI start would swallow the following bytes — the identical UTF-8
-// mis-framing class commit 94d2da39 removed from scanPartial and beginOSC excludes for the
+// mis-framing class commit 94d2da39 removed from the old partial-input scanner and beginOSC excludes for the
 // sibling 0x9D OSC introducer. Real apps emit the 7-bit ESC[ CSI form.
 func (m *vtModel) escanFromGround(
 	c byte,
@@ -301,8 +301,7 @@ func (m *vtModel) escanFromOSC(
 
 // escanFromOSCEsc resolves the byte after an ESC inside an OSC string: ESC \ is the 7-bit ST
 // terminator and commits the string; any other byte means that ESC was not a terminator, so
-// the scanner returns to the string and treats the byte as content (matching the pending-input
-// framing). A lone ESC is never itself appended, so it cannot corrupt the captured title.
+// the scanner returns to the string and treats the byte as content. A lone ESC is never itself appended, so it cannot corrupt the captured title.
 func (m *vtModel) escanFromOSCEsc(
 	c byte,
 ) {

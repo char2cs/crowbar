@@ -4,8 +4,8 @@
 // depends on a specific emulator.
 //
 // The TerminalModel interface is the SESSION-facing surface: the session feeds raw
-// PTY bytes in (Write/Resize/OnForegroundReset), asks for size/title/teardown, and
-// reads the mid-sequence attach-boundary bytes via PendingInput. The Serializer
+// PTY bytes in (Write/Resize/OnForegroundReset) and asks for size/title/teardown. The
+// Serializer
 // reads a far wider surface (visible grid cells, cursor, alt-screen flag, scrollback,
 // and the shadow private-mode/cursor/colour state) but does so ONLY against its
 // paired concrete model inside this package, never through the session-facing
@@ -84,12 +84,6 @@ type TerminalModel interface {
 	// process group returns to the shell so a later Serialize cannot leak stale modes
 	// into an idle prompt. Idempotent.
 	OnForegroundReset()
-
-	// PendingInput returns the raw bytes of any incomplete escape/control sequence the
-	// parser is currently mid-way through buffering, or an empty slice when the parser
-	// is in ground state. Attach appends it after the clean redraw so a freshly
-	// attached client re-syncs to the live mid-sequence boundary. It is a pure read.
-	PendingInput() []byte
 
 	// Title returns the current window title (last OSC 0/2 text), or "" if unset.
 	Title() string

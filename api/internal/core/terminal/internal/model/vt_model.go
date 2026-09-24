@@ -9,8 +9,6 @@ import (
 	"github.com/charmbracelet/x/vt"
 )
 
-const maxPendingPartial = 4096
-
 // bytesPerCell is the conservative per-cell resident-size estimate (rune + style +
 // link) used by ModelBytes for the engine's memory-ceiling accounting.
 const bytesPerCell = 16
@@ -45,7 +43,6 @@ type vtModel struct {
 	degraded        bool
 	parsePanics     int
 	altDesyncWarned bool
-	pendingPartial  []byte
 
 	// In-Write SCS / SI-SO / DECSTBM / OSC-title scanner state (escan.go). The pinned x/vt
 	// commit surfaces none of charset, locking-shift, or scroll-region through vt.Callbacks
@@ -246,9 +243,8 @@ func (m *vtModel) applyThemeColorsLocked() {
 // Write feeds a chunk to the emulator. The chunk is first passed through stripOSCTitles
 // (osc_strip.go), which removes OSC 0/1/2 (icon/title) sequences so x/vt never mis-prints a
 // UTF-8 title carrying an embedded 0x9C into its grid; the title is still captured, whole and
-// UTF-8-transparently, by scanCharsetAndRegion below. scanCharsetAndRegion and
-// trackPendingPartial run over the RAW chunk (title capture and partial-input framing must see
-// the unstripped stream); only the EMULATOR is fed the stripped bytes.
+// UTF-8-transparently, by scanCharsetAndRegion below. scanCharsetAndRegion runs over
+// the RAW chunk (title capture must see the unstripped stream); only the EMULATOR is fed the stripped bytes.
 //
 // On a parse panic — x/vt is an untagged emulator
 // fed arbitrary PTY bytes and buffers parser state across writes — the emulator is
@@ -277,11 +273,9 @@ func (m *vtModel) Write(
 		m.recreateEmu(c, rr)
 		m.degraded = true
 		m.parsePanics++
-		m.pendingPartial = nil
 	}()
 	m.emu.Write(m.stripOSCTitles(p))
 	m.scanCharsetAndRegion(p)
-	m.trackPendingPartial(p)
 }
 
 // recreateEmu replaces the emulator with a fresh, blank one at cols x rows after a
@@ -358,8 +352,7 @@ func (m *vtModel) Resize(
 // truth), so clearing only the shadow flag would leave x/vt physically in the alt buffer
 // and a later Serialize would re-emit ?1049h plus the stale alt grid into the idle prompt.
 //
-// The teardown is fed via m.emu.Write (NOT m.Write): it must not be tracked as pending
-// partial input nor re-scanned by the charset/region escan — it is a model-internal
+// The teardown is fed via m.emu.Write (NOT m.Write): it must not be re-scanned by the charset/region escan — it is a model-internal
 // correction, never raw PTY output. resetTransientModes() is kept as a belt-and-braces
 // guard against a missing callback. Both halves are idempotent, so firing on every
 // app->shell edge (including a clean exit that already emitted its own resets) is safe.
@@ -376,10 +369,6 @@ func (m *vtModel) OnForegroundReset() {
 	// a property of the host terminal, not the app, and a fresh app should still detect
 	// them.)
 	m.themeNotify = false
-}
-
-func (m *vtModel) PendingInput() []byte {
-	return m.pendingPartial
 }
 
 func (m *vtModel) Title() string {
@@ -467,34 +456,4 @@ func (m *vtModel) Degraded() bool {
 
 func (m *vtModel) ParsePanics() int {
 	return m.parsePanics
-}
-
-// trackPendingPartial maintains the raw bytes of the incomplete escape/control sequence
-// at the end of the cumulative stream, for the mid-sequence attach re-sync. It seeds a
-// minimal ECMA-48 escape-framing scanner with the carried partial bytes and the new
-// chunk, then keeps only the trailing in-flight sequence (nil in ground state). A
-// still-incomplete sequence longer than maxPendingPartial is dropped (the accepted,
-// self-healing residual).
-//
-// The retained tail is required to START WITH ESC (0x1B): scanPartial is UTF-8-transparent
-// and its sole introducer is the 7-bit ESC, so a genuine partial always leads with ESC.
-// This final guard is defence-in-depth — it guarantees Attach can never concatenate a
-// printable-leading multi-command run onto the clean serialize even if the scanner framing
-// were to regress. A tail that fails it is dropped (treated as ground); the app's next
-// repaint re-syncs the client.
-func (m *vtModel) trackPendingPartial(
-	p []byte,
-) {
-	combined := p
-	if len(m.pendingPartial) > 0 {
-		combined = make([]byte, 0, len(m.pendingPartial)+len(p))
-		combined = append(combined, m.pendingPartial...)
-		combined = append(combined, p...)
-	}
-	tail := scanPartial(combined)
-	if len(tail) == 0 || len(tail) > maxPendingPartial || tail[0] != 0x1b {
-		m.pendingPartial = nil
-		return
-	}
-	m.pendingPartial = append([]byte(nil), tail...)
 }

@@ -45,7 +45,6 @@ func (m *fakeModel) Resize(cols, rows int) {
 }
 
 func (m *fakeModel) OnForegroundReset()                 {}
-func (m *fakeModel) PendingInput() []byte               { return nil }
 func (m *fakeModel) Title() string                      { return "" }
 func (m *fakeModel) Cols() int                          { return m.cols }
 func (m *fakeModel) Rows() int                          { return m.rows }

@@ -329,7 +329,6 @@ type degradedModel struct{ cols, rows int }
 func (m *degradedModel) Write([]byte)                       {}
 func (m *degradedModel) Resize(c, r int)                    { m.cols, m.rows = c, r }
 func (m *degradedModel) OnForegroundReset()                 {}
-func (m *degradedModel) PendingInput() []byte               { return nil }
 func (m *degradedModel) Title() string                      { return "" }
 func (m *degradedModel) Cols() int                          { return m.cols }
 func (m *degradedModel) Rows() int                          { return m.rows }
