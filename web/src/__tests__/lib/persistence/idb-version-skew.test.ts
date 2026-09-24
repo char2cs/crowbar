@@ -116,15 +116,15 @@ describe('a database at the right version but missing a store', () => {
         for (const name of ENTITY_STORES) {
           if (name !== 'crowbar_folders') db.createObjectStore(name, { keyPath: 'id' })
         }
-        db.createObjectStore('ui-preferences')
+        db.createObjectStore('sidebar-ui')
       },
     })
-    await partial.put('ui-preferences', { theme: 'dark' }, 'prefs')
+    await partial.put('sidebar-ui', { collapsedChatRows: ['c1'] }, 'global')
     await partial.put('crowbar_repos', { id: 'r1', projectId: 'p1', name: 'myrepo' })
     partial.close()
 
     const db = await getDB()
-    expect(await db.get('ui-preferences', 'prefs')).toEqual({ theme: 'dark' })
+    expect(await db.get('sidebar-ui', 'global')).toMatchObject({ collapsedChatRows: ['c1'] })
     expect(await db.get('crowbar_repos', 'r1')).toMatchObject({ name: 'myrepo' })
   })
 })

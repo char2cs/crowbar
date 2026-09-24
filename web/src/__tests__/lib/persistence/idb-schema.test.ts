@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest'
+import { openDB } from 'idb'
+import { IDBFactory } from 'fake-indexeddb'
 import { getDB, resetDB } from '@/lib/persistence/idb'
 
 beforeEach(() => {
+  globalThis.indexedDB = new IDBFactory()
   resetDB()
 })
 
@@ -27,6 +30,32 @@ describe('idb schema v5', () => {
     await db.put('git-data', { key: '/repo', data: { n: 1 }, fetchedAt: 42 })
     const rec = await db.get('git-data', '/repo')
     expect(rec?.fetchedAt).toBe(42)
+  })
+})
+
+describe('idb schema v10', () => {
+  const RETIRED = ['ui-preferences', 'workspace-hierarchy']
+
+  it('never leaves the retired stores in a fresh database', async () => {
+    const db = await getDB()
+    for (const name of RETIRED) expect(Array.from(db.objectStoreNames)).not.toContain(name)
+  })
+
+  it('drops them from an existing v9 database and keeps everything else', async () => {
+    const v9 = await openDB('crowbar', 9, {
+      upgrade(db) {
+        for (const name of RETIRED) db.createObjectStore(name)
+        db.createObjectStore('sidebar-ui')
+      },
+    })
+    await v9.put('ui-preferences', { theme: 'dark' }, 'global')
+    await v9.put('sidebar-ui', { collapsedChatRows: ['c1'] }, 'global')
+    v9.close()
+
+    const db = await getDB()
+    expect(db.version).toBeGreaterThanOrEqual(10)
+    for (const name of RETIRED) expect(Array.from(db.objectStoreNames)).not.toContain(name)
+    expect(await db.get('sidebar-ui', 'global')).toMatchObject({ collapsedChatRows: ['c1'] })
   })
 })
 
