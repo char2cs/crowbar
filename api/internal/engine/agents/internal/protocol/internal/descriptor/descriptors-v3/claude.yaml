@@ -380,7 +380,7 @@ effort:
   strategy: restart_tui
   apply:
     - pass_arg: { arg: "--effort", value: "{effort}" }
-config_injection:
+hooks_injection:
   # PermissionRequest/Elicitation carry an explicit timeout: they're the two
   # hooks Crowbar HOLDS OPEN while a human decides, and an overrun is KILLED
   # rather than abandoned.

@@ -519,7 +519,7 @@ func chatSnapshotEvent(f agentusecase.ChatSnapshotFrame) dto.AgentChatEvent {
 		return ev
 	}
 	chat := dto.AgentChatDTOFrom(s.Chat, dto.ChatSnapshotRuntime(s.Live, s.Phase, s.Version,
-		s.TerminalWait, s.AttachedSessionID, s.HasLiveAPIConnection), nil)
+		s.TerminalWait, s.AttachedSessionID, s.Session), nil)
 	ev.Chat = &chat
 	return ev
 }

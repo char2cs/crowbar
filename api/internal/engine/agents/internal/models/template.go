@@ -1,6 +1,9 @@
 package models
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+)
 
 type TemplateCtx struct {
 	Tmp string
@@ -87,6 +90,7 @@ func (c TemplateCtx) Replacer() *strings.Replacer {
 		"{model}", c.Model,
 		"{effort}", c.Effort,
 		"{cwd}", c.Cwd,
+		"{cwd_json}", jsonString(c.Cwd),
 		"{crowbar_hook}", c.CrowbarHook,
 		"{crowbar_home}", c.CrowbarHome,
 
@@ -104,4 +108,14 @@ func (c TemplateCtx) Replacer() *strings.Replacer {
 		pairs = append(pairs, "{permission."+k+"}", v)
 	}
 	return strings.NewReplacer(pairs...)
+}
+
+// jsonString is s as a quoted JSON string — also a valid TOML basic string, so
+// a path can be embedded in a `-c key=<toml>` value whatever characters it has.
+func jsonString(s string) string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return `""`
+	}
+	return string(b)
 }

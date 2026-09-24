@@ -40,9 +40,9 @@ type ChatRuntime struct {
 	// stores, same reasoning as TerminalWait.
 	AttachedSessionID string
 
-	// HasLiveAPIConnection is whether the runner has an ACTIVE api-transport
-	// connection right now — see AgentChatDTOFrom's own use.
-	HasLiveAPIConnection bool
+	// Session is the supervisor's record of how the chat's session continues
+	// and how its last runner ended.
+	Session domain.AgentSession
 
 	// Version and Phase come from the chat snapshot owner: the version that
 	// orders every answer about this chat, and the lifecycle phase it is in.
@@ -57,16 +57,37 @@ func ChatSnapshotRuntime(
 	version int64,
 	wait domain.AgentTerminalWait,
 	attachedSessionID string,
-	hasLiveAPIConnection bool,
+	session domain.AgentSession,
 ) ChatRuntime {
 	return ChatRuntime{
-		LiveRunner:           live,
-		TerminalWait:         wait,
-		AttachedSessionID:    attachedSessionID,
-		HasLiveAPIConnection: hasLiveAPIConnection,
-		Version:              version,
-		Phase:                phase,
+		LiveRunner:        live,
+		TerminalWait:      wait,
+		AttachedSessionID: attachedSessionID,
+		Session:           session,
+		Version:           version,
+		Phase:             phase,
 	}
+}
+
+// AgentSessionDTO says how a chat's conversation continues (rung) and, while
+// dormant, how its last runner ended — rendered by the client, never inferred.
+type AgentSessionDTO struct {
+	Rung       string     `json:"rung,omitempty"`
+	ExitReason string     `json:"exitReason,omitempty"`
+	ExitedAt   *time.Time `json:"exitedAt,omitempty"`
+}
+
+// AgentSessionDTOFrom collapses an empty record to nil so the field is absent.
+func AgentSessionDTOFrom(s domain.AgentSession) *AgentSessionDTO {
+	if s.Rung == "" && s.ExitReason == "" {
+		return nil
+	}
+	out := &AgentSessionDTO{Rung: s.Rung, ExitReason: s.ExitReason}
+	if !s.ExitedAt.IsZero() {
+		at := s.ExitedAt
+		out.ExitedAt = &at
+	}
+	return out
 }
 
 // AgentTerminalWaitDTO says a chat's CLI is blocked on a prompt Crowbar has no
@@ -210,6 +231,9 @@ type AgentChatDTO struct {
 	// Phase is the chat's lifecycle phase: dormant, starting, live, switching
 	// or stopping. The client renders it; it never infers it.
 	Phase string `json:"phase"`
+
+	// Session is how the conversation continues and why the chat is dormant.
+	Session *AgentSessionDTO `json:"session,omitempty"`
 }
 
 // AgentChatDTOFrom converts a persisted AgentChat plus its derived runtime into the
@@ -242,25 +266,16 @@ func AgentChatDTOFrom(
 		CreatedAt:        c.CreatedAt,
 		Version:          rt.Version,
 		Phase:            rt.Phase,
+		Session:          AgentSessionDTOFrom(rt.Session),
 	}
 	if rt.LiveRunner != nil {
 		out.LiveRunnerID = rt.LiveRunner.ID
 		out.TerminalSessionID = rt.LiveRunner.TerminalSession
 		out.LaunchModel = rt.LiveRunner.LaunchModel
 		out.LaunchEffort = rt.LiveRunner.LaunchEffort
-		switch {
-		// A live native-view session overrides the runner's own — it is what the
-		// user switched to, not the redundant hooks-only PTY an api-transport
-		// spawn still forks alongside it (a separate, known gap).
-		case rt.AttachedSessionID != "":
+		// The native view the user switched to is the runner's process now.
+		if rt.AttachedSessionID != "" {
 			out.TerminalSessionID = rt.AttachedSessionID
-		case rt.HasLiveAPIConnection:
-			// The runner's own TerminalSession IS the disconnected companion PTY
-			// while a live api connection is up — never a view to hand the
-			// frontend. Confirmed live: reporting it let a user type into an
-			// unrelated codex session and have it silently promoted into its own
-			// new chat the moment it announced itself (MoveToNew, move.go).
-			out.TerminalSessionID = ""
 		}
 	}
 	out.TerminalWait = TerminalWaitDTOFrom(rt.TerminalWait)

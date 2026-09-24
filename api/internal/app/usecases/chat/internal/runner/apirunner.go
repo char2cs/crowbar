@@ -17,22 +17,9 @@ import (
 )
 
 // apiConnIsTheRunner reports whether runnerID's spawn has nothing left to
-// fork: its api connection came up, and no `attach` argv was rendered for the
-// PTY to carry.
-//
-// attach is rendered only for a HOTSWAP descriptor (applyAPITransport's own
-// gate) — a non-hotswap one reaches its native view solely through
-// SwitchToTerminal, once idle. So for every non-hotswap api-transport spawn
-// the PTY apiconn.go reserves for `attach` is reserved for NOTHING, and what
-// it used to get instead was the descriptor's own spawn.cmd: a full
-// interactive vendor TUI nobody drives, on a thread of its own, firing the
-// provider's entire hooks config into Crowbar from a conversation the user
-// cannot see. Measured live: 25 bare codex TUIs against 3 chats, and the
-// cross-chat promotion dto/agent.go already documents.
-//
-// A connection that never came up is NOT this case: design spec §2.2b has the
-// session degrade to hooks over that same PTY, which is then the only vendor
-// process there is.
+// fork: its api connection came up and no hotswap `attach` argv was rendered.
+// One channel per runner: a connection that came up is the whole runner; one
+// that did not leaves the PTY (over hooks) as the only process there is.
 func (rs *Runners) apiConnIsTheRunner(req forkRequest, attachArgv []string) bool {
 	return len(attachArgv) == 0 && rs.HasLiveAPIConnection(req.runnerID)
 }
@@ -127,27 +114,12 @@ func (rs *Runners) adoptAPIConn(ctx context.Context, req forkRequest) error {
 }
 
 // carryPromptOverAPIConn delivers a prompt-bearing spawn's message down the
-// connection this runner adopted INSTEAD of forking a PTY — the only carrier
-// such a runner has.
+// connection this runner adopted instead of forking a PTY — the only carrier
+// such a runner has (its rendered argv, prompt and all, is never run).
 //
-// A provider that declares restart_tui prompt delivery puts the message in the
-// spawned process's argv, so every spawn with a prompt used to be a fork. An
-// api-transport spawn whose connection comes up forks nothing (see
-// apiConnIsTheRunner above), and that plan — prompt and all — is discarded:
-// measured live, a chat handed off to a mixed-transport provider answered
-// nothing at all, recorded not even a user bubble, and left its at-most-once
-// delivery journal on "spawned" forever.
-//
-// Dispatching is the right carrier here rather than forking the PTY anyway:
-// the connection has ALREADY established (or resumed) the session, and the
-// provider allows one writer per thread — a PTY forked beside it either
-// collides with that writer or mints a brand new conversation the connection
-// knows nothing about (see apiOwnsResume, resume_injection.go, both confirmed
-// live).
-//
-// A failure FAILS THE SPAWN. There is no third carrier to fall back to, and
-// the caller turns this into the journal's "uncertain" rather than a runner
-// reported healthy with the user's message nowhere.
+// A failure FAILS THE SPAWN: there is no other carrier, and the caller turns
+// it into the journal's "uncertain" rather than a runner reported healthy with
+// the user's message nowhere.
 func (rs *Runners) carryPromptOverAPIConn(ctx context.Context, req forkRequest) error {
 	if req.promptMessage == "" {
 		return nil

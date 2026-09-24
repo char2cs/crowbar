@@ -1379,6 +1379,22 @@ mcp_injection:
 	}, serveArgv, "the serve process must carry the SAME crowbar MCP registration a hooks-attached CLI gets")
 }
 
+func TestAgent_Codex_ServeProcessReportsOverOneChannel(t *testing.T) {
+	a := get(t, "codex")
+	ctx := agents.TemplateCtx{Socket: "/tmp/s.sock", Cwd: `/work/tree "a"`, CrowbarHook: "/bin/crowbar", Tmp: t.TempDir()}
+
+	serveArgv, ok := a.APIServeArgv(ctx)
+	require.True(t, ok)
+	plan, err := a.SpawnPlan(ctx, nil, nil)
+	require.NoError(t, err)
+
+	assert.NotContains(t, strings.Join(serveArgv, " "), "hooks.", "app-server must not also relay hooks")
+	assert.Contains(t, strings.Join(plan.Argv, " "), "hooks.SessionStart=", "the TUI reports over hooks")
+	assert.Contains(t, plan.Argv, `projects={"/work/tree \"a\""={trust_level="trusted"}}`,
+		"a new worktree must never park the TUI on codex's trust prompt")
+	assert.Contains(t, plan.Argv, `tui.resume_cwd="current"`)
+}
+
 // TestAgent_APIServeArgvCarriesTheSelection pins the api channel's own
 // carrier for a chat's model/effort choice. An api-transport spawn whose
 // connection comes up forks NO PTY, so the argv model.apply/effort.apply

@@ -386,18 +386,26 @@ func TestPumpAPIConn_AskEventCarriesADeliveryIDAndRepliesOverTheSocket(t *testin
 	}
 }
 
-func TestPumpAPIConn_UnansweredAskWritesNoReply(t *testing.T) {
-	wroteReply := make(chan struct{}, 1)
+// An api provider has no TUI to fall back to: an ask nobody answers from
+// Crowbar gets the descriptor's refusal, never silence that holds its turn.
+func TestPumpAPIConn_AnAskNobodyAnswersIsRefused(t *testing.T) {
+	replySeen := make(chan string, 1)
 	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
 		ask, _ := json.Marshal(map[string]any{
 			"id": 9, "method": "acme/tool/requestApproval",
 			"params": map[string]string{"tool": "shell"},
 		})
 		require.NoError(t, conn.WriteMessage(websocket.TextMessage, ask))
-		_, _, err := conn.ReadMessage()
-		if err == nil {
-			wroteReply <- struct{}{}
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			return
 		}
+		var reply struct {
+			Result json.RawMessage `json:"result"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &reply))
+		replySeen <- string(reply.Result)
+		_, _, _ = conn.ReadMessage()
 	})
 
 	agent := apiTransportTestAgent(t)
@@ -407,27 +415,15 @@ func TestPumpAPIConn_UnansweredAskWritesNoReply(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = apiConn.Close() }()
 
-	spy := &spyTurns{}
-	// A retention/wait of practically zero: the relay's declared budget expires
-	// almost immediately, so Await returns an empty stdout — "nobody answered in
-	// time" — without this test waiting out the real 270s default.
-	answers := answerdesk.New(answerdesk.DefaultRetention, nil)
-	rs := &Runners{turns: spy, answers: answers}
-	conn := &apiconn{driver: apiConn, ctx: ctx}
-	rs.pumpAPIConn("runner-1", "api-test", agent, conn)
-
-	require.Eventually(t, func() bool { return len(spy.snapshot()) == 1 }, 3*time.Second, 10*time.Millisecond)
-	// The slot is already held (spyTurns.IngestHook did it, since spy.answers is
-	// unset here it did NOT — hold it now) but never resolved; cancel ctx so
-	// awaitAndReplyOverSocket's Await returns promptly via ctx.Done() rather than
-	// this test waiting out the real answer-budget timeout.
-	answers.Hold(spy.snapshot()[0].deliveryID, answerdesk.Prompt{ChoiceID: "choice-1", ChatID: "chat-1", RunnerID: "runner-1"})
-	cancel()
+	// No slot is held: the ask reached nobody who could answer it.
+	rs := &Runners{turns: &spyTurns{}, answers: answerdesk.New(answerdesk.DefaultRetention, nil)}
+	rs.pumpAPIConn("runner-1", "api-test", agent, &apiconn{driver: apiConn, ctx: ctx})
 
 	select {
-	case <-wroteReply:
-		t.Fatal("no reply should be written for an ask nobody answered")
-	case <-time.After(300 * time.Millisecond):
+	case reply := <-replySeen:
+		assert.JSONEq(t, `{"decision":"denied","message":"No answer from Crowbar in time."}`, reply)
+	case <-ctx.Done():
+		t.Fatal("an unanswered ask must be refused, not left open")
 	}
 }
 

@@ -235,12 +235,8 @@ func (codexRunnerStore) Get(_ context.Context, id string) (engineagents.Runner, 
 	}, nil
 }
 
-// liveAPIRunners answers only HasLiveAPIConnection/HasDispatchedOverAPI —
-// every other Runners method embeds turn.Runners and panics if reached, which
-// is deliberate: this test's whole point is that a redundant hooks delivery
-// must return before touching any of them. HasDispatchedOverAPI mirrors live:
-// this fixture's "live" connection is the one that already reported the SAME
-// turn_stop, so it has genuinely dispatched something to be redundant with.
+// liveAPIRunners answers only HasLiveAPIConnection/OriginatedSession; every
+// other Runners method panics if reached.
 type liveAPIRunners struct {
 	turn.Runners
 	live bool
@@ -251,58 +247,9 @@ type liveAPIRunners struct {
 }
 
 func (r liveAPIRunners) HasLiveAPIConnection(string) bool { return r.live }
-func (r liveAPIRunners) HasDispatchedOverAPI(string) bool { return r.live }
 func (r liveAPIRunners) OriginatedSession(_, sessionID string) bool {
 	return r.originated[sessionID]
 }
-
-// TestIngestHook_DropsAHooksDeliveredCopyOfAnAPIOwnedEvent guards the bug
-// reported live 2026-08-28: while working with codex, some turns went missing
-// mid-stream and then all reappeared at once when the turn finished. Every
-// api-transport spawn also forks a real, hooks-wired companion PTY on the SAME
-// session (attach.go's own "known gap"), and that PTY's hooks fire the
-// descriptor's full hook set regardless of what TransportFor declares — so it
-// echoes turn_stop a live api connection already reported. This turn_stop hook
-// carries a runner_id whose chat this fixture wires no Chats/Activity/
-// Conversations for at all: if the redundant delivery is not recognized and
-// dropped BEFORE closeTurnFromStop runs, the call panics on a nil port instead
-// of returning cleanly.
-func TestIngestHook_DropsAHooksDeliveredCopyOfAnAPIOwnedEvent(t *testing.T) {
-	t.Parallel()
-
-	home := t.TempDir()
-	turns := turn.New(turn.Deps{
-		Runners:      codexRunnerStore{},
-		Agents:       engineagents.New(),
-		Workspace:    stubWorkspace{home: home},
-		Home:         func() (string, error) { return home, nil },
-		PendingHooks: inflight.NewHooks(),
-		Telemetry:    telemetry.New(),
-		Work:         inflight.NewWork(),
-	})
-	turns.SetRunners(liveAPIRunners{live: true})
-
-	err := turns.IngestHook(t.Context(), "runner-1", "codex", "turn_stop",
-		[]byte(`{"session_id":"s1","last_assistant_message":"the reply"}`))
-
-	require.NoError(t, err)
-}
-
-// liveButUndispatchedAPIRunners reproduces the EXACT zero-writer production
-// incident owner:'s own doc comment (spec/owner.go) and ownerDropsThisDelivery
-// (ingest.go) record: a spawn hands its opening prompt to the companion PTY,
-// the api side "covers" a turn it never carried, and codex's hooks delivery
-// of that SAME event is the turn's ONLY record. Unlike liveAPIRunners above
-// (live AND dispatched — genuinely redundant, must drop), HasDispatchedOverAPI
-// answers false here: the connection is live but has carried nothing of its
-// own.
-type liveButUndispatchedAPIRunners struct {
-	turn.Runners
-}
-
-func (liveButUndispatchedAPIRunners) HasLiveAPIConnection(string) bool      { return true }
-func (liveButUndispatchedAPIRunners) HasDispatchedOverAPI(string) bool      { return false }
-func (liveButUndispatchedAPIRunners) OriginatedSession(string, string) bool { return false }
 
 // recordingToolActivity records InvokeTool calls and answers OpenWork's own
 // reads (ToolCalls/Subagents, consulted by tool_pre's restateAsyncWork tail)
@@ -335,15 +282,8 @@ func (*recordingToolActivity) Subagents(context.Context, string) ([]domain.Activ
 	return nil, nil
 }
 
-// TestRegression_TheZeroWriterCaseCannotHappen is design spec P6b's own
-// required regression: "when the owning channel is live but has NOT been
-// dispatched to, the other channel's delivery must still be recorded." This
-// drives the FULL IngestHook pipeline (unlike ingest_internal_test.go's
-// TestRegression_ALiveButUndispatchedConnectionNeverMakesTheCompanionPTYsHooksRedundant,
-// which pins only the boolean guard) with a REAL activity recorder wired in:
-// dropping tool_pre here — codex.yaml declares it owner: api — would be the
-// data-loss bug itself, not a passing assertion.
-func TestRegression_TheZeroWriterCaseCannotHappen(t *testing.T) {
+// A hooks delivery is always recorded: no channel drops another channel's events.
+func TestIngestHook_AHooksDeliveryIsRecordedWhateverTheConnectionState(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
@@ -359,15 +299,15 @@ func TestRegression_TheZeroWriterCaseCannotHappen(t *testing.T) {
 		Telemetry:    telemetry.New(),
 		Work:         inflight.NewWork(),
 	})
-	turns.SetRunners(liveButUndispatchedAPIRunners{})
+	turns.SetRunners(liveAPIRunners{live: true})
 
 	err := turns.IngestHook(t.Context(), "runner-1", "codex", "tool_pre",
 		[]byte(`{"session_id":"s1","tool_use_id":"tool-1","tool_name":"Bash","tool_input":{"command":"echo hi"}}`))
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"tool-1"}, activity.seen(),
-		"a live-but-undispatched api connection must never make the companion PTY's hooks "+
-			"delivery look redundant — this IS the turn's only record")
+		"a hooks delivery is its turn's record "+
+			"regardless of any api connection")
 }
 
 // nativeViewRunners answers only ShowingNativeView, for the surfaceGated

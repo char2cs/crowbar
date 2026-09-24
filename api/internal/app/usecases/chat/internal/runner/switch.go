@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
-	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -259,68 +258,6 @@ func (rs *Runners) displaceForSwitch(
 		return false, err
 	}
 	return false, nil
-}
-
-func (rs *Runners) quitOutgoingCLI(
-	ctx context.Context,
-	chatID string,
-) error {
-	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if errors.Is(err, agentrunner.ErrNotFound) {
-		return nil // dormant: nothing to quit
-	}
-	if err != nil {
-		return fmt.Errorf("agent: switch provider: live runner: %w", err)
-	}
-	if err := rs.term.TerminateGraceful(ctx, live.TerminalSession); err != nil {
-		if !errors.Is(err, engineterminal.ErrSessionNotFound) {
-			// The CLI is still on its chat, and it stays there: the switch is aborted with
-			// nothing changed rather than half-done.
-			return fmt.Errorf("agent: switch provider: terminate outgoing terminal: %w", err)
-		}
-		slog.WarnContext(ctx, "agent: switch provider: outgoing terminal session already gone before terminate; continuing switch",
-			"chat_id", chatID, "runner_id", live.ID, "terminal_session_id", live.TerminalSession, "err", err)
-	}
-	// live.TerminalSession above is the ORIGINAL companion PTY every api-transport
-	// spawn forks alongside its connection — never reassigned, so it names a
-	// different, LEAKED process once SwitchToTerminal has run: that call forks a
-	// THIRD, separate PTY for the native view and tracks it only in rs.attached,
-	// exactly the one the user is actually looking at. Switching provider away
-	// from a chat mid-attach must take that one down too, and forget it here —
-	// the same gap retire() had (lifecycle.go) before its own fix, for the
-	// identical reason: SwitchToNative is otherwise the only place that ever
-	// clears rs.attached, and a chat switched away from while attached never
-	// reaches it. Best-effort, like retire()'s own: the outgoing CLI is already
-	// being torn down regardless, so a stuck attached view must not abort a
-	// switch that has already committed to happening.
-	if view, ok := rs.attached.get(live.ID); ok {
-		rs.attached.drop(live.ID)
-		if err := rs.term.TerminateGraceful(ctx, view.termSessID); err != nil &&
-			!errors.Is(err, engineterminal.ErrSessionNotFound) {
-			slog.WarnContext(ctx, "agent: switch provider: terminate attached native view (best-effort, continuing)",
-				"runner_id", live.ID, "terminal_session_id", view.termSessID, "err", err)
-		}
-	}
-	// An api-transport runner's serve process is NOT the terminal session above —
-	// it is a separate background process (apiconn.go's forkServeProcess), never a
-	// PTY, for exactly the hotswap:false shape codex declares: no attach at spawn,
-	// so no PTY ever exists to take it down on exit. onRunnerExit's own drop only
-	// fires from a PTY dying, which never happens here — confirmed live as a
-	// process leak: every switch away from codex left its serve process running,
-	// and dozens accumulated over one session. Safe to call unconditionally; it is
-	// a no-op for the hooks-only common case (claude) and for a codex runner
-	// already torn down some other way.
-	rs.apiConns.drop(live.ID)
-	// A failed displace ABORTS the switch, and this is the one teardown where it must: the
-	// caller's very next act is to spawn the incoming CLI, so continuing would place a
-	// second runner on a chat the first one is still recorded on — the two-live-CLIs state
-	// this whole model exists to make unrepresentable. Aborting is cheap here and costs the
-	// user nothing they cannot get back: the outgoing CLI is already dead or dying, so the
-	// chat simply drops to dormant when its PTY goes, and Resume revives it.
-	if err := rs.displace(ctx, live); err != nil {
-		return fmt.Errorf("agent: switch provider: %w", err)
-	}
-	return nil
 }
 
 // sessionAnnounceCrashWindow bounds how recently a conversation must have been

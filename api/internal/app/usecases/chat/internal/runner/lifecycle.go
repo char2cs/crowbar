@@ -7,13 +7,13 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
 	asynxModels "github.com/char2cs/asynx/models"
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
-	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
@@ -146,6 +146,7 @@ func (rs *Runners) ReconcileRunnersOnBoot(
 		}
 		rs.reconcilePromptRunnerDeparture(ctx, r, r.CurrentChatID)
 		rs.reapCrashOrphanRunnerTmp(ctx, r)
+		rs.noteChatExit(ctx, abandoned, domain.AgentExitDaemonRestart)
 
 		// Close the turn it died in the middle of. Turn state has never been durable truth
 		// (domain.Chat.Working is documented as reconciled, not authoritative — a CLI
@@ -188,6 +189,7 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
 			slog.WarnContext(ctx, "agent: reconcile runner exit: get runner", "runner_id", runnerID, "err", err)
 		}
 		// Already exited (a double exit is not an error — the row is simply gone).
+		rs.sessions.takeCause(runnerID)
 		return
 	}
 	rs.reconcilePromptRunnerDeparture(ctx, runner, runner.CurrentChatID)
@@ -195,6 +197,7 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
 		slog.WarnContext(ctx, "agent: reconcile runner exit: exit runner", "runner_id", runnerID, "err", err)
 		return
 	}
+	rs.noteExit(ctx, runner.CurrentChatID, runnerID)
 
 	// Close a turn it left open — unless it had already been DISPLACED, in which case its
 	// chat (if it still had a turn to close) was dealt with at displacement time and
@@ -215,48 +218,7 @@ func (rs *Runners) RetireChatRunners(
 	for _, r := range placed {
 		rs.retire(ctx, r)
 	}
-}
-
-func (rs *Runners) retire(
-	ctx context.Context,
-	runner agents.Runner,
-) {
-	if err := rs.displace(ctx, runner); err != nil {
-		// Best-effort: the runner is still on its chat, so its own exit will close any turn
-		// it leaves open. We still kill it.
-		slog.ErrorContext(ctx, "agent: retire runner: displace (best-effort, continuing)",
-			"runner_id", runner.ID, "chat_id", runner.CurrentChatID, "err", err)
-	}
-	if err := rs.term.TerminateGraceful(ctx, runner.TerminalSession); err != nil &&
-		!errors.Is(err, engineterminal.ErrSessionNotFound) {
-		slog.WarnContext(ctx, "agent: retire runner: terminate (best-effort, continuing)",
-			"runner_id", runner.ID, "terminal_session_id", runner.TerminalSession, "err", err)
-	}
-	// runner.TerminalSession above is the ORIGINAL companion PTY every
-	// api-transport spawn forks alongside its connection — never reassigned,
-	// so it names a different, LEAKED process once SwitchToTerminal has run:
-	// that call forks a THIRD, separate PTY for the native view and tracks it
-	// only in rs.attached, exactly the one the user is actually looking at.
-	// Retiring a chat that is mid-attach must take that one down too, and
-	// forget it here — SwitchToNative is the only other place that ever does,
-	// and a chat closed while attached never reaches it. Confirmed live: without
-	// this, closing an attached chat killed the long-abandoned companion PTY,
-	// left the real, visible native-view process running forever with nothing
-	// pointing at it, and left rs.attached answering AttachedTerminalSession for
-	// a runner id nothing will ever revisit.
-	if view, ok := rs.attached.get(runner.ID); ok {
-		rs.attached.drop(runner.ID)
-		if err := rs.term.TerminateGraceful(ctx, view.termSessID); err != nil &&
-			!errors.Is(err, engineterminal.ErrSessionNotFound) {
-			slog.WarnContext(ctx, "agent: retire runner: terminate attached native view (best-effort, continuing)",
-				"runner_id", runner.ID, "terminal_session_id", view.termSessID, "err", err)
-		}
-	}
-	// See quitOutgoingCLI's own comment: an api-transport runner's serve process
-	// is not the terminal session above, has no PTY to take it down on exit, and
-	// is otherwise leaked forever. Retire (Stop) is the other path a runner
-	// permanently leaves a chat through.
-	rs.apiConns.drop(runner.ID)
+	rs.sessions.forget(chatID) // the chat is being erased (A7)
 }
 
 func (rs *Runners) reapCrashOrphanRunnerTmp(

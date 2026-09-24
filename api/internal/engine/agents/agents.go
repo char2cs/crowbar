@@ -179,10 +179,6 @@ type Agent interface {
 	// through this interface, never through *spec.Descriptor by name.
 	TransportFor(canonical string) string
 
-	// EventOwner is spec.Descriptor.EventOwner, exposed the same narrow way —
-	// api|hooks|either (design spec P6b tag 1).
-	EventOwner(canonical string) string
-
 	// EventSurfaces is spec.Descriptor.EventSurfaces, exposed the same narrow
 	// way (design spec P6b tag 2).
 	EventSurfaces(canonical string) []string
@@ -603,24 +599,9 @@ func (a *agent) StartAPIConn(
 	return protocol.StartAPIDriver(ctx, a.spec, socketPath, origin)
 }
 
-// APIServeArgv carries the SAME MCPInject/ConfigInjection steps
-// APIAttachArgv's sibling SpawnPlan applies to a hooks-attached CLI — a
-// provider's own MCP server is a fact about the provider, not about which of
-// its processes happens to be talking to Crowbar right now (see spawn.Inject).
-// Without this, an api-transport serve process is never told Crowbar's tools
-// exist at all: confirmed live against codex-cli 0.149.1, whose thread/start
-// started only the servers config.toml already knew about, never crowbar's.
-//
-// A failed injection degrades to ok=false, same as no declared serve argv at
-// all: the caller already knows that means "run this provider over hooks
-// alone" (design spec §2.2b), which is the right answer here too rather than
-// serving with tools silently missing.
-//
-// It also carries the chat's MODEL/EFFORT choice (model.api_apply /
-// effort.api_apply), rendered from the same ctx.Model/ctx.Effort a forked
-// PTY's own apply: steps read. This process is the only carrier a PTY-less
-// spawn has: without it the choice was built into a plan nobody ran and the
-// chat silently reverted to the provider's default for good.
+// APIServeArgv is the api-transport `serve` argv: MCP + session config (never
+// hook wiring — spawn.InjectServe) plus the chat's model/effort via api_apply,
+// since this process is the only carrier a PTY-less runner has.
 func (a *agent) APIServeArgv(ctx TemplateCtx) ([]string, bool) {
 	if len(a.spec.Runtime.API.Serve) == 0 {
 		return nil, false
@@ -628,7 +609,7 @@ func (a *agent) APIServeArgv(ctx TemplateCtx) ([]string, bool) {
 	argv := expandArgv(a.spec.Runtime.API.Serve, ctx)
 	plan := &SpawnPlan{Executable: argv[0], Argv: append([]string{}, argv[1:]...)}
 	sel := Selection{Model: ctx.Model, Effort: ctx.Effort}
-	if err := spawn.Inject(a.spec, ctx, plan, selection.APISteps(a.spec, sel)); err != nil {
+	if err := spawn.InjectServe(a.spec, ctx, plan, selection.APISteps(a.spec, sel)); err != nil {
 		return nil, false
 	}
 	return append([]string{plan.Executable}, plan.Argv...), true
@@ -665,10 +646,6 @@ func (a *agent) APIAttachArgv(ctx TemplateCtx) ([]string, bool) {
 
 func (a *agent) TransportFor(canonical string) string {
 	return a.spec.TransportFor(canonical)
-}
-
-func (a *agent) EventOwner(canonical string) string {
-	return a.spec.EventOwner(canonical)
 }
 
 func (a *agent) EventSurfaces(canonical string) []string {

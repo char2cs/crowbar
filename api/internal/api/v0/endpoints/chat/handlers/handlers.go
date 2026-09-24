@@ -304,10 +304,6 @@ type RunnerUsecase interface {
 	// native view right now, if it has one — see chatRuntime.
 	AttachedTerminalSession(runnerID string) (string, bool)
 
-	// HasLiveAPIConnection reports whether runnerID has a live api-transport
-	// connection right now — see chatRuntime's own use, chats.go.
-	HasLiveAPIConnection(runnerID string) bool
-
 	// TerminalWait is what the agent is blocked on that Crowbar CANNOT answer: a
 	// modal reaching the daemon through no hook, so the only way past it is the
 	// terminal. The complement of ReadPendingChoices, and deliberately not folded

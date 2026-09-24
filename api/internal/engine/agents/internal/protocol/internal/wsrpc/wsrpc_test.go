@@ -58,7 +58,7 @@ func serveOnUnixSocket(t *testing.T, serve func(*websocket.Conn)) string {
 
 func TestDialAndCall_RoundTrips(t *testing.T) {
 	sockPath := serveOnUnixSocket(t, func(conn *websocket.Conn) {
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		_, msg, err := conn.ReadMessage()
 		require.NoError(t, err)
 		var req struct {
@@ -78,7 +78,7 @@ func TestDialAndCall_RoundTrips(t *testing.T) {
 	defer cancel()
 	conn, err := wsrpc.Dial(ctx, sockPath)
 	require.NoError(t, err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	result, err := conn.Call(ctx, "initialize", map[string]any{"clientInfo": map[string]string{"name": "crowbar"}})
 	require.NoError(t, err)
@@ -87,7 +87,7 @@ func TestDialAndCall_RoundTrips(t *testing.T) {
 
 func TestCall_ServerErrorSurfacesAsAGoError(t *testing.T) {
 	sockPath := serveOnUnixSocket(t, func(conn *websocket.Conn) {
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		_, msg, err := conn.ReadMessage()
 		require.NoError(t, err)
 		var req struct {
@@ -105,7 +105,7 @@ func TestCall_ServerErrorSurfacesAsAGoError(t *testing.T) {
 	defer cancel()
 	conn, err := wsrpc.Dial(ctx, sockPath)
 	require.NoError(t, err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	_, err = conn.Call(ctx, "thread/start", map[string]any{})
 	require.Error(t, err)
@@ -114,7 +114,7 @@ func TestCall_ServerErrorSurfacesAsAGoError(t *testing.T) {
 
 func TestFrames_DeliversNotificationsAndAsksButNotOwnCallResponses(t *testing.T) {
 	sockPath := serveOnUnixSocket(t, func(conn *websocket.Conn) {
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		// A notification (no id).
 		note, _ := json.Marshal(map[string]any{
 			"method": "thread/started",
@@ -143,7 +143,7 @@ func TestFrames_DeliversNotificationsAndAsksButNotOwnCallResponses(t *testing.T)
 	defer cancel()
 	conn, err := wsrpc.Dial(ctx, sockPath)
 	require.NoError(t, err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	frame1 := <-conn.Frames()
 	require.Equal(t, "thread/started", frame1.Method)
@@ -156,9 +156,72 @@ func TestFrames_DeliversNotificationsAndAsksButNotOwnCallResponses(t *testing.T)
 	require.NoError(t, conn.Reply(frame2.ID, json.RawMessage(`{"decision":"approved"}`)))
 }
 
+// A consumer that is not draining notifications must never hold up the
+// response to one of our own calls (Stop's interrupt, a prompt's turn/start).
+func TestCall_IsAnsweredWhileNotificationsBackUp(t *testing.T) {
+	sockPath := serveOnUnixSocket(t, func(conn *websocket.Conn) {
+		defer func() { _ = conn.Close() }()
+		_, msg, err := conn.ReadMessage()
+		require.NoError(t, err)
+		var req struct {
+			ID json.RawMessage `json:"id"`
+		}
+		require.NoError(t, json.Unmarshal(msg, &req))
+		for i := 0; i < 500; i++ {
+			note, _ := json.Marshal(map[string]any{"method": "item/agentMessage/delta", "params": map[string]int{"i": i}})
+			require.NoError(t, conn.WriteMessage(websocket.TextMessage, note))
+		}
+		resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]string{}})
+		require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
+		_, _, _ = conn.ReadMessage() // hold the connection until the client leaves
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := wsrpc.Dial(ctx, sockPath)
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+
+	_, err = conn.Call(ctx, "turn/interrupt", map[string]any{})
+	require.NoError(t, err, "the response must not queue behind undelivered notifications")
+
+	first := <-conn.Frames()
+	require.Equal(t, "item/agentMessage/delta", first.Method, "nothing read is lost")
+	require.False(t, conn.Overflowed())
+}
+
+// Past its bound the mailbox does not grow without limit: the connection is
+// closed and reports why, so its runner ends with a recorded cause.
+func TestFrames_OverflowClosesTheConnection(t *testing.T) {
+	sockPath := serveOnUnixSocket(t, func(conn *websocket.Conn) {
+		defer func() { _ = conn.Close() }()
+		for i := 0; i < 50; i++ {
+			note, _ := json.Marshal(map[string]any{"method": "item/agentMessage/delta", "params": map[string]int{"i": i}})
+			if conn.WriteMessage(websocket.TextMessage, note) != nil {
+				return
+			}
+		}
+		_, _, _ = conn.ReadMessage()
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := wsrpc.Dial(ctx, sockPath, wsrpc.WithMaxQueued(10))
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+
+	// Nothing drains until the mailbox has overflowed.
+	require.Eventually(t, conn.Overflowed, 3*time.Second, 5*time.Millisecond)
+	delivered := 0
+	for range conn.Frames() {
+		delivered++
+	}
+	require.LessOrEqual(t, delivered, 1, "an overflow drops what was queued and closes the stream")
+}
+
 func TestNotify_SendsNoID(t *testing.T) {
 	sockPath := serveOnUnixSocket(t, func(conn *websocket.Conn) {
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		_, msg, err := conn.ReadMessage()
 		require.NoError(t, err)
 		var frame map[string]json.RawMessage
@@ -172,7 +235,7 @@ func TestNotify_SendsNoID(t *testing.T) {
 	defer cancel()
 	conn, err := wsrpc.Dial(ctx, sockPath)
 	require.NoError(t, err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	require.NoError(t, conn.Notify("turn/interrupt", map[string]string{"threadId": "t1"}))
 }

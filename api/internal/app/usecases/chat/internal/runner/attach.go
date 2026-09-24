@@ -66,13 +66,8 @@ func (r *attachRegistry) drop(runnerID string) {
 	delete(r.byRun, runnerID)
 }
 
-// AttachedTerminalSession answers the one question the read side needs: does
-// runnerID currently have a native-view PTY live, and if so which terminal
-// session IS it. A chat's own TerminalSession (the durable, event-sourced
-// field) is unrelated while this is set — the redundant hooks-only PTY every
-// api-transport spawn still forks (a separate, known gap) is NOT what a user
-// who switched to the native view is looking at, and must not be what the
-// chat DTO reports while they are.
+// AttachedTerminalSession is the terminal session runnerID's native view IS,
+// while it has one — what the chat DTO reports instead of the runner's row.
 func (rs *Runners) AttachedTerminalSession(runnerID string) (string, bool) {
 	view, ok := rs.attached.get(runnerID)
 	if !ok {
@@ -111,14 +106,8 @@ var ErrNoNativeTerminal = fmt.Errorf("agent: provider has no native terminal to 
 var ErrTurnInProgress = fmt.Errorf("agent: provider cannot hand a live turn to its native view: %w", apperr.ErrConflict)
 
 // ErrNativeViewNotYetAvailable is SwitchToTerminal's refusal for a session
-// that has never completed a turn: codex's own `codex resume {id}` (this
-// capability's attach mechanism) needs a flushed rollout to load, and codex
-// writes nothing for a thread until a turn completes. Attempting it anyway
-// forks a process that dies within milliseconds — and with nothing catching
-// that, the chat's terminal session silently fell back to the disconnected
-// companion PTY every api-transport spawn still forks alongside a live
-// connection (see the DTO fix in agent.go), not an error a caller could see.
-// Confirmed live.
+// that has never completed a turn: the attach resume needs a flushed rollout,
+// and a provider writes none until a turn completes.
 var ErrNativeViewNotYetAvailable = fmt.Errorf("agent: provider has no completed turn yet to show its native view of: %w", apperr.ErrConflict)
 
 // SwitchToTerminal hands chatID's live turn over to its provider's own native

@@ -18,6 +18,13 @@ type Descriptor struct {
 
 	ConfigInjection []InjectStep `yaml:"config_injection"`
 
+	// HooksInjection wires the provider's hook relay (`crowbar hook <event>`).
+	// It is applied ONLY to a process whose delivery channel is hooks — a PTY
+	// — never to an api-transport `serve` process: a process reports over
+	// exactly one channel, so an event can never arrive twice (sessions spec
+	// §2.3).
+	HooksInjection []InjectStep `yaml:"hooks_injection"`
+
 	MCPInject []InjectStep `yaml:"mcp_injection"`
 
 	ContextInject []InjectStep `yaml:"context_inject"`

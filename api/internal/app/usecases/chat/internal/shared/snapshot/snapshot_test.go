@@ -42,7 +42,7 @@ func (r *runtime) Phase(chatID string) string {
 }
 func (*runtime) TerminalWait(string) domain.AgentTerminalWait  { return domain.AgentTerminalWait{} }
 func (*runtime) AttachedTerminalSession(string) (string, bool) { return "", false }
-func (*runtime) HasLiveAPIConnection(string) bool              { return false }
+func (*runtime) Session(string) domain.AgentSession            { return domain.AgentSession{} }
 
 type recorder struct {
 	mu     sync.Mutex

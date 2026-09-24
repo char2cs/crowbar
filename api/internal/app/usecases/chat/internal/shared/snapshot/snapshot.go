@@ -54,9 +54,10 @@ type Snapshot struct {
 	Phase   string
 	Version int64
 
-	TerminalWait         domain.AgentTerminalWait
-	AttachedSessionID    string
-	HasLiveAPIConnection bool
+	TerminalWait      domain.AgentTerminalWait
+	AttachedSessionID string
+	// Session is why the chat's vendor session is in the state it is.
+	Session domain.AgentSession
 }
 
 // Reader is the read model the owner falls back to for a chat no event has
@@ -73,7 +74,7 @@ type Runtime interface {
 	Phase(chatID string) string
 	TerminalWait(chatID string) domain.AgentTerminalWait
 	AttachedTerminalSession(runnerID string) (string, bool)
-	HasLiveAPIConnection(runnerID string) bool
+	Session(chatID string) domain.AgentSession
 }
 
 // Frame is one published change: the snapshot, the event kind that caused it,
@@ -255,19 +256,6 @@ func (s *Snapshots) Announce(ctx context.Context, chatID, kind string) {
 	s.emitChatLocked(ctx, chatID, kind, "")
 }
 
-// TouchRunner publishes a fresh snapshot of the chat runnerID is placed on,
-// for a change to that runner's in-memory process state (its api connection,
-// its native view). A runner on no chat changes nothing a client sees.
-func (s *Snapshots) TouchRunner(ctx context.Context, runnerID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	rs, ok := s.runners[runnerID]
-	if !ok || rs.runner.CurrentChatID == "" {
-		return
-	}
-	s.emitChatLocked(ctx, rs.runner.CurrentChatID, KindSnapshot, runnerID)
-}
-
 // Get returns chatID's current snapshot without advancing its version.
 func (s *Snapshots) Get(ctx context.Context, chatID string) (Snapshot, error) {
 	s.mu.Lock()
@@ -354,9 +342,9 @@ func (s *Snapshots) buildLocked(ctx context.Context, chatID string, st *chatStat
 	if s.runtime != nil {
 		snap.Phase = s.runtime.Phase(chatID)
 		snap.TerminalWait = s.runtime.TerminalWait(chatID)
+		snap.Session = s.runtime.Session(chatID)
 		if snap.Live != nil {
 			snap.AttachedSessionID, _ = s.runtime.AttachedTerminalSession(snap.Live.ID)
-			snap.HasLiveAPIConnection = s.runtime.HasLiveAPIConnection(snap.Live.ID)
 		}
 	}
 	if snap.Phase == "" {

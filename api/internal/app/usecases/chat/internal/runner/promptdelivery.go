@@ -106,10 +106,6 @@ func (rs *Runners) resolvePromptDelivery(
 	if _, resumable := descriptor.ResumeArg(); !resumable {
 		return promptDelivery{}, ErrPromptUnsupported
 	}
-	// The full native resume argv, unsuppressed: spawnRunner drops it if and only
-	// if the replacement's OWN api connection comes up and resumes the session
-	// (apiResumes). Deciding it here would be deciding it before that connection
-	// exists — see resume_injection.go.
 	out.resumeSteps = resumeInjectionSteps(descriptor, nativeSessionID)
 	out.launchSessionID = nativeSessionID
 	return out, nil

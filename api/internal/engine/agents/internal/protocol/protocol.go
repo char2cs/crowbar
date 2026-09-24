@@ -188,6 +188,10 @@ func (c *APIConn) Reply(askID json.RawMessage, rendered []byte) error {
 
 func (c *APIConn) Close() error { return c.drv.Close() }
 
+// Overflowed reports whether the connection closed because its consumer fell
+// too far behind (see wsrpc's mailbox).
+func (c *APIConn) Overflowed() bool { return c.drv.Overflowed() }
+
 // EstablishSession runs canonical's Fresh-or-Resume steps on this connection,
 // if it has not already — see apidriver.Driver.EstablishSession's own doc
 // comment for why a caller needs this split out from Dispatch (attach's argv

@@ -99,7 +99,7 @@ func TestInterruptTurn_ReturnsFalse_WhenDescriptorDeclaresNoInterrupt(t *testing
 	defer cancel()
 	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	rs := &Runners{
 		apiConns: newAPIConnRegistry(),
@@ -138,7 +138,7 @@ func TestInterruptTurn_SendsTheInterruptAndReturnsTrue(t *testing.T) {
 	defer cancel()
 	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	rs := &Runners{
 		apiConns: newAPIConnRegistry(),
@@ -156,4 +156,32 @@ func TestInterruptTurn_SendsTheInterruptAndReturnsTrue(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("the socket never received turn/interrupt")
 	}
+}
+
+// A provider that never answers the interrupt (a wedged turn) must not hold
+// Stop: past the bound interruptTurn reports failure and Stop retires.
+func TestInterruptTurn_IsBoundedWhenTheProviderNeverAnswers(t *testing.T) {
+	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
+		_, _, _ = conn.ReadMessage() // the interrupt, never answered
+		_, _, _ = conn.ReadMessage()
+	})
+	agent := interruptTestAgent(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	require.NoError(t, err)
+	defer func() { _ = apiConn.Close() }()
+
+	rs := &Runners{
+		apiConns:         newAPIConnRegistry(),
+		ws:               stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
+		agents:           stubAgentsForInterrupt{agent: agent},
+		interruptTimeout: 50 * time.Millisecond,
+	}
+	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
+	live := engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "interrupt-test"}
+
+	start := time.Now()
+	require.False(t, rs.interruptTurn(ctx, live))
+	require.Less(t, time.Since(start), 2*time.Second, "Stop must be bounded (invariant S4)")
 }

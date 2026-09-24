@@ -118,7 +118,6 @@ type fakeAgentUsecase struct {
 	switchToNativeCalls    []string
 	switchToNativeErr      error
 	attachedSessionID      string
-	hasLiveAPIConn         bool
 
 	compactCalls []string
 	compactErr   error
@@ -441,10 +440,6 @@ func (f *fakeAgentUsecase) SwitchToNative(
 
 func (f *fakeAgentUsecase) AttachedTerminalSession(_ string) (string, bool) {
 	return f.attachedSessionID, f.attachedSessionID != ""
-}
-
-func (f *fakeAgentUsecase) HasLiveAPIConnection(_ string) bool {
-	return f.hasLiveAPIConn
 }
 
 func (f *fakeAgentUsecase) AssembleHandoff(

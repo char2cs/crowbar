@@ -300,10 +300,6 @@ func (stubUsecase) AttachedTerminalSession(_ string) (string, bool) {
 	return "", false
 }
 
-func (stubUsecase) HasLiveAPIConnection(_ string) bool {
-	return false
-}
-
 func (stubUsecase) AssembleHandoff(
 	_ context.Context,
 	_ string,
