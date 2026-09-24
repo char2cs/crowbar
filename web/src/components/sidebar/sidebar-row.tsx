@@ -21,10 +21,7 @@ import {
 import { formatChangeCount } from '@/components/layout/format-change-count'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { performRenameRow } from '@/components/sidebar/lib/row-actions'
-import {
-  confirmPendingCreateName,
-  cancelPendingCreate,
-} from '@/components/layout/space-content-actions'
+import { confirmPendingCreateName, cancelPendingCreate } from '@/components/layout/create-actions'
 import { EditableRepoIcon } from '@/components/layout/repo-icon-mark'
 import { WorkspaceBranchIcon } from '@/components/layout/workspace-branch-icon'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'

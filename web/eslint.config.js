@@ -10,7 +10,6 @@ import globals from 'globals'
 const MAX_LINES_BASELINE = [
   'src/__tests__/components/app-sync-provider-folders.test.tsx',
   'src/__tests__/components/layout/sidebar-carousel.test.tsx',
-  'src/__tests__/components/layout/space-content-actions.test.ts',
   'src/__tests__/components/sidebar/hooks/use-sidebar-drag.test.ts',
   'src/__tests__/components/sidebar/lib/drop-actions.test.ts',
   'src/__tests__/components/sidebar/lib/row-actions.test.ts',
@@ -43,7 +42,6 @@ const MAX_LINES_BASELINE = [
   'src/__tests__/features/workspace/stores/slices/agent-chats-slice.test.ts',
   'src/__tests__/lib/persistence/hydrate.test.ts',
   'src/components/app-sync-engine.ts',
-  'src/components/layout/space-content-actions.ts',
   'src/components/sidebar/hooks/use-sidebar-drag.ts',
   'src/components/sidebar/lib/drop-actions.ts',
   'src/components/sidebar/lib/row-actions.ts',

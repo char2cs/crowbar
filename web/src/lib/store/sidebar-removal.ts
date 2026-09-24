@@ -52,7 +52,7 @@ export interface RemovalDraft {
   /**
    * '' for every kind except `chat`, where it is the workspace the DELETE
    * request is scoped through (`deleteChat`'s own contract — see
-   * `space-content-actions.ts`'s old `handleTrash`, which this supersedes).
+   * `trash-actions.ts`'s old `handleTrash`, which this supersedes).
    */
   wsId: string
   /**

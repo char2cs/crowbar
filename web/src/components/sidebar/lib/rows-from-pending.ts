@@ -48,7 +48,7 @@ const EMPTY_REPO_SCOPE: ReadonlyMap<string, string> = new Map()
  * would blank out every other repo's (and project home's) freshly-created
  * rows for its whole provisioning window — a worse regression than the
  * ghost row this mechanism exists to hide, live-reported. An entry with no
- * `repoId` (every fork/thread create, `space-content-actions.ts`) is
+ * `repoId` (every fork/thread create, `create-actions.ts`) is
  * unaffected: it keeps hiding project-wide exactly as before, since its own
  * real row can land anywhere in the panel before its placement write
  * corrects it (this function's own doc above). `rowRepoId` omitted, or a row

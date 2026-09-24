@@ -5,7 +5,7 @@ vi.mock('@/lib/persistence/sidebar-ui', () => ({
   loadSidebarUI: vi.fn().mockResolvedValue(null),
 }))
 
-import { handleTrash } from '@/components/layout/space-content-actions'
+import { handleTrash } from '@/components/layout/trash-actions'
 import {
   applyPendingRemovals,
   attachRemovalState,

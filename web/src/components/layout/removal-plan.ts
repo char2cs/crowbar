@@ -31,7 +31,7 @@ export type DropKind = 'workspace' | 'folder' | 'repo' | 'project' | 'chat'
  *
  * Formerly `components/layout/drop-rules.ts`'s type (that module's policy
  * logic went with the unified sidebar's `sidebar-drop-policy.ts`, but this
- * shape lives on: `space-content-actions.ts`'s `resolveRow` still builds one
+ * shape lives on: `open-actions.ts`'s `resolveRow` still builds one
  * per row and hands it here to plan a removal).
  */
 export interface DragSubject extends DragSubjectBase {

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { openChatRoute } = vi.hoisted(() => ({ openChatRoute: vi.fn(() => true) }))
-vi.mock('@/components/layout/space-content-actions', () => ({ openChatRoute }))
+vi.mock('@/components/layout/open-actions', () => ({ openChatRoute }))
 vi.mock('@/features/panes/lib/release-closed-chat', () => ({
   releaseClosedChat: vi.fn(async () => {}),
 }))

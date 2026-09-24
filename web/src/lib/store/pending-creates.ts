@@ -77,7 +77,7 @@ interface PendingCreatesState {
   entries: PendingCreateEntry[]
   /** Arms the naming input for a fork create. Only one is ever open at once
    *  (matching the old tree's own single `creatingChildOf`) — but THIS store
-   *  does not enforce that itself: the caller (`space-content-actions.ts`'s
+   *  does not enforce that itself: the caller (`create-actions.ts`'s
    *  `handleCreate`) cancels any other naming entry first, via
    *  `cancelPendingCreate`, which also releases the `createInFlight` lock and
    *  `armedBranchCreates` entry that entry's OWN close would otherwise leak —

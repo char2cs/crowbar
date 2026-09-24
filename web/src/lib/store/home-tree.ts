@@ -56,7 +56,7 @@ export function getHomeTree(projectId: string): HomeTree {
  * found there" as "do nothing" is exactly how a home row came to render but
  * never open, and separately never drag — both caught live, both fixed by
  * consulting this FIRST. Every caller that needs to tell a home row apart
- * from a repo one (space-content-actions.ts's `handleOpen`,
+ * from a repo one (open-actions.ts's `handleOpen`,
  * sidebar-drop-policy.ts's `allowedModes`, drop-actions.ts's `planRowDrop`)
  * shares this one implementation rather than each re-deriving the same
  * chats/folders scan.

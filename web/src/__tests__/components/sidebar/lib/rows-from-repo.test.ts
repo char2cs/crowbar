@@ -246,7 +246,7 @@ describe('rowsFromRepo — chat rows', () => {
 
   // Regression: a bubble (no `Workspace` of its own, no `chat.workspaceId`)
   // used to get `workspaceId: null` on its own row, which is what left it
-  // with nothing to open into — `space-content-actions.ts`'s
+  // with nothing to open into — `open-actions.ts`'s
   // `openableWorkspaceOf` reads exactly this field, and a click on a bubble
   // with no resolvable workspace just toggled its (childless, so invisible)
   // fold instead of ever opening a pane. It now falls back to the nearest
@@ -523,7 +523,7 @@ describe('rowsFromRepo — a branch row is identified by its owning chat', () =>
 /**
  * Task 8: the sidebar's "create workspace" affordance mints the workspace AND
  * its first chat in ONE atomic backend call (`POST .../chats
- * {ownWorktree: true}`, space-content-actions.ts's `handleCreate`).
+ * {ownWorktree: true}`, create-actions.ts's `handleCreate`).
  *
  * This used to pin that both halves rendered as TWO rows the moment they
  * landed — a `chat`-kind row for the conversation, nested under a `branch`-kind
