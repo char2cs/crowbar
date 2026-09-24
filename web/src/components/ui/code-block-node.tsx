@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 
-import { formatCodeBlock, isLangSupported } from '@platejs/code-block'
+import { formatCodeBlock, isLangSupported, resetCodeBlockDecorations } from '@platejs/code-block'
 import { Command as CommandPrimitive } from 'cmdk'
 import { BracketsCurlyIcon, CheckIcon, CopyIcon, MagnifyingGlassIcon } from '@phosphor-icons/react'
 import { type TCodeBlockElement, type TCodeSyntaxLeaf, NodeApi } from 'platejs'
@@ -11,6 +11,7 @@ import { useEditorRef, useElement, useReadOnly } from 'platejs/react'
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { onShikiLanguageReady } from '@/components/editor/plugins/shiki-lowlight'
 
 // This file is `components/ui` only by shadcn-registry convention — it is
 // already Plate/markdown-specific (it imports `platejs` types and reads
@@ -226,6 +227,19 @@ function getCodeBlockLanguageLabel(lang?: string | null) {
 export function CodeBlockElement({ showLanguageLabel = true, ...props }: CodeBlockElementProps) {
   const { editor, element } = props
   const isMermaid = element.lang === 'mermaid'
+
+  // Highlighting grammars load on demand (shiki-lowlight.ts): this block was
+  // decorated as plain text until its language landed, so drop that cached
+  // decoration and re-decorate once it has.
+  React.useEffect(() => {
+    const lang = element.lang
+    if (!lang) return
+    return onShikiLanguageReady((ready) => {
+      if (ready !== lang) return
+      resetCodeBlockDecorations(element)
+      editor.api.redecorate()
+    })
+  }, [editor, element])
 
   const codeBody = (
     <pre className="overflow-x-auto p-8 pr-4 font-mono text-sm leading-[normal] [tab-size:2] print:break-inside-avoid">
