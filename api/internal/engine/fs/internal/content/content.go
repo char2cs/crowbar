@@ -60,7 +60,7 @@ func readWithCap(
 	if err != nil {
 		return domain.FileContent{}, fmt.Errorf("content: read %s: %w", filePath, err)
 	}
-	defer f.Close() //nolint:errcheck
+	defer f.Close() //nolint:errcheck // read-only handle: a close error cannot lose data
 
 	// Read at most cap+1 bytes. If we get cap+1 bytes the file grew past the
 	// cap between Stat and Open; reject it with ErrFileTooLarge.

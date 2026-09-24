@@ -1,4 +1,4 @@
-.PHONY: dev build test test-integration bench bench-update test-coverage lint govet pr-checks missing-tests embed-web
+.PHONY: dev build test test-integration bench bench-update test-coverage lint lint-backlog govet pr-checks missing-tests embed-web
 
 embed-web:
 	@test -d ../web/dist || (echo "ERROR: web/dist not found. Run 'cd ../web && bun run build' first." && exit 1)
@@ -54,6 +54,10 @@ test-coverage:
 
 lint:
 	golangci-lint run --build-tags noEmbed ./...
+
+# The whole backlog, ignoring .golangci.yml's new-from-rev ratchet.
+lint-backlog:
+	golangci-lint run --build-tags noEmbed --new-from-rev= ./...
 
 govet:
 	go vet -tags noEmbed ./...

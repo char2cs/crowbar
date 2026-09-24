@@ -13,27 +13,44 @@ linters:
   default: none
   enable:
     - bodyclose
+    - contextcheck
+    - dupl
     - errcheck
+    - errorlint
     - exhaustive
+    - forbidigo
+    - forcetypeassert
     - funlen
     - gochecknoinits
     - gocyclo
+    - godox
     - goprintffuncname
     - gosec
     - govet
     - ineffassign
     - nakedret
     - nestif
+    - nilerr
+    - noctx
     - nolintlint
     - revive
     - rowserrcheck
     - staticcheck
+    - testifylint
+    - thelper
     - unconvert
+    - unparam
     - unused
     - whitespace
   settings:
     exhaustive:
       default-signifies-exhaustive: false
+    godox:
+      # "BUG" is left out on purpose: prose like "the bug this fixes" is not a marker.
+      keywords:
+        - TODO
+        - FIXME
+        - HACK
     funlen:
       lines: 100
       statements: 50
@@ -41,9 +58,16 @@ linters:
       min-complexity: 15
     nestif:
       min-complexity: 2
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^time\.Sleep$
+          msg: "sleeping is a race waiting to happen: wait on a channel, a context or an injected clock"
+        - pattern: ^fmt\.Print(f|ln)?$
+          msg: "internal/ code logs through slog, it never prints to stdout"
     nolintlint:
-      require-explanation: false
-      require-specific: false
+      require-explanation: true
+      require-specific: true
       allow-unused: false
     revive:
       enable-all-rules: false
@@ -59,9 +83,19 @@ linters:
           - gocyclo
         path: _test\.go
       - linters:
-          - errcheck
           - gosec
+          - dupl
         path: _test\.go
+      # Tests may sleep (e.g. to let a real clock tick past mtime granularity).
+      - linters:
+          - forbidigo
+        path: _test\.go
+        text: time\.Sleep
+      # fmt.Print* is only banned in internal/ (cmd/ and tools may print).
+      - linters:
+          - forbidigo
+        path-except: ^internal/
+        text: fmt\.Print
       - linters:
           - gosec
         text: 'G404:'
@@ -72,6 +106,10 @@ linters:
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
+  # Ratchet: only lines changed since the 2026-09-24 guardrails baseline are
+  # gated. The pre-existing backlog is reported by `make lint-backlog`; shrink
+  # it, then move this rev forward (or drop it) once the backlog is zero.
+  new-from-rev: 736450b0519dcf8850a0fad1f99c11d8fc4e8a00
   new: false
   fix: false
 severity:
@@ -82,7 +120,8 @@ formatters:
     - goimports
   settings:
     gofumpt:
-      extra-rules: true
+      extra:
+        group-params: true
     goimports:
       local-prefixes:
         - github.com/char2cs/crowbar

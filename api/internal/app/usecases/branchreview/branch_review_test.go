@@ -202,17 +202,15 @@ var _ reviewthread.ReviewThread = (*mockReviewThread)(nil)
 // --- local git engine mock ---
 
 type mockGitEngine struct {
-	RangeDiffFn      func(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error)
-	DiffAgainstRefFn func(ctx context.Context, repoPath, ref string) (gitdomain.MultiFileDiff, error)
-	ReviewFilesFn    func(ctx context.Context, repoPath, ref string, dirty []string) ([]gitdomain.ReviewFileSummary, error)
-	//nolint:lll // one field per stub method; wrapping the signature hides which method it stands in for.
+	RangeDiffFn       func(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error)
+	DiffAgainstRefFn  func(ctx context.Context, repoPath, ref string) (gitdomain.MultiFileDiff, error)
+	ReviewFilesFn     func(ctx context.Context, repoPath, ref string, dirty []string) ([]gitdomain.ReviewFileSummary, error)
 	ReviewFilePatchFn func(ctx context.Context, repoPath, ref, path string, maxLines int, w io.Writer) (int, bool, error)
 	ReviewOutlineFn   func(ctx context.Context, repoPath, ref string) ([]gitdomain.FileOutline, error)
-	//nolint:lll // one field per stub method; wrapping the signature hides which method it stands in for.
-	ReviewSearchFn func(ctx context.Context, repoPath, ref, query string, opts gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error)
-	MergeBaseFn    func(ctx context.Context, repoPath, a, b string) (string, error)
-	StatusFn       func(ctx context.Context, repoPath string) (gitdomain.GitStatus, error)
-	RevParseFn     func(ctx context.Context, repoPath, rev string) (string, error)
+	ReviewSearchFn    func(ctx context.Context, repoPath, ref, query string, opts gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error)
+	MergeBaseFn       func(ctx context.Context, repoPath, a, b string) (string, error)
+	StatusFn          func(ctx context.Context, repoPath string) (gitdomain.GitStatus, error)
+	RevParseFn        func(ctx context.Context, repoPath, rev string) (string, error)
 }
 
 func (g *mockGitEngine) RangeDiff(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error) {
@@ -441,7 +439,6 @@ func (g *mockGitEngine) WorktreeAddBranch(ctx context.Context, repoPath, worktre
 	return "", nil
 }
 
-//nolint:lll // stub signature; wrapping it hides which interface method it stands in for.
 func (g *mockGitEngine) WorktreeAddAtRef(ctx context.Context, repoPath, worktreePath, branch, startRef string) (string, error) {
 	return "", nil
 }

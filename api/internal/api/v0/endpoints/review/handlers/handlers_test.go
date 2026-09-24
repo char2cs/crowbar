@@ -32,8 +32,8 @@ func TestMain(
 type stubUsecase struct {
 	files     func(ctx context.Context, wsID, commit string) ([]gitdomain.ReviewFileSummary, error)
 	outline   func(ctx context.Context, wsID, commit string) ([]gitdomain.FileOutline, error)
-	patch     func(ctx context.Context, wsID, commit, path string, maxLines int, w io.Writer) (int, bool, error)                    //nolint:lll // one field per stub method; wrapping the signature hides which method it stands in for.
-	searchFn  func(ctx context.Context, wsID, commit, query string, opts gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error) //nolint:lll // ditto.
+	patch     func(ctx context.Context, wsID, commit, path string, maxLines int, w io.Writer) (int, bool, error)
+	searchFn  func(ctx context.Context, wsID, commit, query string, opts gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error)
 	searchErr error
 }
 
