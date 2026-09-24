@@ -83,11 +83,13 @@ func seedLegacyDormantChat(
 	return chatID, runnerID
 }
 
-// bootBackfill runs what the next boot does to a legacy row: the boot
-// reconcile, which backfills each chat's own vendor from its runner history.
+// bootBackfill runs what the upgrading boot does to a legacy row: the boot
+// reconcile, then the one-off restate of each chat's own vendor from its
+// runner history.
 func bootBackfill(t *testing.T, h *harness) {
 	t.Helper()
 	require.NoError(t, h.app.Usecases.AgentRunner.ReconcileRunnersOnBoot(t.Context()))
+	require.True(t, h.app.Usecases.AgentRunner.RestateProvidersFromHistory(t.Context()))
 	h.Quiesce()
 }
 

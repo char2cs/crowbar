@@ -182,6 +182,10 @@ func New(
 	}
 	startRestoreTerminalSessions(ctx, ucs)
 	reconcileAgentRunners(ctx, ucs)
+	// After the runner reconcile (its history is final) and before the owner
+	// reconcile (a project home created here needs an owner).
+	runUpgrades(context.WithoutCancel(ctx), crowbarHome,
+		upgradeSteps(crowbarHome, adapters.GlobalView(), repos, ucs))
 	startOwningChatReconcile(ctx, repos, ucs)
 	startTerminalWaitSweep(ctx, h, ucs)
 	startModelDiscoveryWarmup(ctx, engines, crowbarHome)

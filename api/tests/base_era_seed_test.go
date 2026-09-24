@@ -5,6 +5,8 @@ package tests
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -34,6 +37,9 @@ func openBaseEra(
 	home string,
 ) *baseEra {
 	t.Helper()
+	// Base kept no record of upgrade steps; the harness boot that set the
+	// install up did, so they are taken back out.
+	require.NoError(t, os.RemoveAll(filepath.Join(worktreepath.GlobalStateDir(home), "upgrades")))
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 	return &baseEra{t: t, adapters: adapters}

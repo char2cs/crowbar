@@ -15,18 +15,19 @@ import (
 )
 
 // §7-A target 2: domain.Chat.ProviderID is the ONE owner of "as whom does this
-// chat come back". Rows minted before the field existed are backfilled once,
-// at boot, from the runner history — after which every reader (Resume, the DTO,
-// the selection path) reads the field and nothing re-derives it.
+// chat come back". The pre-audit daemon answered it from the runner history
+// first, so on upgrade every row is restated once, at boot, to what its history
+// names — after which every reader (Resume, the DTO, the selection path) reads
+// the field and nothing re-derives it.
 
 // legacyChat is a chat row that predates the provider field, with a runner of
 // providerID once placed on it and since exited: the placement history is the
 // only thing that still names its vendor.
-func legacyChat(t *testing.T, f testFixture, providerID string) string {
+func legacyChat(t *testing.T, f testFixture, stored, providerID string) string {
 	t.Helper()
 	chatID := uuid.NewString()
 	_, err := f.chats.Create(f.ctx, agentchat.CreateInput{
-		ID: chatID, WorkspaceID: "ws1", Type: domain.ChatTypeChat, Now: time.Now(),
+		ID: chatID, WorkspaceID: "ws1", Type: domain.ChatTypeChat, ProviderID: stored, Now: time.Now(),
 	})
 	require.NoError(t, err)
 	runnerID := uuid.NewString()
@@ -38,15 +39,15 @@ func legacyChat(t *testing.T, f testFixture, providerID string) string {
 	_, err = f.runners.Exit(f.ctx, runnerID, time.Now())
 	require.NoError(t, err)
 	f.wait()
-	require.Empty(t, f.chat(t, chatID).ProviderID, "precondition: a row that predates the field")
+	require.Equal(t, stored, f.chat(t, chatID).ProviderID, "precondition: what the row stores")
 	return chatID
 }
 
 func TestBackfill_ALegacyChatLearnsItsProviderAtBoot(t *testing.T) {
 	f := newFixture(t)
-	chatID := legacyChat(t, f, "codex")
+	chatID := legacyChat(t, f, "", "codex")
 
-	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
+	require.True(t, f.usecase.RestateProvidersFromHistory(f.ctx))
 
 	assert.Equal(t, "codex", f.chat(t, chatID).ProviderID)
 	got, err := f.usecase.ResumeChat(f.ctx, chatID)
@@ -66,9 +67,22 @@ func TestBackfill_AChatThatNeverRanStaysUnknown(t *testing.T) {
 	require.NoError(t, err)
 	f.wait()
 
-	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
+	require.True(t, f.usecase.RestateProvidersFromHistory(f.ctx))
 
 	assert.Empty(t, f.chat(t, chatID).ProviderID)
 	_, err = f.usecase.ResumeChat(f.ctx, chatID)
 	require.ErrorIs(t, err, agentusecase.ErrChatProviderUnknown)
+}
+
+// A row base wrote may store one vendor while its history — which base read
+// first — names another. The history wins, as it did before the upgrade.
+func TestBackfill_AStaleStoredProviderIsRestatedToTheHistory(t *testing.T) {
+	f := newFixture(t)
+	chatID := legacyChat(t, f, "claude", "codex")
+
+	require.True(t, f.usecase.RestateProvidersFromHistory(f.ctx))
+	f.wait()
+	require.True(t, f.usecase.RestateProvidersFromHistory(f.ctx), "a second run changes nothing")
+
+	assert.Equal(t, "codex", f.chat(t, chatID).ProviderID)
 }

@@ -479,7 +479,7 @@ func TestBackfillProviders_ASwitchNewerThanTheLastConversationWins(t *testing.T)
 	require.NoError(t, f.activity.ResolveInterruption(t.Context(), chatID, "int-1",
 		engineagents.InterruptProviderSwitched, "vendor-b", time.Unix(2, 0).UTC()))
 	f.settle()
-	require.NoError(t, f.conversations.BackfillProviders(t.Context()))
+	require.True(t, f.conversations.RestateProvidersFromHistory(t.Context()))
 	f.settle()
 
 	providerID, err := f.conversations.ChatProviderID(t.Context(), chatID)

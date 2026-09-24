@@ -81,6 +81,12 @@ type ChatUsecase interface {
 		ctx context.Context,
 	) ([]domain.Chat, error)
 
+	// BackfillChatTypes records Type on every row minted before it existed. It
+	// runs once per install at boot and reports whether it finished.
+	BackfillChatTypes(
+		ctx context.Context,
+	) bool
+
 	// ListChatsByWorkspace returns one workspace's chats.
 	ListChatsByWorkspace(
 		ctx context.Context,
@@ -291,6 +297,13 @@ func (u *Usecase) ListChats(
 	ctx context.Context,
 ) ([]domain.Chat, error) {
 	return u.conversations.ListChats(ctx)
+}
+
+// BackfillChatTypes implements ChatUsecase.
+func (u *Usecase) BackfillChatTypes(
+	ctx context.Context,
+) bool {
+	return u.conversations.BackfillChatTypes(ctx)
 }
 
 // ListChatsByWorkspace returns the chats anchored to one workspace.

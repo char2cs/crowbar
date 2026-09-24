@@ -13,38 +13,46 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// BackfillProviders writes domain.Chat.ProviderID for every conversation row
-// that does not carry one yet — rows minted before the field existed — so the
-// field can be the ONE owner of "as whom does this chat come back" (spec §7-A
-// target 2). Everything after this reads the field; nothing re-derives it.
+// RestateProvidersFromHistory makes domain.Chat.ProviderID agree with the
+// runner history for every chat, once, when an install is upgraded.
 //
-// Run at boot. It costs one list read when every row already carries its
-// vendor, which after the first boot is every row that has ever had a CLI.
-// Best-effort per row: a row it cannot resolve stays unset and reads as "no
-// provider recorded", exactly as a chat that never ran.
-func (c *Conversations) BackfillProviders(ctx context.Context) error {
+// The pre-audit daemon answered "as whom does this chat come back" from that
+// history first and read the stored field only when there was none, so a row
+// it wrote may carry an empty or stale field. Every chat whose history names a
+// provider other than the stored one is restated to it; after this the field is
+// the one owner and nothing re-derives it. Best-effort per row: it reports
+// whether every row was examined, so an incomplete run is repeated next boot.
+func (c *Conversations) RestateProvidersFromHistory(ctx context.Context) bool {
 	rows, err := c.chats.ListChats(ctx)
 	if err != nil {
-		return fmt.Errorf("agent: backfill chat providers: list: %w", err)
+		slog.ErrorContext(ctx, "agent: restate chat providers: list", "err", err)
+		return false
 	}
+	complete := true
 	for _, row := range rows {
-		if row.ProviderID != "" || row.Type == domain.ChatTypeFolder {
+		if row.Type == domain.ChatTypeFolder {
 			continue
 		}
-		providerID, found, err := c.newestPlacedProvider(ctx, row.ID)
-		if err != nil {
-			slog.WarnContext(ctx, "agent: backfill chat provider (best-effort, continuing)",
+		if err := c.restateProvider(ctx, row); err != nil {
+			slog.WarnContext(ctx, "agent: restate chat provider (best-effort, continuing)",
 				"chat_id", row.ID, "err", err)
-			continue
+			complete = false
 		}
-		if !found {
-			continue
-		}
-		if _, err := c.chats.SetProvider(ctx, row.ID, providerID); err != nil &&
-			!errors.Is(err, asynxModels.ErrValidation) {
-			slog.WarnContext(ctx, "agent: backfill chat provider: set (best-effort, continuing)",
-				"chat_id", row.ID, "provider", providerID, "err", err)
-		}
+	}
+	return complete
+}
+
+func (c *Conversations) restateProvider(
+	ctx context.Context,
+	row domain.Chat,
+) error {
+	providerID, found, err := c.newestPlacedProvider(ctx, row.ID)
+	if err != nil || !found || providerID == row.ProviderID {
+		return err
+	}
+	if _, err := c.chats.SetProvider(ctx, row.ID, providerID); err != nil &&
+		!errors.Is(err, asynxModels.ErrValidation) {
+		return fmt.Errorf("set provider %q: %w", providerID, err)
 	}
 	return nil
 }

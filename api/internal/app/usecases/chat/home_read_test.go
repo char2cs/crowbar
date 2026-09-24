@@ -39,6 +39,8 @@ func (f *fakeChatUsecase) ListChatsByWorkspace(_ context.Context, workspaceID st
 	return out, nil
 }
 
+func (f *fakeChatUsecase) BackfillChatTypes(context.Context) bool { return true }
+
 func (f *fakeChatUsecase) ListChatsInRepo(context.Context, string) ([]domain.Chat, error) {
 	return append([]domain.Chat{}, f.rows...), nil
 }
