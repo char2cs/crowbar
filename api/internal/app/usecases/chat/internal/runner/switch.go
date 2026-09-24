@@ -111,6 +111,9 @@ func (rs *Runners) switchProviderLocked(
 		if err != nil {
 			return "", fmt.Errorf("agent: switch provider: resumable conversation: %w", err)
 		}
+		// The ladder: a session the provider no longer has drops to the
+		// transcript rung — resuming false, the full conversation handed over.
+		priorSessionID = rs.verifiedResume(ctx, d, chatID, priorSessionID)
 		resuming := priorSessionID != ""
 
 		// Read-BEFORE-terminate: the ledger is built from hooks and is already on disk, so

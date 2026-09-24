@@ -22,6 +22,8 @@ func (rs *Runners) HandleSessionStart(
 	if ev.SessionID == "" {
 		return nil
 	}
+	// The CLI announced a session: whatever it resumed, it accepted.
+	rs.sessions.confirm(runner.ID)
 
 	// "Is this conversation one we know?" is answered from APPEND-ONLY history, so it
 	// keeps answering long after the runner that opened the conversation has died —

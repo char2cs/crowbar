@@ -34,7 +34,7 @@ func (rs *Runners) resolvePromptDelivery(
 	live engineagents.Runner,
 	descriptor engineagents.Agent,
 ) (promptDelivery, error) {
-	resuming, nativeSessionID, err := rs.resumeTarget(ctx, chatID, live)
+	resuming, nativeSessionID, lostSession, err := rs.ladderTarget(ctx, chatID, live, descriptor)
 	if err != nil {
 		return promptDelivery{}, err
 	}
@@ -88,7 +88,7 @@ func (rs *Runners) resolvePromptDelivery(
 	}
 
 	out := promptDelivery{promptSteps: promptSteps, resuming: resuming, contextResuming: resuming}
-	if !liveTurned {
+	if !liveTurned || lostSession {
 		conversation, err := rs.conversations.AssembleConversation(ctx, chatID, everTurned, leftAt)
 		if err != nil {
 			return promptDelivery{}, fmt.Errorf("agent: submit prompt: assemble handoff: %w", err)

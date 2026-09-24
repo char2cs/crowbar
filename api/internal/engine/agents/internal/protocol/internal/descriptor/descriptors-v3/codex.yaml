@@ -807,6 +807,12 @@ spawn:
     - "--dangerously-bypass-hook-trust"
 session:
   resume: { arg: "resume {id}" }
+  # Checked before any resume: a thread that never completed a turn has no
+  # rollout, and `resume <id>` then exits 1 (verified on 0.156.1).
+  locate:
+    root_env: CODEX_HOME
+    root: "~/.codex"
+    glob: ["sessions/*/*/*/rollout-*-{id}.jsonl"]
 presentation:
   prompt_submit:
     strategy: restart_tui

@@ -21,10 +21,26 @@ type sessionBook struct {
 	// causes is the reason noted for a runner BEFORE Crowbar ends it, read
 	// once by the exit that produces. A runner with none exited on its own.
 	causes map[string]string
+	// probes are resume launches not yet confirmed by the CLI announcing a
+	// session; one that exits unconfirmed failed its resume (see ladder.go).
+	probes map[string]resumeProbe
+	// quarantined is, per chat, the vendor session ids a launch failed to
+	// resume: the ladder never offers them again.
+	quarantined map[string]map[string]struct{}
+}
+
+type resumeProbe struct {
+	chatID, sessionID string
+	at                time.Time
 }
 
 func newSessionBook() *sessionBook {
-	return &sessionBook{chats: map[string]domain.AgentSession{}, causes: map[string]string{}}
+	return &sessionBook{
+		chats:       map[string]domain.AgentSession{},
+		causes:      map[string]string{},
+		probes:      map[string]resumeProbe{},
+		quarantined: map[string]map[string]struct{}{},
+	}
 }
 
 func (b *sessionBook) get(chatID string) domain.AgentSession {
@@ -76,6 +92,57 @@ func (b *sessionBook) forget(chatID string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	delete(b.chats, chatID)
+	delete(b.quarantined, chatID)
+}
+
+func (b *sessionBook) probe(runnerID string, p resumeProbe) {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.probes[runnerID] = p
+}
+
+// confirm drops runnerID's probe: its CLI announced a session, so the resume
+// was accepted.
+func (b *sessionBook) confirm(runnerID string) {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.probes, runnerID)
+}
+
+// failedProbe consumes runnerID's probe and, when it is still unconfirmed and
+// the runner died within window of launching, quarantines the session.
+func (b *sessionBook) failedProbe(runnerID string, window time.Duration) bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	p, ok := b.probes[runnerID]
+	delete(b.probes, runnerID)
+	if !ok || time.Since(p.at) > window {
+		return false
+	}
+	if b.quarantined[p.chatID] == nil {
+		b.quarantined[p.chatID] = map[string]struct{}{}
+	}
+	b.quarantined[p.chatID][p.sessionID] = struct{}{}
+	return true
+}
+
+func (b *sessionBook) isQuarantined(chatID, sessionID string) bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	_, ok := b.quarantined[chatID][sessionID]
+	return ok
 }
 
 // Session implements snapshot.Runtime.
@@ -93,6 +160,9 @@ func (rs *Runners) noteLaunch(ctx context.Context, chatID, rung string) {
 // noted for it. A runner already off its chat (displaced) records nothing.
 func (rs *Runners) noteExit(ctx context.Context, chatID, runnerID string) {
 	reason := rs.sessions.takeCause(runnerID)
+	if rs.sessions.failedProbe(runnerID, resumeProbeWindow) {
+		reason = domain.AgentExitResumeFailed
+	}
 	if chatID == "" {
 		return
 	}

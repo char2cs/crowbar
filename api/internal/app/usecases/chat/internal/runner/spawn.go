@@ -242,7 +242,10 @@ func (rs *Runners) spawnRunner(
 		rs.agents.ForgetRunner(runnerID)
 		return "", err
 	}
-	rs.noteLaunch(ctx, chatID, launchRung(launchSessionID != "", conversation))
+	rs.noteLaunch(ctx, chatID, rs.spawnRung(runnerID, launchSessionID != "", conversation))
+	if termSessID != "" {
+		rs.watchResume(runnerID, chatID, launchSessionID, promptMessage)
+	}
 	// Keep the barrier installed throughout replay. A hook arriving while an
 	// earlier buffered hook is being applied joins the next batch, so it cannot
 	// overtake session_start or user_prompt on the normal persisted-runner path.

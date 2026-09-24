@@ -306,6 +306,12 @@ spawn:
     clear: ["CLAUDE_CODE_CHILD_SESSION", "CLAUDECODE"]
 session:
   resume: { arg: "--resume {id}" }
+  # Checked before any resume: a pruned or never-written transcript makes
+  # `--resume <id>` exit 1 (verified on 2.1.281).
+  locate:
+    root_env: CLAUDE_CONFIG_DIR
+    root: "~/.claude"
+    glob: ["projects/*/{id}.jsonl"]
 presentation:
   prompt_submit:
     strategy: restart_tui

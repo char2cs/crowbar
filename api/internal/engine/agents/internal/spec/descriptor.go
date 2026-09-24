@@ -77,6 +77,18 @@ type SpawnSpec struct {
 
 type SessionSpec struct {
 	Resume *ArgSpec `yaml:"resume"`
+	// Locate is where the provider keeps a session on disk, so a recorded id
+	// is verified before a resume is attempted (the resume ladder's first rung).
+	Locate *SessionLocateSpec `yaml:"locate"`
+}
+
+// SessionLocateSpec finds a session file: Root (overridable by the RootEnv
+// environment variable, "~/" meaning the user's home), then any of Glob, whose
+// {id} is the session id and whose other segments may use shell wildcards.
+type SessionLocateSpec struct {
+	RootEnv string   `yaml:"root_env"`
+	Root    string   `yaml:"root"`
+	Glob    []string `yaml:"glob"`
 }
 
 type ArgSpec struct {

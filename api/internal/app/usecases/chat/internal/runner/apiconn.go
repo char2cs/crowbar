@@ -45,6 +45,9 @@ type apiconn struct {
 	// connection later, on the way back to native — nothing else needs them.
 	agent engineagents.Agent
 	tctx  engineagents.TemplateCtx
+	// replacedSession is set when the provider refused the session this spawn
+	// asked to resume and a fresh one was opened in its place.
+	replacedSession bool
 	// originated is every conversation this connection's own driver opened in
 	// place of one Crowbar named — see sessionorigin.go.
 	originated *originatedSessions
@@ -267,6 +270,7 @@ func (rs *Runners) applyAPITransport(
 	for k, v := range tctx.PermissionVars {
 		values["permission."+k] = v
 	}
+	requested := tctx.Session
 	established, err := conn.driver.EstablishSession(ctx, "prompt", values)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: api transport: establish session", "err", err, "runner_id", runnerID)
@@ -274,6 +278,12 @@ func (rs *Runners) applyAPITransport(
 		return nil
 	}
 	tctx.Session = established["session_id"]
+	if requested != "" && tctx.Session != requested {
+		// The provider refused the recorded session and a new one was opened:
+		// the ladder's transcript rung, so it is handed the whole conversation.
+		conn.replacedSession = true
+		resumeContext = rs.transcriptFor(ctx, tctx.ChatID)
+	}
 	// The only channel that reaches an already-resumed thread with the gap
 	// (thread/resume's own send: has nowhere to put it). Best effort: a failed
 	// inject leaves the resumed session running without the gap, not unresumed.

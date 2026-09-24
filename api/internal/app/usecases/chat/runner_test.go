@@ -1050,6 +1050,7 @@ func TestRegression_ResumeChat_OldSessionWithNoRecordedTurns_ResumesInsteadOfSpa
 	// recorded under it in agent_turns (nothing here ever calls turn()).
 	weeksAgo := time.Now().Add(-21 * 24 * time.Hour)
 	_, err := f.runners.BindSession(f.ctx, runnerID, "sid-legacy-session", true, weeksAgo, "", "")
+	writeVendorSession(t, "sid-legacy-session")
 	require.NoError(t, err)
 	f.wait()
 
@@ -1286,7 +1287,7 @@ func TestSwitchProvider_CodexKeepsItsOwnHome(t *testing.T) {
 
 	for _, call := range f.term.calls {
 		for _, kv := range call.env {
-			assert.False(t, strings.HasPrefix(kv, "CODEX_HOME="),
+			assert.False(t, strings.HasPrefix(kv, "CODEX_HOME=") && kv != "CODEX_HOME="+os.Getenv("CODEX_HOME"),
 				"Crowbar must never own codex's home — its sessions live there")
 		}
 	}
@@ -4933,4 +4934,97 @@ func TestRegression_PlacementsForChat_SurvivesTheRunnerThatMadeIt(t *testing.T) 
 	require.Len(t, placements, 1)
 	assert.Equal(t, "claude", placements[0].ProviderID)
 	assert.Equal(t, chatID, placements[0].ChatID)
+}
+
+// The resume ladder (sessions spec §2.2): the provider's own session is the
+// first rung, and a normal revive lands on it — and says so.
+func TestResumeLadder_ARecordedSessionIsResumedAndTheRungRecorded(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-kept")
+	turn(t, f, runnerID, "claude", "kept content")
+	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
+	f.wait()
+
+	_, err := f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+
+	argv := f.term.calls[f.term.callCount()-1].argv
+	assert.Equal(t, "sid-kept", argAfter(t, argv, "--resume"))
+	snap, err := f.usecase.ChatSnapshot(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.AgentRungSession, snap.Session.Rung)
+}
+
+// A session the provider no longer has (pruned, never flushed) is never handed
+// to the CLI — that launch exits 1 and strands the chat. The chat continues on
+// a fresh session carrying Crowbar's own transcript instead.
+func TestResumeLadder_AMissingVendorSessionContinuesFromTheTranscript(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-pruned")
+	turn(t, f, runnerID, "claude", "what we worked out earlier")
+	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
+	f.wait()
+	removeVendorSession(t, "sid-pruned")
+
+	_, err := f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+
+	argv := f.term.calls[f.term.callCount()-1].argv
+	assert.NotContains(t, argv, "--resume", "a session the provider lost must not be resumed")
+	assert.Contains(t, strings.Join(argv, "\x00"), "what we worked out earlier",
+		"the replacement is handed the conversation so far")
+	snap, err := f.usecase.ChatSnapshot(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.AgentRungTranscript, snap.Session.Rung, "the UI is told which rung was used")
+}
+
+// The same ladder on the hot path: every restart_tui prompt resumes, so a
+// session lost while the chat is live must not fail the next message.
+func TestResumeLadder_APromptToALostSessionIsDeliveredWithTheTranscript(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-gone")
+	turn(t, f, runnerID, "claude", "the earlier answer")
+	removeVendorSession(t, "sid-gone")
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "and now?", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	f.wait()
+
+	argv := f.term.calls[f.term.callCount()-1].argv
+	joined := strings.Join(argv, "\x00")
+	assert.NotContains(t, argv, "--resume")
+	assert.Contains(t, joined, "and now?")
+	assert.Contains(t, joined, "the earlier answer")
+}
+
+// A resume the CLI itself refuses (it exits before announcing any session)
+// is recorded as such, and the ladder never offers that session again.
+func TestResumeLadder_AResumeTheCLIRefusesIsQuarantined(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-corrupt")
+	turn(t, f, runnerID, "claude", "before the corruption")
+
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello again", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	f.wait()
+	require.Equal(t, "sid-corrupt", argAfter(t, f.term.calls[f.term.callCount()-1].argv, "--resume"))
+	f.term.exit(t, result.TerminalSessionID) // dies before any session_start
+	f.wait()
+
+	snap, err := f.usecase.ChatSnapshot(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.AgentExitResumeFailed, snap.Session.ExitReason)
+
+	_, err = f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+	argv := f.term.calls[f.term.callCount()-1].argv
+	assert.NotContains(t, argv, "--resume", "a refused session is quarantined")
+	assert.Contains(t, strings.Join(argv, "\x00"), "before the corruption")
 }

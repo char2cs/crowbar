@@ -173,7 +173,6 @@ func (c *Conn) teardown() {
 // read is delivered.
 func (c *Conn) Frames() <-chan Frame { return c.mailbox.out }
 
-
 // Overflowed reports whether the connection was closed because its consumer
 // fell further behind than the mailbox allows.
 func (c *Conn) Overflowed() bool { return c.mailbox.overflowed() }
