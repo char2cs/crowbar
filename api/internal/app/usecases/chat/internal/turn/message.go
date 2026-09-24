@@ -264,6 +264,10 @@ func (t *Turns) AbandonMessage(ctx context.Context, chatID string) (bool, error)
 	if err != nil {
 		return false, err
 	}
+	// The turn is over for every reader, not just the aggregate: a still-open
+	// in-flight record reads "busy" to the next send forever.
+	defer t.turns.Complete(runner.ID)
+	defer t.idle.clear(chatID)
 
 	abandoned, err := t.chats.AbandonTurn(ctx, chatID, time.Now())
 	if err != nil {

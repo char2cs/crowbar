@@ -89,6 +89,12 @@ func (c *hookCLI) turn(prompt string) {
 	}
 	record(c.name, "prompt", map[string]any{"text": prompt, "session": c.session})
 	writeSessionFile(c.sessionFile(c.session))
+	if strings.TrimSpace(prompt) == "/compact" {
+		// A built-in: the CLI compacts and answers nothing.
+		c.fire("PreCompact", map[string]any{"trigger": "manual"})
+		c.fire("PostCompact", map[string]any{"trigger": "manual"})
+		return
+	}
 	c.fire("UserPromptSubmit", map[string]any{"prompt": prompt})
 	for i, st := range s.Turn {
 		c.step(i, st)
