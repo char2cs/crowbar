@@ -661,120 +661,100 @@ const armedBranchCreates = new Map<
   }
 >()
 
-/** Creates a workspace (fork) or a thread (chat) under `parentId`. Both draw
- *  an optimistic row at the exact slot the finished create lands in
- *  (pending-creates.ts) the instant this is called — never after the round
- *  trip, which for a fork includes provisioning a real git worktree. A fork
- *  asks for its branch name first (the pending row becomes an inline input,
- *  confirmed via `confirmPendingCreateName`, which is what actually opens
- *  it — nothing is minted here yet); a thread has nothing to name, fires
- *  immediately, and opens the moment it exists, the same way
- *  `handleCreateHomeThread`/`openHomeChat` already do for a project-home
- *  thread. Live-reported: "that new chat entity should be focused... it's
- *  just adding the row" — a fresh thread/fork updated the tree but never
- *  navigated anywhere, leaving whatever pane the user already had open
- *  showing, with the new chat merely a sidebar row now waiting to be
- *  clicked. */
+/** One thread create: where it runs, where it lands, and what follows. */
+interface ThreadCreate {
+  /** One request in flight per key, so a double-click mints one chat. */
+  inFlightKey: string
+  projectId: string
+  workspaceId: string
+  /** Placement parent, in chat-id space; '' is the panel root. */
+  parentId: string
+  presentation?: LandingChatPresentation
+  /** Settles once the new chat's row is drawn where it was placed. */
+  landed: (chatId: string) => Promise<void>
+  /** Runs once the chat exists — opens it. */
+  onCreated?: (chatId: string) => void | Promise<void>
+}
+
+/**
+ * THE thread create, for a repo workspace and a project home alike: draws the
+ * pending row at the slot the daemon appends at, mints the chat, hides the real
+ * row until `landed` confirms its placement, and fails the row with the
+ * daemon's reason on a refused create or a row that never arrives.
+ */
+async function startThread(spec: ThreadCreate): Promise<void> {
+  const provider = enabledProvider()
+  if (!provider) return
+  if (createInFlight.has(spec.inFlightKey)) return
+  createInFlight.add(spec.inFlightKey)
+  const { projectId, workspaceId, parentId } = spec
+  const { order, rowIdsAtClick } = panelRowsAtClick(projectId, parentId)
+  const tempId = `pending-${crypto.randomUUID()}`
+  usePendingCreatesStore.getState().addCreating({
+    tempId,
+    kind: 'chat',
+    projectId,
+    parentId,
+    order,
+    workspaceId,
+    ownsWorktree: false,
+    rowIdsAtClick,
+  })
+  // The guard covers the REQUEST only: `landed` can take up to
+  // ROW_ARRIVAL_TIMEOUT_MS, and holding it that long would make "+" inert.
+  const surface = createSurfaceFor(provider, spec.presentation)
+  let chatId: string
+  try {
+    chatId = await createChat(workspaceId, provider.id, parentId, surface)
+  } catch (err) {
+    failCreate(tempId, err, 'Failed to start chat')
+    return
+  } finally {
+    createInFlight.delete(spec.inFlightKey)
+  }
+  // Before anything opens a pane on it: the surface actually created.
+  if (surface) presetChatLandingPresentation(chatId, surface)
+  usePendingCreatesStore.getState().attachRealId(tempId, chatId)
+  void spec.landed(chatId).then(
+    () => usePendingCreatesStore.getState().clear(tempId),
+    (err: unknown) => failCreate(tempId, err, 'Failed to start chat'),
+  )
+  await spec.onCreated?.(chatId)
+}
+
+/**
+ * Creates a fork ('workspace') or a thread under `parentId`, drawing an
+ * optimistic row at its final slot the instant it is clicked. A fork asks for
+ * its branch name first (`confirmPendingCreateName` mints it); a thread fires
+ * immediately and opens the moment it exists. A project-home row can only
+ * thread: home has no worktree to fork.
+ */
 export function handleCreate(
   parentId: string,
   kind: 'workspace' | 'thread',
   navigate: NavigateFn,
-  /** Landed on the requested surface (`presetChatLandingPresentation`)
-   *  instead of wherever `chatIsDefaultPresentation` points — "start THIS
-   *  chat on the CLI" without flipping that setting for every chat after
-   *  it. Also travels to the daemon as the create's own `surface`, which is
-   *  what decides which of the provider's faces is actually FORKED — a
-   *  seeded landing alone would open a terminal pane on a chat the daemon
-   *  had already spawned on its api transport, with no PTY to show.
-   *  Undefined leaves the surface to `createSurfaceFor`, which answers it
-   *  from the user's own default landing surface (a provider that cannot be
-   *  landed on its terminal still creates exactly as before).
-   *  Never applies to a fork ('workspace'): naming happens first, and by
-   *  the time `confirmPendingCreateName` actually mints one there is no
-   *  caller left in this call to have asked. */
+  /** The surface the new thread is created and landed on; undefined takes
+   *  the user's default (`createSurfaceFor`). Never applies to a fork. */
   presentation?: LandingChatPresentation,
 ): void {
-  // A project-home row (chat OR folder) is resolved FIRST, against every
-  // visible project's home tree rather than `repos` — same rule `handleOpen`
-  // already follows via the identical `resolveHomeRowScope` call. Project
-  // home rides no repo at all, so there is no worktree to fork from: a
-  // folder's own "+" already hides Fork for exactly this reason
-  // (`rows-from-home.ts`'s `foldersCanFork: false`), and a chat row's Fork
-  // button now does too (see sidebar-row.tsx's `canFork` check) — reached
-  // here only via a stale click racing that, so it stays a silent no-op
-  // rather than a request with nothing to act on.
-  //
-  // Thread, unlike Fork, is NOT refused for a folder — home applies the same
-  // logic to a folder it applies to a chat: the folder names no workspace of
-  // its own (home has none to name), but `homeRow.homeWorkspaceId` already IS
-  // the one workspace every home row — chat or folder, nested or not — runs
-  // in, so there is nothing folder-specific left to resolve below.
   const homeRow = resolveHomeRowScope(parentId)
   if (homeRow) {
     if (kind === 'workspace' || (homeRow.kind !== 'chat' && homeRow.kind !== 'folder')) return
-    const provider = enabledProvider()
-    if (!provider) return
-    const inFlightKey = `${kind}:${parentId}`
-    if (createInFlight.has(inFlightKey)) return
-    createInFlight.add(inFlightKey)
-    const release = (): void => {
-      createInFlight.delete(inFlightKey)
-    }
-    // The new thread's OWN tree position, once real: nested under the
-    // clicked chat's own id, after every row already there.
-    const { order, rowIdsAtClick } = panelRowsAtClick(homeRow.projectId, parentId)
-    const tempId = `pending-${crypto.randomUUID()}`
-    usePendingCreatesStore.getState().addCreating({
-      tempId,
-      kind: 'chat',
+    void startThread({
+      inFlightKey: `thread:${parentId}`,
       projectId: homeRow.projectId,
-      parentId,
-      order,
       workspaceId: homeRow.homeWorkspaceId,
-      ownsWorktree: false,
-      rowIdsAtClick,
+      parentId,
+      presentation,
+      landed: (chatId) => waitForHomeChat(homeRow.projectId, chatId, parentId),
     })
-    // `parentId` (the THIRD arg — the clicked chat's own id) EXPLICITLY, not
-    // left to default to root: home has no workspace nodes at all for the
-    // fold that nests a repo-scoped thread to fall back on (see below), so
-    // an omitted parentId here roots every home thread at the top level
-    // regardless of which bubble was clicked — caught live: rooted as a
-    // sibling of "Test", never nested under it.
-    const surface = createSurfaceFor(provider, presentation)
-    createChat(homeRow.homeWorkspaceId, provider.id, parentId, surface)
-      .then((chatId) => {
-        release()
-        // Before anything opens a pane on it — the seed this chat's own
-        // AgentChatPane reads at first mount (use-chat-presentation.ts). Off
-        // the surface actually CREATED, never the caller's argument alone: a
-        // chat the daemon forked on its terminal must land there.
-        if (surface) presetChatLandingPresentation(chatId, surface)
-        // Hides the real row (space-scroller.tsx's `unconfirmedRealIds`)
-        // from first paint, rather than letting it render wrong once and
-        // correct itself a moment later — see PendingCreateEntry.realId.
-        usePendingCreatesStore.getState().attachRealId(tempId, chatId)
-        return waitForHomeChat(homeRow.projectId, chatId, parentId).then(() =>
-          usePendingCreatesStore.getState().clear(tempId),
-        )
-      })
-      .catch((err: unknown) => {
-        release()
-        failCreate(tempId, err, 'Failed to start chat')
-      })
     return
   }
 
   const currentRepos = useSidebarStore.getState().repos
-  // A bubble carries its GROUND workspace right on the chat record
-  // (`Chat.workspaceId` — "its own if it owns one, otherwise the one it
-  // borrows from an ancestor"), already used to open it (`openableWorkspaceOf`
-  // above) — so a chat row's Fork/Thread resolve against THAT, not against
-  // the clicked bubble itself. Previously this returned silently instead:
-  // clicking Thread on a bubble did nothing, and Fork was offered on every
-  // bubble regardless, with no target it could actually act on.
+  // A bubble's Fork/Thread resolve against its GROUND workspace
+  // (`Chat.workspaceId`); with no ground at all there is nothing to act on.
   const chatRow = resolveChatRow(currentRepos, parentId)
-  // No ground at all (spec §9.2: a bubble's ancestry can resolve to nothing,
-  // e.g. moved across repos) — nothing to fork or thread into, silently.
   if (chatRow && !chatRow.chat.workspaceId) return
   const found = resolveRow(currentRepos, chatRow?.chat.workspaceId ?? parentId)
   if (!found) return
@@ -782,14 +762,13 @@ export function handleCreate(
   const { projectId } = repo
   if (!projectId) return
 
-  const inFlightKey = `${kind}:${parentId}`
-  if (createInFlight.has(inFlightKey)) return
-  createInFlight.add(inFlightKey)
-  const release = (): void => {
-    createInFlight.delete(inFlightKey)
-  }
-
   if (kind === 'workspace') {
+    const inFlightKey = `workspace:${parentId}`
+    if (createInFlight.has(inFlightKey)) return
+    createInFlight.add(inFlightKey)
+    const release = (): void => {
+      createInFlight.delete(inFlightKey)
+    }
     // Task 8: mints the workspace AND its first chat in ONE call (POST
     // .../chats {ownWorktree: true} — backend Task 7) instead of the old
     // chat-less postWorkspace, which produced a bare branch row now and a
@@ -875,109 +854,31 @@ export function handleCreate(
     return
   }
 
-  // The new thread's OWN tree position, once real: nested under the clicked
-  // row's own chat id (`parentId`, the original argument — a thread's
-  // placement lives in CHAT-id space, unlike a fork's, which lives in
-  // WORKSPACE-id space above), after every thread already there. Computed
-  // once, up front, and reused below for the `wsId` lookup too.
+  // A thread runs in a real workspace: a `workspace` subject is one; a folder
+  // takes its nearest owning workspace, stamped on its row at build time.
   const siblingRows = rowsFromRepo(repo)
-
-  // A thread needs a real workspace to run in. A `workspace` subject IS one
-  // (`subject.id`, not the clicked row's — this one posts to that workspace's
-  // chats mount, and a branch row's own id is the chat that owns it). A
-  // `folder` subject names none of its own, but a folder applies "the same
-  // logic as its parent" (product rule) rather than refusing outright: its
-  // nearest owning workspace is already resolved and stamped onto its own
-  // `SidebarRow.workspaceId` at row-build time (`walkTreeIntoRows`'s
-  // `ancestorWorkspaceId` — a locked branch, an ordinary fork, or (with no
-  // ancestor branch at all) the repo's own home), so this reads that back
-  // rather than re-walking the tree itself. Still null only for a subject
-  // this repo's own rows never actually rendered (a stale click racing a
-  // repo swap) — genuinely nothing to act on, same as before.
   const wsId =
     subject.kind === 'workspace'
       ? subject.id
       : (siblingRows.find((r) => r.id === subject.id)?.workspaceId ?? null)
   if (!wsId) {
     toast.error('Start a thread from a workspace row — a folder has none to run it in')
-    release()
     return
   }
-  // THE GLOBAL PROVIDER LIST, not `getOrCreateWorkspaceStore(wsId)`'s.
-  //
-  // Providers are machine-level — `use-workspace-agent-chats-stream.ts` says so
-  // itself and mirrors every read into the global store for exactly this reason
-  // — but a per-WORKSPACE store only ever holds them once that workspace has
-  // been MOUNTED and run its own `seedProviders`. `getOrCreateWorkspaceStore`
-  // does not mount anything: for a row the user has never opened it happily
-  // mints a brand-new store whose `agentChats.providers` is `[]`, and the guard
-  // below then returned with no request, no toast and nothing on screen. That
-  // is the whole of "the thread button does nothing" — measured live: the
-  // daemon's chat count did not move on a click. The fork branch above was
-  // always right to read the global list; this one now agrees with it.
-  const provider = enabledProvider()
-  if (!provider) {
-    release()
-    return
-  }
-  const { order, rowIdsAtClick } = panelRowsAtClick(projectId, parentId)
-  const tempId = `pending-${crypto.randomUUID()}`
-  usePendingCreatesStore.getState().addCreating({
-    tempId,
-    kind: 'chat',
+  void startThread({
+    inFlightKey: `thread:${parentId}`,
     projectId,
-    parentId,
-    order,
     workspaceId: wsId,
-    ownsWorktree: false,
-    rowIdsAtClick,
-  })
-  // `release` fires the moment the REQUEST itself settles, not once the row
-  // has visually landed: `createInFlight`'s whole job is stopping a rapid
-  // double-click from firing a second POST for the same click, and gating it
-  // on `waitForRow` instead would leave it stuck for as long as the reseed
-  // takes — or forever, if the row's own live-update path never fires for
-  // some unrelated reason. That would block every later click on this exact
-  // (kind, parentId) behind a wait nothing here can bound.
-  //
-  // `parentId` as the THIRD arg — without it the new chat's own `parentId`
-  // defaults to root, and it only LOOKED nested under the clicked row
-  // whenever that row happened to also OWN `wsId` (buildSidebarTree's
-  // workspace-ground fold nests every chat there under its owning row
-  // regardless of its real `parentId`). Threading off any OTHER bubble
-  // sharing that same workspace rooted the new chat at the top level
-  // instead — caught chasing the identical gap on the project-home path,
-  // which has no workspace-ground fold to hide it behind at all.
-  const surface = createSurfaceFor(provider, presentation)
-  createChat(wsId, provider.id, parentId, surface)
-    .then((chatId) => {
-      release()
+    parentId,
+    presentation,
+    landed: (chatId) => waitForRow(chatHasLanded(chatId, parentId)),
+    onCreated: (chatId) => {
       announceTreeChange(repo.id)
-      // Before either branch below opens a pane on it — the seed this
-      // chat's own AgentChatPane reads at first mount
-      // (use-chat-presentation.ts), off the surface actually CREATED.
-      if (surface) presetChatLandingPresentation(chatId, surface)
-      // Opens the new thread the moment it exists — same "focus what you
-      // just created" contract `openHomeChat` already gives a project-home
-      // thread — rather than leaving it as a sidebar row the user has to
-      // click themselves. Independent of the tree reseed below: this writes
-      // straight into the pane store / route, neither of which waits on
-      // `waitForRow`.
       if (!openChatInOwnView(chatId, wsId)) {
         void navigateThenOpenChat(navigate, { projectId, repoId: repo.id, wsId }, chatId)
       }
-      // Hides the real row (space-scroller.tsx's `unconfirmedRealIds`) from
-      // first paint — see PendingCreateEntry.realId, and chatHasLanded's own
-      // doc for the placement race this closes for repo-scoped threads too.
-      usePendingCreatesStore.getState().attachRealId(tempId, chatId)
-      return waitForRow(chatHasLanded(chatId, parentId)).then(() =>
-        usePendingCreatesStore.getState().clear(tempId),
-      )
-    })
-    .catch((err: unknown) => {
-      release()
-      failCreate(tempId, err, 'Failed to start chat')
-    })
+    },
+  })
 }
 
 /**
@@ -1070,54 +971,22 @@ export function cancelPendingCreate(tempId: string): void {
  * `useHomeWorkspaceState`/`ensureHomeWorkspaceResolved`) — this function
  * only spends it.
  */
-export async function handleCreateHomeThread(
+export function handleCreateHomeThread(
   projectId: string,
   homeWorkspaceId: string,
   navigate: NavigateFn,
-  /** Same as `handleCreate`'s own optional 4th arg — see its doc. */
+  /** Same as `handleCreate`'s own optional 4th arg. */
   presentation?: LandingChatPresentation,
 ): Promise<void> {
-  const provider = enabledProvider()
-  if (!provider) return
-  // Same lifecycle as `handleCreate`'s home branch — without the guard and pending row, a
-  // click that showed nothing got clicked again and minted a second chat and runner.
-  const inFlightKey = `thread:home:${projectId}`
-  if (createInFlight.has(inFlightKey)) return
-  createInFlight.add(inFlightKey)
-  const release = (): void => {
-    createInFlight.delete(inFlightKey)
-  }
-  const { order, rowIdsAtClick } = panelRowsAtClick(projectId, '')
-  const tempId = `pending-${crypto.randomUUID()}`
-  usePendingCreatesStore.getState().addCreating({
-    tempId,
-    kind: 'chat',
+  return startThread({
+    inFlightKey: `thread:home:${projectId}`,
     projectId,
-    parentId: '',
-    order,
     workspaceId: homeWorkspaceId,
-    ownsWorktree: false,
-    rowIdsAtClick,
+    parentId: '',
+    presentation,
+    landed: (chatId) => waitForRootHomeChat(projectId, homeWorkspaceId, chatId),
+    onCreated: (chatId) => openHomeChat(projectId, homeWorkspaceId, chatId, navigate),
   })
-  const surface = createSurfaceFor(provider, presentation)
-  let chatId: string
-  try {
-    chatId = await createChat(homeWorkspaceId, provider.id, '', surface)
-  } catch (err) {
-    release()
-    failCreate(tempId, err, 'Failed to start chat')
-    return
-  }
-  release()
-  // Before `openHomeChat` below opens a pane on it — off the surface actually
-  // CREATED, never the caller's argument alone.
-  if (surface) presetChatLandingPresentation(chatId, surface)
-  usePendingCreatesStore.getState().attachRealId(tempId, chatId)
-  void waitForRootHomeChat(projectId, homeWorkspaceId, chatId).then(
-    () => usePendingCreatesStore.getState().clear(tempId),
-    (err: unknown) => failCreate(tempId, err, 'Failed to start chat'),
-  )
-  await openHomeChat(projectId, homeWorkspaceId, chatId, navigate)
 }
 
 /**
