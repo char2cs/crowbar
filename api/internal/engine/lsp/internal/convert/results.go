@@ -63,32 +63,6 @@ func isNull(
 	return len(raw) == 0 || string(raw) == "null"
 }
 
-// RelCodeActions rewrites the workspace edits inside a textDocument/codeAction
-// result so every file they name is workspace-relative, the form the editor
-// and the files API address files by. Commands and anything that does not
-// decode are passed through unchanged.
-func RelCodeActions(
-	worktreePath string,
-	raw json.RawMessage,
-) json.RawMessage {
-	var actions []map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &actions); err != nil {
-		return raw
-	}
-	for _, action := range actions {
-		edit, ok := action["edit"]
-		if !ok {
-			continue
-		}
-		action["edit"] = RelWorkspaceEdit(worktreePath, edit)
-	}
-	out, err := json.Marshal(actions)
-	if err != nil {
-		return raw
-	}
-	return out
-}
-
 // RelWorkspaceEdit rewrites every file a raw LSP WorkspaceEdit names
 // (changes keys, documentChanges URIs) to its workspace-relative path.
 // Anything that does not decode is passed through unchanged.

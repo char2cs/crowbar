@@ -98,6 +98,12 @@ func (f *fakeServer) SemanticTokens() semtok.Support {
 	return semtok.Support{}
 }
 
+func (f *fakeServer) CanExecute(
+	_ string,
+) bool {
+	return false
+}
+
 func (f *fakeServer) ExecuteCommand(
 	_ context.Context,
 	_ any,

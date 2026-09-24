@@ -80,16 +80,31 @@ func semanticTokensCapability() map[string]any {
 	}
 }
 
-// semanticTokensFromInitialize reads the server's semantic-token support out
-// of its initialize result.
-func semanticTokensFromInitialize(
+// serverFeatures is what the client reads out of a server's initialize
+// result: its semantic-token support and the commands it executes.
+type serverFeatures struct {
+	semTok   semtok.Support
+	commands map[string]bool
+}
+
+func featuresFromInitialize(
 	result json.RawMessage,
-) semtok.Support {
+) serverFeatures {
 	var res struct {
 		Capabilities json.RawMessage `json:"capabilities"`
 	}
 	if err := json.Unmarshal(result, &res); err != nil {
-		return semtok.Support{}
+		return serverFeatures{}
 	}
-	return semtok.FromCapabilities(res.Capabilities)
+	var caps struct {
+		ExecuteCommand struct {
+			Commands []string `json:"commands"`
+		} `json:"executeCommandProvider"`
+	}
+	_ = json.Unmarshal(res.Capabilities, &caps)
+	commands := make(map[string]bool, len(caps.ExecuteCommand.Commands))
+	for _, c := range caps.ExecuteCommand.Commands {
+		commands[c] = true
+	}
+	return serverFeatures{semTok: semtok.FromCapabilities(res.Capabilities), commands: commands}
 }

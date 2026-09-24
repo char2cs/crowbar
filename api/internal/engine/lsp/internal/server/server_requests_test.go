@@ -108,7 +108,7 @@ func TestServer_ApplyEditOutsideACommandIsRefused(t *testing.T) {
 	assert.False(t, result.Applied)
 }
 
-func TestServer_HandshakeRecordsSemanticTokenSupportAndSendsInitOptions(t *testing.T) {
+func TestServer_HandshakeRecordsServerFeaturesAndSendsInitOptions(t *testing.T) {
 	srv, fake := newTestServer(t)
 	impl, ok := srv.(*server)
 	require.True(t, ok)
@@ -124,6 +124,7 @@ func TestServer_HandshakeRecordsSemanticTokenSupportAndSendsInitOptions(t *testi
 			"legend": map[string]any{"tokenTypes": []string{"type"}, "tokenModifiers": []string{}},
 			"full":   map[string]any{"delta": true},
 		},
+		"executeCommandProvider": map[string]any{"commands": []string{"gopls.tidy"}},
 	}})
 	<-fake.gotNotif
 	require.NoError(t, <-done)
@@ -132,4 +133,6 @@ func TestServer_HandshakeRecordsSemanticTokenSupportAndSendsInitOptions(t *testi
 	assert.True(t, support.Full())
 	assert.True(t, support.Delta())
 	assert.False(t, support.Range())
+	assert.True(t, srv.CanExecute("gopls.tidy"))
+	assert.False(t, srv.CanExecute("editor.action.showReferences"))
 }

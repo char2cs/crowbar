@@ -38,6 +38,8 @@ type fakeServer struct {
 	// errByMethod fails a Request for that method.
 	errByMethod map[string]error
 	semTok      semtok.Support
+	// commands are the commands CanExecute accepts.
+	commands map[string]bool
 	// cmdEdits are the applyEdit requests ExecuteCommand reports.
 	cmdEdits []json.RawMessage
 }
@@ -72,6 +74,12 @@ func (f *fakeServer) Request(
 
 func (f *fakeServer) SemanticTokens() semtok.Support {
 	return f.semTok
+}
+
+func (f *fakeServer) CanExecute(
+	command string,
+) bool {
+	return f.commands[command]
 }
 
 func (f *fakeServer) ExecuteCommand(
@@ -319,13 +327,13 @@ func TestRename_ConvertsWorkspaceEdit(t *testing.T) {
 }
 
 func TestCodeAction_Forwards(t *testing.T) {
-	fake := newFakeServer(json.RawMessage(`[{"title":"Fix"}]`))
+	fake := newFakeServer(json.RawMessage(`[{"title":"Fix","edit":{"changes":{}}}]`))
 	e := buildEngine(t, fake)
 
 	rng := domlsp.Range{Start: domlsp.Position{Line: 1}, End: domlsp.Position{Line: 2}}
 	got, err := e.CodeAction(context.Background(), ws, tree, goF, rng, nil)
 	require.NoError(t, err)
-	assert.JSONEq(t, `[{"title":"Fix"}]`, string(got))
+	assert.JSONEq(t, `[{"title":"Fix","edit":{"changes":{}}}]`, string(got))
 	assert.Equal(t, "textDocument/codeAction", fake.requests()[0].method)
 }
 
@@ -337,8 +345,11 @@ func TestCodeAction_ForwardsDiagnosticsAndRelativizesEdits(t *testing.T) {
 		{"title":"Organize","edit":{"documentChanges":[
 			{"textDocument":{"uri":"file:///tree/main.go","version":3},"edits":[]}
 		]}},
-		{"title":"Run","command":"gopls.run"}
+		{"title":"Run","command":"gopls.run"},
+		{"title":"Show","command":"java.show.references"},
+		{"title":"Both","edit":{"changes":{}},"command":{"title":"x","command":"client.only"}}
 	]`))
+	fake.commands = map[string]bool{"gopls.run": true}
 	e := buildEngine(t, fake)
 	diags := json.RawMessage(`[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":4}},"message":"unused"}]`)
 
@@ -356,7 +367,8 @@ func TestCodeAction_ForwardsDiagnosticsAndRelativizesEdits(t *testing.T) {
 		{"title":"Organize","edit":{"documentChanges":[
 			{"textDocument":{"uri":"main.go","version":3},"edits":[]}
 		]}},
-		{"title":"Run","command":"gopls.run"}
+		{"title":"Run","command":"gopls.run"},
+		{"title":"Both","edit":{"changes":{}}}
 	]`, string(got))
 }
 

@@ -93,6 +93,11 @@ type Server interface {
 	// SemanticTokens reports the server's semantic-token support, as its last
 	// initialize result declared it.
 	SemanticTokens() semtok.Support
+	// CanExecute reports whether the server declared command in its
+	// executeCommandProvider; any other command is the client's to run.
+	CanExecute(
+		command string,
+	) bool
 	// ExecuteCommand runs workspace/executeCommand and returns its result plus
 	// every workspace edit the server asked the client to apply while the
 	// command ran (commands edit through workspace/applyEdit, not their result).
@@ -119,7 +124,7 @@ type server struct {
 	openParams map[string]json.RawMessage
 	// initOptions is the initializationOptions sent in every handshake.
 	initOptions map[string]any
-	semTok      semtok.Support
+	features    serverFeatures
 	// commandEdits collects workspace/applyEdit requests while a command runs
 	// (nil otherwise); execMu serializes commands so each edit has one owner.
 	commandEdits *[]json.RawMessage
@@ -225,9 +230,9 @@ func (s *server) handshake(
 	if err != nil {
 		return fmt.Errorf("initialize: %w", err)
 	}
-	semTok := semanticTokensFromInitialize(result)
+	features := featuresFromInitialize(result)
 	s.mu.Lock()
-	s.semTok = semTok
+	s.features = features
 	s.mu.Unlock()
 	return s.Notify(ctx, "initialized", map[string]any{})
 }
@@ -235,7 +240,15 @@ func (s *server) handshake(
 func (s *server) SemanticTokens() semtok.Support {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.semTok
+	return s.features.semTok
+}
+
+func (s *server) CanExecute(
+	command string,
+) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.features.commands[command]
 }
 
 func (s *server) OnDiagnostics(

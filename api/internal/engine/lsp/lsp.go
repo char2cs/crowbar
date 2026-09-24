@@ -450,11 +450,10 @@ func (e *engine) CodeAction(
 	diagnostics json.RawMessage,
 ) (json.RawMessage, error) {
 	params := convert.CodeActionParams(absFilePath(worktreePath, filePath), rng, diagnostics)
-	raw, err := e.rawRequest(ctx, wsID, worktreePath, filePath, "textDocument/codeAction", params)
-	if err != nil || raw == nil {
-		return raw, err
-	}
-	return convert.RelCodeActions(worktreePath, raw), nil
+	return e.commandRequest(ctx, wsID, worktreePath, filePath, "textDocument/codeAction", params,
+		func(raw json.RawMessage, canRun func(string) bool) json.RawMessage {
+			return convert.ClientCodeActions(worktreePath, raw, canRun)
+		})
 }
 
 func (e *engine) SignatureHelp(
@@ -475,7 +474,8 @@ func (e *engine) CodeLens(
 	filePath string,
 ) (json.RawMessage, error) {
 	params := convert.DocumentSymbolParams(absFilePath(worktreePath, filePath))
-	return e.rawRequest(ctx, wsID, worktreePath, filePath, "textDocument/codeLens", params)
+	return e.commandRequest(ctx, wsID, worktreePath, filePath, "textDocument/codeLens", params,
+		convert.ClientLenses)
 }
 
 func (e *engine) CodeLensResolve(
@@ -485,7 +485,8 @@ func (e *engine) CodeLensResolve(
 	filePath string,
 	lens json.RawMessage,
 ) (json.RawMessage, error) {
-	return e.rawRequest(ctx, wsID, worktreePath, filePath, "codeLens/resolve", lens)
+	return e.commandRequest(ctx, wsID, worktreePath, filePath, "codeLens/resolve", lens,
+		convert.ClientLenses)
 }
 
 func (e *engine) Formatting(
