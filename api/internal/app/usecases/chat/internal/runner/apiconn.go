@@ -396,7 +396,11 @@ func (rs *Runners) pumpAPIConn(
 				continue
 			}
 			if ev.AskID != nil {
-				rs.awaitAndReplyOverSocket(ctx, runnerID, ev.AskID, conn)
+				// Answered on its own goroutine: a human's decision can take
+				// minutes, and every event behind the ask — deltas, turn_stop,
+				// the interrupt reply Stop is waiting for — must keep flowing.
+				// Bounded by the desk's answer budget and by ctx (drop).
+				go rs.awaitAndReplyOverSocket(ctx, runnerID, ev.AskID, conn)
 			}
 		}
 	}()

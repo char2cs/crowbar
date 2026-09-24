@@ -434,3 +434,37 @@ func TestPumpAPIConn_UnansweredAskWritesNoReply(t *testing.T) {
 	case <-time.After(300 * time.Millisecond):
 	}
 }
+
+// §7-A: the pump used to Await a permission answer inline, so every event the
+// provider sent after an unanswered ask — deltas, turn_stop, the next ask —
+// sat behind a human's decision, and once the driver's buffers filled an
+// interrupt hung holding the spawn gate. The answer is awaited on its own
+// goroutine; the pump keeps draining.
+func TestPumpAPIConn_AnUnansweredAskDoesNotBlockLaterEvents(t *testing.T) {
+	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
+		ask, _ := json.Marshal(map[string]any{
+			"id": 11, "method": "acme/tool/requestApproval",
+			"params": map[string]string{"tool": "shell"},
+		})
+		require.NoError(t, conn.WriteMessage(websocket.TextMessage, ask))
+		require.NoError(t, conn.WriteMessage(websocket.TextMessage,
+			[]byte(`{"method":"turn/completed","params":{"threadId":"t1","turn":{"items":[]}}}`)))
+		_, _, _ = conn.ReadMessage()
+	})
+
+	agent := apiTransportTestAgent(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	require.NoError(t, err)
+	defer apiConn.Close()
+
+	answers := answerdesk.New(answerdesk.DefaultRetention, nil)
+	spy := &spyTurns{answers: answers}
+	rs := &Runners{turns: spy, answers: answers}
+	rs.pumpAPIConn("runner-1", "api-test", agent, &apiconn{driver: apiConn, ctx: ctx})
+
+	require.Eventually(t, func() bool { return len(spy.snapshot()) == 2 }, 3*time.Second, 10*time.Millisecond,
+		"the turn_stop behind an unanswered permission ask must still be ingested")
+	assert.Equal(t, "turn_stop", spy.snapshot()[1].canonical)
+}
