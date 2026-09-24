@@ -72,8 +72,8 @@ export function ChatLinkElement(props: PlateElementProps<TLinkElement>) {
 /** The read-only/settled counterpart of `ChatLinkElement`, registered on
  *  `chatComposerPluginsStatic` (see chat-composer-plugins.ts). Renders
  *  through `ChatAttachmentFileCardStatic` instead, which never touches
- *  `@platejs/dnd`'s `useDraggable` — a settled message is read, not
- *  reordered, so it has no reason to require a `<DndProvider>` ancestor. */
+ *  `useAttachmentDraggable` — a settled message is read, not
+ *  reordered, so it has no reason to require a `DndScope` ancestor. */
 export function ChatLinkElementStatic(props: PlateElementProps<TLinkElement>) {
   const asset = useMarkdownAsset()
   const url = props.element.url
@@ -130,7 +130,7 @@ type FileCardProps = PlateElementProps<TLinkElement> & {
  * both children of an outer, non-interactive `<span>` that carries the
  * `group/attachment` hover scope and the `position: relative` the handle's
  * own absolute positioning is measured against. `nodeRef` (the draggable
- * node `@platejs/dnd` measures and previews) still composes onto the anchor
+ * and drop-target node dnd-kit measures) still composes onto the anchor
  * itself — the actual visible card — not the wrapper, same as before this
  * split; Slate's own `props.attributes`/`ref` stay on the anchor too, so its
  * DOM identity, click/href behaviour and `LinkFloatingToolbar` compatibility
@@ -138,12 +138,14 @@ type FileCardProps = PlateElementProps<TLinkElement> & {
  */
 function ChatAttachmentFileCard({ wsId, attachmentRef, filename, ...props }: FileCardProps) {
   const { href, sizeLabel } = useChatAttachmentCardMeta(wsId, attachmentRef)
-  const { isDragging, nodeRef, handleRef, remove } = useAttachmentDraggable(props.element)
+  const { isDragging, nodeRef, handleProps, dropLine, remove } = useAttachmentDraggable(
+    props.element,
+  )
 
   return (
     <span className="group/attachment relative inline-flex align-middle">
-      <AttachmentControls dragRef={handleRef} onDelete={remove} />
-      <AttachmentDropLine />
+      <AttachmentControls handleProps={handleProps} onDelete={remove} />
+      <AttachmentDropLine line={dropLine} />
       <PlateElement
         {...props}
         as="a"

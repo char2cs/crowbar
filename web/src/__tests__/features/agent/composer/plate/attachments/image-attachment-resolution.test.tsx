@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { DndProvider } from 'react-dnd'
-import { HTML5Backend } from 'react-dnd-html5-backend'
+import { DndScope } from '@/features/agent/chat/dnd-scope'
 import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
@@ -46,19 +45,17 @@ describe('chat image attachment resolution', () => {
     vi.unstubAllGlobals()
   })
 
-  // Wrapped in a real `<DndProvider>`: an image is now a draggable attachment
-  // too (chat-markdown-image-node.tsx), same as a text-attachment or file
-  // card already were — `useAttachmentDraggable` throws "Expected drag drop
-  // context" once it actually renders without one.
+  // Wrapped in the real `DndScope`: an image is a draggable attachment too
+  // (chat-markdown-image-node.tsx).
   it('resolves the same reference in the interactive editor', async () => {
     vi.stubGlobal('fetch', mockImageFetch())
 
     render(
-      <DndProvider backend={HTML5Backend}>
+      <DndScope>
         <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
           <MarkdownMessage>{'![a diagram](chats/c1/attachments/shot.png)'}</MarkdownMessage>
         </ChatMarkdownAssetProvider>
-      </DndProvider>,
+      </DndScope>,
     )
 
     const img = await screen.findByRole('img', { name: 'a diagram' })
@@ -102,32 +99,12 @@ const TWO_ATTACHMENTS = [
  * with a PLAIN photo/file attachment and no Excalidraw involved at all — a
  * second, independent mechanism.
  *
- * The strongest lead investigated for that second mechanism was
- * `useAttachmentDraggable` (attachment-drag-handle.tsx): it builds a fresh
- * `drag: { end }` options object on every render and hands it to `@platejs/
- * dnd`'s `useDraggable`. Read all the way down through `@platejs/dnd` and
- * `react-dnd`'s own source (node_modules, this version) rather than assumed:
- *
- * - The DRAG-source half (`useDragNode`) calls `react-dnd`'s `useDrag` with
- *   an explicit `[editor, elementId]` deps array — `useOptionalFactory`
- *   (react-dnd) memoizes on THAT, not on the spec object's own identity, so
- *   a fresh `end` closure per render never even reaches a re-registration
- *   once mounted.
- * - The DROP-target half (`useDropNode` → `useDrop`) is called with NO deps,
- *   which `useOptionalFactory` treats as "recompute every render" BY DESIGN
- *   — but `useDropTarget` (react-dnd) only re-assigns `dropTarget.spec` in a
- *   plain `useEffect`, never tearing down/re-running the actual
- *   `registerTarget` layout effect, whose own deps (`manager`, `monitor`,
- *   the memoized `DropTargetImpl` instance, a stringified `accept` list)
- *   stay referentially stable regardless of the spec object's identity.
- *
- * Confirmed empirically below, through the REAL (unmocked) `@platejs/dnd` +
- * `react-dnd` stack — not the mocked-boundary unit tests in attachment-
- * drag-handle.test.tsx, which verify composition, not library internals.
- * This is NOT a fix: it is evidence the lead, however plausible-sounding,
- * does not reproduce the crash — recorded as a regression test so a future
- * change to this hook (or to how the composer swaps into the transcript on
- * submit) can't silently reintroduce it without a test noticing.
+ * One lead investigated for that second mechanism was
+ * `useAttachmentDraggable` (attachment-drag-handle.tsx) building fresh drag
+ * options on every render. Exercised below through the real drag stack under
+ * `DndScope`: a regression test so a future change to this hook (or to how
+ * the composer swaps into the transcript on submit) can't silently
+ * reintroduce a render loop without a test noticing.
  */
 describe('REGRESSION investigation: React error #185 with a plain (non-Excalidraw) attachment', () => {
   function ComposerLike({ n }: { n: number }) {
@@ -156,12 +133,12 @@ describe('REGRESSION investigation: React error #185 with a plain (non-Excalidra
     function Harness() {
       const [n, setN] = useState(0)
       return (
-        <DndProvider backend={HTML5Backend}>
+        <DndScope>
           <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
             <ComposerLike n={n} />
           </ChatMarkdownAssetProvider>
           <button onClick={() => setN((v) => v + 1)}>rerender</button>
-        </DndProvider>
+        </DndScope>
       )
     }
 
@@ -180,7 +157,7 @@ describe('REGRESSION investigation: React error #185 with a plain (non-Excalidra
   // composer.tsx), unmounting every attachment it held — including their
   // `useAttachmentDraggable`/`useAttachmentDropTarget` registrations — in
   // the SAME commit the transcript mounts a new (interactive, streaming)
-  // bubble with the SAME attachment content, sharing one `<DndProvider>`
+  // bubble with the SAME attachment content, sharing one `DndScope`
   // (DndScope wraps both composer and transcript with a single manager).
   it('survives the composer unmounting its attachments as the transcript mounts the same ones, in one commit', () => {
     vi.stubGlobal('fetch', mockImageFetch())
@@ -189,7 +166,7 @@ describe('REGRESSION investigation: React error #185 with a plain (non-Excalidra
       const [sent, setSent] = useState(false)
       const [seed, setSeed] = useState(0)
       return (
-        <DndProvider backend={HTML5Backend}>
+        <DndScope>
           <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
             {sent && (
               <MarkdownMessage>
@@ -206,7 +183,7 @@ describe('REGRESSION investigation: React error #185 with a plain (non-Excalidra
           >
             submit
           </button>
-        </DndProvider>
+        </DndScope>
       )
     }
 

@@ -1,36 +1,20 @@
-import { createRef, type ReactNode } from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { ReactNode } from 'react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { PlateEditor } from 'platejs/react'
 import type { TCodeBlockElement } from 'platejs'
-import { DndProvider } from 'react-dnd'
-import { HTML5Backend } from 'react-dnd-html5-backend'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
-import {
-  ChatMarkdownEditor,
-  type ChatMarkdownEditorHandle,
-} from '@/features/agent/composer/plate/chat-markdown-editor'
 import {
   excalidrawSceneFromCodeBlock,
   findFollowingImageRef,
 } from '@/features/agent/composer/plate/attachments/chat-code-block-node'
 import * as ExcalidrawPreviewModule from '@/features/agent/composer/plate/attachments/excalidraw-preview'
 
-/**
- * The real (unmocked) `<DndProvider>` this app's production code puts above
- * every Plate tree that can render an attachment node (`AgentChatView`'s own
- * `DndScope`, see agent-chat-view.tsx) — `@platejs/dnd`'s `useDraggable`
- * throws "Expected drag drop context" without one, once `DndPlugin` is
- * registered (chat-composer-plugins.ts). Standalone tests that mount
- * `MarkdownMessage` directly, bypassing `AgentChatView` entirely, have to
- * supply this same ancestor themselves — deliberately NOT mocking
- * `@platejs/dnd` here (unlike attachment-drag-handle.test.tsx's own unit
- * tests) is what proves the gap is genuinely closed, not just papered over.
- */
+/** The app renders attachments under `AgentChatView`'s `DndScope`. */
 function renderWithDnd(ui: ReactNode) {
-  return render(<DndProvider backend={HTML5Backend}>{ui}</DndProvider>)
+  return render(<DndScope>{ui}</DndScope>)
 }
 
 // Wraps the REAL component (not a stand-in) so every existing behavioural
@@ -124,7 +108,7 @@ describe('chat attachment code blocks', () => {
     expect(screen.getByRole('button', { name: /reorder this attachment/i })).toBeInTheDocument()
   })
 
-  it('renders no drag handle for a plain, non-attachment code block — even under a real DndProvider', () => {
+  it('renders no drag handle for a plain, non-attachment code block — even under a real DndScope', () => {
     renderWithDnd(<MarkdownMessage>{'```go\nfunc main() {}\n```'}</MarkdownMessage>)
     expect(screen.queryByRole('button', { name: /reorder this attachment/i })).toBeNull()
   })
@@ -181,7 +165,7 @@ describe('chat attachment code blocks', () => {
   // inside the Slate editor's own `contenteditable="true"` region with no
   // non-editable island around it. WebKit (Tauri's WKWebView) arbitrates a
   // real mousedown+move inside editable content as a text-selection gesture
-  // BEFORE react-dnd's own native `dragstart` ever fires, regardless of the
+  // BEFORE the drag can start, regardless of the
   // button's `draggable="true"` — confirmed live (`-webkit-user-drag:
   // element` and `draggable="true"` were both already correct; the only gap
   // was the missing `contenteditable="false"` boundary).
@@ -202,146 +186,6 @@ describe('chat attachment code blocks', () => {
     const island = handle.closest('[contenteditable="false"]')
     expect(island).not.toBeNull()
     expect(island?.classList.contains('slate-editor')).toBe(false)
-  })
-
-  // REGRESSION, reported live: dragging still did nothing even after the
-  // non-editable-island fix above, because Tauri's own OS-file-drop
-  // interception (`dragDropEnabled`, on by default — see tauri-file-drop.ts)
-  // swallows a real native drag gesture at the OS/webview boundary before it
-  // ever becomes a DOM `dragstart` event, independent of the contenteditable
-  // fix. `DndScope` (dnd-scope.tsx) now wires the app's ONE `<DndProvider>` to
-  // `TouchBackend` instead of `HTML5Backend` specifically so dragging never
-  // depends on that native API at all — this test renders through the REAL
-  // `DndScope` (not this file's own `HTML5Backend`-based `renderWithDnd`
-  // helper, which every other test here uses only to satisfy `useDraggable`'s
-  // context requirement) and drives a drag with plain `mousedown`/`mousemove`,
-  // exactly what a real WebKit user gesture produces — proving the fix
-  // without needing a native `dragstart` event jsdom cannot simulate anyway.
-  it('starts a real drag from a plain mousedown+mousemove, matching what Tauri actually delivers', () => {
-    // jsdom implements neither `elementsFromPoint` (used by `TouchBackend`
-    // to resolve hover targets under the pointer) nor real layout — a real
-    // WebKit browser has both, so this stub exists only to satisfy jsdom,
-    // not to change what's under test (whether a drag STARTS at all).
-    const elementsFromPoint = vi.fn().mockReturnValue([])
-    document.elementsFromPoint = elementsFromPoint
-
-    render(
-      <DndScope>
-        <MarkdownMessage>
-          {'```text-attachment:AbC123xy\nsome long pasted text\n```'}
-        </MarkdownMessage>
-      </DndScope>,
-    )
-    const handle = screen.getByRole('button', { name: /reorder this attachment/i })
-    const block = handle.closest('.slate-code_block')
-    expect(block?.className).not.toContain('opacity-50')
-
-    fireEvent.mouseDown(handle, { clientX: 0, clientY: 0 })
-    fireEvent.mouseMove(document, { clientX: 0, clientY: 20 })
-
-    expect(block?.className).toContain('opacity-50')
-
-    // `DndScope`'s manager is a MODULE-LEVEL singleton (dnd-scope.tsx),
-    // shared across every test in this file — an unterminated drag here
-    // leaks `monitor.isDragging()` into whichever DnD test runs next. A real
-    // gesture always ends in a `mouseup`; this one has to too.
-    fireEvent.mouseUp(document, { clientX: 0, clientY: 20 })
-  })
-
-  // REGRESSION, reported live: "I can't move attachment between paragraphs"
-  // — dragging an attachment worked, but only ever swapped it with ANOTHER
-  // attachment: nothing made a plain paragraph a valid `useDropNode` target
-  // at all, and different attachment kinds used their own Slate node type as
-  // the dnd type (a code-block's `'code_block'` vs. a file card's `'p'`),
-  // so even two attachments of different kinds couldn't drop on each other.
-  // `ChatParagraphElement` (chat-paragraph-node.tsx) now registers every
-  // plain paragraph as a drop target via `useAttachmentDropTarget`, and
-  // `ATTACHMENT_DND_TYPE` unifies the dnd type across every attachment kind.
-  //
-  // A DEEPER cause surfaced chasing this one down: `@platejs/dnd`'s hover
-  // resolution (`getHoverDirection`) bails whenever the hovered candidate's
-  // `.id` matches the dragged item's — which it always did, because nothing
-  // in `chatComposerPlugins` ever assigned an `.id` at all (confirmed
-  // directly: no plugin under any key did this — an incorrect assumption
-  // from earlier in this feature's build, never actually verified). Fixed by
-  // registering `NodeIdPlugin` (chat-composer-plugins.ts). Plate's own
-  // `withNodeId` only assigns ids through a real INSERT transform, not to
-  // nodes already present in an editor's initial `value` — this is why the
-  // test below builds its document via `ChatMarkdownEditor`'s real
-  // `insertAttachmentMarkdown` handle (the same path `insertAttachmentMarkdown
-  // Into`/the composer's own paste and attach flows use), not a canned
-  // `MarkdownMessage` initial value the way every other test in this file
-  // does; a canned value never goes through the insert transform, so it
-  // never gets ids either, no differently from before this fix.
-  //
-  // `TouchBackend`'s drop-target hover detection (`connectDropTarget`,
-  // react-dnd-touch-backend) is a SEPARATE code path from the drag-start
-  // detection the test above exercises — it listens on `document.body`
-  // (not `root`/`document` directly) and calls `document.elementFromPoint`
-  // (singular) to decide whether the current position is over a given
-  // target's own node, so both need their own jsdom stand-ins here; a real
-  // WebKit browser implements both natively.
-  //
-  // The target paragraph has to be one the attachment ISN'T already sitting
-  // next to: `getDropPath` (@platejs/dnd) deliberately no-ops a "move" that
-  // would land the dragged item exactly where it already is (dragging onto
-  // the bottom of the paragraph directly above it, say) — confirmed by
-  // instrumenting it directly, this is intentional, not a bug. A second,
-  // later paragraph gives the drag somewhere real to go.
-  it('registers a plain paragraph as a drop target, so dragging an attachment over one shows the drop-line there too', async () => {
-    const ref = createRef<ChatMarkdownEditorHandle>()
-    render(
-      <DndScope>
-        <ChatMarkdownEditor
-          ref={ref}
-          initialValue="first paragraph"
-          placeholder=""
-          ariaLabel="Message the agent"
-          onChange={vi.fn()}
-          onKeyDown={vi.fn()}
-        />
-      </DndScope>,
-    )
-    await act(async () => {
-      ref.current?.insertAttachmentMarkdown(
-        '```text-attachment:AbC123xy\nsome long pasted text\n```',
-      )
-      ref.current?.insertAttachmentMarkdown('second paragraph')
-    })
-
-    const handle = await screen.findByRole('button', { name: /reorder this attachment/i })
-    const paragraph = screen.getByText('second paragraph').closest('.slate-p')
-    expect(paragraph).not.toBeNull()
-
-    // Both singular AND plural stand-ins are needed: `connectDropTarget`'s
-    // own per-target hover check (which populates `dragOverTargetIds`) uses
-    // `elementFromPoint`, while `handleTopMove`'s separate ordering pass
-    // (which the ACTUAL hover dispatch is filtered through) uses
-    // `elementsFromPoint` — leaving the plural one returning `[]` (as the
-    // earlier, drag-START-only test above does, which never needs it) means
-    // that filter always empties out, so `hover()` never fires for ANY
-    // target, no matter what the singular stand-in says.
-    document.elementFromPoint = vi.fn().mockReturnValue(paragraph)
-    document.elementsFromPoint = vi.fn().mockReturnValue([paragraph])
-
-    fireEvent.mouseDown(handle, { clientX: 0, clientY: 0 })
-    // The FIRST move is what flips `isDragging` true (react-dnd-touch-
-    // backend's own `handleTopMove`, on `document`) — but `connectDropTarget`'s
-    // separate hover check (on `document.body`, fires earlier in the bubble
-    // order for the SAME event) bails immediately while `isDragging()` is
-    // still false, so it never even calls `elementFromPoint` on this first
-    // move (confirmed by instrumenting it directly). A real drag always has
-    // more than one `mousemove` before the pointer settles on a target, so a
-    // second one here matches what actually reaches a drop target's hover
-    // detection, not just what starts the drag.
-    fireEvent.mouseMove(paragraph!, { clientX: 0, clientY: 20 })
-    fireEvent.mouseMove(paragraph!, { clientX: 0, clientY: 25 })
-
-    expect(paragraph!.querySelector('.-top-px, .-bottom-px')).not.toBeNull()
-
-    // Same cleanup reasoning as the drag-start test above — `DndScope`'s
-    // manager is shared across this whole file's tests.
-    fireEvent.mouseUp(paragraph!, { clientX: 0, clientY: 25 })
   })
 
   it("threads a following img node's url through to ExcalidrawPreview as pngRef", () => {
@@ -416,8 +260,8 @@ describe('chat attachment code blocks', () => {
     const md = `\`\`\`excalidraw:AbC123xy\n${scene}\n\`\`\`\n\n![diagram](chats/c1/attachments/diagram.png)`
     // An excalidraw fence resolves to a preview, which — under the
     // interactive renderer — is wrapped in the draggable primitive (see
-    // ChatCodeBlockElement), so this needs the same real `<DndProvider>`
-    // ancestor production wires up at AgentChatView.
+    // ChatCodeBlockElement), so this renders under the same `DndScope`
+    // production wires up at AgentChatView.
     renderWithDnd(<MarkdownMessage>{md}</MarkdownMessage>)
 
     const spy = vi.mocked(ExcalidrawPreviewModule.ExcalidrawPreview)

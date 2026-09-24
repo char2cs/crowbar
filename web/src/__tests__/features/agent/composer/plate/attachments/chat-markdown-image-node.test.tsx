@@ -1,17 +1,14 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DndProvider } from 'react-dnd'
-import { HTML5Backend } from 'react-dnd-html5-backend'
+import { DndScope } from '@/features/agent/chat/dnd-scope'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 
 afterEach(cleanup)
 
-/** Same reasoning as chat-code-block-node.test.tsx's own `renderWithDnd` —
- *  `@platejs/dnd`'s `useDraggable` throws "Expected drag drop context"
- *  without a real `<DndProvider>` ancestor once `DndPlugin` is registered. */
+/** Under the real `DndScope`, as `AgentChatView` renders it. */
 function renderWithDnd(ui: React.ReactNode) {
-  return render(<DndProvider backend={HTML5Backend}>{ui}</DndProvider>)
+  return render(<DndScope>{ui}</DndScope>)
 }
 
 describe('chat attachment images', () => {

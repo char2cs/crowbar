@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 
-import { useDraggable, useDropLine } from '@platejs/dnd'
 import { BlockSelectionPlugin, useBlockSelected } from '@platejs/selection/react'
 import { resizeLengthClampStatic } from '@platejs/resizable'
 import {
@@ -42,18 +41,10 @@ import {
   Trash2Icon,
   XIcon,
 } from 'lucide-react'
-import {
-  type TElement,
-  type TTableCellElement,
-  type TTableElement,
-  type TTableRowElement,
-  KEYS,
-  PathApi,
-} from 'platejs'
+import { type TTableCellElement, type TTableElement, type TTableRowElement, KEYS } from 'platejs'
 import {
   type PlateElementProps,
   PlateElement,
-  useComposedRef,
   useEditorPlugin,
   useEditorRef,
   useEditorSelector,
@@ -1084,26 +1075,11 @@ export function TableRowElement({ children, ...props }: PlateElementProps<TTable
   const isSelectionAreaVisible = usePluginOption(BlockSelectionPlugin, 'isSelectionAreaVisible')
   const hasControls = !readOnly && !isSelectionAreaVisible
 
-  const { isDragging, nodeRef, previewRef, handleRef } = useDraggable({
-    element,
-    type: element.type,
-    canDropNode: ({ dragEntry, dropEntry }) =>
-      !!dragEntry && PathApi.equals(PathApi.parent(dragEntry[1]), PathApi.parent(dropEntry[1])),
-    onDropHandler: (_, { dragItem }) => {
-      const dragElement = (dragItem as { element: TElement }).element
-
-      if (dragElement) {
-        editor.tf.select(dragElement)
-      }
-    },
-  })
-
   return (
     <PlateElement
       {...props}
-      ref={useComposedRef(props.ref, previewRef, nodeRef)}
       as="tr"
-      className={cn('group/row', isDragging && 'opacity-50')}
+      className="group/row"
       style={
         {
           ...props.style,
@@ -1113,8 +1089,7 @@ export function TableRowElement({ children, ...props }: PlateElementProps<TTable
     >
       {hasControls && (
         <td className="w-2 min-w-2 max-w-2 select-none p-0" contentEditable={false}>
-          <RowDragHandle dragRef={handleRef} />
-          <RowDropLine />
+          <RowSelectHandle onSelect={() => editor.tf.select(element)} />
         </td>
       )}
 
@@ -1149,40 +1124,22 @@ function useTableCellPresentation(element: TTableCellElement) {
   }
 }
 
-function RowDragHandle({ dragRef }: { dragRef: React.Ref<HTMLButtonElement> }) {
-  const editor = useEditorRef()
-  const element = useElement()
-
+// Selects the row. Rows were never draggable in the file editor: the drag
+// plumbing this handle once carried needed a Plate dnd plugin the editor never
+// registered.
+function RowSelectHandle({ onSelect }: { onSelect: () => void }) {
   return (
     <Button
-      ref={dragRef}
       variant="outline"
+      aria-label="Select row"
       className={cn(
         '-translate-y-1/2 absolute top-1/2 left-0 z-51 h-6 w-4 p-0 focus-visible:ring-0 focus-visible:ring-offset-0',
-        'cursor-grab active:cursor-grabbing',
         'opacity-0 transition-opacity duration-100 group-hover/row:opacity-100 group-data-[table-resizing=true]/row:opacity-0',
       )}
-      onClick={() => {
-        editor.tf.select(element)
-      }}
+      onClick={onSelect}
     >
       <GripVertical className="text-muted-foreground" />
     </Button>
-  )
-}
-
-function RowDropLine() {
-  const { dropLine } = useDropLine()
-
-  if (!dropLine) return null
-
-  return (
-    <div
-      className={cn(
-        'absolute inset-x-0 left-2 z-50 h-0.5 bg-brand/50',
-        dropLine === 'top' ? '-top-px' : '-bottom-px',
-      )}
-    />
   )
 }
 
