@@ -4,7 +4,12 @@ import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { dataOf } from '@/lib/loadable'
 import { planRemoval, type DragSubject } from './removal-plan'
-import { createChat, createChatWithOwnWorktree } from '@/features/agent/api/agent-api'
+import {
+  createChat,
+  createChatWithOwnWorktree,
+  createSurfaceFor,
+  type AgentProvider,
+} from '@/features/agent/api/agent-api'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { presetChatLandingPresentation } from '@/features/agent/hooks/use-chat-presentation'
@@ -672,7 +677,9 @@ export function handleCreate(
    *  what decides which of the provider's faces is actually FORKED — a
    *  seeded landing alone would open a terminal pane on a chat the daemon
    *  had already spawned on its api transport, with no PTY to show.
-   *  Undefined (every existing caller) keeps today's behavior exactly.
+   *  Undefined leaves the surface to `createSurfaceFor`, which answers it
+   *  from the user's own default landing surface (a provider that cannot be
+   *  landed on its terminal still creates exactly as before).
    *  Never applies to a fork ('workspace'): naming happens first, and by
    *  the time `confirmPendingCreateName` actually mints one there is no
    *  caller left in this call to have asked. */
@@ -724,12 +731,15 @@ export function handleCreate(
     // an omitted parentId here roots every home thread at the top level
     // regardless of which bubble was clicked — caught live: rooted as a
     // sibling of "Test", never nested under it.
-    createChat(homeRow.homeWorkspaceId, provider.id, parentId, presentation)
+    const surface = createSurfaceFor(provider, presentation)
+    createChat(homeRow.homeWorkspaceId, provider.id, parentId, surface)
       .then((chatId) => {
         release()
         // Before anything opens a pane on it — the seed this chat's own
-        // AgentChatPane reads at first mount (use-chat-presentation.ts).
-        if (presentation) presetChatLandingPresentation(chatId, presentation)
+        // AgentChatPane reads at first mount (use-chat-presentation.ts). Off
+        // the surface actually CREATED, never the caller's argument alone: a
+        // chat the daemon forked on its terminal must land there.
+        if (surface) presetChatLandingPresentation(chatId, surface)
         // Hides the real row (space-scroller.tsx's `unconfirmedRealIds`)
         // from first paint, rather than letting it render wrong once and
         // correct itself a moment later — see PendingCreateEntry.realId.
@@ -929,14 +939,15 @@ export function handleCreate(
   // sharing that same workspace rooted the new chat at the top level
   // instead — caught chasing the identical gap on the project-home path,
   // which has no workspace-ground fold to hide it behind at all.
-  createChat(wsId, provider.id, parentId, presentation)
+  const surface = createSurfaceFor(provider, presentation)
+  createChat(wsId, provider.id, parentId, surface)
     .then((chatId) => {
       release()
       announceTreeChange(repo.id)
       // Before either branch below opens a pane on it — the seed this
       // chat's own AgentChatPane reads at first mount
-      // (use-chat-presentation.ts).
-      if (presentation) presetChatLandingPresentation(chatId, presentation)
+      // (use-chat-presentation.ts), off the surface actually CREATED.
+      if (surface) presetChatLandingPresentation(chatId, surface)
       // Opens the new thread the moment it exists — same "focus what you
       // just created" contract `openHomeChat` already gives a project-home
       // thread — rather than leaving it as a sidebar row the user has to
@@ -1079,17 +1090,19 @@ export async function handleCreateHomeThread(
     ownsWorktree: false,
     rowIdsAtClick,
   })
+  const surface = createSurfaceFor(provider, presentation)
   let chatId: string
   try {
-    chatId = await createChat(homeWorkspaceId, provider.id, '', presentation)
+    chatId = await createChat(homeWorkspaceId, provider.id, '', surface)
   } catch (err) {
     release()
     failCreate(tempId, err, 'Failed to start chat')
     return
   }
   release()
-  // Before `openHomeChat` below opens a pane on it.
-  if (presentation) presetChatLandingPresentation(chatId, presentation)
+  // Before `openHomeChat` below opens a pane on it — off the surface actually
+  // CREATED, never the caller's argument alone.
+  if (surface) presetChatLandingPresentation(chatId, surface)
   usePendingCreatesStore.getState().attachRealId(tempId, chatId)
   void waitForRootHomeChat(projectId, homeWorkspaceId, chatId).then(() =>
     usePendingCreatesStore.getState().clear(tempId),
@@ -1133,7 +1146,7 @@ async function openHomeChat(
  * once for that, but only for a MOUNTED workspace — the sidebar can be the only
  * thing on screen). A precondition that stops a click has to be visible.
  */
-export function enabledProvider(): { id: string } | null {
+export function enabledProvider(): AgentProvider | null {
   const provider = useAgentProvidersStore.getState().providers.find((p) => p.enabled)
   if (provider) return provider
   toast.error(

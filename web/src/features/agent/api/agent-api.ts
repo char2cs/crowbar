@@ -1,4 +1,7 @@
-import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
+import {
+  getDefaultChatPresentation,
+  type LandingChatPresentation,
+} from '@/features/settings/lib/chat-presentation'
 import { API_BASE, apiFetch } from '@/lib/api'
 import { repoChatsBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
@@ -326,9 +329,11 @@ export interface AgentProvider {
    * Whether a BRAND-NEW chat may be launched DIRECTLY onto this provider's
    * terminal surface, rather than reached only by switching to it after a
    * turn (design spec 2.5's `surfaces.terminal.start_here`). `hasTerminal`
-   * says the surface exists at all; this says it may be a LANDING surface —
-   * codex has a terminal (hasTerminal: true) that is idle-only sequential
-   * handoff, unreachable until a turn completes, so it reports this false.
+   * says the surface exists at all; this says it may be a LANDING surface.
+   * Codex reports it TRUE: its terminal is the hooks-channel PTY every spawn
+   * already forks (descriptor `terminal: { channel: hooks, start_here: true }`).
+   * The idle-only sequential handoff is `attach` — the api channel's way back
+   * onto an EXISTING session, which says nothing about landing.
    *
    * Defaults to `false` on omission — the SAME direction as hotswap/
    * compaction/the selection capabilities, unlike hasTerminal's own
@@ -931,10 +936,10 @@ export async function listProviders(wsId: string): Promise<AgentProvider[]> {
  * affordance (the sidebar row menu, the space header's overflow menu, the
  * ⌥⌘N chord). `hasTerminal` says the surface exists at all; `terminalStartHere`
  * says it may be LAUNCHED INTO rather than reached only by switching to it
- * after a turn (design spec 2.5's `start_here` — codex has a terminal that is
- * idle-only sequential handoff, so it reports `terminalStartHere: false`
- * despite `hasTerminal: true`). Both must hold: house rule is absence, not a
- * disabled control, so a provider silent on either gets no affordance at all.
+ * after a turn (design spec 2.5's `start_here`; both shipped descriptors
+ * declare it today, so this gate only ever refuses a provider that does not).
+ * Both must hold: house rule is absence, not a disabled control, so a provider
+ * silent on either gets no affordance at all.
  *
  * `provider` undefined (no enabled provider resolved yet) reads permissive —
  * the plain Thread button offers itself unconditionally too and leaves the
@@ -943,6 +948,29 @@ export async function listProviders(wsId: string): Promise<AgentProvider[]> {
 export function providerCanStartOnTerminal(provider: AgentProvider | undefined): boolean {
   if (!provider) return true
   return provider.hasTerminal !== false && provider.terminalStartHere === true
+}
+
+/**
+ * The `surface` a CREATE names when its caller named none: the user's own
+ * default landing presentation, gated by the same rule above.
+ *
+ * That default used to be consulted only at DISPLAY time
+ * (use-chat-presentation.ts), so with "native chats" off a codex chat was
+ * forked on its api face — no PTY — and the pane then asked for a terminal
+ * view that had never been created ("This agent has no terminal view attached
+ * right now").
+ *
+ * An UNRESOLVED provider reads as no surface, unlike `providerCanStartOnTerminal`
+ * itself: permissive is right for offering an affordance a click can retry, and
+ * wrong for a create, which forks the face it names and cannot take it back.
+ */
+export function createSurfaceFor(
+  provider: AgentProvider | undefined,
+  explicit?: LandingChatPresentation,
+): LandingChatPresentation | undefined {
+  if (explicit) return explicit
+  if (!provider || !providerCanStartOnTerminal(provider)) return undefined
+  return getDefaultChatPresentation() === 'terminal' ? 'terminal' : undefined
 }
 
 // updateProviderPreferences rewrites the GLOBAL provider preference set. The body

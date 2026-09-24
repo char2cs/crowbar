@@ -62,6 +62,7 @@ import {
 import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import { useSettingsStore } from '@/features/settings/store'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
@@ -83,6 +84,14 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
   workspaces: [],
   folders: [],
   ...over,
+})
+
+afterEach(() => {
+  // A GLOBAL store — a leaked 'terminal' default would silently arm every
+  // later create in this file with a surface its own assertions never named.
+  useSettingsStore.setState((state) => ({
+    settings: { ...state.settings, chatIsDefaultPresentation: true },
+  }))
 })
 
 beforeEach(() => {
@@ -530,6 +539,50 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
     handleCreate('c1', 'thread', vi.fn())
 
     expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'c1', undefined)
+  })
+
+  // THE BUG: the Thread button named no surface at all, so with "native chats"
+  // off (default landing surface Terminal) the daemon forked the provider's own
+  // default face — for codex an api transport with NO PTY — and the pane then
+  // asked for a terminal view that had never been created. The user's default
+  // now reaches the CREATE, not just the display.
+  it("Thread derives Terminal from the user's default when the caller names no surface", async () => {
+    useSettingsStore.setState((state) => ({
+      settings: { ...state.settings, chatIsDefaultPresentation: false },
+    }))
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [
+        { id: 'codex', enabled: true, hasTerminal: true, terminalStartHere: true },
+      ] as never,
+    })
+    useSidebarStore.setState({ repos: [forkRepo()] })
+
+    handleCreate('c1', 'thread', vi.fn())
+    await Promise.resolve()
+
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'codex', 'c1', 'terminal')
+    // Created on the terminal ⇒ lands on it.
+    expect(presetChatLandingPresentation).toHaveBeenCalledExactlyOnceWith('chat-1', 'terminal')
+  })
+
+  // The gate holds on this path too: a provider that never declared its
+  // terminal a landing surface creates exactly as it did before.
+  it('Thread still names no surface for a provider that cannot start on its terminal', async () => {
+    useSettingsStore.setState((state) => ({
+      settings: { ...state.settings, chatIsDefaultPresentation: false },
+    }))
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true, hasTerminal: true }] as never,
+    })
+    useSidebarStore.setState({ repos: [forkRepo()] })
+
+    handleCreate('c1', 'thread', vi.fn())
+    await Promise.resolve()
+
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'c1', undefined)
+    expect(presetChatLandingPresentation).not.toHaveBeenCalled()
   })
 
   it('Fork forks the ground workspace’s OWNING BRANCH, never the bubble’s own id', async () => {

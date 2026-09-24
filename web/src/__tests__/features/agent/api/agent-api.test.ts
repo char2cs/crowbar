@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const apiFetch = vi.fn()
 vi.mock('@/lib/api', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }))
@@ -17,6 +17,7 @@ vi.mock('@/lib/workspace-scope', () => ({
 }))
 
 import * as api from '@/features/agent/api/agent-api'
+import { useSettingsStore } from '@/features/settings/store'
 
 describe('agent-api: chatBase URL shape', () => {
   beforeEach(() => apiFetch.mockReset())
@@ -1028,5 +1029,69 @@ describe('agent-api', () => {
       const { shifted } = await api.setChatPlacement('w1', 'c1', { parentId: '', order: 0 })
       expect(shifted).toEqual([])
     })
+  })
+})
+
+// THE BUG: with "native chats" off (chatIsDefaultPresentation: false — default
+// landing surface 'terminal'), starting a codex chat showed "This agent has no
+// terminal view attached right now". The default was consulted only at DISPLAY
+// time, so the create named no `surface` and the daemon forked codex's default
+// face — the api transport, which forks NO PTY — leaving the pane asking for a
+// terminal view that never existed. `createSurfaceFor` is the one place that
+// derivation lives.
+describe('createSurfaceFor', () => {
+  const CAN_START = {
+    id: 'codex',
+    hasTerminal: true,
+    terminalStartHere: true,
+  } as api.AgentProvider
+  const CANNOT_START = {
+    id: 'legacy',
+    hasTerminal: true,
+    terminalStartHere: false,
+  } as api.AgentProvider
+
+  function setLandingDefault(landing: 'chat' | 'terminal'): void {
+    useSettingsStore.setState((state) => ({
+      settings: { ...state.settings, chatIsDefaultPresentation: landing === 'chat' },
+    }))
+  }
+
+  afterEach(() => setLandingDefault('chat'))
+
+  it("names the terminal when that is the user's default and the provider may start there", () => {
+    setLandingDefault('terminal')
+    expect(api.createSurfaceFor(CAN_START)).toBe('terminal')
+  })
+
+  it('names nothing for a provider whose terminal is not a landing surface', () => {
+    setLandingDefault('terminal')
+    expect(api.createSurfaceFor(CANNOT_START)).toBeUndefined()
+  })
+
+  it("names nothing when the user's default is Chat, whichever provider it is", () => {
+    setLandingDefault('chat')
+    expect(api.createSurfaceFor(CAN_START)).toBeUndefined()
+    expect(api.createSurfaceFor(CANNOT_START)).toBeUndefined()
+  })
+
+  // An explicitly asked-for surface is the "start THIS chat on the CLI"
+  // affordance (⌥⌘N, the row menu). It answers for itself in both directions —
+  // it must not be re-derived from a preference it exists to override.
+  it('lets an explicit surface win over the default, both ways round', () => {
+    setLandingDefault('chat')
+    expect(api.createSurfaceFor(CAN_START, 'terminal')).toBe('terminal')
+    setLandingDefault('terminal')
+    expect(api.createSurfaceFor(CAN_START, 'chat')).toBe('chat')
+  })
+
+  // providerCanStartOnTerminal reads PERMISSIVE for an unresolved provider on
+  // purpose — an affordance stays offered and leaves the refusal to click time.
+  // A CREATE cannot borrow that: it forks the face it names, so "we do not know
+  // yet" must never become "born on the terminal".
+  it('never names the terminal for an unresolved provider, though the gate is permissive', () => {
+    setLandingDefault('terminal')
+    expect(api.providerCanStartOnTerminal(undefined)).toBe(true)
+    expect(api.createSurfaceFor(undefined)).toBeUndefined()
   })
 })

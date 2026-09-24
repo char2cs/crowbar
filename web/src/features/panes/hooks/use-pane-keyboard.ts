@@ -6,7 +6,11 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { showingLayout } from '@/features/panes/lib/view-state'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
-import { createChat, providerCanStartOnTerminal } from '@/features/agent/api/agent-api'
+import {
+  createChat,
+  createSurfaceFor,
+  providerCanStartOnTerminal,
+} from '@/features/agent/api/agent-api'
 import { selectEnabledProviders } from '@/features/workspace/stores/slices/agent-chats-slice'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { presetChatLandingPresentation } from '@/features/agent/hooks/use-chat-presentation'
@@ -104,13 +108,12 @@ export function usePaneKeyboard() {
         // chat in the tree) via `openChat` — never into the active pane.
         //
         // AGENT_NEW_CHAT_TERMINAL is the same create, landed on Terminal
-        // instead of wherever `chatIsDefaultPresentation` points — the one
+        // regardless of where `chatIsDefaultPresentation` points — the one
         // way to start THIS chat on the CLI without flipping that setting
         // for every chat after it. `presetChatLandingPresentation` writes
         // the choice before the pane exists to read it. Absence, not a
         // disabled control: a provider that does not declare its terminal a
-        // start_here surface (providerCanStartOnTerminal — design spec 2.5;
-        // codex HAS a terminal but only as idle-only sequential handoff)
+        // start_here surface (providerCanStartOnTerminal — design spec 2.5)
         // just creates the ordinary chat, same as AGENT_NEW_CHAT.
         const wantsTerminal = matches(AGENT_NEW_CHAT_TERMINAL)
         e.preventDefault()
@@ -119,10 +122,16 @@ export function usePaneKeyboard() {
         if (!provider) return
         // The surface travels on the CREATE, not just into the landing seed:
         // it is what decides which of the provider's faces the daemon forks.
-        const onTerminal = wantsTerminal && providerCanStartOnTerminal(provider)
-        createChat(state.workspaceId, provider.id, '', onTerminal ? 'terminal' : undefined)
+        // The PLAIN chord names none, so `createSurfaceFor` answers it from the
+        // user's own default landing surface — without that, "native chats" off
+        // forked codex on its api face and the pane had no terminal to show.
+        const surface = createSurfaceFor(
+          provider,
+          wantsTerminal && providerCanStartOnTerminal(provider) ? 'terminal' : undefined,
+        )
+        createChat(state.workspaceId, provider.id, '', surface)
           .then((chatId) => {
-            if (onTerminal) {
+            if (surface === 'terminal') {
               presetChatLandingPresentation(chatId, 'terminal')
             }
             workspaceStore.getState().setActiveAgentChatId(chatId)

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 
@@ -171,6 +171,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 }))
 
 import { usePaneKeyboard } from '@/features/panes/hooks/use-pane-keyboard'
+import { useSettingsStore } from '@/features/settings/store'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -628,6 +629,86 @@ describe('usePaneKeyboard — agent.newChatTerminal chord', () => {
     await createChat.mock.results[0]?.value
     await Promise.resolve()
 
+    expect(presetChatLandingPresentation).not.toHaveBeenCalled()
+  })
+})
+
+// THE BUG this chord's PLAIN half had: with "native chats" off the user's own
+// default landing surface is Terminal, but only the ⌥⌘N half ever named a
+// surface on the create. The plain chord named none, so the daemon forked the
+// provider's default face — for codex the api transport, which forks NO PTY —
+// and the pane landed on Terminal with nothing attached to it.
+describe('usePaneKeyboard — agent.newChat honours the default landing surface', () => {
+  function pressChord() {
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'n', metaKey: true, bubbles: true, cancelable: true }),
+    )
+  }
+  function landingDefaultIsTerminal() {
+    useSettingsStore.setState((state) => ({
+      settings: { ...state.settings, chatIsDefaultPresentation: false },
+    }))
+  }
+
+  afterEach(() => {
+    useSettingsStore.setState((state) => ({
+      settings: { ...state.settings, chatIsDefaultPresentation: true },
+    }))
+  })
+
+  it('creates the chat ON the terminal when that is the default and the provider may start there', async () => {
+    landingDefaultIsTerminal()
+    fakeState.agentChats = {
+      providers: [
+        {
+          id: 'codex',
+          displayName: 'Codex',
+          icon: '',
+          connected: true,
+          enabled: true,
+          hasTerminal: true,
+          terminalStartHere: true,
+        },
+      ],
+      chats: [],
+    }
+    createChat.mockResolvedValue('chat-9')
+    renderHook(() => usePaneKeyboard())
+
+    pressChord()
+    expect(createChat).toHaveBeenCalledWith('ws-1', 'codex', '', 'terminal')
+
+    await createChat.mock.results[0]?.value
+    await Promise.resolve()
+    // Created on the terminal ⇒ lands on it: one invariant, not two facts that
+    // happen to agree while the preference sits where it does.
+    expect(presetChatLandingPresentation).toHaveBeenCalledWith('chat-9', 'terminal')
+  })
+
+  it('still creates exactly as before for a provider whose terminal is no landing surface', async () => {
+    landingDefaultIsTerminal()
+    fakeState.agentChats = {
+      providers: [
+        {
+          id: 'p1',
+          displayName: 'Claude',
+          icon: '',
+          connected: true,
+          enabled: true,
+          hasTerminal: true,
+          // terminalStartHere omitted: reachable only by switching to it.
+        },
+      ],
+      chats: [],
+    }
+    createChat.mockResolvedValue('chat-9')
+    renderHook(() => usePaneKeyboard())
+
+    pressChord()
+    expect(createChat).toHaveBeenCalledWith('ws-1', 'p1', '', undefined)
+
+    await createChat.mock.results[0]?.value
+    await Promise.resolve()
     expect(presetChatLandingPresentation).not.toHaveBeenCalled()
   })
 })
