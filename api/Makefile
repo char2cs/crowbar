@@ -1,4 +1,4 @@
-.PHONY: dev build test test-integration bench bench-update test-coverage lint lint-backlog govet pr-checks missing-tests embed-web
+.PHONY: dev build test test-integration bench bench-update test-coverage lint lint-backlog deadcode govet pr-checks missing-tests embed-web
 
 embed-web:
 	@test -d ../web/dist || (echo "ERROR: web/dist not found. Run 'cd ../web && bun run build' first." && exit 1)
@@ -59,11 +59,15 @@ lint:
 lint-backlog:
 	golangci-lint run --build-tags noEmbed --new-from-rev= ./...
 
+# Functions reachable only from tests; deadcode-baseline.txt may only shrink.
+deadcode:
+	scripts/deadcode-check.sh
+
 govet:
 	go vet -tags noEmbed ./...
 
 # test-integration is excluded here; run it separately or in CI with a live repo.
-pr-checks: lint test test-coverage govet
+pr-checks: lint deadcode test test-coverage govet
 
 missing-tests:
 	@for d in $$(go list -tags noEmbed -f '{{.Dir}}' ./... | grep -v '/cmd/'); do \
