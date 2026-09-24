@@ -491,7 +491,7 @@ func TestResolveWorkspaceScope_ResolvesProjectAndRepo(t *testing.T) {
 	a := newAppForSnapshot(t)
 	_, err := a.Repositories.Workspace.Create(
 		context.Background(),
-		workspace.CreateInput{ID: "w1", ProjectID: "p1", RepoID: "r1"},
+		workspace.CreateInput{ID: "w1", ProjectID: "p1", RepoID: "r1", Provisioning: domain.WorkspacePlaceholder},
 		time.Unix(1, 0).UTC(),
 	)
 	require.NoError(t, err)

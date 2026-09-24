@@ -144,7 +144,7 @@ func newHandlers(
 func scopeWorkspace(
 	c *gin.Context,
 ) {
-	reqscope.SetWorkspace(c, domain.Workspace{ID: "ws1", WorktreePath: "/tmp/ws1"})
+	reqscope.SetWorkspace(c, domain.Workspace{ID: "ws1", WorktreePath: "/tmp/ws1", Provisioning: domain.WorkspaceProvisioned})
 	c.Next()
 }
 

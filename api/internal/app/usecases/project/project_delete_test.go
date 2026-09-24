@@ -33,11 +33,25 @@ func (f *fakeDeleteProjects) FindByKey(_ context.Context, id string) (*domain.Pr
 	return &p, nil
 }
 
+func (f *fakeDeleteProjects) FindAll(_ context.Context) ([]domain.Project, error) {
+	out := make([]domain.Project, 0, len(f.projects))
+	for _, p := range f.projects {
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+func (f *fakeDeleteProjects) Save(_ context.Context, p domain.Project) error {
+	f.projects[p.ID] = p
+	return nil
+}
+
 func (f *fakeDeleteProjects) Delete(_ context.Context, id string) error {
 	if f.delErr != nil {
 		return f.delErr
 	}
 	f.deleted = append(f.deleted, id)
+	delete(f.projects, id)
 	return nil
 }
 
@@ -56,11 +70,37 @@ func (f *fakeDeleteRepos) FindAll(_ context.Context) ([]domain.Repository, error
 	return f.repos, nil
 }
 
+func (f *fakeDeleteRepos) Save(_ context.Context, r domain.Repository) error {
+	for i := range f.repos {
+		if f.repos[i].ID == r.ID {
+			f.repos[i] = r
+			return nil
+		}
+	}
+	f.repos = append(f.repos, r)
+	return nil
+}
+
+func (f *fakeDeleteRepos) row(id string) domain.Repository {
+	for _, r := range f.repos {
+		if r.ID == id {
+			return r
+		}
+	}
+	return domain.Repository{}
+}
+
 func (f *fakeDeleteRepos) Delete(_ context.Context, id string) error {
 	if f.delErr != nil {
 		return f.delErr
 	}
 	f.deleted = append(f.deleted, id)
+	for i := range f.repos {
+		if f.repos[i].ID == id {
+			f.repos = append(f.repos[:i], f.repos[i+1:]...)
+			break
+		}
+	}
 	if f.log != nil {
 		*f.log = append(*f.log, "row:"+id)
 	}
@@ -170,7 +210,7 @@ func TestProjectDelete_RetiresWorkspacesThroughTheRepoCascade(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
 	f.workspaces.workspaces = []domain.Workspace{
-		{ID: "w-home", ProjectID: "p1", Kind: domain.WorkspaceKindHome, WorktreePath: deleteRepoPath},
+		{ID: "w-home", ProjectID: "p1", Kind: domain.WorkspaceKindHome, WorktreePath: deleteRepoPath, Provisioning: domain.WorkspaceShared},
 		{ID: "w-r1", ProjectID: "p1", RepoID: "r1", Branch: "feature"},
 		{ID: "w-other", ProjectID: "p2", RepoID: "r-other", Branch: "x"},
 	}
@@ -195,6 +235,42 @@ func TestProjectDelete_CascadeFailure_KeepsTheRecords(t *testing.T) {
 
 	require.Error(t, f.uc.Delete(context.Background(), "p1"))
 	assert.Empty(t, f.repos.deleted)
+	assert.Empty(t, f.projects.deleted)
+}
+
+// A delete that stops is never silent (D5): the rows keep their durable intent
+// and say why, and Resume — run at boot — finishes them.
+func TestProjectDelete_AStoppedDeleteIsRecordedAndResumed(t *testing.T) {
+	f := newDeleteFixture(t)
+	f.seedProject()
+	f.cascade.err = errors.New("worktree wedged")
+	ctx := context.Background()
+
+	require.Error(t, f.uc.Delete(ctx, "p1"))
+	p := f.projects.projects["p1"]
+	assert.True(t, p.Deleting)
+	assert.Contains(t, p.LastError, "worktree wedged")
+	r := f.repos.row("r1")
+	assert.True(t, r.Deleting)
+	assert.Contains(t, r.LastError, "worktree wedged")
+
+	f.cascade.err = nil
+	require.NoError(t, f.uc.Resume(ctx))
+	assert.Equal(t, []string{"p1"}, f.projects.deleted)
+	assert.Equal(t, []string{"r1"}, f.repos.deleted)
+	assert.NotContains(t, f.projects.projects, "p1")
+}
+
+// A lone repo delete that stopped is resumed on its own; live rows are not
+// touched.
+func TestProjectDelete_ResumeFinishesALoneRepoDelete(t *testing.T) {
+	f := newDeleteFixture(t)
+	f.seedProject()
+	f.repos.repos[1].Deleting = true
+	f.repos.repos[1].LastError = "earlier failure"
+
+	require.NoError(t, f.uc.Resume(context.Background()))
+	assert.Equal(t, []string{"r-other"}, f.repos.deleted)
 	assert.Empty(t, f.projects.deleted)
 }
 
@@ -269,9 +345,9 @@ func TestRegression_ProjectDelete_NeverRemovesAnotherProjectsWorktree(t *testing
 	movedChats := filepath.Join(filepath.Dir(moved), "chats", "c1")
 	require.NoError(t, os.MkdirAll(movedChats, 0o755))
 	f.workspaces.workspaces = []domain.Workspace{
-		{ID: "w-moved", ProjectID: "p2", RepoID: "r-other", WorktreePath: moved},
-		{ID: "w-stale", ProjectID: "p1", RepoID: "r-other", WorktreePath: stale},
-		{ID: "w-mine", ProjectID: "p1", RepoID: "r1", WorktreePath: mine},
+		{ID: "w-moved", ProjectID: "p2", RepoID: "r-other", WorktreePath: moved, Provisioning: domain.WorkspaceProvisioned},
+		{ID: "w-stale", ProjectID: "p1", RepoID: "r-other", WorktreePath: stale, Provisioning: domain.WorkspaceProvisioned},
+		{ID: "w-mine", ProjectID: "p1", RepoID: "r1", WorktreePath: mine, Provisioning: domain.WorkspaceProvisioned},
 	}
 
 	require.NoError(t, f.uc.Delete(context.Background(), "p1"))
@@ -307,7 +383,7 @@ func TestProjectDelete_NeverTouchesTheRealRepoPath(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(real, "README.md"), []byte("hi"), 0o644))
 	f.projects.projects["p1"] = domain.Project{ID: "p1", Path: real}
 	f.repos.repos = []domain.Repository{{ID: "r1", ProjectID: "p1", Path: real}}
-	f.workspaces.workspaces = []domain.Workspace{{ID: "w-home", ProjectID: "p1", WorktreePath: real}}
+	f.workspaces.workspaces = []domain.Workspace{{ID: "w-home", ProjectID: "p1", WorktreePath: real, Provisioning: domain.WorkspaceProvisioned}}
 
 	require.NoError(t, f.uc.Delete(context.Background(), "p1"))
 

@@ -96,6 +96,7 @@ func TestWorkspaceDTOFrom(
 		PRTargetBranch: "main",
 		Working:        true,
 		LastError:      "boom",
+		Provisioning:   domain.WorkspaceProvisioned,
 	}, workspace.MergeEligibility{}, "chat-1",
 		fakePlacement{"w1": {folderID: "f1", order: 4}})
 	assert.Equal(t, "w1", got.ID)
@@ -148,6 +149,7 @@ func TestWorkspaceDTO_WireFields(
 		Working:      true,
 		LastError:    "oops",
 		WorktreePath: "/wt",
+		Provisioning: domain.WorkspaceProvisioned,
 	}, workspace.MergeEligibility{}, "chat-1", fakePlacement{"w1": {folderID: "f1", order: 2}}))
 	require.NoError(t, err)
 
@@ -395,7 +397,7 @@ func TestWorkspaceDTOFrom_MapsIsDefault(t *testing.T) {
 func TestWorkspaceDTOFrom_MapsHeldByPath(t *testing.T) {
 	got := dto.WorkspaceDTOFrom(
 		ctx,
-		domain.Workspace{ID: "w1", HeldByPath: "/Users/me/proj"},
+		domain.Workspace{ID: "w1", HeldByPath: "/Users/me/proj", Provisioning: domain.WorkspacePlaceholder},
 		workspace.MergeEligibility{}, "", nil,
 	)
 	assert.Equal(t, "/Users/me/proj", got.HeldByPath)

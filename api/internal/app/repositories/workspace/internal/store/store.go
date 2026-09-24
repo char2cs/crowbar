@@ -103,7 +103,6 @@ func New(
 // projections.RegisterHub).
 func RegisterHub[F any](
 	s Store,
-	ax asynx.Asynx[domain.Workspace],
 	enrich func(ctx context.Context, ws domain.Workspace) F,
 	broadcast func(frame F),
 ) error {
@@ -111,7 +110,8 @@ func RegisterHub[F any](
 	if !ok {
 		return fmt.Errorf("workspace store: hub needs the projection store")
 	}
-	return projections.RegisterHub(ax, svc.store, enrich, broadcast)
+	projections.RegisterHub(svc.store, enrich, broadcast)
+	return nil
 }
 
 // List returns the durable read model directly (no replay).

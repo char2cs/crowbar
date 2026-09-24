@@ -43,7 +43,7 @@ func removeCall(g *fakeGit, path string) []string {
 // feature branch and the default branch was force-deleted.
 func TestRegression_DeleteRepoWorkspaces_KeepsTheDefaultBranch(t *testing.T) {
 	ws, deleted := repoDeleteFixture([]domain.Workspace{
-		{ID: "w-dev", RepoID: "r1", Branch: "develop", WorktreePath: "/wt/dev/worktree", CreatedBranch: true},
+		{ID: "w-dev", RepoID: "r1", Branch: "develop", WorktreePath: "/wt/dev/worktree", CreatedBranch: true, Provisioning: domain.WorkspaceProvisioned},
 	})
 	g := &fakeGit{worktrees: []enginegit.WorktreeEntry{{Path: "/repo", Head: "tip"}}, revParseSha: "tip"}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{missing: true}, newNow(), fakeHome())
@@ -64,10 +64,12 @@ func TestRegression_DeleteRepoWorkspaces_NeverForcesALockedWorktree(t *testing.T
 		{
 			ID: "w-main", RepoID: "r1", Branch: "main", Status: domain.WorkspaceStatusLocked,
 			WorktreePath: "/wt/main/worktree",
+			Provisioning: domain.WorkspaceProvisioned,
 		},
 		{
 			ID: "w-rel", RepoID: "r1", Branch: "release", Status: domain.WorkspaceStatusLocked,
 			WorktreePath: "/wt/rel/worktree", CreatedBranch: true,
+			Provisioning: domain.WorkspaceProvisioned,
 		},
 	})
 	g := &fakeGit{}
@@ -87,8 +89,8 @@ func TestRegression_DeleteRepoWorkspaces_NeverForcesALockedWorktree(t *testing.T
 // CreatedBranch was recorded, which errs toward keeping.
 func TestDeleteCascade_DeletesOnlyTheBranchCrowbarCreated(t *testing.T) {
 	ws, _ := repoDeleteFixture([]domain.Workspace{
-		{ID: "root", RepoID: "r1", Branch: "mine", WorktreePath: "/wt/root/worktree", CreatedBranch: true},
-		{ID: "adopted", ParentID: "root", RepoID: "r1", Branch: "theirs", WorktreePath: "/wt/adopted/worktree"},
+		{ID: "root", RepoID: "r1", Branch: "mine", WorktreePath: "/wt/root/worktree", CreatedBranch: true, Provisioning: domain.WorkspaceProvisioned},
+		{ID: "adopted", ParentID: "root", RepoID: "r1", Branch: "theirs", WorktreePath: "/wt/adopted/worktree", Provisioning: domain.WorkspaceProvisioned},
 	})
 	g := &fakeGit{}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo", defaultBranch: "main"},
@@ -138,7 +140,7 @@ func TestRemoveOne_LeavesAMainFolderCrowbarDidNotDetach(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			ws, _ := repoDeleteFixture([]domain.Workspace{
-				{ID: "w1", RepoID: "r1", Branch: "main", WorktreePath: "/wt/main/worktree"},
+				{ID: "w1", RepoID: "r1", Branch: "main", WorktreePath: "/wt/main/worktree", Provisioning: domain.WorkspaceProvisioned},
 			})
 			g := &fakeGit{worktrees: []enginegit.WorktreeEntry{main}, revParseSha: "tip"}
 			uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo", defaultBranch: "main"},

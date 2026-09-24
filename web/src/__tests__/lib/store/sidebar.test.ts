@@ -173,6 +173,7 @@ test('a renamed workspace arrives through applyWorkspaceDTO', () => {
 import type { WorkspaceDTO } from '@/lib/types'
 
 const dto = (id: string, repoId: string, over: Partial<WorkspaceDTO> = {}): WorkspaceDTO => ({
+  provisioning: 'provisioned',
   id,
   repoId,
   projectId: 'p1',

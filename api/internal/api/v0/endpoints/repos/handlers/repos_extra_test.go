@@ -883,7 +883,9 @@ func TestRegression_DeleteRepo_HandsTheWholeRepoToTheLifecycle(t *testing.T) {
 	h.DeleteRepo(c)
 	h.WaitAsync()
 
-	assert.Equal(t, []domain.Repository{repo}, deleter.deleted)
+	marked := repo
+	marked.Deleting = true
+	assert.Equal(t, []domain.Repository{marked}, deleter.deleted)
 }
 
 // Unwired, the delete refuses outright rather than accepting work it cannot do.

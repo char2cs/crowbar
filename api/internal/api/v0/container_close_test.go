@@ -14,6 +14,7 @@ import (
 
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 func TestAppClose_StopsLiveWatcher(t *testing.T) {
@@ -24,7 +25,7 @@ func TestAppClose_StopsLiveWatcher(t *testing.T) {
 
 	_, err := tc.app.Repositories.Workspace.Create(
 		context.Background(),
-		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", WorktreePath: repoPath},
+		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", WorktreePath: repoPath, Provisioning: domain.WorkspaceProvisioned},
 		time.Unix(1, 0).UTC(),
 	)
 	require.NoError(t, err)

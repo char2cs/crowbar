@@ -122,7 +122,7 @@ func seedWorkspace(t *testing.T, tc testContainers, id string) {
 	seedRepo(t, tc, "r1")
 	_, err := tc.app.Repositories.Workspace.Create(
 		context.Background(),
-		workspace.CreateInput{ID: id, RepoID: "r1", ProjectID: "p1", WorktreePath: t.TempDir()},
+		workspace.CreateInput{ID: id, RepoID: "r1", ProjectID: "p1", WorktreePath: t.TempDir(), Provisioning: domain.WorkspaceProvisioned},
 		time.Now(),
 	)
 	require.NoError(t, err)

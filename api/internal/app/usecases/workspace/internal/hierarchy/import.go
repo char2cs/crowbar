@@ -294,13 +294,13 @@ func (u *hierarchyUsecase) importPlaceholder(
 	}
 	heldBy := u.resolveHolderPath(ctx, in.RepoPath, branch)
 	ws, err := u.workspaces.Create(ctx, workspace.CreateInput{
-		ID:         uuid.NewString(),
-		RepoID:     in.RepoID,
-		ProjectID:  in.ProjectID,
-		Branch:     branch,
-		ParentID:   parentID,
-		HeldByPath: heldBy,
-		// WorktreePath + ForkPointSha stay empty — this is the placeholder signal.
+		ID:           uuid.NewString(),
+		RepoID:       in.RepoID,
+		ProjectID:    in.ProjectID,
+		Branch:       branch,
+		ParentID:     parentID,
+		HeldByPath:   heldBy,
+		Provisioning: domain.WorkspacePlaceholder,
 	}, u.now())
 	if err != nil {
 		return domain.Workspace{}, u.discardOwningChat(ctx, chatID,

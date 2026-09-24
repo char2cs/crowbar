@@ -106,7 +106,7 @@ type StopSubagent struct {
 
 func (c StopSubagent) AggregateID() string  { return c.ChatID }
 func (c StopSubagent) EventName() string    { return "agentactivity.subagent_stopped." + c.ChatID }
-func (c StopSubagent) ShouldSnapshot() bool { return false }
+func (c StopSubagent) ShouldSnapshot() bool { return true }
 
 func (c StopSubagent) Validate(*domain.ChatActivity) error {
 	if err := requireChat("stop subagent", c.ChatID); err != nil {

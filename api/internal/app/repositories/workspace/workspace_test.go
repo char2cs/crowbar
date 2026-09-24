@@ -83,10 +83,60 @@ func listQuiescent(
 	return rows
 }
 
+// Rows written before Provisioning existed replay without it (from events and
+// from snapshots alike). The boot backfill records it once, as an event, so
+// every later read — aggregate, read model, a cold replay of the history — sees
+// it; running it again changes nothing.
+func TestWorkspace_BackfillProvisioning_GivesLegacyRowsTheirExplicitState(t *testing.T) {
+	ctx, repo := newRepo(t)
+	legacy := map[string]domain.Workspace{
+		"managed":      {ID: "managed", RepoID: "r1", ProjectID: "p1", Branch: "f", WorktreePath: "/h/projects/p1/r/f/worktree"},
+		"placeholder":  {ID: "placeholder", RepoID: "r1", ProjectID: "p1", Branch: "main", HeldByPath: "/elsewhere"},
+		"repo-home":    {ID: "repo-home", RepoID: "r1", ProjectID: "p1", Branch: "main", WorktreePath: "/user/repo", IsDefault: true},
+		"project-home": {ID: "project-home", ProjectID: "p1", WorktreePath: "/user/project", Kind: domain.WorkspaceKindHome},
+	}
+	for _, ws := range legacy {
+		require.NoError(t, workspace.WriteLegacyRowForTest(ctx, repo, ws))
+	}
+	listQuiescent(t, ctx, repo, len(legacy))
+	sweeper, ok := repo.(workspace.BootSweeper)
+	require.True(t, ok)
+
+	require.NoError(t, sweeper.BackfillProvisioning(ctx))
+	require.NoError(t, sweeper.BackfillProvisioning(ctx), "a second run finds nothing to do")
+
+	want := map[string]domain.WorkspaceProvisioning{
+		"managed":      domain.WorkspaceProvisioned,
+		"placeholder":  domain.WorkspacePlaceholder,
+		"repo-home":    domain.WorkspaceShared,
+		"project-home": domain.WorkspaceShared,
+	}
+	for _, row := range listQuiescent(t, ctx, repo, len(legacy)) {
+		assert.Equal(t, want[row.ID], row.Provisioning, "read model: %s", row.ID)
+		got, err := repo.Get(ctx, row.ID)
+		require.NoError(t, err)
+		assert.Equal(t, want[row.ID], got.Provisioning, "aggregate: %s", row.ID)
+	}
+}
+
+// A create must say what its worktree is, and the path must agree.
+func TestWorkspace_Create_RequiresAnExplicitProvisioning(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1, 0).UTC()
+	for name, in := range map[string]workspace.CreateInput{
+		"unset":                 {ID: "a", RepoID: "r1", ProjectID: "p1", WorktreePath: "/w"},
+		"placeholder with path": {ID: "b", RepoID: "r1", ProjectID: "p1", WorktreePath: "/w", Provisioning: domain.WorkspacePlaceholder},
+		"provisioned, no path":  {ID: "c", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspaceProvisioned},
+	} {
+		_, err := repo.Create(ctx, in, now)
+		assert.Error(t, err, name)
+	}
+}
+
 func TestWorkspace_SetLastError_SetsAndClears(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 
 	got, err := repo.SetLastError(ctx, "w1", "boom")
@@ -114,10 +164,11 @@ func TestWorkspace_Create_RoundTrips(t *testing.T) {
 	now := time.Unix(1000, 0).UTC()
 
 	created, err := repo.Create(ctx, workspace.CreateInput{
-		ID:        "w1",
-		RepoID:    "r1",
-		ProjectID: "p1",
-		Branch:    "feature/x",
+		ID:           "w1",
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		Branch:       "feature/x",
+		Provisioning: domain.WorkspacePlaceholder,
 	}, now)
 	require.NoError(t, err)
 	assert.Equal(t, domain.WorkspaceStatusNew, created.Status)
@@ -142,6 +193,7 @@ func TestRegression_RenameBranch_LeavesTheWorktreePathUntouched(t *testing.T) {
 
 	_, err := repo.Create(ctx, workspace.CreateInput{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "a", WorktreePath: path,
+		Provisioning: domain.WorkspaceProvisioned,
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 
@@ -155,10 +207,11 @@ func TestGet_FoldsFromLog(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
 	_, err := repo.Create(ctx, workspace.CreateInput{
-		ID:        "w1",
-		RepoID:    "r1",
-		ProjectID: "p1",
-		Branch:    "feature/x",
+		ID:           "w1",
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		Branch:       "feature/x",
+		Provisioning: domain.WorkspacePlaceholder,
 	}, now)
 	require.NoError(t, err)
 
@@ -170,11 +223,11 @@ func TestGet_FoldsFromLog(t *testing.T) {
 func TestList_AcrossAggregates(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
-	_, err = repo.Create(ctx, workspace.CreateInput{ID: "w2", RepoID: "r2", ProjectID: "p1"}, now)
+	_, err = repo.Create(ctx, workspace.CreateInput{ID: "w2", RepoID: "r2", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
-	_, err = repo.Create(ctx, workspace.CreateInput{ID: "w3", RepoID: "r1", ProjectID: "p2"}, now)
+	_, err = repo.Create(ctx, workspace.CreateInput{ID: "w3", RepoID: "r1", ProjectID: "p2", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 
 	listQuiescent(t, ctx, repo, 3)
@@ -188,7 +241,7 @@ func TestList_AcrossAggregates(t *testing.T) {
 func TestDelete_PersistsDeletedTombstone(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 
 	require.NoError(t, repo.Delete(ctx, "w1"))
@@ -220,10 +273,11 @@ func TestPersistence_AcrossReopen(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = repo1.Create(ctx, workspace.CreateInput{
-		ID:        "w1",
-		RepoID:    "r1",
-		ProjectID: "p1",
-		Branch:    "persisted",
+		ID:           "w1",
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		Branch:       "persisted",
+		Provisioning: domain.WorkspacePlaceholder,
 	}, now)
 	require.NoError(t, err)
 	// Ensure the projection persisted the row before we tear the first env down.
@@ -248,7 +302,7 @@ func TestPersistence_AcrossReopen(t *testing.T) {
 func TestWorkspace_SyncKeepsNewStatus(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 
 	synced, err := repo.SyncWorkingTreeState(ctx, workspace.SyncInput{
@@ -272,10 +326,11 @@ func TestWorkspace_Create_RoundTrips_Timestamps(t *testing.T) {
 	now := time.Unix(1000, 0).UTC()
 
 	_, err := repo.Create(ctx, workspace.CreateInput{
-		ID:        "w2",
-		RepoID:    "r1",
-		ProjectID: "p1",
-		Branch:    "feature/ts",
+		ID:           "w2",
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		Branch:       "feature/ts",
+		Provisioning: domain.WorkspacePlaceholder,
 	}, now)
 	require.NoError(t, err)
 
@@ -288,7 +343,7 @@ func TestWorkspace_Create_RoundTrips_Timestamps(t *testing.T) {
 func TestWorkspace_Create_ErrorOnDuplicate(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
-	in := workspace.CreateInput{ID: "w3", RepoID: "r1", ProjectID: "p1"}
+	in := workspace.CreateInput{ID: "w3", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}
 
 	_, err := repo.Create(ctx, in, now)
 	require.NoError(t, err)
@@ -313,7 +368,7 @@ func TestWorkspace_Sync_ErrorOnMissing(t *testing.T) {
 func TestWorkspace_SyncProviderState_SetsPR(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 
 	got, err := repo.SyncProviderState(ctx, workspace.ProviderInput{
@@ -332,7 +387,7 @@ func TestWorkspace_SyncProviderState_SetsPR(t *testing.T) {
 func TestWorkspace_SetMergeStrategy(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 	got, err := repo.SetMergeStrategy(ctx, "w1", gitdomain.MergeStrategySquash)
 	require.NoError(t, err)
@@ -342,7 +397,7 @@ func TestWorkspace_SetMergeStrategy(t *testing.T) {
 func TestWorkspace_Reparent_TouchActivity_ForkPoint(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 
 	_, err = repo.TouchActivity(ctx, "w1", now)
@@ -393,6 +448,7 @@ func TestWorkspace_SetLock_OverridesTheProviderDecision(t *testing.T) {
 	now := time.Unix(1000, 0).UTC()
 	_, err := repo.Create(ctx, workspace.CreateInput{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", WorktreePath: "/some/path",
+		Provisioning: domain.WorkspaceProvisioned,
 	}, now)
 	require.NoError(t, err)
 
@@ -413,7 +469,7 @@ func TestWorkspace_SetLock_ErrorOnMissing(t *testing.T) {
 func TestWorkspace_ResolveConflicts_ClearsPRConflictsStatus(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 	_, err = repo.SyncWorkingTreeState(ctx, workspace.SyncInput{ID: "w1", HasConflicts: true}, now)
 	require.NoError(t, err)
@@ -435,6 +491,7 @@ func TestWorkspace_ProvisionInPlace_AttachesTheWorktree(t *testing.T) {
 	now := time.Unix(1000, 0).UTC()
 	_, err := repo.Create(ctx, workspace.CreateInput{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", HeldByPath: "/holder",
+		Provisioning: domain.WorkspacePlaceholder,
 	}, now)
 	require.NoError(t, err)
 
@@ -455,7 +512,7 @@ func TestWorkspace_ProvisionInPlace_ErrorOnMissing(t *testing.T) {
 func TestWorkspace_ClearBranch_BlanksTheBranch(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "feature-x"}, now)
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "feature-x", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 
 	ws, err := repo.ClearBranch(ctx, "w1")
@@ -485,7 +542,7 @@ func TestWorkspace_Delete_ErrorOnMissing(t *testing.T) {
 func TestWorkspace_SetParentFromPR(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 	got, err := repo.SetParentFromPR(ctx, "w1", "parent")
 	require.NoError(t, err)
@@ -501,9 +558,9 @@ func TestWorkspace_SetParentFromPR_ErrorOnMissing(t *testing.T) {
 func TestWorkspace_List(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
-	_, err = repo.Create(ctx, workspace.CreateInput{ID: "w2", RepoID: "r1", ProjectID: "p1"}, now)
+	_, err = repo.Create(ctx, workspace.CreateInput{ID: "w2", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 	listQuiescent(t, ctx, repo, 2)
 }
@@ -512,11 +569,12 @@ func TestCreate_PersistsIsDefault(t *testing.T) {
 	ctx, repo := newRepo(t)
 
 	created, err := repo.Create(ctx, workspace.CreateInput{
-		ID:        "w-default",
-		RepoID:    "r1",
-		ProjectID: "p1",
-		Branch:    "develop",
-		IsDefault: true,
+		ID:           "w-default",
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		Branch:       "develop",
+		IsDefault:    true,
+		Provisioning: domain.WorkspacePlaceholder,
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 	assert.True(t, created.IsDefault, "Create must return IsDefault")
@@ -560,14 +618,17 @@ func TestListInRepo_ScopesToTheRepoWhateverARowsProjectSays(t *testing.T) {
 	ctx, repo := newRepo(t)
 	_, err := repo.Create(ctx, workspace.CreateInput{
 		ID: "w1", ProjectID: "p1", RepoID: "r1", Branch: "main",
+		Provisioning: domain.WorkspacePlaceholder,
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 	_, err = repo.Create(ctx, workspace.CreateInput{
 		ID: "w2", ProjectID: "p1", RepoID: "r2", Branch: "main",
+		Provisioning: domain.WorkspacePlaceholder,
 	}, time.Unix(2, 0).UTC())
 	require.NoError(t, err)
 	_, err = repo.Create(ctx, workspace.CreateInput{
 		ID: "w3", ProjectID: "p2", RepoID: "r1", Branch: "main",
+		Provisioning: domain.WorkspacePlaceholder,
 	}, time.Unix(3, 0).UTC())
 	require.NoError(t, err)
 
@@ -588,6 +649,7 @@ func TestListInRepo_NoMatchesReturnsEmpty(t *testing.T) {
 	ctx, repo := newRepo(t)
 	_, err := repo.Create(ctx, workspace.CreateInput{
 		ID: "w1", ProjectID: "p1", RepoID: "r1", Branch: "main",
+		Provisioning: domain.WorkspacePlaceholder,
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 
@@ -606,6 +668,7 @@ func TestGetHomeForProject_Found(t *testing.T) {
 		ProjectID:    projectID,
 		Kind:         domain.WorkspaceKindHome,
 		WorktreePath: "/projects/myproject",
+		Provisioning: domain.WorkspaceShared,
 	}, time.Now())
 	require.NoError(t, err)
 
@@ -683,11 +746,11 @@ func TestWorkspace_Sweep_RedrivesThePurgeForEveryResidualDeletedRow(t *testing.T
 		gate,
 	))
 
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Protected: true}, now)
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Protected: true, Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 	_, err = repo.ProvisionInPlace(ctx, "w1", "/h/projects/p1/r/w1/worktree", "sha")
 	require.NoError(t, err)
-	_, err = repo.Create(ctx, workspace.CreateInput{ID: "w2", RepoID: "r1", ProjectID: "p1"}, now)
+	_, err = repo.Create(ctx, workspace.CreateInput{ID: "w2", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 	require.NoError(t, repo.Delete(ctx, "w1"))
 	listQuiescent(t, ctx, repo, 2)
@@ -751,7 +814,7 @@ func TestGet_TriggersReconcileOnOpen(t *testing.T) {
 	spy := &spyReconciler{}
 	repo := buildRepoWithReconciler(t, ad, spy)
 	ctx := context.Background()
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, time.Unix(1, 0).UTC())
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 	require.Empty(t, spy.calls(), "Create must not trigger reconcile")
 
@@ -768,44 +831,11 @@ func TestList_DoesNotTriggerReconcile(t *testing.T) {
 	spy := &spyReconciler{}
 	repo := buildRepoWithReconciler(t, ad, spy)
 	ctx := context.Background()
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, time.Unix(1, 0).UTC())
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 	listQuiescent(t, ctx, repo, 1)
 
 	assert.Empty(t, spy.calls(), "List must never trigger per-workspace reconcile")
-}
-
-// A repo moved between projects re-points its workspaces, and must leave the
-// on-disk worktree where it is: the path was derived once and is stored
-// absolute, so rewriting it here would strand the tree it names.
-func TestWorkspace_SetProject_MovesTheRecordNotTheTree(t *testing.T) {
-	ctx, repo := newRepo(t)
-	now := time.Unix(1000, 0).UTC()
-	_, err := repo.Create(ctx, workspace.CreateInput{
-		ID: "w1", RepoID: "r1", ProjectID: "p1", WorktreePath: "/tmp/tree/worktree",
-	}, now)
-	require.NoError(t, err)
-
-	got, err := repo.SetProject(ctx, "w1", "p2")
-	require.NoError(t, err)
-	assert.Equal(t, "p2", got.ProjectID)
-	assert.Equal(t, "r1", got.RepoID)
-	assert.Equal(t, "/tmp/tree/worktree", got.WorktreePath)
-
-	// ListInRepo reads the store PROJECTION, which trails the Send. Drain it
-	// first: the barrier is the write actually landing, not a guess at how long
-	// it takes.
-	workspace.WaitQuiescentForTest(repo)
-	scoped, err := repo.ListInRepo(ctx, "p2", "r1")
-	require.NoError(t, err)
-	require.Len(t, scoped, 1, "the repo-scoped read finds it under its new project")
-}
-
-func TestWorkspace_SetProject_ErrorOnMissing(t *testing.T) {
-	ctx, repo := newRepo(t)
-
-	_, err := repo.SetProject(ctx, "no-such", "p2")
-	assert.Error(t, err)
 }
 
 // TestRegression_SyncProviderState_UnchangedPollAppendsNothing pins the guard on
@@ -823,7 +853,7 @@ func TestRegression_SyncProviderState_UnchangedPollAppendsNothing(t *testing.T) 
 	es := ad.WorkspaceES()
 	now := time.Unix(1000, 0).UTC()
 
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 
 	events := func() int {
@@ -874,6 +904,7 @@ func TestRegression_RepoHomeID_ConcurrentAdoptsYieldOneDefault(t *testing.T) {
 			defer wg.Done()
 			_, err := repo.Create(ctx, workspace.CreateInput{
 				ID: id, RepoID: "r1", ProjectID: "p1", IsDefault: true, WorktreePath: "/repo",
+				Provisioning: domain.WorkspaceShared,
 			}, time.Unix(1, 0).UTC())
 			if err == nil {
 				mu.Lock()

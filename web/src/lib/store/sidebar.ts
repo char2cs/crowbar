@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ChatType, FolderDTO, WorkspaceDTO } from '@/lib/types'
+import type { ChatType, FolderDTO, WorkspaceDTO, WorkspaceProvisioning } from '@/lib/types'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   applyFolderDTOTo,
@@ -114,10 +114,11 @@ export interface Workspace {
   lastError?: string
   /** On-disk worktree directory, from the backend WorkspaceDTO. */
   localPath?: string
-  /** Holder path for a placeholder workspace (no localPath; locked only when the
-   *  branch is protected); drives the reconstructed reason and whether the
-   *  Detach… action is offered. */
+  /** Holder path for a placeholder workspace; drives the reconstructed reason
+   *  and whether the Detach… action is offered. */
   heldByPath?: string
+  /** WorkspaceDTO.provisioning: whether this workspace has a checkout at all. */
+  provisioning?: WorkspaceProvisioning
   /**
    * The CHAT row that owns this workspace, straight from the daemon
    * (`WorkspaceDTO.owningChatId`) — never guessed here. Every placement the
@@ -192,6 +193,8 @@ export interface Repo {
   /** On-disk root of the repo (RepoDTO.path). Used as the localPath fallback for
    *  the default workspace, which is not stored in the workspaces array. */
   localPath?: string
+  /** RepoDTO.lastError: why the last delete of this repo stopped. */
+  deleteError?: string
 }
 
 /** A workspace row's new placement. Absent fields are left alone. */

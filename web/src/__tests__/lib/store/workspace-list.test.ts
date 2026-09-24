@@ -27,6 +27,7 @@ const repoDTO: RepoDTO = {
 }
 
 const wsDTO: WorkspaceDTO = {
+  provisioning: 'provisioned',
   id: 'w1',
   repoId: 'r1',
   projectId: 'p1',

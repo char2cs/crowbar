@@ -386,6 +386,7 @@ describe('fetchRepoChats', () => {
  */
 describe('chatDTOFromWire — ownsWorktree', () => {
   const worktree: ChatWorktreeDTO = {
+    provisioning: 'provisioned',
     branch: 'feature/one',
     owningChatId: 'c-owner',
     working: false,

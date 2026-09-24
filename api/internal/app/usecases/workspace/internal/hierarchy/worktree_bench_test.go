@@ -103,6 +103,7 @@ func newBenchHarness(
 		ProjectID:    projectID,
 		Branch:       baseBranch,
 		WorktreePath: repoPath,
+		Provisioning: domain.WorkspaceProvisioned,
 	}, time.Now())
 	require.NoError(b, err)
 

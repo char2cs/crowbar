@@ -32,7 +32,7 @@ func seedHomeWorkspace(
 	t.Helper()
 	_, err := a.Repositories.Workspace.Create(
 		context.Background(),
-		workspace.CreateInput{ID: id, ProjectID: projectID, Kind: domain.WorkspaceKindHome},
+		workspace.CreateInput{ID: id, ProjectID: projectID, Kind: domain.WorkspaceKindHome, Provisioning: domain.WorkspacePlaceholder},
 		time.Unix(1, 0).UTC(),
 	)
 	require.NoError(t, err)

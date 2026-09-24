@@ -341,6 +341,7 @@ function workspaceDTOFromWorktree(
     prTargetBranch: worktree.prTargetBranch ?? '',
     localPath: worktree.localPath ?? '',
     heldByPath: worktree.heldByPath ?? '',
+    provisioning: worktree.provisioning,
     owningChatId: worktree.owningChatId,
     folderId: worktree.folderId ?? '',
     order: worktree.order ?? 0,

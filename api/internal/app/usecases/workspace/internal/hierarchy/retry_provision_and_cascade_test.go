@@ -37,7 +37,7 @@ func TestRetryProvision_LocalBranch_ForkPointUnresolved_StillSucceeds(t *testing
 	ws := placeholderWS("ph", "r1", "p1", "develop")
 	ws.ProvisionInPlaceFn = func(id, path, sha string) (domain.Workspace, error) {
 		gotSha, sawSha = sha, true
-		return domain.Workspace{ID: id, WorktreePath: path, ForkPointSha: sha}, nil
+		return domain.Workspace{ID: id, WorktreePath: path, ForkPointSha: sha, Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	g := &fakeGit{revParseErr: errBoom} // no tracking ref -> local WorktreeAdd path
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
@@ -58,8 +58,8 @@ func TestDeleteRepoWorkspaces_SkipsChildAlreadyReachedByParentsCascade(t *testin
 	ws := &fakeWorkspace{
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
 			return []domain.Workspace{
-				{ID: "root", RepoID: "r1", ProjectID: "p1", WorktreePath: "/wt/root", Branch: "b-root"},
-				{ID: "child", RepoID: "r1", ProjectID: "p1", ParentID: "root", WorktreePath: "/wt/child", Branch: "b-child"},
+				{ID: "root", RepoID: "r1", ProjectID: "p1", WorktreePath: "/wt/root", Branch: "b-root", Provisioning: domain.WorkspaceProvisioned},
+				{ID: "child", RepoID: "r1", ProjectID: "p1", ParentID: "root", WorktreePath: "/wt/child", Branch: "b-child", Provisioning: domain.WorkspaceProvisioned},
 			}, nil
 		},
 		DeleteFn: func(_ context.Context, id string) error {

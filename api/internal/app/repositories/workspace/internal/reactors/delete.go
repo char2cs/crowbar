@@ -64,8 +64,8 @@ func NewPurger(
 // Purge runs the teardown once. Every step is idempotent, so a re-drive after a
 // crash or a transient failure converges: the dependents are forgotten FIRST,
 // while they are still listable (their rows live beside the worktree); the root
-// is removed from the tombstone's own WorktreePath (an unprovisioned placeholder
-// has none); the aggregate is Forgotten LAST, so a failure anywhere earlier
+// is removed from the tombstone's own WorktreePath when Crowbar provisioned it (a
+// placeholder has none; a shared checkout is the user's); the aggregate is Forgotten LAST, so a failure anywhere earlier
 // leaves the tombstone for the next re-drive.
 //
 // Forget's OnForget drops the read-model row. When the aggregate is ALREADY
@@ -79,7 +79,7 @@ func (p *Purger) Purge(
 	if err := p.forgetDependents(ctx, tomb.ID); err != nil {
 		return fmt.Errorf("forget dependents: %w", err)
 	}
-	if tomb.WorktreePath != "" {
+	if tomb.Provisioning == domain.WorkspaceProvisioned {
 		if err := p.removeWorktree(tomb.WorktreePath); err != nil {
 			return fmt.Errorf("remove worktree %q: %w", tomb.WorktreePath, err)
 		}

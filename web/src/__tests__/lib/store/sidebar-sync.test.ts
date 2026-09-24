@@ -14,6 +14,7 @@ import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 // guarantee the workspace is in the sidebar BEFORE it navigates.
 function workspaceDTO(over: Partial<WorkspaceDTO> & { id: string; repoId: string }): WorkspaceDTO {
   return {
+    provisioning: 'provisioned',
     projectId: 'p1',
     branch: 'develop',
     parentId: '',

@@ -169,9 +169,15 @@ func New(
 	// repositories.Container.PurgeChat.
 	repos.PurgeChat = ucs.AgentChat.PurgeChat
 
-	startProviderSweep(ctx, engines, repos, ucs)
 	if err := startBootSweep(ctx, repos); err != nil {
 		return nil, err
+	}
+	startProviderSweep(ctx, engines, repos, ucs)
+	// A project or repo delete a crash or a failure stopped is finished before
+	// anything is served (invariant D5); the tombstones it writes are purged by
+	// the delete reactor like any other.
+	if err := ucs.ProjectDelete.Resume(ctx); err != nil {
+		return nil, fmt.Errorf("app: resume deletes: %w", err)
 	}
 	startRestoreTerminalSessions(ctx, ucs)
 	reconcileAgentRunners(ctx, ucs)
@@ -602,6 +608,9 @@ func startBootSweep(
 	sweeper, ok := repos.Workspace.(workspace.BootSweeper)
 	if !ok {
 		return nil
+	}
+	if err := sweeper.BackfillProvisioning(ctx); err != nil {
+		return fmt.Errorf("app: boot sweep: %w", err)
 	}
 	if err := sweeper.Sweep(ctx); err != nil {
 		return fmt.Errorf("app: boot sweep: %w", err)

@@ -19,6 +19,7 @@ func TestAwaitTombstone_IsWokenByTheSaveThatPersistsIt(t *testing.T) {
 	ctx, ax, st := newRegistered(t)
 	_, err := ax.SendWait(ctx, wscmds.CreateWorkspace{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", WorktreePath: "/wt/w1/worktree", Now: time.Unix(1, 0).UTC(),
+		Provisioning: domain.WorkspaceProvisioned,
 	})
 	require.NoError(t, err)
 	ax.WaitPublish()
@@ -46,6 +47,7 @@ func TestAwaitTombstone_EndsWithTheContext(t *testing.T) {
 	ctx, ax, st := newRegistered(t)
 	_, err := ax.SendWait(ctx, wscmds.CreateWorkspace{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Now: time.Unix(1, 0).UTC(),
+		Provisioning: domain.WorkspacePlaceholder,
 	})
 	require.NoError(t, err)
 	ax.WaitPublish()
@@ -64,16 +66,17 @@ func TestAwaitTombstone_WithAHub_WaitsForTheTombstoneFrame(t *testing.T) {
 	ctx, ax, st := newRegistered(t)
 	release := make(chan struct{})
 	var framed []domain.WorkspaceStatus
-	require.NoError(t, RegisterHub(ax, st,
+	RegisterHub(st,
 		func(_ context.Context, ws domain.Workspace) domain.WorkspaceStatus { return ws.Status },
 		func(status domain.WorkspaceStatus) {
 			if status == domain.WorkspaceStatusDeleted {
 				<-release // the frame is still going out
 			}
 			framed = append(framed, status)
-		}))
+		})
 	_, err := ax.SendWait(ctx, wscmds.CreateWorkspace{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Now: time.Unix(1, 0).UTC(),
+		Provisioning: domain.WorkspacePlaceholder,
 	})
 	require.NoError(t, err)
 

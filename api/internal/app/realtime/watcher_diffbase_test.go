@@ -38,7 +38,7 @@ func TestWatcherDiffBase_NoParentNoBranch_FallsBackToForkPoint(t *testing.T) {
 // own branch: no parent to resolve, and RevParse confirms the branch still
 // exists in the worktree, so the branch name itself is returned.
 func TestWatcherDiffBase_OwnBranch_ResolvesViaRevParse(t *testing.T) {
-	ws := domain.Workspace{Branch: "main", WorktreePath: "/repo", ForkPointSha: "fork-sha"}
+	ws := domain.Workspace{Branch: "main", WorktreePath: "/repo", ForkPointSha: "fork-sha", Provisioning: domain.WorkspaceProvisioned}
 	got := watcherDiffBase(context.Background(), stubWorkspaceRepo{}, revParseStubEngine{}, ws)
 	assert.Equal(t, "main", got)
 }
@@ -48,7 +48,7 @@ func TestWatcherDiffBase_OwnBranch_ResolvesViaRevParse(t *testing.T) {
 // which must fall back to the recorded fork point rather than handing the
 // watcher a ref git will keep failing to diff against.
 func TestWatcherDiffBase_OwnBranchUnresolvable_FallsBackToForkPoint(t *testing.T) {
-	ws := domain.Workspace{Branch: "deleted-branch", WorktreePath: "/repo", ForkPointSha: "fork-sha"}
+	ws := domain.Workspace{Branch: "deleted-branch", WorktreePath: "/repo", ForkPointSha: "fork-sha", Provisioning: domain.WorkspaceProvisioned}
 	got := watcherDiffBase(context.Background(), stubWorkspaceRepo{}, revParseStubEngine{err: errors.New("unknown revision")}, ws)
 	assert.Equal(t, "fork-sha", got)
 }
@@ -57,7 +57,7 @@ func TestWatcherDiffBase_OwnBranchUnresolvable_FallsBackToForkPoint(t *testing.T
 // workspace: the base to diff against is the PARENT's branch, not the child's
 // own (a child has no independent "base" branch of its own).
 func TestWatcherDiffBase_ChildWorkspace_UsesParentBranch(t *testing.T) {
-	ws := domain.Workspace{ParentID: "parent-1", WorktreePath: "/repo", ForkPointSha: "fork-sha"}
+	ws := domain.Workspace{ParentID: "parent-1", WorktreePath: "/repo", ForkPointSha: "fork-sha", Provisioning: domain.WorkspaceProvisioned}
 	repo := stubWorkspaceRepo{ws: domain.Workspace{Branch: "develop"}}
 
 	got := watcherDiffBase(context.Background(), repo, revParseStubEngine{}, ws)
@@ -69,7 +69,7 @@ func TestWatcherDiffBase_ChildWorkspace_UsesParentBranch(t *testing.T) {
 // unresolvable parent row (e.g. the parent workspace was deleted): the watcher
 // must degrade to the recorded fork point rather than propagating the error.
 func TestWatcherDiffBase_ParentLookupFails_FallsBackToForkPoint(t *testing.T) {
-	ws := domain.Workspace{ParentID: "gone", WorktreePath: "/repo", ForkPointSha: "fork-sha"}
+	ws := domain.Workspace{ParentID: "gone", WorktreePath: "/repo", ForkPointSha: "fork-sha", Provisioning: domain.WorkspaceProvisioned}
 	repo := stubWorkspaceRepo{err: errors.New("no such workspace")}
 
 	got := watcherDiffBase(context.Background(), repo, revParseStubEngine{}, ws)

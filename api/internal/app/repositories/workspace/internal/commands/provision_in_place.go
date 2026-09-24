@@ -8,7 +8,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ProvisionInPlace flips a placeholder (a locked row with an empty WorktreePath)
+// ProvisionInPlace flips a placeholder
 // into a healthy managed worktree WITHOUT creating a new aggregate: it records
 // the now-attached worktree path + fork point and clears HeldByPath, leaving
 // Status = locked and every other field untouched (spec §3.3 Retry-in-place).
@@ -39,6 +39,9 @@ func (c ProvisionInPlace) Validate(
 	if c.WorktreePath == "" {
 		return fmt.Errorf("provision in place: missing worktree path: %w", asynxModels.ErrValidation)
 	}
+	if current.Provisioning != domain.WorkspacePlaceholder {
+		return fmt.Errorf("provision in place: not a placeholder: %w", asynxModels.ErrValidation)
+	}
 	return nil
 }
 
@@ -49,5 +52,6 @@ func (c ProvisionInPlace) EmitEvent(
 	ws.WorktreePath = c.WorktreePath
 	ws.ForkPointSha = c.ForkPointSha
 	ws.HeldByPath = ""
+	ws.Provisioning = domain.WorkspaceProvisioned
 	return ws
 }

@@ -128,6 +128,7 @@ func TestListOrRebuild_RebuildsWhenModelEmptyButLogNonEmpty(t *testing.T) {
 	for _, id := range []string{"w1", "w2"} {
 		_, err = ax.SendWait(ctx, wscmds.CreateWorkspace{
 			ID: id, RepoID: "r1", ProjectID: "p1", Branch: "main", Now: time.Unix(1, 0).UTC(),
+			Provisioning: domain.WorkspacePlaceholder,
 		})
 		require.NoError(t, err)
 	}
@@ -247,6 +248,7 @@ func TestListOrRebuild_FoldErrorDuringReplayIsLoggedNotSurfaced(t *testing.T) {
 
 	_, err = ax.SendWait(ctx, wscmds.CreateWorkspace{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "main", Now: time.Unix(1, 0).UTC(),
+		Provisioning: domain.WorkspacePlaceholder,
 	})
 	require.NoError(t, err)
 

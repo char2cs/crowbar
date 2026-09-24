@@ -79,6 +79,7 @@ export function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
     prUrl: ws.prUrl || undefined,
     lastError: ws.lastError ?? '',
     heldByPath: ws.heldByPath ?? '',
+    provisioning: ws.provisioning,
     age: '',
     localPath: ws.localPath || undefined,
     owningChatId: ws.owningChatId ?? '',
@@ -186,6 +187,7 @@ export function toSidebarRepo(
     // so a repo whose chat seed has not landed is byte-identical to what it was
     // before this pipeline existed.
     ...(repoChats.length > 0 ? { chats: repoChats } : {}),
+    ...(repo.lastError ? { deleteError: repo.lastError } : {}),
     // The default (repo-home) workspace is filtered out of `workspaces` above —
     // it is the repo header, not a tree row — so its live `working` overlay would
     // be dropped with it. Lift it onto the repo as defaultWorking so the header

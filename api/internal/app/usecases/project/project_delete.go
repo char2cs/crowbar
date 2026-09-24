@@ -16,12 +16,20 @@ import (
 )
 
 // DeleteProjectStore is the project persistence surface the delete usecase
-// needs: resolve the project row and remove it.
+// needs: resolve the project row, record its delete intent and outcome, and
+// remove it.
 type DeleteProjectStore interface {
+	FindAll(
+		ctx context.Context,
+	) ([]domain.Project, error)
 	FindByKey(
 		ctx context.Context,
 		id string,
 	) (*domain.Project, error)
+	Save(
+		ctx context.Context,
+		p domain.Project,
+	) error
 	Delete(
 		ctx context.Context,
 		id string,
@@ -29,11 +37,16 @@ type DeleteProjectStore interface {
 }
 
 // DeleteRepositoryStore is the repository persistence surface the delete
-// usecase needs: list every repo row (to filter by project) and remove rows.
+// usecase needs: list every repo row (to filter by project), record a repo's
+// delete intent and outcome, and remove rows.
 type DeleteRepositoryStore interface {
 	FindAll(
 		ctx context.Context,
 	) ([]domain.Repository, error)
+	Save(
+		ctx context.Context,
+		r domain.Repository,
+	) error
 	Delete(
 		ctx context.Context,
 		id string,
@@ -84,6 +97,10 @@ type DeleteDeps struct {
 // DeleteUsecase removes a project and everything it owns — and nothing it
 // does not.
 //
+// A delete first records its intent on the row (Deleting), so a failure or a
+// crash anywhere after it is never silent: the row stays, carries LastError,
+// and Resume re-drives it at boot (spec §7-D, invariant D5).
+//
 // Its workspaces are retired through the one lifecycle path every delete takes
 // (repo cascade → tombstone → delete reactor), so the git rules hold here too:
 // no branch Crowbar did not create is deleted, no locked worktree is forced,
@@ -91,10 +108,23 @@ type DeleteDeps struct {
 // rows and Node rows, the project row, and finally the project's directory —
 // minus anything that is not the project's to remove (see removeProjectDir).
 type DeleteUsecase interface {
+	// BeginDelete records a project's delete intent — Deleting set, LastError
+	// cleared — and returns the row as recorded. Delete begins with it too;
+	// a caller that answers before the teardown runs calls it first, so the
+	// intent is durable and announced before the answer.
+	BeginDelete(
+		ctx context.Context,
+		id string,
+	) (domain.Project, error)
 	Delete(
 		ctx context.Context,
 		id string,
 	) error
+	// BeginRepoDelete is BeginDelete for one repo.
+	BeginRepoDelete(
+		ctx context.Context,
+		repo domain.Repository,
+	) (domain.Repository, error)
 	// DeleteRepo removes one repo and everything it owns, in the one order a
 	// crash cannot corrupt: its workspaces are retired (git teardown, then the
 	// tombstones the delete reactor purges) BEFORE its row goes, so no crash can
@@ -103,6 +133,11 @@ type DeleteUsecase interface {
 	DeleteRepo(
 		ctx context.Context,
 		repo domain.Repository,
+	) error
+	// Resume re-drives every project and repo delete a crash or a failure
+	// left unfinished. Per-row failures are recorded on the row, not returned.
+	Resume(
+		ctx context.Context,
 	) error
 }
 
@@ -117,17 +152,48 @@ func NewDelete(
 	return &projectDelete{deps: deps}
 }
 
+func (u *projectDelete) BeginDelete(
+	ctx context.Context,
+	id string,
+) (domain.Project, error) {
+	p, err := u.deps.Projects.FindByKey(ctx, id)
+	if err != nil {
+		return domain.Project{}, fmt.Errorf("project delete: find project: %w", err)
+	}
+	if p == nil {
+		return domain.Project{}, fmt.Errorf("project delete: id %s: %w", id, apperr.ErrNotFound)
+	}
+	p.Deleting, p.LastError = true, ""
+	if err := u.deps.Projects.Save(ctx, *p); err != nil {
+		return domain.Project{}, fmt.Errorf("project delete: record intent: %w", err)
+	}
+	return *p, nil
+}
+
 func (u *projectDelete) Delete(
 	ctx context.Context,
 	id string,
 ) error {
-	p, err := u.deps.Projects.FindByKey(ctx, id)
+	p, err := u.BeginDelete(ctx, id)
 	if err != nil {
-		return fmt.Errorf("project delete: find project: %w", err)
+		return err
 	}
-	if p == nil {
-		return fmt.Errorf("project delete: id %s: %w", id, apperr.ErrNotFound)
+	if err := u.teardownProject(ctx, id); err != nil {
+		p.LastError = err.Error()
+		if saveErr := u.deps.Projects.Save(ctx, p); saveErr != nil {
+			slog.ErrorContext(ctx, "project delete: record failure", "project_id", id, "err", saveErr)
+		}
+		return err
 	}
+	return nil
+}
+
+// teardownProject retires everything the project owns, then its row and
+// directory. Every step is idempotent, so a re-drive converges.
+func (u *projectDelete) teardownProject(
+	ctx context.Context,
+	id string,
+) error {
 	repos, err := u.projectRepos(ctx, id)
 	if err != nil {
 		return err
@@ -157,6 +223,35 @@ func (u *projectDelete) DeleteRepo(
 	ctx context.Context,
 	repo domain.Repository,
 ) error {
+	repo, err := u.BeginRepoDelete(ctx, repo)
+	if err != nil {
+		return err
+	}
+	if err := u.teardownRepo(ctx, repo); err != nil {
+		repo.LastError = err.Error()
+		if saveErr := u.deps.Repos.Save(ctx, repo); saveErr != nil {
+			slog.ErrorContext(ctx, "delete repo: record failure", "repo", repo.ID, "err", saveErr)
+		}
+		return err
+	}
+	return nil
+}
+
+func (u *projectDelete) BeginRepoDelete(
+	ctx context.Context,
+	repo domain.Repository,
+) (domain.Repository, error) {
+	repo.Deleting, repo.LastError = true, ""
+	if err := u.deps.Repos.Save(ctx, repo); err != nil {
+		return domain.Repository{}, fmt.Errorf("repo %s: record delete intent: %w", repo.ID, err)
+	}
+	return repo, nil
+}
+
+func (u *projectDelete) teardownRepo(
+	ctx context.Context,
+	repo domain.Repository,
+) error {
 	if err := u.deps.RepoWorkspaces.DeleteRepoWorkspaces(ctx, repo); err != nil {
 		return fmt.Errorf("repo %s workspaces: %w", repo.ID, err)
 	}
@@ -165,6 +260,38 @@ func (u *projectDelete) DeleteRepo(
 	}
 	u.forgetNode(ctx, repo.ID)
 	u.removeRepoDir(ctx, repo)
+	return nil
+}
+
+func (u *projectDelete) Resume(
+	ctx context.Context,
+) error {
+	projects, err := u.deps.Projects.FindAll(ctx)
+	if err != nil {
+		return fmt.Errorf("resume deletes: list projects: %w", err)
+	}
+	deleting := map[string]bool{}
+	for _, p := range projects {
+		if !p.Deleting {
+			continue
+		}
+		deleting[p.ID] = true
+		if err := u.Delete(ctx, p.ID); err != nil {
+			slog.ErrorContext(ctx, "resume deletes: project delete stopped again", "project_id", p.ID, "err", err)
+		}
+	}
+	repos, err := u.deps.Repos.FindAll(ctx)
+	if err != nil {
+		return fmt.Errorf("resume deletes: list repos: %w", err)
+	}
+	for _, repo := range repos {
+		if !repo.Deleting || deleting[repo.ProjectID] {
+			continue
+		}
+		if err := u.DeleteRepo(ctx, repo); err != nil {
+			slog.ErrorContext(ctx, "resume deletes: repo delete stopped again", "repo", repo.ID, "err", err)
+		}
+	}
 	return nil
 }
 
@@ -235,8 +362,8 @@ func alreadyGone(err error) bool {
 //     to remove, such as a protected one with uncommitted work. Deleting it
 //     would destroy that work and strand its registration in the user's repo.
 //   - the path of any live workspace that belongs to ANOTHER project. A repo
-//     moved to project B keeps its worktrees where they were created, under
-//     projects/A; an rm -rf of projects/A used to wipe B's worktrees and chats.
+//     moved to project B (before moves were refused) keeps its worktrees
+//     under projects/A; an rm -rf of projects/A used to wipe them.
 //
 // Everything else goes, and a directory is removed only once it is empty, so
 // whatever is kept keeps its parents. Workspace roots the delete reactor is

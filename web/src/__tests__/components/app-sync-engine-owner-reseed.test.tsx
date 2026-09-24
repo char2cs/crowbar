@@ -90,6 +90,7 @@ function chat(id: string): ChatDTO {
 
 function workspace(owningChatId: string): WorkspaceDTO {
   return {
+    provisioning: 'provisioned',
     id: 'ws-locked',
     repoId: 'r1',
     projectId: 'p1',

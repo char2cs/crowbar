@@ -53,6 +53,7 @@ func TestAgentWorkspaceReader_WorktreeDir_Success(t *testing.T) {
 			ProjectID:    "p1",
 			RepoID:       "r1",
 			WorktreePath: "/home/crowbar/projects/p1/r1/workspaces/w1/worktree",
+			Provisioning: domain.WorkspaceProvisioned,
 		}},
 		crowbarHome: func() (string, error) { return "/home/crowbar", nil },
 	}
@@ -103,6 +104,7 @@ func TestAgentWorkspaceReader_AgentChatsDir_ManagedWorktree_SiblingOfWorktree(t 
 			ProjectID:    "p1",
 			RepoID:       "r1",
 			WorktreePath: "/home/crowbar/projects/p1/github.com/acme/repo/feat-x/worktree",
+			Provisioning: domain.WorkspaceProvisioned,
 		}},
 		repos:       fakeRepoGetter{err: errors.New("managed path must not resolve a repo")},
 		crowbarHome: func() (string, error) { return "/home/crowbar", nil },
@@ -127,6 +129,7 @@ func TestAgentWorkspaceReader_AgentChatsDir_HomeKind_RerootsUnderHome(t *testing
 			RepoID:       "r1",
 			WorktreePath: "/Users/dev/my-real-repo", // repo.Path, OUTSIDE crowbar home
 			IsDefault:    true,
+			Provisioning: domain.WorkspaceShared,
 		}},
 		repos: fakeRepoGetter{repo: &domain.Repository{
 			ID:        "r1",
@@ -154,6 +157,7 @@ func TestAgentWorkspaceReader_AgentChatsDir_ProjectHome_NoRepo_RerootsUnderProje
 			ProjectID:    "p1",
 			Kind:         domain.WorkspaceKindHome,
 			WorktreePath: "/Users/dev/my-project", // project.Path, OUTSIDE crowbar home
+			Provisioning: domain.WorkspaceShared,
 		}},
 		repos:       fakeRepoGetter{err: errors.New("no repo must be looked up for a repo-less home")},
 		crowbarHome: func() (string, error) { return "/home/crowbar", nil },
@@ -176,6 +180,7 @@ func TestAgentWorkspaceReader_AgentChatsDir_PoisonedSlug_FailsClosed(t *testing.
 			ProjectID:    "p1",
 			RepoID:       "r1",
 			WorktreePath: "/Users/dev/my-real-repo", // OUTSIDE home → reroot path
+			Provisioning: domain.WorkspaceProvisioned,
 		}},
 		repos: fakeRepoGetter{repo: &domain.Repository{
 			ID: "r1",
@@ -248,6 +253,7 @@ func TestAgentWorkspaceReader_AgentChatsDir_RepoSlugErrorPropagates(t *testing.T
 			ProjectID:    "p1",
 			RepoID:       "r1",
 			WorktreePath: "/Users/dev/my-real-repo", // outside home → must resolve a slug
+			Provisioning: domain.WorkspaceProvisioned,
 		}},
 		repos:       fakeRepoGetter{err: wantErr},
 		crowbarHome: func() (string, error) { return "/home/crowbar", nil },

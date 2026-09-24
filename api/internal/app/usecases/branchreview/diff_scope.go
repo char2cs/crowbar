@@ -63,7 +63,7 @@ func (u *branchReviewUsecase) resolveScopeRef(
 			apperr.ErrInvalidArgument,
 		)
 	}
-	if ws.WorktreePath == "" {
+	if ws.Provisioning == domain.WorkspacePlaceholder {
 		return "", fmt.Errorf("branch review: %w (%s)", ErrWorkspaceUnprovisioned, ws.Branch)
 	}
 	if commit == "" {

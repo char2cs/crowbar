@@ -232,52 +232,15 @@ func (s *RepositoryStore) FindWhere(
 	return rows, nil
 }
 
-// WorkspacePlacements is a fake project.WorkspaceRelocator: it holds the
-// workspace rows a repo move has to carry along, and records the writes made
-// against them.
+// WorkspacePlacements is a fake project.HomeWorkspaces over a fixed set of
+// workspace rows.
 type WorkspacePlacements struct {
-	Rows    []domain.Workspace
-	ListErr error
-	SetErr  error
+	Rows []domain.Workspace
 }
 
 // NewWorkspacePlacements returns an empty WorkspacePlacements.
 func NewWorkspacePlacements() *WorkspacePlacements {
 	return &WorkspacePlacements{}
-}
-
-func (s *WorkspacePlacements) ListInRepo(
-	ctx context.Context,
-	projectID string,
-	repoID string,
-) ([]domain.Workspace, error) {
-	if s.ListErr != nil {
-		return nil, s.ListErr
-	}
-	rows := make([]domain.Workspace, 0, len(s.Rows))
-	for _, w := range s.Rows {
-		if w.ProjectID == projectID && w.RepoID == repoID {
-			rows = append(rows, w)
-		}
-	}
-	return rows, nil
-}
-
-func (s *WorkspacePlacements) SetProject(
-	ctx context.Context,
-	id string,
-	projectID string,
-) (domain.Workspace, error) {
-	if s.SetErr != nil {
-		return domain.Workspace{}, s.SetErr
-	}
-	for i := range s.Rows {
-		if s.Rows[i].ID == id {
-			s.Rows[i].ProjectID = projectID
-			return s.Rows[i], nil
-		}
-	}
-	return domain.Workspace{}, nil
 }
 
 // GetHomeForProject mirrors the real workspace repository's own scan: the
@@ -599,6 +562,7 @@ func (r *WorkspaceRepo) Create(
 		IsDefault:     in.IsDefault,
 		Kind:          in.Kind,
 		HeldByPath:    in.HeldByPath,
+		Provisioning:  in.Provisioning,
 		CreatedAt:     now,
 	}
 	r.Created = append(r.Created, ws)

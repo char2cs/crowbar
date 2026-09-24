@@ -35,7 +35,7 @@ function repoWithOwnCheckoutRow(branch: string): Repo {
   // The repo's own default branch, with no worktree of its own and the repo
   // root as its holder — c32b82d8 in the live repro.
   const held = ownedWorkspace(
-    { id: 'ws-held', branch, status: 'locked', heldByPath: REPO_ROOT },
+    { id: 'ws-held', branch, status: 'locked', heldByPath: REPO_ROOT, provisioning: 'placeholder' },
     'chat-held',
   )
   // An unrelated branch some OTHER worktree holds: a real failure, and the
@@ -46,6 +46,7 @@ function repoWithOwnCheckoutRow(branch: string): Repo {
       branch: 'release/1.x',
       status: 'locked',
       heldByPath: '/Users/me/elsewhere',
+      provisioning: 'placeholder',
     },
     'chat-foreign',
   )

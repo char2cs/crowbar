@@ -325,6 +325,7 @@ func (u *hierarchyUsecase) CreateChild(
 		ParentID:      in.ParentID,
 		Protected:     locked || in.ForceLocked,
 		CreatedBranch: added.createdBranch,
+		Provisioning:  domain.WorkspaceProvisioned,
 	}, u.now())
 	if err != nil {
 		// The worktree + branch are on disk but the workspace row never landed.
@@ -393,6 +394,8 @@ func (u *hierarchyUsecase) createDirectRow(
 		Branch:    in.Branch,
 		ParentID:  in.ParentID,
 		Protected: in.ForceLocked,
+		// No checkout of its own: nothing may run git in it until one exists.
+		Provisioning: domain.WorkspacePlaceholder,
 	}, u.now())
 	if err != nil {
 		return domain.Workspace{}, err
@@ -466,7 +469,7 @@ func (u *hierarchyUsecase) resolveInherited(
 		in.RepoPath = repo.Path
 		in.RemoteURL = repo.RemoteURL
 	}
-	return in, ownWorktreeOrDefault(in, parent.WorktreePath != ""), nil
+	return in, ownWorktreeOrDefault(in, parent.Provisioning.HasWorktree()), nil
 }
 
 func ownWorktreeOrDefault(
@@ -780,7 +783,8 @@ func (u *hierarchyUsecase) adoptMainWorktree(
 		// The adopted main worktree IS the repo's default workspace. Marking it
 		// keeps IsDefault reliable for the one-managed-workspace-per-branch guard,
 		// which must never count the default.
-		IsDefault: true,
+		IsDefault:    true,
+		Provisioning: domain.WorkspaceShared,
 	}, u.now())
 	if err != nil {
 		return domain.Workspace{}, err
@@ -913,7 +917,7 @@ func (u *hierarchyUsecase) guardMerge(
 	parent domain.Workspace,
 	strategy gitdomain.MergeStrategy,
 ) error {
-	if parent.WorktreePath == "" {
+	if parent.Provisioning == domain.WorkspacePlaceholder {
 		return ErrParentUnprovisioned
 	}
 	if parent.Status == domain.WorkspaceStatusLocked {
@@ -1171,7 +1175,7 @@ func (u *hierarchyUsecase) RebaseOntoParent(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("rebase onto parent: get parent: %w", err)
 	}
-	if parent.WorktreePath == "" {
+	if parent.Provisioning == domain.WorkspacePlaceholder {
 		return domain.Workspace{}, ErrParentUnprovisioned
 	}
 	tip, err := u.git.RevParse(ctx, parent.WorktreePath, "HEAD")
@@ -1349,7 +1353,7 @@ func (u *hierarchyUsecase) guardReparent(
 	if child.ID == newParent.ID {
 		return ErrSelfParent
 	}
-	if newParent.WorktreePath == "" {
+	if newParent.Provisioning == domain.WorkspacePlaceholder {
 		return ErrParentUnprovisioned
 	}
 	// A locked (protected) branch is a valid re-parent target: it already adopts
@@ -1371,7 +1375,7 @@ func (u *hierarchyUsecase) guardReparent(
 	// not a rebase target there, it is a different checkout entirely (model spec
 	// invariant 7). A row with no worktree of its own carries none of that, so a
 	// cross-repo move is still a plain reparent for it.
-	if child.RepoID != newParent.RepoID && child.WorktreePath != "" {
+	if child.RepoID != newParent.RepoID && child.Provisioning.HasWorktree() {
 		return ErrCrossRepoWorktreeMove
 	}
 	return nil
@@ -1498,8 +1502,8 @@ func (u *hierarchyUsecase) DeleteCascade(
 // forcing it, though — removeOne never --forces a locked worktree and never
 // deletes a branch Crowbar did not create, so the repo's default and
 // protected branches, and any uncommitted work in their worktrees, survive
-// the repo's removal (spec §3 P0-1). Individual failures are tolerated so one
-// wedged worktree cannot strand the rest.
+// the repo's removal (spec §3 P0-1). One failed tombstone does not stop the
+// rest, but it is returned, so the repo row stays for a re-drive.
 func (u *hierarchyUsecase) DeleteRepoWorkspaces(
 	ctx context.Context,
 	repo domain.Repository,
@@ -1517,6 +1521,7 @@ func (u *hierarchyUsecase) DeleteRepoWorkspaces(
 		}
 	}
 	ref := repoRef{path: repo.Path, defaultBranch: repo.DefaultBranch}
+	var errs []error
 	for _, n := range mine {
 		if parent, ok := index[n.Parent]; ok && parent.RepoID == repo.ID &&
 			parent.Status != domain.WorkspaceStatusDeleted {
@@ -1524,10 +1529,14 @@ func (u *hierarchyUsecase) DeleteRepoWorkspaces(
 		}
 		for _, id := range cascade.Plan(n.ID, mine) {
 			if removeErr := u.removeOne(ctx, index[id], ref); removeErr != nil {
-				slog.ErrorContext(ctx, "delete repo workspaces: remove",
-					"repo", repo.ID, "ws", id, "err", removeErr)
+				errs = append(errs, fmt.Errorf("remove %s: %w", id, removeErr))
 			}
 		}
+	}
+	// Reported only after every other workspace had its turn: the repo must not
+	// go while a workspace of it is still live.
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("delete repo workspaces: %w", err)
 	}
 	return nil
 }
@@ -1581,7 +1590,7 @@ func (u *hierarchyUsecase) removeOne(
 	// No repo to run git against, or a placeholder with no worktree of its own
 	// (whose real branch is held elsewhere and must never be git-touched): drop
 	// the row only, so the cascade leaves no ghost behind.
-	if repo.path == "" || ws.WorktreePath == "" {
+	if repo.path == "" || ws.Provisioning == domain.WorkspacePlaceholder {
 		return u.workspaces.Delete(ctx, ws.ID)
 	}
 	locked := ws.Status == domain.WorkspaceStatusLocked

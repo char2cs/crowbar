@@ -366,6 +366,11 @@ function planTreeRowDrop(
       containerKind === 'folder' ? containerId : containerKind === 'root' ? '' : undefined
 
     if (nextFork !== '' && nextFork !== currentFork) {
+      // A fork parent must have a checkout to rebase onto; the daemon refuses
+      // one without (guardReparent), so the drop is refused before any call.
+      if (repo.workspaces.find((w) => w.id === nextFork)?.provisioning === 'placeholder') {
+        throw new Error("That branch hasn't been checked out yet — try again once it has")
+      }
       // The reparent (202, rebases the fork in the background — see
       // `reparent-settle.ts`) has to genuinely LAND before the index it was
       // promised is asked for, not just answer 202; `fireRowPlacementCall`
@@ -895,17 +900,7 @@ export async function performSidebarDrop(
       toast.error(chatNotLoadedYet('move', row?.branchName ?? row?.label))
       return
     }
-    // STOPGAP, owned by the Go side: WorkspaceDTO carries no `provisioned`
-    // field yet, so a reparent onto a not-yet-checked-out branch is refused
-    // by `guardReparent` (hierarchy/worktree.go) and recognised here by its
-    // error text. Once the DTO carries the field, sidebar-drop-policy.ts
-    // refuses the drop up front and this string match is deleted.
-    const message = err instanceof Error ? err.message : 'Failed to move row'
-    toast.error(
-      message.includes('parent branch is not yet provisioned')
-        ? "That branch hasn't been checked out yet — try again once it has"
-        : message,
-    )
+    toast.error(err instanceof Error ? err.message : 'Failed to move row')
   }
 }
 

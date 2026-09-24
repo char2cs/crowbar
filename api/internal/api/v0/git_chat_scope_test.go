@@ -183,6 +183,7 @@ func seedWorkspaceAt(
 			ProjectID:    "p1",
 			RepoID:       "r1",
 			WorktreePath: worktreePath,
+			Provisioning: domain.WorkspaceProvisioned,
 		},
 		time.Unix(1, 0).UTC(),
 	)

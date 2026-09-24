@@ -61,6 +61,7 @@ const { getAllEntities, upsertEntity } = await import('@/lib/persistence/entity-
 
 function makeWorkspace(over: Partial<WorkspaceDTO> & { id: string }): WorkspaceDTO {
   return {
+    provisioning: 'provisioned',
     repoId: 'r1',
     projectId: 'p1',
     branch: 'main',

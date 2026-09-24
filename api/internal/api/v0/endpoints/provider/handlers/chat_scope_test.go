@@ -58,7 +58,7 @@ var _ handlers.ProviderEngine = (*recordingEngine)(nil)
 // handler that reached for the wrong source would fail rather than pass by
 // coincidence.
 func resolvedWorkspace() domain.Workspace {
-	return domain.Workspace{ID: "ws-resolved", WorktreePath: "/resolved/path", Branch: "resolved-branch"}
+	return domain.Workspace{ID: "ws-resolved", WorktreePath: "/resolved/path", Branch: "resolved-branch", Provisioning: domain.WorkspaceProvisioned}
 }
 
 // providerRouterForScopes wires provider's live State mount the way

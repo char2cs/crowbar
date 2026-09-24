@@ -332,7 +332,7 @@ func newRouter(
 	h := editorhandlers.New(lsp, git)
 	rg := r.Group("/v0/chats/:chatId")
 	rg.Use(func(c *gin.Context) {
-		reqscope.SetWorkspace(c, domain.Workspace{WorktreePath: "/repo"})
+		reqscope.SetWorkspace(c, domain.Workspace{WorktreePath: "/repo", Provisioning: domain.WorkspaceProvisioned})
 		c.Next()
 	})
 	mountEditorRoutes(rg, h)

@@ -736,7 +736,7 @@ func (w workspaceGitStatusReader) Provisioned(
 	if err != nil {
 		return true, nil
 	}
-	return ws.WorktreePath != "", nil
+	return ws.Provisioning.HasWorktree(), nil
 }
 
 // DefaultWorkspaceOf implements agentusecase.TreeRepoRoots: repoID's default

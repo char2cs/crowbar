@@ -321,70 +321,6 @@ func TestUpdateRepo_HomeChatsNotWiredDegradesToTheOldUnscopedBehaviour(t *testin
 		"with HomeChats unwired, an unrelated chat sharing the root is still treated as a sibling and renumbered")
 }
 
-// The move is what carries the repo's workspaces across. Left behind, they would
-// still exist but stop rendering: every hierarchical route and the WS namespace
-// are keyed on the workspace's own projectId.
-func TestUpdateRepo_ProjectMoveCarriesTheWorkspaces(t *testing.T) {
-	projects, repos, workspaces, nodes, uc := newProjectUsecaseWithNodesAndWorkspaces(t)
-	ctx := context.Background()
-	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p1"}))
-	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p2"}))
-	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
-	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "kept", ProjectID: "p1"}))
-	nodes.Rows = []domain.Node{
-		{ID: "r1", Kind: domain.NodeKindRepo, Order: 0},
-		{ID: "kept", Kind: domain.NodeKindRepo, Order: 1},
-	}
-	workspaces.Rows = []domain.Workspace{
-		{ID: "w1", ProjectID: "p1", RepoID: "r1"},
-		{ID: "w2", ProjectID: "p1", RepoID: "r1"},
-		{ID: "other", ProjectID: "p1", RepoID: "kept"},
-	}
-
-	updated, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{ProjectID: name("p2")})
-	got := updated.Repo
-	require.NoError(t, err)
-	assert.Equal(t, "p2", got.ProjectID)
-
-	moved, err := workspaces.ListInRepo(ctx, "p2", "r1")
-	require.NoError(t, err)
-	require.Len(t, moved, 2, "every workspace under the repo follows it")
-
-	stayed, err := workspaces.ListInRepo(ctx, "p1", "kept")
-	require.NoError(t, err)
-	require.Len(t, stayed, 1, "a sibling repo's workspaces are untouched")
-
-	// Both levels are renumbered: the one the repo left and the one it joined.
-	assert.Equal(t, []int{0, 0}, nodeOrders(t, nodes, "kept", "r1"))
-}
-
-func TestUpdateRepo_UnknownProjectIs404(t *testing.T) {
-	_, repos, _, uc := newProjectUsecaseWithWorkspaces(t)
-	ctx := context.Background()
-	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
-
-	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{ProjectID: name("nope")})
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
-
-	row, err := repos.FindByKey(ctx, "r1")
-	require.NoError(t, err)
-	assert.Equal(t, "p1", row.ProjectID, "a refused move leaves the repo where it was")
-}
-
-// A move to the project the repo is already in is a no-op, not a pointless
-// rewrite of every workspace.
-func TestUpdateRepo_SameProjectMovesNothing(t *testing.T) {
-	projects, repos, workspaces, uc := newProjectUsecaseWithWorkspaces(t)
-	ctx := context.Background()
-	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p1"}))
-	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
-	workspaces.Rows = []domain.Workspace{{ID: "w1", ProjectID: "p1", RepoID: "r1"}}
-
-	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{ProjectID: name("p1")})
-	require.NoError(t, err)
-	assert.Equal(t, "p1", workspaces.Rows[0].ProjectID)
-}
-
 // A repo's own entry may be filed into a project-home folder — the feature
 // this whole file's FolderID plumbing exists for. It lands at order 0 as the
 // only repo in that folder, and a repo left behind at the root is untouched:
@@ -528,47 +464,22 @@ func TestUpdateRepo_SurfacesAStoreError(t *testing.T) {
 	})
 }
 
-// Without a relocator the move is refused rather than run: committing the repo
-// row while its workspaces stay behind is the one outcome worse than not moving.
-func TestUpdateRepo_ProjectMoveNeedsARelocator(t *testing.T) {
-	projects := mocks.NewProjectStore()
-	repos := mocks.NewRepositoryStore()
-	uc := project.New(projects, repos, nil, mocks.NewFolderStore(), withRepoNodes("r1"), nil, nil)
+// A repo's project is fixed at import (P0-3, D6): naming another project is a
+// conflict that writes nothing, even alongside a rename; naming its own is not.
+func TestUpdateRepo_ProjectMoveIsRefusedAndWritesNothing(t *testing.T) {
+	projects, repos, uc := newProjectUsecase(t)
 	ctx := context.Background()
 	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p2"}))
-	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1", Name: "old"}))
 
-	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{ProjectID: name("p2")})
-	assert.ErrorContains(t, err, "no workspace relocator wired")
-}
-
-// The workspace relocation runs BEFORE the repo row is saved, so a failure
-// leaves the repo where its workspaces still are rather than the other way round.
-func TestUpdateRepo_FailedRelocationLeavesTheRepoPut(t *testing.T) {
-	projects, repos, workspaces, uc := newProjectUsecaseWithWorkspaces(t)
-	ctx := context.Background()
-	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p2"}))
-	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
-	workspaces.Rows = []domain.Workspace{{ID: "w1", ProjectID: "p1", RepoID: "r1"}}
-	workspaces.SetErr = errors.New("aggregate refused")
-
-	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{ProjectID: name("p2")})
-	assert.ErrorContains(t, err, "aggregate refused")
-
+	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{ProjectID: name("p2"), Name: name("new")})
+	require.ErrorIs(t, err, apperr.ErrConflict)
 	row, err := repos.FindByKey(ctx, "r1")
 	require.NoError(t, err)
-	assert.Equal(t, "p1", row.ProjectID)
-}
+	assert.Equal(t, domain.Repository{ID: "r1", ProjectID: "p1", Name: "old"}, *row)
 
-func TestUpdateRepo_SurfacesAWorkspaceListError(t *testing.T) {
-	projects, repos, workspaces, uc := newProjectUsecaseWithWorkspaces(t)
-	ctx := context.Background()
-	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p2"}))
-	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
-	workspaces.ListErr = errors.New("read model down")
-
-	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{ProjectID: name("p2")})
-	assert.ErrorContains(t, err, "read model down")
+	_, err = uc.UpdateRepo(ctx, "r1", project.RepoUpdate{ProjectID: name("p1")})
+	require.NoError(t, err)
 }
 
 // A PATCH that carries nothing is a no-op that still reports the row's real
@@ -631,20 +542,6 @@ func TestUpdateRepo_LookupStoreError(t *testing.T) {
 	assert.NotErrorIs(t, err, apperr.ErrNotFound)
 }
 
-// TestUpdateRepo_TargetProjectLookupError covers applyRepoProject surfacing a
-// failure resolving the destination project, distinct from that project simply
-// not existing (TestUpdateRepo_UnknownProjectIs404 above).
-func TestUpdateRepo_TargetProjectLookupError(t *testing.T) {
-	projects, repos, _, uc := newProjectUsecaseWithWorkspaces(t)
-	ctx := context.Background()
-	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
-	projects.FindErr = errors.New("db down")
-
-	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{ProjectID: name("p2")})
-	require.Error(t, err)
-	assert.NotErrorIs(t, err, apperr.ErrNotFound)
-}
-
 // TestUpdateRepo_DensifySaveError covers densifyRepos surfacing a failure
 // saving a sibling row it renumbers — as opposed to the row being explicitly
 // moved, whose own (unrelated) metadata save already succeeded earlier in
@@ -666,38 +563,6 @@ func TestUpdateRepo_DensifySaveError(t *testing.T) {
 
 	_, err := uc.UpdateRepo(ctx, "r2", project.RepoUpdate{Order: index(0)})
 	assert.ErrorContains(t, err, "disk full")
-}
-
-// TestRegression_UpdateRepo_OriginDensifyErrorSurfacesAfterAlreadyCommittedMove
-// covers the SECOND densify call UpdateRepo makes on a cross-project move —
-// renumbering the project the repo LEFT. The move itself (the repo's own row)
-// has already been saved by the time this runs, so a failure here surfaces to
-// the caller even though the repo has, in fact, already relocated; nothing
-// unwinds that, because the next reconcile of either project's list corrects
-// the numbering from what's on disk.
-func TestRegression_UpdateRepo_OriginDensifyErrorSurfacesAfterAlreadyCommittedMove(t *testing.T) {
-	projects, repos, _, nodes, uc := newProjectUsecaseWithNodesAndWorkspaces(t)
-	ctx := context.Background()
-	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p1"}))
-	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p2"}))
-	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
-	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r2", ProjectID: "p1"}))
-	nodes.Rows = []domain.Node{
-		{ID: "r1", Kind: domain.NodeKindRepo, Order: 0},
-		{ID: "r2", Kind: domain.NodeKindRepo, Order: 1},
-	}
-	// Once r1 leaves p1, r2 is the sole remaining row and must densify from
-	// order 1 down to order 0 — that write is the one made to fail.
-	nodes.OrderErrForID = map[string]error{"r2": errors.New("disk full")}
-
-	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{ProjectID: name("p2")})
-
-	assert.ErrorContains(t, err, "disk full")
-	moved, findErr := repos.FindByKey(ctx, "r1")
-	require.NoError(t, findErr)
-	require.NotNil(t, moved)
-	assert.Equal(t, "p2", moved.ProjectID,
-		"the repo's own move already committed before the origin densify ran")
 }
 
 // repositoryStoreMissingAfterSave is a one-off store.ScopedStore[domain.Repository, string]

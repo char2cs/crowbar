@@ -738,30 +738,21 @@ describe('performSidebarDrop — waits for a real reparent confirmation, not jus
     )
   })
 
-  // Caught live: dragging a chat onto a branch row the sidebar can show
-  // before its worktree is ever checked out surfaced the raw Go usecase
-  // string verbatim — "reparent of <id> failed: usecases: parent branch is
-  // not yet provisioned" — as the entire toast. `guardReparent`'s refusal is
-  // correct; only the message reaching the user needed to stop being one.
-  it('a reparent onto an unprovisioned branch translates the raw Go error into a clear message', async () => {
-    vi.mocked(reparentWorkspace).mockResolvedValueOnce(undefined)
-
-    const done = performSidebarDrop([branchRow('ws-fork')], branchRow('ws-b'), 'into')
-    await Promise.resolve()
-    await Promise.resolve()
-
+  // The daemon refuses a fork parent with no checkout (guardReparent); the
+  // DTO says which branches those are, so the drop is refused before any call.
+  it('refuses a reparent onto a placeholder branch before calling the daemon', async () => {
     useSidebarStore.setState((s) => ({
       repos: s.repos.map((r) => ({
         ...r,
         workspaces: r.workspaces.map((w) =>
-          w.id === 'ws-fork'
-            ? { ...w, lastError: 'usecases: parent branch is not yet provisioned' }
-            : w,
+          w.id === 'ws-b' ? { ...w, provisioning: 'placeholder' as const } : w,
         ),
       })),
     }))
-    await done
 
+    await performSidebarDrop([branchRow('ws-fork')], branchRow('ws-b'), 'into')
+
+    expect(reparentWorkspace).not.toHaveBeenCalled()
     expect(toast.error).toHaveBeenCalledWith(
       "That branch hasn't been checked out yet — try again once it has",
     )

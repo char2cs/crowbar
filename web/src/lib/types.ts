@@ -33,6 +33,8 @@ export interface Project {
   /** The emoji icon, rendered directly. Wins over avatarUrl — the daemon clears
    *  one when the other is set, so both are never live at once. */
   avatarEmoji?: string
+  /** Why the last delete of this project stopped (see RepoDTO.lastError). */
+  lastError?: string
 }
 
 export interface Prerequisites {
@@ -73,9 +75,11 @@ export interface WorkspaceDTO {
   prTargetBranch: string
   /** On-disk worktree directory for this workspace (e.g. /home/user/project). */
   localPath?: string
-  /** Worktree dir holding this branch when the workspace is a placeholder
-   *  (locked + no localPath). Absent on healthy workspaces. */
+  /** Worktree dir holding this branch when the workspace is a placeholder.
+   *  Absent on healthy workspaces. */
   heldByPath?: string
+  /** What stands behind localPath — see WorkspaceProvisioning. */
+  provisioning: WorkspaceProvisioning
   /** "home" for the project home workspace; absent or "git" for normal git workspaces. */
   kind?: 'git' | 'home'
   /** Sidebar grouping folder this workspace belongs to, or absent for the repo
@@ -107,6 +111,14 @@ export interface WorkspaceDTO {
  * Optional here means `omitempty` on the wire, not "a daemon that predates the
  * field": an absent string/flag is the empty/false value, never unknown.
  */
+/**
+ * What stands behind a workspace's localPath, recorded by the daemon — never
+ * inferred from the path: a managed worktree Crowbar made (`provisioned`), none
+ * yet because another checkout holds the branch (`placeholder`), or the user's
+ * own checkout adopted in place (`shared`).
+ */
+export type WorkspaceProvisioning = 'provisioned' | 'placeholder' | 'shared'
+
 export interface ChatWorktreeDTO {
   branch: string
   status?: WorkspaceStatusDTO
@@ -124,6 +136,7 @@ export interface ChatWorktreeDTO {
   prTargetBranch?: string
   localPath?: string
   heldByPath?: string
+  provisioning: WorkspaceProvisioning
   forkPointSha?: string
   /** The FORK parent — another workspace's id, not a sidebar placement. */
   parentId?: string
@@ -155,6 +168,9 @@ export interface RepoDTO {
   /** Project-home folder this repo's entry is filed under, absent (root) on
    *  frames from a daemon that predates repo placement. */
   folderId?: string
+  /** Why the last delete of this repo stopped; the daemon keeps the row and
+   *  resumes the delete at boot. */
+  lastError?: string
 }
 
 export interface FolderDTO {

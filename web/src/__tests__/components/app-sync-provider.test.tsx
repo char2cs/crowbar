@@ -86,6 +86,7 @@ function repo(id: string, projectId: string, overrides: Partial<Repo> = {}): Rep
 
 function wsDTO(id: string, repoId: string, overrides: Partial<WorkspaceDTO> = {}): WorkspaceDTO {
   return {
+    provisioning: 'provisioned',
     id,
     repoId,
     projectId: 'p1',

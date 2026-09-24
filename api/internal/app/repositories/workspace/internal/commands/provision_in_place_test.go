@@ -15,6 +15,7 @@ func TestProvisionInPlace_SetsPathAndClearsHeldBy(t *testing.T) {
 	cur := &domain.Workspace{
 		ID: "w1", Branch: "develop", Status: domain.WorkspaceStatusLocked,
 		HeldByPath: "/repo", WorktreePath: "",
+		Provisioning: domain.WorkspacePlaceholder,
 	}
 	got := commands.ProvisionInPlace{ID: "w1", WorktreePath: "/managed", ForkPointSha: "sha"}.EmitEvent(cur)
 	assert.Equal(t, "/managed", got.WorktreePath)

@@ -162,14 +162,7 @@ func (s *ConcurrencySuite) TestConcurrency_ParallelWorkspaceCreatesDoNotRaceBroa
 			defer wg.Done()
 			<-ready
 			branch := fmt.Sprintf("feature/fanout-%d", idx)
-			// Concurrent, not CreateWorkspaceWithChat: that variant's trailing
-			// Quiesce() sets the shared chat dispatcher's waiting flag, which
-			// asynx uses to refuse EVERY other in-flight Dispatch for its
-			// duration (Dispatcher.WaitIdle) — safe for one caller, but N
-			// siblings racing that flag concurrently intermittently refused
-			// each other's own mint/attach/place commands with
-			// ErrDispatcherClosed, which is what this test exists to catch.
-			s.Env.CreateWorkspaceWithChatConcurrent(t, s.imported.ProjectID, s.imported.RepoID, branch, "")
+			s.Env.CreateWorkspaceWithChat(t, s.imported.ProjectID, s.imported.RepoID, branch, "")
 		}(i)
 	}
 	close(ready)

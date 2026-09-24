@@ -44,6 +44,7 @@ func TestChatWorktreeFrom_CarriesEveryFieldTheWorkspaceDTOCarries(t *testing.T) 
 			PRTargetBranch: "main",
 			WorktreePath:   "/tmp/wt",
 			HeldByPath:     "/tmp/held",
+			Provisioning:   domain.WorkspaceShared,
 		},
 		workspace.MergeEligibility{CanMergeLocally: true, ParentBranch: "main"},
 		"chat-owner",

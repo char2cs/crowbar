@@ -22,7 +22,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
-	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
@@ -64,6 +63,7 @@ type WorkspaceReader interface {
 // lifecycle (project.DeleteUsecase.DeleteRepo): workspaces retired first, then
 // the row, its Node row and its entity directory. The handler only binds HTTP.
 type RepoDeleter interface {
+	BeginRepoDelete(ctx context.Context, repo domain.Repository) (domain.Repository, error)
 	DeleteRepo(ctx context.Context, repo domain.Repository) error
 }
 
@@ -448,8 +448,7 @@ func (h *Handlers) persistRepo(
 }
 
 // patchRequest is the PATCH .../repos/:repoId body. Every field is optional and
-// a nil field is left as it is, so a rename, a sidebar reorder and a move to
-// another project are the same endpoint.
+// a nil field is left as it is. ProjectID may only name the repo's own project.
 type patchRequest struct {
 	Name      *string `json:"name"`
 	ProjectID *string `json:"projectId"`
@@ -488,7 +487,7 @@ func safeRepoName(
 }
 
 // Patch handles PATCH /v0/projects/:projectId/repos/:repoId: rename, sidebar
-// reorder, and move to another project. It delivers the updated repo as a
+// reorder and re-filing into a home folder. It delivers the updated repo as a
 // RepoDTO on the repos WebSocket stream so every client's sidebar refreshes.
 //
 // Validation is synchronous, and so is the write: none of the three is a git
@@ -496,9 +495,8 @@ func safeRepoName(
 // avatar and order ride the broadcast, not this response (the FE apiFetch throws
 // on any non-enveloped 200 body, matching the icon mutations).
 //
-// A project move carries the repo's workspaces with it, so every one of them is
-// re-broadcast by the workspace hub projection on its way through; the client
-// needs no second fetch to find them again under the new project.
+// A projectId naming another project is refused with 409: a repo's project is
+// fixed at import (project.refuseProjectMove).
 func (h *Handlers) Patch(
 	c *gin.Context,
 ) {
@@ -521,7 +519,6 @@ func (h *Handlers) Patch(
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	h.relocateEntityDir(c, c.Param("projectId"), updated.Repo)
 	// The DECIDED placement, never a re-read: the Node projection folds after
 	// the write returns, so a read here can still serve the old order.
 	h.broadcast(dto.RepoDTOFrom(updated.Repo, dto.RepoPlacement{FolderID: updated.Node.ParentID, Order: updated.Node.Order}))
@@ -544,43 +541,6 @@ func (h *Handlers) broadcastShiftedRepos(
 			continue
 		}
 		h.broadcast(dto.RepoDTOFrom(*repo, dto.RepoPlacement{FolderID: n.ParentID, Order: n.Order}))
-	}
-}
-
-// relocateEntityDir follows a repo that changed projects with its entity
-// directory — the icon store, keyed by <home>/projects/<projectId>/<repoId>.
-// Left behind, the icon would 404 from under the new path and the old directory
-// would outlive every way of reaching it.
-//
-// Worktrees are NOT relocated and do not need to be: their paths were derived
-// once and are stored absolute on the record, so they
-// keep resolving from where they are. Only newly derived paths land under the new
-// project.
-//
-// Best-effort: a failed rename costs the custom icon (the repo falls back to its
-// generated avatar) and is logged. It must not fail an otherwise-committed move.
-func (h *Handlers) relocateEntityDir(
-	c *gin.Context,
-	fromProjectID string,
-	repo domain.Repository,
-) {
-	if repo.ProjectID == fromProjectID {
-		return
-	}
-	home, err := h.crowbarHome()
-	if err != nil || home == "" {
-		return
-	}
-	from := worktreepath.RepoDir(home, fromProjectID, repo.ID)
-	to := worktreepath.RepoDir(home, repo.ProjectID, repo.ID)
-	if mkErr := os.MkdirAll(filepath.Dir(to), 0o755); mkErr != nil { //nolint:gosec // G301: 0o755 matches the perm the daemon already creates its own project directories with.
-		slog.WarnContext(c.Request.Context(), "repo move: could not create the destination project dir",
-			"repo", repo.ID, "to", to, "err", mkErr)
-		return
-	}
-	if rnErr := os.Rename(from, to); rnErr != nil && !os.IsNotExist(rnErr) {
-		slog.WarnContext(c.Request.Context(), "repo move: could not relocate the entity dir; the repo falls back to its generated avatar",
-			"repo", repo.ID, "from", from, "to", to, "err", rnErr)
 	}
 }
 
@@ -615,8 +575,8 @@ func (h *Handlers) bindRepoUpdate(
 // removal in the background through the one delete lifecycle
 // (RepoDeleter.DeleteRepo), broadcasting the deleted-status RepoDTO tombstone
 // once it is done. A failure is never silent: the repo is re-broadcast as still
-// present, so the client does not believe in a removal that did not happen. The
-// user's real repository directory (repo.Path) is never touched.
+// present, carrying the LastError the usecase recorded, and boot resumes the
+// delete. The user's real repository directory (repo.Path) is never touched.
 func (h *Handlers) DeleteRepo(
 	c *gin.Context,
 ) {
@@ -636,11 +596,22 @@ func (h *Handlers) DeleteRepo(
 		libs.WriteErr(c, http.StatusInternalServerError, "repo delete is not wired")
 		return
 	}
+	// The intent is durable, and a previous attempt's error cleared on every
+	// client, before the 202: from here on boot finishes what this starts.
+	marked, err := h.deleter.BeginRepoDelete(c.Request.Context(), *repo)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return
+	}
+	h.broadcast(dto.RepoDTOFrom(marked, h.placementOf(c.Request.Context(), repoID)))
 	libs.WriteAccepted(c)
 	h.runAsync(c.Request.Context(), func(ctx context.Context) {
-		if err := h.deleter.DeleteRepo(ctx, *repo); err != nil {
-			slog.ErrorContext(ctx, "delete repo: the repo stays", "repo", repoID, "err", err)
-			h.broadcast(dto.RepoDTOFrom(*repo, h.placementOf(ctx, repoID)))
+		if err := h.deleter.DeleteRepo(ctx, marked); err != nil {
+			slog.ErrorContext(ctx, "delete repo: stopped; the repo stays", "repo", repoID, "err", err)
+			if row, getErr := h.store.FindByKey(ctx, repoID); getErr == nil && row != nil {
+				h.broadcast(dto.RepoDTOFrom(*row, h.placementOf(ctx, repoID)))
+			}
 			return
 		}
 		h.broadcast(dto.RepoDTO{ID: repoID, ProjectID: projectID, Status: "deleted"})

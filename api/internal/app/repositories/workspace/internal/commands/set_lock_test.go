@@ -17,7 +17,7 @@ import (
 func ptr(b bool) *bool { return &b }
 
 func TestSetLockUnlocksAProtectedBranch(t *testing.T) {
-	ws := &domain.Workspace{ID: "w1", WorktreePath: "/w", Status: domain.WorkspaceStatusLocked}
+	ws := &domain.Workspace{ID: "w1", WorktreePath: "/w", Status: domain.WorkspaceStatusLocked, Provisioning: domain.WorkspaceProvisioned}
 
 	got := SetLock{ID: "w1", Locked: ptr(false), Protected: true}.EmitEvent(ws)
 
@@ -31,7 +31,7 @@ func TestSetLockUnlocksAProtectedBranch(t *testing.T) {
 
 func TestSetLockLocksAnOrdinaryBranch(t *testing.T) {
 	// Any branch, including a fork child the provider has no opinion about.
-	ws := &domain.Workspace{ID: "w1", WorktreePath: "/w", ParentID: "w0", Status: domain.WorkspaceStatusNew}
+	ws := &domain.Workspace{ID: "w1", WorktreePath: "/w", ParentID: "w0", Status: domain.WorkspaceStatusNew, Provisioning: domain.WorkspaceProvisioned}
 
 	got := SetLock{ID: "w1", Locked: ptr(true), Protected: false}.EmitEvent(ws)
 
@@ -41,7 +41,7 @@ func TestSetLockLocksAnOrdinaryBranch(t *testing.T) {
 }
 
 func TestSetLockClearedHandsTheQuestionBackToTheProvider(t *testing.T) {
-	ws := &domain.Workspace{ID: "w1", WorktreePath: "/w", Status: domain.WorkspaceStatusNew, LockOverride: ptr(false)}
+	ws := &domain.Workspace{ID: "w1", WorktreePath: "/w", Status: domain.WorkspaceStatusNew, LockOverride: ptr(false), Provisioning: domain.WorkspaceProvisioned}
 
 	got := SetLock{ID: "w1", Locked: nil, Protected: true}.EmitEvent(ws)
 
@@ -88,8 +88,8 @@ func TestProviderStillLocksWithoutAnOverride(t *testing.T) {
 
 func TestSetLockRefusesWhatCannotBeLocked(t *testing.T) {
 	cases := map[string]*domain.Workspace{
-		"home workspace":               {ID: "w1", Kind: domain.WorkspaceKindHome, WorktreePath: "/w"},
-		"placeholder with no worktree": {ID: "w1", Status: domain.WorkspaceStatusLocked},
+		"home workspace":               {ID: "w1", Kind: domain.WorkspaceKindHome, WorktreePath: "/w", Provisioning: domain.WorkspaceShared},
+		"placeholder with no worktree": {ID: "w1", Status: domain.WorkspaceStatusLocked, Provisioning: domain.WorkspacePlaceholder},
 	}
 	for name, ws := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -101,7 +101,7 @@ func TestSetLockRefusesWhatCannotBeLocked(t *testing.T) {
 }
 
 func TestSetLockNeverResurrectsADeletedRow(t *testing.T) {
-	ws := &domain.Workspace{ID: "w1", WorktreePath: "/w", Status: domain.WorkspaceStatusDeleted}
+	ws := &domain.Workspace{ID: "w1", WorktreePath: "/w", Status: domain.WorkspaceStatusDeleted, Provisioning: domain.WorkspaceProvisioned}
 
 	got := SetLock{ID: "w1", Locked: ptr(true), Protected: false}.EmitEvent(ws)
 

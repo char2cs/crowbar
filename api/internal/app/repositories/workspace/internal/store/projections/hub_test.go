@@ -3,17 +3,14 @@ package projections
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/char2cs/asynx"
-	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	wscmds "github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -32,31 +29,13 @@ type stubFrame struct {
 	CanMergeLocally bool                   `json:"canMergeLocally"`
 }
 
-// newHubAsynx builds a real asynx over a temp in-memory event store — the
-// production shape (one singleton), driven over a throwaway DB.
-func newHubAsynx(
-	t *testing.T,
-) (context.Context, asynx.Asynx[domain.Workspace]) {
-	t.Helper()
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	ax, err := asynx.New[domain.Workspace]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-	return context.Background(), ax
-}
-
 // TestRegisterHub_ProjectionFrameMatchesDirectRebroadcast asserts the two
 // triggers that must emit an identical WS frame — the event-driven hub
 // projection and the request-bracketed BeginWork/EndWork rebroadcast — converge
 // on the SAME enrich+broadcast, so the FE spinner and merge badges are
 // consistent regardless of which path fired (spec §3.5 hub-frame enrichment).
 func TestRegisterHub_ProjectionFrameMatchesDirectRebroadcast(t *testing.T) {
-	ctx, ax := newHubAsynx(t)
+	ctx, ax, st := newRegistered(t)
 
 	var (
 		mu      sync.Mutex
@@ -86,12 +65,13 @@ func TestRegisterHub_ProjectionFrameMatchesDirectRebroadcast(t *testing.T) {
 		mu.Unlock()
 	}
 
-	require.NoError(t, RegisterHub(ax, newTestStore(t), enrich, broadcast))
+	RegisterHub(st, enrich, broadcast)
 
 	// SendWait blocks until every matching projection handler completes, so the
 	// hub projection's broadcast has fired by the time it returns.
 	_, err := ax.SendWait(ctx, wscmds.CreateWorkspace{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "main", Now: time.Unix(1, 0).UTC(),
+		Provisioning: domain.WorkspacePlaceholder,
 	})
 	require.NoError(t, err)
 
@@ -129,13 +109,35 @@ func TestRegisterHub_ProjectionFrameMatchesDirectRebroadcast(t *testing.T) {
 	assert.Equal(t, string(pj), string(dj), "hub-projection frame and BeginWork rebroadcast frame must be byte-identical")
 }
 
-func TestRegisterHub_SubscribeError(t *testing.T) {
-	err := RegisterHub(
-		&fakeAx{subscribeErr: errors.New("bus down")},
-		newTestStore(t),
-		func(context.Context, domain.Workspace) stubFrame { return stubFrame{} },
-		func(stubFrame) {},
+// A frame is only ever sent for state the read model already holds: a client
+// that re-reads the model on a frame must never get older state back. (A hub
+// subscribed beside the store projection ran concurrently with its save.)
+func TestRegisterHub_NeverAnnouncesAheadOfTheReadModel(t *testing.T) {
+	ctx, ax, st := newRegistered(t)
+	var (
+		mu    sync.Mutex
+		ahead []string
 	)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "workspace hub projection: subscribe")
+	RegisterHub(st,
+		func(_ context.Context, ws domain.Workspace) domain.Workspace { return ws },
+		func(ws domain.Workspace) {
+			row, err := st.Get(ctx, ws.ID)
+			if err != nil || row == nil || row.Branch != ws.Branch {
+				mu.Lock()
+				ahead = append(ahead, ws.Branch)
+				mu.Unlock()
+			}
+		})
+	_, err := ax.SendWait(ctx, wscmds.CreateWorkspace{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b-0", Now: time.Unix(1, 0).UTC(),
+		Provisioning: domain.WorkspacePlaceholder,
+	})
+	require.NoError(t, err)
+	for i := 1; i <= 50; i++ {
+		_, err := ax.SendWait(ctx, wscmds.RenameBranch{ID: "w1", Branch: fmt.Sprintf("b-%d", i)})
+		require.NoError(t, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Empty(t, ahead, "frames sent before the read model held their state")
 }

@@ -96,11 +96,12 @@ func seedWorkspace(
 	_, err := a.Repositories.Workspace.Create(
 		context.Background(),
 		workspace.CreateInput{
-			ID:        id,
-			ProjectID: projectID,
-			RepoID:    repoID,
-			Branch:    branch,
-			ParentID:  parentID,
+			ID:           id,
+			ProjectID:    projectID,
+			RepoID:       repoID,
+			Branch:       branch,
+			ParentID:     parentID,
+			Provisioning: domain.WorkspacePlaceholder,
 		},
 		time.Unix(1, 0).UTC(),
 	)
@@ -228,7 +229,7 @@ func TestGitSnapshot_BadWorktreeSkipsWorkspace(t *testing.T) {
 	a := newAppForSnapshot(t)
 	_, err := a.Repositories.Workspace.Create(
 		context.Background(),
-		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", WorktreePath: t.TempDir()},
+		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", WorktreePath: t.TempDir(), Provisioning: domain.WorkspaceProvisioned},
 		time.Unix(1, 0).UTC(),
 	)
 	require.NoError(t, err)
@@ -265,7 +266,7 @@ func TestLSPSnapshot_NoDiagnosticsIsEmpty(t *testing.T) {
 	a := newAppForSnapshot(t)
 	_, err := a.Repositories.Workspace.Create(
 		context.Background(),
-		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"},
+		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder},
 		time.Unix(1, 0).UTC(),
 	)
 	require.NoError(t, err)

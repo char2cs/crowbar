@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // Creating a workspace mints its owning chat, writes the row, then attaches
@@ -28,6 +29,7 @@ func TestRegression_BootOwnsAWorkspaceWhoseCreateCrashedBeforeAttach(t *testing.
 	_, err := h.app.Repositories.Workspace.Create(context.Background(), workspace.CreateInput{
 		ID: wsID, RepoID: imported.repoID, ProjectID: imported.projectID,
 		Branch: "feature/orphaned", ParentID: imported.workspaceID,
+		Provisioning: domain.WorkspacePlaceholder,
 	}, time.Now())
 	require.NoError(t, err)
 	h.Quiesce()

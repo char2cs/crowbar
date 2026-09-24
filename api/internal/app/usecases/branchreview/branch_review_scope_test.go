@@ -32,6 +32,7 @@ func scopeFixtureChild() domain.Workspace {
 		Branch:       "feat/child",
 		WorktreePath: "/wt/child",
 		ParentID:     "parent",
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 }
 

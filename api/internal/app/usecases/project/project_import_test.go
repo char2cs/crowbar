@@ -785,7 +785,7 @@ func TestImport_ProtectedRowFailure_CleansUpOrphanedWorktree(t *testing.T) {
 		if in.Protected {
 			return domain.Workspace{}, errors.New("row boom") // the managed protected row fails
 		}
-		created := domain.Workspace{ID: in.ID, Kind: in.Kind, IsDefault: in.IsDefault, WorktreePath: in.WorktreePath}
+		created := domain.Workspace{ID: in.ID, Kind: in.Kind, IsDefault: in.IsDefault, WorktreePath: in.WorktreePath, Provisioning: domain.WorkspaceProvisioned}
 		ws.Created = append(ws.Created, created)
 		return created, nil
 	}
@@ -1487,7 +1487,7 @@ func TestCreate_TheHomeExistsBeforeTheProjectRowIsSaved(t *testing.T) {
 	projects, _, ws, _, _, uc := newImport(t)
 	ws.CreateFn = func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
 		assert.Empty(t, projects.Saved, "the project row must not be announced before its home exists")
-		row := domain.Workspace{ID: in.ID, ProjectID: in.ProjectID, Kind: in.Kind, WorktreePath: in.WorktreePath}
+		row := domain.Workspace{ID: in.ID, ProjectID: in.ProjectID, Kind: in.Kind, WorktreePath: in.WorktreePath, Provisioning: domain.WorkspaceProvisioned}
 		ws.Created = append(ws.Created, row)
 		return row, nil
 	}

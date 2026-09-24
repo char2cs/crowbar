@@ -58,6 +58,7 @@ describe('fetchRepos', () => {
 // carries its parent's `workspaceId`), and every one of them gets the object —
 // so the owning-row rule is what keeps the result one DTO per worktree.
 const worktree = (over: Partial<ChatWorktreeDTO> = {}): ChatWorktreeDTO => ({
+  provisioning: 'provisioned',
   branch: 'feature/x',
   status: 'new',
   working: false,
@@ -129,6 +130,7 @@ describe('workspaceDTOFromChat', () => {
       prTargetBranch: 'main',
       localPath: '/x/y',
       heldByPath: '/held/here',
+      provisioning: 'provisioned',
       owningChatId: 'c1',
       folderId: 'folder-1',
       order: 4,
@@ -229,6 +231,7 @@ describe('workspaceDTOFromWorktreeFrame', () => {
 
 describe('fetchWorkspaces', () => {
   const dto = (over: Partial<WorkspaceDTO> = {}): WorkspaceDTO => ({
+    provisioning: 'provisioned',
     id: 'w1',
     repoId: 'r1',
     projectId: 'p1',
