@@ -416,8 +416,7 @@ func (configurableListGetUsecase) IngestHook(
 }
 
 func (configurableListGetUsecase) IngestHookDelivery(
-	_ context.Context,
-	_, _, _, _, _ string,
+	_ context.Context, _, _, _, _ string,
 	_ []byte,
 ) error {
 	return nil

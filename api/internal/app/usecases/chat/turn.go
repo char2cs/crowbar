@@ -30,12 +30,12 @@ type TurnUsecase interface {
 		rawPayload []byte,
 	) error
 
-	// IngestHookDelivery is the exactly-once ingress for one RELAYED hook: it
-	// dedupes the delivery, buffers it if the runner is still starting, runs its
-	// effects, then durably records the completion.
+	// IngestHookDelivery is the idempotent ingress for one RELAYED hook: it
+	// skips a delivery id whose effects already ran (a relay retry), buffers it
+	// if the runner is still starting, runs its effects, then marks the id done
+	// in a bounded in-memory TTL set.
 	IngestHookDelivery(
-		ctx context.Context,
-		workspaceID, deliveryID, runnerID, provider, canonicalEvent string,
+		ctx context.Context, deliveryID, runnerID, provider, canonicalEvent string,
 		rawPayload []byte,
 	) error
 
@@ -146,14 +146,13 @@ func (u *Usecase) IngestHook(
 	return u.turns.IngestHook(ctx, runnerID, provider, canonicalEvent, rawPayload)
 }
 
-// IngestHookDelivery is the exactly-once ingress for one relayed hook.
+// IngestHookDelivery is the idempotent ingress for one relayed hook.
 func (u *Usecase) IngestHookDelivery(
-	ctx context.Context,
-	workspaceID, deliveryID, runnerID, provider, canonicalEvent string,
+	ctx context.Context, deliveryID, runnerID, provider, canonicalEvent string,
 	rawPayload []byte,
 ) error {
 	return u.turns.IngestHookDelivery(
-		ctx, workspaceID, deliveryID, runnerID, provider, canonicalEvent, rawPayload,
+		ctx, deliveryID, runnerID, provider, canonicalEvent, rawPayload,
 	)
 }
 

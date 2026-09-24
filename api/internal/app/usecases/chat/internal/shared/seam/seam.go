@@ -73,8 +73,8 @@ type WorkspaceReader interface {
 	) (crowbarHome, projectID, repoID, worktree string, err error)
 	// AgentChatsDir returns the directory holding the workspace's own agent-work
 	// state — per-spawn tmp dirs (the rendered hook config; nothing else — no
-	// descriptor copies any credential into them, and none may) and the
-	// per-runner hook-delivery journal. It is ALWAYS strictly under crowbar
+	// descriptor copies any credential into them, and none may). It is ALWAYS
+	// strictly under crowbar
 	// home, even for a home-kind / adopted-checkout workspace whose worktree (Cwd)
 	// is the user's REAL directory outside home: for a managed worktree it is the
 	// sibling of the worktree, and for an adopted checkout it reroots under home

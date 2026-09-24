@@ -280,8 +280,7 @@ func (f *fakeAgentUsecase) IngestHook(
 // the hook carries a delivery id, so this double records into the SAME log as
 // IngestHook: a test asserts what was forwarded, never which of the two ran.
 func (f *fakeAgentUsecase) IngestHookDelivery(
-	_ context.Context,
-	_, _ string,
+	_ context.Context, _ string,
 	segID, provider, event string,
 	raw []byte,
 ) error {

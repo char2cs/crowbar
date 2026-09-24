@@ -20,7 +20,6 @@ type Hook struct {
 	CanonicalEvent string
 	RawPayload     []byte
 	DeliveryID     string
-	DeliveryDir    string
 	DeliveryHash   string
 }
 
@@ -74,14 +73,13 @@ func (p *Hooks) Enqueue(
 func (p *Hooks) EnqueueDelivery(
 	runnerID, provider, canonicalEvent string,
 	rawPayload []byte,
-	deliveryID, deliveryDir, deliveryHash string,
+	deliveryID, deliveryHash string,
 ) (handled bool, err error) {
 	return p.enqueue(runnerID, Hook{
 		Provider:       provider,
 		CanonicalEvent: canonicalEvent,
 		RawPayload:     rawPayload,
 		DeliveryID:     deliveryID,
-		DeliveryDir:    deliveryDir,
 		DeliveryHash:   deliveryHash,
 	})
 }

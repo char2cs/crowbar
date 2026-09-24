@@ -12,13 +12,13 @@ package turn
 import (
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/dedup"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/stream"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -63,13 +63,13 @@ type Turns struct {
 	// pendingHooks is the fork-before-runner-persistence barrier: hooks that arrive
 	// before the runner row exists are buffered into it and replayed after.
 	pendingHooks *inflight.Hooks
-	// hookDeliveries durably deduplicates Crowbar relay retries before any turn
-	// state or ledger mutation. The relay owns retry/spooling; this journal owns
-	// the exactly-once ingress boundary.
-	hookDeliveries agentjournal.HookDeliveries
+	// hookDeliveries absorbs Crowbar relay retries before any turn state or
+	// ledger mutation: a bounded, in-memory TTL set of completed delivery ids.
+	// The relay's retry is short and in-process (cmd/crowbar/hook_delivery.go),
+	// so nothing here needs to outlive the daemon — and nothing here fsyncs.
+	hookDeliveries *dedup.Set
 	// hookGates serialises one runner's hook ingestion. It is held across the WHOLE
-	// ingest — dedupe, replay buffering, effects, completion — which is why it
-	// lives here rather than inside the delivery journal.
+	// ingest — dedupe, replay buffering, effects, completion.
 	hookGates *inflight.Gate
 	// answers is the desk a provider prompt parks a blocked hook relay on.
 	answers *answerdesk.Desk
@@ -159,14 +159,14 @@ func New(d Deps) *Turns {
 		turns:       d.InflightTurns,
 		turnStarts:  d.TurnStarts,
 		// Owned outright, so built here rather than handed in: the message streams,
-		// the exactly-once ingress journal and the per-runner ingest gate are named
-		// by nothing outside this package.
+		// the delivery dedup set and the per-runner ingest gate are named by
+		// nothing outside this package.
 		messages:            stream.New(),
 		live:                newLiveText(),
 		idle:                newIdleLatch(),
 		compacting:          newCompactionTurns(),
 		manualCompact:       newManualCompactRequests(),
-		hookDeliveries:      agentjournal.NewHookDeliveries(),
+		hookDeliveries:      dedup.New(dedup.DefaultTTL, dedup.DefaultMax, nil),
 		hookGates:           inflight.NewGate(),
 		pendingHooks:        d.PendingHooks,
 		answers:             d.Answers,
@@ -205,18 +205,5 @@ func (t *Turns) SetCompactionStatus(fn func(chatID, workspaceID string, active b
 	t.compactionStatus = fn
 }
 
-// SetHookDeliveries replaces the exactly-once ingress journal. It exists for the
-// deterministic durability faults the usecase's tests inject; production always
-// uses the fsync-on-rename journal New builds.
-//
-// It REPLACES the journal, so it must be called before the runner under test has
-// delivered anything: the in-memory completion markers do not survive it.
-func (t *Turns) SetHookDeliveries(deliveries agentjournal.HookDeliveries) {
-	t.hookDeliveries = deliveries
-}
-
-// HookDeliveryMarkers are the in-memory completion markers the ingress journal is
-// holding. A marker answers a repeat delivery without ever reading the disk, so a
-// test that means to exercise the on-disk record must first prove the marker is
-// absent.
-func (t *Turns) HookDeliveryMarkers() []string { return t.hookDeliveries.CompletionMarkers() }
+// HookDeliveryCount is how many completed delivery ids the dedup set holds.
+func (t *Turns) HookDeliveryCount() int { return t.hookDeliveries.Len() }

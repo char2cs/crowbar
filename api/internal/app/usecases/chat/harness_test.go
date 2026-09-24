@@ -1086,7 +1086,7 @@ func (f testFixture) runnerKinds(t *testing.T) []string {
 // the SAME seam the production hub projection uses, so a test capturing frames
 // through it exercises the real lifecycle feed — the usecase never broadcasts itself.
 func newChatStore(
-	t *testing.T,
+	t testing.TB,
 	watch agentchat.WatchFunc,
 ) (agentchat.EventStore, func()) {
 	t.Helper()
@@ -1113,7 +1113,7 @@ func newChatStore(
 // than a stub because the record is what every turn assertion in this package
 // reads back, and a stub would let the write path and the read path agree with
 // each other while both were wrong.
-func newActivityStore(t *testing.T) (agentactivity.EventStore, func()) {
+func newActivityStore(t testing.TB) (agentactivity.EventStore, func()) {
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
@@ -1136,7 +1136,7 @@ func newActivityStore(t *testing.T) (agentactivity.EventStore, func()) {
 // newRunnerStore builds the same for the agentrunner aggregate: the real commands,
 // the real live-runner + conversation-history projections, the real hub projection.
 func newRunnerStore(
-	t *testing.T,
+	t testing.TB,
 	watch agentrunner.WatchFunc,
 ) (agentrunner.EventStore, func()) {
 	t.Helper()
@@ -1158,7 +1158,7 @@ func newRunnerStore(
 	return repo, ax.WaitPublish
 }
 
-func newFixture(t *testing.T) testFixture {
+func newFixture(t testing.TB) testFixture {
 	t.Helper()
 	f, _, _ := newFixtureUsing(t, nil, nil, "")
 	return f
@@ -1192,7 +1192,7 @@ func newFaultFixture(t *testing.T) (testFixture, *fakeChatStore, *fakeRunnerStor
 // global permission-level preference the fixture starts with; the empty value
 // means "use the package's own pinned default" ("guarded" — see below).
 func newFixtureUsing(
-	t *testing.T,
+	t testing.TB,
 	wrapChats func(agentchat.EventStore) agentchat.EventStore,
 	wrapRunners func(agentrunner.EventStore) agentrunner.EventStore,
 	permissionDefault string,

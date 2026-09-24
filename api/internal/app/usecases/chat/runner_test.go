@@ -4552,7 +4552,7 @@ func TestRegression_ReasoningStreamsLiveAndIsNeverRecorded(t *testing.T) {
 	think := func(index int, text string) {
 		t.Helper()
 		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, "ws1", uuid.NewString(), runnerID, "codex", "reasoning_delta",
+			f.ctx, uuid.NewString(), runnerID, "codex", "reasoning_delta",
 			mustJSON(t, map[string]any{
 				"threadId": "sess-1", "turnId": "turn-1", "itemId": "rs_1",
 				"summaryIndex": index, "delta": text,
@@ -4608,7 +4608,7 @@ func TestStartTerminalWaitSweep_PushesEveryDeltaAsTheMessageSoFar(t *testing.T) 
 	post := func(index int, final bool, text string) {
 		t.Helper()
 		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, "ws1", uuid.NewString(), runnerID, "claude", "message_delta",
+			f.ctx, uuid.NewString(), runnerID, "claude", "message_delta",
 			deltaHook(t, "msg-one", index, final, text),
 		))
 	}

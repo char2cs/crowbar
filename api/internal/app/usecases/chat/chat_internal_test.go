@@ -5,13 +5,11 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
@@ -405,45 +403,6 @@ func TestInvariant_AnUnknownWorkStateFallsBackToTheAggregate(t *testing.T) {
 	}
 }
 
-// §7.5 — hook delivery is exactly-once by delivery id.
-//
-// The relay mints one id and reuses it on every retry. If a retry applied twice the
-// user sees the same turn recorded twice, and there is nothing in CI that would catch
-// it — the duplicate is perfectly well-formed.
-//
-// Inverted (have the registry forget the id between calls): the second Begin reports
-// fresh and the test fails on "a retried delivery applied twice".
-func TestInvariant_ARetriedDeliveryIsAppliedOnce(t *testing.T) {
-	t.Parallel()
-	journal := agentjournal.NewHookDeliveries()
-	dir := journal.Dir(t.TempDir(), "runner-1")
-
-	const delivery = "delivery-abc"
-	hash := agentjournal.HookDeliveryHash("runner-1", "claude", "user_prompt", []byte(`{"prompt":"hi"}`))
-	now := time.Unix(1, 0).UTC()
-
-	done, err := journal.Begin(dir, delivery, hash, now)
-	if err != nil {
-		t.Fatalf("first Begin: %v", err)
-	}
-	if done {
-		t.Fatal("the first sighting of a delivery id must not report DONE")
-	}
-	if err := journal.Complete(dir, delivery, hash, now); err != nil {
-		t.Fatalf("Complete: %v", err)
-	}
-
-	// The relay retries with the SAME id.
-	done, err = journal.Begin(dir, delivery, hash, now)
-	if err != nil {
-		t.Fatalf("retry Begin: %v", err)
-	}
-	if !done {
-		t.Fatal("a retried delivery was NOT reported as already done: the relay reuses " +
-			"one id across retries, so the user would see the same turn recorded twice")
-	}
-}
-
 // §7.3 — liveness is row existence: the runner points at the chat, the chat never
 // points back.
 //
@@ -480,8 +439,7 @@ func TestInvariant_TheExactlyOnceHookIngressIsCompileTimeWired(t *testing.T) {
 	// invariant is already broken.
 	var _ interface {
 		IngestHookDelivery(
-			ctx context.Context,
-			workspaceID, deliveryID, runnerID, provider, canonicalEvent string,
+			ctx context.Context, deliveryID, runnerID, provider, canonicalEvent string,
 			rawPayload []byte,
 		) error
 	} = (*Usecase)(nil)

@@ -118,17 +118,16 @@ type TurnUsecase interface {
 		rawPayload []byte,
 	) error
 
-	// IngestHookDelivery is the exactly-once ingress: the relay mints one delivery
-	// id and reuses it on every retry, and this path turns those retries into ONE
-	// semantic hook.
+	// IngestHookDelivery is the idempotent ingress: the relay mints one delivery
+	// id and reuses it on its short in-process retry, and this path turns those
+	// retries into ONE semantic hook (an in-memory TTL dedup set — no disk).
 	//
 	// It is declared here rather than discovered at runtime on purpose. A port
 	// that only MIGHT carry it is a port a mis-wire silently falls off — every
-	// hook takes the un-journalled path and every retry applies its effects twice
+	// hook takes the un-deduplicated path and every retry applies its effects twice
 	// — and nothing fails until a user sees the same turn twice in production.
 	IngestHookDelivery(
-		ctx context.Context,
-		workspaceID, deliveryID, runnerID, provider, canonicalEvent string,
+		ctx context.Context, deliveryID, runnerID, provider, canonicalEvent string,
 		rawPayload []byte,
 	) error
 
