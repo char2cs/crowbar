@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useStore } from 'zustand'
-import { Trash2Icon } from 'lucide-react'
+import { TrashIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
 import {
@@ -1843,7 +1843,7 @@ export function AgentChatPane({
                   tooltip="Cancel unsent prompts"
                   onClick={() => chatViewRef.current?.cancelUnsentPrompts()}
                 >
-                  <Trash2Icon />
+                  <TrashIcon />
                 </Button>
               )}
             </div>

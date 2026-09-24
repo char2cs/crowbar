@@ -8,7 +8,7 @@ import type { PlateElementProps } from 'platejs/react'
 
 import { useEquationElement, useEquationInput } from '@platejs/math/react'
 import { BlockSelectionPlugin } from '@platejs/selection/react'
-import { CornerDownLeftIcon, RadicalIcon } from 'lucide-react'
+import { ArrowElbowDownLeftIcon, RadicalIcon } from '@phosphor-icons/react'
 import {
   createPrimitiveComponent,
   PlateElement,
@@ -225,7 +225,7 @@ const EquationPopoverContent = ({
       />
 
       <Button variant="secondary" className="px-3" onClick={onClose}>
-        Done <CornerDownLeftIcon className="size-3.5" />
+        Done <ArrowElbowDownLeftIcon className="size-3.5" />
       </Button>
     </PopoverContent>
   )

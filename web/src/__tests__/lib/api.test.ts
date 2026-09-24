@@ -210,10 +210,7 @@ describe('fetchHomeWorkspace', () => {
     )
     const result = await fetchHomeWorkspace('p1')
     expect(result).toEqual(dto)
-    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
-      expect.stringContaining('/v0/projects/p1/home'),
-      expect.any(Object),
-    )
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toContain('/v0/projects/p1/home')
   })
 
   it('throws on non-2xx response', async () => {

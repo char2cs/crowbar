@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { usePtySizeSync } from '@/features/terminal/hooks/use-pty-size-sync'
 
+type SyncOptions = Parameters<typeof usePtySizeSync>[0]
+
 // usePtySizeSync is the ONE owner of a view's PTY size. These pin what the old
 // refitAndSyncPty helper pinned, now at the owner: the PTY is pushed whenever
 // xterm's grid differs from what THIS connection was last told — even when a fit
@@ -46,13 +48,10 @@ function render(props: {
   return renderHook(
     (p: { connection: ReturnType<typeof makeConnection> | null; isVisible: boolean }) =>
       usePtySizeSync({
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        terminal: props.terminal as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        fitAddon: fitAddon as any,
+        terminal: props.terminal as unknown as SyncOptions['terminal'],
+        fitAddon: fitAddon as unknown as SyncOptions['fitAddon'],
         container,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        connection: p.connection as any,
+        connection: p.connection as unknown as SyncOptions['connection'],
         isVisible: p.isVisible,
       }),
     { initialProps: { connection: props.connection, isVisible: props.isVisible ?? true } },

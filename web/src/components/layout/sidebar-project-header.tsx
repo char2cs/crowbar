@@ -1,7 +1,7 @@
 // Lucide (ISC) rather than Phosphor for this cluster: long-tail arrows and a
 // panel glyph — the toolbar language this app is aiming at.
 import { memo } from 'react'
-import { ArrowLeft, ArrowRight } from 'lucide-react'
+import { ArrowLeftIcon, ArrowRightIcon } from '@phosphor-icons/react'
 import { SidebarToggleIcon } from '@/components/ui/sidebar-toggle-icon'
 import {
   SidebarBuildBadgeBand,
@@ -50,7 +50,7 @@ export const SidebarProjectHeader = memo(function SidebarProjectHeader() {
         tooltipSide="bottom"
         aria-label="Go back to previous location"
       >
-        <ArrowLeft size={16} />
+        <ArrowLeftIcon size={16} />
       </Button>
       <Button
         onClick={() => void handleJumpForward()}
@@ -62,7 +62,7 @@ export const SidebarProjectHeader = memo(function SidebarProjectHeader() {
         tooltipSide="bottom"
         aria-label="Go forward to next location"
       >
-        <ArrowRight size={16} />
+        <ArrowRightIcon size={16} />
       </Button>
       <Button
         onClick={toggleSidebar}

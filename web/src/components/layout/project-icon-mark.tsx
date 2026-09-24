@@ -1,4 +1,4 @@
-import { Library } from 'lucide-react'
+import { BooksIcon } from '@phosphor-icons/react'
 import { RepoAvatarImg } from './repo-avatar'
 import { IconPopover } from './icon-popover'
 import { assetURL } from '@/lib/api'
@@ -44,7 +44,7 @@ interface ProjectIconMarkProps {
  * stored image and vice versa).
  *
  * This exists so the mark is defined once and every surface showing a project
- * agrees on it. The context pill used to hardcode <Library>, so a project with
+ * agrees on it. The context pill used to hardcode its glyph, so a project with
  * an icon showed that icon in the sidebar and the default glyph in the pill
  * directly above it.
  */
@@ -61,7 +61,7 @@ export function ProjectIconMark({ project, size, version }: ProjectIconMarkProps
 
   const fallback = (
     <span className={cn('inline-flex items-center justify-center text-foreground', box)}>
-      <Library size={glyph} />
+      <BooksIcon size={glyph} />
     </span>
   )
 

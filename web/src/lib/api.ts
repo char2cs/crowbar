@@ -9,7 +9,6 @@ import type {
   WorkspaceDTO,
 } from './types'
 import type { PRLink } from '@/lib/import/parent-plan'
-import { useChaosStore } from '@/lib/store/chaos'
 import { getOwningChatId } from '@/lib/workspace-scope'
 import { OwningChatNotRecordedError, worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
 
@@ -95,7 +94,7 @@ function isIdempotentRead(init?: RequestInit): boolean {
   return method === undefined || method === 'GET'
 }
 
-/** Perform a request with the shared chaos headers, transient-transport retry and
+/** Perform a request with transient-transport retry and
  *  error-status handling, returning the raw `Response`.
  *
  *  This is the layer beneath {@link apiFetch}: every v0 route answers the
@@ -109,29 +108,13 @@ export async function apiFetchRaw(
   init?: RequestInit,
   retry: RetryConfig = DEFAULT_RETRY,
 ): Promise<Response> {
-  const { latency, errorRate, scenario, faults } = useChaosStore.getState()
-  const chaosHeaders: Record<string, string> = {}
-  if (latency > 0) chaosHeaders['X-Crowbar-Latency'] = String(latency)
-  if (errorRate > 0) chaosHeaders['X-Crowbar-Error-Rate'] = String(errorRate)
-
-  if (import.meta.env.VITE_USE_MOCK === 'true') {
-    chaosHeaders['X-Crowbar-Scenario'] = scenario
-    const activeFaults = Object.entries(faults).filter(([, v]) => v > 0)
-    if (activeFaults.length > 0) {
-      chaosHeaders['X-Crowbar-Fault'] = JSON.stringify(Object.fromEntries(activeFaults))
-    }
-  }
-
   const maxAttempts = isIdempotentRead(init) ? Math.max(1, retry.attempts) : 1
   const sleep = retry.sleep ?? defaultSleep
 
   for (let attempt = 1; ; attempt++) {
     let res: Response
     try {
-      res = await fetch(`${API_BASE}${path}`, {
-        ...init,
-        headers: { ...init?.headers, ...chaosHeaders },
-      })
+      res = await fetch(`${API_BASE}${path}`, init)
     } catch (err) {
       // Transport-level failure — the request never produced an HTTP response
       // (daemon not ready / connection refused). Retry idempotent reads with

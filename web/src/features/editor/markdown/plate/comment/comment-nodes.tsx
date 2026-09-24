@@ -7,10 +7,10 @@ import { PlateElement, type PlateElementProps } from 'platejs/react'
  *
  * The app's full-editor equivalents (`@/components/ui/table-node`,
  * `@/components/ui/code-block-node`) are page-editor furniture: between them
- * they pull @platejs/dnd, @platejs/resizable, block selection, a Radix
- * popover, a cmdk language combobox, a colour dropdown, a table toolbar, and —
- * through CodeBlockKit — `createLowlight(all)`, i.e. every highlight.js
- * grammar. That is the right trade in a document you write for an hour. It is
+ * they pull @platejs/resizable, block selection, a popover,
+ * a cmdk language combobox, a colour dropdown, a table toolbar, and —
+ * through CodeBlockKit — a live syntax highlighter loading grammars on demand.
+ * That is the right trade in a document you write for an hour. It is
  * the wrong trade in a box you type two sentences into, especially one that
  * lives on the branch-review surface, whose whole job is to stay fast on huge
  * diffs.
@@ -67,8 +67,8 @@ export function CommentTableCellHeaderElement(props: PlateElementProps) {
  *
  * Highlighting is deliberately absent rather than merely unimplemented: the
  * POSTED comment renders through `MarkdownPreview`, which highlights with shiki
- * already, so paying for a second highlighter — lowlight, with every grammar —
- * to colour three lines mid-typing buys nothing the reader will ever see.
+ * already, so highlighting three lines mid-typing buys nothing the reader
+ * will ever see.
  */
 export function CommentCodeBlockElement({ children, ...props }: PlateElementProps) {
   return (

@@ -47,7 +47,7 @@ export const CHAT_FRESH_WORD_TOTAL_MARK = 'chatFreshWordTotal'
 // text disagree about them forever, and a diff that respected them would
 // consider every block permanently changed.
 //
-// - `id`: `NodeIdPlugin` (registered in chat-composer-plugins.ts) stamps a
+// - `id`: `NodeIdPlugin`, wherever it is registered, stamps a
 //   fresh random one onto every block it normalizes, so two parses of
 //   identical markdown never match. It is Plate's own "not content" prop
 //   (`isMetadataProp` flags exactly this key).

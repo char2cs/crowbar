@@ -1,7 +1,7 @@
 import DOMPurify from 'dompurify'
 import { FileText } from '@phosphor-icons/react'
-import { useMemo } from 'react'
 import { iconThemeRegistry } from '@/extensions/icon-themes/icon-theme-registry'
+import { useIconThemeRegistryVersion } from '@/extensions/icon-themes/use-icon-theme-registry-version'
 import { useSettingsStore } from '@/features/settings/store'
 
 export interface FileExplorerIconProps {
@@ -15,6 +15,16 @@ export interface FileExplorerIconProps {
   size?: number
 }
 
+function resolveIcon(themeId: string, fileName: string, isDir: boolean, isExpanded: boolean) {
+  const theme = iconThemeRegistry.getTheme(themeId) ?? iconThemeRegistry.getAllThemes()[0]
+  if (!theme) return null
+  try {
+    return theme.getFileIcon(fileName, isDir, isExpanded)
+  } catch {
+    return null
+  }
+}
+
 export function FileExplorerIcon({
   fileName = '',
   isDirectory,
@@ -24,16 +34,9 @@ export function FileExplorerIcon({
   size = 16,
 }: FileExplorerIconProps) {
   const iconThemeId = useSettingsStore((state) => state.settings.iconTheme)
-
-  const iconResult = useMemo(() => {
-    const theme = iconThemeRegistry.getTheme(iconThemeId) ?? iconThemeRegistry.getAllThemes()[0]
-    if (!theme) return null
-    try {
-      return theme.getFileIcon(fileName, isDirectory ?? isDir ?? false, isExpanded)
-    } catch {
-      return null
-    }
-  }, [iconThemeId, fileName, isDirectory, isDir, isExpanded])
+  // Re-render when a theme changes or its lazily loaded icons arrive.
+  useIconThemeRegistryVersion()
+  const iconResult = resolveIcon(iconThemeId, fileName, isDirectory ?? isDir ?? false, isExpanded)
 
   const iconSpanStyle = {
     display: 'inline-flex',

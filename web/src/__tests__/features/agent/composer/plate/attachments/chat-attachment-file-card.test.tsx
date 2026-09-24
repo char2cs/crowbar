@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { DndProvider } from 'react-dnd'
-import { HTML5Backend } from 'react-dnd-html5-backend'
+import { DndScope } from '@/features/agent/chat/dnd-scope'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
@@ -192,11 +191,7 @@ describe('chat attachment file card', () => {
   // actually editable (the composer, and the interactive/streaming
   // transcript — `MarkdownMessage`, registered on `chatComposerPlugins`),
   // never on settled read-only history (`MarkdownMessageStatic`, above —
-  // none of which grew a handle). `@platejs/dnd`'s `useDraggable` throws
-  // "Expected drag drop context" without a real `<DndProvider>` ancestor
-  // once `DndPlugin` is registered (chat-composer-plugins.ts) — deliberately
-  // NOT mocked here, so this is the proof that gap is genuinely closed for
-  // the file card too, not just for the code-block attachment kinds.
+  // none of which grew a handle). Rendered under the real `DndScope`.
   it('renders a drag handle alongside the file card, and still behaves as a plain link', async () => {
     vi.stubGlobal(
       'fetch',
@@ -208,11 +203,11 @@ describe('chat attachment file card', () => {
     )
 
     render(
-      <DndProvider backend={HTML5Backend}>
+      <DndScope>
         <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
           <MarkdownMessage>{'[report.pdf](chats/c1/attachments/report.pdf)'}</MarkdownMessage>
         </ChatMarkdownAssetProvider>
-      </DndProvider>,
+      </DndScope>,
     )
     const handle = screen.getByRole('button', { name: /reorder this attachment/i })
     expect(handle).toBeInTheDocument()
@@ -245,11 +240,11 @@ describe('chat attachment file card', () => {
   // to edit.
   it('marks the filename non-editable, so a caret cannot enter it', () => {
     render(
-      <DndProvider backend={HTML5Backend}>
+      <DndScope>
         <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
           <MarkdownMessage>{'[report.pdf](chats/c1/attachments/report.pdf)'}</MarkdownMessage>
         </ChatMarkdownAssetProvider>
-      </DndProvider>,
+      </DndScope>,
     )
     const label = screen.getByText('report.pdf')
     expect(label.closest('[contenteditable]')?.getAttribute('contenteditable')).toBe('false')
@@ -269,11 +264,11 @@ describe('chat attachment file card', () => {
     )
 
     render(
-      <DndProvider backend={HTML5Backend}>
+      <DndScope>
         <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
           <MarkdownMessage>{'[report.pdf](chats/c1/attachments/report.pdf)'}</MarkdownMessage>
         </ChatMarkdownAssetProvider>
-      </DndProvider>,
+      </DndScope>,
     )
     const deleteButton = screen.getByRole('button', { name: /remove this attachment/i })
     expect(deleteButton).toBeInTheDocument()
@@ -290,7 +285,7 @@ describe('chat attachment file card', () => {
   // inside the Slate editor's own `contenteditable="true"` region with no
   // non-editable island around it. WebKit (Tauri's WKWebView) arbitrates a
   // real mousedown+move inside editable content as a text-selection gesture
-  // BEFORE react-dnd's own native `dragstart` ever fires, regardless of the
+  // BEFORE the drag can start, regardless of the
   // button's `draggable="true"`.
   //
   // `MarkdownMessage` (this file's harness) renders `readOnly`, so its own
@@ -310,11 +305,11 @@ describe('chat attachment file card', () => {
     )
 
     render(
-      <DndProvider backend={HTML5Backend}>
+      <DndScope>
         <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
           <MarkdownMessage>{'[report.pdf](chats/c1/attachments/report.pdf)'}</MarkdownMessage>
         </ChatMarkdownAssetProvider>
-      </DndProvider>,
+      </DndScope>,
     )
     const handle = screen.getByRole('button', { name: /reorder this attachment/i })
     const island = handle.closest('[contenteditable="false"]')
@@ -326,11 +321,11 @@ describe('chat attachment file card', () => {
 
   it('falls back to an ordinary link for a non-attachment href, through the INTERACTIVE renderer too', () => {
     render(
-      <DndProvider backend={HTML5Backend}>
+      <DndScope>
         <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
           <MarkdownMessage>{'[docs](https://example.com)'}</MarkdownMessage>
         </ChatMarkdownAssetProvider>
-      </DndProvider>,
+      </DndScope>,
     )
     const anchor = screen.getByText('docs').closest('a')
     expect(anchor?.getAttribute('href')).toContain('example.com')

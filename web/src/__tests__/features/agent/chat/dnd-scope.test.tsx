@@ -1,100 +1,123 @@
-import { StrictMode } from 'react'
-import { render } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
-import { useDrag } from 'react-dnd'
+import { createRef, StrictMode } from 'react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import {
+  ChatMarkdownEditor,
+  type ChatMarkdownEditorHandle,
+} from '@/features/agent/composer/plate/chat-markdown-editor'
 
-function DragProbe() {
-  useDrag(() => ({ type: 'thing' }))
-  return null
+const FENCE = '```text-attachment:AbC123xy\nsome long pasted text\n```'
+
+/** jsdom has no layout: give the three blocks of the document stacked rects
+ *  so dnd-kit's collision detection has something to measure. */
+function stubLayout(rects: [Element, number, number][]) {
+  const original = Element.prototype.getBoundingClientRect
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    const hit = rects.find(([el]) => el === this || el.contains(this))
+    if (!hit) return original.call(this)
+    const [, top, height] = hit
+    return DOMRect.fromRect({ x: 0, y: top, width: 400, height })
+  })
 }
 
-/**
- * REGRESSION, reported live: opening a second thing that needs the drag-drop
- * context crashed the whole pane with "Cannot have two HTML5 backends at the
- * same time" — which also explains why attachment drag-reorder stopped
- * working entirely once it fired (the DndContext underneath both was gone).
- *
- * Root-caused by direct instrumentation (patching `HTML5BackendImpl.setup`
- * to log call counts and the flag it checks), not guessed: react-dnd's own
- * `DndProvider` (used with just `backend`, no explicit `manager`) tracks its
- * global-singleton `DragDropManager` via a ref-counted effect — and that
- * effect's OWN cleanup runs once, transiently, as part of every component's
- * FIRST mount under React 18 StrictMode's dev-only double-invoke (simulated
- * unmount, then remount, no real DOM change). That transient cleanup nulls
- * the singleton reference the instant refCount dips to 0, even though the
- * component is (from React's perspective) still mounting — and nothing ever
- * restores that reference afterward, since only render-time code (not the
- * effect) repopulates it. The component itself keeps working fine off its
- * own closed-over manager, so nothing looks wrong locally. The very next
- * DndProvider to mount anywhere, though, finds the singleton reference gone
- * and builds a BRAND NEW manager + HTML5Backend — whose `setup()` then finds
- * `window.__isReactDndBackendSetUp` already `true` from the first (still
- * alive, never torn down) backend, and throws.
- *
- * Confirmed via instrumentation that a single DndScope's own mount→unmount→
- * remount cycle settles fine (the backend's occupancy-based teardown happens
- * to reset the flag correctly when the same instance fully unmounts) — the
- * crash needs a genuinely SECOND DndScope mounting while the first is still
- * alive, which is exactly the shape of two chat panes/tabs in this app.
- */
+async function renderDocument() {
+  const ref = createRef<ChatMarkdownEditorHandle>()
+  const onChange = vi.fn()
+  render(
+    <TooltipProvider>
+      <DndScope>
+        <ChatMarkdownEditor
+          ref={ref}
+          initialValue="first paragraph"
+          placeholder=""
+          ariaLabel="Message the agent"
+          onChange={onChange}
+          onKeyDown={vi.fn()}
+        />
+      </DndScope>
+    </TooltipProvider>,
+  )
+  await act(async () => {
+    ref.current?.insertAttachmentMarkdown(FENCE)
+    ref.current?.insertAttachmentMarkdown('second paragraph')
+  })
+  const handle = await screen.findByRole('button', { name: /reorder this attachment/i })
+  const first = screen.getByText('first paragraph').closest('.slate-p')!
+  const block = handle.closest('.slate-code_block')!
+  const second = screen.getByText('second paragraph').closest('.slate-p')!
+  stubLayout([
+    [first, 0, 20],
+    [block, 20, 40],
+    [second, 60, 20],
+  ])
+  return { handle, block, second, onChange }
+}
+
+// The drop selects the moved block, which opens the floating toolbar; it
+// positions itself off the DOM selection's rect, which jsdom's Range lacks.
+beforeEach(() => {
+  Range.prototype.getBoundingClientRect ??= () => DOMRect.fromRect()
+  Range.prototype.getClientRects ??= () => [] as unknown as DOMRectList
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
 describe('DndScope', () => {
-  it('does not throw when a second DndScope mounts while the first is still alive', () => {
-    render(
-      <StrictMode>
-        <DndScope>
-          <DragProbe />
-        </DndScope>
-      </StrictMode>,
-    )
-
+  it('mounts several scopes at once, under StrictMode, without throwing', () => {
     expect(() =>
       render(
         <StrictMode>
-          <DndScope>
-            <DragProbe />
-          </DndScope>
+          <DndScope>{null}</DndScope>
+          <DndScope>{null}</DndScope>
         </StrictMode>,
       ),
     ).not.toThrow()
   })
 
-  // AgentChatPane keeps other chats' surfaces mounted (hidden) rather than
-  // unmounting them on tab switch — several DndScopes are routinely alive at
-  // the same instant, sharing one backend rather than colliding.
-  it('supports two DndScope instances mounted at the same time', () => {
-    expect(() => {
-      render(
-        <StrictMode>
-          <DndScope>
-            <DragProbe />
-          </DndScope>
-          <DndScope>
-            <DragProbe />
-          </DndScope>
-        </StrictMode>,
-      )
-    }).not.toThrow()
+  it('drags an attachment by its handle below a later paragraph: drop line while dragging, moved on release', async () => {
+    const { handle, block, second, onChange } = await renderDocument()
+
+    fireEvent.pointerDown(handle, { clientX: 5, clientY: 30, button: 0, isPrimary: true })
+    fireEvent.pointerMove(document, { clientX: 5, clientY: 70 })
+    fireEvent.pointerMove(document, { clientX: 5, clientY: 75 })
+
+    expect(block.className).toContain('opacity-50')
+    expect(second.querySelector('.-bottom-px')).not.toBeNull()
+
+    fireEvent.pointerUp(document, { clientX: 5, clientY: 75 })
+
+    await waitFor(() => {
+      const markdown = onChange.mock.calls.at(-1)?.[0] as string
+      expect(markdown.indexOf('second paragraph')).toBeLessThan(markdown.indexOf('text-attachment'))
+    })
+    expect(document.querySelector('.-top-px, .-bottom-px')).toBeNull()
+    expect(document.querySelector('.slate-code_block')?.className).not.toContain('opacity-50')
   })
 
-  it('mounts, unmounts, and mounts again without throwing', () => {
-    const { unmount } = render(
-      <StrictMode>
-        <DndScope>
-          <DragProbe />
-        </DndScope>
-      </StrictMode>,
-    )
-    unmount()
+  it('does not move the attachment when released where it already is', async () => {
+    const { handle, second, onChange } = await renderDocument()
+    const calls = onChange.mock.calls.length
 
-    expect(() =>
-      render(
-        <StrictMode>
-          <DndScope>
-            <DragProbe />
-          </DndScope>
-        </StrictMode>,
-      ),
-    ).not.toThrow()
+    fireEvent.pointerDown(handle, { clientX: 5, clientY: 30, button: 0, isPrimary: true })
+    // Top half of the paragraph right below the attachment: a no-op drop.
+    fireEvent.pointerMove(document, { clientX: 5, clientY: 62 })
+    expect(second.querySelector('.-top-px, .-bottom-px')).toBeNull()
+    fireEvent.pointerUp(document, { clientX: 5, clientY: 62 })
+
+    expect(onChange.mock.calls.length).toBe(calls)
+  })
+
+  it('treats a press without movement as a click, not a drag', async () => {
+    const { handle, block } = await renderDocument()
+
+    fireEvent.pointerDown(handle, { clientX: 5, clientY: 30, button: 0, isPrimary: true })
+    fireEvent.pointerMove(document, { clientX: 6, clientY: 31 })
+
+    expect(block.className).not.toContain('opacity-50')
+    fireEvent.pointerUp(document, { clientX: 6, clientY: 31 })
   })
 })

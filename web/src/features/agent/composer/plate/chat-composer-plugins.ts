@@ -1,8 +1,6 @@
 import { MarkdownPlugin } from '@platejs/markdown'
 import { CodeBlockRules } from '@platejs/code-block'
 import { CodeBlockPlugin, CodeLinePlugin } from '@platejs/code-block/react'
-import { DndPlugin } from '@platejs/dnd'
-import { NodeIdPlugin } from 'platejs'
 import remarkGfm from 'remark-gfm'
 
 import { BasicNodesKit } from '@/components/editor/plugins/basic-nodes-kit'
@@ -136,31 +134,8 @@ export const chatComposerPlugins = [
   TableCellHeaderPlugin.withComponent(CommentTableCellHeaderElement),
   ChatCodeBlockPlugin,
   CodeLinePlugin.withComponent(CommentCodeLineElement),
-  // `@platejs/dnd`'s bridge plugin — needed for `useAttachmentDraggable`
-  // (attachment-drag-handle.tsx) to do anything at all: `useDraggable`'s own
-  // implementation short-circuits to `{}` (no drag, no drop line, no
-  // `<DndProvider>` requirement) whenever `editor.plugins.dnd` is unset. This
-  // is the plugin the upstream Plate registry calls `dnd-kit.tsx` — never
-  // added to this app before (see attachment-drag-handle.tsx's own note);
-  // registered bare (no `enableScroller`) since chat has no long vertical
-  // document to auto-scroll while dragging, the way a full page editor does.
-  DndPlugin,
-  // `@platejs/dnd`'s own hover/drop-target resolution keys everything off
-  // `element.id` — `getHoverDirection` explicitly bails when the candidate
-  // you're hovering shares the DRAGGED item's id, which is EVERY candidate
-  // when nothing ever assigns one: every block's `.id` is `undefined`, and
-  // `undefined === undefined`. Confirmed directly (no plugin under any key
-  // in `editor.plugins` assigns one without this — this app never actually
-  // had one, an incorrect assumption from earlier in this feature's build).
-  // Without it, a drop target could never be distinguished from the thing
-  // being dragged, live or in a test — attachment-to-attachment reordering
-  // "worked" only in the sense that a stuck `dropTarget` state (see the
-  // `drag.end` fix, attachment-drag-handle.tsx) happened to render a line
-  // SOMEWHERE, not because hover ever legitimately resolved a target.
-  NodeIdPlugin,
-  // A plain paragraph is otherwise never a valid drop target at all — only
-  // an attachment block registers with `@platejs/dnd`, so an attachment
-  // could only ever swap places with ANOTHER attachment. Registered after
+  // A plain paragraph is otherwise never a valid drop target at all, so an
+  // attachment could only ever swap places with ANOTHER attachment. Registered after
   // `...BasicNodesKit` (whose own `ParagraphPlugin.withComponent(Paragraph
   // Element)` this replaces — a later entry with the same `.key` wins,
   // confirmed empirically rather than assumed) so an attachment can be
@@ -188,9 +163,8 @@ const STATIC_NODE_OVERRIDES: Record<string, (typeof chatComposerPlugins)[number]
   [LinkPlugin.key]: ChatLinkKitStatic[0],
   [CalloutPlugin.key]: CalloutKitStatic[0],
   // Same plugin, only its node component swapped: `ChatCodeBlockElementStatic`
-  // never renders the drag handle (or calls `@platejs/dnd`'s `useDraggable`)
-  // that `ChatCodeBlockElement` does — a settled message is read, not
-  // reordered, and has no `<DndProvider>` ancestor to call it against.
+  // never renders the drag handle (`useAttachmentDraggable`) that
+  // `ChatCodeBlockElement` does — a settled message is read, not reordered.
   [CodeBlockPlugin.key]: ChatCodeBlockPluginStatic,
   // Back to the plain, shared `ParagraphElement` — a settled message is read,
   // not reordered, and has nothing to drop an attachment ONTO it for.
@@ -208,16 +182,7 @@ const STATIC_NODE_OVERRIDES: Record<string, (typeof chatComposerPlugins)[number]
 // requires an interactive `Plate`/`PlateController` that static rendering
 // never provides. Dropped here, not swapped, because there's no static
 // equivalent of a selection toolbar.
-//
-// `DndPlugin` itself is dropped too — a settled message is read, not
-// reordered, and neither static node component
-// (`ChatCodeBlockElementStatic`/`ChatLinkElementStatic`'s file card) ever
-// calls `useAttachmentDraggable`, so there is nothing here that would read
-// `editor.plugins.dnd` in the first place.
-const STATIC_EXCLUDED_KEYS = new Set([
-  ...ChatFloatingToolbarKit.map((plugin) => plugin.key),
-  DndPlugin.key,
-])
+const STATIC_EXCLUDED_KEYS = new Set(ChatFloatingToolbarKit.map((plugin) => plugin.key))
 
 /**
  * `chatComposerPluginsStatic`, derived — not hand-duplicated. A plugin added above

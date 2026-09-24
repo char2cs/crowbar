@@ -5,6 +5,9 @@ embed-web:
 	rm -rf cmd/crowbar/web/dist
 	mkdir -p cmd/crowbar/web
 	cp -r ../web/dist cmd/crowbar/web/dist
+	# Precompressed siblings for the static handler (internal/api/static.go):
+	# browser mode gets gzip with no per-request compression work.
+	find cmd/crowbar/web/dist -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.css' -o -name '*.html' -o -name '*.json' -o -name '*.svg' -o -name '*.wasm' -o -name '*.ttf' \) -size +1k -exec gzip -k -n -9 {} +
 
 # Dev isolation: root all daemon state at <workspace>/.crowbar, not ~/.crowbar
 # (see root Makefile). Applies when this target is invoked directly too.

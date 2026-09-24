@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { Check } from '@phosphor-icons/react'
-import { ArrowDownIcon, ArrowUpIcon, CornerDownLeftIcon, Library } from 'lucide-react'
+import {
+  ArrowDownIcon,
+  ArrowElbowDownLeftIcon,
+  ArrowUpIcon,
+  BooksIcon,
+} from '@phosphor-icons/react'
 import {
   Command,
   CommandEmpty,
@@ -140,7 +145,7 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
                   {/* Same mark the sidebar row and context pill use for a project
                       home. Outline regardless of selection — the trailing Check
                       already says "current", so a filled variant only doubled it. */}
-                  <Library size={14} className="shrink-0 text-muted-foreground" />
+                  <BooksIcon size={14} className="shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate text-[13px]">
                     <span className="text-muted-foreground">{item.projectName} / </span>
                     <span className="text-foreground">home</span>
@@ -201,7 +206,7 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
             </div>
             <div className="flex items-center gap-2">
               <Kbd>
-                <CornerDownLeftIcon />
+                <ArrowElbowDownLeftIcon />
               </Kbd>
               <span>Open</span>
             </div>

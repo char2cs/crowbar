@@ -10,7 +10,7 @@ import {
   useState,
 } from 'react'
 import DOMPurify from 'dompurify'
-import { PencilIcon } from 'lucide-react'
+import { PencilSimpleIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { loadLocalImage, useMarkdownAsset } from '@/features/editor/markdown/plate/markdown-asset'
@@ -207,7 +207,7 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
           className={cn(ATTACHMENT_BUTTON_OPAQUE_BG, 'absolute top-2 right-2 z-10')}
           onClick={handleEdit}
         >
-          <PencilIcon className="text-muted-foreground" />
+          <PencilSimpleIcon className="text-muted-foreground" />
         </Button>
       )}
       {pngRef ? (

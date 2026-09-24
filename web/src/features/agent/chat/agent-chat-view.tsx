@@ -290,9 +290,9 @@ function toDividerTag(interruption: AgentInterruption): DividerTag | null {
  *  turn with nothing typed after it that this whole kind exists to catch. */
 const TRAILING_INTERRUPTION_KINDS = new Set(['stopped', 'compaction', 'inferred'])
 
-// `DndScope` (dnd-scope.tsx) is `AgentChatView`'s one `<DndProvider>` —
-// `@platejs/dnd`'s `useDraggable`/`useDropLine` (attachment-drag-handle.tsx)
-// THROW without an ancestor one, and this is the real common ancestor of
+// `DndScope` (dnd-scope.tsx) is `AgentChatView`'s one attachment drag scope —
+// attachment reordering (attachment-drag-handle.tsx) only works under one,
+// and this is the real common ancestor of
 // every Plate tree that can render an attachment node live: the
 // transcript's streaming `MarkdownMessage` (via `transcript` below) and the
 // composer's `ChatMarkdownEditor` (via `AgentComposer`/`AgentEmptyDocument`

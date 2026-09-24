@@ -1,21 +1,9 @@
 @import '@fontsource-variable/geist-mono';
+/* Italic must be imported explicitly — without it WebKit synthesizes an
+   oblique by shearing the upright glyphs (SGR 3 text in the terminal looked
+   fake-slanted). The variable cut is the one bundled Geist Mono, default for
+   both the editor and the terminal (see typography-defaults.ts). */
 @import '@fontsource-variable/geist-mono/wght-italic.css';
-/* Static (non-variable) Geist Mono cuts. Weights 400/700 cover regular +
-   bold; latin + latin-ext cover the terminal's glyph needs. Italic cuts must be
-   imported explicitly — without them WebKit synthesizes an oblique by shearing
-   the upright glyphs (SGR 3 text in the terminal looked fake-slanted).
-
-   These stay bundled so "Geist Mono" remains selectable in Terminal
-   settings alongside the variable cut, which is the default for both the editor
-   and the terminal (see typography-defaults.ts). */
-@import '@fontsource/geist-mono/latin-400.css';
-@import '@fontsource/geist-mono/latin-700.css';
-@import '@fontsource/geist-mono/latin-ext-400.css';
-@import '@fontsource/geist-mono/latin-ext-700.css';
-@import '@fontsource/geist-mono/latin-400-italic.css';
-@import '@fontsource/geist-mono/latin-700-italic.css';
-@import '@fontsource/geist-mono/latin-ext-400-italic.css';
-@import '@fontsource/geist-mono/latin-ext-700-italic.css';
 
 :root {
   --editor-font-family: ui-monospace, 'Geist Mono Variable', monospace;

@@ -1,7 +1,7 @@
 'use client'
 
 import { Autocomplete as AutocompletePrimitive } from '@base-ui/react/autocomplete'
-import { ChevronsUpDownIcon, XIcon } from 'lucide-react'
+import { CaretUpDownIcon, XIcon } from '@phosphor-icons/react'
 import type React from 'react'
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
@@ -65,7 +65,7 @@ export function AutocompleteInput({
           {...triggerProps}
         >
           <AutocompletePrimitive.Icon data-slot="autocomplete-icon">
-            <ChevronsUpDownIcon />
+            <CaretUpDownIcon />
           </AutocompletePrimitive.Icon>
         </AutocompleteTrigger>
       )}

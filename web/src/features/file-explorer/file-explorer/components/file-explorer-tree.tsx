@@ -9,8 +9,8 @@ import {
 } from '@phosphor-icons/react'
 import type React from 'react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useDebounce } from 'use-debounce'
-import { useEventListener } from 'usehooks-ts'
+import { useDebounce } from '@/hooks/use-debounce'
+import { useEventListener } from '@/hooks/use-event-listener'
 import { useFileClipboardStore } from '@/features/file-explorer/stores/file-explorer-clipboard-store'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import {

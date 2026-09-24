@@ -13,11 +13,8 @@ import {
   splitIntoWords,
 } from '@/features/agent/transcript/plate/streaming-value-patch'
 
-// `chatComposerPlugins` registers `NodeIdPlugin` (needed for `@platejs/dnd`'s
-// hover/drop-target resolution — see attachment-drag-handle.tsx). It only
-// assigns `.id` through a real transform, so a REAL editor's `.children`
-// carries one after `applyStreamedValue` while a bare `chatMarkdownToValue`
-// parse never does. Irrelevant to what these tests check, so it's stripped.
+// Node ids are metadata, not content: irrelevant to what these tests check,
+// so any are stripped.
 function withoutIds(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(withoutIds)
   if (value && typeof value === 'object') {
