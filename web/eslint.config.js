@@ -35,7 +35,6 @@ const MAX_LINES_BASELINE = [
   'src/__tests__/features/git/components/diff/use-review-annotations.test.tsx',
   'src/__tests__/features/panes/components/pane-container.test.tsx',
   'src/__tests__/features/panes/hooks/use-pane-keyboard.test.ts',
-  'src/__tests__/features/panes/stores/slices/buffer-slice.test.ts',
   'src/__tests__/features/settings/components/tabs/providers-settings.test.tsx',
   'src/__tests__/features/terminal/hooks/use-terminal-connection.test.ts',
   'src/__tests__/features/workspace/stores/hooks/use-workspace-agent-chats-stream.test.ts',
@@ -59,22 +58,12 @@ const MAX_LINES_BASELINE = [
   'src/features/agent/hooks/use-transcript-anchor.ts',
   'src/features/agent/transcript/agent-transcript.tsx',
   'src/features/agent/transcript/plate/streaming-value-patch.ts',
-  'src/features/editor/components/toolbar/editor-status-actions.tsx',
-  'src/features/editor/extensions/api.ts',
-  'src/features/editor/hooks/use-pane-editor-satellites.ts',
   'src/features/editor/lib/wasm-parser/loader.ts',
-  'src/features/file-explorer/file-explorer/components/file-explorer-tree.tsx',
   'src/features/file-explorer/file-explorer/hooks/use-file-explorer-context-menu.tsx',
-  'src/features/git/components/diff/review-code-view.tsx',
   'src/features/panes/components/pane-container.tsx',
   'src/features/tabs/components/tab-bar.tsx',
-  'src/features/terminal/components/terminal.tsx',
-  'src/features/workspace/stores/hooks/use-workspace-agent-chats-stream.ts',
   'src/features/workspace/stores/slices/agent-chats-slice.ts',
   'src/lib/api.ts',
-  'src/lib/crowbar-bridge.ts',
-  'src/lib/mock/files.ts',
-  'src/lib/mock/scenarios/extreme.ts',
   'src/lib/store/sidebar.ts',
 ]
 
@@ -84,22 +73,27 @@ const MAX_LINES_BASELINE = [
 const EXHAUSTIVE_DEPS_BASELINE = ['src/features/agent/transcript/agent-transcript.tsx']
 const UNDESCRIBED_DIRECTIVE_BASELINE = [
   'src/__tests__/features/terminal/hooks/use-terminal-connection.test.ts',
-  'src/features/agent/composer/plate/attachment-drag-handle.tsx',
   'src/features/agent/transcript/plate/chat-fresh-text-plugin.tsx',
-  'src/features/editor/components/debug/scroll-debug-overlay.tsx',
   'src/features/editor/hooks/use-pane-editor-controller.ts',
-  'src/features/editor/hooks/use-pane-editor-satellites.ts',
   'src/features/panes/components/pane-sash.tsx',
-  'src/features/settings/lib/diagnostics-export.ts',
   'src/features/tabs/hooks/use-pane-top-row-edges.ts',
   'src/features/terminal/hooks/use-terminal-connection.ts',
   'src/features/terminal/utils/input-tape.ts',
   'src/features/workspace/stores/hooks/use-workspace-effects.ts',
 ]
-const UNUSED_DIRECTIVE_BASELINE = ['src/features/editor/hooks/use-pane-editor-satellites.ts']
 const NO_ASSERTION_BASELINE = [
   'src/__tests__/features/agent/composer/agent-composer.test.tsx',
   'src/__tests__/features/agent/composer/excalidraw-takeover.test.tsx',
+]
+
+export const BASELINES = [
+  { rule: 'max-lines', files: MAX_LINES_BASELINE },
+  { rule: 'react-hooks/exhaustive-deps', files: EXHAUSTIVE_DEPS_BASELINE },
+  {
+    rule: '@eslint-community/eslint-comments/require-description',
+    files: UNDESCRIBED_DIRECTIVE_BASELINE,
+  },
+  { rule: 'vitest/expect-expect', files: NO_ASSERTION_BASELINE },
 ]
 
 const TAURI_IMPORTS = {
@@ -223,12 +217,11 @@ export default tseslint.config(
       ],
     },
   },
-  { files: MAX_LINES_BASELINE, rules: { 'max-lines': 'off' } },
-  { files: EXHAUSTIVE_DEPS_BASELINE, rules: { 'react-hooks/exhaustive-deps': 'off' } },
-  {
-    files: UNDESCRIBED_DIRECTIVE_BASELINE,
-    rules: { '@eslint-community/eslint-comments/require-description': 'off' },
-  },
-  { files: UNUSED_DIRECTIVE_BASELINE, linterOptions: { reportUnusedDisableDirectives: 'off' } },
-  { files: NO_ASSERTION_BASELINE, rules: { 'vitest/expect-expect': 'off' } },
+  // Named `baseline/*` so scripts/check-eslint-baselines.mjs can drop them and
+  // fail on any listed file that no longer violates (baselines only shrink).
+  ...BASELINES.filter(({ files }) => files.length > 0).map(({ rule, files }) => ({
+    name: `baseline/${rule}`,
+    files,
+    rules: { [rule]: 'off' },
+  })),
 )

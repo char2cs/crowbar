@@ -20,7 +20,8 @@
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "doctor": "react-doctor .",
-    "knip": "node scripts/check-knip.mjs"
+    "knip": "node scripts/check-knip.mjs",
+    "lint:baselines": "node scripts/check-eslint-baselines.mjs"
   },
   "dependencies": {
     "@ariakit/react": "^0.4.37",
