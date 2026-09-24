@@ -408,3 +408,64 @@ func TestCache_Efforts_UnionKeyForManifestSource(t *testing.T) {
 
 	assert.ElementsMatch(t, []string{"low", "high", "max"}, c.Efforts("probe", ""))
 }
+
+// TestRegression_CloseJoinsAManifestRefreshStillOwingItsDiskWrite pins the
+// t.TempDir()-cleanup flake this cache caused across internal/api/v0 and
+// internal/app/usecases/chat: the boot warm-up forked a manifest refresh, the
+// test body returned, and the fetch's writeManifestCache landed in the home
+// AFTERWARDS — recreating the directory RemoveAll had just emptied, which
+// testing reports as "TempDir RemoveAll cleanup: ... directory not empty".
+//
+// Its cancellation-based sibling above cannot cover this. The discover path's
+// write sits in attemptRefresh, AFTER a ctx.Err() gate that can refuse it; the
+// manifest path's write sits inside ProbeManifest itself, upstream of every gate
+// attemptManifestRefresh has. Cancelling can only shorten that window — the join
+// is what closes it, so the write is on disk by the time Close returns.
+func TestRegression_CloseJoinsAManifestRefreshStillOwingItsDiskWrite(t *testing.T) {
+	home := t.TempDir()
+	d := manifestDescriptor()
+	c := NewCache(context.Background())
+	started := make(chan struct{})
+	release := make(chan struct{})
+	// The write is INSIDE the probe, where ProbeManifest really puts it, so no
+	// post-probe ctx check could refuse it.
+	c.manifest = func(_ context.Context, man *spec.ModelManifestSpec, _ []byte, homeDir string, _ bool) ([]Model, error) {
+		close(started)
+		<-release
+		if err := writeManifestCache(manifestCachePath(homeDir, man.URL), []byte(`{}`)); err != nil {
+			return nil, err
+		}
+		return []Model{{ID: "m1"}}, nil
+	}
+
+	c.RefreshManifest(d, home, nil, true)
+	<-started
+	close(release)
+
+	c.Close()
+
+	_, err := os.Stat(manifestCachePath(home, d.Model.Manifest.URL))
+	require.NoError(t, err,
+		"Close must not return while a forked refresh still owes a write under home")
+}
+
+// TestRegression_RefreshAfterCloseForksNothing proves Close is a latch, not just
+// a drain: a refresh kicked afterwards (a request still in flight when shutdown
+// began) must not fork at all, or the join it already completed would be
+// meaningless and the WaitGroup could be Added to after its Wait returned.
+func TestRegression_RefreshAfterCloseForksNothing(t *testing.T) {
+	home := t.TempDir()
+	c := NewCache(context.Background())
+	var probed atomic.Bool
+	c.manifest = func(context.Context, *spec.ModelManifestSpec, []byte, string, bool) ([]Model, error) {
+		probed.Store(true)
+		return nil, nil
+	}
+
+	c.Close()
+	c.Close() // idempotent
+	c.RefreshManifest(manifestDescriptor(), home, nil, true)
+	c.Close() // joins nothing; returns rather than hanging
+
+	assert.False(t, probed.Load(), "a refresh kicked after Close must never fork")
+}

@@ -85,11 +85,19 @@ func New(
 // to manage them, and the PTY master FDs leak. The LSP host likewise holds live
 // language-server subprocesses (gopls/tsserver/rust-analyzer) plus their stdio
 // pipe FDs; without Shutdown every spawned server survives the daemon, leaking
-// RAM, CPU, and FDs across restarts (R8).
+// RAM, CPU, and FDs across restarts (R8). The agents engine owns a third kind:
+// background model-discovery refreshes, each of which still owes a write under
+// the crowbar home once its probe or fetch returns. WithLifecycle can cancel
+// those, but cancellation is not a join — Agents.Close is, and without it a
+// write can land in a home this process has already released (hot-restart) or
+// that the caller has already removed.
 func (c *Container) Close() {
 	c.QuiesceTerminal()
 	if c.LSP != nil {
 		c.LSP.Shutdown(context.Background())
+	}
+	if c.Agents != nil {
+		c.Agents.Close()
 	}
 }
 

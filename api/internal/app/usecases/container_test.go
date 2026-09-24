@@ -108,6 +108,7 @@ func newContainerDeps(
 
 	eng, err := engine.New(context.Background())
 	require.NoError(t, err)
+	t.Cleanup(eng.Close)
 
 	return repos, gormStores, eng
 }
