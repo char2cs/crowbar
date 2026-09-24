@@ -48,3 +48,16 @@ func SummaryCacheSize() int {
 
 // SummaryCacheCap is the entry cap eviction enforces.
 const SummaryCacheCap = summaryCacheEntries
+
+func (c *summaryCache) size() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.entries)
+}
+
+func (c *summaryCache) reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries = nil
+	c.order = nil
+}

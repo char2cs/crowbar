@@ -271,27 +271,6 @@ func fetchBase(
 	return baseResult.Stdout, nil
 }
 
-func extractLines(
-	content string,
-	startLine int,
-	endLine int,
-) string {
-	lines := strings.Split(content, "\n")
-	start := startLine - 1
-	end := endLine - 1
-
-	if start < 0 {
-		start = 0
-	}
-	if end > len(lines) {
-		end = len(lines)
-	}
-	if start >= end || start >= len(lines) {
-		return ""
-	}
-	return strings.Join(lines[start:end], "\n")
-}
-
 // conflictHunkID generates a stable ID based on the content of the conflict
 // block rather than its line position, so that edits above the block do not
 // invalidate the ID.

@@ -61,11 +61,8 @@ const GitOpTimeout = 60 * time.Second
 // actually return instead of trading one unbounded hang for another.
 const waitDelay = 3 * time.Second
 
-func gitEnv(
-	extraEnv []string,
-) []string {
-	env := append(os.Environ(), optionalLocksOffEnv)
-	return append(env, extraEnv...)
+func gitEnv() []string {
+	return append(os.Environ(), optionalLocksOffEnv)
 }
 
 // GitError carries structured exit information for errors.Is / errors.As matching.
@@ -94,20 +91,7 @@ func Git(
 	args ...string,
 ) Result {
 	return runWithLockRetry(ctx, func() Result {
-		return run(ctx, dir, nil, "", false, args...)
-	})
-}
-
-// GitWithEnv runs a git command in dir with extra environment variables appended
-// to the current process environment.
-func GitWithEnv(
-	ctx context.Context,
-	dir string,
-	extraEnv []string,
-	args ...string,
-) Result {
-	return runWithLockRetry(ctx, func() Result {
-		return run(ctx, dir, extraEnv, "", false, args...)
+		return run(ctx, dir, "", false, args...)
 	})
 }
 
@@ -119,7 +103,7 @@ func GitWithStdin(
 	args ...string,
 ) Result {
 	return runWithLockRetry(ctx, func() Result {
-		return run(ctx, dir, nil, stdin, true, args...)
+		return run(ctx, dir, stdin, true, args...)
 	})
 }
 
@@ -144,23 +128,22 @@ func subcommandName(
 	return "unknown"
 }
 
-// run wraps every git invocation in the package — Git, GitWithEnv and
-// GitWithStdin all funnel through it — so a single measurement point covers the
+// run wraps every git invocation in the package — Git and GitWithStdin
+// both funnel through it — so a single measurement point covers the
 // whole subprocess surface. While the perf ring is disarmed this costs one
 // atomic load and delegates untouched.
 func run(
 	ctx context.Context,
 	dir string,
-	extraEnv []string,
 	stdin string,
 	hasStdin bool,
 	args ...string,
 ) Result {
 	if !perf.Enabled() {
-		return runInner(ctx, dir, extraEnv, stdin, hasStdin, args...)
+		return runInner(ctx, dir, stdin, hasStdin, args...)
 	}
 	start := time.Now()
-	r := runInner(ctx, dir, extraEnv, stdin, hasStdin, args...)
+	r := runInner(ctx, dir, stdin, hasStdin, args...)
 	perf.Record("git."+subcommandName(args), time.Since(start))
 	return r
 }
@@ -173,7 +156,6 @@ func run(
 func runInner(
 	ctx context.Context,
 	dir string,
-	extraEnv []string,
 	stdin string,
 	hasStdin bool,
 	args ...string,
@@ -181,9 +163,9 @@ func runInner(
 	bctx, cancel := boundedContext(ctx)
 	defer cancel()
 
-	r, started := execGit(bctx, gitBin(), dir, extraEnv, stdin, hasStdin, args)
+	r, started := execGit(bctx, gitBin(), dir, stdin, hasStdin, args)
 	if !started && recoverGit() {
-		r, _ = execGit(bctx, gitBin(), dir, extraEnv, stdin, hasStdin, args)
+		r, _ = execGit(bctx, gitBin(), dir, stdin, hasStdin, args)
 	}
 	return classifyTimeout(bctx.Err(), ctx.Err(), r)
 }
@@ -204,7 +186,6 @@ func execGit(
 	ctx context.Context,
 	bin string,
 	dir string,
-	extraEnv []string,
 	stdin string,
 	hasStdin bool,
 	args []string,
@@ -212,7 +193,7 @@ func execGit(
 	//nolint:gosec // G204: running git with caller-supplied args is the purpose of this package.
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
-	cmd.Env = gitEnv(extraEnv)
+	cmd.Env = gitEnv()
 	cmd.WaitDelay = waitDelay
 	if hasStdin {
 		cmd.Stdin = strings.NewReader(stdin)

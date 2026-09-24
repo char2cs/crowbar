@@ -104,34 +104,11 @@ func GetStateDirPathAt(
 	return resolvePath(Get().Paths.State, homeDir)
 }
 
-// GetProjectsPath returns the resolved absolute path to the projects directory,
-// the root of the per-entity (project/repo/workspace) filesystem layout.
-func GetProjectsPath() string {
-	return resolvePath(Get().Paths.Projects, resolveHome())
-}
-
-// GetProjectsPathAt returns the projects directory path rooted at homeDir.
-func GetProjectsPathAt(
-	homeDir string,
-) string {
-	return resolvePath(Get().Paths.Projects, homeDir)
-}
-
-// GetEventsPath returns the resolved absolute path to the events directory.
-func GetEventsPath() string {
-	return resolvePath(Get().Paths.Events, resolveHome())
-}
-
 // GetEventsPathAt returns the events directory path rooted at homeDir.
 func GetEventsPathAt(
 	homeDir string,
 ) string {
 	return resolvePath(Get().Paths.Events, homeDir)
-}
-
-// GetStorePath returns the resolved absolute path to the GORM store directory.
-func GetStorePath() string {
-	return resolvePath(Get().Paths.Store, resolveHome())
 }
 
 // GetStorePathAt returns the store directory path rooted at homeDir.
@@ -141,33 +118,9 @@ func GetStorePathAt(
 	return resolvePath(Get().Paths.Store, homeDir)
 }
 
-// GetRunsPath returns the resolved absolute path to the agent-run artifacts directory.
-func GetRunsPath() string {
-	return resolvePath(Get().Paths.Runs, resolveHome())
-}
-
-// GetRunsPathAt returns the runs directory path rooted at homeDir.
-func GetRunsPathAt(
-	homeDir string,
-) string {
-	return resolvePath(Get().Paths.Runs, homeDir)
-}
-
 // GetConfigPath returns the resolved absolute path to the config file.
 func GetConfigPath() string {
 	return resolvePath(Get().Paths.Config, resolveHome())
-}
-
-// GetLogsPath returns the resolved absolute path to the logs directory.
-func GetLogsPath() string {
-	return resolvePath(Get().Paths.Logs, resolveHome())
-}
-
-// GetLogsPathAt returns the logs directory path rooted at homeDir.
-func GetLogsPathAt(
-	homeDir string,
-) string {
-	return resolvePath(Get().Paths.Logs, homeDir)
 }
 
 func resolvePath(
@@ -175,11 +128,6 @@ func resolvePath(
 	home string,
 ) string {
 	return filepath.FromSlash(strings.ReplaceAll(tmpl, "{{home}}", home))
-}
-
-func resetForTesting() {
-	metadata = nil
-	once = sync.Once{}
 }
 
 func defaultMetadata() *Metadata {

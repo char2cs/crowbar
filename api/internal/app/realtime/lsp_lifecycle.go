@@ -62,24 +62,3 @@ func (l engineLSPLifecycle) Shutdown(
 ) {
 	l.engine.ReleaseWorkspace(ctx, wsID)
 }
-
-// NoopLSPLifecycle returns a lifecycle whose edges do no work. It is used in
-// tests and any wiring that has no LSP engine to release; production uses
-// NewLSPLifecycle so the last-unsubscribe edge releases the workspace's servers.
-func NoopLSPLifecycle() LSPLifecycle {
-	return noopLSPLifecycle{}
-}
-
-type noopLSPLifecycle struct{}
-
-func (noopLSPLifecycle) Ensure(
-	_ context.Context,
-	_ string,
-) {
-}
-
-func (noopLSPLifecycle) Shutdown(
-	_ context.Context,
-	_ string,
-) {
-}

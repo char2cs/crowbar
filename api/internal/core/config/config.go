@@ -105,8 +105,3 @@ func getDefaultConfig() *Config {
 	}
 	return cfg
 }
-
-func resetForTesting() {
-	config = nil
-	once = sync.Once{}
-}
