@@ -5,7 +5,7 @@ import {
   destroyWorkspaceStore,
   getAllActiveWorkspaceIds,
   setActiveWorkspaceId,
-  clearActiveWorkspaceId,
+  canEvictWorkspace,
   getActiveWorkspaceId,
   subscribeWorkspaceStores,
   subscribeChatWorking,
@@ -64,8 +64,7 @@ vi.mock('@/features/editor/lib/monaco-adapters', () => ({
 
 afterEach(() => {
   getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
-  const active = getActiveWorkspaceId()
-  if (active) clearActiveWorkspaceId(active)
+  setActiveWorkspaceId(null)
   vi.restoreAllMocks()
 })
 
@@ -137,26 +136,20 @@ describe('workspace-store-registry', () => {
   // ambient workspace, remounting the retained widget onto the WRONG
   // manager and landing on a silently empty model. Live-reported as a
   // blank editor pane with no console error and no repro steps.
-  it('does not evict a workspace whose EditorManager still has a mounted pane', async () => {
+  // The host asks BEFORE letting go (canEvict), so a destroy is never vetoed
+  // after the fact — that left a zombie store registered.
+  it('a workspace whose EditorManager still has a mounted pane cannot be evicted', async () => {
     const store = getOrCreateWorkspaceStore('ws-mounted-pane')
     await store.armEditor()
     store.editorManager!.mountPane('pane-1', document.createElement('div'))
+    expect(canEvictWorkspace('ws-mounted-pane')).toBe(false)
 
-    destroyWorkspaceStore('ws-mounted-pane')
-
-    expect(getWorkspaceStore('ws-mounted-pane')).toBe(store)
-    expect(getAllActiveWorkspaceIds()).toContain('ws-mounted-pane')
-
-    // Once the pane's widget actually unmounts (its editor tab closes), the
-    // SAME call must go through normally.
     store.editorManager!.unmountPane('pane-1')
+    expect(canEvictWorkspace('ws-mounted-pane')).toBe(true)
     destroyWorkspaceStore('ws-mounted-pane')
     expect(getWorkspaceStore('ws-mounted-pane')).toBeUndefined()
   })
 
-  // Task 27: the chatId -> workspaceId resolution Task 26's own review found
-  // missing from the render path entirely. Mirrors isChatWorking's own
-  // real-store-via-the-registry test style rather than mocking the scan.
   describe('registry change notifications', () => {
     it('does not fire watchers when a store is merely registered', () => {
       const fired = vi.fn()
@@ -204,35 +197,10 @@ describe('workspace-store-registry', () => {
     })
   })
 
-  // Live-reported: file-explorer state (and anything else keyed off
-  // getWorkspaceScope()'s active id) for a chat sharing a workspace with
-  // sibling chats kept reading/writing a DIFFERENT workspace than the one
-  // actually on screen. Root cause: WorkspaceView's active-only effect
-  // called setActiveWorkspaceId(wsId) with no cleanup at all — unlike its
-  // sibling setActiveWorkspaceStoreRef effect right above it, which does
-  // null itself out on deactivation — so the id kept pointing at a
-  // workspace whose WorkspaceView had since unmounted (evicted from
-  // WorkspaceHost's retention), a dangling reference nothing ever corrected
-  // for a workspace with no dedicated route of its own to re-claim it.
-  describe('setActiveWorkspaceId / clearActiveWorkspaceId', () => {
-    it('clearActiveWorkspaceId resets the active id when it is still the one recorded', () => {
-      setActiveWorkspaceId('ws-a')
-      expect(getActiveWorkspaceId()).toBe('ws-a')
-
-      clearActiveWorkspaceId('ws-a')
-
-      expect(getActiveWorkspaceId()).toBeNull()
-    })
-
-    it('clearActiveWorkspaceId is a no-op once a different workspace has claimed the id', () => {
-      setActiveWorkspaceId('ws-a')
-      setActiveWorkspaceId('ws-b') // ws-b's WorkspaceView became active first
-
-      // ws-a's own effect cleanup fires afterward (its `active` flipped
-      // false, or it unmounted) — it must not clobber ws-b's newer claim.
-      clearActiveWorkspaceId('ws-a')
-
-      expect(getActiveWorkspaceId()).toBe('ws-b')
-    })
+  it('the active id is one value the host writes, cleared with null', () => {
+    setActiveWorkspaceId('ws-a')
+    expect(getActiveWorkspaceId()).toBe('ws-a')
+    setActiveWorkspaceId(null)
+    expect(getActiveWorkspaceId()).toBeNull()
   })
 })

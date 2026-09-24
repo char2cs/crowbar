@@ -18,7 +18,7 @@ import {
 import { createStreamingMessageBatcher } from '@/features/workspace/stores/hooks/lib/streaming-message-batcher'
 import { getWorkspaceScope, useWorkspaceScopeReady } from '@/lib/workspace-scope'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { chatWorkspaceIn } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
@@ -299,9 +299,13 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
   const scopeReady = useWorkspaceScopeReady(wsId)
   useEffect(() => {
     if (!scopeReady) return
+    // The host mounted this store before this workspace's view rendered;
+    // held here so a late frame writes to it rather than minting a new one.
+    const ownStore = getWorkspaceStore(wsId)
+    if (!ownStore) return
     let cancelled = false
 
-    const stateOf = () => getOrCreateWorkspaceStore(wsId).getState()
+    const stateOf = () => ownStore.getState()
 
     // Tells app-sync-provider.tsx's per-repo TREE subscription (Task 34: the
     // sidebar's folders resource has no dedicated push channel of its own any
@@ -424,7 +428,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           if (seq !== listSeq) return
           if (chatReadsApplied(wsId) !== issuedAt) continue // overtaken in flight — old news
 
-          const store = getOrCreateWorkspaceStore(wsId)
+          const store = ownStore
           const before = store.getState()
           before.hydrateAgentChatOrder()
 
@@ -495,7 +499,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       try {
         const folders = await listChatFolders(wsId)
         if (cancelled || seq !== folderSeq) return
-        getOrCreateWorkspaceStore(wsId).getState().seedAgentChatFolders(folders)
+        ownStore.getState().seedAgentChatFolders(folders)
       } catch {
         /* non-fatal: the tree keeps the arrangement it has until the next frame */
       }
@@ -538,7 +542,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           // A preferences write landed while this was in flight; it is newer
           // truth and it already published to both copies.
           if (!isLatestProviderWrite(writes)) return
-          getOrCreateWorkspaceStore(wsId).getState().setAgentProviders(providers)
+          ownStore.getState().setAgentProviders(providers)
           // Providers are machine-level, and the Settings dialog is global: give
           // the global store the same answer so opening Settings from anywhere
           // (Project Home, the projects screen) shows the real list instead of
@@ -588,11 +592,9 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
         // caller's actual question (is the chat in the store?) from the STORE, not from a
         // payload we have just declared unfit to write.
         if (!acceptChatRead(wsId, chatId, ticket)) {
-          return getOrCreateWorkspaceStore(wsId)
-            .getState()
-            .agentChats.chats.some((c) => c.id === chatId)
+          return ownStore.getState().agentChats.chats.some((c) => c.id === chatId)
         }
-        getOrCreateWorkspaceStore(wsId).getState().upsertAgentChat(chat, ticket)
+        ownStore.getState().upsertAgentChat(chat, ticket)
         return true
       } catch {
         /* a not-found here is handled by the deleted frame path */

@@ -5,7 +5,7 @@ import {
   replaceSearchMatch,
 } from '@/features/editor/utils/search-replace'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { setActiveWorkspaceStoreForTests } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 
@@ -102,7 +102,7 @@ describe('search replace store actions', () => {
   })
 
   afterEach(async () => {
-    setActiveWorkspaceStoreRef(null)
+    setActiveWorkspaceStoreForTests(null)
     const { useEditorStateStore } = await import('@/features/editor/stores/state-store')
     const { useEditorUIStore } = await import('@/features/editor/stores/ui-store')
 
@@ -188,7 +188,7 @@ describe('search replace store actions', () => {
         pinnedBufferIds: [],
       },
     }))
-    setActiveWorkspaceStoreRef(wsStore)
+    setActiveWorkspaceStoreForTests(wsStore)
 
     useEditorUIStore.getState().actions.replaceAll()
 

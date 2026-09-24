@@ -37,7 +37,7 @@ import {
   destroyWorkspaceStore,
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
-import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { setActiveWorkspaceStoreForTests } from '@/features/workspace/stores/workspace-store-registry'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
 
 const CLAUDE: AgentProvider = {
@@ -53,7 +53,7 @@ beforeEach(() => {
   const st = getOrCreateWorkspaceStore('w1')
   act(() => {
     st.getState().setAgentProviders([CLAUDE])
-    setActiveWorkspaceStoreRef(st)
+    setActiveWorkspaceStoreForTests(st)
     useAgentProvidersStore.setState({ providers: [CLAUDE], status: 'ready' })
     useUIState.getState().setSettingsInitialTab('providers')
   })
@@ -62,7 +62,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   act(() => {
-    setActiveWorkspaceStoreRef(null)
+    setActiveWorkspaceStoreForTests(null)
     useUIState.getState().setSettingsInitialTab('appearance')
   })
   useAgentProvidersStore.setState({ providers: [], status: 'idle' })

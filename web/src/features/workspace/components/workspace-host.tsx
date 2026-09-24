@@ -2,8 +2,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { markEnd, markStart } from '@/lib/perf/instrumentation'
 import {
+  canEvictWorkspace,
   destroyWorkspaceStore,
   getOrCreateWorkspaceStore,
+  getWorkspaceStore,
+  setActiveWorkspaceId,
 } from '../stores/workspace-store-registry'
 import { WorkspaceStoreContext } from '../stores/workspace-context'
 import { WorkspaceLayoutRoot } from './workspace-layout-root'
@@ -42,6 +45,14 @@ const ID_DELIM = '\u0000'
  * render against a destroyed store, so reconcile only removes the id from the
  * mounted set and a post-commit effect destroys the store once React has torn
  * the subtree down.
+ *
+ * THE SINGLE LIFECYCLE OWNER of the workspace-store registry: reconcile (a
+ * layout effect) is the only place a store is minted (`mount`), `canEvict`
+ * is asked before a workspace is let go, and the post-commit effect is the
+ * only place one is destroyed. Rendering never touches the registry (C6); the
+ * slots rendered are exactly the retention plan's (C5 — no force-mount
+ * outside it, so the cap holds); and the active-workspace id is written here,
+ * in the same effect, so every reader agrees within the commit (C4).
  */
 export function WorkspaceHost({
   activeWsId,
@@ -128,15 +139,11 @@ export function WorkspaceHost({
   // keep-alive-policy.ts) — never read during render. activeWsId is null on
   // the project-home route (no workspace in view); the host still stays
   // mounted so its retention survives the home transit.
-  const initialIds = activeWsId ? [...new Set([activeWsId, ...paneWsIds])] : [...new Set(paneWsIds)]
-  const [mountedIds, setMountedIds] = useState<string[]>(initialIds)
-  // Lazy ref init (null-guarded): the Map only needs to be built once, at
-  // mount, not as a throwaway useRef() arg re-evaluated on every render.
+  // Filled by the first reconcile — a layout effect, so the stores it mints
+  // render in the same frame (React re-renders synchronously before paint).
+  const [mountedIds, setMountedIds] = useState<string[]>(EMPTY_WS_IDS)
   const lastActiveRef = useRef<Map<string, number> | null>(null)
-  if (lastActiveRef.current === null) {
-    const now = Date.now()
-    lastActiveRef.current = new Map(initialIds.map((id) => [id, now]))
-  }
+  if (lastActiveRef.current === null) lastActiveRef.current = new Map()
   // Stores awaiting destruction: removed from the mounted set by a reconcile,
   // destroyed by the post-commit effect below once their subtree has unmounted.
   const pendingDestroyRef = useRef<string[]>([])
@@ -190,25 +197,38 @@ export function WorkspaceHost({
       }
     }
 
+    // In use: a view member's workspace, or one some pane's editor tab reads.
     const viewIds = viewWsIdsRef.current
+    const paneIds = new Set(paneWsIdsRef.current)
     const plan = planRetention(
       [...map].map(([wsId, lastActiveAt]) => ({
         wsId,
-        hasViewChat: viewIds.has(wsId),
+        hasViewChat: viewIds.has(wsId) || paneIds.has(wsId),
         lastActiveAt,
       })),
       active,
       RETENTION_CAP,
     )
+    const retain = [...plan.retain]
     for (const id of plan.evict) {
+      // An editor still mounted into a pane: keep it rather than destroy a
+      // store out from under it (canEvict before, never a veto after).
+      if (!canEvictWorkspace(id)) {
+        retain.push(id)
+        continue
+      }
       map.delete(id)
       pendingDestroyRef.current.push(id)
     }
 
+    // The one place a store is minted — the registry's keys are the plan.
+    setActiveWorkspaceId(active)
+    for (const id of retain) getOrCreateWorkspaceStore(id)
+
     // Unmount first — the post-commit effect below destroys the pending stores
     // once React has torn their subtrees down. Always a fresh array, so the
     // effect re-fires (and flushes) after every reconcile.
-    setMountedIds(plan.retain)
+    setMountedIds(retain)
   }
 
   // Re-plan whenever the active workspace, the set of existing workspaces, the
@@ -216,7 +236,7 @@ export function WorkspaceHost({
   // changes — no more timer: a workspace's view-chat either exists right now
   // or it doesn't, and every one of these signals updates synchronously with
   // the state that could flip it.
-  useEffect(() => {
+  useLayoutEffect(() => {
     reconcileRef.current()
   }, [activeWsId, existingIds, paneWsIdsKey, viewWsIdsKey])
 
@@ -297,6 +317,7 @@ export function WorkspaceHost({
       const doomed = new Set([...lastActiveRef.current!.keys(), ...pendingDestroyRef.current])
       lastActiveRef.current!.clear()
       pendingDestroyRef.current = []
+      setActiveWorkspaceId(null)
       for (const id of doomed) {
         destroyWorkspaceStore(id)
       }
@@ -304,22 +325,11 @@ export function WorkspaceHost({
     [],
   )
 
-  // Always render the active workspace AND every pane-referenced one even
-  // before the reconcile effect commits the mounted set for a brand-new id,
-  // so there is never a blank frame — same guard as `activeWsId`'s own,
-  // extended to the whole set a split can name at once. On the home route
-  // activeWsId is null — nothing is force-appended for it, and every
-  // retained slot renders hidden while home (rendered by the Outlet) is in
-  // view; a pane can still be showing there (spec: panes are window-level),
-  // so `paneWsIds` force-appends regardless of the route.
-  const forced = activeWsId ? [activeWsId, ...paneWsIds] : paneWsIds
-  const mountedIdSet = new Set(mountedIds)
-  const missing = forced.filter((id) => !mountedIdSet.has(id))
-  const renderIds = missing.length ? [...mountedIds, ...new Set(missing)] : mountedIds
-
   return (
     <>
-      {renderIds.map((wsId) => {
+      {mountedIds.map((wsId) => {
+        const store = getWorkspaceStore(wsId)
+        if (!store) return null
         const isActive = wsId === activeWsId
         // The ONLY place the retention strategy touches the DOM: the active
         // workspace paints (display:contents), retained ones are hidden and inert
@@ -333,7 +343,7 @@ export function WorkspaceHost({
             style={style}
             inert={inert}
           >
-            <WorkspaceView wsId={wsId} active={isActive} />
+            <WorkspaceView wsId={wsId} store={store} active={isActive} />
           </div>
         )
       })}
@@ -369,10 +379,8 @@ export function WorkspaceHost({
  * the ambient one is only ever the documented fallback.
  */
 function WindowPaneSurface({ activeWsId }: { activeWsId: string | null }) {
-  // Never creates a store the host hasn't agreed to mount: `activeWsId` is
-  // force-appended to `renderIds` above, so its own WorkspaceView creates the
-  // very same store in the very same render pass.
-  const store = activeWsId ? getOrCreateWorkspaceStore(activeWsId) : null
+  // Reads the store the host mounted; renders nothing until it has.
+  const store = activeWsId ? getWorkspaceStore(activeWsId) : undefined
   if (!store) return null
   return (
     <WorkspaceStoreContext.Provider value={store}>

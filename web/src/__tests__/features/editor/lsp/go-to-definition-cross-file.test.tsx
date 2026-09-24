@@ -46,13 +46,16 @@ const wsState = {
   bufferActions: { openContent },
 }
 
-vi.mock('@/features/workspace/stores/workspace-store-ref', () => ({
-  getActiveWorkspaceStoreRef: () => ({ getState: () => wsState }),
+vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@/features/workspace/stores/workspace-store-registry')
+  >()),
+  getActiveWorkspaceStore: () => ({ getState: () => wsState }),
 }))
 // Task 26: panes/buffers moved off the per-workspace store onto the
 // window-level singleton — use-go-to-definition.ts reads panes/buffers/
 // paneActions/bufferActions off `windowPaneStore` now (workspaceId still
-// comes from getActiveWorkspaceStoreRef, mocked above). Both mocks point at
+// comes from getActiveWorkspaceStore, mocked above). Both mocks point at
 // the SAME `wsState` object.
 vi.mock('@/features/panes/stores/window-pane-store', () => ({
   windowPaneStore: { getState: () => wsState },

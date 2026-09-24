@@ -128,7 +128,7 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 }))
 
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
-  getOrCreateWorkspaceStore: () => ({
+  getWorkspaceStore: () => ({
     getState: () => ({
       agentChats: {
         chats: storeChats,

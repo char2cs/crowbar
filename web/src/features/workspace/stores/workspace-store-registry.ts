@@ -1,7 +1,7 @@
 import { createWorkspaceStore, type WorkspaceStore } from './workspace-store'
 import { loadFromLocalStorage } from './workspace-persistence'
 import { isEditorContent } from '@/features/panes/types/pane-content'
-import { setActiveScopeWorkspaceId } from '@/lib/workspace-scope'
+import { bindActiveWorkspaceId } from '@/lib/workspace-scope'
 import { bestEffort } from '@/lib/best-effort'
 import { clearWorkspaceFreshness } from '../lib/activation-freshness'
 
@@ -20,29 +20,29 @@ let _activeWorkspaceId: string | null = null
 // for callers that already depend on the registry.
 export { setWorkspaceScope, getWorkspaceScope, type WorkspaceScope } from '@/lib/workspace-scope'
 
-export function setActiveWorkspaceId(wsId: string): void {
+/**
+ * THE active workspace (C4) — one id, written by exactly one owner:
+ * `WorkspaceHost`, in the same layout effect that mounts the stores, so every
+ * reader (scoped URLs, the active store, jump navigation) agrees within a
+ * commit. The scope module reads it through the binding below rather than
+ * keeping a copy of its own.
+ */
+export function setActiveWorkspaceId(wsId: string | null): void {
   _activeWorkspaceId = wsId
-  setActiveScopeWorkspaceId(wsId)
 }
 
-/**
- * Undo `setActiveWorkspaceId(wsId)` — but ONLY if `wsId` is still the one
- * recorded, so a losing caller can never clobber a newer claim (two
- * `WorkspaceView`s can flip `active` in the same commit: the one going
- * inactive must not race the one becoming active). Without this,
- * `WorkspaceView`'s own active-only effect (below) had no cleanup at all —
- * unlike its sibling `setActiveWorkspaceStoreRef` effect right above it,
- * which does null itself out on deactivation — so `_activeWorkspaceId` kept
- * pointing at a workspace whose `WorkspaceView` had since unmounted (evicted
- * from WorkspaceHost's retention) once nothing else claimed the id: a
- * dangling reference the file explorer (getWorkspaceScope()) went on
- * reading and writing to forever, for any chat sharing that workspace with
- * no dedicated `/ide/:p/:r/:wsId` route of its own to re-claim it.
- */
-export function clearActiveWorkspaceId(wsId: string): void {
-  if (_activeWorkspaceId !== wsId) return
-  _activeWorkspaceId = null
-  setActiveScopeWorkspaceId(null)
+bindActiveWorkspaceId(() => _activeWorkspaceId)
+
+/** Test-only: make `store` (registered under its own workspace id) the
+ *  active one, or clear the active id — what the host does for a real mount. */
+export function setActiveWorkspaceStoreForTests(store: WorkspaceStore | null): void {
+  if (!store) {
+    _activeWorkspaceId = null
+    return
+  }
+  const wsId = store.getState().workspaceId
+  registry.set(wsId, store)
+  _activeWorkspaceId = wsId
 }
 
 export function getActiveWorkspaceStore(): WorkspaceStore | null {
@@ -70,6 +70,21 @@ export function getWorkspaceStore(wsId: string): WorkspaceStore | undefined {
   return registry.get(wsId)
 }
 
+let detached: WorkspaceStore | undefined
+
+/** An empty store that belongs to no workspace and is never registered — the
+ *  read-only stand-in a render path gets for a workspace that is not mounted. */
+export function detachedWorkspaceStore(): WorkspaceStore {
+  detached ??= createWorkspaceStore('')
+  return detached
+}
+
+/**
+ * Mint (or return) `wsId`'s store. Only `WorkspaceHost` calls this in the app
+ * — from its reconcile effect, never from render (C6): the registry's keys are
+ * exactly the host's mounted set (C5). Everything else reads with
+ * {@link getWorkspaceStore} and copes with a workspace that is not mounted.
+ */
 export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
   if (!registry.has(wsId)) {
     // Task 26: pane/buffer layout no longer lives on this per-workspace
@@ -243,24 +258,20 @@ export function isChatWorking(chatId: string): boolean {
   return false
 }
 
+/**
+ * Whether `wsId`'s store may be destroyed now. Its EditorManager still having
+ * a Monaco widget mounted into a real pane means a pane is showing one of its
+ * editors: destroying it would strand that widget on a dead manager. The host
+ * asks this BEFORE evicting and keeps the workspace instead, so a destroy is
+ * never vetoed after the host already let go — which used to leave a zombie
+ * store registered that the next mount picked back up, spinner and all.
+ */
+export function canEvictWorkspace(wsId: string): boolean {
+  return !registry.get(wsId)?.editorManager?.hasMountedPanes()
+}
+
 export function destroyWorkspaceStore(wsId: string): void {
   const store = registry.get(wsId)
-  // planRetention decides eviction from hasViewChat/RETENTION_CAP alone — it
-  // has no notion of "a pane's EDITOR TAB (not chat) still needs this
-  // workspace", so it can queue this call while exactly that is true. The
-  // `hasSurvivingEditorBuffer` gate below stops disposeAll() from yanking a
-  // still-open buffer's model, but `registry.delete(wsId)` ran regardless —
-  // so even with disposeAll() correctly skipped, the store went unreachable
-  // via `getWorkspaceStore(wsId)`. The next re-render of that pane's
-  // EditorSurface then falls back to the ambient workspace (its own
-  // documented fallback for "no store yet") and remounts the retained
-  // widget onto a DIFFERENT manager whose buffer lookup can't find this
-  // workspace's buffers — landing on a silently empty model, no error, no
-  // visible remount. Live-reported as the exact blank-pane symptom
-  // EditorHostRegistry exists to eliminate, reappearing with no repro steps.
-  // Veto the whole eviction, not just disposeAll(), while this workspace's
-  // own EditorManager still has a widget mounted into a real pane.
-  if (store?.editorManager?.hasMountedPanes()) return
   if (store) {
     // Every buffer that exists is listed by some pane (invariant C2): one of
     // this workspace's is on screen and keeps its resources, which are freed

@@ -1,11 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { WorkspaceStoreContext } from '../stores/workspace-context'
-import {
-  clearActiveWorkspaceId,
-  getOrCreateWorkspaceStore,
-  setActiveWorkspaceId,
-} from '../stores/workspace-store-registry'
-import { setActiveWorkspaceStoreRef } from '../stores/workspace-store-ref'
+import type { WorkspaceStore } from '../stores/workspace-store'
 import { hydrateWorkspace, reconcileWorkspaceBuffersWithDisk } from '@/lib/persistence/hydrate'
 import { markStart, markEnd } from '@/lib/perf/instrumentation'
 import { resetWorkspaceScopedStores } from '../lib/reset-workspace-scoped-stores'
@@ -19,11 +14,13 @@ import { useZoomKeyboard } from '@/features/keymaps/hooks/use-zoom-keyboard'
 
 interface WorkspaceViewProps {
   wsId: string
+  /** Mounted by `WorkspaceHost` before this renders (C6) — never minted here. */
+  store: WorkspaceStore
   /**
    * Whether this workspace is the one currently in view. WorkspaceHost keeps
    * recently-visited workspaces mounted (hidden via `display:none`) so switching
-   * back is instant; only the active one owns the global active-store ref, the
-   * active-workspace id, the keyboard handlers, and the file/git watchers.
+   * back is instant; only the active one owns the keyboard handlers and the
+   * file/git watchers. (The active-workspace id is the host's to write.)
    */
   active: boolean
 }
@@ -39,8 +36,11 @@ interface WorkspaceViewProps {
  * the renders that change nothing and still runs the two slots whose `active`
  * actually flips on a workspace switch.
  */
-export const WorkspaceView = memo(function WorkspaceView({ wsId, active }: WorkspaceViewProps) {
-  const store = getOrCreateWorkspaceStore(wsId)
+export const WorkspaceView = memo(function WorkspaceView({
+  wsId,
+  store,
+  active,
+}: WorkspaceViewProps) {
   // wsId is stable for a given WorkspaceView instance — WorkspaceHost keys each
   // retained workspace by id — so this hydrates exactly once per mount and never
   // re-hydrates on a warm re-activation.
@@ -68,25 +68,6 @@ export const WorkspaceView = memo(function WorkspaceView({ wsId, active }: Works
   // (Task 26). Gating this on `active` would freeze all three until the user
   // happened to switch back.
   useWorkspaceAgentChatsStream(wsId)
-
-  // Only the active workspace publishes itself as THE active store / id. Hidden
-  // workspaces stay mounted but must not steal the ref (imperative non-React
-  // access resolves the active workspace) or the active-id used by scoped URLs.
-  useLayoutEffect(() => {
-    if (!active) return
-    setActiveWorkspaceStoreRef(store)
-    return () => {
-      setActiveWorkspaceStoreRef(null)
-    }
-  }, [store, active])
-
-  useEffect(() => {
-    if (!active) return
-    setActiveWorkspaceId(wsId)
-    return () => {
-      clearActiveWorkspaceId(wsId)
-    }
-  }, [wsId, active])
 
   // Clear the GLOBAL file-tree / git stores the instant this workspace becomes
   // active — synchronously, BEFORE the browser paints and BEFORE the active-only

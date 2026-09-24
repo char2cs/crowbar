@@ -3,12 +3,12 @@ import {
   initViewStoreSubscription,
   _resetViewStoreUnsubscribeForTesting,
 } from '@/features/editor/stores/view-store'
-import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { setActiveWorkspaceStoreForTests } from '@/features/workspace/stores/workspace-store-registry'
 
 describe('initViewStoreSubscription', () => {
   beforeEach(() => {
     _resetViewStoreUnsubscribeForTesting()
-    setActiveWorkspaceStoreRef(null)
+    setActiveWorkspaceStoreForTests(null)
   })
 
   it('is exported and returns an unsubscribe function', () => {
@@ -23,7 +23,7 @@ describe('initViewStoreSubscription', () => {
 
     // Trigger a workspace store change after unsubscribing; should not throw.
     expect(() => {
-      setActiveWorkspaceStoreRef(null)
+      setActiveWorkspaceStoreForTests(null)
     }).not.toThrow()
   })
 })

@@ -160,7 +160,10 @@ vi.mock('@/features/panes/utils/pane-command-actions', async () => {
 })
 
 const { getOwningChatId } = vi.hoisted(() => ({ getOwningChatId: vi.fn() }))
-vi.mock('@/lib/workspace-scope', () => ({ getOwningChatId }))
+vi.mock('@/lib/workspace-scope', () => ({
+  bindActiveWorkspaceId: () => {},
+  getOwningChatId,
+}))
 
 // pane-command-actions.ts (run for real above) also imports getActiveWorkspaceId
 // from the registry (for openBranchReviewForActiveWorkspace, unexercised here) —

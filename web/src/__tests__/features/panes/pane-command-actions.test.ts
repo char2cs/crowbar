@@ -15,7 +15,10 @@ import { getOwningChatId } from '@/lib/workspace-scope'
 // client.ts, terminal.tsx, branch-review-pane.tsx, ...). Mocked here so each
 // test controls exactly what "this workspace's owning chat" resolves to,
 // without needing a live sidebar/route to populate the real registry.
-vi.mock('@/lib/workspace-scope', () => ({ getOwningChatId: vi.fn() }))
+vi.mock('@/lib/workspace-scope', () => ({
+  bindActiveWorkspaceId: () => {},
+  getOwningChatId: vi.fn(),
+}))
 
 // Task 1 renamed the pane's tab list `bufferIds` -> `editorTabIds` and the
 // actions that write it (`addBufferToPane` -> `addEditorTabToPane`, which now

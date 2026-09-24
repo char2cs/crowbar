@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { setActiveWorkspaceStoreForTests } from '@/features/workspace/stores/workspace-store-registry'
 import {
   destroyWorkspaceStore,
   getAllActiveWorkspaceIds,
@@ -336,7 +336,7 @@ beforeEach(() => {
 
 describe('PaneContainer — chat/editor-view hosting', () => {
   afterEach(() => {
-    setActiveWorkspaceStoreRef(null)
+    setActiveWorkspaceStoreForTests(null)
   })
 
   it('renders the chat, not NewTabView, when the pane has a chat and zero editor tabs', async () => {
@@ -645,7 +645,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     // active-workspace-store ref (a separate registry from the
     // WorkspaceStoreContext.Provider renderPane uses below) — the same setup
     // pane-drop-actions.test.ts already needs for that helper.
-    setActiveWorkspaceStoreRef(store)
+    setActiveWorkspaceStoreForTests(store)
 
     const sourcePaneId = windowPaneStore
       .getState()
@@ -708,7 +708,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
 // override ('xterm-helper-textarea') is wired correctly.
 describe('PaneContainer — mousedown-capture pane activation', () => {
   afterEach(() => {
-    setActiveWorkspaceStoreRef(null)
+    setActiveWorkspaceStoreForTests(null)
   })
 
   /** A second pane, so ROOT_PANE_ID can start inactive — same pattern the
@@ -929,7 +929,7 @@ describe('PaneContainer — the active-pane accent ring', () => {
 
 describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
   afterEach(() => {
-    setActiveWorkspaceStoreRef(null)
+    setActiveWorkspaceStoreForTests(null)
   })
 
   /** jsdom reports 0 for every element's clientWidth/clientHeight (no layout
@@ -1365,7 +1365,7 @@ describe('PaneContainer — pane drop target (spec §8.1, Task 22)', () => {
 describe("PaneContainer — the identity row shares the pane's background/rounding (Task 9)", () => {
   afterEach(() => {
     sidebarOpenOverride.current = true
-    setActiveWorkspaceStoreRef(null)
+    setActiveWorkspaceStoreForTests(null)
   })
 
   it('nests the tab-bar row inside the same rounded/clipped box as the content — not an unstyled sibling of it', async () => {

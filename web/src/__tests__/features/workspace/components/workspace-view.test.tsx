@@ -20,27 +20,8 @@ vi.mock('@/lib/persistence/hydrate', () => ({
   reconcileWorkspaceBuffersWithDisk: (wsId: string) => reconcileSpy(wsId),
 }))
 
-// getOrCreateWorkspaceStore memoizes by wsId in real life (a registry singleton
-// map) — the fake must too, or every render would hand each effect a
-// freshly-identitied store and refire it regardless of whether `hydrated`
-// actually changed.
-vi.mock('@/features/workspace/stores/workspace-store-registry', () => {
-  const fakeStores = new Map<string, unknown>()
-  return {
-    getOrCreateWorkspaceStore: (wsId: string) => {
-      if (!fakeStores.has(wsId)) {
-        fakeStores.set(wsId, { __fakeStore: wsId })
-      }
-      return fakeStores.get(wsId)
-    },
-    setActiveWorkspaceId: vi.fn(),
-    clearActiveWorkspaceId: vi.fn(),
-  }
-})
-
-vi.mock('@/features/workspace/stores/workspace-store-ref', () => ({
-  setActiveWorkspaceStoreRef: vi.fn(),
-}))
+// The host hands the view its store; a stable fake is all the view needs.
+const store = { __fakeStore: 'ws-a' } as unknown as WorkspaceStore
 
 vi.mock('@/features/workspace/components/workspace-layout-root', () => ({
   WorkspaceLayoutRoot: () => <div data-testid="layout-root" />,
@@ -61,15 +42,16 @@ vi.mock('@/features/keymaps/hooks/use-sidebar-tab-keyboard', () => ({
 }))
 
 import { WorkspaceView } from '@/features/workspace/components/workspace-view'
+import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
 async function renderView(active: boolean) {
   let result!: ReturnType<typeof render>
   await act(async () => {
-    result = render(<WorkspaceView wsId="ws-a" active={active} />)
+    result = render(<WorkspaceView wsId="ws-a" store={store} active={active} />)
   })
   const setActive = async (next: boolean) => {
     await act(async () => {
-      result.rerender(<WorkspaceView wsId="ws-a" active={next} />)
+      result.rerender(<WorkspaceView wsId="ws-a" store={store} active={next} />)
     })
   }
   return { setActive }

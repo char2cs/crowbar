@@ -10,7 +10,7 @@ import type { useEditorSettingsStore as useEditorSettingsStoreHook } from '@/fea
 import { calculateCursorPositionFromContent } from '@/features/editor/utils/position'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { setActiveWorkspaceStoreForTests } from '@/features/workspace/stores/workspace-store-registry'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import {
@@ -126,7 +126,7 @@ describe('editor API model operations', () => {
 
     resetWindowPaneStoreForTests()
     wsStore = createWorkspaceStore('test-ws')
-    setActiveWorkspaceStoreRef(wsStore)
+    setActiveWorkspaceStoreForTests(wsStore)
     setWorkspaceBuffer(wsStore, makeBuffer('alpha\nbeta'))
 
     onChange.mockReset()
@@ -143,7 +143,7 @@ describe('editor API model operations', () => {
 
   afterEach(() => {
     _resetViewStoreUnsubscribeForTesting()
-    setActiveWorkspaceStoreRef(null)
+    setActiveWorkspaceStoreForTests(null)
     useEditorStateStore?.setState({
       cursorPosition: { line: 0, column: 0, offset: 0 },
       selection: undefined,

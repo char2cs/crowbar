@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { editorAPI } from '@/features/editor/extensions/api'
 import { useCenterCursor } from '@/features/editor/hooks/use-center-cursor'
-import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { getActiveWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
@@ -95,7 +95,7 @@ export const useGoToDefinition = ({
             const target = definitions[0]
             const targetFilePath = target.filePath
 
-            const wsRef = getActiveWorkspaceStoreRef()
+            const wsRef = getActiveWorkspaceStore()
             const wsStore = wsRef?.getState()
             if (!wsStore) return
             // Task 26: panes/buffers are window-level now — `wsStore` only

@@ -6,6 +6,7 @@ import {
   getWorkspaceScope,
   setWorkspaceScope,
   __resetWorkspaceScopesForTest,
+  bindActiveWorkspaceId,
 } from '@/lib/workspace-scope'
 
 // Regression: the placeholder row's Retry/Detach… actions call workspaceBase(),
@@ -57,11 +58,16 @@ test("setRepos records the default workspace's owning chat off the repo, not onl
 })
 
 test('recording scopes from sidebar data does not steal the active workspace', () => {
-  setWorkspaceScope({ projectId: 'proj-1', repoId: 'repo-1', wsId: 'ws-active' })
-  useSidebarStore.getState().setRepos(REPOS)
-  // getWorkspaceScope() with no id resolves the ACTIVE workspace — it must
-  // still be the route-recorded one, not whatever the sidebar loaded last.
-  expect(getWorkspaceScope()?.wsId).toBe('ws-active')
+  bindActiveWorkspaceId(() => 'ws-active')
+  try {
+    setWorkspaceScope({ projectId: 'proj-1', repoId: 'repo-1', wsId: 'ws-active' })
+    useSidebarStore.getState().setRepos(REPOS)
+    // getWorkspaceScope() with no id resolves the ACTIVE workspace — the
+    // registry's one id, never whatever the sidebar recorded last.
+    expect(getWorkspaceScope()?.wsId).toBe('ws-active')
+  } finally {
+    bindActiveWorkspaceId(() => null)
+  }
 })
 
 test('setRepos skips repos with no projectId (no URL can be built anyway)', () => {
