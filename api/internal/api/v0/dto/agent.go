@@ -305,7 +305,8 @@ type AgentMessageDTO struct {
 	DisplayOrder int64 `json:"displayOrder"`
 	ItemIndex    int   `json:"itemIndex"`
 	// TurnID is what the activity record attaches tool calls to, so a client can
-	// show which tools produced which reply.
+	// show which tools produced which reply. A user turn Crowbar dispatched is
+	// named by that prompt's clientRequestId.
 	TurnID     string `json:"turnId"`
 	Role       string `json:"role"`
 	ProviderID string `json:"providerId"`

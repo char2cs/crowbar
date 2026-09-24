@@ -631,8 +631,9 @@ func TestRegression_AnAdoptedSpawnsDeliveryJournalCanReachAccepted(t *testing.T)
 	}
 	// The provider's own acknowledgement of what it received — the hook/event
 	// echo, which is the ONLY thing that advances this record.
-	require.NoError(t, h.rs.ConfirmPromptAccepted(context.Background(),
-		domain.Chat{ID: h.chatID}, engineagents.Runner{ID: runnerID, ProviderID: "carrier-test"}, delivered))
+	_, err = h.rs.ConfirmPromptAccepted(context.Background(),
+		domain.Chat{ID: h.chatID}, engineagents.Runner{ID: runnerID, ProviderID: "carrier-test"}, delivered)
+	require.NoError(t, err)
 
 	record, found, err = h.rs.prompts.Lookup(journalDir, requestID, textHash)
 	require.NoError(t, err)

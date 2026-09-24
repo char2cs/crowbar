@@ -118,7 +118,7 @@ func TestJournal_ConfirmAccepted_NonExistentDirectoryIsNotAnError(t *testing.T) 
 	j := agentjournal.NewPromptRequests()
 	dir := filepath.Join(t.TempDir(), "never-created")
 
-	err := j.ConfirmAccepted(dir, "runner-1", "claude", "hash", jnow)
+	_, err := j.ConfirmAccepted(dir, "runner-1", "claude", "hash", jnow)
 
 	require.NoError(t, err)
 }
@@ -126,7 +126,7 @@ func TestJournal_ConfirmAccepted_NonExistentDirectoryIsNotAnError(t *testing.T) 
 func TestJournal_ConfirmAccepted_SurfacesARealReadFailure(t *testing.T) {
 	j := agentjournal.NewPromptRequests()
 
-	err := j.ConfirmAccepted(asFile(t), "runner-1", "claude", "hash", jnow)
+	_, err := j.ConfirmAccepted(asFile(t), "runner-1", "claude", "hash", jnow)
 
 	require.Error(t, err)
 }
@@ -158,7 +158,7 @@ func TestJournal_ConfirmAccepted_SkipsNonMatchingRecordsAndAcceptsTheRightOne(t 
 		UpdatedAt:        jnow,
 	}, ".prompt-request-*", func(string) error { return nil }))
 
-	err := j.ConfirmAccepted(dir, "new-2", "claude", "hash", jnow)
+	_, err := j.ConfirmAccepted(dir, "new-2", "claude", "hash", jnow)
 	require.NoError(t, err)
 
 	accepted, found, err := agentjournal.ReadPromptRequest(dir, "req-1")
@@ -178,7 +178,7 @@ func TestJournal_ConfirmAccepted_NoMatchIsNotAnError(t *testing.T) {
 	require.NoError(t, err)
 
 	// Different text hash: nothing in the journal is acknowledgeable.
-	err = j.ConfirmAccepted(dir, "new", "claude", "hash-b", jnow)
+	_, err = j.ConfirmAccepted(dir, "new", "claude", "hash-b", jnow)
 
 	require.NoError(t, err)
 	record, _, err := agentjournal.ReadPromptRequest(dir, "req-1")
@@ -193,7 +193,7 @@ func TestJournal_ConfirmAccepted_IgnoresARecordInATerminalNonAcknowledgeableStat
 	require.NoError(t, j.MarkFailedDispatch(dir, "req-1", jnow))
 
 	// A FAILED record must never be resurrected into Accepted by an echo.
-	err = j.ConfirmAccepted(dir, "new", "claude", "hash", jnow)
+	_, err = j.ConfirmAccepted(dir, "new", "claude", "hash", jnow)
 	require.NoError(t, err)
 
 	record, _, err := agentjournal.ReadPromptRequest(dir, "req-1")
@@ -211,7 +211,7 @@ func TestJournal_ConfirmAccepted_NeverLetsTheOutgoingRunnerAcknowledgeItsOwnHand
 	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "outgoing-runner", "new-runner", jnow)
 	require.NoError(t, err)
 
-	err = j.ConfirmAccepted(dir, "outgoing-runner", "claude", "hash", jnow)
+	_, err = j.ConfirmAccepted(dir, "outgoing-runner", "claude", "hash", jnow)
 	require.NoError(t, err)
 
 	record, _, err := agentjournal.ReadPromptRequest(dir, "req-1")
@@ -392,7 +392,8 @@ func TestPrunePromptRequests_RemovesOnlyTerminalRecordsPastTheirAge(t *testing.T
 	// A terminal (accepted) record old enough to prune...
 	_, _, err := j.Begin(dir, "old-accepted", "", "hash", "claude", "out", "r1", old)
 	require.NoError(t, err)
-	require.NoError(t, j.ConfirmAccepted(dir, "r1", "claude", "hash", old))
+	_, err = j.ConfirmAccepted(dir, "r1", "claude", "hash", old)
+	require.NoError(t, err)
 
 	// ...alongside a SPAWNED record of the same age, which must survive pruning
 	// regardless of age: an in-flight delivery is never pruned.
@@ -468,7 +469,7 @@ func TestJournal_ConfirmAccepted_RejectsTheOutgoingRunnerBeforeAnyReplacementIsS
 	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "outgoing-runner", "", jnow)
 	require.NoError(t, err)
 
-	err = j.ConfirmAccepted(dir, "outgoing-runner", "claude", "hash", jnow)
+	_, err = j.ConfirmAccepted(dir, "outgoing-runner", "claude", "hash", jnow)
 	require.NoError(t, err)
 
 	record, found, err := agentjournal.ReadPromptRequest(dir, "req-1")

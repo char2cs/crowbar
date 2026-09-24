@@ -106,15 +106,16 @@ type PromptRequests interface {
 		now time.Time,
 	) (PromptRequest, error)
 	// ConfirmAccepted marks the unsettled record matching this runner, provider
-	// and text as accepted. A journal with nothing matching is not an error: the
-	// provider may be echoing a prompt Crowbar never submitted.
+	// and text as accepted, and returns its request id. A journal with nothing
+	// matching is not an error, and returns "": the provider may be echoing a
+	// prompt Crowbar never submitted.
 	ConfirmAccepted(
 		dir string,
 		runnerID string,
 		providerID string,
 		textHash string,
 		now time.Time,
-	) error
+	) (string, error)
 	// MarkUncertain downgrades a dispatching or spawned record, so no automatic
 	// retry can duplicate a prompt the provider may already hold.
 	MarkUncertain(
@@ -379,16 +380,16 @@ func (s *promptRequests) ConfirmAccepted(
 	providerID string,
 	textHash string,
 	now time.Time,
-) error {
+) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	records, err := readPromptRequests(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil
+			return "", nil
 		}
-		return err
+		return "", err
 	}
 	for _, record := range records {
 		if !acknowledgeable(record, runnerID, providerID, textHash) {
@@ -397,9 +398,12 @@ func (s *promptRequests) ConfirmAccepted(
 		record.State = PromptStateAccepted
 		record.RunnerID = runnerID
 		record.UpdatedAt = now.UTC()
-		return s.write(dir, record)
+		if err := s.write(dir, record); err != nil {
+			return "", err
+		}
+		return record.RequestID, nil
 	}
-	return nil
+	return "", nil
 }
 
 func acknowledgeable(

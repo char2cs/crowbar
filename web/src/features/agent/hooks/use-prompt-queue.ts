@@ -58,16 +58,12 @@ export function awaitingEvidence(item: PromptQueueItem): boolean {
   )
 }
 
-/** Exported for `agent-transcript.tsx`'s own use of the same evidence match
- *  — priming a settling row's virtualizer height from the queued row it
- *  replaces needs the identical "is this THAT prompt" answer this FIFO
- *  already trusts, not a second, driftable copy of it. */
+/** The ledger row this prompt produced: the daemon names a dispatched prompt's
+ *  user turn by its clientRequestId, so identity decides — never the text,
+ *  which the CLI may reshape and the user may repeat. Exported for
+ *  `agent-transcript.tsx`, which must agree with this FIFO on the match. */
 export function samePrompt(message: AgentChatMessage, prompt: PromptQueueItem): boolean {
-  return (
-    message.role === 'user' &&
-    message.sequence > prompt.baselineSequence &&
-    message.text.trim() === prompt.text.trim()
-  )
+  return message.role === 'user' && message.turnId === prompt.clientRequestId
 }
 
 /** `error` is absent for an empty box — Enter reaches this even though the

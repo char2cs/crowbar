@@ -87,10 +87,21 @@ func DeliveryID(ctx context.Context) string {
 // appending a duplicate turn. An un-journalled ingress has nothing to be
 // idempotent about, so it gets a fresh id.
 func RecordID(ctx context.Context) string {
+	if id, ok := ctx.Value(recordIDKey{}).(string); ok && id != "" {
+		return id
+	}
 	if id := DeliveryID(ctx); id != "" {
 		return id
 	}
 	return uuid.NewString()
+}
+
+type recordIDKey struct{}
+
+// WithRecordID keys the durable record ingested under ctx by id, over the
+// delivery's: a user turn Crowbar itself dispatched is named by its request.
+func WithRecordID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, recordIDKey{}, id)
 }
 
 // apiTransportKey marks ctx as ingesting an event that arrived over an api

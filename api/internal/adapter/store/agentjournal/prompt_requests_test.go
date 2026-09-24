@@ -178,7 +178,9 @@ func TestJournal_StateTransitionsAreRecorded(t *testing.T) {
 	_, err = j.MarkSpawned(dir, "req-1", "hash", "runner-1", "session-1", jnow)
 	require.NoError(t, err)
 
-	require.NoError(t, j.ConfirmAccepted(dir, "runner-1", "claude", "hash", jnow))
+	requestID, err := j.ConfirmAccepted(dir, "runner-1", "claude", "hash", jnow)
+	require.NoError(t, err)
+	assert.Equal(t, "req-1", requestID, "the confirmation names the request it matched")
 	found, ok, err := agentjournal.ReadPromptRequest(dir, "req-1")
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -215,7 +217,8 @@ func TestJournal_MarkRefusedLeavesAnAcceptedRecordAlone(t *testing.T) {
 	j, dir := journal(t)
 	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
-	require.NoError(t, j.ConfirmAccepted(dir, "new", "claude", "hash", jnow))
+	_, err = j.ConfirmAccepted(dir, "new", "claude", "hash", jnow)
+	require.NoError(t, err)
 
 	require.NoError(t, j.MarkRefused(dir, "req-1", jnow))
 
@@ -403,7 +406,8 @@ func TestJournal_AnAcknowledgementUpgradesASettledRecord(t *testing.T) {
 	require.NoError(t, err)
 	requireSettled(t, j, dir, "req-1")
 
-	require.NoError(t, j.ConfirmAccepted(dir, "new", "claude", "hash", jnow))
+	_, err = j.ConfirmAccepted(dir, "new", "claude", "hash", jnow)
+	require.NoError(t, err)
 
 	found, ok, err := agentjournal.ReadPromptRequest(dir, "req-1")
 	require.NoError(t, err)

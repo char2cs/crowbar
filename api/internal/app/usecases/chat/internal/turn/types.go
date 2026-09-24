@@ -60,13 +60,14 @@ type Runners interface {
 		ev engineagents.CanonicalEvent,
 	) error
 	// ConfirmPromptAccepted closes the at-most-once journal entry for a React
-	// submission the CLI has now echoed back as its own user prompt.
+	// submission the CLI has now echoed back as its own user prompt, and
+	// returns that submission's request id ("" when it was none of Crowbar's).
 	ConfirmPromptAccepted(
 		ctx context.Context,
 		chat domain.Chat,
 		runner engineagents.Runner,
 		message string,
-	) error
+	) (string, error)
 	// ReconcilePendingPromptFromLedger settles a delivery whose outcome the journal
 	// could not observe, using what the chat's ledger now shows.
 	ReconcilePendingPromptFromLedger(
