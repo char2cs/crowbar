@@ -96,7 +96,7 @@ func TestPollOnce_Protected(t *testing.T) {
 	mp := &mockProvider{
 		protectedBranches: []string{"main", "develop"},
 	}
-	state, err := pollOnce(context.Background(), mp, "/repo", "main")
+	state, err := (&providerEngine{}).pollOnce(context.Background(), mp, "/repo", "main")
 	require.NoError(t, err)
 	assert.True(t, state.Protected)
 	assert.Nil(t, state.PR)
@@ -106,7 +106,7 @@ func TestPollOnce_NotProtected(t *testing.T) {
 	mp := &mockProvider{
 		protectedBranches: []string{"main"},
 	}
-	state, err := pollOnce(context.Background(), mp, "/repo", "feature")
+	state, err := (&providerEngine{}).pollOnce(context.Background(), mp, "/repo", "feature")
 	require.NoError(t, err)
 	assert.False(t, state.Protected)
 }
@@ -119,7 +119,7 @@ func TestPollOnce_WithPR(t *testing.T) {
 			Status: "open",
 		},
 	}
-	state, err := pollOnce(context.Background(), mp, "/repo", "feature")
+	state, err := (&providerEngine{}).pollOnce(context.Background(), mp, "/repo", "feature")
 	require.NoError(t, err)
 	assert.NotNil(t, state.PR)
 	assert.Equal(t, 1, state.PR.Number)
@@ -129,7 +129,7 @@ func TestPollOnce_ProtectedBranchesError(t *testing.T) {
 	mp := &mockProvider{
 		protectedErr: errors.New("api fail"),
 	}
-	_, err := pollOnce(context.Background(), mp, "/repo", "main")
+	_, err := (&providerEngine{}).pollOnce(context.Background(), mp, "/repo", "main")
 	require.Error(t, err)
 }
 
@@ -332,12 +332,14 @@ type mockProvider struct {
 	avatarErr         error
 	prLinks           []PRLink
 	prLinksErr        error
+	protectedCalls    int
 }
 
 func (m *mockProvider) ProtectedBranches(
 	_ context.Context,
 	_ string,
 ) ([]string, error) {
+	m.protectedCalls++
 	return m.protectedBranches, m.protectedErr
 }
 
