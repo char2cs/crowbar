@@ -28,6 +28,7 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { nextVersion, seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import type { AgentChat } from '@/features/agent/api/agent-api'
 
 const chat = (id: string, wsId: string, over: Partial<AgentChat> = {}): AgentChat => ({
@@ -37,6 +38,9 @@ const chat = (id: string, wsId: string, over: Partial<AgentChat> = {}): AgentCha
   liveRunnerId: '',
   terminalSessionId: '',
   activeProviderId: 'claude',
+  working: false,
+  version: nextVersion(),
+  phase: 'dormant',
   createdAt: '2026-01-01T00:00:00Z',
   order: 0,
   parentId: '',
@@ -45,7 +49,7 @@ const chat = (id: string, wsId: string, over: Partial<AgentChat> = {}): AgentCha
 
 /** Seed `wsId`'s store with a chat list, as its own agent-chats stream does. */
 function seed(wsId: string, chats: AgentChat[]): void {
-  getOrCreateWorkspaceStore(wsId).getState().seedAgentChats(chats)
+  seedChats(getOrCreateWorkspaceStore(wsId), chats)
 }
 
 afterEach(() => {

@@ -3,6 +3,7 @@
  * to FileExplorerIcon and every chat wore a generic file icon — the tab told you
  * neither whose agent it was nor that it was mid-turn.
  */
+import { nextVersion, setChatWorking, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -29,6 +30,12 @@ const PROVIDERS = [
     connected: true,
     enabled: true,
     mcpEnabled: true,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    hasTerminal: true,
+    hotswap: false,
+    terminalStartHere: false,
   },
   {
     id: 'codex',
@@ -37,6 +44,12 @@ const PROVIDERS = [
     connected: true,
     enabled: true,
     mcpEnabled: true,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    hasTerminal: true,
+    hotswap: false,
+    terminalStartHere: false,
   },
 ]
 
@@ -47,6 +60,9 @@ const chat = (id: string, providerId: string): AgentChat => ({
   liveRunnerId: `${id}-r`,
   terminalSessionId: `${id}-pty`,
   activeProviderId: providerId,
+  working: false,
+  version: nextVersion(),
+  phase: 'dormant',
   createdAt: '2026-01-01T00:00:00Z',
   order: 0,
 })
@@ -56,7 +72,7 @@ const state = () => getOrCreateWorkspaceStore('w1').getState()
 function seed(chats: AgentChat[] = [chat('c1', 'claude'), chat('c2', 'codex')]) {
   act(() => {
     state().setAgentProviders(PROVIDERS)
-    for (const c of chats) state().upsertAgentChat(c)
+    for (const c of chats) writeChat(getOrCreateWorkspaceStore('w1'), c)
   })
 }
 
@@ -80,18 +96,18 @@ describe('AgentChatTabIcon', () => {
     const { container } = render(<AgentChatTabIcon wsId="w1" chatId="c1" />)
     expect(screen.queryByRole('status')).toBeNull()
 
-    act(() => state().setAgentChatWorking('c1', true))
+    act(() => setChatWorking(getOrCreateWorkspaceStore('w1'), 'c1', true))
     expect(screen.getByRole('status')).toBeTruthy()
     expect(container.querySelector('[data-p="claude"]')).toBeNull()
 
-    act(() => state().setAgentChatWorking('c1', false))
+    act(() => setChatWorking(getOrCreateWorkspaceStore('w1'), 'c1', false))
     expect(screen.queryByRole('status')).toBeNull()
     expect(container.querySelector('[data-p="claude"]')).not.toBeNull()
   })
 
   it('only the working chat’s tab spins', () => {
     const { container } = render(<AgentChatTabIcon wsId="w1" chatId="c2" />)
-    act(() => state().setAgentChatWorking('c1', true))
+    act(() => setChatWorking(getOrCreateWorkspaceStore('w1'), 'c1', true))
     expect(screen.queryByRole('status')).toBeNull()
     expect(container.querySelector('[data-p="codex"]')).not.toBeNull()
   })

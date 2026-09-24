@@ -80,6 +80,12 @@ const provider = (
   connected,
   enabled,
   mcpEnabled,
+  modelSelect: false,
+  effortSelect: false,
+  compaction: false,
+  hasTerminal: true,
+  hotswap: false,
+  terminalStartHere: false,
 })
 
 function store() {

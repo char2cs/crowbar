@@ -80,6 +80,7 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
 import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { nextVersion, seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import { useSettingsStore } from '@/features/settings/store'
 
 // claude FIRST and enabled — the exact catalogue order that made
@@ -97,6 +98,9 @@ const providers: AgentProvider[] = [
     hotswap: true,
     modelSelect: true,
     models: ['opus'],
+    effortSelect: false,
+    compaction: false,
+    terminalStartHere: false,
   },
   {
     id: 'codex',
@@ -109,6 +113,9 @@ const providers: AgentProvider[] = [
     hotswap: true,
     modelSelect: true,
     models: ['gpt-5'],
+    effortSelect: false,
+    compaction: false,
+    terminalStartHere: false,
   },
 ]
 
@@ -123,6 +130,9 @@ function dormantWithUnknownProvider(id: string): AgentChat {
     liveRunnerId: '',
     terminalSessionId: '',
     activeProviderId: '',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant',
     createdAt: '',
     order: 0,
   }
@@ -134,7 +144,7 @@ function detail(chat: AgentChat): AgentChatDetail {
 
 function seededWorkspace(chats: AgentChat[]) {
   const store = createWorkspaceStore('w1')
-  store.getState().seedAgentChats(chats)
+  seedChats(store, chats)
   store.getState().setAgentProviders(providers)
   return store
 }

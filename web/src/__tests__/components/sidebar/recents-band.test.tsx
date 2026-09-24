@@ -16,6 +16,7 @@ import {
   destroyWorkspaceStore,
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
+import { seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import { _resetRecentsChatFallbackForTests } from '@/components/sidebar/lib/use-recents-chat-fallback'
 
 vi.mock('@/features/panes/lib/release-closed-chat', () => ({
@@ -310,9 +311,9 @@ describe('RecentsBand', () => {
     })
 
     it('a 404 from the owner mount forgets it; no other mount is asked', async () => {
-      getOrCreateWorkspaceStore('ws-own')
-        .getState()
-        .seedAgentChats([{ id: 'chat-9', workspaceId: 'ws-own', title: '' } as AgentChat])
+      seedChats(getOrCreateWorkspaceStore('ws-own'), [
+        { id: 'chat-9', workspaceId: 'ws-own', title: '' } as AgentChat,
+      ])
       try {
         getChatFn.mockRejectedValue(new ApiError('not found', 404))
         unknownChat()

@@ -145,6 +145,7 @@ import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useSettingsStore } from '@/features/settings/store'
+import { nextVersion, seedChats, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 const providers: AgentProvider[] = [
   {
@@ -156,6 +157,10 @@ const providers: AgentProvider[] = [
     mcpEnabled: true,
     hasTerminal: true,
     hotswap: false,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    terminalStartHere: false,
   },
   {
     id: 'codex',
@@ -166,6 +171,10 @@ const providers: AgentProvider[] = [
     mcpEnabled: true,
     hasTerminal: true,
     hotswap: true,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    terminalStartHere: false,
   },
 ]
 
@@ -177,6 +186,9 @@ function chatRow(o: { id: string; runnerId: string; pty: string }): AgentChat {
     liveRunnerId: o.runnerId,
     terminalSessionId: o.pty,
     activeProviderId: 'claude',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant',
     createdAt: '',
     order: 0,
   }
@@ -188,7 +200,7 @@ const detail = (chat: AgentChat): AgentChatDetail => ({ ...chat, conversations: 
 function seedWorkspace(chats: AgentChat[]) {
   const store = createWorkspaceStore('w1')
   store.getState().setAgentProviders(providers)
-  store.getState().seedAgentChats(chats)
+  seedChats(store, chats)
   return store
 }
 
@@ -253,7 +265,7 @@ function renderSplit(store: Store, paneA: string, paneB: string) {
  *  first, so the chat is dormant until the replacement lands. This is the WS
  *  `displaced` frame, reproduced. */
 function goDormant(store: Store, chatId: string) {
-  store.getState().upsertAgentChat(detail(dormant(chatId)))
+  writeChat(store, detail(dormant(chatId)))
 }
 
 beforeEach(() => {

@@ -7,6 +7,7 @@ import {
   destroyWorkspaceStore,
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
+import { writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 const { getChatTelemetryFn } = vi.hoisted(() => ({ getChatTelemetryFn: vi.fn() }))
 
@@ -75,9 +76,7 @@ describe('useAgentTelemetry', () => {
     await waitFor(() => expect(result.current?.context?.usedPercent).toBe(10))
     getChatTelemetryFn.mockRejectedValue(new Error('offline'))
     act(() => {
-      store()
-        .getState()
-        .upsertAgentChat({ id: 'c1', surface: 'terminal' } as unknown as AgentChat)
+      writeChat(store(), { id: 'c1', surface: 'terminal' } as unknown as AgentChat)
     })
     await act(async () => {
       await Promise.resolve()
@@ -91,9 +90,7 @@ describe('useAgentTelemetry', () => {
     renderHook(() => useAgentTelemetry('w1', 'c1', true))
     await waitFor(() => expect(getChatTelemetryFn).toHaveBeenCalledTimes(1))
     act(() => {
-      store()
-        .getState()
-        .upsertAgentChat({ id: 'c1', surface: 'terminal' } as unknown as AgentChat)
+      writeChat(store(), { id: 'c1', surface: 'terminal' } as unknown as AgentChat)
     })
     await waitFor(() => expect(getChatTelemetryFn).toHaveBeenCalledTimes(2))
   })

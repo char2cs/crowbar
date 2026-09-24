@@ -12,6 +12,7 @@ import {
   subscribeChatWorking,
   readChatWorking,
 } from '@/features/workspace/stores/workspace-store-registry'
+import { nextVersion, setChatWorking, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 import type { AgentChat } from '@/features/agent/api/agent-api'
 
 const chat = (id: string, workspaceId: string): AgentChat => ({
@@ -21,6 +22,9 @@ const chat = (id: string, workspaceId: string): AgentChat => ({
   liveRunnerId: '',
   terminalSessionId: '',
   activeProviderId: 'claude',
+  working: false,
+  version: nextVersion(),
+  phase: 'dormant',
   createdAt: '2026-01-01T00:00:00Z',
   order: 0,
 })
@@ -161,19 +165,19 @@ describe('workspace-store-registry', () => {
   describe('resolveWorkspaceIdForChat', () => {
     it('returns the id of the registered store whose agentChats.chats names the chat', () => {
       const store = getOrCreateWorkspaceStore('ws-a')
-      store.getState().upsertAgentChat(chat('chat-1', 'ws-a'))
+      writeChat(store, chat('chat-1', 'ws-a'))
       expect(resolveWorkspaceIdForChat('chat-1')).toBe('ws-a')
     })
 
     it('searches every registered store, not just the first', () => {
-      getOrCreateWorkspaceStore('ws-a').getState().upsertAgentChat(chat('chat-a', 'ws-a'))
+      writeChat(getOrCreateWorkspaceStore('ws-a'), chat('chat-a', 'ws-a'))
       const storeB = getOrCreateWorkspaceStore('ws-b')
-      storeB.getState().upsertAgentChat(chat('chat-b', 'ws-b'))
+      writeChat(storeB, chat('chat-b', 'ws-b'))
       expect(resolveWorkspaceIdForChat('chat-b')).toBe('ws-b')
     })
 
     it('returns null when no registered store names the chat', () => {
-      getOrCreateWorkspaceStore('ws-a').getState().upsertAgentChat(chat('chat-1', 'ws-a'))
+      writeChat(getOrCreateWorkspaceStore('ws-a'), chat('chat-1', 'ws-a'))
       expect(resolveWorkspaceIdForChat('chat-never-seen')).toBeNull()
     })
 
@@ -182,7 +186,7 @@ describe('workspace-store-registry', () => {
     })
 
     it('stops naming a chat once its owning store is destroyed', () => {
-      getOrCreateWorkspaceStore('ws-a').getState().upsertAgentChat(chat('chat-1', 'ws-a'))
+      writeChat(getOrCreateWorkspaceStore('ws-a'), chat('chat-1', 'ws-a'))
       expect(resolveWorkspaceIdForChat('chat-1')).toBe('ws-a')
       destroyWorkspaceStore('ws-a')
       expect(resolveWorkspaceIdForChat('chat-1')).toBeNull()
@@ -192,10 +196,8 @@ describe('workspace-store-registry', () => {
       // The whole point of the resolver (Task 26's own review): a chat's
       // owning workspace has to be found on its own terms, independent of
       // whichever workspace happens to be globally "active" elsewhere.
-      getOrCreateWorkspaceStore('ws-active').getState().upsertAgentChat(chat('chat-x', 'ws-active'))
-      getOrCreateWorkspaceStore('ws-background')
-        .getState()
-        .upsertAgentChat(chat('chat-y', 'ws-background'))
+      writeChat(getOrCreateWorkspaceStore('ws-active'), chat('chat-x', 'ws-active'))
+      writeChat(getOrCreateWorkspaceStore('ws-background'), chat('chat-y', 'ws-background'))
       expect(resolveWorkspaceIdForChat('chat-y')).toBe('ws-background')
     })
 
@@ -205,7 +207,7 @@ describe('workspace-store-registry', () => {
       // the owning store is actually registered — this resolver just never
       // relies on the denormalized field to make that true.
       const record = chat('chat-1', 'ws-a')
-      getOrCreateWorkspaceStore('ws-a').getState().upsertAgentChat(record)
+      writeChat(getOrCreateWorkspaceStore('ws-a'), record)
       expect(resolveWorkspaceIdForChat('chat-1')).toBe(record.workspaceId)
     })
 
@@ -220,9 +222,7 @@ describe('workspace-store-registry', () => {
     // (REGISTRY-SCOPED, NOT OMNISCIENT), not a silent gap; this test pins
     // that characteristic down so a future change can't quietly alter it.
     it('resolves to null for a chat whose workspace was evicted, even though a pane can still reference it', () => {
-      getOrCreateWorkspaceStore('ws-evicted')
-        .getState()
-        .upsertAgentChat(chat('chat-1', 'ws-evicted'))
+      writeChat(getOrCreateWorkspaceStore('ws-evicted'), chat('chat-1', 'ws-evicted'))
       expect(resolveWorkspaceIdForChat('chat-1')).toBe('ws-evicted')
 
       // WorkspaceHost's own eviction path: destroy the store, exactly as it
@@ -258,14 +258,14 @@ describe('workspace-store-registry', () => {
       const fired = vi.fn()
       const unsubscribe = subscribeWorkspaceStores(fired)
 
-      getOrCreateWorkspaceStore('ws-fresh').getState().upsertAgentChat(chat('chat-1', 'ws-fresh'))
+      writeChat(getOrCreateWorkspaceStore('ws-fresh'), chat('chat-1', 'ws-fresh'))
 
       expect(fired).toHaveBeenCalled()
       unsubscribe()
     })
 
     it('fires watchers when a store is destroyed — that really does change the answer', () => {
-      getOrCreateWorkspaceStore('ws-doomed').getState().upsertAgentChat(chat('chat-1', 'ws-doomed'))
+      writeChat(getOrCreateWorkspaceStore('ws-doomed'), chat('chat-1', 'ws-doomed'))
       const fired = vi.fn()
       const unsubscribe = subscribeWorkspaceStores(fired)
 
@@ -282,7 +282,7 @@ describe('workspace-store-registry', () => {
       getOrCreateWorkspaceStore('ws-late')
       expect(fired).not.toHaveBeenCalled()
 
-      getOrCreateWorkspaceStore('ws-late').getState().setAgentChatWorking('chat-late', true)
+      setChatWorking(getOrCreateWorkspaceStore('ws-late'), 'chat-late', true)
       expect(fired).toHaveBeenCalled()
       expect(readChatWorking('ws-late', 'chat-late')).toBe(true)
 

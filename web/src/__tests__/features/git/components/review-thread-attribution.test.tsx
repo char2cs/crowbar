@@ -11,6 +11,7 @@
  * ids the code has never heard of on purpose: a provider is only ever a row in
  * the workspace's provider list, resolved by id, whatever that id turns out to be.
  */
+import { nextVersion, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -54,6 +55,12 @@ const PROVIDERS: AgentProvider[] = [
     connected: true,
     enabled: true,
     mcpEnabled: true,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    hasTerminal: true,
+    hotswap: false,
+    terminalStartHere: false,
   },
 ]
 
@@ -64,6 +71,9 @@ const chat = (id: string, title: string): AgentChat => ({
   liveRunnerId: '',
   terminalSessionId: '',
   activeProviderId: 'zeta-cli',
+  working: false,
+  version: nextVersion(),
+  phase: 'dormant',
   createdAt: '2026-01-01T00:00:00Z',
   order: 0,
 })
@@ -73,7 +83,7 @@ const state = () => getOrCreateWorkspaceStore(WS).getState()
 function seed(chats: AgentChat[]) {
   act(() => {
     state().setAgentProviders(PROVIDERS)
-    for (const c of chats) state().upsertAgentChat(c)
+    for (const c of chats) writeChat(getOrCreateWorkspaceStore(WS), c)
   })
 }
 

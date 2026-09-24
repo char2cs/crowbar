@@ -24,6 +24,7 @@ import {
   getFocusedWorkspaceContext,
   publishFocusedWorkspaceContext,
 } from '@/features/window/stores/focused-workspace-context-store'
+import { nextVersion, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 const HOME_PATH = '/projects/p1'
 
@@ -40,13 +41,16 @@ const repo: Repo = {
 }
 
 function seedHomeChat() {
-  getOrCreateWorkspaceStore('ws-home').getState().upsertAgentChat({
+  writeChat(getOrCreateWorkspaceStore('ws-home'), {
     id: 'home-chat',
     workspaceId: 'ws-home',
     title: 'home',
     liveRunnerId: '',
     terminalSessionId: '',
     activeProviderId: 'claude',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant',
     createdAt: '2026-01-01T00:00:00Z',
     order: 0,
   })

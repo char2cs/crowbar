@@ -74,11 +74,18 @@ export interface AgentChat {
    *  (so a dormant chat still shows the right glyph, and Resume knows who to bring
    *  back). '' only on a chat no runner has ever been placed on. */
   activeProviderId: string
-  /** Server-folded turn state. The workspace stream mirrors this into its
-   *  dedicated working map; carrying it on reads makes reconnect/recheck
-   *  authoritative too. */
-  working?: boolean
+  /** Server-folded turn state — the chat aggregate's own fold, carried whole on
+   *  every snapshot. Never derived client-side. */
+  working: boolean
   createdAt: string
+  /**
+   * Orders every answer the daemon gives about this chat, frame or GET: a
+   * snapshot applies only if its version is newer than the one held
+   * (reduce-chat-frame.ts). Larger across daemon restarts too.
+   */
+  version: number
+  /** The chat's lifecycle phase, owned by the daemon. The pane renders it. */
+  phase: ChatPhase
   /**
    * The row this chat hangs off — another CHAT (making this one a thread of it) or
    * a FOLDER. '' is the workspace root.
@@ -126,6 +133,10 @@ export interface AgentChat {
    */
   terminalWait?: AgentTerminalWait
 }
+
+/** Where a chat is in its lifecycle. `dormant` and `live` follow placement;
+ *  the other three are an operation the daemon is running on it right now. */
+export type ChatPhase = 'dormant' | 'starting' | 'live' | 'switching' | 'stopping'
 
 /** What a chat's CLI is blocked on that Crowbar has no channel to answer.
  *
@@ -280,24 +291,21 @@ export interface AgentProvider {
    *  (no auth probe); informational for the New-chat pick, which follows priority. */
   connected: boolean
   /** The provider is offered — `!disabled` in the global preference. A disabled
-   *  provider drops out of every New-chat surface. Defaults to `true`. */
+   *  provider drops out of every New-chat surface. */
   enabled: boolean
   /** Crowbar registers its own tool surface with this provider — `!mcpDisabled` in
    *  the global preference. A SEPARATE axis from `enabled`: a provider with its
    *  tools switched off still spawns, still fires its hooks and still holds a
-   *  normal chat; it just cannot reach into Crowbar. Defaults to `true`. */
+   *  normal chat; it just cannot reach into Crowbar. */
   mcpEnabled: boolean
   /**
    * Whether this provider's descriptor declares a model / effort catalogue AT ALL.
    *
    * False means the picker DOES NOT EXIST for it — absent UI, never a disabled
-   * control implying breakage. They default to false rather than true (unlike
-   * mcpEnabled) because that is the safe direction here: a daemon that does not
-   * send them is one whose descriptors declare no catalogue, and rendering an
-   * empty picker over that would invent a capability.
+   * control implying breakage.
    */
-  modelSelect?: boolean
-  effortSelect?: boolean
+  modelSelect: boolean
+  effortSelect: boolean
   /**
    * The provider declares a compaction gesture (`compact_start`) — claude's
    * `/compact` injection, or an API transport's own call.
@@ -305,26 +313,18 @@ export interface AgentProvider {
    * Key presence, like everything else here: a provider that declares none gets
    * NO compact control, and `POST /compact` answers 404 for it.
    */
-  compaction?: boolean
+  compaction: boolean
   /**
    * Whether this provider's terminal surface EXISTS AT ALL — structural, not a
-   * capability the descriptor opts into. Defaults to `true` on omission: every
-   * shipped provider today spawns a real PTY, so an OLDER daemon that predates
-   * this field is describing exactly that reality, and defaulting `false` would
-   * hide the view switcher for every existing install until the daemon catches
-   * up. This is the opposite direction from every OTHER capability key on this
-   * type, deliberately: those gate a control that does not exist yet, and
-   * defaulting them on hides nothing that was already there.
+   * capability the descriptor opts into.
    */
-  hasTerminal?: boolean
+  hasTerminal: boolean
   /**
    * Whether this provider's chat and terminal faces can be live at the same
-   * instant. Defaults to `false` on omission, the same direction as
-   * modelSelect/effortSelect/compaction: an older daemon or an undeclared
-   * descriptor gets the conservative answer, and the user is asked to finish
-   * the turn rather than being handed a swap nobody verified.
+   * instant. When false the user is asked to finish the turn rather than
+   * being handed a swap nobody verified.
    */
-  hotswap?: boolean
+  hotswap: boolean
   /**
    * Whether a BRAND-NEW chat may be launched DIRECTLY onto this provider's
    * terminal surface, rather than reached only by switching to it after a
@@ -334,14 +334,8 @@ export interface AgentProvider {
    * already forks (descriptor `terminal: { channel: hooks, start_here: true }`).
    * The idle-only sequential handoff is `attach` — the api channel's way back
    * onto an EXISTING session, which says nothing about landing.
-   *
-   * Defaults to `false` on omission — the SAME direction as hotswap/
-   * compaction/the selection capabilities, unlike hasTerminal's own
-   * opposite-direction default: an older daemon that predates this field is
-   * silent about a NEW capability, not describing an old reality every
-   * provider already had.
    */
-  terminalStartHere?: boolean
+  terminalStartHere: boolean
   /** The declared model catalogue, in DESCRIPTOR ORDER. Never re-sorted: the
    *  order is the provider's own ranking. */
   models?: string[]
@@ -383,7 +377,7 @@ export interface ProviderPreference {
 
 // ── Mappers (wire → store types). Identity today, but kept explicit so a
 //    future wire/store divergence changes one place (review-api idiom). ──
-function mapChat(c: AgentChat): AgentChat {
+export function mapChat(c: AgentChat): AgentChat {
   return {
     id: c.id,
     workspaceId: c.workspaceId,
@@ -392,8 +386,10 @@ function mapChat(c: AgentChat): AgentChat {
     terminalSessionId: c.terminalSessionId,
     surface: c.surface,
     activeProviderId: c.activeProviderId,
-    working: c.working ?? false,
+    working: c.working,
     createdAt: c.createdAt,
+    version: c.version,
+    phase: c.phase,
     // Grounded here, once, so nothing downstream has to remember that an absent
     // parent and a root parent are the same thing. `order` defaults to 0, which
     // ties every chat on a daemon that has not placed them yet — the tree breaks
@@ -887,38 +883,12 @@ export async function getSlashCatalog(
   return { ...raw, items: raw?.items ?? [], warnings: raw?.warnings ?? [] }
 }
 
-// Map a wire provider into the store shape, defaulting the three enrichment flags
-// so a backend row that omits them still reads sanely: never connected (install is
-// never assumed), enabled (a provider with no stored preference is offered —
-// spec §3.1), and with its tool surface on (the backend stores the NEGATIVE
-// mcpDisabled, so an absent field there means enabled here — a default in the
-// other direction would silently strip Crowbar's tools from an older daemon's
-// providers). The backend always sends all three today; the defaults are
-// belt-and-braces.
+// Every capability flag is always on the wire (the DTO has no omitempty on
+// them); only the catalogues are omitted when empty, and no-catalogue must
+// render as no picker rather than an empty one.
 function mapProvider(p: AgentProvider): AgentProvider {
   return {
-    id: p.id,
-    displayName: p.displayName,
-    icon: p.icon,
-    connected: p.connected ?? false,
-    enabled: p.enabled ?? true,
-    mcpEnabled: p.mcpEnabled ?? true,
-    // Both selection capabilities default OFF and both catalogues default EMPTY:
-    // "this provider declares none" is what an older daemon's silence actually
-    // means, and no-catalogue must render as no picker rather than an empty one.
-    modelSelect: p.modelSelect ?? false,
-    effortSelect: p.effortSelect ?? false,
-    // Same direction and for the same reason: silence means the descriptor
-    // declares no compaction gesture, and POST /compact answers 404 for it.
-    compaction: p.compaction ?? false,
-    // Opposite direction from every capability above: an omitted hasTerminal
-    // describes an older daemon whose providers all had a real terminal, not a
-    // provider that lacks one — see the field's own doc comment.
-    hasTerminal: p.hasTerminal ?? true,
-    hotswap: p.hotswap ?? false,
-    // Same conservative direction as hotswap: silence is a daemon that has
-    // not declared this NEW capability, never evidence it should be on.
-    terminalStartHere: p.terminalStartHere ?? false,
+    ...p,
     models: p.models ?? [],
     efforts: p.efforts ?? {},
     permissionLevels: p.permissionLevels ?? [],
@@ -947,7 +917,7 @@ export async function listProviders(wsId: string): Promise<AgentProvider[]> {
  */
 export function providerCanStartOnTerminal(provider: AgentProvider | undefined): boolean {
   if (!provider) return true
-  return provider.hasTerminal !== false && provider.terminalStartHere === true
+  return provider.hasTerminal && provider.terminalStartHere
 }
 
 /**
