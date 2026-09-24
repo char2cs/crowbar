@@ -2,7 +2,6 @@ mod api_proxy;
 mod diagnostics;
 mod fdlimit;
 mod sidecar;
-mod terminal;
 mod ws_bridge;
 
 #[cfg(test)]
@@ -462,7 +461,7 @@ const CLOSE_WINDOW_MENU_ID: &str = "close_window";
 /// message loop, the whole script context freezes (not just this one invoke)
 /// until it resolves. This is exactly the "invoke hangs the page" symptom Task
 /// 30 reported; it is not an ACL denial (see above). Every other IPC command in
-/// this file (terminal.rs, ws_bridge.rs, diagnostics.rs) is already `async` for
+/// this file (ws_bridge.rs, diagnostics.rs) is already `async` for
 /// this reason — this one just wasn't (Task 28). `spawn_blocking` moves the
 /// actual blocking call onto a dedicated blocking-pool thread so a slow Finder
 /// round trip no longer holds up the UI.
@@ -1112,7 +1111,6 @@ pub fn run() {
 
     builder
         .manage(sidecar::SidecarHandle::new())
-        .manage(terminal::TerminalManager::new())
         .manage(ws_bridge::WsBridgeManager::new())
         // A page load orphans every bridged connection the outgoing page owned: its JS
         // is gone and will never close ids it no longer remembers, and the new page
@@ -1127,8 +1125,6 @@ pub fn run() {
             }
             let app = webview.app_handle();
             app.state::<ws_bridge::WsBridgeManager>()
-                .close_for_window(webview.label());
-            app.state::<terminal::TerminalManager>()
                 .close_for_window(webview.label());
         })
         .setup(move |app| {
@@ -1179,9 +1175,9 @@ pub fn run() {
 
                 // Retire this window's transports FIRST, whether or not it is the last
                 // window. A closing window orphans its connections exactly as a
-                // reloading one does — its JS is gone and will never call `ws_close` or
-                // `terminal_close` — and `on_page_load` cannot cover it, because a
-                // window that closes never loads a page again.
+                // reloading one does — its JS is gone and will never call `ws_close` —
+                // and `on_page_load` cannot cover it, because a window that closes never
+                // loads a page again.
                 //
                 // This did not matter while any window's close took the whole app down
                 // with it. Now that a non-last close returns early below, a stranded
@@ -1191,8 +1187,6 @@ pub fn run() {
                 // same window (CloseRequested then Destroyed) is a no-op.
                 let app = window.app_handle();
                 app.state::<ws_bridge::WsBridgeManager>()
-                    .close_for_window(label);
-                app.state::<terminal::TerminalManager>()
                     .close_for_window(label);
 
                 // The sidecar is app-wide, so only the LAST window closing may take it
@@ -1207,12 +1201,6 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            terminal::terminal_open,
-            terminal::terminal_send,
-            terminal::terminal_resize,
-            terminal::terminal_resync,
-            terminal::terminal_set_theme,
-            terminal::terminal_close,
             ws_bridge::ws_open,
             ws_bridge::ws_send,
             ws_bridge::ws_close,

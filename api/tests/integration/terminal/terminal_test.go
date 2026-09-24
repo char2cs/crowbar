@@ -370,9 +370,8 @@ func (s *TerminalSuite) TestTerminal_PTYWSAtScopedPath() {
 
 	ws := s.Env.DialTerminalPTY(t, s.chatID, sessionID)
 	frame := ws.ReadMsg(t, 10*time.Second)
-	s.Require().Contains(frame, "sessionId", "wire frame must contain sessionId field")
-	s.Assert().Equal(sessionID, frame["sessionId"], "frame sessionId must match")
-	s.Require().Contains(frame, "data", "wire frame must contain data field")
+	s.Require().Contains(frame, "data", "the first PTY frame must be output")
+	s.Assert().Equal(true, frame["snapshot"], "the first frame after attach is the snapshot")
 
 	// Kill and block on the "ended" frame so the PTY shell (CWD = worktree) is
 	// reaped before TempDir teardown.

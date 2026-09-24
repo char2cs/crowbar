@@ -15,7 +15,6 @@ package terminal_test
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -41,8 +40,8 @@ import (
 // freshly attached client); a frame without it is live output the restored PTY
 // produced just now.
 type restartFrame struct {
-	Data     string `json:"data"`
-	Snapshot bool   `json:"snapshot"`
+	Data     string
+	Snapshot bool
 }
 
 // restartConn implements core/terminal.WSConn. WriteMessage decodes each frame
@@ -66,7 +65,10 @@ func newRestartConn() *restartConn {
 
 func (r *restartConn) WriteMessage(_ int, data []byte) error {
 	var f restartFrame
-	_ = json.Unmarshal(data, &f) // a frame we cannot decode simply matches nothing
+	// A frame that is not output (the JSON exit frame) simply matches nothing.
+	if payload, snapshot, ok := engineterminal.ParseOutputFrame(data); ok {
+		f = restartFrame{Data: string(payload), Snapshot: snapshot}
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.inbox = append(r.inbox, f)

@@ -213,13 +213,11 @@ func waitForMsg(
 // connMatches reports whether any frame received so far satisfies pred.
 func connMatches(conn *mockConn, pred func(string) bool) bool {
 	for _, raw := range conn.allReceived() {
-		var msg struct {
-			Data string `json:"data"`
-		}
-		if err := json.Unmarshal(raw, &msg); err != nil {
+		data, _, ok := terminal.ParseOutputFrame(raw)
+		if !ok {
 			continue
 		}
-		if pred(msg.Data) {
+		if pred(string(data)) {
 			return true
 		}
 	}
@@ -446,39 +444,6 @@ func TestEngine_Attach_DeadSession(t *testing.T) {
 	conn.Close()
 	err = eng.Attach(ctx, "gone-session", conn)
 	assert.Error(t, err)
-}
-
-// TestEngine_Attach_ResyncMessage covers the readPump "resync" dispatch: the
-// message must route to Session.Resync (a no-op at the idle prompt — the gate
-// itself is pinned by the session package's resync tests) without being
-// written to the PTY as input.
-func TestEngine_Attach_ResyncMessage(t *testing.T) {
-	eng := terminal.New()
-	terminal.StopMaintenanceForTest(eng)
-	ctx := context.Background()
-	dir := t.TempDir()
-
-	sid, err := eng.Create(ctx, "chat-1", dir, nil)
-	require.NoError(t, err)
-
-	resyncMsg, _ := json.Marshal(map[string]any{"type": "resync"})
-	msgs := [][]byte{resyncMsg, resyncMsg}
-	conn := newSeqConn(msgs)
-
-	attachDone := make(chan struct{})
-	go func() {
-		defer close(attachDone)
-		_ = eng.Attach(ctx, sid, conn)
-	}()
-
-	// Block on the real signal. A hand-rolled deadline here would only be a second,
-	// weaker definition of "too slow"; if this never fires it is a hang, and `go test
-	// -timeout` reports it with the blocked stack.
-	<-conn.allConsumed
-
-	conn.Close()
-	require.NoError(t, eng.Kill(ctx, sid))
-	<-attachDone
 }
 
 func TestEngine_Attach_ResizeMessage(t *testing.T) {

@@ -57,7 +57,7 @@ const responseReplyBufDepth = 64
 // Snapshot marks a self-contained ground-state redraw (the serialized model)
 // rather than incremental PTY bytes: the client must RESET its local buffer
 // before applying Data, replacing whatever it accumulated — the mechanism
-// behind both the attach redraw and the post-resize resync.
+// behind both the attach redraw and the post-resize keyframe.
 type OutputFrame struct {
 	SessionID string
 	Data      []byte
@@ -593,37 +593,6 @@ func (s *Session) Attach() (<-chan OutputFrame, error) {
 	return cl.send, nil
 }
 
-// Resync re-emits the serialized ground-state redraw to every attached client
-// as a Snapshot frame. It is the post-resize convergence path: xterm's
-// client-side reflow deposits stale copies of a repainting TUI into the LOCAL
-// scrollback on every resize, while this model never reflows — so replacing
-// the client buffer with the model state removes the junk.
-//
-// Gated on a foreground app being present: at an idle shell prompt xterm's
-// native reflow is already correct (append-only output) and a resync would
-// only cost the client its scroll position. Returns true when a resync was emitted. A
-// client whose send buffer is full is disconnected (drop-on-overflow; it re-attaches to
-// a fresh keyframe).
-func (s *Session) Resync() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.model == nil || s.isIdleLocked() {
-		return false
-	}
-	s.checkForegroundResetLocked()
-
-	// One mechanism: invalidate the diff base so emitFrameLocked's next Emit demands a
-	// keyframe, then let it serialize + fan out + re-prime — the exact path the pump uses
-	// for a post-resize keyframe. Cancel any armed trailing frame-clock timer first: the
-	// keyframe reflects every chunk written so far, so it subsumes that pending delta.
-	s.stopEmitTimerLocked()
-	s.emitter.Invalidate()
-	s.emitFrameLocked()
-	s.lastEmitAt = s.now()
-	return true
-}
-
 // Detach removes a client from the fan-out set and closes its channel.
 func (s *Session) Detach(
 	ch <-chan OutputFrame,
@@ -943,7 +912,7 @@ func (s *Session) scheduleEmitLocked() bool {
 
 // stopEmitTimerLocked cancels an armed trailing emit timer, if any, without
 // running the emit it would otherwise have performed. Used at lifecycle
-// boundaries (Resync, teardown) that either perform their own equivalent
+// boundaries (teardown) that either perform their own equivalent
 // emit or no longer need one, so a stale timer can never fire a redundant or
 // out-of-order frame afterward. Caller holds s.mu.
 func (s *Session) stopEmitTimerLocked() {
@@ -974,7 +943,7 @@ func (s *Session) flushPendingEmitLocked() {
 // frame normally, a snapshot keyframe when the emitter demands one (see
 // model.DiffEmitter.Emit for the canonical, exhaustive keyframe-trigger list).
 // Caller holds s.mu. Reached either synchronously from
-// scheduleEmitLocked/flushPendingEmitLocked or directly by Attach/Resync's own
+// scheduleEmitLocked/flushPendingEmitLocked or directly by Attach's own
 // forced keyframes, which always reflect the full current model state regardless
 // of the frame clock.
 func (s *Session) emitFrameLocked() {

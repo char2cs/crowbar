@@ -1,43 +1,48 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 
-// vi.hoisted runs before the vi.mock factories below, so the bridge spies and
-// the captured listen callback exist when the mock module is constructed.
-const bridge = vi.hoisted(() => {
-  type Frame = { data: string; snapshot: boolean } | { exit: true; code: number }
-  let listenCb: ((frame: Frame) => void) | null = null
-  return {
-    terminalWrite: vi.fn(async () => {}),
-    terminalResize: vi.fn(async () => {}),
-    terminalResync: vi.fn(async () => {}),
-    terminalSetTheme: vi.fn(async () => {}),
-    // Never called by the hook: nothing on the client may end a PTY because of what was
-    // typed. Kept in the mock so the P0-6 test can prove that.
-    terminalClose: vi.fn(async () => {}),
-    terminalListen: vi.fn((_id: string, onFrame: (frame: Frame) => void) => {
-      listenCb = onFrame
+// A fake TerminalConnection the test drives by hand: the hook binds to whatever
+// connection object it is given, so frames are delivered through its captured
+// listener and everything the hook sends is recorded.
+function makeFakeConnection() {
+  type Frame = { data: Uint8Array; snapshot: boolean } | { exit: true; code: number }
+  let listener: ((frame: Frame) => void) | null = null
+  const conn = {
+    alive: true,
+    written: [] as string[],
+    write: vi.fn((data: string) => {
+      conn.written.push(data)
+    }),
+    resize: vi.fn(),
+    setTheme: vi.fn(),
+    close: vi.fn(),
+    onDrop: vi.fn(() => () => {}),
+    listen: vi.fn((cb: (frame: Frame) => void) => {
+      listener = cb
       return () => {
-        listenCb = null
+        if (listener === cb) listener = null
       }
     }),
-    // Simulate a PTY output frame arriving from the daemon.
-    deliver: (data: string, snapshot = false) => listenCb?.({ data, snapshot }),
-    // Simulate the daemon's exit frame.
-    exit: (code: number) => listenCb?.({ exit: true, code }),
-    reset: () => {
-      listenCb = null
-    },
   }
+  return {
+    conn,
+    // Simulate a PTY output frame arriving from the daemon.
+    deliver: (data: string, snapshot = false) =>
+      listener?.({ data: new TextEncoder().encode(data), snapshot }),
+    // Simulate the daemon's exit frame.
+    exit: (code: number) => listener?.({ exit: true, code }),
+  }
+}
+
+// The connection each render binds to; beforeEach hooks replace it.
+let bridge = makeFakeConnection()
+beforeEach(() => {
+  bridge = makeFakeConnection()
 })
 
-vi.mock('@/lib/crowbar-bridge', () => ({
-  terminalWrite: bridge.terminalWrite,
-  terminalResize: bridge.terminalResize,
-  terminalResync: bridge.terminalResync,
-  terminalSetTheme: bridge.terminalSetTheme,
-  terminalClose: bridge.terminalClose,
-  terminalListen: bridge.terminalListen,
-}))
+// xterm's write() takes a string or bytes; the fakes record both as text.
+const asText = (data: string | Uint8Array) =>
+  typeof data === 'string' ? data : new TextDecoder().decode(data)
 
 // Capturing themeRegistry mock: fire() invokes the hook's registered onThemeChange
 // callback so a test can simulate a light<->dark switch.
@@ -73,8 +78,8 @@ function makeFakeTerminal() {
   const scrollToBottom = vi.fn()
   const refresh = vi.fn()
   const reset = vi.fn(() => order.push('reset'))
-  const write = vi.fn((data: string, cb?: () => void) => {
-    order.push(`write:${data}`)
+  const write = vi.fn((data: string | Uint8Array, cb?: () => void) => {
+    order.push(`write:${asText(data)}`)
     cb?.()
   })
   const disposable = () => ({ dispose: () => {} })
@@ -117,10 +122,10 @@ function makeFakeTerminal() {
 function renderConnection(terminal: unknown, overrides: Record<string, unknown> = {}) {
   return renderHook(() =>
     useTerminalConnection({
-      connectionId: 'conn-1',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      connection: bridge.conn as any,
+      created: false,
       getTerminalTheme: () => ({}),
-      isInitialized: true,
-      reconnectKey: 0,
       sessionId: 'sess-1',
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       terminal: terminal as any,
@@ -131,11 +136,7 @@ function renderConnection(terminal: unknown, overrides: Record<string, unknown> 
 }
 
 describe('useTerminalConnection — re-attach viewport finalize', () => {
-  beforeEach(() => {
-    bridge.terminalListen.mockClear()
-    bridge.terminalResync.mockClear()
-    bridge.reset()
-  })
+  beforeEach(() => {})
 
   afterEach(() => {
     vi.restoreAllMocks()
@@ -152,7 +153,7 @@ describe('useTerminalConnection — re-attach viewport finalize', () => {
     })
 
     expect(write).toHaveBeenCalledTimes(1)
-    expect(write.mock.calls[0][0]).toBe('REPLAYED SCROLLBACK')
+    expect(asText(write.mock.calls[0][0])).toBe('REPLAYED SCROLLBACK')
     expect(scrollToBottom).toHaveBeenCalledTimes(1)
     expect(refresh).toHaveBeenCalledTimes(1)
     // refresh must repaint every visible row (0..rows-1).
@@ -187,17 +188,14 @@ describe('useTerminalConnection — re-attach viewport finalize', () => {
       bridge.deliver('incremental chunk')
     })
 
-    expect(write).toHaveBeenCalledWith('incremental chunk', expect.any(Function))
+    expect(asText(write.mock.calls[0][0])).toBe('incremental chunk')
+    expect(write.mock.calls[0][1]).toEqual(expect.any(Function))
     expect(rafSpy).not.toHaveBeenCalled()
   })
 })
 
 describe('useTerminalConnection — snapshot frames (attach redraw / resize resync)', () => {
-  beforeEach(() => {
-    bridge.terminalListen.mockClear()
-    bridge.terminalResync.mockClear()
-    bridge.reset()
-  })
+  beforeEach(() => {})
 
   afterEach(() => {
     vi.restoreAllMocks()
@@ -248,7 +246,9 @@ describe('useTerminalConnection — snapshot frames (attach redraw / resize resy
       bridge.deliver('after')
     })
 
-    const written = (write.mock.calls as [string][]).map(([d]) => d).filter((d) => d !== '')
+    const written = (write.mock.calls as [string | Uint8Array][])
+      .map(([d]) => asText(d))
+      .filter((d) => d !== '')
     expect(written).toEqual(['CLEAN REDRAW', 'after'])
     expect(reset).toHaveBeenCalledTimes(1)
   })
@@ -295,7 +295,8 @@ function makeAsyncFakeTerminal() {
   const scrollToBottom = vi.fn()
   const refresh = vi.fn()
   const reset = vi.fn(() => order.push('reset'))
-  const write = vi.fn((data: string, cb?: () => void) => {
+  const write = vi.fn((raw: string | Uint8Array, cb?: () => void) => {
+    const data = asText(raw)
     order.push(`enqueue:${data}`)
     queue.push({ data, cb })
   })
@@ -332,11 +333,7 @@ function makeAsyncFakeTerminal() {
 }
 
 describe('useTerminalConnection — snapshot latch vs async xterm write queue', () => {
-  beforeEach(() => {
-    bridge.terminalListen.mockClear()
-    bridge.terminalResync.mockClear()
-    bridge.reset()
-  })
+  beforeEach(() => {})
 
   afterEach(() => {
     vi.restoreAllMocks()
@@ -411,10 +408,10 @@ function reset_not_called(terminal: { reset: ReturnType<typeof vi.fn> }) {
   return terminal.reset.mock.calls.length === 0
 }
 
-// Renders with rerenderable props so tests can bump reconnectKey mid-test to
-// force the main effect to tear down and re-run on the SAME terminal instance
-// (simulating a transport-drop re-attach), unlike renderConnection() above
-// which fixes all props for the hook's lifetime.
+// Renders with rerenderable props so tests can hand in a NEW connection mid-test
+// — a transport-drop re-attach — forcing the main effect to tear down and re-run
+// on the SAME terminal instance, unlike renderConnection() above which fixes all
+// props for the hook's lifetime.
 function renderConnectionRerenderable(
   terminal: unknown,
   initialOverrides: Record<string, unknown> = {},
@@ -422,10 +419,10 @@ function renderConnectionRerenderable(
   return renderHook(
     (props: Record<string, unknown>) =>
       useTerminalConnection({
-        connectionId: 'conn-1',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        connection: bridge.conn as any,
+        created: false,
         getTerminalTheme: () => ({}),
-        isInitialized: true,
-        reconnectKey: 0,
         sessionId: 'sess-1',
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         terminal: terminal as any,
@@ -437,11 +434,7 @@ function renderConnectionRerenderable(
 }
 
 describe('useTerminalConnection — generation-guarded snapshot barrier (R3-1)', () => {
-  beforeEach(() => {
-    bridge.terminalListen.mockClear()
-    bridge.terminalResync.mockClear()
-    bridge.reset()
-  })
+  beforeEach(() => {})
 
   afterEach(() => {
     vi.restoreAllMocks()
@@ -498,9 +491,9 @@ describe('useTerminalConnection — generation-guarded snapshot barrier (R3-1)',
     ])
   })
 
-  it('stale barrier across an effect re-run (reconnectKey bump) never fires against the new connection', () => {
+  it('stale barrier across a re-attach (a new connection) never fires against the new connection', () => {
     const { terminal, reset, order, drainWrites } = makeAsyncFakeTerminal()
-    const { rerender } = renderConnectionRerenderable(terminal, { reconnectKey: 0 })
+    const { rerender } = renderConnectionRerenderable(terminal, {})
 
     act(() => {
       // S1 latches on the FIRST effect instance and its barrier is enqueued —
@@ -509,11 +502,13 @@ describe('useTerminalConnection — generation-guarded snapshot barrier (R3-1)',
     })
     expect(order).toEqual(['enqueue:'])
 
-    // Simulate a transport-drop re-attach: reconnectKey bumps, the main
-    // effect tears down (bumping the generation + clearing the latch) and
-    // re-runs, re-registering terminalListen on the same terminal instance.
+    // Simulate a transport-drop re-attach: a new connection is handed in, the
+    // main effect tears down (bumping the generation) and re-runs, listening on
+    // the new connection with the same terminal instance.
+    bridge = makeFakeConnection()
     act(() => {
-      rerender({ reconnectKey: 1 })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      rerender({ connection: bridge.conn as any })
     })
 
     act(() => {
@@ -542,44 +537,8 @@ describe('useTerminalConnection — generation-guarded snapshot barrier (R3-1)',
   })
 })
 
-describe('useTerminalConnection — debounced resize resync', () => {
-  beforeEach(() => {
-    bridge.terminalListen.mockClear()
-    bridge.terminalResize.mockClear()
-    bridge.terminalResync.mockClear()
-    bridge.reset()
-    vi.useFakeTimers()
-  })
-
-  afterEach(() => {
-    vi.useRealTimers()
-    vi.restoreAllMocks()
-  })
-
-  it('requests one resync after the last onResize of a gesture', () => {
-    const { terminal, fireResize } = makeFakeTerminal()
-    renderConnection(terminal)
-
-    act(() => {
-      fireResize({ cols: 100, rows: 30 })
-      fireResize({ cols: 110, rows: 28 })
-      fireResize({ cols: 120, rows: 25 })
-    })
-    expect(bridge.terminalResync).not.toHaveBeenCalled()
-
-    act(() => {
-      vi.advanceTimersByTime(300)
-    })
-    expect(bridge.terminalResync).toHaveBeenCalledTimes(1)
-    expect(bridge.terminalResync).toHaveBeenCalledWith('conn-1')
-    // Every resize still syncs the PTY dimensions immediately.
-    expect(bridge.terminalResize).toHaveBeenCalledTimes(3)
-  })
-})
-
 describe('useTerminalConnection — theme propagation', () => {
   beforeEach(() => {
-    bridge.terminalSetTheme.mockClear()
     themeReg.reset()
   })
 
@@ -591,8 +550,7 @@ describe('useTerminalConnection — theme propagation', () => {
     const { terminal } = makeFakeTerminal()
     renderConnection(terminal)
 
-    expect(bridge.terminalSetTheme).toHaveBeenCalledWith(
-      'conn-1',
+    expect(bridge.conn.setTheme).toHaveBeenCalledWith(
       expect.objectContaining({
         background: expect.any(String),
         foreground: expect.any(String),
@@ -604,25 +562,19 @@ describe('useTerminalConnection — theme propagation', () => {
   it('re-pushes the theme when the app theme switches', () => {
     const { terminal } = makeFakeTerminal()
     renderConnection(terminal)
-    bridge.terminalSetTheme.mockClear()
 
     act(() => {
       themeReg.fire()
     })
 
-    expect(bridge.terminalSetTheme).toHaveBeenCalledTimes(1)
-    expect(bridge.terminalSetTheme).toHaveBeenCalledWith('conn-1', expect.any(Object))
+    expect(bridge.conn.setTheme).toHaveBeenCalledTimes(2) // attach + switch
   })
 })
 
 // P0-6 / B4: the daemon's exit frame is the only thing that ends a terminal. Typing
 // "exit" is ordinary input — inside ssh, a REPL or an agent TUI it ends nothing.
 describe('useTerminalConnection — exit is daemon-authoritative', () => {
-  beforeEach(() => {
-    bridge.terminalListen.mockClear()
-    bridge.terminalWrite.mockClear()
-    bridge.reset()
-  })
+  beforeEach(() => {})
 
   it('forwards a typed "exit" verbatim and does not end the terminal', async () => {
     vi.useFakeTimers()
@@ -643,9 +595,8 @@ describe('useTerminalConnection — exit is daemon-authoritative', () => {
     })
     vi.useRealTimers()
 
-    const written = bridge.terminalWrite.mock.calls.map((c: unknown[]) => c[1]).join('')
-    expect(written).toBe('exit\r')
-    expect(bridge.terminalClose).not.toHaveBeenCalled()
+    expect(bridge.conn.written.join('')).toBe('exit\r')
+    expect(bridge.conn.close).not.toHaveBeenCalled()
     expect(onTerminalExit).not.toHaveBeenCalled()
   })
 
@@ -660,5 +611,59 @@ describe('useTerminalConnection — exit is daemon-authoritative', () => {
     })
 
     expect(onTerminalExit).toHaveBeenCalledExactlyOnceWith('sess-1')
+  })
+})
+
+describe('useTerminalConnection — initial command', () => {
+  it("runs a fresh shell's initial command once, on its first frame — no timer", () => {
+    const { terminal } = makeFakeTerminal()
+    const { rerender } = renderConnectionRerenderable(terminal, {
+      created: true,
+      initialCommand: 'npm test',
+    })
+    expect(bridge.conn.written).toEqual([])
+    act(() => {
+      bridge.deliver('PROMPT$ ', true)
+      bridge.deliver('more')
+    })
+    // A re-render that re-binds the same connection must not send it again.
+    act(() => {
+      rerender({ created: true, initialCommand: 'npm test', updateSession: () => {} })
+    })
+    act(() => {
+      bridge.deliver('even more')
+    })
+    expect(bridge.conn.written).toEqual(['npm test\n'])
+  })
+
+  it('never runs it on a session this view merely re-attached to', () => {
+    const { terminal } = makeFakeTerminal()
+    renderConnection(terminal, { created: false, initialCommand: 'npm test' })
+    act(() => {
+      bridge.deliver('PROMPT$ ', true)
+    })
+    expect(bridge.conn.written).toEqual([])
+  })
+})
+
+describe('useTerminalConnection — input across a re-attach', () => {
+  it('holds keystrokes typed with no connection and sends them, in order, once one arrives', () => {
+    const { terminal, type } = makeFakeTerminal()
+    const first = bridge
+    const { rerender } = renderConnectionRerenderable(terminal, {})
+    act(() => {
+      rerender({ connection: null })
+    })
+    act(() => {
+      type('ls')
+      type('\r')
+    })
+    expect(first.conn.written).toEqual([])
+    bridge = makeFakeConnection()
+    act(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      rerender({ connection: bridge.conn as any })
+    })
+    expect(bridge.conn.written).toEqual(['ls\r'])
   })
 })

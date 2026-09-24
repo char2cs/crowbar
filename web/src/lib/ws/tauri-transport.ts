@@ -9,8 +9,10 @@
 // `TauriWebSocket` presents the subset of the `WebSocket` interface the
 // `wsManager` relies on (onopen/onmessage/onclose/onerror, send, close,
 // readyState + the CONNECTING/OPEN/CLOSED constants) so the manager stays
-// transport-agnostic. Frames arrive RAW (the whole DTO text) and are surfaced as
-// `{ data: text }` to mirror the native `MessageEvent` shape the manager parses.
+// transport-agnostic. Frames arrive RAW and are surfaced as `{ data }` to mirror
+// the native `MessageEvent` shape: a text frame as its string, a binary frame
+// (the terminal's PTY output) as an ArrayBuffer — what a native WebSocket with
+// `binaryType = 'arraybuffer'` delivers.
 
 import { Channel, invoke } from '@tauri-apps/api/core'
 
@@ -25,7 +27,7 @@ export class TauriWebSocket {
   static readonly CLOSED = 3
 
   onopen: (() => void) | null = null
-  onmessage: ((event: { data: string }) => void) | null = null
+  onmessage: ((event: { data: string | ArrayBuffer }) => void) | null = null
   onclose: (() => void) | null = null
   onerror: ((event: unknown) => void) | null = null
 
@@ -42,13 +44,18 @@ export class TauriWebSocket {
   // real ws_close to the ws_open .then() instead.
   private closed = false
 
-  constructor(path: string) {
+  /**
+   * `idleTimeoutMs`: judge the socket half-open — and close it — when the daemon
+   * sends nothing at all (not even a ping) for this long. Only for streams whose
+   * daemon side pings; unset means never.
+   */
+  constructor(path: string, options?: { idleTimeoutMs?: number }) {
     this.connId = crypto.randomUUID()
 
     // The Channel carries each raw text frame the Rust reader forwards; surface
     // it as a MessageEvent-like `{ data }` so the manager's onmessage parses it
     // exactly as it would a native frame.
-    const channel = new Channel<string>()
+    const channel = new Channel<string | ArrayBuffer>()
     channel.onmessage = (text) => {
       // A daemon-side close (restart/timeout/error) arrives as the sentinel:
       // surface it as a close so wsManager reconnects and the §6 cache re-seeds.
@@ -61,7 +68,12 @@ export class TauriWebSocket {
       this.onmessage?.({ data: text })
     }
 
-    invoke('ws_open', { connId: this.connId, path, onMessage: channel })
+    invoke('ws_open', {
+      connId: this.connId,
+      path,
+      onMessage: channel,
+      idleTimeoutMs: options?.idleTimeoutMs ?? null,
+    })
       .then(() => {
         // Closed while CONNECTING: the Rust connection is only now registered,
         // so issue the deferred ws_close to tear it down. Per the WebSocket

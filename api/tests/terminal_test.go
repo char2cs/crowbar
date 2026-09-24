@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -70,16 +71,11 @@ func readTerminalUntil(
 		if err != nil {
 			return false
 		}
-		if mt != websocket.TextMessage {
+		if mt != websocket.BinaryMessage {
 			continue
 		}
-		var msg struct {
-			Data string `json:"data"`
-		}
-		if json.Unmarshal(raw, &msg) != nil {
-			continue
-		}
-		if strings.Contains(msg.Data, want) {
+		data, _, ok := terminal.ParseOutputFrame(raw)
+		if ok && strings.Contains(string(data), want) {
 			return true
 		}
 	}

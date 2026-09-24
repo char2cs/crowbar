@@ -4,7 +4,6 @@ package terminal_test
 
 import (
 	"context"
-	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -85,13 +84,11 @@ func waitForOutput(
 ) {
 	t.Helper()
 	for raw := range conn.inbox {
-		var msg struct {
-			Data string `json:"data"`
-		}
-		if err := json.Unmarshal(raw, &msg); err != nil {
+		data, _, ok := terminal.ParseOutputFrame(raw)
+		if !ok {
 			continue
 		}
-		if pred(msg.Data) {
+		if pred(string(data)) {
 			return
 		}
 	}

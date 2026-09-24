@@ -12,13 +12,30 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/session"
 )
 
-// outputMsg is the server→client output frame. Snapshot marks a self-contained
-// ground-state redraw the client must apply onto a RESET buffer (attach redraw,
-// post-resize keyframe) instead of appending like incremental output.
-type outputMsg struct {
-	SessionID string `json:"sessionId"`
-	Data      string `json:"data"`
-	Snapshot  bool   `json:"snapshot,omitempty"`
+// Server→client wire format.
+//
+// PTY output travels as BINARY WebSocket messages: one tag byte, then the bytes the
+// client's terminal parses — no JSON string encoding, no escaping, no UTF-8 sanitizing,
+// and no need to hold back a rune split across reads (the client's terminal decodes
+// UTF-8 as a stream). The tag says how to apply the payload:
+//
+//	FrameOutput   incremental output — append it.
+//	FrameSnapshot a self-contained ground-state redraw (attach, post-resize keyframe) —
+//	              apply it onto a RESET buffer.
+//
+// Control messages travel as TEXT (JSON). The only one is exitMsg.
+const (
+	FrameOutput   byte = 0
+	FrameSnapshot byte = 1
+)
+
+// ParseOutputFrame splits one binary output message into its payload and whether it is a
+// snapshot. ok is false for anything that is not a well-formed output frame.
+func ParseOutputFrame(msg []byte) (payload []byte, snapshot bool, ok bool) {
+	if len(msg) == 0 || msg[0] > FrameSnapshot {
+		return nil, false, false
+	}
+	return msg[1:], msg[0] == FrameSnapshot, true
 }
 
 // exitMsg is the server→client frame that says the session's process EXITED — sent once,
@@ -87,7 +104,7 @@ func (e *terminalEngine) Attach(
 	}
 
 	writeDone := make(chan struct{})
-	go e.writePump(conn, ent.id, ch, func() (int, bool) { return e.exitStatus(ent, s) }, writeDone)
+	go e.writePump(conn, ch, func() (int, bool) { return e.exitStatus(ent, s) }, writeDone)
 	e.readPump(conn, s)
 
 	s.Detach(ch)
@@ -127,43 +144,6 @@ func (e *terminalEngine) writeExit(conn WSConn, code int) {
 // per-message memory and keep the renderer's per-frame work reasonable.
 const maxCoalesceBytes = 256 * 1024
 
-// trailingIncompleteUTF8 returns the number of bytes at the end of b that form a
-// truncated (not-yet-complete) multi-byte UTF-8 sequence — a rune whose lead byte
-// has arrived but whose continuation bytes have not. Returns 0 when b ends on a
-// rune boundary (empty, or ending in an ASCII byte or a complete sequence).
-//
-// writePump uses this to avoid splitting a multi-byte rune across two messages:
-// the Data field is JSON-string-encoded, and json.Marshal replaces ANY invalid
-// UTF-8 in a string with U+FFFD.
-func trailingIncompleteUTF8(b []byte) int {
-	// A truncated sequence is at most 3 bytes (a 4-byte rune missing up to 3).
-	maxScan := 3
-	if len(b) < maxScan {
-		maxScan = len(b)
-	}
-	for i := 1; i <= maxScan; i++ {
-		c := b[len(b)-i]
-		if c < 0x80 {
-			return 0 // ASCII byte: the tail is already on a rune boundary
-		}
-		if c >= 0xC0 { // a lead byte
-			need := 2
-			switch {
-			case c >= 0xF0:
-				need = 4
-			case c >= 0xE0:
-				need = 3
-			}
-			if i < need {
-				return i // lead byte present but continuation bytes missing
-			}
-			return 0 // full sequence present
-		}
-		// 0x80..0xBF: continuation byte — keep scanning back for the lead byte
-	}
-	return 0 // no lead byte within the last 3 bytes (malformed) — leave as-is
-}
-
 // writePump forwards output frames from ch to the WebSocket, then — once ch closes
 // because the process exited — sends the exit frame, and closes the conn so readPump
 // unblocks. Every write carries a deadline, so a client that stops reading costs at most
@@ -171,13 +151,12 @@ func trailingIncompleteUTF8(b []byte) int {
 //
 // Each iteration opportunistically drains frames ALREADY queued on ch — without blocking —
 // and concatenates them into one message, so bursts coalesce while keystroke echo latency
-// is unchanged. A trailing incomplete UTF-8 rune is held back (via pending) and prepended
-// to the next message so json.Marshal never corrupts a split multi-byte glyph.
-//
-//nolint:gocyclo // cohesive coalescing/UTF-8-holdback state machine; splitting it would obscure the single-drain-loop invariant.
+// is unchanged. A snapshot is a coalescing barrier: it is always its own message, never
+// merged with the output around it. One buffer is reused for every message (the conn
+// copies it into the socket before WriteMessage returns), so steady-state output costs no
+// allocation here.
 func (e *terminalEngine) writePump(
 	conn WSConn,
-	sessionID string,
 	ch <-chan session.OutputFrame,
 	exitStatus func() (code int, exited bool),
 	done chan<- struct{},
@@ -188,37 +167,36 @@ func (e *terminalEngine) writePump(
 		close(done)
 	}()
 
-	// writeMsg marshals and sends one wire frame; false means the socket died.
-	writeMsg := func(data []byte, snapshot bool) bool {
-		payload, err := json.Marshal(outputMsg{SessionID: sessionID, Data: string(data), Snapshot: snapshot})
-		if err != nil {
-			return true
-		}
+	buf := make([]byte, 0, 64*1024)
+	send := func(msg []byte) bool {
 		_ = conn.SetWriteDeadline(time.Now().Add(e.cfg.writeWait))
-		return conn.WriteMessage(websocket.TextMessage, payload) == nil
+		return conn.WriteMessage(websocket.BinaryMessage, msg) == nil
+	}
+	start := func(tag byte, data []byte) {
+		buf = append(append(buf[:0], tag), data...)
 	}
 
-	var pending []byte
-	for frame := range ch {
-		// Snapshot frames are coalescing BARRIERS: a snapshot is a self-contained redraw
-		// the client applies onto a reset buffer, so it must never be merged into (or
-		// split across) incremental output. A held-back partial rune belongs to the
-		// pre-snapshot stream the reset supersedes — drop it.
+	var pending *session.OutputFrame // a snapshot that ended the previous drain
+	for {
+		var frame session.OutputFrame
+		if pending != nil {
+			frame, pending = *pending, nil
+		} else {
+			f, ok := <-ch
+			if !ok {
+				break
+			}
+			frame = f
+		}
 		if frame.Snapshot {
-			pending = pending[:0]
-			if !writeMsg(frame.Data, true) {
+			start(FrameSnapshot, frame.Data)
+			if !send(buf) {
 				return
 			}
 			continue
 		}
-
-		buf := make([]byte, 0, len(pending)+len(frame.Data))
-		buf = append(buf, pending...)
-		buf = append(buf, frame.Data...)
-		pending = pending[:0]
+		start(FrameOutput, frame.Data)
 		closed := false
-		var snapshotAfter *session.OutputFrame
-
 	drain:
 		for len(buf) < maxCoalesceBytes {
 			select {
@@ -228,8 +206,7 @@ func (e *terminalEngine) writePump(
 					break drain
 				}
 				if next.Snapshot {
-					snap := next
-					snapshotAfter = &snap
+					pending = &next
 					break drain
 				}
 				buf = append(buf, next.Data...)
@@ -237,18 +214,7 @@ func (e *terminalEngine) writePump(
 				break drain
 			}
 		}
-
-		if !closed && snapshotAfter == nil {
-			if n := trailingIncompleteUTF8(buf); n > 0 {
-				pending = append(pending, buf[len(buf)-n:]...)
-				buf = buf[:len(buf)-n]
-			}
-		}
-
-		if len(buf) > 0 && !writeMsg(buf, false) {
-			return
-		}
-		if snapshotAfter != nil && !writeMsg(snapshotAfter.Data, true) {
+		if !send(buf) {
 			return
 		}
 		if closed {
@@ -278,11 +244,10 @@ func (e *terminalEngine) readPump(
 
 		switch msg.Type {
 		case "resize":
+			// Resize also invalidates the diff base, so the frame the app's SIGWINCH
+			// redraw produces is a keyframe: the client's reflowed buffer is replaced
+			// by the model's, with no separate resync round-trip.
 			_ = s.Resize(msg.Cols, msg.Rows)
-		case "resync":
-			// Post-resize convergence: re-emit the model snapshot to attached clients
-			// (no-op at an idle shell prompt — see Session.Resync).
-			_ = s.Resync()
 		case "theme":
 			// Host light/dark theme changed: update the model's OSC 10/11 query answers
 			// and, if the foreground app subscribed to DEC 2031, push a live CSI ?997;n

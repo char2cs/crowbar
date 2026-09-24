@@ -2,7 +2,6 @@ import { createWorkspaceStore, type WorkspaceStore } from './workspace-store'
 import { loadFromLocalStorage } from './workspace-persistence'
 import { useHistoryStore } from '@/features/editor/stores/history-store'
 import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-history-tracking'
-import type { TerminalContent } from '@/features/panes/types/pane-content'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { setActiveScopeWorkspaceId } from '@/lib/workspace-scope'
 import { bestEffort } from '@/lib/best-effort'
@@ -365,26 +364,6 @@ export function destroyWorkspaceStore(wsId: string): void {
         const buffers = paneState.buffers.filter(
           (b) => b.workspaceId === wsId && !openEditorTabIds.has(b.id),
         )
-
-        // Detach (not kill) pane terminal PTY sessions on workspace switch.
-        // The PTY stays alive in the daemon; the WS transport is closed and the
-        // connectionId is persisted to localStorage so re-entry can re-attach with
-        // scrollback replay. killTerminalSession is still used on real tab close.
-        const terminalBuffers = buffers.filter((b) => b.type === 'terminal')
-        if (terminalBuffers.length > 0) {
-          bestEffort(
-            import('@/features/terminal/lib/detach-terminal-session').then(
-              ({ detachTerminalSession }) => {
-                for (const buf of terminalBuffers) {
-                  void detachTerminalSession(wsId, (buf as TerminalContent).sessionId).catch(
-                    () => {},
-                  )
-                }
-              },
-            ),
-            'detach terminal sessions',
-          )
-        }
 
         // Free cached git-blame for this workspace's open files. The blame store is a
         // global singleton keyed by file path, so clearAllBlame() would wipe blame for
