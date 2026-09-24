@@ -31,7 +31,7 @@ import (
 //     false with zero delay, which startForeground asserts rather than polls for.
 func TestIsIdle_unix(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-idle", "/bin/sh", dir, "", testEnv(), 80, 24, 0)
+	s, err := New(t.Context(), "sid-idle", "/bin/sh", dir, "", testEnv(), 80, 24, 0)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 

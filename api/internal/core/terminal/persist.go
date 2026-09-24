@@ -71,17 +71,26 @@ func (e *terminalEngine) writeBuf(ctx context.Context, ent *sessionEntry, blob [
 
 // discardPersisted deletes ent's .buf and meta row. Caller holds ent.mu.
 func (e *terminalEngine) discardPersisted(ctx context.Context, ent *sessionEntry) {
-	if dir, err := e.storageDir(ctx, ent.chatID); err != nil {
-		slog.Warn("terminal: resolve storage dir", "session", ent.id, "err", err)
-	} else if dir != "" {
-		if err := persistence.DeleteBuf(dir, ent.id); err != nil {
-			slog.Warn("terminal: delete scrollback", "session", ent.id, "err", err)
-		}
-	}
+	e.deleteBuf(ctx, ent)
 	if ms := e.meta(); ms != nil {
 		if err := ms.Delete(ctx, ent.id); err != nil {
 			slog.Warn("terminal: delete session meta", "session", ent.id, "err", err)
 		}
+	}
+}
+
+// deleteBuf removes ent's .buf, if there is a storage directory. Caller holds ent.mu.
+func (e *terminalEngine) deleteBuf(ctx context.Context, ent *sessionEntry) {
+	dir, err := e.storageDir(ctx, ent.chatID)
+	if err != nil {
+		slog.Warn("terminal: resolve storage dir", "session", ent.id, "err", err)
+		return
+	}
+	if dir == "" {
+		return
+	}
+	if err := persistence.DeleteBuf(dir, ent.id); err != nil {
+		slog.Warn("terminal: delete scrollback", "session", ent.id, "err", err)
 	}
 }
 
@@ -233,6 +242,8 @@ func (e *terminalEngine) underCeiling() bool {
 			bytes += ent.sess.Load().ModelBytes()
 		case stateSuspended:
 			bytes += int64(len(ent.blob))
+		case stateExited, stateRemoved:
+			// Left the registry: holds neither a model nor a blob.
 		}
 		ent.mu.Unlock()
 	}
@@ -315,6 +326,8 @@ func (e *terminalEngine) Stats() (active, detached, suspended int, modelBytes in
 		case stateSuspended:
 			modelBytes += int64(len(ent.blob))
 			suspended++
+		case stateExited, stateRemoved:
+			// Left the registry: counted in no bucket.
 		}
 		ent.mu.Unlock()
 	}

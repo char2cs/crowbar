@@ -17,7 +17,7 @@ func TestNewCommand_RunsArgv(t *testing.T) {
 	// made that a race — a 200ms bet that this test goroutine gets scheduled in time. Sleeping
 	// effectively forever instead removes the bet entirely; the child is reaped by Kill, and
 	// the marker is observed through the frames, not through the sleep's length.
-	s, err := NewCommand("cmd-id", []string{"/bin/sh", "-c", "printf CMDMARKER; sleep 9999"}, dir, os.Environ(), 80, 24, 0)
+	s, err := NewCommand(t.Context(), "cmd-id", []string{"/bin/sh", "-c", "printf CMDMARKER; sleep 9999"}, dir, os.Environ(), 80, 24, 0)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 	require.Equal(t, "cmd-id", s.ID())
@@ -32,7 +32,7 @@ func TestNewCommand_RunsArgv(t *testing.T) {
 }
 
 func TestNewCommand_EmptyArgvErrors(t *testing.T) {
-	_, err := NewCommand("x", nil, t.TempDir(), os.Environ(), 80, 24, 0)
+	_, err := NewCommand(t.Context(), "x", nil, t.TempDir(), os.Environ(), 80, 24, 0)
 	require.Error(t, err)
 }
 
@@ -45,7 +45,7 @@ func TestNewCommand_IsCommandAndNeverSuspendEligible(t *testing.T) {
 	dir := t.TempDir()
 	// A long-running, definitely-detached, definitely-idle-looking process: even so,
 	// the command guard must short-circuit before any idle/client check.
-	s, err := NewCommand("cmd-suspend-guard", []string{"/bin/sh", "-c", "sleep 30"}, dir, os.Environ(), 80, 24, 0)
+	s, err := NewCommand(t.Context(), "cmd-suspend-guard", []string{"/bin/sh", "-c", "sleep 30"}, dir, os.Environ(), 80, 24, 0)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 

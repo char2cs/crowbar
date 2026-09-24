@@ -279,7 +279,7 @@ func newTestSession(
 	dir string,
 ) (*Session, error) {
 	t.Helper()
-	return New(id, "/bin/sh", dir, "", testEnv(), 80, 24, 0)
+	return New(t.Context(), id, "/bin/sh", dir, "", testEnv(), 80, 24, 0)
 }
 
 func TestSession_NewAndKill(t *testing.T) {
@@ -407,7 +407,7 @@ func TestSession_Resize(t *testing.T) {
 
 func TestSession_ID(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("my-id", "/bin/sh", dir, "", os.Environ(), 80, 24, 0)
+	s, err := New(t.Context(), "my-id", "/bin/sh", dir, "", os.Environ(), 80, 24, 0)
 	require.NoError(t, err)
 	assert.Equal(t, "my-id", s.ID())
 	s.Kill()
@@ -416,7 +416,7 @@ func TestSession_ID(t *testing.T) {
 func TestSession_New_BadShell(t *testing.T) {
 	dir := t.TempDir()
 	// A non-existent executable must cause pty.Start to fail.
-	_, err := New("sid-bad", "/nonexistent/shell/binary", dir, "", os.Environ(), 80, 24, 0)
+	_, err := New(t.Context(), "sid-bad", "/nonexistent/shell/binary", dir, "", os.Environ(), 80, 24, 0)
 	assert.Error(t, err)
 }
 
@@ -741,7 +741,7 @@ func TestSession_NewRestored_RebuildsModelFromBlob(t *testing.T) {
 		"the source screen must carry the marker once the shell is back at its prompt")
 	require.True(t, contains(blob, []byte("CRWB1 ")), "blob must carry a CRWB1 header")
 
-	s, err := NewRestored("sid-restored", "/bin/sh", dir, "profX", testEnv(), blob)
+	s, err := NewRestored(t.Context(), "sid-restored", "/bin/sh", dir, "profX", testEnv(), blob)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 

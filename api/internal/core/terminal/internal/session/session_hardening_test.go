@@ -65,7 +65,7 @@ func TestSession_Resize_SetsizeError(t *testing.T) {
 // shell binary makes pty.Start fail, so NewRestored returns a nil session and an error.
 func TestSession_NewRestored_BadShell(t *testing.T) {
 	blob := []byte("CRWB1 80 24 0 10000\nprior screen")
-	s, err := NewRestored("sid-restore-bad", "/nonexistent/shell/binary", t.TempDir(), "", os.Environ(), blob)
+	s, err := NewRestored(t.Context(), "sid-restore-bad", "/nonexistent/shell/binary", t.TempDir(), "", os.Environ(), blob)
 	assert.Nil(t, s, "a failed restore spawn must return a nil session")
 	assert.Error(t, err, "NewRestored must surface the spawn error")
 }

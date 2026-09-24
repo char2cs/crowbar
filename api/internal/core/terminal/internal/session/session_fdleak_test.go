@@ -33,7 +33,7 @@ func runSessionToNaturalExit(
 	id string,
 ) *os.File {
 	t.Helper()
-	s, err := New(id, "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 0)
+	s, err := New(t.Context(), id, "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 0)
 	require.NoError(t, err)
 
 	s.mu.Lock()
