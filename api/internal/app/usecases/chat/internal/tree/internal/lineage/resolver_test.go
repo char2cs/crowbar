@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree/internal/lineage"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -24,6 +25,8 @@ type stubChats struct {
 	getErr error
 	list   error
 	lists  int
+	// missing answers LoadChat for an id not in keyed.
+	missing error
 }
 
 func (s *stubChats) LoadChat(
@@ -34,6 +37,9 @@ func (s *stubChats) LoadChat(
 		return domain.Chat{}, s.getErr
 	}
 	chat, ok := s.keyed[id]
+	if !ok && s.missing != nil {
+		return domain.Chat{}, s.missing
+	}
 	if !ok {
 		return domain.Chat{}, errors.New("no such chat")
 	}
@@ -174,6 +180,19 @@ func TestAncestors_SurfacesAChatReadFailure(t *testing.T) {
 
 	_, err := resolver.Ancestors(context.Background(), "c2")
 	require.ErrorContains(t, err, "boom")
+}
+
+// A parent the chat store does not hold (a workspace node) ends the walk.
+func TestAncestors_StopsAtAnAncestorThatIsNoChatOrFolder(t *testing.T) {
+	cs := &stubChats{
+		keyed:  map[string]domain.Chat{"c1": chat("c1", "ws-node")},
+		listed: []domain.Chat{chat("c1", "ws-node")},
+	}
+	cs.missing = agentchat.ErrNotFound
+
+	got, err := lineage.New(cs).Ancestors(context.Background(), "c1")
+	require.NoError(t, err)
+	assert.Empty(t, got)
 }
 
 // A folder on the chain is read from the log; a failure there is the answer.

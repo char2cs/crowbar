@@ -42,6 +42,10 @@ export function describeDormant(exitReason: string): string {
       return 'Crowbar lost its connection to the agent. Send a message to continue.'
     case 'resume_failed':
       return "The provider could not reopen its session. Your next message continues from Crowbar's transcript."
+    case 'moved':
+      return 'The agent moved to another conversation. Send a message to continue this one.'
+    case 'displaced':
+      return 'Crowbar took the agent off this chat. Send a message to continue.'
     case 'spawn_failed':
       return 'The agent could not start. Check that its CLI is installed, then try again.'
     default:

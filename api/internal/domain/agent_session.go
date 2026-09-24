@@ -35,4 +35,9 @@ const (
 	AgentExitDaemonRestart     = "daemon_restart"
 	AgentExitResumeFailed      = "resume_failed"
 	AgentExitSpawnFailed       = "spawn_failed"
+	// AgentExitMoved: the CLI moved to another conversation (/clear, /resume).
+	AgentExitMoved = "moved"
+	// AgentExitDisplaced: Crowbar took the CLI off the chat (another runner
+	// took its conversation, or a switch whose replacement never came up).
+	AgentExitDisplaced = "displaced"
 )

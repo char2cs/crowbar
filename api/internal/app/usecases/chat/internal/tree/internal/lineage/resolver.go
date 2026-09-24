@@ -2,8 +2,10 @@ package lineage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -113,6 +115,9 @@ func (r *Resolver) fillUnlisted(
 			continue
 		}
 		row, err := r.chats.LoadChat(ctx, at)
+		if errors.Is(err, agentchat.ErrNotFound) {
+			return nil // not a chat or folder (a workspace node): the walk ends here
+		}
 		if err != nil {
 			return fmt.Errorf("chat lineage: ancestor %s: %w", at, err)
 		}

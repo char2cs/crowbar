@@ -11,6 +11,7 @@ import (
 	"log/slog"
 
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
@@ -44,6 +45,9 @@ func (rs *Runners) retire(ctx context.Context, runner agents.Runner) {
 		slog.ErrorContext(ctx, "agent: retire runner: displace (best-effort, continuing)",
 			"runner_id", runner.ID, "chat_id", runner.CurrentChatID, "err", err)
 	}
+	if runner.CurrentChatID != "" {
+		rs.noteChatExit(ctx, runner.CurrentChatID, domain.AgentExitDisplaced)
+	}
 	if err := rs.endProcesses(ctx, runner); err != nil {
 		slog.WarnContext(ctx, "agent: retire runner (best-effort, continuing)",
 			"runner_id", runner.ID, "err", err)
@@ -67,5 +71,6 @@ func (rs *Runners) quitOutgoingCLI(ctx context.Context, chatID string) error {
 	if err := rs.displace(ctx, live); err != nil {
 		return fmt.Errorf("agent: switch provider: %w", err)
 	}
+	rs.noteChatExit(ctx, chatID, domain.AgentExitDisplaced)
 	return nil
 }

@@ -143,7 +143,17 @@ func (rs *Runners) moveToNewChat(
 	// the same guards decide it (see closeAbandonedTurn): the runner has gone, and if a
 	// successor has already taken the chat then the turn is not ours to close.
 	rs.closeAbandonedTurn(ctx, runner.CurrentChatID, runner)
+	rs.noteMovedAway(ctx, runner.CurrentChatID, newChatID)
+	rs.noteLaunch(ctx, newChatID, domain.AgentRungFresh)
 	return nil
+}
+
+// noteMovedAway records on the chat a runner left that its CLI went to another
+// conversation, so the chat says why it has no runner.
+func (rs *Runners) noteMovedAway(ctx context.Context, fromChatID, toChatID string) {
+	if fromChatID != "" && fromChatID != toChatID {
+		rs.noteChatExit(ctx, fromChatID, domain.AgentExitMoved)
+	}
 }
 
 func (rs *Runners) moveToKnownChat(
@@ -168,6 +178,7 @@ func (rs *Runners) moveToKnownChat(
 		rs.reconcilePromptRunnerDeparture(ctx, runner, runner.CurrentChatID)
 		rs.closeAbandonedTurn(ctx, runner.CurrentChatID, runner)
 	}
+	rs.noteMovedAway(ctx, runner.CurrentChatID, toChatID)
 
 	// Whoever else is live on the CONVERSATION must go (invariant I3).
 	rs.evictHolderOf(ctx, runner, sessionID)
@@ -187,5 +198,6 @@ func (rs *Runners) moveToKnownChat(
 	// exactly one runner on the chat, which is what makes I2 an invariant rather than a
 	// coincidence.
 	rs.retireOthersOn(ctx, toChatID, runner.ID)
+	rs.noteLaunch(ctx, toChatID, domain.AgentRungSession)
 	return nil
 }
