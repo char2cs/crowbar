@@ -272,7 +272,7 @@ func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
 	// new one, and if none came back it has none at all. Still under the spawn
 	// gate, so the view's own exit callback cannot race this answer.
 	if live.TerminalSession == "" && !rs.rearmAPIConnExit(live.ID, view.tctx) {
-		rs.exitProcesslessRunner(live.ID)
+		rs.exitProcesslessRunner(ctx, live.ID)
 	}
 	rs.moveSurface(ctx, chatID, live.ID, engineagents.SurfaceChat)
 	return nil
@@ -290,7 +290,7 @@ func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
 // the chat for good.
 func (rs *Runners) onAttachExit(chatID, runnerID string) func() {
 	return func() {
-		rs.background.run(func(ctx context.Context) {
+		rs.background.run(context.Background(), func(ctx context.Context) {
 			if _, ok := rs.attached.get(runnerID); ok {
 				if err := rs.SwitchToNative(ctx, chatID); err != nil {
 					slog.Error("agent: native view exited: switch back to api transport (best-effort)",
@@ -307,7 +307,7 @@ func (rs *Runners) onAttachExit(chatID, runnerID string) func() {
 				return
 			}
 			defer release()
-			rs.exitProcesslessRunner(runnerID)
+			rs.exitProcesslessRunner(ctx, runnerID)
 		})
 	}
 }

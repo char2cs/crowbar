@@ -154,11 +154,11 @@ func (rs *Runners) handOverAPIConn(runnerID string) {
 // SwitchToTerminal and the matching SwitchToNative, while every other runner
 // is its own PTY. This is the one place that asks which, so no teardown path
 // has to know.
-func (rs *Runners) runnerHasAnotherProcess(runnerID string) bool {
+func (rs *Runners) runnerHasAnotherProcess(ctx context.Context, runnerID string) bool {
 	if rs.ShowingNativeView(runnerID) || rs.HasLiveAPIConnection(runnerID) {
 		return true
 	}
-	runner, err := rs.runnerStore.Get(context.Background(), runnerID)
+	runner, err := rs.runnerStore.Get(ctx, runnerID)
 	return err == nil && runner.TerminalSession != ""
 }
 
@@ -170,11 +170,13 @@ func (rs *Runners) runnerHasAnotherProcess(runnerID string) bool {
 // answerable once whatever is mid-teardown (or mid-re-establish) has
 // finished. Taking the gate here instead would deadlock SwitchToNative, which
 // holds it across exactly that window.
-func (rs *Runners) exitProcesslessRunner(runnerID string) {
-	if rs.runnerHasAnotherProcess(runnerID) {
+func (rs *Runners) exitProcesslessRunner(ctx context.Context, runnerID string) {
+	// The exit is reconciled in full even if the request that noticed it ends.
+	ctx = context.WithoutCancel(ctx)
+	if rs.runnerHasAnotherProcess(ctx, runnerID) {
 		return
 	}
-	rs.reconcileRunnerExit(context.Background(), runnerID)
+	rs.reconcileRunnerExit(ctx, runnerID)
 }
 
 // rearmAPIConnExit points a PTY-less runner's exit signal back at the

@@ -220,7 +220,7 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
 	// CurrentChatID is now empty, meaning nowhere.
 	rs.closeAbandonedTurn(ctx, runner.CurrentChatID, runner)
 	if again {
-		rs.redeliverRefused(runner.CurrentChatID, redeliver)
+		rs.redeliverRefused(ctx, runner.CurrentChatID, redeliver)
 	}
 }
 

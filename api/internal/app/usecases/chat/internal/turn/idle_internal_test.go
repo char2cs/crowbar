@@ -4,9 +4,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/stream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/stream"
 )
 
 // The whole reason this is a latch and not an action: measured against codex-cli

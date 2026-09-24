@@ -106,8 +106,8 @@ func (rs *Runners) refusedDelivery(ctx context.Context, runner engineagents.Runn
 // redeliverRefused sends a refused launch's prompt again under the same
 // request id. The refused session is quarantined, so the revive this send
 // performs lands on the transcript rung: the conversation continues.
-func (rs *Runners) redeliverRefused(chatID string, record agentjournal.PromptRequest) {
-	rs.background.run(func(ctx context.Context) {
+func (rs *Runners) redeliverRefused(ctx context.Context, chatID string, record agentjournal.PromptRequest) {
+	rs.background.run(ctx, func(ctx context.Context) {
 		ctx, cancel := context.WithTimeout(ctx, redeliverBound)
 		defer cancel()
 		park, release, err := rs.spawns.Acquire(ctx, chatID)
