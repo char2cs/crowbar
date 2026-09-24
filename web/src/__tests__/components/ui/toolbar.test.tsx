@@ -11,10 +11,10 @@ import { TooltipProvider } from '@/components/ui/tooltip'
  *   In HTML, <button> cannot be a descendant of <button>.
  *   This will cause a hydration error.
  *
- * `withTooltip` wrapped the button in a Radix `Tooltip.Trigger` that had lost
- * its `asChild` (the upstream Plate registry ships it), so the trigger
+ * `withTooltip` wrapped the button in a tooltip trigger that rendered its own
+ * element instead of merging onto the button, so the trigger
  * rendered a <button> of its own around a component that already resolves to
- * one — `Toolbar.ToggleItem` on the `pressed` branch, `Toolbar.Button`
+ * one — a toggle on the `pressed` branch, `Toolbar.Button`
  * otherwise. Both branches are covered below; a tooltip must never add an
  * element of its own to a toolbar button.
  */
@@ -65,7 +65,7 @@ describe('ToolbarButton + tooltip', () => {
   })
 
   it('still describes the button with the tooltip once the trigger is wired to it', () => {
-    // The point of `asChild`: the trigger's aria/state props land on the REAL
+    // The trigger merges onto the button: its aria/state props land on the REAL
     // button, not on a wrapper around it.
     const { container } = renderToolbar(
       <ToolbarButton tooltip="Bold (⌘+B)" pressed={true}>
@@ -75,6 +75,6 @@ describe('ToolbarButton + tooltip', () => {
 
     const button = container.querySelector('button')
     expect(button).not.toBeNull()
-    expect(button!.getAttribute('data-state')).not.toBeNull()
+    expect(button!.getAttribute('aria-pressed')).toBe('true')
   })
 })

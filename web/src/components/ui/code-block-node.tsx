@@ -22,30 +22,31 @@ import { onShikiLanguageReady } from '@/components/editor/plugins/shiki-lowlight
 import { MermaidCodeBlock } from '@/features/editor/markdown/plate/mermaid-code-block'
 
 // `@/components/ui/command` wraps this app's own base-ui `Autocomplete`
-// (not `cmdk`), and `@/components/ui/popover` (base-ui) has no
-// `onCloseAutoFocus` hook. This file talks to `cmdk` and
-// `@radix-ui/react-popover` directly instead, mirroring the shape of the
-// (skipped) registry `command.tsx`/`popover.tsx` so it stays self-contained.
-import * as PopoverPrimitive from '@radix-ui/react-popover'
-
-const Popover = PopoverPrimitive.Root
-const PopoverTrigger = PopoverPrimitive.Trigger
+// (not `cmdk`), so this file talks to `cmdk` directly, mirroring the shape of
+// the (skipped) registry `command.tsx` so it stays self-contained.
+import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
 
 function PopoverContent({
   className,
   sideOffset = 4,
-  ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+  children,
+}: {
+  className?: string
+  sideOffset?: number
+  children: React.ReactNode
+}) {
   return (
     <PopoverPrimitive.Portal>
-      <PopoverPrimitive.Content
-        className={cn(
-          'z-50 rounded-md border bg-popover text-popover-foreground shadow-md outline-hidden',
-          className,
-        )}
-        sideOffset={sideOffset}
-        {...props}
-      />
+      <PopoverPrimitive.Positioner className="z-50" sideOffset={sideOffset}>
+        <PopoverPrimitive.Popup
+          className={cn(
+            'rounded-md border bg-popover text-popover-foreground shadow-md outline-hidden',
+            className,
+          )}
+        >
+          {children}
+        </PopoverPrimitive.Popup>
+      </PopoverPrimitive.Positioner>
     </PopoverPrimitive.Portal>
   )
 }
@@ -326,19 +327,27 @@ function CodeBlockCombobox({ showLanguageLabel }: { showLanguageLabel: boolean }
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-6 select-none justify-between gap-1 px-2 text-muted-foreground text-xs"
-          aria-expanded={open}
-          role="combobox"
-        >
-          {getCodeBlockLanguageLabel(value) ?? 'Plain Text'}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[200px] p-0" onCloseAutoFocus={() => setSearchValue('')}>
+    <PopoverPrimitive.Root
+      open={open}
+      onOpenChange={setOpen}
+      onOpenChangeComplete={(isOpen) => {
+        if (!isOpen) setSearchValue('')
+      }}
+    >
+      <PopoverPrimitive.Trigger
+        render={
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 select-none justify-between gap-1 px-2 text-muted-foreground text-xs"
+            aria-expanded={open}
+            role="combobox"
+          >
+            {getCodeBlockLanguageLabel(value) ?? 'Plain Text'}
+          </Button>
+        }
+      />
+      <PopoverContent className="w-[200px] p-0">
         <Command shouldFilter={false}>
           <CommandInput
             className="h-9"
@@ -371,7 +380,7 @@ function CodeBlockCombobox({ showLanguageLabel }: { showLanguageLabel: boolean }
           </CommandList>
         </Command>
       </PopoverContent>
-    </Popover>
+    </PopoverPrimitive.Root>
   )
 }
 

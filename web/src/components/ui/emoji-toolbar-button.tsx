@@ -11,7 +11,7 @@ import {
   EmojiSettings,
 } from '@platejs/emoji'
 import type { UseEmojiPickerType } from '@platejs/emoji/react'
-import * as Popover from '@radix-ui/react-popover'
+import { Popover } from '@base-ui/react/popover'
 import {
   ClockIcon,
   CompassIcon,
@@ -27,13 +27,7 @@ import {
 } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
-// This app's `@/components/ui/tooltip` is Base UI-backed (see popover.tsx's
-// note on the project's `base-nova` shadcn style) and doesn't expose a
-// `TooltipContent`/`TooltipTrigger` pair — the shape this generated file
-// expects. `@radix-ui/react-popover` is already used directly a few lines up
-// for the same reason; do the same here rather than touching the shared
-// primitive.
-import * as TooltipPrimitive from '@radix-ui/react-tooltip'
+import { WithTooltip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 export function EmojiPopover({
@@ -49,14 +43,14 @@ export function EmojiPopover({
 }) {
   return (
     <Popover.Root open={isOpen} onOpenChange={setIsOpen}>
-      {/* `asChild`: the control is a <Button> (a real <button>) and
-          Popover.Trigger renders its own <button> too, so plain children nest a
-          button in a button (invalid HTML, WebKit repairs it). asChild merges
-          the trigger behavior onto that single button instead. */}
-      <Popover.Trigger asChild>{control}</Popover.Trigger>
+      {/* `render`: the control is a <Button> (a real <button>); the trigger
+          merges onto it rather than wrapping it in a second <button>. */}
+      <Popover.Trigger render={control as React.ReactElement} />
 
       <Popover.Portal>
-        <Popover.Content className="z-100">{children}</Popover.Content>
+        <Popover.Positioner className="z-100">
+          <Popover.Popup>{children}</Popover.Popup>
+        </Popover.Positioner>
       </Popover.Portal>
     </Popover.Root>
   )
@@ -433,44 +427,41 @@ function EmojiPickerNavigation({
   onClick: (id: EmojiCategoryList) => void
 } & Pick<UseEmojiPickerType, 'emojiLibrary' | 'focusedCategory' | 'i18n' | 'icons'>) {
   return (
-    <TooltipPrimitive.Provider delayDuration={500}>
-      <nav id="emoji-nav" className="mb-2.5 border-0 border-b border-b-border border-solid p-1.5">
-        <div className="relative flex items-center justify-evenly">
-          {emojiLibrary
-            .getGrid()
-            .sections()
-            .map(({ id }) => (
-              <TooltipPrimitive.Root key={id}>
-                <TooltipPrimitive.Trigger asChild>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className={cn(
-                      'h-fit rounded-full fill-current p-1.5 text-muted-foreground hover:bg-muted hover:text-muted-foreground',
-                      id === focusedCategory &&
-                        'pointer-events-none bg-accent fill-current text-accent-foreground',
-                    )}
-                    onClick={() => {
-                      onClick(id)
-                    }}
-                    aria-label={i18n.categories[id]}
-                    type="button"
-                  >
-                    <span className="inline-flex size-5 items-center justify-center">
-                      {icons.categories[id].outline}
-                    </span>
-                  </Button>
-                </TooltipPrimitive.Trigger>
-                <TooltipPrimitive.Portal>
-                  <TooltipPrimitive.Content side="bottom" sideOffset={6}>
-                    {i18n.categories[id]}
-                  </TooltipPrimitive.Content>
-                </TooltipPrimitive.Portal>
-              </TooltipPrimitive.Root>
-            ))}
-        </div>
-      </nav>
-    </TooltipPrimitive.Provider>
+    <nav id="emoji-nav" className="mb-2.5 border-0 border-b border-b-border border-solid p-1.5">
+      <div className="relative flex items-center justify-evenly">
+        {emojiLibrary
+          .getGrid()
+          .sections()
+          .map(({ id }) => (
+            <WithTooltip
+              key={id}
+              side="bottom"
+              delay={500}
+              content={i18n.categories[id]}
+              trigger={
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className={cn(
+                    'h-fit rounded-full fill-current p-1.5 text-muted-foreground hover:bg-muted hover:text-muted-foreground',
+                    id === focusedCategory &&
+                      'pointer-events-none bg-accent fill-current text-accent-foreground',
+                  )}
+                  onClick={() => {
+                    onClick(id)
+                  }}
+                  aria-label={i18n.categories[id]}
+                  type="button"
+                >
+                  <span className="inline-flex size-5 items-center justify-center">
+                    {icons.categories[id].outline}
+                  </span>
+                </Button>
+              }
+            />
+          ))}
+      </div>
+    </nav>
   )
 }
 

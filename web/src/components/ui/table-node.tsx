@@ -58,7 +58,8 @@ import {
 } from 'platejs/react'
 import { useElementSelector } from 'platejs/react'
 
-import * as PopoverPrimitive from '@radix-ui/react-popover'
+import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
+import { useRender } from '@base-ui/react/use-render'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -72,24 +73,23 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 
-// `@/components/ui/popover` wraps `@base-ui/react/popover`, which has no
-// `Anchor` sub-component (base-ui anchors via a Positioner `anchor` prop
-// instead). The floating table toolbar below needs Radix's
-// anchor-without-a-trigger pattern, so it uses `@radix-ui/react-popover`
-// directly and stays self-contained rather than touching the shared file.
-const Popover = PopoverPrimitive.Root
+// The floating table toolbar has no trigger: it anchors to the table itself.
+// base-ui anchors through the Positioner's `anchor` prop, so the table
+// registers its element here and the toolbar positions against it.
+const TableToolbarAnchor = React.createContext<Element | null>(null)
 
-function PopoverAnchor({ children }: { children: React.ReactNode }) {
-  return <PopoverPrimitive.Anchor asChild>{children as React.ReactElement}</PopoverPrimitive.Anchor>
-}
-
-function PopoverContent({
-  className,
-  ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+function PopoverContent({ children }: { children: React.ReactElement }) {
+  const anchor = React.useContext(TableToolbarAnchor)
   return (
     <PopoverPrimitive.Portal>
-      <PopoverPrimitive.Content className={cn('z-50 outline-none', className)} {...props} />
+      <PopoverPrimitive.Positioner anchor={anchor} className="z-50">
+        <PopoverPrimitive.Popup
+          className="outline-none"
+          initialFocus={false}
+          finalFocus={false}
+          render={children}
+        />
+      </PopoverPrimitive.Positioner>
     </PopoverPrimitive.Portal>
   )
 }
@@ -702,7 +702,7 @@ export const TableElement = withHOC(
   },
 )
 
-function TableFloatingToolbar({ children, ...props }: React.ComponentProps<typeof PopoverContent>) {
+function TableFloatingToolbar({ children }: { children: React.ReactElement }) {
   const selectedCellCount = useEditorSelector(
     (editor) => editor.getApi(TablePlugin).table.getSelectedCellIds()?.length ?? 0,
     [],
@@ -741,20 +741,21 @@ function TableFloatingToolbar({ children, ...props }: React.ComponentProps<typeo
     isExpandedSelectionToolbarReady && isExpandedSelectionPending
   const isToolbarOpen = isSingleCellToolbarOpen || shouldRenderExpandedSelectionToolbar
 
+  const [anchor, setAnchor] = React.useState<Element | null>(null)
+  const anchoredTable = useRender({ render: children, ref: setAnchor })
+
   return (
-    <Popover open={isToolbarOpen} modal={false}>
-      <PopoverAnchor>{children}</PopoverAnchor>
-      {isSingleCellToolbarOpen && <SingleCellTableFloatingToolbarContent {...props} />}
-      {shouldRenderExpandedSelectionToolbar && (
-        <ExpandedSelectionTableFloatingToolbarContent {...props} />
-      )}
-    </Popover>
+    <TableToolbarAnchor.Provider value={anchor}>
+      {anchoredTable}
+      <PopoverPrimitive.Root open={isToolbarOpen} modal={false}>
+        {isSingleCellToolbarOpen && <SingleCellTableFloatingToolbarContent />}
+        {shouldRenderExpandedSelectionToolbar && <ExpandedSelectionTableFloatingToolbarContent />}
+      </PopoverPrimitive.Root>
+    </TableToolbarAnchor.Provider>
   )
 }
 
-function ExpandedSelectionTableFloatingToolbarContent(
-  props: React.ComponentProps<typeof PopoverContent>,
-) {
+function ExpandedSelectionTableFloatingToolbarContent() {
   const { tf } = useEditorPlugin(TablePlugin)
   const { canMerge, canSplit } = useTableMergeState()
 
@@ -766,12 +767,11 @@ function ExpandedSelectionTableFloatingToolbarContent(
       canSplit={canSplit}
       onMerge={() => tf.table.merge()}
       onSplit={() => tf.table.split()}
-      {...props}
     />
   )
 }
 
-function SingleCellTableFloatingToolbarContent(props: React.ComponentProps<typeof PopoverContent>) {
+function SingleCellTableFloatingToolbarContent() {
   const { tf } = useEditorPlugin(TablePlugin)
   const element = useElement<TTableElement>()
   const { props: buttonProps } = useRemoveNodeButton({ element })
@@ -801,7 +801,6 @@ function SingleCellTableFloatingToolbarContent(props: React.ComponentProps<typeo
         tf.insert.tableRow({ before: true })
       }}
       onSplit={() => tf.table.split()}
-      {...props}
     />
   )
 }
@@ -819,8 +818,7 @@ function TableFloatingToolbarContent({
   onInsertRowBefore,
   onMerge,
   onSplit,
-  ...props
-}: React.ComponentProps<typeof PopoverContent> & {
+}: {
   buttonProps?: React.ComponentProps<typeof ToolbarButton>
   canMerge?: boolean
   canSplit?: boolean
@@ -835,7 +833,7 @@ function TableFloatingToolbarContent({
   onSplit?: () => void
 }) {
   return (
-    <PopoverContent asChild onOpenAutoFocus={(e) => e.preventDefault()} {...props}>
+    <PopoverContent>
       <Toolbar
         className="flex w-auto max-w-[80vw] flex-row overflow-x-auto rounded-md border bg-popover p-1 shadow-md print:hidden [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
         contentEditable={false}

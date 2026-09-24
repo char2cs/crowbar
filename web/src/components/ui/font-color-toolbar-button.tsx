@@ -4,38 +4,12 @@ import React from 'react'
 
 import type { Menu as MenuPrimitive } from '@base-ui/react/menu'
 
-import * as TooltipPrimitive from '@radix-ui/react-tooltip'
+import { WithTooltip, tooltipContentPrimary } from '@/components/ui/tooltip'
 import { CheckIcon } from '@phosphor-icons/react'
 
 import { buttonVariants } from '@/components/ui/button-variants'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-
-// `@/components/ui/tooltip` has a bespoke non-compound API (see toolbar.tsx
-// for the same rationale), so this file uses `@radix-ui/react-tooltip`
-// directly and stays self-contained.
-const Tooltip = TooltipPrimitive.Root
-const TooltipTrigger = TooltipPrimitive.Trigger
-const TooltipProvider = TooltipPrimitive.Provider
-
-function TooltipContent({
-  className,
-  sideOffset = 4,
-  ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Content>) {
-  return (
-    <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Content
-        className={cn(
-          'z-50 w-fit origin-(--radix-tooltip-content-transform-origin) text-balance rounded-md bg-primary px-3 py-1.5 text-primary-foreground text-xs',
-          className,
-        )}
-        sideOffset={sideOffset}
-        {...props}
-      />
-    </TooltipPrimitive.Portal>
-  )
-}
 
 function normalizeColor(color: string): string {
   return color.toLowerCase()
@@ -85,13 +59,16 @@ function ColorDropdownMenuItem({
   )
 
   return name ? (
-    <Tooltip>
-      {/* asChild, same as every other trigger in this kit (see toolbar.tsx):
-          without it the trigger adds a <button> around the menu item, which
-          buries the `role="menuitem"` the surrounding menu drives. */}
-      <TooltipTrigger asChild>{content}</TooltipTrigger>
-      <TooltipContent className="mb-1 capitalize">{name}</TooltipContent>
-    </Tooltip>
+    // The tooltip merges onto the menu item itself (no wrapper), so the item
+    // keeps the `role="menuitem"` the surrounding menu drives.
+    <WithTooltip
+      trigger={content}
+      content={name}
+      sideOffset={4}
+      delay={700}
+      popupClassName={tooltipContentPrimary}
+      className="mb-1 capitalize"
+    />
   ) : (
     content
   )
@@ -113,19 +90,17 @@ export function ColorDropdownMenuItems({
       className={cn('grid grid-cols-[repeat(10,1fr)] place-items-center gap-x-1', className)}
       {...props}
     >
-      <TooltipProvider>
-        {colors.map(({ isBrightColor, name, value }) => (
-          <ColorDropdownMenuItem
-            name={name}
-            key={name ?? value}
-            value={value}
-            isBrightColor={isBrightColor}
-            isSelected={!!color && normalizeColor(color) === normalizeColor(value)}
-            updateColor={updateColor}
-          />
-        ))}
-        {props.children}
-      </TooltipProvider>
+      {colors.map(({ isBrightColor, name, value }) => (
+        <ColorDropdownMenuItem
+          name={name}
+          key={name ?? value}
+          value={value}
+          isBrightColor={isBrightColor}
+          isSelected={!!color && normalizeColor(color) === normalizeColor(value)}
+          updateColor={updateColor}
+        />
+      ))}
+      {props.children}
     </div>
   )
 }
