@@ -257,18 +257,7 @@ func (s *Session) Terminate(grace time.Duration) {
 // Wait when both Kill() and pump()'s exit reach shutdown.
 func (s *Session) shutdown() {
 	s.once.Do(func() {
-		code := -1
-		if s.cmd != nil { //nolint:nestif // the single reap: Wait then classify exit vs ExitError to derive the code; shallow and self-contained.
-			err := s.cmd.Wait()
-			if err == nil {
-				code = 0
-			} else {
-				var exitErr *exec.ExitError
-				if errors.As(err, &exitErr) {
-					code = exitErr.ExitCode()
-				}
-			}
-		}
+		code := reap(s.cmd)
 
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -319,4 +308,21 @@ func (s *Session) SuspendEligible(force bool) bool {
 		return false
 	}
 	return force || s.isIdleLocked()
+}
+
+// reap waits for cmd (the session's single reap) and returns its exit code: 0 on a clean
+// exit, the status of an ExitError, or -1 when there is no process or the code is unknown.
+func reap(cmd *exec.Cmd) int {
+	if cmd == nil {
+		return -1
+	}
+	err := cmd.Wait()
+	if err == nil {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return -1
 }
