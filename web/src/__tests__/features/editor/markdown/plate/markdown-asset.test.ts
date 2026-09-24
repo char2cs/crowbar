@@ -23,10 +23,11 @@ describe('loadLocalImage resolve override', () => {
     const resolve = vi.fn().mockResolvedValue('data:image/png;base64,AAAA')
     const asset: MarkdownAssetInfo = { wsId: 'ws1', fileDir: '', resolve }
 
-    const result = await loadLocalImage(asset, 'chats/c1/attachments/x.png')
+    const signal = new AbortController().signal
+    const result = await loadLocalImage(asset, 'chats/c1/attachments/x.png', signal)
 
     expect(result).toBe('data:image/png;base64,AAAA')
-    expect(resolve).toHaveBeenCalledWith('chats/c1/attachments/x.png')
+    expect(resolve).toHaveBeenCalledWith('chats/c1/attachments/x.png', signal)
     expect(readWorkspaceFile).not.toHaveBeenCalled()
   })
 

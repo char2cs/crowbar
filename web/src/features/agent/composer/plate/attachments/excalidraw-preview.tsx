@@ -123,17 +123,15 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
   }, [workspaceStore, chatId, scene])
 
   useEffect(() => {
-    let cancelled = false
     if (!asset || !pngRef) {
       setSrc(null)
       return
     }
-    void loadLocalImage(asset, pngRef).then((data) => {
-      if (!cancelled) setSrc(data)
+    const controller = new AbortController()
+    void loadLocalImage(asset, pngRef, controller.signal).then((data) => {
+      if (!controller.signal.aborted) setSrc(data)
     })
-    return () => {
-      cancelled = true
-    }
+    return () => controller.abort()
   }, [asset, pngRef])
 
   useEffect(() => {

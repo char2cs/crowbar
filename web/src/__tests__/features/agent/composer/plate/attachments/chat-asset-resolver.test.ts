@@ -108,6 +108,48 @@ describe('fetchChatAttachmentDataUrl', () => {
     vi.unstubAllGlobals()
   })
 
+  it('an abort during the read stops the FileReader and resolves null', async () => {
+    const controller = new AbortController()
+    const blob = new Blob(['hello'], { type: 'text/plain' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        // The body arrives, then the caller goes away before it is encoded.
+        blob: () => {
+          controller.abort()
+          return Promise.resolve(blob)
+        },
+      }),
+    )
+    const readSpy = vi.spyOn(FileReader.prototype, 'readAsDataURL')
+    await expect(
+      fetchChatAttachmentDataUrl('ws1', 'chats/c1/attachments/x.txt', controller.signal),
+    ).resolves.toBeNull()
+    expect(readSpy).not.toHaveBeenCalled()
+    readSpy.mockRestore()
+    vi.unstubAllGlobals()
+  })
+
+  it('an abort mid-read aborts the FileReader', async () => {
+    const controller = new AbortController()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(new Blob(['x'])) }),
+    )
+    const abortSpy = vi.spyOn(FileReader.prototype, 'abort')
+    const readSpy = vi
+      .spyOn(FileReader.prototype, 'readAsDataURL')
+      .mockImplementation(() => controller.abort())
+    await expect(
+      fetchChatAttachmentDataUrl('ws1', 'chats/c1/attachments/x.txt', controller.signal),
+    ).resolves.toBeNull()
+    expect(abortSpy).toHaveBeenCalledTimes(1)
+    readSpy.mockRestore()
+    abortSpy.mockRestore()
+    vi.unstubAllGlobals()
+  })
+
   it('forwards the abort signal to fetch', async () => {
     const fetchMock = vi
       .fn()

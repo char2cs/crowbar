@@ -27,7 +27,7 @@ export interface MarkdownAssetInfo {
    *  instead — the chat asset context (`chat-asset-resolver.ts`) uses this to
    *  route through the attachment-serving endpoint, since a chat-attachment
    *  ref isn't a workspace-relative path. */
-  resolve?: (src: string) => Promise<string | null>
+  resolve?: (src: string, signal?: AbortSignal) => Promise<string | null>
 }
 
 export const MarkdownAssetContext = createContext<MarkdownAssetInfo | null>(null)
@@ -49,9 +49,10 @@ export { resolveAssetPath }
 export async function loadLocalImage(
   asset: MarkdownAssetInfo | null,
   src: string,
+  signal?: AbortSignal,
 ): Promise<string | null> {
   if (!asset || !src || isSelfLoading(src)) return null
-  if (asset.resolve) return asset.resolve(src)
+  if (asset.resolve) return asset.resolve(src, signal)
   const path = resolveAssetPath(asset.fileDir, src)
   const mime = mimeForPath(path)
   if (!mime || !isImagePath(path)) return null
