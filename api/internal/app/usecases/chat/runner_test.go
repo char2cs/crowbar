@@ -2689,15 +2689,44 @@ func TestSubmitPrompt_RefusesAChatThatDoesNotExist(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestSubmitPrompt_RefusesADormantChat(t *testing.T) {
+// Send is the only intent a client needs: a dormant chat is revived by the
+// daemon, through the resume ladder, in the same hold as the delivery.
+func TestSubmitPrompt_RevivesADormantChatAndDelivers(t *testing.T) {
 	f := newFixture(t)
-	chatID, _ := f.spawn(t, "codex")
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-dormant")
+	turn(t, f, runnerID, "claude", "said before stopping")
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
 	f.wait()
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello", uuid.NewString(), "", nil)
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello again", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	f.wait()
 
-	require.ErrorIs(t, err, agentusecase.ErrPromptSessionUnavailable)
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, result.RunnerID, live.ID)
+	argv := f.term.calls[f.term.callCount()-1].argv
+	assert.Equal(t, "sid-dormant", argAfter(t, argv, "--resume"), "revived into its own conversation")
+	assert.Contains(t, strings.Join(argv, "\x00"), "hello again")
+}
+
+// A retry of a request whose outcome is recorded answers from the journal —
+// it never revives, so a retried send cannot spawn a CLI of its own.
+func TestSubmitPrompt_ARetryNeverRevives(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "claude")
+	requestID := uuid.NewString()
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "once", requestID, "", nil)
+	require.NoError(t, err)
+	f.wait()
+	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
+	f.wait()
+	spawned := f.term.callCount()
+
+	_, _ = f.usecase.SubmitPrompt(f.ctx, chatID, "once", requestID, "", nil)
+
+	assert.Equal(t, spawned, f.term.callCount())
 }
 
 func TestSubmitPrompt_RefusesAProviderWithNoDeclaredDelivery(t *testing.T) {
