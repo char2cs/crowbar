@@ -30,6 +30,7 @@ type fakeServer struct {
 	diagFn   func(domlsp.DiagnosticsEvent)
 	exitFn   func()
 	closedN  int
+	replayN  int
 	docs     *server.OpenDocs
 }
 
@@ -96,7 +97,16 @@ func (f *fakeServer) OpenDocs() *server.OpenDocs {
 func (f *fakeServer) Replay(
 	_ context.Context,
 ) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.replayN++
 	return nil
+}
+
+func (f *fakeServer) replayCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.replayN
 }
 
 func (f *fakeServer) Close() error {
@@ -279,10 +289,135 @@ func TestCodeAction_Forwards(t *testing.T) {
 	e := buildEngine(t, fake)
 
 	rng := domlsp.Range{Start: domlsp.Position{Line: 1}, End: domlsp.Position{Line: 2}}
-	got, err := e.CodeAction(context.Background(), ws, tree, goF, rng)
+	got, err := e.CodeAction(context.Background(), ws, tree, goF, rng, nil)
 	require.NoError(t, err)
 	assert.JSONEq(t, `[{"title":"Fix"}]`, string(got))
 	assert.Equal(t, "textDocument/codeAction", fake.requests()[0].method)
+}
+
+func TestCodeAction_ForwardsDiagnosticsAndRelativizesEdits(t *testing.T) {
+	fake := newFakeServer(json.RawMessage(`[
+		{"title":"Fix","kind":"quickfix","edit":{"changes":{"file:///tree/pkg/a.go":[
+			{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"newText":"x"}
+		]}}},
+		{"title":"Organize","edit":{"documentChanges":[
+			{"textDocument":{"uri":"file:///tree/main.go","version":3},"edits":[]}
+		]}},
+		{"title":"Run","command":"gopls.run"}
+	]`))
+	e := buildEngine(t, fake)
+	diags := json.RawMessage(`[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":4}},"message":"unused"}]`)
+
+	got, err := e.CodeAction(context.Background(), ws, tree, goF, domlsp.Range{}, diags)
+	require.NoError(t, err)
+
+	params := fake.requests()[0].params.(map[string]any)
+	ctxParam := params["context"].(map[string]any)
+	assert.JSONEq(t, string(diags), string(ctxParam["diagnostics"].(json.RawMessage)))
+
+	assert.JSONEq(t, `[
+		{"title":"Fix","kind":"quickfix","edit":{"changes":{"pkg/a.go":[
+			{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"newText":"x"}
+		]}}},
+		{"title":"Organize","edit":{"documentChanges":[
+			{"textDocument":{"uri":"main.go","version":3},"edits":[]}
+		]}},
+		{"title":"Run","command":"gopls.run"}
+	]`, string(got))
+}
+
+func TestNewFeatureRequests_ForwardTheirMethods(t *testing.T) {
+	fake := newFakeServer(json.RawMessage(`{"ok":true}`))
+	e := buildEngine(t, fake)
+	ctx := context.Background()
+
+	_, err := e.SignatureHelp(ctx, ws, tree, goF, pos())
+	require.NoError(t, err)
+	_, err = e.CodeLens(ctx, ws, tree, goF)
+	require.NoError(t, err)
+	_, err = e.CodeLensResolve(ctx, ws, tree, goF, json.RawMessage(`{"range":{}}`))
+	require.NoError(t, err)
+	_, err = e.Formatting(ctx, ws, tree, goF, domlsp.FormattingOptions{TabSize: 4, InsertSpaces: true})
+	require.NoError(t, err)
+
+	reqs := fake.requests()
+	require.Len(t, reqs, 4)
+	assert.Equal(t, "textDocument/signatureHelp", reqs[0].method)
+	assert.Equal(t, "textDocument/codeLens", reqs[1].method)
+	assert.Equal(t, "codeLens/resolve", reqs[2].method)
+	assert.Equal(t, "textDocument/formatting", reqs[3].method)
+	opts := reqs[3].params.(map[string]any)["options"].(map[string]any)
+	assert.Equal(t, 4, opts["tabSize"])
+	assert.Equal(t, true, opts["insertSpaces"])
+}
+
+// LSP requires a strictly increasing version on every didChange; a constant
+// version makes servers drop or reject edits after the first one.
+func TestDidChange_VersionsIncreaseAndResetOnReopen(t *testing.T) {
+	fake := newFakeServer(nil)
+	e := buildEngine(t, fake)
+	ctx := context.Background()
+
+	version := func(c call) any {
+		return c.params.(map[string]any)["textDocument"].(map[string]any)["version"]
+	}
+
+	require.NoError(t, e.DidOpen(ctx, ws, tree, goF, "go", "a"))
+	require.NoError(t, e.DidChange(ctx, ws, tree, goF, "ab"))
+	require.NoError(t, e.DidChange(ctx, ws, tree, goF, "abc"))
+	require.NoError(t, e.DidClose(ctx, ws, tree, goF))
+	require.NoError(t, e.DidOpen(ctx, ws, tree, goF, "go", "x"))
+	require.NoError(t, e.DidChange(ctx, ws, tree, goF, "xy"))
+
+	nots := fake.notifies()
+	require.Len(t, nots, 6)
+	assert.Equal(t, 1, version(nots[0]))
+	assert.Equal(t, 2, version(nots[1]))
+	assert.Equal(t, 3, version(nots[2]))
+	assert.Equal(t, 1, version(nots[4]))
+	assert.Equal(t, 2, version(nots[5]))
+}
+
+func TestDidSave_RidesTheOpenDocumentsServerOnly(t *testing.T) {
+	fake := newFakeServer(nil)
+	e, spawns := buildCountingEngine(t, fake)
+	ctx := context.Background()
+
+	require.NoError(t, e.DidSave(ctx, ws, tree, goF))
+	assert.Equal(t, 0, spawns.count(), "didSave must not spawn a server")
+	assert.Empty(t, fake.notifies())
+
+	require.NoError(t, e.DidOpen(ctx, ws, tree, goF, "go", "a"))
+	require.NoError(t, e.DidSave(ctx, ws, tree, goF))
+	nots := fake.notifies()
+	require.Len(t, nots, 2)
+	assert.Equal(t, "textDocument/didSave", nots[1].method)
+
+	require.NoError(t, e.DidClose(ctx, ws, tree, goF))
+	assert.Equal(t, 1, fake.closeCount(), "didSave must not leak a ref")
+}
+
+func TestStatusAndRestart_ReflectTheRealServer(t *testing.T) {
+	fake := newFakeServer(nil)
+	e := buildEngine(t, fake)
+	ctx := context.Background()
+
+	assert.Equal(t, domlsp.ServerUnsupported, e.Status(ws, noF).State)
+	assert.Equal(t, domlsp.ServerStopped, e.Status(ws, goF).State)
+
+	st, err := e.Restart(ctx, ws, goF)
+	require.NoError(t, err)
+	assert.Equal(t, domlsp.ServerStopped, st.State, "restart never spawns a stopped server")
+	assert.Equal(t, 0, fake.replayCount())
+
+	require.NoError(t, e.DidOpen(ctx, ws, tree, goF, "go", "a"))
+	assert.Equal(t, domlsp.ServerRunning, e.Status(ws, goF).State)
+
+	st, err = e.Restart(ctx, ws, goF)
+	require.NoError(t, err)
+	assert.Equal(t, domlsp.ServerRunning, st.State)
+	assert.Equal(t, 1, fake.replayCount())
+	assert.Equal(t, 0, fake.closeCount(), "restart keeps the pool entry and its refs")
 }
 
 func TestDocumentSymbol_Forwards(t *testing.T) {
@@ -374,7 +509,7 @@ func TestGracefulAbsence_FeaturesReturnEmptyNilError(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, we.Changes)
 
-	ca, err := e.CodeAction(ctx, ws, tree, noF, domlsp.Range{})
+	ca, err := e.CodeAction(ctx, ws, tree, noF, domlsp.Range{}, nil)
 	require.NoError(t, err)
 	assert.Nil(t, ca)
 

@@ -62,3 +62,77 @@ func isNull(
 ) bool {
 	return len(raw) == 0 || string(raw) == "null"
 }
+
+// RelCodeActions rewrites the workspace edits inside a textDocument/codeAction
+// result so every file they name is workspace-relative, the form the editor
+// and the files API address files by. Commands and anything that does not
+// decode are passed through unchanged.
+func RelCodeActions(
+	worktreePath string,
+	raw json.RawMessage,
+) json.RawMessage {
+	var actions []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &actions); err != nil {
+		return raw
+	}
+	for _, action := range actions {
+		edit, ok := action["edit"]
+		if !ok {
+			continue
+		}
+		action["edit"] = relRawWorkspaceEdit(worktreePath, edit)
+	}
+	out, err := json.Marshal(actions)
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
+func relRawWorkspaceEdit(
+	worktreePath string,
+	raw json.RawMessage,
+) json.RawMessage {
+	var edit map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &edit); err != nil {
+		return raw
+	}
+	if changes, ok := edit["changes"]; ok {
+		var byURI map[string]json.RawMessage
+		if err := json.Unmarshal(changes, &byURI); err == nil {
+			byPath := make(map[string]json.RawMessage, len(byURI))
+			for uri, edits := range byURI {
+				byPath[WorkspaceRelPath(worktreePath, PathFromURI(uri))] = edits
+			}
+			if out, err := json.Marshal(byPath); err == nil {
+				edit["changes"] = out
+			}
+		}
+	}
+	if docChanges, ok := edit["documentChanges"]; ok {
+		var items []map[string]json.RawMessage
+		if err := json.Unmarshal(docChanges, &items); err == nil {
+			for _, item := range items {
+				var td map[string]json.RawMessage
+				if err := json.Unmarshal(item["textDocument"], &td); err != nil {
+					continue
+				}
+				var uri string
+				if err := json.Unmarshal(td["uri"], &uri); err != nil {
+					continue
+				}
+				rel, _ := json.Marshal(WorkspaceRelPath(worktreePath, PathFromURI(uri)))
+				td["uri"] = rel
+				item["textDocument"], _ = json.Marshal(td)
+			}
+			if out, err := json.Marshal(items); err == nil {
+				edit["documentChanges"] = out
+			}
+		}
+	}
+	out, err := json.Marshal(edit)
+	if err != nil {
+		return raw
+	}
+	return out
+}

@@ -53,7 +53,7 @@ func TestRegistry_DefaultPython(t *testing.T) {
 	r := registry.New(nil)
 	spec, ok := r.ForFile("script.py")
 	require.True(t, ok)
-	assert.Equal(t, "pyright", spec.Command)
+	assert.Equal(t, "pyright-langserver", spec.Command)
 	assert.Equal(t, "python", spec.LanguageID)
 }
 
@@ -158,7 +158,7 @@ func TestRegistry_OverrideDoesNotAffectOtherDefaults(t *testing.T) {
 	r := registry.New(overrides)
 	spec, ok := r.ForFile("script.py")
 	require.True(t, ok)
-	assert.Equal(t, "pyright", spec.Command)
+	assert.Equal(t, "pyright-langserver", spec.Command)
 }
 
 func TestRegistry_ForFileWithDirectoryPath(t *testing.T) {

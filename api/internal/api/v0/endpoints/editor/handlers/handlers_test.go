@@ -32,7 +32,17 @@ type fakeLSP struct {
 	completion     json.RawMessage
 	hover          json.RawMessage
 	codeAction     json.RawMessage
+	codeActionDiag json.RawMessage
 	documentSymbol json.RawMessage
+	signatureHelp  json.RawMessage
+	codeLens       json.RawMessage
+	resolvedLens   json.RawMessage
+	gotLens        json.RawMessage
+	formatting     json.RawMessage
+	formatOptions  domlsp.FormattingOptions
+	status         domlsp.ServerStatus
+	restartCalls   int
+	didSaveCalls   int
 	definition     []domlsp.Location
 	references     []domlsp.Location
 	rename         domlsp.WorkspaceEdit
@@ -100,8 +110,77 @@ func (f *fakeLSP) CodeAction(
 	_ string,
 	_ string,
 	_ domlsp.Range,
+	diagnostics json.RawMessage,
 ) (json.RawMessage, error) {
+	f.codeActionDiag = diagnostics
 	return f.codeAction, f.err
+}
+
+func (f *fakeLSP) SignatureHelp(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ domlsp.Position,
+) (json.RawMessage, error) {
+	return f.signatureHelp, f.err
+}
+
+func (f *fakeLSP) CodeLens(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+) (json.RawMessage, error) {
+	return f.codeLens, f.err
+}
+
+func (f *fakeLSP) CodeLensResolve(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	lens json.RawMessage,
+) (json.RawMessage, error) {
+	f.gotLens = lens
+	return f.resolvedLens, f.err
+}
+
+func (f *fakeLSP) Formatting(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	options domlsp.FormattingOptions,
+) (json.RawMessage, error) {
+	f.formatOptions = options
+	return f.formatting, f.err
+}
+
+func (f *fakeLSP) Status(
+	_ string,
+	_ string,
+) domlsp.ServerStatus {
+	return f.status
+}
+
+func (f *fakeLSP) Restart(
+	_ context.Context,
+	_ string,
+	_ string,
+) (domlsp.ServerStatus, error) {
+	f.restartCalls++
+	return f.status, f.err
+}
+
+func (f *fakeLSP) DidSave(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+) error {
+	f.didSaveCalls++
+	return f.err
 }
 
 func (f *fakeLSP) DocumentSymbol(
@@ -184,9 +263,16 @@ func mountEditorRoutes(
 	rg.POST("/lsp/rename", h.Rename)
 	rg.POST("/lsp/codeAction", h.CodeAction)
 	rg.POST("/lsp/documentSymbol", h.DocumentSymbol)
+	rg.POST("/lsp/signatureHelp", h.SignatureHelp)
+	rg.POST("/lsp/codeLens", h.CodeLens)
+	rg.POST("/lsp/codeLensResolve", h.CodeLensResolve)
+	rg.POST("/lsp/formatting", h.Formatting)
+	rg.GET("/lsp/status", h.Status)
+	rg.POST("/lsp/restart", h.Restart)
 	rg.GET("/lsp/diagnostics", h.Diagnostics)
 	rg.POST("/lsp/didOpen", h.DidOpen)
 	rg.POST("/lsp/didChange", h.DidChange)
+	rg.POST("/lsp/didSave", h.DidSave)
 	rg.POST("/lsp/didClose", h.DidClose)
 }
 
