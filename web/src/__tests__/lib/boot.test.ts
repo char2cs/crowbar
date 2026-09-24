@@ -102,6 +102,14 @@ describe('hydrateCriticalStores', () => {
     expect(order).toEqual(['layout', 'place'])
   })
 
+  it('retires the storage earlier builds left behind', async () => {
+    localStorage.setItem('crowbar:settings:editorEngine', '"monaco"')
+
+    await hydrateCriticalStores()
+
+    expect(localStorage.getItem('crowbar:settings:editorEngine')).toBeNull()
+  })
+
   it('sets repos from the workspace-list fetch before hydrating the sidebar', async () => {
     const order: string[] = []
     workspaceListFetch.mockImplementation(async () => {
