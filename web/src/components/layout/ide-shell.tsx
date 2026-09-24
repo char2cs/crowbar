@@ -5,6 +5,7 @@ import { SidebarProvider } from '@/components/ui/sidebar'
 import { SidebarProjectHeader } from './sidebar-project-header'
 import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-history'
 import { SidebarCarousel } from './sidebar-carousel'
+import { RemovalTray } from './removal-tray'
 import { SidebarTreeSurface } from './sidebar-tree-surface'
 import { SidebarFooter } from './sidebar-footer'
 import { useSpaceSwitcherKeyboard } from '@/features/keymaps/hooks/use-space-switcher-keyboard'
@@ -275,6 +276,15 @@ export function IDEShell() {
             </ErrorBoundary>
           )}
         </div>
+        {/* The removal service, mounted where NOTHING unmounts it.
+            It draws no held row of its own (those transform in place in the
+            tree, sidebar-row.tsx) — it owns the 8s commit clock, the seconds
+            numerals, the pagehide flush and `RemovalConfirmDialog`. It used
+            to live inside `SidebarCarousel`, which the gate above unmounts on
+            an empty stage: measured live, the hairline drained, the numerals
+            never counted, and no DELETE was ever sent. It cannot be gated on
+            anything. */}
+        <RemovalTray />
         <SidebarFooter
           projects={allProjects}
           activeProjectId={activeProjectIdFromRoute}

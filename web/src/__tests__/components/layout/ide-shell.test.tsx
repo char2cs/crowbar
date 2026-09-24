@@ -40,6 +40,12 @@ vi.mock('@/components/layout/sidebar-carousel', () => ({
     return <div data-testid="sidebar-carousel" />
   },
 }))
+// The removal service. Stubbed for the same reason SidebarCarousel is — this
+// suite is about WHERE the shell mounts it, not what it does once mounted
+// (removal-tray.test.tsx owns that).
+vi.mock('@/components/layout/removal-tray', () => ({
+  RemovalTray: () => <div data-testid="removal-tray" />,
+}))
 // `useActivePaneWorkspaceId` alone, overridable per-test — every other export
 // (usePaneWorkspaceIds, usePaneEditorWorkspaceIds, useViewWorkspaceIds) stays
 // real. The override exists only to stand in for a project-home chat's
@@ -365,6 +371,44 @@ describe('IDEShell', () => {
       render(<IDEShell />)
 
       expect(screen.getByTestId('sidebar-carousel')).toBeInTheDocument()
+    })
+  })
+
+  /**
+   * Live-reported: "I can't delete rows. It starts the timer, and then it
+   * never deletes them."
+   *
+   * `RemovalTray` draws no held row — every kind transforms in place in the
+   * tree (sidebar-row.tsx), and the hairline is a CSS animation. What the
+   * tray owns is the only 8s commit clock, the seconds numerals, the
+   * pagehide flush and `RemovalConfirmDialog`. It was mounted INSIDE
+   * `SidebarCarousel`, so on an empty stage (and while creating a space) the
+   * card's gate took the clock with it: measured in the running app, the
+   * numerals sat at 8 for eleven seconds and no DELETE was ever issued.
+   *
+   * removal-tray.test.tsx could never catch this — its harness mounts
+   * `<RemovalTray />` as a sibling by hand. This asserts the REAL mount
+   * point, in the two states that used to remove it.
+   */
+  describe('the removal clock survives every state the sidebar has', () => {
+    it('keeps RemovalTray mounted with nothing open', () => {
+      resetWindowPaneStoreForTests()
+
+      render(<IDEShell />)
+
+      expect(screen.queryByTestId('sidebar-carousel')).not.toBeInTheDocument()
+      expect(screen.getByTestId('removal-tray')).toBeInTheDocument()
+    })
+
+    it('keeps RemovalTray mounted while the create-space form is open', () => {
+      render(<IDEShell />)
+      const calls = sidebarFooterMock.mock.calls
+      const { onAddProject } = calls[calls.length - 1][0] as { onAddProject: () => void }
+
+      act(() => onAddProject())
+
+      expect(screen.queryByTestId('sidebar-carousel')).not.toBeInTheDocument()
+      expect(screen.getByTestId('removal-tray')).toBeInTheDocument()
     })
   })
 

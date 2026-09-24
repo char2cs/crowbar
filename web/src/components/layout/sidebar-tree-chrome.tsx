@@ -32,9 +32,9 @@ interface SidebarTreeChromeProps {
  * sidebar-restyle-recovery-batch2), with its modal state lifted to
  * `IDEShell` alongside it.
  *
- * `RemovalTray` no longer mounts here — addendum §2 step 4 moved it into
- * `SidebarCarousel`, at the top of the file explorer card, since that is
- * now where a held row renders. `RenameDialog` doesn't either any more:
+ * `RemovalTray` no longer mounts here — a held row renders in place in the
+ * tree now, and the tray (the commit clock) mounts ungated in the rail
+ * itself, `ide-shell.tsx`. `RenameDialog` doesn't either any more:
  * the right-click menu's Rename item now starts the same inline editor
  * double-click does (`row-context-menu.tsx`), instead of a modal — this app
  * has exactly one rename gesture, not two.

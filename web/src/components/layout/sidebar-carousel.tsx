@@ -5,7 +5,6 @@ import { cn } from '@/lib/utils'
 import { NavStack } from './nav-stack'
 import { Button } from '@/components/ui/button'
 import { GitPanel } from '@/features/git/components/git-panel'
-import { RemovalTray } from './removal-tray'
 import { SidebarCarouselFilesPanel } from './sidebar-carousel-files-panel'
 import { useCardResizeDrag } from './use-card-resize-drag'
 import { useCarouselScrollSync } from './use-carousel-scroll-sync'
@@ -264,13 +263,11 @@ export function SidebarCarousel({ sidebarHeight, railRef, onHeightChange }: Side
             />
           </Button>
         </div>
-        {/* The removal tray (addendum §2 step 4): "the held row renders at
-            the top of the file explorer card, not at the sidebar's separate
-            foot position" — moved here from `sidebar-tree-chrome.tsx`'s own
-            sidebar-wide mount. Sits above the Files/Git body, independent of
-            fold state: a draining hold stays visible (and Keep-able) even
-            if the user folds the card while it is waiting out its clock. */}
-        <RemovalTray />
+        {/* `RemovalTray` used to mount here. It must not: this card is
+            unmounted whenever the stage is empty or a space is being created
+            (ide-shell.tsx's gate), and the tray owns the ONLY commit clock —
+            measured live, a held row drained its hairline and no DELETE was
+            ever sent. It mounts in the rail itself now. */}
         {/* The body (spec §6.4): folding "drops everything under [the head]" —
             `hidden` (display:none), never a conditional unmount. Both
             Files and Git panels stay mounted the whole time regardless of
