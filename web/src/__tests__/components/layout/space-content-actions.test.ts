@@ -1327,6 +1327,61 @@ describe('handleCreateHomeThread', () => {
   })
 })
 
+// A created row that never arrives (the daemon failed after answering) must
+// not spin forever: the wait is bounded at 30 s, then the create fails.
+describe('a created row that never arrives', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    resetWindowPaneStoreForTests()
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    resetWindowPaneStoreForTests()
+  })
+
+  async function expectFailsAtThirtySeconds(): Promise<void> {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await vi.advanceTimersByTimeAsync(29_999)
+    expect(usePendingCreatesStore.getState().entries[0]?.status).toBe('creating')
+    await vi.advanceTimersByTimeAsync(1)
+    expect(usePendingCreatesStore.getState().entries[0]).toMatchObject({
+      status: 'error',
+      error: 'The new row never arrived from the daemon',
+    })
+    expect(toastError).toHaveBeenCalledWith(
+      'Failed to start chat',
+      'The new row never arrived from the daemon',
+    )
+    consoleError.mockRestore()
+  }
+
+  it('a repo thread fails after 30 s, and a late arrival no longer clears it', async () => {
+    const ws = { id: 'ws-a', branch: 'alpha', age: '', order: 0 }
+    useSidebarStore.setState({ repos: [repo({ workspaces: [ws] })] })
+    setActiveWorkspaceId('ws-a')
+
+    handleCreate('ws-a', 'thread', vi.fn())
+    await expectFailsAtThirtySeconds()
+
+    // The wait unsubscribed: the row landing late does not touch the entry.
+    const chat = { id: 'chat-1', repoId: 'r1', workspaceId: 'ws-a', title: '', order: 0 }
+    useSidebarStore.setState({
+      repos: [repo({ workspaces: [ws], chats: [{ ...chat, parentId: 'ws-a' }] })],
+    })
+    expect(usePendingCreatesStore.getState().entries[0]?.status).toBe('error')
+  })
+
+  it('a project-home thread fails after 30 s', async () => {
+    setActiveWorkspaceId('home-ws-1')
+    await handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
+    await expectFailsAtThirtySeconds()
+  })
+})
+
 // A create the daemon refused used to leave only a bare "failed" badge — the
 // reason it stored on the entry was never toasted or logged, so a 404 "parent
 // not found" and a 409 "no fork parent" were indistinguishable from a network
