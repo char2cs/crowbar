@@ -258,28 +258,6 @@ func (m *OriginSyncManager) notifyCycle(
 	}
 }
 
-// driveCyclesForTest installs the deterministic test seams; it must be called
-// before Acquire. ticks replaces the interval ticker (so no cycle ever happens
-// unless the test fires one) and cycleDone receives one value after every
-// completed cycle, the immediate-on-Acquire sync included.
-func (m *OriginSyncManager) driveCyclesForTest(
-	ticks <-chan time.Time,
-	cycleDone chan<- struct{},
-) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.ticks = ticks
-	m.cycleDone = cycleDone
-}
-
-// waitRunnersForTest blocks until every run goroutine started by Acquire has
-// actually returned. Release/StopAll only cancel a context; this is the real
-// signal that the sync has stopped, so a test can assert "nothing fires after
-// Release" without a sleep.
-func (m *OriginSyncManager) waitRunnersForTest() {
-	m.runners.Wait()
-}
-
 // syncTick loads the workspace and, only if it has no parent (a protected/
 // root branch), issues a single FetchRef on a context.WithoutCancel-derived,
 // timeout-bounded context. A workspace with a parent is left alone: its fork

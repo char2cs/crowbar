@@ -20,6 +20,7 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 const chat = "chat-1"
@@ -747,6 +748,7 @@ func TestNewEventSourced_ReportsAnUnusableReadModelOrContentRoot(t *testing.T) {
 }
 
 func TestInvokeTool_SurvivesAnUnwritableContentStore(t *testing.T) {
+	testutil.RequirePermissionEnforcement(t)
 	f := newFixture(t)
 	require.NoError(t, os.Chmod(f.dir, 0o500))
 	t.Cleanup(func() { _ = os.Chmod(f.dir, 0o700) })

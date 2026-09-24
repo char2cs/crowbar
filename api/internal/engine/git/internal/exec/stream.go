@@ -79,7 +79,7 @@ func startStream(
 	//nolint:gosec // G204: running git with caller-supplied args is the purpose of this package.
 	cmd := exec.CommandContext(sctx, bin, args...)
 	cmd.Dir = dir
-	cmd.Env = gitEnv(nil)
+	cmd.Env = gitEnv()
 	cmd.WaitDelay = waitDelay
 
 	s := &gitStream{cmd: cmd, cancel: cancel, op: subcommandName(args)}

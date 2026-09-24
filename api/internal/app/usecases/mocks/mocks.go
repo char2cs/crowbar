@@ -622,10 +622,9 @@ type GitEngine struct {
 	WorktreeListFn func(repoPath string) ([]gitengine.WorktreeEntry, error)
 
 	// Protected-branch managed-worktree provisioning fakes (project import).
-	Detached     []string          // worktree paths detached to HEAD
-	CheckedOut   []WorktreeAddCall // (path, branch) re-attach calls
-	WorktreeAdds []WorktreeAddCall // (path, branch) worktrees materialised, by EITHER add
-	//nolint:lll // the trailing note is the point: this log is the -B subset of WorktreeAdds.
+	Detached               []string               // worktree paths detached to HEAD
+	CheckedOut             []WorktreeAddCall      // (path, branch) re-attach calls
+	WorktreeAdds           []WorktreeAddCall      // (path, branch) worktrees materialised, by EITHER add
 	WorktreeAddAtRefs      []WorktreeAddAtRefCall // the subset added AT a start ref (`git worktree add -B`)
 	WorktreeRemoves        []string               // worktree paths force-removed
 	FetchedRefs            []string               // branches fetched from origin (FetchRef)

@@ -3,6 +3,7 @@ package metadata
 import (
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -24,13 +25,6 @@ func TestGetEventsPathAt_RootsAtHomeDir(t *testing.T) {
 	assert.True(t, strings.HasSuffix(got, "state/events"))
 }
 
-func TestGetRunsPathAt_RootsAtHomeDir(t *testing.T) {
-	t.Cleanup(resetForTesting)
-	resetForTesting()
-	got := GetRunsPathAt("/tmp/crowtest")
-	assert.Equal(t, "/tmp/crowtest/runs", got)
-}
-
 func TestOsValue_Resolve_FallsBackToDefault(t *testing.T) {
 	v := OsValue[string]{Default: "d", OS: map[string]string{"plan9": "x"}}
 	assert.Equal(t, "d", v.Resolve())
@@ -49,7 +43,6 @@ func TestGetHomePath_EnvOverride(t *testing.T) {
 	assert.Equal(t, "/tmp/crowbar-dev-home", GetHomePath())
 	// Every derived path must root at the override too.
 	assert.True(t, strings.HasPrefix(GetStateDirPath(), "/tmp/crowbar-dev-home"))
-	assert.True(t, strings.HasPrefix(GetProjectsPath(), "/tmp/crowbar-dev-home"))
 	assert.True(t, strings.HasPrefix(GetConfigPath(), "/tmp/crowbar-dev-home"))
 }
 
@@ -69,50 +62,7 @@ func TestGetStateDirPath_IsStateDir(t *testing.T) {
 	assert.Equal(t, "/tmp/crowtest/state", got)
 }
 
-func TestGetProjectsPath(t *testing.T) {
-	t.Cleanup(resetForTesting)
-	resetForTesting()
-	got := GetProjectsPathAt("/tmp/crowtest")
-	assert.Equal(t, "/tmp/crowtest/projects", got)
-
-	t.Setenv("HOME", t.TempDir())
-	resetForTesting()
-	assert.NotEmpty(t, GetProjectsPath())
-}
-
 // --- New tests for coverage ---
-
-func TestGetEventsPath_NonEmpty(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Cleanup(resetForTesting)
-	resetForTesting()
-	got := GetEventsPath()
-	assert.NotEmpty(t, got)
-}
-
-func TestGetStorePath_NonEmpty(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Cleanup(resetForTesting)
-	resetForTesting()
-	got := GetStorePath()
-	assert.NotEmpty(t, got)
-}
-
-func TestGetRunsPath_NonEmpty(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Cleanup(resetForTesting)
-	resetForTesting()
-	got := GetRunsPath()
-	assert.NotEmpty(t, got)
-}
-
-func TestGetLogsPath_NonEmpty(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Cleanup(resetForTesting)
-	resetForTesting()
-	got := GetLogsPath()
-	assert.NotEmpty(t, got)
-}
 
 func TestDefaultMetadata_Name(t *testing.T) {
 	m := defaultMetadata()
@@ -153,4 +103,9 @@ func TestResolveHome_NonTilde(t *testing.T) {
 	once.Do(func() {}) // mark once as done so Get() returns our metadata
 	got := resolveHome()
 	assert.Equal(t, "/absolute/path", got)
+}
+
+func resetForTesting() {
+	metadata = nil
+	once = sync.Once{}
 }

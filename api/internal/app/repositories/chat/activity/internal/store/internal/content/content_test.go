@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity/internal/store/internal/content"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 func newStore(t *testing.T) *content.Store {
@@ -182,6 +183,7 @@ func TestPut_StoresPayloadsReadableOnlyByTheDaemon(t *testing.T) {
 }
 
 func TestPut_ReportsAFailureToWrite(t *testing.T) {
+	testutil.RequirePermissionEnforcement(t)
 	root := filepath.Join(t.TempDir(), "content")
 	s, err := content.New(root)
 	require.NoError(t, err)

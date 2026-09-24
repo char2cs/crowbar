@@ -19,15 +19,9 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// This file exercises the hub.Subscriber push wiring (PushProject...PushFile),
-// the terminal lifecycle callbacks (onTerminalState/onTerminalEnded), and their
-// shared resolveWorkspaceScope/scopeWsID helpers. These are otherwise only
-// covered by the //go:build integration suite, which CI's coverage gate does
-// not run (see container_test.go et al.), so container.go's push/lifecycle
-// wiring shows 0% in the gate despite being exercised there. These tests are
-// deliberately untagged so `go test ./...` (the CI invocation) exercises them
-// directly, calling the unexported methods/helpers in-package rather than
-// standing up the full Register() router.
+// The hub.Subscriber push wiring (PushProject...PushFile), the terminal
+// lifecycle callbacks and their workspace-scope helpers, driven in-package
+// without standing up the full Register() router.
 
 // dialWSAt dials a WS client against srv at path and fails the test on error.
 func dialWSAt(t *testing.T, srv *httptest.Server, path string) *websocket.Conn {

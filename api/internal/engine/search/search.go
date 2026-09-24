@@ -112,7 +112,7 @@ func (e *searchEngine) Search(
 ) (SearchResponse, error) {
 	re, err := match.BuildPattern(req.Query, req.CaseSensitive, req.WholeWord, req.Regex)
 	if err != nil {
-		return SearchResponse{}, fmt.Errorf("%w: %s", ErrBadPattern, err)
+		return SearchResponse{}, fmt.Errorf("%w: %w", ErrBadPattern, err)
 	}
 
 	ig := buildIgnoreStack(repoPath)
@@ -161,7 +161,7 @@ func (e *searchEngine) Replace(
 ) error {
 	re, err := match.BuildPattern(req.Query, req.CaseSensitive, req.WholeWord, req.Regex)
 	if err != nil {
-		return fmt.Errorf("%w: %s", ErrBadPattern, err)
+		return fmt.Errorf("%w: %w", ErrBadPattern, err)
 	}
 
 	targets, err := replaceTargets(ctx, repoPath, req)
@@ -224,7 +224,7 @@ func searchFile(
 	// Binary sniff on the first 8 KB.
 	sample := make([]byte, binarySampleSize)
 	n, err := f.Read(sample)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("search: read sample %s: %w", absPath, err)
 	}
 

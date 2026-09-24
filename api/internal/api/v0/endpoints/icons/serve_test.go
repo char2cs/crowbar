@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/icons"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // The read/validate/store half of the icon plumbing, which both the repo and
@@ -296,12 +297,7 @@ func TestServe404sWhenTheFileCannotBeOpened(t *testing.T) {
 	// Stat succeeds (the file exists and is under the size cap) but the
 	// subsequent os.Open fails — a corrupted-permissions icon file must 404
 	// exactly like a missing one, not panic or leak an fs error to the client.
-	if runtime.GOOS == "windows" {
-		t.Skip("unix permission semantics")
-	}
-	if os.Geteuid() == 0 {
-		t.Skip("root bypasses the unreadable-file permission, so no failure is provoked")
-	}
+	testutil.RequirePermissionEnforcement(t)
 	path := filepath.Join(t.TempDir(), "icon")
 	if err := os.WriteFile(path, png(), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
@@ -337,12 +333,7 @@ func TestReadUploadRefusesAPathWithNoReadPermission(t *testing.T) {
 	// fails — distinct from TestReadUploadRefusesAPathThatCannotBeRead, which
 	// exercises the LimitReader/ReadAll failure once Open has already
 	// succeeded (a directory opens fine on Unix; only the read fails there).
-	if runtime.GOOS == "windows" {
-		t.Skip("unix permission semantics")
-	}
-	if os.Geteuid() == 0 {
-		t.Skip("root bypasses the unreadable-file permission, so no failure is provoked")
-	}
+	testutil.RequirePermissionEnforcement(t)
 	path := filepath.Join(t.TempDir(), "icon.png")
 	if err := os.WriteFile(path, png(), 0o600); err != nil {
 		t.Fatalf("write: %v", err)

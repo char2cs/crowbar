@@ -1,0 +1,5 @@
+api/internal/adapter/store/agentjournal/prompt_requests_coverage_test.go
+api/internal/api/v0/endpoints/repos/handlers/repos_extra_test.go
+api/internal/api/v0/endpoints/terminal/handlers/sessions_coverage_test.go
+api/internal/app/usecases/project/project_import_coverage_test.go
+api/tests/integration/agent/agent_gaps_test.go

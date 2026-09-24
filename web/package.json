@@ -20,7 +20,8 @@
     "test:coverage": "vitest run --coverage",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
-    "doctor": "react-doctor ."
+    "doctor": "react-doctor .",
+    "knip": "node scripts/check-knip.mjs"
   },
   "dependencies": {
     "@ariakit/react": "^0.4.37",
@@ -110,6 +111,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@eslint-community/eslint-plugin-eslint-comments": "^4.8.1",
     "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/router-plugin": "^1.168.32",
@@ -122,11 +124,13 @@
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
     "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/eslint-plugin": "^1.6.27",
     "eslint": "^10.8.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "fake-indexeddb": "^6.2.5",
     "globals": "^17.11.0",
     "jsdom": "^30.0.0",
+    "knip": "6.38.0",
     "msw": "^2.15.0",
     "prettier": "^3.9.6",
     "react-doctor": "0.9.1",

@@ -607,6 +607,10 @@ export const convertFileSrc = tauriConvertFileSrc
 async function tauriInvoke(cmd: string, args?: Record<string, unknown>): Promise<void> {
   if (!isTauri()) throw new Error(`tauriInvoke called outside Tauri: ${cmd}`)
   // Use the global injected by Tauri before any JS runs — no npm import needed
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (window as any).__TAURI_INTERNALS__.invoke(cmd, args)
+  const tauri = window as unknown as {
+    __TAURI_INTERNALS__: {
+      invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>
+    }
+  }
+  await tauri.__TAURI_INTERNALS__.invoke(cmd, args)
 }

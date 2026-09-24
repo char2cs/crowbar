@@ -29,6 +29,8 @@ jobs:
           filters: |
             go:
               - 'api/**'
+              - 'scripts/check-test-names.sh'
+              - 'scripts/test-name-baseline.txt'
               - '.github/workflows/ci.yml'
             web:
               - 'web/**'
@@ -73,6 +75,12 @@ jobs:
           cache-dependency-path: api/go.sum
       - name: Go vet
         run: cd api && go vet -tags noEmbed ./...
+      - name: Test file names (no *_coverage/_extra/_gaps_test.go)
+        run: bash scripts/check-test-names.sh
+      - name: Dead code (deadcode; baseline may only shrink)
+        run: |
+          go install golang.org/x/tools/cmd/deadcode@v0.50.0
+          cd api && scripts/deadcode-check.sh
       - name: Integration-tagged tests (black-box suite + route audit)
         run: |
           cd api
@@ -91,14 +99,12 @@ jobs:
           #     TestCrash_DeleteMidCascade_BootSweepReaps fails intermittently on
           #     an untouched tree). Gating merges on a known-flaky suite trains
           #     people to re-run CI, which is worse than not running it here.
-          # Both are run by hand; this step is the fast, hermetic part (~1 min).
+          # The acceptance tier runs nightly (integration-nightly.yml); the agent
+          # suite is run by hand. This step is the fast, hermetic part (~1 min).
           #
-          # -timeout is explicit and well under Go's 10m default because the
-          # failure mode this suite actually has on Linux is a HANG, not a FAIL:
-          # a test that dials a stream after an async POST waits forever for a
-          # frame it already missed. Two such tests are known to hang on Linux
-          # today (repo_import_test.go, pre-existing and untouched by the branch
-          # that added this step). A hang should burn 4 minutes and name itself,
+          # -timeout is explicit and well under Go's 10m default: a test that
+          # dials a stream after an async POST can wait forever for a frame it
+          # already missed, and a hang should burn 4 minutes and name itself,
           # not 10 minutes and a cancelled runner.
           go test -tags "integration noEmbed" -count=1 -timeout 4m ./tests ./internal/api/...
       - name: Race-detected unit tests + coverage (≥92%)
@@ -131,6 +137,27 @@ jobs:
       - name: Cross-compile (macOS amd64)
         run: cd api && GOOS=darwin GOARCH=amd64 go build -tags noEmbed ./cmd/crowbar
 
+  go-lint:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # .golangci.yml gates only lines changed since its new-from-rev
+          # baseline, which needs the history back to that commit.
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.2'
+          cache-dependency-path: api/go.sum
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0
+          working-directory: api
+          args: --build-tags noEmbed
+
   frontend-checks:
     needs: changes
     if: needs.changes.outputs.web == 'true'
@@ -142,8 +169,10 @@ jobs:
         run: cd web && bun install --frozen-lockfile
       - name: Prettier
         run: cd web && bun prettier --check .
-      - name: ESLint
-        run: cd web && bun eslint src
+      - name: ESLint (warnings fail)
+        run: cd web && bun eslint . --max-warnings 0
+      - name: Dead code (knip, full + --production; baseline may only shrink)
+        run: cd web && bun run knip
       - name: TypeScript
         run: cd web && bun tsc --noEmit
       - name: Test coverage (ratchet)

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -92,4 +93,9 @@ func TestGetPrompts_UserConfigOverlays(t *testing.T) {
 	assert.Equal(t, "CUSTOM {conversation}", p.HandoffWrapper)
 	// absent field keeps the embedded default
 	assert.Contains(t, p.HandoffPointer, "{chat_id}")
+}
+
+func resetForTesting() {
+	config = nil
+	once = sync.Once{}
 }

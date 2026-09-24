@@ -14,6 +14,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/content"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 func TestRead_TextFile(
@@ -127,12 +128,7 @@ func TestRegression_Read_InvalidUTF8PastSampleWindowIsByteFaithful(
 func TestRead_PermissionDenied(
 	t *testing.T,
 ) {
-	if runtime.GOOS == "windows" {
-		t.Skip("unix permission semantics")
-	}
-	if os.Geteuid() == 0 {
-		t.Skip("root bypasses the unreadable-file permission")
-	}
+	testutil.RequirePermissionEnforcement(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "secret.txt")
 	require.NoError(t, os.WriteFile(path, []byte("hello"), 0o600))
@@ -309,6 +305,7 @@ func TestWrite_MkdirError(
 func TestWrite_WriteFileError(
 	t *testing.T,
 ) {
+	testutil.RequirePermissionEnforcement(t)
 	if runtime.GOOS == "windows" {
 		t.Skip("chmod restrictions differ on windows")
 	}

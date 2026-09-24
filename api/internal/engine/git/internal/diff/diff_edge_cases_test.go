@@ -421,22 +421,6 @@ func TestWorkingTree_BinaryFile_CancelledContext(t *testing.T) {
 	assert.True(t, found)
 }
 
-// --- hunkHeader fallback: slice has no DiffLineHeader line ---
-// HunkPatch.buildPatch calls hunkHeader(hunkLines, hunk.Header).
-// hunkLines is lines[hunk.StartLine : hunk.EndLine+1].
-// hunk.StartLine is always the index of the DiffLineHeader line from buildHunks.
-// So the fallback path in hunkHeader (no header type in slice) would only fire
-// if the slice is empty or the start line has changed.
-// The HunkPatch tests with multi-file diffs already exercise the primary path;
-// we can't easily hit the fallback from an external package without injectable
-// fake diffs. The existing tests achieve as much coverage as possible externally.
-
-// --- parseHunkHeader edge cases ---
-// These are exercised via WorkingTree when git produces @@ headers with unusual
-// shapes. The standard path is already well covered. The missing-minus and
-// missing-plus paths require injected malformed headers which aren't emittable
-// by git. Coverage is limited for these private parsing guards.
-
 // --- splitFileSections: first section with no preceding "diff --git" ---
 // When a text has only one diff --git section with trailing newlines the builder
 // captures it. Exercise by diffing two files simultaneously.

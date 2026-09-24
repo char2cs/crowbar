@@ -77,20 +77,6 @@ func Derive(
 // the chats tree as siblings, given the worktree path.
 func WorkspaceRoot(worktreePath string) string { return filepath.Dir(worktreePath) }
 
-// SlugDir returns the repo's on-disk identity directory
-// <home>/projects/<project>/<slug> — the parent every one of that repo's
-// workspace roots hangs off, and the FLOOR for anything that walks the layout
-// upward. A branch name maps to nested directories, so a workspace root can sit
-// several levels below this; nothing owned by one workspace ever exists at or
-// above it.
-func SlugDir(
-	home string,
-	project string,
-	slug string,
-) string {
-	return filepath.Join(home, "projects", project, slug)
-}
-
 // ChatsDir returns the per-workspace agentic chats directory for a MANAGED
 // worktree: the sibling of the worktree, NOT inside it (so agent state never
 // appears in git status). It is valid ONLY when the worktree is itself under
