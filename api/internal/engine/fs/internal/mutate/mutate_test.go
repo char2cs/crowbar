@@ -13,6 +13,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/mutate"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 func TestCreateFile_CreatesEmptyFile(
@@ -207,12 +208,7 @@ func TestRename_CaseOnlyRenameAllowed(
 func TestRegression_Copy_CleansUpPartialDestOnFailure(
 	t *testing.T,
 ) {
-	if runtime.GOOS == "windows" {
-		t.Skip("unix permission semantics")
-	}
-	if os.Geteuid() == 0 {
-		t.Skip("root bypasses the unreadable-file permission, so no failure is provoked")
-	}
+	testutil.RequirePermissionEnforcement(t)
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "src"), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "src/ok.txt"), []byte("ok"), 0o600))
@@ -589,12 +585,7 @@ func TestCopy_DestMkdirError(
 func TestCopy_Directory_ReadDirError(
 	t *testing.T,
 ) {
-	if runtime.GOOS == "windows" {
-		t.Skip("unix permission semantics")
-	}
-	if os.Geteuid() == 0 {
-		t.Skip("root bypasses directory read permission")
-	}
+	testutil.RequirePermissionEnforcement(t)
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")
 	require.NoError(t, os.MkdirAll(src, 0o700))
@@ -612,12 +603,7 @@ func TestCopy_Directory_ReadDirError(
 func TestCopy_File_DestOpenError(
 	t *testing.T,
 ) {
-	if runtime.GOOS == "windows" {
-		t.Skip("unix permission semantics")
-	}
-	if os.Geteuid() == 0 {
-		t.Skip("root bypasses directory write permission")
-	}
+	testutil.RequirePermissionEnforcement(t)
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o600))
 	destDir := filepath.Join(dir, "readonly")
@@ -641,12 +627,7 @@ func TestCopy_File_DestOpenError(
 func TestCopy_Directory_DestParentNotWritable(
 	t *testing.T,
 ) {
-	if runtime.GOOS == "windows" {
-		t.Skip("unix permission semantics")
-	}
-	if os.Geteuid() == 0 {
-		t.Skip("root bypasses directory write permission")
-	}
+	testutil.RequirePermissionEnforcement(t)
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "src"), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "src/f.txt"), []byte("x"), 0o600))
@@ -671,12 +652,7 @@ func TestCopy_Directory_DestParentNotWritable(
 func TestDelete_PermissionError(
 	t *testing.T,
 ) {
-	if runtime.GOOS == "windows" {
-		t.Skip("unix permission semantics")
-	}
-	if os.Geteuid() == 0 {
-		t.Skip("root bypasses directory write permission")
-	}
+	testutil.RequirePermissionEnforcement(t)
 	dir := t.TempDir()
 	target := filepath.Join(dir, "locked")
 	require.NoError(t, os.MkdirAll(target, 0o700))

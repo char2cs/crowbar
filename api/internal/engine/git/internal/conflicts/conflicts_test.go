@@ -13,6 +13,7 @@ import (
 
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/conflicts"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 func newConflictRepo(
@@ -353,6 +354,7 @@ func TestResolveHunk_MissingFile(
 func TestResolveHunk_WriteError(
 	t *testing.T,
 ) {
+	testutil.RequirePermissionEnforcement(t)
 	repoPath, conflictFile := newConflictRepo(t)
 
 	ctx := context.Background()

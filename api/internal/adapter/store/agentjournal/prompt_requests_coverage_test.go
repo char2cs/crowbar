@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // asFile creates dir's parent normally but plants a plain FILE where a
@@ -99,6 +100,7 @@ func TestJournal_Begin_SurfacesAnUnstattableJournalDir(t *testing.T) {
 }
 
 func TestJournal_Begin_SurfacesAMkdirAllFailureOnAReadOnlyParent(t *testing.T) {
+	testutil.RequirePermissionEnforcement(t)
 	parent := t.TempDir()
 	readOnlyParent := filepath.Join(parent, "readonly")
 	require.NoError(t, os.Mkdir(readOnlyParent, 0o500)) // r-x: Stat can traverse it, MkdirAll cannot write into it
