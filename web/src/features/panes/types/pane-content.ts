@@ -158,6 +158,11 @@ export function isPersistableContent(c: PaneContent): c is EditorContent {
   return c.type === 'editor' && !c.isVirtual
 }
 
+/** An editor buffer holding edits disk does not have — the only copy of them. */
+export function hasUnsavedEdits(c: PaneContent): boolean {
+  return c.type === 'editor' && (c.isDirty || c.content !== c.savedContent)
+}
+
 /** Content types that are virtual (not backed by a real file on disk). */
 const VIRTUAL_TYPES: ReadonlySet<EditorTabContentType> = new Set([
   'terminal',

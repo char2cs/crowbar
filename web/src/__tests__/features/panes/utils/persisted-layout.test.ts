@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { validateLoadedBuffers, type Snapshot } from '@/features/panes/utils/persisted-layout'
 
 describe('validateLoadedBuffers', () => {
+  const ROOT = { adoptInto: 'root' }
   const snapshot = {
     buffers: [
       { id: 'nt-1', type: 'newTab', path: '', name: 'New Tab' },
@@ -14,15 +15,15 @@ describe('validateLoadedBuffers', () => {
   } as unknown as Snapshot
 
   it('drops buffers whose content type no longer exists (e.g. the retired New Tab placeholder)', () => {
-    expect(validateLoadedBuffers(snapshot).buffers.map((b) => b.id)).toEqual(['e-1'])
+    expect(validateLoadedBuffers(snapshot, ROOT).buffers.map((b) => b.id)).toEqual(['e-1'])
   })
 
   it('strips their ids out of pane membership, so no id is left stranded', () => {
-    expect(validateLoadedBuffers(snapshot).panes.root.editorTabIds).toEqual(['e-1'])
+    expect(validateLoadedBuffers(snapshot, ROOT).panes.root.editorTabIds).toEqual(['e-1'])
   })
 
   it('repoints activeEditorTabId when it pointed at a dropped buffer', () => {
-    const out = validateLoadedBuffers(snapshot)
+    const out = validateLoadedBuffers(snapshot, ROOT)
     expect(out.panes.root.activeEditorTabId).toBe('e-1')
     // Nothing left to activate — null, never a dangling id.
     expect(out.panes.split.activeEditorTabId).toBeNull()
@@ -36,7 +37,7 @@ describe('validateLoadedBuffers', () => {
       },
     } as unknown as Snapshot
 
-    const out = validateLoadedBuffers(soleUnknown)
+    const out = validateLoadedBuffers(soleUnknown, ROOT)
     expect(out.buffers.map((b) => b.id)).toEqual([])
     expect(out.panes.root.editorTabIds).toEqual([])
     expect(out.panes.root.activeEditorTabId).toBeNull()
@@ -52,7 +53,7 @@ describe('validateLoadedBuffers', () => {
       },
     } as unknown as Snapshot
 
-    const out = validateLoadedBuffers(strandedOnly)
+    const out = validateLoadedBuffers(strandedOnly, ROOT)
     expect(out.panes.root.editorTabIds).toEqual(['e-1'])
     expect(out.panes.root.activeEditorTabId).toBe('e-1')
   })
@@ -68,7 +69,46 @@ describe('validateLoadedBuffers', () => {
       },
     } as unknown as Snapshot
 
-    expect(validateLoadedBuffers(leaked).buffers.map((b) => b.id)).toEqual(['e-1'])
+    expect(validateLoadedBuffers(leaked, ROOT).buffers.map((b) => b.id)).toEqual(['e-1'])
+  })
+
+  it('re-homes an unsaved buffer no pane lists instead of dropping it', () => {
+    const leaked = {
+      buffers: [
+        { id: 'e-1', type: 'editor', path: '/a.ts', name: 'a.ts' },
+        { id: 'e-2', type: 'editor', path: '/b.ts', content: 'edit', savedContent: 'disk' },
+        {
+          id: 'e-3',
+          type: 'editor',
+          path: '/c.ts',
+          content: 'x',
+          savedContent: 'x',
+          isDirty: true,
+        },
+      ],
+      panes: {
+        root: { id: 'root', editorTabIds: [], activeEditorTabId: null },
+        other: { id: 'other', editorTabIds: ['e-1'], activeEditorTabId: 'e-1' },
+      },
+    } as unknown as Snapshot
+
+    const out = validateLoadedBuffers(leaked, ROOT)
+
+    expect(out.buffers.map((b) => b.id)).toEqual(['e-1', 'e-2', 'e-3'])
+    expect(out.panes.root.editorTabIds).toEqual(['e-2', 'e-3'])
+    expect(out.panes.root.activeEditorTabId).toBe('e-2')
+  })
+
+  it('keeps every unlisted buffer when asked to (a layout saved without views)', () => {
+    const unlisted = {
+      buffers: [{ id: 'e-1', type: 'editor', path: '/a.ts', name: 'a.ts' }],
+      panes: { root: { id: 'root', editorTabIds: [], activeEditorTabId: null } },
+    } as unknown as Snapshot
+
+    const out = validateLoadedBuffers(unlisted, { adoptInto: 'root', keepUnlisted: true })
+
+    expect(out.buffers.map((b) => b.id)).toEqual(['e-1'])
+    expect(out.panes.root.editorTabIds).toEqual(['e-1'])
   })
 
   it('drops a buffer whose content type this build no longer has', () => {
@@ -86,7 +126,7 @@ describe('validateLoadedBuffers', () => {
       },
     } as unknown as Snapshot
 
-    const out = validateLoadedBuffers(stale)
+    const out = validateLoadedBuffers(stale, ROOT)
 
     expect(out.buffers.map((b) => b.id)).toEqual(['e-1'])
     // The pane must not be left pointing at the id that just vanished.
@@ -105,6 +145,6 @@ describe('validateLoadedBuffers', () => {
       },
     } as unknown as Snapshot
 
-    expect(validateLoadedBuffers(current)).toEqual(current)
+    expect(validateLoadedBuffers(current, ROOT)).toEqual(current)
   })
 })

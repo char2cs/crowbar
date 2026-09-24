@@ -58,6 +58,9 @@ export interface PaneActions {
   /** Row: the runner in `paneId` walked into `chatId` (`moved` frame only). */
   retargetPane(paneId: string, chatId: string, runnerId: string | null): void
   setPaneRunner(paneId: string, runnerId: string | null): void
+  /** Row: the daemon's answer for restored members saved without a workspace —
+   *  `placed` fills it in, `gone` chats leave (their unsaved buffers stay). */
+  placeRestoredMembers(placed: ReadonlyMap<string, string>, gone: ReadonlySet<string>): void
   /** Row: a chat turned working with no pane — a background record, not shown. */
   adoptBackgroundChat(chatId: string, projectId: string, workspaceId?: string | null): void
   /** Put a record on screen (another project's is only remembered). */

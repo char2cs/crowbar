@@ -1,8 +1,13 @@
-import { hydrateSidebar, hydrateWindowPaneLayout } from '@/lib/persistence/hydrate'
+import {
+  hydrateSidebar,
+  hydrateWindowPaneLayout,
+  placeRestoredChatMembers,
+} from '@/lib/persistence/hydrate'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { dataOf } from '@/lib/loadable'
+import { retireOrphanedStorage } from '@/lib/persistence/retired-storage'
 
 /**
  * Hydrates whatever this window's pane/buffer layout and sidebar tree were
@@ -33,7 +38,10 @@ import { dataOf } from '@/lib/loadable'
  * waits on `setRepos` completing, not on anything else here.
  */
 export async function hydrateCriticalStores(): Promise<void> {
+  void retireOrphanedStorage()
   await hydrateWindowPaneLayout()
+  // The one network step, deliberately not awaited: members stay unplaced until it answers.
+  void placeRestoredChatMembers()
   await useWorkspaceListStore.getState().fetch()
   useSidebarStore.getState().setRepos(dataOf(useWorkspaceListStore.getState().data) ?? [])
   await hydrateSidebar()

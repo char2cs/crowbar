@@ -81,7 +81,6 @@ function corruptRoundTrip(store: Store, rand: () => number): void {
   if (kind === 3) layout.viewOrder = [...(layout.viewOrder ?? []), 'bogus', 'bogus']
   if (kind === 4) layout.activeViewId = 'bogus'
   const state = restoreWindowPaneState(layout)
-  if (!state) throw new Error('a snapshot with views failed to restore')
   assertViewIntegrity(state)
   const survives = (id: string) =>
     id !== victim || kind > 2 || (kind > 0 && viewChatIds(state, id).length > 0)
@@ -93,7 +92,6 @@ function corruptRoundTrip(store: Store, rand: () => number): void {
 function roundTrip(store: Store): void {
   const s = store.getState()
   const state = restoreWindowPaneState(snapshot(s))
-  if (!state) throw new Error('a valid state failed to round-trip')
   store.setState({ ...state, activeProjectId: s.activeProjectId })
 }
 

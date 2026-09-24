@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { openDB } from 'idb'
+import { openDB, type IDBPDatabase } from 'idb'
 import { IDBFactory } from 'fake-indexeddb'
 import { getDB, resetDB } from '@/lib/persistence/idb'
 
@@ -57,7 +57,67 @@ describe('idb schema v10', () => {
     for (const name of RETIRED) expect(Array.from(db.objectStoreNames)).not.toContain(name)
     expect(await db.get('sidebar-ui', 'global')).toMatchObject({ collapsedChatRows: ['c1'] })
   })
+  // The v9 database exactly as the base build (70ec430) left it, one record in
+  // every store: the v10 upgrade may drop the two retired stores and nothing else.
+  it('upgrades a base-build v9 database with data in every store, losing only the retired', async () => {
+    const byKey = (key: string) => ({ keyPath: key })
+    const stores: Array<[string, IDBObjectStoreParameters | undefined, unknown, IDBValidKey?]> = [
+      ['workspace-layout', byKey('workspaceId'), { workspaceId: 'window', panes: {} }],
+      ['editor-state', byKey('bufferId'), null],
+      ['ui-preferences', undefined, { theme: 'dark' }, 'global'],
+      ['sidebar-ui', undefined, { collapsedChatRows: ['c1'] }, 'global'],
+      ['workspace-hierarchy', byKey('repoId'), { repoId: 'r1', entries: [] }],
+      ['branch-review', byKey('wsId'), { wsId: 'ws1', viewed: {} }],
+      ['workspaces-data', byKey('key'), { key: 'k', data: 1, fetchedAt: 1 }],
+      ['git-data', byKey('key'), { key: 'k', data: 2, fetchedAt: 1 }],
+      ['file-tree-data', byKey('key'), { key: 'k', data: 3, fetchedAt: 1 }],
+      ['branch-review-data', byKey('key'), { key: 'k', data: 4, fetchedAt: 1 }],
+      ['chat-history', byKey('key'), { key: 'k', data: 5, fetchedAt: 1 }],
+      ['projects-data', byKey('key'), { key: 'k', data: 6, fetchedAt: 1 }],
+      ['chats-data', byKey('key'), { key: 'k', data: 7, fetchedAt: 1 }],
+      ['crowbar_projects', byKey('id'), { id: 'p1' }],
+      ['crowbar_repos', byKey('id'), { id: 'r1' }],
+      ['crowbar_workspaces', byKey('id'), { id: 'w1' }],
+      ['crowbar_threads', byKey('id'), { id: 't1' }],
+      ['crowbar_folders', byKey('id'), { id: 'f1' }],
+      ['crowbar_chats', byKey('id'), { id: 'c1', workspaceId: 'w1' }],
+    ]
+    const editorState = { workspaceId: 'w1', bufferId: 'b1', cursorLine: 3 }
+    const v9 = await openDB('crowbar', 9, {
+      upgrade(db) {
+        for (const [name, params] of stores) {
+          if (name === 'editor-state') {
+            db.createObjectStore(name, { keyPath: ['workspaceId', 'bufferId'] }).createIndex(
+              'workspaceId',
+              'workspaceId',
+            )
+          } else db.createObjectStore(name, params)
+        }
+      },
+    })
+    for (const [name, , value, key] of stores) {
+      await v9.put(name, name === 'editor-state' ? editorState : value, key)
+    }
+    v9.close()
+
+    const db = await getDB()
+    const raw = db as unknown as IDBPDatabase
+    const names = Array.from(db.objectStoreNames)
+    for (const [name, params, value, key] of stores) {
+      if (RETIRED.includes(name)) {
+        expect(names).not.toContain(name)
+        continue
+      }
+      const id = key ?? (name === 'editor-state' ? ['w1', 'b1'] : keyOf(value, params))
+      expect(await raw.get(name, id), name).toEqual(name === 'editor-state' ? editorState : value)
+    }
+    expect(await db.getAllFromIndex('editor-state', 'workspaceId', 'w1')).toEqual([editorState])
+  })
 })
+
+function keyOf(value: unknown, params: IDBObjectStoreParameters | undefined): IDBValidKey {
+  return (value as Record<string, IDBValidKey>)[params!.keyPath as string]
+}
 
 describe('idb schema v7 entity stores', () => {
   it('creates the four entity stores keyed by id', async () => {
