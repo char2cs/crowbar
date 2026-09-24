@@ -28,7 +28,9 @@ const clientSendBuf = 256
 // substitute a model whose Resize/Serialize panics, driving the §8.5 session recover
 // backstops (mutateModelLocked/serializeLocked) through Session.Resize/Attach — the real
 // vtModel recovers Write panics internally, so those session backstops are otherwise
-// unreachable from a test. Production never reassigns it; spawn is its sole caller.
+// unreachable from a test. Production never reassigns it. A session captures it once at
+// construction (Session.newModel), so its own goroutines never read the package var — a
+// test restoring the seam can't race a session that is still rebuilding its model.
 var newModel = model.New
 
 // defaultScrollbackLines is the scrollback depth a create/restore with no explicit
@@ -79,6 +81,7 @@ type Session struct {
 	cmd        *exec.Cmd
 	model      model.TerminalModel
 	serializer model.Serializer
+	newModel   func(cols, rows, scrollback int) (model.TerminalModel, model.Serializer)
 	mu         sync.Mutex
 	clients    map[*client]struct{}
 	done       chan struct{}
@@ -193,6 +196,7 @@ func newBareSession(
 		profileID: profileID,
 		exitCode:  -1,
 		emitter:   model.NewDiffEmitter(),
+		newModel:  newModel,
 		now:       time.Now,
 		// 1-buffered: notifyPumpLocked's send is non-blocking, so this is a coalescing
 		// edge, not a queue. Always allocated (a nil channel would make the send's
@@ -347,7 +351,7 @@ func (s *Session) spawn(
 	// first output is generated at the correct width.
 	_ = pty.Setsize(ptmx, &pty.Winsize{Cols: winDim(cols), Rows: winDim(rows)})
 
-	m, ser := newModel(cols, rows, sbLines)
+	m, ser := s.newModel(cols, rows, sbLines)
 	if len(redraw) > 0 {
 		m.Write(redraw)
 	}
@@ -855,7 +859,7 @@ func (s *Session) notifyPumpLocked() {
 func (s *Session) resetModelLocked() {
 	s.modelPanics++
 	old := s.model
-	s.model, s.serializer = newModel(s.cols, s.rows, s.scrollback)
+	s.model, s.serializer = s.newModel(s.cols, s.rows, s.scrollback)
 	if s.replySink != nil {
 		s.model.SetResponseSink(s.replySink)
 	}
