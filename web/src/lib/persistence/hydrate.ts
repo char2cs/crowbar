@@ -1,5 +1,5 @@
 import { getDB } from './idb'
-import type { EditorState, UIPreferences, WorkspaceLayout } from './schemas'
+import type { EditorState, WorkspaceLayout } from './schemas'
 import { loadWindowPaneLayout } from './workspace-layout'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { ViewState } from '@/features/panes/lib/view-state'
@@ -11,7 +11,6 @@ import {
 } from '@/features/panes/types/pane-content'
 import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
 import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
-import { useSettingsStore } from '@/features/settings/store'
 import { isNotFoundError } from '@/lib/api'
 import { loadSidebarUI } from './sidebar-ui'
 import { loadAllWorkspaceHierarchies } from './workspace-hierarchy'
@@ -19,27 +18,6 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 
 export interface WorkspaceHydrationResult {
   editorStates: EditorState[]
-}
-
-export async function hydratePreferences(): Promise<UIPreferences | null> {
-  const db = await getDB()
-  const prefs = await db.get('ui-preferences', 'global').then((r) => r ?? null)
-
-  if (prefs) {
-    useSettingsStore.setState((state) => ({
-      settings: {
-        ...state.settings,
-        theme: prefs.theme,
-        fontSize: prefs.fontSize,
-        fontFamily: prefs.fontFamily,
-        tabSize: prefs.tabSize,
-        wordWrap: prefs.wordWrap,
-        showMinimap: prefs.minimap,
-      },
-    }))
-  }
-
-  return prefs
 }
 
 /**

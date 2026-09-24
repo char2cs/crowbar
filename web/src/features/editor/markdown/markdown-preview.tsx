@@ -4,7 +4,6 @@ import { useStore } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
-import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
 import { exists } from '@/features/file-system/controllers/platform'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { hasTextContent } from '@/features/panes/types/pane-content'
@@ -48,7 +47,7 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
       }
     }),
   )
-  const fontSize = useEditorSettingsStore.use.fontSize()
+  const fontSize = useSettingsStore((state) => state.settings.fontSize)
   const uiFontFamily = useSettingsStore((state) => state.settings.uiFontFamily)
   const handleFileSelect = useFileSystemStore((s) => s.handleFileSelect)
   const containerRef = useRef<HTMLDivElement>(null)

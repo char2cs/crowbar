@@ -1,8 +1,4 @@
-import {
-  hydratePreferences,
-  hydrateSidebar,
-  hydrateWindowPaneLayout,
-} from '@/lib/persistence/hydrate'
+import { hydrateSidebar, hydrateWindowPaneLayout } from '@/lib/persistence/hydrate'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
@@ -26,8 +22,8 @@ import { dataOf } from '@/lib/loadable'
  * gate-everything-on-the-network HydrationGate was replaced with rendering
  * immediately and hydrating in the background.
  *
- * Every step here is a plain local IndexedDB read — `hydratePreferences`
- * (ui-preferences), `hydrateWindowPaneLayout` (the window layout row), and
+ * Every step here is a plain local IndexedDB read — `hydrateWindowPaneLayout`
+ * (the window layout row), and
  * `useWorkspaceListStore`'s own `fetch()` (`readVisibleRepoTree`, which reads
  * the entity cache — see project-visibility.ts — never the network). None of
  * this is a real backend round trip, so awaiting it here costs single-digit-
@@ -37,7 +33,7 @@ import { dataOf } from '@/lib/loadable'
  * waits on `setRepos` completing, not on anything else here.
  */
 export async function hydrateCriticalStores(): Promise<void> {
-  await Promise.all([hydratePreferences(), hydrateWindowPaneLayout()])
+  await hydrateWindowPaneLayout()
   await useWorkspaceListStore.getState().fetch()
   useSidebarStore.getState().setRepos(dataOf(useWorkspaceListStore.getState().data) ?? [])
   await hydrateSidebar()

@@ -4,13 +4,11 @@ import type { Loadable } from '@/lib/loadable'
 import type { Repo } from '@/lib/store/sidebar'
 import type { Project } from '@/lib/types'
 
-const { hydratePreferences, hydrateSidebar, hydrateWindowPaneLayout } = vi.hoisted(() => ({
-  hydratePreferences: vi.fn().mockResolvedValue(null),
+const { hydrateSidebar, hydrateWindowPaneLayout } = vi.hoisted(() => ({
   hydrateSidebar: vi.fn().mockResolvedValue(undefined),
   hydrateWindowPaneLayout: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock('@/lib/persistence/hydrate', () => ({
-  hydratePreferences,
   hydrateSidebar,
   hydrateWindowPaneLayout,
 }))
@@ -82,7 +80,6 @@ describe('hydrateCriticalStores', () => {
   it('hydrates preferences and pane layout', async () => {
     await hydrateCriticalStores()
 
-    expect(hydratePreferences).toHaveBeenCalledTimes(1)
     expect(hydrateWindowPaneLayout).toHaveBeenCalledTimes(1)
   })
 
