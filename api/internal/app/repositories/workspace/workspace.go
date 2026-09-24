@@ -17,7 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/reactors"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/reconcile"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store/projections"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 
@@ -312,22 +311,24 @@ func New(
 	return w, nil
 }
 
-// RegisterHubProjection registers the hub (WS fan-out) projection on the singleton
-// axWorkspace: for every workspace event it builds the base frame from
+// RegisterHubProjection registers the hub (WS fan-out) projection on repo's
+// singleton axWorkspace: for every workspace event it builds the base frame from
 // evt.Aggregate, runs enrich to attach the derived overlays the container owns
 // (Working + merge eligibility), then broadcasts. It is generic over the frame
-// type F so this package stays decoupled from the api-layer wire DTO the container
-// supplies. Registered ONCE, by repositories.Container (which owns enrich +
-// broadcast, and routes BeginWork/EndWork through the SAME pair); the save-only
-// store projection is registered inside New. The projections subpackage lives
-// under workspace/internal, so this forwarder is the seam the container reaches it
-// through (spec §3.5 hub-frame enrichment, decision 5).
+// type F so this package stays decoupled from the api-layer wire DTO the
+// container supplies. Registered ONCE, by repositories.Container. A tombstone's
+// frame is reported to the read model, and the delete reactor purges only once
+// it is out: the frame is addressed through the owning chat the purge deletes.
 func RegisterHubProjection[F any](
-	ax asynx.Asynx[domain.Workspace],
+	repo Workspace,
 	enrich func(ctx context.Context, ws domain.Workspace) F,
 	broadcast func(frame F),
 ) error {
-	return projections.RegisterHub(ax, enrich, broadcast)
+	w, ok := repo.(*workspace)
+	if !ok {
+		return fmt.Errorf("workspace: hub projection needs the concrete repository")
+	}
+	return store.RegisterHub(w.readModel, w.ax, enrich, broadcast)
 }
 
 // sendFunc issues one command attempt against the aggregate.
@@ -702,11 +703,18 @@ func (w *workspace) SetLastError(
 // row (so the boot orphan-sweep still finds it) and the async delete reactor
 // (topic "workspace.deleted.*", Task 8) performs the physical teardown off the
 // write path — closing the old synchronous forget→rm crash gap (spec §3.6/§3.8).
+//
+// It returns only once every projection has handled the tombstone — SendWait,
+// not Send. The tombstone's frame is addressed through the workspace's owning
+// chat, and a caller routinely purges that chat next (a chat delete, the delete
+// reactor); a purge that beat the hub projection dropped the frame and left the
+// client a ghost row. Committing faster (synchronous=NORMAL) made that race win
+// often enough to see.
 func (w *workspace) Delete(
 	ctx context.Context,
 	id string,
 ) error {
-	_, err := w.sendWithOCC(ctx, commands.Delete{ID: id})
+	_, err := occSend(ctx, w.ax.SendWait, commands.Delete{ID: id})
 	if err != nil {
 		return fmt.Errorf("workspace: delete: %w", err)
 	}

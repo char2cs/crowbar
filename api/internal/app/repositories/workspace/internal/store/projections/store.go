@@ -45,9 +45,17 @@ type Store struct {
 		FindAll(ctx context.Context) ([]workspaceRow, error)
 	}
 	// tombstoneWaiters are the AwaitTombstone callers parked on an id, woken by
-	// the save that persists that id's "deleted" row.
+	// the save that persists that id's "deleted" row — and, once announcements
+	// are expected, by the hub frame that announces it.
 	mu               sync.Mutex
 	tombstoneWaiters map[string][]chan struct{}
+	// expectAnnouncements is set once a hub projection is registered: from then
+	// on a tombstone is ready for its purge only once it is both persisted and
+	// ANNOUNCED — its frame broadcast. The frame is addressed through the
+	// workspace's owning chat, which the purge deletes; a purge that ran first
+	// left the client holding a ghost row it was never told had gone.
+	expectAnnouncements bool
+	announced           map[string]struct{}
 }
 
 // NewStore builds the durable read-model store over the read-model DB
@@ -59,13 +67,56 @@ func NewStore(
 	if err != nil {
 		return nil, fmt.Errorf("workspace store projection: %w", err)
 	}
-	return &Store{inner: inner, tombstoneWaiters: map[string][]chan struct{}{}}, nil
+	return &Store{
+		inner:            inner,
+		tombstoneWaiters: map[string][]chan struct{}{},
+		announced:        map[string]struct{}{},
+	}, nil
+}
+
+// ExpectAnnouncements makes AwaitTombstone also wait for each tombstone's hub
+// frame (see Store.expectAnnouncements). RegisterHub calls it.
+func (s *Store) ExpectAnnouncements() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.expectAnnouncements = true
+}
+
+// Announced records that ws's tombstone frame has been broadcast.
+func (s *Store) Announced(
+	ws domain.Workspace,
+) {
+	if ws.Status != domain.WorkspaceStatusDeleted {
+		return
+	}
+	s.mu.Lock()
+	s.announced[ws.ID] = struct{}{}
+	s.mu.Unlock()
+	s.wakeTombstoneWaiters(ws.ID)
+}
+
+// takeAnnouncement reports whether id's tombstone may be purged as far as the
+// hub is concerned, consuming the record.
+func (s *Store) takeAnnouncement(
+	id string,
+) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.expectAnnouncements {
+		return true
+	}
+	if _, ok := s.announced[id]; !ok {
+		return false
+	}
+	delete(s.announced, id)
+	return true
 }
 
 // AwaitTombstone blocks until the read model holds id's persisted "deleted" row
-// and returns it, or until ctx ends. It is woken by the save that persists the
-// tombstone — no polling: the waiter registers BEFORE it reads, so a save that
-// lands between the read and the wait still wakes it.
+// — and, with a hub registered, until that tombstone's frame is broadcast — and
+// returns it, or until ctx ends. It is woken by the save and the broadcast —
+// no polling: the waiter registers BEFORE it reads, so a wake that lands
+// between the read and the wait is not lost.
 func (s *Store) AwaitTombstone(
 	ctx context.Context,
 	id string,
@@ -80,7 +131,7 @@ func (s *Store) AwaitTombstone(
 		if err != nil {
 			return domain.Workspace{}, err
 		}
-		if ws != nil && ws.Status == domain.WorkspaceStatusDeleted {
+		if ws != nil && ws.Status == domain.WorkspaceStatusDeleted && s.takeAnnouncement(id) {
 			return *ws, nil
 		}
 		select {
@@ -192,6 +243,9 @@ func (s *Store) delete(
 	ctx context.Context,
 	id string,
 ) error {
+	s.mu.Lock()
+	delete(s.announced, id)
+	s.mu.Unlock()
 	return s.inner.Delete(ctx, id)
 }
 

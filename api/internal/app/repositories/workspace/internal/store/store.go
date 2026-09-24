@@ -98,6 +98,22 @@ func New(
 	return &service{store: st, es: es, ax: ax}, nil
 }
 
+// RegisterHub registers the hub (WS fan-out) projection over s's own
+// projection store, so a tombstone is purged only once its frame is out (see
+// projections.RegisterHub).
+func RegisterHub[F any](
+	s Store,
+	ax asynx.Asynx[domain.Workspace],
+	enrich func(ctx context.Context, ws domain.Workspace) F,
+	broadcast func(frame F),
+) error {
+	svc, ok := s.(*service)
+	if !ok {
+		return fmt.Errorf("workspace store: hub needs the projection store")
+	}
+	return projections.RegisterHub(ax, svc.store, enrich, broadcast)
+}
+
 // List returns the durable read model directly (no replay).
 func (s *service) List(
 	ctx context.Context,

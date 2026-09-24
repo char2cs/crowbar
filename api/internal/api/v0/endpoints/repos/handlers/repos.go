@@ -25,6 +25,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
@@ -103,17 +104,11 @@ type WorkspaceReader interface {
 	List(ctx context.Context) ([]domain.Workspace, error)
 }
 
-// WorkspaceRemover is the one operation a repo delete needs from the workspace
-// side: retire a workspace through the SAME path a user-initiated delete takes,
-// so the worktree is unregistered from git, its root is removed and its record
-// is purged by machinery that already gets all three right.
-//
-// DeleteRepo used to skip this entirely — it deleted its own row and its
-// id-keyed directory and stopped, leaving every worktree on disk, every
-// workspace record orphaned, and a live worktree registration in the user's own
-// repository for each one.
-type WorkspaceRemover interface {
-	DeleteRepoWorkspaces(ctx context.Context, repo domain.Repository) error
+// RepoDeleter removes a repo and everything it owns through the one delete
+// lifecycle (project.DeleteUsecase.DeleteRepo): workspaces retired first, then
+// the row, its Node row and its entity directory. The handler only binds HTTP.
+type RepoDeleter interface {
+	DeleteRepo(ctx context.Context, repo domain.Repository) error
 }
 
 // RemoteRefresher is the narrow git surface the Branches handler uses to make
@@ -196,7 +191,7 @@ type Handlers struct {
 	store       Store
 	provider    BranchProviderEngine
 	wsReader    WorkspaceReader
-	wsRemover   WorkspaceRemover
+	deleter     RepoDeleter
 	remote      RemoteRefresher
 	importer    RepoImporter
 	updater     RepoUpdater
@@ -248,14 +243,11 @@ func NewWithDeps(
 	}
 }
 
-// WithWorkspaceRemover wires the cascade a repo delete runs over the repo's
-// workspaces. A nil arg leaves DeleteRepo removing only its own row and
-// directory, which is what it did before this existed — tests that never create
-// workspaces are unaffected, and any real wiring passes one.
-func (h *Handlers) WithWorkspaceRemover(
-	remover WorkspaceRemover,
+// WithRepoDeleter wires the delete lifecycle DeleteRepo runs.
+func (h *Handlers) WithRepoDeleter(
+	deleter RepoDeleter,
 ) *Handlers {
-	h.wsRemover = remover
+	h.deleter = deleter
 	return h
 }
 
@@ -693,8 +685,8 @@ func (h *Handlers) relocateEntityDir(
 	if err != nil || home == "" {
 		return
 	}
-	from := repoDir(home, fromProjectID, repo.ID)
-	to := repoDir(home, repo.ProjectID, repo.ID)
+	from := worktreepath.RepoDir(home, fromProjectID, repo.ID)
+	to := worktreepath.RepoDir(home, repo.ProjectID, repo.ID)
 	if mkErr := os.MkdirAll(filepath.Dir(to), 0o755); mkErr != nil { //nolint:gosec // G301: 0o755 matches the perm the daemon already creates its own project directories with.
 		slog.WarnContext(c.Request.Context(), "repo move: could not create the destination project dir",
 			"repo", repo.ID, "to", to, "err", mkErr)
@@ -734,19 +726,11 @@ func (h *Handlers) bindRepoUpdate(
 
 // DeleteRepo handles DELETE /v0/projects/:projectId/repos/:repoId. It validates
 // the repo exists synchronously (4xx if not), then returns 202 and runs the
-// removal in the background, in the one order a crash cannot corrupt:
-//
-//  1. every workspace of the repo is retired through the workspace cascade —
-//     its git teardown, then its tombstone, which the delete reactor (or, after
-//     a crash, the boot sweep) finishes physically;
-//  2. only then is the repo row deleted, with its Node row and entity
-//     directory, and the deleted-status RepoDTO tombstone broadcast.
-//
-// Deleting the row FIRST left workspaces a crash could strand with no repo to
-// resolve, and ran their teardown without the default branch (spec §3 P0-1).
-// A failure is never silent: the repo is re-broadcast as still present, so the
-// client does not believe in a removal that did not happen. The user's real
-// repository directory (repo.Path) is never touched.
+// removal in the background through the one delete lifecycle
+// (RepoDeleter.DeleteRepo), broadcasting the deleted-status RepoDTO tombstone
+// once it is done. A failure is never silent: the repo is re-broadcast as still
+// present, so the client does not believe in a removal that did not happen. The
+// user's real repository directory (repo.Path) is never touched.
 func (h *Handlers) DeleteRepo(
 	c *gin.Context,
 ) {
@@ -762,55 +746,19 @@ func (h *Handlers) DeleteRepo(
 		libs.WriteErr(c, http.StatusNotFound, "repo not found")
 		return
 	}
-	home, _ := h.crowbarHome()
+	if h.deleter == nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "repo delete is not wired")
+		return
+	}
 	libs.WriteAccepted(c)
 	h.runAsync(c.Request.Context(), func(ctx context.Context) {
-		if err := h.removeRepoWorkspaces(ctx, *repo); err != nil {
-			slog.ErrorContext(ctx, "delete repo: remove workspaces; the repo stays", "repo", repoID, "err", err)
+		if err := h.deleter.DeleteRepo(ctx, *repo); err != nil {
+			slog.ErrorContext(ctx, "delete repo: the repo stays", "repo", repoID, "err", err)
 			h.broadcast(dto.RepoDTOFrom(*repo, h.placementOf(ctx, repoID)))
 			return
-		}
-		if err := h.store.Delete(ctx, repoID); err != nil {
-			slog.ErrorContext(ctx, "delete repo: delete row; the repo stays", "repo", repoID, "err", err)
-			h.broadcast(dto.RepoDTOFrom(*repo, h.placementOf(ctx, repoID)))
-			return
-		}
-		// The header's slot goes with the row, or a ghost keeps counting in
-		// whatever home container it was filed in.
-		if h.nodes != nil {
-			if err := h.nodes.Forget(ctx, repoID); err != nil {
-				slog.WarnContext(ctx, "delete repo: forget node row", "repo", repoID, "err", err)
-			}
 		}
 		h.broadcast(dto.RepoDTO{ID: repoID, ProjectID: projectID, Status: "deleted"})
-		if home != "" {
-			if err := os.RemoveAll(repoDir(home, projectID, repoID)); err != nil {
-				slog.ErrorContext(ctx, "delete repo: remove entity dir", "repo", repoID, "err", err)
-			}
-		}
 	})
-}
-
-// removeRepoWorkspaces retires every workspace belonging to the repo.
-func (h *Handlers) removeRepoWorkspaces(
-	ctx context.Context,
-	repo domain.Repository,
-) error {
-	if h.wsRemover == nil {
-		return nil
-	}
-	return h.wsRemover.DeleteRepoWorkspaces(ctx, repo)
-}
-
-// repoDir mirrors worktreepath.RepoDir without importing the usecase-internal
-// package (forbidden from the api layer):
-// <crowbarHome>/projects/<projectID>/<repoID>.
-func repoDir(
-	crowbarHome string,
-	projectID string,
-	repoID string,
-) string {
-	return filepath.Join(crowbarHome, "projects", projectID, repoID)
 }
 
 // gitDefaultBranch reads the current branch from a git repository at path.

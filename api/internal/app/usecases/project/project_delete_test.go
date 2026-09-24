@@ -46,6 +46,7 @@ type fakeDeleteRepos struct {
 	deleted []string
 	findErr error
 	delErr  error
+	log     *[]string
 }
 
 func (f *fakeDeleteRepos) FindAll(_ context.Context) ([]domain.Repository, error) {
@@ -60,6 +61,9 @@ func (f *fakeDeleteRepos) Delete(_ context.Context, id string) error {
 		return f.delErr
 	}
 	f.deleted = append(f.deleted, id)
+	if f.log != nil {
+		*f.log = append(*f.log, "row:"+id)
+	}
 	return nil
 }
 
@@ -130,6 +134,7 @@ func newDeleteFixture(t *testing.T) *deleteFixture {
 		home:       t.TempDir(),
 	}
 	f.cascade = &fakeRepoCascade{log: &f.log}
+	f.repos.log = &f.log
 	f.uc = project.NewDelete(project.DeleteDeps{
 		Projects:       f.projects,
 		Repos:          f.repos,
@@ -319,4 +324,32 @@ func TestProjectDelete_NoCrowbarHome_SkipsDiskTeardown(t *testing.T) {
 	})
 	require.NoError(t, uc.Delete(context.Background(), "p1"))
 	assert.Equal(t, []string{"p1"}, f.projects.deleted)
+}
+
+// A repo delete retires its workspaces BEFORE its row goes: deleting the row
+// first let a crash strand workspaces whose repo no longer resolves, and ran
+// their teardown without the default branch (spec §3 P0-1). Its Node row and
+// its entity directory go with it.
+func TestDeleteRepo_RetiresWorkspacesBeforeTheRow(t *testing.T) {
+	f := newDeleteFixture(t)
+	repoDir := filepath.Join(f.home, "projects", "p1", "r1")
+	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "storages"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "icon"), []byte("png"), 0o644))
+
+	require.NoError(t, f.uc.DeleteRepo(context.Background(), domain.Repository{ID: "r1", ProjectID: "p1"}))
+
+	assert.Equal(t, []string{"cascade:r1", "row:r1"}, f.log)
+	assert.Equal(t, []string{"r1"}, f.nodes.forgot)
+	assert.NoDirExists(t, repoDir)
+}
+
+// A cascade that cannot list the repo's workspaces keeps the row: the caller
+// reports the repo as still present rather than half-deleted.
+func TestDeleteRepo_CascadeFailure_KeepsTheRow(t *testing.T) {
+	f := newDeleteFixture(t)
+	f.cascade.err = errors.New("boom")
+
+	require.Error(t, f.uc.DeleteRepo(context.Background(), domain.Repository{ID: "r1", ProjectID: "p1"}))
+	assert.Empty(t, f.repos.deleted)
+	assert.Empty(t, f.nodes.forgot)
 }

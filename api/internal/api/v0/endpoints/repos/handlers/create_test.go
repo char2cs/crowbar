@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -344,18 +345,10 @@ func TestCreateRepo_MissingName_4xx(
 func TestDeleteRepo_Returns202(
 	t *testing.T,
 ) {
-	home := t.TempDir()
-	var deletedID string
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
-	store.DeleteFn = func(_ context.Context, id string) error {
-		deletedID = id
-		return nil
-	}
+	deleter := &fakeRepoDeleter{}
 	bc := newRecordingRepoBroadcaster()
-	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).WithIconStorage(
-		func() (string, error) { return home, nil },
-		nil,
-	)
+	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).WithRepoDeleter(deleter)
 	r := gin.New()
 	r.Group("/v0/projects/:projectId/repos/:repoId").DELETE("", h.DeleteRepo)
 
@@ -370,7 +363,7 @@ func TestDeleteRepo_Returns202(
 	assert.Equal(t, "r1", got.ID)
 	assert.Equal(t, "p1", got.ProjectID)
 	assert.Equal(t, "deleted", got.Status)
-	assert.Equal(t, "r1", deletedID)
+	assert.Equal(t, []string{"r1"}, deleter.ids())
 }
 
 // TestCreateRepo_BadJSON_4xx pins synchronous body-shape validation.
@@ -430,16 +423,10 @@ func TestDeleteRepo_FindError_5xx(
 func TestDeleteRepo_DeleteError_ReannouncesTheRepo(
 	t *testing.T,
 ) {
-	home := t.TempDir()
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
-	store.DeleteFn = func(_ context.Context, _ string) error {
-		return errStore
-	}
 	bc := newRecordingRepoBroadcaster()
-	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).WithIconStorage(
-		func() (string, error) { return home, nil },
-		nil,
-	)
+	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).
+		WithRepoDeleter(&fakeRepoDeleter{err: errStore})
 	r := gin.New()
 	r.Group("/v0/projects/:projectId/repos/:repoId").DELETE("", h.DeleteRepo)
 
@@ -453,6 +440,33 @@ func TestDeleteRepo_DeleteError_ReannouncesTheRepo(
 	assert.Equal(t, "r1", frame.ID)
 	assert.Empty(t, frame.Status, "the repo is re-announced live, never tombstoned")
 	assertNoBroadcast(t, h, bc)
+}
+
+// fakeRepoDeleter stands in for project.DeleteUsecase.DeleteRepo.
+type fakeRepoDeleter struct {
+	mu      sync.Mutex
+	deleted []domain.Repository
+	err     error
+}
+
+func (f *fakeRepoDeleter) DeleteRepo(_ context.Context, repo domain.Repository) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return f.err
+	}
+	f.deleted = append(f.deleted, repo)
+	return nil
+}
+
+func (f *fakeRepoDeleter) ids() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	ids := make([]string, 0, len(f.deleted))
+	for _, r := range f.deleted {
+		ids = append(ids, r.ID)
+	}
+	return ids
 }
 
 // TestDeleteRepo_NotFound_4xx pins synchronous existence validation.

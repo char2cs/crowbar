@@ -989,18 +989,15 @@ func TestPutIconGithub_SaveError_Returns500(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// Regression: DeleteRepo removed its own row and its id-keyed directory and
-// stopped. Every worktree stayed on disk, every workspace record was orphaned,
-// and each worktree stayed REGISTERED in the user's own repository. The cascade
-// has to go through the workspace path, which unregisters git before removing
-// the tree — and it must be handed the WHOLE repo: the default branch is what
-// tells the cascade which branch to re-attach rather than delete (spec §3 P0-1).
-func TestRegression_DeleteRepo_CascadesThroughTheWorkspaces(t *testing.T) {
+// The whole repo — default branch included — is handed to the delete
+// lifecycle: the default branch is what tells the cascade which branch to
+// re-attach rather than delete (spec §3 P0-1).
+func TestRegression_DeleteRepo_HandsTheWholeRepoToTheLifecycle(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo", DefaultBranch: "main"}
-	remover := &fakeWSRemover{}
+	deleter := &fakeRepoDeleter{}
 	h := repohandlers.NewWithDeps(&fakeStore{byKey: &repo}, nil, &fakeWSReader{}, nil).
-		WithWorkspaceRemover(remover)
+		WithRepoDeleter(deleter)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -1009,25 +1006,11 @@ func TestRegression_DeleteRepo_CascadesThroughTheWorkspaces(t *testing.T) {
 	h.DeleteRepo(c)
 	h.WaitAsync()
 
-	assert.Equal(t, []domain.Repository{repo}, remover.repos,
-		"the cascade must be given the repo the deleted row carried, default branch included")
+	assert.Equal(t, []domain.Repository{repo}, deleter.deleted)
 }
 
-type fakeWSRemover struct {
-	repos []domain.Repository
-}
-
-func (f *fakeWSRemover) DeleteRepoWorkspaces(
-	_ context.Context, repo domain.Repository,
-) error {
-	f.repos = append(f.repos, repo)
-	return nil
-}
-
-// The cascade is optional wiring: a Handlers built without it still deletes the
-// repo rather than panicking, which is what every test that never creates a
-// workspace relies on.
-func TestDeleteRepo_WithoutACascade_StillDeletesTheRepo(t *testing.T) {
+// Unwired, the delete refuses outright rather than accepting work it cannot do.
+func TestDeleteRepo_Unwired_Refuses(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo"}}
 	h := repohandlers.NewWithDeps(store, nil, nil, nil)
@@ -1037,7 +1020,6 @@ func TestDeleteRepo_WithoutACascade_StillDeletesTheRepo(t *testing.T) {
 	c.Params = gin.Params{{Key: "projectId", Value: "p1"}, {Key: "repoId", Value: "r1"}}
 	c.Request = httptest.NewRequest(http.MethodDelete, "/v0/projects/p1/repos/r1", nil)
 	h.DeleteRepo(c)
-	h.WaitAsync()
 
-	assert.Equal(t, http.StatusAccepted, w.Code)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }

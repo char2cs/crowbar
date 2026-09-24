@@ -160,7 +160,7 @@ func New(
 	// with zero regression (spec §3.5 hub-frame enrichment). The save-only store
 	// projection is registered inside workspace.New; the two derive independently
 	// from evt.Aggregate and cannot drift (decision 5).
-	if err := workspace.RegisterHubProjection(axWorkspace, c.enrichFrame, c.hub.BroadcastWorkspace); err != nil {
+	if err := workspace.RegisterHubProjection(c.Workspace, c.enrichFrame, c.hub.BroadcastWorkspace); err != nil {
 		return nil, fmt.Errorf("repositories: workspace hub projection: %w", err)
 	}
 	// reviewthread owns its own central per-type read model at

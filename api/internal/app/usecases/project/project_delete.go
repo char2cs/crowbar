@@ -95,6 +95,15 @@ type DeleteUsecase interface {
 		ctx context.Context,
 		id string,
 	) error
+	// DeleteRepo removes one repo and everything it owns, in the one order a
+	// crash cannot corrupt: its workspaces are retired (git teardown, then the
+	// tombstones the delete reactor purges) BEFORE its row goes, so no crash can
+	// leave workspaces whose repo no longer resolves; then its row, its Node
+	// row and its entity directory.
+	DeleteRepo(
+		ctx context.Context,
+		repo domain.Repository,
+	) error
 }
 
 type projectDelete struct {
@@ -123,29 +132,59 @@ func (u *projectDelete) Delete(
 	if err != nil {
 		return err
 	}
-	for _, repo := range repos {
-		if err := u.deps.RepoWorkspaces.DeleteRepoWorkspaces(ctx, repo); err != nil {
-			return fmt.Errorf("project delete: repo %s workspaces: %w", repo.ID, err)
-		}
-	}
+	// Listed BEFORE any row goes: removeProjectDir needs every other project's
+	// live paths, and the rows this delete tombstones are filtered out by owner.
 	all, err := u.deps.Workspaces.List(ctx)
 	if err != nil {
 		return fmt.Errorf("project delete: list workspaces: %w", err)
 	}
+	for _, repo := range repos {
+		if err := u.DeleteRepo(ctx, repo); err != nil {
+			return fmt.Errorf("project delete: %w", err)
+		}
+	}
 	if err := u.deleteRemainingWorkspaces(ctx, id, repos, all); err != nil {
 		return err
-	}
-	for repoID := range repos {
-		if err := u.deps.Repos.Delete(ctx, repoID); err != nil {
-			return fmt.Errorf("project delete: delete repo %s: %w", repoID, err)
-		}
-		u.forgetNode(ctx, repoID)
 	}
 	if err := u.deps.Projects.Delete(ctx, id); err != nil {
 		return fmt.Errorf("project delete: delete project %s: %w", id, err)
 	}
 	u.removeProjectDir(ctx, id, repos, all)
 	return nil
+}
+
+func (u *projectDelete) DeleteRepo(
+	ctx context.Context,
+	repo domain.Repository,
+) error {
+	if err := u.deps.RepoWorkspaces.DeleteRepoWorkspaces(ctx, repo); err != nil {
+		return fmt.Errorf("repo %s workspaces: %w", repo.ID, err)
+	}
+	if err := u.deps.Repos.Delete(ctx, repo.ID); err != nil {
+		return fmt.Errorf("delete repo %s: %w", repo.ID, err)
+	}
+	u.forgetNode(ctx, repo.ID)
+	u.removeRepoDir(ctx, repo)
+	return nil
+}
+
+// removeRepoDir removes the repo's entity directory (icon, storages) under the
+// crowbar home. Best-effort: the row is already gone.
+func (u *projectDelete) removeRepoDir(
+	ctx context.Context,
+	repo domain.Repository,
+) {
+	if u.deps.CrowbarHome == nil {
+		return
+	}
+	home, err := u.deps.CrowbarHome()
+	if err != nil || home == "" {
+		return
+	}
+	dir := worktreepath.RepoDir(home, repo.ProjectID, repo.ID)
+	if err := removeTreeKeeping(dir, isLiveCheckout); err != nil {
+		slog.ErrorContext(ctx, "delete repo: remove entity dir", "repo", repo.ID, "dir", dir, "err", err)
+	}
 }
 
 // deleteRemainingWorkspaces tombstones the project's rows no repo cascade took
