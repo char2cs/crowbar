@@ -55,12 +55,6 @@ import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
  */
 export const SUBSCRIPTION_GRACE_MS = 2000
 const REBUILD_BATCH_MS = 16
-/** How many times a rebuild whose read lost to a newer fetch will try again
- *  before leaving its claimed repos to the next reseed or frame. Two is enough
- *  for a real supersede — the winning read settles — and small enough that a
- *  store wedged in `loading` costs a handful of reads, not a permanent loop. */
-const MAX_SUPERSEDED_RETRIES = 2
-
 const KEY_SEP = '|'
 /** One project's home-workspace tree rows (chats + folders) — open for every
  *  VISIBLE project: a project's home row has to render exactly as reliably
@@ -123,11 +117,6 @@ export function useAppSyncEngine(): void {
      * load after this ships, EVERY cached chat predates that field.
      */
     const seededPendingRebuild = new Set<string>()
-    /** Consecutive rebuilds whose read lost to a newer fetch, so the retry
-     *  below can never become a permanent 16ms loop. Reset by any rebuild that
-     *  actually opens something. */
-    let supersededRetries = 0
-
     async function rebuildSidebar(): Promise<void> {
       if (rebuildInFlight) {
         rebuildQueued = true
@@ -144,75 +133,25 @@ export function useAppSyncEngine(): void {
       // stays pending instead, for the follow-up `scheduleRebuild` its own
       // reseed already armed.
       const claimed = [...seededPendingRebuild]
-      // The snapshot this rebuild starts from, so a FRESH one can be told apart
-      // from it afterwards. Taken here rather than derived later because
-      // nothing else can distinguish them: `success(old)` and `success(new)`
-      // are the same shape, and only object identity says which one the read
-      // actually produced. Safe to compare against everything that lands after
-      // this line — `fetch()` bumps `latestFetch` synchronously, and
-      // loadable-slice re-checks it on BOTH sides of its cache write, so every
-      // older in-flight fetch is barred from publishing. Drop the check after
-      // that write and this gate silently reads a pre-claim snapshot as a
-      // brand-new one.
+      // A read that settles with a snapshot other than this one was published
+      // after the claim; `success(old)` and `success(new)` differ only by identity.
       const before = useWorkspaceListStore.getState().data
       await useWorkspaceListStore.getState().fetch()
-      let opened = false
-      let awaitingNewerRead = false
       if (!disposed) {
         const loaded = useWorkspaceListStore.getState().data
         const repos = dataOf(loaded)
         if (repos) useSidebarStore.getState().setRepos(repos)
-        // A read that BOTH settled and moved is the other half of the claim.
-        //
-        // `fetch` returns early whenever a newer caller supersedes it
-        // (loadable-slice's `latestFetch` guard — main.tsx's boot hydration
-        // and events/connect's `workspace:updated` both call it), and it can do so
-        // at two different points. Give up after its own read and it has
-        // already published `loading`, whose `dataOf` is the previous snapshot.
-        // But give up in the earlier check, inside `loadCache`, and it
-        // publishes NOTHING — the store still holds the `success(old)` it held
-        // before we started waiting, which predates the write this claim was
-        // taken for. Status alone cannot see that; identity can.
-        //
-        // `loaded !== before` therefore means some read that began after the
-        // claim published this, and `success` means it finished. Neither is
-        // sufficient alone.
+        // fetch() settles with the newest read, so anything but a fresh success
+        // (an error) leaves the claim pending for the next reseed or frame.
         if (loaded !== before && loaded.status === 'success' && repos) {
           const seeded = useFolderSignalStore.getState().markTreeSeeded
           for (const repoId of claimed) {
             seeded(repoId)
             seededPendingRebuild.delete(repoId)
           }
-          opened = true
-        } else {
-          // Both ways a supersede leaves the store, and only these: a newer
-          // read is on its way and has yet to publish anything of its own.
-          awaitingNewerRead =
-            loaded.status === 'loading' || (loaded === before && loaded.status === 'success')
         }
       }
       rebuildInFlight = false
-      // Nothing else republishes what a losing read dropped: the fetch that
-      // superseded ours writes the store's data but never calls `setRepos`, and
-      // a claim taken BEFORE this rebuild started has no follow-up of its own
-      // armed (one taken during it does — its own `scheduleRebuild` set
-      // `rebuildQueued`). Without this, those repos would sit unopened, drawing
-      // no rows, until some unrelated frame happened to rebuild.
-      //
-      // Only a supersede, and only a few times. A newer read resolves itself,
-      // so trying again reaches it; `error` and `idle` can persist, and
-      // retrying into either is a 16ms spin. Those ids stay pending instead
-      // and ride the next reseed or frame out.
-      if (!opened && claimed.length > 0) {
-        if (awaitingNewerRead) {
-          if (supersededRetries < MAX_SUPERSEDED_RETRIES) {
-            supersededRetries++
-            rebuildQueued = true
-          }
-        }
-      } else if (opened) {
-        supersededRetries = 0
-      }
       // A seed that landed while IndexedDB was being read may not be present in
       // that snapshot. Run one debounced follow-up, never one fetch per seed.
       if (rebuildQueued && !disposed) scheduleRebuild()
@@ -612,8 +551,10 @@ export function useAppSyncEngine(): void {
       // 2. Project list: GET seed + live WS stream. Always on — it is one
       //    stream over a handful of rows, and it is what every project's
       //    row is drawn from.
-      void useProjectDataStore.getState().fetch()
+      //    Live first, so a read the root route's guard already has in flight
+      //    is joined rather than repeated (frames replay onto its answer).
       rootUnsubscribes.push(useProjectDataStore.getState().startSync())
+      void useProjectDataStore.getState().fetch()
 
       // 3. Per-project / per-repo streams for whatever is visible. The provider
       //    mounts at the root BEFORE any project exists (fresh start / OOBE), so

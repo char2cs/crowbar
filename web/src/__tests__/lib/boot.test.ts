@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { hydrateCriticalStores, hydrateProjectsInBackground } from '@/lib/boot'
+import { hydrateCriticalStores } from '@/lib/boot'
 import type { Loadable } from '@/lib/loadable'
 import type { Repo } from '@/lib/store/sidebar'
-import type { Project } from '@/lib/types'
 
 const { hydrateSidebar, hydrateWindowPaneLayout, placeRestoredChatMembers } = vi.hoisted(() => ({
   hydrateSidebar: vi.fn().mockResolvedValue(undefined),
@@ -15,31 +14,15 @@ vi.mock('@/lib/persistence/hydrate', () => ({
   placeRestoredChatMembers,
 }))
 
-const {
-  workspaceListFetch,
-  projectDataFetch,
-  setRepos,
-  setProjects,
-  workspaceListData,
-  projectData,
-} = vi.hoisted(() => ({
+const { workspaceListFetch, setRepos, workspaceListData } = vi.hoisted(() => ({
   workspaceListFetch: vi.fn().mockResolvedValue(undefined),
-  projectDataFetch: vi.fn().mockResolvedValue(undefined),
   setRepos: vi.fn(),
-  setProjects: vi.fn(),
   workspaceListData: { current: { status: 'idle' } as Loadable<Repo[]> },
-  projectData: { current: { status: 'idle' } as Loadable<Project[]> },
 }))
 vi.mock('@/lib/store/workspace-list', () => ({
   useWorkspaceListStore: {
     getState: () => ({ fetch: workspaceListFetch, data: workspaceListData.current }),
   },
-}))
-vi.mock('@/lib/store/projects', () => ({
-  useProjectDataStore: {
-    getState: () => ({ fetch: projectDataFetch, data: projectData.current }),
-  },
-  useProjectStore: { getState: () => ({ setProjects }) },
 }))
 vi.mock('@/lib/store/sidebar', () => ({
   useSidebarStore: { getState: () => ({ setRepos }) },
@@ -52,13 +35,6 @@ const testRepo: Repo = {
   avatarLabel: 'R',
   avatarColor: 'bg-indigo-700',
   workspaces: [],
-}
-
-const testProject: Project = {
-  id: 'p1',
-  name: 'project',
-  path: '/tmp/p1',
-  lastActivity: new Date('2026-01-01T00:00:00Z'),
 }
 
 // Regression: this ordering used to live inside a React component
@@ -76,7 +52,6 @@ describe('hydrateCriticalStores', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     workspaceListData.current = { status: 'idle' }
-    projectData.current = { status: 'idle' }
   })
 
   it('hydrates preferences and pane layout', async () => {
@@ -142,28 +117,5 @@ describe('hydrateCriticalStores', () => {
     await hydrateCriticalStores()
 
     expect(workspaceListResolved).toBe(true)
-  })
-})
-
-describe('hydrateProjectsInBackground', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    workspaceListData.current = { status: 'idle' }
-    projectData.current = { status: 'idle' }
-  })
-
-  it('sets projects once the project-data fetch resolves, independently of the sidebar path', async () => {
-    projectDataFetch.mockImplementation(async () => {
-      projectData.current = { status: 'success', data: [testProject], fetchedAt: Date.now() }
-    })
-
-    hydrateProjectsInBackground()
-    // Fire-and-forget by design — nothing to await from the caller's side,
-    // just drain the microtask queue this test itself scheduled.
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(setProjects).toHaveBeenCalledWith([testProject])
-    expect(setRepos).not.toHaveBeenCalled()
   })
 })

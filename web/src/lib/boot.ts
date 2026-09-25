@@ -4,7 +4,6 @@ import {
   placeRestoredChatMembers,
 } from '@/lib/persistence/hydrate'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { dataOf } from '@/lib/loadable'
 import { retireOrphanedStorage } from '@/lib/persistence/retired-storage'
@@ -45,20 +44,4 @@ export async function hydrateCriticalStores(): Promise<void> {
   await useWorkspaceListStore.getState().fetch()
   useSidebarStore.getState().setRepos(dataOf(useWorkspaceListStore.getState().data) ?? [])
   await hydrateSidebar()
-}
-
-/**
- * The one genuinely slow boot step — a real `/v0/projects` network round
- * trip — reconciles into `useProjectStore` reactively once it resolves, same
- * as any other live update reaching it. Nothing waits on this, and nothing
- * needs to: no component's first mount depends on the project LIST existing,
- * only on the single active project id (already resolved from the route).
- */
-export function hydrateProjectsInBackground(): void {
-  void useProjectDataStore
-    .getState()
-    .fetch()
-    .then(() => {
-      useProjectStore.getState().setProjects(dataOf(useProjectDataStore.getState().data) ?? [])
-    })
 }
