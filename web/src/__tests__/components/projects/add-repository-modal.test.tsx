@@ -72,6 +72,7 @@ function repoDTO(over: Partial<RepoDTO> & { id: string; path: string }): RepoDTO
 
 function workspaceDTO(over: Partial<WorkspaceDTO> & { id: string; repoId: string }): WorkspaceDTO {
   return {
+    provisioning: 'provisioned',
     projectId: 'proj-1',
     branch: 'main',
     parentId: '',

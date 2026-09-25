@@ -32,7 +32,7 @@ func seedHomeWorkspace(
 	t.Helper()
 	_, err := a.Repositories.Workspace.Create(
 		context.Background(),
-		workspace.CreateInput{ID: id, ProjectID: projectID, Kind: domain.WorkspaceKindHome},
+		workspace.CreateInput{ID: id, ProjectID: projectID, Kind: domain.WorkspaceKindHome, Provisioning: domain.WorkspacePlaceholder},
 		time.Unix(1, 0).UTC(),
 	)
 	require.NoError(t, err)
@@ -224,14 +224,14 @@ func TestRegression_RepoScopedChatWSNeverCarriesAnotherProjectsHomeChat(t *testi
 	connB := dialWSAt(t, srv, "/v0/projects/p2/repos/r2/chats/ws")
 	c.agentChats.WaitNRegistered(2)
 
-	c.PushAgentChat("chat-home-p2", "home-p2", "turn_started", true)
+	c.PushAgentChatEvent(dto.AgentChatEvent{ChatID: "chat-home-p2", WorkspaceID: "home-p2", Kind: "turn_started"})
 
 	gotB := readJSON(t, connB)
 	require.Equal(t, "chat-home-p2", gotB["chatId"],
 		"a repo-scoped subscriber still receives its OWN project's home-chat frames")
 	require.Equal(t, "p2", gotB["projectId"], "the frame names the project it belongs to")
 
-	c.PushAgentChat("chat-1", "A", "turn_started", true)
+	c.PushAgentChatEvent(dto.AgentChatEvent{ChatID: "chat-1", WorkspaceID: "A", Kind: "turn_started"})
 
 	gotA := readJSON(t, connA)
 	assert.Equal(t, "chat-1", gotA["chatId"],

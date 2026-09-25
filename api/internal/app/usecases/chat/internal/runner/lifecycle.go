@@ -7,13 +7,14 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
 	asynxModels "github.com/char2cs/asynx/models"
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
-	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
@@ -146,6 +147,7 @@ func (rs *Runners) ReconcileRunnersOnBoot(
 		}
 		rs.reconcilePromptRunnerDeparture(ctx, r, r.CurrentChatID)
 		rs.reapCrashOrphanRunnerTmp(ctx, r)
+		rs.noteChatExit(ctx, abandoned, domain.AgentExitDaemonRestart)
 
 		// Close the turn it died in the middle of. Turn state has never been durable truth
 		// (domain.Chat.Working is documented as reconciled, not authoritative — a CLI
@@ -188,18 +190,38 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
 			slog.WarnContext(ctx, "agent: reconcile runner exit: get runner", "runner_id", runnerID, "err", err)
 		}
 		// Already exited (a double exit is not an error — the row is simply gone).
+		rs.sessions.takeCause(runnerID)
+		rs.sessions.failedProbe(runnerID, 0)
 		return
 	}
-	rs.reconcilePromptRunnerDeparture(ctx, runner, runner.CurrentChatID)
+	// A CLI that refused its resume never read the prompt its launch carried:
+	// that prompt goes to the next rung instead of being written off.
+	// Only an exit nobody asked for: a CLI Crowbar stopped or replaced was
+	// never given the chance to announce anything.
+	window := resumeProbeWindow
+	if rs.sessions.hasCause(runnerID) {
+		window = 0
+	}
+	refused := rs.sessions.failedProbe(runnerID, window)
+	redeliver, again := agentjournal.PromptRequest{}, false
+	if refused {
+		redeliver, again = rs.refusedDelivery(ctx, runner)
+	} else {
+		rs.reconcilePromptRunnerDeparture(ctx, runner, runner.CurrentChatID)
+	}
 	if _, err := rs.runnerStore.Exit(ctx, runnerID, time.Now()); err != nil {
 		slog.WarnContext(ctx, "agent: reconcile runner exit: exit runner", "runner_id", runnerID, "err", err)
 		return
 	}
+	rs.noteExit(ctx, runner.CurrentChatID, runnerID, refused)
 
 	// Close a turn it left open — unless it had already been DISPLACED, in which case its
 	// chat (if it still had a turn to close) was dealt with at displacement time and
 	// CurrentChatID is now empty, meaning nowhere.
 	rs.closeAbandonedTurn(ctx, runner.CurrentChatID, runner)
+	if again {
+		rs.redeliverRefused(ctx, runner.CurrentChatID, redeliver)
+	}
 }
 
 func (rs *Runners) RetireChatRunners(
@@ -215,48 +237,13 @@ func (rs *Runners) RetireChatRunners(
 	for _, r := range placed {
 		rs.retire(ctx, r)
 	}
-}
-
-func (rs *Runners) retire(
-	ctx context.Context,
-	runner agents.Runner,
-) {
-	if err := rs.displace(ctx, runner); err != nil {
-		// Best-effort: the runner is still on its chat, so its own exit will close any turn
-		// it leaves open. We still kill it.
-		slog.ErrorContext(ctx, "agent: retire runner: displace (best-effort, continuing)",
-			"runner_id", runner.ID, "chat_id", runner.CurrentChatID, "err", err)
+	// The chat is being erased (A7): nothing held in memory for it survives.
+	rs.sessions.forget(chatID)
+	rs.work.Forget(chatID)
+	rs.inflightTurns.Forget(chatID)
+	if rs.turns != nil {
+		rs.turns.ForgetChat(chatID)
 	}
-	if err := rs.term.TerminateGraceful(ctx, runner.TerminalSession); err != nil &&
-		!errors.Is(err, engineterminal.ErrSessionNotFound) {
-		slog.WarnContext(ctx, "agent: retire runner: terminate (best-effort, continuing)",
-			"runner_id", runner.ID, "terminal_session_id", runner.TerminalSession, "err", err)
-	}
-	// runner.TerminalSession above is the ORIGINAL companion PTY every
-	// api-transport spawn forks alongside its connection — never reassigned,
-	// so it names a different, LEAKED process once SwitchToTerminal has run:
-	// that call forks a THIRD, separate PTY for the native view and tracks it
-	// only in rs.attached, exactly the one the user is actually looking at.
-	// Retiring a chat that is mid-attach must take that one down too, and
-	// forget it here — SwitchToNative is the only other place that ever does,
-	// and a chat closed while attached never reaches it. Confirmed live: without
-	// this, closing an attached chat killed the long-abandoned companion PTY,
-	// left the real, visible native-view process running forever with nothing
-	// pointing at it, and left rs.attached answering AttachedTerminalSession for
-	// a runner id nothing will ever revisit.
-	if view, ok := rs.attached.get(runner.ID); ok {
-		rs.attached.drop(runner.ID)
-		if err := rs.term.TerminateGraceful(ctx, view.termSessID); err != nil &&
-			!errors.Is(err, engineterminal.ErrSessionNotFound) {
-			slog.WarnContext(ctx, "agent: retire runner: terminate attached native view (best-effort, continuing)",
-				"runner_id", runner.ID, "terminal_session_id", view.termSessID, "err", err)
-		}
-	}
-	// See quitOutgoingCLI's own comment: an api-transport runner's serve process
-	// is not the terminal session above, has no PTY to take it down on exit, and
-	// is otherwise leaked forever. Retire (Stop) is the other path a runner
-	// permanently leaves a chat through.
-	rs.apiConns.drop(runner.ID)
 }
 
 func (rs *Runners) reapCrashOrphanRunnerTmp(
@@ -365,116 +352,4 @@ func (rs *Runners) ConversationsForChat(
 	chatID string,
 ) ([]agents.ChatConversation, error) {
 	return rs.runnerStore.ConversationsForChat(ctx, chatID)
-}
-
-func (rs *Runners) PlacementsForChat(
-	ctx context.Context,
-	chatID string,
-) ([]agents.ChatPlacement, error) {
-	return rs.runnerStore.PlacementsForChat(ctx, chatID)
-}
-
-func (rs *Runners) StopChat(
-	ctx context.Context,
-	chatID string,
-) error {
-	// The chat's spawn gate, for the same reason every teardown path takes it: a stop
-	// racing a switch or resume must not terminate a runner the other path is mid-way
-	// through placing. It is never taken on the hook path, so a CLI still talking as it
-	// dies can always reach us.
-	defer rs.spawns.Lock(chatID)()
-
-	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if errors.Is(err, agentrunner.ErrNotFound) {
-		return nil // already dormant: there is no live CLI to stop
-	}
-	if err != nil {
-		return fmt.Errorf("agent: stop chat: live runner: %w", err)
-	}
-	// Read BEFORE either teardown path runs: interruptTurn's send and retire's
-	// kill both race the CLI's own last words, and neither is a moment to
-	// still be asking "was a turn actually running" from.
-	working, err := rs.turns.ChatWorking(ctx, chatID)
-	if err != nil {
-		return fmt.Errorf("agent: stop chat: chat working: %w", err)
-	}
-	// ONLY WHILE THERE IS A TURN TO INTERRUPT. interruptTurn asks a live api
-	// connection to cancel gracefully and leaves the CLI running — exactly what
-	// the Stop button wants mid-answer (see this function's own history: killing
-	// mid-turn is what corrupted a resumed session's transcript, the same
-	// reasoning switchProviderLocked's awaitTurnOrForce is built around). But a
-	// closed chat tab reaches this same call on an IDLE chat just as often as a
-	// mid-turn one, and interruptTurn's own check has no notion of idle — a live
-	// api connection plus a descriptor that declares a non-"prompt" interrupt
-	// gesture (codex, always) made it return true regardless, so StopChat
-	// returned having neither interrupted anything nor retired the runner.
-	// Confirmed live: closing a codex tab left its runner, its api connection
-	// and its companion PTY all running indefinitely, still placed on the
-	// "closed" chat, directly contradicting closeBuffer's own "closing stops
-	// the CLI" contract on the frontend. Gating on working restores it: an idle
-	// chat always falls through to a real retire below.
-	//
-	// interruptTurn itself is what decides whether the CLI has actually
-	// stopped: its Send blocks on the connection's reply, and codex's own
-	// turn/interrupt DEFERS that reply until the turn genuinely ends (its
-	// app-server only answers once TurnAborted or TurnComplete fires — see
-	// codex-rs's respond_to_pending_interrupts) — so a true return here means
-	// the turn is over, not merely asked to be. retire's kill is synchronous
-	// for the same reason. RecordStop is called AFTER, never before: it used
-	// to fire the instant Stop was clicked, unconditionally, which durably
-	// marked the turn "Interrupted" while codex kept right on generating —
-	// the marker landed ahead of a full extra minute of real tool calls and
-	// assistant text that arrived after it, both because the position was
-	// wrong (stamped before the content it should have followed) and because
-	// it was a lie (nothing had actually stopped yet). Confirmed live.
-	stopped := working && rs.interruptTurn(ctx, live)
-	if !stopped {
-		rs.retire(ctx, live)
-	}
-	if err := rs.turns.RecordStop(ctx, chatID, live.ID); err != nil {
-		slog.WarnContext(ctx, "agent: stop chat: record interruption", "chat_id", chatID, "err", err)
-	}
-	return nil
-}
-
-// interruptEvent is the canonical outbound event a provider declares when
-// Crowbar can cancel its in-flight turn without ending the session — the one
-// case StopChat's full teardown (retire) is too blunt for. Key-presence on the
-// descriptor is the whole capability check, same as compactStartEvent.
-const interruptEvent = "interrupt"
-
-// interruptTurn asks a live api-transport connection to cancel its current
-// turn in place, and reports whether it actually did: false for anything that
-// falls back to StopChat's own teardown — no live api driver, a descriptor
-// that declares no interrupt gesture, or one whose gesture isn't reachable
-// over this connection (wire == "prompt", the same refusal Compact makes).
-// That fallback is today's behaviour for every provider, unchanged; this only
-// adds a better path where one now exists.
-func (rs *Runners) interruptTurn(ctx context.Context, live agents.Runner) bool {
-	conn, ok := rs.apiConns.get(live.ID)
-	if !ok {
-		return false
-	}
-	crowbarHome, _, _, _, err := rs.ws.WorktreeDir(ctx, live.WorkspaceID)
-	if err != nil {
-		slog.WarnContext(ctx, "agent: interrupt turn: worktree dir (falling back to a full stop)",
-			"runner_id", live.ID, "err", err)
-		return false
-	}
-	agent, err := rs.agents.Get(ctx, crowbarHome, live.ProviderID)
-	if err != nil {
-		slog.WarnContext(ctx, "agent: interrupt turn: resolve descriptor (falling back to a full stop)",
-			"runner_id", live.ID, "err", err)
-		return false
-	}
-	wire, _, ok := agent.OutboundCall(interruptEvent, nil)
-	if !ok || wire == "prompt" {
-		return false
-	}
-	if err := conn.driver.Send(ctx, interruptEvent, nil); err != nil {
-		slog.WarnContext(ctx, "agent: interrupt turn: send (falling back to a full stop)",
-			"runner_id", live.ID, "err", err)
-		return false
-	}
-	return true
 }

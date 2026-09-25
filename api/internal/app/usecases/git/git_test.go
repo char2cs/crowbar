@@ -27,7 +27,7 @@ func newGitUsecase(
 	git := mocks.NewGitOpsEngine()
 	syncer := mocks.NewWorkspaceSyncer()
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	uc := gituc.New(git, syncer)
 	return git, syncer, uc
@@ -386,7 +386,7 @@ func TestGitUsecase_Writes_RejectLockedWorkspace(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Status: domain.WorkspaceStatusLocked}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Status: domain.WorkspaceStatusLocked, Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	git.AnyWriteOK()
 
@@ -400,7 +400,7 @@ func TestGitUsecase_Reads_AllowLockedWorkspace(t *testing.T) {
 	git, syncer, uc := newGitUsecase(t)
 	ctx := context.Background()
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Status: domain.WorkspaceStatusLocked}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Status: domain.WorkspaceStatusLocked, Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	git.StatusFn = func(_ context.Context, _ string) (gitdomain.GitStatus, error) {
 		return gitdomain.GitStatus{Branch: "main"}, nil

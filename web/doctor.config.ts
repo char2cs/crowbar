@@ -27,12 +27,6 @@ export default {
     // impure updater was found.
     'react-doctor/no-impure-state-updater': 'off',
 
-    // OFF — not applicable. This repo is bun-only; pnpm was retired in PR #46, so
-    // there is no pnpm install path to harden (the rule's `minimumReleaseAge` /
-    // `trustPolicy` knobs live in a pnpm-workspace.yaml this repo does not install
-    // from).
-    'react-doctor/require-pnpm-hardening': 'off',
-
     // NOTE — `effect-needs-cleanup` is intentionally left ACTIVE: it caught 5 real
     // subscription/timer leaks in batch 1. Its 9 residual false positives (cleanup
     // exists via indirection the static tracer cannot follow) are suppressed

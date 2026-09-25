@@ -10,6 +10,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
+
+	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 )
 
 type snapshotEntry struct {
@@ -48,7 +50,7 @@ type snapshotStore struct {
 func NewSnapshotStore(
 	path string,
 ) (models.SnapshotStore, error) {
-	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{
+	db, err := gorm.Open(sqlite.Open(storesqlite.DSN(path)), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {

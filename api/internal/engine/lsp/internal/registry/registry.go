@@ -16,6 +16,8 @@ type ServerSpec struct {
 	LanguageID string
 	// Extensions lists the file extensions this spec handles (e.g. ".go").
 	Extensions []string
+	// InitializationOptions is sent in the initialize handshake (nil: none).
+	InitializationOptions map[string]any
 }
 
 // Registry resolves a file path to the ServerSpec that handles it.
@@ -57,6 +59,8 @@ func buildDefaults() map[string]ServerSpec {
 		Command:    "gopls",
 		LanguageID: "go",
 		Extensions: []string{".go"},
+		// gopls computes semantic tokens only when asked to (off by default).
+		InitializationOptions: map[string]any{"semanticTokens": true},
 	}
 	tsSpec := ServerSpec{
 		Command:    "typescript-language-server",
@@ -65,7 +69,7 @@ func buildDefaults() map[string]ServerSpec {
 		Extensions: []string{".ts", ".tsx", ".js", ".jsx"},
 	}
 	pySpec := ServerSpec{
-		Command:    "pyright",
+		Command:    "pyright-langserver",
 		Args:       []string{"--stdio"},
 		LanguageID: "python",
 		Extensions: []string{".py"},

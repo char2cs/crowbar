@@ -5,6 +5,15 @@ export interface PaneGroup {
   chatId: string | null
   /** The runner (vendor-CLI process) the chat is following, or null when dormant. */
   runnerId: string | null
+  /**
+   * The workspace `chatId` belongs to — set once, by the gesture that put the
+   * chat here (C3), and never re-derived: the opener always knows it (a
+   * sidebar row carries it). Together with `chatId` this is the view's member
+   * record; every "which workspace is this chat in" question about something
+   * on screen reads it here instead of scanning workspace stores. Null for a
+   * chatless pane.
+   */
+  workspaceId?: string | null
   /** Everything the editor view holds: files, terminals, branch review — never chats or a "new tab" placeholder. */
   editorTabIds: string[]
   activeEditorTabId: string | null
@@ -28,7 +37,18 @@ export interface PaneGroup {
   viewId: string | null
 }
 
-/** A Recents row: one view, its project, and its tiling tree. */
+/** One chat of a view, with its identity fixed at open (C3). */
+export interface ViewMember {
+  chatId: string
+  workspaceId: string | null
+}
+
+/**
+ * A Recents row: one view, its project, and its tiling tree. Its members are
+ * the chat panes of `layout` (`viewMembers`), each carrying `{chatId,
+ * workspaceId}` — held on the pane rather than in a second list beside the
+ * layout, so membership has exactly one writer and cannot drift from it.
+ */
 export interface ViewRecord {
   id: string
   projectId: string

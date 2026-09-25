@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -120,18 +122,19 @@ type quietRunners struct {
 	originated map[string]bool
 }
 
+func (quietRunners) ConfirmLaunch(string) {}
+
 func (r quietRunners) OriginatedSession(_, sessionID string) bool { return r.originated[sessionID] }
 
 // The frames these tests replay arrive OFF this connection, so it is there by
-// construction — ownerDropsThisDelivery never reads it for an api-channel
-// delivery (channel == owner short-circuits first), and namesAnotherConversation
-// needs it to read the originated record at all.
+// construction: namesAnotherConversation needs it to read the originated
+// record at all.
 func (quietRunners) HasLiveAPIConnection(string) bool { return true }
 
 // The chat is the surface in front of the user, so message_delta's own
 // surfaces: [chat] admits the parent's stream rather than gating it off.
-func (quietRunners) ShowingNativeView(string) bool    { return false }
-func (quietRunners) HasDispatchedOverAPI(string) bool { return false }
+func (quietRunners) ShowingNativeView(string) bool { return false }
+
 func (quietRunners) ReconcilePendingPromptFromLedger(context.Context, domain.Chat) error {
 	return nil
 }
@@ -169,7 +172,7 @@ func newDelegatingTurn(t *testing.T) delegatingTurn {
 	// EstablishSession claims it at spawn) — the whole of what tells it from the
 	// child threads codex opens for itself on this same connection.
 	turns.SetRunners(quietRunners{originated: map[string]bool{parentThread: true}})
-	turns.SetMessageDelta(func(string, string, string, string, string) {})
+	turns.SetFeed(seam.ChatFeed{MessageDelta: func(string, string, string, string, string) {}})
 
 	// The user's turn is running and the chat is lit — the state every
 	// assertion below is about. This is what StartTurn set when the prompt

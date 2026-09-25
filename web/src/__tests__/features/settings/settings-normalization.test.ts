@@ -14,20 +14,37 @@ describe('settings normalization', () => {
   it('preserves configured font settings that may exist on the system', () => {
     const normalized = normalizeSettings({
       ...getDefaultSettingsSnapshot(),
-      fontFamily: '"Geist Mono"',
-      terminalFontFamily: 'Geist Mono, monospace',
+      fontFamily: '"JetBrains Mono"',
+      terminalFontFamily: 'JetBrains Mono, monospace',
       uiFontFamily: 'Geist',
     })
 
-    expect(normalized.fontFamily).toBe('"Geist Mono"')
-    expect(normalized.terminalFontFamily).toBe('Geist Mono, monospace')
+    expect(normalized.fontFamily).toBe('"JetBrains Mono"')
+    expect(normalized.terminalFontFamily).toBe('JetBrains Mono, monospace')
     expect(normalized.uiFontFamily).toBe('Geist')
   })
 
   it('preserves font updates before persisting', () => {
-    expect(normalizeSettingValue('fontFamily', 'Geist Mono')).toBe('Geist Mono')
-    expect(normalizeSettingValue('terminalFontFamily', 'Geist Mono')).toBe('Geist Mono')
+    expect(normalizeSettingValue('fontFamily', 'JetBrains Mono')).toBe('JetBrains Mono')
+    expect(normalizeSettingValue('terminalFontFamily', 'JetBrains Mono')).toBe('JetBrains Mono')
     expect(normalizeSettingValue('uiFontFamily', 'Geist Sans')).toBe('Geist Sans')
+  })
+
+  // The static "Geist Mono" cut is no longer bundled; a saved choice of it
+  // would make the terminal fall back to the platform monospace.
+  it('maps the removed static Geist Mono to the bundled variable cut', () => {
+    const normalized = normalizeSettings({
+      ...getDefaultSettingsSnapshot(),
+      fontFamily: 'Geist Mono',
+      terminalFontFamily: '"Geist Mono", Menlo, monospace',
+    })
+
+    expect(normalized.fontFamily).toBe('Geist Mono Variable')
+    expect(normalized.terminalFontFamily).toBe('"Geist Mono Variable", Menlo, monospace')
+    expect(normalizeSettingValue('terminalFontFamily', "'Geist Mono'")).toBe(
+      "'Geist Mono Variable'",
+    )
+    expect(normalizeSettingValue('fontFamily', 'Geist Mono Variable')).toBe('Geist Mono Variable')
   })
 
   it('falls back for empty font updates', () => {
@@ -60,35 +77,6 @@ describe('settings normalization', () => {
   it('normalizes unsupported file tree density values', () => {
     expect(normalizeSettingValue('fileTreeDensity', 'compact')).toBe('compact')
     expect(normalizeSettingValue('fileTreeDensity', 'dense' as 'default')).toBe('default')
-  })
-
-  it('disables blank custom editor engine settings', () => {
-    const normalized = normalizeSettings({
-      ...getDefaultSettingsSnapshot(),
-      editorEngine: 'custom',
-      customEditorCommand: '',
-    })
-
-    expect(normalized.editorEngine).toBe('monaco')
-  })
-
-  it('normalizes unsupported editor engines', () => {
-    const normalized = normalizeSettings({
-      ...getDefaultSettingsSnapshot(),
-      editorEngine: 'emacs' as never,
-    })
-
-    expect(normalized.editorEngine).toBe('monaco')
-  })
-
-  it('migrates legacy external editor settings into editor engine', () => {
-    const normalized = normalizeSettings({
-      ...getDefaultSettingsSnapshot(),
-      editorEngine: 'monaco',
-      externalEditor: 'helix',
-    })
-
-    expect(normalized.editorEngine).toBe('helix')
   })
 
   describe('themeMode migration', () => {

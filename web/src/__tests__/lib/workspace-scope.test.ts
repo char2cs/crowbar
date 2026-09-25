@@ -7,6 +7,7 @@ import {
   recordWorkspaceScope,
   subscribeToWorkspaceScope,
   __resetWorkspaceScopesForTest,
+  bindActiveWorkspaceId,
 } from '@/lib/workspace-scope'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 
@@ -40,36 +41,19 @@ describe('recordWorkspaceScopeFromPath', () => {
     expect(workspaceBase('w')).toBe('/v0/projects/p/repos/r/workspaces/w')
   })
 
-  it('seeds the active workspace on first use (workspaceBase with no arg resolves it)', () => {
-    recordWorkspaceScopeFromPath('/ide/p9/r9/w9')
-    expect(getWorkspaceScope()).toEqual({ projectId: 'p9', repoId: 'r9', wsId: 'w9' })
-  })
+  // C4: the active workspace is one id, owned by the registry. Recording a
+  // route's scope — which the IDE shell does on every render — never makes
+  // that workspace active; the default-scope read follows the owner alone.
+  it('never decides which workspace is active; the default scope follows the bound owner', () => {
+    let active: string | null = null
+    bindActiveWorkspaceId(() => active)
+    recordWorkspaceScopeFromPath('/ide/p1/r1/ws-routed')
+    expect(getWorkspaceScope()).toBeNull()
 
-  // Regression: setWorkspaceScope used to set `_activeWorkspaceId`
-  // unconditionally, every call — and the IDE shell calls
-  // recordWorkspaceScopeFromPath synchronously on every one of its own
-  // renders. A pane's chat can legitimately live in a workspace other than
-  // the routed one; the registry's own activation effect (setActiveWorkspaceId,
-  // workspace-store-registry.ts) gets that right, but the very next render's
-  // scope recording clobbered it back to the route's wsId every time, so the
-  // correction never stuck — live-reported as a Recents click that focused
-  // the right pane but left the file explorer permanently scoped to a
-  // sibling workspace of the same repo.
-  it('does not steal the active workspace once something else has claimed it', () => {
-    recordWorkspaceScopeFromPath('/ide/p1/r1/ws-active')
-    expect(getWorkspaceScope()?.wsId).toBe('ws-active')
-
-    // A different (e.g. sibling) workspace's scope is recorded — but must
-    // not become "the active one" just by being recorded.
-    recordWorkspaceScopeFromPath('/ide/p1/r1/ws-sibling')
-
-    expect(getWorkspaceScope()?.wsId).toBe('ws-active')
-    // The sibling's own scope is still recorded for anyone asking by id.
-    expect(getWorkspaceScope('ws-sibling')).toEqual({
-      projectId: 'p1',
-      repoId: 'r1',
-      wsId: 'ws-sibling',
-    })
+    recordWorkspaceScopeFromPath('/ide/p1/r1/ws-pane')
+    active = 'ws-pane'
+    expect(getWorkspaceScope()?.wsId).toBe('ws-pane')
+    bindActiveWorkspaceId(() => null)
   })
 
   it('returns null and records nothing for a non-ide path', () => {

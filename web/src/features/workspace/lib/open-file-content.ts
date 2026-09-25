@@ -7,14 +7,17 @@ import {
 import { toast } from '@/features/window/stores/toast-store'
 
 interface BufferOpener {
-  openContent: (spec: {
-    type: 'editor'
-    path: string
-    name: string
-    content: string
-    isPreview?: boolean
-    workspaceId?: string
-  }) => void
+  openContent: (
+    spec: {
+      type: 'editor'
+      path: string
+      name: string
+      content: string
+      isPreview?: boolean
+      workspaceId?: string
+    },
+    opts?: { paneId?: string },
+  ) => void
 }
 
 /**
@@ -28,21 +31,24 @@ export async function openFileContent(
   wsId: string,
   path: string,
   bufferActions: BufferOpener,
-  opts: { preview?: boolean } = {},
+  opts: { preview?: boolean; paneId?: string } = {},
 ): Promise<void> {
   const name = path.split('/').pop() ?? path
   try {
     const payload = await apiFetch<FileContentPayload>(
       `${filesBaseForWorkspace(wsId)}/content?path=${encodeURIComponent(path)}`,
     )
-    bufferActions.openContent({
-      type: 'editor',
-      path,
-      name,
-      content: decodeFileContent(payload),
-      isPreview: opts.preview,
-      workspaceId: wsId,
-    })
+    bufferActions.openContent(
+      {
+        type: 'editor',
+        path,
+        name,
+        content: decodeFileContent(payload),
+        isPreview: opts.preview,
+        workspaceId: wsId,
+      },
+      { paneId: opts.paneId },
+    )
   } catch {
     toast.error('Failed to open file', name)
   }

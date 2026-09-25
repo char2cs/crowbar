@@ -9,7 +9,7 @@ import type { PaneSet } from './context'
 /** A chat dropped onto a pane: the only gesture that puts two chats in one view. */
 export function createChatDropActions(set: PaneSet): Pick<PaneActions, 'dropChatOnPane'> {
   return {
-    dropChatOnPane(chatId, paneId, zone) {
+    dropChatOnPane(chatId, paneId, zone, workspaceId = null) {
       set((state) => {
         const target = state.panes[paneId]
         if (!target) return
@@ -25,7 +25,7 @@ export function createChatDropActions(set: PaneSet): Pick<PaneActions, 'dropChat
           const home = homeOf(state, paneId)
           const projectId =
             home?.kind === 'view' ? projectOf(state, home.viewId) : (state.activeProjectId ?? '')
-          if (fillPane(state, paneId, chatId, null, projectId) === undefined) return
+          if (fillPane(state, paneId, chatId, null, projectId, workspaceId) === undefined) return
           focusPane(state, paneId)
           return
         }
@@ -45,7 +45,7 @@ export function createChatDropActions(set: PaneSet): Pick<PaneActions, 'dropChat
           return
         }
         const id = nanoid()
-        const joined = insertPane(state, makePane(id, null, { chatId }), {
+        const joined = insertPane(state, makePane(id, null, { chatId, workspaceId }), {
           kind: 'split',
           targetPaneId: paneId,
           direction,

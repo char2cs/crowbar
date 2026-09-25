@@ -20,14 +20,14 @@ func TestCORS_PreflightShortCircuits(t *testing.T) {
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodOptions, "/x", nil)
 	req.Header.Set("Origin", "http://localhost:5173")
-	req.Header.Set("Access-Control-Request-Headers", "X-Crowbar-Latency")
+	req.Header.Set("Access-Control-Request-Headers", "X-Requested-With")
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNoContent, w.Code)
 	assert.Equal(t, "http://localhost:5173", w.Header().Get("Access-Control-Allow-Origin"))
 	assert.Equal(t, "true", w.Header().Get("Access-Control-Allow-Credentials"))
 	assert.Contains(t, w.Header().Get("Access-Control-Allow-Methods"), "PATCH")
-	assert.Equal(t, "X-Crowbar-Latency", w.Header().Get("Access-Control-Allow-Headers"))
+	assert.Equal(t, "X-Requested-With", w.Header().Get("Access-Control-Allow-Headers"))
 }
 
 func TestCORS_ActualRequestReflectsOrigin(t *testing.T) {
@@ -101,5 +101,5 @@ func TestCORS_PreflightWithoutRequestHeadersFallsBack(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNoContent, w.Code)
-	assert.Contains(t, w.Header().Get("Access-Control-Allow-Headers"), "Content-Type")
+	assert.Equal(t, "Content-Type", w.Header().Get("Access-Control-Allow-Headers"))
 }

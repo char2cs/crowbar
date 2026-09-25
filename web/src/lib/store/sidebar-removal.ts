@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { WorkAtRisk } from '@/lib/api'
 
 /**
  * The removal tray: rows that are on their way out but have not gone yet.
@@ -52,7 +53,7 @@ export interface RemovalDraft {
   /**
    * '' for every kind except `chat`, where it is the workspace the DELETE
    * request is scoped through (`deleteChat`'s own contract — see
-   * `space-content-actions.ts`'s old `handleTrash`, which this supersedes).
+   * `trash-actions.ts`'s old `handleTrash`, which this supersedes).
    */
   wsId: string
   /**
@@ -80,6 +81,12 @@ export interface RemovalDraft {
    * BEFORE anything is hidden — afterwards the tree no longer has the answer.
    */
   fallbackWsId: string | null
+  /**
+   * The work the daemon refused this removal over — it exists nowhere else.
+   * Set only by `askToDiscard`; confirming such an entry is the user's consent
+   * to destroy exactly this, and is what sends the delete with that consent.
+   */
+  atRisk?: readonly WorkAtRisk[]
 }
 
 export interface RemovalEntry extends RemovalDraft {
@@ -110,6 +117,11 @@ interface RemovalTrayState {
   settle: (entryId: string) => void
   /** Stop hiding these rows — the daemon confirmed, or refused. */
   release: (ids: readonly string[]) => void
+  /**
+   * The daemon refused a sent removal over work at risk: put it back, still
+   * hidden, waiting on an answer (no clock) with that work attached.
+   */
+  askToDiscard: (entry: RemovalEntry, atRisk: readonly WorkAtRisk[]) => void
 }
 
 export function getInitialRemovalState() {
@@ -160,5 +172,13 @@ export const useRemovalTrayStore = create<RemovalTrayState>()((set) => ({
       let removed = false
       for (const id of ids) removed = hiddenIds.delete(id) || removed
       return removed ? { hiddenIds } : s
+    }),
+
+  askToDiscard: (entry, atRisk) =>
+    set((s) => {
+      const hiddenIds = new Set(s.hiddenIds)
+      for (const id of entry.hiddenIds) hiddenIds.add(id)
+      const asked = { ...entry, entryId: crypto.randomUUID(), deadlineAt: null, atRisk }
+      return { entries: [...s.entries, asked], hiddenIds }
     }),
 }))

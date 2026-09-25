@@ -58,13 +58,8 @@ func surfaceForSpawn(descriptor engineagents.Agent, stored string) string {
 // apiTransportDrivesSurface reports whether a chat living on `surface` needs
 // this descriptor's api connection opened at all.
 //
-// One fed by hooks is fed by the CLI's OWN PTY: opening an api connection
-// beside it would fork a second session the user is not looking at, and —
-// because owner: api makes that connection authoritative once live
-// (turn/ingest.go's ownerDropsThisDelivery) — drop the PTY's own hooks as
-// redundant echoes of a transport nobody is watching. The DTO would hide that
-// PTY too (HasLiveAPIConnection, dto/agent.go), which is exactly the "no
-// terminal view attached" a chat born on the terminal reported.
+// One fed by hooks is fed by the CLI's own PTY: an api connection beside it
+// would be a second process on the session (one channel per runner).
 //
 // Absence is not a decision: "" (the provider's default landing) and a
 // descriptor with no surfaces: block at all both answer true, so every spawn

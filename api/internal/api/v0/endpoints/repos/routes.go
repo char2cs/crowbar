@@ -2,6 +2,8 @@
 package repos
 
 import (
+	"context"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
@@ -14,6 +16,8 @@ import (
 // reposWS (the Broadcaster[RepoDTO] handle) for the live stream — a list-scope
 // subscriber at /projects/:p/repos receives that project's repos, a
 // :repoId-scope subscriber receives only that repo (W7-2).
+//
+// It returns the handlers' Shutdown, which waits for the work they detach.
 func Register(
 	rg *gin.RouterGroup,
 	store repohandlers.Store,
@@ -23,18 +27,17 @@ func Register(
 	updater repohandlers.RepoUpdater,
 	nodes repohandlers.NodeReader,
 	remote repohandlers.RemoteRefresher,
-	wsRemover repohandlers.WorkspaceRemover,
-	wsPurger repohandlers.WorkspacePurger,
+	deleter repohandlers.RepoDeleter,
 	broadcast func(dto.RepoDTO),
 	reposWS gin.HandlerFunc,
 	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
-) {
+) func(context.Context) error {
 	h := repohandlers.NewWithDeps(store, prov, wsReader, broadcast).
 		WithImporter(importer).
 		WithUpdater(updater).
 		WithNodes(nodes).
 		WithRemoteRefresher(remote).
-		WithWorkspaceRemover(wsRemover, wsPurger)
+		WithRepoDeleter(deleter)
 	rg.POST("/repos", h.Create)
 	rg.GET("/repos", dispatch(h.List, reposWS))
 	rg.GET("/repos/:repoId", dispatch(h.Detail, reposWS))
@@ -47,4 +50,5 @@ func Register(
 	rg.PUT("/repos/:repoId/icon/github", h.PutIconGithub)
 	rg.GET("/repos/:repoId/branches", h.Branches)
 	rg.GET("/repos/:repoId/pull-requests", h.PullRequests)
+	return h.Shutdown
 }

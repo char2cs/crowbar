@@ -22,6 +22,7 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   listProviders: vi.fn().mockResolvedValue([]),
   getDefaultPermissionLevel: vi.fn().mockResolvedValue('guarded'),
   updateDefaultPermissionLevel: vi.fn(),
+  getDescriptorReports: vi.fn().mockResolvedValue([]),
   PERMISSION_LEVEL_OPTIONS: [
     { value: 'guarded', label: 'Guarded' },
     { value: 'trusted', label: 'Trusted' },
@@ -37,7 +38,7 @@ import {
   destroyWorkspaceStore,
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
-import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { setActiveWorkspaceStoreForTests } from '@/features/workspace/stores/workspace-store-registry'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
 
 const CLAUDE: AgentProvider = {
@@ -47,13 +48,19 @@ const CLAUDE: AgentProvider = {
   connected: true,
   enabled: true,
   mcpEnabled: true,
+  modelSelect: false,
+  effortSelect: false,
+  compaction: false,
+  hasTerminal: true,
+  hotswap: false,
+  terminalStartHere: false,
 }
 
 beforeEach(() => {
   const st = getOrCreateWorkspaceStore('w1')
   act(() => {
     st.getState().setAgentProviders([CLAUDE])
-    setActiveWorkspaceStoreRef(st)
+    setActiveWorkspaceStoreForTests(st)
     useAgentProvidersStore.setState({ providers: [CLAUDE], status: 'ready' })
     useUIState.getState().setSettingsInitialTab('providers')
   })
@@ -62,7 +69,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   act(() => {
-    setActiveWorkspaceStoreRef(null)
+    setActiveWorkspaceStoreForTests(null)
     useUIState.getState().setSettingsInitialTab('appearance')
   })
   useAgentProvidersStore.setState({ providers: [], status: 'idle' })

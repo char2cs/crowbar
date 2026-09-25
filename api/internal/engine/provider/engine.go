@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/engine/provider/poll"
 	"github.com/char2cs/crowbar/api/internal/engine/provider/providers/github"
@@ -15,12 +16,36 @@ import (
 type providerEngine struct {
 	detectFn    func(ctx context.Context, repoPath string) (DetectResult, error)
 	providerFac func(kind string) GitProvider // injectable for tests; nil = production default
+	protected   *ttlCache[[]string]           // per-repo protected branches; nil = uncached
 }
 
 func newEngine() *providerEngine {
 	return &providerEngine{
-		detectFn: Detect,
+		detectFn:  cachedDetect(Detect, time.Now),
+		protected: newTTLCache[[]string](protectedCacheCap, time.Now),
 	}
+}
+
+// protectedBranches returns prov's protected branches for repoPath, served from
+// the per-repo cache when one is configured. Failures are never cached.
+func (e *providerEngine) protectedBranches(
+	ctx context.Context,
+	prov GitProvider,
+	repoPath string,
+) ([]string, error) {
+	if e.protected != nil {
+		if branches, ok := e.protected.get(repoPath); ok {
+			return branches, nil
+		}
+	}
+	branches, err := prov.ProtectedBranches(ctx, repoPath)
+	if err != nil {
+		return nil, err
+	}
+	if e.protected != nil {
+		e.protected.put(repoPath, branches, protectedTTL)
+	}
+	return branches, nil
 }
 
 var _ Engine = (*providerEngine)(nil)
@@ -41,7 +66,7 @@ func (e *providerEngine) ProtectedBranches(
 		return FallbackProtectedBranches(), nil
 	}
 
-	branches, err := prov.ProtectedBranches(ctx, repoPath)
+	branches, err := e.protectedBranches(ctx, prov, repoPath)
 	if err != nil {
 		return FallbackProtectedBranches(), nil
 	}
@@ -122,7 +147,7 @@ func (e *providerEngine) PollOnView(
 		return ProviderState{}, nil
 	}
 
-	return pollOnce(ctx, prov, repoPath, branch)
+	return e.pollOnce(ctx, prov, repoPath, branch)
 }
 
 // StartBackgroundSweep starts the 5-minute global cron sweep.
@@ -190,13 +215,13 @@ func defaultProviderFor(
 // pollOnce fetches protected status and PR info for a single branch.
 // PR lookup errors are treated as soft degradation: the Protected field is still
 // returned and the error is logged to stderr rather than propagated.
-func pollOnce(
+func (e *providerEngine) pollOnce(
 	ctx context.Context,
 	prov GitProvider,
 	repoPath string,
 	branch string,
 ) (ProviderState, error) {
-	protected, err := isProtected(ctx, prov, repoPath, branch)
+	protected, err := e.isProtected(ctx, prov, repoPath, branch)
 	if err != nil {
 		return ProviderState{}, err
 	}
@@ -213,13 +238,13 @@ func pollOnce(
 }
 
 // isProtected checks whether branch appears in the repo's protected list.
-func isProtected(
+func (e *providerEngine) isProtected(
 	ctx context.Context,
 	prov GitProvider,
 	repoPath string,
 	branch string,
 ) (bool, error) {
-	branches, err := prov.ProtectedBranches(ctx, repoPath)
+	branches, err := e.protectedBranches(ctx, prov, repoPath)
 	if err != nil {
 		return false, err
 	}

@@ -1,10 +1,13 @@
-.PHONY: dev build test test-integration bench bench-update test-coverage lint govet pr-checks missing-tests embed-web
+.PHONY: dev build test test-integration bench bench-update test-coverage lint lint-backlog deadcode govet pr-checks missing-tests embed-web descriptor-check descriptor-live
 
 embed-web:
 	@test -d ../web/dist || (echo "ERROR: web/dist not found. Run 'cd ../web && bun run build' first." && exit 1)
 	rm -rf cmd/crowbar/web/dist
 	mkdir -p cmd/crowbar/web
 	cp -r ../web/dist cmd/crowbar/web/dist
+	# Precompressed siblings for the static handler (internal/api/static.go):
+	# browser mode gets gzip with no per-request compression work.
+	find cmd/crowbar/web/dist -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.css' -o -name '*.html' -o -name '*.json' -o -name '*.svg' -o -name '*.wasm' -o -name '*.ttf' \) -size +1k -exec gzip -k -n -9 {} +
 
 # Dev isolation: root all daemon state at <workspace>/.crowbar, not ~/.crowbar
 # (see root Makefile). Applies when this target is invoked directly too.
@@ -55,11 +58,29 @@ test-coverage:
 lint:
 	golangci-lint run --build-tags noEmbed ./...
 
+# The whole backlog, ignoring .golangci.yml's new-from-rev ratchet.
+lint-backlog:
+	golangci-lint run --build-tags noEmbed --new-from-rev= ./...
+
+# Functions reachable only from tests; deadcode-baseline.txt may only shrink.
+deadcode:
+	scripts/deadcode-check.sh
+
 govet:
 	go vet -tags noEmbed ./...
 
+# Static rules over every provider descriptor (shipped + overrides under CROWBAR_HOME).
+descriptor-check:
+	go run -tags noEmbed ./cmd/crowbar descriptor validate
+
+# Live conformance against an installed CLI: make descriptor-live P=codex [TURN=1] [CWD=dir].
+# TURN=1 runs one real (billed) model turn; CWD should be a directory the CLI trusts.
+descriptor-live:
+	@test -n "$(P)" || (echo 'usage: make descriptor-live P=claude|codex [TURN=1] [CWD=dir]' && exit 1)
+	go run -tags noEmbed ./cmd/crowbar descriptor test $(P) --live $(if $(TURN),--turn,) $(if $(CWD),--cwd $(CWD),)
+
 # test-integration is excluded here; run it separately or in CI with a live repo.
-pr-checks: lint test test-coverage govet
+pr-checks: lint deadcode test test-coverage govet
 
 missing-tests:
 	@for d in $$(go list -tags noEmbed -f '{{.Dir}}' ./... | grep -v '/cmd/'); do \

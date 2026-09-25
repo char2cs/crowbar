@@ -30,7 +30,7 @@ func newTerminalUsecase(
 	eng := mocks.NewTerminalEngine()
 	profiles := mocks.NewTerminalProfileStore()
 	worktrees := &fakeWorktreeResolver{
-		ws: domain.Workspace{ID: "ws-1", WorktreePath: "/repo/x"},
+		ws: domain.Workspace{ID: "ws-1", WorktreePath: "/repo/x", Provisioning: domain.WorkspaceProvisioned},
 	}
 	uc := terminal.New(eng, profiles, worktrees, nil)
 	return eng, profiles, worktrees, uc

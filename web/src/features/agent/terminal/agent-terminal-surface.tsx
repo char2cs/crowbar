@@ -5,7 +5,10 @@ import type { AgentProvider } from '@/features/agent/api/agent-api'
 import { ProviderSwitchDropdown } from '@/features/agent/components/provider-switch-dropdown'
 import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
-import { XtermTerminal } from '@/features/terminal/components/terminal'
+import {
+  LazyXtermTerminal,
+  type XtermTerminalProps,
+} from '@/features/terminal/components/lazy-terminal'
 import { cn } from '@/lib/utils'
 
 /**
@@ -24,12 +27,7 @@ export type TerminalAttachment =
   | { state: 'pending' }
   | { state: 'attached'; sessionId: string | null }
   | { state: 'reviving'; message: string }
-  | { state: 'idle'; reason: 'exited' | 'failed' }
-
-/** The imperative handle XtermTerminal hands back. */
-export type AgentTerminalApi = Parameters<
-  NonNullable<React.ComponentProps<typeof XtermTerminal>['onTerminalRef']>
->[0]
+  | { state: 'idle'; message: string }
 
 export interface AgentTerminalSurfaceProps {
   wsId: string
@@ -64,9 +62,10 @@ export interface AgentTerminalSurfaceProps {
   onTakeFocus: () => void
   /** A click on this half's dead space, pointed back at the grid. */
   onDeadSpaceMouseDown: (event: MouseEvent<HTMLDivElement>) => void
-  onTerminalRef: (api: AgentTerminalApi) => void
-  onSessionGone: (sessionId: string) => void
-  onRevive: () => void
+  /** The terminal's focus handle, for moving the keyboard onto the grid. */
+  terminalRef: XtermTerminalProps['ref']
+  /** Bring the chat's provider back without sending anything. */
+  onStartSession: () => void
   ref?: Ref<HTMLDivElement>
 }
 
@@ -104,9 +103,8 @@ export function AgentTerminalSurface({
   onSelectPresentation,
   onTakeFocus,
   onDeadSpaceMouseDown,
-  onTerminalRef,
-  onSessionGone,
-  onRevive,
+  terminalRef,
+  onStartSession,
   ref,
 }: AgentTerminalSurfaceProps) {
   const provider = providers.find((candidate) => candidate.id === activeProviderId)
@@ -144,7 +142,7 @@ export function AgentTerminalSurface({
         // liveness half, and in split it is simply true: both surfaces really
         // are on screen. Both still hang off the pane's own axes, so a split in
         // a hidden tab stays as dormant as one in terminal mode does.
-        <XtermTerminal
+        <LazyXtermTerminal
           sessionId={attachment.sessionId}
           workspaceId={wsId}
           chatId={chatId}
@@ -154,8 +152,7 @@ export function AgentTerminalSurface({
           isVisible={isVisible && presentation !== 'chat'}
           attachOnly
           flush
-          onTerminalRef={onTerminalRef}
-          onSessionGone={onSessionGone}
+          ref={terminalRef}
         />
       )}
 
@@ -179,19 +176,15 @@ export function AgentTerminalSurface({
 
       {presentation !== 'chat' && attachment.state === 'idle' && (
         <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
-          <p className="max-w-sm text-center text-muted-foreground text-sm">
-            {attachment.reason === 'failed'
-              ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
-              : 'This agent has exited. Resume it to pick the conversation up where you left off.'}
-          </p>
+          <p className="max-w-sm text-center text-muted-foreground text-sm">{attachment.message}</p>
           <Button
             type="button"
             variant="secondary"
             size="sm"
             data-testid="pane-resume"
-            onClick={onRevive}
+            onClick={onStartSession}
           >
-            Resume
+            Start session
           </Button>
         </div>
       )}

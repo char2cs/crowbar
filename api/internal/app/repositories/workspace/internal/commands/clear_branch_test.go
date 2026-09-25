@@ -15,6 +15,7 @@ func TestClearBranch_BlanksBranchOnly(t *testing.T) {
 	cur := &domain.Workspace{
 		ID: "home", Branch: "develop", WorktreePath: "/repo",
 		Status: domain.WorkspaceStatusNew, IsDefault: true,
+		Provisioning: domain.WorkspaceShared,
 	}
 	got := commands.ClearBranch{ID: "home"}.EmitEvent(cur)
 	assert.Empty(t, got.Branch, "branch is blanked")

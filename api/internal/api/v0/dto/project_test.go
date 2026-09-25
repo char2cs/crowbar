@@ -32,7 +32,7 @@ func TestProjectDTOListEmptyNonNil(
 ) {
 	got := dto.ProjectDTOList(nil)
 	require.NotNil(t, got)
-	assert.Len(t, got, 0)
+	assert.Empty(t, got)
 }
 
 func TestProjectDTOList(

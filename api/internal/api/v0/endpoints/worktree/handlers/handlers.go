@@ -5,9 +5,9 @@ package handlers
 
 import (
 	"context"
-	"sync"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/internal/detached"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -59,6 +59,7 @@ type Hierarchy interface {
 	DeleteCascade(
 		ctx context.Context,
 		rootID string,
+		consent domain.DeleteConsent,
 	) error
 	// RetryProvision re-provisions a placeholder workspace in place (spec §3.3).
 	RetryProvision(
@@ -171,9 +172,8 @@ type Handlers struct {
 	working    WorkSignal
 	remote     RemoteRefs
 	worktrees  Worktrees
-	// async tracks the detached runAsync ops so callers can block on their real
-	// completion instead of guessing with a sleep (see runAsync / WaitAsync).
-	async sync.WaitGroup
+	// async owns the detached runAsync ops (see runAsync / WaitAsync / Shutdown).
+	async detached.Ops
 }
 
 // New builds the worktree Handlers from the workspace read usecase, the

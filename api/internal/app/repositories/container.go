@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -16,7 +15,6 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
-	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
@@ -25,6 +23,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/purge"
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -59,47 +58,17 @@ type Container struct {
 	Node node.EventStore
 	hub  hub.WebSocketHub
 	git  wsusecase.MergeConflictChecker
-	// terminateSession is the terminal-engine seam the workspace-delete cascade
-	// (forgetAgentChats, Task 12) uses to kill a chat's live vendor-CLI PTY
-	// before Forgetting it. It is injected from the app layer (which owns the
-	// terminal engine) as a plain func, exactly like worktreeRemover is
-	// injected as a plain func rather than an fs/git type — this package holds
-	// no terminal-engine dependency of its own. Nil is safe: it just skips PTY
-	// teardown (tests that don't exercise it, or a build with no terminal
-	// engine wired).
-	terminateSession func(ctx context.Context, sessionID string) error
-	// ReapChatFiles is the workspace-delete cascade's on-disk reap seam
-	// (forgetAgentChats): given a forgotten chat's (workspaceID, chatID), it
-	// removes that chat's own <chatsDir>/<chatID> directory — its handoff ledger,
-	// and nothing else. No tmp dir lives under a chat any more (runner tmp dirs
-	// now live at <chatsDir>/runners/<runnerID>-<provider>, worktreepath.RunnerDir,
-	// reaped by the runner's own lifecycle, not this cascade), so this closes the
-	// gap where Forgetting the event-sourced aggregate left its PLAINTEXT on-disk
-	// footprint behind under .crowbar. Unlike terminateSession (a New(...)
-	// constructor parameter), this is a settable field the app layer assigns
-	// AFTER construction: the real implementation (app.reapAgentChatFiles) reuses
-	// the SAME agent.WorkspaceReader
-	// (AgentChatsDir + WorktreeDir) and agent.RemoveUnderHome guard the standalone
-	// PurgeChat path already routes through, and that reader is built from
-	// repos.Workspace — which does not exist until repositories.New returns — so
-	// it cannot be threaded in as a constructor argument without a genuine
-	// construction cycle (usecases.New itself takes *repositories.Container).
-	// Exported (not routed through a setter) so tests can inject a fake exactly
-	// like they already do for c.Workspace. Nil is safe: reaping is skipped.
-	ReapChatFiles func(ctx context.Context, wsID, chatID string) error
-	// RetireAgentRunner is the cascade's OTHER process seam, for the runner
-	// terminateSession above cannot reach: an api-driven one forks no PTY at
-	// all (usecases/chat/internal/runner/apirunner.go), so its TerminalSession
-	// is "" and its process is a `serve` the terminal engine has never heard
-	// of. Killing the PTY used to drop that connection as a side effect of its
-	// exit callback; with no PTY, nothing did, and the workspace delete left
-	// both the process and its runner row alive indefinitely.
+	// PurgeChat hard-deletes one chat and everything it owns — its aggregate, the
+	// CLIs on it, its conversation record and telemetry, its conversation history
+	// and its ledger directory. It is the chat usecase's own PurgeChat, the SAME
+	// path a user's chat delete takes, so the workspace-delete cascade cannot
+	// drift from it again (spec §7-D, invariant D5): it used to keep its own copy
+	// that skipped the conversation record, the telemetry and the ledger.
 	//
-	// Assigned after construction for the same reason ReapChatFiles is: its
-	// implementation lives in the chat usecase, which is built from this
-	// container. Nil is safe — the PTY path alone is what every test in this
-	// package exercises.
-	RetireAgentRunner func(ctx context.Context, runnerID string)
+	// Assigned after construction because the chat usecase is built from this
+	// container. The cascade REFUSES to run without it rather than purging
+	// half a chat.
+	PurgeChat func(ctx context.Context, chatID string) error
 	// axWorkspace/axReviewThread/axAgentChat/axAgentRunner are the per-type asynx
 	// instances, retained so WaitQuiescent can drain their dispatch queues +
 	// projection handlers — the deterministic read-your-writes barrier for tests (no
@@ -150,18 +119,12 @@ type ReactorDrain struct {
 // New builds all aggregate repositories, wiring each projection's broadcast into
 // the hub. The workspace aggregate is backed by the singleton axWorkspace (one
 // instance per type, routing every id by shard hash) built by the app layer; its
-// read model lives in state/store/workspace.db and its id↔path index in view.db.
+// read model lives in state/store/workspace.db.
 // The reviewthread aggregate owns its central per-type read model at
 // state/store/review_thread.db. The agentchat aggregate owns its central
-// per-type read model at state/store/agent_chat.db. terminateSession is the
-// terminal-engine seam (owned by the app layer, which constructs it before
-// calling New — the terminal engine has no dependency on the repositories it
-// feeds) the workspace-delete cascade uses to kill a chat's live PTY before
-// Forgetting it (Task 12); nil is safe (PTY teardown is skipped). The sibling
-// on-disk reap seam, Container.ReapChatFiles, is NOT a parameter here — its
-// resolver depends on repos.Workspace, which this very call produces, so the
-// app layer assigns it on the returned *Container once the rest of the app
-// layer (usecases.New) has built it; see the field's doc comment.
+// per-type read model at state/store/agent_chat.db. The workspace-delete
+// cascade's chat purge, Container.PurgeChat, is assigned by the app layer once
+// the chat usecase exists; see the field's doc comment.
 func New(
 	ctx context.Context,
 	adapters *adapter.Container,
@@ -173,7 +136,6 @@ func New(
 	axAgentRunner asynx.Asynx[agents.Runner],
 	axNode asynx.Asynx[domain.Node],
 	git wsusecase.MergeConflictChecker,
-	terminateSession func(ctx context.Context, sessionID string) error,
 	chatWatch agentchat.WatchFunc,
 	runnerWatch agentrunner.WatchFunc,
 	nodeWatch node.WatchFunc,
@@ -182,16 +144,11 @@ func New(
 		hub: h, git: git, inflight: map[string]int{},
 		agentWorking: map[string]map[string]struct{}{},
 		axWorkspace:  axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat,
-		axAgentRunner:    axAgentRunner,
-		axAgentActivity:  axAgentActivity,
-		axNode:           axNode,
-		terminateSession: terminateSession,
+		axAgentRunner:   axAgentRunner,
+		axAgentActivity: axAgentActivity,
+		axNode:          axNode,
 	}
-	pathsStore, err := wspaths.NewWorkspacePaths(adapters.GlobalView())
-	if err != nil {
-		return nil, fmt.Errorf("repositories: workspace paths: %w", err)
-	}
-	ws, err := workspace.New(axWorkspace, adapters.WorkspaceES(), adapters.WorkspaceView(), pathsStore)
+	ws, err := workspace.New(axWorkspace, adapters.WorkspaceES(), adapters.WorkspaceView())
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +160,7 @@ func New(
 	// with zero regression (spec §3.5 hub-frame enrichment). The save-only store
 	// projection is registered inside workspace.New; the two derive independently
 	// from evt.Aggregate and cannot drift (decision 5).
-	if err := workspace.RegisterHubProjection(axWorkspace, c.enrichFrame, c.hub.BroadcastWorkspace); err != nil {
+	if err := workspace.RegisterHubProjection(c.Workspace, c.enrichFrame, c.hub.BroadcastWorkspace); err != nil {
 		return nil, fmt.Errorf("repositories: workspace hub projection: %w", err)
 	}
 	// reviewthread owns its own central per-type read model at
@@ -350,16 +307,15 @@ func (c *Container) wireCallbacks(
 	c.drainCtx, c.drainCancel = context.WithCancel(ctx)
 
 	// The reactor lives under workspace/internal (unimportable from this out-of-tree
-	// container), so it is registered through the repository's own seam, which hands
-	// it the singleton axWorkspace + read model + id↔path map it holds privately.
-	// The reactor's signature is a single func(ctx, wsID) error, so a new dependent
-	// aggregate's cascade (Task 12's agent chats) is added by composing it into
-	// forgetDependents rather than by widening the reactor itself.
+	// container), so it is registered through the repository's own seam, which
+	// builds the one Purger the reactor and the boot sweep share. A new dependent
+	// aggregate's cascade is added by composing it into forgetDependents rather
+	// than by widening the purger itself.
 	registrar, ok := c.Workspace.(workspace.DeleteReactorRegistrar)
 	if !ok {
 		return fmt.Errorf("workspace repository does not support delete-reactor registration")
 	}
-	if err := registrar.RegisterDeleteReactor(c.forgetDependents, worktreeRemover(crowbarHome), c.drainGate); err != nil {
+	if err := registrar.RegisterDeleteReactor(c.forgetDependents, purge.WorktreeRemover(crowbarHome, c.Workspace.List), c.drainGate); err != nil {
 		return fmt.Errorf("delete reactor: %w", err)
 	}
 	return nil
@@ -394,30 +350,14 @@ func (c *Container) forgetReviewThreads(
 	return nil
 }
 
-// ForgetWorkspaceDependents runs the workspace-scoped forget cascade (review threads,
-// then agent chats and their conversations) for a workspace that is going away. It is the
-// SAME cascade the async delete reactor runs, exposed so the boot orphan-sweep can re-drive
-// it: a delete whose reactor never ran to completion — it crashed mid-cascade, or the
-// drain gate refused it during shutdown — leaves the workspace tombstoned with its chat
-// aggregates still un-forgotten, and the boot sweep is the only thing that re-drives such a
-// tombstone. Without this the sweep rm'd the worktree and Forgot the WORKSPACE only, and
-// GetChat kept resolving a chat pointing at a workspace that no longer exists.
-func (c *Container) ForgetWorkspaceDependents(
-	ctx context.Context,
-	wsID string,
-) error {
-	return c.forgetDependents(ctx, wsID)
-}
-
-// forgetDependents runs every workspace-scoped forget cascade for a deleted
-// workspace, in sequence: review threads, then agent chats (and their live
-// PTYs, Task 12). It is the single callback wireCallbacks hands the async
-// delete reactor (spec §3.6) — the reactor's signature is one
-// func(ctx, wsID) error, so a newly added dependent aggregate's cascade is
-// wired in here, at the composition point, without ever touching the reactor
-// itself. Either half failing aborts the whole cascade (leaving the tombstone
-// for a re-drive) rather than silently proceeding to rm -rf the worktree with
-// a dependent aggregate still un-cascaded.
+// forgetDependents removes everything a deleted workspace owns besides its root
+// on disk (which the Purger removes next) — invariant D5: review threads, every
+// chat anchored to it through the chat usecase's own PurgeChat, the chats' Node
+// rows, and the workspace's own Node row. It is the one callback the Purger runs
+// first, for the reactor and the boot sweep alike. Every step tolerates what an
+// earlier, interrupted run (or a concurrent user delete of the same chat)
+// already removed, so a re-drive converges; any other failure aborts the purge
+// and leaves the tombstone for the next re-drive.
 func (c *Container) forgetDependents(
 	ctx context.Context,
 	wsID string,
@@ -425,29 +365,15 @@ func (c *Container) forgetDependents(
 	if err := c.forgetReviewThreads(ctx, wsID); err != nil {
 		return err
 	}
-	return c.forgetAgentChats(ctx, wsID)
+	if err := c.purgeWorkspaceChats(ctx, wsID); err != nil {
+		return err
+	}
+	return c.forgetNode(ctx, wsID)
 }
 
-// forgetAgentChats is the agent-chat half of the workspace delete cascade: every
-// AgentChat anchored to the deleted workspace is Forgotten, purging it outright —
-// the owning workspace is gone and the chat has nowhere left to live, mirroring
-// forgetReviewThreads/DeleteThread. It enumerates via ListByWorkspace so a chat's
-// event log + read row can never be left orphaned after the workspace is gone.
-//
-// It is the cascade twin of agent.ChatUsecase.PurgeChat and follows the same ORDER,
-// for the same reason: Forget the chat FIRST, then kill the CLI pointed at it.
-// The PTY teardown fires the runner-exit reconcile asynchronously, and that path
-// writes to the chat (it closes a turn the dead CLI left open); a chat command
-// that commits BEFORE the Forget can have its read-model Save land AFTER Forget's
-// row-delete and resurrect the chat as a zombie row. Forgetting first erases the
-// event log, so every later chat command fails Validate and emits nothing at all
-// — the zombie becomes unrepresentable rather than merely unlikely.
-//
-// Everything after the Forget is BEST-EFFORT (logged, never returned): an orphaned
-// PTY, a leftover conversation row or a leftover ledger dir are all far smaller
-// harms than wedging the whole workspace delete — worktree never reaped, remaining
-// chats never Forgotten — on an error the cascade has no way to re-drive.
-func (c *Container) forgetAgentChats(
+// purgeWorkspaceChats hard-deletes every chat anchored to the workspace, with
+// its Node row.
+func (c *Container) purgeWorkspaceChats(
 	ctx context.Context,
 	wsID string,
 ) error {
@@ -455,96 +381,38 @@ func (c *Container) forgetAgentChats(
 	if err != nil {
 		return fmt.Errorf("repositories: delete cascade: list agent chats for %q: %w", wsID, err)
 	}
+	if len(chats) > 0 && c.PurgeChat == nil {
+		return fmt.Errorf("repositories: delete cascade: no chat purge wired")
+	}
 	for _, chat := range chats {
-		if err := c.AgentChat.Forget(ctx, chat.ID); err != nil {
-			return fmt.Errorf("repositories: delete cascade: forget agent chat %q: %w", chat.ID, err)
+		if err := c.PurgeChat(ctx, chat.ID); err != nil && !alreadyGone(err) {
+			return fmt.Errorf("repositories: delete cascade: purge chat %q: %w", chat.ID, err)
 		}
-		c.retireChatRunners(ctx, chat.ID)
-		if err := c.AgentRunner.ForgetChat(ctx, chat.ID); err != nil {
-			slog.ErrorContext(ctx, "repositories: delete cascade: forget chat conversations (best-effort, continuing)",
-				"workspace_id", wsID, "chat_id", chat.ID, "err", err)
+		if err := c.forgetNode(ctx, chat.ID); err != nil {
+			return err
 		}
-		c.reapAgentChatFiles(ctx, wsID, chat.ID)
 	}
 	return nil
 }
 
-// reapAgentChatFiles best-effort removes a single forgotten chat's on-disk
-// directory via the injected ReapChatFiles seam. A nil seam (no app layer
-// wired — most of this package's own tests) is a no-op; a reap failure is
-// LOGGED, never returned: it must not abort forgetAgentChats' loop over the
-// remaining chats, matching terminateActiveSegment's best-effort contract.
-func (c *Container) reapAgentChatFiles(
+// forgetNode drops id's Node row, tolerating one that is already gone.
+func (c *Container) forgetNode(
 	ctx context.Context,
-	wsID string,
-	chatID string,
-) {
-	if c.ReapChatFiles == nil {
-		return
+	id string,
+) error {
+	if err := c.Node.Forget(ctx, id); err != nil && !alreadyGone(err) {
+		return fmt.Errorf("repositories: delete cascade: forget node %q: %w", id, err)
 	}
-	if err := c.ReapChatFiles(ctx, wsID, chatID); err != nil {
-		slog.ErrorContext(ctx, "repositories: delete cascade: reap agent chat files (best-effort, continuing)",
-			"workspace_id", wsID, "chat_id", chatID, "err", err)
-	}
+	return nil
 }
 
-// retireChatRunners best-effort takes EVERY vendor CLI on chatID off that chat and kills it
-// — the cascade twin of the agent runner concern's retireChatRunners, in the same order and for the same
-// reasons.
-//
-// The PLURAL read, not the single-row one: this is a delete, and a delete is precisely where
-// you want everyone gone. If the invariant were transiently broken (two placements racing
-// this chat), killing "the" runner would leave the other alive and running against a chat
-// that is about to be Forgotten.
-//
-// Displace FIRST: the chat is being erased, and a SIGTERM does not kill a process
-// synchronously, so until the CLI falls over it would otherwise still be pointed at a chat
-// that no longer exists — where its hooks would try to write, and where a read could still
-// hand it out. Displacement is a PLACEMENT fact (ours alone) and says nothing about
-// liveness, so it is safe to record even though the process is still running.
-//
-// Kill SECOND, and never hand-delete the runner's row: the PTY is the sole authority on
-// liveness, so the row goes when the process does (onExit → Exit → the projection drops it).
-// Reaching into the read model to delete it would make this package a second authority on
-// liveness — the exact drift this model deletes.
-//
-// A dormant chat and a nil terminateSession (a test that doesn't exercise PTY teardown) are
-// both no-ops. Failures are LOGGED, never returned: they must not block the cascade (see
-// forgetAgentChats). ErrSessionNotFound (the CLI already exited) is already swallowed by the
-// injected seam (app.terminateAgentSession).
-func (c *Container) retireChatRunners(
-	ctx context.Context,
-	chatID string,
-) {
-	if c.terminateSession == nil {
-		return
-	}
-	placed, err := c.AgentRunner.LiveRunnersForChat(ctx, chatID)
-	if err != nil {
-		slog.ErrorContext(ctx, "repositories: delete cascade: look up chat's runners (best-effort, continuing)",
-			"chat_id", chatID, "err", err)
-		return
-	}
-	for _, live := range placed {
-		// An already-EXITED runner is not an error, and must not be logged as one: a CLI
-		// quitting on its own moments before the cascade reached it is the ORDINARY case, and
-		// its exit has already cleared every placement this would have. Displace says so with
-		// ErrValidation (see agentrunner/internal/commands/displace.go), and the agent
-		// usecase's own displace() treats it exactly the same way.
-		if _, err := c.AgentRunner.Displace(ctx, live.ID); err != nil &&
-			!errors.Is(err, asynxModels.ErrValidation) && !errors.Is(err, agentrunner.ErrNotFound) {
-			slog.ErrorContext(ctx, "repositories: delete cascade: displace agent chat runner (best-effort, continuing)",
-				"chat_id", chatID, "runner_id", live.ID, "err", err)
-		}
-		if err := c.terminateSession(ctx, live.TerminalSession); err != nil {
-			slog.ErrorContext(ctx, "repositories: delete cascade: terminate agent chat PTY (best-effort, continuing)",
-				"chat_id", chatID, "runner_id", live.ID, "terminal_session_id", live.TerminalSession, "err", err)
-		}
-		// The api-driven runner's process is not that PTY — see RetireAgentRunner.
-		if c.RetireAgentRunner != nil {
-			c.RetireAgentRunner(ctx, live.ID)
-		}
-	}
+// alreadyGone reports an error that means the thing being removed no longer
+// exists: a not-found, or asynx refusing to Forget an aggregate that is already
+// Forgotten. For a delete cascade both are success.
+func alreadyGone(err error) bool {
+	return errors.Is(err, apperr.ErrNotFound) ||
+		errors.Is(err, agentchat.ErrNotFound) ||
+		errors.Is(err, asynxModels.ErrValidation)
 }
 
 // enrichFrame builds the WS frame for ws: it attaches the two derived overlays
@@ -673,7 +541,7 @@ func (c *Container) resolveOwningChat(
 	if err != nil {
 		return domain.Chat{}, false
 	}
-	return domain.ResolveOwningChat(rows, ws.SharedGround())
+	return domain.ResolveOwningChat(rows)
 }
 
 // broadcastWorkspace enriches ws and pushes it to the hub. It backs the
@@ -954,254 +822,6 @@ func (c *Container) ListWorkspaces(
 		rows[i].Working = c.WorkingFor(rows[i].ID)
 	}
 	return rows, nil
-}
-
-// worktreeRemover builds the bounded fs delete the async delete reactor uses to
-// rm -rf a deleted workspace's ENTIRE on-disk footprint, off the synchronous
-// write path (spec §3.5/§3.6, decision 9). Since the workspace-root split, path
-// (the id↔path map's stored WorktreePath) is the "worktree" leaf of a workspace
-// root that also holds the sibling "chats" tree (worktreepath.WorkspaceRoot /
-// ChatsDir); `git worktree remove` only clears the "worktree" leaf itself, so
-// this removes path's PARENT directory instead — nuking the git checkout and
-// the chats tree together in one rm -rf. The chats tree is not targeted by
-// name here; it survives only by accident of being the worktree's sibling
-// under the same parent, which the root rm -rf takes whole.
-// worktreepath.WorkspaceRoot cannot be imported here (this package sits outside
-// the usecases/ tree that internal package is scoped to; Go's internal-package
-// visibility forbids it), so the parent is computed inline via filepath.Dir —
-// byte-for-byte the same computation. It is GUARDED by the crowbar home: only a
-// CROWBAR-MANAGED worktree (a path strictly under the home) is ever removed. An
-// adopted home / main worktree's id↔path entry is the user's REAL checkout
-// (repo.Path / project.Path, which live OUTSIDE the home, with no "worktree"
-// leaf of their own) and must NEVER be deleted — the guard mirrors the
-// synchronous project-delete removeWorktreeIfCrowbarManaged so both the delete
-// reactor and the boot orphan-sweep (bootSweepPurge, api/internal/app/container.go)
-// converge without ever destroying a user's repository. A blank path, a path
-// outside the home, or an already-gone dir is an idempotent no-op (os.RemoveAll
-// returns nil for a missing path), so a crash re-driven cascade rm's to nothing.
-func worktreeRemover(
-	crowbarHome string,
-) func(path string) error {
-	return func(path string) error {
-		if !managedWorktreePath(path, crowbarHome) {
-			if path != "" {
-				slog.Warn("repositories: refusing to rm worktree outside the crowbar home",
-					"path", path, "home", crowbarHome)
-			}
-			return nil
-		}
-		// The removed target is the PARENT of the worktree leaf (the workspace
-		// root holding the sibling chats tree). Re-guard the ROOT itself: a
-		// degenerate one-segment leaf (<home>/worktree) has filepath.Dir == home,
-		// and rm'ing that would nuke the ENTIRE crowbar home. Only a root that is
-		// still STRICTLY under home — i.e. path had an intermediate segment below
-		// home — is ever removed.
-		root := filepath.Dir(path)
-		if !managedWorktreePath(root, crowbarHome) {
-			slog.Warn("repositories: refusing to rm workspace root at or above the crowbar home",
-				"root", root, "path", path, "home", crowbarHome)
-			return nil
-		}
-		// The parent is only the right thing to delete when the path really is an
-		// identity-keyed worktree. A workspace still recorded at its pre-leaf path
-		// (<slug>/<branch>, the shape used before the worktree leaf existed) has
-		// the SLUG directory as its parent — the directory holding every branch of
-		// that repo — so removing one such workspace would take all of them.
-		//
-		// "Under the home" cannot catch that: the slug directory is under the home.
-		// The shape is what distinguishes them, and there is exactly one shape a
-		// managed worktree can have.
-		if !isWorkspaceWorktree(path) {
-			slog.Warn("repositories: refusing to rm a path that is not a workspace worktree",
-				"path", path, "root", root)
-			return nil
-		}
-		if err := removeWorkspaceRoot(root); err != nil {
-			return fmt.Errorf("repositories: remove workspace root %q: %w", root, err)
-		}
-		// The root IS the workspace's whole on-disk footprint — worktree, chats
-		// and storages — so the rm above took everything the workspace owned. The
-		// navigable alias that pointed into it is withdrawn by the delete usecase,
-		// which knows the slug and branch that name it; anything that outlives a
-		// crash is cleared by SweepDanglingAliases at boot.
-		pruneEmptiedWorkspaceParents(root, crowbarHome)
-		return nil
-	}
-}
-
-// SweepDanglingAliases removes every navigable alias under crowbarHome whose
-// target no longer exists, and the directories that leaves empty.
-//
-// The delete path withdraws a workspace's alias itself, where the slug and
-// branch that name it are known. This is the crash net: a daemon killed between
-// removing a root and withdrawing its alias leaves a broken link in the tree a
-// human browses. Running it ONCE at boot costs one walk of the projects tree
-// instead of one per delete.
-//
-// A dangling link is the only signature it acts on, so a live alias — one
-// pointing at a root that still exists — is never a candidate.
-func SweepDanglingAliases(crowbarHome string) int {
-	if crowbarHome == "" {
-		return 0
-	}
-	projects := filepath.Join(crowbarHome, "projects")
-
-	// Every mutation goes through a root pinned to the projects tree, so a path
-	// resolved during the walk cannot be made to point outside it before it is
-	// acted on. The tree is full of symlinks by design — that is what an alias IS —
-	// which is exactly the shape that makes an unrooted remove worth avoiding.
-	root, err := os.OpenRoot(projects)
-	if err != nil {
-		return 0
-	}
-	defer func() { _ = root.Close() }()
-
-	var emptied []string
-	removed := 0
-	_ = filepath.WalkDir(projects, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || d.Type()&os.ModeSymlink == 0 {
-			return nil //nolint:nilerr // an unreadable branch of the tree is skipped, never fatal
-		}
-		if _, statErr := os.Stat(path); statErr == nil {
-			return nil
-		}
-		rel, relErr := filepath.Rel(projects, path)
-		if relErr != nil {
-			return nil
-		}
-		if rmErr := root.Remove(rel); rmErr != nil {
-			slog.Warn("repositories: unlink dangling alias", "path", path, "err", rmErr)
-			return nil
-		}
-		removed++
-		emptied = append(emptied, filepath.Dir(path))
-		return nil
-	})
-	for _, dir := range emptied {
-		for d := dir; managedWorktreePath(d, projects); d = filepath.Dir(d) {
-			if os.Remove(d) != nil {
-				break
-			}
-		}
-	}
-	if removed > 0 {
-		slog.Info("repositories: cleared dangling workspace aliases", "count", removed)
-	}
-	return removed
-}
-
-// workspaceRootOwned are the entries a workspace root may lose. The first four
-// are the directories Crowbar itself creates; .DS_Store is macOS metadata that
-// appears the moment the user opens the root in Finder, and keeping the root
-// alive for it would turn every browsed workspace into permanent litter.
-var workspaceRootOwned = []string{"worktree", "chats", "storages", "threads", ".DS_Store"}
-
-// removeWorkspaceRoot deletes the workspace's own directories, then the root —
-// which succeeds only once nothing else is left in it.
-//
-// It replaces an rm -rf of the entire root. That was written to the rule "the
-// root IS the workspace's whole on-disk footprint", and on a real machine it is
-// not: a <slug>/<branch> root was found holding five hand-made git worktrees
-// beside the managed one, so deleting that workspace would have taken 4.5GB of
-// checkouts Crowbar never created. A foreign entry now keeps the root alive and
-// is reported instead of destroyed.
-func removeWorkspaceRoot(
-	root string,
-) error {
-	for _, name := range workspaceRootOwned {
-		if err := os.RemoveAll(filepath.Join(root, name)); err != nil {
-			return err
-		}
-	}
-	err := os.Remove(root)
-	if err == nil || os.IsNotExist(err) {
-		return nil
-	}
-	rest, readErr := os.ReadDir(root)
-	if readErr != nil {
-		return err
-	}
-	kept := make([]string, 0, len(rest))
-	for _, e := range rest {
-		kept = append(kept, e.Name())
-	}
-	slog.Warn("repositories: workspace root kept; it holds entries crowbar did not create",
-		"root", root, "kept", kept)
-	return nil
-}
-
-// pruneEmptiedWorkspaceParents removes the directories a workspace-root removal
-// emptied, walking up from the root's parent.
-//
-// It cannot delete anything it did not empty and it cannot climb out of the
-// project. os.Remove only ever succeeds on an EMPTY directory, so a slug still
-// holding a sibling workspace stops the walk on its own; and the floor is
-// <home>/projects/<projectID>, which is never a candidate — that level holds the
-// project's icon, its `workspaces` state and its repo directories beside the
-// slug trees, so climbing into it would delete live state rather than litter.
-func pruneEmptiedWorkspaceParents(
-	root string,
-	crowbarHome string,
-) {
-	floor, ok := projectDirOf(root, crowbarHome)
-	if !ok {
-		return
-	}
-	for dir := filepath.Dir(root); managedWorktreePath(dir, floor); dir = filepath.Dir(dir) {
-		if err := os.Remove(dir); err != nil {
-			return
-		}
-	}
-}
-
-// projectDirOf returns <home>/projects/<projectID> for a path beneath it, and
-// false for anything not laid out that way — an adopted checkout, or a path the
-// managed layout does not explain, neither of which may be climbed.
-func projectDirOf(
-	path string,
-	crowbarHome string,
-) (string, bool) {
-	rel, err := filepath.Rel(crowbarHome, path)
-	if err != nil {
-		return "", false
-	}
-	parts := strings.Split(rel, string(filepath.Separator))
-	if len(parts) < 2 || parts[0] != "projects" || parts[1] == "" || parts[1] == ".." {
-		return "", false
-	}
-	return filepath.Join(crowbarHome, parts[0], parts[1]), true
-}
-
-// managedWorktreePath reports whether path is strictly under the crowbar home: a
-// non-empty path with home as a proper directory-boundary prefix. Adopted
-// checkouts (repo.Path / project.Path) live outside the home and are excluded, so
-// a delete/sweep never rm's the user's real repository; and because the check is
-// strict (home itself is not "under" home), applying it to the removal ROOT also
-// blocks the degenerate case where the root would be the home directory itself
-// (spec §3.9; the locked workspace-model law).
-func managedWorktreePath(
-	path string,
-	crowbarHome string,
-) bool {
-	if path == "" || crowbarHome == "" {
-		return false
-	}
-	return strings.HasPrefix(path, strings.TrimRight(crowbarHome, "/")+"/")
-}
-
-// isWorkspaceWorktree reports whether a path is a worktree whose PARENT is a
-// workspace root — the one thing that makes deleting that parent safe.
-//
-// The test is the "worktree" leaf, and it holds for both managed layouts: the
-// identity-keyed <...>/workspaces/<id>/worktree and the older name-keyed
-// <slug>/<branch>/worktree both put the worktree inside its own workspace's
-// root. What it excludes is the PRE-LEAF shape, <slug>/<branch>, whose parent is
-// the slug directory holding every branch of the repo.
-//
-// A shape test, not a location test — managedWorktreePath already answers "is
-// this ours".
-func isWorkspaceWorktree(path string) bool {
-	return filepath.Base(path) == "worktree"
 }
 
 // ListWorkspacesInRepo returns every workspace row scoped to one project+repo,

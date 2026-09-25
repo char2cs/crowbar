@@ -160,7 +160,7 @@ func copyFileBytes(
 	if err != nil {
 		return err
 	}
-	defer in.Close()                                                            //nolint:errcheck
+	defer in.Close()                                                            //nolint:errcheck // read-only source handle: a close error cannot lose data
 	out, err := os.OpenFile(destFull, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) //nolint:gosec // G304: destFull derives from safepath.Resolve output (confined to repoPath)
 	if err != nil {
 		return err

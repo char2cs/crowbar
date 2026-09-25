@@ -19,5 +19,4 @@ export interface Terminal {
   ref?: Ref<unknown>
   splitMode?: boolean
   splitWithId?: string // ID of the terminal to split with
-  remoteConnectionId?: string
 }

@@ -192,7 +192,7 @@ func TestRegression_APermissionWithNoPromptIDStillPairsItsChoiceAndInterruption(
 // checks was still choice-<fallbackID()> for a no-prompt-id provider — a
 // fresh, unrepeatable value every time the observation runs.
 //
-// IngestHookDelivery's own Begin/Complete bookkeeping already dedupes an
+// IngestHookDelivery's own delivery-id dedup already absorbs an
 // identical (deliveryID, payload) POST before it ever reaches this far — so
 // this drives the ingest path IngestHookDelivery itself sits in front of
 // (IngestHook, ctx carrying the SAME inflight delivery id both times) to

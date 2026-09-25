@@ -41,7 +41,7 @@ func TestProviderSync_SyncFromState_NilPR(t *testing.T) {
 	now := time.Unix(1000, 0)
 
 	wsRepo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, Branch: "main", WorktreePath: "/repos/x"}, nil
+		return domain.Workspace{ID: id, Branch: "main", WorktreePath: "/repos/x", Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	wsRepo.SyncProviderFn = func(
 		_ context.Context,
@@ -78,7 +78,7 @@ func TestProviderSync_SyncFromState_BranchNewlyProtected_NoOwningChatReconciler(
 	wsRepo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
 		// Status starts unlocked: this is the "newly protected" transition, not
 		// a re-poll of an already-locked branch.
-		return domain.Workspace{ID: id, Branch: "main", WorktreePath: "/repos/x", Status: domain.WorkspaceStatusNew}, nil
+		return domain.Workspace{ID: id, Branch: "main", WorktreePath: "/repos/x", Status: domain.WorkspaceStatusNew, Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	var syncedProtected bool
 	wsRepo.SyncProviderFn = func(
@@ -103,7 +103,7 @@ func TestProviderSync_SyncFromState_WithPR(t *testing.T) {
 	now := time.Unix(1000, 0)
 
 	wsRepo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, Branch: "feat", WorktreePath: "/repos/x"}, nil
+		return domain.Workspace{ID: id, Branch: "feat", WorktreePath: "/repos/x", Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	wsRepo.SyncProviderFn = func(
 		_ context.Context,
@@ -163,6 +163,7 @@ func TestProviderSync_PollWorkspace_HappyPath(t *testing.T) {
 			ID:           id,
 			Branch:       "feat",
 			WorktreePath: "/repos/x",
+			Provisioning: domain.WorkspaceProvisioned,
 		}, nil
 	}
 	eng.PollOnViewFn = func(
@@ -211,7 +212,7 @@ func TestProviderSync_PollWorkspace_PollError_Propagates(t *testing.T) {
 	ctx := context.Background()
 
 	wsRepo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, Branch: "feat", WorktreePath: "/repos/x"}, nil
+		return domain.Workspace{ID: id, Branch: "feat", WorktreePath: "/repos/x", Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	eng.PollOnViewFn = func(
 		_ context.Context,

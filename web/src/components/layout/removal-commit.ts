@@ -1,4 +1,4 @@
-import { deleteProject, deleteRepo } from '@/lib/api'
+import { DISCARD_WORK_INIT, deleteProject, deleteRepo, workAtRiskOf } from '@/lib/api'
 import { deleteFolder, deleteHomeFolder } from '@/lib/api/sidebar-placement'
 import { deleteChat } from '@/features/agent/api/agent-api'
 import { getOwningChatId } from '@/lib/workspace-scope'
@@ -8,6 +8,8 @@ import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore, removeHomeFolder, applyHomeFolders } from '@/lib/store/home-tree'
 import { toSidebarFolder } from '@/lib/store/build-repo-tree'
 import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
+import { useProjectDataStore } from '@/lib/store/projects'
+import { dataOf } from '@/lib/loadable'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toast } from '@/features/window/stores/toast-store'
 
@@ -62,31 +64,69 @@ function stillPresent(repos: Repo[], ids: readonly string[]): boolean {
 }
 
 /**
- * Stop hiding the entry's rows once the daemon has actually taken them.
+ * Why the daemon stopped deleting one of `ids`, as the repo or project row it
+ * kept says — a repo or project delete answers 202 and finishes in the
+ * background, so this is the only place its failure can arrive.
+ */
+function deleteErrorOf(ids: readonly string[]): string | undefined {
+  const wanted = new Set(ids)
+  const repo = useSidebarStore.getState().repos.find((r) => r.deleteError && wanted.has(r.id))
+  if (repo) return repo.deleteError
+  const projects = dataOf(useProjectDataStore.getState().data) ?? []
+  return projects.find((p) => p.lastError && wanted.has(p.id))?.lastError
+}
+
+/**
+ * Stop hiding the entry's rows once the daemon has actually taken them — or
+ * has said it could not, in which case the rows come back and the user is
+ * told why.
  *
  * The tray row goes the instant the request is sent, but the rows themselves
  * stay hidden across the round trip — releasing them with the request in flight
  * would flash every one of them back on screen for as long as it takes the
  * tombstones to arrive.
+ *
+ * A failure is a CHANGE of the recorded error: the daemon clears an earlier
+ * attempt's error before it answers, so an error already present when this
+ * starts is that earlier attempt's, not this one's.
  */
-function releaseWhenGone(ids: readonly string[]): void {
+function releaseWhenGone(entry: RemovalEntry): void {
+  const ids = entry.hiddenIds
   const release = () => useRemovalTrayStore.getState().release(ids)
   if (!stillPresent(useSidebarStore.getState().repos, ids)) {
     release()
     return
   }
-  const unsubscribe = useSidebarStore.subscribe((state) => {
-    if (stillPresent(state.repos, ids)) return
-    unsubscribe()
+  let seenError = deleteErrorOf(ids)
+  const check = () => {
+    const error = deleteErrorOf(ids)
+    if (error && error !== seenError) {
+      stop()
+      release()
+      toast.error(`Couldn't remove ${entry.label}: ${error}`)
+      return
+    }
+    seenError = error
+    if (stillPresent(useSidebarStore.getState().repos, ids)) return
+    stop()
     release()
-  })
+  }
+  const unsubscribeRepos = useSidebarStore.subscribe(check)
+  const unsubscribeProjects = useProjectDataStore.subscribe(check)
+  function stop() {
+    unsubscribeRepos()
+    unsubscribeProjects()
+  }
 }
 
 function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
+  // An entry carrying `atRisk` was confirmed with that list on screen: that
+  // confirmation, and nothing else, is consent to destroy it.
+  const sendInit = entry.atRisk ? { ...init, ...DISCARD_WORK_INIT } : init
   // Spread rather than pass `init` straight through: the ordinary commit has no
   // options at all, and handing every delete an explicit `undefined` would put
   // an argument on the wire-facing signature that only the unload flush uses.
-  const opts: [RequestInit] | [] = init ? [init] : []
+  const opts: [RequestInit] | [] = sendInit ? [sendInit] : []
   switch (entry.kind) {
     case 'workspace': {
       // A worktree is taken by deleting the CHAT that holds it: DELETE
@@ -248,6 +288,10 @@ export function flushDrainingRemovals(): void {
  * left to cancel, and a row that still offers Cancel would be lying. A refusal
  * puts the rows back and says why — this is the only path that can surface one,
  * because the user has already walked away from the gesture that started it.
+ *
+ * A refusal over work that exists nowhere else is a question, not a failure:
+ * the entry goes back in the tray, still hidden, for the confirm dialog to list
+ * that work and ask whether to delete it anyway.
  */
 export async function commitRemoval(entry: RemovalEntry, context: RemovalContext): Promise<void> {
   useRemovalTrayStore.getState().settle(entry.entryId)
@@ -255,6 +299,11 @@ export async function commitRemoval(entry: RemovalEntry, context: RemovalContext
   try {
     await sendRemoval(entry)
   } catch (err) {
+    const atRisk = workAtRiskOf(err)
+    if (atRisk && !entry.atRisk) {
+      useRemovalTrayStore.getState().askToDiscard(entry, atRisk)
+      return
+    }
     useRemovalTrayStore.getState().release(entry.hiddenIds)
     toast.error(
       `Couldn't remove ${entry.label}: ${err instanceof Error ? err.message : 'request failed'}`,
@@ -262,7 +311,7 @@ export async function commitRemoval(entry: RemovalEntry, context: RemovalContext
     return
   }
 
-  releaseWhenGone(entry.hiddenIds)
+  releaseWhenGone(entry)
   leaveIfRemoved(entry, context)
 }
 

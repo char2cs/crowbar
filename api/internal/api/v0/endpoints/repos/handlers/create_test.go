@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -95,11 +96,26 @@ func newCreateRouterWithHandlers(
 	bc *recordingRepoBroadcaster,
 ) (*gin.Engine, *repohandlers.Handlers) {
 	r := gin.New()
-	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).WithStat(statRepoOK)
+	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).WithStat(statRepoOK).
+		WithImporter(savingImporter{store: store})
 	rg := r.Group("/v0/projects/:projectId")
 	rg.POST("/repos", h.Create)
 	return r, h
 }
+
+// savingImporter is the smallest RepoImporter: it persists the repo it is asked
+// for as "r1" and hands it back, failing when the store does.
+type savingImporter struct{ store repohandlers.Store }
+
+func (s savingImporter) ImportRepo(ctx context.Context, projectID, name, path string) (domain.Repository, error) {
+	repo := domain.Repository{ID: "r1", ProjectID: projectID, Name: name, Path: path}
+	if err := s.store.Save(ctx, repo); err != nil {
+		return domain.Repository{}, err
+	}
+	return repo, nil
+}
+
+func (savingImporter) CheckRepoImportable(context.Context, string, string) error { return nil }
 
 func doPost(
 	r *gin.Engine,
@@ -344,18 +360,10 @@ func TestCreateRepo_MissingName_4xx(
 func TestDeleteRepo_Returns202(
 	t *testing.T,
 ) {
-	home := t.TempDir()
-	var deletedID string
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
-	store.DeleteFn = func(_ context.Context, id string) error {
-		deletedID = id
-		return nil
-	}
+	deleter := &fakeRepoDeleter{}
 	bc := newRecordingRepoBroadcaster()
-	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).WithIconStorage(
-		func() (string, error) { return home, nil },
-		nil,
-	)
+	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).WithRepoDeleter(deleter)
 	r := gin.New()
 	r.Group("/v0/projects/:projectId/repos/:repoId").DELETE("", h.DeleteRepo)
 
@@ -366,11 +374,14 @@ func TestDeleteRepo_Returns202(
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 	assert.Empty(t, rec.Body.String())
 
+	intent := bc.await(t)
+	assert.Empty(t, intent.Status, "the recorded intent is announced first")
+	assert.True(t, intent.Deleting, "carrying the intent, so clients stop reading the repo before its cascade")
 	got := bc.await(t)
 	assert.Equal(t, "r1", got.ID)
 	assert.Equal(t, "p1", got.ProjectID)
 	assert.Equal(t, "deleted", got.Status)
-	assert.Equal(t, "r1", deletedID)
+	assert.Equal(t, []string{"r1"}, deleter.ids())
 }
 
 // TestCreateRepo_BadJSON_4xx pins synchronous body-shape validation.
@@ -424,21 +435,16 @@ func TestDeleteRepo_FindError_5xx(
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// TestDeleteRepo_DeleteError_NoBroadcast pins that a failed background delete
-// broadcasts no tombstone.
-func TestDeleteRepo_DeleteError_NoBroadcast(
+// TestDeleteRepo_DeleteError_ReannouncesTheRepo pins that a failed background
+// delete broadcasts no tombstone — and is not silent either: the repo the client
+// was told is being deleted is announced again as still present.
+func TestDeleteRepo_DeleteError_ReannouncesTheRepo(
 	t *testing.T,
 ) {
-	home := t.TempDir()
-	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
-	store.DeleteFn = func(_ context.Context, _ string) error {
-		return errStore
-	}
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Deleting: true, LastError: "wedged"}}
 	bc := newRecordingRepoBroadcaster()
-	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).WithIconStorage(
-		func() (string, error) { return home, nil },
-		nil,
-	)
+	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).
+		WithRepoDeleter(&fakeRepoDeleter{err: errStore})
 	r := gin.New()
 	r.Group("/v0/projects/:projectId/repos/:repoId").DELETE("", h.DeleteRepo)
 
@@ -447,7 +453,94 @@ func TestDeleteRepo_DeleteError_NoBroadcast(
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
+	h.WaitAsync()
+	<-bc.ch // the recorded intent
+	frame := <-bc.ch
+	assert.Equal(t, "r1", frame.ID)
+	assert.Empty(t, frame.Status, "the repo is re-announced live, never tombstoned")
+	assert.Equal(t, "wedged", frame.LastError, "carrying why the delete stopped")
 	assertNoBroadcast(t, h, bc)
+}
+
+// fakeRepoDeleter stands in for project.DeleteUsecase.DeleteRepo.
+// refuse is what BeginRepoDelete answers a delete without consent with.
+type fakeRepoDeleter struct {
+	mu       sync.Mutex
+	deleted  []domain.Repository
+	err      error
+	refuse   error
+	consents []domain.DeleteConsent
+}
+
+func (f *fakeRepoDeleter) BeginRepoDelete(
+	_ context.Context,
+	repo domain.Repository,
+	consent domain.DeleteConsent,
+) (domain.Repository, error) {
+	if f.refuse != nil && consent == domain.KeepWorkAtRisk {
+		return domain.Repository{}, f.refuse
+	}
+	repo.Deleting, repo.LastError = true, ""
+	return repo, nil
+}
+
+func (f *fakeRepoDeleter) DeleteRepo(
+	_ context.Context,
+	repo domain.Repository,
+	consent domain.DeleteConsent,
+) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.consents = append(f.consents, consent)
+	if f.err != nil {
+		return f.err
+	}
+	f.deleted = append(f.deleted, repo)
+	return nil
+}
+
+func (f *fakeRepoDeleter) ids() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	ids := make([]string, 0, len(f.deleted))
+	for _, r := range f.deleted {
+		ids = append(ids, r.ID)
+	}
+	return ids
+}
+
+// A delete refused over work at risk answers 409 with the list, synchronously,
+// and announces nothing: no intent was recorded. The discard header retries it.
+func TestDeleteRepo_WorkAtRiskIsRefusedUntilTheDiscardHeaderConfirmsIt(t *testing.T) {
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
+	deleter := &fakeRepoDeleter{refuse: &domain.WorkAtRiskError{Workspaces: []domain.WorkAtRisk{
+		{WorkspaceID: "w1", Branch: "feature/x", UnmergedCommits: 1},
+	}}}
+	bc := newRecordingRepoBroadcaster()
+	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).WithRepoDeleter(deleter)
+	r := gin.New()
+	r.Group("/v0/projects/:projectId/repos/:repoId").DELETE("", h.DeleteRepo)
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(),
+		http.MethodDelete, "/v0/projects/p1/repos/r1", http.NoBody))
+
+	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"code":"work_at_risk"`)
+	assert.Contains(t, rec.Body.String(), `"branch":"feature/x"`)
+	assertNoBroadcast(t, h, bc)
+
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodDelete, "/v0/projects/p1/repos/r1", http.NoBody)
+	req.Header.Set("Crowbar-Discard-Work", "true")
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	h.WaitAsync()
+	deleter.mu.Lock()
+	defer deleter.mu.Unlock()
+	assert.Equal(t, []domain.DeleteConsent{domain.DiscardWorkAtRisk}, deleter.consents)
 }
 
 // TestDeleteRepo_NotFound_4xx pins synchronous existence validation.
@@ -494,65 +587,6 @@ func TestCreateRepo_RejectsNamesThatEscapeTheCrowbarHome(t *testing.T) {
 
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 			assertNoBroadcast(t, h, bc)
-		})
-	}
-}
-
-// The bare create path (no importer wired) persists the row itself, so it owns
-// the same seeding duty the importer has: the on-disk PathSlug comes from the
-// repo's PATH, never from the user-supplied display name that the rename
-// endpoint can change afterwards.
-func TestCreateRepo_BareCreateSeedsPathSlugFromThePath(
-	t *testing.T,
-) {
-	bc := newRecordingRepoBroadcaster()
-	saved := make(chan domain.Repository, 1)
-	store := &fakeStore{SaveFn: func(_ context.Context, r domain.Repository) error {
-		saved <- r
-		return nil
-	}}
-	rec := doPost(newCreateRouter(store, bc), "/v0/projects/p1/repos",
-		map[string]any{"id": "r1", "name": "My Custom Name", "path": "/tmp/widget"})
-	require.Equal(t, http.StatusAccepted, rec.Code)
-	bc.await(t)
-
-	got := <-saved
-	assert.Equal(t, "My Custom Name", got.Name, "the display name is the supplied one")
-	assert.Equal(t, "widget", got.PathSlug,
-		"the on-disk slug is seeded from filepath.Base(path), not from the name")
-}
-
-// The create path only STATS the supplied path, it never normalises it, so
-// ".../widget/.." arrives verbatim and its raw base is "..". Persisted as the
-// slug that would collapse a level out of the worktree layout without tripping
-// the escape guard (it stays under crowbar home), so the seed resolves the path
-// first and declines a leaf that is not a usable directory name.
-func TestCreateRepo_BareCreateNeverSeedsATraversalSlug(
-	t *testing.T,
-) {
-	cases := []struct {
-		name string
-		path string
-		want string
-	}{
-		{name: "traversal resolved before the leaf", path: "/tmp/projects/widget/..", want: "projects"},
-		{name: "no usable leaf", path: "/..", want: ""},
-		{name: "filesystem root", path: "/", want: ""},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			bc := newRecordingRepoBroadcaster()
-			saved := make(chan domain.Repository, 1)
-			store := &fakeStore{SaveFn: func(_ context.Context, r domain.Repository) error {
-				saved <- r
-				return nil
-			}}
-			rec := doPost(newCreateRouter(store, bc), "/v0/projects/p1/repos",
-				map[string]any{"id": "r1", "name": "alpha", "path": c.path})
-			require.Equal(t, http.StatusAccepted, rec.Code)
-			bc.await(t)
-
-			assert.Equal(t, c.want, (<-saved).PathSlug)
 		})
 	}
 }

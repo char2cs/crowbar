@@ -3,16 +3,17 @@ package handlers
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/icons"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/internal/detached"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -56,9 +57,15 @@ type Importer interface {
 // project's records (workspaces, repos, then the project itself), tearing only
 // crowbar-created worktree directories down on disk.
 type Deleter interface {
+	BeginDelete(
+		ctx context.Context,
+		id string,
+		consent domain.DeleteConsent,
+	) (domain.Project, error)
 	Delete(
 		ctx context.Context,
 		id string,
+		consent domain.DeleteConsent,
 	) error
 }
 
@@ -76,9 +83,8 @@ type Handlers struct {
 	// Where the project's icon bytes live. Overridable for tests, exactly as the
 	// repo handlers' equivalent is.
 	crowbarHome func() (string, error)
-	// async tracks the detached runAsync ops so callers can block on their real
-	// completion instead of guessing with a sleep (see runAsync / WaitAsync).
-	async sync.WaitGroup
+	// async owns the detached runAsync ops (see runAsync / WaitAsync / Shutdown).
+	async detached.Ops
 }
 
 // New builds the projects Handlers from the project read, import, and delete
@@ -253,6 +259,7 @@ func (h *Handlers) Import(
 	h.runAsync(c.Request.Context(), func(ctx context.Context) {
 		project, err := h.importer.Create(ctx, name, path)
 		if err != nil {
+			slog.ErrorContext(ctx, "import project: failed", "path", path, "err", err)
 			return
 		}
 		h.broadcast(dto.ProjectDTOFrom(project))
@@ -263,20 +270,30 @@ func (h *Handlers) Import(
 // synchronously (4xx if not), then returns 202 and runs the cascade delete in
 // the background. A deleted-status ProjectDTO tombstone is broadcast on the
 // Projects WebSocket stream after teardown so the client cache drops the entity
-// (00 §6). Real repository directories are never deleted from disk; only
+// (00 §6). A delete that stops keeps the row, which is re-broadcast carrying
+// LastError; boot resumes it (project.DeleteUsecase.Resume). Real repository directories are never deleted from disk; only
 // crowbar-created worktree directories are torn down (see project.DeleteUsecase).
 func (h *Handlers) Delete(
 	c *gin.Context,
 ) {
 	id := c.Param("projectId")
-	if _, err := h.reader.Get(c.Request.Context(), id); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+	// The intent is durable, and a previous attempt's error cleared on every
+	// client, before the 202: from here on boot finishes what this starts.
+	// Work at risk without consent is refused here, before any intent exists.
+	consent := libs.DeleteConsentOf(c)
+	marked, err := h.deleter.BeginDelete(c.Request.Context(), id, consent)
+	if err != nil {
+		libs.WriteDeleteErr(c, err)
 		return
 	}
+	h.broadcast(dto.ProjectDTOFrom(marked))
 	libs.WriteAccepted(c)
 	h.runAsync(c.Request.Context(), func(ctx context.Context) {
-		if err := h.deleter.Delete(ctx, id); err != nil {
+		if err := h.deleter.Delete(ctx, id, consent); err != nil {
+			slog.ErrorContext(ctx, "delete project: stopped; the project stays", "project_id", id, "err", err)
+			if p, getErr := h.reader.Get(ctx, id); getErr == nil {
+				h.broadcast(dto.ProjectDTOFrom(p))
+			}
 			return
 		}
 		h.broadcast(dto.ProjectDTO{ID: id, Status: "deleted"})

@@ -250,6 +250,7 @@ func TestHubProjector_OnEvent_EmitsRepoOwnedChatEvent(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, ChatEvent{
 		ChatID: "chat-1", WorkspaceID: "ws-1", Kind: "turn_started", Working: true,
+		Chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1", Working: true},
 	}, got[0])
 }
 
@@ -264,6 +265,7 @@ func TestHubProjector_OnForget_MarksForgotten(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, ChatEvent{
 		ChatID: "chat-9", WorkspaceID: "ws-1", Kind: "deleted", Forgotten: true,
+		Chat: domain.Chat{ID: "chat-9", WorkspaceID: "ws-1", Working: true},
 	}, got[0])
 }
 

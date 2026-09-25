@@ -51,28 +51,8 @@ export interface GitHunk {
   lines: GitDiffLine[]
 }
 
-export interface GitRemote {
-  name: string
-  url: string
-}
-
 export interface GitStash {
   index: number
   message: string
   date: string
-}
-
-export interface GitBlame {
-  file_path: string
-  lines: GitBlameLine[]
-}
-
-export interface GitBlameLine {
-  line_number: number
-  total_lines: number
-  commit_hash: string
-  author: string
-  email: string
-  time: number
-  commit: string
 }

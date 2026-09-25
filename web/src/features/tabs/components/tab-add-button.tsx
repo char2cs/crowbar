@@ -1,6 +1,6 @@
 // Lucide Plus (stroke-based) to match the sibling toolbar icons — back/forward/
 // settings are Lucide; Phosphor's bold Plus rendered heavier and larger than them.
-import { Plus } from 'lucide-react'
+import { PlusIcon } from '@phosphor-icons/react'
 import { FilePlus, TerminalWindow } from '@phosphor-icons/react'
 import React from 'react'
 import {
@@ -39,7 +39,7 @@ const TabAddButton = React.memo(function TabAddButton({
         aria-label="New tab"
         className="inline-flex size-8 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-sidebar-element-hover data-[popup-open]:bg-sidebar-element-hover sm:size-7"
       >
-        <Plus className="size-4" />
+        <PlusIcon className="size-4" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-40">
         <DropdownMenuItem onClick={onNewFile}>

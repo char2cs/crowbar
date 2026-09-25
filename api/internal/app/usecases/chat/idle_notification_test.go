@@ -3,6 +3,7 @@ package chat_test
 import (
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -112,6 +113,9 @@ func TestRegression_AWedgedClaudeTurnIsClearedByClaudesOwnIdleNotification(t *te
 
 	assert.False(t, f.chat(t, chatID).Working,
 		"the chat must stop reporting working, ~65s after the close and not in two hours")
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "next", uuid.NewString(), "", nil)
+	assert.NotErrorIs(t, err, agentusecase.ErrPromptBusy,
+		"a closed turn must not stay in flight: the next message is refused as busy forever")
 }
 
 // TestRegression_APermissionNotificationNeverArmsClaudesIdleLatch is the safety

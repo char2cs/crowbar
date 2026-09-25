@@ -62,9 +62,9 @@ func TestMaintenance_EvictsOldestPlaceholdersOverCeiling(t *testing.T) {
 	store := newFakeMetaStore(t)
 	eng.SetMetaStore(store)
 
-	restoreN := terminal.SetMaxTotalSessionsForTest(2)
+	restoreN := terminal.SetMaxTotalSessionsForTest(eng, 2)
 	defer restoreN()
-	restoreB := terminal.SetMaxTotalModelBytesForTest(1 << 30) // keep byte ceiling out of the way
+	restoreB := terminal.SetMaxTotalModelBytesForTest(eng, 1<<30) // keep byte ceiling out of the way
 	defer restoreB()
 
 	ids := []string{"ph-old", "ph-mid", "ph-new"}

@@ -261,18 +261,32 @@ type Usecase interface {
 		wsID string,
 	) (domain.Workspace, error)
 	// DeleteCascade removes rootID and its unlocked descendants (07 §5).
+	// Without consent it refuses over work that exists nowhere else.
 	DeleteCascade(
 		ctx context.Context,
 		rootID string,
+		consent domain.DeleteConsent,
 	) error
-	// DeleteRepoWorkspaces removes every workspace of a repo, taking the repo's
-	// path from the caller rather than resolving it from the (possibly
-	// already-deleted) repo row.
+	// WorkAtRisk is what DeleteCascade of each root would refuse over.
+	WorkAtRisk(
+		ctx context.Context,
+		rootIDs []string,
+	) ([]domain.WorkAtRisk, error)
+	// DeleteRepoWorkspaces removes every workspace of a repo, taking the repo
+	// (path + default branch) from the caller rather than resolving it from the
+	// (possibly already-deleted) repo row. It never deletes a branch Crowbar did
+	// not create, never --forces a locked worktree, never removes a checkout
+	// Crowbar did not create, and without consent refuses over work at risk.
 	DeleteRepoWorkspaces(
 		ctx context.Context,
-		repoID string,
-		repoPath string,
-	) ([]string, error)
+		repo domain.Repository,
+		consent domain.DeleteConsent,
+	) error
+	// RepoWorkAtRisk is what DeleteRepoWorkspaces would refuse over.
+	RepoWorkAtRisk(
+		ctx context.Context,
+		repo domain.Repository,
+	) ([]domain.WorkAtRisk, error)
 	// SetChatObserver wires the chat-usecase surface guardReparent's
 	// working-chat check needs (invariant 5). It is a post-construction setter
 	// because the chat usecase itself depends on this one (Promote forks a

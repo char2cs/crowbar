@@ -108,8 +108,8 @@ func TestDiagnosticFromLSP_OptionalFields(t *testing.T) {
 		},
 	)
 	assert.Equal(t, "warning", d.Severity)
-	assert.Equal(t, "", d.Source)
-	assert.Equal(t, "", d.Code)
+	assert.Empty(t, d.Source)
+	assert.Empty(t, d.Code)
 }
 
 // --- LocationsFromLSP ---

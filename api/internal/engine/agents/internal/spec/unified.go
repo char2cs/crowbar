@@ -88,18 +88,6 @@ func (d *Descriptor) EventFixtures(canonical string, channel Channel) []string {
 	return block.Fixtures
 }
 
-// EventOwner is the event's declared owner: — api|hooks|either (design spec
-// P6b tag 1). Absent answers Either: declaring an owner is opt-in, and a
-// delivery must never be dropped on channel liveness alone with no explicit
-// owner naming the OTHER channel — see turn/ingest.go's own doc on the
-// zero-writer production incident this guards against.
-func (d *Descriptor) EventOwner(canonical string) string {
-	if o := d.Events[canonical].Owner; o != "" {
-		return o
-	}
-	return OwnerEither
-}
-
 // EventSurfaces is the event's surfaces: list (design spec P6b tag 2) — nil
 // (absent) means every surface. Distinct from the descriptor-level Surfaces
 // block (a provider capability); this is a per-event visibility gate.

@@ -15,19 +15,19 @@ import * as React from 'react'
 import type { PlateEditor, PlateElementProps } from 'platejs/react'
 
 import {
-  Code2,
-  Heading1Icon,
-  Heading2Icon,
-  Heading3Icon,
+  CodeIcon,
   LightbulbIcon,
-  ListIcon,
-  ListOrdered,
-  PilcrowIcon,
-  Quote,
+  ListBulletsIcon,
+  ListNumbersIcon,
+  ParagraphIcon,
+  QuotesIcon,
   RadicalIcon,
-  Square,
-  Table,
-} from 'lucide-react'
+  SquareIcon,
+  TableIcon,
+  TextHOneIcon,
+  TextHThreeIcon,
+  TextHTwoIcon,
+} from '@phosphor-icons/react'
 import { type TComboboxInputElement, KEYS } from 'platejs'
 import { PlateElement } from 'platejs/react'
 
@@ -60,60 +60,60 @@ const groups: Group[] = [
     group: 'Basic blocks',
     items: [
       {
-        icon: <PilcrowIcon />,
+        icon: <ParagraphIcon />,
         keywords: ['paragraph'],
         label: 'Text',
         value: KEYS.p,
       },
       {
-        icon: <Heading1Icon />,
+        icon: <TextHOneIcon />,
         keywords: ['title', 'h1'],
         label: 'Heading 1',
         value: KEYS.h1,
       },
       {
-        icon: <Heading2Icon />,
+        icon: <TextHTwoIcon />,
         keywords: ['subtitle', 'h2'],
         label: 'Heading 2',
         value: KEYS.h2,
       },
       {
-        icon: <Heading3Icon />,
+        icon: <TextHThreeIcon />,
         keywords: ['subtitle', 'h3'],
         label: 'Heading 3',
         value: KEYS.h3,
       },
       {
-        icon: <ListIcon />,
+        icon: <ListBulletsIcon />,
         keywords: ['unordered', 'ul', '-'],
         label: 'Bulleted list',
         value: KEYS.ul,
       },
       {
-        icon: <ListOrdered />,
+        icon: <ListNumbersIcon />,
         keywords: ['ordered', 'ol', '1'],
         label: 'Numbered list',
         value: KEYS.ol,
       },
       {
-        icon: <Square />,
+        icon: <SquareIcon />,
         keywords: ['checklist', 'task', 'checkbox', '[]'],
         label: 'To-do list',
         value: KEYS.listTodo,
       },
       {
-        icon: <Code2 />,
+        icon: <CodeIcon />,
         keywords: ['```'],
         label: 'Code Block',
         value: KEYS.codeBlock,
       },
       {
-        icon: <Table />,
+        icon: <TableIcon />,
         label: 'Table',
         value: KEYS.table,
       },
       {
-        icon: <Quote />,
+        icon: <QuotesIcon />,
         keywords: ['citation', 'blockquote', 'quote', '>'],
         label: 'Blockquote',
         value: KEYS.blockquote,

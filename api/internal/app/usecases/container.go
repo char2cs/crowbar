@@ -75,12 +75,7 @@ type Container struct {
 	// usecase's job, and this one only decides which chats a delete takes.
 	AgentChatFolder agentusecase.TreeUsecase
 	// AgentWorkspaceReader is the SAME agentusecase.WorkspaceReader (AgentChatsDir +
-	// WorktreeDir) instance the chat usecase was built with, exposed so the app layer can
-	// wire the workspace-delete cascade's on-disk reap seam
-	// (repositories.Container.ReapChatFiles) off the identical path resolution
-	// PurgeChat already uses — without reimplementing it. It cannot be threaded
-	// into repositories.New itself: the reader is built from repos.Workspace,
-	// which does not exist until repositories.New returns.
+	// WorktreeDir) instance the chat usecase was built with.
 	AgentWorkspaceReader agentusecase.WorkspaceReader
 	// Worktree resolves a chat to the workspace whose worktree it reads and
 	// writes through (internal/app/usecases/worktree, spec
@@ -171,7 +166,12 @@ func New(
 	threadBroadcast agentusecase.ToolThreadBroadcast,
 	announceHomeRow project.HomeRowAnnouncer,
 	announceRepo agentusecase.TreeRepoAnnouncer,
+	opts ...Option,
 ) (*Container, error) {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
 	projectUsecase := project.New(
 		gormStores.Projects,
 		gormStores.Repositories,
@@ -220,11 +220,12 @@ func New(
 	)
 	projectImport := newProjectImport(repos, gormStores, engines, crowbarHome, projectUsecase)
 	projectDelete := project.NewDelete(project.DeleteDeps{
-		Projects:    gormStores.Projects,
-		Repos:       gormStores.Repositories,
-		Workspaces:  repos.Workspace,
-		Git:         engines.Git,
-		CrowbarHome: crowbarHome,
+		Projects:       gormStores.Projects,
+		Repos:          gormStores.Repositories,
+		Workspaces:     repos.Workspace,
+		RepoWorkspaces: workspaceUsecase,
+		Nodes:          repos.Node,
+		CrowbarHome:    crowbarHome,
 	})
 	branchReview := branchreview.New(
 		repos.Workspace,
@@ -233,7 +234,7 @@ func New(
 		engines.Git,
 		nowFunc,
 	)
-	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, workspaceUsecase, announceRepo)
+	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, workspaceUsecase, announceRepo, o.chatSnapshots)
 	if err != nil {
 		return nil, err
 	}
@@ -334,6 +335,20 @@ type agentWiring struct {
 // usecase, because deleting a chat there takes every chat threaded below it and
 // erasing a chat — with the CLIs on it — is the chat usecase's job. The tree
 // decides which chats go; it never learns how they are torn down.
+// Option configures New.
+type Option func(*options)
+
+type options struct {
+	chatSnapshots *agentusecase.ChatSnapshots
+}
+
+// WithChatSnapshots hands the chat usecase the snapshot owner the composition
+// root built and fed to the repositories' watch seams. Without it the usecase
+// builds a private owner no event reaches.
+func WithChatSnapshots(s *agentusecase.ChatSnapshots) Option {
+	return func(o *options) { o.chatSnapshots = s }
+}
+
 func newAgentWiring(
 	repos *repositories.Container,
 	gormStores GORMStores,
@@ -343,6 +358,7 @@ func newAgentWiring(
 	threadBroadcast agentusecase.ToolThreadBroadcast,
 	workspaceUsecase workspace.Usecase,
 	announceRepo agentusecase.TreeRepoAnnouncer,
+	chatSnapshots *agentusecase.ChatSnapshots,
 ) (agentWiring, error) {
 	wsReader := &agentWorkspaceReader{
 		workspaces:  repos.Workspace,
@@ -392,8 +408,9 @@ func newAgentWiring(
 		Home:                    crowbarHome,
 		// Installed is left nil: the usecase defaults to Agent.Installed, the real
 		// install probe. Only tests inject a stub to isolate from the host PATH.
-		Minter: minter,
-		Tools:  toolDeps,
+		Minter:    minter,
+		Tools:     toolDeps,
+		Snapshots: chatSnapshots,
 		// Folders/Nodes let own_worktree.go/promote.go/repo_scope.go/
 		// cwd_resolver.go's ancestor walks see past a Folder-only ancestor
 		// (2026-09-08 sidebar-placement-unification Task 8's own review fix
@@ -719,7 +736,7 @@ func (w workspaceGitStatusReader) Provisioned(
 	if err != nil {
 		return true, nil
 	}
-	return ws.WorktreePath != "", nil
+	return ws.Provisioning.HasWorktree(), nil
 }
 
 // DefaultWorkspaceOf implements agentusecase.TreeRepoRoots: repoID's default
@@ -840,7 +857,25 @@ func (w worktreeChildCreator) DiscardChildWorkspace(
 	ctx context.Context,
 	workspaceID string,
 ) error {
-	return w.worktree.DeleteCascade(ctx, workspaceID)
+	return w.worktree.DeleteCascade(ctx, workspaceID, domain.KeepWorkAtRisk)
+}
+
+// DeleteWorkspace implements agentusecase.TreeWorkspaceReaper: a chat delete's
+// teardown of a worktree it owned, with the consent the user gave that delete.
+func (w worktreeChildCreator) DeleteWorkspace(
+	ctx context.Context,
+	workspaceID string,
+	consent domain.DeleteConsent,
+) error {
+	return w.worktree.DeleteCascade(ctx, workspaceID, consent)
+}
+
+// WorkAtRisk implements agentusecase.TreeWorkspaceReaper.
+func (w worktreeChildCreator) WorkAtRisk(
+	ctx context.Context,
+	workspaceIDs []string,
+) ([]domain.WorkAtRisk, error) {
+	return w.worktree.WorkAtRisk(ctx, workspaceIDs)
 }
 
 // hierarchyOwningChats adapts the Chats-panel tree usecase into the worktree
@@ -994,7 +1029,7 @@ func (r *agentWorkspaceReader) AgentChatsDir(
 		return "", fmt.Errorf("usecases: agent workspace reader: get workspace: %w", err)
 	}
 	if worktreepath.UnderHome(w.WorktreePath, home) {
-		return worktreepath.ChatsDir(w.WorktreePath), nil
+		return worktreepath.ManagedChatsDir(home, w.ProjectID, w.ID, w.WorktreePath), nil
 	}
 	slug, err := r.repoSlug(ctx, w.RepoID)
 	if err != nil {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { markGitStatusChanged, onGitRefreshRequested } from '@/features/git/stores/git-refresh'
 import deepEqual from 'fast-deep-equal'
-import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { useFileSystemStore, type FileOpenTarget } from '@/features/file-system/controllers/store'
 import { useBufferActions } from './use-buffer-store'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import {
@@ -161,13 +162,13 @@ export function useWorkspaceEffects(wsId: string) {
     // every (re)seed. Built once per mount (closures over wsId/bufferActions) so
     // the full seed and the warm fast path install the exact same closures.
     const handlers = {
-      handleFileOpen: async (path: string, revealOrIsDir?: boolean) => {
+      handleFileOpen: async (path: string, revealOrIsDir?: boolean, opts?: FileOpenTarget) => {
         if (revealOrIsDir === true) return
-        await openFileContent(wsId, path, bufferActions, { preview: false })
+        await openFileContent(wsId, path, bufferActions, { preview: false, paneId: opts?.paneId })
       },
-      handleFileSelect: (path: string, isDir?: boolean) => {
+      handleFileSelect: (path: string, isDir?: boolean, opts?: FileOpenTarget) => {
         if (isDir) return
-        void openFileContent(wsId, path, bufferActions, { preview: true })
+        void openFileContent(wsId, path, bufferActions, { preview: true, paneId: opts?.paneId })
       },
       // File-tree mutations. The daemon emits a structural FileChangeEvent on
       // success, which the files-WS effect below reconciles into the tree — so
@@ -194,8 +195,8 @@ export function useWorkspaceEffects(wsId: string) {
       // Reveal in Finder (explorer + tab context menus). The tab menu passes
       // the buffer's workspace-relative path; the explorer passes an absolute
       // one (already joined with the worktree root). Resolve relative paths
-      // against the on-disk workspace root; virtual buffers (remote://,
-      // diff:// …) have no disk presence to reveal. Failures surface as a
+      // against the on-disk workspace root; virtual buffers
+      // (diff:// …) have no disk presence to reveal. Failures surface as a
       // toast instead of vanishing into an uncaught rejection.
       handleRevealInFolder: (path: string) => {
         if (path.includes('://')) return
@@ -446,7 +447,7 @@ export function useWorkspaceEffects(wsId: string) {
           .getState()
           .actions.reloadStatusAndLog(wsId)
           .then(() => {
-            if (!cancelled) window.dispatchEvent(new CustomEvent('git-status-changed'))
+            if (!cancelled) markGitStatusChanged(wsId)
           })
           .catch(() => {})
       }, GIT_REFRESH_DEBOUNCE_MS)
@@ -462,14 +463,14 @@ export function useWorkspaceEffects(wsId: string) {
       lastFrame = frame
       scheduleStatusReload()
     })
-    // Editor saves dispatch "git-status-updated" after a successful write.
-    // Refresh on it directly so the Changes panel updates deterministically,
-    // without depending on the backend watcher's git event arriving.
-    window.addEventListener('git-status-updated', scheduleStatusReload)
+    // Local actions that know THIS workspace's status is stale (an editor
+    // save, push/pull) request a refresh through the git-refresh store, so
+    // the Changes panel updates without waiting for the backend watcher.
+    const stopRefreshRequests = onGitRefreshRequested(wsId, scheduleStatusReload)
     return () => {
       cancelled = true
       if (timer) clearTimeout(timer)
-      window.removeEventListener('git-status-updated', scheduleStatusReload)
+      stopRefreshRequests()
       unsubscribe()
       // Preserve the last-seen frame so a quick warm return dedupes the re-push.
       saveGitFrame(wsId, lastFrame)

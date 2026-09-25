@@ -11,7 +11,6 @@ import (
 
 var (
 	ErrSlashCatalogUnsupported = fmt.Errorf("agent: provider does not support deterministic slash catalog discovery: %w", apperr.ErrUnprocessable)
-	ErrSlashCatalogNoLiveTUI   = fmt.Errorf("agent: chat has no live provider TUI for slash catalog discovery: %w", apperr.ErrUnprocessable)
 	ErrSlashCatalogTimeout     = fmt.Errorf("agent: slash catalog discovery timed out: %w", apperr.ErrTimeout)
 	ErrSlashCatalogUnavailable = fmt.Errorf("agent: provider command for slash catalog discovery is unavailable: %w", engineterminal.ErrCommandNotFound)
 	ErrSlashCatalogOutputLimit = fmt.Errorf("agent: slash catalog command exceeded its safe output limit: %w", apperr.ErrBadGateway)
@@ -19,6 +18,12 @@ var (
 	ErrSlashCatalogMalformed   = fmt.Errorf("agent: slash catalog provider output was malformed: %w", apperr.ErrBadGateway)
 	ErrSlashCatalogSuperseded  = fmt.Errorf("agent: slash catalog request was superseded by a newer request: %w", apperr.ErrConflict)
 )
+
+// ErrStopped is returned by a switch or resume that was parked (on the
+// outgoing turn, or on a prompt delivery) when the user pressed Stop. Stop
+// preempts the parked request rather than queueing behind it (invariant A2),
+// and the preempted request has changed nothing.
+var ErrStopped = fmt.Errorf("agent: the chat was stopped while this request waited: %w", apperr.ErrConflict)
 
 // ErrProviderExitedDuringStartup is returned when a provider's vendor CLI died
 // before its runner row could even be persisted.

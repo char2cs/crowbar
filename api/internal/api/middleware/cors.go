@@ -8,7 +8,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/origin"
 )
 
-const defaultAllowHeaders = "Content-Type, X-Crowbar-Latency, X-Crowbar-Error-Rate, X-Crowbar-Scenario, X-Crowbar-Fault"
+const defaultAllowHeaders = "Content-Type"
 
 // exposeHeaders names the RESPONSE headers a cross-origin caller may read.
 //

@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -44,6 +45,29 @@ func TestSeedChat_WritesTheRequestedTurnsAndToolCalls(t *testing.T) {
 	for _, c := range calls {
 		require.Equal(t, domain.ToolStatusOK, c.Status)
 	}
+}
+
+func TestSeedChat_IsBornOnTheProviderItsTurnsRanOn(t *testing.T) {
+	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapters.Close() })
+
+	ctx := context.Background()
+	chatID, err := seedChat(ctx, adapters, seedOptions{
+		WorkspaceID: "ws-1", Turns: 1, ToolCallsPerTurn: 1,
+	})
+	require.NoError(t, err)
+
+	axAgentChat, err := buildAsynx[domain.Chat](adapters.AgentChatES(), adapters.AgentChatSS())
+	require.NoError(t, err)
+	chatStore, err := agentchat.NewEventSourced(
+		axAgentChat, adapters.AgentChatES(), adapters.AgentChatReadDB(), nil,
+	)
+	require.NoError(t, err)
+	chat, err := chatStore.GetChat(ctx, chatID)
+	require.NoError(t, err)
+	require.Equal(t, "claude", chat.ProviderID,
+		"a chat with no provider is refused by provider-scoped reads such as the slash catalog")
 }
 
 func TestSeedChat_GeneratesAChatIDWhenNoneGiven(t *testing.T) {

@@ -8,7 +8,7 @@ import { fileUri } from '@/features/editor/lib/editor-uri'
 // `langForUri` (under test below) also imports `language-contributions.ts`,
 // which imports the SAME `editor.api.js` specifier for its `languages`
 // namespace (registers the custom diff/gitignore/… Monarch languages and the
-// tree-sitter semantic-tokens provider at module top level) — so the mock
+// viewport semantic-tokens provider at module top level) — so the mock
 // needs a minimal `languages` fake too, or that import throws before any test
 // in this file runs. `loadLanguageForPath` itself resolves its per-language
 // loaders via DEEP subpath imports (e.g.

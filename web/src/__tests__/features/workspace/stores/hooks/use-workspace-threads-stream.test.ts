@@ -24,7 +24,7 @@ vi.mock('@/features/git/api/review-api', async (importOriginal) => {
 })
 
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
-  getOrCreateWorkspaceStore: () => ({
+  getWorkspaceStore: () => ({
     getState: () => ({ upsertReviewThread, removeReviewThread }),
   }),
 }))

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isWorkspaceLockedInSidebar } from '@/lib/store/sidebar'
+import { isWorkspaceLockedInSidebar } from '@/lib/store/repo-tree'
 import type { Repo } from '@/lib/store/sidebar'
 
 // The file explorer gates its mutation menu items on this lookup. A workspace

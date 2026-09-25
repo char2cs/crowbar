@@ -14,6 +14,10 @@ const claude: AgentProvider = {
   effortSelect: true,
   models: ['sonnet', 'opus', 'haiku'],
   efforts: { sonnet: ['low', 'medium', 'high'], opus: ['low', 'medium', 'high', 'xhigh', 'max'] },
+  compaction: false,
+  hasTerminal: true,
+  hotswap: false,
+  terminalStartHere: false,
 }
 
 const codex: AgentProvider = {
@@ -27,6 +31,10 @@ const codex: AgentProvider = {
   effortSelect: true,
   models: ['gpt-5.6-sol', 'gpt-5.6-luna'],
   efforts: { 'gpt-5.6-sol': ['low', 'medium', 'high', 'ultra'] },
+  compaction: false,
+  hasTerminal: true,
+  hotswap: false,
+  terminalStartHere: false,
 }
 
 function openMenu() {

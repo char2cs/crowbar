@@ -2,8 +2,7 @@ import { act } from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { DndProvider } from 'react-dnd'
-import { HTML5Backend } from 'react-dnd-html5-backend'
+import { DndScope } from '@/features/agent/chat/dnd-scope'
 
 import { AgentComposer } from '@/features/agent/composer/agent-composer'
 import {
@@ -95,22 +94,15 @@ function draw(overrides: Partial<AgentComposerProps> = {}) {
   }
 }
 
-// Same as `draw`, but under a REAL (unmocked) `<DndProvider>` — the ancestor
-// production always has here (`DndScope` at `AgentChatView`, one level above
-// where this suite tests `AgentComposer` in isolation). Only used by the
-// review-finding test below: `react-dnd`'s `HTML5Backend` only attaches its
-// global window drag/drop listeners once `refCount > 0` (see
-// `DragDropManagerImpl.handleRefCountChange`, dnd-core) — i.e. once some
-// `useDraggable`/`useDropLine` call has actually registered a drag source or
-// drop target — so a caller also has to seed real attachment content for the
-// interaction under test to be genuine, not just a `<DndProvider>` sitting
-// inertly above an otherwise-empty composer.
+// Same as `draw`, but under the real `DndScope` production always has here
+// (at `AgentChatView`, one level above where this suite tests `AgentComposer`
+// in isolation).
 function drawWithDnd(overrides: Partial<AgentComposerProps> = {}) {
   const props = { ...baseProps, ...overrides }
   return render(
-    <DndProvider backend={HTML5Backend}>
+    <DndScope>
       <AgentComposer {...props} />
-    </DndProvider>,
+    </DndScope>,
   )
 }
 
@@ -309,11 +301,9 @@ describe('AgentComposer', () => {
       contentType: 'image/png',
     })
     const onDraftChange = vi.fn()
-    // A real DndProvider ancestor, not the plain draw() other tests in this
-    // file use: the inserted excalidraw:{id} fence now resolves to a real
-    // preview (parseExcalidrawScene accepts a scene with no appState, same
-    // as a genuine .excalidraw file export), which — unlike a plain code
-    // block — mounts @platejs/dnd's useDraggable and throws without one.
+    // Under the real DndScope: the inserted excalidraw:{id} fence resolves to
+    // a real, draggable preview (parseExcalidrawScene accepts a scene with no
+    // appState, same as a genuine .excalidraw file export).
     drawWithDnd({ onDraftChange })
 
     await user.click(screen.getByRole('button', { name: /add to this message/i }))
@@ -426,22 +416,9 @@ describe('AgentComposer drag-and-drop', () => {
     expect(pill).toHaveClass('drop-target')
   })
 
-  // Uses `drawWithDnd`, not the plain `draw()` most tests in this block use:
-  // an inserted image is now a draggable attachment too (chat-markdown-
-  // image-node.tsx), same as a text-attachment or file card already were —
-  // `useAttachmentDraggable` throws "Expected drag drop context" once it
-  // actually renders without a real `<DndProvider>` ancestor. `seedText` and
-  // the `dragEnter`-before-`drop` sequence are the SAME two things the
-  // existing "real DndProvider/DndPlugin drag source already active" test
-  // below already had to do, for the same reason (its own comment there has
-  // the full explanation) — react-dnd's `HTML5Backend` only attaches its
-  // native drag/drop listeners once a REAL drag source has registered
-  // (`refCount > 0`), which this test's own inserted image is what would
-  // trigger for the FIRST time without a pre-existing one already active;
-  // and without a `dragEnter` first, `HTML5Backend`'s own native-drop
-  // handling throws its own "Cannot call hover while not dragging" on a bare
-  // `drop` once its listeners ARE active — unreachable through a real
-  // OS/browser drag, which always fires `dragenter` before `drop`.
+  // Uses `drawWithDnd`: an inserted image is a draggable attachment too
+  // (chat-markdown-image-node.tsx), so this runs under the same `DndScope`
+  // production has.
   it('uploads a dropped image and inserts image markdown, clearing the drag-over state', async () => {
     vi.mocked(uploadChatAttachment).mockResolvedValue({
       ref: 'chats/c1/attachments/x-a.png',
@@ -754,25 +731,12 @@ describe('AgentComposer drag-and-drop', () => {
     // null post-unmount, and insertUploaded's `?.` must swallow that cleanly.
   })
 
-  // Task 35 review, Finding 1: once `DndPlugin` is registered
-  // (chat-composer-plugins.ts) and a real attachment drag source is mounted
-  // (a text-attachment pill, here — `useAttachmentDraggable`), `react-dnd`'s
-  // `HTML5Backend` attaches CAPTURE-phase listeners on `window` that inspect
-  // EVERY native drag entering the document — not just one over the
-  // attachment node itself (traced in `HTML5BackendImpl.js`:
-  // `handleTopDragEnterCapture`/`handleTopDropCapture` auto-detect any native
-  // file drag via `beginDragNativeItem`). Source-reading suggested this is
-  // safe (`preventDefault` calls on both sides are idempotent, nothing calls
-  // `stopPropagation`, and a bare `DndPlugin` registration — no
-  // `onDropFiles` — means `react-dnd`'s own native-drop handling never calls
-  // back into app code) but was never actually exercised. This mounts the
-  // REAL (unmocked) `<DndProvider>`/`HTML5Backend`/`DndPlugin` stack —
-  // proven active by asserting the drag handle actually renders, which is
-  // what flips `dnd-core`'s `refCount` above zero and makes `HTML5Backend`
-  // attach its listeners at all — and proves the composer's own native
-  // file-drop handling over the pill (`handlePillDragOver`/`handlePillDrop`)
-  // still uploads and inserts exactly once, not intercepted or duplicated.
-  it('still uploads a dropped native file over the pill with a real DndProvider/DndPlugin drag source already active', async () => {
+  // In-page attachment reordering (dnd-kit, pointer events) must not interfere
+  // with a native file drop: with a real attachment drag source mounted under
+  // the real `DndScope`, the composer's own file-drop handling over the pill
+  // (`handlePillDragOver`/`handlePillDrop`) still uploads and inserts exactly
+  // once.
+  it('still uploads a dropped native file over the pill with a real attachment drag source mounted', async () => {
     vi.mocked(uploadChatAttachment).mockResolvedValue({
       ref: 'chats/c1/attachments/y-b.pdf',
       filename: 'b.pdf',
@@ -785,24 +749,12 @@ describe('AgentComposer drag-and-drop', () => {
       seedText: '```text-attachment:AbC123xy\nsome pasted text\n```',
     })
 
-    // Proves a real drag source registered — not just that a <DndProvider>
-    // happens to sit somewhere above an otherwise-inert tree.
+    // Proves a real drag source is mounted.
     expect(screen.getByRole('button', { name: /reorder this attachment/i })).toBeInTheDocument()
 
     const pill = container.querySelector('.pill')!
     const file = new File(['bytes'], 'b.pdf', { type: 'application/pdf' })
 
-    // A `dragenter` first — same as every real HTML5 drag session (the spec
-    // guarantees `dragenter` precedes any `dragover`/`drop` for one drag) —
-    // is what lets `HTML5Backend`'s own `handleTopDragEnterCapture` call
-    // `beginDragNativeItem` and start tracking the native drag; skipping it
-    // (as the OTHER drag-and-drop tests above do, safely, since none of them
-    // has `DndPlugin`'s listeners active) left `dnd-core`'s monitor never
-    // told a drag was in progress, and its `handleTopDrop` throws its own
-    // "Cannot call hover while not dragging" invariant on a bare drop — a
-    // real finding from writing this test, not a bug in the fix: it is the
-    // artificial test sequence, unreachable through a real OS/browser drag,
-    // that trips it.
     fireEvent.dragEnter(pill, { dataTransfer: { types: ['Files'] } })
     fireEvent.dragOver(pill, { dataTransfer: { types: ['Files'] } })
     expect(pill).toHaveClass('drop-target')
@@ -814,8 +766,6 @@ describe('AgentComposer drag-and-drop', () => {
       const lastCall = onDraftChange.mock.calls.at(-1)?.[0] as string | undefined
       expect(lastCall).toContain('[b.pdf](chats/c1/attachments/y-b.pdf)')
     })
-    // Exactly once — react-dnd's own native-item tracking must not cause a
-    // second, duplicate upload through some path of its own.
     expect(uploadChatAttachment).toHaveBeenCalledTimes(1)
   })
 })

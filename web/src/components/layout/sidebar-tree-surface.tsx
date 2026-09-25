@@ -13,12 +13,9 @@ import {
   getHomeWorkspaceId,
 } from '@/features/workspace/lib/home-workspace-resolver'
 import { focusRecent, closeRecent, closeRecentChat } from '@/components/sidebar/lib/recents-actions'
-import {
-  handleOpen as openSidebarRow,
-  handleTrash,
-  handleTrashProject as trashProject,
-  handleCreate as createSidebarRow,
-} from './space-content-actions'
+import { handleOpen as openSidebarRow } from './open-actions'
+import { handleTrash, handleTrashProject as trashProject } from './trash-actions'
+import { handleCreate as createSidebarRow } from './create-actions'
 import { applyPendingRemovals, attachRemovalState, renderedHiddenIds } from './removal-plan'
 import { performSidebarDrop, performSidebarPaneDrop } from '@/components/sidebar/lib/drop-actions'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'

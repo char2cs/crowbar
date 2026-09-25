@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -600,17 +601,18 @@ func (w *Watcher) commonDir() string {
 	return w.resolvedCommonDir
 }
 
-// walkFn is the filepath.Walk callback used by addRecursive.
-// Fix 7: extracted from an anonymous closure to a named method.
+// walkFn is the filepath.WalkDir callback used by addRecursive. WalkDir reads
+// entry types from the directory listing, so files are never lstat'd — only
+// directories are visited for real.
 func (w *Watcher) walkFn(
 	path string,
-	info os.FileInfo,
+	d fs.DirEntry,
 	err error,
 ) error {
 	if err != nil {
 		return nil
 	}
-	if !info.IsDir() {
+	if !d.IsDir() {
 		return nil
 	}
 	if w.shouldIgnoreDir(path) {
@@ -623,14 +625,20 @@ func (w *Watcher) walkFn(
 	if w.ignore.Match(path) {
 		return filepath.SkipDir
 	}
-	return w.fsw.Add(path)
+	// WalkDir visits a directory before reading it, so an unreadable one reaches
+	// Add; skip it like the unreadable entries Walk never offered.
+	addErr := w.fsw.Add(path)
+	if errors.Is(addErr, fs.ErrPermission) {
+		return filepath.SkipDir
+	}
+	return addErr
 }
 
 // addRecursive watches root and all non-ignored subdirectories.
 func (w *Watcher) addRecursive(
 	root string,
 ) error {
-	return filepath.Walk(root, w.walkFn)
+	return filepath.WalkDir(root, w.walkFn)
 }
 
 func (w *Watcher) shouldIgnoreDir(

@@ -10,31 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/adapter"
-	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	"github.com/char2cs/crowbar/api/internal/engine"
 )
-
-// threadsTestContainer builds the app container used by the threads snapshot
-// test, mirroring terminalsTestContainers but in-package so it can exercise the
-// unexported threadsSnapshot directly.
-func threadsTestContainer(
-	t *testing.T,
-) *app.Container {
-	t.Helper()
-	ctx := context.Background()
-	eng, err := engine.New(ctx)
-	require.NoError(t, err)
-	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = adapters.Close() })
-	t.Cleanup(eng.Close)
-	a, err := app.New(ctx, eng, adapters)
-	require.NoError(t, err)
-	return a
-}
 
 // TestThreadsDef_ScopedSnapshotFromAggregate proves the Threads snapshot parses
 // the connecting client's hierarchical scope (p/r/w), resolves the workspace id,
@@ -42,7 +20,7 @@ func threadsTestContainer(
 // via ListByWorkspace — never a global enumeration — stamping the project/repo
 // from the scope onto each ThreadDTO.
 func TestThreadsDef_ScopedSnapshotFromAggregate(t *testing.T) {
-	appContainer := threadsTestContainer(t)
+	appContainer := newAppForSnapshot(t)
 	ctx := context.Background()
 
 	snap := threadsSnapshot(appContainer)
@@ -83,7 +61,7 @@ func TestThreadsDef_ScopedSnapshotFromAggregate(t *testing.T) {
 // subscription (no workspace segment) yields nil: threads are workspace-scoped,
 // so the snapshot never enumerates across workspaces.
 func TestThreadsDef_SnapshotNilWithoutWorkspaceScope(t *testing.T) {
-	appContainer := threadsTestContainer(t)
+	appContainer := newAppForSnapshot(t)
 	snap := threadsSnapshot(appContainer)
 	require.NotNil(t, snap)
 

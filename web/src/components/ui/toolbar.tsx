@@ -2,10 +2,10 @@
 
 import * as React from 'react'
 
-import * as ToolbarPrimitive from '@radix-ui/react-toolbar'
-import * as TooltipPrimitive from '@radix-ui/react-tooltip'
+import { Toggle } from '@base-ui/react/toggle'
+import { Toolbar as ToolbarPrimitive } from '@base-ui/react/toolbar'
 import { type VariantProps, cva } from 'class-variance-authority'
-import { ChevronDown } from 'lucide-react'
+import { CaretDownIcon } from '@phosphor-icons/react'
 
 import {
   DropdownMenuLabel,
@@ -13,6 +13,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { Separator } from '@/components/ui/separator'
+import { WithTooltip, tooltipContentPrimary } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 export function Toolbar({
@@ -27,21 +28,9 @@ export function Toolbar({
   )
 }
 
-function ToolbarToggleGroup({
-  className,
-  ...props
-}: React.ComponentProps<typeof ToolbarPrimitive.ToolbarToggleGroup>) {
-  return (
-    <ToolbarPrimitive.ToolbarToggleGroup
-      className={cn('flex items-center', className)}
-      {...props}
-    />
-  )
-}
-
 // From toggleVariants
 const toolbarButtonVariants = cva(
-  "inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,box-shadow] hover:bg-muted hover:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-checked:bg-accent aria-checked:text-accent-foreground aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+  "inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,box-shadow] hover:bg-muted hover:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 data-pressed:bg-accent data-pressed:text-accent-foreground aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
     defaultVariants: {
       size: 'default',
@@ -65,7 +54,7 @@ const toolbarButtonVariants = cva(
 type ToolbarButtonProps = {
   isDropdown?: boolean
   pressed?: boolean
-} & Omit<React.ComponentPropsWithoutRef<typeof ToolbarToggleItem>, 'asChild' | 'value'> &
+} & Omit<React.ComponentProps<'button'>, 'value'> &
   VariantProps<typeof toolbarButtonVariants>
 
 export const ToolbarButton = withTooltip(function ToolbarButton({
@@ -77,63 +66,34 @@ export const ToolbarButton = withTooltip(function ToolbarButton({
   variant,
   ...props
 }: ToolbarButtonProps) {
-  return typeof pressed === 'boolean' ? (
-    <ToolbarToggleGroup disabled={props.disabled} value="single" type="single">
-      <ToolbarToggleItem
-        className={cn(
-          toolbarButtonVariants({
-            size,
-            variant,
-          }),
-          isDropdown && 'justify-between gap-1 pr-1',
-          className,
-        )}
-        value={pressed ? 'single' : ''}
-        {...props}
-      >
-        {isDropdown ? (
-          <>
-            <div className="flex flex-1 items-center gap-2 whitespace-nowrap">{children}</div>
-            <div>
-              <ChevronDown className="size-3.5 text-muted-foreground" data-icon />
-            </div>
-          </>
-        ) : (
-          children
-        )}
-      </ToolbarToggleItem>
-    </ToolbarToggleGroup>
+  const content = isDropdown ? (
+    <>
+      <div className="flex flex-1 items-center gap-2 whitespace-nowrap">{children}</div>
+      <div>
+        <CaretDownIcon className="size-3.5 text-muted-foreground" data-icon />
+      </div>
+    </>
   ) : (
+    children
+  )
+  const buttonClassName = cn(
+    toolbarButtonVariants({ size, variant }),
+    isDropdown && (typeof pressed === 'boolean' ? 'justify-between gap-1 pr-1' : 'pr-1'),
+    className,
+  )
+
+  // A `pressed` button is a toggle (aria-pressed / data-pressed); either way it
+  // is one <button> in the toolbar's roving focus.
+  return (
     <ToolbarPrimitive.Button
-      className={cn(
-        toolbarButtonVariants({
-          size,
-          variant,
-        }),
-        isDropdown && 'pr-1',
-        className,
-      )}
+      className={buttonClassName}
+      render={typeof pressed === 'boolean' ? <Toggle pressed={pressed} /> : undefined}
       {...props}
     >
-      {children}
+      {typeof pressed === 'boolean' ? content : children}
     </ToolbarPrimitive.Button>
   )
 })
-
-function ToolbarToggleItem({
-  className,
-  size = 'sm',
-  variant,
-  ...props
-}: React.ComponentProps<typeof ToolbarPrimitive.ToggleItem> &
-  VariantProps<typeof toolbarButtonVariants>) {
-  return (
-    <ToolbarPrimitive.ToggleItem
-      className={cn(toolbarButtonVariants({ size, variant }), className)}
-      {...props}
-    />
-  )
-}
 
 export function ToolbarGroup({ children, className }: React.ComponentProps<'div'>) {
   return (
@@ -149,79 +109,25 @@ export function ToolbarGroup({ children, className }: React.ComponentProps<'div'
 
 type TooltipProps<T extends React.ElementType> = {
   tooltip?: React.ReactNode
-  tooltipContentProps?: Omit<React.ComponentPropsWithoutRef<typeof TooltipContent>, 'children'>
-  tooltipProps?: Omit<React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Root>, 'children'>
-  tooltipTriggerProps?: React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Trigger>
 } & React.ComponentProps<T>
 
-// Uses `@radix-ui/react-tooltip` primitives directly (rather than the
-// app's `@/components/ui/tooltip`, which has a bespoke non-compound API)
-// so this file stays a self-contained, registry-generated Plate kit file.
+// The tooltip's props merge onto the button itself (see WithTooltip): every
+// `ToolbarButton` resolves to a <button>, whether through `Toolbar.ToggleItem`
+// (the `pressed` branch) or `Toolbar.Button`, and a wrapper <button> around it
+// would be invalid HTML ("<button> cannot contain a nested button").
 function withTooltip<T extends React.ElementType>(Component: T) {
-  return function ExtendComponent({
-    tooltip,
-    tooltipContentProps,
-    tooltipProps,
-    tooltipTriggerProps,
-    ...props
-  }: TooltipProps<T>) {
-    const [mounted, setMounted] = React.useState(false)
-
-    // react-doctor-disable-next-line rendering-hydration-no-flicker -- vendored Plate registry code. This is the classic SSR-hydration guard (defer the Radix tooltip portal until after the first client paint). Crowbar is a client-only Vite SPA inside Tauri with no server render, so there is nothing to flicker against; the gate only delays the tooltip wrapper by one commit. Neither remedy the rule proposes applies: there is no external store to read (`useSyncExternalStore`) and `suppressHydrationWarning` addresses a warning this app never emits. Removing the gate outright would change when the tooltip becomes interactive, so it is kept as vendored.
-    React.useEffect(() => {
-      setMounted(true)
-    }, [])
-
+  return function ExtendComponent({ tooltip, ...props }: TooltipProps<T>) {
     const component = <Component {...(props as React.ComponentProps<T>)} />
-
-    if (tooltip && mounted) {
-      return (
-        <TooltipPrimitive.Root {...tooltipProps}>
-          {/* asChild is NOT optional here (and is what the upstream registry
-              ships): without it the trigger renders a <button> of its own
-              around `component`, which is itself a <button> — every
-              `ToolbarButton` resolves to one, whether through
-              `Toolbar.ToggleItem` (the `pressed` branch) or `Toolbar.Button`.
-              A button inside a button is invalid HTML; React logs
-              "<button> cannot contain a nested button" / "This will cause a
-              hydration error" on the first formatting toolbar that opens. */}
-          <TooltipPrimitive.Trigger asChild {...tooltipTriggerProps}>
-            {component}
-          </TooltipPrimitive.Trigger>
-
-          <TooltipContent {...tooltipContentProps}>{tooltip}</TooltipContent>
-        </TooltipPrimitive.Root>
-      )
-    }
-
-    return component
+    if (!tooltip) return component
+    return (
+      <WithTooltip
+        trigger={component}
+        content={tooltip}
+        sideOffset={4}
+        popupClassName={tooltipContentPrimary}
+      />
+    )
   }
-}
-
-function TooltipContent({
-  children,
-  className,
-  // CHANGE
-  sideOffset = 4,
-  ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Content>) {
-  return (
-    <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Content
-        className={cn(
-          'z-50 w-fit origin-(--radix-tooltip-content-transform-origin) text-balance rounded-md bg-primary px-3 py-1.5 text-primary-foreground text-xs',
-          className,
-        )}
-        data-slot="tooltip-content"
-        sideOffset={sideOffset}
-        {...props}
-      >
-        {children}
-        {/* CHANGE */}
-        {/* <TooltipPrimitive.Arrow className="z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px] bg-primary fill-primary" /> */}
-      </TooltipPrimitive.Content>
-    </TooltipPrimitive.Portal>
-  )
 }
 
 export function ToolbarMenuGroup({

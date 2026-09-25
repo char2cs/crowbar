@@ -12,6 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat/attachments"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 func pngBytes() []byte {
@@ -299,6 +300,7 @@ func TestStore_OriginalNameAsPathSeparator(t *testing.T) {
 }
 
 func TestRead_OpenErrorReturnsNotFound(t *testing.T) {
+	testutil.RequirePermissionEnforcement(t)
 	dir := t.TempDir()
 	// Create a file with restricted permissions (unreadable)
 	fileName := "forbidden.bin"
@@ -328,6 +330,7 @@ func TestStore_MkdirAllFailureReturnsError(t *testing.T) {
 }
 
 func TestStore_OpenFileFailureReturnsError(t *testing.T) {
+	testutil.RequirePermissionEnforcement(t)
 	dir := t.TempDir()
 	// Pre-create the dir, then restrict write permissions
 	err := os.Chmod(dir, 0o500) // r-x------: can read/search but not write

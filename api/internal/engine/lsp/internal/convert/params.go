@@ -1,6 +1,10 @@
 package convert
 
-import "github.com/char2cs/crowbar/api/internal/domain/lsp"
+import (
+	"encoding/json"
+
+	"github.com/char2cs/crowbar/api/internal/domain/lsp"
+)
 
 // TextDocumentPositionParams builds the LSP textDocument/position parameter
 // object shared by completion, hover, definition, and references requests. The
@@ -42,15 +46,35 @@ func RenameParams(
 }
 
 // CodeActionParams builds the textDocument/codeAction parameter object scoped to
-// the given range.
+// the given range. diagnostics is the raw JSON array of LSP Diagnostics the
+// actions should address (the editor's markers in range); nil sends none.
 func CodeActionParams(
 	path string,
 	rng lsp.Range,
+	diagnostics json.RawMessage,
 ) map[string]any {
+	var diags any = []any{}
+	if len(diagnostics) > 0 && string(diagnostics) != "null" {
+		diags = diagnostics
+	}
 	return map[string]any{
 		"textDocument": textDocument(path),
 		"range":        rangeObject(rng),
-		"context":      map[string]any{"diagnostics": []any{}},
+		"context":      map[string]any{"diagnostics": diags},
+	}
+}
+
+// FormattingParams builds the textDocument/formatting parameter object.
+func FormattingParams(
+	path string,
+	options lsp.FormattingOptions,
+) map[string]any {
+	return map[string]any{
+		"textDocument": textDocument(path),
+		"options": map[string]any{
+			"tabSize":      options.TabSize,
+			"insertSpaces": options.InsertSpaces,
+		},
 	}
 }
 
@@ -61,6 +85,44 @@ func DocumentSymbolParams(
 	return map[string]any{
 		"textDocument": textDocument(path),
 	}
+}
+
+// SemanticTokensDeltaParams builds the textDocument/semanticTokens/full/delta
+// parameter object: edits against the result previousResultID names.
+func SemanticTokensDeltaParams(
+	path string,
+	previousResultID string,
+) map[string]any {
+	return map[string]any{
+		"textDocument":     textDocument(path),
+		"previousResultId": previousResultID,
+	}
+}
+
+// SemanticTokensRangeParams builds the textDocument/semanticTokens/range
+// parameter object.
+func SemanticTokensRangeParams(
+	path string,
+	rng lsp.Range,
+) map[string]any {
+	return map[string]any{
+		"textDocument": textDocument(path),
+		"range":        rangeObject(rng),
+	}
+}
+
+// ExecuteCommandParams builds the workspace/executeCommand parameter object.
+// arguments is the command's raw argument array as the server issued it, or
+// nil for none.
+func ExecuteCommandParams(
+	command string,
+	arguments json.RawMessage,
+) map[string]any {
+	params := map[string]any{"command": command}
+	if len(arguments) > 0 && string(arguments) != "null" {
+		params["arguments"] = arguments
+	}
+	return params
 }
 
 func textDocument(

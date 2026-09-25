@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
+	"gopkg.in/yaml.v3"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
@@ -1055,7 +1056,41 @@ func writeDescriptor(t *testing.T, f testFixture, id, body string) {
 	t.Helper()
 	dir := filepath.Join(f.ws.home, "descriptors")
 	require.NoError(t, os.MkdirAll(dir, 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, id+".yaml"), []byte(body), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, id+".yaml"), []byte(withLifecycle(body)), 0o600))
+}
+
+// withLifecycle completes a test descriptor that declares only the part under
+// test with the wired lifecycle every descriptor needs to be enabled at all.
+func withLifecycle(body string) string {
+	var doc map[string]any
+	if err := yaml.Unmarshal([]byte(body), &doc); err != nil || doc == nil {
+		return body // a deliberately broken document stays broken
+	}
+	events, _ := doc["events"].(map[string]any)
+	if events == nil {
+		events = map[string]any{}
+	}
+	for name, spec := range map[string]map[string]any{
+		"session_start": {"in": "SessionStart", "map": map[string]any{"session_id": "session_id"}},
+		"user_prompt":   {"in": "UserPromptSubmit", "map": map[string]any{"session_id": "session_id", "message": "prompt"}},
+		"turn_stop":     {"in": "Stop", "map": map[string]any{"session_id": "session_id", "message": "last_assistant_message"}},
+	} {
+		if _, ok := events[name]; !ok {
+			spec["required"] = []string{"session_id"}
+			events[name] = spec
+		}
+	}
+	doc["events"] = events
+	if _, ok := doc["hooks_injection"]; !ok {
+		doc["hooks_injection"] = []any{map[string]any{"pass_arg": map[string]any{
+			"arg": "--hook", "value": "{crowbar_hook} hook any --segment {segid}",
+		}}}
+	}
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return body
+	}
+	return string(out)
 }
 
 const selectingDescriptorBody = `

@@ -16,7 +16,7 @@ import {
   ensureHomeWorkspaceResolved,
   useHomeWorkspaceState,
 } from '@/features/workspace/lib/home-workspace-resolver'
-import { handleCreateHomeThread } from '@/components/layout/space-content-actions'
+import { handleCreateHomeThread } from '@/components/layout/home-actions'
 import { toast } from '@/features/window/stores/toast-store'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
@@ -285,7 +285,6 @@ function SpacePanel({
             />
           )}
           <RecentsBand
-            projectId={projectId}
             viewIds={viewIds}
             onFocus={onFocusRecent}
             onClose={onCloseRecent}

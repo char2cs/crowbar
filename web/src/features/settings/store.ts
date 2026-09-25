@@ -13,15 +13,14 @@ import {
 import { initializeSettingsState } from '@/features/settings/lib/settings-bootstrap'
 import { normalizeSettingValue } from '@/features/settings/lib/settings-normalization'
 import {
-  debouncedSaveSettingsToStore,
-  saveSettingsToStore,
+  persistSettings,
+  persistSettingsDebounced,
 } from '@/features/settings/lib/settings-persistence'
 import { parseSettingsImportJson } from '@/features/settings/lib/settings-import-export'
 import { scoreSearchQuery } from '@/utils/search-match'
 import { settingsSearchIndex } from './config/search-index'
 import type { SearchResult, SearchState } from './types/search'
 import type { Settings } from './types/settings'
-import { saveUIPreferences } from '@/lib/persistence/ui-preferences'
 
 export type { Settings } from './types/settings'
 
@@ -64,7 +63,7 @@ export const useSettingsStore = create(
             })
 
             applySettingsSideEffects(validatedSettings)
-            void saveSettingsToStore(validatedSettings)
+            persistSettings(validatedSettings)
             return true
           } catch (error) {
             console.error('Error parsing settings JSON:', error)
@@ -86,7 +85,7 @@ export const useSettingsStore = create(
           })
 
           applySettingsSideEffects(nextSettings)
-          await saveSettingsToStore(nextSettings)
+          persistSettings(nextSettings)
         },
 
         updateSetting: async <K extends keyof Settings>(key: K, value: Settings[K]) => {
@@ -97,7 +96,7 @@ export const useSettingsStore = create(
           })
 
           applySettingSideEffect(key, normalizedValue, () => useSettingsStore.getState().settings)
-          debouncedSaveSettingsToStore({ [key]: normalizedValue })
+          persistSettingsDebounced({ [key]: normalizedValue })
         },
 
         setSearchQuery: (query: string) => {
@@ -153,19 +152,3 @@ export const useSettingsStore = create(
 )
 
 export { defaultSettings, getDefaultSetting }
-
-let _prefTimer: ReturnType<typeof setTimeout>
-
-useSettingsStore.subscribe((state) => {
-  clearTimeout(_prefTimer)
-  _prefTimer = setTimeout(() => {
-    void saveUIPreferences({
-      theme: state.settings.theme,
-      fontSize: state.settings.fontSize,
-      fontFamily: state.settings.fontFamily,
-      tabSize: state.settings.tabSize,
-      wordWrap: state.settings.wordWrap,
-      minimap: state.settings.showMinimap,
-    })
-  }, 300)
-})

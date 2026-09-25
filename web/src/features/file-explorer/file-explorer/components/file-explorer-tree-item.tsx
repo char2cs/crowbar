@@ -11,7 +11,8 @@ import type { FileEntry } from '@/features/file-system/types/app'
 import { Input } from '@/components/ui/input'
 import { TreeRow } from '@/components/ui/tree-row'
 import { cn } from '@/utils/cn'
-import { FileExplorerIcon } from './file-explorer-icon'
+import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
+import { SIDEBAR_TREE_ICON_SIZE } from '@/components/ui/sidebar-tree'
 
 // Matches the sidebar's own row content inset (`ROW_BASE`'s `px-1.5`) — a
 // depth-0 row's label starts exactly where a sidebar row's does, given the
@@ -19,7 +20,7 @@ import { FileExplorerIcon } from './file-explorer-icon'
 // (file-explorer-tree.tsx's own `px-1.5`).
 export const FILE_TREE_BASE_INDENT = 6
 
-export interface FileTreeGuideTarget {
+interface FileTreeGuideTarget {
   path: string
   name: string
   isDir: boolean
@@ -72,7 +73,7 @@ interface FileExplorerTreeItemProps {
 
 // Reserves the same leading slot on every row (file or folder) so icons line
 // up in one column — only directories draw a caret into it, rotated 90° open
-// (the same disclosure convention as SearchReplaceToggle in ui/search.tsx).
+// (a rotated caret is the disclosure convention).
 function DirectoryChevron({ isDir, isExpanded }: { isDir: boolean; isExpanded: boolean }) {
   return (
     <span
@@ -211,6 +212,7 @@ function FileExplorerTreeItemComponent({
             isDir={file.isDir ?? false}
             isExpanded={false}
             className="relative z-[1] shrink-0 text-muted-foreground"
+            size={SIDEBAR_TREE_ICON_SIZE}
           />
           <Input
             ref={inputRef}
@@ -277,6 +279,7 @@ function FileExplorerTreeItemComponent({
           isExpanded={isExpanded}
           isSymlink={file.isSymlink}
           className="relative z-1 shrink-0 text-muted-foreground"
+          size={SIDEBAR_TREE_ICON_SIZE}
         />
         <span className="relative z-1 flex min-w-0 items-baseline gap-1.5">
           <span

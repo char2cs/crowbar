@@ -24,17 +24,25 @@ func (rs *Runners) SubmitPrompt(
 	ctx context.Context,
 	chatID, text, clientRequestID string,
 ) (domain.AgentPromptSubmission, error) {
-	defer rs.spawns.Lock(chatID)()
-	return rs.submitPromptLocked(ctx, chatID, text, clientRequestID)
+	_, release, err := rs.spawns.Acquire(ctx, chatID)
+	if err != nil {
+		return domain.AgentPromptSubmission{}, err
+	}
+	defer release()
+	return rs.submitPromptLocked(ctx, chatID, text, clientRequestID, nil)
 }
 
 // submitPromptLocked is SubmitPrompt's body, split out so
 // SubmitPromptWithSwitch (promptswitch.go) can run it as the TAIL of its own
 // single gate hold — a staged provider switch and selection commit, then this,
 // never releasing the gate in between. See that file's own doc for why.
+//
+// revive (nil for none) runs once the request is known to be new — a retry of
+// a recorded attempt answers from the journal and must never spawn anything.
 func (rs *Runners) submitPromptLocked(
 	ctx context.Context,
 	chatID, text, clientRequestID string,
+	revive func() error,
 ) (domain.AgentPromptSubmission, error) {
 	clientRequestID, err := normalisePromptRequest(text, clientRequestID)
 	if err != nil {
@@ -59,6 +67,11 @@ func (rs *Runners) submitPromptLocked(
 	result, done, err := rs.replayPriorAttempt(ctx, chat, journalDir, clientRequestID, textHash)
 	if done {
 		return result, err
+	}
+	if revive != nil {
+		if err := revive(); err != nil {
+			return domain.AgentPromptSubmission{}, err
+		}
 	}
 
 	live, descriptor, worktree, err := rs.promptTarget(ctx, chat)

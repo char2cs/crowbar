@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -18,16 +18,27 @@ func (rs *Runners) SwitchProvider(
 	chatID string,
 	targetProviderID string,
 ) (string, error) {
-	defer rs.spawns.Lock(chatID)()
-	return rs.switchProviderLocked(ctx, chatID, targetProviderID)
+	park, release, err := rs.spawns.Acquire(ctx, chatID)
+	if err != nil {
+		return "", err
+	}
+	defer release()
+	defer rs.enterPhase(ctx, chatID, rs.replacementPhase(ctx, chatID))()
+	return rs.switchProviderLocked(ctx, park, chatID, targetProviderID)
 }
 
 // The caller already holds chatID's spawn gate: SwitchProvider above takes it,
 // and ResumeChat reaches this from inside its own. inflight.Gate is not reentrant, so
 // wiring either caller to SwitchProvider instead compiles and deadlocks that
 // goroutine on its own gate forever.
+//
+// park is the gate's park context: the two waits below park on it, so a Stop
+// that preempts the gate abandons them with nothing destroyed (ErrStopped).
+// Everything after the waits runs on ctx and is bounded, so a preemption never
+// leaves a switch half-done.
 func (rs *Runners) switchProviderLocked(
 	ctx context.Context,
+	park context.Context,
 	chatID string,
 	targetProviderID string,
 ) (string, error) {
@@ -56,8 +67,8 @@ func (rs *Runners) switchProviderLocked(
 		// The interlocked check inside displaceForSwitch still refuses outright:
 		// that one runs under turnStarts, which the hook that would release it
 		// must take.
-		if err := rs.awaitPromptDeliverySettled(ctx, chat); err != nil {
-			return "", err
+		if err := rs.awaitPromptDeliverySettled(park, chat); err != nil {
+			return "", parkErr(park, err)
 		}
 		// Resolve the target while the outgoing CLI is still alive. A missing or
 		// malformed provider descriptor is a deterministic planning failure, not a
@@ -92,14 +103,17 @@ func (rs *Runners) switchProviderLocked(
 		// assembled below contains the turn we waited for.
 		//
 		// Bounded, not open-ended: see awaitTurnOrForce.
-		if err := rs.awaitTurnOrForce(ctx, chatID); err != nil {
-			return "", err
+		if err := rs.awaitTurnOrForce(ctx, park, chatID); err != nil {
+			return "", parkErr(park, err)
 		}
 
 		priorSessionID, leftAt, err := rs.resumableConversation(ctx, chat, targetProviderID)
 		if err != nil {
 			return "", fmt.Errorf("agent: switch provider: resumable conversation: %w", err)
 		}
+		// The ladder: a session the provider no longer has drops to the
+		// transcript rung — resuming false, the full conversation handed over.
+		priorSessionID = rs.verifiedResume(ctx, d, chatID, priorSessionID)
 		resuming := priorSessionID != ""
 
 		// Read-BEFORE-terminate: the ledger is built from hooks and is already on disk, so
@@ -183,6 +197,15 @@ func (rs *Runners) switchProviderLocked(
 	}
 }
 
+// parkErr reports a wait abandoned because Stop preempted the gate as
+// ErrStopped, and passes every other failure through.
+func parkErr(park context.Context, err error) error {
+	if inflight.Preempted(park) {
+		return ErrStopped
+	}
+	return err
+}
+
 func (rs *Runners) displaceForSwitch(
 	ctx context.Context,
 	chat domain.Chat,
@@ -238,68 +261,6 @@ func (rs *Runners) displaceForSwitch(
 		return false, err
 	}
 	return false, nil
-}
-
-func (rs *Runners) quitOutgoingCLI(
-	ctx context.Context,
-	chatID string,
-) error {
-	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if errors.Is(err, agentrunner.ErrNotFound) {
-		return nil // dormant: nothing to quit
-	}
-	if err != nil {
-		return fmt.Errorf("agent: switch provider: live runner: %w", err)
-	}
-	if err := rs.term.TerminateGraceful(ctx, live.TerminalSession); err != nil {
-		if !errors.Is(err, engineterminal.ErrSessionNotFound) {
-			// The CLI is still on its chat, and it stays there: the switch is aborted with
-			// nothing changed rather than half-done.
-			return fmt.Errorf("agent: switch provider: terminate outgoing terminal: %w", err)
-		}
-		slog.WarnContext(ctx, "agent: switch provider: outgoing terminal session already gone before terminate; continuing switch",
-			"chat_id", chatID, "runner_id", live.ID, "terminal_session_id", live.TerminalSession, "err", err)
-	}
-	// live.TerminalSession above is the ORIGINAL companion PTY every api-transport
-	// spawn forks alongside its connection — never reassigned, so it names a
-	// different, LEAKED process once SwitchToTerminal has run: that call forks a
-	// THIRD, separate PTY for the native view and tracks it only in rs.attached,
-	// exactly the one the user is actually looking at. Switching provider away
-	// from a chat mid-attach must take that one down too, and forget it here —
-	// the same gap retire() had (lifecycle.go) before its own fix, for the
-	// identical reason: SwitchToNative is otherwise the only place that ever
-	// clears rs.attached, and a chat switched away from while attached never
-	// reaches it. Best-effort, like retire()'s own: the outgoing CLI is already
-	// being torn down regardless, so a stuck attached view must not abort a
-	// switch that has already committed to happening.
-	if view, ok := rs.attached.get(live.ID); ok {
-		rs.attached.drop(live.ID)
-		if err := rs.term.TerminateGraceful(ctx, view.termSessID); err != nil &&
-			!errors.Is(err, engineterminal.ErrSessionNotFound) {
-			slog.WarnContext(ctx, "agent: switch provider: terminate attached native view (best-effort, continuing)",
-				"runner_id", live.ID, "terminal_session_id", view.termSessID, "err", err)
-		}
-	}
-	// An api-transport runner's serve process is NOT the terminal session above —
-	// it is a separate background process (apiconn.go's forkServeProcess), never a
-	// PTY, for exactly the hotswap:false shape codex declares: no attach at spawn,
-	// so no PTY ever exists to take it down on exit. onRunnerExit's own drop only
-	// fires from a PTY dying, which never happens here — confirmed live as a
-	// process leak: every switch away from codex left its serve process running,
-	// and dozens accumulated over one session. Safe to call unconditionally; it is
-	// a no-op for the hooks-only common case (claude) and for a codex runner
-	// already torn down some other way.
-	rs.apiConns.drop(live.ID)
-	// A failed displace ABORTS the switch, and this is the one teardown where it must: the
-	// caller's very next act is to spawn the incoming CLI, so continuing would place a
-	// second runner on a chat the first one is still recorded on — the two-live-CLIs state
-	// this whole model exists to make unrepresentable. Aborting is cheap here and costs the
-	// user nothing they cannot get back: the outgoing CLI is already dead or dying, so the
-	// chat simply drops to dormant when its PTY goes, and Resume revives it.
-	if err := rs.displace(ctx, live); err != nil {
-		return fmt.Errorf("agent: switch provider: %w", err)
-	}
-	return nil
 }
 
 // sessionAnnounceCrashWindow bounds how recently a conversation must have been

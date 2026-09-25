@@ -297,11 +297,15 @@ type Engine interface {
 		branch string,
 	) error
 
-	// WorktreeRemove removes a git worktree (--force) (04 / 07).
+	// WorktreeRemove removes a git worktree (04 / 07). force passes --force,
+	// discarding uncommitted changes; without it git refuses a dirty worktree,
+	// which is the only safe way to remove one whose work is not Crowbar's to
+	// throw away (a protected or locked worktree).
 	WorktreeRemove(
 		ctx context.Context,
 		repoPath string,
 		worktreePath string,
+		force bool,
 	) error
 
 	// WorktreeRepair repoints the repo's admin files at a worktree that has
@@ -321,6 +325,25 @@ type Engine interface {
 		ctx context.Context,
 		repoPath string,
 	) error
+
+	// UncommittedFiles counts the paths git status reports in the worktree at
+	// worktreePath — staged, unstaged and untracked, never ignored: exactly what
+	// `git worktree remove --force` would throw away.
+	UncommittedFiles(
+		ctx context.Context,
+		worktreePath string,
+	) (int, error)
+
+	// UnmergedCommits counts the commits reachable from tips that no branch but
+	// dropBranch, no remote-tracking branch and no tag reaches — what is gone for
+	// good once dropBranch is deleted and the tips' worktree removed. Tips
+	// resolve in dir (a worktree's HEAD is its own); missing tips are ignored.
+	UnmergedCommits(
+		ctx context.Context,
+		dir string,
+		tips []string,
+		dropBranch string,
+	) (int, error)
 
 	// WorktreeList lists all git worktrees in a repo (04 / 07).
 	WorktreeList(

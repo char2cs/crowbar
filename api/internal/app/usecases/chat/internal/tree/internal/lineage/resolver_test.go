@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree/internal/lineage"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -24,6 +25,8 @@ type stubChats struct {
 	getErr error
 	list   error
 	lists  int
+	// missing answers LoadChat for an id not in keyed.
+	missing error
 }
 
 func (s *stubChats) LoadChat(
@@ -34,21 +37,32 @@ func (s *stubChats) LoadChat(
 		return domain.Chat{}, s.getErr
 	}
 	chat, ok := s.keyed[id]
+	if !ok && s.missing != nil {
+		return domain.Chat{}, s.missing
+	}
 	if !ok {
 		return domain.Chat{}, errors.New("no such chat")
 	}
 	return chat, nil
 }
 
+// ListByWorkspace filters on the workspace the way the real store does, which
+// leaves every folder (it owns no workspace) off the list.
 func (s *stubChats) ListByWorkspace(
 	_ context.Context,
-	_ string,
+	wsID string,
 ) ([]domain.Chat, error) {
 	s.lists++
 	if s.list != nil {
 		return nil, s.list
 	}
-	return s.listed, nil
+	var out []domain.Chat
+	for _, row := range s.listed {
+		if row.WorkspaceID == wsID {
+			out = append(out, row)
+		}
+	}
+	return out, nil
 }
 
 func chat(
@@ -166,6 +180,31 @@ func TestAncestors_SurfacesAChatReadFailure(t *testing.T) {
 
 	_, err := resolver.Ancestors(context.Background(), "c2")
 	require.ErrorContains(t, err, "boom")
+}
+
+// A parent the chat store does not hold (a workspace node) ends the walk.
+func TestAncestors_StopsAtAnAncestorThatIsNoChatOrFolder(t *testing.T) {
+	cs := &stubChats{
+		keyed:  map[string]domain.Chat{"c1": chat("c1", "ws-node")},
+		listed: []domain.Chat{chat("c1", "ws-node")},
+	}
+	cs.missing = agentchat.ErrNotFound
+
+	got, err := lineage.New(cs).Ancestors(context.Background(), "c1")
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+// A folder on the chain is read from the log; a failure there is the answer.
+func TestAncestors_SurfacesAnUnlistedAncestorReadFailure(t *testing.T) {
+	cs := &stubChats{
+		keyed:  map[string]domain.Chat{"c2": chat("c2", "f1")},
+		listed: []domain.Chat{chat("c2", "f1")},
+	}
+	resolver := lineage.New(cs)
+
+	_, err := resolver.Ancestors(context.Background(), "c2")
+	require.ErrorContains(t, err, "ancestor f1")
 }
 
 func TestAncestors_SurfacesAChatListFailure(t *testing.T) {

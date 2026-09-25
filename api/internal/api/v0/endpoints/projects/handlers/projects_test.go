@@ -108,13 +108,26 @@ func (f *fakeImporter) Create(
 }
 
 type fakeDeleter struct {
-	err   error
-	gotID string
+	err      error
+	beginErr error
+	gotID    string
+}
+
+func (f *fakeDeleter) BeginDelete(
+	_ context.Context,
+	id string,
+	_ domain.DeleteConsent,
+) (domain.Project, error) {
+	if f.beginErr != nil {
+		return domain.Project{}, f.beginErr
+	}
+	return domain.Project{ID: id, Deleting: true}, nil
 }
 
 func (f *fakeDeleter) Delete(
 	_ context.Context,
 	id string,
+	_ domain.DeleteConsent,
 ) error {
 	f.gotID = id
 	return f.err
@@ -441,6 +454,9 @@ func TestDeleteProject_Returns202_TombstoneDTO(
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 	assert.Empty(t, rec.Body.String())
 
+	intent := bc.await(t)
+	assert.Equal(t, "p1", intent.ID)
+	assert.Empty(t, intent.LastError, "the recorded intent clears an earlier attempt's error")
 	got := bc.await(t)
 	assert.Equal(t, "p1", got.ID)
 	assert.Equal(t, "deleted", got.Status)
@@ -452,7 +468,7 @@ func TestDeleteNotFound(
 ) {
 	bc := newRecordingBroadcaster()
 	rec := do(
-		newRouterFull(&fakeReader{getErr: apperr.ErrNotFound}, &fakeImporter{}, &fakeDeleter{}, bc),
+		newRouterFull(&fakeReader{}, &fakeImporter{}, &fakeDeleter{beginErr: apperr.ErrNotFound}, bc),
 		http.MethodDelete,
 		"/v0/projects/nope",
 		"",
@@ -468,20 +484,23 @@ func TestDeleteNotFound(
 	assert.NotEmpty(t, body.Error)
 }
 
-// TestDeleteProject_UsecaseError_NoBroadcast pins that a failed background
-// delete broadcasts no tombstone.
-func TestDeleteProject_UsecaseError_NoBroadcast(
+// A delete that stops is never silent: no tombstone, and the project is
+// re-announced carrying the error the usecase recorded on it.
+func TestDeleteProject_UsecaseError_ReannouncesTheProjectWithItsError(
 	t *testing.T,
 ) {
 	deleter := &fakeDeleter{err: errors.New("boom")}
 	bc := newRecordingBroadcaster()
-	r, h := newRouterWithHandlers(
-		&fakeReader{get: domain.Project{ID: "p1"}}, &fakeImporter{}, deleter, bc,
+	r, _ := newRouterWithHandlers(
+		&fakeReader{get: domain.Project{ID: "p1", Deleting: true, LastError: "boom"}}, &fakeImporter{}, deleter, bc,
 	)
 	rec := do(r, http.MethodDelete, "/v0/projects/p1", "")
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
-	assertNoBroadcast(t, h, bc)
+	bc.await(t) // the recorded intent
+	got := bc.await(t)
+	assert.Empty(t, got.Status, "no tombstone for a delete that did not happen")
+	assert.Equal(t, "boom", got.LastError)
 }
 
 // The reorder densifies the whole list, so every project has to reach the

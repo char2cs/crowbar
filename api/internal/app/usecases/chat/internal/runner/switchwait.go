@@ -108,16 +108,18 @@ func (rs *Runners) awaitPromptDeliverySettled(ctx context.Context, chat domain.C
 // "my own added deadline fired" from "the CALLER's context died" matters:
 // TestSwitchProvider_MidTurn_ContextCancelled_AbortsWithNothingChanged requires the
 // latter to abort the switch with nothing touched, exactly as before this existed.
-// ctx here is the CALLER's, unwrapped — only when it is still alive can the failure
-// belong to the timeout this function added.
-func (rs *Runners) awaitTurnOrForce(ctx context.Context, chatID string) error {
-	bounded, cancel := context.WithTimeout(ctx, rs.forceSwitchAfter())
+// The wait parks on park (the caller's context, also cancelled when Stop
+// preempts the gate) — only while that is still alive can the failure belong to
+// the timeout this function added. The forced teardown runs on ctx, so a Stop
+// arriving mid-teardown cannot cut it in half.
+func (rs *Runners) awaitTurnOrForce(ctx, park context.Context, chatID string) error {
+	bounded, cancel := context.WithTimeout(park, rs.forceSwitchAfter())
 	defer cancel()
 	err := rs.turns.AwaitTurnComplete(bounded, chatID)
 	if err == nil {
 		return nil
 	}
-	if ctx.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
+	if park.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
 	return rs.forceOutgoingTurn(ctx, chatID)
@@ -141,13 +143,6 @@ func (rs *Runners) forceOutgoingTurn(ctx context.Context, chatID string) error {
 	}
 	slog.WarnContext(ctx, "agent: switch provider: outgoing turn did not finish within the grace period; forcing it",
 		"chat_id", chatID, "runner_id", live.ID, "waited", rs.forceSwitchAfter())
-	rs.retire(ctx, live)
-	// Recorded AFTER retire's kill, not before — see StopChat's own RecordStop
-	// call for why: it must not durably claim "Interrupted" until the CLI has
-	// actually stopped, and retire's kill is what makes that true here.
-	if err := rs.turns.RecordStop(ctx, chatID, live.ID); err != nil {
-		slog.WarnContext(ctx, "agent: switch provider: force outgoing turn: record interruption",
-			"chat_id", chatID, "err", err)
-	}
+	rs.stopRunner(ctx, chatID, live, false)
 	return nil
 }

@@ -228,11 +228,13 @@ func (h *harness) importRepoAndWorkspace(
 	return project.ID, repo.ID, ws.ID
 }
 
-// requireCLI skips the test when name is not runnable from this process.
+// requireCLI skips the test when name is not runnable from this process, or
+// holds no credential for the real model turn every test here drives.
 // exec.LookPath is tried first (the PATH the go test process actually has);
 // ~/.local/bin/<name> is this machine's documented fallback location.
 func requireCLI(t *testing.T, name string) {
 	t.Helper()
+	kit.RequireProviderLogin(t, name)
 	if _, err := exec.LookPath(name); err == nil {
 		return
 	}

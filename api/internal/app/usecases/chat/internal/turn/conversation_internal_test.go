@@ -24,6 +24,8 @@ type originatingRunners struct {
 	originated map[string]bool
 }
 
+func (originatingRunners) ConfirmLaunch(string) {}
+
 func (originatingRunners) HasLiveAPIConnection(string) bool { return true }
 
 func (r originatingRunners) OriginatedSession(_, sessionID string) bool {

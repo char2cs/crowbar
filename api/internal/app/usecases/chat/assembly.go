@@ -13,6 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
@@ -77,6 +78,10 @@ type Deps struct {
 	// exactly ONE per daemon: a runner's token must be minted by the same secret
 	// that verifies it.
 	Minter *agenttools.TokenMinter
+	// Snapshots is the chat snapshot owner the composition root built and fed
+	// to the fanout. Nil builds a private one (tests), fed by nothing until a
+	// test wires the fanout over Snapshots().
+	Snapshots *snapshot.Snapshots
 	// Tools is the agent-facing capability surface. Its Chats, ChatLogs, Lineage
 	// and ToolAccess ports are filled in by New, because they are this usecase's
 	// own methods and it does not exist when the caller builds the Deps.
@@ -150,8 +155,36 @@ func New(d Deps) *Usecase {
 	u.tools.Lineage = u
 	u.tools.ToolAccess = u.providerMCPEnabled
 
+	u.snapshots = d.Snapshots
+	if u.snapshots == nil {
+		u.snapshots = snapshot.NewAtBoot()
+	}
 	u.buildComponents(d, sh)
+	if d.Nodes != nil {
+		u.snapshots.SetCorrect(func(ctx context.Context, chat domain.Chat) domain.Chat {
+			return correctHomeChat(ctx, d.Nodes, chat)
+		})
+	}
+	u.snapshots.Bind(snapshotReader{chats: d.Chats, runners: d.Runners}, u.runners)
 	return u
+}
+
+// snapshotReader is the read model the snapshot owner falls back to for a
+// chat no event has touched since boot, and seeds live placement from.
+type snapshotReader struct {
+	chats   agentchat.EventStore
+	runners agentrunner.EventStore
+}
+
+func (r snapshotReader) GetChat(ctx context.Context, chatID string) (domain.Chat, error) {
+	return r.chats.GetChat(ctx, chatID)
+}
+
+func (r snapshotReader) AllLive(ctx context.Context) ([]engineagents.Runner, error) {
+	if r.runners == nil {
+		return nil, nil
+	}
+	return r.runners.AllLive(ctx)
 }
 
 // buildComponents assembles the four halves of the surface and closes the edges
@@ -230,6 +263,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Answers:       sh.answers,
 		Conversations: u.conversations,
 		Providers:     u.providers,
+		Snapshots:     u.snapshots,
 	})
 	// The three edges that can only close once both sides exist: a purge retires
 	// the CLIs on the chat (and a failed spawn discards the chat it minted), a hook

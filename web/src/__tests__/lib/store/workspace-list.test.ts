@@ -4,6 +4,7 @@ import { resetDB } from '@/lib/persistence/idb'
 import { dataOf, idle, success } from '@/lib/loadable'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
 import { useProjectDataStore, useProjectStore } from '@/lib/store/projects'
+import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import type { Project, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const project = (id: string): Project => ({
@@ -26,6 +27,7 @@ const repoDTO: RepoDTO = {
 }
 
 const wsDTO: WorkspaceDTO = {
+  provisioning: 'provisioned',
   id: 'w1',
   repoId: 'r1',
   projectId: 'p1',
@@ -62,7 +64,6 @@ describe('useWorkspaceListStore', () => {
     await upsertEntity('crowbar_repos', repoDTO)
     await upsertEntity('crowbar_workspaces', wsDTO)
 
-    const { useWorkspaceListStore } = await import('@/lib/store/workspace-list')
     await useWorkspaceListStore.getState().fetch()
 
     const repos = dataOf(useWorkspaceListStore.getState().data)!
@@ -73,7 +74,6 @@ describe('useWorkspaceListStore', () => {
   })
 
   it('fetch yields an empty tree when the entity cache is empty', async () => {
-    const { useWorkspaceListStore } = await import('@/lib/store/workspace-list')
     await useWorkspaceListStore.getState().fetch()
     expect(dataOf(useWorkspaceListStore.getState().data)).toEqual([])
   })
@@ -87,7 +87,6 @@ describe('useWorkspaceListStore', () => {
     await seedTwoProjects()
 
     useProjectStore.setState({ activeProjectId: 'p2' })
-    const { useWorkspaceListStore } = await import('@/lib/store/workspace-list')
     await useWorkspaceListStore.getState().fetch()
 
     const repos = dataOf(useWorkspaceListStore.getState().data)!
@@ -102,7 +101,6 @@ describe('useWorkspaceListStore', () => {
 
     useProjectStore.setState({ activeProjectId: 'p1' })
     useProjectDataStore.setState({ data: success([project('p1'), project('p2')]) })
-    const { useWorkspaceListStore } = await import('@/lib/store/workspace-list')
     await useWorkspaceListStore.getState().fetch()
 
     const repos = dataOf(useWorkspaceListStore.getState().data)!
@@ -115,7 +113,6 @@ describe('useWorkspaceListStore', () => {
 
     useProjectStore.setState({ activeProjectId: 'p1' })
     useProjectDataStore.setState({ data: success([project('p1')]) })
-    const { useWorkspaceListStore } = await import('@/lib/store/workspace-list')
     await useWorkspaceListStore.getState().fetch()
 
     const repos = dataOf(useWorkspaceListStore.getState().data)!
@@ -126,7 +123,6 @@ describe('useWorkspaceListStore', () => {
     await upsertEntity('crowbar_repos', repoDTO)
     useProjectStore.setState({ activeProjectId: '' })
 
-    const { useWorkspaceListStore } = await import('@/lib/store/workspace-list')
     await useWorkspaceListStore.getState().fetch()
 
     expect(dataOf(useWorkspaceListStore.getState().data)).toEqual([])

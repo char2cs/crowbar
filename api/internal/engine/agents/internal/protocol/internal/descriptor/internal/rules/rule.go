@@ -38,7 +38,6 @@ func All() []Rule {
 		terminalNotices{},
 		injectedPrompts{},
 		surfaces{},
-		eventOwner{},
 		eventSurfaces{},
 	}
 }

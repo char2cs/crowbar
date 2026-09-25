@@ -31,8 +31,8 @@ import {
   normalizeSettings,
 } from '@/features/settings/lib/settings-normalization'
 import {
-  loadSettingsFromStore,
-  saveSettingsToStore,
+  loadPersistedSettings,
+  persistSettings,
 } from '@/features/settings/lib/settings-persistence'
 import type { Settings } from '@/features/settings/types/settings'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
@@ -49,6 +49,12 @@ const CLAUDE: AgentProvider = {
   connected: true,
   enabled: true,
   mcpEnabled: true,
+  modelSelect: false,
+  effortSelect: false,
+  compaction: false,
+  hasTerminal: true,
+  hotswap: false,
+  terminalStartHere: false,
 }
 
 /** Every surface the preference can name. There is no third value, and no
@@ -76,7 +82,7 @@ describe('the chat landing-surface preference', () => {
     })
 
     it('reads back as on from an empty store', async () => {
-      const loaded = await loadSettingsFromStore()
+      const loaded = await loadPersistedSettings()
       expect(loaded.chatIsDefaultPresentation).toBe(true)
       expect(selectDefaultChatPresentation({ settings: loaded })).toBe('chat')
     })
@@ -154,13 +160,13 @@ describe('the chat landing-surface preference', () => {
     })
 
     it('is still off after a reload, not just for this session', async () => {
-      await saveSettingsToStore({ chatIsDefaultPresentation: false })
+      await persistSettings({ chatIsDefaultPresentation: false })
 
       destroyWorkspaceStore('w1')
       setActiveWorkspaceId('w2')
       getOrCreateWorkspaceStore('w2')
 
-      const reloaded = await loadSettingsFromStore()
+      const reloaded = await loadPersistedSettings()
       expect(reloaded.chatIsDefaultPresentation).toBe(false)
       expect(selectDefaultChatPresentation({ settings: reloaded })).toBe('terminal')
     })

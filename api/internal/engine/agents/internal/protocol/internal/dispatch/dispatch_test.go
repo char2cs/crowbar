@@ -97,6 +97,16 @@ func TestResolve_OutboundEventsAreNeverCandidates(t *testing.T) {
 	assert.False(t, ok, "turn/start is what WE send, not something codex reports")
 }
 
+// The channel decides: a flat event declared on the hook relay is never
+// resolved from an api frame, whatever its wire name.
+func TestResolve_AFlatHooksEventIsNeverAnAPICandidate(t *testing.T) {
+	d := &spec.Descriptor{ID: "p", Runtime: spec.RuntimeSpec{Transport: "api"}, Events: spec.EventTable{
+		"subagent_pre": {Transport: "hooks", In: spec.WireRef{"SubagentStart"}},
+	}}
+	_, ok := dispatch.Resolve(d, "SubagentStart", map[string]any{})
+	assert.False(t, ok)
+}
+
 func TestResolve_AskEventsAreCandidatesToo(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 	canonical, ok := dispatch.Resolve(d, "item/commandExecution/requestApproval", map[string]any{"tool": "shell"})

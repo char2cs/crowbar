@@ -16,7 +16,8 @@ vi.mock('@/lib/api', () => ({
   fetchProjects: vi.fn(),
 }))
 
-vi.mock('@/lib/store/projects', () => ({
+vi.mock('@/lib/store/projects', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/store/projects')>()),
   useProjectStore: { getState: vi.fn(() => ({ activeProjectId: '' })) },
 }))
 
@@ -69,6 +70,29 @@ describe('_shell/index beforeLoad', () => {
       return
     }
     expect.fail('expected redirect to throw')
+  })
+
+  // The sync engine asks for the list a moment after the guard did; the guard
+  // must land on the newer answer, not on the store its own read left unpublished.
+  it('redirects to a project when a newer read supersedes its own', async () => {
+    const answers: Array<(projects: unknown) => void> = []
+    vi.mocked(fetchProjects).mockImplementation(
+      () => new Promise((resolve) => answers.push(resolve as (projects: unknown) => void)),
+    )
+    const outcome = runBeforeLoad().catch((e: unknown) => e)
+    await vi.waitFor(() => expect(answers).toHaveLength(1))
+    const { useProjectDataStore } = await import('@/lib/store/projects')
+    const newer = useProjectDataStore.getState().fetch()
+    await vi.waitFor(() => expect(answers).toHaveLength(2))
+    const project = { id: 'p3', name: 'Third', path: '/c', lastActivity: new Date('2024-01-01') }
+    answers[0]([project])
+    answers[1]([project])
+    await newer
+    await outcome
+    expect(redirectMock).toHaveBeenCalledWith({
+      to: '/ide/$projectId/home',
+      params: { projectId: 'p3' },
+    })
   })
 
   it('falls back to first project when no active project', async () => {

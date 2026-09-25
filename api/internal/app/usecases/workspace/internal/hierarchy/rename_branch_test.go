@@ -86,6 +86,7 @@ func newRenameFixture(t *testing.T, branch string, all []domain.Workspace) *rena
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: branch,
 		WorktreePath: filepath.Join(oldRoot, "worktree"),
 		Status:       domain.WorkspaceStatusNew,
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	if len(all) == 0 {
 		all = []domain.Workspace{self}
@@ -107,7 +108,7 @@ func newRenameFixture(t *testing.T, branch string, all []domain.Workspace) *rena
 			if f.recordErr != nil {
 				return domain.Workspace{}, f.recordErr
 			}
-			return domain.Workspace{ID: id, Branch: b, WorktreePath: self.WorktreePath}, nil
+			return domain.Workspace{ID: id, Branch: b, WorktreePath: self.WorktreePath, Provisioning: domain.WorkspaceProvisioned}, nil
 		},
 	}
 	f.uc = hierarchy.New(ws, f.git, &fakeProvider{},
@@ -168,6 +169,7 @@ func TestRenameBranch_RejectsLockedWorkspaceBeforeTouchingGit(t *testing.T) {
 	locked := domain.Workspace{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "testing",
 		WorktreePath: "/anything/worktree", Status: domain.WorkspaceStatusLocked,
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	f := newRenameFixture(t, "testing", []domain.Workspace{locked})
 
@@ -185,6 +187,7 @@ func TestRenameBranch_RejectsWorkspaceOutsideCrowbarHome(t *testing.T) {
 	outside := domain.Workspace{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "testing",
 		WorktreePath: "/Users/someone/Projects/repo", Status: domain.WorkspaceStatusNew,
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	f := newRenameFixture(t, "testing", []domain.Workspace{outside})
 
@@ -265,6 +268,7 @@ func TestRenameBranch_RejectsPlaceholderWithNoWorktreeYet(t *testing.T) {
 	placeholder := domain.Workspace{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "testing",
 		WorktreePath: "", Status: domain.WorkspaceStatusNew,
+		Provisioning: domain.WorkspacePlaceholder,
 	}
 	f := newRenameFixture(t, "testing", []domain.Workspace{placeholder})
 
@@ -282,6 +286,7 @@ func TestRenameBranch_BranchExistsCheckErrorPropagates(t *testing.T) {
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "testing",
 		WorktreePath: "/home/projects/p1/repo/testing/worktree",
 		Status:       domain.WorkspaceStatusNew,
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	listErr := errors.New("list workspaces: boom")
 	ws := &fakeWorkspace{
@@ -304,6 +309,7 @@ func TestRenameBranch_CrowbarHomeErrorPropagates(t *testing.T) {
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "testing",
 		WorktreePath: "/home/projects/p1/repo/testing/worktree",
 		Status:       domain.WorkspaceStatusNew,
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	homeErr := errors.New("crowbar home: boom")
 	ws := &fakeWorkspace{
@@ -331,6 +337,7 @@ func TestRenameBranch_RepoPathLookupErrorPropagates(t *testing.T) {
 					ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "testing",
 					WorktreePath: filepath.Join(f.oldRoot, "worktree"),
 					Status:       domain.WorkspaceStatusNew,
+					Provisioning: domain.WorkspaceProvisioned,
 				}, nil
 			},
 			ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, nil },
@@ -397,7 +404,8 @@ func TestRenameBranch_GetWorkspaceError(t *testing.T) {
 func TestRenameBranch_RejectsUnprovisionedWorkspace(t *testing.T) {
 	placeholder := domain.Workspace{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "testing",
-		Status: domain.WorkspaceStatusNew, // unlocked, but no worktree yet
+		Status:       domain.WorkspaceStatusNew, // unlocked, but no worktree yet
+		Provisioning: domain.WorkspacePlaceholder,
 	}
 	f := newRenameFixture(t, "testing", []domain.Workspace{placeholder})
 
@@ -415,6 +423,7 @@ func TestRenameBranch_BranchWorkspaceExistsListError(t *testing.T) {
 	self := domain.Workspace{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "testing",
 		WorktreePath: "/anything/worktree", Status: domain.WorkspaceStatusNew,
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	ws := &fakeWorkspace{
 		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
@@ -441,6 +450,7 @@ func TestRenameBranch_CrowbarHomeError(t *testing.T) {
 	self := domain.Workspace{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "testing",
 		WorktreePath: "/anything/worktree", Status: domain.WorkspaceStatusNew,
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	ws := &fakeWorkspace{
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) {
@@ -466,6 +476,7 @@ func TestRenameBranch_RepoPathForError(t *testing.T) {
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "testing",
 		WorktreePath: "/home/projects/p1/github.com/test/repo/testing/worktree",
 		Status:       domain.WorkspaceStatusNew,
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	ws := &fakeWorkspace{
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) {

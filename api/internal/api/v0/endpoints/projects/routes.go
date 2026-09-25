@@ -2,6 +2,8 @@
 package projects
 
 import (
+	"context"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
@@ -14,6 +16,8 @@ import (
 // REST while a WebSocket upgrade is routed to projectsWS (the Broadcaster
 // [ProjectDTO] handle) for the live stream — a list-scope subscriber receives
 // all projects, a :projectId-scope subscriber receives only that project (W7-2).
+//
+// It returns the handlers' Shutdown, which waits for the work they detach.
 func Register(
 	rg *gin.RouterGroup,
 	reader projecthandlers.ListGetter,
@@ -22,7 +26,7 @@ func Register(
 	broadcast func(dto.ProjectDTO),
 	projectsWS gin.HandlerFunc,
 	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
-) {
+) func(context.Context) error {
 	h := projecthandlers.New(reader, importer, deleter, broadcast)
 	rg.GET("/projects", dispatch(h.List, projectsWS))
 	rg.POST("/projects", h.Import)
@@ -35,4 +39,5 @@ func Register(
 	rg.PUT("/projects/:projectId/icon", h.PutIcon)
 	rg.DELETE("/projects/:projectId/icon", h.DeleteIcon)
 	rg.PUT("/projects/:projectId/icon/emoji", h.PutIconEmoji)
+	return h.Shutdown
 }

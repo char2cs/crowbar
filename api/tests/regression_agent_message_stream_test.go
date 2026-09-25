@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 const streamStubProviderDescriptorYAML = `id: streamstub
@@ -108,7 +109,41 @@ func writeProviderDescriptor(t *testing.T, h *harness, id, body string) {
 	t.Helper()
 	dir := filepath.Join(h.home, "descriptors")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, id+".yaml"), []byte(body), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, id+".yaml"), []byte(stubDescriptor(body)), 0o644))
+}
+
+// stubDescriptor completes a stub descriptor that declares only what its test
+// exercises with the wired lifecycle Crowbar requires before it enables any
+// descriptor. The wiring is an env var, so a stub like `cat` sees no new argv.
+func stubDescriptor(body string) string {
+	var doc map[string]any
+	if err := yaml.Unmarshal([]byte(body), &doc); err != nil || doc == nil {
+		return body
+	}
+	events, _ := doc["events"].(map[string]any)
+	if events == nil {
+		events = map[string]any{}
+	}
+	for name, spec := range map[string]map[string]any{
+		"session_start": {"in": "session_start", "map": map[string]any{"session_id": "session_id"}},
+		"user_prompt":   {"in": "user_prompt", "map": map[string]any{"message": "prompt"}},
+		"turn_stop":     {"in": "turn_stop", "map": map[string]any{"session_id": "session_id", "message": "last_assistant_message"}},
+	} {
+		if _, ok := events[name]; !ok {
+			events[name] = spec
+		}
+	}
+	doc["events"] = events
+	if _, ok := doc["hooks_injection"]; !ok {
+		doc["hooks_injection"] = []any{map[string]any{"set_env": map[string]any{
+			"name": "STUB_HOOK", "value": "{crowbar_hook} hook any --segment {segid}",
+		}}}
+	}
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return body
+	}
+	return string(out)
 }
 
 func createStubChat(t *testing.T, h *harness, imported importedRepo, provider string) (chatID, runnerID string) {
@@ -253,14 +288,13 @@ func TestRegression_AMessageIsVisibleBEFOREItsTurnEnds(t *testing.T) {
 // wiring and the pane goes silent until the turn ends while every ledger
 // assertion in this file stays green — so this test watches the socket.
 //
-// BEFORE is proven positively, on the socket's own ordering rather than on an
-// absence: readUntil only ever moves FORWARD through the stream, so reaching
-// `turn_stopped` having already consumed both partials means those partials were
-// earlier on the wire than the end of the turn.
+// BEFORE is proven positively: the newest partial is read before turn_stop is
+// even posted. Only the newest is awaited because the feed coalesces deltas
+// latest-wins per message, so an earlier partial may be superseded unsent.
 //
 // Both partials are NON-FINAL, and the ledger is checked while they are in
-// flight: neither "STILL " nor "STILL GROWING" exists anywhere durable at that
-// point, so the socket is the only channel that could have carried them.
+// flight: "STILL GROWING" exists nowhere durable at that point, so the socket is
+// the only channel that could have carried it.
 func TestRegression_AGrowingMessageReachesTheChatSocketBeforeTheTurnEnds(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
@@ -295,7 +329,6 @@ func TestRegression_AGrowingMessageReachesTheChatSocketBeforeTheTurnEnds(t *test
 			return ok && message["id"] == "msg-one" && message["text"] == text
 		}
 	}
-	readUntil(t, conn, growing("STILL "))
 	readUntil(t, conn, growing("STILL GROWING"))
 
 	assert.Empty(t, assistantTexts(readRecordedMessages(t, h, imported, chatID)),

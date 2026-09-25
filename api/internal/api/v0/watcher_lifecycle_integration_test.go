@@ -4,7 +4,6 @@ package v0_test
 
 import (
 	"context"
-	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -14,7 +13,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
@@ -22,6 +20,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 func gitRepo(
@@ -40,22 +39,6 @@ func gitRepo(
 	return dir
 }
 
-func dialWS(
-	t *testing.T,
-	srv *httptest.Server,
-	path string,
-) *websocket.Conn {
-	t.Helper()
-	url := "ws" + srv.URL[len("http"):] + path
-	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
-	return conn
-}
-
 // TestWatcherLifecycle_FilesSubscriberStartsWatcher proves the full lazy chain:
 // subscribing to the Files topic for a real workspace starts the per-workspace
 // watcher (WatcherManager.Acquire -> factory -> watch.Watcher.Start), so a real
@@ -68,7 +51,7 @@ func TestWatcherLifecycle_FilesSubscriberStartsWatcher(t *testing.T) {
 
 	_, err := tc.app.Repositories.Workspace.Create(
 		context.Background(),
-		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", WorktreePath: repoPath},
+		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", WorktreePath: repoPath, Provisioning: domain.WorkspaceProvisioned},
 		time.Unix(1, 0).UTC(),
 	)
 	require.NoError(t, err)
@@ -91,7 +74,7 @@ func TestWatcherLifecycle_FilesSubscriberStartsWatcher(t *testing.T) {
 
 	// spec §8 step 6 retired files' repo-scoped .../workspaces/:wsId/files/ws
 	// mount; the flat chat prefix is the only surface left.
-	conn := dialWS(t, srv, "/v0/chats/chat-1/files/ws")
+	conn := dialV0(t, srv, "/v0/chats/chat-1/files/ws")
 	c.WaitFilesRegistered()
 
 	// The ticker paces the STIMULUS, it is not the synchronisation.
@@ -103,26 +86,22 @@ func TestWatcherLifecycle_FilesSubscriberStartsWatcher(t *testing.T) {
 	// ASSERTION still blocks on the real signal below — the delivered
 	// FileChangeEvent — and never on a duration.
 	writer := time.NewTicker(100 * time.Millisecond)
-	t.Cleanup(writer.Stop)
+	stop := make(chan struct{})
+	t.Cleanup(func() { writer.Stop(); close(stop) })
 	go func() {
-		i := 0
-		for range writer.C {
-			i++
+		for i := 1; ; i++ {
+			select {
+			case <-stop:
+				return
+			case <-writer.C:
+			}
 			name := filepath.Join(repoPath, "hello"+strconv.Itoa(i)+".txt")
 			_ = os.WriteFile(name, []byte("hi"), 0o644)
 		}
 	}()
 
-	// Blocking reads, no deadline: the event's arrival IS the signal. A watcher
-	// that never starts hangs here until `go test -timeout` fires and names this
-	// test, instead of a 10-second guess.
-	for {
-		mt, msg, err := conn.ReadMessage()
-		require.NoError(t, err)
-		if mt == websocket.TextMessage && len(msg) > 0 {
-			return // a FileChangeEvent arrived: the watcher started lazily on subscribe
-		}
-	}
+	// A FileChangeEvent arriving proves the watcher started lazily on subscribe.
+	conn.ReadMsg(t, wsReadBound)
 }
 
 type fileProbe struct {
@@ -135,20 +114,17 @@ func (fileProbe) PushWorkspace(_ dto.WorkspaceDTO)             {}
 func (fileProbe) PushThread(_ dto.ThreadDTO)                   {}
 func (fileProbe) PushTerminalSession(_ dto.TerminalSessionDTO) {}
 func (fileProbe) PushGit(_ string, _ gitdomain.GitStatus)      {}
-func (fileProbe) PushAgentChat(_, _, _ string, _ bool)         {}
 
 func (fileProbe) PushAgentChatFolder(_, _, _ string) {}
 
-func (fileProbe) PushAgentChatTerminalWait(_, _ string, _ *dto.AgentTerminalWaitDTO) {}
-
 func (fileProbe) PushAgentChatPromptSettled(_, _, _ string, _ bool) {}
 
-func (fileProbe) PushAgentChatMessageDelta(_, _, _, _, _ string)     {}
-func (fileProbe) PushAgentChatPlan(_, _ string, _ []agents.PlanStep) {}
+func (fileProbe) PushAgentChatMessageDelta(_, _, _, _, _ string)         {}
+func (fileProbe) PushAgentChatPlan(_, _ string, _ []agents.PlanStep)     {}
+func (fileProbe) PushAgentChatTelemetry(_, _ string, _ agents.Telemetry) {}
+func (fileProbe) PushAgentChatEvent(_ dto.AgentChatEvent)                {}
 
 func (fileProbe) PushAgentChatCompaction(_, _ string, _ bool) {}
-
-func (fileProbe) PushAgentRunner(_, _, _, _ string) {}
 
 func (p fileProbe) PushFile(
 	e domain.FileChangeEvent,
@@ -170,7 +146,7 @@ func TestWatcherLifecycle_LSPOnlySubscriberDoesNotStartWatcher(t *testing.T) {
 
 	_, err := tc.app.Repositories.Workspace.Create(
 		context.Background(),
-		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", WorktreePath: repoPath},
+		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", WorktreePath: repoPath, Provisioning: domain.WorkspaceProvisioned},
 		time.Unix(1, 0).UTC(),
 	)
 	require.NoError(t, err)
@@ -190,7 +166,7 @@ func TestWatcherLifecycle_LSPOnlySubscriberDoesNotStartWatcher(t *testing.T) {
 
 	// spec §8 step 6 retired editor/LSP's .../workspaces/:wsId/lsp/ws mount
 	// entirely; the flat chat prefix is the only surface left.
-	_ = dialWS(t, srv, "/v0/chats/chat-1/lsp/ws")
+	_ = dialV0(t, srv, "/v0/chats/chat-1/lsp/ws")
 	c.WaitLSPRegistered()
 
 	require.NoError(t, os.WriteFile(filepath.Join(repoPath, "x.txt"), []byte("a"), 0o644))

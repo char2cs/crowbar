@@ -14,6 +14,12 @@ const provider = (id: string, enabled: boolean, mcpEnabled = true): AgentProvide
   connected: true,
   enabled,
   mcpEnabled,
+  modelSelect: false,
+  effortSelect: false,
+  compaction: false,
+  hasTerminal: true,
+  hotswap: false,
+  terminalStartHere: false,
 })
 
 describe('provider-preferences', () => {

@@ -90,7 +90,7 @@ func (m *mockWorkspace) ProvisionInPlace(
 	worktreePath string,
 	forkPointSha string,
 ) (domain.Workspace, error) {
-	return domain.Workspace{ID: id, WorktreePath: worktreePath, ForkPointSha: forkPointSha}, nil
+	return domain.Workspace{ID: id, WorktreePath: worktreePath, ForkPointSha: forkPointSha, Provisioning: domain.WorkspaceProvisioned}, nil
 }
 
 func (m *mockWorkspace) ClearBranch(
@@ -105,7 +105,7 @@ func (m *mockWorkspace) Relocate(
 	id string,
 	worktreePath string,
 ) (domain.Workspace, error) {
-	return domain.Workspace{ID: id, WorktreePath: worktreePath}, nil
+	return domain.Workspace{ID: id, WorktreePath: worktreePath, Provisioning: domain.WorkspaceProvisioned}, nil
 }
 
 func (m *mockWorkspace) RenameBranch(
@@ -134,10 +134,6 @@ func (m *mockWorkspace) SetLastError(ctx context.Context, id, message string) (d
 }
 
 func (m *mockWorkspace) GetHomeForProject(_ context.Context, _ string) (domain.Workspace, error) {
-	return domain.Workspace{}, nil
-}
-
-func (m *mockWorkspace) CreateHome(_ context.Context, _, _ string, _ time.Time) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }
 
@@ -202,17 +198,15 @@ var _ reviewthread.ReviewThread = (*mockReviewThread)(nil)
 // --- local git engine mock ---
 
 type mockGitEngine struct {
-	RangeDiffFn      func(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error)
-	DiffAgainstRefFn func(ctx context.Context, repoPath, ref string) (gitdomain.MultiFileDiff, error)
-	ReviewFilesFn    func(ctx context.Context, repoPath, ref string, dirty []string) ([]gitdomain.ReviewFileSummary, error)
-	//nolint:lll // one field per stub method; wrapping the signature hides which method it stands in for.
+	RangeDiffFn       func(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error)
+	DiffAgainstRefFn  func(ctx context.Context, repoPath, ref string) (gitdomain.MultiFileDiff, error)
+	ReviewFilesFn     func(ctx context.Context, repoPath, ref string, dirty []string) ([]gitdomain.ReviewFileSummary, error)
 	ReviewFilePatchFn func(ctx context.Context, repoPath, ref, path string, maxLines int, w io.Writer) (int, bool, error)
 	ReviewOutlineFn   func(ctx context.Context, repoPath, ref string) ([]gitdomain.FileOutline, error)
-	//nolint:lll // one field per stub method; wrapping the signature hides which method it stands in for.
-	ReviewSearchFn func(ctx context.Context, repoPath, ref, query string, opts gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error)
-	MergeBaseFn    func(ctx context.Context, repoPath, a, b string) (string, error)
-	StatusFn       func(ctx context.Context, repoPath string) (gitdomain.GitStatus, error)
-	RevParseFn     func(ctx context.Context, repoPath, rev string) (string, error)
+	ReviewSearchFn    func(ctx context.Context, repoPath, ref, query string, opts gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error)
+	MergeBaseFn       func(ctx context.Context, repoPath, a, b string) (string, error)
+	StatusFn          func(ctx context.Context, repoPath string) (gitdomain.GitStatus, error)
+	RevParseFn        func(ctx context.Context, repoPath, rev string) (string, error)
 }
 
 func (g *mockGitEngine) RangeDiff(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error) {
@@ -387,8 +381,16 @@ func (g *mockGitEngine) WorktreeAdd(ctx context.Context, repoPath, worktreePath,
 	return nil
 }
 
-func (g *mockGitEngine) WorktreeRemove(ctx context.Context, repoPath, worktreePath string) error {
+func (g *mockGitEngine) WorktreeRemove(ctx context.Context, repoPath, worktreePath string, _ bool) error {
 	return nil
+}
+
+func (g *mockGitEngine) UncommittedFiles(context.Context, string) (int, error) {
+	return 0, nil
+}
+
+func (g *mockGitEngine) UnmergedCommits(context.Context, string, []string, string) (int, error) {
+	return 0, nil
 }
 
 func (g *mockGitEngine) WorktreeRepair(ctx context.Context, repoPath, worktreePath string) error {
@@ -441,7 +443,6 @@ func (g *mockGitEngine) WorktreeAddBranch(ctx context.Context, repoPath, worktre
 	return "", nil
 }
 
-//nolint:lll // stub signature; wrapping it hides which interface method it stands in for.
 func (g *mockGitEngine) WorktreeAddAtRef(ctx context.Context, repoPath, worktreePath, branch, startRef string) (string, error) {
 	return "", nil
 }
@@ -524,7 +525,7 @@ func TestBranchReview_Get_WorkspaceNotFound(t *testing.T) {
 func TestBranchReview_GetFiles_RepoNil(t *testing.T) {
 	ctx := context.Background()
 
-	ws := domain.Workspace{ID: "ws1", RepoID: "gone", Branch: "feat", WorktreePath: "/wt"}
+	ws := domain.Workspace{ID: "ws1", RepoID: "gone", Branch: "feat", WorktreePath: "/wt", Provisioning: domain.WorkspaceProvisioned}
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
 	}
@@ -543,7 +544,7 @@ func TestBranchReview_GetFiles_RepoNil(t *testing.T) {
 func TestBranchReview_GetFiles_RepoStoreError(t *testing.T) {
 	ctx := context.Background()
 
-	ws := domain.Workspace{ID: "ws1", RepoID: "r1", Branch: "feat", WorktreePath: "/wt"}
+	ws := domain.Workspace{ID: "ws1", RepoID: "r1", Branch: "feat", WorktreePath: "/wt", Provisioning: domain.WorkspaceProvisioned}
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
 	}
@@ -561,7 +562,7 @@ func TestBranchReview_GetFiles_RepoStoreError(t *testing.T) {
 func TestBranchReview_Get_ThreadsError(t *testing.T) {
 	ctx := context.Background()
 
-	ws := domain.Workspace{ID: "ws1", RepoID: "r1", Branch: "feat", WorktreePath: "/wt"}
+	ws := domain.Workspace{ID: "ws1", RepoID: "r1", Branch: "feat", WorktreePath: "/wt", Provisioning: domain.WorkspaceProvisioned}
 	repo := domain.Repository{ID: "r1", DefaultBranch: "main"}
 
 	wsMock := &mockWorkspace{
@@ -804,6 +805,7 @@ func TestBranchReview_GetFiles_ParentGetError(t *testing.T) {
 		Branch:       "feat",
 		WorktreePath: "/wt",
 		ParentID:     "parent",
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
@@ -839,6 +841,7 @@ func TestBranchReview_GetFiles_FallsBackToForkPointSha(t *testing.T) {
 		Branch:       "feature",
 		WorktreePath: "/wt/feature",
 		ForkPointSha: "sha123",
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
@@ -876,6 +879,7 @@ func TestBranchReview_GetFiles_PrefersLiveMergeBaseOverStaleForkPoint(t *testing
 		WorktreePath: "/wt/child",
 		ParentID:     "parent",
 		ForkPointSha: "stale-fork-sha",
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	parent := domain.Workspace{ID: "parent", Branch: "develop"}
 	wsMock := &mockWorkspace{
@@ -942,6 +946,7 @@ func TestBranchReview_GetFiles_RootUsesDefaultBranch(t *testing.T) {
 		Branch:        "feature",
 		WorktreePath:  "/wt/feature",
 		MergeStrategy: gitdomain.MergeStrategyMerge,
+		Provisioning:  domain.WorkspaceProvisioned,
 	}
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
@@ -987,6 +992,7 @@ func TestBranchReview_GetFiles_ChildUsesParentBranch(t *testing.T) {
 		Branch:       "feat/child",
 		WorktreePath: "/wt/child",
 		ParentID:     "parent",
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	parent := domain.Workspace{ID: "parent", Branch: "develop"}
 
@@ -1034,7 +1040,7 @@ func TestBranchReview_GetFiles_ChildUsesParentBranch(t *testing.T) {
 func TestBranchReview_GetFiles_InternalGitError_IsNotNotFound(t *testing.T) {
 	ctx := context.Background()
 
-	ws := domain.Workspace{ID: "ws1", RepoID: "repo1", Branch: "feature", WorktreePath: "/wt"}
+	ws := domain.Workspace{ID: "ws1", RepoID: "repo1", Branch: "feature", WorktreePath: "/wt", Provisioning: domain.WorkspaceProvisioned}
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
 	}

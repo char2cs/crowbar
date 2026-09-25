@@ -13,13 +13,18 @@ func (d *detector) evaluate(
 	runner agents.Runner,
 	prev screenCache,
 ) (domain.AgentTerminalWait, screenCache, bool) {
-	if runner.TerminalSession == "" {
-		return domain.AgentTerminalWait{}, screenCache{}, false
-	}
-
 	chat, err := d.deps.Chats.GetChat(ctx, runner.CurrentChatID)
 	if err != nil {
 		return domain.AgentTerminalWait{}, prev, false
+	}
+
+	// An api-channel runner has no screen; only the provider's own idle report
+	// can tell it a turn will never close.
+	if runner.TerminalSession == "" {
+		if chat.Working {
+			d.providerSaysItIsIdle(ctx, runner)
+		}
+		return domain.AgentTerminalWait{}, screenCache{}, false
 	}
 
 	if chat.Working {
@@ -72,9 +77,9 @@ func (d *detector) settleDelivery(
 	// And the DELIVERY's own age, not just the screen's.
 	//
 	// The screen clock above measures how long this PTY has drawn nothing, which
-	// for an api-transport chat (codex) is the wrong question entirely: the PTY
-	// beside that connection is a disconnected companion driving an unrelated
-	// conversation, so it draws nothing for as long as the chat sits idle. Its
+	// for an api-transport chat (codex) is the wrong question entirely: such a
+	// runner has no PTY drawing its conversation, so nothing is drawn for as
+	// long as the chat sits idle. Its
 	// quiet window is therefore ALREADY hours old when a prompt arrives, and the
 	// grace period this timeout exists to give — thirty seconds for the provider
 	// to produce a turn — collapsed to zero: the next sweep, up to two seconds

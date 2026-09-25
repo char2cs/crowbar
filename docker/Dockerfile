@@ -11,6 +11,11 @@ COPY web/dist ./api/cmd/crowbar/web/dist
 
 WORKDIR /build/api
 
+# Precompressed .gz siblings, served by api/internal/api/static.go with no
+# request-time compression. Same step as api/Makefile's embed-web; busybox gzip
+# (alpine) accepts these flags and always writes a zero mtime.
+RUN find cmd/crowbar/web/dist -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.css' -o -name '*.html' -o -name '*.json' -o -name '*.svg' -o -name '*.wasm' -o -name '*.ttf' \) -size +1k -exec gzip -k -n -9 {} +
+
 RUN CGO_ENABLED=0 go build -o /crowbar ./cmd/crowbar
 
 FROM alpine:3.21

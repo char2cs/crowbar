@@ -4,13 +4,13 @@ package kit
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"reflect"
 	"regexp"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/core/terminal"
 )
@@ -200,24 +200,20 @@ type PTYAttacher interface {
 // to — so the engine cannot tell a test from a browser.
 var _ terminal.WSConn = (*PTYTap)(nil)
 
-// WriteMessage receives one PTY output frame ({"sessionId","data","snapshot"}),
+// WriteMessage receives one binary PTY output frame (see ParseTerminalFrame),
 // appends its payload to the tap's buffer and fires the tap's Signal. Every
-// waiter re-checks its predicate against the new screen content.
+// waiter re-checks its predicate against the new screen content. Text frames (the
+// exit frame) carry no screen content.
 func (p *PTYTap) WriteMessage(
 	_ int,
-	data []byte,
+	msg []byte,
 ) error {
-	var frame struct {
-		Data string `json:"data"`
-	}
-	if err := json.Unmarshal(data, &frame); err != nil {
-		return nil //nolint:nilerr // a frame we cannot decode is not a transport failure; keep the tap attached.
-	}
-	if frame.Data == "" {
+	data, _, ok := ParseTerminalFrame(msg)
+	if !ok || len(data) == 0 {
 		return nil
 	}
 	p.mu.Lock()
-	p.buf = append(p.buf, frame.Data...)
+	p.buf = append(p.buf, data...)
 	p.mu.Unlock()
 	p.sig.Fire()
 	return nil
@@ -226,6 +222,8 @@ func (p *PTYTap) WriteMessage(
 // ReadMessage blocks until the tap is closed: a tap sends no input, and the
 // engine's read pump must not spin. Returning an error is what lets Attach
 // unwind cleanly on Close.
+func (p *PTYTap) SetWriteDeadline(time.Time) error { return nil }
+
 func (p *PTYTap) ReadMessage() (int, []byte, error) {
 	<-p.closed
 	return 0, nil, io.EOF

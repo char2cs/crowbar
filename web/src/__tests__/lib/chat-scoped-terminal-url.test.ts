@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-import { terminalCreate, terminalClose, __getBridgeInternals } from '@/lib/crowbar-bridge'
+import { terminalCreate, terminalKill } from '@/lib/crowbar-bridge'
 import {
   chatBase,
   filesBaseForWorkspace,
@@ -235,10 +235,8 @@ describe('terminalCreate', () => {
     expect(requestedUrl).not.toContain('/workspaces/')
     expect(fetchSpy.mock.calls[0][1]).toMatchObject({ method: 'POST' })
 
-    // The base is remembered so DELETE / the PTY WS cannot drift onto a
-    // different scope than the one that created the session.
-    expect(__getBridgeInternals().sessionBases.get('sess-1')).toBe(base)
-    expect(FakeWebSocket.instances[0].url).toContain('/v0/chats/chat-1/terminals/sess-1/ws')
+    // Creating does not dial: the view that shows the session opens its own stream.
+    expect(FakeWebSocket.instances).toHaveLength(0)
   })
 
   it('DELETEs under the same chat base the session was created on', async () => {
@@ -257,7 +255,7 @@ describe('terminalCreate', () => {
       json: async () => ({ success: true, error: null, data: { id: 'sess-2' } }),
     })
 
-    await terminalClose('sess-2')
+    await terminalKill('sess-2')
 
     const deletedUrl = String(fetchSpy.mock.calls[0][0])
     expect(deletedUrl).toContain('/v0/chats/chat-7/terminals/sess-2')

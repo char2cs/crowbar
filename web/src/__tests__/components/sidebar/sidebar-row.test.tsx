@@ -5,7 +5,7 @@ import { Folder, FolderOpen, GitBranch, GitPullRequest, Lock, Warning } from '@p
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import * as rowActions from '@/components/sidebar/lib/row-actions'
-import * as spaceContentActions from '@/components/layout/space-content-actions'
+import * as createActions from '@/components/layout/create-actions'
 import {
   getInitialInlineRenameState,
   useSidebarInlineRenameStore,
@@ -16,8 +16,8 @@ vi.mock('@/components/sidebar/lib/row-actions', async (importOriginal) => ({
   performRenameRow: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock('@/components/layout/space-content-actions', async (importOriginal) => ({
-  ...(await importOriginal<typeof spaceContentActions>()),
+vi.mock('@/components/layout/create-actions', async (importOriginal) => ({
+  ...(await importOriginal<typeof createActions>()),
 }))
 
 vi.mock('@/features/window/stores/toast-store', () => ({
@@ -238,7 +238,7 @@ describe('SidebarRow', () => {
   // Regression, reported live: Fork was offered on a project-home chat with
   // no git repo behind it at all. `row.canFork` is how such a row (set by
   // rows-from-home.ts) says so — Thread stays unaffected, since threading
-  // into the project's own home workspace is real (space-content-actions.ts).
+  // into the project's own home workspace is real (create-actions.ts).
   it('hides Fork (never Thread) on a chat row whose canFork is explicitly false', () => {
     const onCreate = vi.fn()
     render(

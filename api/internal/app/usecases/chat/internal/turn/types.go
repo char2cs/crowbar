@@ -48,6 +48,9 @@ type Conversations interface {
 // turn only this package can release, so a hook that waited on it would deadlock
 // against the very switch waiting on the hook.
 type Runners interface {
+	// ConfirmLaunch records that runnerID's CLI reported something: whatever
+	// session it was launched to resume, it accepted.
+	ConfirmLaunch(runnerID string)
 	// HandleSessionStart applies the placement a CLI has already performed: a
 	// /clear or /resume inside the TUI moves the runner, and Crowbar is told after
 	// the fact.
@@ -57,25 +60,26 @@ type Runners interface {
 		ev engineagents.CanonicalEvent,
 	) error
 	// ConfirmPromptAccepted closes the at-most-once journal entry for a React
-	// submission the CLI has now echoed back as its own user prompt.
+	// submission the CLI has now echoed back as its own user prompt, and
+	// returns that submission's request id ("" when it was none of Crowbar's).
 	ConfirmPromptAccepted(
 		ctx context.Context,
 		chat domain.Chat,
 		runner engineagents.Runner,
 		message string,
-	) error
+	) (string, error)
 	// ReconcilePendingPromptFromLedger settles a delivery whose outcome the journal
 	// could not observe, using what the chat's ledger now shows.
 	ReconcilePendingPromptFromLedger(
 		ctx context.Context,
 		chat domain.Chat,
 	) error
-	// HasLiveAPIConnection reports whether runnerID has an ACTIVE api-transport
-	// connection right now. ownerDropsThisDelivery reads this to recognize a
-	// hooks delivery of an event the descriptor declares owner: api — see its
-	// own comment for why that combination means the delivery is a redundant
-	// echo.
+	// HasLiveAPIConnection reports whether runnerID's channel is an api
+	// connection right now (whose originated-session record is then current).
 	HasLiveAPIConnection(runnerID string) bool
+	// TelemetryOnChatSurface reports whether the chat's current surface
+	// carries its provider's usage report at all.
+	TelemetryOnChatSurface(ctx context.Context, chatID string) bool
 	// ShowingNativeView reports whether runnerID is handed over to its
 	// provider's own view right now (runner.SwitchToTerminal). holdForAnswer
 	// reads it to stay out of a decision the CLI is about to put on screen
@@ -87,10 +91,6 @@ type Runners interface {
 	// sessionID, or is producing one right now. False for a hooks-only runner,
 	// which has no connection that could.
 	OriginatedSession(runnerID, sessionID string) bool
-	// HasDispatchedOverAPI reports whether runnerID's live api connection has
-	// actually carried a prompt, as opposed to merely being established —
-	// ownerDropsThisDelivery's own comment has the full reasoning.
-	HasDispatchedOverAPI(runnerID string) bool
 	// SettleDeliveryFor retires runnerID's pending prompt delivery on chatID
 	// right now, if it has one. handleObservation calls this on compact_post:
 	// compaction never confirms via a user_prompt hook or a ledger turn, so

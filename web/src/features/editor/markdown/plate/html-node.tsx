@@ -44,17 +44,15 @@ export function HtmlElement(props: PlateElementProps) {
   useEffect(() => {
     const el = ref.current
     if (!el || !asset) return
-    let cancelled = false
+    const controller = new AbortController()
     for (const img of Array.from(el.querySelectorAll('img'))) {
       const src = img.getAttribute('src')
       if (!src) continue
-      void loadLocalImage(asset, src).then((url) => {
-        if (url && !cancelled) img.src = url
+      void loadLocalImage(asset, src, controller.signal).then((url) => {
+        if (url && !controller.signal.aborted) img.src = url
       })
     }
-    return () => {
-      cancelled = true
-    }
+    return () => controller.abort()
   }, [clean, asset])
 
   // Anchor clicks are delegated with a NATIVE listener rather than a React

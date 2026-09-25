@@ -409,18 +409,22 @@ func TestEveryCommand_NamesItsAggregateAndEvent(t *testing.T) {
 	}
 }
 
+// Every command loads the aggregate from its last snapshot plus the events
+// after it. Turn edges snapshot, and so does every close edge inside a turn,
+// so a long turn never replays its earlier tool calls; the opening half of
+// each pair stays off the snapshot path.
 func TestSnapshotPolicy_FollowsEventFrequency(t *testing.T) {
 	boundaries := []asynxModels.Command[domain.ChatActivity]{
 		commands.AppendTurn{}, commands.OpenTurn{}, commands.CloseTurn{}, commands.Abandon{},
+		commands.CompleteTool{}, commands.CompleteSubagentTool{}, commands.StopSubagent{},
+		commands.ResolveChoice{},
 	}
 	for _, c := range boundaries {
 		assert.True(t, c.ShouldSnapshot(), "%T", c)
 	}
 	hot := []asynxModels.Command[domain.ChatActivity]{
 		commands.InvokeTool{},
-		commands.CompleteTool{},
 		commands.StartSubagent{},
-		commands.StopSubagent{},
 		commands.Interrupt{},
 		commands.ResolveInterruption{},
 	}

@@ -1,5 +1,5 @@
 import { type ReactNode } from 'react'
-import { ChevronLeft } from 'lucide-react'
+import { CaretLeftIcon } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
@@ -58,7 +58,7 @@ export function NavStack({ children }: NavStackProps) {
                 onClick={pop}
                 className="shrink-0"
               >
-                <ChevronLeft />
+                <CaretLeftIcon />
               </Button>
               <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
                 {screen.title}

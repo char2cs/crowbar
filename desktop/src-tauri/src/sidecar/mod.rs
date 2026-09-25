@@ -38,6 +38,9 @@ const RESTART_MAX: usize = 3;
 const RESTART_WINDOW: Duration = Duration::from_secs(600);
 /// Grace between SIGQUIT (Go dumps goroutines to captured stderr) and SIGKILL.
 const SIGQUIT_GRACE: Duration = Duration::from_secs(2);
+/// How long an intentional stop waits for SIGTERM's graceful shutdown (Container.Close
+/// → Terminal.Shutdown → flush + persist) before resorting to SIGKILL.
+const SIGTERM_GRACE: Duration = Duration::from_secs(3);
 
 /// Holds the child process handle for the crowbar-api sidecar so it can be
 /// killed cleanly when the Tauri window closes, plus the path to the unix
@@ -48,12 +51,13 @@ pub struct SidecarHandle {
     /// Set by the window-close kill path so the supervisor never respawns a
     /// daemon the user is intentionally shutting down.
     pub shutting_down: AtomicBool,
-    /// The daemon's pid as self-reported by /v0/health at spawn; 0 = unknown.
+    /// The pid of the daemon process WE spawned; 0 = none (not spawned, or exited).
     ///
-    /// Every kill path signals THIS pid via libc, never `CommandChild::pid()`:
-    /// that call locks the shared_child mutex the shell plugin's wait thread
-    /// holds for the child's entire lifetime, and deadlocks on a live daemon
-    /// (observed live 2026-07-04 — the watchdog froze mid-kill).
+    /// Recorded from the child handle the instant `spawn` returns — never from
+    /// /v0/health, which answers for whatever process holds the socket (a stale
+    /// daemon from a previous run, say), and so could name a process we must not
+    /// signal. Every kill path signals THIS pid via libc rather than calling into
+    /// the `CommandChild`, whose kill()/pid() take the shared_child lock.
     daemon_pid: AtomicI32,
     restart_budget: Mutex<supervisor::RestartBudget>,
 }
@@ -74,7 +78,7 @@ impl SidecarHandle {
         self.socket_path.lock().unwrap().clone()
     }
 
-    /// The daemon's self-reported pid, if health reporting has captured one.
+    /// The pid of the daemon we spawned, while it is running.
     pub fn daemon_pid(&self) -> Option<i32> {
         match self.daemon_pid.load(Ordering::SeqCst) {
             0 => None,
@@ -219,6 +223,11 @@ pub async fn spawn<R: Runtime>(
     }
 
     let (rx, child) = sidecar.spawn()?;
+    // Read once, here: the plugin's wait thread only holds the shared_child lock
+    // momentarily (shared_child >= 1.1 releases it before blocking in waitid), so
+    // this does not contend with it. From here on the pid is known, so a stop that
+    // lands while the daemon is still booting is a SIGTERM too, not a bare kill.
+    let spawned_pid = i32::try_from(child.pid()).unwrap_or(0);
 
     // Store child + socket path in managed state so it can be killed on window
     // close and so the api_proxy / lib.rs can locate the socket.
@@ -226,11 +235,7 @@ pub async fn spawn<R: Runtime>(
         let state = app.state::<SidecarHandle>();
         state.child.lock().unwrap().replace(child);
         state.socket_path.lock().unwrap().replace(socket.clone());
-        // Belt and braces with handle_termination: from here until wait_for_health
-        // returns below, there IS no known pid for the child we just stored, and
-        // claiming a stale one would make a stop in that window signal the wrong
-        // process and orphan this daemon.
-        state.daemon_pid.store(0, Ordering::SeqCst);
+        state.daemon_pid.store(spawned_pid, Ordering::SeqCst);
     }
 
     // Capture the daemon's stdout/stderr into the daemon log and supervise its
@@ -239,14 +244,17 @@ pub async fn spawn<R: Runtime>(
     tauri::async_runtime::spawn(pump_output(pump_app, rx));
 
     let pid = wait_for_health(&socket, 30).await?;
-    {
-        let state = app.state::<SidecarHandle>();
-        state.daemon_pid.store(pid.unwrap_or(0), Ordering::SeqCst);
+    if let Some(reported) = pid.filter(|reported| *reported != spawned_pid) {
+        // Someone else answers on our socket — a stale daemon from a previous run.
+        // It is not ours to signal; our own process is what a stop must end.
+        log::warn!(
+            "daemon on {} reports pid {reported}, but we spawned {spawned_pid}",
+            socket.display()
+        );
     }
     log::info!(
-        "crowbar daemon is ready on {} (pid {:?})",
-        socket.display(),
-        pid
+        "crowbar daemon is ready on {} (pid {spawned_pid})",
+        socket.display()
     );
     Ok(())
 }
@@ -316,13 +324,7 @@ async fn pump_output<R: Runtime>(
 fn handle_termination<R: Runtime>(app: &AppHandle<R>) {
     let state = app.state::<SidecarHandle>();
     state.child.lock().unwrap().take();
-    // The pid dies with the child. Leaving it set is not merely untidy: `spawn`
-    // does not record the NEW pid until `wait_for_health` returns, which can be
-    // tens of seconds, and anything that stops the daemon in that window would
-    // signal this dead pid, hit ESRCH, and leave the freshly spawned daemon
-    // running — holding the socket, so the next launch cannot bind. Clearing it
-    // sends that path down the `None` arm, which kills the child handle itself.
-    // (A recycled pid would otherwise be signalled instead, which is worse.)
+    // The pid dies with the child: a recycled pid must never be signalled.
     state.daemon_pid.store(0, Ordering::SeqCst);
 
     if state.shutting_down.load(Ordering::SeqCst) {
@@ -635,41 +637,83 @@ async fn process_is_suspended(pid: i32) -> bool {
 /// mutex the shell plugin's wait thread holds for the child's lifetime, which
 /// deadlocked this exact path in the 2026-07-04 live wedge drill.
 async fn kill_wedged<R: Runtime>(app: &AppHandle<R>) {
-    let (child, pid) = {
-        let state = app.state::<SidecarHandle>();
-        let child = state.child.lock().unwrap().take();
-        let pid = state.daemon_pid();
-        // Read it, then clear it — same reason as handle_termination: a stale pid
-        // outliving its child is what lets a later stop signal the wrong process
-        // and orphan the replacement.
-        state.daemon_pid.store(0, Ordering::SeqCst);
-        (child, pid)
+    let Some((child, pid)) = take_child(app.state::<SidecarHandle>().inner()) else {
+        return;
     };
-    let Some(child) = child else { return };
     #[cfg(unix)]
     {
-        match pid {
-            Some(pid) => {
-                let pid = pid as libc::pid_t;
-                unsafe { libc::kill(pid, libc::SIGQUIT) };
-                tokio::time::sleep(SIGQUIT_GRACE).await;
-                // No-op (ESRCH) if the SIGQUIT dump already ended it.
-                unsafe { libc::kill(pid, libc::SIGKILL) };
-                drop(child);
-            }
-            None => {
-                // Daemon predating pid reporting: CommandChild::kill is the
-                // only lever left, deadlock risk and all.
-                log::warn!("daemon pid unknown; falling back to CommandChild::kill");
-                let _ = child.kill();
-            }
-        }
+        let _ = tokio::task::spawn_blocking(move || {
+            signal_then_kill(pid, libc::SIGQUIT, SIGQUIT_GRACE);
+            drop(child);
+        })
+        .await;
     }
     #[cfg(not(unix))]
     {
         let _ = pid;
         let _ = child.kill();
     }
+}
+
+/// Stops the daemon for good — the app is ending (last window closed, or Cmd+Q):
+/// SIGTERM, so it flushes and persists its terminals for the next launch, then
+/// SIGKILL only if it is still running when the grace runs out. Blocks for at most
+/// the grace; idempotent (the second ending finds no child).
+///
+/// Called from BOTH ways the app can end, because they are genuinely different code
+/// paths in tao: the last window being destroyed, and `RunEvent::Exit` — which is
+/// what Cmd+Q produces without closing windows individually.
+pub fn shutdown(state: &SidecarHandle, reason: &str) {
+    // Tell the supervisor this exit is intentional so neither the output pump nor
+    // the watchdog respawns the daemon.
+    state.shutting_down.store(true, Ordering::SeqCst);
+    let Some((child, pid)) = take_child(state) else {
+        log::debug!("daemon shutdown ({reason}): already stopped");
+        return;
+    };
+    log::info!("stopping crowbar daemon ({reason}, pid {pid})");
+    #[cfg(unix)]
+    {
+        signal_then_kill(pid, libc::SIGTERM, SIGTERM_GRACE);
+        drop(child);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        let _ = child.kill();
+    }
+}
+
+/// Takes the running child and its pid out of the handle, so exactly one stop path
+/// owns ending it and no later path can signal a pid that has since been recycled.
+fn take_child(state: &SidecarHandle) -> Option<(CommandChild, i32)> {
+    let child = state.child.lock().unwrap().take()?;
+    let pid = state.daemon_pid.swap(0, Ordering::SeqCst);
+    Some((child, pid))
+}
+
+/// Sends `first` to `pid`, waits up to `grace` for the process to go, and SIGKILLs
+/// it only if it has not. A pid of 0 (never recorded) signals nothing.
+#[cfg(unix)]
+fn signal_then_kill(pid: i32, first: libc::c_int, grace: Duration) {
+    if pid <= 0 {
+        return;
+    }
+    let pid = pid as libc::pid_t;
+    unsafe { libc::kill(pid, first) };
+    let deadline = Instant::now() + grace;
+    // Poll before the first sleep: a daemon that exits promptly is the normal case.
+    loop {
+        // kill(pid, 0) fails (ESRCH) once the process is gone and reaped.
+        if unsafe { libc::kill(pid, 0) } != 0 {
+            return;
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    unsafe { libc::kill(pid, libc::SIGKILL) };
 }
 
 /// Extracts the daemon's self-reported pid from the /v0/health envelope:
@@ -688,6 +732,58 @@ fn parse_health_pid(body: &[u8]) -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::{fnv1a64, override_socket_path, parse_health_pid, socket_path};
+
+    #[cfg(unix)]
+    mod signal_then_kill {
+        use super::super::signal_then_kill;
+        use std::process::Command;
+        use std::time::{Duration, Instant};
+
+        /// Spawn `script` and reap it on a thread, as the shell plugin's wait thread
+        /// does for the real daemon — an unreaped zombie still answers kill(pid, 0).
+        /// Callers hold the fd-test lock: spawning opens descriptors.
+        fn spawn_reaped(script: &str) -> (i32, std::thread::JoinHandle<()>) {
+            let mut child = Command::new("/bin/sh")
+                .args(["-c", script])
+                .spawn()
+                .unwrap();
+            let pid = child.id() as i32;
+            let reaper = std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+            (pid, reaper)
+        }
+
+        #[test]
+        fn a_process_that_honours_the_first_signal_is_not_waited_out() {
+            let _serialised = crate::test_support::fd_tests_blocking();
+            let (pid, reaper) = spawn_reaped("exec sleep 30");
+            let started = Instant::now();
+            signal_then_kill(pid, libc::SIGTERM, Duration::from_secs(10));
+            reaper.join().unwrap();
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "a daemon that exits on SIGTERM must not be held for the whole grace"
+            );
+        }
+
+        #[test]
+        fn a_process_that_ignores_the_first_signal_is_killed_after_the_grace() {
+            let _serialised = crate::test_support::fd_tests_blocking();
+            // Signal-ignoring: the shell traps TERM and waits on its child.
+            let (pid, reaper) = spawn_reaped("trap '' TERM; while :; do sleep 1; done");
+            std::thread::sleep(Duration::from_millis(100)); // let the trap install
+            signal_then_kill(pid, libc::SIGTERM, Duration::from_millis(200));
+            reaper.join().unwrap(); // returns only because SIGKILL ended it
+            assert_ne!(unsafe { libc::kill(pid, 0) }, 0);
+        }
+
+        #[test]
+        fn a_zero_pid_signals_nothing() {
+            // kill(0, sig) would signal our whole process group.
+            signal_then_kill(0, libc::SIGTERM, Duration::from_millis(1));
+        }
+    }
 
     #[test]
     fn parse_health_pid_reads_the_envelope() {

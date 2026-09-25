@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 
-import { useDraggable, useDropLine } from '@platejs/dnd'
 import { BlockSelectionPlugin, useBlockSelected } from '@platejs/selection/react'
 import { resizeLengthClampStatic } from '@platejs/resizable'
 import {
@@ -29,31 +28,23 @@ import {
   useTableValue,
 } from '@platejs/table/react'
 import {
-  ArrowDown,
-  ArrowLeft,
-  ArrowRight,
-  ArrowUp,
-  CombineIcon,
+  ArrowDownIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ArrowUpIcon,
+  DotsSixVerticalIcon,
   EraserIcon,
-  Grid2X2Icon,
-  GripVertical,
+  GridFourIcon,
   PaintBucketIcon,
   SquareSplitHorizontalIcon,
-  Trash2Icon,
+  TrashIcon,
+  UniteIcon,
   XIcon,
-} from 'lucide-react'
-import {
-  type TElement,
-  type TTableCellElement,
-  type TTableElement,
-  type TTableRowElement,
-  KEYS,
-  PathApi,
-} from 'platejs'
+} from '@phosphor-icons/react'
+import { type TTableCellElement, type TTableElement, type TTableRowElement, KEYS } from 'platejs'
 import {
   type PlateElementProps,
   PlateElement,
-  useComposedRef,
   useEditorPlugin,
   useEditorRef,
   useEditorSelector,
@@ -67,7 +58,8 @@ import {
 } from 'platejs/react'
 import { useElementSelector } from 'platejs/react'
 
-import * as PopoverPrimitive from '@radix-ui/react-popover'
+import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
+import { useRender } from '@base-ui/react/use-render'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -81,24 +73,23 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 
-// `@/components/ui/popover` wraps `@base-ui/react/popover`, which has no
-// `Anchor` sub-component (base-ui anchors via a Positioner `anchor` prop
-// instead). The floating table toolbar below needs Radix's
-// anchor-without-a-trigger pattern, so it uses `@radix-ui/react-popover`
-// directly and stays self-contained rather than touching the shared file.
-const Popover = PopoverPrimitive.Root
+// The floating table toolbar has no trigger: it anchors to the table itself.
+// base-ui anchors through the Positioner's `anchor` prop, so the table
+// registers its element here and the toolbar positions against it.
+const TableToolbarAnchor = React.createContext<Element | null>(null)
 
-function PopoverAnchor({ children }: { children: React.ReactNode }) {
-  return <PopoverPrimitive.Anchor asChild>{children as React.ReactElement}</PopoverPrimitive.Anchor>
-}
-
-function PopoverContent({
-  className,
-  ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+function PopoverContent({ children }: { children: React.ReactElement }) {
+  const anchor = React.useContext(TableToolbarAnchor)
   return (
     <PopoverPrimitive.Portal>
-      <PopoverPrimitive.Content className={cn('z-50 outline-none', className)} {...props} />
+      <PopoverPrimitive.Positioner anchor={anchor} className="z-50">
+        <PopoverPrimitive.Popup
+          className="outline-none"
+          initialFocus={false}
+          finalFocus={false}
+          render={children}
+        />
+      </PopoverPrimitive.Positioner>
     </PopoverPrimitive.Portal>
   )
 }
@@ -711,7 +702,7 @@ export const TableElement = withHOC(
   },
 )
 
-function TableFloatingToolbar({ children, ...props }: React.ComponentProps<typeof PopoverContent>) {
+function TableFloatingToolbar({ children }: { children: React.ReactElement }) {
   const selectedCellCount = useEditorSelector(
     (editor) => editor.getApi(TablePlugin).table.getSelectedCellIds()?.length ?? 0,
     [],
@@ -750,20 +741,21 @@ function TableFloatingToolbar({ children, ...props }: React.ComponentProps<typeo
     isExpandedSelectionToolbarReady && isExpandedSelectionPending
   const isToolbarOpen = isSingleCellToolbarOpen || shouldRenderExpandedSelectionToolbar
 
+  const [anchor, setAnchor] = React.useState<Element | null>(null)
+  const anchoredTable = useRender({ render: children, ref: setAnchor })
+
   return (
-    <Popover open={isToolbarOpen} modal={false}>
-      <PopoverAnchor>{children}</PopoverAnchor>
-      {isSingleCellToolbarOpen && <SingleCellTableFloatingToolbarContent {...props} />}
-      {shouldRenderExpandedSelectionToolbar && (
-        <ExpandedSelectionTableFloatingToolbarContent {...props} />
-      )}
-    </Popover>
+    <TableToolbarAnchor.Provider value={anchor}>
+      {anchoredTable}
+      <PopoverPrimitive.Root open={isToolbarOpen} modal={false}>
+        {isSingleCellToolbarOpen && <SingleCellTableFloatingToolbarContent />}
+        {shouldRenderExpandedSelectionToolbar && <ExpandedSelectionTableFloatingToolbarContent />}
+      </PopoverPrimitive.Root>
+    </TableToolbarAnchor.Provider>
   )
 }
 
-function ExpandedSelectionTableFloatingToolbarContent(
-  props: React.ComponentProps<typeof PopoverContent>,
-) {
+function ExpandedSelectionTableFloatingToolbarContent() {
   const { tf } = useEditorPlugin(TablePlugin)
   const { canMerge, canSplit } = useTableMergeState()
 
@@ -775,12 +767,11 @@ function ExpandedSelectionTableFloatingToolbarContent(
       canSplit={canSplit}
       onMerge={() => tf.table.merge()}
       onSplit={() => tf.table.split()}
-      {...props}
     />
   )
 }
 
-function SingleCellTableFloatingToolbarContent(props: React.ComponentProps<typeof PopoverContent>) {
+function SingleCellTableFloatingToolbarContent() {
   const { tf } = useEditorPlugin(TablePlugin)
   const element = useElement<TTableElement>()
   const { props: buttonProps } = useRemoveNodeButton({ element })
@@ -810,7 +801,6 @@ function SingleCellTableFloatingToolbarContent(props: React.ComponentProps<typeo
         tf.insert.tableRow({ before: true })
       }}
       onSplit={() => tf.table.split()}
-      {...props}
     />
   )
 }
@@ -828,8 +818,7 @@ function TableFloatingToolbarContent({
   onInsertRowBefore,
   onMerge,
   onSplit,
-  ...props
-}: React.ComponentProps<typeof PopoverContent> & {
+}: {
   buttonProps?: React.ComponentProps<typeof ToolbarButton>
   canMerge?: boolean
   canSplit?: boolean
@@ -844,7 +833,7 @@ function TableFloatingToolbarContent({
   onSplit?: () => void
 }) {
   return (
-    <PopoverContent asChild onOpenAutoFocus={(e) => e.preventDefault()} {...props}>
+    <PopoverContent>
       <Toolbar
         className="flex w-auto max-w-[80vw] flex-row overflow-x-auto rounded-md border bg-popover p-1 shadow-md print:hidden [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
         contentEditable={false}
@@ -859,7 +848,7 @@ function TableFloatingToolbarContent({
               onMouseDown={(e) => e.preventDefault()}
               tooltip="Merge cells"
             >
-              <CombineIcon />
+              <UniteIcon />
             </ToolbarButton>
           )}
           {canSplit && onSplit && (
@@ -874,7 +863,7 @@ function TableFloatingToolbarContent({
 
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger render={<ToolbarButton tooltip="Cell borders" />}>
-              <Grid2X2Icon />
+              <GridFourIcon />
             </DropdownMenuTrigger>
 
             <DropdownMenuPortal>
@@ -885,7 +874,7 @@ function TableFloatingToolbarContent({
           {singleCellMode && (
             <ToolbarGroup>
               <ToolbarButton tooltip="Delete table" {...buttonProps}>
-                <Trash2Icon />
+                <TrashIcon />
               </ToolbarButton>
             </ToolbarGroup>
           )}
@@ -897,14 +886,14 @@ function TableFloatingToolbarContent({
               onMouseDown={(e) => e.preventDefault()}
               tooltip="Insert row before"
             >
-              <ArrowUp />
+              <ArrowUpIcon />
             </ToolbarButton>
             <ToolbarButton
               onClick={onInsertRowAfter}
               onMouseDown={(e) => e.preventDefault()}
               tooltip="Insert row after"
             >
-              <ArrowDown />
+              <ArrowDownIcon />
             </ToolbarButton>
             <ToolbarButton
               onClick={onDeleteRow}
@@ -922,14 +911,14 @@ function TableFloatingToolbarContent({
               onMouseDown={(e) => e.preventDefault()}
               tooltip="Insert column before"
             >
-              <ArrowLeft />
+              <ArrowLeftIcon />
             </ToolbarButton>
             <ToolbarButton
               onClick={onInsertColumnAfter}
               onMouseDown={(e) => e.preventDefault()}
               tooltip="Insert column after"
             >
-              <ArrowRight />
+              <ArrowRightIcon />
             </ToolbarButton>
             <ToolbarButton
               onClick={onDeleteColumn}
@@ -1084,26 +1073,11 @@ export function TableRowElement({ children, ...props }: PlateElementProps<TTable
   const isSelectionAreaVisible = usePluginOption(BlockSelectionPlugin, 'isSelectionAreaVisible')
   const hasControls = !readOnly && !isSelectionAreaVisible
 
-  const { isDragging, nodeRef, previewRef, handleRef } = useDraggable({
-    element,
-    type: element.type,
-    canDropNode: ({ dragEntry, dropEntry }) =>
-      !!dragEntry && PathApi.equals(PathApi.parent(dragEntry[1]), PathApi.parent(dropEntry[1])),
-    onDropHandler: (_, { dragItem }) => {
-      const dragElement = (dragItem as { element: TElement }).element
-
-      if (dragElement) {
-        editor.tf.select(dragElement)
-      }
-    },
-  })
-
   return (
     <PlateElement
       {...props}
-      ref={useComposedRef(props.ref, previewRef, nodeRef)}
       as="tr"
-      className={cn('group/row', isDragging && 'opacity-50')}
+      className="group/row"
       style={
         {
           ...props.style,
@@ -1113,8 +1087,7 @@ export function TableRowElement({ children, ...props }: PlateElementProps<TTable
     >
       {hasControls && (
         <td className="w-2 min-w-2 max-w-2 select-none p-0" contentEditable={false}>
-          <RowDragHandle dragRef={handleRef} />
-          <RowDropLine />
+          <RowSelectHandle onSelect={() => editor.tf.select(element)} />
         </td>
       )}
 
@@ -1149,40 +1122,22 @@ function useTableCellPresentation(element: TTableCellElement) {
   }
 }
 
-function RowDragHandle({ dragRef }: { dragRef: React.Ref<HTMLButtonElement> }) {
-  const editor = useEditorRef()
-  const element = useElement()
-
+// Selects the row. Rows were never draggable in the file editor: the drag
+// plumbing this handle once carried needed a Plate dnd plugin the editor never
+// registered.
+function RowSelectHandle({ onSelect }: { onSelect: () => void }) {
   return (
     <Button
-      ref={dragRef}
       variant="outline"
+      aria-label="Select row"
       className={cn(
         '-translate-y-1/2 absolute top-1/2 left-0 z-51 h-6 w-4 p-0 focus-visible:ring-0 focus-visible:ring-offset-0',
-        'cursor-grab active:cursor-grabbing',
         'opacity-0 transition-opacity duration-100 group-hover/row:opacity-100 group-data-[table-resizing=true]/row:opacity-0',
       )}
-      onClick={() => {
-        editor.tf.select(element)
-      }}
+      onClick={onSelect}
     >
-      <GripVertical className="text-muted-foreground" />
+      <DotsSixVerticalIcon className="text-muted-foreground" />
     </Button>
-  )
-}
-
-function RowDropLine() {
-  const { dropLine } = useDropLine()
-
-  if (!dropLine) return null
-
-  return (
-    <div
-      className={cn(
-        'absolute inset-x-0 left-2 z-50 h-0.5 bg-brand/50',
-        dropLine === 'top' ? '-top-px' : '-bottom-px',
-      )}
-    />
   )
 }
 

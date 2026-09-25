@@ -76,8 +76,8 @@ func TestRebaseOntoParent_GetParentError(t *testing.T) {
 }
 
 func TestRebaseOntoParent_ParentTipRevParseError(t *testing.T) {
-	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork"}
-	parent := domain.Workspace{ID: "p", WorktreePath: "/pw"}
+	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
+	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Provisioning: domain.WorkspaceProvisioned}
 	g := &fakeGit{revParseErr: errBoom}
 	uc := hierarchy.New(rebaseWS(child, parent), g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.RebaseOntoParent(context.Background(), "c")
@@ -89,8 +89,8 @@ func TestRebaseOntoParent_ParentTipRevParseError(t *testing.T) {
 // fork point via the same settle path Reparent uses, rather than leaving
 // anything predicted-conflicting.
 func TestRebaseOntoParent_CleanRebase_SettlesOntoParentTip(t *testing.T) {
-	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork"}
-	parent := domain.Workspace{ID: "p", WorktreePath: "/pw"}
+	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
+	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Provisioning: domain.WorkspaceProvisioned}
 	ws := rebaseWS(child, parent)
 	var rID, rParent, rSha string
 	ws.ReparentFn = func(_ context.Context, id, parentID, forkPointSha string, _ time.Time) (domain.Workspace, error) {
@@ -109,8 +109,8 @@ func TestRebaseOntoParent_CleanRebase_SettlesOntoParentTip(t *testing.T) {
 }
 
 func TestRebaseOntoParent_NonConflictRebaseError_Propagates(t *testing.T) {
-	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork"}
-	parent := domain.Workspace{ID: "p", WorktreePath: "/pw"}
+	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
+	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Provisioning: domain.WorkspaceProvisioned}
 	g := &fakeGit{revParseSha: "ptip", rebaseOnto: errBoom}
 	uc := hierarchy.New(rebaseWS(child, parent), g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.RebaseOntoParent(context.Background(), "c")
@@ -124,8 +124,8 @@ func TestRebaseOntoParent_NonConflictRebaseError_Propagates(t *testing.T) {
 // fork point (the parent's tip) is persisted up front and the child is flagged
 // pr-conflicts so it reads correctly once resolved.
 func TestRebaseOntoParent_ConflictPersistsForkPointAndFlagsConflicts(t *testing.T) {
-	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork"}
-	parent := domain.Workspace{ID: "p", WorktreePath: "/pw"}
+	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
+	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Provisioning: domain.WorkspaceProvisioned}
 	ws := rebaseWS(child, parent)
 	var rID, rParent, rSha string
 	ws.ReparentFn = func(_ context.Context, id, parentID, forkPointSha string, _ time.Time) (domain.Workspace, error) {
@@ -153,8 +153,8 @@ func TestRebaseOntoParent_ConflictPersistsForkPointAndFlagsConflicts(t *testing.
 }
 
 func TestRebaseOntoParent_ConflictPersistError(t *testing.T) {
-	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork"}
-	parent := domain.Workspace{ID: "p", WorktreePath: "/pw"}
+	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
+	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Provisioning: domain.WorkspaceProvisioned}
 	ws := rebaseWS(child, parent)
 	ws.ReparentFn = func(_ context.Context, _, _, _ string, _ time.Time) (domain.Workspace, error) {
 		return domain.Workspace{}, errBoom
@@ -166,8 +166,8 @@ func TestRebaseOntoParent_ConflictPersistError(t *testing.T) {
 }
 
 func TestRebaseOntoParent_ConflictSetConflictsError(t *testing.T) {
-	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork"}
-	parent := domain.Workspace{ID: "p", WorktreePath: "/pw"}
+	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
+	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Provisioning: domain.WorkspaceProvisioned}
 	ws := rebaseWS(child, parent)
 	ws.ReparentFn = func(_ context.Context, id, _, _ string, _ time.Time) (domain.Workspace, error) {
 		return domain.Workspace{ID: id}, nil

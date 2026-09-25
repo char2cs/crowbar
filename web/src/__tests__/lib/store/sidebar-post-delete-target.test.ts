@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { getPostDeleteNavigationTarget } from '@/lib/store/sidebar'
+import { getPostDeleteNavigationTarget } from '@/lib/store/repo-tree'
 import type { Repo } from '@/lib/store/sidebar'
 
 // BUG-007: after drag-to-delete of the ACTIVE workspace the app must navigate

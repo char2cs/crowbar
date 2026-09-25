@@ -1085,35 +1085,6 @@ func TestApply_AcceptsTerminalStartHereForAnAPITransportWithAHooksTerminal(t *te
 	assert.NoError(t, rules.Apply(d))
 }
 
-// Design spec P6b tag 1: owner: is a spelling check only, never a policy
-// veto on WHICH events may declare one.
-func TestApply_DeclaringNoOwnerIsValid(t *testing.T) {
-	require.NoError(t, rules.Apply(valid()))
-}
-
-func TestApply_AcceptsEveryDeclaredOwnerValue(t *testing.T) {
-	for _, owner := range []string{spec.OwnerAPI, spec.OwnerHooks, spec.OwnerEither} {
-		d := valid()
-		e := d.Events[spec.HookTurnStop]
-		e.Owner = owner
-		d.Events[spec.HookTurnStop] = e
-
-		assert.NoError(t, rules.Apply(d), "owner: %q must be accepted", owner)
-	}
-}
-
-func TestApply_RejectsAnUnknownOwnerValue(t *testing.T) {
-	d := valid()
-	e := d.Events[spec.HookTurnStop]
-	e.Owner = "carrier-pigeon"
-	d.Events[spec.HookTurnStop] = e
-
-	err := rules.Apply(d)
-
-	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
-	assert.Contains(t, err.Error(), "owner")
-}
-
 // Design spec P6b tag 2: per-event surfaces: is a spelling check only — NO
 // CROWBAR-SIDE VETO on which events may gate off a surface, even the only
 // writer of a ledger fact (that is reported, not rejected — see

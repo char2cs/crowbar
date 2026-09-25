@@ -116,7 +116,7 @@ func (u *hierarchyUsecase) discardUnownedWorkspace(
 	ws domain.Workspace,
 	cause error,
 ) error {
-	if err := u.removeOne(ctx, ws, ""); err != nil {
+	if err := u.removeOne(ctx, ws, u.repoRefFor(ctx, ws.RepoID), nil); err != nil {
 		slog.WarnContext(ctx, "import: discard the workspace no chat came to own",
 			"workspace_id", ws.ID, "err", err)
 	}

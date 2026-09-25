@@ -1,6 +1,9 @@
 package provider_test
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/provider"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
 // newTable builds the provider table over the SHIPPED descriptors and a real
@@ -54,6 +58,71 @@ func TestResolveProviders_ListsTheShippedDescriptors(t *testing.T) {
 		assert.True(t, p.MCPEnabled, "and may use the tool surface")
 		assert.False(t, p.Connected, "the install probe said otherwise")
 	}
+}
+
+// A broken override is reported with its findings rather than silently
+// dropping the provider it replaces.
+func TestDescriptorReports_ReportsABrokenOverrideItRefusesToEnable(t *testing.T) {
+	t.Parallel()
+	prefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
+	require.NoError(t, err)
+	home := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", "codex.yaml"), []byte("id: codex\n"), 0o600))
+	table := provider.New(provider.Deps{
+		Agents: engineagents.New(), Home: func() (string, error) { return home, nil }, Prefs: prefs,
+		Installed: func(engineagents.Agent) bool { return false },
+	})
+
+	reports, err := table.DescriptorReports(t.Context())
+	require.NoError(t, err)
+	byID := map[string]bool{}
+	for _, r := range reports {
+		byID[r.ID] = r.OK()
+	}
+	assert.Equal(t, map[string]bool{"claude": true, "codex": false}, byID)
+
+	providers, err := table.ResolveProviders(t.Context())
+	require.NoError(t, err)
+	assert.NotContains(t, ids(providers), "codex", "a blocked descriptor is never enabled")
+}
+
+// A descriptor that loads but fails a static rule (here: a shell as its
+// command) never launches: every spawn goes through this refusal. (An override
+// of a shipped provider is refused in favour of the shipped descriptor instead;
+// this is a provider with no shipped default to fall back to.)
+func TestRequireProviderEnabled_RefusesADescriptorWithAnError(t *testing.T) {
+	t.Parallel()
+	prefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
+	require.NoError(t, err)
+	home := t.TempDir()
+	shipped, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "engine", "agents", "internal",
+		"protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
+	require.NoError(t, err)
+	shell := strings.Replace(string(shipped), "  cmd: claude\n  interactive_required", "  cmd: /bin/sh\n  interactive_required", 1)
+	shell = strings.Replace(shell, "\nid: claude\n", "\nid: acme\n", 1)
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", "acme.yaml"), []byte(shell), 0o600))
+	table := provider.New(provider.Deps{
+		Agents: engineagents.New(), Home: func() (string, error) { return home, nil }, Prefs: prefs,
+	})
+
+	err = table.RequireProviderEnabled(t.Context(), "acme")
+
+	require.ErrorIs(t, err, descriptorcheck.ErrBlocked)
+	require.ErrorIs(t, err, apperr.ErrUnprocessable)
+	assert.Contains(t, err.Error(), "is a shell")
+	assert.NoError(t, table.RequireProviderEnabled(t.Context(), "codex"), "the shipped codex is untouched")
+}
+
+func TestDescriptorReports_SurfacesAHomeFailure(t *testing.T) {
+	t.Parallel()
+	table := provider.New(provider.Deps{
+		Agents: engineagents.New(), Home: func() (string, error) { return "", assert.AnError },
+	})
+
+	_, err := table.DescriptorReports(t.Context())
+	require.ErrorIs(t, err, assert.AnError)
 }
 
 // TestResolveProviders_CarriesTerminalStartHereFromTheDescriptor pins the

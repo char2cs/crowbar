@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act, render } from '@testing-library/react'
 import AsciiCrowbar from '@/features/panes/components/ascii-crowbar'
+import { INTRO_MS } from '@/features/panes/components/ascii-crowbar-renderer'
 
 /**
- * The tumbling backdrop pauses ONLY when it is invisible — offscreen, or the tab
- * hidden. It must keep tumbling while the app window merely isn't the key
- * window: a background desktop window is still on screen, and a backdrop that
- * freezes the instant you click another app is a visible defect. These tests pin
- * that, so a future CPU "optimisation" can't reintroduce a focus/blur gate.
+ * The backdrop tumbles for a brief intro after mount and then settles on a
+ * static frame with NOTHING scheduled — an empty pane is idle, and idle costs
+ * nothing. During the intro it pauses only when invisible (offscreen, or the
+ * tab hidden), never on window focus.
  *
  * rAF is stubbed and driven by hand — no timers, no real waiting.
  *
@@ -88,7 +88,32 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('AsciiCrowbar — the frame loop is gated on visibility, never on focus', () => {
+describe('AsciiCrowbar — idle costs nothing', () => {
+  it('settles after the intro and leaves no frame or timer scheduled', () => {
+    // rAF stays the hand-driven stub; only real timers are faked.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'setImmediate'] })
+    try {
+      render(<AsciiCrowbar width={40} height={20} />)
+      expect(pending.size).toBe(1)
+      for (let t = 16; t <= INTRO_MS + 64; t += 16) flushFrame(t)
+      expect(pending.size).toBe(0)
+      expect(vi.getTimerCount()).toBe(0)
+      // The settled frame is on the canvas.
+      expect(rowsOf()).toHaveLength(20)
+
+      // Nothing re-arms it: not focus, not visibility.
+      act(() => {
+        window.dispatchEvent(new Event('focus'))
+        document.dispatchEvent(new Event('visibilitychange'))
+      })
+      expect(pending.size).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('AsciiCrowbar — the intro is gated on visibility, never on focus', () => {
   it('runs while the tab is visible', () => {
     render(<AsciiCrowbar />)
     expect(pending.size).toBe(1)

@@ -21,8 +21,8 @@ import (
 // parent's tip, so diffs read against the true shared history until a later
 // clean rebase finalizes it.
 func TestReparent_ConflictAbortsAndSettlesAtMergeBase(t *testing.T) {
-	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork"}
-	newParent := domain.Workspace{ID: "np", WorktreePath: "/np"}
+	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
+	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
 	ws := reparentWS(child, newParent, nil)
 	var rID, rParent, rSha string
 	ws.ReparentFn = func(_ context.Context, id, parentID, forkPointSha string, _ time.Time) (domain.Workspace, error) {
@@ -46,8 +46,8 @@ func TestReparent_ConflictAbortsAndSettlesAtMergeBase(t *testing.T) {
 // itself fails, Reparent surfaces the error and never persists the move — a
 // stuck mid-rebase worktree must not be silently reported as reparented.
 func TestReparent_ConflictAbortFails(t *testing.T) {
-	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork"}
-	newParent := domain.Workspace{ID: "np", WorktreePath: "/np"}
+	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
+	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
 	ws := reparentWS(child, newParent, nil)
 	persisted := false
 	ws.ReparentFn = func(_ context.Context, id, _, _ string, _ time.Time) (domain.Workspace, error) {
@@ -66,8 +66,8 @@ func TestReparent_ConflictAbortFails(t *testing.T) {
 // TestReparent_ConflictMergeBaseFails proves a merge-base resolution failure
 // (after a successful abort) surfaces cleanly and never persists the move.
 func TestReparent_ConflictMergeBaseFails(t *testing.T) {
-	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork"}
-	newParent := domain.Workspace{ID: "np", WorktreePath: "/np"}
+	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
+	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
 	ws := reparentWS(child, newParent, nil)
 	persisted := false
 	ws.ReparentFn = func(_ context.Context, id, _, _ string, _ time.Time) (domain.Workspace, error) {
@@ -86,8 +86,8 @@ func TestReparent_ConflictMergeBaseFails(t *testing.T) {
 // (the aggregate write) surfaces the error, even though the git-side rebase
 // already succeeded.
 func TestReparent_PersistError(t *testing.T) {
-	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork"}
-	newParent := domain.Workspace{ID: "np", WorktreePath: "/np"}
+	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
+	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
 	ws := reparentWS(child, newParent, nil)
 	ws.ReparentFn = func(_ context.Context, _, _, _ string, _ time.Time) (domain.Workspace, error) {
 		return domain.Workspace{}, errBoom
@@ -105,8 +105,8 @@ func TestReparent_PersistError(t *testing.T) {
 // covers), Reparent still reports success — the resync is best-effort and the
 // read model self-corrects on the next watcher event.
 func TestReparent_ResyncSummaryError_IsBestEffort(t *testing.T) {
-	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork"}
-	newParent := domain.Workspace{ID: "np", WorktreePath: "/np"}
+	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
+	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
 	ws := reparentWS(child, newParent, nil)
 	ws.ReparentFn = func(_ context.Context, id, _, _ string, _ time.Time) (domain.Workspace, error) {
 		return domain.Workspace{ID: id}, nil

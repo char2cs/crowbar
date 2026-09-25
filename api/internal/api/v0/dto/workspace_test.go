@@ -96,6 +96,7 @@ func TestWorkspaceDTOFrom(
 		PRTargetBranch: "main",
 		Working:        true,
 		LastError:      "boom",
+		Provisioning:   domain.WorkspaceProvisioned,
 	}, workspace.MergeEligibility{}, "chat-1",
 		fakePlacement{"w1": {folderID: "f1", order: 4}})
 	assert.Equal(t, "w1", got.ID)
@@ -117,7 +118,7 @@ func TestWorkspaceDTOFrom(
 	// Eligibility is supplied by the caller; an empty overlay maps to zero
 	// values.
 	assert.False(t, got.CanMergeLocally)
-	assert.Equal(t, "", got.ParentBranch)
+	assert.Empty(t, got.ParentBranch)
 	assert.Equal(t, "chat-1", got.OwningChatID)
 	assert.Equal(t, "f1", got.FolderID)
 	assert.Equal(t, 4, got.Order)
@@ -148,6 +149,7 @@ func TestWorkspaceDTO_WireFields(
 		Working:      true,
 		LastError:    "oops",
 		WorktreePath: "/wt",
+		Provisioning: domain.WorkspaceProvisioned,
 	}, workspace.MergeEligibility{}, "chat-1", fakePlacement{"w1": {folderID: "f1", order: 2}}))
 	require.NoError(t, err)
 
@@ -192,7 +194,7 @@ func TestWorkspaceDTO_OwningChatIDNeverOmitted(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	value, present := decoded["owningChatId"]
 	assert.True(t, present, "owningChatId must be present even when empty")
-	assert.Equal(t, "", value)
+	assert.Empty(t, value)
 }
 
 // TestWorkspaceDTO_FolderIDAndOrderNeverOmitted mirrors
@@ -208,7 +210,7 @@ func TestWorkspaceDTO_FolderIDAndOrderNeverOmitted(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	folderID, present := decoded["folderId"]
 	assert.True(t, present, "folderId must be present even when empty")
-	assert.Equal(t, "", folderID)
+	assert.Empty(t, folderID)
 	order, present := decoded["order"]
 	assert.True(t, present, "order must be present even when zero")
 	assert.Equal(t, float64(0), order)
@@ -236,7 +238,7 @@ func TestWorkspaceDTOFrom_UnknownToTheReaderDegradesToZeroValue(t *testing.T) {
 
 	got := dto.WorkspaceDTOFrom(ctx, domain.Workspace{ID: "w1"}, workspace.MergeEligibility{}, "", reader)
 
-	assert.Equal(t, "", got.FolderID)
+	assert.Empty(t, got.FolderID)
 	assert.Equal(t, 0, got.Order)
 }
 
@@ -263,7 +265,7 @@ func TestWorkspaceDTOListEmptyNonNil(
 ) {
 	got := dto.WorkspaceDTOList(ctx, nil, noElig, noOwningChatID, nil)
 	require.NotNil(t, got)
-	assert.Len(t, got, 0)
+	assert.Empty(t, got)
 }
 
 func TestWorkspaceDTOList(
@@ -331,7 +333,7 @@ func TestWorkspaceDTOList_AppliesEligFn(
 	assert.True(t, got[0].CanMergeLocally)
 	assert.Equal(t, "main", got[0].ParentBranch)
 	assert.False(t, got[1].CanMergeLocally)
-	assert.Equal(t, "", got[1].ParentBranch)
+	assert.Empty(t, got[1].ParentBranch)
 }
 
 // TestWorkspaceDTOList_AppliesOwningChatIDFn pins that the per-row
@@ -352,7 +354,7 @@ func TestWorkspaceDTOList_AppliesOwningChatIDFn(
 	}, noElig, owningChatIDFn, nil)
 	require.Len(t, got, 2)
 	assert.Equal(t, "chat-1", got[0].OwningChatID)
-	assert.Equal(t, "", got[1].OwningChatID)
+	assert.Empty(t, got[1].OwningChatID)
 }
 
 // TestWorkspaceDTOList_AppliesPlacementReader mirrors
@@ -369,7 +371,7 @@ func TestWorkspaceDTOList_AppliesPlacementReader(
 	require.Len(t, got, 2)
 	assert.Equal(t, "docs", got[0].FolderID)
 	assert.Equal(t, 5, got[0].Order)
-	assert.Equal(t, "", got[1].FolderID)
+	assert.Empty(t, got[1].FolderID)
 	assert.Equal(t, 0, got[1].Order)
 }
 
@@ -395,7 +397,7 @@ func TestWorkspaceDTOFrom_MapsIsDefault(t *testing.T) {
 func TestWorkspaceDTOFrom_MapsHeldByPath(t *testing.T) {
 	got := dto.WorkspaceDTOFrom(
 		ctx,
-		domain.Workspace{ID: "w1", HeldByPath: "/Users/me/proj"},
+		domain.Workspace{ID: "w1", HeldByPath: "/Users/me/proj", Provisioning: domain.WorkspacePlaceholder},
 		workspace.MergeEligibility{}, "", nil,
 	)
 	assert.Equal(t, "/Users/me/proj", got.HeldByPath)

@@ -106,11 +106,10 @@ func TestTerminateGraceful_OnExitFiresAfterGracefulSignal(t *testing.T) {
 // its onExit fired exactly once, after consuming the (shortened, for test
 // speed) grace window.
 func TestTerminateGraceful_FallsBackToKill_OnExitStillFires(t *testing.T) {
-	restore := SetGracefulTerminateGraceForTest(200 * time.Millisecond)
-	defer restore()
-
 	e := New()
 	defer e.Shutdown()
+	restore := SetGracefulTerminateGraceForTest(e, 200*time.Millisecond)
+	defer restore()
 	ctx := context.Background()
 
 	var fired int32

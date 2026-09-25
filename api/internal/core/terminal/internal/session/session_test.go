@@ -279,7 +279,7 @@ func newTestSession(
 	dir string,
 ) (*Session, error) {
 	t.Helper()
-	return New(id, "/bin/sh", dir, "", testEnv(), 80, 24, 0)
+	return New(t.Context(), id, "/bin/sh", dir, "", testEnv(), 80, 24, 0)
 }
 
 func TestSession_NewAndKill(t *testing.T) {
@@ -331,6 +331,30 @@ func TestSession_NaturalExitReapsChild(t *testing.T) {
 	// The child must have been waited on (reaped); otherwise it is a zombie.
 	require.NotNil(t, s.cmd.ProcessState, "natural shell exit must reap the child via cmd.Wait()")
 	assert.True(t, s.cmd.ProcessState.Exited(), "child process must have exited")
+}
+
+// TestSession_ClientCloseImpliesDone pins the order shutdown publishes death in: Done is
+// closed BEFORE any client channel, so a reader that sees its channel close can ask Done
+// whether the process exited (the transport's exit-frame decision) without racing.
+func TestSession_ClientCloseImpliesDone(t *testing.T) {
+	s, err := newTestSession(t, "sid-close-order", t.TempDir())
+	require.NoError(t, err)
+	ch, err := s.Attach()
+	require.NoError(t, err)
+
+	doneAtClose := make(chan bool, 1)
+	go func() {
+		for range ch {
+		}
+		select {
+		case <-s.Done():
+			doneAtClose <- true
+		default:
+			doneAtClose <- false
+		}
+	}()
+	require.NoError(t, s.Write([]byte("exit\n")))
+	assert.True(t, <-doneAtClose, "a closed client channel must imply Done is closed")
 }
 
 func TestSession_AttachDeadSession(t *testing.T) {
@@ -407,7 +431,7 @@ func TestSession_Resize(t *testing.T) {
 
 func TestSession_ID(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("my-id", "/bin/sh", dir, "", os.Environ(), 80, 24, 0)
+	s, err := New(t.Context(), "my-id", "/bin/sh", dir, "", os.Environ(), 80, 24, 0)
 	require.NoError(t, err)
 	assert.Equal(t, "my-id", s.ID())
 	s.Kill()
@@ -416,7 +440,7 @@ func TestSession_ID(t *testing.T) {
 func TestSession_New_BadShell(t *testing.T) {
 	dir := t.TempDir()
 	// A non-existent executable must cause pty.Start to fail.
-	_, err := New("sid-bad", "/nonexistent/shell/binary", dir, "", os.Environ(), 80, 24, 0)
+	_, err := New(t.Context(), "sid-bad", "/nonexistent/shell/binary", dir, "", os.Environ(), 80, 24, 0)
 	assert.Error(t, err)
 }
 
@@ -624,87 +648,25 @@ func contains(
 // New lifecycle / safety tests
 // ---------------------------------------------------------------------------
 
-// TestIsLive_AttachedCount_State_Transitions verifies the State/IsLive/
-// AttachedCount accessors across a typical session lifecycle:
-//
-//	live + 0 clients → "detached"
-//	live + 1 client  → "active"
-//	after Kill        → IsLive false, State "suspended"
-func TestIsLive_AttachedCount_State_Transitions(t *testing.T) {
+// TestAttachedCount_Transitions verifies AttachedCount and Done across a typical session
+// lifecycle: 0 clients → 1 → 0, then Kill closes Done.
+func TestAttachedCount_Transitions(t *testing.T) {
 	dir := t.TempDir()
 	s, err := newTestSession(t, "sid-lifecycle", dir)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
-	// Freshly spawned: live, no clients → "detached".
-	require.True(t, s.IsLive(), "newly spawned session must be live")
 	require.Equal(t, 0, s.AttachedCount())
-	require.Equal(t, "detached", s.State())
-
 	ch, err := s.Attach()
 	require.NoError(t, err)
-
-	// One client → "active".
 	require.Equal(t, 1, s.AttachedCount())
-	require.Equal(t, "active", s.State())
-
 	s.Detach(ch)
-
-	// Back to no clients → "detached".
 	require.Equal(t, 0, s.AttachedCount())
-	require.Equal(t, "detached", s.State())
 
-	// Kill and wait for shutdown — Done() closing IS the shutdown, so block on it.
 	s.Kill()
 	<-s.Done()
-
-	require.False(t, s.IsLive(), "after Kill, IsLive must return false")
-	require.Equal(t, "suspended", s.State())
-}
-
-// TestNewPlaceholder verifies that a placeholder session:
-//   - reports IsLive false and State "suspended"
-//   - holds NO model and delivers no serialized frame on Attach (the engine restores a
-//     placeholder to a live session before attaching in production), without panicking
-//   - can be killed without panic, closing Done()
-func TestNewPlaceholder(t *testing.T) {
-	rawBlob := []byte("CRWB1 80 24 0 10000\nold output here")
-	s := NewPlaceholder("ph-1", "/bin/sh", "/tmp", "prof-A", rawBlob)
-
-	require.False(t, s.IsLive(), "placeholder must not be live")
-	require.Equal(t, "suspended", s.State())
-	require.Equal(t, "/bin/sh", s.Shell())
-	require.Equal(t, "/tmp", s.CWD())
-	require.Equal(t, "prof-A", s.ProfileID())
-
-	// A model-less placeholder Attach must not panic and must deliver no redraw frame
-	// (there is no model to serialize).
-	//
-	// This negative needs no observation window: Attach serializes and enqueues its redraw
-	// SYNCHRONOUSLY, under s.mu, into the buffered channel it returns — so if a frame were
-	// ever going to be delivered it is already queued the instant Attach returns. A
-	// placeholder has no pump either, so nothing can arrive later. Assert on the channel's
-	// length instead of waiting out a guess.
-	ch, err := s.Attach()
-	require.NoError(t, err)
-	require.NotNil(t, ch)
-	require.Zero(t, len(ch), "placeholder Attach must not deliver a frame")
-	s.Detach(ch)
-
-	// Kill must not panic and must close Done().
-	s.Kill()
-	<-s.Done()
-}
-
-// TestNewPlaceholder_ModelBytesIsBlobLen verifies a placeholder accounts only its stored
-// blob bytes (no live model), so thousands of suspended placeholders do not each pin a full
-// model's worth of memory.
-func TestNewPlaceholder_ModelBytesIsBlobLen(t *testing.T) {
-	rawBlob := []byte("CRWB1 80 24 0 10000\nsome prior bytes")
-	s := NewPlaceholder("ph-cap", "/bin/sh", "/tmp", "", rawBlob)
-
-	require.Equal(t, int64(len(rawBlob)), s.ModelBytes(),
-		"placeholder ModelBytes must equal its stored blob length")
+	_, err = s.Attach()
+	require.Error(t, err, "a dead session refuses new clients")
 }
 
 // TestLiveSession_ModelBytesAccountsGrid verifies a live session's ModelBytes reflects its
@@ -743,18 +705,8 @@ func TestOSC7_CWD_Update(t *testing.T) {
 // Phase 2: Suspend/Restore helpers
 // ---------------------------------------------------------------------------
 
-// TestSession_Snapshot_ContentFromPlaceholder verifies a placeholder Snapshot returns its
-// stored blob verbatim with changed==false (no model, nothing to re-serialize).
-func TestSession_Snapshot_ContentFromPlaceholder(t *testing.T) {
-	data := []byte("CRWB1 80 24 0 10000\nscrollback data")
-	ph := NewPlaceholder("ph-snap", "/bin/sh", "/tmp", "", data)
-	snap, changed := ph.Snapshot()
-	assert.Equal(t, data, snap)
-	assert.False(t, changed, "a placeholder's persisted blob never changes")
-}
-
-// TestSession_BeginSuspendIfEligible_WithClients verifies no-op when clients attached.
-func TestSession_BeginSuspendIfEligible_WithClients(t *testing.T) {
+// TestSession_SuspendEligible_WithClients verifies a session with a client is never eligible.
+func TestSession_SuspendEligible_WithClients(t *testing.T) {
 	dir := t.TempDir()
 	s, err := newTestSession(t, "sid-bse1", dir)
 	require.NoError(t, err)
@@ -764,36 +716,8 @@ func TestSession_BeginSuspendIfEligible_WithClients(t *testing.T) {
 	require.NoError(t, err)
 	defer s.Detach(ch)
 
-	assert.False(t, s.BeginSuspendIfEligible(), "with attached clients, must not be eligible")
-	assert.False(t, s.Suspending())
-}
-
-// TestSession_BeginSuspendIfEligible_AlreadySuspending verifies that a second call
-// is a no-op once the flag is set.
-func TestSession_BeginSuspendIfEligible_AlreadySuspending(t *testing.T) {
-	dir := t.TempDir()
-	s, err := newTestSession(t, "sid-bse2", dir)
-	require.NoError(t, err)
-	t.Cleanup(s.Kill)
-
-	waitIdlePrompt(t, s)
-	assert.True(t, s.BeginSuspendIfEligible(), "first call on idle session must succeed")
-	assert.True(t, s.Suspending())
-	assert.False(t, s.BeginSuspendIfEligible(), "second call must return false (already suspending)")
-}
-
-// TestSession_Suspending verifies the flag is readable after BeginSuspendIfEligible.
-func TestSession_Suspending(t *testing.T) {
-	dir := t.TempDir()
-	s, err := newTestSession(t, "sid-suspflag", dir)
-	require.NoError(t, err)
-	t.Cleanup(s.Kill)
-
-	assert.False(t, s.Suspending(), "must be false before any suspend call")
-
-	waitIdlePrompt(t, s)
-	s.BeginSuspendIfEligible()
-	assert.True(t, s.Suspending())
+	assert.False(t, s.SuspendEligible(false), "with attached clients, must not be eligible")
+	assert.False(t, s.SuspendEligible(true), "not even by force")
 }
 
 // TestSession_ExitCode_Default verifies ExitCode is -1 before any exit.
@@ -841,7 +765,7 @@ func TestSession_NewRestored_RebuildsModelFromBlob(t *testing.T) {
 		"the source screen must carry the marker once the shell is back at its prompt")
 	require.True(t, contains(blob, []byte("CRWB1 ")), "blob must carry a CRWB1 header")
 
-	s, err := NewRestored("sid-restored", "/bin/sh", dir, "profX", testEnv(), blob)
+	s, err := NewRestored(t.Context(), "sid-restored", "/bin/sh", dir, "profX", testEnv(), blob)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 

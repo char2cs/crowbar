@@ -6,6 +6,8 @@
 package git
 
 import (
+	"context"
+
 	"github.com/gin-gonic/gin"
 
 	githandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers"
@@ -28,6 +30,8 @@ import (
 // is dual-served on the /git/status route (a plain GET answers REST, a
 // WebSocket upgrade is routed to gitWS) — the dedicated /ws/git route is gone
 // (W7-2).
+//
+// It returns the handlers' Shutdown, which waits for the work they detach.
 func Register(
 	chatScoped *gin.RouterGroup,
 	gitSvc githandlers.Git,
@@ -35,15 +39,14 @@ func Register(
 	working githandlers.WorkSignal,
 	gitWS gin.HandlerFunc,
 	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
-) {
+) func(context.Context) error {
 	h := githandlers.New(gitSvc, lastErrors, working)
 	mount(chatScoped, "/git", h, gitWS, dispatch)
+	return h.Shutdown
 }
 
 // mount registers the 32-route git surface under prefix on rg. It is the
 // single definition of that surface.
-//
-//nolint:funlen // Flat route table: one line per route. Splitting it would scatter the surface across helpers for no gain, and this list IS the audited surface (route_audit_test.go).
 func mount(
 	rg *gin.RouterGroup,
 	prefix string,

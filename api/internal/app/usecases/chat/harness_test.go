@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -229,6 +230,12 @@ func (f *fakeCommander) callCount() int {
 	return len(f.calls)
 }
 
+func (f *fakeCommander) call(i int) commandCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls[i]
+}
+
 // terminatedIDs returns every session id TerminateGraceful successfully tore down.
 func (f *fakeCommander) terminatedIDs() []string {
 	f.mu.Lock()
@@ -256,8 +263,9 @@ type broadcastCall struct {
 
 // fakeBroadcaster is a thread-safe Broadcaster double for agentchat frames.
 type fakeBroadcaster struct {
-	mu    sync.Mutex
-	calls []broadcastCall
+	mu     sync.Mutex
+	calls  []broadcastCall
+	fanout *agentusecase.Fanout
 }
 
 func (f *fakeBroadcaster) BroadcastAgentChatFolder(_, _, _ string) {}
@@ -283,6 +291,9 @@ func (f *fakeBroadcaster) reset() {
 // frame recorder, so every assertion in this package keeps its current shape.
 func (f *fakeBroadcaster) watchAgentChat(e agentchat.ChatEvent) {
 	f.BroadcastAgentChat(e.ChatID, e.WorkspaceID, e.Kind, e.Working && !e.Forgotten)
+	if f.fanout != nil {
+		f.fanout.ChatWatch()(e)
+	}
 }
 
 func (f *fakeBroadcaster) snapshot() []broadcastCall {
@@ -303,12 +314,18 @@ type runnerFrame struct {
 type fakeRunnerBroadcaster struct {
 	mu     sync.Mutex
 	frames []runnerFrame
+	// fanout feeds the usecase's snapshot owner, exactly as production wires
+	// the repositories' watch seams.
+	fanout *agentusecase.Fanout
 }
 
 // watchAgentRunner adapts the repository's announcement seam onto this fake's
 // existing frame recorder, so every assertion here keeps its current shape.
 func (f *fakeRunnerBroadcaster) watchAgentRunner(e agentrunner.RunnerEvent) {
 	f.BroadcastAgentRunner(e.RunnerID, e.WorkspaceID, e.ChatID, e.Kind)
+	if f.fanout != nil {
+		f.fanout.RunnerWatch()(e)
+	}
 }
 
 func (f *fakeRunnerBroadcaster) BroadcastAgentRunner(runnerID, workspaceID, chatID, kind string) {
@@ -330,6 +347,8 @@ func (f *fakeRunnerBroadcaster) snapshot() []runnerFrame {
 }
 
 type fakeWorkspace struct {
+	// mu guards the two call records: a probe and a switch resolve cwds concurrently.
+	mu        sync.Mutex
 	home      string
 	projectID string
 	repoID    string
@@ -354,6 +373,8 @@ func (f *fakeWorkspace) WorktreeDir(
 	_ context.Context,
 	workspaceID string,
 ) (crowbarHome, projectID, repoID, worktree string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.lastWorkspaceID = workspaceID
 	f.worktreeDirIDs = append(f.worktreeDirIDs, workspaceID)
 	if f.err != nil {
@@ -369,6 +390,8 @@ func (f *fakeWorkspace) AgentChatsDir(
 	_ context.Context,
 	workspaceID string,
 ) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.lastWorkspaceID = workspaceID
 	if f.err != nil {
 		return "", f.err
@@ -762,8 +785,10 @@ type harnessUsecase struct {
 // aggregates (in-memory), with the terminal engine, the workspace reader and both
 // hub feeds faked.
 type testFixture struct {
-	ctx     context.Context
-	usecase *harnessUsecase
+	// snapFrames records every chat snapshot frame the owner publishes.
+	snapFrames *snapshotFrames
+	ctx        context.Context
+	usecase    *harnessUsecase
 	// own is the SAME usecase as usecase, held at its concrete type for the
 	// handful of methods (SpawnChatWithOwnWorktree) that are a seam reached only
 	// through tree.Agent — not part of any of the five public ports harnessUsecase
@@ -983,10 +1008,33 @@ func (f testFixture) announce(t *testing.T, runnerID, sessionID string) {
 	t.Helper()
 	if sessionID != "" {
 		f.sessions[runnerID] = sessionID
+		writeVendorSession(t, sessionID)
 	}
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "", "session_start",
 		mustJSON(t, map[string]any{"session_id": sessionID})))
 	f.wait()
+}
+
+// writeVendorSession puts sessionID where each shipped provider keeps its
+// sessions (the fixture's isolated CLAUDE_CONFIG_DIR/CODEX_HOME), as a real
+// CLI does once it announces one.
+func writeVendorSession(t *testing.T, sessionID string) {
+	t.Helper()
+	for _, path := range []string{
+		filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "fixture", sessionID+".jsonl"),
+		filepath.Join(os.Getenv("CODEX_HOME"), "sessions", "2026", "01", "01", "rollout-x-"+sessionID+".jsonl"),
+	} {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		require.NoError(t, os.WriteFile(path, []byte("{}\n"), 0o600))
+	}
+}
+
+// removeVendorSession deletes sessionID from the providers' stores — what a
+// vendor pruning an old transcript looks like to Crowbar.
+func removeVendorSession(t *testing.T, sessionID string) {
+	t.Helper()
+	require.NoError(t, os.Remove(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "fixture", sessionID+".jsonl")))
+	require.NoError(t, os.Remove(filepath.Join(os.Getenv("CODEX_HOME"), "sessions", "2026", "01", "01", "rollout-x-"+sessionID+".jsonl")))
 }
 
 // turn drives a turn_stop hook: the CLI finishing a turn, which is how a line ever
@@ -1086,7 +1134,7 @@ func (f testFixture) runnerKinds(t *testing.T) []string {
 // the SAME seam the production hub projection uses, so a test capturing frames
 // through it exercises the real lifecycle feed — the usecase never broadcasts itself.
 func newChatStore(
-	t *testing.T,
+	t testing.TB,
 	watch agentchat.WatchFunc,
 ) (agentchat.EventStore, func()) {
 	t.Helper()
@@ -1113,30 +1161,30 @@ func newChatStore(
 // than a stub because the record is what every turn assertion in this package
 // reads back, and a stub would let the write path and the read path agree with
 // each other while both were wrong.
-func newActivityStore(t *testing.T) (agentactivity.EventStore, func()) {
-	t.Helper()
+func newActivityStore(tb testing.TB) (agentactivity.EventStore, func()) {
+	tb.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
+	require.NoError(tb, err)
 	ax, err := asynx.New[domain.ChatActivity]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+	require.NoError(tb, err)
+	tb.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
 	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
-	repo, err := agentactivity.NewEventSourced(ax, es, db, t.TempDir())
-	require.NoError(t, err)
+	repo, err := agentactivity.NewEventSourced(ax, es, db, tb.TempDir())
+	require.NoError(tb, err)
 	return repo, ax.WaitPublish
 }
 
 // newRunnerStore builds the same for the agentrunner aggregate: the real commands,
 // the real live-runner + conversation-history projections, the real hub projection.
 func newRunnerStore(
-	t *testing.T,
+	t testing.TB,
 	watch agentrunner.WatchFunc,
 ) (agentrunner.EventStore, func()) {
 	t.Helper()
@@ -1158,9 +1206,9 @@ func newRunnerStore(
 	return repo, ax.WaitPublish
 }
 
-func newFixture(t *testing.T) testFixture {
-	t.Helper()
-	f, _, _ := newFixtureUsing(t, nil, nil, "")
+func newFixture(tb testing.TB) testFixture {
+	tb.Helper()
+	f, _, _ := newFixtureUsing(tb, nil, nil, "")
 	return f
 }
 
@@ -1192,7 +1240,7 @@ func newFaultFixture(t *testing.T) (testFixture, *fakeChatStore, *fakeRunnerStor
 // global permission-level preference the fixture starts with; the empty value
 // means "use the package's own pinned default" ("guarded" — see below).
 func newFixtureUsing(
-	t *testing.T,
+	t testing.TB,
 	wrapChats func(agentchat.EventStore) agentchat.EventStore,
 	wrapRunners func(agentrunner.EventStore) agentrunner.EventStore,
 	permissionDefault string,
@@ -1206,9 +1254,17 @@ func newFixtureUsing(
 	// `codex app-server` subprocess as a side effect of spawning "codex" here.
 	// See apiconn.go's own comment on this same variable.
 	t.Setenv("CROWBAR_DISABLE_API_TRANSPORT", "1")
+	// The vendors' own session stores, isolated: the resume ladder checks a
+	// session exists before resuming it, and announce() writes it there.
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CODEX_HOME", t.TempDir())
 
-	bc := &fakeBroadcaster{}
-	rbc := &fakeRunnerBroadcaster{}
+	snaps := agentusecase.NewChatSnapshots()
+	snapFrames := &snapshotFrames{}
+	snaps.SetPublish(snapFrames.record)
+	fan := agentusecase.NewFanout(snaps)
+	bc := &fakeBroadcaster{fanout: fan}
+	rbc := &fakeRunnerBroadcaster{fanout: fan}
 	realChats, waitChats := newChatStore(t, bc.watchAgentChat)
 	realRunners, waitRunners := newRunnerStore(t, rbc.watchAgentRunner)
 	realActivity, waitActivity := newActivityStore(t)
@@ -1231,7 +1287,7 @@ func newFixtureUsing(
 	// worktree = <home>/projects/p1/slug/branch/worktree, so its sibling chats dir
 	// (worktreepath.ChatsDir) is <home>/projects/p1/slug/branch/chats — strictly under
 	// home. This mirrors production and is load-bearing now that every agent-path
-	// removal is guarded by RemoveUnderHome (a chats dir NOT under home is refused).
+	// removal is guarded by worktreepath.RemoveUnderHome (a chats dir NOT under home is refused).
 	home := t.TempDir()
 	worktree := filepath.Join(home, "projects", "p1", "slug", "branch", "worktree")
 	ws := &fakeWorkspace{
@@ -1335,6 +1391,7 @@ func newFixtureUsing(
 			Idempotency:     agenttools.NewIdempotency(),
 			ThreadBroadcast: noopThreadBroadcast,
 		},
+		Snapshots: snaps,
 	})
 	// closeAssistantTurn's real 3s AwaitOpen wait only matters against a
 	// concurrent delta, which resolves over its wake channel instantly, not by
@@ -1342,6 +1399,8 @@ func newFixtureUsing(
 	// this package tests, it just stops every turn_stop-with-nothing-streamed
 	// call from sitting idle for the full 3s.
 	agentusecase.SetMessageAwaitTimeout(u, time.Millisecond)
+	// The supervisor's background work ends before the stores it writes close.
+	t.Cleanup(u.ShutdownAPIConnections)
 	f := testFixture{
 		ctx: context.Background(),
 		usecase: &harnessUsecase{
@@ -1369,6 +1428,7 @@ func newFixtureUsing(
 		folders:       folders,
 		nodes:         nodes,
 		sessions:      map[string]string{},
+		snapFrames:    snapFrames,
 	}
 	return f, realChats, realRunners
 }
@@ -1525,4 +1585,29 @@ func newActivityWriteFaultFixture(t *testing.T) (testFixture, *faultWriteActivit
 		return fa
 	})
 	return f, fa
+}
+
+// snapshotFrames records every frame the chat snapshot owner publishes.
+type snapshotFrames struct {
+	mu     sync.Mutex
+	frames []agentusecase.ChatSnapshotFrame
+}
+
+func (r *snapshotFrames) record(f agentusecase.ChatSnapshotFrame) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.frames = append(r.frames, f)
+}
+
+// forChat returns the frames published about chatID, oldest first.
+func (r *snapshotFrames) forChat(chatID string) []agentusecase.ChatSnapshotFrame {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []agentusecase.ChatSnapshotFrame
+	for _, f := range r.frames {
+		if f.Snapshot.Chat.ID == chatID {
+			out = append(out, f)
+		}
+	}
+	return out
 }

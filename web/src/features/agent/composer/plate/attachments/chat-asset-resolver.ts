@@ -40,11 +40,29 @@ export function chatAttachmentUrl(wsId: string, ref: string): string | null {
   }
 }
 
-function blobToDataUrl(blob: Blob): Promise<string> {
+/** Reads `blob` as a data: URL. An abort stops the read too, not just the
+ *  fetch before it: a resolver whose image unmounted mid-read must not keep
+ *  encoding bytes nobody will look at. */
+function blobToDataUrl(blob: Blob, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason)
+      return
+    }
     const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result))
-    reader.onerror = () => reject(reader.error ?? new Error('failed to read blob'))
+    const onAbort = () => {
+      reader.abort()
+      reject(signal?.reason)
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+    reader.onload = () => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve(String(reader.result))
+    }
+    reader.onerror = () => {
+      signal?.removeEventListener('abort', onAbort)
+      reject(reader.error ?? new Error('failed to read blob'))
+    }
     reader.readAsDataURL(blob)
   })
 }
@@ -63,7 +81,7 @@ export async function fetchChatAttachmentDataUrl(
   try {
     const response = await fetch(url, { signal })
     if (!response.ok) return null
-    return await blobToDataUrl(await response.blob())
+    return await blobToDataUrl(await response.blob(), signal)
   } catch {
     return null
   }
@@ -105,5 +123,9 @@ export async function fetchChatAttachmentMetadata(
  *  is unused here — every chat-attachment ref already carries its own
  *  chatId+filename. */
 export function chatMarkdownAssetInfo(wsId: string): MarkdownAssetInfo {
-  return { wsId, fileDir: '', resolve: (src) => fetchChatAttachmentDataUrl(wsId, src) }
+  return {
+    wsId,
+    fileDir: '',
+    resolve: (src, signal) => fetchChatAttachmentDataUrl(wsId, src, signal),
+  }
 }

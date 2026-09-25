@@ -2,7 +2,6 @@ import { act, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { useBufferDisplayName } from '@/features/tabs/hooks/use-buffer-display-name'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
-import { parseOSC7 } from '@/features/terminal/utils/osc-parser'
 import type {
   EditorContent,
   PaneContent,
@@ -105,24 +104,18 @@ describe('useBufferDisplayName session subscription', () => {
     const bufA = terminalBuffer('buf-a', 'session-a')
     render(<Probe buffers={[bufA]} />)
 
-    // Simulate the real OSC7 → parseOSC7 → updateSession pipeline. The second
-    // payload smuggles \x01 — the projection's field separator — right after a
-    // prefix it shares with the first. If the control byte survived into the
-    // store, the projected tuple would contain a rogue separator, the useMemo
-    // split would truncate currentDirectory back to the shared prefix, and the
-    // label would falsely stay 'app'.
-    const benign = parseOSC7('\x1b]7;file://host/repo/app\x07')
-    const hostile = parseOSC7('\x1b]7;file://host/repo/app\x01two\x07')
-    expect(benign).toBe('/repo/app')
-    expect(hostile).toBe('/repo/apptwo')
+    // The second directory shares a prefix with the first, so a projection that
+    // compared or split on a prefix would falsely keep the label 'app'.
+    const benign = '/repo/app'
+    const hostile = '/repo/apptwo'
 
     act(() => {
-      useTerminalStore.getState().updateSession('session-a', { currentDirectory: benign! })
+      useTerminalStore.getState().updateSession('session-a', { currentDirectory: benign })
     })
     expect(screen.getByTestId('probe').textContent).toBe('app')
 
     act(() => {
-      useTerminalStore.getState().updateSession('session-a', { currentDirectory: hostile! })
+      useTerminalStore.getState().updateSession('session-a', { currentDirectory: hostile })
     })
     expect(useTerminalStore.getState().getSession('session-a')?.currentDirectory).toBe(
       '/repo/apptwo',

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { pushChanges, pullChanges, fetchChanges } from '@/features/git/api/git-remotes-api'
+import { pushChanges, pullChanges } from '@/features/git/api/git-remotes-api'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 vi.mock('@/lib/api', () => ({ apiFetch }))
@@ -24,12 +24,6 @@ describe('git-remotes-api remote ops', () => {
   it('pullChanges POSTs to the chat-scoped pull route', async () => {
     const res = await pullChanges('w1')
     expect(apiFetch).toHaveBeenCalledWith('/v0/chats/chat-of-w1/git/pull', { method: 'POST' })
-    expect(res).toEqual({ success: true })
-  })
-
-  it('fetchChanges POSTs to the chat-scoped fetch route', async () => {
-    const res = await fetchChanges('w1')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/chats/chat-of-w1/git/fetch', { method: 'POST' })
     expect(res).toEqual({ success: true })
   })
 

@@ -98,14 +98,14 @@ describe('rowsFromRepo', () => {
   // the fact at all.
   it('carries the workspace status and placeholder fact onto the row', () => {
     const { workspace, chat } = makeOwnedWorkspace(
-      { id: 'ws-1', branch: 'feature/x', status: 'pr-conflicts' },
+      { id: 'ws-1', branch: 'feature/x', status: 'pr-conflicts', provisioning: 'placeholder' },
       { id: 'branch-chat-1' },
     )
     const repo = makeTestRepo({ workspaces: [workspace], chats: [chat] })
     const row = rowsFromRepo(repo).find((r) => r.workspaceId === 'ws-1')
     expect(row?.status).toBe('pr-conflicts')
-    // No `localPath` on the fixture — a real placeholder (isPlaceholderWorkspace's
-    // own test), same as a workspace whose worktree is held elsewhere.
+    // A placeholder by the daemon's own record, same as a workspace whose
+    // worktree is held elsewhere.
     expect(row?.isPlaceholder).toBe(true)
   })
 
@@ -246,7 +246,7 @@ describe('rowsFromRepo — chat rows', () => {
 
   // Regression: a bubble (no `Workspace` of its own, no `chat.workspaceId`)
   // used to get `workspaceId: null` on its own row, which is what left it
-  // with nothing to open into — `space-content-actions.ts`'s
+  // with nothing to open into — `open-actions.ts`'s
   // `openableWorkspaceOf` reads exactly this field, and a click on a bubble
   // with no resolvable workspace just toggled its (childless, so invisible)
   // fold instead of ever opening a pane. It now falls back to the nearest
@@ -523,7 +523,7 @@ describe('rowsFromRepo — a branch row is identified by its owning chat', () =>
 /**
  * Task 8: the sidebar's "create workspace" affordance mints the workspace AND
  * its first chat in ONE atomic backend call (`POST .../chats
- * {ownWorktree: true}`, space-content-actions.ts's `handleCreate`).
+ * {ownWorktree: true}`, create-actions.ts's `handleCreate`).
  *
  * This used to pin that both halves rendered as TWO rows the moment they
  * landed — a `chat`-kind row for the conversation, nested under a `branch`-kind

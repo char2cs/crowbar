@@ -1,5 +1,4 @@
 import { useEffect } from 'react'
-import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
 import {
   DEFAULT_MONO_FONT_FAMILY,
   DEFAULT_UI_FONT_FAMILY,
@@ -47,15 +46,13 @@ function buildFontVariable(primary: string, fallback: string): string {
  * Font fallbacks are defined in styles.css @theme directive
  */
 export const FontStyleInjector = () => {
-  const codeEditorFontFamily = useEditorSettingsStore((state) => state.fontFamily)
   const settings = useSettingsStore((s) => s.settings)
 
   useEffect(() => {
     document.documentElement.setAttribute('data-platform', currentPlatform)
 
     const requestedEditorFont =
-      stripWrappingQuotes(settings.fontFamily || codeEditorFontFamily || '') ||
-      DEFAULT_MONO_FONT_FAMILY
+      stripWrappingQuotes(settings.fontFamily || '') || DEFAULT_MONO_FONT_FAMILY
     const requestedUiFont =
       stripWrappingQuotes(settings.uiFontFamily || '') || DEFAULT_UI_FONT_FAMILY
 
@@ -85,13 +82,7 @@ export const FontStyleInjector = () => {
       '--md-base-font-size',
       `${normalizeMarkdownFontSize(settings.markdownFontSize)}px`,
     )
-  }, [
-    settings.fontFamily,
-    settings.uiFontFamily,
-    settings.uiFontSize,
-    settings.markdownFontSize,
-    codeEditorFontFamily,
-  ])
+  }, [settings.fontFamily, settings.uiFontFamily, settings.uiFontSize, settings.markdownFontSize])
 
   return null
 }

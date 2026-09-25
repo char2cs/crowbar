@@ -10,6 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
 func TestDeleteCascade_RootNotFound(t *testing.T) {
@@ -19,7 +20,7 @@ func TestDeleteCascade_RootNotFound(t *testing.T) {
 		},
 	}
 	uc := hierarchy.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
-	err := uc.DeleteCascade(context.Background(), "missing-root")
+	err := uc.DeleteCascade(context.Background(), "missing-root", domain.KeepWorkAtRisk)
 	require.ErrorIs(t, err, apperr.ErrNotFound)
 }
 
@@ -34,7 +35,7 @@ func TestDeleteCascade_RemoveOneError_Propagates(t *testing.T) {
 		DeleteFn: func(_ context.Context, _ string) error { return errBoom },
 	}
 	uc := hierarchy.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
-	err := uc.DeleteCascade(context.Background(), "root")
+	err := uc.DeleteCascade(context.Background(), "root", domain.KeepWorkAtRisk)
 	require.ErrorIs(t, err, errBoom)
 }
 
@@ -44,54 +45,68 @@ func TestDeleteCascade_RemoveOneError_Propagates(t *testing.T) {
 // removed, but exactly once, as part of its root's cascade.
 func TestDeleteRepoWorkspaces_SkipsNonRootWorkspaces(t *testing.T) {
 	all := []domain.Workspace{
-		{ID: "root", RepoID: "r1", ProjectID: "p1", Branch: "b-root", WorktreePath: "/wt/root/worktree"},
-		{ID: "child", ParentID: "root", RepoID: "r1", ProjectID: "p1", Branch: "b-child", WorktreePath: "/wt/child/worktree"},
+		{ID: "root", RepoID: "r1", ProjectID: "p1", Branch: "b-root", WorktreePath: "/tmp/crowbar-test/projects/p/app/root/worktree", Provisioning: domain.WorkspaceProvisioned},
+		{ID: "child", ParentID: "root", RepoID: "r1", ProjectID: "p1", Branch: "b-child", WorktreePath: "/tmp/crowbar-test/projects/p/app/child/worktree", Provisioning: domain.WorkspaceProvisioned},
 	}
+	var deleted []string
 	ws := &fakeWorkspace{
-		ListFn:   func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
-		DeleteFn: func(_ context.Context, _ string) error { return nil },
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		DeleteFn: func(_ context.Context, id string) error {
+			deleted = append(deleted, id)
+			return nil
+		},
 	}
 	g := &fakeGit{}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
 
-	handled, err := uc.DeleteRepoWorkspaces(context.Background(), "r1", "/repo")
+	err := uc.DeleteRepoWorkspaces(context.Background(), domain.Repository{ID: "r1", Path: "/repo"}, domain.KeepWorkAtRisk)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"child", "root"}, handled, "deepest-first, and each id exactly once")
+	assert.Equal(t, []string{"child", "root"}, deleted, "deepest-first, and each id exactly once")
 	assert.Equal(t, 2, countOp(g.ops(), "WorktreeRemove"), "each workspace's worktree is removed exactly once")
 }
 
-func TestDeleteRepoWorkspaces_RemoveErrorIsBestEffort(t *testing.T) {
+// A workspace that could not be tombstoned does not stop the others, but it is
+// reported: the caller must keep the repo row while one of its workspaces is live.
+func TestDeleteRepoWorkspaces_AFailedTombstoneIsReportedAfterTheRest(t *testing.T) {
 	all := []domain.Workspace{
-		{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b", WorktreePath: "/wt/a/worktree"},
+		{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "a", WorktreePath: "/tmp/crowbar-test/projects/p/app/a/worktree", Provisioning: domain.WorkspaceProvisioned},
+		{ID: "w2", RepoID: "r1", ProjectID: "p1", Branch: "b", WorktreePath: "/tmp/crowbar-test/projects/p/app/b/worktree", Provisioning: domain.WorkspaceProvisioned},
 	}
+	var tried []string
 	ws := &fakeWorkspace{
-		ListFn:   func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
-		DeleteFn: func(_ context.Context, _ string) error { return errBoom },
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		DeleteFn: func(_ context.Context, id string) error {
+			tried = append(tried, id)
+			if id == "w1" {
+				return errBoom
+			}
+			return nil
+		},
 	}
 	uc := hierarchy.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
 
-	handled, err := uc.DeleteRepoWorkspaces(context.Background(), "r1", "/repo")
-	require.NoError(t, err, "a per-workspace removal failure must not fail the whole sweep")
-	assert.Equal(t, []string{"w1"}, handled)
+	err := uc.DeleteRepoWorkspaces(context.Background(), domain.Repository{ID: "r1", Path: "/repo"}, domain.KeepWorkAtRisk)
+	require.ErrorIs(t, err, errBoom)
+	assert.ElementsMatch(t, []string{"w1", "w2"}, tried)
 }
 
 // TestRemoveOne_DefaultBranchReattachFails_IsBestEffort proves a failed
 // re-attach of the main folder to the default branch never aborts the cascade
 // — the row is still dropped and the branch is still never force-deleted.
 func TestRemoveOne_DefaultBranchReattachFails_IsBestEffort(t *testing.T) {
-	g := &fakeGit{checkoutErr: errBoom}
+	g := &fakeGit{checkoutErr: errBoom, worktrees: []enginegit.WorktreeEntry{{Path: "/repo", Head: "tip"}}, revParseSha: "tip"}
 	repos := &fakeRepoStore{path: "/repo", defaultBranch: "develop"}
 	ws := &fakeWorkspace{
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
 			return []domain.Workspace{
-				{ID: "w1", RepoID: "r1", Branch: "develop", WorktreePath: "/managed"},
+				{ID: "w1", RepoID: "r1", Branch: "develop", WorktreePath: "/managed", Provisioning: domain.WorkspaceProvisioned},
 			}, nil
 		},
 		DeleteFn: func(_ context.Context, _ string) error { return nil },
 	}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, repos, newNow(), fakeHome())
 
-	require.NoError(t, uc.DeleteCascade(context.Background(), "w1"))
+	require.NoError(t, uc.DeleteCascade(context.Background(), "w1", domain.KeepWorkAtRisk))
 	assert.Contains(t, g.ops(), "CheckoutBranch")
 	assert.NotContains(t, g.ops(), "ForceDeleteBranch", "the default branch must never be force-deleted even on a failed reattach")
 }
@@ -114,7 +129,7 @@ func (r *erroringTerminalReaper) Kill(_ context.Context, _ string) error {
 }
 
 func TestDeleteCascade_TerminalKillError_IsBestEffort(t *testing.T) {
-	all := []domain.Workspace{{ID: "root", RepoID: "r", WorktreePath: "/wt", Branch: "b"}}
+	all := []domain.Workspace{{ID: "root", RepoID: "r", WorktreePath: "/wt", Branch: "b", Provisioning: domain.WorkspaceProvisioned}}
 	deleted := false
 	ws := &fakeWorkspace{
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
@@ -128,7 +143,7 @@ func TestDeleteCascade_TerminalKillError_IsBestEffort(t *testing.T) {
 		hierarchy.WithTerminalReaper(reaper))
 	uc.SetChatObserver(&fakeChatObserver{chats: []domain.Chat{{ID: "chat-root", WorkspaceID: "root"}}})
 
-	require.NoError(t, uc.DeleteCascade(context.Background(), "root"),
+	require.NoError(t, uc.DeleteCascade(context.Background(), "root", domain.KeepWorkAtRisk),
 		"a terminal-kill failure must not abort the cascade (best-effort)")
 	assert.True(t, deleted, "the workspace row is still dropped")
 	assert.Equal(t, []string{"chat-root"}, reaper.listed,

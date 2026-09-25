@@ -2,56 +2,40 @@ package projections
 
 import (
 	"context"
-	"fmt"
-
-	"github.com/char2cs/asynx"
-	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// RegisterHub subscribes the hub (WS fan-out) projection to every workspace event
-// on the singleton axWorkspace. For each event it takes the base aggregate
-// (evt.Aggregate), runs the injected enrich callback to attach the derived
+// RegisterHub makes st announce every workspace event on the hub (WS fan-out)
+// once the event is durable in the read model. For each event it takes the
+// base aggregate, runs the injected enrich callback to attach the derived
 // overlays that are NOT part of the event-sourced state — the Working/inflight
-// spinner and the merge-eligibility overlay (CanMergeLocally/ParentBranch) — then
-// hands the resulting frame to broadcast for hub fan-out (spec §3.5 hub-frame
-// enrichment, decision 5).
+// spinner and the merge-eligibility overlay (CanMergeLocally/ParentBranch) —
+// then hands the frame to broadcast (spec §3.5 hub-frame enrichment).
+//
+// The frame is sent by the store projection itself, after its save, rather than
+// by a second subscriber: asynx runs an event's subscribers concurrently, so a
+// separate hub subscriber could put a frame on the wire before the read model
+// held it, and a client that re-read the model on that frame got the older
+// state back.
 //
 // enrich and broadcast are owned by repositories.Container: the SAME pair also
-// backs the BeginWork/EndWork request-bracketed rebroadcasts (which fire on the
-// 202 ack, not on an event), so the emitted frame is identical regardless of
-// whether it originated from a committed event or a spinner transition. The frame
-// type F is a parameter so this package stays decoupled from the api-layer wire
-// DTO the container supplies.
+// backs the BeginWork/EndWork request-bracketed rebroadcasts, so the emitted
+// frame is identical whichever path fired. The frame type F is a parameter so
+// this package stays decoupled from the api-layer wire DTO.
 //
-// Unlike the retired combined projector it does NOT touch the durable read model
-// — the store projection (store.go) owns that. The two derive independently from
-// evt.Aggregate and cannot drift (decision 5). Designed to register ONCE on the
-// singleton, not per aggregate.
+// Every tombstone frame is reported to st (Store.Announced): the delete reactor
+// purges a tombstone — the workspace's owning chat included — only after its
+// frame has gone out.
 func RegisterHub[F any](
-	ax asynx.Asynx[domain.Workspace],
+	st *Store,
 	enrich func(ctx context.Context, ws domain.Workspace) F,
 	broadcast func(frame F),
-) error {
-	p := &hubProjector[F]{enrich: enrich, broadcast: broadcast}
-	if _, err := ax.Subscribe(asynx.Topic("workspace.*"), p.onEvent); err != nil {
-		return fmt.Errorf("workspace hub projection: subscribe: %w", err)
-	}
-	return nil
-}
-
-type hubProjector[F any] struct {
-	enrich    func(ctx context.Context, ws domain.Workspace) F
-	broadcast func(frame F)
-}
-
-// onEvent derives the base frame from evt.Aggregate, enriches it with the
-// request-scoped/derived overlays, and broadcasts it. It never persists — the
-// store projection owns durability (decision 5).
-func (p *hubProjector[F]) onEvent(
-	ctx context.Context,
-	evt asynxModels.Event[domain.Workspace],
 ) {
-	p.broadcast(p.enrich(ctx, evt.Aggregate))
+	announce := func(ctx context.Context, ws domain.Workspace) {
+		broadcast(enrich(ctx, ws))
+		st.Announced(ws)
+	}
+	st.announce.Store(&announce)
+	st.ExpectAnnouncements()
 }

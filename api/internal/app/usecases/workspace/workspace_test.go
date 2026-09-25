@@ -167,6 +167,7 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_RecomputesAndRollsUp(t *testing.T
 			RepoID:       "r1",
 			WorktreePath: "/repo/x",
 			ForkPointSha: "fp",
+			Provisioning: domain.WorkspaceProvisioned,
 		}, nil
 	}
 	var summaryPath, summaryFork string
@@ -219,6 +220,7 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_ChildDiffsAgainstParentBranch(t *
 		}
 		return domain.Workspace{
 			ID: id, WorktreePath: "/repo/x", ParentID: "parent", ForkPointSha: "stale-fork",
+			Provisioning: domain.WorkspaceProvisioned,
 		}, nil
 	}
 	var summaryBase string
@@ -246,6 +248,7 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_RootDiffsAgainstOwnBranch(t *test
 	repo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
 		return domain.Workspace{
 			ID: id, WorktreePath: "/repo/x", Branch: "develop", ForkPointSha: "stale-fork",
+			Provisioning: domain.WorkspaceProvisioned,
 		}, nil
 	}
 	var summaryBase string
@@ -276,6 +279,7 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_FallsBackToForkPointWhenBaseUnres
 		}
 		return domain.Workspace{
 			ID: id, WorktreePath: "/repo/x", ParentID: "parent", ForkPointSha: "fork-sha",
+			Provisioning: domain.WorkspaceProvisioned,
 		}, nil
 	}
 	git.RevParseFn = func(_ context.Context, _, _ string) (string, error) {
@@ -346,6 +350,7 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_ChildParentLookupFails_FallsBackT
 		}
 		return domain.Workspace{
 			ID: id, WorktreePath: "/repo/x", ParentID: "parent", ForkPointSha: "fork-sha",
+			Provisioning: domain.WorkspaceProvisioned,
 		}, nil
 	}
 	var summaryBase string
@@ -380,7 +385,7 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_SummaryError(t *testing.T) {
 	ctx := context.Background()
 
 	repo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/x"}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/x", Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	git.WorkingTreeSummaryFn = func(
 		_ context.Context,
@@ -399,7 +404,7 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_SyncError(t *testing.T) {
 	ctx := context.Background()
 
 	repo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/x"}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/x", Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	git.WorkingTreeSummaryFn = func(
 		_ context.Context,
@@ -503,6 +508,7 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_HomeSkipsGit(t *testing.T) {
 			RepoID:       "r1",
 			Kind:         domain.WorkspaceKindHome,
 			WorktreePath: "/project-root",
+			Provisioning: domain.WorkspaceShared,
 		}, nil
 	}
 	summaryCalled := false

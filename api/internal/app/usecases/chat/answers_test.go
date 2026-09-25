@@ -30,7 +30,7 @@ func deliver(
 	deliveryID := uuid.NewString()
 	f.withTrackedSession(runnerID, payload)
 	require.NoError(t, f.usecase.IngestHookDelivery(
-		f.ctx, "ws1", deliveryID, runnerID, provider, kind, mustJSON(t, payload),
+		f.ctx, deliveryID, runnerID, provider, kind, mustJSON(t, payload),
 	))
 	f.wait()
 	return deliveryID

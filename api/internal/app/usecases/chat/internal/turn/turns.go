@@ -12,13 +12,13 @@ package turn
 import (
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/dedup"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/stream"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -63,13 +63,13 @@ type Turns struct {
 	// pendingHooks is the fork-before-runner-persistence barrier: hooks that arrive
 	// before the runner row exists are buffered into it and replayed after.
 	pendingHooks *inflight.Hooks
-	// hookDeliveries durably deduplicates Crowbar relay retries before any turn
-	// state or ledger mutation. The relay owns retry/spooling; this journal owns
-	// the exactly-once ingress boundary.
-	hookDeliveries agentjournal.HookDeliveries
+	// hookDeliveries absorbs Crowbar relay retries before any turn state or
+	// ledger mutation: a bounded, in-memory TTL set of completed delivery ids.
+	// The relay's retry is short and in-process (cmd/crowbar/hook_delivery.go),
+	// so nothing here needs to outlive the daemon — and nothing here fsyncs.
+	hookDeliveries *dedup.Set
 	// hookGates serialises one runner's hook ingestion. It is held across the WHOLE
-	// ingest — dedupe, replay buffering, effects, completion — which is why it
-	// lives here rather than inside the delivery journal.
+	// ingest — dedupe, replay buffering, effects, completion.
 	hookGates *inflight.Gate
 	// answers is the desk a provider prompt parks a blocked hook relay on.
 	answers *answerdesk.Desk
@@ -80,29 +80,12 @@ type Turns struct {
 	// built together and neither can name the other first.
 	runners Runners
 
-	// messageDelta fans a growing assistant message out to any client watching.
-	// Wired at sweep start rather than at construction, because what it publishes
-	// through is the hub — a layer above this one. Nil until then, and nil forever
-	// in a daemon with no detector.
-	messageDelta func(chatID, workspaceID, messageID, text, kind string)
-
-	// compactionStatus fans the live compact_pre/compact_post edge out to any
-	// client watching, the same way messageDelta fans out a growing message.
-	// It exists as its own direct push rather than riding the ledger's
-	// interruption record: a /compact is always delivered as a bare prompt
-	// that never opens a tracked turn (compact.go), which means
-	// commands.Interrupt's own idle-chat handling marks the ledger record
-	// resolved in the SAME event that creates it — there is no window, live
-	// or polled, in which the ledger says "open". See observation.go's
-	// HookCompactPre/HookCompactPost cases, which call this ALONGSIDE the
-	// (still-needed, for the retroactive divider) ledger calls, never instead
-	// of them. Wired at sweep start, same reasoning as messageDelta.
-	compactionStatus func(chatID, workspaceID string, active bool)
-
-	// planUpdate fans the agent's own to-do list out to any client watching, the
-	// same way compactionStatus does and for the same reason: it is a LIVE view
-	// of a turn in progress, restated wholesale, and nothing durable records it.
-	planUpdate func(chatID, workspaceID string, steps []engineagents.PlanStep)
+	// feed publishes the live facts no projection carries — a growing message,
+	// the compaction edge, the plan, the usage report — to any client watching.
+	// Wired at sweep start rather than at construction, because what it
+	// publishes through is the hub, a layer above this one. Zero (every field
+	// nil) until then, and forever in a daemon with no detector wiring.
+	feed seam.ChatFeed
 
 	// messageAwaitTimeout bounds how long closeAssistantTurn will wait on
 	// stream.Streams.AwaitOpen before concluding nothing streamed. It is a
@@ -159,14 +142,14 @@ func New(d Deps) *Turns {
 		turns:       d.InflightTurns,
 		turnStarts:  d.TurnStarts,
 		// Owned outright, so built here rather than handed in: the message streams,
-		// the exactly-once ingress journal and the per-runner ingest gate are named
-		// by nothing outside this package.
+		// the delivery dedup set and the per-runner ingest gate are named by
+		// nothing outside this package.
 		messages:            stream.New(),
 		live:                newLiveText(),
 		idle:                newIdleLatch(),
 		compacting:          newCompactionTurns(),
 		manualCompact:       newManualCompactRequests(),
-		hookDeliveries:      agentjournal.NewHookDeliveries(),
+		hookDeliveries:      dedup.New(dedup.DefaultTTL, dedup.DefaultMax, nil),
 		hookGates:           inflight.NewGate(),
 		pendingHooks:        d.PendingHooks,
 		answers:             d.Answers,
@@ -185,38 +168,9 @@ func (t *Turns) SetRunners(runners Runners) { t.runners = runners }
 // surface: production always uses defaultMessageAwaitTimeout.
 func (t *Turns) SetMessageAwaitTimeout(d time.Duration) { t.messageAwaitTimeout = d }
 
-// SetMessageDelta wires the fan-out for a growing assistant message. It is called
-// at sweep start, not at construction: a daemon with nobody to publish to records
-// the message when it finishes instead.
-func (t *Turns) SetMessageDelta(fn func(chatID, workspaceID, messageID, text, kind string)) {
-	t.messageDelta = fn
-}
+// SetFeed wires the live chat feed. Called at sweep start: a daemon with
+// nobody to publish to records the message when it finishes instead.
+func (t *Turns) SetFeed(feed seam.ChatFeed) { t.feed = feed }
 
-// SetCompactionStatus wires the fan-out for the live compact_pre/compact_post
-// edge. Called at sweep start, same as SetMessageDelta: a daemon with nobody
-// to publish to just skips the call (see observation.go), never panics.
-// SetPlanUpdate wires the fan-out for the agent's running to-do list. Called at
-// sweep start, same as SetMessageDelta.
-func (t *Turns) SetPlanUpdate(fn func(chatID, workspaceID string, steps []engineagents.PlanStep)) {
-	t.planUpdate = fn
-}
-
-func (t *Turns) SetCompactionStatus(fn func(chatID, workspaceID string, active bool)) {
-	t.compactionStatus = fn
-}
-
-// SetHookDeliveries replaces the exactly-once ingress journal. It exists for the
-// deterministic durability faults the usecase's tests inject; production always
-// uses the fsync-on-rename journal New builds.
-//
-// It REPLACES the journal, so it must be called before the runner under test has
-// delivered anything: the in-memory completion markers do not survive it.
-func (t *Turns) SetHookDeliveries(deliveries agentjournal.HookDeliveries) {
-	t.hookDeliveries = deliveries
-}
-
-// HookDeliveryMarkers are the in-memory completion markers the ingress journal is
-// holding. A marker answers a repeat delivery without ever reading the disk, so a
-// test that means to exercise the on-disk record must first prove the marker is
-// absent.
-func (t *Turns) HookDeliveryMarkers() []string { return t.hookDeliveries.CompletionMarkers() }
+// HookDeliveryCount is how many completed delivery ids the dedup set holds.
+func (t *Turns) HookDeliveryCount() int { return t.hookDeliveries.Len() }

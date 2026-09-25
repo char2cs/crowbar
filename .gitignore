@@ -28,7 +28,7 @@ desktop/src-tauri/binaries/
 api/cmd/crowbar/web/
 .superpowers/
 
-# backend superpowers working artifacts (root docs/superpowers is intentionally tracked)
+# backend superpowers working artifacts
 api/docs/superpowers/
 
 # stray local build artifact (noEmbed daemon binary)

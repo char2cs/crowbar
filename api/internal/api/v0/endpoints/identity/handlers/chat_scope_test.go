@@ -60,7 +60,7 @@ func identityRouterForScopes(
 // resolver sees its worktree path rather than an empty best-effort fallback.
 func TestChatScoped_ResolvesFromReqscope(t *testing.T) {
 	resolver := &recordingResolver{}
-	resolved := domain.Workspace{ID: "ws-resolved", WorktreePath: "/resolved"}
+	resolved := domain.Workspace{ID: "ws-resolved", WorktreePath: "/resolved", Provisioning: domain.WorkspaceProvisioned}
 	r := identityRouterForScopes(t, resolver, resolved)
 
 	rec := httptest.NewRecorder()

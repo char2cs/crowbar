@@ -70,7 +70,7 @@ func TestThreadDTOFrom_NoMessages(t *testing.T) {
 	assert.Empty(t, got.Body)
 	assert.Empty(t, got.Author)
 	assert.NotNil(t, got.Replies)
-	assert.Len(t, got.Replies, 0)
+	assert.Empty(t, got.Replies)
 }
 
 // TestThreadDTOFrom_Unresolved asserts an open thread maps Resolved=false.
@@ -87,7 +87,7 @@ func TestThreadDTOFrom_Unresolved(t *testing.T) {
 	got := dto.ThreadDTOFrom(rt, "p1", "r1")
 
 	assert.False(t, got.Resolved)
-	assert.Len(t, got.Replies, 0)
+	assert.Empty(t, got.Replies)
 }
 
 // TestThreadDTOList asserts the list converter maps each thread and returns a
@@ -107,7 +107,7 @@ func TestThreadDTOList(t *testing.T) {
 
 	empty := dto.ThreadDTOList(nil, "p1", "r1")
 	assert.NotNil(t, empty)
-	assert.Len(t, empty, 0)
+	assert.Empty(t, empty)
 }
 
 // TestThreadDTOFrom_CarriesAgentAttributionAtBothLevels is the wire half of Task

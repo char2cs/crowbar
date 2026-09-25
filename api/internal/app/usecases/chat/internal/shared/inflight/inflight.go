@@ -22,11 +22,16 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight/internal/turnstate"
 )
 
-// Gate serialises the user-initiated spawn paths of one chat.
+// Gate serialises work on one chat (or runner) and lets a Stop preempt a
+// holder parked on it.
 type Gate = gate.Gate
 
 // NewGate returns an empty per-chat gate.
 func NewGate() *Gate { return gate.New() }
+
+// Preempted reports whether a park context Gate.Acquire handed out was
+// cancelled because a Stop wanted the gate.
+func Preempted(park context.Context) bool { return gate.Preempted(park) }
 
 // Turns is the registry of turns currently in flight, keyed by runner.
 type Turns = turnstate.Turns
@@ -82,27 +87,26 @@ func DeliveryID(ctx context.Context) string {
 // appending a duplicate turn. An un-journalled ingress has nothing to be
 // idempotent about, so it gets a fresh id.
 func RecordID(ctx context.Context) string {
+	if id, ok := ctx.Value(recordIDKey{}).(string); ok && id != "" {
+		return id
+	}
 	if id := DeliveryID(ctx); id != "" {
 		return id
 	}
 	return uuid.NewString()
 }
 
-// apiTransportKey marks ctx as ingesting an event that arrived over a live
-// api-transport connection (pumpAPIConn), as opposed to an HTTP hook POST.
-//
-// Every api-transport spawn also forks a redundant, hooks-wired companion PTY
-// on the same session (a known gap — see apiconn.go), so an event a
-// descriptor declares api-owned can reach IngestHook through EITHER path: the
-// api connection's own driver, or that companion PTY's hooks copy. Telling
-// them apart by transport-kind-and-liveness alone (descriptor.TransportFor ==
-// "api" && a live connection exists) is not enough — both facts hold for
-// BOTH deliveries, since the live connection the hooks copy is redundant WITH
-// is the very thing that makes it redundant. Only the ORIGIN of this specific
-// call — this key — tells them apart, which is why FromAPITransport exists:
-// without it, ingestResolvedHook's "drop the redundant hooks copy" guard drops
-// the api-transport delivery too, and every event a mixed-transport provider
-// reports over its connection is silently swallowed. Confirmed live.
+type recordIDKey struct{}
+
+// WithRecordID keys the durable record ingested under ctx by id, over the
+// delivery's: a user turn Crowbar itself dispatched is named by its request.
+func WithRecordID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, recordIDKey{}, id)
+}
+
+// apiTransportKey marks ctx as ingesting an event that arrived over an api
+// connection (pumpAPIConn) rather than an HTTP hook POST: the delivery's
+// channel, which selects the descriptor block its payload is parsed with.
 type apiTransportKey struct{}
 
 // WithAPITransport marks ctx as carrying an event pumpAPIConn resolved from

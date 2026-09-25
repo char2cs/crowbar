@@ -9,8 +9,8 @@ import type {
   WorkspaceDTO,
 } from './types'
 import type { PRLink } from '@/lib/import/parent-plan'
-import { useChaosStore } from '@/lib/store/chaos'
 import { getOwningChatId } from '@/lib/workspace-scope'
+import { daemonChanges, noteDaemonChange } from '@/lib/transport/daemon-changes'
 import { OwningChatNotRecordedError, worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
@@ -40,13 +40,39 @@ export class ApiError extends Error {
   readonly status: number
   /** Stable server recovery category. Most endpoints omit it. */
   readonly code?: string
-  constructor(message: string, status: number, code?: string) {
+  /** The error envelope's `data`, for the few refusals that carry detail. */
+  readonly data?: unknown
+  constructor(message: string, status: number, code?: string, data?: unknown) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.data = data
   }
 }
+
+/** What deleting one workspace would destroy that exists nowhere else. */
+export interface WorkAtRisk {
+  workspaceId: string
+  branch: string
+  uncommittedFiles: number
+  unmergedCommits: number
+}
+
+/**
+ * The work a delete was refused over, or null for any other failure. The
+ * daemon refuses a delete that would destroy work existing nowhere else until
+ * it is resent with {@link DISCARD_WORK_INIT} — which only a client that has
+ * shown the user this list may do.
+ */
+export function workAtRiskOf(err: unknown): WorkAtRisk[] | null {
+  if (!(err instanceof ApiError) || err.code !== 'work_at_risk') return null
+  const list = (err.data as { workAtRisk?: WorkAtRisk[] } | undefined)?.workAtRisk
+  return Array.isArray(list) ? list : []
+}
+
+/** The request options that consent to a delete destroying work at risk. */
+export const DISCARD_WORK_INIT: RequestInit = { headers: { 'Crowbar-Discard-Work': 'true' } }
 
 export function isNotFoundError(err: unknown): boolean {
   return err instanceof ApiError && err.status === 404
@@ -95,7 +121,7 @@ function isIdempotentRead(init?: RequestInit): boolean {
   return method === undefined || method === 'GET'
 }
 
-/** Perform a request with the shared chaos headers, transient-transport retry and
+/** Perform a request with transient-transport retry and
  *  error-status handling, returning the raw `Response`.
  *
  *  This is the layer beneath {@link apiFetch}: every v0 route answers the
@@ -109,29 +135,15 @@ export async function apiFetchRaw(
   init?: RequestInit,
   retry: RetryConfig = DEFAULT_RETRY,
 ): Promise<Response> {
-  const { latency, errorRate, scenario, faults } = useChaosStore.getState()
-  const chaosHeaders: Record<string, string> = {}
-  if (latency > 0) chaosHeaders['X-Crowbar-Latency'] = String(latency)
-  if (errorRate > 0) chaosHeaders['X-Crowbar-Error-Rate'] = String(errorRate)
-
-  if (import.meta.env.VITE_USE_MOCK === 'true') {
-    chaosHeaders['X-Crowbar-Scenario'] = scenario
-    const activeFaults = Object.entries(faults).filter(([, v]) => v > 0)
-    if (activeFaults.length > 0) {
-      chaosHeaders['X-Crowbar-Fault'] = JSON.stringify(Object.fromEntries(activeFaults))
-    }
-  }
-
-  const maxAttempts = isIdempotentRead(init) ? Math.max(1, retry.attempts) : 1
+  const read = isIdempotentRead(init)
+  if (!read) noteDaemonChange()
+  const maxAttempts = read ? Math.max(1, retry.attempts) : 1
   const sleep = retry.sleep ?? defaultSleep
 
   for (let attempt = 1; ; attempt++) {
     let res: Response
     try {
-      res = await fetch(`${API_BASE}${path}`, {
-        ...init,
-        headers: { ...init?.headers, ...chaosHeaders },
-      })
+      res = await fetch(`${API_BASE}${path}`, init)
     } catch (err) {
       // Transport-level failure — the request never produced an HTTP response
       // (daemon not ready / connection refused). Retry idempotent reads with
@@ -159,10 +171,43 @@ export async function apiFetchRaw(
         errorBody?.error ?? `${res.status} ${res.statusText}`,
         res.status,
         typeof errorBody?.code === 'string' ? errorBody.code : undefined,
+        errorBody?.data,
       )
     }
     return res
   }
+}
+
+interface Envelope {
+  status: number
+  statusText: string
+  body: { success?: boolean; error?: string; data?: unknown } | null
+}
+
+async function readEnvelope(res: Response): Promise<Envelope> {
+  // An empty 204/202 (a write accepted with no payload) is success with no data.
+  const empty = res.status === 204 || res.status === 202
+  const body = empty ? null : await res.json().catch(() => null)
+  return { status: res.status, statusText: res.statusText, body }
+}
+
+/** Plain GETs in flight, by path, with the change count they were sent at. */
+const readsInFlight = new Map<string, { changes: number; envelope: Promise<Envelope> }>()
+
+/** A plain GET, shared with an identical one still in flight when nothing the
+ *  client could know of has changed since that one was sent. Joiners get a
+ *  copy: callers may hand their answer to a store that freezes it. */
+async function sharedRead(path: string, retry: RetryConfig): Promise<Envelope> {
+  const held = readsInFlight.get(path)
+  if (held && held.changes === daemonChanges()) return structuredClone(await held.envelope)
+  const envelope = apiFetchRaw(path, undefined, retry).then(readEnvelope)
+  const entry = { changes: daemonChanges(), envelope }
+  readsInFlight.set(path, entry)
+  const release = () => {
+    if (readsInFlight.get(path) === entry) readsInFlight.delete(path)
+  }
+  envelope.then(release, release)
+  return envelope
 }
 
 export async function apiFetch<T>(
@@ -170,20 +215,15 @@ export async function apiFetch<T>(
   init?: RequestInit,
   retry: RetryConfig = DEFAULT_RETRY,
 ): Promise<T> {
-  const res = await apiFetchRaw(path, init, retry)
-  // Success with an empty/204/202 body (e.g. WriteMutationOK with no payload, a
-  // 204 No Content, or a 202 Accepted for an async hierarchical mutation): the
-  // envelope check below would wrongly throw, so treat it as success returning
-  // undefined.
-  if (res.status === 204 || res.status === 202) {
-    return undefined as T
-  }
-  const body = await res.json().catch(() => null)
+  const { status, statusText, body } =
+    init === undefined
+      ? await sharedRead(path, retry)
+      : await readEnvelope(await apiFetchRaw(path, init, retry))
   if (body === null) {
     return undefined as T
   }
   if (!body.success) {
-    throw new ApiError(body.error ?? `${res.status} ${res.statusText}`, res.status)
+    throw new ApiError(body.error ?? `${status} ${statusText}`, status)
   }
   return body.data as T
 }
@@ -358,6 +398,7 @@ function workspaceDTOFromWorktree(
     prTargetBranch: worktree.prTargetBranch ?? '',
     localPath: worktree.localPath ?? '',
     heldByPath: worktree.heldByPath ?? '',
+    provisioning: worktree.provisioning,
     owningChatId: worktree.owningChatId,
     folderId: worktree.folderId ?? '',
     order: worktree.order ?? 0,

@@ -1,12 +1,6 @@
 import { buildSidebarTree, indexSidebarTree } from './workspace-tree-utils'
-import {
-  getPostDeleteNavigationTarget,
-  EMPTY_CHATS,
-  EMPTY_FOLDERS,
-  type Chat,
-  type Folder,
-  type Repo,
-} from '@/lib/store/sidebar'
+import { type Chat, type Folder, type Repo } from '@/lib/store/sidebar'
+import { getPostDeleteNavigationTarget, EMPTY_CHATS, EMPTY_FOLDERS } from '@/lib/store/repo-tree'
 import type { RemovalDraft, RemovalEntry } from '@/lib/store/sidebar-removal'
 import type { DragSubjectBase } from '@/components/tree-dnd/drop-core'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
@@ -31,7 +25,7 @@ export type DropKind = 'workspace' | 'folder' | 'repo' | 'project' | 'chat'
  *
  * Formerly `components/layout/drop-rules.ts`'s type (that module's policy
  * logic went with the unified sidebar's `sidebar-drop-policy.ts`, but this
- * shape lives on: `space-content-actions.ts`'s `resolveRow` still builds one
+ * shape lives on: `open-actions.ts`'s `resolveRow` still builds one
  * per row and hands it here to plan a removal).
  */
 export interface DragSubject extends DragSubjectBase {

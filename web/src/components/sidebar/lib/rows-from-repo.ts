@@ -1,10 +1,5 @@
-import {
-  EMPTY_CHATS,
-  EMPTY_FOLDERS,
-  type Chat,
-  type Repo,
-  type Workspace,
-} from '@/lib/store/sidebar'
+import { type Chat, type Repo, type Workspace } from '@/lib/store/sidebar'
+import { EMPTY_CHATS, EMPTY_FOLDERS } from '@/lib/store/repo-tree'
 import { buildSidebarTree, type SidebarTreeNode } from '@/components/layout/workspace-tree-utils'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { placeholderKind, placeholderReason } from '@/lib/workspace/placeholder'
@@ -458,7 +453,7 @@ export function rowRepoScope(repos: readonly Repo[]): ReadonlyMap<string, string
  *
  * `ancestorWorkspaceId` is the OTHER thing a folder's own row can't tell
  * about itself: which real workspace it actually sits inside, for a Thread
- * button to run in (`space-content-actions.ts`'s `handleCreate` reads a
+ * button to run in (`create-actions.ts`'s `handleCreate` reads a
  * folder row's own `workspaceId` for exactly this — see that field's stamp
  * below). Starts as each caller's tree root (`rowsFromRepo`: the repo's real
  * default workspace id; `rows-from-home.ts`: the project's home workspace
@@ -556,7 +551,7 @@ export function walkTreeIntoRows(
         // of its own. Without this, a bubble with no `Workspace` record of
         // its own — the overwhelmingly common case, e.g. `foldWorkspaceOwners`
         // resolves NO ownership for it — had a `workspaceId` of `null`, and
-        // `space-content-actions.ts`'s `openableWorkspaceOf` (which reads
+        // `open-actions.ts`'s `handleOpen` (which reads
         // exactly this field) then had nothing to open it into: a click just
         // toggled its (childless, so invisible) fold instead of ever landing
         // in a pane. Live-reported: "clicking on a not opened row... simply
@@ -637,7 +632,7 @@ export function walkTreeIntoRows(
       // this row's real identity by the time `walk` sees it; the id space
       // the daemon places every create under either way (rule 8's fork
       // button reads it straight off `Workspace.owningChatId`, matching
-      // `space-content-actions.ts`'s `handleCreate`). A workspace with no
+      // `create-actions.ts`'s `handleCreate`). A workspace with no
       // `owningChatId` at all is left exactly as `buildSidebarTree` built
       // it: `node.id` is still its own workspace id.
       //

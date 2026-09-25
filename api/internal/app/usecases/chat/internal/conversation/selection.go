@@ -96,19 +96,13 @@ func (c *Conversations) chatAgent(
 	return agent, nil
 }
 
-// ChatProviderID resolves the provider a chat's next CLI should be — the same
-// engineagents.ResolveProviderID answer dto.activeProviderID and Resume derive, so
-// the selection/spawn path (chatAgent, SetChatSelection, SwitchProvider's
-// previousProviderID, SubmitPrompt's implicit-provider prompt) can never spawn a
-// dormant chat as the wrong vendor. Refuses with apperr.ErrUnprocessable when no
-// provider has EVER run on the chat — there is nothing to resolve to.
-//
-// The chat's own durable vendor is the last source, and it is why
-// SwitchProvider's previousProviderID is now knowable for a chat that bound
-// nothing: an unresolvable previous provider is what made a real conversion
-// record no provider_switched marker at all, so it left no trace anywhere. The
-// chat's PLACEMENT history answers the same question for every chat minted
-// before that field existed.
+// ChatProviderID resolves the provider a chat's next CLI should be: the live
+// runner's while one is placed (mid-switch the incoming runner is already the
+// truth), else the chat's own durable vendor — domain.Chat.ProviderID, seeded at
+// birth, restated on every placement and backfilled once at boot for rows that
+// predate it (BackfillProviders). It is the ONE owner of the answer; nothing
+// re-derives it from the runner projections any more. Refuses with
+// apperr.ErrUnprocessable when no provider has ever been recorded.
 func (c *Conversations) ChatProviderID(
 	ctx context.Context,
 	chatID string,
@@ -120,40 +114,15 @@ func (c *Conversations) ChatProviderID(
 	if !errors.Is(err, agentrunner.ErrNotFound) {
 		return "", fmt.Errorf("agent: chat provider: live runner: %w", err)
 	}
-
-	var conversations []engineagents.ChatConversation
-	last, err := c.runnerStore.LastConversation(ctx, chatID)
-	switch {
-	case err == nil:
-		conversations = []engineagents.ChatConversation{last}
-	case errors.Is(err, agentrunner.ErrNotFound):
-		// No conversation ever bound — a switch interruption, or the chat's own
-		// placement history, may still answer it.
-	default:
-		return "", fmt.Errorf("agent: chat provider: last conversation: %w", err)
-	}
-
-	interruptions, err := c.activity.Interruptions(ctx, chatID)
-	if err != nil {
-		return "", fmt.Errorf("agent: chat provider: interruptions: %w", err)
-	}
-
-	placements, err := c.runnerStore.PlacementsForChat(ctx, chatID)
-	if err != nil {
-		return "", fmt.Errorf("agent: chat provider: placements: %w", err)
-	}
-
 	chat, err := c.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return "", fmt.Errorf("agent: chat provider: chat: %w", err)
 	}
-
-	providerID, found := engineagents.ResolveProviderID(conversations, interruptions, placements, chat.ProviderID)
-	if !found {
+	if chat.ProviderID == "" {
 		return "", fmt.Errorf("agent: chat provider: no provider has ever run on this chat: %w",
 			apperr.ErrUnprocessable)
 	}
-	return providerID, nil
+	return chat.ProviderID, nil
 }
 
 // ChatSelection reads what a chat WANTS to run its provider as. minting=true

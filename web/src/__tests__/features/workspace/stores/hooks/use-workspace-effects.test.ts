@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
+import { requestGitRefresh, useGitRefreshStore } from '@/features/git/stores/git-refresh'
 import {
   duplicateDestPath,
   useWorkspaceEffects,
@@ -194,11 +195,11 @@ describe('useWorkspaceEffects', () => {
     expect(endpoints.some((ep) => ep.includes('/git/'))).toBe(false)
   })
 
-  // Regression: an editor save dispatches "git-status-updated" but the git
-  // store only refreshed on the backend watcher's WS event, so the Changes
-  // panel went stale when that event was missed. The effect must also reload
-  // status (debounced) on the local event.
-  it('reloads git status when an editor save dispatches git-status-updated', async () => {
+  // Regression: an editor save requests a git refresh but the git store only
+  // refreshed on the backend watcher's WS event, so the Changes panel went
+  // stale when that event was missed. The effect must also reload status
+  // (debounced) on the local request — for ITS workspace only.
+  it('reloads git status when an editor save requests a refresh for this workspace', async () => {
     vi.useFakeTimers()
     try {
       const { useGitStore } = await import('@/features/git/stores/git-store')
@@ -207,7 +208,11 @@ describe('useWorkspaceEffects', () => {
       useGitStore.setState({ actions: { ...original, reloadStatusAndLog } })
 
       renderHook(() => useWorkspaceEffects('ws-test'))
-      window.dispatchEvent(new CustomEvent('git-status-updated', { detail: { filePath: 'a.ts' } }))
+      requestGitRefresh('ws-other')
+      await vi.advanceTimersByTimeAsync(500)
+      expect(reloadStatusAndLog).not.toHaveBeenCalled()
+
+      requestGitRefresh('ws-test')
       await vi.advanceTimersByTimeAsync(500)
 
       expect(reloadStatusAndLog).toHaveBeenCalledWith('ws-test')
@@ -258,9 +263,9 @@ describe('useWorkspaceEffects', () => {
   })
 
   // BUG-017: after the push-driven reload, open diff views (the "Uncommitted
-  // Changes" tab, single-file diff tabs) must be told to refetch — they listen
-  // on the window-level "git-status-changed" event.
-  it('dispatches git-status-changed after the push-driven reload completes', async () => {
+  // Changes" tab, single-file diff tabs) must be told to refetch — they watch
+  // the workspace's git status revision.
+  it('bumps the git status revision after the push-driven reload completes', async () => {
     vi.useFakeTimers()
     try {
       const { useGitStore } = await import('@/features/git/stores/git-store')
@@ -268,8 +273,7 @@ describe('useWorkspaceEffects', () => {
       const original = useGitStore.getState().actions
       useGitStore.setState({ actions: { ...original, reloadStatusAndLog } })
 
-      const onStatusChanged = vi.fn()
-      window.addEventListener('git-status-changed', onStatusChanged)
+      const before = useGitRefreshStore.getState().changed['ws-test'] ?? 0
 
       renderHook(() => useWorkspaceEffects('ws-test'))
       const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
@@ -278,16 +282,15 @@ describe('useWorkspaceEffects', () => {
       await vi.advanceTimersByTimeAsync(500)
 
       expect(reloadStatusAndLog).toHaveBeenCalledWith('ws-test')
-      expect(onStatusChanged).toHaveBeenCalledTimes(1)
+      expect(useGitRefreshStore.getState().changed['ws-test']).toBe(before + 1)
 
-      window.removeEventListener('git-status-changed', onStatusChanged)
       useGitStore.setState({ actions: original })
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('editor-save event reloads status even while identical WS frames stream', async () => {
+  it('editor-save refresh request reloads status even while identical WS frames stream', async () => {
     vi.useFakeTimers()
     try {
       const { useGitStore } = await import('@/features/git/stores/git-store')
@@ -306,7 +309,7 @@ describe('useWorkspaceEffects', () => {
       reloadStatusAndLog.mockClear()
 
       // Save dispatches the event while the identical-frame spam continues.
-      window.dispatchEvent(new CustomEvent('git-status-updated', { detail: { filePath: 'a.ts' } }))
+      requestGitRefresh('ws-test')
       for (let i = 0; i < 4; i++) {
         onGitFrame({ branch: 'main', files: [] })
         await vi.advanceTimersByTimeAsync(150)
@@ -642,7 +645,7 @@ describe('useWorkspaceEffects', () => {
         expect(fetchAllGitData).not.toHaveBeenCalled()
 
         // The re-subscribed stream re-pushes the SAME frame → no reload (dedup
-        // via the preserved frame — no needless git-status-changed diff refetch).
+        // via the preserved frame — no needless git status-change diff refetch).
         gitHandler()({ branch: 'main', files: [] })
         await vi.advanceTimersByTimeAsync(500)
         expect(reloadStatusAndLog).not.toHaveBeenCalled()

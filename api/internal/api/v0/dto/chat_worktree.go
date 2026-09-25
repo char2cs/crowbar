@@ -55,8 +55,9 @@ type ChatWorktreeDTO struct {
 	// LocalPath is the on-disk worktree directory, and HeldByPath the directory
 	// holding this branch when the worktree is a placeholder — see WorkspaceDTO's
 	// own fields, which these are projected from.
-	LocalPath  string `json:"localPath,omitempty"`
-	HeldByPath string `json:"heldByPath,omitempty"`
+	LocalPath    string                       `json:"localPath,omitempty"`
+	HeldByPath   string                       `json:"heldByPath,omitempty"`
+	Provisioning domain.WorkspaceProvisioning `json:"provisioning"`
 	// ForkPointSha and ParentID describe the worktree's GIT lineage — where it was
 	// cut from, and the workspace it was cut off. ParentID is a workspace id and
 	// not a chat id on purpose: it is the fork/PR lineage domain.Workspace has
@@ -126,6 +127,7 @@ func ChatWorktreeFrom(
 		PRTargetBranch:  w.PRTargetBranch,
 		LocalPath:       w.LocalPath,
 		HeldByPath:      w.HeldByPath,
+		Provisioning:    w.Provisioning,
 		ForkPointSha:    w.ForkPointSha,
 		ParentID:        w.ParentID,
 		OwningChatID:    w.OwningChatID,

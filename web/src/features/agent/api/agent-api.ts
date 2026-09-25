@@ -64,21 +64,28 @@ export interface AgentChat {
    * their provider's own default face.
    *
    * 'terminal' means the daemon has NO api connection for this chat, so
-   * `terminalSessionId` above IS its conversation and there is nothing left to
-   * fork — asking for one anyway (`switchToTerminal`) is refused for a chat
-   * that was born there, because that attach resumes an api session it never
-   * had.
+   * `terminalSessionId` above IS its conversation.
    */
   surface?: LandingChatPresentation
   /** The live runner's provider, else the provider of the chat's LAST conversation
    *  (so a dormant chat still shows the right glyph, and Resume knows who to bring
    *  back). '' only on a chat no runner has ever been placed on. */
   activeProviderId: string
-  /** Server-folded turn state. The workspace stream mirrors this into its
-   *  dedicated working map; carrying it on reads makes reconnect/recheck
-   *  authoritative too. */
-  working?: boolean
+  /** Server-folded turn state — the chat aggregate's own fold, carried whole on
+   *  every snapshot. Never derived client-side. */
+  working: boolean
   createdAt: string
+  /**
+   * Orders every answer the daemon gives about this chat, frame or GET: a
+   * snapshot applies only if its version is newer than the one held
+   * (reduce-chat-frame.ts). Larger across daemon restarts too.
+   */
+  version: number
+  /** The chat's lifecycle phase, owned by the daemon. The pane renders it. */
+  phase: ChatPhase
+  /** How the conversation continues and why the chat is dormant, as the
+   *  daemon's session supervisor recorded it. Absent when there is nothing to say. */
+  session?: ChatSession
   /**
    * The row this chat hangs off — another CHAT (making this one a thread of it) or
    * a FOLDER. '' is the workspace root.
@@ -125,6 +132,22 @@ export interface AgentChat {
    * model — never scraped in the browser.
    */
   terminalWait?: AgentTerminalWait
+}
+
+/** Where a chat is in its lifecycle. `dormant` and `live` follow placement;
+ *  the other three are an operation the daemon is running on it right now. */
+export type ChatPhase = 'dormant' | 'starting' | 'live' | 'switching' | 'stopping'
+
+/** The resume-ladder rung a runner launched on: the provider's own session,
+ *  a fresh one handed Crowbar's transcript, or nothing to continue. */
+export type SessionRung = 'session' | 'transcript' | 'fresh'
+
+export interface ChatSession {
+  rung?: SessionRung
+  /** How the last runner ended: stopped, exited, connection_lost,
+   *  transport_overflow, daemon_restart, resume_failed, spawn_failed. */
+  exitReason?: string
+  exitedAt?: string
 }
 
 /** What a chat's CLI is blocked on that Crowbar has no channel to answer.
@@ -280,24 +303,21 @@ export interface AgentProvider {
    *  (no auth probe); informational for the New-chat pick, which follows priority. */
   connected: boolean
   /** The provider is offered — `!disabled` in the global preference. A disabled
-   *  provider drops out of every New-chat surface. Defaults to `true`. */
+   *  provider drops out of every New-chat surface. */
   enabled: boolean
   /** Crowbar registers its own tool surface with this provider — `!mcpDisabled` in
    *  the global preference. A SEPARATE axis from `enabled`: a provider with its
    *  tools switched off still spawns, still fires its hooks and still holds a
-   *  normal chat; it just cannot reach into Crowbar. Defaults to `true`. */
+   *  normal chat; it just cannot reach into Crowbar. */
   mcpEnabled: boolean
   /**
    * Whether this provider's descriptor declares a model / effort catalogue AT ALL.
    *
    * False means the picker DOES NOT EXIST for it — absent UI, never a disabled
-   * control implying breakage. They default to false rather than true (unlike
-   * mcpEnabled) because that is the safe direction here: a daemon that does not
-   * send them is one whose descriptors declare no catalogue, and rendering an
-   * empty picker over that would invent a capability.
+   * control implying breakage.
    */
-  modelSelect?: boolean
-  effortSelect?: boolean
+  modelSelect: boolean
+  effortSelect: boolean
   /**
    * The provider declares a compaction gesture (`compact_start`) — claude's
    * `/compact` injection, or an API transport's own call.
@@ -305,26 +325,18 @@ export interface AgentProvider {
    * Key presence, like everything else here: a provider that declares none gets
    * NO compact control, and `POST /compact` answers 404 for it.
    */
-  compaction?: boolean
+  compaction: boolean
   /**
    * Whether this provider's terminal surface EXISTS AT ALL — structural, not a
-   * capability the descriptor opts into. Defaults to `true` on omission: every
-   * shipped provider today spawns a real PTY, so an OLDER daemon that predates
-   * this field is describing exactly that reality, and defaulting `false` would
-   * hide the view switcher for every existing install until the daemon catches
-   * up. This is the opposite direction from every OTHER capability key on this
-   * type, deliberately: those gate a control that does not exist yet, and
-   * defaulting them on hides nothing that was already there.
+   * capability the descriptor opts into.
    */
-  hasTerminal?: boolean
+  hasTerminal: boolean
   /**
    * Whether this provider's chat and terminal faces can be live at the same
-   * instant. Defaults to `false` on omission, the same direction as
-   * modelSelect/effortSelect/compaction: an older daemon or an undeclared
-   * descriptor gets the conservative answer, and the user is asked to finish
-   * the turn rather than being handed a swap nobody verified.
+   * instant. When false the user is asked to finish the turn rather than
+   * being handed a swap nobody verified.
    */
-  hotswap?: boolean
+  hotswap: boolean
   /**
    * Whether a BRAND-NEW chat may be launched DIRECTLY onto this provider's
    * terminal surface, rather than reached only by switching to it after a
@@ -334,14 +346,8 @@ export interface AgentProvider {
    * already forks (descriptor `terminal: { channel: hooks, start_here: true }`).
    * The idle-only sequential handoff is `attach` — the api channel's way back
    * onto an EXISTING session, which says nothing about landing.
-   *
-   * Defaults to `false` on omission — the SAME direction as hotswap/
-   * compaction/the selection capabilities, unlike hasTerminal's own
-   * opposite-direction default: an older daemon that predates this field is
-   * silent about a NEW capability, not describing an old reality every
-   * provider already had.
    */
-  terminalStartHere?: boolean
+  terminalStartHere: boolean
   /** The declared model catalogue, in DESCRIPTOR ORDER. Never re-sorted: the
    *  order is the provider's own ranking. */
   models?: string[]
@@ -383,7 +389,7 @@ export interface ProviderPreference {
 
 // ── Mappers (wire → store types). Identity today, but kept explicit so a
 //    future wire/store divergence changes one place (review-api idiom). ──
-function mapChat(c: AgentChat): AgentChat {
+export function mapChat(c: AgentChat): AgentChat {
   return {
     id: c.id,
     workspaceId: c.workspaceId,
@@ -392,8 +398,11 @@ function mapChat(c: AgentChat): AgentChat {
     terminalSessionId: c.terminalSessionId,
     surface: c.surface,
     activeProviderId: c.activeProviderId,
-    working: c.working ?? false,
+    working: c.working,
     createdAt: c.createdAt,
+    version: c.version,
+    phase: c.phase,
+    session: c.session,
     // Grounded here, once, so nothing downstream has to remember that an absent
     // parent and a root parent are the same thing. `order` defaults to 0, which
     // ties every chat on a daemon that has not placed them yet — the tree breaks
@@ -887,38 +896,12 @@ export async function getSlashCatalog(
   return { ...raw, items: raw?.items ?? [], warnings: raw?.warnings ?? [] }
 }
 
-// Map a wire provider into the store shape, defaulting the three enrichment flags
-// so a backend row that omits them still reads sanely: never connected (install is
-// never assumed), enabled (a provider with no stored preference is offered —
-// spec §3.1), and with its tool surface on (the backend stores the NEGATIVE
-// mcpDisabled, so an absent field there means enabled here — a default in the
-// other direction would silently strip Crowbar's tools from an older daemon's
-// providers). The backend always sends all three today; the defaults are
-// belt-and-braces.
+// Every capability flag is always on the wire (the DTO has no omitempty on
+// them); only the catalogues are omitted when empty, and no-catalogue must
+// render as no picker rather than an empty one.
 function mapProvider(p: AgentProvider): AgentProvider {
   return {
-    id: p.id,
-    displayName: p.displayName,
-    icon: p.icon,
-    connected: p.connected ?? false,
-    enabled: p.enabled ?? true,
-    mcpEnabled: p.mcpEnabled ?? true,
-    // Both selection capabilities default OFF and both catalogues default EMPTY:
-    // "this provider declares none" is what an older daemon's silence actually
-    // means, and no-catalogue must render as no picker rather than an empty one.
-    modelSelect: p.modelSelect ?? false,
-    effortSelect: p.effortSelect ?? false,
-    // Same direction and for the same reason: silence means the descriptor
-    // declares no compaction gesture, and POST /compact answers 404 for it.
-    compaction: p.compaction ?? false,
-    // Opposite direction from every capability above: an omitted hasTerminal
-    // describes an older daemon whose providers all had a real terminal, not a
-    // provider that lacks one — see the field's own doc comment.
-    hasTerminal: p.hasTerminal ?? true,
-    hotswap: p.hotswap ?? false,
-    // Same conservative direction as hotswap: silence is a daemon that has
-    // not declared this NEW capability, never evidence it should be on.
-    terminalStartHere: p.terminalStartHere ?? false,
+    ...p,
     models: p.models ?? [],
     efforts: p.efforts ?? {},
     permissionLevels: p.permissionLevels ?? [],
@@ -947,7 +930,7 @@ export async function listProviders(wsId: string): Promise<AgentProvider[]> {
  */
 export function providerCanStartOnTerminal(provider: AgentProvider | undefined): boolean {
   if (!provider) return true
-  return provider.hasTerminal !== false && provider.terminalStartHere === true
+  return provider.hasTerminal && provider.terminalStartHere
 }
 
 /**
@@ -1005,6 +988,32 @@ export const PERMISSION_LEVEL_OPTIONS: ReadonlyArray<{
   { value: 'full-auto', label: 'Full Auto' },
 ]
 
+/** One problem the daemon's descriptor validator found. */
+export interface DescriptorFinding {
+  rule: string
+  severity: 'error' | 'warning'
+  /** YAML path, e.g. `session.locate.glob[0]`. */
+  path: string
+  line: number
+  message: string
+  hint?: string
+}
+
+/** A descriptor's static validation; any error means the daemon will not enable it. */
+export interface DescriptorReport {
+  id: string
+  /** The override file, absent for the shipped descriptor. */
+  source?: string
+  findings: DescriptorFinding[]
+  /** The override at `source` was refused for its errors; the shipped descriptor runs. */
+  fellBack?: boolean
+}
+
+export async function getDescriptorReports(): Promise<DescriptorReport[]> {
+  const raw = await apiFetch<DescriptorReport[]>(`/v0/settings/chat/descriptors`)
+  return (raw ?? []).map((r) => ({ ...r, findings: r.findings ?? [] }))
+}
+
 export async function getDefaultPermissionLevel(): Promise<PermissionLevel> {
   const res = await apiFetch<{ level: PermissionLevel }>(`/v0/settings/chat/permission-level`)
   return res.level
@@ -1056,9 +1065,7 @@ export async function setChatPermissionLevel(
  * 2.5). It is not the same thing as `presetChatLandingPresentation`, which
  * only tells the pane where to open: this decides what the daemon actually
  * forks. For a mixed-transport provider (codex) a chat born on 'terminal'
- * gets NO api connection at all, so its own PTY is the conversation rather
- * than a companion the chat DTO then hides — which is why such a chat used to
- * land on "This agent has no terminal view attached right now". Omitted means
+ * gets NO api connection at all: its own PTY is the conversation. Omitted means
  * the provider's own default face, byte-identical to every create before this
  * argument existed.
  */
@@ -1126,23 +1133,11 @@ export async function createChatWithOwnWorktree(
 // switchProvider quits the chat's current vendor CLI, hands off the accumulated
 // context, and starts `provider` as a NEW RUNNER on the same chat. Returns that
 // runner's id — the chat is unchanged, the process is not.
-//
-// `signal` for the identical reason resumeChat takes one (see that function's
-// own comment): this drives the SAME daemon-side per-chat spawn mutex
-// (switchProviderLocked), and the caller renders the same buttonless
-// "Starting {provider}…" spinner while this is out — a switch that never
-// answers is a pane the user can only abandon just like an unbounded resume.
-export async function switchProvider(
-  wsId: string,
-  id: string,
-  provider: string,
-  signal?: AbortSignal,
-): Promise<string> {
+export async function switchProvider(wsId: string, id: string, provider: string): Promise<string> {
   const res = await apiFetch<{ id: string }>(`${chatBase(wsId)}/${encodeURIComponent(id)}/switch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider }),
-    signal,
   })
   return res.id
 }
@@ -1155,17 +1150,9 @@ export async function switchProvider(
 // Returns the id of the RUNNER now on the chat. A chat that is still live is a
 // no-op that hands back the runner already there, so this can never end up with
 // two CLIs on one conversation.
-// `signal` is not optional politeness: the caller renders a SPINNER WITH NO
-// BUTTON ON IT while this is out, so a resume that never answers is a chat the
-// user can only abandon. The daemon serialises every spawn path of one chat
-// behind a plain per-chat mutex with no context on it (inflight's Gate), so this
-// request can queue behind another spawn indefinitely and produce no response and
-// no access-log line at all. Whoever draws that spinner has to be able to stop
-// waiting — see AgentChatPane.revive.
-export async function resumeChat(wsId: string, id: string, signal?: AbortSignal): Promise<string> {
+export async function resumeChat(wsId: string, id: string): Promise<string> {
   const res = await apiFetch<{ id: string }>(`${chatBase(wsId)}/${encodeURIComponent(id)}/resume`, {
     method: 'POST',
-    signal,
   })
   return res.id
 }
@@ -1195,13 +1182,11 @@ export async function stopChat(wsId: string, id: string): Promise<void> {
   })
 }
 
-// switchToTerminal hands the chat's live turn over to its provider's OWN native
-// view — idle-only, for a provider whose `hotswap` capability is false (its
-// terminal is not already live the way a hotswap provider's always is). Returns
-// the new terminal session id to point the terminal surface at. Rejects
-// (409) while a turn is in flight, and (422) for a provider with no native
-// view to show at all — gate the control on `hasTerminal`/`hotswap` rather
-// than letting the user press something that cannot work.
+// switchToTerminal moves the chat onto its provider's own TUI: the daemon hands
+// the session over, or relaunches the TUI on the resume ladder (transcript when
+// the provider cannot load its own session yet). Returns the TUI's terminal
+// session ('' for a dormant chat, which only records the move). Rejects (409)
+// while a turn is in flight and (422) for a provider with no TUI to show.
 export async function switchToTerminal(wsId: string, id: string): Promise<string> {
   const res = await apiFetch<{ id: string }>(
     `${chatBase(wsId)}/${encodeURIComponent(id)}/switch-to-terminal`,
@@ -1210,9 +1195,8 @@ export async function switchToTerminal(wsId: string, id: string): Promise<string
   return res.id
 }
 
-// switchToNative reverses switchToTerminal: the native-view PTY is torn down
-// and the chat's api connection is re-established over the same session. A
-// chat with nothing attached is a backend no-op.
+// switchToNative moves the chat onto Crowbar's own chat surface; a chat already
+// there is a backend no-op.
 export async function switchToNative(wsId: string, id: string): Promise<void> {
   await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/switch-to-native`, {
     method: 'POST',

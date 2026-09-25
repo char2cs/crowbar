@@ -20,6 +20,7 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 const chat = "chat-1"
@@ -547,6 +548,18 @@ func TestForget_DropsTheRecordAndItsRows(t *testing.T) {
 	assert.Empty(t, ints)
 }
 
+func TestForget_IsANoOpForAChatWithNoActivity(t *testing.T) {
+	f := newFixture(t)
+
+	require.NoError(t, f.repo.Forget(f.ctx, "never-active"))
+
+	f.turn(t, "t1", domain.TurnRoleUser, "hi", t0)
+	f.wait()
+	require.NoError(t, f.repo.Forget(f.ctx, chat))
+	f.wait()
+	require.NoError(t, f.repo.Forget(f.ctx, chat), "a second forget finds nothing and succeeds")
+}
+
 func TestForget_DeletesABlobNothingElseReferences(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.repo.InvokeTool(f.ctx, activity.ToolInput{
@@ -747,6 +760,7 @@ func TestNewEventSourced_ReportsAnUnusableReadModelOrContentRoot(t *testing.T) {
 }
 
 func TestInvokeTool_SurvivesAnUnwritableContentStore(t *testing.T) {
+	testutil.RequirePermissionEnforcement(t)
 	f := newFixture(t)
 	require.NoError(t, os.Chmod(f.dir, 0o500))
 	t.Cleanup(func() { _ = os.Chmod(f.dir, 0o700) })
@@ -819,6 +833,24 @@ func TestInterrupt_MidTurnIsABlockingStateUntilTheTurnEnds(t *testing.T) {
 	require.Len(t, blocked, 1)
 	assert.Nil(t, blocked[0].ResolvedAt)
 	assert.Equal(t, "t1", blocked[0].TurnID, "and it belongs to the turn it blocked")
+}
+
+// A resolved interruption is readable the moment ResolveInterruption returns:
+// Stop records its divider and returns, and the next read must show it.
+func TestRegression_AResolvedInterruptionIsReadableBeforeResolveReturns(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, f.repo.OpenTurn(f.ctx, activity.TurnInput{
+		ChatID: chat, TurnID: "t1", ProviderID: "claude", Now: t0,
+	}))
+
+	require.NoError(t, f.repo.Interrupt(f.ctx, chat, "i1", "stopped", "", t0))
+	require.NoError(t, f.repo.ResolveInterruption(f.ctx, chat, "i1", "stopped", "", t0))
+	// Deliberately no f.wait(): the caller reads back with no wait of its own.
+
+	got, err := f.repo.Interruptions(f.ctx, chat)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.NotNil(t, got[0].ResolvedAt)
 }
 
 func TestInterrupt_OutsideATurnDoesNotOpenOne(t *testing.T) {

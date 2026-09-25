@@ -268,15 +268,9 @@ func (u *chatFolderUsecase) mergeForest(
 	f := forest{rows: baseRows, homeIDs: homeIDs, fresh: map[string]bool{}, aliases: aliases}
 	f.addNodelessRepos(scope, nodeSeen)
 	u.addNodelessAnchors(ctx, &f, scope, nodeSeen)
-	rerooted := u.rerootDanglingChats(ctx, &f, nodeSeen)
 	// Decided over the CORRECTED rows: a Node-backed chat's raw ParentID is
 	// frozen at "", and only its live Node says where it really sits.
 	f.foreign = u.foreignAtRoot(ctx, f.rows, scope, aliases)
-	for _, id := range rerooted {
-		if !f.foreign[id] {
-			f.homeIDs[id], f.fresh[id] = true, true
-		}
-	}
 	return f, nil
 }
 

@@ -48,7 +48,7 @@ func writeMemStubProviderDescriptor(t *testing.T, h *harness) {
 	t.Helper()
 	dir := filepath.Join(h.home, "descriptors")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "memstub.yaml"), []byte(memStubProviderDescriptorYAML), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "memstub.yaml"), []byte(stubDescriptor(memStubProviderDescriptorYAML)), 0o644))
 }
 
 // createMemStubChat is createLiveStubChat against the memstub provider.

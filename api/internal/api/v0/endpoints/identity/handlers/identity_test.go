@@ -120,7 +120,7 @@ func TestGet_Found(
 			AvatarURL:   "https://example.com/avatar.png",
 		},
 	}
-	r := newRouter(resolver, domain.Workspace{ID: "ws1", WorktreePath: "/repo/ws1"})
+	r := newRouter(resolver, domain.Workspace{ID: "ws1", WorktreePath: "/repo/ws1", Provisioning: domain.WorkspaceProvisioned})
 
 	rec := do(r, "/v0/chats/chat1/identity")
 

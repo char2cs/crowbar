@@ -20,15 +20,6 @@ describe('getAncestorDirectoryPaths', () => {
       '/workspace/src/features/file-explorer/components',
     ])
   })
-
-  it('supports remote-style paths', () => {
-    expect(
-      getAncestorDirectoryPaths(
-        'remote://server/workspace/src/file.ts',
-        'remote://server/workspace',
-      ),
-    ).toEqual(['remote://server/workspace', 'remote://server/workspace/src'])
-  })
 })
 
 describe('getExplorerTargetPath', () => {

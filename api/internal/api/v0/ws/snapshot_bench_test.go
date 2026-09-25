@@ -55,7 +55,7 @@ func drainSnapshot(
 	want int,
 ) {
 	b.Helper()
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil) //nolint:bodyclose
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil) //nolint:bodyclose // the upgrade response has no body to close; conn owns the socket
 	if err != nil {
 		b.Fatalf("dial: %v", err)
 	}

@@ -117,6 +117,8 @@ export function subscribeEntityStream<T extends { id: string; status?: string }>
   // delete frames. Folding this into applyChain (below) keeps it from
   // interleaving with live frames.
   async function applySeed(generation: number): Promise<void> {
+    // A reseed queued behind another is superseded or closed by its turn.
+    if (disposed || generation !== seedGeneration) return
     const items = await seed()
     // A newer reseed started while our GET was in flight; let it win.
     if (disposed || generation !== seedGeneration) return

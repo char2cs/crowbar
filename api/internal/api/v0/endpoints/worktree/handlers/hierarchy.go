@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
@@ -113,7 +114,8 @@ func (h *Handlers) foldMergedChildIfLeaf(
 	if !leaf {
 		return nil
 	}
-	if err := h.hierarchy.DeleteCascade(ctx, id); err != nil {
+	// Never with consent: a fold nobody reviewed must not destroy unmerged work.
+	if err := h.hierarchy.DeleteCascade(ctx, id, domain.KeepWorkAtRisk); err != nil {
 		return fmt.Errorf("merge succeeded but removing the workspace failed: %w", err)
 	}
 	return nil

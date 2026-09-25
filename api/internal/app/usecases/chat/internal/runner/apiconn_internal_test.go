@@ -8,7 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -33,20 +36,19 @@ func (noopTurns) IngestHook(context.Context, string, string, string, []byte) err
 }
 
 func (noopTurns) ReplayStartupHook(string, inflight.Hook) {}
+func (noopTurns) ForgetChat(string)                       {}
 
 func (noopTurns) AwaitTurnComplete(context.Context, string) error { return nil }
 
 func (noopTurns) ChatWorking(context.Context, string) (bool, error) { return false, nil }
 
+func (noopTurns) TurnOpen(context.Context, string, string) (bool, error) { return false, nil }
+
 func (noopTurns) RecordStop(context.Context, string, string) error { return nil }
 
 func (noopTurns) RecordChatSwitch(context.Context, string, string, string) error { return nil }
 
-func (noopTurns) SetMessageDelta(func(chatID, workspaceID, messageID, text, kind string)) {}
-func (noopTurns) SetPlanUpdate(func(chatID, workspaceID string, steps []engineagents.PlanStep)) {
-}
-
-func (noopTurns) SetCompactionStatus(func(chatID, workspaceID string, active bool)) {}
+func (noopTurns) SetFeed(seam.ChatFeed) {}
 
 func (noopTurns) MatchTerminalPrompt(
 	context.Context, string, string,
@@ -112,7 +114,7 @@ func TestWaitForSocket_DetectsTheSocketAppearing(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	assert.NoError(t, waitForSocket(ctx, sockPath))
+	assert.NoError(t, waitForSocket(ctx, sockPath, nil))
 	require.NoError(t, <-listening, "the test's own background listener must have bound cleanly")
 }
 
@@ -120,17 +122,50 @@ func TestWaitForSocket_RespectsContextCancellation(t *testing.T) {
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	assert.Error(t, waitForSocket(ctx, filepath.Join(dir, "never.sock")))
+	assert.Error(t, waitForSocket(ctx, filepath.Join(dir, "never.sock"), nil))
 }
 
 func TestForkServeProcess_StartsARealProcess(t *testing.T) {
-	cmd, err := forkServeProcess([]string{"sleep", "5"})
+	serve, err := forkServeProcess([]string{"sleep", "5"})
 	require.NoError(t, err)
-	require.NotNil(t, cmd.Process)
-	defer func() { _ = cmd.Process.Kill() }()
+	require.NotNil(t, serve.cmd.Process)
+	defer serve.kill()
 
 	// The process is genuinely running, not merely constructed.
-	assert.NoError(t, cmd.Process.Signal(os.Interrupt))
+	assert.NoError(t, serve.cmd.Process.Signal(os.Interrupt))
+}
+
+// codex's `serve` is a node wrapper around the real binary: killing only the
+// wrapper orphaned the app-server it had started, which ran on forever.
+func TestForkServeProcess_KillEndsWhatTheProcessStarted(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "grandchild.pid")
+	serve, err := forkServeProcess([]string{"sh", "-c", "sleep 60 & echo $! > " + pidFile + "; wait"})
+	require.NoError(t, err)
+	var grandchild int
+	require.Eventually(t, func() bool {
+		raw, err := os.ReadFile(pidFile)
+		if err != nil || !strings.HasSuffix(string(raw), "\n") {
+			return false
+		}
+		grandchild, err = strconv.Atoi(strings.TrimSpace(string(raw)))
+		return err == nil
+	}, 5*time.Second, 10*time.Millisecond)
+
+	serve.kill()
+
+	require.Eventually(t, func() bool { return !processRunning(grandchild) },
+		5*time.Second, 20*time.Millisecond, "the serve process's own child outlived it")
+}
+
+// processRunning reports whether pid exists and is not a zombie awaiting reap.
+func processRunning(pid int) bool {
+	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return syscall.Kill(pid, 0) == nil
+	}
+	s := string(stat)
+	fields := strings.Fields(s[strings.LastIndexByte(s, ')')+1:])
+	return len(fields) > 0 && fields[0] != "Z"
 }
 
 func TestForkServeProcess_EmptyArgvIsAnError(t *testing.T) {
@@ -144,8 +179,17 @@ func TestAPIConnRegistry_DropKillsTheProcessAndClosesTheDriver(t *testing.T) {
 	require.NoError(t, cmd.Start())
 	pid := cmd.Process.Pid
 
-	reg.set("runner-1", &apiconn{serveCmd: cmd})
+	serve := reapServe(cmd)
+	reg.set("runner-1", &apiconn{serve: serve})
 	reg.drop("runner-1")
+
+	// Gone by the time drop returns: codex refuses a replacement resuming the
+	// thread while the old process still holds its writer lock.
+	select {
+	case <-serve.exited:
+	default:
+		t.Fatal("drop returned before the killed serve process was reaped")
+	}
 
 	// The process must actually be dead, not merely asked nicely.
 	require.Eventually(t, func() bool {
@@ -156,6 +200,28 @@ func TestAPIConnRegistry_DropKillsTheProcessAndClosesTheDriver(t *testing.T) {
 	reg.drop("runner-1")
 }
 
+// A daemon shutting down kills its own serve processes; that is not the
+// runner exiting. Its row stays live, so the next boot records the real
+// reason (daemon_restart) — an exit reconciled here raced the store's close.
+func TestAPIConnRegistry_CloseAllIsNotARunnerExit(t *testing.T) {
+	reg := newAPIConnRegistry()
+	cmd := exec.CommandContext(t.Context(), "sleep", "5")
+	require.NoError(t, cmd.Start())
+	serve := reapServe(cmd)
+	reg.set("runner-1", &apiconn{serve: serve})
+	exited := make(chan struct{}, 1)
+	require.True(t, reg.watchExit("runner-1", func() { exited <- struct{}{} }))
+
+	reg.closeAll()
+
+	<-serve.exited
+	select {
+	case <-exited:
+		t.Fatal("the daemon's own shutdown was reconciled as the runner exiting")
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
 func TestAPIConnRegistry_CloseAllKillsEveryLiveProcess(t *testing.T) {
 	reg := newAPIConnRegistry()
 	cmd1 := exec.Command("sleep", "5")
@@ -163,8 +229,8 @@ func TestAPIConnRegistry_CloseAllKillsEveryLiveProcess(t *testing.T) {
 	cmd2 := exec.Command("sleep", "5")
 	require.NoError(t, cmd2.Start())
 
-	reg.set("runner-1", &apiconn{serveCmd: cmd1})
-	reg.set("runner-2", &apiconn{serveCmd: cmd2})
+	reg.set("runner-1", &apiconn{serve: reapServe(cmd1)})
+	reg.set("runner-2", &apiconn{serve: reapServe(cmd2)})
 	reg.closeAll()
 
 	require.Eventually(t, func() bool {
@@ -319,7 +385,7 @@ func TestPumpAPIConn_RoutesOnlyAPITransportEventsAndDropsHooksDeclaredOnes(t *te
 	defer cancel()
 	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	// SubagentStart isn't in this descriptor's `in:`/`ask:` table for the API
 	// transport at all (it's hooks-only), so dispatch.Resolve never surfaces it —
@@ -362,7 +428,7 @@ func TestPumpAPIConn_AskEventCarriesADeliveryIDAndRepliesOverTheSocket(t *testin
 	defer cancel()
 	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	answers := answerdesk.New(answerdesk.DefaultRetention, nil)
 	spy := &spyTurns{answers: answers}
@@ -390,18 +456,26 @@ func TestPumpAPIConn_AskEventCarriesADeliveryIDAndRepliesOverTheSocket(t *testin
 	}
 }
 
-func TestPumpAPIConn_UnansweredAskWritesNoReply(t *testing.T) {
-	wroteReply := make(chan struct{}, 1)
+// An api provider has no TUI to fall back to: an ask nobody answers from
+// Crowbar gets the descriptor's refusal, never silence that holds its turn.
+func TestPumpAPIConn_AnAskNobodyAnswersIsRefused(t *testing.T) {
+	replySeen := make(chan string, 1)
 	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
 		ask, _ := json.Marshal(map[string]any{
 			"id": 9, "method": "acme/tool/requestApproval",
 			"params": map[string]string{"tool": "shell"},
 		})
 		require.NoError(t, conn.WriteMessage(websocket.TextMessage, ask))
-		_, _, err := conn.ReadMessage()
-		if err == nil {
-			wroteReply <- struct{}{}
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			return
 		}
+		var reply struct {
+			Result json.RawMessage `json:"result"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &reply))
+		replySeen <- string(reply.Result)
+		_, _, _ = conn.ReadMessage()
 	})
 
 	agent := apiTransportTestAgent(t)
@@ -409,28 +483,50 @@ func TestPumpAPIConn_UnansweredAskWritesNoReply(t *testing.T) {
 	defer cancel()
 	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
-	spy := &spyTurns{}
-	// A retention/wait of practically zero: the relay's declared budget expires
-	// almost immediately, so Await returns an empty stdout — "nobody answered in
-	// time" — without this test waiting out the real 270s default.
-	answers := answerdesk.New(answerdesk.DefaultRetention, nil)
-	rs := &Runners{turns: spy, answers: answers}
-	conn := &apiconn{driver: apiConn, ctx: ctx}
-	rs.pumpAPIConn("runner-1", "api-test", agent, conn)
-
-	require.Eventually(t, func() bool { return len(spy.snapshot()) == 1 }, 3*time.Second, 10*time.Millisecond)
-	// The slot is already held (spyTurns.IngestHook did it, since spy.answers is
-	// unset here it did NOT — hold it now) but never resolved; cancel ctx so
-	// awaitAndReplyOverSocket's Await returns promptly via ctx.Done() rather than
-	// this test waiting out the real answer-budget timeout.
-	answers.Hold(spy.snapshot()[0].deliveryID, answerdesk.Prompt{ChoiceID: "choice-1", ChatID: "chat-1", RunnerID: "runner-1"})
-	cancel()
+	// No slot is held: the ask reached nobody who could answer it.
+	rs := &Runners{turns: &spyTurns{}, answers: answerdesk.New(answerdesk.DefaultRetention, nil)}
+	rs.pumpAPIConn("runner-1", "api-test", agent, &apiconn{driver: apiConn, ctx: ctx})
 
 	select {
-	case <-wroteReply:
-		t.Fatal("no reply should be written for an ask nobody answered")
-	case <-time.After(300 * time.Millisecond):
+	case reply := <-replySeen:
+		assert.JSONEq(t, `{"decision":"denied","message":"No answer from Crowbar in time."}`, reply)
+	case <-ctx.Done():
+		t.Fatal("an unanswered ask must be refused, not left open")
 	}
+}
+
+// §7-A: the pump used to Await a permission answer inline, so every event the
+// provider sent after an unanswered ask — deltas, turn_stop, the next ask —
+// sat behind a human's decision, and once the driver's buffers filled an
+// interrupt hung holding the spawn gate. The answer is awaited on its own
+// goroutine; the pump keeps draining.
+func TestPumpAPIConn_AnUnansweredAskDoesNotBlockLaterEvents(t *testing.T) {
+	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
+		ask, _ := json.Marshal(map[string]any{
+			"id": 11, "method": "acme/tool/requestApproval",
+			"params": map[string]string{"tool": "shell"},
+		})
+		require.NoError(t, conn.WriteMessage(websocket.TextMessage, ask))
+		require.NoError(t, conn.WriteMessage(websocket.TextMessage,
+			[]byte(`{"method":"turn/completed","params":{"threadId":"t1","turn":{"items":[]}}}`)))
+		_, _, _ = conn.ReadMessage()
+	})
+
+	agent := apiTransportTestAgent(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	require.NoError(t, err)
+	defer func() { _ = apiConn.Close() }()
+
+	answers := answerdesk.New(answerdesk.DefaultRetention, nil)
+	spy := &spyTurns{answers: answers}
+	rs := &Runners{turns: spy, answers: answers}
+	rs.pumpAPIConn("runner-1", "api-test", agent, &apiconn{driver: apiConn, ctx: ctx})
+
+	require.Eventually(t, func() bool { return len(spy.snapshot()) == 2 }, 3*time.Second, 10*time.Millisecond,
+		"the turn_stop behind an unanswered permission ask must still be ingested")
+	assert.Equal(t, "turn_stop", spy.snapshot()[1].canonical)
 }

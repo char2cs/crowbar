@@ -24,8 +24,8 @@ describe('Button', () => {
       </TooltipProvider>,
     )
     await user.hover(screen.getByRole('button', { name: 'Click me' }))
-    // Radix renders tooltip text twice in JSDOM — once visible, once in a hidden
-    // accessibility node — so we use findAllByText and assert on the first match.
+    // The tooltip text may render more than once (visible + accessibility node),
+    // so we use findAllByText and assert on the first match.
     expect((await screen.findAllByText('Go Back'))[0]).toBeInTheDocument()
   })
 
@@ -39,8 +39,8 @@ describe('Button', () => {
       </TooltipProvider>,
     )
     await user.hover(screen.getByRole('button', { name: 'X' }))
-    // Radix renders tooltip text twice in JSDOM — once visible, once in a hidden
-    // accessibility node — so we use findAllByText and assert on the first match.
+    // The tooltip text may render more than once (visible + accessibility node),
+    // so we use findAllByText and assert on the first match.
     expect((await screen.findAllByText('Close'))[0]).toBeInTheDocument()
     expect(document.querySelector('kbd')).toBeInTheDocument()
   })

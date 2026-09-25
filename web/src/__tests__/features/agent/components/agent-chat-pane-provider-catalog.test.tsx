@@ -63,8 +63,8 @@ vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: (...a: unknown[]) => toastErrorFn(...a) },
 }))
 
-vi.mock('@/features/terminal/components/terminal', () => ({
-  XtermTerminal: ({ sessionId }: { sessionId: string }) =>
+vi.mock('@/features/terminal/components/lazy-terminal', () => ({
+  LazyXtermTerminal: ({ sessionId }: { sessionId: string }) =>
     createElement('div', { 'data-testid': 'xterm', 'data-session-id': sessionId }),
 }))
 
@@ -84,6 +84,7 @@ import {
   getOrCreateWorkspaceStore,
   destroyWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
+import { nextVersion, seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import { useSettingsStore } from '@/features/settings/store'
 
 const providers: AgentProvider[] = [
@@ -98,6 +99,9 @@ const providers: AgentProvider[] = [
     hotswap: true,
     modelSelect: true,
     models: ['opus', 'sonnet'],
+    effortSelect: false,
+    compaction: false,
+    terminalStartHere: false,
   },
   {
     id: 'codex',
@@ -110,6 +114,9 @@ const providers: AgentProvider[] = [
     hotswap: true,
     modelSelect: true,
     models: ['gpt-5'],
+    effortSelect: false,
+    compaction: false,
+    terminalStartHere: false,
   },
 ]
 
@@ -123,6 +130,9 @@ function dormantChat(id: string, provider: string): AgentChat {
     liveRunnerId: '',
     terminalSessionId: '',
     activeProviderId: provider,
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant',
     createdAt: '',
     order: 0,
   }
@@ -144,7 +154,7 @@ function detail(chat: AgentChat): AgentChatDetail {
  */
 function unmountedWorkspace(chats: AgentChat[], wsId = 'w1') {
   const store = createWorkspaceStore(wsId)
-  store.getState().seedAgentChats(chats)
+  seedChats(store, chats)
   return store
 }
 
@@ -285,7 +295,7 @@ describe('a pane on a workspace the app never mounted (real registry)', () => {
     // B: minted on demand by the pane. Nothing ever seeded it.
     const unmounted = getOrCreateWorkspaceStore('w-unmounted')
     const chat = { ...dormantChat('c3', 'claude'), workspaceId: 'w-unmounted' }
-    unmounted.getState().seedAgentChats([chat])
+    seedChats(unmounted, [chat])
     expect(unmounted.getState().agentChats.providers).toEqual([])
 
     getChatFn.mockResolvedValue(detail(chat))

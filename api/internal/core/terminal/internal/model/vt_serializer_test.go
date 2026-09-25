@@ -300,7 +300,6 @@ type otherModel struct{}
 func (otherModel) Write([]byte)                       {}
 func (otherModel) Resize(int, int)                    {}
 func (otherModel) OnForegroundReset()                 {}
-func (otherModel) PendingInput() []byte               { return nil }
 func (otherModel) Title() string                      { return "" }
 func (otherModel) Cols() int                          { return 0 }
 func (otherModel) Rows() int                          { return 0 }

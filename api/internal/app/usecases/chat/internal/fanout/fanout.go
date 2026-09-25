@@ -1,57 +1,47 @@
-// Package fanout turns repository lifecycle announcements into the frames the
-// frontend receives.
+// Package fanout turns repository lifecycle announcements into chat snapshots.
 //
-// It exists so that deciding what a client is told lives in the usecase layer and not
-// inside an asynx projection. The repositories announce WHAT HAPPENED; this package is
-// the single place that shapes those announcements into wire frames, which is what
-// makes "one lifecycle change → exactly one frame" a property you can point at.
+// The repositories announce WHAT HAPPENED, carrying the aggregate as of each
+// event; this package hands both aggregates' events to the one snapshot owner
+// (internal/snapshot), which versions them and publishes the frame. That is
+// what makes "one lifecycle change → exactly one versioned frame" a property
+// you can point at.
 package fanout
 
 import (
+	"context"
+
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
-// Hub is the WS broadcaster as this package needs it. *hub.Hub satisfies it with no
-// adapter — these are its own two method signatures.
-type Hub interface {
-	BroadcastAgentChat(chatID, workspaceID, kind string, working bool)
-	BroadcastAgentRunner(runnerID, workspaceID, chatID, kind string)
-}
-
-// Fanout holds the hub the frames are sent to. A nil hub degrades to a no-op so the
-// daemon never panics when wired without one (tests).
+// Fanout feeds the snapshot owner. A nil owner degrades to a no-op so a
+// daemon wired without one (tests) never panics.
 type Fanout struct {
-	hub Hub
+	snaps *snapshot.Snapshots
 }
 
-func New(hub Hub) *Fanout { return &Fanout{hub: hub} }
+func New(snaps *snapshot.Snapshots) *Fanout { return &Fanout{snaps: snaps} }
 
 // ChatWatch is the seam agentchat.NewEventSourced is wired with.
 func (f *Fanout) ChatWatch() agentchat.WatchFunc {
 	return func(e agentchat.ChatEvent) {
-		if f.hub == nil {
-			return
+		chat := e.Chat
+		chat.ID = e.ChatID
+		if chat.WorkspaceID == "" {
+			chat.WorkspaceID = e.WorkspaceID
 		}
-		// A forgotten chat is not working: it is not anything. The repository still
-		// reports the aggregate's last-known Working at the moment it was forgotten,
-		// so suppressing it is this layer's job.
-		working := e.Working && !e.Forgotten
-		f.hub.BroadcastAgentChat(e.ChatID, e.WorkspaceID, e.Kind, working)
+		f.snaps.ApplyChat(context.Background(), chat, e.Version, e.Kind, e.Forgotten)
 	}
 }
 
 // RunnerWatch is the seam agentrunner.NewEventSourced is wired with.
 //
-// It is never nil, even with no hub: agentrunner's store REFUSES a nil watch at
-// construction, so returning one would make the container fail to build.
+// It is never nil: agentrunner's store REFUSES a nil watch at construction.
 func (f *Fanout) RunnerWatch() agentrunner.WatchFunc {
 	return func(e agentrunner.RunnerEvent) {
-		if f.hub == nil {
-			return
-		}
-		// ChatID is empty on a `displaced` frame and must stay empty: it is what tells
-		// a client to stop showing this runner as the chat's agent.
-		f.hub.BroadcastAgentRunner(e.RunnerID, e.WorkspaceID, e.ChatID, e.Kind)
+		runner := e.Runner
+		runner.ID = e.RunnerID
+		f.snaps.ApplyRunner(context.Background(), runner, e.Previous, e.Version, e.Kind)
 	}
 }

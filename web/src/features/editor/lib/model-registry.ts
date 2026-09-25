@@ -29,7 +29,12 @@ export class ModelRegistry {
       existing.refs++
       return existing.model
     }
-    const model = this.api.getModel(uri) ?? this.api.createModel(initialText, languageId, uri)
+    // A model can exist without an entry (the references peek creates preview
+    // models for files that are not open). Adopt it, but with the buffer's
+    // text: nothing edits a preview, and the buffer may hold unsaved changes.
+    const adopted = this.api.getModel(uri)
+    if (adopted) adopted.setValueIfChanged(initialText)
+    const model = adopted ?? this.api.createModel(initialText, languageId, uri)
     this.entries.set(uri, { model, refs: 1 })
     return model
   }

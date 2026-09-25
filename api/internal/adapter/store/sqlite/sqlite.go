@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	glebarez "github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -30,6 +31,26 @@ func New[T any, K comparable](
 		return nil, err
 	}
 	return NewFromDB[T, K](db)
+}
+
+// DSN is the driver connection string for the database at path, carrying the
+// per-connection pragmas every Crowbar database runs with. They go in the DSN
+// rather than a one-off PRAGMA statement because the driver runs DSN pragmas on
+// EVERY connection it opens, and synchronous is per-connection state: an Exec
+// would reach only whichever pooled connection happened to serve it.
+//
+// synchronous=NORMAL: in WAL mode (which every database here uses) a commit no
+// longer fsyncs; the WAL is synced at checkpoint instead. A committed
+// transaction still survives an application crash — only a power loss or OS
+// crash can roll back the most recent commits, and never corrupts the file.
+// FULL paid an fsync on every append (~1.1 ms vs ~0.15 ms, measured), and each
+// mutation writes an event, a snapshot and a read-model row.
+func DSN(path string) string {
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + "_pragma=synchronous(NORMAL)"
 }
 
 // readPoolConns is the max open-connection count for read-model/view DBs. A
@@ -61,23 +82,11 @@ func OpenReadPoolDB(
 	return openWithMaxConns(path, readPoolConns)
 }
 
-// OpenDBWithPool opens (or creates) a SQLite database at path with up to
-// maxOpenConns open connections, delegating to openWithMaxConns. It exists so
-// callers that request an explicit pool size (rather than the single-writer
-// OpenDB or the fixed-size OpenReadPoolDB) compile against the per-type data
-// layer.
-func OpenDBWithPool(
-	path string,
-	maxOpenConns int,
-) (*gorm.DB, error) {
-	return openWithMaxConns(path, maxOpenConns)
-}
-
 func openWithMaxConns(
 	path string,
 	maxConns int,
 ) (*gorm.DB, error) {
-	db, err := gorm.Open(glebarez.Open(path), &gorm.Config{
+	db, err := gorm.Open(glebarez.Open(DSN(path)), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {

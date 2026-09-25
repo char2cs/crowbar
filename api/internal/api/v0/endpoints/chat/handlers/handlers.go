@@ -4,11 +4,11 @@ package handlers
 
 import (
 	"context"
-	"sync"
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
 // ChatUsecase is the chat aggregate as the handlers need it: the rows a
@@ -18,6 +18,14 @@ import (
 // It starts no processes and reads no vendor CLI. Every route served off here
 // answers whether or not a runner has ever been placed on the chat.
 type ChatUsecase interface {
+	// ChatSnapshot is chatID's versioned snapshot: the chat, the runner live on
+	// it, its phase and the version that orders it against every frame. Every
+	// chat body this API serves is built from it.
+	ChatSnapshot(
+		ctx context.Context,
+		chatID string,
+	) (agentusecase.ChatSnapshot, error)
+
 	// ListChatsByWorkspace returns every AgentChat anchored to workspaceID. List
 	// calls this when its request still names a workspace (the home mount's
 	// injected :wsId); otherwise it falls back to ListChats below.
@@ -118,17 +126,16 @@ type TurnUsecase interface {
 		rawPayload []byte,
 	) error
 
-	// IngestHookDelivery is the exactly-once ingress: the relay mints one delivery
-	// id and reuses it on every retry, and this path turns those retries into ONE
-	// semantic hook.
+	// IngestHookDelivery is the idempotent ingress: the relay mints one delivery
+	// id and reuses it on its short in-process retry, and this path turns those
+	// retries into ONE semantic hook (an in-memory TTL dedup set — no disk).
 	//
 	// It is declared here rather than discovered at runtime on purpose. A port
 	// that only MIGHT carry it is a port a mis-wire silently falls off — every
-	// hook takes the un-journalled path and every retry applies its effects twice
+	// hook takes the un-deduplicated path and every retry applies its effects twice
 	// — and nothing fails until a user sees the same turn twice in production.
 	IngestHookDelivery(
-		ctx context.Context,
-		workspaceID, deliveryID, runnerID, provider, canonicalEvent string,
+		ctx context.Context, deliveryID, runnerID, provider, canonicalEvent string,
 		rawPayload []byte,
 	) error
 
@@ -237,15 +244,6 @@ type RunnerUsecase interface {
 		chatID string,
 	) ([]engineagents.ChatConversation, error)
 
-	// PlacementsForChat returns every provider a runner has ever been placed on
-	// chatID as, oldest arrival first — the append-only record that still names a
-	// dormant chat's vendor when its provider announced no conversation to fall
-	// back to. It is activeProviderId's third fallback source.
-	PlacementsForChat(
-		ctx context.Context,
-		chatID string,
-	) ([]engineagents.ChatPlacement, error)
-
 	// SwitchProvider quits the chat's current vendor CLI, hands off the accumulated
 	// context, and starts targetProviderID as a new runner on the SAME chat,
 	// returning the new runner's id.
@@ -283,21 +281,16 @@ type RunnerUsecase interface {
 		chatID string,
 	) error
 
-	// SwitchToTerminal hands chatID's live turn over to its provider's OWN native
-	// view — idle-only, for a provider whose descriptor declares attach without
-	// hotswap (codex): the api connection is torn down and a bare resume of the
-	// SAME session is forked as a real terminal session, returned here so the
-	// caller can point its existing terminal-rendering path at it. Refuses
-	// (ErrTurnInProgress) while a turn is in flight, and (ErrNoNativeTerminal) for
-	// a provider with no native view to show at all.
+	// SwitchToTerminal moves chatID onto its provider's own TUI and returns
+	// the terminal session it is. Refuses (ErrTurnInProgress) while a turn is
+	// in flight and (ErrNoNativeTerminal) for a provider with no TUI to show.
 	SwitchToTerminal(
 		ctx context.Context,
 		chatID string,
 	) (terminalSessionID string, err error)
 
-	// SwitchToNative reverses SwitchToTerminal: the native-view PTY is torn down
-	// and the api connection is re-established over the same session. A chat with
-	// nothing attached is a nil no-op.
+	// SwitchToNative moves chatID onto Crowbar's own chat surface; a chat
+	// already there is a no-op.
 	SwitchToNative(
 		ctx context.Context,
 		chatID string,
@@ -306,10 +299,6 @@ type RunnerUsecase interface {
 	// AttachedTerminalSession answers which terminal session IS a runner's
 	// native view right now, if it has one — see chatRuntime.
 	AttachedTerminalSession(runnerID string) (string, bool)
-
-	// HasLiveAPIConnection reports whether runnerID has a live api-transport
-	// connection right now — see chatRuntime's own use, chats.go.
-	HasLiveAPIConnection(runnerID string) bool
 
 	// TerminalWait is what the agent is blocked on that Crowbar CANNOT answer: a
 	// modal reaching the daemon through no hook, so the only way past it is the
@@ -389,6 +378,12 @@ type ProviderUsecase interface {
 	ResolveProviders(
 		ctx context.Context,
 	) ([]domain.AgentProvider, error)
+
+	// DescriptorReports validates every descriptor this machine would load; it
+	// backs GET /v0/settings/chat/descriptors.
+	DescriptorReports(
+		ctx context.Context,
+	) ([]descriptorcheck.Report, error)
 
 	// ReplaceProviderPreferences rewrites the whole global preference table from the
 	// submitted ordered set (array position → priority), validating ids against the
@@ -504,26 +499,8 @@ type ChatTreeUsecase interface {
 	DeleteChat(
 		ctx context.Context,
 		chatID string,
+		consent domain.DeleteConsent,
 	) (agentusecase.ChatDeletion, error)
-	// MintOwningChat and AttachOwningWorkspace are the chat-first mint every
-	// workspace create goes through, exposed here so a workspace served
-	// without an owner (created before the mint existed — no backfill) gets
-	// one the first time a client reads it. See EnsureOwner (worktree.go).
-	MintOwningChat(
-		ctx context.Context,
-		parentWorkspaceID string,
-	) (chatID string, err error)
-	AttachOwningWorkspace(
-		ctx context.Context,
-		chatID string,
-		ws domain.Workspace,
-	) error
-	// DiscardOwningChat is MintOwningChat's compensating half, for an attach
-	// that failed.
-	DiscardOwningChat(
-		ctx context.Context,
-		chatID string,
-	) error
 }
 
 // Repos resolves the repository named by :repoId, so an IMPORTING create can
@@ -554,9 +531,6 @@ type Handlers struct {
 	worktrees       Worktrees
 	nodes           Nodes
 	broadcastFolder func(folderID, workspaceID, kind string)
-	// ownerMint serializes EnsureOwner's mint (worktree.go) so two concurrent
-	// reads of one chatless workspace cannot each mint it an owner.
-	ownerMint sync.Mutex
 }
 
 // New builds the agent Handlers from the five agent concerns, the Chats-panel

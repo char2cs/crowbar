@@ -62,3 +62,83 @@ func isNull(
 ) bool {
 	return len(raw) == 0 || string(raw) == "null"
 }
+
+// RelWorkspaceEdit rewrites every file a raw LSP WorkspaceEdit names
+// (changes keys, documentChanges URIs) to its workspace-relative path.
+// Anything that does not decode is passed through unchanged.
+func RelWorkspaceEdit(
+	worktreePath string,
+	raw json.RawMessage,
+) json.RawMessage {
+	var edit map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &edit); err != nil {
+		return raw
+	}
+	if changes, ok := edit["changes"]; ok {
+		edit["changes"] = relChanges(worktreePath, changes)
+	}
+	if docChanges, ok := edit["documentChanges"]; ok {
+		edit["documentChanges"] = relDocumentChanges(worktreePath, docChanges)
+	}
+	out, err := json.Marshal(edit)
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
+// relChanges rewrites the keys of a WorkspaceEdit's changes map (file URIs).
+func relChanges(
+	worktreePath string,
+	raw json.RawMessage,
+) json.RawMessage {
+	var byURI map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &byURI); err != nil {
+		return raw
+	}
+	byPath := make(map[string]json.RawMessage, len(byURI))
+	for uri, edits := range byURI {
+		byPath[WorkspaceRelPath(worktreePath, PathFromURI(uri))] = edits
+	}
+	out, err := json.Marshal(byPath)
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
+// relDocumentChanges rewrites each documentChanges entry's textDocument URI.
+func relDocumentChanges(
+	worktreePath string,
+	raw json.RawMessage,
+) json.RawMessage {
+	var items []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return raw
+	}
+	for _, item := range items {
+		relTextDocument(worktreePath, item)
+	}
+	out, err := json.Marshal(items)
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
+func relTextDocument(
+	worktreePath string,
+	item map[string]json.RawMessage,
+) {
+	var td map[string]json.RawMessage
+	if err := json.Unmarshal(item["textDocument"], &td); err != nil {
+		return
+	}
+	var uri string
+	if err := json.Unmarshal(td["uri"], &uri); err != nil {
+		return
+	}
+	rel, _ := json.Marshal(WorkspaceRelPath(worktreePath, PathFromURI(uri)))
+	td["uri"] = rel
+	item["textDocument"], _ = json.Marshal(td)
+}

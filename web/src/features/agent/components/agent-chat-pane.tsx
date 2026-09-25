@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useStore } from 'zustand'
-import { Trash2Icon } from 'lucide-react'
+import { TrashIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
 import {
   getChat,
-  resumeChat,
   switchProvider,
   switchToNative,
   switchToTerminal,
@@ -13,15 +12,13 @@ import {
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { AGENT_CYCLE_PROVIDER, AGENT_TOGGLE_VIEW_MODE } from '@/features/keymaps/registry'
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
-import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
-import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
-import { acceptChatRead, claimChatRead } from '@/features/agent/lib/chat-read-order'
+import { usePaneSession } from '@/features/agent/hooks/use-pane-session'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import {
   SPLIT_MIN_HALF_PX,
@@ -37,37 +34,7 @@ import {
   AgentTerminalWaitBanner,
 } from '@/features/agent/components/agent-terminal-wait-banner'
 import { AgentChatView, type AgentChatViewHandle } from '@/features/agent/chat/agent-chat-view'
-import type { ComposerRevival } from '@/features/agent/composer/lib/composer-state'
-import {
-  AgentTerminalSurface,
-  type TerminalAttachment,
-} from '@/features/agent/terminal/agent-terminal-surface'
-
-// seedAttach pre-seeds the terminal-store mapping (connectionId = terminalSessionId)
-// plus the localStorage reconnect backstop, so XtermTerminal's
-// resolveTerminalConnection ATTACHES the agent's already-running PTY instead of
-// spawning a fresh shell.
-//
-// Why this attaches (and does not spawn): XtermTerminal mounts with
-// `sessionId = terminalSessionId`, reads getSession(sessionId).connectionId — now
-// pre-seeded to the same id — and passes it to resolveTerminalConnection as
-// `storeConnectionId`. On a fresh mount there is no live WS transport yet, so the
-// resolver lists the daemon's live sessions, finds this PTY among them, and calls
-// terminalAttach (the in-memory-store reuse branch).
-//
-// It must therefore NEVER be handed a dead PTY: resolveTerminalConnection's fallback
-// for an unknown connection id is createTerminal(), so seeding a dead id would spawn a
-// BARE SHELL inside the agent pane and persist that shell into the reconnect map.
-//
-// The caller's guard used to be TWO questions — is the segment still `active`, AND does
-// the daemon still list its PTY as live — because those two could disagree. They cannot
-// any more. A chat's terminalSessionId comes from its LIVE RUNNER, and a live-runner row
-// exists exactly while its PTY does, so `liveRunnerId` being present IS the liveness
-// answer. One authority, no second round trip, nothing left to drift.
-function seedAttach(wsId: string, terminalSessionId: string): void {
-  useTerminalStore.getState().updateSession(terminalSessionId, { connectionId: terminalSessionId })
-  saveReconnect(wsId, terminalSessionId, terminalSessionId)
-}
+import { AgentTerminalSurface } from '@/features/agent/terminal/agent-terminal-surface'
 
 // ── The split view's geometry ─────────────────────────────────────────────
 //
@@ -89,101 +56,6 @@ function seedAttach(wsId: string, terminalSessionId: string): void {
 //     so the split STACKS instead of shrinking — a short terminal at the FULL pane
 //     width still wraps the way the CLI intended, where a tall narrow one does not.
 
-// How long the pane will wait for a resume before calling it refused.
-//
-// Matched to the daemon's own worst-case honest wait for a switch/resume to become
-// possible (awaitTurnOrForce's bound, termwait.DefaultStallQuiet), so a resume that
-// is genuinely still working is never cut off — only one that was never going to
-// answer at all. See revive for why the request is bounded rather than the UI.
-const REVIVE_REQUEST_BOUND_MS = 120_000
-
-// Shared across every mounted AgentChatPane, keyed by chatId — NOT per-component,
-// because the race this closes is exactly two components. Splitting a chat pane
-// (Cmd+\) mounts a second AgentChatPane pointed at the SAME chatId; its attach
-// effect runs in the same tick as the original pane's, both read the chat as
-// dormant before either has adopted, and each pane's own per-component
-// `attemptedRef` budget let both call revive(). The daemon's per-chat spawn gate
-// (gate.go) then serialises the two resumeChat requests — the second either
-// queues behind the first's full DefaultStallQuiet wait or answers stale — and
-// toastSpawnFailure's "Couldn't resume — the daemon did not answer the resume"
-// is what the split's second pane showed for a chat the first pane was reviving
-// perfectly fine. See the attach effect and revive() for where this is read
-// and written.
-const reviveInFlightByChatId = new Map<string, Promise<void>>()
-
-// THE TRANSIENT-DORMANCY GUARD, AND IT BELONGS TO THE CHAT, NOT TO ONE PANE.
-//
-// Displacing a CLI — a provider switch, or an ordinary prompt submission, both of
-// which kill the outgoing process BEFORE the replacement exists — makes the chat
-// read dormant for the width of a spawn. The pane that ASKED for it holds
-// `switchingRef` and sits the window out. Every OTHER pane on that same chat held
-// nothing, and a split is two panes on one chat by design (Cmd+\ puts one buffer in
-// both), so the sibling read the gap as its own agent dying: with its revive budget
-// still unspent it fired a second resumeChat straight into the daemon's per-chat
-// spawn gate the switch was already holding, and with the budget spent it latched
-// `idle: 'exited'` — "This agent has exited", with a Resume button, over a CLI that
-// was alive and about to answer. That state also drops the composer's `live`, so its
-// prompt queue stops dispatching and the message the user just typed sits there as
-// "1 queued" for good.
-//
-// Measured live in a two-pane split, switching provider in the LEFT pane only:
-//   LEFT[reviving:"Starting Codex…"] || RIGHT[live]
-//   LEFT[reviving:"Starting Codex…"] || RIGHT[idle:exited]   <- the sibling, untouched
-//   LEFT[live]                       || RIGHT[live]
-//
-// Refcounted because two panes can each have a displacement of their own out at once,
-// and keyed by chatId for the same reason reviveInFlightByChatId is: the thing being
-// displaced is the chat's CLI, and every pane showing that chat is looking at it.
-const displacingByChatId = new Map<string, number>()
-
-/** Take a hold on chatId's displacement window. The returned release is idempotent,
- *  so an unmount can call it without having to know whether the flow that took it
- *  already finished. */
-function holdDisplacement(chatId: string): () => void {
-  displacingByChatId.set(chatId, (displacingByChatId.get(chatId) ?? 0) + 1)
-  let released = false
-  return () => {
-    if (released) return
-    released = true
-    const left = (displacingByChatId.get(chatId) ?? 1) - 1
-    if (left > 0) displacingByChatId.set(chatId, left)
-    else displacingByChatId.delete(chatId)
-  }
-}
-
-/** Is ANY pane currently replacing this chat's CLI? */
-function isDisplacing(chatId: string): boolean {
-  return (displacingByChatId.get(chatId) ?? 0) > 0
-}
-
-// The pane's attach outcome.
-//
-// `pending` is the pre-resolution state and renders nothing. It is NOT `idle`: it means
-// the chat list has not reached the store yet, so we do not know whether this chat is
-// live. Auto-reviving here — or flashing the Resume button — would offer to spawn a
-// second CLI onto a chat that may well already have one.
-//
-// `reviving` is a spawn WE ASKED FOR that has not landed yet: a revive (automatic or
-// from the button) or a provider switch. It carries its own message because those are
-// different sentences to the user.
-//
-// `idle` is a chat with NO RUNNER on it — dormant — that we are NOT currently bringing
-// back. Its reason decides what we say, and each is reachable one way only:
-//
-//   'failed' — a revive was tried and could not start a CLI (not installed, spawn
-//              failed, or the chat has no conversation for the backend to resume into).
-//              Retryable by the button, and the footer's dropdown can continue the
-//              conversation with a different provider instead. THIS IS THE ONLY STATE
-//              THE USER SHOULD EVER REACH BY OPENING A CHAT — opening a dormant one
-//              revives it, so the button appears only where an attempt actually failed.
-//   'exited' — the CLI died and we will NOT bring it back unasked: either its PTY died
-//              under the open pane (see handleSessionGone), or this chat has already
-//              spent its one revive on this mount (see attemptedRef). Honest, and it
-//              cannot be reached by merely opening a dormant chat.
-// Declared beside the surface that renders it — the terminal is the only thing
-// that cares what a runner attachment looks like.
-type Attachment = TerminalAttachment
-
 interface AgentChatPaneProps {
   /** The chat this pane is pointed at. NOT stable for its life: the pane re-points it. */
   chatId: string
@@ -196,10 +68,8 @@ interface AgentChatPaneProps {
   /**
    * Whether this tab is the ACTIVE (visible) tab in its pane — distinct from
    * isActivePane (whether the pane has focus). The pane keeps every chat mounted
-   * `visibility:hidden` for keep-alive, so a chat can be MOUNTED-BUT-HIDDEN. This
-   * gates auto-revive: a hidden DORMANT chat must never spawn a CLI (N hidden
-   * dormant tabs would each spawn one on workspace load) — it revives only once it
-   * becomes visible. An already-attached chat stays attached while hidden.
+   * `visibility:hidden` for keep-alive, so a chat can be MOUNTED-BUT-HIDDEN; an
+   * attached chat stays attached while hidden.
    */
   isVisible: boolean
   /**
@@ -292,25 +162,9 @@ export function AgentChatPane({
   // the tab follows), else the chat the tab was pointed at (which may be dormant).
   const shownChatId = runnerChatId || chatId
 
-  // Does the store KNOW this chat at all? "Not in the store yet" (the seed is in flight)
-  // is not "dormant", and must not render the Resume button — see `pending` above.
-  const known = useStore(store, (s) => s.agentChats.chats.some((c) => c.id === shownChatId))
   // Has an authoritative list ever landed? That is what turns `!known` from
   // "not yet" into "not in it" — see the resolve effect below.
   const listSeeded = useStore(store, (s) => s.agentChats.listSeeded)
-  // The runner on the shown chat — mine, or whoever replaced it. '' = dormant.
-  const liveRunnerId = useStore(
-    store,
-    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.liveRunnerId ?? '',
-  )
-  // That runner's PTY, if it has one to show right now. NOT a second liveness
-  // signal — a non-hotswap api-transport runner (codex) is legitimately live
-  // with this empty (nothing attached), so liveRunnerId above is the only
-  // thing that means "no runner, nothing to attach".
-  const sessionId = useStore(
-    store,
-    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.terminalSessionId ?? '',
-  )
   const activeProviderId = useStore(
     store,
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.activeProviderId ?? '',
@@ -379,12 +233,6 @@ export function AgentChatPane({
     if (wsProviders.length > 0 || globalProviders.length > 0) return
     void useAgentProvidersStore.getState().load(wsId)
   }, [wsProviders.length, globalProviders.length, wsId])
-  // The provider this chat last ran under — what a failed revive has to NAME ("Claude
-  // isn’t installed"), since a dormant chat has no live runner to ask.
-  const chatProviderId = useStore(
-    store,
-    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.activeProviderId ?? '',
-  )
 
   // Is this chat's CLI parked on a prompt Crowbar CANNOT answer — a workspace
   // trust dialog, a first-run screen, a login — which reaches the daemon through
@@ -421,7 +269,6 @@ export function AgentChatPane({
   const toolOutput = useStore(store, (s) => s.agentChats.streamingToolOutput[shownChatId])
   const plan = useStore(store, (s) => s.agentChats.streamingPlan[shownChatId])
 
-  const [attachedState, setAttachment] = useState<Attachment>({ state: 'pending' })
   const columnRef = useRef<HTMLDivElement>(null)
   const splitContainerRef = useRef<HTMLDivElement>(null)
   const {
@@ -452,64 +299,23 @@ export function AgentChatPane({
   // repainting it, and it's scoped to the chat surface only (the terminal has
   // its own font-size-based terminalZoomLevel).
   const chatZoom = useZoomStore.use.zoom()
-  // `pending` while the chat list is still in flight is DERIVED, not written by
-  // the attach effect below. Dormancy is unknowable until the list lands, so
-  // there is nothing for the machine to record — the pane simply has nothing to
-  // show yet. Keeping it out of the state means the effect's only job is
-  // spawning and attaching CLIs, and a `known` flip no longer costs an extra
-  // render to undo a value the effect had just written.
-  const attachment: Attachment = known ? attachedState : { state: 'pending' }
+  const providerName = providers.find((p) => p.id === activeProviderId)?.displayName || 'the agent'
+  const { known, liveRunnerId, attachment, revival, sessionNote, canSend, startSession } =
+    usePaneSession({
+      store,
+      wsId,
+      chatId: shownChatId,
+      providerName,
+      presentation,
+      promptReplacing,
+    })
 
   // Whether each blank-chat signpost below is ABOUT to occupy
-  // AgentEmptyDocument's own control-bar slot this pass — named here, once,
-  // rather than re-testing the same conditions inline at both `blankSignpost`
-  // below AND wherever else needs to know it. `waitingBannerShown` mirrors
-  // `waiting && chatBlank`; the other two also gate on `presentation !==
-  // 'terminal'`, same as `blankSignpost`'s own precedence below. Exactly one
-  // of the three renders at most (waiting requires a live runner; reviving/
-  // idle both require none — never true together).
+  // AgentEmptyDocument's own control-bar slot this pass. At most one renders
+  // (waiting requires a live runner; reviving requires none).
   const waitingBannerShown = waiting && chatBlank
   const revivingBannerShown =
-    presentation !== 'terminal' && chatBlank && attachment.state === 'reviving'
-  const idleBannerShown = presentation !== 'terminal' && chatBlank && attachment.state === 'idle'
-
-  // The composer's own words for `attachment`, refined past the plain `live`
-  // boolean it gets alongside this — but only on the chat side of the gate.
-  // Both surfaces stay mounted (see the dormancy note by the split container
-  // below), and the terminal surface carries its OWN copy of this same
-  // reviving/idle treatment, gated the mirror-image way. Without this check
-  // BOTH copies would sit in the document at once — a visible duplicate in
-  // split, and one hidden behind `display:none` and just as duplicate to
-  // anything that reads the DOM instead of looking at it.
-  const revival: ComposerRevival | undefined =
-    presentation === 'terminal'
-      ? undefined
-      : attachment.state === 'reviving'
-        ? { state: 'reviving', message: attachment.message }
-        : attachment.state === 'idle'
-          ? { state: 'idle', reason: attachment.reason }
-          : undefined
-
-  // The session this pane currently WANTS attached, readable from a callback that
-  // must not re-identify on every attach. handleSessionGone compares against it.
-  // Tracked as the id STRING, not the Attachment object: `attachment` is rebuilt
-  // every render while `known` is false, so depending on the object would re-run
-  // this on every render for no change.
-  const attachedSessionId = attachment.state === 'attached' ? (attachment.sessionId ?? '') : ''
-  const desiredSessionRef = useRef('')
-  useEffect(() => {
-    desiredSessionRef.current = attachedSessionId
-  }, [attachedSessionId])
-
-  // The chat, and the session the SERVER currently has on it — the same two facts as
-  // `shownChatId`/`sessionId`, in refs so handleSessionGone can read them without
-  // re-identifying on every attach (see the note above it).
-  const shownChatIdRef = useRef(shownChatId)
-  const storeSessionRef = useRef(sessionId)
-  useEffect(() => {
-    shownChatIdRef.current = shownChatId
-    storeSessionRef.current = sessionId
-  }, [shownChatId, sessionId])
+    presentation !== 'terminal' && chatBlank && attachment.state === 'reviving' && !promptReplacing
 
   // The two layout divs whose empty space belongs to the terminal, and the terminal's
   // own imperative handle — see focusTerminalFromEmptySpace.
@@ -547,28 +353,9 @@ export function AgentChatPane({
   // works, because the effect above re-points the PANE's own chatId rather than a
   // buffer that has not existed since Task 1.
 
-  // THE REVIVE BUDGET: ONE PER CHAT, PER PANE MOUNT. Every id in here has already had a
-  // revive fired at it by this pane, and will never get another one unasked — whatever
-  // the outcome, and however many times the chat goes dormant again.
-  //
-  // This is the entire safety argument for reviving automatically, so it is spent BEFORE
-  // the request goes out (see revive), not after it comes back. A budget spent on success
-  // cannot loop; a budget spent on failure cannot retry-storm; and React's StrictMode
-  // double-effect cannot double-spawn, because the second pass finds the id already here.
-  const attemptedRef = useRef(new Set<string>())
-
-  // A spawn THIS PANE asked for is in flight (a provider switch). Its chat goes
-  // transiently dormant on the way — the backend displaces the outgoing CLI before the
-  // incoming one exists, and the `displaced` frame refetches the chat into exactly that
-  // gap. Nothing may read that gap as "this chat needs reviving": it needs the CLI that
-  // is already coming.
-  const switchingRef = useRef(false)
-
-  // Is this pane still on screen? Both reads below can land after it is gone — a workspace
-  // switch, a closed pane — and applying one then writes into a torn-down store AND spends
-  // a chat-read-order slot, which makes a live seed elsewhere retry for a write nobody can
-  // see. Set on every mount, not just once, so StrictMode's double-effect does not leave it
-  // false for the run that survives. The hook's own reads have `cancelled` for this.
+  // Is this pane still on screen? A read can land after it is gone, and applying
+  // one then writes into a torn-down store. Set on every mount so StrictMode's
+  // double-effect does not leave it false for the run that survives.
   const mountedRef = useRef(true)
   useEffect(() => {
     mountedRef.current = true
@@ -577,115 +364,15 @@ export function AgentChatPane({
     }
   }, [])
 
-  // THIS pane's half of the chat-wide guard above: the release for the hold it is
-  // currently carrying, if any. Kept in a ref so the unmount effect can let go of a
-  // displacement whose completion callback is never going to arrive — a pane closed
-  // mid-switch would otherwise leave the count raised forever, and a raised count
-  // suppresses the dormant branch for every remaining pane on that chat, which would
-  // turn this fix into the opposite bug: a genuinely dead CLI that never offers Resume.
-  const releaseDisplacementRef = useRef<(() => void) | null>(null)
-  const beginDisplacement = useCallback((chatId: string) => {
-    releaseDisplacementRef.current?.()
-    releaseDisplacementRef.current = holdDisplacement(chatId)
-  }, [])
-  const endDisplacement = useCallback(() => {
-    releaseDisplacementRef.current?.()
-    releaseDisplacementRef.current = null
-  }, [])
-  useEffect(() => () => releaseDisplacementRef.current?.(), [])
-
-  // adopt reads the chat back and settles the pane on what the SERVER says: attach to the
-  // runner now on it, or report that there still is none (false). It only ever READS, so
-  // it cannot spawn anything; the caller has already done the spawning.
-  //
-  // Reading is not belt-and-braces. The WS would push the same facts eventually, but this
-  // way the pane settles on the ACT rather than whenever a frame happens to arrive — and,
-  // crucially, it settles AT ALL: a CLI that died on startup leaves the chat dormant, and
-  // this read says so, where waiting for a frame that is never coming would spin forever.
-  //
-  // IT IS ALSO ONE OF TWO RACERS. The resume this follows makes the daemon publish
-  // `started`, and use-workspace-agent-chats-stream refetches the same chat off that
-  // frame — usually ISSUING FIRST, since the socket push beats the POST response. The
-  // daemon can answer that first read from before the placement it just announced, so it
-  // can land LAST carrying "dormant" and overwrite the live row this one just wrote. The
-  // pane's one revive is spent by then, so it settles on "This agent has exited" over a
-  // CLI that is alive — the confirmed live bug. Both reads therefore go through the one
-  // ordering registry, and the loser is discarded rather than applied.
-  const adopt = useCallback(
-    async (signal?: AbortSignal): Promise<boolean> => {
-      const ticket = claimChatRead()
-      const fetched = await getChat(wsId, shownChatId, signal)
-      if (!mountedRef.current) return false
-      const s = store.getState()
-      if (acceptChatRead(wsId, fetched.id, ticket)) {
-        s.upsertAgentChat(fetched, ticket)
-        s.setAgentChatWorking(fetched.id, fetched.working === true)
-      }
-      // Settle on the STORE, not on our own payload: when a later-issued read has already
-      // applied, that row is the newer truth and this one is a snapshot of the past.
-      // Attaching off the older answer would seed a PTY the server has already moved past.
-      const chat = store.getState().agentChats.chats.find((c) => c.id === fetched.id) ?? fetched
-      // liveRunnerId ALONE is liveness — terminalSessionId is not a second vote on it.
-      // A non-hotswap api-transport runner (codex) is legitimately live with nothing
-      // attached: empty here means "no terminal to show right now", not "no runner".
-      if (!chat.liveRunnerId) return false
-      const { panes, paneActions } = windowPaneStore.getState()
-      if (panes[paneId]?.chatId === chat.id) paneActions.setPaneRunner(paneId, chat.liveRunnerId)
-      if (chat.terminalSessionId) seedAttach(wsId, chat.terminalSessionId)
-      setAttachment({ state: 'attached', sessionId: chat.terminalSessionId || null })
-      return true
-    },
-    [store, wsId, paneId, shownChatId],
-  )
-
   // Re-check the aggregate after a prompt race. The prompt queue consumes only
   // this server-folded value; it never guesses busy state from a lifecycle kind.
-  // Ordered against every other single-chat read for the same reason adopt is.
+  // Applied under the version rule like every other chat read.
   const refreshChatWorking = useCallback(async (): Promise<boolean> => {
-    const ticket = claimChatRead()
     const fetched = await getChat(wsId, shownChatId)
     const s = store.getState()
-    // Torn down mid-flight: report the store's answer, write nothing, spend no slot.
-    if (!mountedRef.current) return s.agentChats.working[fetched.id] === true
-    if (!acceptChatRead(wsId, fetched.id, ticket)) {
-      return s.agentChats.working[fetched.id] === true
-    }
-    s.upsertAgentChat(fetched, ticket)
-    s.setAgentChatWorking(fetched.id, fetched.working === true)
-    return fetched.working === true
+    if (mountedRef.current) s.applyAgentChat(fetched)
+    return store.getState().agentChats.working[fetched.id] === true
   }, [store, wsId, shownChatId])
-
-  // THE REGRESSION, reported live and repeatedly: `working` is otherwise
-  // written ONLY by the turn_started/turn_stopped WS frame (see
-  // agent-chats-slice.ts's own doc on that map) — there is no other path.
-  // A single dropped frame — one lost mid a socket hiccup, or the daemon
-  // process itself restarting out from under an open turn — leaves this
-  // chat's spinner wrong FOREVER in either direction: dark under a CLI
-  // that is still visibly working, or lit long after everything actually
-  // settled, since nothing else ever asks again. Confirmed live: a chat
-  // stuck reporting `working:true` for 50+ minutes after its own turn had
-  // long since closed, self-corrected only by a full page reload — the one
-  // path that re-seeds `working` from the server's own list response
-  // (seedAgentChats) rather than trusting the frame feed alone.
-  //
-  // This is that self-heal without a reload: the same periodic reconcile
-  // pattern this codebase already uses for exactly this class of problem
-  // (the provider-idle sweep, termwait's own doc). Bounded and cheap — one
-  // GET, only for a chat this pane is actually showing — and it corrects
-  // the store rather than trusting whatever the WS feed last said.
-  //
-  // Gated on `attached`: a pane that is reviving/idle is mid its OWN
-  // adopt/resume orchestration, which already owns every read of this
-  // chat for the runner it is about to attach — an uncoordinated read
-  // racing in here would upsert a runner that orchestration has not
-  // decided to accept yet. `working` only means something once a pane is
-  // normally attached, which is exactly where this belongs.
-  const attached = attachment.state === 'attached'
-  useEffect(() => {
-    if (!attached) return
-    const timer = window.setInterval(() => void refreshChatWorking(), 5_000)
-    return () => window.clearInterval(timer)
-  }, [attached, refreshChatWorking])
 
   // A pick the picker has made but NOT sent yet — provider included. The
   // picker itself never calls the selection API or SwitchProvider any more —
@@ -743,159 +430,6 @@ export function AgentChatPane({
     [store, shownChatId],
   )
 
-  const handlePromptSpawned = useCallback(async () => {
-    await adopt()
-  }, [adopt])
-
-  // A spawn we asked for onto this chat did not put a CLI on it. Say so — and SPEND THE
-  // CHAT'S BUDGET while we are at it, whichever path failed: the pane is now looking at a
-  // dormant chat that has just demonstrably refused a CLI, and reviving it unasked would
-  // only be the same failure down the other road. The user drives from here.
-  const fail = useCallback(() => {
-    attemptedRef.current.add(shownChatId)
-    setAttachment({ state: 'idle', reason: 'failed' })
-  }, [shownChatId])
-
-  // HOW MANY REVIVES THIS PANE ACTUALLY HAS OUT — the fact, where the attach effect
-  // below used to infer it from the spinner being on screen.
-  //
-  // The two are only the same thing while every revive ends, and one does not have to.
-  // `reviving` is the single state in this machine with NO CONTROL ON IT (see
-  // ComposerSignpost: a spinner, and nothing to click), and the effect deliberately
-  // refuses to overwrite it — so a revive that never comes back is a chat the user can
-  // only abandon. That is the wedge this pair closes, and it was reachable both ends:
-  // the daemon serialises a chat's spawn paths behind a plain per-chat mutex with no
-  // context on it, and `apiFetch` sets no deadline on the request, so `resumeChat` could
-  // sit there forever and the `catch` holding `fail()` — the one line that puts the
-  // Resume button on screen — was simply never reached.
-  const revivesInFlight = useRef(0)
-
-  // revive brings the chat's last provider back into its own native session — the CLI
-  // resumes exactly where the user left it. Fired automatically when the pane finds its
-  // chat dormant (see the attach effect), and by the Resume button when that failed.
-  //
-  // Failure is a FIRST-CLASS OUTCOME, not an edge: the backend refuses outright to resume
-  // a chat with no recorded conversation ("no conversation to resume" — a CLI that died
-  // before its session-start hook ever fired leaves one), and the CLI itself may be gone
-  // from the PATH. Both land in `idle: failed`, which is the one place the Resume button
-  // still appears. It never retries by itself.
-  //
-  // IT NEVER PICKS A PROVIDER. This used to read an empty `activeProviderId` as
-  // "this chat has never run" and start `providers.find((p) => p.enabled)` on it —
-  // the first ENABLED provider, which is claude. That was a guess standing in for a
-  // fact the pane does not have, and it was wrong in the one case it actually fired:
-  // a dormant CODEX chat, whose provider the daemon could not name because codex
-  // binds by its own connection identity and so records nothing. Clicking such a
-  // chat's sidebar row silently converted it — codex transcript, claude composer,
-  // no warning and no marker. Reproduced 3/3 live.
-  //
-  // resumeChat is the only call here now, and resolving the provider is ITS job:
-  // the daemon reads the chat's own durable vendor (domain.Chat.ProviderID) and
-  // brings that one back. A chat it genuinely cannot name is refused, lands in
-  // `idle: failed` like any other refusal, and the user names it themselves from
-  // the picker. An honest unknown beats a confident wrong answer.
-  //
-  // `externalSignal` lets a CALLER's own cleanup (the auto-revive effect below)
-  // cancel a revive still in flight when it unmounts or re-runs — without it,
-  // an effect firing this and unmounting moments later (the pane's buffer/tab
-  // closing mid-resume) left the request running for up to the FULL bound,
-  // still holding the daemon's per-chat spawn-gate mutex, with nothing on
-  // screen left to show for it. Merged into the internal bound, not a
-  // replacement for it: the timeout still fires even for a caller (the Resume
-  // button) that passes none.
-  const revive = useCallback(
-    async (externalSignal?: AbortSignal) => {
-      attemptedRef.current.add(shownChatId) // spend the budget BEFORE awaiting anything
-      setAttachment({ state: 'reviving', message: 'Resuming this chat…' })
-      revivesInFlight.current += 1
-      // BOUND THE REQUEST, not the UI. The pane still moves on this request's own
-      // outcome — an abort IS an outcome, and it lands in the same `fail()` every other
-      // refused resume does, which is the state that carries the Resume button. Giving
-      // up early costs nothing and cannot strand anybody: the resume is a no-op on a
-      // chat that is already live, and if the daemon does come back to life afterwards
-      // the chat goes live in the store and the attach effect below picks it straight
-      // up. The bound is the daemon's OWN worst-case honest wait (awaitTurnOrForce),
-      // so it can only fire on a resume that was never going to answer.
-      const abort = new AbortController()
-      // Set ONLY here — the one signal that this request genuinely, on its own
-      // terms, was never going to answer. Distinguishing this from the abort
-      // below matters: both trip the SAME abort.signal, but only this one is
-      // actually news to the user.
-      let boundFired = false
-      const bound = setTimeout(() => {
-        boundFired = true
-        abort.abort()
-      }, REVIVE_REQUEST_BOUND_MS)
-      // externalSignal fires this on a real unmount (the pane's buffer/tab
-      // closing mid-resume — see this function's own doc comment) — but ALSO
-      // on every other reason the CALLER's effect re-runs, including a
-      // dependency the request's own success is what just changed: adopt()
-      // (below) writes liveRunnerId into the store the instant the spawn
-      // answers, the attach effect below watches liveRunnerId, and its
-      // cleanup — this forwarder — fires before the next render can prove
-      // the request actually worked. React 18 StrictMode's dev-only
-      // mount→cleanup→mount double-invoke exercises the identical path on
-      // literally the first mount of every pane, live-reproduced against a
-      // real claude chat: "Couldn't resume — the daemon did not answer the
-      // resume" for a resume the daemon's own access log recorded answering
-      // in under 60ms. None of those callers are actually reporting a dead
-      // daemon, so none of them earn the toast or the `failed` state below —
-      // either nobody is left to read it (a real unmount), or a fresher
-      // attempt (this same one succeeding, or a StrictMode-surviving second
-      // invocation) already owns the pane's outcome.
-      const forwardExternalAbort = () => abort.abort()
-      externalSignal?.addEventListener('abort', forwardExternalAbort)
-      // Own this chat's revive for every OTHER pane too — see
-      // reviveInFlightByChatId's doc comment. Registered before the request goes
-      // out and cleared in the same finally that releases everything else, so a
-      // sibling pane's attach effect can find it for exactly as long as this
-      // request is actually outstanding.
-      const run = (async () => {
-        try {
-          await resumeChat(wsId, shownChatId, abort.signal)
-          // SAME signal, not a second, unbounded request — adopt()'s own
-          // getChat read sits right after the spawn request's, and without a
-          // signal of its own it could hang forever with the bound above
-          // having already fired on the (by-then-irrelevant) spawn request:
-          // reproducing the exact "Resuming this chat…" wedge this pair of
-          // requests exists to eliminate, one call later, inside its own fix.
-          if (!(await adopt(abort.signal))) fail()
-        } catch (err: unknown) {
-          // An external teardown (real unmount, StrictMode's throwaway pass,
-          // or this same call's own success) is not a failure to report —
-          // see boundFired's own doc comment above. `finally` below still
-          // runs either way.
-          if (abort.signal.aborted && !boundFired) return
-          fail()
-          const name = providers.find((p) => p.id === chatProviderId)?.displayName || 'the agent'
-          // An abort reads as a DOMException about a cancelled fetch, which tells the user
-          // nothing about their chat. Say what actually happened instead.
-          toastSpawnFailure(
-            abort.signal.aborted ? new Error('The daemon did not answer the resume.') : err,
-            name,
-            'resume',
-          )
-        } finally {
-          clearTimeout(bound)
-          externalSignal?.removeEventListener('abort', forwardExternalAbort)
-          revivesInFlight.current -= 1
-        }
-      })()
-      reviveInFlightByChatId.set(shownChatId, run)
-      try {
-        await run
-      } finally {
-        // Only clear OUR OWN entry — a sibling pane's later revive() (this
-        // chat went dormant again after we finished) may already have
-        // replaced it, and that is the one still running.
-        if (reviveInFlightByChatId.get(shownChatId) === run) {
-          reviveInFlightByChatId.delete(shownChatId)
-        }
-      }
-    },
-    [wsId, shownChatId, adopt, fail, providers, chatProviderId],
-  )
-
   // A CHAT THE LIST NEVER MENTIONS.
   //
   // `known` is this pane's entire basis for "do we know what this chat is", and
@@ -926,12 +460,7 @@ export function AgentChatPane({
     resolvedRef.current.add(shownChatId)
     void getChat(wsId, shownChatId)
       .then((chat) => {
-        const s = store.getState()
-        s.upsertAgentChat(chat)
-        // The server-folded answer, exactly as adopt() writes it. There is no
-        // newer frame truth to clobber here: the store had never heard of this
-        // chat at all.
-        s.setAgentChatWorking(chat.id, chat.working === true)
+        store.getState().applyAgentChat(chat)
       })
       .catch(() => {
         // Genuinely gone, or the read failed. The pane has asked its one
@@ -940,238 +469,34 @@ export function AgentChatPane({
       })
   }, [store, wsId, listSeeded, known, shownChatId])
 
-  // Attach to the runner's PTY, revive the chat if nobody is on it, or settle. The seeding
-  // must happen BEFORE XtermTerminal mounts (React runs child effects first, so a terminal
-  // rendered in the same commit would resolve its connection against an unseeded store) —
-  // hence the state machine: this effect seeds, flips to `attached`, and the terminal
-  // mounts on the next render.
+  // Switch the provider ON THE CHAT THE RUNNER IS IN NOW (shownChatId — after a
+  // /clear the pane shows a different conversation than the one it opened on).
+  // The daemon owns the lifecycle: its `switching` phase is the spinner, its
+  // snapshot frames re-point the pane. This only reports a refusal.
   //
-  // OPENING A DORMANT CHAT REVIVES IT. The agent PTY does not survive a daemon restart, so
-  // "dormant" is the ordinary state of yesterday's conversation — and a user who clicks a
-  // chat is asking for the chat, not for a button that asks whether they meant it. So the
-  // pane brings the CLI back and shows the spinner; the exited copy and the button are
-  // what a FAILURE looks like, not what an open looks like.
-  //
-  // This is not a re-run of the auto-revive that was deleted here. THAT one had to guess:
-  // it could not tell "my CLI died" from "my CLI moved", so a moved runner read as a dead
-  // one and it respawned onto the chat the user had just left — and only a retry counter
-  // stopped it doing that forever. This pane cannot make that mistake, because it FOLLOWS
-  // its runner (shownChatId) and so a move is never dormancy. What is left is a genuinely
-  // dormant chat — and it is revived exactly ONCE, ever, per chat per mount:
-  //
-  //   !known                → pending. The chat list is still in flight and dormancy is
-  //                           unknowable; reviving here could put a second CLI on a chat
-  //                           that already has one. NEVER revive from here.
-  //   switch in flight      → the incoming CLI is already on its way. Wait for it.
-  //   dormant, budget left  → revive it, unattended. Spends the budget.
-  //   dormant, budget spent → settle. The user drives from here (button, or a different
-  //                           provider from the dropdown). No retry, no loop, ever.
-  useEffect(() => {
-    // Not knowable yet — `attachment` above already reads `pending` while this
-    // is false, so there is nothing to write.
-    if (!known) return
-    // liveRunnerId, not sessionId — a non-hotswap api-transport runner (codex) is
-    // legitimately live with an empty terminalSessionId (nothing attached right
-    // now), and that must not read as dormant: it would fire a revive onto a chat
-    // that already has a perfectly healthy runner on it.
-    if (!liveRunnerId) {
-      if (switchingRef.current) return // the switch's own spinner stands
-      // ...and the same courtesy for a displacement a SIBLING pane asked for. This gap
-      // is that pane's replacement CLI on its way, not this pane's agent dying — see
-      // displacingByChatId. Read imperatively rather than as a dependency on purpose:
-      // nothing needs to re-run when the hold drops, because the replacement landing is
-      // itself a liveRunnerId change, and a displacement that FAILS settles the asking
-      // pane through fail() instead of leaving anyone waiting on this.
-      if (isDisplacing(shownChatId)) return
-      // ONLY THE VISIBLE TAB REVIVES. A dormant chat kept alive on a hidden tab must
-      // NOT spawn a CLI: opening a workspace with N dormant chat tabs would otherwise
-      // fire N revives at once, one CLI per hidden tab. A hidden dormant chat waits;
-      // when the user switches to it (isVisible flips true, this effect re-runs) it
-      // revives — exactly once, because the budget below is spent inside revive(). An
-      // already-attached chat has a liveRunnerId and never reaches here, so it keeps
-      // its live PTY while hidden.
-      if (isVisible && !attemptedRef.current.has(shownChatId)) {
-        attemptedRef.current.add(shownChatId) // spend the budget on EITHER path below
-        // Another pane already owns this exact chat's resume — see
-        // reviveInFlightByChatId. Piggyback on its outcome instead of firing a
-        // second resumeChat the daemon's spawn gate would only queue behind:
-        // that race is exactly what turned "split this chat pane, Cmd+\" into
-        // a "Couldn't resume — the daemon did not answer the resume" toast on
-        // the new pane, for a chat the original pane was reviving just fine.
-        const owned = reviveInFlightByChatId.get(shownChatId)
-        if (owned) {
-          setAttachment({ state: 'reviving', message: 'Resuming this chat…' })
-          revivesInFlight.current += 1
-          void owned.finally(() => {
-            revivesInFlight.current -= 1
-            // The owner's own adopt() already wrote a live runner into the
-            // store if it found one — liveRunnerId picks that up and this
-            // effect re-runs on its own (it's a dependency below). Only the
-            // failure case needs help: nothing else will ever move a pane
-            // sitting on a `reviving` spinner with no runner behind it.
-            if (
-              !store.getState().agentChats.chats.find((c) => c.id === shownChatId)?.liveRunnerId
-            ) {
-              fail()
-            }
-          })
-          return
-        }
-        // Own controller, not a bare fire-and-forget: this effect has no way
-        // to reach into revive()'s OWN internal abort otherwise, so a pane
-        // that genuinely unmounts mid-resume (its buffer/tab closing) left
-        // the request running for up to the full REVIVE_REQUEST_BOUND_MS,
-        // still holding the daemon's per-chat spawn-gate mutex, with
-        // nothing left on screen to show for it.
-        const controller = new AbortController()
-        void revive(controller.signal)
-        return () => controller.abort()
-      }
-      // Budget spent, or hidden and waiting to become visible. Don't stomp a revive
-      // still in flight, and don't overwrite a `failed` we have already earned with the
-      // vaguer `exited`.
-      //
-      // "Still in flight" is ASKED, not assumed. Reading `a.state === 'reviving'` as
-      // the answer is what made this state a dead end: the spinner carries no button,
-      // so a `reviving` with nothing behind it any more was a chat that could never be
-      // recovered from here, however many times the daemon restated it as dormant.
-      // Settling it to `idle` is what puts Resume back on screen.
-      setAttachment((a) =>
-        (a.state === 'reviving' && revivesInFlight.current > 0) || a.state === 'idle'
-          ? a
-          : { state: 'idle', reason: 'exited' },
-      )
-      return
-    }
-    if (sessionId) seedAttach(wsId, sessionId)
-    setAttachment({ state: 'attached', sessionId: sessionId || null })
-  }, [wsId, known, liveRunnerId, sessionId, shownChatId, revive, isVisible, store, fail])
-
-  // The attach above proves the PTY was alive when the store last spoke. The CLI can die
-  // at any moment while the pane sits here — daemon restart, /exit, crash — and the
-  // terminal's transport-drop reconnect would, by default, resolve the now-dead session
-  // by spawning a fresh BARE SHELL into this frame. So the terminal runs attach-only and
-  // reports the session gone instead, and we render the dormant state at once rather
-  // than waiting for the backend to notice: the PTY's death and the daemon's knowledge
-  // of it are not the same instant.
-  //
-  // A MOVE never lands here — a runner keeps its PTY when it changes conversation, so the
-  // terminal sees nothing at all. That is exactly why this can be read as "the CLI died"
-  // with no ambiguity, and why the pane never has to guess.
-  //
-  // IT DOES NOT REVIVE FROM HERE, and that is deliberate: this signal is the CLIENT
-  // noticing, and the daemon has not necessarily noticed yet. A resume fired at this
-  // instant can be answered with the STILL-RECORDED live runner ("already live, here it
-  // is") whose PTY is the dead one we are holding — and seeding that id spawns the bare
-  // shell seedAttach exists to prevent. So we say what we see, and let the AUTHORITY
-  // speak: when the daemon reaps the runner the chat goes dormant in the store, the effect
-  // above sees it, and — budget permitting — revives it there, off the server's verdict
-  // instead of our own. A CLI that dies twice in one mount stays down.
-  const handleSessionGone = useCallback((goneSessionId: string) => {
-    if (switchingRef.current) return // our own switch killing the outgoing CLI: expected
-    // A SIBLING pane's switch kills exactly the same PTY, and this pane is attached to
-    // it too — a split is two panes on one chat. Without this the sibling reported the
-    // death its neighbour had arranged. See displacingByChatId.
-    if (isDisplacing(shownChatIdRef.current)) return
-    // A DISPLACED PTY REPORTS ITS DEATH LATE. Prompt submission replaces the CLI, so
-    // the outgoing PTY dies by design — but the terminal notices the closed transport
-    // whenever it notices, which can be well after adopt() has already attached the
-    // replacement and the dispatch guard above has been dropped. Believing that report
-    // latched `exited` over a chat whose runner the SERVER still lists as live, and the
-    // React queue — which may only dispatch onto a live TUI — stalled there forever.
-    //
-    // So the guard is IDENTITY, not timing: only the session the pane still wants can
-    // report that pane's agent gone. An id we no longer hold is the outgoing corpse.
-    if (goneSessionId && desiredSessionRef.current && goneSessionId !== desiredSessionRef.current) {
-      return
-    }
-    // The same identity test against the SERVER's answer, which is the one a sibling
-    // pane has. The pane that ran the switch moves `desiredSessionRef` on when adopt()
-    // attaches the replacement; a sibling never called adopt, so it can still be wanting
-    // the dead id when the late report lands and the test above waves it through. The
-    // store has already been told which session the chat has now, so a report for any
-    // OTHER session is a corpse no matter which pane is holding it.
-    if (goneSessionId && storeSessionRef.current && goneSessionId !== storeSessionRef.current) {
-      return
-    }
-    setAttachment({ state: 'idle', reason: 'exited' })
-  }, [])
-
-  // Switch the provider ON THE CHAT THE RUNNER IS IN NOW (shownChatId — not the chatId
-  // the tab was opened on): after a /clear the pane is showing a different conversation,
-  // and switching the one the user has left would spawn a CLI onto abandoned context
-  // while the live one kept running unattended.
-  //
-  // It lands through the same adopt() as a revive, for the same two reasons: the pane must
-  // settle on the act rather than on a frame, and a switch whose incoming CLI died on
-  // startup must settle HONESTLY (dormant chat → `failed`) instead of spinning.
-  //
-  // A switch can fail for real, ordinary reasons — the target CLI is not installed, the
-  // spawn fails — and without a catch the rejection is unhandled: the dropdown just closes
-  // and nothing happens. Surface it, matching the write-path error handling in
-  // agent-chats-panel (create/rename/delete).
-  //
-  // AWAITABLE, and its answer is load-bearing. Picking another provider's model
-  // from the identity chip is one gesture but two writes, and the second is only
-  // legal once the first has landed: the selection endpoint validates the model
-  // against the chat's CURRENT provider, so writing `gpt-5.6-luna` while the chat
-  // is still on claude is a 400 and the user watches their pick bounce.
+  // AWAITABLE, and its answer is load-bearing: picking another provider's model
+  // from the identity chip is two writes, and the second is only legal once the
+  // first has landed.
+  const [switchInFlight, setSwitchInFlight] = useState(false)
   const handleSwitch = async (providerId: string): Promise<boolean> => {
-    if (
-      switchingRef.current ||
-      promptReplacing ||
-      deliveryPending ||
-      attachment.state === 'reviving'
-    )
+    if (switchInFlight || promptReplacing || deliveryPending || attachment.state === 'reviving')
       return false
     const name = providers.find((p) => p.id === providerId)?.displayName ?? providerId
-    // Held across the whole request: the outgoing CLI is killed FIRST, so this window is
-    // exactly the transient dormancy — and its dead PTY's onSessionGone — that nothing
-    // must mistake for a chat needing revival.
-    switchingRef.current = true
-    // ...and the same window announced to every OTHER pane on this chat, which is
-    // attached to the very PTY this is about to kill.
-    beginDisplacement(shownChatId)
-    setAttachment({ state: 'reviving', message: `Starting ${name}…` })
-    // Same bound as revive() and for the identical reason: switchProvider
-    // drives the SAME daemon-side per-chat spawn mutex a stuck resume does,
-    // behind the same buttonless "Starting {provider}…" spinner.
-    const abort = new AbortController()
-    const bound = setTimeout(() => abort.abort(), REVIVE_REQUEST_BOUND_MS)
+    setSwitchInFlight(true)
     try {
-      await switchProvider(wsId, shownChatId, providerId, abort.signal)
-      if (!(await adopt(abort.signal))) {
-        fail()
-        return false
-      }
-      // A switch never toggles `presentation` itself, so a chat already ON the
-      // terminal surface stays there — but the runner underneath just changed,
-      // and only enterTerminal knows whether THIS provider needs a real
-      // switchToTerminal (non-hotswap) or is already showing a live PTY
-      // (hotswap). Skipped entirely on the far more common case of switching
-      // while on the chat surface, where there is nothing to re-attach yet.
+      await switchProvider(wsId, shownChatId, providerId)
+      // A switch never toggles `presentation`, so a chat already on the terminal
+      // surface stays there — and only enterTerminal knows whether THIS provider
+      // needs a native view forked for it.
       if (presentation === 'terminal') enterTerminal(providerId)
       return true
     } catch (err: unknown) {
-      fail()
-      // Status-aware: only a 424 actually means "that CLI is not installed". Blaming the
-      // PATH for every failure sends the user hunting for a problem they do not have.
-      // An abort itself reads as a DOMException about a cancelled fetch, which is
-      // status-less and tells the user nothing about their chat — say what actually
-      // happened instead, same as revive()'s own catch.
-      toastSpawnFailure(
-        abort.signal.aborted ? new Error('The daemon did not answer the switch.') : err,
-        name,
-        'switch to',
-      )
+      toastSpawnFailure(err, name, 'switch to')
       return false
     } finally {
-      clearTimeout(bound)
-      switchingRef.current = false
-      endDisplacement()
+      setSwitchInFlight(false)
     }
   }
-
   // ⌘/ cycles this chat to the NEXT ENABLED provider, the way ⌘-tab cycles apps.
   //
   // It lives here rather than in usePaneKeyboard because switching is not just an
@@ -1262,33 +587,17 @@ export function AgentChatPane({
     () => isActivePane && isVisible && getActiveWorkspaceId() === wsId,
   )
 
-  // Flips presentation to 'terminal' — but only a chat with NOTHING on its
-  // terminal surface yet has to ask Crowbar to fork one (switchToTerminal).
-  // Two kinds already have one and must not: a HOTSWAP provider, whose PTY is
-  // live from the spawn, and a chat BORN on the terminal surface (chat.surface),
-  // for which the daemon opened no api connection at all, so its own PTY IS the
-  // conversation. Asking anyway is what produced "provider has no completed turn
-  // yet to show its native view of" on a chat the user had just created on the
-  // CLI: that attach is `codex resume {id}`, which resumes an api session a
-  // terminal-born chat never had. Every
-  // path onto the terminal surface shares this check — the escort below, the
-  // wait banner's own button (openTerminalFromBanner), and the composer's
-  // (onOpenTerminal) — so none of them can strand a non-hotswap provider on a
-  // view with nothing behind it, the way calling setPresentation alone would.
-  // A PLAIN function, not an effect event: it is called from effect events
-  // (onWaitEdge below) as well as from plain click handlers (the banner
-  // button, the composer's terminal link), and useEffectEvent's own rule
-  // restricts it to being called only from effects/effect events in this
-  // component. Redefined every render, so it still always closes over the
-  // current provider list — nothing lists it in a dependency array, so there
-  // is no stale-closure risk to trade away by not memoizing it.
-  // providerIdOverride: handleSwitch calls this AFTER switchProvider resolves,
-  // when the chat is already on the terminal surface and the switch itself
-  // never re-runs this gate — chatProviderId is this render's value from
-  // BEFORE the switch, so the caller passes the provider it just switched TO
-  // instead of relying on a re-render to catch up first.
+  // Flips presentation to 'terminal'. A hotswap provider's PTY is live from the
+  // spawn, and a chat already on the terminal surface is its own PTY, so only
+  // a chat whose provider talks over its api connection asks the daemon to
+  // move it (switchToTerminal) — which hands the session over or relaunches
+  // the TUI on the resume ladder. Every path onto the terminal goes through
+  // here (the escort below, the wait banner, the composer's link). A plain
+  // function: it is called from effect events and click handlers alike.
+  // providerIdOverride: handleSwitch calls this right after switchProvider
+  // resolves, before a re-render has caught activeProviderId up.
   const enterTerminal = (providerIdOverride?: string) => {
-    const chatProvider = providers.find((p) => p.id === (providerIdOverride ?? chatProviderId))
+    const chatProvider = providers.find((p) => p.id === (providerIdOverride ?? activeProviderId))
     const hotswap = chatProvider ? chatProvider.hotswap === true : true
     if (hotswap || onTerminalSurface) {
       setPresentation('terminal')
@@ -1297,18 +606,11 @@ export function AgentChatPane({
     void (async () => {
       try {
         await switchToTerminal(wsId, shownChatId)
-        await adopt()
         setPresentation('terminal')
       } catch (err: unknown) {
-        // Left where they were — moving them to a view that never actually came
-        // up would be worse than staying put. But nothing else reports this
-        // failure (there was no "whatever surfaces the request's own error
-        // today" this comment used to assume): a refused switch — a turn still
-        // in flight, or codex before its first completed turn ever wrote a
-        // rollout to resume — used to be a click that silently did nothing,
-        // exactly the failure mode toastSpawnFailure exists to prevent
-        // elsewhere in this file. Same fix, here too.
-        const name = chatProvider?.displayName ?? providerIdOverride ?? chatProviderId
+        // Left where they were: a view that never came up is worse than
+        // staying put, and a refusal (a turn in flight) must still be said.
+        const name = chatProvider?.displayName ?? providerIdOverride ?? activeProviderId
         toastSpawnFailure(err, name, 'open the terminal view for')
       }
     })()
@@ -1390,7 +692,7 @@ export function AgentChatPane({
     // workspace/project scope to route through), where defaulting the other way
     // just costs a non-hotswap provider one extra render before its capability
     // loads in, same as any other capability-gated control.
-    const chatProvider = providers.find((p) => p.id === chatProviderId)
+    const chatProvider = providers.find((p) => p.id === activeProviderId)
     const hotswap = chatProvider ? chatProvider.hotswap === true : true
     if (hotswap || next === presentation) {
       setPresentation(next)
@@ -1405,7 +707,6 @@ export function AgentChatPane({
         try {
           await switchToNative(wsId, shownChatId)
         } finally {
-          await adopt()
           setPresentation(next)
         }
       })()
@@ -1466,31 +767,18 @@ export function AgentChatPane({
   // placement free-floated above the composer's own control bar instead of
   // riding it, and a resize could visibly separate the two; this one shares
   // AgentEmptyDocument's single `place()` transform, so there is nothing left
-  // to separate. Same three mutually exclusive states as
-  // waitingBannerShown/revivingBannerShown/idleBannerShown above, same
-  // precedence order.
+  // to separate. Same mutually exclusive states as
+  // waitingBannerShown/revivingBannerShown above, same precedence order. A
+  // dormant blank chat needs none: typing into it starts the agent.
   const blankSignpost = waitingBannerShown ? (
     <AgentTerminalWaitBanner
       kind={waitKind ?? ''}
       providerLabel={providers.find((p) => p.id === activeProviderId)?.displayName ?? ''}
       onOpenTerminal={openTerminalFromBanner}
     />
-  ) : revivingBannerShown ? (
+  ) : revivingBannerShown && revival ? (
     <div data-testid="agent-reviving-banner">
-      <ComposerSignpost reason="reviving" message={attachment.message} onOpenTerminal={() => {}} />
-    </div>
-  ) : idleBannerShown ? (
-    <div data-testid="agent-idle-banner">
-      <ComposerSignpost
-        reason="idle"
-        message={
-          attachment.reason === 'failed'
-            ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
-            : 'This agent has exited. Resume it to pick the conversation up where you left off.'
-        }
-        onOpenTerminal={() => {}}
-        onRevive={() => void revive()}
-      />
+      <ComposerSignpost reason="reviving" message={revival.message} onOpenTerminal={() => {}} />
     </div>
   ) : undefined
 
@@ -1658,13 +946,19 @@ export function AgentChatPane({
               chatId={shownChatId}
               providerId={activeProviderId}
               providers={providers}
-              switchDisabled={promptReplacing || deliveryPending || attachment.state === 'reviving'}
+              switchDisabled={
+                switchInFlight ||
+                promptReplacing ||
+                deliveryPending ||
+                attachment.state === 'reviving'
+              }
               working={working}
               compacting={compacting}
               turnRevision={turnRevision}
               live={attachment.state === 'attached' || promptReplacing}
+              canSend={canSend}
+              sessionNote={sessionNote}
               revival={revival}
-              onRevive={() => void revive()}
               // In split the chat is genuinely in front of the user, so it is
               // genuinely active: it dispatches its queue, refreshes its catalog
               // and answers the barrier exactly as it does on its own.
@@ -1730,33 +1024,19 @@ export function AgentChatPane({
               toolOutput={toolOutput}
               plan={plan}
               onStreamingSettled={handleStreamingSettled}
-              onPromptDispatchStart={() => {
-                switchingRef.current = true
-                // Submitting a prompt replaces the CLI exactly as a switch does, so the
-                // sibling panes need telling about this window too — see
-                // displacingByChatId.
-                beginDisplacement(shownChatId)
-                setPromptReplacing(true)
-              }}
+              // A send may replace the CLI (restart_tui) or revive a dormant
+              // chat; either way it is this pane's own request in flight, so the
+              // composer stays an input rather than a "starting" signpost.
+              onPromptDispatchStart={() => setPromptReplacing(true)}
+              // Read the chat back (a versioned apply, never a write of our own)
+              // before letting go, so the runner the send placed is in the store
+              // before `live` is next judged.
               onPromptDispatchSettled={() => {
-                // The prompt endpoint may fail after terminating the outgoing
-                // TUI. Reconcile before dropping the displacement guard, or the
-                // pane can remain "attached" to a dead PTY forever (the session
-                // change happened while the guard intentionally ignored it).
-                void (async () => {
-                  try {
-                    if (!(await adopt())) fail()
-                  } catch {
-                    fail()
-                  } finally {
-                    switchingRef.current = false
-                    endDisplacement()
-                    setPromptReplacing(false)
-                  }
-                })()
+                void refreshChatWorking()
+                  .catch(() => false)
+                  .finally(() => setPromptReplacing(false))
               }}
               onTerminalSurface={onTerminalSurface}
-              onPromptSpawned={handlePromptSpawned}
               onRefreshChat={refreshChatWorking}
               provider={effectiveProviderId}
               model={effectiveModel}
@@ -1804,18 +1084,21 @@ export function AgentChatPane({
             gridSlack={gridSlack}
             providers={providers}
             activeProviderId={activeProviderId}
-            switchDisabled={promptReplacing || deliveryPending || attachment.state === 'reviving'}
+            switchDisabled={
+              switchInFlight ||
+              promptReplacing ||
+              deliveryPending ||
+              attachment.state === 'reviving'
+            }
             splitEnabled={splitEnabled}
             working={working}
             onSwitchProvider={handleSwitch}
             onSelectPresentation={chooseSurface}
             onTakeFocus={() => setSplitFocus('terminal')}
             onDeadSpaceMouseDown={focusTerminalFromSplitEmptySpace}
-            onTerminalRef={(api) => {
-              terminalApiRef.current = api
-            }}
-            onSessionGone={handleSessionGone}
-            onRevive={() => void revive()}
+            terminalRef={terminalApiRef}
+
+            onStartSession={startSession}
           />
         </div>
 
@@ -1843,7 +1126,7 @@ export function AgentChatPane({
                   tooltip="Cancel unsent prompts"
                   onClick={() => chatViewRef.current?.cancelUnsentPrompts()}
                 >
-                  <Trash2Icon />
+                  <TrashIcon />
                 </Button>
               )}
             </div>

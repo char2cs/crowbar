@@ -34,24 +34,6 @@ type Subscriber interface {
 	PushFile(
 		evt domain.FileChangeEvent,
 	)
-	// PushAgentChat receives a chat lifecycle frame. working is the chat's folded
-	// busy state as of the event — the server's answer to the spinner, so no client
-	// re-derives it from the kind.
-	PushAgentChat(
-		chatID string,
-		workspaceID string,
-		kind string,
-		working bool,
-	)
-	// PushAgentChatTerminalWait receives the frame that says a chat's CLI has
-	// become — or stopped being — blocked behind a prompt Crowbar cannot answer.
-	// wait is nil on the clearing frame, so the frame is the whole answer either
-	// way and no client has to round-trip to learn which edge it just saw.
-	PushAgentChatTerminalWait(
-		chatID string,
-		workspaceID string,
-		wait *dto.AgentTerminalWaitDTO,
-	)
 	// PushAgentChatPromptSettled receives the frame that says one delivered prompt
 	// is over without having produced a turn, so a client holding it as pending can
 	// let it go. It names the client's own request id, and whether anything proved
@@ -86,6 +68,14 @@ type Subscriber interface {
 		workspaceID string,
 		steps []agents.PlanStep,
 	)
+	// PushAgentChatEvent receives one chat snapshot frame.
+	PushAgentChatEvent(ev dto.AgentChatEvent)
+	// PushAgentChatTelemetry receives the provider's newest usage report.
+	PushAgentChatTelemetry(
+		chatID string,
+		workspaceID string,
+		report agents.Telemetry,
+	)
 	// PushAgentChatCompaction receives the live compact_pre/compact_post edge —
 	// a fact the ledger's own interruption record cannot carry live (see
 	// hub.BroadcastAgentChatCompaction's own doc comment). active is the whole
@@ -104,15 +94,6 @@ type Subscriber interface {
 	PushAgentChatFolder(
 		folderID string,
 		workspaceID string,
-		kind string,
-	)
-	// PushAgentRunner receives a runner lifecycle frame
-	// (started/session_bound/moved/exited). chatID is the chat the runner is
-	// pointed at as of the event — placement, never liveness.
-	PushAgentRunner(
-		runnerID string,
-		workspaceID string,
-		chatID string,
 		kind string,
 	)
 }

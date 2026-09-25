@@ -83,7 +83,7 @@ func (c CompleteSubagentTool) AggregateID() string { return c.ChatID }
 func (c CompleteSubagentTool) EventName() string {
 	return "agentactivity.subagent_tool_completed." + c.ChatID
 }
-func (c CompleteSubagentTool) ShouldSnapshot() bool { return false }
+func (c CompleteSubagentTool) ShouldSnapshot() bool { return true }
 
 func (c CompleteSubagentTool) Validate(*domain.ChatActivity) error {
 	if err := requireChat("complete subagent tool", c.ChatID); err != nil {

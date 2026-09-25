@@ -22,7 +22,8 @@ export interface WorkspaceScope {
   owningChatId?: string
 }
 
-let _activeWorkspaceId: string | null = null
+/** Reads THE active workspace id, which the workspace registry owns (C4). */
+let readActiveWorkspaceId: () => string | null = () => null
 const _scopes = new Map<string, WorkspaceScope>()
 
 // Notified whenever a workspace's scope is (re)written — the only signal a
@@ -61,9 +62,10 @@ export function subscribeToWorkspaceScope(wsId: string, callback: () => void): (
   }
 }
 
-/** The wsId of the active workspace route (mirrors the registry's active id). */
-export function setActiveScopeWorkspaceId(wsId: string | null): void {
-  _activeWorkspaceId = wsId
+/** Bind the owner of the active workspace id (the registry) — this module
+ *  stays dependency-free and keeps no copy of it. */
+export function bindActiveWorkspaceId(read: () => string | null): void {
+  readActiveWorkspaceId = read
 }
 
 /**
@@ -81,32 +83,11 @@ function mergeScope(scope: WorkspaceScope): WorkspaceScope {
   return owningChatId ? { ...scope, owningChatId } : { ...scope }
 }
 
-/**
- * Record the hierarchical scope (project+repo) for a workspace from the
- * route. Only SEEDS `_activeWorkspaceId` — never overwrites an id the
- * registry (`workspace-store-registry.ts`'s `setActiveWorkspaceId`, driven
- * by the pane-aware `effectiveActiveWorkspaceId`) has already claimed.
- *
- * This function used to set `_activeWorkspaceId` unconditionally, every
- * call — and the IDE shell calls it SYNCHRONOUSLY on every one of its own
- * renders (`recordWorkspaceScopeFromPath`, called from render, not an
- * effect). A pane's chat can legitimately live in a workspace other than the
- * routed one (a Recents click revealing a pane before the URL settles, or
- * any split merging chats across workspaces), and the registry's own
- * activation effect gets that answer right — but the very next render's
- * scope recording clobbered it right back to the route's (possibly wrong,
- * or simply different) wsId, every single time, so the correction never
- * stuck. Live-reported: a Recents row for a thread sharing its repo with
- * sibling workspaces focused the right pane but left the file explorer
- * permanently scoped to whichever OTHER workspace the route happened to
- * name. Seeding only when unset keeps this function's real job — recording
- * scope for a route-visited workspace, including on cold boot before any
- * `WorkspaceView` has ever activated one — without it re-litigating "which
- * workspace is active" on every render.
- */
+/** Record the hierarchical scope (project+repo) for a workspace from the
+ *  route. It never decides which workspace is active: that is the registry's
+ *  one id, written by `WorkspaceHost`. */
 export function setWorkspaceScope(scope: WorkspaceScope): void {
   _scopes.set(scope.wsId, mergeScope(scope))
-  if (_activeWorkspaceId === null) _activeWorkspaceId = scope.wsId
   notifyScopeListeners(scope.wsId)
 }
 
@@ -120,6 +101,16 @@ export function setWorkspaceScope(scope: WorkspaceScope): void {
 export function recordWorkspaceScope(scope: WorkspaceScope): void {
   _scopes.set(scope.wsId, mergeScope(scope))
   notifyScopeListeners(scope.wsId)
+}
+
+/**
+ * Drop a DELETED workspace's scope (its tombstone, or its repo's). Everything
+ * addressed through its owning chat — LSP sessions above all — stops on this
+ * notification instead of reconnecting against a chat that is gone.
+ */
+export function forgetWorkspaceScope(wsId: string): void {
+  if (!_scopes.delete(wsId)) return
+  notifyScopeListeners(wsId)
 }
 
 // The router pathname for the active workspace route. Not anchored to the start
@@ -160,7 +151,6 @@ export function parseWorkspaceScopeFromPath(pathname: string): WorkspaceScope | 
 /** Testing only — clears the in-memory scope registry between tests. */
 export function __resetWorkspaceScopesForTest(): void {
   _scopes.clear()
-  _activeWorkspaceId = null
   _scopeListeners.clear()
 }
 
@@ -170,7 +160,7 @@ export function __resetWorkspaceScopesForTest(): void {
  * workspace-scoped URL is never built with a missing project/repo segment.
  */
 export function getWorkspaceScope(wsId?: string): WorkspaceScope | null {
-  const id = wsId ?? _activeWorkspaceId
+  const id = wsId ?? readActiveWorkspaceId()
   if (!id) return null
   return _scopes.get(id) ?? null
 }

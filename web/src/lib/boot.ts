@@ -1,12 +1,12 @@
 import {
-  hydratePreferences,
   hydrateSidebar,
   hydrateWindowPaneLayout,
+  placeRestoredChatMembers,
 } from '@/lib/persistence/hydrate'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { dataOf } from '@/lib/loadable'
+import { retireOrphanedStorage } from '@/lib/persistence/retired-storage'
 
 /**
  * Hydrates whatever this window's pane/buffer layout and sidebar tree were
@@ -26,8 +26,8 @@ import { dataOf } from '@/lib/loadable'
  * gate-everything-on-the-network HydrationGate was replaced with rendering
  * immediately and hydrating in the background.
  *
- * Every step here is a plain local IndexedDB read — `hydratePreferences`
- * (ui-preferences), `hydrateWindowPaneLayout` (the window layout row), and
+ * Every step here is a plain local IndexedDB read — `hydrateWindowPaneLayout`
+ * (the window layout row), and
  * `useWorkspaceListStore`'s own `fetch()` (`readVisibleRepoTree`, which reads
  * the entity cache — see project-visibility.ts — never the network). None of
  * this is a real backend round trip, so awaiting it here costs single-digit-
@@ -37,24 +37,11 @@ import { dataOf } from '@/lib/loadable'
  * waits on `setRepos` completing, not on anything else here.
  */
 export async function hydrateCriticalStores(): Promise<void> {
-  await Promise.all([hydratePreferences(), hydrateWindowPaneLayout()])
+  void retireOrphanedStorage()
+  await hydrateWindowPaneLayout()
+  // The one network step, deliberately not awaited: members stay unplaced until it answers.
+  void placeRestoredChatMembers()
   await useWorkspaceListStore.getState().fetch()
   useSidebarStore.getState().setRepos(dataOf(useWorkspaceListStore.getState().data) ?? [])
   await hydrateSidebar()
-}
-
-/**
- * The one genuinely slow boot step — a real `/v0/projects` network round
- * trip — reconciles into `useProjectStore` reactively once it resolves, same
- * as any other live update reaching it. Nothing waits on this, and nothing
- * needs to: no component's first mount depends on the project LIST existing,
- * only on the single active project id (already resolved from the route).
- */
-export function hydrateProjectsInBackground(): void {
-  void useProjectDataStore
-    .getState()
-    .fetch()
-    .then(() => {
-      useProjectStore.getState().setProjects(dataOf(useProjectDataStore.getState().data) ?? [])
-    })
 }

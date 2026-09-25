@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { useEffect } from 'react'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
@@ -58,6 +58,12 @@ const baseProps = {
   onPromote: () => {},
 }
 
+// The editor surface is a lazy chunk (Monaco stays out of boot); resolve the
+// (mocked) module once so each render's Suspense settles promptly.
+beforeAll(async () => {
+  await import('@/features/editor/components/editor-surface')
+})
+
 beforeEach(() => {
   plateMounts.length = 0
 })
@@ -79,7 +85,7 @@ describe('EditorPane surface selection', () => {
     expect(screen.queryByTestId('monaco-surface')).toBeNull()
   })
 
-  it('renders Monaco for a markdown buffer in source view', () => {
+  it('renders Monaco for a markdown buffer in source view', async () => {
     currentBuffer = {
       id: 'b2',
       type: 'editor',
@@ -89,10 +95,10 @@ describe('EditorPane surface selection', () => {
     }
     useMarkdownViewStore.setState({ views: { b2: 'source' } })
     render(<EditorPane {...baseProps} bufferId="b2" />)
-    expect(screen.getByTestId('monaco-surface')).toBeInTheDocument()
+    expect(await screen.findByTestId('monaco-surface')).toBeInTheDocument()
   })
 
-  it('renders Monaco for a non-markdown buffer', () => {
+  it('renders Monaco for a non-markdown buffer', async () => {
     currentBuffer = {
       id: 'b3',
       type: 'editor',
@@ -102,7 +108,7 @@ describe('EditorPane surface selection', () => {
     }
     useMarkdownViewStore.setState({ views: {} })
     render(<EditorPane {...baseProps} bufferId="b3" />)
-    expect(screen.getByTestId('monaco-surface')).toBeInTheDocument()
+    expect(await screen.findByTestId('monaco-surface')).toBeInTheDocument()
     expect(screen.queryByTestId('plate-surface')).toBeNull()
   })
 

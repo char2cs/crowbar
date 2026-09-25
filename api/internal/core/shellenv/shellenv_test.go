@@ -88,7 +88,7 @@ func TestResolveShell_FallsBackToShWhenNothingResolves(t *testing.T) {
 }
 
 func TestDsclUserShell_UnparseableOutput(t *testing.T) {
-	assert.Equal(t, "", dsclUserShell(context.Background(), fakeCmd("garbage", 0)))
+	assert.Empty(t, dsclUserShell(context.Background(), fakeCmd("garbage", 0)))
 }
 
 func TestMergePaths_DedupesAndKeepsPrimaryOrder(t *testing.T) {

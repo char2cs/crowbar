@@ -5,6 +5,7 @@ import type {
   PaneGroup,
   SplitDirection,
   SplitPlacement,
+  ViewMember,
   ViewRecord,
 } from '@/features/panes/types/pane'
 import { createLeaf, findLeaf, getAllLeafIds } from '@/features/panes/utils/pane-layout'
@@ -40,6 +41,7 @@ export function makePane(
     type: 'group',
     chatId: null,
     runnerId: null,
+    workspaceId: null,
     editorTabIds: [],
     activeEditorTabId: null,
     editorOpen: false,
@@ -125,6 +127,32 @@ export function viewChatIds(state: Pick<ViewState, 'panes' | 'views'>, viewId: s
   return out
 }
 
+/** A view's members — its chats with their workspaces — in layout order. */
+export function viewMembers(
+  state: Pick<ViewState, 'panes' | 'views'>,
+  viewId: string,
+): ViewMember[] {
+  const view = state.views[viewId]
+  if (!view) return []
+  const out: ViewMember[] = []
+  for (const id of getAllLeafIds(view.layout)) {
+    const pane = state.panes[id]
+    if (pane?.chatId) out.push({ chatId: pane.chatId, workspaceId: pane.workspaceId ?? null })
+  }
+  return out
+}
+
+/** The workspace recorded for `chatId` by the pane showing it, if any. */
+export function chatWorkspaceIn(
+  panes: Readonly<Record<string, PaneGroup>>,
+  chatId: string,
+): string | null {
+  for (const pane of Object.values(panes)) {
+    if (pane.chatId === chatId) return pane.workspaceId ?? null
+  }
+  return null
+}
+
 export function viewHasChat(state: ViewState, viewId: string): boolean {
   return viewChatIds(state, viewId).length > 0
 }
@@ -157,12 +185,20 @@ export function showView(state: ViewState, viewId: string | null, focusPaneId?: 
 }
 
 /** The view to fall back to in `projectId` (any project for null): the most
- *  recently focused one, else the first in band order. */
-export function nextViewFor(state: ViewState, projectId: string | null): string | null {
+ *  recently focused one, else the first in band order — limited, when given,
+ *  to views showing one of `workspaces`. */
+export function nextViewFor(
+  state: ViewState,
+  projectId: string | null,
+  workspaces?: ReadonlySet<string | null>,
+): string | null {
+  const shows = (viewId: string) =>
+    !workspaces?.size || viewMembers(state, viewId).some((m) => workspaces.has(m.workspaceId))
   const eligible = (viewId: string | null | undefined): viewId is string =>
     !!viewId &&
     !!state.views[viewId] &&
-    (projectId === null || state.views[viewId].projectId === projectId)
+    (projectId === null || state.views[viewId].projectId === projectId) &&
+    shows(viewId)
   for (const paneId of state.mostRecentActivePaneIds) {
     const viewId = state.panes[paneId]?.viewId
     if (eligible(viewId)) return viewId
@@ -170,7 +206,13 @@ export function nextViewFor(state: ViewState, projectId: string | null): string 
   return state.viewOrder.find(eligible) ?? null
 }
 
-export function healActivePane(state: ViewState): void {
+/**
+ * Focus is derived, not maintained: after a write, an `activePaneId` that no
+ * longer names a pane on screen (or in the bottom tray) falls back to the most
+ * recently focused one that does, else the first leaf showing. Applied once
+ * per write by `commitViewWrite` and once per load by `repairViewState`.
+ */
+export function settleFocus(state: ViewState): void {
   const showing = getAllLeafIds(showingLayout(state))
   const bottom = getAllLeafIds(state.bottomLayout)
   if (showing.includes(state.activePaneId) || bottom.includes(state.activePaneId)) return

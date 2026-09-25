@@ -199,6 +199,47 @@ func TestCloseAssistantTurn_ATerminatingHookThatReportsMoreTextStillWins(t *test
 		"a hook report that is FULLER than the stream must still win — the reconciliation's original purpose")
 }
 
+// The same race over the relay: both hooks are ingested under their runner's
+// hook gate, so a turn_stop that waits for the delta while holding the gate
+// can only time out and record the reply twice, once under each id.
+func TestRegression_ATurnStopWaitingUnderTheHookGateLetsItsOwnDeltaIn(t *testing.T) {
+	activity := &recordingActivity{}
+	turns := &Turns{messages: stream.New(), activity: activity, hookGates: inflight.NewGate()}
+	turns.SetMessageAwaitTimeout(5 * time.Second)
+
+	chat := domain.Chat{ID: "c"}
+	runner := engineagents.Runner{ID: "runner-1", ProviderID: "claude"}
+	const finalText = "the reply"
+
+	ctx, release := turns.holdHookGate(context.Background(), runner.ID)
+	delivered := make(chan struct{})
+	go func() {
+		defer close(delivered)
+		_, unlock := turns.holdHookGate(context.Background(), runner.ID)
+		defer unlock()
+		turns.recordMessageDelta(context.Background(), chat, runner, engineagents.CanonicalEvent{
+			Kind: "message_delta",
+			Delta: &engineagents.MessageDelta{
+				TurnID: "t", MessageID: "m1", Index: 0, Sequenced: true, Final: true, Text: finalText,
+			},
+		})
+	}()
+
+	started := time.Now()
+	err := turns.closeAssistantTurn(ctx, chat, runner, engineagents.CanonicalEvent{
+		Kind: "turn_stop", Message: finalText,
+	})
+	release()
+	require.NoError(t, err)
+	<-delivered
+
+	require.Less(t, time.Since(started), turns.messageAwaitTimeout, "the wait ended on the delta, not the clock")
+	activity.mu.Lock()
+	defer activity.mu.Unlock()
+	require.Len(t, activity.turns, 1, "one reply, one row")
+	require.Contains(t, activity.turns, "msg-m1")
+}
+
 // The quiet sweep (runner/internal/termwait) abandons a live turn whose message
 // has not grown for DefaultMessageQuiet. It reads UnfinishedSince, which used to
 // see the ANSWER stream alone — so a provider that streams a paragraph and then

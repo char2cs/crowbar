@@ -171,8 +171,8 @@ func TestCrash_ProviderDriftWhileDown_ResyncOnRestart(t *testing.T) {
 // TestCrash_DeleteConvergesToInvariant covers the delete lifecycle underlying
 // spec §5 row "Deleted + lingering worktree" (spec §3.6/§3.8): a delete drives
 // the cascade (git worktree teardown) plus the pure Delete command, whose async
-// reactor gates on the persisted "deleted" tombstone, then rm's the worktree,
-// drops the id↔path row, and Forgets the aggregate (its OnForget drops the
+// reactor gates on the persisted "deleted" tombstone, then rm's the worktree
+// and Forgets the aggregate (its OnForget drops the
 // read-model row). The observable end state is the delete invariant: no
 // worktree on disk.
 //
@@ -195,20 +195,8 @@ func TestCrash_DeleteConvergesToInvariant(t *testing.T) {
 	require.True(t, kit.DirExists(t, worktree), "worktree must exist before delete")
 
 	// The delete is driven through the workspace usecase — the SAME call the
-	// deleted DELETE .../workspaces/:wsId route made — and NOT through
-	// DELETE .../chats/:chatId.
-	//
-	// This test's subject is the delete CASCADE converging to its invariant. The
-	// chat route cannot express that subject reliably today, and the reason is a
-	// product defect rather than a test problem: it purges the owning chat
-	// (purgeAll) while the workspace's own delete reactor is still running, and
-	// that reactor's FIRST step, forgetAgentChats, treats an already-Forgotten
-	// chat as FATAL — unlike the ax.Forget in bootSweepPurge, which tolerates
-	// exactly that. Lose the race and the cascade aborts before it reaps
-	// anything, leaving both the read-model row and the worktree behind
-	// (observable as `workspace delete reactor: delete cascade ... forget agent
-	// chat ... aggregate not found`). Reproduced roughly 1 run in 5. Reported,
-	// not fixed — the fix is in internal/app/repositories/container.go.
+	// deleted DELETE .../workspaces/:wsId route made. This test's subject is the
+	// delete CASCADE converging to its invariant.
 	//
 	// Watching the chat's own lifecycle frame is what proves the delete was
 	// actually dispatched before the barrier below runs.
@@ -245,32 +233,11 @@ func TestCrash_DeleteConvergesToInvariant(t *testing.T) {
 // crowbar home, so the managed worktree is reaped while a user's real checkout
 // could never be touched.
 func TestCrash_DeleteMidCascade_BootSweepReaps(t *testing.T) {
-	// QUARANTINED — a PRODUCT gap, not flakiness. Reported, not fixed: the fix is
-	// in internal/app/container.go, which this test-migration task must not touch.
-	//
-	// The delete reactor's last two effects are ax.Forget(wsID) and the read-model
-	// row-delete its OnForget projection publishes. Crash BETWEEN them — the
-	// observable signature is `workspace store projection: delete ... sql:
-	// database is closed` — and the aggregate is gone while the "deleted" row
-	// survives. On the next boot bootSweepPurge finds that row, and its terminal
-	// ax.Forget returns ErrValidation ("aggregate not found"), which it
-	// deliberately SWALLOWS as idempotent; purge then returns nil and Sweep
-	// deletes no row of its own. Nothing ever removes it. The orphan is PERMANENT
-	// and every later boot repeats the same no-op — precisely the state the sweep
-	// exists to clean, and the one state it cannot.
-	//
-	// The other crash window (dying BEFORE ax.Forget) converges correctly, which
-	// is why this reproduces about half of all runs — measured 7 failures in 12 —
-	// and why this test has a long-standing reputation for flakiness. It is not
-	// flaky; it is reporting a real intermittent wedge. The previous green came
-	// from a 10s require.Eventually (a forbidden poll here) that simply failed
-	// whenever the run landed in the bad window.
-	//
-	// It is NOT weakened to pass: asserting only the worktree's absence would be
-	// vacuous, because in the failing window the directory is already gone before
-	// the crash. Un-skip it once the sweep drops the row itself rather than
-	// relying on OnForget for an already-Forgotten aggregate.
-	t.Skip("product gap: boot sweep cannot reap a row whose aggregate was already Forgotten; see comment")
+	// The delete reactor is HELD at the drain gate before the delete, so the
+	// crash below lands with the purge deterministically still pending. (The
+	// other crash window — between the reactor's Forget and its row delete — is
+	// pinned by reactors.TestPurger_AlreadyForgottenAggregate_DropsTheOrphanedRow;
+	// racing a real reactor to it made this test pass or fail by timing.)
 
 	home := kit.TempHomeForTest(t)
 	env1 := kit.BuildEnvAt(t, home)
@@ -285,14 +252,8 @@ func TestCrash_DeleteMidCascade_BootSweepReaps(t *testing.T) {
 	// DELETE .../chats/:chatId.
 	//
 	// This test's subject is the BOOT SWEEP: a workspace tombstoned but not yet
-	// purged when the process died. The chat route additionally hard-purges the
-	// owning chat in the same request, and a purged chat makes the sweep's own
-	// re-drive abort before it reaps anything (see forgetAgentChats — it treats
-	// an already-Forgotten chat as fatal, unlike the ax.Forget below it, which
-	// tolerates exactly that). Driving the delete through that route would
-	// therefore make this test fail for a reason that has nothing to do with the
-	// sweep it is named for. TestCrash_DeleteConvergesToInvariant covers the chat
-	// route end to end.
+	// purged when the process died.
+	env1.HoldReactors()
 	env1.DeleteWorkspaceCascade(t, wsID)
 	// Quiesce folds the tombstone into the projection the boot sweep reads
 	// directly at the next restart (store/workspace.db, no lazy Replay — spec
@@ -304,25 +265,15 @@ func TestCrash_DeleteMidCascade_BootSweepReaps(t *testing.T) {
 	// thing the next boot's sweep can find. Without it there is no orphan to reap
 	// and this test asserts on nothing.
 	//
-	// It is read in-process: DELETE .../chats/:id purged the owning chat in the
-	// same request, so no wire read can reach this workspace's row any more.
-	// The read deliberately does not retry — this test must crash with the purge
-	// still IN FLIGHT, and waiting here hands env1's delete reactor the time to
-	// finish, dropping the row and leaving the sweep nothing to do.
+	// It is read in-process: no wire read can reach this workspace's row any
+	// more. The held reactor guarantees the purge has not run.
 	status, present := env1.WorkspaceRow(t, imported.ProjectID, imported.RepoID, wsID)
 	require.True(t, present, "precondition: the deleted row must be durable before the crash")
 	require.Equal(t, "deleted", status,
 		"precondition: the tombstone must be PERSISTED before the crash — it is the only thing "+
 			"the next boot's sweep can find")
 
-	// SIGKILL mid-cascade: abandon the async purge reactor before it can rm the
-	// worktree. It is already racing this crash by the time DELETE's response
-	// reached us — an asynx reactor detaches (drainWG.Add(1); go run(...)) before
-	// workspaces.Delete's own Send call returns, deep inside the DELETE request
-	// above — so NOT waiting any further here is what preserves the
-	// crash-mid-cascade window at all: a wait can let the reactor finish first,
-	// leaving nothing for the boot sweep to reap (the known ~1-in-10 flake this
-	// test already carries).
+	// SIGKILL with the purge still pending: the held reactor never ran.
 	env1.CloseCrashing(t)
 
 	// Restart over the same home: app.New's boot orphan-sweep
@@ -335,29 +286,7 @@ func TestCrash_DeleteMidCascade_BootSweepReaps(t *testing.T) {
 	require.NoError(t, err, "restart over the same home after a crash")
 	defer env2.Close(t)
 
-	// BOTH halves, and the ROW is the one that matters here: measured on this very
-	// test, when the sweep raced, the worktree was ALREADY gone while the residual
-	// row was still there. Asserting only the directory would therefore pass in
-	// precisely the failure mode this test exists to catch.
-	//
-	// KNOWN RED, ~50% of runs, and it is the PRODUCT that is wrong, not this
-	// assertion. Two crash windows exist, and only one is recoverable:
-	//
-	//   - crash BEFORE the reactor's ax.Forget — aggregate still live, row still
-	//     "deleted". The sweep re-drives the purge, Forget fires, its OnForget
-	//     drops the row. Converges. This is the case spec §3.8 describes.
-	//   - crash AFTER ax.Forget but before the row-delete projection folds
-	//     (observable as `workspace store projection: delete ... sql: database is
-	//     closed`). The aggregate is gone; the "deleted" row is not. On reboot
-	//     bootSweepPurge's terminal `ax.Forget` returns ErrValidation ("aggregate
-	//     not found"), which it deliberately SWALLOWS as idempotent — so purge
-	//     returns nil, Sweep deletes no row of its own, and nothing ever removes
-	//     that row. The orphan is PERMANENT and every later boot repeats the no-op.
-	//
-	// The old version of this test hid the second window behind a 10s
-	// require.Eventually (a forbidden poll here) that simply failed when it lost.
-	// Reported, not fixed: the fix is in internal/app/container.go and is product
-	// code this task must not touch.
+	// BOTH halves: the row and the worktree.
 	_, stillThere := env2.WorkspaceRow(t, imported.ProjectID, imported.RepoID, wsID)
 	require.False(t, stillThere, "boot sweep must reap the crash-orphaned deleted row")
 	require.False(t, kit.DirExists(t, worktree), "boot sweep must reap the lingering worktree")

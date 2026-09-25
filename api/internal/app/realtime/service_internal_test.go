@@ -148,7 +148,7 @@ func newTestServiceWithPoller(
 	return New(
 		context.Background(),
 		hub.NewHub(),
-		stubWorkspaceRepo{ws: domain.Workspace{ID: "w1", WorktreePath: "/repo"}},
+		stubWorkspaceRepo{ws: domain.Workspace{ID: "w1", WorktreePath: "/repo", Provisioning: domain.WorkspaceProvisioned}},
 		enginegit.Engine(stubGitEngine{}),
 		stubFSEngine{watcher: &enginefs.Watcher{}},
 		lc,

@@ -3,8 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPlateEditor } from 'platejs/react'
 import type { PlateEditor } from 'platejs/react'
 import { CodeBlockPlugin } from '@platejs/code-block/react'
-import { DndProvider } from 'react-dnd'
-import { HTML5Backend } from 'react-dnd-html5-backend'
+import { DndScope } from '@/features/agent/chat/dnd-scope'
 import { createChatPastePlugin } from '@/features/agent/composer/plate/chat-paste-plugin'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
 import { ChatMarkdownEditor } from '@/features/agent/composer/plate/chat-markdown-editor'
@@ -607,12 +606,9 @@ describe('createChatPastePlugin', () => {
  * through — nothing else on this path is jsdom-unimplemented.
  */
 describe('createChatPastePlugin, registered through the real ChatMarkdownEditor', () => {
-  /** `@platejs/dnd`'s `useDraggable` (wired into the image node this test
-   *  inserts) throws "Expected drag drop context" without a real
-   *  `<DndProvider>` ancestor — same pattern as
-   *  chat-markdown-image-node.test.tsx's own `renderWithDnd`. */
+  /** Under the real `DndScope`, as `AgentChatView` renders it. */
   function renderWithDnd(ui: React.ReactElement) {
-    return render(<DndProvider backend={HTML5Backend}>{ui}</DndProvider>)
+    return render(<DndScope>{ui}</DndScope>)
   }
 
   function firePaste(editable: HTMLElement, clipboardData: unknown) {

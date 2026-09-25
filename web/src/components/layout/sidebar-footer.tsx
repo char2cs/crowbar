@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { Plus, Settings } from 'lucide-react'
+import { GearIcon, PlusIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { useSettingsStore } from '@/features/settings/store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
@@ -115,7 +115,7 @@ export const SidebarFooter = memo(function SidebarFooter({
           tooltipSide="top"
           aria-label="Add space"
         >
-          <Plus size={16} />
+          <PlusIcon size={16} />
         </Button>
       )}
       <Button
@@ -131,7 +131,7 @@ export const SidebarFooter = memo(function SidebarFooter({
         tooltipSide="top"
         aria-label="Settings"
       >
-        <Settings size={16} />
+        <GearIcon size={16} />
       </Button>
     </div>
   )

@@ -142,8 +142,8 @@ function resolveCodeBlockPreview(props: PlateElementProps<TCodeBlockElement>): {
  * The draggable shell for an attachment preview — split into its own
  * component, rather than calling `useAttachmentDraggable` unconditionally
  * from `ChatCodeBlockElement` itself, so an ORDINARY, non-attachment code
- * block never mounts `@platejs/dnd`'s `useDraggable` at all and therefore
- * never needs a `<DndProvider>` ancestor either — only a fence that actually
+ * block never mounts `useAttachmentDraggable` at all and therefore
+ * never needs a `DndScope` ancestor either — only a fence that actually
  * resolved to a preview does. (Conditionally choosing WHICH component to
  * render is fine under the rules of hooks; conditionally calling a hook
  * from inside one component is not — this is why the branch lives one level
@@ -155,7 +155,9 @@ function DraggableAttachmentBlock({
   ...props
 }: PlateElementProps<TCodeBlockElement> & { preview: ReactNode; codeBody: ReactNode }) {
   const editor = useEditorRef()
-  const { isDragging, nodeRef, handleRef, remove } = useAttachmentDraggable(props.element)
+  const { isDragging, nodeRef, handleProps, dropLine, remove } = useAttachmentDraggable(
+    props.element,
+  )
   const removeAttachment = useCallback(() => {
     if (excalidrawSceneFromCodeBlock(props.element)) {
       removeExcalidrawAttachment(editor, props.element)
@@ -170,9 +172,9 @@ function DraggableAttachmentBlock({
       ref={useComposedRef(props.ref, nodeRef)}
       className={cn('relative my-2', isDragging && 'opacity-50')}
     >
-      <AttachmentDropLine />
+      <AttachmentDropLine line={dropLine} />
       <div contentEditable={false} className="group/attachment relative inline-block select-none">
-        <AttachmentControls dragRef={handleRef} onDelete={removeAttachment} />
+        <AttachmentControls handleProps={handleProps} onDelete={removeAttachment} />
         {preview}
       </div>
       <div className="hidden">{codeBody}</div>
@@ -212,9 +214,9 @@ export function ChatCodeBlockElement(props: PlateElementProps<TCodeBlockElement>
 /**
  * The read-only/settled counterpart, registered on `chatComposerPluginsStatic`
  * (see chat-composer-plugins.ts). Same preview resolution as the interactive
- * renderer above, but never touches `@platejs/dnd`'s `useDraggable` — a
+ * renderer above, but never touches `useAttachmentDraggable` — a
  * settled message is read, not reordered, so it has no reason to require a
- * `<DndProvider>` ancestor either.
+ * `DndScope` ancestor either.
  */
 export function ChatCodeBlockElementStatic(props: PlateElementProps<TCodeBlockElement>) {
   const { codeBody, preview } = resolveCodeBlockPreview(props)

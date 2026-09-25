@@ -1,24 +1,10 @@
 import { render, screen } from '@testing-library/react'
-import { DndProvider } from 'react-dnd'
-import { HTML5Backend } from 'react-dnd-html5-backend'
 import { describe, expect, it } from 'vitest'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 
-// `MarkdownMessage` (the interactive/streaming path) now renders a draggable
-// image attachment (`ChatAttachmentImageBlock`), which calls `useDraggable`
-// and throws "Expected drag drop context" with no `<DndProvider>` ancestor.
-// In the app this is `AgentChatView`'s one `DndScope` (dnd-scope.tsx) — see
-// its own comment for why the streaming transcript is inside it. A bare
-// `render(<MarkdownMessage>)` has no such ancestor, so the parity suite below
-// needs the same real (unmocked) `<DndProvider>` the composer's own tests use
-// (agent-composer.test.tsx, image-attachment-resolution.test.tsx).
 function renderInteractive(text: string) {
-  return render(
-    <DndProvider backend={HTML5Backend}>
-      <MarkdownMessage>{text}</MarkdownMessage>
-    </DndProvider>,
-  )
+  return render(<MarkdownMessage>{text}</MarkdownMessage>)
 }
 
 /**
@@ -90,13 +76,11 @@ describe('MarkdownMessageStatic', () => {
 
   // A drag handle only makes sense where a block is actually editable — the
   // composer and the interactive/streaming transcript (`MarkdownMessage`) —
-  // never on settled read-only history. `chatComposerPluginsStatic` never
-  // registers `DndPlugin` and swaps in node components
-  // (`ChatCodeBlockElementStatic`/the file card's static variant) that never
-  // call `useAttachmentDraggable` at all (see chat-composer-plugins.ts), so
-  // this asserts the observable result: no drag handle button, for either
-  // attachment kind, ever renders on a settled message — no `<DndProvider>`
-  // needed to prove it, because there is nothing here that would need one.
+  // never on settled read-only history. `chatComposerPluginsStatic` swaps in
+  // node components (`ChatCodeBlockElementStatic`/the file card's static
+  // variant) that never call `useAttachmentDraggable` (see
+  // chat-composer-plugins.ts): no drag handle button, for either attachment
+  // kind, ever renders on a settled message.
   it('renders no drag handle for a settled attachment — text-attachment fence or file-card link', () => {
     render(
       <MarkdownMessageStatic>

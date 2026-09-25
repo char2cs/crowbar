@@ -31,9 +31,7 @@ vi.mock('@/features/workspace/stores/hooks/use-buffer-store', () => ({
     }
   },
 }))
-vi.mock('@/features/editor/stores/editor-app-store', () => ({
-  useEditorAppStore: { use: { actions: () => ({ handleContentChange: vi.fn() }) } },
-}))
+vi.mock('@/features/editor/lib/buffer-save', () => ({ setBufferContent: vi.fn() }))
 vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: vi.fn() } }))
 
 // StrictMode like the real app root: its double-invoked effects (setup →

@@ -3,6 +3,7 @@ package v0
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -42,6 +43,8 @@ type Container struct {
 	chatScopes *agentChatScopes
 	app        *app.Container
 	eng        *engine.Container
+	// detached are the Shutdowns of the handlers that hand work off after a 202.
+	detached []func(context.Context) error
 }
 
 var _ hub.Subscriber = (*Container)(nil)
@@ -87,6 +90,17 @@ func New(
 	}
 	appContainer.Hub.Register(c)
 	return c
+}
+
+// ShutdownDetached waits for the work handlers handed off after answering 202,
+// cancelling what is still running when ctx ends. Call it once the HTTP server
+// has stopped, before the app drains: that work commits events and runs git.
+func (c *Container) ShutdownDetached(ctx context.Context) error {
+	errs := make([]error, 0, len(c.detached))
+	for _, shutdown := range c.detached {
+		errs = append(errs, shutdown(ctx))
+	}
+	return errors.Join(errs...)
 }
 
 // onTerminalEnded emits an "ended" lifecycle frame when a PTY exits on its own
@@ -450,52 +464,6 @@ func (c *Container) PushFile(
 	c.files.Push(evt)
 }
 
-// PushAgentChat implements hub.Subscriber. It fans an agent-chat lifecycle
-// event out to every subscriber of the agent-chat WebSocket (GET
-// .../repos/:repoId/chats/ws, and .../home/chats/ws) whose scope the frame's
-// namespace falls under.
-//
-// It takes the FRESH scope: every kind reaching this method is structural — a
-// create, a placement, a workspace slot filled, a delete — and each is exactly
-// the kind of change that can move a bubble into another repo, so the memo the
-// streaming frames read must not survive it.
-func (c *Container) PushAgentChat(
-	chatID string,
-	workspaceID string,
-	kind string,
-	working bool,
-) {
-	scope := c.freshAgentChatScope(chatID, workspaceID)
-	c.agentChats.Push(dto.AgentChatEvent{
-		ChatID:      chatID,
-		WorkspaceID: workspaceID,
-		ProjectID:   scope.ProjectID,
-		RepoID:      scope.RepoID,
-		Kind:        kind,
-		Working:     working,
-	})
-}
-
-// PushAgentChatTerminalWait implements hub.Subscriber. It fans the terminal-wait
-// edge out on the SAME workspace-scoped agent-chat WebSocket as PushAgentChat: it
-// is a fact about a conversation, so it belongs on the conversation feed rather
-// than on a second socket that would have to be kept in order with it.
-func (c *Container) PushAgentChatTerminalWait(
-	chatID string,
-	workspaceID string,
-	wait *dto.AgentTerminalWaitDTO,
-) {
-	scope := c.agentChatScope(chatID, workspaceID)
-	c.agentChats.Push(dto.AgentChatEvent{
-		ChatID:       chatID,
-		WorkspaceID:  workspaceID,
-		ProjectID:    scope.ProjectID,
-		RepoID:       scope.RepoID,
-		Kind:         dto.AgentChatKindTerminalWait,
-		TerminalWait: wait,
-	})
-}
-
 // PushAgentChatPromptSettled implements hub.Subscriber, on the SAME
 // workspace-scoped agent-chat WebSocket as every other fact about a conversation.
 func (c *Container) PushAgentChatPromptSettled(
@@ -564,6 +532,35 @@ func (c *Container) PushAgentChatPlan(
 	})
 }
 
+// PushAgentChatEvent implements hub.Subscriber: one chat snapshot frame,
+// scoped FRESH — a snapshot follows every structural change (a create, a
+// placement, a runner arriving), each of which can move a bubble into another
+// repo.
+func (c *Container) PushAgentChatEvent(ev dto.AgentChatEvent) {
+	scope := c.freshAgentChatScope(ev.ChatID, ev.WorkspaceID)
+	ev.ProjectID, ev.RepoID = scope.ProjectID, scope.RepoID
+	c.agentChats.Push(ev)
+}
+
+// PushAgentChatTelemetry implements hub.Subscriber, on the SAME
+// workspace-scoped agent-chat WebSocket, scoped like every other chat frame.
+func (c *Container) PushAgentChatTelemetry(
+	chatID string,
+	workspaceID string,
+	report agents.Telemetry,
+) {
+	out := dto.AgentTelemetryDTOFrom(report)
+	scope := c.agentChatScope(chatID, workspaceID)
+	c.agentChats.Push(dto.AgentChatEvent{
+		ChatID:      chatID,
+		WorkspaceID: workspaceID,
+		ProjectID:   scope.ProjectID,
+		RepoID:      scope.RepoID,
+		Kind:        dto.AgentChatKindTelemetry,
+		Telemetry:   &out,
+	})
+}
+
 // PushAgentChatCompaction implements hub.Subscriber, on the SAME
 // workspace-scoped agent-chat WebSocket as every other conversation fact.
 // active picks which of the two kinds rides — see dto.AgentChatKindCompactionStarted's
@@ -624,32 +621,6 @@ func (c *Container) PushAgentChatFolder(
 		ProjectID:   scope.ProjectID,
 		RepoID:      scope.RepoID,
 		Kind:        kind,
-	})
-}
-
-// PushAgentRunner implements hub.Subscriber. It fans a runner lifecycle event
-// (started/session_bound/moved/exited) out on the SAME workspace-scoped
-// agent-chat WebSocket as PushAgentChat (GET .../workspaces/:wsId/chats/ws)
-// — one feed for "what changed about this workspace's agent chats", whether the
-// change came from the chat aggregate or from the runner pointed at it. A second
-// socket would buy nothing and would have to be kept in order with the first.
-//
-// The frame is the same wire type, with RunnerID set (it is empty on the chat
-// kinds). Its ChatID is the chat the runner is pointed at AS OF this event, so a
-// `moved` frame tells the client which chat the CLI moved INTO and which tab must
-// follow it. agentChatDef's wsId Filter does the scoping, exactly as for
-// PushAgentChat; this method pushes unconditionally.
-func (c *Container) PushAgentRunner(
-	runnerID string,
-	workspaceID string,
-	chatID string,
-	kind string,
-) {
-	scope := c.freshAgentChatScope(chatID, workspaceID)
-	c.agentChats.Push(dto.AgentChatEvent{
-		ChatID: chatID, WorkspaceID: workspaceID,
-		ProjectID: scope.ProjectID, RepoID: scope.RepoID,
-		Kind: kind, RunnerID: runnerID,
 	})
 }
 

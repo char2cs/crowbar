@@ -15,6 +15,19 @@ vi.mock('@/lib/persistence/cache-store', async (importOriginal) => {
   return { ...actual, saveCache: (...a: unknown[]) => saveCacheSpy(...a) }
 })
 
+const { frameHandlers } = vi.hoisted(() => ({
+  frameHandlers: new Map<string, (frame: unknown) => void>(),
+}))
+
+vi.mock('@/lib/ws/manager', () => ({
+  wsManager: {
+    subscribe: (endpoint: string, cb: (frame: unknown) => void) => {
+      frameHandlers.set(endpoint, cb)
+      return () => frameHandlers.delete(endpoint)
+    },
+  },
+}))
+
 import { resetDB } from '@/lib/persistence/idb'
 import { saveCache } from '@/lib/persistence/cache-store'
 import { createLoadableSlice, type LoadableSlice } from '@/lib/store/loadable-slice'
@@ -34,6 +47,24 @@ function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => voi
     resolve = r
   })
   return { promise, resolve }
+}
+
+/** A live slice: frames are whole numbers, merged by appending. */
+function makeLiveStore(fetcher: () => Promise<number[]>) {
+  return create<LoadableSlice<number[], []>>()((set, get) =>
+    createLoadableSlice<number[], []>({
+      store: 'projects-data',
+      fetcher,
+      cacheKey: () => 'projects',
+      wsEndpoint: () => '/live',
+      mergeFrame: (current, frame) =>
+        typeof frame === 'number'
+          ? current.includes(frame)
+            ? current
+            : [...current, frame]
+          : undefined,
+    })(set, get),
+  )
 }
 
 function makeStore(fetcher: (key: string) => Promise<number[]>) {
@@ -78,6 +109,80 @@ describe('createLoadableSlice', () => {
     expect((await loadCache('projects-data', 'projects'))?.data).toEqual([1, 2, 3])
   })
 
+  it('asks made before the request is sent share it; an ask after the send gets its own', async () => {
+    const { fetcher, release, startedAt } = parkedFetcher(() => [1])
+    const calls = vi.fn(fetcher)
+    const store = makeStore(calls)
+
+    // A boot burst: route guard, background hydrate, sync engine — same tick.
+    const a = store.getState().fetch('projects')
+    const b = store.getState().fetch('projects')
+    const c = store.getState().fetch('projects')
+    await startedAt[0]
+    expect(calls).toHaveBeenCalledTimes(1)
+
+    // Asked after the request went out: it may reflect a later change.
+    const d = store.getState().fetch('projects')
+    await startedAt[1]
+    expect(calls).toHaveBeenCalledTimes(2)
+    release.forEach((r) => r())
+    await Promise.all([a, b, c, d])
+  })
+
+  // Boot asks for the project list from the root route's guard and again from
+  // the sync engine a few hundred ms later; the live stream keeps one answer
+  // current, so the second ask must not cost a second request.
+  it('a live key joins the read in flight and needs no read once held', async () => {
+    const { fetcher, release, startedAt } = parkedFetcher(() => [1])
+    const calls = vi.fn(() => fetcher(''))
+    const store = makeLiveStore(calls)
+
+    const guard = store.getState().fetch()
+    await startedAt[0]
+    const stop = store.getState().startSync()
+    const engine = store.getState().fetch()
+    frameHandlers.get('/live')?.(2)
+    release[0]()
+    await Promise.all([guard, engine])
+    expect(dataOf(store.getState().data)).toEqual([1, 2])
+
+    await store.getState().fetch()
+    expect(calls).toHaveBeenCalledTimes(1)
+
+    // Not live any more: an ask after the send is a new read again.
+    stop()
+    const later = store.getState().fetch()
+    await startedAt[1]
+    expect(calls).toHaveBeenCalledTimes(2)
+    release[1]()
+    await later
+  })
+
+  it('a reconnect re-reads a live key', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const calls = vi.fn(async () => [1])
+      const store = makeLiveStore(calls)
+      const stop = store.getState().startSync()
+      await store.getState().fetch()
+      frameHandlers.get('/live')?.({ reconnected: true })
+      await vi.runAllTimersAsync()
+      expect(calls).toHaveBeenCalledTimes(2)
+      stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('an unchanged answer is not written back to the cache', async () => {
+    await saveCache('projects-data', 'projects', [7], 100)
+    saveCacheSpy.mockClear()
+    const store = makeStore(async () => [7])
+    await store.getState().fetch('projects')
+    expect(saveCacheSpy).not.toHaveBeenCalled()
+    expect(dataOf(store.getState().data)).toEqual([7])
+  })
+
   it('fetch failure preserves stale data from IDB', async () => {
     await saveCache('projects-data', 'projects', [9, 9], 100)
     const store = makeStore(async () => {
@@ -110,6 +215,29 @@ describe('createLoadableSlice', () => {
     await Promise.all([first, second])
 
     expect(dataOf(store.getState().data)).toEqual([2])
+  })
+
+  // The root route's guard awaits fetch() and then reads the store: a fetch the
+  // sync engine superseded meanwhile must not hand it back an unpublished store.
+  it('a superseded fetch resolves only once the newer one has published', async () => {
+    const { fetcher, release, startedAt } = parkedFetcher((key) => (key === 'old' ? [1] : [2]))
+    const store = makeStore(fetcher)
+
+    let seenByOldCaller: unknown
+    const old = store
+      .getState()
+      .fetch('old')
+      .then(() => {
+        seenByOldCaller = store.getState().data
+      })
+    await startedAt[0]
+    const newer = store.getState().fetch('new')
+    await startedAt[1]
+
+    release[0]()
+    release[1]()
+    await Promise.all([old, newer])
+    expect(seenByOldCaller).toEqual(expect.objectContaining({ status: 'success', data: [2] }))
   })
 
   it('a superseded fetch does not persist its stale result to the cache', async () => {

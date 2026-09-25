@@ -7,8 +7,7 @@
 // RemoteSlug) keys the git worktree by its natural identity —
 // <home>/projects/<project>/<host>/<owner>/<repo>/<branch>/ — so navigable
 // paths carry no UUIDs (spec §3.9). DetectClash rejects case-only collisions on
-// case-insensitive filesystems and Move relocates a worktree while keeping the
-// id↔path map consistent.
+// case-insensitive filesystems.
 package worktreepath
 
 import (
@@ -77,20 +76,6 @@ func Derive(
 // the chats tree as siblings, given the worktree path.
 func WorkspaceRoot(worktreePath string) string { return filepath.Dir(worktreePath) }
 
-// SlugDir returns the repo's on-disk identity directory
-// <home>/projects/<project>/<slug> — the parent every one of that repo's
-// workspace roots hangs off, and the FLOOR for anything that walks the layout
-// upward. A branch name maps to nested directories, so a workspace root can sit
-// several levels below this; nothing owned by one workspace ever exists at or
-// above it.
-func SlugDir(
-	home string,
-	project string,
-	slug string,
-) string {
-	return filepath.Join(home, "projects", project, slug)
-}
-
 // ChatsDir returns the per-workspace agentic chats directory for a MANAGED
 // worktree: the sibling of the worktree, NOT inside it (so agent state never
 // appears in git status). It is valid ONLY when the worktree is itself under
@@ -100,6 +85,76 @@ func SlugDir(
 // kind-aware choice between the two lives in the agent WorkspaceReader seam.
 func ChatsDir(worktreePath string) string {
 	return filepath.Join(WorkspaceRoot(worktreePath), "chats")
+}
+
+// worktreeLeaf is the last component of every managed worktree path (Derive).
+const worktreeLeaf = "worktree"
+
+// OwnRoot returns the root a managed worktree path names — the directory that
+// holds its "worktree" leaf beside its chats, storages and threads, and nothing
+// of any other workspace — and false for every other shape. A pre-leaf
+// <slug>/<branch> row, written before the leaf existed, is refused: its parent
+// is the slug directory all its siblings share. So is an unclean path, and one
+// whose root is not strictly inside <home>/projects/<project>.
+func OwnRoot(
+	worktreePath string,
+	home string,
+) (string, bool) {
+	if worktreePath == "" || home == "" || !filepath.IsAbs(worktreePath) ||
+		filepath.Clean(worktreePath) != worktreePath || filepath.Base(worktreePath) != worktreeLeaf {
+		return "", false
+	}
+	root := filepath.Dir(worktreePath)
+	rel, err := filepath.Rel(filepath.Join(home, "projects"), root)
+	if err != nil || !filepath.IsLocal(rel) || len(strings.Split(rel, string(filepath.Separator))) < 2 {
+		return "", false
+	}
+	return root, true
+}
+
+// ManagedChatsDir resolves the chats directory of a worktree under the home.
+// A leaf-shaped path keeps it beside the worktree (ChatsDir). A pre-leaf row
+// keeps the <slug>/chats tree it has always used, so its attachments stay
+// readable — unless that directory is a checkout (a sibling branch named
+// "chats") or not inside the project, in which case it gets its own directory
+// keyed by workspace id rather than writing into someone else's tree.
+func ManagedChatsDir(
+	home string,
+	projectID string,
+	workspaceID string,
+	worktreePath string,
+) string {
+	if _, ok := OwnRoot(worktreePath, home); ok {
+		return ChatsDir(worktreePath)
+	}
+	legacy := ChatsDir(filepath.Clean(worktreePath))
+	project := ProjectDir(home, projectID)
+	if projectID != "" && UnderHome(filepath.Dir(legacy), project) && !IsLiveCheckout(legacy) {
+		return legacy
+	}
+	return filepath.Join(project, ".workspace-chats", workspaceID)
+}
+
+// HoldsAnother reports whether checkout is, or contains, another workspace's
+// checkout or the chats tree beside it — as a pre-leaf branch named "chats"
+// holds every sibling's. A forced removal of it would delete their files.
+func HoldsAnother(
+	checkout string,
+	others []string,
+) bool {
+	checkout = filepath.Clean(checkout)
+	for _, other := range others {
+		if other == "" {
+			continue
+		}
+		other = filepath.Clean(other)
+		for _, claim := range []string{other, ChatsDir(other)} {
+			if claim == checkout || UnderHome(claim, checkout) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // HomeDefaultChatsDir returns the agentic chats directory for an adopted checkout
@@ -185,6 +240,55 @@ func UnderHome(
 	return strings.HasPrefix(path, strings.TrimRight(home, "/")+"/")
 }
 
+// ResolvePath resolves symlinks in p, falling back to a lexical clean when p
+// cannot be resolved (e.g. it no longer exists on disk).
+func ResolvePath(p string) string {
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	return filepath.Clean(p)
+}
+
+// SamePath reports whether two paths refer to the same location, resolving
+// symlinks first: git worktree list emits fully-resolved paths (macOS /var ->
+// /private/var, a symlinked home or network mount), while a repo's Path is the
+// path as imported, so a plain string compare never matches them.
+func SamePath(a, b string) bool {
+	return ResolvePath(a) == ResolvePath(b)
+}
+
+// IsLiveCheckout reports whether dir is a git checkout: it holds a `.git`
+// entry (a file, for a linked worktree). A checkout git still has registered is
+// git's to remove — never a delete's rm -rf.
+func IsLiveCheckout(dir string) bool {
+	_, err := os.Lstat(filepath.Join(dir, ".git"))
+	return err == nil
+}
+
+// SiblingRoots lists the existing workspace roots under a repo's slug directory
+// (<home>/projects/<projectID>/<slug>/*), so a create can reject a
+// case-insensitive path clash. A slug directory that does not exist yet has
+// none.
+func SiblingRoots(
+	crowbarHome string,
+	projectID string,
+	slug string,
+) ([]string, error) {
+	parent := filepath.Join(crowbarHome, "projects", projectID, slug)
+	entries, err := os.ReadDir(parent)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		paths = append(paths, filepath.Join(parent, entry.Name()))
+	}
+	return paths, nil
+}
+
 // DetectClash returns ErrPathClash when candidate is case-insensitively equal
 // to any path in existingPaths.
 //
@@ -204,27 +308,6 @@ func DetectClash(
 				existing,
 			)
 		}
-	}
-	return nil
-}
-
-// Move relocates a worktree from oldPath to newPath via the injected gitMove
-// (a git worktree move) and then commits the id↔path map update via updateMap.
-//
-// If gitMove fails the map is left untouched, so the old map entry still
-// resolves the worktree (spec §3.9). IO is injected so this helper stays pure
-// and testable.
-func Move(
-	oldPath string,
-	newPath string,
-	gitMove func(from, to string) error,
-	updateMap func() error,
-) error {
-	if err := gitMove(oldPath, newPath); err != nil {
-		return fmt.Errorf("worktreepath: git worktree move: %w", err)
-	}
-	if err := updateMap(); err != nil {
-		return fmt.Errorf("worktreepath: update path map: %w", err)
 	}
 	return nil
 }

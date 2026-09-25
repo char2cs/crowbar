@@ -1,34 +1,16 @@
-import { useCallback, useContext, useRef } from 'react'
-import { GripVertical, Trash2Icon } from 'lucide-react'
-import { DndContext } from 'react-dnd'
+import { createContext, useCallback, useContext, useId } from 'react'
+import { DotsSixVerticalIcon, TrashIcon } from '@phosphor-icons/react'
 import {
-  type CanDropCallback,
-  DndPlugin,
-  type DragItemNode,
+  type DragMoveEvent,
+  type DraggableAttributes,
+  type UniqueIdentifier,
   useDraggable,
-  useDropLine,
-  useDropNode,
-} from '@platejs/dnd'
-import { PathApi, type TElement } from 'platejs'
-import { type PlateEditor, useEditorRef } from 'platejs/react'
+  useDroppable,
+} from '@dnd-kit/core'
+import { type Path, PathApi, type TElement } from 'platejs'
+import { type PlateEditor, useComposedRef, useEditorRef } from 'platejs/react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-
-/**
- * ONE dnd type for every attachment kind, instead of each `useDraggable`
- * call using `blockElement.type` (a code-block attachment's `'code_block'`
- * vs. a file card's wrapping `'p'`) — react-dnd only lets a drop target
- * accept drags of the SAME type it was told to `accept`, so two attachments
- * of different underlying Slate node types could never be reordered against
- * each other, and a plain paragraph (also `'p'`, coincidentally, but never
- * registered as a drop target at all) had no way to accept one either.
- * Sharing one constant, unrelated to the Slate schema type, is what lets
- * `useAttachmentDropTarget` below register ordinary paragraphs as valid drop
- * targets alongside attachment blocks — the whole point being "move an
- * attachment to any position in the message, not just swap it with another
- * attachment."
- */
-export const ATTACHMENT_DND_TYPE = 'chat-attachment'
 
 /**
  * Forces a genuinely OPAQUE background on `variant="outline"`'s Button, in
@@ -54,51 +36,110 @@ export const ATTACHMENT_BUTTON_OPAQUE_BG = cn(
   'data-pressed:bg-popover dark:data-pressed:bg-popover',
 )
 
+export type DropLine = 'top' | 'bottom'
+
+/** What every attachment draggable and drop target registers with dnd-kit:
+ *  the editor it lives in and the top-level block it stands for. */
+export interface AttachmentDndData {
+  editor: PlateEditor
+  element: TElement
+}
+
+/** The drop target under the pointer, and which edge of it the dragged
+ *  attachment would land on. Owned by `DndScope` (dnd-scope.tsx), which
+ *  recomputes it on every drag move and clears it when the drag ends. */
+export interface AttachmentDropTarget {
+  id: UniqueIdentifier
+  line: DropLine
+}
+
+export const AttachmentDropTargetContext = createContext<AttachmentDropTarget | null>(null)
+
+export interface AttachmentMove {
+  at: Path
+  to: Path
+}
+
+/** Attachments reorder only among their own siblings at the SAME level — not
+ *  into a list item or a table cell. */
+export function canDropAttachmentNode(dragPath: Path, dropPath: Path): boolean {
+  return PathApi.equals(PathApi.parent(dragPath), PathApi.parent(dropPath))
+}
+
 /**
- * `BlockMenuKit` (components/editor/plugins/block-menu-kit.tsx) does NOT
- * carry a drag-to-reorder handle in this codebase — its own upstream
- * template comment names a `dnd-kit.tsx` (block-selection-kit.tsx:6) that
- * was never actually added here; `BlockMenuKit` is block SELECTION plus a
- * right-click context menu only. The only real drag-reorder primitive that
- * exists in this repo is `@platejs/dnd`'s `useDraggable`/`useDropLine`,
- * already used for table-row reordering (components/ui/table-node.tsx:
- * 1087-1187) — this module is that same primitive, scoped to a single
- * attachment block instead of a table row, with none of `BlockMenuKit`'s
- * would-be `/`-insert or block-type-conversion chrome (chat deliberately
- * has neither).
+ * Where dropping `drag` on the `line` edge of `drop` moves the dragged block —
+ * or `null` when the drop is not allowed (another editor, another parent, the
+ * block itself) or would leave the block exactly where it already is.
  */
+export function attachmentDropMove(
+  drag: AttachmentDndData,
+  drop: AttachmentDndData,
+  line: DropLine,
+): AttachmentMove | null {
+  if (drag.editor !== drop.editor || drag.element === drop.element) return null
+  const dragPath = drag.editor.api.findPath(drag.element)
+  const hoveredPath = drop.editor.api.findPath(drop.element)
+  if (!dragPath || !hoveredPath || !canDropAttachmentNode(dragPath, hoveredPath)) return null
+  let dropPath: Path
+  if (line === 'bottom') {
+    dropPath = hoveredPath
+    if (PathApi.equals(dragPath, PathApi.next(dropPath))) return null
+  } else {
+    dropPath = [...hoveredPath.slice(0, -1), hoveredPath.at(-1)! - 1]
+    if (PathApi.equals(dragPath, dropPath)) return null
+  }
+  const to =
+    PathApi.isBefore(dragPath, dropPath) && PathApi.isSibling(dragPath, dropPath)
+      ? dropPath
+      : PathApi.next(dropPath)
+  return { at: dragPath, to }
+}
 
-// Exported standalone so both can be unit-tested directly, without the
-// HTML5 drag/pointer-capture wiring `useDraggable` layers on top.
-export const canDropAttachmentNode: CanDropCallback = ({ dragEntry, dropEntry }) =>
-  !!dragEntry && PathApi.equals(PathApi.parent(dragEntry[1]), PathApi.parent(dropEntry[1]))
+type DragEventLike = Pick<DragMoveEvent, 'active' | 'over' | 'activatorEvent' | 'delta'>
 
-export function onAttachmentDropHandler(
-  editor: PlateEditor,
-  { dragItem }: { dragItem: DragItemNode },
-) {
-  const dragElement = (dragItem as { element?: TElement }).element
-  if (dragElement) editor.tf.select(dragElement)
+/** The pointer's current y: where the drag started plus how far it moved. */
+function pointerY({ activatorEvent, delta }: DragEventLike): number | undefined {
+  const start = activatorEvent as Partial<PointerEvent> | null
+  return typeof start?.clientY === 'number' ? start.clientY + delta.y : undefined
+}
+
+/**
+ * Resolves a dnd-kit drag event to the drop target to highlight and the move
+ * to apply on release. The line is the half of the hovered block the pointer
+ * is in.
+ */
+export function resolveAttachmentDrop(
+  event: DragEventLike,
+): { target: AttachmentDropTarget; drag: AttachmentDndData; move: AttachmentMove } | null {
+  const { active, over } = event
+  const drag = active.data.current as AttachmentDndData | undefined
+  const drop = over?.data.current as AttachmentDndData | undefined
+  const y = pointerY(event)
+  if (!over || !drag?.editor || !drop?.editor || y === undefined) return null
+  const line: DropLine = y < over.rect.top + over.rect.height / 2 ? 'top' : 'bottom'
+  const move = attachmentDropMove(drag, drop, line)
+  return move && { target: { id: over.id, line }, drag, move }
+}
+
+/** Applies a resolved drop: selects the dragged block, then moves it. */
+export function applyAttachmentDrop({ editor, element }: AttachmentDndData, move: AttachmentMove) {
+  editor.tf.select(element)
+  editor.tf.moveNodes(move)
+}
+
+function useDropLine(id: UniqueIdentifier): DropLine | undefined {
+  const target = useContext(AttachmentDropTargetContext)
+  return target?.id === id ? target.line : undefined
 }
 
 /**
  * The top-level block ancestor of `element` — itself, if `element` already
- * IS one (a fence-based attachment like a code block, whose own `PlateElement`
- * root is a plain top-level block already), otherwise the highest matching
- * block ancestor above it (a file card's wrapping paragraph: `insertAttachment
- * Markdown` inserts each `[filename](ref)` as its own single-child paragraph,
- * so the link itself sits one level below the top).
- *
- * `canDropAttachmentNode` below compares `PathApi.parent(...)` on whatever
- * entries `@platejs/dnd` derives from the `element` handed to `useDraggable` —
- * for an inline anchor nested in a paragraph that comparison is between two
- * DIFFERENT paragraphs' paths and can never match. Resolving to the block
- * ancestor here, once, fixes that for every attachment kind without
- * `canDropAttachmentNode` itself needing to know about nesting at all.
- *
- * Exported standalone (same reasoning as `canDropAttachmentNode` above) so
- * this walk can be unit-tested directly against a real editor instance
- * without mounting `useDraggable`'s own HTML5 drag/pointer-capture wiring.
+ * IS one (a fence-based attachment like a code block), otherwise the highest
+ * block ancestor above it (a file card's wrapping paragraph:
+ * `insertAttachmentMarkdown` inserts each `[filename](ref)` as its own
+ * single-child paragraph, so the link itself sits one level below the top).
+ * `canDropAttachmentNode` compares parents, so an unresolved nested link
+ * could never match a sibling block.
  */
 export function resolveDraggableBlockElement(editor: PlateEditor, element: TElement): TElement {
   const path = editor.api.findPath(element)
@@ -111,129 +152,89 @@ export function resolveDraggableBlockElement(editor: PlateEditor, element: TElem
   return ancestor ? ancestor[0] : element
 }
 
+/** What the drag handle spreads onto its button: dnd-kit's activator ref, its
+ *  a11y attributes and its pointer listeners. */
+export type AttachmentHandleProps = {
+  ref: (node: HTMLElement | null) => void
+} & Partial<DraggableAttributes> &
+  Partial<Record<string, unknown>>
+
+/**
+ * An attachment block's drag-and-drop: draggable from its handle, and a drop
+ * target itself so attachments reorder against each other. Outside a
+ * `DndScope` dnd-kit's hooks are inert — no context, no throw — so a message
+ * renders the same with or without one.
+ */
 export function useAttachmentDraggable(element: TElement) {
   const editor = useEditorRef()
   const blockElement = resolveDraggableBlockElement(editor, element)
-  const draggable = useDraggable({
-    element: blockElement,
-    type: ATTACHMENT_DND_TYPE,
-    // Attachments reorder only among their own siblings at the SAME level —
-    // not into a list item or a table cell, mirroring the table row's own
-    // same-parent constraint.
-    canDropNode: canDropAttachmentNode,
-    onDropHandler: onAttachmentDropHandler,
-    drag: {
-      // `DndPlugin`'s own `handlers.onDragEnd` (@platejs/dnd) is the thing
-      // that normally resets `dropTarget` — but it's wired to the native DOM
-      // `dragend` event, which `TouchBackend` (dnd-scope.tsx) never fires,
-      // since it drives dragging off plain mouse events instead of the
-      // native Drag and Drop API. Left unhandled, the blue drop-line
-      // indicator stays stuck showing after every drag. `end` here IS
-      // backend-agnostic (dnd-core calls it whenever a drag ends, regardless
-      // of which backend produced it), so the reset moves here instead —
-      // same three resets `@platejs/dnd`'s own default `end` already does,
-      // plus the `dropTarget` clear it was missing.
-      end: () => {
-        editor.setOption(DndPlugin, 'isDragging', false)
-        editor.setOption(DndPlugin, 'dropTarget', { id: null, line: '' })
-        document.body.classList.remove('dragging')
-      },
-    },
-  })
+  const id = useId()
+  const data: AttachmentDndData = { editor, element: blockElement }
+  const draggable = useDraggable({ id, data })
+  const droppable = useDroppable({ id, data })
+  const nodeRef = useComposedRef<HTMLElement>(draggable.setNodeRef, droppable.setNodeRef)
+  const handleProps: AttachmentHandleProps = {
+    ref: draggable.setActivatorNodeRef,
+    ...draggable.attributes,
+    ...draggable.listeners,
+  }
   // The SAME resolved block dragging operates on — a file card's `element`
   // is its nested link, not the paragraph that's actually reorderable/
-  // removable (see `resolveDraggableBlockElement`'s own doc comment).
+  // removable (see `resolveDraggableBlockElement`).
   const remove = useCallback(() => {
     const path = editor.api.findPath(blockElement)
     if (path) editor.tf.removeNodes({ at: path })
   }, [editor, blockElement])
-  return { ...draggable, remove }
+  return {
+    isDragging: draggable.isDragging,
+    nodeRef,
+    handleProps,
+    dropLine: useDropLine(id),
+    remove,
+  }
 }
 
 /**
- * A plain paragraph's half of drag-and-drop: droppable, never draggable
- * itself. `useDraggable` bundles a drag SOURCE and a drop TARGET together
- * (via `useDndNode`'s internal `useDragNode` + `useDropNode` pair) — right
- * for an attachment, wrong for ordinary text, which must never itself become
- * something you can pick up and drag. `useDropNode` (the same primitive
- * `useDraggable` calls internally) used alone registers just the target half,
- * so a message's plain paragraphs can accept an attachment being dropped
- * between them without becoming draggable themselves.
- *
- * Registered on every interactive paragraph (`ChatParagraphElement` below) —
- * this, together with `ATTACHMENT_DND_TYPE` unifying every attachment kind
- * onto one dnd type, is what lets an attachment land anywhere in the
- * message, not just swap places with another attachment.
- *
- * Unlike `useAttachmentDraggable`, this has no `editor.plugins.dnd` guard to
- * lean on — `useDropNode` calls react-dnd's own `useDrop` unconditionally
- * (no such short-circuit inside `@platejs/dnd` itself), which THROWS
- * "Expected drag drop context" with no `<DndProvider>` ancestor. Every
- * message has plain paragraphs, so unconditionally registering this on all
- * of them would have made a `<DndProvider>` mandatory for rendering ANY
- * message at all, attachments or not — a much bigger requirement than this
- * feature needs. Peeking at `DndContext` directly (the same context
- * `useDragDropManager` reads, minus its `invariant`) and skipping
- * registration when it's absent keeps a plain paragraph renderable with no
- * `<DndProvider>`, exactly like before this hook existed.
+ * A plain paragraph's half of drag-and-drop: droppable, never draggable, so an
+ * attachment can land anywhere in the message, not just next to another
+ * attachment.
  */
 export function useAttachmentDropTarget(element: TElement) {
   const editor = useEditorRef()
-  const nodeRef = useRef<HTMLElement | null>(null)
-  const { dragDropManager } = useContext(DndContext)
-  if (!dragDropManager) return { nodeRef }
-  // Safe despite the shape react-hooks/rules-of-hooks flags in general: a
-  // `<DndContext>` ancestor's PRESENCE (unlike its value) cannot change
-  // across this component's own lifetime without remounting it — the same
-  // invariant `@platejs/dnd`'s own `useDraggable` relies on for its
-  // analogous `if (!editor.plugins.dnd) return {}` guard.
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const [, drop] = useDropNode(editor, {
-    accept: [ATTACHMENT_DND_TYPE],
-    canDropNode: canDropAttachmentNode,
-    element,
-    // No drag preview to show — a paragraph is a drop target only, never
-    // draggable itself — but `UseDropNodeOptions` requires the field anyway.
-    multiplePreviewRef: null,
-    nodeRef,
-    onDropHandler: onAttachmentDropHandler,
-  })
-  drop(nodeRef)
-  return { nodeRef }
+  const id = useId()
+  const data: AttachmentDndData = { editor, element }
+  const { setNodeRef } = useDroppable({ id, data })
+  return { nodeRef: setNodeRef, dropLine: useDropLine(id) }
 }
 
 /**
  * `contentEditable={false}` here is load-bearing, not cosmetic: without it
  * this button sits inside the Slate editor's own `contenteditable="true"`
- * region, and WebKit (Tauri's WKWebView) arbitrates a real mousedown+move
- * there as a text-selection gesture BEFORE react-dnd's native `dragstart`
- * ever fires — regardless of the button's own `draggable="true"`, confirmed
- * live via DOM inspection (`-webkit-user-drag: element` was already correct;
- * the missing non-editable boundary was the actual blocker). Same escape
- * hatch the preview `<div>` right next to this handle already uses.
+ * region, and WebKit (Tauri's WKWebView) arbitrates a real pointerdown+move
+ * there as a text-selection gesture before the drag can start.
  */
 export function AttachmentDragHandle({
-  dragRef,
+  handleProps,
   onSelect,
 }: {
-  dragRef: React.Ref<HTMLButtonElement> | null
+  handleProps?: AttachmentHandleProps
   onSelect?: () => void
 }) {
   return (
     <div contentEditable={false} className="contents">
       <Button
-        ref={dragRef ?? undefined}
+        {...handleProps}
         variant="outline"
         size="icon-xs"
         aria-label="Reorder this attachment"
         className={cn(
           ATTACHMENT_BUTTON_OPAQUE_BG,
           'focus-visible:ring-0 focus-visible:ring-offset-0',
-          'cursor-grab active:cursor-grabbing',
+          'cursor-grab touch-none active:cursor-grabbing',
         )}
         onClick={onSelect}
       >
-        <GripVertical className="text-muted-foreground" />
+        <DotsSixVerticalIcon className="text-muted-foreground" />
       </Button>
     </div>
   )
@@ -251,7 +252,7 @@ export function AttachmentDeleteButton({ onDelete }: { onDelete: () => void }) {
       )}
       onClick={onDelete}
     >
-      <Trash2Icon className="text-muted-foreground" />
+      <TrashIcon className="text-muted-foreground" />
     </Button>
   )
 }
@@ -262,10 +263,10 @@ export function AttachmentDeleteButton({ onDelete }: { onDelete: () => void }) {
  *  zeroed (`[data-slate-node='element']` in composer.css), so anything
  *  poking above the box gets clipped by `.field`'s `overflow-y: auto`. */
 export function AttachmentControls({
-  dragRef,
+  handleProps,
   onDelete,
 }: {
-  dragRef: React.Ref<HTMLButtonElement> | null
+  handleProps?: AttachmentHandleProps
   onDelete: () => void
 }) {
   return (
@@ -273,20 +274,19 @@ export function AttachmentControls({
       contentEditable={false}
       className="-translate-x-1/2 absolute top-1 left-1/2 z-51 flex flex-row items-center gap-1 opacity-0 transition-opacity duration-100 group-hover/attachment:opacity-100"
     >
-      <AttachmentDragHandle dragRef={dragRef} />
+      <AttachmentDragHandle handleProps={handleProps} />
       <AttachmentDeleteButton onDelete={onDelete} />
     </div>
   )
 }
 
-export function AttachmentDropLine() {
-  const { dropLine } = useDropLine()
-  if (!dropLine) return null
+export function AttachmentDropLine({ line }: { line: DropLine | undefined }) {
+  if (!line) return null
   return (
     <div
       className={cn(
         'absolute inset-x-0 left-2 z-50 h-0.5 bg-brand/50',
-        dropLine === 'top' ? '-top-px' : '-bottom-px',
+        line === 'top' ? '-top-px' : '-bottom-px',
       )}
     />
   )

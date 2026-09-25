@@ -278,7 +278,7 @@ func TestSearch_TruncationAtExactBoundary(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, resp.Truncated)
-	assert.Equal(t, 1000, len(resp.Results))
+	assert.Len(t, resp.Results, 1000)
 }
 
 func TestSearch_TruncationMidFile(t *testing.T) {
@@ -298,7 +298,7 @@ func TestSearch_TruncationMidFile(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, resp.Truncated)
-	assert.Equal(t, 1000, len(resp.Results))
+	assert.Len(t, resp.Results, 1000)
 }
 
 func TestSearch_MultipleMatchesPerLine(t *testing.T) {

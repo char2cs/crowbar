@@ -10,6 +10,12 @@ const provider: AgentProvider = {
   connected: true,
   enabled: true,
   mcpEnabled: true,
+  modelSelect: false,
+  effortSelect: false,
+  compaction: false,
+  hasTerminal: true,
+  hotswap: false,
+  terminalStartHere: false,
 }
 
 const telemetry: AgentTelemetry = {

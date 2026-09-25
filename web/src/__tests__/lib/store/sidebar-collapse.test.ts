@@ -77,31 +77,4 @@ describe('collapsedChatRows', () => {
     useSidebarStore.getState().toggleChatRow('f1')
     expect(saveSidebarUI).toHaveBeenLastCalledWith({ collapsedChatRows: ['f1'] })
   })
-
-  // "+ in here" files something INSIDE the row, so it opens it. A toggle there
-  // would close the row the user is filing into.
-  it('openChatRow opens a folded row', () => {
-    useSidebarStore.getState().toggleChatRow('f1')
-    useSidebarStore.getState().openChatRow('f1')
-    expect(useSidebarStore.getState().collapsedChatRows.has('f1')).toBe(false)
-  })
-
-  it('openChatRow leaves an already-open row open — it is not a toggle', () => {
-    useSidebarStore.getState().openChatRow('f1')
-    expect(useSidebarStore.getState().collapsedChatRows.has('f1')).toBe(false)
-  })
-
-  it('openChatRow on an already-open row changes nothing and writes nothing', () => {
-    const before = useSidebarStore.getState().collapsedChatRows
-    useSidebarStore.getState().openChatRow('f1')
-    expect(useSidebarStore.getState().collapsedChatRows).toBe(before)
-    expect(saveSidebarUI).not.toHaveBeenCalled()
-  })
-
-  it('openChatRow leaves every other folded row folded', () => {
-    useSidebarStore.getState().toggleChatRow('f1')
-    useSidebarStore.getState().toggleChatRow('f2')
-    useSidebarStore.getState().openChatRow('f1')
-    expect([...useSidebarStore.getState().collapsedChatRows]).toEqual(['f2'])
-  })
 })

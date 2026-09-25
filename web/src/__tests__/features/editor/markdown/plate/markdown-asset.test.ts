@@ -23,10 +23,11 @@ describe('loadLocalImage resolve override', () => {
     const resolve = vi.fn().mockResolvedValue('data:image/png;base64,AAAA')
     const asset: MarkdownAssetInfo = { wsId: 'ws1', fileDir: '', resolve }
 
-    const result = await loadLocalImage(asset, 'chats/c1/attachments/x.png')
+    const signal = new AbortController().signal
+    const result = await loadLocalImage(asset, 'chats/c1/attachments/x.png', signal)
 
     expect(result).toBe('data:image/png;base64,AAAA')
-    expect(resolve).toHaveBeenCalledWith('chats/c1/attachments/x.png')
+    expect(resolve).toHaveBeenCalledWith('chats/c1/attachments/x.png', signal)
     expect(readWorkspaceFile).not.toHaveBeenCalled()
   })
 
@@ -65,13 +66,13 @@ describe('loadLocalImage resolve override', () => {
     expect(readWorkspaceFile).not.toHaveBeenCalled()
   })
 
-  it('utf8-encodes an svg read (pre-existing behaviour)', async () => {
+  it('utf8-encodes an svg read', async () => {
     vi.mocked(readWorkspaceFile).mockResolvedValue('<svg></svg>')
     const asset: MarkdownAssetInfo = { wsId: 'ws1', fileDir: '' }
 
     const result = await loadLocalImage(asset, 'icon.svg')
 
-    expect(result).toBe(`data:image/svg+xml;utf8,${encodeURIComponent('<svg></svg>')}`)
+    expect(result).toBe(`data:image/svg+xml;charset=utf-8,${encodeURIComponent('<svg></svg>')}`)
   })
 
   it('returns null when readWorkspaceFile rejects (pre-existing behaviour)', async () => {

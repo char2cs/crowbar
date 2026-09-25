@@ -45,7 +45,6 @@ func (m *fakeModel) Resize(cols, rows int) {
 }
 
 func (m *fakeModel) OnForegroundReset()                 {}
-func (m *fakeModel) PendingInput() []byte               { return nil }
 func (m *fakeModel) Title() string                      { return "" }
 func (m *fakeModel) Cols() int                          { return m.cols }
 func (m *fakeModel) Rows() int                          { return m.rows }
@@ -149,14 +148,10 @@ func TestRegression_ModelPanicOnResizeAndAttachStillServes(t *testing.T) {
 // model with recovered parse panics is reported as degraded with the panic count, so a
 // blanked-and-reparsed session is no longer invisible to operators.
 func TestSession_HealthSurfacesModelHealth(t *testing.T) {
-	swapNewModel(t, func(cols, rows, sb int) (model.TerminalModel, model.Serializer) {
-		return &fakeModel{cols: cols, rows: rows, degraded: true, panics: 3}, panicSerializer{}
-	})
-
-	dir := t.TempDir()
-	s, err := newTestSession(t, "sid-health", dir)
-	require.NoError(t, err)
-	t.Cleanup(s.Kill)
+	// A bare session (no PTY, no pump): live shell output would drive the emitter over the
+	// fake model and add session-level backstop panics, making the count racy.
+	s := newBareSession("sid-health", "/bin/sh", t.TempDir(), "")
+	s.model = &fakeModel{cols: 80, rows: 24, degraded: true, panics: 3}
 
 	degraded, panics := s.Health()
 	assert.True(t, degraded, "a degraded model must surface through Session.Health()")
@@ -174,4 +169,39 @@ func TestSession_HealthCleanModel(t *testing.T) {
 	degraded, panics := s.Health()
 	assert.False(t, degraded, "a healthy session must not be degraded")
 	assert.Zero(t, panics, "a healthy session must report zero parse panics")
+}
+
+// TestBackstopPanic_RebuildsModelAndKeyframes pins the §8.5 recovery that replaced the raw
+// fallback: once a backstop catches a model panic, the model is rebuilt at the PTY's size
+// and the NEXT frame every client receives is a keyframe (Snapshot) of the rebuilt model —
+// never raw PTY bytes and never a diff off the corrupt base.
+func TestBackstopPanic_RebuildsModelAndKeyframes(t *testing.T) {
+	s := newBareSession("sid-backstop", "/bin/sh", t.TempDir(), "")
+	m, ser := model.New(80, 24, 200)
+	s.model, s.serializer = m, ser
+	s.cols, s.rows, s.scrollback = 80, 24, 200
+
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+	_, ok := waitFrame(t, ch) // the attach snapshot
+	require.True(t, ok)
+	s.PumpChunkForTest([]byte("BEFORE"))
+	_, ok = waitFrame(t, ch)
+	require.True(t, ok)
+
+	s.mu.Lock()
+	s.mutateModelLocked(func() { panic("injected model panic") })
+	rebuilt := s.model != m
+	s.mu.Unlock()
+	require.True(t, rebuilt, "a caught model panic must rebuild the model")
+	_, panics := s.Health()
+	assert.Equal(t, 1, panics)
+
+	s.PumpChunkForTest([]byte("AFTER"))
+	f, ok := waitFrame(t, ch)
+	require.True(t, ok)
+	assert.True(t, f.Snapshot, "the first frame after the rebuild must be a keyframe")
+	assert.Contains(t, string(f.Data), "AFTER")
+	assert.NotContains(t, string(f.Data), "BEFORE", "the rebuilt model starts from a blank screen")
 }

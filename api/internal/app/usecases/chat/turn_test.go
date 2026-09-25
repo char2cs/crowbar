@@ -3,11 +3,9 @@ package chat_test
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -472,12 +470,13 @@ func TestObservation_CompactionPushesTheLiveEdgeDirectly(t *testing.T) {
 
 	var mu sync.Mutex
 	var calls []bool
-	f.usecase.StartTerminalWaitSweep(f.ctx, nil, nil, nil,
-		func(_, _ string, active bool) {
+	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{
+		Compaction: func(_, _ string, active bool) {
 			mu.Lock()
 			defer mu.Unlock()
 			calls = append(calls, active)
-		}, nil)
+		},
+	})
 
 	hook(t, f, runnerID, "claude", engineagents.HookCompactPre, map[string]any{"trigger": "auto"})
 	hook(t, f, runnerID, "claude", engineagents.HookCompactPost, map[string]any{"trigger": "auto"})
@@ -542,6 +541,34 @@ func TestTelemetry_IsHeldPerChatAndReplacedByTheNextReport(t *testing.T) {
 	got, ok = f.usecase.Telemetry(chatID)
 	require.True(t, ok)
 	assert.InDelta(t, 42, *got.Context.UsedPercent, 0.001)
+}
+
+// §6a: the gauge is pushed, not polled. Every report the chat's surface
+// carries is published on the chat feed the moment it lands.
+func TestTelemetry_IsPushedOnTheChatFeed(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	var mu sync.Mutex
+	var pushed []engineagents.Telemetry
+	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{
+		Telemetry: func(id, _ string, report engineagents.Telemetry) {
+			mu.Lock()
+			defer mu.Unlock()
+			if id == chatID {
+				pushed = append(pushed, report)
+			}
+		},
+	})
+
+	hook(t, f, runnerID, "claude", engineagents.HookTelemetry, map[string]any{
+		"context_window": map[string]any{"context_window_size": 200000, "used_percentage": 19},
+	})
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, pushed, 1)
+	require.NotNil(t, pushed[0].Context)
+	assert.InDelta(t, 19, *pushed[0].Context.UsedPercent, 0.001)
 }
 
 func TestTelemetry_AnEmptyReportDoesNotOverwriteTheLastOne(t *testing.T) {
@@ -883,14 +910,14 @@ func TestIngestHookDelivery_DuplicatePOSTMutatesLedgerOnce(t *testing.T) {
 
 	for range 2 {
 		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, "ws1", userDelivery, runnerID, "codex", "user_prompt", userPayload,
+			f.ctx, userDelivery, runnerID, "codex", "user_prompt", userPayload,
 		))
 	}
 	stopDelivery := uuid.NewString()
 	stopPayload := mustJSON(t, map[string]any{"last_assistant_message": "one reply"})
 	for range 2 {
 		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, "ws1", stopDelivery, runnerID, "codex", "turn_stop", stopPayload,
+			f.ctx, stopDelivery, runnerID, "codex", "turn_stop", stopPayload,
 		))
 	}
 	f.wait()
@@ -908,12 +935,12 @@ func TestIngestHookDelivery_RejectsUUIDReuseWithDifferentPayload(t *testing.T) {
 	_, runnerID := f.spawn(t, "codex")
 	deliveryID := uuid.NewString()
 	require.NoError(t, f.usecase.IngestHookDelivery(
-		f.ctx, "ws1", deliveryID, runnerID, "codex", "user_prompt",
+		f.ctx, deliveryID, runnerID, "codex", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "first"}),
 	))
 
 	err := f.usecase.IngestHookDelivery(
-		f.ctx, "ws1", deliveryID, runnerID, "codex", "user_prompt",
+		f.ctx, deliveryID, runnerID, "codex", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "different"}),
 	)
 	require.Error(t, err)
@@ -928,7 +955,7 @@ func TestRegression_IngestHookDelivery_ARetriedDeliveryIDRunsItsEffectsOnce(t *t
 
 	for range 3 {
 		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, "", deliveryID, runnerID, "claude", "turn_stop", payload,
+			f.ctx, deliveryID, runnerID, "claude", "turn_stop", payload,
 		))
 	}
 	f.wait()
@@ -946,7 +973,7 @@ func TestIngestHookDelivery_DistinctDeliveryIDsAreDistinctTurns(t *testing.T) {
 
 	for range 2 {
 		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, "", uuid.NewString(), runnerID, "claude", "turn_stop", payload,
+			f.ctx, uuid.NewString(), runnerID, "claude", "turn_stop", payload,
 		))
 	}
 	f.wait()
@@ -962,7 +989,7 @@ func TestIngestHookDelivery_RefusesADeliveryIDThatIsNotACanonicalUUID(t *testing
 
 	for _, id := range []string{"", "not-a-uuid", "  " + uuid.NewString(), strings.ToUpper(uuid.NewString())} {
 		err := f.usecase.IngestHookDelivery(
-			f.ctx, "", id, runnerID, "claude", "turn_stop", mustJSON(t, map[string]any{}),
+			f.ctx, id, runnerID, "claude", "turn_stop", mustJSON(t, map[string]any{}),
 		)
 		assert.Error(t, err, "delivery id %q", id)
 	}
@@ -971,180 +998,10 @@ func TestIngestHookDelivery_RefusesADeliveryIDThatIsNotACanonicalUUID(t *testing
 func TestIngestHookDelivery_AnUnknownRunnerIsDropped(t *testing.T) {
 	f := newFixture(t)
 
-	err := f.usecase.IngestHookDelivery(f.ctx, "", uuid.NewString(), uuid.NewString(),
+	err := f.usecase.IngestHookDelivery(f.ctx, uuid.NewString(), uuid.NewString(),
 		"claude", "turn_stop", mustJSON(t, map[string]any{"last_assistant_message": "x"}))
 
 	assert.NoError(t, err)
-}
-
-func TestIngestHookDelivery_UsesTheRouteScopeWhenTheRunnerIsNotYetPersisted(t *testing.T) {
-	f := newFixture(t)
-
-	err := f.usecase.IngestHookDelivery(f.ctx, "ws1", uuid.NewString(), uuid.NewString(),
-		"claude", "session_start", mustJSON(t, map[string]any{"session_id": "s1"}))
-
-	assert.NoError(t, err)
-}
-
-func TestRegression_IngestHookDelivery_TheJournalIsBoundedInMemoryAndOnDisk(t *testing.T) {
-	f := newFixture(t)
-	chatID, runnerID := f.spawn(t, "claude")
-	total := 10 * agentusecase.HookDeliveryPruneEvery
-	guarded := total / 2
-	ids := make([]string, 0, total)
-
-	for i := range total {
-		id := uuid.NewString()
-		ids = append(ids, id)
-		event, payload := boundedJournalDelivery(t, i, guarded, total-1)
-		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, "", id, runnerID, "claude", event, payload,
-		))
-	}
-	f.wait()
-
-	assert.LessOrEqual(t, agentusecase.HookDeliveryMarkerCount(f.usecase.TurnUsecase),
-		agentusecase.HookDeliveryCompletedMax, "the in-memory completion map must be capped")
-	dir := filepath.Join(f.ws.chatsDir, agentusecase.HookDeliveryDirName, runnerID)
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-	assert.LessOrEqual(t, len(entries), agentusecase.HookDeliveryJournalMax,
-		"the on-disk runner journal must be capped")
-
-	replayed := ids[guarded]
-	require.False(t, agentusecase.HookDeliveryMarked(f.usecase.TurnUsecase, replayed),
-		"the guarded delivery must have been evicted from memory, or the replay proves nothing")
-	require.FileExists(t, filepath.Join(dir, replayed+".json"),
-		"the guarded delivery must still be on disk, or there is nothing left to answer the replay")
-
-	before, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
-	require.NoError(t, err)
-	require.Len(t, before, 2)
-	require.Equal(t, "the guarded reply", before[0].Text)
-	_, guardedPayload := boundedJournalDelivery(t, guarded, guarded, total-1)
-	require.NoError(t, f.usecase.IngestHookDelivery(
-		f.ctx, "", replayed, runnerID, "claude", "turn_stop", guardedPayload,
-	))
-	f.wait()
-
-	after, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
-	require.NoError(t, err)
-	assert.Equal(t, before, after,
-		"a delivery evicted from memory is still done on disk: nothing may be appended or resequenced")
-}
-
-func boundedJournalDelivery(
-	t *testing.T,
-	index, guarded, last int,
-) (event string, payload []byte) {
-	t.Helper()
-	if index == guarded {
-		return "turn_stop", mustJSON(t, map[string]any{"last_assistant_message": "the guarded reply"})
-	}
-	if index == last {
-		return "turn_stop", mustJSON(t, map[string]any{"last_assistant_message": "the later reply"})
-	}
-	return "not_a_declared_event", mustJSON(t, map[string]any{"filler": index})
-}
-
-func TestRegression_IngestHookDelivery_AFailedCompletionDoesNotRelocateTheTurnOnReplay(t *testing.T) {
-	f := newFixture(t)
-	chatID, runnerID := f.spawn(t, "claude")
-	firstID := uuid.NewString()
-	firstPayload := mustJSON(t, map[string]any{"last_assistant_message": "the first reply"})
-	var syncs atomic.Int64
-	agentusecase.SetHookDeliveryDirSync(f.usecase.TurnUsecase, func(string) error {
-		if syncs.Add(1) != 2 {
-			return nil
-		}
-		return errors.New("injected hook delivery dir fsync failure")
-	})
-
-	require.NoError(t, f.usecase.IngestHookDelivery(
-		f.ctx, "", firstID, runnerID, "claude", "turn_stop", firstPayload,
-	))
-	f.wait()
-	require.Equal(t, int64(2), syncs.Load(), "the fault must have landed on the completion write")
-	require.False(t, agentusecase.HookDeliveryMarked(f.usecase.TurnUsecase, firstID),
-		"a completion whose durable write failed must not be marked done in memory")
-
-	require.NoError(t, f.usecase.IngestHookDelivery(
-		f.ctx, "", uuid.NewString(), runnerID, "claude", "turn_stop",
-		mustJSON(t, map[string]any{"last_assistant_message": "the second reply"}),
-	))
-	f.wait()
-	before, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
-	require.NoError(t, err)
-	require.Len(t, before, 2)
-	require.Equal(t, "the first reply", before[0].Text)
-
-	require.NoError(t, f.usecase.IngestHookDelivery(
-		f.ctx, "", firstID, runnerID, "claude", "turn_stop", firstPayload,
-	),
-		"a delivery whose effects already committed is done, however its marker fared")
-	f.wait()
-
-	after, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
-	require.NoError(t, err)
-	assert.Equal(t, before, after,
-		"replaying the turn would bump its Seq and relocate it to the end of the log")
-	replayErr := f.usecase.IngestHookDelivery(
-		f.ctx, "", firstID, runnerID, "claude", "turn_stop",
-		mustJSON(t, map[string]any{"last_assistant_message": "a different reply"}),
-	)
-	require.Error(t, replayErr)
-	assert.Contains(t, replayErr.Error(), "different payload")
-}
-
-func TestRegression_IngestHookDelivery_AnIdleRunnerDirectoryIsReaped(t *testing.T) {
-	f := newFixture(t)
-	_, runnerID := f.spawn(t, "claude")
-	root := filepath.Join(f.ws.chatsDir, agentusecase.HookDeliveryDirName)
-	stale := filepath.Join(root, uuid.NewString())
-	require.NoError(t, os.MkdirAll(stale, 0o700))
-	idle := time.Now().Add(-2 * agentusecase.HookDeliveryJournalMaxAge)
-	require.NoError(t, os.Chtimes(stale, idle, idle))
-
-	for i := range agentusecase.HookDeliveryPruneEvery {
-		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, "", uuid.NewString(), runnerID, "claude", "not_a_declared_event",
-			mustJSON(t, map[string]any{"filler": i}),
-		))
-	}
-	f.wait()
-
-	assert.NoDirExists(t, stale, "a runner directory silent past the max age must be reaped whole")
-	assert.DirExists(t, filepath.Join(root, runnerID), "the live runner's directory must survive")
-}
-
-func TestRegression_IngestHookDelivery_PruningNeverRemovesAnInFlightRecord(t *testing.T) {
-	f := newFixture(t)
-	_, runnerID := f.spawn(t, "claude")
-	dir := filepath.Join(f.ws.chatsDir, agentusecase.HookDeliveryDirName, runnerID)
-	require.NoError(t, os.MkdirAll(dir, 0o700))
-	inFlight := make([]string, 0, agentusecase.HookDeliveryJournalMax)
-	stale := time.Now().Add(-time.Hour)
-
-	for range agentusecase.HookDeliveryJournalMax - agentusecase.HookDeliveryPruneEvery/2 {
-		id := uuid.NewString()
-		inFlight = append(inFlight, id)
-		require.NoError(t, agentusecase.PlantPendingHookDelivery(dir, id, stale))
-	}
-	for i := range agentusecase.HookDeliveryPruneEvery {
-		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, "", uuid.NewString(), runnerID, "claude", "not_a_declared_event",
-			mustJSON(t, map[string]any{"filler": i}),
-		))
-	}
-	f.wait()
-
-	for _, id := range inFlight {
-		require.FileExists(t, filepath.Join(dir, id+".json"),
-			"an in-flight delivery is the one thing the prune may never take")
-	}
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-	assert.LessOrEqual(t, len(entries), agentusecase.HookDeliveryJournalMax)
 }
 
 // ─── from turn_stall_test.go ──────────────────────────────────────────
@@ -2962,4 +2819,34 @@ func TestRegression_CodexAutoCompactionMidPromptDoesNotSettleTheRealDelivery(t *
 
 	require.True(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
 		"compact_post must not settle it either")
+}
+
+// The user turn a Crowbar-dispatched prompt produces carries that dispatch's
+// own request id, so a client confirms its queued prompt by identity rather
+// than by comparing text the CLI may have reshaped.
+func TestUserTurn_ADispatchedPromptIsRecordedUnderItsRequestID(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-1")
+	turn(t, f, runnerID, "claude", "an earlier answer")
+	requestID := uuid.NewString()
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "the dispatched prompt", requestID, "", nil)
+	require.NoError(t, err)
+	f.wait()
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	require.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "the dispatched prompt", "session_id": "sid-1"})))
+	f.wait()
+
+	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
+	require.NoError(t, err)
+	var ids []string
+	for _, item := range page.Items {
+		if item.Role == "user" && item.Text == "the dispatched prompt" {
+			ids = append(ids, item.ID)
+		}
+	}
+	assert.Equal(t, []string{requestID}, ids)
 }

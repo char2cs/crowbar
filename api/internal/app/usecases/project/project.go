@@ -2,7 +2,6 @@ package project
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -10,7 +9,6 @@ import (
 
 	store "github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	noderepo "github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/avatar"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -98,8 +96,8 @@ type Update struct {
 }
 
 // RepoUpdate is a partial repository update: a nil field is left as it is.
-// ProjectID moves the repo to another project, which also carries every
-// workspace under it — see WorkspaceRelocator. FolderID/Order re-file the
+// ProjectID may only name the repo's own project — a repo's project is fixed
+// at import (see refuseProjectMove). FolderID/Order re-file the
 // repo's own entry within its project's home tree — written to the repo's
 // own Node row (NodePlacements), interleaved against its real home chat and
 // folder siblings, which are Node-backed too now (2026-09-08
@@ -119,31 +117,14 @@ type RepoUpdate struct {
 	FolderID  *string
 }
 
-// WorkspaceRelocator is the narrow workspace surface a repo move needs. Every
-// workspace carries a denormalised ProjectID that the hierarchical routes and
-// the WS namespace are keyed on, so a repo that changed projects while its
-// workspaces did not would keep them and stop showing them.
-//
-// GetHomeForProject answers the one other thing a repo's OWN home placement
-// needs: which workspace IS project home, so a repo's sibling search
-// (placeRepoAmongHomeSiblings) can scope a ROOT-level container to THIS
-// project specifically — home chats otherwise carry no project id of their
-// own to filter by (see repoScopeOf's doc elsewhere: every project's home
-// resolves to the same "" repo scope). Satisfied structurally by the
-// workspace REPOSITORY (not the usecase — container.go builds this one
-// before the workspace usecase exists, which itself depends on this
-// package), the same adapter home.Register's own HomeWorkspaces port uses.
-type WorkspaceRelocator interface {
-	ListInRepo(
-		ctx context.Context,
-		projectID string,
-		repoID string,
-	) ([]domain.Workspace, error)
-	SetProject(
-		ctx context.Context,
-		id string,
-		projectID string,
-	) (domain.Workspace, error)
+// HomeWorkspaces answers which workspace IS project home, so a repo's sibling
+// search (placeRepoAmongHomeSiblings) can scope a ROOT-level container to THIS
+// project specifically — home chats otherwise carry no project id of their own
+// to filter by (every project's home resolves to the same "" repo scope).
+// Satisfied structurally by the workspace REPOSITORY (not the usecase —
+// container.go builds this one before the workspace usecase exists, which
+// itself depends on this package).
+type HomeWorkspaces interface {
 	GetHomeForProject(
 		ctx context.Context,
 		projectID string,
@@ -233,7 +214,7 @@ type NodePlacements interface {
 type projectUsecase struct {
 	projects   store.Store[domain.Project, string]
 	repos      store.ScopedStore[domain.Repository, string]
-	workspaces WorkspaceRelocator
+	workspaces HomeWorkspaces
 	folders    Folders
 	nodes      NodePlacements
 	homeChats  HomeChats
@@ -248,10 +229,10 @@ type projectUsecase struct {
 
 // HomeRowAnnouncer announces one shifted home row on the chats WS by its
 // own kind: a chat frame for a chat, a folder frame for a folder.
-type HomeRowAnnouncer func(id, workspaceID string, kind domain.NodeKind, event string)
+type HomeRowAnnouncer func(ctx context.Context, id, workspaceID string, kind domain.NodeKind, event string)
 
 // New builds a Usecase from the project and repository GORM stores, the
-// workspace relocator a cross-project repo move needs, the home-folder
+// project-home lookup a root-level repo placement needs, the home-folder
 // identity store validateRepoFolder checks a FolderID against, the Node
 // surface that now owns every home-scope sibling's OWN position (see
 // NodePlacements), and the chat-membership read that keeps a bare-root
@@ -270,7 +251,7 @@ type HomeRowAnnouncer func(id, workspaceID string, kind domain.NodeKind, event s
 func New(
 	projects store.Store[domain.Project, string],
 	repos store.ScopedStore[domain.Repository, string],
-	workspaces WorkspaceRelocator,
+	workspaces HomeWorkspaces,
 	folders Folders,
 	nodes NodePlacements,
 	homeChats HomeChats,
@@ -350,10 +331,6 @@ func (u *projectUsecase) TouchProjectActivity(
 // worktree already lives under it. Assigning it here would fork the repo's tree
 // in two — new workspaces under the new name, the existing ones stranded under
 // the old — and blind the sibling scan that rejects case-only path clashes.
-//
-// A project move carries the repo's workspaces with it and renumbers BOTH
-// projects' repo lists. It moves nothing on disk: worktree paths were derived
-// once and are stored absolute, so they keep resolving from where they are.
 func (u *projectUsecase) UpdateRepo(
 	ctx context.Context,
 	repoID string,
@@ -366,7 +343,10 @@ func (u *projectUsecase) UpdateRepo(
 	if repo == nil {
 		return RepoUpdated{}, fmt.Errorf("project: update repo: id %s: %w", repoID, apperr.ErrNotFound)
 	}
-	subject, subjectExists, err := u.getRepoNode(ctx, repoID)
+	if err := refuseProjectMove(*repo, in.ProjectID); err != nil {
+		return RepoUpdated{}, err
+	}
+	subject, err := u.getRepoNode(ctx, repoID)
 	if err != nil {
 		return RepoUpdated{}, fmt.Errorf("project: update repo: node: %w", err)
 	}
@@ -375,11 +355,7 @@ func (u *projectUsecase) UpdateRepo(
 		repo.AvatarLabel = avatar.Label(*in.Name)
 		repo.AvatarColor = avatar.Color(*in.Name)
 	}
-	origin := repo.ProjectID
 	originFolder := subject.ParentID
-	if mErr := u.applyRepoProject(ctx, repo, in.ProjectID); mErr != nil {
-		return RepoUpdated{}, mErr
-	}
 	targetFolder, err := u.resolveTargetFolder(ctx, in, originFolder)
 	if err != nil {
 		return RepoUpdated{}, err
@@ -387,16 +363,15 @@ func (u *projectUsecase) UpdateRepo(
 	if err := u.repos.Save(ctx, *repo); err != nil {
 		return RepoUpdated{}, fmt.Errorf("project: update repo: save: %w", err)
 	}
-	written, err := u.applyRepoPlacement(ctx, *repo, targetFolder, subject, subjectExists, in.Order)
+	written, err := u.applyRepoPlacement(ctx, *repo, targetFolder, subject, in.Order)
 	if err != nil {
 		return RepoUpdated{}, err
 	}
-	// The container the repo LEFT — whether it moved project, folder, or both —
-	// still has a gap where its row used to sit and needs closing. A plain
-	// reorder within the same container is covered by the densify above; this
-	// only fires for an actual move.
-	if origin != repo.ProjectID || originFolder != targetFolder {
-		left, err := u.densifyHomeLevel(ctx, origin, originFolder, repoID)
+	// The folder the repo LEFT still has a gap where its row used to sit and
+	// needs closing. A plain reorder within the same container is covered by
+	// the densify above; this only fires for an actual move.
+	if originFolder != targetFolder {
+		left, err := u.densifyHomeLevel(ctx, repo.ProjectID, originFolder, repoID)
 		if err != nil {
 			return RepoUpdated{}, err
 		}
@@ -416,32 +391,18 @@ func (u *projectUsecase) UpdateRepo(
 	return out, nil
 }
 
-// getRepoNode reads repoID's own Node row, degrading to a fresh zero-value
-// (ParentID "", Order 0 — the project-home root) when none exists yet rather
-// than failing the update: a repo seeded directly (a test fixture, or a row
-// written before this migration/through the bare buildRepo+Save fallback with
-// no importer wired) has no Node row, and every UpdateRepo call — even a bare
-// rename — must still work.
-//
-// The second return value is the one thing the zero-value degrade loses on
-// its own: whether that row is real. writeNode/forceReparentWrite need this —
-// a row that has never been Created must be Created on its first write, not
-// handed to SetOrder/SetPlacement (which correctly refuse a row that doesn't
-// exist yet) — this is the mint-on-first-touch half of "best effort, no
-// backfill" that only degrading the READ side (this function, before this
-// fix) never actually delivered for the write.
+// getRepoNode reads repoID's own Node row. Every repo mints one at import
+// (importOneRepo), so a missing row is an error, never a zero-value to mint
+// on the first drag — all data is on the Node model (spec §6.3).
 func (u *projectUsecase) getRepoNode(
 	ctx context.Context,
 	repoID string,
-) (domain.Node, bool, error) {
+) (domain.Node, error) {
 	n, err := u.nodes.GetNode(ctx, repoID)
 	if err != nil {
-		if errors.Is(err, noderepo.ErrNotFound) {
-			return domain.Node{ID: repoID, Kind: domain.NodeKindRepo}, false, nil
-		}
-		return domain.Node{}, false, err
+		return domain.Node{}, err
 	}
-	return n, true, nil
+	return n, nil
 }
 
 // resolveTargetFolder validates and resolves the repo's target folder from
@@ -474,13 +435,12 @@ func (u *projectUsecase) applyRepoPlacement(
 	repo domain.Repository,
 	targetFolder string,
 	subject domain.Node,
-	subjectExists bool,
 	order *int,
 ) ([]domain.Node, error) {
 	if order != nil {
-		return u.placeRepoAmongHomeSiblings(ctx, repo.ProjectID, targetFolder, subject, subjectExists, *order)
+		return u.placeRepoAmongHomeSiblings(ctx, repo.ProjectID, targetFolder, subject, *order)
 	}
-	return u.densifyRepos(ctx, repo.ProjectID, targetFolder, &subject, subjectExists)
+	return u.densifyRepos(ctx, repo.ProjectID, targetFolder, &subject)
 }
 
 // validateRepoFolder confirms folderID names a genuine project-home folder —
@@ -522,39 +482,26 @@ func (u *projectUsecase) validateRepoFolder(
 	return nil
 }
 
-// applyRepoProject moves repo to another project, relocating every workspace
-// under it. The workspace relocation runs BEFORE the repo row is saved so a
-// failure leaves the repo where its workspaces still are, rather than the other
-// way round.
-func (u *projectUsecase) applyRepoProject(
-	ctx context.Context,
-	repo *domain.Repository,
+// refuseProjectMove answers ErrConflict for an update that names a project
+// other than the repo's own. A repo's project is fixed at import (spec §3
+// P0-3, invariant D6): everything it owns on disk — its managed worktrees
+// (<home>/projects/<P>/<slug>/<branch>), its home checkout's chats tree, its
+// workspaces' storage dirs, its entity dir — is keyed by that project, and
+// live agents and terminals run inside those worktrees. Re-pointing the rows
+// moved none of it (the worktrees stayed where another project's delete could
+// reach them) and re-pointed the workspaces one by one, non-atomically. A repo
+// that belongs elsewhere is removed and imported there instead.
+func refuseProjectMove(
+	repo domain.Repository,
 	projectID *string,
 ) error {
 	if projectID == nil || *projectID == repo.ProjectID {
 		return nil
 	}
-	target, err := u.projects.FindByKey(ctx, *projectID)
-	if err != nil {
-		return fmt.Errorf("project: update repo: resolve project: %w", err)
-	}
-	if target == nil {
-		return fmt.Errorf("project: update repo: project %s: %w", *projectID, apperr.ErrNotFound)
-	}
-	if u.workspaces == nil {
-		return fmt.Errorf("project: update repo: no workspace relocator wired")
-	}
-	rows, err := u.workspaces.ListInRepo(ctx, repo.ProjectID, repo.ID)
-	if err != nil {
-		return fmt.Errorf("project: update repo: list workspaces: %w", err)
-	}
-	for _, ws := range rows {
-		if _, err := u.workspaces.SetProject(ctx, ws.ID, *projectID); err != nil {
-			return fmt.Errorf("project: update repo: relocate workspace %s: %w", ws.ID, err)
-		}
-	}
-	repo.ProjectID = *projectID
-	return nil
+	return fmt.Errorf(
+		"project: update repo: a repository cannot change projects; remove it and import it into %s: %w",
+		*projectID, apperr.ErrConflict,
+	)
 }
 
 // repoIDSet answers the set of repo ids belonging to projectID — the project
@@ -603,7 +550,6 @@ func (u *projectUsecase) densifyRepos(
 	projectID string,
 	folderID string,
 	subject *domain.Node,
-	subjectExists bool,
 ) ([]domain.Node, error) {
 	memberIDs, err := u.repoIDSet(ctx, projectID)
 	if err != nil {
@@ -625,12 +571,6 @@ func (u *projectUsecase) densifyRepos(
 		row := rows[moved.at]
 		written[row.ID] = true
 		decided = append(decided, domain.Node{ID: row.ID, Kind: row.Kind, ParentID: folderID, Order: moved.order})
-		if subject != nil && row.ID == subject.ID && !subjectExists {
-			if err := u.mintNode(ctx, row.ID, domain.NodeKindRepo, folderID, moved.order); err != nil {
-				return nil, err
-			}
-			continue
-		}
 		reparenting := subject != nil && row.ID == subject.ID && subject.ParentID != folderID
 		if err := u.writeNode(ctx, row.ID, folderID, moved.order, reparenting); err != nil {
 			return nil, err
@@ -638,7 +578,7 @@ func (u *projectUsecase) densifyRepos(
 	}
 	if subject != nil {
 		reparented := subject.ParentID != folderID
-		n, err := u.ensureSubjectWritten(ctx, slots, subject.ID, subjectExists, reparented, folderID, nil, written)
+		n, err := u.ensureSubjectWritten(ctx, slots, subject.ID, reparented, folderID, nil, written)
 		if err != nil {
 			return nil, err
 		}
@@ -721,36 +661,14 @@ func (u *projectUsecase) mintNode(
 	return nil
 }
 
-// ensureSubjectWritten guarantees the subject ends up in the state this call
-// actually asked for, even when place()'s numeric diff saw no move to make —
-// two DIFFERENT coincidences collapse to the same blind spot, and both need
-// the SAME unconditional (not "only if reparenting") check here, not just the
-// main densify loop's per-row dispatch:
-//
-//   - A genuinely NEW row (subjectExists false — every real pre-existing
-//     repo in production, since this migration ships with no backfill) whose
-//     first-ever placement happens to land on the exact index its zero-value
-//     degrade already reads as (dragging a lone repo to "the front" is
-//     already order 0 before it has ever been Created) — invisible to
-//     place()'s diff, which only compares ORDER values, not existence. Caught
-//     live: "node: set order: no node: asynx: validation failed" on the very
-//     first drag of a pre-existing repo, reproduced in
-//     TestRegression_UpdateRepo_PreExistingRepoWithNoNodeRowStillReorders.
-//   - A REPARENTING existing row that lands back on the same dense index it
-//     already held (the original, narrower case this function used to be
-//     named for, before the Node-less case above showed the SAME gap needed
-//     the SAME unconditional check).
-//
-// slots is the ORIGINAL (pre-sort) slot list — finalIndexOf takes its own
-// copy and never mutates the caller's. Called after EVERY densify/place pass,
-// not gated behind "if reparented": a Node-less subject may need minting
-// regardless of whether its resolved parent happens to differ from its
-// (meaningless, zero-value) current one.
+// ensureSubjectWritten guarantees a REPARENTING subject lands in the container
+// it was asked for even when place()'s numeric diff saw no move to make — it
+// landed back on the same dense index it already held, which only compares
+// ORDER values, not parents. slots is the ORIGINAL (pre-sort) slot list.
 func (u *projectUsecase) ensureSubjectWritten(
 	ctx context.Context,
 	slots []slot,
 	subjectID string,
-	subjectExists bool,
 	reparented bool,
 	folderID string,
 	target *int,
@@ -760,17 +678,8 @@ func (u *projectUsecase) ensureSubjectWritten(
 		return nil, nil
 	}
 	i := finalIndexOf(slots, subjectID, target)
-	if !subjectExists {
-		if i < 0 {
-			i = 0
-		}
-		if err := u.mintNode(ctx, subjectID, domain.NodeKindRepo, folderID, i); err != nil {
-			return nil, err
-		}
-		return &domain.Node{ID: subjectID, Kind: domain.NodeKindRepo, ParentID: folderID, Order: i}, nil
-	}
 	if !reparented || i < 0 {
-		return nil, nil // a real, existing row place() correctly found no write needed for
+		return nil, nil // place() correctly found no write needed
 	}
 	if err := u.nodes.SetPlacement(ctx, subjectID, folderID, i); err != nil {
 		return nil, fmt.Errorf("project: reorder repos: place %s: %w", subjectID, err)
@@ -795,14 +704,13 @@ func (u *projectUsecase) placeRepoAmongHomeSiblings(
 	projectID string,
 	folderID string,
 	subject domain.Node,
-	subjectExists bool,
 	target int,
 ) ([]domain.Node, error) {
 	siblings, homeWorkspaceID, err := u.homeLevel(ctx, projectID, folderID, subject.ID)
 	if err != nil {
 		return nil, err
 	}
-	rows := append(siblings, homeRow{Node: subject, fresh: !subjectExists})
+	rows := append(siblings, homeRow{Node: subject})
 	slots := homeIndex(rows)
 	reparented := subject.ParentID != folderID
 	decided, written, err := u.writeHomeLevel(ctx, rows, place(slots, subject.ID, &target),
@@ -810,7 +718,7 @@ func (u *projectUsecase) placeRepoAmongHomeSiblings(
 	if err != nil {
 		return nil, err
 	}
-	n, err := u.ensureSubjectWritten(ctx, slots, subject.ID, subjectExists, reparented, folderID, &target, written)
+	n, err := u.ensureSubjectWritten(ctx, slots, subject.ID, reparented, folderID, &target, written)
 	if err != nil {
 		return nil, err
 	}
@@ -871,7 +779,7 @@ func (u *projectUsecase) writeHomeLevel(
 		// rows moving as collateral of a REPO drag instead.
 		if row.ID != subjectID && u.broadcastChat != nil && homeWorkspaceID != "" &&
 			(row.Kind == domain.NodeKindChat || row.Kind == domain.NodeKindFolder) {
-			u.broadcastChat(row.ID, homeWorkspaceID, row.Kind, "order_set")
+			u.broadcastChat(ctx, row.ID, homeWorkspaceID, row.Kind, "order_set")
 		}
 	}
 	// A legacy root chat whose slot did not move (place reports no change, so

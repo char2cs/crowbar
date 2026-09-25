@@ -1,11 +1,6 @@
-// Package chat (file placement_reads.go) serves the three PLACEMENT reads of the
-// runner projections: which CLI is on a chat right now, which conversations it
-// has hosted, and which providers have ever been placed on it.
-//
-// They are together, and apart from the runner lifecycle in runner.go, because
-// they answer one question between them — "what has run here" — and nothing here
-// starts, stops or moves a process. The first is live state and the other two are
-// append-only history, which is exactly why a dormant chat can still be asked.
+// Package chat (file placement_reads.go) serves the PLACEMENT reads of the
+// runner projections: which CLI is on a chat right now, and which conversations
+// it has hosted. Nothing here starts, stops or moves a process.
 package chat
 
 import (
@@ -29,15 +24,4 @@ func (u *Usecase) ConversationsForChat(
 	chatID string,
 ) ([]engineagents.ChatConversation, error) {
 	return u.runners.ConversationsForChat(ctx, chatID)
-}
-
-// PlacementsForChat returns every provider a runner has ever been placed on the
-// chat as, oldest arrival first — the append-only record that still names a
-// dormant chat's vendor when its provider announced no conversation to fall back
-// to and it was never switched.
-func (u *Usecase) PlacementsForChat(
-	ctx context.Context,
-	chatID string,
-) ([]engineagents.ChatPlacement, error) {
-	return u.runners.PlacementsForChat(ctx, chatID)
 }

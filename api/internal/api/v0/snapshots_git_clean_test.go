@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	workspacerepo "github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // initCleanGitRepo builds a real, committed git repo with no uncommitted
@@ -50,6 +51,7 @@ func TestGitSnapshot_CleanWorkspace_NormalizesNilFilesToEmptyArray(t *testing.T)
 		context.Background(),
 		workspacerepo.CreateInput{
 			ID: "w1", ProjectID: "p1", RepoID: "r1", Branch: "main", WorktreePath: repo,
+			Provisioning: domain.WorkspaceProvisioned,
 		},
 		time.Unix(1, 0).UTC(),
 	)

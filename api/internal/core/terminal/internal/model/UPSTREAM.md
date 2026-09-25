@@ -56,11 +56,10 @@ foundation ships, and which gates are deferred vs. accepted, with eyes open.*
   `shadow.scrollTop/Bottom/scrollRegionSet` (`escan.go`), private-marker-guarded so
   `CSI ? … r` (XTRESTORE) is not misread, and validity-guarded (`1 <= top < bottom`).
   **Implemented.**
-- **Parser ground-state / buffered-partial exposure (mid-sequence attach re-sync)** — `x/vt`
-  exposes no public partial-buffer accessor; the always-available fallback is taken: the
-  adapter runs its own ECMA-48 escape-**framing** tracker (`trackPendingPartial` /
-  `scanPartial`, `pending_input.go`), carrying in-flight bytes across `Write`s, capped at
-  `maxPendingPartial`. Per spec this is NOT an adoption blocker.
+- **Parser ground-state / buffered-partial exposure (mid-sequence attach re-sync)** — not
+  needed: attach is model-driven (a serialized snapshot, then model-derived diffs), so the
+  client never receives the raw continuation of a partial escape. The former in-adapter
+  framing tracker (`PendingInput`) was deleted.
 - **Cursor / alt-screen / visibility / shape getters** — MET (`CellAt`, `CursorPosition`,
   `IsAltScreen`, width/height) and used by the serializer through the file-local `emulator`
   seam (`vt_emu.go`).

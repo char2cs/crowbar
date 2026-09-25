@@ -78,14 +78,6 @@ const (
 	ChannelHooks = spec.ChannelHooks
 )
 
-// Owner is which channel is authoritative for a dual-channel event — design
-// spec P6b tag 1.
-const (
-	OwnerAPI    = spec.OwnerAPI
-	OwnerHooks  = spec.OwnerHooks
-	OwnerEither = spec.OwnerEither
-)
-
 // Surface is which VIEW an event is worth ingesting on — design spec P6b
 // tag 2.
 const (

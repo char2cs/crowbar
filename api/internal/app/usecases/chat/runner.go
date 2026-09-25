@@ -95,16 +95,16 @@ type RunnerUsecase interface {
 		chatID string,
 	) (domain.PendingPrompt, bool, error)
 
-	// SwitchToTerminal hands the chat's live turn over to its provider's own
-	// native view — idle-only, for a provider whose descriptor declares attach
-	// without hotswap. Returns the new terminal session id.
+	// SwitchToTerminal moves the chat onto its provider's own TUI — idle-only
+	// when that relaunches or hands over a process — and returns the terminal
+	// session the TUI is ("" for a dormant chat, which only records the move).
 	SwitchToTerminal(
 		ctx context.Context,
 		chatID string,
 	) (string, error)
 
-	// SwitchToNative reverses SwitchToTerminal. A chat with nothing attached is
-	// a no-op.
+	// SwitchToNative moves the chat onto Crowbar's own chat surface. A chat
+	// already there is a no-op.
 	SwitchToNative(
 		ctx context.Context,
 		chatID string,
@@ -116,19 +116,10 @@ type RunnerUsecase interface {
 	// no error, and false for a runner with nothing attached.
 	AttachedTerminalSession(runnerID string) (string, bool)
 
-	// HasLiveAPIConnection reports whether a runner has an ACTIVE api-transport
-	// connection right now — see chatRuntime's own use (handlers/chats.go).
-	HasLiveAPIConnection(runnerID string) bool
-
 	// TelemetryOnChatSurface is the CHAT-scoped form of a capability a
 	// provider-scoped flag cannot answer: two chats of the same provider can
 	// be on different surfaces. See runner/capabilities.go.
 	TelemetryOnChatSurface(ctx context.Context, chatID string) bool
-
-	// RetireAPIConnection ends ONE runner's api-transport connection — the
-	// workspace-delete cascade's seam for a runner whose process is that
-	// connection rather than a PTY. See the implementation's own doc.
-	RetireAPIConnection(runnerID string)
 
 	// ShutdownAPIConnections kills every live api-transport connection this
 	// daemon still holds. It is the shutdown-time counterpart to
@@ -150,23 +141,19 @@ type RunnerUsecase interface {
 		chatID string,
 	) ([]engineagents.ChatConversation, error)
 
-	// PlacementsForChat lists every provider a runner has ever been placed on the
-	// chat as, oldest arrival first. It is append-only history, so it answers for
-	// runners that exited long ago — and, unlike the conversation history, it is
-	// written for EVERY runner, including one whose provider announces no
-	// conversation at all, which is what makes it the last resort for "which
-	// provider ran here".
-	PlacementsForChat(
-		ctx context.Context,
-		chatID string,
-	) ([]engineagents.ChatPlacement, error)
-
 	// ReconcileRunnersOnBoot Exits every recorded runner whose PTY did not survive
 	// the restart, closes the turns they died in, and recovers their prompt
 	// journals.
 	ReconcileRunnersOnBoot(
 		ctx context.Context,
 	) error
+
+	// RestateProvidersFromHistory makes each chat's durable provider agree with
+	// its runner history, as the pre-audit daemon resolved it. It runs once per
+	// install, after ReconcileRunnersOnBoot, and reports whether it finished.
+	RestateProvidersFromHistory(
+		ctx context.Context,
+	) bool
 
 	// Compact asks the chat's CLI to compact its own context, using the gesture the
 	// provider declares. A provider that declares none reports ErrNotFound.
@@ -184,14 +171,7 @@ type RunnerUsecase interface {
 
 	// StartTerminalWaitSweep starts the screen sweep and binds the four publish
 	// callbacks the hub owns. It runs until ctx is cancelled.
-	StartTerminalWaitSweep(
-		ctx context.Context,
-		publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
-		promptSettled func(chatID, workspaceID, requestID string, consumed bool),
-		messageDelta func(chatID, workspaceID, messageID, text, kind string),
-		compactionStatus func(chatID, workspaceID string, active bool),
-		planUpdate func(chatID, workspaceID string, steps []engineagents.PlanStep),
-	)
+	StartTerminalWaitSweep(ctx context.Context, feed ChatFeed)
 }
 
 var _ RunnerUsecase = (*Usecase)(nil)
@@ -201,7 +181,6 @@ var _ RunnerUsecase = (*Usecase)(nil)
 // so errors.Is matches across the boundary.
 var (
 	ErrSlashCatalogUnsupported = runner.ErrSlashCatalogUnsupported
-	ErrSlashCatalogNoLiveTUI   = runner.ErrSlashCatalogNoLiveTUI
 	ErrSlashCatalogTimeout     = runner.ErrSlashCatalogTimeout
 	ErrSlashCatalogUnavailable = runner.ErrSlashCatalogUnavailable
 	ErrSlashCatalogOutputLimit = runner.ErrSlashCatalogOutputLimit
@@ -231,14 +210,13 @@ const (
 )
 
 const (
-	CatalogCodeUnsupported  = "catalog_unsupported"
-	CatalogCodeLiveRequired = "catalog_live_tui_required"
-	CatalogCodeTimeout      = "catalog_timeout"
-	CatalogCodeUnavailable  = "catalog_command_unavailable"
-	CatalogCodeOutputLimit  = "catalog_output_limit"
-	CatalogCodeCommand      = "catalog_command_failed"
-	CatalogCodeMalformed    = "catalog_malformed_output"
-	CatalogCodeSuperseded   = "catalog_superseded"
+	CatalogCodeUnsupported = "catalog_unsupported"
+	CatalogCodeTimeout     = "catalog_timeout"
+	CatalogCodeUnavailable = "catalog_command_unavailable"
+	CatalogCodeOutputLimit = "catalog_output_limit"
+	CatalogCodeCommand     = "catalog_command_failed"
+	CatalogCodeMalformed   = "catalog_malformed_output"
+	CatalogCodeSuperseded  = "catalog_superseded"
 )
 
 // PromptErrorCode returns the stable machine-readable API code for a prompt
@@ -266,8 +244,6 @@ func CatalogErrorCode(err error) string {
 	switch {
 	case errors.Is(err, ErrSlashCatalogUnsupported):
 		return CatalogCodeUnsupported
-	case errors.Is(err, ErrSlashCatalogNoLiveTUI):
-		return CatalogCodeLiveRequired
 	case errors.Is(err, ErrSlashCatalogTimeout):
 		return CatalogCodeTimeout
 	case errors.Is(err, ErrSlashCatalogUnavailable):
@@ -410,6 +386,14 @@ func (u *Usecase) ReconcileRunnersOnBoot(
 	return u.runners.ReconcileRunnersOnBoot(ctx)
 }
 
+// RestateProvidersFromHistory is the one-off upgrade of every chat's durable
+// provider to what its runner history names; see Conversations'.
+func (u *Usecase) RestateProvidersFromHistory(
+	ctx context.Context,
+) bool {
+	return u.conversations.RestateProvidersFromHistory(ctx)
+}
+
 // Compact asks the chat's provider to compact its own context, through whichever
 // gesture the provider's descriptor declares for it.
 func (u *Usecase) Compact(ctx context.Context, chatID string) error {
@@ -420,13 +404,12 @@ func (u *Usecase) Compact(ctx context.Context, chatID string) error {
 	return u.runners.Compact(ctx, chatID)
 }
 
-// SwitchToTerminal hands the chat's live turn over to its provider's own
-// native view.
+// SwitchToTerminal moves the chat onto its provider's own TUI.
 func (u *Usecase) SwitchToTerminal(ctx context.Context, chatID string) (string, error) {
 	return u.runners.SwitchToTerminal(ctx, chatID)
 }
 
-// SwitchToNative reverses SwitchToTerminal.
+// SwitchToNative moves the chat onto Crowbar's own chat surface.
 func (u *Usecase) SwitchToNative(ctx context.Context, chatID string) error {
 	return u.runners.SwitchToNative(ctx, chatID)
 }
@@ -437,22 +420,10 @@ func (u *Usecase) AttachedTerminalSession(runnerID string) (string, bool) {
 	return u.runners.AttachedTerminalSession(runnerID)
 }
 
-// HasLiveAPIConnection reports whether a runner has a live api-transport
-// connection right now.
-func (u *Usecase) HasLiveAPIConnection(runnerID string) bool {
-	return u.runners.HasLiveAPIConnection(runnerID)
-}
-
 // TelemetryOnChatSurface reports whether this chat can still receive usage
 // reports on the surface it is on now.
 func (u *Usecase) TelemetryOnChatSurface(ctx context.Context, chatID string) bool {
 	return u.runners.TelemetryOnChatSurface(ctx, chatID)
-}
-
-// RetireAPIConnection ends one runner's api-transport connection, for the
-// workspace-delete cascade's PTY-less runners.
-func (u *Usecase) RetireAPIConnection(runnerID string) {
-	u.runners.RetireAPIConnection(runnerID)
 }
 
 // ShutdownAPIConnections kills every live api-transport connection this
@@ -469,13 +440,6 @@ func (u *Usecase) TerminalWait(chatID string) domain.AgentTerminalWait {
 
 // StartTerminalWaitSweep starts the screen sweep and wires the publish callbacks
 // the hub owns.
-func (u *Usecase) StartTerminalWaitSweep(
-	ctx context.Context,
-	publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
-	promptSettled func(chatID, workspaceID, requestID string, consumed bool),
-	messageDelta func(chatID, workspaceID, messageID, text, kind string),
-	compactionStatus func(chatID, workspaceID string, active bool),
-	planUpdate func(chatID, workspaceID string, steps []engineagents.PlanStep),
-) {
-	u.runners.StartTerminalWaitSweep(ctx, publish, promptSettled, messageDelta, compactionStatus, planUpdate)
+func (u *Usecase) StartTerminalWaitSweep(ctx context.Context, feed ChatFeed) {
+	u.runners.StartTerminalWaitSweep(ctx, feed)
 }

@@ -169,7 +169,7 @@ func (h *Handlers) requireTerminalEngine(ctx *gin.Context) TerminalEngine {
 
 // resolveProfile fetches a profile by ID or returns nil if empty/missing.
 func (h *Handlers) resolveProfile(ctx context.Context, profileID string) *domain.TerminalProfile {
-	if profileID == "" {
+	if profileID == "" || h.profileStore == nil {
 		return nil
 	}
 	p, err := h.profileStore.FindByKey(ctx, profileID)

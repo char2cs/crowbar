@@ -72,8 +72,8 @@ func (c *compactionTurns) arm(chatID, turnID string) {
 // and must therefore be skipped — but ONLY when this chat has no turn of its own
 // in flight.
 //
-// A STANDALONE compaction (the compact button, or codex's own disconnected
-// companion PTY) gets a turn envelope to itself, and skipping that envelope's
+// A STANDALONE compaction (the compact button, or a TUI's own /compact)
+// gets a turn envelope to itself, and skipping that envelope's
 // stop is the whole point of the latch.
 //
 // An AUTOMATIC one does not. It fires INSIDE the user's own turn — codex compacts
@@ -102,6 +102,16 @@ func (c *compactionTurns) consume(chatID, turnID string) bool {
 	}
 	delete(c.byChat, chatID)
 	return true
+}
+
+// forget drops chatID's armed compaction turn, if any.
+func (c *compactionTurns) forget(chatID string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.byChat, chatID)
 }
 
 // manualCompactRequests remembers which chat's NEXT compaction round trip was

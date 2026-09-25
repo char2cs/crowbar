@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -147,6 +148,8 @@ func (m *mockConn) WriteMessage(
 	return nil
 }
 
+func (m *mockConn) SetWriteDeadline(time.Time) error { return nil }
+
 func (m *mockConn) ReadMessage() (int, []byte, error) {
 	select {
 	case msg := <-m.outbox:
@@ -210,13 +213,11 @@ func waitForMsg(
 // connMatches reports whether any frame received so far satisfies pred.
 func connMatches(conn *mockConn, pred func(string) bool) bool {
 	for _, raw := range conn.allReceived() {
-		var msg struct {
-			Data string `json:"data"`
-		}
-		if err := json.Unmarshal(raw, &msg); err != nil {
+		data, _, ok := terminal.ParseOutputFrame(raw)
+		if !ok {
 			continue
 		}
-		if pred(msg.Data) {
+		if pred(string(data)) {
 			return true
 		}
 	}
@@ -445,39 +446,6 @@ func TestEngine_Attach_DeadSession(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestEngine_Attach_ResyncMessage covers the readPump "resync" dispatch: the
-// message must route to Session.Resync (a no-op at the idle prompt — the gate
-// itself is pinned by the session package's resync tests) without being
-// written to the PTY as input.
-func TestEngine_Attach_ResyncMessage(t *testing.T) {
-	eng := terminal.New()
-	terminal.StopMaintenanceForTest(eng)
-	ctx := context.Background()
-	dir := t.TempDir()
-
-	sid, err := eng.Create(ctx, "chat-1", dir, nil)
-	require.NoError(t, err)
-
-	resyncMsg, _ := json.Marshal(map[string]any{"type": "resync"})
-	msgs := [][]byte{resyncMsg, resyncMsg}
-	conn := newSeqConn(msgs)
-
-	attachDone := make(chan struct{})
-	go func() {
-		defer close(attachDone)
-		_ = eng.Attach(ctx, sid, conn)
-	}()
-
-	// Block on the real signal. A hand-rolled deadline here would only be a second,
-	// weaker definition of "too slow"; if this never fires it is a hang, and `go test
-	// -timeout` reports it with the blocked stack.
-	<-conn.allConsumed
-
-	conn.Close()
-	require.NoError(t, eng.Kill(ctx, sid))
-	<-attachDone
-}
-
 func TestEngine_Attach_ResizeMessage(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
@@ -539,6 +507,8 @@ func (c *seqConn) WriteMessage(
 ) error {
 	return nil
 }
+
+func (c *seqConn) SetWriteDeadline(time.Time) error { return nil }
 
 func (c *seqConn) ReadMessage() (int, []byte, error) {
 	c.mu.Lock()
@@ -608,6 +578,8 @@ func (e *errConn) WriteMessage(
 	}
 	return nil
 }
+
+func (e *errConn) SetWriteDeadline(time.Time) error { return nil }
 
 func (e *errConn) ReadMessage() (int, []byte, error) {
 	<-e.closed
@@ -762,7 +734,7 @@ func TestEngine_LoadPlaceholder_ThenAttach_Restores(t *testing.T) {
 	// so after restore→attach the serialized screen reproduces it.
 	scrollback := []byte("CRWB1 80 24 0 10000\n$ echo " + marker + "\r\n" + marker + "\r\n")
 
-	// Write the blob to disk so restore() can read it via persistence.ReadBuf.
+	// Write the blob to disk so restore() can read it.
 	// (restore re-reads from disk, not from the placeholder.)
 	bufPath := filepath.Join(store.dir, sid+".buf")
 	require.NoError(t, os.WriteFile(bufPath, scrollback, 0o644))
@@ -982,35 +954,6 @@ func TestEngine_Suspend_ThenAttach_Restores(t *testing.T) {
 	conn2.Close()
 	<-attachDone
 	require.NoError(t, eng.Kill(ctx, sid))
-}
-
-// TestEngine_DropUnrestorable_CleansUpSessionMu verifies that when a placeholder's
-// restore spawn fails (un-restorable), both the registry entry AND the sessionMu
-// entry are pruned. A leaked sessionMu entry would prevent a future lockSession
-// call from creating a fresh mutex for the same id after a re-provision.
-func TestEngine_DropUnrestorable_CleansUpSessionMu(t *testing.T) {
-	eng := terminal.New()
-	terminal.StopMaintenanceForTest(eng)
-	ctx := context.Background()
-
-	sid := "ph-unrestorable-mu"
-	require.NoError(t, eng.LoadPlaceholder(ctx, terminal.SessionMeta{
-		SessionID: sid,
-		ChatID:    "chat-unrestorable-mu",
-		CWD:       t.TempDir(),
-		Shell:     "/nonexistent/shell-that-cannot-spawn",
-	}, nil))
-
-	// Attach triggers restore, which calls spawn with the non-existent shell.
-	// spawn fails → dropUnrestorable removes the registry entry → Attach returns error.
-	conn := newMockConn()
-	err := eng.Attach(ctx, sid, conn)
-	require.Error(t, err, "Attach must return an error for an un-restorable session")
-
-	assert.False(t, eng.SessionExists(ctx, sid),
-		"registry entry must be removed after unrestorable drop")
-	assert.False(t, terminal.HasSessionMuForTest(eng, sid),
-		"sessionMu entry must be pruned after unrestorable drop to prevent mutex aliasing")
 }
 
 // TestEngine_Kill_CleanReap verifies that Kill triggers a full reap: session removed

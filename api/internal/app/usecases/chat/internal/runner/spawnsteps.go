@@ -6,43 +6,29 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// buildSpawnSteps assembles the ordered InjectStep list a spawn's SpawnPlan
-// renders against: resumeSteps first, then the descriptor's own selection and
-// context steps, then finalSteps — positional user prompts are final by
-// contract (Claude's variadic --mcp-config must already be terminated by
-// later options, and codex's resume subcommand/id must precede the message).
+// buildSpawnSteps assembles the ordered InjectStep list a PTY spawn renders:
+// resumeSteps first, then selection and context, then finalSteps — positional
+// user prompts are final by contract (codex's resume id must precede the
+// message; claude's variadic --mcp-config must already be terminated).
 //
-// apiResumes (see resume_injection.go) drops resumeSteps entirely: this spawn's
-// OWN api connection is live and has already resumed the session, so the
-// companion PTY must not become a second writer on it.
-//
-// descriptor.SelectionSteps contributes an EMPTY slice for a chat with no
-// model/effort choice, or a provider declaring no such block — so this costs
-// nothing on a spawn not using the feature, and the argv is byte-identical to
-// one rendered before it existed.
-//
-// A bare positional ContextSteps and a bare positional finalSteps message are
-// folded into ONE combined argv token rather than emitted as two — see
-// mergeLeadingPositional's own doc for why.
+// A spawn whose api connection came up never runs this argv (it adopts the
+// connection, or a hotswap attach replaces it), so no second writer can arise.
 func buildSpawnSteps(
 	descriptor engineagents.Agent,
-	resuming, inject, apiResumes bool,
+	resuming, inject bool,
 	sel engineagents.Selection,
 	resumeSteps, finalSteps []engineagents.InjectStep,
 ) []engineagents.InjectStep {
-	steps := []engineagents.InjectStep{}
-	if !apiResumes {
-		steps = append(steps, resumeSteps...)
-	}
+	steps := append([]engineagents.InjectStep{}, resumeSteps...)
 	steps = append(steps, descriptor.SelectionSteps(sel)...)
-	if contextStepsAllowed(resuming, inject, apiResumes) {
-		context := descriptor.ContextSteps(resuming)
-		if merged, ok := mergeLeadingPositional(context, finalSteps); ok {
-			finalSteps = merged
-		} else {
-			steps = append(steps, context...)
-		}
+	if !inject {
+		return append(steps, finalSteps...)
 	}
+	context := descriptor.ContextSteps(resuming)
+	if merged, ok := mergeLeadingPositional(context, finalSteps); ok {
+		return append(steps, merged...)
+	}
+	steps = append(steps, context...)
 	return append(steps, finalSteps...)
 }
 
@@ -111,20 +97,6 @@ func argString(v any) string {
 		return s
 	}
 	return fmt.Sprintf("%v", v)
-}
-
-// contextStepsAllowed is whether ContextSteps — a CLI argv, a POSITIONAL
-// PROMPT on the resume path — may be rendered at all. False exactly when the
-// redundant hooks-only PTY this same spawn's applyAPITransport call has
-// already resumed over a LIVE api connection would otherwise answer it as its
-// own genuine first turn (a provider whose only resume channel is a user
-// message, e.g. codex — see apiResumes). Never suppressed for a FRESH
-// inject: an unresumed spawn's ContextSteps is silent config, nothing for the
-// PTY to act on. resumeContextFor, just below, is this same routing decision
-// for the OTHER channel — InjectAt over the api connection itself, which only
-// runs when that connection came up, so exactly one of the two carries the gap.
-func contextStepsAllowed(resuming, inject, apiResumes bool) bool {
-	return inject && (!resuming || !apiResumes)
 }
 
 // resumeContextFor is the gap document a resumed api-transport connection's

@@ -87,7 +87,7 @@ func doSearchRequestWithBody(
 // reqscope, never the empty string a stale :wsId read would silently produce.
 func TestChatScoped_ResolvesFromReqscope(t *testing.T) {
 	eng := &recordingEngine{}
-	resolved := domain.Workspace{ID: "ws-resolved", WorktreePath: "/resolved"}
+	resolved := domain.Workspace{ID: "ws-resolved", WorktreePath: "/resolved", Provisioning: domain.WorkspaceProvisioned}
 	r := searchRouterForScopes(t, eng, resolved)
 
 	rec := doSearchRequestWithBody(t, r, "/v0/chats/chat-1/search", `{"query":"fmt"}`)
@@ -114,7 +114,7 @@ func TestWorkspaceScopedRouteIsGone(t *testing.T) {
 // partial re-key could miss.
 func TestChatScopedReplace_ResolvesFromReqscope(t *testing.T) {
 	eng := &recordingEngine{}
-	resolved := domain.Workspace{ID: "ws-resolved", WorktreePath: "/resolved"}
+	resolved := domain.Workspace{ID: "ws-resolved", WorktreePath: "/resolved", Provisioning: domain.WorkspaceProvisioned}
 	r := searchRouterForScopes(t, eng, resolved)
 
 	rec := doSearchRequestWithBody(t, r, "/v0/chats/chat-1/search/replace",

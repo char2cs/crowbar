@@ -119,6 +119,12 @@ const providers: AgentProvider[] = [
     connected: true,
     enabled: true,
     mcpEnabled: true,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    hasTerminal: true,
+    hotswap: false,
+    terminalStartHere: false,
   },
   {
     id: 'claude',
@@ -127,6 +133,12 @@ const providers: AgentProvider[] = [
     connected: true,
     enabled: true,
     mcpEnabled: true,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    hasTerminal: true,
+    hotswap: false,
+    terminalStartHere: false,
   },
 ]
 
@@ -157,6 +169,12 @@ function message(sequence: number, role: 'user' | 'assistant', text: string, pro
   } satisfies AgentChatMessage
 }
 
+/** The user turn the daemon records for a dispatched prompt: named by the
+ *  prompt's own clientRequestId. */
+function dispatchedTurn(sequence: number, text: string, clientRequestId: string) {
+  return { ...message(sequence, 'user', text), turnId: clientRequestId }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (error: unknown) => void
@@ -176,6 +194,7 @@ const baseProps = () => ({
   compacting: false,
   turnRevision: 0,
   live: true,
+  canSend: true,
   active: true,
   visible: true,
   isActivePane: true,
@@ -502,7 +521,7 @@ describe('AgentChatView durable FIFO', () => {
     expect(screen.getAllByTestId('queued-prompt')[0]).toHaveAttribute('data-state', 'awaiting_turn')
     expect(submitPromptFn).toHaveBeenCalledTimes(1)
 
-    incrementalMessages = [message(1, 'user', 'first')]
+    incrementalMessages = [dispatchedTurn(1, 'first', firstId as string)]
     view.rerenderProps({ working: true })
     await waitFor(() => expect(screen.getAllByTestId('queued-prompt')).toHaveLength(1))
     expect(submitPromptFn).toHaveBeenCalledTimes(1)
@@ -717,7 +736,9 @@ describe('AgentChatView durable FIFO', () => {
       ),
     )
 
-    incrementalMessages = [message(1, 'user', 'late hook')]
+    incrementalMessages = [
+      dispatchedTurn(1, 'late hook', submitPromptFn.mock.calls[0]?.[3] as string),
+    ]
     view.rerenderProps({ working: true })
     await waitFor(() => expect(screen.queryByTestId('queued-prompt')).not.toBeInTheDocument())
     expect(submitPromptFn).toHaveBeenCalledTimes(1)
@@ -766,7 +787,7 @@ describe('AgentChatView durable FIFO', () => {
       message(index + 108, 'assistant', `newer ${index + 108}`),
     )
     const recovery = [
-      message(8, 'user', 'confirmation below latest page'),
+      dispatchedTurn(8, 'confirmation below latest page', '23d00c6a-35ae-4d6c-a7c8-5e27983924f3'),
       ...Array.from({ length: 99 }, (_, index) =>
         message(index + 9, 'assistant', `older ${index + 9}`),
       ),
@@ -803,7 +824,9 @@ describe('AgentChatView durable FIFO', () => {
         ],
       }),
     )
-    initialMessages = [message(3, 'user', 'confirmed during reload')]
+    initialMessages = [
+      dispatchedTurn(3, 'confirmed during reload', 'dd068894-7cf0-4a2c-aa7c-c08531805bb0'),
+    ]
     setup()
 
     expect(await screen.findByTestId('agent-message-3')).toHaveTextContent(

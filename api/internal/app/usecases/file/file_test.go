@@ -43,7 +43,7 @@ func TestFileUsecase_Tree_PassesThrough(t *testing.T) {
 	ctx := context.Background()
 
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	var gotPath string
 	fs.TreeFn = func(repoPath, _ string, _ file.FileStatusProvider) ([]domain.FileNode, error) {
@@ -75,7 +75,7 @@ func TestFileUsecase_ReadContent_PassesThrough(t *testing.T) {
 	ctx := context.Background()
 
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	fs.ReadContentFn = func(_, _ string) (domain.FileContent, error) {
 		return domain.FileContent{Content: "hi"}, nil
@@ -93,7 +93,7 @@ func TestFileUsecase_WriteContent_TriggersSync(t *testing.T) {
 	now := time.Unix(1000, 0)
 
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	var wrotePath, wroteContent, wroteEncoding string
 	fs.WriteContentFn = func(_, filePath, content, encoding string) error {
@@ -117,7 +117,7 @@ func TestFileUsecase_WriteContent_FsError(t *testing.T) {
 	ctx := context.Background()
 
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	fs.WriteContentFn = func(_, _, _, _ string) error {
 		return errors.New("boom")
@@ -133,7 +133,7 @@ func TestFileUsecase_CreateFile_TriggersSync(t *testing.T) {
 	ctx := context.Background()
 
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	fs.CreateFileFn = func(_, _ string) error { return nil }
 
@@ -146,7 +146,7 @@ func TestFileUsecase_CreateDir_TriggersSync(t *testing.T) {
 	ctx := context.Background()
 
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	fs.CreateDirFn = func(_, _ string) error { return nil }
 
@@ -159,7 +159,7 @@ func TestFileUsecase_Rename_TriggersSync(t *testing.T) {
 	ctx := context.Background()
 
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	fs.RenameFn = func(_, _, _ string) error { return nil }
 
@@ -172,7 +172,7 @@ func TestFileUsecase_Copy_TriggersSync(t *testing.T) {
 	ctx := context.Background()
 
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	var gotRepo, gotSrc, gotDest string
 	fs.CopyFn = func(repoPath, sourcePath, destPath string) error {
@@ -192,7 +192,7 @@ func TestFileUsecase_Copy_FsError(t *testing.T) {
 	ctx := context.Background()
 
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	fs.CopyFn = func(_, _, _ string) error { return errors.New("boom") }
 
@@ -205,7 +205,7 @@ func TestFileUsecase_Delete_TriggersSync(t *testing.T) {
 	ctx := context.Background()
 
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	fs.DeleteFn = func(_, _ string) error { return nil }
 
@@ -246,7 +246,7 @@ func TestFileUsecase_WriteContent_ResyncError(t *testing.T) {
 	fs, syncer, uc := newFileUsecase(t)
 	ctx := context.Background()
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	syncer.SyncFn = func(_ context.Context, _ string, _ time.Time) (domain.Workspace, error) {
 		return domain.Workspace{}, errors.New("boom")
@@ -261,7 +261,7 @@ func lockedWorkspace(
 	syncer *mocks.WorkspaceSyncer,
 ) {
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Status: domain.WorkspaceStatusLocked}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Status: domain.WorkspaceStatusLocked, Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 }
 
@@ -312,7 +312,7 @@ func okWorkspace(
 	syncer *mocks.WorkspaceSyncer,
 ) {
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/promptsigil"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -137,8 +138,24 @@ func (t *Turns) recordUserTurn(
 	// in front of it — a provider switch blocks on this rather than on Working, so that
 	// it never quits a CLI that is still answering (inflight.Turns).
 	t.turns.Begin(runner.ID, chat.ID)
+	// The hook is the provider's acknowledgement that the argv prompt was
+	// accepted. userText, not rawText: ConfirmPromptAccepted hashes this
+	// against the journal's own hash of the ORIGINAL dispatch text (prompts.go's
+	// Begin call, taken straight from the request before Guard/materialize or
+	// any injected preamble ever touched it) — the restored, stripped, and
+	// (for the merged case) preamble-free text is what can actually match it.
+	// The ledger is written whether or not the journal was: the hook itself is
+	// positive delivery evidence. A journal failure is repaired from the
+	// attributed turn by the turn_stop and pre-destructive reconciliation paths.
+	requestID, confirmErr := t.runners.ConfirmPromptAccepted(ctx, chat, runner, userText)
+	// Named by its request, the row is how the client that queued this prompt
+	// recognises it.
+	userCtx := ctx
+	if requestID != "" {
+		userCtx = inflight.WithRecordID(ctx, requestID)
+	}
 	appendErr := t.conversations.AppendRunnerTurn(
-		ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
+		userCtx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
 		domain.TurnRoleUser, userText,
 	)
 	// The reply this prompt is about to produce, opened NOW so the tool calls,
@@ -147,18 +164,6 @@ func (t *Turns) recordUserTurn(
 	// would be a separate record — leaving the UI unable to say which activity
 	// produced which answer.
 	t.openAssistantTurn(ctx, chat, runner)
-	// The hook is the provider's acknowledgement that the argv prompt was
-	// accepted. userText, not rawText: ConfirmPromptAccepted hashes this
-	// against the journal's own hash of the ORIGINAL dispatch text (prompts.go's
-	// Begin call, taken straight from the request before Guard/materialize or
-	// any injected preamble ever touched it) — the restored, stripped, and
-	// (for the merged case) preamble-free text is what can actually match it.
-	// Advance the journal even when the ledger write failed: the hook itself is
-	// positive delivery evidence, and leaving the request spawned would wedge
-	// every future prompt. Conversely, a journal failure after a successful
-	// ledger append is repaired from that attributed turn by the turn_stop and
-	// pre-destructive reconciliation paths.
-	confirmErr := t.runners.ConfirmPromptAccepted(ctx, chat, runner, userText)
 	if appendErr != nil {
 		return appendErr
 	}

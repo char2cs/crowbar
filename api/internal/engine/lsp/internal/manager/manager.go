@@ -59,6 +59,12 @@ type Manager interface {
 		wsID string,
 		filePath string,
 	) (server.Server, error)
+	// Status reports which server serves filePath's language in wsID and
+	// whether it is running, without spawning or touching the refcount.
+	Status(
+		wsID string,
+		filePath string,
+	) domlsp.ServerStatus
 	// Acquire increments the refcount for the (wsID, languageID) entry without
 	// spawning. It is a no-op when no entry exists.
 	Acquire(
@@ -203,6 +209,38 @@ func (m *manager) RunningServerForFile(
 		return nil, fmt.Errorf("lsp manager: no running server: %w", ErrNoServer)
 	}
 	return e.srv, nil
+}
+
+func (m *manager) Status(
+	wsID string,
+	filePath string,
+) domlsp.ServerStatus {
+	spec, ok := m.reg.ForFile(filePath)
+	if !ok {
+		return domlsp.ServerStatus{State: domlsp.ServerUnsupported}
+	}
+	status := domlsp.ServerStatus{LanguageID: spec.LanguageID, Command: spec.Command}
+
+	m.mu.Lock()
+	_, running := m.pool[poolKey(wsID, spec.LanguageID)]
+	m.mu.Unlock()
+
+	switch {
+	case running:
+		status.State = domlsp.ServerRunning
+	case !m.installed(spec.Command):
+		status.State = domlsp.ServerNotInstalled
+	default:
+		status.State = domlsp.ServerStopped
+	}
+	return status
+}
+
+func (m *manager) installed(
+	command string,
+) bool {
+	_, err := m.lookPath(command)
+	return err == nil
 }
 
 func (m *manager) getOrSpawn(

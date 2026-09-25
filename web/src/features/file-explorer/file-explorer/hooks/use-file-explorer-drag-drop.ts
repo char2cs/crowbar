@@ -3,9 +3,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { moveFile } from '@/features/file-system/controllers/platform'
 import type { FileEntry } from '@/features/file-system/types/app'
 import {
-  setInternalTabDragHover,
-  setInternalTabDragHoverTarget,
-} from '@/features/tabs/utils/internal-tab-drag'
+  endFileDrag,
+  resolveDropTarget,
+  setDropHover,
+  setDropHoverAt,
+  startFileDrag,
+} from '@/features/panes/stores/drag-store'
+import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { getDirName, getPathSeparator, joinPath } from '@/utils/path-helpers'
 
 interface DragState {
@@ -50,7 +54,7 @@ export function useFileExplorerDragDrop(
   }, [])
 
   const clearEditorDropHover = useCallback(() => {
-    setInternalTabDragHoverTarget({ paneId: null, zone: null })
+    setDropHover({ paneId: null, zone: null })
   }, [])
 
   const scheduleAutoExpand = useCallback(
@@ -181,7 +185,7 @@ export function useFileExplorerDragDrop(
         dragStateRef.current.draggedItem &&
         !dragStateRef.current.draggedItem.isDir
       ) {
-        setInternalTabDragHover({ x: e.clientX, y: e.clientY })
+        setDropHoverAt({ x: e.clientX, y: e.clientY })
         setDragState((prev) => ({
           ...prev,
           dragOverPath: null,
@@ -205,19 +209,14 @@ export function useFileExplorerDragDrop(
       const elementUnder = document.elementFromPoint(e.clientX, e.clientY)
       const isOverPane = elementUnder?.closest('[data-pane-container]') !== null
       const isOverFileTree = elementUnder?.closest('.file-tree-container') !== null
-      // If dropping on a pane (not in file tree), dispatch event for pane to handle
+      // Dropped on a pane (not in the file tree): the file opens as a tab of
+      // THAT pane — named explicitly, whatever has focus. A file never gets a
+      // pane of its own, so the zone is not consulted.
       if (isOverPane && !isOverFileTree && draggedItem && !draggedItem.isDir) {
-        window.dispatchEvent(
-          new CustomEvent('file-tree-drop-on-pane', {
-            detail: {
-              path: draggedItem.path,
-              name: draggedItem.name,
-              isDir: draggedItem.isDir,
-              x: e.clientX,
-              y: e.clientY,
-            },
-          }),
-        )
+        const { paneId } = resolveDropTarget({ x: e.clientX, y: e.clientY })
+        if (paneId) {
+          void useFileSystemStore.getState().handleFileOpen?.(draggedItem.path, false, { paneId })
+        }
         setDragState(initialDragState)
         clearAutoExpand()
         clearEditorDropHover()
@@ -295,20 +294,11 @@ export function useFileExplorerDragDrop(
       mousePosition: { x: e.clientX, y: e.clientY },
     })
 
-    // Store drag data globally for pane containers to access
-    window.__fileDragData = {
-      type: 'file',
-      path: file.path,
-      name: file.name,
-      isDir: file.isDir ?? false,
-    }
+    startFileDrag({ path: file.path, name: file.name, isDir: file.isDir ?? false })
   }, [])
 
-  // Clean up global drag data on drag end
   useEffect(() => {
-    if (!dragState.isDragging) {
-      delete window.__fileDragData
-    }
+    if (!dragState.isDragging) endFileDrag()
   }, [dragState.isDragging])
 
   return { dragState, startDrag }

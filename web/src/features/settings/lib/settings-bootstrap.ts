@@ -2,8 +2,8 @@ import { defaultSettings } from '@/features/settings/config/default-settings'
 import { applySettingsSideEffects } from '@/features/settings/lib/settings-effects'
 import { normalizeSettings } from '@/features/settings/lib/settings-normalization'
 import {
-  loadSettingsFromStore,
-  saveSettingsToStore,
+  loadPersistedSettings,
+  persistSettings,
 } from '@/features/settings/lib/settings-persistence'
 import type { Settings } from '@/features/settings/types/settings'
 
@@ -24,7 +24,7 @@ export async function resolveInitialSettings(): Promise<Settings> {
     return defaultSettings
   }
 
-  const loadedSettings = await loadSettingsFromStore()
+  const loadedSettings = loadPersistedSettings()
 
   // When system-sync is on, derive the active theme from the OS preference
   // using the user's chosen light/dark theme pair. This also covers the very
@@ -46,7 +46,7 @@ export async function initializeSettingsState(
     const normalizedSettings = await resolveInitialSettings()
     applySettingsSideEffects(normalizedSettings)
     applySettings(normalizedSettings)
-    await saveSettingsToStore(normalizedSettings)
+    persistSettings(normalizedSettings)
     return normalizedSettings
   } catch (error) {
     console.error('Failed to initialize settings:', error)

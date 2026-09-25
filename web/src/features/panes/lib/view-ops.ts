@@ -10,7 +10,7 @@ import {
 } from '@/features/panes/utils/pane-layout'
 import {
   forgetPaneId,
-  healActivePane,
+  settleFocus,
   homeOf,
   layoutOf,
   nextViewFor,
@@ -18,6 +18,7 @@ import {
   resetStage,
   showView,
   viewHasChat,
+  viewMembers,
   writeLayout,
   type InsertAt,
   type ViewState,
@@ -27,22 +28,34 @@ import {
  * The only structural writers. Every write that adds, removes or moves a pane
  * goes through `insertPane` / `removePane` / `movePane` (and `fillPane` for a
  * chat landing in a chatless pane), so the invariants `view-integrity.ts`
- * checks are kept in exactly one place.
+ * checks are kept in exactly one place. None of them repairs focus: every
+ * write is applied through `commitViewWrite`, which settles it once at the
+ * end, so no writer can forget to.
  */
 
-/** Drop a record and every pane still in its layout; show the next view of
- *  the same project when it was the one on screen. */
+/** Apply one pane write; afterwards `activePaneId` names a pane on screen. */
+export function commitViewWrite<S extends ViewState>(state: S, recipe: (state: S) => void): void {
+  recipe(state)
+  settleFocus(state)
+}
+
+/** Drop a record and every pane still in its layout; when it was the one on
+ *  screen, show the next view of the same project and workspace. */
 export function removeView(state: ViewState, viewId: string): void {
   const view = state.views[viewId]
   if (!view) return
+  const shown = new Set(viewMembers(state, viewId).map((m) => m.workspaceId))
   for (const id of getAllLeafIds(view.layout)) {
     delete state.panes[id]
     forgetPaneId(state, id)
   }
-  dropRecord(state, viewId)
+  dropRecord(state, viewId, shown)
 }
 
-function dropRecord(state: ViewState, viewId: string): void {
+/** `shown`: the workspaces the dropped view showed. The route names that
+ *  workspace and only a gesture moves it, so another workspace's view never
+ *  comes forward in its place — the stage does. */
+function dropRecord(state: ViewState, viewId: string, shown: ReadonlySet<string | null>): void {
   const view = state.views[viewId]
   if (!view) return
   delete state.views[viewId]
@@ -51,9 +64,8 @@ function dropRecord(state: ViewState, viewId: string): void {
     if (id === viewId) delete state.activeViewByProject[projectId]
   }
   if (state.activeViewId === viewId) {
-    showView(state, nextViewFor(state, state.activeProjectId ?? view.projectId))
+    showView(state, nextViewFor(state, state.activeProjectId ?? view.projectId, shown))
   }
-  healActivePane(state)
 }
 
 /** The stage holds a chat now: its layout becomes a new record. */
@@ -70,7 +82,6 @@ function promoteStage(state: ViewState, projectId: string): string {
     state.activeViewId = id
     if (projectId) state.activeViewByProject[projectId] = id
   }
-  healActivePane(state)
   return id
 }
 
@@ -150,7 +161,6 @@ export function removePane(state: ViewState, paneId: string): void {
   if (!home) {
     delete state.panes[paneId]
     forgetPaneId(state, paneId)
-    healActivePane(state)
     return
   }
   const rest = closeLayout(layoutOf(state, home), paneId)
@@ -166,16 +176,14 @@ export function removePane(state: ViewState, paneId: string): void {
   forgetPaneId(state, paneId)
 
   if (home.kind === 'view') {
-    if (!rest) dropRecord(state, home.viewId)
+    if (!rest) dropRecord(state, home.viewId, new Set([pane.workspaceId ?? null]))
     else if (!viewHasChat(state, home.viewId)) removeView(state, home.viewId)
-    healActivePane(state)
     return
   }
   if (!rest) {
     if (home.kind === 'stage') resetStage(state)
     else resetBottom(state)
   }
-  healActivePane(state)
 }
 
 /**
@@ -202,7 +210,6 @@ export function movePane(state: ViewState, paneId: string, at: InsertAt): boolea
     else order.splice(afterIndex + 1, 0, id)
     state.viewOrder = order
     if (from.kind === 'view' && !viewHasChat(state, from.viewId)) removeView(state, from.viewId)
-    healActivePane(state)
     return true
   }
 
@@ -232,14 +239,13 @@ export function movePane(state: ViewState, paneId: string, at: InsertAt): boolea
   pane.viewId = to.kind === 'view' ? to.viewId : null
 
   if (from.kind === 'view') {
-    if (!rest) dropRecord(state, from.viewId)
+    if (!rest) dropRecord(state, from.viewId, new Set([pane.workspaceId ?? null]))
     else if (!viewHasChat(state, from.viewId)) removeView(state, from.viewId)
   } else if (!rest) {
     if (from.kind === 'stage') resetStage(state)
     else resetBottom(state)
   }
   if (pane.chatId && to.kind === 'stage') promoteStage(state, state.activeProjectId ?? '')
-  healActivePane(state)
   return true
 }
 
@@ -254,12 +260,14 @@ export function fillPane(
   chatId: string,
   runnerId: string | null,
   projectId: string,
+  workspaceId: string | null = null,
 ): string | undefined {
   const pane = state.panes[paneId]
   const home = homeOf(state, paneId)
   if (!pane || !home || pane.chatId || home.kind === 'bottom') return undefined
   pane.chatId = chatId
   pane.runnerId = runnerId
+  pane.workspaceId = workspaceId
   if (home.kind === 'stage') return promoteStage(state, projectId)
   return home.viewId
 }

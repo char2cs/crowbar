@@ -4,25 +4,15 @@ import { SearchAddon } from '@xterm/addon-search'
 import { SerializeAddon } from '@xterm/addon-serialize'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
-import { WebglAddon } from '@xterm/addon-webgl'
 import type { Terminal } from '@xterm/xterm'
 
 export interface TerminalAddons {
   fitAddon: FitAddon
   searchAddon: SearchAddon
   serializeAddon: SerializeAddon
-  webglAddon: WebglAddon | null
 }
 
-export interface CreateTerminalAddonsOptions {
-  /** Skip WebGL addon - use canvas renderer instead (better for some fonts like Nerd Fonts) */
-  skipWebGL?: boolean
-}
-
-export function createTerminalAddons(
-  terminal: Terminal,
-  options: CreateTerminalAddonsOptions = {},
-): TerminalAddons {
+export function createTerminalAddons(terminal: Terminal): TerminalAddons {
   const fitAddon = new FitAddon()
   const searchAddon = new SearchAddon()
   const serializeAddon = new SerializeAddon()
@@ -33,31 +23,7 @@ export function createTerminalAddons(
   terminal.loadAddon(serializeAddon)
   terminal.loadAddon(unicode11Addon)
 
-  const addons: TerminalAddons = { fitAddon, searchAddon, serializeAddon, webglAddon: null }
-
-  if (!options.skipWebGL) {
-    let retries = 0
-    const MAX_RETRIES = 3
-
-    const attachWebGL = () => {
-      const newAddon = new WebglAddon()
-      newAddon.onContextLoss(() => {
-        newAddon.dispose()
-        addons.webglAddon = null
-        if (retries < MAX_RETRIES) {
-          retries++
-          // Give the GPU a moment to release the context before recreating.
-          setTimeout(attachWebGL, 200)
-        }
-      })
-      terminal.loadAddon(newAddon)
-      addons.webglAddon = newAddon
-    }
-
-    attachWebGL()
-  }
-
-  return addons
+  return { fitAddon, searchAddon, serializeAddon }
 }
 
 export function loadWebLinksAddon(terminal: Terminal): void {

@@ -1,43 +1,52 @@
-// Package gate serialises the user-initiated spawn paths of one chat.
+// Package gate serialises work on one key (a chat, a runner) and lets a Stop
+// preempt whoever is parked holding it.
 package gate
 
-import "sync"
+import (
+	"context"
+	"errors"
+	"sync"
+)
 
-// Gate serialises the USER-INITIATED spawn paths for one chat: SpawnChat,
-// SwitchProvider and ResumeChat all take it, and nothing else does.
+// ErrPreempted is the cause a holder's park context is cancelled with when a
+// Preempt call wants the gate. A holder that sees it gives up without having
+// changed anything.
+var ErrPreempted = errors.New("gate: preempted by a stop")
+
+// Gate is a per-key mutex whose waits honour a context, and whose holders can
+// be asked to let go.
 //
-// It exists because starting a CLI is not a database write, and so nothing in the
-// persistence layer can order two of them. Two concurrent SwitchProvider calls on one
-// chat (a double-clicked provider dropdown) both read the same live runner, both kill
-// it, and both spawn — leaving TWO CLIs pointed at one chat. asynx's optimistic
-// concurrency cannot catch it, because the two spawns create DIFFERENT aggregates: there
-// is no shared row for them to collide on. Displacement makes the READ side coherent
-// under that overlap; only serialisation stops the overlap being created.
+// The chat usecase builds three: the per-chat SPAWN gate (every user-initiated
+// path that starts, replaces, attaches, prompts or purges a chat's CLI), the
+// per-chat TURN-START gate (a hook's durable turn start versus a switch's final
+// idle check) and the per-runner HOOK gate (one runner's hook ingestion).
 //
-// It is NOT the return of the guard this refactor deleted. OpenSegment.Validate REJECTED
-// a move — a fait accompli the CLI had already performed — after a destructive write had
-// already committed, and that is what bricked a chat. This rejects nothing, reads no
-// aggregate state, and orders only work Crowbar itself initiates on the user's behalf. A
-// caller that waits its turn then does exactly what it would have done had the user
-// clicked twice slowly.
+// Starting a CLI is not a database write, so nothing in the persistence layer
+// can order two of them: two concurrent switches on one chat would both read
+// the same live runner, both kill it and both spawn. The gate is what stops
+// that. It rejects nothing and reads no aggregate state.
 //
-// It is never taken on the HOOK path. A hook must never block and must never fail: by
-// the time it arrives the CLI has already acted, and there is nothing useful to do with
-// a caller made to wait (spec §3).
-//
-// (SpawnChat's chat id is a fresh uuid nobody else can name, so its gate is
-// uncontended by construction. It takes it anyway, so that "every path that starts a CLI
-// on a chat holds that chat's gate" is a rule with no exceptions to audit.)
+// A holder may PARK while holding it — a provider switch waits, bounded, for
+// the outgoing CLI to finish its turn. Acquire hands such a holder a park
+// context, and Preempt cancels it: Stop must never queue behind a switch
+// waiting on the very turn Stop is there to end (invariant A2).
 type Gate struct {
 	mu    sync.Mutex
 	gates map[string]*entry
 }
 
-// entry is one chat's lock plus a reference count, so the map does not grow without
-// bound across the life of a daemon (a long-lived install churns through chats).
+// entry is one key's lock plus a reference count, so the map does not grow
+// without bound across the life of a daemon.
 type entry struct {
-	mu   sync.Mutex
+	sem  chan struct{}
 	refs int
+	// park cancels the current holder's park context; nil while the gate is
+	// free or held by a caller that cannot be preempted.
+	park context.CancelCauseFunc
+	// preempting counts Preempt calls not yet holding the gate. A holder that
+	// enters while one is pending gets an already-cancelled park context, so a
+	// Stop cannot be starved by a queue of switches.
+	preempting int
 }
 
 // New returns an empty gate.
@@ -45,30 +54,106 @@ func New() *Gate {
 	return &Gate{gates: map[string]*entry{}}
 }
 
-// Lock blocks until this chat's gate is free and returns the release func. Callers
-// `defer` it. Re-entrant use would deadlock, so the gate is taken at exactly one place
-// per path: ResumeChat and SwitchProvider therefore share an already-locked inner
-// implementation rather than calling each other.
-func (g *Gate) Lock(chatID string) func() {
+func (g *Gate) ref(key string, preempt bool) *entry {
 	g.mu.Lock()
-	e, ok := g.gates[chatID]
+	defer g.mu.Unlock()
+	e, ok := g.gates[key]
 	if !ok {
-		e = &entry{}
-		g.gates[chatID] = e
+		e = &entry{sem: make(chan struct{}, 1)}
+		g.gates[key] = e
 	}
 	e.refs++
+	if preempt {
+		e.preempting++
+		if e.park != nil {
+			e.park(ErrPreempted)
+		}
+	}
+	return e
+}
+
+func (g *Gate) unref(key string, e *entry, preempt bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if preempt {
+		e.preempting--
+	}
+	e.refs--
+	if e.refs == 0 {
+		delete(g.gates, key)
+	}
+}
+
+func (g *Gate) acquire(
+	ctx context.Context,
+	key string,
+	preempt bool,
+) (context.Context, func(), error) {
+	e := g.ref(key, preempt)
+	select {
+	case e.sem <- struct{}{}:
+	case <-ctx.Done():
+		g.unref(key, e, preempt)
+		return nil, nil, ctx.Err()
+	}
+
+	park, cancel := context.WithCancelCause(ctx)
+	g.mu.Lock()
+	enterLocked(e, preempt, cancel)
 	g.mu.Unlock()
 
-	e.mu.Lock()
-
-	return func() {
-		e.mu.Unlock()
-
+	return park, func() {
 		g.mu.Lock()
-		e.refs--
-		if e.refs == 0 {
-			delete(g.gates, chatID)
+		if !preempt {
+			e.park = nil
 		}
 		g.mu.Unlock()
+		cancel(nil)
+		<-e.sem
+		// preempt was already counted down on entry.
+		g.unref(key, e, false)
+	}, nil
+}
+
+// enterLocked records the caller as e's new holder. A preempting holder only retires its
+// preempt claim; an ordinary holder publishes its park cancel so a later Preempt can reach
+// it, and is parked at once if a preempt is already waiting. Caller holds g.mu.
+func enterLocked(e *entry, preempt bool, cancel context.CancelCauseFunc) {
+	if preempt {
+		e.preempting--
+		return
 	}
+	e.park = cancel
+	if e.preempting > 0 {
+		cancel(ErrPreempted)
+	}
+}
+
+// Lock blocks until key's gate is free and returns the release func. It
+// cannot be cancelled and its holder cannot be preempted, so it is only for
+// short critical sections that never park.
+func (g *Gate) Lock(key string) func() {
+	_, release, _ := g.acquire(context.Background(), key, false)
+	return release
+}
+
+// Acquire waits for key's gate or for ctx. It returns the holder's park
+// context — ctx, additionally cancelled with ErrPreempted when a Preempt call
+// wants the gate — and the release func. A holder passes park to every wait
+// it may park on and ctx to everything else, so a preemption abandons a wait
+// and never a half-done write.
+func (g *Gate) Acquire(ctx context.Context, key string) (park context.Context, release func(), err error) {
+	return g.acquire(ctx, key, false)
+}
+
+// Preempt cancels the current holder's park context, and that of anybody who
+// enters before this caller does, then waits for the gate or ctx.
+func (g *Gate) Preempt(ctx context.Context, key string) (release func(), err error) {
+	_, release, err = g.acquire(ctx, key, true)
+	return release, err
+}
+
+// Preempted reports whether park was cancelled by a Preempt call.
+func Preempted(park context.Context) bool {
+	return errors.Is(context.Cause(park), ErrPreempted)
 }

@@ -10,7 +10,7 @@ import {
   useState,
 } from 'react'
 import DOMPurify from 'dompurify'
-import { PencilIcon } from 'lucide-react'
+import { PencilSimpleIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { loadLocalImage, useMarkdownAsset } from '@/features/editor/markdown/plate/markdown-asset'
@@ -123,17 +123,15 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
   }, [workspaceStore, chatId, scene])
 
   useEffect(() => {
-    let cancelled = false
     if (!asset || !pngRef) {
       setSrc(null)
       return
     }
-    void loadLocalImage(asset, pngRef).then((data) => {
-      if (!cancelled) setSrc(data)
+    const controller = new AbortController()
+    void loadLocalImage(asset, pngRef, controller.signal).then((data) => {
+      if (!controller.signal.aborted) setSrc(data)
     })
-    return () => {
-      cancelled = true
-    }
+    return () => controller.abort()
   }, [asset, pngRef])
 
   useEffect(() => {
@@ -207,7 +205,7 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
           className={cn(ATTACHMENT_BUTTON_OPAQUE_BG, 'absolute top-2 right-2 z-10')}
           onClick={handleEdit}
         >
-          <PencilIcon className="text-muted-foreground" />
+          <PencilSimpleIcon className="text-muted-foreground" />
         </Button>
       )}
       {pngRef ? (

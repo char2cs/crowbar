@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  commitViewWrite,
   fillPane,
   insertPane,
   movePane,
@@ -110,6 +111,27 @@ describe('removePane', () => {
     expect(state.viewOrder).toEqual(['v2'])
     // The showing view ended: the next view of the project comes forward.
     expect(state.activeViewId).toBe('v2')
+    assertViewIntegrity(state)
+  })
+
+  // The route names the workspace on screen and only a gesture changes it: a
+  // close must not bring another workspace's view forward under that route.
+  it('the view that comes forward shows the same workspace, else the stage', () => {
+    const state = buildViewState({
+      views: [
+        { id: 'v1', panes: [{ id: 'a', chatId: 'chat-a', workspaceId: 'ws-a' }] },
+        { id: 'v2', panes: [{ id: 'b', chatId: 'chat-b', workspaceId: 'ws-b' }] },
+        { id: 'v3', panes: [{ id: 'c', chatId: 'chat-c', workspaceId: 'ws-a' }] },
+      ],
+      active: 'v1',
+      activeProjectId: 'p1',
+    })
+    state.mostRecentActivePaneIds = ['a', 'b', 'c']
+    removePane(state, 'a')
+    expect(state.activeViewId).toBe('v3')
+    removePane(state, 'c')
+    expect(state.activeViewId).toBeNull()
+    expect(state.views.v2).toBeDefined()
     assertViewIntegrity(state)
   })
 
@@ -314,5 +336,23 @@ describe('viewIntegrityViolations', () => {
     const text = viewIntegrityViolations(state).join('\n')
     expect(text).toMatch(/view v2 missing from viewOrder/)
     expect(text).toMatch(/pane orphan is in no layout/)
+  })
+})
+
+describe('commitViewWrite — focus is derived from pane writes', () => {
+  it('focus never names a removed pane, whichever op removed it', () => {
+    for (const op of [
+      (s: ReturnType<typeof twoViews>) => removePane(s, 'b'),
+      (s: ReturnType<typeof twoViews>) => removeView(s, 'v2'),
+      (s: ReturnType<typeof twoViews>) =>
+        movePane(s, 'b', { kind: 'view', projectId: 'p1', after: 'v2' }),
+    ]) {
+      const state = twoViews()
+      state.activeViewId = 'v2'
+      state.activePaneId = 'b'
+      commitViewWrite(state, op)
+      expect(state.panes[state.activePaneId]).toBeDefined()
+      assertViewIntegrity(state)
+    }
   })
 })
