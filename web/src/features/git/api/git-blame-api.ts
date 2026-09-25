@@ -1,26 +1,32 @@
-// Crowbar stub — FUTURE: replace with Go API calls
-const tauriInvoke = async <T>(_cmd: string, _args?: unknown): Promise<T> => {
-  throw new Error(`Not implemented: ${_cmd}`)
+import { apiFetch } from '@/lib/api'
+import { getOwningChatId } from '@/lib/workspace-scope'
+import { chatBase, isHomeWorkspace } from '@/lib/workspace-scope-url'
+
+/** One line's last-changing commit, as the daemon's GET /blame answers it. */
+export interface BlameEntry {
+  /** 1-based. */
+  lineNumber: number
+  commitHash: string
+  author: string
+  email: string
+  /** RFC 3339. */
+  date: string
+  commitMessage: string
 }
-import type { GitBlame } from '../types/git-types'
-import { isNotGitRepositoryError, resolveRepositoryForFile } from './git-repo-api'
 
-export const getGitBlame = async (rootPath: string, filePath: string): Promise<GitBlame | null> => {
-  try {
-    const resolved = await resolveRepositoryForFile(rootPath, filePath)
-    if (!resolved) {
-      return null
-    }
-
-    const blame = await tauriInvoke<GitBlame>('git_blame_file', {
-      rootPath: resolved.repoPath,
-      filePath: resolved.filePath,
-    })
-    return blame
-  } catch (error) {
-    if (!isNotGitRepositoryError(error)) {
-      console.error('Failed to get git blame:', error)
-    }
-    return null
-  }
+/**
+ * Blame a workspace-relative file (GET /v0/chats/:chatId/blame?path=).
+ * Resolves null when the workspace cannot be addressed yet (home workspace,
+ * owning chat not recorded).
+ */
+export async function getBlame(
+  wsId: string,
+  path: string,
+  signal?: AbortSignal,
+): Promise<BlameEntry[] | null> {
+  const chatId = isHomeWorkspace(wsId) ? null : getOwningChatId(wsId)
+  if (!chatId) return null
+  return apiFetch<BlameEntry[]>(`${chatBase(chatId)}/blame?path=${encodeURIComponent(path)}`, {
+    signal,
+  })
 }

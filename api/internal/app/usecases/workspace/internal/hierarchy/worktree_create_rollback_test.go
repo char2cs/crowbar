@@ -221,7 +221,7 @@ func TestCreateChild_RollsBackDetachWhenRetryFails_ReattachAlsoFails(t *testing.
 	ws := &fakeWorkspace{
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
 			return []domain.Workspace{
-				{ID: "def", RepoID: "r1", Branch: "develop", WorktreePath: "/repo", IsDefault: true},
+				{ID: "def", RepoID: "r1", Branch: "develop", WorktreePath: "/repo", IsDefault: true, Provisioning: domain.WorkspaceShared},
 			}, nil
 		},
 		CreateFn: func(_ context.Context, _ workspace.CreateInput, _ time.Time) (domain.Workspace, error) {

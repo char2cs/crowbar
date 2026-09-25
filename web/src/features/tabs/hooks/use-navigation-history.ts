@@ -87,7 +87,7 @@ export function useNavigationHistory(): void {
 
     if (!origin || origin.bufferId === activeBufferId) return
 
-    const { cursorPosition, scrollTop, scrollLeft } = useEditorStateStore.getState()
+    const { cursorPosition } = useEditorStateStore.getState()
     useJumpListStore.getState().actions.pushEntry({
       bufferId: origin.bufferId,
       workspaceId: origin.workspaceId,
@@ -95,8 +95,8 @@ export function useNavigationHistory(): void {
       line: cursorPosition.line,
       column: cursorPosition.column,
       offset: cursorPosition.offset,
-      scrollTop,
-      scrollLeft,
+      scrollTop: 0,
+      scrollLeft: 0,
     })
   }, [activeBufferId])
 }

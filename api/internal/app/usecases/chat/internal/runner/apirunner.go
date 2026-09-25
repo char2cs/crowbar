@@ -17,22 +17,9 @@ import (
 )
 
 // apiConnIsTheRunner reports whether runnerID's spawn has nothing left to
-// fork: its api connection came up, and no `attach` argv was rendered for the
-// PTY to carry.
-//
-// attach is rendered only for a HOTSWAP descriptor (applyAPITransport's own
-// gate) — a non-hotswap one reaches its native view solely through
-// SwitchToTerminal, once idle. So for every non-hotswap api-transport spawn
-// the PTY apiconn.go reserves for `attach` is reserved for NOTHING, and what
-// it used to get instead was the descriptor's own spawn.cmd: a full
-// interactive vendor TUI nobody drives, on a thread of its own, firing the
-// provider's entire hooks config into Crowbar from a conversation the user
-// cannot see. Measured live: 25 bare codex TUIs against 3 chats, and the
-// cross-chat promotion dto/agent.go already documents.
-//
-// A connection that never came up is NOT this case: design spec §2.2b has the
-// session degrade to hooks over that same PTY, which is then the only vendor
-// process there is.
+// fork: its api connection came up and no hotswap `attach` argv was rendered.
+// One channel per runner: a connection that came up is the whole runner; one
+// that did not leaves the PTY (over hooks) as the only process there is.
 func (rs *Runners) apiConnIsTheRunner(req forkRequest, attachArgv []string) bool {
 	return len(attachArgv) == 0 && rs.HasLiveAPIConnection(req.runnerID)
 }
@@ -96,20 +83,11 @@ func (rs *Runners) forkOrAdopt(
 	return termSessID, carried, err
 }
 
-// adoptAPIConn is forkCLI for a spawn with no PTY: it installs the same
-// startup barrier, and arms the same exit reconcile against the `serve`
-// process instead of a terminal session.
-//
-// The barrier is not optional here. pumpAPIConn's goroutine is already running
-// by the time this is reached, and every event it resolves lands in the SAME
-// IngestHook the hook relay uses — so without it, an api-transport event that
-// arrives before the runner row commits is dropped by ingestHookNow's
-// unknown-runner guard exactly as a hook would be.
+// adoptAPIConn is forkCLI for a spawn with no PTY: it arms the same exit
+// reconcile against the `serve` process instead of a terminal session. The
+// startup barrier spawnRunner opened before the connection holds every event
+// the connection delivers until the runner row commits.
 func (rs *Runners) adoptAPIConn(ctx context.Context, req forkRequest) error {
-	if err := rs.pendingHooks.Register(req.runnerID); err != nil {
-		rs.abandonAdoptedSpawn(ctx, req)
-		return fmt.Errorf("agent: spawn runner: install hook startup barrier: %w", err)
-	}
 	if !rs.apiConns.watchExit(req.runnerID, rs.onRunnerExit(req.crowbarHome, req.runnerID, req.tmpDir)) {
 		rs.pendingHooks.Discard(req.runnerID)
 		rs.abandonAdoptedSpawn(ctx, req)
@@ -127,27 +105,12 @@ func (rs *Runners) adoptAPIConn(ctx context.Context, req forkRequest) error {
 }
 
 // carryPromptOverAPIConn delivers a prompt-bearing spawn's message down the
-// connection this runner adopted INSTEAD of forking a PTY — the only carrier
-// such a runner has.
+// connection this runner adopted instead of forking a PTY — the only carrier
+// such a runner has (its rendered argv, prompt and all, is never run).
 //
-// A provider that declares restart_tui prompt delivery puts the message in the
-// spawned process's argv, so every spawn with a prompt used to be a fork. An
-// api-transport spawn whose connection comes up forks nothing (see
-// apiConnIsTheRunner above), and that plan — prompt and all — is discarded:
-// measured live, a chat handed off to a mixed-transport provider answered
-// nothing at all, recorded not even a user bubble, and left its at-most-once
-// delivery journal on "spawned" forever.
-//
-// Dispatching is the right carrier here rather than forking the PTY anyway:
-// the connection has ALREADY established (or resumed) the session, and the
-// provider allows one writer per thread — a PTY forked beside it either
-// collides with that writer or mints a brand new conversation the connection
-// knows nothing about (see apiOwnsResume, resume_injection.go, both confirmed
-// live).
-//
-// A failure FAILS THE SPAWN. There is no third carrier to fall back to, and
-// the caller turns this into the journal's "uncertain" rather than a runner
-// reported healthy with the user's message nowhere.
+// A failure FAILS THE SPAWN: there is no other carrier, and the caller turns
+// it into the journal's "uncertain" rather than a runner reported healthy with
+// the user's message nowhere.
 func (rs *Runners) carryPromptOverAPIConn(ctx context.Context, req forkRequest) error {
 	if req.promptMessage == "" {
 		return nil
@@ -173,26 +136,13 @@ func (rs *Runners) abandonAdoptedSpawn(ctx context.Context, req forkRequest) {
 	worktreepath.RemoveUnderHome(ctx, req.crowbarHome, req.tmpDir)
 }
 
-// RetireAPIConnection ends runnerID's process when that process is an api
-// connection rather than a PTY — the workspace-delete cascade's second seam
-// (repositories.Container.RetireAgentRunner).
-//
-// That cascade only knows how to terminate a terminal session, and an
-// api-driven runner has none. Dropping the connection kills its `serve`
-// process, and watchExit's own reconcile then carries the runner row away —
-// the same sequence a PTY death already drives. A no-op for a hooks-only
-// runner, which has no connection to drop.
-func (rs *Runners) RetireAPIConnection(runnerID string) {
-	rs.apiConns.drop(runnerID)
-}
-
 // handOverAPIConn marks runnerID's connection as being torn down in favour of
 // another process for the SAME runner, so the kill that follows is not read
 // as the runner ending. Called before the drop, never after: the watcher can
 // observe the process die the instant drop signals it.
 func (rs *Runners) handOverAPIConn(runnerID string) {
 	if c, ok := rs.apiConns.get(runnerID); ok {
-		c.handedOver.Store(true)
+		c.detached.Store(true)
 	}
 }
 
@@ -204,11 +154,11 @@ func (rs *Runners) handOverAPIConn(runnerID string) {
 // SwitchToTerminal and the matching SwitchToNative, while every other runner
 // is its own PTY. This is the one place that asks which, so no teardown path
 // has to know.
-func (rs *Runners) runnerHasAnotherProcess(runnerID string) bool {
+func (rs *Runners) runnerHasAnotherProcess(ctx context.Context, runnerID string) bool {
 	if rs.ShowingNativeView(runnerID) || rs.HasLiveAPIConnection(runnerID) {
 		return true
 	}
-	runner, err := rs.runnerStore.Get(context.Background(), runnerID)
+	runner, err := rs.runnerStore.Get(ctx, runnerID)
 	return err == nil && runner.TerminalSession != ""
 }
 
@@ -220,11 +170,13 @@ func (rs *Runners) runnerHasAnotherProcess(runnerID string) bool {
 // answerable once whatever is mid-teardown (or mid-re-establish) has
 // finished. Taking the gate here instead would deadlock SwitchToNative, which
 // holds it across exactly that window.
-func (rs *Runners) exitProcesslessRunner(runnerID string) {
-	if rs.runnerHasAnotherProcess(runnerID) {
+func (rs *Runners) exitProcesslessRunner(ctx context.Context, runnerID string) {
+	// The exit is reconciled in full even if the request that noticed it ends.
+	ctx = context.WithoutCancel(ctx)
+	if rs.runnerHasAnotherProcess(ctx, runnerID) {
 		return
 	}
-	rs.reconcileRunnerExit(context.Background(), runnerID)
+	rs.reconcileRunnerExit(ctx, runnerID)
 }
 
 // rearmAPIConnExit points a PTY-less runner's exit signal back at the
@@ -255,13 +207,13 @@ func (rs *Runners) rearmAPIConnExit(runnerID string, tctx engineagents.TemplateC
 // that this spawn has no liveness signal at all and must not be recorded.
 func (r *apiConnRegistry) watchExit(runnerID string, onExit func()) bool {
 	c, ok := r.get(runnerID)
-	if !ok || c.serveCmd == nil || c.serveCmd.Process == nil {
+	if !ok || c.serve == nil {
 		return false
 	}
 	go func() {
-		_ = c.serveCmd.Wait()
-		if c.handedOver.Load() {
-			return // another process took this runner over — see handOverAPIConn
+		<-c.serve.exited
+		if c.detached.Load() {
+			return // not the runner's exit — see apiconn.detached
 		}
 		onExit()
 	}()

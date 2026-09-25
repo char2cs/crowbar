@@ -50,6 +50,20 @@ func TestPlan_RendersMCPStepsBeforeConfigStepsBeforeExtras(t *testing.T) {
 	assert.Equal(t, []string{"--mcp-config", "{}", "--settings", "s.json", "--"}, plan.Argv)
 }
 
+func TestInject_HookWiringReachesAPTYButNeverAServeProcess(t *testing.T) {
+	d, ctx := base(t)
+	d.ConfigInjection = []spec.InjectStep{passArg(map[string]any{"arg": "-c", "value": "cfg"})}
+	d.HooksInjection = []spec.InjectStep{passArg(map[string]any{"arg": "-c", "value": "hooks"})}
+
+	pty := &models.SpawnPlan{}
+	require.NoError(t, spawn.Inject(d, ctx, pty, nil))
+	serve := &models.SpawnPlan{}
+	require.NoError(t, spawn.InjectServe(d, ctx, serve, nil))
+
+	assert.Equal(t, []string{"-c", "cfg", "-c", "hooks"}, pty.Argv)
+	assert.Equal(t, []string{"-c", "cfg"}, serve.Argv, "a serve process reports over the api channel only")
+}
+
 func TestPlan_ExpandsPlaceholdersInEveryPosition(t *testing.T) {
 	d, ctx := base(t)
 	ctx.Segid = "SEG"

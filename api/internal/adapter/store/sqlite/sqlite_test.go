@@ -85,11 +85,9 @@ func TestGormStore_FindByKey_ContextCancelled(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestOpenDB_ReadonlyDB_JournalModeError covers OpenDB's PRAGMA
-// journal_mode=WAL error branch: gorm.Open succeeds against an existing
-// file, but the PRAGMA fails because the file and its parent directory have
-// had write permission stripped.
-func TestOpenDB_ReadonlyDB_JournalModeError(t *testing.T) {
+// TestOpenDB_ReadonlyDB_FailsToOpen: OpenDB refuses a database whose file and
+// directory cannot be written.
+func TestOpenDB_ReadonlyDB_FailsToOpen(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("running as root; permission denial has no effect")
 	}
@@ -111,7 +109,7 @@ func TestOpenDB_ReadonlyDB_JournalModeError(t *testing.T) {
 
 	_, err = sqlite.OpenDB(path)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "journal_mode")
+	assert.Contains(t, err.Error(), "readonly database")
 }
 
 // noPrimaryKey has no field tagged (or named) as a primary key, exercising

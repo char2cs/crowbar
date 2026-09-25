@@ -179,7 +179,13 @@ func (c *Conversations) PurgeChat(
 	// switch would otherwise Start a CLI onto a chat that has just been Forgotten. That
 	// self-heals (the runner's first hook finds no chat and retires it), but only after
 	// spawning a real process and leaving its tmp dir behind. Serialising is a line.
-	defer c.spawns.Lock(chatID)()
+	// Preempt, like StopChat: a delete must not queue behind a switch parked on
+	// the turn of a chat that is going away.
+	release, err := c.spawns.Preempt(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	return c.PurgeLocked(ctx, chatID)
 }
@@ -195,10 +201,11 @@ func (c *Conversations) PurgeLocked(
 	if _, err := c.chats.GetChat(ctx, chatID); err != nil {
 		return fmt.Errorf("agent: purge chat: get: %w", err)
 	}
+	// Retire first, so the chat's feed still carries its runners' displacement.
+	c.runners.RetireChatRunners(ctx, chatID)
 	if err := c.chats.Forget(ctx, chatID); err != nil {
 		return fmt.Errorf("agent: purge chat: forget: %w", err)
 	}
-	c.runners.RetireChatRunners(ctx, chatID)
 
 	// Drop the conversation record and its telemetry. The record outlives the
 	// process and nothing else removes it, so a hard delete that skipped it would

@@ -2,15 +2,16 @@
 
 import * as React from 'react'
 
-import { formatCodeBlock, isLangSupported } from '@platejs/code-block'
+import { formatCodeBlock, isLangSupported, resetCodeBlockDecorations } from '@platejs/code-block'
 import { Command as CommandPrimitive } from 'cmdk'
-import { BracesIcon, Check, CheckIcon, CopyIcon, SearchIcon } from 'lucide-react'
+import { BracketsCurlyIcon, CheckIcon, CopyIcon, MagnifyingGlassIcon } from '@phosphor-icons/react'
 import { type TCodeBlockElement, type TCodeSyntaxLeaf, NodeApi } from 'platejs'
 import { type PlateElementProps, type PlateLeafProps, PlateElement, PlateLeaf } from 'platejs/react'
 import { useEditorRef, useElement, useReadOnly } from 'platejs/react'
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { onShikiLanguageReady } from '@/components/editor/plugins/shiki-lowlight'
 
 // This file is `components/ui` only by shadcn-registry convention — it is
 // already Plate/markdown-specific (it imports `platejs` types and reads
@@ -21,30 +22,31 @@ import { cn } from '@/lib/utils'
 import { MermaidCodeBlock } from '@/features/editor/markdown/plate/mermaid-code-block'
 
 // `@/components/ui/command` wraps this app's own base-ui `Autocomplete`
-// (not `cmdk`), and `@/components/ui/popover` (base-ui) has no
-// `onCloseAutoFocus` hook. This file talks to `cmdk` and
-// `@radix-ui/react-popover` directly instead, mirroring the shape of the
-// (skipped) registry `command.tsx`/`popover.tsx` so it stays self-contained.
-import * as PopoverPrimitive from '@radix-ui/react-popover'
-
-const Popover = PopoverPrimitive.Root
-const PopoverTrigger = PopoverPrimitive.Trigger
+// (not `cmdk`), so this file talks to `cmdk` directly, mirroring the shape of
+// the (skipped) registry `command.tsx` so it stays self-contained.
+import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
 
 function PopoverContent({
   className,
   sideOffset = 4,
-  ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+  children,
+}: {
+  className?: string
+  sideOffset?: number
+  children: React.ReactNode
+}) {
   return (
     <PopoverPrimitive.Portal>
-      <PopoverPrimitive.Content
-        className={cn(
-          'z-50 rounded-md border bg-popover text-popover-foreground shadow-md outline-hidden',
-          className,
-        )}
-        sideOffset={sideOffset}
-        {...props}
-      />
+      <PopoverPrimitive.Positioner className="z-50" sideOffset={sideOffset}>
+        <PopoverPrimitive.Popup
+          className={cn(
+            'rounded-md border bg-popover text-popover-foreground shadow-md outline-hidden',
+            className,
+          )}
+        >
+          {children}
+        </PopoverPrimitive.Popup>
+      </PopoverPrimitive.Positioner>
     </PopoverPrimitive.Portal>
   )
 }
@@ -67,7 +69,7 @@ function CommandInput({
 }: React.ComponentProps<typeof CommandPrimitive.Input>) {
   return (
     <div className="flex items-center gap-2 border-b px-3" data-slot="command-input-wrapper">
-      <SearchIcon className="size-4 shrink-0 opacity-50" />
+      <MagnifyingGlassIcon className="size-4 shrink-0 opacity-50" />
       <CommandPrimitive.Input
         className={cn(
           'flex w-full rounded-md bg-transparent py-3 text-sm outline-hidden placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50',
@@ -227,6 +229,19 @@ export function CodeBlockElement({ showLanguageLabel = true, ...props }: CodeBlo
   const { editor, element } = props
   const isMermaid = element.lang === 'mermaid'
 
+  // Highlighting grammars load on demand (shiki-lowlight.ts): this block was
+  // decorated as plain text until its language landed, so drop that cached
+  // decoration and re-decorate once it has.
+  React.useEffect(() => {
+    const lang = element.lang
+    if (!lang) return
+    return onShikiLanguageReady((ready) => {
+      if (ready !== lang) return
+      resetCodeBlockDecorations(element)
+      editor.api.redecorate()
+    })
+  }, [editor, element])
+
   const codeBody = (
     <pre className="overflow-x-auto p-8 pr-4 font-mono text-sm leading-[normal] [tab-size:2] print:break-inside-avoid">
       <code>{props.children}</code>
@@ -270,7 +285,7 @@ export function CodeBlockElement({ showLanguageLabel = true, ...props }: CodeBlo
               onClick={() => formatCodeBlock(editor, { element })}
               title="Format code"
             >
-              <BracesIcon className="!size-3.5 text-muted-foreground" />
+              <BracketsCurlyIcon className="!size-3.5 text-muted-foreground" />
             </Button>
           )}
 
@@ -312,19 +327,27 @@ function CodeBlockCombobox({ showLanguageLabel }: { showLanguageLabel: boolean }
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-6 select-none justify-between gap-1 px-2 text-muted-foreground text-xs"
-          aria-expanded={open}
-          role="combobox"
-        >
-          {getCodeBlockLanguageLabel(value) ?? 'Plain Text'}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[200px] p-0" onCloseAutoFocus={() => setSearchValue('')}>
+    <PopoverPrimitive.Root
+      open={open}
+      onOpenChange={setOpen}
+      onOpenChangeComplete={(isOpen) => {
+        if (!isOpen) setSearchValue('')
+      }}
+    >
+      <PopoverPrimitive.Trigger
+        render={
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 select-none justify-between gap-1 px-2 text-muted-foreground text-xs"
+            aria-expanded={open}
+            role="combobox"
+          >
+            {getCodeBlockLanguageLabel(value) ?? 'Plain Text'}
+          </Button>
+        }
+      />
+      <PopoverContent className="w-[200px] p-0">
         <Command shouldFilter={false}>
           <CommandInput
             className="h-9"
@@ -347,7 +370,9 @@ function CodeBlockCombobox({ showLanguageLabel }: { showLanguageLabel: boolean }
                     setOpen(false)
                   }}
                 >
-                  <Check className={cn(value === language.value ? 'opacity-100' : 'opacity-0')} />
+                  <CheckIcon
+                    className={cn(value === language.value ? 'opacity-100' : 'opacity-0')}
+                  />
                   {language.label}
                 </CommandItem>
               ))}
@@ -355,7 +380,7 @@ function CodeBlockCombobox({ showLanguageLabel }: { showLanguageLabel: boolean }
           </CommandList>
         </Command>
       </PopoverContent>
-    </Popover>
+    </PopoverPrimitive.Root>
   )
 }
 

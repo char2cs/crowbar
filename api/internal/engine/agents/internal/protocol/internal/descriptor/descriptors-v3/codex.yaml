@@ -1,20 +1,9 @@
-# Codex — v3, event-centric, MIXED CHANNEL: the app-server API carries the
-# interactive core (turns, streaming, answerable permissions, telemetry,
-# interrupt, compact). codex's own injected hooks.* config ALSO fires most of
-# that same core a second time over the hook relay, so session_start/
-# user_prompt/turn_stop/tool_pre/tool_post/compact_pre/compact_post each
-# declare both an api: and a hooks: channel block, resolved by the channel
-# the delivery actually arrived on (docs/plans/2026-09-22-descriptor-channel-
-# split.md). turn_failed/tool_fail have no hooks equivalent — PostToolUse/
-# Stop never name them — and stay api-only; subagent_pre/subagent_post/
-# session_end are hooks-only (see their own comments below).
-#
-# Every event above (dual-channel and api-only alike) declares owner: api
-# (design spec P6b): the app-server api connection is authoritative WHEN it
-# is live and has actually been dispatched to (turn/ingest.go's
-# ownerDropsThisDelivery) — the companion PTY every api-transport spawn
-# still forks fires the identical hooks unconditionally, and owner: is what
-# tells that redundant echo apart from the api connection's own delivery.
+# Codex — v3, event-centric, TWO CHANNELS, ONE PER PROCESS: the chat surface
+# runs `codex app-server` and reports over the api channel; the terminal
+# surface (and SwitchToTerminal's `attach`) runs the TUI in a PTY and reports
+# over the hook relay. So most events declare an api: and a hooks: block, and
+# the block is chosen by the channel a delivery arrived on. hooks_injection is
+# applied to the PTY only, so no process ever reports an event twice.
 #
 # message_delta/reasoning_delta/tool_output_delta declare surfaces: [chat]
 # (design spec P6b tag 2): live-only text, redundant with codex's own
@@ -62,14 +51,8 @@ runtime:
 not_emitted: [notification]
 
 # Both are launchable, and the CHANNEL is what separates them: a chat born on
-# terminal opens NO app-server connection (apiTransportDrivesSurface,
-# runner/surface.go), so the ordinary `codex` PTY every spawn already forks IS
-# the surface. Opening one beside it would fork a second thread and hide that
-# PTY (owner: api, above).
-#
-# start_here here is NOT a claim about `attach`: that is the api channel's way
-# back onto an EXISTING session and still needs a flushed rollout, which is
-# why SwitchToTerminal keeps refusing an api-born chat that has never turned.
+# the terminal runs the TUI in a PTY and opens no app-server connection.
+# start_here is NOT a claim about `attach`, which still needs a flushed rollout.
 surfaces:
   chat:     { channel: api,   start_here: true }
   terminal: { channel: hooks, start_here: true }
@@ -77,15 +60,6 @@ surfaces:
 events:
   session_start:
     required: [session_id]
-    # owner: api (design spec P6b) — codex's own config.toml ALSO wires
-    # hooks.SessionStart unconditionally (config_injection below), firing
-    # this hooks-shaped a second time on the companion PTY every
-    # api-transport spawn forks alongside a live connection. owner: says the
-    # api side is authoritative WHEN it is live and has actually been
-    # dispatched to (turn/ingest.go's ownerDropsThisDelivery) — never on
-    # liveness alone, so a spawn that handed its opening prompt to the
-    # companion PTY instead still gets recorded from the hooks side.
-    owner: api
     api:
       in: thread/started
       map: { session_id: thread.id }
@@ -102,9 +76,6 @@ events:
   # TestUsecase_OpenWork_ReportsAToolCallTheProviderNeverClosed.
   user_prompt:
     required: [session_id]
-    # owner: api — see session_start's own comment; UserPromptSubmit fires
-    # on the companion PTY the same way.
-    owner: api
     api:
       in: item/started
       when: { item.type: userMessage }
@@ -137,11 +108,6 @@ events:
   # human asked for it.
   turn_stop:
     required: [session_id]
-    # owner: api — see session_start's own comment; Stop fires on the
-    # companion PTY the same way. This is the exact event the "Codex still
-    # not worky" and companion-PTY-echo bugs were both confirmed live
-    # against.
-    owner: api
     api:
       in: turn/completed
       map:
@@ -220,9 +186,6 @@ events:
   # where the same field IS proven.
   tool_pre:
     required: [session_id, tool_id, tool_name]
-    # owner: api — see session_start's own comment; PreToolUse fires on the
-    # companion PTY the same way.
-    owner: api
     api:
       in: item/started
       when:
@@ -275,9 +238,6 @@ events:
   # never does: closeAgent's own completion still names the same id).
   tool_post:
     required: [session_id, tool_id, tool_name]
-    # owner: api — see session_start's own comment; PostToolUse fires on the
-    # companion PTY the same way.
-    owner: api
     api:
       in: item/completed
       when:
@@ -478,9 +438,6 @@ events:
   # widen to every later command in the session.
   permission:
     required: [session_id, tool_name]
-    # owner: api — see session_start's own comment; PermissionRequest fires
-    # on the companion PTY the same way as an ordinary ask.
-    owner: api
     timeout_seconds: 270
     # api's own fixtures below ARE genuine live captures (codex-cli 0.149.1,
     # verbatim from dispatch_test.go's commandExecutionApproval/
@@ -639,9 +596,6 @@ events:
   # ordinary reply or a failed one.
   compact_pre:
     required: [session_id]
-    # owner: api — see session_start's own comment; PreCompact fires on the
-    # companion PTY the same way.
-    owner: api
     api:
       in: item/started
       when: { item.type: contextCompaction }
@@ -658,9 +612,6 @@ events:
 
   compact_post:
     required: [session_id]
-    # owner: api — see session_start's own comment; PostCompact fires on the
-    # companion PTY the same way.
-    owner: api
     api:
       in: item/completed
       when: { item.type: contextCompaction }
@@ -747,21 +698,9 @@ events:
   #     CompleteSubagentTool) and its OWN turn_stop/turn_failed closes the
   #     subagent and records its final reply (StopSubagent) — see
   #     turn/nested.go's handleNestedObservation.
+  # Hooks-only (the TUI's PTY): no api: block, so the api driver never
+  # resolves them.
   subagent_pre:
-    # transport: hooks kept alongside the hooks: block, not redundant with
-    # it — apiconn.go's pumpAPIConn reads only this flat field (via
-    # TransportFor) to decide which kinds its own driver bothers to
-    # forward, and it must keep saying "hooks" or a live api connection
-    # would try to parse an api-shaped frame this event has no api: block
-    # for at all.
-    #
-    # owner: hooks is declarative, not load-bearing here: this event has no
-    # api: block, so ownerDropsThisDelivery (turn/ingest.go) can never see
-    # an api-channel delivery of it to drop in the first place — recorded
-    # anyway so the descriptor states its own policy rather than leaving it
-    # implicit.
-    transport: hooks
-    owner: hooks
     required: [session_id]  # subagent_id NOT required — see its own comment above
     hooks:
       unverified: true
@@ -769,37 +708,15 @@ events:
       map: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
 
   subagent_post:
-    transport: hooks
-    owner: hooks
     required: [session_id]  # subagent_id NOT required — see its own comment above
     hooks:
       unverified: true
       in: SubagentStop
       map: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
 
-  # STILL rides transport: hooks, but investigated and confirmed harmless:
-  # HookSessionEnd's own dispatch (turn/ingest.go) is ALREADY a deliberate
-  # no-op regardless of which transport delivers it — a session ending is
-  # observed authoritatively by the PTY-exit reconcile (every provider) and,
-  # for the api transport specifically, by onAPIConnLost (runner/connloss.go)
-  # tearing the connection down and reconciling its turn the moment the
-  # driver's Events() channel closes. Acting on session_end a second time
-  # would close a turn twice.
-  #
-  # codex's api schema has no dedicated "session is ending, here is why"
-  # notification to move this onto. The closest candidate, thread/closed
-  # (params: {threadId}, no reason), was tried live against every
-  # client-reachable action that could plausibly precede it — including
-  # thread/unsubscribe — and never fired. Absent a reachable trigger,
-  # mapping it would be exactly the kind of ships-but-never-fires change
-  # this report's own methodology exists to catch (see the thread/status/
-  # changed correction above), so nothing was added. If a future codex
-  # version exposes an explicit "close this thread" request, or thread/
-  # closed is later observed to fire from a client-reachable action, that
-  # is the wire to map this onto — driven and confirmed live first.
+  # A deliberate no-op in Go: a session's end is observed from the process
+  # exit. codex's api has no reachable "thread closed" notification to map.
   session_end:
-    transport: hooks
-    owner: hooks
     required: [session_id]
     hooks:
       unverified: true
@@ -890,6 +807,12 @@ spawn:
     - "--dangerously-bypass-hook-trust"
 session:
   resume: { arg: "resume {id}" }
+  # Checked before any resume: a thread that never completed a turn has no
+  # rollout, and `resume <id>` then exits 1 (verified on 0.156.1).
+  locate:
+    root_env: CODEX_HOME
+    root: "~/.codex"
+    glob: ["sessions/*/*/*/rollout-*-{id}.jsonl"]
 presentation:
   prompt_submit:
     strategy: restart_tui
@@ -998,6 +921,14 @@ config_injection:
   # same generic activity.subagents feed; this is the one flag that lets
   # codex actually produce the events that feed it too.
   - pass_arg: { arg: "-c", value: 'features.collab_agents=true' }
+  # Boot modals a launch must never park on (verified on 0.156.1): the
+  # per-directory trust prompt (every worktree is a new directory) and the
+  # "resume in which cwd?" prompt. Session-layer only — nothing is persisted.
+  - pass_arg: { arg: "-c", value: 'projects={{cwd_json}={trust_level="trusted"}}' }
+  - pass_arg: { arg: "-c", value: 'tui.resume_cwd="current"' }
+# Hook wiring: applied to a PTY only, never to `app-server` — a process
+# reports over exactly one channel (spawn.InjectServe).
+hooks_injection:
   - pass_arg:
       arg: "-c"
       value: 'hooks.SessionStart=[{hooks=[{type="command",command="{crowbar_hook} hook session_start --segment {segid} --provider {provider} {scope_flags}"}]}]'
@@ -1056,14 +987,16 @@ mcp_injection:
 # REPLACES codex's system prompt.
 context_inject:
   - pass_arg: { arg: "-c", value: "developer_instructions={context}" }
-# NO resume_context_inject, deliberately: a resumed codex session is
-# entirely api-transport-owned, and the redundant hooks-only PTY never
-# resumes the same thread — there is no CLI argv left to ride. The api
-# connection delivers {context} instead, via inject: at: context above.
+# NO resume_context_inject: a resumed chat-surface session is resumed over
+# the api connection, which delivers {context} via inject: at: context above.
 #
 # UNKINDED, unlike claude's pair: "Press enter to continue" is generic
 # confirmation text, so a match only proves the CLI is blocked, not why.
 terminal_prompts:
+  # Suppressed by config_injection; declared so a launch that still paints it
+  # (a user override dropping that line) is reported, not a silent hang.
+  - kind: workspace_trust
+    needle: "Trust this folder?"
   - needle: "Press enter to continue"
   # A second, distinct modal — the two needles share a prefix and diverge,
   # so neither substring-matches the other.

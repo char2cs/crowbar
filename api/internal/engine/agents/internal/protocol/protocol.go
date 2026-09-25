@@ -52,9 +52,35 @@ type ForeignPayloadError = inbound.ForeignConversationError
 // declared required: mapping resolved to nothing against (design spec 2.3).
 type RequiredFieldError = inbound.RequiredFieldError
 
+// DescriptorRuleFailure is one load rule a descriptor breaks.
+type DescriptorRuleFailure = descriptor.RuleFailure
+
+// DescriptorSource is one descriptor document Crowbar would load.
+type DescriptorSource = descriptor.Source
+
+// CheckDescriptor parses raw and reports every load rule it breaks.
+func CheckDescriptor(raw []byte) (*spec.Descriptor, []DescriptorRuleFailure) {
+	return descriptor.Check(raw)
+}
+
+// DescriptorSourceFor is the document Crowbar would load for id.
+func DescriptorSourceFor(homeDir, id string) (DescriptorSource, bool) {
+	return descriptor.SourceFor(homeDir, id)
+}
+
+// EmbeddedDescriptorSource is the shipped default for id.
+func EmbeddedDescriptorSource(id string) (DescriptorSource, bool) {
+	return descriptor.EmbeddedSource(id)
+}
+
+// DescriptorSources lists every descriptor document, overrides shadowing defaults.
+func DescriptorSources(homeDir string) ([]DescriptorSource, error) {
+	return descriptor.Sources(homeDir)
+}
+
 // All returns every descriptor Crowbar can resolve, sorted by id.
-func All(ctx context.Context, homeDir string) ([]*spec.Descriptor, error) {
-	return descriptor.All(ctx, homeDir)
+func All(ctx context.Context, homeDir string, accept func(raw []byte) bool) ([]*spec.Descriptor, error) {
+	return descriptor.All(ctx, homeDir, accept)
 }
 
 // EmbeddedModelManifest is descriptor.EmbeddedModelManifest, re-exported so a
@@ -65,9 +91,10 @@ func EmbeddedModelManifest() []byte {
 	return descriptor.EmbeddedModelManifest()
 }
 
-// Resolve loads one provider's descriptor, preferring an on-disk override.
-func Resolve(ctx context.Context, homeDir, id string) (*spec.Descriptor, error) {
-	return descriptor.Resolve(ctx, homeDir, id)
+// Resolve loads one provider's descriptor, preferring an on-disk override
+// that accept admits.
+func Resolve(ctx context.Context, homeDir, id string, accept func(raw []byte) bool) (*spec.Descriptor, error) {
+	return descriptor.Resolve(ctx, homeDir, id, accept)
 }
 
 // OverridePath is descriptor.OverridePath, re-exported for a caller that
@@ -187,6 +214,10 @@ func (c *APIConn) Reply(askID json.RawMessage, rendered []byte) error {
 }
 
 func (c *APIConn) Close() error { return c.drv.Close() }
+
+// Overflowed reports whether the connection closed because its consumer fell
+// too far behind (see wsrpc's mailbox).
+func (c *APIConn) Overflowed() bool { return c.drv.Overflowed() }
 
 // EstablishSession runs canonical's Fresh-or-Resume steps on this connection,
 // if it has not already — see apidriver.Driver.EstablishSession's own doc

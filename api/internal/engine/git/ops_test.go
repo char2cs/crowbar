@@ -373,8 +373,34 @@ func TestWorktreeAdd_AndRemove(
 	_, err = os.Stat(wtPath)
 	require.NoError(t, err)
 
-	err = e.WorktreeRemove(ctx, dir, wtPath)
+	err = e.WorktreeRemove(ctx, dir, wtPath, true)
 	require.NoError(t, err)
+}
+
+// Without force, git refuses a worktree holding uncommitted work and leaves it
+// exactly as it was — the only removal that may run against a worktree whose
+// changes are not Crowbar's to throw away.
+func TestWorktreeRemove_WithoutForceKeepsADirtyWorktree(
+	t *testing.T,
+) {
+	ctx := context.Background()
+	dir := initRepo(t)
+	makeCommit(t, dir, "file.txt", "content\n", "init")
+	gitRun(t, dir, "branch", "wt-branch")
+	wtPath := filepath.Join(t.TempDir(), "extra-worktree")
+	e := git.New()
+	require.NoError(t, e.WorktreeAdd(ctx, dir, wtPath, "wt-branch"))
+	dirty := filepath.Join(wtPath, "unsaved.txt")
+	require.NoError(t, os.WriteFile(dirty, []byte("work\n"), 0o600))
+
+	require.Error(t, e.WorktreeRemove(ctx, dir, wtPath, false))
+	_, err := os.Stat(dirty)
+	require.NoError(t, err, "the uncommitted file must survive a refused removal")
+
+	require.NoError(t, os.Remove(dirty))
+	require.NoError(t, e.WorktreeRemove(ctx, dir, wtPath, false), "a clean worktree is removed without force")
+	_, err = os.Stat(wtPath)
+	require.True(t, os.IsNotExist(err))
 }
 
 func TestOperationContinue_AfterMergeConflictResolved(

@@ -13,6 +13,7 @@ import (
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/promptsigil"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -24,7 +25,11 @@ func (rs *Runners) SpawnChat(
 	providerID string,
 ) (chatID, runnerID string, err error) {
 	chatID = uuid.NewString()
-	defer rs.spawns.Lock(chatID)()
+	_, release, err := rs.spawns.Acquire(ctx, chatID)
+	if err != nil {
+		return "", "", err
+	}
+	defer release()
 
 	runnerID, err = rs.spawnRunner(ctx, chatID, workspaceID, providerID, "", nil, nil, "", 0, false, "", true, "")
 	if err != nil {
@@ -38,12 +43,17 @@ func (rs *Runners) StartRunner(
 	chatID string,
 	providerID string,
 ) (string, error) {
-	defer rs.spawns.Lock(chatID)()
+	_, release, err := rs.spawns.Acquire(ctx, chatID)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 
 	chat, err := rs.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return "", fmt.Errorf("agent: start runner: chat: %w", err)
 	}
+	defer rs.enterPhase(ctx, chatID, snapshot.PhaseStarting)()
 	return rs.spawnRunner(ctx, chatID, chat.WorkspaceID, providerID, "", nil, nil, "", 0, false, "", false, "")
 }
 
@@ -66,9 +76,7 @@ func (rs *Runners) spawnRunner(
 	workspaceID string,
 	providerID string,
 	preallocatedRunnerID string,
-	// The FULL native resume argv this spawn would carry, never pre-suppressed by
-	// its caller: only this function, once applyAPITransport has run, knows
-	// whether an api connection took the resume over instead (apiResumes).
+	// The native resume argv the PTY carries if this spawn forks one.
 	resumeSteps []engineagents.InjectStep,
 	finalSteps []engineagents.InjectStep,
 	conversation string,
@@ -77,7 +85,10 @@ func (rs *Runners) spawnRunner(
 	launchSessionID string,
 	create bool,
 	promptMessage string,
-) (string, error) {
+) (_ string, err error) {
+	if !create {
+		defer rs.noteSpawnFailure(ctx, chatID, &err)
+	}
 	pre, err := rs.spawnPreflight(ctx, chatID, providerID, create)
 	if err != nil {
 		return "", err
@@ -170,27 +181,24 @@ func (rs *Runners) spawnRunner(
 		rs.agents.RecordInjection(runnerID, tctx.Context, tctx.ContextPointer)
 	}
 
-	// BEFORE the argv is rendered, not after. Whether this connection actually
-	// comes up is what decides whether the companion PTY may carry a native
-	// `resume {id}` and the positional gap document at all (apiResumes,
-	// resume_injection.go) — asked the other way round, from the descriptor
-	// alone, a codex whose app-server never started had BOTH withheld and duly
-	// minted a brand new thread, silently abandoning the chat's own conversation
-	// on every restart and every switch back. Still never a reason to fail the
-	// spawn: a connection that does not come up leaves apiResumes false and the
-	// session runs over hooks alone, exactly as design spec §2.2b requires.
-	// The surface this process actually lands on, recorded before anything can
-	// ask: it is the runner's CURRENT surface from here until a switch moves
-	// it, and ShowingNativeView reads exactly this (surface.go).
+	// The startup barrier opens before anything can report: an api connection
+	// announces its session the moment it is established, long before the
+	// runner row exists, and that announcement is what makes it resumable.
+	if err := rs.pendingHooks.Register(runnerID); err != nil {
+		rs.agents.ForgetRunner(runnerID)
+		return "", fmt.Errorf("agent: spawn runner: install hook startup barrier: %w", err)
+	}
+	// The surface this process lands on, recorded before anything can ask
+	// (ShowingNativeView reads it).
 	rs.surfaces.set(runnerID, surfaceForSpawn(descriptor, pre.surface))
-	// tctx carries the selection, so the serve argv this renders takes the
-	// chat's model/effort on the api channel (APIServeArgv) exactly as the
-	// spawn plan below takes them on the argv one.
+	// The api connection comes up (or not) BEFORE the PTY plan is rendered:
+	// when it does, the runner is that connection and the plan never runs;
+	// when it does not, the session runs over the PTY's hooks alone.
 	attachArgv := rs.apiTransportForSurface(
 		ctx, runnerID, providerID, descriptor, tctx, resumeContextFor(resuming, inject, tctx), pre.surface,
 	)
 	steps := buildSpawnSteps(
-		descriptor, resuming, inject, rs.apiResumes(descriptor, runnerID), sel, resumeSteps, finalSteps,
+		descriptor, resuming, inject, sel, resumeSteps, finalSteps,
 	)
 
 	plan, err := descriptor.SpawnPlan(tctx, os.Environ(), steps)
@@ -203,6 +211,7 @@ func (rs *Runners) spawnRunner(
 		// Same for the connection just established: onRunnerExit's own drop fires
 		// from a PTY dying, and this spawn never gets one.
 		rs.apiConns.drop(runnerID)
+		rs.pendingHooks.Discard(runnerID)
 		rs.agents.ForgetRunner(runnerID)
 		return "", fmt.Errorf("agent: spawn runner: build spawn plan: %w", err)
 	}
@@ -244,6 +253,10 @@ func (rs *Runners) spawnRunner(
 		rs.agents.ForgetRunner(runnerID)
 		return "", err
 	}
+	rs.noteLaunch(ctx, chatID, rs.spawnRung(runnerID, launchSessionID != "", conversation))
+	if termSessID != "" {
+		rs.watchResume(runnerID, chatID, launchSessionID, promptMessage)
+	}
 	// Keep the barrier installed throughout replay. A hook arriving while an
 	// earlier buffered hook is being applied joins the next batch, so it cannot
 	// overtake session_start or user_prompt on the normal persisted-runner path.
@@ -278,11 +291,6 @@ func (rs *Runners) forkCLI(
 	ctx context.Context,
 	req forkRequest,
 ) (string, error) {
-	if err := rs.pendingHooks.Register(req.runnerID); err != nil {
-		rs.agents.ForgetRunner(req.runnerID)
-		worktreepath.RemoveUnderHome(ctx, req.crowbarHome, req.tmpDir)
-		return "", fmt.Errorf("agent: spawn runner: install hook startup barrier: %w", err)
-	}
 	termSessID, err := rs.term.CreateCommand(ctx, req.chatID, req.worktree, req.argv, req.env,
 		rs.onRunnerExit(req.crowbarHome, req.runnerID, req.tmpDir))
 	if err == nil {

@@ -1,21 +1,11 @@
-import { useMemo } from 'react'
-import { useStore } from 'zustand'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import {
   useActivePaneWorkspaceId,
   usePaneEditorWorkspaceIds,
-  usePaneWorkspaceIds,
   useViewWorkspaceIds,
 } from '@/features/panes/hooks/use-chat-workspace-id'
 import { useWorkspaceProviderStream } from '@/features/workspace/stores/hooks/use-workspace-provider-stream'
 import { usePublishFocusedWorkspaceContext } from './use-publish-focused-workspace-context'
-
-// Ids can never contain NUL/SOH (workspace-host.tsx's own NUL guarantee,
-// extended here with a second delimiter for a chatId/wsId pair within one
-// entry) — safe join/split delimiters for the stable keys below.
-const PANE_ENTRY_DELIM = '\x00'
-const PANE_PAIR_DELIM = '\x01'
 
 export interface IdeShellWorkspaceRetention {
   /** The workspace WorkspaceHost should treat as "active" — see field doc
@@ -52,87 +42,18 @@ export function useIdeShellWorkspaceRetention(
   homeWorkspacePath: string | null = null,
   projectPath = '',
 ): IdeShellWorkspaceRetention {
-  // The chat the ACTIVE PANE is showing, and the workspace that chat belongs
-  // to — resolved before `effectiveActiveWorkspaceId` below, which now leans
-  // on it. A split can merge chats from different workspaces into one view
-  // (spec §8.2's drag-to-merge), and everything downstream that means "the
-  // workspace you're sitting in" — the file-explorer card, but also
-  // `WorkspaceHost`'s own single "active" slot, which is what actually
-  // mounts `WorkspaceActiveEffects` (use-workspace-effects.ts: git store,
-  // file-system store, save/pane keyboard) for exactly one workspace at a
-  // time — needs to agree with whichever pane you actually clicked into, not
-  // just the URL. Pinned to the route alone, changing the active PANE inside
-  // a split never fired any of that: the file tree kept showing the pane you
-  // had left, because the global file-system store is written only by the
-  // workspace `WorkspaceHost` currently calls "active" — caught live,
-  // clicking between two panes on different repos left the file explorer
-  // stuck on the first one.
-  //
-  // Resolved by ONE hook rather than the three steps this used to spell out
-  // (active pane → its chat id → that chat's sidebar hint → the resolver):
-  // each intermediate moves on every click from one chat to another, while the
-  // ANSWER only moves when the two chats belong to different workspaces — and
-  // a re-render of IDEShell is a re-render of the whole application, every
-  // sidebar row and the whole pane tree included.
-  // `useActivePaneWorkspaceId` subscribes to all three sources and yields the
-  // resolved id alone, so clicking between two chats of the same workspace now
-  // re-renders nothing here.
+  // The workspace of the chat in the ACTIVE PANE — what everything meaning
+  // "the workspace you're sitting in" follows (the file-explorer card, and
+  // `WorkspaceHost`'s single active slot that mounts `WorkspaceActiveEffects`),
+  // so clicking into a split's other pane moves them. Read off the pane's own
+  // record (C3): clicking between two chats of one workspace re-renders
+  // nothing here, and no sidebar or registry scan runs per frame.
   const activePaneWorkspaceId = useActivePaneWorkspaceId()
-  // Every chat ANY pane currently holds, not just the active one — stable,
-  // deduped key so this only changes identity when a pane actually starts or
-  // stops naming a NEW chat, not on every unrelated pane-store write.
-  const paneChatIdsKey = useStore(windowPaneStore, (s) => {
-    const ids = new Set<string>()
-    for (const pane of Object.values(s.panes)) if (pane.chatId) ids.add(pane.chatId)
-    return [...ids].sort().join(PANE_ENTRY_DELIM)
-  })
-  const paneChatIds = useMemo(
-    () => (paneChatIdsKey ? paneChatIdsKey.split(PANE_ENTRY_DELIM) : []),
-    [paneChatIdsKey],
-  )
-  // Same hint lookup as `activePaneWorkspaceId` above, generalized to every
-  // pane's chat rather than just the active one's.
-  const paneChatHintsKey = useSidebarStore((s) => {
-    const parts: string[] = []
-    for (const chatId of paneChatIds) {
-      for (const repo of s.repos) {
-        const chat = repo.chats?.find((c) => c.id === chatId)
-        if (chat?.workspaceId) {
-          parts.push(`${chatId}${PANE_PAIR_DELIM}${chat.workspaceId}`)
-          break
-        }
-      }
-    }
-    return parts.join(PANE_ENTRY_DELIM)
-  })
-  const paneChatEntries = useMemo<Array<[string, string | null]>>(() => {
-    const hints = new Map<string, string>()
-    if (paneChatHintsKey) {
-      for (const part of paneChatHintsKey.split(PANE_ENTRY_DELIM)) {
-        const [chatId, wsId] = part.split(PANE_PAIR_DELIM)
-        hints.set(chatId, wsId)
-      }
-    }
-    return paneChatIds.map((chatId) => [chatId, hints.get(chatId) ?? null])
-  }, [paneChatIds, paneChatHintsKey])
-  // Every workspace SOME pane holds a chat for — fed into WorkspaceHost below
-  // so each one gets a real, mounted store instead of silently falling back
-  // to whichever workspace happens to be ambient (see usePaneWorkspaceIds'
-  // own doc for the "clicking one pane switches the other's chat" bug this
-  // closes).
-  // Every workspace some pane's EDITOR TABS reference, via each open buffer's
-  // own workspaceId — an editor-only pane (chatId: null) names no chat, so
-  // it is invisible to paneWorkspaceIds above; without this, WorkspaceHost's
-  // retention could evict a workspace still displaying an open file/terminal
-  // split the instant its chat (if any) dropped out of Recents (see the
-  // hook's own doc — "Editor failed to load" was this).
-  const paneEditorWorkspaceIds = usePaneEditorWorkspaceIds()
-  const paneWorkspaceIds = usePaneWorkspaceIds(paneChatEntries)
-  // Every workspace Recents currently tracks a chat for (live, working, set,
-  // or dormant) — fed into WorkspaceHost below as `viewWsIds`, its new "in a
-  // view" retention test (workspaceKeepAliveMinutes and its time-window
-  // policy are gone; see keep-alive-policy.ts).
+  // Every workspace a view member belongs to, and every workspace some pane's
+  // editor tabs reference (an editor-only pane names no chat) — together, the
+  // workspaces something on screen or in Recents still needs a store for.
   const viewWorkspaceIds = useViewWorkspaceIds()
+  const paneEditorWorkspaceIds = usePaneEditorWorkspaceIds()
   // The workspace WorkspaceHost should treat as "active": the focused pane's
   // workspace wins on EVERY route, including home — the pane store's
   // integrity invariant guarantees `activePaneId` is a pane of the showing
@@ -199,7 +120,7 @@ export function useIdeShellWorkspaceRetention(
 
   return {
     effectiveActiveWorkspaceId,
-    paneWsIds: [...new Set([...paneWorkspaceIds, ...paneEditorWorkspaceIds])],
+    paneWsIds: [...new Set([...viewWorkspaceIds, ...paneEditorWorkspaceIds])],
     viewWsIds: viewWorkspaceIds,
     sidebarWorkspacePath,
   }

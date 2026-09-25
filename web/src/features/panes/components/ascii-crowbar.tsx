@@ -44,12 +44,11 @@ import {
  * 120fps. The cost was never the projection math; it was the browser laying
  * out a many-thousand-character text block 30 times a second. The char + z
  * buffers are allocated once and reused every frame (zero allocation in the
- * hot loop besides the row strings `fillText` needs). Capped at ~30fps; paused
- * only when the work is INVISIBLE — offscreen, or the tab hidden. It
- * deliberately keeps tumbling while the app is merely not the key window: a
- * background window is still on screen, and a backdrop that freezes the
- * moment you click away is a visible defect, not a saving. A single static
- * frame under `prefers-reduced-motion`.
+ * hot loop besides the row strings `fillText` needs). It tumbles for a brief
+ * intro after mount (capped at ~30fps, paused while offscreen or the tab is
+ * hidden) and then settles on a static frame with nothing scheduled: an empty
+ * pane is idle, and a backdrop that animated forever was ~97% of the idle
+ * webview's CPU. A single static frame under `prefers-reduced-motion`.
  *
  * THEMING: colour and font come from the app's tokens (`text-muted-foreground`,
  * `font-mono`), so it tracks light/dark for free. There is no HEV-orange token

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/core/selfinstall"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 func TestInstall_CopiesExecutableIntoBin(t *testing.T) {
@@ -63,6 +64,7 @@ func TestInstall_MkdirAllFails_ReturnsError(t *testing.T) {
 // read-only so copyFile's create step fails, and Install must surface that
 // error rather than swallow it.
 func TestInstall_CopyFileErrorPropagates_ReadOnlyBinDir(t *testing.T) {
+	testutil.RequirePermissionEnforcement(t)
 	home := t.TempDir()
 	binDir := filepath.Join(home, "bin")
 	require.NoError(t, os.MkdirAll(binDir, 0o555)) // r-x: MkdirAll no-ops on an existing dir

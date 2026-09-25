@@ -69,48 +69,6 @@ func TestExtractConflictBlocks_UnclosedMarker(
 }
 
 // ---------------------------------------------------------------------------
-// extractLines
-// ---------------------------------------------------------------------------
-
-func TestExtractLines_Normal(
-	t *testing.T,
-) {
-	content := "a\nb\nc\nd\ne"
-	result := extractLines(content, 2, 4)
-	assert.Equal(t, "b\nc", result)
-}
-
-// TestExtractLines_StartNegative exercises the start < 0 branch (startLine=0).
-func TestExtractLines_StartNegative(
-	t *testing.T,
-) {
-	content := "a\nb\nc"
-	// startLine=0 → start = -1 → clamped to 0
-	result := extractLines(content, 0, 2)
-	assert.Equal(t, "a", result)
-}
-
-// TestExtractLines_EndBeyondLength exercises the end > len(lines) branch.
-func TestExtractLines_EndBeyondLength(
-	t *testing.T,
-) {
-	content := "a\nb\nc"
-	// endLine=100 → end = 99 → clamped to len(lines)=3
-	result := extractLines(content, 1, 100)
-	assert.Equal(t, "a\nb\nc", result)
-}
-
-// TestExtractLines_StartGeEnd exercises the start >= end branch (returns "").
-func TestExtractLines_StartGeEnd(
-	t *testing.T,
-) {
-	content := "a\nb\nc"
-	// startLine=3 → start=2, endLine=2 → end=1, start >= end
-	result := extractLines(content, 3, 2)
-	assert.Equal(t, "", result)
-}
-
-// ---------------------------------------------------------------------------
 // resolvedText
 // ---------------------------------------------------------------------------
 

@@ -34,11 +34,6 @@ func palette() []string {
 	}
 }
 
-// Palette returns the avatar color token set.
-func Palette() []string {
-	return palette()
-}
-
 // Label returns the single-char avatar badge: first alphanumeric char of name,
 // uppercased; "?" when none.
 func Label(

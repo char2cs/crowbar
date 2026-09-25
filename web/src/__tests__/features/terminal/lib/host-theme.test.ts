@@ -31,7 +31,7 @@ function bodyOf(call: number): Record<string, string> {
   return JSON.parse((apiFetch.mock.calls[call][1] as RequestInit).body as string)
 }
 
-const { pushHostTerminalTheme, startHostThemeSync } =
+const { pushHostTerminalTheme, startHostThemeSync, resetHostThemePushForTests } =
   await import('@/features/terminal/lib/host-theme')
 
 beforeEach(() => {
@@ -39,6 +39,7 @@ beforeEach(() => {
   apiFetch.mockReset()
   apiFetch.mockResolvedValue(undefined)
   themeListeners.clear()
+  resetHostThemePushForTests()
   readPayload = () => ({ background: '#faf9f5', foreground: '#141414', dark: false })
 })
 
@@ -54,6 +55,12 @@ describe('pushHostTerminalTheme', () => {
     expect(apiFetch.mock.calls[0][0]).toBe('/v0/settings/terminal/theme')
     expect((apiFetch.mock.calls[0][1] as RequestInit).method).toBe('PUT')
     expect(bodyOf(0)).toEqual({ bg: '#faf9f5', fg: '#141414' })
+  })
+
+  it('does not re-send the pair it already sent (boot push + the initial theme apply)', async () => {
+    await pushHostTerminalTheme()
+    await pushHostTerminalTheme()
+    expect(apiFetch).toHaveBeenCalledTimes(1)
   })
 
   it('reports failure instead of throwing, so a boot before the daemon is up is survivable', async () => {

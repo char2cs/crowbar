@@ -33,14 +33,6 @@ type WebSocketHub interface {
 	BroadcastFile(
 		evt domain.FileChangeEvent,
 	)
-	// BroadcastAgentChat carries the chat's folded busy state (working) alongside the
-	// kind, so no client re-derives the spinner. See Hub.BroadcastAgentChat.
-	BroadcastAgentChat(
-		chatID string,
-		workspaceID string,
-		kind string,
-		working bool,
-	)
 	// BroadcastAgentChatFolder fans a chat-folder lifecycle frame out on the Chats
 	// topic. Chat folders are a plain GORM row with no projection to ride, so the
 	// mutating handler calls this itself, right after the write. See
@@ -48,15 +40,6 @@ type WebSocketHub interface {
 	BroadcastAgentChatFolder(
 		folderID string,
 		workspaceID string,
-		kind string,
-	)
-	// BroadcastAgentRunner carries the CHAT id alongside the runner because the
-	// runner's placement IS the event: a `moved` frame names the chat the CLI moved
-	// into. See Hub.BroadcastAgentRunner.
-	BroadcastAgentRunner(
-		runnerID string,
-		workspaceID string,
-		chatID string,
 		kind string,
 	)
 }

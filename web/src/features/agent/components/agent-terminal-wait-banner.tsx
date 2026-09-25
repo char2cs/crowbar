@@ -1,4 +1,4 @@
-import { TerminalIcon } from 'lucide-react'
+import { TerminalIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { TERMINAL_WAIT_TRUST } from '@/features/agent/api/agent-api'
 

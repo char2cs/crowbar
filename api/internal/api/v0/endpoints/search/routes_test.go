@@ -70,7 +70,7 @@ func registerChatScoped(
 	v0 := r.Group("/v0")
 	chatScoped := v0.Group("/chats/:chatId")
 	chatScoped.Use(func(c *gin.Context) {
-		reqscope.SetWorkspace(c, domain.Workspace{ID: c.Param("chatId"), WorktreePath: "/repo"})
+		reqscope.SetWorkspace(c, domain.Workspace{ID: c.Param("chatId"), WorktreePath: "/repo", Provisioning: domain.WorkspaceProvisioned})
 		c.Next()
 	})
 	search.Register(chatScoped, stubEngine{})

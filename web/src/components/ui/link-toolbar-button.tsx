@@ -6,7 +6,7 @@
 import * as React from 'react'
 
 import { useLinkToolbarButton, useLinkToolbarButtonState } from '@platejs/link/react'
-import { Link } from 'lucide-react'
+import { LinkIcon } from '@phosphor-icons/react'
 
 import { ToolbarButton } from './toolbar'
 
@@ -16,7 +16,7 @@ export function LinkToolbarButton(props: React.ComponentProps<typeof ToolbarButt
 
   return (
     <ToolbarButton {...props} {...buttonProps} data-plate-focus tooltip="Link">
-      <Link />
+      <LinkIcon />
     </ToolbarButton>
   )
 }

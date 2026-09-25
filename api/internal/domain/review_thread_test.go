@@ -2,7 +2,6 @@ package domain_test
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -17,7 +16,7 @@ func TestReviewThread_NormalizedMessages_EmptyMarshalsAsArray(t *testing.T) {
 	raw, err := json.Marshal(thread)
 	require.NoError(t, err)
 	assert.Contains(t, string(raw), `"messages":[]`)
-	assert.False(t, strings.Contains(string(raw), `"messages":null`), "must never serialize null messages")
+	assert.NotContains(t, string(raw), `"messages":null`, "must never serialize null messages")
 }
 
 func TestReviewThread_NormalizedMessages_PreservesExisting(t *testing.T) {

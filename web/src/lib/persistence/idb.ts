@@ -82,17 +82,21 @@ async function openDatabase(): Promise<IDBPDatabase<CrowbarDB>> {
 }
 
 async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
-  return openDB<CrowbarDB>('crowbar', 9, {
+  return openDB<CrowbarDB>('crowbar', 10, {
     upgrade(db, oldVersion) {
+      // Retired stores are no longer in CrowbarDB; the upgrade chain still
+      // creates and then drops them, so it goes through the untyped handle.
+      const raw = db as unknown as IDBDatabase
       if (oldVersion < 1) {
         db.createObjectStore('workspace-layout', { keyPath: 'workspaceId' })
         const editorStore = db.createObjectStore('editor-state', {
           keyPath: ['workspaceId', 'bufferId'],
         })
         editorStore.createIndex('workspaceId', 'workspaceId')
-        db.createObjectStore('ui-preferences')
-        // query-cache was removed in v5; created here only for upgrade path completeness
-        ;(db as unknown as IDBDatabase).createObjectStore('query-cache')
+        // ui-preferences (dropped in v10) and query-cache (dropped in v5) are
+        // created only to keep the upgrade chain whole.
+        raw.createObjectStore('ui-preferences')
+        raw.createObjectStore('query-cache')
       }
       if (oldVersion < 2) {
         db.deleteObjectStore('workspace-layout')
@@ -100,15 +104,13 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
       }
       if (oldVersion < 3) {
         db.createObjectStore('sidebar-ui')
-        db.createObjectStore('workspace-hierarchy', { keyPath: 'repoId' })
+        raw.createObjectStore('workspace-hierarchy', { keyPath: 'repoId' })
       }
       if (oldVersion < 4) {
         db.createObjectStore('branch-review', { keyPath: 'wsId' })
       }
       if (oldVersion < 5) {
-        if ((db as unknown as IDBDatabase).objectStoreNames.contains('query-cache')) {
-          ;(db as unknown as IDBDatabase).deleteObjectStore('query-cache')
-        }
+        if (raw.objectStoreNames.contains('query-cache')) raw.deleteObjectStore('query-cache')
         for (const name of [
           'workspaces-data',
           'git-data',
@@ -147,6 +149,13 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
         // only created inside an upgrade, so this needs its own version rather
         // than riding v8's branch (an install already at v8 would never run it).
         db.createObjectStore('crowbar_chats', { keyPath: 'id' })
+      }
+      if (oldVersion < 10) {
+        // Retired: nothing reads ui-preferences (settings persist through the
+        // settings store) or workspace-hierarchy (the daemon owns parents).
+        for (const name of ['ui-preferences', 'workspace-hierarchy']) {
+          if (raw.objectStoreNames.contains(name)) raw.deleteObjectStore(name)
+        }
       }
     },
   })

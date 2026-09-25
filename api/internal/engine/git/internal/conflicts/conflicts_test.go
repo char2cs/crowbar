@@ -13,6 +13,7 @@ import (
 
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/conflicts"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 func newConflictRepo(
@@ -141,7 +142,7 @@ func TestParseFile(
 
 	h := hunks[0]
 	assert.NotEmpty(t, h.ID)
-	assert.Greater(t, h.StartLine, 0)
+	assert.Positive(t, h.StartLine)
 	assert.GreaterOrEqual(t, h.EndLine, h.StartLine)
 	assert.Equal(t, gitdomain.ConflictResolutionUnresolved, h.Resolution)
 
@@ -353,6 +354,7 @@ func TestResolveHunk_MissingFile(
 func TestResolveHunk_WriteError(
 	t *testing.T,
 ) {
+	testutil.RequirePermissionEnforcement(t)
 	repoPath, conflictFile := newConflictRepo(t)
 
 	ctx := context.Background()

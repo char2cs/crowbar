@@ -19,8 +19,4 @@ var (
 	// outcome was never recorded: Crowbar crashed between writing the intent and
 	// confirming the replacement runner.
 	ErrPromptOutcomeUnknown = errors.New("agentjournal: prompt request: prior delivery outcome is uncertain")
-
-	// ErrHookPayloadMismatch means one hook delivery id arrived twice carrying
-	// different payloads, so deduplicating it would drop a distinct event.
-	ErrHookPayloadMismatch = errors.New("agentjournal: hook delivery id reused with different payload")
 )

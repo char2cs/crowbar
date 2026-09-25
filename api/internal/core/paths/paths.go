@@ -25,36 +25,6 @@ func ensure(
 	return path, nil
 }
 
-// State returns the state directory (parent of events and store), creating it if absent.
-func State() (string, error) {
-	return ensure(metadata.GetStateDirPath())
-}
-
-// StateAt returns the state directory rooted at homeDir, creating it if absent.
-func StateAt(
-	homeDir string,
-) (string, error) {
-	return ensure(metadata.GetStateDirPathAt(homeDir))
-}
-
-// Projects returns the projects-root directory (the per-entity filesystem
-// layout root), creating it if absent.
-func Projects() (string, error) {
-	return ensure(metadata.GetProjectsPath())
-}
-
-// ProjectsAt returns the projects-root directory rooted at homeDir, creating it if absent.
-func ProjectsAt(
-	homeDir string,
-) (string, error) {
-	return ensure(metadata.GetProjectsPathAt(homeDir))
-}
-
-// Events returns the event-store directory, creating it if absent.
-func Events() (string, error) {
-	return ensure(metadata.GetEventsPath())
-}
-
 // EventsAt returns the event-store directory rooted at homeDir, creating it if absent.
 func EventsAt(
 	homeDir string,
@@ -62,38 +32,9 @@ func EventsAt(
 	return ensure(metadata.GetEventsPathAt(homeDir))
 }
 
-// Store returns the GORM read-model directory, creating it if absent.
-func Store() (string, error) {
-	return ensure(metadata.GetStorePath())
-}
-
 // StoreAt returns the GORM read-model directory rooted at homeDir, creating it if absent.
 func StoreAt(
 	homeDir string,
 ) (string, error) {
 	return ensure(metadata.GetStorePathAt(homeDir))
-}
-
-// Runs returns the agent-run artifacts directory, creating it if absent.
-func Runs() (string, error) {
-	return ensure(metadata.GetRunsPath())
-}
-
-// RunsAt returns the agent-run artifacts directory rooted at homeDir, creating it if absent.
-func RunsAt(
-	homeDir string,
-) (string, error) {
-	return ensure(metadata.GetRunsPathAt(homeDir))
-}
-
-// Logs returns the logs directory, creating it if absent.
-func Logs() (string, error) {
-	return ensure(metadata.GetLogsPath())
-}
-
-// LogsAt returns the logs directory rooted at homeDir, creating it if absent.
-func LogsAt(
-	homeDir string,
-) (string, error) {
-	return ensure(metadata.GetLogsPathAt(homeDir))
 }

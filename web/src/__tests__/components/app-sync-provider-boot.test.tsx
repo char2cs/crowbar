@@ -76,6 +76,7 @@ const wsDTO = (
   projectId: string,
   over: Partial<WorkspaceDTO> = {},
 ): WorkspaceDTO => ({
+  provisioning: 'provisioned',
   id,
   repoId,
   projectId,

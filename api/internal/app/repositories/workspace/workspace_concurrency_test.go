@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,7 +27,7 @@ import (
 func TestConcurrentSends_NoWriteMu_OCC(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 
 	const n = 20
@@ -56,7 +57,7 @@ func TestConcurrentSends_NoWriteMu_OCC(t *testing.T) {
 	assert.Equal(t, domain.WorkspaceStatusNew, got.Status)
 }
 
-// TestConcurrentCreateHome_OneProjectNeverGetsTwoHomeWorkspaces is the
+// TestConcurrentHomeCreates_OneProjectNeverGetsTwoHomeWorkspaces is the
 // regression for a live bug: two requests racing "create the home for
 // project P," with nothing serializing them, used to both read no home
 // workspace yet and both mint a fresh random id — a random id gives asynx's
@@ -67,42 +68,39 @@ func TestConcurrentSends_NoWriteMu_OCC(t *testing.T) {
 // made, and the frontend that cached the loser's id could never create a
 // thread again — every attempt failing "asynx: aggregate not found."
 //
-// CreateHome now derives a DETERMINISTIC id from the project id
-// (homeWorkspaceID's own doc), so every one of these n concurrent calls
-// targets the SAME aggregate — this proves that, against the REAL asynx
+// A project's home now has a DETERMINISTIC id (ProjectHomeID's own doc), so
+// every one of these n concurrent creates targets the SAME aggregate — this proves that, against the REAL asynx
 // event store (no mocks, no injected sleep needed to widen a window: a
 // deterministic id means there IS no window, only a serialized queue), not
 // a hand-rolled simulation of it.
-func TestConcurrentCreateHome_OneProjectNeverGetsTwoHomeWorkspaces(t *testing.T) {
+func TestConcurrentHomeCreates_OneProjectNeverGetsTwoHomeWorkspaces(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(2000, 0).UTC()
 
 	const n = 20
-	ids := make([]string, n)
-	errs := make([]error, n)
+	id := workspace.ProjectHomeID("proj-home-race")
+	var wins atomic.Int32
 	ready := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := range n {
+	for range n {
 		wg.Add(1)
-		go func(idx int) {
+		go func() {
 			defer wg.Done()
 			<-ready
-			ws, err := repo.CreateHome(ctx, "proj-home-race", "/projects/home-race", now)
-			ids[idx] = ws.ID
-			errs[idx] = err
-		}(i)
+			_, err := repo.Create(ctx, workspace.CreateInput{
+				ID: id, ProjectID: "proj-home-race", WorktreePath: "/projects/home-race",
+				Kind:         domain.WorkspaceKindHome,
+				Provisioning: domain.WorkspaceShared,
+			}, now)
+			if err == nil {
+				wins.Add(1)
+			}
+		}()
 	}
 	close(ready)
 	wg.Wait()
-
-	for i, err := range errs {
-		require.NoError(t, err, "call %d: CreateHome must never surface the race as an error", i)
-	}
-	first := ids[0]
-	require.NotEmpty(t, first)
-	for i, id := range ids {
-		assert.Equal(t, first, id, "call %d returned a DIFFERENT home workspace than call 0", i)
-	}
+	assert.Equal(t, int32(1), wins.Load(), "exactly one create wins; the aggregate refuses the rest")
+	first := id
 
 	// And the READ MODEL agrees there is exactly one, not two rows that
 	// happen to share an id in the return values but not in storage.

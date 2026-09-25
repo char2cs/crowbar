@@ -2,153 +2,150 @@ package terminal
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
+// impl unwraps the Engine interface to the concrete engine the helpers below reach into.
+func impl(eng Engine) *terminalEngine {
+	e, ok := eng.(*terminalEngine)
+	if !ok {
+		panic(fmt.Sprintf("terminal: test helper given %T, not the terminal engine", eng))
+	}
+	return e
+}
+
 // RunMaintenanceOnceForTest exposes runMaintenanceOnce for unit tests so they
-// can drive the maintenance sweep directly without waiting for the 10-second ticker.
+// can drive the maintenance sweep directly without waiting for the ticker.
 func RunMaintenanceOnceForTest(eng Engine, ctx context.Context) {
-	eng.(*terminalEngine).runMaintenanceOnce(ctx)
+	impl(eng).runMaintenanceOnce(ctx)
 }
 
-// SetSoftLimitPerChatForTest overrides the per-chat detached-session
-// soft limit and returns a restore function. Call defer restore() in tests.
-func SetSoftLimitPerChatForTest(n int) (restore func()) {
-	old := softLimitPerChat
-	softLimitPerChat = n
-	return func() { softLimitPerChat = old }
+// setCfg applies fn to eng's config and returns a function restoring the old one. Tests
+// must have stopped the maintenance goroutine first (StopMaintenanceForTest), which is the
+// only other reader.
+func setCfg(eng Engine, fn func(*config)) (restore func()) {
+	e := impl(eng)
+	old := e.cfg
+	fn(&e.cfg)
+	return func() { e.cfg = old }
 }
 
-// SetMaxTotalSessionsForTest overrides the global session-count ceiling and
-// returns a restore function.
-func SetMaxTotalSessionsForTest(n int) (restore func()) {
-	old := maxTotalSessions
-	maxTotalSessions = n
-	return func() { maxTotalSessions = old }
+// SetSoftLimitPerChatForTest overrides eng's per-chat detached-session soft limit.
+func SetSoftLimitPerChatForTest(eng Engine, n int) (restore func()) {
+	return setCfg(eng, func(c *config) { c.softLimitPerChat = n })
 }
 
-// SetMaxTotalModelBytesForTest overrides the global model-bytes ceiling and
-// returns a restore function.
-func SetMaxTotalModelBytesForTest(n int64) (restore func()) {
-	old := maxTotalModelBytes
-	maxTotalModelBytes = n
-	return func() { maxTotalModelBytes = old }
+// SetMaxTotalSessionsForTest overrides eng's global session-count ceiling.
+func SetMaxTotalSessionsForTest(eng Engine, n int) (restore func()) {
+	return setCfg(eng, func(c *config) { c.maxTotalSessions = n })
 }
 
-// SetLastActiveForTest directly sets the last-active timestamp for a session,
-// allowing tests to control ordering without real time delays.
+// SetMaxTotalModelBytesForTest overrides eng's global model-bytes ceiling.
+func SetMaxTotalModelBytesForTest(eng Engine, n int64) (restore func()) {
+	return setCfg(eng, func(c *config) { c.maxTotalModelBytes = n })
+}
+
+// SetGracefulTerminateGraceForTest overrides eng's TerminateGraceful grace window, so a
+// test can exercise the fallback-to-hard-kill path without a multi-second sleep.
+func SetGracefulTerminateGraceForTest(eng Engine, d time.Duration) (restore func()) {
+	return setCfg(eng, func(c *config) { c.terminateGrace = d })
+}
+
+// NewWithTickForTest builds an engine whose maintenance sweep ticks every d.
+func NewWithTickForTest(d time.Duration) Engine {
+	cfg := defaultConfig()
+	cfg.maintenanceTick = d
+	return newEngine(cfg)
+}
+
+// NewWithWriteWaitForTest builds an engine whose WebSocket writes time out after d.
+func NewWithWriteWaitForTest(d time.Duration) Engine {
+	cfg := defaultConfig()
+	cfg.writeWait = d
+	return newEngine(cfg)
+}
+
+// SetLastActiveForTest sets a session's last-active time, so tests control LRU ordering
+// without real delays.
 func SetLastActiveForTest(eng Engine, id string, t time.Time) {
-	e := eng.(*terminalEngine)
-	e.mu.Lock()
-	e.lastActive[id] = t
-	e.mu.Unlock()
+	ent, ok := impl(eng).lookup(id)
+	if !ok {
+		return
+	}
+	ent.mu.Lock()
+	ent.lastActive = t
+	ent.mu.Unlock()
 }
 
-// IsIdleForTest reports whether the session with the given ID is currently idle.
-// Exposed for tests that need to wait for a session's foreground process state
-// without having access to the concrete *session.Session type.
+// IsIdleForTest reports whether the live session with the given ID is idle.
 func IsIdleForTest(eng Engine, id string) bool {
-	e := eng.(*terminalEngine)
-	s, ok := e.reg.Get(id)
-	if !ok {
-		return false
-	}
-	return s.IsIdle()
+	s := impl(eng).liveSession(id)
+	return s != nil && s.IsIdle()
 }
 
-// SnapshotLenForTest returns the number of bytes in the session's current
-// serialized screen-model snapshot. Tests use this to wait until the shell has emitted at least one byte
-// (prompt output) before triggering a cadence-flush maintenance sweep.
-func SnapshotLenForTest(eng Engine, id string) int {
-	e := eng.(*terminalEngine)
-	s, ok := e.reg.Get(id)
-	if !ok {
-		return 0
-	}
-	// Non-mutating: SerializedLen does NOT consume the dirty bit (unlike Snapshot), so
-	// polling it as a readiness/settle signal never makes a later cadence flush skip.
-	return s.SerializedLen()
-}
-
-// PumpNotifyForTest returns the session's pump-progress signal (see
-// session.PumpNotifyForTest): a coalescing edge published every time the pump has FULLY
-// processed a chunk of PTY output. Blocking on it is how a test waits for a real shell to
-// speak without guessing a duration. Returns nil if the session is unknown — a caller
-// blocking on a nil channel blocks forever, which `go test -timeout` reports as the hang
-// it is, rather than the silent pass a zero-value would give.
+// PumpNotifyForTest returns the live session's pump-progress signal (see
+// session.PumpNotifyForTest). Returns nil if the session is not live — a caller blocking on
+// a nil channel blocks forever, which `go test -timeout` reports as the hang it is.
 func PumpNotifyForTest(eng Engine, id string) <-chan struct{} {
-	s, ok := eng.(*terminalEngine).reg.Get(id)
-	if !ok {
+	s := impl(eng).liveSession(id)
+	if s == nil {
 		return nil
 	}
 	return s.PumpNotifyForTest()
 }
 
-// SerializedForTest returns the session's current serialized screen (non-consuming, so it
-// never eats a dirty bit a later cadence flush is owed). Tests strip the ANSI and match on
-// the resulting screen text to decide "the shell has finished doing what I asked".
+// SerializedForTest returns the live session's current serialized screen (non-consuming).
 func SerializedForTest(eng Engine, id string) []byte {
-	s, ok := eng.(*terminalEngine).reg.Get(id)
-	if !ok {
+	s := impl(eng).liveSession(id)
+	if s == nil {
 		return nil
 	}
 	return s.SerializedForTest()
 }
 
-// SessionDoneForTest returns the session's death channel. Waiters select on it alongside
-// PumpNotifyForTest purely for DIAGNOSTICS: it is a real signal (the PTY closed), not a
-// clock, and it turns "the shell exited and will never produce the output you're waiting
-// for" from a silent 10-minute hang into an immediate, precise failure.
+// SessionDoneForTest returns the live session's death channel, or nil.
 func SessionDoneForTest(eng Engine, id string) <-chan struct{} {
-	s, ok := eng.(*terminalEngine).reg.Get(id)
-	if !ok {
+	s := impl(eng).liveSession(id)
+	if s == nil {
 		return nil
 	}
 	return s.Done()
 }
 
-// StopMaintenanceForTest stops the background maintenance ticker goroutine
-// without killing any active sessions. Call this immediately after New() in any
-// test that either drives maintenance manually via RunMaintenanceOnceForTest or
-// mutates the package-level limit vars (SetSoftLimitPerChatForTest,
-// SetMaxTotalSessionsForTest, SetMaxTotalModelBytesForTest). Stopping the ticker
-// ensures no background goroutine reads the limit vars concurrently with the
-// test's writes, eliminating the data race under -race.
-//
-// The engine's Shutdown() remains safe to call afterwards: stopOnce ensures
-// close(te.stop) is idempotent.
+// StopMaintenanceForTest stops the background maintenance goroutine without killing any
+// session, so a test that drives maintenance manually or changes limits races nothing.
+// Shutdown remains safe afterwards.
 func StopMaintenanceForTest(eng Engine) {
-	te := eng.(*terminalEngine)
+	te := impl(eng)
 	te.stopOnce.Do(func() { close(te.stop) })
-}
-
-// HasSessionMuForTest reports whether a sessionMu entry exists for the given
-// session id. Exposed so tests can assert that dropUnrestorable (and other
-// cleanup paths) correctly prune the per-session lifecycle mutex map.
-func HasSessionMuForTest(eng Engine, id string) bool {
-	_, ok := eng.(*terminalEngine).sessionMu.Load(id)
-	return ok
-}
-
-// SetGracefulTerminateGraceForTest overrides the package-level grace window
-// TerminateGraceful waits before falling back to a hard kill, and returns a
-// restore function. Lets a unit test exercise the fallback-to-hard-kill path
-// (a signal-ignoring child) without a multi-second sleep.
-func SetGracefulTerminateGraceForTest(d time.Duration) (restore func()) {
-	old := gracefulTerminateGrace
-	gracefulTerminateGrace = d
-	return func() { gracefulTerminateGrace = old }
+	<-te.maintDone
 }
 
 // BeginDrainForTest closes the engine's session-birth door WITHOUT killing or
-// deregistering anything: it puts the engine in the state Shutdown occupies from the
-// moment it starts draining until its kill loop reaches a given session.
-//
-// That window is where the restore refusal actually has to be right, and it is
-// otherwise only reachable as a race. Once Shutdown has RETURNED, every placeholder
-// has been deregistered, so a late Attach fails with ErrSessionNotFound and never
-// reaches the restore path at all — a test that attached after Shutdown would prove
-// nothing about it. Exposed so the refusal can be driven deterministically instead.
+// deregistering anything: the state Shutdown occupies from the moment it starts draining
+// until its walk reaches a given session.
 func BeginDrainForTest(eng Engine) {
-	_ = eng.(*terminalEngine).reaps.drain()
+	_ = impl(eng).reaps.drain()
+}
+
+// DefaultLocaleForTest exposes the internal defaultLocale decision to the
+// package's external unit tests so they can assert ptyEnv's per-GOOS UTF-8
+// fallback for a synthetic environment without mutating the real process
+// environment. It returns the LANG value ptyEnv would inject for the given base
+// environment and GOOS, or "" when a locale is already set.
+func DefaultLocaleForTest(
+	base []string,
+	goos string,
+) string {
+	return defaultLocale(base, goos)
+}
+
+// ParseOutputFrame splits one binary output message into its payload and
+// whether it is a snapshot; ok is false for anything that is not an output frame.
+func ParseOutputFrame(msg []byte) (payload []byte, snapshot, ok bool) {
+	if len(msg) == 0 || msg[0] > FrameSnapshot {
+		return nil, false, false
+	}
+	return msg[1:], msg[0] == FrameSnapshot, true
 }

@@ -3,8 +3,8 @@ package runner
 import (
 	"context"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 func (rs *Runners) TerminalWait(chatID string) domain.AgentTerminalWait {
@@ -14,28 +14,21 @@ func (rs *Runners) TerminalWait(chatID string) domain.AgentTerminalWait {
 	return rs.termWait.Wait(chatID)
 }
 
-// StartTerminalWaitSweep starts the screen sweep and wires the three publish
-// callbacks the hub owns: promptSettled here, messageDelta and
-// compactionStatus onto the hook ingress.
-
-// All three are assigned BEFORE the nil-detector return. A daemon with no
-// detector still streams assistant messages (and compaction status) to its
-// chat UI, and dropping either on that path is invisible until a user
-// watches a message that never grows, or a compaction that never shows.
-func (rs *Runners) StartTerminalWaitSweep(
-	ctx context.Context,
-	publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
-	promptSettled func(chatID, workspaceID, requestID string, consumed bool),
-	messageDelta func(chatID, workspaceID, messageID, text, kind string),
-	compactionStatus func(chatID, workspaceID string, active bool),
-	planUpdate func(chatID, workspaceID string, steps []agents.PlanStep),
-) {
-	rs.promptSettled = promptSettled
-	rs.turns.SetMessageDelta(messageDelta)
-	rs.turns.SetCompactionStatus(compactionStatus)
-	rs.turns.SetPlanUpdate(planUpdate)
+// StartTerminalWaitSweep starts the screen sweep and binds the live chat feed
+// the hub owns.
+//
+// The feed is bound BEFORE the nil-detector return. A daemon with no detector
+// still streams assistant messages, compaction status, plans and usage to its
+// chat UI, and dropping any of them on that path is invisible until a user
+// watches a message that never grows.
+func (rs *Runners) StartTerminalWaitSweep(ctx context.Context, feed seam.ChatFeed) {
+	rs.promptSettled = feed.PromptSettled
+	rs.turns.SetFeed(feed)
 	if rs.termWait == nil {
 		return
 	}
-	rs.termWait.Run(ctx, publish)
+	// The verdict rides the chat snapshot: a change republishes it.
+	rs.termWait.Run(ctx, func(chatID, _ string, _ domain.AgentTerminalWait) {
+		rs.touch(ctx, chatID)
+	})
 }

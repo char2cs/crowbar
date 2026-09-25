@@ -1,10 +1,12 @@
 package session
 
-// FanOutForTest calls fanOut directly with chunk for use in unit tests.
+// FanOutForTest fans chunk out to every attached client as one frame.
 func (s *Session) FanOutForTest(
 	chunk []byte,
 ) {
-	s.fanOut(chunk)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.fanOutFrameLocked(OutputFrame{SessionID: s.id, Data: chunk})
 }
 
 // PumpChunkForTest delegates to pumpStep, the production critical section used by

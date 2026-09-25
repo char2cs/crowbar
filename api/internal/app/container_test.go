@@ -11,6 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
@@ -49,7 +50,7 @@ func TestApp_New_UsecasesWorkspaceListEndToEnd(t *testing.T) {
 
 	_, err = c.Repositories.Workspace.Create(
 		ctx,
-		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b"},
+		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b", Provisioning: domain.WorkspacePlaceholder},
 		time.Unix(1, 0).UTC(),
 	)
 	require.NoError(t, err)

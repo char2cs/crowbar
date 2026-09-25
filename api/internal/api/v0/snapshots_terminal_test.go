@@ -7,29 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/adapter"
-	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
-
-// newAppAndEngineForSnapshot mirrors newAppForSnapshot but also returns the
-// engine.Container terminalsSnapshot and lspSnapshot need directly (unlike the
-// other snapshot sources, which only ever read through appContainer).
-func newAppAndEngineForSnapshot(
-	t *testing.T,
-) (*app.Container, *engine.Container) {
-	t.Helper()
-	ctx := context.Background()
-	eng, err := engine.New(ctx)
-	require.NoError(t, err)
-	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = adapters.Close() })
-	t.Cleanup(eng.Close)
-	a, err := app.New(ctx, eng, adapters)
-	require.NoError(t, err)
-	return a, eng
-}
 
 // TestTerminalsSnapshot_NilEngineReturnsNil covers the guard at the top of
 // terminalsSnapshot: a container built without the terminal engine wired
@@ -37,7 +16,7 @@ func newAppAndEngineForSnapshot(
 // function at all, matching lspSnapshot's identical guard for an absent LSP
 // engine.
 func TestTerminalsSnapshot_NilEngineReturnsNil(t *testing.T) {
-	a, _ := newAppAndEngineForSnapshot(t)
+	a, _ := newAppAndEngine(t)
 
 	assert.Nil(t, terminalsSnapshot(a, nil))
 	assert.Nil(t, terminalsSnapshot(a, &engine.Container{}))
@@ -48,7 +27,7 @@ func TestTerminalsSnapshot_NilEngineReturnsNil(t *testing.T) {
 // nothing to key on, the snapshot must yield nil rather than fall back to
 // enumerating the whole registry.
 func TestTerminalsSnapshot_EmptyScopeReturnsNil(t *testing.T) {
-	a, eng := newAppAndEngineForSnapshot(t)
+	a, eng := newAppAndEngine(t)
 	snap := terminalsSnapshot(a, eng)
 	require.NotNil(t, snap)
 
@@ -66,7 +45,7 @@ func TestTerminalsSnapshot_EmptyScopeReturnsNil(t *testing.T) {
 // NOT sharing the replay is the whole claim (see
 // core/terminal chat_scoping_test.go for the engine-level twin of this).
 func TestTerminalsSnapshot_ListsLiveSessionForItsChat(t *testing.T) {
-	a, eng := newAppAndEngineForSnapshot(t)
+	a, eng := newAppAndEngine(t)
 	ctx := context.Background()
 
 	snap := terminalsSnapshot(a, eng)
@@ -105,7 +84,7 @@ func TestTerminalsSnapshot_ListsLiveSessionForItsChat(t *testing.T) {
 // that owns nothing replays nothing — never the whole registry — even while
 // another chat's session is live.
 func TestTerminalsSnapshot_UnknownChatScopeIsEmpty(t *testing.T) {
-	a, eng := newAppAndEngineForSnapshot(t)
+	a, eng := newAppAndEngine(t)
 	ctx := context.Background()
 
 	sid, err := eng.Terminal.Create(ctx, "chat-a", t.TempDir(), nil)

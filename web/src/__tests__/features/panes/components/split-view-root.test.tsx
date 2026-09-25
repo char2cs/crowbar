@@ -11,10 +11,6 @@ import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
-vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
-  saveSessionToStore: vi.fn(),
-  clearQueuedWorkspaceSessionSave: vi.fn(),
-}))
 
 /**
  * A pane stood in by a marker that counts its own EFFECT-mounts — the same

@@ -7,8 +7,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -144,21 +142,6 @@ func TestPatchRepo_OrderOnlyNeedsNoName(t *testing.T) {
 	assert.Equal(t, 2, frames[0].Order, "the broadcast carries the new order")
 }
 
-// TestPatchRepo_ProjectMovePassesTargetThrough pins that projectId reaches the
-// usecase, which is what carries the repo's workspaces across with it.
-func TestPatchRepo_ProjectMovePassesTargetThrough(t *testing.T) {
-	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p2"}}
-	var frames []dto.RepoDTO
-	rec := doPatch(patchRouter(t, upd, &frames), "/v0/projects/p1/repos/r1",
-		map[string]any{"projectId": "p2"})
-
-	require.Equal(t, http.StatusNoContent, rec.Code)
-	require.NotNil(t, upd.got.ProjectID)
-	assert.Equal(t, "p2", *upd.got.ProjectID)
-	require.Len(t, frames, 1)
-	assert.Equal(t, "p2", frames[0].ProjectID)
-}
-
 // TestPatchRepo_EmptyName_400 pins synchronous name validation: a blank name
 // (whitespace only) is rejected 400 before the updater runs, and nothing is
 // broadcast.
@@ -212,67 +195,6 @@ func TestPatchRepo_RejectsNamesThatEscapeTheCrowbarHome(t *testing.T) {
 			assert.Empty(t, frames)
 		})
 	}
-}
-
-// A repo that changes projects takes its ENTITY DIRECTORY with it — the icon
-// store, keyed by <home>/projects/<projectId>/<repoId>. Left behind, the icon
-// 404s from under the new path and the old directory outlives every way of
-// reaching it.
-func TestPatchRepo_ProjectMoveRelocatesTheEntityDir(t *testing.T) {
-	home := t.TempDir()
-	from := filepath.Join(home, "projects", "p1", "r1")
-	require.NoError(t, os.MkdirAll(from, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(from, "icon"), []byte("bytes"), 0o600))
-
-	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p2"}}
-	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, func(dto.RepoDTO) {}).
-		WithUpdater(upd).
-		WithIconStorage(func() (string, error) { return home, nil }, nil)
-	r := gin.New()
-	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
-
-	rec := doPatch(r, "/v0/projects/p1/repos/r1", map[string]any{"projectId": "p2"})
-	require.Equal(t, http.StatusNoContent, rec.Code)
-
-	moved, err := os.ReadFile(filepath.Join(home, "projects", "p2", "r1", "icon"))
-	require.NoError(t, err, "the icon follows the repo to its new project")
-	assert.Equal(t, "bytes", string(moved))
-	_, err = os.Stat(from)
-	assert.True(t, os.IsNotExist(err), "nothing is left behind at the old path")
-}
-
-// A repo with no entity dir yet (no custom icon) must move cleanly rather than
-// fail on a rename with nothing to rename.
-func TestPatchRepo_ProjectMoveToleratesAMissingEntityDir(t *testing.T) {
-	home := t.TempDir()
-	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p2"}}
-	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, func(dto.RepoDTO) {}).
-		WithUpdater(upd).
-		WithIconStorage(func() (string, error) { return home, nil }, nil)
-	r := gin.New()
-	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
-
-	rec := doPatch(r, "/v0/projects/p1/repos/r1", map[string]any{"projectId": "p2"})
-	assert.Equal(t, http.StatusNoContent, rec.Code)
-}
-
-// A rename never touches the entity dir: only a project change moves it.
-func TestPatchRepo_RenameLeavesTheEntityDirAlone(t *testing.T) {
-	home := t.TempDir()
-	at := filepath.Join(home, "projects", "p1", "r1")
-	require.NoError(t, os.MkdirAll(at, 0o755))
-
-	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p1", Name: "new"}}
-	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, func(dto.RepoDTO) {}).
-		WithUpdater(upd).
-		WithIconStorage(func() (string, error) { return home, nil }, nil)
-	r := gin.New()
-	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
-
-	rec := doPatch(r, "/v0/projects/p1/repos/r1", map[string]any{"name": "new"})
-	require.Equal(t, http.StatusNoContent, rec.Code)
-	_, err := os.Stat(at)
-	assert.NoError(t, err)
 }
 
 func TestPatchRepo_MalformedBody_400(t *testing.T) {

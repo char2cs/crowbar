@@ -8,7 +8,8 @@ import {
   type AllowedModes,
   type DropPolicy,
 } from '@/components/tree-dnd/drop-core'
-import { isWorkspaceLockedInSidebar, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { isWorkspaceLockedInSidebar } from '@/lib/store/repo-tree'
 import { isChatWorking } from '@/features/workspace/stores/workspace-store-registry'
 import {
   owningChatIdOfWorkspace,

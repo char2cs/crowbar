@@ -144,6 +144,7 @@ func (h *Handlers) CodeAction(
 		worktreePath,
 		req.Path,
 		req.Range,
+		req.Diagnostics,
 	)
 	writeRaw(c, result, err)
 }
@@ -153,16 +154,8 @@ func (h *Handlers) CodeAction(
 func (h *Handlers) DocumentSymbol(
 	c *gin.Context,
 ) {
-	if !h.requireLSP(c) {
-		return
-	}
-	worktreePath, ok := h.worktreePath(c)
+	worktreePath, req, ok := h.bindPath(c)
 	if !ok {
-		return
-	}
-	var req dto.LSPPathRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	result, err := h.lsp.DocumentSymbol(

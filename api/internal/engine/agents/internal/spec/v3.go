@@ -66,11 +66,6 @@ type EventSpec struct {
 	// whole mechanism behind a MIXED provider — API for turns, hooks for permissions.
 	Transport string `yaml:"transport"`
 
-	// Owner names which channel is AUTHORITATIVE for a dual-channel event —
-	// api|hooks|either (design spec P6b tag 1). Absent means Either. See
-	// owner.go and Descriptor.EventOwner.
-	Owner string `yaml:"owner"`
-
 	// Surfaces names which VIEWS (chat|terminal) this event is worth
 	// ingesting on — design spec P6b tag 2. Nil (absent) means every
 	// surface: nothing changes unless a descriptor opts in. Distinct from

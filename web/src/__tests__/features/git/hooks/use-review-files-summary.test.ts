@@ -10,6 +10,7 @@ vi.mock('@/features/git/api/review-api', () => ({
 }))
 
 import { useReviewFilesSummary } from '@/features/git/hooks/use-review-files-summary'
+import { markGitStatusChanged } from '@/features/git/stores/git-refresh'
 import {
   __resetWorkspaceScopesForTest,
   recordWorkspaceScope,
@@ -24,8 +25,8 @@ function summaryFile(
   return { path, status, additions: 1, deletions: 0, uncommitted: true, staged: false, ...extra }
 }
 
-function fireGitStatusChanged(): void {
-  window.dispatchEvent(new Event('git-status-changed'))
+function fireGitStatusChanged(wsId = 'ws1'): void {
+  markGitStatusChanged(wsId)
 }
 
 describe('useReviewFilesSummary', () => {
@@ -87,32 +88,19 @@ describe('useReviewFilesSummary', () => {
     ])
   })
 
-  it('coalesces a burst of git-status-changed events into a single debounced refetch', async () => {
-    vi.useFakeTimers()
+  it("refetches on its own workspace's git status change only", async () => {
     mocks.getReviewFiles.mockResolvedValue([summaryFile('src/a.ts')])
 
     renderHook(() => useReviewFilesSummary('ws1'))
-    // Initial mount fetch (not debounced).
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(0)
-    })
+    await act(async () => {})
     expect(mocks.getReviewFiles).toHaveBeenCalledTimes(1)
 
-    // A burst of ticks within the debounce window.
-    act(() => {
-      fireGitStatusChanged()
-      fireGitStatusChanged()
-      fireGitStatusChanged()
-    })
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(200)
-    })
+    act(() => fireGitStatusChanged('ws2'))
+    await act(async () => {})
     expect(mocks.getReviewFiles).toHaveBeenCalledTimes(1)
 
-    // Crossing 250ms fires exactly one refetch for the whole burst.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(60)
-    })
+    act(() => fireGitStatusChanged('ws1'))
+    await act(async () => {})
     expect(mocks.getReviewFiles).toHaveBeenCalledTimes(2)
   })
 
@@ -169,7 +157,7 @@ describe('useReviewFilesSummary', () => {
   // the sidebar's own async chat-list fetch later attaches owningChatId.
   // getReviewFiles resolves through reviewBaseForWorkspace, which throws
   // without one; firing anyway hit the throw, landed in the swallowing catch,
-  // and left the summary empty until an UNRELATED git-status-changed tick
+  // and left the summary empty until an UNRELATED git status change
   // happened to retry it.
   describe('owning chat id not yet recorded (route-vs-sidebar race)', () => {
     it('does not fetch before an owning chat id is recorded', async () => {

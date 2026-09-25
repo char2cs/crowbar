@@ -69,6 +69,9 @@ func (rs *Runners) recordRunner(
 		return rs.teardownAfterPersistFailure(ctx, chatID, runnerID, termSessID,
 			fmt.Errorf("agent: spawn runner: start runner: %w", err))
 	}
+	if rs.termWait != nil {
+		rs.termWait.Wake() // the sweep parks while no runner is live
+	}
 
 	// A Start is a PLACEMENT, so it obeys the same rule a Move does: whoever else is on this
 	// chat is retired. The spawn gate cannot cover this, and it is not a hairline window —

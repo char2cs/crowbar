@@ -174,7 +174,7 @@ func (h *spawnHarness) seedLiveAPIConn(t *testing.T, runnerID string) *exec.Cmd 
 	t.Cleanup(func() { _ = cmd.Process.Kill() })
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	h.rs.apiConns.set(runnerID, &apiconn{serveCmd: cmd, ctx: ctx, cancel: cancel})
+	h.rs.apiConns.set(runnerID, &apiconn{serve: reapServe(cmd), ctx: ctx, cancel: cancel})
 	return cmd
 }
 
@@ -456,7 +456,7 @@ func (h *spawnHarness) seedAdoptableAPIConn(
 	require.NoError(t, cmd.Start())
 	t.Cleanup(func() { _ = cmd.Process.Kill() })
 	h.rs.apiConns.set(runnerID, &apiconn{
-		serveCmd: cmd, driver: driver, ctx: ctx, cancel: cancel, agent: agent,
+		serve: reapServe(cmd), driver: driver, ctx: ctx, cancel: cancel, agent: agent,
 		tctx: engineagents.TemplateCtx{Session: established["session_id"], Cwd: "/work"},
 	})
 }
@@ -631,8 +631,9 @@ func TestRegression_AnAdoptedSpawnsDeliveryJournalCanReachAccepted(t *testing.T)
 	}
 	// The provider's own acknowledgement of what it received — the hook/event
 	// echo, which is the ONLY thing that advances this record.
-	require.NoError(t, h.rs.ConfirmPromptAccepted(context.Background(),
-		domain.Chat{ID: h.chatID}, engineagents.Runner{ID: runnerID, ProviderID: "carrier-test"}, delivered))
+	_, err = h.rs.ConfirmPromptAccepted(context.Background(),
+		domain.Chat{ID: h.chatID}, engineagents.Runner{ID: runnerID, ProviderID: "carrier-test"}, delivered)
+	require.NoError(t, err)
 
 	record, found, err = h.rs.prompts.Lookup(journalDir, requestID, textHash)
 	require.NoError(t, err)

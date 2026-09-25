@@ -278,11 +278,12 @@ func TestReconciler_OnOpen_UpdatesReadModelAndBroadcasts(t *testing.T) {
 	require.NoError(t, projections.RegisterStore(st, ax))
 
 	_, err = ax.SendWait(ctx, wscmds.CreateWorkspace{
-		ID:        "w1",
-		RepoID:    "r1",
-		ProjectID: "p1",
-		Branch:    "main",
-		Now:       time.Unix(1, 0).UTC(),
+		ID:           "w1",
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		Branch:       "main",
+		Now:          time.Unix(1, 0).UTC(),
+		Provisioning: domain.WorkspacePlaceholder,
 	})
 	require.NoError(t, err)
 

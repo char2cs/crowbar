@@ -22,6 +22,7 @@ func outlineWorkspace() domain.Workspace {
 		Branch:       "feature",
 		WorktreePath: "/wt",
 		ForkPointSha: "fork1",
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 }
 

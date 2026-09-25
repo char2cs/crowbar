@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strings"
 
@@ -14,7 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // createRequest is the POST .../repos/:repoId/chats body. See Create.
@@ -35,7 +33,7 @@ type createRequest struct {
 	// provider's own default landing, byte-identical to every create made
 	// before this field existed. "terminal" births the chat directly on the
 	// provider's own CLI: no api connection is opened for it, so its PTY is
-	// the conversation rather than a companion nobody is looking at.
+	// the conversation.
 	//
 	// A provider that does not declare that surface launchable
 	// (surfaces.terminal.start_here) falls back to its default at spawn
@@ -261,15 +259,17 @@ func (h *Handlers) List(
 		return
 	}
 
+	// Every row is its versioned snapshot — the same answer, from the same
+	// in-memory owner, the chat feed's frames carry. No per-row query.
 	runtimes := make(map[string]dto.ChatRuntime, len(chats))
-	for _, c := range chats {
-		rt, err := h.chatRuntime(rctx, c.ID)
+	for i, c := range chats {
+		chat, rt, err := h.chatSnapshot(rctx, c.ID)
 		if err != nil {
 			status, msg := libs.StatusAndMessage(err)
 			libs.WriteErr(ctx, status, msg)
 			return
 		}
-		runtimes[c.ID] = rt
+		chats[i], runtimes[c.ID] = chat, rt
 	}
 
 	libs.WriteQueryOK(ctx, dto.AgentChatDTOList(
@@ -313,7 +313,13 @@ func (h *Handlers) Get(
 		return
 	}
 
-	rt, err := h.chatRuntime(ctx.Request.Context(), chat.ID)
+	snap, rt, err := h.chatSnapshot(ctx.Request.Context(), chat.ID)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+	rt.Conversations, err = h.runners.ConversationsForChat(ctx.Request.Context(), chat.ID)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
@@ -321,98 +327,22 @@ func (h *Handlers) Get(
 	}
 
 	libs.WriteQueryOK(ctx, dto.AgentChatDetailDTOFrom(
-		chat, rt, h.chatWorktree(ctx.Request.Context(), chat)))
+		snap, rt, h.chatWorktree(ctx.Request.Context(), snap)))
 }
 
-// chatRuntime derives a chat's process view at read time by joining the runner
-// projections: the runner PLACED on it (if any), the conversations it has hosted,
-// and — while dormant — its interruption ledger. Nothing here is read off the chat
-// aggregate, because a chat stores no process facts.
-//
-// A dormant chat is NOT an error: agentrunner.ErrNotFound from LiveRunnerForChat means
-// no live row exists, which means no PTY exists, which is the liveness answer — so it
-// yields a nil LiveRunner and the read continues to the history and the interruption
-// ledger and its placement history, which together supply the provider the FE
-// still needs (glyph, dropdown, Resume) even for a provider that never wrote a
-// conversation row — see dto.ChatRuntime.Interruptions and .Placements. Any OTHER error is a genuine read failure and
-// propagates: an empty liveRunnerId must mean "dormant" and never "the projection
-// broke", or the frontend would silently treat a broken read as a dead CLI.
-func (h *Handlers) chatRuntime(
+// chatSnapshot is chatID's versioned snapshot, split into the chat row and its
+// runtime for the DTO. It is the ONE source of every chat body this API serves,
+// the same one every chat frame carries.
+func (h *Handlers) chatSnapshot(
 	ctx context.Context,
 	chatID string,
-) (dto.ChatRuntime, error) {
-	var live *agents.Runner
-	runner, err := h.runners.LiveRunnerForChat(ctx, chatID)
-	switch {
-	case err == nil:
-		live = &runner
-	case !errors.Is(err, agentrunner.ErrNotFound):
-		return dto.ChatRuntime{}, err
-	}
-
-	convs, err := h.runners.ConversationsForChat(ctx, chatID)
+) (domain.Chat, dto.ChatRuntime, error) {
+	s, err := h.chats.ChatSnapshot(ctx, chatID)
 	if err != nil {
-		return dto.ChatRuntime{}, err
+		return domain.Chat{}, dto.ChatRuntime{}, err
 	}
-
-	// The two dormant-only fallback sources are read only when live is nil, sparing
-	// every live chat in a list these extra queries — a live runner's provider
-	// outranks both.
-	var interruptions []domain.ActivityInterruption
-	var placements []agents.ChatPlacement
-	if live == nil {
-		interruptions, placements, err = h.dormantProviderSources(ctx, chatID)
-		if err != nil {
-			return dto.ChatRuntime{}, err
-		}
-	}
-
-	var attachedSessionID string
-	var hasLiveAPIConn bool
-	if live != nil {
-		attachedSessionID, _ = h.runners.AttachedTerminalSession(live.ID)
-		hasLiveAPIConn = h.runners.HasLiveAPIConnection(live.ID)
-	}
-
-	// TerminalWait is a plain in-memory read of the detector's standing answer,
-	// and it takes no ctx and returns no error for that reason: it never touches a
-	// repository, a provider or a PTY on the request path. A daemon whose detector
-	// is not running answers the zero verdict, which is the same answer every chat
-	// gave before this existed. AttachedTerminalSession and HasLiveAPIConnection are
-	// the same kind of read.
-	return dto.ChatRuntime{
-		LiveRunner:           live,
-		Conversations:        convs,
-		Interruptions:        interruptions,
-		Placements:           placements,
-		TerminalWait:         h.runners.TerminalWait(chatID),
-		AttachedSessionID:    attachedSessionID,
-		HasLiveAPIConnection: hasLiveAPIConn,
-	}, nil
-}
-
-// dormantProviderSources reads activeProviderId's second and third fallback
-// sources for a chat no runner is placed on: its interruption ledger and its
-// placement history.
-//
-// Both exist because the conversation history is blind to a provider that binds
-// via its own connection identity — it writes no conversation row, so its only
-// traces are a switch marker here, or, for a chat that was never switched, the
-// placement Crowbar recorded when it pointed the CLI at the chat in the first
-// place. See dto.ChatRuntime.Interruptions and .Placements.
-func (h *Handlers) dormantProviderSources(
-	ctx context.Context,
-	chatID string,
-) ([]domain.ActivityInterruption, []agents.ChatPlacement, error) {
-	interruptions, err := h.turns.Interruptions(ctx, chatID)
-	if err != nil {
-		return nil, nil, err
-	}
-	placements, err := h.runners.PlacementsForChat(ctx, chatID)
-	if err != nil {
-		return nil, nil, err
-	}
-	return interruptions, placements, nil
+	return s.Chat, dto.ChatSnapshotRuntime(s.Live, s.Phase, s.Version,
+		s.TerminalWait, s.AttachedSessionID, s.Session), nil
 }
 
 // requireChatInWorkspace loads chatID, 404ing on an unknown id, and holds it to
@@ -575,7 +505,7 @@ func (h *Handlers) Promote(
 		return
 	}
 
-	rt, err := h.chatRuntime(ctx.Request.Context(), promoted.ID)
+	_, rt, err := h.chatSnapshot(ctx.Request.Context(), promoted.ID)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
@@ -655,10 +585,9 @@ func (h *Handlers) Delete(
 		return
 	}
 
-	removed, err := h.folders.DeleteChat(rctx, id)
+	removed, err := h.folders.DeleteChat(rctx, id, libs.DeleteConsentOf(ctx))
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.WriteDeleteErr(ctx, err)
 		return
 	}
 	for _, folderID := range removed.Folders {

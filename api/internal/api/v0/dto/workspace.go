@@ -45,6 +45,10 @@ type WorkspaceDTO struct {
 	// an imported one is not). The client reconstructs the "checked out
 	// elsewhere" reason from it; absent on healthy workspaces.
 	HeldByPath string `json:"heldByPath,omitempty"`
+	// Provisioning says what stands behind LocalPath: "provisioned",
+	// "placeholder" (no checkout yet; nothing may fork from or rebase onto it)
+	// or "shared" (the user's own checkout). Clients read it, never the path.
+	Provisioning domain.WorkspaceProvisioning `json:"provisioning"`
 	// CreatedAt is the tiebreak the list sorts undragged rows by: placement no
 	// longer lives on this resource at all (it is the row's own chat-row
 	// ParentID/Order in the unified sidebar tree — see
@@ -137,6 +141,7 @@ func WorkspaceDTOFrom(
 		PRTargetBranch:  w.PRTargetBranch,
 		LocalPath:       w.WorktreePath,
 		HeldByPath:      w.HeldByPath,
+		Provisioning:    w.Provisioning,
 		CreatedAt:       w.CreatedAt,
 		OwningChatID:    owningChatID,
 		FolderID:        folderID,

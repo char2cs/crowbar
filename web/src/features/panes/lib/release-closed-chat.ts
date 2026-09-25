@@ -1,10 +1,6 @@
 import type { PaneGroup } from '@/features/panes/types/pane'
 import { stopChat } from '@/features/agent/api/agent-api'
-import {
-  getActiveWorkspaceId,
-  resolveChatOwnerWorkspaceId,
-  resolveWorkspaceIdForChat,
-} from '@/features/workspace/stores/workspace-store-registry'
+import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { requestWorkspaceEviction } from '@/features/workspace/lib/workspace-eviction-request'
 
 /** Read the window's panes as they stand RIGHT NOW. Passed in rather than
@@ -43,26 +39,18 @@ function chatIsUp(readPanes: ReadPanes, chatId: string): boolean {
  * undoable (Recents remembers it) and the user can perfectly well reopen the
  * chat while the stop is in flight.
  */
-export async function releaseClosedChat(chatId: string, readPanes: ReadPanes): Promise<void> {
+export async function releaseClosedChat(
+  chatId: string,
+  workspaceId: string | null,
+  readPanes: ReadPanes,
+): Promise<void> {
   // The same chat can be up in more than one pane (a drag onto a second pane
   // reveals rather than duplicates, but a persisted layout can still carry
   // two). Closing one of them ends that VIEW, not the chat.
   if (chatIsUp(readPanes, chatId)) return
-
-  // TWO different questions, two different resolvers — see their own docs.
-  //
-  // `scopeWsId` is where the chat was FOUND: a registry key with a live store,
-  // which is what `stopChat`'s URL is built against. Null means no registered
-  // store knows this chat (its workspace was already evicted), and there is
-  // nothing left to tear down on either side.
-  //
-  // `ownerWsId` is the workspace the chat BELONGS to. They are routinely
-  // different: `listChats` is repo-scoped, so every workspace store in a repo
-  // holds that whole repo's chats and the first key iterated matches any of
-  // them. Only the owner can answer "is this workspace still in use".
-  const scopeWsId = resolveWorkspaceIdForChat(chatId)
-  if (!scopeWsId) return
-  const ownerWsId = resolveChatOwnerWorkspaceId(chatId)
+  // The workspace was recorded on the pane when the chat was opened (C3); a
+  // pane from before that has nothing to address the stop to.
+  if (!workspaceId) return
 
   // A stop that FAILED means the CLI is still running — the chat is live, its
   // stream is still writing into this workspace's store, and evicting that
@@ -70,13 +58,11 @@ export async function releaseClosedChat(chatId: string, readPanes: ReadPanes): P
   // on the frontend half rather than tear down over a chat we did not manage
   // to stop; ordinary keep-alive retention still ages the workspace out.
   try {
-    await stopChat(scopeWsId, chatId)
+    await stopChat(workspaceId, chatId)
   } catch (err) {
     if (import.meta.env.DEV) console.warn('stop chat for closed view failed:', err)
     return
   }
-
-  if (!ownerWsId) return
 
   // Re-read: the close is undoable, and clicking the row again while the stop
   // was in flight puts the chat straight back on screen. Reviving it is the
@@ -85,9 +71,8 @@ export async function releaseClosedChat(chatId: string, readPanes: ReadPanes): P
 
   // The workspace still has a view of its own up — some other chat OF ITS OWN
   // is on screen — so it is in use, not closed.
-  const panes = readPanes()
-  for (const pane of Object.values(panes)) {
-    if (pane.chatId && resolveChatOwnerWorkspaceId(pane.chatId) === ownerWsId) return
+  for (const pane of Object.values(readPanes())) {
+    if (pane.chatId && pane.workspaceId === workspaceId) return
   }
 
   // The ACTIVE workspace is the route: `WorkspaceView` is mounted over its
@@ -95,7 +80,7 @@ export async function releaseClosedChat(chatId: string, readPanes: ReadPanes): P
   // nothing to gain and a live subtree to break. It stops being active the
   // moment the user goes anywhere else, and ordinary retention takes it from
   // there.
-  if (ownerWsId === getActiveWorkspaceId()) return
+  if (workspaceId === getActiveWorkspaceId()) return
 
-  requestWorkspaceEviction(ownerWsId)
+  requestWorkspaceEviction(workspaceId)
 }

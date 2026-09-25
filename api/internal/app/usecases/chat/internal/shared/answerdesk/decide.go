@@ -45,6 +45,15 @@ func Decide(
 	return decision, nil
 }
 
+// RefusalKey is the canonical reply that declines an ask of kind event without
+// ending the turn — what a desk sends when nobody answered in time.
+func RefusalKey(event string) string {
+	if event == engineagents.HookElicitation {
+		return "decline"
+	}
+	return "deny"
+}
+
 func decisionKey(answers []domain.ChoiceAnswer) (string, error) {
 	key := ""
 	for _, answer := range answers {

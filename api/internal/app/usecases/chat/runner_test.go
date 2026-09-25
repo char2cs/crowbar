@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -1050,6 +1053,7 @@ func TestRegression_ResumeChat_OldSessionWithNoRecordedTurns_ResumesInsteadOfSpa
 	// recorded under it in agent_turns (nothing here ever calls turn()).
 	weeksAgo := time.Now().Add(-21 * 24 * time.Hour)
 	_, err := f.runners.BindSession(f.ctx, runnerID, "sid-legacy-session", true, weeksAgo, "", "")
+	writeVendorSession(t, "sid-legacy-session")
 	require.NoError(t, err)
 	f.wait()
 
@@ -1286,7 +1290,7 @@ func TestSwitchProvider_CodexKeepsItsOwnHome(t *testing.T) {
 
 	for _, call := range f.term.calls {
 		for _, kv := range call.env {
-			assert.False(t, strings.HasPrefix(kv, "CODEX_HOME="),
+			assert.False(t, strings.HasPrefix(kv, "CODEX_HOME=") && kv != "CODEX_HOME="+os.Getenv("CODEX_HOME"),
 				"Crowbar must never own codex's home — its sessions live there")
 		}
 	}
@@ -1915,7 +1919,7 @@ func TestRegression_ProviderExitingBeforeItsRunnerRowCommitsLeavesNoChat(t *test
 
 // ─── from catalog_test.go ─────────────────────────────────────────────
 
-func TestSlashCatalogRejectsResultWhenLiveRunnerChangesDuringProbe(t *testing.T) {
+func TestSlashCatalogRejectsResultWhenTheProviderChangesDuringProbe(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(f.ws.home, "descriptors"), 0o700))
 	require.NoError(t, os.MkdirAll(f.ws.worktree, 0o700))
@@ -1978,10 +1982,10 @@ presentation:
         source: "test"
 `, os.Args[0])
 	require.NoError(t, os.WriteFile(
-		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(descriptor), 0o600,
+		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(withLifecycle(descriptor)), 0o600,
 	))
 
-	chatID, runnerID := f.spawn(t, "codex")
+	chatID, _ := f.spawn(t, "codex")
 	probeDone := make(chan error, 1)
 	go func() {
 		_, err := f.usecase.SlashCatalog(f.ctx, chatID)
@@ -1992,8 +1996,8 @@ presentation:
 	require.NoError(t, err, "the deterministic provider command must be in flight")
 	require.NoError(t, inFlight.Close())
 
-	_, exitErr := f.runners.Exit(f.ctx, runnerID, time.Now())
-	require.NoError(t, exitErr)
+	_, switchErr := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	require.NoError(t, switchErr)
 	f.wait()
 	releaser, err := os.OpenFile(release, os.O_WRONLY, 0)
 	require.NoError(t, err)
@@ -2002,7 +2006,7 @@ presentation:
 	select {
 	case err := <-probeDone:
 		require.ErrorIs(t, err, agentusecase.ErrSlashCatalogSuperseded,
-			"a result from a TUI that no longer holds the chat must never be returned")
+			"a catalogue of a provider the chat has left must never be returned")
 	case <-time.After(3 * time.Second):
 		t.Fatal("slash catalog did not finish after releasing its provider command")
 	}
@@ -2073,7 +2077,7 @@ func TestSlashCatalog_UnsupportedWhenTheProviderDeclaresNoCatalogue(t *testing.T
 	require.NoError(t, os.MkdirAll(filepath.Join(f.ws.home, "descriptors"), 0o700))
 	require.NoError(t, os.MkdirAll(f.ws.worktree, 0o700))
 	require.NoError(t, os.WriteFile(
-		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(`
+		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(withLifecycle(`
 id: codex
 spawn:
   cmd: /usr/bin/true
@@ -2091,7 +2095,7 @@ runtime:
   transport: hooks
   hooks:
     format: json
-`), 0o600,
+`)), 0o600,
 	))
 
 	chatID, _ := f.spawn(t, "codex")
@@ -2101,15 +2105,26 @@ runtime:
 	require.ErrorIs(t, err, agentusecase.ErrSlashCatalogUnsupported)
 }
 
-func TestSlashCatalog_RefusesAChatWithNoLiveCLI(t *testing.T) {
+// The probe is its own short-lived command, not a question put to the TUI: a
+// dormant chat's catalogue is its provider's, the same as a live one's.
+func TestSlashCatalog_ServesADormantChatFromItsOwnProvider(t *testing.T) {
 	f := newFixture(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(f.ws.home, "descriptors"), 0o700))
+	require.NoError(t, os.MkdirAll(f.ws.worktree, 0o700))
+	cli := filepath.Join(t.TempDir(), "cli")
+	require.NoError(t, os.WriteFile(cli, []byte("#!/bin/sh\ncat <<'J'\n"+
+		`[{"content":[{"text":"<skills>\n- review\n</skills>"}]}]`+"\nJ\n"), 0o700))
+	writeCatalogDescriptor(t, f, strconv.Quote(cli))
 	chatID, _ := f.spawn(t, "codex")
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
 	f.wait()
 
-	_, err := f.usecase.SlashCatalog(f.ctx, chatID)
+	catalog, err := f.usecase.SlashCatalog(f.ctx, chatID)
 
-	require.ErrorIs(t, err, agentusecase.ErrSlashCatalogNoLiveTUI)
+	require.NoError(t, err)
+	assert.Equal(t, "codex", catalog.ProviderID)
+	require.Len(t, catalog.Items, 1)
+	assert.Equal(t, "$review ", catalog.Items[0].InsertText)
 }
 
 // TestSlashCatalog_ResolvesCwdThroughTheAncestorWalkForABubble proves
@@ -2138,7 +2153,7 @@ func TestSlashCatalog_ResolvesCwdThroughTheAncestorWalkForABubble(t *testing.T) 
 func writeCatalogDescriptor(t *testing.T, f testFixture, command string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(
-		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(fmt.Sprintf(`
+		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(withLifecycle(fmt.Sprintf(`
 id: codex
 spawn:
   cmd: %s
@@ -2171,7 +2186,7 @@ presentation:
         label: "{name}"
         insert_text: "${name} "
         source: "test"
-`, command)), 0o600,
+`, command))), 0o600,
 	))
 }
 
@@ -2688,22 +2703,51 @@ func TestSubmitPrompt_RefusesAChatThatDoesNotExist(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestSubmitPrompt_RefusesADormantChat(t *testing.T) {
+// Send is the only intent a client needs: a dormant chat is revived by the
+// daemon, through the resume ladder, in the same hold as the delivery.
+func TestSubmitPrompt_RevivesADormantChatAndDelivers(t *testing.T) {
 	f := newFixture(t)
-	chatID, _ := f.spawn(t, "codex")
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-dormant")
+	turn(t, f, runnerID, "claude", "said before stopping")
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
 	f.wait()
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello", uuid.NewString(), "", nil)
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello again", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	f.wait()
 
-	require.ErrorIs(t, err, agentusecase.ErrPromptSessionUnavailable)
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, result.RunnerID, live.ID)
+	argv := f.term.calls[f.term.callCount()-1].argv
+	assert.Equal(t, "sid-dormant", argAfter(t, argv, "--resume"), "revived into its own conversation")
+	assert.Contains(t, strings.Join(argv, "\x00"), "hello again")
+}
+
+// A retry of a request whose outcome is recorded answers from the journal —
+// it never revives, so a retried send cannot spawn a CLI of its own.
+func TestSubmitPrompt_ARetryNeverRevives(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "claude")
+	requestID := uuid.NewString()
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "once", requestID, "", nil)
+	require.NoError(t, err)
+	f.wait()
+	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
+	f.wait()
+	spawned := f.term.callCount()
+
+	_, _ = f.usecase.SubmitPrompt(f.ctx, chatID, "once", requestID, "", nil)
+
+	assert.Equal(t, spawned, f.term.callCount())
 }
 
 func TestSubmitPrompt_RefusesAProviderWithNoDeclaredDelivery(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(f.ws.home, "descriptors"), 0o700))
 	require.NoError(t, os.WriteFile(
-		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(`
+		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(withLifecycle(`
 id: codex
 spawn:
   cmd: /usr/bin/true
@@ -2721,7 +2765,7 @@ runtime:
   transport: hooks
   hooks:
     format: json
-`), 0o600,
+`)), 0o600,
 	))
 	chatID, _ := f.spawn(t, "codex")
 
@@ -4428,7 +4472,6 @@ func TestCatalogErrorCode_NamesEveryCatalogueFailure(t *testing.T) {
 		want string
 	}{
 		{agentusecase.ErrSlashCatalogUnsupported, agentusecase.CatalogCodeUnsupported},
-		{agentusecase.ErrSlashCatalogNoLiveTUI, agentusecase.CatalogCodeLiveRequired},
 		{agentusecase.ErrSlashCatalogTimeout, agentusecase.CatalogCodeTimeout},
 		{agentusecase.ErrSlashCatalogUnavailable, agentusecase.CatalogCodeUnavailable},
 		{agentusecase.ErrSlashCatalogOutputLimit, agentusecase.CatalogCodeOutputLimit},
@@ -4547,12 +4590,12 @@ func TestRegression_ReasoningStreamsLiveAndIsNeverRecorded(t *testing.T) {
 	chatID, runnerID := f.spawn(t, "codex")
 
 	deltas := &deltaCallbackRecorder{}
-	f.usecase.StartTerminalWaitSweep(f.ctx, nil, nil, deltas.record, nil, nil)
+	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{MessageDelta: deltas.record})
 
 	think := func(index int, text string) {
 		t.Helper()
 		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, "ws1", uuid.NewString(), runnerID, "codex", "reasoning_delta",
+			f.ctx, uuid.NewString(), runnerID, "codex", "reasoning_delta",
 			mustJSON(t, map[string]any{
 				"threadId": "sess-1", "turnId": "turn-1", "itemId": "rs_1",
 				"summaryIndex": index, "delta": text,
@@ -4603,12 +4646,12 @@ func TestStartTerminalWaitSweep_PushesEveryDeltaAsTheMessageSoFar(t *testing.T) 
 	chatID, runnerID := f.spawn(t, "claude")
 
 	deltas := &deltaCallbackRecorder{}
-	f.usecase.StartTerminalWaitSweep(f.ctx, nil, nil, deltas.record, nil, nil)
+	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{MessageDelta: deltas.record})
 
 	post := func(index int, final bool, text string) {
 		t.Helper()
 		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, "ws1", uuid.NewString(), runnerID, "claude", "message_delta",
+			f.ctx, uuid.NewString(), runnerID, "claude", "message_delta",
 			deltaHook(t, "msg-one", index, final, text),
 		))
 	}
@@ -4928,9 +4971,475 @@ func TestRegression_PlacementsForChat_SurvivesTheRunnerThatMadeIt(t *testing.T) 
 	_, err = f.runners.LastConversation(f.ctx, chatID)
 	require.ErrorIs(t, err, agentrunner.ErrNotFound, "and it announced no conversation")
 
-	placements, err := f.usecase.PlacementsForChat(f.ctx, chatID)
+	placements, err := f.runners.PlacementsForChat(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, placements, 1)
 	assert.Equal(t, "claude", placements[0].ProviderID)
 	assert.Equal(t, chatID, placements[0].ChatID)
+}
+
+// The resume ladder (sessions spec §2.2): the provider's own session is the
+// first rung, and a normal revive lands on it — and says so.
+func TestResumeLadder_ARecordedSessionIsResumedAndTheRungRecorded(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-kept")
+	turn(t, f, runnerID, "claude", "kept content")
+	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
+	f.wait()
+
+	_, err := f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+
+	argv := f.term.calls[f.term.callCount()-1].argv
+	assert.Equal(t, "sid-kept", argAfter(t, argv, "--resume"))
+	snap, err := f.usecase.ChatSnapshot(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.AgentRungSession, snap.Session.Rung)
+}
+
+// A session the provider no longer has (pruned, never flushed) is never handed
+// to the CLI — that launch exits 1 and strands the chat. The chat continues on
+// a fresh session carrying Crowbar's own transcript instead.
+func TestResumeLadder_AMissingVendorSessionContinuesFromTheTranscript(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-pruned")
+	turn(t, f, runnerID, "claude", "what we worked out earlier")
+	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
+	f.wait()
+	removeVendorSession(t, "sid-pruned")
+
+	_, err := f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+
+	argv := f.term.calls[f.term.callCount()-1].argv
+	assert.NotContains(t, argv, "--resume", "a session the provider lost must not be resumed")
+	assert.Contains(t, strings.Join(argv, "\x00"), "what we worked out earlier",
+		"the replacement is handed the conversation so far")
+	snap, err := f.usecase.ChatSnapshot(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.AgentRungTranscript, snap.Session.Rung, "the UI is told which rung was used")
+}
+
+// The same ladder on the hot path: every restart_tui prompt resumes, so a
+// session lost while the chat is live must not fail the next message.
+func TestResumeLadder_APromptToALostSessionIsDeliveredWithTheTranscript(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-gone")
+	turn(t, f, runnerID, "claude", "the earlier answer")
+	removeVendorSession(t, "sid-gone")
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "and now?", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	f.wait()
+
+	argv := f.term.calls[f.term.callCount()-1].argv
+	joined := strings.Join(argv, "\x00")
+	assert.NotContains(t, argv, "--resume")
+	assert.Contains(t, joined, "and now?")
+	assert.Contains(t, joined, "the earlier answer")
+}
+
+// A resume the CLI itself refuses (it exits before announcing any session)
+// is recorded as such, and the ladder never offers that session again.
+func TestResumeLadder_AResumeTheCLIRefusesIsQuarantined(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-corrupt")
+	turn(t, f, runnerID, "claude", "before the corruption")
+
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello again", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	f.wait()
+	require.Equal(t, "sid-corrupt", argAfter(t, f.term.calls[f.term.callCount()-1].argv, "--resume"))
+	f.term.exit(t, result.TerminalSessionID) // dies before any session_start
+	f.wait()
+
+	snap, err := f.usecase.ChatSnapshot(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.AgentExitResumeFailed, snap.Session.ExitReason)
+
+	_, err = f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+	argv := f.term.calls[f.term.callCount()-1].argv
+	assert.NotContains(t, argv, "--resume", "a refused session is quarantined")
+	assert.Contains(t, strings.Join(argv, "\x00"), "before the corruption")
+}
+
+// The prompt a refused resume carried was never read by its CLI, so the daemon
+// delivers it again on the next rung — the user never retries by hand.
+func TestResumeLadder_ARefusedResumesPromptIsDeliveredOnTheTranscriptRung(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-refused")
+	turn(t, f, runnerID, "claude", "what came before")
+	requestID := uuid.NewString()
+
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "carry on", requestID, "", nil)
+	require.NoError(t, err)
+	f.wait()
+	calls := f.term.callCount()
+	f.term.exit(t, result.TerminalSessionID) // refuses: dies before any session_start
+
+	var argv []string
+	require.Eventually(t, func() bool {
+		for i := f.term.callCount() - 1; i >= calls; i-- {
+			if call := f.term.call(i); slices.Contains(call.argv, "carry on") {
+				argv = call.argv
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, time.Millisecond, "the refused prompt is delivered again")
+	assert.NotContains(t, argv, "--resume", "never the refused session again")
+	assert.Contains(t, strings.Join(argv, "\x00"), "what came before", "handed the conversation so far")
+	require.Eventually(t, func() bool {
+		return agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).Rung == domain.AgentRungTranscript
+	}, 5*time.Second, time.Millisecond, "the chat says which rung it continued on")
+}
+
+// A resumed CLI Crowbar stops before it announces anything did not refuse its
+// session: the chat says it was stopped, and the next revive resumes it.
+func TestResumeLadder_AResumeStoppedBeforeItSpeaksIsNotARefusal(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-kept")
+	turn(t, f, runnerID, "claude", "an answer")
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "next", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	f.wait()
+	require.Equal(t, "sid-kept", argAfter(t, f.term.calls[f.term.callCount()-1].argv, "--resume"))
+
+	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
+	f.term.exit(t, result.TerminalSessionID) // the stopped CLI goes
+	f.wait()
+	assert.Equal(t, domain.AgentExitStopped, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
+
+	_, err = f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+	assert.Equal(t, "sid-kept", argAfter(t, f.term.calls[f.term.callCount()-1].argv, "--resume"),
+		"a session nobody refused is never quarantined")
+}
+
+// A resumed CLI that reported anything at all accepted its session, even one
+// that never re-announces it: its later exit is an exit, not a refusal.
+func TestResumeLadder_AResumedCLIThatSpokeDidNotRefuse(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-kept")
+	turn(t, f, runnerID, "claude", "an answer")
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "next", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	f.wait()
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	require.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "next"})))
+	f.wait()
+
+	f.term.exit(t, result.TerminalSessionID)
+	f.wait()
+
+	assert.NotEqual(t, domain.AgentExitResumeFailed,
+		agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
+	_, err = f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+	assert.Equal(t, "sid-kept", argAfter(t, f.term.calls[f.term.callCount()-1].argv, "--resume"))
+}
+
+// A replacement that cannot start leaves the chat dormant saying so — never a
+// silent dormancy, and never the "displaced" of the runner it replaced.
+func TestSessionExit_AReplacementThatCannotStartRecordsSpawnFailed(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-before")
+	turn(t, f, runnerID, "claude", "an answer")
+	f.term.err = errors.New("pty: out of descriptors")
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "next", uuid.NewString(), "", nil)
+	require.Error(t, err)
+
+	_, err = f.liveRunnerFor(t, chatID)
+	require.ErrorIs(t, err, agentrunner.ErrNotFound)
+	assert.Equal(t, domain.AgentExitSpawnFailed, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
+}
+
+// A /clear takes the CLI to a new conversation: the chat it left says so.
+func TestSessionExit_AClearRecordsMovedOnTheChatLeftBehind(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-first")
+	f.announce(t, runnerID, "sid-cleared")
+
+	assert.Equal(t, domain.AgentExitMoved, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
+}
+
+// A CLI that /resumes another chat's conversation walks onto that chat: the
+// chat it left records the move, and the chat it joined continues its session.
+func TestSessionExit_ResumingAnotherChatsConversationMovesOntoIt(t *testing.T) {
+	f := newFixture(t)
+	chatA, runnerA := f.spawn(t, "claude")
+	f.announce(t, runnerA, "sid-shared")
+	chatB, runnerB := f.spawn(t, "claude")
+	f.announce(t, runnerB, "sid-b")
+
+	f.announce(t, runnerB, "sid-shared")
+
+	live, err := f.liveRunnerFor(t, chatA)
+	require.NoError(t, err)
+	assert.Equal(t, runnerB, live.ID)
+	assert.Equal(t, domain.AgentSession{Rung: domain.AgentRungSession},
+		agentusecase.ChatSession(f.usecase.RunnerUsecase, chatA))
+	assert.Equal(t, domain.AgentExitMoved, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatB).ExitReason)
+}
+
+// sessionOp is one step of the invariant walk: anything a user, a CLI or the
+// vendor's own store can do to a chat.
+type sessionOp struct {
+	name string
+	do   func(t *testing.T, f testFixture, w *sessionWalk)
+}
+
+// sessionWalk is the chat the walk is on and what it has seen so far.
+type sessionWalk struct {
+	chatID   string
+	provider string
+	sessions int
+	// rival is the intent racing this one, when two run at once.
+	rival string
+}
+
+func (w *sessionWalk) live(t *testing.T, f testFixture) (agents.Runner, bool) {
+	t.Helper()
+	r, err := f.liveRunnerFor(t, w.chatID)
+	return r, err == nil
+}
+
+var sessionOps = []sessionOp{
+	{"send", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		sub, err := f.usecase.SubmitPrompt(f.ctx, w.chatID, "step", uuid.NewString(), "", nil)
+		if err != nil {
+			return
+		}
+		// S5: a delivered send has a runner to continue the conversation on —
+		// unless a rival stop or crash took the chat once the send released it.
+		assert.NotEmpty(t, sub.RunnerID, "S5: a delivered send names no runner")
+		if endsRunner(w.rival) {
+			return
+		}
+		_, ok := w.live(t, f)
+		assert.True(t, ok, "S5: a delivered send left the chat with no runner")
+	}},
+	{"stop", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		// S4: Stop is bounded and leaves no turn open.
+		stopped := make(chan struct{})
+		go func() {
+			defer close(stopped)
+			_ = f.usecase.StopChat(f.ctx, w.chatID)
+		}()
+		select {
+		case <-stopped:
+		case <-time.After(10 * time.Second):
+			t.Fatal("S4: Stop did not return")
+		}
+		f.wait()
+		assert.False(t, f.chat(t, w.chatID).Working, "S4: a stopped chat is left working")
+	}},
+	{"switch", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		w.provider = map[string]string{"claude": "codex", "codex": "claude"}[w.provider]
+		_, _ = f.usecase.SwitchProvider(f.ctx, w.chatID, w.provider)
+	}},
+	{"resume", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		_, _ = f.usecase.ResumeChat(f.ctx, w.chatID)
+	}},
+	{"crash", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		if r, ok := w.live(t, f); ok && r.TerminalSession != "" && f.term.SessionLive(f.ctx, r.TerminalSession) {
+			f.term.exit(t, r.TerminalSession)
+		}
+	}},
+	{"restart", func(t *testing.T, f testFixture, _ *sessionWalk) {
+		t.Helper()
+		f.term.dieWithDaemon()
+		require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
+	}},
+	{"announce", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		if r, ok := w.live(t, f); ok {
+			w.sessions++
+			f.announce(t, r.ID, fmt.Sprintf("walk-%s-%d", w.chatID[:8], w.sessions))
+		}
+	}},
+	{"prompt", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		// A turn the CLI opened and has not finished: whatever comes next must close it.
+		if r, ok := w.live(t, f); ok && f.sessions[r.ID] != "" {
+			payload := map[string]any{"prompt": "typed in the terminal"}
+			f.withTrackedSession(r.ID, payload)
+			require.NoError(t, f.usecase.IngestHook(f.ctx, r.ID, r.ProviderID, "user_prompt", mustJSON(t, payload)))
+		}
+	}},
+	{"turn", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		if r, ok := w.live(t, f); ok && f.sessions[r.ID] != "" {
+			turn(t, f, r.ID, r.ProviderID, "an answer")
+		}
+	}},
+	{"prune", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		if r, ok := w.live(t, f); ok && f.sessions[r.ID] != "" {
+			id := f.sessions[r.ID]
+			_ = os.Remove(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "fixture", id+".jsonl"))
+			_ = os.Remove(filepath.Join(os.Getenv("CODEX_HOME"), "sessions", "2026", "01", "01", "rollout-x-"+id+".jsonl"))
+		}
+	}},
+	{"delete", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		if err := f.usecase.PurgeChat(f.ctx, w.chatID); err != nil {
+			return
+		}
+		f.wait()
+		// S8: nothing the supervisor kept outlives the chat.
+		assert.Equal(t, domain.AgentSession{}, agentusecase.ChatSession(f.usecase.RunnerUsecase, w.chatID))
+		w.chatID, _ = f.spawn(t, w.provider)
+	}},
+}
+
+// checkSessionInvariants asserts S1 and S2 after every step of the walk.
+func checkSessionInvariants(t *testing.T, f testFixture, w *sessionWalk, trail []string) {
+	t.Helper()
+	// S1: at most one runner placed on the chat, and one per vendor session.
+	assert.LessOrEqual(t, len(f.placedRunnersFor(t, w.chatID)), 1, "S1 chat, after %v", trail)
+	all, err := f.runners.AllLive(f.ctx)
+	require.NoError(t, err)
+	holders := map[string]int{}
+	for _, r := range all {
+		if r.CurrentChatID != "" && r.CurrentSession != "" {
+			holders[r.CurrentSession]++
+		}
+	}
+	for session, n := range holders {
+		assert.Equal(t, 1, n, "S1 session %s, after %v", session, trail)
+	}
+	// S2: a chat with no runner says why its last one ended.
+	// S3: and has no turn left open — nothing is left that could close it.
+	if _, ok := w.live(t, f); !ok {
+		assert.NotEmpty(t, agentusecase.ChatSession(f.usecase.RunnerUsecase, w.chatID).ExitReason,
+			"S2, after %v", trail)
+		assert.False(t, f.chat(t, w.chatID).Working, "S3, after %v", trail)
+	}
+}
+
+// concurrentOps are the user's own intents, which really do race each other
+// from different tabs and clients.
+var concurrentOps = []string{"send", "stop", "switch", "resume", "crash"}
+
+// endsRunner reports whether an intent may leave the chat with no runner.
+func endsRunner(op string) bool { return op == "stop" || op == "crash" }
+
+func sessionOpNamed(name string) sessionOp {
+	for _, op := range sessionOps {
+		if op.name == name {
+			return op
+		}
+	}
+	panic("no session op " + name)
+}
+
+// Two intents at once — a send racing a stop, a switch racing a resume — leave
+// the same invariants standing. Run under -race.
+func TestSessionInvariants_HoldWhenIntentsRace(t *testing.T) {
+	for seed := uint64(1); seed <= 10; seed++ {
+		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
+			f := newFixture(t)
+			agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, 10*time.Millisecond)
+			rng := rand.New(rand.NewPCG(seed, seed))
+			w := &sessionWalk{provider: "claude"}
+			var runnerID string
+			w.chatID, runnerID = f.spawn(t, w.provider)
+			f.announce(t, runnerID, "race-"+w.chatID[:8])
+			var trail []string
+			for range 20 {
+				a := sessionOpNamed(concurrentOps[rng.IntN(len(concurrentOps))])
+				b := sessionOpNamed(concurrentOps[rng.IntN(len(concurrentOps))])
+				trail = append(trail, a.name+"|"+b.name)
+				// Each goroutine reads its own copy: a switch flips the walk's provider.
+				wa, wb := *w, *w
+				wa.rival, wb.rival = b.name, a.name
+				var both sync.WaitGroup
+				both.Add(2)
+				go func() { defer both.Done(); a.do(t, f, &wa) }()
+				go func() { defer both.Done(); b.do(t, f, &wb) }()
+				both.Wait()
+				f.wait()
+				if live, ok := w.live(t, f); ok {
+					w.provider = live.ProviderID
+				}
+				checkSessionInvariants(t, f, w, trail)
+				if t.Failed() {
+					return
+				}
+			}
+		})
+	}
+}
+
+// The send|stop interleaving the race walk hits: the send holds the chat's
+// spawn gate until it has delivered, so a racing Stop takes the chat only after
+// it — and ends the runner the send was delivered to, saying why.
+func TestSessionInvariants_AStopAfterADeliveredSendEndsItsRunnerAndSaysWhy(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-send-stop")
+
+	sub, err := f.usecase.SubmitPrompt(f.ctx, chatID, "step", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	delivered, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, sub.RunnerID, delivered.ID, "the send names the runner it was delivered to")
+
+	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
+	f.wait()
+
+	_, err = f.liveRunnerFor(t, chatID)
+	require.ErrorIs(t, err, agentrunner.ErrNotFound)
+	assert.Equal(t, domain.AgentExitStopped, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
+	assert.False(t, f.chat(t, chatID).Working)
+}
+
+// The session invariants hold under any interleaving of what users, CLIs and
+// vendor stores do (sessions plan §3), walked from fixed seeds so a failure
+// replays exactly.
+func TestSessionInvariants_HoldUnderRandomInterleavings(t *testing.T) {
+	for seed := uint64(1); seed <= 10; seed++ {
+		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
+			f := newFixture(t)
+			agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, 10*time.Millisecond)
+			rng := rand.New(rand.NewPCG(seed, seed))
+			w := &sessionWalk{provider: "claude"}
+			w.chatID, _ = f.spawn(t, w.provider)
+			var trail []string
+			for range 40 {
+				op := sessionOps[rng.IntN(len(sessionOps))]
+				trail = append(trail, op.name)
+				op.do(t, f, w)
+				f.wait()
+				checkSessionInvariants(t, f, w, trail)
+				if t.Failed() {
+					return
+				}
+			}
+		})
+	}
 }

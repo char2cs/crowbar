@@ -24,6 +24,11 @@ const ASPECT = MONO_ADVANCE_RATIO / LINE_HEIGHT_RATIO // 1 when cells are square
 
 const TARGET_FPS = 30
 const FRAME_INTERVAL = 1000 / TARGET_FPS
+/** How long the tumble plays after mount before settling on a static frame.
+ *  An empty pane is idle by definition: a backdrop that animates forever was
+ *  measured at ~97% of the idle webview's CPU (half a core per empty pane). */
+/** @internal Exported for unit tests. */
+export const INTRO_MS = 1500
 
 const K2 = 4.6 // camera distance
 const FILL = 0.98 // fraction of the shorter grid axis the unit sphere fills
@@ -305,25 +310,36 @@ export function attachAsciiCrowbarRenderer(
 
   let rafId = 0
   let running = false
+  let settled = false
   let lastT: number | null = null
   let lastRender = 0
+  let played = 0
   let onscreen = true
   let tabVisible = typeof document !== 'undefined' ? document.visibilityState !== 'hidden' : true
 
   const loop = (t: number) => {
-    rafId = requestAnimationFrame(loop)
     if (lastT === null) lastT = t
-    const dt = (t - lastT) / 1000
+    const dtMs = t - lastT
     lastT = t
+    played += dtMs
     // Advance by real elapsed time so speed is fps-independent.
-    angA += RATE_A * speed * dt
-    angB += RATE_B * speed * dt
+    angA += RATE_A * speed * (dtMs / 1000)
+    angB += RATE_B * speed * (dtMs / 1000)
+    if (played >= INTRO_MS) {
+      // The intro is over: paint the pose it ended on and schedule nothing,
+      // ever again. Only resize/theme observers remain, and they fire on
+      // change, not on time.
+      renderFrame()
+      settle()
+      return
+    }
+    rafId = requestAnimationFrame(loop)
     if (t - lastRender < FRAME_INTERVAL) return
     lastRender = t
     renderFrame()
   }
   const start = () => {
-    if (running) return
+    if (running || settled) return
     running = true
     lastT = null
     rafId = requestAnimationFrame(loop)
@@ -356,6 +372,14 @@ export function attachAsciiCrowbarRenderer(
   }
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', onVisibility)
+  }
+  function settle() {
+    settled = true
+    stop()
+    io?.disconnect()
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }
 
   sync()

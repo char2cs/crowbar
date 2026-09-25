@@ -65,7 +65,7 @@ func writeStubProviderDescriptor(
 	t.Helper()
 	dir := filepath.Join(h.home, "descriptors")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "stub.yaml"), []byte(stubProviderDescriptorYAML), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "stub.yaml"), []byte(stubDescriptor(stubProviderDescriptorYAML)), 0o644))
 }
 
 // agentChatDTO mirrors the wire shape of dto.AgentChatDTO.
@@ -493,13 +493,13 @@ func TestRegression_RefusedSpawnLeavesNoChatBehind(t *testing.T) {
 		"the chat list must agree with the answer the API gave: a refusal leaves nothing behind")
 
 	// Nor a directory of its own. Nothing under the workspace's chats dir may be
-	// keyed by a chat that does not exist — only the two shared dirs the RUNNER and
-	// hook lifecycles own, neither of which is a chat's.
+	// keyed by a chat that does not exist — only the shared dir the RUNNER
+	// lifecycle owns, which is not a chat's.
 	chatsDir, err := h.app.Usecases.AgentWorkspaceReader.AgentChatsDir(context.Background(), ws.workspaceID)
 	require.NoError(t, err)
 	entries, err := os.ReadDir(chatsDir)
 	require.NoError(t, err)
-	allowed := append([]string{"runners", ".hook-deliveries"}, wantIDs...)
+	allowed := append([]string{"runners"}, wantIDs...)
 	for _, entry := range entries {
 		assert.Contains(t, allowed, entry.Name(),
 			"a refused spawn left a per-chat directory behind")

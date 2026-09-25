@@ -10,6 +10,7 @@ vi.mock('@/features/git/api/review-window-api', () => ({
 }))
 
 import { useReviewOutline } from '@/features/git/hooks/use-review-outline'
+import { markGitStatusChanged } from '@/features/git/stores/git-refresh'
 import {
   __resetWorkspaceScopesForTest,
   recordWorkspaceScope,
@@ -20,8 +21,8 @@ function outlineFile(path: string): FileOutline {
   return { path, hunks: [], isPartial: false, isBinary: false }
 }
 
-function fireGitStatusChanged(): void {
-  window.dispatchEvent(new Event('git-status-changed'))
+function fireGitStatusChanged(wsId = 'ws1'): void {
+  markGitStatusChanged(wsId)
 }
 
 describe('useReviewOutline', () => {
@@ -54,7 +55,7 @@ describe('useReviewOutline', () => {
     expect(result.current.outline).toEqual([outlineFile('src/a.ts')])
   })
 
-  it('refetches on a debounced git-status-changed tick', async () => {
+  it('refetches on a git status change', async () => {
     vi.useFakeTimers()
     mocks.getReviewOutline.mockResolvedValue([outlineFile('src/a.ts')])
 
@@ -73,7 +74,7 @@ describe('useReviewOutline', () => {
     expect(mocks.getReviewOutline).toHaveBeenCalledTimes(2)
   })
 
-  it('does not refetch on git-status-changed when scoped to a commit', async () => {
+  it('does not refetch on a git status change when scoped to a commit', async () => {
     vi.useFakeTimers()
     mocks.getReviewOutline.mockResolvedValue([outlineFile('src/a.ts')])
 
@@ -106,7 +107,7 @@ describe('useReviewOutline', () => {
   // the sidebar's own async chat-list fetch later attaches owningChatId.
   // getReviewOutline resolves through reviewBaseForWorkspace, which throws
   // without one; firing anyway hit the throw, landed in the swallowing catch,
-  // and left the outline empty until an UNRELATED git-status-changed tick
+  // and left the outline empty until an UNRELATED git status change
   // happened to retry it.
   describe('owning chat id not yet recorded (route-vs-sidebar race)', () => {
     it('does not fetch before an owning chat id is recorded', async () => {

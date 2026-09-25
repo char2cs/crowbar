@@ -20,14 +20,13 @@ export type EditorTabContentType =
   | 'markdownPreview'
   | 'htmlPreview'
   | 'csvPreview'
-  | 'externalEditor'
   | 'branchReview'
 
 /** Every content type this build can render.
  *
  *  A saved layout outlives the code that wrote it, so the restore path checks
  *  a persisted buffer's type against this set and drops what it no longer
- *  knows — see stripNewTabs in persisted-layout.ts. */
+ *  knows — see validateLoadedBuffers in persisted-layout.ts. */
 export const PANE_CONTENT_TYPES: ReadonlySet<EditorTabContentType> = new Set<EditorTabContentType>([
   'editor',
   'terminal',
@@ -35,7 +34,6 @@ export const PANE_CONTENT_TYPES: ReadonlySet<EditorTabContentType> = new Set<Edi
   'markdownPreview',
   'htmlPreview',
   'csvPreview',
-  'externalEditor',
   'branchReview',
 ])
 
@@ -93,7 +91,6 @@ export interface TerminalContent extends EditorTabBase {
   sessionId: string
   initialCommand?: string
   workingDirectory?: string
-  remoteConnectionId?: string
 }
 
 /** One commit's diff, rendered on the same windowed surface as the branch
@@ -124,11 +121,6 @@ export interface CsvPreviewContent extends EditorTabBase {
   sourceFilePath: string
 }
 
-export interface ExternalEditorContent extends EditorTabBase {
-  type: 'externalEditor'
-  terminalConnectionId: string
-}
-
 export interface BranchReviewContent extends EditorTabBase {
   type: 'branchReview'
   wsId: string
@@ -143,7 +135,6 @@ export type PaneContent =
   | MarkdownPreviewContent
   | HtmlPreviewContent
   | CsvPreviewContent
-  | ExternalEditorContent
   | BranchReviewContent
 
 // ── Type guards ─────────────────────────────────────────────────────
@@ -165,6 +156,11 @@ export function isCommitDiffContent(c: PaneContent): c is CommitDiffContent {
 /** Content types that represent real files on disk and should be persisted to session. */
 export function isPersistableContent(c: PaneContent): c is EditorContent {
   return c.type === 'editor' && !c.isVirtual
+}
+
+/** An editor buffer holding edits disk does not have — the only copy of them. */
+export function hasUnsavedEdits(c: PaneContent): boolean {
+  return c.type === 'editor' && (c.isDirty || c.content !== c.savedContent)
 }
 
 /** Content types that are virtual (not backed by a real file on disk). */
@@ -216,7 +212,6 @@ export type OpenEditorTabSpec =
       name?: string
       command?: string
       workingDirectory?: string
-      remoteConnectionId?: string
       sessionId?: string
       path?: string
       workspaceId?: string
@@ -250,13 +245,6 @@ export type OpenEditorTabSpec =
       name: string
       content: string
       sourceFilePath: string
-      workspaceId?: string
-    }
-  | {
-      type: 'externalEditor'
-      path: string
-      name: string
-      terminalConnectionId: string
       workspaceId?: string
     }
   | {

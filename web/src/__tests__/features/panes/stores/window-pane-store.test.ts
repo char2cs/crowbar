@@ -6,13 +6,8 @@ import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
-vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
-  saveSessionToStore: vi.fn(),
-  clearQueuedWorkspaceSessionSave: vi.fn(),
-}))
 
 import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
-import { saveSessionToStore } from '@/features/editor/stores/buffer-session-persistence'
 import {
   createWindowPaneStore,
   windowPaneStore,
@@ -33,7 +28,6 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 const mockSave = saveWorkspaceLayout as ReturnType<typeof vi.fn>
-const mockSaveSession = saveSessionToStore as ReturnType<typeof vi.fn>
 
 // Fake timers for EVERY test in this file, not just the "persistence
 // subscription" describe block below: `createWindowPaneStore()` wires a real
@@ -44,7 +38,6 @@ const mockSaveSession = saveSessionToStore as ReturnType<typeof vi.fn>
 beforeEach(() => {
   vi.useFakeTimers()
   mockSave.mockClear()
-  mockSaveSession.mockClear()
 })
 
 afterEach(() => {
@@ -143,7 +136,6 @@ describe('windowPaneStore — persistence subscription', () => {
     // mock-call slate, not just a clean call COUNT.
     vi.runOnlyPendingTimers()
     mockSave.mockClear()
-    mockSaveSession.mockClear()
   })
 
   it('debounces a persisted-field mutation and saves once after 300ms', () => {
@@ -168,13 +160,5 @@ describe('windowPaneStore — persistence subscription', () => {
     vi.advanceTimersByTime(300)
 
     expect(mockSave).toHaveBeenCalledTimes(1)
-  })
-
-  it('a buffers-identity change fires the session writer', () => {
-    windowPaneStore.getState().bufferActions.openContent({
-      type: 'terminal',
-      workspaceId: 'ws-1',
-    })
-    expect(mockSaveSession).toHaveBeenCalled()
   })
 })

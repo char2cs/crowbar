@@ -104,9 +104,21 @@ type Runners struct {
 	// item holds the only surviving copy of the user's text — see settleDelivery.
 	promptSettled func(chatID, workspaceID, requestID string, consumed bool)
 
+	// phases is the lifecycle operation each chat is mid-way through — see
+	// phase.go — and snapshots is where a change no aggregate event carries is
+	// announced. snapshots is nil in tests that build a bare Runners.
+	phases *phases
+	// sessions is the supervisor's record of why each chat is in its state.
+	sessions  *sessionBook
+	snapshots Snapshotter
+	// background is the supervisor's own follow-up work; Shutdown ends it.
+	background *backgroundWork
+
 	// switchAwaitTimeout overrides forceSwitchAfter's bound. Zero (the production
 	// default) means "use termwait.DefaultStallQuiet" — see SetSwitchAwaitTimeout.
 	switchAwaitTimeout time.Duration
+	// interruptTimeout overrides Stop's interrupt bound; zero is the default.
+	interruptTimeout time.Duration
 }
 
 // Deps is everything the CLI lifecycle is built over. It is a struct and not an
@@ -137,6 +149,8 @@ type Deps struct {
 
 	Conversations Conversations
 	Providers     Providers
+	// Snapshots is the chat snapshot owner's announce side (optional).
+	Snapshots Snapshotter
 }
 
 // New builds the CLI lifecycle. The hook-ingress port is bound separately, by
@@ -166,6 +180,10 @@ func New(d Deps) *Runners {
 		apiConns:     newAPIConnRegistry(),
 		attached:     newAttachRegistry(),
 		surfaces:     newSurfaceRegistry(),
+		phases:       newPhases(),
+		sessions:     newSessionBook(),
+		snapshots:    d.Snapshots,
+		background:   newBackgroundWork(),
 
 		conversations: d.Conversations,
 		providers:     d.Providers,

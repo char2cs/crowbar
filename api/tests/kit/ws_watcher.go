@@ -85,19 +85,27 @@ func (w *WSWatcher) ReadUntil(
 		"ws: SetReadDeadline",
 	)
 	for {
-		_, raw, err := w.conn.ReadMessage()
+		mt, raw, err := w.conn.ReadMessage()
 		if err != nil {
 			failWSRead(t, err, timeout)
 			return nil
 		}
 		var msg map[string]any
-		require.NoError(
-			t,
-			json.Unmarshal(
-				raw,
-				&msg,
-			),
-		)
+		if mt == websocket.BinaryMessage {
+			// A PTY output frame (the only binary topic): surface it in the same map
+			// shape as the JSON frames so one predicate style serves every stream.
+			data, snapshot, ok := ParseTerminalFrame(raw)
+			require.True(t, ok, "ws: malformed binary terminal frame")
+			msg = map[string]any{"data": string(data), "snapshot": snapshot}
+		} else {
+			require.NoError(
+				t,
+				json.Unmarshal(
+					raw,
+					&msg,
+				),
+			)
+		}
 		if match(msg) {
 			return msg
 		}

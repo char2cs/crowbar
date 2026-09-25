@@ -22,6 +22,7 @@ import (
 	repohandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
 // ---------------------------------------------------------------------------
@@ -52,96 +53,6 @@ func initRepo(t *testing.T, dir string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hi"), 0o644))
 	runGit(t, dir, "add", "a.txt")
 	runGit(t, dir, "commit", "-q", "-m", "init")
-}
-
-// TestGitDefaultBranch_RealRepo pins the happy path (branch name on HEAD) and
-// the two failure modes: a non-git directory and a detached HEAD.
-func TestGitDefaultBranch_RealRepo(t *testing.T) {
-	t.Run("returns the checked-out branch name", func(t *testing.T) {
-		dir := t.TempDir()
-		initRepo(t, dir)
-		got := callGitDefaultBranch(t, dir)
-		assert.Equal(t, "main", got)
-	})
-
-	t.Run("non-git directory returns empty string", func(t *testing.T) {
-		dir := t.TempDir() // no git init
-		got := callGitDefaultBranch(t, dir)
-		assert.Equal(t, "", got)
-	})
-
-	t.Run("detached HEAD returns empty string", func(t *testing.T) {
-		dir := t.TempDir()
-		initRepo(t, dir)
-		sha := runGit(t, dir, "rev-parse", "HEAD")
-		runGit(t, dir, "checkout", "-q", sha)
-		got := callGitDefaultBranch(t, dir)
-		assert.Equal(t, "", got)
-	})
-}
-
-// callGitDefaultBranch exercises gitDefaultBranch through buildRepo (via
-// Create), the only exported surface that calls it, keeping the unexported
-// function itself untouched.
-func callGitDefaultBranch(t *testing.T, path string) string {
-	repo := createdRepoFor(t, path, "")
-	return repo.DefaultBranch
-}
-
-// callGitRemoteURL exercises gitRemoteURL through buildRepo (via Create).
-func callGitRemoteURL(t *testing.T, path string) string {
-	repo := createdRepoFor(t, path, "")
-	return repo.RemoteURL
-}
-
-// createdRepoFor drives Handlers.Create synchronously with the given path and
-// default branch, returning the resulting Repository as derived by
-// buildRepo -> gitDefaultBranch / gitRemoteURL / repoAvatar. It captures the
-// value actually passed to Store.Save (which carries fields, like RemoteURL,
-// that the broadcast RepoDTO does not) and blocks until that save happens.
-func createdRepoFor(t *testing.T, path, defaultBranch string) domain.Repository {
-	t.Helper()
-	saved := make(chan domain.Repository, 1)
-	store := &fakeStore{}
-	store.SaveFn = func(_ context.Context, r domain.Repository) error {
-		saved <- r
-		return nil
-	}
-	h := repohandlers.NewWithDeps(store, nil, nil, nil).WithStat(statRepoOK)
-	r := gin.New()
-	r.Group("/v0/projects/:projectId").POST("/repos", h.Create)
-
-	body := map[string]any{"name": "alpha", "path": path}
-	if defaultBranch != "" {
-		body["defaultBranch"] = defaultBranch
-	}
-	b, _ := json.Marshal(body)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v0/projects/p1/repos", bytes.NewReader(b))
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusAccepted, rec.Code)
-
-	// The Save call IS the signal that the background create ran; block on it
-	// rather than guessing at a duration.
-	return <-saved
-}
-
-// TestGitRemoteURL_RealRepo pins the happy path (origin configured) and the
-// no-remote failure mode, both via the real git binary.
-func TestGitRemoteURL_RealRepo(t *testing.T) {
-	t.Run("returns the origin URL when configured", func(t *testing.T) {
-		dir := t.TempDir()
-		initRepo(t, dir)
-		runGit(t, dir, "remote", "add", "origin", "https://example.com/acme/widget.git")
-		assert.Equal(t, "https://example.com/acme/widget.git", callGitRemoteURL(t, dir))
-	})
-
-	t.Run("no origin remote returns empty string", func(t *testing.T) {
-		dir := t.TempDir()
-		initRepo(t, dir)
-		assert.Equal(t, "", callGitRemoteURL(t, dir))
-	})
 }
 
 // TestDefaultCrowbarHome pins the production root: ~/.crowbar under the real
@@ -394,7 +305,7 @@ func TestBranches_Success_AnnotatesProtectionAndWorkspace(t *testing.T) {
 			{RepoID: "other", Branch: "feature", IsDefault: false},
 		}},
 		nil,
-	)
+	).WithRemoteRefresher(enginegit.New())
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/branches", h.Branches)
 
@@ -425,7 +336,7 @@ func TestBranches_NoProviderOrWorkspaceReader_StillListsBranches(t *testing.T) {
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: clone}}
 	// NewWithDeps with nil provider/wsReader exercises both "if h.provider !=
 	// nil" / "if h.wsReader != nil" false branches.
-	h := repohandlers.NewWithDeps(store, nil, nil, nil)
+	h := repohandlers.NewWithDeps(store, nil, nil, nil).WithRemoteRefresher(enginegit.New())
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/branches", h.Branches)
 
@@ -450,7 +361,7 @@ func TestBranches_GitCommandFails_Returns500(t *testing.T) {
 	// branch -r` fails.
 	dir := t.TempDir()
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: dir}}
-	h := repohandlers.NewWithDeps(store, nil, nil, nil)
+	h := repohandlers.NewWithDeps(store, nil, nil, nil).WithRemoteRefresher(enginegit.New())
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/branches", h.Branches)
 
@@ -461,9 +372,26 @@ func TestBranches_GitCommandFails_Returns500(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
+// A protection lookup that fails used to be read as "nothing is protected",
+// so the picker offered a protected branch as an ordinary import. It is an
+// error the caller sees.
+func TestRegression_Branches_ProtectionLookupFailureIsNotUnprotected(t *testing.T) {
+	clone := initRemoteTrackingRepo(t)
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: clone}}
+	h := repohandlers.NewWithDeps(store, &fakeBranchProvider{protectedErr: errors.New("gh down")}, nil, nil).
+		WithRemoteRefresher(enginegit.New())
+	r := gin.New()
+	r.GET("/v0/repos/:repoId/branches", h.Branches)
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v0/repos/r1/branches", http.NoBody))
+
+	assert.Equal(t, http.StatusBadGateway, rec.Code)
+}
+
 func TestBranches_StoreLookupError_Returns404(t *testing.T) {
 	store := &fakeStore{byKeErr: errors.New("db down")}
-	h := repohandlers.NewWithDeps(store, nil, nil, nil)
+	h := repohandlers.NewWithDeps(store, nil, nil, nil).WithRemoteRefresher(enginegit.New())
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/branches", h.Branches)
 
@@ -780,57 +708,6 @@ func TestPutIcon_LargerThanMax_ViaMultipart_Returns400(t *testing.T) {
 // repoAvatar / githubSlugFromURL via generated-avatar + create-flow paths.
 // ---------------------------------------------------------------------------
 
-func TestRepoAvatar_ViaBuildRepo_LabelDerivedFromName(t *testing.T) {
-	tests := []struct {
-		name      string
-		repoName  string
-		wantLabel string
-	}{
-		{"no letters at all falls back to R", "🚀🔥", "R"},
-		{"single word uses its first rune", "widget", "W"},
-		{"two words use first rune of each", "acme widget", "AW"},
-		{"punctuation is treated as a separator", "acme-widget_two", "AW"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			bc := newRecordingRepoBroadcaster()
-			h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push).WithStat(statRepoOK)
-			r := gin.New()
-			r.Group("/v0/projects/:projectId").POST("/repos", h.Create)
-
-			b, _ := json.Marshal(map[string]any{"name": tt.repoName, "path": "/tmp/x"})
-			req := httptest.NewRequest(http.MethodPost, "/v0/projects/p1/repos", bytes.NewReader(b))
-			req.Header.Set("Content-Type", "application/json")
-			rec := httptest.NewRecorder()
-			r.ServeHTTP(rec, req)
-			require.Equal(t, http.StatusAccepted, rec.Code)
-
-			got := bc.await(t)
-			assert.Equal(t, tt.wantLabel, got.AvatarLabel)
-			assert.NotEmpty(t, got.AvatarColor)
-		})
-	}
-}
-
-func TestRepoAvatar_ColorIsDeterministic(t *testing.T) {
-	colorFor := func(name string) string {
-		bc := newRecordingRepoBroadcaster()
-		h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push).WithStat(statRepoOK)
-		r := gin.New()
-		r.Group("/v0/projects/:projectId").POST("/repos", h.Create)
-		b, _ := json.Marshal(map[string]any{"name": name, "path": "/tmp/x"})
-		req := httptest.NewRequest(http.MethodPost, "/v0/projects/p1/repos", bytes.NewReader(b))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, req)
-		require.Equal(t, http.StatusAccepted, rec.Code)
-		return bc.await(t).AvatarColor
-	}
-	c1 := colorFor("same-name-repo")
-	c2 := colorFor("same-name-repo")
-	assert.Equal(t, c1, c2, "the same repo name must always derive the same avatar color")
-}
-
 // ---------------------------------------------------------------------------
 // defaultCrowbarHome error branch.
 // ---------------------------------------------------------------------------
@@ -989,24 +866,15 @@ func TestPutIconGithub_SaveError_Returns500(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// Regression: DeleteRepo removed its own row and its id-keyed directory and
-// stopped. Every worktree stayed on disk, every workspace record was orphaned,
-// and each worktree stayed REGISTERED in the user's own repository. The cascade
-// has to go through the workspace path, which unregisters git before removing
-// the tree — and then purge whatever that path refuses, or a locked
-// protected-branch placeholder outlives the repo as an unreachable record.
-func TestRegression_DeleteRepo_CascadesThroughTheWorkspaces(t *testing.T) {
+// The whole repo — default branch included — is handed to the delete
+// lifecycle: the default branch is what tells the cascade which branch to
+// re-attach rather than delete (spec §3 P0-1).
+func TestRegression_DeleteRepo_HandsTheWholeRepoToTheLifecycle(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	reader := &fakeWSReader{workspaces: []domain.Workspace{
-		{ID: "w-root", RepoID: "r1", ProjectID: "p1", Branch: "alpha"},
-		{ID: "w-locked", RepoID: "r1", ProjectID: "p1", Branch: "main"},
-		{ID: "w-other", RepoID: "r2", ProjectID: "p1", Branch: "untouched"},
-	}}
-	remover := &fakeWSRemover{}
-	h := repohandlers.NewWithDeps(
-		&fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo"}},
-		nil, reader, nil,
-	).WithWorkspaceRemover(remover, reader)
+	repo := domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo", DefaultBranch: "main"}
+	deleter := &fakeRepoDeleter{}
+	h := repohandlers.NewWithDeps(&fakeStore{byKey: &repo}, nil, &fakeWSReader{}, nil).
+		WithRepoDeleter(deleter)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -1015,41 +883,13 @@ func TestRegression_DeleteRepo_CascadesThroughTheWorkspaces(t *testing.T) {
 	h.DeleteRepo(c)
 	h.WaitAsync()
 
-	assert.Equal(t, []string{"r1"}, remover.repos, "the repo's workspaces go through the cascade")
-	// The path is handed over because the ROW is already gone by then — without
-	// it the cascade cannot resolve the repo and skips the git teardown, leaving
-	// a live worktree registration in the user's own repository.
-	assert.Equal(t, []string{"/repo"}, remover.repoPaths,
-		"the cascade must be given the repo path the deleted row carried")
-
-	// Nothing of this repo may survive as a record.
-	for _, ws := range reader.workspaces {
-		assert.NotEqual(t, "r1", ws.RepoID, "no workspace row of the deleted repo may remain")
-	}
-	assert.Contains(t, reader.deleted, "w-locked",
-		"a locked placeholder the cascade refuses must still be purged with its repo")
+	marked := repo
+	marked.Deleting = true
+	assert.Equal(t, []domain.Repository{marked}, deleter.deleted)
 }
 
-type fakeWSRemover struct {
-	repos     []string
-	repoPaths []string
-	// handled is what the cascade reports it already took, so the purge below can
-	// be asserted to skip exactly those.
-	handled []string
-}
-
-func (f *fakeWSRemover) DeleteRepoWorkspaces(
-	_ context.Context, repoID, repoPath string,
-) ([]string, error) {
-	f.repos = append(f.repos, repoID)
-	f.repoPaths = append(f.repoPaths, repoPath)
-	return f.handled, nil
-}
-
-// The cascade is optional wiring: a Handlers built without it still deletes the
-// repo rather than panicking, which is what every test that never creates a
-// workspace relies on.
-func TestDeleteRepo_WithoutACascade_StillDeletesTheRepo(t *testing.T) {
+// Unwired, the delete refuses outright rather than accepting work it cannot do.
+func TestDeleteRepo_Unwired_Refuses(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo"}}
 	h := repohandlers.NewWithDeps(store, nil, nil, nil)
@@ -1059,70 +899,6 @@ func TestDeleteRepo_WithoutACascade_StillDeletesTheRepo(t *testing.T) {
 	c.Params = gin.Params{{Key: "projectId", Value: "p1"}, {Key: "repoId", Value: "r1"}}
 	c.Request = httptest.NewRequest(http.MethodDelete, "/v0/projects/p1/repos/r1", nil)
 	h.DeleteRepo(c)
-	h.WaitAsync()
 
-	assert.Equal(t, http.StatusAccepted, w.Code)
-}
-
-// A cascade that fails must not stop the repo going: the row is already deleted
-// by then, and leaving the handler mid-teardown would strand it.
-func TestDeleteRepo_CascadeFailure_DoesNotStopTheRowPurge(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	reader := &fakeWSReader{workspaces: []domain.Workspace{
-		{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "a"},
-	}}
-	h := repohandlers.NewWithDeps(
-		&fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo"}},
-		nil, reader, nil,
-	).WithWorkspaceRemover(&failingWSRemover{}, reader)
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "projectId", Value: "p1"}, {Key: "repoId", Value: "r1"}}
-	c.Request = httptest.NewRequest(http.MethodDelete, "/v0/projects/p1/repos/r1", nil)
-	h.DeleteRepo(c)
-	h.WaitAsync()
-
-	assert.Contains(t, reader.deleted, "w1",
-		"the row purge still runs so the repo leaves no unreachable workspace behind")
-}
-
-type failingWSRemover struct{}
-
-func (f *failingWSRemover) DeleteRepoWorkspaces(
-	_ context.Context, _, _ string,
-) ([]string, error) {
-	return nil, assert.AnError
-}
-
-// TestRegression_DeleteRepo_DoesNotPurgeWhatTheCascadeAlreadyTook pins the
-// double-delete that wedged the drain gate.
-//
-// The sweep after the cascade reads a LIST — a read model, which lags the
-// aggregate. A workspace the cascade has just deleted still reads as live there,
-// so the sweep deleted it a second time; the two delete reactors then raced, the
-// loser failed its Forget on a version conflict, and the gate it held open never
-// went idle. Anything waiting on reactor quiescence blocked for two minutes.
-func TestRegression_DeleteRepo_DoesNotPurgeWhatTheCascadeAlreadyTook(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	// The reader still reports BOTH rows as live — that is the whole point.
-	reader := &fakeWSReader{workspaces: []domain.Workspace{
-		{ID: "taken", RepoID: "r1", ProjectID: "p1", Branch: "alpha"},
-		{ID: "left-behind", RepoID: "r1", ProjectID: "p1", Branch: "main"},
-	}}
-	h := repohandlers.NewWithDeps(
-		&fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo"}},
-		nil, reader, nil,
-	).WithWorkspaceRemover(&fakeWSRemover{handled: []string{"taken"}}, reader)
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "projectId", Value: "p1"}, {Key: "repoId", Value: "r1"}}
-	c.Request = httptest.NewRequest(http.MethodDelete, "/v0/projects/p1/repos/r1", nil)
-	h.DeleteRepo(c)
-	h.WaitAsync()
-
-	assert.Equal(t, []string{"left-behind"}, reader.deleted,
-		"only the row the cascade could not take is purged; deleting one it already "+
-			"took emits a second tombstone and wedges the delete reactor")
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }

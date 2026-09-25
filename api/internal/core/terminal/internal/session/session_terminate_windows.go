@@ -12,3 +12,8 @@ import "os"
 func terminateSignal(proc *os.Process) error {
 	return proc.Kill()
 }
+
+// killSignal hard-kills the process; Windows has no process-group signal to send.
+func killSignal(proc *os.Process) {
+	_ = proc.Kill()
+}

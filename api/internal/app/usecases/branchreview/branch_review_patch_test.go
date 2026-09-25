@@ -22,7 +22,6 @@ func TestBranchReview_GetPatch_UsesTheSameDiffRefAsGetFiles(t *testing.T) {
 	var gotRepo, gotRef, gotPath string
 	var gotMax int
 	gitEng := &mockGitEngine{
-		//nolint:lll // the stub mirrors the engine signature; wrapping hides which method it stands in for.
 		ReviewFilePatchFn: func(_ context.Context, repoPath, ref, path string, maxLines int, w io.Writer) (int, bool, error) {
 			gotRepo, gotRef, gotPath, gotMax = repoPath, ref, path, maxLines
 			_, _ = io.WriteString(w, "diff --git a/a.go b/a.go\n")
@@ -53,7 +52,6 @@ func TestBranchReview_GetPatch_EmptyPath_IsInvalidArgumentAndNeverReachesGit(t *
 
 	called := false
 	gitEng := &mockGitEngine{
-		//nolint:lll // the stub mirrors the engine signature; wrapping hides which method it stands in for.
 		ReviewFilePatchFn: func(_ context.Context, _, _, _ string, _ int, _ io.Writer) (int, bool, error) {
 			called = true
 			return 0, false, nil
@@ -73,7 +71,6 @@ func TestBranchReview_GetPatch_TruncationIsReported(t *testing.T) {
 	ctx := context.Background()
 
 	gitEng := &mockGitEngine{
-		//nolint:lll // the stub mirrors the engine signature; wrapping hides which method it stands in for.
 		ReviewFilePatchFn: func(_ context.Context, _, _, _ string, _ int, w io.Writer) (int, bool, error) {
 			_, _ = io.WriteString(w, "@@ -1,2 +1,2 @@\n")
 			return 1, true, nil
@@ -95,7 +92,6 @@ func TestBranchReview_GetPatch_UnlimitedMaxLinesIsForwardedVerbatim(t *testing.T
 
 	gotMax := -999
 	gitEng := &mockGitEngine{
-		//nolint:lll // the stub mirrors the engine signature; wrapping hides which method it stands in for.
 		ReviewFilePatchFn: func(_ context.Context, _, _, _ string, maxLines int, _ io.Writer) (int, bool, error) {
 			gotMax = maxLines
 			return 0, false, nil
@@ -127,7 +123,6 @@ func TestBranchReview_GetPatch_EngineFailurePropagates(t *testing.T) {
 	ctx := context.Background()
 
 	gitEng := &mockGitEngine{
-		//nolint:lll // the stub mirrors the engine signature; wrapping hides which method it stands in for.
 		ReviewFilePatchFn: func(_ context.Context, _, _, _ string, _ int, _ io.Writer) (int, bool, error) {
 			return 0, false, errors.New("git boom")
 		},

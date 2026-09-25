@@ -7,9 +7,8 @@ import (
 )
 
 // Chats is the chat read surface a lineage read needs: the one row being asked
-// about, and the workspace it belongs to. Folder rows come back on the same
-// list now — they hold no turns, but the walk still needs to see them so it can
-// step THROUGH them.
+// about, and the workspace it belongs to. Folders own no workspace, so the list
+// never carries them; the walk loads each one it steps through by id.
 //
 // LoadChat and ListByWorkspace are NOT the same read, and the difference is the
 // whole reason both are here. LoadChat folds the chat from the event log, so it

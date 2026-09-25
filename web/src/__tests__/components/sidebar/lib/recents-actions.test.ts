@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { openChatRoute } = vi.hoisted(() => ({ openChatRoute: vi.fn(() => true) }))
-vi.mock('@/components/layout/space-content-actions', () => ({ openChatRoute }))
+vi.mock('@/components/layout/open-actions', () => ({ openChatRoute }))
 vi.mock('@/features/panes/lib/release-closed-chat', () => ({
   releaseClosedChat: vi.fn(async () => {}),
 }))
@@ -40,8 +40,8 @@ beforeEach(() => {
   resetWindowPaneStoreForTests()
   const { paneActions } = windowPaneStore.getState()
   paneActions.setActiveProject('p1')
-  paneActions.openChat('chat-a')
-  paneActions.openChat('chat-b')
+  paneActions.openChat('chat-a', { workspaceId: 'ws-1' })
+  paneActions.openChat('chat-b', { workspaceId: 'ws-1' })
 })
 
 describe('focusRecent', () => {
@@ -77,7 +77,7 @@ describe('closeRecent / closeRecentChat', () => {
 
   it('closeRecentChat takes one member out of a group, leaving the rest grouped', () => {
     const { paneActions } = windowPaneStore.getState()
-    paneActions.openChat('chat-c')
+    paneActions.openChat('chat-c', { workspaceId: 'ws-1' })
     const paneA = chatPaneIndex(windowPaneStore.getState().panes).get('chat-a')!
     paneActions.dropChatOnPane('chat-b', paneA, 'right')
     paneActions.dropChatOnPane('chat-c', paneA, 'bottom')

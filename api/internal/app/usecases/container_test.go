@@ -72,7 +72,6 @@ func newContainerDeps(
 		newTestAsynx[agents.Runner](t, adapters.AgentRunnerES()),
 		newTestAsynx[domain.Node](t, adapters.NodeES()),
 		nil, // git conflict-checker not exercised by this test
-		nil, // terminateSession not exercised by this test
 		noChatWatch,
 		noRunnerWatch,
 		noNodeWatch,
@@ -351,7 +350,7 @@ func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
 	now := time.Unix(1, 0).UTC()
 	_, err = repos.Workspace.Create(
 		t.Context(),
-		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", WorktreePath: dir},
+		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", WorktreePath: dir, Provisioning: domain.WorkspaceProvisioned},
 		now,
 	)
 	require.NoError(t, err)
@@ -393,6 +392,7 @@ func TestWorktreeChildCreator_ForcesARealWorktree_EvenFromAWorkspacelessForkPare
 		Branch:    "main",
 		// WorktreePath left empty on purpose: this is the workspace-less
 		// "bubble" fork parent the reviewer's finding is about.
+		Provisioning: domain.WorkspacePlaceholder,
 	}, time.Now())
 	require.NoError(t, err)
 	require.Empty(t, parent.WorktreePath, "precondition: the fork parent owns no worktree of its own")

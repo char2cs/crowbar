@@ -160,9 +160,8 @@ func newLocked(
 	stateDir string,
 	lock *instanceLock,
 ) (c *Container, err error) {
-	// Per-type planes derive from the resolved home via the home-parameterized
-	// path accessors (never paths.Events()/Store(), which are blind to cfg.homeDir
-	// and would leak state into the prod ~/.crowbar — decision 14).
+	// Per-type planes derive from the resolved home, never from the env, so a
+	// test home cannot leak state into the prod ~/.crowbar (decision 14).
 	eventsDir, err := paths.EventsAt(home)
 	if err != nil {
 		return nil, fmt.Errorf("adapter: events dir: %w", err)
@@ -517,14 +516,6 @@ func closeViewDB(
 		return fmt.Errorf("adapter: db handle: %w", err)
 	}
 	return sqlDB.Close()
-}
-
-func closeIfCloser(
-	v any,
-) {
-	if cl, ok := v.(io.Closer); ok {
-		_ = cl.Close()
-	}
 }
 
 func collectClosers(

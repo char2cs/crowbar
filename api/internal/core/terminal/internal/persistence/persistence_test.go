@@ -25,14 +25,6 @@ func TestWriteReadBuf_RoundTrip(t *testing.T) {
 	assert.Equal(t, data, got)
 }
 
-func TestReadBuf_MissingFileReturnsNilNil(t *testing.T) {
-	dir := t.TempDir()
-
-	got, err := persistence.ReadBuf(dir, "nonexistent")
-	assert.NoError(t, err)
-	assert.Nil(t, got)
-}
-
 func TestDeleteBuf_RemovesFile(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, persistence.WriteBuf(dir, "s1", []byte("data")))
@@ -141,18 +133,6 @@ func TestWriteBuf_RenameError(t *testing.T) {
 	matches, gErr := filepath.Glob(filepath.Join(dir, "s.buf-*"))
 	require.NoError(t, gErr)
 	assert.Empty(t, matches, "leftover temp files after rename failure: %v", matches)
-}
-
-func TestReadBuf_RealIOError(t *testing.T) {
-	dir := t.TempDir()
-	// A directory at the .buf path makes os.ReadFile fail with a non-NotExist
-	// error (EISDIR), exercising the wrapped-error branch.
-	require.NoError(t, os.Mkdir(filepath.Join(dir, "s.buf"), 0o755))
-
-	got, err := persistence.ReadBuf(dir, "s")
-	require.Error(t, err)
-	assert.Nil(t, got)
-	assert.Contains(t, err.Error(), "read s")
 }
 
 func TestDeleteBuf_RealIOError(t *testing.T) {

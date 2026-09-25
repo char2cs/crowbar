@@ -8,6 +8,8 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 )
 
 type eventEntry struct {
@@ -30,7 +32,7 @@ type eventStore struct {
 func NewEventStore(
 	path string,
 ) (models.Store, error) {
-	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{
+	db, err := gorm.Open(sqlite.Open(storesqlite.DSN(path)), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {

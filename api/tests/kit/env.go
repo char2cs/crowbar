@@ -72,6 +72,9 @@ type Env struct {
 	client     *http.Client
 	dialer     *websocket.Dialer
 	closeOnce  sync.Once
+	// quiesceMu orders the kit's own writes (read side) against Quiesce
+	// (write side); see Quiesce.
+	quiesceMu sync.RWMutex
 }
 
 // BuildEnv spins up the full server stack (engine → adapter → app → api),
@@ -249,6 +252,9 @@ func (e *Env) Close(
 		if err := e.server.Shutdown(ctx); err != nil {
 			t.Logf("kit.Env.Close: server shutdown: %v", err)
 		}
+		if err := e.v0c.ShutdownDetached(ctx); err != nil {
+			t.Logf("kit.Env.Close: detached ops: %v", err)
+		}
 		if err := e.app.Shutdown(ctx); err != nil {
 			t.Logf("kit.Env.Close: app drain: %v", err)
 		}
@@ -297,6 +303,9 @@ func (e *Env) CloseWithoutKilling(
 		defer cancel()
 		if err := e.server.Shutdown(ctx); err != nil {
 			t.Logf("kit.Env.CloseWithoutKilling: server shutdown: %v", err)
+		}
+		if err := e.v0c.ShutdownDetached(ctx); err != nil {
+			t.Logf("kit.Env.CloseWithoutKilling: detached ops: %v", err)
 		}
 		if err := e.app.Shutdown(ctx); err != nil {
 			t.Logf("kit.Env.CloseWithoutKilling: app drain: %v", err)
@@ -648,9 +657,7 @@ func (e *Env) OwningChatID(
 
 	rows, err := e.app.Usecases.AgentChat.ListChatsByWorkspace(ctx, wsID)
 	require.NoError(t, err, "OwningChatID: list the chats holding %s", wsID)
-	ws, err := e.app.Usecases.Workspace.Get(ctx, wsID)
-	require.NoError(t, err, "OwningChatID: read workspace %s", wsID)
-	owner, ok := domain.ResolveOwningChat(rows, ws.SharedGround())
+	owner, ok := domain.ResolveOwningChat(rows)
 	require.Truef(
 		t,
 		ok,
@@ -1187,26 +1194,26 @@ func (e *Env) createWorkspace(
 	parentID string,
 ) (wsID string, chatID string) {
 	t.Helper()
-	return e.createWorkspaceQuiesced(t, projectID, repoID, branch, parentID, true)
+	wsID, chatID = e.createWorkspaceWrites(t, projectID, repoID, branch, parentID)
+	// The create's own writes are asynx commands; drain them so a caller that
+	// reads the row (or dials its chat) next sees it rather than racing it.
+	e.Quiesce()
+	return wsID, chatID
 }
 
-// createWorkspaceQuiesced is createWorkspace with the trailing e.Quiesce()
-// made optional. Quiesce calls WaitPublish on the shared per-type asynx
-// dispatcher, which refuses every OTHER in-flight Dispatch for the duration
-// (see asynx's Dispatcher.waiting) — safe for one caller at a time, but a
-// concurrent-fanout caller running N of these at once has N siblings each
-// briefly blocking every other's in-flight command with ErrDispatcherClosed.
-// quiesce=false lets a fanout caller skip that and settle once after its own
-// WaitGroup, instead of each goroutine racing its siblings' dispatches.
-func (e *Env) createWorkspaceQuiesced(
+// createWorkspaceWrites issues a create's commands inside the kit's write
+// window: a Quiesce from a sibling goroutine waits for them instead of making
+// the dispatcher refuse them (see Env.quiesceMu).
+func (e *Env) createWorkspaceWrites(
 	t *testing.T,
 	projectID string,
 	repoID string,
 	branch string,
 	parentID string,
-	quiesce bool,
 ) (wsID string, chatID string) {
 	t.Helper()
+	e.quiesceMu.RLock()
+	defer e.quiesceMu.RUnlock()
 	ctx := context.Background()
 	repo, err := e.app.GORM.Repositories.FindByKey(ctx, repoID)
 	require.NoError(t, err, "createWorkspace: read repo %s", repoID)
@@ -1249,12 +1256,6 @@ func (e *Env) createWorkspaceQuiesced(
 
 	require.NoError(t, e.app.Usecases.AgentChatFolder.AttachOwningWorkspace(ctx, mintedChatID, ws),
 		"createWorkspace: attach the minted chat to its workspace")
-
-	// The create's own writes are asynx commands; drain them so a caller that
-	// reads the row (or dials its chat) next sees it rather than racing it.
-	if quiesce {
-		e.Quiesce()
-	}
 	return ws.ID, mintedChatID
 }
 
@@ -1270,22 +1271,6 @@ func (e *Env) CreateWorkspaceWithChat(
 ) (string, string) {
 	t.Helper()
 	return e.createWorkspace(t, projectID, repoID, branch, parentID)
-}
-
-// CreateWorkspaceWithChatConcurrent is CreateWorkspaceWithChat for a caller
-// running many of these at once (see createWorkspaceQuiesced's own doc):
-// no per-call Quiesce, so N siblings never refuse each other's in-flight
-// dispatch. Call e.Quiesce() once after the fanout's WaitGroup if the caller
-// needs the read model settled.
-func (e *Env) CreateWorkspaceWithChatConcurrent(
-	t *testing.T,
-	projectID string,
-	repoID string,
-	branch string,
-	parentID string,
-) (string, string) {
-	t.Helper()
-	return e.createWorkspaceQuiesced(t, projectID, repoID, branch, parentID, false)
 }
 
 // ImportedRepo bundles the ids a full project+repo import yields: the project,
@@ -1313,7 +1298,13 @@ type ImportedRepo struct {
 // (WS), but the store/list read model is an INDEPENDENT async projection that can
 // trail the WS frame; call Quiesce after a mutation so a subsequent read of the
 // list/store is guaranteed consistent, with no polling and no timeouts.
+//
+// asynx's barrier refuses every command dispatched while it waits, so Quiesce
+// holds quiesceMu exclusively: kit writes in flight on other goroutines finish
+// first, and new ones wait for the barrier instead of failing.
 func (e *Env) Quiesce() {
+	e.quiesceMu.Lock()
+	defer e.quiesceMu.Unlock()
 	e.app.Repositories.WaitQuiescent()
 }
 
@@ -1327,6 +1318,14 @@ func (e *Env) Quiesce() {
 // for why a reactor is never let past the drain gate WHILE a drain waits.
 func (e *Env) QuiesceReactors() {
 	e.app.Repositories.QuiesceReactors(context.Background())
+}
+
+// HoldReactors parks every post-commit reactor admitted from now on at the drain
+// gate's door, so a test can crash the daemon with a purge DETERMINISTICALLY
+// still pending — the state the boot sweep exists for — instead of racing the
+// reactor to it. Nothing releases the hold; it is for a test that crashes next.
+func (e *Env) HoldReactors() {
+	e.app.Repositories.Drain().Gate.Hold()
 }
 
 // ImportRepo creates a real git repo at the supplied path (or inits a fresh one
@@ -1344,6 +1343,9 @@ func (e *Env) ImportRepo(
 	if path == "" {
 		path = InitRepo(t)
 	}
+	// Cleanups run last-registered first: without this the repo's TempDir would
+	// be removed while the daemon still works in it.
+	t.Cleanup(func() { e.Close(t) })
 	projectID := e.RegisterProject(t, name, path)
 	// The repo import (POST .../repos) runs the full importer, which derives the
 	// repo NAME from the on-disk directory — not from the request body — so the
@@ -1434,7 +1436,7 @@ func (e *Env) DeleteWorkspaceCascade(
 	t.Helper()
 	require.NoError(
 		t,
-		e.app.Usecases.Workspace.DeleteCascade(context.Background(), wsID),
+		e.app.Usecases.Workspace.DeleteCascade(context.Background(), wsID, domain.KeepWorkAtRisk),
 		"DeleteWorkspaceCascade: %s",
 		wsID,
 	)
@@ -1469,6 +1471,32 @@ func (e *Env) WorkspaceRow(
 		}
 	}
 	return "", false
+}
+
+// RecordRepoDeleteIntent writes the durable intent a repo delete records
+// before any teardown — the state a crash right after that write leaves.
+func (e *Env) RecordRepoDeleteIntent(
+	t *testing.T,
+	repoID string,
+) {
+	t.Helper()
+	ctx := context.Background()
+	repo, err := e.app.GORM.Repositories.FindByKey(ctx, repoID)
+	require.NoError(t, err)
+	require.NotNil(t, repo, "RecordRepoDeleteIntent: repo %s", repoID)
+	repo.Deleting = true
+	require.NoError(t, e.app.GORM.Repositories.Save(ctx, *repo))
+}
+
+// RepoRow reports whether repoID's row is still in the repository store.
+func (e *Env) RepoRow(
+	t *testing.T,
+	repoID string,
+) bool {
+	t.Helper()
+	repo, err := e.app.GORM.Repositories.FindByKey(context.Background(), repoID)
+	require.NoError(t, err)
+	return repo != nil
 }
 
 // WorktreeChats returns the repo's chat rows that OWN a worktree, projected to

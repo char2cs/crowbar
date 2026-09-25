@@ -54,7 +54,7 @@ func dial(
 ) *websocket.Conn {
 	t.Helper()
 	url := "ws" + srv.URL[len("http"):] + path
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil) //nolint:bodyclose
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil) //nolint:bodyclose // the upgrade response has no body to close; conn owns the socket
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	return conn
@@ -368,7 +368,9 @@ func TestBroadcaster_Snapshot_DoesNotBlockConcurrentPush(t *testing.T) {
 
 func TestBroadcaster_UpgradeRejectsNonWS(t *testing.T) {
 	_, srv := setup(t, itemDef())
-	resp, err := http.Get(srv.URL + "/items") //nolint:noctx
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/items", nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)

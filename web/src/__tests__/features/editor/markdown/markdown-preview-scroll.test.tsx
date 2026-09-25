@@ -1,6 +1,6 @@
 import { fireEvent, render } from '@testing-library/react'
 import { createElement, StrictMode } from 'react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { MarkdownPreview } from '@/features/editor/markdown/markdown-preview'
 import { clearPreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
@@ -97,6 +97,13 @@ const scrollerOf = (view: ReturnType<typeof render>) =>
   view.container.querySelector('.markdown-preview') as HTMLElement
 
 describe('MarkdownPreview scroll retention', () => {
+  // The first Plate render pays its module and plugin setup; keep it out of
+  // the timed cases.
+  beforeAll(() => {
+    const store = setupStore(['/repo/WARMUP.md'])
+    renderPreview(store, 'preview-/repo/WARMUP.md').unmount()
+  }, 30_000)
+
   beforeEach(() => {
     clearPreservedScroll()
   })

@@ -33,7 +33,7 @@ func TestSession_Terminate_GracefulExit_UsesSIGTERM(t *testing.T) {
 	// `cat` holds the PTY open exactly as a shell does but keeps the DEFAULT SIGTERM
 	// disposition, so "a child that honours SIGTERM exits, and Terminate never reaches its
 	// fallback" becomes a property of the child rather than a bet on scheduling.
-	s, err := New("sid-terminate-graceful", "/bin/cat", dir, "", testEnv(), 80, 24, 0)
+	s, err := New(t.Context(), "sid-terminate-graceful", "/bin/cat", dir, "", testEnv(), 80, 24, 0)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -115,12 +115,11 @@ func TestSession_Terminate_FallsBackToKill_WhenSignalIgnored(t *testing.T) {
 	assert.Equal(t, syscall.SIGKILL, ws.Signal(), "a SIGTERM-ignoring child must ultimately die from the fallback SIGKILL")
 }
 
-// TestSession_Terminate_PlaceholderActsLikeKill mirrors Kill's placeholder
-// behavior: a session with no live PTY has no process to signal, so Terminate
-// must run shutdown() directly instead of hanging around for a grace window
-// that can never elapse anything.
-func TestSession_Terminate_PlaceholderActsLikeKill(t *testing.T) {
-	s := NewPlaceholder("sid-terminate-placeholder", "/bin/sh", t.TempDir(), "", []byte("CRWB1"))
+// TestSession_Terminate_NoProcessActsLikeKill: a session with no live PTY has no
+// process to signal, so Terminate must run shutdown() directly instead of hanging
+// around for a grace window that can never elapse anything.
+func TestSession_Terminate_NoProcessActsLikeKill(t *testing.T) {
+	s := newBareSession("sid-terminate-placeholder", "/bin/sh", t.TempDir(), "")
 
 	done := make(chan struct{})
 	go func() {

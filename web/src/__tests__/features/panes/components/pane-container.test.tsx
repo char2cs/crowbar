@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { setActiveWorkspaceStoreForTests } from '@/features/workspace/stores/workspace-store-registry'
 import {
   destroyWorkspaceStore,
   getAllActiveWorkspaceIds,
@@ -17,31 +17,8 @@ import {
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { ROOT_PANE_POSITION, type PanePosition } from '@/features/panes/types/pane'
 import { buildPaneContentStyle } from '@/features/panes/utils/pane-border'
-import { useFileSystemStore } from '@/features/file-system/controllers/store'
-import type { InternalDropZone } from '@/features/tabs/utils/internal-tab-drag'
 import { useSettingsStore } from '@/features/settings/store'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
-
-// Task F: lets a test stand in an edge zone (left/right/top/bottom) for a
-// file-tree drop's resolved target without faking `document.elementsFromPoint`
-// geometry — `resolveDropTarget`'s real geometry math already has its own
-// dedicated coverage (pane-drop-zones.test.ts); this file only needs to prove
-// what PaneContainer DOES with whatever zone it resolves to. Falls through to
-// the real implementation whenever a test hasn't set an override, so every
-// other test in this file (none of which drag files) is unaffected.
-const { resolveDropTargetOverride } = vi.hoisted(() => ({
-  resolveDropTargetOverride: {
-    current: null as { paneId: string | null; zone: InternalDropZone } | null,
-  },
-}))
-vi.mock('@/features/tabs/utils/internal-tab-drag', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/features/tabs/utils/internal-tab-drag')>()
-  return {
-    ...actual,
-    resolveDropTarget: (point: { x: number; y: number }) =>
-      resolveDropTargetOverride.current ?? actual.resolveDropTarget(point),
-  }
-})
 
 // Task 9 (sidebar restyle recovery batch 2): lets a test force the sidebar
 // closed without standing up a real SidebarProvider (which drags in
@@ -218,6 +195,7 @@ vi.mock('@/features/panes/components/split-drop-overlay', () => ({
 }))
 
 import { PaneContainer } from '@/features/panes/components/pane-container'
+import { nextVersion, seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import { EditorHostRegistry } from '@/features/panes/components/editor-host-registry'
 
 function PaneHost({ position, showing }: { position?: PanePosition; showing?: boolean }) {
@@ -359,7 +337,7 @@ beforeEach(() => {
 
 describe('PaneContainer — chat/editor-view hosting', () => {
   afterEach(() => {
-    setActiveWorkspaceStoreRef(null)
+    setActiveWorkspaceStoreForTests(null)
   })
 
   it('renders the chat, not NewTabView, when the pane has a chat and zero editor tabs', async () => {
@@ -668,7 +646,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     // active-workspace-store ref (a separate registry from the
     // WorkspaceStoreContext.Provider renderPane uses below) — the same setup
     // pane-drop-actions.test.ts already needs for that helper.
-    setActiveWorkspaceStoreRef(store)
+    setActiveWorkspaceStoreForTests(store)
 
     const sourcePaneId = windowPaneStore
       .getState()
@@ -731,7 +709,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
 // override ('xterm-helper-textarea') is wired correctly.
 describe('PaneContainer — mousedown-capture pane activation', () => {
   afterEach(() => {
-    setActiveWorkspaceStoreRef(null)
+    setActiveWorkspaceStoreForTests(null)
   })
 
   /** A second pane, so ROOT_PANE_ID can start inactive — same pattern the
@@ -952,7 +930,7 @@ describe('PaneContainer — the active-pane accent ring', () => {
 
 describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
   afterEach(() => {
-    setActiveWorkspaceStoreRef(null)
+    setActiveWorkspaceStoreForTests(null)
   })
 
   /** jsdom reports 0 for every element's clientWidth/clientHeight (no layout
@@ -1367,142 +1345,51 @@ describe('PaneContainer — pane drop target (spec §8.1, Task 22)', () => {
 
     expect(document.querySelector('[data-pane-removal]')).toBeNull()
   })
-})
 
-// Task F: a file dragged from the Files panel and dropped on a pane's EDGE
-// zone used to fall into openFileTreeDropInPane's `getPaneSplitDropOptions`/
-// `splitPane` branch — copied from the legitimate row/chat-drag split
-// mechanic (handleSplitDrop below, spec §8.1) onto a path where it is
-// explicitly forbidden. Spec §6.3: "Clicking a file opens it in the editor
-// view of the focused pane, never in a pane of its own." Spec §7.2: "Nothing
-// lands in a pane of its own; everything lands in the editor view." A file
-// drop must always resolve to the EXISTING pane it was dropped on, regardless
-// of zone.
-describe('PaneContainer — file-tree drop never creates a pane of its own (spec §6.3/§7.2, Task F)', () => {
-  afterEach(() => {
-    setActiveWorkspaceStoreRef(null)
-    delete (window as unknown as { __fileDragData?: unknown }).__fileDragData
-    useFileSystemStore.setState({ handleFileOpen: null })
-    resolveDropTargetOverride.current = null
-  })
-
-  it("dropping a file on a pane's EDGE zone opens it as a tab in that SAME pane — no new pane is created", async () => {
+  it('a terminal dragged out of the terminal panel opens as a tab of THIS pane, and detaches', async () => {
     const store = createWorkspaceStore('w1')
-    seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
-
-    // Stands in for the real handler wired by use-workspace-effects.ts
-    // (openFileContent → bufferActions.openContent) minus the network fetch —
-    // it exercises the REAL openContent/addEditorTabToPane pane-routing logic,
-    // which is exactly what a regression in openFileTreeDropInPane's target
-    // pane selection would misroute.
-    useFileSystemStore.setState({
-      handleFileOpen: async (path: string) => {
-        windowPaneStore.getState().bufferActions.openContent({
-          type: 'editor',
-          path,
-          name: path.split('/').pop() ?? path,
-          content: '',
-          workspaceId: 'w1',
-        })
-      },
-    })
-
+    const detached: unknown[] = []
+    const onDetach = (e: Event) => detached.push((e as CustomEvent).detail)
+    window.addEventListener('terminal-detach-to-buffer', onDetach)
+    centerDropPayload.current = {
+      source: 'terminal-panel',
+      terminalId: 'term-7',
+      name: 'Build',
+      initialCommand: 'make',
+      currentDirectory: '/repo',
+    } as never
     await renderPane(store)
 
-    const paneIdsBefore = Object.keys(windowPaneStore.getState().panes).sort()
-    const tabCountBefore = windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds.length ?? 0
-
-    // The resolved drop target names ROOT_PANE_ID but at zone 'left' — an
-    // EDGE zone, the exact zone that used to route through splitPane() for a
-    // file drop (Task F's root cause). A file drop must ignore this zone
-    // entirely and still land in ROOT_PANE_ID.
-    resolveDropTargetOverride.current = { paneId: ROOT_PANE_ID, zone: 'left' }
-    window.__fileDragData = { type: 'file', path: '/dropped.ts', name: 'dropped.ts', isDir: false }
-
-    const container = document.querySelector('[data-pane-container]')!
     await act(async () => {
-      fireEvent.mouseUp(container, { clientX: 5, clientY: 200 })
-      // openFileTreeDropInPane's body runs after an `await handleFileOpen(...)`
-      // — flush the microtask queue so its post-await work (addExistingTabToPane
-      // /activateEditorTabInPane) has committed before assertions run.
-      await Promise.resolve()
-      await Promise.resolve()
+      fireEvent.click(await screen.findByTestId('split-drop-trigger-center'))
     })
+    window.removeEventListener('terminal-detach-to-buffer', onDetach)
 
-    // No new pane was created — the pane tree shape is byte-for-byte unchanged.
-    expect(Object.keys(windowPaneStore.getState().panes).sort()).toEqual(paneIdsBefore)
-
-    // The file landed as a NEW tab in the SAME pane it was dropped on, not a
-    // freshly split one.
-    const openedBuffer = windowPaneStore.getState().buffers.find((b) => b.path === '/dropped.ts')
-    expect(openedBuffer).toBeDefined()
-    const pane = windowPaneStore.getState().panes[ROOT_PANE_ID]
-    expect(pane?.editorTabIds).toHaveLength(tabCountBefore + 1)
-    expect(pane?.editorTabIds).toContain(openedBuffer!.id)
-    expect(pane?.activeEditorTabId).toBe(openedBuffer!.id)
+    const state = windowPaneStore.getState()
+    const tab = state.buffers.find((b) => b.type === 'terminal')
+    expect(tab).toMatchObject({ sessionId: 'term-7', name: 'Build', initialCommand: 'make' })
+    expect(state.panes[ROOT_PANE_ID].editorTabIds).toContain(tab!.id)
+    expect(detached).toEqual([{ terminalId: 'term-7' }])
+    centerDropPayload.current = { bufferId: 'existing-tab', paneId: 'phantom-source-pane' }
   })
 
-  it("dropping a file on a pane's CENTER zone still opens it as a tab in that same pane (unchanged behavior)", async () => {
+  it('a drop of this pane’s own tab keeps one copy of it and never makes a split', async () => {
     const store = createWorkspaceStore('w1')
-
-    useFileSystemStore.setState({
-      handleFileOpen: async (path: string) => {
-        windowPaneStore.getState().bufferActions.openContent({
-          type: 'editor',
-          path,
-          name: path.split('/').pop() ?? path,
-          content: '',
-          workspaceId: 'w1',
-        })
-      },
-    })
-
+    seedEditorTab(store, ROOT_PANE_ID, 'existing-tab')
+    seedEditorTab(store, ROOT_PANE_ID, 'other-tab')
+    windowPaneStore.getState().paneActions.activateEditorTabInPane(ROOT_PANE_ID, 'other-tab')
     await renderPane(store)
+    const paneCount = Object.keys(windowPaneStore.getState().panes).length
 
-    const paneIdsBefore = Object.keys(windowPaneStore.getState().panes).sort()
-
-    resolveDropTargetOverride.current = { paneId: ROOT_PANE_ID, zone: 'center' }
-    window.__fileDragData = {
-      type: 'file',
-      path: '/center-dropped.ts',
-      name: 'center-dropped.ts',
-      isDir: false,
-    }
-
-    const container = document.querySelector('[data-pane-container]')!
+    centerDropPayload.current = { bufferId: 'existing-tab', paneId: ROOT_PANE_ID }
     await act(async () => {
-      fireEvent.mouseUp(container, { clientX: 400, clientY: 300 })
-      await Promise.resolve()
-      await Promise.resolve()
+      fireEvent.click(await screen.findByTestId('split-drop-trigger-center'))
     })
 
-    expect(Object.keys(windowPaneStore.getState().panes).sort()).toEqual(paneIdsBefore)
-    const openedBuffer = windowPaneStore
-      .getState()
-      .buffers.find((b) => b.path === '/center-dropped.ts')
-    expect(openedBuffer).toBeDefined()
-    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).toContain(openedBuffer!.id)
-  })
-
-  it('a directory drop is ignored entirely — no tab, no pane change', async () => {
-    const store = createWorkspaceStore('w1')
-    const handleFileOpen = vi.fn(async () => {})
-    useFileSystemStore.setState({ handleFileOpen })
-
-    await renderPane(store)
-
-    const paneIdsBefore = Object.keys(windowPaneStore.getState().panes).sort()
-    resolveDropTargetOverride.current = { paneId: ROOT_PANE_ID, zone: 'left' }
-    window.__fileDragData = { type: 'file', path: '/some-dir', name: 'some-dir', isDir: true }
-
-    const container = document.querySelector('[data-pane-container]')!
-    await act(async () => {
-      fireEvent.mouseUp(container, { clientX: 5, clientY: 200 })
-      await Promise.resolve()
-    })
-
-    expect(handleFileOpen).not.toHaveBeenCalled()
-    expect(Object.keys(windowPaneStore.getState().panes).sort()).toEqual(paneIdsBefore)
+    const state = windowPaneStore.getState()
+    expect(Object.keys(state.panes)).toHaveLength(paneCount)
+    expect(state.panes[ROOT_PANE_ID].editorTabIds).toEqual(['existing-tab', 'other-tab'])
+    centerDropPayload.current = { bufferId: 'existing-tab', paneId: 'phantom-source-pane' }
   })
 })
 
@@ -1525,7 +1412,7 @@ describe('PaneContainer — file-tree drop never creates a pane of its own (spec
 describe("PaneContainer — the identity row shares the pane's background/rounding (Task 9)", () => {
   afterEach(() => {
     sidebarOpenOverride.current = true
-    setActiveWorkspaceStoreRef(null)
+    setActiveWorkspaceStoreForTests(null)
   })
 
   it('nests the tab-bar row inside the same rounded/clipped box as the content — not an unstyled sibling of it', async () => {
@@ -1732,16 +1619,19 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
     liveRunnerId: '',
     terminalSessionId: '',
     activeProviderId: 'claude',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant' as const,
     createdAt: '2026-01-01T00:00:00Z',
     order: 0,
     parentId: '',
   })
 
   it('hands the chat surface the workspace the CHAT belongs to', async () => {
-    getOrCreateWorkspaceStore('w-owner')
+    seedChats(getOrCreateWorkspaceStore('w-owner'), [chatRecord('chat-1', 'w-owner')])
+    windowPaneStore
       .getState()
-      .seedAgentChats([chatRecord('chat-1', 'w-owner')])
-    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
+      .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'w-owner' })
 
     // Rendered under a DIFFERENT workspace's context — the one on screen.
     await renderPane(createWorkspaceStore('w-onscreen'))
@@ -1764,10 +1654,10 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
   // AgentChatPane) reads off the exact same resolved `chatStore` — this is
   // the same cross-workspace-title bug class, now checked at its new home.
   it("shows the chat's own title in its header even while a DIFFERENT workspace is ambient", async () => {
-    getOrCreateWorkspaceStore('w-owner')
+    seedChats(getOrCreateWorkspaceStore('w-owner'), [chatRecord('chat-1', 'w-owner')])
+    windowPaneStore
       .getState()
-      .seedAgentChats([chatRecord('chat-1', 'w-owner')])
-    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
+      .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'w-owner' })
 
     await renderPane(createWorkspaceStore('w-onscreen'))
 
@@ -1781,10 +1671,10 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
   // a wrong answer here doesn't just render wrong and self-correct next
   // frame: it permanently tags a buffer with the wrong workspace.
   it("opens branch review for the CHAT's own workspace, not whichever one is ambient", async () => {
-    getOrCreateWorkspaceStore('w-owner')
+    seedChats(getOrCreateWorkspaceStore('w-owner'), [chatRecord('chat-1', 'w-owner')])
+    windowPaneStore
       .getState()
-      .seedAgentChats([chatRecord('chat-1', 'w-owner')])
-    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
+      .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'w-owner' })
 
     // Rendered under a DIFFERENT workspace's context — e.g. a split's other
     // pane, or whichever WorkspaceView happens to be on screen.

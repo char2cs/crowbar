@@ -45,8 +45,8 @@ vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: vi.fn()
 // jsdom cannot run xterm/WebGL. The marker records the visibility props the pane
 // threads down, which is how "the terminal surface is the selected one" is proven
 // without reading a class name.
-vi.mock('@/features/terminal/components/terminal', () => ({
-  XtermTerminal: ({ sessionId, isVisible }: { sessionId: string; isVisible?: boolean }) =>
+vi.mock('@/features/terminal/components/lazy-terminal', () => ({
+  LazyXtermTerminal: ({ sessionId, isVisible }: { sessionId: string; isVisible?: boolean }) =>
     createElement('div', {
       'data-testid': 'xterm',
       'data-session-id': sessionId,
@@ -62,6 +62,7 @@ import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { resetChatPresentationMemoryForTests } from '@/features/agent/hooks/use-chat-presentation'
+import { nextVersion, seedChats, setChatTerminalWait } from '@/__tests__/__fixtures__/agent-chat'
 
 const providers: AgentProvider[] = [
   {
@@ -77,6 +78,11 @@ const providers: AgentProvider[] = [
     // through switchToTerminal/switchToNative, which a non-hotswap provider
     // needs instead.
     hotswap: true,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    hasTerminal: true,
+    terminalStartHere: false,
   },
 ]
 
@@ -88,6 +94,9 @@ function liveChat(wait?: { kind: string }): AgentChat {
     liveRunnerId: 'r1',
     terminalSessionId: 'pty-1',
     activeProviderId: 'claude',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant',
     createdAt: '',
     order: 0,
     terminalWait: wait,
@@ -97,7 +106,7 @@ function liveChat(wait?: { kind: string }): AgentChat {
 function seed(wait?: { kind: string }) {
   const store = createWorkspaceStore('w1')
   store.getState().setAgentProviders(providers)
-  store.getState().seedAgentChats([liveChat(wait)])
+  seedChats(store, [liveChat(wait)])
   return store
 }
 
@@ -116,6 +125,11 @@ const nonHotswapProviders: AgentProvider[] = [
     enabled: true,
     mcpEnabled: true,
     hotswap: false,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    hasTerminal: true,
+    terminalStartHere: false,
   },
 ]
 
@@ -127,6 +141,9 @@ function nonHotswapChat(wait?: { kind: string }): AgentChat {
     liveRunnerId: 'r1',
     terminalSessionId: '',
     activeProviderId: 'codex',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant',
     createdAt: '',
     order: 0,
     terminalWait: wait,
@@ -136,7 +153,7 @@ function nonHotswapChat(wait?: { kind: string }): AgentChat {
 function seedNonHotswap(wait?: { kind: string }) {
   const store = createWorkspaceStore('w1')
   store.getState().setAgentProviders(nonHotswapProviders)
-  store.getState().seedAgentChats([nonHotswapChat(wait)])
+  seedChats(store, [nonHotswapChat(wait)])
   return store
 }
 
@@ -170,7 +187,7 @@ async function renderPane(
 /** Raise or clear the daemon's verdict the way the WS frame does. */
 async function setWait(store: Store, wait: { kind: string } | null) {
   await act(async () => {
-    store.getState().setAgentChatTerminalWait('c1', wait)
+    setChatTerminalWait(store, 'c1', wait)
   })
 }
 
@@ -521,7 +538,8 @@ describe('AgentChatPane — waiting in the terminal (non-hotswap provider)', () 
     const store = seedNonHotswap()
     getChatFn.mockImplementation(() =>
       Promise.resolve({
-        ...nonHotswapChat(),
+        // The daemon's snapshot carries the wait it is reporting.
+        ...nonHotswapChat({ kind: 'workspace_trust' }),
         terminalSessionId: 'term-session-1',
         conversations: [],
       }),
@@ -542,7 +560,8 @@ describe('AgentChatPane — waiting in the terminal (non-hotswap provider)', () 
     const store = seedNonHotswap()
     getChatFn.mockImplementation(() =>
       Promise.resolve({
-        ...nonHotswapChat(),
+        // The daemon's snapshot carries the wait it is reporting.
+        ...nonHotswapChat({ kind: 'workspace_trust' }),
         terminalSessionId: 'term-session-1',
         conversations: [],
       }),
@@ -557,7 +576,7 @@ describe('AgentChatPane — waiting in the terminal (non-hotswap provider)', () 
     expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1')
   })
 
-  // A refused switch (turn in flight, no completed turn yet, etc.) must leave
+  // A refused switch (a turn in flight) must leave
   // the user on chat rather than stranding them on an empty terminal view —
   // the same "left where they were" contract chooseSurface's own click path
   // already had.

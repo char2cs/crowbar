@@ -24,6 +24,7 @@ func TestBranchReview_GetFiles_MergesWorkingTreeState(t *testing.T) {
 		Branch:       "feature",
 		WorktreePath: "/wt",
 		ForkPointSha: "fork1",
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
@@ -82,7 +83,7 @@ func TestBranchReview_GetFiles_MergesWorkingTreeState(t *testing.T) {
 func TestBranchReview_GetFiles_StatusFailureIsNonFatal(t *testing.T) {
 	ctx := context.Background()
 
-	ws := domain.Workspace{ID: "ws1", RepoID: "repo1", WorktreePath: "/wt", ForkPointSha: "fork1"}
+	ws := domain.Workspace{ID: "ws1", RepoID: "repo1", WorktreePath: "/wt", ForkPointSha: "fork1", Provisioning: domain.WorkspaceProvisioned}
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
 	}
@@ -129,7 +130,7 @@ func TestBranchReview_GetFiles_MissingWorkspace_IsNotFound(t *testing.T) {
 func TestBranchReview_GetFiles_ReviewFilesError(t *testing.T) {
 	ctx := context.Background()
 
-	ws := domain.Workspace{ID: "ws1", RepoID: "repo1", WorktreePath: "/wt", ForkPointSha: "fork1"}
+	ws := domain.Workspace{ID: "ws1", RepoID: "repo1", WorktreePath: "/wt", ForkPointSha: "fork1", Provisioning: domain.WorkspaceProvisioned}
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
 	}

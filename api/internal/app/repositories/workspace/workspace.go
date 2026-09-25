@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"time"
 
@@ -12,13 +13,11 @@ import (
 	"github.com/google/uuid"
 	gormdb "gorm.io/gorm"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/reactors"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/reconcile"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store/projections"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 
@@ -50,6 +49,11 @@ type CreateInput struct {
 	IsDefault     bool
 	Kind          domain.WorkspaceKind
 	HeldByPath    string
+	// CreatedBranch: Crowbar created Branch for this workspace, so a teardown
+	// may delete it (domain.Workspace.CreatedBranch).
+	CreatedBranch bool
+	// Provisioning is required: what stands behind WorktreePath.
+	Provisioning domain.WorkspaceProvisioning
 }
 
 // SyncInput carries a recomputed working-tree summary.
@@ -160,13 +164,6 @@ type Workspace interface {
 		id string,
 		parentID string,
 	) (domain.Workspace, error)
-	// SetProject re-points the workspace at the project that now owns its
-	// repository, for a repo moved between projects. It moves no worktree.
-	SetProject(
-		ctx context.Context,
-		id string,
-		projectID string,
-	) (domain.Workspace, error)
 	// SetLastError records the message from a failed background operation on the
 	// workspace; the failure surfaces on the entity, never a separate WS frame
 	// (00 §4). The next successful mutating command clears it.
@@ -203,14 +200,6 @@ type Workspace interface {
 		ctx context.Context,
 		projectID string,
 	) (domain.Workspace, error)
-	// CreateHome provisions the home workspace for a project. Callers use this
-	// for lazy provisioning when GetHomeForProject returns ErrNotFound.
-	CreateHome(
-		ctx context.Context,
-		projectID string,
-		worktreePath string,
-		now time.Time,
-	) (domain.Workspace, error)
 }
 
 // ReconcileOnOpener triggers a lazy, deduplicated, one-shot background reconcile
@@ -226,36 +215,32 @@ type ReconcileOnOpener interface {
 }
 
 // BootSweeper is the boot orphan-sweep seam (spec §3.8). The app-layer
-// composition root reaches this repository's RAW read model — the direct
-// state/store/workspace.db read that never triggers the lazy Replay of the
-// per-request List (§3.7) — through this narrow interface, injecting the
-// idempotent purge it owns (the app layer holds the git/fs/asynx concretes; this
-// repository must not). It is kept OFF the main Workspace interface so a
-// boot-recovery concern does not leak into the per-request repository surface and
-// existing Workspace fakes stay untouched; the concrete *workspace satisfies it.
+// composition root runs it once at boot; it re-drives the SAME Purger the delete
+// reactor runs for every tombstone a crash left behind (spec §7-D). Kept OFF the
+// main Workspace interface so a boot-recovery concern does not leak into the
+// per-request repository surface; the concrete *workspace satisfies it.
 type BootSweeper interface {
+	// BackfillProvisioning gives every row written before
+	// domain.Workspace.Provisioning existed its explicit value. It runs before
+	// anything reads the field, and never fails boot.
+	BackfillProvisioning(
+		ctx context.Context,
+	)
 	Sweep(
 		ctx context.Context,
-		purge func(ctx context.Context, wsID string) error,
-	)
+	) error
 }
 
-// DeleteReactorRegistrar wires this aggregate's async delete reactor (Task 8) onto
-// its singleton axWorkspace. It is the app-level seam (Task 14 wireCallbacks) for
-// the post-commit cross-aggregate purge: the app-level composition root injects the
-// review-thread forget cascade, the bounded fs delete, and the shared drain
-// WaitGroup, while this repository keeps its ax / read model / id↔path handles
-// private — the reactor gates on the read model's persisted "deleted" tombstone,
-// resolves the worktree path via the id↔path map, cascades the forget, rm -rf's the
-// worktree, and Forgets the aggregate (spec §3.6/§3.8). The reactor lives under
-// workspace/internal, so an out-of-tree caller (repositories.Container) cannot reach
-// it directly; this method is the seam. Kept OFF the main Workspace interface (like
-// BootSweeper) so cross-aggregate wiring never leaks into the per-request surface
-// and existing Workspace fakes stay untouched; the concrete *workspace satisfies it.
+// DeleteReactorRegistrar wires this aggregate's physical purge (Task 8) onto its
+// singleton axWorkspace. The composition root injects the cross-aggregate forget
+// cascade, the hardened worktree remover and the shared drain gate; this
+// repository builds the one Purger from them and hands it to both the async
+// delete reactor and the boot Sweep. Kept OFF the main Workspace interface (like
+// BootSweeper); the concrete *workspace satisfies it.
 type DeleteReactorRegistrar interface {
 	RegisterDeleteReactor(
-		reviewThreadForget func(ctx context.Context, wsID string) error,
-		rmWorktree func(path string) error,
+		forgetDependents func(ctx context.Context, wsID string) error,
+		removeWorktree func(ctx context.Context, tomb domain.Workspace) error,
 		gate *drain.Gate,
 	) error
 }
@@ -268,8 +253,10 @@ type DeleteReactorRegistrar interface {
 type workspace struct {
 	ax         asynx.Asynx[domain.Workspace]
 	readModel  store.Store
-	pathsStore wspaths.WorkspacePaths
 	reconciler ReconcileOnOpener
+	// purger is the one physical purger, built by RegisterDeleteReactor and
+	// shared by the delete reactor and the boot Sweep.
+	purger *reactors.Purger
 }
 
 // Option configures the workspace repository at construction.
@@ -286,9 +273,8 @@ func WithReconciler(
 	}
 }
 
-// New builds the singleton-backed Workspace repository over axWorkspace, the
-// workspace read-model DB (state/store/workspace.db), and the view.db id↔path
-// index. es is the per-type event log axWorkspace wraps (state/events/workspace.db),
+// New builds the singleton-backed Workspace repository over axWorkspace and the
+// workspace read-model DB (state/store/workspace.db). es is the per-type event log axWorkspace wraps (state/events/workspace.db),
 // retained so the read model can heal itself via whole-model lazy Replay on first
 // access after a loss (§3.7). It registers the save-only store projection on
 // axWorkspace via store.New; the hub projection is registered separately by
@@ -297,7 +283,6 @@ func New(
 	ax asynx.Asynx[domain.Workspace],
 	es asynxModels.Store,
 	storeDB *gormdb.DB,
-	pathsStore wspaths.WorkspacePaths,
 	opts ...Option,
 ) (Workspace, error) {
 	if ax == nil {
@@ -309,36 +294,35 @@ func New(
 	if storeDB == nil {
 		return nil, fmt.Errorf("workspace: nil store db")
 	}
-	if pathsStore == nil {
-		return nil, fmt.Errorf("workspace: nil paths store")
-	}
 	readModel, err := store.New(storeDB, es, ax)
 	if err != nil {
 		return nil, fmt.Errorf("workspace: store: %w", err)
 	}
-	w := &workspace{ax: ax, readModel: readModel, pathsStore: pathsStore}
+	w := &workspace{ax: ax, readModel: readModel}
 	for _, opt := range opts {
 		opt(w)
 	}
 	return w, nil
 }
 
-// RegisterHubProjection registers the hub (WS fan-out) projection on the singleton
-// axWorkspace: for every workspace event it builds the base frame from
+// RegisterHubProjection registers the hub (WS fan-out) projection on repo's
+// singleton axWorkspace: for every workspace event it builds the base frame from
 // evt.Aggregate, runs enrich to attach the derived overlays the container owns
 // (Working + merge eligibility), then broadcasts. It is generic over the frame
-// type F so this package stays decoupled from the api-layer wire DTO the container
-// supplies. Registered ONCE, by repositories.Container (which owns enrich +
-// broadcast, and routes BeginWork/EndWork through the SAME pair); the save-only
-// store projection is registered inside New. The projections subpackage lives
-// under workspace/internal, so this forwarder is the seam the container reaches it
-// through (spec §3.5 hub-frame enrichment, decision 5).
+// type F so this package stays decoupled from the api-layer wire DTO the
+// container supplies. Registered ONCE, by repositories.Container. A tombstone's
+// frame is reported to the read model, and the delete reactor purges only once
+// it is out: the frame is addressed through the owning chat the purge deletes.
 func RegisterHubProjection[F any](
-	ax asynx.Asynx[domain.Workspace],
+	repo Workspace,
 	enrich func(ctx context.Context, ws domain.Workspace) F,
 	broadcast func(frame F),
 ) error {
-	return projections.RegisterHub(ax, enrich, broadcast)
+	w, ok := repo.(*workspace)
+	if !ok {
+		return fmt.Errorf("workspace: hub projection needs the concrete repository")
+	}
+	return store.RegisterHub(w.readModel, enrich, broadcast)
 }
 
 // sendFunc issues one command attempt against the aggregate.
@@ -449,19 +433,9 @@ func (w *workspace) Create(
 	in CreateInput,
 	now time.Time,
 ) (domain.Workspace, error) {
-	// Record the id→path row before the aggregate exists (§3.9 write-point (a)):
-	// it is the rename-resilience map, keyed by the workspace UUID. Roll it back
-	// unless the create commits, so a failed create leaves no orphan path row.
-	if err := w.pathsStore.Put(ctx, in.ID, in.WorktreePath); err != nil {
-		return domain.Workspace{}, fmt.Errorf("workspace: create: paths: %w", err)
-	}
-	keepPathRow := false
-	defer func() {
-		if !keepPathRow {
-			_ = w.pathsStore.Delete(ctx, in.ID)
-		}
-	}()
-	evt, err := w.sendWithOCC(ctx, commands.CreateWorkspace{
+	// SendWait: the row is readable (GetHomeForProject, ListInRepo) when Create
+	// returns, so whatever the caller announces next can be looked up at once.
+	evt, err := occSend(ctx, w.ax.SendWait, commands.CreateWorkspace{
 		ID:            in.ID,
 		RepoID:        in.RepoID,
 		ProjectID:     in.ProjectID,
@@ -474,32 +448,13 @@ func (w *workspace) Create(
 		MergeStrategy: in.MergeStrategy,
 		Kind:          in.Kind,
 		HeldByPath:    in.HeldByPath,
+		CreatedBranch: in.CreatedBranch,
+		Provisioning:  in.Provisioning,
 		Now:           now,
 	})
 	if err != nil {
-		// CreateWorkspace.Validate refuses "current != nil" with the SAME
-		// asynxModels.ErrValidation a genuinely malformed input would — a
-		// caller using a caller-chosen (rather than server-random) id, like
-		// CreateHome's own homeWorkspaceID, can lose that exact race: it
-		// wrote this SAME id→path pair (id and worktreePath are both
-		// deterministic from the same inputs, so the row the eventual
-		// winner needs is byte-identical to the one this call already put)
-		// before losing to a concurrent winner. Rolling it back on every
-		// ErrValidation would rather delete the winner's still-live path row
-		// out from under it. Exists asks the event store directly — not a
-		// possibly-lagging read model — whether an aggregate with this id is
-		// now real: if so, this loss is exactly that race, and the row
-		// keyed on it is correct and stays; if not, this really was a
-		// malformed create (a random id can never collide by chance), and
-		// the row is still garbage that must go.
-		if errors.Is(err, asynxModels.ErrValidation) {
-			if exists, existsErr := w.ax.Exists(ctx, in.ID); existsErr == nil && exists {
-				keepPathRow = true
-			}
-		}
 		return domain.Workspace{}, fmt.Errorf("workspace: create: %w", err)
 	}
-	keepPathRow = true
 	return evt.Aggregate, nil
 }
 
@@ -694,12 +649,9 @@ func (w *workspace) RenameBranch(
 	id string,
 	branch string,
 ) (domain.Workspace, error) {
-	// The id→path index is deliberately NOT touched. A workspace's directory is
-	// fixed at creation, so a rename moves nothing and the row already names the
-	// right tree. This used to re-point it — the rename moved the directory, and
-	// the delete reactor resolves what it rm -rf's from this index alone — with a
-	// rollback for a refused command. None of that exists now, because the path
-	// it was keeping in step no longer changes.
+	// WorktreePath is deliberately NOT touched. A workspace's directory is fixed
+	// at creation, so a rename moves nothing, and the purge removes exactly the
+	// tombstone's WorktreePath.
 	evt, err := w.sendWithOCC(ctx, commands.RenameBranch{ID: id, Branch: branch})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: rename branch: %w", err)
@@ -715,18 +667,6 @@ func (w *workspace) SetParentFromPR(
 	evt, err := w.sendWithOCC(ctx, commands.SetParentFromPR{ID: id, ParentID: parentID})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set parent from pr: %w", err)
-	}
-	return evt.Aggregate, nil
-}
-
-func (w *workspace) SetProject(
-	ctx context.Context,
-	id string,
-	projectID string,
-) (domain.Workspace, error) {
-	evt, err := w.sendWithOCC(ctx, commands.SetProject{ID: id, ProjectID: projectID})
-	if err != nil {
-		return domain.Workspace{}, fmt.Errorf("workspace: set project: %w", err)
 	}
 	return evt.Aggregate, nil
 }
@@ -748,11 +688,18 @@ func (w *workspace) SetLastError(
 // row (so the boot orphan-sweep still finds it) and the async delete reactor
 // (topic "workspace.deleted.*", Task 8) performs the physical teardown off the
 // write path — closing the old synchronous forget→rm crash gap (spec §3.6/§3.8).
+//
+// It returns only once every projection has handled the tombstone — SendWait,
+// not Send. The tombstone's frame is addressed through the workspace's owning
+// chat, and a caller routinely purges that chat next (a chat delete, the delete
+// reactor); a purge that beat the hub projection dropped the frame and left the
+// client a ghost row. Committing faster (synchronous=NORMAL) made that race win
+// often enough to see.
 func (w *workspace) Delete(
 	ctx context.Context,
 	id string,
 ) error {
-	_, err := w.sendWithOCC(ctx, commands.Delete{ID: id})
+	_, err := occSend(ctx, w.ax.SendWait, commands.Delete{ID: id})
 	if err != nil {
 		return fmt.Errorf("workspace: delete: %w", err)
 	}
@@ -793,48 +740,79 @@ func (w *workspace) ListInRepo(
 	}
 	rows := make([]domain.Workspace, 0, len(all))
 	for _, ws := range all {
-		if ws.ProjectID == projectID && ws.RepoID == repoID {
+		if inRepo(ws, projectID, repoID) {
 			rows = append(rows, ws)
 		}
 	}
 	return rows, nil
 }
 
-// Sweep runs the boot orphan-sweep over this repository's RAW read model (spec
-// §3.8). It reads state/store/workspace.db DIRECTLY via w.readModel.List — NOT
-// the Replay-wrapped per-request List path — so boot pays no replay and an empty
-// model reaps nothing (§3.7/§3.8). For every residual Status="deleted" row it
-// re-drives the caller-supplied idempotent purge (cascade Forget + rm -rf worktree
-// + axWorkspace.Forget). Best-effort throughout: recovery work never fails boot.
-func (w *workspace) Sweep(
-	ctx context.Context,
-	purge func(ctx context.Context, wsID string) error,
-) {
-	reconcile.NewSweeper(reconcile.SweepListFunc(w.readModel.List), purge).Sweep(ctx)
+// inRepo reports whether ws is one of repoID's rows. A repo belongs to exactly
+// one project, and the REPO row is the one owner of that assignment: a repo's
+// rows are its rows whatever their own (denormalised) ProjectID says, so a repo
+// move that relocated only some of them before failing never hides the rest
+// (spec §3 P0-3). A repo-less row (a project home) is scoped by its project.
+func inRepo(
+	ws domain.Workspace,
+	projectID string,
+	repoID string,
+) bool {
+	if repoID != "" {
+		return ws.RepoID == repoID
+	}
+	return ws.RepoID == "" && ws.ProjectID == projectID
 }
 
-// RegisterDeleteReactor subscribes the async delete reactor to this repo's
-// singleton axWorkspace, handing it this repo's own private handles — axWorkspace,
-// the durable read model (the ordering-gate StoreReader; w.readModel satisfies
-// reactors.StoreReader via its Get), and the id↔path map — and the app-injected
-// cross-aggregate deps: the review-thread forget cascade, the bounded fs delete,
-// and the shared drain WaitGroup every reactor goroutine joins (spec §3.6/§3.8,
-// Task 8/14). It is the seam repositories.Container reaches the internal reactor
-// through (the reactors package is under workspace/internal, unimportable from the
-// out-of-tree container).
+// BackfillProvisioning records Provisioning on every row of the RAW read model
+// that lacks it. Best-effort per row: a row whose history cannot be replayed is
+// logged and left for the next boot, and never keeps the daemon from starting.
+func (w *workspace) BackfillProvisioning(
+	ctx context.Context,
+) {
+	rows, err := w.readModel.List(ctx)
+	if err != nil {
+		slog.ErrorContext(ctx, "workspace: backfill provisioning: list", "err", err)
+		return
+	}
+	for _, ws := range rows {
+		if ws.Provisioning != "" {
+			continue
+		}
+		if _, err := w.sendWithOCC(ctx, commands.BackfillProvisioning{ID: ws.ID}); err != nil &&
+			!errors.Is(err, asynxModels.ErrValidation) {
+			slog.ErrorContext(ctx, "workspace: backfill provisioning (continuing)",
+				"workspace_id", ws.ID, "err", err)
+		}
+	}
+}
+
+// Sweep runs the boot orphan-sweep over this repository's RAW read model (spec
+// §3.8): it reads state/store/workspace.db DIRECTLY — never the Replay-wrapped
+// per-request List — so boot pays no replay and an empty model reaps nothing,
+// and re-drives the one Purger for every residual "deleted" row, from that
+// tombstone's own WorktreePath. Best-effort per row: recovery work never fails
+// boot. It refuses to run before RegisterDeleteReactor has built the Purger.
+func (w *workspace) Sweep(
+	ctx context.Context,
+) error {
+	if w.purger == nil {
+		return fmt.Errorf("workspace: sweep: no purger registered")
+	}
+	reconcile.NewSweeper(reconcile.SweepListFunc(w.readModel.List), w.purger.Purge).Sweep(ctx)
+	return nil
+}
+
+// RegisterDeleteReactor builds the one physical Purger from the injected
+// cross-aggregate forget cascade and hardened worktree remover, keeps it for the
+// boot Sweep, and subscribes the async delete reactor to run it over the
+// persisted tombstone (spec §3.6/§3.8, §7-D).
 func (w *workspace) RegisterDeleteReactor(
-	reviewThreadForget func(ctx context.Context, wsID string) error,
-	rmWorktree func(path string) error,
+	forgetDependents func(ctx context.Context, wsID string) error,
+	removeWorktree func(ctx context.Context, tomb domain.Workspace) error,
 	gate *drain.Gate,
 ) error {
-	return reactors.RegisterDeleteReactor(
-		w.ax,
-		w.readModel,
-		w.pathsStore,
-		reviewThreadForget,
-		rmWorktree,
-		gate,
-	)
+	w.purger = reactors.NewPurger(w.ax, w.readModel.Drop, forgetDependents, removeWorktree)
+	return reactors.RegisterDeleteReactor(w.ax, w.readModel, w.purger, gate)
 }
 
 // GetHomeForProject scans all workspaces for the project and returns the one
@@ -859,7 +837,7 @@ func (w *workspace) GetHomeForProject(ctx context.Context, projectID string) (do
 // unrelated part of the system derives the same way from an unrelated name.
 var homeWorkspaceNamespace = uuid.MustParse("f9a1b2c3-2026-4a1a-8b1c-c70de5e8f001")
 
-// homeWorkspaceID derives a project's home workspace id deterministically
+// ProjectHomeID derives a project's home workspace id deterministically
 // from its project id, in place of minting a fresh random one on every call.
 //
 // This is the actual fix for a live bug that used to duplicate a project's
@@ -882,47 +860,15 @@ var homeWorkspaceNamespace = uuid.MustParse("f9a1b2c3-2026-4a1a-8b1c-c70de5e8f00
 // server-randomised one. No new locking primitive, no process-local mutex:
 // a second daemon instance, or a retried request years apart, gets the
 // exact same outcome.
-func homeWorkspaceID(projectID string) string {
+func ProjectHomeID(projectID string) string {
 	return uuid.NewSHA1(homeWorkspaceNamespace, []byte(projectID)).String()
 }
 
-// CreateHome provisions the home workspace for a project, used for lazy
-// provisioning when GetHomeForProject returns ErrNotFound.
-//
-// Idempotent under real concurrency, not merely safe: a caller that loses
-// the race homeWorkspaceID's own doc describes does not get an error back at
-// all — it reads the winner's own committed workspace directly from the
-// event store (never the read model, which may still be catching up to that
-// commit) and returns it exactly as if it had won itself. Reading it there
-// rather than surfacing apperr.ErrConflict for a caller to recover from is
-// safe done HERE, unlike inside the shared Create/Validate this calls
-// through, because every argument on THIS call is fixed by construction (a
-// non-empty id, WorkspaceKindHome needing no RepoID): the ONLY way
-// CreateWorkspace's Validate can refuse it is "current != nil," never one of
-// its other validation branches, so an ErrValidation reaching here can only
-// ever mean one thing — mirrors node.EventStore.CreateIdempotent's own,
-// identically-scoped reasoning.
-func (w *workspace) CreateHome(ctx context.Context, projectID, worktreePath string, now time.Time) (domain.Workspace, error) {
-	id := homeWorkspaceID(projectID)
-	ws, err := w.Create(ctx, CreateInput{
-		ID:           id,
-		ProjectID:    projectID,
-		WorktreePath: worktreePath,
-		Kind:         domain.WorkspaceKindHome,
-	}, now)
-	if err == nil {
-		return ws, nil
-	}
-	if !errors.Is(err, asynxModels.ErrValidation) {
-		return domain.Workspace{}, fmt.Errorf("create home workspace: %w", err)
-	}
-	won, getErr := w.ax.Get(ctx, id)
-	if getErr != nil {
-		// The winner's commit isn't visible yet even at the event-store layer
-		// (Get, not the read model) — genuinely unexpected for a same-process
-		// serialized aggregate, so surface the ORIGINAL refusal rather than a
-		// getErr that names no cause a caller could act on.
-		return domain.Workspace{}, fmt.Errorf("create home workspace: %w", err)
-	}
-	return won, nil
+// RepoHomeID derives a repo's home (IsDefault) workspace id deterministically
+// from the repo id, for the reason ProjectHomeID gives: two concurrent adopts
+// of the same repo's main folder target the SAME aggregate, so the second is
+// refused by CreateWorkspace's own Validate instead of leaving the repo with two
+// default workspaces (invariant D2). Namespaced apart from the project home's.
+func RepoHomeID(repoID string) string {
+	return uuid.NewSHA1(homeWorkspaceNamespace, []byte("repo-home:"+repoID)).String()
 }

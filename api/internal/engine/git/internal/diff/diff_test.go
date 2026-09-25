@@ -97,7 +97,7 @@ func TestWorkingTree_Unstaged(t *testing.T) {
 	assert.Equal(t, "hello.go", f.FilePath)
 	assert.False(t, f.IsNew)
 	assert.False(t, f.IsDeleted)
-	assert.Greater(t, f.Additions+f.Deletions, 0)
+	assert.Positive(t, f.Additions+f.Deletions)
 	assert.NotEmpty(t, f.Hunks)
 	assert.NotEmpty(t, f.Lines)
 }
@@ -121,7 +121,7 @@ func TestWorkingTree_Staged(t *testing.T) {
 	assert.Equal(t, "hello.go", f.FilePath)
 	assert.False(t, f.IsNew)
 	assert.False(t, f.IsDeleted)
-	assert.Greater(t, f.Additions+f.Deletions, 0)
+	assert.Positive(t, f.Additions+f.Deletions)
 	assert.NotEmpty(t, f.Hunks)
 }
 
@@ -242,7 +242,7 @@ func TestCommit_RootCommit(t *testing.T) {
 	assert.NotEmpty(t, result.CommitAuthor)
 	assert.NotNil(t, result.CommitDate)
 	assert.NotEmpty(t, result.Files)
-	assert.Greater(t, result.TotalAdditions, 0)
+	assert.Positive(t, result.TotalAdditions)
 }
 
 func TestCommit_NonRootCommit(t *testing.T) {
@@ -266,8 +266,8 @@ func TestCommit_NonRootCommit(t *testing.T) {
 	assert.Equal(t, "update main", result.CommitMessage)
 	assert.NotEmpty(t, result.Files)
 	assert.Equal(t, 1, result.TotalFiles)
-	assert.Greater(t, result.TotalAdditions, 0)
-	assert.Greater(t, result.TotalDeletions, 0)
+	assert.Positive(t, result.TotalAdditions)
+	assert.Positive(t, result.TotalDeletions)
 }
 
 func TestWorkingTree_HunkIDStability(t *testing.T) {

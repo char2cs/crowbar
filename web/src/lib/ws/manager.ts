@@ -3,6 +3,7 @@ import { isTauri } from '@/lib/crowbar-bridge'
 import { wsUrl, isWebSocketCapable } from './url'
 import { reportChannelState, reportChannelGone } from './connection-store'
 import { TauriWebSocket } from './tauri-transport'
+import { noteDaemonChange } from '@/lib/transport/daemon-changes'
 
 type Callback = (data: unknown) => void
 
@@ -57,7 +58,9 @@ function closeSocketQuietly(socket: WSLike): void {
 export function createWSManager(): WSManager {
   const channels = new Map<string, Channel>()
 
-  function open(endpoint: string, reconnectDelay = 1000): Channel {
+  /** `resumed`: this socket replaces a dropped one, so its open is the moment
+   *  the stream is back and subscribers must refetch what they missed. */
+  function open(endpoint: string, reconnectDelay = 1000, resumed = false): Channel {
     const ch: Channel = {
       socket: createTransport(endpoint),
       callbacks: new Set(),
@@ -69,7 +72,13 @@ export function createWSManager(): WSManager {
     // from the base delay again.
     ch.socket.onopen = () => {
       ch.reconnectDelay = 1000
-      if (channels.get(endpoint) === ch) reportChannelState(endpoint, true)
+      if (channels.get(endpoint) !== ch) return
+      reportChannelState(endpoint, true)
+      // Only now, not per attempt: a refetch while the daemon is still down
+      // just fails, and every subscriber's refetch would repeat each retry.
+      if (!resumed) return
+      noteDaemonChange()
+      ch.callbacks.forEach((cb) => cb({ reconnected: true }))
     }
 
     ch.socket.onmessage = (e) => {
@@ -79,6 +88,7 @@ export function createWSManager(): WSManager {
       } catch {
         parsed = e.data
       }
+      noteDaemonChange()
       ch.callbacks.forEach((cb) => cb(parsed))
     }
 
@@ -99,12 +109,9 @@ export function createWSManager(): WSManager {
         }
         // Carry the (doubled) backoff into the new channel so repeated
         // failures actually back off instead of restarting at the base delay.
-        const fresh = open(endpoint, Math.min(ch.reconnectDelay * 2, 30_000))
+        const fresh = open(endpoint, Math.min(ch.reconnectDelay * 2, 30_000), true)
         fresh.callbacks = ch.callbacks
         channels.set(endpoint, fresh)
-        // Tell subscribers the stream was interrupted so they can refetch
-        // whatever pushes they may have missed during the outage.
-        ch.callbacks.forEach((cb) => cb({ reconnected: true }))
       }, ch.reconnectDelay)
     }
 

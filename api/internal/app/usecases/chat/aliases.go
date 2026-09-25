@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/fanout"
@@ -245,6 +246,9 @@ type (
 	// outage. It crosses from the detector that recognises it to the ingress that
 	// closes the turn, which is why it is vocabulary rather than either one's.
 	Stall = seam.Stall
+	// ChatFeed is where the usecase publishes the live facts about a chat that
+	// no aggregate projection carries; the hub's owner binds it at sweep start.
+	ChatFeed = seam.ChatFeed
 )
 
 // Sentinels of the internal packages this feature's door re-exports, so a caller
@@ -259,6 +263,9 @@ var (
 	// missing runner, which is the ordinary dormant state and the reason the
 	// resume was asked for in the first place.
 	ErrChatProviderUnknown = runner.ErrChatProviderUnknown
+	// ErrStopped is a switch or resume that was parked when the user pressed
+	// Stop; Stop preempted it and it changed nothing.
+	ErrStopped = runner.ErrStopped
 	// ErrTreeNameRequired is a folder create or rename with a blank name.
 	ErrTreeNameRequired = tree.ErrNameRequired
 	// ErrTreeCycle is a move that would make a node its own ancestor.
@@ -286,7 +293,7 @@ var (
 	ErrTreeWorkspaceUnprovisioned = tree.ErrWorkspaceUnprovisioned
 )
 
-// Fanout shapes repository lifecycle announcements into frontend frames.
+// Fanout feeds repository lifecycle announcements to the chat snapshot owner.
 //
 // It is built by the composition root rather than by chat.New because the chat
 // repositories are constructed BEFORE the usecase that reads them, and they need
@@ -294,11 +301,33 @@ var (
 // lives here, in the usecase layer, which is the whole point of the seam.
 type Fanout = fanout.Fanout
 
-// Hub is the WS broadcaster the fanout needs. *hub.Hub satisfies it.
-type Hub = fanout.Hub
+// NewFanout builds the fanout over the snapshot owner. A nil owner degrades to
+// a no-op.
+func NewFanout(snaps *ChatSnapshots) *Fanout { return fanout.New(snaps) }
 
-// NewFanout builds the fanout over hub. A nil hub degrades to a no-op.
-func NewFanout(hub Hub) *Fanout { return fanout.New(hub) }
+// ChatSnapshots is the ONE owner of every chat's versioned snapshot — see
+// internal/snapshot. The composition root builds it (the fanout needs it
+// before the usecase exists), binds its publish to the hub, and hands it to
+// New.
+type ChatSnapshots = snapshot.Snapshots
+
+// ChatSnapshot is one versioned answer about a chat.
+type ChatSnapshot = snapshot.Snapshot
+
+// ChatSnapshotFrame is one published change to a chat's snapshot.
+type ChatSnapshotFrame = snapshot.Frame
+
+// NewChatSnapshots returns an owner whose versions start at the boot time.
+func NewChatSnapshots() *ChatSnapshots { return snapshot.NewAtBoot() }
+
+// The chat phases a snapshot reports.
+const (
+	ChatPhaseDormant   = snapshot.PhaseDormant
+	ChatPhaseStarting  = snapshot.PhaseStarting
+	ChatPhaseLive      = snapshot.PhaseLive
+	ChatPhaseSwitching = snapshot.PhaseSwitching
+	ChatPhaseStopping  = snapshot.PhaseStopping
+)
 
 var (
 	_ = agentchat.WatchFunc(nil)

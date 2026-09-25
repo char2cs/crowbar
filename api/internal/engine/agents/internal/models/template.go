@@ -1,6 +1,9 @@
 package models
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+)
 
 type TemplateCtx struct {
 	Tmp string
@@ -69,13 +72,46 @@ func (c TemplateCtx) ScopeFlags() string {
 		flags += " --repo=" + c.RepoID
 	}
 	if c.CrowbarHome != "" {
-		flags += " --home=" + c.CrowbarHome
+		flags += " --home=" + shellWord(c.CrowbarHome)
 	}
 	return flags
 }
 
+// shellWord is s as one shell word. {crowbar_hook} and {scope_flags} are only
+// ever rendered into hook commands the vendor CLI runs through a shell, where
+// a path with a space would split. Single quotes also survive the JSON and
+// TOML strings those commands are embedded in (a path holding a quote itself
+// cannot be embedded in either).
+func shellWord(s string) string {
+	if s == "" || strings.Trim(s, shellSafe) == "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
+}
+
+const shellSafe = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:=@%+-"
+
 func (c TemplateCtx) Replacer() *strings.Replacer {
-	pairs := []string{
+	pairs := c.pairs()
+	for k, v := range c.PermissionVars {
+		pairs = append(pairs, "{permission."+k+"}", v)
+	}
+	return strings.NewReplacer(pairs...)
+}
+
+// TemplateVars names every {var} an argv template may reference, besides the
+// {permission.<key>} family.
+func TemplateVars() []string {
+	pairs := TemplateCtx{}.pairs()
+	out := make([]string, 0, len(pairs)/2)
+	for i := 0; i < len(pairs); i += 2 {
+		out = append(out, strings.Trim(pairs[i], "{}"))
+	}
+	return out
+}
+
+func (c TemplateCtx) pairs() []string {
+	return []string{
 		"{scope_flags}", c.ScopeFlags(),
 		"{tmp}", c.Tmp,
 		"{id}", c.ID,
@@ -87,7 +123,8 @@ func (c TemplateCtx) Replacer() *strings.Replacer {
 		"{model}", c.Model,
 		"{effort}", c.Effort,
 		"{cwd}", c.Cwd,
-		"{crowbar_hook}", c.CrowbarHook,
+		"{cwd_json}", jsonString(c.Cwd),
+		"{crowbar_hook}", shellWord(c.CrowbarHook),
 		"{crowbar_home}", c.CrowbarHome,
 
 		"{crowbar}", c.CrowbarHook,
@@ -100,8 +137,14 @@ func (c TemplateCtx) Replacer() *strings.Replacer {
 		"{socket}", c.Socket,
 		"{session_id}", c.Session,
 	}
-	for k, v := range c.PermissionVars {
-		pairs = append(pairs, "{permission."+k+"}", v)
+}
+
+// jsonString is s as a quoted JSON string — also a valid TOML basic string, so
+// a path can be embedded in a `-c key=<toml>` value whatever characters it has.
+func jsonString(s string) string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return `""`
 	}
-	return strings.NewReplacer(pairs...)
+	return string(b)
 }

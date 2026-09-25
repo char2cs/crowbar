@@ -126,6 +126,15 @@ func specRoutes() []string {
 		"POST " + chat + "/lsp/rename",
 		"POST " + chat + "/lsp/codeAction",
 		"POST " + chat + "/lsp/documentSymbol",
+		"POST " + chat + "/lsp/signatureHelp",
+		"POST " + chat + "/lsp/codeLens",
+		"POST " + chat + "/lsp/codeLensResolve",
+		"POST " + chat + "/lsp/semanticTokens",
+		"POST " + chat + "/lsp/semanticTokensRange",
+		"POST " + chat + "/lsp/executeCommand",
+		"POST " + chat + "/lsp/formatting",
+		"GET " + chat + "/lsp/status",
+		"POST " + chat + "/lsp/restart",
 		"GET " + chat + "/lsp/diagnostics",
 		// §2.6-2.8 Git (read, write, conflicts/operation), chat-scoped
 		// (chat-scoped API spec §4.2's SHARED bucket, §8 step 4/6): the flat
@@ -305,6 +314,7 @@ func extraRoutes() []string {
 		"POST " + chat + "/lsp/didOpen",
 		"POST " + chat + "/lsp/didChange",
 		"POST " + chat + "/lsp/didClose",
+		"POST " + chat + "/lsp/didSave",
 		// Registered feature routes the §2 spec list did not yet enumerate: the
 		// git-identity read (chat-scoped only, spec §4.2's SHARED bucket, §8
 		// step 6 — its .../workspaces/:wsId/identity twin is gone) and the
@@ -461,6 +471,9 @@ func extraRoutes() []string {
 		// not any one chat's.
 		"GET /v0/settings/chat/model-manifest-fetch",
 		"PUT /v0/settings/chat/model-manifest-fetch",
+		// Every provider descriptor's static findings: machine-level, since the
+		// descriptors are the daemon's, not any one chat's.
+		"GET /v0/settings/chat/descriptors",
 		// The host terminal's light/dark colours, and a GLOBAL setting for the same
 		// reason: one Crowbar window renders every session, so there is one theme, and
 		// it must be known BEFORE any session exists. The daemon seeds it into each PTY

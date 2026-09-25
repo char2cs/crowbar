@@ -1,4 +1,4 @@
-import { NON_STRUCTURAL_CHAT_KINDS } from '@/features/workspace/stores/hooks/use-workspace-agent-chats-stream'
+import { NON_STRUCTURAL_CHAT_KINDS } from '@/lib/ws/chat-frame-kinds'
 
 /**
  * Whether a frame off a repo's `.../chats/ws` feed names a row that MOVED —

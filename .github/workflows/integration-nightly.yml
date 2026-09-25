@@ -1,0 +1,36 @@
+name: Integration (nightly)
+
+# The slower acceptance tier under api/tests/integration/*. It is too slow and
+# not yet stable enough to gate PRs (see ci.yml), so it runs here every night
+# against develop. tests/integration/agent is excluded: it spawns the real
+# claude/codex binaries and makes paid model calls.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-nightly
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: develop
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.2'
+          cache-dependency-path: api/go.sum
+      - name: Integration suites (minus the paid agent suite)
+        run: |
+          cd api
+          PKGS=$(go list -tags 'integration noEmbed' ./tests/integration/... | grep -v '/tests/integration/agent')
+          go test -tags 'integration noEmbed' -race -count=1 -timeout 30m $PKGS

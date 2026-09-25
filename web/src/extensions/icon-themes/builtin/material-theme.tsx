@@ -1,6 +1,6 @@
 import { Folder, FolderOpen } from '@phosphor-icons/react'
-import { getIcon } from 'material-file-icons'
 import type { IconThemeDefinition } from '../types'
+import { materialIconSvg } from './material-icons'
 
 export const materialIconTheme: IconThemeDefinition = {
   id: 'material',
@@ -11,8 +11,9 @@ export const materialIconTheme: IconThemeDefinition = {
       const Icon = isExpanded ? FolderOpen : Folder
       return { component: <Icon /> }
     }
-    const icon = getIcon(fileName)
-    const svgContent = icon.svg
+    const svg = materialIconSvg(fileName)
+    if (!svg) return {}
+    const svgContent = svg
       .replace(/fill="[^"]*"/g, 'fill="currentColor"')
       .replace(/stroke="[^"]*"/g, 'stroke="currentColor"')
     return { svg: svgContent }

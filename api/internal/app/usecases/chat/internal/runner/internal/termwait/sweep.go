@@ -10,11 +10,21 @@ import (
 )
 
 func (d *detector) Sweep(ctx context.Context, publish Publish) {
+	d.sweep(ctx, publish)
+}
+
+// sweep reports whether the loop should keep ticking: true while any runner is
+// live, and on a census failure (the next tick retries it).
+func (d *detector) sweep(ctx context.Context, publish Publish) bool {
 	runners, err := d.deps.Runners.AllLive(ctx)
 	if err != nil {
-		return
+		return true
 	}
+	d.publishAndClose(ctx, publish, runners)
+	return len(runners) > 0
+}
 
+func (d *detector) publishAndClose(ctx context.Context, publish Publish, runners []agents.Runner) {
 	changed, stalls := d.fold(ctx, runners)
 
 	if publish != nil {

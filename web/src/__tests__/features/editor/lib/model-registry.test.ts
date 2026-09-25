@@ -31,6 +31,19 @@ function fakeApi() {
 }
 
 describe('ModelRegistry', () => {
+  it("adopts a model created outside the registry with the buffer's text", () => {
+    const api = fakeApi()
+    const preview = api.createModel('on disk', 'ts', 'crowbar://editor/w/a.ts')
+    api.createModel.mockClear()
+    const r = new ModelRegistry(api)
+
+    const m = r.acquire('crowbar://editor/w/a.ts', 'ts', 'unsaved buffer text')
+
+    expect(m).toBe(preview)
+    expect(m.getValue()).toBe('unsaved buffer text')
+    expect(api.createModel).not.toHaveBeenCalled()
+  })
+
   it('creates one model per uri and reuses it on re-acquire', () => {
     const api = fakeApi()
     const r = new ModelRegistry(api)

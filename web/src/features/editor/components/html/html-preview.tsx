@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
+import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { hasTextContent } from '@/features/panes/types/pane-content'
+import { mimeForPath, resolveAssetPath, toDataUrl } from '@/features/editor/lib/asset-data-url'
+import { getDirName } from '@/utils/path-helpers'
 import { buildHtmlPreviewDocument } from './html-preview-document'
 
 export function HtmlPreview() {
-  const { hasSourceBuffer, sourceContent, sourcePath } = useStore(
+  const { hasSourceBuffer, sourceContent, sourcePath, workspaceId } = useStore(
     windowPaneStore,
     useShallow((state) => {
       const activeBufferId = state.panes[state.activePaneId]?.activeEditorTabId ?? null
@@ -24,22 +26,31 @@ export function HtmlPreview() {
         hasSourceBuffer: Boolean(sourceBuffer),
         sourceContent: sourceBuffer && hasTextContent(sourceBuffer) ? sourceBuffer.content : '',
         sourcePath: sourceBuffer?.path,
+        workspaceId: sourceBuffer?.workspaceId,
       }
     }),
   )
-  const rootFolderPath = useFileSystemStore.use.rootFolderPath?.()
-
   const [iframeContent, setIframeContent] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
 
+  // Local assets are read through the files API of the file's own workspace
+  // and inlined; the latest edit wins over a slower earlier build.
   useEffect(() => {
-    setIframeContent(
-      buildHtmlPreviewDocument(sourceContent, {
-        sourcePath,
-        rootFolderPath: rootFolderPath ?? undefined,
-      }),
-    )
-  }, [sourceContent, sourcePath, rootFolderPath])
+    let cancelled = false
+    const fileDir = sourcePath ? getDirName(sourcePath) : ''
+    const loadAsset = async (reference: string) => {
+      const path = resolveAssetPath(fileDir, reference)
+      const mime = mimeForPath(path)
+      if (!workspaceId || !mime) return null
+      return toDataUrl(mime, await readWorkspaceFile(workspaceId, path))
+    }
+    void buildHtmlPreviewDocument(sourceContent, loadAsset).then((doc) => {
+      if (!cancelled) setIframeContent(doc)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [sourceContent, sourcePath, workspaceId])
 
   if (!hasSourceBuffer) {
     return (

@@ -1,5 +1,5 @@
 import { Folder, FolderOpen } from '@phosphor-icons/react'
-import { getIcon } from 'material-file-icons'
+import { materialIconSvg } from './material-icons'
 import type { IconThemeDefinition } from '../types'
 
 export const colorfulMaterialIconTheme: IconThemeDefinition = {
@@ -14,8 +14,9 @@ export const colorfulMaterialIconTheme: IconThemeDefinition = {
       // (text-muted-foreground) class but leaves other props alone.
       return { component: <Icon weight="fill" color="#f2c14e" /> }
     }
-    const icon = getIcon(fileName)
-    // Keep original colors — do not replace fill/stroke
-    return { svg: icon.svg }
+    const svg = materialIconSvg(fileName)
+    // Keep original colors — do not replace fill/stroke. Nothing while the
+    // icon set loads; callers draw their own fallback glyph.
+    return svg ? { svg } : {}
   },
 }

@@ -7,13 +7,19 @@
 //! (where a WS upgrade is perfectly legal) and bridges an arbitrary `/v0/...`
 //! WebSocket route both ways to the webview.
 //!
-//!   * daemon → webview: each `Message::Text(text)` is pushed verbatim down a
-//!     Tauri `Channel<String>` the frontend supplies at open time.
+//!   * daemon → webview: each text frame is pushed verbatim down the Tauri
+//!     `Channel` the frontend supplies at open time (it arrives as a string), each
+//!     binary frame as raw bytes (it arrives as an `ArrayBuffer`) — the terminal's
+//!     PTY output is binary, everything else is JSON text.
 //!   * webview → daemon: `ws_send` enqueues the supplied text frame for the
 //!     connection's writer task.
 //!
 //! Connections are keyed by a client-supplied id (`crypto.randomUUID` on the JS
-//! side) so multiple scoped streams can coexist.
+//! side) so multiple scoped streams — and several windows attached to one PTY —
+//! coexist without ever colliding.
+//!
+//! This is the ONE bridge: every WebSocket route, the terminal's PTY stream
+//! included, goes through it.
 //!
 //! # Connection lifetime
 //!
@@ -25,7 +31,9 @@
 //!
 //! A connection can end three ways, and all three must converge on that teardown:
 //!
-//!   1. the daemon closes it (every watcher release, every workspace switch),
+//!   1. the daemon closes it (every watcher release, every workspace switch), or the
+//!      socket dies under it — a failed write, or (for a connection opened with a
+//!      read-idle timeout) a half-open socket that delivers nothing at all,
 //!   2. the frontend closes it (`ws_close`),
 //!   3. the page it belongs to goes away (a reload orphans every connection on it).
 //!
@@ -45,12 +53,14 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use tauri::ipc::Channel;
+use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::State;
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot};
+use tokio::time::timeout;
 use tokio_tungstenite::client_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
@@ -61,19 +71,38 @@ use tokio_tungstenite::tungstenite::Message;
 /// impossible to collide with a real JSON DTO frame (which always starts `{`).
 pub const WS_CLOSE_SENTINEL: &str = "\u{0}crowbar-ws-close";
 
+/// One daemon → webview frame.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Frame {
+    /// A text frame (a JSON DTO), or the close sentinel.
+    Text(String),
+    /// A binary frame (terminal PTY output), forwarded as raw bytes.
+    Binary(Vec<u8>),
+}
+
 /// Where daemon → webview frames go: a Tauri `Channel` in the app, a plain closure
 /// under test. The indirection is what lets a connection's lifetime be exercised
 /// without standing up a webview.
 pub trait FrameSink: Send + Sync + 'static {
-    fn send(&self, frame: String);
+    fn send(&self, frame: Frame);
 }
 
-impl FrameSink for Channel<String> {
-    fn send(&self, frame: String) {
+impl FrameSink for Channel<InvokeResponseBody> {
+    fn send(&self, frame: Frame) {
+        let body = match frame {
+            // A JSON string literal: the webview receives it as a JS string, exactly
+            // what a `Channel<String>` delivered before binary frames existed.
+            Frame::Text(text) => match serde_json::to_string(&text) {
+                Ok(json) => InvokeResponseBody::Json(json),
+                Err(_) => return,
+            },
+            // Raw bytes: the webview receives an ArrayBuffer, with no JSON escaping.
+            Frame::Binary(bytes) => InvokeResponseBody::Raw(bytes),
+        };
         // Errors here mean the webview is gone, i.e. the app is shutting down. They
         // say nothing about the connection (in particular, a page reload does NOT
         // produce one), so there is nothing useful to do but drop the frame.
-        let _ = Channel::send(self, frame);
+        let _ = Channel::send(self, body);
     }
 }
 
@@ -130,13 +159,19 @@ impl WsBridgeManager {
 }
 
 /// Open a WebSocket to the daemon for `path` (a full `/v0/...` route) and start
-/// streaming its frames to `on_message`. Each text frame is forwarded RAW — the
-/// whole DTO object — because the frontend parses the complete frame itself.
+/// streaming its frames to `on_message`. Each frame is forwarded RAW — the whole
+/// DTO text, or the binary payload — because the frontend parses it itself.
+///
+/// `idle_timeout_ms` arms a read-idle timeout for a stream whose daemon side pings
+/// (the terminal's, every 45s): a socket that delivers nothing at all — not a frame,
+/// not a ping — for that long is half-open, and is closed and announced like any
+/// other daemon-side close rather than parked on forever.
 #[tauri::command]
 pub async fn ws_open(
     conn_id: String,
     path: String,
-    on_message: Channel<String>,
+    on_message: Channel<InvokeResponseBody>,
+    idle_timeout_ms: Option<u64>,
     manager: State<'_, WsBridgeManager>,
     window: tauri::WebviewWindow,
 ) -> Result<(), String> {
@@ -148,6 +183,7 @@ pub async fn ws_open(
         on_message,
         &manager,
         window.label().to_string(),
+        idle_timeout_ms.map(Duration::from_millis),
     )
     .await
     .map(|_reader| ())
@@ -167,6 +203,7 @@ pub async fn open_bridge<S: FrameSink>(
     on_message: S,
     manager: &WsBridgeManager,
     window_label: String,
+    read_idle_timeout: Option<Duration>,
 ) -> Result<tokio::task::JoinHandle<()>, String> {
     let stream = UnixStream::connect(socket).await.map_err(|e| {
         log::error!("ws_open: connect daemon socket failed: {e}");
@@ -187,10 +224,17 @@ pub async fn open_bridge<S: FrameSink>(
 
     // Writer task: drain the mpsc and push frames at the socket one at a time. It
     // ends when every sender is dropped — which is what retiring the connection does.
+    //
+    // A send FAILURE is not a retirement: it is the socket's write direction going
+    // dead, and a keystroke that vanished with neither error nor reconnect is exactly
+    // the half-open bug. Signal it on `writer_dead` so the reader — which owns the one
+    // retire + announce path — wakes and surfaces it.
     let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
+    let (writer_dead_tx, mut writer_dead) = oneshot::channel::<()>();
     let writer = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
             if write.send(msg).await.is_err() {
+                let _ = writer_dead_tx.send(());
                 break;
             }
         }
@@ -214,12 +258,21 @@ pub async fn open_bridge<S: FrameSink>(
         },
     );
 
-    // Reader task: forward each text frame verbatim to the webview channel until the
-    // daemon closes the stream or this connection is retired out from under us.
+    // Reader task: forward each frame verbatim to the webview channel until the
+    // daemon closes the stream, the socket dies, or this connection is retired out
+    // from under us.
     let connections = Arc::clone(&manager.connections);
     let reader = tokio::spawn(async move {
         let mut daemon_closed = false;
         loop {
+            // A read, bounded by the idle timeout when one was asked for. `Err` means the
+            // socket delivered nothing — not a frame, not a ping — for the whole window.
+            let next = async {
+                match read_idle_timeout {
+                    Some(idle) => timeout(idle, read.next()).await,
+                    None => Ok(read.next().await),
+                }
+            };
             tokio::select! {
                 // The connection was removed from the map: `ws_close`, a page load, or a
                 // re-used id. Whoever removed it has already retired it; just let go of
@@ -231,10 +284,22 @@ pub async fn open_bridge<S: FrameSink>(
                 // never will, and then the reader parks here for the life of the app,
                 // holding the descriptor. Teardown must not depend on the peer.
                 _ = &mut cancelled => break,
-                frame = read.next() => match frame {
-                    Some(Ok(Message::Text(text))) => on_message.send(text.to_string()),
-                    Some(Ok(_)) => continue,
-                    Some(Err(_)) | None => {
+                // The writer hit a socket error (`Ok`): the transport is lost. `Err` is
+                // the writer's queue closing on a normal retirement, which the cancel
+                // branch owns.
+                writer_result = &mut writer_dead => {
+                    daemon_closed = writer_result.is_ok();
+                    break;
+                }
+                frame = next => match frame {
+                    Ok(Some(Ok(Message::Text(text)))) => {
+                        on_message.send(Frame::Text(text.to_string()))
+                    }
+                    Ok(Some(Ok(Message::Binary(bytes)))) => {
+                        on_message.send(Frame::Binary(bytes.to_vec()))
+                    }
+                    Ok(Some(Ok(_))) => continue,
+                    Ok(Some(Err(_))) | Ok(None) | Err(_) => {
                         daemon_closed = true;
                         break;
                     }
@@ -268,7 +333,7 @@ pub async fn open_bridge<S: FrameSink>(
         // whoever did it already knows. Announcing after the writer means a reconnect can
         // never race ahead of the descriptor it is about to need.
         if daemon_closed {
-            on_message.send(WS_CLOSE_SENTINEL.to_string());
+            on_message.send(Frame::Text(WS_CLOSE_SENTINEL.to_string()));
         }
     });
 
@@ -319,8 +384,8 @@ mod tests {
 
     struct ClosureSink<F>(F);
 
-    impl<F: Fn(String) + Send + Sync + 'static> FrameSink for ClosureSink<F> {
-        fn send(&self, frame: String) {
+    impl<F: Fn(Frame) + Send + Sync + 'static> FrameSink for ClosureSink<F> {
+        fn send(&self, frame: Frame) {
             (self.0)(frame)
         }
     }
@@ -329,8 +394,8 @@ mod tests {
     /// the connection actually being torn down rather than on a clock.
     fn sentinel_sink(tx: oneshot::Sender<()>) -> impl FrameSink {
         let tx = Mutex::new(Some(tx));
-        ClosureSink(move |frame: String| {
-            if frame == WS_CLOSE_SENTINEL {
+        ClosureSink(move |frame: Frame| {
+            if frame == Frame::Text(WS_CLOSE_SENTINEL.to_string()) {
                 if let Some(tx) = tx.lock().unwrap().take() {
                     let _ = tx.send(());
                 }
@@ -406,6 +471,7 @@ mod tests {
             sentinel_sink(tx),
             &manager,
             "main".to_string(),
+            None,
         );
         let (opened, _) = tokio::join!(opened, accept_then_close(&listener));
         opened.unwrap();
@@ -449,6 +515,7 @@ mod tests {
                 sentinel_sink(tx),
                 &manager,
                 "main".to_string(),
+                None,
             );
             let (opened, _) = tokio::join!(opened, accept_then_close(&listener));
             opened.unwrap();
@@ -496,6 +563,7 @@ mod tests {
             silent_sink(),
             &manager,
             "main".to_string(),
+            None,
         )
         .await
         .unwrap();
@@ -528,6 +596,7 @@ mod tests {
             silent_sink(),
             &manager,
             "main".to_string(),
+            None,
         )
         .await
         .unwrap();
@@ -559,6 +628,7 @@ mod tests {
             silent_sink(),
             &manager,
             "main".to_string(),
+            None,
         )
         .await
         .unwrap();
@@ -570,6 +640,7 @@ mod tests {
             silent_sink(),
             &manager,
             "w2".to_string(),
+            None,
         )
         .await
         .unwrap();
@@ -595,6 +666,92 @@ mod tests {
         // Clean up the surviving connection so the test leaves no live socket behind.
         manager.close_for_window("main");
         main_reader.await.expect("teardown must end the reader");
+
+        let _ = std::fs::remove_file(&sock);
+    }
+
+    /// A daemon that upgrades, sends one binary frame, then holds the stream open.
+    async fn accept_send_binary_then_idle(listener: UnixListener, payload: Vec<u8>) {
+        if let Ok((stream, _)) = listener.accept().await {
+            if let Ok(mut ws) = tokio_tungstenite::accept_async(stream).await {
+                let _ = ws.send(Message::Binary(payload.into())).await;
+                std::future::pending::<()>().await;
+            }
+        }
+    }
+
+    /// The terminal's PTY output is binary: it must reach the webview as the exact
+    /// bytes, not re-encoded as text.
+    #[tokio::test]
+    async fn binary_frames_are_forwarded_as_raw_bytes() {
+        let _serialised = crate::test_support::fd_tests().await;
+
+        let sock = test_socket("binary");
+        let listener = UnixListener::bind(&sock).unwrap();
+        let payload = vec![0u8, b'h', b'i', 0xF0, 0x9F, 0x9A, 0x80];
+        tokio::spawn(accept_send_binary_then_idle(listener, payload.clone()));
+        let manager = WsBridgeManager::new();
+
+        let (tx, rx) = oneshot::channel();
+        let tx = Mutex::new(Some(tx));
+        let reader = open_bridge(
+            &sock,
+            "c1".to_string(),
+            "/v0/x".to_string(),
+            ClosureSink(move |frame: Frame| {
+                if let Some(tx) = tx.lock().unwrap().take() {
+                    let _ = tx.send(frame);
+                }
+            }),
+            &manager,
+            "main".to_string(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(rx.await.unwrap(), Frame::Binary(payload));
+
+        manager.connections.lock().unwrap().remove("c1");
+        reader.await.unwrap();
+        let _ = std::fs::remove_file(&sock);
+    }
+
+    /// A socket that goes HALF-OPEN delivers nothing — not a frame, not a ping — while
+    /// the daemon still lists the session as live. With a read-idle timeout the
+    /// connection is judged dead, retired, and announced like a daemon close, so the
+    /// frontend re-attaches instead of typing into a corpse.
+    #[tokio::test]
+    async fn a_silent_half_open_socket_is_retired_and_announced() {
+        let _serialised = crate::test_support::fd_tests().await;
+
+        let sock = test_socket("halfopen");
+        spawn_wedged_daemon(UnixListener::bind(&sock).unwrap());
+        let manager = WsBridgeManager::new();
+
+        let (tx, closed) = oneshot::channel();
+        let reader = open_bridge(
+            &sock,
+            "c1".to_string(),
+            "/v0/x".to_string(),
+            sentinel_sink(tx),
+            &manager,
+            "main".to_string(),
+            Some(Duration::from_millis(50)),
+        )
+        .await
+        .unwrap();
+
+        reader
+            .await
+            .expect("a silent half-open socket must be judged dead by the read-idle timeout");
+        closed
+            .await
+            .expect("a half-open socket must be announced so the frontend re-attaches");
+        assert!(
+            manager.connections.lock().unwrap().is_empty(),
+            "a half-open connection must be retired, not left holding its socket"
+        );
 
         let _ = std::fs::remove_file(&sock);
     }

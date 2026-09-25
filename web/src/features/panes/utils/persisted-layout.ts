@@ -1,84 +1,71 @@
-import { PANE_CONTENT_TYPES, type PaneContent } from '@/features/panes/types/pane-content'
+import {
+  PANE_CONTENT_TYPES,
+  hasUnsavedEdits,
+  type PaneContent,
+} from '@/features/panes/types/pane-content'
 
 interface PersistablePane {
   editorTabIds: string[]
   activeEditorTabId: string | null
 }
 
-// Generic over the pane type so a real `Record<string, PaneGroup>` (the save
-// site's actual shape) round-trips through this function unchanged in every
-// field the caller doesn't ask us to touch — not just narrowed down to the
-// two fields this function cares about.
+// Generic over the pane type so a real `Record<string, PaneGroup>` round-trips
+// unchanged in every field this function does not touch.
 export interface Snapshot<P extends PersistablePane = PersistablePane> {
   buffers: PaneContent[]
   panes: Record<string, P>
 }
 
+interface Adoption {
+  /** The pane that takes a kept buffer no pane lists. */
+  adoptInto: string
+  /** Keep every unlisted buffer, not only unsaved ones (a record with no views). */
+  keepUnlisted?: boolean
+}
+
 /**
- * Drops buffers whose content type this build no longer has, and heals the
- * pane membership that referred to them.
+ * Load-time validation of a saved layout's buffers — the only place a
+ * persisted buffer is checked.
  *
- * A saved layout outlives the code that wrote it, so a tab opened before a
- * content type was retired comes back pointing at a renderer that is gone:
- * the pane's switch matches nothing and the tab renders blank,
- * indistinguishable from a bug. Dropping it is the graceful fallback —
- * deliberately not migration code translating old shapes into new ones,
- * which would mean carrying a definition of every type this app has ever
- * had. (A "New Tab" placeholder buffer used to need its own explicit rule
- * here; Task 1 removed the type from the union entirely, so it is now just
- * one more type this build no longer knows and falls out of the generic
- * check below.)
- *
- * Pane membership is persisted alongside the buffers, so dropping a buffer
- * WITHOUT stripping its id from `editorTabIds` leaves a stranded id — the
- * pane then activates a tab that does not exist and renders blank (see the
- * comment in pane-slice's `removeEditorTabFromPane`). Both halves move
- * together, here.
- *
- * Membership is checked against the buffers that actually survive the
- * type-check, not just the dropped ids themselves — any id a pane holds
- * that isn't backed by a surviving buffer gets healed, whether that id was
- * just doomed above or was already an orphan from some unrelated bug.
- * Consequently the early return below only fires when there is genuinely
- * nothing to do: no dropped buffers AND no pane already holding a stranded
- * id.
+ * A saved layout outlives the code that wrote it: a buffer whose content type
+ * this build no longer has would render blank, so it is dropped (graceful
+ * fallback, not migration). Then invariant C2 is established once for what
+ * was read: a tab id naming no surviving buffer leaves its pane, and a buffer
+ * no pane lists is not restored — unless it holds unsaved edits (the only copy
+ * of them), which `adoptInto` takes as a tab instead. From then on the store
+ * keeps C2 itself (see `buffer-release.ts`), so nothing is repaired on save.
  */
-export function stripNewTabs<P extends PersistablePane, T extends Snapshot<P>>(snapshot: T): T {
-  // One pass builds all three: the doomed ids, the surviving buffers, and the
-  // surviving id set the pane rebuild below heals against.
-  const droppedIds = new Set<string>()
-  const buffers: typeof snapshot.buffers = []
-  const aliveIds = new Set<string>()
-  for (const b of snapshot.buffers) {
-    if (!PANE_CONTENT_TYPES.has(b.type)) {
-      droppedIds.add(b.id)
-      continue
-    }
-    buffers.push(b)
-    aliveIds.add(b.id)
-  }
-
-  // Single pass over panes doubles as both the "is there anything to strip"
-  // guard check and the rebuild — the alive set is computed once above and
-  // reused here, so the common "nothing to strip" case doesn't cost a second
-  // walk over every pane's editorTabIds.
-  let changed = droppedIds.size > 0
+export function validateLoadedBuffers<P extends PersistablePane, T extends Snapshot<P>>(
+  snapshot: T,
+  { adoptInto, keepUnlisted = false }: Adoption,
+): T {
+  const known = snapshot.buffers.filter((b) => PANE_CONTENT_TYPES.has(b.type))
+  const knownIds = new Set(known.map((b) => b.id))
   const panes = {} as Record<string, P>
+  const listed = new Set<string>()
   for (const [paneId, pane] of Object.entries(snapshot.panes) as [string, P][]) {
-    const editorTabIds = pane.editorTabIds.filter((id) => aliveIds.has(id))
-    const activeEditorTabId =
-      pane.activeEditorTabId && !aliveIds.has(pane.activeEditorTabId)
-        ? (editorTabIds[0] ?? null)
-        : pane.activeEditorTabId
-
-    if (
-      editorTabIds.length !== pane.editorTabIds.length ||
-      activeEditorTabId !== pane.activeEditorTabId
-    ) {
-      changed = true
-    }
-    panes[paneId] = { ...pane, editorTabIds, activeEditorTabId }
+    const editorTabIds = pane.editorTabIds.filter((id) => knownIds.has(id))
+    for (const id of editorTabIds) listed.add(id)
+    panes[paneId] = { ...pane, editorTabIds }
   }
-
-  return changed ? { ...snapshot, buffers, panes } : snapshot
+  const adopted = known.filter(
+    (b) => !listed.has(b.id) && (keepUnlisted || hasUnsavedEdits(b)) && panes[adoptInto],
+  )
+  if (adopted.length > 0) {
+    const pane = panes[adoptInto]
+    panes[adoptInto] = {
+      ...pane,
+      editorTabIds: [...pane.editorTabIds, ...adopted.map((b) => b.id)],
+    }
+    for (const b of adopted) listed.add(b.id)
+  }
+  for (const [paneId, pane] of Object.entries(panes)) {
+    const activeEditorTabId =
+      pane.activeEditorTabId && pane.editorTabIds.includes(pane.activeEditorTabId)
+        ? pane.activeEditorTabId
+        : (pane.editorTabIds[0] ?? null)
+    panes[paneId] = { ...pane, activeEditorTabId }
+  }
+  const buffers = known.filter((b) => listed.has(b.id))
+  return { ...snapshot, buffers, panes }
 }

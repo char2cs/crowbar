@@ -17,7 +17,6 @@ import {
 } from '@/lib/store/projects'
 import type { Project } from '@/lib/types'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
-import { TerminalHost } from '@/features/terminal/components/terminal-host'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { useSettingsStore } from '@/features/settings/store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
@@ -335,7 +334,6 @@ export function IDEShell() {
         isOpen={isSettingsOpen}
         onClose={() => useUIState.getState().setIsSettingsDialogVisible(false)}
       />
-      <TerminalHost />
       <FontStyleInjector />
       <ConnectionIndicator />
       <FpsOverlay />

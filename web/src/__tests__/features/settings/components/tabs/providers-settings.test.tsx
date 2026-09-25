@@ -36,6 +36,7 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   listProviders: (...a: unknown[]) => listProvidersFn(...a),
   getDefaultPermissionLevel: (...a: unknown[]) => getDefaultPermissionLevelFn(...a),
   updateDefaultPermissionLevel: (...a: unknown[]) => updateDefaultPermissionLevelFn(...a),
+  getDescriptorReports: vi.fn().mockResolvedValue([]),
   PERMISSION_LEVEL_OPTIONS: [
     { value: 'guarded', label: 'Guarded' },
     { value: 'trusted', label: 'Trusted' },
@@ -64,7 +65,7 @@ import {
   getOrCreateWorkspaceStore,
   setActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
-import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { setActiveWorkspaceStoreForTests } from '@/features/workspace/stores/workspace-store-registry'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
 
 const provider = (
@@ -80,6 +81,12 @@ const provider = (
   connected,
   enabled,
   mcpEnabled,
+  modelSelect: false,
+  effortSelect: false,
+  compaction: false,
+  hasTerminal: true,
+  hotswap: false,
+  terminalStartHere: false,
 })
 
 function store() {
@@ -96,7 +103,7 @@ function seedProviders(providers: AgentProvider[]) {
   listProvidersFn.mockResolvedValue(providers)
   act(() => {
     store().getState().setAgentProviders(providers)
-    setActiveWorkspaceStoreRef(store())
+    setActiveWorkspaceStoreForTests(store())
     setActiveWorkspaceId('w1')
     useAgentProvidersStore.setState({ providers, status: 'ready' })
   })
@@ -106,7 +113,7 @@ function seedProviders(providers: AgentProvider[]) {
  *  moment between two workspaces. Settings is still openable from all of them. */
 function withoutActiveWorkspace() {
   act(() => {
-    setActiveWorkspaceStoreRef(null)
+    setActiveWorkspaceStoreForTests(null)
     setActiveWorkspaceId('')
   })
 }
@@ -147,7 +154,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   act(() => {
-    setActiveWorkspaceStoreRef(null)
+    setActiveWorkspaceStoreForTests(null)
     setActiveWorkspaceId('')
   })
   useAgentProvidersStore.setState({ providers: [], status: 'idle' })
@@ -299,7 +306,7 @@ describe('ProvidersSettings', () => {
 
     it('does not appear while the first fetch is in flight', () => {
       act(() => {
-        setActiveWorkspaceStoreRef(store())
+        setActiveWorkspaceStoreForTests(store())
         setActiveWorkspaceId('w1')
       })
       listProvidersFn.mockReturnValue(deferred<AgentProvider[]>().promise)
@@ -312,7 +319,7 @@ describe('ProvidersSettings', () => {
 
     it('does not appear when the list could not be loaded', async () => {
       act(() => {
-        setActiveWorkspaceStoreRef(store())
+        setActiveWorkspaceStoreForTests(store())
         setActiveWorkspaceId('w1')
       })
       listProvidersFn.mockRejectedValue(new Error('daemon is down'))
@@ -353,7 +360,7 @@ describe('ProvidersSettings', () => {
   describe('loading the list', () => {
     it('fetches on mount through the active workspace and mirrors it into that store', async () => {
       act(() => {
-        setActiveWorkspaceStoreRef(store())
+        setActiveWorkspaceStoreForTests(store())
         setActiveWorkspaceId('w1')
       })
       listProvidersFn.mockResolvedValue([provider('codex', 'Codex', true, true)])
@@ -369,7 +376,7 @@ describe('ProvidersSettings', () => {
 
     it('shows a loading state while the first fetch is in flight', () => {
       act(() => {
-        setActiveWorkspaceStoreRef(store())
+        setActiveWorkspaceStoreForTests(store())
         setActiveWorkspaceId('w1')
       })
       const inflight = deferred<AgentProvider[]>()
@@ -383,7 +390,7 @@ describe('ProvidersSettings', () => {
 
     it('shows the unavailable state — not the empty one — when the fetch fails', async () => {
       act(() => {
-        setActiveWorkspaceStoreRef(store())
+        setActiveWorkspaceStoreForTests(store())
         setActiveWorkspaceId('w1')
       })
       listProvidersFn.mockRejectedValue(new Error('daemon is down'))
@@ -545,7 +552,7 @@ describe('ProvidersSettings', () => {
       listProvidersFn.mockReturnValue(inflight.promise)
       act(() => {
         store().getState().setAgentProviders(providers)
-        setActiveWorkspaceStoreRef(store())
+        setActiveWorkspaceStoreForTests(store())
         setActiveWorkspaceId('w1')
         useAgentProvidersStore.setState({ providers, status: 'ready' })
       })

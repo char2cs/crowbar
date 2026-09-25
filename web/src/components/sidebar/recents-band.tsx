@@ -5,14 +5,7 @@ import { cn } from '@/lib/utils'
 import { Separator } from '@/components/ui/separator'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
 import { useRecentsChat } from '@/components/sidebar/lib/use-recents-chat'
-import { useRecentsChatFallback } from '@/components/sidebar/lib/use-recents-chat-fallback'
-import {
-  homeChatWorkspaceId,
-  recentsChatIcon,
-  repoChatWorkspaceId,
-} from '@/components/sidebar/lib/recents-for-project'
-import { resolveChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace'
-import { resolveChatOwnerWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { recentsChatIcon } from '@/components/sidebar/lib/recents-for-project'
 import { ROW_ACTIVE } from '@/components/layout/workspace-row-base'
 import { DragGhost, DragGhostRows } from '@/components/layout/drag-ghost'
 import { DropIndicator } from '@/components/layout/drop-indicator'
@@ -26,15 +19,14 @@ import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/si
 import type { ChatIconFields } from '@/components/sidebar/lib/rows-from-repo'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { viewChatIds } from '@/features/panes/lib/view-state'
+import { viewMembers } from '@/features/panes/lib/view-state'
+import type { ViewMember } from '@/features/panes/types/pane'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
 
 const NO_ICON: Partial<ChatIconFields> = {}
 const LOADING_CHAT_LABEL = 'Loading…'
 
 interface RecentsBandProps {
-  projectId: string
   /** This project's view records, in band order — one row each. */
   viewIds: readonly string[]
   onFocus: (viewId: string) => void
@@ -57,7 +49,6 @@ interface RecentsBandProps {
  * never touches the chat.
  */
 export function RecentsBand({
-  projectId,
   viewIds,
   onFocus,
   onClose,
@@ -95,7 +86,6 @@ export function RecentsBand({
         <RecentsViewRow
           key={viewId}
           viewId={viewId}
-          projectId={projectId}
           onFocus={onFocus}
           onClose={onClose}
           onCloseChat={onCloseChat}
@@ -115,7 +105,6 @@ export function RecentsBand({
 
 function RecentsViewRow({
   viewId,
-  projectId,
   onFocus,
   onClose,
   onCloseChat,
@@ -123,21 +112,20 @@ function RecentsViewRow({
   registerRow,
 }: {
   viewId: string
-  projectId: string
   onFocus: (viewId: string) => void
   onClose: (viewId: string) => void
   onCloseChat: (chatId: string) => void
   drag: SidebarDrag
   registerRow: (row: SidebarRowType) => void
 }) {
-  const chatIds = useStore(
+  const members = useStore(
     windowPaneStore,
-    useShallow((s) => viewChatIds(s, viewId)),
+    useShallow((s) => viewMembers(s, viewId).map(memberKey)),
   )
   const isShowing = useStore(windowPaneStore, (s) => s.activeViewId === viewId)
-  if (chatIds.length === 0) return null
+  if (members.length === 0) return null
   // 2+ chats draw a shell around their members; one chat is a bare row.
-  const isSet = chatIds.length >= 2
+  const isSet = members.length >= 2
   // A lone showing row IS the active row, pixel-for-pixel the tree's own
   // footprint: this wrapper takes over `SidebarRow`'s own margin (suppressed
   // at the source via `suppressOwnMargin`) so the spacing applies once.
@@ -164,32 +152,43 @@ function RecentsViewRow({
       )}
       data-testid={isSet ? `recents-set-${viewId}` : undefined}
     >
-      {chatIds.map((chatId) => (
-        <RecentsMemberRow
-          key={chatId}
-          projectId={projectId}
-          chatId={chatId}
-          // An off-screen view greys its label; the showing one sits on
-          // ROW_ACTIVE, which already says "you are here".
-          hasView={!isShowing}
-          isSet={isSet}
-          suppressOwnMargin={soloActive}
-          isShowingGround={soloActive}
-          activeGround={isShowing}
-          onOpen={() => onFocus(viewId)}
-          // A member's × leaves the group; a solo row's × ends the view.
-          onClose={isSet ? () => onCloseChat(chatId) : () => onClose(viewId)}
-          drag={drag}
-          registerRow={registerRow}
-        />
-      ))}
+      {members.map((member) => {
+        const { chatId, workspaceId } = parseMemberKey(member)
+        return (
+          <RecentsMemberRow
+            key={chatId}
+            chatId={chatId}
+            workspaceId={workspaceId ?? ''}
+            // An off-screen view greys its label; the showing one sits on
+            // ROW_ACTIVE, which already says "you are here".
+            hasView={!isShowing}
+            isSet={isSet}
+            suppressOwnMargin={soloActive}
+            isShowingGround={soloActive}
+            activeGround={isShowing}
+            onOpen={() => onFocus(viewId)}
+            // A member's × leaves the group; a solo row's × ends the view.
+            onClose={isSet ? () => onCloseChat(chatId) : () => onClose(viewId)}
+            drag={drag}
+            registerRow={registerRow}
+          />
+        )
+      })}
     </div>
   )
 }
 
+// A member as one string, so the shallow-compared selector above re-renders
+// only when a member actually changes. Ids never contain NUL.
+const memberKey = (m: ViewMember): string => `${m.chatId}\x00${m.workspaceId ?? ''}`
+const parseMemberKey = (key: string): ViewMember => {
+  const [chatId, workspaceId] = key.split('\x00')
+  return { chatId, workspaceId: workspaceId || null }
+}
+
 function RecentsMemberRow({
-  projectId,
   chatId,
+  workspaceId,
   hasView,
   isSet,
   suppressOwnMargin,
@@ -200,8 +199,9 @@ function RecentsMemberRow({
   drag,
   registerRow,
 }: {
-  projectId: string
   chatId: string
+  /** Recorded on the view member when the chat was opened (C3). */
+  workspaceId: string
   hasView: boolean
   /** One of 2+ chats sharing the shell: shares the row and cancels its own margin. */
   isSet: boolean
@@ -216,18 +216,13 @@ function RecentsMemberRow({
   drag: SidebarDrag
   registerRow: (row: SidebarRowType) => void
 }) {
-  const repoWorkspaceId = useSidebarStore((s) => repoChatWorkspaceId(s.repos, projectId, chatId))
-  const homeWorkspaceId = useHomeTreeStore((s) => homeChatWorkspaceId(s.trees, projectId, chatId))
-  const workspaceId = repoWorkspaceId ?? homeWorkspaceId ?? resolveChatWorkspaceId(chatId) ?? ''
   const icon = useSidebarStore(useShallow((s) => recentsChatIcon(s.repos, chatId) ?? NO_ICON))
   // The workspace store when one is mounted (live title, the spinner), else
-  // the sidebar's own chat record.
+  // the sidebar's own chat record. A row is its record: with no chat data
+  // yet it still draws (as loading), and its × works.
   const known = useRecentsChat(workspaceId, chatId)
-  // A row is its record: with no chat data yet it still draws, and its × works.
-  const owner = repoWorkspaceId ?? homeWorkspaceId ?? resolveChatOwnerWorkspaceId(chatId) ?? ''
-  const fallback = useRecentsChatFallback(chatId, projectId, owner, !known)
-  const chat = known ?? fallback.chat
-  const pending = !known && fallback.pending
+  const chat = known ?? { id: chatId, title: '', workspaceId, working: false }
+  const pending = !known
 
   const row: SidebarRowType = {
     id: chat.id,

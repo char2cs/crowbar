@@ -1,12 +1,14 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  buildPlaceholderFileDiff,
-  partitionReviewFiles,
   ReviewCodeView,
   REVIEW_TOKENIZE_MAX_LENGTH,
   REVIEW_TOKENIZE_MAX_LINE_LENGTH,
 } from '@/features/git/components/diff/review-code-view'
+import {
+  buildPlaceholderFileDiff,
+  partitionReviewFiles,
+} from '@/features/git/lib/review-placeholder'
 import type { FileOutline } from '@/features/git/api/review-window-api'
 import { PATCH_LINE_CAP } from '@/features/git/lib/patch-window'
 import type { GitDiff } from '@/features/git/types/git-types'

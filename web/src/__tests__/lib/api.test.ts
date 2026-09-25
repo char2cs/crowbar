@@ -10,6 +10,7 @@ import {
   workspaceDTOFromChat,
   type RepoChatWireDTO,
 } from '@/lib/api'
+import { noteDaemonChange } from '@/lib/transport/daemon-changes'
 import type { ChatWorktreeDTO } from '@/lib/types'
 
 // A retry config that runs instantly (no real backoff sleeps) so the suite stays
@@ -195,6 +196,56 @@ describe('apiFetch transient-transport retry', () => {
   })
 })
 
+// Boot asks for one list from two owners a few ms apart (a workspace's chat
+// seed and the sidebar tree). Nothing the client can know of has changed in
+// between, so the second ask is served by the first request.
+describe('apiFetch shared reads', () => {
+  function parkedFetch() {
+    const answers: Array<() => void> = []
+    const fetchMock = vi.fn(
+      (_url: string) =>
+        new Promise((resolve) => {
+          answers.push(() => resolve(envelope([{ id: 'c1' }])))
+        }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    return { fetchMock, answerAll: () => answers.forEach((answer) => answer()) }
+  }
+
+  it('an identical GET while one is in flight shares it, each caller getting its own copy', async () => {
+    const { fetchMock, answerAll } = parkedFetch()
+    const first = apiFetch<Array<{ id: string }>>('/v0/list', undefined, fastRetry(1))
+    const second = apiFetch<Array<{ id: string }>>('/v0/list', undefined, fastRetry(1))
+    answerAll()
+    const [a, b] = await Promise.all([first, second])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(b).toEqual(a)
+    expect(b).not.toBe(a)
+  })
+
+  it('a GET asked after a daemon frame or a write gets its own request', async () => {
+    const { fetchMock, answerAll } = parkedFetch()
+    const reads = [apiFetch('/v0/list', undefined, fastRetry(1))]
+    noteDaemonChange()
+    reads.push(apiFetch('/v0/list', undefined, fastRetry(1)))
+    void apiFetch('/v0/other', { method: 'POST' }, fastRetry(1)).catch(() => {})
+    reads.push(apiFetch('/v0/list', undefined, fastRetry(1)))
+    answerAll()
+    await Promise.all(reads)
+    expect(
+      fetchMock.mock.calls.filter((call) => String(call[0]).endsWith('/v0/list')),
+    ).toHaveLength(3)
+  })
+
+  it('a settled read is not reused', async () => {
+    const fetchMock = vi.fn(async () => envelope([]))
+    vi.stubGlobal('fetch', fetchMock)
+    await apiFetch('/v0/list', undefined, fastRetry(1))
+    await apiFetch('/v0/list', undefined, fastRetry(1))
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('fetchHomeWorkspace', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn())
@@ -210,10 +261,7 @@ describe('fetchHomeWorkspace', () => {
     )
     const result = await fetchHomeWorkspace('p1')
     expect(result).toEqual(dto)
-    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
-      expect.stringContaining('/v0/projects/p1/home'),
-      expect.any(Object),
-    )
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toContain('/v0/projects/p1/home')
   })
 
   it('throws on non-2xx response', async () => {
@@ -389,6 +437,7 @@ describe('fetchRepoChats', () => {
  */
 describe('chatDTOFromWire — ownsWorktree', () => {
   const worktree: ChatWorktreeDTO = {
+    provisioning: 'provisioned',
     branch: 'feature/one',
     owningChatId: 'c-owner',
     working: false,

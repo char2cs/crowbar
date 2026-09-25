@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { useTerminalStore } from '../stores/terminal-store'
 import { XtermTerminal } from './terminal'
 
 interface TerminalTabProps {
@@ -23,15 +24,13 @@ interface TerminalTabProps {
   workspaceId: string
   initialCommand?: string
   workingDirectory?: string
-  remoteConnectionId?: string
   isActive?: boolean
   isVisible?: boolean
 }
 
-// Renders XtermTerminal directly — no portal indirection. The TerminalHost
-// portal mechanism (TerminalSlot → XtermPortal) is reserved for the bottom
-// panel terminal system where PTY sessions must survive pane rearrangements.
-// Workspace pane terminals don't have that constraint yet.
+// Renders XtermTerminal directly — no portal indirection: the pane container
+// keeps a terminal buffer's view mounted (visibility:hidden) across layout
+// changes, so its xterm and transport survive them.
 export function TerminalTab({
   sessionId,
   bufferId,
@@ -39,11 +38,13 @@ export function TerminalTab({
   workspaceId,
   initialCommand,
   workingDirectory,
-  remoteConnectionId,
   isActive = true,
   isVisible = true,
 }: TerminalTabProps) {
   const handleTerminalExit = useCallback(() => {
+    // Forget the exited PTY first, so closing the buffer does not DELETE a
+    // session the daemon has already reaped (a 404 on every `exit`).
+    useTerminalStore.getState().removeSession(sessionId)
     // The PTY is already gone, so this buffer must be torn down regardless of
     // how many panes still list it — closeBuffer only does that once NO pane
     // references the id any more (see its own doc comment: a pane that still
@@ -56,7 +57,7 @@ export function TerminalTab({
       }
     }
     state.bufferActions.closeBuffer(bufferId)
-  }, [bufferId])
+  }, [bufferId, sessionId])
 
   const handleActivate = useCallback(() => {
     // I8 (Task 26 fix round 1): addBufferToPane/activatePaneBuffer have not
@@ -90,7 +91,6 @@ export function TerminalTab({
         onTerminalExit={handleTerminalExit}
         initialCommand={initialCommand}
         workingDirectory={workingDirectory}
-        remoteConnectionId={remoteConnectionId}
       />
     </div>
   )

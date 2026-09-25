@@ -1,0 +1,5 @@
+version: "fakecli 1.4.2"
+help: "--resume --fake-tui"
+boot:
+  screen: "Trust this folder?\n> 1. No, exit\n  2. Yes\n"
+  modal: true

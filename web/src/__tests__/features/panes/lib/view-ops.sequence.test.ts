@@ -81,7 +81,6 @@ function corruptRoundTrip(store: Store, rand: () => number): void {
   if (kind === 3) layout.viewOrder = [...(layout.viewOrder ?? []), 'bogus', 'bogus']
   if (kind === 4) layout.activeViewId = 'bogus'
   const state = restoreWindowPaneState(layout)
-  if (!state) throw new Error('a snapshot with views failed to restore')
   assertViewIntegrity(state)
   const survives = (id: string) =>
     id !== victim || kind > 2 || (kind > 0 && viewChatIds(state, id).length > 0)
@@ -93,7 +92,6 @@ function corruptRoundTrip(store: Store, rand: () => number): void {
 function roundTrip(store: Store): void {
   const s = store.getState()
   const state = restoreWindowPaneState(snapshot(s))
-  if (!state) throw new Error('a valid state failed to round-trip')
   store.setState({ ...state, activeProjectId: s.activeProjectId })
 }
 
@@ -185,6 +183,8 @@ function runSequence(seed: number, length: number): void {
     }
     const after = store.getState()
     assertViewIntegrity(after)
+    // Focus is derived from pane writes: it always names a pane that exists.
+    expect(after.panes[after.activePaneId], label).toBeDefined()
     if (!step.row) expect(rowSet(after), label).toBe(rowSet(before))
     // Invariant 5: a pane's chat never changes to a different chat except by
     // retargetPane.

@@ -23,7 +23,7 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId: vi.fn(() => 'home-ws-1'),
 }))
 
-vi.mock('@/components/layout/space-content-actions', () => ({
+vi.mock('@/components/layout/home-actions', () => ({
   handleCreateHomeThread: vi.fn(),
 }))
 

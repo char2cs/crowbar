@@ -11,7 +11,7 @@ import (
 )
 
 // ingest routes one hook by whether it carries a delivery id: with one, through
-// the exactly-once journal, which turns a relay's retries into ONE semantic hook;
+// the delivery-id dedup, which turns a relay's retries into ONE semantic hook;
 // without one — the daemon's own replay — straight through. Exactly one of the
 // two runs: they are the same ingestion, and running both would apply every
 // effect twice.
@@ -30,7 +30,7 @@ func (h *Handlers) ingest(
 		return h.turns.IngestHook(ctx, runnerID, provider, event, raw)
 	}
 	return h.turns.IngestHookDelivery(
-		ctx, workspaceID, deliveryID, runnerID, provider, event, raw,
+		ctx, deliveryID, runnerID, provider, event, raw,
 	)
 }
 

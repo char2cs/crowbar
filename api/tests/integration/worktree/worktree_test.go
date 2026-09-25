@@ -337,7 +337,7 @@ func (s *WorktreeSuite) TestWorktree_mergeDeleteSourceRemovesChild() {
 	// Merge runs, then the child is cascade-deleted. The workspace delete's own
 	// "deleted" worktree_state frame is NOT a reliable signal to wait on: it
 	// races the SAME delete's registered dependent-forget reactor
-	// (container.go's forgetDependents → forgetAgentChats, wired on every
+	// (container.go's forgetDependents → purgeWorkspaceChats, wired on every
 	// workspace delete via RegisterDeleteReactor), which forgets the child's
 	// owning chat asynchronously — and pushChatWorktree drops the tombstone
 	// outright once that chat no longer resolves (a workspace with no owning

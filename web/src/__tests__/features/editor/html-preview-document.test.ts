@@ -1,89 +1,59 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { buildHtmlPreviewDocument } from '@/features/editor/components/html/html-preview-document'
 
-const toAssetUrl = (path: string) => `asset://${path}`
+// The preview frame is sandboxed with an opaque origin and loaded from
+// srcdoc: a relative path resolves against nothing, so local assets must be
+// inlined. (The old path-to-URL conversion was the identity function, so
+// every relative asset in a previewed page was broken.)
+const loadAsset = vi.fn(async (reference: string) => `data:x;ref=${reference}`)
 
 describe('buildHtmlPreviewDocument', () => {
-  it('injects a base URL for relative assets', () => {
-    const html = '<html><head></head><body><img src="logo.png"></body></html>'
-
-    expect(
-      buildHtmlPreviewDocument(html, {
-        sourcePath: '/workspace/site/index.html',
-        rootFolderPath: '/workspace/site',
-        convertFilePathToUrl: toAssetUrl,
-      }),
-    ).toContain('<base href="asset:///workspace/site/">')
-  })
-
-  it('rewrites root-relative assets to the workspace root', () => {
+  it('inlines relative and root-relative resource references', async () => {
     const html =
-      '<html><head><script type="module" src="/src/main.tsx"></script></head><body></body></html>'
+      '<img src="logo.png"><script src="/src/main.js"></script><video poster=\'./p.jpg\'></video>'
 
-    const result = buildHtmlPreviewDocument(html, {
-      sourcePath: '/workspace/site/index.html',
-      rootFolderPath: '/workspace/site',
-      convertFilePathToUrl: toAssetUrl,
-    })
+    const doc = await buildHtmlPreviewDocument(html, loadAsset)
 
-    expect(result).toContain('src="asset:///workspace/site/src/main.tsx"')
+    expect(doc).toContain('src="data:x;ref=logo.png"')
+    expect(doc).toContain('src="data:x;ref=/src/main.js"')
+    expect(doc).toContain('poster="data:x;ref=./p.jpg"')
   })
 
-  it('rewrites root-relative inline module imports to the workspace root', () => {
-    const html = `<script type="module">
-      import { bootstrap } from "/src/bootstrap.ts";
-      import("/src/lazy.ts");
-      export { bootstrap as start } from "/src/bootstrap.ts";
-    </script>`
-
-    const result = buildHtmlPreviewDocument(html, {
-      sourcePath: '/workspace/site/index.html',
-      rootFolderPath: '/workspace/site',
-      convertFilePathToUrl: toAssetUrl,
-    })
-
-    expect(result).toContain('from "asset:///workspace/site/src/bootstrap.ts"')
-    expect(result).toContain('import("asset:///workspace/site/src/lazy.ts"')
-    expect(result).toContain('from "asset:///workspace/site/src/bootstrap.ts"')
-  })
-
-  it('preserves query and hash suffixes on rewritten asset URLs', () => {
-    const html = '<link href="/assets/app.css?v=1#theme" rel="stylesheet">'
-
-    const result = buildHtmlPreviewDocument(html, {
-      sourcePath: '/workspace/site/pages/index.html',
-      rootFolderPath: '/workspace/site',
-      convertFilePathToUrl: toAssetUrl,
-    })
-
-    expect(result).toContain('href="asset:///workspace/site/assets/app.css?v=1#theme"')
-  })
-
-  it('does not rewrite external or protocol-relative URLs', () => {
-    const html =
-      '<img src="https://example.com/a.png"><script src="//cdn.example.com/lib.js"></script>'
-
-    const result = buildHtmlPreviewDocument(html, {
-      sourcePath: '/workspace/site/index.html',
-      rootFolderPath: '/workspace/site',
-      convertFilePathToUrl: toAssetUrl,
-    })
-
-    expect(result).toContain('src="https://example.com/a.png"')
-    expect(result).toContain('src="//cdn.example.com/lib.js"')
-  })
-
-  it('rewrites root-relative srcset candidates', () => {
-    const html = '<img srcset="/small.png 1x, /large.png 2x, local.png 3x">'
-
-    const result = buildHtmlPreviewDocument(html, {
-      sourcePath: '/workspace/site/index.html',
-      rootFolderPath: '/workspace/site',
-      convertFilePathToUrl: toAssetUrl,
-    })
-
-    expect(result).toContain(
-      'srcset="asset:///workspace/site/small.png 1x, asset:///workspace/site/large.png 2x, local.png 3x"',
+  it('inlines stylesheet links but leaves navigation links alone', async () => {
+    const doc = await buildHtmlPreviewDocument(
+      '<link rel="stylesheet" href="style.css"><a href="other.html">x</a>',
+      loadAsset,
     )
+
+    expect(doc).toContain('href="data:x;ref=style.css"')
+    expect(doc).toContain('<a href="other.html">')
+  })
+
+  it('rewrites each srcset candidate and keeps descriptors', async () => {
+    const doc = await buildHtmlPreviewDocument('<img srcset="a.png 1x, b.png 2x">', loadAsset)
+    expect(doc).toContain('srcset="data:x;ref=a.png 1x, data:x;ref=b.png 2x"')
+  })
+
+  it('never touches remote, data, protocol-relative or anchor references', async () => {
+    loadAsset.mockClear()
+    const html =
+      '<img src="https://x.dev/a.png"><img src="data:image/png;base64,AA"><img src="//cdn/a.png"><link href="#top">'
+
+    expect(await buildHtmlPreviewDocument(html, loadAsset)).toBe(html)
+    expect(loadAsset).not.toHaveBeenCalled()
+  })
+
+  it('leaves a reference untouched when it cannot be loaded', async () => {
+    const failing = vi.fn(async () => {
+      throw new Error('not found')
+    })
+    const html = '<img src="missing.png">'
+    expect(await buildHtmlPreviewDocument(html, failing)).toBe(html)
+  })
+
+  it('loads each distinct reference once', async () => {
+    loadAsset.mockClear()
+    await buildHtmlPreviewDocument('<img src="a.png"><img src="a.png">', loadAsset)
+    expect(loadAsset).toHaveBeenCalledTimes(1)
   })
 })

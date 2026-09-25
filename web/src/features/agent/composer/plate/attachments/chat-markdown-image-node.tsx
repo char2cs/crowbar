@@ -87,7 +87,9 @@ function ChatAttachmentImageBlock(props: PlateElementProps) {
   const url = element.url ?? ''
   const alt = captionToAlt(element.caption)
   const resolvedSrc = useResolvedImageSrc(url)
-  const { isDragging, nodeRef, handleRef, remove } = useAttachmentDraggable(props.element)
+  const { isDragging, nodeRef, handleProps, dropLine, remove } = useAttachmentDraggable(
+    props.element,
+  )
 
   return (
     <PlateElement
@@ -95,8 +97,8 @@ function ChatAttachmentImageBlock(props: PlateElementProps) {
       ref={useComposedRef(props.ref, nodeRef)}
       className={cn('group/attachment relative inline-block', isDragging && 'opacity-50')}
     >
-      <AttachmentControls dragRef={handleRef} onDelete={remove} />
-      <AttachmentDropLine />
+      <AttachmentControls handleProps={handleProps} onDelete={remove} />
+      <AttachmentDropLine line={dropLine} />
       <span contentEditable={false}>
         <ZoomableChatImage src={resolvedSrc} alt={alt} />
       </span>
@@ -107,9 +109,8 @@ function ChatAttachmentImageBlock(props: PlateElementProps) {
 
 /** The settled/read-only counterpart of `ChatAttachmentImageBlock` — same
  *  height cap, no drag furniture: a settled message is read, not reordered,
- *  and has no `<DndProvider>` ancestor to call `useAttachmentDraggable`
- *  against (registered on `chatComposerPluginsStatic`, which drops
- *  `DndPlugin` — see chat-composer-plugins.ts). */
+ *  and never calls `useAttachmentDraggable` (registered on
+ *  `chatComposerPluginsStatic` — see chat-composer-plugins.ts). */
 function ChatAttachmentImageBlockStatic(props: PlateElementProps) {
   const element = props.element as unknown as MarkdownImageNode
   const url = element.url ?? ''

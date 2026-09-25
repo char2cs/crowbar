@@ -28,6 +28,12 @@ const provider = (id: string, enabled = true): AgentProvider => ({
   connected: true,
   enabled,
   mcpEnabled: true,
+  modelSelect: false,
+  effortSelect: false,
+  compaction: false,
+  hasTerminal: true,
+  hotswap: false,
+  terminalStartHere: false,
 })
 
 function deferred<T>() {

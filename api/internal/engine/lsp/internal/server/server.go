@@ -19,6 +19,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/convert"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/protocol"
+	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/semtok"
 )
 
 const methodPublishDiagnostics = "textDocument/publishDiagnostics"
@@ -82,11 +83,28 @@ type Server interface {
 	)
 	// OpenDocs returns the content-free set of currently open document URIs.
 	OpenDocs() *OpenDocs
-	// Replay respawns the underlying process and re-sends didOpen for every
-	// tracked URI.
+	// Replay respawns the underlying process, repeats the initialize
+	// handshake (when Initialize ran before) and re-sends didOpen for every
+	// tracked URI with its latest text. It is the "restart language server"
+	// operation: the pool entry, its refcount and the open documents survive.
 	Replay(
 		ctx context.Context,
 	) error
+	// SemanticTokens reports the server's semantic-token support, as its last
+	// initialize result declared it.
+	SemanticTokens() semtok.Support
+	// CanExecute reports whether the server declared command in its
+	// executeCommandProvider; any other command is the client's to run.
+	CanExecute(
+		command string,
+	) bool
+	// ExecuteCommand runs workspace/executeCommand and returns its result plus
+	// every workspace edit the server asked the client to apply while the
+	// command ran (commands edit through workspace/applyEdit, not their result).
+	ExecuteCommand(
+		ctx context.Context,
+		params any,
+	) (json.RawMessage, []json.RawMessage, error)
 	// Close terminates the process and fails any in-flight requests.
 	Close() error
 }
@@ -102,7 +120,15 @@ type server struct {
 	onDiag     func(lsp.DiagnosticsEvent)
 	onExit     func()
 	closed     bool
+	rootDir    string
 	openParams map[string]json.RawMessage
+	// initOptions is the initializationOptions sent in every handshake.
+	initOptions map[string]any
+	features    serverFeatures
+	// commandEdits collects workspace/applyEdit requests while a command runs
+	// (nil otherwise); execMu serializes commands so each edit has one owner.
+	commandEdits *[]json.RawMessage
+	execMu       sync.Mutex
 
 	writeMu sync.Mutex
 	docs    *OpenDocs
@@ -128,19 +154,23 @@ func newOverTransport(
 // running Server. The process stdin/stdout become the JSON-RPC transport. Each
 // spawned process is watched by a reaper that reaps it on natural exit and
 // drives the server's OnExit callback so a crashed server is evicted, not left
-// a zombie in the pool (R10).
+// a zombie in the pool (R10). initOptions (nil for none) is sent as the
+// handshake's initializationOptions.
 func New(
+	ctx context.Context,
 	command string,
 	args []string,
 	dir string,
+	initOptions map[string]any,
 ) (Server, error) {
 	s := &server{
-		waiters:    make(map[int]chan waiterResult),
-		openParams: make(map[string]json.RawMessage),
-		docs:       NewOpenDocs(),
+		waiters:     make(map[int]chan waiterResult),
+		openParams:  make(map[string]json.RawMessage),
+		docs:        NewOpenDocs(),
+		initOptions: initOptions,
 	}
 	s.spawn = commandSpawn(command, args, dir, s.handleProcessExit)
-	transport, err := s.spawn(context.Background())
+	transport, err := s.spawn(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -176,25 +206,49 @@ func (s *server) Initialize(
 	ctx context.Context,
 	rootDir string,
 ) error {
+	s.mu.Lock()
+	s.rootDir = rootDir
+	s.mu.Unlock()
+	return s.handshake(ctx, rootDir)
+}
+
+func (s *server) handshake(
+	ctx context.Context,
+	rootDir string,
+) error {
 	rootURI := convert.URIFromPath(rootDir)
 	params := map[string]any{
-		"processId": os.Getpid(),
-		"rootUri":   rootURI,
-		"capabilities": map[string]any{
-			"textDocument": map[string]any{
-				"synchronization":    map[string]any{"didSave": true},
-				"publishDiagnostics": map[string]any{"relatedInformation": true},
-			},
-			"workspace": map[string]any{"workspaceFolders": true},
-		},
-		"workspaceFolders": []any{
-			map[string]any{"uri": rootURI, "name": "root"},
-		},
+		"processId":        os.Getpid(),
+		"rootUri":          rootURI,
+		"capabilities":     clientCapabilities(),
+		"workspaceFolders": []any{map[string]any{"uri": rootURI, "name": "root"}},
 	}
-	if _, err := s.Request(ctx, "initialize", params); err != nil {
+	if len(s.initOptions) > 0 {
+		params["initializationOptions"] = s.initOptions
+	}
+	result, err := s.Request(ctx, "initialize", params)
+	if err != nil {
 		return fmt.Errorf("initialize: %w", err)
 	}
+	features := featuresFromInitialize(result)
+	s.mu.Lock()
+	s.features = features
+	s.mu.Unlock()
 	return s.Notify(ctx, "initialized", map[string]any{})
+}
+
+func (s *server) SemanticTokens() semtok.Support {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.features.semTok
+}
+
+func (s *server) CanExecute(
+	command string,
+) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.features.commands[command]
 }
 
 func (s *server) OnDiagnostics(
@@ -308,6 +362,15 @@ func (s *server) Replay(
 		return fmt.Errorf("replay: spawn: %w", err)
 	}
 	s.swapTransport(transport)
+
+	s.mu.Lock()
+	rootDir := s.rootDir
+	s.mu.Unlock()
+	if rootDir != "" {
+		if err := s.handshake(ctx, rootDir); err != nil {
+			return fmt.Errorf("replay: %w", err)
+		}
+	}
 
 	for _, uri := range s.openURIs() {
 		params := s.didOpenParams(uri)
@@ -432,35 +495,82 @@ func (s *server) swapTransport(
 	go s.readLoop(transport, reader)
 }
 
+// trackDoc keeps the replay state for open documents: didOpen records the
+// params, didChange folds the new full text into them (so a restart reopens
+// what the editor holds now, not what it held at open), didClose drops them.
 func (s *server) trackDoc(
 	method string,
 	params json.RawMessage,
 ) {
-	if method != "textDocument/didOpen" && method != "textDocument/didClose" {
+	switch method {
+	case "textDocument/didOpen", "textDocument/didClose", "textDocument/didChange":
+	default:
 		return
 	}
 	var p struct {
 		TextDocument struct {
-			URI string `json:"uri"`
+			URI     string `json:"uri"`
+			Version int    `json:"version"`
 		} `json:"textDocument"`
+		ContentChanges []struct {
+			Range *json.RawMessage `json:"range"`
+			Text  string           `json:"text"`
+		} `json:"contentChanges"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return
 	}
-	if p.TextDocument.URI == "" {
+	uri := p.TextDocument.URI
+	if uri == "" {
 		return
 	}
-	if method == "textDocument/didOpen" {
-		s.docs.Add(p.TextDocument.URI)
+	switch method {
+	case "textDocument/didOpen":
+		s.docs.Add(uri)
 		s.mu.Lock()
-		s.openParams[p.TextDocument.URI] = params
+		s.openParams[uri] = params
 		s.mu.Unlock()
+	case "textDocument/didClose":
+		s.docs.Remove(uri)
+		s.mu.Lock()
+		delete(s.openParams, uri)
+		s.mu.Unlock()
+	case "textDocument/didChange":
+		// Only full-document syncs are sent; an incremental change (with a
+		// range) cannot be folded without the base text, so it is ignored.
+		if len(p.ContentChanges) != 1 || p.ContentChanges[0].Range != nil {
+			return
+		}
+		s.foldChange(uri, p.TextDocument.Version, p.ContentChanges[0].Text)
+	}
+}
+
+func (s *server) foldChange(
+	uri string,
+	version int,
+	text string,
+) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	open, ok := s.openParams[uri]
+	if !ok {
 		return
 	}
-	s.docs.Remove(p.TextDocument.URI)
-	s.mu.Lock()
-	delete(s.openParams, p.TextDocument.URI)
-	s.mu.Unlock()
+	var doc struct {
+		TextDocument map[string]any `json:"textDocument"`
+	}
+	if err := json.Unmarshal(open, &doc); err != nil || doc.TextDocument == nil {
+		return
+	}
+	doc.TextDocument["text"] = text
+	if version > 0 {
+		doc.TextDocument["version"] = version
+	}
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		return
+	}
+	s.openParams[uri] = raw
 }
 
 func marshalParams(

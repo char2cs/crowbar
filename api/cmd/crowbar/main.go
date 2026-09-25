@@ -20,7 +20,7 @@ func newRootCmd() *cobra.Command {
 		Use:   "crowbar",
 		Short: "Crowbar — self-improving agentic development platform",
 	}
-	root.AddCommand(newServeCmd(), newVersionCmd(), newHookCmd(), newHandoffCmd(), newMCPCmd())
+	root.AddCommand(newServeCmd(), newVersionCmd(), newHookCmd(), newHandoffCmd(), newMCPCmd(), newDescriptorCmd())
 	return root
 }
 

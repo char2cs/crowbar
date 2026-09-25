@@ -14,20 +14,20 @@ import (
 )
 
 func TestCreateWorkspace_Validate_RejectsExisting(t *testing.T) {
-	cmd := CreateWorkspace{ID: "w1", RepoID: "r1", ProjectID: "p1"}
+	cmd := CreateWorkspace{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}
 	err := cmd.Validate(&domain.Workspace{ID: "w1"})
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
 }
 
 func TestCreateWorkspace_Validate_RejectsMissingIDs(t *testing.T) {
-	cmd := CreateWorkspace{ID: "w1"}
+	cmd := CreateWorkspace{ID: "w1", Provisioning: domain.WorkspacePlaceholder}
 	err := cmd.Validate(nil)
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
 }
 
 func TestCreateWorkspace_EmitEvent_SeedsNewStatusAndDefaultStrategy(t *testing.T) {
 	now := time.Unix(1000, 0)
-	cmd := CreateWorkspace{ID: "w1", RepoID: "r1", ProjectID: "p1", Now: now}
+	cmd := CreateWorkspace{ID: "w1", RepoID: "r1", ProjectID: "p1", Now: now, Provisioning: domain.WorkspacePlaceholder}
 	ws := cmd.EmitEvent(nil)
 	assert.Equal(t, domain.WorkspaceStatusNew, ws.Status)
 	assert.Equal(t, gitdomain.MergeStrategyMerge, ws.MergeStrategy)
@@ -36,10 +36,10 @@ func TestCreateWorkspace_EmitEvent_SeedsNewStatusAndDefaultStrategy(t *testing.T
 
 func TestCreate_SeedsLockedWhenProtected(t *testing.T) {
 	now := time.Unix(1000, 0)
-	locked := CreateWorkspace{ID: "w1", RepoID: "r1", ProjectID: "p1", Protected: true, Now: now}.EmitEvent(nil)
+	locked := CreateWorkspace{ID: "w1", RepoID: "r1", ProjectID: "p1", Protected: true, Now: now, Provisioning: domain.WorkspacePlaceholder}.EmitEvent(nil)
 	assert.Equal(t, domain.WorkspaceStatusLocked, locked.Status)
 
-	unlocked := CreateWorkspace{ID: "w2", RepoID: "r1", ProjectID: "p1", Now: now}.EmitEvent(nil)
+	unlocked := CreateWorkspace{ID: "w2", RepoID: "r1", ProjectID: "p1", Now: now, Provisioning: domain.WorkspacePlaceholder}.EmitEvent(nil)
 	assert.Equal(t, domain.WorkspaceStatusNew, unlocked.Status)
 }
 
@@ -74,7 +74,7 @@ func TestSyncWorkingTreeState_ClampsNegativeCounts(t *testing.T) {
 }
 
 func TestCommands_Metadata(t *testing.T) {
-	c := CreateWorkspace{ID: "w1"}
+	c := CreateWorkspace{ID: "w1", Provisioning: domain.WorkspacePlaceholder}
 	require.Equal(t, "w1", c.AggregateID())
 	assert.Contains(t, c.EventName(), "workspace.created")
 	assert.True(t, c.ShouldSnapshot())
@@ -134,7 +134,7 @@ func TestSetLastError_Metadata(t *testing.T) {
 }
 
 func TestCreate_ClearsLastError(t *testing.T) {
-	ws := CreateWorkspace{ID: "w1", RepoID: "r1", ProjectID: "p1", Now: time.Unix(1, 0)}.EmitEvent(nil)
+	ws := CreateWorkspace{ID: "w1", RepoID: "r1", ProjectID: "p1", Now: time.Unix(1, 0), Provisioning: domain.WorkspacePlaceholder}.EmitEvent(nil)
 	assert.Empty(t, ws.LastError)
 }
 
@@ -151,7 +151,7 @@ func TestSyncProviderState_ClearsLastError(t *testing.T) {
 }
 
 func TestCreateWorkspace_Validate_AcceptsValidNew(t *testing.T) {
-	cmd := CreateWorkspace{ID: "w1", RepoID: "r1", ProjectID: "p1"}
+	cmd := CreateWorkspace{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}
 	err := cmd.Validate(nil)
 	assert.NoError(t, err)
 }
@@ -170,6 +170,7 @@ func TestCreateWorkspace_EmitEvent_UsesProvidedStrategy(t *testing.T) {
 		ProjectID:     "p1",
 		MergeStrategy: gitdomain.MergeStrategySquash,
 		Now:           now,
+		Provisioning:  domain.WorkspacePlaceholder,
 	}
 	ws := cmd.EmitEvent(nil)
 	assert.Equal(t, gitdomain.MergeStrategySquash, ws.MergeStrategy)
@@ -357,6 +358,7 @@ func TestCreateWorkspace_EmitEvent_KindDefault(t *testing.T) {
 		Branch:    "main",
 		Now:       time.Now(),
 		// Kind not set → should default to git
+		Provisioning: domain.WorkspacePlaceholder,
 	}
 	ws := cmd.EmitEvent(nil)
 	require.Equal(t, domain.WorkspaceKindGit, ws.Kind)
@@ -364,10 +366,11 @@ func TestCreateWorkspace_EmitEvent_KindDefault(t *testing.T) {
 
 func TestCreateWorkspace_EmitEvent_KindHome(t *testing.T) {
 	cmd := CreateWorkspace{
-		ID:        "ws-home",
-		ProjectID: "proj-1",
-		Kind:      domain.WorkspaceKindHome,
-		Now:       time.Now(),
+		ID:           "ws-home",
+		ProjectID:    "proj-1",
+		Kind:         domain.WorkspaceKindHome,
+		Now:          time.Now(),
+		Provisioning: domain.WorkspacePlaceholder,
 	}
 	ws := cmd.EmitEvent(nil)
 	require.Equal(t, domain.WorkspaceKindHome, ws.Kind)
@@ -376,18 +379,20 @@ func TestCreateWorkspace_EmitEvent_KindHome(t *testing.T) {
 
 func TestCreateWorkspace_Validate_HomeAllowsEmptyRepoID(t *testing.T) {
 	cmd := CreateWorkspace{
-		ID:        "ws-home",
-		ProjectID: "proj-1",
-		Kind:      domain.WorkspaceKindHome,
+		ID:           "ws-home",
+		ProjectID:    "proj-1",
+		Kind:         domain.WorkspaceKindHome,
+		Provisioning: domain.WorkspacePlaceholder,
 	}
 	require.NoError(t, cmd.Validate(nil))
 }
 
 func TestCreateWorkspace_Validate_GitRequiresRepoID(t *testing.T) {
 	cmd := CreateWorkspace{
-		ID:        "ws-git",
-		ProjectID: "proj-1",
-		Kind:      domain.WorkspaceKindGit,
+		ID:           "ws-git",
+		ProjectID:    "proj-1",
+		Kind:         domain.WorkspaceKindGit,
+		Provisioning: domain.WorkspacePlaceholder,
 	}
 	require.Error(t, cmd.Validate(nil))
 }
@@ -397,6 +402,7 @@ func TestCreateWorkspace_EmitEvent_CarriesHeldByPath(t *testing.T) {
 	ws := CreateWorkspace{
 		ID: "w1", RepoID: "r1", ProjectID: "p1",
 		Protected: true, HeldByPath: "/repo", Now: now,
+		Provisioning: domain.WorkspacePlaceholder,
 	}.EmitEvent(nil)
 	assert.Equal(t, "/repo", ws.HeldByPath)
 	assert.Equal(t, domain.WorkspaceStatusLocked, ws.Status,

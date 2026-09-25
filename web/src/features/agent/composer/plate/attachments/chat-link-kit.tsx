@@ -28,9 +28,9 @@ export const ChatLinkKit = [
 // useEditorRef() unconditionally, which is only valid inside an interactive
 // editor. The node renderer is ALSO swapped, unlike the toolbar-only diff
 // this comment used to describe: ChatLinkElementStatic renders through
-// ChatAttachmentFileCardStatic, which never calls `@platejs/dnd`'s
-// useDraggable — a settled message has no drag handle and therefore no
-// need for a `<DndProvider>` ancestor either.
+// ChatAttachmentFileCardStatic, which never calls
+// useAttachmentDraggable — a settled message has no drag handle and therefore no
+// need for a `DndScope` ancestor either.
 export const ChatLinkKitStatic = [
   LinkPlugin.configure({ inputRules, render: { node: ChatLinkElementStatic } }),
 ]

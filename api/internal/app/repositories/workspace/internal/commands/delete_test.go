@@ -42,6 +42,7 @@ func TestDelete_EmitEvent_PreservesLocationFields(t *testing.T) {
 		ProjectID:    "p1",
 		WorktreePath: "/h/projects/p/github.com/o/r/main",
 		Status:       domain.WorkspaceStatusPROpen,
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	next := Delete{ID: "ws-1"}.EmitEvent(cur)
 	assert.Equal(t, domain.WorkspaceStatusDeleted, next.Status)

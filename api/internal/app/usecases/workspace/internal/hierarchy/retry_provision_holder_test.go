@@ -177,7 +177,7 @@ func TestRetryProvision_OriginBranch_MaterializesFromOriginAndTracks(t *testing.
 	var gotID, gotPath, gotSha string
 	ws.ProvisionInPlaceFn = func(id, path, sha string) (domain.Workspace, error) {
 		gotID, gotPath, gotSha = id, path, sha
-		return domain.Workspace{ID: id, WorktreePath: path, ForkPointSha: sha}, nil
+		return domain.Workspace{ID: id, WorktreePath: path, ForkPointSha: sha, Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	g := &fakeGit{trackingExists: true, revParseSha: "originsha"}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
@@ -281,7 +281,7 @@ func TestDetachHolder_HomeNotFound_SkipsClearBranch(t *testing.T) {
 	provisioned := false
 	ws.ProvisionInPlaceFn = func(id, path, sha string) (domain.Workspace, error) {
 		provisioned = true
-		return domain.Workspace{ID: id, WorktreePath: path, ForkPointSha: sha}, nil
+		return domain.Workspace{ID: id, WorktreePath: path, ForkPointSha: sha, Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	g := &fakeGit{worktrees: []enginegit.WorktreeEntry{{Path: "/repo", Branch: "develop"}}, revParseSha: "sha"}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())

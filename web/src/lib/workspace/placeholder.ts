@@ -15,11 +15,8 @@ import type { Workspace } from '@/lib/store/sidebar'
  *   branch, or the worktree create itself failed. This is the one that needs
  *   the user's attention.
  *
- * The missing localPath IS the "no worktree" signal — status is deliberately
- * not part of it. Protected-branch rows are seeded `locked` to inherit the
- * protection guards, but an IMPORTED feature branch must stay unlocked (locked
- * survives provisioning and would block merge/rename/delete forever), so
- * requiring `locked` here left every failed import row unrecognised.
+ * The daemon's recorded `provisioning` IS the "no worktree" signal — status is
+ * deliberately not part of it: an imported placeholder is not locked.
  *
  * `ownDefaultBranch` is `Repo.defaultBranch` — the branch of the repo's own
  * default workspace, which IS its main folder's checkout. Undefined for a
@@ -36,7 +33,7 @@ export function placeholderKind(
   ws: Workspace,
   ownDefaultBranch: string | undefined,
 ): PlaceholderKind {
-  if (ws.localPath) return 'none'
+  if (ws.provisioning !== 'placeholder') return 'none'
   if (ownDefaultBranch && ws.branch === ownDefaultBranch) return 'own-checkout'
   return 'unprovisioned'
 }

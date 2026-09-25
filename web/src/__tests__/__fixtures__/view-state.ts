@@ -7,11 +7,14 @@ import type { EditorTabBase } from '@/features/panes/types/pane-content'
 import type { LayoutNode, PaneGroup } from '@/features/panes/types/pane'
 import { createLeaf, createSplit } from '@/features/panes/utils/pane-layout'
 import type { WindowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { placeTab } from '@/features/panes/stores/slices/pane-actions/editor-tab-actions'
+import type { PaneContent } from '@/features/panes/types/pane-content'
 
 export interface PaneSpec {
   id: string
   chatId?: string | null
   runnerId?: string | null
+  workspaceId?: string | null
   editorTabIds?: string[]
 }
 
@@ -32,6 +35,7 @@ function toPane(spec: PaneSpec, viewId: string | null): PaneGroup {
   return makePane(spec.id, viewId, {
     chatId: spec.chatId ?? null,
     runnerId: spec.runnerId ?? null,
+    workspaceId: spec.workspaceId ?? null,
     editorTabIds: spec.editorTabIds ?? [],
     activeEditorTabId: spec.editorTabIds?.[0] ?? null,
     editorOpen: (spec.editorTabIds?.length ?? 0) > 0,
@@ -120,6 +124,21 @@ export function seedChatPaneRecord(
     s.panes[paneId] = makePane(paneId, viewId, { chatId, runnerId })
     s.views[viewId] = { id: viewId, projectId, layout: createLeaf(paneId) }
     s.viewOrder = [...s.viewOrder, viewId]
+    return s
+  })
+}
+
+/**
+ * Create `tab`'s buffer (unless it exists) and seat it in `paneId` in ONE
+ * write — a buffer exists only while a pane lists it (invariant C2), so a
+ * harness cannot seed buffers first and place them later.
+ */
+export function seatTab(store: WindowPaneStore, paneId: string, tab: EditorTabBase): void {
+  store.setState((s) => {
+    if (!s.buffers.some((b) => b.id === tab.id)) {
+      s.buffers.push({ isPinned: false, isPreview: false, ...tab } as PaneContent)
+    }
+    placeTab(s, paneId, tab.id)
     return s
   })
 }

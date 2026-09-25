@@ -1,3 +1,4 @@
+import { markGitStatusChanged } from '@/features/git/stores/git-refresh'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import type { DaemonEvent } from './types'
 
@@ -13,8 +14,8 @@ export function connectDaemonEvents(): () => void {
   )
 
   unlisteners.push(
-    window.__CROWBAR__.on<EventOf<'git:changed'>>('git:changed', () => {
-      window.dispatchEvent(new CustomEvent('git-status-changed'))
+    window.__CROWBAR__.on<EventOf<'git:changed'>>('git:changed', (p) => {
+      markGitStatusChanged(p.workspaceId)
     }),
   )
 

@@ -12,10 +12,9 @@ vi.mock('@/utils/platform', async (importOriginal) => ({
   IS_MAC: false,
 }))
 
-vi.mock('@/features/editor/stores/editor-app-store', () => ({
-  useEditorAppStore: {
-    getState: () => ({ actions: { handleSave, handleSaveAll } }),
-  },
+vi.mock('@/features/editor/lib/buffer-save', () => ({
+  saveActiveBuffer: handleSave,
+  saveAllDirtyBuffers: handleSaveAll,
 }))
 
 function dispatchKeydown(init: KeyboardEventInit): KeyboardEvent {

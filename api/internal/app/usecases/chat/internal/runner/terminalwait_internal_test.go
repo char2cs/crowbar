@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
@@ -26,7 +25,7 @@ func TestStartTerminalWaitSweep_DrivesTheDetector(t *testing.T) {
 	rs.turns = noTurns{}
 	rs.termWait = sweepRecorder{swept: swept}
 
-	rs.StartTerminalWaitSweep(t.Context(), nil, nil, nil, nil, nil)
+	rs.StartTerminalWaitSweep(t.Context(), seam.ChatFeed{})
 
 	<-swept
 }
@@ -58,6 +57,8 @@ func (sweepRecorder) Sweep(context.Context, termwait.Publish) {}
 
 func (r sweepRecorder) Run(context.Context, termwait.Publish) { r.swept <- struct{}{} }
 
+func (sweepRecorder) Wake() {}
+
 type blindTerminal struct{}
 
 func (blindTerminal) CreateCommand(
@@ -78,9 +79,6 @@ func (seeingTerminal) Screen(string, uint64) (string, uint64, bool) { return "",
 // be able to bind it.
 type noTurns struct{ Turns }
 
-func (noTurns) SetMessageDelta(func(chatID, workspaceID, messageID, text, kind string)) {}
-func (noTurns) SetPlanUpdate(func(chatID, workspaceID string, steps []agents.PlanStep)) {}
-
-func (noTurns) SetCompactionStatus(func(chatID, workspaceID string, active bool)) {}
+func (noTurns) SetFeed(seam.ChatFeed) {}
 
 func (noTurns) CloseStalledTurn(context.Context, seam.Stall) {}

@@ -57,27 +57,46 @@ func PrependArgs(d *spec.Descriptor, ctx models.TemplateCtx, plan *models.SpawnP
 	plan.Argv = append(args, plan.Argv...)
 }
 
-// Inject applies a descriptor's MCPInject and ConfigInjection steps, plus any
-// caller-supplied extra, onto plan — in that order, always, regardless of
-// which process plan describes.
-//
-// What a provider needs injected (its own MCP server, its settings/hooks
-// file) is a fact about the PROVIDER, not about which of its processes is
-// doing the talking right now — a hooks-attached CLI and an api-transport
-// serve process are still the same provider, and both need the same crowbar
-// MCP server registered to reach Crowbar's tools at all. Plan calls this for
-// the former; the api-transport package calls it again, on a plan of its own,
-// for the latter — same steps, same verbs, the only difference is which argv
-// they land on.
+// KnownVerb reports whether verb names an inject step Crowbar can apply.
+func KnownVerb(verb string) bool { return verbs.Known(verb) }
+
+// Inject applies a descriptor's MCPInject, ConfigInjection and HooksInjection
+// steps, plus any caller-supplied extra, onto a PTY plan — in that order. A PTY
+// reports over the hooks channel, so it is the one process that gets hooks.
 func Inject(
 	d *spec.Descriptor,
 	ctx models.TemplateCtx,
 	plan *models.SpawnPlan,
 	extra []spec.InjectStep,
 ) error {
-	steps := make([]spec.InjectStep, 0, len(d.MCPInject)+len(d.ConfigInjection)+len(extra))
+	return inject(d, ctx, plan, extra, true)
+}
+
+// InjectServe is Inject for an api-transport `serve` process: the same MCP
+// server and session config, but no hook wiring — that process reports over
+// the api channel, and one process must never report an event twice.
+func InjectServe(
+	d *spec.Descriptor,
+	ctx models.TemplateCtx,
+	plan *models.SpawnPlan,
+	extra []spec.InjectStep,
+) error {
+	return inject(d, ctx, plan, extra, false)
+}
+
+func inject(
+	d *spec.Descriptor,
+	ctx models.TemplateCtx,
+	plan *models.SpawnPlan,
+	extra []spec.InjectStep,
+	hooks bool,
+) error {
+	steps := make([]spec.InjectStep, 0, len(d.MCPInject)+len(d.ConfigInjection)+len(d.HooksInjection)+len(extra))
 	steps = append(steps, d.MCPInject...)
 	steps = append(steps, d.ConfigInjection...)
+	if hooks {
+		steps = append(steps, d.HooksInjection...)
+	}
 	steps = append(steps, extra...)
 
 	for _, step := range steps {

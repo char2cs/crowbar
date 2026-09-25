@@ -77,16 +77,3 @@ func (c *summaryCache) store(
 		c.order = c.order[1:]
 	}
 }
-
-func (c *summaryCache) size() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return len(c.entries)
-}
-
-func (c *summaryCache) reset() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.entries = nil
-	c.order = nil
-}

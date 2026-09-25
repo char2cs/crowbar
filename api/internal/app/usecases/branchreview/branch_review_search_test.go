@@ -21,7 +21,6 @@ func TestBranchReview_SearchDiff_UsesTheSameDiffRefAsGetFiles(t *testing.T) {
 	var gotRepo, gotRef, gotQuery string
 	var gotOpts gitdomain.SearchOpts
 	gitEng := &mockGitEngine{
-		//nolint:lll // the stub mirrors the engine signature; wrapping hides which method it stands in for.
 		ReviewSearchFn: func(_ context.Context, repoPath, ref, query string, opts gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error) {
 			gotRepo, gotRef, gotQuery, gotOpts = repoPath, ref, query, opts
 			return []gitdomain.SearchHit{
@@ -52,7 +51,6 @@ func TestBranchReview_SearchDiff_InvalidRegex_IsInvalidArgumentAndNeverReachesGi
 
 	called := false
 	gitEng := &mockGitEngine{
-		//nolint:lll // the stub mirrors the engine signature; wrapping hides which method it stands in for.
 		ReviewSearchFn: func(_ context.Context, _, _, _ string, _ gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error) {
 			called = true
 			return nil, false, nil
@@ -73,7 +71,6 @@ func TestBranchReview_SearchDiff_LiteralModeAcceptsRegexMetacharacters(t *testin
 
 	called := false
 	gitEng := &mockGitEngine{
-		//nolint:lll // the stub mirrors the engine signature; wrapping hides which method it stands in for.
 		ReviewSearchFn: func(_ context.Context, _, _, _ string, _ gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error) {
 			called = true
 			return nil, false, nil
@@ -105,7 +102,6 @@ func TestBranchReview_SearchDiff_EngineFailurePropagates(t *testing.T) {
 	ctx := context.Background()
 
 	gitEng := &mockGitEngine{
-		//nolint:lll // the stub mirrors the engine signature; wrapping hides which method it stands in for.
 		ReviewSearchFn: func(_ context.Context, _, _, _ string, _ gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error) {
 			return nil, false, errors.New("git boom")
 		},

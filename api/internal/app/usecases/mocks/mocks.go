@@ -124,6 +124,10 @@ type RepositoryStore struct {
 	// after a cross-project repo move) to fail while another (the destination
 	// project) succeeds, which a single blanket FindErr cannot express.
 	FindWhereFn func(match domain.Repository) ([]domain.Repository, error)
+	// Nodes, when set, gets a repo Node row for every NEW repo saved — the
+	// row importOneRepo mints alongside it in production, so a seeded repo is
+	// never Node-less (all placement lives on the Node model).
+	Nodes *NodePlacements
 }
 
 // NewRepositoryStore returns an empty RepositoryStore.
@@ -151,6 +155,11 @@ func (s *RepositoryStore) Save(
 		}
 	}
 	s.Saved = append(s.Saved, item)
+	if s.Nodes != nil {
+		if _, err := s.Nodes.GetNode(ctx, item.ID); err != nil {
+			s.Nodes.Rows = append(s.Nodes.Rows, domain.Node{ID: item.ID, Kind: domain.NodeKindRepo})
+		}
+	}
 	return nil
 }
 
@@ -223,52 +232,15 @@ func (s *RepositoryStore) FindWhere(
 	return rows, nil
 }
 
-// WorkspacePlacements is a fake project.WorkspaceRelocator: it holds the
-// workspace rows a repo move has to carry along, and records the writes made
-// against them.
+// WorkspacePlacements is a fake project.HomeWorkspaces over a fixed set of
+// workspace rows.
 type WorkspacePlacements struct {
-	Rows    []domain.Workspace
-	ListErr error
-	SetErr  error
+	Rows []domain.Workspace
 }
 
 // NewWorkspacePlacements returns an empty WorkspacePlacements.
 func NewWorkspacePlacements() *WorkspacePlacements {
 	return &WorkspacePlacements{}
-}
-
-func (s *WorkspacePlacements) ListInRepo(
-	ctx context.Context,
-	projectID string,
-	repoID string,
-) ([]domain.Workspace, error) {
-	if s.ListErr != nil {
-		return nil, s.ListErr
-	}
-	rows := make([]domain.Workspace, 0, len(s.Rows))
-	for _, w := range s.Rows {
-		if w.ProjectID == projectID && w.RepoID == repoID {
-			rows = append(rows, w)
-		}
-	}
-	return rows, nil
-}
-
-func (s *WorkspacePlacements) SetProject(
-	ctx context.Context,
-	id string,
-	projectID string,
-) (domain.Workspace, error) {
-	if s.SetErr != nil {
-		return domain.Workspace{}, s.SetErr
-	}
-	for i := range s.Rows {
-		if s.Rows[i].ID == id {
-			s.Rows[i].ProjectID = projectID
-			return s.Rows[i], nil
-		}
-	}
-	return domain.Workspace{}, nil
 }
 
 // GetHomeForProject mirrors the real workspace repository's own scan: the
@@ -590,6 +562,7 @@ func (r *WorkspaceRepo) Create(
 		IsDefault:     in.IsDefault,
 		Kind:          in.Kind,
 		HeldByPath:    in.HeldByPath,
+		Provisioning:  in.Provisioning,
 		CreatedAt:     now,
 	}
 	r.Created = append(r.Created, ws)
@@ -622,18 +595,19 @@ type GitEngine struct {
 	WorktreeListFn func(repoPath string) ([]gitengine.WorktreeEntry, error)
 
 	// Protected-branch managed-worktree provisioning fakes (project import).
-	Detached     []string          // worktree paths detached to HEAD
-	CheckedOut   []WorktreeAddCall // (path, branch) re-attach calls
-	WorktreeAdds []WorktreeAddCall // (path, branch) worktrees materialised, by EITHER add
-	//nolint:lll // the trailing note is the point: this log is the -B subset of WorktreeAdds.
-	WorktreeAddAtRefs      []WorktreeAddAtRefCall // the subset added AT a start ref (`git worktree add -B`)
-	WorktreeRemoves        []string               // worktree paths force-removed
-	FetchedRefs            []string               // branches fetched from origin (FetchRef)
-	FastForwardedBranches  []string               // branches fast-forwarded from origin (FastForwardBranch)
-	RemoteBranches         map[string]bool        // branch -> exists on origin live (default false)
-	RemoteTrackingBranches map[string]bool        // branch -> local refs/remotes/origin/<branch> present (default false)
-	RevParseShas           map[string]string      // rev -> sha (default "")
-	DetachErr              error                  // forces DetachWorktree to fail
+	Detached          []string               // worktree paths detached to HEAD
+	CheckedOut        []WorktreeAddCall      // (path, branch) re-attach calls
+	WorktreeAdds      []WorktreeAddCall      // (path, branch) worktrees materialised, by EITHER add
+	WorktreeAddAtRefs []WorktreeAddAtRefCall // the subset added AT a start ref (`git worktree add -B`)
+	WorktreeRemoves   []string               // worktree paths removed
+	// WorktreeRemovesUnforced are the removals asked for WITHOUT --force.
+	WorktreeRemovesUnforced []string
+	FetchedRefs             []string          // branches fetched from origin (FetchRef)
+	FastForwardedBranches   []string          // branches fast-forwarded from origin (FastForwardBranch)
+	RemoteBranches          map[string]bool   // branch -> exists on origin live (default false)
+	RemoteTrackingBranches  map[string]bool   // branch -> local refs/remotes/origin/<branch> present (default false)
+	RevParseShas            map[string]string // rev -> sha (default "")
+	DetachErr               error             // forces DetachWorktree to fail
 	// WorktreeAddErrByBranch forces WorktreeAdd to fail for specific branches.
 	WorktreeAddErrByBranch map[string]error
 	// Pruned records repo paths WorktreePrune was called on.
@@ -820,7 +794,11 @@ func (g *GitEngine) WorktreeRemove(
 	ctx context.Context,
 	repoPath string,
 	worktreePath string,
+	force bool,
 ) error {
+	if !force {
+		g.WorktreeRemovesUnforced = append(g.WorktreeRemovesUnforced, worktreePath)
+	}
 	if g.WorktreeRemoveErr != nil {
 		return g.WorktreeRemoveErr
 	}
@@ -2223,11 +2201,14 @@ func (s *AgentWorkspaceRoster) List(
 // It is what lets a test assert the workspace is gone rather than merely that a
 // method was called — the difference between proving the bug is fixed and
 // proving a line of code runs.
+// Risks answers WorkAtRisk per workspace id; Consents records each delete's.
 type AgentWorkspaceReaper struct {
-	Reaped []string
-	Roster *AgentWorkspaceRoster
-	Err    error
-	ErrFor map[string]error
+	Reaped   []string
+	Roster   *AgentWorkspaceRoster
+	Err      error
+	ErrFor   map[string]error
+	Risks    map[string]domain.WorkAtRisk
+	Consents []domain.DeleteConsent
 }
 
 // NewAgentWorkspaceReaper returns a reaper that tears everything down happily.
@@ -2244,10 +2225,12 @@ func NewAgentWorkspaceReaperOver(
 	return &AgentWorkspaceReaper{ErrFor: map[string]error{}, Roster: roster}
 }
 
-func (s *AgentWorkspaceReaper) DiscardChildWorkspace(
+func (s *AgentWorkspaceReaper) DeleteWorkspace(
 	ctx context.Context,
 	workspaceID string,
+	consent domain.DeleteConsent,
 ) error {
+	s.Consents = append(s.Consents, consent)
 	if err, ok := s.ErrFor[workspaceID]; ok {
 		return err
 	}
@@ -2265,4 +2248,17 @@ func (s *AgentWorkspaceReaper) DiscardChildWorkspace(
 		s.Roster.Rows = kept
 	}
 	return nil
+}
+
+func (s *AgentWorkspaceReaper) WorkAtRisk(
+	_ context.Context,
+	workspaceIDs []string,
+) ([]domain.WorkAtRisk, error) {
+	var risks []domain.WorkAtRisk
+	for _, id := range workspaceIDs {
+		if risk, ok := s.Risks[id]; ok {
+			risks = append(risks, risk)
+		}
+	}
+	return risks, nil
 }

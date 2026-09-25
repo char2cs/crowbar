@@ -218,28 +218,6 @@ func (m *ProviderPollManager) notifyCycle(
 	}
 }
 
-// driveCyclesForTest installs the deterministic test seams; it must be called
-// before Acquire. ticks replaces the interval ticker (so no cycle ever happens
-// unless the test fires one) and cycleDone receives one value after every
-// completed cycle, the immediate-on-Acquire poll included.
-func (m *ProviderPollManager) driveCyclesForTest(
-	ticks <-chan time.Time,
-	cycleDone chan<- struct{},
-) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.ticks = ticks
-	m.cycleDone = cycleDone
-}
-
-// waitRunnersForTest blocks until every run goroutine started by Acquire has
-// actually returned. Release/StopAll only cancel a context; this is the real
-// signal that the poll has stopped, so a test can assert "nothing fires after
-// Release" without a sleep.
-func (m *ProviderPollManager) waitRunnersForTest() {
-	m.runners.Wait()
-}
-
 // pollTick issues a single PollWorkspace on a context.WithoutCancel-derived,
 // timeout-bounded context. WithoutCancel keeps an in-flight Asynx write from
 // being aborted by a mid-tick Release/StopAll; the timeout still cancels a poll

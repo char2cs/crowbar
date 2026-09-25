@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { RefObject } from 'react'
-import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import type { SidebarTab } from '@/lib/store/sidebar-ui'
 
 // 'workspaces' and 'chats' are both dropped: spec §6.1's card holds two
 // glyphs and nothing else, Files and Git. Part B's SidebarTree and Part D's

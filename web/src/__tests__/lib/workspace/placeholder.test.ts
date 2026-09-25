@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { placeholderKind, placeholderReason } from '@/lib/workspace/placeholder'
 import type { Workspace } from '@/lib/store/sidebar'
 
+// The daemon records a workspace with no checkout as a placeholder.
 const ws = (over: Partial<Workspace> = {}): Workspace => ({
   id: 'w1',
   branch: 'develop',
   age: '',
+  provisioning: over.localPath ? 'provisioned' : 'placeholder',
   ...over,
 })
 

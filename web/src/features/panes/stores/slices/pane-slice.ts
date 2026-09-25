@@ -8,12 +8,18 @@ import { createChatDropActions } from './pane-actions/chat-drop-actions'
 import { createRunnerActions } from './pane-actions/runner-actions'
 import { createLayoutActions } from './pane-actions/layout-actions'
 import { createEditorTabActions } from './pane-actions/editor-tab-actions'
+import type { PaneSet } from './pane-actions/context'
+import type { PaneContent } from '@/features/panes/types/pane-content'
+import { disposeBuffers, releaseUnreferencedBuffers } from '@/features/panes/lib/buffer-release'
+import { commitViewWrite } from '@/features/panes/lib/view-ops'
 
 export type PaneDropZone = 'center' | 'left' | 'right' | 'top' | 'bottom'
 
 export interface OpenChatOptions {
   /** The chat's project; defaults to the active one. */
   projectId?: string
+  /** The chat's workspace, recorded on its pane (C3). */
+  workspaceId?: string | null
   runnerId?: string | null
 }
 
@@ -34,7 +40,12 @@ export interface PaneActions {
   openChat(chatId: string, opts?: OpenChatOptions): void
   /** Row: fill a chatless pane or split the target — the chat joins the
    *  target's view; an already-open chat is moved. */
-  dropChatOnPane(chatId: string, paneId: string, zone: PaneDropZone): void
+  dropChatOnPane(
+    chatId: string,
+    paneId: string,
+    zone: PaneDropZone,
+    workspaceId?: string | null,
+  ): void
   /** Row: a group member becomes a record of its own, right after the group. */
   detachPane(paneId: string): void
   /** Row: a view left without a chat is removed. */
@@ -47,8 +58,11 @@ export interface PaneActions {
   /** Row: the runner in `paneId` walked into `chatId` (`moved` frame only). */
   retargetPane(paneId: string, chatId: string, runnerId: string | null): void
   setPaneRunner(paneId: string, runnerId: string | null): void
+  /** Row: the daemon's answer for restored members saved without a workspace —
+   *  `placed` fills it in, `gone` chats leave (their unsaved buffers stay). */
+  placeRestoredMembers(placed: ReadonlyMap<string, string>, gone: ReadonlySet<string>): void
   /** Row: a chat turned working with no pane — a background record, not shown. */
-  adoptBackgroundChat(chatId: string, projectId: string): void
+  adoptBackgroundChat(chatId: string, projectId: string, workspaceId?: string | null): void
   /** Put a record on screen (another project's is only remembered). */
   activateView(viewId: string): void
   setActivePane(paneId: string): void
@@ -87,14 +101,28 @@ export const createPaneSlice: StateCreator<
   [['zustand/immer', never]],
   [],
   PaneSlice
-> = (set, get) => ({
-  ...initialViewState(),
-  activeProjectId: null,
-  paneActions: {
-    ...createViewActions(set, get),
-    ...createChatDropActions(set),
-    ...createRunnerActions(set),
-    ...createLayoutActions(set, get),
-    ...createEditorTabActions(set, get),
-  },
-})
+> = (rawSet, get) => {
+  // Every pane write settles focus (`commitViewWrite`) and releases the
+  // buffers it left unreferenced in the same `set` (invariant C2): closing a
+  // view, a pane or a tab can never strand a buffer, or the terminal PTY
+  // behind one, nor leave focus on a pane that is gone.
+  const set: PaneSet = (recipe) => {
+    let released: PaneContent[] = []
+    rawSet((state) => {
+      commitViewWrite(state, recipe)
+      released = releaseUnreferencedBuffers(state)
+    })
+    disposeBuffers(released)
+  }
+  return {
+    ...initialViewState(),
+    activeProjectId: null,
+    paneActions: {
+      ...createViewActions(set, get),
+      ...createChatDropActions(set),
+      ...createRunnerActions(set),
+      ...createLayoutActions(set, get),
+      ...createEditorTabActions(set, get),
+    },
+  }
+}

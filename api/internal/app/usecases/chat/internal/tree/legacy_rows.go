@@ -6,40 +6,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// The rows a level draws that predate Node rows — a repo imported, a locked
-// branch adopted or a chat filed before the Node aggregate existed — and the
-// chats whose frozen parent names nothing any more. No backfill: each is
+// The rows a level draws that predate Node rows — a repo imported or a locked
+// branch adopted before the Node aggregate existed. No backfill: each is
 // counted where the sidebar draws it, and the first write that touches its
 // level mints its Node at the decided slot.
-
-// rerootDanglingChats files a chat whose frozen ParentID names nothing that
-// exists any more (a Chats-panel folder from before Node rows, never
-// migrated) at the root the sidebar draws it at, and answers the ids so the
-// level's first write mints each one's Node at its decided slot.
-func (u *chatFolderUsecase) rerootDanglingChats(
-	ctx context.Context,
-	f *forest,
-	nodeSeen map[string]bool,
-) []string {
-	known := make(map[string]bool, len(f.rows))
-	for _, row := range f.rows {
-		known[row.ID] = true
-	}
-	var rerooted []string
-	for i := range f.rows {
-		row := &f.rows[i]
-		if row.ParentID == "" || nodeSeen[row.ID] || known[row.ParentID] ||
-			row.Type == domain.ChatTypeFolder || row.Type == nodePhantomType || row.Type == workspaceAnchorType {
-			continue
-		}
-		if u.rowExists(ctx, row.ParentID) {
-			continue
-		}
-		row.ParentID = ""
-		rerooted = append(rerooted, row.ID)
-	}
-	return rerooted
-}
 
 // rowExists reports whether id names any row a chat can be filed under.
 func (u *chatFolderUsecase) rowExists(

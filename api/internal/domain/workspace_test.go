@@ -9,8 +9,8 @@ import (
 )
 
 func TestWorkspaceKindConstants(t *testing.T) {
-	require.Equal(t, domain.WorkspaceKind("git"), domain.WorkspaceKindGit)
-	require.Equal(t, domain.WorkspaceKind("home"), domain.WorkspaceKindHome)
+	require.Equal(t, domain.WorkspaceKindGit, domain.WorkspaceKind("git"))
+	require.Equal(t, domain.WorkspaceKindHome, domain.WorkspaceKind("home"))
 }
 
 func TestWorkspaceKindDefaultsToGit(t *testing.T) {

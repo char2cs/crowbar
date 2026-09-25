@@ -19,7 +19,7 @@ import {
   PANE_HIT_ATTR,
   type SidebarPaneZone,
 } from '@/components/sidebar/hooks/use-sidebar-drag'
-import { getInternalTabDragHover } from '@/features/tabs/utils/internal-tab-drag'
+import { useDragStore } from '@/features/panes/stores/drag-store'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import { toast } from '@/features/window/stores/toast-store'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
@@ -624,7 +624,7 @@ describe('useSidebarDrag', () => {
       press(result, baseRow, rowA)
       move(400, 200) // dead centre
 
-      expect(getInternalTabDragHover()).toEqual({ paneId: 'pane-1', zone: 'center' })
+      expect(useDragStore.getState().hover).toEqual({ paneId: 'pane-1', zone: 'center' })
     })
 
     it('follows the pointer from the middle out to an edge, within one pane', () => {
@@ -636,10 +636,10 @@ describe('useSidebarDrag', () => {
       move(400, 200)
       move(480, 200) // right edge band
 
-      expect(getInternalTabDragHover()).toEqual({ paneId: 'pane-1', zone: 'right' })
+      expect(useDragStore.getState().hover).toEqual({ paneId: 'pane-1', zone: 'right' })
 
       move(400, 120) // top edge band
-      expect(getInternalTabDragHover()).toEqual({ paneId: 'pane-1', zone: 'top' })
+      expect(useDragStore.getState().hover).toEqual({ paneId: 'pane-1', zone: 'top' })
     })
 
     it('clears once the pointer leaves every pane', () => {
@@ -651,7 +651,7 @@ describe('useSidebarDrag', () => {
       move(400, 200)
       move(10, ROW_H + 2) // back over the tree
 
-      expect(getInternalTabDragHover()).toEqual({ paneId: null, zone: null })
+      expect(useDragStore.getState().hover).toEqual({ paneId: null, zone: null })
     })
 
     it('clears on release, so the preview never outlives the drag that drew it', () => {
@@ -663,7 +663,7 @@ describe('useSidebarDrag', () => {
       move(400, 200)
       release(400, 200)
 
-      expect(getInternalTabDragHover()).toEqual({ paneId: null, zone: null })
+      expect(useDragStore.getState().hover).toEqual({ paneId: null, zone: null })
     })
   })
 

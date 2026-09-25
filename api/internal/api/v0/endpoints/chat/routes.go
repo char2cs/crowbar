@@ -154,6 +154,7 @@ func Register(
 	repoScoped.GET("/chats/ws", wsHandle)
 
 	settingsRG.PUT("/settings/chat/providers", h.UpdateProviderPreferences)
+	settingsRG.GET("/settings/chat/descriptors", h.DescriptorReports)
 	settingsRG.GET("/settings/chat/permission-level", h.GetDefaultPermissionLevel)
 	settingsRG.PUT("/settings/chat/permission-level", h.PutDefaultPermissionLevel)
 	settingsRG.GET("/settings/chat/model-manifest-fetch", h.GetModelManifestFetchEnabled)

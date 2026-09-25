@@ -56,9 +56,9 @@ func TestPlaceWorkspace_MovesAnOrdinaryUnlockedForkJustLikeALockedBranch(t *test
 func TestRegression_PlaceWorkspace_AnOrdinaryForkWritesThroughItsOwningChat(t *testing.T) {
 	chats, _, nodes, gitStatus, uc := newWorkspacePlacementUsecase(t)
 	chats.Rows = append(chats.Rows,
-		domain.Chat{ID: "branch-1", Type: domain.ChatTypeBranch, WorkspaceID: "ws-branch-1"},
-		domain.Chat{ID: "fork-chat", Type: domain.ChatTypeChat, WorkspaceID: "ws-fork", ParentID: "branch-1"},
-		domain.Chat{ID: "sibling-chat", Type: domain.ChatTypeChat, WorkspaceID: "ws-sibling", ParentID: "branch-1"},
+		domain.Chat{ID: "branch-1", Type: domain.ChatTypeBranch, OwnsWorkspace: true, WorkspaceID: "ws-branch-1"},
+		domain.Chat{ID: "fork-chat", Type: domain.ChatTypeChat, OwnsWorkspace: true, WorkspaceID: "ws-fork", ParentID: "branch-1"},
+		domain.Chat{ID: "sibling-chat", Type: domain.ChatTypeChat, OwnsWorkspace: true, WorkspaceID: "ws-sibling", ParentID: "branch-1"},
 	)
 	nodes.Rows = append(nodes.Rows,
 		domain.Node{ID: "fork-chat", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 0},
@@ -99,9 +99,9 @@ func TestRegression_PlaceWorkspace_AnOrdinaryForkWritesThroughItsOwningChat(t *t
 func TestRegression_PlaceWorkspace_AnOrdinaryForkReorderedPastASiblingFork(t *testing.T) {
 	chats, _, nodes, gitStatus, uc := newWorkspacePlacementUsecase(t)
 	chats.Rows = append(chats.Rows,
-		domain.Chat{ID: "branch-1", Type: domain.ChatTypeBranch, WorkspaceID: "ws-branch-1"},
-		domain.Chat{ID: "fork-a", Type: domain.ChatTypeBranch, WorkspaceID: "ws-fork-a", ParentID: "branch-1"},
-		domain.Chat{ID: "fork-b", Type: domain.ChatTypeBranch, WorkspaceID: "ws-fork-b", ParentID: "branch-1"},
+		domain.Chat{ID: "branch-1", Type: domain.ChatTypeBranch, OwnsWorkspace: true, WorkspaceID: "ws-branch-1"},
+		domain.Chat{ID: "fork-a", Type: domain.ChatTypeBranch, OwnsWorkspace: true, WorkspaceID: "ws-fork-a", ParentID: "branch-1"},
+		domain.Chat{ID: "fork-b", Type: domain.ChatTypeBranch, OwnsWorkspace: true, WorkspaceID: "ws-fork-b", ParentID: "branch-1"},
 	)
 	gitStatus.SetRepo("ws-branch-1", repoID)
 	gitStatus.SetBranch("ws-branch-1", true)
@@ -344,7 +344,7 @@ func TestPlaceWorkspace_AnAlreadySplitForkCanStillBeReordered(t *testing.T) {
 	chats, _, nodes, gitStatus, uc := newWorkspacePlacementUsecase(t)
 	seedFolder(t, uc, "spikes", "")
 	chats.Rows = append(chats.Rows,
-		domain.Chat{ID: "fork-chat", Type: domain.ChatTypeChat, WorkspaceID: "ws-fork", ParentID: "spikes"},
+		domain.Chat{ID: "fork-chat", Type: domain.ChatTypeChat, OwnsWorkspace: true, WorkspaceID: "ws-fork", ParentID: "spikes"},
 		domain.Chat{ID: "sibling", Type: domain.ChatTypeChat, WorkspaceID: workspaceID, ParentID: "spikes"},
 	)
 	nodes.Rows = append(nodes.Rows,
@@ -374,8 +374,8 @@ func seedForkUnderLockedBranch(
 ) {
 	t.Helper()
 	chats.Rows = append(chats.Rows,
-		domain.Chat{ID: "branch-1", Type: domain.ChatTypeBranch, WorkspaceID: "ws-branch-1"},
-		domain.Chat{ID: "fork-chat", Type: domain.ChatTypeChat, WorkspaceID: "ws-fork", ParentID: "branch-1"},
+		domain.Chat{ID: "branch-1", Type: domain.ChatTypeBranch, OwnsWorkspace: true, WorkspaceID: "ws-branch-1"},
+		domain.Chat{ID: "fork-chat", Type: domain.ChatTypeChat, OwnsWorkspace: true, WorkspaceID: "ws-fork", ParentID: "branch-1"},
 	)
 	nodes.Rows = append(nodes.Rows,
 		domain.Node{ID: "fork-chat", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 0})

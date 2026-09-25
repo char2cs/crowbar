@@ -1,9 +1,7 @@
 import { cva } from 'class-variance-authority'
 import {
   CaretDown as ChevronDown,
-  CaretRight as ChevronRight,
   CaretUp as ChevronUp,
-  ArrowsLeftRight as Replace,
   MagnifyingGlass as Search,
   X,
 } from '@phosphor-icons/react'
@@ -71,21 +69,6 @@ const searchToggleButtonVariants = cva(
     },
     defaultVariants: {
       active: false,
-    },
-  },
-)
-
-const searchActionButtonVariants = cva(
-  'ui-font ui-text-sm flex h-8 items-center justify-center rounded-lg border border-transparent px-2.5 text-muted-foreground transition-colors hover:border-border/70 hover:bg-muted hover:text-foreground',
-  {
-    variants: {
-      disabled: {
-        true: 'cursor-not-allowed opacity-50',
-        false: '',
-      },
-    },
-    defaultVariants: {
-      disabled: false,
     },
   },
 )
@@ -225,96 +208,6 @@ export function SearchPopover({
       )}
 
       {secondaryRow && <div className="mt-1.5">{secondaryRow}</div>}
-    </div>
-  )
-}
-
-export function SearchReplaceToggle({
-  isExpanded,
-  onToggle,
-  expandedLabel = 'Hide replace',
-  collapsedLabel = 'Show replace',
-}: {
-  isExpanded: boolean
-  onToggle: () => void
-  expandedLabel?: string
-  collapsedLabel?: string
-}) {
-  const label = isExpanded ? expandedLabel : collapsedLabel
-
-  return (
-    <Button
-      type="button"
-      onClick={onToggle}
-      variant="ghost"
-      className={searchIconButtonVariants()}
-      tooltip={label}
-      aria-label={label}
-      compact
-    >
-      <ChevronRight className={cn('transition-transform', isExpanded && 'rotate-90')} />
-    </Button>
-  )
-}
-
-export function SearchReplaceRow({
-  value,
-  onChange,
-  onKeyDown,
-  inputRef,
-  onReplace,
-  onReplaceAll,
-  canReplace,
-  canReplaceAll = canReplace,
-  replaceAllTooltip,
-}: {
-  value: string
-  onChange: (value: string) => void
-  onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void
-  inputRef?: RefObject<HTMLInputElement | null>
-  onReplace: () => void
-  onReplaceAll: () => void
-  canReplace: boolean
-  canReplaceAll?: boolean
-  replaceAllTooltip?: string
-}) {
-  return (
-    <div className="flex items-center gap-1.5 border-border/60 border-t pt-1.5">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground">
-        <Replace />
-      </span>
-
-      <Input
-        ref={inputRef}
-        type="text"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        onKeyDown={onKeyDown}
-        placeholder="Replace with..."
-        className="ui-text-sm h-8 flex-1 rounded-lg border-border/80 bg-background py-1"
-      />
-
-      <Button
-        type="button"
-        onClick={onReplace}
-        disabled={!canReplace}
-        variant="ghost"
-        className={searchActionButtonVariants({ disabled: !canReplace })}
-        compact
-      >
-        Replace
-      </Button>
-      <Button
-        type="button"
-        onClick={onReplaceAll}
-        disabled={!canReplaceAll}
-        variant="ghost"
-        className={searchActionButtonVariants({ disabled: !canReplaceAll })}
-        tooltip={replaceAllTooltip}
-        compact
-      >
-        All
-      </Button>
     </div>
   )
 }

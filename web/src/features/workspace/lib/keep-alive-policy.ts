@@ -92,6 +92,7 @@ export function planRetention(
  * Which workspaces own at least one chat held by a view record. Pure: the
  * caller builds `chatOwner` from the workspace stores that are live.
  */
+/** @internal Exported for unit tests. */
 export function workspacesWithViewChat(
   panes: readonly PaneGroup[],
   chatOwner: ReadonlyMap<string, string>,

@@ -14,6 +14,7 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
@@ -113,6 +114,7 @@ func (stubChatTree) PlaceChat(
 func (stubChatTree) DeleteChat(
 	_ context.Context,
 	_ string,
+	_ domain.DeleteConsent,
 ) (agentusecase.ChatDeletion, error) {
 	return agentusecase.ChatDeletion{}, nil
 }
@@ -164,8 +166,7 @@ func (stubUsecase) IngestHook(
 }
 
 func (stubUsecase) IngestHookDelivery(
-	_ context.Context,
-	_, _, _, _, _ string,
+	_ context.Context, _, _, _, _ string,
 	_ []byte,
 ) error {
 	return nil
@@ -201,6 +202,13 @@ func (stubUsecase) GetChat(
 	id string,
 ) (domain.Chat, error) {
 	return domain.Chat{ID: id}, nil
+}
+
+func (stubUsecase) ChatSnapshot(
+	_ context.Context,
+	id string,
+) (agentusecase.ChatSnapshot, error) {
+	return agentusecase.ChatSnapshot{Chat: domain.Chat{ID: id}, Phase: agentusecase.ChatPhaseDormant}, nil
 }
 
 func (stubUsecase) ReadMessages(
@@ -244,13 +252,6 @@ func (stubUsecase) ConversationsForChat(
 	_ context.Context,
 	_ string,
 ) ([]engineagents.ChatConversation, error) {
-	return nil, nil
-}
-
-func (stubUsecase) PlacementsForChat(
-	_ context.Context,
-	_ string,
-) ([]engineagents.ChatPlacement, error) {
 	return nil, nil
 }
 
@@ -301,10 +302,6 @@ func (stubUsecase) AttachedTerminalSession(_ string) (string, bool) {
 	return "", false
 }
 
-func (stubUsecase) HasLiveAPIConnection(_ string) bool {
-	return false
-}
-
 func (stubUsecase) AssembleHandoff(
 	_ context.Context,
 	_ string,
@@ -349,6 +346,12 @@ func (stubUsecase) Promote(
 	chatID string,
 ) (domain.Chat, error) {
 	return domain.Chat{ID: chatID, WorkspaceID: "ws-promoted"}, nil
+}
+
+func (stubUsecase) DescriptorReports(
+	context.Context,
+) ([]descriptorcheck.Report, error) {
+	return nil, nil
 }
 
 func (stubUsecase) ResolveProviders(

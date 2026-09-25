@@ -39,6 +39,8 @@ func (f *fakeChatUsecase) ListChatsByWorkspace(_ context.Context, workspaceID st
 	return out, nil
 }
 
+func (f *fakeChatUsecase) BackfillChatTypes(context.Context) bool { return true }
+
 func (f *fakeChatUsecase) ListChatsInRepo(context.Context, string) ([]domain.Chat, error) {
 	return append([]domain.Chat{}, f.rows...), nil
 }
@@ -53,6 +55,10 @@ func (f *fakeChatUsecase) GetChat(_ context.Context, id string) (domain.Chat, er
 }
 
 func (f *fakeChatUsecase) MintChat(context.Context, string, string, string) (string, error) {
+	panic("unused")
+}
+
+func (f *fakeChatUsecase) ChatSnapshot(context.Context, string) (agentusecase.ChatSnapshot, error) {
 	panic("unused")
 }
 

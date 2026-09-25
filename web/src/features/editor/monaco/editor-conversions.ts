@@ -1,14 +1,12 @@
 /**
  * Pure conversions between Crowbar editor positions/ranges and Monaco's
- * 1-based positions/ranges, plus diagnostic→marker mapping. Extracted from
- * `monaco-editor.tsx` so both the legacy standalone path and the retained
- * per-pane satellites hook share one implementation.
+ * 1-based positions/ranges, plus diagnostic→marker mapping.
  */
 
 // See the comment in `monaco-diff-editor.tsx`: `editor.api` is the same real
 // singleton as the bare 'monaco-editor' specifier, without eagerly bundling
 // all built-in language contributions.
-import { MarkerSeverity, Range as MonacoRange } from 'monaco-editor/esm/vs/editor/editor.api.js'
+import { MarkerSeverity } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
 import type { Position, Range } from '../types/editor'
 import type { LspDiagnostic } from '../lsp/lsp-client'
@@ -24,30 +22,6 @@ export function toEditorPosition(
   }
 }
 
-export function toMonacoPosition(position: Position): Monaco.IPosition {
-  return {
-    lineNumber: position.line + 1,
-    column: position.column + 1,
-  }
-}
-
-export function clampMonacoPosition(
-  model: Monaco.editor.ITextModel,
-  position: Monaco.IPosition,
-): Monaco.IPosition {
-  const lineNumber = Math.max(1, Math.min(model.getLineCount(), position.lineNumber))
-  const maxColumn = model.getLineMaxColumn(lineNumber)
-  const column = Math.max(1, Math.min(maxColumn, position.column))
-  return { lineNumber, column }
-}
-
-export function toClampedMonacoPosition(
-  model: Monaco.editor.ITextModel,
-  position: Position,
-): Monaco.IPosition {
-  return clampMonacoPosition(model, toMonacoPosition(position))
-}
-
 export function toEditorRange(
   model: Monaco.editor.ITextModel,
   selection: Monaco.Selection,
@@ -59,18 +33,6 @@ export function toEditorRange(
     start: toEditorPosition(model, start),
     end: toEditorPosition(model, end),
   }
-}
-
-export function toMonacoRange(model: Monaco.editor.ITextModel, range: Range): Monaco.Range {
-  let start = toClampedMonacoPosition(model, range.start)
-  let end = toClampedMonacoPosition(model, range.end)
-  if (
-    start.lineNumber > end.lineNumber ||
-    (start.lineNumber === end.lineNumber && start.column > end.column)
-  ) {
-    ;[start, end] = [end, start]
-  }
-  return new MonacoRange(start.lineNumber, start.column, end.lineNumber, end.column)
 }
 
 function severityToMonaco(severity: string): Monaco.MarkerSeverity {

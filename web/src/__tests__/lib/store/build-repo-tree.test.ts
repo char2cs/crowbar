@@ -22,6 +22,7 @@ const repo = (id: string, name: string, over: Partial<RepoDTO> = {}): RepoDTO =>
 })
 
 const ws = (id: string, repoId: string, over: Partial<WorkspaceDTO> = {}): WorkspaceDTO => ({
+  provisioning: 'provisioned',
   id,
   repoId,
   projectId: 'p1',

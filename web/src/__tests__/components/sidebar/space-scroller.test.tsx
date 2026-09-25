@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { SpaceScroller } from '@/components/sidebar/space-scroller'
-import { handleCreateHomeThread } from '@/components/layout/space-content-actions'
+import { handleCreateHomeThread } from '@/components/layout/home-actions'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import {
@@ -46,7 +46,7 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 
 // SpacePanel's ONLY import from this module — mocked wholesale so the
 // thread-button test can assert the call instead of exercising createChat.
-vi.mock('@/components/layout/space-content-actions', () => ({
+vi.mock('@/components/layout/home-actions', () => ({
   handleCreateHomeThread: vi.fn(),
 }))
 
@@ -802,7 +802,7 @@ describe('SpaceScroller', () => {
     })
 
     // Regression, reported live: a create's mint and its placement are two
-    // sequential backend writes (space-content-actions.ts's `waitForHomeChat`
+    // sequential backend writes (home-actions.ts's `waitForHomeChat`
     // own doc), so the REAL row can land in the home tree store — via a
     // reseed racing ahead of the placement write — before its placement is
     // actually correct. Rendering it the instant it merely EXISTS put a

@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { IS_MAC } from '@/utils/platform'
-import { useEditorAppStore } from '@/features/editor/stores/editor-app-store'
+import { saveActiveBuffer, saveAllDirtyBuffers } from '@/features/editor/lib/buffer-save'
 
 /**
  * Registers global save shortcuts:
@@ -17,11 +17,10 @@ export function useSaveKeyboard() {
       if (e.altKey) return
 
       e.preventDefault()
-      const { actions } = useEditorAppStore.getState()
       if (e.shiftKey) {
-        void actions.handleSaveAll()
+        void saveAllDirtyBuffers()
       } else {
-        void actions.handleSave()
+        void saveActiveBuffer()
       }
     }
 

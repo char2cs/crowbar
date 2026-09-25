@@ -113,9 +113,11 @@ func TestServer_NewSpawnsRealProcess(t *testing.T) {
 	t.Setenv("CROWBAR_LSP_HELPER", "1")
 
 	srv, err := New(
+		context.Background(),
 		os.Args[0],
 		[]string{"-test.run=TestHelperProcess"},
 		"",
+		nil,
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = srv.Close() })

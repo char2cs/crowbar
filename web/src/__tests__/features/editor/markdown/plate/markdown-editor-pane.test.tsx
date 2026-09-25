@@ -84,7 +84,7 @@ const bufferStore = vi.hoisted(() => {
 
 // Buffer + write-seam doubles, mocked at the REAL module specifiers so the
 // component under test resolves them exactly as it would in the app.
-const handleContentChange = vi.fn()
+const setBufferContent = vi.fn<(bufferId: string, md: string) => void>()
 vi.mock('@/features/workspace/stores/hooks/use-buffer-store', async () => {
   const { useSyncExternalStore } = await import('react')
   return {
@@ -104,8 +104,8 @@ vi.mock('@/features/workspace/stores/hooks/use-buffer-store', async () => {
     },
   }
 })
-vi.mock('@/features/editor/stores/editor-app-store', () => ({
-  useEditorAppStore: { use: { actions: () => ({ handleContentChange }) } },
+vi.mock('@/features/editor/lib/buffer-save', () => ({
+  setBufferContent: (bufferId: string, md: string) => setBufferContent(bufferId, md),
 }))
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn() },
@@ -154,7 +154,7 @@ vi.mock('platejs/react', async (importOriginal) => {
 })
 
 beforeEach(() => {
-  handleContentChange.mockClear()
+  setBufferContent.mockClear()
   openExternalUrl.mockClear()
   capturedEditor = null
   bufferStore.reset(BUFFER_CONTENT)
@@ -180,7 +180,7 @@ describe('MarkdownEditorPane', () => {
 
     // Selection/cursor-only `onChange` noise and a same-content re-serialize
     // must never write — a pristine flush is a true no-op.
-    expect(handleContentChange).not.toHaveBeenCalled()
+    expect(setBufferContent).not.toHaveBeenCalled()
   })
 
   it('writes the changed content on flush-editor-content after a real edit', async () => {
@@ -191,17 +191,10 @@ describe('MarkdownEditorPane', () => {
     capturedEditor!.children = markdownToPlateValue('# Hello\n\nWorld **changed**.\n')
     window.dispatchEvent(new Event('flush-editor-content'))
 
-    expect(handleContentChange).toHaveBeenCalledTimes(1)
-    const [md, , , , options] = handleContentChange.mock.calls[0] as [
-      string,
-      string | undefined,
-      unknown,
-      unknown,
-      { targetBufferId?: string; skipUndoGrouping?: boolean } | undefined,
-    ]
+    expect(setBufferContent).toHaveBeenCalledTimes(1)
+    const [bufferId, md] = setBufferContent.mock.calls[0]!
     expect(md).toContain('changed')
-    expect(options?.targetBufferId).toBe('b1')
-    expect(options?.skipUndoGrouping).toBe(true)
+    expect(bufferId).toBe('b1')
   })
 
   it('flushes changed content to the correct buffer on unmount', async () => {
@@ -212,16 +205,10 @@ describe('MarkdownEditorPane', () => {
     capturedEditor!.children = markdownToPlateValue('# Hello\n\nWorld **changed**.\n')
     unmount()
 
-    expect(handleContentChange).toHaveBeenCalledTimes(1)
-    const [md, , , , options] = handleContentChange.mock.calls[0] as [
-      string,
-      string | undefined,
-      unknown,
-      unknown,
-      { targetBufferId?: string } | undefined,
-    ]
+    expect(setBufferContent).toHaveBeenCalledTimes(1)
+    const [bufferId, md] = setBufferContent.mock.calls[0]!
     expect(md).toContain('changed')
-    expect(options?.targetBufferId).toBe('b1')
+    expect(bufferId).toBe('b1')
   })
 
   // Regression test for Finding 1 (CRITICAL): opening a pristine file and
@@ -238,7 +225,7 @@ describe('MarkdownEditorPane', () => {
 
     unmount()
 
-    expect(handleContentChange).not.toHaveBeenCalled()
+    expect(setBufferContent).not.toHaveBeenCalled()
   })
 
   // Task 8 (data safety, CRITICAL): frontmatter must never be fed through
@@ -254,8 +241,8 @@ describe('MarkdownEditorPane', () => {
     capturedEditor!.children = markdownToPlateValue('# Hello\n\nWorld **changed**.\n')
     window.dispatchEvent(new Event('flush-editor-content'))
 
-    expect(handleContentChange).toHaveBeenCalledTimes(1)
-    const [md] = handleContentChange.mock.calls[0] as [string]
+    expect(setBufferContent).toHaveBeenCalledTimes(1)
+    const [, md] = setBufferContent.mock.calls[0]!
     expect(
       md.startsWith('---\ntitle: Plate Live Check\ntags: [verification, markdown]\n---\n'),
     ).toBe(true)
@@ -271,7 +258,7 @@ describe('MarkdownEditorPane', () => {
 
     unmount()
 
-    expect(handleContentChange).not.toHaveBeenCalled()
+    expect(setBufferContent).not.toHaveBeenCalled()
   })
 
   // C1 (CRITICAL): `pane-container` renders the active buffer with no `key`, so
@@ -304,15 +291,14 @@ describe('MarkdownEditorPane', () => {
       ] as Value
       window.dispatchEvent(new Event('flush-editor-content'))
 
-      const writesToB2 = handleContentChange.mock.calls.filter(
-        ([, , , , options]) =>
-          (options as { targetBufferId?: string } | undefined)?.targetBufferId === 'b2',
-      ) as [string][]
+      const writesToB2 = setBufferContent.mock.calls
+        .filter(([bufferId]) => bufferId === 'b2')
+        .map(([, md]) => md)
       expect(writesToB2).toHaveLength(1)
-      expect(writesToB2[0][0]).toContain('typed into b2')
-      expect(writesToB2[0][0]).toContain('Second')
+      expect(writesToB2[0]).toContain('typed into b2')
+      expect(writesToB2[0]).toContain('Second')
       // The smoking gun: b1's document reaching b1's neighbour on disk.
-      expect(writesToB2[0][0]).not.toContain('Hello')
+      expect(writesToB2[0]).not.toContain('Hello')
     })
   })
 
@@ -335,7 +321,7 @@ describe('MarkdownEditorPane', () => {
 
       unmount()
 
-      expect(handleContentChange).not.toHaveBeenCalled()
+      expect(setBufferContent).not.toHaveBeenCalled()
     })
 
     it('does not write on mount+unmount of a whitespace-only file', async () => {
@@ -344,7 +330,7 @@ describe('MarkdownEditorPane', () => {
 
       unmount()
 
-      expect(handleContentChange).not.toHaveBeenCalled()
+      expect(setBufferContent).not.toHaveBeenCalled()
     })
 
     // Asserted on `editor.children` rather than on test-env equivalence: the
@@ -361,7 +347,7 @@ describe('MarkdownEditorPane', () => {
       expect(capturedEditor!.children.length).toBeGreaterThan(0)
       // …and flushing that untouched synthesized document still writes nothing.
       window.dispatchEvent(new Event('flush-editor-content'))
-      expect(handleContentChange).not.toHaveBeenCalled()
+      expect(setBufferContent).not.toHaveBeenCalled()
     })
   })
 
@@ -388,7 +374,7 @@ describe('MarkdownEditorPane', () => {
       await screen.findByText('Reloaded')
       window.dispatchEvent(new Event('flush-editor-content'))
 
-      expect(handleContentChange).not.toHaveBeenCalled()
+      expect(setBufferContent).not.toHaveBeenCalled()
     })
 
     it('adopts a new frontmatter block along with the body', async () => {
@@ -405,7 +391,7 @@ describe('MarkdownEditorPane', () => {
       // …and a later edit re-attaches it byte-identically.
       capturedEditor!.children = markdownToPlateValue('# Reloaded\n\nEdited after reload.\n')
       window.dispatchEvent(new Event('flush-editor-content'))
-      const [md] = handleContentChange.mock.calls[0] as [string]
+      const [, md] = setBufferContent.mock.calls[0]!
       expect(md.startsWith('---\ntitle: Checked Out\n---\n')).toBe(true)
       expect(md).toContain('Edited after reload')
     })
@@ -418,8 +404,8 @@ describe('MarkdownEditorPane', () => {
       act(() => bufferStore.setContent('b1', '# Reloaded\n\nFrom disk.\n'))
       window.dispatchEvent(new Event('flush-editor-content'))
 
-      expect(handleContentChange).toHaveBeenCalledTimes(1)
-      const [md] = handleContentChange.mock.calls[0] as [string]
+      expect(setBufferContent).toHaveBeenCalledTimes(1)
+      const [, md] = setBufferContent.mock.calls[0]!
       expect(md).toContain('edited here')
       expect(md).not.toContain('Reloaded')
     })
@@ -430,8 +416,8 @@ describe('MarkdownEditorPane', () => {
 
       capturedEditor!.children = markdownToPlateValue('# Hello\n\nWorld **changed**.\n')
       window.dispatchEvent(new Event('flush-editor-content'))
-      expect(handleContentChange).toHaveBeenCalledTimes(1)
-      const [written] = handleContentChange.mock.calls[0] as [string]
+      expect(setBufferContent).toHaveBeenCalledTimes(1)
+      const [, written] = setBufferContent.mock.calls[0]!
 
       // The store applies our write; the same bytes come back as `content`.
       // Re-parsing them would reset the caret mid-typing, so the document must
@@ -440,7 +426,7 @@ describe('MarkdownEditorPane', () => {
       act(() => bufferStore.setContent('b1', written))
 
       expect(capturedEditor!.children).toBe(childrenBefore)
-      expect(handleContentChange).toHaveBeenCalledTimes(1)
+      expect(setBufferContent).toHaveBeenCalledTimes(1)
     })
   })
 

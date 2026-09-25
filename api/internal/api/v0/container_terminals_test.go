@@ -8,30 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/char2cs/crowbar/api/internal/adapter"
-	"github.com/char2cs/crowbar/api/internal/app"
-	"github.com/char2cs/crowbar/api/internal/engine"
 )
-
-// terminalsTestContainers builds the app + engine containers used by the
-// terminals snapshot test. It mirrors the helper in container_test.go but lives
-// in-package so it can exercise the unexported terminalsSnapshot directly.
-func terminalsTestContainers(
-	t *testing.T,
-) (*app.Container, *engine.Container) {
-	t.Helper()
-	ctx := context.Background()
-	eng, err := engine.New(ctx)
-	require.NoError(t, err)
-	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = adapters.Close() })
-	t.Cleanup(eng.Close)
-	a, err := app.New(ctx, eng, adapters)
-	require.NoError(t, err)
-	return a, eng
-}
 
 // TestTerminalsDef_SnapshotFromEngine proves the lifecycle topic's snapshot is
 // derived from the in-memory engine registry (D6: no terminal_sessions view.db):
@@ -40,7 +17,7 @@ func terminalsTestContainers(
 // /v0/chats/:chatId/terminals route, so that id is what the snapshot is asked
 // for and what comes back on the frame.
 func TestTerminalsDef_SnapshotFromEngine(t *testing.T) {
-	appContainer, engContainer := terminalsTestContainers(t)
+	appContainer, engContainer := newAppAndEngine(t)
 	ctx := context.Background()
 
 	worktree := t.TempDir()

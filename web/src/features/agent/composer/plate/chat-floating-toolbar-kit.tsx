@@ -1,6 +1,12 @@
 'use client'
 
-import { BoldIcon, Code2Icon, ItalicIcon, StrikethroughIcon, UnderlineIcon } from 'lucide-react'
+import {
+  CodeIcon,
+  TextBIcon,
+  TextItalicIcon,
+  TextStrikethroughIcon,
+  TextUnderlineIcon,
+} from '@phosphor-icons/react'
 import { KEYS } from 'platejs'
 import { createPlatePlugin } from 'platejs/react'
 
@@ -28,19 +34,19 @@ export const ChatFloatingToolbarKit = [
         <FloatingToolbar>
           <ToolbarGroup>
             <MarkToolbarButton nodeType={KEYS.bold} tooltip="Bold (⌘+B)">
-              <BoldIcon />
+              <TextBIcon />
             </MarkToolbarButton>
             <MarkToolbarButton nodeType={KEYS.italic} tooltip="Italic (⌘+I)">
-              <ItalicIcon />
+              <TextItalicIcon />
             </MarkToolbarButton>
             <MarkToolbarButton nodeType={KEYS.underline} tooltip="Underline (⌘+U)">
-              <UnderlineIcon />
+              <TextUnderlineIcon />
             </MarkToolbarButton>
             <MarkToolbarButton nodeType={KEYS.strikethrough} tooltip="Strikethrough (⌘+⇧+M)">
-              <StrikethroughIcon />
+              <TextStrikethroughIcon />
             </MarkToolbarButton>
             <MarkToolbarButton nodeType={KEYS.code} tooltip="Code (⌘+E)">
-              <Code2Icon />
+              <CodeIcon />
             </MarkToolbarButton>
             <LinkToolbarButton />
           </ToolbarGroup>

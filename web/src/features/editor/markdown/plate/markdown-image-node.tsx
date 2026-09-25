@@ -43,19 +43,17 @@ export function useResolvedImageSrc(url: string): string {
   const [resolvedSrc, setResolvedSrc] = useState(url)
 
   useEffect(() => {
-    let cancelled = false
     if (!asset) {
       setResolvedSrc(url)
       return
     }
-    void loadLocalImage(asset, url).then((data) => {
+    const controller = new AbortController()
+    void loadLocalImage(asset, url, controller.signal).then((data) => {
       // `data` is a data: URL for a resolvable local image, or null for a
       // remote/`data:`/unresolvable src — in which case the original loads fine.
-      if (!cancelled) setResolvedSrc(data ?? url)
+      if (!controller.signal.aborted) setResolvedSrc(data ?? url)
     })
-    return () => {
-      cancelled = true
-    }
+    return () => controller.abort()
   }, [asset, url])
 
   return resolvedSrc

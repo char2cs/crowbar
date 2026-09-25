@@ -6,6 +6,7 @@ import {
   getWorkspaceScope,
   setWorkspaceScope,
   __resetWorkspaceScopesForTest,
+  bindActiveWorkspaceId,
 } from '@/lib/workspace-scope'
 
 // Regression: the placeholder row's Retry/Detach… actions call workspaceBase(),
@@ -57,11 +58,16 @@ test("setRepos records the default workspace's owning chat off the repo, not onl
 })
 
 test('recording scopes from sidebar data does not steal the active workspace', () => {
-  setWorkspaceScope({ projectId: 'proj-1', repoId: 'repo-1', wsId: 'ws-active' })
-  useSidebarStore.getState().setRepos(REPOS)
-  // getWorkspaceScope() with no id resolves the ACTIVE workspace — it must
-  // still be the route-recorded one, not whatever the sidebar loaded last.
-  expect(getWorkspaceScope()?.wsId).toBe('ws-active')
+  bindActiveWorkspaceId(() => 'ws-active')
+  try {
+    setWorkspaceScope({ projectId: 'proj-1', repoId: 'repo-1', wsId: 'ws-active' })
+    useSidebarStore.getState().setRepos(REPOS)
+    // getWorkspaceScope() with no id resolves the ACTIVE workspace — the
+    // registry's one id, never whatever the sidebar recorded last.
+    expect(getWorkspaceScope()?.wsId).toBe('ws-active')
+  } finally {
+    bindActiveWorkspaceId(() => null)
+  }
 })
 
 test('setRepos skips repos with no projectId (no URL can be built anyway)', () => {
@@ -87,6 +93,7 @@ test('mergeRepos records scopes for appended repos and workspaces', () => {
 test('applyWorkspaceDTO records the scope of an upserted workspace', () => {
   useSidebarStore.getState().setRepos(REPOS)
   const dto: WorkspaceDTO = {
+    provisioning: 'provisioned',
     id: 'ws-dto',
     repoId: 'repo-1',
     projectId: 'proj-1',
@@ -112,4 +119,24 @@ test('applyWorkspaceDTO records the scope of an upserted workspace', () => {
     repoId: 'repo-1',
     wsId: 'ws-dto',
   })
+})
+
+// A deleted workspace's owning chat is gone: its scope goes with it, so
+// chat-scoped consumers (the LSP diagnostics socket) stop instead of
+// reconnecting against a 404.
+test("a workspace tombstone forgets that workspace's scope", () => {
+  useSidebarStore.getState().setRepos(REPOS)
+  const tombstone = { id: 'ws-main', repoId: 'repo-1', projectId: 'proj-1', status: 'deleted' }
+  useSidebarStore.getState().applyWorkspaceDTO(tombstone as WorkspaceDTO)
+  expect(getWorkspaceScope('ws-main')).toBeNull()
+  expect(getWorkspaceScope('ws-placeholder')).not.toBeNull()
+})
+
+test("removing a deleted repo forgets every one of its workspaces' scopes", () => {
+  useSidebarStore.getState().setRepos(REPOS)
+  useSidebarStore.getState().removeRepo('repo-1')
+  expect(useSidebarStore.getState().repos).toEqual([])
+  for (const wsId of ['ws-main', 'ws-placeholder', 'ws-home']) {
+    expect(getWorkspaceScope(wsId)).toBeNull()
+  }
 })

@@ -1,51 +1,54 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { getChatTelemetry, type AgentTelemetry } from '@/features/agent/api/agent-api'
-
-/** How often the provider's own report is re-read.
- *
- *  It is change-driven at the source — measured at roughly one report per turn,
- *  and two across a minute of idle — so this only has to be often enough that a
- *  gauge is not stale after a turn ends. */
-const POLL_MS = 5000
+import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
+import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 
 /**
  * The provider's own report of context, cost and rate limits.
  *
- * Read ONCE per chat and shared, because two consumers want it: the gauge under
- * the composer, and the composer itself when a usage limit is what stopped the
- * turn. Nothing here is ever derived — a fresh session legitimately reports no
- * usage, because it is null until the first turn completes, and a confident 0%
- * there would be a lie.
+ * PUSHED, never polled: the daemon publishes every report on the chat feed as
+ * it lands (the `telemetry` frame, about once a turn), and the stream writes it
+ * into the workspace store. This hook reads that entry, and asks the daemon
+ * ONCE — when the chat first becomes visible, or its surface changes — for the
+ * report it already holds, because a chat that reported before this client
+ * subscribed has no frame coming.
+ *
+ * Read by two consumers (the gauge and the composer, when a usage limit is what
+ * stopped the turn). Nothing here is derived — a fresh session legitimately
+ * reports no usage, and a confident 0% there would be a lie.
  */
-export function useAgentTelemetry(wsId: string, chatId: string, visible: boolean) {
-  const [telemetry, setTelemetry] = useState<AgentTelemetry | null>(null)
+export function useAgentTelemetry(
+  wsId: string,
+  chatId: string,
+  visible: boolean,
+): AgentTelemetry | null {
+  const telemetry = useWorkspaceStoreById(wsId, (s) => s.agentChats.telemetry[chatId] ?? null)
+  // The surface decides whether the chat carries a report at all, so a switch
+  // is the one moment the held answer can be stale without a frame saying so.
+  const surface = useWorkspaceStoreById(
+    wsId,
+    (s) => s.agentChats.chats.find((c) => c.id === chatId)?.surface ?? '',
+  )
+  const readFor = useRef<string | null>(null)
 
-  // Read by two independent consumers (the gauge and the composer, per the doc
-  // comment above) rather than owned by one component that could key-remount on
-  // chatId, so there is no caller-side key to replace this with.
   useEffect(() => {
-    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
-    setTelemetry(null)
-  }, [chatId])
-
-  useEffect(() => {
-    if (!visible) return
+    const key = `${chatId}\u0000${surface}`
+    if (!visible || readFor.current === key) return
+    readFor.current = key
     const controller = new AbortController()
     const read = async () => {
       try {
-        setTelemetry(await getChatTelemetry(wsId, chatId, controller.signal))
+        const report = await getChatTelemetry(wsId, chatId, controller.signal)
+        getOrCreateWorkspaceStore(wsId).getState().setAgentChatTelemetry(chatId, report)
       } catch {
-        // A telemetry read that fails leaves the last good gauge standing. It is
-        // an indicator, not the conversation.
+        // A failed read leaves the last good gauge standing. It is an
+        // indicator, not the conversation.
+        if (readFor.current === key) readFor.current = null
       }
     }
     void read()
-    const timer = setInterval(() => void read(), POLL_MS)
-    return () => {
-      clearInterval(timer)
-      controller.abort()
-    }
-  }, [wsId, chatId, visible])
+    return () => controller.abort()
+  }, [wsId, chatId, visible, surface])
 
   return telemetry
 }

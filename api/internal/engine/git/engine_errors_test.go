@@ -46,7 +46,7 @@ func TestSwitchBranch_UnknownName_ReturnsUnclassifiedError(t *testing.T) {
 	err := e.SwitchBranch(ctx, dir, "no-such-branch")
 
 	require.Error(t, err)
-	assert.False(t, errors.Is(err, git.ErrBranchNotFound), "exit-1 checkout failures are not classified as ErrBranchNotFound today")
+	assert.NotErrorIs(t, err, git.ErrBranchNotFound, "exit-1 checkout failures are not classified as ErrBranchNotFound today")
 }
 
 // TestReclassifyError_NonGitErrorPassesThrough is a white-box test (via

@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,12 +29,9 @@ func TestNewEventStore_InvalidPath_ReturnsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestNewEventStore_ReadonlyDB_JournalModeError covers the PRAGMA
-// journal_mode=WAL error branch: create a valid sqlite file, then strip
-// write permission from both the file and its parent directory so the PRAGMA
-// (which needs to write the WAL header) fails while gorm.Open itself still
-// succeeds.
-func TestNewEventStore_ReadonlyDB_JournalModeError(t *testing.T) {
+// TestNewEventStore_ReadonlyDB_FailsToOpen: a store whose file and directory
+// cannot be written refuses to open instead of serving a log it cannot append to.
+func TestNewEventStore_ReadonlyDB_FailsToOpen(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("running as root; permission denial has no effect")
 	}
@@ -56,7 +52,7 @@ func TestNewEventStore_ReadonlyDB_JournalModeError(t *testing.T) {
 
 	_, err = NewEventStore(path)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "journal_mode")
+	assert.Contains(t, err.Error(), "readonly database")
 }
 
 func TestEventStore_Append_ThenReadFrom(t *testing.T) {
@@ -75,7 +71,7 @@ func TestEventStore_Append_VersionConflict(t *testing.T) {
 	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("first")))
 	err := s.Append(ctx, "agg-1", 1, []byte("dup"))
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, models.ErrPipelineFailed))
+	assert.ErrorIs(t, err, models.ErrPipelineFailed)
 }
 
 func TestEventStore_ReadFrom_Offset(t *testing.T) {

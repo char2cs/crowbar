@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -57,16 +58,6 @@ func newStopTestTurns(t *testing.T) (*Turns, *fakeStopActivity, *inflight.Turns)
 		InflightTurns: inflightTurns,
 	})
 	return turns, activity, inflightTurns
-}
-
-func TestRecordStop_NoOpWhenTheChatIsIdle(t *testing.T) {
-	turns, activity, _ := newStopTestTurns(t)
-
-	err := turns.RecordStop(context.Background(), "chat-1", "runner-1")
-
-	require.NoError(t, err)
-	assert.Empty(t, activity.interrupts, "an idle chat has no turn to interrupt — StopChat closing a chat tab must stay silent")
-	assert.Empty(t, activity.resolves)
 }
 
 func TestRecordStop_RecordsAndResolvesAStoppedInterruption_WhenATurnIsInFlight(t *testing.T) {
@@ -145,4 +136,42 @@ func TestRegression_RecordStopWaitsForAnInFlightHookOnTheSameRunner(t *testing.T
 		"RecordStop must wait for runner-1's own in-flight hook to release its gate before touching "+
 			"the activity ledger, or it can anchor the Interrupted divider to state that hook was about "+
 			"to supersede")
+}
+
+// P0-8, the hook side: a hook opening a turn publishes its StartTurn — the
+// chat reads as working — before it sets the in-flight registry and the work
+// mirror. A Stop that read the mirrors in that gap saw an idle chat, retired
+// the runner and recorded no divider. TurnOpen must wait for that ingest.
+func TestRegression_TurnOpenWaitsForAHookThatIsOpeningTheTurn(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		work := inflight.NewWork()
+		inflightTurns := inflight.NewTurns()
+		turns := New(Deps{Activity: &fakeStopActivity{}, InflightTurns: inflightTurns, Work: work})
+		work.Set("chat-1", false) // as the spawn records it
+
+		// The hook is admitted and its StartTurn is durable; its mirrors are not set yet.
+		releaseHook := turns.hookGates.Lock("runner-1")
+
+		var open bool
+		read := make(chan struct{})
+		go func() {
+			defer close(read)
+			var err error
+			open, err = turns.TurnOpen(context.Background(), "chat-1", "runner-1")
+			assert.NoError(t, err)
+		}()
+		synctest.Wait()
+		select {
+		case <-read:
+			t.Fatal("TurnOpen answered while a hook was mid-way through opening the turn")
+		default:
+		}
+
+		work.Set("chat-1", true)
+		inflightTurns.Begin("runner-1", "chat-1")
+		releaseHook()
+		<-read
+
+		assert.True(t, open, "the turn the hook opened is the one Stop cuts short")
+	})
 }

@@ -1,21 +1,21 @@
 import { Toast } from '@base-ui/react/toast'
 import {
-  CircleAlertIcon,
-  CircleCheckIcon,
+  CheckCircleIcon,
+  CircleNotchIcon,
   InfoIcon,
-  LoaderCircleIcon,
-  TriangleAlertIcon,
-} from 'lucide-react'
+  WarningCircleIcon,
+  WarningIcon,
+} from '@phosphor-icons/react'
 import type React from 'react'
 import { cn } from '@/lib/utils'
 import { buttonVariants } from '@/components/ui/button-variants'
 
 const TOAST_ICONS = {
-  error: CircleAlertIcon,
+  error: WarningCircleIcon,
   info: InfoIcon,
-  loading: LoaderCircleIcon,
-  success: CircleCheckIcon,
-  warning: TriangleAlertIcon,
+  loading: CircleNotchIcon,
+  success: CheckCircleIcon,
+  warning: WarningIcon,
 } as const
 
 type ToastData = {

@@ -93,6 +93,7 @@ func (stubHierarchy) Reparent(
 func (stubHierarchy) DeleteCascade(
 	_ context.Context,
 	_ string,
+	_ domain.DeleteConsent,
 ) error {
 	return nil
 }

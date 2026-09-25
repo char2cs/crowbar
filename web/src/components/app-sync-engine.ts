@@ -55,12 +55,6 @@ import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
  */
 export const SUBSCRIPTION_GRACE_MS = 2000
 const REBUILD_BATCH_MS = 16
-/** How many times a rebuild whose read lost to a newer fetch will try again
- *  before leaving its claimed repos to the next reseed or frame. Two is enough
- *  for a real supersede — the winning read settles — and small enough that a
- *  store wedged in `loading` costs a handful of reads, not a permanent loop. */
-const MAX_SUPERSEDED_RETRIES = 2
-
 const KEY_SEP = '|'
 /** One project's home-workspace tree rows (chats + folders) — open for every
  *  VISIBLE project: a project's home row has to render exactly as reliably
@@ -109,25 +103,21 @@ export function useAppSyncEngine(): void {
     let rebuildInFlight = false
     let rebuildQueued = false
     /**
-     * Repos whose chats have been written to the cache but whose rows are not
-     * in the STORE yet.
+     * Daemon answers written to the cache whose rows are not in the STORE yet,
+     * each with the mark to publish once they are (keyed `kind|id`).
      *
-     * The distance between those two is the whole reason this exists.
-     * `openRepoTreeSubscription` writes IndexedDB and then only ARMS a
-     * rebuild — `scheduleRebuild`'s 16ms timer, then an `await` on the
-     * workspace list — so announcing "this repo's tree has been read" at the
-     * moment the fetch resolved would open the gate while `repos` still held
-     * the PRE-seed chats. `SidebarTreeSurface` re-rendering in that window
-     * would ask `rows-from-repo.ts` to identify a branch row out of chats
-     * that carry no `type` at all, which throws in render — and on a first
-     * load after this ships, EVERY cached chat predates that field.
+     * A seed writes IndexedDB and only ARMS a rebuild, so marking "read" when
+     * the fetch resolved would let readers act on the PRE-seed rows: the tree
+     * would draw branch rows from untyped chats (a throw in render), and a
+     * route guard would call a workspace gone that is merely not drawn yet.
      */
-    const seededPendingRebuild = new Set<string>()
-    /** Consecutive rebuilds whose read lost to a newer fetch, so the retry
-     *  below can never become a permanent 16ms loop. Reset by any rebuild that
-     *  actually opens something. */
-    let supersededRetries = 0
-
+    const pendingMarks = new Map<string, () => void>()
+    function markAfterRebuild(key: string, mark: () => void): void {
+      pendingMarks.set(key, mark)
+      scheduleRebuild()
+    }
+    /** Per repo, its tree read in flight: what the cache will hold once it lands. */
+    const treeReads = new Map<string, Promise<void>>()
     async function rebuildSidebar(): Promise<void> {
       if (rebuildInFlight) {
         rebuildQueued = true
@@ -143,76 +133,25 @@ export function useAppSyncEngine(): void {
       // throw-in-render this queue exists to prevent, one await narrower. It
       // stays pending instead, for the follow-up `scheduleRebuild` its own
       // reseed already armed.
-      const claimed = [...seededPendingRebuild]
-      // The snapshot this rebuild starts from, so a FRESH one can be told apart
-      // from it afterwards. Taken here rather than derived later because
-      // nothing else can distinguish them: `success(old)` and `success(new)`
-      // are the same shape, and only object identity says which one the read
-      // actually produced. Safe to compare against everything that lands after
-      // this line — `fetch()` bumps `latestFetch` synchronously, and
-      // loadable-slice re-checks it on BOTH sides of its cache write, so every
-      // older in-flight fetch is barred from publishing. Drop the check after
-      // that write and this gate silently reads a pre-claim snapshot as a
-      // brand-new one.
+      const claimed = [...pendingMarks]
+      // A read that settles with a snapshot other than this one was published
+      // after the claim; `success(old)` and `success(new)` differ only by identity.
       const before = useWorkspaceListStore.getState().data
       await useWorkspaceListStore.getState().fetch()
-      let opened = false
-      let awaitingNewerRead = false
       if (!disposed) {
         const loaded = useWorkspaceListStore.getState().data
         const repos = dataOf(loaded)
         if (repos) useSidebarStore.getState().setRepos(repos)
-        // A read that BOTH settled and moved is the other half of the claim.
-        //
-        // `fetch` returns early whenever a newer caller supersedes it
-        // (loadable-slice's `latestFetch` guard — main.tsx's boot hydration
-        // and events/connect's `workspace:updated` both call it), and it can do so
-        // at two different points. Give up after its own read and it has
-        // already published `loading`, whose `dataOf` is the previous snapshot.
-        // But give up in the earlier check, inside `loadCache`, and it
-        // publishes NOTHING — the store still holds the `success(old)` it held
-        // before we started waiting, which predates the write this claim was
-        // taken for. Status alone cannot see that; identity can.
-        //
-        // `loaded !== before` therefore means some read that began after the
-        // claim published this, and `success` means it finished. Neither is
-        // sufficient alone.
+        // fetch() settles with the newest read, so anything but a fresh success
+        // (an error) leaves the claim pending for the next reseed or frame.
         if (loaded !== before && loaded.status === 'success' && repos) {
-          const seeded = useFolderSignalStore.getState().markTreeSeeded
-          for (const repoId of claimed) {
-            seeded(repoId)
-            seededPendingRebuild.delete(repoId)
+          for (const [key, mark] of claimed) {
+            mark()
+            if (pendingMarks.get(key) === mark) pendingMarks.delete(key)
           }
-          opened = true
-        } else {
-          // Both ways a supersede leaves the store, and only these: a newer
-          // read is on its way and has yet to publish anything of its own.
-          awaitingNewerRead =
-            loaded.status === 'loading' || (loaded === before && loaded.status === 'success')
         }
       }
       rebuildInFlight = false
-      // Nothing else republishes what a losing read dropped: the fetch that
-      // superseded ours writes the store's data but never calls `setRepos`, and
-      // a claim taken BEFORE this rebuild started has no follow-up of its own
-      // armed (one taken during it does — its own `scheduleRebuild` set
-      // `rebuildQueued`). Without this, those repos would sit unopened, drawing
-      // no rows, until some unrelated frame happened to rebuild.
-      //
-      // Only a supersede, and only a few times. A newer read resolves itself,
-      // so trying again reaches it; `error` and `idle` can persist, and
-      // retrying into either is a 16ms spin. Those ids stay pending instead
-      // and ride the next reseed or frame out.
-      if (!opened && claimed.length > 0) {
-        if (awaitingNewerRead) {
-          if (supersededRetries < MAX_SUPERSEDED_RETRIES) {
-            supersededRetries++
-            rebuildQueued = true
-          }
-        }
-      } else if (opened) {
-        supersededRetries = 0
-      }
       // A seed that landed while IndexedDB was being read may not be present in
       // that snapshot. Run one debounced follow-up, never one fetch per seed.
       if (rebuildQueued && !disposed) scheduleRebuild()
@@ -231,7 +170,7 @@ export function useAppSyncEngine(): void {
 
     // -- incremental merge, keyed by the frame's entity id -----------------
 
-    function onReposChange(change: EntityChange): void {
+    function onReposChange(projectId: string, change: EntityChange): void {
       if (disposed) return
       if (change.kind === 'seed') {
         // A seed is authoritative over the project's whole repo set (it prunes
@@ -240,16 +179,28 @@ export function useAppSyncEngine(): void {
         reconcile()
         return
       }
-      // A tombstone removes a repo and everything under it — again a rebuild.
-      if (change.frame.status !== 'deleted') {
+      const repoId = change.frame.id
+      if (change.frame.status === 'deleted') {
+        // Its scope is gone on the daemon: drop the row and close the repo's
+        // streams now, without the grace period, or every cascade frame
+        // reseeds a 404. The rebuild prunes whatever the row carried.
+        useSidebarStore.getState().removeRepo(repoId)
+        closeNow(workspacesKey(projectId, repoId))
+        closeNow(treeKey(projectId, repoId))
+      } else {
         // A repo we have never seen (a fresh import) is appended straight away
         // so its row appears without waiting on an IndexedDB round trip; its
         // workspaces arrive on the per-repo stream reconcile() opens below.
         // For a repo we already hold this is a no-op, and the rebuild below
         // carries its changed header fields (name, avatar, path).
-        useSidebarStore
-          .getState()
-          .mergeRepos([toSidebarRepo(change.frame as unknown as RepoDTO, [])])
+        const row = toSidebarRepo(change.frame as unknown as RepoDTO, [])
+        useSidebarStore.getState().mergeRepos([row])
+        // The delete is announced before its cascade tombstones the repo's
+        // chats: stop reading a scope that is going away.
+        if (row.deleting) {
+          closeNow(workspacesKey(projectId, repoId))
+          closeNow(treeKey(projectId, repoId))
+        }
       }
       scheduleRebuild()
       reconcile()
@@ -259,10 +210,6 @@ export function useAppSyncEngine(): void {
       if (disposed) return
       if (change.kind === 'seed') {
         scheduleRebuild()
-        // A repo that was seeded only because it had never been (see
-        // desiredKeys' neverSeededWorkspaces) may now be collapsed AND
-        // already seeded — reconcile so its subscription can close on this
-        // same tick rather than waiting on some unrelated store mutation.
         reconcile()
         return
       }
@@ -331,11 +278,16 @@ export function useAppSyncEngine(): void {
         if (!live()) return
         const fresh = new Set(items.map((item) => item.id))
         const stale: string[] = []
+        const known = new Map<string, string>()
         for (const row of cached) {
           if (row.repoId === repoId && !fresh.has(row.id)) stale.push(row.id)
+          if (fresh.has(row.id)) known.set(row.id, JSON.stringify(row))
         }
+        // Only rows that actually changed are written: a warm boot reseeds
+        // every visible repo with exactly what the cache already holds.
+        const changed = items.filter((item) => known.get(item.id) !== JSON.stringify(item))
         await Promise.all(stale.map((id) => removeEntity(store, id)))
-        await Promise.all(items.map((item) => upsertEntity(store, item)))
+        await Promise.all(changed.map((item) => upsertEntity(store, item)))
       }
 
       /**
@@ -356,7 +308,8 @@ export function useAppSyncEngine(): void {
           await replaceRepoScope(store, items, live)
           return live()
         } catch (err) {
-          console.error(`app-sync-provider: ${label} reseed failed for repo ${repoId}`, err)
+          if (live())
+            console.error(`app-sync-provider: ${label} reseed failed for repo ${repoId}`, err)
           return false
         }
       }
@@ -368,15 +321,14 @@ export function useAppSyncEngine(): void {
           reseedHalf('chats', 'crowbar_chats', () => fetchRepoChats(projectId, repoId), live),
         ])
         const [, chatsWrote] = wrote
-        // QUEUED, not announced. The chat list is in the CACHE now, which is
-        // not where the sidebar reads rows from — `rebuildSidebar` opens the
-        // gate once these rows are actually in the store (see
-        // `seededPendingRebuild`). Keyed on the CHATS half alone: a workspace's
-        // row is identified by the chat that owns it, and a folders-only
-        // success answers nothing about that. A failed read queues nothing and
-        // is retried on the next signal, rather than publishing a list the
-        // daemon never confirmed.
-        if (chatsWrote && live()) seededPendingRebuild.add(repoId)
+        // Marked once these rows are in the store (see `pendingMarks`). Keyed on
+        // the CHATS half alone: a workspace's row is identified by the chat
+        // that owns it, and a folders-only success answers nothing about that.
+        if (chatsWrote && live()) {
+          markAfterRebuild(`tree${KEY_SEP}${repoId}`, () =>
+            useFolderSignalStore.getState().markTreeSeeded(repoId),
+          )
+        }
         if (wrote.some(Boolean) && live()) scheduleRebuild()
       }
 
@@ -385,13 +337,16 @@ export function useAppSyncEngine(): void {
           rerun = true
           return
         }
-        inFlight = readTree().finally(() => {
+        const read = readTree().finally(() => {
           inFlight = null
+          if (treeReads.get(repoId) === read) treeReads.delete(repoId)
           if (rerun && !disposed && !closed) {
             rerun = false
             reseed()
           }
         })
+        inFlight = read
+        treeReads.set(repoId, read)
       }
 
       reseed()
@@ -453,6 +408,10 @@ export function useAppSyncEngine(): void {
     ): Promise<void> {
       const owners = rows.map((ws) => ws.owningChatId).filter((id): id is string => !!id)
       if (owners.length === 0) return
+      // A tree read in flight is the list the cache is about to hold (on a
+      // cold boot it was sent alongside this seed); judge against that.
+      await treeReads.get(repoId)
+      if (disposed) return
       const cached = await getAllEntities<{ id: string; repoId: string }>('crowbar_chats')
       if (disposed) return
       const listed = new Set<string>()
@@ -469,7 +428,14 @@ export function useAppSyncEngine(): void {
           endpoint: `/v0/projects/${projectId}/repos`,
           store: 'crowbar_repos',
           seed: () => fetchRepos(projectId),
-          onChange: onReposChange,
+          onChange: (change) => {
+            if (change.kind === 'seed' && !disposed) {
+              markAfterRebuild(`repos${KEY_SEP}${projectId}`, () =>
+                useFolderSignalStore.getState().markRepoListSeeded(projectId),
+              )
+            }
+            onReposChange(projectId, change)
+          },
           // Authoritative over THIS project's repos only — crowbar_repos holds
           // other projects' repos too, cached for an instant return.
           pruneScope: (repo) => repo.projectId === projectId,
@@ -498,16 +464,19 @@ export function useAppSyncEngine(): void {
         store: 'crowbar_workspaces',
         seed: async () => {
           const rows = await fetchWorkspaces(projectId, repoId)
-          // AFTER a successful fetch, not before: desiredKeys' own
-          // neverSeededWorkspaces bypass must keep applying for every
-          // attempt until one actually lands.
-          useFolderSignalStore.getState().markWorkspacesSeeded(repoId)
           await reseedChatsForUnlistedOwners(repoId, rows)
           return rows
         },
         mapFrame: (raw) => workspaceDTOFromWorktreeFrame(raw, projectId, repoId),
         shouldReseed: isStructuralChatFolderFrame,
-        onChange: onWorkspacesChange,
+        onChange: (change) => {
+          if (change.kind === 'seed' && !disposed) {
+            markAfterRebuild(`workspaces${KEY_SEP}${repoId}`, () =>
+              useFolderSignalStore.getState().markWorkspacesSeeded(repoId),
+            )
+          }
+          onWorkspacesChange(change)
+        },
         // Authoritative over THIS repo's workspaces only — crowbar_workspaces
         // also holds every other repo's rows; pruning the whole store would
         // wipe sibling repos on each reseed.
@@ -559,26 +528,33 @@ export function useAppSyncEngine(): void {
       const { repos } = useSidebarStore.getState()
       for (const repo of repos) {
         const projectId = repo.projectId
-        if (!projectId || !visibleProjects.has(projectId)) continue
+        if (!projectId || !visibleProjects.has(projectId) || repo.deleting) continue
         keys.add(workspacesKey(projectId, repo.id))
         keys.add(treeKey(projectId, repo.id))
       }
       return keys
     }
 
-    // Cheap guard: reconcile() is called from every project- and sidebar-store
-    // mutation (so a newly seeded repo immediately gets its workspace stream),
-    // and the overwhelming majority of those leave the desired set untouched.
-    let lastSignature: string | null = null
-    let lastDesired = new Set<string>()
+    // Cheap guard: reconcile() runs whenever the inputs of desiredKeys() move
+    // (so a newly seeded repo immediately gets its workspace stream), and most
+    // of those leave the desired set untouched — compared as sets, with no
+    // sort/join per call.
+    let lastDesired: Set<string> | null = null
 
     function reconcile(): void {
       if (disposed) return
       const desired = desiredKeys()
-      const signature = [...desired].sort().join('\n')
-      if (signature === lastSignature) return
-      lastSignature = signature
-      const isOpening = [...desired].some((key) => !lastDesired.has(key))
+      const previous = lastDesired
+      let isOpening = previous === null
+      if (previous) {
+        for (const key of desired) {
+          if (!previous.has(key)) {
+            isOpening = true
+            break
+          }
+        }
+        if (!isOpening && desired.size === previous.size) return
+      }
       lastDesired = desired
 
       for (const key of [...subscriptions.keys()]) {
@@ -600,8 +576,10 @@ export function useAppSyncEngine(): void {
       // 2. Project list: GET seed + live WS stream. Always on — it is one
       //    stream over a handful of rows, and it is what every project's
       //    row is drawn from.
-      void useProjectDataStore.getState().fetch()
+      //    Live first, so a read the root route's guard already has in flight
+      //    is joined rather than repeated (frames replay onto its answer).
       rootUnsubscribes.push(useProjectDataStore.getState().startSync())
+      void useProjectDataStore.getState().fetch()
 
       // 3. Per-project / per-repo streams for whatever is visible. The provider
       //    mounts at the root BEFORE any project exists (fresh start / OOBE), so
@@ -617,9 +595,23 @@ export function useAppSyncEngine(): void {
       //    guard keeps the extra wake-ups free.
       scheduleRebuild()
       reconcile()
-      rootUnsubscribes.push(useProjectStore.subscribe(reconcile))
-      rootUnsubscribes.push(useProjectDataStore.subscribe(reconcile))
-      rootUnsubscribes.push(useSidebarStore.subscribe(reconcile))
+      // Narrow: only the fields desiredKeys() reads wake it — not every
+      // sidebar write (selection, drag, working flags, per-frame rows).
+      rootUnsubscribes.push(
+        useProjectStore.subscribe((s, prev) => {
+          if (s.activeProjectId !== prev.activeProjectId) reconcile()
+        }),
+      )
+      rootUnsubscribes.push(
+        useProjectDataStore.subscribe((s, prev) => {
+          if (s.data !== prev.data) reconcile()
+        }),
+      )
+      rootUnsubscribes.push(
+        useSidebarStore.subscribe((s, prev) => {
+          if (s.repos !== prev.repos) reconcile()
+        }),
+      )
     }
 
     void start()

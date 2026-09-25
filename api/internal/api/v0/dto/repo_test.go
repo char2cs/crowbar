@@ -100,7 +100,7 @@ func TestRepoDTOListEmptyNonNil(
 ) {
 	got := dto.RepoDTOList(nil, nil)
 	require.NotNil(t, got)
-	assert.Len(t, got, 0)
+	assert.Empty(t, got)
 }
 
 func TestRepoDTOList(

@@ -3,7 +3,7 @@
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { mergeProps } from '@base-ui/react/merge-props'
 import { useRender } from '@base-ui/react/use-render'
-import { XIcon } from 'lucide-react'
+import { XIcon } from '@phosphor-icons/react'
 import type React from 'react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -168,7 +168,7 @@ export function DialogDescription({
 // Higher-level dialog used by Crowbar feature modules.
 // Accepts title, icon, footer, size, onClose, classNames props.
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- icon components from several libraries with unrelated prop types
 type AppDialogIconComponent = React.ComponentType<any>
 
 interface AppDialogProps {

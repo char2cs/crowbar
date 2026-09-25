@@ -5,7 +5,6 @@ import { useShallow } from 'zustand/react/shallow'
 import { EditorStatusActions } from '@/features/editor/components/toolbar/editor-status-actions'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { hasTextContent } from '@/features/panes/types/pane-content'
-import { useUIState } from '@/features/window/stores/ui-state-store'
 import { useExtensionActions } from '@/extensions/ui/hooks/use-extension-actions'
 import { ExtensionToolbarAction } from '@/extensions/ui/components/extension-toolbar-action'
 import { useSettingsStore } from '@/features/settings/store'
@@ -26,6 +25,8 @@ export interface BreadcrumbProps {
   showDefaultActions?: boolean
   interactive?: boolean
   showPath?: boolean
+  /** Opens the editor's find widget; the search button shows only when set. */
+  onFind?: () => void
 }
 
 export default function Breadcrumb({
@@ -38,6 +39,7 @@ export default function Breadcrumb({
   showDefaultActions = true,
   interactive = true,
   showPath = true,
+  onFind,
 }: BreadcrumbProps = {}) {
   const resolvedBufferId = useStore(
     windowPaneStore,
@@ -62,17 +64,7 @@ export default function Breadcrumb({
     }),
   )
   const showBreadcrumbPath = useSettingsStore((state) => state.settings.coreFeatures.breadcrumbs)
-  const { isFindVisible, setIsFindVisible } = useUIState(
-    useShallow((state) => ({
-      isFindVisible: state.isFindVisible,
-      setIsFindVisible: state.setIsFindVisible,
-    })),
-  )
   const extensionActions = useExtensionActions()
-
-  const handleSearchClick = () => {
-    setIsFindVisible(!isFindVisible)
-  }
 
   const isMarkdownFile = () => {
     if (!activeBuffer || !activeBuffer.path) return false
@@ -142,9 +134,7 @@ export default function Breadcrumb({
   }
 
   const filePath = filePathOverride ?? activeBuffer?.path ?? ''
-  const onSearchClick = handleSearchClick
   if (!filePath) return null
-  const isLocalHistorySnapshot = filePath.startsWith('local-history://')
 
   const defaultActions =
     showDefaultActions && activeBuffer ? (
@@ -163,17 +153,18 @@ export default function Breadcrumb({
             <Eye />
           </Button>
         )}
-        <Button
-          onClick={onSearchClick}
-          variant="ghost"
-          className="rounded text-muted-foreground"
-          tooltip="Find in file"
-          commandId="workbench.showFind"
-          tooltipSide="bottom"
-          compact
-        >
-          <Search />
-        </Button>
+        {onFind && (
+          <Button
+            onClick={onFind}
+            variant="ghost"
+            className="rounded text-muted-foreground"
+            tooltip="Find in file"
+            tooltipSide="bottom"
+            compact
+          >
+            <Search />
+          </Button>
+        )}
         <div className="mx-1 h-3.5 w-px bg-border/70" />
         <EditorStatusActions
           bufferId={resolvedBufferId ?? undefined}
@@ -187,10 +178,7 @@ export default function Breadcrumb({
       <div className="flex min-h-7 select-none items-center justify-between bg-terniary-bg px-3 py-1">
         <div className="ui-font flex min-w-0 items-center gap-2 text-muted-foreground ui-text-xs">
           {showPath && showBreadcrumbPath ? (
-            <FilePathBreadcrumb
-              filePath={filePath}
-              interactive={interactive && !isLocalHistorySnapshot}
-            />
+            <FilePathBreadcrumb filePath={filePath} interactive={interactive} />
           ) : null}
           {extensionActions.left.map((action) => (
             <ExtensionToolbarAction key={action.id} action={action} />

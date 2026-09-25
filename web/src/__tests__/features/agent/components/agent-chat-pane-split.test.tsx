@@ -94,8 +94,8 @@ vi.mock('@/features/agent/chat/agent-chat-view', async () => {
   }
 })
 
-vi.mock('@/features/terminal/components/terminal', () => ({
-  XtermTerminal: ({
+vi.mock('@/features/terminal/components/lazy-terminal', () => ({
+  LazyXtermTerminal: ({
     sessionId,
     isActive,
     isVisible,
@@ -124,6 +124,7 @@ import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 import { useSettingsStore } from '@/features/settings/store'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+import { nextVersion, seedChats, setChatTerminalWait } from '@/__tests__/__fixtures__/agent-chat'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
 // Both real descriptors declare hotswap:true — see
@@ -139,6 +140,10 @@ const providers: AgentProvider[] = [
     mcpEnabled: true,
     hasTerminal: true,
     hotswap: true,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    terminalStartHere: false,
   },
 ]
 
@@ -150,6 +155,9 @@ function liveChat(): AgentChat {
     liveRunnerId: 'r1',
     terminalSessionId: 'pty-1',
     activeProviderId: 'claude',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant',
     createdAt: '',
     order: 0,
   }
@@ -158,7 +166,7 @@ function liveChat(): AgentChat {
 function seed() {
   const store = createWorkspaceStore('w1')
   store.getState().setAgentProviders(providers)
-  store.getState().seedAgentChats([liveChat()])
+  seedChats(store, [liveChat()])
   return store
 }
 
@@ -407,7 +415,7 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
 
   async function setWait(store: Store, wait: { kind: string } | null) {
     await act(async () => {
-      store.getState().setAgentChatTerminalWait('c1', wait)
+      setChatTerminalWait(store, 'c1', wait)
     })
   }
 

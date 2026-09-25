@@ -78,8 +78,8 @@
   padding: 0.2em 0.4em;
   border-radius: 4px;
   font-family:
-    'Geist Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
-    monospace;
+    'Geist Mono Variable', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
   font-size: 0.9em;
   color: var(--syntax-string);
 }

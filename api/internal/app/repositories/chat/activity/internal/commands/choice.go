@@ -121,7 +121,7 @@ type ResolveChoice struct {
 
 func (c ResolveChoice) AggregateID() string  { return c.ChatID }
 func (c ResolveChoice) EventName() string    { return "agentactivity.choice_resolved." + c.ChatID }
-func (c ResolveChoice) ShouldSnapshot() bool { return false }
+func (c ResolveChoice) ShouldSnapshot() bool { return true }
 
 func (c ResolveChoice) Validate(*domain.ChatActivity) error {
 	if err := requireChat("resolve choice", c.ChatID); err != nil {

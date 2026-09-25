@@ -1,26 +1,19 @@
 /**
- * Tests for the two-tier, cancellation-safe semantic tokens provider.
- *
- * The provider is synchronous — it always returns immediately (tree-sitter
- * cache, shiki, or nothing) so Monaco's createCancelablePromise settles before
- * _cancelAll() can drop the result. Both engines warm in the background.
+ * The viewport provider answers synchronously (Monaco drops async answers on
+ * every scroll): the language server's range tokens while its full request
+ * is in flight, else shiki, else nothing.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { editor, languages, CancellationToken, Range } from 'monaco-editor'
 import type { StateStack } from 'shiki/textmate'
 
-vi.mock('@/features/editor/lib/wasm-parser/tokenizer-worker-client', () => ({
-  tokenizerWorkerClient: { tokenize: vi.fn() },
-}))
-vi.mock('@/features/editor/utils/language-id', () => ({
-  getLanguageIdFromPath: vi.fn(),
-}))
 // `semantic-tokens-provider.ts` imports the light `editor.api.js` entry, not
 // the bare 'monaco-editor' specifier (see the comment there) — mock that.
 vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => ({
   editor: {},
   languages: { registerDocumentRangeSemanticTokensProvider: vi.fn() },
 }))
+vi.mock('@/features/editor/lsp/semantic-tokens', () => ({ lspViewportTokens: vi.fn(() => null) }))
 
 const shiki = vi.hoisted(() => ({
   bundledLanguages: {} as Record<string, unknown>,
@@ -35,206 +28,113 @@ vi.mock('shiki/bundle/full', () => ({
   })),
 }))
 
-import { tokenizerWorkerClient } from '@/features/editor/lib/wasm-parser/tokenizer-worker-client'
-import { getLanguageIdFromPath } from '@/features/editor/utils/language-id'
-import { treeSitterSemanticTokensProvider } from '@/features/editor/monaco/semantic-tokens-provider'
+import { lspViewportTokens } from '@/features/editor/lsp/semantic-tokens'
+import { viewportSemanticTokensProvider } from '@/features/editor/monaco/semantic-tokens-provider'
+import { SEMANTIC_TOKEN_LEGEND } from '@/features/editor/monaco/semantic-tokens-legend'
 import { __resetShikiTokensForTests } from '@/features/editor/monaco/shiki-tokens'
 
-const mockGetLanguageIdFromPath = vi.mocked(getLanguageIdFromPath)
-const mockTokenize = vi.mocked(tokenizerWorkerClient.tokenize)
+const typeIndex = (type: string) => SEMANTIC_TOKEN_LEGEND.tokenTypes.indexOf(type)
 
-/** Every capitalized word becomes a type; everything else is left alone. */
-function capitalizedWordsAreTypes(line: string) {
+/** Capitalized words are types, `#` a comment, everything else plain source. */
+function fakeGrammar(line: string) {
   const tokens: { startIndex: number; endIndex: number; scopes: string[] }[] = []
   for (const match of line.matchAll(/\S+/g)) {
+    const word = match[0]
+    const scope = word.startsWith('#')
+      ? 'comment.line.fake'
+      : /^[A-Z]/.test(word)
+        ? 'entity.name.type.fake'
+        : 'source.fake'
     tokens.push({
       startIndex: match.index,
-      endIndex: match.index + match[0].length,
-      scopes: ['source.fake', /^[A-Z]/.test(match[0]) ? 'entity.name.type.fake' : 'source.fake'],
+      endIndex: match.index + word.length,
+      scopes: ['source.fake', scope],
     })
   }
   return { tokens, ruleStack: null as unknown as StateStack }
 }
 
-/** Drain the dynamic import + promise chain the engines build. */
+/** Drain the dynamic import + promise chain the grammar warm-up builds. */
 async function flush(): Promise<void> {
   for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
-function fakeModel(path: string, value = 'x', versionId = 1): editor.ITextModel {
+function fakeModel(path: string, value: string): editor.ITextModel {
   const lines = value.split('\n')
   return {
     uri: { path, toString: () => `mock://${path}` },
-    getValue: () => value,
-    getVersionId: () => versionId,
-    isDisposed: () => false,
+    getVersionId: () => 1,
     getLineCount: () => lines.length,
     getLineContent: (n: number) => lines[n - 1] ?? '',
-    getLineLength: (n: number) => (lines[n - 1] ?? '').length,
-    getLanguageId: () => 'go',
   } as unknown as editor.ITextModel
 }
 
 const range = { startLineNumber: 1, endLineNumber: 10 } as unknown as Range
 const cancelToken = { isCancellationRequested: false } as unknown as CancellationToken
 
-function tokens(
-  result: languages.ProviderResult<languages.SemanticTokens>,
-): languages.SemanticTokens {
-  return result as languages.SemanticTokens
-}
-
 function provide(model: editor.ITextModel): languages.SemanticTokens {
-  return tokens(
-    treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(model, range, cancelToken),
-  )
+  return viewportSemanticTokensProvider.provideDocumentRangeSemanticTokens(
+    model,
+    range,
+    cancelToken,
+  ) as languages.SemanticTokens
 }
 
-describe('treeSitterSemanticTokensProvider', () => {
+/** Shiki warms in two async steps: the grammar loads, then compiles on a timer. */
+async function warm(model: editor.ITextModel): Promise<void> {
+  provide(model)
+  await flush()
+  provide(model)
+  await flush()
+}
+
+describe('viewportSemanticTokensProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     __resetShikiTokensForTests()
     for (const key of Object.keys(shiki.bundledLanguages)) delete shiki.bundledLanguages[key]
-    shiki.tokenizeLine.mockImplementation(capitalizedWordsAreTypes)
+    shiki.tokenizeLine.mockImplementation(fakeGrammar)
   })
-  afterEach(() => vi.restoreAllMocks())
 
-  it('answers synchronously on the first call, before either engine is warm', () => {
-    mockGetLanguageIdFromPath.mockReturnValue('go')
-    mockTokenize.mockResolvedValue({ tokens: [], normalizedText: '' })
-
-    const result = treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(
-      fakeModel('/first-call.go', 'Foo()\n'),
+  it('answers synchronously before the grammar is warm', () => {
+    shiki.bundledLanguages.go = () => {}
+    const result = viewportSemanticTokensProvider.provideDocumentRangeSemanticTokens(
+      fakeModel('/cold.go', 'Foo()\n'),
       range,
       cancelToken,
     )
-
     expect(result).not.toBeInstanceOf(Promise)
-    expect(tokens(result).data).toBeInstanceOf(Uint32Array)
-    expect(tokenizerWorkerClient.tokenize).toHaveBeenCalledOnce()
+    expect((result as languages.SemanticTokens).data).toHaveLength(0)
   })
 
-  it('returns tree-sitter tokens from cache on the second call after background parse succeeds', async () => {
-    mockGetLanguageIdFromPath.mockReturnValue('go')
-    mockTokenize.mockResolvedValue({
-      tokens: [
-        {
-          type: 'function.call',
-          startIndex: 0,
-          endIndex: 0,
-          startPosition: { row: 0, column: 0 },
-          endPosition: { row: 0, column: 5 },
-        },
-      ],
-      normalizedText: 'Foo()',
-    })
+  it('colors identifiers from shiki once the grammar is warm', async () => {
+    shiki.bundledLanguages.go = () => {}
+    const model = fakeModel('/warm.go', 'Widget thing # note\n')
+    await warm(model)
 
-    const m = fakeModel('/cache-upgrade.go', 'Foo()\n')
-
-    provide(m)
-    await flush()
-
-    // Second call: cache hit → tree-sitter token (5 uint32s per token)
-    expect(provide(m).data.length).toBe(5)
-    // Worker called only once — second call was a cache read
-    expect(tokenizerWorkerClient.tokenize).toHaveBeenCalledOnce()
+    const data = provide(model).data
+    // Only `Widget`: Monarch colors go's comments, so shiki leaves them alone.
+    expect(Array.from(data)).toEqual([0, 0, 6, typeIndex('type'), 0])
   })
 
-  it('never consults shiki once the tree-sitter cache can answer', async () => {
-    mockGetLanguageIdFromPath.mockReturnValue('shikilang')
-    shiki.bundledLanguages.shikilang = () => {}
-    mockTokenize.mockResolvedValue({
-      tokens: [
-        {
-          type: 'function.call',
-          startIndex: 0,
-          endIndex: 0,
-          startPosition: { row: 0, column: 0 },
-          endPosition: { row: 0, column: 3 },
-        },
-      ],
-      normalizedText: 'Foo',
-    })
+  it('also colors comments where Monaco has no grammar at all', async () => {
+    shiki.bundledLanguages.nix = () => {}
+    const model = fakeModel('/flake.nix', 'Widget # note\n')
+    await warm(model)
 
-    const m = fakeModel('/tree-wins.sl', 'Foo\n')
-    provide(m)
-    await flush()
+    const types = Array.from(provide(model).data).filter((_, i) => i % 5 === 3)
+    expect(types).toEqual([typeIndex('type'), typeIndex('comment')])
+  })
 
-    shiki.tokenizeLine.mockClear()
-    expect(provide(m).data.length).toBe(5)
+  it("prefers the language server's tokens when it has them", () => {
+    const fromServer = { data: Uint32Array.from([0, 0, 3, 12, 0]) }
+    vi.mocked(lspViewportTokens).mockReturnValueOnce(fromServer)
+
+    expect(provide(fakeModel('/served.go', 'Foo()\n'))).toBe(fromServer)
     expect(shiki.tokenizeLine).not.toHaveBeenCalled()
   })
 
-  it('colors a language tree-sitter has no parser for with shiki', async () => {
-    mockGetLanguageIdFromPath.mockReturnValue('fallbacklang')
-    shiki.bundledLanguages.fallbacklang = () => {}
-    mockTokenize.mockRejectedValue(new Error('no wasm'))
-
-    const m = fakeModel('/fallback.fl', 'Widget thing\n')
-
-    // Nothing is warm yet, but every call still answers synchronously.
-    expect(provide(m).data.length).toBe(0)
-    await flush() // tree-sitter gives up; shiki's grammar loads
-    expect(provide(m).data.length).toBe(0)
-    await flush() // shiki compiles its rules against the first viewport
-
-    const data = provide(m).data
-    expect(data.length).toBe(5)
-    expect(data[2]).toBe(6) // `Widget`
-  })
-
-  it('returns empty for an unknown file extension without touching the worker', () => {
-    mockGetLanguageIdFromPath.mockReturnValue(null)
-
-    const r = provide(fakeModel('/x.unknown', 'Foo()\n'))
-
-    expect(tokenizerWorkerClient.tokenize).not.toHaveBeenCalled()
-    expect(r.data.length).toBe(0)
-  })
-
-  it('marks the language unsupported after a failed background parse and never retries the worker', async () => {
-    mockGetLanguageIdFromPath.mockReturnValue('no-wasm-lang')
-    mockTokenize.mockRejectedValue(new Error('no wasm'))
-
-    provide(fakeModel('/a.nwl', 'Foo()\n'))
-    await flush() // background parse fails, marks 'no-wasm-lang' unsupported
-
-    provide(fakeModel('/b.nwl', 'Bar()\n'))
-    expect(tokenizerWorkerClient.tokenize).toHaveBeenCalledOnce() // no retry
-  })
-
-  it('does not spawn duplicate background parses for the same model URI', () => {
-    mockGetLanguageIdFromPath.mockReturnValue('go')
-    mockTokenize.mockResolvedValue({ tokens: [], normalizedText: '' })
-
-    const m = fakeModel('/dup-guard.go', 'x')
-    provide(m)
-    provide(m)
-    provide(m)
-
-    expect(tokenizerWorkerClient.tokenize).toHaveBeenCalledOnce()
-  })
-
-  it('discards stale background parse results when the model version changed during parse', async () => {
-    mockGetLanguageIdFromPath.mockReturnValue('stalelang')
-    mockTokenize.mockResolvedValue({
-      tokens: [
-        {
-          type: 'function.call',
-          startIndex: 0,
-          endIndex: 0,
-          startPosition: { row: 0, column: 0 },
-          endPosition: { row: 0, column: 5 },
-        },
-      ],
-      normalizedText: 'x',
-    })
-
-    provide(fakeModel('/stale.sla', 'x', 1))
-    await flush() // cache populated with versionId=1
-
-    // Same URI, newer version — simulates an edit while the parse was in flight.
-    // 'stalelang' has no shiki grammar either, so the miss yields nothing.
-    expect(provide(fakeModel('/stale.sla', 'y', 2)).data.length).toBe(0)
+  it('returns empty for an unknown file type', () => {
+    expect(provide(fakeModel('/x.unknownext', 'Foo()\n')).data).toHaveLength(0)
   })
 })

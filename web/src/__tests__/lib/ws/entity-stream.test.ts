@@ -61,6 +61,7 @@ const { getAllEntities, upsertEntity } = await import('@/lib/persistence/entity-
 
 function makeWorkspace(over: Partial<WorkspaceDTO> & { id: string }): WorkspaceDTO {
   return {
+    provisioning: 'provisioned',
     repoId: 'r1',
     projectId: 'p1',
     branch: 'main',
@@ -426,6 +427,32 @@ describe('subscribeEntityStream', () => {
       await vi.waitFor(() => expect(seed).toHaveBeenCalledTimes(2))
       expect(seen).toEqual([])
     })
+  })
+
+  // A cascade delete sends a burst of structural frames; the reseeds they queue
+  // must not reach a scope the stream was closed for.
+  it('a reseed still queued when the stream closes never reads', async () => {
+    let answerFirst: (rows: WorkspaceDTO[]) => void = () => {}
+    const seed = vi.fn(
+      () =>
+        new Promise<WorkspaceDTO[]>((resolve) => {
+          answerFirst = resolve
+        }),
+    )
+    const dispose = subscribeEntityStream<WorkspaceDTO>({
+      endpoint: '/v0/projects/p1/repos/r1/chats/ws',
+      store: 'crowbar_workspaces',
+      seed,
+      shouldReseed: () => true,
+    })
+    await vi.waitFor(() => expect(seed).toHaveBeenCalledTimes(1))
+    emit({ kind: 'deleted' })
+    emit({ kind: 'deleted' })
+    dispose()
+    answerFirst([])
+    // Every step of the chain is a mocked, microtask-only promise.
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+    expect(seed).toHaveBeenCalledTimes(1)
   })
 
   it('unsubscribes from the underlying wsManager channel', async () => {

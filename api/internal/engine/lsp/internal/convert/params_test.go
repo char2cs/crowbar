@@ -40,7 +40,7 @@ func TestCodeActionParams(t *testing.T) {
 		Start: lsp.Position{Line: 1, Character: 0},
 		End:   lsp.Position{Line: 2, Character: 5},
 	}
-	p := convert.CodeActionParams("/p/main.go", rng)
+	p := convert.CodeActionParams("/p/main.go", rng, nil)
 
 	r := p["range"].(map[string]any)
 	start := r["start"].(map[string]any)

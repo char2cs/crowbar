@@ -177,9 +177,8 @@ func TestContainer_WithHomeDir_IsolatesAllState(t *testing.T) {
 
 // TestContainer_WithHomeDir_DoesNotUseEnvHome guards the decision-14 isolation
 // requirement: WithHomeDir must root every state subtree at the resolved
-// crowbarHome, NEVER the home-agnostic paths.Events()/Store()/State() (which
-// resolve from CROWBAR_HOME). If the adapter used the env-blind accessors, the
-// per-type DBs would leak into the CROWBAR_HOME root instead of the temp home.
+// crowbarHome, never CROWBAR_HOME; otherwise the per-type DBs would leak into
+// the CROWBAR_HOME root instead of the temp home.
 func TestContainer_WithHomeDir_DoesNotUseEnvHome(t *testing.T) {
 	envHome := t.TempDir()
 	t.Setenv("CROWBAR_HOME", envHome)
@@ -192,7 +191,7 @@ func TestContainer_WithHomeDir_DoesNotUseEnvHome(t *testing.T) {
 	// State lands under the explicit WithHomeDir root...
 	_, err = os.Stat(filepath.Join(home, "state", "events", "workspace.db"))
 	require.NoError(t, err)
-	// ...and NOT under the CROWBAR_HOME env root that paths.Events() would pick.
+	// ...and NOT under the CROWBAR_HOME env root.
 	_, statErr := os.Stat(filepath.Join(envHome, "state", "events", "workspace.db"))
 	require.True(t, os.IsNotExist(statErr),
 		"adapter must not resolve state from CROWBAR_HOME when WithHomeDir is set")

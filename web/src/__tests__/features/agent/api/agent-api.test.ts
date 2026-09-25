@@ -8,6 +8,7 @@ vi.mock('@/lib/api', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }))
 // repo-scoped shape; 'ws-home' has repoId '' (a project-home workspace) and
 // falls back to the still-live /home mount; anything else is unrecorded scope.
 vi.mock('@/lib/workspace-scope', () => ({
+  bindActiveWorkspaceId: () => {},
   getWorkspaceScope: (id: string) => {
     if (id === 'w1') return { projectId: 'p1', repoId: 'r1', wsId: 'w1' }
     if (id === 'ws-home') return { projectId: 'p1', repoId: '', wsId: 'ws-home' }
@@ -534,46 +535,17 @@ describe('agent-api', () => {
   // unknown provider as disabled, and never silently strips Crowbar's tools from
   // a daemon whose payload predates the field. The backend stores the NEGATIVE
   // (mcpDisabled), so absent means on.
-  it('listProviders defaults missing enabled + mcpEnabled to true and connected to false', async () => {
-    apiFetch.mockResolvedValueOnce([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
-    const out = await api.listProviders('w1')
-    expect(out[0]).toMatchObject({
-      id: 'claude',
-      connected: false,
-      enabled: true,
-      mcpEnabled: true,
-    })
-  })
-
-  // REGRESSION: the mapper rebuilds the provider field by field, so a key it
-  // forgets to copy is dropped in silence — the type still declares it, the
-  // backend still sends it, and the control it gates simply never appears. This
-  // is exactly how the Compact button went missing for every provider.
-  it('listProviders carries compaction through, and defaults it OFF', async () => {
+  // REGRESSION: a mapper that rebuilt the provider field by field dropped a key
+  // it forgot to copy in silence — exactly how the Compact button went missing
+  // for every provider.
+  it('listProviders carries compaction through', async () => {
     apiFetch.mockResolvedValueOnce([
       { id: 'claude', displayName: 'Claude', icon: '<svg/>', compaction: true },
       { id: 'codex', displayName: 'Codex', icon: '<svg/>', compaction: false },
-      { id: 'older', displayName: 'Older', icon: '<svg/>' },
     ])
     const out = await api.listProviders('w1')
     expect(out[0].compaction).toBe(true)
     expect(out[1].compaction).toBe(false)
-    // Silence means "declares no compaction gesture", the same direction as the
-    // other capability keys — POST /compact answers 404 for it.
-    expect(out[2].compaction).toBe(false)
-  })
-
-  // hasTerminal defaults ON (opposite direction from every OTHER capability key
-  // here): every shipped provider today has a real terminal, so an older daemon
-  // that predates this field is describing exactly that reality, and defaulting
-  // it OFF would hide the view switcher for every existing install until the
-  // daemon catches up. hotswap defaults OFF, the same direction as compaction —
-  // an older daemon or an undeclared descriptor gets the conservative answer.
-  it('listProviders defaults hasTerminal to true and hotswap to false when omitted', async () => {
-    apiFetch.mockResolvedValueOnce([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
-    const out = await api.listProviders('w1')
-    expect(out[0].hasTerminal).toBe(true)
-    expect(out[0].hotswap).toBe(false)
   })
 
   it('listProviders carries hasTerminal:false and hotswap:true through unchanged', async () => {
@@ -583,20 +555,6 @@ describe('agent-api', () => {
     const out = await api.listProviders('w1')
     expect(out[0].hasTerminal).toBe(false)
     expect(out[0].hotswap).toBe(true)
-  })
-
-  // terminalStartHere (design spec 2.5) defaults OFF, the SAME direction as
-  // hotswap/compaction/the selection capabilities — NOT hasTerminal's
-  // opposite-direction default. Silence means the descriptor's surfaces:
-  // block omits start_here (or omits the whole block), and that must not be
-  // read as permission to launch a brand-new chat onto a surface the
-  // provider never said was a landing target.
-  it('listProviders defaults terminalStartHere to false when omitted', async () => {
-    apiFetch.mockResolvedValueOnce([
-      { id: 'claude', displayName: 'Claude', icon: '<svg/>', hasTerminal: true },
-    ])
-    const out = await api.listProviders('w1')
-    expect(out[0].terminalStartHere).toBe(false)
   })
 
   it('listProviders carries terminalStartHere:true through unchanged', async () => {
@@ -645,14 +603,13 @@ describe('agent-api', () => {
     expect(out[0].efforts?.['gpt-5.6-luna']).toEqual(['low', 'medium', 'high', 'max'])
   })
 
-  // Both capabilities default OFF and both catalogues EMPTY. That is the opposite
-  // direction from mcpEnabled, and deliberately so: a daemon that sends neither
-  // flag declares no catalogue, and an empty picker would invent a capability.
-  it('listProviders defaults the selection capability to absent', async () => {
+  // The daemon omits EMPTY catalogues (omitempty); no catalogue must render as
+  // no picker rather than a crash on a missing array.
+  it('listProviders grounds omitted catalogues to empty', async () => {
     apiFetch.mockResolvedValueOnce([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
     const out = await api.listProviders('w1')
-    expect(out[0]).toMatchObject({ modelSelect: false, effortSelect: false })
     expect(out[0].models).toEqual([])
+    expect(out[0].permissionLevels).toEqual([])
     expect(out[0].efforts).toEqual({})
   })
 

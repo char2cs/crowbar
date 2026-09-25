@@ -20,6 +20,7 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
@@ -367,12 +368,6 @@ type configurableListGetUsecase struct {
 	conversations map[string][]engineagents.ChatConversation
 	convErr       error
 
-	// placements maps a chat id to its append-only PLACEMENT history — the THIRD
-	// fallback source activeProviderId needs, and the only one that answers for a
-	// chat whose provider announced no conversation AND was never switched.
-	placements   map[string][]engineagents.ChatPlacement
-	placementErr error
-
 	// interruptions maps a chat id to its durable interruption ledger — the
 	// second fallback source activeProviderId needs for a chat whose provider
 	// binds via its own connection identity and so never appears in
@@ -387,14 +382,37 @@ type configurableListGetUsecase struct {
 	// cannot answer" verdict, keyed by chat id. A chat absent from the map is not
 	// waiting, which is the answer for every chat unless a test says otherwise.
 	terminalWait map[string]domain.AgentTerminalWait
-
-	// hasLiveAPIConn is HasLiveAPIConnection's canned answer for every runner —
-	// false (no live api connection) unless a test says otherwise.
-	hasLiveAPIConn bool
 }
 
 func (*configurableListGetUsecase) TelemetryOnChatSurface(context.Context, string) bool {
 	return true
+}
+
+// ChatSnapshot assembles the double's own canned answers the way the snapshot
+// owner does: the chat row (from the list, else the single chat), the runner
+// placed on it, and the in-memory runtime facts.
+func (u *configurableListGetUsecase) ChatSnapshot(
+	_ context.Context,
+	chatID string,
+) (agentusecase.ChatSnapshot, error) {
+	if u.liveErr != nil {
+		return agentusecase.ChatSnapshot{}, u.liveErr
+	}
+	chat := u.chat
+	for _, c := range u.chats {
+		if c.ID == chatID {
+			chat = c
+		}
+	}
+	snap := agentusecase.ChatSnapshot{
+		Chat: chat, Version: 1, Phase: agentusecase.ChatPhaseDormant,
+		TerminalWait: u.terminalWait[chatID],
+	}
+	if r, ok := u.liveRunners[chatID]; ok {
+		snap.Live, snap.Phase = &r, agentusecase.ChatPhaseLive
+		snap.AttachedSessionID, _ = u.AttachedTerminalSession(r.ID)
+	}
+	return snap, nil
 }
 
 func (configurableListGetUsecase) SpawnChat(
@@ -416,8 +434,7 @@ func (configurableListGetUsecase) IngestHook(
 }
 
 func (configurableListGetUsecase) IngestHookDelivery(
-	_ context.Context,
-	_, _, _, _, _ string,
+	_ context.Context, _, _, _, _ string,
 	_ []byte,
 ) error {
 	return nil
@@ -537,16 +554,6 @@ func (u *configurableListGetUsecase) ConversationsForChat(
 	return u.conversations[chatID], nil
 }
 
-func (u *configurableListGetUsecase) PlacementsForChat(
-	_ context.Context,
-	chatID string,
-) ([]engineagents.ChatPlacement, error) {
-	if u.placementErr != nil {
-		return nil, u.placementErr
-	}
-	return u.placements[chatID], nil
-}
-
 func (u *configurableListGetUsecase) Interruptions(
 	_ context.Context,
 	chatID string,
@@ -604,10 +611,6 @@ func (configurableListGetUsecase) AttachedTerminalSession(_ string) (string, boo
 	return "", false
 }
 
-func (u *configurableListGetUsecase) HasLiveAPIConnection(_ string) bool {
-	return u.hasLiveAPIConn
-}
-
 func (configurableListGetUsecase) AssembleHandoff(
 	_ context.Context,
 	_ string,
@@ -644,6 +647,12 @@ func (configurableListGetUsecase) PurgeChat(
 	_ string,
 ) error {
 	return nil
+}
+
+func (configurableListGetUsecase) DescriptorReports(
+	context.Context,
+) ([]descriptorcheck.Report, error) {
+	return nil, nil
 }
 
 func (configurableListGetUsecase) ResolveProviders(
@@ -800,86 +809,6 @@ type chatRow struct {
 	ActiveProviderID  string `json:"activeProviderId"`
 }
 
-// TestList_DormantChatFallsBackToLastConversationProvider is the subtle one. A chat
-// whose CLI has EXITED has no live runner — so liveRunnerId and terminalSessionId are
-// empty, and the frontend needs no second liveness check to know the pane cannot
-// attach. But it must still show the right provider glyph and dropdown selection, and
-// Resume must know who to bring back, so activeProviderId falls back to the provider
-// of the chat's LAST conversation (history is oldest-first, so the last element wins —
-// a chat switched vendor-a -> vendor-b answers vendor-b, not vendor-a).
-func TestList_DormantChatFallsBackToLastConversationProvider(
-	t *testing.T,
-) {
-	uc := &configurableListGetUsecase{
-		chats: []domain.Chat{{ID: "c1", WorkspaceID: "ws1"}},
-		// No live runner for c1: the chat is dormant.
-		conversations: map[string][]engineagents.ChatConversation{
-			"c1": {
-				{ChatID: "c1", ProviderID: "vendor-a", SessionID: "sess-1", FirstSeenAt: time.Unix(1, 0).UTC(), LastActiveAt: time.Unix(1, 0).UTC()},
-				{ChatID: "c1", ProviderID: "vendor-b", SessionID: "sess-2", FirstSeenAt: time.Unix(2, 0).UTC(), LastActiveAt: time.Unix(2, 0).UTC()},
-			},
-		},
-	}
-	h := newChatHandlers(uc)
-
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats", nil)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
-
-	h.List(ctx)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	var envelope struct {
-		Data []chatRow `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
-	require.Len(t, envelope.Data, 1)
-	assert.Empty(t, envelope.Data[0].LiveRunnerID, "a dormant chat has no runner: absence IS the liveness answer")
-	assert.Empty(t, envelope.Data[0].TerminalSessionID, "no runner, no PTY to attach to")
-	assert.Equal(t, "vendor-b", envelope.Data[0].ActiveProviderID, "dormant falls back to the MOST RECENTLY ACTIVE conversation's provider")
-}
-
-// TestList_DormantChatProviderThatNeverBoundAConversationFallsBackToSwitchInterruption
-// is the showstopper: a chat switched to a provider that binds via its own connection
-// identity (never firing a session-bind) has NO conversation row for that provider at
-// all — only an OLDER row from whatever ran before. Before the fix, activeProviderId
-// read only that older conversation and reported the WRONG vendor. The durable switch
-// interruption chatRuntime now joins in is the only trace such a provider leaves, and
-// it postdates the last conversation, so it must win.
-func TestList_DormantChatProviderThatNeverBoundAConversationFallsBackToSwitchInterruption(
-	t *testing.T,
-) {
-	uc := &configurableListGetUsecase{
-		chats: []domain.Chat{{ID: "c1", WorkspaceID: "ws1"}},
-		// No live runner for c1: the chat is dormant.
-		conversations: map[string][]engineagents.ChatConversation{
-			"c1": {
-				{ChatID: "c1", ProviderID: "vendor-a", SessionID: "sess-1", FirstSeenAt: time.Unix(1, 0).UTC(), LastActiveAt: time.Unix(1, 0).UTC()},
-			},
-		},
-		interruptions: map[string][]domain.ActivityInterruption{
-			"c1": {
-				{ChatID: "c1", Kind: string(engineagents.InterruptProviderSwitched), Detail: "vendor-b", At: time.Unix(2, 0).UTC()},
-			},
-		},
-	}
-	h := newChatHandlers(uc)
-
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats", nil)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
-
-	h.List(ctx)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	var envelope struct {
-		Data []chatRow `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
-	require.Len(t, envelope.Data, 1)
-	assert.Empty(t, envelope.Data[0].LiveRunnerID, "a dormant chat has no runner")
-	assert.Equal(t, "vendor-b", envelope.Data[0].ActiveProviderID,
-		"the switch interruption is the only trace of the provider actually running, and must win")
-}
-
 // TestList_LiveChatCarriesRunnerAndPTY proves the live join: a chat a runner is
 // placed on carries that runner's id (the liveness answer) and its terminal session
 // (what the pane attaches to), and activeProviderId is the LIVE runner's provider —
@@ -921,45 +850,6 @@ func TestList_LiveChatCarriesRunnerAndPTY(
 	assert.Equal(t, "vendor-b", envelope.Data[0].ActiveProviderID, "the live runner's provider wins over the history")
 }
 
-// TestList_LiveAPIConnectionBlanksTheCompanionPTY proves chatRuntime itself (not
-// just the DTO function) calls HasLiveAPIConnection and threads its result through:
-// a live runner with a live api connection reports NO terminal session, even though
-// its own TerminalSession field is set — that value is the disconnected companion
-// PTY every api-transport spawn still forks alongside a live connection, never a
-// real view for the frontend to attach to.
-func TestList_LiveAPIConnectionBlanksTheCompanionPTY(
-	t *testing.T,
-) {
-	uc := &configurableListGetUsecase{
-		chats: []domain.Chat{{ID: "c1", WorkspaceID: "ws1"}},
-		liveRunners: map[string]engineagents.Runner{
-			"c1": {
-				ID:              "run-1",
-				WorkspaceID:     "ws1",
-				ProviderID:      "codex",
-				TerminalSession: "term-1",
-				CurrentChatID:   "c1",
-			},
-		},
-		hasLiveAPIConn: true,
-	}
-	h := newChatHandlers(uc)
-
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats", nil)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
-
-	h.List(ctx)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	var envelope struct {
-		Data []chatRow `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
-	require.Len(t, envelope.Data, 1)
-	assert.Equal(t, "run-1", envelope.Data[0].LiveRunnerID)
-	assert.Empty(t, envelope.Data[0].TerminalSessionID, "the companion PTY must never be reported as a view")
-}
-
 // TestList_ChatWithNoRunnerEverIsEmpty proves a chat that has NEVER had a runner —
 // no live row, no conversation history — reads empty everywhere and does not error.
 // "Never ran" and "ran and exited" are both dormant; only the provider fallback tells
@@ -996,47 +886,6 @@ func TestList_LiveRunnerLookupError(
 	uc := &configurableListGetUsecase{
 		chats:   []domain.Chat{{ID: "c1", WorkspaceID: "ws1"}},
 		liveErr: errors.New("projection down"),
-	}
-	h := newChatHandlers(uc)
-
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats", nil)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
-
-	h.List(ctx)
-
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-}
-
-// TestList_ConversationsLookupError proves a conversation-history read failure
-// surfaces as a mapped error rather than a half-derived row.
-func TestList_ConversationsLookupError(
-	t *testing.T,
-) {
-	uc := &configurableListGetUsecase{
-		chats:   []domain.Chat{{ID: "c1", WorkspaceID: "ws1"}},
-		convErr: errors.New("projection down"),
-	}
-	h := newChatHandlers(uc)
-
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats", nil)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
-
-	h.List(ctx)
-
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-}
-
-// TestList_PlacementsLookupError proves a PLACEMENT-history read failure surfaces
-// as a mapped error too. It is activeProviderId's last source, and for a chat
-// whose provider announced no conversation it is the ONLY one — reporting "" for a
-// broken read there would look exactly like "nothing has ever run here", which is
-// what let a sidebar click convert a dormant chat to another vendor.
-func TestList_PlacementsLookupError(
-	t *testing.T,
-) {
-	uc := &configurableListGetUsecase{
-		chats:        []domain.Chat{{ID: "c1", WorkspaceID: "ws1"}},
-		placementErr: errors.New("projection down"),
 	}
 	h := newChatHandlers(uc)
 

@@ -1,4 +1,5 @@
-import { EMPTY_CHATS, EMPTY_FOLDERS, type Chat, type Folder } from '@/lib/store/sidebar'
+import { type Chat, type Folder } from '@/lib/store/sidebar'
+import { EMPTY_CHATS, EMPTY_FOLDERS } from '@/lib/store/repo-tree'
 import { buildSidebarTree } from '@/components/layout/workspace-tree-utils'
 import {
   foldWorkspaceOwners,

@@ -45,7 +45,7 @@ func TestDownloadBytes_AcceptsUnderCap(t *testing.T) {
 }
 
 func TestPaletteSizeMatchesConst(t *testing.T) {
-	assert.Len(t, Palette(), paletteSize)
+	assert.Len(t, palette(), paletteSize)
 }
 
 func TestLabel_FirstAlnumUppercased(t *testing.T) {
@@ -60,7 +60,7 @@ func TestColor_StableForSameName(t *testing.T) {
 	a := Color("crowbar")
 	b := Color("crowbar")
 	assert.Equal(t, a, b)
-	assert.Contains(t, Palette(), a)
+	assert.Contains(t, palette(), a)
 }
 
 func TestColor_DistributesAcrossPalette(t *testing.T) {

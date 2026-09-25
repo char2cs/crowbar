@@ -110,49 +110,14 @@ func (h *Hub) BroadcastFile(
 	}
 }
 
-// BroadcastAgentChat fans an agent-chat lifecycle event (created/segment_opened/
-// segment_ended/session_bound/turn_started/turn_stopped/title_set/deleted) out
-// to every subscriber. Fed solely by the agentchat hub projection, which derives
-// the kind from the emitting command's event name and workspaceID from the
-// reduced aggregate. workspaceID rides on every frame so the agent-chat WS
-// StreamDef scopes the fan-out to the matching :wsId subscription (Task 3): this
-// method pushes to every subscriber, and the per-subscription Filter drops frames
-// whose WorkspaceID does not match the subscribed workspace.
-//
-// working is the chat's folded busy state as of this event, carried so the client
-// never has to re-derive it from the kind — see store.BroadcastFunc.
-func (h *Hub) BroadcastAgentChat(
-	chatID string,
-	workspaceID string,
-	kind string,
-	working bool,
-) {
+// BroadcastAgentChatEvent fans one chat snapshot frame out on the chat feed —
+// every chat and runner lifecycle change, carrying the chat's full versioned
+// snapshot (see usecases/chat/internal/snapshot).
+func (h *Hub) BroadcastAgentChatEvent(ev dto.AgentChatEvent) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for _, s := range h.subscribers {
-		s.PushAgentChat(chatID, workspaceID, kind, working)
-	}
-}
-
-// BroadcastAgentChatTerminalWait fans the terminal-wait edge out on the same
-// workspace-scoped agent-chat feed as BroadcastAgentChat.
-//
-// Fed by the terminal-wait detector rather than by an aggregate projection, and it
-// has to be: the fact is DERIVED from a live PTY's screen joined against the chat's
-// busy state and its outstanding prompts, so no single aggregate's event log can
-// emit it. Called only when the verdict MOVES — a chat parked for an hour produces
-// one frame, not one per sweep.
-//
-// wait is nil on the clearing edge.
-func (h *Hub) BroadcastAgentChatTerminalWait(
-	chatID string,
-	workspaceID string,
-	wait *dto.AgentTerminalWaitDTO,
-) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, s := range h.subscribers {
-		s.PushAgentChatTerminalWait(chatID, workspaceID, wait)
+		s.PushAgentChatEvent(ev)
 	}
 }
 
@@ -225,6 +190,21 @@ func (h *Hub) BroadcastAgentChatPlan(
 	}
 }
 
+// BroadcastAgentChatTelemetry fans the provider's newest usage report for a
+// chat out on the same workspace-scoped feed, so the gauge moves when the
+// provider reports instead of on a client poll.
+func (h *Hub) BroadcastAgentChatTelemetry(
+	chatID string,
+	workspaceID string,
+	report agents.Telemetry,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushAgentChatTelemetry(chatID, workspaceID, report)
+	}
+}
+
 // BroadcastAgentChatCompaction fans the live compact_pre/compact_post edge out
 // on the same workspace-scoped feed as every other fact about a conversation.
 //
@@ -272,34 +252,6 @@ func (h *Hub) BroadcastAgentChatFolder(
 	defer h.mu.RUnlock()
 	for _, s := range h.subscribers {
 		s.PushAgentChatFolder(folderID, workspaceID, kind)
-	}
-}
-
-// BroadcastAgentRunner fans an agent-RUNNER lifecycle event
-// (started/session_bound/moved/displaced/exited) out to every subscriber. Fed solely by
-// the agentrunner hub projection, which derives the kind from the emitting command's
-// event name.
-//
-// The frame carries PLACEMENT, never liveness: chatID is the chat the runner is
-// pointed at AS OF this event, so a `moved` frame names the chat the CLI moved
-// INTO — which is precisely what the frontend needs to re-point the tab that was
-// following that runner. An `exited` frame means the live row is gone and that
-// chat is now dormant.
-//
-// runnerID rides along so a client can tell WHICH CLI moved (a chat can be
-// handed between runners); workspaceID scopes the fan-out exactly as it does for
-// BroadcastAgentChat — this method pushes to every subscriber and the
-// per-subscription Filter drops frames for other workspaces.
-func (h *Hub) BroadcastAgentRunner(
-	runnerID string,
-	workspaceID string,
-	chatID string,
-	kind string,
-) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, s := range h.subscribers {
-		s.PushAgentRunner(runnerID, workspaceID, chatID, kind)
 	}
 }
 

@@ -12,11 +12,9 @@ import { initializeSettingsStore } from '@/features/settings/store'
 import { ensureStartupAppearanceApplied } from '@/features/settings/lib/appearance-bootstrap'
 import { startHostThemeSync } from '@/features/terminal/lib/host-theme'
 import { initializeIconThemes } from '@/extensions/icon-themes/icon-theme-initializer'
-import { initTreeCacheSubscription } from '@/features/editor/stores/tree-cache-store'
-import { initViewStoreSubscription } from '@/features/editor/stores/view-store'
 import { installPerfObserver, perfEnabled, pushPerfEntry } from '@/lib/perf/instrumentation'
 import { prefetchEditorChunks } from '@/features/panes/components/prefetch-editor-chunks'
-import { hydrateCriticalStores, hydrateProjectsInBackground } from '@/lib/boot'
+import { hydrateCriticalStores } from '@/lib/boot'
 import './index.css'
 
 // Must run before anything else in boot: markStart/markEnd calls elsewhere
@@ -56,10 +54,6 @@ initializeIconThemes()
 // asynchronously when localStorage values are loaded — this fires the
 // subscriptions in settings-store.ts which propagate to editor/theme/etc.
 void initializeSettingsStore()
-
-// Wire up tree-sitter cache cleanup: removes parse trees when buffers are closed.
-initTreeCacheSubscription()
-initViewStoreSubscription()
 
 // Prefetch the editor/diff pane chunks once startup settles (spec P1): first
 // file-open should not pay the network/parse cost, but cold launch must not
@@ -121,20 +115,6 @@ function renderApp() {
   )
 }
 
-hydrateProjectsInBackground()
-
-// In mock mode, wait for MSW to register its service worker before rendering
-// so that all API calls from keepMounted components are intercepted.
-// Use finally so a failed MSW startup still renders the app.
-if (import.meta.env.VITE_USE_MOCK === 'true') {
-  Promise.all([
-    hydrateCriticalStores(),
-    import('./mocks/browser').then(({ worker }) => worker.start({ onUnhandledRequest: 'warn' })),
-  ])
-    .catch(console.error)
-    .finally(renderApp)
-} else {
-  hydrateCriticalStores()
-    .catch(() => {})
-    .finally(renderApp)
-}
+hydrateCriticalStores()
+  .catch(() => {})
+  .finally(renderApp)

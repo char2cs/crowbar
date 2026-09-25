@@ -4,7 +4,7 @@ import { workspaceBase } from '@/lib/workspace-scope-url'
 import { useWorkspaceScopeReady } from '@/lib/workspace-scope'
 import { listThreads, mapThread } from '@/features/git/api/review-api'
 import type { ThreadDTO } from '@/features/git/api/review-api'
-import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 
 /**
  * Subscribe to the workspace-scoped /threads WebSocket stream while a
@@ -25,13 +25,14 @@ export function useWorkspaceThreadsStream(wsId: string): void {
     // useWorkspaceScopeReady above. Wait rather than crash; this re-runs the
     // instant the scope is recorded (scopeReady is a dependency below).
     if (!scopeReady) return
+    const store = getWorkspaceStore(wsId)
+    if (!store) return
     let cancelled = false
 
     const seed = async () => {
       try {
         const threads = await listThreads(wsId)
         if (cancelled) return
-        const store = getOrCreateWorkspaceStore(wsId)
         const { upsertReviewThread } = store.getState()
         for (const t of threads) {
           upsertReviewThread(t)
@@ -53,10 +54,10 @@ export function useWorkspaceThreadsStream(wsId: string): void {
       const dto = frame as ThreadDTO
       // Tombstone frame: the thread was deleted — drop it from the store.
       if (dto.deleted && dto.id) {
-        getOrCreateWorkspaceStore(wsId).getState().removeReviewThread(dto.id)
+        store.getState().removeReviewThread(dto.id)
         return
       }
-      getOrCreateWorkspaceStore(wsId).getState().upsertReviewThread(mapThread(dto))
+      store.getState().upsertReviewThread(mapThread(dto))
     })
 
     return () => {

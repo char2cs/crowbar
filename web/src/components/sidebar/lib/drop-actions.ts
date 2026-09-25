@@ -5,7 +5,6 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { viewChatIds } from '@/features/panes/lib/view-state'
-import { isKnownChatId, resolveChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace'
 import { resolveChatProjectId } from '@/features/panes/lib/chat-project'
 import {
   levelWorkspaceOfBranchRow,
@@ -367,6 +366,11 @@ function planTreeRowDrop(
       containerKind === 'folder' ? containerId : containerKind === 'root' ? '' : undefined
 
     if (nextFork !== '' && nextFork !== currentFork) {
+      // A fork parent must have a checkout to rebase onto; the daemon refuses
+      // one without (guardReparent), so the drop is refused before any call.
+      if (repo.workspaces.find((w) => w.id === nextFork)?.provisioning === 'placeholder') {
+        throw new Error("That branch hasn't been checked out yet — try again once it has")
+      }
       // The reparent (202, rebases the fork in the background — see
       // `reparent-settle.ts`) has to genuinely LAND before the index it was
       // promised is asked for, not just answer 202; `fireRowPlacementCall`
@@ -744,27 +748,11 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
       return
     }
     case 'repoHome':
-      // The PATCH answers 204 — no confirmed row to apply directly, unlike
-      // every other case above. Left waiting on the eventual `repos`
-      // broadcast/re-read alone, a same-level reorder sat at its OLD spot for
-      // several unindicated seconds (live-reported "can't reorder, but
-      // nesting works" — nesting only LOOKS instant because the row vanishes
-      // off the flat list the moment it lands inside a folder, masking the
-      // same delay). Applied optimistically instead, with the exact
-      // order/folderId the request is about to send; the re-read below still
-      // reconciles it against the server's own decision (e.g. collateral
-      // shifts to sibling repos) — a frame that races the Node projection
-      // left the header where it started until reload.
-      useSidebarStore.getState().applyPlacement({
-        repos: [
-          {
-            id: call.repoId,
-            projectId: call.projectId,
-            folderId: call.folderId,
-            order: call.order,
-          },
-        ],
-      })
+      // C7: no optimistic write. The PATCH answers 204, so the order shown is
+      // the daemon's own answer, read straight back (the one placement
+      // writer, `applyRepoPlacements`) — a refused move never paints, so
+      // there is nothing to revert, and collateral shifts to sibling repos
+      // land with it.
       await placeRepo(call.projectId, call.repoId, { folderId: call.folderId, order: call.order })
       await refreshRepoPlacements(call.projectId)
       return
@@ -912,20 +900,7 @@ export async function performSidebarDrop(
       toast.error(chatNotLoadedYet('move', row?.branchName ?? row?.label))
       return
     }
-    // `guardReparent` (Go, hierarchy/worktree.go) correctly refuses a
-    // reparent onto a branch row the sidebar can show before its worktree is
-    // ever actually checked out on disk — but the raw reason reaches here
-    // verbatim inside `ReparentFailedError`'s message and used to hit the
-    // user as literal Go usecase text ("usecases: parent branch is not yet
-    // provisioned"), caught live. The right fix is refusing the drop before
-    // it's attempted (`sidebar-drop-policy.ts`, once a workspace DTO carries
-    // a provisioned signal) — this is the stopgap until it does.
-    const message = err instanceof Error ? err.message : 'Failed to move row'
-    toast.error(
-      message.includes('parent branch is not yet provisioned')
-        ? "That branch hasn't been checked out yet — try again once it has"
-        : message,
-    )
+    toast.error(err instanceof Error ? err.message : 'Failed to move row')
   }
 }
 
@@ -961,19 +936,15 @@ interface PaneChatSubject {
  * stay null — a no-op rather than a guess at behaviour nothing has defined.
  */
 function paneChatSubject(row: SidebarRow): PaneChatSubject | null {
+  // The row carries the daemon's own answer for its workspace: that is what
+  // the view member records (C3).
   if (row.kind === 'chat') {
-    const workspaceId = resolveChatWorkspaceId(row.id, row.workspaceId)
-    return workspaceId ? { chatId: row.id, workspaceId } : null
+    return row.workspaceId ? { chatId: row.id, workspaceId: row.workspaceId } : null
   }
   if (row.kind !== 'branch' || !row.workspaceId) return null
-  const owner =
-    owningChatIdOfWorkspace(useSidebarStore.getState().repos, row.workspaceId) ??
-    (isKnownChatId(row.id) ? row.id : null)
+  const owner = owningChatIdOfWorkspace(useSidebarStore.getState().repos, row.workspaceId)
   if (!owner) return null
-  return {
-    chatId: owner,
-    workspaceId: resolveChatWorkspaceId(owner, row.workspaceId) ?? row.workspaceId,
-  }
+  return { chatId: owner, workspaceId: row.workspaceId }
 }
 
 /**
@@ -1000,6 +971,7 @@ export function openChatInOwnPane(subject: SidebarRow): void {
   if (!resolved) return
   windowPaneStore.getState().paneActions.openChat(resolved.chatId, {
     projectId: resolveChatProjectId(resolved.chatId, resolved.workspaceId) ?? undefined,
+    workspaceId: resolved.workspaceId,
   })
 }
 
@@ -1023,5 +995,5 @@ export function openChatIntoPane(subject: SidebarRow, paneId: string, zone: Side
     toast.error('That chat belongs to a different space')
     return
   }
-  paneActions.dropChatOnPane(resolved.chatId, paneId, zone)
+  paneActions.dropChatOnPane(resolved.chatId, paneId, zone, resolved.workspaceId)
 }

@@ -5,16 +5,11 @@ import {
   chatComposerPluginsStatic,
 } from '@/features/agent/composer/plate/chat-composer-plugins'
 
-// `dnd` (`@platejs/dnd`'s `DndPlugin`, wired in by Task 35) is dropped from
-// the static derivation for the same reason `chat-floating-toolbar` is: a
-// settled message is read, not reordered, and neither static node component
-// (`ChatCodeBlockElementStatic`/the file card's static variant) ever calls
-// `useAttachmentDraggable`, so nothing there would read `editor.plugins.dnd`
-// in the first place — see chat-composer-plugins.ts's `STATIC_EXCLUDED_KEYS`.
-const DROPPED_KEYS = new Set(['chat-floating-toolbar', 'dnd'])
+// See chat-composer-plugins.ts's `STATIC_EXCLUDED_KEYS`.
+const DROPPED_KEYS = new Set(['chat-floating-toolbar'])
 
 describe('chatComposerPluginsStatic', () => {
-  it('has the same plugin keys as chatComposerPlugins, minus the floating toolbar and dnd, in order', () => {
+  it('has the same plugin keys as chatComposerPlugins, minus the floating toolbar, in order', () => {
     expect(chatComposerPluginsStatic.map((p) => p.key)).toEqual(
       chatComposerPlugins.map((p) => p.key).filter((key) => !DROPPED_KEYS.has(key)),
     )

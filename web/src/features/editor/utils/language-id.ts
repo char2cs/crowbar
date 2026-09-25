@@ -1,8 +1,11 @@
 import { extensionRegistry } from '@/extensions/registry/extension-registry'
-import {
-  ANGULAR_TEMPLATE_LANGUAGE_ID,
-  isAngularTemplatePath,
-} from '@/features/editor/lib/wasm-parser/language-overlays'
+
+const ANGULAR_TEMPLATE_LANGUAGE_ID = 'angular'
+
+function isAngularTemplatePath(filePath: string): boolean {
+  const fileName = filePath.split('/').pop()?.toLowerCase() ?? filePath.toLowerCase()
+  return fileName.endsWith('.component.html') || fileName.endsWith('.ng.html')
+}
 
 const EXTENSION_TO_LANGUAGE: Record<string, string> = {
   js: 'javascript',

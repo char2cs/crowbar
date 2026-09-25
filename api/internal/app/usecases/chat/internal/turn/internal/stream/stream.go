@@ -363,6 +363,15 @@ func (s *Streams) Forget(chatID, runnerID string) {
 	}
 }
 
+// ForgetChat drops every message still open on chatID, whichever runner
+// streamed it: the chat is being erased.
+func (s *Streams) ForgetChat(chatID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.byChat, chatID)
+	delete(s.order, chatID)
+}
+
 func (s *Streams) evictLocked(chatID string) {
 	ids := s.order[chatID]
 	for len(ids) > MaxOpenPerChat {

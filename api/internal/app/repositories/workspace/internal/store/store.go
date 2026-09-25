@@ -46,6 +46,20 @@ type Store interface {
 		ctx context.Context,
 		id string,
 	) (*domain.Workspace, error)
+	// Drop deletes id's durable row directly. It exists for the one row the
+	// projection can no longer delete: a tombstone whose aggregate was already
+	// Forgotten before its OnForget row delete landed.
+	Drop(
+		ctx context.Context,
+		id string,
+	) error
+	// AwaitTombstone blocks until the durable projection has persisted id's
+	// "deleted" row and returns it — woken by that save, never by polling. It
+	// satisfies the delete reactor's StoreReader seam.
+	AwaitTombstone(
+		ctx context.Context,
+		id string,
+	) (domain.Workspace, error)
 	// ListOrRebuild returns the read model (which doubles as the location index,
 	// §3.7), first healing it via whole-model lazy Replay when the model is empty
 	// but the event log still holds aggregates (spec §3.7, decision 7). The
@@ -84,6 +98,22 @@ func New(
 	return &service{store: st, es: es, ax: ax}, nil
 }
 
+// RegisterHub registers the hub (WS fan-out) projection over s's own
+// projection store, so a tombstone is purged only once its frame is out (see
+// projections.RegisterHub).
+func RegisterHub[F any](
+	s Store,
+	enrich func(ctx context.Context, ws domain.Workspace) F,
+	broadcast func(frame F),
+) error {
+	svc, ok := s.(*service)
+	if !ok {
+		return fmt.Errorf("workspace store: hub needs the projection store")
+	}
+	projections.RegisterHub(svc.store, enrich, broadcast)
+	return nil
+}
+
 // List returns the durable read model directly (no replay).
 func (s *service) List(
 	ctx context.Context,
@@ -99,4 +129,21 @@ func (s *service) Get(
 	id string,
 ) (*domain.Workspace, error) {
 	return s.store.Get(ctx, id)
+}
+
+// AwaitTombstone delegates to the save-only store projection, which wakes the
+// waiter from the save that persists the tombstone.
+func (s *service) AwaitTombstone(
+	ctx context.Context,
+	id string,
+) (domain.Workspace, error) {
+	return s.store.AwaitTombstone(ctx, id)
+}
+
+// Drop deletes id's durable read-model row directly.
+func (s *service) Drop(
+	ctx context.Context,
+	id string,
+) error {
+	return s.store.Drop(ctx, id)
 }

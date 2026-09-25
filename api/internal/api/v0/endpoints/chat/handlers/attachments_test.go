@@ -23,6 +23,7 @@ import (
 	repoattachments "github.com/char2cs/crowbar/api/internal/app/repositories/chat/attachments"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 type uploadAttachmentCall struct {
@@ -206,6 +207,7 @@ func TestUploadAttachment_JSONPathVariantRefusesADirectory(t *testing.T) {
 // permission-based failure injection attachments_test.go's own
 // TestRead_OpenErrorReturnsNotFound uses for the repository's os.Open call.
 func TestUploadAttachment_JSONPathVariantUnreadableFileIs400(t *testing.T) {
+	testutil.RequirePermissionEnforcement(t)
 	dir := t.TempDir()
 	path := dir + "/forbidden.png"
 	require.NoError(t, os.WriteFile(path, []byte("data"), 0o000))

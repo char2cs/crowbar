@@ -785,7 +785,7 @@ func TestImport_ProtectedRowFailure_CleansUpOrphanedWorktree(t *testing.T) {
 		if in.Protected {
 			return domain.Workspace{}, errors.New("row boom") // the managed protected row fails
 		}
-		created := domain.Workspace{ID: in.ID, Kind: in.Kind, IsDefault: in.IsDefault, WorktreePath: in.WorktreePath}
+		created := domain.Workspace{ID: in.ID, Kind: in.Kind, IsDefault: in.IsDefault, WorktreePath: in.WorktreePath, Provisioning: domain.WorkspaceProvisioned}
 		ws.Created = append(ws.Created, created)
 		return created, nil
 	}
@@ -1479,4 +1479,32 @@ func TestCheckRepoImportable_RepoReadErrorDoesNotBlock(t *testing.T) {
 	// A read failure must not block a legitimate import — same degradation as
 	// existingRepo.
 	require.NoError(t, uc.CheckRepoImportable(context.Background(), "proj-1", "/repoA"))
+}
+
+// A project is announced the moment its row is saved, and the client asks for
+// its home straight away — so the home must exist BEFORE the row does.
+func TestCreate_TheHomeExistsBeforeTheProjectRowIsSaved(t *testing.T) {
+	projects, _, ws, _, _, uc := newImport(t)
+	ws.CreateFn = func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+		assert.Empty(t, projects.Saved, "the project row must not be announced before its home exists")
+		row := domain.Workspace{ID: in.ID, ProjectID: in.ProjectID, Kind: in.Kind, WorktreePath: in.WorktreePath, Provisioning: domain.WorkspaceProvisioned}
+		ws.Created = append(ws.Created, row)
+		return row, nil
+	}
+
+	_, err := uc.Create(context.Background(), "myproject", t.TempDir())
+	require.NoError(t, err)
+	require.Len(t, ws.Created, 1)
+	require.Len(t, projects.Saved, 1)
+}
+
+// A project row that cannot be saved takes its home back out.
+func TestCreate_AFailedProjectSaveDeletesTheHome(t *testing.T) {
+	projects, _, ws, _, _, uc := newImport(t)
+	projects.SaveErr = errors.New("disk full")
+
+	_, err := uc.Create(context.Background(), "myproject", t.TempDir())
+	require.ErrorContains(t, err, "disk full")
+	require.Len(t, ws.Created, 1)
+	assert.Equal(t, []string{ws.Created[0].ID}, ws.Deleted)
 }

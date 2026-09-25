@@ -22,10 +22,7 @@ import {
   type DropZone,
 } from '@/components/tree-dnd/drop-dom'
 import { getPaneDropZoneFromRect, type PaneDropZone } from '@/features/panes/utils/pane-drop-zones'
-import {
-  clearInternalTabDragData,
-  setInternalTabDragHoverTarget,
-} from '@/features/tabs/utils/internal-tab-drag'
+import { clearDropHover, setDropHover } from '@/features/panes/stores/drag-store'
 import { SIDEBAR_DROP_POLICY } from '@/components/sidebar/lib/sidebar-drop-policy'
 import { toast } from '@/features/window/stores/toast-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
@@ -298,23 +295,20 @@ function paintPaneHit(prev: ResolvedPaneHit | null, next: ResolvedPaneHit | null
  * about to make before the release, exactly as dragging an editor tab always
  * did.
  *
- * Deliberately the SAME channel that drag already uses
- * (`features/tabs/utils/internal-tab-drag.ts`'s hover target →
- * `PaneContainer`'s `crowbar-internal-tab-drag-hover` listener →
- * `SplitDropOverlay`'s `activeZoneOverride`) rather than a second preview of
- * this hook's own: the zone math is already shared (`getPaneDropZoneFromRect`,
+ * Deliberately the SAME channel the explorer's file drag uses (the drag
+ * store's `hover` → `PaneContainer`'s narrow selector → `SplitDropOverlay`'s
+ * `activeZoneOverride`) rather than a second preview of this hook's own: the zone math is already shared (`getPaneDropZoneFromRect`,
  * which `paneZone.hit` above calls and `resolveDropTarget` calls for tabs), so
  * anything new here would be a second renderer for one already-shared answer,
  * free to drift from it. A pane's element lives inside `WorkspaceHost`, not
- * the sidebar, so this window-level channel is also the only handle either
- * drag has on it.
+ * the sidebar, so this store is also the only handle either drag has on it.
  *
- * The channel carries a plain `{paneId, zone}` and dedups its own writes, so
- * this is safe to call on every resolved hover; `clearInternalTabDragData`
- * tears it down at the end of the drag, the same call `use-tab-drag.ts` makes.
+ * The store carries a plain `{paneId, zone}` and dedups its own writes, so
+ * this is safe to call on every resolved hover; `clearDropHover` tears it
+ * down at the end of the drag.
  */
 function publishPaneZonePreview(hit: SidebarPaneHit | null): void {
-  setInternalTabDragHoverTarget({ paneId: hit?.paneId ?? null, zone: hit?.zone ?? null })
+  setDropHover({ paneId: hit?.paneId ?? null, zone: hit?.zone ?? null })
 }
 
 export interface UseSidebarDragOptions {
@@ -631,9 +625,8 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       draggingRef.current = null
       dropTargetRef.current = null
       paintPaneHit(paneHitRef.current, null)
-      // Takes the zone preview down with it — same teardown `use-tab-drag.ts`
-      // runs at the end of its own drag.
-      clearInternalTabDragData()
+      // Takes the zone preview down with it.
+      clearDropHover()
       paneHitRef.current = null
       lastHitRef.current = null
       ghostOriginRef.current = null
@@ -735,7 +728,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       wheelLockScrollerRef.current?.removeEventListener('wheel', preventDefault)
       wheelLockScrollerRef.current = null
       paintPaneHit(paneHitRef.current, null)
-      clearInternalTabDragData()
+      clearDropHover()
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
       window.removeEventListener('pointercancel', endDrag)

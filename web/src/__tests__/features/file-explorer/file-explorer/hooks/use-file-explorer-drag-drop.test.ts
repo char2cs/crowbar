@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MockInstance } from 'vitest'
 import { useFileExplorerDragDrop } from '@/features/file-explorer/file-explorer/hooks/use-file-explorer-drag-drop'
 import type { FileEntry } from '@/features/file-system/types/app'
+import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { useDragStore } from '@/features/panes/stores/drag-store'
 
 // moveFile is the only async side effect on drop; stub it so a "drop on a
 // directory" never hits the real platform controller.
@@ -142,5 +144,73 @@ describe('useFileExplorerDragDrop — stable listener subscription (H13)', () =>
       (el) => (el as HTMLElement).style.position === 'fixed',
     )
     expect(stranded.length).toBe(0)
+  })
+})
+
+// A file dragged out of the explorer and dropped on a pane opens as a tab of
+// THAT pane, named explicitly (C8) — never a pane of its own, whatever edge
+// zone it lands in (spec §6.3/§7.2), and never through a window-global bus.
+describe('useFileExplorerDragDrop — dropping a file on a pane', () => {
+  let pane: HTMLElement
+
+  beforeEach(() => {
+    pane = document.createElement('div')
+    pane.setAttribute('data-pane-container', '')
+    pane.dataset.paneId = 'pane-b'
+    document.body.appendChild(pane)
+    ;(document as unknown as { elementFromPoint: () => Element | null }).elementFromPoint = () =>
+      pane
+    ;(document as unknown as { elementsFromPoint: () => Element[] }).elementsFromPoint = () => [
+      pane,
+    ]
+  })
+
+  afterEach(() => {
+    pane.remove()
+    useFileSystemStore.setState({ handleFileOpen: null })
+    delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint
+    delete (document as unknown as { elementsFromPoint?: unknown }).elementsFromPoint
+  })
+
+  function drag(file: FileEntry) {
+    const { result } = renderHook(() => useFileExplorerDragDrop(undefined))
+    act(() => {
+      result.current.startDrag(
+        {
+          preventDefault: vi.fn(),
+          stopPropagation: vi.fn(),
+          clientX: 10,
+          clientY: 10,
+        } as unknown as React.MouseEvent,
+        file,
+      )
+    })
+    return result
+  }
+
+  it('opens the file in the pane it was dropped on, by id', () => {
+    const handleFileOpen = vi.fn(async () => {})
+    useFileSystemStore.setState({ handleFileOpen })
+    const result = drag(makeFile('a.ts', 'src/a.ts'))
+    expect(useDragStore.getState().file).toEqual({ path: 'src/a.ts', name: 'a.ts', isDir: false })
+
+    act(() => {
+      // Near the left edge: an EDGE zone, which must not matter for a file.
+      document.dispatchEvent(mouseEvent('mouseup', 1, 50))
+    })
+
+    expect(handleFileOpen).toHaveBeenCalledWith('src/a.ts', false, { paneId: 'pane-b' })
+    expect(result.current.dragState.isDragging).toBe(false)
+    expect(useDragStore.getState().file).toBeNull()
+  })
+
+  it('ignores a directory drop', () => {
+    const handleFileOpen = vi.fn(async () => {})
+    useFileSystemStore.setState({ handleFileOpen })
+    drag(makeFile('src', 'src', true))
+    act(() => {
+      document.dispatchEvent(mouseEvent('mouseup', 50, 50))
+    })
+    expect(handleFileOpen).not.toHaveBeenCalled()
   })
 })

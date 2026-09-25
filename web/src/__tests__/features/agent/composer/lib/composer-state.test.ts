@@ -65,22 +65,6 @@ describe('resolveComposerState', () => {
     expect(state).toEqual({ kind: 'signpost', reason: 'reviving', message: 'Starting Claude…' })
   })
 
-  it('is an idle signpost naming a failed revive', () => {
-    const state = resolveComposerState(
-      inputs({ live: false, revival: { state: 'idle', reason: 'failed' } }),
-    )
-    expect(state).toMatchObject({ kind: 'signpost', reason: 'idle' })
-    expect(state).toMatchObject({ message: expect.stringMatching(/could not restart/i) })
-  })
-
-  it('is an idle signpost naming a clean exit, worded differently from a failure', () => {
-    const state = resolveComposerState(
-      inputs({ live: false, revival: { state: 'idle', reason: 'exited' } }),
-    )
-    expect(state).toMatchObject({ kind: 'signpost', reason: 'idle' })
-    expect(state).toMatchObject({ message: expect.stringMatching(/has exited/i) })
-  })
-
   it('is a signpost for a provider that cannot take a typed prompt', () => {
     expect(resolveComposerState(inputs({ submitUnavailable: true }))).toMatchObject({
       kind: 'signpost',

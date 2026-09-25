@@ -59,6 +59,12 @@ type ChatEvent struct {
 	Kind        string
 	Working     bool
 	Forgotten   bool
+	// Chat is the reduced aggregate AS OF this event — the command-side fold,
+	// never the lagging read model — and Version its aggregate version. They
+	// are what the chat snapshot owner (usecases/chat/internal/snapshot) is fed
+	// from, so a frame never describes a chat older than the event it announces.
+	Chat    domain.Chat
+	Version int64
 }
 
 // WatchFunc receives every projected agentchat event. It replaces the former
@@ -121,6 +127,8 @@ func (p *hubProjector) onForget(evt asynxModels.Event[domain.Chat]) {
 		WorkspaceID: evt.Aggregate.WorkspaceID,
 		Kind:        "deleted",
 		Forgotten:   true,
+		Chat:        evt.Aggregate,
+		Version:     evt.Version,
 	})
 }
 
@@ -140,6 +148,8 @@ func (p *hubProjector) onEvent(
 		WorkspaceID: evt.Aggregate.WorkspaceID,
 		Kind:        eventKind(evt.EventName),
 		Working:     evt.Aggregate.Working,
+		Chat:        evt.Aggregate,
+		Version:     evt.Version,
 	})
 }
 

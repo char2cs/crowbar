@@ -459,7 +459,7 @@ function startImportPendingRows(
   return pendingIds
 }
 
-/** Mirrors `space-content-actions.ts`'s `forkHasLanded` for an imported
+/** Mirrors `create-actions.ts`'s `forkHasLanded` for an imported
  *  branch, keyed by branch NAME rather than a chat id the import's 202 never
  *  hands back: true only once the branch's new workspace exists AND its
  *  owning chat has landed too — the same two-aggregate mint race that
@@ -476,7 +476,7 @@ function importedBranchHasLanded(
   }
 }
 
-/** `space-content-actions.ts`'s own `waitForRow`, duplicated rather than
+/** `create-actions.ts`'s own `waitForRow`, duplicated rather than
  *  imported — that module already imports FROM this one (`chatNotLoadedYet`),
  *  and a second edge back would cycle the two files for one four-line
  *  helper. */

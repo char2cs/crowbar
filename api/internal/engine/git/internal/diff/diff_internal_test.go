@@ -15,7 +15,7 @@ import (
 
 func TestParseDiffGitPath_ShortLine(t *testing.T) {
 	result := parseDiffGitPath("diff --git")
-	assert.Equal(t, "", result)
+	assert.Empty(t, result)
 }
 
 func TestParseDiffGitPath_ExactlyFourFields(t *testing.T) {
@@ -32,14 +32,14 @@ func TestParseDiffGitPath_PathWithSpaces(t *testing.T) {
 
 func TestParseIndexLine_EmptyAfterPrefix(t *testing.T) {
 	old, new_ := parseIndexLine("index ")
-	assert.Equal(t, "", old)
-	assert.Equal(t, "", new_)
+	assert.Empty(t, old)
+	assert.Empty(t, new_)
 }
 
 func TestParseIndexLine_NoDotDot(t *testing.T) {
 	old, new_ := parseIndexLine("index abc123 100644")
-	assert.Equal(t, "", old)
-	assert.Equal(t, "", new_)
+	assert.Empty(t, old)
+	assert.Empty(t, new_)
 }
 
 func TestParseIndexLine_Valid(t *testing.T) {
@@ -74,13 +74,13 @@ func TestParseHunkHeader_EndNoSpace(t *testing.T) {
 func TestHeaderForHunk_NegativeIndex(t *testing.T) {
 	lines := []gitdomain.DiffLine{{LineType: gitdomain.DiffLineContext, Content: "ctx"}}
 	result := headerForHunk(lines, -1)
-	assert.Equal(t, "", result)
+	assert.Empty(t, result)
 }
 
 func TestHeaderForHunk_IndexTooLarge(t *testing.T) {
 	lines := []gitdomain.DiffLine{{LineType: gitdomain.DiffLineHeader, Content: "@@ -1 +1 @@"}}
 	result := headerForHunk(lines, 5)
-	assert.Equal(t, "", result)
+	assert.Empty(t, result)
 }
 
 func TestHeaderForHunk_NonHeaderAtIndex(t *testing.T) {
@@ -88,7 +88,7 @@ func TestHeaderForHunk_NonHeaderAtIndex(t *testing.T) {
 		{LineType: gitdomain.DiffLineContext, Content: "context line"},
 	}
 	result := headerForHunk(lines, 0)
-	assert.Equal(t, "", result)
+	assert.Empty(t, result)
 }
 
 // --- buildHunkLines: empty rawLines ---
@@ -226,7 +226,7 @@ func TestParseFileSection_NewFile_NoDevNullInOldPath(t *testing.T) {
 	section := "diff --git a/new.go b/new.go\nnew file mode 100644\nindex 0000000..abc1234\n--- /dev/null\n+++ b/new.go\n@@ -0,0 +1 @@\n+package main\n"
 	f := parseFileSection(context.Background(), "", section)
 	assert.True(t, f.IsNew)
-	assert.Equal(t, "", f.OldPath, "OldPath must not be set to /dev/null")
+	assert.Empty(t, f.OldPath, "OldPath must not be set to /dev/null")
 	assert.Equal(t, "new.go", f.NewPath)
 }
 
@@ -234,6 +234,6 @@ func TestParseFileSection_DeletedFile_NoDevNullInNewPath(t *testing.T) {
 	section := "diff --git a/old.go b/old.go\ndeleted file mode 100644\nindex abc1234..0000000\n--- a/old.go\n+++ /dev/null\n@@ -1 +0,0 @@\n-package main\n"
 	f := parseFileSection(context.Background(), "", section)
 	assert.True(t, f.IsDeleted)
-	assert.Equal(t, "", f.NewPath, "NewPath must not be set to /dev/null")
+	assert.Empty(t, f.NewPath, "NewPath must not be set to /dev/null")
 	assert.Equal(t, "old.go", f.OldPath)
 }

@@ -88,19 +88,6 @@ func (f *fakeCloser) Close() error {
 	return f.err
 }
 
-// notACloser deliberately does not implement io.Closer.
-type notACloser struct{}
-
-func TestCloseIfCloser_ClosesWhenImplemented(t *testing.T) {
-	fc := &fakeCloser{}
-	closeIfCloser(fc)
-	assert.True(t, fc.called)
-}
-
-func TestCloseIfCloser_NoopWhenNotACloser(t *testing.T) {
-	assert.NotPanics(t, func() { closeIfCloser(notACloser{}) })
-}
-
 // fakeStoreCloser satisfies asynxModels.Store (via the embedded nil interface,
 // never invoked in these tests) and io.Closer, exercising closeEventStore's
 // type-asserts-to-Closer branch.

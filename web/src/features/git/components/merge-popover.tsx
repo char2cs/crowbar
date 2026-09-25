@@ -6,8 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { RadioGroup, Radio } from '@/components/ui/radio-group'
 import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
-import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
-import { useSidebarStore, getPostDeleteNavigationTarget } from '@/lib/store/sidebar'
+import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import { getPostDeleteNavigationTarget } from '@/lib/store/repo-tree'
 import { setMergeStrategy as patchMergeStrategy, mergeIntoParent } from '../api/review-api'
 import type { MergeStrategy } from '@/features/workspace/stores/slices/branch-review-slice'
 
@@ -55,11 +56,11 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
     if (next === strategy) return
     const previous = strategy
     setStrategyError(null)
-    getOrCreateWorkspaceStore(wsId).getState().setBranchReviewMergeStrategy(next)
+    getWorkspaceStore(wsId)?.getState().setBranchReviewMergeStrategy(next)
     try {
       await patchMergeStrategy(wsId, next)
     } catch {
-      getOrCreateWorkspaceStore(wsId).getState().setBranchReviewMergeStrategy(previous)
+      getWorkspaceStore(wsId)?.getState().setBranchReviewMergeStrategy(previous)
       setStrategyError('Failed to save strategy — try again')
     }
   }

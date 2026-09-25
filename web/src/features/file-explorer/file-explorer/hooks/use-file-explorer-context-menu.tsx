@@ -338,10 +338,7 @@ export function useFileExplorerContextMenu({
       // Env-template items create a sibling .env file — a mutation, so hidden on
       // a locked workspace.
       const canCreateEnvTemplate =
-        !isLocked &&
-        isEnvFileName(fileName) &&
-        !contextMenu.path.startsWith('remote://') &&
-        Boolean(onCreateNewFileInDirectory)
+        !isLocked && isEnvFileName(fileName) && Boolean(onCreateNewFileInDirectory)
 
       items.push(
         {
