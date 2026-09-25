@@ -27,7 +27,7 @@ func TestDeleteChat_RefusesAFolderID(t *testing.T) {
 	seedFolder(t, uc, "spikes", "")
 	seedThread(chats, "c1", "spikes", 1)
 
-	_, err := uc.DeleteChat(context.Background(), "spikes")
+	_, err := uc.DeleteChat(context.Background(), "spikes", domain.KeepWorkAtRisk)
 
 	require.ErrorIs(t, err, apperr.ErrNotFound)
 	assert.Empty(t, chats.Purged, "a folder id must never reach the chat cascade")
@@ -936,7 +936,7 @@ func TestRegression_DeletingAWorkspaceOwningChatAlsoDeletesTheWorkspace(t *testi
 	chats, uc, roster, _, _ := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-fork"})
 	seedWorktreeChat(chats, "owner", "ws-fork", "")
 
-	removed, err := uc.DeleteChat(context.Background(), "owner")
+	removed, err := uc.DeleteChat(context.Background(), "owner", domain.KeepWorkAtRisk)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"owner"}, removed.Chats, "the chat row goes")
@@ -956,7 +956,7 @@ func TestRegression_DeletingAWorkspaceOwningChatReapsItsWorktreeOnce(t *testing.
 	seedWorktreeChat(chats, "root", "ws-root", "")
 	seedWorktreeChat(chats, "thread", "ws-root", "root")
 
-	removed, err := uc.DeleteChat(context.Background(), "root")
+	removed, err := uc.DeleteChat(context.Background(), "root", domain.KeepWorkAtRisk)
 
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"thread", "root"}, removed.Chats,
@@ -981,7 +981,7 @@ func TestRegression_AFailedWorktreeReapLeavesTheChatAndItsWorkspaceIntact(t *tes
 	wedged := errors.New("worktree is locked")
 	reaper.ErrFor["ws-locked"] = wedged
 
-	_, err := uc.DeleteChat(context.Background(), "owner")
+	_, err := uc.DeleteChat(context.Background(), "owner", domain.KeepWorkAtRisk)
 
 	require.ErrorIs(t, err, wedged)
 	assert.Empty(t, chats.Purged,
@@ -997,7 +997,7 @@ func TestDeleteChat_ABubbleReapsNothing(t *testing.T) {
 	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-parent"})
 	seedWorktreeChat(chats, "bubble", "", "")
 
-	_, err := uc.DeleteChat(context.Background(), "bubble")
+	_, err := uc.DeleteChat(context.Background(), "bubble", domain.KeepWorkAtRisk)
 
 	require.NoError(t, err)
 	assert.Empty(t, reaper.Reaped, "a bubble owns no worktree to tear down")
@@ -1023,7 +1023,7 @@ func TestRegression_DeletingOneOfTwoChatsSharingAWorktreeSparesIt(t *testing.T) 
 	seedWorktreeChat(chats, "doomed", "ws-shared", "")
 	seedWorktreeChat(chats, "kept", "ws-shared", "")
 
-	removed, err := uc.DeleteChat(context.Background(), "doomed")
+	removed, err := uc.DeleteChat(context.Background(), "doomed", domain.KeepWorkAtRisk)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"doomed"}, removed.Chats, "only the named chat goes")
@@ -1049,11 +1049,11 @@ func TestRegression_DeletingTheLastChatHoldingAWorktreeStillReapsIt(t *testing.T
 	seedWorktreeChat(chats, "last", "ws-shared", "")
 	ctx := context.Background()
 
-	_, err := uc.DeleteChat(ctx, "first")
+	_, err := uc.DeleteChat(ctx, "first", domain.KeepWorkAtRisk)
 	require.NoError(t, err)
 	require.Empty(t, reaper.Reaped, "one holder still remains")
 
-	_, err = uc.DeleteChat(ctx, "last")
+	_, err = uc.DeleteChat(ctx, "last", domain.KeepWorkAtRisk)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"ws-shared"}, reaper.Reaped,
@@ -1074,7 +1074,7 @@ func TestRegression_AThreadInTheDoomedSubtreeDoesNotCountAsAHolder(t *testing.T)
 	seedWorktreeChat(chats, "root", "ws-root", "")
 	seedWorktreeChat(chats, "thread", "ws-root", "root")
 
-	_, err := uc.DeleteChat(context.Background(), "root")
+	_, err := uc.DeleteChat(context.Background(), "root", domain.KeepWorkAtRisk)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"ws-root"}, reaper.Reaped,
@@ -1096,10 +1096,37 @@ func TestRegression_AFailedHolderCensusRefusesTheDelete(t *testing.T) {
 	unreadable := errors.New("chat forest unavailable")
 	holders.Err = unreadable
 
-	_, err := uc.DeleteChat(context.Background(), "owner")
+	_, err := uc.DeleteChat(context.Background(), "owner", domain.KeepWorkAtRisk)
 
 	require.ErrorIs(t, err, unreadable)
 	assert.Empty(t, reaper.Reaped, "a worktree is never torn down on a guess")
 	assert.Empty(t, chats.Purged, "and the row naming it stays, so the user can retry")
 	assert.Len(t, roster.Rows, 1)
+}
+
+// Work at risk in ANY worktree a chat delete would reap refuses the whole
+// delete before the first reap, so nothing is half-deleted; consent proceeds
+// and is handed down to every reap.
+func TestDeleteChat_WithoutConsentRefusesOverWorkAtRiskBeforeReapingAnything(t *testing.T) {
+	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t,
+		domain.Workspace{ID: "ws-root"}, domain.Workspace{ID: "ws-child"})
+	seedWorktreeChat(chats, "root", "ws-root", "")
+	seedWorktreeChat(chats, "child", "ws-child", "root")
+	risk := domain.WorkAtRisk{WorkspaceID: "ws-root", Branch: "feature/root", UncommittedFiles: 2}
+	reaper.Risks = map[string]domain.WorkAtRisk{"ws-root": risk}
+
+	_, err := uc.DeleteChat(context.Background(), "root", domain.KeepWorkAtRisk)
+
+	var refused *domain.WorkAtRiskError
+	require.ErrorAs(t, err, &refused)
+	assert.Equal(t, []domain.WorkAtRisk{risk}, refused.Workspaces)
+	assert.Empty(t, reaper.Reaped, "not even the clean child is reaped")
+	assert.Empty(t, chats.Purged)
+	assert.Len(t, roster.Rows, 2)
+
+	_, err = uc.DeleteChat(context.Background(), "root", domain.DiscardWorkAtRisk)
+
+	require.NoError(t, err)
+	assert.Empty(t, roster.Rows)
+	assert.Equal(t, []domain.DeleteConsent{domain.DiscardWorkAtRisk, domain.DiscardWorkAtRisk}, reaper.Consents)
 }

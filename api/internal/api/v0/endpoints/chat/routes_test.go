@@ -114,6 +114,7 @@ func (stubChatTree) PlaceChat(
 func (stubChatTree) DeleteChat(
 	_ context.Context,
 	_ string,
+	_ domain.DeleteConsent,
 ) (agentusecase.ChatDeletion, error) {
 	return agentusecase.ChatDeletion{}, nil
 }

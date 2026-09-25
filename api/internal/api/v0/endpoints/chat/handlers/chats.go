@@ -585,10 +585,9 @@ func (h *Handlers) Delete(
 		return
 	}
 
-	removed, err := h.folders.DeleteChat(rctx, id)
+	removed, err := h.folders.DeleteChat(rctx, id, libs.DeleteConsentOf(ctx))
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.WriteDeleteErr(ctx, err)
 		return
 	}
 	for _, folderID := range removed.Folders {

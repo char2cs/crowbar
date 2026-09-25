@@ -233,19 +233,21 @@ type Agent interface {
 // diagnosed — a real worktree on disk with nothing anywhere able to name it —
 // from the opposite direction to the import path that first produced one.
 //
-// The method name is the one the port it is satisfied by already uses
-// (chat.WorktreeCreator.DiscardChildWorkspace), and deliberately so: the
-// container hands this the SAME adapter, so a delete here and a failed
-// promotion's rollback tear a workspace down through one call
-// (hierarchy.DeleteCascade) rather than two ways that could diverge. Its own
-// guards — a locked root, a subtree owning a working chat — therefore apply
-// here too, which is correct: a protected branch's worktree is no more
-// deletable through the chat door than through the workspace one.
+// The container hands this the SAME adapter a failed promotion's rollback uses,
+// so both tear a workspace down through one call (hierarchy.DeleteCascade) and
+// its guards — a locked root, a working chat, work at risk without consent —
+// apply through the chat door exactly as through the workspace one.
+// WorkAtRisk is what DeleteWorkspace without consent would refuse over.
 type WorkspaceReaper interface {
-	DiscardChildWorkspace(
+	DeleteWorkspace(
 		ctx context.Context,
 		workspaceID string,
+		consent domain.DeleteConsent,
 	) error
+	WorkAtRisk(
+		ctx context.Context,
+		workspaceIDs []string,
+	) ([]domain.WorkAtRisk, error)
 }
 
 // CreateInput carries the fields needed to create a folder. ParentID is a
@@ -464,10 +466,12 @@ type Usecase interface {
 	//
 	// It is refused with ErrSubtreeWorking if the chat or any row below it is
 	// currently working, checked BEFORE anything is purged. Unlike a locked
-	// workspace, this refusal has no confirm-and-override path.
+	// workspace, this refusal has no confirm-and-override path. Work at risk
+	// in a worktree it reaps refuses it too, unless consent says to discard.
 	DeleteChat(
 		ctx context.Context,
 		chatID string,
+		consent domain.DeleteConsent,
 	) (ChatDeletion, error)
 	// PlaceWorkspace moves a workspace's own row within its repo's tree — a
 	// locked branch and an ordinary fork alike, see checkWorkspaceMove and

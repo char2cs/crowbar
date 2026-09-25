@@ -1,4 +1,4 @@
-import { deleteProject, deleteRepo } from '@/lib/api'
+import { DISCARD_WORK_INIT, deleteProject, deleteRepo, workAtRiskOf } from '@/lib/api'
 import { deleteFolder, deleteHomeFolder } from '@/lib/api/sidebar-placement'
 import { deleteChat } from '@/features/agent/api/agent-api'
 import { getOwningChatId } from '@/lib/workspace-scope'
@@ -119,10 +119,13 @@ function releaseWhenGone(entry: RemovalEntry): void {
 }
 
 function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
+  // An entry carrying `atRisk` was confirmed with that list on screen: that
+  // confirmation, and nothing else, is consent to destroy it.
+  const sendInit = entry.atRisk ? { ...init, ...DISCARD_WORK_INIT } : init
   // Spread rather than pass `init` straight through: the ordinary commit has no
   // options at all, and handing every delete an explicit `undefined` would put
   // an argument on the wire-facing signature that only the unload flush uses.
-  const opts: [RequestInit] | [] = init ? [init] : []
+  const opts: [RequestInit] | [] = sendInit ? [sendInit] : []
   switch (entry.kind) {
     case 'workspace': {
       // A worktree is taken by deleting the CHAT that holds it: DELETE
@@ -284,6 +287,10 @@ export function flushDrainingRemovals(): void {
  * left to cancel, and a row that still offers Cancel would be lying. A refusal
  * puts the rows back and says why — this is the only path that can surface one,
  * because the user has already walked away from the gesture that started it.
+ *
+ * A refusal over work that exists nowhere else is a question, not a failure:
+ * the entry goes back in the tray, still hidden, for the confirm dialog to list
+ * that work and ask whether to delete it anyway.
  */
 export async function commitRemoval(entry: RemovalEntry, context: RemovalContext): Promise<void> {
   useRemovalTrayStore.getState().settle(entry.entryId)
@@ -291,6 +298,11 @@ export async function commitRemoval(entry: RemovalEntry, context: RemovalContext
   try {
     await sendRemoval(entry)
   } catch (err) {
+    const atRisk = workAtRiskOf(err)
+    if (atRisk && !entry.atRisk) {
+      useRemovalTrayStore.getState().askToDiscard(entry, atRisk)
+      return
+    }
     useRemovalTrayStore.getState().release(entry.hiddenIds)
     toast.error(
       `Couldn't remove ${entry.label}: ${err instanceof Error ? err.message : 'request failed'}`,

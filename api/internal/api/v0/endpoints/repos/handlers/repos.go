@@ -63,8 +63,16 @@ type WorkspaceReader interface {
 // lifecycle (project.DeleteUsecase.DeleteRepo): workspaces retired first, then
 // the row, its Node row and its entity directory. The handler only binds HTTP.
 type RepoDeleter interface {
-	BeginRepoDelete(ctx context.Context, repo domain.Repository) (domain.Repository, error)
-	DeleteRepo(ctx context.Context, repo domain.Repository) error
+	BeginRepoDelete(
+		ctx context.Context,
+		repo domain.Repository,
+		consent domain.DeleteConsent,
+	) (domain.Repository, error)
+	DeleteRepo(
+		ctx context.Context,
+		repo domain.Repository,
+		consent domain.DeleteConsent,
+	) error
 }
 
 // RemoteRefresher is the narrow git surface the Branches handler uses to make
@@ -597,16 +605,17 @@ func (h *Handlers) DeleteRepo(
 	}
 	// The intent is durable, and a previous attempt's error cleared on every
 	// client, before the 202: from here on boot finishes what this starts.
-	marked, err := h.deleter.BeginRepoDelete(c.Request.Context(), *repo)
+	// Work at risk without consent is refused here, before any intent exists.
+	consent := libs.DeleteConsentOf(c)
+	marked, err := h.deleter.BeginRepoDelete(c.Request.Context(), *repo, consent)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.WriteDeleteErr(c, err)
 		return
 	}
 	h.broadcast(dto.RepoDTOFrom(marked, h.placementOf(c.Request.Context(), repoID)))
 	libs.WriteAccepted(c)
 	h.runAsync(c.Request.Context(), func(ctx context.Context) {
-		if err := h.deleter.DeleteRepo(ctx, marked); err != nil {
+		if err := h.deleter.DeleteRepo(ctx, marked, consent); err != nil {
 			slog.ErrorContext(ctx, "delete repo: stopped; the repo stays", "repo", repoID, "err", err)
 			if row, getErr := h.store.FindByKey(ctx, repoID); getErr == nil && row != nil {
 				h.broadcast(dto.RepoDTOFrom(*row, h.placementOf(ctx, repoID)))

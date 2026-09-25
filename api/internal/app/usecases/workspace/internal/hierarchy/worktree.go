@@ -102,10 +102,19 @@ type Usecase interface {
 		ctx context.Context,
 		wsID string,
 	) (domain.Workspace, error)
+	// DeleteCascade removes rootID and its unlocked descendants. Without
+	// consent it refuses, touching nothing, when that would destroy work that
+	// exists nowhere else (a *domain.WorkAtRiskError).
 	DeleteCascade(
 		ctx context.Context,
 		rootID string,
+		consent domain.DeleteConsent,
 	) error
+	// WorkAtRisk is what DeleteCascade of each root would refuse over.
+	WorkAtRisk(
+		ctx context.Context,
+		rootIDs []string,
+	) ([]domain.WorkAtRisk, error)
 	// DeleteRepoWorkspaces removes every workspace of a repo — locked ones
 	// included, though never by force — taking the repo (its path and default
 	// branch) from the CALLER rather than resolving it from the repo row.
@@ -121,7 +130,13 @@ type Usecase interface {
 	DeleteRepoWorkspaces(
 		ctx context.Context,
 		repo domain.Repository,
+		consent domain.DeleteConsent,
 	) error
+	// RepoWorkAtRisk is what DeleteRepoWorkspaces would refuse over.
+	RepoWorkAtRisk(
+		ctx context.Context,
+		repo domain.Repository,
+	) ([]domain.WorkAtRisk, error)
 	// SetChatObserver wires the chat-usecase surface guardReparent's
 	// working-chat check needs. It is a post-construction setter rather than a
 	// New(...) option because the chat usecase itself depends on this one
@@ -1459,6 +1474,7 @@ func subtreeWorkspaceIDs(
 func (u *hierarchyUsecase) DeleteCascade(
 	ctx context.Context,
 	rootID string,
+	consent domain.DeleteConsent,
 ) error {
 	all, err := u.workspaces.List(ctx)
 	if err != nil {
@@ -1481,16 +1497,65 @@ func (u *hierarchyUsecase) DeleteCascade(
 		return workingErr
 	}
 	repo := u.repoRefFor(ctx, root.RepoID)
-	order := cascade.Plan(rootID, nodesFrom(all))
-	for _, id := range order {
-		if index[id].Status == domain.WorkspaceStatusDeleted {
-			continue
-		}
-		if removeErr := u.removeOne(ctx, index[id], repo, all); removeErr != nil {
-			return fmt.Errorf("delete cascade: remove %s: %w", id, removeErr)
+	doomed := liveRows(cascade.Plan(rootID, nodesFrom(all)), index)
+	if lossErr := u.refuseLoss(ctx, consent, doomed, repo, all); lossErr != nil {
+		return fmt.Errorf("delete cascade: %w", lossErr)
+	}
+	for _, ws := range doomed {
+		if removeErr := u.removeOne(ctx, ws, repo, all); removeErr != nil {
+			return fmt.Errorf("delete cascade: remove %s: %w", ws.ID, removeErr)
 		}
 	}
 	return nil
+}
+
+// WorkAtRisk reports what deleting each of rootIDs (with its cascade) would
+// destroy that exists nowhere else — the list a delete without consent refuses
+// over. Unknown or already-deleted roots contribute nothing.
+func (u *hierarchyUsecase) WorkAtRisk(
+	ctx context.Context,
+	rootIDs []string,
+) ([]domain.WorkAtRisk, error) {
+	all, err := u.workspaces.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("work at risk: list: %w", err)
+	}
+	index := indexByID(all)
+	seen := map[string]bool{}
+	var risks []domain.WorkAtRisk
+	for _, rootID := range rootIDs {
+		root, ok := index[rootID]
+		if !ok || seen[rootID] {
+			continue
+		}
+		var doomed []domain.Workspace
+		for _, ws := range liveRows(cascade.Plan(rootID, nodesFrom(all)), index) {
+			if !seen[ws.ID] {
+				seen[ws.ID] = true
+				doomed = append(doomed, ws)
+			}
+		}
+		found, assessErr := u.assess(ctx, doomed, u.repoRefFor(ctx, root.RepoID), all)
+		if assessErr != nil {
+			return nil, assessErr
+		}
+		risks = append(risks, found...)
+	}
+	return risks, nil
+}
+
+// liveRows resolves ids to their rows in order, skipping tombstones.
+func liveRows(
+	ids []string,
+	index map[string]domain.Workspace,
+) []domain.Workspace {
+	rows := make([]domain.Workspace, 0, len(ids))
+	for _, id := range ids {
+		if ws, ok := index[id]; ok && ws.Status != domain.WorkspaceStatusDeleted {
+			rows = append(rows, ws)
+		}
+	}
+	return rows
 }
 
 // DeleteRepoWorkspaces removes every workspace of a repo, using the repo the
@@ -1502,35 +1567,27 @@ func (u *hierarchyUsecase) DeleteCascade(
 // forcing it, though — removeOne never --forces a locked worktree and never
 // deletes a branch Crowbar did not create, so the repo's default and
 // protected branches, and any uncommitted work in their worktrees, survive
-// the repo's removal (spec §3 P0-1). One failed tombstone does not stop the
-// rest, but it is returned, so the repo row stays for a re-drive.
+// the repo's removal (spec §3 P0-1). Without consent, work existing nowhere
+// else stops the whole walk before any teardown. One failed tombstone does not
+// stop the rest, but it is returned, so the repo row stays for a re-drive.
 func (u *hierarchyUsecase) DeleteRepoWorkspaces(
 	ctx context.Context,
 	repo domain.Repository,
+	consent domain.DeleteConsent,
 ) error {
 	all, err := u.workspaces.List(ctx)
 	if err != nil {
 		return fmt.Errorf("delete repo workspaces: list: %w", err)
 	}
-	index := indexByID(all)
-	mine := make([]cascade.Node, 0, len(all))
-	for _, ws := range all {
-		if ws.RepoID == repo.ID && ws.Status != domain.WorkspaceStatusDeleted {
-			// Locked is left false: the whole repo goes, so no lock stops the walk.
-			mine = append(mine, cascade.Node{ID: ws.ID, Parent: ws.ParentID})
-		}
-	}
 	ref := repoRef{path: repo.Path, defaultBranch: repo.DefaultBranch}
+	doomed := repoWorkspaces(repo.ID, all)
+	if lossErr := u.refuseLoss(ctx, consent, doomed, ref, all); lossErr != nil {
+		return fmt.Errorf("delete repo workspaces: %w", lossErr)
+	}
 	var errs []error
-	for _, n := range mine {
-		if parent, ok := index[n.Parent]; ok && parent.RepoID == repo.ID &&
-			parent.Status != domain.WorkspaceStatusDeleted {
-			continue // taken by its parent's cascade
-		}
-		for _, id := range cascade.Plan(n.ID, mine) {
-			if removeErr := u.removeOne(ctx, index[id], ref, all); removeErr != nil {
-				errs = append(errs, fmt.Errorf("remove %s: %w", id, removeErr))
-			}
+	for _, ws := range doomed {
+		if removeErr := u.removeOne(ctx, ws, ref, all); removeErr != nil {
+			errs = append(errs, fmt.Errorf("remove %s: %w", ws.ID, removeErr))
 		}
 	}
 	// Reported only after every other workspace had its turn: the repo must not
@@ -1539,6 +1596,45 @@ func (u *hierarchyUsecase) DeleteRepoWorkspaces(
 		return fmt.Errorf("delete repo workspaces: %w", err)
 	}
 	return nil
+}
+
+// RepoWorkAtRisk reports what DeleteRepoWorkspaces would destroy without
+// consent, so a repo delete can refuse before it records its intent.
+func (u *hierarchyUsecase) RepoWorkAtRisk(
+	ctx context.Context,
+	repo domain.Repository,
+) ([]domain.WorkAtRisk, error) {
+	all, err := u.workspaces.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("repo work at risk: list: %w", err)
+	}
+	ref := repoRef{path: repo.Path, defaultBranch: repo.DefaultBranch}
+	return u.assess(ctx, repoWorkspaces(repo.ID, all), ref, all)
+}
+
+// repoWorkspaces lists every live workspace of a repo, locked ones included,
+// each subtree root followed by its descendants in cascade order.
+func repoWorkspaces(
+	repoID string,
+	all []domain.Workspace,
+) []domain.Workspace {
+	index := indexByID(all)
+	mine := make([]cascade.Node, 0, len(all))
+	for _, ws := range all {
+		if ws.RepoID == repoID && ws.Status != domain.WorkspaceStatusDeleted {
+			// Locked is left false: the whole repo goes, so no lock stops the walk.
+			mine = append(mine, cascade.Node{ID: ws.ID, Parent: ws.ParentID})
+		}
+	}
+	var ordered []domain.Workspace
+	for _, n := range mine {
+		if parent, ok := index[n.Parent]; ok && parent.RepoID == repoID &&
+			parent.Status != domain.WorkspaceStatusDeleted {
+			continue // taken by its parent's cascade
+		}
+		ordered = append(ordered, liveRows(cascade.Plan(n.ID, mine), index)...)
+	}
+	return ordered
 }
 
 // repoRef is what a workspace teardown needs of its repository: the main
@@ -1565,55 +1661,36 @@ func (u *hierarchyUsecase) repoRefFor(
 	return repoRef{path: repo.Path, defaultBranch: repo.DefaultBranch}
 }
 
-// removeOne tears one workspace down and tombstones its row.
-//
-// The git half obeys the one rule a teardown has (spec §3 P0-1, invariant
-// D5): it removes only what Crowbar made. The worktree is --forced only when
-// it is an ordinary unlocked workspace; a locked (protected) worktree is
-// removed without force, so git refuses rather than discards uncommitted work.
-// The branch is deleted only when Crowbar created it (CreatedBranch), the
-// workspace is not locked, and it is not the repo's default branch — the
-// default branch instead gets the main folder re-attached to it, since a
-// managed worktree on it is the reason the folder was detached. Nor is a
-// checkout forced that holds another row's files (worktreepath.HoldsAnother).
+// removeOne tears one workspace down, as teardownOf decided, and tombstones its
+// row. The git half is best-effort: a failure (a dirty locked worktree, a
+// transient index lock, an already-removed worktree) is logged and the row is
+// still dropped, so the cascade never leaves a ghost pointing at a gone worktree.
 func (u *hierarchyUsecase) removeOne(
 	ctx context.Context,
 	ws domain.Workspace,
 	repo repoRef,
 	all []domain.Workspace,
 ) error {
-	// Kill the workspace's live PTY sessions FIRST, before the worktree is removed.
-	// They otherwise survive the delete as orphaned shell processes with a
-	// now-deleted CWD, leaking fds and ring-buffer memory on every
-	// workspace/cascade delete. Best-effort: a kill failure must not abort the
-	// cascade. Runs even when the repo path can't be resolved below.
+	// Before the worktree goes: a live shell would otherwise outlive its CWD.
 	u.reapTerminals(ctx, ws.ID)
-
-	// No repo to run git against, or a placeholder with no worktree of its own
-	// (whose real branch is held elsewhere and must never be git-touched): drop
-	// the row only, so the cascade leaves no ghost behind.
-	if repo.path == "" || ws.Provisioning == domain.WorkspacePlaceholder {
-		return u.workspaces.Delete(ctx, ws.ID)
+	td := u.teardownOf(ws, repo, all)
+	if td.worktree == "" && ws.WorktreePath != "" && repo.path != "" {
+		slog.InfoContext(ctx, "cascade: not a worktree Crowbar created; leaving it in place",
+			"ws", ws.ID, "worktree", ws.WorktreePath)
 	}
-	locked := ws.Status == domain.WorkspaceStatusLocked
-	// Best-effort git teardown: a failure here (a dirty locked worktree, a
-	// transient index lock, an already-removed worktree) must NOT abort the
-	// cascade or leave a GHOST row pointing at a gone worktree. Log and
-	// continue; the row is always dropped. A worktree git refused to remove is
-	// left on disk — the purger never deletes a live checkout.
-	force := !locked && !worktreepath.HoldsAnother(ws.WorktreePath, otherPaths(ws.ID, all))
-	if removeErr := u.git.WorktreeRemove(ctx, repo.path, ws.WorktreePath, force); removeErr != nil {
-		slog.WarnContext(ctx, "cascade: worktree remove failed (continuing)",
-			"ws", ws.ID, "worktree", ws.WorktreePath, "locked", locked, "force", force, "err", removeErr)
+	if td.worktree != "" {
+		if removeErr := u.git.WorktreeRemove(ctx, repo.path, td.worktree, td.force); removeErr != nil {
+			slog.WarnContext(ctx, "cascade: worktree remove failed (continuing)",
+				"ws", ws.ID, "worktree", td.worktree, "force", td.force, "err", removeErr)
+		}
 	}
-	switch {
-	case ws.Branch == "":
-	case ws.Branch == repo.defaultBranch:
+	if td.reattach {
 		u.reattachMainIfDetachedAt(ctx, repo.path, ws.Branch)
-	case ws.CreatedBranch && !locked:
-		if delErr := u.git.ForceDeleteBranch(ctx, repo.path, ws.Branch); delErr != nil {
+	}
+	if td.dropBranch != "" {
+		if delErr := u.git.ForceDeleteBranch(ctx, repo.path, td.dropBranch); delErr != nil {
 			slog.WarnContext(ctx, "cascade: branch delete failed (continuing)",
-				"ws", ws.ID, "branch", ws.Branch, "err", delErr)
+				"ws", ws.ID, "branch", td.dropBranch, "err", delErr)
 		}
 	}
 	return u.workspaces.Delete(ctx, ws.ID)

@@ -92,3 +92,25 @@ describe('cancel', () => {
     expect(useRemovalTrayStore.getState().hiddenIds.has('chat-1')).toBe(false)
   })
 })
+
+describe('askToDiscard', () => {
+  it('puts a sent entry back, waiting on an answer with the work at risk, its rows still hidden', () => {
+    useRemovalTrayStore.getState().hold([draft()])
+    const [sent] = useRemovalTrayStore.getState().entries
+    useRemovalTrayStore.getState().settle(sent.entryId)
+    const atRisk = [
+      { workspaceId: 'ws-1', branch: 'feature/one', uncommittedFiles: 1, unmergedCommits: 0 },
+    ]
+
+    useRemovalTrayStore.getState().askToDiscard(sent, atRisk)
+
+    const [asked] = useRemovalTrayStore.getState().entries
+    expect(asked.deadlineAt).toBeNull()
+    expect(asked.atRisk).toEqual(atRisk)
+    expect(asked.entryId).not.toBe(sent.entryId)
+    expect(useRemovalTrayStore.getState().hiddenIds.has('chat-1')).toBe(true)
+
+    useRemovalTrayStore.getState().cancel(asked.entryId)
+    expect(useRemovalTrayStore.getState().hiddenIds.has('ws-1')).toBe(false)
+  })
+})

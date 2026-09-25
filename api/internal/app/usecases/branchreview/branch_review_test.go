@@ -385,6 +385,14 @@ func (g *mockGitEngine) WorktreeRemove(ctx context.Context, repoPath, worktreePa
 	return nil
 }
 
+func (g *mockGitEngine) UncommittedFiles(context.Context, string) (int, error) {
+	return 0, nil
+}
+
+func (g *mockGitEngine) UnmergedCommits(context.Context, string, []string, string) (int, error) {
+	return 0, nil
+}
+
 func (g *mockGitEngine) WorktreeRepair(ctx context.Context, repoPath, worktreePath string) error {
 	return nil
 }

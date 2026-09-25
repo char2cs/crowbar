@@ -60,10 +60,12 @@ type Deleter interface {
 	BeginDelete(
 		ctx context.Context,
 		id string,
+		consent domain.DeleteConsent,
 	) (domain.Project, error)
 	Delete(
 		ctx context.Context,
 		id string,
+		consent domain.DeleteConsent,
 	) error
 }
 
@@ -277,16 +279,17 @@ func (h *Handlers) Delete(
 	id := c.Param("projectId")
 	// The intent is durable, and a previous attempt's error cleared on every
 	// client, before the 202: from here on boot finishes what this starts.
-	marked, err := h.deleter.BeginDelete(c.Request.Context(), id)
+	// Work at risk without consent is refused here, before any intent exists.
+	consent := libs.DeleteConsentOf(c)
+	marked, err := h.deleter.BeginDelete(c.Request.Context(), id, consent)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.WriteDeleteErr(c, err)
 		return
 	}
 	h.broadcast(dto.ProjectDTOFrom(marked))
 	libs.WriteAccepted(c)
 	h.runAsync(c.Request.Context(), func(ctx context.Context) {
-		if err := h.deleter.Delete(ctx, id); err != nil {
+		if err := h.deleter.Delete(ctx, id, consent); err != nil {
 			slog.ErrorContext(ctx, "delete project: stopped; the project stays", "project_id", id, "err", err)
 			if p, getErr := h.reader.Get(ctx, id); getErr == nil {
 				h.broadcast(dto.ProjectDTOFrom(p))

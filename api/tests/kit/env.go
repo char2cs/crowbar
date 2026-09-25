@@ -1436,7 +1436,7 @@ func (e *Env) DeleteWorkspaceCascade(
 	t.Helper()
 	require.NoError(
 		t,
-		e.app.Usecases.Workspace.DeleteCascade(context.Background(), wsID),
+		e.app.Usecases.Workspace.DeleteCascade(context.Background(), wsID, domain.KeepWorkAtRisk),
 		"DeleteWorkspaceCascade: %s",
 		wsID,
 	)

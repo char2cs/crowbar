@@ -462,20 +462,35 @@ func TestDeleteRepo_DeleteError_ReannouncesTheRepo(
 }
 
 // fakeRepoDeleter stands in for project.DeleteUsecase.DeleteRepo.
+// refuse is what BeginRepoDelete answers a delete without consent with.
 type fakeRepoDeleter struct {
-	mu      sync.Mutex
-	deleted []domain.Repository
-	err     error
+	mu       sync.Mutex
+	deleted  []domain.Repository
+	err      error
+	refuse   error
+	consents []domain.DeleteConsent
 }
 
-func (f *fakeRepoDeleter) BeginRepoDelete(_ context.Context, repo domain.Repository) (domain.Repository, error) {
+func (f *fakeRepoDeleter) BeginRepoDelete(
+	_ context.Context,
+	repo domain.Repository,
+	consent domain.DeleteConsent,
+) (domain.Repository, error) {
+	if f.refuse != nil && consent == domain.KeepWorkAtRisk {
+		return domain.Repository{}, f.refuse
+	}
 	repo.Deleting, repo.LastError = true, ""
 	return repo, nil
 }
 
-func (f *fakeRepoDeleter) DeleteRepo(_ context.Context, repo domain.Repository) error {
+func (f *fakeRepoDeleter) DeleteRepo(
+	_ context.Context,
+	repo domain.Repository,
+	consent domain.DeleteConsent,
+) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.consents = append(f.consents, consent)
 	if f.err != nil {
 		return f.err
 	}
@@ -491,6 +506,40 @@ func (f *fakeRepoDeleter) ids() []string {
 		ids = append(ids, r.ID)
 	}
 	return ids
+}
+
+// A delete refused over work at risk answers 409 with the list, synchronously,
+// and announces nothing: no intent was recorded. The discard header retries it.
+func TestDeleteRepo_WorkAtRiskIsRefusedUntilTheDiscardHeaderConfirmsIt(t *testing.T) {
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
+	deleter := &fakeRepoDeleter{refuse: &domain.WorkAtRiskError{Workspaces: []domain.WorkAtRisk{
+		{WorkspaceID: "w1", Branch: "feature/x", UnmergedCommits: 1},
+	}}}
+	bc := newRecordingRepoBroadcaster()
+	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).WithRepoDeleter(deleter)
+	r := gin.New()
+	r.Group("/v0/projects/:projectId/repos/:repoId").DELETE("", h.DeleteRepo)
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(),
+		http.MethodDelete, "/v0/projects/p1/repos/r1", http.NoBody))
+
+	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"code":"work_at_risk"`)
+	assert.Contains(t, rec.Body.String(), `"branch":"feature/x"`)
+	assertNoBroadcast(t, h, bc)
+
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodDelete, "/v0/projects/p1/repos/r1", http.NoBody)
+	req.Header.Set("Crowbar-Discard-Work", "true")
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	h.WaitAsync()
+	deleter.mu.Lock()
+	defer deleter.mu.Unlock()
+	assert.Equal(t, []domain.DeleteConsent{domain.DiscardWorkAtRisk}, deleter.consents)
 }
 
 // TestDeleteRepo_NotFound_4xx pins synchronous existence validation.

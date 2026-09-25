@@ -167,6 +167,7 @@ func (f *fakeChatTree) PlaceChat(
 func (f *fakeChatTree) DeleteChat(
 	_ context.Context,
 	chatID string,
+	_ domain.DeleteConsent,
 ) (agentusecase.ChatDeletion, error) {
 	f.gotPurge = chatID
 	return f.deletion, f.err
