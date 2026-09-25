@@ -35,10 +35,9 @@ func TestNewSnapshotStore_InvalidPath_ReturnsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestNewSnapshotStore_ReadonlyDB_JournalModeError mirrors the event store's
-// PRAGMA journal_mode=WAL failure branch: a valid file made read-only fails the
-// WAL header write while gorm.Open still succeeds.
-func TestNewSnapshotStore_ReadonlyDB_JournalModeError(t *testing.T) {
+// TestNewSnapshotStore_ReadonlyDB_FailsToOpen mirrors the event store's: an
+// unwritable store refuses to open.
+func TestNewSnapshotStore_ReadonlyDB_FailsToOpen(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("running as root; permission denial has no effect")
 	}
@@ -59,7 +58,7 @@ func TestNewSnapshotStore_ReadonlyDB_JournalModeError(t *testing.T) {
 
 	_, err = NewSnapshotStore(path)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "journal_mode")
+	assert.Contains(t, err.Error(), "readonly database")
 }
 
 func TestSnapshotStore_Put_ThenGet(t *testing.T) {
