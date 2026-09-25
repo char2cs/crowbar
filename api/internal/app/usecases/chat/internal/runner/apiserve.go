@@ -42,6 +42,7 @@ func forkServeProcess(argv []string) (*serveProcess, error) {
 	cmd := exec.Command(binpath.Resolve(argv[0]), argv[1:]...) //nolint:gosec // argv is descriptor-declared and template-expanded, not user input
 	cmd.Stdout = nil
 	cmd.Stderr = nil
+	ownProcessGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("agent: api transport: start %s: %w", argv[0], err)
 	}
@@ -68,24 +69,25 @@ func reapServe(cmd *exec.Cmd) *serveProcess {
 	return s
 }
 
-// kill ends the process and waits, bounded, until it is gone. Waiting is the
-// point: codex holds a writer lock on its thread for as long as it lives, and
-// a replacement resuming that thread before the old process is reaped is
-// refused ("already has an active writer").
+// kill ends the process and everything it started, and waits, bounded, until
+// it is gone. Waiting is the point: codex holds a writer lock on its thread for
+// as long as it lives, and a replacement resuming that thread before the old
+// process is reaped is refused ("already has an active writer").
 func (s *serveProcess) kill() {
 	if s == nil || s.cmd.Process == nil {
 		return
 	}
 	// Asked first: codex releases its thread's writer lease only on a graceful
 	// exit — after a SIGKILL the next app-server is refused the thread.
-	if s.cmd.Process.Signal(syscall.SIGTERM) == nil {
+	if signalGroup(s.cmd.Process, syscall.SIGTERM) == nil {
 		select {
 		case <-s.exited:
-			return
 		case <-time.After(serveExitBound):
 		}
 	}
-	_ = s.cmd.Process.Kill()
+	// Whatever is still in the group — the leader past its bound, or a child
+	// it left behind — is not allowed to outlive the runner.
+	_ = signalGroup(s.cmd.Process, syscall.SIGKILL)
 	select {
 	case <-s.exited:
 	case <-time.After(serveExitBound):

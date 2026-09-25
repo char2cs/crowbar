@@ -3,49 +3,92 @@
 package kit
 
 import (
+	"bytes"
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
-// RequireNoChildProcesses fails t if the test process still has a child: after
-// a daemon's teardown returns, nothing it started may still be running. It
-// reads /proc, so it checks nothing where there is none.
-func RequireNoChildProcesses(t *testing.T) {
+// procTagEnv is inherited by every process a test starts, however deep: a
+// grandchild orphaned onto init still carries it, where its parent link does not.
+const procTagEnv = "CROWBAR_TEST_PROC_TAG"
+
+// procReapBound is how long a teardown may take to see its processes exit
+// (codex's app-server is asked to stop gracefully, then waited on).
+const procReapBound = 10 * time.Second
+
+// RequireNoLeakedProcesses fails t if any process started during it — child,
+// grandchild or orphan — is still running when every other cleanup is done.
+// Call it before anything is started, so its cleanup runs last. Leaked
+// processes are killed so one failure does not pile up behind the next test.
+// It reads /proc; where there is none it checks nothing.
+func RequireNoLeakedProcesses(t testing.TB) {
 	t.Helper()
-	entries, err := os.ReadDir("/proc")
-	if err != nil {
-		t.Logf("kit: no /proc, child processes not checked: %v", err)
+	if _, err := os.Stat("/proc/self/environ"); err != nil {
+		t.Logf("kit: no /proc, leaked processes not checked: %v", err)
 		return
 	}
-	self := strconv.Itoa(os.Getpid())
-	var children []string
-	for _, e := range entries {
-		if _, err := strconv.Atoi(e.Name()); err != nil {
-			continue
+	tag := uuid.NewString()
+	t.Setenv(procTagEnv, tag)
+	t.Cleanup(func() {
+		// A process that is exiting is still listed until it is reaped.
+		if assert.Eventually(t, func() bool { return len(taggedProcesses(tag)) == 0 },
+			procReapBound, 20*time.Millisecond, "processes started by this test outlived its teardown") {
+			return
 		}
-		if parentOf(e.Name()) == self {
-			cmdline, _ := os.ReadFile("/proc/" + e.Name() + "/cmdline")
-			children = append(children, e.Name()+": "+strings.ReplaceAll(string(cmdline), "\x00", " "))
+		leaked := taggedProcesses(tag)
+		descs := make([]string, 0, len(leaked))
+		for _, pid := range leaked {
+			descs = append(descs, describe(pid))
+			_ = syscall.Kill(pid, syscall.SIGKILL)
 		}
-	}
-	assert.Empty(t, children, "processes the daemon started outlived its teardown")
+		t.Errorf("leaked (now killed):\n%s", strings.Join(descs, "\n"))
+	})
 }
 
-// parentOf reads pid's parent from /proc/<pid>/stat, whose second field (the
-// command name) may itself contain spaces and parentheses.
-func parentOf(pid string) string {
-	stat, err := os.ReadFile("/proc/" + pid + "/stat")
+// taggedProcesses lists the live (non-zombie) processes, other than this one,
+// whose environment carries tag.
+func taggedProcesses(tag string) []int {
+	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		return ""
+		return nil
+	}
+	needle := []byte(procTagEnv + "=" + tag + "\x00")
+	self := os.Getpid()
+	var out []int
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil || pid == self || zombie(pid) {
+			continue
+		}
+		env, err := os.ReadFile("/proc/" + e.Name() + "/environ")
+		if err == nil && bytes.Contains(env, needle) {
+			out = append(out, pid)
+		}
+	}
+	return out
+}
+
+// zombie reports whether pid has exited and only awaits its parent's reap.
+func zombie(pid int) bool {
+	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return true
 	}
 	s := string(stat)
 	fields := strings.Fields(s[strings.LastIndexByte(s, ')')+1:])
-	if len(fields) < 2 {
-		return ""
-	}
-	return fields[1]
+	return len(fields) == 0 || fields[0] == "Z" || fields[0] == "X"
+}
+
+func describe(pid int) string {
+	p := strconv.Itoa(pid)
+	cmdline, _ := os.ReadFile("/proc/" + p + "/cmdline")
+	cwd, _ := os.Readlink("/proc/" + p + "/cwd")
+	return p + " (cwd " + cwd + "): " + strings.TrimSpace(strings.ReplaceAll(string(cmdline), "\x00", " "))
 }

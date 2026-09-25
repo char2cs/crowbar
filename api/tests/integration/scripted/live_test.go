@@ -32,6 +32,7 @@ func newLiveRig(t *testing.T) (*rig, *modelServer) {
 			t.Skipf("%s is not installed", cli)
 		}
 	}
+	kit.RequireNoLeakedProcesses(t)
 	model := newModelServer(t)
 	home := t.TempDir()
 	t.Setenv("CROWBAR_HOME", home)

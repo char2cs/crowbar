@@ -126,6 +126,7 @@ func runWorktreeMergeIteration(
 func TestBenchmarkWorktreeMergeIntoParent(t *testing.T) {
 	const n = 10
 
+	kit.RequireNoLeakedProcesses(t)
 	env := kit.BuildEnv(t)
 	imported := env.ImportRepo(t, "bench-merge", "")
 
@@ -139,5 +140,4 @@ func TestBenchmarkWorktreeMergeIntoParent(t *testing.T) {
 	// Each merge's tail (summary resync, conflict prediction) is still running
 	// git in the repo; teardown must end it before the repo is removed.
 	env.Close(t)
-	kit.RequireNoChildProcesses(t)
 }
