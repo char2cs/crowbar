@@ -171,6 +171,9 @@ type EventStore interface {
 	// fact rather than a birth record — its only callers are the two moments
 	// Crowbar is actually told the user moved (SwitchToTerminal and
 	// SwitchToNative).
+	//
+	// On the SendWait path, like SetWorkspace: a move that relaunches the CLI
+	// spawns it next, reading the surface from the READ MODEL.
 	SetSurface(
 		ctx context.Context,
 		chatID string,
@@ -520,7 +523,7 @@ func (r *eventSourced) SetSurface(
 	chatID string,
 	surface string,
 ) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.SetSurface{ChatID: chatID, Surface: surface})
+	evt, err := occSend(ctx, r.ax.SendWait, commands.SetSurface{ChatID: chatID, Surface: surface})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set surface: %w", err)
 	}

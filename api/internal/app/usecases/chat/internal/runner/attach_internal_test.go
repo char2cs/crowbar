@@ -299,7 +299,9 @@ func TestSwitchToTerminal_ForksTheAttachProcessAndDropsTheAPIConnection(t *testi
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
 		runnerStore: stubRunnerStoreForAttach{
-			runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test"},
+			runner: engineagents.Runner{
+				ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test", CurrentSession: "sess-1",
+			},
 		},
 		turns:    stubTurnsForAttach{working: false},
 		activity: stubActivityForAttach{found: true},
@@ -362,7 +364,9 @@ func TestRegression_SwitchToTerminalForksWithTheProcessEnvironment(t *testing.T)
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
 		runnerStore: stubRunnerStoreForAttach{
-			runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test"},
+			runner: engineagents.Runner{
+				ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test", CurrentSession: "sess-1",
+			},
 		},
 		turns:    stubTurnsForAttach{working: false},
 		activity: stubActivityForAttach{found: true},
@@ -378,51 +382,6 @@ func TestRegression_SwitchToTerminalForksWithTheProcessEnvironment(t *testing.T)
 
 	require.NotEmpty(t, term.lastCall().env, "a nil env is what left the native view without a PATH")
 	require.Subset(t, term.lastCall().env, os.Environ())
-}
-
-// TestSwitchToTerminal_ReturnsErrNativeViewNotYetAvailable_WhenSessionNeverCompletedATurn
-// pins the fix for a bug that reached a real user: switching to Terminal before
-// the first exchange completes forks a codex resume that dies within
-// milliseconds — codex writes no rollout for a thread until a turn completes —
-// and nothing caught that, so the chat's terminal silently fell back to the
-// disconnected companion PTY every api-transport spawn still forks. A user who
-// typed into THAT created a completely independent codex session that got
-// silently promoted into its own new chat the moment it announced itself
-// (MoveToNew, move.go). Confirmed live end to end.
-func TestSwitchToTerminal_ReturnsErrNativeViewNotYetAvailable_WhenSessionNeverCompletedATurn(t *testing.T) {
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, _, _ = conn.ReadMessage()
-	})
-	agent := attachTestAgent(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
-	require.NoError(t, err)
-	defer apiConn.Close()
-
-	term := &fakeTermForAttach{}
-	rs := &Runners{
-		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), spawns: inflight.NewGate(),
-		// surfaces/chats: the two switch calls now MOVE the chat's current
-		// surface (domain.Chat.Surface), in memory and durably.
-		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
-		runnerStore: stubRunnerStoreForAttach{
-			runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test"},
-		},
-		turns:    stubTurnsForAttach{working: false},
-		activity: stubActivityForAttach{found: false},
-		term:     term,
-	}
-	rs.apiConns.set("runner-1", &apiconn{
-		driver: apiConn, ctx: ctx, agent: agent,
-		tctx: engineagents.TemplateCtx{Socket: sockPath, Session: "sess-1", Cwd: "/work", Segid: "seg-1", CrowbarHook: "/bin/crowbar"},
-	})
-
-	_, err = rs.SwitchToTerminal(context.Background(), "chat-1")
-	require.ErrorIs(t, err, ErrNativeViewNotYetAvailable)
-	_, stillConnected := rs.apiConns.get("runner-1")
-	require.True(t, stillConnected, "a refused switch must not tear anything down")
-	require.Equal(t, 0, term.callCount(), "nothing must be forked when the refusal fires first")
 }
 
 // TestRegression_SwitchToTerminal_ChecksRunnerCurrentSession_NotStaleAPIConnSession

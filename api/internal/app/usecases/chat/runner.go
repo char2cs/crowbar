@@ -95,16 +95,16 @@ type RunnerUsecase interface {
 		chatID string,
 	) (domain.PendingPrompt, bool, error)
 
-	// SwitchToTerminal hands the chat's live turn over to its provider's own
-	// native view — idle-only, for a provider whose descriptor declares attach
-	// without hotswap. Returns the new terminal session id.
+	// SwitchToTerminal moves the chat onto its provider's own TUI — idle-only
+	// when that relaunches or hands over a process — and returns the terminal
+	// session the TUI is ("" for a dormant chat, which only records the move).
 	SwitchToTerminal(
 		ctx context.Context,
 		chatID string,
 	) (string, error)
 
-	// SwitchToNative reverses SwitchToTerminal. A chat with nothing attached is
-	// a no-op.
+	// SwitchToNative moves the chat onto Crowbar's own chat surface. A chat
+	// already there is a no-op.
 	SwitchToNative(
 		ctx context.Context,
 		chatID string,
@@ -404,13 +404,12 @@ func (u *Usecase) Compact(ctx context.Context, chatID string) error {
 	return u.runners.Compact(ctx, chatID)
 }
 
-// SwitchToTerminal hands the chat's live turn over to its provider's own
-// native view.
+// SwitchToTerminal moves the chat onto its provider's own TUI.
 func (u *Usecase) SwitchToTerminal(ctx context.Context, chatID string) (string, error) {
 	return u.runners.SwitchToTerminal(ctx, chatID)
 }
 
-// SwitchToNative reverses SwitchToTerminal.
+// SwitchToNative moves the chat onto Crowbar's own chat surface.
 func (u *Usecase) SwitchToNative(ctx context.Context, chatID string) error {
 	return u.runners.SwitchToNative(ctx, chatID)
 }

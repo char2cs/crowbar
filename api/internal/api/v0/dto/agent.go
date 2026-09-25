@@ -147,10 +147,7 @@ type AgentChatDTO struct {
 	//
 	// The client needs it for one thing: a chat on a hooks-channel surface has
 	// NO api connection behind it, so the PTY above IS its conversation and
-	// there is nothing to fork. Asking anyway (POST .../terminal) is refused —
-	// that attach resumes an api session this chat never had — which is what
-	// put "provider has no completed turn yet to show its native view of" on a
-	// chat the user had just created on the CLI.
+	// there is nothing to ask for before showing it.
 	Surface string `json:"surface,omitempty"`
 
 	// ActiveProviderID is the provider whose CLI is (or last was) talking to this

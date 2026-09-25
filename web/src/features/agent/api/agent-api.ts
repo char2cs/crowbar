@@ -64,10 +64,7 @@ export interface AgentChat {
    * their provider's own default face.
    *
    * 'terminal' means the daemon has NO api connection for this chat, so
-   * `terminalSessionId` above IS its conversation and there is nothing left to
-   * fork — asking for one anyway (`switchToTerminal`) is refused for a chat
-   * that was born there, because that attach resumes an api session it never
-   * had.
+   * `terminalSessionId` above IS its conversation.
    */
   surface?: LandingChatPresentation
   /** The live runner's provider, else the provider of the chat's LAST conversation
@@ -1185,13 +1182,11 @@ export async function stopChat(wsId: string, id: string): Promise<void> {
   })
 }
 
-// switchToTerminal hands the chat's live turn over to its provider's OWN native
-// view — idle-only, for a provider whose `hotswap` capability is false (its
-// terminal is not already live the way a hotswap provider's always is). Returns
-// the new terminal session id to point the terminal surface at. Rejects
-// (409) while a turn is in flight, and (422) for a provider with no native
-// view to show at all — gate the control on `hasTerminal`/`hotswap` rather
-// than letting the user press something that cannot work.
+// switchToTerminal moves the chat onto its provider's own TUI: the daemon hands
+// the session over, or relaunches the TUI on the resume ladder (transcript when
+// the provider cannot load its own session yet). Returns the TUI's terminal
+// session ('' for a dormant chat, which only records the move). Rejects (409)
+// while a turn is in flight and (422) for a provider with no TUI to show.
 export async function switchToTerminal(wsId: string, id: string): Promise<string> {
   const res = await apiFetch<{ id: string }>(
     `${chatBase(wsId)}/${encodeURIComponent(id)}/switch-to-terminal`,
@@ -1200,9 +1195,8 @@ export async function switchToTerminal(wsId: string, id: string): Promise<string
   return res.id
 }
 
-// switchToNative reverses switchToTerminal: the native-view PTY is torn down
-// and the chat's api connection is re-established over the same session. A
-// chat with nothing attached is a backend no-op.
+// switchToNative moves the chat onto Crowbar's own chat surface; a chat already
+// there is a backend no-op.
 export async function switchToNative(wsId: string, id: string): Promise<void> {
   await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/switch-to-native`, {
     method: 'POST',

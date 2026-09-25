@@ -587,31 +587,15 @@ export function AgentChatPane({
     () => isActivePane && isVisible && getActiveWorkspaceId() === wsId,
   )
 
-  // Flips presentation to 'terminal' — but only a chat with NOTHING on its
-  // terminal surface yet has to ask Crowbar to fork one (switchToTerminal).
-  // Two kinds already have one and must not: a HOTSWAP provider, whose PTY is
-  // live from the spawn, and a chat BORN on the terminal surface (chat.surface),
-  // for which the daemon opened no api connection at all, so its own PTY IS the
-  // conversation. Asking anyway is what produced "provider has no completed turn
-  // yet to show its native view of" on a chat the user had just created on the
-  // CLI: that attach is `codex resume {id}`, which resumes an api session a
-  // terminal-born chat never had. Every
-  // path onto the terminal surface shares this check — the escort below, the
-  // wait banner's own button (openTerminalFromBanner), and the composer's
-  // (onOpenTerminal) — so none of them can strand a non-hotswap provider on a
-  // view with nothing behind it, the way calling setPresentation alone would.
-  // A PLAIN function, not an effect event: it is called from effect events
-  // (onWaitEdge below) as well as from plain click handlers (the banner
-  // button, the composer's terminal link), and useEffectEvent's own rule
-  // restricts it to being called only from effects/effect events in this
-  // component. Redefined every render, so it still always closes over the
-  // current provider list — nothing lists it in a dependency array, so there
-  // is no stale-closure risk to trade away by not memoizing it.
-  // providerIdOverride: handleSwitch calls this AFTER switchProvider resolves,
-  // when the chat is already on the terminal surface and the switch itself
-  // never re-runs this gate — activeProviderId is this render's value from
-  // BEFORE the switch, so the caller passes the provider it just switched TO
-  // instead of relying on a re-render to catch up first.
+  // Flips presentation to 'terminal'. A hotswap provider's PTY is live from the
+  // spawn, and a chat already on the terminal surface is its own PTY, so only
+  // a chat whose provider talks over its api connection asks the daemon to
+  // move it (switchToTerminal) — which hands the session over or relaunches
+  // the TUI on the resume ladder. Every path onto the terminal goes through
+  // here (the escort below, the wait banner, the composer's link). A plain
+  // function: it is called from effect events and click handlers alike.
+  // providerIdOverride: handleSwitch calls this right after switchProvider
+  // resolves, before a re-render has caught activeProviderId up.
   const enterTerminal = (providerIdOverride?: string) => {
     const chatProvider = providers.find((p) => p.id === (providerIdOverride ?? activeProviderId))
     const hotswap = chatProvider ? chatProvider.hotswap === true : true
@@ -624,14 +608,8 @@ export function AgentChatPane({
         await switchToTerminal(wsId, shownChatId)
         setPresentation('terminal')
       } catch (err: unknown) {
-        // Left where they were — moving them to a view that never actually came
-        // up would be worse than staying put. But nothing else reports this
-        // failure (there was no "whatever surfaces the request's own error
-        // today" this comment used to assume): a refused switch — a turn still
-        // in flight, or codex before its first completed turn ever wrote a
-        // rollout to resume — used to be a click that silently did nothing,
-        // exactly the failure mode toastSpawnFailure exists to prevent
-        // elsewhere in this file. Same fix, here too.
+        // Left where they were: a view that never came up is worse than
+        // staying put, and a refusal (a turn in flight) must still be said.
         const name = chatProvider?.displayName ?? providerIdOverride ?? activeProviderId
         toastSpawnFailure(err, name, 'open the terminal view for')
       }
