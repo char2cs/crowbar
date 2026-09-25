@@ -5,6 +5,7 @@ package kit
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -23,22 +24,22 @@ const procTagEnv = "CROWBAR_TEST_PROC_TAG"
 // (codex's app-server is asked to stop gracefully, then waited on).
 const procReapBound = 10 * time.Second
 
-// RequireNoLeakedProcesses fails t if any process started during it — child,
+// RequireNoLeakedProcesses fails tb if any process started during it — child,
 // grandchild or orphan — is still running when every other cleanup is done.
 // Call it before anything is started, so its cleanup runs last. Leaked
 // processes are killed so one failure does not pile up behind the next test.
 // It reads /proc; where there is none it checks nothing.
-func RequireNoLeakedProcesses(t testing.TB) {
-	t.Helper()
+func RequireNoLeakedProcesses(tb testing.TB) {
+	tb.Helper()
 	if _, err := os.Stat("/proc/self/environ"); err != nil {
-		t.Logf("kit: no /proc, leaked processes not checked: %v", err)
+		tb.Logf("kit: no /proc, leaked processes not checked: %v", err)
 		return
 	}
 	tag := uuid.NewString()
-	t.Setenv(procTagEnv, tag)
-	t.Cleanup(func() {
+	tb.Setenv(procTagEnv, tag)
+	tb.Cleanup(func() {
 		// A process that is exiting is still listed until it is reaped.
-		if assert.Eventually(t, func() bool { return len(taggedProcesses(tag)) == 0 },
+		if assert.Eventually(tb, func() bool { return len(taggedProcesses(tag)) == 0 },
 			procReapBound, 20*time.Millisecond, "processes started by this test outlived its teardown") {
 			return
 		}
@@ -48,7 +49,7 @@ func RequireNoLeakedProcesses(t testing.TB) {
 			descs = append(descs, describe(pid))
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 		}
-		t.Errorf("leaked (now killed):\n%s", strings.Join(descs, "\n"))
+		tb.Errorf("leaked (now killed):\n%s", strings.Join(descs, "\n"))
 	})
 }
 
@@ -88,7 +89,7 @@ func zombie(pid int) bool {
 
 func describe(pid int) string {
 	p := strconv.Itoa(pid)
-	cmdline, _ := os.ReadFile("/proc/" + p + "/cmdline")
+	cmdline, _ := os.ReadFile(filepath.Join("/proc", p, "cmdline")) //nolint:gosec // G304: a /proc entry of a pid this helper listed
 	cwd, _ := os.Readlink("/proc/" + p + "/cwd")
 	return p + " (cwd " + cwd + "): " + strings.TrimSpace(strings.ReplaceAll(string(cmdline), "\x00", " "))
 }

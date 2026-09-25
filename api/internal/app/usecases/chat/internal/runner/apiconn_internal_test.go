@@ -205,7 +205,7 @@ func TestAPIConnRegistry_DropKillsTheProcessAndClosesTheDriver(t *testing.T) {
 // reason (daemon_restart) — an exit reconciled here raced the store's close.
 func TestAPIConnRegistry_CloseAllIsNotARunnerExit(t *testing.T) {
 	reg := newAPIConnRegistry()
-	cmd := exec.Command("sleep", "5")
+	cmd := exec.CommandContext(t.Context(), "sleep", "5")
 	require.NoError(t, cmd.Start())
 	serve := reapServe(cmd)
 	reg.set("runner-1", &apiconn{serve: serve})

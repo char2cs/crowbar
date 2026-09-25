@@ -33,7 +33,7 @@ func TestRequireNoLeakedProcesses_CatchesAnOrphanedGrandchild(t *testing.T) {
 	rec := &recordingTB{TB: t}
 	RequireNoLeakedProcesses(rec)
 	pidFile := filepath.Join(t.TempDir(), "orphan.pid")
-	require.NoError(t, exec.Command("sh", "-c", "sleep 60 >/dev/null 2>&1 & echo $! > "+pidFile).Run())
+	require.NoError(t, exec.CommandContext(t.Context(), "sh", "-c", "sleep 60 >/dev/null 2>&1 & echo $! > "+pidFile).Run())
 	raw, err := os.ReadFile(pidFile)
 	require.NoError(t, err)
 	orphan, err := strconv.Atoi(strings.TrimSpace(string(raw)))

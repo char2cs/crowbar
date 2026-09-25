@@ -2113,7 +2113,7 @@ func TestSlashCatalog_ServesADormantChatFromItsOwnProvider(t *testing.T) {
 	require.NoError(t, os.MkdirAll(f.ws.worktree, 0o700))
 	cli := filepath.Join(t.TempDir(), "cli")
 	require.NoError(t, os.WriteFile(cli, []byte("#!/bin/sh\ncat <<'J'\n"+
-		`[{"content":[{"text":"<skills>\n- review\n</skills>"}]}]`+"\nJ\n"), 0o700)) //nolint:gosec // G306: the fake CLI must be executable
+		`[{"content":[{"text":"<skills>\n- review\n</skills>"}]}]`+"\nJ\n"), 0o700))
 	writeCatalogDescriptor(t, f, strconv.Quote(cli))
 	chatID, _ := f.spawn(t, "codex")
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
