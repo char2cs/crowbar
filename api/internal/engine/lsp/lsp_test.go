@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/manager"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/registry"
@@ -486,6 +487,18 @@ func TestDidOpen_ForwardsAndTracksURI(t *testing.T) {
 	nots := fake.notifies()
 	require.Len(t, nots, 1)
 	assert.Equal(t, "textDocument/didOpen", nots[0].method)
+}
+
+func TestDidOpen_RefusesADocumentOutsideTheWorktree(t *testing.T) {
+	for _, path := range []string{"/elsewhere/main.go", "../sibling/main.go", "/tree/../other/main.go"} {
+		fake := newFakeServer(nil)
+		e, spawns := buildCountingEngine(t, fake)
+
+		err := e.DidOpen(context.Background(), ws, tree, path, "go", "package main")
+		require.ErrorIs(t, err, apperr.ErrInvalidArgument, path)
+		assert.Empty(t, fake.notifies(), "%s: nothing reaches the server", path)
+		assert.Equal(t, 0, spawns.count(), "%s: no server is spawned for it", path)
+	}
 }
 
 func TestDidChange_Forwards(t *testing.T) {
