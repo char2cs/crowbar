@@ -7,9 +7,11 @@ import (
 	"os"
 
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
+// SlashCatalog probes the chat's provider with the descriptor's own short-lived
+// command. It needs no live TUI: the catalogue is the provider's and the
+// worktree's, so a dormant chat is answered the same as a live one.
 func (rs *Runners) SlashCatalog(
 	ctx context.Context,
 	chatID string,
@@ -18,12 +20,9 @@ func (rs *Runners) SlashCatalog(
 	if err != nil {
 		return engineagents.SlashCatalog{}, fmt.Errorf("agent: slash catalog: chat: %w", err)
 	}
-	runner, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if errors.Is(err, agentrunner.ErrNotFound) {
-		return engineagents.SlashCatalog{}, ErrSlashCatalogNoLiveTUI
-	}
+	providerID, err := rs.conversations.ChatProviderID(ctx, chatID)
 	if err != nil {
-		return engineagents.SlashCatalog{}, fmt.Errorf("agent: slash catalog: live runner: %w", err)
+		return engineagents.SlashCatalog{}, fmt.Errorf("agent: slash catalog: %w", err)
 	}
 	cwdWorkspaceID, err := rs.cwdWorkspaceID(ctx, chat.ID, chat.WorkspaceID)
 	if err != nil {
@@ -33,7 +32,7 @@ func (rs *Runners) SlashCatalog(
 	if err != nil {
 		return engineagents.SlashCatalog{}, fmt.Errorf("agent: slash catalog: worktree: %w", err)
 	}
-	descriptor, err := rs.agents.Get(ctx, home, runner.ProviderID)
+	descriptor, err := rs.agents.Get(ctx, home, providerID)
 	if err != nil {
 		return engineagents.SlashCatalog{}, fmt.Errorf("agent: slash catalog: resolve descriptor: %w", err)
 	}
@@ -45,31 +44,15 @@ func (rs *Runners) SlashCatalog(
 		Env: os.Environ(),
 	}, rs.catalogs.AcquireProcess)
 
-	if err := rs.catalogStillCurrent(ctx, chatID, runner); err != nil {
-		return engineagents.SlashCatalog{}, err
+	// A chat switched to another provider mid-probe gets that one's catalogue
+	// on its next request; this one would be shown under the wrong CLI.
+	if current, curErr := rs.conversations.ChatProviderID(ctx, chatID); curErr != nil || current != providerID {
+		return engineagents.SlashCatalog{}, ErrSlashCatalogSuperseded
 	}
 	if err != nil {
 		return engineagents.SlashCatalog{}, slashCatalogError(ctx, err)
 	}
 	return catalog, nil
-}
-
-func (rs *Runners) catalogStillCurrent(
-	ctx context.Context,
-	chatID string,
-	probed engineagents.Runner,
-) error {
-	current, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if errors.Is(err, agentrunner.ErrNotFound) {
-		return ErrSlashCatalogSuperseded
-	}
-	if err != nil {
-		return fmt.Errorf("agent: slash catalog: revalidate live runner: %w", err)
-	}
-	if current.ID != probed.ID || current.ProviderID != probed.ProviderID {
-		return ErrSlashCatalogSuperseded
-	}
-	return nil
 }
 
 func slashCatalogError(

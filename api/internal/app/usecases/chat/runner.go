@@ -181,7 +181,6 @@ var _ RunnerUsecase = (*Usecase)(nil)
 // so errors.Is matches across the boundary.
 var (
 	ErrSlashCatalogUnsupported = runner.ErrSlashCatalogUnsupported
-	ErrSlashCatalogNoLiveTUI   = runner.ErrSlashCatalogNoLiveTUI
 	ErrSlashCatalogTimeout     = runner.ErrSlashCatalogTimeout
 	ErrSlashCatalogUnavailable = runner.ErrSlashCatalogUnavailable
 	ErrSlashCatalogOutputLimit = runner.ErrSlashCatalogOutputLimit
@@ -211,14 +210,13 @@ const (
 )
 
 const (
-	CatalogCodeUnsupported  = "catalog_unsupported"
-	CatalogCodeLiveRequired = "catalog_live_tui_required"
-	CatalogCodeTimeout      = "catalog_timeout"
-	CatalogCodeUnavailable  = "catalog_command_unavailable"
-	CatalogCodeOutputLimit  = "catalog_output_limit"
-	CatalogCodeCommand      = "catalog_command_failed"
-	CatalogCodeMalformed    = "catalog_malformed_output"
-	CatalogCodeSuperseded   = "catalog_superseded"
+	CatalogCodeUnsupported = "catalog_unsupported"
+	CatalogCodeTimeout     = "catalog_timeout"
+	CatalogCodeUnavailable = "catalog_command_unavailable"
+	CatalogCodeOutputLimit = "catalog_output_limit"
+	CatalogCodeCommand     = "catalog_command_failed"
+	CatalogCodeMalformed   = "catalog_malformed_output"
+	CatalogCodeSuperseded  = "catalog_superseded"
 )
 
 // PromptErrorCode returns the stable machine-readable API code for a prompt
@@ -246,8 +244,6 @@ func CatalogErrorCode(err error) string {
 	switch {
 	case errors.Is(err, ErrSlashCatalogUnsupported):
 		return CatalogCodeUnsupported
-	case errors.Is(err, ErrSlashCatalogNoLiveTUI):
-		return CatalogCodeLiveRequired
 	case errors.Is(err, ErrSlashCatalogTimeout):
 		return CatalogCodeTimeout
 	case errors.Is(err, ErrSlashCatalogUnavailable):

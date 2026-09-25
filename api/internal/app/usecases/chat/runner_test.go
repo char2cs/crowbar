@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -1918,7 +1919,7 @@ func TestRegression_ProviderExitingBeforeItsRunnerRowCommitsLeavesNoChat(t *test
 
 // ─── from catalog_test.go ─────────────────────────────────────────────
 
-func TestSlashCatalogRejectsResultWhenLiveRunnerChangesDuringProbe(t *testing.T) {
+func TestSlashCatalogRejectsResultWhenTheProviderChangesDuringProbe(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(f.ws.home, "descriptors"), 0o700))
 	require.NoError(t, os.MkdirAll(f.ws.worktree, 0o700))
@@ -1984,7 +1985,7 @@ presentation:
 		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(withLifecycle(descriptor)), 0o600,
 	))
 
-	chatID, runnerID := f.spawn(t, "codex")
+	chatID, _ := f.spawn(t, "codex")
 	probeDone := make(chan error, 1)
 	go func() {
 		_, err := f.usecase.SlashCatalog(f.ctx, chatID)
@@ -1995,8 +1996,8 @@ presentation:
 	require.NoError(t, err, "the deterministic provider command must be in flight")
 	require.NoError(t, inFlight.Close())
 
-	_, exitErr := f.runners.Exit(f.ctx, runnerID, time.Now())
-	require.NoError(t, exitErr)
+	_, switchErr := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	require.NoError(t, switchErr)
 	f.wait()
 	releaser, err := os.OpenFile(release, os.O_WRONLY, 0)
 	require.NoError(t, err)
@@ -2005,7 +2006,7 @@ presentation:
 	select {
 	case err := <-probeDone:
 		require.ErrorIs(t, err, agentusecase.ErrSlashCatalogSuperseded,
-			"a result from a TUI that no longer holds the chat must never be returned")
+			"a catalogue of a provider the chat has left must never be returned")
 	case <-time.After(3 * time.Second):
 		t.Fatal("slash catalog did not finish after releasing its provider command")
 	}
@@ -2104,15 +2105,26 @@ runtime:
 	require.ErrorIs(t, err, agentusecase.ErrSlashCatalogUnsupported)
 }
 
-func TestSlashCatalog_RefusesAChatWithNoLiveCLI(t *testing.T) {
+// The probe is its own short-lived command, not a question put to the TUI: a
+// dormant chat's catalogue is its provider's, the same as a live one's.
+func TestSlashCatalog_ServesADormantChatFromItsOwnProvider(t *testing.T) {
 	f := newFixture(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(f.ws.home, "descriptors"), 0o700))
+	require.NoError(t, os.MkdirAll(f.ws.worktree, 0o700))
+	cli := filepath.Join(t.TempDir(), "cli")
+	require.NoError(t, os.WriteFile(cli, []byte("#!/bin/sh\ncat <<'J'\n"+
+		`[{"content":[{"text":"<skills>\n- review\n</skills>"}]}]`+"\nJ\n"), 0o700)) //nolint:gosec // G306: the fake CLI must be executable
+	writeCatalogDescriptor(t, f, strconv.Quote(cli))
 	chatID, _ := f.spawn(t, "codex")
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
 	f.wait()
 
-	_, err := f.usecase.SlashCatalog(f.ctx, chatID)
+	catalog, err := f.usecase.SlashCatalog(f.ctx, chatID)
 
-	require.ErrorIs(t, err, agentusecase.ErrSlashCatalogNoLiveTUI)
+	require.NoError(t, err)
+	assert.Equal(t, "codex", catalog.ProviderID)
+	require.Len(t, catalog.Items, 1)
+	assert.Equal(t, "$review ", catalog.Items[0].InsertText)
 }
 
 // TestSlashCatalog_ResolvesCwdThroughTheAncestorWalkForABubble proves
@@ -4460,7 +4472,6 @@ func TestCatalogErrorCode_NamesEveryCatalogueFailure(t *testing.T) {
 		want string
 	}{
 		{agentusecase.ErrSlashCatalogUnsupported, agentusecase.CatalogCodeUnsupported},
-		{agentusecase.ErrSlashCatalogNoLiveTUI, agentusecase.CatalogCodeLiveRequired},
 		{agentusecase.ErrSlashCatalogTimeout, agentusecase.CatalogCodeTimeout},
 		{agentusecase.ErrSlashCatalogUnavailable, agentusecase.CatalogCodeUnavailable},
 		{agentusecase.ErrSlashCatalogOutputLimit, agentusecase.CatalogCodeOutputLimit},
