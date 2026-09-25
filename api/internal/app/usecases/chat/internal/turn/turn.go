@@ -246,6 +246,18 @@ func (t *Turns) ChatWorking(ctx context.Context, chatID string) (bool, error) {
 	return chat.Working, nil
 }
 
+// TurnOpen reports whether chatID has work a Stop would cut short: a turn in
+// flight, or background work the authoritative fold still counts. It reads
+// under runnerID's hook gate, because a hook mid-ingest has already published
+// its turn start before it sets the mirrors read here.
+func (t *Turns) TurnOpen(ctx context.Context, chatID, runnerID string) (bool, error) {
+	defer t.hookGates.Lock(runnerID)()
+	if len(t.turns.Inflight(chatID)) > 0 {
+		return true, nil
+	}
+	return t.ChatWorking(ctx, chatID)
+}
+
 // RecordStop notes that a person cut chatID's in-flight turn short — the
 // counterpart of compaction's HookCompactPre/Post pair (observation.go), but
 // Crowbar's own doing rather than a translated provider hook: nothing on the
@@ -270,8 +282,8 @@ func (t *Turns) ChatWorking(ctx context.Context, chatID string) (bool, error) {
 // teardown, is what used to lose the divider — displace completes the
 // in-flight turn, and an interrupt races the CLI's own turn_stop.
 //
-// Takes runnerID's own hook gate — the SAME one IngestHookDelivery holds
-// across its whole ingest — before touching the activity ledger. Without it,
+// Takes runnerID's own hook gate — the SAME one IngestHookDelivery and IngestHook hold
+// across a whole ingest — before touching the activity ledger. Without it,
 // this could commit its Interrupt in the gap between a hook for this exact
 // runner being admitted and its effects landing: interruptTurn's Send only
 // waits for the API connection to say the turn is over, which says nothing

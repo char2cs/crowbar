@@ -18,13 +18,10 @@ import (
 // exit — success, error, or panic — before the failure is surfaced, so the
 // final frame a client sees always carries Working=false.
 //
-// The goroutine runs on context.WithoutCancel(parent) because the request ctx is
-// cancelled the moment the 202 response is flushed. On a non-nil fn error the
+// The op outlives the request ctx, which is cancelled the moment the 202 is
+// flushed; a daemon shutdown waits for it (Shutdown). On a non-nil fn error the
 // failure is surfaced on the workspace entity via broadcastOnErr(wsID, message)
 // — errors live on the entity, never on a separate WS frame.
-//
-// Every op is tracked on h.async so callers can block on real completion; see
-// WaitAsync.
 func (h *Handlers) runAsync(
 	parent context.Context,
 	work WorkSignal,
@@ -32,16 +29,8 @@ func (h *Handlers) runAsync(
 	wsID string,
 	fn func(ctx context.Context) error,
 ) {
-	ctx := context.WithoutCancel(parent)
-	work.BeginWork(ctx, wsID)
-	// Add runs on the request goroutine, BEFORE the spawn, so a WaitAsync that
-	// happens-after the handler returned can never miss this op.
-	h.async.Add(1)
-	go func() {
-		// Registered first, so it unwinds LAST — after the panic path below has
-		// released the overlay and surfaced the failure. WaitAsync therefore only
-		// returns once every observable effect of the op has already happened.
-		defer h.async.Done()
+	work.BeginWork(context.WithoutCancel(parent), wsID)
+	h.async.Go(parent, "worktree.runAsync", func(ctx context.Context) {
 		// A panic in the detached op must not crash the daemon; release the
 		// working overlay, then surface it on the workspace entity (the same
 		// channel as an error) instead of letting it vanish.
@@ -54,20 +43,18 @@ func (h *Handlers) runAsync(
 		if err != nil {
 			broadcastOnErr(ctx, wsID, err.Error())
 		}
-	}()
+	})
 }
 
 // WaitAsync blocks until every detached runAsync op scheduled so far has fully
-// returned — success, error, or panic (Done is deferred first, so it releases
-// after the recovery handler has run).
-//
-// It is the real completion signal for the fire-and-forget handlers: a test that
-// must assert a NEGATIVE ("the failed op broadcast nothing") can only do so
-// soundly once the producing goroutine is provably dead, which a sleep never
-// establishes. Because Add happens on the request goroutine before the spawn,
-// WaitAsync also returns immediately — and correctly — when a fail-fast
-// validation path scheduled no work at all.
+// returned — success, error, or panic — so every observable effect of the op
+// has already happened. Because the op is counted on the request goroutine
+// before the spawn, it also returns at once when a fail-fast validation path
+// scheduled no work at all.
 func (h *Handlers) WaitAsync() { h.async.Wait() }
+
+// Shutdown waits for the detached ops, cancelling them if ctx ends first.
+func (h *Handlers) Shutdown(ctx context.Context) error { return h.async.Shutdown(ctx) }
 
 // broadcastLastError records a failed background mutation on the workspace
 // entity, which is the one channel a detached op has to report through. A blank

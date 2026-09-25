@@ -16,16 +16,15 @@ import (
 // the workspace entity via SetLastError(wsID, message) — errors live on the
 // entity, never on a separate WS frame.
 //
-// The goroutine runs on context.WithoutCancel(parent) because the request ctx is
-// cancelled the moment the 202 response is flushed.
+// The op outlives the request ctx, which is cancelled the moment the 202 is
+// flushed; a daemon shutdown waits for it (Shutdown).
 func (h *Handlers) runAsync(
 	parent context.Context,
 	wsID string,
 	fn func(ctx context.Context) error,
 ) {
-	ctx := context.WithoutCancel(parent)
-	h.working.BeginWork(ctx, wsID)
-	go func() {
+	h.working.BeginWork(context.WithoutCancel(parent), wsID)
+	h.async.Go(parent, "git.runAsync", func(ctx context.Context) {
 		// A panic in the detached git op must not crash the daemon; release the
 		// working overlay, then surface it on the workspace entity (same channel
 		// as an error) instead of vanishing.
@@ -38,8 +37,11 @@ func (h *Handlers) runAsync(
 		if err != nil {
 			h.recordLastError(ctx, wsID, err.Error())
 		}
-	}()
+	})
 }
+
+// Shutdown waits for the detached ops, cancelling them if ctx ends first.
+func (h *Handlers) Shutdown(ctx context.Context) error { return h.async.Shutdown(ctx) }
 
 // recordLastError surfaces a failed op on the workspace entity. It is the
 // failure sink itself, so its own failure is logged: dropping it would leave

@@ -126,6 +126,12 @@ type Turns interface {
 		ctx context.Context,
 		chatID string,
 	) (bool, error)
+	// TurnOpen reports whether chatID has a turn or background work a Stop
+	// would cut short, read once runnerID's in-progress hook ingest is done.
+	TurnOpen(
+		ctx context.Context,
+		chatID, runnerID string,
+	) (bool, error)
 	// RecordStop notes, durably, that a person cut chatID's in-flight turn
 	// short. It always records: the caller decides whether a turn was open,
 	// before tearing anything down. runnerID serialises this against

@@ -60,7 +60,7 @@ func (rs *Runners) StopChat(
 // synchronous, so the divider lands after the last content the CLI produced
 // rather than ahead of it.
 func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Runner, gentle bool) {
-	open, err := rs.turnOpen(ctx, chatID)
+	open, err := rs.turns.TurnOpen(ctx, chatID, live.ID)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: stop: read turn state (assuming idle)", "chat_id", chatID, "err", err)
 	}
@@ -74,15 +74,6 @@ func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Ru
 	if err := rs.turns.RecordStop(ctx, chatID, live.ID); err != nil {
 		slog.WarnContext(ctx, "agent: stop: record interruption", "chat_id", chatID, "err", err)
 	}
-}
-
-// turnOpen reports whether chatID has work a Stop would cut short: a turn in
-// flight, or background work the authoritative fold still counts.
-func (rs *Runners) turnOpen(ctx context.Context, chatID string) (bool, error) {
-	if len(rs.inflightTurns.Inflight(chatID)) > 0 {
-		return true, nil
-	}
-	return rs.turns.ChatWorking(ctx, chatID)
 }
 
 // interruptEvent is the canonical outbound event a provider declares when

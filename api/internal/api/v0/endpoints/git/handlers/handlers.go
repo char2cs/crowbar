@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/internal/detached"
 	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -82,6 +83,8 @@ type Handlers struct {
 	git        Git
 	lastErrors LastErrorSetter
 	working    WorkSignal
+	// async owns the detached runAsync ops (see runAsync / Shutdown).
+	async detached.Ops
 }
 
 // New builds a Handlers from the git usecase, the workspace error sink that

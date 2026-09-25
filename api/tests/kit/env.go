@@ -252,6 +252,9 @@ func (e *Env) Close(
 		if err := e.server.Shutdown(ctx); err != nil {
 			t.Logf("kit.Env.Close: server shutdown: %v", err)
 		}
+		if err := e.v0c.ShutdownDetached(ctx); err != nil {
+			t.Logf("kit.Env.Close: detached ops: %v", err)
+		}
 		if err := e.app.Shutdown(ctx); err != nil {
 			t.Logf("kit.Env.Close: app drain: %v", err)
 		}
@@ -300,6 +303,9 @@ func (e *Env) CloseWithoutKilling(
 		defer cancel()
 		if err := e.server.Shutdown(ctx); err != nil {
 			t.Logf("kit.Env.CloseWithoutKilling: server shutdown: %v", err)
+		}
+		if err := e.v0c.ShutdownDetached(ctx); err != nil {
+			t.Logf("kit.Env.CloseWithoutKilling: detached ops: %v", err)
 		}
 		if err := e.app.Shutdown(ctx); err != nil {
 			t.Logf("kit.Env.CloseWithoutKilling: app drain: %v", err)
@@ -1337,6 +1343,9 @@ func (e *Env) ImportRepo(
 	if path == "" {
 		path = InitRepo(t)
 	}
+	// Cleanups run last-registered first: without this the repo's TempDir would
+	// be removed while the daemon still works in it.
+	t.Cleanup(func() { e.Close(t) })
 	projectID := e.RegisterProject(t, name, path)
 	// The repo import (POST .../repos) runs the full importer, which derives the
 	// repo NAME from the on-disk directory — not from the request body — so the

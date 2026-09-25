@@ -5201,6 +5201,8 @@ type sessionWalk struct {
 	chatID   string
 	provider string
 	sessions int
+	// rival is the intent racing this one, when two run at once.
+	rival string
 }
 
 func (w *sessionWalk) live(t *testing.T, f testFixture) (agents.Runner, bool) {
@@ -5212,11 +5214,18 @@ func (w *sessionWalk) live(t *testing.T, f testFixture) (agents.Runner, bool) {
 var sessionOps = []sessionOp{
 	{"send", func(t *testing.T, f testFixture, w *sessionWalk) {
 		t.Helper()
-		if _, err := f.usecase.SubmitPrompt(f.ctx, w.chatID, "step", uuid.NewString(), "", nil); err == nil {
-			// S5: a delivered send has a runner to continue the conversation on.
-			_, ok := w.live(t, f)
-			assert.True(t, ok, "S5: a delivered send left the chat with no runner")
+		sub, err := f.usecase.SubmitPrompt(f.ctx, w.chatID, "step", uuid.NewString(), "", nil)
+		if err != nil {
+			return
 		}
+		// S5: a delivered send has a runner to continue the conversation on —
+		// unless a rival stop or crash took the chat once the send released it.
+		assert.NotEmpty(t, sub.RunnerID, "S5: a delivered send names no runner")
+		if endsRunner(w.rival) {
+			return
+		}
+		_, ok := w.live(t, f)
+		assert.True(t, ok, "S5: a delivered send left the chat with no runner")
 	}},
 	{"stop", func(t *testing.T, f testFixture, w *sessionWalk) {
 		t.Helper()
@@ -5325,6 +5334,9 @@ func checkSessionInvariants(t *testing.T, f testFixture, w *sessionWalk, trail [
 // from different tabs and clients.
 var concurrentOps = []string{"send", "stop", "switch", "resume", "crash"}
 
+// endsRunner reports whether an intent may leave the chat with no runner.
+func endsRunner(op string) bool { return op == "stop" || op == "crash" }
+
 func sessionOpNamed(name string) sessionOp {
 	for _, op := range sessionOps {
 		if op.name == name {
@@ -5353,6 +5365,7 @@ func TestSessionInvariants_HoldWhenIntentsRace(t *testing.T) {
 				trail = append(trail, a.name+"|"+b.name)
 				// Each goroutine reads its own copy: a switch flips the walk's provider.
 				wa, wb := *w, *w
+				wa.rival, wb.rival = b.name, a.name
 				var both sync.WaitGroup
 				both.Add(2)
 				go func() { defer both.Done(); a.do(t, f, &wa) }()
@@ -5369,6 +5382,29 @@ func TestSessionInvariants_HoldWhenIntentsRace(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The send|stop interleaving the race walk hits: the send holds the chat's
+// spawn gate until it has delivered, so a racing Stop takes the chat only after
+// it — and ends the runner the send was delivered to, saying why.
+func TestSessionInvariants_AStopAfterADeliveredSendEndsItsRunnerAndSaysWhy(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-send-stop")
+
+	sub, err := f.usecase.SubmitPrompt(f.ctx, chatID, "step", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	delivered, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, sub.RunnerID, delivered.ID, "the send names the runner it was delivered to")
+
+	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
+	f.wait()
+
+	_, err = f.liveRunnerFor(t, chatID)
+	require.ErrorIs(t, err, agentrunner.ErrNotFound)
+	assert.Equal(t, domain.AgentExitStopped, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
+	assert.False(t, f.chat(t, chatID).Working)
 }
 
 // The session invariants hold under any interleaving of what users, CLIs and
