@@ -84,9 +84,35 @@ describe('WSManager', () => {
       expect(MockWebSocket.instances).toHaveLength(1)
       vi.advanceTimersByTime(1000)
       expect(MockWebSocket.instances).toHaveLength(2)
+      MockWebSocket.instances[1].simulateOpen()
       expect(cb).toHaveBeenCalledWith({ reconnected: true })
       MockWebSocket.instances[1].simulateMessage('{"after":"reconnect"}')
       expect(cb).toHaveBeenCalledWith({ after: 'reconnect' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // A refetch while the daemon is still down only fails (and retries): the
+  // sentinel means "the stream is back", so each outage emits it once, on open.
+  it('emits the reconnect sentinel once the stream is back, not per failed attempt', () => {
+    vi.useFakeTimers()
+    try {
+      const mgr = createWSManager()
+      const cb = vi.fn()
+      mgr.subscribe('/v0/ws/git', cb)
+      MockWebSocket.instances[0].simulateClose()
+      vi.advanceTimersByTime(1000)
+      MockWebSocket.instances[1].simulateClose()
+      vi.advanceTimersByTime(2000)
+      MockWebSocket.instances[2].simulateClose()
+      vi.advanceTimersByTime(4000)
+      expect(MockWebSocket.instances).toHaveLength(4)
+      expect(cb).not.toHaveBeenCalled()
+
+      MockWebSocket.instances[3].simulateOpen()
+      expect(cb).toHaveBeenCalledTimes(1)
+      expect(cb).toHaveBeenCalledWith({ reconnected: true })
     } finally {
       vi.useRealTimers()
     }
