@@ -10,6 +10,7 @@ import type {
 } from './types'
 import type { PRLink } from '@/lib/import/parent-plan'
 import { getOwningChatId } from '@/lib/workspace-scope'
+import { daemonChanges, noteDaemonChange } from '@/lib/transport/daemon-changes'
 import { OwningChatNotRecordedError, worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
@@ -108,7 +109,9 @@ export async function apiFetchRaw(
   init?: RequestInit,
   retry: RetryConfig = DEFAULT_RETRY,
 ): Promise<Response> {
-  const maxAttempts = isIdempotentRead(init) ? Math.max(1, retry.attempts) : 1
+  const read = isIdempotentRead(init)
+  if (!read) noteDaemonChange()
+  const maxAttempts = read ? Math.max(1, retry.attempts) : 1
   const sleep = retry.sleep ?? defaultSleep
 
   for (let attempt = 1; ; attempt++) {
@@ -148,25 +151,52 @@ export async function apiFetchRaw(
   }
 }
 
+interface Envelope {
+  status: number
+  statusText: string
+  body: { success?: boolean; error?: string; data?: unknown } | null
+}
+
+async function readEnvelope(res: Response): Promise<Envelope> {
+  // An empty 204/202 (a write accepted with no payload) is success with no data.
+  const empty = res.status === 204 || res.status === 202
+  const body = empty ? null : await res.json().catch(() => null)
+  return { status: res.status, statusText: res.statusText, body }
+}
+
+/** Plain GETs in flight, by path, with the change count they were sent at. */
+const readsInFlight = new Map<string, { changes: number; envelope: Promise<Envelope> }>()
+
+/** A plain GET, shared with an identical one still in flight when nothing the
+ *  client could know of has changed since that one was sent. Joiners get a
+ *  copy: callers may hand their answer to a store that freezes it. */
+async function sharedRead(path: string, retry: RetryConfig): Promise<Envelope> {
+  const held = readsInFlight.get(path)
+  if (held && held.changes === daemonChanges()) return structuredClone(await held.envelope)
+  const envelope = apiFetchRaw(path, undefined, retry).then(readEnvelope)
+  const entry = { changes: daemonChanges(), envelope }
+  readsInFlight.set(path, entry)
+  const release = () => {
+    if (readsInFlight.get(path) === entry) readsInFlight.delete(path)
+  }
+  envelope.then(release, release)
+  return envelope
+}
+
 export async function apiFetch<T>(
   path: string,
   init?: RequestInit,
   retry: RetryConfig = DEFAULT_RETRY,
 ): Promise<T> {
-  const res = await apiFetchRaw(path, init, retry)
-  // Success with an empty/204/202 body (e.g. WriteMutationOK with no payload, a
-  // 204 No Content, or a 202 Accepted for an async hierarchical mutation): the
-  // envelope check below would wrongly throw, so treat it as success returning
-  // undefined.
-  if (res.status === 204 || res.status === 202) {
-    return undefined as T
-  }
-  const body = await res.json().catch(() => null)
+  const { status, statusText, body } =
+    init === undefined
+      ? await sharedRead(path, retry)
+      : await readEnvelope(await apiFetchRaw(path, init, retry))
   if (body === null) {
     return undefined as T
   }
   if (!body.success) {
-    throw new ApiError(body.error ?? `${res.status} ${res.statusText}`, res.status)
+    throw new ApiError(body.error ?? `${status} ${statusText}`, status)
   }
   return body.data as T
 }
