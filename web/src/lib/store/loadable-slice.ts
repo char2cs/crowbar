@@ -60,31 +60,29 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
     // `working:false` exactly once, so a row that loses this race stays wrong until
     // the next unrelated frame — which is how an idle workspace kept spinning.
     let latestFetch = 0
+    /** The most recently issued read. A superseded read settles with it, so
+     *  whoever awaited fetch() always reads the newest answer, never a store
+     *  its own read left unpublished. */
+    let latestRun: Promise<void> = Promise.resolve()
     /** Per key, the fetch whose request has not been SENT yet. A caller that
      *  arrives before the send is served by it — the answer is still at least
-     *  as new as the moment it asked — so a boot burst (route guard, background
-     *  hydrate, sync engine) costs one request, not one each. A caller after
-     *  the send issues its own, so no one is ever handed an answer older than
-     *  its call. */
+     *  as new as the moment it asked. A caller after the send issues its own,
+     *  unless the key is live (below). */
     const unsent = new Map<string, Promise<void>>()
+    /** Per key, the newest read in flight. */
+    const running = new Map<string, Promise<void>>()
+    /** Keys whose socket frames are merged into the held value (`startSync`
+     *  with `mergeFrame`): frames replay onto a read in flight and keep a held
+     *  answer current, so neither needs a second request. */
+    const live = new Map<string, number>()
+    /** The key the published value belongs to (the slice holds one value). */
+    let heldKey: string | undefined
     /** Per key, one list per fetch in flight of the frames that arrived since
      *  it began: its answer may predate them, so they are replayed onto it. */
     const inFlightFrames = new Map<string, Set<unknown[]>>()
 
     const replay = (fresh: T, frames: readonly unknown[]): T =>
       frames.reduce<T>((value, frame) => cfg.mergeFrame?.(value, frame) ?? value, fresh)
-
-    const scheduleRefetch = (key: string, args: K): void => {
-      const pending = deltaTimers.get(key)
-      if (pending) clearTimeout(pending)
-      deltaTimers.set(
-        key,
-        setTimeout(() => {
-          deltaTimers.delete(key)
-          void get().fetch(...args)
-        }, DELTA_DEBOUNCE_MS),
-      )
-    }
 
     const run = async (key: string, args: K): Promise<void> => {
       const seq = ++latestFetch
@@ -95,7 +93,7 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
       inFlightFrames.set(key, tracked)
       try {
         const cached = await loadCache<T>(cfg.store, key)
-        if (seq !== latestFetch) return
+        if (seq !== latestFetch) return latestRun
         set({
           data: loading(cached ? success(cached.data, cached.fetchedAt) : get().data),
         })
@@ -103,24 +101,50 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
           unsent.delete(key)
           sent = true
           const fresh = replay(await cfg.fetcher(...args), frames)
-          if (seq !== latestFetch) return
+          if (seq !== latestFetch) return latestRun
           // An unchanged answer is not re-written: a warm boot otherwise
           // re-puts every cached list it just read.
           if (!cached || !sameJson(cached.data, fresh)) await saveCache(cfg.store, key, fresh)
-          // Re-checked AFTER the write, not only before it: the cache write is
-          // an await like any other, and a supersede that lands inside it would
-          // otherwise still publish here — last, on top of the winner. Same
-          // stale-write bug the guards above prevent, one await later.
-          if (seq !== latestFetch) return
+          // Re-checked after the write too: a supersede can land inside it.
+          if (seq !== latestFetch) return latestRun
+          heldKey = key
           set({ data: success(fresh) })
         } catch (err) {
-          if (seq !== latestFetch) return
+          if (seq !== latestFetch) return latestRun
           set({ data: failed(err as Error, get().data) })
         }
       } finally {
         if (!sent) unsent.delete(key)
         tracked.delete(frames)
       }
+    }
+
+    /** Issue a read unconditionally. `run` always yields (on the cache read)
+     *  before it sends or checks for a supersede, so it is registered here
+     *  before anything could need to join or settle with it. */
+    const read = (key: string, args: K): Promise<void> => {
+      const promise = run(key, args)
+      latestRun = promise
+      unsent.set(key, promise)
+      running.set(key, promise)
+      void promise.finally(() => {
+        if (running.get(key) === promise) running.delete(key)
+      })
+      return promise
+    }
+
+    const scheduleRefetch = (key: string, args: K): void => {
+      const pending = deltaTimers.get(key)
+      if (pending) clearTimeout(pending)
+      deltaTimers.set(
+        key,
+        setTimeout(() => {
+          deltaTimers.delete(key)
+          // Forced: a frame that cannot be merged (a reconnect) means the held
+          // value may have missed changes, live or not.
+          void read(key, args)
+        }, DELTA_DEBOUNCE_MS),
+      )
     }
 
     return {
@@ -130,18 +154,29 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
         const key = keyOf(...args)
         const waiting = unsent.get(key)
         if (waiting) return waiting
-        // `run` always yields (on the cache read) before it sends, so it is
-        // registered here before anything could need to join it.
-        const promise = run(key, args)
-        unsent.set(key, promise)
-        return promise
+        if (live.has(key)) {
+          const inFlight = running.get(key)
+          if (inFlight) return inFlight
+          if (heldKey === key && get().data.status === 'success') return Promise.resolve()
+        }
+        return read(key, args)
       },
 
       startSync: (...args: K) => {
         if (!cfg.wsEndpoint) return () => {}
-        return wsManager.subscribe(cfg.wsEndpoint(...args), (event) => {
+        const key = keyOf(...args)
+        const merges = cfg.mergeFrame !== undefined
+        if (merges) live.set(key, (live.get(key) ?? 0) + 1)
+        const unsubscribe = wsManager.subscribe(cfg.wsEndpoint(...args), (event) => {
           void get().applyDelta(event, ...(args as unknown[] as K))
         })
+        return () => {
+          unsubscribe()
+          if (!merges) return
+          const holders = (live.get(key) ?? 1) - 1
+          if (holders > 0) live.set(key, holders)
+          else live.delete(key)
+        }
       },
 
       applyDelta: async (event: unknown, ...args: K) => {
@@ -154,6 +189,7 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
           if (next !== undefined && current.status === 'success') {
             for (const frames of inFlight) frames.push(event)
             if (next === current.data) return
+            heldKey = key
             set({ data: success(next, current.fetchedAt) })
             void saveCache(cfg.store, key, next)
             return

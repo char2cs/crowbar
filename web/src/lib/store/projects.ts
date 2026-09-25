@@ -13,11 +13,8 @@ import { fetchProjects } from '@/lib/api'
 export const EMPTY_PROJECTS: Project[] = []
 
 interface ProjectState {
-  projects: Project[]
   activeProjectId: string
   setActiveProject: (id: string) => void
-  setProjects: (projects: Project[]) => void
-  addProject: (project: Project) => void
 }
 
 /** Sidebar order, as the daemon sorts it (compareProjectDTOs). */
@@ -59,23 +56,18 @@ export const useProjectDataStore = create<LoadableSlice<Project[], []>>()((set, 
 export const useProjectStore = create<ProjectState>()(
   persist(
     (set) => ({
-      projects: [],
       activeProjectId: '',
       setActiveProject: (id) => set({ activeProjectId: id }),
-      setProjects: (projects) => set({ projects }),
-      addProject: (project) => set((s) => ({ projects: [...s.projects, project] })),
     }),
     { name: 'crowbar.activeProject', partialize: (s) => ({ activeProjectId: s.activeProjectId }) },
   ),
 )
 
 /**
- * Add an imported project to the live store so it appears immediately. The
- * canonical ProjectDTO (and its repos/workspaces) arrive over the `/v0/projects`
- * WS stream and the §7 per-repo entity streams, which re-seed the loadable and
- * the sidebar cache — so there is no caller-side double-refetch anymore (§6).
+ * Fold an imported project into the live list the moment its import answers:
+ * the root route reads that list next, and the stream's own frame for the
+ * import may still be on its way.
  */
 export function importProjectAndSync(project: Project): void {
-  useProjectStore.getState().addProject(project)
-  void useProjectDataStore.getState().fetch()
+  void useProjectDataStore.getState().applyDelta(project)
 }

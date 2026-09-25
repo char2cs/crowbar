@@ -1,6 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { useProjectStore } from '@/lib/store/projects'
+import { describe, it, expect, vi } from 'vitest'
+import { dataOf } from '@/lib/loadable'
+import { importProjectAndSync, useProjectDataStore } from '@/lib/store/projects'
 import type { Project } from '@/lib/types'
+
+vi.mock('@/lib/api', () => ({ fetchProjects: vi.fn(async () => []) }))
 
 const mockProject: Project = {
   id: 'p1',
@@ -9,25 +12,12 @@ const mockProject: Project = {
   lastActivity: new Date(),
 }
 
-beforeEach(() => {
-  useProjectStore.setState({ projects: [], activeProjectId: '' })
-})
-
-describe('useProjectStore', () => {
-  it('starts with empty projects', () => {
-    expect(useProjectStore.getState().projects).toHaveLength(0)
-  })
-
-  it('setProjects replaces the full list', () => {
-    useProjectStore.getState().setProjects([mockProject])
-    expect(useProjectStore.getState().projects).toHaveLength(1)
-    expect(useProjectStore.getState().projects[0].id).toBe('p1')
-  })
-
-  it('addProject appends to the list', () => {
-    useProjectStore.getState().setProjects([mockProject])
-    const second: Project = { ...mockProject, id: 'p2', name: 'other' }
-    useProjectStore.getState().addProject(second)
-    expect(useProjectStore.getState().projects).toHaveLength(2)
+describe('importProjectAndSync', () => {
+  // OOBE navigates to `/` right after an import, and that route reads this
+  // list: the import's own answer must already be in it.
+  it('puts the imported project in the held list at once', async () => {
+    await useProjectDataStore.getState().fetch()
+    importProjectAndSync(mockProject)
+    expect(dataOf(useProjectDataStore.getState().data)?.map((p) => p.id)).toEqual(['p1'])
   })
 })

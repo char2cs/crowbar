@@ -3,6 +3,7 @@ import { isTauri } from '@/lib/crowbar-bridge'
 import { wsUrl, isWebSocketCapable } from './url'
 import { reportChannelState, reportChannelGone } from './connection-store'
 import { TauriWebSocket } from './tauri-transport'
+import { noteDaemonChange } from '@/lib/transport/daemon-changes'
 
 type Callback = (data: unknown) => void
 
@@ -75,7 +76,9 @@ export function createWSManager(): WSManager {
       reportChannelState(endpoint, true)
       // Only now, not per attempt: a refetch while the daemon is still down
       // just fails, and every subscriber's refetch would repeat each retry.
-      if (resumed) ch.callbacks.forEach((cb) => cb({ reconnected: true }))
+      if (!resumed) return
+      noteDaemonChange()
+      ch.callbacks.forEach((cb) => cb({ reconnected: true }))
     }
 
     ch.socket.onmessage = (e) => {
@@ -85,6 +88,7 @@ export function createWSManager(): WSManager {
       } catch {
         parsed = e.data
       }
+      noteDaemonChange()
       ch.callbacks.forEach((cb) => cb(parsed))
     }
 

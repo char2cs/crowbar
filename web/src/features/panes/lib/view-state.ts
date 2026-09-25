@@ -185,12 +185,20 @@ export function showView(state: ViewState, viewId: string | null, focusPaneId?: 
 }
 
 /** The view to fall back to in `projectId` (any project for null): the most
- *  recently focused one, else the first in band order. */
-export function nextViewFor(state: ViewState, projectId: string | null): string | null {
+ *  recently focused one, else the first in band order — limited, when given,
+ *  to views showing one of `workspaces`. */
+export function nextViewFor(
+  state: ViewState,
+  projectId: string | null,
+  workspaces?: ReadonlySet<string | null>,
+): string | null {
+  const shows = (viewId: string) =>
+    !workspaces?.size || viewMembers(state, viewId).some((m) => workspaces.has(m.workspaceId))
   const eligible = (viewId: string | null | undefined): viewId is string =>
     !!viewId &&
     !!state.views[viewId] &&
-    (projectId === null || state.views[viewId].projectId === projectId)
+    (projectId === null || state.views[viewId].projectId === projectId) &&
+    shows(viewId)
   for (const paneId of state.mostRecentActivePaneIds) {
     const viewId = state.panes[paneId]?.viewId
     if (eligible(viewId)) return viewId

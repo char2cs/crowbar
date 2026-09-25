@@ -14,7 +14,7 @@ import { startHostThemeSync } from '@/features/terminal/lib/host-theme'
 import { initializeIconThemes } from '@/extensions/icon-themes/icon-theme-initializer'
 import { installPerfObserver, perfEnabled, pushPerfEntry } from '@/lib/perf/instrumentation'
 import { prefetchEditorChunks } from '@/features/panes/components/prefetch-editor-chunks'
-import { hydrateCriticalStores, hydrateProjectsInBackground } from '@/lib/boot'
+import { hydrateCriticalStores } from '@/lib/boot'
 import './index.css'
 
 // Must run before anything else in boot: markStart/markEnd calls elsewhere
@@ -114,8 +114,6 @@ function renderApp() {
     </StrictMode>,
   )
 }
-
-hydrateProjectsInBackground()
 
 hydrateCriticalStores()
   .catch(() => {})

@@ -18,6 +18,7 @@ import {
   resetStage,
   showView,
   viewHasChat,
+  viewMembers,
   writeLayout,
   type InsertAt,
   type ViewState,
@@ -38,19 +39,23 @@ export function commitViewWrite<S extends ViewState>(state: S, recipe: (state: S
   settleFocus(state)
 }
 
-/** Drop a record and every pane still in its layout; show the next view of
- *  the same project when it was the one on screen. */
+/** Drop a record and every pane still in its layout; when it was the one on
+ *  screen, show the next view of the same project and workspace. */
 export function removeView(state: ViewState, viewId: string): void {
   const view = state.views[viewId]
   if (!view) return
+  const shown = new Set(viewMembers(state, viewId).map((m) => m.workspaceId))
   for (const id of getAllLeafIds(view.layout)) {
     delete state.panes[id]
     forgetPaneId(state, id)
   }
-  dropRecord(state, viewId)
+  dropRecord(state, viewId, shown)
 }
 
-function dropRecord(state: ViewState, viewId: string): void {
+/** `shown`: the workspaces the dropped view showed. The route names that
+ *  workspace and only a gesture moves it, so another workspace's view never
+ *  comes forward in its place — the stage does. */
+function dropRecord(state: ViewState, viewId: string, shown: ReadonlySet<string | null>): void {
   const view = state.views[viewId]
   if (!view) return
   delete state.views[viewId]
@@ -59,7 +64,7 @@ function dropRecord(state: ViewState, viewId: string): void {
     if (id === viewId) delete state.activeViewByProject[projectId]
   }
   if (state.activeViewId === viewId) {
-    showView(state, nextViewFor(state, state.activeProjectId ?? view.projectId))
+    showView(state, nextViewFor(state, state.activeProjectId ?? view.projectId, shown))
   }
 }
 
@@ -171,7 +176,7 @@ export function removePane(state: ViewState, paneId: string): void {
   forgetPaneId(state, paneId)
 
   if (home.kind === 'view') {
-    if (!rest) dropRecord(state, home.viewId)
+    if (!rest) dropRecord(state, home.viewId, new Set([pane.workspaceId ?? null]))
     else if (!viewHasChat(state, home.viewId)) removeView(state, home.viewId)
     return
   }
@@ -234,7 +239,7 @@ export function movePane(state: ViewState, paneId: string, at: InsertAt): boolea
   pane.viewId = to.kind === 'view' ? to.viewId : null
 
   if (from.kind === 'view') {
-    if (!rest) dropRecord(state, from.viewId)
+    if (!rest) dropRecord(state, from.viewId, new Set([pane.workspaceId ?? null]))
     else if (!viewHasChat(state, from.viewId)) removeView(state, from.viewId)
   } else if (!rest) {
     if (from.kind === 'stage') resetStage(state)
