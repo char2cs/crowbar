@@ -1,27 +1,29 @@
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
-import type { ISearchOptions } from '@xterm/addon-search'
-import type { Terminal } from '@xterm/xterm'
 import React, {
   useCallback,
   useEffect,
-  useEffectEvent,
+  useImperativeHandle,
   useRef,
   useState,
   useSyncExternalStore,
+  type Ref,
 } from 'react'
-import { useSettingsStore } from '@/features/settings/store'
-import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
-import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import { useTerminalAttachment } from '../hooks/use-terminal-attachment'
 import { useTerminalConnection } from '../hooks/use-terminal-connection'
+import { useTerminalFileDrop } from '../hooks/use-terminal-file-drop'
 import { usePtySizeSync, fitToContainer } from '../hooks/use-pty-size-sync'
+import { useTerminalSearch } from '../hooks/use-terminal-search'
+import { useTerminalShortcuts } from '../hooks/use-terminal-shortcuts'
 import { useTerminalTheme } from '../hooks/use-terminal-theme'
 import { useXtermInstance } from '../hooks/use-xterm-instance'
 import { useTerminalStore } from '../stores/terminal-store'
-import { formatDroppedPathsForTerminal } from '../utils/terminal-file-drop'
-import { TerminalSearch, type TerminalSearchOptions } from './terminal-search'
+import { TerminalSearch } from './terminal-search'
 import '@xterm/xterm/css/xterm.css'
 import '../styles/terminal.css'
+
+export interface TerminalFocusHandle {
+  focus: () => void
+}
 
 interface XtermTerminalProps {
   sessionId: string
@@ -40,8 +42,8 @@ interface XtermTerminalProps {
   chatId?: string
   isActive: boolean
   isVisible?: boolean
-  onReady?: () => void
-  onTerminalRef?: (ref: { focus: () => void; showSearch: () => void; terminal: Terminal }) => void
+  /** Focus handle for an owner that moves the keyboard here (the agent pane). */
+  ref?: Ref<TerminalFocusHandle>
   /**
    * Fires when this shell tab's session has ENDED: the daemon sent its exit
    * frame, or the session it was bound to is no longer on the daemon. A shell
@@ -87,8 +89,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   chatId,
   isActive,
   isVisible = true,
-  onReady,
-  onTerminalRef,
+  ref,
   onTerminalExit,
   initialCommand,
   workingDirectory,
@@ -96,20 +97,23 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   onSessionGone,
   flush = false,
 }) => {
+  // The container as state (hooks rebuild on it) and as a ref (Tauri's drop
+  // hit-test reads it), both set by one stable callback ref.
   const [container, setContainer] = useState<HTMLDivElement | null>(null)
-  const [isSearchVisible, setIsSearchVisible] = useState(false)
-  const [searchResults, setSearchResults] = useState({ current: 0, total: 0 })
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const attachContainer = useCallback((node: HTMLDivElement | null) => {
+    containerRef.current = node
+    setContainer(node)
+  }, [])
 
   const updateSession = useTerminalStore((s) => s.updateSession)
   const getSession = useTerminalStore((s) => s.getSession)
-  const terminalFontSize = useSettingsStore((s) => s.settings.terminalFontSize)
   const { getTerminalTheme } = useTerminalTheme()
 
   // A never-shown tab builds nothing and attaches nothing until it is looked at.
+  // Latched during render, so the first visible render already builds.
   const [activated, setActivated] = useState(isVisible)
-  useEffect(() => {
-    if (isVisible) setActivated(true)
-  }, [isVisible])
+  if (isVisible && !activated) setActivated(true)
 
   const owningChatId = useOwningChatIdFor(chatId ? undefined : workspaceId)
   const chatScopeReady = Boolean(chatId) || !workspaceId || owningChatId !== null
@@ -185,53 +189,11 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   }, [addons, container])
 
   const focusTerminal = useCallback(() => terminal?.focus(), [terminal])
+  const fileDrop = useTerminalFileDrop(containerRef, write, focusTerminal)
+  const search = useTerminalSearch(terminal, addons)
+  useTerminalShortcuts({ isActive, container, search })
 
-  const handleTerminalFileDrop = useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
-      const text = formatDroppedPathsForTerminal(extractDroppedFilePaths(event.dataTransfer))
-      if (!text) return
-      event.preventDefault()
-      event.stopPropagation()
-      write(text, 'file-drop')
-      focusTerminal()
-    },
-    [focusTerminal, write],
-  )
-  const handleTauriTerminalDrop = useCallback(
-    (paths: string[]) => {
-      const text = formatDroppedPathsForTerminal(paths)
-      if (!text) return
-      write(text, 'file-drop')
-      focusTerminal()
-    },
-    [focusTerminal, write],
-  )
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    containerRef.current = container
-  }, [container])
-  useTauriFileDrop(containerRef, handleTauriTerminalDrop)
-
-  const handleTerminalDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    if (!Array.from(event.dataTransfer.types).includes('Files')) return
-    event.preventDefault()
-    event.stopPropagation()
-    event.dataTransfer.dropEffect = 'copy'
-  }, [])
-
-  // Hand the live terminal to whoever renders us, once it exists.
-  useEffect(() => {
-    if (!terminal) return
-    onTerminalRef?.({
-      focus: () => terminal.focus(),
-      showSearch: () => setIsSearchVisible(true),
-      terminal,
-    })
-  }, [terminal, onTerminalRef])
-  const onReadyEvent = useEffectEvent(() => onReady?.())
-  useEffect(() => {
-    if (terminal) onReadyEvent()
-  }, [terminal])
+  useImperativeHandle(ref, () => ({ focus: focusTerminal }), [focusTerminal])
 
   // Focus follows the active pane. The effect runs after React commits the
   // visibility change, so the textarea is focusable: one call, no retries.
@@ -239,135 +201,13 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     if (isActive && isVisible && terminal) terminal.focus()
   }, [isActive, isVisible, terminal])
 
-  useEffect(() => {
-    if (!addons) return
-    const disposable = addons.searchAddon.onDidChangeResults(({ resultIndex, resultCount }) => {
-      setSearchResults({
-        current: resultCount > 0 && resultIndex >= 0 ? resultIndex + 1 : 0,
-        total: resultCount,
-      })
-    })
-    return () => disposable.dispose()
-  }, [addons])
-
-  const handleZoom = useCallback(
-    (delta: number) => {
-      const newSize = Math.min(Math.max(terminalFontSize + delta, 8), 32)
-      useSettingsStore.getState().updateSetting('terminalFontSize', newSize)
-    },
-    [terminalFontSize],
-  )
-  const handleZoomReset = useCallback(() => {
-    useSettingsStore.getState().updateSetting('terminalFontSize', 14)
-  }, [])
-
-  const getSearchOptions = useCallback((options: TerminalSearchOptions): ISearchOptions => {
-    const rootStyles = getComputedStyle(document.documentElement)
-    const selected = rootStyles.getPropertyValue('--color-selected').trim() || '#3b82f6'
-    const accent = rootStyles.getPropertyValue('--color-accent').trim() || '#60a5fa'
-    const border = rootStyles.getPropertyValue('--color-border').trim() || '#4b5563'
-    return {
-      caseSensitive: options.caseSensitive,
-      wholeWord: options.wholeWord,
-      regex: options.regex,
-      decorations: {
-        matchBackground: selected,
-        matchBorder: border,
-        matchOverviewRuler: selected,
-        activeMatchBackground: accent,
-        activeMatchBorder: border,
-        activeMatchColorOverviewRuler: accent,
-      },
-    }
-  }, [])
-
-  const clearSearch = useCallback(() => {
-    addons?.searchAddon.clearDecorations()
-    terminal?.clearSelection()
-    setSearchResults({ current: 0, total: 0 })
-  }, [addons, terminal])
-
-  // Read the latest search/zoom state + handlers via an Effect Event so the
-  // global keydown listener subscribes once per active session.
-  const onWindowKeyDown = useEffectEvent((event: KeyboardEvent) => {
-    const isTerminalFocused =
-      container?.contains(event.target as Node) || container?.contains(document.activeElement)
-    const key = event.key.toLowerCase()
-
-    if ((event.ctrlKey || event.metaKey) && key === 'f' && (isTerminalFocused || isSearchVisible)) {
-      event.preventDefault()
-      event.stopPropagation()
-      setIsSearchVisible(true)
-    }
-
-    if (event.key === 'Escape' && isSearchVisible) {
-      event.preventDefault()
-      setIsSearchVisible(false)
-      clearSearch()
-      terminal?.focus()
-    }
-
-    if (isTerminalFocused && (event.ctrlKey || event.metaKey)) {
-      if (event.key === '+' || event.key === '=') {
-        event.preventDefault()
-        handleZoom(2)
-      } else if (event.key === '-') {
-        event.preventDefault()
-        handleZoom(-2)
-      } else if (event.key === '0') {
-        event.preventDefault()
-        handleZoomReset()
-      }
-    }
-  })
-  useEffect(() => {
-    if (!isActive) return
-    const handleKeyDown = (event: KeyboardEvent) => onWindowKeyDown(event)
-    window.addEventListener('keydown', handleKeyDown, true)
-    return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [isActive])
-
-  const handleSearch = useCallback(
-    (term: string, options: TerminalSearchOptions) => {
-      if (!term || !addons) {
-        clearSearch()
-        return
-      }
-      const found = addons.searchAddon.findNext(term, {
-        ...getSearchOptions(options),
-        incremental: true,
-      })
-      if (!found) setSearchResults({ current: 0, total: 0 })
-    },
-    [addons, clearSearch, getSearchOptions],
-  )
-  const handleSearchNext = useCallback(
-    (term: string, options: TerminalSearchOptions) => {
-      if (!term || !addons) return
-      addons.searchAddon.findNext(term, getSearchOptions(options))
-    },
-    [addons, getSearchOptions],
-  )
-  const handleSearchPrevious = useCallback(
-    (term: string, options: TerminalSearchOptions) => {
-      if (!term || !addons) return
-      addons.searchAddon.findPrevious(term, getSearchOptions(options))
-    },
-    [addons, getSearchOptions],
-  )
-  const handleSearchClose = useCallback(() => {
-    setIsSearchVisible(false)
-    clearSearch()
-    terminal?.focus()
-  }, [clearSearch, terminal])
-
-  React.useImperativeHandle(
+  useImperativeHandle(
     getSession(sessionId)?.ref,
     () => ({
       terminal,
       searchAddon: addons?.searchAddon,
       focus: () => terminal?.focus(),
-      showSearch: () => setIsSearchVisible(true),
+      showSearch: search.open,
       blur: () => terminal?.blur(),
       clear: () => terminal?.clear(),
       selectAll: () => terminal?.selectAll(),
@@ -381,30 +221,22 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       serialize: () => (terminal ? addons?.serializeAddon.serialize() : ''),
       resize: refit,
     }),
-    [addons, refit, terminal],
+    [addons, refit, search.open, terminal],
   )
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-transparent">
-      <TerminalSearch
-        isVisible={isSearchVisible}
-        onSearch={handleSearch}
-        onNext={handleSearchNext}
-        onPrevious={handleSearchPrevious}
-        onClose={handleSearchClose}
-        currentMatch={searchResults.current}
-        totalMatches={searchResults.total}
-      />
+      <TerminalSearch {...search.barProps} />
       <div className={`flex min-h-0 flex-1 flex-col ${flush ? '' : 'pl-[16px]'}`}>
         {/* react-doctor-disable-next-line no-static-element-interactions -- this div is xterm.js's mount point: xterm renders its own canvas + a hidden `.xterm-helper-textarea` inside it, which is the actual focusable/keyboard-operable surface. onMouseDown here only forwards DOM focus onto that textarea for clicks that land on the container's own padding rather than the canvas. */}
         <div
-          ref={setContainer}
+          ref={attachContainer}
           id={`terminal-${sessionId}`}
           data-terminal-drop-target
           data-terminal-session-id={sessionId}
           className="xterm-container flex h-full min-h-0 flex-1 text-foreground"
-          onDragOver={handleTerminalDragOver}
-          onDrop={handleTerminalFileDrop}
+          onDragOver={fileDrop.onDragOver}
+          onDrop={fileDrop.onDrop}
           onMouseDown={focusTerminal}
         />
       </div>

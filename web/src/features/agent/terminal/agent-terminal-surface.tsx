@@ -29,9 +29,6 @@ export type TerminalAttachment =
   | { state: 'reviving'; message: string }
   | { state: 'idle'; message: string }
 
-/** The imperative handle XtermTerminal hands back. */
-export type AgentTerminalApi = Parameters<NonNullable<XtermTerminalProps['onTerminalRef']>>[0]
-
 export interface AgentTerminalSurfaceProps {
   wsId: string
   /**
@@ -65,7 +62,8 @@ export interface AgentTerminalSurfaceProps {
   onTakeFocus: () => void
   /** A click on this half's dead space, pointed back at the grid. */
   onDeadSpaceMouseDown: (event: MouseEvent<HTMLDivElement>) => void
-  onTerminalRef: (api: AgentTerminalApi) => void
+  /** The terminal's focus handle, for moving the keyboard onto the grid. */
+  terminalRef: XtermTerminalProps['ref']
   /** Bring the chat's provider back without sending anything. */
   onStartSession: () => void
   ref?: Ref<HTMLDivElement>
@@ -105,7 +103,7 @@ export function AgentTerminalSurface({
   onSelectPresentation,
   onTakeFocus,
   onDeadSpaceMouseDown,
-  onTerminalRef,
+  terminalRef,
   onStartSession,
   ref,
 }: AgentTerminalSurfaceProps) {
@@ -154,7 +152,7 @@ export function AgentTerminalSurface({
           isVisible={isVisible && presentation !== 'chat'}
           attachOnly
           flush
-          onTerminalRef={onTerminalRef}
+          ref={terminalRef}
         />
       )}
 
