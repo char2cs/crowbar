@@ -4,7 +4,6 @@ package tests
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -158,7 +157,8 @@ func TestRegression_Upgrade_PreLeafWorkspaceDeleteKeepsItsSiblings(t *testing.T)
 	assert.Equal(t, domain.WorkspaceProvisioned, row.Provisioning,
 		"a pre-leaf row is a worktree Crowbar checked out")
 
-	require.NoError(t, h.app.Usecases.Workspace.DeleteCascade(context.Background(), victim.id))
+	// Consent: the victim's own wip.txt is uncommitted work a plain delete keeps.
+	require.NoError(t, h.app.Usecases.Workspace.DeleteCascade(context.Background(), victim.id, domain.DiscardWorkAtRisk))
 	h.QuiesceReactors()
 
 	assert.NoDirExists(t, victim.path, "git removes the deleted workspace's own checkout")
@@ -180,7 +180,8 @@ func TestRegression_Upgrade_PreLeafRepoDeleteKeepsProtectedWorkAndOtherRepos(t *
 	require.NoError(t, os.MkdirAll(filepath.Dir(otherWip), 0o755))
 	require.NoError(t, os.WriteFile(otherWip, []byte("png"), 0o644))
 
-	require.NoError(t, h.app.Usecases.ProjectDelete.DeleteRepo(context.Background(), in.repo))
+	// Consent: every unlocked sibling holds an uncommitted wip.txt.
+	require.NoError(t, h.app.Usecases.ProjectDelete.DeleteRepo(context.Background(), in.repo, domain.DiscardWorkAtRisk))
 	h.QuiesceReactors()
 
 	for _, branch := range []string{"develop", "feature-a", "threads", "storages"} {
@@ -203,7 +204,7 @@ func TestRegression_Upgrade_DeletingThePreLeafChatsBranchKeepsTheSharedTree(t *t
 	h := newHarnessAt(t, in.home)
 	h.Quiesce()
 
-	require.NoError(t, h.app.Usecases.Workspace.DeleteCascade(context.Background(), in.siblings["chats"].id))
+	require.NoError(t, h.app.Usecases.Workspace.DeleteCascade(context.Background(), in.siblings["chats"].id, domain.KeepWorkAtRisk))
 	h.QuiesceReactors()
 
 	in.assertUntouched(t, "develop", "feature-a", "threads", "storages", "release")
@@ -222,8 +223,8 @@ func TestRegression_Upgrade_PreLeafProjectDeleteKeepsOtherProjectsAndLiveCheckou
 	require.NoError(t, os.WriteFile(otherTree, []byte("png"), 0o644))
 	require.NotEmpty(t, otherRepo)
 
-	resp := h.raw(http.MethodDelete, "/v0/projects/"+in.imported.projectID, nil, http.StatusAccepted)
-	_ = resp.Body.Close()
+	// Consent: every unlocked sibling holds an uncommitted wip.txt.
+	deleteAccepted(t, h, "/v0/projects/"+in.imported.projectID, true)
 	h.Quiesce()
 	h.QuiesceReactors()
 

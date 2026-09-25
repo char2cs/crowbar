@@ -59,6 +59,7 @@ type Hierarchy interface {
 	DeleteCascade(
 		ctx context.Context,
 		rootID string,
+		consent domain.DeleteConsent,
 	) error
 	// RetryProvision re-provisions a placeholder workspace in place (spec §3.3).
 	RetryProvision(

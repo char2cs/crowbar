@@ -134,12 +134,23 @@ func (f *fakeDeleteWorkspaces) Delete(_ context.Context, id string) error {
 // fakeRepoCascade stands in for hierarchy.DeleteRepoWorkspaces, recording the
 // repos it was handed (and the order, against the record deletes).
 type fakeRepoCascade struct {
-	repos []domain.Repository
-	log   *[]string
-	err   error
+	repos    []domain.Repository
+	log      *[]string
+	err      error
+	risks    map[string][]domain.WorkAtRisk
+	consents []domain.DeleteConsent
 }
 
-func (f *fakeRepoCascade) DeleteRepoWorkspaces(_ context.Context, repo domain.Repository) error {
+func (f *fakeRepoCascade) RepoWorkAtRisk(_ context.Context, repo domain.Repository) ([]domain.WorkAtRisk, error) {
+	return f.risks[repo.ID], nil
+}
+
+func (f *fakeRepoCascade) DeleteRepoWorkspaces(
+	_ context.Context,
+	repo domain.Repository,
+	consent domain.DeleteConsent,
+) error {
+	f.consents = append(f.consents, consent)
 	if f.err != nil {
 		return f.err
 	}
@@ -200,7 +211,7 @@ func (f *deleteFixture) seedProject() {
 
 func TestProjectDelete_NotFound(t *testing.T) {
 	f := newDeleteFixture(t)
-	assert.ErrorIs(t, f.uc.Delete(context.Background(), "missing"), apperr.ErrNotFound)
+	assert.ErrorIs(t, f.uc.Delete(context.Background(), "missing", domain.KeepWorkAtRisk), apperr.ErrNotFound)
 }
 
 // Every repo's workspaces go through the repo cascade — the one lifecycle path
@@ -217,7 +228,7 @@ func TestProjectDelete_RetiresWorkspacesThroughTheRepoCascade(t *testing.T) {
 		{ID: "w-other", ProjectID: "p2", RepoID: "r-other", Branch: "x"},
 	}
 
-	require.NoError(t, f.uc.Delete(context.Background(), "p1"))
+	require.NoError(t, f.uc.Delete(context.Background(), "p1", domain.KeepWorkAtRisk))
 
 	require.Len(t, f.cascade.repos, 1)
 	assert.Equal(t, "main", f.cascade.repos[0].DefaultBranch, "the cascade knows the branch it must keep")
@@ -235,7 +246,7 @@ func TestProjectDelete_CascadeFailure_KeepsTheRecords(t *testing.T) {
 	f.seedProject()
 	f.cascade.err = errors.New("boom")
 
-	require.Error(t, f.uc.Delete(context.Background(), "p1"))
+	require.Error(t, f.uc.Delete(context.Background(), "p1", domain.KeepWorkAtRisk))
 	assert.Empty(t, f.repos.deleted)
 	assert.Empty(t, f.projects.deleted)
 }
@@ -248,7 +259,7 @@ func TestProjectDelete_AStoppedDeleteIsRecordedAndResumed(t *testing.T) {
 	f.cascade.err = errors.New("worktree wedged")
 	ctx := context.Background()
 
-	require.Error(t, f.uc.Delete(ctx, "p1"))
+	require.Error(t, f.uc.Delete(ctx, "p1", domain.KeepWorkAtRisk))
 	p := f.projects.projects["p1"]
 	assert.True(t, p.Deleting)
 	assert.Contains(t, p.LastError, "worktree wedged")
@@ -280,7 +291,7 @@ func TestProjectDelete_ListWorkspacesError_Aborts(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
 	f.workspaces.listErr = errors.New("boom")
-	require.Error(t, f.uc.Delete(context.Background(), "p1"))
+	require.Error(t, f.uc.Delete(context.Background(), "p1", domain.KeepWorkAtRisk))
 	assert.Empty(t, f.projects.deleted)
 }
 
@@ -288,7 +299,7 @@ func TestProjectDelete_RepoRecordDeleteError_AbortsBeforeProjectRow(t *testing.T
 	f := newDeleteFixture(t)
 	f.seedProject()
 	f.repos.delErr = errors.New("boom")
-	require.Error(t, f.uc.Delete(context.Background(), "p1"))
+	require.Error(t, f.uc.Delete(context.Background(), "p1", domain.KeepWorkAtRisk))
 	assert.Empty(t, f.projects.deleted)
 }
 
@@ -296,20 +307,20 @@ func TestProjectDelete_ProjectRecordDeleteError_Surfaces(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
 	f.projects.delErr = errors.New("boom")
-	require.Error(t, f.uc.Delete(context.Background(), "p1"))
+	require.Error(t, f.uc.Delete(context.Background(), "p1", domain.KeepWorkAtRisk))
 }
 
 func TestProjectDelete_FindProjectError_Aborts(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.projects.findErr = errors.New("boom")
-	require.Error(t, f.uc.Delete(context.Background(), "p1"))
+	require.Error(t, f.uc.Delete(context.Background(), "p1", domain.KeepWorkAtRisk))
 }
 
 func TestProjectDelete_ListReposError_Aborts(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
 	f.repos.findErr = errors.New("boom")
-	require.Error(t, f.uc.Delete(context.Background(), "p1"))
+	require.Error(t, f.uc.Delete(context.Background(), "p1", domain.KeepWorkAtRisk))
 	assert.Empty(t, f.projects.deleted)
 }
 
@@ -324,7 +335,7 @@ func TestProjectDelete_RemovesTheProjectTree(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "r1", "storages"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "icon"), []byte("png"), 0o644))
 
-	require.NoError(t, f.uc.Delete(context.Background(), "p1"))
+	require.NoError(t, f.uc.Delete(context.Background(), "p1", domain.KeepWorkAtRisk))
 
 	assert.NoDirExists(t, projectDir, "projects/p1 must be gone entirely")
 }
@@ -358,7 +369,7 @@ func TestRegression_ProjectDelete_NeverRemovesAnotherProjectsWorktree(t *testing
 		{ID: "w-mine", ProjectID: "p1", RepoID: "r1", WorktreePath: mine, Provisioning: domain.WorkspaceProvisioned},
 	}
 
-	require.NoError(t, f.uc.Delete(context.Background(), "p1"))
+	require.NoError(t, f.uc.Delete(context.Background(), "p1", domain.KeepWorkAtRisk))
 
 	assert.FileExists(t, filepath.Join(moved, "work.txt"), "another project's worktree survives")
 	assert.DirExists(t, movedChats, "with the chats beside it")
@@ -380,7 +391,7 @@ func TestRegression_ProjectDelete_KeepsACheckoutGitStillRegisters(t *testing.T) 
 	require.NoError(t, os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: x"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(worktree, "unsaved.txt"), []byte("w"), 0o644))
 
-	require.NoError(t, f.uc.Delete(context.Background(), "p1"))
+	require.NoError(t, f.uc.Delete(context.Background(), "p1", domain.KeepWorkAtRisk))
 
 	assert.FileExists(t, filepath.Join(worktree, "unsaved.txt"))
 }
@@ -395,7 +406,7 @@ func TestProjectDelete_NeverTouchesTheRealRepoPath(t *testing.T) {
 	f.repos.repos = []domain.Repository{{ID: "r1", ProjectID: "p1", Path: real}}
 	f.workspaces.workspaces = []domain.Workspace{{ID: "w-home", ProjectID: "p1", WorktreePath: real, Provisioning: domain.WorkspaceProvisioned}}
 
-	require.NoError(t, f.uc.Delete(context.Background(), "p1"))
+	require.NoError(t, f.uc.Delete(context.Background(), "p1", domain.KeepWorkAtRisk))
 
 	assert.FileExists(t, filepath.Join(real, "README.md"))
 }
@@ -408,7 +419,7 @@ func TestProjectDelete_NoCrowbarHome_SkipsDiskTeardown(t *testing.T) {
 		RepoWorkspaces: f.cascade, Nodes: f.nodes,
 		CrowbarHome: func() (string, error) { return "", errors.New("no home") },
 	})
-	require.NoError(t, uc.Delete(context.Background(), "p1"))
+	require.NoError(t, uc.Delete(context.Background(), "p1", domain.KeepWorkAtRisk))
 	assert.Equal(t, []string{"p1"}, f.projects.deleted)
 }
 
@@ -422,7 +433,7 @@ func TestDeleteRepo_RetiresWorkspacesBeforeTheRow(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "storages"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "icon"), []byte("png"), 0o644))
 
-	require.NoError(t, f.uc.DeleteRepo(context.Background(), domain.Repository{ID: "r1", ProjectID: "p1"}))
+	require.NoError(t, f.uc.DeleteRepo(context.Background(), domain.Repository{ID: "r1", ProjectID: "p1"}, domain.KeepWorkAtRisk))
 
 	assert.Equal(t, []string{"cascade:r1", "row:r1"}, f.log)
 	assert.Equal(t, []string{"r1"}, f.nodes.forgot)
@@ -435,12 +446,12 @@ func TestDeleteRepo_RetiresWorkspacesBeforeTheRow(t *testing.T) {
 func TestDeleteRepo_RecordsTheIntentOnlyWhenNotYetRecorded(t *testing.T) {
 	f := newDeleteFixture(t)
 	require.NoError(t, f.uc.DeleteRepo(context.Background(),
-		domain.Repository{ID: "r1", ProjectID: "p1", Deleting: true}))
+		domain.Repository{ID: "r1", ProjectID: "p1", Deleting: true}, domain.KeepWorkAtRisk))
 	assert.Zero(t, f.repos.saves, "a marked row is handed over as-is")
 
 	g := newDeleteFixture(t)
 	require.NoError(t, g.uc.DeleteRepo(context.Background(),
-		domain.Repository{ID: "r1", ProjectID: "p1", Deleting: true, LastError: "earlier"}))
+		domain.Repository{ID: "r1", ProjectID: "p1", Deleting: true, LastError: "earlier"}, domain.KeepWorkAtRisk))
 	assert.Equal(t, 1, g.repos.saves, "a retry clears the previous error before tearing down")
 }
 
@@ -450,7 +461,43 @@ func TestDeleteRepo_CascadeFailure_KeepsTheRow(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.cascade.err = errors.New("boom")
 
-	require.Error(t, f.uc.DeleteRepo(context.Background(), domain.Repository{ID: "r1", ProjectID: "p1"}))
+	require.Error(t, f.uc.DeleteRepo(context.Background(), domain.Repository{ID: "r1", ProjectID: "p1"}, domain.KeepWorkAtRisk))
 	assert.Empty(t, f.repos.deleted)
 	assert.Empty(t, f.nodes.forgot)
+}
+
+// Without consent, work at risk refuses a repo or project delete before its
+// intent is recorded — nothing is marked, so boot has nothing to resume.
+func TestBeginDelete_WithoutConsentRefusesOverWorkAtRiskBeforeRecordingIntent(t *testing.T) {
+	f := newDeleteFixture(t)
+	f.seedProject()
+	risk := domain.WorkAtRisk{WorkspaceID: "w1", Branch: "feature/x", UnmergedCommits: 1}
+	f.cascade.risks = map[string][]domain.WorkAtRisk{"r1": {risk}}
+	repo := f.repos.repos[0]
+
+	_, err := f.uc.BeginRepoDelete(context.Background(), repo, domain.KeepWorkAtRisk)
+	var refused *domain.WorkAtRiskError
+	require.ErrorAs(t, err, &refused)
+	assert.Equal(t, []domain.WorkAtRisk{risk}, refused.Workspaces)
+
+	_, err = f.uc.BeginDelete(context.Background(), "p1", domain.KeepWorkAtRisk)
+	require.ErrorIs(t, err, domain.ErrWorkAtRisk)
+	assert.Zero(t, f.repos.saves, "no repo intent recorded")
+	assert.False(t, f.projects.projects["p1"].Deleting, "no project intent recorded")
+
+	marked, err := f.uc.BeginRepoDelete(context.Background(), repo, domain.DiscardWorkAtRisk)
+	require.NoError(t, err)
+	assert.True(t, marked.Deleting)
+}
+
+// The consent a delete was given reaches the cascade; a resumed delete has none.
+func TestDeleteRepo_HandsItsConsentToTheCascadeAndResumeHasNone(t *testing.T) {
+	f := newDeleteFixture(t)
+	f.seedProject()
+
+	require.NoError(t, f.uc.DeleteRepo(context.Background(), f.repos.repos[0], domain.DiscardWorkAtRisk))
+	f.repos.repos = append(f.repos.repos, domain.Repository{ID: "r2", ProjectID: "p1", Deleting: true})
+	require.NoError(t, f.uc.Resume(context.Background()))
+
+	assert.Equal(t, []domain.DeleteConsent{domain.DiscardWorkAtRisk, domain.KeepWorkAtRisk}, f.cascade.consents)
 }

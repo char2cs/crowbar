@@ -70,7 +70,7 @@ func TestDeleteRepoWorkspaces_SkipsChildAlreadyReachedByParentsCascade(t *testin
 	g := &fakeGit{}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
 
-	err := uc.DeleteRepoWorkspaces(context.Background(), domain.Repository{ID: "r1", Path: "/repo"})
+	err := uc.DeleteRepoWorkspaces(context.Background(), domain.Repository{ID: "r1", Path: "/repo"}, domain.KeepWorkAtRisk)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"child", "root"}, deleted,
 		"the child is reached exactly once, via the root's own cascade — without the skip it "+

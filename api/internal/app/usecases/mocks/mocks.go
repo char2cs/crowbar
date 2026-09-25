@@ -2201,11 +2201,14 @@ func (s *AgentWorkspaceRoster) List(
 // It is what lets a test assert the workspace is gone rather than merely that a
 // method was called — the difference between proving the bug is fixed and
 // proving a line of code runs.
+// Risks answers WorkAtRisk per workspace id; Consents records each delete's.
 type AgentWorkspaceReaper struct {
-	Reaped []string
-	Roster *AgentWorkspaceRoster
-	Err    error
-	ErrFor map[string]error
+	Reaped   []string
+	Roster   *AgentWorkspaceRoster
+	Err      error
+	ErrFor   map[string]error
+	Risks    map[string]domain.WorkAtRisk
+	Consents []domain.DeleteConsent
 }
 
 // NewAgentWorkspaceReaper returns a reaper that tears everything down happily.
@@ -2222,10 +2225,12 @@ func NewAgentWorkspaceReaperOver(
 	return &AgentWorkspaceReaper{ErrFor: map[string]error{}, Roster: roster}
 }
 
-func (s *AgentWorkspaceReaper) DiscardChildWorkspace(
+func (s *AgentWorkspaceReaper) DeleteWorkspace(
 	ctx context.Context,
 	workspaceID string,
+	consent domain.DeleteConsent,
 ) error {
+	s.Consents = append(s.Consents, consent)
 	if err, ok := s.ErrFor[workspaceID]; ok {
 		return err
 	}
@@ -2243,4 +2248,17 @@ func (s *AgentWorkspaceReaper) DiscardChildWorkspace(
 		s.Roster.Rows = kept
 	}
 	return nil
+}
+
+func (s *AgentWorkspaceReaper) WorkAtRisk(
+	_ context.Context,
+	workspaceIDs []string,
+) ([]domain.WorkAtRisk, error) {
+	var risks []domain.WorkAtRisk
+	for _, id := range workspaceIDs {
+		if risk, ok := s.Risks[id]; ok {
+			risks = append(risks, risk)
+		}
+	}
+	return risks, nil
 }

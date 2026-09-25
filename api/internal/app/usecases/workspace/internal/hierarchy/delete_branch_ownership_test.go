@@ -43,13 +43,13 @@ func removeCall(g *fakeGit, path string) []string {
 // feature branch and the default branch was force-deleted.
 func TestRegression_DeleteRepoWorkspaces_KeepsTheDefaultBranch(t *testing.T) {
 	ws, deleted := repoDeleteFixture([]domain.Workspace{
-		{ID: "w-dev", RepoID: "r1", Branch: "develop", WorktreePath: "/wt/dev/worktree", CreatedBranch: true, Provisioning: domain.WorkspaceProvisioned},
+		{ID: "w-dev", RepoID: "r1", Branch: "develop", WorktreePath: "/tmp/crowbar-test/projects/p/app/dev/worktree", CreatedBranch: true, Provisioning: domain.WorkspaceProvisioned},
 	})
 	g := &fakeGit{worktrees: []enginegit.WorktreeEntry{{Path: "/repo", Head: "tip"}}, revParseSha: "tip"}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{missing: true}, newNow(), fakeHome())
 
 	require.NoError(t, uc.DeleteRepoWorkspaces(context.Background(),
-		domain.Repository{ID: "r1", Path: "/repo", DefaultBranch: "develop"}))
+		domain.Repository{ID: "r1", Path: "/repo", DefaultBranch: "develop"}, domain.KeepWorkAtRisk))
 
 	assert.Equal(t, []string{"w-dev"}, *deleted)
 	assert.NotContains(t, g.ops(), "ForceDeleteBranch", "the default branch is never deleted")
@@ -63,12 +63,12 @@ func TestRegression_DeleteRepoWorkspaces_NeverForcesALockedWorktree(t *testing.T
 	ws, deleted := repoDeleteFixture([]domain.Workspace{
 		{
 			ID: "w-main", RepoID: "r1", Branch: "main", Status: domain.WorkspaceStatusLocked,
-			WorktreePath: "/wt/main/worktree",
+			WorktreePath: "/tmp/crowbar-test/projects/p/app/main/worktree",
 			Provisioning: domain.WorkspaceProvisioned,
 		},
 		{
 			ID: "w-rel", RepoID: "r1", Branch: "release", Status: domain.WorkspaceStatusLocked,
-			WorktreePath: "/wt/rel/worktree", CreatedBranch: true,
+			WorktreePath: "/tmp/crowbar-test/projects/p/app/rel/worktree", CreatedBranch: true,
 			Provisioning: domain.WorkspaceProvisioned,
 		},
 	})
@@ -76,11 +76,11 @@ func TestRegression_DeleteRepoWorkspaces_NeverForcesALockedWorktree(t *testing.T
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{missing: true}, newNow(), fakeHome())
 
 	require.NoError(t, uc.DeleteRepoWorkspaces(context.Background(),
-		domain.Repository{ID: "r1", Path: "/repo", DefaultBranch: "main"}))
+		domain.Repository{ID: "r1", Path: "/repo", DefaultBranch: "main"}, domain.KeepWorkAtRisk))
 
 	assert.ElementsMatch(t, []string{"w-main", "w-rel"}, *deleted, "the repo's locked rows go with it")
-	assert.Equal(t, "false", removeCall(g, "/wt/main/worktree")[2], "a locked worktree is never --forced")
-	assert.Equal(t, "false", removeCall(g, "/wt/rel/worktree")[2], "a locked worktree is never --forced")
+	assert.Equal(t, "false", removeCall(g, "/tmp/crowbar-test/projects/p/app/main/worktree")[2], "a locked worktree is never --forced")
+	assert.Equal(t, "false", removeCall(g, "/tmp/crowbar-test/projects/p/app/rel/worktree")[2], "a locked worktree is never --forced")
 	assert.NotContains(t, g.ops(), "ForceDeleteBranch", "a locked branch is never deleted")
 }
 
@@ -89,14 +89,14 @@ func TestRegression_DeleteRepoWorkspaces_NeverForcesALockedWorktree(t *testing.T
 // CreatedBranch was recorded, which errs toward keeping.
 func TestDeleteCascade_DeletesOnlyTheBranchCrowbarCreated(t *testing.T) {
 	ws, _ := repoDeleteFixture([]domain.Workspace{
-		{ID: "root", RepoID: "r1", Branch: "mine", WorktreePath: "/wt/root/worktree", CreatedBranch: true, Provisioning: domain.WorkspaceProvisioned},
-		{ID: "adopted", ParentID: "root", RepoID: "r1", Branch: "theirs", WorktreePath: "/wt/adopted/worktree", Provisioning: domain.WorkspaceProvisioned},
+		{ID: "root", RepoID: "r1", Branch: "mine", WorktreePath: "/tmp/crowbar-test/projects/p/app/root/worktree", CreatedBranch: true, Provisioning: domain.WorkspaceProvisioned},
+		{ID: "adopted", ParentID: "root", RepoID: "r1", Branch: "theirs", WorktreePath: "/tmp/crowbar-test/projects/p/app/adopted/worktree", Provisioning: domain.WorkspaceProvisioned},
 	})
 	g := &fakeGit{}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo", defaultBranch: "main"},
 		newNow(), fakeHome())
 
-	require.NoError(t, uc.DeleteCascade(context.Background(), "root"))
+	require.NoError(t, uc.DeleteCascade(context.Background(), "root", domain.KeepWorkAtRisk))
 
 	var branches []string
 	for _, c := range g.calls {
@@ -105,7 +105,7 @@ func TestDeleteCascade_DeletesOnlyTheBranchCrowbarCreated(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{"mine"}, branches)
-	assert.Equal(t, "true", removeCall(g, "/wt/adopted/worktree")[2],
+	assert.Equal(t, "true", removeCall(g, "/tmp/crowbar-test/projects/p/app/adopted/worktree")[2],
 		"an ordinary unlocked workspace is still removed with --force")
 }
 
@@ -114,16 +114,16 @@ func TestDeleteCascade_DeletesOnlyTheBranchCrowbarCreated(t *testing.T) {
 // files with it, so git is asked without --force and keeps a dirty checkout.
 func TestRegression_DeleteCascade_NeverForcesACheckoutHoldingASiblingsChats(t *testing.T) {
 	ws, _ := repoDeleteFixture([]domain.Workspace{
-		{ID: "chats", RepoID: "r1", Branch: "chats", WorktreePath: "/h/projects/p/app/chats", Provisioning: domain.WorkspaceProvisioned},
-		{ID: "dev", RepoID: "r1", Branch: "dev", WorktreePath: "/h/projects/p/app/dev", Provisioning: domain.WorkspaceProvisioned},
+		{ID: "chats", RepoID: "r1", Branch: "chats", WorktreePath: "/tmp/crowbar-test/projects/p/app/chats", Provisioning: domain.WorkspaceProvisioned},
+		{ID: "dev", RepoID: "r1", Branch: "dev", WorktreePath: "/tmp/crowbar-test/projects/p/app/dev", Provisioning: domain.WorkspaceProvisioned},
 	})
 	g := &fakeGit{}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo", defaultBranch: "main"},
 		newNow(), fakeHome())
 
-	require.NoError(t, uc.DeleteCascade(context.Background(), "chats"))
+	require.NoError(t, uc.DeleteCascade(context.Background(), "chats", domain.KeepWorkAtRisk))
 
-	assert.Equal(t, "false", removeCall(g, "/h/projects/p/app/chats")[2])
+	assert.Equal(t, "false", removeCall(g, "/tmp/crowbar-test/projects/p/app/chats")[2])
 }
 
 // A failed create only takes back a branch it made: the -B import of a remote
@@ -157,13 +157,13 @@ func TestRemoveOne_LeavesAMainFolderCrowbarDidNotDetach(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			ws, _ := repoDeleteFixture([]domain.Workspace{
-				{ID: "w1", RepoID: "r1", Branch: "main", WorktreePath: "/wt/main/worktree", Provisioning: domain.WorkspaceProvisioned},
+				{ID: "w1", RepoID: "r1", Branch: "main", WorktreePath: "/tmp/crowbar-test/projects/p/app/main/worktree", Provisioning: domain.WorkspaceProvisioned},
 			})
 			g := &fakeGit{worktrees: []enginegit.WorktreeEntry{main}, revParseSha: "tip"}
 			uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo", defaultBranch: "main"},
 				newNow(), fakeHome())
 
-			require.NoError(t, uc.DeleteCascade(context.Background(), "w1"))
+			require.NoError(t, uc.DeleteCascade(context.Background(), "w1", domain.KeepWorkAtRisk))
 			assert.NotContains(t, g.ops(), "CheckoutBranch")
 			assert.NotContains(t, g.ops(), "ForceDeleteBranch")
 		})

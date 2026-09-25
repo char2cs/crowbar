@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 
 	asynxModels "github.com/char2cs/asynx/models"
 
@@ -67,13 +68,19 @@ type DeleteWorkspaceRepo interface {
 
 // DeleteRepoWorkspaces retires every workspace of one repo through the SAME
 // cascade a repo delete takes (hierarchy.DeleteRepoWorkspaces): the git
-// teardown that never deletes a branch Crowbar did not create and never forces
-// a locked worktree, then the tombstone the delete reactor purges.
+// teardown that never deletes a branch Crowbar did not create, never forces a
+// locked worktree and, without consent, never destroys work at risk; then the
+// tombstone the delete reactor purges. RepoWorkAtRisk is what it would refuse over.
 type DeleteRepoWorkspaces interface {
 	DeleteRepoWorkspaces(
 		ctx context.Context,
 		repo domain.Repository,
+		consent domain.DeleteConsent,
 	) error
+	RepoWorkAtRisk(
+		ctx context.Context,
+		repo domain.Repository,
+	) ([]domain.WorkAtRisk, error)
 }
 
 // DeleteNodes drops a deleted entity's sidebar Node row.
@@ -107,6 +114,10 @@ type DeleteDeps struct {
 // and the user's real repository directories are never touched. Then its repo
 // rows and Node rows, the project row, and finally the project's directory —
 // minus anything that is not the project's to remove (see removeProjectDir).
+//
+// Without consent, a delete that would destroy work existing nowhere else is
+// refused by Begin* before any intent is recorded (a *domain.WorkAtRiskError),
+// and the teardown enforces the same rule; Resume never has consent.
 type DeleteUsecase interface {
 	// BeginDelete records a project's delete intent — Deleting set, LastError
 	// cleared — and returns the row as recorded. Delete begins with it too;
@@ -115,15 +126,18 @@ type DeleteUsecase interface {
 	BeginDelete(
 		ctx context.Context,
 		id string,
+		consent domain.DeleteConsent,
 	) (domain.Project, error)
 	Delete(
 		ctx context.Context,
 		id string,
+		consent domain.DeleteConsent,
 	) error
 	// BeginRepoDelete is BeginDelete for one repo.
 	BeginRepoDelete(
 		ctx context.Context,
 		repo domain.Repository,
+		consent domain.DeleteConsent,
 	) (domain.Repository, error)
 	// DeleteRepo removes one repo and everything it owns, in the one order a
 	// crash cannot corrupt: its workspaces are retired (git teardown, then the
@@ -133,6 +147,7 @@ type DeleteUsecase interface {
 	DeleteRepo(
 		ctx context.Context,
 		repo domain.Repository,
+		consent domain.DeleteConsent,
 	) error
 	// Resume re-drives every project and repo delete a crash or a failure
 	// left unfinished. Per-row failures are recorded on the row, not returned.
@@ -155,6 +170,7 @@ func NewDelete(
 func (u *projectDelete) BeginDelete(
 	ctx context.Context,
 	id string,
+	consent domain.DeleteConsent,
 ) (domain.Project, error) {
 	p, err := u.deps.Projects.FindByKey(ctx, id)
 	if err != nil {
@@ -162,6 +178,11 @@ func (u *projectDelete) BeginDelete(
 	}
 	if p == nil {
 		return domain.Project{}, fmt.Errorf("project delete: id %s: %w", id, apperr.ErrNotFound)
+	}
+	if consent == domain.KeepWorkAtRisk {
+		if lossErr := u.refuseProjectLoss(ctx, id); lossErr != nil {
+			return domain.Project{}, lossErr
+		}
 	}
 	p.Deleting, p.LastError = true, ""
 	if err := u.deps.Projects.Save(ctx, *p); err != nil {
@@ -173,12 +194,13 @@ func (u *projectDelete) BeginDelete(
 func (u *projectDelete) Delete(
 	ctx context.Context,
 	id string,
+	consent domain.DeleteConsent,
 ) error {
-	p, err := u.BeginDelete(ctx, id)
+	p, err := u.BeginDelete(ctx, id, consent)
 	if err != nil {
 		return err
 	}
-	if err := u.teardownProject(ctx, id); err != nil {
+	if err := u.teardownProject(ctx, id, consent); err != nil {
 		p.LastError = err.Error()
 		if saveErr := u.deps.Projects.Save(ctx, p); saveErr != nil {
 			slog.ErrorContext(ctx, "project delete: record failure", "project_id", id, "err", saveErr)
@@ -193,6 +215,7 @@ func (u *projectDelete) Delete(
 func (u *projectDelete) teardownProject(
 	ctx context.Context,
 	id string,
+	consent domain.DeleteConsent,
 ) error {
 	repos, err := u.projectRepos(ctx, id)
 	if err != nil {
@@ -205,7 +228,7 @@ func (u *projectDelete) teardownProject(
 		return fmt.Errorf("project delete: list workspaces: %w", err)
 	}
 	for _, repo := range repos {
-		if err := u.DeleteRepo(ctx, repo); err != nil {
+		if err := u.DeleteRepo(ctx, repo, consent); err != nil {
 			return fmt.Errorf("project delete: %w", err)
 		}
 	}
@@ -222,16 +245,18 @@ func (u *projectDelete) teardownProject(
 func (u *projectDelete) DeleteRepo(
 	ctx context.Context,
 	repo domain.Repository,
+	consent domain.DeleteConsent,
 ) error {
 	// A caller that already recorded the intent (the HTTP handler, before its
 	// 202) hands over the marked row; saving it again would change nothing.
+	// The teardown itself refuses over work at risk, so no preflight here.
 	if !repo.Deleting || repo.LastError != "" {
 		var err error
-		if repo, err = u.BeginRepoDelete(ctx, repo); err != nil {
+		if repo, err = u.markRepoDeleting(ctx, repo); err != nil {
 			return err
 		}
 	}
-	if err := u.teardownRepo(ctx, repo); err != nil {
+	if err := u.teardownRepo(ctx, repo, consent); err != nil {
 		repo.LastError = err.Error()
 		if saveErr := u.deps.Repos.Save(ctx, repo); saveErr != nil {
 			slog.ErrorContext(ctx, "delete repo: record failure", "repo", repo.ID, "err", saveErr)
@@ -244,6 +269,19 @@ func (u *projectDelete) DeleteRepo(
 func (u *projectDelete) BeginRepoDelete(
 	ctx context.Context,
 	repo domain.Repository,
+	consent domain.DeleteConsent,
+) (domain.Repository, error) {
+	if consent == domain.KeepWorkAtRisk {
+		if err := u.refuseLoss(ctx, map[string]domain.Repository{repo.ID: repo}); err != nil {
+			return domain.Repository{}, fmt.Errorf("repo %s: %w", repo.ID, err)
+		}
+	}
+	return u.markRepoDeleting(ctx, repo)
+}
+
+func (u *projectDelete) markRepoDeleting(
+	ctx context.Context,
+	repo domain.Repository,
 ) (domain.Repository, error) {
 	repo.Deleting, repo.LastError = true, ""
 	if err := u.deps.Repos.Save(ctx, repo); err != nil {
@@ -252,11 +290,49 @@ func (u *projectDelete) BeginRepoDelete(
 	return repo, nil
 }
 
+// refuseProjectLoss is refuseLoss over every repo of a project.
+func (u *projectDelete) refuseProjectLoss(
+	ctx context.Context,
+	projectID string,
+) error {
+	repos, err := u.projectRepos(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if err := u.refuseLoss(ctx, repos); err != nil {
+		return fmt.Errorf("project delete: %w", err)
+	}
+	return nil
+}
+
+// refuseLoss answers a delete without consent before it records anything: a
+// *domain.WorkAtRiskError naming every workspace of repos whose work it would
+// destroy, or nil.
+func (u *projectDelete) refuseLoss(
+	ctx context.Context,
+	repos map[string]domain.Repository,
+) error {
+	var risks []domain.WorkAtRisk
+	for _, repo := range repos {
+		found, err := u.deps.RepoWorkspaces.RepoWorkAtRisk(ctx, repo)
+		if err != nil {
+			return fmt.Errorf("repo %s: %w", repo.ID, err)
+		}
+		risks = append(risks, found...)
+	}
+	if len(risks) > 0 {
+		sort.Slice(risks, func(i, j int) bool { return risks[i].Branch < risks[j].Branch })
+		return &domain.WorkAtRiskError{Workspaces: risks}
+	}
+	return nil
+}
+
 func (u *projectDelete) teardownRepo(
 	ctx context.Context,
 	repo domain.Repository,
+	consent domain.DeleteConsent,
 ) error {
-	if err := u.deps.RepoWorkspaces.DeleteRepoWorkspaces(ctx, repo); err != nil {
+	if err := u.deps.RepoWorkspaces.DeleteRepoWorkspaces(ctx, repo, consent); err != nil {
 		return fmt.Errorf("repo %s workspaces: %w", repo.ID, err)
 	}
 	if err := u.deps.Repos.Delete(ctx, repo.ID); err != nil {
@@ -280,7 +356,7 @@ func (u *projectDelete) Resume(
 			continue
 		}
 		deleting[p.ID] = true
-		if err := u.Delete(ctx, p.ID); err != nil {
+		if err := u.Delete(ctx, p.ID, domain.KeepWorkAtRisk); err != nil {
 			slog.ErrorContext(ctx, "resume deletes: project delete stopped again", "project_id", p.ID, "err", err)
 		}
 	}
@@ -292,7 +368,7 @@ func (u *projectDelete) Resume(
 		if !repo.Deleting || deleting[repo.ProjectID] {
 			continue
 		}
-		if err := u.DeleteRepo(ctx, repo); err != nil {
+		if err := u.DeleteRepo(ctx, repo, domain.KeepWorkAtRisk); err != nil {
 			slog.ErrorContext(ctx, "resume deletes: repo delete stopped again", "repo", repo.ID, "err", err)
 		}
 	}

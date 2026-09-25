@@ -161,13 +161,15 @@ func newRealUsecase(
 	}))
 
 	prov := &stubProvider{}
+	// One home for the harness's life: a teardown removes only worktrees under it.
+	home := t.TempDir()
 	uc := hierarchy.New(
 		workspaces,
 		enginegit.New(),
 		prov,
 		repos,
 		func() time.Time { return time.Unix(1000, 0).UTC() },
-		func() (string, error) { return t.TempDir(), nil },
+		func() (string, error) { return home, nil },
 	)
 
 	parentID := "w-parent"
@@ -465,7 +467,7 @@ func TestIntegration_DeleteCascadeSkipsLockedChild(t *testing.T) {
 
 	descendant := h.createChild(t, "feature/desc", locked.ID, locked.Branch)
 
-	require.NoError(t, h.uc.DeleteCascade(ctx, root.ID))
+	require.NoError(t, h.uc.DeleteCascade(ctx, root.ID, domain.KeepWorkAtRisk))
 
 	assert.True(t, dirExists(t, locked.WorktreePath), "locked child worktree survives")
 	assert.True(t, branchExists(t, h.repoPath, locked.Branch), "locked child branch survives")

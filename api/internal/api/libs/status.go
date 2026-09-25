@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/domain"
 
 	asynxmodels "github.com/char2cs/asynx/models"
 
@@ -258,6 +259,7 @@ var conflictSentinels = []error{
 	workspace.ErrRenameUnmanagedWorkspace,
 	workspace.ErrWorkspaceWorking,
 	workspace.ErrCrossRepoWorktreeMove,
+	domain.ErrWorkAtRisk,
 	// Promotion's three refusals (model spec §4.2). Each says the row is not in
 	// a state where it can be promoted — already has a workspace, has no
 	// workspace-owning ancestor to fork from, has never had a provider to

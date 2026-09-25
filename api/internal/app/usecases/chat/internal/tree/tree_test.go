@@ -707,7 +707,7 @@ func TestDeleteChat_TakesTheWholeSubtreeDeepestFirst(t *testing.T) {
 	seedThread(chats, "grandchild", "child", 3)
 	seedChat(chats, "bystander", 4)
 
-	removed, err := uc.DeleteChat(ctx, "root")
+	removed, err := uc.DeleteChat(ctx, "root", domain.KeepWorkAtRisk)
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"grandchild", "child", "root"}, chats.Purged)
@@ -729,7 +729,7 @@ func TestDeleteChat_TakesTheFoldersCaughtInTheSubtree(t *testing.T) {
 	require.NoError(t, err)
 	seedThread(chats, "filed", inside.ID, 2)
 
-	removed, err := uc.DeleteChat(ctx, "root")
+	removed, err := uc.DeleteChat(ctx, "root", domain.KeepWorkAtRisk)
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"filed", "root"}, removed.Chats)
@@ -747,7 +747,7 @@ func TestDeleteChat_DensifiesTheLevelItLeft(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, folder.Order)
 
-	removed, err := uc.DeleteChat(ctx, "c1")
+	removed, err := uc.DeleteChat(ctx, "c1", domain.KeepWorkAtRisk)
 	require.NoError(t, err)
 
 	require.Len(t, removed.Shifted, 1)
@@ -766,7 +766,7 @@ func TestDeleteChat_RefusesWorkingSubtree(t *testing.T) {
 	seedThread(chats, "child", "root", 2)
 	work.Set("child", true)
 
-	_, err := uc.DeleteChat(ctx, "root")
+	_, err := uc.DeleteChat(ctx, "root", domain.KeepWorkAtRisk)
 	assert.ErrorIs(t, err, tree.ErrSubtreeWorking)
 	assert.Empty(t, chats.Purged, "nothing may be torn down once any row in the subtree refuses")
 }
@@ -781,7 +781,7 @@ func TestDeleteChat_RefusesTheNamedChatItselfWhenWorking(t *testing.T) {
 	seedChat(chats, "solo", 1)
 	work.Set("solo", true)
 
-	_, err := uc.DeleteChat(ctx, "solo")
+	_, err := uc.DeleteChat(ctx, "solo", domain.KeepWorkAtRisk)
 	assert.ErrorIs(t, err, tree.ErrSubtreeWorking)
 	assert.Empty(t, chats.Purged, "the working leaf itself must never be purged")
 }
@@ -796,7 +796,7 @@ func TestDeleteChat_IdleSubtreeCascadesDespiteAWorkingBystander(t *testing.T) {
 	seedChat(chats, "bystander", 3)
 	work.Set("bystander", true)
 
-	removed, err := uc.DeleteChat(ctx, "root")
+	removed, err := uc.DeleteChat(ctx, "root", domain.KeepWorkAtRisk)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"child", "root"}, removed.Chats)
 }
@@ -804,7 +804,7 @@ func TestDeleteChat_IdleSubtreeCascadesDespiteAWorkingBystander(t *testing.T) {
 func TestDeleteChat_RefusesAnUnknownChat(t *testing.T) {
 	_, uc := newUsecase(t)
 
-	_, err := uc.DeleteChat(context.Background(), "nowhere")
+	_, err := uc.DeleteChat(context.Background(), "nowhere", domain.KeepWorkAtRisk)
 	assert.ErrorIs(t, err, apperr.ErrNotFound)
 }
 
@@ -813,7 +813,7 @@ func TestDeleteChat_SurfacesASnapshotFailure(t *testing.T) {
 	seedChat(chats, "c1", 1)
 	chats.ListErr = errors.New("boom")
 
-	_, err := uc.DeleteChat(context.Background(), "c1")
+	_, err := uc.DeleteChat(context.Background(), "c1", domain.KeepWorkAtRisk)
 	assert.ErrorContains(t, err, "boom")
 }
 
@@ -822,7 +822,7 @@ func TestDeleteChat_SurfacesAPurgeFailure(t *testing.T) {
 	seedChat(chats, "c1", 1)
 	chats.PurgeErr = errors.New("cli wedged")
 
-	_, err := uc.DeleteChat(context.Background(), "c1")
+	_, err := uc.DeleteChat(context.Background(), "c1", domain.KeepWorkAtRisk)
 	assert.ErrorContains(t, err, "cli wedged")
 }
 
@@ -844,7 +844,7 @@ func TestDeleteChat_ToleratesAnAlreadyGoneDescendantAndStillDeletesTheRest(t *te
 	seedThread(chats, "grandchild", "ghost", 3)
 	chats.PurgeNotFoundID = "ghost"
 
-	removed, err := uc.DeleteChat(ctx, "root")
+	removed, err := uc.DeleteChat(ctx, "root", domain.KeepWorkAtRisk)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"grandchild", "ghost", "root"}, chats.Purged,
@@ -867,7 +867,7 @@ func TestDeleteChat_SurfacesAFolderRemovalFailure(t *testing.T) {
 	require.NoError(t, err)
 	folders.DeleteErr = errors.New("locked")
 
-	_, err = uc.DeleteChat(ctx, "c1")
+	_, err = uc.DeleteChat(ctx, "c1", domain.KeepWorkAtRisk)
 	assert.ErrorContains(t, err, "locked")
 }
 
@@ -882,7 +882,7 @@ func TestDeleteChat_SurfacesADensifyWriteFailure(t *testing.T) {
 	require.NoError(t, err)
 	nodes.OrderErr = errors.New("disk full")
 
-	_, err = uc.DeleteChat(ctx, "c1")
+	_, err = uc.DeleteChat(ctx, "c1", domain.KeepWorkAtRisk)
 	assert.ErrorContains(t, err, "disk full")
 }
 
@@ -910,7 +910,7 @@ func TestRegression_DeleteChat_ToleratesASiblingPurgedByAConcurrentDelete(t *tes
 	}
 	chats.OrderNotFoundIDs = map[string]bool{"b": true}
 
-	removed, err := uc.DeleteChat(ctx, "a")
+	removed, err := uc.DeleteChat(ctx, "a", domain.KeepWorkAtRisk)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a"}, removed.Chats)
@@ -923,7 +923,7 @@ func TestDeleteChat_ProceedsWhenTheListLagsTheAggregate(t *testing.T) {
 	seedChat(chats, "c1", 1)
 	chats.MissingID = "c1"
 
-	removed, err := uc.DeleteChat(context.Background(), "c1")
+	removed, err := uc.DeleteChat(context.Background(), "c1", domain.KeepWorkAtRisk)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"c1"}, removed.Chats)
 	assert.Equal(t, []string{"c1"}, chats.Purged)

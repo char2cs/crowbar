@@ -504,6 +504,7 @@ type ChatTreeUsecase interface {
 	DeleteChat(
 		ctx context.Context,
 		chatID string,
+		consent domain.DeleteConsent,
 	) (agentusecase.ChatDeletion, error)
 }
 

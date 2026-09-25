@@ -857,7 +857,25 @@ func (w worktreeChildCreator) DiscardChildWorkspace(
 	ctx context.Context,
 	workspaceID string,
 ) error {
-	return w.worktree.DeleteCascade(ctx, workspaceID)
+	return w.worktree.DeleteCascade(ctx, workspaceID, domain.KeepWorkAtRisk)
+}
+
+// DeleteWorkspace implements agentusecase.TreeWorkspaceReaper: a chat delete's
+// teardown of a worktree it owned, with the consent the user gave that delete.
+func (w worktreeChildCreator) DeleteWorkspace(
+	ctx context.Context,
+	workspaceID string,
+	consent domain.DeleteConsent,
+) error {
+	return w.worktree.DeleteCascade(ctx, workspaceID, consent)
+}
+
+// WorkAtRisk implements agentusecase.TreeWorkspaceReaper.
+func (w worktreeChildCreator) WorkAtRisk(
+	ctx context.Context,
+	workspaceIDs []string,
+) ([]domain.WorkAtRisk, error) {
+	return w.worktree.WorkAtRisk(ctx, workspaceIDs)
 }
 
 // hierarchyOwningChats adapts the Chats-panel tree usecase into the worktree

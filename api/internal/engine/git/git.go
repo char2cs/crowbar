@@ -326,6 +326,25 @@ type Engine interface {
 		repoPath string,
 	) error
 
+	// UncommittedFiles counts the paths git status reports in the worktree at
+	// worktreePath — staged, unstaged and untracked, never ignored: exactly what
+	// `git worktree remove --force` would throw away.
+	UncommittedFiles(
+		ctx context.Context,
+		worktreePath string,
+	) (int, error)
+
+	// UnmergedCommits counts the commits reachable from tips that no branch but
+	// dropBranch, no remote-tracking branch and no tag reaches — what is gone for
+	// good once dropBranch is deleted and the tips' worktree removed. Tips
+	// resolve in dir (a worktree's HEAD is its own); missing tips are ignored.
+	UnmergedCommits(
+		ctx context.Context,
+		dir string,
+		tips []string,
+		dropBranch string,
+	) (int, error)
+
 	// WorktreeList lists all git worktrees in a repo (04 / 07).
 	WorktreeList(
 		ctx context.Context,

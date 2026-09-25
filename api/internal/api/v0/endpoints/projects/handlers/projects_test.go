@@ -116,6 +116,7 @@ type fakeDeleter struct {
 func (f *fakeDeleter) BeginDelete(
 	_ context.Context,
 	id string,
+	_ domain.DeleteConsent,
 ) (domain.Project, error) {
 	if f.beginErr != nil {
 		return domain.Project{}, f.beginErr
@@ -126,6 +127,7 @@ func (f *fakeDeleter) BeginDelete(
 func (f *fakeDeleter) Delete(
 	_ context.Context,
 	id string,
+	_ domain.DeleteConsent,
 ) error {
 	f.gotID = id
 	return f.err

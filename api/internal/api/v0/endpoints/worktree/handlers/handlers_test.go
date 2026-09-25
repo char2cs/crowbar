@@ -164,6 +164,7 @@ func (f *fakeHierarchy) RebaseOntoParent(
 func (f *fakeHierarchy) DeleteCascade(
 	_ context.Context,
 	rootID string,
+	_ domain.DeleteConsent,
 ) error {
 	f.gotDeleteID = rootID
 	if f.deleteDone != nil {
