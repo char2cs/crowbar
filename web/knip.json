@@ -85,7 +85,6 @@
     "src/features/agent/lib/prompt-queue-persistence.ts": ["exports", "types"],
     "src/features/agent/lib/spawn-error.ts": ["exports", "types"],
     "src/features/agent/shared/agent-icons.tsx": ["types"],
-    "src/features/agent/terminal/agent-terminal-surface.tsx": ["types"],
     "src/features/agent/transcript/agent-transcript.tsx": ["exports"],
     "src/features/agent/transcript/plate/streaming-value-patch.ts": ["exports", "types"],
     "src/features/agent/transcript/turn-tools.tsx": ["exports"],
