@@ -144,7 +144,7 @@ export function DialogTitle({
 }: DialogPrimitive.Title.Props): React.ReactElement {
   return (
     <DialogPrimitive.Title
-      className={cn('font-heading font-semibold text-xl leading-none', className)}
+      className={cn('font-heading font-normal text-xl leading-none', className)}
       data-slot="dialog-title"
       {...props}
     />
@@ -238,7 +238,10 @@ export function AppDialog({
                 {Icon && <Icon size={16} className="shrink-0 text-muted-foreground" />}
                 {title && (
                   <DialogPrimitive.Title
-                    className={cn('font-medium text-sm leading-none', classNames?.title)}
+                    className={cn(
+                      'font-heading font-normal text-sm leading-none',
+                      classNames?.title,
+                    )}
                   >
                     {title}
                   </DialogPrimitive.Title>

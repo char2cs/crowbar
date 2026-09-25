@@ -1,0 +1,40 @@
+/* Split out of theme.css to keep it under the repo's file-size cap; loaded
+   right before it. Brand faces (Geist, Instrument Serif) ship as
+   @fontsource packages instead of local /fonts/*.woff2 files — same
+   "fonts ship with the app, nothing fetched at runtime" guarantee, just
+   bundled by the package instead of hand-copied. */
+@import '@fontsource-variable/geist';
+@import '@fontsource/instrument-serif/latin-400.css';
+@import '@fontsource/instrument-serif/latin-ext-400.css';
+@import '@fontsource/instrument-serif/latin-400-italic.css';
+@import '@fontsource/instrument-serif/latin-ext-400-italic.css';
+
+@font-face {
+  font-family: 'CalSansUI';
+  src: url('/fonts/CalSansUI.woff2') format('woff2');
+  font-weight: 300 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'CalSans';
+  src: url('/fonts/CalSans-Regular.woff2') format('woff2');
+  font-weight: 400 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Symbols Nerd Font Mono';
+  src: url('/fonts/SymbolsNerdFontMono-Regular.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Symbols Nerd Font';
+  src: url('/fonts/SymbolsNerdFontMono-Regular.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}

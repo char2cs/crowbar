@@ -24,8 +24,8 @@ const FONT_CACHE_EXPIRY = 24 * 60 * 60 * 1000 // 24 hours in milliseconds
 // (see typography-defaults.ts); the static cut stays selectable alongside it.
 const BUNDLED_FONTS: FontInfo[] = [
   {
-    name: 'CalSansUI',
-    family: 'CalSansUI',
+    name: 'Geist Variable',
+    family: 'Geist Variable',
     style: 'Regular',
     is_monospace: false,
   },

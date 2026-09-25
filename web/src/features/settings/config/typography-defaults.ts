@@ -1,6 +1,7 @@
-// Bundled UI font (loaded via @font-face in theme.css). Kept as the default so
-// the app's typography is driven by Settings without requiring a new webfont.
-export const DEFAULT_UI_FONT_FAMILY = 'CalSansUI'
+// Bundled UI font (loaded via @fontsource-variable/geist in theme-fonts.css).
+// Kept as the default so the app's typography is driven by Settings without
+// requiring a new webfont.
+export const DEFAULT_UI_FONT_FAMILY = 'Geist Variable'
 export const DEFAULT_MONO_FONT_FAMILY = 'Geist Mono Variable'
 // The terminal renders through xterm's DOM renderer (see resolve-font.ts), so
 // there is no longer any reason to prefer a static cut — that preference only

@@ -1,0 +1,74 @@
+---
+import "../styles/global.css";
+
+interface Props {
+	title: string;
+	description: string;
+}
+const { title, description } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<title>{title}</title>
+		<meta name="description" content={description} />
+		<meta name="color-scheme" content="light dark" />
+		<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap" />
+		<style is:global>
+			/* Lenis's own required styles. Without them the wrapper keeps a fixed
+			   height and the smoothed scroll fights the native one. */
+			html.lenis,
+			html.lenis body {
+				height: auto;
+			}
+			.lenis:not(.lenis-autoToggle).lenis-stopped {
+				overflow: clip;
+			}
+			.lenis.lenis-smooth [data-lenis-prevent] {
+				overscroll-behavior: contain;
+			}
+			.lenis.lenis-smooth iframe {
+				pointer-events: none;
+			}
+		</style>
+	</head>
+	<body>
+		<slot />
+		<script>
+			import Lenis from "lenis";
+
+			const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+			const coarse = matchMedia("(pointer: coarse)");
+
+			// lerp instead of duration: frame-rate independent and far less floaty.
+			// Touch keeps the native scroll, which is smoother than anything we run.
+			if (!reduced.matches && !coarse.matches) {
+				const lenis = new Lenis({
+					lerp: 0.14,
+					smoothWheel: true,
+					syncTouch: false,
+					wheelMultiplier: 1,
+				});
+
+				let frame = 0;
+				function raf(time: number) {
+					lenis.raf(time);
+					frame = requestAnimationFrame(raf);
+				}
+				frame = requestAnimationFrame(raf);
+
+				document.addEventListener("visibilitychange", () => {
+					if (document.hidden) {
+						cancelAnimationFrame(frame);
+					} else {
+						frame = requestAnimationFrame(raf);
+					}
+				});
+			}
+		</script>
+	</body>
+</html>

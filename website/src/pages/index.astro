@@ -1,0 +1,194 @@
+---
+import Layout from "../layouts/Layout.astro";
+import CrowbarWordmark from "../components/CrowbarWordmark.astro";
+
+const title = "Crowbar — Bring your own agent. Keep your own context.";
+const description =
+	"Crowbar is the workbench for coding agents. Claude, Codex, whichever subscription you already pay for, side by side on real branches, switchable mid-conversation, local-first, no account.";
+---
+
+<Layout title={title} description={description}>
+	<div class="page">
+		<nav>
+			<a href="#top" class="brand">
+				<svg width="28" height="28" viewBox="0 0 157 157" fill="none" aria-hidden="true"><rect x="0.5" y="0.5" width="156" height="156" rx="24.5" fill="#606C38"></rect><circle cx="78.8" cy="78.5" r="50" stroke="#F8F8F6" stroke-width="10"></circle></svg>
+				<span class="serif" style="font-size: 26px; letter-spacing: -0.01em">Crowbar</span>
+			</a>
+			<span class="navlinks"><a href="#providers">Providers</a><a href="#threads">Threads</a><a href="#markdown">Markdown</a><a href="#local">Local-first</a><a href="#roadmap">Roadmap</a></span>
+			<span class="pillbtn navcta disabled" aria-disabled="true" title="Not available yet">Get Crowbar</span>
+		</nav>
+
+		<!-- HERO -->
+		<section id="top" class="hero">
+			<div class="herotext">
+				<span class="eyebrow">The workbench for coding agents</span>
+				<h1 class="serif herotitle">Bring your own agent.<br /><em style="color: var(--moss); font-style: italic">Keep</em> your own context.</h1>
+				<p class="p herolede">Claude, Codex, whichever subscription you already pay for. Crowbar runs them side by side on real branches, lets you switch mid-conversation without losing a word, and never asks you to sign in to anything.</p>
+				<div class="herobtns">
+					<span class="pillbtn disabled" aria-disabled="true" title="Not available yet">Get it through Quiver<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></span>
+					<a href="#providers" class="pillbtn" style="border: 1px solid var(--border-strong)">See what it does</a>
+				</div>
+				<span class="eyebrow">In development · free · open source · no account · macOS and Linux</span>
+			</div>
+			<div class="heroart">
+				<span class="ground" aria-hidden="true"></span>
+				<img class="obj heroimg" src="/images/crowbar.png" alt="A crowbar: red painted shaft, steel hooked claw at the head, steel chisel at the foot" />
+			</div>
+		</section>
+
+		<!-- MANIFESTO STRIP -->
+		<section class="manifesto">
+			<p class="serif manifesto-h">Every agent vendor wants to be your whole desk. We built the bench instead.</p>
+			<p class="manifesto-p">Your context lives in Crowbar, not inside one company's app. Providers plug in through a manifest. Chats branch like git. Inputs are real Markdown. And nothing, not one feature, is behind a login.</p>
+		</section>
+
+		<!-- 1 · BYO PROVIDER -->
+		<section id="providers" class="feature">
+			<div class="featuretext">
+				<span class="eyebrow">01 · Bring your own provider</span>
+				<h2 class="h2">Your subscription.<br />Our bench.</h2>
+				<p class="p">Crowbar is manifest-first. A provider is a small file that says how to launch the agent, which modes it has, and how it reports back. No adapter code, no fork, no waiting for us to "add support". Point Crowbar at the CLI you already pay for and it is a first-class citizen the same afternoon. Manifests travel through Quiver, the same distribution system that will deliver Crowbar itself.</p>
+				<p class="p">And because the context is Crowbar's, not the vendor's, you never lose it. Cancel a plan, start another, the conversations stay where they are.</p>
+				<div style="display: flex; gap: 8px; flex-wrap: wrap"><span class="tag">Claude Code</span><span class="tag alt">Codex</span><span class="tag alt">+ any CLI with a manifest</span></div>
+			</div>
+			<div class="vig" style="height: 460px; padding: 26px; display: flex; flex-direction: column; gap: 14px">
+				<div style="display: flex; align-items: center; gap: 10px"><span class="eyebrow">providers /</span><span class="mono" style="font-size: 13px">codex.manifest</span><span class="tag" style="margin-left: auto">detected</span></div>
+				<div style="display: flex; flex-direction: column">
+					<div class="kv"><span style="color: var(--ink-3)">binary</span><span class="mono">codex</span></div>
+					<div class="kv"><span style="color: var(--ink-3)">launch</span><span class="mono">app-server · unix socket</span></div>
+					<div class="kv"><span style="color: var(--ink-3)">native modes</span><span class="mono">approve · full-auto</span></div>
+					<div class="kv"><span style="color: var(--ink-3)">reports</span><span class="mono">hooks → turn, tool, permission</span></div>
+					<div class="kv"><span style="color: var(--ink-3)">context</span><span class="mono">kept by Crowbar</span></div>
+				</div>
+				<div style="margin-top: auto; display: flex; flex-direction: column; gap: 8px">
+					<span class="eyebrow">What the app shows</span>
+					<div style="display: flex; gap: 8px; align-items: center">
+						<span class="chip"><svg class="i" viewBox="0 0 24 24" style="width: 14px; height: 14px"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4"></path></svg><b>sonnet</b> · Default</span>
+						<span class="chip"><svg class="i" viewBox="0 0 24 24" style="width: 14px; height: 14px"><path d="M12 2a10 10 0 1 0 10 10"></path><path d="M12 6a6 6 0 1 0 6 6"></path></svg><b>gpt-5</b> · High</span>
+						<span class="chip" style="border-style: dashed; color: var(--ink-3)">yours</span>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- 2 · SWITCH MID-CONVERSATION -->
+		<section class="feature">
+			<div class="vig dark" style="height: 440px; padding: 26px 28px; display: flex; flex-direction: column; gap: 16px; order: 1">
+				<div style="align-self: flex-end; max-width: 78%; padding: 10px 14px; border-radius: 12px 12px 4px 12px; background: var(--panel-dark-bg-2); font-size: 14px; line-height: 1.6">Write the migration for the pricing table.</div>
+				<div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--panel-dark-fg-mute)"><span class="chip" style="background: var(--panel-dark-bg-2); border-color: var(--panel-dark-border); color: var(--panel-dark-fg); height: 24px; font-size: 12px"><svg class="i" viewBox="0 0 24 24" style="width: 12px; height: 12px"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4"></path></svg><b>sonnet</b></span>answered in 40 s</div>
+				<div style="font-size: 14px; line-height: 1.65; color: var(--panel-dark-fg)">Added <span class="mono" style="font-size: 13px; padding: 1px 6px; border-radius: 6px; background: var(--panel-dark-bg-2)">0007_pricing_cents.sql</span>: a new integer column, a backfill, and a drop of the float. Want me to write the rollback too?</div>
+				<div style="display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px dashed var(--panel-dark-border); border-bottom: 1px dashed var(--panel-dark-border); font-size: 12px; color: var(--panel-dark-fg-mute)"><svg class="i" viewBox="0 0 24 24" style="width: 14px; height: 14px"><path d="M4 12h16M14 6l6 6-6 6"></path></svg>Switched to <span class="chip" style="background: var(--panel-dark-bg-2); border-color: var(--panel-dark-border); color: var(--panel-dark-fg); height: 24px; font-size: 12px"><svg class="i" viewBox="0 0 24 24" style="width: 12px; height: 12px"><path d="M12 2a10 10 0 1 0 10 10"></path><path d="M12 6a6 6 0 1 0 6 6"></path></svg><b>gpt-5</b> · High</span>same branch, same transcript</div>
+				<div style="align-self: flex-end; max-width: 78%; padding: 10px 14px; border-radius: 12px 12px 4px 12px; background: var(--panel-dark-bg-2); font-size: 14px; line-height: 1.6">Review that migration for a lock on the hot path.</div>
+				<div style="font-size: 14px; line-height: 1.65; color: var(--panel-dark-fg)">The backfill runs in one transaction over the full table. On the size you described that holds a lock for minutes. Batch it by 10k rows and add a <span class="mono" style="font-size: 13px; padding: 1px 6px; border-radius: 6px; background: var(--panel-dark-bg-2)">NOT VALID</span> constraint first.</div>
+			</div>
+			<div class="featuretext" style="order: 2">
+				<span class="eyebrow">02 · Switch mid-conversation</span>
+				<h2 class="h2">Change your mind<br />mid-sentence.</h2>
+				<p class="p">One model drafts, another reviews, a third is cheaper for the boring part. In Crowbar that is a chip in the composer, not a new window. Pick a different provider or model between turns and the conversation carries on, on the same branch, with the same diff in view.</p>
+				<p class="p">The chip shows what the live runner actually resolved to, not what you hoped. Honest about the default, honest about the switch.</p>
+			</div>
+		</section>
+
+		<!-- 3 · THREADS -->
+		<section id="threads" class="feature">
+			<div class="featuretext">
+				<span class="eyebrow">03 · Threads</span>
+				<h2 class="h2">Conversations that<br />branch like your code.</h2>
+				<p class="p">A chat can start another chat. The child inherits the context it needs, works on its own question, and reports back, and neither drifts out of sync with the other. Spin one off to investigate a flaky test while the parent keeps shipping the feature. Spin three off. Spin one off the child.</p>
+				<p class="p">Infinite trees of threads, all visible in the sidebar under the branch they belong to, all resumable tomorrow.</p>
+			</div>
+			<div class="vig" style="height: 460px; padding: 22px 18px; display: flex; flex-direction: column; gap: 2px">
+				<div class="row" style="background: rgba(var(--fg-rgb), .06)"><svg class="i" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.2"></circle><circle cx="6" cy="18" r="2.2"></circle><circle cx="18" cy="8" r="2.2"></circle><path d="M6 8.2v7.6M18 10.2c0 4-12 3-12 5.6"></path></svg><span style="display: flex; flex-direction: column; line-height: 1.15">Pricing in integer cents<span class="mono" style="font-size: 10.5px; color: var(--ink-3); font-weight: 400">feature/pricing-rounding -- <span style={`color: var(--added)`}>+34</span> <span style={`color: var(--deleted)`}>-2</span></span></span><span class="dot" style="margin-left: auto; background: var(--moss); box-shadow: 0 0 0 3px var(--moss-tint)"></span></div>
+				<div class="row" style="margin-left: 22px"><svg class="i" viewBox="0 0 24 24"><path d="M4 14.5A6.5 6.5 0 1 1 10.5 8"></path><path d="M9 16.5a5.5 5.5 0 1 0 5.5-5.5"></path><path d="M4 14.5 3 20l5-1.5"></path></svg>Why does the tax test flake?<span class="dot" style="margin-left: auto; background: var(--moss); box-shadow: 0 0 0 3px var(--moss-tint)"></span></div>
+				<div class="row" style="margin-left: 44px"><svg class="i" viewBox="0 0 24 24"><path d="M4 14.5A6.5 6.5 0 1 1 10.5 8"></path><path d="M9 16.5a5.5 5.5 0 1 0 5.5-5.5"></path><path d="M4 14.5 3 20l5-1.5"></path></svg>Reproduce under load<span class="mono" style="margin-left: auto; font-size: 11px; color: var(--ink-3)">done</span></div>
+				<div class="row" style="margin-left: 44px"><svg class="i" viewBox="0 0 24 24"><path d="M4 14.5A6.5 6.5 0 1 1 10.5 8"></path><path d="M9 16.5a5.5 5.5 0 1 0 5.5-5.5"></path><path d="M4 14.5 3 20l5-1.5"></path></svg>Bisect the rounding helper<span class="dot" style="margin-left: auto; background: #D9A441"></span></div>
+				<div class="row" style="margin-left: 22px"><svg class="i" viewBox="0 0 24 24"><path d="M4 14.5A6.5 6.5 0 1 1 10.5 8"></path><path d="M9 16.5a5.5 5.5 0 1 0 5.5-5.5"></path><path d="M4 14.5 3 20l5-1.5"></path></svg>Write the migration rollback<span class="mono" style="margin-left: auto; font-size: 11px; color: var(--ink-3)">done</span></div>
+				<div class="row" style="margin-left: 22px"><svg class="i" viewBox="0 0 24 24"><path d="M4 14.5A6.5 6.5 0 1 1 10.5 8"></path><path d="M9 16.5a5.5 5.5 0 1 0 5.5-5.5"></path><path d="M4 14.5 3 20l5-1.5"></path></svg>Draft the changelog entry<span class="mono" style="margin-left: auto; font-size: 11px; color: var(--ink-3)">idle</span></div>
+				<div style="margin-top: auto; padding: 14px 16px; border-radius: 10px; background: var(--surface-tint); display: flex; flex-direction: column; gap: 4px">
+					<span class="eyebrow">Back in the parent</span>
+					<span style="font-size: 13px; line-height: 1.5; color: var(--ink-2)">"Reproduce under load" reported: the flake is a float comparison in the tax helper, not the migration. Continuing with the rounding fix.</span>
+				</div>
+			</div>
+		</section>
+
+		<!-- 4 · MARKDOWN-FIRST -->
+		<section id="markdown" class="feature">
+			<div class="vig" style="padding: 34px 40px; display: flex; flex-direction: column; gap: 8px; order: 1">
+				<span class="eyebrow" style="margin-bottom: 6px">Your message, before you send it</span>
+				<div class="md" style="display: flex; flex-direction: column; gap: 6px">
+					<span class="serif" style="font-size: 30px; line-height: 1.05">Move pricing to integer cents</span>
+					<p style="margin: 0">Every amount crossing a module boundary must be an integer. Start with the two hot paths:</p>
+					<ul style="margin: 0; padding-left: 20px"><li><span class="mono" style="font-size: 13px; padding: 1px 6px; border-radius: 6px; background: var(--surface-inset)">pricing.ts</span> bulk-discount multiplier</li><li><span class="mono" style="font-size: 13px; padding: 1px 6px; border-radius: 6px; background: var(--surface-inset)">tax.ts</span> the rounding helper</li></ul>
+					<div style="display: flex; gap: 14px; align-items: stretch; margin-top: 6px; flex-wrap: wrap">
+						<div style="flex: 1 1 220px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); padding: 12px; display: flex; flex-direction: column; gap: 8px">
+							<span class="eyebrow" style="font-size: 10px">flow.excalidraw</span>
+							<svg viewBox="0 0 300 110" width="100%" height="96" aria-hidden="true" style="stroke: var(--ink); fill: none; stroke-width: 1.6; stroke-linecap: round">
+								<path d="M12 30 q 4 -6 60 -4 q 6 20 -2 40 q -50 6 -58 -2 q -4 -20 0 -34z"></path>
+								<path d="M118 30 q 4 -6 60 -4 q 6 20 -2 40 q -50 6 -58 -2 q -4 -20 0 -34z"></path>
+								<path d="M224 30 q 4 -6 60 -4 q 6 20 -2 40 q -50 6 -58 -2 q -4 -20 0 -34z"></path>
+								<path d="M72 48 c 12 -4, 30 -4, 44 0 M108 44 l 8 4 -8 4"></path>
+								<path d="M178 48 c 12 -4, 30 -4, 44 0 M214 44 l 8 4 -8 4"></path>
+								<text x="42" y="52" font-family="Geist Mono" font-size="11" text-anchor="middle" fill="var(--ink)" stroke="none">cart</text>
+								<text x="148" y="52" font-family="Geist Mono" font-size="11" text-anchor="middle" fill="var(--ink)" stroke="none">round()</text>
+								<text x="254" y="52" font-family="Geist Mono" font-size="11" text-anchor="middle" fill="var(--ink)" stroke="none">ledger</text>
+								<text x="148" y="96" font-family="Instrument Serif" font-size="13" text-anchor="middle" fill="var(--ink-3)" stroke="none">round once, at the boundary</text>
+							</svg>
+						</div>
+						<div style="flex: 0 0 150px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-tint); padding: 12px; display: flex; flex-direction: column; gap: 6px"><span class="eyebrow" style="font-size: 10px">attached</span><span class="mono" style="font-size: 12px">ledger.sql</span><span class="mono" style="font-size: 12px">failing.log</span></div>
+					</div>
+					<span style="color: var(--ink-3); display: flex; align-items: center; gap: 8px; margin-top: 4px"><span style="width: 1.5px; height: 18px; background: var(--moss)"></span>Type <span class="mono" style="font-size: 11px; padding: 2px 6px; border-radius: 5px; border: 1px solid var(--border-strong)">/</span> for commands</span>
+				</div>
+			</div>
+			<div class="featuretext" style="order: 2">
+				<span class="eyebrow">04 · Markdown-first inputs</span>
+				<h2 class="h2">You get the same tools<br />the agent gets.</h2>
+				<p class="p">Agents reply in rich Markdown; most tools hand you a plain text box in return. Crowbar treats both sides the same. Your prompt is a document: headings, lists, code blocks, tables, attachments, all rendered as you type.</p>
+				<p class="p">Need to explain a data flow? Draw it. Excalidraw boards live inside the conversation, and the agent can read them and draw back.</p>
+			</div>
+		</section>
+
+		<!-- 5 · LOCAL-FIRST -->
+		<section id="local" class="local">
+			<div class="featuretext">
+				<span class="eyebrow">05 · Local-first</span>
+				<h2 class="h2">No account.<br />No paywall.<br />No server in between.</h2>
+				<p class="p">There is no authentication server to sign in to and no premium tier to unlock. Every feature is available the moment the install finishes, like it always should be. Your chats, your branches and your keys stay on your machine, in a local daemon and a local database you can inspect. The only thing that will ever come down the wire is Crowbar itself, its provider manifests and its extensions, through Quiver.</p>
+			</div>
+			<div class="stats">
+				<div class="stat"><span class="serif stat-n">0</span><span class="stat-l">accounts to create</span></div>
+				<div class="stat"><span class="serif stat-n">0</span><span class="stat-l">features behind a plan</span></div>
+				<div class="stat"><span class="serif stat-n">0</span><span class="stat-l">model calls proxied through us</span></div>
+				<div class="stat dark"><span class="serif stat-n">1</span><span class="stat-l" style="color: var(--panel-dark-fg-dim)">folder that holds everything, on disk</span></div>
+			</div>
+		</section>
+
+		<!-- 6 · ROADMAP -->
+		<section id="roadmap" class="roadmap">
+			<div class="roadmap-head">
+				<div style="display: flex; flex-direction: column; gap: 14px"><span class="eyebrow">06 · More to come</span><h2 class="h2">On the horizon.</h2></div>
+				<p class="p" style="margin: 0; max-width: 520px">Built in the open. Each of these is a branch in the repo today, not a slide.</p>
+			</div>
+			<div class="roadmap-grid">
+				<div class="roadmap-card"><span class="eyebrow">Next</span><span class="serif" style="font-size: 32px; line-height: 1.05">Deterministic workflows</span><p class="p" style="margin: auto 0 0; font-size: 15px">Script a plan, a build, a review and a verify step once, then run it across agents the same way every time. Fan out, gate, merge.</p></div>
+				<div class="roadmap-card"><span class="eyebrow">Next</span><span class="serif" style="font-size: 32px; line-height: 1.05">Extensions, via Quiver</span><p class="p" style="margin: auto 0 0; font-size: 15px">Panes, commands and more distributed through <a href="https://quiver.ar" style="text-decoration: underline; text-underline-offset: 3px">Quiver</a>, the same channel that will also deliver Crowbar and its provider manifests. Install one, get it on every machine.</p></div>
+				<div class="roadmap-card pending"><span class="eyebrow">Then</span><span class="serif" style="font-size: 32px; line-height: 1.05; color: var(--ink-3)">And more.</span><p class="p" style="margin: auto 0 0; font-size: 15px; color: var(--ink-3)">The changelog is public and the issues are open. Tell us what your bench is missing.</p></div>
+			</div>
+		</section>
+
+		<!-- CTA -->
+		<section id="get" class="cta">
+			<h2 class="h2 cta-h">Pick it up.</h2>
+			<p class="p" style="margin: 0; max-width: 600px">Crowbar will ship through <a href="https://quiver.ar" style="text-decoration: underline; text-underline-offset: 3px">Quiver</a>, a distribution system that will also carry its provider manifests and, eventually, its extensions. No installer page, no app store, no account — just one command, once it's ready.</p>
+			<div style="display: flex; gap: 12px; flex-wrap: wrap; justify-content: center">
+				<span class="pillbtn disabled-panel" aria-disabled="true" title="Not available yet">Get it through Quiver</span>
+				<a href="https://github.com/char2cs/crowbar" class="pillbtn" style="border: 1px solid var(--panel-dark-border)">Read the source</a>
+			</div>
+			<span class="eyebrow" style="color: var(--panel-dark-fg-mute)">macOS and Linux · Apache-2.0 · built in the open</span>
+		</section>
+
+		<footer>
+			<CrowbarWordmark class="footer-mark" />
+			<a href="https://char2cs.net" class="footer-link">char2cs.net</a>
+		</footer>
+	</div>
+</Layout>

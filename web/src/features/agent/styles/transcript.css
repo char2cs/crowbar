@@ -377,19 +377,27 @@
   color: var(--foreground);
   outline: none;
 }
+/* Instrument Serif (Type.dc.html: every rendered Markdown heading, incl. the
+   transcript) ships weight 400 only and has a 22px floor below which it
+   stops reading as a headline — these sizes move up from 14-16px to clear
+   it, still ordered smallest of the three named surfaces since a chat
+   bubble is the densest context using it. */
 .agent-chat .agent-prose h1 {
-  font-size: 16px;
-  font-weight: 600;
+  font-family: var(--font-heading);
+  font-size: 24px;
+  font-weight: 400;
   margin: 12px 0 8px;
 }
 .agent-chat .agent-prose h2 {
-  font-size: 14px;
-  font-weight: 600;
+  font-family: var(--font-heading);
+  font-size: 22px;
+  font-weight: 400;
   margin: 12px 0 6px;
 }
 .agent-chat .agent-prose h3 {
-  font-size: 14px;
-  font-weight: 500;
+  font-family: var(--font-heading);
+  font-size: 22px;
+  font-weight: 400;
   margin: 8px 0 4px;
 }
 /* THE CANVAS SPELLS THESE `p`, `ul`, `ol` AND `li`. Plate renders none of those

@@ -13,7 +13,7 @@ describe('font store — bundled fonts', () => {
     expect(families).toContain('Geist Mono')
     expect(families).toContain('Geist Mono Variable')
     // The sans bundled font is not monospace and must not appear here.
-    expect(families).not.toContain('CalSansUI')
+    expect(families).not.toContain('Geist Variable')
   })
 
   it('populates the full available-fonts list (never empty)', async () => {
@@ -21,7 +21,7 @@ describe('font store — bundled fonts', () => {
 
     const families = useFontStore.getState().availableFonts.map((f) => f.family)
     expect(families.length).toBeGreaterThan(0)
-    expect(families).toContain('CalSansUI')
+    expect(families).toContain('Geist Variable')
     expect(families).toContain('Geist Mono')
   })
 })

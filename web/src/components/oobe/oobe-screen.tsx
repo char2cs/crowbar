@@ -153,7 +153,7 @@ function PrerequisitesStep({
   return (
     <div className="flex flex-col gap-2">
       <div>
-        <h2 className="text-base font-semibold text-white">System check</h2>
+        <h2 className="font-heading text-2xl font-normal text-white">System check</h2>
         <p className="mt-0.5 text-xs text-white/50">
           Making sure everything's in place before you start.
         </p>
@@ -249,7 +249,7 @@ function AddProjectStep({ onChooseFolder }: { onChooseFolder: () => void }) {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-base font-semibold text-white">Add your first space</h2>
+        <h2 className="font-heading text-2xl font-normal text-white">Add your first space</h2>
         <p className="mt-3 text-sm leading-relaxed text-white/60">
           A <span className="text-white">space</span> is the place where your repositories live.
           They don't have to be inside the space's folder — but it's a natural home for them.

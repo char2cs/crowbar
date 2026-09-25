@@ -1,230 +1,14 @@
-@font-face {
-  font-family: 'CalSansUI';
-  src: url('/fonts/CalSansUI.woff2') format('woff2');
-  font-weight: 300 700;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'CalSans';
-  src: url('/fonts/CalSans-Regular.woff2') format('woff2');
-  font-weight: 400 600;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Symbols Nerd Font Mono';
-  src: url('/fonts/SymbolsNerdFontMono-Regular.woff2') format('woff2');
-  font-weight: normal;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Symbols Nerd Font';
-  src: url('/fonts/SymbolsNerdFontMono-Regular.woff2') format('woff2');
-  font-weight: normal;
-  font-style: normal;
-  font-display: swap;
-}
-
-@theme inline {
-  --font-sans: var(--app-font-family, 'CalSansUI', sans-serif);
-
-  --font-heading: var(--app-font-family, 'CalSans', sans-serif);
-
-  --font-mono: var(--editor-font-family, 'Geist Mono Variable', ui-monospace, monospace);
-  --color-background: var(--background);
-  --color-background-inverse: var(--background-inverse);
-  --color-pane-background: var(--pane-background);
-  --color-foreground: var(--foreground);
-  --color-foreground-inverse: var(--foreground-inverse);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-element-idle: var(--sidebar-element-idle);
-  --color-sidebar-element-hover: var(--sidebar-element-hover);
-  --color-sidebar-element-press: var(--sidebar-element-press);
-  --color-success: var(--success);
-  --color-success-foreground: var(--success-foreground);
-  --color-warning: var(--warning);
-  --color-warning-foreground: var(--warning-foreground);
-  --color-info: var(--info);
-  --color-info-foreground: var(--info-foreground);
-  --color-code: var(--code);
-  --color-code-foreground: var(--code-foreground);
-  --color-code-highlight: var(--code-highlight);
-  --color-brand: var(--brand);
-  --color-chrome-bg: var(--chrome-bg);
-  --color-pane-chrome-bg: var(--pane-chrome-bg);
-  --color-git-added: var(--git-added);
-  --color-git-deleted: var(--git-deleted);
-  --color-git-modified: var(--git-modified);
-  --color-git-modified-staged: var(--git-modified-staged);
-  --color-git-untracked: var(--git-untracked);
-  --color-git-renamed: var(--git-renamed);
-  --color-sidebar-count-added: var(--sidebar-count-added);
-  --color-sidebar-count-deleted: var(--sidebar-count-deleted);
-  --color-sidebar-drop-line: var(--sidebar-drop-line);
-  --color-sidebar-drop-nest: var(--sidebar-drop-nest);
-  --color-sidebar-drop-nest-edge: var(--sidebar-drop-nest-edge);
-  --font-editor: var(--editor-font-family);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
-  --animate-skeleton: skeleton 2s -1s infinite linear;
-  --animate-caret-blink: 1s ease-out infinite caret-blink;
-  --animate-toast-success-odd: toast-success-odd 0.32s cubic-bezier(0.5, 1, 0.89, 1);
-  --animate-toast-success-even: toast-success-even 0.32s cubic-bezier(0.5, 1, 0.89, 1);
-  --animate-toast-error-odd: toast-error-odd 0.28s cubic-bezier(0.5, 1, 0.89, 1);
-  --animate-toast-error-even: toast-error-even 0.28s cubic-bezier(0.5, 1, 0.89, 1);
-  --animate-label-in: label-in 140ms cubic-bezier(0, 0, 0.2, 1) both;
-
-  --animate-row-action-in: row-action-in 120ms ease;
-
-  --animate-tray-drain: tray-drain 8s linear forwards;
-  @keyframes skeleton {
-    to {
-      background-position: -200% 0;
-    }
-  }
-  @keyframes caret-blink {
-    0%,
-    70%,
-    to {
-      opacity: 1;
-    }
-    20%,
-    50% {
-      opacity: 0;
-    }
-  }
-  @keyframes toast-success-odd {
-    0% {
-      scale: 1;
-    }
-    30% {
-      scale: 1.025;
-    }
-    60% {
-      scale: 0.99;
-    }
-    100% {
-      scale: 1;
-    }
-  }
-  @keyframes toast-success-even {
-    0% {
-      scale: 1;
-    }
-    30% {
-      scale: 1.025;
-    }
-    60% {
-      scale: 0.99;
-    }
-    100% {
-      scale: 1;
-    }
-  }
-  @keyframes toast-error-odd {
-    0% {
-      translate: 0 0;
-    }
-    25% {
-      translate: -3px 0;
-    }
-    50% {
-      translate: 3px 0;
-    }
-    75% {
-      translate: -3px 0;
-    }
-    100% {
-      translate: 0 0;
-    }
-  }
-  @keyframes toast-error-even {
-    0% {
-      translate: 0 0;
-    }
-    25% {
-      translate: -3px 0;
-    }
-    50% {
-      translate: 3px 0;
-    }
-    75% {
-      translate: -3px 0;
-    }
-    100% {
-      translate: 0 0;
-    }
-  }
-  @keyframes row-action-in {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
-  }
-  @keyframes tray-drain {
-    from {
-      transform: scaleX(1);
-    }
-    to {
-      transform: scaleX(0);
-    }
-  }
-  @keyframes label-in {
-    from {
-      opacity: 0;
-      translate: 0 3px;
-    }
-    to {
-      opacity: 1;
-      translate: 0 0;
-    }
-  }
-}
+/* @font-face declarations moved to theme-fonts.css and the `@theme inline`
+   token map to theme-vars.css — both imported right before this file — to
+   keep this one under the repo's file-size cap. The tests in
+   __tests__/styles/{theme,zen}-theme-tokens.test.ts read the `:root`/`.dark`
+   blocks below directly off disk, so those two stay put. */
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(0.994 0.001 106.4);
-  --pane-background: oklch(0.994 0.001 106.4);
-  --foreground: oklch(0.205 0.004 286);
+  --background: #fcfcfa;
+  --pane-background: #fcfcfa;
+  --foreground: #1b1b19;
   /* The other theme's own --background/--foreground, literally — never derived
      from this theme's tokens. A deliberate "break the theme" surface (an
      active sidebar row, see ROW_ACTIVE in workspace-row-base.ts): the row
@@ -232,35 +16,38 @@
      the ambient palette the rest of the sidebar does. Kept in sync by hand
      with .dark's own --background/--foreground below, the same way every
      other per-theme pair on this page is. */
-  --background-inverse: oklch(0.2 0.006 271.1);
-  --foreground-inverse: oklch(0.967 0.003 264.5);
+  --background-inverse: #1c1c1a;
+  --foreground-inverse: #f2f0ea;
   --card: var(--color-white);
-  --card-foreground: oklch(0.205 0.004 286);
+  --card-foreground: #1b1b19;
   --popover: var(--color-white);
-  --popover-foreground: oklch(0.205 0.004 286);
-  --primary: oklch(0.509 0.121 253.7);
-  --primary-foreground: oklch(1 0 0);
+  --popover-foreground: #1b1b19;
+  --primary: #606c38;
+  --primary-foreground: #ffffff;
 
   --secondary: var(--primary);
-  --secondary-foreground: oklch(1 0 0);
+  --secondary-foreground: #ffffff;
   --muted: oklch(0 0 0 / 4%);
 
   --muted-foreground: oklch(0.4 0 0);
-  --accent: oklch(0 0 0 / 4%);
+  /* Same formula as --sidebar-element-hover (ink family) — menu/popover row
+     highlights are a row-hover state, so they share the sidebar's own recipe
+     rather than a separately-tuned value. */
+  --accent: oklch(0 0 0 / 8%);
   --accent-foreground: var(--foreground);
 
-  --editor-selection: oklch(0.625 0.103 252.2 / 20%);
+  --editor-selection: color-mix(in oklch, #606c38 20%, transparent);
 
-  --brand: oklch(0.509 0.121 253.7);
-  --destructive: oklch(0.593 0.126 34.9);
-  --destructive-foreground: var(--color-red-700);
+  --brand: #606c38;
+  --destructive: #b8422c;
+  --destructive-foreground: #7c2717;
   --info: oklch(0.574 0.083 250.5);
   --info-foreground: var(--color-blue-700);
-  --success: oklch(0.553 0.065 139);
-  --success-foreground: var(--color-emerald-700);
-  --warning: oklch(0.613 0.105 77);
-  --warning-foreground: var(--color-amber-700);
-  --border: oklch(0.8 0.013 244.3);
+  --success: #4e7a36;
+  --success-foreground: #2e5122;
+  --warning: #d9a441;
+  --warning-foreground: #634609;
+  --border: #dddcd6;
   --input: var(--border);
   --ring: var(--color-neutral-400);
   --chart-1: var(--color-orange-600);
@@ -307,19 +94,19 @@
   --git-deleted: var(--destructive);
   --git-renamed: var(--color-sky-600);
 
-  --sidebar-count-added: color-mix(in srgb, var(--color-green-300) 60%, black);
-  --sidebar-count-deleted: color-mix(in srgb, var(--color-red-300) 60%, black);
+  --sidebar-count-added: #4e7a36;
+  --sidebar-count-deleted: #b8422c;
 
   --sidebar-drop-line: color-mix(in oklch, var(--secondary) 55%, var(--foreground));
   --sidebar-drop-nest: color-mix(in oklch, var(--secondary) 30%, transparent);
   --sidebar-drop-nest-edge: color-mix(in oklch, var(--secondary) 65%, transparent);
 
-  --chrome-bg: color-mix(in oklch, var(--color-neutral-50) 60%, transparent);
+  --chrome-bg: color-mix(in oklch, #fcfcfa 60%, transparent);
   /* The chat/editor pane box's own fill — distinct from `--chrome-bg` above
      (body's wash, which the sidebar shows through with no fill of its own):
      the pane surface wants far less of the desktop showing through it than
      the sidebar does. */
-  --pane-chrome-bg: color-mix(in oklch, var(--color-neutral-50) 90%, transparent);
+  --pane-chrome-bg: color-mix(in oklch, #fcfcfa 90%, transparent);
 
   --app-ui-scale: 1;
   --ui-text-xs: calc(0.6875rem * var(--app-ui-scale));
@@ -383,40 +170,46 @@
 }
 
 .dark {
-  --background: oklch(0.2 0.006 271.1);
-  --pane-background: oklch(0.2 0.006 271.1);
-  --foreground: oklch(0.967 0.003 264.5);
+  --background: #1c1c1a;
+  --pane-background: #1c1c1a;
+  --foreground: #f2f0ea;
   /* :root's own comment on this pair explains why — kept as the literal
      light-theme values, not a reference back to :root (a var() here would
      just resolve to itself once .dark's cascade wins). */
-  --background-inverse: oklch(0.994 0.001 106.4);
-  --foreground-inverse: var(--color-neutral-800);
+  --background-inverse: #fcfcfa;
+  --foreground-inverse: #1b1b19;
   --card: var(--background);
-  --card-foreground: oklch(0.967 0.003 264.5);
+  --card-foreground: #f2f0ea;
   --popover: var(--background);
-  --popover-foreground: oklch(0.967 0.003 264.5);
-  --primary: oklch(0.616 0.114 252.3);
-  --primary-foreground: oklch(1 0 0);
+  --popover-foreground: #f2f0ea;
+  --primary: #98a86a;
+  --primary-foreground: #1b1b19;
 
   --secondary: var(--primary);
-  --secondary-foreground: oklch(1 0 0);
-  --muted: oklch(0.252 0.012 270.9);
+  --secondary-foreground: #1b1b19;
+  /* Handbook's Charcoal "raised · cards, inputs" swatch — was a leftover
+     opaque near-black with the OLD blue-accent system's hue (270.9°) baked
+     in; same lightness/chroma family, ink hue (~107°) instead. */
+  --muted: #262624;
 
   --muted-foreground: oklch(0.834 0.008 278.6);
-  --accent: oklch(0.222 0.008 264.4);
+  /* Same formula as --sidebar-element-hover (ink family) — see :root's
+     comment on this token for why menu highlights follow the sidebar row
+     recipe. */
+  --accent: oklch(1 0 0 / 10%);
   --accent-foreground: var(--foreground);
-  --editor-selection: oklch(0.612 0.104 251.9 / 32%);
+  --editor-selection: color-mix(in oklch, #98a86a 32%, transparent);
 
-  --brand: oklch(0.616 0.114 252.3);
-  --destructive: oklch(0.686 0.134 35.2);
-  --destructive-foreground: var(--color-red-400);
+  --brand: #98a86a;
+  --destructive: #f1a493;
+  --destructive-foreground: #3b211c;
   --info: oklch(0.713 0.088 252.2);
   --info-foreground: var(--color-blue-400);
-  --success: oklch(0.676 0.083 135.7);
-  --success-foreground: var(--color-emerald-400);
-  --warning: oklch(0.743 0.121 78.6);
-  --warning-foreground: var(--color-amber-400);
-  --border: oklch(0.269 0.01 268.3);
+  --success: #b9cf98;
+  --success-foreground: #2a2f1f;
+  --warning: #e9c97f;
+  --warning-foreground: #372c17;
+  --border: #333330;
   --input: var(--border);
   --ring: var(--color-neutral-500);
   --chart-1: var(--color-blue-700);
@@ -454,13 +247,16 @@
   --git-deleted: oklch(0.686 0.134 35.2);
   --git-renamed: oklch(0.716 0.092 311.1);
 
-  --sidebar-count-added: var(--color-green-300);
-  --sidebar-count-deleted: var(--color-red-300);
+  --sidebar-count-added: #b9cf98;
+  --sidebar-count-deleted: #f1a493;
 
-  --chrome-bg: color-mix(in oklch, oklch(0.173 0.004 264.5) 65%, transparent);
+  /* Same L/C, mix % and structure the handbook's Surface board documented —
+     only the hue moved, off the old blue-accent system's 264.5° and onto the
+     ink family's ~107°, same as every other retinted near-black in this file. */
+  --chrome-bg: color-mix(in oklch, oklch(0.173 0.004 106.7) 65%, transparent);
   /* Same value as --chrome-bg above — dark's pane/sidebar split is untouched;
      only light gets distinct opacities for the two surfaces (see :root). */
-  --pane-chrome-bg: color-mix(in oklch, oklch(0.173 0.004 264.5) 65%, transparent);
+  --pane-chrome-bg: color-mix(in oklch, oklch(0.173 0.004 106.7) 65%, transparent);
 
   --syntax-punctuation: oklch(0.712 0.012 269.5);
   --syntax-operator: oklch(0.712 0.012 269.5);
@@ -538,6 +334,9 @@
 }
 
 .dark[data-platform='linux'] {
-  --chrome-bg: oklch(0.182 0.005 266.8);
-  --pane-chrome-bg: oklch(0.182 0.005 266.8);
+  /* Same L/C as before (the flattened-opaque equivalent), hue only —
+     264.5deg/266.8deg (old blue system) to ~107deg (ink), matching the
+     macOS values above. */
+  --chrome-bg: oklch(0.182 0.005 106.7);
+  --pane-chrome-bg: oklch(0.182 0.005 106.7);
 }
