@@ -30,15 +30,17 @@ type testContainers struct {
 
 func newApp(t *testing.T) testContainers {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	eng, err := engine.New(ctx)
 	require.NoError(t, err)
+	t.Cleanup(eng.Close)
 	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
-	t.Cleanup(eng.Close)
 	a, err := app.New(ctx, eng, adapters)
 	require.NoError(t, err)
+	// app.Close stops the asynx pools; t.Context's cancel stops the sweeps.
+	t.Cleanup(a.Close)
 	return testContainers{app: a, eng: eng}
 }
 

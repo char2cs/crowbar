@@ -67,19 +67,31 @@ func (errReviewThreadRepo) ListByWorkspace(
 	return nil, errSnapshotFake
 }
 
+// newAppAndEngine builds a real app over a real engine, both torn down at
+// cleanup: app.Close stops the asynx pools and t.Context's cancel stops the
+// background sweeps, so no test leaks goroutines into the next.
+func newAppAndEngine(
+	t *testing.T,
+) (*app.Container, *engine.Container) {
+	t.Helper()
+	ctx := t.Context()
+	eng, err := engine.New(ctx)
+	require.NoError(t, err)
+	t.Cleanup(eng.Close)
+	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapters.Close() })
+	a, err := app.New(ctx, eng, adapters)
+	require.NoError(t, err)
+	t.Cleanup(a.Close)
+	return a, eng
+}
+
 func newAppForSnapshot(
 	t *testing.T,
 ) *app.Container {
 	t.Helper()
-	ctx := context.Background()
-	eng, err := engine.New(ctx)
-	require.NoError(t, err)
-	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = adapters.Close() })
-	t.Cleanup(eng.Close)
-	a, err := app.New(ctx, eng, adapters)
-	require.NoError(t, err)
+	a, _ := newAppAndEngine(t)
 	return a
 }
 
@@ -243,10 +255,8 @@ func TestLSPSnapshot_NilEngineReturnsNil(t *testing.T) {
 }
 
 func TestLSPSnapshot_ListErrorReturnsNil(t *testing.T) {
-	a := newAppForSnapshot(t)
+	a, eng := newAppAndEngine(t)
 	a.Repositories.Workspace = errWorkspaceRepo{}
-	eng, err := engine.New(context.Background())
-	require.NoError(t, err)
 	assert.Nil(t, lspSnapshot(a, eng)(""))
 }
 
@@ -255,22 +265,18 @@ func TestLSPSnapshot_ListErrorReturnsNil(t *testing.T) {
 // rather than upgrading it to a non-nil empty slice — mirroring
 // TestGitSnapshot_UnknownWorkspaceScope_ReturnsNil for the LSP source.
 func TestLSPSnapshot_UnknownWorkspaceScope_ReturnsNil(t *testing.T) {
-	a := newAppForSnapshot(t)
-	eng, err := engine.New(context.Background())
-	require.NoError(t, err)
+	a, eng := newAppAndEngine(t)
 
 	assert.Nil(t, lspSnapshot(a, eng)("does-not-exist"))
 }
 
 func TestLSPSnapshot_NoDiagnosticsIsEmpty(t *testing.T) {
-	a := newAppForSnapshot(t)
+	a, eng := newAppAndEngine(t)
 	_, err := a.Repositories.Workspace.Create(
 		context.Background(),
 		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder},
 		time.Unix(1, 0).UTC(),
 	)
-	require.NoError(t, err)
-	eng, err := engine.New(context.Background())
 	require.NoError(t, err)
 	assert.Empty(t, lspSnapshot(a, eng)(""))
 }
@@ -316,11 +322,9 @@ func TestGitSnapshot_ExcludesSameRepoSibling(t *testing.T) {
 }
 
 func TestLSPSnapshot_ScopedToWorkspaceRepo(t *testing.T) {
-	a := newAppForSnapshot(t)
+	a, eng := newAppAndEngine(t)
 	seedWorkspace(t, a, "w1", "p1", "r1", "", "")
 	seedWorkspace(t, a, "w2", "p2", "r2", "", "")
-	eng, err := engine.New(context.Background())
-	require.NoError(t, err)
 
 	assert.NotPanics(t, func() { lspSnapshot(a, eng)("p1/r1/w1") })
 }
@@ -330,9 +334,7 @@ func TestLSPSnapshot_ScopedToWorkspaceRepo(t *testing.T) {
 // resolves to degrades to an empty replay, exactly as an unknown workspace
 // does — the subscription still opens, it simply has nothing to replay.
 func TestLSPSnapshot_UnknownChatScope_ReturnsNil(t *testing.T) {
-	a := newAppForSnapshot(t)
-	eng, err := engine.New(context.Background())
-	require.NoError(t, err)
+	a, eng := newAppAndEngine(t)
 
 	assert.Nil(t, lspSnapshot(a, eng)("chat-does-not-exist"))
 }
@@ -345,10 +347,8 @@ func TestLSPSnapshot_UnknownChatScope_ReturnsNil(t *testing.T) {
 // taken verbatim as a workspace id, or a real workspace id passed bare would
 // wrongly succeed.
 func TestLSPSnapshot_BareScopeIsNotReadAsAWorkspaceID(t *testing.T) {
-	a := newAppForSnapshot(t)
+	a, eng := newAppAndEngine(t)
 	seedWorkspace(t, a, "w1", "p1", "r1", "", "")
-	eng, err := engine.New(context.Background())
-	require.NoError(t, err)
 
 	assert.Empty(t, lspSnapshot(a, eng)("w1"),
 		"a bare id is a chat id: no chat is called w1, so there is nothing to replay")
