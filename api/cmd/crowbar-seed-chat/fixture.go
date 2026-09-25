@@ -25,6 +25,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
+// seedProvider is the vendor the synthetic chat is born on and its turns ran on.
+const seedProvider = "claude"
+
 // seedOptions describes one synthetic chat.
 type seedOptions struct {
 	WorkspaceID      string
@@ -85,7 +88,8 @@ func seedChat(ctx context.Context, adapters *adapter.Container, opts seedOptions
 
 	now := time.Now()
 	if _, err := chatStore.Create(ctx, agentchat.CreateInput{
-		ID: chatID, WorkspaceID: opts.WorkspaceID, Type: domain.ChatTypeChat, Now: now,
+		ID: chatID, WorkspaceID: opts.WorkspaceID, Type: domain.ChatTypeChat,
+		ProviderID: seedProvider, Now: now,
 	}); err != nil {
 		return "", fmt.Errorf("crowbar-seed-chat: create chat: %w", err)
 	}
@@ -108,7 +112,7 @@ func seedChat(ctx context.Context, adapters *adapter.Container, opts seedOptions
 		assistantTurnID := fmt.Sprintf("%s-assistant-%d", chatID, i)
 		if err := activityStore.OpenTurn(ctx, agentactivity.TurnInput{
 			ChatID: chatID, TurnID: assistantTurnID, Role: domain.TurnRoleAssistant,
-			ProviderID: "claude", Now: now,
+			ProviderID: seedProvider, Now: now,
 		}); err != nil {
 			return "", fmt.Errorf("crowbar-seed-chat: open assistant turn %d: %w", i, err)
 		}
@@ -134,7 +138,7 @@ func seedChat(ctx context.Context, adapters *adapter.Container, opts seedOptions
 
 		now = now.Add(time.Second)
 		if err := activityStore.CloseTurn(ctx, agentactivity.TurnInput{
-			ChatID: chatID, TurnID: assistantTurnID, ProviderID: "claude",
+			ChatID: chatID, TurnID: assistantTurnID, ProviderID: seedProvider,
 			Text: fmt.Sprintf("Synthetic reply #%d, with **markdown** and `code`.", i), Now: now,
 		}); err != nil {
 			return "", fmt.Errorf("crowbar-seed-chat: close assistant turn %d: %w", i, err)
