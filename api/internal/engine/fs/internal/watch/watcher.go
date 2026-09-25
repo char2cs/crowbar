@@ -625,7 +625,13 @@ func (w *Watcher) walkFn(
 	if w.ignore.Match(path) {
 		return filepath.SkipDir
 	}
-	return w.fsw.Add(path)
+	// WalkDir visits a directory before reading it, so an unreadable one reaches
+	// Add; skip it like the unreadable entries Walk never offered.
+	addErr := w.fsw.Add(path)
+	if errors.Is(addErr, fs.ErrPermission) {
+		return filepath.SkipDir
+	}
+	return addErr
 }
 
 // addRecursive watches root and all non-ignored subdirectories.
