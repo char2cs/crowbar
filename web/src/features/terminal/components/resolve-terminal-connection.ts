@@ -8,10 +8,10 @@ interface ResolveArgs {
   listLiveSessions: () => Promise<string[]>
   createTerminal: () => Promise<string>
   /**
-   * Attach-only: NEVER spawn a PTY, not even for a tab that has none yet. Used
-   * by the agent chat pane, whose terminal is a VIEW ONTO ONE SPECIFIC vendor-CLI
-   * process: a spawned shell there would be a bare login shell wearing the
-   * agent's frame.
+   * Attach-only: the view's own id IS the PTY it shows, and nothing is ever
+   * spawned. Used by the agent chat pane, whose terminal is a VIEW ONTO ONE
+   * SPECIFIC vendor-CLI process: a spawned shell there would be a bare login
+   * shell wearing the agent's frame.
    */
   attachOnly?: boolean
 }
@@ -50,12 +50,15 @@ async function listLive(list: () => Promise<string[]>): Promise<string[] | null>
 
 /**
  * Decide which daemon PTY session a terminal view attaches to: the one it is
- * bound to (in memory, else the persisted reconnect mapping) if the daemon still
- * has it, a fresh one for a tab that was never bound — and never a replacement
- * for a bound session the daemon no longer has.
+ * bound to (an attach-only view's own id; a tab's in-memory binding, else its
+ * persisted reconnect mapping) if the daemon still has it, a fresh one for a tab
+ * that was never bound — and never a replacement for a bound session the daemon
+ * no longer has.
  */
 export async function resolveTerminalSession(args: ResolveArgs): Promise<ResolvedTerminal> {
-  const bound = args.storeConnectionId ?? loadReconnect(args.workspaceId, args.tabSessionId)
+  const bound = args.attachOnly
+    ? args.tabSessionId
+    : (args.storeConnectionId ?? loadReconnect(args.workspaceId, args.tabSessionId))
   if (bound) {
     const live = await listLive(args.listLiveSessions)
     if (live === null) return { unknown: true }
@@ -66,6 +69,5 @@ export async function resolveTerminalSession(args: ResolveArgs): Promise<Resolve
     }
     return { sessionId: bound, created: false }
   }
-  if (args.attachOnly) return { gone: true }
   return { sessionId: await args.createTerminal(), created: true }
 }

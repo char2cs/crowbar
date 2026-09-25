@@ -6,7 +6,8 @@ import { loadReconnect, saveReconnect } from '@/features/terminal/lib/terminal-r
 //   - a bound session the daemon still has is attached, never replaced;
 //   - B7: a bound session the daemon no longer has ENDED — it is reported gone,
 //     for a shell tab as much as an agent view, and never replaced by a spawn;
-//   - only a tab that was never bound gets a fresh PTY (never an agent view);
+//   - an agent view is bound to the PTY it names, and never spawns;
+//   - only a tab that was never bound gets a fresh PTY;
 //   - a daemon that could not be asked is not a death: nothing changes.
 
 const createTerminal = vi.fn(async () => 'fresh-pty')
@@ -73,7 +74,13 @@ describe('resolveTerminalSession', () => {
     expect(listLive).not.toHaveBeenCalled()
   })
 
-  it('never spawns for an agent view, bound or not', async () => {
+  it('binds an agent view to the PTY it names, with no seeded mapping, and never spawns', async () => {
+    listLive.mockResolvedValue(['tab-1'])
+    await expect(resolve({ attachOnly: true })).resolves.toEqual({
+      sessionId: 'tab-1',
+      created: false,
+    })
+    listLive.mockResolvedValue([])
     await expect(resolve({ attachOnly: true })).resolves.toEqual({ gone: true })
     expect(createTerminal).not.toHaveBeenCalled()
   })

@@ -44,13 +44,13 @@ describe('usePaneSession', () => {
     expect(hook.result.current.canSend).toBe(false)
   })
 
-  it('attaches a live runner’s PTY once it is seeded', () => {
+  it('attaches a live runner’s PTY', () => {
     const { hook } = setup([{ id: 'c1', liveRunnerId: 'r1', terminalSessionId: 'pty1' }])
     expect(hook.result.current.attachment).toEqual({ state: 'attached', sessionId: 'pty1' })
     expect(hook.result.current.canSend).toBe(true)
   })
 
-  it('keeps the mounted PTY while a replacement is seeded, never flashing pending', () => {
+  it('swaps straight to a replacement PTY, never flashing pending', () => {
     const store = createWorkspaceStore('w1')
     seedChats(store, [{ id: 'c1', liveRunnerId: 'r1', terminalSessionId: 'pty1' }])
     const seen: unknown[] = []

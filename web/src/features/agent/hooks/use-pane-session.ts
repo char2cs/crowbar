@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback } from 'react'
 import { useStore } from 'zustand'
 import { resumeChat } from '@/features/agent/api/agent-api'
 import type { ComposerRevival } from '@/features/agent/composer/lib/composer-state'
@@ -6,20 +6,7 @@ import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { describeDormant, describeRung, sessionView } from '@/features/agent/lib/session-status'
 import type { TerminalAttachment } from '@/features/agent/terminal/agent-terminal-surface'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
-import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
-import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
-
-// seedAttach pre-seeds the terminal-store mapping (connectionId = terminalSessionId)
-// plus the localStorage reconnect backstop, so XtermTerminal ATTACHES the agent's
-// running PTY instead of spawning a shell. It must never be handed a dead PTY — an
-// unknown connection id makes the resolver create a bare shell — which is why it
-// runs only while the chat has a live runner (a runner row exists exactly while
-// its PTY does).
-function seedAttach(wsId: string, terminalSessionId: string): void {
-  useTerminalStore.getState().updateSession(terminalSessionId, { connectionId: terminalSessionId })
-  saveReconnect(wsId, terminalSessionId, terminalSessionId)
-}
 
 export interface PaneSessionInputs {
   store: WorkspaceStore
@@ -84,23 +71,10 @@ export function usePaneSession({
     (s) => s.agentChats.chats.find((c) => c.id === chatId)?.session?.rung,
   )
 
-  // Seeding must precede XtermTerminal mounting (React runs child effects
-  // first), so `attached` waits one render for it.
-  const [seededSessionId, setSeededSessionId] = useState('')
-  useEffect(() => {
-    if (!liveRunnerId || !sessionId) {
-      setSeededSessionId('')
-      return
-    }
-    seedAttach(wsId, sessionId)
-    setSeededSessionId(sessionId)
-  }, [wsId, liveRunnerId, sessionId])
-
   const attachment = deriveAttachment(
     sessionView({ known, liveRunnerId, phase, exitReason }),
     providerName,
     sessionId,
-    seededSessionId,
   )
   const chatSide = presentation !== 'terminal' && !promptReplacing
   const revival: ComposerRevival | undefined =
@@ -136,7 +110,6 @@ function deriveAttachment(
   view: ReturnType<typeof sessionView>,
   providerName: string,
   sessionId: string,
-  seededSessionId: string,
 ): TerminalAttachment {
   switch (view.state) {
     case 'pending':
@@ -146,12 +119,8 @@ function deriveAttachment(
     case 'dormant':
       return { state: 'idle', message: describeDormant(view.exitReason) }
     case 'live':
-      if (!sessionId || seededSessionId === sessionId) {
-        return { state: 'attached', sessionId: sessionId || null }
-      }
-      // A replacement PTY: keep the mounted terminal until the new one is seeded.
-      return seededSessionId
-        ? { state: 'attached', sessionId: seededSessionId }
-        : { state: 'pending' }
+      // The attach-only view is bound to the PTY it names; a replacement PTY is a
+      // swap of that same view, never a remount.
+      return { state: 'attached', sessionId: sessionId || null }
   }
 }
