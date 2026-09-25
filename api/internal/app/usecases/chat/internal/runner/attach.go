@@ -96,14 +96,13 @@ func (rs *Runners) ShowingNativeView(runnerID string) bool {
 	return rs.surfaces.get(runnerID) == engineagents.SurfaceTerminal
 }
 
-// ErrNoNativeTerminal is SwitchToTerminal's refusal for a provider with
-// nothing to switch to: no live api connection, or one whose descriptor
-// declares no attach at all (capability 2's "no reachable native view" state).
+// ErrNoNativeTerminal is SwitchToTerminal's refusal for a provider with no
+// TUI to move to: neither a PTY of its own, an attach, nor a terminal surface
+// it can start on.
 var ErrNoNativeTerminal = fmt.Errorf("agent: provider has no native terminal to show: %w", apperr.ErrUnprocessable)
 
-// ErrTurnInProgress is SwitchToTerminal's refusal for a non-hotswap provider
-// mid-turn — the one restriction this whole capability exists to enforce (a
-// hotswap provider never calls this at all; its terminal is already live).
+// ErrTurnInProgress refuses a surface move that would hand over or relaunch
+// the process mid-turn; a process that serves both surfaces moves any time.
 var ErrTurnInProgress = fmt.Errorf("agent: provider cannot hand a live turn to its native view: %w", apperr.ErrConflict)
 
 // SwitchToTerminal moves chatID onto its provider's own TUI and returns the
