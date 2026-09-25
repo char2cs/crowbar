@@ -170,7 +170,7 @@ export function useAppSyncEngine(): void {
 
     // -- incremental merge, keyed by the frame's entity id -----------------
 
-    function onReposChange(change: EntityChange): void {
+    function onReposChange(projectId: string, change: EntityChange): void {
       if (disposed) return
       if (change.kind === 'seed') {
         // A seed is authoritative over the project's whole repo set (it prunes
@@ -179,8 +179,16 @@ export function useAppSyncEngine(): void {
         reconcile()
         return
       }
-      // A tombstone removes a repo and everything under it — again a rebuild.
-      if (change.frame.status !== 'deleted') {
+      const repoId = change.frame.id
+      if (change.frame.status === 'deleted') {
+        // Its scope is gone on the daemon: drop the row and close the repo's
+        // streams now, without the grace period, or every cascade frame
+        // reseeds a 404. The rebuild prunes whatever the row carried.
+        const { repos, setRepos } = useSidebarStore.getState()
+        if (repos.some((r) => r.id === repoId)) setRepos(repos.filter((r) => r.id !== repoId))
+        closeNow(workspacesKey(projectId, repoId))
+        closeNow(treeKey(projectId, repoId))
+      } else {
         // A repo we have never seen (a fresh import) is appended straight away
         // so its row appears without waiting on an IndexedDB round trip; its
         // workspaces arrive on the per-repo stream reconcile() opens below.
@@ -296,7 +304,8 @@ export function useAppSyncEngine(): void {
           await replaceRepoScope(store, items, live)
           return live()
         } catch (err) {
-          console.error(`app-sync-provider: ${label} reseed failed for repo ${repoId}`, err)
+          if (live())
+            console.error(`app-sync-provider: ${label} reseed failed for repo ${repoId}`, err)
           return false
         }
       }
@@ -421,7 +430,7 @@ export function useAppSyncEngine(): void {
                 useFolderSignalStore.getState().markRepoListSeeded(projectId),
               )
             }
-            onReposChange(change)
+            onReposChange(projectId, change)
           },
           // Authoritative over THIS project's repos only — crowbar_repos holds
           // other projects' repos too, cached for an instant return.

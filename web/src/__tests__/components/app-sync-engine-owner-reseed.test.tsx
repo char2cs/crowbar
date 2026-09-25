@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, waitFor } from '@testing-library/react'
+import { act, render, waitFor } from '@testing-library/react'
 
 // REGRESSION (restyle v2 follow-up): GET .../workspaces mints a workspace's
 // owning chat on its first read, and the engine fires the repo's chats GET in
@@ -50,11 +50,15 @@ import { wipeEntityCache } from '@/lib/persistence/idb'
 import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
 import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import type { EntityChange } from '@/lib/ws/entity-stream'
 import type { ChatDTO, Project, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 interface StreamOptions {
   endpoint: string
   seed?: () => Promise<unknown>
+  onChange?: (change: EntityChange) => void
+  /** The teardown the engine was handed for this stream. */
+  dispose?: ReturnType<typeof vi.fn>
 }
 
 const opened: StreamOptions[] = []
@@ -148,8 +152,9 @@ beforeEach(async () => {
   vi.clearAllMocks()
   opened.length = 0
   subscribeEntityStream.mockImplementation((options: StreamOptions) => {
-    opened.push(options)
-    return vi.fn()
+    const dispose = vi.fn()
+    opened.push({ ...options, dispose })
+    return dispose
   })
   await wipeEntityCache()
   await upsertEntity('crowbar_repos', repoDTO)
@@ -215,10 +220,9 @@ describe('the workspaces seed vs the chat list', () => {
       rowsAtMark = repo?.workspaces.map((ws) => ws.id) ?? []
     })
     await bootWithWorkspaces([workspace('owner-locked')])
-    const stream = opened.find((s) => s.endpoint === '/v0/projects/p1/repos/r1/chats/ws') as
-      (StreamOptions & { onChange: (change: { kind: 'seed' }) => void }) | undefined
+    const stream = opened.find((s) => s.endpoint === '/v0/projects/p1/repos/r1/chats/ws')
     await upsertEntity('crowbar_workspaces', workspace('owner-locked'))
-    stream?.onChange({ kind: 'seed' })
+    stream?.onChange?.({ kind: 'seed' })
     await waitFor(() => expect(rowsAtMark).toBeDefined())
     unsubscribe()
     expect(rowsAtMark).toContain('ws-locked')
@@ -229,5 +233,24 @@ describe('the workspaces seed vs the chat list', () => {
     await bootWithWorkspaces([workspace('owner-locked')])
     expect(useFolderSignalStore.getState().generations['r1'] ?? 0).toBe(0)
     expect(fetchRepoChats).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a repo tombstone', () => {
+  // A deleted repo's scope 404s: its streams must not outlive the tombstone by
+  // a grace period, reseeding against it on every cascade frame.
+  it('tears the repo scoped streams down at once', async () => {
+    await bootWithWorkspaces([workspace('owner-locked')])
+    const streamOf = (endpoint: string) => opened.find((s) => s.endpoint === endpoint)
+    act(() => {
+      streamOf('/v0/projects/p1/repos')?.onChange?.({
+        kind: 'frame',
+        frame: { id: 'r1', status: 'deleted' },
+      })
+    })
+    expect(streamOf('/v0/projects/p1/repos/r1/chats/ws')?.dispose).toHaveBeenCalled()
+    fetchRepoChats.mockClear()
+    act(() => useFolderSignalStore.getState().bump('r1'))
+    expect(fetchRepoChats).not.toHaveBeenCalled()
   })
 })
