@@ -20,9 +20,12 @@ const checkMark = (on: boolean) => (on ? <Check className="size-3.5 text-primary
 export function FileExplorerSearchHeader({
   search,
   onNavigateMatch,
+  onClose,
 }: {
   search: TreeSearch
   onNavigateMatch: (direction: 1 | -1) => void
+  /** Escape: closes the filter, keeping the cursor on the match it showed. */
+  onClose: () => void
 }) {
   const showHidden = useSettingsStore((s) => s.settings.showHiddenFilesInFileTree)
   const showGitignored = useSettingsStore((s) => s.settings.showGitignoredFilesInFileTree)
@@ -87,7 +90,7 @@ export function FileExplorerSearchHeader({
               if (e.key !== 'Escape' && e.key !== 'Enter') return
               e.preventDefault()
               e.stopPropagation()
-              if (e.key === 'Escape') search.close()
+              if (e.key === 'Escape') onClose()
               else onNavigateMatch(e.shiftKey ? -1 : 1)
             }}
           />

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { FileExplorerTree } from '@/features/file-explorer/file-explorer/components/file-explorer-tree'
 import type { FileEntry } from '@/features/file-system/types/app'
@@ -59,5 +59,20 @@ describe('FileExplorerTree keyboard', () => {
     renderTree()
     fireEvent(window, new Event('file-tree-open-search'))
     expect(screen.getByLabelText('Filter files in tree')).toBeTruthy()
+  })
+
+  it('puts the cursor on the first match while filtering, and keeps it there on Escape', async () => {
+    const tree = renderTree()
+    fireEvent.focus(tree)
+    fireEvent.keyDown(tree, { key: '/' })
+    const input = screen.getByLabelText('Filter files in tree')
+    fireEvent.change(input, { target: { value: 'b' } })
+    await waitFor(() =>
+      expect(tree.getAttribute('aria-activedescendant')).toBe('file-tree-row-b_ts'),
+    )
+
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByLabelText('Filter files in tree')).toBeNull()
+    expect(tree.getAttribute('aria-activedescendant')).toBe('file-tree-row-b_ts')
   })
 })

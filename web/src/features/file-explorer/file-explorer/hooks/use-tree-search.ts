@@ -120,8 +120,9 @@ export function useTreeSearch({
 export type TreeSearch = ReturnType<typeof useTreeSearch>
 
 /**
- * Keeps the keyboard cursor on a search match: jumps to the first match when
- * the cursor isn't on one, and steps between matches (Enter / Shift+Enter).
+ * The keyboard cursor while searching, DERIVED: the cursor's own path when it
+ * is on a match, else the first match (scrolled into view). Enter / Shift+Enter
+ * step between matches; closing the search keeps the cursor where it was shown.
  */
 export function useTreeSearchNavigation({
   search,
@@ -136,7 +137,7 @@ export function useTreeSearchNavigation({
   keyboardPath: string | undefined
   setFocusedPath: (path: string) => void
 }) {
-  const { isActive } = search
+  const { isActive, close } = search
   const { matchedPaths, orderedMatchedPaths } = search.result
 
   const matchIndexes = useMemo(() => {
@@ -150,6 +151,14 @@ export function useTreeSearchNavigation({
     return indexes
   }, [isActive, matchedPaths, orderedMatchedPaths, visibleRows])
 
+  const onMatch = keyboardPath !== undefined && matchedPaths.has(keyboardPath)
+  const snapIndex = matchIndexes.length > 0 && !onMatch ? matchIndexes[0] : null
+  const cursorPath = snapIndex === null ? keyboardPath : visibleRows[snapIndex]?.file.path
+
+  useEffect(() => {
+    if (snapIndex !== null) rowVirtualizer.scrollToIndex(snapIndex, { align: 'auto' })
+  }, [rowVirtualizer, snapIndex])
+
   const focusRow = useCallback(
     (index: number) => {
       const path = visibleRows[index]?.file.path
@@ -160,17 +169,11 @@ export function useTreeSearchNavigation({
     [rowVirtualizer, setFocusedPath, visibleRows],
   )
 
-  useEffect(() => {
-    if (matchIndexes.length === 0) return
-    if (keyboardPath && matchedPaths.has(keyboardPath)) return
-    focusRow(matchIndexes[0])
-  }, [focusRow, keyboardPath, matchIndexes, matchedPaths])
-
-  return useCallback(
+  const navigate = useCallback(
     (direction: 1 | -1) => {
       if (matchIndexes.length === 0) return
-      const currentIndex = keyboardPath
-        ? visibleRows.findIndex((row) => row.file.path === keyboardPath)
+      const currentIndex = cursorPath
+        ? visibleRows.findIndex((row) => row.file.path === cursorPath)
         : -1
       const fallback = direction > 0 ? matchIndexes[0] : matchIndexes[matchIndexes.length - 1]
       const next =
@@ -179,6 +182,13 @@ export function useTreeSearchNavigation({
           : [...matchIndexes].reverse().find((index) => index < currentIndex)
       focusRow(next ?? fallback)
     },
-    [focusRow, keyboardPath, matchIndexes, visibleRows],
+    [cursorPath, focusRow, matchIndexes, visibleRows],
   )
+
+  const closeSearch = useCallback(() => {
+    if (cursorPath) setFocusedPath(cursorPath)
+    close()
+  }, [close, cursorPath, setFocusedPath])
+
+  return { cursorPath, navigate, closeSearch }
 }
