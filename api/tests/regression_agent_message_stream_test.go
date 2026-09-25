@@ -288,14 +288,13 @@ func TestRegression_AMessageIsVisibleBEFOREItsTurnEnds(t *testing.T) {
 // wiring and the pane goes silent until the turn ends while every ledger
 // assertion in this file stays green — so this test watches the socket.
 //
-// BEFORE is proven positively, on the socket's own ordering rather than on an
-// absence: readUntil only ever moves FORWARD through the stream, so reaching
-// `turn_stopped` having already consumed both partials means those partials were
-// earlier on the wire than the end of the turn.
+// BEFORE is proven positively: the newest partial is read before turn_stop is
+// even posted. Only the newest is awaited because the feed coalesces deltas
+// latest-wins per message, so an earlier partial may be superseded unsent.
 //
 // Both partials are NON-FINAL, and the ledger is checked while they are in
-// flight: neither "STILL " nor "STILL GROWING" exists anywhere durable at that
-// point, so the socket is the only channel that could have carried them.
+// flight: "STILL GROWING" exists nowhere durable at that point, so the socket is
+// the only channel that could have carried it.
 func TestRegression_AGrowingMessageReachesTheChatSocketBeforeTheTurnEnds(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
@@ -330,7 +329,6 @@ func TestRegression_AGrowingMessageReachesTheChatSocketBeforeTheTurnEnds(t *test
 			return ok && message["id"] == "msg-one" && message["text"] == text
 		}
 	}
-	readUntil(t, conn, growing("STILL "))
 	readUntil(t, conn, growing("STILL GROWING"))
 
 	assert.Empty(t, assistantTexts(readRecordedMessages(t, h, imported, chatID)),
