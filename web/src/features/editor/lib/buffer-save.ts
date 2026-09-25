@@ -181,7 +181,7 @@ async function writeToDisk(
   markSaved(bufferId, written)
 
   const { LspClient } = await import('@/features/editor/lsp/lsp-client')
-  void LspClient.getInstance().documentSave(path)
+  void LspClient.getInstance().documentSave(workspaceId, path)
   requestGitRefresh(workspaceId)
   clearBlame(workspaceId, path)
 

@@ -184,8 +184,7 @@ export function useAppSyncEngine(): void {
         // Its scope is gone on the daemon: drop the row and close the repo's
         // streams now, without the grace period, or every cascade frame
         // reseeds a 404. The rebuild prunes whatever the row carried.
-        const { repos, setRepos } = useSidebarStore.getState()
-        if (repos.some((r) => r.id === repoId)) setRepos(repos.filter((r) => r.id !== repoId))
+        useSidebarStore.getState().removeRepo(repoId)
         closeNow(workspacesKey(projectId, repoId))
         closeNow(treeKey(projectId, repoId))
       } else {

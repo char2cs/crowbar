@@ -41,7 +41,7 @@ export async function query<T>(
   const controller = new AbortController()
   const cancel = token.onCancellationRequested(() => controller.abort())
   try {
-    await client.flushChange(target.path)
+    await client.flushChange(target.wsId, target.path)
     if (token.isCancellationRequested) return null
     const result = await client.request<T>(
       target.wsId,

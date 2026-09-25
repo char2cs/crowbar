@@ -120,3 +120,23 @@ test('applyWorkspaceDTO records the scope of an upserted workspace', () => {
     wsId: 'ws-dto',
   })
 })
+
+// A deleted workspace's owning chat is gone: its scope goes with it, so
+// chat-scoped consumers (the LSP diagnostics socket) stop instead of
+// reconnecting against a 404.
+test("a workspace tombstone forgets that workspace's scope", () => {
+  useSidebarStore.getState().setRepos(REPOS)
+  const tombstone = { id: 'ws-main', repoId: 'repo-1', projectId: 'proj-1', status: 'deleted' }
+  useSidebarStore.getState().applyWorkspaceDTO(tombstone as WorkspaceDTO)
+  expect(getWorkspaceScope('ws-main')).toBeNull()
+  expect(getWorkspaceScope('ws-placeholder')).not.toBeNull()
+})
+
+test("removing a deleted repo forgets every one of its workspaces' scopes", () => {
+  useSidebarStore.getState().setRepos(REPOS)
+  useSidebarStore.getState().removeRepo('repo-1')
+  expect(useSidebarStore.getState().repos).toEqual([])
+  for (const wsId of ['ws-main', 'ws-placeholder', 'ws-home']) {
+    expect(getWorkspaceScope(wsId)).toBeNull()
+  }
+})

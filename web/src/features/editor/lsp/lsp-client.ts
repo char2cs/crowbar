@@ -1,12 +1,14 @@
 // LSP client backed by the Go daemon: document sync (didOpen/didChange/
-// didSave/didClose) over REST, diagnostics over the chat's /lsp/ws topic, and
-// the feature requests the Monaco providers (monaco-lsp-providers.ts) make.
+// didSave/didClose) over REST, diagnostics over the owning chat's /lsp/ws
+// topic, and the feature requests the Monaco providers (monaco-lsp-providers.ts)
+// make. Everything is addressed by the workspace the caller names — the
+// buffer's own — never by whichever workspace is active.
 
 import { apiFetch } from '@/lib/api'
 import { wsManager } from '@/lib/ws/manager'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { isHomeWorkspace, lspBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
+
 /** The daemon's lifecycle view of the server for one file's language. */
 export interface LspServerStatus {
   languageId?: string
@@ -27,12 +29,9 @@ export interface LspDiagnostic {
 }
 
 interface DiagnosticsEvent {
-  wsId: string
-  diagnostics: LspDiagnostic[]
+  diagnostics?: LspDiagnostic[]
 }
 
-// wsId is the workspace the batch was computed FOR — see dispatch()'s own
-// doc for why a handler must check it, not just filePath.
 /** The owner the LSP diagnostics markers are published under in Monaco. */
 export const LSP_MARKER_OWNER = 'crowbar-lsp'
 
@@ -40,138 +39,107 @@ export const LSP_MARKER_OWNER = 'crowbar-lsp'
 // server (requests flush it early, see flushChange).
 const CHANGE_DEBOUNCE_MS = 400
 
-type DiagnosticsHandler = (filePath: string, diagnostics: LspDiagnostic[], wsId: string) => void
+type DiagnosticsHandler = (filePath: string, diagnostics: LspDiagnostic[]) => void
+type OpenedListener = (wsId: string, filePath: string) => void
 
-class LspClientImpl {
-  static _instance: LspClientImpl | null = null
-  static getInstance(): LspClientImpl {
-    if (!LspClientImpl._instance) LspClientImpl._instance = new LspClientImpl()
-    return LspClientImpl._instance
-  }
+/** The LSP route base for `wsId`, or null while it has none (home, no chat). */
+function lspBase(wsId: string): string | null {
+  if (isHomeWorkspace(wsId) || !getOwningChatId(wsId)) return null
+  return lspBaseForWorkspace(wsId)
+}
 
-  isStarted = false
-  private handlers = new Set<DiagnosticsHandler>()
-  private wsId: string | null = null
-  private unsubscribe: (() => void) | null = null
-  private lastByFile = new Map<string, LspDiagnostic[]>()
-  // Open refcount per file (I4): every pane showing a file opens it (the
-  // satellite hook's diagnostics lifecycle). Reference-count opens so exactly
-  // ONE `/didOpen` POST goes out (the first opener) and `/didClose` only fires
-  // when the LAST holder closes.
-  private openRefs = new Map<string, number>()
-  // Opens whose `/didOpen` POST never went out because the owning chat id
-  // wasn't recorded yet (see ensureSubscribed) — flushed once it arrives.
-  // Without this, a file the editor already refcounts as "open" would never
-  // actually get opened on the server, and would never get diagnostics.
-  private pendingOpens = new Map<string, { content: string; languageId: string }>()
-  private openListeners = new Set<(filePath: string) => void>()
-  // Debounced didChange per open document (see scheduleChange/flushChange).
-  private pendingChanges = new Map<
+function post(url: string, body: unknown, signal?: AbortSignal): Promise<unknown> {
+  return apiFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  })
+}
+
+/**
+ * One workspace's LSP state. It exists while it holds an open document or a
+ * diagnostics handler; its socket is open while it exists and the workspace's
+ * owning chat is known (the scope registry is the owner of that fact).
+ */
+class WorkspaceSession {
+  readonly handlers = new Set<DiagnosticsHandler>()
+  /** Open refcount per path: one didOpen for the first holder, didClose with the last. */
+  readonly openRefs = new Map<string, number>()
+  /** Opens not sent yet because the owning chat is not known yet. */
+  readonly deferred = new Map<string, { content: string; languageId: string }>()
+  readonly pendingChanges = new Map<
     string,
     { read: () => string | null; timer: ReturnType<typeof setTimeout> }
   >()
-  // wsId this instance is currently waiting on an owning-chat-id for, and the
-  // unsubscribe for that wait — see ensureSubscribed/awaitOwningChatId.
-  private awaitingScopeFor: string | null = null
-  private stopAwaitingScope: (() => void) | null = null
+  private lastByFile = new Map<string, LspDiagnostic[]>()
+  /** The chat whose topic the socket is on, and its unsubscribe. */
+  private socket: { chatId: string; close: () => void } | null = null
+  private readonly stopWatchingScope: () => void
 
-  // Subscribe to the workspace's diagnostics topic. Snapshot-on-subscribe
-  // replays current diagnostics; later batches arrive live.
-  private ensureSubscribed(): void {
-    const wsId = getActiveWorkspaceId()
-    // The project HOME workspace has no worktree, no owning chat, and no LSP
-    // surface on the daemon at all (before or after the chat-scoped move) —
-    // skip it rather than call lspBaseForWorkspace and catch its throw.
-    if (!wsId || isHomeWorkspace(wsId)) return
-    if (this.wsId === wsId && this.unsubscribe) return
+  constructor(
+    readonly wsId: string,
+    private readonly sendOpen: (
+      base: string,
+      path: string,
+      languageId: string,
+      text: string,
+    ) => void,
+  ) {
+    this.stopWatchingScope = subscribeToWorkspaceScope(wsId, () => this.followScope())
+    this.followScope()
+  }
 
-    // lspBaseForWorkspace(wsId) throws until the sidebar's own chat-list fetch
-    // records this workspace's owning chat id — a race against WorkspaceView's
-    // own (often faster) hydration that is very much still live the instant a
-    // buffer becomes a pane's active model (tab restoration on a cold
-    // activation, well before any user gesture). This is called synchronously
-    // from `onDiagnosticsUpdate`, so throwing here used to propagate straight
-    // out of the satellite hook's effect and crash via the nearest error
-    // boundary — identical shape to the fix in use-workspace-effects.ts. Wait
-    // for the id via subscribeToWorkspaceScope instead, and retry once it
-    // lands, rather than crashing or leaving diagnostics unsubscribed forever.
-    if (!getOwningChatId(wsId)) {
-      this.awaitOwningChatId(wsId)
-      return
+  base(): string | null {
+    return lspBase(this.wsId)
+  }
+
+  isIdle(): boolean {
+    return this.handlers.size === 0 && this.openRefs.size === 0
+  }
+
+  addHandler(handler: DiagnosticsHandler): void {
+    this.handlers.add(handler)
+    for (const [filePath, diagnostics] of this.lastByFile) handler(filePath, diagnostics)
+  }
+
+  cancelChange(filePath: string): void {
+    const pending = this.pendingChanges.get(filePath)
+    if (!pending) return
+    clearTimeout(pending.timer)
+    this.pendingChanges.delete(filePath)
+  }
+
+  dispose(): void {
+    this.stopWatchingScope()
+    this.closeSocket()
+    for (const filePath of [...this.pendingChanges.keys()]) this.cancelChange(filePath)
+  }
+
+  // The owning chat arriving opens the socket and sends deferred opens; it
+  // going away (the workspace was deleted) closes the socket for good.
+  private followScope(): void {
+    const chatId = this.base() ? getOwningChatId(this.wsId) : null
+    if (chatId === (this.socket?.chatId ?? null)) return
+    this.closeSocket()
+    if (!chatId) return
+    const base = this.base()!
+    this.socket = {
+      chatId,
+      close: wsManager.subscribe(`${base}/ws`, (raw) => this.dispatch(raw as DiagnosticsEvent)),
     }
-    this.stopAwaitingScope?.()
-    this.stopAwaitingScope = null
-    this.awaitingScopeFor = null
-
-    this.unsubscribe?.()
-    this.wsId = wsId
-    this.lastByFile.clear()
-    // The new workspace's documents are not open yet; drop stale refcounts so a
-    // first open there still POSTs `/didOpen`.
-    this.openRefs.clear()
-    this.unsubscribe = wsManager.subscribe(`${lspBaseForWorkspace(wsId)}/ws`, (raw) =>
-      this.dispatch(raw as DiagnosticsEvent),
-    )
+    const opens = [...this.deferred]
+    this.deferred.clear()
+    for (const [path, { content, languageId }] of opens)
+      this.sendOpen(base, path, languageId, content)
   }
 
-  // Re-entrant wait for `wsId`'s owning chat id: a no-op while already waiting
-  // on the SAME wsId (ensureSubscribed is called from onDiagnosticsUpdate,
-  // documentOpen and onDiagnosticsUpdate alike, often several times before the id
-  // lands), and drops any wait on a DIFFERENT wsId so switching workspaces
-  // mid-wait can't leak a stale listener.
-  private awaitOwningChatId(wsId: string): void {
-    if (this.awaitingScopeFor === wsId) return
-    this.stopAwaitingScope?.()
-    this.awaitingScopeFor = wsId
-    this.stopAwaitingScope = subscribeToWorkspaceScope(wsId, () => {
-      if (!getOwningChatId(wsId)) return
-      this.stopAwaitingScope?.()
-      this.stopAwaitingScope = null
-      this.awaitingScopeFor = null
-      // Only matters if the app still cares about this workspace; a stale wait
-      // for one the user has since navigated away from must not resubscribe.
-      if (getActiveWorkspaceId() !== wsId) return
-      this.ensureSubscribed()
-      this.flushPendingOpens()
-    })
-  }
-
-  // Send the `/didOpen` POSTs that documentOpen deferred while wsBase() had no
-  // owning chat id to address them with (see documentOpen/wsBase). Cleared
-  // eagerly so a POST that itself fails is not retried in a loop.
-  private flushPendingOpens(): void {
-    if (this.pendingOpens.size === 0) return
-    const base = this.wsBase()
-    if (!base) return
-    const opens = this.pendingOpens
-    this.pendingOpens = new Map()
-    for (const [filePath, { content, languageId }] of opens) {
-      void this.postOpen(base, filePath, languageId, content).catch(() => {})
-    }
-  }
-
-  // didOpen is what spawns a server daemon-side, so its completion is when a
-  // status indicator should look again.
-  private async postOpen(
-    base: string,
-    filePath: string,
-    languageId: string,
-    content: string,
-  ): Promise<void> {
-    await apiFetch(`${base}/didOpen`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: filePath, languageId, text: content }),
-    })
-    for (const listener of this.openListeners) listener(filePath)
-  }
-
-  /** Called with the path each time a document's didOpen reached the daemon. */
-  onDocumentOpened(listener: (filePath: string) => void): () => void {
-    this.openListeners.add(listener)
-    return () => {
-      this.openListeners.delete(listener)
-    }
+  private closeSocket(): void {
+    if (!this.socket) return
+    this.socket.close()
+    this.socket = null
+    // Markers from a server that is gone would never be cleared otherwise.
+    this.publish(new Map([...this.lastByFile.keys()].map((path) => [path, []])))
   }
 
   private dispatch(event: DiagnosticsEvent): void {
@@ -182,35 +150,67 @@ class LspClientImpl {
       list.push(diag)
       byFile.set(diag.filePath, list)
     }
-    // Clear files that previously had diagnostics but no longer do.
+    // Files that had diagnostics and no longer do are cleared.
     for (const filePath of this.lastByFile.keys()) {
       if (!byFile.has(filePath)) byFile.set(filePath, [])
     }
-    this.lastByFile = byFile
-    // This singleton subscribes to ONE workspace's topic at a time, but
-    // `handlers` accumulates one per MOUNTED pane, including panes showing a
-    // DIFFERENT (non-active) workspace's file — those never unsubscribe just
-    // because their workspace isn't the currently-subscribed one. Two
-    // workspaces (two worktrees of the same repo, say) can easily share a
-    // relative path, so a bare filePath match alone hands a background pane
-    // another workspace's diagnostics for what LOOKS like its own file — same
-    // shape as the Monaco model URI collision this session already
-    // root-caused, one layer up. Handlers compare `event.wsId` against their
-    // OWN pane's resolved workspace and ignore anything else.
-    for (const [filePath, diagnostics] of byFile) {
-      for (const handler of this.handlers) handler(filePath, diagnostics, event.wsId)
-    }
+    this.publish(byFile)
   }
 
-  private wsBase(): string | null {
-    const wsId = getActiveWorkspaceId()
-    if (!wsId || isHomeWorkspace(wsId)) return null
-    // Same race as ensureSubscribed: lspBaseForWorkspace throws without a
-    // recorded owning chat id. Callers here (getDefinition, documentChange,
-    // documentClose, documentOpen) already tolerate a null base as "nothing to
-    // do yet", so degrade the same way instead of throwing through them.
-    if (!getOwningChatId(wsId)) return null
-    return lspBaseForWorkspace(wsId)
+  private publish(byFile: Map<string, LspDiagnostic[]>): void {
+    this.lastByFile = new Map([...byFile].filter(([, diagnostics]) => diagnostics.length > 0))
+    for (const [filePath, diagnostics] of byFile) {
+      for (const handler of this.handlers) handler(filePath, diagnostics)
+    }
+  }
+}
+
+class LspClientImpl {
+  static _instance: LspClientImpl | null = null
+  static getInstance(): LspClientImpl {
+    if (!LspClientImpl._instance) LspClientImpl._instance = new LspClientImpl()
+    return LspClientImpl._instance
+  }
+
+  private sessions = new Map<string, WorkspaceSession>()
+  private openListeners = new Set<OpenedListener>()
+
+  private session(wsId: string): WorkspaceSession {
+    let session = this.sessions.get(wsId)
+    if (!session) {
+      session = new WorkspaceSession(wsId, (base, path, languageId, text) => {
+        void this.postOpen(wsId, base, path, languageId, text).catch(() => {})
+      })
+      this.sessions.set(wsId, session)
+    }
+    return session
+  }
+
+  private releaseIfIdle(session: WorkspaceSession): void {
+    if (!session.isIdle() || this.sessions.get(session.wsId) !== session) return
+    this.sessions.delete(session.wsId)
+    session.dispose()
+  }
+
+  // didOpen is what spawns a server daemon-side, so its completion is when a
+  // status indicator should look again.
+  private async postOpen(
+    wsId: string,
+    base: string,
+    filePath: string,
+    languageId: string,
+    text: string,
+  ): Promise<void> {
+    await post(`${base}/didOpen`, { path: filePath, languageId, text })
+    for (const listener of this.openListeners) listener(wsId, filePath)
+  }
+
+  /** Called each time a document's didOpen reached the daemon. */
+  onDocumentOpened(listener: OpenedListener): () => void {
+    this.openListeners.add(listener)
+    return () => {
+      this.openListeners.delete(listener)
+    }
   }
 
   /**
@@ -225,21 +225,16 @@ class LspClientImpl {
     body: unknown,
     signal?: AbortSignal,
   ): Promise<T | null> {
-    if (isHomeWorkspace(wsId) || !getOwningChatId(wsId)) return null
-    const result = await apiFetch<T | null>(`${lspBaseForWorkspace(wsId)}/${route}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal,
-    })
+    const base = lspBase(wsId)
+    if (!base) return null
+    const result = (await post(`${base}/${route}`, body, signal)) as T | null
     return result ?? null
   }
 
   async status(wsId: string, filePath: string): Promise<LspServerStatus | null> {
-    if (isHomeWorkspace(wsId) || !getOwningChatId(wsId)) return null
-    return apiFetch<LspServerStatus>(
-      `${lspBaseForWorkspace(wsId)}/status?path=${encodeURIComponent(filePath)}`,
-    )
+    const base = lspBase(wsId)
+    if (!base) return null
+    return apiFetch<LspServerStatus>(`${base}/status?path=${encodeURIComponent(filePath)}`)
   }
 
   /** Restart the running server for `filePath`'s language (daemon-side). */
@@ -250,80 +245,54 @@ class LspClientImpl {
   /**
    * Start the server for an open document whose server is not running (it
    * crashed, or was never installed when the file opened): re-send didOpen.
-   * The daemon spawns on didOpen and holds the ref until the one didClose the
-   * refcount above will eventually send.
    */
-  async reopen(filePath: string, content: string, languageId: string): Promise<void> {
-    const base = this.wsBase()
-    if (!base || !this.openRefs.has(filePath)) return
-    await this.postOpen(base, filePath, languageId, content)
+  async reopen(wsId: string, filePath: string, content: string, languageId: string): Promise<void> {
+    const session = this.sessions.get(wsId)
+    const base = session?.base()
+    if (!session?.openRefs.has(filePath) || !base) return
+    await this.postOpen(wsId, base, filePath, languageId, content)
   }
 
-  // Document lifecycle: opening a file subscribes to diagnostics and tells the
-  // server to analyze it; changes re-trigger analysis.
-  async documentOpen(filePath: string, content: string, languageId: string): Promise<void> {
-    this.ensureSubscribed()
-    // Dedupe concurrent owners: only the FIRST opener POSTs `/didOpen`; later
-    // opens just bump the refcount so the document is opened exactly once.
-    const refs = this.openRefs.get(filePath) ?? 0
-    this.openRefs.set(filePath, refs + 1)
+  async documentOpen(
+    wsId: string,
+    filePath: string,
+    content: string,
+    languageId: string,
+  ): Promise<void> {
+    const session = this.session(wsId)
+    const refs = session.openRefs.get(filePath) ?? 0
+    session.openRefs.set(filePath, refs + 1)
     if (refs > 0) return
-    const base = this.wsBase()
+    const base = session.base()
     if (!base) {
-      // No owning chat id yet — there is no route to POST to. Remember the
-      // open so awaitOwningChatId's retry can send it once the scope resolves
-      // (see flushPendingOpens); otherwise the server would never learn about
-      // a file the editor already considers open, and it could never compute
-      // diagnostics for it.
-      this.pendingOpens.set(filePath, { content, languageId })
+      session.deferred.set(filePath, { content, languageId })
       return
     }
-    await this.postOpen(base, filePath, languageId, content).catch(() => {})
+    await this.postOpen(wsId, base, filePath, languageId, content).catch(() => {})
   }
 
-  async documentChange(filePath: string, content: string): Promise<void> {
-    const base = this.wsBase()
-    if (!base) return
-    await apiFetch(`${base}/didChange`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: filePath, text: content }),
-    }).catch(() => {})
+  async documentSave(wsId: string, filePath: string): Promise<void> {
+    const session = this.sessions.get(wsId)
+    const base = session?.base()
+    if (!session?.openRefs.has(filePath) || session.deferred.has(filePath) || !base) return
+    await post(`${base}/didSave`, { path: filePath }).catch(() => {})
   }
 
-  async documentSave(filePath: string): Promise<void> {
-    // Only a document the server has open can be saved on it.
-    if (!this.openRefs.has(filePath)) return
-    const base = this.wsBase()
-    if (!base) return
-    await apiFetch(`${base}/didSave`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: filePath }),
-    }).catch(() => {})
-  }
-
-  async documentClose(filePath: string): Promise<void> {
-    // Only the LAST holder closes the document; a close for a never-opened (or
-    // already-closed) file is a no-op, matching the previous tolerant behavior.
-    const refs = this.openRefs.get(filePath) ?? 0
-    if (refs === 0) return
+  async documentClose(wsId: string, filePath: string): Promise<void> {
+    const session = this.sessions.get(wsId)
+    const refs = session?.openRefs.get(filePath) ?? 0
+    if (!session || refs === 0) return
     if (refs > 1) {
-      this.openRefs.set(filePath, refs - 1)
+      session.openRefs.set(filePath, refs - 1)
       return
     }
-    this.openRefs.delete(filePath)
-    this.cancelChange(filePath)
-    // Closed before its didOpen ever went out (still waiting on the owning
-    // chat id) — nothing pending to flush, and nothing on the server to close.
-    this.pendingOpens.delete(filePath)
-    const base = this.wsBase()
-    if (!base) return
-    await apiFetch(`${base}/didClose`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: filePath }),
-    }).catch(() => {})
+    session.openRefs.delete(filePath)
+    session.cancelChange(filePath)
+    const neverSent = session.deferred.delete(filePath)
+    const base = session.base()
+    this.releaseIfIdle(session)
+    if (neverSent || !base) return
+    await post(`${base}/didClose`, { path: filePath }).catch(() => {})
   }
 
   /**
@@ -331,12 +300,13 @@ class LspClientImpl {
    * the change is actually sent, so a burst of edits costs one read + POST;
    * it returns null when the text is gone (model disposed) and nothing is sent.
    */
-  scheduleChange(filePath: string, read: () => string | null): void {
-    const pending = this.pendingChanges.get(filePath)
-    if (pending) clearTimeout(pending.timer)
-    this.pendingChanges.set(filePath, {
+  scheduleChange(wsId: string, filePath: string, read: () => string | null): void {
+    const session = this.sessions.get(wsId)
+    if (!session?.openRefs.has(filePath)) return
+    session.cancelChange(filePath)
+    session.pendingChanges.set(filePath, {
       read,
-      timer: setTimeout(() => void this.flushChange(filePath), CHANGE_DEBOUNCE_MS),
+      timer: setTimeout(() => void this.flushChange(wsId, filePath), CHANGE_DEBOUNCE_MS),
     })
   }
 
@@ -345,34 +315,30 @@ class LspClientImpl {
    * signature help, …) await this first so the server answers against the
    * text the user sees, not the text from before the debounce window.
    */
-  async flushChange(filePath: string): Promise<void> {
-    const pending = this.pendingChanges.get(filePath)
-    if (!pending) return
-    clearTimeout(pending.timer)
-    this.pendingChanges.delete(filePath)
+  async flushChange(wsId: string, filePath: string): Promise<void> {
+    const session = this.sessions.get(wsId)
+    const pending = session?.pendingChanges.get(filePath)
+    if (!session || !pending) return
+    session.cancelChange(filePath)
     const text = pending.read()
-    if (text !== null) await this.documentChange(filePath, text)
-  }
-
-  private cancelChange(filePath: string): void {
-    const pending = this.pendingChanges.get(filePath)
-    if (!pending) return
-    clearTimeout(pending.timer)
-    this.pendingChanges.delete(filePath)
-  }
-
-  onDiagnosticsUpdate(handler: DiagnosticsHandler): () => void {
-    this.ensureSubscribed()
-    this.handlers.add(handler)
-    // Replay current diagnostics so a late subscriber paints immediately.
-    // `lastByFile` is cleared every time `this.wsId` changes (ensureSubscribed),
-    // so every entry in it is guaranteed to belong to the CURRENT this.wsId.
-    if (this.wsId) {
-      const wsId = this.wsId
-      for (const [filePath, diagnostics] of this.lastByFile) handler(filePath, diagnostics, wsId)
+    if (text === null) return
+    const deferred = session.deferred.get(filePath)
+    if (deferred) {
+      deferred.content = text
+      return
     }
+    const base = session.base()
+    if (!base) return
+    await post(`${base}/didChange`, { path: filePath, text }).catch(() => {})
+  }
+
+  /** Receive `wsId`'s diagnostics, starting with the current batch. */
+  onDiagnosticsUpdate(wsId: string, handler: DiagnosticsHandler): () => void {
+    const session = this.session(wsId)
+    session.addHandler(handler)
     return () => {
-      this.handlers.delete(handler)
+      session.handlers.delete(handler)
+      this.releaseIfIdle(session)
     }
   }
 }

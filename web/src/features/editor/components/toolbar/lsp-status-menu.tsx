@@ -45,10 +45,10 @@ export function LspStatusMenu({ workspaceId, path }: { workspaceId: string; path
   const buttonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    return LspClient.getInstance().onDocumentOpened((openedPath) => {
-      if (openedPath === path) setRevision((r) => r + 1)
+    return LspClient.getInstance().onDocumentOpened((openedWsId, openedPath) => {
+      if (openedWsId === workspaceId && openedPath === path) setRevision((r) => r + 1)
     })
-  }, [path])
+  }, [workspaceId, path])
 
   useEffect(() => {
     let cancelled = false
@@ -90,7 +90,7 @@ export function LspStatusMenu({ workspaceId, path }: { workspaceId: string; path
         .buffers.find((b) => isEditorContent(b) && b.path === path && b.workspaceId === workspaceId)
       const content = buffer && isEditorContent(buffer) ? buffer.content : ''
       const languageId = getLanguageIdFromPath(path) ?? 'plaintext'
-      await LspClient.getInstance().reopen(path, content, languageId)
+      await LspClient.getInstance().reopen(workspaceId, path, content, languageId)
     })
 
   const running = status?.state === 'running'
