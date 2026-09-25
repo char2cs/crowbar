@@ -384,19 +384,9 @@ func TestRegression_SwitchToTerminalForksWithTheProcessEnvironment(t *testing.T)
 	require.Subset(t, term.lastCall().env, os.Environ())
 }
 
-// TestRegression_SwitchToTerminal_ChecksRunnerCurrentSession_NotStaleAPIConnSession
-// pins a real bug reported live: a codex chat with a genuinely completed turn
-// (visible in the transcript) still got ErrNativeViewNotYetAvailable back from
-// SwitchToTerminal. Root cause: the guard checked conn.tctx.Session — an
-// apiconn field set once, at establish, and never reassigned — while every
-// turn is actually recorded (OpenTurn/CloseTurn, internal/turn) under the
-// runner row's durable CurrentSession. The two can diverge after establish
-// (session_start binds CurrentSession asynchronously, off the hook/event
-// path; tctx.Session never follows it), so a session that HAS completed a
-// turn under CurrentSession was refused because tctx.Session named a
-// different, turn-less id. This test pins CurrentSession and tctx.Session to
-// two DIFFERENT values, with a turn recorded only under CurrentSession, and
-// asserts the switch succeeds.
+// The attach decision reads the runner row's CurrentSession, under which
+// turns are recorded, not the connection's establish-time copy: a session
+// that completed a turn attaches even when the two differ.
 func TestRegression_SwitchToTerminal_ChecksRunnerCurrentSession_NotStaleAPIConnSession(t *testing.T) {
 	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
 		_, _, _ = conn.ReadMessage()

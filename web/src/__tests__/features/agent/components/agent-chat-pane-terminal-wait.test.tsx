@@ -576,7 +576,7 @@ describe('AgentChatPane — waiting in the terminal (non-hotswap provider)', () 
     expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1')
   })
 
-  // A refused switch (turn in flight, no completed turn yet, etc.) must leave
+  // A refused switch (a turn in flight) must leave
   // the user on chat rather than stranding them on an empty terminal view —
   // the same "left where they were" contract chooseSurface's own click path
   // already had.
