@@ -47,3 +47,23 @@ export function pollUntilResizeSettles(deps: ResizeSettlePollDeps): () => void {
     }
   }
 }
+
+/**
+ * Call `onChange` each time window.devicePixelRatio changes (a monitor move, a
+ * browser zoom). There is no DPR event: a resolution media query fires once per
+ * flip, so it is re-armed at the new ratio. Returns the one release.
+ */
+export function watchDevicePixelRatio(onChange: () => void): () => void {
+  let mql: MediaQueryList | null = null
+  const onFlip = () => {
+    onChange()
+    arm()
+  }
+  const arm = () => {
+    mql?.removeEventListener('change', onFlip)
+    mql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+    mql.addEventListener('change', onFlip)
+  }
+  arm()
+  return () => mql?.removeEventListener('change', onFlip)
+}

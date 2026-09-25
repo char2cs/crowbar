@@ -225,4 +225,19 @@ describe('useTerminalAttachment', () => {
     expect(bridge.opened.map((c) => c.sessionId)).toEqual(['pty-1'])
     expect(result.current.connection).toBe(bridge.opened[0])
   })
+
+  it('unmount while waiting for the daemon releases the wait: a later reconnect asks nothing', async () => {
+    useTerminalStore.getState().updateSession('tab-1', { connectionId: 'pty-1' })
+    useConnectionStore.setState({ status: 'disconnected' })
+    bridge.failList = true
+    const { unmount, settle } = render()
+    await settle()
+    expect(bridge.listCalls).toHaveLength(1)
+
+    unmount()
+    act(() => useConnectionStore.setState({ status: 'connected' }))
+    await act(async () => {})
+    expect(bridge.listCalls).toHaveLength(1)
+    expect(bridge.opened).toHaveLength(0)
+  })
 })
