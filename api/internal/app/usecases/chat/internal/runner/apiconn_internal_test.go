@@ -200,6 +200,28 @@ func TestAPIConnRegistry_DropKillsTheProcessAndClosesTheDriver(t *testing.T) {
 	reg.drop("runner-1")
 }
 
+// A daemon shutting down kills its own serve processes; that is not the
+// runner exiting. Its row stays live, so the next boot records the real
+// reason (daemon_restart) — an exit reconciled here raced the store's close.
+func TestAPIConnRegistry_CloseAllIsNotARunnerExit(t *testing.T) {
+	reg := newAPIConnRegistry()
+	cmd := exec.Command("sleep", "5")
+	require.NoError(t, cmd.Start())
+	serve := reapServe(cmd)
+	reg.set("runner-1", &apiconn{serve: serve})
+	exited := make(chan struct{}, 1)
+	require.True(t, reg.watchExit("runner-1", func() { exited <- struct{}{} }))
+
+	reg.closeAll()
+
+	<-serve.exited
+	select {
+	case <-exited:
+		t.Fatal("the daemon's own shutdown was reconciled as the runner exiting")
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
 func TestAPIConnRegistry_CloseAllKillsEveryLiveProcess(t *testing.T) {
 	reg := newAPIConnRegistry()
 	cmd1 := exec.Command("sleep", "5")

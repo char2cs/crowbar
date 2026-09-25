@@ -142,7 +142,7 @@ func (rs *Runners) abandonAdoptedSpawn(ctx context.Context, req forkRequest) {
 // observe the process die the instant drop signals it.
 func (rs *Runners) handOverAPIConn(runnerID string) {
 	if c, ok := rs.apiConns.get(runnerID); ok {
-		c.handedOver.Store(true)
+		c.detached.Store(true)
 	}
 }
 
@@ -212,8 +212,8 @@ func (r *apiConnRegistry) watchExit(runnerID string, onExit func()) bool {
 	}
 	go func() {
 		<-c.serve.exited
-		if c.handedOver.Load() {
-			return // another process took this runner over — see handOverAPIConn
+		if c.detached.Load() {
+			return // not the runner's exit — see apiconn.detached
 		}
 		onExit()
 	}()
