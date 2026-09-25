@@ -69,10 +69,11 @@ function stillPresent(repos: Repo[], ids: readonly string[]): boolean {
  * background, so this is the only place its failure can arrive.
  */
 function deleteErrorOf(ids: readonly string[]): string | undefined {
-  const repo = useSidebarStore.getState().repos.find((r) => r.deleteError && ids.includes(r.id))
+  const wanted = new Set(ids)
+  const repo = useSidebarStore.getState().repos.find((r) => r.deleteError && wanted.has(r.id))
   if (repo) return repo.deleteError
   const projects = dataOf(useProjectDataStore.getState().data) ?? []
-  return projects.find((p) => p.lastError && ids.includes(p.id))?.lastError
+  return projects.find((p) => p.lastError && wanted.has(p.id))?.lastError
 }
 
 /**

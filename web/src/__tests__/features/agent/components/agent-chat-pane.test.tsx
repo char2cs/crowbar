@@ -22,7 +22,6 @@ const {
   listMessagesFn,
   submitPromptFn,
   slashCatalogFn,
-  saveReconnectFn,
   toastErrorFn,
   switchToTerminalFn,
   switchToNativeFn,
@@ -33,7 +32,6 @@ const {
   listMessagesFn: vi.fn(),
   submitPromptFn: vi.fn(),
   slashCatalogFn: vi.fn(),
-  saveReconnectFn: vi.fn(),
   toastErrorFn: vi.fn(),
   switchToTerminalFn: vi.fn(),
   switchToNativeFn: vi.fn(),
@@ -65,10 +63,6 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
   switchToTerminal: (...a: unknown[]) => switchToTerminalFn(...a),
   switchToNative: (...a: unknown[]) => switchToNativeFn(...a),
-}))
-
-vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
-  saveReconnect: (...a: unknown[]) => saveReconnectFn(...a),
 }))
 
 vi.mock('@/features/window/stores/toast-store', () => ({
@@ -426,7 +420,6 @@ beforeEach(() => {
   listMessagesFn.mockReset()
   submitPromptFn.mockReset()
   slashCatalogFn.mockReset()
-  saveReconnectFn.mockReset()
   toastErrorFn.mockReset()
   switchToTerminalFn.mockReset()
   switchToNativeFn.mockReset()
@@ -922,7 +915,7 @@ describe('AgentChatPane', () => {
   })
 
   // ── Attaching ──────────────────────────────────────────────────────
-  it('attaches the live runner PTY: seeds the mapping, then mounts the terminal', async () => {
+  it('attaches the live runner PTY: mounts an attach-only terminal onto it', async () => {
     const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
     const paneId = openChatPane(store, 'c1', 'r1')
     await renderPane(store, paneId)
@@ -935,9 +928,6 @@ describe('AgentChatPane', () => {
     expect(xterm.getAttribute('data-visible')).toBe('false')
     // Attach-only: a reconnect can never spawn a bare shell into the agent frame.
     expect(xterm.getAttribute('data-attach-only')).toBe('true')
-    // The mapping that makes resolveTerminalConnection ATTACH exists at mount.
-    expect(useTerminalStore.getState().getSession('pty1')?.connectionId).toBe('pty1')
-    expect(saveReconnectFn).toHaveBeenCalledWith('w1', 'pty1', 'pty1')
     // liveRunnerId IS the liveness answer — no second round trip asks the daemon.
     expect(getChatFn).not.toHaveBeenCalled()
   })
@@ -1013,7 +1003,6 @@ describe('AgentChatPane', () => {
     expect(after).toHaveAttribute('data-session-id', 'pty2')
     expect(after).toBe(before) // SAME node: the attachment swapped, the terminal did not remount
     expect(paneOf(store, paneId)).toMatchObject({ chatId: 'c1', runnerId: 'r2' })
-    expect(useTerminalStore.getState().getSession('pty2')?.connectionId).toBe('pty2')
     expect(screen.getByTestId('provider-switch').getAttribute('data-current')).toBe('claude')
   })
 

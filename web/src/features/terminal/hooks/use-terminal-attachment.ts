@@ -68,6 +68,7 @@ export function useTerminalAttachment({
     onEndedRef.current = onEnded
   }, [onEnded])
 
+  // react-doctor-disable-next-line effect-needs-cleanup -- FP: the connection-store subscription made inside attach() is held in stopWaiting, which the returned cleanup calls (pinned by the "unmount while waiting" test).
   useEffect(() => {
     if (!enabled) return
     let generation = 0

@@ -152,25 +152,28 @@ function RecentsViewRow({
       )}
       data-testid={isSet ? `recents-set-${viewId}` : undefined}
     >
-      {members.map(parseMemberKey).map(({ chatId, workspaceId }) => (
-        <RecentsMemberRow
-          key={chatId}
-          chatId={chatId}
-          workspaceId={workspaceId ?? ''}
-          // An off-screen view greys its label; the showing one sits on
-          // ROW_ACTIVE, which already says "you are here".
-          hasView={!isShowing}
-          isSet={isSet}
-          suppressOwnMargin={soloActive}
-          isShowingGround={soloActive}
-          activeGround={isShowing}
-          onOpen={() => onFocus(viewId)}
-          // A member's × leaves the group; a solo row's × ends the view.
-          onClose={isSet ? () => onCloseChat(chatId) : () => onClose(viewId)}
-          drag={drag}
-          registerRow={registerRow}
-        />
-      ))}
+      {members.map((member) => {
+        const { chatId, workspaceId } = parseMemberKey(member)
+        return (
+          <RecentsMemberRow
+            key={chatId}
+            chatId={chatId}
+            workspaceId={workspaceId ?? ''}
+            // An off-screen view greys its label; the showing one sits on
+            // ROW_ACTIVE, which already says "you are here".
+            hasView={!isShowing}
+            isSet={isSet}
+            suppressOwnMargin={soloActive}
+            isShowingGround={soloActive}
+            activeGround={isShowing}
+            onOpen={() => onFocus(viewId)}
+            // A member's × leaves the group; a solo row's × ends the view.
+            onClose={isSet ? () => onCloseChat(chatId) : () => onClose(viewId)}
+            drag={drag}
+            registerRow={registerRow}
+          />
+        )
+      })}
     </div>
   )
 }

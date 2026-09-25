@@ -1096,9 +1096,7 @@ export function AgentChatPane({
             onSelectPresentation={chooseSurface}
             onTakeFocus={() => setSplitFocus('terminal')}
             onDeadSpaceMouseDown={focusTerminalFromSplitEmptySpace}
-            onTerminalRef={(api) => {
-              terminalApiRef.current = api
-            }}
+            terminalRef={terminalApiRef}
 
             onStartSession={startSession}
           />

@@ -1,5 +1,5 @@
 import { act, render } from '@testing-library/react'
-import { createElement } from 'react'
+import { createElement, createRef } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The component wiring around the attachment: when a view may attach at all, and
@@ -33,7 +33,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   getActiveWorkspaceId: () => 'ws-active',
 }))
 
-import { XtermTerminal } from '@/features/terminal/components/terminal'
+import { XtermTerminal, type TerminalFocusHandle } from '@/features/terminal/components/terminal'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 
@@ -106,5 +106,18 @@ describe('XtermTerminal', () => {
     })
     expect(onSessionGone).toHaveBeenCalledExactlyOnceWith('agent-pty')
     expect(onTerminalExit).not.toHaveBeenCalled()
+  })
+
+  it('hands its owner a focus handle, and takes it back on unmount', async () => {
+    const ref = createRef<TerminalFocusHandle>()
+    const { unmount } = await mount({
+      sessionId: 'agent-pty',
+      chatId: 'chat-9',
+      attachOnly: true,
+      ref,
+    })
+    expect(ref.current?.focus).toBeTypeOf('function')
+    unmount()
+    expect(ref.current).toBeNull()
   })
 })

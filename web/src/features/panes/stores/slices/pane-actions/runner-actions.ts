@@ -80,14 +80,13 @@ function keepUnsavedTabs(state: ViewState & { buffers: PaneContent[] }, paneId: 
   const pane = state.panes[paneId]
   const view = pane.viewId ? state.views[pane.viewId] : undefined
   if (!view || getAllLeafIds(view.layout).length > 1) return
-  const unsaved = new Set(state.buffers.filter(hasUnsavedEdits).map((b) => b.id))
+  const unsaved = new Set<string>()
+  for (const buffer of state.buffers) if (hasUnsavedEdits(buffer)) unsaved.add(buffer.id)
   const kept = pane.editorTabIds.filter((id) => unsaved.has(id))
   if (kept.length === 0) return
   const stage = state.panes[getFirstLeafId(state.stage)]
-  stage.editorTabIds = [
-    ...stage.editorTabIds,
-    ...kept.filter((id) => !stage.editorTabIds.includes(id)),
-  ]
+  const staged = new Set(stage.editorTabIds)
+  stage.editorTabIds = [...stage.editorTabIds, ...kept.filter((id) => !staged.has(id))]
   stage.activeEditorTabId ??= kept[0]
   stage.editorOpen = true
 }

@@ -66,7 +66,6 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 
 import { useTerminalAttachment } from '@/features/terminal/hooks/use-terminal-attachment'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
-import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
 import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import { useConnectionStore } from '@/lib/ws/connection-store'
 
@@ -117,8 +116,7 @@ describe('useTerminalAttachment', () => {
   })
 
   it('an explicit chatId owns the PTY: the chat base is used, whatever the workspace', async () => {
-    saveReconnect('ws-1', 'agent', 'pty-1')
-    const { settle } = render({ sessionId: 'agent', chatId: 'chat-9', attachOnly: true })
+    const { settle } = render({ sessionId: 'pty-1', chatId: 'chat-9', attachOnly: true })
     await settle()
     expect(bridge.opened[0]).toMatchObject({
       sessionId: 'pty-1',
@@ -176,12 +174,10 @@ describe('useTerminalAttachment', () => {
   })
 
   it('a swap closes the outgoing transport and attaches the incoming session', async () => {
-    useTerminalStore.getState().updateSession('A', { connectionId: 'pty-A' })
-    useTerminalStore.getState().updateSession('B', { connectionId: 'pty-B' })
-    const { rerender, props, result, settle } = render({ sessionId: 'A', attachOnly: true })
+    const { rerender, props, result, settle } = render({ sessionId: 'pty-A', attachOnly: true })
     await settle()
     const a = bridge.opened[0]
-    rerender({ ...props, sessionId: 'B' })
+    rerender({ ...props, sessionId: 'pty-B' })
     await settle()
     expect(a.close).toHaveBeenCalled()
     expect(bridge.opened.map((c) => c.sessionId)).toEqual(['pty-A', 'pty-B'])
@@ -189,15 +185,13 @@ describe('useTerminalAttachment', () => {
   })
 
   it('racing swaps converge on the LATEST session; a superseded attempt opens nothing', async () => {
-    for (const id of ['A', 'B', 'C'])
-      useTerminalStore.getState().updateSession(id, { connectionId: `pty-${id}` })
     let release = () => {}
     bridge.listGate = new Promise<void>((r) => {
       release = r
     })
-    const { rerender, props, result, settle } = render({ sessionId: 'A', attachOnly: true })
-    rerender({ ...props, sessionId: 'B' })
-    rerender({ ...props, sessionId: 'C' })
+    const { rerender, props, result, settle } = render({ sessionId: 'pty-A', attachOnly: true })
+    rerender({ ...props, sessionId: 'pty-B' })
+    rerender({ ...props, sessionId: 'pty-C' })
     release()
     await settle()
     expect(bridge.opened.map((c) => c.sessionId)).toEqual(['pty-C'])
@@ -224,5 +218,20 @@ describe('useTerminalAttachment', () => {
     await settle()
     expect(bridge.opened.map((c) => c.sessionId)).toEqual(['pty-1'])
     expect(result.current.connection).toBe(bridge.opened[0])
+  })
+
+  it('unmount while waiting for the daemon releases the wait: a later reconnect asks nothing', async () => {
+    useTerminalStore.getState().updateSession('tab-1', { connectionId: 'pty-1' })
+    useConnectionStore.setState({ status: 'disconnected' })
+    bridge.failList = true
+    const { unmount, settle } = render()
+    await settle()
+    expect(bridge.listCalls).toHaveLength(1)
+
+    unmount()
+    act(() => useConnectionStore.setState({ status: 'connected' }))
+    await act(async () => {})
+    expect(bridge.listCalls).toHaveLength(1)
+    expect(bridge.opened).toHaveLength(0)
   })
 })

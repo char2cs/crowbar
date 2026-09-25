@@ -132,7 +132,10 @@ async function runCommand(
     'executeCommand',
     { path, command: command.command, arguments: command.arguments },
   )
-  for (const commandEdit of outcome?.edits ?? []) await applyEdit(wsId, commandEdit)
+  for (const commandEdit of outcome?.edits ?? []) {
+    // react-doctor-disable-next-line async-await-in-loop -- FP: ordered on purpose; each workspace/applyEdit's ranges are against the text the previous one left (the daemon collects them in arrival order), so concurrent applies lose edits — pinned by "applies the edits a command made in the order the server made them".
+    await applyEdit(wsId, commandEdit)
+  }
 }
 
 function runCommandFor(
@@ -213,12 +216,12 @@ async function ensurePreviewModels(wsId: string, paths: string[]): Promise<void>
 }
 
 function toMonacoLocations(wsId: string, locations: DaemonLocation[]): Monaco.languages.Location[] {
-  return locations
-    .filter((loc) => !isOutsideWorkspace(loc.filePath))
-    .map((loc) => ({
-      uri: Uri.parse(fileUri(wsId, loc.filePath)),
-      range: toMonacoRange(loc.range),
-    }))
+  const inside: Monaco.languages.Location[] = []
+  for (const loc of locations) {
+    if (isOutsideWorkspace(loc.filePath)) continue
+    inside.push({ uri: Uri.parse(fileUri(wsId, loc.filePath)), range: toMonacoRange(loc.range) })
+  }
+  return inside
 }
 
 function recordJumpFrom(source: Monaco.editor.ICodeEditor): void {

@@ -1,25 +1,50 @@
-import { Terminal } from '@xterm/xterm'
+import type { Terminal } from '@xterm/xterm'
 import { useEffect, useRef, useState } from 'react'
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { resolveWorkspaceRootPath } from '@/lib/workspace/resolve-root-path'
 import { toast } from '@/features/window/stores/toast-store'
-import {
-  createTerminalAddons,
-  injectLinkStyles,
-  loadWebLinksAddon,
-  removeLinkStyles,
-  type TerminalAddons,
-} from './use-terminal-addons'
+import { injectLinkStyles, removeLinkStyles, type TerminalAddons } from './use-terminal-addons'
 import { useTerminalTheme } from './use-terminal-theme'
 import { fitToContainer } from './use-pty-size-sync'
-import { registerTerminalFileLinks, workspaceRelativePath } from '../lib/terminal-file-links'
+import { mountXterm, type MountedXterm } from '../lib/mount-xterm'
+import { workspaceRelativePath, type TerminalFileLinksOptions } from '../lib/terminal-file-links'
 import { useTerminalStore } from '../stores/terminal-store'
 import { resolveTerminalFont } from '../utils/resolve-font'
-import { selectionTextPreservingWraps } from '../utils/selection-text'
-import { resolveKeyOverride } from '../utils/terminal-key-overrides'
-import { installInputTapeGlobal, observeInputEvents } from '../utils/input-tape'
+
+/**
+ * File references open inside Crowbar: relative paths resolve against the
+ * session cwd when known, else the workspace root, then are relativized back
+ * onto the workspace root (the files API takes worktree-relative paths).
+ */
+function fileLinksFor(getSessionId: () => string): TerminalFileLinksOptions {
+  return {
+    getRoot: () => {
+      const cwd = useTerminalStore.getState().getSession(getSessionId())?.currentDirectory
+      if (cwd?.startsWith('/')) return cwd
+      return resolveWorkspaceRootPath()
+    },
+    openFile: (absolutePath) => {
+      const rel = workspaceRelativePath(absolutePath, resolveWorkspaceRootPath())
+      if (!rel) {
+        toast.error('Cannot open file', `${absolutePath} is outside the current workspace.`)
+        return
+      }
+      const openHandler = useFileSystemStore.getState().handleFileOpen
+      if (!openHandler) {
+        toast.error('Cannot open file', 'No editor is available in this view.')
+        return
+      }
+      void openHandler(rel).catch(() => {
+        toast.error('Could not open file', absolutePath)
+      })
+    },
+    onUnresolved: (candidateText) => {
+      toast.error('Cannot open file', `Could not resolve ${candidateText} to a path.`)
+    },
+  }
+}
 
 interface UseXtermInstanceOptions {
   sessionId: string
@@ -99,136 +124,45 @@ export function useXtermInstance({
   useEffect(() => {
     if (!hasBox || !container) return
     let disposed = false
-    let built: { terminal: Terminal; cleanup: () => void } | null = null
+    let mounted: MountedXterm | null = null
+    const o = optionsRef.current
 
-    void (async () => {
-      const o = optionsRef.current
-      const fontFamily = await resolveTerminalFont(o.settings.terminalFontFamily, o.fontSize)
-      if (disposed) return
-      const terminal = new Terminal({
-        fontFamily,
-        fontSize: o.fontSize,
-        lineHeight: o.settings.terminalLineHeight,
-        letterSpacing: o.letterSpacing,
-        cursorBlink: o.settings.terminalCursorBlink,
-        cursorStyle: o.settings.terminalCursorStyle,
-        cursorWidth: o.cursorWidth,
-        allowProposedApi: true,
-        allowTransparency: true,
-        theme: o.getTerminalTheme(),
-        scrollback: o.settings.terminalScrollback,
-        convertEol: false,
-        macOptionIsMeta: true,
-        rightClickSelectsWord: false,
-      })
-      const addons = createTerminalAddons(terminal)
-      terminal.open(container)
-      terminal.attachCustomKeyEventHandler((event) => {
-        // The ONLY manual key override (Shift/Alt+Enter): emit the CSI-u sequence
-        // and return false to suppress xterm's default CR, so it is sent once.
-        const override = resolveKeyOverride(event)
-        if (override !== null) {
-          event.preventDefault()
-          writeRef.current(override, 'modifier-enter-override')
-          return false
-        }
-        // Ctrl combos (without Cmd) → xterm handles them (Ctrl+U, Ctrl+C, …).
-        if (event.ctrlKey && !event.metaKey) return true
-        // Cmd combos are app/OS shortcuts (copy, paste, select-all, search).
-        return !event.metaKey
-      })
-
-      const textarea = terminal.textarea
-      if (textarea) {
-        textarea.spellcheck = false
-        // Observational only: records the raw key/input/composition events this
-        // textarea receives, so a duplicated or missing character can be traced.
-        installInputTapeGlobal()
-        observeInputEvents(textarea)
-        textarea.addEventListener('beforeinput', (event) => {
-          if (event.inputType === 'insertReplacementText' || event.inputType === 'insertFromDrop') {
-            const text = event.dataTransfer?.getData('text/plain') ?? event.data
-            if (!text) return
-            event.preventDefault()
-            writeRef.current(text, `beforeinput:${event.inputType}`)
-          }
-        })
-      }
-
-      // PASTE IS xterm's JOB: its own handler brackets the payload when the
-      // program asked for bracketed paste and normalizes line endings. Copy is
-      // ours: the daemon repaints row by row, so xterm never records an
-      // auto-wrap and its own reader would break every wrapped line (see
-      // selection-text.ts). Alt-drag is COLUMN selection, where rows are slices.
-      let columnSelect = false
-      const onMouseDown = (event: MouseEvent) => {
-        columnSelect = event.altKey
-      }
-      const onCopy = (event: ClipboardEvent) => {
-        if (columnSelect) return
-        const range = terminal.getSelectionPosition()
-        if (!range) return
-        const text = selectionTextPreservingWraps(
-          { cols: terminal.cols, getLine: (y) => terminal.buffer.active.getLine(y) },
-          range,
+    void resolveTerminalFont(o.settings.terminalFontFamily, o.fontSize)
+      .then((fontFamily) => {
+        if (disposed) return
+        mounted = mountXterm(
+          container,
+          {
+            fontFamily,
+            fontSize: o.fontSize,
+            lineHeight: o.settings.terminalLineHeight,
+            letterSpacing: o.letterSpacing,
+            cursorBlink: o.settings.terminalCursorBlink,
+            cursorStyle: o.settings.terminalCursorStyle,
+            cursorWidth: o.cursorWidth,
+            allowTransparency: true,
+            theme: o.getTerminalTheme(),
+            scrollback: o.settings.terminalScrollback,
+            convertEol: false,
+            macOptionIsMeta: true,
+            rightClickSelectsWord: false,
+          },
+          {
+            write: (data, origin) => writeRef.current(data, origin),
+            fileLinks: fileLinksFor(() => sessionIdRef.current),
+          },
         )
-        if (!text) return
-        event.clipboardData?.setData('text/plain', text)
-        event.preventDefault()
-        event.stopPropagation()
-      }
-      container.addEventListener('mousedown', onMouseDown, true)
-      container.addEventListener('copy', onCopy, true)
-
-      loadWebLinksAddon(terminal)
-      // File references open inside Crowbar: relative paths resolve against the
-      // session cwd when known, else the workspace root, then are relativized back
-      // onto the workspace root (the files API takes worktree-relative paths).
-      registerTerminalFileLinks(terminal, {
-        getRoot: () => {
-          const cwd = useTerminalStore.getState().getSession(sessionIdRef.current)?.currentDirectory
-          if (cwd?.startsWith('/')) return cwd
-          return resolveWorkspaceRootPath()
-        },
-        openFile: (absolutePath) => {
-          const rel = workspaceRelativePath(absolutePath, resolveWorkspaceRootPath())
-          if (!rel) {
-            toast.error('Cannot open file', `${absolutePath} is outside the current workspace.`)
-            return
-          }
-          const openHandler = useFileSystemStore.getState().handleFileOpen
-          if (!openHandler) {
-            toast.error('Cannot open file', 'No editor is available in this view.')
-            return
-          }
-          void openHandler(rel).catch(() => {
-            toast.error('Could not open file', absolutePath)
-          })
-        },
-        onUnresolved: (candidateText) => {
-          toast.error('Cannot open file', `Could not resolve ${candidateText} to a path.`)
-        },
+        fitToContainer(mounted.addons.fitAddon, container)
+        setInstance({ terminal: mounted.terminal, addons: mounted.addons })
       })
-      terminal.unicode.activeVersion = '11'
-      fitToContainer(addons.fitAddon, container)
-
-      built = {
-        terminal,
-        cleanup: () => {
-          container.removeEventListener('mousedown', onMouseDown, true)
-          container.removeEventListener('copy', onCopy, true)
-          terminal.dispose()
-        },
-      }
-      setInstance({ terminal, addons })
-    })().catch((error: unknown) => {
-      console.error('Failed to initialize terminal:', error)
-    })
+      .catch((error: unknown) => {
+        console.error('Failed to initialize terminal:', error)
+      })
 
     return () => {
       disposed = true
-      built?.cleanup()
-      built = null
+      mounted?.dispose()
+      mounted = null
       setInstance({ terminal: null, addons: null })
     }
   }, [hasBox, container])

@@ -16,7 +16,8 @@
     "format": "prettier --write .",
     "doctor": "react-doctor .",
     "knip": "node scripts/check-knip.mjs",
-    "lint:baselines": "node scripts/check-eslint-baselines.mjs"
+    "lint:baselines": "node scripts/check-eslint-baselines.mjs",
+    "lint:doctor": "react-doctor . -y --blocking warning --no-color"
   },
   "dependencies": {
     "@ariakit/react": "^0.4.37",

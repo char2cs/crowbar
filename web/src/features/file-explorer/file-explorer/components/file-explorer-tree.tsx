@@ -2,26 +2,18 @@ import type React from 'react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useEventListener } from '@/hooks/use-event-listener'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
-import {
-  computeStickyScrollLayout,
-  findTopVisibleItemIndex,
-  getGuideAncestorRows,
-  getStickyAncestorRows,
-} from '@/features/file-explorer/lib/visible-file-tree-rows'
-import { FILE_TREE_DENSITY_CONFIG } from '@/features/file-explorer/lib/file-tree-density'
 import { fileOpenBenchmark } from '@/features/editor/utils/file-open-benchmark'
-import { readDirectory } from '@/features/file-system/controllers/platform'
 import {
   useFileSystemStore,
   workspaceFoldersSupported,
 } from '@/features/file-system/controllers/store'
 import type { FileEntry } from '@/features/file-system/types/app'
-import { useSettingsStore } from '@/features/settings/store'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { isWorkspaceLockedInSidebar } from '@/lib/store/repo-tree'
 import { SidebarEmptyActionState } from '@/components/ui/sidebar'
 import { cn } from '@/utils/cn'
 import { useFileExplorerContextMenu } from '../hooks/use-file-explorer-context-menu'
+import { useFileExplorerDialogs } from '../hooks/use-file-explorer-dialogs'
 import { useFileExplorerDragDrop } from '../hooks/use-file-explorer-drag-drop'
 import { useFileExplorerInlineEditing } from '../hooks/use-file-explorer-inline-editing'
 import { useFileExplorerSync } from '../hooks/use-file-explorer-sync'
@@ -29,16 +21,9 @@ import { useFileExplorerVisibleRows } from '../hooks/use-file-explorer-visible-r
 import { useFilteredFileTree } from '../hooks/use-filtered-file-tree'
 import { useTreeContainerEvents } from '../hooks/use-tree-container-events'
 import { useTreeSearch, useTreeSearchNavigation } from '../hooks/use-tree-search'
-import {
-  collectLoadedFilesInDirectory,
-  collectLocalFilesInDirectory,
-  getPathBaseName,
-  OPEN_ALL_CONFIRM_THRESHOLD,
-} from '../lib/open-all'
 import { FileExplorerDialogs } from './file-explorer-dialogs'
 import { FileExplorerSearchHeader } from './file-explorer-search-header'
-import { FileExplorerStickyAncestors } from './file-explorer-sticky-ancestors'
-import { FileExplorerTreeItem } from './file-explorer-tree-item'
+import { FileExplorerTreeRows, getFileTreeRowId } from './file-explorer-tree-rows'
 import '../styles/file-explorer-tree.css'
 
 interface FileExplorerTreeProps {
@@ -66,10 +51,6 @@ interface FileExplorerTreeProps {
   onFileMove?: (oldPath: string, newPath: string) => void
   filter?: 'all' | 'changed'
 }
-
-const FILE_TREE_CONTAINER_INSET = 4
-const FILE_TREE_HEADER_HEIGHT = 32
-const getFileTreeRowId = (path: string) => `file-tree-row-${path.replace(/[^a-zA-Z0-9_-]/g, '_')}`
 
 const handleRootDrop = (e: React.DragEvent) => {
   e.preventDefault()
@@ -110,20 +91,11 @@ function FileExplorerTreeComponent({
   onFileMove,
   filter = 'all' as const,
 }: FileExplorerTreeProps) {
-  const [deleteCandidate, setDeleteCandidate] = useState<{ path: string; isDir: boolean } | null>(
-    null,
-  )
-  const [alertDialog, setAlertDialog] = useState<{ title: string; message: string } | null>(null)
-  const [openAllFilesDialog, setOpenAllFilesDialog] = useState<{ filePaths: string[] } | null>(null)
-  const [isDeletingPath, setIsDeletingPath] = useState(false)
-  const [isOpeningAllFiles, setIsOpeningAllFiles] = useState(false)
   const [focusedPath, setFocusedPath] = useState<string | undefined>(activePath)
   const [hasTreeFocus, setHasTreeFocus] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const documentRef = useRef<Document>(document)
 
-  const fileTreeDensity = useSettingsStore((s) => s.settings.fileTreeDensity)
-  const indentSize = useSettingsStore((s) => s.settings.fileTreeIndentSize)
   const handleOpenFolder = useFileSystemStore((state) => state.handleOpenFolder)
   const addFolderToWorkspace = useFileSystemStore((state) => state.addFolderToWorkspace)
   const removeFolderFromWorkspace = useFileSystemStore((state) => state.removeFolderFromWorkspace)
@@ -144,9 +116,19 @@ function FileExplorerTreeComponent({
     [onFileSelect, workspaceId],
   )
 
-  const showAlertDialog = useCallback((title: string, message: string) => {
-    setAlertDialog({ title, message })
-  }, [])
+  const { filteredFiles, workspaceRootPaths, isVisible, getGitStatusDecoration } =
+    useFilteredFileTree({ workspaceId, files, rootFolderPath })
+
+  const { showAlertDialog, requestDelete, openAllFilesInDirectory, dialogProps } =
+    useFileExplorerDialogs({
+      filteredFiles,
+      isVisible,
+      rootFolderPath,
+      onFileSelect,
+      onFileOpen,
+      onDeletePath,
+      updateActivePath,
+    })
 
   const handleMoveError = useCallback(
     (message: string) => showAlertDialog('Move Failed', message),
@@ -159,9 +141,6 @@ function FileExplorerTreeComponent({
     handleAutoExpandDirectory,
     handleMoveError,
   )
-
-  const { filteredFiles, workspaceRootPaths, isVisible, getGitStatusDecoration } =
-    useFilteredFileTree({ workspaceId, files, rootFolderPath })
 
   const search = useTreeSearch({ workspaceId, filteredFiles, containerRef })
   const { displayedFiles, setOpen: setSearchOpen } = search
@@ -182,29 +161,14 @@ function FileExplorerTreeComponent({
     expandedPathsOverride: search.displayedExpandedPaths,
   })
 
-  // Pre-compute guide targets for all rows when the row structure changes.
-  // Calling getGuideAncestorRows per-row inside the render loop is O(N×depth) on
-  // every scroll-triggered re-render; this memo moves that work to structural changes only.
-  const guideTargetsByIndex = useMemo(() => {
-    return visibleRows.map((_, i) =>
-      getGuideAncestorRows(visibleRows, i).map((ancestor) =>
-        ancestor
-          ? {
-              path: ancestor.file.path,
-              name: ancestor.displayName ?? ancestor.file.name,
-              isDir: ancestor.file.isDir ?? false,
-              isActive: activePath
-                ? activePath === ancestor.file.path ||
-                  activePath.startsWith(`${ancestor.file.path}/`) ||
-                  activePath.startsWith(`${ancestor.file.path}\\`)
-                : false,
-            }
-          : null,
-      ),
-    )
-  }, [visibleRows, activePath])
-
-  const keyboardPath = focusedPath || activePath
+  const searchNavigation = useTreeSearchNavigation({
+    search,
+    visibleRows,
+    rowVirtualizer,
+    keyboardPath: focusedPath || activePath,
+    setFocusedPath,
+  })
+  const keyboardPath = searchNavigation.cursorPath
   const highlightedPath = hasTreeFocus ? keyboardPath : activePath
 
   useEffect(() => {
@@ -213,14 +177,6 @@ function FileExplorerTreeComponent({
       setFocusedPath(activePath)
     }
   }, [activePath, hasTreeFocus])
-
-  const navigateSearchMatch = useTreeSearchNavigation({
-    search,
-    visibleRows,
-    rowVirtualizer,
-    keyboardPath,
-    setFocusedPath,
-  })
 
   const { editingValue, setEditingValue, startInlineEditing, handleKeyDown, handleBlur } =
     useFileExplorerInlineEditing({
@@ -233,50 +189,6 @@ function FileExplorerTreeComponent({
       onCreateNewFolderInDirectory,
       showAlertDialog,
     })
-
-  const openFilePathsInTabs = useCallback(
-    async (filePaths: string[]) => {
-      const open = onFileOpen ?? onFileSelect
-      for (const filePath of filePaths) {
-        // react-doctor-disable-next-line async-await-in-loop -- kept sequential: each open reads the pane's current tab list via getState() and appends, so concurrent opens could race on that read-modify-write and land tabs out of drop order. Rare (multi-file drag-drop), not a hot path.
-        await Promise.resolve(open(filePath, false))
-      }
-      updateActivePath?.(filePaths[filePaths.length - 1])
-    },
-    [onFileOpen, onFileSelect, updateActivePath],
-  )
-
-  const handleOpenAllFilesInDirectory = useCallback(
-    async (directoryPath: string) => {
-      let filePaths: string[]
-      try {
-        filePaths = await collectLocalFilesInDirectory(directoryPath, readDirectory, isVisible)
-      } catch (error) {
-        console.error('Failed to scan directory for Open All, falling back to loaded tree:', error)
-        filePaths = collectLoadedFilesInDirectory(filteredFiles, directoryPath, rootFolderPath)
-      }
-
-      const uniqueFilePaths = Array.from(new Set(filePaths))
-      if (uniqueFilePaths.length === 0) return
-      if (uniqueFilePaths.length > OPEN_ALL_CONFIRM_THRESHOLD) {
-        setOpenAllFilesDialog({ filePaths: uniqueFilePaths })
-        return
-      }
-      await openFilePathsInTabs(uniqueFilePaths)
-    },
-    [filteredFiles, isVisible, openFilePathsInTabs, rootFolderPath],
-  )
-
-  const handleOpenAllFilesConfirm = useCallback(async () => {
-    if (!openAllFilesDialog) return
-    setIsOpeningAllFiles(true)
-    try {
-      await openFilePathsInTabs(openAllFilesDialog.filePaths)
-      setOpenAllFilesDialog(null)
-    } finally {
-      setIsOpeningAllFiles(false)
-    }
-  }, [openAllFilesDialog, openFilePathsInTabs])
 
   const { setContextMenu, handleContextMenu, contextMenuElement, fileFeedback } =
     useFileExplorerContextMenu({
@@ -313,9 +225,9 @@ function FileExplorerTreeComponent({
       isWorkspaceRootPath: (path) => path === rootFolderPath,
       canRemoveWorkspaceRootPath: (path) =>
         path !== rootFolderPath && workspaceRootPaths.includes(path),
-      onDeleteRequested: setDeleteCandidate,
+      onDeleteRequested: requestDelete,
       onStartInlineEditing: startInlineEditing,
-      onOpenAllFilesInDirectory: handleOpenAllFilesInDirectory,
+      onOpenAllFilesInDirectory: openAllFilesInDirectory,
     })
 
   useEventListener(
@@ -350,17 +262,6 @@ function FileExplorerTreeComponent({
     startDrag,
   })
 
-  const handleDeleteConfirm = useCallback(async () => {
-    if (!deleteCandidate) return
-    setIsDeletingPath(true)
-    try {
-      await Promise.resolve(onDeletePath?.(deleteCandidate.path, deleteCandidate.isDir))
-      setDeleteCandidate(null)
-    } finally {
-      setIsDeletingPath(false)
-    }
-  }, [deleteCandidate, onDeletePath])
-
   useEffect(() => {
     if (!activePath || !fileOpenBenchmark.has(activePath)) return
     fileOpenBenchmark.mark(activePath, 'explorer-active-path')
@@ -369,78 +270,6 @@ function FileExplorerTreeComponent({
     })
     return () => cancelAnimationFrame(rafId)
   }, [activePath])
-
-  const renderRows = () => {
-    const items = rowVirtualizer.getVirtualItems()
-    const paddingBottom = items.length
-      ? rowVirtualizer.getTotalSize() - items[items.length - 1].end
-      : 0
-    const densityConfig = FILE_TREE_DENSITY_CONFIG[fileTreeDensity]
-    const stickyMarkerIndex = findTopVisibleItemIndex(items, rowVirtualizer.scrollOffset ?? 0)
-    const stickyAncestors =
-      stickyMarkerIndex >= 0 ? getStickyAncestorRows(visibleRows, stickyMarkerIndex) : []
-    const { paddingTop, visibleItems } = computeStickyScrollLayout(
-      items,
-      stickyMarkerIndex,
-      stickyAncestors.length,
-      densityConfig.rowHeight,
-      FILE_TREE_CONTAINER_INSET,
-    )
-    const stickyAncestorsStyle = {
-      '--file-tree-container-inset': `${FILE_TREE_CONTAINER_INSET}px`,
-      // Only the search bar actually occupies FILE_TREE_HEADER_HEIGHT inside the
-      // scrollable container; applying it unconditionally locked the sticky
-      // ancestor below the viewport's real top and sheared off the row under it.
-      '--file-tree-header-height': `${search.isOpen ? FILE_TREE_HEADER_HEIGHT : 0}px`,
-      '--file-tree-sticky-row-height': `${densityConfig.rowHeight}px`,
-      '--file-tree-sticky-stack-height': `${stickyAncestors.length * densityConfig.rowHeight}px`,
-    } as React.CSSProperties
-    return (
-      <>
-        {stickyAncestors.length > 0 ? (
-          <FileExplorerStickyAncestors
-            ancestors={stickyAncestors}
-            style={stickyAncestorsStyle}
-            containerInset={FILE_TREE_CONTAINER_INSET}
-            indentSize={indentSize}
-            rowClassName={densityConfig.rowClassName}
-            getGitStatusDecoration={getGitStatusDecoration}
-          />
-        ) : null}
-        <div style={{ height: paddingTop }} />
-        {visibleItems.map((vi) => {
-          const row = visibleRows[vi.index]
-          return (
-            <FileExplorerTreeItem
-              key={row.file.path}
-              file={row.file}
-              depth={row.depth}
-              displayName={row.displayName}
-              guideTargets={guideTargetsByIndex[vi.index] ?? []}
-              previousDepth={visibleRows[vi.index - 1]?.depth ?? 0}
-              nextDepth={visibleRows[vi.index + 1]?.depth ?? 0}
-              indentSize={indentSize}
-              density={fileTreeDensity}
-              isExpanded={row.isExpanded}
-              isActive={highlightedPath === row.file.path}
-              dragOverPath={dragState.dragOverPath}
-              isDragging={dragState.isDragging}
-              editingValue={editingValue}
-              onEditingValueChange={setEditingValue}
-              onKeyDown={handleKeyDown}
-              onBlur={handleBlur}
-              getGitStatusDecoration={getGitStatusDecoration}
-              rowId={getFileTreeRowId(row.file.path)}
-              searchQuery={search.isActive ? search.query : undefined}
-              isSearchMatch={search.result.matchedPaths.has(row.file.path)}
-              fileFeedback={fileFeedback}
-            />
-          )
-        })}
-        <div style={{ height: paddingBottom }} />
-      </>
-    )
-  }
 
   return (
     <div
@@ -480,7 +309,11 @@ function FileExplorerTreeComponent({
         revealPathInTree={revealPathInTree}
       />
       {search.isOpen && (
-        <FileExplorerSearchHeader search={search} onNavigateMatch={navigateSearchMatch} />
+        <FileExplorerSearchHeader
+          search={search}
+          onNavigateMatch={searchNavigation.navigate}
+          onClose={searchNavigation.closeSearch}
+        />
       )}
       {!rootFolderPath ? (
         <div className="file-tree-empty-state flex flex-1 items-center justify-center">
@@ -509,24 +342,30 @@ function FileExplorerTreeComponent({
         // (matching the sidebar row's `mx-1.5`) — a second `px-*` here would
         // double it, so only vertical breathing room stays local.
         <div id="file-tree-results" className="file-tree-scroll-body py-1">
-          {renderRows()}
+          <FileExplorerTreeRows
+            visibleRows={visibleRows}
+            rowVirtualizer={rowVirtualizer}
+            activePath={activePath}
+            highlightedPath={highlightedPath}
+            searchBarOpen={search.isOpen}
+            searchQuery={search.isActive ? search.query : undefined}
+            matchedPaths={search.result.matchedPaths}
+            item={{
+              dragOverPath: dragState.dragOverPath,
+              isDragging: dragState.isDragging,
+              editingValue,
+              onEditingValueChange: setEditingValue,
+              onKeyDown: handleKeyDown,
+              onBlur: handleBlur,
+              getGitStatusDecoration,
+              fileFeedback,
+            }}
+          />
         </div>
       )}
 
       {contextMenuElement}
-      <FileExplorerDialogs
-        alertDialog={alertDialog}
-        onCloseAlertDialog={() => setAlertDialog(null)}
-        openAllFilesDialog={openAllFilesDialog}
-        isOpeningAllFiles={isOpeningAllFiles}
-        onCloseOpenAllFilesDialog={() => setOpenAllFilesDialog(null)}
-        onConfirmOpenAllFiles={() => void handleOpenAllFilesConfirm()}
-        deleteCandidate={deleteCandidate}
-        isDeletingPath={isDeletingPath}
-        onCloseDeleteDialog={() => setDeleteCandidate(null)}
-        onConfirmDelete={() => void handleDeleteConfirm()}
-        getPathBaseName={getPathBaseName}
-      />
+      <FileExplorerDialogs {...dialogProps} />
     </div>
   )
 }

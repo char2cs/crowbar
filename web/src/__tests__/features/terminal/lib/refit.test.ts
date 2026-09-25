@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { pollUntilResizeSettles } from '@/features/terminal/lib/refit'
+import { pollUntilResizeSettles, watchDevicePixelRatio } from '@/features/terminal/lib/refit'
 
 /**
  * Deterministic fake requestAnimationFrame: callbacks queue by id and only run
@@ -96,5 +96,45 @@ describe('pollUntilResizeSettles', () => {
     resizing = false
     raf.flush()
     expect(onSettled).not.toHaveBeenCalled()
+  })
+})
+
+describe('watchDevicePixelRatio', () => {
+  // A fake matchMedia: one query per armed ratio, each holding its own listeners.
+  function fakeMedia() {
+    const queries: Array<Set<() => void>> = []
+    const matchMedia = (media: string) => {
+      const listeners = new Set<() => void>()
+      queries.push(listeners)
+      return {
+        media,
+        addEventListener: (_: string, cb: () => void) => listeners.add(cb),
+        removeEventListener: (_: string, cb: () => void) => listeners.delete(cb),
+      } as unknown as MediaQueryList
+    }
+    const live = () => queries.reduce((n, listeners) => n + listeners.size, 0)
+    const flip = () => {
+      for (const cb of [...queries[queries.length - 1]]) cb()
+    }
+    return { queries, matchMedia, live, flip }
+  }
+
+  it('re-arms at the new ratio on each flip, holding one listener, and releases it', () => {
+    const media = fakeMedia()
+    const spy = vi.spyOn(window, 'matchMedia').mockImplementation(media.matchMedia)
+    const onChange = vi.fn()
+
+    const stop = watchDevicePixelRatio(onChange)
+    expect(media.live()).toBe(1)
+
+    media.flip()
+    media.flip()
+    expect(onChange).toHaveBeenCalledTimes(2)
+    expect(media.queries).toHaveLength(3)
+    expect(media.live()).toBe(1) // each earlier query was let go
+
+    stop()
+    expect(media.live()).toBe(0)
+    spy.mockRestore()
   })
 })

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import type { Terminal } from '@xterm/xterm'
 import type { FitAddon } from '@xterm/addon-fit'
 import type { TerminalConnection } from '@/lib/crowbar-bridge'
-import { pollUntilResizeSettles } from '../lib/refit'
+import { pollUntilResizeSettles, watchDevicePixelRatio } from '../lib/refit'
 
 interface UsePtySizeSyncOptions {
   terminal: Terminal | null
@@ -107,22 +107,10 @@ export function usePtySizeSync({
     }
     const observer = new ResizeObserver(schedule)
     observer.observe(container)
-    // devicePixelRatio has no event: a resolution media query fires once per flip,
-    // then is re-armed at the new ratio.
-    let mql: MediaQueryList | null = null
-    const onDprChange = () => {
-      schedule()
-      armDpr()
-    }
-    const armDpr = () => {
-      mql?.removeEventListener('change', onDprChange)
-      mql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
-      mql.addEventListener('change', onDprChange)
-    }
-    armDpr()
+    const stopWatchingDpr = watchDevicePixelRatio(schedule)
     return () => {
       observer.disconnect()
-      mql?.removeEventListener('change', onDprChange)
+      stopWatchingDpr()
       if (frame !== null) cancelAnimationFrame(frame)
       cancelSettle?.()
     }
