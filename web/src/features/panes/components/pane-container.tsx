@@ -1,5 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useBuffersByIds } from '@/features/workspace/stores/hooks/use-buffer-store'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { useSettingsStore } from '@/features/settings/store'
 import { buildInnerViewStyle, buildPaneContentStyle } from '../utils/pane-border'
@@ -8,8 +7,6 @@ import { cn } from '@/lib/utils'
 import { ROOT_PANE_POSITION, type PanePosition } from '../types/pane'
 import TabBar from '@/features/tabs/components/tab-bar'
 import { ChatOnlyPaneHeader } from '@/features/tabs/components/chat-only-pane-header'
-import { ChatColumnHeader } from '@/features/tabs/components/chat-column-header'
-import { NewTabView } from './new-tab-view'
 import { BOTTOM_PANE_ID } from '../constants/pane'
 import {
   useIsActivePane,
@@ -17,14 +14,12 @@ import {
   useVisiblePaneCount,
 } from '@/features/workspace/stores/hooks/use-pane-store'
 import type { PaneGroup } from '../types/pane'
-import type { EditorContent, PaneContent, TerminalContent } from '../types/pane-content'
-import { clearEditorPortalEntry, setEditorPortalEntry } from '../lib/editor-portal-registry'
 import { PANE_DROP_ATTR } from '@/components/sidebar/hooks/use-sidebar-drag'
 import { SplitDropOverlay } from './split-drop-overlay'
 import { PaneSash } from './pane-sash'
 import { PaneAccentRing } from './pane-accent-ring'
-import { renderPaneContent } from './pane-content-registry'
-import { TerminalPane } from './terminal-pane'
+import { PaneChatView } from './pane-chat-view'
+import { PaneEditorViewContent } from './pane-editor-view-content'
 import {
   SPLIT_DEFAULT_SIZES,
   SPLIT_MIN_HALF_PX,
@@ -35,12 +30,6 @@ import { usePaneDropHandlers } from '../hooks/use-pane-drop-handlers'
 import { usePanePresentation } from '../hooks/use-pane-presentation'
 import { usePaneActivation } from '../hooks/use-pane-activation'
 
-const AgentChatPane = lazy(() =>
-  import('@/features/agent/components/agent-chat-pane').then((m) => ({
-    default: m.AgentChatPane,
-  })),
-)
-
 interface PaneContainerProps {
   pane: PaneGroup
   position?: PanePosition
@@ -50,9 +39,6 @@ interface PaneContainerProps {
    *  false, the same dormant state a background tab already runs in. */
   showing?: boolean
 }
-
-type EditorBufferShell = Pick<EditorContent, 'id' | 'path' | 'name' | 'type' | 'isPreview'>
-type PaneRenderBuffer = Exclude<PaneContent, EditorContent> | EditorBufferShell
 
 /**
  * One pane: its identity row, its chat view and its editor view (spec §7.2),
@@ -90,27 +76,6 @@ export function PaneContainer({
   const drop = usePaneDropHandlers(pane.id, containerRef)
   usePaneActivation(pane.id, containerRef)
 
-  const rawPaneBuffers = useBuffersByIds(pane.editorTabIds)
-  const paneBuffers = useMemo(
-    (): PaneRenderBuffer[] =>
-      rawPaneBuffers.map((buffer) =>
-        buffer.type === 'editor'
-          ? ({
-              id: buffer.id,
-              path: buffer.path,
-              name: buffer.name,
-              type: buffer.type,
-              isPreview: buffer.isPreview,
-            } satisfies EditorBufferShell)
-          : buffer,
-      ),
-    [rawPaneBuffers],
-  )
-  const activeBuffer = useMemo(() => {
-    if (!pane.activeEditorTabId) return null
-    return paneBuffers.find((b) => b.id === pane.activeEditorTabId) || null
-  }, [paneBuffers, pane.activeEditorTabId])
-
   const viewsContainerRef = useRef<HTMLDivElement>(null)
   const chatViewRef = useRef<HTMLDivElement>(null)
   const editorViewRef = useRef<HTMLDivElement>(null)
@@ -129,34 +94,6 @@ export function PaneContainer({
   } = usePanePresentation(pane, sidebarPosition, viewsContainerRef)
   const isBottomPane = pane.id === BOTTOM_PANE_ID
 
-  // The editor widget lives in EditorHostRegistry, outside this component;
-  // this pane only publishes WHERE to portal it and what it should show.
-  const editorPortalTargetRef = useRef<HTMLDivElement>(null)
-  const hasOpenEditorBuffer = paneBuffers.some((b) => b.type === 'editor')
-  const isEditorTabActive = activeBuffer?.type === 'editor' && !editorViewHidden
-  const activeEditorBuffer = activeBuffer?.type === 'editor' ? activeBuffer : null
-  useEffect(() => {
-    const node = editorPortalTargetRef.current
-    if (!hasOpenEditorBuffer || !node) {
-      clearEditorPortalEntry(pane.id)
-      return
-    }
-    setEditorPortalEntry(pane.id, {
-      node,
-      activeEditorBufferId: activeEditorBuffer?.id ?? null,
-      isPreview: activeEditorBuffer?.isPreview ?? false,
-      isActiveSurface: isEditorTabActive && isActivePane,
-    })
-    return () => clearEditorPortalEntry(pane.id)
-  }, [
-    pane.id,
-    hasOpenEditorBuffer,
-    activeEditorBuffer?.id,
-    activeEditorBuffer?.isPreview,
-    isEditorTabActive,
-    isActivePane,
-  ])
-
   const editorInnerViewStyle = useMemo(
     () => (chatVisibleAlongsideEditor ? buildInnerViewStyle(editorFacingChatEdge) : undefined),
     [chatVisibleAlongsideEditor, editorFacingChatEdge],
@@ -174,109 +111,27 @@ export function PaneContainer({
     [pane.id, activateEditorTabInPane, setActivePane],
   )
 
-  // Everything `editorTabIds` holds — files, terminals, branch review — the
-  // same whether or not the pane also holds a chat.
-  const editorViewInner = (
-    <>
-      {/* A fallback for a pane holding nothing — deliberately inert; see
-          new-tab-view.tsx. */}
-      {!activeBuffer && <NewTabView paneId={pane.id} />}
-
-      {/* Terminals stay mounted to keep their PTYs, outside the Suspense
-          boundary so a cold chunk load never unmounts them. Visible only as
-          the active tab of an editor view that is not hidden. */}
-      {paneBuffers
-        .filter((b): b is TerminalContent => b.type === 'terminal')
-        .map((b) => {
-          const isActive = b.id === activeBuffer?.id && !editorViewHidden
-          return (
-            <div
-              key={b.id}
-              className="absolute inset-0"
-              style={isActive ? undefined : { visibility: 'hidden' }}
-            >
-              <TerminalPane
-                sessionId={b.sessionId}
-                bufferId={b.id}
-                paneId={pane.id}
-                workspaceId={b.workspaceId}
-                initialCommand={b.initialCommand}
-                workingDirectory={b.workingDirectory}
-                isActive={isActive && isActivePane}
-                // xterm gates its render loop on this: a parked view's
-                // terminal must stop drawing, not merely be covered.
-                isVisible={isActive && showing}
-              />
-            </div>
-          )
-        })}
-
-      {/* Editor-portal target (editor-host-registry.tsx): the live widget is
-          reparented into whichever target node is registered, so a tab
-          switch, split or fullscreen never remounts it. */}
-      {hasOpenEditorBuffer && (
-        <div
-          ref={editorPortalTargetRef}
-          className="absolute inset-0"
-          style={isEditorTabActive ? undefined : { visibility: 'hidden' }}
-        />
-      )}
-
-      <Suspense fallback={null}>
-        {activeBuffer &&
-          activeBuffer.type !== 'terminal' &&
-          activeBuffer.type !== 'editor' &&
-          renderPaneContent(activeBuffer, { isActivePane })}
-      </Suspense>
-    </>
-  )
-
   // The chat view, sash and editor view each keep a stable key, so placing
   // them in either order (chat beside the sidebar) is never a remount.
   const chatViewNode = pane.chatId && (
-    <div
+    <PaneChatView
       key="chat-view"
       ref={chatViewRef}
-      data-chat-view=""
+      paneId={pane.id}
+      chatId={pane.chatId}
+      runnerId={pane.runnerId ?? ''}
+      wsId={wsId}
+      chatWsId={chatWsId}
+      chatStore={chatStore}
       hidden={chatViewHidden}
-      className={cn(
-        // No fill: the shared `data-pane-content` box already paints it.
-        'relative flex min-h-0 min-w-0 flex-col overflow-hidden',
-        presentation === 'tabs' || chatFillsPane ? 'h-full w-full flex-1' : 'shrink grow-0',
-      )}
-      style={
-        presentation === 'tabs' || chatFillsPane
-          ? undefined
-          : // splitSizes is always [chatPct, editorPct]; the sash maps it
-            // onto whichever view is visually first.
-            { flexBasis: `${splitSizes[0]}%` }
-      }
-    >
-      {/* The chat surface and its header read the CHAT's workspace store
-          off context; everything else in the pane keeps the ambient one. */}
-      <WorkspaceStoreContext.Provider value={chatStore}>
-        {chatVisibleAlongsideEditor && (
-          <ChatColumnHeader chatId={pane.chatId} wsId={chatWsId} isBottomPane={isBottomPane} />
-        )}
-        <div className="relative min-h-0 flex-1 overflow-hidden">
-          <Suspense fallback={null}>
-            <AgentChatPane
-              chatId={pane.chatId}
-              runnerId={pane.runnerId ?? ''}
-              wsId={wsId}
-              paneId={pane.id}
-              isActivePane={isActivePane}
-              // Both overlay headers float above the chat with no flex space
-              // of their own; the collapsed header reserves its own.
-              belowOverlayHeader={chatFillsPane || chatVisibleAlongsideEditor}
-              // The dormant-chat revive fires on this: a parked or covered
-              // chat claiming to be visible would spawn a CLI nobody sees.
-              isVisible={showing && !chatViewHidden}
-            />
-          </Suspense>
-        </div>
-      </WorkspaceStoreContext.Provider>
-    </div>
+      // splitSizes is always [chatPct, editorPct].
+      basis={presentation === 'tabs' || chatFillsPane ? null : splitSizes[0]}
+      alongsideEditor={chatVisibleAlongsideEditor}
+      chatFillsPane={chatFillsPane}
+      isBottomPane={isBottomPane}
+      isActivePane={isActivePane}
+      isVisible={showing && !chatViewHidden}
+    />
   )
 
   const sashNode = pane.chatId && presentation !== 'tabs' && !chatFillsPane && (
@@ -317,7 +172,16 @@ export function PaneContainer({
       {chatVisibleAlongsideEditor && (
         <TabBar paneId={pane.id} wsId={chatWsId} onTabClick={handleTabClick} />
       )}
-      <div className="relative min-h-0 flex-1 overflow-hidden">{editorViewInner}</div>
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        <PaneEditorViewContent
+          paneId={pane.id}
+          editorTabIds={pane.editorTabIds}
+          activeEditorTabId={pane.activeEditorTabId}
+          editorViewHidden={editorViewHidden}
+          isActivePane={isActivePane}
+          showing={showing}
+        />
+      </div>
     </div>
   )
 
