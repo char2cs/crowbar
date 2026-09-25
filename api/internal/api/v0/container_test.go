@@ -4,13 +4,11 @@ package v0_test
 
 import (
 	"context"
-	"encoding/json"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -32,15 +30,17 @@ type testContainers struct {
 
 func newApp(t *testing.T) testContainers {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	eng, err := engine.New(ctx)
 	require.NoError(t, err)
+	t.Cleanup(eng.Close)
 	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
-	t.Cleanup(eng.Close)
 	a, err := app.New(ctx, eng, adapters)
 	require.NoError(t, err)
+	// app.Close stops the asynx pools; t.Context's cancel stops the sweeps.
+	t.Cleanup(a.Close)
 	return testContainers{app: a, eng: eng}
 }
 
@@ -69,20 +69,6 @@ func serveAgentChats(
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 	return c, srv
-}
-
-// readFrame blocks until the next frame arrives, then decodes it. No read
-// deadline: the frame's arrival IS the signal (see readSnapshot).
-func readFrame(
-	t *testing.T,
-	conn *websocket.Conn,
-) map[string]any {
-	t.Helper()
-	_, msg, err := conn.ReadMessage()
-	require.NoError(t, err)
-	var got map[string]any
-	require.NoError(t, json.Unmarshal(msg, &got))
-	return got
 }
 
 // chatWorktreeOf returns the worktree object riding a worktree_state frame.
@@ -143,7 +129,7 @@ func TestV0_HubWorkspaceBroadcastReachesChatWSClient(t *testing.T) {
 
 	tc.app.Hub.BroadcastWorkspace(workspaceFixture())
 
-	got := readFrame(t, conn)
+	got := conn.ReadMsg(t, wsReadBound)
 	assert.Equal(t, dto.AgentChatKindWorktreeState, got["kind"])
 	assert.Equal(t, "chat-1", got["chatId"])
 	assert.Equal(t, "w1", got["workspaceId"])
@@ -171,8 +157,8 @@ func TestV0_WorktreeState_ChatScopeIsolatesOtherChats(t *testing.T) {
 		ID: "w2", RepoID: "r1", ProjectID: "p1", OwningChatID: "chat-2",
 	})
 
-	assert.Equal(t, "w1", readFrame(t, owner)["workspaceId"])
-	assert.Equal(t, "w2", readFrame(t, other)["workspaceId"],
+	assert.Equal(t, "w1", owner.ReadMsg(t, wsReadBound)["workspaceId"])
+	assert.Equal(t, "w2", other.ReadMsg(t, wsReadBound)["workspaceId"],
 		"chat-2 holds w2: the w1 frame must never have reached it")
 }
 
@@ -196,7 +182,7 @@ func TestV0_WorktreeState_RepoScopeIsolatesOtherRepos(t *testing.T) {
 	})
 	tc.app.Hub.BroadcastWorkspace(workspaceFixture())
 
-	got := readFrame(t, conn)
+	got := conn.ReadMsg(t, wsReadBound)
 	assert.Equal(t, "w1", got["workspaceId"],
 		"an r1-scoped subscriber must never receive another repo's worktree frame")
 	assert.Equal(t, "r1", got["repoId"])
@@ -215,23 +201,14 @@ func TestContainer_PushProject_RouteByPrefix(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1"
-	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
+	conn := dialV0(t, srv, "/v0/projects/p1")
 	c.WaitProjectsRegistered()
 
 	// A sibling project's frame must be filtered out; only p1's arrives.
 	tc.app.Hub.BroadcastProject(dto.ProjectDTO{ID: "p2", Name: "skip"})
 	tc.app.Hub.BroadcastProject(dto.ProjectDTO{ID: "p1", Name: "keep"})
 
-	_, msg, err := conn.ReadMessage()
-	require.NoError(t, err)
-	var got map[string]any
-	require.NoError(t, json.Unmarshal(msg, &got))
+	got := conn.ReadMsg(t, wsReadBound)
 	assert.Equal(t, "p1", got["id"])
 	assert.Equal(t, "keep", got["name"])
 }
@@ -249,23 +226,14 @@ func TestContainer_PushRepo_RouteByPrefix(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos"
-	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
+	conn := dialV0(t, srv, "/v0/projects/p1/repos")
 	c.WaitReposRegistered()
 
 	// A sibling project's repo must be filtered out; only p1's child repo arrives.
 	tc.app.Hub.BroadcastRepo(dto.RepoDTO{ID: "r1", ProjectID: "p2", Name: "skip"})
 	tc.app.Hub.BroadcastRepo(dto.RepoDTO{ID: "r1", ProjectID: "p1", Name: "keep"})
 
-	_, msg, err := conn.ReadMessage()
-	require.NoError(t, err)
-	var got map[string]any
-	require.NoError(t, json.Unmarshal(msg, &got))
+	got := conn.ReadMsg(t, wsReadBound)
 	assert.Equal(t, "r1", got["id"])
 	assert.Equal(t, "p1", got["projectId"])
 	assert.Equal(t, "keep", got["name"])
@@ -290,13 +258,7 @@ func TestV0_PushLSP_ReachesFilteredClient(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/chats/chat-1/lsp/ws"
-	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
+	conn := dialV0(t, srv, "/v0/chats/chat-1/lsp/ws")
 	c.WaitLSPRegistered()
 
 	// An event for a different chat must be filtered out; the matching one
@@ -304,10 +266,7 @@ func TestV0_PushLSP_ReachesFilteredClient(t *testing.T) {
 	c.PushLSP(lspdomain.DiagnosticsEvent{WsID: "other-chat", Diagnostics: []lspdomain.Diagnostic{{Message: "skip"}}})
 	c.PushLSP(lspdomain.DiagnosticsEvent{WsID: "chat-1", Diagnostics: []lspdomain.Diagnostic{{Message: "boom"}}})
 
-	_, msg, err := conn.ReadMessage()
-	require.NoError(t, err)
-	var got map[string]any
-	require.NoError(t, json.Unmarshal(msg, &got))
+	got := conn.ReadMsg(t, wsReadBound)
 	assert.Equal(t, "chat-1", got["wsId"])
 	diags, _ := got["diagnostics"].([]any)
 	require.Len(t, diags, 1)
@@ -333,13 +292,7 @@ func TestV0_PushGit_ChatFanout_IsolatesUnrelatedWorkspace(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/chats/chat-1/git/status"
-	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
+	conn := dialV0(t, srv, "/v0/chats/chat-1/git/status")
 	c.WaitGitRegistered()
 
 	// A push for workspace B (no chat resolves to it here) must be filtered
@@ -347,11 +300,8 @@ func TestV0_PushGit_ChatFanout_IsolatesUnrelatedWorkspace(t *testing.T) {
 	tc.app.Hub.BroadcastGit("B", gitdomain.GitStatus{Branch: "branch-B"})
 	tc.app.Hub.BroadcastGit("A", gitdomain.GitStatus{Branch: "branch-A"})
 
-	_, msg, err := conn.ReadMessage()
-	require.NoError(t, err)
-	var got gitdomain.GitStatus
-	require.NoError(t, json.Unmarshal(msg, &got))
-	assert.Equal(t, "branch-A", got.Branch)
+	got := conn.ReadMsg(t, wsReadBound)
+	assert.Equal(t, "branch-A", got["branch"])
 }
 
 func TestV0_PushFile_ReachesFilteredClient(t *testing.T) {
@@ -372,21 +322,12 @@ func TestV0_PushFile_ReachesFilteredClient(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/chats/chat-1/files/ws"
-	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
+	conn := dialV0(t, srv, "/v0/chats/chat-1/files/ws")
 	c.WaitFilesRegistered()
 
 	tc.app.Hub.BroadcastFile(domain.FileChangeEvent{WsID: "other", Path: "skip.go"})
 	tc.app.Hub.BroadcastFile(domain.FileChangeEvent{WsID: "w1", Path: "a.go"})
 
-	_, msg, err := conn.ReadMessage()
-	require.NoError(t, err)
-	var got domain.FileChangeEvent
-	require.NoError(t, json.Unmarshal(msg, &got))
-	assert.Equal(t, "a.go", got.Path)
+	got := conn.ReadMsg(t, wsReadBound)
+	assert.Equal(t, "a.go", got["path"])
 }

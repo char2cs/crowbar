@@ -4,11 +4,9 @@ package v0_test
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -18,40 +16,16 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// readUntil loop-reads from conn until match returns true for a decoded message,
-// then returns that message. The broadcast may be preceded by other projected
-// rows on the same topic, so the loop skips non-matching frames.
-//
-// The reads block: each frame's arrival IS the signal, so the loop advances
-// exactly as fast as the daemon delivers, with no deadline to outrun under load.
-// A matching frame that never arrives hangs until `go test -timeout` fires and
-// dumps the goroutines, naming this test.
-func readUntil(
-	t *testing.T,
-	conn *websocket.Conn,
-	match func(map[string]any) bool,
-) map[string]any {
-	t.Helper()
-	for {
-		_, msg, err := conn.ReadMessage()
-		require.NoError(t, err)
-		var got map[string]any
-		require.NoError(t, json.Unmarshal(msg, &got))
-		if match(got) {
-			return got
-		}
-	}
-}
-
 // TestWave3_WorkspaceCommand_ReachesChatWSClient proves the FULL Wave 3 chain:
 // a real Asynx command on the Workspace aggregate (repo Create /
 // SyncWorkingTreeState, both SendWait) -> the read-model projection registered in
 // app.New fires -> hub.BroadcastWorkspace -> PushWorkspace -> pushChatWorktree ->
 // the agent-chat broadcaster -> a connected WS client.
 //
-// The chat row is created BEFORE the v0 container exists, for two reasons: the
-// projection resolves the owning chat off the read model (enrichFrame), and its
-// own creation frame would otherwise land on the very stream under test.
+// The owning chat is minted and attached BEFORE the v0 container exists, the
+// way chat-first creation does it: the projection resolves the owner off the
+// recorded Chat.OwnsWorkspace (enrichFrame), and the chat's own frames would
+// otherwise land on the very stream under test.
 func TestWave3_WorkspaceCommand_ReachesChatWSClient(t *testing.T) {
 	tc := newApp(t)
 	seedRepo(t, tc, "r1")
@@ -59,8 +33,10 @@ func TestWave3_WorkspaceCommand_ReachesChatWSClient(t *testing.T) {
 	now := time.Unix(1, 0).UTC()
 
 	_, err := tc.app.Repositories.AgentChat.Create(ctx, chatrepo.CreateInput{
-		ID: "chat-1", WorkspaceID: "w1", Type: domain.ChatTypeChat, Now: now,
+		ID: "chat-1", Type: domain.ChatTypeChat, Now: now,
 	})
+	require.NoError(t, err)
+	_, err = tc.app.Repositories.AgentChat.SetWorkspace(ctx, "chat-1", "w1")
 	require.NoError(t, err)
 
 	c, srv := serveAgentChats(t, tc)
@@ -76,7 +52,7 @@ func TestWave3_WorkspaceCommand_ReachesChatWSClient(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	created := readUntil(t, conn, func(m map[string]any) bool {
+	created := conn.ReadUntil(t, wsReadBound, func(m map[string]any) bool {
 		return m["kind"] == dto.AgentChatKindWorktreeState && m["workspaceId"] == "w1"
 	})
 	assert.Equal(t, "chat-1", created["chatId"])
@@ -98,7 +74,7 @@ func TestWave3_WorkspaceCommand_ReachesChatWSClient(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	updated := readUntil(t, conn, func(m map[string]any) bool {
+	updated := conn.ReadUntil(t, wsReadBound, func(m map[string]any) bool {
 		// The updated row reflects the new added count.
 		if m["kind"] != dto.AgentChatKindWorktreeState {
 			return false

@@ -12,14 +12,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/app"
 	workspacerepo "github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
-	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
 // This file proves git's move onto /v0/chats/:chatId end to end over the REAL
@@ -144,26 +142,6 @@ func chatScopeEnv(
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 	return c, srv, resolver
-}
-
-// newAppAndEngine builds the same real app container newAppForSnapshot does,
-// and hands back the ENGINE with it: Container.Register reaches into
-// c.eng.Provider/Git/LSP as it wires the other endpoint groups, so the full
-// route registration these tests exercise cannot run against a nil one.
-func newAppAndEngine(
-	t *testing.T,
-) (*app.Container, *engine.Container) {
-	t.Helper()
-	ctx := context.Background()
-	eng, err := engine.New(ctx)
-	require.NoError(t, err)
-	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = adapters.Close() })
-	t.Cleanup(eng.Close)
-	a, err := app.New(ctx, eng, adapters)
-	require.NoError(t, err)
-	return a, eng
 }
 
 // seedWorkspaceAt creates a workspace row under p1/r1 at a given worktree path,

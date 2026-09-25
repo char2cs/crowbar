@@ -4,7 +4,6 @@ package v0_test
 
 import (
 	"context"
-	"encoding/json"
 	"net/http/httptest"
 	osexec "os/exec"
 	"testing"
@@ -22,6 +21,7 @@ import (
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	enginelsp "github.com/char2cs/crowbar/api/internal/engine/lsp"
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 type seededLSP struct {
@@ -50,49 +50,18 @@ func serveV0(
 	return c, srv
 }
 
+// wsReadBound bounds every frame wait in this package. A correct run never
+// reaches it; a regression then fails in seconds under its own test name
+// instead of stalling the whole package until `go test -timeout`.
+const wsReadBound = 10 * time.Second
+
 func dialV0(
 	t *testing.T,
 	srv *httptest.Server,
 	path string,
-) *websocket.Conn {
+) *kit.WSWatcher {
 	t.Helper()
-	url := "ws" + srv.URL[len("http"):] + path
-	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
-	return conn
-}
-
-// readSnapshot blocks until the snapshot frame arrives, then decodes it.
-//
-// No read deadline: the frame's arrival IS the signal. A snapshot that never
-// lands hangs until `go test -timeout` fires and dumps the goroutines, naming
-// this test — a real failure, rather than a two-second guess that goes red
-// whenever the machine is busy.
-func readSnapshot(
-	t *testing.T,
-	conn *websocket.Conn,
-) map[string]any {
-	t.Helper()
-	// A FAILURE BOUND, not a wait: every caller quiesces the projections first,
-	// so the frame is already sitting there and this deadline is never reached
-	// on a correct run — it does not slow the suite down and it is not a poll.
-	// It exists because the alternative is unbounded. Without it a snapshot that
-	// never arrives blocks ReadMessage forever, and Go kills the entire PACKAGE
-	// on the 4m timeout: every other test in it is reported as failed, the only
-	// clue is a goroutine dump, and the actual culprit is one line of
-	// "running tests:" buried in it. That is precisely how this presented in CI.
-	// Bounded, the same bug names itself in 10s.
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(10*time.Second)))
-	_, msg, err := conn.ReadMessage()
-	require.NoError(t, err, "no snapshot frame within 10s — the projection the "+
-		"snapshot is built from had not settled, or nothing matched the scope predicate")
-	var got map[string]any
-	require.NoError(t, json.Unmarshal(msg, &got))
-	return got
+	return kit.Dial(t, websocket.DefaultDialer, "ws"+srv.URL[len("http"):]+path)
 }
 
 func initGitRepo(
@@ -156,7 +125,7 @@ func TestSnapshot_Git_DeliveredOnConnectScoped(t *testing.T) {
 	_, srv := serveV0(t, tc.app, tc.eng)
 	conn := dialV0(t, srv, "/v0/chats/chat-a/git/status")
 
-	got := readSnapshot(t, conn)
+	got := conn.ReadMsg(t, wsReadBound)
 	assert.Equal(t, "main", got["branch"])
 	_, hasWsID := got["wsId"]
 	assert.False(t, hasWsID, "git payload is bare GitStatus")
@@ -198,7 +167,7 @@ func TestSnapshot_LSP_DeliveredOnConnect(t *testing.T) {
 	_, srv := serveV0(t, tc.app, tc.eng)
 	conn := dialV0(t, srv, "/v0/chats/chat-1/lsp/ws")
 
-	got := readSnapshot(t, conn)
+	got := conn.ReadMsg(t, wsReadBound)
 	assert.Equal(t, "chat-1", got["wsId"])
 	diags, _ := got["diagnostics"].([]any)
 	require.Len(t, diags, 1)
