@@ -554,6 +554,14 @@ func (r *eventSourced) Forget(ctx context.Context, chatID string) error {
 		return fmt.Errorf("agentactivity: forget rows: %w", err)
 	}
 	r.deleteOrphanedRefs(ctx, refs)
+	// A chat that never recorded activity has no aggregate: nothing to forget.
+	exists, err := r.ax.Exists(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agentactivity: forget: exists: %w", err)
+	}
+	if !exists {
+		return nil
+	}
 	if err := r.ax.Forget(ctx, chatID); err != nil {
 		return fmt.Errorf("agentactivity: forget: %w", err)
 	}

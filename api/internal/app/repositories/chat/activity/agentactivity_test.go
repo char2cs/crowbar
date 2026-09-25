@@ -548,6 +548,18 @@ func TestForget_DropsTheRecordAndItsRows(t *testing.T) {
 	assert.Empty(t, ints)
 }
 
+func TestForget_IsANoOpForAChatWithNoActivity(t *testing.T) {
+	f := newFixture(t)
+
+	require.NoError(t, f.repo.Forget(f.ctx, "never-active"))
+
+	f.turn(t, "t1", domain.TurnRoleUser, "hi", t0)
+	f.wait()
+	require.NoError(t, f.repo.Forget(f.ctx, chat))
+	f.wait()
+	require.NoError(t, f.repo.Forget(f.ctx, chat), "a second forget finds nothing and succeeds")
+}
+
 func TestForget_DeletesABlobNothingElseReferences(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.repo.InvokeTool(f.ctx, activity.ToolInput{

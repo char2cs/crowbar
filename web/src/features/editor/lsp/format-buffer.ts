@@ -13,7 +13,7 @@ export async function formatBufferWithLsp(
   buffer: EditorContent & { path: string },
 ): Promise<string | null> {
   const client = LspClient.getInstance()
-  await client.flushChange(buffer.path)
+  await client.flushChange(buffer.workspaceId, buffer.path)
   const { tabSize } = useSettingsStore.getState().settings
   const edits = await client
     .request<TextEdit[]>(buffer.workspaceId, 'formatting', {

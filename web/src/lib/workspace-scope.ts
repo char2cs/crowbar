@@ -103,6 +103,16 @@ export function recordWorkspaceScope(scope: WorkspaceScope): void {
   notifyScopeListeners(scope.wsId)
 }
 
+/**
+ * Drop a DELETED workspace's scope (its tombstone, or its repo's). Everything
+ * addressed through its owning chat — LSP sessions above all — stops on this
+ * notification instead of reconnecting against a chat that is gone.
+ */
+export function forgetWorkspaceScope(wsId: string): void {
+  if (!_scopes.delete(wsId)) return
+  notifyScopeListeners(wsId)
+}
+
 // The router pathname for the active workspace route. Not anchored to the start
 // so it also matches the hash-history in-hash path; captures exactly the three
 // /ide/:projectId/:repoId/:wsId segments and stops at the next separator.

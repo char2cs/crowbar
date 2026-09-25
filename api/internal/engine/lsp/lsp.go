@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/convert"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/manager"
@@ -671,7 +672,14 @@ func (e *engine) DidOpen(
 	languageID string,
 	text string,
 ) error {
-	uri := convert.URIFromPath(absFilePath(worktreePath, filePath))
+	abs := absFilePath(worktreePath, filePath)
+	// A document outside the worktree belongs to another workspace's server
+	// (or none); opening it here would spawn and feed the wrong one.
+	if rel, err := filepath.Rel(worktreePath, abs); err != nil || !filepath.IsLocal(rel) {
+		return fmt.Errorf("lsp: textDocument/didOpen: %w: %q is outside the workspace",
+			apperr.ErrInvalidArgument, filePath)
+	}
+	uri := convert.URIFromPath(abs)
 	params := map[string]any{
 		"textDocument": map[string]any{
 			"uri":        uri,

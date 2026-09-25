@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { ChatType, FolderDTO, WorkspaceDTO, WorkspaceProvisioning } from '@/lib/types'
-import { recordWorkspaceScope } from '@/lib/workspace-scope'
+import { forgetWorkspaceScope, recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   applyFolderDTOTo,
   applyPlacementTo,
@@ -195,6 +195,8 @@ export interface Repo {
   localPath?: string
   /** RepoDTO.lastError: why the last delete of this repo stopped. */
   deleteError?: string
+  /** A delete of this repo is in flight: its scope is going away. */
+  deleting?: boolean
 }
 
 /** A workspace row's new placement. Absent fields are left alone. */
@@ -257,6 +259,8 @@ interface RepoTreeState {
   setRepos: (repos: Repo[]) => void
   /** See `mergeReposInto`. */
   mergeRepos: (repos: Repo[]) => void
+  /** Drop a DELETED repo and forget its workspaces' scopes. */
+  removeRepo: (repoId: string) => void
   /** §6 WS-driven workspace upsert/tombstone — see `applyWorkspaceDTOTo`. */
   applyWorkspaceDTO: (dto: WorkspaceDTO) => void
   /** §6 WS-driven folder upsert/tombstone — see `applyFolderDTOTo`. */
@@ -288,8 +292,17 @@ export const useSidebarStore = create<SidebarState>()((set, get, api) => {
       recordRepoScopes(incoming)
       writeRepos((repos) => mergeReposInto(repos, incoming))
     },
+    removeRepo: (repoId) => {
+      const repo = get().repos.find((r) => r.id === repoId)
+      if (!repo) return
+      for (const ws of repo.workspaces) forgetWorkspaceScope(ws.id)
+      if (repo.defaultWorkspaceId) forgetWorkspaceScope(repo.defaultWorkspaceId)
+      writeRepos((repos) => repos.filter((r) => r.id !== repoId))
+    },
     applyWorkspaceDTO: (dto) => {
-      if (dto.status !== 'deleted') {
+      if (dto.status === 'deleted') {
+        forgetWorkspaceScope(dto.id)
+      } else {
         recordWorkspaceScope({
           projectId: dto.projectId,
           repoId: dto.repoId,

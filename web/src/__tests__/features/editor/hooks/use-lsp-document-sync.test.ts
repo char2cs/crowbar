@@ -1,116 +1,75 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
+import { editor as monacoEditor, Uri } from 'monaco-editor/esm/vs/editor/editor.api.js'
+import type * as Monaco from 'monaco-editor'
 
-// Same race as the already-fixed use-workspace-effects.ts: a workspace's
-// owning chat id is recorded ASYNCHRONOUSLY by the sidebar's own chat-list
-// fetch, independently of (and often slower than) the workspace's own
-// hydration. The LSP diagnostics effect in use-pane-editor-satellites.ts used
-// to call straight into LspClient's `ensureSubscribed`/`wsBase`, which throw
-// on a null owning chat id — a buffer becoming a pane's active model (tab
-// restoration on a cold activation) crashed via the nearest error boundary.
-// `useLspScopeReady` is the gate that gives that effect a piece of REACT
-// STATE to wait on instead.
+// A pane's document belongs to the pane's OWN workspace: switching which
+// workspace is active must send nothing for a hidden pane, and never address
+// another workspace's language server with this buffer's text.
 
-const { wsIdHolder } = vi.hoisted(() => ({ wsIdHolder: { current: 'ws-race' as string | null } }))
-
-vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
-  getActiveWorkspaceId: () => wsIdHolder.current,
+const { apiFetch } = vi.hoisted(() => ({
+  apiFetch: vi.fn(async (..._args: unknown[]): Promise<unknown> => ({ ok: true })),
 }))
+const { subscribe } = vi.hoisted(() => ({ subscribe: vi.fn(() => () => {}) }))
 
-import { useLspScopeReady } from '@/features/editor/hooks/use-lsp-document-sync'
+vi.mock('@/lib/api', () => ({ apiFetch }))
+vi.mock('@/lib/ws/manager', () => ({ wsManager: { subscribe } }))
+
+import { useLspDocumentSync } from '@/features/editor/hooks/use-lsp-document-sync'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import {
-  setWorkspaceScope,
-  recordWorkspaceScope,
   __resetWorkspaceScopesForTest,
+  recordWorkspaceScope,
+  setWorkspaceScope,
 } from '@/lib/workspace-scope'
 
-describe('useLspScopeReady', () => {
+const posts = () => apiFetch.mock.calls.map((c) => String(c[0]))
+
+describe('useLspDocumentSync', () => {
+  let model: Monaco.editor.ITextModel
+
   beforeEach(() => {
+    vi.useFakeTimers()
+    apiFetch.mockClear()
+    subscribe.mockClear()
     __resetWorkspaceScopesForTest()
-    wsIdHolder.current = 'ws-race'
+    model = monacoEditor.createModel('let a = 1', 'typescript', Uri.parse('file:///w1/src/a.ts'))
+    setWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w1', owningChatId: 'chat-1' })
+    setActiveWorkspaceId('w1')
+  })
+  afterEach(() => {
+    model.dispose()
+    vi.useRealTimers()
   })
 
-  it('is false while a non-home workspace has no owning chat id recorded', () => {
-    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race' })
-    const { result } = renderHook(() => useLspScopeReady())
-    expect(result.current).toBe(false)
+  it("opens and closes the document on its own workspace's chat", async () => {
+    const { unmount } = renderHook(() => useLspDocumentSync(model, 'src/a.ts', 'typescript', 'w1'))
+    await act(() => vi.runAllTimersAsync())
+    expect(posts()).toEqual(['/v0/chats/chat-1/lsp/didOpen'])
+
+    unmount()
+    await act(() => vi.runAllTimersAsync())
+    expect(posts()).toEqual(['/v0/chats/chat-1/lsp/didOpen', '/v0/chats/chat-1/lsp/didClose'])
   })
 
-  it('flips to true once the owning chat id arrives, without a remount', () => {
-    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race' })
-    const { result } = renderHook(() => useLspScopeReady())
-    expect(result.current).toBe(false)
+  it('sends nothing for a hidden pane when another workspace becomes active', async () => {
+    const { rerender } = renderHook(() => useLspDocumentSync(model, 'src/a.ts', 'typescript', 'w1'))
+    await act(() => vi.runAllTimersAsync())
+    model.setValue('let a = 2 // unsaved')
+    await act(() => vi.runAllTimersAsync())
+    apiFetch.mockClear()
 
-    act(() => {
-      recordWorkspaceScope({
-        projectId: 'p1',
-        repoId: 'r1',
-        wsId: 'ws-race',
-        owningChatId: 'chat-race',
-      })
-    })
-
-    expect(result.current).toBe(true)
-  })
-
-  it('is true immediately when the scope was already recorded before mount (no race)', () => {
-    setWorkspaceScope({
-      projectId: 'p1',
-      repoId: 'r1',
-      wsId: 'ws-race',
-      owningChatId: 'chat-race',
-    })
-    const { result } = renderHook(() => useLspScopeReady())
-    expect(result.current).toBe(true)
-  })
-
-  // The home (project-level) workspace has no worktree and therefore no chat
-  // and no LSP surface at all — it must never wait on an id that will never
-  // arrive.
-  it('is true immediately for the home workspace', () => {
-    setWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'home-ws' })
-    wsIdHolder.current = 'home-ws'
-    const { result } = renderHook(() => useLspScopeReady())
-    expect(result.current).toBe(true)
-  })
-
-  it('is true when there is no active workspace at all', () => {
-    wsIdHolder.current = null
-    const { result } = renderHook(() => useLspScopeReady())
-    expect(result.current).toBe(true)
-  })
-
-  // A wait for a workspace the user has since navigated away from must not
-  // resolve stale — re-rendering with the NEW active id re-subscribes to that
-  // id's own scope instead of the abandoned one.
-  it('does not resolve for a workspace the user has since navigated away from', () => {
-    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race' })
-    const { result, rerender } = renderHook(() => useLspScopeReady())
-    expect(result.current).toBe(false)
-
-    wsIdHolder.current = 'ws-other'
-    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-other' })
+    // W2 is forked and becomes active: the route records it before the
+    // sidebar knows its owning chat, then the chat lands.
+    setActiveWorkspaceId('w2')
+    setWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w2' })
     rerender()
-    expect(result.current).toBe(false)
+    act(() =>
+      recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w2', owningChatId: 'chat-2' }),
+    )
+    rerender()
+    await act(() => vi.runAllTimersAsync())
 
-    act(() => {
-      recordWorkspaceScope({
-        projectId: 'p1',
-        repoId: 'r1',
-        wsId: 'ws-race',
-        owningChatId: 'chat-race',
-      })
-    })
-    expect(result.current).toBe(false)
-
-    act(() => {
-      recordWorkspaceScope({
-        projectId: 'p1',
-        repoId: 'r1',
-        wsId: 'ws-other',
-        owningChatId: 'chat-other',
-      })
-    })
-    expect(result.current).toBe(true)
+    expect(posts()).toEqual([])
   })
 })

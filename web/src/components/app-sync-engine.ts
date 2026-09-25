@@ -184,8 +184,7 @@ export function useAppSyncEngine(): void {
         // Its scope is gone on the daemon: drop the row and close the repo's
         // streams now, without the grace period, or every cascade frame
         // reseeds a 404. The rebuild prunes whatever the row carried.
-        const { repos, setRepos } = useSidebarStore.getState()
-        if (repos.some((r) => r.id === repoId)) setRepos(repos.filter((r) => r.id !== repoId))
+        useSidebarStore.getState().removeRepo(repoId)
         closeNow(workspacesKey(projectId, repoId))
         closeNow(treeKey(projectId, repoId))
       } else {
@@ -194,9 +193,14 @@ export function useAppSyncEngine(): void {
         // workspaces arrive on the per-repo stream reconcile() opens below.
         // For a repo we already hold this is a no-op, and the rebuild below
         // carries its changed header fields (name, avatar, path).
-        useSidebarStore
-          .getState()
-          .mergeRepos([toSidebarRepo(change.frame as unknown as RepoDTO, [])])
+        const row = toSidebarRepo(change.frame as unknown as RepoDTO, [])
+        useSidebarStore.getState().mergeRepos([row])
+        // The delete is announced before its cascade tombstones the repo's
+        // chats: stop reading a scope that is going away.
+        if (row.deleting) {
+          closeNow(workspacesKey(projectId, repoId))
+          closeNow(treeKey(projectId, repoId))
+        }
       }
       scheduleRebuild()
       reconcile()
@@ -524,7 +528,7 @@ export function useAppSyncEngine(): void {
       const { repos } = useSidebarStore.getState()
       for (const repo of repos) {
         const projectId = repo.projectId
-        if (!projectId || !visibleProjects.has(projectId)) continue
+        if (!projectId || !visibleProjects.has(projectId) || repo.deleting) continue
         keys.add(workspacesKey(projectId, repo.id))
         keys.add(treeKey(projectId, repo.id))
       }
