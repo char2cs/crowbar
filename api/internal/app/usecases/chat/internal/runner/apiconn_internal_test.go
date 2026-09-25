@@ -8,7 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -132,6 +135,39 @@ func TestForkServeProcess_StartsARealProcess(t *testing.T) {
 	assert.NoError(t, serve.cmd.Process.Signal(os.Interrupt))
 }
 
+// codex's `serve` is a node wrapper around the real binary: killing only the
+// wrapper orphaned the app-server it had started, which ran on forever.
+func TestForkServeProcess_KillEndsWhatTheProcessStarted(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "grandchild.pid")
+	serve, err := forkServeProcess([]string{"sh", "-c", "sleep 60 & echo $! > " + pidFile + "; wait"})
+	require.NoError(t, err)
+	var grandchild int
+	require.Eventually(t, func() bool {
+		raw, err := os.ReadFile(pidFile)
+		if err != nil || !strings.HasSuffix(string(raw), "\n") {
+			return false
+		}
+		grandchild, err = strconv.Atoi(strings.TrimSpace(string(raw)))
+		return err == nil
+	}, 5*time.Second, 10*time.Millisecond)
+
+	serve.kill()
+
+	require.Eventually(t, func() bool { return !processRunning(grandchild) },
+		5*time.Second, 20*time.Millisecond, "the serve process's own child outlived it")
+}
+
+// processRunning reports whether pid exists and is not a zombie awaiting reap.
+func processRunning(pid int) bool {
+	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return syscall.Kill(pid, 0) == nil
+	}
+	s := string(stat)
+	fields := strings.Fields(s[strings.LastIndexByte(s, ')')+1:])
+	return len(fields) > 0 && fields[0] != "Z"
+}
+
 func TestForkServeProcess_EmptyArgvIsAnError(t *testing.T) {
 	_, err := forkServeProcess(nil)
 	assert.Error(t, err)
@@ -162,6 +198,28 @@ func TestAPIConnRegistry_DropKillsTheProcessAndClosesTheDriver(t *testing.T) {
 
 	// A second drop of the same (now-absent) runner must not panic.
 	reg.drop("runner-1")
+}
+
+// A daemon shutting down kills its own serve processes; that is not the
+// runner exiting. Its row stays live, so the next boot records the real
+// reason (daemon_restart) — an exit reconciled here raced the store's close.
+func TestAPIConnRegistry_CloseAllIsNotARunnerExit(t *testing.T) {
+	reg := newAPIConnRegistry()
+	cmd := exec.CommandContext(t.Context(), "sleep", "5")
+	require.NoError(t, cmd.Start())
+	serve := reapServe(cmd)
+	reg.set("runner-1", &apiconn{serve: serve})
+	exited := make(chan struct{}, 1)
+	require.True(t, reg.watchExit("runner-1", func() { exited <- struct{}{} }))
+
+	reg.closeAll()
+
+	<-serve.exited
+	select {
+	case <-exited:
+		t.Fatal("the daemon's own shutdown was reconciled as the runner exiting")
+	case <-time.After(200 * time.Millisecond):
+	}
 }
 
 func TestAPIConnRegistry_CloseAllKillsEveryLiveProcess(t *testing.T) {

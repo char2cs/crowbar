@@ -32,6 +32,7 @@ func newLiveRig(t *testing.T) (*rig, *modelServer) {
 			t.Skipf("%s is not installed", cli)
 		}
 	}
+	kit.RequireNoLeakedProcesses(t)
 	model := newModelServer(t)
 	home := t.TempDir()
 	t.Setenv("CROWBAR_HOME", home)
@@ -145,6 +146,79 @@ func TestLive_DaemonRestartMidTurn(t *testing.T) {
 			assert.Len(t, r.sessions(chatID), 1, "the same vendor session continued")
 		})
 	}
+}
+
+// The real codex opens its TUI before any turn wrote a rollout, takes a turn
+// there, and the chat surface resumes the session the TUI started.
+func TestLive_CodexTerminalBeforeAnyTurnAndBack(t *testing.T) {
+	r, _ := newLiveRig(t)
+	ctx := context.Background()
+	chatID := r.spawn("codex")
+
+	_, err := r.runners().SwitchToTerminal(ctx, chatID)
+	require.NoError(t, err)
+	require.NoError(t, r.send(chatID, "in the terminal"))
+	r.eventually(r.replied(chatID, 1), "the TUI never answered")
+	before := r.sessions(chatID)
+
+	require.NoError(t, r.runners().SwitchToNative(ctx, chatID))
+	require.NoError(t, r.send(chatID, "back in the chat"))
+	r.eventually(r.replied(chatID, 2), "the chat surface never answered")
+
+	assert.Equal(t, before, r.sessions(chatID), "the chat surface resumed the TUI's session, starting none")
+	assert.Equal(t, domain.AgentRungSession, r.snapshot(chatID).Session.Rung)
+}
+
+// A real codex chat born in its TUI moves to Crowbar's chat on the same
+// session, and claude's one process moves between surfaces in place.
+func TestLive_TerminalChatsMoveToTheChat(t *testing.T) {
+	r, _ := newLiveRig(t)
+	ctx := context.Background()
+	codexChat, err := r.d.app.Usecases.AgentChat.MintChat(ctx, r.wsID, "codex", "terminal")
+	require.NoError(t, err)
+	_, err = r.runners().StartRunner(ctx, codexChat, "codex")
+	require.NoError(t, err)
+	require.NoError(t, r.send(codexChat, "in the terminal"))
+	r.eventually(r.replied(codexChat, 1), "codex's TUI never answered")
+	before := r.sessions(codexChat)
+
+	require.NoError(t, r.runners().SwitchToNative(ctx, codexChat))
+	require.NoError(t, r.send(codexChat, "now in the chat"))
+	r.eventually(r.replied(codexChat, 2), "the chat surface never answered")
+	assert.Equal(t, before, r.sessions(codexChat), "the chat surface resumed the TUI's session")
+
+	claudeChat := r.spawn("claude")
+	_, err = r.runners().SwitchToTerminal(ctx, claudeChat)
+	require.NoError(t, err)
+	require.NoError(t, r.send(claudeChat, "in claude's terminal"))
+	r.eventually(r.replied(claudeChat, 1), "claude never answered on its terminal")
+	require.NoError(t, r.runners().SwitchToNative(ctx, claudeChat))
+	require.NoError(t, r.send(claudeChat, "in claude's chat"))
+	r.eventually(r.replied(claudeChat, 2), "claude never answered on the chat")
+	assert.Len(t, r.sessions(claudeChat), 1)
+}
+
+// A real claude chat switched to codex opens codex's TUI and answers there;
+// switching back resumes claude's own session.
+func TestLive_SwitchToCodexThenItsTerminal(t *testing.T) {
+	r, _ := newLiveRig(t)
+	ctx := context.Background()
+	chatID := r.spawn("claude")
+	require.NoError(t, r.send(chatID, "first"))
+	r.eventually(r.replied(chatID, 1), "claude never answered")
+
+	_, err := r.runners().SwitchProvider(ctx, chatID, "codex")
+	require.NoError(t, err)
+	_, err = r.runners().SwitchToTerminal(ctx, chatID)
+	require.NoError(t, err)
+	require.NoError(t, r.send(chatID, "codex in its terminal"))
+	r.eventually(r.replied(chatID, 2), "codex's TUI never answered")
+
+	_, err = r.runners().SwitchProvider(ctx, chatID, "claude")
+	require.NoError(t, err)
+	require.NoError(t, r.send(chatID, "claude again"))
+	r.eventually(r.replied(chatID, 3), "claude never answered again")
+	assert.Equal(t, domain.AgentRungSession, r.snapshot(chatID).Session.Rung, "claude resumed its own session")
 }
 
 // A vendor session the CLI no longer has continues on a fresh one handed the

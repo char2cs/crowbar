@@ -727,20 +727,13 @@ describe('AgentChatPane', () => {
       )
     })
 
-    // Regression: a refused switch (a turn still in flight, or codex before its
-    // first completed turn ever wrote a rollout to resume — both real 409s the
-    // backend already returns, see attach.go's ErrTurnInProgress /
-    // ErrNativeViewNotYetAvailable) used to be swallowed with no feedback at
-    // all: the tab click did nothing visible, which reads as broken rather than
-    // refused.
+    // A refused switch (a turn still in flight: attach.go's ErrTurnInProgress)
+    // must say so; a click that does nothing visible reads as broken.
     it('toasts when switchToTerminal is refused, instead of silently doing nothing', async () => {
       const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
       store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
       switchToTerminalFn.mockRejectedValue(
-        new ApiError(
-          'agent: provider has no completed turn yet to show its native view of: conflict',
-          409,
-        ),
+        new ApiError('agent: provider cannot hand a live turn to its native view: conflict', 409),
       )
       await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
@@ -1350,10 +1343,7 @@ describe('AgentChatPane', () => {
     //
     // A chat BORN on the terminal surface has no api connection behind it —
     // the daemon never opened one (spawnRunner's surfaceForSpawn) — so its own
-    // PTY IS the conversation. Asking for an attach anyway is refused, because
-    // that attach is `codex resume {id}` against an api session this chat never
-    // had: "provider has no completed turn yet to show its native view of".
-    // The switch guard is right; asking was the mistake.
+    // PTY IS the conversation, with nothing to ask the daemon for.
     it('a terminal-BORN chat shows its own PTY without asking for an attach', async () => {
       const store = seedWorkspace([
         liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'codex', surface: 'terminal' }),

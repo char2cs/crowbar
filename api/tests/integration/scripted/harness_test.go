@@ -173,6 +173,7 @@ type rig struct {
 
 func newRig(t *testing.T) *rig {
 	t.Helper()
+	kit.RequireNoLeakedProcesses(t)
 	home := t.TempDir()
 	t.Setenv("CROWBAR_HOME", home)
 	kit.IsolateProviderHomes(t)

@@ -131,11 +131,10 @@ func (h *Handlers) Compact(ctx *gin.Context) {
 	libs.WriteMutationOK(ctx, http.StatusAccepted, ctx.Param("id"))
 }
 
-// SwitchToTerminal handles POST .../chats/:id/switch-to-terminal: hands the
-// chat's live turn over to its provider's own native view. Idle-only — a
-// turn in flight is a conflict, and a provider with no native view to show
-// is unprocessable — both mapped by libs.StatusAndMessage same as any other
-// usecase error. Responds with the new terminal session id.
+// SwitchToTerminal handles POST .../chats/:id/switch-to-terminal: moves the
+// chat onto its provider's own TUI. A turn in flight is a conflict, and a
+// provider with no TUI to show is unprocessable. Responds with the terminal
+// session the TUI is ("" for a dormant chat, which only records the move).
 func (h *Handlers) SwitchToTerminal(ctx *gin.Context) {
 	id := ctx.Param("id")
 	if _, ok := h.requireChatInWorkspace(ctx, id); !ok {
@@ -150,9 +149,8 @@ func (h *Handlers) SwitchToTerminal(ctx *gin.Context) {
 	libs.WriteMutationOK(ctx, http.StatusOK, termSessID)
 }
 
-// SwitchToNative handles POST .../chats/:id/switch-to-native: reverses
-// SwitchToTerminal. A chat with nothing attached is a no-op, same as Stop on
-// an already-dormant chat.
+// SwitchToNative handles POST .../chats/:id/switch-to-native: moves the chat
+// onto Crowbar's own chat surface; a chat already there is a no-op.
 func (h *Handlers) SwitchToNative(ctx *gin.Context) {
 	id := ctx.Param("id")
 	if _, ok := h.requireChatInWorkspace(ctx, id); !ok {

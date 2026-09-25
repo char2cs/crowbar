@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -95,34 +96,30 @@ func (rs *Runners) ShowingNativeView(runnerID string) bool {
 	return rs.surfaces.get(runnerID) == engineagents.SurfaceTerminal
 }
 
-// ErrNoNativeTerminal is SwitchToTerminal's refusal for a provider with
-// nothing to switch to: no live api connection, or one whose descriptor
-// declares no attach at all (capability 2's "no reachable native view" state).
+// ErrNoNativeTerminal is SwitchToTerminal's refusal for a provider with no
+// TUI to move to: neither a PTY of its own, an attach, nor a terminal surface
+// it can start on.
 var ErrNoNativeTerminal = fmt.Errorf("agent: provider has no native terminal to show: %w", apperr.ErrUnprocessable)
 
-// ErrTurnInProgress is SwitchToTerminal's refusal for a non-hotswap provider
-// mid-turn — the one restriction this whole capability exists to enforce (a
-// hotswap provider never calls this at all; its terminal is already live).
+// ErrTurnInProgress refuses a surface move that would hand over or relaunch
+// the process mid-turn; a process that serves both surfaces moves any time.
 var ErrTurnInProgress = fmt.Errorf("agent: provider cannot hand a live turn to its native view: %w", apperr.ErrConflict)
 
-// ErrNativeViewNotYetAvailable is SwitchToTerminal's refusal for a session
-// that has never completed a turn: the attach resume needs a flushed rollout,
-// and a provider writes none until a turn completes.
-var ErrNativeViewNotYetAvailable = fmt.Errorf("agent: provider has no completed turn yet to show its native view of: %w", apperr.ErrConflict)
-
-// SwitchToTerminal hands chatID's live turn over to its provider's own native
-// view — an idle-only capability (design spec's non-hotswap state): the api
-// connection is torn down and a bare resume of the SAME session is forked as
-// a REAL, ordinary hooks-transport PTY, wired with the exact same
-// MCPInject/ConfigInjection steps any hooks-attached CLI gets (APIAttachArgv),
-// so it reports back into Crowbar's ledger exactly like claude's always-live
-// PTY does — nothing here is a degraded or disconnected view.
+// SwitchToTerminal moves chatID onto its provider's own TUI and returns the
+// terminal session that TUI is. How depends on what the runner is now:
 //
-// Returns the new terminal session id, for the caller to hand the frontend so
-// it can point its existing terminal-rendering path at it — the same one a
-// hotswap provider's terminal view already uses.
+//   - its own PTY (claude; a chat born on the terminal): that PTY already is
+//     the TUI, so only the surface moves;
+//   - an api connection whose session the provider can load (a completed
+//     turn wrote its rollout): the session rung — the connection is handed
+//     over to a hooks-transport `attach` of that session, same runner;
+//   - otherwise: the TUI is launched through the resume ladder like any
+//     other replacement — Crowbar's transcript when there is history, fresh
+//     when there is none.
+//
+// A dormant chat only records the move; its next start lands there.
 func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string, error) {
-	_, release, err := rs.spawns.Acquire(ctx, chatID)
+	park, release, err := rs.spawns.Acquire(ctx, chatID)
 	if err != nil {
 		return "", err
 	}
@@ -130,25 +127,22 @@ func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string,
 
 	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
 	if errors.Is(err, agentrunner.ErrNotFound) {
-		return "", fmt.Errorf("agent: switch to terminal: %w", apperr.ErrNotFound)
+		return "", rs.moveDormantSurface(ctx, chatID, engineagents.SurfaceTerminal)
 	}
 	if err != nil {
 		return "", fmt.Errorf("agent: switch to terminal: live runner: %w", err)
 	}
-	// Idempotent: a caller that already switched (or a retry racing its own
-	// earlier success) gets the SAME session back rather than ErrNoNativeTerminal
-	// — there is no live api connection to check attach against once attached,
-	// which is the expected shape here, not a failure.
+	// Idempotent: a retry racing its own earlier success gets the same view.
 	if already, ok := rs.attached.get(live.ID); ok {
 		return already.termSessID, nil
 	}
 	conn, ok := rs.apiConns.get(live.ID)
 	if !ok {
-		return "", ErrNoNativeTerminal
-	}
-	attachArgv, ok := conn.agent.APIAttachArgv(conn.tctx)
-	if !ok {
-		return "", ErrNoNativeTerminal
+		if live.TerminalSession == "" {
+			return "", ErrNoNativeTerminal
+		}
+		rs.moveSurface(ctx, chatID, live.ID, engineagents.SurfaceTerminal)
+		return live.TerminalSession, nil
 	}
 	working, err := rs.turns.ChatWorking(ctx, chatID)
 	if err != nil {
@@ -157,56 +151,102 @@ func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string,
 	if working {
 		return "", ErrTurnInProgress
 	}
-	// live.CurrentSession, NOT conn.tctx.Session: OpenTurn/CloseTurn (internal/turn)
-	// always stamp agent_turns.session_id from the runner row's durable
-	// CurrentSession, never from conn.tctx.Session — a copy apiconn.go sets once,
-	// at establish, and never reassigns again. The two usually agree, but nothing
-	// resyncs them after that, and checking the connection's stale copy here
-	// refused a session that HAD completed a turn (confirmed live), because the
-	// row it needed was written under CurrentSession, not this copy. codex writes
-	// nothing for a thread until a turn against it completes, so a session that
-	// has never closed one has no rollout for `codex resume` to load. Checked
-	// here, after `working`: a turn currently in flight (the first one, not yet
-	// completed) must still report ErrTurnInProgress, the more actionable refusal.
+	attachArgv, tctx, attachable, err := rs.attachPlan(ctx, chatID, live, conn)
+	if err != nil {
+		return "", err
+	}
+	if attachable {
+		return rs.attachNativeView(ctx, chatID, live, conn.agent, tctx, attachArgv)
+	}
+	if !conn.agent.SurfaceStartHere(engineagents.SurfaceTerminal) {
+		return "", ErrNoNativeTerminal
+	}
+	return rs.respawnOnSurface(ctx, park, chatID, live.ProviderID, engineagents.SurfaceTerminal)
+}
+
+// attachPlan is the session rung for an api runner's native view: its own
+// session resumed in the TUI, offered only once the provider can load it —
+// codex writes a thread's rollout when its first turn completes.
+//
+// live.CurrentSession, not conn.tctx.Session: turns are recorded under the
+// runner row's session, and the connection's copy is set once at establish.
+func (rs *Runners) attachPlan(
+	ctx context.Context, chatID string, live engineagents.Runner, conn *apiconn,
+) ([]string, engineagents.TemplateCtx, bool, error) {
+	tctx := conn.tctx
+	tctx.Session = live.CurrentSession
+	argv, ok := conn.agent.APIAttachArgv(tctx)
+	if !ok || live.CurrentSession == "" {
+		return nil, tctx, false, nil
+	}
 	_, everTurned, err := rs.activity.LastTurnForSession(ctx, chatID, live.ProviderID, live.CurrentSession)
 	if err != nil {
-		return "", fmt.Errorf("agent: switch to terminal: check session history: %w", err)
+		return nil, tctx, false, fmt.Errorf("agent: switch to terminal: check session history: %w", err)
 	}
-	if !everTurned {
-		return "", ErrNativeViewNotYetAvailable
+	if !everTurned || rs.verifiedResume(ctx, conn.agent, chatID, live.CurrentSession) == "" {
+		return nil, tctx, false, nil
 	}
+	return argv, tctx, true, nil
+}
 
-	agent, tctx := conn.agent, conn.tctx // capture before drop erases the entry
-	// The native view below becomes this runner's process, so killing the
-	// connection here is a HANDOVER, not a death — see handOverAPIConn. Marked
-	// before the drop: the watcher can observe the process die the instant
-	// drop signals it, and a PTY-less runner would otherwise be reconciled
-	// away underneath the view it is switching to.
+// attachNativeView hands live's api connection over to a hooks-transport PTY
+// resuming the same session (APIAttachArgv carries the same injection steps
+// any hooks-attached CLI gets, so it reports into the ledger as usual).
+func (rs *Runners) attachNativeView(
+	ctx context.Context, chatID string, live engineagents.Runner,
+	agent engineagents.Agent, tctx engineagents.TemplateCtx, attachArgv []string,
+) (string, error) {
+	// The native view becomes this runner's process, so killing the connection
+	// is a handover, not a death. Marked before the drop: the watcher can see
+	// the process die the instant drop signals it.
 	rs.handOverAPIConn(live.ID)
 	rs.apiConns.drop(live.ID)
 
 	argv := append([]string{binpath.Resolve(attachArgv[0])}, attachArgv[1:]...)
-	// Keyed by the CHAT, not the runner row's workspace: the native view is a
-	// PTY this chat owns, and live.WorkspaceID is empty for a chat with no
-	// worktree of its own. tctx.Cwd stays the separately-resolved directory.
-	//
-	// os.Environ(), the same base every ordinary spawn plans from — NOT nil.
-	// CreateCommand takes the env verbatim, so nil left the native view with
-	// three variables and no PATH or HOME: measured live, every hook
-	// APIAttachArgv wires died with exit 127 and `crowbar mcp` never started,
-	// which is the exact "reports NOTHING back to Crowbar's ledger" that
-	// method's own doc says this path exists to prevent.
+	// Keyed by the chat: live.WorkspaceID is empty for a chat with no worktree
+	// of its own. os.Environ(), as every spawn: CreateCommand takes env verbatim,
+	// and without PATH/HOME every hook the attach wires dies with exit 127.
 	termSessID, err := rs.term.CreateCommand(ctx, chatID, tctx.Cwd, argv, os.Environ(),
 		rs.onAttachExit(chatID, live.ID))
 	if err != nil {
-		// The api connection is already gone; degrade to dormant rather than leave
-		// the chat believing a connection is live when it is not — Resume revives it.
+		// The connection is already gone; the chat degrades to dormant and a
+		// resume revives it.
 		return "", fmt.Errorf("agent: switch to terminal: fork native view: %w", err)
 	}
 	rs.attached.set(live.ID, attachedView{termSessID: termSessID, agent: agent, tctx: tctx})
 	rs.moveSurface(ctx, chatID, live.ID, engineagents.SurfaceTerminal)
 	rs.touch(ctx, chatID) // the pane's terminal session is now the native view
 	return termSessID, nil
+}
+
+// respawnOnSurface moves chatID to surface by relaunching its provider there
+// through the resume ladder (switchProviderLocked to the same provider): its
+// own session when the provider still has it, else Crowbar's transcript,
+// else fresh. The surface is recorded first because the spawn reads it.
+func (rs *Runners) respawnOnSurface(
+	ctx, park context.Context, chatID, providerID, surface string,
+) (string, error) {
+	defer rs.enterPhase(ctx, chatID, snapshot.PhaseSwitching)()
+	if _, err := rs.chats.SetSurface(ctx, chatID, surface); err != nil {
+		return "", fmt.Errorf("agent: move chat to %s: record surface: %w", surface, err)
+	}
+	runnerID, err := rs.switchProviderLocked(ctx, park, chatID, providerID)
+	if err != nil {
+		return "", err
+	}
+	runner, err := rs.runnerStore.Get(ctx, runnerID)
+	if err != nil {
+		return "", fmt.Errorf("agent: move chat to %s: new runner: %w", surface, err)
+	}
+	return runner.TerminalSession, nil
+}
+
+// moveDormantSurface records the surface a chat with no runner will start on.
+func (rs *Runners) moveDormantSurface(ctx context.Context, chatID, surface string) error {
+	if _, err := rs.chats.SetSurface(ctx, chatID, surface); err != nil {
+		return fmt.Errorf("agent: move chat to %s: record surface: %w", surface, err)
+	}
+	return nil
 }
 
 // moveSurface records, durably and in memory, that chatID is now on
@@ -229,13 +269,14 @@ func (rs *Runners) moveSurface(ctx context.Context, chatID, runnerID, surface st
 	}
 }
 
-// SwitchToNative reverses SwitchToTerminal: the native-view PTY is torn down
-// and the api connection is re-established over the SAME session via
-// applyAPITransport's own Resume path (EstablishSession is a no-op once a
-// session id is already known — it just resumes). Idempotent: a chat with
-// nothing attached returns nil, since there is nothing to switch back FROM.
+// SwitchToNative moves chatID onto Crowbar's own chat surface. An attached
+// native view is torn down and the api connection re-established over the
+// same session; a runner that is its own PTY on the terminal surface either
+// keeps serving (a provider whose chat surface is hooks-fed) or is relaunched
+// on the chat surface through the resume ladder. A dormant chat only records
+// the move. Idempotent.
 func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
-	_, release, err := rs.spawns.Acquire(ctx, chatID)
+	park, release, err := rs.spawns.Acquire(ctx, chatID)
 	if err != nil {
 		return err
 	}
@@ -243,15 +284,43 @@ func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
 
 	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
 	if errors.Is(err, agentrunner.ErrNotFound) {
-		return nil
+		return rs.moveDormantSurface(ctx, chatID, engineagents.SurfaceChat)
 	}
 	if err != nil {
 		return fmt.Errorf("agent: switch to native: live runner: %w", err)
 	}
-	view, ok := rs.attached.get(live.ID)
-	if !ok {
+	if view, ok := rs.attached.get(live.ID); ok {
+		rs.detachNativeView(ctx, chatID, live, view)
 		return nil
 	}
+	if rs.surfaces.get(live.ID) != engineagents.SurfaceTerminal {
+		return nil
+	}
+	_, agent, err := rs.chatCapabilityContext(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agent: switch to native: %w", err)
+	}
+	if !apiTransportDrivesSurface(agent, engineagents.SurfaceChat) {
+		rs.moveSurface(ctx, chatID, live.ID, engineagents.SurfaceChat)
+		return nil
+	}
+	working, err := rs.turns.ChatWorking(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agent: switch to native: chat working: %w", err)
+	}
+	if working {
+		return ErrTurnInProgress
+	}
+	_, err = rs.respawnOnSurface(ctx, park, chatID, live.ProviderID, engineagents.SurfaceChat)
+	return err
+}
+
+// detachNativeView reverses attachNativeView: the view's PTY is torn down and
+// the api connection re-established over the same session (EstablishSession
+// resumes a known session id).
+func (rs *Runners) detachNativeView(
+	ctx context.Context, chatID string, live engineagents.Runner, view attachedView,
+) {
 	rs.attached.drop(live.ID)
 	rs.touch(ctx, chatID)
 
@@ -260,22 +329,16 @@ func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
 		slog.WarnContext(ctx, "agent: switch to native: terminate native view (best-effort, continuing)",
 			"runner_id", live.ID, "terminal_session_id", view.termSessID, "err", err)
 	}
-	// No resumeContext: this is switching VIEWS on one still-live session, not
-	// resuming one that was ever actually away — view.tctx's own Context is
-	// whatever the ORIGINAL spawn assembled and would only be a stale replay
-	// of the same document on every terminal<->chat toggle if reused here.
-	// No plan to point at attach either: there is no PTY being forked here, and
-	// the native view this just replaced has already been torn down above.
+	// No resume context: this switches views on one live session; the spawn's
+	// original context would only be replayed on every toggle.
 	_ = rs.applyAPITransport(ctx, live.ID, live.ProviderID, view.agent, view.tctx, "")
-	// A runner with a PTY of its own is carried by it either way. One without
-	// has just swapped processes again: the re-established connection is the
-	// new one, and if none came back it has none at all. Still under the spawn
-	// gate, so the view's own exit callback cannot race this answer.
+	// A runner without a PTY of its own has just swapped processes again: the
+	// re-established connection is its process, and if none came back it has
+	// none. Still under the spawn gate, so the view's exit callback cannot race.
 	if live.TerminalSession == "" && !rs.rearmAPIConnExit(live.ID, view.tctx) {
 		rs.exitProcesslessRunner(ctx, live.ID)
 	}
 	rs.moveSurface(ctx, chatID, live.ID, engineagents.SurfaceChat)
-	return nil
 }
 
 // onAttachExit runs when the native-view PTY exits on its own — the user

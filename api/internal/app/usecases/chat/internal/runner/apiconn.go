@@ -50,13 +50,11 @@ type apiconn struct {
 	// originated is every conversation this connection's own driver opened in
 	// place of one Crowbar named — see sessionorigin.go.
 	originated *originatedSessions
-	// handedOver marks a connection whose process is being killed so ANOTHER
-	// process can take the runner over — SwitchToTerminal's native view, which
-	// must tear this down first (codex allows one writer per thread). Read by
-	// watchExit (apirunner.go), which otherwise reads the same death as the
-	// runner's own. Held on the connection rather than in the registry because
-	// the watcher owns a direct pointer and the registry entry is gone by then.
-	handedOver atomic.Bool
+	// detached marks a connection whose process is being killed without the
+	// runner ending: handed over to its native view (SwitchToTerminal), or the
+	// daemon shutting down, whose next boot reconciles the row. Read by
+	// watchExit (apirunner.go), which holds this pointer after the entry is gone.
+	detached atomic.Bool
 }
 
 // apiConnRegistry is the per-runner registry pumpAPIConn's ingest loop and
@@ -123,7 +121,8 @@ func (r *apiConnRegistry) drop(runnerID string) {
 // knows PTYs and LSP servers; apiConnRegistry lives a layer below that) ever
 // visits the ones still live when the daemon exits. Without this, every
 // `serve` process a mixed-transport provider forked outlives the daemon that
-// spawned it.
+// spawned it. Each is detached first: the daemon ending is not the runner
+// exiting, and the next boot reconciles the row as daemon_restart.
 //
 // Snapshots the ids under the lock, then calls drop per id with the lock
 // released — drop takes its own lock, so holding r.mu across those calls
@@ -131,7 +130,8 @@ func (r *apiConnRegistry) drop(runnerID string) {
 func (r *apiConnRegistry) closeAll() {
 	r.mu.Lock()
 	ids := make([]string, 0, len(r.byRun))
-	for id := range r.byRun {
+	for id, c := range r.byRun {
+		c.detached.Store(true)
 		ids = append(ids, id)
 	}
 	r.mu.Unlock()

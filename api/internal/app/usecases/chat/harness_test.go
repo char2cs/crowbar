@@ -347,6 +347,8 @@ func (f *fakeRunnerBroadcaster) snapshot() []runnerFrame {
 }
 
 type fakeWorkspace struct {
+	// mu guards the two call records: a probe and a switch resolve cwds concurrently.
+	mu        sync.Mutex
 	home      string
 	projectID string
 	repoID    string
@@ -371,6 +373,8 @@ func (f *fakeWorkspace) WorktreeDir(
 	_ context.Context,
 	workspaceID string,
 ) (crowbarHome, projectID, repoID, worktree string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.lastWorkspaceID = workspaceID
 	f.worktreeDirIDs = append(f.worktreeDirIDs, workspaceID)
 	if f.err != nil {
@@ -386,6 +390,8 @@ func (f *fakeWorkspace) AgentChatsDir(
 	_ context.Context,
 	workspaceID string,
 ) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.lastWorkspaceID = workspaceID
 	if f.err != nil {
 		return "", f.err

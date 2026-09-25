@@ -37,7 +37,9 @@ func (r *rig) continues(chatID, text string) {
 	r.setScript(healthy)
 	require.NoError(r.t, r.send(chatID, text))
 	r.eventually(func() bool {
-		return slices.Contains(r.said(chatID), "assistant: continued") && !r.working(chatID)
+		said := r.said(chatID)
+		asked := slices.Index(said, "user: "+text)
+		return asked >= 0 && slices.Contains(said[asked:], "assistant: continued") && !r.working(chatID)
 	}, "the conversation did not continue after "+text)
 }
 

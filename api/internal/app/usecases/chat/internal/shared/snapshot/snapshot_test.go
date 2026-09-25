@@ -234,6 +234,28 @@ func TestSnapshots_ADeletedChatLeavesNothingBehind(t *testing.T) {
 	assert.Zero(t, s.Len(), "a deleted chat holds no entry")
 }
 
+// Events are delivered concurrently, so one older than the delete can land
+// after it — against a read model that has not caught up either. The chat
+// stays deleted.
+func TestSnapshots_AnEventLandingAfterTheDeleteDoesNotResurrectTheChat(t *testing.T) {
+	ctx := context.Background()
+	s, rec, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}})
+	s.ApplyChat(ctx, domain.Chat{ID: "c1"}, 1, "created", false)
+	s.ApplyRunner(ctx, runnerOn("r1", "c1", t0), agents.Runner{}, 1, "placed")
+	s.ApplyChat(ctx, domain.Chat{ID: "c1"}, 3, "deleted", true)
+	deleted := len(rec.frames)
+
+	s.ApplyChat(ctx, domain.Chat{ID: "c1", Working: false}, 2, "turn_stopped", false)
+	exitedAt := t0.Add(time.Second)
+	s.ApplyRunner(ctx, agents.Runner{ID: "r1", ExitedAt: &exitedAt}, runnerOn("r1", "c1", t0), 2, "exited")
+	s.Touch(ctx, "c1")
+
+	assert.Len(t, rec.frames, deleted, "nothing is published for a deleted chat")
+	assert.Zero(t, s.Len(), "a deleted chat holds no entry")
+	_, err := s.Get(ctx, "c1")
+	require.Error(t, err)
+}
+
 // A chat nobody can read is not held: an unknown id answers an error and
 // leaves no entry behind.
 func TestSnapshots_AnUnknownChatIsNotHeld(t *testing.T) {

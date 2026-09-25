@@ -281,21 +281,16 @@ type RunnerUsecase interface {
 		chatID string,
 	) error
 
-	// SwitchToTerminal hands chatID's live turn over to its provider's OWN native
-	// view — idle-only, for a provider whose descriptor declares attach without
-	// hotswap (codex): the api connection is torn down and a bare resume of the
-	// SAME session is forked as a real terminal session, returned here so the
-	// caller can point its existing terminal-rendering path at it. Refuses
-	// (ErrTurnInProgress) while a turn is in flight, and (ErrNoNativeTerminal) for
-	// a provider with no native view to show at all.
+	// SwitchToTerminal moves chatID onto its provider's own TUI and returns
+	// the terminal session it is. Refuses (ErrTurnInProgress) while a turn is
+	// in flight and (ErrNoNativeTerminal) for a provider with no TUI to show.
 	SwitchToTerminal(
 		ctx context.Context,
 		chatID string,
 	) (terminalSessionID string, err error)
 
-	// SwitchToNative reverses SwitchToTerminal: the native-view PTY is torn down
-	// and the api connection is re-established over the same session. A chat with
-	// nothing attached is a nil no-op.
+	// SwitchToNative moves chatID onto Crowbar's own chat surface; a chat
+	// already there is a no-op.
 	SwitchToNative(
 		ctx context.Context,
 		chatID string,
