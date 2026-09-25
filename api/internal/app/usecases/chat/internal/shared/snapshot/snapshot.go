@@ -24,10 +24,12 @@ package snapshot
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -107,12 +109,24 @@ type chatState struct {
 	version     int64
 }
 
+// ErrDeleted is a chat whose delete this owner has applied.
+var ErrDeleted = fmt.Errorf("agent: chat snapshot: chat deleted: %w", apperr.ErrNotFound)
+
+// deletedCap bounds the deleted-chat memory: a late event trails its delete
+// by the fan-out's goroutine scheduling, not by a thousand later deletes.
+const deletedCap = 1024
+
 // Snapshots owns every chat's versioned snapshot.
 type Snapshots struct {
 	mu      sync.Mutex
 	base    int64
 	chats   map[string]*chatState
 	runners map[string]runnerState
+	// deleted remembers recent deletes, oldest first: events are delivered
+	// concurrently, so one older than a delete can land after it, over a read
+	// model that may not have caught up, and must not resurrect the chat.
+	deleted      map[string]struct{}
+	deletedOrder []string
 	// exited remembers runners that left before the boot seed ran, so the seed
 	// never resurrects one from a read model that has not caught up. Dropped
 	// once seeded.
@@ -135,6 +149,7 @@ func New(base int64) *Snapshots {
 		chats:   map[string]*chatState{},
 		runners: map[string]runnerState{},
 		exited:  map[string]struct{}{},
+		deleted: map[string]struct{}{},
 	}
 }
 
@@ -192,10 +207,14 @@ func (s *Snapshots) seedLocked(ctx context.Context) {
 func (s *Snapshots) ApplyChat(ctx context.Context, chat domain.Chat, version int64, kind string, forgotten bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, gone := s.deleted[chat.ID]; gone {
+		return
+	}
 	if forgotten {
 		st := s.stateLocked(chat.ID)
 		st.version++
 		delete(s.chats, chat.ID)
+		s.rememberDeletedLocked(chat.ID)
 		s.emitLocked(Frame{
 			Kind:     kind,
 			Deleted:  true,
@@ -278,6 +297,9 @@ func (s *Snapshots) Announce(ctx context.Context, chatID, kind string) {
 func (s *Snapshots) Get(ctx context.Context, chatID string) (Snapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, gone := s.deleted[chatID]; gone {
+		return Snapshot{}, ErrDeleted
+	}
 	st := s.stateLocked(chatID)
 	if err := s.loadLocked(ctx, chatID, st); err != nil {
 		if !st.loaded {
@@ -301,6 +323,15 @@ func (s *Snapshots) Len() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.chats)
+}
+
+func (s *Snapshots) rememberDeletedLocked(chatID string) {
+	s.deleted[chatID] = struct{}{}
+	s.deletedOrder = append(s.deletedOrder, chatID)
+	if len(s.deletedOrder) > deletedCap {
+		delete(s.deleted, s.deletedOrder[0])
+		s.deletedOrder = s.deletedOrder[1:]
+	}
 }
 
 func (s *Snapshots) stateLocked(chatID string) *chatState {
@@ -331,6 +362,9 @@ func (s *Snapshots) loadLocked(ctx context.Context, chatID string, st *chatState
 }
 
 func (s *Snapshots) emitChatLocked(ctx context.Context, chatID, kind, runnerID string) {
+	if _, gone := s.deleted[chatID]; gone {
+		return
+	}
 	st := s.stateLocked(chatID)
 	if err := s.loadLocked(ctx, chatID, st); err != nil {
 		// Nothing to describe: an event for a chat the read model has never
