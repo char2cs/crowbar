@@ -43,7 +43,8 @@
 # Web (`web/`)
 
 Checks CI runs: `bunx eslint . --max-warnings 0`, `bun run knip` (dead code),
-`bunx tsc --noEmit`, `bunx prettier --check .`, `bun run test:coverage`.
+`bunx tsc --noEmit`, `bunx prettier --check .`, `bun run test:coverage`,
+`bun run lint:doctor` (react-doctor; CI blocks on warnings).
 
 ## Test file location
 
