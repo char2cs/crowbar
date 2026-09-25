@@ -3,7 +3,7 @@
    wherever it appears in the import graph, so splitting this out changes
    nothing about how the tokens resolve. */
 @theme inline {
-  --font-sans: var(--app-font-family, 'Geist Variable', sans-serif);
+  --font-sans: var(--app-font-family, 'CalSansUI', sans-serif);
 
   /* Deliberately NOT chained through --app-font-family: that variable is set
      unconditionally at :root by appearance-bootstrap.ts (never unset), so a

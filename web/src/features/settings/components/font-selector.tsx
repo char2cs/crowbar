@@ -20,6 +20,13 @@ import {
 // Bundled fonts that are always available
 const BUNDLED_FONTS: FontInfo[] = [
   {
+    name: 'CalSansUI',
+    family: 'CalSansUI',
+    style: 'Regular',
+    is_monospace: false,
+  },
+  // Kept selectable as the UI-font alternate to CalSansUI.
+  {
     name: 'Geist Variable',
     family: 'Geist Variable',
     style: 'Regular',

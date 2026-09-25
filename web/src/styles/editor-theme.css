@@ -19,10 +19,10 @@
   --diffs-font-family: var(--editor-font-family);
   /* A file-path/stat header label, not prose or a headline — stays on the UI
      font (tracks --app-font-family same as --font-sans), never the serif
-     display face. Fallback name only: 'CalSansUI' was the pre-reskin UI font;
-     unreachable in practice since --app-font-family is always set, but kept
-     current so it isn't a stale name if that ever changes. */
-  --diffs-header-font-family: var(--app-font-family, 'Geist Variable', sans-serif);
+     display face. Fallback name only: unreachable in practice since
+     --app-font-family is always set, but kept current so it isn't a stale
+     name if that ever changes. */
+  --diffs-header-font-family: var(--app-font-family, 'CalSansUI', sans-serif);
 }
 
 /*

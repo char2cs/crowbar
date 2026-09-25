@@ -1,7 +1,8 @@
-// Bundled UI font (loaded via @fontsource-variable/geist in theme-fonts.css).
-// Kept as the default so the app's typography is driven by Settings without
-// requiring a new webfont.
-export const DEFAULT_UI_FONT_FAMILY = 'Geist Variable'
+// Bundled UI font (local @font-face in theme-fonts.css). Chosen over Geist
+// Variable after a live A/B in the running app; Geist Variable stays
+// selectable in Settings. Does not touch DEFAULT_MONO_FONT_FAMILY below —
+// terminal/code stays on Geist Mono Variable regardless of the UI font.
+export const DEFAULT_UI_FONT_FAMILY = 'CalSansUI'
 export const DEFAULT_MONO_FONT_FAMILY = 'Geist Mono Variable'
 // The terminal renders through xterm's DOM renderer (see resolve-font.ts), so
 // there is no longer any reason to prefer a static cut — that preference only
