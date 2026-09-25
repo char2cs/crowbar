@@ -195,6 +195,8 @@ export interface Repo {
   localPath?: string
   /** RepoDTO.lastError: why the last delete of this repo stopped. */
   deleteError?: string
+  /** A delete of this repo is in flight: its scope is going away. */
+  deleting?: boolean
 }
 
 /** A workspace row's new placement. Absent fields are left alone. */

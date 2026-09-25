@@ -171,6 +171,8 @@ export interface RepoDTO {
   /** Why the last delete of this repo stopped; the daemon keeps the row and
    *  resumes the delete at boot. */
   lastError?: string
+  /** The delete intent is recorded; with no lastError, the delete is in flight. */
+  deleting?: boolean
 }
 
 export interface FolderDTO {

@@ -188,6 +188,7 @@ export function toSidebarRepo(
     // before this pipeline existed.
     ...(repoChats.length > 0 ? { chats: repoChats } : {}),
     ...(repo.lastError ? { deleteError: repo.lastError } : {}),
+    ...(repo.deleting && !repo.lastError ? { deleting: true } : {}),
     // The default (repo-home) workspace is filtered out of `workspaces` above —
     // it is the repo header, not a tree row — so its live `working` overlay would
     // be dropped with it. Lift it onto the repo as defaultWorking so the header

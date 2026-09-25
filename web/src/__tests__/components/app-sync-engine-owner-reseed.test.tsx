@@ -50,6 +50,7 @@ import { wipeEntityCache } from '@/lib/persistence/idb'
 import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
 import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import type { EntityChange } from '@/lib/ws/entity-stream'
 import type { ChatDTO, Project, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
@@ -252,5 +253,47 @@ describe('a repo tombstone', () => {
     fetchRepoChats.mockClear()
     act(() => useFolderSignalStore.getState().bump('r1'))
     expect(fetchRepoChats).not.toHaveBeenCalled()
+  })
+
+  // The daemon announces the delete (the row carries `deleting`) before it
+  // tombstones the repo's chats: those frames must not re-read a repo on its
+  // way out.
+  it('a repo being deleted stops re-reading its tree before its chats go', async () => {
+    await bootWithWorkspaces([workspace('owner-locked')])
+    const streamOf = (endpoint: string) => opened.find((s) => s.endpoint === endpoint)
+    const rebuild = vi.spyOn(useWorkspaceListStore.getState(), 'fetch')
+    const deleting: RepoDTO = { ...repoDTO, deleting: true }
+    await upsertEntity('crowbar_repos', deleting)
+    act(() => {
+      streamOf('/v0/projects/p1/repos')?.onChange?.({ kind: 'frame', frame: deleting })
+    })
+    expect(streamOf('/v0/projects/p1/repos/r1/chats/ws')?.dispose).toHaveBeenCalled()
+    // The rebuild the frame armed reads the same row back and keeps it closed.
+    await waitFor(() => expect(rebuild).toHaveBeenCalled())
+    await act(() => rebuild.mock.results[0]?.value)
+    fetchRepoChats.mockClear()
+    act(() => useFolderSignalStore.getState().bump('r1'))
+    expect(fetchRepoChats).not.toHaveBeenCalled()
+    expect(opened.filter((s) => s.endpoint === '/v0/projects/p1/repos/r1/chats/ws')).toHaveLength(1)
+  })
+
+  // A delete that stopped (the row comes back with lastError) is a live repo again.
+  it('a repo whose delete stopped streams again', async () => {
+    await bootWithWorkspaces([workspace('owner-locked')])
+    const repos = opened.find((s) => s.endpoint === '/v0/projects/p1/repos')!
+    const deleting: RepoDTO = { ...repoDTO, deleting: true }
+    act(() => {
+      repos.onChange?.({ kind: 'frame', frame: deleting })
+    })
+    const stopped: RepoDTO = { ...deleting, lastError: 'work at risk' }
+    await upsertEntity('crowbar_repos', stopped)
+    act(() => {
+      repos.onChange?.({ kind: 'frame', frame: stopped })
+    })
+    await waitFor(() =>
+      expect(opened.filter((s) => s.endpoint === '/v0/projects/p1/repos/r1/chats/ws')).toHaveLength(
+        2,
+      ),
+    )
   })
 })

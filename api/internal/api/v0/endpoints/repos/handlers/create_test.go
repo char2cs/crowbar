@@ -376,6 +376,7 @@ func TestDeleteRepo_Returns202(
 
 	intent := bc.await(t)
 	assert.Empty(t, intent.Status, "the recorded intent is announced first")
+	assert.True(t, intent.Deleting, "carrying the intent, so clients stop reading the repo before its cascade")
 	got := bc.await(t)
 	assert.Equal(t, "r1", got.ID)
 	assert.Equal(t, "p1", got.ProjectID)
