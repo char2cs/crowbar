@@ -1,171 +1,1058 @@
-/* Tokens transcribed from the brand handbook's Color board (Paper/Charcoal).
-   Light values are the board's Paper swatches; dark values are its Charcoal
-   swatches, applied automatically via prefers-color-scheme — no manual toggle. */
+/* Poster tokens. Three fixed surfaces from the handbook's Color board —
+   Paper, Charcoal, Moss — cut hard against each other, chapter by chapter.
+   A poster has no dark mode: each chapter's surface is pinned, so there is
+   deliberately no prefers-color-scheme block here. */
 :root {
-	--bg: #FFFFFF;
-	--surface: #FCFCFA;
-	--surface-tint: #F3F2EE;
-	--surface-inset: #EFEEE9;
-	--hairline: #EFEEE9;
-	--border: #DDDCD6;
-	--border-strong: #C4C3BC;
-
-	--ink: #1B1B19;
-	--ink-2: #3A3935;
+	--paper: #fcfcfa;
+	--ink: #1b1b19;
+	--ink-2: #5a5955;
 	--ink-3: #757470;
+	--paper-line: #dddcd6;
 
-	--moss: #606C38;
-	--moss-fg: #FFFFFF;
-	--moss-tint: #E3E6D3;
-	--moss-tint-fg: #414B24;
+	--charcoal: #1c1c1a;
+	--cream: #f2f0ea;
+	--cream-2: #b8b6ae;
+	--cream-3: #8b8a83;
+	--charcoal-line: rgba(242, 240, 234, 0.14);
 
-	--added: #4E7A36;
-	--deleted: #B8422C;
+	--moss: #606c38;
+	--moss-lift: #98a86a;
+	--moss-line: rgba(242, 240, 234, 0.22);
 
-	/* an always-dark panel (manifesto strip, chat mockup, closing CTA) —
-	   in dark mode it becomes the raised shade so it still reads as a
-	   distinct surface instead of blending into the page */
-	--panel-dark-bg: #1C1C1A;
-	--panel-dark-bg-2: #262624;
-	--panel-dark-border: #333330;
-	--panel-dark-fg: #F2F0EA;
-	--panel-dark-fg-dim: #B8B6AE;
-	--panel-dark-fg-mute: #8B8A83;
-
-	/* foreground tint for hover/active washes, mirrors the app's own
-	   mix(fg %) row-state formula documented on the Surface board */
-	--fg-rgb: 27, 27, 25;
-	/* Object.dc.html: ink shadow on Paper, black shadow on Charcoal */
-	--shadow-rgb: 27, 27, 25;
-
-	color-scheme: light dark;
+	--gutter: clamp(24px, 4.5vw, 64px);
+	/* Vertical rhythm is keyed to the viewport HEIGHT as well as the width:
+	   a chapter is one screen, so its type and its one visual must shrink on
+	   a short laptop screen the same way they shrink on a narrow one. */
+	--chapter-pad: clamp(40px, 7vh, 96px);
 }
 
-@media (prefers-color-scheme: dark) {
-	:root {
-		--bg: #1C1C1A;
-		--surface: #262624;
-		--surface-tint: #262624;
-		--surface-inset: #2E2E2B;
-		--hairline: #333330;
-		--border: #333330;
-		--border-strong: #4A4A46;
+@font-face {
+	font-family: "CalSansUI";
+	src: url("/fonts/CalSansUI.woff2") format("woff2");
+	font-weight: 300 700;
+	font-display: swap;
+}
 
-		--ink: #F2F0EA;
-		--ink-2: #B8B6AE;
-		--ink-3: #8B8A83;
+* {
+	box-sizing: border-box;
+}
 
-		--moss: #98A86A;
-		--moss-fg: #1B1B19;
-		--moss-tint: #2A2F1F;
-		--moss-tint-fg: #B9CF98;
+html,
+body {
+	margin: 0;
+	overflow-x: clip;
+}
 
-		--added: #B9CF98;
-		--deleted: #F1A493;
+body {
+	background: var(--paper);
+	color: var(--ink);
+	font-family: "CalSansUI", "Helvetica Neue", Arial, sans-serif;
+	-webkit-font-smoothing: antialiased;
+}
 
-		--panel-dark-bg: #262624;
-		--panel-dark-bg-2: #2E2E2B;
-		--panel-dark-border: #4A4A46;
+a {
+	color: inherit;
+	text-decoration: none;
+}
 
-		--fg-rgb: 242, 240, 234;
-		--shadow-rgb: 0, 0, 0;
+/* ---------- type ---------- */
+
+.serif {
+	font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
+	font-weight: 400;
+}
+.mono {
+	font-family: "Geist Mono", ui-monospace, Menlo, monospace;
+}
+.eyebrow {
+	font-family: "Geist Mono", ui-monospace, Menlo, monospace;
+	font-size: 11px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--s-fg-3);
+	white-space: nowrap;
+}
+.display {
+	font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
+	font-weight: 400;
+	margin: 0;
+	font-size: clamp(48px, min(7.4vw, 11.5vh), 128px);
+	line-height: 0.94;
+	letter-spacing: -0.03em;
+	text-wrap: balance;
+	color: var(--s-fg);
+}
+.display em {
+	font-style: italic;
+	color: var(--s-accent);
+}
+.lede {
+	margin: 0;
+	max-width: 46ch;
+	font-size: clamp(15px, 1.15vw, 18px);
+	line-height: 1.55;
+	color: var(--s-fg-2);
+	text-wrap: pretty;
+}
+
+/* ---------- surfaces ---------- */
+
+.paper {
+	--s-bg: var(--paper);
+	--s-fg: var(--ink);
+	--s-fg-2: var(--ink-2);
+	--s-fg-3: var(--ink-3);
+	--s-line: var(--paper-line);
+	--s-accent: var(--moss);
+	--s-shadow: 27, 27, 25;
+}
+.charcoal {
+	--s-bg: var(--charcoal);
+	--s-fg: var(--cream);
+	--s-fg-2: var(--cream-2);
+	--s-fg-3: var(--cream-3);
+	--s-line: var(--charcoal-line);
+	--s-accent: var(--moss-lift);
+	--s-shadow: 0, 0, 0;
+}
+.moss {
+	--s-bg: var(--moss);
+	--s-fg: var(--cream);
+	--s-fg-2: rgba(242, 240, 234, 0.82);
+	--s-fg-3: rgba(242, 240, 234, 0.62);
+	--s-line: var(--moss-line);
+	--s-accent: var(--cream);
+	--s-shadow: 27, 27, 25;
+}
+
+.chapter {
+	position: relative;
+	overflow: hidden;
+	min-height: 100vh;
+	min-height: 100svh;
+	padding: var(--chapter-pad) var(--gutter);
+	background: var(--s-bg);
+	color: var(--s-fg);
+	display: grid;
+	grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+	grid-template-rows: auto 1fr;
+	gap: clamp(24px, 4vh, 40px) clamp(32px, 4.5vw, 64px);
+	align-items: center;
+}
+.chapter > .head {
+	grid-column: 1 / -1;
+	display: flex;
+	justify-content: space-between;
+	align-items: baseline;
+	gap: 24px;
+	padding-bottom: 20px;
+	border-bottom: 1px solid var(--s-line);
+}
+.chapter > .text {
+	display: flex;
+	flex-direction: column;
+	gap: clamp(18px, 3vh, 32px);
+	align-self: center;
+}
+.chapter > .visual {
+	position: relative;
+	min-width: 0;
+	align-self: center;
+}
+/* A `wide` chapter gives its visual the full width below the text, so the
+   text row goes side-by-side (headline | lede) to leave the visual room on
+   one screen. */
+.chapter.wide {
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: auto auto 1fr;
+	align-items: start;
+}
+.chapter.wide > .text {
+	display: grid;
+	grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+	align-items: end;
+	gap: 24px clamp(32px, 4vw, 64px);
+	max-width: none;
+}
+.chapter.wide > .visual {
+	align-self: center;
+}
+
+/* ---------- pills ---------- */
+
+.pill {
+	height: 46px;
+	padding: 0 22px;
+	border-radius: 999px;
+	display: inline-flex;
+	align-items: center;
+	gap: 10px;
+	font-size: 15px;
+	font-weight: 500;
+	white-space: nowrap;
+	border: 1px solid var(--s-fg);
+	color: var(--s-fg);
+}
+.pill:hover {
+	background: var(--s-fg);
+	color: var(--s-bg);
+}
+.pill.is-disabled {
+	opacity: 0.4;
+	pointer-events: none;
+	cursor: not-allowed;
+}
+.pill svg {
+	width: 16px;
+	height: 16px;
+	stroke: currentColor;
+	fill: none;
+	stroke-width: 1.6;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+.pillrow {
+	display: flex;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+/* ---------- hero ---------- */
+
+/* ---------- sticky header ---------- */
+
+/* Fixed, over every chapter: the mark alone, centred, on the app's own
+   progressive blur (composer.css `.dissolve`) mirrored to be most blurred at
+   the top edge. Pure distortion, no tint — so it reads as glass on Paper,
+   Charcoal and Moss alike. */
+.site-header {
+	--header-h: clamp(88px, 11vh, 120px);
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	z-index: 50;
+	height: var(--header-h);
+	display: flex;
+	align-items: flex-start;
+	justify-content: center;
+	padding-top: clamp(18px, 2.6vh, 28px);
+	pointer-events: none;
+}
+.header-blur {
+	position: absolute;
+	inset: 0;
+	contain: paint;
+	pointer-events: none;
+}
+.header-blur > span {
+	position: absolute;
+	inset: 0;
+}
+/* Same seven blur radii and band stops as the composer's dissolve, read from
+   the header's bottom edge upwards (`to top`), so the sharpest band sits
+   where the page comes out from under it. */
+.header-blur > span:nth-child(1) {
+	backdrop-filter: blur(1px);
+	-webkit-backdrop-filter: blur(1px);
+	mask-image: linear-gradient(to top, transparent 0%, black 10%, black 30%, transparent 40%);
+	-webkit-mask-image: linear-gradient(to top, transparent 0%, black 10%, black 30%, transparent 40%);
+}
+.header-blur > span:nth-child(2) {
+	backdrop-filter: blur(1px);
+	-webkit-backdrop-filter: blur(1px);
+	mask-image: linear-gradient(to top, transparent 10%, black 20%, black 40%, transparent 50%);
+	-webkit-mask-image: linear-gradient(to top, transparent 10%, black 20%, black 40%, transparent 50%);
+}
+.header-blur > span:nth-child(3) {
+	backdrop-filter: blur(2px);
+	-webkit-backdrop-filter: blur(2px);
+	mask-image: linear-gradient(to top, transparent 15%, black 30%, black 50%, transparent 60%);
+	-webkit-mask-image: linear-gradient(to top, transparent 15%, black 30%, black 50%, transparent 60%);
+}
+.header-blur > span:nth-child(4) {
+	backdrop-filter: blur(5px);
+	-webkit-backdrop-filter: blur(5px);
+	mask-image: linear-gradient(to top, transparent 20%, black 40%, black 60%, transparent 70%);
+	-webkit-mask-image: linear-gradient(to top, transparent 20%, black 40%, black 60%, transparent 70%);
+}
+.header-blur > span:nth-child(5) {
+	backdrop-filter: blur(10px);
+	-webkit-backdrop-filter: blur(10px);
+	mask-image: linear-gradient(to top, transparent 40%, black 60%, black 80%, transparent 90%);
+	-webkit-mask-image: linear-gradient(to top, transparent 40%, black 60%, black 80%, transparent 90%);
+}
+.header-blur > span:nth-child(6) {
+	backdrop-filter: blur(19px);
+	-webkit-backdrop-filter: blur(19px);
+	mask-image: linear-gradient(to top, transparent 60%, black 80%);
+	-webkit-mask-image: linear-gradient(to top, transparent 60%, black 80%);
+}
+.header-blur > span:nth-child(7) {
+	backdrop-filter: blur(38px);
+	-webkit-backdrop-filter: blur(38px);
+	mask-image: linear-gradient(to top, transparent 70%, black 100%);
+	-webkit-mask-image: linear-gradient(to top, transparent 70%, black 100%);
+}
+.header-mark {
+	position: relative;
+	pointer-events: auto;
+	display: block;
+	color: var(--ink);
+	transition: color 0.25s ease;
+}
+.header-mark .mark {
+	display: block;
+	height: clamp(34px, 4.4vh, 44px);
+	width: auto;
+}
+/* The mark is a filled pill with its letters cut out — on Charcoal it must
+   flip to a light pill or it vanishes into the surface. */
+.site-header[data-surface="charcoal"] .header-mark {
+	color: var(--cream);
+}
+
+/* ---------- hero ---------- */
+
+/* ~90% of the viewport, fixed height, starting under the fixed header. The
+   headline scales with the viewport height so everything fits. */
+.hero {
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: 1fr auto;
+	align-items: center;
+	height: 90vh;
+	height: 90svh;
+	min-height: 560px;
+	padding-top: clamp(88px, 11vh, 120px);
+	padding-bottom: clamp(24px, 4vh, 48px);
+}
+.hero .text {
+	position: relative;
+	z-index: 2;
+	/* Leaves the right ~42% of the hero to the object at every width. */
+	max-width: min(760px, 56%);
+	align-self: center;
+	gap: clamp(18px, 3vh, 32px);
+}
+.hero .display {
+	font-size: clamp(52px, min(8.4vw, 12.5vh), 144px);
+	line-height: 0.92;
+}
+/* The crowbar is a placed object, not a background: natural aspect ratio
+   (1066×1442), height taken from the hero's own content box (90svh minus the
+   header and bottom padding, minus breathing room) so it can never leave the
+   hero, and capped against the width so it never reaches the headline. */
+.hero .art {
+	position: absolute;
+	z-index: 1;
+	right: calc(var(--gutter) + 2vw);
+	top: calc(clamp(88px, 11vh, 120px) + 2vh);
+	height: calc(90svh - clamp(88px, 11vh, 120px) - clamp(24px, 4vh, 48px) - 6vh);
+	max-height: 760px;
+	max-width: 36vw;
+	aspect-ratio: 1066 / 1442;
+	pointer-events: none;
+}
+.hero .art img {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	object-position: center;
+	filter: drop-shadow(0 22px 18px rgba(27, 27, 25, 0.26))
+		drop-shadow(0 60px 54px rgba(27, 27, 25, 0.16));
+}
+.hero .ground {
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: 62%;
+	height: 7%;
+	transform: translate(-50%, -50%) rotate(-52deg) scale(1.6);
+	border-radius: 50%;
+	background: radial-gradient(closest-side, rgba(27, 27, 25, 0.18), rgba(27, 27, 25, 0));
+	filter: blur(14px);
+}
+.hero .foot {
+	position: relative;
+	z-index: 2;
+	align-self: end;
+}
+
+/* ---------- 01 spec sheet ---------- */
+
+.spec {
+	margin: 0;
+	width: 100%;
+	border-top: 1px solid var(--s-line);
+	font-family: "Geist Mono", ui-monospace, Menlo, monospace;
+}
+.spec > div {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+	gap: 24px;
+	padding: clamp(12px, 2vh, 22px) 0;
+	border-bottom: 1px solid var(--s-line);
+	font-size: clamp(14px, min(1.3vw, 2.2vh), 22px);
+	line-height: 1.3;
+}
+.spec dt {
+	margin: 0;
+	color: var(--s-fg-3);
+	text-transform: uppercase;
+	letter-spacing: 0.1em;
+	font-size: max(11px, 0.68em);
+	align-self: center;
+}
+.spec dd {
+	margin: 0;
+	color: var(--s-fg);
+	overflow-wrap: anywhere;
+}
+.spec .file {
+	display: flex;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 0 0 14px;
+	border: 0;
+	font-size: 12px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--s-fg-3);
+	grid-template-columns: none;
+}
+
+/* ---------- 02 swap ---------- */
+
+.swap {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	justify-items: start;
+	gap: 8px;
+}
+.swap .word {
+	font-family: "Instrument Serif", Georgia, serif;
+	font-size: clamp(48px, min(7vw, 12vh), 128px);
+	line-height: 0.95;
+	letter-spacing: -0.03em;
+	color: var(--s-fg);
+	white-space: nowrap;
+}
+.swap .word.dim {
+	color: var(--s-fg-3);
+}
+.swap .arrow {
+	width: clamp(120px, 16vw, 220px);
+	height: auto;
+	margin: 6px 0 6px 0.6vw;
+	stroke: var(--s-accent);
+	fill: none;
+	stroke-width: 2.5;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+.swap .note {
+	margin-top: 18px;
+	white-space: normal;
+	max-width: 52ch;
+	line-height: 1.6;
+}
+
+/* ---------- 03 tree ---------- */
+
+/* The tree has the whole chapter, but a chapter is one screen: the SVG is
+   sized from the remaining viewport height and lets `meet` letterbox the
+   width, instead of growing to 100% width (≈1240px tall on a wide screen). */
+.tree {
+	width: 100%;
+	height: clamp(260px, 48vh, 600px);
+	display: block;
+	overflow: visible;
+	justify-self: center;
+}
+.tree .edge {
+	fill: none;
+	stroke: var(--s-fg);
+	stroke-width: 1.5;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	opacity: 0.85;
+}
+.tree .edge.back {
+	stroke-dasharray: 4 8;
+	opacity: 0.7;
+}
+.tree .node {
+	fill: var(--s-bg);
+	stroke: var(--s-fg);
+	stroke-width: 1.5;
+}
+.tree .node.live {
+	fill: var(--s-fg);
+}
+.tree .label {
+	font-family: "Instrument Serif", Georgia, serif;
+	font-size: 40px;
+	fill: var(--s-fg);
+}
+.tree .label.root {
+	font-size: 54px;
+}
+.tree .tag {
+	font-family: "Geist Mono", ui-monospace, Menlo, monospace;
+	font-size: 13px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	fill: var(--s-fg-3);
+}
+.tree .tag.hot {
+	fill: var(--s-fg);
+}
+.tree-mobile {
+	display: none;
+}
+.tree-mobile .label {
+	font-size: 21px;
+}
+.tree-mobile .label.root {
+	font-size: 26px;
+}
+.tree-mobile .tag {
+	font-size: 11px;
+}
+
+/* ---------- 04 review ---------- */
+
+/* A diff hunk typeset like the spec sheet: flat rows, hairlines, no card.
+   Added/removed lines get a flat tint band, never a rounded chip. */
+.diff {
+	--add: #98a86a;
+	--del: #c57a63;
+	width: 100%;
+	font-family: "Geist Mono", ui-monospace, Menlo, monospace;
+	font-size: clamp(13px, min(1.15vw, 1.9vh), 17px);
+	border-top: 1px solid var(--s-line);
+	border-bottom: 1px solid var(--s-line);
+}
+.diff .file {
+	display: flex;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 6px 16px;
+	padding: 14px 0;
+	border-bottom: 1px solid var(--s-line);
+	font-size: 11px;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--s-fg-3);
+}
+.diff .plus {
+	color: var(--add);
+}
+.diff .minus {
+	color: var(--del);
+}
+.diff .row {
+	display: grid;
+	grid-template-columns: 3em 1.6em minmax(0, 1fr);
+	line-height: 2.1;
+	color: var(--s-fg-2);
+}
+.diff .row code {
+	font: inherit;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.diff .ln {
+	text-align: right;
+	padding-right: 0.9em;
+	color: var(--s-fg-3);
+	user-select: none;
+}
+.diff .sign {
+	text-align: center;
+	user-select: none;
+}
+.diff .row.add {
+	background: rgba(152, 168, 106, 0.14);
+	color: var(--s-fg);
+}
+.diff .row.add .sign {
+	color: var(--add);
+}
+.diff .row.del {
+	background: rgba(197, 122, 99, 0.14);
+	color: var(--s-fg);
+}
+.diff .row.del .sign {
+	color: var(--del);
+}
+.diff .thread {
+	margin: 10px 0 10px 4.6em;
+	padding: 16px 0;
+	border-top: 1px solid var(--s-line);
+	border-bottom: 1px solid var(--s-line);
+	display: grid;
+	gap: 14px;
+	font-family: "CalSansUI", "Helvetica Neue", Arial, sans-serif;
+}
+.diff .msg-row {
+	display: grid;
+	gap: 4px;
+}
+.diff .who,
+.diff .state {
+	font-family: "Geist Mono", ui-monospace, Menlo, monospace;
+	font-size: 11px;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--s-fg-3);
+}
+.diff .state {
+	color: var(--add);
+}
+.diff .thread p {
+	margin: 0;
+	font-size: clamp(14px, 1.1vw, 16px);
+	line-height: 1.5;
+	color: var(--s-fg);
+}
+.diff .thread p code {
+	font-family: "Geist Mono", ui-monospace, Menlo, monospace;
+	font-size: 0.9em;
+}
+
+/* ---------- 05 sketch ---------- */
+
+.sketchwrap {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: 28px;
+}
+.sketch {
+	width: 100%;
+	height: auto;
+	display: block;
+	stroke: var(--s-fg);
+	fill: none;
+	stroke-width: 2.2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+.sketch text {
+	stroke: none;
+	fill: var(--s-fg);
+	font-family: "Geist Mono", ui-monospace, Menlo, monospace;
+	font-size: 20px;
+}
+.sketch .cap {
+	font-family: "Instrument Serif", Georgia, serif;
+	font-size: 28px;
+	fill: var(--s-fg-3);
+}
+.msg {
+	border-top: 1px solid var(--s-line);
+	padding-top: 22px;
+	display: grid;
+	gap: 8px;
+	font-size: 16px;
+	line-height: 1.6;
+	color: var(--s-fg-2);
+	max-width: 560px;
+}
+.msg .t {
+	font-family: "Instrument Serif", Georgia, serif;
+	font-size: 34px;
+	line-height: 1.05;
+	color: var(--s-fg);
+}
+.msg ul {
+	margin: 0;
+	padding-left: 20px;
+}
+.msg code {
+	font-family: "Geist Mono", ui-monospace, Menlo, monospace;
+	font-size: 0.86em;
+	color: var(--s-fg);
+}
+
+/* ---------- 05 numerals ---------- */
+
+.local {
+	grid-template-columns: minmax(0, 1fr);
+}
+.ascii {
+	position: absolute;
+	right: 4vw;
+	top: 50%;
+	transform: translateY(-50%);
+	margin: 0;
+	font-family: "Geist Mono", ui-monospace, Menlo, monospace;
+	font-size: 13px;
+	line-height: 7.8px;
+	letter-spacing: 0;
+	white-space: pre;
+	color: var(--cream);
+	opacity: 0.16;
+	pointer-events: none;
+	user-select: none;
+	z-index: 0;
+}
+.local > * {
+	position: relative;
+	z-index: 1;
+}
+/* after `.local > *` on purpose: the texture must stay out of the grid flow */
+.local > .ascii {
+	position: absolute;
+	z-index: 0;
+}
+.numerals {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	border-top: 1px solid var(--s-line);
+	border-bottom: 1px solid var(--s-line);
+}
+.numerals > div {
+	padding: 32px 24px 28px 0;
+	border-right: 1px solid var(--s-line);
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	min-width: 0;
+}
+.numerals > div + div {
+	padding-left: 24px;
+}
+.numerals > div:last-child {
+	border-right: 0;
+}
+.numerals .n {
+	font-family: "Instrument Serif", Georgia, serif;
+	font-size: clamp(88px, min(14vw, 21vh), 300px);
+	line-height: 0.85;
+	letter-spacing: -0.04em;
+	color: var(--s-fg);
+}
+.numerals > div:last-child .n {
+	color: var(--s-accent);
+}
+.numerals .cap {
+	font-family: "Geist Mono", ui-monospace, Menlo, monospace;
+	font-size: 12px;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--s-fg-3);
+	line-height: 1.5;
+}
+
+/* ---------- 06 horizon ---------- */
+
+.horizon .visual {
+	display: flex;
+	justify-content: flex-end;
+	align-items: center;
+}
+.halftone {
+	width: auto;
+	max-width: 100%;
+	height: clamp(280px, 58vh, 620px);
+	image-rendering: pixelated;
+	image-rendering: crisp-edges;
+	display: block;
+}
+.roadmap {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	border-top: 1px solid var(--s-line);
+}
+.roadmap li {
+	display: grid;
+	grid-template-columns: 64px minmax(0, 1fr);
+	gap: 24px;
+	padding: 24px 0;
+	border-bottom: 1px solid var(--s-line);
+	align-items: baseline;
+}
+.roadmap .idx {
+	font-family: "Instrument Serif", Georgia, serif;
+	font-size: 40px;
+	line-height: 1;
+	color: var(--s-fg-3);
+}
+.roadmap .name {
+	font-family: "Instrument Serif", Georgia, serif;
+	font-size: 34px;
+	line-height: 1.05;
+	color: var(--s-fg);
+}
+.roadmap .name.dim {
+	color: var(--s-fg-3);
+}
+.roadmap p {
+	margin: 6px 0 0;
+	font-size: 15px;
+	line-height: 1.5;
+	color: var(--s-fg-2);
+}
+.roadmap a {
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+/* ---------- closing ---------- */
+
+.closing {
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: 1fr;
+	align-items: center;
+	min-height: 70vh;
+	min-height: 70svh;
+}
+.closing .cta {
+	display: flex;
+	flex-direction: column;
+	gap: 28px;
+	max-width: 720px;
+}
+.closing .cta a.link {
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+/* ---------- footer ---------- */
+
+.site-footer {
+	background: var(--s-bg);
+	color: var(--s-fg);
+	padding: 56px var(--gutter) 32px;
+	border-top: 1px solid var(--s-line);
+	display: flex;
+	flex-direction: column;
+	gap: 56px;
+}
+.foot-top {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 48px;
+	align-items: start;
+}
+.foot-brand {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 16px;
+	max-width: 320px;
+}
+.foot-brand > a {
+	padding: 2px 0;
+}
+.foot-mark {
+	display: block;
+	height: 28px;
+	width: auto;
+	color: var(--moss-lift);
+}
+.foot-brand p {
+	margin: 0;
+	font-size: 14px;
+	line-height: 1.55;
+	color: var(--s-fg-2);
+}
+.foot-cols {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(140px, auto));
+	gap: 24px 64px;
+}
+.foot-cols > div {
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+}
+.foot-cols .eyebrow {
+	margin-bottom: 8px;
+}
+/* 5px + 5px of padding around a ~21px line: a 32px+ hit area that still
+   reads as a tight list. */
+.foot-cols a {
+	font-size: 14px;
+	line-height: 1.5;
+	padding: 5px 0;
+	color: var(--s-fg-2);
+	width: fit-content;
+}
+.foot-cols a:hover {
+	color: var(--s-fg);
+}
+.foot-bottom {
+	display: flex;
+	justify-content: space-between;
+	gap: 16px;
+	flex-wrap: wrap;
+	padding-top: 20px;
+	border-top: 1px solid var(--s-line);
+	font-family: "Geist Mono", ui-monospace, Menlo, monospace;
+	font-size: 11px;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--s-fg-3);
+}
+
+/* ---------- responsive ---------- */
+
+/* Laptop widths (980–1200): the 5/7 split leaves the text column too narrow
+   for a display headline — go even, and pull the type down a notch. */
+@media (max-width: 1200px) and (min-width: 981px) {
+	/* Only the two-column chapters: this rule sits later in the cascade than
+	   the single-column variants' own rules, so it must not match them. */
+	.chapter:not(.hero):not(.wide):not(.local):not(.closing) {
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	}
+	.display {
+		font-size: clamp(44px, min(6.4vw, 10.5vh), 96px);
+	}
+	.hero .text {
+		max-width: 58%;
+	}
+	.hero .display {
+		font-size: clamp(48px, min(7.4vw, 12vh), 112px);
+	}
+	.hero .art {
+		max-width: 34vw;
+	}
+	.swap .word {
+		font-size: clamp(40px, 6vw, 88px);
+	}
+	.numerals .n {
+		font-size: clamp(88px, min(12vw, 22vh), 200px);
 	}
 }
 
-* { box-sizing: border-box; }
-
-body {
-	margin: 0;
-	background: var(--bg);
-	color: var(--ink);
-	font-family: Geist, "Helvetica Neue", Arial, sans-serif;
-	-webkit-font-smoothing: antialiased;
-}
-a { color: var(--ink); text-decoration: none; }
-a:hover { color: var(--moss); }
-button { font: inherit; cursor: pointer; border: 0; background: none; padding: 0; color: inherit; }
-
-.serif { font-family: "Instrument Serif", Georgia, "Times New Roman", serif; font-weight: 400; }
-.mono { font-family: "Geist Mono", ui-monospace, Menlo, monospace; }
-.eyebrow { font-family: "Geist Mono", ui-monospace, Menlo, monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
-.pillbtn { height: 44px; padding: 0 22px; border-radius: 999px; display: inline-flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 500; white-space: nowrap; }
-.pillbtn.disabled { background: var(--surface-inset); color: var(--ink-3); border: 1px solid var(--border); cursor: not-allowed; opacity: .75; pointer-events: none; }
-.pillbtn.disabled-panel { background: rgba(242, 240, 234, .08); color: var(--panel-dark-fg-mute); border: 1px solid var(--panel-dark-border); cursor: not-allowed; opacity: .9; pointer-events: none; }
-.p { color: var(--ink-2); font-size: 17px; line-height: 1.6; text-wrap: pretty; margin: 0; }
-.h2 { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; margin: 0; font-size: 72px; line-height: .98; letter-spacing: -0.025em; text-wrap: balance; color: var(--ink); }
-svg.i { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
-.chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 999px; font-size: 13px; white-space: nowrap; border: 1px solid var(--border); background: var(--surface); color: var(--ink); }
-.row { height: 34px; padding: 0 8px; border-radius: 10px; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; white-space: nowrap; color: var(--ink); }
-.dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.kv { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--hairline); font-size: 12.5px; }
-.obj { filter: drop-shadow(0 20px 16px rgba(var(--shadow-rgb), .26)) drop-shadow(0 52px 44px rgba(var(--shadow-rgb), .14)); }
-.ground { position: absolute; left: 50%; bottom: -6px; width: 600px; height: 60px; transform: translateX(-50%) rotate(-52deg) translateY(-300px); border-radius: 50%; background: radial-gradient(closest-side, rgba(var(--shadow-rgb), .2), rgba(var(--shadow-rgb), 0)); filter: blur(12px); }
-.md { font-size: 14px; line-height: 1.7; color: var(--ink); }
-.tag { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 500; background: var(--moss-tint); color: var(--moss-tint-fg); }
-.tag.alt { background: var(--surface-tint); color: var(--ink-2); }
-
-.page { max-width: 1440px; margin: 0 auto; overflow: hidden; }
-
-nav { height: 72px; display: flex; align-items: center; padding: 0 64px; gap: 28px; border-bottom: 1px solid var(--hairline); }
-.brand { display: inline-flex; align-items: center; gap: 10px; }
-.navlinks { margin-left: auto; display: flex; gap: 28px; font-size: 14px; }
-.navcta { height: 36px; padding: 0 16px; font-size: 14px; }
-
-.hero { padding: 80px 64px 0; display: grid; grid-template-columns: 1.1fr 1fr; gap: 40px; align-items: center; }
-.herotext { display: flex; flex-direction: column; gap: 28px; }
-.herotitle { margin: 0; font-size: 118px; line-height: .95; letter-spacing: -0.03em; text-wrap: balance; color: var(--ink); }
-.herolede { max-width: 560px; font-size: 20px; }
-.herobtns { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-.heroart { position: relative; height: 720px; display: flex; align-items: center; justify-content: center; }
-.heroimg { position: relative; width: 520px; height: 700px; object-fit: contain; display: block; max-width: 100%; }
-
-.manifesto { margin: 56px 64px 0; padding: 44px 56px; border-radius: 18px; background: var(--panel-dark-bg); color: var(--panel-dark-fg); display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
-.manifesto-h { margin: 0; font-size: 40px; line-height: 1.1; letter-spacing: -0.015em; text-wrap: balance; }
-.manifesto-p { margin: 0; font-size: 16px; line-height: 1.65; color: var(--panel-dark-fg-dim); }
-
-.feature { padding: 128px 64px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 72px; align-items: center; }
-.featuretext { display: flex; flex-direction: column; gap: 20px; }
-.vig { border-radius: 16px; border: 1px solid var(--border); background: var(--surface); box-shadow: 0 2px 4px rgba(var(--shadow-rgb), .05), 0 24px 60px rgba(var(--shadow-rgb), .1); overflow: hidden; position: relative; color: var(--ink); }
-.vig.dark { background: var(--panel-dark-bg); border-color: var(--panel-dark-border); color: var(--panel-dark-fg); }
-
-.local { margin: 128px 64px 0; padding: 72px 64px; border-radius: 18px; background: var(--surface-tint); display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center; }
-.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.stat { padding: 22px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
-.stat.dark { background: var(--panel-dark-bg); color: var(--panel-dark-fg); border: none; }
-.stat-n { font-size: 34px; line-height: 1; color: var(--ink); }
-.stat-l { font-size: 14px; color: var(--ink-2); }
-
-.roadmap { padding: 128px 64px 0; }
-.roadmap-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 40px; margin-bottom: 32px; flex-wrap: wrap; }
-.roadmap-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
-.roadmap-card { padding: 28px; border-radius: 14px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; min-height: 220px; }
-.roadmap-card.pending { border-style: dashed; border-color: var(--border-strong); }
-
-.cta { margin: 128px 64px 96px; padding: 80px 64px; border-radius: 18px; background: var(--panel-dark-bg); color: var(--panel-dark-fg); display: flex; flex-direction: column; align-items: center; gap: 22px; text-align: center; }
-.cta-h { font-size: 84px; color: var(--panel-dark-fg); }
-.cta .p { color: var(--panel-dark-fg-dim); }
-.cta a { color: var(--panel-dark-fg); }
-
-footer { padding: 32px 64px 48px; display: flex; align-items: center; justify-content: center; gap: 12px; border-top: 1px solid var(--hairline); }
-.footer-mark { height: 16px; width: auto; color: var(--moss); }
-.footer-link { font-size: 13px; color: var(--ink-3); }
-.footer-link:hover { color: var(--moss); }
-
 @media (max-width: 980px) {
-	nav, .hero, .manifesto, .feature, .local, .roadmap, .cta, footer { padding-left: 32px; padding-right: 32px; }
-	.manifesto, .local { margin-left: 24px; margin-right: 24px; }
-	.feature { grid-template-columns: 1fr; gap: 40px; padding-top: 88px; }
-	.feature > [style*="order: 1"] { order: 2 !important; }
-	.feature > [style*="order: 2"] { order: 1 !important; }
-	.hero { grid-template-columns: 1fr; padding-top: 56px; }
-	.heroart { height: 420px; order: -1; }
-	.heroimg { width: 300px; height: 400px; }
-	.herotitle { font-size: 64px; }
-	.manifesto { grid-template-columns: 1fr; gap: 24px; }
-	.local { grid-template-columns: 1fr; padding: 48px 32px; }
-	.stats { grid-template-columns: 1fr 1fr; }
-	.roadmap-grid { grid-template-columns: 1fr; }
-	.h2 { font-size: 44px; }
-	.cta-h { font-size: 56px; }
-	.navlinks { display: none; }
+	:root {
+		--gutter: 24px;
+	}
+	.chapter {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: auto auto auto;
+		padding-top: 64px;
+		padding-bottom: 64px;
+		gap: 32px;
+		min-height: auto;
+	}
+	.chapter > .head {
+		flex-direction: column;
+		gap: 6px;
+	}
+	.eyebrow {
+		white-space: normal;
+	}
+	.msg {
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	.display {
+		font-size: clamp(44px, 12vw, 88px);
+	}
+	/* Phone: the object goes above the headline in flow (no absolute
+	   positioning to overflow), and the hero grows to fit rather than clip. */
+	.hero {
+		height: auto;
+		min-height: 90svh;
+		padding-top: 96px;
+		grid-template-rows: auto auto auto;
+	}
+	.hero .text {
+		max-width: 100%;
+		align-self: start;
+		order: 3;
+	}
+	.hero .display {
+		font-size: clamp(48px, 13vw, 96px);
+	}
+	.hero .art {
+		position: relative;
+		order: 2;
+		right: auto;
+		top: auto;
+		justify-self: center;
+		height: min(34svh, 300px);
+		max-width: 100%;
+		max-height: none;
+	}
+	.hero .foot {
+		order: 4;
+	}
+	.foot-top {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.foot-cols {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 32px 24px;
+	}
+	.chapter.wide > .text {
+		display: flex;
+		flex-direction: column;
+	}
+	.tree {
+		display: none;
+	}
+	.tree.tree-mobile {
+		display: block;
+		height: auto;
+		width: 100%;
+		max-width: 420px;
+		justify-self: start;
+	}
+	.foot-cols a {
+		font-size: 16px;
+		padding: 7px 0;
+	}
+	.diff {
+		font-size: 12.5px;
+	}
+	.diff .row {
+		grid-template-columns: 2.4em 1.4em minmax(0, 1fr);
+	}
+	.diff .thread {
+		margin-left: 0;
+	}
+	.halftone {
+		height: auto;
+		width: min(100%, 420px);
+	}
+	.swap .word {
+		font-size: clamp(44px, 13vw, 96px);
+		white-space: normal;
+	}
+	.numerals {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+	.numerals > div {
+		border-right: 0;
+		border-bottom: 1px solid var(--s-line);
+		padding-left: 0 !important;
+	}
+	.numerals > div:nth-child(odd) {
+		border-right: 1px solid var(--s-line);
+	}
+	.numerals > div:nth-child(even) {
+		padding-left: 20px !important;
+	}
+	.numerals .n {
+		font-size: clamp(96px, 32vw, 160px);
+	}
+	/* On a phone the texture has to share the column with the captions —
+	   quieter, so it stays texture and never competes with the text. */
+	.ascii {
+		right: -40px;
+		font-size: 9px;
+		line-height: 5.4px;
+		opacity: 0.07;
+	}
+	.horizon .visual {
+		justify-content: flex-start;
+	}
 }
