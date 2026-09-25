@@ -177,6 +177,20 @@ export const AppearanceSettings = () => {
         </SettingRow>
 
         <SettingRow
+          label="Heading Font Family"
+          description="Font for headings — Markdown titles, dialog titles, settings section titles"
+          onReset={() => updateSetting('headingFontFamily', getDefaultSetting('headingFontFamily'))}
+          canReset={settings.headingFontFamily !== getDefaultSetting('headingFontFamily')}
+        >
+          <FontSelector
+            value={settings.headingFontFamily}
+            onChange={(fontFamily) => updateSetting('headingFontFamily', fontFamily)}
+            className={SETTINGS_CONTROL_WIDTHS.text}
+            monospaceOnly={false}
+          />
+        </SettingRow>
+
+        <SettingRow
           label="UI Font Size"
           description="Adjust UI text and icon scale in 0.5px steps"
           onReset={() => updateSetting('uiFontSize', getDefaultSetting('uiFontSize'))}

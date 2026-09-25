@@ -5,13 +5,15 @@
 @theme inline {
   --font-sans: var(--app-font-family, 'CalSansUI', sans-serif);
 
-  /* Deliberately NOT chained through --app-font-family: that variable is set
-     unconditionally at :root by appearance-bootstrap.ts (never unset), so a
-     var(--app-font-family, 'Instrument Serif', ...) fallback here would never
-     activate — headings would always render in the user's UI font instead.
-     The serif face is a fixed brand element (Type.dc.html), not something the
-     UI Font Family setting should override. */
-  --font-heading: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+  /* Its own variable, NOT --app-font-family: that one is always set, so
+     chaining through it would always win and headings would use the UI font. */
+  --font-heading: var(
+    --app-heading-font-family,
+    'Instrument Serif',
+    Georgia,
+    'Times New Roman',
+    serif
+  );
 
   --font-mono: var(--editor-font-family, 'Geist Mono Variable', ui-monospace, monospace);
   --color-background: var(--background);

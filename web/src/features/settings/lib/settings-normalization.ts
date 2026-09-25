@@ -2,6 +2,7 @@ import { themeRegistry } from '@/extensions/themes/theme-registry'
 import { normalizeFileTreeDensity } from '@/features/file-explorer/lib/file-tree-density'
 import { getDefaultSetting } from '@/features/settings/config/default-settings'
 import {
+  DEFAULT_HEADING_FONT_FAMILY,
   DEFAULT_MONO_FONT_FAMILY,
   DEFAULT_UI_FONT_FAMILY,
 } from '@/features/settings/config/typography-defaults'
@@ -112,6 +113,10 @@ export function normalizeSettings(settings: Settings): Settings {
     normalizedSettings.uiFontFamily,
     DEFAULT_UI_FONT_FAMILY,
   )
+  normalizedSettings.headingFontFamily = normalizeConfiguredFontFamily(
+    normalizedSettings.headingFontFamily,
+    DEFAULT_HEADING_FONT_FAMILY,
+  )
   if (normalizedSettings.terminalLineHeight === LEGACY_TERMINAL_LINE_HEIGHT_DEFAULT) {
     normalizedSettings.terminalLineHeight = TERMINAL_LINE_HEIGHT_DEFAULT
   }
@@ -158,6 +163,13 @@ export function normalizeSettingValue<K extends keyof Settings>(
 
   if (key === 'uiFontFamily') {
     return normalizeConfiguredFontFamily(value as string, DEFAULT_UI_FONT_FAMILY) as Settings[K]
+  }
+
+  if (key === 'headingFontFamily') {
+    return normalizeConfiguredFontFamily(
+      value as string,
+      DEFAULT_HEADING_FONT_FAMILY,
+    ) as Settings[K]
   }
 
   if (key === 'terminalLineHeight' && value === LEGACY_TERMINAL_LINE_HEIGHT_DEFAULT) {

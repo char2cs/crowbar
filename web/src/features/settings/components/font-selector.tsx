@@ -32,6 +32,15 @@ const BUNDLED_FONTS: FontInfo[] = [
     style: 'Regular',
     is_monospace: false,
   },
+  // Default Heading Font Family — also selectable as a UI font, and the UI
+  // fonts above are equally selectable as a heading font. One picker, one
+  // bundled list, for both settings.
+  {
+    name: 'Instrument Serif',
+    family: 'Instrument Serif',
+    style: 'Regular',
+    is_monospace: false,
+  },
   {
     name: 'Geist Mono Variable',
     family: 'Geist Mono Variable',
