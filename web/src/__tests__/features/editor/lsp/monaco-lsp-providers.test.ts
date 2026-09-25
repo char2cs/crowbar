@@ -61,6 +61,10 @@ import { fileUri } from '@/features/editor/lib/editor-uri'
 import { LspClient } from '@/features/editor/lsp/lsp-client'
 import { query } from '@/features/editor/lsp/lsp-query'
 import { registerLspProviders } from '@/features/editor/lsp/monaco-lsp-providers'
+import {
+  resetWindowPaneStoreForTests,
+  windowPaneStore,
+} from '@/features/panes/stores/window-pane-store'
 
 registerLspProviders()
 
@@ -149,5 +153,47 @@ describe('LSP commands', () => {
       command: 'gopls.tidy',
       arguments: [],
     })
+  })
+
+  it('applies the edits a command made in the order the server made them', async () => {
+    resetWindowPaneStoreForTests()
+    vi.mocked(query).mockResolvedValue({
+      target,
+      result: [{ title: 'Fill', command: 'gopls.fill', arguments: [] }],
+    })
+    const { actions } = (await provider('codeAction').provideCodeActions(
+      model,
+      {},
+      { markers: [], trigger: 1 },
+      none,
+    )) as { actions: Monaco.languages.CodeAction[] }
+    // An open buffer with no Monaco model: its edits go read → apply → write.
+    const id = windowPaneStore.getState().bufferActions.openContent({
+      type: 'editor',
+      path: 'fill.go',
+      name: 'fill.go',
+      content: 'a',
+      workspaceId: 'ws1',
+    })
+    const at = (character: number) => ({
+      start: { line: 0, character },
+      end: { line: 0, character },
+    })
+    // The second edit's range is against the text the first one left.
+    request.mockResolvedValue({
+      result: null,
+      edits: [
+        { changes: { 'fill.go': [{ range: at(0), newText: 'x' }] } },
+        { changes: { 'fill.go': [{ range: at(1), newText: 'y' }] } },
+      ],
+    })
+
+    await run(actions[0].command)
+
+    const content = () => {
+      const buffer = windowPaneStore.getState().buffers.find((b) => b.id === id)
+      return buffer && 'content' in buffer ? buffer.content : undefined
+    }
+    await vi.waitFor(() => expect(content()).toBe('xya'))
   })
 })

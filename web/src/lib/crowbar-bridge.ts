@@ -234,7 +234,9 @@ export async function terminalKill(sessionId: string): Promise<void> {
  */
 export async function terminalListLive(base: string): Promise<string[]> {
   const list = await apiFetch<Array<{ id: string; status: string }>>(base)
-  return list.filter((s) => s.status !== 'ended').map((s) => s.id)
+  const live: string[] = []
+  for (const session of list) if (session.status !== 'ended') live.push(session.id)
+  return live
 }
 
 // The file clipboard used to live here as an in-memory copy/cut store whose

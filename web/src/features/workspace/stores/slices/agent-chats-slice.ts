@@ -426,7 +426,8 @@ export const createAgentChatsSlice: StateCreator<
   seedAgentChats: (chats) => {
     const prev = get().agentChats
     const present = new Set(chats.map((c) => c.id))
-    const vanished = prev.chats.filter((c) => !present.has(c.id)).map((c) => c.id)
+    const vanished: string[] = []
+    for (const chat of prev.chats) if (!present.has(chat.id)) vanished.push(chat.id)
 
     // Chats that appeared since the last seed join the TOP of an existing
     // arrangement. One drag pins the whole list, so without this every later
