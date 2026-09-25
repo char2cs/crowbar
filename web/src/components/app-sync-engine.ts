@@ -117,6 +117,8 @@ export function useAppSyncEngine(): void {
      * load after this ships, EVERY cached chat predates that field.
      */
     const seededPendingRebuild = new Set<string>()
+    /** Per repo, its tree read in flight: what the cache will hold once it lands. */
+    const treeReads = new Map<string, Promise<void>>()
     async function rebuildSidebar(): Promise<void> {
       if (rebuildInFlight) {
         rebuildQueued = true
@@ -329,13 +331,16 @@ export function useAppSyncEngine(): void {
           rerun = true
           return
         }
-        inFlight = readTree().finally(() => {
+        const read = readTree().finally(() => {
           inFlight = null
+          if (treeReads.get(repoId) === read) treeReads.delete(repoId)
           if (rerun && !disposed && !closed) {
             rerun = false
             reseed()
           }
         })
+        inFlight = read
+        treeReads.set(repoId, read)
       }
 
       reseed()
@@ -397,6 +402,10 @@ export function useAppSyncEngine(): void {
     ): Promise<void> {
       const owners = rows.map((ws) => ws.owningChatId).filter((id): id is string => !!id)
       if (owners.length === 0) return
+      // A tree read in flight is the list the cache is about to hold (on a
+      // cold boot it was sent alongside this seed); judge against that.
+      await treeReads.get(repoId)
+      if (disposed) return
       const cached = await getAllEntities<{ id: string; repoId: string }>('crowbar_chats')
       if (disposed) return
       const listed = new Set<string>()

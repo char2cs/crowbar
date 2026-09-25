@@ -178,6 +178,33 @@ describe('the workspaces seed vs the chat list', () => {
     await waitFor(() => expect(fetchRepoChats).toHaveBeenCalledTimes(2))
   })
 
+  // A cold cache: the boot tree read is still in flight when the workspaces
+  // answer, so the cache cannot hold the owner yet — that read is the answer.
+  it('judges owners against the tree read in flight, not the cache it has yet to fill', async () => {
+    let answerChats: (rows: ChatDTO[]) => void = () => {}
+    fetchRepoChats.mockImplementation(
+      () =>
+        new Promise<ChatDTO[]>((resolve) => {
+          answerChats = resolve
+        }),
+    )
+    fetchWorkspaces.mockResolvedValue([workspace('owner-locked')])
+    render(
+      <AppSyncProvider>
+        <div />
+      </AppSyncProvider>,
+    )
+    await waitFor(() => expect(fetchRepoChats).toHaveBeenCalledTimes(1))
+    const stream = opened.find((s) => s.endpoint === '/v0/projects/p1/repos/r1/chats/ws')
+    const seeded = stream?.seed?.()
+    await waitFor(() => expect(fetchWorkspaces).toHaveBeenCalled())
+    answerChats([chat('owner-locked')])
+    await seeded
+    await whenTreeSeeded('r1')
+    expect(useFolderSignalStore.getState().generations['r1'] ?? 0).toBe(0)
+    expect(fetchRepoChats).toHaveBeenCalledTimes(1)
+  })
+
   it('leaves the chat list alone when every owner is already listed', async () => {
     // The seed awaits its own owner check, so once it resolves any bump has landed.
     await bootWithWorkspaces([workspace('owner-locked')])
