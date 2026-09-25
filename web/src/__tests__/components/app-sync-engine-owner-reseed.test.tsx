@@ -205,6 +205,25 @@ describe('the workspaces seed vs the chat list', () => {
     expect(fetchRepoChats).toHaveBeenCalledTimes(1)
   })
 
+  // The workspace route guard redirects on "read, and not there": the mark
+  // must not precede the rows, or a live workspace reads as gone.
+  it('marks a repo workspace list read only once its rows are in the tree', async () => {
+    let rowsAtMark: string[] | undefined
+    const unsubscribe = useFolderSignalStore.subscribe((state) => {
+      if (rowsAtMark || !state.seededWorkspaceRepoIds.has('r1')) return
+      const repo = useSidebarStore.getState().repos.find((r) => r.id === 'r1')
+      rowsAtMark = repo?.workspaces.map((ws) => ws.id) ?? []
+    })
+    await bootWithWorkspaces([workspace('owner-locked')])
+    const stream = opened.find((s) => s.endpoint === '/v0/projects/p1/repos/r1/chats/ws') as
+      (StreamOptions & { onChange: (change: { kind: 'seed' }) => void }) | undefined
+    await upsertEntity('crowbar_workspaces', workspace('owner-locked'))
+    stream?.onChange({ kind: 'seed' })
+    await waitFor(() => expect(rowsAtMark).toBeDefined())
+    unsubscribe()
+    expect(rowsAtMark).toContain('ws-locked')
+  })
+
   it('leaves the chat list alone when every owner is already listed', async () => {
     // The seed awaits its own owner check, so once it resolves any bump has landed.
     await bootWithWorkspaces([workspace('owner-locked')])

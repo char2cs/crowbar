@@ -69,6 +69,10 @@ interface FolderSignalState {
   /** Record that `repoId`'s workspace list has been read. Idempotent, same
    *  shape as `markTreeSeeded`. */
   markWorkspacesSeeded: (repoId: string) => void
+  /** Projects whose REPO list, as the daemon answered it, is in the sidebar
+   *  tree — what lets a route call a repo missing from it gone. */
+  seededRepoListProjectIds: ReadonlySet<string>
+  markRepoListSeeded: (projectId: string) => void
 }
 
 export const useFolderSignalStore = create<FolderSignalState>()(
@@ -91,6 +95,13 @@ export const useFolderSignalStore = create<FolderSignalState>()(
         state.seededWorkspaceRepoIds.has(repoId)
           ? state
           : { seededWorkspaceRepoIds: new Set([...state.seededWorkspaceRepoIds, repoId]) },
+      ),
+    seededRepoListProjectIds: NO_REPOS,
+    markRepoListSeeded: (projectId) =>
+      set((state) =>
+        state.seededRepoListProjectIds.has(projectId)
+          ? state
+          : { seededRepoListProjectIds: new Set([...state.seededRepoListProjectIds, projectId]) },
       ),
   })),
 )
