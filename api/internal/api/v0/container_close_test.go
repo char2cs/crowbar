@@ -42,9 +42,8 @@ func TestAppClose_StopsLiveWatcher(t *testing.T) {
 
 	// spec §8 step 6 retired files' repo-scoped .../workspaces/:wsId/files/ws
 	// mount; the flat chat prefix is the only surface left.
-	conn := dialWS(t, srv, "/v0/chats/chat-1/files/ws")
+	dialV0(t, srv, "/v0/chats/chat-1/files/ws")
 	c.WaitFilesRegistered()
-	t.Cleanup(func() { _ = conn.Close() })
 
 	require.NotPanics(t, tc.app.Close) // tears down the live watcher and LSP host
 }
