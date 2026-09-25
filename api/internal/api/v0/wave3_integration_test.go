@@ -22,9 +22,10 @@ import (
 // app.New fires -> hub.BroadcastWorkspace -> PushWorkspace -> pushChatWorktree ->
 // the agent-chat broadcaster -> a connected WS client.
 //
-// The chat row is created BEFORE the v0 container exists, for two reasons: the
-// projection resolves the owning chat off the read model (enrichFrame), and its
-// own creation frame would otherwise land on the very stream under test.
+// The owning chat is minted and attached BEFORE the v0 container exists, the
+// way chat-first creation does it: the projection resolves the owner off the
+// recorded Chat.OwnsWorkspace (enrichFrame), and the chat's own frames would
+// otherwise land on the very stream under test.
 func TestWave3_WorkspaceCommand_ReachesChatWSClient(t *testing.T) {
 	tc := newApp(t)
 	seedRepo(t, tc, "r1")
@@ -32,8 +33,10 @@ func TestWave3_WorkspaceCommand_ReachesChatWSClient(t *testing.T) {
 	now := time.Unix(1, 0).UTC()
 
 	_, err := tc.app.Repositories.AgentChat.Create(ctx, chatrepo.CreateInput{
-		ID: "chat-1", WorkspaceID: "w1", Type: domain.ChatTypeChat, Now: now,
+		ID: "chat-1", Type: domain.ChatTypeChat, Now: now,
 	})
+	require.NoError(t, err)
+	_, err = tc.app.Repositories.AgentChat.SetWorkspace(ctx, "chat-1", "w1")
 	require.NoError(t, err)
 
 	c, srv := serveAgentChats(t, tc)
