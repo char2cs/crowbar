@@ -9,7 +9,12 @@ const deleteChat = vi.fn().mockResolvedValue(undefined)
 vi.mock('@/features/agent/api/agent-api', () => ({
   deleteChat: (...a: unknown[]) => deleteChat(...a),
 }))
-vi.mock('@/lib/api', () => ({ deleteProject: vi.fn(), deleteRepo: vi.fn() }))
+const deleteRepo = vi.fn().mockResolvedValue(undefined)
+vi.mock('@/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api')>()),
+  deleteProject: vi.fn(),
+  deleteRepo: (...a: unknown[]) => deleteRepo(...a),
+}))
 const deleteHomeFolder = vi.fn().mockResolvedValue([])
 vi.mock('@/lib/api/sidebar-placement', () => ({
   deleteFolder: vi.fn().mockResolvedValue([]),
@@ -31,6 +36,7 @@ import {
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { ApiError, DISCARD_WORK_INIT, type WorkAtRisk } from '@/lib/api'
 
 /**
  * COMMITTING A REMOVAL — the one step that destroys anything.
@@ -94,6 +100,7 @@ const context = { activeWorkspaceId: '', navigate: vi.fn() }
 
 beforeEach(() => {
   deleteChat.mockClear().mockResolvedValue(undefined)
+  deleteRepo.mockClear().mockResolvedValue(undefined)
   deleteHomeFolder.mockClear().mockResolvedValue([])
   toastError.mockClear()
   __resetWorkspaceScopesForTest()
@@ -329,5 +336,47 @@ describe('committing a repo removal', () => {
 
     expect(useRemovalTrayStore.getState().hiddenIds.has('r1')).toBe(false)
     expect(toastError).not.toHaveBeenCalled()
+  })
+})
+
+// The daemon refuses a delete that would destroy work existing nowhere else.
+// That refusal is a question for the user, never a silent failure or a retry.
+describe('a removal refused over work at risk', () => {
+  const lost: WorkAtRisk[] = [
+    { workspaceId: 'ws-fork', branch: 'feature/one', uncommittedFiles: 2, unmergedCommits: 1 },
+  ]
+  const refusal = () =>
+    new ApiError('delete would destroy work', 409, 'work_at_risk', { workAtRisk: lost })
+
+  it('goes back in the tray, rows still hidden, waiting on an answer with the list', async () => {
+    deleteChat.mockRejectedValueOnce(refusal())
+    useRemovalTrayStore.getState().hold([entry()])
+    const [held] = useRemovalTrayStore.getState().entries
+
+    await commitRemoval(held, context)
+
+    expect(useRemovalTrayStore.getState().entries).toHaveLength(1)
+    const [asked] = useRemovalTrayStore.getState().entries
+    expect(asked?.deadlineAt).toBeNull()
+    expect(asked?.atRisk).toEqual(lost)
+    expect(useRemovalTrayStore.getState().hiddenIds.has('ws-fork')).toBe(true)
+    expect(toastError).not.toHaveBeenCalled()
+  })
+
+  it('once confirmed, is sent with consent to discard exactly that work', async () => {
+    await commitRemoval(entry({ atRisk: lost, deadlineAt: null }), context)
+    await commitRemoval(
+      entry({ kind: 'repo', id: 'r1', hiddenIds: ['r1'], atRisk: lost, deadlineAt: null }),
+      context,
+    )
+
+    expect(deleteChat).toHaveBeenCalledExactlyOnceWith('ws-fork', 'chat-fork', DISCARD_WORK_INIT)
+    expect(deleteRepo).toHaveBeenCalledExactlyOnceWith('p1', 'r1', DISCARD_WORK_INIT)
+  })
+
+  it('an ordinary removal never carries that consent', async () => {
+    await commitRemoval(entry({ kind: 'repo', id: 'r1', hiddenIds: ['r1'] }), context)
+
+    expect(deleteRepo).toHaveBeenCalledExactlyOnceWith('p1', 'r1')
   })
 })

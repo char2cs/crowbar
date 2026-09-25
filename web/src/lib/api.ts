@@ -39,13 +39,39 @@ export class ApiError extends Error {
   readonly status: number
   /** Stable server recovery category. Most endpoints omit it. */
   readonly code?: string
-  constructor(message: string, status: number, code?: string) {
+  /** The error envelope's `data`, for the few refusals that carry detail. */
+  readonly data?: unknown
+  constructor(message: string, status: number, code?: string, data?: unknown) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.data = data
   }
 }
+
+/** What deleting one workspace would destroy that exists nowhere else. */
+export interface WorkAtRisk {
+  workspaceId: string
+  branch: string
+  uncommittedFiles: number
+  unmergedCommits: number
+}
+
+/**
+ * The work a delete was refused over, or null for any other failure. The
+ * daemon refuses a delete that would destroy work existing nowhere else until
+ * it is resent with {@link DISCARD_WORK_INIT} — which only a client that has
+ * shown the user this list may do.
+ */
+export function workAtRiskOf(err: unknown): WorkAtRisk[] | null {
+  if (!(err instanceof ApiError) || err.code !== 'work_at_risk') return null
+  const list = (err.data as { workAtRisk?: WorkAtRisk[] } | undefined)?.workAtRisk
+  return Array.isArray(list) ? list : []
+}
+
+/** The request options that consent to a delete destroying work at risk. */
+export const DISCARD_WORK_INIT: RequestInit = { headers: { 'Crowbar-Discard-Work': 'true' } }
 
 export function isNotFoundError(err: unknown): boolean {
   return err instanceof ApiError && err.status === 404
@@ -142,6 +168,7 @@ export async function apiFetchRaw(
         errorBody?.error ?? `${res.status} ${res.statusText}`,
         res.status,
         typeof errorBody?.code === 'string' ? errorBody.code : undefined,
+        errorBody?.data,
       )
     }
     return res
