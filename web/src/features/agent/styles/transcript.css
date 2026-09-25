@@ -77,9 +77,9 @@
      so there is no longer a second place for the two numbers to disagree.
      See `.dock-spacer`'s own comment below `.stream` for the reservation
      value. */
-  scroll-padding-bottom: calc(var(--agent-dock-h, 92px) + 120px);
+  scroll-padding-bottom: calc(var(--agent-dock-h, 92px) + 32px);
   /* Text passing under the dock fades by OPACITY, not a colour overlay — see
-     composer.css. The gradient spans the same --agent-dock-h + 88px band as
+     composer.css. The gradient spans the same --agent-dock-h + 24px band as
      the dissolve's blur layers there, so the two read as one effect instead
      of opacity finishing before the blur does; it is clear right up to that
      band and fully gone by the switches line below it, on any background.
@@ -105,7 +105,7 @@
      `pinTurnToTop`'s caller measures and reserves padding on — not move it
      behind a second flex layer. */
   mask-image:
-    linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 88px)),
+    linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 24px)),
     linear-gradient(
       to left,
       black 0,
@@ -113,7 +113,7 @@
       transparent var(--agent-scrollbar-w, 0px)
     );
   -webkit-mask-image:
-    linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 88px)),
+    linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 24px)),
     linear-gradient(
       to left,
       black 0,
@@ -193,7 +193,7 @@
    fade, so the reserved gap and the visible fade band always agree. */
 .agent-chat .dock-spacer {
   flex-shrink: 0;
-  height: calc(var(--agent-dock-h, 92px) + 120px);
+  height: calc(var(--agent-dock-h, 92px) + 32px);
 }
 
 /* The windowed historical record — one flex child of `.stream` holding every
