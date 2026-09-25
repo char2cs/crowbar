@@ -14,6 +14,7 @@ export interface PaneSpec {
   id: string
   chatId?: string | null
   runnerId?: string | null
+  workspaceId?: string | null
   editorTabIds?: string[]
 }
 
@@ -34,6 +35,7 @@ function toPane(spec: PaneSpec, viewId: string | null): PaneGroup {
   return makePane(spec.id, viewId, {
     chatId: spec.chatId ?? null,
     runnerId: spec.runnerId ?? null,
+    workspaceId: spec.workspaceId ?? null,
     editorTabIds: spec.editorTabIds ?? [],
     activeEditorTabId: spec.editorTabIds?.[0] ?? null,
     editorOpen: (spec.editorTabIds?.length ?? 0) > 0,

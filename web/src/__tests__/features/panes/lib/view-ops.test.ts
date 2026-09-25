@@ -114,6 +114,27 @@ describe('removePane', () => {
     assertViewIntegrity(state)
   })
 
+  // The route names the workspace on screen and only a gesture changes it: a
+  // close must not bring another workspace's view forward under that route.
+  it('the view that comes forward shows the same workspace, else the stage', () => {
+    const state = buildViewState({
+      views: [
+        { id: 'v1', panes: [{ id: 'a', chatId: 'chat-a', workspaceId: 'ws-a' }] },
+        { id: 'v2', panes: [{ id: 'b', chatId: 'chat-b', workspaceId: 'ws-b' }] },
+        { id: 'v3', panes: [{ id: 'c', chatId: 'chat-c', workspaceId: 'ws-a' }] },
+      ],
+      active: 'v1',
+      activeProjectId: 'p1',
+    })
+    state.mostRecentActivePaneIds = ['a', 'b', 'c']
+    removePane(state, 'a')
+    expect(state.activeViewId).toBe('v3')
+    removePane(state, 'c')
+    expect(state.activeViewId).toBeNull()
+    expect(state.views.v2).toBeDefined()
+    assertViewIntegrity(state)
+  })
+
   it('a view keeps its record while another chat remains', () => {
     const state = twoViews()
     removePane(state, 'b')
