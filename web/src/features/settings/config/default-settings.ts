@@ -5,6 +5,7 @@ import {
 import { normalizeUiFontSize, UI_FONT_SIZE_DEFAULT } from '@/features/settings/lib/ui-font-size'
 import {
   DEFAULT_CODE_FONT_SIZE,
+  DEFAULT_HEADING_FONT_FAMILY,
   DEFAULT_MONO_FONT_FAMILY,
   DEFAULT_TERMINAL_FONT_FAMILY,
   DEFAULT_TERMINAL_FONT_SIZE,
@@ -41,6 +42,7 @@ export const defaultSettings: Settings = {
   // UI
   uiFontFamily: DEFAULT_UI_FONT_FAMILY,
   uiFontSize: UI_FONT_SIZE_DEFAULT,
+  headingFontFamily: DEFAULT_HEADING_FONT_FAMILY,
   // Agents
   chatIsDefaultPresentation: true,
   chatSplitPresentationEnabled: false,

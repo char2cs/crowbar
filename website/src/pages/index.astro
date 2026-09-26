@@ -1,0 +1,344 @@
+---
+import Layout from "../layouts/Layout.astro";
+import CrowbarWordmark from "../components/CrowbarWordmark.astro";
+import ascii from "../data/ascii-crowbar.txt?raw";
+
+const title = "Crowbar — Bring your own agent. Keep your own context.";
+const description =
+	"Crowbar is the workbench for coding agents. Claude Code, Codex, whichever subscription you already pay for, side by side on real branches, switchable mid-conversation, local-first, no account.";
+---
+
+<Layout title={title} description={description}>
+	<!-- Sticky header: just the mark, over the same progressive blur the app
+	     uses under its composer (composer.css `.dissolve`), mirrored so it is
+	     most blurred at the top edge. -->
+	<header class="site-header" data-surface="light">
+		<div class="header-blur" aria-hidden="true">
+			<span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+		</div>
+		<a class="header-mark" href="#top" aria-label="Crowbar, back to top"><CrowbarWordmark class="mark" /></a>
+		<button class="theme-toggle" type="button" aria-label="Theme: follows the system. Switch to light.">
+			<svg class="i-system" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="1.5"></rect><path d="M8 20h8M12 16v4"></path></svg>
+			<svg class="i-light" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+			<svg class="i-dark" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"></path></svg>
+		</button>
+	</header>
+
+	<!-- 00 · HERO — Paper -->
+	<section id="top" class="chapter paper hero">
+		<div class="text">
+			<span class="eyebrow">The workbench for coding agents</span>
+			<h1 class="display">Bring your own agent.<br /><em>Keep</em> your own context.</h1>
+			<p class="lede">Claude Code, Codex, whichever subscription you already pay for. Crowbar runs them side by side on real branches, lets you switch mid-conversation without losing a word, and never asks you to create an account.</p>
+			<div class="pillrow">
+				<span class="pill is-disabled" aria-disabled="true" title="Not available yet">Get it through Quiver<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></span>
+				<a href="#providers" class="pill">See what it does</a>
+			</div>
+		</div>
+
+		<div class="art" aria-hidden="true">
+			<span class="ground"></span>
+			<img src="/images/crowbar.png" alt="" />
+		</div>
+
+		<span class="eyebrow foot">In development · free · open source · no account · macOS and Linux</span>
+	</section>
+
+	<!-- THE APP — Moss. Real screenshots; the one matching the page theme shows. -->
+	<section id="app" class="chapter moss showcase">
+		<div class="text">
+			<span class="eyebrow">The app · macOS and Linux</span>
+			<h2 class="display">One window. Every agent, every branch.</h2>
+		</div>
+		<div class="shots visual">
+			<img class="shot shot-light" src="/images/app-light-1200.webp" srcset="/images/app-light-1200.webp 1200w, /images/app-light-2400.webp 2400w" sizes="(max-width: 980px) 100vw, 1320px" width="2400" height="1579" loading="lazy" decoding="async" alt="Crowbar in light mode: the sidebar with a project, its branches and chats; a chat with rendered Markdown in the middle; the README open beside it." />
+			<img class="shot shot-dark" src="/images/app-dark-1200.webp" srcset="/images/app-dark-1200.webp 1200w, /images/app-dark-2400.webp 2400w" sizes="(max-width: 980px) 100vw, 1320px" width="2400" height="1584" loading="lazy" decoding="async" alt="Crowbar in dark mode: the sidebar with a project, its branches and chats; a chat with rendered Markdown in the middle; the README open beside it." />
+		</div>
+	</section>
+
+	<!-- 01 · BRING YOUR OWN PROVIDER — Charcoal -->
+	<section id="providers" class="chapter charcoal">
+		<div class="head"><span class="eyebrow">01 / 07 · Bring your own provider</span><span class="eyebrow">Manifest-first</span></div>
+		<div class="text">
+			<h2 class="display">Your subscription. Our bench.</h2>
+			<p class="lede">A provider is a small file: how to launch the agent, which modes it has, how it reports back. Claude Code and Codex are supported today; adding another CLI means writing a manifest, not forking the app. Switch between them mid-conversation; cancel one, start another, the context stays yours. Manifests travel through Quiver, the same channel that will deliver Crowbar itself.</p>
+		</div>
+		<dl class="spec visual">
+			<div class="file"><span>providers / codex.manifest</span><span>detected</span></div>
+			<div><dt>binary</dt><dd>codex</dd></div>
+			<div><dt>launch</dt><dd>app-server · unix socket</dd></div>
+			<div><dt>native modes</dt><dd>trusted · full-auto</dd></div>
+			<div><dt>reports</dt><dd>hooks → turn, tool, permission</dd></div>
+			<div><dt>context</dt><dd>kept by Crowbar</dd></div>
+			<div><dt>delivered via</dt><dd>Quiver</dd></div>
+		</dl>
+	</section>
+
+	<!-- 02 · SWITCH MID-CONVERSATION — Paper -->
+	<section id="switch" class="chapter paper">
+		<div class="head"><span class="eyebrow">02 / 07 · Switch mid-conversation</span><span class="eyebrow">Same branch · same transcript</span></div>
+		<div class="text">
+			<h2 class="display">Change your mind mid-sentence.</h2>
+			<p class="lede">One model drafts, another reviews, a third is cheaper for the boring part. In Crowbar that is a chip in the composer, not a new window. Pick a different provider between turns and the conversation carries on, same branch, same diff in view.</p>
+		</div>
+		<div class="swap visual" aria-label="Claude Code, swapped with Codex">
+			<span class="serif word">Claude Code</span>
+			<svg class="arrow" viewBox="0 0 220 96" aria-hidden="true">
+				<path d="M26 26 H194" />
+				<path d="M168 8 l26 18 -26 18" />
+				<path d="M194 70 H26" />
+				<path d="M52 52 l-26 18 26 18" />
+			</svg>
+			<span class="serif word dim">Codex</span>
+			<span class="eyebrow note">The chip always shows which agent is actually answering. No silent defaults.</span>
+		</div>
+	</section>
+
+	<!-- 03 · THREADS — Moss -->
+	<section id="threads" class="chapter moss wide">
+		<div class="head"><span class="eyebrow">03 / 07 · Threads</span><span class="eyebrow">Nest as deep as you need · never out of sync</span></div>
+		<div class="text">
+			<h2 class="display">Conversations that branch like your code.</h2>
+			<p class="lede">A chat can start another chat. The child inherits the context it needs, works its own question, and reports back — neither drifts. Spin one off to chase a flaky test while the parent keeps shipping. Spin three off. Spin one off the child. All of it in the sidebar, under the branch it belongs to, resumable tomorrow.</p>
+		</div>
+		<svg class="tree visual" viewBox="0 0 1240 620" role="img" aria-label="A conversation tree: 'Pricing in integer cents' branches into 'Why does the tax test flake?', 'Reproduce under load' and 'Bisect the rounding helper'; 'Reproduce under load' reports back in the parent.">
+			<!-- trunk from root -->
+			<path class="edge" d="M330 310 H420 Q460 310 460 270 V150 Q460 110 500 110 H560" />
+			<path class="edge" d="M330 310 H560" />
+			<path class="edge" d="M420 310 Q460 310 460 350 V470 Q460 510 500 510 H560" />
+			<!-- report back: dashed return from 'Reproduce under load' to the root -->
+			<path class="edge back" d="M1010 330 Q1080 330 1080 400 Q1080 470 700 470 Q360 470 360 380 Q360 340 340 332" />
+			<path class="edge back" d="M352 322 l-14 10 16 6" />
+			<!-- nodes -->
+			<circle class="node live" cx="330" cy="310" r="9" />
+			<circle class="node live" cx="560" cy="110" r="8" />
+			<circle class="node live" cx="560" cy="310" r="8" />
+			<circle class="node" cx="560" cy="510" r="8" />
+			<!-- labels -->
+			<text class="label root" x="40" y="292">Pricing in</text>
+			<text class="label root" x="40" y="346">integer cents</text>
+			<text class="tag" x="40" y="380">feature/pricing-rounding · +34 −2</text>
+			<text class="label" x="590" y="124">Why does the tax test flake?</text>
+			<text class="label" x="590" y="324">Reproduce under load</text>
+			<text class="tag hot" x="590" y="356">done · back in the parent</text>
+			<text class="label" x="590" y="524">Bisect the rounding helper</text>
+			<text class="tag" x="590" y="556">running</text>
+		</svg>
+		<!-- Phones: the same tree drawn portrait at 1:1 scale, instead of the
+		     landscape one shrunk to unreadable labels. -->
+		<svg class="tree tree-mobile visual" viewBox="0 0 340 470" role="img" aria-label="A conversation tree: 'Pricing in integer cents' branches into 'Why does the tax test flake?', 'Reproduce under load' and 'Bisect the rounding helper'; 'Reproduce under load' reports back in the parent.">
+			<path class="edge" d="M12 30 V398" />
+			<path class="edge" d="M12 140 Q12 164 36 164 H48" />
+			<path class="edge" d="M12 262 Q12 286 36 286 H48" />
+			<path class="edge" d="M12 374 Q12 398 36 398 H48" />
+			<circle class="node live" cx="12" cy="30" r="7" />
+			<circle class="node live" cx="52" cy="164" r="6" />
+			<circle class="node live" cx="52" cy="286" r="6" />
+			<circle class="node" cx="52" cy="398" r="6" />
+			<text class="label root" x="30" y="40">Pricing in integer cents</text>
+			<text class="tag" x="30" y="68">feature/pricing-rounding · +34 −2</text>
+			<text class="label" x="68" y="172">Why does the tax test flake?</text>
+			<text class="label" x="68" y="294">Reproduce under load</text>
+			<text class="tag hot" x="68" y="322">done · back in the parent</text>
+			<text class="label" x="68" y="406">Bisect the rounding helper</text>
+			<text class="tag" x="68" y="434">running</text>
+		</svg>
+	</section>
+
+	<!-- 04 · BRANCH REVIEW — Charcoal -->
+	<section id="review" class="chapter charcoal review">
+		<div class="head"><span class="eyebrow">04 / 07 · Branch review</span><span class="eyebrow">Like a pull request · 100% local</span></div>
+		<div class="text">
+			<h2 class="display">Pull requests, without the pull.</h2>
+			<p class="lede">Open any branch as a review: the whole diff against its base, a comment on any line, threads you reply to and resolve. Agents read the same threads and answer in them — ask for a change on line 20, get the fix and a reply. None of it leaves your disk: no GitHub account, no pushed branch, no PR to open first.</p>
+		</div>
+		<div class="diff visual" role="figure" aria-label="A review of feature/pricing-rounding: line 20 of src/pricing.ts changed, with a resolved comment thread between you and Claude Code.">
+			<div class="file"><span>feature/pricing-rounding → main</span><span>src/pricing.ts · <span class="plus">+2</span> <span class="minus">−1</span></span></div>
+			<div class="row"><span class="ln">18</span><span class="sign"></span><code>export function bulkDiscount(cents: number, qty: number) &#123;</code></div>
+			<div class="row del"><span class="ln">19</span><span class="sign">−</span><code>  return cents * qty * 0.9</code></div>
+			<div class="row add"><span class="ln">19</span><span class="sign">+</span><code>  const total = cents * qty</code></div>
+			<div class="row add"><span class="ln">20</span><span class="sign">+</span><code>  return Math.round(total * 0.9)</code></div>
+			<div class="thread">
+				<div class="msg-row"><span class="who">You · line 20</span><p>Round once, at the boundary — not in here.</p></div>
+				<div class="msg-row"><span class="who">Claude Code</span><p>Moved the rounding into <code>ledger.ts</code>; this returns the exact value now. Resolving.</p></div>
+				<span class="state">✓ Resolved</span>
+			</div>
+			<div class="row"><span class="ln">21</span><span class="sign"></span><code>&#125;</code></div>
+		</div>
+	</section>
+
+	<!-- 05 · MARKDOWN-FIRST INPUTS — Paper -->
+	<section id="markdown" class="chapter paper">
+		<div class="head"><span class="eyebrow">05 / 07 · Markdown-first inputs</span><span class="eyebrow">Excalidraw for both sides</span></div>
+		<div class="text">
+			<h2 class="display">You get the same tools the agent gets.</h2>
+			<p class="lede">Agents reply in rich Markdown; most tools hand you a plain text box in return. Crowbar treats both sides the same: your prompt is a document — headings, lists, code, tables, attachments — and when a data flow is easier drawn than typed, you draw it. Excalidraw boards live inside the conversation, and the agent reads them and draws back.</p>
+		</div>
+		<div class="sketchwrap visual">
+			<svg class="sketch" viewBox="0 0 720 300" role="img" aria-label="Hand-drawn flow: cart, then round(), then ledger. Caption: round once, at the boundary.">
+				<path d="M22 70 q 6 -9 148 -6 q 12 44 -4 96 q -128 8 -142 -4 q -8 -50 -2 -86 z" />
+				<path d="M284 76 q 8 -10 150 -5 q 9 42 -6 92 q -126 10 -142 -6 q -9 -46 -2 -81 z" />
+				<path d="M548 68 q 6 -8 146 -4 q 10 46 -4 98 q -128 6 -140 -6 q -8 -52 -2 -88 z" />
+				<path d="M172 118 c 30 -8, 70 -10, 108 -2" />
+				<path d="M262 106 l 20 10 -20 12" />
+				<path d="M436 122 c 28 -8, 72 -10, 108 -4" />
+				<path d="M526 108 l 20 10 -21 11" />
+				<text x="96" y="128" text-anchor="middle">cart</text>
+				<text x="359" y="132" text-anchor="middle">round()</text>
+				<text x="621" y="126" text-anchor="middle">ledger</text>
+				<path d="M300 210 c 40 6, 90 6, 160 -2" />
+				<text class="cap" x="360" y="258" text-anchor="middle">round once, at the boundary</text>
+			</svg>
+			<div class="msg">
+				<span class="t">Move pricing to integer cents</span>
+				<span>Every amount crossing a module boundary must be an integer. Start with the two hot paths:</span>
+				<ul>
+					<li><code>pricing.ts</code> — bulk-discount multiplier</li>
+					<li><code>tax.ts</code> — the rounding helper</li>
+				</ul>
+				<span class="eyebrow">attached · flow.excalidraw · ledger.sql · failing.log</span>
+			</div>
+		</div>
+	</section>
+
+	<!-- 06 · LOCAL-FIRST — Charcoal, ASCII crowbar texture -->
+	<section id="local" class="chapter charcoal local">
+		<pre class="ascii" aria-hidden="true">{ascii}</pre>
+		<div class="head"><span class="eyebrow">06 / 07 · Local-first</span><span class="eyebrow">One folder on disk</span></div>
+		<div class="text">
+			<h2 class="display">No account. No paywall. No server in between.</h2>
+			<p class="lede">There is no authentication server to sign in to and no premium tier to unlock. Everything is available the moment the install finishes. Your chats, branches and reviews stay on your machine, in a local daemon and a local database you can inspect. Your agents talk to their own providers; the only thing that comes from us is Crowbar itself, through Quiver.</p>
+		</div>
+		<div class="numerals visual">
+			<div><span class="n">0</span><span class="cap">accounts to create</span></div>
+			<div><span class="n">0</span><span class="cap">features behind a plan</span></div>
+			<div><span class="n">0</span><span class="cap">model calls proxied through us</span></div>
+			<div><span class="n">1</span><span class="cap">folder that holds everything</span></div>
+		</div>
+	</section>
+
+	<!-- 07 · ON THE HORIZON — Paper, halftone claw -->
+	<section id="horizon" class="chapter paper horizon">
+		<div class="head"><span class="eyebrow">07 / 07 · More to come</span><span class="eyebrow">Built in the open</span></div>
+		<div class="text">
+			<h2 class="display">On the horizon.</h2>
+			<ol class="roadmap">
+				<li><span class="idx serif">01</span><div><span class="name">Deterministic workflows</span><p>Script a plan, a build, a review and a verify step once; run it across agents the same way every time.</p></div></li>
+				<li><span class="idx serif">02</span><div><span class="name">Extensions, via Quiver</span><p>Panes and commands distributed through <a href="https://quiver.ar">Quiver</a>, the same channel that will carry Crowbar and its provider manifests.</p></div></li>
+				<li><span class="idx serif">03</span><div><span class="name dim">And more.</span><p>The changelog is public and the issues are open. Tell us what your bench is missing.</p></div></li>
+			</ol>
+		</div>
+		<div class="visual">
+			<img class="halftone" src="/images/claw-halftone.png" width="520" height="538" alt="The claw of the crowbar, printed as a one-bit halftone." />
+		</div>
+	</section>
+
+	<!-- CLOSING — Charcoal -->
+	<section id="get" class="chapter charcoal closing">
+		<div class="cta">
+			<span class="eyebrow">Not available yet</span>
+			<h2 class="display">Pick it up.</h2>
+			<p class="lede">Crowbar will ship through <a class="link" href="https://quiver.ar">Quiver</a>, a distribution system that will also carry its provider manifests and, eventually, its extensions. No installer page, no app store, no account — one command, once it's ready.</p>
+			<div class="pillrow">
+				<span class="pill is-disabled" aria-disabled="true" title="Not available yet">Get it through Quiver</span>
+				<a href="https://github.com/char2cs/crowbar" class="pill">Read the source</a>
+			</div>
+		</div>
+	</section>
+
+	<footer class="site-footer charcoal">
+		<div class="foot-top">
+			<div class="foot-brand">
+				<a href="#top" aria-label="Crowbar, back to top"><CrowbarWordmark class="foot-mark" /></a>
+				<p>The workbench for coding agents. In development, built in the open.</p>
+			</div>
+			<nav class="foot-cols" aria-label="Footer">
+				<div>
+					<span class="eyebrow">Crowbar</span>
+					<a href="#providers">Providers</a>
+					<a href="#switch">Switch</a>
+					<a href="#threads">Threads</a>
+					<a href="#review">Branch review</a>
+					<a href="#markdown">Markdown</a>
+					<a href="#local">Local-first</a>
+					<a href="#horizon">Roadmap</a>
+				</div>
+				<div>
+					<span class="eyebrow">Project</span>
+					<a href="https://github.com/char2cs/crowbar">Source</a>
+					<a href="https://github.com/char2cs/crowbar/blob/develop/LICENSING.md">License</a>
+					<a href="https://quiver.ar">Quiver</a>
+				</div>
+				<div>
+					<span class="eyebrow">Made by</span>
+					<a href="https://char2cs.net">char2cs.net</a>
+				</div>
+			</nav>
+		</div>
+		<div class="foot-bottom">
+			<span>macOS and Linux · in development</span>
+			<span>AGPL-3.0 · commercial license available</span>
+		</div>
+	</footer>
+
+	<script>
+		const root = document.documentElement;
+		const header = document.querySelector<HTMLElement>(".site-header");
+
+		// Theme: system → light → dark → system, remembered. "system" keeps
+		// following the OS live.
+		const media = matchMedia("(prefers-color-scheme: dark)");
+		const order = ["system", "light", "dark"] as const;
+		type Pref = (typeof order)[number];
+		const labels: Record<Pref, string> = {
+			system: "Theme: follows the system. Switch to light.",
+			light: "Theme: light. Switch to dark.",
+			dark: "Theme: dark. Switch to follow the system.",
+		};
+		const toggle = document.querySelector<HTMLButtonElement>(".theme-toggle");
+		const apply = (pref: Pref) => {
+			root.dataset.themePref = pref;
+			root.dataset.theme = pref === "dark" || (pref === "system" && media.matches) ? "dark" : "light";
+			toggle?.setAttribute("aria-label", labels[pref]);
+			queueSurface();
+		};
+		toggle?.addEventListener("click", () => {
+			const current = (root.dataset.themePref as Pref) || "system";
+			const next = order[(order.indexOf(current) + 1) % order.length];
+			try {
+				localStorage.setItem("crowbar-theme", next);
+			} catch {}
+			apply(next);
+		});
+		media.addEventListener("change", () => {
+			if ((root.dataset.themePref || "system") === "system") apply("system");
+		});
+
+		// The mark is a filled pill with its letters cut out: over a dark
+		// surface it flips to a light pill. Read the surface's real colour, so
+		// this holds in both themes.
+		let queued = false;
+		function queueSurface() {
+			if (queued || !header) return;
+			queued = true;
+			requestAnimationFrame(sync);
+		}
+		function sync() {
+			queued = false;
+			if (!header) return;
+			const hit = document
+				.elementsFromPoint(innerWidth / 2, header.offsetHeight / 2)
+				.find((el) => el.matches(".chapter, .site-footer"));
+			const rgb = hit ? getComputedStyle(hit).backgroundColor.match(/\d+(\.\d+)?/g) : null;
+			const lin = (c: number) => ((c /= 255) <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+			const lum = rgb ? 0.2126 * lin(+rgb[0]) + 0.7152 * lin(+rgb[1]) + 0.0722 * lin(+rgb[2]) : 1;
+			// Paper is ~0.97; Moss (~0.13) and Charcoal (~0.01) both take the light pill.
+			const surface = lum < 0.4 ? "dark" : "light";
+			if (header.dataset.surface !== surface) header.dataset.surface = surface;
+		}
+		if (toggle) toggle.setAttribute("aria-label", labels[(root.dataset.themePref as Pref) || "system"]);
+		addEventListener("scroll", queueSurface, { passive: true });
+		addEventListener("resize", queueSurface);
+		sync();
+	</script>
+</Layout>

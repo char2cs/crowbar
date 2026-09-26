@@ -106,7 +106,7 @@
    got measured — real reserved space still wins once it's wider than the
    floor, same as before. */
 .agent-chat .dissolve {
-  --dissolve-h: calc(var(--agent-dock-h, 92px) + 88px);
+  --dissolve-h: calc(var(--agent-dock-h, 92px) + 24px);
   /* An overlay thumb's own painted width, platform-observed rather than
      derived from anything else here — the floor `right` below never goes
      under it. */
@@ -165,11 +165,11 @@
   );
 }
 .agent-chat .dissolve-layer:nth-child(2) {
-  --top: max(0px, calc(var(--dissolve-h) * 0.1 - 2px));
+  --top: max(0px, calc(var(--dissolve-h) * 0.1 - 1px));
   top: var(--top);
-  bottom: max(0px, calc(var(--dissolve-h) * 0.5 - 2px));
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.5 - 1px));
+  backdrop-filter: blur(1px);
+  -webkit-backdrop-filter: blur(1px);
   mask-image: linear-gradient(
     to bottom,
     transparent calc(var(--dissolve-h) * 0.1 - var(--top)),
@@ -186,11 +186,11 @@
   );
 }
 .agent-chat .dissolve-layer:nth-child(3) {
-  --top: max(0px, calc(var(--dissolve-h) * 0.15 - 4px));
+  --top: max(0px, calc(var(--dissolve-h) * 0.15 - 2px));
   top: var(--top);
-  bottom: max(0px, calc(var(--dissolve-h) * 0.4 - 4px));
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.4 - 2px));
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
   mask-image: linear-gradient(
     to bottom,
     transparent calc(var(--dissolve-h) * 0.15 - var(--top)),
@@ -207,11 +207,11 @@
   );
 }
 .agent-chat .dissolve-layer:nth-child(4) {
-  --top: max(0px, calc(var(--dissolve-h) * 0.2 - 8px));
+  --top: max(0px, calc(var(--dissolve-h) * 0.2 - 5px));
   top: var(--top);
-  bottom: max(0px, calc(var(--dissolve-h) * 0.3 - 8px));
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.3 - 5px));
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
   mask-image: linear-gradient(
     to bottom,
     transparent calc(var(--dissolve-h) * 0.2 - var(--top)),
@@ -228,11 +228,11 @@
   );
 }
 .agent-chat .dissolve-layer:nth-child(5) {
-  --top: max(0px, calc(var(--dissolve-h) * 0.4 - 16px));
+  --top: max(0px, calc(var(--dissolve-h) * 0.4 - 10px));
   top: var(--top);
-  bottom: max(0px, calc(var(--dissolve-h) * 0.1 - 16px));
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.1 - 10px));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   mask-image: linear-gradient(
     to bottom,
     transparent calc(var(--dissolve-h) * 0.4 - var(--top)),
@@ -249,11 +249,11 @@
   );
 }
 .agent-chat .dissolve-layer:nth-child(6) {
-  --top: max(0px, calc(var(--dissolve-h) * 0.6 - 32px));
+  --top: max(0px, calc(var(--dissolve-h) * 0.6 - 19px));
   top: var(--top);
   bottom: 0px;
-  backdrop-filter: blur(32px);
-  -webkit-backdrop-filter: blur(32px);
+  backdrop-filter: blur(19px);
+  -webkit-backdrop-filter: blur(19px);
   mask-image: linear-gradient(
     to bottom,
     transparent calc(var(--dissolve-h) * 0.6 - var(--top)),
@@ -266,11 +266,11 @@
   );
 }
 .agent-chat .dissolve-layer:nth-child(7) {
-  --top: max(0px, calc(var(--dissolve-h) * 0.7 - 64px));
+  --top: max(0px, calc(var(--dissolve-h) * 0.7 - 38px));
   top: var(--top);
   bottom: 0px;
-  backdrop-filter: blur(64px);
-  -webkit-backdrop-filter: blur(64px);
+  backdrop-filter: blur(38px);
+  -webkit-backdrop-filter: blur(38px);
   mask-image: linear-gradient(
     to bottom,
     transparent calc(var(--dissolve-h) * 0.7 - var(--top)),
@@ -371,23 +371,30 @@
 .agent-chat .doc [data-slate-node='element']:last-child {
   margin-bottom: 0;
 }
+/* Instrument Serif ships weight 400 only (Type.dc.html: "never bold"), so
+   these drop the bold/semibold this block used under the old sans-only face.
+   h3's size also moves from 1.25em (~20px) to 1.4em (~22px): the same rule's
+   floor for the serif face is 22px. */
 .agent-chat .doc h1 {
+  font-family: var(--font-heading);
   font-size: 2em;
-  font-weight: 700;
+  font-weight: 400;
   line-height: 1.2;
   letter-spacing: -0.02em;
   margin: 0 0 0.5em;
 }
 .agent-chat .doc h2 {
+  font-family: var(--font-heading);
   font-size: 1.5em;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 1.3;
   letter-spacing: -0.012em;
   margin: 1.5em 0 0.5em;
 }
 .agent-chat .doc h3 {
-  font-size: 1.25em;
-  font-weight: 600;
+  font-family: var(--font-heading);
+  font-size: 1.4em;
+  font-weight: 400;
   line-height: 1.4;
   margin: 1.5em 0 0.5em;
 }
@@ -1045,8 +1052,9 @@
 }
 .agent-chat .doc .sheet h1 {
   margin: 0 0 6px;
+  font-family: var(--font-heading);
   font-size: 2em;
-  font-weight: 700;
+  font-weight: 400;
   letter-spacing: -0.02em;
   color: color-mix(in oklch, var(--foreground) 32%, transparent);
 }

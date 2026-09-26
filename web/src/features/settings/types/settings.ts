@@ -35,6 +35,7 @@ export interface Settings {
   // UI
   uiFontFamily: string
   uiFontSize: number
+  headingFontFamily: string
   // Agents
   /**
    * Whether a chat lands on Chat rather than Terminal when it opens. User-level,

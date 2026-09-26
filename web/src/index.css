@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import './styles/theme-fonts.css';
+@import './styles/theme-vars.css';
 @import './styles/theme.css';
 @import './styles/zen.css';
 @import './styles/editor-theme.css';

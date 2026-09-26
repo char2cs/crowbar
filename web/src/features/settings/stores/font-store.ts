@@ -18,14 +18,24 @@ interface FontActions {
 
 const FONT_CACHE_KEY = 'crowbar_font_cache:v1'
 const FONT_CACHE_EXPIRY = 24 * 60 * 60 * 1000 // 24 hours in milliseconds
-// Fonts that ship with the app and are therefore always selectable, regardless
-// of OS-level font enumeration (which is unavailable in the WKWebView).
-// "Geist Mono Variable" is the default for both the editor and the terminal
-// (see typography-defaults.ts).
+// Fonts that ship with the app, so they are selectable even though the
+// WKWebView can't enumerate OS fonts. Defaults live in typography-defaults.ts.
 const BUNDLED_FONTS: FontInfo[] = [
   {
     name: 'CalSansUI',
     family: 'CalSansUI',
+    style: 'Regular',
+    is_monospace: false,
+  },
+  {
+    name: 'Geist Variable',
+    family: 'Geist Variable',
+    style: 'Regular',
+    is_monospace: false,
+  },
+  {
+    name: 'Instrument Serif',
+    family: 'Instrument Serif',
     style: 'Regular',
     is_monospace: false,
   },

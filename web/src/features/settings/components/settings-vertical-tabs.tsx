@@ -115,13 +115,18 @@ export const SettingsVerticalTabs = ({
                 tabIndex={isActive ? 0 : -1}
                 className={cn(
                   'ui-text-sm h-auto w-full justify-start gap-2.5 rounded-xl px-2.5 py-1.5 text-left',
+                  // `--accent` is already a pre-mixed 8%/10% overlay (see
+                  // theme.css) — dividing it further with /10 or /5 left the
+                  // active/hover states nearly invisible. Active gets its own
+                  // moss-tinted pill (a deliberate accent spend, not a hover
+                  // mix); hover uses `--accent` at its own full strength.
                   isActive
-                    ? 'bg-accent/10 text-accent-foreground font-medium'
-                    : 'text-muted-foreground hover:bg-accent/5 hover:text-foreground',
+                    ? 'bg-primary/12 text-foreground'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                 )}
               >
                 <Icon className="size-[18px] shrink-0 text-current" weight="duotone" />
-                <span className="truncate">{item.label}</span>
+                <span className="font-heading truncate text-[19px]">{item.label}</span>
               </Button>
             )
           })

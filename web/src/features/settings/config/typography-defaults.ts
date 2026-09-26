@@ -1,7 +1,13 @@
-// Bundled UI font (loaded via @font-face in theme.css). Kept as the default so
-// the app's typography is driven by Settings without requiring a new webfont.
+// Bundled UI font (local @font-face in theme-fonts.css). Chosen over Geist
+// Variable after a live A/B in the running app; Geist Variable stays
+// selectable in Settings. Does not touch DEFAULT_MONO_FONT_FAMILY below —
+// terminal/code stays on Geist Mono Variable regardless of the UI font.
 export const DEFAULT_UI_FONT_FAMILY = 'CalSansUI'
 export const DEFAULT_MONO_FONT_FAMILY = 'Geist Mono Variable'
+// Display face for headings (Markdown h1-h3, dialog titles, settings section
+// titles, etc.) — independent of the UI font above, and user-configurable
+// since some people find a display serif too much for every heading.
+export const DEFAULT_HEADING_FONT_FAMILY = 'Instrument Serif'
 // The terminal renders through xterm's DOM renderer (see resolve-font.ts), so
 // there is no longer any reason to prefer a static cut — that preference only
 // existed to keep the WebGL glyph atlas alive. Sharing the editor's variable cut

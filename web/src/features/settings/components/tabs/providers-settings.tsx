@@ -191,7 +191,7 @@ export const ProvidersSettings = () => {
             that header's typography. Without them the group is a bare list of
             names that never says what an agent actually is. */}
         <div className="mb-2 px-1 py-1.5">
-          <h3 className="ui-font ui-text-base font-medium text-foreground">Agents</h3>
+          <h3 className="font-heading text-[32px] text-foreground">Agents</h3>
           <p className="ui-font ui-text-sm text-muted-foreground">
             Agents are the coding CLIs Crowbar runs your chats on — Claude Code, Codex, and any
             others you add. Crowbar starts one for you when you open a chat, and each keeps its own

@@ -1,6 +1,7 @@
 import type { ThemeDefinition } from '@/extensions/themes/types'
 import { currentPlatform } from '@/utils/platform'
 import {
+  DEFAULT_HEADING_FONT_FAMILY,
   DEFAULT_MONO_FONT_FAMILY,
   DEFAULT_UI_FONT_FAMILY,
 } from '@/features/settings/config/typography-defaults'
@@ -19,6 +20,7 @@ const DEFAULT_SANS_FALLBACK =
   'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
 const WINDOWS_SANS_FALLBACK =
   '"Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif'
+const HEADING_FALLBACK = 'Georgia, "Times New Roman", serif'
 
 export interface AppearanceBootstrapCache {
   version: 1
@@ -28,6 +30,7 @@ export interface AppearanceBootstrapCache {
   uiFontFamily: string
   uiFontSize: number
   markdownFontSize: number
+  headingFontFamily: string
 }
 
 const DEFAULT_EDITOR_FONT = DEFAULT_MONO_FONT_FAMILY
@@ -41,6 +44,7 @@ export const DEFAULT_APPEARANCE_BOOTSTRAP_CACHE: AppearanceBootstrapCache = {
   uiFontFamily: DEFAULT_UI_FONT,
   uiFontSize: UI_FONT_SIZE_DEFAULT,
   markdownFontSize: MARKDOWN_FONT_SIZE_DEFAULT,
+  headingFontFamily: DEFAULT_HEADING_FONT_FAMILY,
 }
 
 function isWindowsPlatform(): boolean {
@@ -87,6 +91,10 @@ function parseBootstrapCache(raw: unknown): AppearanceBootstrapCache | null {
   // A cache written before this key existed normalizes to the default, which is
   // the size those users are already looking at — no migration needed.
   const markdownFontSize = normalizeMarkdownFontSize(record.markdownFontSize)
+  const headingFontFamily =
+    typeof record.headingFontFamily === 'string'
+      ? normalizeConfiguredFontFamily(record.headingFontFamily, DEFAULT_HEADING_FONT_FAMILY)
+      : DEFAULT_APPEARANCE_BOOTSTRAP_CACHE.headingFontFamily
 
   return {
     version: 1,
@@ -96,6 +104,7 @@ function parseBootstrapCache(raw: unknown): AppearanceBootstrapCache | null {
     uiFontFamily,
     uiFontSize,
     markdownFontSize,
+    headingFontFamily,
   }
 }
 
@@ -141,6 +150,10 @@ export function applyBootstrapAppearance(cache: AppearanceBootstrapCache): void 
     buildFontVariable(cache.editorFontFamily, monoFallback),
   )
   root.style.setProperty('--app-font-family', buildFontVariable(cache.uiFontFamily, sansFallback))
+  root.style.setProperty(
+    '--app-heading-font-family',
+    buildFontVariable(cache.headingFontFamily, HEADING_FALLBACK),
+  )
   const normalizedUiFontSize = normalizeUiFontSize(cache.uiFontSize)
   root.style.setProperty('--app-ui-font-size', `${normalizedUiFontSize}px`)
   root.style.setProperty('--app-ui-scale', `${getUiFontScale(normalizedUiFontSize)}`)
@@ -172,6 +185,7 @@ export interface BootstrapTypographyInput {
   uiFontFamily?: string
   uiFontSize?: number
   markdownFontSize?: number
+  headingFontFamily?: string
 }
 
 export function cacheFontsForBootstrap(typography: BootstrapTypographyInput): void {
@@ -185,6 +199,10 @@ export function cacheFontsForBootstrap(typography: BootstrapTypographyInput): vo
     uiFontFamily: normalizeConfiguredFontFamily(
       typography.uiFontFamily || existing.uiFontFamily,
       DEFAULT_UI_FONT_FAMILY,
+    ),
+    headingFontFamily: normalizeConfiguredFontFamily(
+      typography.headingFontFamily || existing.headingFontFamily,
+      DEFAULT_HEADING_FONT_FAMILY,
     ),
     uiFontSize:
       typography.uiFontSize === undefined
