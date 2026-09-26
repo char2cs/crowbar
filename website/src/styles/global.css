@@ -125,6 +125,35 @@ a {
 	--s-shadow: 27, 27, 25;
 }
 
+/* Dark theme keeps the hard cuts: Paper chapters become Charcoal, Charcoal
+   chapters drop to near-black, Moss stays Moss. */
+[data-theme="dark"] {
+	color-scheme: dark;
+}
+[data-theme="dark"] body {
+	background: var(--charcoal);
+	color: var(--cream);
+}
+[data-theme="dark"] .paper {
+	--s-bg: var(--charcoal);
+	--s-fg: var(--cream);
+	--s-fg-2: var(--cream-2);
+	--s-fg-3: var(--cream-3);
+	--s-line: var(--charcoal-line);
+	--s-accent: var(--moss-lift);
+	--s-shadow: 0, 0, 0;
+}
+[data-theme="dark"] .charcoal {
+	--s-bg: #10100f;
+	--s-line: rgba(242, 240, 234, 0.12);
+}
+[data-theme="dark"] .hero .art img {
+	filter: drop-shadow(0 22px 18px rgba(0, 0, 0, 0.55)) drop-shadow(0 60px 54px rgba(0, 0, 0, 0.35));
+}
+[data-theme="dark"] .halftone {
+	filter: invert(0.92);
+}
+
 .chapter {
 	position: relative;
 	overflow: hidden;
@@ -308,8 +337,54 @@ a {
 }
 /* The mark is a filled pill with its letters cut out — on Charcoal it must
    flip to a light pill or it vanishes into the surface. */
-.site-header[data-surface="charcoal"] .header-mark {
+.site-header[data-surface="dark"] .header-mark {
 	color: var(--cream);
+}
+
+/* System → light → dark. One icon shows at a time, keyed off the saved
+   preference, not the resolved theme, so "system" stays visible as a choice. */
+.theme-toggle {
+	position: absolute;
+	top: clamp(18px, 2.6vh, 28px);
+	right: var(--gutter);
+	pointer-events: auto;
+	width: 40px;
+	height: 40px;
+	display: grid;
+	place-items: center;
+	padding: 0;
+	border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+	border-radius: 999px;
+	background: transparent;
+	color: var(--ink);
+	cursor: pointer;
+	transition: color 0.25s ease, border-color 0.25s ease;
+}
+.site-header[data-surface="dark"] .theme-toggle {
+	color: var(--cream);
+}
+.theme-toggle:hover {
+	border-color: currentColor;
+}
+.theme-toggle:focus-visible {
+	outline: 2px solid var(--moss-lift);
+	outline-offset: 2px;
+}
+.theme-toggle svg {
+	width: 18px;
+	height: 18px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.6;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	display: none;
+}
+:root:not([data-theme-pref]) .theme-toggle .i-system,
+[data-theme-pref="system"] .theme-toggle .i-system,
+[data-theme-pref="light"] .theme-toggle .i-light,
+[data-theme-pref="dark"] .theme-toggle .i-dark {
+	display: block;
 }
 
 /* ---------- hero ---------- */
@@ -378,6 +453,46 @@ a {
 	position: relative;
 	z-index: 2;
 	align-self: end;
+}
+
+/* ---------- the app (screenshots) ---------- */
+
+.showcase {
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: auto auto;
+	justify-items: center;
+	align-content: center;
+	text-align: center;
+	gap: clamp(32px, 5vh, 56px);
+	min-height: auto;
+	padding-top: clamp(96px, 12vh, 140px);
+}
+.showcase .text {
+	align-items: center;
+	max-width: 900px;
+}
+.showcase .display {
+	font-size: clamp(40px, min(5.4vw, 7.5vh), 88px);
+}
+.shots {
+	/* Big, but headline + screenshot fit one screen. */
+	width: min(100%, 1320px, calc(58vh * 1.52));
+}
+.shot {
+	display: block;
+	width: 100%;
+	height: auto;
+	border-radius: 12px;
+	box-shadow:
+		0 30px 60px rgba(0, 0, 0, 0.28),
+		0 8px 18px rgba(0, 0, 0, 0.16);
+}
+.shot-dark,
+[data-theme="dark"] .shot-light {
+	display: none;
+}
+[data-theme="dark"] .shot-dark {
+	display: block;
 }
 
 /* ---------- 01 spec sheet ---------- */
@@ -907,7 +1022,7 @@ a {
 @media (max-width: 1200px) and (min-width: 981px) {
 	/* Only the two-column chapters: this rule sits later in the cascade than
 	   the single-column variants' own rules, so it must not match them. */
-	.chapter:not(.hero):not(.wide):not(.local):not(.closing) {
+	.chapter:not(.hero):not(.wide):not(.local):not(.closing):not(.showcase) {
 		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 	}
 	.display {
@@ -1012,6 +1127,12 @@ a {
 	}
 	.diff {
 		font-size: 12.5px;
+	}
+	.showcase {
+		padding-top: 96px;
+	}
+	.shot {
+		border-radius: 8px;
 	}
 	.diff .row {
 		grid-template-columns: 2.4em 1.4em minmax(0, 1fr);
