@@ -47,7 +47,12 @@ function sizedScales(css: string): string[] {
   ].map((m) => m[1])
 }
 
-const appCss = [read('src/index.css'), read('src/styles/theme.css')].join('\n')
+// Follows index.css's local @imports, so tokens stay visible when a sheet is split.
+const indexCss = read('src/index.css')
+const localSheets = [...indexCss.matchAll(/@import\s+'\.\/([^']+\.css)'/g)].map(
+  (m) => `src/${m[1]}`,
+)
+const appCss = [indexCss, ...localSheets.map(read)].join('\n')
 const tailwindCss = read('node_modules/tailwindcss/theme.css')
 
 const KNOWN = new Set([

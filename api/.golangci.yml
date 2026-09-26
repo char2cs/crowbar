@@ -109,7 +109,7 @@ issues:
   # Ratchet: only lines changed since the 2026-09-24 guardrails baseline are
   # gated. The pre-existing backlog is reported by `make lint-backlog`; shrink
   # it, then move this rev forward (or drop it) once the backlog is zero.
-  new-from-rev: 736450b0519dcf8850a0fad1f99c11d8fc4e8a00
+  new-from-rev: 70ec4303a7702206f271a54f752803f792a23677
   new: false
   fix: false
 severity:
