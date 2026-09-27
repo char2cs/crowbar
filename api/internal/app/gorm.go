@@ -29,6 +29,7 @@ type GORMStores struct {
 	AgentModelManifestFetch  store.Store[domain.AgentModelManifestFetch, string]
 	Folders                  store.ScopedStore[domain.Folder, string]
 	AgentChatTelemetry       store.Store[domain.AgentChatTelemetry, string]
+	Clients                  store.ScopedStore[domain.Client, string]
 }
 
 func newGORMStores(
@@ -73,6 +74,10 @@ func newGORMStores(
 	if err != nil {
 		return nil, fmt.Errorf("app: agent model manifest fetch store: %w", err)
 	}
+	clients, err := storesqlite.NewFromDB[domain.Client, string](db)
+	if err != nil {
+		return nil, fmt.Errorf("app: client store: %w", err)
+	}
 	return &GORMStores{
 		Projects:                 projects,
 		Repositories:             repos,
@@ -83,5 +88,6 @@ func newGORMStores(
 		AgentModelManifestFetch:  modelManifestFetch,
 		Folders:                  folders,
 		AgentChatTelemetry:       chatTelemetry,
+		Clients:                  clients,
 	}, nil
 }
