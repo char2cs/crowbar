@@ -67,10 +67,15 @@ func Load(dir string) (*Identity, error) {
 }
 
 // FingerprintOf renders a certificate's SHA-256 as grouped lowercase hex.
+// It deliberately keeps only the first 96 bits (24 hex chars) of the SHA-256
+// digest, grouped as 6 space-separated 4-char groups, for a short human-
+// comparable string. This truncated format is a contract with Rust-side code
+// and must not be changed without updating all fingerprint formatters.
 func FingerprintOf(der []byte) string {
 	sum := sha256.Sum256(der)
 	full := hex.EncodeToString(sum[:])
 	groups := make([]string, 0, 6)
+	// Truncate to first 96 bits (6 groups of 4 hex chars) for short, human-readable output.
 	for i := 0; i < 6; i++ {
 		groups = append(groups, full[i*4:(i+1)*4])
 	}
