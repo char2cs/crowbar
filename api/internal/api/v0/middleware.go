@@ -9,6 +9,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/pairing"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -161,6 +162,59 @@ func rejectEmptyPathParams() gin.HandlerFunc {
 				return
 			}
 		}
+		c.Next()
+	}
+}
+
+// ctxClientKey is where requireBearerAuth records the authenticated client's
+// id for downstream handlers.
+const ctxClientKey = "crowbar.clientID"
+
+// ClientIDFrom returns the authenticated client's id, or "" for a request
+// that arrived over a non-TLS connection (the unix socket, or a loopback dev
+// TCP bind, which stays plaintext by design).
+func ClientIDFrom(c *gin.Context) string {
+	v, _ := c.Get(ctxClientKey)
+	id, _ := v.(string)
+	return id
+}
+
+// clientAuthStore is the narrow seam requireBearerAuth needs — satisfied by
+// store.ScopedStore[domain.Client, string].
+type clientAuthStore interface {
+	FindWhere(ctx context.Context, match domain.Client) ([]domain.Client, error)
+}
+
+// requireBearerAuth authenticates a request by its Authorization: Bearer
+// header. A request with no TLS state (the unix socket, or a loopback dev TCP
+// bind) passes through unauthenticated — filesystem permission on the socket
+// is that path's trust boundary, not this middleware.
+func requireBearerAuth(clients clientAuthStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.TLS == nil {
+			c.Next()
+			return
+		}
+		auth := c.GetHeader("Authorization")
+		const prefix = "Bearer "
+		if len(auth) <= len(prefix) || auth[:len(prefix)] != prefix {
+			libs.WriteErr(c, http.StatusUnauthorized, "client is not paired")
+			c.Abort()
+			return
+		}
+		token := auth[len(prefix):]
+		matches, err := clients.FindWhere(c.Request.Context(), domain.Client{TokenHash: pairing.HashToken(token)})
+		if err != nil {
+			libs.WriteErr(c, http.StatusInternalServerError, "client lookup failed")
+			c.Abort()
+			return
+		}
+		if len(matches) == 0 || matches[0].RevokedAt != nil {
+			libs.WriteErr(c, http.StatusUnauthorized, "client is not paired")
+			c.Abort()
+			return
+		}
+		c.Set(ctxClientKey, matches[0].ID)
 		c.Next()
 	}
 }

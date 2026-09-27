@@ -2,15 +2,18 @@ package v0
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/pairing"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -318,4 +321,113 @@ func TestRejectEmptyPathParams_AllowsANonEmptySegment(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// stubClientStore stands in for store.ScopedStore[domain.Client, string]: a
+// fixed set of clients, matched on TokenHash the way requireBearerAuth calls
+// FindWhere.
+type stubClientStore struct {
+	clients []domain.Client
+}
+
+func (s *stubClientStore) FindWhere(_ context.Context, match domain.Client) ([]domain.Client, error) {
+	var out []domain.Client
+	for _, c := range s.clients {
+		if match.TokenHash != "" && c.TokenHash == match.TokenHash {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
+// TestRequireBearerAuth_NoTLS_PassesThrough proves a plaintext connection (the
+// unix socket, or a loopback dev TCP bind) is out of this middleware's scope
+// entirely — no header is required.
+func TestRequireBearerAuth_NoTLS_PassesThrough(t *testing.T) {
+	r := gin.New()
+	r.Use(requireBearerAuth(&stubClientStore{}))
+	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil) // no TLS
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code, "a non-TLS request must pass through unauthenticated")
+}
+
+// TestRequireBearerAuth_TLS_NoHeader_Rejects proves a TLS request with no
+// Authorization header is rejected rather than treated as anonymous.
+func TestRequireBearerAuth_TLS_NoHeader_Rejects(t *testing.T) {
+	r := gin.New()
+	r.Use(requireBearerAuth(&stubClientStore{}))
+	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
+	req.TLS = &tls.ConnectionState{}
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code, "expected 401 with no Authorization header")
+}
+
+// TestRequireBearerAuth_TLS_UnknownToken_Rejects proves a bearer token with no
+// matching client hash is rejected.
+func TestRequireBearerAuth_TLS_UnknownToken_Rejects(t *testing.T) {
+	r := gin.New()
+	r.Use(requireBearerAuth(&stubClientStore{}))
+	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
+	req.TLS = &tls.ConnectionState{}
+	req.Header.Set("Authorization", "Bearer not-a-real-token")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code, "expected 401 for an unknown token")
+}
+
+// TestRequireBearerAuth_TLS_ValidToken_Passes proves a token whose hash
+// matches a known, non-revoked client authenticates and stashes the client
+// id for ClientIDFrom.
+func TestRequireBearerAuth_TLS_ValidToken_Passes(t *testing.T) {
+	token := "abc123"
+	store := &stubClientStore{clients: []domain.Client{
+		{ID: "c1", TokenHash: pairing.HashToken(token)},
+	}}
+	r := gin.New()
+	r.Use(requireBearerAuth(store))
+	r.GET("/x", func(c *gin.Context) {
+		assert.Equal(t, "c1", ClientIDFrom(c))
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
+	req.TLS = &tls.ConnectionState{}
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code, "expected 200 for a valid token")
+}
+
+// TestRequireBearerAuth_TLS_RevokedToken_Rejects proves a revoked client's
+// token stops authenticating immediately — a security property, since a
+// revoke is meant to take effect on the client's very next request.
+func TestRequireBearerAuth_TLS_RevokedToken_Rejects(t *testing.T) {
+	token := "abc123"
+	revokedAt := time.Now()
+	store := &stubClientStore{clients: []domain.Client{
+		{ID: "c1", TokenHash: pairing.HashToken(token), RevokedAt: &revokedAt},
+	}}
+	r := gin.New()
+	r.Use(requireBearerAuth(store))
+	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
+	req.TLS = &tls.ConnectionState{}
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code, "expected 401 for a revoked client's token")
 }
