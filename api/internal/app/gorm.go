@@ -67,13 +67,13 @@ func newGORMStores(
 	if err != nil {
 		return nil, fmt.Errorf("app: agent chat telemetry store: %w", err)
 	}
-	// Built last: preserves every earlier store's own fault-injection call
-	// count in gorm_test.go (e.g. TestNewGORMStores_FolderStoreError), which
-	// counts ExecContext calls by construction ORDER.
 	modelManifestFetch, err := storesqlite.NewFromDB[domain.AgentModelManifestFetch, string](db)
 	if err != nil {
 		return nil, fmt.Errorf("app: agent model manifest fetch store: %w", err)
 	}
+	// Built last: preserves every earlier store's own fault-injection call
+	// count in gorm_test.go (e.g. TestNewGORMStores_FolderStoreError), which
+	// counts ExecContext calls by construction ORDER.
 	clients, err := storesqlite.NewFromDB[domain.Client, string](db)
 	if err != nil {
 		return nil, fmt.Errorf("app: client store: %w", err)
