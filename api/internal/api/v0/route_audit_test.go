@@ -590,6 +590,14 @@ func extraRoutes() []string {
 		// /system/prerequisites rather than inside the entity hierarchy.
 		"GET /v0/system/perf",
 		"POST /v0/system/perf",
+		// Pairing + client registry (2026-09-27 remote-instances-daemon plan):
+		// mint/redeem stay OPEN (registered before requireBearerAuth), so an
+		// unpaired client can bootstrap trust at all; the registry routes are
+		// guarded like every other v0 route.
+		"POST /v0/pair/code",
+		"POST /v0/pair",
+		"GET /v0/clients",
+		"DELETE /v0/clients/:id",
 	}
 }
 

@@ -1,6 +1,8 @@
 package v0
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat"
@@ -11,6 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/health"
 	homePkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/identity"
+	pairingPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/pairing"
 	projectsPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/provider"
 	reposPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
@@ -64,9 +67,24 @@ func (c *Container) Register(
 	// deeper nesting introduced here is guarded automatically.
 	rg.Use(rejectEmptyPathParams())
 
+	// Pairing's OPEN routes are registered on rg BEFORE requireBearerAuth is
+	// installed below — gin snapshots a group's middleware chain at ROUTE
+	// registration time, so a route registered here never carries middleware
+	// added to rg later. This is what lets an unpaired client redeem a code
+	// at all.
+	pairingPkg.RegisterOpen(rg, c.pairing, newFixedWindowLimiter(5, time.Minute))
+
 	// Top-level, non-entity-scoped routes stay on rg (outside /projects).
 	health.Register(rg)
 	system.Register(rg)
+
+	// From here down, every route requires a valid bearer token OVER TLS —
+	// and is a no-op over the unix socket / loopback dev TCP, per
+	// requireBearerAuth's own doc. The pairing client-registry routes are
+	// registered NOW, after the guard, for the same reason RegisterOpen ran
+	// before it.
+	rg.Use(requireBearerAuth(c.app.GORM.Clients))
+	pairingPkg.RegisterGuarded(rg, c.pairing)
 	if c.logs != nil {
 		console.Register(rg, c.logs)
 	}
