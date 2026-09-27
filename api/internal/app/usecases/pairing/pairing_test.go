@@ -108,7 +108,8 @@ func TestRedeem_IsSingleUse(t *testing.T) {
 }
 
 func TestHashToken_IsStableAndDistinct(t *testing.T) {
-	if HashToken("a") != HashToken("a") {
+	h1, h2 := HashToken("a"), HashToken("a")
+	if h1 != h2 {
 		t.Fatal("HashToken must be deterministic")
 	}
 	if HashToken("a") == HashToken("b") {
