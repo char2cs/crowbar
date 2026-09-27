@@ -325,12 +325,17 @@ func TestRejectEmptyPathParams_AllowsANonEmptySegment(t *testing.T) {
 
 // stubClientStore stands in for store.ScopedStore[domain.Client, string]: a
 // fixed set of clients, matched on TokenHash the way requireBearerAuth calls
-// FindWhere.
+// FindWhere, or a fixed err to exercise the store-failure branch (mirroring
+// fakeRepoReader/fakeScopeReader above).
 type stubClientStore struct {
 	clients []domain.Client
+	err     error
 }
 
 func (s *stubClientStore) FindWhere(_ context.Context, match domain.Client) ([]domain.Client, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
 	var out []domain.Client
 	for _, c := range s.clients {
 		if match.TokenHash != "" && c.TokenHash == match.TokenHash {
@@ -430,4 +435,24 @@ func TestRequireBearerAuth_TLS_RevokedToken_Rejects(t *testing.T) {
 	r.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusUnauthorized, rec.Code, "expected 401 for a revoked client's token")
+}
+
+// TestRequireBearerAuth_TLS_StoreError_Returns500 proves a client-lookup
+// failure (a storage read failure, not an unknown token) is surfaced as a
+// mapped 500 and aborts the chain, mirroring the reader-failure coverage
+// scopeRepoToPath/scopeWorkspaceToPath already carry in this file.
+func TestRequireBearerAuth_TLS_StoreError_Returns500(t *testing.T) {
+	store := &stubClientStore{err: errors.New("client store unavailable")}
+	r := gin.New()
+	r.Use(requireBearerAuth(store))
+	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
+	req.TLS = &tls.ConnectionState{}
+	req.Header.Set("Authorization", "Bearer abc123")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code,
+		"a client-store failure must abort with 500, not fall through to 401 or reach the handler")
 }
