@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -78,6 +80,51 @@ func TestBrowse_EmptyPath_DefaultsToHome(t *testing.T) {
 	r.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 for an empty path (home default), got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestRegression_Browse_RootChildPathsAreJoined proves browsing the
+// filesystem root yields "/etc", not "//etc": child paths are joined, not
+// concatenated with a separator the parent already ends in.
+func TestRegression_Browse_RootChildPathsAreJoined(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	root := filepath.VolumeName(t.TempDir()) + string(filepath.Separator)
+	r := gin.New()
+	r.GET("/browse", Browse)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/browse?path="+url.QueryEscape(root), nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for the root, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Data []BrowseEntry `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Data) == 0 {
+		t.Fatal("expected the root to list at least one entry")
+	}
+	for _, e := range body.Data {
+		if want := filepath.Join(root, e.Name); e.Path != want {
+			t.Fatalf("entry %q: path %q, want %q", e.Name, e.Path, want)
+		}
+	}
+}
+
+// TestBrowse_RelativePath_Returns400 proves a relative path is refused rather
+// than resolved against whatever the daemon's working directory happens to be.
+func TestBrowse_RelativePath_Returns400(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/browse", Browse)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/browse?path=.", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for a relative path, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

@@ -8,6 +8,7 @@ package handlers
 import (
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 
 	"github.com/gin-gonic/gin"
@@ -36,6 +37,10 @@ func Browse(c *gin.Context) {
 		}
 		path = home
 	}
+	if !filepath.IsAbs(path) {
+		libs.WriteErr(c, http.StatusBadRequest, "path must be absolute")
+		return
+	}
 
 	info, err := os.Stat(path)
 	if err != nil {
@@ -55,19 +60,19 @@ func Browse(c *gin.Context) {
 
 	entries := make([]BrowseEntry, 0, len(dirEntries))
 	for _, e := range dirEntries {
+		childPath := filepath.Join(path, e.Name())
 		isDir := e.IsDir()
 		// For symlinks, resolve the actual type instead of trusting IsDir().
 		// os.DirEntry.IsDir() returns false for symlinks even when they point
 		// to directories, so we need to stat the full path to get the truth.
 		if e.Type()&os.ModeSymlink != 0 {
-			fullPath := path + string(os.PathSeparator) + e.Name()
-			if info, err := os.Stat(fullPath); err == nil {
+			if info, err := os.Stat(childPath); err == nil {
 				isDir = info.IsDir()
 			}
 		}
 		entries = append(entries, BrowseEntry{
 			Name:  e.Name(),
-			Path:  path + string(os.PathSeparator) + e.Name(),
+			Path:  childPath,
 			IsDir: isDir,
 		})
 	}
