@@ -245,8 +245,8 @@ mod tests {
     use super::*;
     use crate::ws_bridge::open_bridge;
     use crate::ws_bridge::test_support::{
-        accept_send_binary_then_idle, accept_then_close, open_fds, sentinel_sink, silent_sink,
-        spawn_wedged_daemon, spawn_wedged_daemon_multi, test_socket, ClosureSink,
+        accept_send_binary_then_idle, accept_then_close, in_own_process, open_fds, sentinel_sink,
+        silent_sink, spawn_wedged_daemon, spawn_wedged_daemon_multi, test_socket, ClosureSink,
     };
     use tokio::net::UnixListener;
 
@@ -291,6 +291,11 @@ mod tests {
     /// descriptor table does.
     #[tokio::test]
     async fn daemon_initiated_closes_do_not_leak_file_descriptors() {
+        let name =
+            "ws_bridge::connection::tests::daemon_initiated_closes_do_not_leak_file_descriptors";
+        if !in_own_process(name) {
+            return;
+        }
         let _serialised = crate::test_support::fd_tests().await;
 
         const CYCLES: usize = 20;

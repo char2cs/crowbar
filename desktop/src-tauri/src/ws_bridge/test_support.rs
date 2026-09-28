@@ -10,10 +10,33 @@ use tokio_tungstenite::tungstenite::Message;
 use super::{Frame, FrameSink, WS_CLOSE_SENTINEL};
 
 /// File descriptors this process holds open (`/dev/fd` on macOS, a symlink to
-/// `/proc/self/fd` on Linux). Process-wide, and therefore only meaningful while
-/// `test_support::socket_tests()` is held — see the note there.
+/// `/proc/self/fd` on Linux). Process-wide, and therefore only meaningful in a
+/// process running nothing else — see [`in_own_process`].
 pub fn open_fds() -> usize {
     std::fs::read_dir("/dev/fd").map(|d| d.count()).unwrap_or(0)
+}
+
+const ALONE: &str = "CROWBAR_TEST_ALONE";
+
+/// Whether this process runs test `name` alone; if not, runs it alone in a fresh
+/// copy of this binary and asserts it passed. A lock cannot isolate a count: every
+/// `#[tokio::test]` holds runtime descriptors before its body can take one.
+pub fn in_own_process(name: &str) -> bool {
+    if std::env::var_os(ALONE).is_some() {
+        return true;
+    }
+    let exe = std::env::current_exe().expect("the test binary's path");
+    let out = std::process::Command::new(exe)
+        .args(["--exact", name, "--test-threads=1"])
+        .env(ALONE, "1")
+        .output()
+        .expect("run the test binary");
+    let report = String::from_utf8_lossy(&out.stdout) + String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success() && report.contains(" 1 passed"),
+        "{name}, run alone:\n{report}"
+    );
+    false
 }
 
 /// Short path: a unix socket's sun_path is capped at 104 bytes and $TMPDIR on
