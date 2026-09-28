@@ -54,6 +54,12 @@ func tlsListen(ln net.Listener, id *tlsid.Identity) net.Listener {
 	})
 }
 
+// IsNetworkExposed reports whether a tcp:// host binds beyond loopback — the
+// bind NewTCP terminates TLS for.
+func IsNetworkExposed(host string) bool {
+	return isNonLoopbackBind(strings.TrimPrefix(host, "tcp://"))
+}
+
 // isNonLoopbackBind reports whether addr binds beyond loopback. An empty or
 // wildcard host (":3737", "0.0.0.0:3737", "[::]:3737") binds all interfaces; a
 // concrete loopback host (127.0.0.0/8, ::1, localhost) does not.

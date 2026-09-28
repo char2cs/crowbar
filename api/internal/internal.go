@@ -22,15 +22,16 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
-// Container is the root container owning the HTTP server, its listener, and the
-// adapter layer (closed on shutdown).
+// Container is the root container owning the HTTP server, its listeners, and
+// the adapter layer (closed on shutdown). One server serves every listener, so
+// a single Shutdown drains them all under one budget.
 type Container struct {
-	server   *http.Server
-	listener net.Listener
-	engines  *engine.Container
-	adapter  *adapter.Container
-	app      *app.Container
-	api      *crowbarapi.Container
+	server    *http.Server
+	listeners []net.Listener
+	engines   *engine.Container
+	adapter   *adapter.Container
+	app       *app.Container
+	api       *crowbarapi.Container
 }
 
 type rootOpts struct {
@@ -80,7 +81,7 @@ func New(
 		return nil, fmt.Errorf("internal: tls identity: %w", err)
 	}
 
-	listener, err := gateway.New(host, identity)
+	listeners, err := gateway.New(host, identity)
 	if err != nil {
 		return nil, fmt.Errorf("internal: gateway: %w", err)
 	}
@@ -117,12 +118,12 @@ func New(
 	}
 
 	return &Container{
-		server:   &http.Server{Handler: apiContainer.Handler(), ReadHeaderTimeout: 30 * time.Second},
-		listener: listener,
-		engines:  engines,
-		adapter:  adapters,
-		app:      appContainer,
-		api:      apiContainer,
+		server:    &http.Server{Handler: apiContainer.Handler(), ReadHeaderTimeout: 30 * time.Second},
+		listeners: listeners,
+		engines:   engines,
+		adapter:   adapters,
+		app:       appContainer,
+		api:       apiContainer,
 	}, nil
 }
 
@@ -135,16 +136,20 @@ func adapterOptions(
 	return []adapter.Option{adapter.WithHomeDir(homeDir)}
 }
 
-// Run serves until ctx is cancelled, then gracefully shuts down. It also watches
-// for an early Serve failure: if Serve returns before shutdown is requested
-// (listener invalidated, accept failing permanently under FD pressure), the
-// error is surfaced so the process exits non-zero and its supervisor restarts
-// the daemon — rather than silently hanging "up" while accepting no connections.
+// Run serves every listener until ctx is cancelled, then gracefully shuts down.
+// It also watches for an early Serve failure: if any listener's Serve returns
+// before shutdown is requested (listener invalidated, accept failing permanently
+// under FD pressure), the error is surfaced so the process exits non-zero and
+// its supervisor restarts the daemon — rather than silently hanging "up" while
+// accepting no connections.
 func (c *Container) Run(
 	ctx context.Context,
 ) error {
-	serveErr := make(chan error, 1)
-	go func() { serveErr <- c.server.Serve(c.listener) }()
+	// Buffered per listener so every Serve goroutine can exit once Run returns.
+	serveErr := make(chan error, len(c.listeners))
+	for _, ln := range c.listeners {
+		go func() { serveErr <- c.server.Serve(ln) }()
+	}
 	select {
 	case <-ctx.Done():
 		// Ordered, bounded graceful shutdown (spec §3.8): stop accepting new requests +
@@ -200,7 +205,7 @@ func (c *Container) Run(
 // stopped accepting connections (Run shuts it down before Close runs), so it
 // first closes the app layer's lazy realtime resource lifecycles (file watchers
 // and LSP hosts, which http.Server.Shutdown leaves running on hijacked WebSocket
-// connections), then releases the adapter layer and the listener.
+// connections), then releases the adapter layer and the listeners.
 func (c *Container) Close() {
 	// The rebind workers read the stores, so they stop before anything closes.
 	c.api.Close()
@@ -216,5 +221,7 @@ func (c *Container) Close() {
 	// by the PTY teardown write runner Exits and turn closes, and closing the store
 	// out from under them is what used to leave a chat spinning forever.
 	_ = c.adapter.Close()
-	_ = c.listener.Close()
+	for _, ln := range c.listeners {
+		_ = ln.Close()
+	}
 }

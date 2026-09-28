@@ -34,7 +34,7 @@ func newServeCmd() *cobra.Command {
 			return runServe(host)
 		},
 	}
-	cmd.Flags().StringVar(&host, "host", "unix://", "listen address (unix:// or tcp://127.0.0.1:3737; non-loopback TCP terminates TLS and requires paired clients)")
+	cmd.Flags().StringVar(&host, "host", "unix://", "listen address (unix:// or tcp://127.0.0.1:3737; non-loopback TCP terminates TLS, requires paired clients, and also binds the local socket that crowbar pair dials)")
 	return cmd
 }
 
