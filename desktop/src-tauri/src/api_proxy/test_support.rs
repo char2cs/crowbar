@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use rustls::crypto::aws_lc_rs;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::sign::{CertifiedKey, SingleCertAndKey};
+use rustls::SupportedProtocolVersion;
 use tauri::http;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -116,6 +117,16 @@ pub async fn serve_once_tls(
     key: PrivateKeyDer<'static>,
     reply: Option<Vec<u8>>,
 ) -> (SocketAddr, oneshot::Receiver<Result<String, String>>) {
+    serve_once_tls_speaking(rustls::DEFAULT_VERSIONS, cert, key, reply).await
+}
+
+/// `serve_once_tls`, offering only the protocol `versions`.
+pub async fn serve_once_tls_speaking(
+    versions: &[&'static SupportedProtocolVersion],
+    cert: CertificateDer<'static>,
+    key: PrivateKeyDer<'static>,
+    reply: Option<Vec<u8>>,
+) -> (SocketAddr, oneshot::Receiver<Result<String, String>>) {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind test remote daemon");
@@ -127,7 +138,7 @@ pub async fn serve_once_tls(
         .expect("load key");
     let resolver = SingleCertAndKey::from(CertifiedKey::new(vec![cert], signing_key));
     let config = rustls::ServerConfig::builder_with_provider(provider)
-        .with_safe_default_protocol_versions()
+        .with_protocol_versions(versions)
         .expect("protocol versions")
         .with_no_client_auth()
         .with_cert_resolver(Arc::new(resolver));

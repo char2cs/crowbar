@@ -16,6 +16,7 @@ use crate::hosts::HostRegistry;
 use crate::sidecar::SidecarHandle;
 
 pub(crate) mod pairing;
+pub(crate) mod probe;
 mod remote;
 #[cfg(test)]
 mod test_support;
