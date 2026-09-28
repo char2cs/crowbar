@@ -25,7 +25,7 @@ func TestBrowse_ListsDirectory(t *testing.T) {
 
 	r := gin.New()
 	r.GET("/browse", Browse)
-	req := httptest.NewRequest(http.MethodGet, "/browse?path="+dir, nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/browse?path="+dir, nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
@@ -35,7 +35,7 @@ func TestBrowse_ListsDirectory(t *testing.T) {
 	// Dirs first (alpha, zeta), then files (readme.txt).
 	body := rec.Body.String()
 	alphaIdx, zetaIdx, readmeIdx := indexOf(body, `"alpha"`), indexOf(body, `"zeta"`), indexOf(body, `"readme.txt"`)
-	if !(alphaIdx < zetaIdx && zetaIdx < readmeIdx) {
+	if alphaIdx >= zetaIdx || zetaIdx >= readmeIdx {
 		t.Fatalf("expected dirs-first, alpha-before-zeta ordering; got body: %s", body)
 	}
 }
@@ -44,7 +44,7 @@ func TestBrowse_NonexistentPath_Returns400(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/browse", Browse)
-	req := httptest.NewRequest(http.MethodGet, "/browse?path=/definitely/not/a/real/path/xyz", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/browse?path=/definitely/not/a/real/path/xyz", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	if rec.Code < 400 || rec.Code >= 500 {
@@ -61,7 +61,7 @@ func TestBrowse_PathIsAFile_Returns400(t *testing.T) {
 	}
 	r := gin.New()
 	r.GET("/browse", Browse)
-	req := httptest.NewRequest(http.MethodGet, "/browse?path="+file, nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/browse?path="+file, nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	if rec.Code < 400 || rec.Code >= 500 {
@@ -73,7 +73,7 @@ func TestBrowse_EmptyPath_DefaultsToHome(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/browse", Browse)
-	req := httptest.NewRequest(http.MethodGet, "/browse", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/browse", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

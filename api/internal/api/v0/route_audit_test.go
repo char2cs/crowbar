@@ -224,6 +224,7 @@ func specRoutes() []string {
 		"DELETE " + chat + "/terminals/:sessionId",
 		// §2.12 System
 		"GET /v0/system/prerequisites",
+		"GET /v0/system/browse",
 		// §2.13 Health
 		"GET /v0/health",
 		// §3 WebSocket endpoints, chat-scoped (W7-2 co-location; §8 step 6
