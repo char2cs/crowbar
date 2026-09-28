@@ -38,7 +38,7 @@ func newRealAPI(
 	require.NoError(t, err)
 	t.Cleanup(a.Close)
 
-	c, err := crowbarapi.New(a, eng, nil)
+	c, err := crowbarapi.New(a, eng, nil, "")
 	require.NoError(t, err)
 	return c
 }

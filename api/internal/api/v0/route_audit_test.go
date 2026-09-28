@@ -608,7 +608,7 @@ func registeredRoutes(
 ) map[string]struct{} {
 	t.Helper()
 	tc := newApp(t)
-	c := v0.New(tc.app, tc.eng)
+	c := v0.New(tc.app, tc.eng, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
@@ -894,7 +894,7 @@ func TestRouteAudit_DualServe_RestMode(t *testing.T) {
 	tc := newApp(t)
 	seedWorkspace(t, tc, "w1")
 	tc.app.Usecases.Worktree = stubChatWorktreeResolver{chatToWs: map[string]string{"chat-1": "w1"}, workspaces: tc.app.Repositories.Workspace}
-	c := v0.New(tc.app, tc.eng)
+	c := v0.New(tc.app, tc.eng, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
@@ -930,7 +930,7 @@ func TestRouteAudit_DualServe_WsMode(t *testing.T) {
 	tc := newApp(t)
 	seedWorkspace(t, tc, "w1")
 	tc.app.Usecases.Worktree = stubChatWorktreeResolver{chatToWs: map[string]string{"chat-1": "w1"}, workspaces: tc.app.Repositories.Workspace}
-	c := v0.New(tc.app, tc.eng)
+	c := v0.New(tc.app, tc.eng, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
@@ -963,7 +963,7 @@ func TestConsoleLogs_WithRing_StreamsReplayReadyAndLiveRedacted(t *testing.T) {
 	log := slog.New(ring.Wrap(slog.NewTextHandler(&strings.Builder{}, nil)))
 	log.Info("old", "component", "boot")
 	r := gin.New()
-	c := v0.New(tc.app, tc.eng, v0.WithLogs(ring))
+	c := v0.New(tc.app, tc.eng, "", v0.WithLogs(ring))
 	t.Cleanup(c.Close)
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
@@ -999,7 +999,7 @@ func TestConsoleLogs_WithRing_StreamsReplayReadyAndLiveRedacted(t *testing.T) {
 func TestEndToEnd_TLSNoAuth_GuardedRoutesReject401(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
-	c := v0.New(tc.app, tc.eng, v0.WithLogs(logring.New()))
+	c := v0.New(tc.app, tc.eng, "", v0.WithLogs(logring.New()))
 	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))

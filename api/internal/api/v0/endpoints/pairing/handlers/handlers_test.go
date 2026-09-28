@@ -28,6 +28,8 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
+const testFingerprint = "SHA256:aaaa bbbb cccc dddd eeee ffff"
+
 type fakePairing struct {
 	mintCode   string
 	mintErr    error
@@ -87,7 +89,7 @@ func (f *fakeRegistry) FindByKey(_ context.Context, id string) (*domain.Client, 
 // covered by its own routes_test.go).
 func newTestRouter(pairingUC *fakePairing, registry *fakeRegistry) *gin.Engine {
 	r := gin.New()
-	h := handlers.New(pairingUC, registry)
+	h := handlers.New(pairingUC, registry, testFingerprint)
 	r.POST("/pair/code", h.MintCode)
 	r.POST("/pair", h.Pair)
 	r.GET("/clients", h.ListClients)
@@ -104,11 +106,14 @@ func TestMintCode_ReturnsCode(t *testing.T) {
 
 	var body struct {
 		Data struct {
-			Code string `json:"code"`
+			Code              string `json:"code"`
+			ServerFingerprint string `json:"serverFingerprint"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	assert.Equal(t, "123456", body.Data.Code)
+	assert.Equal(t, testFingerprint, body.Data.ServerFingerprint,
+		"the minted code must carry the daemon's fingerprint for the human trust-on-first-connect check")
 }
 
 func TestMintCode_MintError_Returns500(t *testing.T) {

@@ -54,7 +54,7 @@ func serveChats(
 ) (*Container, *httptest.Server) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	c := New(a, nil)
+	c := New(a, nil, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
@@ -95,7 +95,7 @@ func repoMountPredicate(
 func TestAgentChatScope_HomeWorkspaceResolvesItsProjectAndNoRepo(t *testing.T) {
 	a := newAppForSnapshot(t)
 	seedHomeWorkspace(t, a, "home-p2", "p2")
-	c := New(a, nil)
+	c := New(a, nil, "")
 	t.Cleanup(c.Close)
 
 	scope := c.agentChatScope("chat-home-p2", "home-p2")

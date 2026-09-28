@@ -59,6 +59,8 @@ type Container struct {
 var _ hub.Subscriber = (*Container)(nil)
 
 // New builds the v0 container and registers it as a hub subscriber.
+// serverFingerprint is the daemon's TLS identity fingerprint, passed through
+// to the pairing handlers so a minted code carries it (handlers.mintCodeResponse).
 //
 // The lazy WS resource lifecycles (03 §6) are owned by the app-layer realtime
 // service: the Files∪Git topics' OnSubscribe/OnUnsubscribe hooks drive the
@@ -70,6 +72,7 @@ var _ hub.Subscriber = (*Container)(nil)
 func New(
 	appContainer *app.Container,
 	engContainer *engine.Container,
+	serverFingerprint string,
 	options ...Option,
 ) *Container {
 	if appContainer == nil {
@@ -84,7 +87,7 @@ func New(
 		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(appContainer), appContainer)),
 		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), appContainer)),
 		chatScopes: newAgentChatScopes(),
-		pairing:    pairinghandlers.New(pairing.New(appContainer.GORM.Clients), appContainer.GORM.Clients),
+		pairing:    pairinghandlers.New(pairing.New(appContainer.GORM.Clients), appContainer.GORM.Clients, serverFingerprint),
 		app:        appContainer,
 		eng:        engContainer,
 	}

@@ -192,7 +192,7 @@ func NewEnvWithHome(
 	}
 
 	router := gin.New()
-	apiContainer := v0.New(appContainer, eng)
+	apiContainer := v0.New(appContainer, eng, "")
 	apiContainer.Register(router.Group("/v0"))
 
 	socketPath := kitSocketPath()

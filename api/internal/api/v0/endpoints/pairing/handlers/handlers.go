@@ -27,9 +27,14 @@ type Registry interface {
 	Save(ctx context.Context, c domain.Client) error
 }
 
-// mintCodeResponse is the body of POST /pair/code.
+// mintCodeResponse is the body of POST /pair/code. ServerFingerprint is the
+// daemon's TLS identity fingerprint (tlsid.FingerprintOf's format): a human
+// compares it against what the pairing client shows as the trust-on-first-
+// connect check, since the code alone only proves possession of this socket,
+// not which daemon a later TLS connection actually reaches.
 type mintCodeResponse struct {
-	Code string `json:"code"`
+	Code              string `json:"code"`
+	ServerFingerprint string `json:"serverFingerprint"`
 }
 
 // pairRequest is the body of POST /pair.
@@ -46,13 +51,15 @@ type pairResponse struct {
 
 // Handlers serves pairing and client management.
 type Handlers struct {
-	pairing  Pairing
-	registry Registry
+	pairing           Pairing
+	registry          Registry
+	serverFingerprint string
 }
 
-// New builds the handler set.
-func New(p Pairing, registry Registry) *Handlers {
-	return &Handlers{pairing: p, registry: registry}
+// New builds the handler set. serverFingerprint is the daemon's TLS identity
+// fingerprint, echoed on every minted code (see mintCodeResponse).
+func New(p Pairing, registry Registry, serverFingerprint string) *Handlers {
+	return &Handlers{pairing: p, registry: registry, serverFingerprint: serverFingerprint}
 }
 
 // MintCode issues a fresh pairing code. Callable only over a non-TLS
@@ -69,7 +76,7 @@ func (h *Handlers) MintCode(c *gin.Context) {
 		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	libs.WriteQueryOK(c, mintCodeResponse{Code: code})
+	libs.WriteQueryOK(c, mintCodeResponse{Code: code, ServerFingerprint: h.serverFingerprint})
 }
 
 // Pair redeems a pairing code for a bearer token.

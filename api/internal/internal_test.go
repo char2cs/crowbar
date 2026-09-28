@@ -27,7 +27,7 @@ func TestNew_InvalidHost_ReturnsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestNew_InvalidHomeDir_ReturnsAdapterError(t *testing.T) {
+func TestNew_InvalidHomeDir_ReturnsError(t *testing.T) {
 	_, err := internal.New(
 		context.Background(),
 		"tcp://127.0.0.1:0",

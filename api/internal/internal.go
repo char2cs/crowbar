@@ -100,8 +100,8 @@ func New(
 		return nil, fmt.Errorf("internal: app: %w", err)
 	}
 
-	//nolint:contextcheck // snapshot providers are context-free by design; this call only threads the log ring option.
-	apiContainer, err := crowbarapi.New(appContainer, engines, staticFS, v0.WithLogs(cfg.logs))
+	//nolint:contextcheck // snapshot providers are context-free by design; this call only threads the fingerprint and log ring option.
+	apiContainer, err := crowbarapi.New(appContainer, engines, staticFS, identity.Fingerprint, v0.WithLogs(cfg.logs))
 	if err != nil {
 		return nil, fmt.Errorf("internal: api: %w", err)
 	}

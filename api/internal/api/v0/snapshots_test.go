@@ -42,7 +42,7 @@ func serveV0(
 ) (*v0.Container, *httptest.Server) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	c := v0.New(appC, engC)
+	c := v0.New(appC, engC, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))

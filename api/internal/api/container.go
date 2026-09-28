@@ -33,10 +33,13 @@ type Container struct {
 
 // New builds the HTTP layer: middleware, the v0 surface (mounted at /v0 and
 // registered as a hub subscriber), and optional embedded static assets.
+// serverFingerprint is the daemon's TLS identity fingerprint, passed through
+// to the pairing routes (see v0.New).
 func New(
 	appContainer *app.Container,
 	engContainer *engine.Container,
 	staticFS fs.FS,
+	serverFingerprint string,
 	v0Options ...v0.Option,
 ) (*Container, error) {
 	gin.SetMode(gin.ReleaseMode)
@@ -52,7 +55,7 @@ func New(
 		middleware.BodyLimit(maxRequestBodyBytes),
 	)
 
-	v0Container := v0.New(appContainer, engContainer, v0Options...)
+	v0Container := v0.New(appContainer, engContainer, serverFingerprint, v0Options...)
 	v0Container.Register(router.Group("/v0"))
 	mountDebug(router)
 

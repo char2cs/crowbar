@@ -90,7 +90,7 @@ func newHarnessAt(
 	appContainer, err := app.New(ctx, engines, adapters)
 	require.NoError(t, err)
 
-	apiContainer, err := crowbarapi.New(appContainer, engines, fstest.MapFS{})
+	apiContainer, err := crowbarapi.New(appContainer, engines, fstest.MapFS{}, "")
 	require.NoError(t, err)
 
 	srv := httptest.NewServer(apiContainer.Handler())
