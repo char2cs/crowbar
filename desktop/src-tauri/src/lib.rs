@@ -1146,7 +1146,6 @@ pub fn run() {
             ws_bridge::ws_send,
             ws_bridge::ws_close,
             diagnostics::diagnostics_export,
-            host_tokens::store_host_token,
             host_tokens::forget_host_token,
             api_proxy::pairing::pair_remote_host,
             api_proxy::probe::probe_remote_fingerprint,

@@ -4,6 +4,7 @@
 //! trusted exactly when its fingerprint matches the one the user confirmed
 //! during pairing.
 
+use std::fmt;
 use std::sync::Arc;
 
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
@@ -15,21 +16,59 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{CertificateError, DigitallySignedStruct, Error as TlsError, SignatureScheme};
 use sha2::{Digest, Sha256};
 
+/// A certificate's whole SHA-256.
+pub type CertificateDigest = [u8; 32];
+
+pub fn certificate_digest(der: &[u8]) -> CertificateDigest {
+    Sha256::digest(der).into()
+}
+
+pub fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// Renders a certificate's SHA-256 as grouped lowercase hex — byte-identical
 /// in format to the Go daemon's `tlsid.FingerprintOf`, so the string a human
 /// reads from `crowbar pair` on the daemon's own host and the string shown
 /// here during pairing are directly comparable.
 pub fn fingerprint_of(der: &[u8]) -> String {
-    let hash = Sha256::digest(der);
-    let full: String = hash.iter().map(|b| format!("{b:02x}")).collect();
+    display_fingerprint(&certificate_digest(der))
+}
+
+/// Only the first 96 bits: short enough for a human to compare by eye.
+fn display_fingerprint(digest: &CertificateDigest) -> String {
+    let full = hex(&digest[..12]);
     let groups: Vec<&str> = (0..6).map(|i| &full[i * 4..(i + 1) * 4]).collect();
     format!("SHA256:{}", groups.join(" "))
 }
 
-/// Whether `der`'s fingerprint matches `expected` (as produced by
-/// `fingerprint_of` or by the Go daemon's `tlsid.FingerprintOf`).
-pub fn fingerprint_matches(der: &[u8], expected: &str) -> bool {
-    fingerprint_of(der) == expected
+/// The one certificate a pinned dial trusts.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Pin {
+    /// The fingerprint a human confirmed against `crowbar pair`. Truncated,
+    /// so it pins only the pairing dial, which captures the full digest.
+    Confirmed(String),
+    /// The whole digest of the certificate pairing verified: every later dial.
+    Paired(CertificateDigest),
+}
+
+impl Pin {
+    fn matches(&self, der: &[u8]) -> bool {
+        match self {
+            Self::Confirmed(fingerprint) => fingerprint_of(der) == *fingerprint,
+            Self::Paired(digest) => certificate_digest(der) == *digest,
+        }
+    }
+}
+
+/// The human-comparable fingerprint, whichever form is pinned.
+impl fmt::Display for Pin {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Confirmed(fingerprint) => f.write_str(fingerprint),
+            Self::Paired(digest) => f.write_str(&display_fingerprint(digest)),
+        }
+    }
 }
 
 /// Trusts exactly one certificate: the one whose fingerprint was confirmed
@@ -37,14 +76,14 @@ pub fn fingerprint_matches(der: &[u8], expected: &str) -> bool {
 /// pinned thereafter.
 #[derive(Debug)]
 struct PinnedVerifier {
-    fingerprint: String,
+    pin: Pin,
     algorithms: WebPkiSupportedAlgorithms,
 }
 
 impl PinnedVerifier {
-    fn new(fingerprint: String, provider: &CryptoProvider) -> Self {
+    fn new(pin: Pin, provider: &CryptoProvider) -> Self {
         Self {
-            fingerprint,
+            pin,
             algorithms: provider.signature_verification_algorithms,
         }
     }
@@ -59,7 +98,7 @@ impl ServerCertVerifier for PinnedVerifier {
         _ocsp_response: &[u8],
         _now: UnixTime,
     ) -> Result<ServerCertVerified, TlsError> {
-        if fingerprint_matches(end_entity.as_ref(), &self.fingerprint) {
+        if self.pin.matches(end_entity.as_ref()) {
             Ok(ServerCertVerified::assertion())
         } else {
             // Structured, so a caller can tell an impostor from an outage.
@@ -96,13 +135,13 @@ impl ServerCertVerifier for PinnedVerifier {
     }
 }
 
-/// Builds a rustls client config that trusts only the certificate matching
-/// `fingerprint`. The crypto provider is explicit so signature checks never
+/// Builds a rustls client config that trusts only the certificate `pin`
+/// names. The crypto provider is explicit so signature checks never
 /// depend on whichever process-wide default happens to be installed. Both
 /// ends are ours, so only TLS 1.3 is offered.
-pub fn pinned_client_config(fingerprint: String) -> Arc<rustls::ClientConfig> {
+pub fn pinned_client_config(pin: Pin) -> Arc<rustls::ClientConfig> {
     let provider = Arc::new(aws_lc_rs::default_provider());
-    let verifier = Arc::new(PinnedVerifier::new(fingerprint, &provider));
+    let verifier = Arc::new(PinnedVerifier::new(pin, &provider));
     Arc::new(
         rustls::ClientConfig::builder_with_provider(provider)
             .with_protocol_versions(&[&rustls::version::TLS13])
@@ -154,7 +193,7 @@ mod tests {
 mod pinned_verifier_tests {
     use std::sync::Arc;
 
-    use super::{fingerprint_of, pinned_client_config, PinnedVerifier};
+    use super::{certificate_digest, fingerprint_of, pinned_client_config, Pin, PinnedVerifier};
     use rustls::client::danger::ServerCertVerifier;
     use rustls::crypto::aws_lc_rs;
     // DigitallySignedStruct's constructor is pub(crate); decoding its wire form is the only way in.
@@ -186,7 +225,11 @@ mod pinned_verifier_tests {
     }
 
     fn verifier_pinned_to(fingerprint: String) -> PinnedVerifier {
-        PinnedVerifier::new(fingerprint, &aws_lc_rs::default_provider())
+        verifier_pinning(Pin::Confirmed(fingerprint))
+    }
+
+    fn verifier_pinning(pin: Pin) -> PinnedVerifier {
+        PinnedVerifier::new(pin, &aws_lc_rs::default_provider())
     }
 
     /// Signs `message` with `key` the way a server's CertificateVerify does.
@@ -221,7 +264,7 @@ mod pinned_verifier_tests {
             .with_cert_resolver(Arc::new(resolver));
         let mut server = rustls::ServerConnection::new(Arc::new(server_config))?;
         let mut client = rustls::ClientConnection::new(
-            pinned_client_config(fingerprint_of(cert)),
+            pinned_client_config(Pin::Confirmed(fingerprint_of(cert))),
             ServerName::try_from("localhost").unwrap(),
         )?;
         while client.is_handshaking() || server.is_handshaking() {
@@ -351,6 +394,32 @@ mod pinned_verifier_tests {
                 CertificateError::ApplicationVerificationFailure
             )),
             "expected a mismatched fingerprint to be rejected as an invalid certificate"
+        );
+    }
+
+    #[test]
+    fn a_paired_pin_trusts_only_the_whole_digest_not_its_displayed_prefix() {
+        let (der, _) = generate_identity();
+        let digest = certificate_digest(&der);
+        let mut same_prefix = digest;
+        same_prefix[31] ^= 1;
+        let server_name = ServerName::try_from("localhost").unwrap();
+        let verify = |pin: Pin| {
+            verifier_pinning(pin).verify_server_cert(&der, &[], &server_name, &[], UnixTime::now())
+        };
+
+        assert_eq!(
+            Pin::Paired(same_prefix).to_string(),
+            fingerprint_of(&der),
+            "test fixture bug: the forged digest must show the same fingerprint"
+        );
+        assert!(verify(Pin::Paired(digest)).is_ok());
+        assert_eq!(
+            verify(Pin::Paired(same_prefix)).err(),
+            Some(TlsError::InvalidCertificate(
+                CertificateError::ApplicationVerificationFailure
+            )),
+            "a digest agreeing only in its first 96 bits must not verify"
         );
     }
 }

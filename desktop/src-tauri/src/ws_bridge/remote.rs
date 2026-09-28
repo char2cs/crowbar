@@ -8,9 +8,11 @@ use tauri::http::{header::AUTHORIZATION, HeaderValue};
 use tokio::task::JoinHandle;
 
 use super::{attach, upgrade, upgrade_request, FrameSink, WsBridgeManager};
-use crate::api_proxy::remote::{bearer, dial, stored_token, DialError, DIAL_TIMEOUT};
+use crate::api_proxy::remote::{
+    bearer, dial, stored_credential, DialError, RemoteHost, DIAL_TIMEOUT,
+};
 use crate::host_tokens::TokenStore;
-use crate::hosts::{HostRegistry, RemoteHost};
+use crate::hosts::HostRegistry;
 
 /// A registered host and the credential its daemon expects.
 pub(super) struct PairedHost {
@@ -26,17 +28,17 @@ pub(super) async fn paired_host(
     tokens: &Arc<dyn TokenStore>,
     host_id: &str,
 ) -> Result<PairedHost, String> {
-    let host = registry
+    let endpoint = registry
         .get(host_id)
         .ok_or_else(|| format!("unknown remote host {host_id}"))?;
-    let token = stored_token(tokens, host_id)
+    let credential = stored_credential(tokens, host_id)
         .await
         .map_err(|e| format!("token lookup failed: {e}"))?
         .ok_or("no stored credential for this host — pair it again")?;
     Ok(PairedHost {
         host_id: host_id.to_string(),
-        host,
-        authorization: bearer(&token)?,
+        authorization: bearer(&credential.token)?,
+        host: RemoteHost::paired(endpoint, &credential),
     })
 }
 
@@ -100,12 +102,11 @@ mod tests {
     use super::{open_remote_bridge, paired_host};
     use crate::api_proxy::remote::DIAL_TIMEOUT;
     use crate::api_proxy::test_support::{
-        header, identity, refused_endpoint, registry, serve_once_tls, tls_acceptor, unrelated_key,
-        Keychain, HOST_ID,
+        header, identity, paired, refused_endpoint, registry, serve_once_tls, tls_acceptor,
+        unrelated_key, Keychain, HOST_ID,
     };
     use crate::api_proxy::{HOST_IDENTITY_CHANGED, HOST_UNREACHABLE};
-    use crate::hosts::{HostRegistry, RemoteHost};
-    use crate::tls_pin::fingerprint_of;
+    use crate::hosts::HostRegistry;
     use crate::ws_bridge::test_support::{silent_sink, spawn_wedged_daemon, test_socket};
     use crate::ws_bridge::{open_bridge, Frame, FrameSink, WsBridgeManager};
 
@@ -177,14 +178,16 @@ mod tests {
         (addr, reported)
     }
 
+    /// Opens a stream to `host_id`, as paired with the server presenting `cert`.
     async fn open_to(
         host_id: &str,
+        cert: &[u8],
         conn_id: &str,
         registry: &HostRegistry,
         manager: &WsBridgeManager,
         sink: Frames,
     ) -> Result<JoinHandle<()>, String> {
-        let keychain = Keychain::holding(&[(host_id, "sometoken")]);
+        let keychain = Keychain::holding(&[(host_id, &paired("sometoken", cert))]);
         let paired = paired_host(registry, &keychain, host_id).await?;
         open_remote_bridge(
             paired,
@@ -200,10 +203,11 @@ mod tests {
 
     async fn open_as_paired(
         registry: &HostRegistry,
+        cert: &[u8],
         manager: &WsBridgeManager,
         sink: Frames,
     ) -> Result<JoinHandle<()>, String> {
-        open_to(HOST_ID, "c1", registry, manager, sink).await
+        open_to(HOST_ID, cert, "c1", registry, manager, sink).await
     }
 
     fn marked(marker: &str, err: &str) -> bool {
@@ -214,13 +218,12 @@ mod tests {
     async fn a_stream_reaches_the_pinned_host_with_its_stored_bearer_token() {
         let _serialised = crate::test_support::fd_tests().await;
         let (cert, key) = identity();
-        let fingerprint = fingerprint_of(&cert);
-        let (addr, reported) = serve_ws_once(cert, key).await;
-        let registry = registry(addr.to_string(), fingerprint);
+        let (addr, reported) = serve_ws_once(cert.clone(), key).await;
+        let registry = registry(addr.to_string());
         let manager = WsBridgeManager::new();
         let (sink, mut received) = frames();
 
-        let reader = open_as_paired(&registry, &manager, sink)
+        let reader = open_as_paired(&registry, &cert, &manager, sink)
             .await
             .expect("the pinned host is bridged");
 
@@ -256,26 +259,27 @@ mod tests {
     async fn removing_a_host_retires_its_streams_and_no_others() {
         let _serialised = crate::test_support::fd_tests().await;
         let (cert, key) = identity();
-        let fingerprint = fingerprint_of(&cert);
-        let (addr, _reported) = serve_ws_once(cert, key).await;
-        let registry = registry(addr.to_string(), fingerprint);
-        let (cert, key) = identity();
-        let fingerprint = fingerprint_of(&cert);
-        let (addr, _reported) = serve_ws_once(cert, key).await;
-        let endpoint = addr.to_string();
-        registry.insert(
-            OTHER_HOST.into(),
-            RemoteHost {
-                endpoint,
-                fingerprint,
-            },
-        );
+        let (addr, _reported) = serve_ws_once(cert.clone(), key).await;
+        let registry = registry(addr.to_string());
+        let (other_cert, other_key) = identity();
+        let (addr, _reported) = serve_ws_once(other_cert.clone(), other_key).await;
+        registry
+            .insert(OTHER_HOST.into(), addr.to_string())
+            .unwrap();
         let sock = test_socket("host-scope");
         spawn_wedged_daemon(UnixListener::bind(&sock).unwrap());
         let manager = WsBridgeManager::new();
 
-        let removed = open_to(HOST_ID, "removed", &registry, &manager, frames().0).await;
-        let other = open_to(OTHER_HOST, "other", &registry, &manager, frames().0).await;
+        let removed = open_to(HOST_ID, &cert, "removed", &registry, &manager, frames().0).await;
+        let other = open_to(
+            OTHER_HOST,
+            &other_cert,
+            "other",
+            &registry,
+            &manager,
+            frames().0,
+        )
+        .await;
         let local = open_bridge(
             &sock,
             "local".into(),
@@ -321,10 +325,10 @@ mod tests {
         let (pinned, _) = identity();
         let (impostor_cert, impostor_key) = identity();
         let (addr, reported) = serve_ws_once(impostor_cert, impostor_key).await;
-        let registry = registry(addr.to_string(), fingerprint_of(&pinned));
+        let registry = registry(addr.to_string());
         let manager = WsBridgeManager::new();
 
-        let err = open_as_paired(&registry, &manager, frames().0)
+        let err = open_as_paired(&registry, &pinned, &manager, frames().0)
             .await
             .expect_err("an impostor must not be bridged");
 
@@ -343,10 +347,10 @@ mod tests {
         let _serialised = crate::test_support::fd_tests().await;
         let (pinned, _) = identity();
         let (addr, reported) = serve_ws_once(pinned.clone(), unrelated_key()).await;
-        let registry = registry(addr.to_string(), fingerprint_of(&pinned));
+        let registry = registry(addr.to_string());
         let manager = WsBridgeManager::new();
 
-        let err = open_as_paired(&registry, &manager, frames().0)
+        let err = open_as_paired(&registry, &pinned, &manager, frames().0)
             .await
             .expect_err("a replayed certificate must not be bridged");
 
@@ -362,9 +366,9 @@ mod tests {
     #[tokio::test]
     async fn an_unreachable_host_is_told_apart_from_an_identity_change() {
         let _serialised = crate::test_support::fd_tests().await;
-        let registry = registry(refused_endpoint(), "SHA256:unused".into());
+        let registry = registry(refused_endpoint());
 
-        let err = open_as_paired(&registry, &WsBridgeManager::new(), frames().0)
+        let err = open_as_paired(&registry, b"unused", &WsBridgeManager::new(), frames().0)
             .await
             .expect_err("nothing listens there");
 
@@ -376,12 +380,12 @@ mod tests {
         let _serialised = crate::test_support::fd_tests().await;
         // Listening, so the kernel completes the TCP handshake, but never speaks TLS.
         let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let registry = registry(silent.local_addr().unwrap().to_string(), "SHA256:x".into());
+        let registry = registry(silent.local_addr().unwrap().to_string());
         let manager = WsBridgeManager::new();
 
         let opened = tokio::time::timeout(
             Duration::from_secs(60),
-            open_as_paired(&registry, &manager, frames().0),
+            open_as_paired(&registry, b"unused", &manager, frames().0),
         );
         let err = opened
             .await
@@ -396,12 +400,11 @@ mod tests {
     async fn a_host_that_never_answers_the_upgrade_is_unreachable_at_the_deadline() {
         let _serialised = crate::test_support::fd_tests().await;
         let (cert, key) = identity();
-        let fingerprint = fingerprint_of(&cert);
-        let (addr, reported) = serve_once_tls(cert, key, None).await;
+        let (addr, reported) = serve_once_tls(cert.clone(), key, None).await;
         let mut opening = tokio::spawn(async move {
-            let registry = registry(addr.to_string(), fingerprint);
+            let registry = registry(addr.to_string());
             let manager = WsBridgeManager::new();
-            let opened = open_as_paired(&registry, &manager, frames().0).await;
+            let opened = open_as_paired(&registry, &cert, &manager, frames().0).await;
             let registered = !manager.connections.lock().unwrap().is_empty();
             (opened, registered)
         });
@@ -428,20 +431,20 @@ mod tests {
     async fn a_host_without_a_usable_credential_is_refused_before_dialing() {
         let _serialised = crate::test_support::fd_tests().await;
         // A dial would reach the refused endpoint and fail as host-unreachable instead.
-        let registry = registry(refused_endpoint(), "SHA256:unused".into());
+        let registry = registry(refused_endpoint());
+        let none = "no stored credential";
         let cases = [
-            (Keychain::holding(&[]), "no stored credential"),
+            (Keychain::holding(&[]), none),
             (
-                Keychain::holding(&[("another-host", "sometoken")]),
-                "no stored credential",
+                Keychain::holding(&[("another-host", &paired("t", b""))]),
+                none,
             ),
-            (Keychain::holding(&[(HOST_ID, "")]), "no stored credential"),
+            (Keychain::holding(&[(HOST_ID, &paired("", b""))]), none),
+            (Keychain::holding(&[(HOST_ID, &paired(" \t", b""))]), none),
+            // Stored before tokens carried their pin: pairing again binds one.
+            (Keychain::holding(&[(HOST_ID, "sometoken")]), none),
             (
-                Keychain::holding(&[(HOST_ID, " \t")]),
-                "no stored credential",
-            ),
-            (
-                Keychain::holding(&[(HOST_ID, "some\ntoken")]),
+                Keychain::holding(&[(HOST_ID, &paired("some\ntoken", b""))]),
                 "not a valid header value",
             ),
             (Keychain::broken("keychain is locked"), "keychain is locked"),
@@ -458,12 +461,11 @@ mod tests {
     async fn an_unregistered_host_is_not_bridged_even_while_reachable() {
         let _serialised = crate::test_support::fd_tests().await;
         let (cert, key) = identity();
-        let fingerprint = fingerprint_of(&cert);
-        let (addr, _reported) = serve_ws_once(cert, key).await;
-        let registry = registry(addr.to_string(), fingerprint);
+        let (addr, _reported) = serve_ws_once(cert.clone(), key).await;
+        let registry = registry(addr.to_string());
         registry.remove(HOST_ID);
 
-        let err = open_as_paired(&registry, &WsBridgeManager::new(), frames().0)
+        let err = open_as_paired(&registry, &cert, &WsBridgeManager::new(), frames().0)
             .await
             .expect_err("an unregistered host must not be bridged");
 

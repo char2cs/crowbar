@@ -1,23 +1,29 @@
 //! Pairing a remote host: a one-time code from `crowbar pair` is redeemed for a
 //! bearer token over the pinned channel, and the token goes straight into the
-//! keychain — it never crosses into the webview.
+//! keychain, bound to the certificate that channel verified — it never crosses
+//! into the webview.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use tauri::{http, State};
+use tokio::net::TcpStream;
+use tokio_rustls::client::TlsStream;
 
 use super::proxy;
-use super::remote::dial;
-use crate::host_tokens::TokenStore;
-use crate::hosts::{HostRegistry, RemoteHost};
+use super::remote::{dial, RemoteHost};
+use crate::host_tokens::{Credential, TokenStore};
+use crate::hosts::{validate_host_id, HostRegistry};
+use crate::tls_pin::{certificate_digest, CertificateDigest, Pin};
 
 /// Bound on the whole redeem: dial, request and answer.
 const PAIR_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Redeems `code` with the daemon at `endpoint`, trusting only the certificate
-/// matching `fingerprint`. Only a stored token registers the host; on any
-/// failure the registry and keychain are left as they were.
+/// matching `fingerprint`. Only a stored credential registers the host; on any
+/// failure the registry and keychain are left as they were. Resolves to the
+/// daemon's id for this client — not a secret, and what a server-side revoke
+/// (`DELETE /v0/clients/:id`) names.
 #[tauri::command]
 pub async fn pair_remote_host(
     host_id: String,
@@ -27,10 +33,10 @@ pub async fn pair_remote_host(
     name: String,
     registry: State<'_, HostRegistry>,
     tokens: State<'_, Arc<dyn TokenStore>>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let host = RemoteHost {
         endpoint,
-        fingerprint,
+        pin: Pin::Confirmed(fingerprint),
     };
     pair(&registry, &tokens, &host_id, host, &code, &name).await
 }
@@ -42,8 +48,10 @@ async fn pair(
     host: RemoteHost,
     code: &str,
     name: &str,
-) -> Result<(), String> {
-    let token = tokio::time::timeout(PAIR_TIMEOUT, redeem(&host, code, name))
+) -> Result<String, String> {
+    // Before dialing: the code is single-use, and no registry would take this id.
+    validate_host_id(host_id)?;
+    let redeemed = tokio::time::timeout(PAIR_TIMEOUT, redeem(&host, code, name))
         .await
         .map_err(|_| {
             format!(
@@ -51,13 +59,21 @@ async fn pair(
                 host.endpoint
             )
         })??;
-    keep_token(tokens, host_id, token).await?;
-    registry.insert(host_id.to_string(), host);
-    Ok(())
+    keep_credential(tokens, host_id, &redeemed.credential).await?;
+    registry.insert(host_id.to_string(), host.endpoint)?;
+    Ok(redeemed.client_id)
 }
 
-async fn redeem(host: &RemoteHost, code: &str, name: &str) -> Result<String, String> {
+struct Redeemed {
+    credential: Credential,
+    client_id: String,
+}
+
+async fn redeem(host: &RemoteHost, code: &str, name: &str) -> Result<Redeemed, String> {
     let tls = dial(host).await.map_err(|e| e.to_string())?;
+    // Later dials pin this whole digest, not the 96 bits a human compared.
+    let pin =
+        peer_digest(&tls).ok_or_else(|| format!("{} presented no certificate", host.endpoint))?;
     let body = serde_json::json!({ "code": code, "name": name }).to_string();
     let request = http::Request::builder()
         .method(http::Method::POST)
@@ -68,11 +84,21 @@ async fn redeem(host: &RemoteHost, code: &str, name: &str) -> Result<String, Str
     let resp = proxy(tls, request)
         .await
         .map_err(|e| format!("pairing with {} failed: {e}", host.endpoint))?;
-    minted_token(&resp)
+    let (token, client_id) = pairing_answer(&resp)?;
+    Ok(Redeemed {
+        credential: Credential { token, pin },
+        client_id,
+    })
 }
 
-/// `data.token` from the daemon's envelope, or its `error` when it refused.
-fn minted_token(resp: &http::Response<Vec<u8>>) -> Result<String, String> {
+fn peer_digest(tls: &TlsStream<TcpStream>) -> Option<CertificateDigest> {
+    let chain = tls.get_ref().1.peer_certificates()?;
+    chain.first().map(|cert| certificate_digest(cert))
+}
+
+/// `data.token` and `data.clientId` from the daemon's envelope, or its `error`
+/// when it refused.
+fn pairing_answer(resp: &http::Response<Vec<u8>>) -> Result<(String, String), String> {
     let body: serde_json::Value = serde_json::from_slice(resp.body()).unwrap_or_default();
     if !resp.status().is_success() {
         let reason = body["error"].as_str().unwrap_or("no reason given");
@@ -81,22 +107,26 @@ fn minted_token(resp: &http::Response<Vec<u8>>) -> Result<String, String> {
             resp.status()
         ));
     }
-    body["data"]["token"]
-        .as_str()
-        .filter(|token| !token.trim().is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| "the host's pairing answer carried no token".to_string())
+    let field = |name: &str| {
+        body["data"][name]
+            .as_str()
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| format!("the host's pairing answer carried no {name}"))
+    };
+    Ok((field("token")?, field("clientId")?))
 }
 
 /// The keychain write can block on an OS prompt, so it runs on the blocking pool.
-async fn keep_token(
+async fn keep_credential(
     tokens: &Arc<dyn TokenStore>,
     host_id: &str,
-    token: String,
+    credential: &Credential,
 ) -> Result<(), String> {
     let tokens = Arc::clone(tokens);
     let host_id = host_id.to_string();
-    tokio::task::spawn_blocking(move || tokens.set(&host_id, &token))
+    let entry = credential.encode();
+    tokio::task::spawn_blocking(move || tokens.set(&host_id, &entry))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -112,44 +142,55 @@ mod tests {
         header, identity, registry, response, serve_once_tls, Keychain, HOST_ID,
     };
     use super::pair;
-    use crate::hosts::{HostRegistry, RemoteHost};
-    use crate::tls_pin::fingerprint_of;
+    use crate::api_proxy::remote::RemoteHost;
+    use crate::host_tokens::Credential;
+    use crate::hosts::HostRegistry;
+    use crate::tls_pin::{certificate_digest, fingerprint_of, Pin};
 
     const PAIRED: &str = r#"{"success":true,"data":{"token":"minted-token","clientId":"c1"}}"#;
 
     fn host(addr: SocketAddr, fingerprint: String) -> RemoteHost {
         RemoteHost {
             endpoint: addr.to_string(),
-            fingerprint,
+            pin: Pin::Confirmed(fingerprint),
         }
     }
 
     #[tokio::test]
     async fn pairing_redeems_the_code_over_the_pinned_channel_and_keeps_the_token() {
+        let _serialised = crate::test_support::fd_tests().await;
         let (cert, key) = identity();
         let fingerprint = fingerprint_of(&cert);
-        let (addr, reported) = serve_once_tls(cert, key, Some(response("200 OK", PAIRED))).await;
+        let reply = Some(response("200 OK", PAIRED));
+        let (addr, reported) = serve_once_tls(cert.clone(), key, reply).await;
         let registry = HostRegistry::default();
         let keychain = Keychain::holding(&[]);
 
-        pair(
+        let client_id = pair(
             &registry,
             &keychain,
             HOST_ID,
-            host(addr, fingerprint.clone()),
+            host(addr, fingerprint),
             "123456",
             "laptop",
         )
         .await
         .expect("pairing succeeds");
 
+        assert_eq!(client_id, "c1", "the id a server-side revoke names");
+        let stored = keychain
+            .get(HOST_ID)
+            .unwrap()
+            .expect("a credential is kept");
         assert_eq!(
-            keychain.get(HOST_ID).unwrap().as_deref(),
-            Some("minted-token")
+            Credential::decode(&stored),
+            Some(Credential {
+                token: "minted-token".into(),
+                pin: certificate_digest(&cert),
+            }),
+            "the token must be bound to the whole digest of the certificate it came from"
         );
-        let registered = registry.get(HOST_ID).expect("a paired host is registered");
-        assert_eq!(registered.endpoint, addr.to_string());
-        assert_eq!(registered.fingerprint, fingerprint);
+        assert_eq!(registry.get(HOST_ID), Some(addr.to_string()));
         let request = reported
             .await
             .expect("server reported")
@@ -166,6 +207,7 @@ mod tests {
 
     #[tokio::test]
     async fn pairing_with_a_host_presenting_another_certificate_sends_and_keeps_nothing() {
+        let _serialised = crate::test_support::fd_tests().await;
         let (pinned, _) = identity();
         let (impostor_cert, impostor_key) = identity();
         let reply = Some(response("200 OK", PAIRED));
@@ -196,13 +238,14 @@ mod tests {
 
     #[tokio::test]
     async fn a_refused_code_leaves_an_existing_pairing_as_it_was() {
+        let _serialised = crate::test_support::fd_tests().await;
         let (cert, key) = identity();
         let fingerprint = fingerprint_of(&cert);
         let refused = r#"{"success":false,"error":"pairing code is not valid"}"#;
         let reply = Some(response("401 Unauthorized", refused));
         let (addr, _reported) = serve_once_tls(cert, key, reply).await;
-        let registry = registry("10.0.0.1:3737".into(), "SHA256:previous".into());
-        let keychain = Keychain::holding(&[(HOST_ID, "previous-token")]);
+        let registry = registry("10.0.0.1:3737".into());
+        let keychain = Keychain::holding(&[(HOST_ID, "previous-credential")]);
 
         let err = pair(
             &registry,
@@ -218,13 +261,41 @@ mod tests {
         assert!(err.contains("pairing code is not valid"), "{err}");
         assert_eq!(
             keychain.get(HOST_ID).unwrap().as_deref(),
-            Some("previous-token")
+            Some("previous-credential")
         );
-        assert_eq!(registry.get(HOST_ID).unwrap().endpoint, "10.0.0.1:3737");
+        assert_eq!(registry.get(HOST_ID).as_deref(), Some("10.0.0.1:3737"));
+    }
+
+    #[tokio::test]
+    async fn an_answer_without_a_client_id_pairs_nothing() {
+        let _serialised = crate::test_support::fd_tests().await;
+        let (cert, key) = identity();
+        let fingerprint = fingerprint_of(&cert);
+        let tokenonly = r#"{"success":true,"data":{"token":"minted-token"}}"#;
+        let (addr, _reported) =
+            serve_once_tls(cert, key, Some(response("200 OK", tokenonly))).await;
+        let registry = HostRegistry::default();
+        let keychain = Keychain::holding(&[]);
+
+        let err = pair(
+            &registry,
+            &keychain,
+            HOST_ID,
+            host(addr, fingerprint),
+            "123456",
+            "laptop",
+        )
+        .await
+        .expect_err("a pairing nothing could revoke is refused");
+
+        assert!(err.contains("no clientId"), "{err}");
+        assert_eq!(keychain.get(HOST_ID).unwrap(), None);
+        assert!(registry.get(HOST_ID).is_none());
     }
 
     #[tokio::test]
     async fn a_token_the_keychain_refuses_leaves_the_host_unregistered() {
+        let _serialised = crate::test_support::fd_tests().await;
         let (cert, key) = identity();
         let fingerprint = fingerprint_of(&cert);
         let (addr, _reported) = serve_once_tls(cert, key, Some(response("200 OK", PAIRED))).await;
@@ -247,7 +318,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_host_id_the_router_would_not_send_to_that_host_spends_no_code() {
+        let _serialised = crate::test_support::fd_tests().await;
+        let (cert, key) = identity();
+        let fingerprint = fingerprint_of(&cert);
+        let reply = Some(response("200 OK", PAIRED));
+        let (addr, mut reported) = serve_once_tls(cert, key, reply).await;
+        let registry = HostRegistry::default();
+        let keychain = Keychain::holding(&[]);
+
+        let err = pair(
+            &registry,
+            &keychain,
+            "localhost",
+            host(addr, fingerprint),
+            "123456",
+            "laptop",
+        )
+        .await
+        .expect_err("the local daemon's name is no remote host's");
+
+        assert!(err.contains("host id"), "{err}");
+        assert!(
+            reported.try_recv().is_err(),
+            "the host was dialed: {:?}",
+            reported.try_recv()
+        );
+        assert_eq!(keychain.get("localhost").unwrap(), None);
+    }
+
+    #[tokio::test]
     async fn pairing_with_a_host_that_never_answers_fails_at_the_deadline() {
+        let _serialised = crate::test_support::fd_tests().await;
         let (cert, key) = identity();
         let fingerprint = fingerprint_of(&cert);
         let (addr, reported) = serve_once_tls(cert, key, None).await;

@@ -130,6 +130,7 @@ mod tests {
 
     #[tokio::test]
     async fn probing_returns_the_fingerprint_of_whatever_certificate_the_host_presents() {
+        let _serialised = crate::test_support::fd_tests().await;
         let (cert, key) = identity();
         let (addr, _reported) = serve_once_tls(cert.clone(), key, None).await;
 
@@ -140,6 +141,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_probe_hangs_up_cleanly_without_sending_a_request() {
+        let _serialised = crate::test_support::fd_tests().await;
         let (cert, key) = identity();
         let (addr, reported) = serve_once_tls(cert, key, None).await;
 
@@ -157,6 +159,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_host_replaying_a_certificate_without_its_key_yields_no_fingerprint() {
+        let _serialised = crate::test_support::fd_tests().await;
         let (cert, _) = identity();
         let (addr, reported) = serve_once_tls(cert, unrelated_key(), None).await;
 
@@ -173,6 +176,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_host_offering_only_tls12_is_refused_as_the_pinned_client_refuses_it() {
+        let _serialised = crate::test_support::fd_tests().await;
         let (cert, key) = identity();
         let (addr, _reported) =
             serve_once_tls_speaking(&[&rustls::version::TLS12], cert, key, None).await;
@@ -185,6 +189,7 @@ mod tests {
 
     #[tokio::test]
     async fn probing_an_endpoint_nothing_listens_on_is_an_error() {
+        let _serialised = crate::test_support::fd_tests().await;
         let endpoint = refused_endpoint();
 
         let result = probe_remote_fingerprint(endpoint.clone()).await;
@@ -195,6 +200,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_host_that_never_completes_the_handshake_fails_at_the_probe_deadline() {
+        let _serialised = crate::test_support::fd_tests().await;
         // Listening, so the kernel completes the TCP handshake, but never speaks TLS.
         let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let endpoint = silent.local_addr().unwrap().to_string();

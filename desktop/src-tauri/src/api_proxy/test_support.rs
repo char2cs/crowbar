@@ -1,7 +1,8 @@
-//! A stand-in remote daemon and keychain for the remote-path tests.
+//! Stand-in daemons, local and remote, and a keychain for the proxy tests.
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use rustls::crypto::aws_lc_rs;
@@ -10,13 +11,14 @@ use rustls::sign::{CertifiedKey, SingleCertAndKey};
 use rustls::SupportedProtocolVersion;
 use tauri::http;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, UnixListener};
 use tokio::sync::oneshot;
 use tokio_rustls::TlsAcceptor;
 
 use super::PROXY_HEADER;
-use crate::host_tokens::TokenStore;
-use crate::hosts::{HostRegistry, RemoteHost};
+use crate::host_tokens::{Credential, TokenStore};
+use crate::hosts::HostRegistry;
+use crate::tls_pin::certificate_digest;
 
 pub const HOST_ID: &str = "host-1";
 
@@ -82,15 +84,18 @@ impl TokenStore for Keychain {
     }
 }
 
-pub fn registry(endpoint: String, fingerprint: String) -> HostRegistry {
+/// The keychain entry pairing writes for `token`, minted by a host presenting `cert`.
+pub fn paired(token: &str, cert: &[u8]) -> String {
+    Credential {
+        token: token.to_string(),
+        pin: certificate_digest(cert),
+    }
+    .encode()
+}
+
+pub fn registry(endpoint: String) -> HostRegistry {
     let registry = HostRegistry::default();
-    registry.insert(
-        HOST_ID.into(),
-        RemoteHost {
-            endpoint,
-            fingerprint,
-        },
-    );
+    registry.insert(HOST_ID.into(), endpoint).unwrap();
     registry
 }
 
@@ -206,4 +211,56 @@ pub fn marker(resp: &http::Response<Vec<u8>>) -> Option<&str> {
     resp.headers()
         .get(PROXY_HEADER)
         .map(|v| v.to_str().unwrap())
+}
+
+/// Binds `path` and answers exactly one HTTP/1.1 request with `200 ok`.
+pub fn serve_once_unix(path: PathBuf) {
+    let listener = UnixListener::bind(&path).expect("bind test daemon socket");
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("accept");
+        let mut buf = vec![0u8; 4096];
+        let mut read = 0;
+        loop {
+            let n = stream.read(&mut buf[read..]).await.expect("read request");
+            read += n;
+            if n == 0 || buf[..read].windows(4).any(|w| w == b"\r\n\r\n") {
+                break;
+            }
+        }
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok")
+            .await
+            .expect("write response");
+    });
+}
+
+pub mod tempdir {
+    use std::path::PathBuf;
+
+    pub struct Dir {
+        pub path: PathBuf,
+    }
+
+    impl Dir {
+        // Short on purpose: a unix socket path must fit SUN_LEN (104 bytes on
+        // macOS) and the system temp dir already spends half of that.
+        pub fn new(tag: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "cb-{tag}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .subsec_nanos()
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self { path }
+        }
+    }
+
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
 }

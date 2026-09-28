@@ -62,22 +62,49 @@ pub(crate) const HOST_UNREACHABLE: &str = "host-unreachable";
 /// A remote host answered, but not with the identity pinned at pairing.
 pub(crate) const HOST_IDENTITY_CHANGED: &str = "host-identity-changed";
 
+/// Tags an answer the proxy wrote itself rather than relayed from a daemon.
+#[derive(Clone, Copy)]
+struct ProxyAnswer;
+
 /// Build an HTTP error response for the webview when proxying fails.
 fn error_response(status: u16, msg: &str) -> http::Response<Vec<u8>> {
-    http::Response::builder()
+    let mut resp = http::Response::builder()
         .status(status)
         .header(http::header::CONTENT_TYPE, "text/plain")
         .body(msg.as_bytes().to_vec())
-        .unwrap()
+        .unwrap();
+    resp.extensions_mut().insert(ProxyAnswer);
+    resp
 }
 
-fn proxy_error(status: u16, marker: &str, msg: &str) -> http::Response<Vec<u8>> {
-    http::Response::builder()
-        .status(status)
-        .header(http::header::CONTENT_TYPE, "text/plain")
-        .header(PROXY_HEADER, marker)
-        .body(msg.as_bytes().to_vec())
-        .unwrap()
+fn proxy_error(status: u16, marker: &'static str, msg: &str) -> http::Response<Vec<u8>> {
+    let mut resp = error_response(status, msg);
+    resp.headers_mut()
+        .insert(PROXY_HEADER, http::HeaderValue::from_static(marker));
+    resp
+}
+
+/// The page reaches `crowbar://` cross-origin, so WebKit hides any answer
+/// without CORS headers — status and marker too — and `fetch` rejects opaquely.
+/// A daemon grants its own answers; the proxy's are granted here.
+fn readable_by(
+    origin: Option<http::HeaderValue>,
+    mut resp: http::Response<Vec<u8>>,
+) -> http::Response<Vec<u8>> {
+    let Some(origin) = origin else {
+        return resp;
+    };
+    if resp.extensions().get::<ProxyAnswer>().is_none() {
+        return resp;
+    }
+    let headers = resp.headers_mut();
+    headers.insert(http::header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+    headers.insert(
+        http::header::ACCESS_CONTROL_EXPOSE_HEADERS,
+        http::HeaderValue::from_static(PROXY_HEADER),
+    );
+    headers.append(http::header::VARY, http::HeaderValue::from_static("Origin"));
+    resp
 }
 
 fn daemon_unavailable(msg: &str) -> http::Response<Vec<u8>> {
@@ -124,6 +151,7 @@ pub fn handle_request<R: Runtime>(
     let app = ctx.app_handle().clone();
     let state_app = app.clone();
     let remote_host = remote_host_id(request.uri()).map(str::to_string);
+    let origin = request.headers().get(http::header::ORIGIN).cloned();
 
     tauri::async_runtime::spawn(async move {
         // Dropping the timed-out future drops the request sender, which is what
@@ -153,6 +181,7 @@ pub fn handle_request<R: Runtime>(
             Ok(resp) => resp,
             Err(_) => error_response(504, "crowbar daemon did not answer in time"),
         };
+        let resp = readable_by(origin, resp);
         // Respond on the main thread: WKURLSchemeTask cancellation
         // (webView:stopURLSchemeTask:) is delivered on the main thread, so
         // responding there serializes with it. Responding from a tokio worker
@@ -245,7 +274,12 @@ where
 
     let mut out = http::Response::builder().status(resp_parts.status);
     if let Some(headers) = out.headers_mut() {
-        for (name, value) in resp_parts.headers.iter() {
+        // The marker is the proxy's word alone; a daemon's copy would pass for it.
+        let relayed = resp_parts
+            .headers
+            .iter()
+            .filter(|(name, _)| *name != PROXY_HEADER);
+        for (name, value) in relayed {
             headers.insert(name, value.clone());
         }
     }
@@ -260,13 +294,14 @@ mod tests {
     use std::time::Duration;
 
     use tauri::http;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::UnixListener;
 
+    use super::test_support::{serve_once_unix, tempdir};
     use super::{
-        connect_retry_delay, forward, remote_host_id, CONNECT_ATTEMPTS, DAEMON_UNAVAILABLE,
-        PROXY_HEADER,
+        connect_retry_delay, forward, readable_by, remote_host_id, CONNECT_ATTEMPTS,
+        DAEMON_UNAVAILABLE, PROXY_HEADER,
     };
+
+    const PAGE: &str = "tauri://localhost";
 
     fn request(method: http::Method) -> http::Request<Vec<u8>> {
         http::Request::builder()
@@ -278,27 +313,6 @@ mod tests {
 
     fn socket_in(dir: &tempdir::Dir) -> PathBuf {
         dir.path.join("s.sock")
-    }
-
-    /// Binds `path` and answers exactly one HTTP/1.1 request with `200 ok`.
-    fn serve_once(path: PathBuf) {
-        let listener = UnixListener::bind(&path).expect("bind test daemon socket");
-        tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.expect("accept");
-            let mut buf = vec![0u8; 4096];
-            let mut read = 0;
-            loop {
-                let n = stream.read(&mut buf[read..]).await.expect("read request");
-                read += n;
-                if n == 0 || buf[..read].windows(4).any(|w| w == b"\r\n\r\n") {
-                    break;
-                }
-            }
-            stream
-                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok")
-                .await
-                .expect("write response");
-        });
     }
 
     #[test]
@@ -317,6 +331,7 @@ mod tests {
     // treats as terminal.
     #[tokio::test]
     async fn get_retries_the_connect_until_the_daemon_listens() {
+        let _serialised = crate::test_support::fd_tests().await;
         let dir = tempdir::Dir::new("retry");
         let path = socket_in(&dir);
         let waits = Arc::new(AtomicU32::new(0));
@@ -329,7 +344,7 @@ mod tests {
                 move |_attempt| {
                     // The first retry IS the signal the daemon binds on.
                     if waits.fetch_add(1, Ordering::SeqCst) == 0 {
-                        serve_once(bind_path.clone());
+                        serve_once_unix(bind_path.clone());
                     }
                     async {}
                 },
@@ -343,6 +358,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_gives_up_after_the_budget_with_a_marked_503() {
+        let _serialised = crate::test_support::fd_tests().await;
         let dir = tempdir::Dir::new("budget");
         let path = socket_in(&dir);
         let waits = Arc::new(AtomicU32::new(0));
@@ -387,6 +403,7 @@ mod tests {
 
     #[tokio::test]
     async fn socket_published_after_the_first_attempt_is_picked_up() {
+        let _serialised = crate::test_support::fd_tests().await;
         let dir = tempdir::Dir::new("late");
         let path = socket_in(&dir);
         let published = Arc::new(std::sync::Mutex::new(None::<PathBuf>));
@@ -397,7 +414,7 @@ mod tests {
                 move || published_reader.lock().unwrap().clone(),
                 request(http::Method::GET),
                 move |_attempt| {
-                    serve_once(bind_path.clone());
+                    serve_once_unix(bind_path.clone());
                     published.lock().unwrap().replace(bind_path.clone());
                     async {}
                 },
@@ -407,42 +424,59 @@ mod tests {
         assert_eq!(resp.status(), 200);
     }
 
+    fn cors(resp: &http::Response<Vec<u8>>, name: http::header::HeaderName) -> Option<&str> {
+        resp.headers().get(name).map(|v| v.to_str().unwrap())
+    }
+
+    // Regression: without these, WebKit rejected the fetch with an opaque
+    // "Load failed" and the marker never reached the page.
+    #[tokio::test]
+    async fn a_proxy_answer_is_readable_by_the_page_that_asked() {
+        let resp = forward(|| None, request(http::Method::POST), |_| async {}).await;
+
+        let resp = readable_by(Some(http::HeaderValue::from_static(PAGE)), resp);
+
+        assert_eq!(resp.status(), 503);
+        let allow_origin = http::header::ACCESS_CONTROL_ALLOW_ORIGIN;
+        assert_eq!(cors(&resp, allow_origin), Some(PAGE));
+        let exposed = cors(&resp, http::header::ACCESS_CONTROL_EXPOSE_HEADERS);
+        assert_eq!(exposed, Some(PROXY_HEADER));
+        assert_eq!(cors(&resp, http::header::VARY), Some("Origin"));
+        assert_eq!(
+            cors(&resp, PROXY_HEADER.parse().unwrap()),
+            Some(DAEMON_UNAVAILABLE)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_daemon_answer_keeps_its_own_cors_decision() {
+        let _serialised = crate::test_support::fd_tests().await;
+        let dir = tempdir::Dir::new("cors");
+        let path = socket_in(&dir);
+        serve_once_unix(path.clone());
+
+        let resp = forward(
+            || Some(path.clone()),
+            request(http::Method::GET),
+            |_| async {},
+        )
+        .await;
+        let resp = readable_by(Some(http::HeaderValue::from_static(PAGE)), resp);
+
+        assert_eq!(resp.status(), 200);
+        let allow_origin = http::header::ACCESS_CONTROL_ALLOW_ORIGIN;
+        assert_eq!(
+            cors(&resp, allow_origin),
+            None,
+            "the daemon did not grant it"
+        );
+    }
+
     #[test]
     fn only_a_non_localhost_authority_routes_to_a_remote_host() {
         let host = |uri: &'static str| remote_host_id(&uri.parse().unwrap()).map(str::to_string);
         assert_eq!(host("crowbar://localhost/v0/projects"), None);
         assert_eq!(host("crowbar://localhost:80/v0/projects"), None);
         assert_eq!(host("crowbar://host-1/v0/projects"), Some("host-1".into()));
-    }
-
-    mod tempdir {
-        use std::path::PathBuf;
-
-        pub struct Dir {
-            pub path: PathBuf,
-        }
-
-        impl Dir {
-            // Short on purpose: a unix socket path must fit SUN_LEN (104 bytes on
-            // macOS) and the system temp dir already spends half of that.
-            pub fn new(tag: &str) -> Self {
-                let path = std::env::temp_dir().join(format!(
-                    "cb-{tag}-{}-{}",
-                    std::process::id(),
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .subsec_nanos()
-                ));
-                std::fs::create_dir_all(&path).unwrap();
-                Self { path }
-            }
-        }
-
-        impl Drop for Dir {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_dir_all(&self.path);
-            }
-        }
     }
 }
