@@ -999,6 +999,100 @@ git commit -m "feat(web): multi-host project aggregation; every workspace binds 
 
 ---
 
+### Task 8b: `wsManager`/`awaitEntity` gain a `hostId` dimension
+
+**Written after Task 7 surfaced the gap during its own implementation.** Task 7's daemon picker correctly threads `hostId` into the REST POST that creates a project on a remote host — but the client-side "wait for the created entity to actually appear" step (`awaitEntity`, `web/src/lib/ws/await-entity.ts`) subscribes via `wsManager.subscribe(endpoint, cb)`, which has no host concept at all: `web/src/lib/ws/manager.ts`'s `createTransport(endpoint)` always resolves to the LOCAL daemon's WebSocket (`isTauri() ? new TauriWebSocket(endpoint) : new WebSocket(wsUrl(endpoint))`, neither call site passing a `hostId`), and the `channels` Map is keyed by bare `endpoint` string with no host axis — so even if a `hostId` were threaded into one call, two hosts' `/v0/projects` streams would collide under the same map key. Right now: creating a project on a remote host succeeds server-side (the 202 POST lands), but the frontend's `awaitEntity` call never sees the push frame — because it's listening on the wrong (local) socket — and the create flow hangs until `awaitEntity`'s 30s timeout, even though the project was actually created.
+
+This is also a real, independent gap in Task 8 above: spec §4 requires "One WS subscription to `/v0/projects` per live host, frames merged the same way" as the REST `fetchAllProjects` results — Task 8's own text above only does the one-shot REST fetch, never a live per-host WS subscription. Both gaps share the same root cause and the same fix.
+
+**Files:**
+- Modify: `web/src/lib/ws/manager.ts` (read in full first — already quoted in full above)
+- Modify: `web/src/lib/ws/await-entity.ts` (read in full first — already quoted in full above)
+- Modify: whichever component/hook currently wires `useProjectDataStore`'s live `/v0/projects` WS merge for local (search for the existing `wsManager.subscribe('/v0/projects', ...)` call site — there should be exactly one, since only 'local' exists today)
+- Modify: Task 7's Create-Space submit handler (wherever it calls `awaitEntity` for the new project) to pass the selected `hostId`
+- Test: `web/src/__tests__/lib/ws/manager.test.ts` (extend if it exists, else create), extend `web/src/__tests__/lib/ws/await-entity.test.ts` if it exists
+
+**Interfaces:**
+- `WSManager.subscribe(endpoint: string, cb: Callback, hostId?: string): () => void` and `WSManager.send(endpoint: string, data: unknown, hostId?: string): void` — both default `hostId` to `'local'`, zero behavior change for every existing call site (there are none yet that pass a third arg).
+- `Channel`'s registry keys change from bare `endpoint` to a composite key (e.g. `` `${hostId}:${endpoint}` ``) so two hosts' streams on the same endpoint path never collide — mirror the exact pattern Task 2's `sharedRead`'s in-flight-GET map already established (`` `${hostId}:${path}` ``) rather than inventing a new keying scheme.
+- `createTransport(endpoint, hostId)` threads `hostId` into `TauriWebSocket`'s constructor (already accepts it, per Task 2) and into `wsUrl(endpoint, hostId)` (already accepts it, per Task 2) — this task ties together plumbing Task 2 already built but never wired past the transport layer.
+- `AwaitEntityOptions<T>` gains an optional `hostId?: string` (default `'local'`), threaded into its internal `wsManager.subscribe` call.
+
+- [ ] **Step 1: Write the failing test proving two hosts' subscriptions on the same endpoint don't collide**
+
+```ts
+import { describe, expect, it, vi } from 'vitest'
+import { createWSManager } from '@/lib/ws/manager'
+
+// Mock the transport constructors this file uses (isTauri/TauriWebSocket/WebSocket/wsUrl) —
+// read manager.ts's actual imports first and copy this repo's existing WS-manager test
+// mocking convention if `manager.test.ts` already exists, rather than inventing a new one.
+
+describe('wsManager multi-host channel keying', () => {
+  it('subscribing to the same endpoint on two different hostIds opens two independent channels', () => {
+    const mgr = createWSManager()
+    const localFrames: unknown[] = []
+    const remoteFrames: unknown[] = []
+    mgr.subscribe('/v0/projects', (d) => localFrames.push(d), 'local')
+    mgr.subscribe('/v0/projects', (d) => remoteFrames.push(d), 'h1')
+    // Simulate a message arriving on ONLY the 'h1' transport (however this repo's
+    // existing WS-manager tests simulate an inbound frame — copy that mechanism)
+    // and assert it lands in remoteFrames, never localFrames.
+  })
+})
+```
+
+- [ ] **Step 2: Run to verify failure, then implement `manager.ts`**
+
+Re-key `channels` by `` `${hostId}:${endpoint}` ``, add the `hostId` parameter (default `'local'`) to `subscribe`/`send`, thread it into `createTransport`. Keep every other piece of `manager.ts`'s reconnect/backoff/`reportChannelState` logic untouched in shape — only the keying and transport-construction call sites change.
+
+- [ ] **Step 3: Run to verify the test passes**
+
+- [ ] **Step 4: Write the failing test for `awaitEntity`'s `hostId`**
+
+```ts
+it('awaitEntity subscribes on the given hostId, not always local', async () => {
+  const subscribeSpy = vi.spyOn(wsManager, 'subscribe')
+  void awaitEntity({
+    endpoint: '/v0/projects',
+    match: () => false,
+    action: async () => {},
+    hostId: 'h1',
+  })
+  expect(subscribeSpy).toHaveBeenCalledWith('/v0/projects', expect.any(Function), 'h1')
+})
+```
+
+- [ ] **Step 5: Run to verify failure, then implement**
+
+Add `hostId` to `AwaitEntityOptions`, thread it into the internal `wsManager.subscribe(endpoint, cb, hostId)` call. Default `'local'` — every existing caller (chat, git, terminal, LSP entity-creation waits) keeps working identically.
+
+- [ ] **Step 6: Wire Task 7's Create-Space submit to pass the selected hostId**
+
+Find where Task 7's daemon-picker-aware create-project call invokes `awaitEntity` (or whatever wraps it for project creation) and pass the selected `hostId` through. Write a test asserting a project created on a non-local host's `awaitEntity` call carries that host's id — this closes the exact gap Task 7's implementer flagged (create succeeds server-side, UI hangs waiting on the wrong socket).
+
+- [ ] **Step 7: Give `useProjectDataStore` a live WS subscription per up host (spec §4)**
+
+Find the existing local-only `wsManager.subscribe('/v0/projects', ...)` call site backing `useProjectDataStore`'s live merge. Extend it to also subscribe (with the matching `hostId`) for every currently-`up` saved host, merging each host's frames into the store the same way the existing local subscription already does — reuse the existing merge/`applyDelta` path, don't invent a parallel one. Wire host status transitions (a host going `up`) to open its subscription, and a host going `down`/being removed to close it (mirroring `getOrCreateHostRuntime`/`subscribeHostRuntimeRegistry`'s change notifications, already built in Task 1 — Task 10 also touches host up/down/removal behavior; if Task 10 hasn't landed yet when you reach this step, do the minimal subscribe/unsubscribe wiring here and leave the richer down/up UX polish to Task 10, noting the split in your report).
+
+- [ ] **Step 8: Run the FULL existing WS-consuming test suite**
+
+Run: `cd web && bunx vitest run src/__tests__/lib/ws/ src/__tests__/lib/store/projects.test.ts src/__tests__/features/`
+Expected: every pre-existing test passes unchanged (the "zero behavior change for local" invariant — this task touches a primitive nearly everything WS-related depends on: chat, git, terminal, LSP, file tree, projects) plus the new tests.
+
+- [ ] **Step 9: `tsc`, lint, knip, prettier**
+
+Run: `cd web && bunx tsc --noEmit && bunx eslint . --max-warnings 0 && bun run knip && bunx prettier --check .`
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add web/src/lib/ws/ web/src/lib/store/projects.ts web/src/__tests__/
+git commit -m "feat(web): wsManager/awaitEntity gain a hostId dimension — remote project creation and live multi-host project streams"
+```
+
+---
+
 ### Task 9: Coss UI tree + remote file picker
 
 **Files:**
