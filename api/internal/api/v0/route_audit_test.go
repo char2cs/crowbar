@@ -4,6 +4,7 @@ package v0_test
 
 import (
 	"context"
+	"crypto/tls"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -983,4 +984,53 @@ func TestConsoleLogs_WithRing_StreamsReplayReadyAndLiveRedacted(t *testing.T) {
 	assert.Equal(t, "boot", replayed["component"])
 	assert.Equal(t, map[string]any{"type": "ready", "seq": float64(1)}, ready)
 	assert.Equal(t, map[string]any{"api_token": "[redacted]"}, live["fields"])
+}
+
+// TestEndToEnd_TLSNoAuth_GuardedRoutesReject401 builds the REAL,
+// fully-wired v0.Container (the same construction registeredRoutes uses) and
+// sends a TLS request with no Authorization header at a representative
+// sample of routes, asserting 401. Unlike TestRouteAudit_AllSpecRoutesRegistered,
+// which only compares the registered method+path SET (gin.RouteInfo exposes
+// no middleware chain), this is the test that actually exercises the guard —
+// it is what would have caught system.Register(rg) sitting pre-guard with
+// zero stated justification, reachable over TLS with no authentication at
+// all.
+func TestEndToEnd_TLSNoAuth_GuardedRoutesReject401(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tc := newApp(t)
+	c := v0.New(tc.app, tc.eng, v0.WithLogs(logring.New()))
+	t.Cleanup(c.Close)
+	r := gin.New()
+	c.Register(r.Group("/v0"))
+
+	guarded := []string{
+		"GET /v0/system/prerequisites",
+		"GET /v0/system/perf",
+		"GET /v0/clients",
+		"GET /v0/projects",
+		"GET /v0/projects/p1/repos/r1",
+		"GET /v0/console/logs",
+		"GET /v0/settings/chat/providers",
+		"POST /v0/settings/chat/descriptors",
+		"POST /v0/projects/p1/repos/r1/chats/c1/close",
+		"POST /v0/projects/p1/home/chats/c1/close",
+	}
+	for _, route := range guarded {
+		method, path, _ := strings.Cut(route, " ")
+		req := httptest.NewRequestWithContext(t.Context(), method, path, http.NoBody)
+		req.TLS = &tls.ConnectionState{}
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		assert.Equalf(t, http.StatusUnauthorized, rec.Code,
+			"%s must require a bearer token over TLS, got %d: %s", route, rec.Code, rec.Body.String())
+	}
+
+	// health stays reachable over TLS with no Authorization header at all —
+	// the pairing dialog's own first stage health-checks a host it hasn't
+	// paired with yet. Proves the guard above is selective, not just broken.
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v0/health", http.NoBody)
+	req.TLS = &tls.ConnectionState{}
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code, "health must stay open even over TLS with no auth header")
 }

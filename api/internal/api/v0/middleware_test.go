@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/pairing"
@@ -326,10 +327,13 @@ func TestRejectEmptyPathParams_AllowsANonEmptySegment(t *testing.T) {
 // stubClientStore stands in for store.ScopedStore[domain.Client, string]: a
 // fixed set of clients, matched on TokenHash the way requireBearerAuth calls
 // FindWhere, or a fixed err to exercise the store-failure branch (mirroring
-// fakeRepoReader/fakeScopeReader above).
+// fakeRepoReader/fakeScopeReader above). saved records every Save call, so
+// tests can assert on the LastSeen touch without a real store.
 type stubClientStore struct {
 	clients []domain.Client
 	err     error
+	saveErr error
+	saved   []domain.Client
 }
 
 func (s *stubClientStore) FindWhere(_ context.Context, match domain.Client) ([]domain.Client, error) {
@@ -343,6 +347,11 @@ func (s *stubClientStore) FindWhere(_ context.Context, match domain.Client) ([]d
 		}
 	}
 	return out, nil
+}
+
+func (s *stubClientStore) Save(_ context.Context, c domain.Client) error {
+	s.saved = append(s.saved, c)
+	return s.saveErr
 }
 
 // TestRequireBearerAuth_NoTLS_PassesThrough proves a plaintext connection (the
@@ -413,6 +422,56 @@ func TestRequireBearerAuth_TLS_ValidToken_Passes(t *testing.T) {
 	r.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code, "expected 200 for a valid token")
+}
+
+// TestRequireBearerAuth_TLS_ValidToken_TouchesLastSeen proves a successful
+// authentication bumps the client's LastSeen — the one production call site
+// that gives ClientIDFrom real work to do (previously it was reachable only
+// from this file's own tests, which make deadcode's ./cmd/... analysis
+// never counts).
+func TestRequireBearerAuth_TLS_ValidToken_TouchesLastSeen(t *testing.T) {
+	token := "abc123"
+	pairedAt := time.Now().Add(-time.Hour)
+	store := &stubClientStore{clients: []domain.Client{
+		{ID: "c1", Name: "laptop", TokenHash: pairing.HashToken(token), PairedAt: pairedAt, LastSeen: pairedAt},
+	}}
+	r := gin.New()
+	r.Use(requireBearerAuth(store))
+	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
+	req.TLS = &tls.ConnectionState{}
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, store.saved, 1, "a successful authentication must save an updated LastSeen")
+	assert.Equal(t, "c1", store.saved[0].ID)
+	assert.Equal(t, "laptop", store.saved[0].Name, "the saved row must keep the client's other fields")
+	assert.True(t, store.saved[0].LastSeen.After(pairedAt), "LastSeen must move forward from the pairing time")
+}
+
+// TestRequireBearerAuth_TLS_LastSeenSaveError_StillPasses proves the LastSeen
+// touch is best-effort: a save failure must never block or fail a request
+// that already authenticated successfully.
+func TestRequireBearerAuth_TLS_LastSeenSaveError_StillPasses(t *testing.T) {
+	token := "abc123"
+	store := &stubClientStore{
+		clients: []domain.Client{{ID: "c1", TokenHash: pairing.HashToken(token)}},
+		saveErr: errors.New("disk full"),
+	}
+	r := gin.New()
+	r.Use(requireBearerAuth(store))
+	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
+	req.TLS = &tls.ConnectionState{}
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code, "a LastSeen save failure must not fail an already-authenticated request")
 }
 
 // TestRequireBearerAuth_TLS_RevokedToken_Rejects proves a revoked client's

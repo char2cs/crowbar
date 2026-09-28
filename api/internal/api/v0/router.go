@@ -74,17 +74,23 @@ func (c *Container) Register(
 	// at all.
 	pairingPkg.RegisterOpen(rg, c.pairing, newFixedWindowLimiter(5, time.Minute))
 
-	// Top-level, non-entity-scoped routes stay on rg (outside /projects).
+	// health stays open (outside /projects) for the same reason pairing's open
+	// routes do: the pairing dialog's own first stage health-checks a host it
+	// hasn't paired with yet.
 	health.Register(rg)
-	system.Register(rg)
 
 	// From here down, every route requires a valid bearer token OVER TLS —
 	// and is a no-op over the unix socket / loopback dev TCP, per
 	// requireBearerAuth's own doc. The pairing client-registry routes are
 	// registered NOW, after the guard, for the same reason RegisterOpen ran
-	// before it.
+	// before it. system moved here too (it has no health-style reason to be
+	// open, and Task 6 adds an arbitrary directory listing to this same
+	// group) — it used to sit pre-guard beside health with no stated
+	// justification, which left /system/prerequisites and /system/perf
+	// reachable over TLS with zero authentication.
 	rg.Use(requireBearerAuth(c.app.GORM.Clients))
 	pairingPkg.RegisterGuarded(rg, c.pairing)
+	system.Register(rg)
 	if c.logs != nil {
 		console.Register(rg, c.logs)
 	}
