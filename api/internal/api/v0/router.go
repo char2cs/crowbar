@@ -67,27 +67,14 @@ func (c *Container) Register(
 	// deeper nesting introduced here is guarded automatically.
 	rg.Use(rejectEmptyPathParams())
 
-	// Pairing's OPEN routes are registered on rg BEFORE requireBearerAuth is
-	// installed below — gin snapshots a group's middleware chain at ROUTE
-	// registration time, so a route registered here never carries middleware
-	// added to rg later. This is what lets an unpaired client redeem a code
-	// at all.
+	// Open routes go BEFORE requireBearerAuth: gin fixes a route's middleware
+	// chain at registration, so these never carry it. Pairing produces the
+	// credential itself, and health is probed before a host is paired.
 	pairingPkg.RegisterOpen(rg, c.pairing, newFixedWindowLimiter(5, time.Minute))
-
-	// health stays open (outside /projects) for the same reason pairing's open
-	// routes do: the pairing dialog's own first stage health-checks a host it
-	// hasn't paired with yet.
 	health.Register(rg)
 
-	// From here down, every route requires a valid bearer token OVER TLS —
-	// and is a no-op over the unix socket / loopback dev TCP, per
-	// requireBearerAuth's own doc. The pairing client-registry routes are
-	// registered NOW, after the guard, for the same reason RegisterOpen ran
-	// before it. system moved here too (it has no health-style reason to be
-	// open, and Task 6 adds an arbitrary directory listing to this same
-	// group) — it used to sit pre-guard beside health with no stated
-	// justification, which left /system/prerequisites and /system/perf
-	// reachable over TLS with zero authentication.
+	// Every route from here down needs a bearer token over TLS; plaintext
+	// (unix socket, loopback dev TCP) passes through — see requireBearerAuth.
 	rg.Use(requireBearerAuth(c.app.GORM.Clients))
 	pairingPkg.RegisterGuarded(rg, c.pairing)
 	system.Register(rg)

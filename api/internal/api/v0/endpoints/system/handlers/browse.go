@@ -1,8 +1,3 @@
-// Package handlers also serves GET /v0/system/browse: a directory listing
-// for the remote file-picker client, unrelated to and unsandboxed by any
-// workspace (there is no workspace yet — this is how a client picks WHERE to
-// create one). Mirror this file's existing handler in the same package for
-// the request/response envelope convention (libs.WriteErr/WriteQueryOK).
 package handlers
 
 import (
@@ -23,10 +18,9 @@ type BrowseEntry struct {
 	IsDir bool   `json:"isDir"`
 }
 
-// Browse serves GET /v0/system/browse?path=<absolute path>. An empty path
-// defaults to the daemon process's home directory. Files are listed but
-// inert on the client — see spec §5.3 — so this endpoint returns them too,
-// rather than filtering.
+// Browse serves GET /v0/system/browse?path=<absolute path, default home> for
+// the remote file picker. Not workspace-sandboxed: it is how a client picks
+// where to create one. Files are listed too; the client shows them inert.
 func Browse(c *gin.Context) {
 	path := c.Query("path")
 	if path == "" {
