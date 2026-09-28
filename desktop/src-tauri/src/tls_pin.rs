@@ -99,15 +99,16 @@ impl ServerCertVerifier for PinnedVerifier {
 
 /// Builds a rustls client config that trusts only the certificate matching
 /// `fingerprint`. The crypto provider is explicit so signature checks never
-/// depend on whichever process-wide default happens to be installed.
+/// depend on whichever process-wide default happens to be installed. Both
+/// ends are ours, so only TLS 1.3 is offered.
 #[allow(dead_code)] // dead_code: no caller until the TLS-dial task in this plan wires this into the real transport
 pub fn pinned_client_config(fingerprint: String) -> Arc<rustls::ClientConfig> {
     let provider = Arc::new(aws_lc_rs::default_provider());
     let verifier = Arc::new(PinnedVerifier::new(fingerprint, &provider));
     Arc::new(
         rustls::ClientConfig::builder_with_provider(provider)
-            .with_safe_default_protocol_versions()
-            .expect("aws-lc-rs's default provider supports rustls's safe default protocol versions")
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .expect("aws-lc-rs's default provider has TLS 1.3 cipher suites")
             .dangerous()
             .with_custom_certificate_verifier(verifier)
             .with_no_client_auth(),
@@ -164,7 +165,10 @@ mod pinned_verifier_tests {
         CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime,
     };
     use rustls::sign::{CertifiedKey, SingleCertAndKey};
-    use rustls::{CertificateError, DigitallySignedStruct, Error as TlsError, SignatureScheme};
+    use rustls::{
+        CertificateError, DigitallySignedStruct, Error as TlsError, PeerIncompatible,
+        SignatureScheme, SupportedProtocolVersion,
+    };
 
     const TRANSCRIPT: &[u8] = b"handshake transcript the server proves key possession over";
 
@@ -202,17 +206,19 @@ mod pinned_verifier_tests {
     }
 
     /// Drives an in-memory handshake from `pinned_client_config` (pinned to
-    /// `cert`) to a server that presents `cert` but signs with `key`.
+    /// `cert`) to a server that speaks `versions`, presents `cert` but signs
+    /// with `key`.
     fn handshake(
         cert: &CertificateDer<'static>,
         key: PrivateKeyDer<'static>,
+        versions: &[&'static SupportedProtocolVersion],
     ) -> Result<(), TlsError> {
         let provider = Arc::new(aws_lc_rs::default_provider());
         let signing_key = provider.key_provider.load_private_key(key)?;
         // CertifiedKey::new skips the cert/key match check, as an attacker's server would.
         let resolver = SingleCertAndKey::from(CertifiedKey::new(vec![cert.clone()], signing_key));
         let server_config = rustls::ServerConfig::builder_with_provider(provider)
-            .with_safe_default_protocol_versions()?
+            .with_protocol_versions(versions)?
             .with_no_client_auth()
             .with_cert_resolver(Arc::new(resolver));
         let mut server = rustls::ServerConnection::new(Arc::new(server_config))?;
@@ -280,7 +286,7 @@ mod pinned_verifier_tests {
     fn server_replaying_the_pinned_cert_without_its_key_fails_the_handshake() {
         let (cert, _) = generate_identity();
 
-        let result = handshake(&cert, attacker_key());
+        let result = handshake(&cert, attacker_key(), rustls::DEFAULT_VERSIONS);
 
         assert_eq!(
             result,
@@ -293,9 +299,24 @@ mod pinned_verifier_tests {
     fn server_holding_the_pinned_certs_key_completes_the_handshake() {
         let (cert, key) = generate_identity();
 
-        let result = handshake(&cert, key);
+        let result = handshake(&cert, key, rustls::DEFAULT_VERSIONS);
 
         assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn server_offering_only_tls12_is_refused() {
+        let (cert, key) = generate_identity();
+
+        let result = handshake(&cert, key, &[&rustls::version::TLS12]);
+
+        assert_eq!(
+            result,
+            Err(TlsError::PeerIncompatible(
+                PeerIncompatible::Tls12NotOfferedOrEnabled
+            )),
+            "expected the pinned client not to offer TLS 1.2"
+        );
     }
 
     #[test]
