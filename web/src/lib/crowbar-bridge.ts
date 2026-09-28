@@ -453,3 +453,46 @@ export async function exportDiagnostics(): Promise<string> {
   if (!isTauri()) throw new Error('Diagnostics export requires the desktop app')
   return tauriInvoke<string>('diagnostics_export')
 }
+
+// ── Remote Hosts ──────────────────────────────────────────────────────────────
+// Pairing and trust-on-first-contact for remote Crowbar daemon instances.
+
+/** Register a remote host in the in-memory runtime registry. */
+export async function registerRemoteHost(
+  hostId: string,
+  endpoint: string,
+  fingerprint: string,
+): Promise<void> {
+  await tauriInvoke('register_remote_host', { hostId, endpoint, fingerprint })
+}
+
+/** Unregister a remote host and close its streams. */
+export async function unregisterRemoteHost(hostId: string): Promise<void> {
+  await tauriInvoke('unregister_remote_host', { hostId })
+}
+
+/** Delete a remote host's stored bearer token from the OS keychain. */
+export async function forgetHostToken(hostId: string): Promise<void> {
+  await tauriInvoke('forget_host_token', { hostId })
+}
+
+/** Dials `endpoint` on first contact (no pinning yet) and returns the presented
+ *  certificate's fingerprint. The caller MUST show this to the user and get
+ *  explicit confirmation before ever calling `pairRemoteHost` with it — this
+ *  is the trust-on-first-connect step, not a background lookup. */
+export async function probeRemoteFingerprint(endpoint: string): Promise<string> {
+  return tauriInvoke<string>('probe_remote_fingerprint', { endpoint })
+}
+
+/** Redeems a pairing code against a CONFIRMED fingerprint. The bearer token
+ *  this produces is stored directly in the OS keychain by the Rust side and
+ *  never returned here — there is nothing for the caller to persist. */
+export async function pairRemoteHost(
+  hostId: string,
+  endpoint: string,
+  fingerprint: string,
+  code: string,
+  name: string,
+): Promise<void> {
+  await tauriInvoke('pair_remote_host', { hostId, endpoint, fingerprint, code, name })
+}
