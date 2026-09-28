@@ -48,9 +48,12 @@ export class TauriWebSocket {
    * `idleTimeoutMs`: judge the socket half-open — and close it — when the daemon
    * sends nothing at all (not even a ping) for this long. Only for streams whose
    * daemon side pings; unset means never.
+   * `hostId`: which remote host's daemon to dial (Tauri bridge plan Task 6's
+   * `ws_open` `host_id`); omitted or 'local' dials the local daemon, unchanged.
    */
-  constructor(path: string, options?: { idleTimeoutMs?: number }) {
+  constructor(path: string, options?: { idleTimeoutMs?: number; hostId?: string }) {
     this.connId = crypto.randomUUID()
+    const hostId = options?.hostId ?? 'local'
 
     // The Channel carries each raw text frame the Rust reader forwards; surface
     // it as a MessageEvent-like `{ data }` so the manager's onmessage parses it
@@ -73,6 +76,7 @@ export class TauriWebSocket {
       path,
       onMessage: channel,
       idleTimeoutMs: options?.idleTimeoutMs ?? null,
+      hostId: hostId === 'local' ? undefined : hostId,
     })
       .then(() => {
         // Closed while CONNECTING: the Rust connection is only now registered,

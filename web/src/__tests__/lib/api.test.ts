@@ -1,9 +1,18 @@
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
+
+// api.ts imports isTauri from crowbar-bridge, so this mock's factory runs
+// before this file's own top-level statements (ESM evaluates a dependency's
+// dependencies first) — vi.hoisted is required so `isTauri` exists by then.
+const { isTauri } = vi.hoisted(() => ({ isTauri: vi.fn(() => false) }))
+vi.mock('@/lib/crowbar-bridge', () => ({ isTauri }))
+
 import {
   apiFetch,
   ApiError,
   chatDTOFromWire,
   isDaemonUnavailableError,
+  isHostUnreachableError,
+  isHostIdentityChangedError,
   fetchFolders,
   fetchHomeWorkspace,
   fetchRepoChats,
@@ -28,7 +37,11 @@ function envelope(data: unknown) {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  isTauri.mockReturnValue(false)
 })
+
+// apiBaseFor itself (the 'local'/remote/Tauri-gating logic) is covered in its
+// own file: src/__tests__/lib/api/host-base.test.ts.
 
 describe('apiFetch transient-transport retry', () => {
   // Root cause of the cold-start landing bug: at app launch the daemon sidecar's
@@ -174,6 +187,59 @@ describe('apiFetch transient-transport retry', () => {
     expect(err.status).toBe(503)
     expect(err.code).toBe('daemon_unavailable')
     expect(isDaemonUnavailableError(err)).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  // The same proxy header, but for a REMOTE host's failed dial/handshake
+  // (Tauri bridge plan). Like daemon-unavailable this is a resolved response,
+  // not a fetch() rejection — so it must route through the error-status
+  // branch and never enter the transient-retry loop above. attempts:8 here is
+  // the investigation: if the retry loop wrongly fired, fetch would be called
+  // more than once.
+  it('names a proxy-marked host-unreachable response as host_unreachable, without retrying it', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      statusText: 'Bad Gateway',
+      headers: new Headers({ 'x-crowbar-proxy': 'host-unreachable' }),
+      json: async () => {
+        throw new SyntaxError('text/plain')
+      },
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const err = (await apiFetch('/v0/projects', undefined, fastRetry(8)).catch(
+      (e) => e,
+    )) as ApiError
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err.code).toBe('host_unreachable')
+    expect(isHostUnreachableError(err)).toBe(true)
+    expect(isHostIdentityChangedError(err)).toBe(false)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  // The pinned-certificate mismatch marker — a hard reject, never folded into
+  // the same code as host-unreachable, never retried (same investigation as
+  // above: attempts:8 but fetch must be called exactly once).
+  it('names a proxy-marked host-identity-changed response as host_identity_changed, without retrying it', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      statusText: 'Bad Gateway',
+      headers: new Headers({ 'x-crowbar-proxy': 'host-identity-changed' }),
+      json: async () => {
+        throw new SyntaxError('text/plain')
+      },
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const err = (await apiFetch('/v0/projects', undefined, fastRetry(8)).catch(
+      (e) => e,
+    )) as ApiError
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err.code).toBe('host_identity_changed')
+    expect(isHostIdentityChangedError(err)).toBe(true)
+    expect(isHostUnreachableError(err)).toBe(false)
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 

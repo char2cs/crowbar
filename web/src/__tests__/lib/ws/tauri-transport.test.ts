@@ -95,6 +95,31 @@ describe('TauriWebSocket', () => {
     )
   })
 
+  // 'local' (the default every existing caller keeps using) must send NO
+  // hostId at all — Tauri Bridge plan Task 6's ws_open treats an omitted
+  // host_id as the local daemon, so sending 'local' explicitly would be a
+  // different (if harmless) wire shape than today's zero-arg callers produce.
+  it('omits hostId from ws_open when the host is "local" (the default)', async () => {
+    new TauriWebSocket('/v0/projects/p/repos/r/workspaces', { hostId: 'local' })
+    // toHaveBeenCalledWith treats an `undefined`-valued key as absent, so this
+    // also proves the real call carries no hostId at all for the local host.
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('ws_open', {
+        connId: 'conn-fixed-id',
+        path: '/v0/projects/p/repos/r/workspaces',
+        onMessage: expect.anything(),
+        idleTimeoutMs: null,
+      }),
+    )
+  })
+
+  it('passes a non-local hostId through to ws_open', async () => {
+    new TauriWebSocket('/v0/projects/p/repos/r/workspaces', { hostId: 'h1' })
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('ws_open', expect.objectContaining({ hostId: 'h1' })),
+    )
+  })
+
   it('surfaces a binary frame (terminal output) as its ArrayBuffer', async () => {
     const sock = new TauriWebSocket('/v0/chats/c/terminals/s/ws')
     const onmessage = vi.fn()

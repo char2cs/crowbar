@@ -179,11 +179,11 @@ export class TerminalConnection {
   }
 }
 
-function openSocket(path: string): TerminalSocket {
+function openSocket(path: string, hostId = 'local'): TerminalSocket {
   if (isTauri()) {
-    return new TauriWebSocket(path, { idleTimeoutMs: TERMINAL_READ_IDLE_TIMEOUT_MS })
+    return new TauriWebSocket(path, { idleTimeoutMs: TERMINAL_READ_IDLE_TIMEOUT_MS, hostId })
   }
-  const ws = new WebSocket(wsUrl(path))
+  const ws = new WebSocket(wsUrl(path, hostId))
   ws.binaryType = 'arraybuffer'
   return ws as unknown as TerminalSocket
 }

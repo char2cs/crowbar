@@ -12,9 +12,30 @@ import type { PRLink } from '@/lib/import/parent-plan'
 import { getOwningChatId } from '@/lib/workspace-scope'
 import { daemonChanges, noteDaemonChange } from '@/lib/transport/daemon-changes'
 import { OwningChatNotRecordedError, worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
+import { isTauri } from '@/lib/crowbar-bridge'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
+
+/**
+ * Resolves the API base for a given host. 'local' (the default every existing
+ * call site keeps using unchanged) returns the SAME API_BASE this file has
+ * always exported — zero behavior change. Any other id must be a registered
+ * remote host; resolving one requires the desktop app, since only the Tauri
+ * bridge (crowbar://<hostId>) can complete the pinned-TLS dial.
+ */
+export function apiBaseFor(hostId: string): string {
+  if (hostId === 'local') return API_BASE
+  if (!isTauri()) {
+    throw new Error(`remote host "${hostId}" is only reachable from the desktop app`)
+  }
+  const known = useHostConfigStore.getState().hosts.some((h) => h.id === hostId)
+  if (!known) {
+    throw new Error(`unknown host "${hostId}"`)
+  }
+  return `crowbar://${hostId}`
+}
 
 /**
  * Turn a daemon-relative asset path into one the webview can actually load.
@@ -92,6 +113,23 @@ export function isDaemonUnavailableError(err: unknown): boolean {
   return err instanceof ApiError && err.code === DAEMON_UNAVAILABLE_CODE
 }
 
+/**
+ * The same proxy header's remote-host markers (Tauri bridge plan): a failed
+ * dial/handshake vs. a pinned certificate that no longer matches. The latter
+ * is a hard reject — never transient, never retried, never shown the same way
+ * as host-unreachable (spec §3).
+ */
+const HOST_UNREACHABLE_CODE = 'host_unreachable'
+const HOST_IDENTITY_CHANGED_CODE = 'host_identity_changed'
+
+export function isHostUnreachableError(err: unknown): boolean {
+  return err instanceof ApiError && err.code === HOST_UNREACHABLE_CODE
+}
+
+export function isHostIdentityChangedError(err: unknown): boolean {
+  return err instanceof ApiError && err.code === HOST_IDENTITY_CHANGED_CODE
+}
+
 /** Tunable transient-retry policy for {@link apiFetch}. A `fetch()` *rejection*
  *  (a network/transport error — never an HTTP status) means the request never
  *  reached the daemon; at app launch that is the sidecar's unix socket not yet
@@ -134,16 +172,18 @@ export async function apiFetchRaw(
   path: string,
   init?: RequestInit,
   retry: RetryConfig = DEFAULT_RETRY,
+  hostId = 'local',
 ): Promise<Response> {
   const read = isIdempotentRead(init)
   if (!read) noteDaemonChange()
   const maxAttempts = read ? Math.max(1, retry.attempts) : 1
   const sleep = retry.sleep ?? defaultSleep
+  const base = apiBaseFor(hostId)
 
   for (let attempt = 1; ; attempt++) {
     let res: Response
     try {
-      res = await fetch(`${API_BASE}${path}`, init)
+      res = await fetch(`${base}${path}`, init)
     } catch (err) {
       // Transport-level failure — the request never produced an HTTP response
       // (daemon not ready / connection refused). Retry idempotent reads with
@@ -163,8 +203,19 @@ export async function apiFetchRaw(
     // it is terminal (a 404 is meaningful; a 500 is a genuine server error) and
     // must never be retried.
     if (!res.ok) {
-      if (res.headers?.get(PROXY_HEADER) === 'daemon-unavailable') {
+      const proxyMarker = res.headers?.get(PROXY_HEADER)
+      if (proxyMarker === 'daemon-unavailable') {
         throw new ApiError('the daemon is not running yet', res.status, DAEMON_UNAVAILABLE_CODE)
+      }
+      if (proxyMarker === 'host-unreachable') {
+        throw new ApiError('the remote host is unreachable', res.status, HOST_UNREACHABLE_CODE)
+      }
+      if (proxyMarker === 'host-identity-changed') {
+        throw new ApiError(
+          "this host's identity changed — its certificate no longer matches what was pinned",
+          res.status,
+          HOST_IDENTITY_CHANGED_CODE,
+        )
       }
       const errorBody = await res.json().catch(() => null)
       throw new ApiError(
@@ -191,20 +242,22 @@ async function readEnvelope(res: Response): Promise<Envelope> {
   return { status: res.status, statusText: res.statusText, body }
 }
 
-/** Plain GETs in flight, by path, with the change count they were sent at. */
+/** Plain GETs in flight, by `hostId:path`, with the change count they were
+ *  sent at — hostId keeps two hosts' reads of the same path from colliding. */
 const readsInFlight = new Map<string, { changes: number; envelope: Promise<Envelope> }>()
 
 /** A plain GET, shared with an identical one still in flight when nothing the
  *  client could know of has changed since that one was sent. Joiners get a
  *  copy: callers may hand their answer to a store that freezes it. */
-async function sharedRead(path: string, retry: RetryConfig): Promise<Envelope> {
-  const held = readsInFlight.get(path)
+async function sharedRead(path: string, retry: RetryConfig, hostId: string): Promise<Envelope> {
+  const key = `${hostId}:${path}`
+  const held = readsInFlight.get(key)
   if (held && held.changes === daemonChanges()) return structuredClone(await held.envelope)
-  const envelope = apiFetchRaw(path, undefined, retry).then(readEnvelope)
+  const envelope = apiFetchRaw(path, undefined, retry, hostId).then(readEnvelope)
   const entry = { changes: daemonChanges(), envelope }
-  readsInFlight.set(path, entry)
+  readsInFlight.set(key, entry)
   const release = () => {
-    if (readsInFlight.get(path) === entry) readsInFlight.delete(path)
+    if (readsInFlight.get(key) === entry) readsInFlight.delete(key)
   }
   envelope.then(release, release)
   return envelope
@@ -214,11 +267,12 @@ export async function apiFetch<T>(
   path: string,
   init?: RequestInit,
   retry: RetryConfig = DEFAULT_RETRY,
+  hostId = 'local',
 ): Promise<T> {
   const { status, statusText, body } =
     init === undefined
-      ? await sharedRead(path, retry)
-      : await readEnvelope(await apiFetchRaw(path, init, retry))
+      ? await sharedRead(path, retry, hostId)
+      : await readEnvelope(await apiFetchRaw(path, init, retry, hostId))
   if (body === null) {
     return undefined as T
   }
