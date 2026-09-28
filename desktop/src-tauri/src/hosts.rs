@@ -52,8 +52,10 @@ pub fn register_remote_host(
 pub fn unregister_remote_host(
     host_id: String,
     registry: tauri::State<'_, HostRegistry>,
+    streams: tauri::State<'_, crate::ws_bridge::WsBridgeManager>,
 ) -> Result<(), String> {
     registry.remove(&host_id);
+    streams.close_for_host(&host_id);
     Ok(())
 }
 

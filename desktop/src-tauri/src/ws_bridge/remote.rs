@@ -14,6 +14,7 @@ use crate::hosts::{HostRegistry, RemoteHost};
 
 /// A registered host and the credential its daemon expects.
 pub(super) struct PairedHost {
+    host_id: String,
     host: RemoteHost,
     authorization: HeaderValue,
 }
@@ -33,6 +34,7 @@ pub(super) async fn paired_host(
         .map_err(|e| format!("token lookup failed: {e}"))?
         .ok_or("no stored credential for this host — pair it again")?;
     Ok(PairedHost {
+        host_id: host_id.to_string(),
         host,
         authorization: bearer(&token)?,
     })
@@ -67,6 +69,7 @@ pub(super) async fn open_remote_bridge<S: FrameSink>(
     Ok(attach(
         ws,
         conn_id,
+        Some(paired.host_id),
         on_message,
         manager,
         window_label,
@@ -84,9 +87,9 @@ mod tests {
     use std::net::SocketAddr;
     use std::time::Duration;
 
-    use futures_util::SinkExt;
+    use futures_util::{SinkExt, StreamExt};
     use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-    use tokio::net::TcpListener;
+    use tokio::net::{TcpListener, UnixListener};
     use tokio::sync::{mpsc, oneshot};
     use tokio::task::JoinHandle;
     use tokio_tungstenite::tungstenite::handshake::server::{
@@ -95,16 +98,19 @@ mod tests {
     use tokio_tungstenite::tungstenite::Message;
 
     use super::{open_remote_bridge, paired_host};
+    use crate::api_proxy::remote::DIAL_TIMEOUT;
     use crate::api_proxy::test_support::{
         header, identity, refused_endpoint, registry, serve_once_tls, tls_acceptor, unrelated_key,
         Keychain, HOST_ID,
     };
     use crate::api_proxy::{HOST_IDENTITY_CHANGED, HOST_UNREACHABLE};
-    use crate::hosts::HostRegistry;
+    use crate::hosts::{HostRegistry, RemoteHost};
     use crate::tls_pin::fingerprint_of;
-    use crate::ws_bridge::{Frame, FrameSink, WsBridgeManager};
+    use crate::ws_bridge::test_support::{silent_sink, spawn_wedged_daemon, test_socket};
+    use crate::ws_bridge::{open_bridge, Frame, FrameSink, WsBridgeManager};
 
     const GREETING: &str = "hello-remote";
+    const OTHER_HOST: &str = "host-2";
 
     struct Frames(mpsc::UnboundedSender<Frame>);
 
@@ -136,7 +142,7 @@ mod tests {
     }
 
     /// A remote daemon: terminates TLS as `tls_acceptor` does, upgrades one stream,
-    /// reports what it saw, sends `GREETING`, then holds the stream open.
+    /// reports what it saw, sends `GREETING`, then echoes every text frame back.
     async fn serve_ws_once(
         cert: CertificateDer<'static>,
         key: PrivateKeyDer<'static>,
@@ -162,21 +168,27 @@ mod tests {
             ws.send(Message::Text(GREETING.into()))
                 .await
                 .expect("send greeting");
-            std::future::pending::<()>().await;
+            while let Some(Ok(frame)) = ws.next().await {
+                if frame.is_text() && ws.send(frame).await.is_err() {
+                    break;
+                }
+            }
         });
         (addr, reported)
     }
 
-    async fn open_as_paired(
+    async fn open_to(
+        host_id: &str,
+        conn_id: &str,
         registry: &HostRegistry,
         manager: &WsBridgeManager,
         sink: Frames,
     ) -> Result<JoinHandle<()>, String> {
-        let keychain = Keychain::holding(&[(HOST_ID, "sometoken")]);
-        let paired = paired_host(registry, &keychain, HOST_ID).await?;
+        let keychain = Keychain::holding(&[(host_id, "sometoken")]);
+        let paired = paired_host(registry, &keychain, host_id).await?;
         open_remote_bridge(
             paired,
-            "c1".into(),
+            conn_id.into(),
             "/v0/x".into(),
             sink,
             manager,
@@ -184,6 +196,14 @@ mod tests {
             None,
         )
         .await
+    }
+
+    async fn open_as_paired(
+        registry: &HostRegistry,
+        manager: &WsBridgeManager,
+        sink: Frames,
+    ) -> Result<JoinHandle<()>, String> {
+        open_to(HOST_ID, "c1", registry, manager, sink).await
     }
 
     fn marked(marker: &str, err: &str) -> bool {
@@ -212,10 +232,87 @@ mod tests {
         assert_eq!(authorization.as_deref(), Some("Bearer sometoken"));
         assert_eq!(received.recv().await, Some(Frame::Text(GREETING.into())));
 
+        // Well past every dial deadline, the stream still carries frames both ways.
+        tokio::time::pause();
+        tokio::time::advance(DIAL_TIMEOUT * 3).await;
+        manager
+            .sender("c1")
+            .expect("the stream is still registered")
+            .send(Message::Text("still-here".into()))
+            .unwrap();
+        assert_eq!(
+            received.recv().await,
+            Some(Frame::Text("still-here".into()))
+        );
+        assert!(!reader.is_finished());
+
         manager.connections.lock().unwrap().remove("c1");
         reader
             .await
             .expect("retiring a remote connection must end its reader");
+    }
+
+    #[tokio::test]
+    async fn removing_a_host_retires_its_streams_and_no_others() {
+        let _serialised = crate::test_support::fd_tests().await;
+        let (cert, key) = identity();
+        let fingerprint = fingerprint_of(&cert);
+        let (addr, _reported) = serve_ws_once(cert, key).await;
+        let registry = registry(addr.to_string(), fingerprint);
+        let (cert, key) = identity();
+        let fingerprint = fingerprint_of(&cert);
+        let (addr, _reported) = serve_ws_once(cert, key).await;
+        let endpoint = addr.to_string();
+        registry.insert(
+            OTHER_HOST.into(),
+            RemoteHost {
+                endpoint,
+                fingerprint,
+            },
+        );
+        let sock = test_socket("host-scope");
+        spawn_wedged_daemon(UnixListener::bind(&sock).unwrap());
+        let manager = WsBridgeManager::new();
+
+        let removed = open_to(HOST_ID, "removed", &registry, &manager, frames().0).await;
+        let other = open_to(OTHER_HOST, "other", &registry, &manager, frames().0).await;
+        let local = open_bridge(
+            &sock,
+            "local".into(),
+            "/v0/x".into(),
+            silent_sink(),
+            &manager,
+            "main".into(),
+            None,
+        )
+        .await;
+
+        manager.close_for_host(HOST_ID);
+
+        {
+            let conns = manager.connections.lock().unwrap();
+            assert!(
+                !conns.contains_key("removed"),
+                "a removed host's stream survived"
+            );
+            assert!(
+                conns.contains_key("other"),
+                "another host's stream was retired"
+            );
+            assert!(
+                conns.contains_key("local"),
+                "the local daemon's stream was retired"
+            );
+        }
+        removed
+            .unwrap()
+            .await
+            .expect("a removed host's reader must end");
+
+        manager.close_for_window("main");
+        other.unwrap().await.unwrap();
+        local.unwrap().await.unwrap();
+        let _ = std::fs::remove_file(&sock);
     }
 
     #[tokio::test]

@@ -48,6 +48,9 @@ pub(super) struct Connection {
     /// The Tauri window label that opened this connection. A page load retires only
     /// the connections belonging to the window that loaded — see `close_for_window`.
     window_label: String,
+    /// The paired host this connection reaches, `None` for the local daemon. Removing
+    /// a host retires only its connections — see `close_for_host`.
+    host_id: Option<String>,
     tx: mpsc::UnboundedSender<Message>,
     /// Held, never used. Its `Drop` is the signal.
     _cancel: oneshot::Sender<()>,
@@ -90,6 +93,15 @@ impl WsBridgeManager {
             .unwrap()
             .retain(|_, c| c.window_label != label);
     }
+
+    /// Retires every connection to paired host `host_id`. Called when the host is
+    /// removed, so nothing keeps streaming from, or typing into, a host the user dropped.
+    pub fn close_for_host(&self, host_id: &str) {
+        self.connections
+            .lock()
+            .unwrap()
+            .retain(|_, c| c.host_id.as_deref() != Some(host_id));
+    }
 }
 
 /// Bridges an upgraded stream until it is retired, and returns its reader task. Local and
@@ -97,6 +109,7 @@ impl WsBridgeManager {
 pub(super) fn attach<T, S>(
     ws: WebSocketStream<T>,
     conn_id: String,
+    host_id: Option<String>,
     on_message: S,
     manager: &WsBridgeManager,
     window_label: String,
@@ -139,6 +152,7 @@ where
         Connection {
             generation,
             window_label,
+            host_id,
             tx,
             _cancel: cancel,
         },

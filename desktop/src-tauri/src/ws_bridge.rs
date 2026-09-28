@@ -126,7 +126,9 @@ pub async fn ws_open(
         Some(host_id) => {
             let registry = window.state::<HostRegistry>();
             let tokens = window.state::<Arc<dyn TokenStore>>();
-            let paired = remote::paired_host(&registry, &tokens, &host_id).await?;
+            let paired = remote::paired_host(&registry, &tokens, &host_id)
+                .await
+                .inspect_err(|e| log::error!("ws_open: remote host {host_id}: {e}"))?;
             remote::open_remote_bridge(
                 paired,
                 conn_id,
@@ -170,6 +172,7 @@ pub async fn open_bridge<S: FrameSink>(
     Ok(attach(
         ws,
         conn_id,
+        None,
         on_message,
         manager,
         window_label,
