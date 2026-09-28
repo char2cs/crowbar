@@ -951,12 +951,20 @@ git commit -m "feat(desktop): route WebSocket upgrades to a remote host the same
 
 ### Task 7: thin JS wrapper (`crowbar-bridge.ts`)
 
+**Revised during review (the command surface below reflects what Tasks 3-6 actually shipped, not the original draft):** pairing now happens entirely in Rust (`pair_remote_host`), so the raw bearer token never needs to cross into JS at all. `store_host_token` (Task 3) is consequently unused by any real flow — **do not wrap it**. `forget_host_token` is still real (host-removal cleanup calls it). Two new commands need wrapping: `pair_remote_host` (Task 5's addendum) and `probe_remote_fingerprint` (Task 5b).
+
 **Files:**
 - Modify: `web/src/lib/crowbar-bridge.ts` (read in full first)
 - Test: `web/src/__tests__/lib/crowbar-bridge.test.ts` (extend if it exists; check first — the file may not exist yet, in which case create it, mirroring the test style of a sibling `lib/` test file)
 
 **Interfaces:**
-- Produces: `registerRemoteHost(hostId: string, endpoint: string, fingerprint: string): Promise<void>`, `unregisterRemoteHost(hostId: string): Promise<void>`, `storeHostToken(hostId: string, token: string): Promise<void>`, `forgetHostToken(hostId: string): Promise<void>` — each a thin `tauriInvoke('<command>', {...})` wrapper, matching this file's existing `tauriInvoke` usage pattern exactly (read an existing wrapped command in this file first, e.g. how `reveal_in_finder` or `popup_native_context_menu` is called, and copy that exact shape).
+- `registerRemoteHost(hostId: string, endpoint: string, fingerprint: string): Promise<void>` → `register_remote_host`
+- `unregisterRemoteHost(hostId: string): Promise<void>` → `unregister_remote_host`
+- `forgetHostToken(hostId: string): Promise<void>` → `forget_host_token`
+- `probeRemoteFingerprint(endpoint: string): Promise<string>` → `probe_remote_fingerprint` — returns the presented fingerprint for TOFU display; **the caller MUST show this to the user and require explicit confirmation before calling `pairRemoteHost`** — this is a hard UX requirement carried forward from Task 5b's review, not optional plumbing.
+- `pairRemoteHost(hostId: string, endpoint: string, fingerprint: string, code: string, name: string): Promise<void>` → `pair_remote_host` — `fingerprint` here MUST be the user-CONFIRMED value from `probeRemoteFingerprint`, never an unconfirmed one.
+
+Each a thin `tauriInvoke('<command>', {...})` wrapper, matching this file's existing `tauriInvoke` usage pattern exactly (read an existing wrapped command in this file first, e.g. how `reveal_in_finder` or `popup_native_context_menu` is called, and copy that exact shape). Confirm every arg name/casing against the actual Rust command signatures (`desktop/src-tauri/src/hosts.rs`, `src/host_tokens.rs`, `src/api_proxy/pairing.rs`, `src/api_proxy/probe.rs`) before writing the wrappers — read the real, current signatures, don't trust this plan's paraphrase of them.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -968,7 +976,13 @@ import { describe, expect, it, vi } from 'vitest'
 const invokeMock = vi.fn()
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invokeMock(...args) }))
 
-import { registerRemoteHost, unregisterRemoteHost, storeHostToken, forgetHostToken } from '@/lib/crowbar-bridge'
+import {
+  registerRemoteHost,
+  unregisterRemoteHost,
+  forgetHostToken,
+  probeRemoteFingerprint,
+  pairRemoteHost,
+} from '@/lib/crowbar-bridge'
 
 describe('remote host bridge commands', () => {
   it('registerRemoteHost invokes register_remote_host with the right args', async () => {
@@ -985,24 +999,37 @@ describe('remote host bridge commands', () => {
     expect(invokeMock).toHaveBeenCalledWith('unregister_remote_host', { hostId: 'host-1' })
   })
 
-  it('storeHostToken invokes store_host_token', async () => {
-    await storeHostToken('host-1', 'sometoken')
-    expect(invokeMock).toHaveBeenCalledWith('store_host_token', { hostId: 'host-1', token: 'sometoken' })
-  })
-
   it('forgetHostToken invokes forget_host_token', async () => {
     await forgetHostToken('host-1')
     expect(invokeMock).toHaveBeenCalledWith('forget_host_token', { hostId: 'host-1' })
   })
+
+  it('probeRemoteFingerprint invokes probe_remote_fingerprint and returns the fingerprint', async () => {
+    invokeMock.mockResolvedValueOnce('SHA256:aaaa bbbb cccc dddd eeee ffff')
+    const fp = await probeRemoteFingerprint('1.2.3.4:3737')
+    expect(invokeMock).toHaveBeenCalledWith('probe_remote_fingerprint', { endpoint: '1.2.3.4:3737' })
+    expect(fp).toBe('SHA256:aaaa bbbb cccc dddd eeee ffff')
+  })
+
+  it('pairRemoteHost invokes pair_remote_host with the confirmed fingerprint', async () => {
+    await pairRemoteHost('host-1', '1.2.3.4:3737', 'SHA256:aaaa bbbb cccc dddd eeee ffff', '123456', 'my-device')
+    expect(invokeMock).toHaveBeenCalledWith('pair_remote_host', {
+      hostId: 'host-1',
+      endpoint: '1.2.3.4:3737',
+      fingerprint: 'SHA256:aaaa bbbb cccc dddd eeee ffff',
+      code: '123456',
+      name: 'my-device',
+    })
+  })
 })
 ```
 
-Adjust the mock/import shape to match whatever this repo's existing convention actually is once you've read a real example — this is a sketch of the assertions, not a guarantee of the exact mocking mechanics.
+Adjust the mock/import shape to match whatever this repo's existing convention actually is once you've read a real example, and adjust every arg's exact casing/name to match the REAL Rust command signatures you read — this is a sketch of the assertions, not a guarantee of the exact wire shape.
 
 - [ ] **Step 2: Run to verify failure**
 
 Run: `cd web && bun vitest run src/__tests__/lib/crowbar-bridge.test.ts 2>&1 | tail -60`
-Expected: FAIL — the four functions are undefined.
+Expected: FAIL — the five functions are undefined.
 
 - [ ] **Step 3: Implement**
 
@@ -1015,16 +1042,33 @@ export async function unregisterRemoteHost(hostId: string): Promise<void> {
   await tauriInvoke('unregister_remote_host', { hostId })
 }
 
-export async function storeHostToken(hostId: string, token: string): Promise<void> {
-  await tauriInvoke('store_host_token', { hostId, token })
-}
-
 export async function forgetHostToken(hostId: string): Promise<void> {
   await tauriInvoke('forget_host_token', { hostId })
 }
+
+/** Dials `endpoint` on first contact (no pinning yet) and returns the presented
+ *  certificate's fingerprint. The caller MUST show this to the user and get
+ *  explicit confirmation before ever calling `pairRemoteHost` with it — this
+ *  is the trust-on-first-connect step, not a background lookup. */
+export async function probeRemoteFingerprint(endpoint: string): Promise<string> {
+  return tauriInvoke('probe_remote_fingerprint', { endpoint })
+}
+
+/** Redeems a pairing code against a CONFIRMED fingerprint. The bearer token
+ *  this produces is stored directly in the OS keychain by the Rust side and
+ *  never returned here — there is nothing for the caller to persist. */
+export async function pairRemoteHost(
+  hostId: string,
+  endpoint: string,
+  fingerprint: string,
+  code: string,
+  name: string,
+): Promise<void> {
+  await tauriInvoke('pair_remote_host', { hostId, endpoint, fingerprint, code, name })
+}
 ```
 
-Place these beside the file's other Tauri-command wrappers, following its existing grouping/section-comment style. Confirm `tauriInvoke`'s exact exported signature by reading its definition in this same file before calling it — this plan's earlier research names it but did not quote its body.
+Place these beside the file's other Tauri-command wrappers, following its existing grouping/section-comment style. Confirm `tauriInvoke`'s exact exported signature by reading its definition in this same file before calling it — this plan's earlier research names it but did not quote its body. Do NOT add a `storeHostToken` wrapper — `store_host_token` has no real caller in this design.
 
 - [ ] **Step 4: Run to verify the tests pass**
 
