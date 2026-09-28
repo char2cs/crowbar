@@ -16,13 +16,12 @@ describe('remote host bridge commands', () => {
     vi.resetModules()
   })
 
-  it('registerRemoteHost invokes register_remote_host with the right args', async () => {
+  it('registerRemoteHost invokes register_remote_host with no fingerprint to trust', async () => {
     const { registerRemoteHost } = await import('@/lib/crowbar-bridge')
-    await registerRemoteHost('host-1', '1.2.3.4:3737', 'SHA256:aaaa')
+    await registerRemoteHost('host-1', '1.2.3.4:3737')
     expect(invokeMock).toHaveBeenCalledExactlyOnceWith('register_remote_host', {
       hostId: 'host-1',
       endpoint: '1.2.3.4:3737',
-      fingerprint: 'SHA256:aaaa',
     })
   })
 
@@ -50,13 +49,22 @@ describe('remote host bridge commands', () => {
     expect(fp).toBe('SHA256:aaaa bbbb cccc dddd eeee ffff')
   })
 
-  it('pairRemoteHost invokes pair_remote_host with the confirmed fingerprint', async () => {
+  it('pairRemoteHost invokes pair_remote_host and returns the client id', async () => {
+    invokeMock.mockResolvedValueOnce('client-7')
     const { pairRemoteHost } = await import('@/lib/crowbar-bridge')
-    await pairRemoteHost('host-1', '1.2.3.4:3737', 'SHA256:aaaa bbbb cccc dddd eeee ffff', '123456', 'my-device')
+    const fingerprint = 'SHA256:aaaa bbbb cccc dddd eeee ffff'
+    const clientId = await pairRemoteHost(
+      'host-1',
+      '1.2.3.4:3737',
+      fingerprint,
+      '123456',
+      'my-device',
+    )
+    expect(clientId).toBe('client-7')
     expect(invokeMock).toHaveBeenCalledExactlyOnceWith('pair_remote_host', {
       hostId: 'host-1',
       endpoint: '1.2.3.4:3737',
-      fingerprint: 'SHA256:aaaa bbbb cccc dddd eeee ffff',
+      fingerprint,
       code: '123456',
       name: 'my-device',
     })

@@ -457,13 +457,13 @@ export async function exportDiagnostics(): Promise<string> {
 // ── Remote Hosts ──────────────────────────────────────────────────────────────
 // Pairing and trust-on-first-contact for remote Crowbar daemon instances.
 
-/** Register a remote host in the in-memory runtime registry. */
-export async function registerRemoteHost(
-  hostId: string,
-  endpoint: string,
-  fingerprint: string,
-): Promise<void> {
-  await tauriInvoke('register_remote_host', { hostId, endpoint, fingerprint })
+/** Tell the runtime registry where a remote host listens. There is no
+ *  fingerprint to pass: the certificate a host's token may be sent to is fixed
+ *  at pairing, beside the token, where nothing here can change it. Rejects a
+ *  `hostId` that is not lowercase letters, digits and hyphens, or is
+ *  `localhost`. */
+export async function registerRemoteHost(hostId: string, endpoint: string): Promise<void> {
+  await tauriInvoke('register_remote_host', { hostId, endpoint })
 }
 
 /** Unregister a remote host and close its streams. */
@@ -486,13 +486,14 @@ export async function probeRemoteFingerprint(endpoint: string): Promise<string> 
 
 /** Redeems a pairing code against a CONFIRMED fingerprint. The bearer token
  *  this produces is stored directly in the OS keychain by the Rust side and
- *  never returned here — there is nothing for the caller to persist. */
+ *  never returned here. Resolves to the host's id for this client — not a
+ *  secret; keep it to revoke this pairing server-side later. */
 export async function pairRemoteHost(
   hostId: string,
   endpoint: string,
   fingerprint: string,
   code: string,
   name: string,
-): Promise<void> {
-  await tauriInvoke('pair_remote_host', { hostId, endpoint, fingerprint, code, name })
+): Promise<string> {
+  return tauriInvoke<string>('pair_remote_host', { hostId, endpoint, fingerprint, code, name })
 }
