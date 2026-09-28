@@ -4,6 +4,7 @@ mod diagnostics;
 mod fdlimit;
 mod navigation;
 mod sidecar;
+mod tls_pin;
 mod ws_bridge;
 
 #[cfg(test)]

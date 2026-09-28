@@ -27,6 +27,10 @@ hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
 tokio-tungstenite = "0.30"
+rustls = "0.23"
+tokio-rustls = "0.26"
+sha2 = "0.10"
+keyring = "3"
 futures-util = "0.3"
 bytes = "1"
 log = "0.4"
