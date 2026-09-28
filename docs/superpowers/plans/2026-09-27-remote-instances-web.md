@@ -883,7 +883,7 @@ git commit -m "feat(web): Create Space gains a daemon picker (Local + saved host
 - Test: `web/src/__tests__/lib/store/projects.test.ts` (extend or create)
 
 **Interfaces:**
-- Produces: `Project.hostId: string`, `fetchProjects(): Promise<Project[]>` becomes `fetchProjectsForHost(hostId: string): Promise<Project[]>` (fetches that one host's `/v0/projects` via `apiFetch(path, init, hostId)`), a new `fetchAllProjects(): Promise<Project[]>` that calls `fetchProjectsForHost` for `'local'` plus every `up` saved host and concatenates, tagging each result with its `hostId`. `useProjectDataStore`'s `fetcher` becomes `fetchAllProjects`. Every workspace store gains a `hostId` field, set ONCE at construction from its owning project's `hostId` and never re-derived.
+- Produces: `Project.hostId: string`, `fetchProjects(): Promise<Project[]>` becomes `fetchProjectsForHost(hostId: string): Promise<Project[]>` (fetches that one host's `/v0/projects` via `apiFetch(path, init, retry, hostId)` — **`hostId` is the 4th positional arg, not the 3rd**; Task 2 established `apiFetch<T>(path, init?, retry?, hostId?)`, and two earlier tasks in this plan (3 and 5) already had to catch-and-fix this exact same off-by-one in their own plan-text samples, so don't reintroduce it here — pass `undefined` for `retry` if you don't need to override it), a new `fetchAllProjects(): Promise<Project[]>` that calls `fetchProjectsForHost` for `'local'` plus every `up` saved host and concatenates, tagging each result with its `hostId`. `useProjectDataStore`'s `fetcher` becomes `fetchAllProjects`. Every workspace store gains a `hostId` field, set ONCE at construction from its owning project's `hostId` and never re-derived.
 
 - [ ] **Step 1: Write the failing test for multi-host fetch**
 
@@ -942,7 +942,7 @@ In `api.ts`, change `fetchProjects` to take a `hostId` and add `fetchAllProjects
 
 ```ts
 export async function fetchProjectsForHost(hostId: string): Promise<Project[]> {
-  const dtos = await apiFetch<ProjectDTO[]>('/v0/projects', undefined, hostId)
+  const dtos = await apiFetch<ProjectDTO[]>('/v0/projects', undefined, undefined, hostId)
   return dtos.map((dto) => ({ ...projectFromDTO(dto), hostId })) // reuse the existing DTO->model mapper this file already has near fetchProjects; confirm its exact name by reading the file (this plan's research flagged lib/store/project-from-dto.ts's projectFromDTO as currently UNUSED by the store — using it here is a legitimate first real caller, not a regression)
 }
 
