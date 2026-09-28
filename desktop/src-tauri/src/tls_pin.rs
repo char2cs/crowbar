@@ -12,7 +12,7 @@ use rustls::crypto::{
     WebPkiSupportedAlgorithms,
 };
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-use rustls::{DigitallySignedStruct, Error as TlsError, SignatureScheme};
+use rustls::{CertificateError, DigitallySignedStruct, Error as TlsError, SignatureScheme};
 use sha2::{Digest, Sha256};
 
 /// Renders a certificate's SHA-256 as grouped lowercase hex — byte-identical
@@ -62,11 +62,10 @@ impl ServerCertVerifier for PinnedVerifier {
         if fingerprint_matches(end_entity.as_ref(), &self.fingerprint) {
             Ok(ServerCertVerified::assertion())
         } else {
-            Err(TlsError::General(format!(
-                "remote host's certificate fingerprint does not match the pinned one \
-                 (expected {}) — this host's identity changed",
-                self.fingerprint
-            )))
+            // Structured, so a caller can tell an impostor from an outage.
+            Err(TlsError::InvalidCertificate(
+                CertificateError::ApplicationVerificationFailure,
+            ))
         }
     }
 
@@ -346,9 +345,12 @@ mod pinned_verifier_tests {
 
         let result = verifier.verify_server_cert(&der, &[], &server_name, &[], UnixTime::now());
 
-        assert!(
-            result.is_err(),
-            "expected a mismatched fingerprint to be rejected, got {result:?}"
+        assert_eq!(
+            result.err(),
+            Some(TlsError::InvalidCertificate(
+                CertificateError::ApplicationVerificationFailure
+            )),
+            "expected a mismatched fingerprint to be rejected as an invalid certificate"
         );
     }
 }

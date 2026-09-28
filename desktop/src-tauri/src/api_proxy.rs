@@ -15,7 +15,10 @@ use crate::host_tokens::TokenStore;
 use crate::hosts::HostRegistry;
 use crate::sidecar::SidecarHandle;
 
+pub(crate) mod pairing;
 mod remote;
+#[cfg(test)]
+mod test_support;
 
 /// Upper bound on one proxied request.
 ///
@@ -49,9 +52,14 @@ const CONNECT_FAST_DELAY: Duration = Duration::from_millis(25);
 const CONNECT_RETRY_BASE: Duration = Duration::from_millis(100);
 const CONNECT_RETRY_CAP: Duration = Duration::from_secs(1);
 
-/// Marks a response that is the PROXY's, not the daemon's: nothing was listening.
+/// Marks a response that is the PROXY's, not the daemon's; the value says why.
 pub(crate) const PROXY_HEADER: &str = "x-crowbar-proxy";
+/// The local daemon socket: nothing was listening.
 pub(crate) const DAEMON_UNAVAILABLE: &str = "daemon-unavailable";
+/// A remote host did not answer: refused, timed out, or dropped the handshake.
+const HOST_UNREACHABLE: &str = "host-unreachable";
+/// A remote host answered, but not with the identity pinned at pairing.
+const HOST_IDENTITY_CHANGED: &str = "host-identity-changed";
 
 /// Build an HTTP error response for the webview when proxying fails.
 fn error_response(status: u16, msg: &str) -> http::Response<Vec<u8>> {
@@ -62,13 +70,17 @@ fn error_response(status: u16, msg: &str) -> http::Response<Vec<u8>> {
         .unwrap()
 }
 
-fn daemon_unavailable(msg: &str) -> http::Response<Vec<u8>> {
+fn proxy_error(status: u16, marker: &str, msg: &str) -> http::Response<Vec<u8>> {
     http::Response::builder()
-        .status(503)
+        .status(status)
         .header(http::header::CONTENT_TYPE, "text/plain")
-        .header(PROXY_HEADER, DAEMON_UNAVAILABLE)
+        .header(PROXY_HEADER, marker)
         .body(msg.as_bytes().to_vec())
         .unwrap()
+}
+
+fn daemon_unavailable(msg: &str) -> http::Response<Vec<u8>> {
+    proxy_error(503, DAEMON_UNAVAILABLE, msg)
 }
 
 fn connect_retry_delay(attempt: u32) -> Duration {

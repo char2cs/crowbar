@@ -60,6 +60,7 @@ objc2-foundation = "0.3"
 
 [dev-dependencies]
 rcgen = "0.13"
+tokio = { version = "1", features = ["test-util"] }
 
 [profile.release]
 panic = "abort"

@@ -1147,6 +1147,7 @@ pub fn run() {
             diagnostics::diagnostics_export,
             host_tokens::store_host_token,
             host_tokens::forget_host_token,
+            api_proxy::pairing::pair_remote_host,
             hosts::register_remote_host,
             hosts::unregister_remote_host,
             reveal_in_finder,
