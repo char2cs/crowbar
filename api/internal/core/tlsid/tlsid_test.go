@@ -56,7 +56,7 @@ func TestFingerprintOf_Format(t *testing.T) {
 			t.Fatalf("group %d: expected 4 chars, got %d: %q in %q", i, len(part), part, fp)
 		}
 		for j, c := range part {
-			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 				t.Fatalf("group %d char %d: expected lowercase hex, got %q in %q", i, j, c, fp)
 			}
 		}
