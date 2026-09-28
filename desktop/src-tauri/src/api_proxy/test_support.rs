@@ -108,10 +108,9 @@ pub fn response(status: &str, body: &str) -> Vec<u8> {
     .into_bytes()
 }
 
-/// Terminates TLS presenting `cert` and signing with `key` — which need not
-/// match, so a test can replay a certificate it holds no key for. Reports the
-/// request it read, or why the handshake failed, then sends `reply` or, with
-/// none, holds the connection open without answering.
+/// Terminates TLS as [`tls_acceptor`] does. Reports the request it read, or
+/// why the handshake failed, then sends `reply` or, with none, holds the
+/// connection open without answering.
 pub async fn serve_once_tls(
     cert: CertificateDer<'static>,
     key: PrivateKeyDer<'static>,
@@ -131,18 +130,7 @@ pub async fn serve_once_tls_speaking(
         .await
         .expect("bind test remote daemon");
     let addr = listener.local_addr().unwrap();
-    let provider = Arc::new(aws_lc_rs::default_provider());
-    let signing_key = provider
-        .key_provider
-        .load_private_key(key)
-        .expect("load key");
-    let resolver = SingleCertAndKey::from(CertifiedKey::new(vec![cert], signing_key));
-    let config = rustls::ServerConfig::builder_with_provider(provider)
-        .with_protocol_versions(versions)
-        .expect("protocol versions")
-        .with_no_client_auth()
-        .with_cert_resolver(Arc::new(resolver));
-    let acceptor = TlsAcceptor::from(Arc::new(config));
+    let acceptor = tls_acceptor(versions, cert, key);
     let (report, reported) = oneshot::channel();
     tokio::spawn(async move {
         let (tcp, _) = listener.accept().await.expect("accept");
@@ -160,6 +148,27 @@ pub async fn serve_once_tls_speaking(
         }
     });
     (addr, reported)
+}
+
+/// Presents `cert` and signs with `key` — which need not match, so a test can
+/// replay a certificate it holds no key for.
+pub fn tls_acceptor(
+    versions: &[&'static SupportedProtocolVersion],
+    cert: CertificateDer<'static>,
+    key: PrivateKeyDer<'static>,
+) -> TlsAcceptor {
+    let provider = Arc::new(aws_lc_rs::default_provider());
+    let signing_key = provider
+        .key_provider
+        .load_private_key(key)
+        .expect("load key");
+    let resolver = SingleCertAndKey::from(CertifiedKey::new(vec![cert], signing_key));
+    let config = rustls::ServerConfig::builder_with_provider(provider)
+        .with_protocol_versions(versions)
+        .expect("protocol versions")
+        .with_no_client_auth()
+        .with_cert_resolver(Arc::new(resolver));
+    TlsAcceptor::from(Arc::new(config))
 }
 
 async fn read_request(stream: &mut (impl AsyncRead + Unpin)) -> String {

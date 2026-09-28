@@ -970,6 +970,7 @@ pub fn run() {
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
                 .level_for("tokio_tungstenite", log::LevelFilter::Warn)
+                // Never below Warn: its trace of a remote upgrade holds the bearer token.
                 .level_for("tungstenite", log::LevelFilter::Warn)
                 .level_for("hyper", log::LevelFilter::Warn)
                 .level_for("hyper_util", log::LevelFilter::Warn)

@@ -17,9 +17,9 @@ use crate::sidecar::SidecarHandle;
 
 pub(crate) mod pairing;
 pub(crate) mod probe;
-mod remote;
+pub(crate) mod remote;
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;
 
 /// Upper bound on one proxied request.
 ///
@@ -58,9 +58,9 @@ pub(crate) const PROXY_HEADER: &str = "x-crowbar-proxy";
 /// The local daemon socket: nothing was listening.
 pub(crate) const DAEMON_UNAVAILABLE: &str = "daemon-unavailable";
 /// A remote host did not answer: refused, timed out, or dropped the handshake.
-const HOST_UNREACHABLE: &str = "host-unreachable";
+pub(crate) const HOST_UNREACHABLE: &str = "host-unreachable";
 /// A remote host answered, but not with the identity pinned at pairing.
-const HOST_IDENTITY_CHANGED: &str = "host-identity-changed";
+pub(crate) const HOST_IDENTITY_CHANGED: &str = "host-identity-changed";
 
 /// Build an HTTP error response for the webview when proxying fails.
 fn error_response(status: u16, msg: &str) -> http::Response<Vec<u8>> {
@@ -97,11 +97,16 @@ fn is_idempotent_read(method: &http::Method) -> bool {
     matches!(*method, http::Method::GET | http::Method::HEAD)
 }
 
+/// `localhost` (or no host at all) is the local daemon; any other name is the id
+/// of a paired remote host. Both transports route by this.
+pub(crate) fn is_remote_host(host: &str) -> bool {
+    !host.is_empty() && host != "localhost"
+}
+
 /// `crowbar://localhost/...` is the local daemon; any other authority is the id
 /// of a paired remote host.
 fn remote_host_id(uri: &http::Uri) -> Option<&str> {
-    uri.host()
-        .filter(|host| !host.is_empty() && *host != "localhost")
+    uri.host().filter(|host| is_remote_host(host))
 }
 
 /// Async URI-scheme handler for the `crowbar://` scheme. Incoming requests look

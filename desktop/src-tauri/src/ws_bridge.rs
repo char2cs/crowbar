@@ -57,13 +57,20 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use tauri::ipc::{Channel, InvokeResponseBody};
-use tauri::State;
+use tauri::{Manager, State};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
-use tokio_tungstenite::client_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::handshake::client::Request;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::{client_async, WebSocketStream};
+
+use crate::host_tokens::TokenStore;
+use crate::hosts::HostRegistry;
+
+mod remote;
 
 /// Sentinel pushed down the message Channel when the daemon closes the stream
 /// (close frame, error, or EOF). The JS shim recognises it and fires `onclose`
@@ -162,6 +169,9 @@ impl WsBridgeManager {
 /// streaming its frames to `on_message`. Each frame is forwarded RAW — the whole
 /// DTO text, or the binary payload — because the frontend parses it itself.
 ///
+/// `host_id` names a paired remote daemon, routed by the same rule as `crowbar://`
+/// requests; absent, empty or `localhost` is the local one.
+///
 /// `idle_timeout_ms` arms a read-idle timeout for a stream whose daemon side pings
 /// (the terminal's, every 45s): a socket that delivers nothing at all — not a frame,
 /// not a ping — for that long is half-open, and is closed and announced like any
@@ -170,23 +180,49 @@ impl WsBridgeManager {
 pub async fn ws_open(
     conn_id: String,
     path: String,
+    host_id: Option<String>,
     on_message: Channel<InvokeResponseBody>,
     idle_timeout_ms: Option<u64>,
     manager: State<'_, WsBridgeManager>,
     window: tauri::WebviewWindow,
 ) -> Result<(), String> {
-    let socket = crate::sidecar::socket_path();
-    open_bridge(
-        &socket,
-        conn_id,
-        path,
-        on_message,
-        &manager,
-        window.label().to_string(),
-        idle_timeout_ms.map(Duration::from_millis),
-    )
-    .await
-    .map(|_reader| ())
+    let window_label = window.label().to_string();
+    let read_idle_timeout = idle_timeout_ms.map(Duration::from_millis);
+    let opened = match remote_host(host_id) {
+        None => {
+            let socket = crate::sidecar::socket_path();
+            open_bridge(
+                &socket,
+                conn_id,
+                path,
+                on_message,
+                &manager,
+                window_label,
+                read_idle_timeout,
+            )
+            .await
+        }
+        Some(host_id) => {
+            let registry = window.state::<HostRegistry>();
+            let tokens = window.state::<Arc<dyn TokenStore>>();
+            let paired = remote::paired_host(&registry, &tokens, &host_id).await?;
+            remote::open_remote_bridge(
+                paired,
+                conn_id,
+                path,
+                on_message,
+                &manager,
+                window_label,
+                read_idle_timeout,
+            )
+            .await
+        }
+    };
+    opened.map(|_reader| ())
+}
+
+fn remote_host(host_id: Option<String>) -> Option<String> {
+    host_id.filter(|host| crate::api_proxy::is_remote_host(host))
 }
 
 /// The transport half of [`ws_open`], free of Tauri's `State` so it can be driven
@@ -209,17 +245,51 @@ pub async fn open_bridge<S: FrameSink>(
         log::error!("ws_open: connect daemon socket failed: {e}");
         format!("connect daemon socket: {e}")
     })?;
+    let ws = upgrade(stream, upgrade_request(&path)?).await?;
+    Ok(attach(
+        ws,
+        conn_id,
+        on_message,
+        manager,
+        window_label,
+        read_idle_timeout,
+    ))
+}
 
-    // The URL's host is irrelevant — the transport is the UnixStream we hand in —
-    // but tungstenite needs it to build the handshake's request line and Host.
-    // `path` already starts with /v0/...
-    let request = format!("ws://localhost{path}")
+/// The upgrade request for `path` (already `/v0/...`). The URL's host is irrelevant —
+/// the transport is the stream it is sent over — but tungstenite needs it to build the
+/// handshake's request line and Host.
+fn upgrade_request(path: &str) -> Result<Request, String> {
+    format!("ws://localhost{path}")
         .into_client_request()
-        .map_err(|e| format!("build ws request: {e}"))?;
+        .map_err(|e| format!("build ws request: {e}"))
+}
+
+async fn upgrade<T>(stream: T, request: Request) -> Result<WebSocketStream<T>, String>
+where
+    T: AsyncRead + AsyncWrite + Unpin,
+{
     let (ws, _resp) = client_async(request, stream).await.map_err(|e| {
         log::error!("ws_open: ws upgrade failed: {e}");
         format!("ws upgrade: {e}")
     })?;
+    Ok(ws)
+}
+
+/// Bridges an upgraded stream until it is retired, and returns its reader task. Local and
+/// remote connections both live and die here, so their lifetimes cannot drift apart.
+fn attach<T, S>(
+    ws: WebSocketStream<T>,
+    conn_id: String,
+    on_message: S,
+    manager: &WsBridgeManager,
+    window_label: String,
+    read_idle_timeout: Option<Duration>,
+) -> tokio::task::JoinHandle<()>
+where
+    T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    S: FrameSink,
+{
     let (mut write, mut read) = ws.split();
 
     // Writer task: drain the mpsc and push frames at the socket one at a time. It
@@ -337,7 +407,7 @@ pub async fn open_bridge<S: FrameSink>(
         }
     });
 
-    Ok(reader)
+    reader
 }
 
 /// Send a raw text frame (the JSON the frontend wants to publish) to the daemon.
@@ -754,5 +824,13 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&sock);
+    }
+
+    #[test]
+    fn only_a_non_localhost_host_id_opens_a_remote_bridge() {
+        assert_eq!(remote_host(None), None);
+        assert_eq!(remote_host(Some(String::new())), None);
+        assert_eq!(remote_host(Some("localhost".into())), None);
+        assert_eq!(remote_host(Some("host-1".into())), Some("host-1".into()));
     }
 }

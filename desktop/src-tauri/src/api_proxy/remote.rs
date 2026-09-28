@@ -24,9 +24,9 @@ const SERVER_NAME: &str = "crowbar-remote";
 /// Bound on connect plus handshake. A host that is up answers well within it;
 /// one behind a dropped link would otherwise hold the request until the OS
 /// abandons the connect.
-const DIAL_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const DIAL_TIMEOUT: Duration = Duration::from_secs(5);
 
-pub(super) enum DialError {
+pub(crate) enum DialError {
     /// Refused, timed out, or broke off mid-handshake.
     Unreachable(String),
     /// Answered, but failed pinned-certificate verification.
@@ -34,11 +34,20 @@ pub(super) enum DialError {
 }
 
 impl DialError {
-    fn into_response(self) -> http::Response<Vec<u8>> {
+    /// The `x-crowbar-proxy` value naming this failure, on every transport.
+    pub(crate) fn marker(&self) -> &'static str {
         match self {
-            Self::Unreachable(msg) => proxy_error(503, HOST_UNREACHABLE, &msg),
-            Self::IdentityChanged(msg) => proxy_error(502, HOST_IDENTITY_CHANGED, &msg),
+            Self::Unreachable(_) => HOST_UNREACHABLE,
+            Self::IdentityChanged(_) => HOST_IDENTITY_CHANGED,
         }
+    }
+
+    fn into_response(self) -> http::Response<Vec<u8>> {
+        let status = match self {
+            Self::Unreachable(_) => 503,
+            Self::IdentityChanged(_) => 502,
+        };
+        proxy_error(status, self.marker(), &self.to_string())
     }
 }
 
@@ -51,7 +60,7 @@ impl fmt::Display for DialError {
 }
 
 /// TCP plus a TLS handshake that trusts only `host`'s pinned certificate.
-pub(super) async fn dial(host: &RemoteHost) -> Result<TlsStream<TcpStream>, DialError> {
+pub(crate) async fn dial(host: &RemoteHost) -> Result<TlsStream<TcpStream>, DialError> {
     tokio::time::timeout(DIAL_TIMEOUT, connect_pinned(host))
         .await
         .unwrap_or_else(|_| {
@@ -106,10 +115,10 @@ pub(super) async fn forward_remote(
         }
         Err(e) => return error_response(500, &format!("token lookup failed: {e}")),
     };
-    let Ok(mut authorization) = http::HeaderValue::from_str(&format!("Bearer {token}")) else {
-        return error_response(500, "the stored credential is not a valid header value");
+    let authorization = match bearer(&token) {
+        Ok(authorization) => authorization,
+        Err(e) => return error_response(500, &e),
     };
-    authorization.set_sensitive(true);
     request
         .headers_mut()
         .insert(http::header::AUTHORIZATION, authorization);
@@ -126,7 +135,7 @@ pub(super) async fn forward_remote(
 
 /// A blank credential counts as none. The keychain read can block on an OS
 /// prompt, so it runs on the blocking pool rather than an async worker.
-async fn stored_token(
+pub(crate) async fn stored_token(
     tokens: &Arc<dyn TokenStore>,
     host_id: &str,
 ) -> Result<Option<String>, String> {
@@ -136,6 +145,14 @@ async fn stored_token(
         .await
         .map_err(|e| e.to_string())??;
     Ok(stored.filter(|token| !token.trim().is_empty()))
+}
+
+/// `Bearer <token>`, marked sensitive so it never reaches a debug log.
+pub(crate) fn bearer(token: &str) -> Result<http::HeaderValue, String> {
+    let mut value = http::HeaderValue::from_str(&format!("Bearer {token}"))
+        .map_err(|_| "the stored credential is not a valid header value".to_string())?;
+    value.set_sensitive(true);
+    Ok(value)
 }
 
 #[cfg(test)]
