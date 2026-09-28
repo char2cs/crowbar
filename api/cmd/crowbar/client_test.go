@@ -8,19 +8,9 @@ import (
 	"testing"
 )
 
-func TestGetJSON_DecodesSuccessEnvelope(t *testing.T) {
-	socket := unixTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(envelope[map[string]string]{Success: true, Data: map[string]string{"k": "v"}})
-	})
-	got, err := getJSON[map[string]string](socket, "/x")
-	if err != nil {
-		t.Fatalf("getJSON: %v", err)
-	}
-	if got["k"] != "v" {
-		t.Fatalf("unexpected data: %+v", got)
-	}
-}
-
+// TestPostJSON_DecodesErrorEnvelope covers the one postJSON behaviour
+// pair_test.go's success-path exercise doesn't reach: a refused envelope
+// becomes a Go error rather than a decoded zero value.
 func TestPostJSON_DecodesErrorEnvelope(t *testing.T) {
 	socket := unixTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(envelope[map[string]string]{Success: false, Error: "nope"})

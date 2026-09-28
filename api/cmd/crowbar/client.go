@@ -22,21 +22,6 @@ type envelope[T any] struct {
 	Error   string `json:"error"`
 }
 
-// getJSON issues a GET against the daemon's unix socket and decodes its
-// envelope into T.
-func getJSON[T any](socket, path string) (T, error) {
-	var zero T
-	client, err := ipc.NewClientWithTimeout(socket, clientTimeout)
-	if err != nil {
-		return zero, fmt.Errorf("cannot reach the crowbar daemon: %w", err)
-	}
-	_, body, err := client.Get(context.Background(), path)
-	if err != nil {
-		return zero, fmt.Errorf("cannot reach the crowbar daemon: %w", err)
-	}
-	return decodeEnvelope[T](body)
-}
-
 // postJSON issues a POST with no body against the daemon's unix socket and
 // decodes its envelope into T. Every route this CLI mutates through (pairing)
 // takes no request body of its own.
