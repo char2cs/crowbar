@@ -772,6 +772,45 @@ git commit -m "feat(desktop): proxy HTTP to a remote, TLS-pinned, bearer-authed 
 
 ---
 
+**Addendum to Task 5 (added post-implementation, during review):** Task 5's own review found that the original plan had no way for a client to redeem a pairing code at all — `forward_remote` correctly refuses to dial any host with no stored token, but pairing IS how a token gets created, so every pairing attempt would 401 before ever reaching the daemon. The fix, now shipped as part of Task 5: a dedicated `pair_remote_host(host_id, endpoint, fingerprint, code, name) -> Result<(), String>` command (`desktop/src-tauri/src/api_proxy/pairing.rs`) that dials the pinned connection directly (bypassing the token gate, since none exists yet), sends `POST /v0/pair` itself, and writes the resulting token straight to the keychain — the raw token never crosses into JS. Also shipped in the same fix round: `x-crowbar-proxy: host-identity-changed` (502) vs `host-unreachable` (503) to distinguish a pin-mismatch rejection from a plain network outage, and a 5s connect+handshake deadline separate from the existing 300s whole-request `PROXY_TIMEOUT`.
+
+---
+
+### Task 5b: `probe_remote_fingerprint` — discover a host's fingerprint for TOFU confirmation
+
+**Why this task exists:** `pair_remote_host` (Task 5's addendum, above) takes `fingerprint` as an ALREADY-KNOWN input — but nothing lets the user actually discover it in the first place. The design spec's pairing dialog (§5.3 of the design spec, and the approved mockup) shows the user the presented fingerprint so they can visually confirm it matches what `crowbar pair`'s CLI output printed, BEFORE the code is redeemed. Without this command, the web plan's pairing dialog has no way to reach stage 1 (address entered → fingerprint shown for confirmation) at all.
+
+**Files:**
+- Create: `desktop/src-tauri/src/api_proxy/probe.rs` (or add to `pairing.rs` if that reads more naturally — implementer's call, given both files will be small)
+- Test: same file, `#[cfg(test)] mod tests`
+
+**Interfaces:**
+- Produces: `probe_remote_fingerprint(endpoint: String) -> Result<String, String>` — a new Tauri command, registered in `generate_handler!`.
+- Consumes: nothing from `HostRegistry`/`TokenStore` — this command deliberately does NOT touch either, since the host isn't registered and there's no token yet.
+
+**This is the one and only place in the whole codebase where an UNPINNED TLS dial is correct.** Every other remote dial (`forward_remote`, `pair_remote_host`) MUST use the pinned verifier from `tls_pin.rs` — this command is the sole, deliberate exception, because discovering the fingerprint for a human to confirm IS the trust-bootstrap step that pinning depends on. Do not let this dial share any code path with the pinned connectors in a way that could accidentally make it easier to introduce an unpinned dial elsewhere.
+
+- [ ] **Step 1: Write the failing tests**
+
+Write a test proving: (a) dialing a real TLS test server (self-signed cert via `rcgen`, matching the style already established in `tls_pin.rs`/`api_proxy/remote.rs`'s tests) returns exactly that certificate's fingerprint, formatted via the existing `tls_pin::fingerprint_of` (byte-identical to the Go daemon's own format — reuse it, don't reimplement); (b) an unreachable endpoint returns a clear `Err`, not a hang (bound this dial with the same short deadline pattern `forward_remote`/`pair_remote_host` already use — a fingerprint probe that hangs indefinitely on a dead host is exactly the kind of thing this plan has already had to fix twice); (c) the command never registers anything in `HostRegistry` and never touches `TokenStore` (a probe must be side-effect-free besides the network dial itself).
+
+- [ ] **Step 2: Implement**
+
+Build a `rustls::ClientConfig` using rustls's own no-op/accept-all `ServerCertVerifier` for this ONE purpose (check `rustls::client::danger::ServerCertVerifier` for whether a bundled "dangerous, accept everything" implementation already exists in this rustls version before writing your own — if you write your own, name it something that makes its danger unmistakable, e.g. `UnpinnedProbeVerifier`, with a doc comment explaining exactly why it's safe HERE and nowhere else). Dial, complete the handshake, extract the peer's presented certificate's DER bytes from the completed connection, and return `tls_pin::fingerprint_of(der)`.
+
+- [ ] **Step 3: Register and verify**
+
+Add to `generate_handler!` in `lib.rs`. Run the full test suite, `cargo clippy -- -D warnings`, `cargo fmt --check`. Confirm nothing in `remote.rs`/`pairing.rs`'s pinned dial paths was touched.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add desktop/src-tauri/src/api_proxy/ desktop/src-tauri/src/lib.rs
+git commit -m "feat(desktop): probe a remote host's TLS fingerprint for pairing confirmation"
+```
+
+---
+
 ### Task 6: `ws_bridge.rs` — same routing for WebSocket
 
 **Files:**
