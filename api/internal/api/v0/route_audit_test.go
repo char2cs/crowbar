@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	crowbarapi "github.com/char2cs/crowbar/api/internal/api"
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/core/logring"
@@ -592,10 +593,8 @@ func extraRoutes() []string {
 		// /system/prerequisites rather than inside the entity hierarchy.
 		"GET /v0/system/perf",
 		"POST /v0/system/perf",
-		// Pairing + client registry (2026-09-27 remote-instances-daemon plan):
-		// mint/redeem stay OPEN (registered before requireBearerAuth), so an
-		// unpaired client can bootstrap trust at all; the registry routes are
-		// guarded like every other v0 route.
+		// Pairing + client registry: mint/redeem stay open so an unpaired
+		// client can bootstrap trust; the registry routes are guarded.
 		"POST /v0/pair/code",
 		"POST /v0/pair",
 		"GET /v0/clients",
@@ -987,22 +986,16 @@ func TestConsoleLogs_WithRing_StreamsReplayReadyAndLiveRedacted(t *testing.T) {
 	assert.Equal(t, map[string]any{"api_token": "[redacted]"}, live["fields"])
 }
 
-// TestEndToEnd_TLSNoAuth_GuardedRoutesReject401 builds the REAL,
-// fully-wired v0.Container (the same construction registeredRoutes uses) and
-// sends a TLS request with no Authorization header at a representative
-// sample of routes, asserting 401. Unlike TestRouteAudit_AllSpecRoutesRegistered,
-// which only compares the registered method+path SET (gin.RouteInfo exposes
-// no middleware chain), this is the test that actually exercises the guard —
-// it is what would have caught system.Register(rg) sitting pre-guard with
-// zero stated justification, reachable over TLS with no authentication at
-// all.
+// TestEndToEnd_TLSNoAuth_GuardedRoutesReject401 sends token-less TLS requests
+// through the daemon's full handler: route tables can't show middleware, so
+// only a real request proves each route's guard.
 func TestEndToEnd_TLSNoAuth_GuardedRoutesReject401(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
-	c := v0.New(tc.app, tc.eng, "", v0.WithLogs(logring.New()))
-	t.Cleanup(c.Close)
-	r := gin.New()
-	c.Register(r.Group("/v0"))
+	daemon, err := crowbarapi.New(tc.app, tc.eng, nil, "", v0.WithLogs(logring.New()))
+	require.NoError(t, err)
+	t.Cleanup(daemon.Close)
+	r := daemon.Handler()
 
 	guarded := []string{
 		"GET /v0/system/prerequisites",
@@ -1024,6 +1017,17 @@ func TestEndToEnd_TLSNoAuth_GuardedRoutesReject401(t *testing.T) {
 		r.ServeHTTP(rec, req)
 		assert.Equalf(t, http.StatusUnauthorized, rec.Code,
 			"%s must require a bearer token over TLS, got %d: %s", route, rec.Code, rec.Body.String())
+	}
+
+	// pprof is local-only: refused over TLS outright (403, like MintCode),
+	// not merely token-gated.
+	for _, path := range []string{"/debug/pprof/", "/debug/pprof/cmdline", "/debug/pprof/goroutine?debug=2"} {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, http.NoBody)
+		req.TLS = &tls.ConnectionState{}
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		assert.Equalf(t, http.StatusForbidden, rec.Code,
+			"%s must be refused over TLS, got %d", path, rec.Code)
 	}
 
 	// health stays reachable over TLS with no Authorization header at all —
