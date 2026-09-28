@@ -1,6 +1,7 @@
 package tlsid
 
 import (
+	"crypto/tls"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,6 +39,34 @@ func TestLoad_StableAcrossReloads(t *testing.T) {
 	}
 	if first.Fingerprint != second.Fingerprint {
 		t.Fatalf("fingerprint changed across reloads: %q vs %q", first.Fingerprint, second.Fingerprint)
+	}
+}
+
+// TestRegression_Load_RecoversFromAPartialIdentity proves an interrupted
+// generation (a crash or full disk between the two writes) never wedges boot:
+// with either file of the pair missing, Load regenerates a working identity.
+func TestRegression_Load_RecoversFromAPartialIdentity(t *testing.T) {
+	for _, missing := range []string{certName, keyName} {
+		t.Run("missing "+missing, func(t *testing.T) {
+			dir := t.TempDir()
+			if _, err := Load(dir); err != nil {
+				t.Fatalf("first Load: %v", err)
+			}
+			if err := os.Remove(filepath.Join(dir, missing)); err != nil {
+				t.Fatalf("remove %s: %v", missing, err)
+			}
+
+			id, err := Load(dir)
+			if err != nil {
+				t.Fatalf("Load after a partial write must regenerate, got: %v", err)
+			}
+			if _, err := tls.LoadX509KeyPair(filepath.Join(dir, certName), filepath.Join(dir, keyName)); err != nil {
+				t.Fatalf("regenerated pair must load on the next boot: %v", err)
+			}
+			if id.Fingerprint != FingerprintOf(id.Certificate.Certificate[0]) {
+				t.Fatalf("fingerprint does not describe the loaded certificate")
+			}
+		})
 	}
 }
 

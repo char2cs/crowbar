@@ -16,7 +16,9 @@ import (
 	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
 	"fmt"
+	"io/fs"
 	"math/big"
 	"net"
 	"os"
@@ -50,7 +52,9 @@ func Load(dir string) (*Identity, error) {
 	certPath := filepath.Join(dir, certName)
 	keyPath := filepath.Join(dir, keyName)
 
-	if _, err := os.Stat(certPath); os.IsNotExist(err) {
+	// A pair missing either half can't be served (an interrupted generate
+	// leaves one), so regenerate rather than fail every boot.
+	if missing(certPath) || missing(keyPath) {
 		if err := generate(certPath, keyPath); err != nil {
 			return nil, err
 		}
@@ -110,22 +114,50 @@ func generate(certPath, keyPath string) error {
 	if err != nil {
 		return fmt.Errorf("tlsid: create certificate: %w", err)
 	}
-
-	if err := writePEM(certPath, "CERTIFICATE", der, 0o644); err != nil {
-		return err
-	}
-
 	keyDER, err := x509.MarshalECPrivateKey(key)
 	if err != nil {
 		return fmt.Errorf("tlsid: marshal key: %w", err)
 	}
-	return writePEM(keyPath, "EC PRIVATE KEY", keyDER, 0o600)
+
+	// Key first, cert last: an interrupted run then leaves no cert beside a
+	// stale key it doesn't match, only a pair Load sees as missing a half.
+	if err := writePEM(keyPath, "EC PRIVATE KEY", keyDER, 0o600); err != nil {
+		return err
+	}
+	return writePEM(certPath, "CERTIFICATE", der, 0o644)
 }
 
+func missing(path string) bool {
+	_, err := os.Stat(path)
+	return errors.Is(err, fs.ErrNotExist)
+}
+
+// writePEM replaces path atomically (synced temp file, then rename), so a
+// crash or full disk never leaves a truncated PEM under the real name.
 func writePEM(path, blockType string, der []byte, mode os.FileMode) error {
+	name := filepath.Base(path)
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+name+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("tlsid: write %s: %w", name, err)
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }() // no-op once renamed
+
 	buf := pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: der})
-	if err := os.WriteFile(path, buf, mode); err != nil {
-		return fmt.Errorf("tlsid: write %s: %w", filepath.Base(path), err)
+	_, err = tmp.Write(buf)
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Chmod(tmp.Name(), mode)
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), path)
+	}
+	if err != nil {
+		return fmt.Errorf("tlsid: write %s: %w", name, err)
 	}
 	return nil
 }
