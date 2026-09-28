@@ -7,8 +7,7 @@ export async function probeHost(hostId: string): Promise<void> {
   runtime.getState().setStatus('probing')
   const started = performance.now()
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await apiFetch<any>(
+    await apiFetch<void>(
       '/v0/health',
       undefined,
       { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
