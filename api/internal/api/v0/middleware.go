@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -167,25 +166,11 @@ func rejectEmptyPathParams() gin.HandlerFunc {
 	}
 }
 
-// ctxClientKey is where requireBearerAuth records the authenticated client's
-// id for downstream handlers.
-const ctxClientKey = "crowbar.clientID"
-
-// ClientIDFrom returns the authenticated client's id, or "" for a request
-// that arrived over a non-TLS connection (the unix socket, or a loopback dev
-// TCP bind, which stays plaintext by design).
-func ClientIDFrom(c *gin.Context) string {
-	v, _ := c.Get(ctxClientKey)
-	id, _ := v.(string)
-	return id
-}
-
 // clientAuthStore is the narrow seam requireBearerAuth needs — satisfied by
-// store.ScopedStore[domain.Client, string]. Save backs the LastSeen touch
-// below; it never gates authentication itself.
+// store.ScopedStore[domain.Client, string]. Read-only on purpose: writing the
+// row back could clobber a revoke that landed mid-request.
 type clientAuthStore interface {
 	FindWhere(ctx context.Context, match domain.Client) ([]domain.Client, error)
-	Save(ctx context.Context, c domain.Client) error
 }
 
 // requireBearerAuth authenticates a request by its Authorization: Bearer
@@ -217,22 +202,6 @@ func requireBearerAuth(clients clientAuthStore) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		c.Set(ctxClientKey, matches[0].ID)
-		touchLastSeen(c, clients, matches[0])
 		c.Next()
 	}
-}
-
-// touchLastSeen bumps the authenticated client's LastSeen to now, best
-// effort: a save failure must never block or fail a request that already
-// authenticated successfully. It reads the id back through ClientIDFrom
-// (rather than closing over matches[0].ID directly) so this stays the one
-// production call site proving that accessor answers the request that just
-// authenticated.
-func touchLastSeen(c *gin.Context, clients clientAuthStore, client domain.Client) {
-	if ClientIDFrom(c) == "" {
-		return
-	}
-	client.LastSeen = time.Now()
-	_ = clients.Save(c.Request.Context(), client)
 }

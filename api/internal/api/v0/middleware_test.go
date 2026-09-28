@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	adapterstore "github.com/char2cs/crowbar/api/internal/adapter/store"
+	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/pairing"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
@@ -327,13 +330,10 @@ func TestRejectEmptyPathParams_AllowsANonEmptySegment(t *testing.T) {
 // stubClientStore stands in for store.ScopedStore[domain.Client, string]: a
 // fixed set of clients, matched on TokenHash the way requireBearerAuth calls
 // FindWhere, or a fixed err to exercise the store-failure branch (mirroring
-// fakeRepoReader/fakeScopeReader above). saved records every Save call, so
-// tests can assert on the LastSeen touch without a real store.
+// fakeRepoReader/fakeScopeReader above).
 type stubClientStore struct {
 	clients []domain.Client
 	err     error
-	saveErr error
-	saved   []domain.Client
 }
 
 func (s *stubClientStore) FindWhere(_ context.Context, match domain.Client) ([]domain.Client, error) {
@@ -347,11 +347,6 @@ func (s *stubClientStore) FindWhere(_ context.Context, match domain.Client) ([]d
 		}
 	}
 	return out, nil
-}
-
-func (s *stubClientStore) Save(_ context.Context, c domain.Client) error {
-	s.saved = append(s.saved, c)
-	return s.saveErr
 }
 
 // TestRequireBearerAuth_NoTLS_PassesThrough proves a plaintext connection (the
@@ -401,8 +396,7 @@ func TestRequireBearerAuth_TLS_UnknownToken_Rejects(t *testing.T) {
 }
 
 // TestRequireBearerAuth_TLS_ValidToken_Passes proves a token whose hash
-// matches a known, non-revoked client authenticates and stashes the client
-// id for ClientIDFrom.
+// matches a known, non-revoked client authenticates.
 func TestRequireBearerAuth_TLS_ValidToken_Passes(t *testing.T) {
 	token := "abc123"
 	store := &stubClientStore{clients: []domain.Client{
@@ -410,10 +404,7 @@ func TestRequireBearerAuth_TLS_ValidToken_Passes(t *testing.T) {
 	}}
 	r := gin.New()
 	r.Use(requireBearerAuth(store))
-	r.GET("/x", func(c *gin.Context) {
-		assert.Equal(t, "c1", ClientIDFrom(c))
-		c.Status(http.StatusOK)
-	})
+	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
 	req.TLS = &tls.ConnectionState{}
@@ -422,56 +413,6 @@ func TestRequireBearerAuth_TLS_ValidToken_Passes(t *testing.T) {
 	r.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code, "expected 200 for a valid token")
-}
-
-// TestRequireBearerAuth_TLS_ValidToken_TouchesLastSeen proves a successful
-// authentication bumps the client's LastSeen — the one production call site
-// that gives ClientIDFrom real work to do (previously it was reachable only
-// from this file's own tests, which make deadcode's ./cmd/... analysis
-// never counts).
-func TestRequireBearerAuth_TLS_ValidToken_TouchesLastSeen(t *testing.T) {
-	token := "abc123"
-	pairedAt := time.Now().Add(-time.Hour)
-	store := &stubClientStore{clients: []domain.Client{
-		{ID: "c1", Name: "laptop", TokenHash: pairing.HashToken(token), PairedAt: pairedAt, LastSeen: pairedAt},
-	}}
-	r := gin.New()
-	r.Use(requireBearerAuth(store))
-	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
-
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
-	req.TLS = &tls.ConnectionState{}
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-	require.Len(t, store.saved, 1, "a successful authentication must save an updated LastSeen")
-	assert.Equal(t, "c1", store.saved[0].ID)
-	assert.Equal(t, "laptop", store.saved[0].Name, "the saved row must keep the client's other fields")
-	assert.True(t, store.saved[0].LastSeen.After(pairedAt), "LastSeen must move forward from the pairing time")
-}
-
-// TestRequireBearerAuth_TLS_LastSeenSaveError_StillPasses proves the LastSeen
-// touch is best-effort: a save failure must never block or fail a request
-// that already authenticated successfully.
-func TestRequireBearerAuth_TLS_LastSeenSaveError_StillPasses(t *testing.T) {
-	token := "abc123"
-	store := &stubClientStore{
-		clients: []domain.Client{{ID: "c1", TokenHash: pairing.HashToken(token)}},
-		saveErr: errors.New("disk full"),
-	}
-	r := gin.New()
-	r.Use(requireBearerAuth(store))
-	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
-
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
-	req.TLS = &tls.ConnectionState{}
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code, "a LastSeen save failure must not fail an already-authenticated request")
 }
 
 // TestRequireBearerAuth_TLS_RevokedToken_Rejects proves a revoked client's
@@ -494,6 +435,60 @@ func TestRequireBearerAuth_TLS_RevokedToken_Rejects(t *testing.T) {
 	r.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusUnauthorized, rec.Code, "expected 401 for a revoked client's token")
+}
+
+// revokeOnReadStore is the real client store with an admin's revoke landing
+// immediately after requireBearerAuth's lookup — the window in which a
+// read-modify-write of the client row would clobber RevokedAt.
+type revokeOnReadStore struct {
+	adapterstore.ScopedStore[domain.Client, string]
+}
+
+func (s revokeOnReadStore) FindWhere(ctx context.Context, match domain.Client) ([]domain.Client, error) {
+	found, err := s.ScopedStore.FindWhere(ctx, match)
+	for _, c := range found {
+		revokedAt := time.Now()
+		c.RevokedAt = &revokedAt
+		if saveErr := s.ScopedStore.Save(ctx, c); saveErr != nil {
+			return nil, saveErr
+		}
+	}
+	return found, err
+}
+
+// TestRegression_RequireBearerAuth_ConcurrentRevokeIsNotUndone proves a
+// revoke that lands while an authenticated request is in flight stays
+// revoked: the auth guard never writes the client row back.
+func TestRegression_RequireBearerAuth_ConcurrentRevokeIsNotUndone(t *testing.T) {
+	db, err := storesqlite.OpenDB(filepath.Join(t.TempDir(), "clients.db"))
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	clients, err := storesqlite.NewFromDB[domain.Client, string](db)
+	require.NoError(t, err)
+
+	token := "abc123"
+	pairedAt := time.Now().Add(-time.Hour)
+	require.NoError(t, clients.Save(t.Context(), domain.Client{
+		ID: "c1", Name: "laptop", TokenHash: pairing.HashToken(token), PairedAt: pairedAt, LastSeen: pairedAt,
+	}))
+
+	r := gin.New()
+	r.Use(requireBearerAuth(revokeOnReadStore{clients}))
+	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
+	req.TLS = &tls.ConnectionState{}
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, "the request authenticated before the revoke landed")
+
+	got, err := clients.FindByKey(t.Context(), "c1")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.NotNil(t, got.RevokedAt, "an in-flight request must never un-revoke its client")
 }
 
 // TestRequireBearerAuth_TLS_StoreError_Returns500 proves a client-lookup
