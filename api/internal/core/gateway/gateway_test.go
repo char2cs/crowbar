@@ -13,7 +13,7 @@ import (
 )
 
 func TestGatewayTCP(t *testing.T) {
-	l, err := gateway.New("tcp://127.0.0.1:0")
+	l, err := gateway.New("tcp://127.0.0.1:0", nil)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -24,7 +24,7 @@ func TestGatewayTCP(t *testing.T) {
 }
 
 func TestGatewayUnknownScheme(t *testing.T) {
-	_, err := gateway.New("http://localhost:8080")
+	_, err := gateway.New("http://localhost:8080", nil)
 	if err == nil {
 		t.Fatal("expected error for unknown scheme, got nil")
 	}
@@ -32,7 +32,7 @@ func TestGatewayUnknownScheme(t *testing.T) {
 
 func TestGatewayUnix_ExplicitPath(t *testing.T) {
 	sockPath := filepath.Join(t.TempDir(), "test.sock")
-	l, err := gateway.New("unix://" + sockPath)
+	l, err := gateway.New("unix://"+sockPath, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { l.Close() })
 	assert.NotNil(t, l)
@@ -43,7 +43,7 @@ func TestGatewayUnix_DefaultPath(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	t.Setenv("HOME", home)
-	l, err := gateway.New("unix://")
+	l, err := gateway.New("unix://", nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { l.Close() })
 	assert.NotNil(t, l)

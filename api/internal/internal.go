@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
@@ -17,6 +18,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/logring"
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	"github.com/char2cs/crowbar/api/internal/core/selfinstall"
+	"github.com/char2cs/crowbar/api/internal/core/tlsid"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
@@ -69,7 +71,16 @@ func New(
 		o(&cfg)
 	}
 
-	listener, err := gateway.New(host)
+	homeDir := cfg.homeDir
+	if homeDir == "" {
+		homeDir = metadata.GetHomePath()
+	}
+	identity, err := tlsid.Load(filepath.Join(homeDir, "tls"))
+	if err != nil {
+		return nil, fmt.Errorf("internal: tls identity: %w", err)
+	}
+
+	listener, err := gateway.New(host, identity)
 	if err != nil {
 		return nil, fmt.Errorf("internal: gateway: %w", err)
 	}
@@ -99,12 +110,9 @@ func New(
 	// `crowbar hook` by absolute path. Use the container's CONFIGURED home so tests
 	// and dev instances (WithHomeDir) stay isolated; fall back to the resolved global
 	// home only when none was configured — the production `serve` path. Best-effort:
-	// never block startup, and never write to the real ~/.crowbar from a test.
-	installHome := cfg.homeDir
-	if installHome == "" {
-		installHome = metadata.GetHomePath()
-	}
-	if p, err := selfinstall.Install(installHome); err == nil {
+	// never block startup, and never write to the real ~/.crowbar from a test. Reuses
+	// the same homeDir resolution the TLS identity load above already did.
+	if p, err := selfinstall.Install(homeDir); err == nil {
 		_ = p // path is re-derived by the agent engine when rendering descriptors
 	}
 
