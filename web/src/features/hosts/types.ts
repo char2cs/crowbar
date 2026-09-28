@@ -16,4 +16,10 @@ export interface Host {
 export type HostStatus = 'unknown' | 'probing' | 'up' | 'down' | 'needs-repair'
 
 /** The implicit local daemon — never persisted, never removable. */
-export const LOCAL_HOST: Host = { id: 'local', name: 'Local', endpoint: '', pairedFingerprint: '', clientId: '' }
+export const LOCAL_HOST: Host = {
+  id: 'local',
+  name: 'Local',
+  endpoint: '',
+  pairedFingerprint: '',
+  clientId: '',
+}

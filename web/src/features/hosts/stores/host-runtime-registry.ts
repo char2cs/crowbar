@@ -25,7 +25,9 @@ function notify(change: HostRuntimeRegistryChange): void {
   for (const listener of listeners) listener(change)
 }
 
-export function subscribeHostRuntimeRegistry(callback: (change: HostRuntimeRegistryChange) => void): () => void {
+export function subscribeHostRuntimeRegistry(
+  callback: (change: HostRuntimeRegistryChange) => void,
+): () => void {
   listeners.add(callback)
   return () => {
     listeners.delete(callback)
@@ -46,8 +48,4 @@ export function getHostRuntime(hostId: string): HostRuntimeStore | undefined {
 
 export function destroyHostRuntime(hostId: string): void {
   if (registry.delete(hostId)) notify('destroyed')
-}
-
-export function getAllRegisteredHostIds(): string[] {
-  return Array.from(registry.keys())
 }

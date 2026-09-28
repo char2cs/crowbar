@@ -13,7 +13,9 @@ export const useHostConfigStore = create<HostConfigState>()(
     (set) => ({
       hosts: [],
       addHost: (host) =>
-        set((s) => (host.id === 'local' ? s : { hosts: [...s.hosts.filter((h) => h.id !== host.id), host] })),
+        set((s) =>
+          host.id === 'local' ? s : { hosts: [...s.hosts.filter((h) => h.id !== host.id), host] },
+        ),
       removeHost: (id) => set((s) => ({ hosts: s.hosts.filter((h) => h.id !== id) })),
     }),
     { name: 'crowbar.hosts', partialize: (s) => ({ hosts: s.hosts }) },
