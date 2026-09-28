@@ -1,5 +1,6 @@
 use std::future::Future;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use http_body_util::{BodyExt, Full};
@@ -7,9 +8,14 @@ use hyper::Request as HyperRequest;
 use hyper_util::rt::TokioIo;
 use tauri::http;
 use tauri::{Manager, Runtime, UriSchemeContext, UriSchemeResponder};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixStream;
 
+use crate::host_tokens::TokenStore;
+use crate::hosts::HostRegistry;
 use crate::sidecar::SidecarHandle;
+
+mod remote;
 
 /// Upper bound on one proxied request.
 ///
@@ -78,9 +84,17 @@ fn is_idempotent_read(method: &http::Method) -> bool {
     matches!(*method, http::Method::GET | http::Method::HEAD)
 }
 
+/// `crowbar://localhost/...` is the local daemon; any other authority is the id
+/// of a paired remote host.
+fn remote_host_id(uri: &http::Uri) -> Option<&str> {
+    uri.host()
+        .filter(|host| !host.is_empty() && *host != "localhost")
+}
+
 /// Async URI-scheme handler for the `crowbar://` scheme. Incoming requests look
 /// like `crowbar://localhost/v0/...`; we forward the method, path+query,
 /// headers and body to the daemon over its unix socket and relay the response.
+/// `crowbar://<hostId>/v0/...` goes to that paired remote host instead.
 ///
 /// Registered on the Tauri builder with
 /// `.register_asynchronous_uri_scheme_protocol("crowbar", handle_request)`.
@@ -91,15 +105,32 @@ pub fn handle_request<R: Runtime>(
 ) {
     let app = ctx.app_handle().clone();
     let state_app = app.clone();
+    let remote_host = remote_host_id(request.uri()).map(str::to_string);
 
     tauri::async_runtime::spawn(async move {
         // Dropping the timed-out future drops the request sender, which is what
         // tells hyper's connection task to close and hand the descriptor back.
-        let forwarded = forward(
-            || state_app.state::<SidecarHandle>().socket_path(),
-            request,
-            |attempt| tokio::time::sleep(connect_retry_delay(attempt)),
-        );
+        let forwarded = async {
+            match remote_host {
+                None => {
+                    forward(
+                        || state_app.state::<SidecarHandle>().socket_path(),
+                        request,
+                        |attempt| tokio::time::sleep(connect_retry_delay(attempt)),
+                    )
+                    .await
+                }
+                Some(host_id) => {
+                    remote::forward_remote(
+                        &state_app.state::<HostRegistry>(),
+                        &state_app.state::<Arc<dyn TokenStore>>(),
+                        &host_id,
+                        request,
+                    )
+                    .await
+                }
+            }
+        };
         let resp = match tokio::time::timeout(PROXY_TIMEOUT, forwarded).await {
             Ok(resp) => resp,
             Err(_) => error_response(504, "crowbar daemon did not answer in time"),
@@ -148,12 +179,15 @@ where
     }
 }
 
-async fn proxy(
-    stream: UnixStream,
+async fn proxy<S>(
+    stream: S,
     request: http::Request<Vec<u8>>,
-) -> Result<http::Response<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
-    // The custom-scheme URI is `crowbar://localhost/v0/...`. hyper only needs
-    // the path-and-query portion for the request line over a unix socket.
+) -> Result<http::Response<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    // The custom-scheme URI is `crowbar://<authority>/v0/...`. hyper only needs
+    // the path-and-query portion for the request line.
     let path_and_query = request
         .uri()
         .path_and_query()
@@ -211,7 +245,10 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::UnixListener;
 
-    use super::{connect_retry_delay, forward, CONNECT_ATTEMPTS, DAEMON_UNAVAILABLE, PROXY_HEADER};
+    use super::{
+        connect_retry_delay, forward, remote_host_id, CONNECT_ATTEMPTS, DAEMON_UNAVAILABLE,
+        PROXY_HEADER,
+    };
 
     fn request(method: http::Method) -> http::Request<Vec<u8>> {
         http::Request::builder()
@@ -350,6 +387,14 @@ mod tests {
             .await
         };
         assert_eq!(resp.status(), 200);
+    }
+
+    #[test]
+    fn only_a_non_localhost_authority_routes_to_a_remote_host() {
+        let host = |uri: &'static str| remote_host_id(&uri.parse().unwrap()).map(str::to_string);
+        assert_eq!(host("crowbar://localhost/v0/projects"), None);
+        assert_eq!(host("crowbar://localhost:80/v0/projects"), None);
+        assert_eq!(host("crowbar://host-1/v0/projects"), Some("host-1".into()));
     }
 
     mod tempdir {

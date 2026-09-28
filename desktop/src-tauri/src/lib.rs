@@ -1044,7 +1044,8 @@ pub fn run() {
     builder
         .manage(sidecar::SidecarHandle::new())
         .manage(ws_bridge::WsBridgeManager::new())
-        .manage(Box::new(host_tokens::KeyringTokenStore) as Box<dyn host_tokens::TokenStore>)
+        .manage(std::sync::Arc::new(host_tokens::KeyringTokenStore)
+            as std::sync::Arc<dyn host_tokens::TokenStore>)
         .manage(hosts::HostRegistry::default())
         // A page load orphans every bridged connection the outgoing page owned: its JS
         // is gone and will never close ids it no longer remembers, and the new page

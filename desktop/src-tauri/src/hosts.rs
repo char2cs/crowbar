@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)] // dead_code: consumed by Task 5's forward_remote, which reads the endpoint and fingerprint before dialing the remote host
 pub struct RemoteHost {
     pub endpoint: String,
     pub fingerprint: String,
@@ -19,7 +18,6 @@ pub struct RemoteHost {
 pub struct HostRegistry(Mutex<HashMap<String, RemoteHost>>);
 
 impl HostRegistry {
-    #[allow(dead_code)] // dead_code: consumed by Task 5's forward_remote, which retrieves the host info before dialing the remote host
     pub fn get(&self, host_id: &str) -> Option<RemoteHost> {
         self.0.lock().unwrap().get(host_id).cloned()
     }

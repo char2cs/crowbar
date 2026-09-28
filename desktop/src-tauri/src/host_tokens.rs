@@ -3,15 +3,16 @@
 //! fingerprint (that store is client-visible app config; a bearer token is a
 //! secret).
 
+use std::sync::Arc;
+
 use tauri::State;
 
-/// The seam host_tokens' Tauri commands (and, eventually, api_proxy's proxy
-/// path) go through: production talks to the OS keychain; tests use an
+/// The seam host_tokens' Tauri commands (and api_proxy's remote path) go
+/// through: production talks to the OS keychain; tests use an
 /// in-memory fake, since exercising the real keychain in CI is unreliable
 /// (prompts, platform differences) and unnecessary to prove this module's
 /// own logic.
 pub trait TokenStore: Send + Sync {
-    #[allow(dead_code)] // dead_code: consumed by Task 5's forward_remote, which reads the stored token before dialing the remote host
     fn get(&self, host_id: &str) -> Result<Option<String>, String>;
     fn set(&self, host_id: &str, token: &str) -> Result<(), String>;
     fn delete(&self, host_id: &str) -> Result<(), String>;
@@ -49,7 +50,7 @@ impl TokenStore for KeyringTokenStore {
 pub fn store_host_token(
     host_id: String,
     token: String,
-    store: State<'_, Box<dyn TokenStore>>,
+    store: State<'_, Arc<dyn TokenStore>>,
 ) -> Result<(), String> {
     store.set(&host_id, &token)
 }
@@ -57,7 +58,7 @@ pub fn store_host_token(
 #[tauri::command]
 pub fn forget_host_token(
     host_id: String,
-    store: State<'_, Box<dyn TokenStore>>,
+    store: State<'_, Arc<dyn TokenStore>>,
 ) -> Result<(), String> {
     store.delete(&host_id)
 }

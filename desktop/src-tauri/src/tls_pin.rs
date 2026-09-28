@@ -101,7 +101,6 @@ impl ServerCertVerifier for PinnedVerifier {
 /// `fingerprint`. The crypto provider is explicit so signature checks never
 /// depend on whichever process-wide default happens to be installed. Both
 /// ends are ours, so only TLS 1.3 is offered.
-#[allow(dead_code)] // dead_code: no caller until the TLS-dial task in this plan wires this into the real transport
 pub fn pinned_client_config(fingerprint: String) -> Arc<rustls::ClientConfig> {
     let provider = Arc::new(aws_lc_rs::default_provider());
     let verifier = Arc::new(PinnedVerifier::new(fingerprint, &provider));
