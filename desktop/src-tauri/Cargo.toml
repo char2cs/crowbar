@@ -30,7 +30,13 @@ tokio-tungstenite = "0.30"
 rustls = "0.23"
 tokio-rustls = "0.26"
 sha2 = "0.10"
-keyring = "3"
+# No default backend: bare "keyring = 3" silently resolves to keyring's
+# in-memory mock store on every platform (nothing persists). These are the
+# crate's own per-OS native-backend features (its docs.rs metadata enables
+# this exact set) — each is target-gated in keyring's own Cargo.toml, so
+# enabling all of them here only pulls in the one relevant to whatever OS
+# is actually being built for.
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-rust"] }
 futures-util = "0.3"
 bytes = "1"
 log = "0.4"

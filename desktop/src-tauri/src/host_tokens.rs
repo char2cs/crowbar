@@ -112,4 +112,26 @@ mod tests {
         store.delete("host-1").unwrap();
         assert_eq!(store.get("host-1").unwrap(), None);
     }
+
+    /// Exercises the REAL OS keychain, not the fake — `keyring = "3"` has no
+    /// default backend feature and silently falls back to an in-memory mock
+    /// if the platform-native feature is missing from Cargo.toml, so a
+    /// round-trip against `FakeStore` alone cannot catch that. `#[ignore]`d
+    /// because it prompts/differs across CI runners; run manually with
+    /// `cargo test host_tokens -- --ignored`.
+    #[test]
+    #[ignore]
+    fn keyring_token_store_roundtrips_against_the_real_os_keychain() {
+        let store = KeyringTokenStore;
+        let host_id = "crowbar-desktop-test-task3-keychain-roundtrip";
+
+        store.delete(host_id).unwrap(); // clean slate from any prior failed run
+        assert_eq!(store.get(host_id).unwrap(), None);
+
+        store.set(host_id, "sometoken").unwrap();
+        assert_eq!(store.get(host_id).unwrap(), Some("sometoken".to_string()));
+
+        store.delete(host_id).unwrap();
+        assert_eq!(store.get(host_id).unwrap(), None);
+    }
 }
