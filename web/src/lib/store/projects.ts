@@ -2,7 +2,8 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { Project } from '@/lib/types'
 import { createLoadableSlice, type LoadableSlice } from '@/lib/store/loadable-slice'
-import { fetchProjects } from '@/lib/api'
+import { fetchAllProjects } from '@/lib/api'
+import { LOCAL_HOST } from '@/features/hosts/types'
 
 // Stable empty fallback for `useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)`
 // selectors. Returning a fresh `[]` each render makes Zustand's useSyncExternalStore
@@ -27,12 +28,18 @@ function byOrder(a: Project, b: Project): number {
 /**
  * One `/v0/projects` frame — a complete ProjectDTO, or a `status: 'deleted'`
  * tombstone — folded into the list. Every project write broadcasts every row
- * it changes, so the frames are the list and never need a re-read.
+ * it changes, so the frames are the list and never need a re-read. A wire frame
+ * names no host, so it takes its socket's; an imported Project keeps its own.
  */
-function mergeProjectFrame(list: Project[], frame: unknown): Project[] | undefined {
+function mergeProjectFrame(
+  list: Project[],
+  frame: unknown,
+  socketHostId: string,
+): Project[] | undefined {
   if (!frame || typeof frame !== 'object') return undefined
-  const { status, ...project } = frame as Project & { status?: string }
-  if (typeof project.id !== 'string') return undefined
+  const { status, ...fields } = frame as Partial<Project> & { id?: unknown; status?: string }
+  if (typeof fields.id !== 'string') return undefined
+  const project = { ...fields, hostId: fields.hostId ?? socketHostId } as Project
   const index = list.findIndex((p) => p.id === project.id)
   if (status === 'deleted') return index === -1 ? list : list.filter((p) => p.id !== project.id)
   if (index !== -1 && JSON.stringify(list[index]) === JSON.stringify(project)) return list
@@ -46,10 +53,13 @@ function mergeProjectFrame(list: Project[], frame: unknown): Project[] | undefin
 export const useProjectDataStore = create<LoadableSlice<Project[], []>>()((set, get) =>
   createLoadableSlice<Project[], []>({
     store: 'projects-data',
-    fetcher: () => fetchProjects(),
-    cacheKey: () => 'projects',
+    fetcher: () => fetchAllProjects(),
+    // Not 'projects': a list cached before projects carried a host would hand
+    // out rows with no hostId to route by.
+    cacheKey: () => 'projects-by-host',
     wsEndpoint: () => '/v0/projects',
-    mergeFrame: mergeProjectFrame,
+    // wsManager has no host dimension: this socket is the local daemon's.
+    mergeFrame: (list, frame) => mergeProjectFrame(list, frame, LOCAL_HOST.id),
   })(set, get),
 )
 

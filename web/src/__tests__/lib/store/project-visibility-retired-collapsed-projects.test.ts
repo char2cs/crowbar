@@ -20,6 +20,7 @@ const project = (id: string): Project => ({
   name: id,
   path: `/p/${id}`,
   lastActivity: new Date('2026-09-01T00:00:00Z'),
+  hostId: 'local',
 })
 
 // REGRESSION (restyle v2), same class as the retired `collapsedRepos` gate: the

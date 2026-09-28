@@ -194,7 +194,7 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
           toast.error('Failed to set icon')
         }
       }
-      onCreate(projectFromDTO(dto))
+      onCreate(projectFromDTO(dto, hostId))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to create space')
     } finally {

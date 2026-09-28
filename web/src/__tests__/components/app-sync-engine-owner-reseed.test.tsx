@@ -37,7 +37,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   fetchWorkspaces: (...args: unknown[]) => fetchWorkspaces(...args),
   fetchFolders: (...args: unknown[]) => fetchFolders(...args),
   fetchRepoChats: (...args: unknown[]) => fetchRepoChats(...args),
-  fetchProjects: vi.fn().mockResolvedValue([]),
+  fetchAllProjects: vi.fn().mockResolvedValue([]),
   fetchHomeWorkspace: vi.fn().mockResolvedValue(null),
   fetchHomeChats: vi.fn().mockResolvedValue([]),
   fetchHomeFolders: vi.fn().mockResolvedValue([]),
@@ -64,7 +64,13 @@ interface StreamOptions {
 
 const opened: StreamOptions[] = []
 
-const project: Project = { id: 'p1', name: 'p1', path: '/p/p1', lastActivity: new Date(0) }
+const project: Project = {
+  id: 'p1',
+  name: 'p1',
+  path: '/p/p1',
+  lastActivity: new Date(0),
+  hostId: 'local',
+}
 
 const repoDTO: RepoDTO = {
   id: 'r1',

@@ -99,6 +99,7 @@ function makeProject(id: string): Project {
     name: id,
     path: `/repos/${id}`,
     lastActivity: new Date('2026-08-28T00:00:00Z'),
+    hostId: 'local',
   }
 }
 

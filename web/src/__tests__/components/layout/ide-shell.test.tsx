@@ -320,7 +320,9 @@ describe('IDEShell', () => {
     it('leaves for "/" once the live project list loads without it', () => {
       router.pathname = '/ide/p1/home'
       useProjectDataStore.setState({
-        data: success([{ id: 'p2', name: 'other', path: '/p2', lastActivity: new Date(0) }]),
+        data: success([
+          { id: 'p2', name: 'other', path: '/p2', lastActivity: new Date(0), hostId: 'local' },
+        ]),
       })
 
       render(<IDEShell />)
@@ -340,7 +342,9 @@ describe('IDEShell', () => {
     it('stays put once the routed project is actually in the list', () => {
       router.pathname = '/ide/p1/home'
       useProjectDataStore.setState({
-        data: success([{ id: 'p1', name: 'crowbar', path: '/p1', lastActivity: new Date(0) }]),
+        data: success([
+          { id: 'p1', name: 'crowbar', path: '/p1', lastActivity: new Date(0), hostId: 'local' },
+        ]),
       })
 
       render(<IDEShell />)

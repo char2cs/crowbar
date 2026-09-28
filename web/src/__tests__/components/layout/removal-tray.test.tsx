@@ -104,6 +104,7 @@ const project: Project = {
   name: 'crowbar-project',
   path: '/p1',
   lastActivity: new Date(0),
+  hostId: 'local',
 }
 
 /** SpaceScroller's real mount point, single-project (this suite's fixtures

@@ -153,7 +153,7 @@ describe('CreateSpacePanel — daemon picker', () => {
 
     await waitFor(() => {
       expect(onCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'server-id', path: '/tmp/my-space' }),
+        expect.objectContaining({ id: 'server-id', path: '/tmp/my-space', hostId: 'h1' }),
       )
     })
   })
@@ -175,6 +175,10 @@ describe('CreateSpacePanel — daemon picker', () => {
 
     emit(projectDTO({ id: 'server-id-2', path: '/tmp/local-space', name: 'local-space' }))
 
-    await waitFor(() => expect(onCreate).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(onCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'server-id-2', hostId: 'local' }),
+      ),
+    )
   })
 })

@@ -2419,7 +2419,9 @@ describe('performSidebarDrop — targetInRecents', () => {
     )
     useHomeTreeStore.setState({ trees: {} })
     useProjectDataStore.setState({
-      data: success([{ id: 'proj-2', name: 'p2', path: '', lastActivity: new Date() }]),
+      data: success([
+        { id: 'proj-2', name: 'p2', path: '', lastActivity: new Date(), hostId: 'local' },
+      ]),
     })
     seedChats(getOrCreateWorkspaceStore('ws-x'), [chat('chat-a', 'ws-x')])
     seedChats(getOrCreateWorkspaceStore('home-ws-2'), [chat('home-chat', 'home-ws-2')])

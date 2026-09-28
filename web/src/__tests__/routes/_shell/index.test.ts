@@ -13,7 +13,7 @@ vi.mock('@tanstack/react-router', () => ({
 }))
 
 vi.mock('@/lib/api', () => ({
-  fetchProjects: vi.fn(),
+  fetchAllProjects: vi.fn(),
 }))
 
 vi.mock('@/lib/store/projects', async (importOriginal) => ({
@@ -21,7 +21,7 @@ vi.mock('@/lib/store/projects', async (importOriginal) => ({
   useProjectStore: { getState: vi.fn(() => ({ activeProjectId: '' })) },
 }))
 
-const { fetchProjects } = await import('@/lib/api')
+const { fetchAllProjects } = await import('@/lib/api')
 const { useProjectStore } = await import('@/lib/store/projects')
 
 async function runBeforeLoad() {
@@ -34,14 +34,14 @@ async function runBeforeLoad() {
 describe('_shell/index beforeLoad', () => {
   beforeEach(() => {
     redirectMock.mockClear()
-    vi.mocked(fetchProjects).mockReset()
+    vi.mocked(fetchAllProjects).mockReset()
     vi.mocked(useProjectStore.getState).mockReturnValue({
       activeProjectId: '',
     } as ReturnType<typeof useProjectStore.getState>)
   })
 
   it('redirects to /oobe when no projects', async () => {
-    vi.mocked(fetchProjects).mockResolvedValueOnce([])
+    vi.mocked(fetchAllProjects).mockResolvedValueOnce([])
     try {
       await runBeforeLoad()
     } catch (e) {
@@ -53,9 +53,21 @@ describe('_shell/index beforeLoad', () => {
   })
 
   it('redirects to home route of active project', async () => {
-    vi.mocked(fetchProjects).mockResolvedValueOnce([
-      { id: 'p1', name: 'Rabbyte', path: '/a', lastActivity: new Date('2024-01-01') },
-      { id: 'p2', name: 'Other', path: '/b', lastActivity: new Date('2024-01-01') },
+    vi.mocked(fetchAllProjects).mockResolvedValueOnce([
+      {
+        id: 'p1',
+        name: 'Rabbyte',
+        path: '/a',
+        lastActivity: new Date('2024-01-01'),
+        hostId: 'local',
+      },
+      {
+        id: 'p2',
+        name: 'Other',
+        path: '/b',
+        lastActivity: new Date('2024-01-01'),
+        hostId: 'local',
+      },
     ])
     vi.mocked(useProjectStore.getState).mockReturnValue({
       activeProjectId: 'p1',
@@ -76,7 +88,7 @@ describe('_shell/index beforeLoad', () => {
   // must land on the newer answer, not on the store its own read left unpublished.
   it('redirects to a project when a newer read supersedes its own', async () => {
     const answers: Array<(projects: unknown) => void> = []
-    vi.mocked(fetchProjects).mockImplementation(
+    vi.mocked(fetchAllProjects).mockImplementation(
       () => new Promise((resolve) => answers.push(resolve as (projects: unknown) => void)),
     )
     const outcome = runBeforeLoad().catch((e: unknown) => e)
@@ -84,7 +96,13 @@ describe('_shell/index beforeLoad', () => {
     const { useProjectDataStore } = await import('@/lib/store/projects')
     const newer = useProjectDataStore.getState().fetch()
     await vi.waitFor(() => expect(answers).toHaveLength(2))
-    const project = { id: 'p3', name: 'Third', path: '/c', lastActivity: new Date('2024-01-01') }
+    const project = {
+      id: 'p3',
+      name: 'Third',
+      path: '/c',
+      lastActivity: new Date('2024-01-01'),
+      hostId: 'local',
+    }
     answers[0]([project])
     answers[1]([project])
     await newer
@@ -96,8 +114,14 @@ describe('_shell/index beforeLoad', () => {
   })
 
   it('falls back to first project when no active project', async () => {
-    vi.mocked(fetchProjects).mockResolvedValueOnce([
-      { id: 'p2', name: 'Other', path: '/b', lastActivity: new Date('2024-01-01') },
+    vi.mocked(fetchAllProjects).mockResolvedValueOnce([
+      {
+        id: 'p2',
+        name: 'Other',
+        path: '/b',
+        lastActivity: new Date('2024-01-01'),
+        hostId: 'local',
+      },
     ])
     vi.mocked(useProjectStore.getState).mockReturnValue({
       activeProjectId: '',

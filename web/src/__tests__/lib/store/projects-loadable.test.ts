@@ -8,12 +8,12 @@ import { resetDB } from '@/lib/persistence/idb'
 import { dataOf } from '@/lib/loadable'
 import type { Project } from '@/lib/types'
 
-const { fetchProjects, socket } = vi.hoisted(() => ({
-  fetchProjects: vi.fn<() => Promise<Project[]>>(),
+const { fetchAllProjects, socket } = vi.hoisted(() => ({
+  fetchAllProjects: vi.fn<() => Promise<Project[]>>(),
   socket: { emit: null as null | ((frame: unknown) => void) },
 }))
 
-vi.mock('@/lib/api', () => ({ fetchProjects }))
+vi.mock('@/lib/api', () => ({ fetchAllProjects }))
 vi.mock('@/lib/ws/manager', () => ({
   wsManager: {
     subscribe: (_endpoint: string, cb: (frame: unknown) => void) => {
@@ -26,8 +26,18 @@ vi.mock('@/lib/ws/manager', () => ({
   },
 }))
 
+/** A ProjectDTO frame as the daemon sends it — the wire names no host. */
+const wire = (id: string, order: number, name = id.toUpperCase()) => ({
+  id,
+  name,
+  path: `/${id}`,
+  order,
+  lastActivity: '2026-09-24T00:00:00Z',
+})
+
+/** The same project as the list read answers it: tagged with its host. */
 const p = (id: string, order: number, name = id.toUpperCase()) =>
-  ({ id, name, path: `/${id}`, order, lastActivity: '2026-09-24T00:00:00Z' }) as unknown as Project
+  ({ ...wire(id, order, name), hostId: 'local' }) as unknown as Project
 
 /** The next GET parks until released; resolves once the request is sent. */
 async function parkedRequest(): Promise<(rows: Project[]) => void> {
@@ -35,12 +45,12 @@ async function parkedRequest(): Promise<(rows: Project[]) => void> {
   const answer = new Promise<Project[]>((resolve) => {
     release = resolve
   })
-  fetchProjects.mockImplementationOnce(() => answer)
+  fetchAllProjects.mockImplementationOnce(() => answer)
   return release
 }
 
 async function sent(times: number): Promise<void> {
-  await vi.waitFor(() => expect(fetchProjects).toHaveBeenCalledTimes(times))
+  await vi.waitFor(() => expect(fetchAllProjects).toHaveBeenCalledTimes(times))
 }
 
 async function settle(): Promise<void> {
@@ -56,7 +66,7 @@ async function freshStore() {
 
 beforeEach(() => {
   resetDB()
-  fetchProjects.mockReset()
+  fetchAllProjects.mockReset()
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
 })
 afterEach(() => {
@@ -66,7 +76,7 @@ afterEach(() => {
 describe('useProjectDataStore', () => {
   it('fetch populates loadable success', async () => {
     const store = await freshStore()
-    fetchProjects.mockResolvedValueOnce([p('p1', 0)])
+    fetchAllProjects.mockResolvedValueOnce([p('p1', 0)])
     await store.getState().fetch()
     expect(store.getState().data.status).toBe('success')
   })
@@ -79,25 +89,25 @@ describe('project list at boot', () => {
     const done = store.getState().fetch()
     store.getState().startSync()
     await sent(1)
-    socket.emit!(p('a', 0))
-    socket.emit!(p('b', 1))
+    socket.emit!(wire('a', 0))
+    socket.emit!(wire('b', 1))
     release([p('a', 0), p('b', 1)])
     await done
     await settle()
-    expect(fetchProjects).toHaveBeenCalledTimes(1)
+    expect(fetchAllProjects).toHaveBeenCalledTimes(1)
     expect(dataOf(store.getState().data)?.map((x) => x.id)).toEqual(['a', 'b'])
   })
 
   it('a snapshot landing after the seed GET costs no second request and no re-render', async () => {
     const store = await freshStore()
-    fetchProjects.mockResolvedValueOnce([p('a', 0), p('b', 1)])
+    fetchAllProjects.mockResolvedValueOnce([p('a', 0), p('b', 1)])
     await store.getState().fetch()
     const seeded = store.getState().data
     store.getState().startSync()
-    socket.emit!(p('a', 0))
-    socket.emit!(p('b', 1))
+    socket.emit!(wire('a', 0))
+    socket.emit!(wire('b', 1))
     await settle()
-    expect(fetchProjects).toHaveBeenCalledTimes(1)
+    expect(fetchAllProjects).toHaveBeenCalledTimes(1)
     expect(store.getState().data).toBe(seeded)
   })
 
@@ -107,36 +117,53 @@ describe('project list at boot', () => {
     const done = store.getState().fetch()
     store.getState().startSync()
     await sent(1)
-    socket.emit!(p('a', 0, 'Renamed'))
+    socket.emit!(wire('a', 0, 'Renamed'))
     release([p('a', 0, 'Old')])
     await done
     await settle()
     expect(dataOf(store.getState().data)?.[0].name).toBe('Renamed')
-    expect(fetchProjects).toHaveBeenCalledTimes(1)
+    expect(fetchAllProjects).toHaveBeenCalledTimes(1)
   })
 
   it('live frames upsert, reorder and tombstone without a request', async () => {
     const store = await freshStore()
-    fetchProjects.mockResolvedValueOnce([p('a', 0), p('b', 1)])
+    fetchAllProjects.mockResolvedValueOnce([p('a', 0), p('b', 1)])
     await store.getState().fetch()
     store.getState().startSync()
-    socket.emit!(p('c', 2))
-    socket.emit!(p('b', 0))
-    socket.emit!(p('a', 1))
+    socket.emit!(wire('c', 2))
+    socket.emit!(wire('b', 0))
+    socket.emit!(wire('a', 1))
     socket.emit!({ id: 'c', status: 'deleted' })
     await settle()
-    expect(fetchProjects).toHaveBeenCalledTimes(1)
+    expect(fetchAllProjects).toHaveBeenCalledTimes(1)
     expect(dataOf(store.getState().data)?.map((x) => x.id)).toEqual(['b', 'a'])
     expect(store.getState().data.status).toBe('success')
   })
 
+  // The only socket feeding this list is the local daemon's; a frame merged
+  // untagged would leave a project with no host for any caller to route by.
+  it('a frame off the project socket is tagged with the local host it came from', async () => {
+    const store = await freshStore()
+    fetchAllProjects.mockResolvedValueOnce([p('a', 0)])
+    await store.getState().fetch()
+    store.getState().startSync()
+    socket.emit!(wire('b', 1))
+    socket.emit!(wire('a', 0, 'Renamed'))
+    await settle()
+    const held = dataOf(store.getState().data)
+    expect(held?.map((x) => [x.id, x.hostId])).toEqual([
+      ['a', 'local'],
+      ['b', 'local'],
+    ])
+  })
+
   it('a reconnect re-reads the list (frames missed during the outage are unknowable)', async () => {
     const store = await freshStore()
-    fetchProjects.mockResolvedValue([p('a', 0)])
+    fetchAllProjects.mockResolvedValue([p('a', 0)])
     await store.getState().fetch()
     store.getState().startSync()
     socket.emit!({ reconnected: true })
     await settle()
-    await vi.waitFor(() => expect(fetchProjects).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(fetchAllProjects).toHaveBeenCalledTimes(2))
   })
 })
