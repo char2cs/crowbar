@@ -449,7 +449,7 @@ func (s revokeOnReadStore) FindWhere(ctx context.Context, match domain.Client) (
 	for _, c := range found {
 		revokedAt := time.Now()
 		c.RevokedAt = &revokedAt
-		if saveErr := s.ScopedStore.Save(ctx, c); saveErr != nil {
+		if saveErr := s.Save(ctx, c); saveErr != nil {
 			return nil, saveErr
 		}
 	}
