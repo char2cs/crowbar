@@ -4,11 +4,25 @@
 
 **Goal:** Let the desktop app hold N daemon connections (local + paired remotes) at once, show every connected host's projects in one flat sidebar list, and add/manage hosts through Settings — using the daemon auth surface and Tauri bridge commands this plan's two sibling plans already build.
 
-**Architecture:** A new `web/src/features/hosts/` module owns a persisted config list (`{id,name,endpoint,pinnedFingerprint}`, local implicit) and a per-host runtime registry (status, mirroring `workspace-store-registry.ts`'s Map-keyed pattern). `apiFetch`/`wsUrl`/the Tauri WS bridge gain an explicit `hostId` parameter (default `'local'`, zero behavior change for every existing call site) instead of reading a single module-level `API_BASE`. `useProjectDataStore` fetches every live host's `/v0/projects` and merges into one tagged list; a project's `hostId` is recorded on its workspace store at creation and is the ONLY source a project-scoped call ever resolves its host from — never an ambient "currently viewed" fallback. Three UI surfaces: the project row (title/subtitle/dot), Create Space's daemon picker, and a Coss UI tree-based remote file picker, all approved via the visual-companion mockups in `.superpowers/brainstorm/`.
+**Architecture:** A new `web/src/features/hosts/` module owns a persisted config list (`{id,name,endpoint,pairedFingerprint}`, local implicit) and a per-host runtime registry (status, mirroring `workspace-store-registry.ts`'s Map-keyed pattern). `apiFetch`/`wsUrl`/the Tauri WS bridge gain an explicit `hostId` parameter (default `'local'`, zero behavior change for every existing call site) instead of reading a single module-level `API_BASE`. `useProjectDataStore` fetches every live host's `/v0/projects` and merges into one tagged list; a project's `hostId` is recorded on its workspace store at creation and is the ONLY source a project-scoped call ever resolves its host from — never an ambient "currently viewed" fallback. Three UI surfaces: the project row (title/subtitle/dot), Create Space's daemon picker, and a Coss UI tree-based remote file picker, all approved via the visual-companion mockups in `.superpowers/brainstorm/`.
 
 **Tech Stack:** React, Zustand, TypeScript, Tailwind, Base UI (`@base-ui/react`), Coss UI (shadcn-CLI-sourced).
 
-**Spec:** `docs/superpowers/specs/2026-09-27-remote-instances-design.md` (§2 component boundaries, §4 project aggregation & routing, §5 UI). This plan's Tauri command calls (`registerRemoteHost`, `storeHostToken`, etc.) are built in `docs/superpowers/plans/2026-09-27-remote-instances-tauri-bridge.md` (Task 7) — confirm that plan's Task 7 is done (or do it as a prerequisite) before this plan's Task 2.
+**Spec:** `docs/superpowers/specs/2026-09-27-remote-instances-design.md` (§2 component boundaries, §4 project aggregation & routing, §5 UI). This plan's Tauri command calls are built in `docs/superpowers/plans/2026-09-27-remote-instances-tauri-bridge.md` (now fully complete, including its own final review and fix round) — confirm before this plan's Task 2.
+
+## Amendment (written before Task 1 dispatch — the Tauri bridge plan's real command surface diverged from this draft)
+
+This plan was drafted before the Tauri bridge plan's Tasks 5/5b/6-8 (and that plan's final-review fix round) landed. The command surface below is what actually exists now in `web/src/lib/crowbar-bridge.ts`; every reference to `storeHostToken` or a 3-argument `registerRemoteHost` anywhere below (including inside code samples) is the STALE original draft and must not be followed literally:
+
+- `registerRemoteHost(hostId: string, endpoint: string): Promise<void>` — **2 arguments, no fingerprint.** The trusted fingerprint now lives ONLY in the OS keychain, bound at pairing time to the real TLS handshake `pair_remote_host` itself performed — never re-suppliable by JS or this store afterward. Do not add a fingerprint parameter back.
+- `unregisterRemoteHost(hostId: string): Promise<void>`, `forgetHostToken(hostId: string): Promise<void>` — unchanged from the original draft.
+- `probeRemoteFingerprint(endpoint: string): Promise<string>` — the stage-1 TOFU dial. Dials the address directly (unpinned, first-contact-only), returns the presented certificate's fingerprint for display. **The caller must show this to the user and require explicit confirmation before ever calling `pairRemoteHost`.**
+- `pairRemoteHost(hostId: string, endpoint: string, fingerprint: string, code: string, name: string): Promise<string>` — replaces the old `registerRemoteHost`+`apiFetch('/v0/pair')`+`storeHostToken` sequence entirely. `fingerprint` MUST be the user-confirmed value from `probeRemoteFingerprint`. Internally this one call: dials pinned against that confirmed fingerprint, redeems the code over that channel, stores the token AND the full (untruncated) confirmed fingerprint together in the keychain, and registers the host's endpoint — there is no separate `apiFetch('/v0/pair', ...)` call for the web layer to make; pairing does not go through the generic HTTP proxy at all. **Returns the daemon's `clientId`** (not a secret — safe to store alongside the host's config), needed for the spec-mandated server-side revoke (§3: "Revoke ... marks the device permanently revoked server-side"). `storeHostToken` does not exist as a callable command — do not reference it.
+- Every proxy-originated response (local or remote) now carries a readable `x-crowbar-proxy` header on request failure, extending the pattern `web/src/lib/api.ts` already has for the local `daemon-unavailable` marker (`PROXY_HEADER = 'x-crowbar-proxy'`, checked at `apiFetchRaw`'s error-status branch). Two new values exist: `host-unreachable` (dial/handshake failed — transient, matches the existing "down" concept) and `host-identity-changed` (the presented certificate's fingerprint no longer matches what's pinned in the keychain — NOT transient, must never be silently retried or folded into a generic "unreachable" toast; spec §3: "a mismatch is a hard reject with a clear 'this host's identity changed' warning, never a silent fall-through"). Task 2 below is amended to add these; Task 3 and Task 10 are amended to branch on them.
+- Spec §3 also requires: "A 401 mid-session on an otherwise-'up' host marks it needs-repair rather than silently retrying." `HostStatus` (Task 1) needs a `'needs-repair'` value; a 401 on an already-`'up'` host's request should NOT be treated as a generic connectivity failure or silently retried.
+- The daemon's `DELETE /v0/clients/:id` (already shipped, daemon plan) needs the `clientId` `pairRemoteHost` now returns — Task 1's `Host` type gains a `clientId` field, and Task 5's revoke handler is amended to call it server-side before the local cleanup. This was previously a gap in this draft (it only unregistered/forgot the token locally, never revoking server-side) — spec §3 requires the server-side revoke, not just a local forget.
+- `pairedFingerprint` (the value the user confirmed at pairing time) stays in `Host` for **display only** — spec §3's persisted shape (`{id, name, endpoint, pairedFingerprint}`) still applies for showing the user what they paired against, but it now carries no enforcement weight and is never sent back to any Tauri command. Named `pairedFingerprint` (not the spec prose's `pinnedFingerprint`) throughout this plan to make that non-authoritative role explicit and avoid confusion with the keychain-bound value that actually gates dials.
+- Out of scope for this amendment, carried forward as a real open question for Task 2's implementer to check (not prescribed, since it may already be moot): before the Tauri bridge plan's CORS fix, a remote-host failure surfaced as an opaque `fetch()` rejection, which `apiFetchRaw`'s existing retry loop (`DEFAULT_RETRY = {attempts: 8, ...}`) treats as a retryable transient transport failure — worst case ~8 retries before surfacing. Post-fix, a proxy-originated failure resolves with a real HTTP status (502/503/401) and a readable marker, which should already route through the *error-status* branch (line ~162 of `api.ts`, "a real daemon response, not a transport failure") rather than the retry branch. Task 2 should verify this is actually true for `host-unreachable`/`host-identity-changed` specifically (write a test), and only add explicit retry-skip logic if it finds the retry loop still fires for these.
 
 ## Global Constraints
 
@@ -41,7 +55,7 @@
 - Test: `web/src/__tests__/features/hosts/stores/host-runtime-registry.test.ts`
 
 **Interfaces:**
-- Produces: `Host{id, name, endpoint, pinnedFingerprint}`, `HostStatus = 'unknown' | 'probing' | 'up' | 'down'`, `useHostConfigStore` (persisted Zustand: `hosts: Host[]`, `addHost(h)`, `removeHost(id)`; local's implicit `{id:'local', name:'Local', endpoint:'', pinnedFingerprint:''}` is NEVER stored in this list — it's a constant merged in at read time, so it can't be accidentally removed), `getOrCreateHostRuntime(hostId)`, `getHostRuntime(hostId)`, `destroyHostRuntime(hostId)`, `subscribeHostRuntimeRegistry(cb)`.
+- Produces: `Host{id, name, endpoint, pairedFingerprint, clientId}`, `HostStatus = 'unknown' | 'probing' | 'up' | 'down' | 'needs-repair'`, `useHostConfigStore` (persisted Zustand: `hosts: Host[]`, `addHost(h)`, `removeHost(id)`; local's implicit `{id:'local', name:'Local', endpoint:'', pairedFingerprint:'', clientId:''}` is NEVER stored in this list — it's a constant merged in at read time, so it can't be accidentally removed), `getOrCreateHostRuntime(hostId)`, `getHostRuntime(hostId)`, `destroyHostRuntime(hostId)`, `subscribeHostRuntimeRegistry(cb)`.
 
 - [ ] **Step 1: Write `types.ts`**
 
@@ -50,13 +64,21 @@ export interface Host {
   id: string
   name: string
   endpoint: string
-  pinnedFingerprint: string
+  /** Display only — what the user confirmed at pairing time. Never sent to
+   *  any Tauri command; the keychain-bound fingerprint is what actually
+   *  gates dials (see this plan's Amendment). */
+  pairedFingerprint: string
+  /** The daemon's client id, returned by `pairRemoteHost`. Needed to revoke
+   *  server-side (`DELETE /v0/clients/:id`) on removal — see Task 5. */
+  clientId: string
 }
 
-export type HostStatus = 'unknown' | 'probing' | 'up' | 'down'
+/** 'needs-repair': a 401 on an otherwise-'up' host mid-session (spec §3) —
+ *  distinct from 'down' so the UI doesn't silently retry a dead credential. */
+export type HostStatus = 'unknown' | 'probing' | 'up' | 'down' | 'needs-repair'
 
 /** The implicit local daemon — never persisted, never removable. */
-export const LOCAL_HOST: Host = { id: 'local', name: 'Local', endpoint: '', pinnedFingerprint: '' }
+export const LOCAL_HOST: Host = { id: 'local', name: 'Local', endpoint: '', pairedFingerprint: '', clientId: '' }
 ```
 
 - [ ] **Step 2: Write the failing config-store test**
@@ -75,19 +97,19 @@ describe('useHostConfigStore', () => {
   })
 
   it('addHost appends a host', () => {
-    useHostConfigStore.getState().addHost({ id: 'h1', name: 'homelab', endpoint: '1.2.3.4:3737', pinnedFingerprint: 'SHA256:aaaa' })
+    useHostConfigStore.getState().addHost({ id: 'h1', name: 'homelab', endpoint: '1.2.3.4:3737', pairedFingerprint: 'SHA256:aaaa' })
     expect(useHostConfigStore.getState().hosts).toHaveLength(1)
     expect(useHostConfigStore.getState().hosts[0].id).toBe('h1')
   })
 
   it('removeHost drops it', () => {
-    useHostConfigStore.getState().addHost({ id: 'h1', name: 'homelab', endpoint: 'x', pinnedFingerprint: 'x' })
+    useHostConfigStore.getState().addHost({ id: 'h1', name: 'homelab', endpoint: 'x', pairedFingerprint: 'x' })
     useHostConfigStore.getState().removeHost('h1')
     expect(useHostConfigStore.getState().hosts).toEqual([])
   })
 
   it('addHost never lets id "local" be added — it is implicit, not stored', () => {
-    useHostConfigStore.getState().addHost({ id: 'local', name: 'sneaky', endpoint: 'x', pinnedFingerprint: 'x' })
+    useHostConfigStore.getState().addHost({ id: 'local', name: 'sneaky', endpoint: 'x', pairedFingerprint: 'x' })
     expect(useHostConfigStore.getState().hosts.find((h) => h.id === 'local')).toBeUndefined()
   })
 })
@@ -344,6 +366,14 @@ Keep the existing `isWebSocketCapable()` untouched — it answers a question abo
 
 Read `crowbar-bridge.ts`'s `openSocket`/`openTerminal` and `ws/tauri-transport.ts`'s `TauriWebSocket` class in full. Add an optional `hostId` parameter to `openSocket(path: string, hostId = 'local')` and to `TauriWebSocket`'s constructor, threading it into whatever `invoke('ws_open', {...})` call `TauriWebSocket` makes today — add `hostId: hostId === 'local' ? undefined : hostId` to that invoke's argument object, matching the Tauri Bridge plan's Task 6 `ws_open` signature (`host_id: Option<String>`).
 
+- [ ] **Step 5b: Recognize the two remote proxy markers**
+
+`api.ts` already has a marker-checking pattern for the local case — read it in full: `PROXY_HEADER = 'x-crowbar-proxy'`, checked at the error-status branch inside `apiFetchRaw` (`res.headers?.get(PROXY_HEADER) === 'daemon-unavailable'` → throws `ApiError` with `DAEMON_UNAVAILABLE_CODE`). The Tauri bridge plan's proxy now also sets this header to two remote-specific values on a proxy-originated failure: `'host-unreachable'` (dial/handshake failed) and `'host-identity-changed'` (the presented certificate no longer matches what's pinned in the keychain for this host — never treat this as transient, never retry it, never fold it into the same UI path as `host-unreachable`; spec §3 requires a distinct "hard reject ... this host's identity changed" warning).
+
+Extend the same pattern: add `HOST_UNREACHABLE_CODE`/`HOST_IDENTITY_CHANGED_CODE` constants and corresponding `isHostUnreachableError`/`isHostIdentityChangedError` type-guard helpers (mirroring the existing `isDaemonUnavailableError`-style helper for the local marker — find its exact name and copy its shape), thrown with the matching `ApiError.code` when the header carries either value.
+
+Also verify (write a test, don't just assume) whether `apiFetchRaw`'s transient-retry loop (`DEFAULT_RETRY`, 8 attempts) fires for a proxy-originated `host-unreachable`/`host-identity-changed` response. The comment at the error-status branch already states "an HTTP error status is a real daemon response, not a transport failure," which suggests a *resolved* response with one of these markers should route through that branch (no retry) rather than the retry branch (which only fires on an actual `fetch()` *rejection*). If your test proves the retry loop still fires for either marker, that's a real bug to fix here (skip the retry for these codes specifically); if it proves the retry loop is already correctly bypassed, that's sufficient — no code change needed beyond the test itself.
+
 - [ ] **Step 6: Run the full existing api/ws test suite plus the new tests**
 
 Run: `cd web && bunx vitest run src/__tests__/lib/api.test.ts src/__tests__/lib/ws/url.test.ts src/__tests__/lib/crowbar-bridge.test.ts`
@@ -369,8 +399,10 @@ git commit -m "feat(web): thread an explicit hostId through apiFetch/wsUrl/the T
 - Test: `web/src/__tests__/features/hosts/lib/host-probe.test.ts`
 
 **Interfaces:**
-- Consumes: `apiFetch` with `hostId` (Task 2), `getOrCreateHostRuntime` (Task 1).
-- Produces: `probeHost(hostId: string): Promise<void>` (fetches `/v0/health` for that host, sets its runtime status to `'up'` or `'down'`), `startHostProbing(hostId: string, intervalMs?: number): () => void` (returns a stop function).
+- Consumes: `apiFetch` with `hostId` (Task 2), `getOrCreateHostRuntime` (Task 1), `isHostIdentityChangedError` (Task 2's Step 5b).
+- Produces: `probeHost(hostId: string): Promise<void>` (fetches `/v0/health` for that host, sets its runtime status to `'up'`, `'down'`, or `'needs-repair'`), `startHostProbing(hostId: string, intervalMs?: number): () => void` (returns a stop function).
+
+**Amendment:** a plain connectivity failure (`host-unreachable`, or any other rejection) still means `'down'`. But a health probe that comes back `host-identity-changed` is not a connectivity problem — the periodic background probe is exactly where a changed identity would first surface, possibly with nobody looking at Settings, so it must not be silently folded into the same gray "down" status a transient network blip gets (spec §3: "never a silent fall-through"). Use `'needs-repair'` for this case too, the same status a mid-session 401 uses (Task 10) — both mean "this host needs explicit user attention/re-pairing before it can be trusted again," a coherent single concept rather than a new one-off status.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -379,13 +411,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { probeHost } from '@/features/hosts/lib/host-probe'
 import { getOrCreateHostRuntime, destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 
-vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
-import { apiFetch } from '@/lib/api'
+vi.mock('@/lib/api', () => ({ apiFetch: vi.fn(), isHostIdentityChangedError: vi.fn(() => false) }))
+import { apiFetch, isHostIdentityChangedError } from '@/lib/api'
 
 describe('probeHost', () => {
   beforeEach(() => {
     destroyHostRuntime('h1')
     vi.mocked(apiFetch).mockReset()
+    vi.mocked(isHostIdentityChangedError).mockReset().mockReturnValue(false)
   })
 
   it('sets status "up" when the health call succeeds', async () => {
@@ -395,11 +428,20 @@ describe('probeHost', () => {
     expect(getOrCreateHostRuntime('h1').getState().status).toBe('up')
   })
 
-  it('sets status "down" when the health call rejects', async () => {
+  it('sets status "down" when the health call rejects with an ordinary error', async () => {
     vi.mocked(apiFetch).mockRejectedValueOnce(new Error('unreachable'))
     getOrCreateHostRuntime('h1')
     await probeHost('h1')
     expect(getOrCreateHostRuntime('h1').getState().status).toBe('down')
+  })
+
+  it('sets status "needs-repair" when the health call rejects with a host-identity-changed error', async () => {
+    const err = new Error('identity changed')
+    vi.mocked(apiFetch).mockRejectedValueOnce(err)
+    vi.mocked(isHostIdentityChangedError).mockReturnValue(true)
+    getOrCreateHostRuntime('h1')
+    await probeHost('h1')
+    expect(getOrCreateHostRuntime('h1').getState().status).toBe('needs-repair')
   })
 
   it('sets status "probing" while the call is in flight', async () => {
@@ -417,7 +459,7 @@ describe('probeHost', () => {
 - [ ] **Step 2: Run to verify failure, then implement**
 
 ```ts
-import { apiFetch } from '@/lib/api'
+import { apiFetch, isHostIdentityChangedError } from '@/lib/api'
 import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 
 /** Probes one host's /v0/health and records the result on its runtime store. */
@@ -428,8 +470,8 @@ export async function probeHost(hostId: string): Promise<void> {
   try {
     await apiFetch('/v0/health', undefined, hostId)
     runtime.getState().setStatus('up', performance.now() - started)
-  } catch {
-    runtime.getState().setStatus('down')
+  } catch (err) {
+    runtime.getState().setStatus(isHostIdentityChangedError(err) ? 'needs-repair' : 'down')
   }
 }
 
@@ -462,100 +504,73 @@ git commit -m "feat(web): per-host health probing (up/down/probing)"
 - Test: `web/src/__tests__/features/hosts/components/add-host-dialog.test.tsx`
 
 **Interfaces:**
-- Consumes: `apiFetch` (Task 2, called against a NOT-YET-saved host — see below), `registerRemoteHost`/`storeHostToken` (Tauri bridge plan, `crowbar-bridge.ts`), `useHostConfigStore.addHost` (Task 1), `Dialog`/`DialogContent`/etc. from `@/components/ui/dialog`.
-- Produces: `redeemPairingCode(hostId: string, endpoint: string, code: string, name: string): Promise<void>` (registers the host with the bridge, redeems, stores the token — see Step 1's ordering note), `AddHostDialog` component.
+- Consumes: `probeRemoteFingerprint`/`pairRemoteHost` (Tauri bridge plan, `crowbar-bridge.ts` — see this plan's Amendment for their real signatures), `useHostConfigStore.addHost` (Task 1), `Dialog`/`DialogContent`/etc. from `@/components/ui/dialog`.
+- Produces: `redeemPairingCode(hostId: string, endpoint: string, confirmedFingerprint: string, code: string, name: string): Promise<void>` (pairs via the bridge, then saves the host config — see Step 2), `AddHostDialog` component.
 
 - [ ] **Step 1: Write the failing `redeemPairingCode` test**
 
 ```ts
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
 vi.mock('@/lib/crowbar-bridge', () => ({
-  registerRemoteHost: vi.fn(),
-  storeHostToken: vi.fn(),
-  unregisterRemoteHost: vi.fn(),
+  pairRemoteHost: vi.fn(),
 }))
 
-import { apiFetch } from '@/lib/api'
-import { registerRemoteHost, storeHostToken, unregisterRemoteHost } from '@/lib/crowbar-bridge'
+import { pairRemoteHost } from '@/lib/crowbar-bridge'
 import { redeemPairingCode } from '@/features/hosts/lib/pairing'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
 describe('redeemPairingCode', () => {
   beforeEach(() => {
     useHostConfigStore.setState({ hosts: [] })
-    vi.mocked(apiFetch).mockReset()
-    vi.mocked(registerRemoteHost).mockReset()
-    vi.mocked(storeHostToken).mockReset()
-    vi.mocked(unregisterRemoteHost).mockReset()
+    vi.mocked(pairRemoteHost).mockReset()
   })
 
-  it('registers with the bridge BEFORE redeeming, so the redeem call can dial the host at all', async () => {
-    const order: string[] = []
-    vi.mocked(registerRemoteHost).mockImplementation(async () => { order.push('register') })
-    vi.mocked(apiFetch).mockImplementation(async () => { order.push('redeem'); return { token: 'tok', clientId: 'c1' } })
+  it('on success: saves the host config with the returned clientId', async () => {
+    vi.mocked(pairRemoteHost).mockResolvedValueOnce('client-7')
     await redeemPairingCode('h1', '1.2.3.4:3737', 'SHA256:aaaa', '123456', 'my-device')
-    expect(order).toEqual(['register', 'redeem'])
+    expect(pairRemoteHost).toHaveBeenCalledWith('h1', '1.2.3.4:3737', 'SHA256:aaaa', '123456', 'my-device')
+    const saved = useHostConfigStore.getState().hosts.find((h) => h.id === 'h1')
+    expect(saved).toMatchObject({ clientId: 'client-7', pairedFingerprint: 'SHA256:aaaa' })
   })
 
-  it('on success: stores the token and saves the host config', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce({ token: 'tok', clientId: 'c1' })
-    await redeemPairingCode('h1', '1.2.3.4:3737', 'SHA256:aaaa', '123456', 'my-device')
-    expect(storeHostToken).toHaveBeenCalledWith('h1', 'tok')
-    expect(useHostConfigStore.getState().hosts.find((h) => h.id === 'h1')).toBeTruthy()
-  })
-
-  it('on redeem failure: unregisters the host and does NOT save it or store a token', async () => {
-    vi.mocked(apiFetch).mockRejectedValueOnce(new Error('bad code'))
+  it('on redeem failure: does NOT save the host config', async () => {
+    vi.mocked(pairRemoteHost).mockRejectedValueOnce(new Error('bad code'))
     await expect(redeemPairingCode('h1', '1.2.3.4:3737', 'SHA256:aaaa', '000000', 'my-device')).rejects.toThrow()
-    expect(unregisterRemoteHost).toHaveBeenCalledWith('h1')
-    expect(storeHostToken).not.toHaveBeenCalled()
     expect(useHostConfigStore.getState().hosts).toEqual([])
   })
 })
 ```
 
+Note this is simpler than the original draft: `pairRemoteHost` does its own registration/dial/redeem/token-storage internally (Rust side), so there is no separate "register, then redeem, then unregister-on-failure" choreography left for the web layer to own — a failed `pairRemoteHost` call already leaves nothing paired on the Rust side (Tauri bridge plan, Task 5's fix round), so the web layer's only job on failure is to not save a config row.
+
 - [ ] **Step 2: Run to verify failure, then implement `pairing.ts`**
 
 ```ts
-import { apiFetch } from '@/lib/api'
-import { registerRemoteHost, storeHostToken, unregisterRemoteHost } from '@/lib/crowbar-bridge'
+import { pairRemoteHost } from '@/lib/crowbar-bridge'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
-interface PairResponse {
-  token: string
-  clientId: string
-}
-
 /**
- * Redeems a pairing code against a host the user has NOT yet saved. Order
- * matters: the Rust bridge must know this host's endpoint+fingerprint
- * BEFORE the redeem's apiFetch(hostId) call can resolve a crowbar://<hostId>
- * base at all (see docs/.../remote-instances-tauri-bridge.md Task 5). A
- * failed redeem tears the registration back down rather than leaving an
- * unpaired, tokenless host registered in the Rust layer.
+ * Redeems a pairing code against a host the user has confirmed the
+ * fingerprint of (via probeRemoteFingerprint, in the dialog's stage 1).
+ * `confirmedFingerprint` must be exactly what the user saw and approved —
+ * never re-derive or re-probe it here.
  */
 export async function redeemPairingCode(
   hostId: string,
   endpoint: string,
-  pinnedFingerprint: string,
+  confirmedFingerprint: string,
   code: string,
   name: string,
 ): Promise<void> {
-  await registerRemoteHost(hostId, endpoint, pinnedFingerprint)
-  try {
-    const { token } = await apiFetch<PairResponse>('/v0/pair', {
-      method: 'POST',
-      body: JSON.stringify({ code, name }),
-      headers: { 'Content-Type': 'application/json' },
-    }, hostId)
-    await storeHostToken(hostId, token)
-    useHostConfigStore.getState().addHost({ id: hostId, name, endpoint, pinnedFingerprint })
-  } catch (err) {
-    await unregisterRemoteHost(hostId)
-    throw err
-  }
+  const clientId = await pairRemoteHost(hostId, endpoint, confirmedFingerprint, code, name)
+  useHostConfigStore.getState().addHost({
+    id: hostId,
+    name,
+    endpoint,
+    pairedFingerprint: confirmedFingerprint,
+    clientId,
+  })
 }
 ```
 
@@ -571,15 +586,15 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 vi.mock('@/features/hosts/lib/pairing', () => ({ redeemPairingCode: vi.fn() }))
-vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
+vi.mock('@/lib/crowbar-bridge', () => ({ probeRemoteFingerprint: vi.fn() }))
 
 import { redeemPairingCode } from '@/features/hosts/lib/pairing'
-import { apiFetch } from '@/lib/api'
+import { probeRemoteFingerprint } from '@/lib/crowbar-bridge'
 import { AddHostDialog } from '@/features/hosts/components/add-host-dialog'
 
 describe('AddHostDialog', () => {
   it('stage 1: entering a name and address and confirming the fingerprint advances to the code stage', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce({ fingerprint: 'SHA256:aaaa bbbb cccc dddd eeee ffff' })
+    vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa bbbb cccc dddd eeee ffff')
     render(<AddHostDialog open onOpenChange={() => {}} />)
 
     fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'homelab' } })
@@ -593,7 +608,7 @@ describe('AddHostDialog', () => {
   })
 
   it('does NOT call redeemPairingCode until the fingerprint has been confirmed', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce({ fingerprint: 'SHA256:aaaa' })
+    vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
     render(<AddHostDialog open onOpenChange={() => {}} />)
     fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'homelab' } })
     fireEvent.change(screen.getByLabelText(/address/i), { target: { value: '1.2.3.4:3737' } })
@@ -603,7 +618,7 @@ describe('AddHostDialog', () => {
   })
 
   it('stage 2: submitting a code calls redeemPairingCode with the confirmed fingerprint', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce({ fingerprint: 'SHA256:aaaa' })
+    vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
     vi.mocked(redeemPairingCode).mockResolvedValueOnce(undefined)
     render(<AddHostDialog open onOpenChange={() => {}} />)
     fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'homelab' } })
@@ -624,7 +639,7 @@ describe('AddHostDialog', () => {
 
 - [ ] **Step 4: Run to verify failure, then implement `AddHostDialog`**
 
-Build a two-stage form component: stage 1 collects `name`/`endpoint`, on submit calls `apiFetch<{fingerprint: string}>('/v0/pair/fingerprint-probe-or-similar', ..., newHostId)` — **note:** there is no dedicated "probe fingerprint" daemon endpoint in the daemon plan; the fingerprint is obtained by completing the TLS handshake itself (Task 2's `apiBaseFor` + a bare fetch triggers it), not a JSON field any endpoint returns. Before implementing this component, re-read the daemon plan's §3 and the Tauri bridge plan's Task 5 `forward_remote` to confirm exactly HOW a fingerprint becomes visible to the web layer on first connect — if no mechanism exists yet, add a minimal one as part of THIS step rather than guessing: the simplest correct shape is a new Tauri command `probe_remote_fingerprint(endpoint: string) -> Result<String, String>` that dials the address directly (bypassing the registry, since the host isn't registered yet) and returns whatever fingerprint the presented certificate has, for the UI to display — add this command in `desktop/src-tauri/src/api_proxy.rs` or `tls_pin.rs` (small, additive, its own tiny task-within-a-task with a `#[tauri::command]` and a unit test dialing a local self-signed test server) before wiring the dialog to it. Then stage 2 collects the 6-digit code and calls `redeemPairingCode`.
+Build a two-stage form component: stage 1 collects `name`/`endpoint`, on submit calls `probeRemoteFingerprint(endpoint)` (already built — Tauri bridge plan Task 5b — do not add a new command or route this through `apiFetch`) and displays the returned fingerprint for the user to confirm against what the CLI printed. Only on explicit confirmation does stage 2 (6-digit code entry) become reachable, and only submitting stage 2 calls `redeemPairingCode` with the confirmed fingerprint from stage 1 — never re-probe or silently reuse a stale value.
 
 - [ ] **Step 5: Run to verify the dialog tests pass**
 
@@ -649,7 +664,9 @@ git commit -m "feat(web): two-stage add-host dialog — address+fingerprint conf
 - Test: `web/src/__tests__/features/settings/components/tabs/hosts-settings.test.tsx`
 
 **Interfaces:**
-- Consumes: `useHostConfigStore` (Task 1), `useHostRuntime`/`getOrCreateHostRuntime` (Task 1), `startHostProbing` (Task 3), `AddHostDialog` (Task 4), `unregisterRemoteHost`/`forgetHostToken` (Tauri bridge).
+- Consumes: `useHostConfigStore` (Task 1), `useHostRuntime`/`getOrCreateHostRuntime` (Task 1), `startHostProbing` (Task 3), `AddHostDialog` (Task 4), `unregisterRemoteHost`/`forgetHostToken` (Tauri bridge), `apiFetch` (Task 2, called against the host being revoked, to reach its own `DELETE /v0/clients/:id` before dropping the local token).
+
+**Amendment — revoke must be server-side, not just local.** The original draft's revoke handler only called `unregisterRemoteHost`+`forgetHostToken` (Rust-local cleanup) and never told the daemon anything. Spec §3 is explicit: "Revoke ... marks the device permanently revoked server-side and drops the local keychain entry/config row" — both halves are required, not just the second. `pairRemoteHost` (Task 4) now returns the daemon's `clientId`, stored on each `Host` (Task 1) for exactly this purpose. Revoke order: `apiFetch('/v0/clients/' + host.clientId, {method: 'DELETE'}, host.id)` (server-side revoke, using the host's OWN clientId, over that host's own authed channel) **first**, then `unregisterRemoteHost`/`forgetHostToken` (Rust-local cleanup) **only after the server call succeeds** — if the server-side revoke fails (e.g. the host is currently unreachable), do not silently drop the local credential; surface the failure (this codebase's existing toast mechanism, per Task 10's pattern) so the user knows the host may still trust this device. Getting this ordering backwards (local cleanup first) would leave an orphaned, un-revocable authorized client on the daemon with no way for the desktop to ever clean it up again.
 
 - [ ] **Step 1: Add the tab**
 
@@ -665,16 +682,19 @@ Import `isTauri` from `@/lib/crowbar-bridge` and the icon from `@phosphor-icons/
 
 ```tsx
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 vi.mock('@/lib/crowbar-bridge', () => ({ isTauri: () => true, unregisterRemoteHost: vi.fn(), forgetHostToken: vi.fn() }))
+vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
 
+import { apiFetch } from '@/lib/api'
+import { unregisterRemoteHost, forgetHostToken } from '@/lib/crowbar-bridge'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { HostsSettings } from '@/features/settings/components/tabs/hosts-settings'
 
 describe('HostsSettings', () => {
   it('lists Local plus every saved host', () => {
-    useHostConfigStore.setState({ hosts: [{ id: 'h1', name: 'homelab', endpoint: '1.2.3.4:3737', pinnedFingerprint: 'SHA256:aaaa' }] })
+    useHostConfigStore.setState({ hosts: [{ id: 'h1', name: 'homelab', endpoint: '1.2.3.4:3737', pairedFingerprint: 'SHA256:aaaa', clientId: 'c1' }] })
     render(<HostsSettings />)
     expect(screen.getByText('Local')).toBeInTheDocument()
     expect(screen.getByText('homelab')).toBeInTheDocument()
@@ -694,19 +714,34 @@ describe('HostsSettings', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
-  it('clicking revoke on a saved host removes it from the config store', () => {
-    useHostConfigStore.setState({ hosts: [{ id: 'h1', name: 'homelab', endpoint: 'x', pinnedFingerprint: 'x' }] })
+  it('clicking revoke calls the daemon DELETE first, then local cleanup, then drops the config row', async () => {
+    useHostConfigStore.setState({ hosts: [{ id: 'h1', name: 'homelab', endpoint: 'x', pairedFingerprint: 'x', clientId: 'c1' }] })
+    vi.mocked(apiFetch).mockResolvedValueOnce(undefined)
     render(<HostsSettings />)
     const row = screen.getByText('homelab').closest('[data-testid="host-row"]')!
     fireEvent.click(row.querySelector('[aria-label*="revoke" i]')!)
-    expect(useHostConfigStore.getState().hosts).toEqual([])
+    await waitFor(() => expect(useHostConfigStore.getState().hosts).toEqual([]))
+    expect(apiFetch).toHaveBeenCalledWith('/v0/clients/c1', { method: 'DELETE' }, 'h1')
+    expect(unregisterRemoteHost).toHaveBeenCalledWith('h1')
+    expect(forgetHostToken).toHaveBeenCalledWith('h1')
+  })
+
+  it('a failed server-side revoke leaves the host config and local token untouched', async () => {
+    useHostConfigStore.setState({ hosts: [{ id: 'h1', name: 'homelab', endpoint: 'x', pairedFingerprint: 'x', clientId: 'c1' }] })
+    vi.mocked(apiFetch).mockRejectedValueOnce(new Error('host unreachable'))
+    render(<HostsSettings />)
+    const row = screen.getByText('homelab').closest('[data-testid="host-row"]')!
+    fireEvent.click(row.querySelector('[aria-label*="revoke" i]')!)
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled())
+    expect(unregisterRemoteHost).not.toHaveBeenCalled()
+    expect(useHostConfigStore.getState().hosts).toHaveLength(1)
   })
 })
 ```
 
 - [ ] **Step 3: Run to verify failure, then implement `HostsSettings`**
 
-Render a list: `LOCAL_HOST` first (no revoke control), then `useHostConfigStore((s) => s.hosts)` (narrow selector), each row showing name/endpoint and a status dot sourced via `useEffect` + `getOrCreateHostRuntime(host.id)`/`startHostProbing(host.id)` (subscribe in an effect, clean up the interval on unmount — side effects belong in the component per this plan's Global Constraints, not the store). An "Add host" button opens `AddHostDialog` (local `useState` for open/closed, per `AppDialog`'s own convention if that's what Task 4 used). Each non-local row's revoke button calls `unregisterRemoteHost(host.id)`, `forgetHostToken(host.id)`, then `useHostConfigStore.getState().removeHost(host.id)` — in that order, from an event handler (not render).
+Render a list: `LOCAL_HOST` first (no revoke control), then `useHostConfigStore((s) => s.hosts)` (narrow selector), each row showing name/endpoint and a status dot sourced via `useEffect` + `getOrCreateHostRuntime(host.id)`/`startHostProbing(host.id)` (subscribe in an effect, clean up the interval on unmount — side effects belong in the component per this plan's Global Constraints, not the store). An "Add host" button opens `AddHostDialog` (local `useState` for open/closed, per `AppDialog`'s own convention if that's what Task 4 used). Each non-local row's revoke button, from an event handler (not render): `await apiFetch('/v0/clients/' + host.clientId, { method: 'DELETE' }, host.id)` first; on success, `unregisterRemoteHost(host.id)`, `forgetHostToken(host.id)`, then `useHostConfigStore.getState().removeHost(host.id)`, in that order; on failure, toast the error and leave the host config/token untouched (see this task's Amendment above).
 
 - [ ] **Step 4: Run to verify the tests pass**
 
@@ -748,7 +783,7 @@ it('renders the project title in the heading font and a host subtitle with a sta
 })
 
 it('shows the remote host\'s name and a down-status dot when its runtime is "down"', () => {
-  useHostConfigStore.setState({ hosts: [{ id: 'h1', name: 'homelab-prox', endpoint: 'x', pinnedFingerprint: 'x' }] })
+  useHostConfigStore.setState({ hosts: [{ id: 'h1', name: 'homelab-prox', endpoint: 'x', pairedFingerprint: 'x' }] })
   getOrCreateHostRuntime('h1').getState().setStatus('down')
   const project = { id: 'p1', name: 'Quiver Sync', path: '/x', lastActivity: new Date(), hostId: 'h1' }
   render(<SpaceHeader project={project} /* ... */ />)
@@ -798,7 +833,7 @@ it('defaults the daemon selection to Local', () => {
 })
 
 it('lists a saved, reachable host as selectable', () => {
-  useHostConfigStore.setState({ hosts: [{ id: 'h1', name: 'homelab-prox', endpoint: 'x', pinnedFingerprint: 'x' }] })
+  useHostConfigStore.setState({ hosts: [{ id: 'h1', name: 'homelab-prox', endpoint: 'x', pairedFingerprint: 'x' }] })
   getOrCreateHostRuntime('h1').getState().setStatus('up')
   render(<CreateSpacePanel /* ... */ />)
   fireEvent.click(screen.getByRole('combobox', { name: /daemon/i }))
@@ -807,7 +842,7 @@ it('lists a saved, reachable host as selectable', () => {
 })
 
 it('lists an unreachable host but disabled, not hidden', () => {
-  useHostConfigStore.setState({ hosts: [{ id: 'h1', name: 'office-vm', endpoint: 'x', pinnedFingerprint: 'x' }] })
+  useHostConfigStore.setState({ hosts: [{ id: 'h1', name: 'office-vm', endpoint: 'x', pairedFingerprint: 'x' }] })
   getOrCreateHostRuntime('h1').getState().setStatus('down')
   render(<CreateSpacePanel /* ... */ />)
   fireEvent.click(screen.getByRole('combobox', { name: /daemon/i }))
@@ -865,8 +900,8 @@ import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-reg
 describe('fetchAllProjects', () => {
   it('fetches local plus every UP host, tagging each project with its hostId', async () => {
     useHostConfigStore.setState({ hosts: [
-      { id: 'h1', name: 'up-host', endpoint: 'x', pinnedFingerprint: 'x' },
-      { id: 'h2', name: 'down-host', endpoint: 'x', pinnedFingerprint: 'x' },
+      { id: 'h1', name: 'up-host', endpoint: 'x', pairedFingerprint: 'x' },
+      { id: 'h2', name: 'down-host', endpoint: 'x', pairedFingerprint: 'x' },
     ]})
     getOrCreateHostRuntime('h1').getState().setStatus('up')
     getOrCreateHostRuntime('h2').getState().setStatus('down')
@@ -883,7 +918,7 @@ describe('fetchAllProjects', () => {
   })
 
   it('one host failing to fetch does not fail the others', async () => {
-    useHostConfigStore.setState({ hosts: [{ id: 'h1', name: 'flaky', endpoint: 'x', pinnedFingerprint: 'x' }] })
+    useHostConfigStore.setState({ hosts: [{ id: 'h1', name: 'flaky', endpoint: 'x', pairedFingerprint: 'x' }] })
     getOrCreateHostRuntime('h1').getState().setStatus('up')
     vi.mocked(apiFetch).mockImplementation(async (_path, _init, hostId) => {
       if (hostId === 'h1') throw new Error('boom')
@@ -1154,9 +1189,14 @@ it('a host transitioning to "up" re-fetches only that host\'s projects', async (
 
 Run: `cd web && bunx vitest run src/__tests__/lib/store/projects.test.ts`
 
-- [ ] **Step 5: Host-unreachable action error**
+- [ ] **Step 5: Host-unreachable and host-identity-changed action errors are distinct, not the same toast**
 
-Find (or, if genuinely absent, add minimally) the point where opening/acting on a project's workspace makes its first API call; catch a network/connection failure there and surface a clear "host unreachable" message via this codebase's existing toast mechanism (`features/window/stores/toast-store.ts`, already used elsewhere — do not build a new notification surface), rather than letting the action hang or fail silently. Write a test asserting the toast fires when `apiFetch` for that host's `hostId` rejects.
+Find (or, if genuinely absent, add minimally) the point where opening/acting on a project's workspace makes its first API call; catch a rejection there and surface a message via this codebase's existing toast mechanism (`features/window/stores/toast-store.ts`, already used elsewhere — do not build a new notification surface), rather than letting the action hang or fail silently. Use `isHostUnreachableError`/`isHostIdentityChangedError` (Task 2's Step 5b) to tell the two apart — do not lump every rejection into one generic "host unreachable" message:
+- `host-unreachable` (or any other connection failure): the existing "host unreachable" toast, non-alarming, matches a transient network blip.
+- `host-identity-changed`: a distinctly worded, more alarming message (spec §3: "hard reject with a clear 'this host's identity changed' warning") — this is a potential MITM/re-imaged-server event, not a connectivity blip, and must read as one. Also set that host's runtime status to `'needs-repair'` (Task 1/3) here, the same as Task 3's health-probe path does, so the Settings row reflects it even if the user dismisses the toast.
+- A 401 specifically on a host whose runtime status was already `'up'` (i.e. a credential that worked moments ago suddenly doesn't — spec §3: "a 401 mid-session on an otherwise-'up' host marks it needs-repair rather than silently retrying") also sets `'needs-repair'`, distinct from both of the above — do not retry the request.
+
+Write tests asserting: the unreachable toast fires and status stays/becomes `'down'` on a plain rejection; the identity-changed toast (distinct copy) fires and status becomes `'needs-repair'` on that marker; a mid-session 401 on a previously-`'up'` host sets `'needs-repair'` without retrying.
 
 - [ ] **Step 6: `tsc`, lint, full web test suite**
 
