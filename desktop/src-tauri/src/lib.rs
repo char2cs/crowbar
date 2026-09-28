@@ -2,6 +2,7 @@ mod api_proxy;
 mod console_menu;
 mod diagnostics;
 mod fdlimit;
+mod host_tokens;
 mod navigation;
 mod sidecar;
 mod tls_pin;
@@ -1042,6 +1043,7 @@ pub fn run() {
     builder
         .manage(sidecar::SidecarHandle::new())
         .manage(ws_bridge::WsBridgeManager::new())
+        .manage(Box::new(host_tokens::KeyringTokenStore) as Box<dyn host_tokens::TokenStore>)
         // A page load orphans every bridged connection the outgoing page owned: its JS
         // is gone and will never close ids it no longer remembers, and the new page
         // opens its own. Nothing else can notice — a `Channel` keeps working across a
@@ -1140,6 +1142,8 @@ pub fn run() {
             ws_bridge::ws_send,
             ws_bridge::ws_close,
             diagnostics::diagnostics_export,
+            host_tokens::store_host_token,
+            host_tokens::forget_host_token,
             reveal_in_finder,
             set_vibrancy_appearance,
             set_traffic_light_position,
