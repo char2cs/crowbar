@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { layoutHeight } from '@/lib/layout-size'
 import type { KeyboardEvent, ReactNode, Ref } from 'react'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
 import {
@@ -28,6 +29,7 @@ import {
   type ComposerRevival,
 } from '@/features/agent/composer/lib/composer-state'
 import { ComposerSlashPicker } from '@/features/agent/composer/composer-slash-picker'
+import { ComposerStashPicker } from '@/features/agent/composer/composer-stash-picker'
 import type { CaretEdges } from '@/features/agent/composer/plate/chat-markdown-editor'
 import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
 import { ProviderBar } from '@/features/agent/controls/provider-bar'
@@ -56,6 +58,14 @@ import {
 import { usePromptHistory } from '@/features/agent/hooks/use-prompt-history'
 import { usePromptQueue } from '@/features/agent/hooks/use-prompt-queue'
 import { useSlashCatalog } from '@/features/agent/hooks/use-slash-catalog'
+import {
+  addPromptStash,
+  createPromptStash,
+  loadPromptStashes,
+  matchesPromptStashShortcut,
+  savePromptStashes,
+  type PromptStash,
+} from '@/features/agent/composer/lib/prompt-stash-persistence'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
@@ -166,6 +176,8 @@ export interface AgentChatViewProps {
   toolOutput?: { id: string; text: string }
   /** The agent's own to-do list — see WorkingLine's own prop doc. */
   plan?: { text: string; status: string }[]
+  /** The newest complete unified diff for the current turn. */
+  diff?: { id: string; text: string }
   /** Prune confirmed ids out of the store's own streamingMessages[chatId] —
    *  see useChatMessages' onStreamingSettled for why this is safe where a
    *  turn-boundary clear was not. */
@@ -346,6 +358,7 @@ export function AgentChatView({
   reasoning,
   toolOutput,
   plan,
+  diff,
   onStreamingSettled,
   onPromptSpawned,
   onPromptDispatchStart,
@@ -386,6 +399,8 @@ export function AgentChatView({
   const [initialScrollPosition] = useState(() => getScrollPosition(chatId))
 
   const [draft, setDraft] = useState('')
+  const [promptStashes, setPromptStashes] = useState(() => loadPromptStashes(wsId, chatId))
+  const [stashPickerOpen, setStashPickerOpen] = useState(false)
   // The box is UNCONTROLLED — a controlled contenteditable rebuilds itself under
   // the caret — so text pushed in from outside arrives by REMOUNT.
   //
@@ -447,7 +462,7 @@ export function AgentChatView({
     // surface dropping the dock entirely — reports 0 through the `!node` branch
     // above, which is the only place it means anything.
     const report = () => {
-      const height = node.getBoundingClientRect().height
+      const height = layoutHeight(node)
       if (height > 0) setDockHeight(height)
     }
     report()
@@ -695,10 +710,65 @@ export function AgentChatView({
   const updateDraft = (value: string) => {
     setDraft(value)
     setComposerError('')
+    setStashPickerOpen(false)
     slash.noteDraft(value)
     // A real edit abandons wherever history recall had gotten to — the next
     // ArrowUp starts a fresh walk from the newest turn, stashing THIS text.
     history.reset()
+  }
+
+  const restorePromptStash = (item: PromptStash) => {
+    // The picker can remain mounted while a pointer/keyboard event changes the
+    // editor. Never let a delayed selection replace words that arrived after
+    // the picker opened.
+    if (draft.trim()) {
+      setStashPickerOpen(false)
+      setComposerError('Stash or clear the current draft before restoring another one.')
+      return
+    }
+    const remaining = promptStashes.filter((candidate) => candidate.id !== item.id)
+    if (!savePromptStashes(wsId, chatId, remaining)) {
+      setComposerError('Could not update saved prompt stashes. The current draft was not changed.')
+      return
+    }
+    setPromptStashes(remaining)
+    setStashPickerOpen(false)
+    seedDraft(item.markdown)
+    setComposerError('')
+    slash.noteDraft(item.markdown)
+    // Stash restoration is a new editing branch, never a continuation of an
+    // ArrowUp/ArrowDown walk through sent-message history.
+    history.reset()
+  }
+
+  const stashOrRestorePrompt = (markdown: string) => {
+    if (markdown.trim()) {
+      const item = createPromptStash(markdown)
+      if (!item) {
+        setComposerError('This draft is too large to stash.')
+        return
+      }
+      const next = addPromptStash(promptStashes, item)
+      if (!savePromptStashes(wsId, chatId, next)) {
+        setComposerError('Could not save this prompt stash. The current draft was not changed.')
+        return
+      }
+      setPromptStashes(next)
+      setStashPickerOpen(false)
+      seedDraft('')
+      setComposerError('')
+      slash.reset()
+      history.reset()
+      return
+    }
+
+    if (promptStashes.length === 0) return
+    if (promptStashes.length === 1) {
+      restorePromptStash(promptStashes[0])
+      return
+    }
+    setComposerError('')
+    setStashPickerOpen(true)
   }
 
   // `text` overrides the draft state for a surface that HOLDS its own text. The
@@ -784,6 +854,12 @@ export function AgentChatView({
     readMarkdown: () => string,
     caret: CaretEdges,
   ) => {
+    if (matchesPromptStashShortcut(event)) {
+      event.preventDefault()
+      event.stopPropagation()
+      stashOrRestorePrompt(readMarkdown())
+      return
+    }
     if (event.key === 'Escape' && slash.open) {
       event.preventDefault()
       slash.close()
@@ -961,6 +1037,7 @@ export function AgentChatView({
       reasoning={reasoning}
       toolOutput={toolOutput}
       plan={plan}
+      diff={diff}
       loading={ledger.loading}
       error={ledger.error}
       hasOlder={ledger.hasOlder}
@@ -1024,6 +1101,15 @@ export function AgentChatView({
       <DndScope>
         <ChatMarkdownAssetProvider wsId={wsId} chatId={chatId}>
           <section className="agent-chat chat" aria-label="Agent chat" style={headerClearanceStyle}>
+            {stashPickerOpen && (
+              <div className="blank-stash-picker">
+                <ComposerStashPicker
+                  items={promptStashes}
+                  onSelect={restorePromptStash}
+                  onClose={() => setStashPickerOpen(false)}
+                />
+              </div>
+            )}
             <AgentEmptyDocument
               ref={emptyDocRef}
               wsId={wsId}
@@ -1043,7 +1129,7 @@ export function AgentChatView({
               banner={blankSignpost}
             />
             {composerError && (
-              <p className="meta" role="alert">
+              <p className="meta composer-note" role="alert">
                 {composerError}
               </p>
             )}
@@ -1078,6 +1164,13 @@ export function AgentChatView({
 
           <div ref={dockRef} className="dock">
             <SubagentShelf activity={activity} />
+            {stashPickerOpen && (
+              <ComposerStashPicker
+                items={promptStashes}
+                onSelect={restorePromptStash}
+                onClose={() => setStashPickerOpen(false)}
+              />
+            )}
             {slash.open && (
               <ComposerSlashPicker
                 state={slash.state}
@@ -1087,7 +1180,7 @@ export function AgentChatView({
               />
             )}
             {sessionNote && (
-              <p className="meta session-note" data-testid="agent-session-note">
+              <p className="meta composer-note" data-testid="agent-session-note">
                 {sessionNote}
               </p>
             )}
@@ -1154,7 +1247,7 @@ export function AgentChatView({
               handoverBlocked={!provider?.hotswap && working}
             />
             {(composerError || prompts.persistenceLost) && (
-              <p className="meta" role="alert">
+              <p className="meta composer-note" role="alert">
                 {composerError ||
                   'Pending prompts cannot be saved on this device. Keep Crowbar open until they finish.'}
               </p>

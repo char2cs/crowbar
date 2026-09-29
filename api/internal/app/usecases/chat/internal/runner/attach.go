@@ -289,21 +289,17 @@ func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
 	if err != nil {
 		return fmt.Errorf("agent: switch to native: live runner: %w", err)
 	}
-	if view, ok := rs.attached.get(live.ID); ok {
-		rs.detachNativeView(ctx, chatID, live, view)
+	view, attachedView := rs.attached.get(live.ID)
+	if !attachedView && rs.surfaces.get(live.ID) != engineagents.SurfaceTerminal {
 		return nil
 	}
-	if rs.surfaces.get(live.ID) != engineagents.SurfaceTerminal {
-		return nil
+	if !attachedView {
+		handled, err := rs.moveSharedProcessSurface(ctx, chatID, live.ID)
+		if err != nil || handled {
+			return err
+		}
 	}
-	_, agent, err := rs.chatCapabilityContext(ctx, chatID)
-	if err != nil {
-		return fmt.Errorf("agent: switch to native: %w", err)
-	}
-	if !apiTransportDrivesSurface(agent, engineagents.SurfaceChat) {
-		rs.moveSurface(ctx, chatID, live.ID, engineagents.SurfaceChat)
-		return nil
-	}
+	// Both teardown paths end the process the user is watching.
 	working, err := rs.turns.ChatWorking(ctx, chatID)
 	if err != nil {
 		return fmt.Errorf("agent: switch to native: chat working: %w", err)
@@ -311,8 +307,28 @@ func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
 	if working {
 		return ErrTurnInProgress
 	}
+	if attachedView {
+		rs.detachNativeView(ctx, chatID, live, view)
+		return nil
+	}
 	_, err = rs.respawnOnSurface(ctx, park, chatID, live.ProviderID, engineagents.SurfaceChat)
 	return err
+}
+
+// moveSharedProcessSurface handles a provider whose chat surface is hooks-fed:
+// the same process keeps serving, so only the surface flag moves.
+func (rs *Runners) moveSharedProcessSurface(
+	ctx context.Context, chatID, runnerID string,
+) (bool, error) {
+	_, agent, err := rs.chatCapabilityContext(ctx, chatID)
+	if err != nil {
+		return false, fmt.Errorf("agent: switch to native: %w", err)
+	}
+	if apiTransportDrivesSurface(agent, engineagents.SurfaceChat) {
+		return false, nil
+	}
+	rs.moveSurface(ctx, chatID, runnerID, engineagents.SurfaceChat)
+	return true, nil
 }
 
 // detachNativeView reverses attachNativeView: the view's PTY is torn down and

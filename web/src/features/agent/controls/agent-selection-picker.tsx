@@ -362,8 +362,7 @@ export function AgentSelectionPicker({
     const result: ProviderSection[] = []
     for (const candidate of catalogueProviders) {
       // A query matching the PROVIDER's own name surfaces every model
-      // under it, same as T3code's own model picker treats a provider
-      // match — typing "codex" should not require also knowing a model name.
+      // under it — typing "codex" should not require also knowing a model name.
       const sectionScore = fuzzyScore(query, candidate.displayName)
       const rows: ModelRow[] = []
       for (const m of candidate.models ?? []) {

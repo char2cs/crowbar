@@ -38,4 +38,7 @@ const (
 
 	// HookPlanUpdate is the agent restating its own to-do list for this turn.
 	HookPlanUpdate = "plan_update"
+
+	// HookDiffUpdate is the newest complete unified diff for the current turn.
+	HookDiffUpdate = "diff_update"
 )

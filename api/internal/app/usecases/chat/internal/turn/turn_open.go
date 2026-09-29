@@ -20,6 +20,11 @@ func (t *Turns) openTurnFromPrompt(
 	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
 ) error {
+	// A prompt fired inside a subagent is the parent agent talking to it, never the
+	// user; the subagent's own events already carry its activity.
+	if ev.Subagent != nil {
+		return nil
+	}
 	// WHOSE WORDS ARE THESE? Three different authors reach this one hook — the
 	// user, Crowbar's own injected handoff, and the provider's harness — and the
 	// two checks below are what tell them apart. Neither is a guess about the

@@ -10,8 +10,11 @@ type InvokeTool struct {
 	ChatID     string
 	ToolID     string
 	Name       string
+	Kind       string
+	Locations  []domain.ActivityToolLocation
 	Target     string
 	RequestRef string
+	Diff       string
 	Now        time.Time
 }
 
@@ -37,8 +40,11 @@ func (c InvokeTool) EmitEvent(current *domain.ChatActivity) domain.ChatActivity 
 		ChatID:     c.ChatID,
 		Seq:        next.Seq,
 		Name:       c.Name,
+		Kind:       c.Kind,
+		Locations:  c.Locations,
 		Target:     c.Target,
 		RequestRef: c.RequestRef,
+		Diff:       c.Diff,
 		Status:     domain.ToolStatusRunning,
 		StartedAt:  c.Now,
 	}

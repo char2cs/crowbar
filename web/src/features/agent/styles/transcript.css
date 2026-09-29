@@ -588,50 +588,105 @@
 .agent-chat .tools {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin: 10px 0 0;
+  gap: 1px;
+  margin: 0;
   padding: 0;
   list-style: none;
   font-size: var(--ui-text-xs);
   color: var(--muted-foreground);
 }
 .agent-chat .tools li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: block;
+  min-width: 0;
   margin: 0;
   line-height: 1.5;
 }
-/* A row's own SUMMARY (its name, error caption, duration) lays out the same
-   whether or not it is wrapped in a <details> — `<details>` opens the payload
-   below it, `<summary>` here is where the ROW's own flex layout actually
-   lives once one is present. */
-.agent-chat .tools li > details {
-  width: 100%;
+.agent-chat .row[data-nested] {
+  margin-inline-start: 22px;
 }
-.agent-chat .tools li > details > summary {
+.agent-chat .tool-turn-diff {
+  width: 100%;
+  margin: 5px 0 10px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: var(--radius-lg);
+  color: var(--foreground);
+}
+.agent-chat .tools li > .tool-row {
+  position: relative;
+}
+.agent-chat .tool-row .tool-call-summary {
+  padding-right: 26px;
+}
+.agent-chat .tool-row-toggle {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+.agent-chat .tool-row-toggle svg {
+  transition: transform 120ms ease;
+}
+.agent-chat .tool-row-toggle[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+.agent-chat .tool-row-toggle:hover,
+.agent-chat .tool-row-toggle:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--muted) 42%, transparent);
+  color: var(--foreground);
+}
+.agent-chat .tool-call-summary {
   display: flex;
   align-items: center;
-  gap: 10px;
-  cursor: pointer;
-  list-style: none;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 2px 3px;
 }
-.agent-chat .tools li > details > summary::-webkit-details-marker {
-  display: none;
+.agent-chat .tool-call-verb {
+  flex: none;
+  color: color-mix(in srgb, var(--foreground) 82%, var(--muted-foreground));
 }
-.agent-chat .tools li > span:first-child,
-.agent-chat .tools li > details > summary > span:first-child {
+.agent-chat .tool-call-subject {
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
 }
-.agent-chat .tools li > details[open] > summary > span:first-child {
-  overflow: visible;
-  white-space: normal;
+.agent-chat .tool-call-duration {
+  flex: none;
+  margin-left: auto;
+  color: color-mix(in srgb, var(--muted-foreground) 78%, transparent);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+.agent-chat .tools .kind {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted-foreground);
+  flex: none;
 }
 /* `AgentToolCall.error` (turn-tools.tsx) — a short caption for a failed call,
    shown next to its name rather than only inferred from the row's colour. */
 .agent-chat .tools .err {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -640,6 +695,8 @@
    One line — it is a sign of progress, not a log, and the full output is on the
    call once it finishes. */
 .agent-chat .tools .out {
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -650,8 +707,8 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  width: 100%;
-  margin: 6px 0 4px;
+  margin: 4px 0 6px 22px;
+  width: calc(100% - 22px);
 }
 .agent-chat .tools .payload-label {
   margin: 0;
@@ -684,16 +741,12 @@
 .agent-chat .tools li[data-status='error'] {
   color: var(--destructive);
 }
-.agent-chat .tools li[data-status='error']::before {
-  content: '✕';
-  flex: none;
+.agent-chat .tools li[data-status='declined'] {
+  color: var(--muted-foreground);
+  opacity: 0.72;
 }
 .agent-chat .tools li[data-status='abandoned'] {
   opacity: 0.6;
-}
-.agent-chat .tools li[data-status='abandoned']::before {
-  content: '–';
-  flex: none;
 }
 /* A resolved choice (AgentTurnChoices) that was never actually answered
    through Crowbar reads the same muted way an abandoned tool call does. */

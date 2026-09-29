@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { AgentChatMessage } from '@/features/agent/api/agent-api'
+import type { ActivityComponent } from '@/features/agent/lib/activity-components'
 import {
   flattenTranscriptRows,
   type DividerTag,
@@ -132,5 +133,101 @@ describe('flattenTranscriptRows', () => {
 
     const keys = rows.map((r) => r.key)
     expect(new Set(keys).size).toBe(keys.length)
+  })
+
+  it('merges messages and activity by their immutable creation time and keeps component keys stable on updates', () => {
+    const tool: ActivityComponent = {
+      id: 'tool-1',
+      turnId: 't1',
+      seq: 9,
+      kind: 'tool_call',
+      status: 'active',
+      createdAt: '2026-09-01T12:00:01.000Z',
+      updatedAt: '2026-09-01T12:00:01.000Z',
+      payload: { name: 'Edit' },
+    }
+    const messages = [
+      { ...msg(2, 'assistant'), at: '2026-09-01T12:00:02.000Z' },
+      { ...msg(1), at: '2026-09-01T12:00:00.000Z' },
+    ]
+    const initial = flattenTranscriptRows({
+      messages,
+      components: [tool],
+      firstTurnSequence: undefined,
+    })
+    const updated = flattenTranscriptRows({
+      messages,
+      components: [{ ...tool, status: 'completed', updatedAt: '2026-09-01T12:00:03.000Z' }],
+      firstTurnSequence: undefined,
+    })
+
+    expect(initial.map((row) => row.key)).toEqual(['message-1', 'activity-tool-1', 'message-2'])
+    expect(updated.map((row) => row.key)).toEqual(initial.map((row) => row.key))
+    expect(updated[1]).toMatchObject({
+      kind: 'activity',
+      component: { id: 'tool-1', status: 'completed' },
+    })
+  })
+
+  it('merges streaming messages into the same timeline and does not duplicate a settled sequence', () => {
+    const rows = flattenTranscriptRows({
+      messages: [{ ...msg(1), at: '2026-09-01T12:00:00Z' }],
+      streamingMessages: [
+        { ...msg(1, 'assistant'), at: '2026-09-01T12:00:00Z' },
+        { ...msg(2, 'assistant'), at: '2026-09-01T12:00:02Z' },
+      ],
+      components: [],
+      firstTurnSequence: undefined,
+    })
+
+    expect(rows.filter((row) => row.kind === 'message')).toHaveLength(2)
+    expect(rows.at(-1)).toMatchObject({
+      kind: 'message',
+      message: { sequence: 2 },
+      streaming: true,
+    })
+  })
+
+  it('omits a canonical child rendered inside its owner without changing other row identities', () => {
+    const diff: ActivityComponent = {
+      id: 'turn-1:diff',
+      turnId: 'turn-1',
+      parentId: 'turn-1',
+      seq: 3,
+      kind: 'diff',
+      status: 'completed',
+      createdAt: '2026-09-01T12:00:01Z',
+      updatedAt: '2026-09-01T12:00:01Z',
+      payload: { unifiedDiff: 'diff --git a/a b/a' },
+    }
+    const plan = { ...diff, id: 'turn-1:plan', kind: 'plan' as const, payload: { steps: [] } }
+    const rows = flattenTranscriptRows({
+      messages: [],
+      components: [diff, plan],
+      excludeComponentIds: new Set([diff.id]),
+      firstTurnSequence: undefined,
+    })
+
+    expect(rows.map((row) => row.key)).toEqual(['activity-turn-1:plan'])
+  })
+
+  it('renders no row for a status notice, which only echoes a message or choice', () => {
+    const notice: ActivityComponent = {
+      id: 'i1',
+      turnId: 'turn-1',
+      seq: 2,
+      kind: 'status_notice',
+      status: 'completed',
+      createdAt: '2026-09-01T12:00:01Z',
+      updatedAt: '2026-09-01T12:00:01Z',
+      payload: { interruption: { id: 'i1', kind: 'permission' } },
+    }
+    const rows = flattenTranscriptRows({
+      messages: [],
+      components: [notice],
+      firstTurnSequence: undefined,
+    })
+
+    expect(rows).toEqual([])
   })
 })

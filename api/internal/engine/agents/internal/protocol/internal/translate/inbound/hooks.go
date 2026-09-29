@@ -159,7 +159,7 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channe
 			}
 		}
 	}
-	return build(canonical, fields, d.EventSteps(canonical), decoded), nil
+	return build(canonical, fields, d.EventSteps(canonical), d.EventStatusMap(canonical), d.EventKindMap(canonical), d.EventLocations(canonical), d.EventPatch(canonical), decoded), nil
 }
 
 func decode(d *spec.Descriptor, raw []byte) (map[string]any, error) {
@@ -196,24 +196,36 @@ func build(
 	canonical string,
 	fields spec.FieldMap,
 	steps *spec.StepsSpec,
+	statusMap map[string]string,
+	kindMap map[string]string,
+	locations *spec.LocationsSpec,
+	patch *spec.PatchSpec,
 	decoded map[string]any,
 ) models.CanonicalEvent {
 	get := func(name string) string { return mapping.String(decoded, fields[name]) }
 
 	ev := models.CanonicalEvent{
-		Kind:      canonical,
-		SessionID: get("session_id"),
-		Message:   get("message"),
-		TurnID:    get("turn_id"),
-		AsyncWork: mapping.Count(decoded, fields["async_work"]),
-		Model:     get("model"),
-		Effort:    get("effort"),
-		Reason:    get("reason"),
-		Raw:       decoded,
+		Kind:       canonical,
+		SessionID:  get("session_id"),
+		Message:    get("message"),
+		TurnID:     get("turn_id"),
+		TurnStatus: get("turn_status"),
+		AsyncWork:  mapping.Count(decoded, fields["async_work"]),
+		Model:      get("model"),
+		Effort:     get("effort"),
+		Reason:     get("reason"),
+		Raw:        decoded,
+	}
+	if mapped, ok := statusMap[ev.TurnStatus]; ok {
+		ev.TurnStatus = mapped
 	}
 	switch canonical {
+	case spec.HookUserPrompt:
+		if id := get("subagent_id"); id != "" {
+			ev.Subagent = &models.SubagentEvent{ID: id}
+		}
 	case spec.HookToolPre, spec.HookToolPost, spec.HookToolFail:
-		ev.Tool = buildTool(fields, decoded)
+		ev.Tool = buildTool(fields, statusMap, kindMap, locations, patch, decoded)
 	case spec.HookSubagentPre, spec.HookSubagentPost:
 		ev.Subagent = &models.SubagentEvent{
 			ID:        get("subagent_id"),
@@ -227,7 +239,8 @@ func build(
 	case spec.HookElicitation:
 		ev.Interrupt = &models.InterruptEvent{Kind: models.InterruptElicitation, Detail: ev.Message}
 		ev.Choice = elicitationChoice(fields, decoded, ev.Message)
-	case spec.HookMessageDelta, spec.HookReasoningDelta, spec.HookToolOutputDelta:
+	case spec.HookMessageDelta, spec.HookReasoningDelta, spec.HookToolOutputDelta,
+		spec.HookDiffUpdate:
 		// Same payload shape, deliberately: a thought and an answer are both
 		// streamed text belonging to one item. Only ev.Kind tells them apart, and
 		// only the consumer acts on that difference.
@@ -290,20 +303,68 @@ func buildPlan(steps *spec.StepsSpec, decoded map[string]any) []models.PlanStep 
 	return out
 }
 
-func buildTool(fields spec.FieldMap, decoded map[string]any) *models.ToolEvent {
+func buildTool(fields spec.FieldMap, statusMap, kindMap map[string]string, locations *spec.LocationsSpec, patch *spec.PatchSpec, decoded map[string]any) *models.ToolEvent {
 	duration, _ := mapping.Int(decoded, fields["duration_ms"])
+	status := mapping.String(decoded, fields["tool_status"])
+	if mapped, ok := statusMap[status]; ok {
+		status = mapped
+	}
+	kind := mapping.String(decoded, fields["tool_kind"])
+	if mapped, ok := kindMap[kind]; ok {
+		kind = mapped
+	}
 	return &models.ToolEvent{
-		ID:     mapping.String(decoded, fields["tool_id"]),
-		Name:   mapping.String(decoded, fields["tool_name"]),
-		Target: mapping.String(decoded, fields["tool_target"]),
-		Input:  mapping.JSON(decoded, fields["tool_input"]),
+		ID:        mapping.String(decoded, fields["tool_id"]),
+		Name:      mapping.String(decoded, fields["tool_name"]),
+		Kind:      kind,
+		Locations: buildLocations(locations, decoded),
+		Target:    mapping.String(decoded, fields["tool_target"]),
+		Input:     mapping.JSON(decoded, fields["tool_input"]),
+
+		EditBefore: mapping.String(decoded, fields["edit_before"]),
+		EditAfter:  mapping.String(decoded, fields["edit_after"]),
+		Patch:      buildPatch(patch, decoded),
 
 		Result:          mapping.JSON(decoded, fields["tool_result"]),
 		Error:           mapping.String(decoded, fields["tool_error"]),
-		Status:          mapping.String(decoded, fields["tool_status"]),
+		Status:          status,
 		DurationMS:      duration,
 		NestedSessionID: mapping.String(decoded, fields["nested_session_id"]),
 	}
+}
+
+func buildPatch(patch *spec.PatchSpec, decoded map[string]any) []models.PatchHunk {
+	if patch == nil {
+		return nil
+	}
+	var out []models.PatchHunk
+	for _, row := range mapping.Objects(decoded, []string{patch.Items}) {
+		oldStart, _ := mapping.Int(row, []string{patch.OldStart})
+		newStart, _ := mapping.Int(row, []string{patch.NewStart})
+		lines := mapping.Strings(row, []string{patch.Lines})
+		if len(lines) == 0 {
+			continue
+		}
+		out = append(out, models.PatchHunk{OldStart: oldStart, NewStart: newStart, Lines: lines})
+	}
+	return out
+}
+
+func buildLocations(specification *spec.LocationsSpec, decoded map[string]any) []models.ToolLocation {
+	if specification == nil || specification.Items == "" || specification.Path == "" {
+		return nil
+	}
+	rows := mapping.Objects(decoded, []string{specification.Items})
+	out := make([]models.ToolLocation, 0, len(rows))
+	for _, row := range rows {
+		path := mapping.String(row, []string{specification.Path})
+		if path == "" {
+			continue
+		}
+		line, _ := mapping.Int(row, []string{specification.Line})
+		out = append(out, models.ToolLocation{Path: path, Line: line})
+	}
+	return out
 }
 
 func Declared(d *spec.Descriptor) []string {

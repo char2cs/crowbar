@@ -331,20 +331,52 @@ type AgentMessagePageDTO struct {
 // activity yields an empty one, and the client renders nothing rather than a
 // disabled control implying breakage.
 type AgentActivityDTO struct {
-	ToolCalls     []AgentToolCallDTO     `json:"toolCalls"`
-	Subagents     []AgentSubagentDTO     `json:"subagents"`
-	Interruptions []AgentInterruptionDTO `json:"interruptions"`
-	Choices       []AgentChoiceDTO       `json:"choices"`
+	ToolCalls     []AgentToolCallDTO          `json:"toolCalls"`
+	Subagents     []AgentSubagentDTO          `json:"subagents"`
+	Interruptions []AgentInterruptionDTO      `json:"interruptions"`
+	Choices       []AgentChoiceDTO            `json:"choices"`
+	Components    []AgentActivityComponentDTO `json:"components"`
+}
+
+// AgentActivityComponentDTO is the provider-neutral ordered activity stream.
+// Payload remains structured JSON so adding a field to one component kind does
+// not force unrelated providers or older clients to understand it.
+type AgentActivityComponentDTO struct {
+	ID          string                            `json:"id"`
+	TurnID      string                            `json:"turnId"`
+	ParentID    string                            `json:"parentId,omitempty"`
+	Seq         int64                             `json:"seq"`
+	Kind        string                            `json:"kind"`
+	Status      string                            `json:"status"`
+	CreatedAt   time.Time                         `json:"createdAt"`
+	UpdatedAt   time.Time                         `json:"updatedAt"`
+	CompletedAt *time.Time                        `json:"completedAt,omitempty"`
+	Payload     map[string]any                    `json:"payload"`
+	Updates     []AgentActivityComponentUpdateDTO `json:"updates,omitempty"`
+}
+
+// AgentActivityComponentUpdateDTO is one stable, ordered lifecycle change for
+// a component. The owning ledger currently retains lifecycle boundaries rather
+// than every live text delta; live deltas continue over the chat stream.
+type AgentActivityComponentUpdateDTO struct {
+	ID      string         `json:"id"`
+	Seq     int            `json:"seq"`
+	Kind    string         `json:"kind"`
+	At      time.Time      `json:"at"`
+	Status  string         `json:"status"`
+	Payload map[string]any `json:"payload"`
 }
 
 // AgentToolCallDTO is one tool invocation. The payloads themselves are NOT here:
 // they are content-addressed and fetched on demand, so a chat with a thousand
 // tool calls does not ship megabytes of tool output to render a timeline.
 type AgentToolCallDTO struct {
-	ID     string `json:"id"`
-	TurnID string `json:"turnId"`
-	Seq    int64  `json:"seq"`
-	Name   string `json:"name"`
+	ID        string                 `json:"id"`
+	TurnID    string                 `json:"turnId"`
+	Seq       int64                  `json:"seq"`
+	Name      string                 `json:"name"`
+	Kind      string                 `json:"kind,omitempty"`
+	Locations []AgentToolLocationDTO `json:"locations,omitempty"`
 	// Target is the file, command or URL the tool acted on, when the provider
 	// reports one. Empty is legible; a guess would be wrong.
 	Target string `json:"target,omitempty"`
@@ -355,12 +387,19 @@ type AgentToolCallDTO struct {
 	DurationMS int    `json:"durationMs,omitempty"`
 	HasRequest bool   `json:"hasRequest"`
 	HasResult  bool   `json:"hasResult"`
+	// Diff is a unified diff of an edit call's own change, when known.
+	Diff string `json:"diff,omitempty"`
 	// SubagentID — see domain.ActivityToolCall's own doc. Set instead of
 	// TurnID when this call belongs to a SUBAGENT's own nested activity, not
 	// the chat's top-level turn.
 	SubagentID string     `json:"subagentId,omitempty"`
 	StartedAt  time.Time  `json:"startedAt"`
 	EndedAt    *time.Time `json:"endedAt,omitempty"`
+}
+
+type AgentToolLocationDTO struct {
+	Path string `json:"path"`
+	Line int    `json:"line,omitempty"`
 }
 
 type AgentSubagentDTO struct {
@@ -737,6 +776,7 @@ type AgentProviderDTO struct {
 	TerminalStartHere bool     `json:"terminalStartHere"`
 	ModelSelect       bool     `json:"modelSelect"`
 	EffortSelect      bool     `json:"effortSelect"`
+	ActivityEvents    []string `json:"activityEvents,omitempty"`
 	Models            []string `json:"models,omitempty"`
 	// DefaultModel is domain.AgentProvider.DefaultModel: the provider's OWN
 	// stated default, omitted (never sent as "") when unknown — an absent

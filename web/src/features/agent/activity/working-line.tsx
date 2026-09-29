@@ -6,10 +6,10 @@ import {
   blocksOnAPerson,
   describeInterruption,
   pendingChoices,
-  tailOf,
 } from '@/features/agent/lib/agent-activity'
 import { formatElapsed } from '@/features/agent/activity/lib/shelf-fit'
 import { VERB_ROTATION_MS, verbAt } from '@/features/agent/activity/lib/verbs'
+import { TurnDiffPreview } from '@/features/agent/activity/turn-diff-preview'
 
 interface WorkingLineProps {
   activity: AgentActivity
@@ -50,12 +50,9 @@ interface WorkingLineProps {
    * unstyled: silently dropping a step would shorten the plan.
    */
   plan?: { text: string; status: string }[]
+  /** The newest complete unified diff for this turn. */
+  diff?: { id: string; text: string }
 }
-
-/** How much of the current thought to show. It is a status line, not a document:
- *  the point is to prove the agent is alive and say roughly what it is chewing
- *  on, and an unbounded block would push the transcript around on every token. */
-const REASONING_LIMIT = 240
 
 /**
  * What the agent is doing, while it is doing it.
@@ -66,8 +63,9 @@ const REASONING_LIMIT = 240
  *
  * The tool calls are NOT here. They used to be, and being here was the whole of
  * their life on screen: a call showed for as long as it ran and then vanished,
- * with nothing left behind until the turn ended. They are transcript rows now
- * (AgentLiveTurnTools), which is the same place they end up once the turn closes.
+ * with nothing left behind until the turn ended. They are chronological
+ * transcript rows now; status and output update in place while this strip stays
+ * at the tail to indicate current work.
  *
  * It goes quiet the moment the chat is blocked on a person: a chat waiting for
  * an answer is not working, and saying otherwise is how a blocked agent came to
@@ -80,6 +78,7 @@ export function WorkingLine({
   compactingLive,
   reasoning,
   plan,
+  diff,
 }: WorkingLineProps) {
   const [tick, setTick] = useState(0)
   const [elapsed, setElapsed] = useState(0)
@@ -162,9 +161,10 @@ export function WorkingLine({
         </span>
       </div>
       {reasoning && !compacting && (
-        <p className="thinking" data-testid="agent-reasoning">
-          {tailOf(reasoning, REASONING_LIMIT)}
-        </p>
+        <details className="thinking" data-testid="agent-reasoning">
+          <summary>Reasoning</summary>
+          <div className="thinking-body">{reasoning.replace(/\*{1,3}/g, '')}</div>
+        </details>
       )}
       {plan && plan.length > 0 && !compacting && (
         <ol className="plan" data-testid="agent-plan">
@@ -182,6 +182,11 @@ export function WorkingLine({
             </li>
           ))}
         </ol>
+      )}
+      {diff && !compacting && (
+        <div className="turn-diff" data-testid="agent-turn-diff">
+          <TurnDiffPreview diff={diff.text} turnId={diff.id} />
+        </div>
       )}
     </div>
   )

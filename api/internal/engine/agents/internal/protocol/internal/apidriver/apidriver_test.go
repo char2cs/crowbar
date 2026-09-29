@@ -452,6 +452,33 @@ func TestDispatch_SendsTheStructuredActionPayloadAfterEstablishing(t *testing.T)
 	require.Equal(t, "hello there", turnStartParams.Input[0].Text)
 }
 
+// The connection is the authority on which thread it has open: a caller's
+// session id read from a runner row that never learned of a replacement must
+// not steer a later turn at the thread the provider already lost.
+func TestRegression_DispatchOnAnEstablishedConnectionUsesTheThreadItOpened(t *testing.T) {
+	sockPath, seen := scriptedServer(t, []scriptedCall{
+		{method: "thread/resume", errCode: -32600, errMessage: "no rollout found for thread id t-old"},
+		{method: "thread/start", result: `{"thread":{"id":"t-new"}}`},
+		{method: "turn/start", result: `{"turn":{"id":"turn-1"}}`},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	d := loadCodexAPIDescriptor(t)
+	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = drv.Close() })
+
+	established, err := drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "t-old", "cwd": "/work"})
+	require.NoError(t, err)
+	require.Equal(t, "t-new", established["session_id"])
+
+	out, err := drv.Dispatch(ctx, "prompt", map[string]string{"session_id": "t-old", "cwd": "/work", "text": "hi"})
+	require.NoError(t, err)
+	require.Equal(t, "t-new", out["session_id"])
+	require.Contains(t, (*seen)[2], `"threadId":"t-new"`)
+}
+
 func TestDispatch_ASecondMessageOnAnEstablishedConnectionSkipsStraightToAction(t *testing.T) {
 	sockPath, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-9"}}`},

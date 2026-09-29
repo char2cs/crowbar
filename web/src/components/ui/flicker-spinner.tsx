@@ -75,9 +75,11 @@ export function FlickerSpinner({
       // Size via className (default size-4). Color is NOT baked in here: the
       // SVG dots use fill="currentColor", so callers color this by wrapping it
       // in (or applying) a text-* theme token span — never a hardcoded color.
-      // overflow-hidden is the frame window the strip slides behind.
+      // overflow-hidden is the frame window the strip slides behind. shrink-0:
+      // in a squeezed flex row the box would narrow but keep its height, and the
+      // strip (N boxes wide) then plays crushed slivers instead of frames.
       className={cn(
-        'relative inline-flex size-4 items-center justify-center overflow-hidden',
+        'relative inline-flex size-4 shrink-0 items-center justify-center overflow-hidden',
         className,
       )}
       {...props}

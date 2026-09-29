@@ -1,0 +1,8 @@
+{
+  "method": "turn/diff/updated",
+  "params": {
+    "threadId": "thread-1",
+    "turnId": "turn-1",
+    "diff": "diff --git a/main.go b/main.go\n--- a/main.go\n+++ b/main.go\n@@ -1 +1 @@\n-old\n+new\n"
+  }
+}

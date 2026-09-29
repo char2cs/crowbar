@@ -133,3 +133,79 @@ export const FileIcon = icon(
   </>,
   'FileIcon',
 )
+
+export const SearchIcon = icon(
+  <>
+    <circle cx="10.5" cy="10.5" r="6" />
+    <path d="m15 15 4.5 4.5" />
+  </>,
+  'SearchIcon',
+)
+
+export const FetchIcon = icon(
+  <>
+    <path d="M12 4.5v10" />
+    <path d="m8 11 4 4 4-4" />
+    <path d="M5 19.5h14" />
+  </>,
+  'FetchIcon',
+)
+
+export const ToolIcon = icon(
+  <>
+    <path d="M14.5 6.5a4 4 0 0 0-5 5L4.5 16.5a2.1 2.1 0 0 0 3 3l5-5a4 4 0 0 0 5-5l-2.5 2.5-3-3z" />
+  </>,
+  'ToolIcon',
+)
+
+export const AlertIcon = icon(
+  <>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 7.5v5.5M12 16.5h.01" />
+  </>,
+  'AlertIcon',
+)
+
+export const GaugeIcon = icon(
+  <>
+    <path d="M4.5 16.5a8 8 0 1 1 15 0" />
+    <path d="m12 13.5 4-4M7.5 17.5h9" />
+  </>,
+  'GaugeIcon',
+)
+
+export const LinkIcon = icon(
+  <>
+    <path d="m9.5 14.5 5-5" />
+    <path d="M7.5 16.5 6 18a2.8 2.8 0 0 1-4-4l3-3a2.8 2.8 0 0 1 4 0" />
+    <path d="m16.5 7.5 1.5-1.5a2.8 2.8 0 0 1 4 4l-3 3a2.8 2.8 0 0 1-4 0" />
+  </>,
+  'LinkIcon',
+)
+
+export const ListIcon = icon(
+  <>
+    <path d="m4.5 7 1.2 1.2L8 5.8M10.5 7h9" />
+    <path d="m4.5 12 1.2 1.2L8 10.8M10.5 12h9" />
+    <path d="m4.5 17 1.2 1.2L8 15.8M10.5 17h9" />
+  </>,
+  'ListIcon',
+)
+
+export const RefreshIcon = icon(
+  <>
+    <path d="M19 8a7.5 7.5 0 0 0-12.8-2L4.5 8" />
+    <path d="M4.5 4.5V8H8" />
+    <path d="M5 16a7.5 7.5 0 0 0 12.8 2l1.7-2" />
+    <path d="M19.5 19.5V16H16" />
+  </>,
+  'RefreshIcon',
+)
+
+export const OfflineIcon = icon(
+  <>
+    <path d="M5 10a11 11 0 0 1 4-2M15 8a11 11 0 0 1 4 2M8 14a6 6 0 0 1 8 0M11 18h2" />
+    <path d="m4 4 16 16" />
+  </>,
+  'OfflineIcon',
+)

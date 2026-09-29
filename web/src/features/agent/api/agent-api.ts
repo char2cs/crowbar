@@ -5,6 +5,10 @@ import {
 import { API_BASE, apiFetch } from '@/lib/api'
 import { repoChatsBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
+import {
+  activityComponents,
+  type ActivityComponent,
+} from '@/features/agent/lib/activity-components'
 
 // Agentic-chat REST client. A chat is no longer addressed through its
 // workspace (Task 17 rescope, model spec §5.1): a non-home workspace's chats
@@ -179,6 +183,8 @@ export interface AgentChatFolder {
   /** A chat id, a folder id, or '' at the workspace root. */
   parentId?: string
   name: string
+  /** Provider-neutral semantic category declared by the descriptor. */
+  kind?: 'read' | 'edit' | 'execute' | 'search' | 'fetch' | 'other' | string
   /** Dense index within its sibling space, SHARED with chats. */
   order: number
 }
@@ -318,6 +324,8 @@ export interface AgentProvider {
    */
   modelSelect: boolean
   effortSelect: boolean
+  /** Canonical rich events declared by this provider's descriptor. */
+  activityEvents?: string[]
   /**
    * The provider declares a compaction gesture (`compact_start`) — claude's
    * `/compact` injection, or an API transport's own call.
@@ -493,7 +501,7 @@ export async function listChatMessages(
   }
 }
 
-export type ToolCallStatus = 'running' | 'ok' | 'error' | 'abandoned'
+export type ToolCallStatus = 'running' | 'ok' | 'error' | 'declined' | 'abandoned'
 
 /** One tool the agent ran. The payloads are NOT here: a coding agent produces
  *  hundreds of KB per turn and almost none of it is ever opened, so each side is
@@ -503,6 +511,8 @@ export interface AgentToolCall {
   turnId: string
   seq: number
   name: string
+  kind?: 'read' | 'edit' | 'execute' | 'search' | 'fetch' | 'other' | string
+  locations?: Array<{ path: string; line?: number }>
   /** The file, command or URL the tool acted on, when the provider reports one.
    *  Absent is legible; a guess would be wrong. */
   target?: string
@@ -514,6 +524,9 @@ export interface AgentToolCall {
   durationMs?: number
   hasRequest: boolean
   hasResult: boolean
+  /** Unified diff of an edit call's own change, when the provider's request
+   *  carried the replaced and replacement text. */
+  diff?: string
   startedAt: string
   endedAt?: string
   /** Set instead of a meaningful `turnId` when this call belongs to a
@@ -667,6 +680,9 @@ export interface AgentActivity {
    *  a poll of their own: a blocked agent is a state of the same turn the timeline
    *  describes, and a second loop would ask the same daemon the same question. */
   choices: AgentChoice[]
+  /** Stable ordered projection used by rich activity renderers. Older daemons
+   * may omit this because it is derived client-side from the existing ledger. */
+  components?: ActivityComponent[]
 }
 
 /** What the provider itself reported about cost and capacity.
@@ -718,12 +734,13 @@ export async function listChatActivity(
     `${chatBase(wsId)}/${encodeURIComponent(id)}/activity?${query}`,
     { signal: options.signal },
   )
-  return {
+  const activity: AgentActivity = {
     toolCalls: raw?.toolCalls ?? [],
     subagents: raw?.subagents ?? [],
     interruptions: raw?.interruptions ?? [],
     choices: (raw?.choices ?? []).map(mapChoice),
   }
+  return { ...activity, components: raw?.components ?? activityComponents(activity) }
 }
 
 // A prompt's three decision-bearing fields are grounded here so nothing

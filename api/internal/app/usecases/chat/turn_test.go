@@ -96,6 +96,53 @@ func TestObservation_ToolActivityIsRecordedWithItsPayloads(t *testing.T) {
 	assert.Equal(t, "applied", string(result))
 }
 
+func TestRegression_EditToolCallCarriesADiffOfItsOwnChange(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+
+	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt,
+		map[string]any{"prompt": "edit the file"})
+	hook(t, f, runnerID, "claude", engineagents.HookToolPre, map[string]any{
+		"tool_use_id": "tool-1", "tool_name": "Edit",
+		"tool_input": map[string]any{"file_path": "a.go", "old_string": "x\n", "new_string": "y\n"},
+	})
+	hook(t, f, runnerID, "claude", engineagents.HookToolPost, map[string]any{
+		"tool_use_id": "tool-1", "tool_name": "Edit",
+		"tool_input":    map[string]any{"file_path": "a.go"},
+		"tool_response": "applied",
+	})
+
+	calls, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, calls, 1)
+	assert.Equal(t, "--- a/a.go\n+++ b/a.go\n@@ -1,1 +1,1 @@\n-x\n+y\n", calls[0].Diff)
+}
+
+func TestRegression_ACompletedEditReplacesItsSnippetDiffWithTheProvidersTrueHunks(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+
+	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt,
+		map[string]any{"prompt": "edit the file"})
+	hook(t, f, runnerID, "claude", engineagents.HookToolPre, map[string]any{
+		"tool_use_id": "tool-1", "tool_name": "Edit",
+		"tool_input": map[string]any{"file_path": "/repo/a.go", "old_string": "x\n", "new_string": "y\n"},
+	})
+	hook(t, f, runnerID, "claude", engineagents.HookToolPost, map[string]any{
+		"tool_use_id": "tool-1", "tool_name": "Edit",
+		"tool_input": map[string]any{"file_path": "/repo/a.go"},
+		"tool_response": map[string]any{"structuredPatch": []any{map[string]any{
+			"oldStart": 8, "oldLines": 3, "newStart": 8, "newLines": 3,
+			"lines": []any{" before", "-x", "+y", " after"},
+		}}},
+	})
+
+	calls, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, calls, 1)
+	assert.Equal(t, "--- a/repo/a.go\n+++ b/repo/a.go\n@@ -8,3 +8,3 @@\n before\n-x\n+y\n after\n", calls[0].Diff)
+}
+
 // TestRegression_UserPromptHookRestoresTheDurableAttachmentRef pins the bug a
 // live excalidraw-attachment send surfaced: a user_prompt hook's own message
 // IS the text the CLI actually received, which is the file's real ABSOLUTE
@@ -1814,6 +1861,90 @@ func TestRegression_HarnessInjectedPromptIsRecordedAsHarnessNotUser(t *testing.T
 	assert.Equal(t, domain.TurnRoleHarness, page.Items[0].Role)
 	assert.Equal(t, taskNotificationPrompt, page.Items[0].Text,
 		"recorded verbatim: it is the context the next reply answers")
+}
+
+func TestRegression_PromptFiredInsideASubagentIsNeverRecordedAsTheUsers(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "claude")
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{
+			"prompt": "Summarize the failing tests", "agent_id": "aa3b60603214670cc",
+			"agent_type": "general-purpose",
+		})))
+	f.wait()
+
+	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 0)
+	require.NoError(t, err)
+	assert.Empty(t, page.Items, "a subagent's prompt is not something the user said")
+	assert.False(t, f.chat(t, chatID).Working, "a subagent's prompt opens no top-level turn")
+}
+
+func TestRegression_TeammateMessageIsRecordedAsHarnessNotUser(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	prompt := `<teammate-message teammate_id="reviewer" summary="done">Found 2 issues</teammate-message>`
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": prompt})))
+	f.wait()
+
+	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, domain.TurnRoleHarness, page.Items[0].Role)
+}
+
+func TestRegression_SubagentHandBackIsRecordedAsHarnessNotUser(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	prompt := "[Subagent hand-back] The text below is the final report of a subagent this session delegated to.\n  Done."
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": prompt})))
+	f.wait()
+
+	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, domain.TurnRoleHarness, page.Items[0].Role)
+}
+
+func TestRegression_FinalIncrementAheadOfAnEarlierOneNeverRecordsATruncatedMessage(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sess-1")
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "greet me"})))
+
+	// Hooks are separate processes, so the closing increment can land first.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "message_delta",
+		deltaHook(t, "m1", 1, true, "world")))
+	f.wait()
+
+	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	require.NoError(t, err)
+	for _, turn := range turns {
+		assert.NotEqual(t, "world", turn.Text, "a message with a missing increment must not be recorded yet")
+	}
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "message_delta",
+		deltaHook(t, "m1", 0, false, "Hello ")))
+	f.wait()
+
+	turns, err = f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	require.NoError(t, err)
+	var recorded []string
+	for _, turn := range turns {
+		if turn.Role == domain.TurnRoleAssistant {
+			recorded = append(recorded, turn.Text)
+		}
+	}
+	assert.Equal(t, []string{"Hello world"}, recorded)
 }
 
 func TestRegression_HarnessInjectedPromptStillOpensTheTurn(t *testing.T) {

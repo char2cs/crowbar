@@ -75,10 +75,8 @@ func (p *Projector) applyTurn(ctx context.Context, delta *domain.ActivityDelta) 
 		return nil
 	}
 
-	if delta.Turn.Text != "" {
-		if err := p.store.SaveTurn(ctx, *delta.Turn); err != nil {
-			return err
-		}
+	if err := p.saveClosedTurn(ctx, delta); err != nil {
+		return err
 	}
 
 	if delta.SupersededTurnID != "" && delta.SupersededTurnID != delta.Turn.ID {
@@ -137,4 +135,17 @@ func (p *Projector) abandonRunningSubagents(ctx context.Context, delta *domain.A
 
 func (p *Projector) Forget(ctx context.Context, chatID string) error {
 	return p.store.DeleteChat(ctx, chatID)
+}
+
+// saveClosedTurn persists the closing turn when it carries text or a plan.
+func (p *Projector) saveClosedTurn(ctx context.Context, delta *domain.ActivityDelta) error {
+	if delta.Turn.Text == "" && len(delta.Turn.Plan) == 0 {
+		return nil
+	}
+	turn := *delta.Turn
+	if delta.OmitPlan {
+		turn.Plan = nil
+		turn.PlanUpdatedAt = nil
+	}
+	return p.store.SaveTurn(ctx, turn)
 }

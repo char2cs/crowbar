@@ -54,6 +54,11 @@ type AgentProvider struct {
 	ModelSelect  bool
 	EffortSelect bool
 
+	// ActivityEvents is the provider-neutral canonical event vocabulary this
+	// provider's descriptor actually observes. The UI can gate rich surfaces on
+	// these facts without inspecting a provider id.
+	ActivityEvents []string
+
 	// Models is the declared catalogue, in descriptor order.
 	//
 	// Efforts is keyed by model id and ALREADY RESOLVED: every entry in Models has

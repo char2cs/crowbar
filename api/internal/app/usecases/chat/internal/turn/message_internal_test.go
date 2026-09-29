@@ -199,6 +199,33 @@ func TestCloseAssistantTurn_ATerminatingHookThatReportsMoreTextStillWins(t *test
 		"a hook report that is FULLER than the stream must still win — the reconciliation's original purpose")
 }
 
+func TestCloseAssistantTurn_PersistsTheFinalDiffSnapshot(t *testing.T) {
+	activity := &recordingActivity{}
+	turns := &Turns{messages: stream.New(), activity: activity, live: newLiveText()}
+	chat := domain.Chat{ID: "c"}
+	runner := engineagents.Runner{ID: "runner-1", ProviderID: "codex"}
+	const diff = "diff --git a/file.txt b/file.txt\n+new content"
+
+	turns.recordMessageDelta(context.Background(), chat, runner, engineagents.CanonicalEvent{
+		Kind: "message_delta",
+		Delta: &engineagents.MessageDelta{
+			TurnID: "turn-1", MessageID: "message-1", Index: 0, Sequenced: true,
+			Final: true, Text: "done",
+		},
+	})
+	turns.live.replace(chat.ID, DeltaKindDiff, "turn-1", diff)
+
+	err := turns.closeAssistantTurn(context.Background(), chat, runner, engineagents.CanonicalEvent{
+		Kind: "turn_stop", TurnID: "turn-1", Message: "done",
+	})
+	require.NoError(t, err)
+	activity.mu.Lock()
+	defer activity.mu.Unlock()
+	got, ok := activity.turns[assistantTurnID("message-1")]
+	require.True(t, ok)
+	require.Equal(t, diff, got.Diff)
+}
+
 // The same race over the relay: both hooks are ingested under their runner's
 // hook gate, so a turn_stop that waits for the delta while holding the gate
 // can only time out and record the reply twice, once under each id.
@@ -248,7 +275,7 @@ func TestRegression_ATurnStopWaitingUnderTheHookGateLetsItsOwnDeltaIn(t *testing
 // generating. Only codex reaches it: it marks no message final, so its messages
 // stay unterminated (and the fuse stays armed) for the whole turn.
 func TestRegression_LiveTextKeepsAnUnfinishedMessageFromReadingAsAbandoned(t *testing.T) {
-	for _, kind := range []string{DeltaKindReasoning, DeltaKindToolOutput} {
+	for _, kind := range []string{DeltaKindReasoning, DeltaKindToolOutput, DeltaKindDiff} {
 		t.Run(kind, func(t *testing.T) {
 			turns := New(Deps{})
 			stale := time.Now().Add(-90 * time.Second)
@@ -264,7 +291,11 @@ func TestRegression_LiveTextKeepsAnUnfinishedMessageFromReadingAsAbandoned(t *te
 				"without live text the answer stream is the only clock")
 
 			beforeDelta := time.Now()
-			turns.live.observe("chat-1", kind, "block-1", 0, "still going")
+			if kind == DeltaKindDiff {
+				turns.live.replace("chat-1", kind, "block-1", "diff still updating")
+			} else {
+				turns.live.observe("chat-1", kind, "block-1", 0, "still going")
+			}
 
 			since, ok = turns.UnfinishedSince("chat-1")
 			require.True(t, ok)
@@ -291,6 +322,14 @@ func TestRegression_ForgettingLiveTextAlsoForgetsItsQuietClock(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, stale, since,
 		"a forgotten turn's thinking must not keep the next one's sweep at bay")
+}
+
+func TestLiveTextReplaceOverwritesThePreviousCompleteDocument(t *testing.T) {
+	live := newLiveText()
+
+	require.Equal(t, "diff v1", live.replace("chat-1", DeltaKindDiff, "turn-1", "diff v1"))
+	require.Equal(t, "diff v2", live.replace("chat-1", DeltaKindDiff, "turn-1", "diff v2"))
+	require.Equal(t, "diff v2", live.byChat["chat-1"][DeltaKindDiff]["turn-1"].parts[0].String())
 }
 
 // AbandonMessageInferredInterrupt is termwait's message-quiet fuse (see

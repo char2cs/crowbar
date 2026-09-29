@@ -18,6 +18,7 @@ type AppendTurn struct {
 	SessionID  string
 	Text       string
 	Effort     string
+	Status     string
 	Now        time.Time
 }
 
@@ -40,6 +41,13 @@ func (c AppendTurn) Validate(*domain.ChatActivity) error {
 
 func (c AppendTurn) EmitEvent(current *domain.ChatActivity) domain.ChatActivity {
 	next := advance(current, c.ChatID)
+	status := c.Status
+	if status == "" {
+		status = "completed"
+		if c.Role == domain.TurnRoleNotice {
+			status = "failed"
+		}
+	}
 	turn := domain.ActivityTurn{
 		ID:     c.TurnID,
 		ChatID: c.ChatID,
@@ -53,6 +61,7 @@ func (c AppendTurn) EmitEvent(current *domain.ChatActivity) domain.ChatActivity 
 		SessionID:    c.SessionID,
 		Text:         c.Text,
 		Effort:       c.Effort,
+		Status:       status,
 		StartedAt:    c.Now,
 		EndedAt:      at(c.Now),
 	}

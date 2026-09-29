@@ -30,27 +30,51 @@ type TurnInput struct {
 	SessionID  string
 	Text       string
 	Effort     string
+	Status     string
+	Diff       string
 	// ItemIndex — see commands.CloseTurn.ItemIndex. Only meaningful on CloseTurn.
 	ItemIndex int
-	Now       time.Time
+	// CarryPlan is used only when reopening between multiple assistant message
+	// items in one provider turn. It carries the just-closed item's plan into
+	// the next open item so the final item owns the latest snapshot.
+	CarryPlan bool
+	// OmitPlan prevents an intermediate multi-message close from projecting a
+	// duplicate plan artifact. The close event still carries it for CarryPlan.
+	OmitPlan bool
+	Now      time.Time
+}
+
+type PlanInput struct {
+	ChatID     string
+	ProviderID string
+	RunnerID   string
+	SessionID  string
+	Steps      []domain.ActivityPlanStep
+	Now        time.Time
 }
 
 type ToolInput struct {
-	ChatID  string
-	ToolID  string
-	Name    string
-	Target  string
-	Request []byte
-	Now     time.Time
+	ChatID    string
+	ToolID    string
+	Name      string
+	Kind      string
+	Locations []domain.ActivityToolLocation
+	Target    string
+	Request   []byte
+	Diff      string
+	Now       time.Time
 }
 
 type ToolResultInput struct {
-	ChatID string
-	ToolID string
-	Name   string
-	Target string
-	Result []byte
-	Status string
+	ChatID    string
+	ToolID    string
+	Name      string
+	Kind      string
+	Locations []domain.ActivityToolLocation
+	Target    string
+	Result    []byte
+	Diff      string
+	Status    string
 
 	Error      string
 	DurationMS int
@@ -66,6 +90,8 @@ type SubagentToolInput struct {
 	SubagentID string
 	ToolID     string
 	Name       string
+	Kind       string
+	Locations  []domain.ActivityToolLocation
 	Target     string
 	Request    []byte
 	Now        time.Time
@@ -76,6 +102,8 @@ type SubagentToolResultInput struct {
 	SubagentID string
 	ToolID     string
 	Name       string
+	Kind       string
+	Locations  []domain.ActivityToolLocation
 	Target     string
 	Result     []byte
 	Status     string
@@ -109,6 +137,8 @@ type EventStore interface {
 	OpenTurn(ctx context.Context, in TurnInput) error
 
 	CloseTurn(ctx context.Context, in TurnInput) error
+
+	UpdatePlan(ctx context.Context, in PlanInput) error
 
 	Abandon(ctx context.Context, chatID string, now time.Time) error
 
@@ -260,7 +290,7 @@ func (r *eventSourced) AppendTurn(ctx context.Context, in TurnInput) error {
 	return r.sendWait(ctx, commands.AppendTurn{
 		ChatID: in.ChatID, TurnID: in.TurnID, Role: in.Role,
 		ProviderID: in.ProviderID, RunnerID: in.RunnerID, SessionID: in.SessionID,
-		Text: in.Text, Effort: in.Effort, Now: in.Now,
+		Text: in.Text, Effort: in.Effort, Status: in.Status, Now: in.Now,
 	})
 }
 
@@ -268,7 +298,7 @@ func (r *eventSourced) OpenTurn(ctx context.Context, in TurnInput) error {
 	return r.sendWait(ctx, commands.OpenTurn{
 		ChatID: in.ChatID, TurnID: in.TurnID,
 		ProviderID: in.ProviderID, RunnerID: in.RunnerID, SessionID: in.SessionID,
-		Now: in.Now,
+		CarryPlan: in.CarryPlan, Now: in.Now,
 	})
 }
 
@@ -276,7 +306,15 @@ func (r *eventSourced) CloseTurn(ctx context.Context, in TurnInput) error {
 	return r.sendWait(ctx, commands.CloseTurn{
 		ChatID: in.ChatID, TurnID: in.TurnID,
 		ProviderID: in.ProviderID, RunnerID: in.RunnerID, SessionID: in.SessionID,
-		Text: in.Text, Effort: in.Effort, ItemIndex: in.ItemIndex, Now: in.Now,
+		Text: in.Text, Effort: in.Effort, Status: in.Status, ItemIndex: in.ItemIndex, Diff: in.Diff, Now: in.Now,
+		OmitPlan: in.OmitPlan,
+	})
+}
+
+func (r *eventSourced) UpdatePlan(ctx context.Context, in PlanInput) error {
+	return r.sendWait(ctx, commands.UpdatePlan{
+		ChatID: in.ChatID, ProviderID: in.ProviderID, RunnerID: in.RunnerID,
+		SessionID: in.SessionID, Steps: in.Steps, Now: in.Now,
 	})
 }
 
@@ -307,8 +345,8 @@ func (r *eventSourced) InvokeTool(ctx context.Context, in ToolInput) error {
 		ref = ""
 	}
 	return r.sendWait(ctx, commands.InvokeTool{
-		ChatID: in.ChatID, ToolID: in.ToolID, Name: in.Name, Target: in.Target,
-		RequestRef: ref, Now: in.Now,
+		ChatID: in.ChatID, ToolID: in.ToolID, Name: in.Name, Kind: in.Kind, Locations: in.Locations, Target: in.Target,
+		RequestRef: ref, Diff: in.Diff, Now: in.Now,
 	})
 }
 
@@ -326,8 +364,8 @@ func (r *eventSourced) CompleteTool(ctx context.Context, in ToolResultInput) err
 		ref = ""
 	}
 	return r.sendWait(ctx, commands.CompleteTool{
-		ChatID: in.ChatID, ToolID: in.ToolID, Name: in.Name, Target: in.Target,
-		ResultRef: ref, Status: in.Status, Error: truncate(in.Error, maxToolErrorBytes),
+		ChatID: in.ChatID, ToolID: in.ToolID, Name: in.Name, Kind: in.Kind, Locations: in.Locations, Target: in.Target,
+		ResultRef: ref, Diff: in.Diff, Status: in.Status, Error: truncate(in.Error, maxToolErrorBytes),
 		DurationMS: in.DurationMS, Now: in.Now,
 	})
 }
@@ -343,7 +381,7 @@ func (r *eventSourced) InvokeSubagentTool(ctx context.Context, in SubagentToolIn
 	}
 	return r.sendWait(ctx, commands.InvokeSubagentTool{
 		ChatID: in.ChatID, SubagentID: in.SubagentID, ToolID: in.ToolID,
-		Name: in.Name, Target: in.Target, RequestRef: ref, Now: in.Now,
+		Name: in.Name, Kind: in.Kind, Locations: in.Locations, Target: in.Target, RequestRef: ref, Now: in.Now,
 	})
 }
 
@@ -354,7 +392,7 @@ func (r *eventSourced) CompleteSubagentTool(ctx context.Context, in SubagentTool
 	}
 	return r.sendWait(ctx, commands.CompleteSubagentTool{
 		ChatID: in.ChatID, SubagentID: in.SubagentID, ToolID: in.ToolID,
-		Name: in.Name, Target: in.Target, ResultRef: ref, Status: in.Status,
+		Name: in.Name, Kind: in.Kind, Locations: in.Locations, Target: in.Target, ResultRef: ref, Status: in.Status,
 		Error: truncate(in.Error, maxToolErrorBytes), DurationMS: in.DurationMS, Now: in.Now,
 	})
 }

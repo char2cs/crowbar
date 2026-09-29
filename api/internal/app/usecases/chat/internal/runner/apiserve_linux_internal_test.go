@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -18,6 +19,9 @@ const servePIDFileEnv = "CROWBAR_TEST_SERVE_PID_FILE"
 // A daemon that dies without its shutdown (a crash, a second Ctrl-C) must
 // not leave its serve processes running: nothing would ever reap them.
 func TestForkServeProcess_DiesWithTheDaemon(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("parent-death signaling is Linux-specific; other platforms use explicit runner teardown")
+	}
 	if pidFile := os.Getenv(servePIDFileEnv); pidFile != "" {
 		serve, err := forkServeProcess([]string{"sleep", "60"})
 		if err != nil {

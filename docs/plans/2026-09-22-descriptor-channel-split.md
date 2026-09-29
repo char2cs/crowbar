@@ -412,9 +412,8 @@ read:
 
 So claude's list is hardcoded either way. The manifest only moves the
 hardcoding OUT of the binary, where a new model is a JSON edit on `develop`
-rather than a nightly release. T3Code reached the same split independently —
-its manifest carries `claudeAgent` and `antigravity` and deliberately omits
-codex, because codex is discoverable.
+rather than a nightly release. Providers with enumerable catalogs remain
+discoverable; providers without one use the explicit manifest boundary.
 
 ### Efforts are PER MODEL, and claude's live in the manifest
 Effort support varies by model, so a single global list is the wrong shape
@@ -483,8 +482,8 @@ Corollary: catalog ORDER is cosmetic. It sets display order and which row wears
 a default badge. It can never produce a wrong assertion.
 
 Explicitly rejected: a hand-maintained preferred-default list to compensate for
-codex not stating one. T3Code does this (`PREFERRED_DEFAULT_CODEX_MODELS`
-overrides codex's own flag) and it is precisely the drift being removed.
+codex not stating one. Such a list overrides the provider's own behavior and is
+precisely the drift being removed.
 
 ### Non-negotiable: never assert an unconfirmed model
 With discovery, the model list is legitimately EMPTY for a while — before the

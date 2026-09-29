@@ -30,6 +30,7 @@ const {
   setAgentChatStreamingReasoning,
   setAgentChatStreamingToolOutput,
   setAgentChatStreamingPlan,
+  setAgentChatStreamingDiff,
   setAgentProviders,
   retargetPane,
   setPaneRunner,
@@ -59,6 +60,7 @@ const {
   setAgentChatStreamingReasoning: vi.fn(),
   setAgentChatStreamingToolOutput: vi.fn(),
   setAgentChatStreamingPlan: vi.fn(),
+  setAgentChatStreamingDiff: vi.fn(),
   setAgentProviders: vi.fn(),
   retargetPane: vi.fn(),
   setPaneRunner: vi.fn(),
@@ -137,6 +139,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
       setAgentChatStreamingReasoning,
       setAgentChatStreamingToolOutput,
       setAgentChatStreamingPlan,
+      setAgentChatStreamingDiff,
       setAgentProviders,
     }),
   }),
@@ -807,6 +810,40 @@ describe('useWorkspaceAgentChatsStream', () => {
       expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
     })
 
+    it('routes a complete diff update to its own slot', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const onFrame = captureCb()
+
+      onFrame({
+        chatId: 'c1',
+        workspaceId: 'w1',
+        kind: 'message_delta',
+        message: { id: 'turn-1', text: 'diff --git a/a b/a', kind: 'diff' },
+      })
+
+      expect(setAgentChatStreamingDiff).toHaveBeenCalledWith('c1', {
+        id: 'turn-1',
+        text: 'diff --git a/a b/a',
+      })
+      expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
+    })
+
+    it('clears the live diff when the provider replaces it with an empty snapshot', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const onFrame = captureCb()
+
+      onFrame({
+        chatId: 'c1',
+        workspaceId: 'w1',
+        kind: 'message_delta',
+        message: { id: 'turn-1', text: '', kind: 'diff' },
+      })
+
+      expect(setAgentChatStreamingDiff).toHaveBeenCalledWith('c1', null)
+    })
+
     // The plan arrives WHOLESALE — the newest list is the entire truth, so this
     // is a replace and a missed frame costs nothing.
     it("replaces the agent's to-do list wholesale", async () => {
@@ -840,6 +877,16 @@ describe('useWorkspaceAgentChatsStream', () => {
       onFrame(live('turn_stopped', 'c1', { working: false }))
 
       expect(setAgentChatStreamingReasoning).toHaveBeenCalledWith('c1', null)
+    })
+
+    it('drops the previous turn diff at a turn edge', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const onFrame = captureCb()
+
+      onFrame(live('turn_stopped', 'c1', { working: false }))
+
+      expect(setAgentChatStreamingDiff).toHaveBeenCalledWith('c1', null)
     })
 
     it('collapses several deltas arriving before the frame into one write, with the latest text', async () => {

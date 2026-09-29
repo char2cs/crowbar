@@ -11,7 +11,7 @@ import { pendingChoices } from '@/features/agent/lib/agent-activity'
  */
 export type ComposerState =
   | { kind: 'input' }
-  | { kind: 'choice'; choice: AgentChoice }
+  | { kind: 'choices'; choices: AgentChoice[] }
   | { kind: 'halted'; message: string; resetsAt?: string }
   | { kind: 'compacting' }
   | { kind: 'signpost'; reason: SignpostReason; message: string }
@@ -106,8 +106,8 @@ export function resolveComposerState(inputs: ComposerInputs): ComposerState {
   // "answer in the terminal" is what made a blocked agent look frozen. The
   // component draws the question either way and the CONTROLS only when they can
   // reach someone.
-  const first = pendingChoices(activity)[0]
-  if (first) return { kind: 'choice', choice: first }
+  const choices = pendingChoices(activity)
+  if (choices.length > 0) return { kind: 'choices', choices }
 
   if (inputs.haltedMessage) {
     return {

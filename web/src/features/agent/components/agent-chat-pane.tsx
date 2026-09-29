@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
+import {
+  effectiveSelection,
+  stageSelection as stageSelectionFrom,
+  type StagedSelection,
+} from '@/features/agent/lib/staged-selection'
 import { useStore } from 'zustand'
 import { TrashIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
@@ -268,6 +273,7 @@ export function AgentChatPane({
   const reasoning = useStore(store, (s) => s.agentChats.streamingReasoning[shownChatId]?.text)
   const toolOutput = useStore(store, (s) => s.agentChats.streamingToolOutput[shownChatId])
   const plan = useStore(store, (s) => s.agentChats.streamingPlan[shownChatId])
+  const diff = useStore(store, (s) => s.agentChats.streamingDiff[shownChatId])
 
   const columnRef = useRef<HTMLDivElement>(null)
   const splitContainerRef = useRef<HTMLDivElement>(null)
@@ -380,33 +386,30 @@ export function AgentChatPane({
   // mutates the chat or touches its CLI until the user actually sends
   // (submitAgentPrompt commits it atomically with the prompt). null means
   // "nothing staged, show the chat's own current provider / sticky value."
-  const [stagedSelection, setStagedSelection] = useState<{
-    providerId: string
-    model: string
-    effort: string
-  } | null>(null)
+  const [stagedSelection, setStagedSelection] = useState<StagedSelection | null>(null)
 
-  // The staged override settles the moment the store's OWN provider and
-  // sticky value catch up to it — derived at render time, not cleared by an
-  // effect a tick later, so there is no render where a just-landed store
-  // update is briefly masked by a stale staged copy. Once settled,
-  // stagedSelection's own fields equal the live store's, so reading through
-  // it (`stagedSelection?.x ?? live`) is indistinguishable from having
-  // cleared it; a moment-later store update from a DIFFERENT source (another
-  // pane on the same chat, a stale refetch) still wins over a staged copy
-  // exactly as it would if nothing had ever been staged, because it is
-  // compared fresh on every render rather than trusted from whenever it was
-  // set. Provider settles via the SAME adopt() refresh a plain prompt
-  // already triggers (handlePromptSpawned) — no separate commit call needed
-  // for it, unlike model/effort below.
-  const effectiveProviderId = stagedSelection?.providerId ?? activeProviderId
-  const effectiveModel = stagedSelection?.model ?? chatModel
-  const effectiveEffort = stagedSelection?.effort ?? chatEffort
+  // A pick applies only while the chat is still as it was when picked, derived at
+  // render: a change made elsewhere (a provider switched in the TUI, another pane)
+  // wins instead of being masked by a stale pick.
+  const liveSelection = { providerId: activeProviderId, model: chatModel, effort: chatEffort }
+  const {
+    providerId: effectiveProviderId,
+    model: effectiveModel,
+    effort: effectiveEffort,
+  } = effectiveSelection(stagedSelection, liveSelection)
 
   // The picker's own pick. Local only — see stagedSelection above.
-  const stageSelection = useCallback((providerId: string, model: string, effort: string) => {
-    setStagedSelection({ providerId, model, effort })
-  }, [])
+  const stageSelection = useCallback(
+    (providerId: string, model: string, effort: string) => {
+      setStagedSelection(
+        stageSelectionFrom(
+          { providerId: activeProviderId, model: chatModel, effort: chatEffort },
+          { providerId, model, effort },
+        ),
+      )
+    },
+    [activeProviderId, chatModel, chatEffort],
+  )
 
   // A staged pick the SERVER just accepted, via the next prompt it rode
   // along with (usePromptQueue's onSelectionCommitted). The store is the
@@ -706,8 +709,10 @@ export function AgentChatPane({
       void (async () => {
         try {
           await switchToNative(wsId, shownChatId)
-        } finally {
           setPresentation(next)
+        } catch (err: unknown) {
+          // A refusal (a turn in flight) keeps the user on the terminal that is doing the work.
+          toastSpawnFailure(err, chatProvider?.displayName ?? activeProviderId, 'switch back to')
         }
       })()
       return
@@ -1023,6 +1028,7 @@ export function AgentChatPane({
               reasoning={reasoning}
               toolOutput={toolOutput}
               plan={plan}
+              diff={diff}
               onStreamingSettled={handleStreamingSettled}
               // A send may replace the CLI (restart_tui) or revive a dormant
               // chat; either way it is this pane's own request in flight, so the

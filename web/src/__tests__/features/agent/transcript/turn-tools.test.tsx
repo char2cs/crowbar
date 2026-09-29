@@ -4,6 +4,7 @@ import type { AgentChoice, AgentSubagent, AgentToolCall } from '@/features/agent
 import * as agentApi from '@/features/agent/api/agent-api'
 import {
   AgentLiveTurnTools,
+  AgentToolCallEntry,
   AgentTurnChoices,
   AgentTurnSubagents,
   AgentTurnTools,
@@ -82,8 +83,57 @@ describe('AgentTurnTools', () => {
         ])}
       />,
     )
-    expect(screen.getByText('Grep · x.ts')).toBeInTheDocument()
+    expect(screen.getByText('Grep')).toBeInTheDocument()
+    expect(screen.getByText('x.ts')).toBeInTheDocument()
     expect(screen.getByText('1.2s')).toBeInTheDocument()
+  })
+
+  it('renders a descriptor-declared semantic tool kind', () => {
+    render(
+      <AgentTurnTools
+        turnId="turn-1"
+        callsByTurn={groupToolCallsByTurn([tool({ kind: 'execute' })])}
+      />,
+    )
+    expect(document.querySelector('[data-tool-kind="execute"]')).toBeInTheDocument()
+  })
+
+  it('renders source locations reported by the descriptor mapping', () => {
+    render(
+      <AgentTurnTools
+        turnId="turn-1"
+        callsByTurn={groupToolCallsByTurn([
+          tool({ locations: [{ path: 'src/main.ts', line: 42 }] }),
+        ])}
+      />,
+    )
+    expect(screen.getByText('src/main.ts:42')).toHaveAttribute('data-tool-location')
+  })
+
+  it('uses the semantic action and keeps a long absolute path compact', () => {
+    render(
+      <AgentTurnTools
+        turnId="turn-1"
+        callsByTurn={groupToolCallsByTurn([
+          tool({
+            name: 'fileChange',
+            kind: 'edit',
+            locations: [
+              {
+                path: '/Users/example/project/web/src/features/agent/transcript/turn-tools.tsx',
+              },
+            ],
+          }),
+        ])}
+      />,
+    )
+
+    expect(screen.getByText('Edited')).toBeInTheDocument()
+    expect(screen.getByText('agent/transcript/turn-tools.tsx')).toHaveAttribute(
+      'title',
+      '/Users/example/project/web/src/features/agent/transcript/turn-tools.tsx',
+    )
+    expect(screen.queryByText('fileChange')).not.toBeInTheDocument()
   })
 
   it('shows only the tools of ITS turn', () => {
@@ -119,6 +169,16 @@ describe('AgentTurnTools', () => {
       />,
     )
     expect(screen.getByText('Bash').closest('li')).toHaveAttribute('data-status', 'error')
+  })
+
+  it('keeps a declined tool distinct from a failure', () => {
+    render(
+      <AgentTurnTools
+        turnId="turn-1"
+        callsByTurn={groupToolCallsByTurn([tool({ status: 'declined', name: 'Bash' })])}
+      />,
+    )
+    expect(screen.getByText('Bash').closest('li')).toHaveAttribute('data-status', 'declined')
   })
 
   it('renders nothing without a turn id — a streaming bubble has no turn yet', () => {
@@ -181,14 +241,18 @@ describe('AgentTurnTools', () => {
           callsByTurn={groupToolCallsByTurn([tool({ hasRequest: true, hasResult: true })])}
         />,
       )
-      const summary = document.querySelector('summary')
-      expect(summary).toBeInTheDocument()
+      const toggle = screen.getByRole('button', { name: 'Show tool details' })
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
       // Not fetched merely because the row exists — content-addressed bytes
       // that can run to hundreds of KB per turn must stay on demand.
       expect(spy).not.toHaveBeenCalled()
 
-      fireEvent.click(summary!)
+      fireEvent.click(screen.getByText('Bash'))
+      expect(spy).not.toHaveBeenCalled()
 
+      fireEvent.click(toggle)
+
+      expect(toggle).toHaveAttribute('aria-expanded', 'true')
       expect(await screen.findByText(/"cmd": "go test"/)).toBeInTheDocument()
       expect(await screen.findByText('PASS')).toBeInTheDocument()
       expect(spy).toHaveBeenCalledWith('ws1', 'c1', 't1', 'request', expect.anything())
@@ -205,7 +269,7 @@ describe('AgentTurnTools', () => {
           callsByTurn={groupToolCallsByTurn([tool({ hasResult: true })])}
         />,
       )
-      fireEvent.click(document.querySelector('summary')!)
+      fireEvent.click(screen.getByRole('button', { name: 'Show tool details' }))
       expect(await screen.findByText('No longer available')).toBeInTheDocument()
     })
   })
@@ -301,7 +365,8 @@ describe('AgentLiveTurnTools', () => {
         calls={[tool({ name: 'commandExecution', target: 'ls -la', durationMs: 17 })]}
       />,
     )
-    expect(screen.getByText('commandExecution · ls -la')).toBeInTheDocument()
+    expect(screen.getByText('Command execution')).toBeInTheDocument()
+    expect(screen.getByText('ls -la')).toBeInTheDocument()
     expect(screen.getByText('17ms')).toBeInTheDocument()
   })
 
@@ -336,5 +401,46 @@ describe('AgentLiveTurnTools', () => {
       />,
     )
     expect(screen.queryByTestId('agent-tool-output')).not.toBeInTheDocument()
+  })
+})
+
+describe('AgentToolCallEntry', () => {
+  it('renders edit changes inline with the same shared diff surface as branch review', () => {
+    render(
+      <AgentToolCallEntry
+        call={tool({
+          id: 'patch-1',
+          name: 'apply_patch',
+          kind: 'edit',
+        })}
+        diff={
+          'diff --git a/src/file.ts b/src/file.ts\n--- a/src/file.ts\n+++ b/src/file.ts\n@@ -1 +1 @@\n-old\n+new'
+        }
+      />,
+    )
+
+    expect(screen.getByTestId('agent-activity-tool')).toHaveAttribute('data-tool-id', 'patch-1')
+    expect(screen.getByTestId('agent-tool-diff')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-tool-diff').tagName).toBe('DIV')
+    expect(screen.queryByText('Show changes')).not.toBeInTheDocument()
+    expect(screen.getByTestId('turn-diff-preview')).toHaveAttribute('data-file-count', '1')
+    expect(
+      screen.getByTestId('turn-diff-preview').querySelector('.turn-diff-code-view'),
+    ).toBeInTheDocument()
+  })
+
+  it("renders an edit call's own diff without a turn-level diff", () => {
+    render(
+      <AgentToolCallEntry
+        call={tool({
+          id: 'edit-1',
+          name: 'Edit',
+          kind: 'edit',
+          diff: '--- a/src/file.ts\n+++ b/src/file.ts\n@@ -1,1 +1,1 @@\n-old\n+new\n',
+        })}
+      />,
+    )
+
+    expect(screen.getByTestId('turn-diff-preview')).toHaveAttribute('data-file-count', '1')
   })
 })

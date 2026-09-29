@@ -106,6 +106,22 @@ func (d *Descriptor) EventSteps(canonical string) *StepsSpec {
 	return e.Steps
 }
 
+func (d *Descriptor) EventStatusMap(canonical string) map[string]string {
+	return d.Events[canonical].StatusMap
+}
+
+func (d *Descriptor) EventKindMap(canonical string) map[string]string {
+	return d.Events[canonical].KindMap
+}
+
+func (d *Descriptor) EventLocations(canonical string) *LocationsSpec {
+	return d.Events[canonical].Locations
+}
+
+func (d *Descriptor) EventPatch(canonical string) *PatchSpec {
+	return d.Events[canonical].Patch
+}
+
 // DeclaredEvents lists every canonical event the provider observes, sorted.
 func (d *Descriptor) DeclaredEvents() []string {
 	var out []string

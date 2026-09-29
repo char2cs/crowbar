@@ -496,6 +496,28 @@ func TestSwitchToNative_TerminatesAndReestablishes(t *testing.T) {
 	}
 }
 
+// TestRegression_SwitchToNativeRefusesWhileTheAttachedViewIsWorking: tearing
+// down the native view mid-turn kills the process the user is watching work,
+// so the switch is refused and the view stays exactly as it was.
+func TestRegression_SwitchToNativeRefusesWhileTheAttachedViewIsWorking(t *testing.T) {
+	term := &fakeTermForAttach{}
+	rs := &Runners{
+		attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
+		runnerStore: stubRunnerStoreForAttach{runner: engineagents.Runner{ID: "runner-1"}},
+		turns:       stubTurnsForAttach{working: true},
+		term:        term,
+	}
+	rs.attached.set("runner-1", attachedView{termSessID: "attach-term-1"})
+
+	err := rs.SwitchToNative(context.Background(), "chat-1")
+
+	require.ErrorIs(t, err, ErrTurnInProgress)
+	require.Empty(t, term.terminated, "a refused switch must not kill the view")
+	_, stillAttached := rs.attached.get("runner-1")
+	require.True(t, stillAttached)
+}
+
 // spySurfaceChats records every SetSurface write, so a test can assert on the
 // DURABLE surface rather than only on the in-process mirror of it.
 type spySurfaceChats struct {

@@ -10,8 +10,11 @@ type CompleteTool struct {
 	ChatID     string
 	ToolID     string
 	Name       string
+	Kind       string
+	Locations  []domain.ActivityToolLocation
 	Target     string
 	ResultRef  string
+	Diff       string
 	Status     string
 	Error      string
 	DurationMS int
@@ -40,6 +43,8 @@ func (c CompleteTool) EmitEvent(current *domain.ChatActivity) domain.ChatActivit
 			ChatID:    c.ChatID,
 			Seq:       next.Seq,
 			Name:      c.Name,
+			Kind:      c.Kind,
+			Locations: c.Locations,
 			Target:    c.Target,
 			StartedAt: c.Now,
 		}
@@ -52,10 +57,19 @@ func (c CompleteTool) EmitEvent(current *domain.ChatActivity) domain.ChatActivit
 	if c.Name != "" {
 		call.Name = c.Name
 	}
+	if c.Kind != "" {
+		call.Kind = c.Kind
+	}
+	if len(c.Locations) > 0 {
+		call.Locations = c.Locations
+	}
 	if c.Target != "" {
 		call.Target = c.Target
 	}
 	call.ResultRef = c.ResultRef
+	if c.Diff != "" {
+		call.Diff = c.Diff
+	}
 	call.Error = c.Error
 	call.Status = c.Status
 	if call.Status == "" {

@@ -4766,6 +4766,42 @@ func TestRegression_SubmitPromptWithStagedProviderAndInvalidModel_SwitchStaysCom
 			"strand the chat on the new provider with no prompt delivered and no way back but another switch")
 }
 
+// A send the gate turns away must not leave its staged model/effort behind:
+// the NEXT send would otherwise restart the provider for a pick that was
+// never delivered.
+func TestRegression_SubmitPromptWithStagedSelection_BusyRejectionChangesNothing(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "codex")
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "one", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	before := f.chat(t, chatID)
+
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "two", uuid.NewString(), "",
+		&domain.ChatSelection{Model: "staged-model", Effort: "high"})
+
+	require.ErrorIs(t, err, agentusecase.ErrPromptBusy)
+	after := f.chat(t, chatID)
+	assert.Equal(t, before.Model, after.Model)
+	assert.Equal(t, before.Effort, after.Effort)
+}
+
+func TestRegression_SubmitPromptWithStagedSelection_ReplayedRequestChangesNothing(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "codex")
+	requestID := uuid.NewString()
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "one", requestID, "", nil)
+	require.NoError(t, err)
+	before := f.chat(t, chatID)
+
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "one", requestID, "",
+		&domain.ChatSelection{Model: "staged-model", Effort: "high"})
+
+	require.NoError(t, err)
+	after := f.chat(t, chatID)
+	assert.Equal(t, before.Model, after.Model)
+	assert.Equal(t, before.Effort, after.Effort)
+}
+
 // ─── the prompt journal a departing runner leaves behind ──────────────
 
 // writeSpawnedPromptRecord plants the exact record a chat is left holding when a

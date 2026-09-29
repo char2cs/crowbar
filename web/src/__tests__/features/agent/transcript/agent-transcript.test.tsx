@@ -242,7 +242,7 @@ describe('AgentTranscript turnbar wiring', () => {
     ).toBeNull()
   })
 
-  it("wires a turn's finished tool calls through to its own message row, keyed by turnId", () => {
+  it('renders a tool as a separate chronological row instead of attaching it to the assistant message', () => {
     draw(
       [{ turnId: 't2', sequence: 1, role: 'assistant', providerId: 'claude', text: 'a', at: '' }],
       {
@@ -266,9 +266,10 @@ describe('AgentTranscript turnbar wiring', () => {
       },
     )
 
+    expect(screen.getByTestId('agent-activity-tool')).toHaveAttribute('data-tool-id', 'c1')
     expect(
       screen.getByTestId('agent-message-1').querySelector('[data-testid="agent-turn-tools"]'),
-    ).not.toBeNull()
+    ).toBeNull()
   })
 
   // THE REGRESSION this session fixed. A Codex-style nested subagent carries
@@ -276,7 +277,7 @@ describe('AgentTranscript turnbar wiring', () => {
   // surfaced in a permanent strip above the composer, disconnected from any
   // turn. It must attach to the turn it actually ran under instead — here,
   // with only one turn after it, that is also simply the last one.
-  it('folds a turnId-less finished subagent onto the turn it ran under', () => {
+  it('keeps a turnId-less subagent as its own activity row', () => {
     draw(
       [
         { turnId: 't1', sequence: 1, role: 'assistant', providerId: 'claude', text: 'a', at: '' },
@@ -301,12 +302,13 @@ describe('AgentTranscript turnbar wiring', () => {
       },
     )
 
+    expect(screen.getByTestId('agent-activity-subagent')).toHaveAttribute('data-subagent-id', 's1')
     expect(
       screen.getByTestId('agent-message-1').querySelector('[data-testid="agent-turn-subagents"]'),
     ).toBeNull()
     expect(
       screen.getByTestId('agent-message-2').querySelector('[data-testid="agent-turn-subagents"]'),
-    ).not.toBeNull()
+    ).toBeNull()
     expect(screen.getByText('Explore')).toBeInTheDocument()
   })
 
@@ -357,12 +359,7 @@ describe('AgentTranscript turnbar wiring', () => {
       },
     )
 
-    expect(
-      screen.getByTestId('agent-message-1').querySelector('[data-testid="agent-turn-subagents"]'),
-    ).not.toBeNull()
-    expect(
-      screen.getByTestId('agent-message-2').querySelector('[data-testid="agent-turn-subagents"]'),
-    ).toBeNull()
+    expect(screen.getByTestId('agent-activity-subagent')).toHaveAttribute('data-subagent-id', 's1')
   })
 
   // A turn-scoped (real turnId) finished subagent still attaches to ITS OWN
@@ -392,12 +389,7 @@ describe('AgentTranscript turnbar wiring', () => {
       },
     )
 
-    expect(
-      screen.getByTestId('agent-message-1').querySelector('[data-testid="agent-turn-subagents"]'),
-    ).not.toBeNull()
-    expect(
-      screen.getByTestId('agent-message-2').querySelector('[data-testid="agent-turn-subagents"]'),
-    ).toBeNull()
+    expect(screen.getByTestId('agent-activity-subagent')).toHaveAttribute('data-subagent-id', 's1')
   })
 
   it('never gives a streaming bubble a turnbar — the turn has not finished', () => {
@@ -433,8 +425,9 @@ describe('AgentTranscript turnbar wiring', () => {
 
     expect(screen.getByText('typing…')).toBeInTheDocument()
     expect(screen.queryByTestId('message-turn-actions')).toBeNull()
-    // Not on the BUBBLE — the live list below it is what carries them now.
+    // The activity is an independent transcript row, not part of the bubble.
     expect(screen.queryByTestId('agent-turn-tools')).toBeNull()
+    expect(screen.getByTestId('agent-activity-tool')).toHaveAttribute('data-tool-id', 'c1')
   })
 
   // THE REGRESSION. `working` folds off the daemon's event-sourced turn state,
@@ -472,7 +465,7 @@ describe('AgentTranscript turnbar wiring', () => {
   // it matched no message and nothing on screen drew it. Measured live before
   // this existed: five calls, the first known to the backend at t=13.8s, none of
   // them painted until t=39.4s, when the turn ended.
-  it("draws the in-flight turn's calls before any reply exists to hold them", () => {
+  it('draws in-flight calls as durable rows before any reply exists', () => {
     draw([{ turnId: 'user-1', sequence: 1, role: 'user', providerId: '', text: 'go', at: '' }], {
       working: true,
       activity: {
@@ -496,14 +489,13 @@ describe('AgentTranscript turnbar wiring', () => {
       },
     })
 
-    expect(screen.getByTestId('agent-live-turn-tools')).toBeInTheDocument()
-    expect(screen.getByText('commandExecution · ls -la')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-activity-tool')).toHaveAttribute('data-tool-id', 'c1')
+    expect(screen.getByText('Command execution')).toBeInTheDocument()
+    expect(screen.getByText('ls -la')).toBeInTheDocument()
   })
 
-  // The same calls, once the reply lands and the ledger repoints them onto it:
-  // the reply draws them, and the live list has to go quiet or every row is
-  // drawn twice.
-  it('hands the calls over to the reply row rather than drawing them twice', () => {
+  // A later reply does not reparent a tool row or change its stable identity.
+  it('leaves a tool at its chronological position when its reply arrives', () => {
     draw(
       [{ turnId: 'msg-7', sequence: 1, role: 'assistant', providerId: 'codex', text: 'a', at: '' }],
       {
@@ -529,11 +521,184 @@ describe('AgentTranscript turnbar wiring', () => {
       },
     )
 
-    expect(screen.queryByTestId('agent-live-turn-tools')).toBeNull()
+    expect(screen.getByTestId('agent-activity-tool')).toHaveAttribute('data-tool-id', 'c1')
     expect(
       screen.getByTestId('agent-message-1').querySelector('[data-testid="agent-turn-tools"]'),
-    ).not.toBeNull()
-    expect(screen.getAllByText('commandExecution · ls -la')).toHaveLength(1)
+    ).toBeNull()
+    expect(screen.getAllByText('Command execution')).toHaveLength(1)
+    expect(screen.getAllByText('ls -la')).toHaveLength(1)
+  })
+
+  it('updates a tool row in place and leaves it between the messages around it', () => {
+    const user: AgentChatMessage = {
+      turnId: 't1',
+      sequence: 1,
+      role: 'user',
+      providerId: '',
+      text: 'edit this',
+      at: '2026-09-10T12:00:00.000Z',
+    }
+    const assistant: AgentChatMessage = {
+      turnId: 't1',
+      sequence: 2,
+      role: 'assistant',
+      providerId: 'codex',
+      text: 'done',
+      at: '2026-09-10T12:00:03.000Z',
+    }
+    const call = {
+      id: 'edit-1',
+      turnId: 't1',
+      seq: 2,
+      name: 'apply_patch',
+      kind: 'edit',
+      status: 'running' as const,
+      hasRequest: true,
+      hasResult: true,
+      startedAt: '2026-09-10T12:00:01.000Z',
+    }
+    const activity = { toolCalls: [call], subagents: [], interruptions: [], choices: [] }
+    const { container, rerender } = draw([user], { activity, working: true })
+    const row = screen.getByTestId('agent-activity-tool')
+    expect(row.querySelector('li')).toHaveAttribute('data-status', 'running')
+
+    rerender(
+      <AgentTranscript
+        messages={[user, assistant]}
+        queue={[]}
+        providers={[]}
+        activity={{
+          ...activity,
+          toolCalls: [{ ...call, status: 'ok', endedAt: '2026-09-10T12:00:02.000Z' }],
+        }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+
+    expect(screen.getByTestId('agent-activity-tool')).toBe(row)
+    expect(row.querySelector('li')).toHaveAttribute('data-status', 'ok')
+    const ordered = [...container.querySelectorAll('[data-sequence], [data-tool-id]')]
+    expect(
+      ordered.map(
+        (element) => element.getAttribute('data-sequence') ?? element.getAttribute('data-tool-id'),
+      ),
+    ).toEqual(['1', 'edit-1', '2'])
+  })
+
+  it('renders every tool call instead of collapsing after six', () => {
+    const toolCalls = Array.from({ length: 9 }, (_, index) => ({
+      id: 'tool-' + index,
+      turnId: 't1',
+      seq: index,
+      name: 'tool-' + index,
+      status: 'ok' as const,
+      hasRequest: false,
+      hasResult: false,
+      startedAt: new Date(Date.UTC(2026, 8, 10, 12, 0, index)).toISOString(),
+    }))
+    draw([], {
+      activity: { toolCalls, subagents: [], interruptions: [], choices: [] },
+    })
+
+    expect(screen.getAllByTestId('agent-activity-tool')).toHaveLength(9)
+    expect(screen.queryByText(/more$/)).toBeNull()
+  })
+
+  it('keeps consecutive tool rows compact instead of adding the prose-turn gap to each call', () => {
+    const toolCalls = Array.from({ length: 3 }, (_, index) => ({
+      id: `tool-${index}`,
+      turnId: 't1',
+      seq: index,
+      name: `tool-${index}`,
+      status: 'ok' as const,
+      hasRequest: false,
+      hasResult: false,
+      startedAt: new Date(Date.UTC(2026, 8, 10, 12, 0, index)).toISOString(),
+    }))
+    const { container } = draw([], {
+      activity: { toolCalls, subagents: [], interruptions: [], choices: [] },
+    })
+
+    const rows = Array.from(container.querySelectorAll<HTMLElement>('.virtual-rows > [data-index]'))
+    expect(rows).toHaveLength(3)
+    expect(rows[0]?.style.paddingBottom).toBe('0px')
+    expect(rows[1]?.style.paddingBottom).toBe('0px')
+  })
+
+  it('keeps a tool call and its resolved permission record in one compact run', () => {
+    const { container } = draw([], {
+      activity: {
+        toolCalls: [
+          {
+            id: 'tool-1',
+            turnId: 't1',
+            seq: 1,
+            name: 'Edit',
+            status: 'ok' as const,
+            hasRequest: false,
+            hasResult: false,
+            startedAt: '2026-09-10T12:00:00.000Z',
+          },
+        ],
+        subagents: [],
+        interruptions: [],
+        choices: [
+          {
+            id: 'choice-1',
+            turnId: 't1',
+            seq: 2,
+            kind: 'tool_permission',
+            title: 'Edit',
+            pending: false,
+            resolution: 'answered',
+            options: [],
+            answerable: false,
+            at: '2026-09-10T12:00:01.000Z',
+          },
+        ],
+      },
+    })
+
+    const rows = Array.from(container.querySelectorAll<HTMLElement>('.virtual-rows > [data-index]'))
+    expect(rows).toHaveLength(2)
+    expect(rows[0]?.style.paddingBottom).toBe('0px')
+  })
+
+  it('uses the Claude activity fallback when the server has not sent components', () => {
+    draw([], {
+      activity: {
+        toolCalls: [
+          {
+            id: 'claude-tool',
+            turnId: 'claude-turn',
+            seq: 1,
+            name: 'Read',
+            kind: 'read',
+            target: 'src/App.tsx',
+            status: 'ok',
+            hasRequest: false,
+            hasResult: false,
+            startedAt: '2026-09-10T12:00:00.000Z',
+          },
+        ],
+        subagents: [],
+        interruptions: [],
+        choices: [],
+      },
+    })
+
+    expect(screen.getByTestId('agent-activity-tool')).toHaveAttribute('data-tool-id', 'claude-tool')
+    expect(screen.getByText('Read')).toBeInTheDocument()
+    expect(screen.getByText('src/App.tsx')).toBeInTheDocument()
   })
 
   it("times a reply's turnbar against the user turn it answers, not against now", () => {
@@ -1358,73 +1523,40 @@ describe('estimateRowHeight', () => {
   })
 })
 
-// Regression: the live bug behind "the transcript bounces at turn end", root
-// -caused and measured directly in a real WKWebView (jsdom's zero-layout
-// engine can't reproduce the browser's own hard scrollTop clamp, so this
-// tests the MECHANISM — the settling row is primed ahead of its first paint —
-// not the visible motion itself). A short "typing…" bubble's TEXT is short,
-// but the reply had already grown tall on screen by the time it settles;
-// estimateRowHeight only ever sees the text, never what was actually
-// rendered, so it floors at ESTIMATED_ROW_HEIGHT regardless. Without the fix,
-// the settling row starts there and waits for measureElement's async
-// correction — the exact one-tick window the real clamp fires in. With it,
-// resizeItem is called with the streaming bubble's own last measured height
-// before that row ever paints as an estimate.
-describe('AgentTranscript: priming a settling row from its streaming height', () => {
-  it('primes the virtualizer with the streaming bubble’s real height the instant the same message settles, before any re-measurement', () => {
-    resizeItemCalls.length = 0
-    const originalRect = HTMLElement.prototype.getBoundingClientRect
-    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
-      if (this.tagName === 'ARTICLE' && this.getAttribute('data-sequence') === '1') {
-        return {
-          top: 0,
-          left: 0,
-          right: VIEWPORT_WIDTH,
-          bottom: 400,
-          width: VIEWPORT_WIDTH,
-          height: 400,
-          x: 0,
-          y: 0,
-          toJSON: () => ({}),
-        } as DOMRect
-      }
-      return originalRect.call(this)
+describe('AgentTranscript streaming history row', () => {
+  it('keeps the same virtualized row when a streamed message becomes durable history', () => {
+    const message: AgentChatMessage = {
+      turnId: 't1',
+      sequence: 1,
+      role: 'assistant',
+      providerId: 'claude',
+      text: 'typing…',
+      at: '2026-09-01T12:00:00Z',
     }
+    const { rerender } = draw([], { streamingBubbles: [message] })
+    const row = screen.getByTestId('agent-message-1')
 
-    try {
-      const message: AgentChatMessage = {
-        turnId: 't1',
-        sequence: 1,
-        role: 'assistant',
-        providerId: 'claude',
-        text: 'typing…',
-        at: '',
-      }
-      const { rerender } = draw([], { streamingBubbles: [message] })
+    rerender(
+      <AgentTranscript
+        messages={[message]}
+        queue={[]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
 
-      rerender(
-        <AgentTranscript
-          messages={[message]}
-          queue={[]}
-          providers={[]}
-          activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
-          working={false}
-          loading={false}
-          error={null}
-          hasOlder={false}
-          onLoadOlder={() => {}}
-          onRetryLoad={() => {}}
-          onOpenTerminal={() => {}}
-          onEditPrompt={() => {}}
-          onCancelPrompt={() => {}}
-          onRetryPrompt={() => {}}
-        />,
-      )
-
-      expect(resizeItemCalls).toContainEqual({ index: 0, size: 400 })
-    } finally {
-      HTMLElement.prototype.getBoundingClientRect = originalRect
-    }
+    expect(screen.getByTestId('agent-message-1')).toBe(row)
+    expect(row).toHaveAttribute('data-role', 'assistant')
   })
 })
 
@@ -1587,63 +1719,6 @@ describe('measureRowHeight', () => {
     // change, just two `getBoundingClientRect` reads landing a fraction of a
     // pixel apart.
     expect(measureRowHeight(rectOf(245.3))).toBe(measureRowHeight(rectOf(245.4)))
-  })
-})
-
-// Regression: the streamed/queued height caches (lastStreamedHeight,
-// lastQueuedHeight above) feed `resizeItem` from the SAME
-// `getBoundingClientRect` read `measureElement` itself will make a beat
-// later for that row — if the cached value is a raw float and the later
-// natural measurement rounds, the two can disagree by a sub-pixel amount and
-// `resizeItem`'s epsilon-free check (see `measureRowHeight`'s own doc) treats
-// that disagreement as a second real resize. Both paths go through
-// `measureRowHeight` now, so they can't drift apart.
-describe('AgentTranscript: settle-priming heights are rounded, not raw floats', () => {
-  it('primes with a whole-pixel height even when the streaming bubble measured a fractional one', () => {
-    resizeItemCalls.length = 0
-    const originalRect = HTMLElement.prototype.getBoundingClientRect
-    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
-      if (this.tagName === 'ARTICLE' && this.getAttribute('data-sequence') === '1') {
-        return { height: 400.4 } as DOMRect
-      }
-      return originalRect.call(this)
-    }
-
-    try {
-      const message: AgentChatMessage = {
-        turnId: 't1',
-        sequence: 1,
-        role: 'assistant',
-        providerId: 'claude',
-        text: 'typing…',
-        at: '',
-      }
-      const { rerender } = draw([], { streamingBubbles: [message] })
-
-      rerender(
-        <AgentTranscript
-          messages={[message]}
-          queue={[]}
-          providers={[]}
-          activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
-          working={false}
-          loading={false}
-          error={null}
-          hasOlder={false}
-          onLoadOlder={() => {}}
-          onRetryLoad={() => {}}
-          onOpenTerminal={() => {}}
-          onEditPrompt={() => {}}
-          onCancelPrompt={() => {}}
-          onRetryPrompt={() => {}}
-        />,
-      )
-
-      expect(resizeItemCalls).toContainEqual({ index: 0, size: 400 })
-      expect(resizeItemCalls.some((call) => !Number.isInteger(call.size))).toBe(false)
-    } finally {
-      HTMLElement.prototype.getBoundingClientRect = originalRect
-    }
   })
 })
 

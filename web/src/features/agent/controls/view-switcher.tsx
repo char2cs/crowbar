@@ -12,7 +12,8 @@ interface ViewSwitcherProps {
    * Undefined — the shipped case — means it can: both surfaces stay mounted and
    * point at the same process, so switching costs nothing. A provider that
    * declares otherwise disables the terminal side mid-turn rather than hiding
-   * it, because the control still works the moment the turn ends.
+   * it, because the control still works the moment the turn ends. The same
+   * holds coming back: leaving the provider's terminal mid-turn would kill it.
    */
   handoverBlocked?: boolean
   onSelect: (next: ChatPresentation) => void
@@ -42,8 +43,13 @@ export function ViewSwitcher({
         role="tab"
         className={cn(presentation === 'chat' && 'on')}
         aria-selected={presentation === 'chat'}
+        disabled={handoverBlocked && presentation === 'terminal'}
         aria-label="Chat"
-        title="Crowbar chat"
+        title={
+          handoverBlocked && presentation === 'terminal'
+            ? 'The agent is working in its terminal — finish or stop it first'
+            : 'Crowbar chat'
+        }
         onClick={() => onSelect('chat')}
       >
         <ChatIcon />
@@ -53,7 +59,7 @@ export function ViewSwitcher({
         role="tab"
         className={cn(presentation === 'terminal' && 'on')}
         aria-selected={presentation === 'terminal'}
-        disabled={handoverBlocked}
+        disabled={handoverBlocked && presentation !== 'terminal'}
         aria-label="Terminal"
         title={
           handoverBlocked

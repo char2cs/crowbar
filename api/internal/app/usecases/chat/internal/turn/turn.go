@@ -30,6 +30,15 @@ func (t *Turns) openAssistantTurn(
 	chat domain.Chat,
 	runner engineagents.Runner,
 ) {
+	t.openAssistantTurnWithPlan(ctx, chat, runner, false)
+}
+
+func (t *Turns) openAssistantTurnWithPlan(
+	ctx context.Context,
+	chat domain.Chat,
+	runner engineagents.Runner,
+	carryPlan bool,
+) {
 	// A new turn is starting, so any "the provider says it is idle" report left
 	// over from the previous one is stale — see idle.go.
 	t.idle.clear(chat.ID)
@@ -39,6 +48,7 @@ func (t *Turns) openAssistantTurn(
 		ProviderID: runner.ProviderID,
 		RunnerID:   runner.ID,
 		SessionID:  runner.CurrentSession,
+		CarryPlan:  carryPlan,
 		Now:        time.Now(),
 	}); err != nil {
 		slog.WarnContext(ctx, "agent: ingest hook: open assistant turn",

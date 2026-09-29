@@ -19,6 +19,8 @@ const (
 	// DeltaKindToolOutput is a running tool's output as it is produced — the
 	// lines of a build, a test run, a long-running command.
 	DeltaKindToolOutput = "tool_output"
+	// DeltaKindDiff is the provider's newest complete unified diff for the turn.
+	DeltaKindDiff = "diff"
 )
 
 // liveText accumulates streamed text that is shown while it happens and never
@@ -105,6 +107,59 @@ func (b *liveText) observe(chatID, kind, blockID string, index int, text string)
 	return out.String()
 }
 
+// replace records a wholesale live document. Unlike token deltas, a diff update
+// supersedes the previous value rather than appending to it.
+func (b *liveText) replace(chatID, kind, blockID, text string) string {
+	if b == nil {
+		return text
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.lastAt[chatID] = time.Now()
+	kinds := b.byChat[chatID]
+	if kinds == nil {
+		kinds = make(map[string]map[string]*textBlock)
+		b.byChat[chatID] = kinds
+	}
+	blocks := kinds[kind]
+	if blocks == nil {
+		blocks = make(map[string]*textBlock)
+		kinds[kind] = blocks
+	}
+	part := &strings.Builder{}
+	part.WriteString(text)
+	blocks[blockID] = &textBlock{parts: map[int]*strings.Builder{0: part}}
+	return text
+}
+
+// snapshot returns one accumulated block without changing its live lifetime.
+// Diff updates are keyed by the provider's turn id, which the descriptor
+// carries on both the update and terminal event.
+func (b *liveText) snapshot(chatID, kind, blockID string) string {
+	if b == nil {
+		return ""
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	block := b.byChat[chatID][kind][blockID]
+	if block == nil {
+		return ""
+	}
+	order := make([]int, 0, len(block.parts))
+	for i := range block.parts {
+		order = append(order, i)
+	}
+	sort.Ints(order)
+	var out strings.Builder
+	for n, i := range order {
+		if n > 0 {
+			out.WriteString("\n\n")
+		}
+		out.WriteString(block.parts[i].String())
+	}
+	return out.String()
+}
+
 // forget drops every live block held for a chat. Called when a turn ends: the
 // text belonged to that turn and the answer has superseded it.
 //
@@ -120,8 +175,24 @@ func (b *liveText) forget(chatID string) {
 	delete(b.lastAt, chatID)
 }
 
+func (t *Turns) recordLiveReplacement(
+	chat domain.Chat,
+	ev engineagents.CanonicalEvent,
+	kind string,
+) {
+	if ev.Delta == nil || t.feed.MessageDelta == nil {
+		return
+	}
+	blockID := ev.Delta.MessageID
+	if blockID == "" {
+		blockID = ev.Delta.TurnID
+	}
+	text := t.live.replace(chat.ID, kind, blockID, ev.Delta.Text)
+	t.feed.MessageDelta(chat.ID, chat.WorkspaceID, blockID, text, kind)
+}
+
 // sinceLastDelta reports when this chat last produced ANY live text — thinking,
-// or a running tool's output.
+// a running tool's output, or a complete diff snapshot.
 //
 // It exists for the quiet sweep, which asks "has the CLI gone silent?" and could
 // only see the answer stream. Reasoning and tool output never touch a message's

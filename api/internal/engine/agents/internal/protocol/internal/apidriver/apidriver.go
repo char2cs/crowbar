@@ -259,7 +259,13 @@ func (drv *Driver) EstablishSession(
 		// from what THIS connection actually remembers (the real thing Fresh or
 		// Resume captured at establish) is what Dispatch has always assumed
 		// happens here; an empty caller value must lose to it, not overwrite it.
-		return fillBlanksFromRemembered(out, remembered), nil
+		out = fillBlanksFromRemembered(out, remembered)
+		// The connection alone knows which thread it opened; a caller's id may be
+		// a runner row that never learned of a replacement.
+		if id := remembered["session_id"]; id != "" {
+			out["session_id"] = id
+		}
+		return out, nil
 	}
 
 	drv.mu.Lock()

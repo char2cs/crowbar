@@ -34,6 +34,8 @@ type (
 	CanonicalEvent = models.CanonicalEvent
 
 	ToolEvent      = models.ToolEvent
+	ToolLocation   = models.ToolLocation
+	PatchHunk      = models.PatchHunk
 	SubagentEvent  = models.SubagentEvent
 	InterruptEvent = models.InterruptEvent
 	ChoicePrompt   = models.ChoicePrompt
@@ -114,6 +116,7 @@ const (
 	HookIdle            = spec.HookIdle
 	HookToolOutputDelta = spec.HookToolOutputDelta
 	HookPlanUpdate      = spec.HookPlanUpdate
+	HookDiffUpdate      = spec.HookDiffUpdate
 )
 
 const (

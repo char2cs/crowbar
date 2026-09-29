@@ -19,6 +19,8 @@ type InvokeSubagentTool struct {
 	SubagentID string
 	ToolID     string
 	Name       string
+	Kind       string
+	Locations  []domain.ActivityToolLocation
 	Target     string
 	RequestRef string
 	Now        time.Time
@@ -49,6 +51,8 @@ func (c InvokeSubagentTool) EmitEvent(current *domain.ChatActivity) domain.ChatA
 		ChatID:     c.ChatID,
 		Seq:        next.Seq,
 		Name:       c.Name,
+		Kind:       c.Kind,
+		Locations:  c.Locations,
 		Target:     c.Target,
 		RequestRef: c.RequestRef,
 		Status:     domain.ToolStatusRunning,
@@ -71,6 +75,8 @@ type CompleteSubagentTool struct {
 	SubagentID string
 	ToolID     string
 	Name       string
+	Kind       string
+	Locations  []domain.ActivityToolLocation
 	Target     string
 	ResultRef  string
 	Status     string
@@ -106,6 +112,8 @@ func (c CompleteSubagentTool) EmitEvent(current *domain.ChatActivity) domain.Cha
 			ChatID:     c.ChatID,
 			Seq:        next.Seq,
 			Name:       c.Name,
+			Kind:       c.Kind,
+			Locations:  c.Locations,
 			StartedAt:  c.Now,
 		}
 	}
@@ -116,6 +124,12 @@ func (c CompleteSubagentTool) EmitEvent(current *domain.ChatActivity) domain.Cha
 
 	if c.Name != "" {
 		call.Name = c.Name
+	}
+	if c.Kind != "" {
+		call.Kind = c.Kind
+	}
+	if len(c.Locations) > 0 {
+		call.Locations = c.Locations
 	}
 	if c.Target != "" {
 		call.Target = c.Target

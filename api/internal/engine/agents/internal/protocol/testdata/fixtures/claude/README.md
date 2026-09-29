@@ -15,6 +15,21 @@ configured the normal way). One session: a user prompt asking for a single
 produced exactly these hook firings in order: SessionStart, UserPromptSubmit,
 PreToolUse, PostToolUse, Stop, SessionEnd.
 
+## PreToolUse.Edit.json
+
+`tool_input` is the real key set of a live Edit call (`file_path`,
+`new_string`, `old_string`, `replace_all`), taken from a Crowbar dev chat's
+stored request and shortened/scrubbed. The envelope around it is reduced from
+PreToolUse.json, not a fresh capture. Write's `content` key is unverified.
+
+## PostToolUse.Edit.json
+
+`tool_response` has the real key set of a live Edit result (`filePath`,
+`oldString`, `newString`, `originalFile`, `replaceAll`, `structuredPatch` with
+`oldStart`/`oldLines`/`newStart`/`newLines`/`lines`, `userModified`), taken from
+a Crowbar dev chat's stored result blob and shortened/scrubbed. The envelope is
+reduced from PostToolUse.json. Write and MultiEdit results were not captured.
+
 ## Scrubbing
 
 `transcript_path`, `cwd`, `scratchpad_dir`, `tool_input.file_path`, and
@@ -74,3 +89,9 @@ comment above `user_prompt` calls this deliberate-carried-over, not
 newly introduced by this phase, but it is now a PROVEN gap against real
 traffic rather than a theoretical one. Not fixed here — see the phase's own
 report for why (field-semantics change, owned by a later phase).
+
+## UserPromptSubmit.Subagent.json
+
+UserPromptSubmit.json plus `agent_id`/`agent_type`, the documented keys every
+hook payload carries when it fires inside a subagent. Constructed, not a live
+capture: UserPromptSubmit firing inside a subagent is unverified against real traffic.

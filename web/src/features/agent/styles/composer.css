@@ -50,6 +50,10 @@
 .agent-chat .dock > * {
   pointer-events: auto;
 }
+/* Status and error lines about the composer read centred on the input box. */
+.agent-chat .composer-note {
+  text-align: center;
+}
 /* The arrival slide's own JS (agent-chat-view.tsx: playArrival, in
    chat/lib/arrival-animation.ts) drives `.dock`'s own `transform` directly —
    there is nothing to declare here for that part, an inline style beats a
@@ -331,6 +335,7 @@
   resize: none;
   overflow-x: hidden;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   max-height: 50vh;
   padding: 0 62px 0 0;
   white-space: pre-wrap;
@@ -534,13 +539,12 @@
 }
 
 .agent-chat .pill.multi .field {
-  padding-right: 32px; /* fieldRightPadding(sendInset(), 1) — one circle now */
-  scrollbar-gutter: stable;
-  /* Narrows the scrolling box (and the native scrollbar riding its edge)
-     clear of `.send`'s own reach past the pill's padding: 4px inset + 28px
-     diameter − the pill's own 14px padding. `width`, not `margin` — `.field`
-     is already `width: 100%`, and an explicit margin-right there is an
-     over-constrained box the browser just discards at layout time. */
+  /* The text column MUST be as wide as the one-line field's (100% - 62px):
+     wrapping flips `.multi`, and a wider column here lets the text fit on one
+     line again, which flips it back — the height flicker. `width` trims 18px
+     (send's reach past the pill's padding) so the scrollbar clears the button;
+     the padding is the remaining 62 - 18. */
+  padding-right: 44px;
   width: calc(100% - 18px);
 }
 
@@ -1025,6 +1029,67 @@
   color: var(--muted-foreground);
 }
 
+/* ── prompt stash picker ───────────────────────────────── */
+.agent-chat .stash-picker {
+  width: min(100%, 440px);
+  max-height: 280px;
+  overflow-y: auto;
+  margin: 0 0 8px auto;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--popover);
+  box-shadow: 0 16px 40px -12px oklch(0 0 0 / 0.5);
+}
+.agent-chat .stash-picker-title {
+  padding: 4px 8px 6px;
+  color: var(--muted-foreground);
+  font-size: var(--ui-text-xs);
+  font-weight: 500;
+}
+.agent-chat .stash-picker-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agent-chat .stash-picker-item:hover,
+.agent-chat .stash-picker-item:focus-visible {
+  outline: none;
+  background: var(--accent);
+}
+.agent-chat .stash-picker-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.agent-chat .stash-picker-time {
+  color: var(--muted-foreground);
+  font-size: var(--ui-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.agent-chat .blank-stash-picker {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: 24px;
+  width: min(calc(100% - 48px), 720px);
+  transform: translateX(-50%);
+}
+.agent-chat .blank-stash-picker .stash-picker {
+  margin-left: auto;
+}
+
 /* ── the empty state ───────────────────────────────────── */
 /* A blank markdown document, because that is what a good first prompt looks
    like. The affordance is inverted from the transcript's: the writing surface is
@@ -1085,4 +1150,11 @@
   box-shadow: none;
   padding: 0;
   min-height: auto;
+}
+.agent-chat .choice-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(60vh, 560px);
+  overflow-y: auto;
 }
