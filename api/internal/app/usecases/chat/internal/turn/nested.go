@@ -65,13 +65,15 @@ func (t *Turns) handleNestedObservation(
 		note(ctx, "nested subagent tool invoked", t.activity.InvokeSubagentTool(ctx,
 			agentactivity.SubagentToolInput{
 				ChatID: chatID, SubagentID: subagentID, ToolID: toolID(ev),
-				Name: ev.Tool.Name, Target: ev.Tool.Target, Request: ev.Tool.Input, Now: now,
+				Name: ev.Tool.Name, Kind: ev.Tool.Kind, Locations: toolLocations(ev),
+				Target: ev.Tool.Target, Request: ev.Tool.Input, Now: now,
 			}))
 	case engineagents.HookToolPost, engineagents.HookToolFail:
 		note(ctx, "nested subagent tool completed", t.activity.CompleteSubagentTool(ctx,
 			agentactivity.SubagentToolResultInput{
 				ChatID: chatID, SubagentID: subagentID, ToolID: toolID(ev),
-				Name: ev.Tool.Name, Target: ev.Tool.Target, Result: ev.Tool.Result,
+				Name: ev.Tool.Name, Kind: ev.Tool.Kind, Locations: toolLocations(ev),
+				Target: ev.Tool.Target, Result: ev.Tool.Result,
 				Status: toolStatus(ev), Error: ev.Tool.Error, DurationMS: ev.Tool.DurationMS, Now: now,
 			}))
 	}

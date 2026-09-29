@@ -60,6 +60,27 @@ func TestApply_NilDescriptorIsInvalid(t *testing.T) {
 	assert.ErrorIs(t, rules.Apply(nil), rules.ErrInvalidDescriptor)
 }
 
+func TestRichMappings_RejectUnknownCanonicalValuesAndIncompleteLocations(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		event spec.EventSpec
+		want  string
+	}{
+		{"tool kind", spec.EventSpec{KindMap: map[string]string{"x": "codexThing"}}, "kind_map"},
+		{"tool status", spec.EventSpec{StatusMap: map[string]string{"x": "maybe"}}, "status_map"},
+		{"locations", spec.EventSpec{Locations: &spec.LocationsSpec{Items: "item.changes"}}, "items and path"},
+		{"patch", spec.EventSpec{Patch: &spec.PatchSpec{Items: "response.hunks"}}, "items, old_start, new_start and lines"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := valid()
+			d.Events[spec.HookToolPost] = tc.event
+			err := rules.Apply(d)
+			require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
 func TestAll_EveryRuleIsNamed(t *testing.T) {
 	seen := map[string]struct{}{}
 	for _, r := range rules.All() {

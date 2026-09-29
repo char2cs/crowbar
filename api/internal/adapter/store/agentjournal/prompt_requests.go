@@ -391,19 +391,47 @@ func (s *promptRequests) ConfirmAccepted(
 		}
 		return "", err
 	}
+	match, found := bestAcknowledgeable(records, runnerID, providerID, textHash)
+	if !found {
+		return "", nil
+	}
+	match.State = PromptStateAccepted
+	match.RunnerID = runnerID
+	match.UpdatedAt = now.UTC()
+	if err := s.write(dir, match); err != nil {
+		return "", err
+	}
+	return match.RequestID, nil
+}
+
+// bestAcknowledgeable picks, among records the echo could belong to, the one
+// still in flight, then the newest: a repeated text ("continue") must not be
+// credited to an older twin whose delivery already ended.
+func bestAcknowledgeable(
+	records []PromptRequest,
+	runnerID, providerID, textHash string,
+) (PromptRequest, bool) {
+	var best PromptRequest
+	found := false
 	for _, record := range records {
 		if !acknowledgeable(record, runnerID, providerID, textHash) {
 			continue
 		}
-		record.State = PromptStateAccepted
-		record.RunnerID = runnerID
-		record.UpdatedAt = now.UTC()
-		if err := s.write(dir, record); err != nil {
-			return "", err
+		if !found || betterAcknowledgement(record, best) {
+			best, found = record, true
 		}
-		return record.RequestID, nil
 	}
-	return "", nil
+	return best, found
+}
+
+func betterAcknowledgement(candidate, current PromptRequest) bool {
+	inFlight := func(r PromptRequest) bool {
+		return r.State == PromptStateDispatching || r.State == PromptStateSpawned
+	}
+	if inFlight(candidate) != inFlight(current) {
+		return inFlight(candidate)
+	}
+	return candidate.CreatedAt.After(current.CreatedAt)
 }
 
 func acknowledgeable(

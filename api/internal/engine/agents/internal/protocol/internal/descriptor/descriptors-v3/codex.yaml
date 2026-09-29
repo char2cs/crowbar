@@ -104,10 +104,11 @@ events:
   # Enumerating them would be a wedge: a status this list forgot — `inProgress`,
   # or anything codex adds later — would match NEITHER event, and a turn that
   # never receives a close is a spinner that never stops. Falling through to an
-  # ordinary stop is the safe default. An interrupt is an ordinary stop too: the
-  # human asked for it.
+  # ordinary stop is the safe default. An interrupt is still a turn_stop;
+  # turn_status below preserves the provider's explicit interrupted outcome.
   turn_stop:
     required: [session_id]
+    status_map: { completed: completed, interrupted: interrupted }
     api:
       in: turn/completed
       map:
@@ -121,6 +122,7 @@ events:
         # "completed" — as a genuinely interrupted real turn's). See
         # compact_pre below and turn/compaction.go.
         turn_id:    turn.id
+        turn_status: turn.status
       fixtures: [turn_completed.json]
     hooks:
       in: Stop
@@ -185,6 +187,8 @@ events:
   # does, but no fixture of either exists to prove it — see tool_post below,
   # where the same field IS proven.
   tool_pre:
+    kind_map: { commandExecution: execute, fileChange: edit, mcpToolCall: other, webSearch: search, dynamicToolCall: other, collabAgentToolCall: other }
+    locations: { items: item.changes, path: path }
     required: [session_id, tool_id, tool_name]
     api:
       in: item/started
@@ -194,6 +198,7 @@ events:
         session_id:  threadId
         tool_id:     item.id
         tool_name:   { first_present: [item.tool, item.type] }
+        tool_kind:   item.type
         tool_target: { first_present: [item.command, item.query, item.server, "item.changes[0].path", item.prompt, "item.receiverThreadIds[0]"] }
         tool_input:  item
       fixtures:
@@ -237,6 +242,9 @@ events:
   # a child's OWN turn_stop is what CLOSES it, not this field going away (it
   # never does: closeAgent's own completion still names the same id).
   tool_post:
+    kind_map: { commandExecution: execute, fileChange: edit, mcpToolCall: other, webSearch: search, dynamicToolCall: other, collabAgentToolCall: other }
+    status_map: { completed: ok, failed: error, declined: declined }
+    locations: { items: item.changes, path: path }
     required: [session_id, tool_id, tool_name]
     api:
       in: item/completed
@@ -246,8 +254,10 @@ events:
         session_id:        threadId
         tool_id:           item.id
         tool_name:         { first_present: [item.tool, item.type] }
+        tool_kind:         item.type
         tool_target:       { first_present: [item.command, item.query, item.server, "item.changes[0].path", item.prompt, "item.receiverThreadIds[0]"] }
         tool_result:       { first_present: [item.aggregatedOutput, item.result, item.changes, item.agentsStates] }
+        tool_status:       item.status
         duration_ms:       item.durationMs
         nested_session_id: item.receiverThreadIds[0]
       fixtures:
@@ -283,6 +293,9 @@ events:
   # NO hooks: block — same reason as turn_failed: PostToolUse always names
   # canonical tool_post, never tool_fail.
   tool_fail:
+    kind_map: { commandExecution: execute, fileChange: edit, mcpToolCall: other, webSearch: search, dynamicToolCall: other, collabAgentToolCall: other }
+    status_map: { failed: error, declined: declined }
+    locations: { items: item.changes, path: path }
     required: [session_id, tool_id, tool_name]
     api:
       in: item/completed
@@ -293,12 +306,14 @@ events:
         session_id:  threadId
         tool_id:     item.id
         tool_name:   { first_present: [item.tool, item.type] }
+        tool_kind:   item.type
         tool_target: { first_present: [item.command, item.query, item.server, "item.changes[0].path", item.prompt, "item.receiverThreadIds[0]"] }
         tool_result: { first_present: [item.aggregatedOutput, item.result, item.changes, item.agentsStates] }
         # collabAgentToolCall carries no .error field at all (confirmed live and
         # against the published schema) — item.status ("failed") is the only text
         # this variant has to fall back to, same as every other tool_error here.
         tool_error:  { first_present: [item.error.message, item.status] }
+        tool_status: item.status
         duration_ms: item.durationMs
         # NO nested_session_id here either, same reason as tool_pre: no
         # recorded collabAgentToolCall failure exists to prove receiverThreadIds
@@ -390,6 +405,18 @@ events:
         pending:    pending
         inProgress: active
         completed:  done
+
+  diff_update:
+    surfaces: [chat]
+    in: turn/diff/updated
+    # Shape is from Codex's generated app-server protocol schema, not a live
+    # capture; see testdata/fixtures/codex/README.md.
+    fixtures: [turn_diff_updated.schema.json]
+    map:
+      session_id: threadId
+      turn_id:    turnId
+      message_id: turnId
+      text:       diff
 
   # tokenUsage nests under total/ — not tokenUsage.inputTokens directly.
   #

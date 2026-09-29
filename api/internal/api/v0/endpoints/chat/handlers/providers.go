@@ -111,6 +111,7 @@ func providerDTOs(in []domain.AgentProvider) []dto.AgentProviderDTO {
 			TerminalStartHere: p.TerminalStartHere,
 			ModelSelect:       p.ModelSelect,
 			EffortSelect:      p.EffortSelect,
+			ActivityEvents:    p.ActivityEvents,
 			Models:            p.Models,
 			DefaultModel:      p.DefaultModel,
 			Efforts:           p.Efforts,

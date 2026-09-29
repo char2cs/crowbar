@@ -53,6 +53,50 @@ func TestTurns_BeforeFilterExcludesTheBoundarySeq(t *testing.T) {
 	assert.Equal(t, []string{"t1", "t2"}, ids, "seq 3 sits AT the before boundary and must be excluded")
 }
 
+func TestTurns_DiffSnapshotRoundTrips(t *testing.T) {
+	ctx, st := newStore(t)
+	const diff = "diff --git a/src/main.go b/src/main.go\n+updated"
+	require.NoError(t, st.SaveTurn(ctx, domain.ActivityTurn{
+		ID: "t1", ChatID: "c1", Seq: 1, Text: "done", Status: "failed", Diff: diff, StartedAt: now,
+	}))
+
+	got, err := st.Turns(ctx, "c1", 0, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, diff, got[0].Diff)
+	assert.Equal(t, "failed", got[0].Status)
+}
+
+func TestTurns_PlanSnapshotRoundTripsAndLegacyAbsenceStaysEmpty(t *testing.T) {
+	ctx, st := newStore(t)
+	updated := now.Add(time.Second)
+	require.NoError(t, st.SaveTurn(ctx, domain.ActivityTurn{
+		ID: "planned", ChatID: "c1", Seq: 1, Text: "done", StartedAt: now,
+		Plan: []domain.ActivityPlanStep{
+			{Text: "inspect", Status: "done"},
+			{Text: "verify", Status: "active"},
+		},
+		PlanUpdatedAt: &updated,
+	}))
+	// This is the shape produced by old callers and old rows: no plan JSON or
+	// timestamp. It must keep decoding as absence, not a fabricated step.
+	require.NoError(t, st.SaveTurn(ctx, domain.ActivityTurn{
+		ID: "legacy", ChatID: "c1", Seq: 2, Text: "old", StartedAt: now,
+	}))
+
+	got, err := st.Turns(ctx, "c1", 0, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, []domain.ActivityPlanStep{
+		{Text: "inspect", Status: "done"},
+		{Text: "verify", Status: "active"},
+	}, got[0].Plan)
+	require.NotNil(t, got[0].PlanUpdatedAt)
+	assert.Equal(t, updated, *got[0].PlanUpdatedAt)
+	assert.Empty(t, got[1].Plan)
+	assert.Nil(t, got[1].PlanUpdatedAt)
+}
+
 // TestToolCallsBefore_FiltersToCallsBeforeTheGivenSeq proves ToolCallsBefore's
 // own `before` boundary (nothing previously exercised this method at all): a
 // call whose seq the caller already holds must not be repeated when paging
@@ -95,6 +139,20 @@ func TestToolCalls_SubagentIDRoundTrips(t *testing.T) {
 	}
 	assert.Empty(t, byName["top-level"])
 	assert.Equal(t, "a1", byName["nested"])
+}
+
+func TestToolCalls_KindAndLocationsRoundTrip(t *testing.T) {
+	ctx, st := newStore(t)
+	require.NoError(t, st.SaveToolCall(ctx, domain.ActivityToolCall{
+		ID: "t1", ChatID: "c1", Seq: 1, Name: "fileChange", Kind: "edit",
+		Locations: []domain.ActivityToolLocation{{Path: "src/main.go", Line: 42}}, StartedAt: now,
+	}))
+
+	got, err := st.ToolCalls(ctx, "c1", 0, 0)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "edit", got[0].Kind)
+	assert.Equal(t, []domain.ActivityToolLocation{{Path: "src/main.go", Line: 42}}, got[0].Locations)
 }
 
 // A subagent's own reply history must survive the round trip too — it is

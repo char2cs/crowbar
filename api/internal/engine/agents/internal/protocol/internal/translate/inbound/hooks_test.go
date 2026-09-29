@@ -66,6 +66,26 @@ func TestParse_MapsTheConversationFields(t *testing.T) {
 	assert.Equal(t, "s1", ev.SessionID)
 }
 
+func TestParse_MapsDescriptorDeclaredTurnStatus(t *testing.T) {
+	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{
+		spec.HookTurnStop: {
+			In: spec.WireRef{"turn/completed"},
+			Map: spec.FieldMap{
+				"turn_id":     {"turn.id"},
+				"turn_status": {"turn.status"},
+			},
+			StatusMap: map[string]string{"completed": "completed", "cancelled": "interrupted"},
+		},
+	}}
+	d.Runtime.Hooks.Format = "json"
+
+	ev, err := parse(d, spec.HookTurnStop, []byte(`{"turn":{"id":"t1","status":"cancelled"}}`))
+
+	require.NoError(t, err)
+	assert.Equal(t, "t1", ev.TurnID)
+	assert.Equal(t, "interrupted", ev.TurnStatus)
+}
+
 // --- required: (design spec 2.3) -------------------------------------------
 
 func TestParse_RequiredFieldMissingIsAHardError(t *testing.T) {
@@ -363,6 +383,36 @@ func TestParse_ToolPostWithNoNestedSessionMappingLeavesItEmpty(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, ev.Tool)
 	assert.Empty(t, ev.Tool.NestedSessionID)
+}
+
+func TestParse_ToolEventCarriesTheMappedEditBeforeAndAfterText(t *testing.T) {
+	d := descriptor(map[string]map[string]string{
+		spec.HookToolPre: {"tool_id": "id", "edit_before": "old", "edit_after": "new"},
+	})
+
+	ev, err := parse(d, spec.HookToolPre, []byte(`{"id":"t1","old":"a","new":"b"}`))
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Tool)
+	assert.Equal(t, "a", ev.Tool.EditBefore)
+	assert.Equal(t, "b", ev.Tool.EditAfter)
+}
+
+func TestParse_ToolEventCarriesTheMappedPatchHunks(t *testing.T) {
+	d := descriptor(map[string]map[string]string{spec.HookToolPost: {"tool_id": "id"}})
+	event := d.Events[spec.HookToolPost]
+	event.Patch = &spec.PatchSpec{Items: "res.hunks", OldStart: "os", NewStart: "ns", Lines: "lines"}
+	d.Events[spec.HookToolPost] = event
+
+	ev, err := parse(d, spec.HookToolPost, []byte(
+		`{"id":"t1","res":{"hunks":[{"os":8,"ns":9,"lines":[" a","-b","+c"]},{"os":30,"ns":31,"lines":["-d"]}]}}`))
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Tool)
+	assert.Equal(t, []models.PatchHunk{
+		{OldStart: 8, NewStart: 9, Lines: []string{" a", "-b", "+c"}},
+		{OldStart: 30, NewStart: 31, Lines: []string{"-d"}},
+	}, ev.Tool.Patch)
 }
 
 func TestParse_ToolTargetTakesTheFirstMappedPathThatHasAValue(t *testing.T) {

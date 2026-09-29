@@ -68,6 +68,7 @@ func TestRegression_CodexToolCallsCarryATargetAndAResult(t *testing.T) {
 
 			require.NoError(t, err)
 			require.NotNil(t, ev.Tool)
+			assert.NotEmpty(t, ev.Tool.Kind)
 			assert.Equal(t, tc.wantName, ev.Tool.Name)
 			assert.Equal(t, tc.wantTarget, ev.Tool.Target,
 				"an unmapped target renders the tool as a bare type name")
@@ -75,8 +76,32 @@ func TestRegression_CodexToolCallsCarryATargetAndAResult(t *testing.T) {
 			if tc.wantResult != "" {
 				assert.Equal(t, tc.wantResult, string(ev.Tool.Result))
 			}
+			if tc.variant == "fileChange" {
+				assert.Equal(t, []agents.ToolLocation{{Path: "/w/main.go"}}, ev.Tool.Locations)
+			}
 		})
 	}
+}
+
+func TestRegression_CodexReportsTheLatestTurnDiff(t *testing.T) {
+	raw := []byte(`{"threadId":"thread-1","turnId":"turn-1","diff":"diff --git a/a b/a\n"}`)
+
+	ev, err := get(t, "codex").ParseHook(agents.HookDiffUpdate, raw, agents.ChannelAPI)
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Delta)
+	assert.Equal(t, "turn-1", ev.Delta.MessageID)
+	assert.Equal(t, "diff --git a/a b/a\n", ev.Delta.Text)
+}
+
+func TestRegression_CodexPreservesInterruptedTurnStatus(t *testing.T) {
+	raw := []byte(`{"threadId":"thread-1","turn":{"id":"turn-1","status":"interrupted","items":[]}}`)
+
+	ev, err := get(t, "codex").ParseHook(agents.HookTurnStop, raw, agents.ChannelAPI)
+
+	require.NoError(t, err)
+	assert.Equal(t, "turn-1", ev.TurnID)
+	assert.Equal(t, "interrupted", ev.TurnStatus)
 }
 
 // tool_pre must name the same target tool_post does, or the running row in the
@@ -105,6 +130,18 @@ func TestRegression_CodexFailedToolCarriesItsError(t *testing.T) {
 	require.NotNil(t, ev.Tool)
 	assert.Equal(t, "server closed the connection", ev.Tool.Error)
 	assert.Equal(t, "get_chat_log", ev.Tool.Name)
+	assert.Equal(t, "error", ev.Tool.Status)
+}
+
+func TestRegression_CodexDeclinedToolKeepsItsDistinctStatus(t *testing.T) {
+	raw := []byte(`{"item":{"type":"commandExecution","id":"c1","command":"rm file",
+	  "status":"declined","aggregatedOutput":"","durationMs":1},"threadId":"t","turnId":"tn"}`)
+
+	ev, err := get(t, "codex").ParseHook(agents.HookToolFail, raw, agents.ChannelAPI)
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Tool)
+	assert.Equal(t, "declined", ev.Tool.Status)
 }
 
 // Reasoning is where codex spends most of a hard turn, emitting nothing else

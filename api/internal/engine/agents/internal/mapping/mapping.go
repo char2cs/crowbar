@@ -341,6 +341,25 @@ func Objects(doc map[string]any, paths []string) []map[string]any {
 	return out
 }
 
+// Strings reads an array of strings; non-string elements are skipped.
+func Strings(doc map[string]any, paths []string) []string {
+	v, ok := resolve(doc, paths)
+	if !ok {
+		return nil
+	}
+	arr, isArray := v.([]any)
+	if !isArray {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, item := range arr {
+		if s, isString := item.(string); isString {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func Object(doc map[string]any, paths []string) map[string]any {
 	v, ok := resolve(doc, paths)
 	if !ok {

@@ -11,6 +11,7 @@ import {
 } from '@/features/agent/api/upload-chat-attachment'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import { NO_ACTIVITY } from '@/features/agent/lib/agent-activity'
+import type { AgentChoice } from '@/features/agent/api/agent-api'
 import { saveExcalidrawDesign } from '@/features/agent/composer/lib/excalidraw-design-persistence'
 import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
@@ -346,6 +347,29 @@ describe('AgentComposer', () => {
 
     expect(screen.getByRole('group')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Send prompt' })).toBeNull()
+  })
+
+  it('renders every simultaneous pending choice', () => {
+    const first = {
+      id: 'k1',
+      turnId: 't1',
+      seq: 1,
+      kind: 'tool_permission',
+      toolName: 'Bash',
+      options: [{ id: 'allow', kind: 'allow', label: 'Allow' }],
+      pending: true,
+      answerable: true,
+      at: '2026-08-18T12:00:00Z',
+    } satisfies AgentChoice
+    draw({
+      activity: {
+        ...NO_ACTIVITY,
+        choices: [first, { ...first, id: 'k2', seq: 2, toolName: 'Write' }],
+      },
+    })
+
+    expect(screen.getAllByTestId('agent-choice-prompt')).toHaveLength(2)
+    expect(screen.getByTestId('agent-choice-stack')).toBeInTheDocument()
   })
 
   // Pre-existing branches, unrelated to the plus button: compaction shares the

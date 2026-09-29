@@ -166,6 +166,7 @@ export function pickedOptionLabels(choice: AgentChoice): string[] {
  *  answered" call for different reactions from a reader scanning back. */
 export function describeResolvedChoice(choice: AgentChoice): string {
   const subject = choice.toolName || describeChoice(choice)
+  if (choice.pending) return `${subject} · waiting for answer`
   if (choice.resolution === 'proceeded') return `${subject} · answered at the terminal`
   if (choice.resolution === 'abandoned') return `${subject} · left unanswered`
   const picked = pickedOptionLabels(choice)

@@ -38,15 +38,13 @@ func (t *Turns) recordMessageDelta(
 		// more than one, and the only one that is ever recorded.
 		t.feed.MessageDelta(chat.ID, chat.WorkspaceID, message.ID, message.Text, "")
 	}
-	if !message.Final {
+	// Hook processes race, so the closing increment can land before an earlier
+	// one: record once whole. The turn close records whatever is still partial.
+	if !message.Final || !message.Complete || message.Text == message.RecordedText {
 		return
 	}
-	if !message.Complete {
-		slog.WarnContext(ctx, "agent: assistant message is missing an increment",
-			"chat_id", chat.ID, "message_id", message.ID)
-	}
 	note(ctx, "record streamed message",
-		t.recordAssistantMessage(ctx, chat, runner, message.ID, message.Text, "", true))
+		t.recordAssistantMessage(ctx, chat, runner, message.ID, message.Text, "", true, "completed", ""))
 	t.messages.MarkRecorded(chat.ID, message.ID, message.Text)
 }
 
@@ -56,6 +54,8 @@ func (t *Turns) recordAssistantMessage(
 	runner engineagents.Runner,
 	messageID, text, effort string,
 	reopen bool,
+	status string,
+	diff string,
 ) error {
 	if text == "" {
 		return nil
@@ -68,13 +68,16 @@ func (t *Turns) recordAssistantMessage(
 		SessionID:  runner.CurrentSession,
 		Text:       text,
 		Effort:     effort,
+		Status:     status,
+		Diff:       diff,
 		ItemIndex:  t.messages.IndexOf(chat.ID, runner.ID, messageID),
+		OmitPlan:   reopen,
 		Now:        time.Now(),
 	}); err != nil {
 		return fmt.Errorf("agent: record assistant message: %w", err)
 	}
 	if reopen {
-		t.openAssistantTurn(ctx, chat, runner)
+		t.openAssistantTurnWithPlan(ctx, chat, runner, true)
 	}
 	return nil
 }
@@ -121,8 +124,22 @@ func (t *Turns) closeAssistantTurn(
 	// Crowbar has now noticed the turn ending, so the provider's own "I am idle"
 	// report has nothing left to reconcile — see idle.go.
 	defer t.idle.clear(chat.ID)
+	diff := t.live.snapshot(chat.ID, DeltaKindDiff, ev.TurnID)
 
 	var lastRecorded string
+	status := "completed"
+	if ev.Kind == engineagents.HookTurnFailed {
+		status = "failed"
+	} else if ev.TurnStatus != "" {
+		status = ev.TurnStatus
+	}
+	switch status {
+	case "completed", "failed", "interrupted", "abandoned":
+	default:
+		// The provider signalled an end but its new status is not one the
+		// descriptor mapped. Preserve the non-successful uncertainty.
+		status = "interrupted"
+	}
 	for i, message := range streamed {
 		text := message.Text
 		last := i == len(streamed)-1
@@ -154,7 +171,15 @@ func (t *Turns) closeAssistantTurn(
 		if last {
 			effort = ev.Effort
 		}
-		if err := t.recordAssistantMessage(ctx, chat, runner, message.ID, text, effort, !last); err != nil {
+		messageDiff := ""
+		if last {
+			messageDiff = diff
+		}
+		messageStatus := "completed"
+		if last {
+			messageStatus = status
+		}
+		if err := t.recordAssistantMessage(ctx, chat, runner, message.ID, text, effort, !last, messageStatus, messageDiff); err != nil {
 			return fmt.Errorf("agent: ingest hook: close turn: %w", err)
 		}
 		lastRecorded = text
@@ -169,7 +194,7 @@ func (t *Turns) closeAssistantTurn(
 	// "nothing of the hook's content made it in": nothing streamed at all.
 	if ev.Message != "" && lastRecorded == "" {
 		return t.recordAssistantMessage(
-			ctx, chat, runner, hookMessageID(ctx), ev.Message, ev.Effort, false,
+			ctx, chat, runner, hookMessageID(ctx), ev.Message, ev.Effort, false, status, diff,
 		)
 	}
 	if lastRecorded == "" {
@@ -362,7 +387,7 @@ func (t *Turns) salvageUnfinished(
 		if text == "" || text == message.RecordedText {
 			continue
 		}
-		if err := t.recordAssistantMessage(ctx, chat, runner, message.ID, text, "", false); err != nil {
+		if err := t.recordAssistantMessage(ctx, chat, runner, message.ID, text, "", false, "interrupted", ""); err != nil {
 			return recorded, err
 		}
 		t.messages.MarkRecorded(chat.ID, message.ID, text)

@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { layoutHeight } from '@/lib/layout-size'
 import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual'
 import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
@@ -11,9 +12,12 @@ import type {
   AgentSubagent,
   AgentToolCall,
 } from '@/features/agent/api/agent-api'
+import {
+  activityComponents,
+  type ActivityComponent,
+} from '@/features/agent/lib/activity-components'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import { samePrompt } from '@/features/agent/hooks/use-prompt-queue'
-import { finishedNestedSubagents } from '@/features/agent/activity/nested-subagents'
 import { WorkingLine } from '@/features/agent/activity/working-line'
 import {
   useTranscriptAnchor,
@@ -29,13 +33,12 @@ import {
 } from '@/features/agent/transcript/lib/flatten-transcript-rows'
 import { MessageRow } from '@/features/agent/transcript/message-row'
 import { QueuedRow } from '@/features/agent/transcript/queued-row'
+import { ActivityComponentRow } from '@/features/agent/transcript/activity-component-row'
 import {
-  AgentLiveTurnTools,
-  groupChoicesByTurn,
-  groupSubagentsByTurn,
-  groupToolCallsByTurn,
+  AgentToolCallEntry,
+  AgentSubagentEntry,
+  AgentTurnChoices,
 } from '@/features/agent/transcript/turn-tools'
-import { liveTurnToolCalls } from '@/features/agent/lib/agent-activity'
 
 interface AgentTranscriptProps {
   /** Needed only to fetch a finished tool call's own request/result bytes on
@@ -60,6 +63,8 @@ interface AgentTranscriptProps {
   toolOutput?: { id: string; text: string }
   /** The agent's own to-do list — see WorkingLine's own prop doc. */
   plan?: { text: string; status: string }[]
+  /** The newest complete unified diff for this live turn. */
+  diff?: { id: string; text: string }
   loading: boolean
   error: Error | null
   hasOlder: boolean
@@ -202,7 +207,7 @@ const ROW_GAP = 18
  * succession, which a stable row never is.
  */
 export function measureRowHeight(el: Element): number {
-  return Math.round(el.getBoundingClientRect().height)
+  return Math.round(layoutHeight(el))
 }
 
 /**
@@ -328,9 +333,23 @@ export function estimateRowHeight(row: TranscriptRow): number {
  * re-applied per GROUP rather than per row, or every divider would gain 18px of
  * air on both sides that it never had.
  */
+function isCompactActivity(kind: ActivityComponent['kind']): boolean {
+  return kind === 'tool_call' || kind === 'permission_request' || kind === 'user_input_request'
+}
+
 function endsMessageGroup(rows: TranscriptRow[], index: number): boolean {
   const row = rows[index]
   if (row.kind === 'first-turn-divider') return true
+  if (row.kind === 'activity') {
+    const next = rows[index + 1]
+    // A tool call and its permission record are one compact run, not separate
+    // message groups; only prose turns get the full gap.
+    return !(
+      next?.kind === 'activity' &&
+      isCompactActivity(row.component.kind) &&
+      isCompactActivity(next.component.kind)
+    )
+  }
   if (row.kind !== 'message') return false
   return rows[index + 1]?.kind !== 'first-turn-divider'
 }
@@ -383,22 +402,21 @@ function observeScrollRect(
 }
 
 /**
- * One flattened row, drawn.
- *
- * A straight port of the `messages.map` block this replaced — same components,
- * same props, same order. `firstReply` is computed HERE rather than carried on
- * the row because `flattenTranscriptRows` deliberately does not know about it:
- * it only sets a presentational attribute on `MessageRow` and never gates a
- * row's presence or position, so it has no business in the row list's shape.
+ * One flattened message or activity row. Message-specific framing stays here;
+ * activity row identity and order come from the canonical component.
  */
 function TranscriptRowView({
   row,
   providers,
   firstTurnSequence,
   firstReplySequence,
-  callsByTurn,
+  callsById,
   subagentsByTurn,
   choicesByTurn,
+  diffsByTurn,
+  latestEditToolByTurn,
+  toolOutput,
+  liveDiff,
   wsId,
   chatId,
   precedingUserAt,
@@ -408,9 +426,13 @@ function TranscriptRowView({
   providers: AgentProvider[]
   firstTurnSequence: number | undefined
   firstReplySequence: number | undefined
-  callsByTurn: Map<string, AgentToolCall[]>
+  callsById: Map<string, AgentToolCall>
   subagentsByTurn: Map<string, AgentSubagent[]>
   choicesByTurn: Map<string, AgentChoice[]>
+  diffsByTurn: Map<string, string>
+  latestEditToolByTurn: Map<string, string>
+  toolOutput?: { id: string; text: string }
+  liveDiff?: { id: string; text: string }
   wsId?: string
   chatId?: string
   precedingUserAt: Map<number, string>
@@ -421,8 +443,41 @@ function TranscriptRowView({
       return <EventDivider tags={row.tags} providers={providers} />
     case 'first-turn-divider':
       return <FirstTurnDivider />
+    case 'activity': {
+      const component = row.component
+      if (component.kind === 'tool_call') {
+        const call = callsById.get(component.id)
+        if (!call) return null
+        const diff =
+          diffsByTurn.get(call.turnId) ?? (liveDiff?.id === call.turnId ? liveDiff.text : undefined)
+        return (
+          <AgentToolCallEntry
+            call={call}
+            diff={call.id === latestEditToolByTurn.get(call.turnId) ? diff : undefined}
+            output={toolOutput?.id === call.id ? toolOutput.text : undefined}
+            wsId={wsId}
+            chatId={chatId}
+            parentId={component.parentId}
+          />
+        )
+      }
+      if (component.kind === 'subagent') {
+        const item = subagentsByTurn
+          .get(component.turnId)
+          ?.find((candidate) => candidate.id === component.id)
+        return item ? <AgentSubagentEntry subagent={item} parentId={component.parentId} /> : null
+      }
+      if (component.kind === 'permission_request' || component.kind === 'user_input_request') {
+        const grouped = new Map<string, AgentChoice[]>()
+        const item = choicesByTurn
+          .get(component.turnId)
+          ?.find((candidate) => candidate.id === component.id)
+        if (item) grouped.set(component.turnId, [item])
+        return <AgentTurnChoices choicesByTurn={grouped} turnId={component.turnId} />
+      }
+      return <ActivityComponentRow component={component} wsId={wsId} />
+    }
     case 'message': {
-      const assistant = row.message.role === 'assistant'
       return (
         <MessageRow
           message={row.message}
@@ -430,11 +485,7 @@ function TranscriptRowView({
           firstTurn={row.message.sequence === firstTurnSequence}
           firstReply={row.message.sequence === firstReplySequence}
           turnbar={lastInAgentRun.has(row.message.sequence)}
-          toolCallsByTurn={assistant ? callsByTurn : undefined}
-          subagentsByTurn={assistant ? subagentsByTurn : undefined}
-          choicesByTurn={assistant ? choicesByTurn : undefined}
-          wsId={wsId}
-          chatId={chatId}
+          streaming={row.streaming}
           precedingUserAt={precedingUserAt.get(row.message.sequence)}
         />
       )
@@ -590,10 +641,9 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     // would re-enter the branches above against a `newest` that has not moved.
     // react-doctor-disable-next-line exhaustive-deps -- see comment above, props.working is read not tracked
   }, [queue, messages, anchor.scrollRef, anchor.pinTurnToTop])
-  const callsByTurn = useMemo(
-    () => groupToolCallsByTurn(props.activity.toolCalls),
-    [props.activity.toolCalls],
-  )
+  const callsById = useMemo(() => {
+    return new Map(props.activity.toolCalls.map((call) => [call.id, call]))
+  }, [props.activity.toolCalls])
   // A Codex-style nested subagent carries no turnId at all (see AgentSubagent's
   // own doc) — there is no turn it actually belongs to, so once it finishes it
   // is folded into the turn it actually ran under: the first assistant reply
@@ -608,52 +658,52 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   // own `endedAt` against each reply's `at` makes the attachment a fact about
   // when it happened, not about what the transcript looks like right now.
   const subagentsByTurn = useMemo(() => {
-    const grouped = groupSubagentsByTurn(props.activity.subagents)
-    grouped.delete('')
-    const orphaned = finishedNestedSubagents(props.activity)
-    if (orphaned.length === 0) return grouped
-
-    const assistantTurns: { turnId: string; at: number }[] = []
-    for (const m of messages) {
-      if (m.role === 'assistant' && m.turnId) {
-        assistantTurns.push({ turnId: m.turnId, at: Date.parse(m.at) })
-      }
-    }
-    assistantTurns.sort((a, b) => a.at - b.at)
-    if (assistantTurns.length === 0) return grouped
-
-    for (const subagent of orphaned) {
-      const endedAt = Date.parse(subagent.endedAt as string)
-      const turnId =
-        assistantTurns.find((t) => t.at >= endedAt)?.turnId ?? assistantTurns.at(-1)!.turnId
-      const existing = grouped.get(turnId)
-      if (existing) existing.push(subagent)
-      else grouped.set(turnId, [subagent])
-    }
-    for (const list of grouped.values()) {
-      list.sort((a, b) => a.seq - b.seq)
+    const grouped = new Map<string, AgentSubagent[]>()
+    for (const subagent of props.activity.subagents) {
+      const list = grouped.get(subagent.turnId) ?? []
+      list.push(subagent)
+      grouped.set(subagent.turnId, list)
     }
     return grouped
-  }, [props.activity, messages])
-  const choicesByTurn = useMemo(
-    () => groupChoicesByTurn(props.activity.choices),
-    [props.activity.choices],
-  )
-  // Which turns already have a reply row that can hold their tool calls. Only
-  // an assistant message anchors one — TranscriptRowView hands `callsByTurn` to
-  // nothing else — so counting any other role here would hide a live turn's
-  // work behind a row that never draws it.
-  const anchoredTurnIds = useMemo(() => {
+  }, [props.activity.subagents])
+  const choicesByTurn = useMemo(() => {
+    const grouped = new Map<string, AgentChoice[]>()
+    for (const choice of props.activity.choices) {
+      const list = grouped.get(choice.turnId) ?? []
+      list.push(choice)
+      grouped.set(choice.turnId, list)
+    }
+    return grouped
+  }, [props.activity.choices])
+  const diffsByTurn = useMemo(() => {
+    const grouped = new Map<string, string>()
+    for (const component of props.activity.components ?? []) {
+      if (component.kind !== 'diff') continue
+      const diff = component.payload.unifiedDiff
+      if (typeof diff === 'string' && diff.length > 0) grouped.set(component.turnId, diff)
+    }
+    return grouped
+  }, [props.activity.components])
+  const latestEditToolByTurn = useMemo(() => {
+    const latest = new Map<string, AgentToolCall>()
+    for (const call of props.activity.toolCalls) {
+      if (call.kind !== 'edit') continue
+      const current = latest.get(call.turnId)
+      if (!current || call.seq > current.seq) latest.set(call.turnId, call)
+    }
+    const byTurn = new Map<string, string>()
+    for (const [turnId, call] of latest) byTurn.set(turnId, call.id)
+    return byTurn
+  }, [props.activity.toolCalls])
+  const nestedDiffComponentIds = useMemo(() => {
     const ids = new Set<string>()
-    for (const message of messages) {
-      if (message.role === 'assistant' && message.turnId) ids.add(message.turnId)
+    for (const component of props.activity.components ?? []) {
+      if (component.kind === 'diff' && latestEditToolByTurn.has(component.turnId)) {
+        ids.add(component.id)
+      }
     }
     return ids
-  }, [messages])
-  const liveToolCalls = useMemo(
-    () => liveTurnToolCalls(props.activity, anchoredTurnIds),
-    [props.activity, anchoredTurnIds],
-  )
+  }, [props.activity.components, latestEditToolByTurn])
   const precedingUserAt = useMemo(() => precedingUserAtByAssistantSequence(messages), [messages])
   // Empty while `working` — the settled reply this would otherwise mark is not
   // actually the run's last step any more the instant the agent starts on the
@@ -678,22 +728,29 @@ export function AgentTranscript(props: AgentTranscriptProps) {
       ? messages.find((m) => m.role === 'assistant' && m.sequence > firstTurnSequence)?.sequence
       : undefined
 
-  // The historical record, flat and windowed. Only the slice near the viewport
-  // (plus overscan) is ever mounted, so a thousand-turn chat costs the same DOM
-  // as a ten-turn one. Everything AFTER this block — the trailing interruption,
-  // the streaming bubbles, the queue, the working line — stays an ordinary flex
-  // child: small-count, always-visible tail items, and leaving them alone is
-  // what keeps `.stream`'s `margin-top: auto` bottom-anchor (and so
-  // `use-transcript-anchor.ts`) working exactly as before.
+  // Historical messages and active activity share one virtualized list. Only
+  // the viewport slice plus overscan is mounted; queue and working indicators
+  // remain small tail items.
   const rows = useMemo(
     () =>
       flattenTranscriptRows({
         messages,
+        streamingMessages: props.streamingBubbles,
+        components: props.activity.components ?? activityComponents(props.activity),
+        excludeComponentIds: nestedDiffComponentIds,
         eventsBefore: props.eventsBefore,
         firstTurnSequence,
         suppressSequence: props.suppressSequence,
       }),
-    [messages, props.eventsBefore, firstTurnSequence, props.suppressSequence],
+    [
+      messages,
+      props.streamingBubbles,
+      props.activity,
+      nestedDiffComponentIds,
+      props.eventsBefore,
+      firstTurnSequence,
+      props.suppressSequence,
+    ],
   )
   // By row key, not index: paging older messages in prepends rows, and an
   // index-keyed measurement cache would hand every row the height of whatever
@@ -776,57 +833,6 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     // callback regardless of this list — React's own documented exemption.
     // react-doctor-disable-next-line exhaustive-deps -- see comment above, anchor.scrollRef is a ref
   }, [settled, rows.length, rowVirtualizer, props.visible])
-
-  // The streaming bubble's own LAST REAL height, by message sequence — kept
-  // only as long as that message is actually streaming. Read once, in the
-  // settle effect below, the moment that same sequence reappears as a
-  // virtualized row: `estimateRowHeight` has to guess from raw character
-  // count alone, and for anything its line-height model doesn't fit — a
-  // heading, a list, a table — that guess lands well short of a real reply's
-  // height. This is the one case a guess is unnecessary: the content just sat
-  // on screen, laid out for real, a moment before the same message settles
-  // into the virtualizer. Reusing that measurement instead of re-guessing is
-  // what closes the "glides up, then drops hard, then glides back up" gap
-  // `estimateRowHeight`'s own doc comment already describes as a residual,
-  // physical drop in `.stream`'s height the browser clamps `scrollTop`
-  // against — measured live: a 212px hard drop, then a ~230ms climb back.
-  const lastStreamedHeight = useRef(new Map<number, number>())
-  useLayoutEffect(() => {
-    const bubbles = props.streamingBubbles
-    const container = anchor.scrollRef.current
-    if (!bubbles?.length || !container) return
-    for (const bubble of bubbles) {
-      const el = container.querySelector<HTMLElement>(`[data-sequence="${bubble.sequence}"]`)
-      if (el) lastStreamedHeight.current.set(bubble.sequence, measureRowHeight(el))
-    }
-    // Deliberately gated on `streamingBubbles` alone, not every render: this
-    // pays a querySelector + forced-synchronous getBoundingClientRect per
-    // streaming bubble, and AgentTranscript re-renders on every rAF-batched
-    // token flush while a reply is actively streaming — ungated, this
-    // reintroduced exactly the per-frame layout cost the rest of this
-    // branch exists to remove.
-    // `anchor.scrollRef` is a ref: `.current` is read fresh when the effect
-    // body runs regardless of the deps array, so it is never "stale" the way
-    // a plain value could be, and including the (identity-stable) ref object
-    // itself would change nothing — React's own documented exemption.
-    // react-doctor-disable-next-line exhaustive-deps -- see comment above, anchor.scrollRef is a ref
-  }, [props.streamingBubbles])
-  // Primes the virtualizer with that real height BEFORE this row's first
-  // paint as a virtualized item, rather than letting it start from
-  // `estimateRowHeight`'s guess and wait for `measureElement` to correct it a
-  // beat later. One-shot per message: the cache entry is consumed (deleted)
-  // the instant it is used, so a later, ordinary re-measurement of the same
-  // row (content still settling, a code block highlighting in) is untouched.
-  useLayoutEffect(() => {
-    if (lastStreamedHeight.current.size === 0) return
-    rows.forEach((row, index) => {
-      if (row.kind !== 'message') return
-      const cached = lastStreamedHeight.current.get(row.message.sequence)
-      if (cached === undefined) return
-      lastStreamedHeight.current.delete(row.message.sequence)
-      rowVirtualizer.resizeItem(index, cached)
-    })
-  }, [rows, rowVirtualizer])
 
   // The queued row's own LAST REAL height, by clientRequestId — the same
   // idea as `lastStreamedHeight` above, one step earlier in a message's
@@ -973,9 +979,13 @@ export function AgentTranscript(props: AgentTranscriptProps) {
                     providers={props.providers}
                     firstTurnSequence={firstTurnSequence}
                     firstReplySequence={firstReplySequence}
-                    callsByTurn={callsByTurn}
+                    callsById={callsById}
                     subagentsByTurn={subagentsByTurn}
                     choicesByTurn={choicesByTurn}
+                    diffsByTurn={diffsByTurn}
+                    latestEditToolByTurn={latestEditToolByTurn}
+                    toolOutput={props.toolOutput}
+                    liveDiff={props.diff}
                     wsId={props.wsId}
                     chatId={props.chatId}
                     precedingUserAt={precedingUserAt}
@@ -992,22 +1002,6 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           !props.compacting && (
             <EventDivider tags={props.trailingInterruption} providers={props.providers} />
           )}
-        {props.streamingBubbles?.map((bubble) => (
-          <MessageRow
-            key={bubble.sequence}
-            message={bubble}
-            providers={props.providers}
-            streaming
-          />
-        ))}
-        {/* Directly under the reply-so-far, which is where these same rows end
-            up once the turn closes and they reparent onto its message row. */}
-        <AgentLiveTurnTools
-          calls={liveToolCalls}
-          toolOutput={props.toolOutput}
-          wsId={props.wsId}
-          chatId={props.chatId}
-        />
         {queue.map((item, index) => {
           // The ABSOLUTE first turn, exactly as firstTurnSequence reasons about
           // it above: nothing loaded yet, nothing older to page in, and this is
@@ -1054,6 +1048,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           compactingLive={props.compacting}
           reasoning={props.reasoning}
           plan={props.plan}
+          diff={props.diff}
         />
         {/* A REAL, measured spacer — not `.scroll`'s own `padding-bottom` (see
             `.dock-spacer`'s own comment in transcript.css for why: the

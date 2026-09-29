@@ -258,15 +258,17 @@ describe('WorkingLine', () => {
     expect(screen.getByTestId('agent-reasoning')).toHaveTextContent('Clarifying the wording')
   })
 
-  // It is a status line, not a document: the newest thought is the one that says
-  // what the agent is doing NOW, so a long block keeps its tail.
-  it('trims a long thought from the front, keeping the newest end', () => {
+  // Long reasoning stays out of the way while collapsed, but remains available
+  // in full when explicitly expanded.
+  it('keeps the complete thought in a collapsed expandable block', () => {
     const long = `START${'x'.repeat(400)}NEWEST`
     render(<WorkingLine working activity={activity()} reasoning={long} />)
 
     const el = screen.getByTestId('agent-reasoning')
+    expect(el).not.toHaveAttribute('open')
+    expect(el.querySelector('summary')).toHaveTextContent('Reasoning')
     expect(el).toHaveTextContent('NEWEST')
-    expect(el).not.toHaveTextContent('START')
+    expect(el).toHaveTextContent('START')
   })
 
   it('says nothing about thinking when the agent reports none', () => {
@@ -334,6 +336,22 @@ describe('WorkingLine', () => {
   it('shows no plan when the agent reports none', () => {
     render(<WorkingLine working activity={activity()} />)
     expect(screen.queryByTestId('agent-plan')).not.toBeInTheDocument()
+  })
+
+  it('renders the provider-neutral live unified diff', () => {
+    render(
+      <WorkingLine
+        activity={activity()}
+        working
+        diff={{
+          id: 'turn-1',
+          text: 'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new\n',
+        }}
+      />,
+    )
+    expect(screen.getByTestId('agent-turn-diff').tagName).toBe('DIV')
+    expect(screen.queryByText('Files changed')).not.toBeInTheDocument()
+    expect(screen.getByTestId('turn-diff-preview')).toHaveAttribute('data-file-count', '1')
   })
 
   it('lists nothing while compacting — there is nothing to enumerate', () => {

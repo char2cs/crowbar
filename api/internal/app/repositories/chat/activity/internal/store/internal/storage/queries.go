@@ -288,14 +288,17 @@ func (r TurnRow) domain() domain.ActivityTurn {
 		DisplayOrder: r.DisplayOrder, ItemIndex: r.ItemIndex,
 		Role:       r.Role,
 		ProviderID: r.ProviderID, RunnerID: r.RunnerID, SessionID: r.SessionID,
-		Text: r.Text, Effort: r.Effort, StartedAt: r.StartedAt, EndedAt: r.EndedAt,
+		Text: r.Text, Effort: r.Effort, Status: r.Status, Diff: r.Diff,
+		Plan: decodeList[domain.ActivityPlanStep](r.Plan), PlanUpdatedAt: r.PlanUpdatedAt,
+		StartedAt: r.StartedAt, EndedAt: r.EndedAt,
 	}
 }
 
 func (r ToolCallRow) domain() domain.ActivityToolCall {
 	return domain.ActivityToolCall{
 		ID: r.ID, TurnID: r.TurnID, ChatID: r.ChatID, Seq: r.Seq,
-		Name: r.Name, Target: r.Target, RequestRef: r.RequestRef, ResultRef: r.ResultRef,
+		Name: r.Name, Kind: r.Kind, Locations: decodeList[domain.ActivityToolLocation](r.Locations),
+		Target: r.Target, RequestRef: r.RequestRef, ResultRef: r.ResultRef, Diff: r.Diff,
 		Status: r.Status, Error: r.Error, DurationMS: r.DurationMS,
 		SubagentID: r.SubagentID,
 		StartedAt:  r.StartedAt, EndedAt: r.EndedAt,

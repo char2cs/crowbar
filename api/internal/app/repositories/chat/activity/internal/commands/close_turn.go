@@ -14,10 +14,13 @@ type CloseTurn struct {
 	SessionID  string
 	Text       string
 	Effort     string
+	Status     string
+	Diff       string
 	// ItemIndex is this message's position within its turn — see
 	// ActivityTurn.ItemIndex. Zero for every turn but a multi-item one
 	// (Codex splitting a reply across several message ids).
 	ItemIndex int
+	OmitPlan  bool
 	Now       time.Time
 }
 
@@ -46,6 +49,8 @@ func inheritOpenTurn(turn, open *domain.ActivityTurn) string {
 	if turn.SessionID == "" {
 		turn.SessionID = open.SessionID
 	}
+	turn.Plan = append([]domain.ActivityPlanStep(nil), open.Plan...)
+	turn.PlanUpdatedAt = open.PlanUpdatedAt
 	return open.ID
 }
 
@@ -111,11 +116,16 @@ func (c CloseTurn) EmitEvent(current *domain.ChatActivity) domain.ChatActivity {
 	if c.Effort != "" {
 		turn.Effort = c.Effort
 	}
+	turn.Status = c.Status
+	if turn.Status == "" {
+		turn.Status = "completed"
+	}
+	turn.Diff = c.Diff
 	turn.EndedAt = at(c.Now)
 
 	next.Last = &domain.ActivityDelta{
 		Phase: domain.DeltaClose, Kind: domain.DeltaTurn, Turn: &turn,
-		SupersededTurnID: superseded,
+		SupersededTurnID: superseded, OmitPlan: c.OmitPlan,
 	}
 	return next
 }

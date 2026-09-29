@@ -1,12 +1,6 @@
 import { memo } from 'react'
 import { cn } from '@/lib/utils'
-import type {
-  AgentChatMessage,
-  AgentChoice,
-  AgentProvider,
-  AgentSubagent,
-  AgentToolCall,
-} from '@/features/agent/api/agent-api'
+import type { AgentChatMessage, AgentProvider } from '@/features/agent/api/agent-api'
 import { Button } from '@/components/ui/button'
 import { ProviderIcon } from '@/components/ui/provider-icon'
 import { CopyIcon } from '@/features/agent/shared/agent-icons'
@@ -18,11 +12,6 @@ import {
 } from '@/features/agent/lib/turn-time'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
-import {
-  AgentTurnChoices,
-  AgentTurnSubagents,
-  AgentTurnTools,
-} from '@/features/agent/transcript/turn-tools'
 import { toast } from '@/features/window/stores/toast-store'
 
 function providerName(providers: AgentProvider[], id: string): string {
@@ -75,11 +64,6 @@ function MessageRowComponent({
   firstTurn = false,
   firstReply = false,
   streaming = false,
-  toolCallsByTurn,
-  subagentsByTurn,
-  choicesByTurn,
-  wsId,
-  chatId,
   precedingUserAt,
   turnbar = true,
 }: {
@@ -104,20 +88,6 @@ function MessageRowComponent({
    *  `applyStreamedValue`'s patch-in-place) and the cheaper, static
    *  `MarkdownMessageStatic` every settled message renders through. */
   streaming?: boolean
-  /** Finished tool calls for every turn in this transcript, keyed by turnId —
-   *  only ever passed for closed (non-streaming) assistant messages, since a
-   *  still-running call belongs to the working line, not a turn already
-   *  answered. */
-  toolCallsByTurn?: Map<string, AgentToolCall[]>
-  /** Ended subagents for every turn, keyed by turnId — the same shape and the
-   *  same "closed turn only" rule as `toolCallsByTurn`. */
-  subagentsByTurn?: Map<string, AgentSubagent[]>
-  /** Resolved choices for every turn, keyed by turnId — same rule again. */
-  choicesByTurn?: Map<string, AgentChoice[]>
-  /** Needed only to fetch a finished tool call's own request/result bytes on
-   *  demand (AgentTurnTools) — absent means that row stays a plain summary. */
-  wsId?: string
-  chatId?: string
   /** The `at` of the user turn this reply actually answers — what the
    *  turnbar times ITSELF against: how long the agent took to answer, not
    *  how long ago that was. Absent for a reply with no user turn before it
@@ -227,26 +197,6 @@ function MessageRowComponent({
           // Verbatim for the one role left: a notice is the provider's exact
           // sentence, which is the one thing about it worth showing.
           <span>{message.text}</span>
-        )}
-        {/* What the turn actually DID, before what a reader can do about it —
-            tool calls are the turn's own work, the turnbar below is a
-            reader's actions on the finished result. Neither exists until the
-            turn has actually closed: a streaming bubble's calls still belong
-            to the working line, and copying or timing text that is still
-            changing offers a reader something that isn't real yet. */}
-        {assistant && !streaming && toolCallsByTurn && (
-          <AgentTurnTools
-            callsByTurn={toolCallsByTurn}
-            turnId={message.turnId ?? ''}
-            wsId={wsId}
-            chatId={chatId}
-          />
-        )}
-        {assistant && !streaming && subagentsByTurn && (
-          <AgentTurnSubagents subagentsByTurn={subagentsByTurn} turnId={message.turnId ?? ''} />
-        )}
-        {assistant && !streaming && choicesByTurn && (
-          <AgentTurnChoices choicesByTurn={choicesByTurn} turnId={message.turnId ?? ''} />
         )}
         {assistant && !streaming && turnbar && (
           <div className="turnbar" data-testid="message-turn-actions">

@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -41,10 +42,12 @@ func (h *Handlers) Activity(ctx *gin.Context) {
 	}
 	for _, c := range activity.ToolCalls {
 		out.ToolCalls = append(out.ToolCalls, dto.AgentToolCallDTO{
-			ID: c.ID, TurnID: c.TurnID, Seq: c.Seq, Name: c.Name, Target: c.Target,
-			Status: c.Status, Error: c.Error, DurationMS: c.DurationMS,
+			ID: c.ID, TurnID: c.TurnID, Seq: c.Seq, Name: c.Name, Kind: c.Kind, Target: c.Target,
+			Locations: toolLocationDTOs(c.Locations),
+			Status:    c.Status, Error: c.Error, DurationMS: c.DurationMS,
 
 			HasRequest: c.RequestRef != "", HasResult: c.ResultRef != "",
+			Diff:       c.Diff,
 			SubagentID: c.SubagentID,
 			StartedAt:  c.StartedAt, EndedAt: c.EndedAt,
 		})
@@ -63,7 +66,99 @@ func (h *Handlers) Activity(ctx *gin.Context) {
 			At: i.At, ResolvedAt: i.ResolvedAt,
 		})
 	}
+	out.Components = activityComponentDTOs(out, activity.Turns)
 	libs.WriteQueryOK(ctx, out)
+}
+
+func activityTurnComponentStatus(turn domain.ActivityTurn) string {
+	switch turn.Status {
+	case "active", "completed", "failed", "interrupted", "abandoned":
+		return turn.Status
+	case "":
+		if turn.Role == domain.TurnRoleNotice {
+			return "failed"
+		}
+		if turn.EndedAt == nil {
+			return "active"
+		}
+		// Old records have no terminal status. Preserve their historical
+		// completed interpretation without changing their stored shape.
+		return "completed"
+	default:
+		if turn.EndedAt == nil {
+			return "active"
+		}
+		return "interrupted"
+	}
+}
+
+func lifecycleComponentUpdates(
+	id string,
+	createdAt time.Time,
+	completedAt *time.Time,
+	initialStatus string,
+	terminalStatus string,
+	terminalPayload map[string]any,
+) []dto.AgentActivityComponentUpdateDTO {
+	updates := []dto.AgentActivityComponentUpdateDTO{{
+		ID: id + ":1", Seq: 1, Kind: "started", At: createdAt,
+		Status: initialStatus, Payload: map[string]any{},
+	}}
+	if completedAt == nil {
+		return updates
+	}
+	return append(updates, dto.AgentActivityComponentUpdateDTO{
+		ID: id + ":2", Seq: 2, Kind: "status_changed", At: *completedAt,
+		Status: terminalStatus, Payload: terminalPayload,
+	})
+}
+
+func choiceComponentStatus(choice dto.AgentChoiceDTO) string {
+	if choice.ResolvedAt == nil {
+		return "pending"
+	}
+	if choice.Resolution == domain.ChoiceResolutionAbandoned {
+		return "abandoned"
+	}
+	if choice.Kind == domain.ChoiceKindPermission &&
+		choice.Resolution == domain.ChoiceResolutionAnswered && choiceDenied(choice) {
+		return "declined"
+	}
+	return "completed"
+}
+
+func choiceDenied(choice dto.AgentChoiceDTO) bool {
+	if len(choice.AnsweredOptionIDs) == 0 {
+		return false
+	}
+	picked := make(map[string]struct{}, len(choice.AnsweredOptionIDs))
+	for _, id := range choice.AnsweredOptionIDs {
+		picked[id] = struct{}{}
+	}
+	options := append([]dto.AgentChoiceOptionDTO(nil), choice.Options...)
+	for _, question := range choice.Questions {
+		options = append(options, question.Options...)
+	}
+	for _, option := range options {
+		if option.Kind != domain.ChoiceOptionDeny {
+			continue
+		}
+		if _, ok := picked[option.ID]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func toolLocationDTOs(in []domain.ActivityToolLocation) []dto.AgentToolLocationDTO {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]dto.AgentToolLocationDTO, 0, len(in))
+	for _, location := range in {
+		out = append(out, dto.AgentToolLocationDTO{Path: location.Path, Line: location.Line})
+	}
+	return out
 }
 
 func subagentMessageDTOs(in []domain.ActivitySubagentMessage) []dto.AgentSubagentMessageDTO {

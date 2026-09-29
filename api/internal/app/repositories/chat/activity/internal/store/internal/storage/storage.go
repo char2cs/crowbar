@@ -33,20 +33,29 @@ func upsert[T any](ctx context.Context, db *gormdb.DB, row T) error {
 }
 
 func (s *Store) SaveTurn(ctx context.Context, t domain.ActivityTurn) error {
+	plan, err := encodeList(t.Plan)
+	if err != nil {
+		return fmt.Errorf("agentactivity storage: encode turn plan: %w", err)
+	}
 	return upsert(ctx, s.db, TurnRow{
 		Key: rowKey(t.ChatID, t.ID), ID: t.ID, ChatID: t.ChatID, Seq: t.Seq,
 		DisplayOrder: t.DisplayOrder, ItemIndex: t.ItemIndex,
 		Role: t.Role, ProviderID: t.ProviderID, RunnerID: t.RunnerID,
-		SessionID: t.SessionID, Text: t.Text, Effort: t.Effort,
+		SessionID: t.SessionID, Text: t.Text, Effort: t.Effort, Status: t.Status, Diff: t.Diff,
+		Plan: plan, PlanUpdatedAt: t.PlanUpdatedAt,
 		StartedAt: t.StartedAt, EndedAt: t.EndedAt,
 	})
 }
 
 func (s *Store) SaveToolCall(ctx context.Context, c domain.ActivityToolCall) error {
+	locations, err := encodeList(c.Locations)
+	if err != nil {
+		return fmt.Errorf("agentactivity storage: encode tool locations: %w", err)
+	}
 	row := ToolCallRow{
 		Key: rowKey(c.ChatID, c.ID), ID: c.ID, TurnID: c.TurnID, ChatID: c.ChatID,
-		Seq: c.Seq, Name: c.Name, Target: c.Target,
-		RequestRef: c.RequestRef, ResultRef: c.ResultRef,
+		Seq: c.Seq, Name: c.Name, Kind: c.Kind, Locations: locations, Target: c.Target,
+		RequestRef: c.RequestRef, ResultRef: c.ResultRef, Diff: c.Diff,
 		Status: c.Status, Error: c.Error, DurationMS: c.DurationMS,
 		SubagentID: c.SubagentID,
 		StartedAt:  c.StartedAt, EndedAt: c.EndedAt,
@@ -72,11 +81,20 @@ func (s *Store) SaveToolCall(ctx context.Context, c domain.ActivityToolCall) err
 			if row.Name == "" {
 				row.Name = existing.Name
 			}
+			if row.Kind == "" {
+				row.Kind = existing.Kind
+			}
+			if row.Locations == "" {
+				row.Locations = existing.Locations
+			}
 			if row.Target == "" {
 				row.Target = existing.Target
 			}
 			if row.RequestRef == "" {
 				row.RequestRef = existing.RequestRef
+			}
+			if row.Diff == "" {
+				row.Diff = existing.Diff
 			}
 		}
 	}

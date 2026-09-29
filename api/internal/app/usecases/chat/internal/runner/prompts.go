@@ -37,12 +37,13 @@ func (rs *Runners) SubmitPrompt(
 // single gate hold — a staged provider switch and selection commit, then this,
 // never releasing the gate in between. See that file's own doc for why.
 //
-// revive (nil for none) runs once the request is known to be new — a retry of
-// a recorded attempt answers from the journal and must never spawn anything.
+// admit (nil for none) runs once the request is known to be new — a retry of
+// a recorded attempt answers from the journal and must never spawn or mutate
+// anything.
 func (rs *Runners) submitPromptLocked(
 	ctx context.Context,
 	chatID, text, clientRequestID string,
-	revive func() error,
+	admit func() error,
 ) (domain.AgentPromptSubmission, error) {
 	clientRequestID, err := normalisePromptRequest(text, clientRequestID)
 	if err != nil {
@@ -68,8 +69,8 @@ func (rs *Runners) submitPromptLocked(
 	if done {
 		return result, err
 	}
-	if revive != nil {
-		if err := revive(); err != nil {
+	if admit != nil {
+		if err := admit(); err != nil {
 			return domain.AgentPromptSubmission{}, err
 		}
 	}
@@ -372,6 +373,19 @@ func (rs *Runners) requirePromptIdle(ctx context.Context, chatID, runnerID strin
 		return ErrPromptBusy
 	}
 	return nil
+}
+
+// requireChatAcceptingPrompt is the busy verdict a send would otherwise reach
+// only after its staged selection was committed.
+func (rs *Runners) requireChatAcceptingPrompt(ctx context.Context, chatID string) error {
+	chat, err := rs.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agent: submit prompt: chat: %w", err)
+	}
+	if chat.Working || len(rs.inflightTurns.Inflight(chatID)) > 0 {
+		return ErrPromptBusy
+	}
+	return rs.requireNoPendingPromptDelivery(ctx, chat)
 }
 
 func (rs *Runners) requireNoPendingPromptDelivery(ctx context.Context, chat domain.Chat) error {

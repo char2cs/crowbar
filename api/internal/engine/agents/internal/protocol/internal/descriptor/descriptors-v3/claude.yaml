@@ -49,7 +49,7 @@ runtime:
 #
 # idle is NOT among them any more: claude has no live status stream, but it does
 # send one authoritative idle report — see the idle: event below.
-not_emitted: [reasoning_delta, tool_output_delta, plan_update]
+not_emitted: [reasoning_delta, tool_output_delta, plan_update, diff_update]
 
 # Both faces are live from the instant the process spawns (hotswap: true
 # above) — the terminal PTY IS claude, chat is the same hooks stream read
@@ -73,8 +73,8 @@ events:
   user_prompt:
     required: [session_id, message]
     in: UserPromptSubmit
-    map: { session_id: session_id, message: prompt }
-    fixtures: [UserPromptSubmit.json]
+    map: { session_id: session_id, message: prompt, subagent_id: agent_id }
+    fixtures: [UserPromptSubmit.json, UserPromptSubmit.Subagent.json]
 
   turn_stop:
     required: [session_id]
@@ -108,32 +108,40 @@ events:
       text:       delta
 
   tool_pre:
+    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute, Grep: search, Glob: search, WebFetch: fetch, WebSearch: search }
     required: [session_id, tool_id, tool_name]
     in: PreToolUse
     map:
       session_id:  session_id
       tool_id:     tool_use_id
       tool_name:   tool_name
+      tool_kind:   tool_name
       tool_target: { first_present: [tool_input.file_path, tool_input.command, tool_input.url, tool_input.pattern] }
       tool_input:  tool_input
-    fixtures: [PreToolUse.json]
+      edit_before: tool_input.old_string
+      edit_after:  { first_present: [tool_input.new_string, tool_input.content] }
+    fixtures: [PreToolUse.json, PreToolUse.Edit.json]
 
   tool_post:
+    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute, Grep: search, Glob: search, WebFetch: fetch, WebSearch: search }
     required: [session_id, tool_id, tool_name]
     in: PostToolUse
     map:
       session_id:  session_id
       tool_id:     tool_use_id
       tool_name:   tool_name
+      tool_kind:   tool_name
       tool_target: { first_present: [tool_input.file_path, tool_input.command, tool_input.url, tool_input.pattern] }
       tool_input:  tool_input
       tool_result: tool_response
       duration_ms: duration_ms
-    fixtures: [PostToolUse.json]
+    patch: { items: tool_response.structuredPatch, old_start: oldStart, new_start: newStart, lines: lines }
+    fixtures: [PostToolUse.json, PostToolUse.Edit.json]
 
   # Fires INSTEAD OF PostToolUse, not alongside it — mapping only tool_post
   # leaves a failed tool open until the turn-close sweep abandons it.
   tool_fail:
+    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute, Grep: search, Glob: search, WebFetch: fetch, WebSearch: search }
     required: [session_id, tool_id, tool_name]
     unverified: true
     in: PostToolUseFailure
@@ -141,6 +149,7 @@ events:
       session_id:  session_id
       tool_id:     tool_use_id
       tool_name:   tool_name
+      tool_kind:   tool_name
       tool_target: { first_present: [tool_input.file_path, tool_input.command, tool_input.url, tool_input.pattern] }
       tool_input:  tool_input
       tool_result: { first_present: [tool_response, error] }
@@ -504,6 +513,8 @@ telemetry:
 injected_prompts:
   - kind: task_notification
     needle: "<task-notification>"
+  - needle: "<teammate-message"
+  - needle: "[Subagent hand-back]"
 # claude paints its trust dialog BEFORE any hook fires, so a chat behind it
 # is an empty pane over a blocked process with no channel to answer it.
 # Matching ignores spacing/punctuation (see the termprompt package).

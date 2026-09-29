@@ -135,6 +135,14 @@ type EventSpec struct {
 	// Steps is plan_update's structured extra: a field map cannot express a LIST
 	// of {text, status} pairs.
 	Steps *StepsSpec `yaml:"steps"`
+	// StatusMap translates provider terminal words into Crowbar's canonical
+	// component statuses. Unknown values pass through unchanged.
+	StatusMap map[string]string `yaml:"status_map"`
+	KindMap   map[string]string `yaml:"kind_map"`
+	Locations *LocationsSpec    `yaml:"locations"`
+	// Patch is tool_post's structured extra: the provider's own unified-diff hunks
+	// for the change a tool made, with the real line numbers.
+	Patch *PatchSpec `yaml:"patch"`
 
 	// Fresh/Resume/Action are the alternative to Out/Send for an api-transport
 	// event that must first ESTABLISH a session before it can act — codex's
@@ -183,6 +191,22 @@ type StepsSpec struct {
 	Text      string            `yaml:"text"`
 	Status    string            `yaml:"status"`
 	StatusMap map[string]string `yaml:"status_map"`
+}
+
+type LocationsSpec struct {
+	Items string `yaml:"items"`
+	Path  string `yaml:"path"`
+	Line  string `yaml:"line"`
+}
+
+// PatchSpec maps a provider's hunk array onto Crowbar's unified-diff vocabulary.
+// Items is the path to the array; the rest are paths WITHIN one hunk, where
+// Lines holds unified-diff lines (" ctx", "-del", "+add").
+type PatchSpec struct {
+	Items    string `yaml:"items"`
+	OldStart string `yaml:"old_start"`
+	NewStart string `yaml:"new_start"`
+	Lines    string `yaml:"lines"`
 }
 
 type RateLimitSpec struct {

@@ -71,19 +71,33 @@ func (rs *Runners) SubmitPromptWithSwitch(
 		}
 	}
 
-	if selection != nil {
-		if err := rs.setChatSelectionLocked(ctx, chatID, selection.Model, selection.Effort); err != nil {
-			return domain.AgentPromptSubmission{}, err
+	// Admission runs once the request is known to be new: a replayed or busy
+	// send must leave the chat's selection exactly as it found it.
+	admit := func() error {
+		if err := rs.commitStagedSelection(ctx, chatID, selection); err != nil {
+			return err
 		}
-	}
-	// Send is the only intent: a dormant chat is revived here, never by a client.
-	revive := func() error {
+		// Send is the only intent: a dormant chat is revived here, never by a client.
 		if err := rs.reviveForDelivery(ctx, park, chatID); err != nil {
 			return parkErr(park, err)
 		}
 		return nil
 	}
-	return rs.submitPromptLocked(ctx, chatID, text, clientRequestID, revive)
+	return rs.submitPromptLocked(ctx, chatID, text, clientRequestID, admit)
+}
+
+// commitStagedSelection commits a staged pick only for a chat that will take
+// the send; nil means nothing was staged.
+func (rs *Runners) commitStagedSelection(
+	ctx context.Context, chatID string, selection *domain.ChatSelection,
+) error {
+	if selection == nil {
+		return nil
+	}
+	if err := rs.requireChatAcceptingPrompt(ctx, chatID); err != nil {
+		return err
+	}
+	return rs.setChatSelectionLocked(ctx, chatID, selection.Model, selection.Effort)
 }
 
 // SetChatSelection is the standalone PATCH .../selection route's entry

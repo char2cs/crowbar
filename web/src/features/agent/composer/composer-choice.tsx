@@ -109,6 +109,7 @@ export function ComposerChoice({
   providerLabel,
   permissionLevels,
   onOpenTerminal,
+  showQueueDepth = true,
 }: {
   wsId: string
   chatId: string
@@ -121,6 +122,7 @@ export function ComposerChoice({
    *  PermissionLevelSwitcher's own doc for why an absent/empty list hides it. */
   permissionLevels?: PermissionLevel[]
   onOpenTerminal?: () => void
+  showQueueDepth?: boolean
 }) {
   const detail = choiceDetail(activity, choice)
   // The bar is one occupant, always the OLDEST pending prompt (see
@@ -231,7 +233,7 @@ export function ComposerChoice({
               Answer sent. Waiting for {providerLabel} to confirm it.
             </span>
           )}
-          {queued > 0 && (
+          {showQueueDepth && queued > 0 && (
             <span className="sub" data-testid="agent-choice-queue-depth">
               +{queued} more waiting
             </span>

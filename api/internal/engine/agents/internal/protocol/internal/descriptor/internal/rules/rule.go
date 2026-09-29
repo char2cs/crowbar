@@ -39,6 +39,7 @@ func All() []Rule {
 		injectedPrompts{},
 		surfaces{},
 		eventSurfaces{},
+		richMappings{},
 	}
 }
 

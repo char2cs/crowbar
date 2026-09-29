@@ -28,6 +28,7 @@ const (
 	ToolStatusRunning   = "running"
 	ToolStatusOK        = "ok"
 	ToolStatusError     = "error"
+	ToolStatusDeclined  = "declined"
 	ToolStatusAbandoned = "abandoned"
 )
 
@@ -84,6 +85,10 @@ type ActivityDelta struct {
 	// still open; an ordinary close must never treat "my own turn ended" as
 	// "the subagent it dispatched to is gone too".
 	Abandoned bool `json:"abandoned,omitempty"`
+	// OmitPlan keeps an intermediate multi-message item from projecting the
+	// provider turn's plan twice. The plan remains on Turn so the immediately
+	// following reopen can carry it to the final item.
+	OmitPlan bool `json:"omitPlan,omitempty"`
 
 	Turn         *ActivityTurn         `json:"turn,omitempty"`
 	Tool         *ActivityToolCall     `json:"tool,omitempty"`
@@ -115,9 +120,29 @@ type ActivityTurn struct {
 
 	Text   string `json:"text"`
 	Effort string `json:"effort,omitempty"`
+	// Status preserves the terminal outcome of an assistant turn. Empty is
+	// accepted for legacy rows and means completed when EndedAt is present.
+	Status string `json:"status,omitempty"`
+	// Diff is the provider's final unified-diff snapshot for this turn, when
+	// available. It is optional so providers that do not report diffs remain
+	// unchanged and old activity rows continue to decode.
+	Diff string `json:"diff,omitempty"`
+	// Plan is the latest provider-neutral plan snapshot observed while this
+	// turn was open. Providers translate their own step vocabulary before it
+	// reaches this domain type; an absent plan remains nil for legacy turns and
+	// providers that do not report one.
+	Plan          []ActivityPlanStep `json:"plan,omitempty"`
+	PlanUpdatedAt *time.Time         `json:"planUpdatedAt,omitempty"`
 
 	StartedAt time.Time  `json:"startedAt"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
+}
+
+// ActivityPlanStep is one durable item in an assistant turn's latest plan.
+// Status is canonical Crowbar vocabulary supplied by descriptor translation.
+type ActivityPlanStep struct {
+	Text   string `json:"text"`
+	Status string `json:"status,omitempty"`
 }
 
 type ActivityToolCall struct {
@@ -127,11 +152,18 @@ type ActivityToolCall struct {
 	Seq    int64  `json:"seq"`
 
 	Name string `json:"name"`
+	// Kind is Crowbar's provider-neutral semantic category, declared through
+	// the descriptor rather than inferred from a provider tool name.
+	Kind      string                 `json:"kind,omitempty"`
+	Locations []ActivityToolLocation `json:"locations,omitempty"`
 
 	Target string `json:"target,omitempty"`
 
 	RequestRef string `json:"requestRef,omitempty"`
 	ResultRef  string `json:"resultRef,omitempty"`
+	// Diff is a unified diff of the change an edit call makes, when the
+	// provider's request carried the replaced and replacement text.
+	Diff string `json:"diff,omitempty"`
 
 	Status string `json:"status"`
 
@@ -147,6 +179,11 @@ type ActivityToolCall struct {
 
 	StartedAt time.Time  `json:"startedAt"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
+}
+
+type ActivityToolLocation struct {
+	Path string `json:"path"`
+	Line int    `json:"line,omitempty"`
 }
 
 type ActivitySubagent struct {

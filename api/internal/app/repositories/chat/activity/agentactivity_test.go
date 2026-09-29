@@ -125,6 +125,80 @@ func TestTurns_AreScopedToTheirChat(t *testing.T) {
 	assert.Equal(t, []string{"chat two"}, textsOf(two))
 }
 
+func TestPlanSurvivesTurnCloseReplayAndBackwardPagination(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, f.repo.OpenTurn(f.ctx, activity.TurnInput{
+		ChatID: chat, TurnID: "planned-turn", ProviderID: "provider", RunnerID: "r1", Now: t0,
+	}))
+	require.NoError(t, f.repo.UpdatePlan(f.ctx, activity.PlanInput{
+		ChatID: chat, ProviderID: "provider", RunnerID: "r1", Now: t0.Add(time.Second),
+		Steps: []domain.ActivityPlanStep{{Text: "obsolete", Status: "active"}},
+	}))
+	updated := t0.Add(2 * time.Second)
+	latest := []domain.ActivityPlanStep{
+		{Text: "inspect", Status: "done"},
+		{Text: "verify", Status: "active"},
+	}
+	require.NoError(t, f.repo.UpdatePlan(f.ctx, activity.PlanInput{
+		ChatID: chat, ProviderID: "provider", RunnerID: "r1", Steps: latest, Now: updated,
+	}))
+	require.NoError(t, f.repo.CloseTurn(f.ctx, activity.TurnInput{
+		ChatID: chat, TurnID: "planned-turn", ProviderID: "provider", RunnerID: "r1",
+		Text: "done", Now: t0.Add(3 * time.Second),
+	}))
+	f.turn(t, "later", domain.TurnRoleUser, "next", t0.Add(4*time.Second))
+
+	all, err := f.repo.Turns(f.ctx, chat, 0, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, all, 2)
+	paged, err := f.repo.TurnsBefore(f.ctx, chat, all[1].Seq, 1)
+	require.NoError(t, err)
+	require.Len(t, paged, 1)
+	assert.Equal(t, latest, paged[0].Plan)
+	require.NotNil(t, paged[0].PlanUpdatedAt)
+	assert.Equal(t, updated, *paged[0].PlanUpdatedAt)
+
+	rebuiltDB, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	rebuilt, err := activity.NewEventSourced(f.ax, f.es, rebuiltDB, f.dir)
+	require.NoError(t, err)
+	replayed, err := rebuilt.Turns(f.ctx, chat, 0, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, replayed, 2)
+	assert.Equal(t, latest, replayed[0].Plan)
+	require.NotNil(t, replayed[0].PlanUpdatedAt)
+	assert.Equal(t, updated, *replayed[0].PlanUpdatedAt)
+}
+
+func TestPlanIsProjectedOnlyOnTheFinalItemOfAMultiMessageTurn(t *testing.T) {
+	f := newFixture(t)
+	latest := []domain.ActivityPlanStep{{Text: "verify", Status: "active"}}
+	require.NoError(t, f.repo.OpenTurn(f.ctx, activity.TurnInput{
+		ChatID: chat, TurnID: "open-1", RunnerID: "r1", Now: t0,
+	}))
+	require.NoError(t, f.repo.UpdatePlan(f.ctx, activity.PlanInput{
+		ChatID: chat, RunnerID: "r1", Steps: latest, Now: t0.Add(time.Second),
+	}))
+	require.NoError(t, f.repo.CloseTurn(f.ctx, activity.TurnInput{
+		ChatID: chat, TurnID: "message-1", RunnerID: "r1", Text: "first",
+		OmitPlan: true, Now: t0.Add(2 * time.Second),
+	}))
+	require.NoError(t, f.repo.OpenTurn(f.ctx, activity.TurnInput{
+		ChatID: chat, TurnID: "open-2", RunnerID: "r1", CarryPlan: true,
+		Now: t0.Add(3 * time.Second),
+	}))
+	require.NoError(t, f.repo.CloseTurn(f.ctx, activity.TurnInput{
+		ChatID: chat, TurnID: "message-2", RunnerID: "r1", Text: "second",
+		Now: t0.Add(4 * time.Second),
+	}))
+
+	turns, err := f.repo.Turns(f.ctx, chat, 0, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, turns, 2)
+	assert.Empty(t, turns[0].Plan)
+	assert.Equal(t, latest, turns[1].Plan)
+}
+
 func TestToolCall_RoundTripsThroughInvokeAndComplete(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.repo.OpenTurn(f.ctx, activity.TurnInput{

@@ -17,6 +17,10 @@ type CanonicalEvent struct {
 	// consume that latch before acting. See turn/compaction.go.
 	TurnID string
 
+	// TurnStatus is the provider-reported terminal state when its completion
+	// event distinguishes completed from interrupted. Descriptors normalize it.
+	TurnStatus string
+
 	AsyncWork int
 
 	Model string
@@ -65,14 +69,31 @@ type TurnFailure struct {
 	Detail string
 }
 
+// PatchHunk is one unified-diff hunk: Lines carry the " ", "-", "+" prefixes.
+type PatchHunk struct {
+	OldStart int
+	NewStart int
+	Lines    []string
+}
+
 type ToolEvent struct {
-	ID   string
-	Name string
+	ID        string
+	Name      string
+	Kind      string
+	Locations []ToolLocation
 
 	Target string
 	Input  []byte
 	Result []byte
 	Status string
+
+	// EditBefore/EditAfter are the text an edit replaced and its replacement,
+	// when the descriptor maps them; a new file has an empty EditBefore.
+	EditBefore string
+	EditAfter  string
+	// Patch is the provider's own hunks for the change a completed tool made,
+	// with true line numbers; it supersedes the EditBefore/EditAfter snippet.
+	Patch []PatchHunk
 
 	Error      string
 	DurationMS int
@@ -85,6 +106,11 @@ type ToolEvent struct {
 	// every tool call that names no such thing. See turn/ingest.go's
 	// nested-session routing for what Go does with it.
 	NestedSessionID string
+}
+
+type ToolLocation struct {
+	Path string
+	Line int
 }
 
 type SubagentEvent struct {

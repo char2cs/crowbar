@@ -31,11 +31,20 @@ func (t *Turns) handleObservation(
 
 		t.recordMessageDelta(ctx, chat, runner, ev)
 	case engineagents.HookPlanUpdate:
-		// Live only, restated wholesale — see turns.planUpdate. Nothing durable is
-		// written, so a provider mapping this cannot corrupt a transcript either.
+		// Restated wholesale: keep the existing live push and also retain the
+		// latest canonical snapshot on the open activity turn so it survives the
+		// turn closing, daemon restarts, reloads, and paged activity reads.
 		if t.feed.Plan != nil && len(ev.Plan) > 0 {
 			t.feed.Plan(chat.ID, chat.WorkspaceID, ev.Plan)
 		}
+		steps := make([]domain.ActivityPlanStep, 0, len(ev.Plan))
+		for _, step := range ev.Plan {
+			steps = append(steps, domain.ActivityPlanStep{Text: step.Text, Status: step.Status})
+		}
+		note(ctx, "plan updated", t.activity.UpdatePlan(ctx, agentactivity.PlanInput{
+			ChatID: chat.ID, ProviderID: runner.ProviderID, RunnerID: runner.ID,
+			SessionID: runner.CurrentSession, Steps: steps, Now: now,
+		}))
 	case engineagents.HookIdle:
 		// ARMS a reconcile; closes nothing. This routinely arrives microseconds
 		// BEFORE the turn's own close — see idle.go.
@@ -46,10 +55,14 @@ func (t *Turns) handleObservation(
 		t.recordLiveText(chat, ev, DeltaKindReasoning)
 	case engineagents.HookToolOutputDelta:
 		t.recordLiveText(chat, ev, DeltaKindToolOutput)
+	case engineagents.HookDiffUpdate:
+		t.recordLiveReplacement(chat, ev, DeltaKindDiff)
 	case engineagents.HookToolPre:
 		note(ctx, "tool invoked", t.activity.InvokeTool(ctx, agentactivity.ToolInput{
-			ChatID: chat.ID, ToolID: toolID(ev), Name: ev.Tool.Name, Target: ev.Tool.Target,
-			Request: ev.Tool.Input, Now: now,
+			ChatID: chat.ID, ToolID: toolID(ev), Name: ev.Tool.Name, Kind: ev.Tool.Kind,
+			Locations: toolLocations(ev), Target: ev.Tool.Target,
+			Request: ev.Tool.Input, Diff: editDiff(ev.Tool.Target, ev.Tool.EditBefore, ev.Tool.EditAfter),
+			Now: now,
 		}))
 		// THE REGRESSION. restateAsyncWork used to run only on the completion
 		// side (below, and HookSubagentPost) — reopening Working from whatever
@@ -67,8 +80,10 @@ func (t *Turns) handleObservation(
 	case engineagents.HookToolPost, engineagents.HookToolFail:
 
 		note(ctx, "tool completed", t.activity.CompleteTool(ctx, agentactivity.ToolResultInput{
-			ChatID: chat.ID, ToolID: toolID(ev), Name: ev.Tool.Name, Target: ev.Tool.Target,
-			Result: ev.Tool.Result, Status: toolStatus(ev), Error: ev.Tool.Error,
+			ChatID: chat.ID, ToolID: toolID(ev), Name: ev.Tool.Name, Kind: ev.Tool.Kind,
+			Locations: toolLocations(ev), Target: ev.Tool.Target,
+			Result: ev.Tool.Result, Diff: patchDiff(ev.Tool.Target, ev.Tool.Patch),
+			Status: toolStatus(ev), Error: ev.Tool.Error,
 			DurationMS: ev.Tool.DurationMS, Now: now,
 		}))
 		// BEFORE restateAsyncWork, not after: a completing spawnAgent tool call
@@ -172,6 +187,17 @@ func (t *Turns) handleObservation(
 		}
 	}
 	return nil
+}
+
+func toolLocations(ev engineagents.CanonicalEvent) []domain.ActivityToolLocation {
+	if ev.Tool == nil || len(ev.Tool.Locations) == 0 {
+		return nil
+	}
+	out := make([]domain.ActivityToolLocation, 0, len(ev.Tool.Locations))
+	for _, location := range ev.Tool.Locations {
+		out = append(out, domain.ActivityToolLocation{Path: location.Path, Line: location.Line})
+	}
+	return out
 }
 
 func (t *Turns) openChoice(
@@ -293,6 +319,9 @@ func toolID(ev engineagents.CanonicalEvent) string {
 
 func toolStatus(ev engineagents.CanonicalEvent) string {
 	if ev.Kind == engineagents.HookToolFail {
+		if ev.Tool != nil && ev.Tool.Status == domain.ToolStatusDeclined {
+			return domain.ToolStatusDeclined
+		}
 		return domain.ToolStatusError
 	}
 	if ev.Tool == nil || ev.Tool.Status == "" {

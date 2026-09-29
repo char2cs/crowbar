@@ -6,10 +6,12 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -19,6 +21,48 @@ func compactionEvent(turnID string) engineagents.CanonicalEvent {
 		TurnID:    turnID,
 		Interrupt: &engineagents.InterruptEvent{Kind: engineagents.InterruptCompaction},
 	}
+}
+
+type planRecordingActivity struct {
+	agentactivity.EventStore
+	updates []agentactivity.PlanInput
+}
+
+func (a *planRecordingActivity) UpdatePlan(_ context.Context, in agentactivity.PlanInput) error {
+	a.updates = append(a.updates, in)
+	return nil
+}
+
+func TestPlanUpdate_KeepsTheLivePushAndRecordsCanonicalSteps(t *testing.T) {
+	activity := &planRecordingActivity{}
+	turns := New(Deps{Chats: raceChats{}, Activity: activity})
+	var live []engineagents.PlanStep
+	turns.SetFeed(seam.ChatFeed{Plan: func(_, _ string, steps []engineagents.PlanStep) {
+		live = append([]engineagents.PlanStep(nil), steps...)
+	}})
+	eventSteps := []engineagents.PlanStep{
+		{Text: "inspect", Status: engineagents.PlanStepDone},
+		{Text: "verify", Status: engineagents.PlanStepActive},
+	}
+	runner := engineagents.Runner{
+		ID: "runner-1", ProviderID: "provider", CurrentChatID: "chat-1", CurrentSession: "session-1",
+	}
+
+	err := turns.handleObservation(t.Context(), runner, nil, engineagents.CanonicalEvent{
+		Kind: engineagents.HookPlanUpdate, Plan: eventSteps,
+	}, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, eventSteps, live, "the existing websocket plan remains unchanged")
+	require.Len(t, activity.updates, 1)
+	assert.Equal(t, "chat-1", activity.updates[0].ChatID)
+	assert.Equal(t, "provider", activity.updates[0].ProviderID)
+	assert.Equal(t, "runner-1", activity.updates[0].RunnerID)
+	assert.Equal(t, "session-1", activity.updates[0].SessionID)
+	assert.Equal(t, []domain.ActivityPlanStep{
+		{Text: "inspect", Status: "done"},
+		{Text: "verify", Status: "active"},
+	}, activity.updates[0].Steps)
 }
 
 // TestRegression_SeparateCompactionsGetDistinctInterruptionIDs guards the bug

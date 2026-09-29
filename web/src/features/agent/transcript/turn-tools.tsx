@@ -1,24 +1,103 @@
 import { useState } from 'react'
+import { CaretRightIcon } from '@phosphor-icons/react'
+import { occurrenceKeys } from '@/features/agent/lib/occurrence-keys'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type { AgentChoice, AgentSubagent, AgentToolCall } from '@/features/agent/api/agent-api'
+import { TurnDiffPreview } from '@/features/agent/activity/turn-diff-preview'
 import { formatElapsed } from '@/features/agent/activity/lib/shelf-fit'
+import { describeResolvedChoice, formatDuration, tailOf } from '@/features/agent/lib/agent-activity'
 import {
-  describeResolvedChoice,
-  describeTool,
-  formatDuration,
-  tailOf,
-} from '@/features/agent/lib/agent-activity'
-import { SubagentIcon } from '@/features/agent/shared/agent-icons'
+  FetchIcon,
+  FileIcon,
+  PencilIcon,
+  SearchIcon,
+  SubagentIcon,
+  TerminalIcon,
+  ToolIcon,
+} from '@/features/agent/shared/agent-icons'
 import { ToolPayloadPanel } from '@/features/agent/transcript/tool-payload-panel'
-
-/** Rows shown under a reply before the rest collapse into a count — shared by
- *  tool calls, subagents and resolved choices, so a turn with a lot going on
- *  never grows one list far past the others. */
-const LIMIT = 6
 
 /** A running tool's output is a progress signal, not a log — one line's worth.
  *  The full output is on the call once it finishes. */
 const TOOL_OUTPUT_LIMIT = 120
+
+function ToolKindIcon({ kind }: { kind?: string }) {
+  if (!kind) return null
+  const Icon =
+    kind === 'read'
+      ? FileIcon
+      : kind === 'edit'
+        ? PencilIcon
+        : kind === 'execute'
+          ? TerminalIcon
+          : kind === 'search'
+            ? SearchIcon
+            : kind === 'fetch'
+              ? FetchIcon
+              : ToolIcon
+  return (
+    <span className="kind" title={kind} data-tool-kind={kind}>
+      <Icon size={12} />
+    </span>
+  )
+}
+
+function humanizeToolName(name: string): string {
+  const words = name
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .toLowerCase()
+  return words ? `${words[0]?.toUpperCase()}${words.slice(1)}` : ''
+}
+
+function toolVerb(call: AgentToolCall): string {
+  const running = call.status === 'running'
+  switch (call.kind) {
+    case 'read':
+      return running ? 'Reading' : 'Read'
+    case 'edit':
+      return running ? 'Editing' : 'Edited'
+    case 'execute':
+      return running ? 'Running' : 'Ran'
+    case 'search':
+      return running ? 'Searching' : 'Searched'
+    case 'fetch':
+      return running ? 'Fetching' : 'Fetched'
+    default:
+      return humanizeToolName(call.name) || 'Tool'
+  }
+}
+
+/** Keep absolute provider paths available in a tooltip without letting them
+ * dominate a transcript row. The final three segments are enough to identify
+ * a source file in practice and still preserve useful directory context. */
+function compactPath(path: string): string {
+  const normalized = path.replaceAll('\\', '/').replace(/\/+$/, '')
+  if (!normalized.startsWith('/')) return normalized
+  const parts = normalized.split('/').filter(Boolean)
+  return parts.slice(-3).join('/') || path
+}
+
+function toolSubject(call: AgentToolCall): { full: string; display: string } | undefined {
+  const location = call.locations?.[0]
+  if (location) {
+    const line = location.line ? `:${location.line}` : ''
+    const extra =
+      call.locations && call.locations.length > 1 ? ` +${call.locations.length - 1}` : ''
+    return {
+      full: `${location.path}${line}${extra}`,
+      display: `${compactPath(location.path)}${line}${extra}`,
+    }
+  }
+  if (!call.target) return undefined
+  const target = call.target.trim()
+  const pathLike =
+    (call.kind === 'read' || call.kind === 'edit' || call.kind === 'search') &&
+    target.startsWith('/') &&
+    !target.includes('\n')
+  return { full: target, display: pathLike ? compactPath(target) : target }
+}
 
 /** Finished tool calls, grouped by turn and sorted by seq within each turn.
  *  Computed once per activity change (see agent-transcript.tsx), not once
@@ -154,6 +233,92 @@ export function AgentLiveTurnTools({
   )
 }
 
+/** One stable activity row per tool invocation in the virtualized transcript. */
+export function AgentToolCallEntry({
+  call,
+  output,
+  diff,
+  wsId,
+  chatId,
+  parentId,
+}: {
+  call: AgentToolCall
+  output?: string
+  diff?: string
+  wsId?: string
+  chatId?: string
+  parentId?: string
+}) {
+  return (
+    <article
+      className="row activity-tool-row"
+      data-testid="agent-activity-tool"
+      data-tool-id={call.id}
+      data-parent-id={parentId}
+      data-nested={call.subagentId || (parentId && parentId !== call.turnId) ? '' : undefined}
+    >
+      <div className="assistant">
+        <ul className="tools">
+          <ToolRow call={call} output={output} diff={diff} wsId={wsId} chatId={chatId} />
+        </ul>
+      </div>
+    </article>
+  )
+}
+
+/** A subagent is a chronological row; its own transcript stays nested inside it. */
+export function AgentSubagentEntry({
+  subagent,
+  parentId,
+}: {
+  subagent: AgentSubagent
+  parentId?: string
+}) {
+  const running = !subagent.endedAt
+  const messageKeys = occurrenceKeys(
+    subagent.messages ?? [],
+    (message) => `${message.at}:${message.text}`,
+  )
+  const elapsed = subagent.endedAt
+    ? Math.max(0, Math.round(elapsedMs(subagent.startedAt, subagent.endedAt) / 1000))
+    : Math.max(0, Math.round((Date.now() - Date.parse(subagent.startedAt)) / 1000))
+  return (
+    <article
+      className="row"
+      data-testid="agent-activity-subagent"
+      data-subagent-id={subagent.id}
+      data-parent-id={parentId}
+      data-nested={parentId && parentId !== subagent.turnId ? '' : undefined}
+      data-status={running ? 'running' : 'completed'}
+    >
+      <div className="assistant">
+        <div className="subbar">
+          <span className="subhd">
+            <SubagentIcon size={12} />
+            <b>{subagent.agentType || 'Subagent'}</b>
+          </span>
+          <span className="subline">
+            <span className={`tok${running ? '' : ' done'}`}>
+              <i />
+              <b>{formatElapsed(elapsed)}</b>
+            </span>
+          </span>
+        </div>
+        {subagent.messages && subagent.messages.length > 0 && (
+          <details className="subagent-transcript">
+            <summary>Show subagent transcript ({subagent.messages.length})</summary>
+            <div>
+              {subagent.messages.map((message, index) => (
+                <p key={messageKeys[index]}>{message.text}</p>
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
+    </article>
+  )
+}
+
 /** The list both of the above draw — one definition of the cap, the ordering and
  *  the row, so the live view and the record can never disagree about a call. */
 function ToolList({
@@ -171,7 +336,7 @@ function ToolList({
 }) {
   return (
     <ul className="tools" data-testid={testId}>
-      {calls.slice(0, LIMIT).map((call) => (
+      {calls.map((call) => (
         <ToolRow
           key={call.id}
           call={call}
@@ -180,7 +345,6 @@ function ToolList({
           chatId={chatId}
         />
       ))}
-      {calls.length > LIMIT && <li>+{calls.length - LIMIT} more</li>}
     </ul>
   )
 }
@@ -196,60 +360,85 @@ function ToolList({
 function ToolRow({
   call,
   output,
+  diff,
   wsId,
   chatId,
 }: {
   call: AgentToolCall
   output?: string
+  diff?: string
   wsId?: string
   chatId?: string
 }) {
   const [open, setOpen] = useState(false)
   const running = call.status === 'running'
+  const subject = toolSubject(call)
   const summary = (
-    <>
+    <span className="tool-call-summary">
       {/* A row with no duration and no marker reads exactly like a finished
           one, so the one thing a reader needs from a live list — which of
           these is still going — would be the thing it did not say. */}
       {running && <FlickerSpinner className="size-3" />}
-      <span>{describeTool(call)}</span>
+      <ToolKindIcon kind={call.kind} />
+      <span className="tool-call-verb">{toolVerb(call)}</span>
+      {subject && (
+        <span
+          className="tool-call-subject"
+          data-tool-location={call.locations?.length ? '' : undefined}
+          title={subject.full}
+        >
+          {subject.display}
+        </span>
+      )}
       {call.error && <span className="err">{call.error}</span>}
-      {call.durationMs !== undefined && <span>{formatDuration(call.durationMs)}</span>}
+      {call.durationMs !== undefined && (
+        <span className="tool-call-duration">{formatDuration(call.durationMs)}</span>
+      )}
       {running && output && (
         <span className="out" data-testid="agent-tool-output">
           {tailOf(output, TOOL_OUTPUT_LIMIT)}
         </span>
       )}
-    </>
+    </span>
   )
   const expandable = wsId && chatId && (call.hasRequest || call.hasResult)
-  if (!expandable) {
-    return <li data-status={call.status}>{summary}</li>
-  }
+  const patch = call.diff || diff
+  const diffPreview = call.kind === 'edit' && patch && (
+    <div className="turn-diff tool-turn-diff" data-testid="agent-tool-diff">
+      <TurnDiffPreview diff={patch} turnId={call.id} wsId={wsId} />
+    </div>
+  )
+  if (!expandable)
+    return (
+      <li data-status={call.status}>
+        {summary}
+        {diffPreview}
+      </li>
+    )
   return (
     <li data-status={call.status}>
-      <details open={open}>
-        {/* preventDefault + explicit state, not the browser's own toggle: the
-            fetch below must fire exactly once, on the click that actually
-            opens this row, never on every re-render. */}
-        <summary
-          onClick={(e) => {
-            e.preventDefault()
-            setOpen((o) => !o)
-          }}
+      <div className="tool-row">
+        {summary}
+        <button
+          type="button"
+          className="tool-row-toggle"
+          aria-label="Show tool details"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
         >
-          {summary}
-        </summary>
-        {open && (
-          <ToolPayloadPanel
-            wsId={wsId}
-            chatId={chatId}
-            toolId={call.id}
-            hasRequest={call.hasRequest}
-            hasResult={call.hasResult}
-          />
-        )}
-      </details>
+          <CaretRightIcon size={12} />
+        </button>
+      </div>
+      {open && (
+        <ToolPayloadPanel
+          wsId={wsId}
+          chatId={chatId}
+          toolId={call.id}
+          hasRequest={call.hasRequest}
+          hasResult={call.hasResult}
+        />
+      )}
+      {diffPreview}
     </li>
   )
 }
@@ -282,7 +471,7 @@ export function AgentTurnSubagents({
         <b>{subagents.length}</b>&nbsp;{subagents.length === 1 ? 'subagent' : 'subagents'}
       </span>
       <span className="subline">
-        {subagents.slice(0, LIMIT).map((subagent) => (
+        {subagents.map((subagent) => (
           <span className="tok done" key={subagent.id}>
             <i />
             {subagent.agentType && <span className="ty">{subagent.agentType}</span>}
@@ -293,7 +482,6 @@ export function AgentTurnSubagents({
             </b>
           </span>
         ))}
-        {subagents.length > LIMIT && <span className="submore">+{subagents.length - LIMIT}</span>}
       </span>
     </div>
   )
@@ -316,12 +504,11 @@ export function AgentTurnChoices({
 
   return (
     <ul className="tools" data-testid="agent-turn-choices">
-      {choices.slice(0, LIMIT).map((choice) => (
+      {choices.map((choice) => (
         <li key={choice.id} data-resolution={choice.resolution}>
           <span>{describeResolvedChoice(choice)}</span>
         </li>
       ))}
-      {choices.length > LIMIT && <li>+{choices.length - LIMIT} more</li>}
     </ul>
   )
 }

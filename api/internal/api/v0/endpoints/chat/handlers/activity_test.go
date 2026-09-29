@@ -36,8 +36,14 @@ var activityAt = time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 func TestActivity_ReturnsWhatTheAgentDid(t *testing.T) {
 	ended := activityAt.Add(time.Second)
 	uc := &fakeAgentUsecase{activity: agentusecase.ChatActivity{
+		Turns: []domain.ActivityTurn{{
+			ID: "turn-1", Seq: 2, Role: domain.TurnRoleAssistant, Text: "done",
+			Diff:      "diff --git a/a.txt b/a.txt\n+changed",
+			StartedAt: activityAt, EndedAt: &ended,
+		}},
 		ToolCalls: []domain.ActivityToolCall{{
-			ID: "tool-1", TurnID: "turn-1", Seq: 3, Name: "Edit", Target: "a.go",
+			ID: "tool-1", TurnID: "turn-1", Seq: 3, Name: "Edit", Kind: "edit", Target: "a.go",
+			Locations:  []domain.ActivityToolLocation{{Path: "a.go", Line: 7}},
 			RequestRef: "sha256:abc", ResultRef: "sha256:def",
 			Status: domain.ToolStatusOK, DurationMS: 12, StartedAt: activityAt, EndedAt: &ended,
 		}},
@@ -59,12 +65,44 @@ func TestActivity_ReturnsWhatTheAgentDid(t *testing.T) {
 	require.Len(t, body.Data.ToolCalls, 1)
 	assert.Equal(t, "Edit", body.Data.ToolCalls[0].Name)
 	assert.Equal(t, "a.go", body.Data.ToolCalls[0].Target)
+	assert.Equal(t, "edit", body.Data.ToolCalls[0].Kind)
+	assert.Equal(t, []dto.AgentToolLocationDTO{{Path: "a.go", Line: 7}}, body.Data.ToolCalls[0].Locations)
 	assert.True(t, body.Data.ToolCalls[0].HasRequest)
 	assert.True(t, body.Data.ToolCalls[0].HasResult)
 	require.Len(t, body.Data.Subagents, 1)
 	assert.Equal(t, "explore", body.Data.Subagents[0].AgentType)
 	require.Len(t, body.Data.Interruptions, 1)
 	assert.Equal(t, "permission", body.Data.Interruptions[0].Kind)
+	require.Len(t, body.Data.Components, 6)
+	assert.Equal(t, []string{"assistant_message", "diff", "tool_call", "tool_output", "subagent", "status_notice"}, []string{
+		body.Data.Components[0].Kind,
+		body.Data.Components[1].Kind,
+		body.Data.Components[2].Kind,
+		body.Data.Components[3].Kind,
+		body.Data.Components[4].Kind,
+		body.Data.Components[5].Kind,
+	})
+	assert.Equal(t, "completed", body.Data.Components[1].Status)
+	assert.Equal(t, "diff --git a/a.txt b/a.txt\n+changed", body.Data.Components[1].Payload["unifiedDiff"])
+	require.Len(t, body.Data.Components[1].Updates, 1)
+	assert.Equal(t, "snapshot", body.Data.Components[1].Updates[0].Kind)
+	assert.Equal(t, "completed", body.Data.Components[2].Status)
+	require.Len(t, body.Data.Components[2].Updates, 2)
+	assert.Equal(t, []int{1, 2}, []int{
+		body.Data.Components[2].Updates[0].Seq,
+		body.Data.Components[2].Updates[1].Seq,
+	})
+	assert.Equal(t, "tool-1", body.Data.Components[3].ParentID)
+	assert.Equal(t, map[string]any{"toolCallId": "tool-1", "side": "result"}, body.Data.Components[3].Payload)
+	require.Len(t, body.Data.Components[3].Updates, 1)
+	assert.Equal(t, "available", body.Data.Components[3].Updates[0].Kind)
+	locations, ok := body.Data.Components[2].Payload["locations"].([]any)
+	require.True(t, ok)
+	require.Len(t, locations, 1)
+	location, ok := locations[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "a.go", location["path"])
+	assert.Equal(t, "completed", body.Data.Components[3].Status)
 }
 
 // A subagent's own nested tool call and its own reply history must reach the
@@ -78,7 +116,7 @@ func TestActivity_CarriesASubagentsOwnNestedToolCallAndMessages(t *testing.T) {
 			Status: domain.ToolStatusOK, StartedAt: activityAt, EndedAt: &ended,
 		}},
 		Subagents: []domain.ActivitySubagent{{
-			ID: "thread-child", Seq: 2, StartedAt: activityAt, EndedAt: &ended,
+			ID: "thread-child", TurnID: "turn-1", Seq: 2, StartedAt: activityAt, EndedAt: &ended,
 			Messages: []domain.ActivitySubagentMessage{{Text: "done", At: ended}},
 		}},
 	}}
@@ -97,6 +135,9 @@ func TestActivity_CarriesASubagentsOwnNestedToolCallAndMessages(t *testing.T) {
 	require.Len(t, body.Data.Subagents, 1)
 	require.Len(t, body.Data.Subagents[0].Messages, 1)
 	assert.Equal(t, "done", body.Data.Subagents[0].Messages[0].Text)
+	require.Len(t, body.Data.Components, 2)
+	assert.Equal(t, "turn-1", body.Data.Components[0].TurnID)
+	assert.Equal(t, "thread-child", body.Data.Components[0].ParentID)
 }
 
 // An ordinary top-level tool call and a subagent with no reply yet must not
@@ -140,6 +181,164 @@ func TestActivity_EmptyListsRenderAsEmptyNotNull(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), `"toolCalls":[]`)
 	assert.Contains(t, rec.Body.String(), `"subagents":[]`)
 	assert.Contains(t, rec.Body.String(), `"interruptions":[]`)
+	assert.Contains(t, rec.Body.String(), `"components":[]`)
+}
+
+func TestActivity_ProjectsPermissionDenialAsDeclinedAndNoticeAsStatus(t *testing.T) {
+	ended := activityAt.Add(time.Second)
+	uc := &fakeAgentUsecase{activity: agentusecase.ChatActivity{
+		Turns: []domain.ActivityTurn{
+			{ID: "notice-1", Seq: 3, Role: domain.TurnRoleNotice, Text: "The provider refused the request.", StartedAt: activityAt, EndedAt: &ended},
+		},
+		Choices: []domain.ActivityChoice{{
+			ID: "permission-1", TurnID: "turn-1", Seq: 2,
+			Kind: domain.ChoiceKindPermission,
+			Options: []domain.ActivityChoiceOption{
+				{ID: "allow", Kind: domain.ChoiceOptionAllow},
+				{ID: "deny", Kind: domain.ChoiceOptionDeny},
+			},
+			At: activityAt, ResolvedAt: &ended,
+			Resolution:        domain.ChoiceResolutionAnswered,
+			AnsweredOptionIDs: []string{"deny"},
+		}},
+	}}
+	ctx, rec := scoped(t, "/activity")
+	newChatHandlers(inWorkspace(uc)).Activity(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body struct {
+		Data dto.AgentActivityDTO `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.Data.Components, 2)
+	assert.Equal(t, "declined", body.Data.Components[0].Status)
+	assert.Equal(t, "permission_request", body.Data.Components[0].Kind)
+	require.Len(t, body.Data.Components[0].Updates, 2)
+	assert.Equal(t, "declined", body.Data.Components[0].Updates[1].Status)
+	assert.Equal(t, "status_notice", body.Data.Components[1].Kind)
+}
+
+func TestActivity_ProjectsCompactionAsItsOwnComponentKind(t *testing.T) {
+	ended := activityAt.Add(time.Second)
+	uc := &fakeAgentUsecase{activity: agentusecase.ChatActivity{
+		Interruptions: []domain.ActivityInterruption{{
+			ID: "compaction-1", TurnID: "turn-1", Seq: 1, Kind: "compaction",
+			At: activityAt, ResolvedAt: &ended,
+		}},
+	}}
+	ctx, rec := scoped(t, "/activity")
+	newChatHandlers(inWorkspace(uc)).Activity(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body struct {
+		Data dto.AgentActivityDTO `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.Data.Components, 1)
+	assert.Equal(t, "compaction", body.Data.Components[0].Kind)
+	assert.Equal(t, "completed", body.Data.Components[0].Status)
+}
+
+func TestActivity_ProjectsADurablePlanAsAStableTurnChild(t *testing.T) {
+	updated := activityAt.Add(500 * time.Millisecond)
+	ended := activityAt.Add(time.Second)
+	uc := &fakeAgentUsecase{activity: agentusecase.ChatActivity{
+		Turns: []domain.ActivityTurn{{
+			ID: "turn-1", Seq: 7, Role: domain.TurnRoleAssistant, Text: "done",
+			Status: "completed", StartedAt: activityAt, EndedAt: &ended,
+			Plan: []domain.ActivityPlanStep{
+				{Text: "inspect", Status: "done"},
+				{Text: "verify", Status: "active"},
+			},
+			PlanUpdatedAt: &updated,
+		}},
+	}}
+	ctx, rec := scoped(t, "/activity")
+	newChatHandlers(inWorkspace(uc)).Activity(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body struct {
+		Data dto.AgentActivityDTO `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.Data.Components, 2)
+	plan := body.Data.Components[1]
+	assert.Equal(t, "turn-1:plan", plan.ID)
+	assert.Equal(t, "turn-1", plan.TurnID)
+	assert.Equal(t, "turn-1", plan.ParentID)
+	assert.Equal(t, int64(7), plan.Seq)
+	assert.Equal(t, "plan", plan.Kind)
+	assert.Equal(t, "completed", plan.Status)
+	assert.Equal(t, updated, plan.CreatedAt)
+	assert.Equal(t, ended, plan.UpdatedAt)
+	require.NotNil(t, plan.CompletedAt)
+	assert.Equal(t, ended, *plan.CompletedAt)
+	steps, ok := plan.Payload["steps"].([]any)
+	require.True(t, ok)
+	require.Len(t, steps, 2)
+	step0, ok := steps[0].(map[string]any)
+	require.True(t, ok)
+	step1, ok := steps[1].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "inspect", step0["text"])
+	assert.Equal(t, "done", step0["status"])
+	assert.Equal(t, "verify", step1["text"])
+	assert.Equal(t, "active", step1["status"])
+	require.Len(t, plan.Updates, 2)
+	assert.Equal(t, "snapshot", plan.Updates[0].Kind)
+	assert.Equal(t, updated, plan.Updates[0].At)
+	assert.Equal(t, "status_changed", plan.Updates[1].Kind)
+	assert.Equal(t, ended, plan.Updates[1].At)
+}
+
+func TestActivity_OmitsPlanComponentWhenTheTurnHasNoPlan(t *testing.T) {
+	ended := activityAt.Add(time.Second)
+	uc := &fakeAgentUsecase{activity: agentusecase.ChatActivity{
+		Turns: []domain.ActivityTurn{{
+			ID: "legacy-turn", Seq: 1, Role: domain.TurnRoleAssistant,
+			Text: "old", StartedAt: activityAt, EndedAt: &ended,
+		}},
+	}}
+	ctx, rec := scoped(t, "/activity")
+	newChatHandlers(inWorkspace(uc)).Activity(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body struct {
+		Data dto.AgentActivityDTO `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.Data.Components, 1)
+	assert.Equal(t, "assistant_message", body.Data.Components[0].Kind)
+	assert.NotContains(t, rec.Body.String(), `"kind":"plan"`)
+}
+
+func TestActivity_PreservesTerminalTurnOutcomes(t *testing.T) {
+	ended := activityAt.Add(time.Second)
+	uc := &fakeAgentUsecase{activity: agentusecase.ChatActivity{
+		Turns: []domain.ActivityTurn{
+			{ID: "turn-failed", Seq: 1, Role: domain.TurnRoleAssistant, Status: "failed", StartedAt: activityAt, EndedAt: &ended},
+			{ID: "turn-interrupted", Seq: 2, Role: domain.TurnRoleAssistant, Status: "interrupted", StartedAt: activityAt, EndedAt: &ended},
+			{ID: "turn-abandoned", Seq: 3, Role: domain.TurnRoleAssistant, Status: "abandoned", StartedAt: activityAt, EndedAt: &ended},
+			{ID: "turn-legacy", Seq: 4, Role: domain.TurnRoleAssistant, StartedAt: activityAt, EndedAt: &ended},
+			{ID: "turn-notice", Seq: 5, Role: domain.TurnRoleNotice, Text: "Provider failed", StartedAt: activityAt, EndedAt: &ended},
+		},
+	}}
+	ctx, rec := scoped(t, "/activity")
+	newChatHandlers(inWorkspace(uc)).Activity(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body struct {
+		Data dto.AgentActivityDTO `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.Data.Components, 5)
+	assert.Equal(t, []string{"failed", "interrupted", "abandoned", "completed", "failed"}, []string{
+		body.Data.Components[0].Status,
+		body.Data.Components[1].Status,
+		body.Data.Components[2].Status,
+		body.Data.Components[3].Status,
+		body.Data.Components[4].Status,
+	})
 }
 
 func TestActivity_PassesThePagingCursorThrough(t *testing.T) {

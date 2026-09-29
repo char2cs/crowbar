@@ -209,17 +209,23 @@ export function AgentComposer(props: AgentComposerProps) {
           onOpenTerminal={props.onOpenTerminal}
         />
       )
-    case 'choice':
+    case 'choices':
       return (
-        <ComposerChoice
-          wsId={props.wsId}
-          chatId={props.chatId}
-          activity={props.activity}
-          choice={state.choice}
-          providerLabel={props.providerLabel}
-          permissionLevels={props.permissionLevels}
-          onOpenTerminal={props.onOpenTerminal}
-        />
+        <div className="choice-stack" data-testid="agent-choice-stack">
+          {state.choices.map((choice) => (
+            <ComposerChoice
+              key={choice.id}
+              wsId={props.wsId}
+              chatId={props.chatId}
+              activity={props.activity}
+              choice={choice}
+              providerLabel={props.providerLabel}
+              permissionLevels={props.permissionLevels}
+              onOpenTerminal={props.onOpenTerminal}
+              showQueueDepth={false}
+            />
+          ))}
+        </div>
       )
     case 'halted':
       return <ComposerHalted message={state.message} resetsAt={state.resetsAt} />

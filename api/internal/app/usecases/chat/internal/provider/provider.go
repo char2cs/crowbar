@@ -150,6 +150,7 @@ func (p *Providers) ResolveProviders(
 			Compaction:        caps.Compaction,
 			ModelSelect:       caps.ModelSelect,
 			EffortSelect:      caps.EffortSelect,
+			ActivityEvents:    caps.Observes,
 			Hotswap:           caps.Hotswap,
 			HasTerminal:       caps.HasTerminal,
 			TerminalStartHere: caps.TerminalStartHere,

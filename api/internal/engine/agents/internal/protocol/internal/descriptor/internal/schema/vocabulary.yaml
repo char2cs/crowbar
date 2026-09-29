@@ -27,7 +27,8 @@ events:
   user_prompt:
     direction: in
     required: []
-    optional: [session_id, message]
+    # subagent_id set means the prompt was fired INSIDE a subagent: not the user's.
+    optional: [session_id, message, subagent_id]
 
   turn_stop:
     direction: in
@@ -38,7 +39,8 @@ events:
     # field distinguishing the two — confirmed live, see codex.yaml's
     # compact_pre) can correlate against a turn armed by a DIFFERENT
     # canonical event and be skipped instead of misread as an ordinary reply.
-    optional: [session_id, async_work, effort, turn_id]
+    optional: [session_id, async_work, effort, turn_id, turn_status]
+    extras: [status_map]
 
   turn_failed:
     direction: in
@@ -48,18 +50,22 @@ events:
   tool_pre:
     direction: in
     required: []
-    optional: [session_id, tool_id, tool_name, tool_target, tool_input, nested_session_id]
+    optional: [session_id, tool_id, tool_name, tool_kind, tool_target, tool_input, edit_before, edit_after, nested_session_id]
+    extras: [kind_map, locations]
 
   tool_post:
     direction: in
+    extras: [status_map, kind_map, locations, patch]
     required: []
     optional:
       - session_id
       - tool_id
       - tool_name
+      - tool_kind
       - tool_target
       - tool_input
       - tool_result
+      - tool_status
       - duration_ms
       # nested_session_id names a WHOLE SECOND conversation this tool call's
       # own completion references (a provider's own multi-agent tool
@@ -72,15 +78,18 @@ events:
   # tool_post left a failed tool in flight until the turn-close sweep abandoned it.
   tool_fail:
     direction: in
+    extras: [status_map, kind_map, locations]
     required: []
     optional:
       - session_id
       - tool_id
       - tool_name
+      - tool_kind
       - tool_target
       - tool_input
       - tool_result
       - tool_error
+      - tool_status
       - duration_ms
       - nested_session_id
 
@@ -149,6 +158,13 @@ events:
     required: []
     optional: [session_id, turn_id, message]
     extras: [steps]
+
+  # The newest complete unified diff for the current turn. It is a wholesale
+  # replacement, not an append-only delta.
+  diff_update:
+    direction: in
+    required: [text]
+    optional: [session_id, turn_id, message_id]
 
   session_end:
     direction: in

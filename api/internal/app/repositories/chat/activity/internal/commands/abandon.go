@@ -25,6 +25,7 @@ func (c Abandon) EmitEvent(current *domain.ChatActivity) domain.ChatActivity {
 		return next
 	}
 	turn := *next.Turn
+	turn.Status = "abandoned"
 	turn.EndedAt = at(c.Now)
 	next.Turn = nil
 	next.Tools = nil

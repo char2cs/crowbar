@@ -13,16 +13,20 @@ type TurnRow struct {
 	Seq    int64  `gorm:"column:seq;index:idx_turn_chat_seq,priority:2"`
 	// DisplayOrder/ItemIndex — see domain.ActivityTurn. Sorted client-side
 	// over an already-fetched page, not queried by SQL, so no index.
-	DisplayOrder int64      `gorm:"column:display_order"`
-	ItemIndex    int        `gorm:"column:item_index"`
-	Role         string     `gorm:"column:role"`
-	ProviderID   string     `gorm:"column:provider_id;index"`
-	RunnerID     string     `gorm:"column:runner_id"`
-	SessionID    string     `gorm:"column:session_id;index"`
-	Text         string     `gorm:"column:text"`
-	Effort       string     `gorm:"column:effort"`
-	StartedAt    time.Time  `gorm:"column:started_at;index"`
-	EndedAt      *time.Time `gorm:"column:ended_at"`
+	DisplayOrder  int64      `gorm:"column:display_order"`
+	ItemIndex     int        `gorm:"column:item_index"`
+	Role          string     `gorm:"column:role"`
+	ProviderID    string     `gorm:"column:provider_id;index"`
+	RunnerID      string     `gorm:"column:runner_id"`
+	SessionID     string     `gorm:"column:session_id;index"`
+	Text          string     `gorm:"column:text"`
+	Effort        string     `gorm:"column:effort"`
+	Status        string     `gorm:"column:status"`
+	Diff          string     `gorm:"column:diff"`
+	Plan          string     `gorm:"column:plan"`
+	PlanUpdatedAt *time.Time `gorm:"column:plan_updated_at"`
+	StartedAt     time.Time  `gorm:"column:started_at;index"`
+	EndedAt       *time.Time `gorm:"column:ended_at"`
 }
 
 func (TurnRow) TableName() string { return "agent_turns" }
@@ -34,9 +38,12 @@ type ToolCallRow struct {
 	ChatID     string `gorm:"column:chat_id;index:idx_tool_chat_seq,priority:1"`
 	Seq        int64  `gorm:"column:seq;index:idx_tool_chat_seq,priority:2"`
 	Name       string `gorm:"column:name;index"`
+	Kind       string `gorm:"column:kind;index"`
+	Locations  string `gorm:"column:locations"`
 	Target     string `gorm:"column:target;index"`
 	RequestRef string `gorm:"column:request_ref"`
 	ResultRef  string `gorm:"column:result_ref"`
+	Diff       string `gorm:"column:diff"`
 	Status     string `gorm:"column:status;index"`
 	Error      string `gorm:"column:error"`
 	DurationMS int    `gorm:"column:duration_ms"`

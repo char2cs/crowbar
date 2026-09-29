@@ -90,7 +90,7 @@ describe('resolveComposerState', () => {
     expect(state).toMatchObject({ message: expect.stringMatching(/only its terminal can give/i) })
   })
 
-  it('shows the OLDEST pending choice, not the newest', () => {
+  it('returns every pending choice in stable sequence order', () => {
     const state = resolveComposerState(
       inputs({
         activity: activity({
@@ -98,7 +98,10 @@ describe('resolveComposerState', () => {
         }),
       }),
     )
-    expect(state).toMatchObject({ kind: 'choice', choice: { id: 'old' } })
+    expect(state).toMatchObject({
+      kind: 'choices',
+      choices: [{ id: 'old' }, { id: 'new' }],
+    })
   })
 
   // Hiding an unanswerable prompt is what made a blocked agent look frozen.
@@ -106,7 +109,7 @@ describe('resolveComposerState', () => {
     const state = resolveComposerState(
       inputs({ activity: activity({ choices: [choice({ answerable: false })] }) }),
     )
-    expect(state).toMatchObject({ kind: 'choice', choice: { answerable: false } })
+    expect(state).toMatchObject({ kind: 'choices', choices: [{ answerable: false }] })
   })
 
   it('ignores a resolved choice', () => {
@@ -121,7 +124,7 @@ describe('resolveComposerState', () => {
     const state = resolveComposerState(
       inputs({ activity: activity({ choices: [choice()] }), haltedMessage: 'limit reached' }),
     )
-    expect(state.kind).toBe('choice')
+    expect(state.kind).toBe('choices')
   })
 
   it('relays the provider’s own stop reason, with the reset when there is one', () => {

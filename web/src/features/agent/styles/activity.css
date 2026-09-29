@@ -26,32 +26,31 @@
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
-/* The model thinking out loud, while it does it.
- *
- * Indented to the verb's own text column (24px clears the spinner) so it reads
- * as detail UNDER the working line rather than as something the agent said.
- * Italic and muted for the same reason: it must never be mistaken for the reply.
- *
- * Two lines maximum, clamped rather than scrolled. A reasoning model emits this
- * continuously, and an unbounded block would push the whole transcript around on
- * every token — the tail is trimmed in the component (tailOf) so the clamp only
- * ever has a little to do. */
-.agent-chat .activity .thinking {
+/* The model's live reasoning is expandable: collapsed by default to keep token
+ * updates from pushing the transcript around, with the complete text available
+ * on demand. It is indented and muted so it is not mistaken for the reply. */
+.agent-chat .activity .thinking,
+.agent-chat .historical-activity .thinking {
   margin: 0;
   padding: 0 0 0 24px;
   font-size: var(--ui-text-xs);
   font-style: italic;
-  line-height: 1.45;
   color: var(--muted-foreground);
   opacity: 0.85;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-  /* The text is replaced wholesale on every frame; containing layout keeps that
-     off the rest of the transcript. */
   contain: layout;
+}
+.agent-chat .activity .thinking > summary,
+.agent-chat .historical-activity .thinking > summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.agent-chat .activity .thinking-body,
+.agent-chat .historical-activity .thinking-body {
+  max-height: min(30vh, 20rem);
+  margin-top: 2px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* The agent's own to-do list for the turn. A checklist, not prose: one line per
@@ -88,6 +87,152 @@
 }
 .agent-chat .activity .plan li[data-status='done']::before {
   content: '● ';
+}
+
+.agent-chat .turn-diff {
+  max-width: 100%;
+}
+
+.agent-chat .turn-diff summary {
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.agent-chat .turn-diff .turn-diff-code-view {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.agent-chat .turn-diff .turn-diff-raw {
+  max-height: 240px;
+  margin: 6px 0 0;
+  overflow: auto;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+  padding: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  white-space: pre;
+}
+
+.agent-chat .turn-diff-unavailable {
+  margin: 6px 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.agent-chat .activity-component-row[data-nested] {
+  padding-left: 24px;
+}
+
+.agent-chat .historical-activity {
+  min-width: 0;
+  width: 100%;
+}
+
+.agent-chat .historical-activity .thinking {
+  padding-left: 22px;
+}
+
+.agent-chat .activity-turn-diff {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: var(--radius-lg);
+}
+
+.agent-chat .activity-card {
+  min-width: 0;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--muted) 22%, transparent);
+  color: var(--muted-foreground);
+  font-size: var(--ui-text-xs);
+}
+
+.agent-chat .activity-inline-card,
+.agent-chat .activity-component-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.agent-chat .activity-inline-card > span:not(.activity-component-status),
+.agent-chat .activity-inline-card > a {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-chat .activity-inline-card > a {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+}
+
+.agent-chat .activity-component-heading b {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.agent-chat .activity-component-status {
+  margin-left: auto;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.agent-chat .activity-component-status[data-status='failed'],
+.agent-chat .activity-component-status[data-status='declined'],
+.agent-chat .activity-component-status[data-status='interrupted'],
+.agent-chat .activity-component-status[data-status='abandoned'] {
+  color: var(--destructive);
+}
+
+.agent-chat .activity-component-empty {
+  margin: 5px 0 0;
+  color: var(--muted-foreground);
+}
+
+.agent-chat .activity-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 7px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-chat .activity-plan li::before {
+  content: '○';
+  display: inline-block;
+  width: 18px;
+}
+
+.agent-chat .activity-plan li[data-status='active'] {
+  color: var(--foreground);
+}
+
+.agent-chat .activity-plan li[data-status='active']::before {
+  content: '◍';
+}
+
+.agent-chat .activity-plan li[data-status='done'],
+.agent-chat .activity-plan li[data-status='completed'] {
+  opacity: 0.65;
+  text-decoration: line-through;
+}
+
+.agent-chat .activity-plan li[data-status='done']::before,
+.agent-chat .activity-plan li[data-status='completed']::before {
+  content: '●';
 }
 
 /* The running tools' own list used to live here. It is a transcript row now

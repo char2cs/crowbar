@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef } from 'react'
 import type { CodeViewItem, CodeViewOptions, FileDiffMetadata } from '@pierre/diffs'
-import { CodeView, WorkerPoolContextProvider } from '@pierre/diffs/react'
+import { WorkerPoolContextProvider } from '@pierre/diffs/react'
 import HighlightWorker from '@pierre/diffs/worker/worker.js?worker'
 import type { FileOutline } from '@/features/git/api/review-window-api'
 import { MAX_MATERIALIZED_LINES } from '@/features/git/lib/patch-window'
@@ -18,6 +18,7 @@ import { FileThreadCount, PatchStateNotice } from './review-patch-header'
 import { useReviewAnnotations } from './use-review-annotations'
 import type { ReviewAnnotation } from './use-review-annotations'
 import { useReviewPatchWindow } from './use-review-patch-window'
+import { DiffCodeView } from './diff-code-view'
 
 /**
  * The windowed Branch Review surface.
@@ -291,11 +292,11 @@ function ReviewCodeViewSurface({
   return (
     <div className={cn('flex h-full min-h-0 flex-col', className)}>
       {binaries.length > 0 ? <ReviewBinaryFiles entries={binaries} /> : null}
-      <CodeView<ReviewThread>
+      <DiffCodeView<ReviewThread>
         // Remounting on a changed file list is deliberate: CodeView seeds
         // `initialItems` once, and a different set of files is a different
         // document, not an update to this one.
-        key={signature}
+        viewKey={signature}
         ref={handleRef}
         containerRef={markScrollerRef}
         initialItems={items}
@@ -309,6 +310,7 @@ function ReviewCodeViewSurface({
         // The cast narrows the library's file-or-diff annotation union: every
         // item this surface publishes is a diff, so a file annotation (one with
         // no side) cannot reach here.
+        // react-doctor-disable-next-line no-render-prop-children -- accepted: the render slots are the @pierre/diffs CodeView API this wrapper forwards unchanged.
         renderAnnotation={(annotation) =>
           annotations.renderAnnotation(annotation as ReviewAnnotation)
         }

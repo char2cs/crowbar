@@ -187,6 +187,25 @@ func TestJournal_StateTransitionsAreRecorded(t *testing.T) {
 	assert.Equal(t, agentjournal.PromptStateAccepted, found.State)
 }
 
+func TestRegression_ConfirmAcceptedNamesTheRepeatedPromptStillInFlight(t *testing.T) {
+	j, dir := journal(t)
+	_, _, err := j.Begin(dir, "aaa-old", "continue", "hash", "codex", "runner-1", "runner-1", jnow)
+	require.NoError(t, err)
+	_, err = j.MarkSpawned(dir, "aaa-old", "hash", "runner-1", "", jnow)
+	require.NoError(t, err)
+	requireSettled(t, j, dir, "aaa-old")
+	later := jnow.Add(time.Minute)
+	_, _, err = j.Begin(dir, "zzz-new", "continue", "hash", "codex", "runner-1", "runner-1", later)
+	require.NoError(t, err)
+	_, err = j.MarkSpawned(dir, "zzz-new", "hash", "runner-1", "", later)
+	require.NoError(t, err)
+
+	requestID, err := j.ConfirmAccepted(dir, "runner-1", "codex", "hash", later)
+
+	require.NoError(t, err)
+	assert.Equal(t, "zzz-new", requestID, "the echo belongs to the prompt in flight, not an older settled twin")
+}
+
 func TestJournal_MarkFailedDispatchAllowsASameIDRetry(t *testing.T) {
 	j, dir := journal(t)
 	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)

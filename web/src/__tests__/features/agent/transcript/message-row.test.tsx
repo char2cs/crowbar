@@ -23,6 +23,19 @@ function row(role: AgentChatMessageRole, text: string) {
 }
 
 describe('MessageRow', () => {
+  it('keeps activity diffs out of message rows', () => {
+    const message: AgentChatMessage = {
+      turnId: 't1',
+      sequence: 1,
+      role: 'assistant',
+      providerId: 'claude',
+      text: 'updated the file',
+      at: '2026-08-24T00:00:00Z',
+    }
+    const { container } = render(<MessageRow message={message} providers={providers} />)
+    expect(container.querySelector('[data-testid="agent-completed-turn-diff"]')).toBeNull()
+  })
+
   // A prompt is composed in a rich markdown editor and SENT as markdown. Showing
   // it back as source made the box's own content un-render the instant it was
   // sent — the same emphasis, two appearances one line apart.
@@ -340,7 +353,7 @@ describe('MessageRow', () => {
       expect(container.querySelector('[data-testid="message-turn-actions"]')).toBeNull()
     })
 
-    it('renders after the turn tools, not before — what the turn did, then what a reader can do about it', () => {
+    it('never attaches activity rows to an assistant message', () => {
       const message: AgentChatMessage = {
         turnId: 't1',
         sequence: 1,
@@ -349,75 +362,10 @@ describe('MessageRow', () => {
         text: 'a reply',
         at: '2026-08-24T00:00:00Z',
       }
-      const callsByTurn = new Map([
-        [
-          't1',
-          [
-            {
-              id: 'c1',
-              turnId: 't1',
-              seq: 0,
-              name: 'read_file',
-              status: 'ok' as const,
-              hasRequest: true,
-              hasResult: true,
-              startedAt: '2026-08-24T00:00:00Z',
-            },
-          ],
-        ],
-      ])
-      const { container } = render(
-        <MessageRow
-          message={message}
-          providers={providersWithIcon}
-          toolCallsByTurn={callsByTurn}
-        />,
-      )
-      const tools = container.querySelector('[data-testid="agent-turn-tools"]')
+      const { container } = render(<MessageRow message={message} providers={providersWithIcon} />)
       const turnbar = container.querySelector('[data-testid="message-turn-actions"]')
-      expect(tools).not.toBeNull()
-      expect(turnbar).not.toBeNull()
-      // DOCUMENT_POSITION_FOLLOWING (4): tools comes before turnbar.
-      expect(
-        tools!.compareDocumentPosition(turnbar!) & Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy()
-    })
-
-    it('does not render turn tools for a still-streaming message even if calls exist', () => {
-      const message: AgentChatMessage = {
-        turnId: 't1',
-        sequence: 1,
-        role: 'assistant',
-        providerId: 'claude',
-        text: 'still typing',
-        at: '2026-08-24T00:00:00Z',
-      }
-      const callsByTurn = new Map([
-        [
-          't1',
-          [
-            {
-              id: 'c1',
-              turnId: 't1',
-              seq: 0,
-              name: 'read_file',
-              status: 'ok' as const,
-              hasRequest: true,
-              hasResult: true,
-              startedAt: '2026-08-24T00:00:00Z',
-            },
-          ],
-        ],
-      ])
-      const { container } = render(
-        <MessageRow
-          message={message}
-          providers={providersWithIcon}
-          toolCallsByTurn={callsByTurn}
-          streaming
-        />,
-      )
       expect(container.querySelector('[data-testid="agent-turn-tools"]')).toBeNull()
+      expect(turnbar).not.toBeNull()
     })
   })
 

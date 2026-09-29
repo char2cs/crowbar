@@ -222,6 +222,8 @@ export interface AgentChatsState {
    * view of it, not a record.
    */
   streamingPlan: Record<string, { text: string; status: string }[]>
+  /** The newest complete unified diff for the current turn. */
+  streamingDiff: Record<string, { id: string; text: string }>
   /**
    * The provider's newest usage report per chat — context, rate limits, cost.
    * Written by the `telemetry` frame the daemon pushes as each report lands, and
@@ -309,6 +311,7 @@ export interface AgentChatsSlice {
     chatId: string,
     steps: { text: string; status: string }[] | null,
   ) => void
+  setAgentChatStreamingDiff: (chatId: string, diff: { id: string; text: string } | null) => void
   /** Replace (or clear, with null) the provider's newest usage report. */
   setAgentChatTelemetry: (chatId: string, report: AgentTelemetry | null) => void
   /** Drop the given ids' entries once the ledger has recorded them for real —
@@ -374,6 +377,7 @@ export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   streamingReasoning: {},
   streamingToolOutput: {},
   streamingPlan: {},
+  streamingDiff: {},
   telemetry: {},
   turnRevision: {},
   excalidrawEditRequests: {},
@@ -506,6 +510,7 @@ export const createAgentChatsSlice: StateCreator<
       delete s.agentChats.streamingReasoning[chatId]
       delete s.agentChats.streamingToolOutput[chatId]
       delete s.agentChats.streamingPlan[chatId]
+      delete s.agentChats.streamingDiff[chatId]
       delete s.agentChats.telemetry[chatId]
       delete s.agentChats.turnRevision[chatId]
       delete s.agentChats.excalidrawEditRequests[chatId]
@@ -582,6 +587,15 @@ export const createAgentChatsSlice: StateCreator<
         return
       }
       s.agentChats.streamingPlan[chatId] = steps
+    }),
+
+  setAgentChatStreamingDiff: (chatId, diff) =>
+    set((s) => {
+      if (!diff || diff.text === '') {
+        delete s.agentChats.streamingDiff[chatId]
+        return
+      }
+      s.agentChats.streamingDiff[chatId] = diff
     }),
 
   setAgentChatTelemetry: (chatId, report) =>

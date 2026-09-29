@@ -44,6 +44,7 @@ func (t *Turns) Telemetry(chatID string) (engineagents.Telemetry, bool) {
 }
 
 type ChatActivity struct {
+	Turns         []domain.ActivityTurn
 	ToolCalls     []domain.ActivityToolCall
 	Subagents     []domain.ActivitySubagent
 	Interruptions []domain.ActivityInterruption
@@ -66,10 +67,19 @@ func (t *Turns) ReadActivity(
 		limit = maxActivityPage
 	}
 	var calls []domain.ActivityToolCall
+	var turns []domain.ActivityTurn
 	var err error
 	if after > 0 {
+		turns, err = t.activity.Turns(ctx, chatID, after, 0, limit)
+		if err != nil {
+			return ChatActivity{}, fmt.Errorf("agent: read activity: turns: %w", err)
+		}
 		calls, err = t.activity.ToolCalls(ctx, chatID, after, limit)
 	} else {
+		turns, err = t.activity.TurnsBefore(ctx, chatID, 0, limit)
+		if err != nil {
+			return ChatActivity{}, fmt.Errorf("agent: read activity: turns: %w", err)
+		}
 		calls, err = t.activity.ToolCallsBefore(ctx, chatID, 0, limit)
 	}
 	if err != nil {
@@ -93,6 +103,7 @@ func (t *Turns) ReadActivity(
 		return ChatActivity{}, fmt.Errorf("agent: read activity: choices: %w", err)
 	}
 	return ChatActivity{
+		Turns:         turns,
 		ToolCalls:     calls,
 		Subagents:     subagents,
 		Interruptions: interruptions,

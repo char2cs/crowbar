@@ -1,6 +1,7 @@
 mod api_proxy;
 mod diagnostics;
 mod fdlimit;
+mod navigation;
 mod sidecar;
 mod ws_bridge;
 
@@ -974,6 +975,16 @@ pub fn run() {
         .plugin(
             tauri::plugin::Builder::<tauri::Wry, ()>::new("crowbar-bootstrap")
                 .js_init_script(CROWBAR_BOOTSTRAP.to_string())
+                .build(),
+        )
+        // The webview must never navigate away from the app: web links open in the
+        // OS default browser (every window, every platform).
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry, ()>::new("navigation-guard")
+                .on_navigation(|webview, url| {
+                    let dev_url = webview.app_handle().config().build.dev_url.clone();
+                    navigation::guard(url, dev_url.as_ref())
+                })
                 .build(),
         )
         // Route webview `crowbar://localhost/v0/...` fetches through the unix

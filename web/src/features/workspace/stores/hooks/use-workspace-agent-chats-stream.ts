@@ -324,8 +324,8 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       if (left) releaseRunner(left, ev.chatId)
       if (startedWorking(outcome) && before.agentChats.listSeeded) adoptIfViewless(ev.chatId)
       if (ev.kind === 'turn_started' || ev.kind === 'turn_stopped') {
-        // The thinking, the running tool's output and the plan belong to the
-        // turn that just changed state. Deliberately NOT clearing
+        // The thinking, the running tool's output, the plan and diff belong to
+        // the turn that just changed state. Deliberately NOT clearing
         // streamingMessages: an interrupted turn's CLI can keep producing and
         // complete on its own schedule; entries leave only once the ledger
         // holds them (useChatMessages).
@@ -333,6 +333,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
         st.setAgentChatStreamingReasoning(ev.chatId, null)
         st.setAgentChatStreamingToolOutput(ev.chatId, null)
         st.setAgentChatStreamingPlan(ev.chatId, null)
+        st.setAgentChatStreamingDiff(ev.chatId, null)
       }
     }
 
@@ -395,6 +396,17 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           // A running tool's output — same contract as a thought.
           if (ev.message.kind === 'tool_output') {
             st.setAgentChatStreamingToolOutput(ev.chatId, {
+              id: ev.message.id,
+              text: ev.message.text,
+            })
+            return
+          }
+          if (ev.message.kind === 'diff') {
+            if (ev.message.text === '') {
+              st.setAgentChatStreamingDiff(ev.chatId, null)
+              return
+            }
+            st.setAgentChatStreamingDiff(ev.chatId, {
               id: ev.message.id,
               text: ev.message.text,
             })

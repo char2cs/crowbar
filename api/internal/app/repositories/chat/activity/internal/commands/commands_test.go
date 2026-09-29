@@ -30,10 +30,21 @@ func TestAppendTurn_EmitsACompletedTurnAsTheDelta(t *testing.T) {
 	assert.Equal(t, domain.DeltaTurn, got.Last.Kind)
 	require.NotNil(t, got.Last.Turn)
 	assert.Equal(t, "hello", got.Last.Turn.Text)
+	assert.Equal(t, "completed", got.Last.Turn.Status)
 	assert.Equal(t, domain.TurnRoleUser, got.Last.Turn.Role)
 	require.NotNil(t, got.Last.Turn.EndedAt)
 	assert.Equal(t, int64(1), got.Seq)
 	assert.Nil(t, got.Turn, "a completed turn leaves nothing open")
+}
+
+func TestAppendTurn_FailureNoticeHasFailedStatus(t *testing.T) {
+	got := commands.AppendTurn{
+		ChatID: chat, TurnID: "notice-1", Role: domain.TurnRoleNotice, Text: "Provider failed", Now: now,
+	}.EmitEvent(nil)
+
+	require.NotNil(t, got.Last)
+	require.NotNil(t, got.Last.Turn)
+	assert.Equal(t, "failed", got.Last.Turn.Status)
 }
 
 func TestAppendTurn_RejectsTheUnusableCases(t *testing.T) {
@@ -61,6 +72,7 @@ func TestOpenTurn_StartsTheTurnToolsAttachTo(t *testing.T) {
 	require.NotNil(t, got.Turn)
 	assert.Equal(t, "t1", got.Turn.ID)
 	assert.Equal(t, domain.TurnRoleAssistant, got.Turn.Role)
+	assert.Equal(t, "active", got.Turn.Status)
 	require.NotNil(t, got.Last)
 	assert.Equal(t, domain.DeltaOpen, got.Last.Phase)
 }
@@ -82,7 +94,7 @@ func TestCloseTurn_CompletesTheOpenTurnWithItsText(t *testing.T) {
 	opened := commands.OpenTurn{ChatID: chat, TurnID: "t1", ProviderID: "claude", Now: now}.
 		EmitEvent(nil)
 
-	c := commands.CloseTurn{ChatID: chat, TurnID: "t1", Text: "done", Effort: "high", Now: now}
+	c := commands.CloseTurn{ChatID: chat, TurnID: "t1", Text: "done", Effort: "high", Diff: "diff --git a/a b/a", Now: now}
 	require.NoError(t, c.Validate(&opened))
 	got := c.EmitEvent(&opened)
 
@@ -90,7 +102,9 @@ func TestCloseTurn_CompletesTheOpenTurnWithItsText(t *testing.T) {
 	require.NotNil(t, got.Last)
 	assert.Equal(t, domain.DeltaClose, got.Last.Phase)
 	assert.Equal(t, "done", got.Last.Turn.Text)
+	assert.Equal(t, "completed", got.Last.Turn.Status)
 	assert.Equal(t, "high", got.Last.Turn.Effort)
+	assert.Equal(t, "diff --git a/a b/a", got.Last.Turn.Diff)
 	assert.Equal(t, "claude", got.Last.Turn.ProviderID, "the opened turn's attribution survives")
 	require.NotNil(t, got.Last.Turn.EndedAt)
 }
@@ -104,6 +118,68 @@ func TestCloseTurn_WithNoOpenTurnStillRecordsTheReply(t *testing.T) {
 	require.NotNil(t, got.Last)
 	assert.Equal(t, "late", got.Last.Turn.Text)
 	assert.Equal(t, "codex", got.Last.Turn.ProviderID)
+}
+
+func TestUpdatePlan_ReplacesTheOpenTurnsSnapshotAndCloseCarriesTheLatest(t *testing.T) {
+	opened := commands.OpenTurn{
+		ChatID: chat, TurnID: "t1", ProviderID: "provider", RunnerID: "r1", Now: now,
+	}.EmitEvent(nil)
+	first := commands.UpdatePlan{
+		ChatID: chat, RunnerID: "r1", Now: now.Add(time.Second),
+		Steps: []domain.ActivityPlanStep{{Text: "inspect", Status: "active"}},
+	}.EmitEvent(&opened)
+	latestAt := now.Add(2 * time.Second)
+	latest := commands.UpdatePlan{
+		ChatID: chat, RunnerID: "r1", Now: latestAt,
+		Steps: []domain.ActivityPlanStep{
+			{Text: "inspect", Status: "done"},
+			{Text: "verify", Status: "active"},
+		},
+	}.EmitEvent(&first)
+
+	closed := commands.CloseTurn{
+		ChatID: chat, TurnID: "t1", RunnerID: "r1", Text: "done", Now: now.Add(3 * time.Second),
+	}.EmitEvent(&latest)
+
+	require.NotNil(t, closed.Last)
+	require.NotNil(t, closed.Last.Turn)
+	assert.Equal(t, []domain.ActivityPlanStep{
+		{Text: "inspect", Status: "done"},
+		{Text: "verify", Status: "active"},
+	}, closed.Last.Turn.Plan)
+	require.NotNil(t, closed.Last.Turn.PlanUpdatedAt)
+	assert.Equal(t, latestAt, *closed.Last.Turn.PlanUpdatedAt)
+}
+
+func TestUpdatePlan_DoesNotCrossRunnerOwnership(t *testing.T) {
+	opened := commands.OpenTurn{
+		ChatID: chat, TurnID: "t1", RunnerID: "current", Now: now,
+	}.EmitEvent(nil)
+
+	got := commands.UpdatePlan{
+		ChatID: chat, RunnerID: "stale", Now: now.Add(time.Second),
+		Steps: []domain.ActivityPlanStep{{Text: "wrong", Status: "active"}},
+	}.EmitEvent(&opened)
+
+	assert.Empty(t, got.Turn.Plan)
+	assert.Nil(t, got.Turn.PlanUpdatedAt)
+}
+
+func TestUpdatePlan_EmptySnapshotClearsAnEarlierPlan(t *testing.T) {
+	opened := commands.OpenTurn{ChatID: chat, TurnID: "t1", RunnerID: "r1", Now: now}.
+		EmitEvent(nil)
+	planned := commands.UpdatePlan{
+		ChatID: chat, RunnerID: "r1", Now: now.Add(time.Second),
+		Steps: []domain.ActivityPlanStep{{Text: "inspect", Status: "active"}},
+	}.EmitEvent(&opened)
+
+	cleared := commands.UpdatePlan{
+		ChatID: chat, RunnerID: "r1", Now: now.Add(2 * time.Second), Steps: nil,
+	}.EmitEvent(&planned)
+
+	assert.Empty(t, cleared.Turn.Plan)
+	require.NotNil(t, cleared.Turn.PlanUpdatedAt)
+	assert.Equal(t, now.Add(2*time.Second), *cleared.Turn.PlanUpdatedAt)
 }
 
 func TestInvokeTool_RecordsTheCallAndHoldsItOpen(t *testing.T) {
@@ -345,6 +421,7 @@ func TestAbandon_ClosesWhatWasOpenWithoutInventingAReply(t *testing.T) {
 	assert.Empty(t, got.Tools)
 	require.NotNil(t, got.Last.Turn)
 	assert.Empty(t, got.Last.Turn.Text, "an abandoned turn has no reply to record")
+	assert.Equal(t, "abandoned", got.Last.Turn.Status)
 	require.NotNil(t, got.Last.Turn.EndedAt)
 }
 

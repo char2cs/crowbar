@@ -10,6 +10,11 @@ import type {
 } from '@/features/agent/api/agent-api'
 import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
 import {
+  createPromptStash,
+  loadPromptStashes,
+  savePromptStashes,
+} from '@/features/agent/composer/lib/prompt-stash-persistence'
+import {
   __resetScrollPositionsForTests,
   getScrollPosition,
   setScrollPosition,
@@ -20,6 +25,7 @@ import { ESTIMATED_ROW_HEIGHT } from '@/features/agent/transcript/agent-transcri
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { IS_MAC } from '@/utils/platform'
 
 const { listMessagesFn, submitPromptFn, slashCatalogFn, setSelectionFn, stopChatFn } = vi.hoisted(
   () => ({
@@ -294,6 +300,8 @@ async function enterPrompt(text: string) {
   fireEvent.change(input, { target: { value: text } })
   fireEvent.keyDown(input, { key: 'Enter', shiftKey: false })
 }
+
+const promptStashChord = IS_MAC ? { metaKey: true } : { ctrlKey: true }
 
 // The transcript's historical rows are windowed (`@tanstack/react-virtual`),
 // and jsdom has no layout engine, which breaks the virtualiser two ways:
@@ -1030,6 +1038,86 @@ describe('AgentChatView composer controls', () => {
     fireEvent.keyDown(await composer(), { key: 'ArrowDown' })
     // Back past the newest turn: the live draft, empty since nothing was typed.
     expect(await composer()).toHaveValue('')
+  })
+
+  it('stashes a non-empty rich draft without sending, then restores it from an empty composer', async () => {
+    setup()
+    const input = await composer()
+    const richDraft = 'Inspect this\n\n![screen](chats/c1/attachments/screen.png)'
+    fireEvent.change(input, { target: { value: richDraft } })
+
+    fireEvent.keyDown(input, { key: 's', ...promptStashChord })
+
+    expect(await composer()).toHaveValue('')
+    expect(submitPromptFn).not.toHaveBeenCalled()
+    expect(loadPromptStashes('w1', 'c1')).toMatchObject([{ markdown: richDraft }])
+
+    fireEvent.keyDown(await composer(), { key: 's', ...promptStashChord })
+
+    expect(await composer()).toHaveValue(richDraft)
+    expect(loadPromptStashes('w1', 'c1')).toEqual([])
+    expect(submitPromptFn).not.toHaveBeenCalled()
+  })
+
+  it('opens a small picker for several stashes and restores the selected one', async () => {
+    initialMessages = [message(1, 'assistant', 'Ready')]
+    const newer = createPromptStash('Newest saved prompt', {
+      id: 'newer',
+      now: new Date('2026-09-28T12:00:00.000Z'),
+    })!
+    const older = createPromptStash('Older saved prompt', {
+      id: 'older',
+      now: new Date('2026-09-28T11:00:00.000Z'),
+    })!
+    savePromptStashes('w1', 'c1', [newer, older])
+    setup()
+
+    fireEvent.keyDown(await composer(), { key: 's', ...promptStashChord })
+
+    const menu = await screen.findByRole('menu', { name: 'Stashed prompts' })
+    expect(within(menu).getAllByRole('menuitem')).toHaveLength(2)
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /older saved prompt/i }))
+
+    expect(await composer()).toHaveValue('Older saved prompt')
+    expect(loadPromptStashes('w1', 'c1').map((item) => item.id)).toEqual(['newer'])
+  })
+
+  it('closes the restore picker on an edit and never overwrites the non-empty draft', async () => {
+    initialMessages = [message(1, 'assistant', 'Ready')]
+    savePromptStashes('w1', 'c1', [
+      createPromptStash('One', { id: 'one' })!,
+      createPromptStash('Two', { id: 'two' })!,
+    ])
+    setup()
+    const input = await composer()
+    fireEvent.keyDown(input, { key: 's', ...promptStashChord })
+    expect(await screen.findByRole('menu', { name: 'Stashed prompts' })).toBeInTheDocument()
+
+    fireEvent.change(input, { target: { value: 'Do not overwrite me' } })
+
+    expect(screen.queryByRole('menu', { name: 'Stashed prompts' })).not.toBeInTheDocument()
+    expect(await composer()).toHaveValue('Do not overwrite me')
+    expect(loadPromptStashes('w1', 'c1')).toHaveLength(2)
+  })
+
+  it('keeps sent-message recall and stash restoration on independent cursor state', async () => {
+    initialMessages = [message(1, 'user', 'Previously sent'), message(2, 'assistant', 'Reply')]
+    setup()
+    const input = await composer()
+    fireEvent.change(input, { target: { value: 'Unsaved working draft' } })
+    fireEvent.keyDown(input, { key: 'ArrowUp' })
+    expect(await composer()).toHaveValue('Previously sent')
+    fireEvent.keyDown(await composer(), { key: 'ArrowDown' })
+    expect(await composer()).toHaveValue('Unsaved working draft')
+
+    fireEvent.keyDown(await composer(), { key: 's', ...promptStashChord })
+    fireEvent.keyDown(await composer(), { key: 's', ...promptStashChord })
+    expect(await composer()).toHaveValue('Unsaved working draft')
+
+    fireEvent.keyDown(await composer(), { key: 'ArrowUp' })
+    expect(await composer()).toHaveValue('Previously sent')
+    fireEvent.keyDown(await composer(), { key: 'ArrowDown' })
+    expect(await composer()).toHaveValue('Unsaved working draft')
   })
 
   // Enter reaches enqueueDraft even on an empty box (the send BUTTON is
