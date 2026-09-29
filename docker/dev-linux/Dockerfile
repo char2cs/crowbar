@@ -77,7 +77,7 @@ RUN GOARCH_DEB="$(dpkg --print-architecture)" \
 ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Rust: CI's dtolnay/rust-toolchain pin in .github/workflows/ci.yml.
-ARG RUST_VERSION=1.88
+ARG RUST_VERSION=1.90
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH="/usr/local/cargo/bin:${PATH}"
