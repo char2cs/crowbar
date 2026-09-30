@@ -32,15 +32,8 @@ func (richMappings) Check(d *spec.Descriptor) error {
 }
 
 func checkRichEvent(id, name string, event spec.EventSpec, kinds, statuses map[string]struct{}) error {
-	for _, mapped := range event.KindMap {
-		if _, ok := kinds[mapped]; !ok {
-			return invalid(id, "events[%s].kind_map: unknown canonical kind %q", name, mapped)
-		}
-	}
-	for _, mapped := range event.StatusMap {
-		if _, ok := statuses[mapped]; !ok {
-			return invalid(id, "events[%s].status_map: unknown canonical status %q", name, mapped)
-		}
+	if err := checkCanonicalMaps(id, name, event, kinds, statuses); err != nil {
+		return err
 	}
 	if event.Locations != nil && (event.Locations.Items == "" || event.Locations.Path == "") {
 		return invalid(id, "events[%s].locations: items and path are required", name)
@@ -50,6 +43,20 @@ func checkRichEvent(id, name string, event spec.EventSpec, kinds, statuses map[s
 	}
 	if p := event.Patch; p != nil && (p.Items == "" || p.OldStart == "" || p.NewStart == "" || p.Lines == "") {
 		return invalid(id, "events[%s].patch: items, old_start, new_start and lines are required", name)
+	}
+	return nil
+}
+
+func checkCanonicalMaps(id, name string, event spec.EventSpec, kinds, statuses map[string]struct{}) error {
+	for _, mapped := range event.KindMap {
+		if _, ok := kinds[mapped]; !ok {
+			return invalid(id, "events[%s].kind_map: unknown canonical kind %q", name, mapped)
+		}
+	}
+	for _, mapped := range event.StatusMap {
+		if _, ok := statuses[mapped]; !ok {
+			return invalid(id, "events[%s].status_map: unknown canonical status %q", name, mapped)
+		}
 	}
 	return nil
 }
