@@ -20,8 +20,9 @@ type Message struct {
 	RecordedText string
 	Final        bool
 	Complete     bool
+
 	// FirstAt is when this message first appeared, before any later tool call
 	// or reply item the provider may emit in the same turn.
-	FirstAt      time.Time
-	LastAt       time.Time
+	FirstAt time.Time
+	LastAt  time.Time
 }

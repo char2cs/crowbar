@@ -66,19 +66,9 @@ func (c *Conversations) toChatTurns(ctx context.Context, rows []domain.ActivityT
 	providers := make(map[string]engineagents.Agent)
 	seen := make(map[string]bool)
 	for _, r := range rows {
-		role := r.Role
-		if role == domain.TurnRoleUser && home != "" && r.ProviderID != "" {
-			if !seen[r.ProviderID] {
-				providers[r.ProviderID], _ = c.agents.Get(ctx, home, r.ProviderID)
-				seen[r.ProviderID] = true
-			}
-			if _, injected := engineagents.MatchInjectedPrompt(providers[r.ProviderID], r.Text); injected {
-				role = domain.TurnRoleHarness
-			}
-		}
 		out = append(out, domain.LedgerTurn{
 			ID:        r.ID,
-			Role:      role,
+			Role:      c.chatTurnRole(ctx, home, r, providers, seen),
 			Provider:  r.ProviderID,
 			RunnerID:  r.RunnerID,
 			SessionID: r.SessionID,
@@ -88,6 +78,26 @@ func (c *Conversations) toChatTurns(ctx context.Context, rows []domain.ActivityT
 		})
 	}
 	return out
+}
+
+func (c *Conversations) chatTurnRole(
+	ctx context.Context,
+	home string,
+	r domain.ActivityTurn,
+	providers map[string]engineagents.Agent,
+	seen map[string]bool,
+) string {
+	if r.Role != domain.TurnRoleUser || home == "" || r.ProviderID == "" {
+		return r.Role
+	}
+	if !seen[r.ProviderID] {
+		providers[r.ProviderID], _ = c.agents.Get(ctx, home, r.ProviderID)
+		seen[r.ProviderID] = true
+	}
+	if _, injected := engineagents.MatchInjectedPrompt(providers[r.ProviderID], r.Text); injected {
+		return domain.TurnRoleHarness
+	}
+	return r.Role
 }
 
 func (c *Conversations) chatPage(

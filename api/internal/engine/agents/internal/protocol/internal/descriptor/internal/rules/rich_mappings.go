@@ -24,26 +24,32 @@ func (richMappings) Check(d *spec.Descriptor) error {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		event := d.Events[name]
-		for _, mapped := range event.KindMap {
-			if _, ok := kinds[mapped]; !ok {
-				return invalid(d.ID, "events[%s].kind_map: unknown canonical kind %q", name, mapped)
-			}
+		if err := checkRichEvent(d.ID, name, d.Events[name], kinds, statuses); err != nil {
+			return err
 		}
-		for _, mapped := range event.StatusMap {
-			if _, ok := statuses[mapped]; !ok {
-				return invalid(d.ID, "events[%s].status_map: unknown canonical status %q", name, mapped)
-			}
+	}
+	return nil
+}
+
+func checkRichEvent(id, name string, event spec.EventSpec, kinds, statuses map[string]struct{}) error {
+	for _, mapped := range event.KindMap {
+		if _, ok := kinds[mapped]; !ok {
+			return invalid(id, "events[%s].kind_map: unknown canonical kind %q", name, mapped)
 		}
-		if event.Locations != nil && (event.Locations.Items == "" || event.Locations.Path == "") {
-			return invalid(d.ID, "events[%s].locations: items and path are required", name)
+	}
+	for _, mapped := range event.StatusMap {
+		if _, ok := statuses[mapped]; !ok {
+			return invalid(id, "events[%s].status_map: unknown canonical status %q", name, mapped)
 		}
-		if f := event.DiffFiles; f != nil && (f.Items == "" || f.Path == "" || f.Diff == "") {
-			return invalid(d.ID, "events[%s].diff_files: items, path and diff are required", name)
-		}
-		if p := event.Patch; p != nil && (p.Items == "" || p.OldStart == "" || p.NewStart == "" || p.Lines == "") {
-			return invalid(d.ID, "events[%s].patch: items, old_start, new_start and lines are required", name)
-		}
+	}
+	if event.Locations != nil && (event.Locations.Items == "" || event.Locations.Path == "") {
+		return invalid(id, "events[%s].locations: items and path are required", name)
+	}
+	if f := event.DiffFiles; f != nil && (f.Items == "" || f.Path == "" || f.Diff == "") {
+		return invalid(id, "events[%s].diff_files: items, path and diff are required", name)
+	}
+	if p := event.Patch; p != nil && (p.Items == "" || p.OldStart == "" || p.NewStart == "" || p.Lines == "") {
+		return invalid(id, "events[%s].patch: items, old_start, new_start and lines are required", name)
 	}
 	return nil
 }
