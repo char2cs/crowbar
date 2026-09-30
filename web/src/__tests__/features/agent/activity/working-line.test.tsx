@@ -258,15 +258,14 @@ describe('WorkingLine', () => {
     expect(screen.getByTestId('agent-reasoning')).toHaveTextContent('Clarifying the wording')
   })
 
-  // Long reasoning stays out of the way while collapsed, but remains available
-  // in full when explicitly expanded.
-  it('keeps the complete thought in a collapsed expandable block', () => {
+  it('shows the complete thought as a subtitle below the working indicator', () => {
     const long = `START${'x'.repeat(400)}NEWEST`
     render(<WorkingLine working activity={activity()} reasoning={long} />)
 
     const el = screen.getByTestId('agent-reasoning')
-    expect(el).not.toHaveAttribute('open')
-    expect(el.querySelector('summary')).toHaveTextContent('Reasoning')
+    expect(el.tagName).toBe('P')
+    expect(el).toHaveClass('reasoning-subtitle')
+    expect(el.previousElementSibling).toHaveClass('hd')
     expect(el).toHaveTextContent('NEWEST')
     expect(el).toHaveTextContent('START')
   })
@@ -336,22 +335,6 @@ describe('WorkingLine', () => {
   it('shows no plan when the agent reports none', () => {
     render(<WorkingLine working activity={activity()} />)
     expect(screen.queryByTestId('agent-plan')).not.toBeInTheDocument()
-  })
-
-  it('renders the provider-neutral live unified diff', () => {
-    render(
-      <WorkingLine
-        activity={activity()}
-        working
-        diff={{
-          id: 'turn-1',
-          text: 'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new\n',
-        }}
-      />,
-    )
-    expect(screen.getByTestId('agent-turn-diff').tagName).toBe('DIV')
-    expect(screen.queryByText('Files changed')).not.toBeInTheDocument()
-    expect(screen.getByTestId('turn-diff-preview')).toHaveAttribute('data-file-count', '1')
   })
 
   it('lists nothing while compacting — there is nothing to enumerate', () => {

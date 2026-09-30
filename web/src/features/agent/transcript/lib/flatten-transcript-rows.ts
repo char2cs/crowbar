@@ -73,6 +73,14 @@ export function flattenTranscriptRows({
 
   for (const component of components) {
     if (excludeComponentIds?.has(component.id)) continue
+    // Older Claude builds turned unmatched SubagentStop hooks into completed
+    // zero-duration rows. They describe no observed subagent start.
+    if (
+      component.kind === 'subagent' &&
+      component.status === 'completed' &&
+      component.completedAt === component.createdAt
+    )
+      continue
     if (
       component.kind === 'user_message' ||
       component.kind === 'assistant_message' ||
@@ -91,24 +99,6 @@ export function flattenTranscriptRows({
   }
 
   entries.sort((a, b) => {
-    const aMessage = a.row.kind === 'message' ? a.row.message : undefined
-    const bMessage = b.row.kind === 'message' ? b.row.message : undefined
-    const aComponent = a.row.kind === 'activity' ? a.row.component : undefined
-    const bComponent = b.row.kind === 'activity' ? b.row.component : undefined
-    if (
-      aMessage?.role === 'assistant' &&
-      bComponent?.turnId === aMessage.turnId &&
-      aComponent === undefined
-    ) {
-      return 1
-    }
-    if (
-      bMessage?.role === 'assistant' &&
-      aComponent?.turnId === bMessage.turnId &&
-      bComponent === undefined
-    ) {
-      return -1
-    }
     const aAt = Date.parse(a.at)
     const bAt = Date.parse(b.at)
     if (!Number.isNaN(aAt) && !Number.isNaN(bAt) && aAt !== bAt) return aAt - bAt

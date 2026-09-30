@@ -21,6 +21,7 @@ type CloseTurn struct {
 	// (Codex splitting a reply across several message ids).
 	ItemIndex int
 	OmitPlan  bool
+	MessageAt time.Time
 	Now       time.Time
 }
 
@@ -111,6 +112,9 @@ func (c CloseTurn) EmitEvent(current *domain.ChatActivity) domain.ChatActivity {
 		next.Subagents = nil
 		next.Interruptions = nil
 		next.Choices = nil
+	}
+	if !c.MessageAt.IsZero() {
+		turn.StartedAt = c.MessageAt
 	}
 	turn.Text = c.Text
 	if c.Effort != "" {

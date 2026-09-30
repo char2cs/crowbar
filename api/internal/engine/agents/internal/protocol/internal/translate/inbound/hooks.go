@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
@@ -159,7 +160,7 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channe
 			}
 		}
 	}
-	return build(canonical, fields, d.EventSteps(canonical), d.EventStatusMap(canonical), d.EventKindMap(canonical), d.EventLocations(canonical), d.EventPatch(canonical), decoded), nil
+	return build(canonical, fields, d.EventSteps(canonical), d.EventStatusMap(canonical), d.EventKindMap(canonical), d.EventLocations(canonical), d.EventDiffFiles(canonical), d.EventPatch(canonical), decoded), nil
 }
 
 func decode(d *spec.Descriptor, raw []byte) (map[string]any, error) {
@@ -199,6 +200,7 @@ func build(
 	statusMap map[string]string,
 	kindMap map[string]string,
 	locations *spec.LocationsSpec,
+	diffFiles *spec.DiffFilesSpec,
 	patch *spec.PatchSpec,
 	decoded map[string]any,
 ) models.CanonicalEvent {
@@ -225,7 +227,7 @@ func build(
 			ev.Subagent = &models.SubagentEvent{ID: id}
 		}
 	case spec.HookToolPre, spec.HookToolPost, spec.HookToolFail:
-		ev.Tool = buildTool(fields, statusMap, kindMap, locations, patch, decoded)
+		ev.Tool = buildTool(fields, statusMap, kindMap, locations, diffFiles, patch, decoded)
 	case spec.HookSubagentPre, spec.HookSubagentPost:
 		ev.Subagent = &models.SubagentEvent{
 			ID:        get("subagent_id"),
@@ -303,7 +305,7 @@ func buildPlan(steps *spec.StepsSpec, decoded map[string]any) []models.PlanStep 
 	return out
 }
 
-func buildTool(fields spec.FieldMap, statusMap, kindMap map[string]string, locations *spec.LocationsSpec, patch *spec.PatchSpec, decoded map[string]any) *models.ToolEvent {
+func buildTool(fields spec.FieldMap, statusMap, kindMap map[string]string, locations *spec.LocationsSpec, diffFiles *spec.DiffFilesSpec, patch *spec.PatchSpec, decoded map[string]any) *models.ToolEvent {
 	duration, _ := mapping.Int(decoded, fields["duration_ms"])
 	status := mapping.String(decoded, fields["tool_status"])
 	if mapped, ok := statusMap[status]; ok {
@@ -323,6 +325,7 @@ func buildTool(fields spec.FieldMap, statusMap, kindMap map[string]string, locat
 
 		EditBefore: mapping.String(decoded, fields["edit_before"]),
 		EditAfter:  mapping.String(decoded, fields["edit_after"]),
+		Diff:       buildDiffFiles(diffFiles, decoded),
 		Patch:      buildPatch(patch, decoded),
 
 		Result:          mapping.JSON(decoded, fields["tool_result"]),
@@ -331,6 +334,31 @@ func buildTool(fields spec.FieldMap, statusMap, kindMap map[string]string, locat
 		DurationMS:      duration,
 		NestedSessionID: mapping.String(decoded, fields["nested_session_id"]),
 	}
+}
+
+func buildDiffFiles(files *spec.DiffFilesSpec, decoded map[string]any) string {
+	if files == nil {
+		return ""
+	}
+	var out strings.Builder
+	for _, row := range mapping.Objects(decoded, []string{files.Items}) {
+		path := strings.TrimLeft(mapping.String(row, []string{files.Path}), "/")
+		diff := mapping.String(row, []string{files.Diff})
+		if path == "" || diff == "" {
+			continue
+		}
+		if out.Len() > 0 {
+			out.WriteByte('\n')
+		}
+		if !strings.HasPrefix(diff, "diff --git ") && !strings.HasPrefix(diff, "--- ") {
+			fmt.Fprintf(&out, "--- a/%s\n+++ b/%s\n", path, path)
+		}
+		out.WriteString(diff)
+		if !strings.HasSuffix(diff, "\n") {
+			out.WriteByte('\n')
+		}
+	}
+	return out.String()
 }
 
 func buildPatch(patch *spec.PatchSpec, decoded map[string]any) []models.PatchHunk {

@@ -44,7 +44,7 @@ func (t *Turns) recordMessageDelta(
 		return
 	}
 	note(ctx, "record streamed message",
-		t.recordAssistantMessage(ctx, chat, runner, message.ID, message.Text, "", true, "completed", ""))
+		t.recordAssistantMessage(ctx, chat, runner, message.ID, message.Text, "", true, "completed", "", message.FirstAt))
 	t.messages.MarkRecorded(chat.ID, message.ID, message.Text)
 }
 
@@ -56,6 +56,7 @@ func (t *Turns) recordAssistantMessage(
 	reopen bool,
 	status string,
 	diff string,
+	messageAt time.Time,
 ) error {
 	if text == "" {
 		return nil
@@ -72,6 +73,7 @@ func (t *Turns) recordAssistantMessage(
 		Diff:       diff,
 		ItemIndex:  t.messages.IndexOf(chat.ID, runner.ID, messageID),
 		OmitPlan:   reopen,
+		MessageAt:  messageAt,
 		Now:        time.Now(),
 	}); err != nil {
 		return fmt.Errorf("agent: record assistant message: %w", err)
@@ -179,7 +181,7 @@ func (t *Turns) closeAssistantTurn(
 		if last {
 			messageStatus = status
 		}
-		if err := t.recordAssistantMessage(ctx, chat, runner, message.ID, text, effort, !last, messageStatus, messageDiff); err != nil {
+		if err := t.recordAssistantMessage(ctx, chat, runner, message.ID, text, effort, !last, messageStatus, messageDiff, message.FirstAt); err != nil {
 			return fmt.Errorf("agent: ingest hook: close turn: %w", err)
 		}
 		lastRecorded = text
@@ -194,7 +196,7 @@ func (t *Turns) closeAssistantTurn(
 	// "nothing of the hook's content made it in": nothing streamed at all.
 	if ev.Message != "" && lastRecorded == "" {
 		return t.recordAssistantMessage(
-			ctx, chat, runner, hookMessageID(ctx), ev.Message, ev.Effort, false, status, diff,
+			ctx, chat, runner, hookMessageID(ctx), ev.Message, ev.Effort, false, status, diff, time.Time{},
 		)
 	}
 	if lastRecorded == "" {
@@ -387,7 +389,7 @@ func (t *Turns) salvageUnfinished(
 		if text == "" || text == message.RecordedText {
 			continue
 		}
-		if err := t.recordAssistantMessage(ctx, chat, runner, message.ID, text, "", false, "interrupted", ""); err != nil {
+		if err := t.recordAssistantMessage(ctx, chat, runner, message.ID, text, "", false, "interrupted", "", message.FirstAt); err != nil {
 			return recorded, err
 		}
 		t.messages.MarkRecorded(chat.ID, message.ID, text)

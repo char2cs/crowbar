@@ -41,3 +41,9 @@ func TestPatchDiff_KeepsTheProvidersTrueLineNumbers(t *testing.T) {
 func TestPatchDiff_NoHunksIsEmpty(t *testing.T) {
 	assert.Empty(t, patchDiff("a.go", nil))
 }
+
+func TestToolDiffUsesTheCallsOwnProviderDiff(t *testing.T) {
+	tool := &engineagents.ToolEvent{Target: "a.go", Diff: "--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n-a\n+b\n"}
+	assert.Equal(t, tool.Diff, toolStartDiff(tool))
+	assert.Equal(t, tool.Diff, toolResultDiff(tool))
+}

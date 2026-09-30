@@ -11,6 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // The message page bounds ReadMessages serves under: a caller that asks for
@@ -48,15 +49,26 @@ func (c *Conversations) ChatTurns(ctx context.Context, chatID string) ([]domain.
 	if err != nil {
 		return nil, fmt.Errorf("agent: chat turns: %w", err)
 	}
-	return toChatTurns(rows), nil
+	return c.toChatTurns(ctx, rows), nil
 }
 
-func toChatTurns(rows []domain.ActivityTurn) []domain.LedgerTurn {
+func (c *Conversations) toChatTurns(ctx context.Context, rows []domain.ActivityTurn) []domain.LedgerTurn {
 	out := make([]domain.LedgerTurn, 0, len(rows))
+	// An older ledger may have recorded provider-injected text as a user turn.
+	// Use that provider's descriptor to classify it on read, so messages,
+	// chat logs and handoffs agree without baking wire text into this layer.
+	home := ""
+	if c.home != nil && c.agents != nil {
+		if resolved, err := c.home(); err == nil {
+			home = resolved
+		}
+	}
+	providers := make(map[string]engineagents.Agent)
+	seen := make(map[string]bool)
 	for _, r := range rows {
 		out = append(out, domain.LedgerTurn{
 			ID:        r.ID,
-			Role:      r.Role,
+			Role:      c.chatTurnRole(ctx, home, r, providers, seen),
 			Provider:  r.ProviderID,
 			RunnerID:  r.RunnerID,
 			SessionID: r.SessionID,
@@ -66,6 +78,26 @@ func toChatTurns(rows []domain.ActivityTurn) []domain.LedgerTurn {
 		})
 	}
 	return out
+}
+
+func (c *Conversations) chatTurnRole(
+	ctx context.Context,
+	home string,
+	r domain.ActivityTurn,
+	providers map[string]engineagents.Agent,
+	seen map[string]bool,
+) string {
+	if r.Role != domain.TurnRoleUser || home == "" || r.ProviderID == "" {
+		return r.Role
+	}
+	if !seen[r.ProviderID] {
+		providers[r.ProviderID], _ = c.agents.Get(ctx, home, r.ProviderID)
+		seen[r.ProviderID] = true
+	}
+	if _, injected := engineagents.MatchInjectedPrompt(providers[r.ProviderID], r.Text); injected {
+		return domain.TurnRoleHarness
+	}
+	return r.Role
 }
 
 func (c *Conversations) chatPage(
@@ -86,10 +118,10 @@ func (c *Conversations) chatPage(
 
 	if after > 0 {
 		rows, err := c.activity.Turns(ctx, chatID, int64(after), 0, limit+1)
-		return trimFront(rows, limit, err)
+		return c.trimFront(ctx, rows, limit, err)
 	}
 	rows, err := c.activity.TurnsBefore(ctx, chatID, int64(before), limit+1)
-	return trimBack(rows, limit, err)
+	return c.trimBack(ctx, rows, limit, err)
 }
 
 // trimFront and trimBack turn a limit+1 read into a page plus the has-more flag.
@@ -98,29 +130,29 @@ func (c *Conversations) chatPage(
 // answer to "is there more", and asking the store for a count instead would be a
 // second query racing the first. They differ only in which end the extra row
 // arrives at — forward paging overshoots at the tail, backward paging at the head.
-func trimFront(rows []domain.ActivityTurn, limit int, err error) (domain.LedgerPage, error) {
+func (c *Conversations) trimFront(ctx context.Context, rows []domain.ActivityTurn, limit int, err error) (domain.LedgerPage, error) {
 	if err != nil {
 		return domain.LedgerPage{}, fmt.Errorf("agent: chat page: %w", err)
 	}
 	if hasMore := len(rows) > limit; hasMore {
-		return page(rows[:limit], true), nil
+		return c.page(ctx, rows[:limit], true), nil
 	}
-	return page(rows, false), nil
+	return c.page(ctx, rows, false), nil
 }
 
-func trimBack(rows []domain.ActivityTurn, limit int, err error) (domain.LedgerPage, error) {
+func (c *Conversations) trimBack(ctx context.Context, rows []domain.ActivityTurn, limit int, err error) (domain.LedgerPage, error) {
 	if err != nil {
 		return domain.LedgerPage{}, fmt.Errorf("agent: chat page: %w", err)
 	}
 	if hasMore := len(rows) > limit; hasMore {
-		return page(rows[len(rows)-limit:], true), nil
+		return c.page(ctx, rows[len(rows)-limit:], true), nil
 	}
-	return page(rows, false), nil
+	return c.page(ctx, rows, false), nil
 }
 
-func page(rows []domain.ActivityTurn, hasMore bool) domain.LedgerPage {
+func (c *Conversations) page(ctx context.Context, rows []domain.ActivityTurn, hasMore bool) domain.LedgerPage {
 	out := domain.LedgerPage{HasMore: hasMore, Items: make([]domain.LedgerMessage, 0, len(rows))}
-	turns := toChatTurns(rows)
+	turns := c.toChatTurns(ctx, rows)
 	for i, t := range turns {
 		out.Items = append(out.Items, domain.LedgerMessage{
 			Sequence:     int(rows[i].Seq),
@@ -159,7 +191,7 @@ func (c *Conversations) renderConversation(
 	kept, note := agenttools.RecentHandoffWindow(chatID, rows)
 	var b strings.Builder
 	b.WriteString(note)
-	for _, t := range toChatTurns(kept) {
+	for _, t := range c.toChatTurns(ctx, kept) {
 		b.WriteString(speaker(t))
 		b.WriteString(": ")
 		b.WriteString(t.Text)

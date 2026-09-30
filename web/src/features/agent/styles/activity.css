@@ -26,10 +26,20 @@
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
-/* The model's live reasoning is expandable: collapsed by default to keep token
- * updates from pushing the transcript around, with the complete text available
- * on demand. It is indented and muted so it is not mistaken for the reply. */
-.agent-chat .activity .thinking,
+/* Live reasoning sits directly below the working verb as a quiet subtitle. */
+.agent-chat .activity .reasoning-subtitle {
+  margin: 0;
+  padding-left: 24px;
+  max-height: 5.5em;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-heading);
+  font-size: var(--ui-text-xs);
+  line-height: 1.35;
+  color: var(--muted-foreground);
+}
+/* Historical reasoning has no working indicator and keeps its own disclosure. */
 .agent-chat .historical-activity .thinking {
   margin: 0;
   padding: 0 0 0 24px;

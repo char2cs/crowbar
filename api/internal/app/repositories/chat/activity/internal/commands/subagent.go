@@ -97,6 +97,9 @@ type StopSubagent struct {
 	ChatID     string
 	SubagentID string
 	AgentType  string
+	// Existing is the durable open row when the aggregate has already cleared
+	// its current turn. A subagent can outlive that turn.
+	Existing *domain.ActivitySubagent
 	// Message is the subagent's own final reply text, when this close carries
 	// one — a routed child turn's own close, for a provider whose subagent is
 	// a whole nested conversation, not a flat marker. Empty appends nothing.
@@ -119,14 +122,12 @@ func (c StopSubagent) EmitEvent(current *domain.ChatActivity) domain.ChatActivit
 	next := advance(current, c.ChatID)
 	sub, known := next.Subagents[c.SubagentID]
 	if !known {
-		sub = domain.ActivitySubagent{
-			ID:        c.SubagentID,
-			TurnID:    currentTurn(&next),
-			ChatID:    c.ChatID,
-			Seq:       next.Seq,
-			AgentType: c.AgentType,
-			StartedAt: c.Now,
+		// The aggregate clears its open-work map at turn close, while the
+		// durable subagent row may still be running. Only a real row may close.
+		if c.Existing == nil {
+			return next
 		}
+		sub = *c.Existing
 	}
 	delete(next.Subagents, c.SubagentID)
 	if len(next.Subagents) == 0 {

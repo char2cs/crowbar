@@ -41,7 +41,10 @@ type TurnInput struct {
 	// OmitPlan prevents an intermediate multi-message close from projecting a
 	// duplicate plan artifact. The close event still carries it for CarryPlan.
 	OmitPlan bool
-	Now      time.Time
+	// MessageAt is the first streamed text for this assistant message, when
+	// observed. A multi-item turn can speak, call a tool, and speak again.
+	MessageAt time.Time
+	Now       time.Time
 }
 
 type PlanInput struct {
@@ -306,7 +309,7 @@ func (r *eventSourced) CloseTurn(ctx context.Context, in TurnInput) error {
 	return r.sendWait(ctx, commands.CloseTurn{
 		ChatID: in.ChatID, TurnID: in.TurnID,
 		ProviderID: in.ProviderID, RunnerID: in.RunnerID, SessionID: in.SessionID,
-		Text: in.Text, Effort: in.Effort, Status: in.Status, ItemIndex: in.ItemIndex, Diff: in.Diff, Now: in.Now,
+		Text: in.Text, Effort: in.Effort, Status: in.Status, ItemIndex: in.ItemIndex, Diff: in.Diff, MessageAt: in.MessageAt, Now: in.Now,
 		OmitPlan: in.OmitPlan,
 	})
 }
@@ -463,9 +466,28 @@ func (r *eventSourced) OpenNestedSubagent(
 func (r *eventSourced) StopSubagent(
 	ctx context.Context, chatID, subagentID, agentType, message string, now time.Time,
 ) error {
-	return r.sendWait(ctx, commands.StopSubagent{
+	command := commands.StopSubagent{
 		ChatID: chatID, SubagentID: subagentID, AgentType: agentType, Message: message, Now: now,
-	})
+	}
+	if err := command.Validate(nil); err != nil {
+		return err
+	}
+	subs, err := r.store.Subagents(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	var existing *domain.ActivitySubagent
+	for i := range subs {
+		if subs[i].ID == subagentID && subs[i].EndedAt == nil {
+			existing = &subs[i]
+			break
+		}
+	}
+	if existing == nil {
+		return nil
+	}
+	command.Existing = existing
+	return r.sendWait(ctx, command)
 }
 
 func (r *eventSourced) Interrupt(

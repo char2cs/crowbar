@@ -215,7 +215,7 @@ func TestObservation_SubagentsAreRecorded(t *testing.T) {
 	assert.NotNil(t, subs[0].EndedAt)
 }
 
-func TestObservation_AnonymousSubagentStopsDoNotCollide(t *testing.T) {
+func TestObservation_AnonymousSubagentStopsDoNotCreatePhantomRows(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 
@@ -224,7 +224,7 @@ func TestObservation_AnonymousSubagentStopsDoNotCollide(t *testing.T) {
 
 	subs, err := f.activity.Subagents(f.ctx, chatID)
 	require.NoError(t, err)
-	assert.Len(t, subs, 2)
+	assert.Empty(t, subs)
 }
 
 // TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded drives the

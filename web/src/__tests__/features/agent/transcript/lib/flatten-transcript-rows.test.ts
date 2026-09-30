@@ -169,6 +169,50 @@ describe('flattenTranscriptRows', () => {
     })
   })
 
+  it('keeps a tool after the assistant message that preceded it in the same turn', () => {
+    const assistant = {
+      ...msg(2, 'assistant'),
+      turnId: 'turn-1',
+      at: '2026-09-01T12:00:01Z',
+    }
+    const tool: ActivityComponent = {
+      id: 'tool-1',
+      turnId: 'turn-1',
+      seq: 3,
+      kind: 'tool_call',
+      status: 'completed',
+      createdAt: '2026-09-01T12:00:02Z',
+      updatedAt: '2026-09-01T12:00:03Z',
+      payload: { name: 'Edit' },
+    }
+    const rows = flattenTranscriptRows({
+      messages: [assistant],
+      components: [tool],
+      firstTurnSequence: undefined,
+    })
+    expect(rows.map((row) => row.key)).toEqual(['message-2', 'activity-tool-1'])
+  })
+
+  it('hides a historical completion with no observed subagent lifetime', () => {
+    const orphan: ActivityComponent = {
+      id: 'orphan',
+      turnId: 'turn-1',
+      seq: 2,
+      kind: 'subagent',
+      status: 'completed',
+      createdAt: '2026-09-01T12:00:01Z',
+      updatedAt: '2026-09-01T12:00:01Z',
+      completedAt: '2026-09-01T12:00:01Z',
+      payload: {},
+    }
+    const rows = flattenTranscriptRows({
+      messages: [],
+      components: [orphan],
+      firstTurnSequence: undefined,
+    })
+    expect(rows).toEqual([])
+  })
+
   it('merges streaming messages into the same timeline and does not duplicate a settled sequence', () => {
     const rows = flattenTranscriptRows({
       messages: [{ ...msg(1), at: '2026-09-01T12:00:00Z' }],

@@ -109,6 +109,20 @@ func TestCloseTurn_CompletesTheOpenTurnWithItsText(t *testing.T) {
 	require.NotNil(t, got.Last.Turn.EndedAt)
 }
 
+func TestCloseTurn_UsesTheMessagesFirstTextTime(t *testing.T) {
+	opened := commands.OpenTurn{ChatID: chat, TurnID: "t1", RunnerID: "r1", Now: now}.
+		EmitEvent(nil)
+	spoken := now.Add(time.Second)
+	closed := commands.CloseTurn{
+		ChatID: chat, TurnID: "t1", RunnerID: "r1", Text: "I will edit this file",
+		MessageAt: spoken, Now: now.Add(3 * time.Second),
+	}.EmitEvent(&opened)
+	require.NotNil(t, closed.Last)
+	require.NotNil(t, closed.Last.Turn)
+	assert.Equal(t, spoken, closed.Last.Turn.StartedAt)
+	assert.Equal(t, now.Add(3*time.Second), *closed.Last.Turn.EndedAt)
+}
+
 func TestCloseTurn_WithNoOpenTurnStillRecordsTheReply(t *testing.T) {
 	c := commands.CloseTurn{ChatID: chat, TurnID: "t9", ProviderID: "codex", Text: "late", Now: now}
 
@@ -264,14 +278,12 @@ func TestCompleteTool_ForAnUnseenCallStillLeavesALegibleRecord(t *testing.T) {
 	assert.Equal(t, domain.ToolStatusError, got.Last.Tool.Status)
 }
 
-func TestSubagent_StopWithoutAStartIsRecordedOnItsOwnTerms(t *testing.T) {
+func TestSubagent_StopWithoutAStartDoesNotInventARecord(t *testing.T) {
 	got := commands.StopSubagent{ChatID: chat, SubagentID: "a1", AgentType: "explore", Now: now}.
 		EmitEvent(nil)
 
-	require.NotNil(t, got.Last.Subagent)
-	assert.Equal(t, "a1", got.Last.Subagent.ID)
-	assert.Equal(t, "explore", got.Last.Subagent.AgentType)
-	require.NotNil(t, got.Last.Subagent.EndedAt)
+	assert.Nil(t, got.Last)
+	assert.Empty(t, got.Subagents)
 }
 
 func TestSubagent_StartThenStopClosesTheSameRecord(t *testing.T) {
@@ -735,7 +747,11 @@ func TestRegression_ACloseSideEventNeverConjuresATurn(t *testing.T) {
 			got := tc.emit(&closed)
 
 			assert.Nil(t, got.Turn, "closing something never opens a turn")
-			require.NotNil(t, got.Last, "and the event is still recorded")
+			if tc.name == "subagent stop" {
+				assert.Nil(t, got.Last, "a stop without a start has no subagent to record")
+			} else {
+				require.NotNil(t, got.Last, "and the event is still recorded")
+			}
 		})
 	}
 }

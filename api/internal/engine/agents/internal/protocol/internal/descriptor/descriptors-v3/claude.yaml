@@ -157,13 +157,13 @@ events:
       duration_ms: duration_ms
 
   subagent_pre:
-    required: [session_id]  # subagent_id NOT required — see its own comment above
+    required: [session_id, subagent_id]
     unverified: true
     in: SubagentStart
     map: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
 
   subagent_post:
-    required: [session_id]  # subagent_id NOT required — see its own comment above
+    required: [session_id, subagent_id]
     unverified: true
     in: SubagentStop
     map: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }

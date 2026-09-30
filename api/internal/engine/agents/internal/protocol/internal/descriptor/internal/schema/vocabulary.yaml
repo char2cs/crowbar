@@ -51,11 +51,11 @@ events:
     direction: in
     required: []
     optional: [session_id, tool_id, tool_name, tool_kind, tool_target, tool_input, edit_before, edit_after, nested_session_id]
-    extras: [kind_map, locations]
+    extras: [kind_map, locations, diff_files]
 
   tool_post:
     direction: in
-    extras: [status_map, kind_map, locations, patch]
+    extras: [status_map, kind_map, locations, patch, diff_files]
     required: []
     optional:
       - session_id
@@ -78,7 +78,7 @@ events:
   # tool_post left a failed tool in flight until the turn-close sweep abandoned it.
   tool_fail:
     direction: in
-    extras: [status_map, kind_map, locations]
+    extras: [status_map, kind_map, locations, diff_files]
     required: []
     optional:
       - session_id

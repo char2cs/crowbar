@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentChatMessage } from '@/features/agent/api/agent-api'
+import type { AgentChatMessage, AgentToolCall } from '@/features/agent/api/agent-api'
+import { activityComponents } from '@/features/agent/lib/activity-components'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import {
   AgentTranscript,
@@ -611,6 +612,55 @@ describe('AgentTranscript turnbar wiring', () => {
 
     expect(screen.getAllByTestId('agent-activity-tool')).toHaveLength(9)
     expect(screen.queryByText(/more$/)).toBeNull()
+  })
+
+  it('keeps each edit preview on its own call and never adds the combined turn diff', () => {
+    const toolCalls: AgentToolCall[] = ['a', 'b', 'c'].map((name, index) => ({
+      id: `edit-${name}`,
+      turnId: 'turn-1',
+      seq: index + 1,
+      name: 'fileChange',
+      kind: 'edit',
+      status: 'ok',
+      hasRequest: false,
+      hasResult: false,
+      startedAt: `2026-09-10T12:00:0${index}Z`,
+      diff:
+        index < 2
+          ? `--- a/${name}.go\n+++ b/${name}.go\n@@ -1 +1 @@\n-old\n+new-${name}\n`
+          : undefined,
+    }))
+    const activity = { toolCalls, subagents: [], interruptions: [], choices: [] }
+    const components = [
+      ...activityComponents(activity),
+      {
+        id: 'turn-1:diff',
+        turnId: 'turn-1',
+        seq: 4,
+        kind: 'diff' as const,
+        status: 'completed' as const,
+        createdAt: '2026-09-10T12:00:04Z',
+        updatedAt: '2026-09-10T12:00:04Z',
+        payload: {
+          unifiedDiff:
+            '--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n-old\n+new-a\n--- a/b.go\n+++ b/b.go\n@@ -1 +1 @@\n-old\n+new-b\n',
+        },
+      },
+    ]
+    const { container } = draw([], { activity: { ...activity, components } })
+    const rows = [...container.querySelectorAll('[data-tool-id]')]
+
+    expect(rows).toHaveLength(3)
+    expect(rows[0]?.querySelector('[data-testid="turn-diff-preview"]')).toHaveAttribute(
+      'data-file-count',
+      '1',
+    )
+    expect(rows[1]?.querySelector('[data-testid="turn-diff-preview"]')).toHaveAttribute(
+      'data-file-count',
+      '1',
+    )
+    expect(rows[2]?.querySelector('[data-testid="agent-tool-diff"]')).toBeNull()
+    expect(screen.queryByTestId('agent-activity-component')).toBeNull()
   })
 
   it('keeps consecutive tool rows compact instead of adding the prose-turn gap to each call', () => {

@@ -96,6 +96,7 @@ func TestStreams_TheClockFollowsTheLatestIncrement(t *testing.T) {
 	message, _ := s.Observe("c", "r", "t", "m", 1, true, false, "two", later)
 
 	assert.Equal(t, later, message.LastAt)
+	assert.Equal(t, mnow, message.FirstAt, "later tools must sort after the message's first text")
 }
 
 func TestStreams_ForgetDropsTheChat(t *testing.T) {

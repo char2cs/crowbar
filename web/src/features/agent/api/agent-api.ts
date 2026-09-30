@@ -524,8 +524,8 @@ export interface AgentToolCall {
   durationMs?: number
   hasRequest: boolean
   hasResult: boolean
-  /** Unified diff of an edit call's own change, when the provider's request
-   *  carried the replaced and replacement text. */
+  /** Unified diff of this edit call's own changes, when the provider reports
+   *  file diffs, patch hunks, or replaced and replacement text. */
   diff?: string
   startedAt: string
   endedAt?: string

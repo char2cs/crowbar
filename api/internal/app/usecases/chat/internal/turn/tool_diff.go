@@ -9,6 +9,20 @@ import (
 
 const diffContextLines = 3
 
+func toolStartDiff(tool *engineagents.ToolEvent) string {
+	if tool.Diff != "" {
+		return tool.Diff
+	}
+	return editDiff(tool.Target, tool.EditBefore, tool.EditAfter)
+}
+
+func toolResultDiff(tool *engineagents.ToolEvent) string {
+	if tool.Diff != "" {
+		return tool.Diff
+	}
+	return patchDiff(tool.Target, tool.Patch)
+}
+
 // editDiff renders one edit's before/after text as a single-hunk unified diff.
 // The file itself is never read, so line numbers are relative to the snippet.
 func editDiff(path, before, after string) string {
