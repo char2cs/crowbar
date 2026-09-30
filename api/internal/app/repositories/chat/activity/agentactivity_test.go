@@ -370,6 +370,15 @@ func TestSubagentsAndInterruptions_AreRecorded(t *testing.T) {
 	assert.NotNil(t, ints[0].ResolvedAt)
 }
 
+func TestStopSubagentWithoutStartDoesNotCreateARow(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, f.repo.StopSubagent(f.ctx, chat, "unknown", "", "", t0))
+	f.wait()
+	subs, err := f.repo.Subagents(f.ctx, chat)
+	require.NoError(t, err)
+	assert.Empty(t, subs)
+}
+
 // TestRegression_AbandonClosesASubagentWhosePostNeverArrived is the bug
 // reported live: a chat can spawn a subagent (subagent_pre) and then its
 // process crashes, is killed, or its subagent_post is simply dropped — nobody

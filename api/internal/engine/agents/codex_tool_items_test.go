@@ -83,6 +83,20 @@ func TestRegression_CodexToolCallsCarryATargetAndAResult(t *testing.T) {
 	}
 }
 
+func TestCodexFileChangeKeepsItsOwnFilesDiffOnTheTool(t *testing.T) {
+	raw := []byte(`{"item":{"type":"fileChange","id":"edit-1","status":"completed",
+		"changes":[{"path":"/w/a.go","diff":"@@ -1 +1 @@\n-old-a\n+new-a\n"},
+		{"path":"/w/b.go","diff":"@@ -1 +1 @@\n-old-b\n+new-b\n"}]},
+		"threadId":"thread-1","turnId":"turn-1"}`)
+	for _, hook := range []string{agents.HookToolPre, agents.HookToolPost} {
+		ev, err := get(t, "codex").ParseHook(hook, raw, agents.ChannelAPI)
+		require.NoError(t, err)
+		require.NotNil(t, ev.Tool)
+		assert.Equal(t, "--- a/w/a.go\n+++ b/w/a.go\n@@ -1 +1 @@\n-old-a\n+new-a\n\n"+
+			"--- a/w/b.go\n+++ b/w/b.go\n@@ -1 +1 @@\n-old-b\n+new-b\n", ev.Tool.Diff)
+	}
+}
+
 func TestRegression_CodexReportsTheLatestTurnDiff(t *testing.T) {
 	raw := []byte(`{"threadId":"thread-1","turnId":"turn-1","diff":"diff --git a/a b/a\n"}`)
 

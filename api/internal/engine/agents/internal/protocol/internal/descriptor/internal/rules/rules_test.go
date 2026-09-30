@@ -69,6 +69,7 @@ func TestRichMappings_RejectUnknownCanonicalValuesAndIncompleteLocations(t *test
 		{"tool kind", spec.EventSpec{KindMap: map[string]string{"x": "codexThing"}}, "kind_map"},
 		{"tool status", spec.EventSpec{StatusMap: map[string]string{"x": "maybe"}}, "status_map"},
 		{"locations", spec.EventSpec{Locations: &spec.LocationsSpec{Items: "item.changes"}}, "items and path"},
+		{"diff files", spec.EventSpec{DiffFiles: &spec.DiffFilesSpec{Items: "item.changes"}}, "items, path and diff"},
 		{"patch", spec.EventSpec{Patch: &spec.PatchSpec{Items: "response.hunks"}}, "items, old_start, new_start and lines"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

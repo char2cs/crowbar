@@ -1,11 +1,13 @@
 package conversation
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // speaker is in-package, so this test is too. It is the one piece of the ledger
@@ -42,4 +44,18 @@ func TestSpeaker_NeverRendersANonUserTurnAsTheUser(t *testing.T) {
 			assert.NotEqual(t, "user", speaker(tc.turn))
 		})
 	}
+}
+
+func TestToChatTurns_AttributesLegacyClaudeHandBackToHarness(t *testing.T) {
+	c := &Conversations{
+		agents: engineagents.New(),
+		home:   func() (string, error) { return t.TempDir(), nil },
+	}
+	rows := []domain.ActivityTurn{
+		{Role: domain.TurnRoleUser, ProviderID: "claude", Text: "[Subagent hand-back]The text below is the final report of a subagent this session delegated to."},
+		{Role: domain.TurnRoleUser, ProviderID: "claude", Text: "Tell me about [Subagent hand-back]"},
+	}
+	turns := c.toChatTurns(context.Background(), rows)
+	assert.Equal(t, domain.TurnRoleHarness, turns[0].Role)
+	assert.Equal(t, domain.TurnRoleUser, turns[1].Role)
 }

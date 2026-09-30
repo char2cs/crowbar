@@ -29,6 +29,13 @@ func TestMatchInjectedPrompt_ReadsTheShippedClaudeDeclaration(t *testing.T) {
 		"the matched needle travels back so a content-based decision can be audited")
 }
 
+func TestMatchInjectedPrompt_ClaudeHandBackIsHarnessText(t *testing.T) {
+	got, ok := agents.MatchInjectedPrompt(get(t, "claude"),
+		"[Subagent hand-back]The text below is the final report of a subagent this session delegated to.")
+	assert.True(t, ok)
+	assert.Equal(t, "[Subagent hand-back]", got.Needle)
+}
+
 func TestMatchInjectedPrompt_RealUserPromptsStayTheUsers(t *testing.T) {
 	claude := get(t, "claude")
 

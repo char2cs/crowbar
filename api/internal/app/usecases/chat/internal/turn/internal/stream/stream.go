@@ -38,7 +38,8 @@ type buffer struct {
 
 	Final bool
 
-	LastAt time.Time
+	FirstAt time.Time
+	LastAt  time.Time
 
 	recordedText string
 }
@@ -77,6 +78,7 @@ func (b *buffer) snapshot() Message {
 		RecordedText: b.recordedText,
 		Final:        b.Final,
 		Complete:     b.Complete(),
+		FirstAt:      b.FirstAt,
 		LastAt:       b.LastAt,
 	}
 }
@@ -143,6 +145,9 @@ func (s *Streams) Observe(
 	}
 	if final {
 		buffer.Final = true
+	}
+	if buffer.FirstAt.IsZero() {
+		buffer.FirstAt = now
 	}
 	buffer.LastAt = now
 	return buffer.snapshot(), true

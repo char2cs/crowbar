@@ -117,17 +117,13 @@ func (c StopSubagent) Validate(*domain.ChatActivity) error {
 
 func (c StopSubagent) EmitEvent(current *domain.ChatActivity) domain.ChatActivity {
 	next := advance(current, c.ChatID)
-	sub, known := next.Subagents[c.SubagentID]
-	if !known {
-		sub = domain.ActivitySubagent{
-			ID:        c.SubagentID,
-			TurnID:    currentTurn(&next),
-			ChatID:    c.ChatID,
-			Seq:       next.Seq,
-			AgentType: c.AgentType,
-			StartedAt: c.Now,
-		}
+	// Claude may report a completion without a corresponding start. There is no
+	// subagent to display or close in that case; fabricating one produces a
+	// misleading zero-duration row in the transcript.
+	if _, known := next.Subagents[c.SubagentID]; !known {
+		return next
 	}
+	sub := next.Subagents[c.SubagentID]
 	delete(next.Subagents, c.SubagentID)
 	if len(next.Subagents) == 0 {
 		next.Subagents = nil

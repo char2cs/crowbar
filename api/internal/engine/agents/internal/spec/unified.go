@@ -118,6 +118,10 @@ func (d *Descriptor) EventLocations(canonical string) *LocationsSpec {
 	return d.Events[canonical].Locations
 }
 
+func (d *Descriptor) EventDiffFiles(canonical string) *DiffFilesSpec {
+	return d.Events[canonical].DiffFiles
+}
+
 func (d *Descriptor) EventPatch(canonical string) *PatchSpec {
 	return d.Events[canonical].Patch
 }

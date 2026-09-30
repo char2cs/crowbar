@@ -189,6 +189,7 @@ events:
   tool_pre:
     kind_map: { commandExecution: execute, fileChange: edit, mcpToolCall: other, webSearch: search, dynamicToolCall: other, collabAgentToolCall: other }
     locations: { items: item.changes, path: path }
+    diff_files: { items: item.changes, path: path, diff: diff }
     required: [session_id, tool_id, tool_name]
     api:
       in: item/started
@@ -245,6 +246,7 @@ events:
     kind_map: { commandExecution: execute, fileChange: edit, mcpToolCall: other, webSearch: search, dynamicToolCall: other, collabAgentToolCall: other }
     status_map: { completed: ok, failed: error, declined: declined }
     locations: { items: item.changes, path: path }
+    diff_files: { items: item.changes, path: path, diff: diff }
     required: [session_id, tool_id, tool_name]
     api:
       in: item/completed
@@ -296,6 +298,7 @@ events:
     kind_map: { commandExecution: execute, fileChange: edit, mcpToolCall: other, webSearch: search, dynamicToolCall: other, collabAgentToolCall: other }
     status_map: { failed: error, declined: declined }
     locations: { items: item.changes, path: path }
+    diff_files: { items: item.changes, path: path, diff: diff }
     required: [session_id, tool_id, tool_name]
     api:
       in: item/completed

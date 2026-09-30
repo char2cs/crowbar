@@ -134,6 +134,9 @@ type ActivityTurn struct {
 	Plan          []ActivityPlanStep `json:"plan,omitempty"`
 	PlanUpdatedAt *time.Time         `json:"planUpdatedAt,omitempty"`
 
+	// Assistant messages use their first observed text time when streamed, so
+	// activity that follows stays after the text in the transcript. Older rows
+	// and non-streamed replies retain the turn-open time.
 	StartedAt time.Time  `json:"startedAt"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
 }
@@ -161,8 +164,8 @@ type ActivityToolCall struct {
 
 	RequestRef string `json:"requestRef,omitempty"`
 	ResultRef  string `json:"resultRef,omitempty"`
-	// Diff is a unified diff of the change an edit call makes, when the
-	// provider's request carried the replaced and replacement text.
+	// Diff is a unified diff of this edit call's own changes, sourced from
+	// provider file diffs, patch hunks, or replaced/replacement text.
 	Diff string `json:"diff,omitempty"`
 
 	Status string `json:"status"`

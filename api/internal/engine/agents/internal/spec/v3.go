@@ -140,6 +140,9 @@ type EventSpec struct {
 	StatusMap map[string]string `yaml:"status_map"`
 	KindMap   map[string]string `yaml:"kind_map"`
 	Locations *LocationsSpec    `yaml:"locations"`
+	// DiffFiles maps a tool call's own changed-file list into one preview for
+	// that call. It is separate from the turn-wide diff snapshot.
+	DiffFiles *DiffFilesSpec `yaml:"diff_files"`
 	// Patch is tool_post's structured extra: the provider's own unified-diff hunks
 	// for the change a tool made, with the real line numbers.
 	Patch *PatchSpec `yaml:"patch"`
@@ -197,6 +200,12 @@ type LocationsSpec struct {
 	Items string `yaml:"items"`
 	Path  string `yaml:"path"`
 	Line  string `yaml:"line"`
+}
+
+type DiffFilesSpec struct {
+	Items string `yaml:"items"`
+	Path  string `yaml:"path"`
+	Diff  string `yaml:"diff"`
 }
 
 // PatchSpec maps a provider's hunk array onto Crowbar's unified-diff vocabulary.

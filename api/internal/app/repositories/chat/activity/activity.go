@@ -41,7 +41,10 @@ type TurnInput struct {
 	// OmitPlan prevents an intermediate multi-message close from projecting a
 	// duplicate plan artifact. The close event still carries it for CarryPlan.
 	OmitPlan bool
-	Now      time.Time
+	// MessageAt is the first streamed text for this assistant message, when
+	// observed. A multi-item turn can speak, call a tool, and speak again.
+	MessageAt time.Time
+	Now       time.Time
 }
 
 type PlanInput struct {
@@ -306,7 +309,7 @@ func (r *eventSourced) CloseTurn(ctx context.Context, in TurnInput) error {
 	return r.sendWait(ctx, commands.CloseTurn{
 		ChatID: in.ChatID, TurnID: in.TurnID,
 		ProviderID: in.ProviderID, RunnerID: in.RunnerID, SessionID: in.SessionID,
-		Text: in.Text, Effort: in.Effort, Status: in.Status, ItemIndex: in.ItemIndex, Diff: in.Diff, Now: in.Now,
+		Text: in.Text, Effort: in.Effort, Status: in.Status, ItemIndex: in.ItemIndex, Diff: in.Diff, MessageAt: in.MessageAt, Now: in.Now,
 		OmitPlan: in.OmitPlan,
 	})
 }

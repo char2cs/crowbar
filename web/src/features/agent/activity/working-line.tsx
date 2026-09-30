@@ -9,7 +9,6 @@ import {
 } from '@/features/agent/lib/agent-activity'
 import { formatElapsed } from '@/features/agent/activity/lib/shelf-fit'
 import { VERB_ROTATION_MS, verbAt } from '@/features/agent/activity/lib/verbs'
-import { TurnDiffPreview } from '@/features/agent/activity/turn-diff-preview'
 
 interface WorkingLineProps {
   activity: AgentActivity
@@ -50,8 +49,6 @@ interface WorkingLineProps {
    * unstyled: silently dropping a step would shorten the plan.
    */
   plan?: { text: string; status: string }[]
-  /** The newest complete unified diff for this turn. */
-  diff?: { id: string; text: string }
 }
 
 /**
@@ -78,7 +75,6 @@ export function WorkingLine({
   compactingLive,
   reasoning,
   plan,
-  diff,
 }: WorkingLineProps) {
   const [tick, setTick] = useState(0)
   const [elapsed, setElapsed] = useState(0)
@@ -161,10 +157,9 @@ export function WorkingLine({
         </span>
       </div>
       {reasoning && !compacting && (
-        <details className="thinking" data-testid="agent-reasoning">
-          <summary>Reasoning</summary>
-          <div className="thinking-body">{reasoning.replace(/\*{1,3}/g, '')}</div>
-        </details>
+        <p className="reasoning-subtitle" data-testid="agent-reasoning">
+          {reasoning.replace(/\*{1,3}/g, '')}
+        </p>
       )}
       {plan && plan.length > 0 && !compacting && (
         <ol className="plan" data-testid="agent-plan">
@@ -182,11 +177,6 @@ export function WorkingLine({
             </li>
           ))}
         </ol>
-      )}
-      {diff && !compacting && (
-        <div className="turn-diff" data-testid="agent-turn-diff">
-          <TurnDiffPreview diff={diff.text} turnId={diff.id} />
-        </div>
       )}
     </div>
   )

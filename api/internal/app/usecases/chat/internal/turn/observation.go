@@ -61,7 +61,7 @@ func (t *Turns) handleObservation(
 		note(ctx, "tool invoked", t.activity.InvokeTool(ctx, agentactivity.ToolInput{
 			ChatID: chat.ID, ToolID: toolID(ev), Name: ev.Tool.Name, Kind: ev.Tool.Kind,
 			Locations: toolLocations(ev), Target: ev.Tool.Target,
-			Request: ev.Tool.Input, Diff: editDiff(ev.Tool.Target, ev.Tool.EditBefore, ev.Tool.EditAfter),
+			Request: ev.Tool.Input, Diff: toolStartDiff(ev.Tool),
 			Now: now,
 		}))
 		// THE REGRESSION. restateAsyncWork used to run only on the completion
@@ -82,7 +82,7 @@ func (t *Turns) handleObservation(
 		note(ctx, "tool completed", t.activity.CompleteTool(ctx, agentactivity.ToolResultInput{
 			ChatID: chat.ID, ToolID: toolID(ev), Name: ev.Tool.Name, Kind: ev.Tool.Kind,
 			Locations: toolLocations(ev), Target: ev.Tool.Target,
-			Result: ev.Tool.Result, Diff: patchDiff(ev.Tool.Target, ev.Tool.Patch),
+			Result: ev.Tool.Result, Diff: toolResultDiff(ev.Tool),
 			Status: toolStatus(ev), Error: ev.Tool.Error,
 			DurationMS: ev.Tool.DurationMS, Now: now,
 		}))
@@ -101,11 +101,17 @@ func (t *Turns) handleObservation(
 		// zero too.
 		t.restateAsyncWork(ctx, chat.ID)
 	case engineagents.HookSubagentPre:
+		if ev.Subagent == nil || ev.Subagent.ID == "" {
+			break
+		}
 		note(ctx, "subagent started",
 			t.activity.StartSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, now))
 		// Same regression as HookToolPre, same fix — see its own comment.
 		t.restateAsyncWork(ctx, chat.ID)
 	case engineagents.HookSubagentPost:
+		if ev.Subagent == nil || ev.Subagent.ID == "" {
+			break
+		}
 		note(ctx, "subagent stopped",
 			t.activity.StopSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, "", now))
 		t.restateAsyncWork(ctx, chat.ID)

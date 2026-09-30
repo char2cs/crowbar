@@ -91,6 +91,8 @@ type ToolEvent struct {
 	// when the descriptor maps them; a new file has an empty EditBefore.
 	EditBefore string
 	EditAfter  string
+	// Diff is a unified preview of this tool call's own changed files.
+	Diff string
 	// Patch is the provider's own hunks for the change a completed tool made,
 	// with true line numbers; it supersedes the EditBefore/EditAfter snippet.
 	Patch []PatchHunk

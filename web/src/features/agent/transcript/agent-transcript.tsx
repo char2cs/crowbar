@@ -413,10 +413,7 @@ function TranscriptRowView({
   callsById,
   subagentsByTurn,
   choicesByTurn,
-  diffsByTurn,
-  latestEditToolByTurn,
   toolOutput,
-  liveDiff,
   wsId,
   chatId,
   precedingUserAt,
@@ -429,10 +426,7 @@ function TranscriptRowView({
   callsById: Map<string, AgentToolCall>
   subagentsByTurn: Map<string, AgentSubagent[]>
   choicesByTurn: Map<string, AgentChoice[]>
-  diffsByTurn: Map<string, string>
-  latestEditToolByTurn: Map<string, string>
   toolOutput?: { id: string; text: string }
-  liveDiff?: { id: string; text: string }
   wsId?: string
   chatId?: string
   precedingUserAt: Map<number, string>
@@ -448,12 +442,9 @@ function TranscriptRowView({
       if (component.kind === 'tool_call') {
         const call = callsById.get(component.id)
         if (!call) return null
-        const diff =
-          diffsByTurn.get(call.turnId) ?? (liveDiff?.id === call.turnId ? liveDiff.text : undefined)
         return (
           <AgentToolCallEntry
             call={call}
-            diff={call.id === latestEditToolByTurn.get(call.turnId) ? diff : undefined}
             output={toolOutput?.id === call.id ? toolOutput.text : undefined}
             wsId={wsId}
             chatId={chatId}
@@ -675,35 +666,22 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     }
     return grouped
   }, [props.activity.choices])
-  const diffsByTurn = useMemo(() => {
-    const grouped = new Map<string, string>()
-    for (const component of props.activity.components ?? []) {
-      if (component.kind !== 'diff') continue
-      const diff = component.payload.unifiedDiff
-      if (typeof diff === 'string' && diff.length > 0) grouped.set(component.turnId, diff)
-    }
-    return grouped
-  }, [props.activity.components])
-  const latestEditToolByTurn = useMemo(() => {
-    const latest = new Map<string, AgentToolCall>()
+  const editTurnIds = useMemo(() => {
+    const turns = new Set<string>()
     for (const call of props.activity.toolCalls) {
-      if (call.kind !== 'edit') continue
-      const current = latest.get(call.turnId)
-      if (!current || call.seq > current.seq) latest.set(call.turnId, call)
+      if (call.kind === 'edit') turns.add(call.turnId)
     }
-    const byTurn = new Map<string, string>()
-    for (const [turnId, call] of latest) byTurn.set(turnId, call.id)
-    return byTurn
+    return turns
   }, [props.activity.toolCalls])
   const nestedDiffComponentIds = useMemo(() => {
     const ids = new Set<string>()
     for (const component of props.activity.components ?? []) {
-      if (component.kind === 'diff' && latestEditToolByTurn.has(component.turnId)) {
+      if (component.kind === 'diff' && editTurnIds.has(component.turnId)) {
         ids.add(component.id)
       }
     }
     return ids
-  }, [props.activity.components, latestEditToolByTurn])
+  }, [props.activity.components, editTurnIds])
   const precedingUserAt = useMemo(() => precedingUserAtByAssistantSequence(messages), [messages])
   // Empty while `working` — the settled reply this would otherwise mark is not
   // actually the run's last step any more the instant the agent starts on the
@@ -982,10 +960,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
                     callsById={callsById}
                     subagentsByTurn={subagentsByTurn}
                     choicesByTurn={choicesByTurn}
-                    diffsByTurn={diffsByTurn}
-                    latestEditToolByTurn={latestEditToolByTurn}
                     toolOutput={props.toolOutput}
-                    liveDiff={props.diff}
                     wsId={props.wsId}
                     chatId={props.chatId}
                     precedingUserAt={precedingUserAt}
@@ -1048,7 +1023,6 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           compactingLive={props.compacting}
           reasoning={props.reasoning}
           plan={props.plan}
-          diff={props.diff}
         />
         {/* A REAL, measured spacer — not `.scroll`'s own `padding-bottom` (see
             `.dock-spacer`'s own comment in transcript.css for why: the
