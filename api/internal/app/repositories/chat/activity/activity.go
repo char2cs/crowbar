@@ -466,9 +466,28 @@ func (r *eventSourced) OpenNestedSubagent(
 func (r *eventSourced) StopSubagent(
 	ctx context.Context, chatID, subagentID, agentType, message string, now time.Time,
 ) error {
-	return r.sendWait(ctx, commands.StopSubagent{
+	command := commands.StopSubagent{
 		ChatID: chatID, SubagentID: subagentID, AgentType: agentType, Message: message, Now: now,
-	})
+	}
+	if err := command.Validate(nil); err != nil {
+		return err
+	}
+	subs, err := r.store.Subagents(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	var existing *domain.ActivitySubagent
+	for i := range subs {
+		if subs[i].ID == subagentID && subs[i].EndedAt == nil {
+			existing = &subs[i]
+			break
+		}
+	}
+	if existing == nil {
+		return nil
+	}
+	command.Existing = existing
+	return r.sendWait(ctx, command)
 }
 
 func (r *eventSourced) Interrupt(
