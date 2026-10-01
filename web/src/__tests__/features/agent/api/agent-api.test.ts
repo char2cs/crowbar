@@ -649,6 +649,27 @@ describe('agent-api', () => {
     expect(out).toEqual([])
   })
 
+  it('uploads descriptor bytes without a Blob-backed request body', async () => {
+    apiFetch.mockResolvedValueOnce({ id: 'claude-custom', findings: [] })
+    const file = new File(['id: claude-custom\n'], 'claude-custom.yaml', {
+      type: 'application/yaml',
+    })
+
+    const report = await api.uploadDescriptor(file)
+
+    expect(report.id).toBe('claude-custom')
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/v0/settings/chat/descriptors',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/yaml' },
+        body: expect.any(Uint8Array),
+      }),
+    )
+    const body = apiFetch.mock.calls[0][1].body as Uint8Array
+    expect(new TextDecoder().decode(body)).toBe('id: claude-custom\n')
+  })
+
   it('propagates apiFetch errors to the caller', async () => {
     apiFetch.mockRejectedValueOnce(new Error('boom'))
     await expect(api.listChats('w1')).rejects.toThrow('boom')

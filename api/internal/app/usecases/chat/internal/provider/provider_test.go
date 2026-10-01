@@ -60,6 +60,34 @@ func TestResolveProviders_ListsTheShippedDescriptors(t *testing.T) {
 	}
 }
 
+func TestInstallDescriptor_AddsAProviderAndRejectsInvalidOrExisting(t *testing.T) {
+	t.Parallel()
+	prefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
+	require.NoError(t, err)
+	home := t.TempDir()
+	table := provider.New(provider.Deps{
+		Agents: engineagents.New(), Home: func() (string, error) { return home, nil }, Prefs: prefs,
+		Installed: func(engineagents.Agent) bool { return false },
+	})
+	shipped, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "engine", "agents", "internal", "protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
+	require.NoError(t, err)
+	raw := []byte(strings.Replace(string(shipped), "id: claude", "id: customagent", 1))
+	report, err := table.InstallDescriptor(t.Context(), raw)
+	require.NoError(t, err)
+	assert.Equal(t, "customagent", report.ID)
+	providers, err := table.ResolveProviders(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, ids(providers), "customagent")
+	_, err = table.InstallDescriptor(t.Context(), raw)
+	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	_, err = table.InstallDescriptor(t.Context(), shipped)
+	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	_, err = table.InstallDescriptor(t.Context(), []byte("id: broken\n"))
+	require.ErrorIs(t, err, apperr.ErrUnprocessable)
+	_, err = os.Stat(filepath.Join(home, "descriptors", "broken.yaml"))
+	assert.True(t, os.IsNotExist(err))
+}
+
 // A broken override is reported with its findings rather than silently
 // dropping the provider it replaces.
 func TestDescriptorReports_ReportsABrokenOverrideItRefusesToEnable(t *testing.T) {

@@ -21,16 +21,14 @@ interface AgentProvidersState {
    */
   setProviders: (providers: AgentProvider[]) => void
   /**
-   * Fetch the list through `wsId`. The daemon exposes providers only under a
-   * workspace or project-home scope, even though the data itself is global
-   * ("workspaceID is only used to resolve crowbar home" — usecases/agent), so a
-   * caller with no scope cannot load and calls markUnavailable instead.
+   * Fetch the list through `wsId` for workspace chat surfaces. The global
+   * settings view can use listGlobalProviders when no workspace is active.
    *
    * Returns the resolved list so the caller can mirror it into the workspace
    * store the chat surfaces read, or null when this load did not win.
    */
   load: (wsId: string) => Promise<AgentProvider[] | null>
-  /** No scope to ask through. Say we could not tell — never that there are none. */
+  /** The daemon could not answer. Say we could not tell — never that there are none. */
   markUnavailable: () => void
 }
 

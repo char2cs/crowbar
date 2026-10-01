@@ -62,10 +62,10 @@ import (
 //
 // settingsRG is the top-level /v0 group. Provider PRIORITY + enable/disable is a
 // GLOBAL user setting (per user/machine, not per workspace — the CLIs are
-// machine-level), so its write route mounts there at /settings/chat/providers,
-// outside the entity hierarchy — mirroring /settings/terminal/profiles. It is the
-// counterpart of the repo-scoped enriched GET .../chats/providers above, and
-// is mounted exactly once (the home group re-mounts the GET but never this write).
+// machine-level), so its settings routes mount at /settings/chat/providers,
+// outside the entity hierarchy — mirroring /settings/terminal/profiles. The
+// global GET lets Settings load providers with no active workspace; the PUT
+// updates preferences. The home group re-mounts only the repo-scoped GET.
 // worktrees resolves the git state a worktree-owning chat carries on its own
 // DTO (spec §5): the workspace it owns, that workspace's repo siblings, and the
 // merge overlay resolved over them. It is what lets ONE read of the chat list
@@ -154,7 +154,9 @@ func Register(
 	repoScoped.GET("/chats/ws", wsHandle)
 
 	settingsRG.PUT("/settings/chat/providers", h.UpdateProviderPreferences)
+	settingsRG.GET("/settings/chat/providers", h.Providers)
 	settingsRG.GET("/settings/chat/descriptors", h.DescriptorReports)
+	settingsRG.POST("/settings/chat/descriptors", h.UploadDescriptor)
 	settingsRG.GET("/settings/chat/permission-level", h.GetDefaultPermissionLevel)
 	settingsRG.PUT("/settings/chat/permission-level", h.PutDefaultPermissionLevel)
 	settingsRG.GET("/settings/chat/model-manifest-fetch", h.GetModelManifestFetchEnabled)

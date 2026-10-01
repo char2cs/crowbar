@@ -655,6 +655,10 @@ func (configurableListGetUsecase) DescriptorReports(
 	return nil, nil
 }
 
+func (configurableListGetUsecase) InstallDescriptor(context.Context, []byte) (descriptorcheck.Report, error) {
+	return descriptorcheck.Report{}, nil
+}
+
 func (configurableListGetUsecase) ResolveProviders(
 	_ context.Context,
 ) ([]domain.AgentProvider, error) {

@@ -1,6 +1,7 @@
 package handlers_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -14,6 +15,30 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
+
+func TestUploadDescriptor_ForwardsYAMLAndReturnsReport(t *testing.T) {
+	uc := &fakeAgentUsecase{installReport: descriptorcheck.Report{ID: "customagent"}}
+	h := newChatHandlers(uc)
+	raw := []byte("id: customagent\n")
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/settings/chat/descriptors", raw)
+
+	h.UploadDescriptor(ctx)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, raw, uc.installRaw)
+	assert.Contains(t, rec.Body.String(), `"id":"customagent"`)
+}
+
+func TestUploadDescriptor_RejectsOversizedBodyBeforeInstall(t *testing.T) {
+	uc := &fakeAgentUsecase{}
+	h := newChatHandlers(uc)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/settings/chat/descriptors", bytes.Repeat([]byte("x"), 1<<20+1))
+
+	h.UploadDescriptor(ctx)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	assert.Nil(t, uc.installRaw)
+}
 
 // TestProviders_Success proves the GET handler forwards the usecase's resolved,
 // enriched provider list (connected + enabled, in priority order) into the wire
