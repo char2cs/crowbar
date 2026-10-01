@@ -990,6 +990,11 @@ export async function updateProviderPreferences(
   return (raw ?? []).map(mapProvider)
 }
 
+export async function listGlobalProviders(): Promise<AgentProvider[]> {
+  const raw = await apiFetch<AgentProvider[]>('/v0/settings/chat/providers')
+  return (raw ?? []).map(mapProvider)
+}
+
 /** How much of a new chat's tool-call approval is answered automatically —
  *  the daemon's global default, applied the moment a chat starts. */
 export type PermissionLevel = 'guarded' | 'trusted' | 'full-auto'
@@ -1029,6 +1034,17 @@ export interface DescriptorReport {
 export async function getDescriptorReports(): Promise<DescriptorReport[]> {
   const raw = await apiFetch<DescriptorReport[]>(`/v0/settings/chat/descriptors`)
   return (raw ?? []).map((r) => ({ ...r, findings: r.findings ?? [] }))
+}
+
+export async function uploadDescriptor(file: File): Promise<DescriptorReport> {
+  // WKWebView hands Blob-backed bodies to Crowbar's custom-scheme proxy as an
+  // unread stream. Materialize the file first, as chat attachments do.
+  const body = new Uint8Array(await file.arrayBuffer())
+  return apiFetch<DescriptorReport>('/v0/settings/chat/descriptors', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/yaml' },
+    body,
+  })
 }
 
 export async function getDefaultPermissionLevel(): Promise<PermissionLevel> {

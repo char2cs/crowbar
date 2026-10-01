@@ -100,6 +100,9 @@ type fakeAgentUsecase struct {
 	// descriptorReports / descriptorErr answer DescriptorReports.
 	descriptorReports []descriptorcheck.Report
 	descriptorErr     error
+	installRaw        []byte
+	installReport     descriptorcheck.Report
+	installErr        error
 	// terminalWait is the standing "is this chat's CLI parked on a modal we
 	// cannot answer" verdict. Zero — not waiting — for every test that does not
 	// set it, which is the state a chat is in unless something says otherwise.
@@ -511,6 +514,11 @@ func (f *fakeAgentUsecase) DescriptorReports(
 	context.Context,
 ) ([]descriptorcheck.Report, error) {
 	return f.descriptorReports, f.descriptorErr
+}
+
+func (f *fakeAgentUsecase) InstallDescriptor(_ context.Context, raw []byte) (descriptorcheck.Report, error) {
+	f.installRaw = raw
+	return f.installReport, f.installErr
 }
 
 func (f *fakeAgentUsecase) ResolveProviders(

@@ -12,13 +12,18 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
-import { useCallback, useEffect, useMemo } from 'react'
-import { updateProviderPreferences } from '@/features/agent/api/agent-api'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  listGlobalProviders,
+  updateProviderPreferences,
+  uploadDescriptor,
+} from '@/features/agent/api/agent-api'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
 import { DescriptorStatus } from '@/features/agent/components/descriptor-status'
 import {
   beginProviderWrite,
   isLatestProviderWrite,
+  providerWriteGeneration,
   useAgentProvidersStore,
 } from '@/features/settings/stores/agent-providers-store'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
@@ -63,14 +68,45 @@ import type { ProviderFlags } from './provider-preferences'
 export const ProvidersSettings = () => {
   const providers = useAgentProvidersStore((s) => s.providers)
   const status = useAgentProvidersStore((s) => s.status)
+  const [uploading, setUploading] = useState(false)
+  const [descriptorRefresh, setDescriptorRefresh] = useState(0)
 
-  // Refresh on open. The daemon exposes providers only under a workspace/home
-  // scope even though the data is global, so with no scope at all we can only
-  // show what is already known — and say so plainly when that is nothing.
+  const handleDescriptorUpload = async (file: File) => {
+    setUploading(true)
+    try {
+      const report = await uploadDescriptor(file)
+      const seq = beginProviderWrite()
+      setDescriptorRefresh((n) => n + 1)
+      toast.success('Agent added', `${report.id} is now available as a provider.`)
+      try {
+        const resolved = await listGlobalProviders()
+        if (isLatestProviderWrite(seq)) publish(resolved)
+      } catch {
+        if (isLatestProviderWrite(seq)) useAgentProvidersStore.getState().markUnavailable()
+        toast.error('Could not refresh agents', 'Reopen this tab to load the new provider.')
+      }
+    } catch (error) {
+      toast.error('Could not add agent', error instanceof Error ? error.message : String(error))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  // Refresh on open. A workspace in view also receives the fresh list for chat
+  // surfaces; elsewhere the global settings route supplies the same catalog.
   useEffect(() => {
     const wsId = getActiveWorkspaceId()
     if (!wsId) {
-      useAgentProvidersStore.getState().markUnavailable()
+      if (useAgentProvidersStore.getState().status === 'ready') return
+      const seq = providerWriteGeneration()
+      useAgentProvidersStore.setState({ status: 'loading' })
+      void listGlobalProviders()
+        .then((resolved) => {
+          if (isLatestProviderWrite(seq)) useAgentProvidersStore.getState().setProviders(resolved)
+        })
+        .catch(() => {
+          if (isLatestProviderWrite(seq)) useAgentProvidersStore.getState().markUnavailable()
+        })
       return
     }
     void useAgentProvidersStore
@@ -199,6 +235,23 @@ export const ProvidersSettings = () => {
           </p>
         </div>
         <DefaultPermissionLevelSetting />
+        <label className="ui-font ui-text-sm mx-1 inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-foreground">
+          {uploading ? 'Adding agent…' : 'Upload agent descriptor'}
+          <input
+            type="file"
+            accept=".yaml,.yml,application/yaml,text/yaml"
+            className="sr-only"
+            disabled={uploading}
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0]
+              event.currentTarget.value = ''
+              if (file) void handleDescriptorUpload(file)
+            }}
+          />
+        </label>
+        <p className="ui-font ui-text-xs px-1 text-muted-foreground">
+          Upload a YAML descriptor with a unique provider ID. Its CLI must be installed separately.
+        </p>
         {/* THREE STATES, NOT ONE SENTENCE. "No agents available." is a claim
             about the MACHINE, and it was being shown for two situations that
             assert nothing of the kind: a fetch still in flight, and a fetch that
@@ -256,7 +309,7 @@ export const ProvidersSettings = () => {
             </DndContext>
           </>
         )}
-        <DescriptorStatus />
+        <DescriptorStatus key={descriptorRefresh} />
       </Section>
       <ChatPresentationSetting />
     </div>

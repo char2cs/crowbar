@@ -461,6 +461,7 @@ func extraRoutes() []string {
 		// entity hierarchy beside /settings/terminal/profiles. It is the write
 		// counterpart of the repo-scoped enriched GET .../chats/providers.
 		"PUT /v0/settings/chat/providers",
+		"GET /v0/settings/chat/providers",
 		// The permission-level dial's own default, read and written the same way:
 		// a machine-level setting, not a per-chat one, so a chat with no sticky
 		// choice of its own falls back to this.
@@ -474,6 +475,7 @@ func extraRoutes() []string {
 		// Every provider descriptor's static findings: machine-level, since the
 		// descriptors are the daemon's, not any one chat's.
 		"GET /v0/settings/chat/descriptors",
+		"POST /v0/settings/chat/descriptors",
 		// The host terminal's light/dark colours, and a GLOBAL setting for the same
 		// reason: one Crowbar window renders every session, so there is one theme, and
 		// it must be known BEFORE any session exists. The daemon seeds it into each PTY

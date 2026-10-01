@@ -14,6 +14,7 @@ import (
 // It is global, never per workspace: a preference row is keyed by provider id
 // alone, so nothing here may depend on a workspace being resolvable.
 type ProviderUsecase interface {
+	InstallDescriptor(context.Context, []byte) (descriptorcheck.Report, error)
 	// ResolveProviders lists every installed descriptor merged with the user's
 	// preference table, ordered by stored priority first and by descriptor id for
 	// providers with no row. A provider with no row is enabled.
@@ -89,6 +90,10 @@ var _ ProviderUsecase = (*Usecase)(nil)
 // It wraps apperr.ErrInvalidArgument, so handlers answer 400 through the
 // existing sentinel mapping with no new case.
 var ErrProviderDisabled = provider.ErrProviderDisabled
+
+func (u *Usecase) InstallDescriptor(ctx context.Context, raw []byte) (descriptorcheck.Report, error) {
+	return u.providers.InstallDescriptor(ctx, raw)
+}
 
 // The provider table: which vendor CLIs this machine offers, in what order, and
 // which of them may call back into Crowbar.

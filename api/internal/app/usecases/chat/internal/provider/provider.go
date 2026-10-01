@@ -10,6 +10,9 @@ package provider
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
@@ -24,6 +27,62 @@ import (
 // switched off. It is an invalid argument rather than a not-found: the provider
 // exists, and the user chose not to use it.
 var ErrProviderDisabled = fmt.Errorf("agent: provider disabled: %w", apperr.ErrInvalidArgument)
+
+var descriptorID = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+
+// InstallDescriptor validates and installs a new machine-level provider.
+// Existing providers are never replaced by this upload path.
+func (p *Providers) InstallDescriptor(_ context.Context, raw []byte) (descriptorcheck.Report, error) {
+	report := descriptorcheck.Validate(raw)
+	if !report.OK() {
+		for _, finding := range report.Findings {
+			if finding.Severity == descriptorcheck.SeverityError {
+				return report, fmt.Errorf("agent: descriptor line %d: %s: %w", finding.Line, finding.Message, apperr.ErrUnprocessable)
+			}
+		}
+	}
+	if !descriptorID.MatchString(report.ID) {
+		return report, fmt.Errorf("agent: descriptor id must start with a lowercase letter and contain only lowercase letters, digits, underscores or hyphens: %w", apperr.ErrUnprocessable)
+	}
+	home, err := p.home()
+	if err != nil {
+		return report, fmt.Errorf("agent: descriptor home: %w", err)
+	}
+	if home == "" {
+		return report, fmt.Errorf("agent: descriptor home is empty: %w", apperr.ErrUnprocessable)
+	}
+	sources, err := descriptorcheck.Sources(home)
+	if err != nil {
+		return report, fmt.Errorf("agent: list descriptors: %w", err)
+	}
+	for _, source := range sources {
+		if source.ID == report.ID {
+			return report, fmt.Errorf("agent: provider %q already exists: %w", report.ID, apperr.ErrInvalidArgument)
+		}
+	}
+	dir := filepath.Join(home, "descriptors")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return report, fmt.Errorf("agent: create descriptor directory: %w", err)
+	}
+	path := filepath.Join(dir, report.ID+".yaml")
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // G304: path is under daemon-owned home and the descriptor id is validated above.
+	if os.IsExist(err) {
+		return report, fmt.Errorf("agent: provider %q already exists: %w", report.ID, apperr.ErrInvalidArgument)
+	}
+	if err != nil {
+		return report, fmt.Errorf("agent: create descriptor: %w", err)
+	}
+	if _, err = f.Write(raw); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return report, fmt.Errorf("agent: write descriptor: %w", err)
+	}
+	if err = f.Close(); err != nil {
+		_ = os.Remove(path)
+		return report, fmt.Errorf("agent: close descriptor: %w", err)
+	}
+	return report, nil
+}
 
 // Providers is the provider table.
 type Providers struct {

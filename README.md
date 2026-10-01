@@ -25,31 +25,11 @@ Everything. `api/` is the Go daemon that owns worktrees, agent sessions, termina
 
 Claude Code and Codex both run as first-class providers, and a chat is not bound to whichever one opened it. Switch mid-conversation and the outgoing CLI is asked to exit cleanly — so it flushes its own transcript instead of losing its last turn — while the incoming one picks the thread up in the same workspace. Providers can be enabled, disabled and prioritised globally, and each one reports whether it is actually installed on this machine.
 
-That is possible because a provider is a YAML descriptor, not an integration. Everything Crowbar needs to know about a CLI — how to spawn it, how to resume a session, which hooks report progress — is declared in one file:
+That is possible because a provider is a YAML descriptor, not an integration. Everything Crowbar needs to know about a CLI — how to spawn it, how to resume a session, which hooks report progress — is declared in one file. The complete shipped [Claude](api/internal/engine/agents/internal/protocol/internal/descriptor/descriptors-v3/claude.yaml) and [Codex](api/internal/engine/agents/internal/protocol/internal/descriptor/descriptors-v3/codex.yaml) descriptors show the current format.
 
-```yaml
-id: claude
-display_name: Claude
+To add a provider, start with a descriptor for a compatible CLI, give it a unique `id` and `display_name`, and upload the YAML file in **Settings → Agents**. Crowbar checks the manifest before saving it under its home directory's `descriptors/` folder. Install and log in to the CLI separately; the provider list reports whether its command is available. Existing provider IDs cannot be replaced by upload. You can check a file before uploading with `cd api && go run -tags noEmbed ./cmd/crowbar descriptor validate /path/to/provider.yaml`.
 
-spawn:
-  cmd: claude
-  interactive_required: true
-  # Every tool call routes through a hook, and Crowbar's own permission
-  # level answers most of them in milliseconds — so the pane still feels
-  # hands-off, but nothing runs on the CLI's own say-so.
-  args: ["--permission-mode", "manual"]
-
-session:
-  resume: { arg: "--resume {id}" }
-
-hooks:
-  format: json
-  events:
-    session_start: { session_id: session_id }
-    user_prompt: { message: prompt }
-```
-
-Two descriptors ship today — `claude.yaml` and `codex.yaml`. In principle a third CLI is a third file; in practice only those two have been proven end to end, and each carries the sharp edges its vendor actually has (Codex, for instance, runs under a kernel sandbox that has to be handed back network access to reach its own hooks).
+Claude Code and Codex are the two descriptors proven end to end today. Static validation checks a user descriptor's structure and safety rules; behavior against its CLI depends on the manifest and that CLI.
 
 ## Diff review
 

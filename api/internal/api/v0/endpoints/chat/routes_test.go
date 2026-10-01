@@ -354,6 +354,10 @@ func (stubUsecase) DescriptorReports(
 	return nil, nil
 }
 
+func (stubUsecase) InstallDescriptor(context.Context, []byte) (descriptorcheck.Report, error) {
+	return descriptorcheck.Report{}, nil
+}
+
 func (stubUsecase) ResolveProviders(
 	_ context.Context,
 ) ([]domain.AgentProvider, error) {

@@ -371,6 +371,7 @@ type AnswerUsecase interface {
 // ProviderUsecase is the global provider table and the MCP transport the vendor
 // CLIs call back into. Nothing here is workspace-scoped.
 type ProviderUsecase interface {
+	InstallDescriptor(context.Context, []byte) (descriptorcheck.Report, error)
 	// ResolveProviders returns the enriched, priority-ordered provider list the
 	// backend owns: the descriptor catalog joined with the global preference table
 	// and the install probe (connected + enabled, in priority order). It takes no

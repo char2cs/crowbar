@@ -19,13 +19,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const {
   updateProviderPreferencesFn,
   listProvidersFn,
+  listGlobalProvidersFn,
+  uploadDescriptorFn,
   toastErrorFn,
+  toastSuccessFn,
   getDefaultPermissionLevelFn,
   updateDefaultPermissionLevelFn,
 } = vi.hoisted(() => ({
   updateProviderPreferencesFn: vi.fn(),
   listProvidersFn: vi.fn(),
+  listGlobalProvidersFn: vi.fn(),
+  uploadDescriptorFn: vi.fn(),
   toastErrorFn: vi.fn(),
+  toastSuccessFn: vi.fn(),
   getDefaultPermissionLevelFn: vi.fn(),
   updateDefaultPermissionLevelFn: vi.fn(),
 }))
@@ -34,6 +40,8 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   getPendingPrompt: vi.fn().mockResolvedValue(null),
   updateProviderPreferences: (...a: unknown[]) => updateProviderPreferencesFn(...a),
   listProviders: (...a: unknown[]) => listProvidersFn(...a),
+  listGlobalProviders: (...a: unknown[]) => listGlobalProvidersFn(...a),
+  uploadDescriptor: (...a: unknown[]) => uploadDescriptorFn(...a),
   getDefaultPermissionLevel: (...a: unknown[]) => getDefaultPermissionLevelFn(...a),
   updateDefaultPermissionLevel: (...a: unknown[]) => updateDefaultPermissionLevelFn(...a),
   getDescriptorReports: vi.fn().mockResolvedValue([]),
@@ -45,7 +53,10 @@ vi.mock('@/features/agent/api/agent-api', () => ({
 }))
 
 vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: (...a: unknown[]) => toastErrorFn(...a) },
+  toast: {
+    error: (...a: unknown[]) => toastErrorFn(...a),
+    success: (...a: unknown[]) => toastSuccessFn(...a),
+  },
 }))
 
 // jsdom has no PointerEvent constructor; base-ui's Switch toggles by dispatching
@@ -145,7 +156,10 @@ const workspaceEnabledById = () =>
 beforeEach(() => {
   updateProviderPreferencesFn.mockReset()
   listProvidersFn.mockReset()
+  listGlobalProvidersFn.mockReset()
+  uploadDescriptorFn.mockReset()
   toastErrorFn.mockReset()
+  toastSuccessFn.mockReset()
   getDefaultPermissionLevelFn.mockReset().mockResolvedValue('guarded')
   updateDefaultPermissionLevelFn.mockReset()
   useAgentProvidersStore.setState({ providers: [], status: 'idle' })
@@ -162,6 +176,21 @@ afterEach(() => {
 })
 
 describe('ProvidersSettings', () => {
+  it('uploads a descriptor and shows its provider without a workspace', async () => {
+    withoutActiveWorkspace()
+    uploadDescriptorFn.mockResolvedValue({ id: 'customagent', findings: [] })
+    listGlobalProvidersFn
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([provider('customagent', 'Custom Agent', false, true)])
+    render(<ProvidersSettings />)
+
+    const file = new File(['id: customagent'], 'customagent.yaml', { type: 'application/yaml' })
+    await userEvent.upload(screen.getByLabelText('Upload agent descriptor'), file)
+
+    await waitFor(() => expect(screen.getByText('Custom Agent')).toBeInTheDocument())
+    expect(uploadDescriptorFn).toHaveBeenCalledWith(file)
+    expect(toastSuccessFn).toHaveBeenCalled()
+  })
   it('renders one row per provider with connected + enabled state, in priority order', () => {
     seedProviders([
       provider('codex', 'Codex', true, true),
@@ -348,12 +377,24 @@ describe('ProvidersSettings', () => {
       expect(screen.queryByText('No agents available.')).toBeNull()
     })
 
-    it('says it could not load them rather than claiming there are none', () => {
-      withoutActiveWorkspace() // nothing known, and no scope to ask through
+    it('says it could not load them rather than claiming there are none', async () => {
+      withoutActiveWorkspace()
+      listGlobalProvidersFn.mockRejectedValue(new Error('daemon is down'))
       render(<ProvidersSettings />)
 
-      expect(screen.getByTestId('providers-unavailable')).toBeInTheDocument()
+      await waitFor(() => expect(screen.getByTestId('providers-unavailable')).toBeInTheDocument())
       expect(screen.queryByText('No agents available.')).toBeNull()
+    })
+
+    it('loads providers through the global route without a workspace', async () => {
+      withoutActiveWorkspace()
+      listGlobalProvidersFn.mockResolvedValue([
+        provider('customagent', 'Custom Agent', false, true),
+      ])
+      render(<ProvidersSettings />)
+
+      await waitFor(() => expect(screen.getByText('Custom Agent')).toBeInTheDocument())
+      expect(listGlobalProvidersFn).toHaveBeenCalled()
     })
   })
 

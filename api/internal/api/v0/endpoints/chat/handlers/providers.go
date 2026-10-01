@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"errors"
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -10,7 +12,31 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Providers handles GET .../repos/:repoId/chats/providers: the registered
+// UploadDescriptor installs a validated YAML descriptor as a new provider.
+func (h *Handlers) UploadDescriptor(ctx *gin.Context) {
+	const maxBytes = 1 << 20
+	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, maxBytes)
+	raw, err := io.ReadAll(ctx.Request.Body)
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			libs.WriteErr(ctx, http.StatusRequestEntityTooLarge, "Descriptor must be under 1 MB")
+			return
+		}
+		libs.WriteErr(ctx, http.StatusBadRequest, "Descriptor must be a YAML file under 1 MB")
+		return
+	}
+	report, err := h.providers.InstallDescriptor(ctx.Request.Context(), raw)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+	libs.WriteQueryOK(ctx, report)
+}
+
+// Providers handles both GET .../chats/providers and the global settings GET:
+// the registered
 // agent providers enriched with connected (installed) + enabled (!disabled) and
 // returned in priority order (spec §3.1). The list is scope-independent — the
 // resolver reads crowbar home from app config, never the URL — so every mount

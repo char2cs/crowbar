@@ -16,6 +16,7 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   getPendingPrompt: vi.fn().mockResolvedValue(null),
   updateProviderPreferences: vi.fn(),
   listProviders: vi.fn().mockResolvedValue([]),
+  listGlobalProviders: vi.fn().mockResolvedValue([]),
   getDefaultPermissionLevel: vi.fn().mockResolvedValue('guarded'),
   updateDefaultPermissionLevel: vi.fn(),
   getDescriptorReports: vi.fn().mockResolvedValue([]),
