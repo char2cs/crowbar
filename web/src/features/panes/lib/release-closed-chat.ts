@@ -1,11 +1,11 @@
 import type { PaneGroup } from '@/features/panes/types/pane'
-import { stopChat } from '@/features/agent/api/agent-api'
+import { closeChat } from '@/features/agent/api/agent-api'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { requestWorkspaceEviction } from '@/features/workspace/lib/workspace-eviction-request'
 
 /** Read the window's panes as they stand RIGHT NOW. Passed in rather than
  *  imported so this module never reaches back into `window-pane-store`, whose
- *  own `pane-slice` calls it — and so the post-`stopChat` re-read below is a
+ *  own `pane-slice` calls it — and so the post-`closeChat` re-read below is a
  *  genuinely fresh read rather than a stale snapshot taken before the await. */
 export type ReadPanes = () => Record<string, PaneGroup>
 
@@ -19,8 +19,7 @@ function chatIsUp(readPanes: ReadPanes, chatId: string): boolean {
  * "All of Crowbar's chats should die once the user has closed their view...
  * Both. It's like killing a chat tab: removes both out of memory."
  *
- *  - **Backend**: `stopChat` — the exact call its own doc says closing a chat
- *    tab makes. The vendor CLI stops; the chat entry and its bound
+ *  - **Backend**: `closeChat` — retires the vendor CLI even mid-turn; the chat entry and its bound
  *    conversation are KEPT, so the row stays in the tree and reopening it
  *    later revives the real conversation through the normal resume path.
  *    Deliberately NOT `deleteChat`: closing a view ends the view, never the
@@ -30,7 +29,7 @@ function chatIsUp(readPanes: ReadPanes, chatId: string): boolean {
  *    screen. A workspace owns many chats, and closing one view of it says
  *    nothing about the others.
  *
- * The two are SEQUENCED, not raced. `stopChat` is what actually stops a chat
+ * The two are SEQUENCED, not raced. `closeChat` is what actually stops a chat
  * that is mid-turn, and the store being torn down is the same store that
  * chat's stream, working map and message log live on — dropping it first
  * would yank an in-flight turn's own bookkeeping out from under it while the
@@ -58,7 +57,7 @@ export async function releaseClosedChat(
   // on the frontend half rather than tear down over a chat we did not manage
   // to stop; ordinary keep-alive retention still ages the workspace out.
   try {
-    await stopChat(workspaceId, chatId)
+    await closeChat(workspaceId, chatId)
   } catch (err) {
     if (import.meta.env.DEV) console.warn('stop chat for closed view failed:', err)
     return

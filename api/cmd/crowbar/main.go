@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -65,13 +66,14 @@ func runServe(
 		return err
 	}
 
-	container, err := internal.New(ctx, host, staticFS)
+	container, err := internal.New(ctx, host, staticFS, internal.WithLogRing(installLogRing()))
 	if err != nil {
 		return fmt.Errorf("failed to start: %w", err)
 	}
 	defer container.Close()
 
-	fmt.Printf("crowbar listening on %s\n", host)
+	slog.Info("daemon: listening", "component", "daemon", "version", metadata.GetVersion(),
+		"host", host, "pid", os.Getpid(), "home", metadata.GetHomePath())
 	return container.Run(ctx)
 }
 

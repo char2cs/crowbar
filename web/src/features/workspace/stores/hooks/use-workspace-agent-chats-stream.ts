@@ -244,8 +244,8 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
         }
       }
       // ONCE PER OUTAGE, NOT ONCE PER WORKSPACE. This hook runs for every
-      // MOUNTED workspace now (WorkspaceView, up to RETENTION_CAP = 6 at a
-      // time), and the daemon being unreachable fails all of them at once —
+      // MOUNTED workspace now (WorkspaceView, one per workspace
+      // with a view), and the daemon being unreachable fails all of them at once —
       // for the same machine-level list, with the same sentence. Its only
       // previous mount point was a single sidebar panel, so the plain toast
       // was correct then and would stack six identical copies now.

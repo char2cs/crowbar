@@ -37,6 +37,7 @@ func New(
 	appContainer *app.Container,
 	engContainer *engine.Container,
 	staticFS fs.FS,
+	v0Options ...v0.Option,
 ) (*Container, error) {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
@@ -51,7 +52,7 @@ func New(
 		middleware.BodyLimit(maxRequestBodyBytes),
 	)
 
-	v0Container := v0.New(appContainer, engContainer)
+	v0Container := v0.New(appContainer, engContainer, v0Options...)
 	v0Container.Register(router.Group("/v0"))
 	mountDebug(router)
 

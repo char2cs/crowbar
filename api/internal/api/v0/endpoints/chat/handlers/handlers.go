@@ -273,6 +273,13 @@ type RunnerUsecase interface {
 		chatID string,
 	) error
 
+	// CloseChat retires chatID's live vendor CLI because no view displays the chat
+	// any more, mid-turn included, and leaves it dormant and resumable.
+	CloseChat(
+		ctx context.Context,
+		chatID string,
+	) error
+
 	// Compact asks the chat's CLI to compact its own context. Crowbar cannot compact
 	// anything itself — the context is the provider's — so this sends the provider's
 	// own declared gesture, and 404s for a provider that declares none.

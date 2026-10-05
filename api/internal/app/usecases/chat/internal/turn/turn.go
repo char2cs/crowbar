@@ -11,6 +11,7 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -126,7 +127,7 @@ func (t *Turns) closeTurnFromStop(
 	// earlier would hand the incoming CLI a conversation missing the very turn the
 	// switch waited for. Deferred so a failed StopTurn still releases the waiter —
 	// the turn is over either way, and a switch parked on it would never wake.
-	defer t.turns.Complete(runner.ID)
+	defer t.turns.Complete(ctx, runner.ID, inflight.TurnCompleted)
 	// The turn ended — which is NOT the same fact as the agent being done, so this
 	// carries the CLI's own count of what it left running (ev.AsyncWork) and lets the
 	// aggregate fold Working from both. A CLI that hands work to a background task

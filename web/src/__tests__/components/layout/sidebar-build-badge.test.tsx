@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react'
+import { fireEvent, render } from '@testing-library/react'
 import { describe, it, expect, beforeEach } from 'vitest'
 
 let buildBadgeOverride: string = 'auto'
@@ -10,9 +10,11 @@ import {
   SidebarBuildBadgeBand,
   SidebarBuildBadgeLabel,
 } from '@/components/layout/sidebar-build-badge'
+import { useConsoleStore } from '@/features/console/stores/console-store'
 
 beforeEach(() => {
   buildBadgeOverride = 'auto'
+  useConsoleStore.setState(useConsoleStore.getInitialState())
   document.documentElement.classList.remove('dark')
 })
 
@@ -67,6 +69,22 @@ describe('SidebarBuildBadgeLabel', () => {
     rerender(<SidebarBuildBadgeLabel align="end" />)
     expect(getByText('beta').parentElement).toHaveClass('items-end')
     expect(getByText('beta').parentElement).not.toHaveClass('items-start')
+  })
+})
+
+describe('SidebarBuildBadgeLabel console toggle', () => {
+  it('is a button that opens the console on click and closes it on the next', () => {
+    buildBadgeOverride = 'beta'
+    const { getByRole } = render(<SidebarBuildBadgeLabel />)
+    const button = getByRole('button', { name: 'Toggle console' })
+    expect(button.getAttribute('aria-expanded')).toBe('false')
+
+    fireEvent.click(button)
+    expect(useConsoleStore.getState().open).toBe(true)
+    expect(button.getAttribute('aria-expanded')).toBe('true')
+
+    fireEvent.click(button)
+    expect(useConsoleStore.getState().open).toBe(false)
   })
 })
 

@@ -127,9 +127,7 @@ func (t *Turns) ingestResolvedHook(
 	if err != nil {
 		switch {
 		case errors.Is(err, engineagents.ErrForeignConversation):
-			slog.DebugContext(ctx, "agent: ingest hook: dropping a hook that is not this CLI's own conversation",
-				"reason", err, "event", canonicalEvent,
-				"provider", runner.ProviderID, "runner_id", runnerID)
+			// Routine: another conversation's hook; dropping it is the design.
 		case errors.Is(err, engineagents.ErrHookUndeclared):
 			// ERROR, not WARN (P5, design spec F2): this is the exact shape a
 			// channel/payload mismatch takes — a delivery landing on a channel
@@ -168,8 +166,6 @@ func (t *Turns) ingestResolvedHook(
 		// CROWBAR-SIDE VETO: whatever the descriptor names is honoured as-is;
 		// TestSurfaceGatedEvents_AreReportedLoudly (descriptor package) is the
 		// visibility side of that, not a rejection here.
-		slog.DebugContext(ctx, "agent: ingest hook: dropping an event gated off the surface in front of the user",
-			"event", ev.Kind, "runner_id", runnerID, "provider", runner.ProviderID)
 		return nil
 	}
 
@@ -182,11 +178,6 @@ func (t *Turns) ingestResolvedHook(
 		if routed, err := t.routeNestedSubagentEvent(ctx, runner, ev); routed {
 			return err
 		}
-		slog.DebugContext(ctx,
-			"agent: ingest hook: dropping an event that names another conversation",
-			"event", ev.Kind, "event_session", ev.SessionID,
-			"runner_session", runner.CurrentSession,
-			"runner_id", runnerID, "provider", runner.ProviderID)
 		return nil
 	}
 

@@ -1,19 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/features/agent/api/agent-api', () => ({
-  stopChat: vi.fn().mockResolvedValue(undefined),
+  closeChat: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   getActiveWorkspaceId: vi.fn(() => null),
 }))
 
 import { releaseClosedChat } from '@/features/panes/lib/release-closed-chat'
-import { stopChat } from '@/features/agent/api/agent-api'
+import { closeChat } from '@/features/agent/api/agent-api'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { subscribeWorkspaceEviction } from '@/features/workspace/lib/workspace-eviction-request'
 import type { PaneGroup } from '@/features/panes/types/pane'
 
-const stop = vi.mocked(stopChat)
+const stop = vi.mocked(closeChat)
 const activeWs = vi.mocked(getActiveWorkspaceId)
 
 /** A view member: its chat and the workspace recorded when it was opened. */

@@ -1,16 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Isolated from `pane-slice.test.ts` because this file has to mock the daemon
-// call at module scope: `closePane` firing `stopChat` is the whole subject
+// call at module scope: `closePane` firing `closeChat` is the whole subject
 // here, and that suite exercises the real (unmocked) module graph.
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock('@/features/agent/api/agent-api', () => ({
-  stopChat: vi.fn().mockResolvedValue(undefined),
+  closeChat: vi.fn().mockResolvedValue(undefined),
 }))
 
-import { stopChat, type AgentChat } from '@/features/agent/api/agent-api'
+import { closeChat, type AgentChat } from '@/features/agent/api/agent-api'
 import {
   destroyWorkspaceStore,
   getAllActiveWorkspaceIds,
@@ -25,7 +25,7 @@ import {
 import { nextVersion, seedChats, setChatWorking } from '@/__tests__/__fixtures__/agent-chat'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 
-const stop = vi.mocked(stopChat)
+const stop = vi.mocked(closeChat)
 
 function chat(id: string, wsId: string): AgentChat {
   return {
@@ -54,8 +54,8 @@ function seedWorkspace(wsId: string, chats: AgentChat[], working: Record<string,
   return store
 }
 
-/** Let the fire-and-forget release (and its awaited `stopChat`) settle.
- *  A real signal, not a timer: `stopChat`'s own resolution is the thing
+/** Let the fire-and-forget release (and its awaited `closeChat`) settle.
+ *  A real signal, not a timer: `closeChat`'s own resolution is the thing
  *  every assertion here is waiting on. */
 async function settle() {
   await Promise.resolve()
@@ -85,7 +85,7 @@ afterEach(() => {
  * "All of Crowbar's chats should die once the user has closed their view...
  * Both. It's like killing a chat tab: removes both out of memory."
  *
- * `stopChat`'s own doc has always said it "is what closing a chat TAB calls"
+ * `closeChat`'s own doc has always said it "is what closing a chat TAB calls"
  * — and it had exactly one caller, the chat view's stop BUTTON. `closePane`
  * only ever did Recents bookkeeping, so a closed view left its vendor CLI
  * running in the daemon and its workspace resident in the browser. That is
@@ -150,7 +150,7 @@ describe('closePane tears the closed chat down on both sides', () => {
   // The reported bug: "closing the current view, its underlying chats are not
   // closed — I'm obligated to close those twice." closeView (the pane-chrome
   // ×'s own action as of the previous fix) iterates closePane per member —
-  // this proves BOTH members' stopChat calls actually land on a real close,
+  // this proves BOTH members' closeChat calls actually land on a real close,
   // not just that the layout empties. Same-workspace first: the cross-
   // workspace case gets its own test right below.
   it('closeView on a merged view stops EVERY member’s chat, not just one', async () => {
@@ -207,7 +207,7 @@ describe('closePane tears the closed chat down on both sides', () => {
     expect(evicted).toEqual([])
   })
 
-  // The sequencing rule: `stopChat` is what actually stops a chat mid-turn,
+  // The sequencing rule: `closeChat` is what actually stops a chat mid-turn,
   // and the store being torn down is the same store that chat's stream and
   // working map live on. Nothing may be dropped before the stop has settled.
   it('stops a WORKING chat before anything asks for its store to go', async () => {

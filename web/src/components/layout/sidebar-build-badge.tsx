@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { getBuildInfo } from '@/lib/build-info'
 import type { BuildChannel, BuildInfo } from '@/lib/build-info'
 import { useSettingsStore } from '@/features/settings/store'
+import { useConsoleStore } from '@/features/console/stores/console-store'
 import { cn } from '@/utils/cn'
 
 // Same MutationObserver-on-`.dark`-class pattern as
@@ -230,6 +231,8 @@ export function SidebarBuildBadgeBand({
 export function SidebarBuildBadgeLabel({ align = 'start' }: { align?: 'start' | 'end' }) {
   const info = useResolvedBuildInfo()
   const isDark = useIsDarkMode()
+  const consoleOpen = useConsoleStore((s) => s.open)
+  const toggleConsole = useConsoleStore((s) => s.toggle)
   if (!info) return null
 
   const title = info.channel === 'release' ? null : info.channel
@@ -240,9 +243,14 @@ export function SidebarBuildBadgeLabel({ align = 'start' }: { align?: 'start' | 
   const titleColor = title ? TITLE_COLOR[title][isDark ? 'dark' : 'light'] : undefined
 
   return (
-    <div
+    <button
+      type="button"
+      aria-label="Toggle console"
+      aria-expanded={consoleOpen}
+      aria-controls="console-panel"
+      onClick={toggleConsole}
       className={cn(
-        'flex flex-col justify-center gap-px font-mono leading-tight',
+        'flex cursor-pointer flex-col justify-center gap-px font-mono leading-tight outline-none focus-visible:ring-2 focus-visible:ring-ring',
         align === 'end' ? 'items-end text-right' : 'items-start text-left',
       )}
     >
@@ -254,6 +262,6 @@ export function SidebarBuildBadgeLabel({ align = 'start' }: { align?: 'start' | 
       {subtitle && (
         <span className="text-[9.5px] font-medium text-muted-foreground">{subtitle}</span>
       )}
-    </div>
+    </button>
   )
 }

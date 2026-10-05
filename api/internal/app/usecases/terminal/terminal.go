@@ -3,6 +3,7 @@ package terminal
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -219,8 +220,7 @@ func (u *terminalUsecase) RestorePersistedSessions(ctx context.Context) error {
 		if dirErr != nil {
 			// Owning chat deleted or unresolvable — reconcile orphan away.
 			if delErr := u.metaStore.Delete(ctx, row.SessionID); delErr != nil {
-				_, _ = fmt.Fprintf(os.Stderr,
-					"terminal: restore: delete orphan %s: %v\n", row.SessionID, delErr)
+				slog.WarnContext(ctx, "terminal: restore: delete orphan", "component", "terminal", "session", row.SessionID, "err", delErr)
 			}
 			dropped++
 			continue
@@ -244,16 +244,16 @@ func (u *terminalUsecase) RestorePersistedSessions(ctx context.Context) error {
 			ProfileID: row.ProfileID,
 			State:     "suspended",
 		}, scrollback); loadErr != nil {
-			_, _ = fmt.Fprintf(os.Stderr,
-				"terminal: restore: load placeholder %s: %v\n", row.SessionID, loadErr)
+			slog.WarnContext(ctx, "terminal: restore: load placeholder", "component", "terminal", "session", row.SessionID, "err", loadErr)
 			continue
 		}
 		restored++
 	}
 
-	_, _ = fmt.Fprintf(os.Stderr,
-		"terminal: restore: restored=%d dropped_orphans=%d evicted_over_cap=%d\n",
-		restored, dropped, evicted)
+	if restored+dropped+evicted > 0 {
+		slog.InfoContext(ctx, "terminal: restored persisted sessions", "component", "terminal",
+			"restored", restored, "dropped_orphans", dropped, "evicted_over_cap", evicted)
+	}
 	return nil
 }
 
@@ -265,13 +265,11 @@ func (u *terminalUsecase) evictPersistedRow(
 	sessionID string,
 ) {
 	if delErr := u.metaStore.Delete(ctx, sessionID); delErr != nil {
-		_, _ = fmt.Fprintf(os.Stderr,
-			"terminal: restore: delete over-cap row %s: %v\n", sessionID, delErr)
+		slog.WarnContext(ctx, "terminal: restore: delete over-cap row", "component", "terminal", "session", sessionID, "err", delErr)
 	}
 	path := filepath.Join(dir, sessionID+".buf")
 	if rmErr := os.Remove(path); rmErr != nil && !os.IsNotExist(rmErr) {
-		_, _ = fmt.Fprintf(os.Stderr,
-			"terminal: restore: remove over-cap buf %s: %v\n", sessionID, rmErr)
+		slog.WarnContext(ctx, "terminal: restore: remove over-cap buf", "component", "terminal", "session", sessionID, "err", rmErr)
 	}
 }
 

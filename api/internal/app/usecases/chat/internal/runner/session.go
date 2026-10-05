@@ -131,7 +131,7 @@ func (rs *Runners) moveToNewChat(
 	// its turn_stop will land on the NEW chat, so nothing will ever close it on the old one.
 	// Releasing it is what stops a switch on the old chat waiting for an answer that is now
 	// being written somewhere else.
-	rs.inflightTurns.Complete(runner.ID)
+	rs.inflightTurns.Complete(ctx, runner.ID, domain.AgentExitMoved)
 	// Same rule for the DELIVERY it left behind, and the same reason every other
 	// departure path runs this (lifecycle.go): once the move commits, this runner
 	// can no longer confirm a prompt into the chat it left.
@@ -173,7 +173,7 @@ func (rs *Runners) moveToKnownChat(
 	// Whatever it was mid-way through on the chat it just left is over there (see
 	// moveToNewChat) — released in memory, and closed on the chat so the vacated chat
 	// cannot go on advertising a turn whose turn_stop is landing elsewhere.
-	rs.inflightTurns.Complete(runner.ID)
+	rs.inflightTurns.Complete(ctx, runner.ID, domain.AgentExitMoved)
 	if runner.CurrentChatID != toChatID {
 		rs.reconcilePromptRunnerDeparture(ctx, runner, runner.CurrentChatID)
 		rs.closeAbandonedTurn(ctx, runner.CurrentChatID, runner)

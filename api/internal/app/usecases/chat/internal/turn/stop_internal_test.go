@@ -62,7 +62,7 @@ func newStopTestTurns(t *testing.T) (*Turns, *fakeStopActivity, *inflight.Turns)
 
 func TestRecordStop_RecordsAndResolvesAStoppedInterruption_WhenATurnIsInFlight(t *testing.T) {
 	turns, activity, inflightTurns := newStopTestTurns(t)
-	inflightTurns.Begin("runner-1", "chat-1")
+	inflightTurns.Begin(context.Background(), "runner-1", "chat-1")
 
 	err := turns.RecordStop(context.Background(), "chat-1", "runner-1")
 
@@ -83,9 +83,9 @@ func TestRecordStop_UsesAFreshIDPerCall_UnlikeCompactionsSharedOne(t *testing.T)
 	// two. Compaction's single deterministic id-per-chat would collapse them
 	// into one record and lose the second divider entirely.
 	turns, activity, inflightTurns := newStopTestTurns(t)
-	inflightTurns.Begin("runner-1", "chat-1")
+	inflightTurns.Begin(context.Background(), "runner-1", "chat-1")
 	require.NoError(t, turns.RecordStop(context.Background(), "chat-1", "runner-1"))
-	inflightTurns.Begin("runner-1", "chat-1")
+	inflightTurns.Begin(context.Background(), "runner-1", "chat-1")
 	require.NoError(t, turns.RecordStop(context.Background(), "chat-1", "runner-1"))
 
 	require.Len(t, activity.interrupts, 2)
@@ -113,7 +113,7 @@ func TestRecordStop_UsesAFreshIDPerCall_UnlikeCompactionsSharedOne(t *testing.T)
 // `order` from two goroutines at once; a gate that waits its turn cannot.
 func TestRegression_RecordStopWaitsForAnInFlightHookOnTheSameRunner(t *testing.T) {
 	turns, _, inflightTurns := newStopTestTurns(t)
-	inflightTurns.Begin("runner-1", "chat-1")
+	inflightTurns.Begin(context.Background(), "runner-1", "chat-1")
 
 	// Simulates a hook delivery for runner-1 already admitted into
 	// IngestHookDelivery and still mid-ingest — holding exactly the gate
@@ -168,7 +168,7 @@ func TestRegression_TurnOpenWaitsForAHookThatIsOpeningTheTurn(t *testing.T) {
 		}
 
 		work.Set("chat-1", true)
-		inflightTurns.Begin("runner-1", "chat-1")
+		inflightTurns.Begin(context.Background(), "runner-1", "chat-1")
 		releaseHook()
 		<-read
 

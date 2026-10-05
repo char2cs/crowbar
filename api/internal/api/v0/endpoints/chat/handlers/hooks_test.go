@@ -116,8 +116,9 @@ type fakeAgentUsecase struct {
 	resumeSegID string
 	resumeErr   error
 
-	stopCalls []string
-	stopErr   error
+	stopCalls  []string
+	closeCalls []string
+	stopErr    error
 
 	switchToTerminalCalls  []string
 	switchToTerminalSessID string
@@ -426,6 +427,14 @@ func (f *fakeAgentUsecase) StopChat(
 	chatID string,
 ) error {
 	f.stopCalls = append(f.stopCalls, chatID)
+	return f.stopErr
+}
+
+func (f *fakeAgentUsecase) CloseChat(
+	_ context.Context,
+	chatID string,
+) error {
+	f.closeCalls = append(f.closeCalls, chatID)
 	return f.stopErr
 }
 

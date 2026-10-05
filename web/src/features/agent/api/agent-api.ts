@@ -1203,14 +1203,22 @@ export async function compactChat(wsId: string, id: string): Promise<void> {
   })
 }
 
-// stopChat gracefully terminates the chat's live vendor CLI and leaves the chat
-// DORMANT and resumable — the counterpart of resumeChat. It is what closing a
-// chat TAB calls: the agent process stops, but the chat entry and its bound
-// conversation are KEPT, so reopening the tab revives the real conversation
-// through the same resume path. This is NOT deleteChat: the chat is preserved.
+// stopChat is the chat's Stop button: it interrupts the running turn in place
+// where the provider allows it and otherwise ends the CLI, leaving the chat
+// DORMANT and resumable — the counterpart of resumeChat. This is NOT deleteChat.
 // A chat whose CLI is already gone is a backend no-op.
 export async function stopChat(wsId: string, id: string): Promise<void> {
   await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/stop`, {
+    method: 'POST',
+  })
+}
+
+// closeChat ends the chat's live vendor CLI because no view displays the chat
+// any more, mid-turn included — unlike stopChat, which interrupts a turn in
+// place and may leave the CLI running. The chat entry stays, dormant and
+// resumable.
+export async function closeChat(wsId: string, id: string): Promise<void> {
+  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/close`, {
     method: 'POST',
   })
 }

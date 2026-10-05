@@ -312,6 +312,22 @@ export async function setTrafficLightPosition(x: number, y: number): Promise<voi
   await tauriInvoke('set_traffic_light_position', { x, y })
 }
 
+/** Mirror the effective Toggle-console chord onto the host's Window-menu item so
+ *  macOS cannot consume it first (Cmd+` is the system's window cycle). `null`
+ *  clears the accelerator. No-op outside Tauri. */
+export async function setConsoleMenuChord(chord: string | null): Promise<void> {
+  if (!isTauri()) return
+  await tauriInvoke('set_console_menu_chord', { chord })
+}
+
+/** Subscribe to the host menu item being chosen in THIS window. Resolves to an
+ *  unsubscribe; a no-op outside Tauri. */
+export async function onConsoleMenuToggle(handler: () => void): Promise<() => void> {
+  if (!isTauri()) return () => {}
+  const { getCurrentWebview } = await import('@tauri-apps/api/webview')
+  return getCurrentWebview().listen('console:toggle', handler)
+}
+
 // ── Native Context Menu ───────────────────────────────────────────────────────
 
 type NativeMenuEntry = MenuItemOptions | SubmenuOptions | PredefinedMenuItemOptions

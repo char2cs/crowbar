@@ -13,10 +13,31 @@ import (
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
-// StopChat, and the one owner of what a Stop records: stopRunner.
+// StopChat answers the Stop button: the turn is interrupted in place where the
+// provider allows it, and the runner is retired otherwise.
 func (rs *Runners) StopChat(
 	ctx context.Context,
 	chatID string,
+) error {
+	return rs.endRunner(ctx, chatID, true)
+}
+
+// CloseChat answers a closed view: no view holds the chat any more, so its
+// runner is retired even mid-turn. The chat record stays, dormant and resumable.
+func (rs *Runners) CloseChat(
+	ctx context.Context,
+	chatID string,
+) error {
+	// Detached: nothing re-sends a close, so a request dropped mid-teardown
+	// (app quit, socket loss) must not leave the runner live with no view.
+	return rs.endRunner(context.WithoutCancel(ctx), chatID, false)
+}
+
+// endRunner is the one owner of what a Stop or Close records: stopRunner.
+func (rs *Runners) endRunner(
+	ctx context.Context,
+	chatID string,
+	gentle bool,
 ) error {
 	// The chat's spawn gate, for the same reason every teardown path takes it: a stop
 	// racing a switch or resume must not terminate a runner the other path is mid-way
@@ -41,7 +62,7 @@ func (rs *Runners) StopChat(
 	// Mid-turn, an api provider is interrupted in place (its session and
 	// connection survive); otherwise — idle, hooks-only, or an interrupt that
 	// does not land in time — the runner is retired.
-	rs.stopRunner(ctx, chatID, live, true)
+	rs.stopRunner(ctx, chatID, live, gentle)
 	return nil
 }
 
@@ -65,6 +86,7 @@ func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Ru
 		slog.WarnContext(ctx, "agent: stop: read turn state (assuming idle)", "chat_id", chatID, "err", err)
 	}
 	if !gentle || !open || !rs.interruptTurn(ctx, live) || !rs.turnEndedAfterInterrupt(ctx, chatID) {
+		rs.inflightTurns.Complete(ctx, live.ID, domain.AgentExitStopped)
 		rs.retire(ctx, live)
 		rs.noteChatExit(ctx, chatID, domain.AgentExitStopped)
 	}

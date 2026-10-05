@@ -593,6 +593,13 @@ func (configurableListGetUsecase) StopChat(
 	return nil
 }
 
+func (configurableListGetUsecase) CloseChat(
+	_ context.Context,
+	_ string,
+) error {
+	return nil
+}
+
 func (configurableListGetUsecase) SwitchToTerminal(
 	_ context.Context,
 	_ string,

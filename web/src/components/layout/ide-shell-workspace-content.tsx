@@ -1,6 +1,7 @@
 import { Outlet } from '@tanstack/react-router'
 import { WorkspaceHost } from '@/features/workspace/components/workspace-host'
 import { ErrorBoundary } from '@/components/error-boundary'
+import { ConsoleDock } from '@/features/console/components/console-dock'
 import { getKnownHomeWorkspaceIds } from '@/features/workspace/lib/home-workspace-resolver'
 
 /**
@@ -67,6 +68,7 @@ export function IdeShellWorkspaceContent({
         />
         <Outlet />
       </ErrorBoundary>
+      <ConsoleDock />
     </div>
   )
 }

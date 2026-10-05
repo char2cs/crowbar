@@ -4,23 +4,27 @@ import { render, act, cleanup } from '@testing-library/react'
 // Hoisted spies so the vi.mock factories (hoisted above imports) can capture them.
 // `events` records unmount/destroy interleaving: components living over the store
 // (Monaco panes, terminal slots) must be UNMOUNTED before the store is destroyed.
-const { hydrateSpy, destroySpy, events, registry, pinned, rendering } = vi.hoisted(() => {
-  const events = [] as string[]
-  const registry = new Map<string, { wsId: string }>()
-  return {
-    events,
-    registry,
-    /** Workspaces whose editor is still mounted into a pane (canEvict false). */
-    pinned: new Set<string>(),
-    /** Set while a WorkspaceView renders, to catch a mint in the render path. */
-    rendering: { current: false, mintedWhileRendering: 0 },
-    hydrateSpy: vi.fn<(wsId: string) => void>(),
-    destroySpy: vi.fn<(wsId: string) => void>((wsId) => {
-      events.push(`destroy:${wsId}`)
-      registry.delete(wsId)
-    }),
-  }
-})
+const { hydrateSpy, destroySpy, events, registry, pinned, rendering, layoutMounts } = vi.hoisted(
+  () => {
+    const events = [] as string[]
+    const registry = new Map<string, { wsId: string }>()
+    return {
+      events,
+      registry,
+      /** How many times the window's pane tree has been (re)mounted. */
+      layoutMounts: { current: 0 },
+      /** Workspaces whose editor is still mounted into a pane (canEvict false). */
+      pinned: new Set<string>(),
+      /** Set while a WorkspaceView renders, to catch a mint in the render path. */
+      rendering: { current: false, mintedWhileRendering: 0 },
+      hydrateSpy: vi.fn<(wsId: string) => void>(),
+      destroySpy: vi.fn<(wsId: string) => void>((wsId) => {
+        events.push(`destroy:${wsId}`)
+        registry.delete(wsId)
+      }),
+    }
+  },
+)
 
 // Light WorkspaceView stub: mirrors the real hydrate-once-per-mount contract
 // (one hydrate per mount, never on a warm re-activation) without pulling the
@@ -61,9 +65,17 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 }))
 
 // The pane tree itself is another suite's subject; this one is about retention.
-vi.mock('@/features/workspace/components/workspace-layout-root', () => ({
-  WorkspaceLayoutRoot: () => null,
-}))
+vi.mock('@/features/workspace/components/workspace-layout-root', async () => {
+  const React = await import('react')
+  return {
+    WorkspaceLayoutRoot: () => {
+      React.useEffect(() => {
+        layoutMounts.current++
+      }, [])
+      return null
+    },
+  }
+})
 
 import { WorkspaceHost } from '@/features/workspace/components/workspace-host'
 import { requestWorkspaceEviction } from '@/features/workspace/lib/workspace-eviction-request'
@@ -99,6 +111,7 @@ beforeEach(() => {
   registry.clear()
   pinned.clear()
   rendering.mintedWhileRendering = 0
+  layoutMounts.current = 0
   useSidebarStore.setState(getInitialState())
 })
 
@@ -130,12 +143,11 @@ describe('WorkspaceHost — sole owner of the registry (C5, C6)', () => {
     expect(rendering.mintedWhileRendering).toBe(0)
   })
 
-  it('holds the cap even when panes name more workspaces than it allows (no force-mount past the plan)', () => {
+  it('mounts every workspace a pane names, past any count, and keeps the registry equal to the slots', () => {
     const many = Array.from({ length: 10 }, (_, i) => `p${i}`)
     render(<WorkspaceHost activeWsId="a" paneWsIds={many} />)
-    expect(mountedSlots().length).toBeLessThanOrEqual(6)
+    expect(mountedSlots()).toEqual(['a', ...many].sort())
     expect(registry.size).toBe(mountedSlots().length)
-    expect(mountedSlots()).toContain('a')
   })
 
   it('keeps a workspace whose editor is still mounted instead of destroying it — no zombie store', () => {
@@ -244,31 +256,22 @@ describe('WorkspaceHost', () => {
     expect(slot('b')).toBeNull()
   })
 
-  it('caps retained workspaces at 6, evicting the least-recently-active over the cap', () => {
-    vi.useFakeTimers()
-    try {
-      const ids = ['w0', 'w1', 'w2', 'w3', 'w4', 'w5', 'w6']
-      // Every id has a view chat (so all 7 are candidates), only the active one
-      // changes across renders. Advance a little between activations so the
-      // cap's LRU tie-break has a strict recency order to sort by.
-      const { rerender } = render(<WorkspaceHost activeWsId={ids[0]} viewWsIds={ids} />)
-      for (let i = 1; i < ids.length; i++) {
-        act(() => {
-          vi.advanceTimersByTime(1000)
-        })
-        rerender(<WorkspaceHost activeWsId={ids[i]} viewWsIds={ids} />)
-      }
+  it('never unmounts the window pane tree while a cold workspace is being activated', () => {
+    const { rerender } = render(<WorkspaceHost activeWsId="a" viewWsIds={['a', 'b']} />)
+    rerender(<WorkspaceHost activeWsId="b" viewWsIds={['a', 'b']} />)
+    rerender(<WorkspaceHost activeWsId="c" viewWsIds={['a', 'b', 'c']} />)
+    expect(layoutMounts.current).toBe(1)
+  })
 
-      // The least-recently-activated (w0) is pushed out by the cap despite
-      // still having a view chat.
-      expect(destroySpy).toHaveBeenCalledWith('w0')
-      expect(slot('w0')).toBeNull()
-      for (const id of ids.slice(1)) {
-        expect(slot(id)).not.toBeNull()
-      }
-    } finally {
-      vi.useRealTimers()
-    }
+  it('keeps EVERY workspace that has a view mounted, however many — switching between Recents rows never cold-mounts', () => {
+    const ids = Array.from({ length: 9 }, (_, i) => `w${i}`)
+    const { rerender } = render(<WorkspaceHost activeWsId={ids[0]} viewWsIds={ids} />)
+    for (const id of ids) rerender(<WorkspaceHost activeWsId={id} viewWsIds={ids} />)
+    for (const id of ids) rerender(<WorkspaceHost activeWsId={id} viewWsIds={ids} />)
+
+    expect(mountedSlots()).toEqual([...ids].sort())
+    expect(destroySpy).not.toHaveBeenCalled()
+    for (const id of ids) expect(hydrateCount(id)).toBe(1)
   })
 
   it('destroys a retained workspace once it no longer exists (closed / deleted), even while it has a view chat', () => {

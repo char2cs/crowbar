@@ -1320,6 +1320,16 @@ describe('AgentChatView slash catalog', () => {
   // unsendable: no probe reports /compact, /clear, /model or /context, so the
   // picker sat there matching nothing while the composer said "Enter to send"
   // under a key that did nothing at all.
+  it('probes only once the chat is showing, never for a parked tab', async () => {
+    const view = setup({ visible: false })
+    await composer()
+    await act(async () => Promise.resolve())
+    expect(slashCatalogFn).not.toHaveBeenCalled()
+
+    view.rerenderProps({ visible: true })
+    await waitFor(() => expect(slashCatalogFn).toHaveBeenCalledTimes(1))
+  })
+
   it('sends a slash command the catalog cannot match, rather than swallowing Enter', async () => {
     vi.useFakeTimers()
     slashCatalogFn.mockResolvedValue({

@@ -1,6 +1,7 @@
 package inflight_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
@@ -26,7 +27,7 @@ func TestConstructorsReturnIndependentInstances(t *testing.T) {
 	t.Run("turns", func(t *testing.T) {
 		t.Parallel()
 		first, second := inflight.NewTurns(), inflight.NewTurns()
-		first.Begin("runner-1", "chat-1")
+		first.Begin(context.Background(), "runner-1", "chat-1")
 		if open := second.Inflight("chat-1"); len(open) != 0 {
 			t.Fatalf("a second registry saw %d turns begun on the first", len(open))
 		}

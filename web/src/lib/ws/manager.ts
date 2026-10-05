@@ -31,7 +31,7 @@ interface Channel {
 // Construct the live transport for the active environment: the native WebSocket
 // in the browser, the unix-socket-bridged shim on desktop (where `crowbar://`
 // has no native WebSocket). Both share the surface the manager uses.
-function createTransport(endpoint: string): WSLike {
+export function createTransport(endpoint: string): WSLike {
   return isTauri() ? new TauriWebSocket(endpoint) : (new WebSocket(wsUrl(endpoint)) as WSLike)
 }
 

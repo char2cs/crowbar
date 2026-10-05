@@ -578,7 +578,9 @@ export function AgentChatView({
     return () => cancelAnimationFrame(raf)
   }, [ledger.loading])
 
-  const slash = useSlashCatalog({ wsId, chatId, providerId, active, draft })
+  // A parked tab stays mounted but is not asking for a catalogue: it probes the
+  // moment it is shown, so N retained chats cost one probe, not N.
+  const slash = useSlashCatalog({ wsId, chatId, providerId, active: active && visible, draft })
 
   // The currently-loaded window of the person's own words, oldest first — what
   // ArrowUp/ArrowDown actually walk. Never reaches past a page not yet loaded,

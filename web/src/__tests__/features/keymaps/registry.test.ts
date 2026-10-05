@@ -12,6 +12,7 @@ import {
   AGENT_ZOOM_OUT,
   AGENT_ZOOM_RESET,
   CATEGORY_ORDER,
+  TOGGLE_CONSOLE,
 } from '@/features/keymaps/registry'
 
 describe('keymap registry — New Tab commands', () => {
@@ -35,16 +36,14 @@ describe('keymap registry — New Tab commands', () => {
   // like every other chord so it is rebindable rather than a hardcoded literal
   // buried in the chat pane.
   //
-  // NOT mod+` — macOS reserves that for "move focus to next window in
-  // application" and consumes it in AppKit before WKWebView ever sees it, so the
-  // chord was invisible to the handler AND to the rebind capture. Pinned here so
-  // nobody restores it.
   it('binds Toggle chat/terminal view to mod+/, a chord macOS actually delivers', () => {
     expect(getCommand(AGENT_TOGGLE_VIEW_MODE)?.defaultChord).toBe('mod+/')
   })
 
-  it('binds no command to mod+` — macOS swallows it', () => {
-    expect(COMMANDS.filter((c) => c.defaultChord === 'mod+`')).toEqual([])
+  it('binds mod+` to the console toggle alone', () => {
+    expect(COMMANDS.filter((c) => c.defaultChord === 'mod+`').map((c) => c.id)).toEqual([
+      TOGGLE_CONSOLE,
+    ])
   })
 
   it('files Toggle chat/terminal view under its own Chats category', () => {
@@ -106,5 +105,13 @@ describe('keymap registry — chat zoom commands', () => {
     expect(getCommand(AGENT_ZOOM_IN)?.liveEditable).toBe(true)
     expect(getCommand(AGENT_ZOOM_OUT)?.liveEditable).toBe(true)
     expect(getCommand(AGENT_ZOOM_RESET)?.liveEditable).toBe(true)
+  })
+})
+
+describe('keymap registry — console', () => {
+  it('registers Toggle console as a live-editable Navigation command with a default chord', () => {
+    const command = getCommand(TOGGLE_CONSOLE)
+    expect(command).toMatchObject({ category: 'Navigation', liveEditable: true })
+    expect(command?.defaultChord).toBe('mod+`')
   })
 })

@@ -36,6 +36,13 @@ func Preempted(park context.Context) bool { return gate.Preempted(park) }
 // Turns is the registry of turns currently in flight, keyed by runner.
 type Turns = turnstate.Turns
 
+// The reasons a turn ends for that no runner-side cause already names.
+const (
+	TurnCompleted = turnstate.ReasonCompleted
+	TurnFailed    = turnstate.ReasonFailed
+	TurnAbandoned = turnstate.ReasonAbandoned
+)
+
 // NewTurns returns an empty in-flight-turn registry.
 func NewTurns() *Turns { return turnstate.NewTurns() }
 

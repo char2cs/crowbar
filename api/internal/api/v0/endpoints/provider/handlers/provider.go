@@ -2,9 +2,8 @@ package handlers
 
 import (
 	"context"
-	"fmt"
+	"log/slog"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -36,7 +35,7 @@ func (h *Handlers) State(
 		ws.Branch,
 	)
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "provider: poll error for ws %s: %v\n", ws.ID, err)
+		slog.ErrorContext(ctx.Request.Context(), "provider: poll failed", "component", "provider", "workspace", ws.ID, "err", err)
 		libs.WriteErr(ctx, http.StatusInternalServerError, "provider poll failed")
 		return
 	}
@@ -81,7 +80,7 @@ func (h *Handlers) ProtectedBranches(
 
 	branches, err := h.eng.ProtectedBranches(ctx.Request.Context(), worktreePath)
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "provider: protected-branches error for repo %s: %v\n", repoID, err)
+		slog.ErrorContext(ctx.Request.Context(), "provider: protected branches failed", "component", "provider", "repo", repoID, "err", err)
 		libs.WriteErr(ctx, http.StatusInternalServerError, "provider poll failed")
 		return
 	}

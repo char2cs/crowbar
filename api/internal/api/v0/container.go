@@ -13,6 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
+	"github.com/char2cs/crowbar/api/internal/core/logring"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
@@ -43,6 +44,8 @@ type Container struct {
 	chatScopes *agentChatScopes
 	app        *app.Container
 	eng        *engine.Container
+	// logs backs GET /console/logs; nil leaves the route unmounted.
+	logs logring.Ring
 	// detached are the Shutdowns of the handlers that hand work off after a 202.
 	detached []func(context.Context) error
 }
@@ -61,6 +64,7 @@ var _ hub.Subscriber = (*Container)(nil)
 func New(
 	appContainer *app.Container,
 	engContainer *engine.Container,
+	options ...Option,
 ) *Container {
 	if appContainer == nil {
 		panic("v0: appContainer is required")
@@ -77,6 +81,9 @@ func New(
 		chatScopes: newAgentChatScopes(),
 		app:        appContainer,
 		eng:        engContainer,
+	}
+	for _, option := range options {
+		option(c)
 	}
 	if engContainer != nil && engContainer.LSP != nil {
 		engContainer.LSP.OnDiagnostics(c.lsp.Push)

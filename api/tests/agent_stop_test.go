@@ -60,3 +60,28 @@ func TestRegression_AgentStopKeepsChatDormantAndResumable(t *testing.T) {
 	}
 	require.True(t, found, "a stopped chat must still appear in List — closing the tab does not delete it")
 }
+
+// TestRegression_AgentCloseEndsTheLiveRunnerAndKeepsTheChat is the close-a-view
+// route end to end: POST .../chats/:id/close leaves no runner on the chat, which
+// stays listed and keeps its bound conversation.
+func TestRegression_AgentCloseEndsTheLiveRunnerAndKeepsTheChat(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+	imported := importWritableWorkspace(t, h)
+
+	chatID, runnerID := createLiveStubChat(t, h, imported)
+	postAgentHook(t, h, imported, runnerID, "session_start", `{"session_id":"sess-close-1"}`)
+	postAgentHook(t, h, imported, runnerID, "turn_stop", `{"session_id":"sess-close-1","last_assistant_message":"hello"}`)
+	h.Quiesce()
+
+	live := getAgentChat(t, h, repoBase(imported), chatID)
+	require.NotEmpty(t, live.LiveRunnerID, "precondition: the chat has a live runner to close")
+
+	resp := h.raw(http.MethodPost, repoBase(imported)+"/chats/"+chatID+"/close", nil, http.StatusAccepted)
+	_ = resp.Body.Close()
+	h.Quiesce()
+
+	post := getAgentChat(t, h, repoBase(imported), chatID)
+	assert.Empty(t, post.LiveRunnerID, "closing the view must leave no runner on the chat")
+	assert.Equal(t, []string{"sess-close-1"}, post.sessionIDs(), "a close ends the process, never the conversation")
+}

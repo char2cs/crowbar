@@ -2,8 +2,7 @@ package provider
 
 import (
 	"context"
-	"fmt"
-	"os"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -228,7 +227,7 @@ func (e *providerEngine) pollOnce(
 
 	pr, prErr := prov.PullRequestForBranch(ctx, repoPath, branch)
 	if prErr != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "provider: pr lookup for %s: %v\n", branch, prErr)
+		slog.DebugContext(ctx, "provider: pr lookup failed", "component", "provider", "branch", branch, "err", prErr)
 	}
 
 	return ProviderState{

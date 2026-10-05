@@ -284,6 +284,13 @@ func (stubUsecase) StopChat(
 	return nil
 }
 
+func (stubUsecase) CloseChat(
+	_ context.Context,
+	_ string,
+) error {
+	return nil
+}
+
 func (stubUsecase) SwitchToTerminal(
 	_ context.Context,
 	_ string,
