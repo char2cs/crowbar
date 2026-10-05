@@ -64,7 +64,7 @@ func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Ru
 	if err != nil {
 		slog.WarnContext(ctx, "agent: stop: read turn state (assuming idle)", "chat_id", chatID, "err", err)
 	}
-	if !gentle || !open || !rs.interruptTurn(ctx, live) {
+	if !gentle || !open || !rs.interruptTurn(ctx, live) || !rs.turnEndedAfterInterrupt(ctx, chatID) {
 		rs.retire(ctx, live)
 		rs.noteChatExit(ctx, chatID, domain.AgentExitStopped)
 	}
@@ -74,6 +74,16 @@ func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Ru
 	if err := rs.turns.RecordStop(ctx, chatID, live.ID); err != nil {
 		slog.WarnContext(ctx, "agent: stop: record interruption", "chat_id", chatID, "err", err)
 	}
+}
+
+// turnEndedAfterInterrupt waits, bounded, for the chat to go idle once an
+// interrupt was answered. A provider with no live turn answers at once, so the
+// reply alone does not prove the turn Crowbar still counts as open has ended;
+// when it never does, the caller retires the runner.
+func (rs *Runners) turnEndedAfterInterrupt(ctx context.Context, chatID string) bool {
+	waitCtx, cancel := context.WithTimeout(ctx, rs.interruptBound())
+	defer cancel()
+	return rs.turns.AwaitTurnComplete(waitCtx, chatID) == nil
 }
 
 // interruptEvent is the canonical outbound event a provider declares when
