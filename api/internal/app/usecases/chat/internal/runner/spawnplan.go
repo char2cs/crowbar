@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/char2cs/crowbar/api/internal/core/config"
@@ -108,12 +109,22 @@ func (rs *Runners) cwdWorkspaceID(
 	return ancestor, nil
 }
 
+// canonicalDir is dir with symlinks resolved, or dir itself when it cannot be.
+// A provider keys its folder trust on the canonical path, so a symlinked
+// worktree would otherwise park the CLI on a trust prompt.
+func canonicalDir(dir string) string {
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		return resolved
+	}
+	return dir
+}
+
 func (rs *Runners) renderSpawnContext(
 	in spawnContext,
 ) (engineagents.TemplateCtx, bool) {
 	tctx := engineagents.TemplateCtx{
 		Tmp:         in.tmpDir,
-		Cwd:         in.worktree,
+		Cwd:         canonicalDir(in.worktree),
 		CrowbarHook: rs.crowbarHookPath(in.crowbarHome),
 		CrowbarHome: in.crowbarHome,
 		Segid:       in.runnerID,
