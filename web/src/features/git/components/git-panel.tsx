@@ -4,7 +4,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/utils/cn'
 import { openBranchReviewForWorkspace } from '@/features/panes/utils/pane-command-actions'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { useGitStore } from '@/features/git/stores/git-store'
+import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
 import {
   hasRepoWorkspace,
   useFocusedWorkspaceContextStore,
@@ -28,7 +28,7 @@ export function GitPanel() {
   const wsId = useFocusedWorkspaceContextStore((s) => (hasRepoWorkspace(s) ? s.workspaceId : null))
 
   // Narrow selectors: pull only the fields we need from each store.
-  const gitStatus = useGitStore((s) => s.gitStatus)
+  const gitStatus = useWorkspaceStoreById(wsId ?? '', (s) => s.gitStatus)
 
   // Active workspace metadata from sidebar store (canMergeLocally, parentBranch, status).
   const activeWs = useSidebarStore((s) => {

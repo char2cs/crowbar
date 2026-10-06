@@ -3,12 +3,11 @@ import { useCallback, useMemo } from 'react'
 import {
   createFileTreeGitStatusLookup,
   getFileTreeEntryGitStatusDecoration,
-  resolveActiveWorkspaceGitStatus,
   type FileTreeGitStatusDecoration,
 } from '@/features/file-explorer/lib/file-tree-git-status'
 import { collectGitIgnoreFileReferences } from '@/features/file-explorer/lib/file-tree-gitignore'
 import type { FileEntry } from '@/features/file-system/types/app'
-import { useGitStore } from '@/features/git/stores/git-store'
+import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
 import { useSettingsStore } from '@/features/settings/store'
 import { frontendTrace } from '@/utils/frontend-trace'
 import { getRelativePath, pathStartsWithRoot } from '@/utils/path-helpers'
@@ -37,8 +36,7 @@ export function useFilteredFileTree({
   const showHidden = useSettingsStore((s) => s.settings.showHiddenFilesInFileTree)
   const showGitignored = useSettingsStore((s) => s.settings.showGitignoredFilesInFileTree)
   const showGitStatus = useSettingsStore((s) => s.settings.showGitStatusInFileTree)
-  const workspaceGitStatus = useGitStore((state) => state.workspaceGitStatus)
-  const currentWorkspaceRepoPath = useGitStore((state) => state.currentWorkspaceRepoPath)
+  const gitStatus = useWorkspaceStoreById(workspaceId ?? '', (s) => s.workspaceGitStatus)
 
   const userIgnore = useMemo(() => {
     const ig = ignore()
@@ -113,15 +111,6 @@ export function useFilteredFileTree({
     })
     return result
   }, [files, isGitIgnored, isUserHidden, showGitignored, showHidden])
-
-  // The git store keys workspaceGitStatus by the wsId it loaded
-  // (currentWorkspaceRepoPath). rootFolderPath is the synthetic `/repos/<repoId>`
-  // mock-era prefix (a different id space), so it cannot be the match key.
-  const gitStatus = resolveActiveWorkspaceGitStatus(
-    workspaceGitStatus,
-    currentWorkspaceRepoPath,
-    workspaceId,
-  )
 
   const gitStatusDecorationLookup = useMemo(() => {
     if (!gitStatus || !showGitStatus) return null

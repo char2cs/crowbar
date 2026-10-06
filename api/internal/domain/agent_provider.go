@@ -39,7 +39,10 @@ type AgentProvider struct {
 
 	// Hotswap and HasTerminal are engine.Capabilities.Hotswap/.HasTerminal,
 	// carried through unchanged — see there for what each means.
-	Hotswap     bool
+	Hotswap bool
+	// PromptSteer is engine.Capabilities.PromptSteer: a message sent mid-turn is
+	// accepted and delivered into the running turn, so a client need not wait.
+	PromptSteer bool
 	HasTerminal bool
 
 	// TerminalStartHere is engine.Capabilities.TerminalStartHere, carried

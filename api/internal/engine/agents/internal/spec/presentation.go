@@ -41,6 +41,18 @@ type PromptSubmitSpec struct {
 	Fresh         []InjectStep       `yaml:"fresh"`
 	Resume        []InjectStep       `yaml:"resume"`
 	LeadingSigils *LeadingSigilsSpec `yaml:"leading_sigils"`
+	Steer         *SteerSpec         `yaml:"steer"`
+}
+
+// SteerSpec declares that a message sent while a turn is running can ride the
+// CLI's own turn-end hook instead of restarting it. Frame wraps the text
+// ({message} once); Reply is the hook stdout carrying it ({message_json} once,
+// replaced by the framed text as a JSON string). A message opening with one of
+// SkipPrefixes is a command, not text, and is never steered.
+type SteerSpec struct {
+	SkipPrefixes []string `yaml:"skip_prefixes"`
+	Frame        string   `yaml:"frame"`
+	Reply        string   `yaml:"reply"`
 }
 
 // LeadingSigilsSpec names the characters this CLI reads as a CONTROL gesture

@@ -466,3 +466,43 @@ func TestLedger_NilLedgerIsSilent(t *testing.T) {
 	d.Abandon(context.Background(), "delivery-1")
 	d.ReleaseRunner(context.Background(), "runner-1")
 }
+
+func TestWithChange_AnnouncesEachMoveOfTheAnswerableSetAfterTheLockIsReleased(t *testing.T) {
+	t.Parallel()
+
+	var d *answerdesk.Desk
+	var announced []string
+	d = answerdesk.New(answerdesk.DefaultRetention, nil, answerdesk.WithChange(func(chatID string) {
+		// Reading the desk back would deadlock if it were announced under its lock.
+		_ = d.AnswerableIDs(chatID, nil)
+		announced = append(announced, chatID)
+	}))
+
+	slot := d.Hold("delivery-1", answerdesk.Prompt{ChoiceID: "choice-1", ChatID: "chat-1"})
+	d.Resolve(slot, []byte("allow"))
+	other := d.Hold("delivery-2", answerdesk.Prompt{ChoiceID: "choice-2", ChatID: "chat-2"})
+	d.Discard(other)
+
+	assert.Equal(t, []string{"chat-1", "chat-1", "chat-2", "chat-2"}, announced)
+}
+
+func TestWithChange_AReleasedRelayAndADeadRunnerAreAnnounced(t *testing.T) {
+	t.Parallel()
+
+	var announced []string
+	d := answerdesk.New(answerdesk.DefaultRetention, nil, answerdesk.WithChange(func(chatID string) {
+		announced = append(announced, chatID)
+	}))
+	d.Hold("delivery-1", answerdesk.Prompt{
+		ChoiceID: "choice-1", ChatID: "chat-1", RunnerID: "runner-1",
+		Keys: engineagents.AnswerCapability{Wait: time.Millisecond},
+	})
+	d.Hold("delivery-2", answerdesk.Prompt{ChoiceID: "choice-2", ChatID: "chat-2", RunnerID: "runner-2"})
+	announced = nil
+
+	_, err := d.Await(context.Background(), "delivery-1")
+	require.NoError(t, err)
+	d.ReleaseRunner(context.Background(), "runner-2")
+
+	assert.Equal(t, []string{"chat-1", "chat-2"}, announced)
+}

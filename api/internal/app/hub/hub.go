@@ -2,6 +2,7 @@ package hub
 
 import (
 	"sync"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -163,11 +164,12 @@ func (h *Hub) BroadcastAgentChatMessageDelta(
 	messageID string,
 	text string,
 	kind string,
+	startedAt time.Time,
 ) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for _, s := range h.subscribers {
-		s.PushAgentChatMessageDelta(chatID, workspaceID, messageID, text, kind)
+		s.PushAgentChatMessageDelta(chatID, workspaceID, messageID, text, kind, startedAt)
 	}
 }
 
@@ -224,6 +226,21 @@ func (h *Hub) BroadcastAgentChatCompaction(
 	defer h.mu.RUnlock()
 	for _, s := range h.subscribers {
 		s.PushAgentChatCompaction(chatID, workspaceID, active)
+	}
+}
+
+// BroadcastAgentChatChoices fans the whole set of prompts a chat is blocked on
+// out on the same workspace-scoped feed, so a card appears and clears when the
+// daemon's record moves instead of when a client next reads it.
+func (h *Hub) BroadcastAgentChatChoices(
+	chatID string,
+	workspaceID string,
+	choices []dto.AgentChoiceDTO,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushAgentChatChoices(chatID, workspaceID, choices)
 	}
 }
 

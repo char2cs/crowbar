@@ -1,0 +1,18 @@
+{
+ "session_id": "68a2773c-78c5-4edd-b4fe-bf5bd1309895",
+ "transcript_path": "/h/.claude/projects/-ws/68a2773c-78c5-4edd-b4fe-bf5bd1309895.jsonl",
+ "cwd": "/ws",
+ "prompt_id": "b73e6e69-1815-4901-ab94-ad9c84278ff7",
+ "permission_mode": "auto",
+ "agent_id": "ab4cc48a249f95c21",
+ "agent_type": "",
+ "effort": {
+  "level": "medium"
+ },
+ "hook_event_name": "SubagentStop",
+ "stop_hook_active": false,
+ "agent_transcript_path": "/h/.claude/projects/-ws/68a2773c-78c5-4edd-b4fe-bf5bd1309895.jsonl",
+ "last_assistant_message": "Is the second agent done yet?",
+ "background_tasks": [],
+ "session_crons": []
+}

@@ -21,10 +21,11 @@ type BindSession struct {
 	// Model and Effort are what the provider's OWN session-start payload
 	// reported, when its descriptor maps one (e.g. claude.yaml's session_start
 	// -> model) — the one moment some CLIs ever say which concrete model they
-	// resolved to, since none expose it queryable afterwards. Empty means the
-	// provider's hook carries none; the aggregate's existing LaunchModel/
-	// LaunchEffort (set at spawn, possibly "" for "provider's own default")
-	// are left untouched rather than being clobbered blank.
+	// resolved to, since none expose it queryable afterwards. Recorded as
+	// ReportedModel/ReportedEffort, never over LaunchModel/LaunchEffort: those
+	// are what Crowbar asked for, the only thing a selection can be compared
+	// with. Empty means the provider's hook carries none; the existing report
+	// is left untouched rather than being clobbered blank.
 	Model  string
 	Effort string
 }
@@ -58,10 +59,10 @@ func (c BindSession) EmitEvent(current *agents.Runner) agents.Runner {
 	next.CurrentSessionSince = c.Now
 	next.CurrentSessionResumable = c.Resumable
 	if c.Model != "" {
-		next.LaunchModel = c.Model
+		next.ReportedModel = c.Model
 	}
 	if c.Effort != "" {
-		next.LaunchEffort = c.Effort
+		next.ReportedEffort = c.Effort
 	}
 	return next
 }

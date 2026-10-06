@@ -1,0 +1,15 @@
+{
+ "session_id": "68a2773c-78c5-4edd-b4fe-bf5bd1309895",
+ "transcript_path": "/h/.claude/projects/-ws/68a2773c-78c5-4edd-b4fe-bf5bd1309895.jsonl",
+ "cwd": "/ws",
+ "prompt_id": "bfbceb05-8583-4143-8108-046be645e2c6",
+ "permission_mode": "auto",
+ "effort": {
+  "level": "medium"
+ },
+ "hook_event_name": "Stop",
+ "stop_hook_active": false,
+ "last_assistant_message": "Agent 1: a.txt contains \"alpha\" (one line), and `echo hi` printed \"hi\".\n\nThe second agent hasn't reported yet.",
+ "background_tasks": [],
+ "session_crons": []
+}

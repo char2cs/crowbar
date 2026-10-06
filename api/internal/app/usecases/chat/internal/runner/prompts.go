@@ -80,6 +80,12 @@ func (rs *Runners) submitPromptLocked(
 		return domain.AgentPromptSubmission{}, err
 	}
 
+	if submission, handled, steerErr := rs.submitPromptSteered(
+		ctx, chat, journalDir, clientRequestID, textHash, live, descriptor, text,
+	); handled {
+		return submission, steerErr
+	}
+
 	if err := rs.requirePromptIdle(ctx, chatID, live.ID); err != nil {
 		return domain.AgentPromptSubmission{}, err
 	}
@@ -215,20 +221,10 @@ func (rs *Runners) submitPromptOverAPI(
 		return domain.AgentPromptSubmission{}, false, nil
 	}
 
-	prior, existingAttempt, err := rs.prompts.Begin(
-		journalDir, clientRequestID, text, textHash, live.ProviderID, live.ID, live.ID, time.Now(),
-	)
-	if err != nil {
-		return domain.AgentPromptSubmission{}, true, fmt.Errorf(
-			"agent: submit prompt: begin durable dispatch: %w", promptJournalError(err),
-		)
-	}
-	if existingAttempt {
-		result, done, classifyErr := rs.classifyPriorAttempt(ctx, chat, journalDir, clientRequestID, prior)
-		if done {
-			return result, true, classifyErr
-		}
-		return domain.AgentPromptSubmission{}, true, ErrPromptOutcomeUnknown
+	if submission, done, beginErr := rs.beginLiveDelivery(
+		ctx, chat, journalDir, clientRequestID, textHash, live, text,
+	); done {
+		return submission, true, beginErr
 	}
 
 	// A COPY of text for dispatch — the durable ledger text is never mutated.

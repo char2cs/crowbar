@@ -8,6 +8,21 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Written every frame of a drag and read only by the element that sets it. Registered
+   as non-inherited so a write restyles that element, not its whole subtree (9ms vs 1ms
+   per frame on the sidebar drag). */
+@property --sidebar-track-width {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --console-size {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
 /* Deliberately outside every @layer: cascade layers invert !important
    precedence (an unlayered !important beats a layered one), so this has to
    stay unlayered to override every Tailwind utility transition/animation
@@ -141,6 +156,17 @@ html[data-pane-resizing] .agent-chat .dissolve-layer {
      same sash drag from 49.8fps to ~71fps. */
   mask-image: none !important;
   -webkit-mask-image: none !important;
+}
+
+/* The sidebar band's grain is an feTurbulence SVG that WebKit re-renders on every frame
+   of a pane drag (86fps -> 114fps measured). A rasterised copy of the same tile stands in
+   for the span of the drag only, so resting pixels are untouched. */
+html[data-pane-resizing] [data-band-grain] {
+  background-image: image-set(
+    url('./assets/band-grain.png') 1x,
+    url('./assets/band-grain@2x.png') 2x
+  ) !important;
+  background-size: 200px 200px !important;
 }
 
 /* Nothing is selectable while a row is in the air.

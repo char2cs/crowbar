@@ -47,13 +47,9 @@ const HOME_MATCH = { params: { projectId: 'p1' } }
 vi.mock('@/components/error-boundary', () => ({
   ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
-vi.mock('@/features/file-system/controllers/store', () => ({
-  useFileSystemStore: Object.assign(
-    (sel: (state: unknown) => unknown) =>
-      sel({ files: [], handleFileOpen: null, handleFileSelect: null }),
-    { use: { handleFileOpen: () => null, handleFileSelect: () => null } },
-  ),
-}))
+// The workspace store graph now reaches the toast manager, whose icons the
+// phosphor stub below does not provide.
+vi.mock('@/lib/toast-manager', () => ({ toastManager: { add: vi.fn() } }))
 vi.mock('@/features/file-explorer/stores/file-explorer-tree-store', () => ({
   useFileTreeStore: { getState: () => ({ toggleFolder: vi.fn() }) },
 }))

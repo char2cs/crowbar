@@ -17,7 +17,12 @@ pub fn accelerator_for(chord: &str) -> Option<String> {
     let mut parts: Vec<&str> = Vec::new();
     let (mut modifier, mut shift, mut alt) = (false, false, false);
     let mut key: Option<String> = None;
-    for part in chord.trim().split('+').map(str::trim).filter(|p| !p.is_empty()) {
+    for part in chord
+        .trim()
+        .split('+')
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+    {
         match part.to_lowercase().as_str() {
             "mod" | "cmd" | "ctrl" | "control" | "meta" => modifier = true,
             "shift" => shift = true,
@@ -64,9 +69,7 @@ fn menu_key(key: &str) -> Option<String> {
 }
 
 #[cfg(target_os = "macos")]
-pub fn menu_item(
-    app: &tauri::AppHandle,
-) -> tauri::Result<tauri::menu::MenuItem<tauri::Wry>> {
+pub fn menu_item(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::MenuItem<tauri::Wry>> {
     tauri::menu::MenuItemBuilder::new("Toggle Console")
         .id(CONSOLE_MENU_ID)
         .build(app)
@@ -100,7 +103,8 @@ pub fn set_console_menu_chord(app: tauri::AppHandle, chord: Option<String>) -> R
             .and_then(|kind| kind.as_submenu().and_then(|sub| sub.get(CONSOLE_MENU_ID)))
             .and_then(|kind| kind.as_menuitem().cloned())
             .ok_or_else(|| "console menu item is not built".to_string())?;
-        item.set_accelerator(accelerator).map_err(|e| e.to_string())?;
+        item.set_accelerator(accelerator)
+            .map_err(|e| e.to_string())?;
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (app, chord);
@@ -118,8 +122,14 @@ mod tests {
 
     #[test]
     fn maps_modifier_order_letters_and_named_keys() {
-        assert_eq!(accelerator_for("mod+shift+alt+j").as_deref(), Some("CmdOrCtrl+Shift+Alt+J"));
-        assert_eq!(accelerator_for("alt+arrowleft").as_deref(), Some("Alt+Left"));
+        assert_eq!(
+            accelerator_for("mod+shift+alt+j").as_deref(),
+            Some("CmdOrCtrl+Shift+Alt+J")
+        );
+        assert_eq!(
+            accelerator_for("alt+arrowleft").as_deref(),
+            Some("Alt+Left")
+        );
     }
 
     #[test]

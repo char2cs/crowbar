@@ -26,15 +26,20 @@ use crate::sidecar::SidecarHandle;
 const PROXY_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Connect attempts for an idempotent read that cannot reach the daemon, with
-/// the backoff of `connect_retry_delay` between them (~4.5s in total). This is
-/// the desktop's copy of the cold-start retry in web/src/lib/api.ts, which only
+/// the schedule of `connect_retry_delay` between them (~4.5s in total). This is
+/// the desktop's cold-start analogue of the retry in web/src/lib/api.ts, which only
 /// fires when `fetch` REJECTS: over the vite transport a connect refused does
 /// exactly that, but through this proxy it used to become a real HTTP 502, which
 /// the frontend rightly treats as a terminal daemon answer. The window is real —
 /// `socket_path` is published before the daemon has bound, and a watchdog respawn
 /// leaves it published while nothing listens — so the transport retries here,
 /// where the transport is.
-const CONNECT_ATTEMPTS: u32 = 8;
+///
+/// The first second polls every 25ms so a daemon that binds within a few
+/// hundred ms is reached promptly; the exponential tail covers a slow start.
+const CONNECT_ATTEMPTS: u32 = CONNECT_FAST_STEPS + 7;
+const CONNECT_FAST_STEPS: u32 = 40;
+const CONNECT_FAST_DELAY: Duration = Duration::from_millis(25);
 const CONNECT_RETRY_BASE: Duration = Duration::from_millis(100);
 const CONNECT_RETRY_CAP: Duration = Duration::from_secs(1);
 
@@ -61,7 +66,11 @@ fn daemon_unavailable(msg: &str) -> http::Response<Vec<u8>> {
 }
 
 fn connect_retry_delay(attempt: u32) -> Duration {
-    (CONNECT_RETRY_BASE * 2u32.pow(attempt.saturating_sub(1))).min(CONNECT_RETRY_CAP)
+    if attempt <= CONNECT_FAST_STEPS {
+        return CONNECT_FAST_DELAY;
+    }
+    let tail = attempt - CONNECT_FAST_STEPS - 1;
+    (CONNECT_RETRY_BASE * 2u32.saturating_pow(tail.min(8))).min(CONNECT_RETRY_CAP)
 }
 
 /// Mirrors api.ts `isIdempotentRead`: mutations are never replayed.
@@ -238,12 +247,14 @@ mod tests {
     }
 
     #[test]
-    fn connect_retry_delay_matches_the_web_schedule() {
-        assert_eq!(connect_retry_delay(1), Duration::from_millis(100));
-        assert_eq!(connect_retry_delay(2), Duration::from_millis(200));
-        assert_eq!(connect_retry_delay(4), Duration::from_millis(800));
-        assert_eq!(connect_retry_delay(5), Duration::from_secs(1));
-        assert_eq!(connect_retry_delay(8), Duration::from_secs(1));
+    fn connect_retry_delay_polls_fast_then_backs_off_within_the_window() {
+        assert_eq!(connect_retry_delay(1), Duration::from_millis(25));
+        assert_eq!(connect_retry_delay(40), Duration::from_millis(25));
+        assert_eq!(connect_retry_delay(41), Duration::from_millis(100));
+        assert_eq!(connect_retry_delay(44), Duration::from_millis(800));
+        assert_eq!(connect_retry_delay(45), Duration::from_secs(1));
+        let total: Duration = (1..CONNECT_ATTEMPTS).map(connect_retry_delay).sum();
+        assert_eq!(total, Duration::from_millis(4500));
     }
 
     // Regression: a GET issued while the daemon is still binding (or mid-respawn)

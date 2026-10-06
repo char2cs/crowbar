@@ -7,7 +7,9 @@ import {
   listProviders,
   listChatFolders,
   mapChat,
+  mapChoice,
   type AgentChat,
+  type AgentChoice,
   type AgentTelemetry,
 } from '@/features/agent/api/agent-api'
 import {
@@ -66,7 +68,7 @@ function providerOn(st: WorkspaceSnapshot, chatId: string): string {
 // guesses from the kind, and never orders reads by when it asked.
 //
 // The frames that carry NO snapshot are the live views of a turn in progress
-// (message_delta, plan, telemetry, compaction_*, prompt_settled), the worktree
+// (message_delta, plan, telemetry, choice, compaction_*, prompt_settled), the worktree
 // state, the folder frames, and the delete (which carries only its version).
 interface AgentStreamEvent {
   /** The chat the frame is about. */
@@ -89,11 +91,14 @@ interface AgentStreamEvent {
   /** An assistant message still being produced, on `message_delta` — the text
    *  SO FAR. `kind` is absent for the answer, `reasoning` for a thought,
    *  `tool_output` for a running tool's output. */
-  message?: { id: string; text: string; kind?: string }
+  message?: { id: string; text: string; kind?: string; startedAt?: string }
   /** The agent's own running to-do list, on `plan` — always the whole list. */
   plan?: { text: string; status: string }[]
   /** The provider's newest usage report, on `telemetry`. */
   telemetry?: AgentTelemetry
+  /** Every prompt the chat is blocked on, on `choice` — whole, and absent once
+   *  none is. A socket's first frames restate each chat already waiting. */
+  choices?: AgentChoice[]
 }
 
 /**
@@ -353,6 +358,9 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
         // client never heard about, and nothing else would ever ask again.
         void seedFolders()
         bumpTreeSignal()
+        // A prompt that resolved during the outage was never announced; the new
+        // socket's first frames restate the ones still pending.
+        stateOf().resetAgentChatChoices()
         // The outage that dropped the socket is the same one that can have
         // emptied the providers, and this is the signal the daemon is back.
         void seedProviders()
@@ -419,6 +427,9 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           return
         case 'telemetry':
           st.setAgentChatTelemetry(ev.chatId, ev.telemetry ?? null)
+          return
+        case 'choice':
+          st.setAgentChatChoices(ev.chatId, (ev.choices ?? []).map(mapChoice))
           return
         case 'compaction_started':
           // The ledger's own record of a compaction is born resolved, so this

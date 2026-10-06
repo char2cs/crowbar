@@ -132,6 +132,11 @@ type Agent interface {
 	// Empty chars for a provider that declares none.
 	PromptLeadingSigils() (chars []string, escape string)
 
+	// PromptSteer renders text as the turn-end hook stdout that delivers it
+	// into a RUNNING turn (presentation.prompt_submit.steer); ok is false when
+	// the provider declares none or text is a command the descriptor excludes.
+	PromptSteer(text string) (stdout string, ok bool)
+
 	ContextSteps(resuming bool) []InjectStep
 
 	ResumeArg() (string, bool)
@@ -466,6 +471,7 @@ func (a *agent) Capabilities() Capabilities {
 	if ps := a.spec.Presentation.PromptSubmit; ps != nil {
 		caps.PromptSubmit = true
 		caps.Delivery = ps.Strategy
+		caps.PromptSteer = ps.Steer != nil
 	}
 	return caps
 }

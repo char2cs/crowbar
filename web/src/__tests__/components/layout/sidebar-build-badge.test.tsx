@@ -1,4 +1,4 @@
-import { fireEvent, render } from '@testing-library/react'
+import { act, fireEvent, render } from '@testing-library/react'
 import { describe, it, expect, beforeEach } from 'vitest'
 
 let buildBadgeOverride: string = 'auto'
@@ -109,21 +109,44 @@ describe('SidebarBuildBadgeBand', () => {
     }
   })
 
-  // The decorative art is authored right-biased and the fade authored
-  // fading out to the right — both correct only when the badge text (the
-  // true window-border edge) is on this bar's own right, i.e. align="end".
-  // On the left (sidebar on the left), both must mirror, or the art lands
-  // behind the back/forward/panel-toggle cluster instead of the window edge.
-  it('mirrors the decorative art for align="start", leaves it unmirrored for align="end" (default)', () => {
+  // The photo is authored with the badge text on its right; on a left-hand
+  // sidebar it must mirror so it hugs the window edge, not the button cluster.
+  it('mirrors the sky photo for align="start", leaves it unmirrored for align="end" (default)', () => {
     buildBadgeOverride = 'nightly'
-    document.documentElement.classList.add('dark')
     const { container, rerender } = render(<SidebarBuildBadgeBand />)
-    const artEnd = container.querySelector('svg')?.parentElement as HTMLElement
+    const artEnd = container.querySelector('img')?.parentElement as HTMLElement
     expect(artEnd.style.transform).toBe('')
 
     rerender(<SidebarBuildBadgeBand align="start" />)
-    const artStart = container.querySelector('svg')?.parentElement as HTMLElement
+    const artStart = container.querySelector('img')?.parentElement as HTMLElement
     expect(artStart.style.transform).toBe('scaleX(-1)')
+  })
+
+  it('shows the halftone sky in light and the star field in dark, from the real theme class', async () => {
+    buildBadgeOverride = 'nightly'
+    const { container } = render(<SidebarBuildBadgeBand />)
+    expect(container.querySelector('img')?.getAttribute('data-band-photo')).toBe('light')
+
+    await act(async () => {
+      document.documentElement.classList.add('dark')
+    })
+    expect(container.querySelector('img')?.getAttribute('data-band-photo')).toBe('dark')
+  })
+
+  it('lazy-decodes the photo so it never blocks boot', () => {
+    buildBadgeOverride = 'nightly'
+    const { container } = render(<SidebarBuildBadgeBand />)
+    const img = container.querySelector('img') as HTMLImageElement
+    expect(img.getAttribute('loading')).toBe('lazy')
+    expect(img.getAttribute('decoding')).toBe('async')
+  })
+
+  it('draws no photo for the dev and beta channels', () => {
+    for (const channel of ['dev', 'beta']) {
+      buildBadgeOverride = channel
+      const { container } = render(<SidebarBuildBadgeBand />)
+      expect(container.querySelector('img')).toBeNull()
+    }
   })
 
   it('stays opaque at the text/window-edge side (align) and fades toward the opposite (button) side', () => {

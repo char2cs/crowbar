@@ -40,11 +40,11 @@ func (w chatWorktrees) ListInRepo(
 	return w.app.Repositories.ListWorkspacesInRepo(ctx, projectID, repoID)
 }
 
-// MergeEligibilityFor implements chathandlers.Worktrees.
-func (w chatWorktrees) MergeEligibilityFor(
+// MergeEligibilitiesFor implements chathandlers.Worktrees.
+func (w chatWorktrees) MergeEligibilitiesFor(
 	ctx context.Context,
-	ws domain.Workspace,
+	wss []domain.Workspace,
 	siblings []domain.Workspace,
-) workspace.MergeEligibility {
-	return w.app.Usecases.Workspace.MergeEligibilityFor(ctx, ws, siblings)
+) []workspace.MergeEligibility {
+	return w.app.Usecases.Workspace.MergeEligibilitiesFor(ctx, wss, siblings)
 }

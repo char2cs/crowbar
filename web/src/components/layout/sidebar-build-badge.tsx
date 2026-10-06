@@ -4,6 +4,10 @@ import type { BuildChannel, BuildInfo } from '@/lib/build-info'
 import { useSettingsStore } from '@/features/settings/store'
 import { useConsoleStore } from '@/features/console/stores/console-store'
 import { cn } from '@/utils/cn'
+import skyUrl from '@/assets/band-sky.png'
+import nightUrl from '@/assets/band-night.png'
+import grainUrl from '@/assets/band-grain.png'
+import grain2xUrl from '@/assets/band-grain@2x.png'
 
 // Same MutationObserver-on-`.dark`-class pattern as
 // features/editor/markdown/plate/mermaid-theme.ts's useMermaidThemeVersion —
@@ -69,7 +73,7 @@ function formatTimestamp(iso?: string): string {
 
 const TITLE_COLOR: Record<Exclude<BuildChannel, 'release'>, { dark: string; light: string }> = {
   dev: { dark: '#8fb0f2', light: '#3E5CB8' },
-  nightly: { dark: '#7DD3FC', light: '#0369A1' },
+  nightly: { dark: '#7DD3FC', light: '#FFFFFF' },
   beta: { dark: '#FBBF24', light: '#B45309' },
 }
 
@@ -110,41 +114,59 @@ function DevTraces() {
   )
 }
 
-function NightSky() {
-  return (
-    <svg width="256" height="44" viewBox="0 0 256 44" className="absolute inset-0">
-      <circle cx={230} cy={10} r={1.1} fill="#ffffff" opacity={0.85} />
-      <circle cx={206} cy={28} r={0.9} fill="#ffffff" opacity={0.7} />
-      <circle cx={188} cy={9} r={0.7} fill="#ffffff" opacity={0.6} />
-      <circle cx={150} cy={32} r={0.8} fill="#ffffff" opacity={0.65} />
-      <circle cx={122} cy={8} r={0.9} fill="#ffffff" opacity={0.7} />
-      <circle cx={96} cy={27} r={0.7} fill="#ffffff" opacity={0.55} />
-      <circle cx={241} cy={33} r={0.7} fill="#ffffff" opacity={0.55} />
-      <path
-        d="M173 6 L174 10.2 L178.2 11.2 L174 12.2 L173 16.4 L172 12.2 L167.8 11.2 L172 10.2 Z"
-        fill="#ffffff"
-        opacity={0.9}
-      />
-    </svg>
-  )
+// Halftone sky (light) / star field (dark), screened offline; the dark one is
+// white dots on transparent so the sidebar ground shows through.
+const GRAIN =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E\")"
+
+// While a pane is being dragged, index.css swaps GRAIN for this rasterised copy: WebKit
+// re-renders the SVG filter on every resize frame. Fetched now so the swap never loads.
+if (typeof Image !== 'undefined') {
+  new Image().src = window.devicePixelRatio >= 1.5 ? grain2xUrl : grainUrl
 }
 
-function DaySky() {
+const PHOTO = {
+  light: {
+    src: skyUrl,
+    base: '#24395f',
+    scrim: '#24395f',
+    crop: { right: 0, top: -104 },
+  },
+  dark: {
+    src: nightUrl,
+    base: 'transparent',
+    scrim: '#212121',
+    crop: { left: 0, top: -60 },
+  },
+} as const
+
+function BandPhoto({ isDark }: { isDark: boolean }) {
+  const { src, scrim, crop } = PHOTO[isDark ? 'dark' : 'light']
   return (
-    <svg width="256" height="44" viewBox="0 0 256 44" className="absolute inset-0">
-      <g fill="#ffffff" opacity={0.75}>
-        <ellipse cx={228} cy={35} rx={13} ry={6} />
-        <circle cx={220} cy={31} r={6.5} />
-        <circle cx={230} cy={28} r={7.5} />
-        <circle cx={239} cy={32} r={6} />
-      </g>
-      <g fill="#ffffff" opacity={0.5}>
-        <ellipse cx={196} cy={30} rx={9} ry={4.5} />
-        <circle cx={190} cy={27.5} r={4.5} />
-        <circle cx={198} cy={25.5} r={5.5} />
-        <circle cx={204} cy={28.5} r={4} />
-      </g>
-    </svg>
+    <>
+      <img
+        src={src}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        draggable={false}
+        data-band-photo={isDark ? 'dark' : 'light'}
+        className="absolute max-w-none select-none"
+        style={{ width: 640, height: 272, ...crop }}
+      />
+      <div
+        data-band-grain=""
+        className="absolute inset-0 opacity-10 mix-blend-multiply"
+        style={{ background: GRAIN }}
+      />
+      {/* Flat deep ground under the label so it reads over the dots. */}
+      <div
+        className="absolute inset-0"
+        style={{
+          background: `linear-gradient(to right, transparent 25%, ${scrim} 50%, ${scrim} 68%, transparent 92%)`,
+        }}
+      />
+    </>
   )
 }
 
@@ -184,11 +206,19 @@ export function SidebarBuildBadgeBand({
   const fadeToward = align === 'end' ? 'right' : 'left'
 
   return (
-    <div className={className} aria-hidden="true">
+    <div
+      className={className}
+      aria-hidden="true"
+      data-slot="build-badge-band"
+      data-channel={info.channel}
+    >
       <div
         className="absolute inset-0"
         style={{
-          background: bandBackground(info.channel, isDark),
+          background:
+            info.channel === 'nightly'
+              ? PHOTO[isDark ? 'dark' : 'light'].base
+              : bandBackground(info.channel, isDark),
           // Fades OUT toward the button cluster's side, staying fully
           // opaque at the badge-text/window-edge side — this is the band's
           // own gradient/pattern fill, not just the decorative art above
@@ -197,24 +227,25 @@ export function SidebarBuildBadgeBand({
           // edge — X must be the text side (`fadeToward`), not its opposite
           // (caught live: had these swapped, which faded out the text side
           // and left the button side solid instead).
-          maskImage: `linear-gradient(to ${fadeToward}, transparent, black 65%)`,
-          WebkitMaskImage: `linear-gradient(to ${fadeToward}, transparent, black 65%)`,
+          maskImage: `linear-gradient(to ${fadeToward}, transparent 40%, black 70%)`,
+          WebkitMaskImage: `linear-gradient(to ${fadeToward}, transparent 40%, black 70%)`,
         }}
-      />
+      >
+        {info.channel === 'nightly' && (
+          <div
+            className="pointer-events-none absolute inset-0 overflow-hidden"
+            style={align === 'start' ? { transform: 'scaleX(-1)' } : undefined}
+          >
+            <BandPhoto isDark={isDark} />
+          </div>
+        )}
+      </div>
       {info.channel === 'dev' && (
         <div
           className="pointer-events-none absolute inset-0 overflow-hidden"
           style={align === 'start' ? { transform: 'scaleX(-1)' } : undefined}
         >
           <DevTraces />
-        </div>
-      )}
-      {info.channel === 'nightly' && (
-        <div
-          className="pointer-events-none absolute inset-0 overflow-hidden"
-          style={align === 'start' ? { transform: 'scaleX(-1)' } : undefined}
-        >
-          {isDark ? <NightSky /> : <DaySky />}
         </div>
       )}
     </div>
@@ -241,6 +272,7 @@ export function SidebarBuildBadgeLabel({ align = 'start' }: { align?: 'start' | 
   const displayTitle = title === 'nightly' && !isDark ? 'daily' : title
   const subtitle = info.version ?? formatTimestamp(info.timestamp)
   const titleColor = title ? TITLE_COLOR[title][isDark ? 'dark' : 'light'] : undefined
+  const onSky = title === 'nightly' && !isDark
 
   return (
     <button
@@ -260,7 +292,14 @@ export function SidebarBuildBadgeLabel({ align = 'start' }: { align?: 'start' | 
         </span>
       )}
       {subtitle && (
-        <span className="text-[9.5px] font-medium text-muted-foreground">{subtitle}</span>
+        <span
+          className={cn(
+            'text-[9.5px] font-medium',
+            onSky ? 'text-white/85' : 'text-muted-foreground',
+          )}
+        >
+          {subtitle}
+        </span>
       )}
     </button>
   )

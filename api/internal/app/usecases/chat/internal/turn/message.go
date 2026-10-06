@@ -36,7 +36,7 @@ func (t *Turns) recordMessageDelta(
 	if t.feed.MessageDelta != nil {
 		// The empty kind is the ANSWER — the stream that existed before there was
 		// more than one, and the only one that is ever recorded.
-		t.feed.MessageDelta(chat.ID, chat.WorkspaceID, message.ID, message.Text, "")
+		t.feed.MessageDelta(chat.ID, chat.WorkspaceID, message.ID, message.Text, "", message.FirstAt)
 	}
 	// Hook processes race, so the closing increment can land before an earlier
 	// one: record once whole. The turn close records whatever is still partial.

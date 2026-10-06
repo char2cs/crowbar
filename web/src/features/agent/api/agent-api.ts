@@ -346,6 +346,11 @@ export interface AgentProvider {
    */
   hotswap: boolean
   /**
+   * A message sent while a turn runs is delivered INTO that turn by the daemon,
+   * so the composer need not hold it until the turn ends.
+   */
+  promptSteer?: boolean
+  /**
    * Whether a BRAND-NEW chat may be launched DIRECTLY onto this provider's
    * terminal surface, rather than reached only by switching to it after a
    * turn (design spec 2.5's `surfaces.terminal.start_here`). `hasTerminal`
@@ -748,7 +753,7 @@ export async function listChatActivity(
 // `answerable` in particular defaults FALSE: a daemon that does not send it is
 // one with no answer channel at all, and defaulting it true would draw buttons
 // that reach nobody — the single failure this field exists to prevent.
-function mapChoice(c: AgentChoice): AgentChoice {
+export function mapChoice(c: AgentChoice): AgentChoice {
   return {
     ...c,
     multi: c.multi ?? false,

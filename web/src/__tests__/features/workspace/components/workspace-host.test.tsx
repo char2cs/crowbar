@@ -4,8 +4,8 @@ import { render, act, cleanup } from '@testing-library/react'
 // Hoisted spies so the vi.mock factories (hoisted above imports) can capture them.
 // `events` records unmount/destroy interleaving: components living over the store
 // (Monaco panes, terminal slots) must be UNMOUNTED before the store is destroyed.
-const { hydrateSpy, destroySpy, events, registry, pinned, rendering, layoutMounts } = vi.hoisted(
-  () => {
+const { hydrateSpy, destroySpy, events, registry, pinned, rendering, layoutMounts, ambientSeen } =
+  vi.hoisted(() => {
     const events = [] as string[]
     const registry = new Map<string, { wsId: string }>()
     return {
@@ -13,6 +13,8 @@ const { hydrateSpy, destroySpy, events, registry, pinned, rendering, layoutMount
       registry,
       /** How many times the window's pane tree has been (re)mounted. */
       layoutMounts: { current: 0 },
+      /** The ambient store (by workspace id) each pane-tree render saw. */
+      ambientSeen: [] as Array<string | undefined>,
       /** Workspaces whose editor is still mounted into a pane (canEvict false). */
       pinned: new Set<string>(),
       /** Set while a WorkspaceView renders, to catch a mint in the render path. */
@@ -23,8 +25,7 @@ const { hydrateSpy, destroySpy, events, registry, pinned, rendering, layoutMount
         registry.delete(wsId)
       }),
     }
-  },
-)
+  })
 
 // Light WorkspaceView stub: mirrors the real hydrate-once-per-mount contract
 // (one hydrate per mount, never on a warm re-activation) without pulling the
@@ -67,8 +68,11 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 // The pane tree itself is another suite's subject; this one is about retention.
 vi.mock('@/features/workspace/components/workspace-layout-root', async () => {
   const React = await import('react')
+  const ctx = await import('@/features/workspace/stores/workspace-context')
   return {
     WorkspaceLayoutRoot: () => {
+      const { WorkspaceStoreContext } = ctx
+      ambientSeen.push((React.useContext(WorkspaceStoreContext) as { wsId?: string } | null)?.wsId)
       React.useEffect(() => {
         layoutMounts.current++
       }, [])
@@ -112,6 +116,7 @@ beforeEach(() => {
   pinned.clear()
   rendering.mintedWhileRendering = 0
   layoutMounts.current = 0
+  ambientSeen.length = 0
   useSidebarStore.setState(getInitialState())
 })
 
@@ -125,6 +130,18 @@ function mountedSlots(): string[] {
     .map((el) => el.dataset.workspaceSlot!)
     .sort()
 }
+
+describe('WorkspaceHost — the pane tree across a switch', () => {
+  // The ambient store is a context value read by every pane: if it followed the
+  // active workspace, every cross-workspace focus click would re-render all panes.
+  it('keeps the ambient store handed to the pane tree the same when the active workspace flips', () => {
+    const { rerender } = render(<WorkspaceHost activeWsId="a" viewWsIds={['a', 'b']} />)
+    rerender(<WorkspaceHost activeWsId="b" viewWsIds={['a', 'b']} />)
+    rerender(<WorkspaceHost activeWsId="a" viewWsIds={['a', 'b']} />)
+
+    expect(new Set(ambientSeen.filter(Boolean)).size).toBe(1)
+  })
+})
 
 describe('WorkspaceHost — sole owner of the registry (C5, C6)', () => {
   it('registry keys are exactly the mounted slots, through switches and evictions', () => {

@@ -2,18 +2,24 @@ const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS
 const DAY_MS = 24 * HOUR_MS
 
+/** Built once on first use: a formatter resolves the locale when constructed, and
+ *  `toLocale*String` builds a fresh one per call — once per row on every mount. */
+function memoFormat(options: Intl.DateTimeFormatOptions): (date: Date) => string {
+  let formatter: Intl.DateTimeFormat | undefined
+  return (date) => (formatter ??= new Intl.DateTimeFormat(undefined, options)).format(date)
+}
+
+const dateThisYear = memoFormat({ month: 'short', day: 'numeric' })
+const dateOtherYear = memoFormat({ month: 'short', day: 'numeric', year: 'numeric' })
+const timeOfDay = memoFormat({ hour: 'numeric', minute: '2-digit' })
+const fullTitle = memoFormat({ dateStyle: 'medium', timeStyle: 'short' })
+
 /** "Aug 30, 6:36 PM" — the year only when it isn't the current one, since
  *  spelling it out on every turn in an active chat is noise nobody reads. */
 function absoluteLabel(then: number): string {
   const date = new Date(then)
   const sameYear = date.getFullYear() === new Date().getFullYear()
-  const datePart = date.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: sameYear ? undefined : 'numeric',
-  })
-  const timePart = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-  return `${datePart}, ${timePart}`
+  return `${(sameYear ? dateThisYear : dateOtherYear)(date)}, ${timeOfDay(date)}`
 }
 
 /** A raw duration, rounded to whichever single unit it actually reads as:
@@ -67,5 +73,5 @@ export function turnTimeLabel(at: string, now: number = Date.now()): string {
 export function turnTimeTitle(at: string): string {
   const then = Date.parse(at)
   if (Number.isNaN(then)) return ''
-  return new Date(then).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  return fullTitle(new Date(then))
 }

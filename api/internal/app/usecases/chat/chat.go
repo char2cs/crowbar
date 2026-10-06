@@ -36,6 +36,9 @@ type ChatUsecase interface {
 	// ChatSnapshot is a chat's versioned snapshot — see internal/snapshot.
 	ChatSnapshot(ctx context.Context, chatID string) (ChatSnapshot, error)
 
+	// ChatSnapshotsOf is ChatSnapshot for many chats, in order, read together.
+	ChatSnapshotsOf(ctx context.Context, chatIDs []string) ([]ChatSnapshot, error)
+
 	// MintChat creates an empty chat in a workspace and returns its id. No CLI is
 	// started: the chat is dormant until a runner is placed on it.
 	//
@@ -384,6 +387,12 @@ func (u *Usecase) Ancestors(
 // from the same owner, every chat frame carries.
 func (u *Usecase) ChatSnapshot(ctx context.Context, chatID string) (ChatSnapshot, error) {
 	return u.snapshots.Get(ctx, chatID)
+}
+
+// ChatSnapshotsOf is ChatSnapshot for many chats at once, in order: one hold of
+// the owner's lock and one placement read for the whole list.
+func (u *Usecase) ChatSnapshotsOf(ctx context.Context, chatIDs []string) ([]ChatSnapshot, error) {
+	return u.snapshots.GetMany(ctx, chatIDs)
 }
 
 // Snapshots is the owner itself, for a test that wires the fanout over it.

@@ -94,6 +94,17 @@ export function ConsoleLog({ entries, expandedId, onToggle, open }: ConsoleLogPr
     return () => cancelAnimationFrame(frame)
   }, [entries.length, total, expandedId, open])
 
+  // Resizing or re-docking changes the viewport without touching the entries.
+  useEffect(() => {
+    const el = scroller.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      if (following.current) el.scrollTop = el.scrollHeight
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
   return (
     <div
       ref={scroller}

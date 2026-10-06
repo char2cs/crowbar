@@ -102,7 +102,7 @@ type WorkspacePlacementReader interface {
 
 // WorkspaceDTOFrom converts a domain Workspace into its wire DTO, populating the
 // merge-eligibility overlay (CanMergeLocally/ParentBranch) from the resolved
-// eligibility the caller computed via MergeEligibilityFor over the repo-scoped
+// eligibility the caller computed via MergeEligibilitiesFor over the repo-scoped
 // sibling set, and the sidebar placement overlay (FolderID/Order) from
 // placement, over the workspace's own id. Resolving both outside the converter
 // keeps this function itself free of any store read (spec §10's same rule for
@@ -166,7 +166,7 @@ func effectiveStatus(base domain.WorkspaceStatus, mergeConflicts bool) domain.Wo
 
 // WorkspaceDTOList converts a slice of domain Workspaces into wire DTOs in
 // sidebar order, resolving each row's merge eligibility through eligFn
-// (typically a closure over MergeEligibilityFor bound to the same sibling
+// (typically a closure over MergeEligibilitiesFor bound to the same sibling
 // slice), its real owning chat id through owningChatIDFn (typically a
 // closure resolving Task 3's own branch-preferring backfill logic over that
 // row's chats), and its own sidebar FolderID/Order through placement (see

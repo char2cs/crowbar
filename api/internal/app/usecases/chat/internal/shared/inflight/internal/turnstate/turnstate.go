@@ -45,14 +45,60 @@ type Turns struct {
 	mu      sync.Mutex
 	turns   map[string]*inflightTurn
 	changed map[string]chan struct{}
+	drop    func(ctx context.Context, s Steered)
 }
 
 // inflightTurn is one runner's open turn: the chat it is answering into, and the channel
 // that is CLOSED when it stops being in flight. A closed channel (rather than a value) is
 // the release, so any number of waiters wake and a waiter that arrives late never blocks.
 type inflightTurn struct {
-	chatID string
-	done   chan struct{}
+	chatID  string
+	done    chan struct{}
+	steered *Steered
+}
+
+// Steered is a prompt accepted while this turn runs, held until the turn's own
+// end hook can carry it into the CLI. It dies with the turn: Complete hands an
+// undelivered one to the drop handler.
+type Steered struct {
+	ChatID       string
+	RequestID    string
+	Text         string
+	DispatchText string
+}
+
+// Steer parks s on runnerID's open turn. False when the runner has no turn in
+// flight or one is already parked: the caller falls back to its idle path.
+func (w *Turns) Steer(runnerID string, s Steered) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	t, ok := w.turns[runnerID]
+	if !ok || t.steered != nil {
+		return false
+	}
+	t.steered = &s
+	return true
+}
+
+// TakeSteered removes and returns the prompt parked on runnerID's turn.
+func (w *Turns) TakeSteered(runnerID string) (Steered, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	t, ok := w.turns[runnerID]
+	if !ok || t.steered == nil {
+		return Steered{}, false
+	}
+	s := *t.steered
+	t.steered = nil
+	return s, true
+}
+
+// OnDrop registers what happens to a prompt parked on a turn that ends without
+// delivering it. Set once at wiring.
+func (w *Turns) OnDrop(drop func(ctx context.Context, s Steered)) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.drop = drop
 }
 
 // NewTurns returns an empty in-flight-turn registry.
@@ -142,16 +188,21 @@ func (w *Turns) Complete(
 	}
 
 	w.mu.Lock()
-	defer w.mu.Unlock()
-
 	t, ok := w.turns[runnerID]
 	if !ok {
+		w.mu.Unlock()
 		return
 	}
 	delete(w.turns, runnerID)
 	close(t.done)
 	w.signalLocked(t.chatID)
 	logTurnEnded(ctx, t.chatID, runnerID, reason)
+	drop := w.drop
+	w.mu.Unlock()
+
+	if t.steered != nil && drop != nil {
+		drop(ctx, *t.steered)
+	}
 }
 
 // Inflight snapshots the release channel of every turn currently open on chatID. Empty —

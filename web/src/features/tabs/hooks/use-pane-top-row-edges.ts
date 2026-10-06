@@ -28,6 +28,7 @@ interface UsePaneTopRowEdgesResult {
  */
 export function usePaneTopRowEdges(deps: unknown[] = []): UsePaneTopRowEdgesResult {
   const rowRef = useRef<HTMLDivElement>(null)
+  const measuredRef = useRef(false)
   const [isAtLeftEdge, setIsAtLeftEdge] = useState(false)
   const [isAtRightEdge, setIsAtRightEdge] = useState(false)
   const [isAtTopEdge, setIsAtTopEdge] = useState(false)
@@ -37,6 +38,11 @@ export function usePaneTopRowEdges(deps: unknown[] = []): UsePaneTopRowEdgesResu
     if (!el) return
     function check() {
       const rect = el?.getBoundingClientRect()
+      // A parked view (display:none) has no box and reads as flush against the
+      // top-left corner; once a real box was measured, keep that answer.
+      const hasBox = !!rect && (rect.width > 0 || rect.height > 0)
+      if (!hasBox && measuredRef.current) return
+      if (hasBox) measuredRef.current = true
       setIsAtLeftEdge((rect?.left ?? 1) < EDGE_THRESHOLD)
       setIsAtRightEdge((rect?.right ?? 0) > window.innerWidth - EDGE_THRESHOLD)
       // Top edge matters for the macOS traffic-light inset: in a vertical

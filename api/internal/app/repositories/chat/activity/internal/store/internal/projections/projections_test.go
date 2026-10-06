@@ -22,7 +22,7 @@ func newProjector(t *testing.T) (*projections.Projector, *storage.Store) {
 	require.NoError(t, err)
 	st, err := storage.New(db)
 	require.NoError(t, err)
-	return projections.New(st), st
+	return projections.New(st, nil), st
 }
 
 func TestApply_AnEventWithNoDeltaIsANoOp(t *testing.T) {
@@ -145,7 +145,7 @@ func TestApply_ReportsAStorageFailureRatherThanPanicking(t *testing.T) {
 	require.NoError(t, err)
 	st, err := storage.New(db)
 	require.NoError(t, err)
-	p := projections.New(st)
+	p := projections.New(st, nil)
 	sql, err := db.DB()
 	require.NoError(t, err)
 	require.NoError(t, sql.Close())
@@ -253,4 +253,43 @@ func TestStorage_ToolCallsPageForward(t *testing.T) {
 	limited, err := st.ToolCalls(ctx, "c1", 0, 1)
 	require.NoError(t, err)
 	assert.Len(t, limited, 1)
+}
+
+func TestApply_AnnouncesAChatWhoseChoicesMoved(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	st, err := storage.New(db)
+	require.NoError(t, err)
+	var announced []string
+	p := projections.New(st, func(chatID string) { announced = append(announced, chatID) })
+	ctx := context.Background()
+	ended := now.Add(time.Minute)
+
+	open := domain.ActivityChoice{ID: "choice-1", ChatID: "c1", ToolID: "tool-1", ToolName: "Bash", At: now}
+	require.NoError(t, p.Apply(ctx, domain.ChatActivity{ChatID: "c1", Last: &domain.ActivityDelta{
+		Phase: domain.DeltaOpen, Kind: domain.DeltaChoice, Choice: &open,
+	}}))
+	require.Equal(t, []string{"c1"}, announced, "a prompt opening")
+
+	call := domain.ActivityToolCall{ID: "other", ChatID: "c1", Name: "Read", EndedAt: &ended}
+	require.NoError(t, p.Apply(ctx, domain.ChatActivity{ChatID: "c1", Last: &domain.ActivityDelta{
+		Phase: domain.DeltaClose, Kind: domain.DeltaTool, Tool: &call,
+	}}))
+	require.Equal(t, []string{"c1"}, announced, "a tool that gates nothing moves nothing")
+
+	call = domain.ActivityToolCall{ID: "tool-1", ChatID: "c1", Name: "Bash", EndedAt: &ended}
+	require.NoError(t, p.Apply(ctx, domain.ChatActivity{ChatID: "c1", Last: &domain.ActivityDelta{
+		Phase: domain.DeltaClose, Kind: domain.DeltaTool, Tool: &call,
+	}}))
+	assert.Equal(t, []string{"c1", "c1"}, announced, "the tool the prompt gated finishing resolves it")
+
+	reopened := domain.ActivityChoice{ID: "choice-2", ChatID: "c1", At: now}
+	require.NoError(t, p.Apply(ctx, domain.ChatActivity{ChatID: "c1", Last: &domain.ActivityDelta{
+		Phase: domain.DeltaOpen, Kind: domain.DeltaChoice, Choice: &reopened,
+	}}))
+	turn := domain.ActivityTurn{ID: "t1", ChatID: "c1", EndedAt: &ended}
+	require.NoError(t, p.Apply(ctx, domain.ChatActivity{ChatID: "c1", Last: &domain.ActivityDelta{
+		Phase: domain.DeltaClose, Kind: domain.DeltaTurn, Turn: &turn,
+	}}))
+	assert.Equal(t, []string{"c1", "c1", "c1", "c1"}, announced, "a turn closing abandons what it left open")
 }

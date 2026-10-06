@@ -1,0 +1,15 @@
+{
+ "session_id": "68a2773c-78c5-4edd-b4fe-bf5bd1309895",
+ "transcript_path": "/h/.claude/projects/-ws/68a2773c-78c5-4edd-b4fe-bf5bd1309895.jsonl",
+ "cwd": "/ws",
+ "prompt_id": "b73e6e69-1815-4901-ab94-ad9c84278ff7",
+ "permission_mode": "auto",
+ "effort": {
+  "level": "medium"
+ },
+ "hook_event_name": "Stop",
+ "stop_hook_active": false,
+ "last_assistant_message": "Agent 2: a.txt contains the single line \"alpha\", and `echo hi` printed \"hi\".\n\nDONE",
+ "background_tasks": [],
+ "session_crons": []
+}

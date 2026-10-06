@@ -211,6 +211,21 @@ func (stubUsecase) ChatSnapshot(
 	return agentusecase.ChatSnapshot{Chat: domain.Chat{ID: id}, Phase: agentusecase.ChatPhaseDormant}, nil
 }
 
+func (s stubUsecase) ChatSnapshotsOf(
+	ctx context.Context,
+	ids []string,
+) ([]agentusecase.ChatSnapshot, error) {
+	out := make([]agentusecase.ChatSnapshot, len(ids))
+	for i, id := range ids {
+		snap, err := s.ChatSnapshot(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = snap
+	}
+	return out, nil
+}
+
 func (stubUsecase) ReadMessages(
 	context.Context, string, int, int, int,
 ) (domain.LedgerPage, error) {
@@ -528,6 +543,8 @@ func (stubUsecase) ReadActivity(
 ) (agentusecase.ChatActivity, error) {
 	return agentusecase.ChatActivity{}, nil
 }
+
+func (stubUsecase) TakeHookReply(string) (string, bool) { return "", false }
 
 func (stubUsecase) ReadToolPayload(context.Context, string, string, string) ([]byte, error) {
 	return nil, nil

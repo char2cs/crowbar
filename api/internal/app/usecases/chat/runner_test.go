@@ -4543,7 +4543,7 @@ type deltaCall struct {
 	kind        string
 }
 
-func (r *deltaCallbackRecorder) record(chatID, workspaceID, messageID, text, kind string) {
+func (r *deltaCallbackRecorder) record(chatID, workspaceID, messageID, text, kind string, _ time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, deltaCall{chatID, workspaceID, messageID, text, kind})

@@ -160,7 +160,7 @@ func (s *Store) ResolveChoicesForTool(
 	ctx context.Context,
 	chatID, toolID, toolName string,
 	at *time.Time,
-) error {
+) (int64, error) {
 	q := s.db.WithContext(ctx).Model(&ChoiceRow{}).
 		Where("chat_id = ? AND resolved_at IS NULL", chatID)
 	switch {
@@ -172,29 +172,29 @@ func (s *Store) ResolveChoicesForTool(
 		q = q.Where("tool_id = '' AND tool_name = ?", toolName)
 	default:
 
-		return nil
+		return 0, nil
 	}
-	err := q.Updates(map[string]any{
+	res := q.Updates(map[string]any{
 		"resolved_at": at,
 		"resolution":  domain.ChoiceResolutionProceeded,
-	}).Error
-	if err != nil {
-		return fmt.Errorf("agentactivity storage: resolve choices for tool: %w", err)
+	})
+	if res.Error != nil {
+		return 0, fmt.Errorf("agentactivity storage: resolve choices for tool: %w", res.Error)
 	}
-	return nil
+	return res.RowsAffected, nil
 }
 
-func (s *Store) ResolveOpenChoices(ctx context.Context, chatID string, at *time.Time) error {
-	err := s.db.WithContext(ctx).Model(&ChoiceRow{}).
+func (s *Store) ResolveOpenChoices(ctx context.Context, chatID string, at *time.Time) (int64, error) {
+	res := s.db.WithContext(ctx).Model(&ChoiceRow{}).
 		Where("chat_id = ? AND resolved_at IS NULL", chatID).
 		Updates(map[string]any{
 			"resolved_at": at,
 			"resolution":  domain.ChoiceResolutionAbandoned,
-		}).Error
-	if err != nil {
-		return fmt.Errorf("agentactivity storage: resolve open choices: %w", err)
+		})
+	if res.Error != nil {
+		return 0, fmt.Errorf("agentactivity storage: resolve open choices: %w", res.Error)
 	}
-	return nil
+	return res.RowsAffected, nil
 }
 
 func (s *Store) RepointActivity(ctx context.Context, chatID, from, to string) error {

@@ -11,10 +11,19 @@ import (
 
 type Projector struct {
 	store *storage.Store
+	// choicesChanged is told which chat's pending prompts a projected delta moved.
+	// Nil is a projector nobody watches.
+	choicesChanged func(chatID string)
 }
 
-func New(store *storage.Store) *Projector {
-	return &Projector{store: store}
+func New(store *storage.Store, choicesChanged func(chatID string)) *Projector {
+	return &Projector{store: store, choicesChanged: choicesChanged}
+}
+
+func (p *Projector) announceChoices(chatID string) {
+	if p.choicesChanged != nil {
+		p.choicesChanged(chatID)
+	}
 }
 
 func (p *Projector) Apply(ctx context.Context, activity domain.ChatActivity) error {
@@ -44,7 +53,11 @@ func (p *Projector) Apply(ctx context.Context, activity domain.ChatActivity) err
 		if delta.Choice == nil {
 			return nil
 		}
-		return p.store.SaveChoice(ctx, *delta.Choice)
+		if err := p.store.SaveChoice(ctx, *delta.Choice); err != nil {
+			return err
+		}
+		p.announceChoices(delta.Choice.ChatID)
+		return nil
 	default:
 		return nil
 	}
@@ -58,10 +71,14 @@ func (p *Projector) applyTool(ctx context.Context, delta *domain.ActivityDelta) 
 	if delta.Phase != domain.DeltaClose {
 		return nil
 	}
-	if err := p.store.ResolveChoicesForTool(
+	resolved, err := p.store.ResolveChoicesForTool(
 		ctx, call.ChatID, call.ID, call.Name, call.EndedAt,
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("agentactivity projection: resolve choices for tool: %w", err)
+	}
+	if resolved > 0 {
+		p.announceChoices(call.ChatID)
 	}
 	return nil
 }
@@ -99,8 +116,12 @@ func (p *Projector) applyTurn(ctx context.Context, delta *domain.ActivityDelta) 
 		return fmt.Errorf("agentactivity projection: resolve open interruptions: %w", err)
 	}
 
-	if err := p.store.ResolveOpenChoices(ctx, delta.Turn.ChatID, delta.Turn.EndedAt); err != nil {
+	resolved, err := p.store.ResolveOpenChoices(ctx, delta.Turn.ChatID, delta.Turn.EndedAt)
+	if err != nil {
 		return fmt.Errorf("agentactivity projection: resolve open choices: %w", err)
+	}
+	if resolved > 0 {
+		p.announceChoices(delta.Turn.ChatID)
 	}
 	return nil
 }

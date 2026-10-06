@@ -26,6 +26,7 @@ import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-stor
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { IS_MAC } from '@/utils/platform'
+import { chatLedgerStore } from '@/features/agent/stores/chat-ledger-store'
 
 const { listMessagesFn, submitPromptFn, slashCatalogFn, setSelectionFn, stopChatFn } = vi.hoisted(
   () => ({
@@ -348,6 +349,7 @@ afterEach(() => {
 })
 
 beforeEach(() => {
+  chatLedgerStore.setState({ ledgers: {} })
   localStorage.clear()
   vi.useRealTimers()
   activityFn.mockReset()
@@ -503,6 +505,22 @@ describe('AgentChatView message ledger', () => {
     await waitFor(() => expect(listMessagesFn).toHaveBeenCalledTimes(1))
     await act(async () => Promise.resolve())
     expect(listMessagesFn).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('AgentChatView mid-turn send', () => {
+  it('sends straight away while working when the provider delivers into a running turn', async () => {
+    submitPromptFn.mockResolvedValueOnce({ runnerId: 'r1', terminalSessionId: 'pty1' })
+    setup({
+      working: true,
+      providerId: 'claude',
+      providers: [providers[0], { ...providers[1], promptSteer: true }],
+    })
+
+    await enterPrompt('also check the tests')
+
+    await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+    expect(submitPromptFn.mock.calls[0]?.slice(0, 3)).toEqual(['w1', 'c1', 'also check the tests'])
   })
 })
 

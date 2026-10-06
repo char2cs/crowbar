@@ -1,10 +1,8 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { WorkspaceStoreContext } from '../stores/workspace-context'
 import type { WorkspaceStore } from '../stores/workspace-store'
-import { hydrateWorkspace, reconcileWorkspaceBuffersWithDisk } from '@/lib/persistence/hydrate'
+import { hydrateWorkspace } from '@/lib/persistence/hydrate'
 import { markStart, markEnd } from '@/lib/perf/instrumentation'
-import { resetWorkspaceScopedStores } from '../lib/reset-workspace-scoped-stores'
-import { markWorkspaceDeactivated } from '../lib/activation-freshness'
 import { useWorkspaceEffects } from '../stores/hooks/use-workspace-effects'
 import { useWorkspaceAgentChatsStream } from '../stores/hooks/use-workspace-agent-chats-stream'
 import { useSaveKeyboard } from '@/features/keymaps/hooks/use-save-keyboard'
@@ -46,53 +44,10 @@ export const WorkspaceView = memo(function WorkspaceView({
   // re-hydrates on a warm re-activation.
   const [hydrated, setHydrated] = useState(false)
 
-  // THE AGENT FEED, FOR AS LONG AS THIS WORKSPACE IS MOUNTED — deliberately not
-  // inside `WorkspaceActiveEffects` below, which only mounts while `active`.
-  //
-  // It seeds `agentChats.providers` (empty means "there are none" everywhere:
-  // ⌘N and New Chat do nothing without it) and `agentChats.chats`, and feeds
-  // `working`/title-settling/runner-follow. Its only previous mount point was
-  // the Chats sidebar panel, deleted as dead code in Task 8 — nothing has fed
-  // any of that since.
-  //
-  // The reason `WorkspaceActiveEffects` is gated does NOT apply here: that hook
-  // writes the GLOBAL file-system/git stores, which are keyed to the single
-  // VISIBLE workspace, so a hidden workspace's frames would clobber the active
-  // one. This one writes THIS workspace's own store (plus the machine-level
-  // provider list, identical for every workspace), so there is nothing to
-  // clobber — and three surfaces genuinely need a hidden workspace's chats to
-  // stay live: Recents aggregates every retained workspace in the project
-  // (recents-for-project.ts), spec Law 9 says "anything running has a row"
-  // whether or not you are looking at its workspace, and a pane holding a
-  // hidden workspace's chat outlives that workspace's visibility by design
-  // (Task 26). Gating this on `active` would freeze all three until the user
-  // happened to switch back.
+  // Live for as long as this workspace is mounted, not just while active:
+  // Recents, "anything running has a row" and panes holding a hidden
+  // workspace's chat all read this workspace's chats while it is hidden.
   useWorkspaceAgentChatsStream(wsId)
-
-  // Clear the GLOBAL file-tree / git stores the instant this workspace becomes
-  // active — synchronously, BEFORE the browser paints and BEFORE the active-only
-  // watchers (WorkspaceActiveEffects, a passive effect) mount and refetch. Those
-  // stores are keyed to the single visible workspace, so without this the file
-  // explorer / git panel would paint the OUTGOING workspace's tree on the
-  // activation frame (a workspace with no data of its own — e.g. home — or a slow
-  // fetch would leave it on screen). Layout effects run before paint and before
-  // passive effects, so the wrong workspace's tree is never shown and the clear
-  // cannot race the incoming refetch. No-op when the stores already hold this
-  // workspace's data (a warm return that kept its own tree isn't wiped).
-  useLayoutEffect(() => {
-    if (!active) return
-    resetWorkspaceScopedStores(wsId)
-  }, [wsId, active])
-
-  // Stamp the moment this workspace goes hidden so its next warm return can keep
-  // the already-loaded tree/git instead of re-seeding — provided it was hidden
-  // only briefly and nothing clobbered the global stores meanwhile (the fast
-  // path lives in use-workspace-effects; see activation-freshness). Correctness
-  // is unaffected if the stamp is missed: the seed effects then re-fetch.
-  useEffect(() => {
-    if (active) return
-    markWorkspaceDeactivated(wsId)
-  }, [wsId, active])
 
   // Cold path: hydrate once on mount. A workspace only mounts when it first
   // becomes active, so this also opens the workspace.switch span for the cold
@@ -122,44 +77,28 @@ export const WorkspaceView = memo(function WorkspaceView({
     return () => cancelAnimationFrame(raf)
   }, [hydrated])
 
-  // Warm path (M4 warm switch): a hidden → active flip on an already-hydrated
-  // workspace. No re-hydration and no subtree remount happen here. The
-  // `workspace.switch` span for a warm activation is owned by WorkspaceHost (it
-  // alone knows the target was retained rather than freshly mounted, and brackets
-  // the flip before paint); opening it here — from a POST-paint passive effect —
-  // measured an empty ~1-frame window after the switch had already painted.
-  //
-  // This effect's remaining job is disk reconciliation: the file watcher
-  // (use-workspace-effects) is gated off while hidden, and agents/terminals keep
-  // editing files in hidden worktrees — so a warm return must reconcile the open
-  // buffers against disk (clean buffers silently reload, dirty ones get the
-  // external-change flag), exactly as the cold path does via hydrateWorkspace's
-  // restore-time reconcile.
-  const wasActive = useRef(active)
-  useEffect(() => {
-    const previouslyActive = wasActive.current
-    wasActive.current = active
-    if (!active || previouslyActive || !hydrated) return
-    void reconcileWorkspaceBuffersWithDisk(wsId).catch(() => {})
-  }, [active, hydrated, wsId])
+  // Warm path (M4 warm switch): a hidden -> active flip is only a prop change.
+  // No re-hydration, remount or refetch happens; the `workspace.switch` span for
+  // it is owned by WorkspaceHost, which alone knows the target was retained.
 
   if (!hydrated) return null
 
   return (
     <WorkspaceStoreContext.Provider value={store}>
-      {/* Watchers + keyboard run ONLY while active: use-workspace-effects writes
-          the GLOBAL file-system / git stores (keyed to the single visible
-          workspace), so a hidden workspace's WebSocket frames would clobber the
-          active one. Mounting this only when active tears those subscriptions
-          down on hide and re-seeds them on return — cheap fetches, not a remount
-          or re-hydrate. */}
-      {active && <WorkspaceActiveEffects wsId={wsId} />}
+      <WorkspaceDataFeeds wsId={wsId} active={active} />
+      {active && <WorkspaceKeyboard />}
     </WorkspaceStoreContext.Provider>
   )
 })
 
-function WorkspaceActiveEffects({ wsId }: Pick<WorkspaceViewProps, 'wsId'>) {
-  useWorkspaceEffects(wsId)
+// Each workspace's tree and git slice stay loaded and subscribed while it is
+// retained, so a switch changes which store the UI reads and nothing else.
+function WorkspaceDataFeeds({ wsId, active }: Pick<WorkspaceViewProps, 'wsId' | 'active'>) {
+  useWorkspaceEffects(wsId, active)
+  return null
+}
+
+function WorkspaceKeyboard() {
   useSaveKeyboard()
   usePaneKeyboard()
   useSidebarTabKeyboard()

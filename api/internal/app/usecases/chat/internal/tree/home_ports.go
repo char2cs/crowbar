@@ -59,6 +59,11 @@ type Nodes interface {
 		ctx context.Context,
 		parentID string,
 	) ([]domain.Node, error)
+	// ListAll is every node in one read, for the walks that would otherwise
+	// read the table once per parent.
+	ListAll(
+		ctx context.Context,
+	) ([]domain.Node, error)
 	SetOrder(
 		ctx context.Context,
 		id string,

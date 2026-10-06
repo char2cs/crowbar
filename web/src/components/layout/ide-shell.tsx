@@ -42,11 +42,20 @@ import { useIdeShellWorkspaceRetention } from './use-ide-shell-workspace-retenti
 import { IdeShellWorkspaceContent } from './ide-shell-workspace-content'
 import { useMeasuredHeight } from './use-measured-height'
 import { useRedirectIfProjectMissing } from './use-redirect-if-project-missing'
+import { ConsoleDock } from '@/features/console/components/console-dock'
 import { useMacTrafficLightSync } from '@/features/tabs/hooks/use-mac-traffic-light-sync'
 
+/** The shell inside the console's frame, so the console can cover or shrink the whole window. */
 export function IDEShell() {
-  const routerState = useRouterState()
-  const pathname = routerState.location.pathname
+  return (
+    <ConsoleDock>
+      <IdeShellBody />
+    </ConsoleDock>
+  )
+}
+
+function IdeShellBody() {
+  const pathname = useRouterState({ select: (state) => state.location.pathname })
   const navigate = useNavigate()
   const isSettingsOpen = useUIState((s) => s.isSettingsOpen)
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
@@ -309,7 +318,7 @@ export function IDEShell() {
 
   return (
     <SidebarProvider
-      className="h-screen bg-transparent text-foreground"
+      className="h-full min-h-0 flex-1 bg-transparent text-foreground"
       open={sidebarOpen}
       onOpenChange={setSidebarOpen}
     >

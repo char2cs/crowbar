@@ -3,7 +3,6 @@ import { loadFromLocalStorage } from './workspace-persistence'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { bindActiveWorkspaceId } from '@/lib/workspace-scope'
 import { bestEffort } from '@/lib/best-effort'
-import { clearWorkspaceFreshness } from '../lib/activation-freshness'
 
 const registry = new Map<string, WorkspaceStore>()
 
@@ -28,7 +27,17 @@ export { setWorkspaceScope, getWorkspaceScope, type WorkspaceScope } from '@/lib
  * keeping a copy of its own.
  */
 export function setActiveWorkspaceId(wsId: string | null): void {
+  if (_activeWorkspaceId === wsId) return
   _activeWorkspaceId = wsId
+  for (const listener of [...activeWorkspaceListeners]) listener()
+}
+
+const activeWorkspaceListeners = new Set<() => void>()
+
+/** Notified when the active workspace id changes. */
+export function subscribeActiveWorkspaceId(listener: () => void): () => void {
+  activeWorkspaceListeners.add(listener)
+  return () => activeWorkspaceListeners.delete(listener)
 }
 
 bindActiveWorkspaceId(() => _activeWorkspaceId)
@@ -289,10 +298,6 @@ export function destroyWorkspaceStore(wsId: string): void {
       'dispose editor models',
     )
   }
-
-  // Drop the warm-reactivation freshness ledger for this workspace so a future
-  // workspace reusing the id can't inherit a stale "hidden briefly" stamp.
-  clearWorkspaceFreshness(wsId)
 
   registry.delete(wsId)
   // After the delete, so a watcher re-binding on this signal sees the store

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -77,7 +78,6 @@ func New(
 		git:        ws.NewBroadcaster(withOriginSyncLifecycle(withWatcherLifecycle(gitDef(appContainer), appContainer), appContainer)),
 		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(), appContainer)),
 		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), appContainer)),
-		agentChats: ws.NewBroadcaster(withChatProviderPollLifecycle(agentChatDef(), appContainer)),
 		chatScopes: newAgentChatScopes(),
 		app:        appContainer,
 		eng:        engContainer,
@@ -85,6 +85,9 @@ func New(
 	for _, option := range options {
 		option(c)
 	}
+	agentChatStream := withChatProviderPollLifecycle(agentChatDef(), appContainer)
+	agentChatStream.Snapshot = c.agentChatSnapshot
+	c.agentChats = ws.NewBroadcaster(agentChatStream)
 	if engContainer != nil && engContainer.LSP != nil {
 		engContainer.LSP.OnDiagnostics(c.lsp.Push)
 	}
@@ -499,6 +502,7 @@ func (c *Container) PushAgentChatMessageDelta(
 	messageID string,
 	text string,
 	kind string,
+	startedAt time.Time,
 ) {
 	scope := c.agentChatScope(chatID, workspaceID)
 	c.agentChats.Push(dto.AgentChatEvent{
@@ -507,7 +511,7 @@ func (c *Container) PushAgentChatMessageDelta(
 		ProjectID:   scope.ProjectID,
 		RepoID:      scope.RepoID,
 		Kind:        dto.AgentChatKindMessageDelta,
-		Message:     &dto.AgentStreamingMessageDTO{ID: messageID, Text: text, Kind: kind},
+		Message:     &dto.AgentStreamingMessageDTO{ID: messageID, Text: text, Kind: kind, StartedAt: startedAt},
 	})
 }
 
@@ -592,6 +596,55 @@ func (c *Container) PushAgentChatCompaction(
 		RepoID:      scope.RepoID,
 		Kind:        kind,
 	})
+}
+
+// PushAgentChatChoices implements hub.Subscriber, on the SAME workspace-scoped
+// agent-chat WebSocket as every other conversation fact, scoped like each one.
+func (c *Container) PushAgentChatChoices(
+	chatID string,
+	workspaceID string,
+	choices []dto.AgentChoiceDTO,
+) {
+	c.agentChats.Push(c.choiceEvent(chatID, workspaceID, choices))
+}
+
+// agentChatSnapshot is what a socket is told the moment it connects: the prompts
+// every chat is already blocked on, which no frame will announce again. Each
+// frame is held to the new client's own scope by the stream's filters.
+func (c *Container) agentChatSnapshot(string) []dto.AgentChatEvent {
+	if c.app.Usecases == nil || c.app.Usecases.AgentTurn == nil {
+		return nil
+	}
+	sets, err := c.app.Usecases.AgentTurn.PendingChoiceSets(context.Background())
+	if err != nil {
+		slog.Warn("agent chats: snapshot pending choices", "err", err)
+		return nil
+	}
+	out := make([]dto.AgentChatEvent, 0, len(sets))
+	for _, set := range sets {
+		out = append(out, c.choiceEvent(
+			set.ChatID, set.WorkspaceID, dto.AgentChoiceDTOsFrom(set.Choices, set.Answerable),
+		))
+	}
+	return out
+}
+
+// choiceEvent is one chat's prompts as a frame; it is also what a new socket's
+// snapshot replays (see agentChatSnapshot).
+func (c *Container) choiceEvent(
+	chatID string,
+	workspaceID string,
+	choices []dto.AgentChoiceDTO,
+) dto.AgentChatEvent {
+	scope := c.agentChatScope(chatID, workspaceID)
+	return dto.AgentChatEvent{
+		ChatID:      chatID,
+		WorkspaceID: workspaceID,
+		ProjectID:   scope.ProjectID,
+		RepoID:      scope.RepoID,
+		Kind:        dto.AgentChatKindChoice,
+		Choices:     choices,
+	}
 }
 
 // PushAgentChatFolder implements hub.Subscriber. It fans a chat-folder lifecycle

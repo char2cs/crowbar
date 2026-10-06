@@ -73,6 +73,9 @@ type Turns struct {
 	hookGates *inflight.Gate
 	// answers is the desk a provider prompt parks a blocked hook relay on.
 	answers *answerdesk.Desk
+	// replies is the stdout a relayed hook must print, when ingesting it
+	// produced one (a steered prompt riding the turn-end hook).
+	replies hookReplies
 
 	conversations Conversations
 	// runners is reached for the placement half of a hook and for the prompt
@@ -86,6 +89,8 @@ type Turns struct {
 	// publishes through is the hub, a layer above this one. Zero (every field
 	// nil) until then, and forever in a daemon with no detector wiring.
 	feed seam.ChatFeed
+	// choiceFeed dedups what PublishChoices pushes.
+	choiceFeed *choiceFeed
 
 	// messageAwaitTimeout bounds how long closeAssistantTurn will wait on
 	// stream.Streams.AwaitOpen before concluding nothing streamed. It is a
@@ -153,6 +158,7 @@ func New(d Deps) *Turns {
 		hookGates:           inflight.NewGate(),
 		pendingHooks:        d.PendingHooks,
 		answers:             d.Answers,
+		choiceFeed:          newChoiceFeed(),
 		messageAwaitTimeout: defaultMessageAwaitTimeout,
 
 		conversations: d.Conversations,

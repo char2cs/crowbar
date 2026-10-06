@@ -36,6 +36,9 @@ func Preempted(park context.Context) bool { return gate.Preempted(park) }
 // Turns is the registry of turns currently in flight, keyed by runner.
 type Turns = turnstate.Turns
 
+// Steered is a prompt parked on a running turn until its end hook carries it.
+type Steered = turnstate.Steered
+
 // The reasons a turn ends for that no runner-side cause already names.
 const (
 	TurnCompleted = turnstate.ReasonCompleted

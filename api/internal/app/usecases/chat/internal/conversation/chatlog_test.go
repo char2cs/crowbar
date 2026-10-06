@@ -54,8 +54,10 @@ func TestToChatTurns_AttributesLegacyClaudeHandBackToHarness(t *testing.T) {
 	rows := []domain.ActivityTurn{
 		{Role: domain.TurnRoleUser, ProviderID: "claude", Text: "[Subagent hand-back]The text below is the final report of a subagent this session delegated to."},
 		{Role: domain.TurnRoleUser, ProviderID: "claude", Text: "Tell me about [Subagent hand-back]"},
+		{Role: domain.TurnRoleUser, ProviderID: "claude", Text: "<agent-message from=\"a3c2\">\n[Subagent hand-back] The text below is the final report of a subagent.\n  done\n</agent-message>"},
 	}
 	turns := c.toChatTurns(context.Background(), rows)
 	assert.Equal(t, domain.TurnRoleHarness, turns[0].Role)
 	assert.Equal(t, domain.TurnRoleUser, turns[1].Role)
+	assert.Equal(t, domain.TurnRoleHarness, turns[2].Role, "a stored wrapped hand-back heals on read")
 }

@@ -39,6 +39,10 @@ type TurnUsecase interface {
 		rawPayload []byte,
 	) error
 
+	// TakeHookReply is the stdout the relay of deliveryID must print, when
+	// ingesting it produced one.
+	TakeHookReply(deliveryID string) (string, bool)
+
 	// ReadActivity pages a chat's tool calls and returns its subagents,
 	// interruptions and choices alongside them.
 	ReadActivity(
@@ -54,6 +58,10 @@ type TurnUsecase interface {
 		ctx context.Context,
 		chatID string,
 	) ([]domain.ActivityChoice, error)
+
+	// PendingChoiceSets lists every chat's unresolved prompts, so a socket that
+	// has just connected can be told what it missed.
+	PendingChoiceSets(ctx context.Context) ([]ChoiceSet, error)
 
 	// Interruptions returns a chat's durable interruption ledger — the fallback
 	// engineagents.ActiveProviderID needs once a provider that binds via its own
@@ -131,6 +139,9 @@ var _ TurnUsecase = (*Usecase)(nil)
 // the interruptions and the questions it is blocked on.
 type ChatActivity = turn.ChatActivity
 
+// ChoiceSet is one chat's pending prompts and which of them are answerable.
+type ChoiceSet = turn.ChoiceSet
+
 // The turn: what the vendor CLI did, and what it is blocked on.
 //
 // Everything here is driven by a hook, and a hook is a fait accompli — by the
@@ -156,6 +167,11 @@ func (u *Usecase) IngestHookDelivery(
 	)
 }
 
+// TakeHookReply is the stdout the relay of deliveryID must print, if any.
+func (u *Usecase) TakeHookReply(deliveryID string) (string, bool) {
+	return u.turns.TakeHookReply(deliveryID)
+}
+
 // ReadActivity returns one page of the chat's tool calls, subagents,
 // interruptions and choices.
 func (u *Usecase) ReadActivity(
@@ -173,6 +189,11 @@ func (u *Usecase) ReadPendingChoices(
 	chatID string,
 ) ([]domain.ActivityChoice, error) {
 	return u.turns.ReadPendingChoices(ctx, chatID)
+}
+
+// PendingChoiceSets returns every chat's unresolved prompts.
+func (u *Usecase) PendingChoiceSets(ctx context.Context) ([]ChoiceSet, error) {
+	return u.turns.PendingChoiceSets(ctx)
 }
 
 // Interruptions returns the chat's durable interruption ledger.

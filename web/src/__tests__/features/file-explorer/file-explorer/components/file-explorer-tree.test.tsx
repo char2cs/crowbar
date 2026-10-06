@@ -19,6 +19,7 @@ function renderTree(onFileOpen = vi.fn()) {
     <FileExplorerTree
       workspaceId="ws1"
       files={files}
+      isLoading={false}
       rootFolderPath="/repos/r1"
       onFileSelect={vi.fn()}
       onFileOpen={onFileOpen}

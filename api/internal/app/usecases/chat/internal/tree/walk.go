@@ -2,6 +2,7 @@ package tree
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/tree"
@@ -94,6 +95,40 @@ func repoRootFallback(
 //
 // folders/nodes (2026-09-08 sidebar-placement-unification Task 8's own
 // review fix round) fold in every reachable Folder+Node row first — see
+var errNoNodes = errors.New("tree: no node port wired")
+
+// nodeTable is ONE read of the Node table, indexed by id and by parent. Every
+// level of a walk answers from it, because each read of the table decodes every
+// row and the walk asks about every level.
+type nodeTable struct {
+	byID     map[string]domain.Node
+	byParent map[string][]domain.Node
+}
+
+// readNodeTable reads the table once; a nil port reads as an error so the walk
+// skips its folder and anchor augmentation, as it does with no port wired.
+func readNodeTable(
+	ctx context.Context,
+	nodes Nodes,
+) (nodeTable, error) {
+	if nodes == nil {
+		return nodeTable{}, errNoNodes
+	}
+	all, err := nodes.ListAll(ctx)
+	if err != nil {
+		return nodeTable{}, err
+	}
+	t := nodeTable{
+		byID:     make(map[string]domain.Node, len(all)),
+		byParent: make(map[string][]domain.Node),
+	}
+	for _, n := range all {
+		t.byID[n.ID] = n
+		t.byParent[n.ParentID] = append(t.byParent[n.ParentID], n)
+	}
+	return t, nil
+}
+
 // foldersReachableFromRoots — so a row whose walk passes through a folder
 // ancestor still resolves correctly. Either port may be nil, degrading to
 // the pre-Task-8, Chat-only walk.
@@ -126,10 +161,12 @@ func buildForest(
 	nodes Nodes,
 	rows []domain.Chat,
 ) (tree.Tree, map[string]domain.Chat) {
-	if folderRows, err := foldersReachableFromRoots(ctx, folders, nodes, rows); err == nil {
-		rows = append(rows, folderRows...)
+	if table, err := readNodeTable(ctx, nodes); err == nil {
+		if folderRows, ferr := foldersReachableFromRoots(ctx, folders, table, rows); ferr == nil {
+			rows = append(rows, folderRows...)
+		}
+		rows = append(rows, workspaceAnchorsReachable(table, rows)...)
 	}
-	rows = append(rows, workspaceAnchorsReachable(ctx, nodes, rows)...)
 	treeNodes := make([]tree.Node, len(rows))
 	byID := make(map[string]domain.Chat, len(rows))
 	for i, row := range rows {
@@ -146,13 +183,9 @@ func buildForest(
 // workspace id itself, there being no chat to name) otherwise walks into an
 // id the forest has no node for and resolves nothing.
 func workspaceAnchorsReachable(
-	ctx context.Context,
-	nodes Nodes,
+	table nodeTable,
 	rows []domain.Chat,
 ) []domain.Chat {
-	if nodes == nil {
-		return nil
-	}
 	known := make(map[string]bool, len(rows))
 	for _, row := range rows {
 		known[row.ID] = true
@@ -161,8 +194,8 @@ func workspaceAnchorsReachable(
 	for _, row := range rows {
 		for id := row.ParentID; id != "" && !known[id]; {
 			known[id] = true
-			n, err := nodes.GetNode(ctx, id)
-			if err != nil || n.Kind != domain.NodeKindWorkspace {
+			n, ok := table.byID[id]
+			if !ok || n.Kind != domain.NodeKindWorkspace {
 				break
 			}
 			found = append(found, workspaceAnchorView(id, n, time.Time{}))
@@ -298,10 +331,10 @@ func ResolveCwdWorkspaceID(
 func foldersReachableFromRoots(
 	ctx context.Context,
 	folders Folders,
-	nodes Nodes,
+	table nodeTable,
 	baseRows []domain.Chat,
 ) ([]domain.Chat, error) {
-	if folders == nil || nodes == nil {
+	if folders == nil {
 		return nil, nil
 	}
 	var found []domain.Chat
@@ -319,11 +352,7 @@ func foldersReachableFromRoots(
 			continue
 		}
 		queried[parent] = true
-		children, err := nodes.ListByParent(ctx, parent)
-		if err != nil {
-			return nil, err
-		}
-		for _, n := range children {
+		for _, n := range table.byParent[parent] {
 			if n.Kind != domain.NodeKindFolder || seenFolder[n.ID] {
 				continue
 			}

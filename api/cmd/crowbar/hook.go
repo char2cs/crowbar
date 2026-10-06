@@ -133,11 +133,28 @@ func runHook(run hookRun) error {
 	if err != nil {
 		return err
 	}
+	if reply := replyDirective(ack); reply != "" {
+		_, err := io.WriteString(run.Out, reply+"\n")
+		return err
+	}
 	wait, waiting := awaitDirective(ack)
 	if !waiting {
 		return nil
 	}
 	return awaitHookAnswer(envelope, run.Host, wait, run.Out)
+}
+
+// replyDirective reads the stdout the daemon wants printed for this hook, if any.
+func replyDirective(body []byte) string {
+	var ack struct {
+		Data struct {
+			Reply string `json:"reply"`
+		} `json:"data"`
+	}
+	if len(body) == 0 || json.Unmarshal(body, &ack) != nil {
+		return ""
+	}
+	return ack.Data.Reply
 }
 
 // awaitDirective reads the stay-alive instruction off the daemon's

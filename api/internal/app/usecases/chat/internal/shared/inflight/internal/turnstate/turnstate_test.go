@@ -18,6 +18,39 @@ func closed(ch <-chan struct{}) bool {
 	}
 }
 
+func TestTurns_SteeredPromptIsTakenOnceAndDroppedWhenTheTurnEndsWithoutIt(t *testing.T) {
+	t.Parallel()
+
+	w := turnstate.NewTurns()
+	var dropped []turnstate.Steered
+	w.OnDrop(func(_ context.Context, s turnstate.Steered) { dropped = append(dropped, s) })
+
+	if w.Steer("runner-1", turnstate.Steered{RequestID: "r0"}) {
+		t.Fatal("a prompt was parked on a runner with no turn in flight")
+	}
+	w.Begin(context.Background(), "runner-1", "chat-1")
+	if !w.Steer("runner-1", turnstate.Steered{RequestID: "r1"}) {
+		t.Fatal("a prompt could not be parked on a running turn")
+	}
+	if w.Steer("runner-1", turnstate.Steered{RequestID: "r2"}) {
+		t.Fatal("a second prompt displaced the one already parked")
+	}
+	if got, ok := w.TakeSteered("runner-1"); !ok || got.RequestID != "r1" {
+		t.Fatalf("TakeSteered = %v, %v; want r1", got, ok)
+	}
+	w.Complete(context.Background(), "runner-1", "completed")
+	if len(dropped) != 0 {
+		t.Fatalf("a delivered prompt was dropped: %v", dropped)
+	}
+
+	w.Begin(context.Background(), "runner-1", "chat-1")
+	w.Steer("runner-1", turnstate.Steered{RequestID: "r3"})
+	w.Complete(context.Background(), "runner-1", "failed")
+	if len(dropped) != 1 || dropped[0].RequestID != "r3" {
+		t.Fatalf("dropped = %v, want exactly r3", dropped)
+	}
+}
+
 func TestTurns_BeginOpensCompleteCloses(t *testing.T) {
 	t.Parallel()
 

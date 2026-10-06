@@ -62,6 +62,10 @@ func (f *fakeChatUsecase) ChatSnapshot(context.Context, string) (agentusecase.Ch
 	panic("unused")
 }
 
+func (f *fakeChatUsecase) ChatSnapshotsOf(context.Context, []string) ([]agentusecase.ChatSnapshot, error) {
+	panic("unused")
+}
+
 func (f *fakeChatUsecase) RenameChat(context.Context, string, string, string) error {
 	panic("unused")
 }
@@ -353,4 +357,46 @@ func TestRegression_UncorrectedTreeChatsFeedsNoAncestryToTheRealLineageResolver(
 	require.NoError(t, err)
 	assert.Empty(t, ancestors,
 		"reproduces the bug: the raw (uncorrected) frozen Chat.ParentID reports no ancestor at all")
+}
+
+// countingNodeReads counts how a list is corrected against the Node table.
+type countingNodeReads struct {
+	*mocks.NodePlacements
+	gets, all int
+}
+
+func (c *countingNodeReads) GetNode(ctx context.Context, id string) (domain.Node, error) {
+	c.gets++
+	return c.NodePlacements.GetNode(ctx, id)
+}
+
+func (c *countingNodeReads) ListAll(ctx context.Context) ([]domain.Node, error) {
+	c.all++
+	return c.NodePlacements.ListAll(ctx)
+}
+
+// A list is corrected from ONE read of the Node table, not one lookup per row.
+func TestNewHomeCorrectedChats_CorrectsAListFromOneNodeRead(t *testing.T) {
+	inner := &fakeChatUsecase{rows: []domain.Chat{
+		{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: "ws"},
+		{ID: "c2", Type: domain.ChatTypeChat, WorkspaceID: "ws"},
+		{ID: "bubble", Type: domain.ChatTypeChat},
+		{ID: "unplaced", Type: domain.ChatTypeChat, WorkspaceID: "ws", ParentID: "kept", Order: 4},
+	}}
+	nodes := &countingNodeReads{NodePlacements: mocks.NewNodePlacements()}
+	nodes.Rows = []domain.Node{
+		{ID: "c1", Kind: domain.NodeKindChat, ParentID: "folder-1", Order: 2},
+		{ID: "c2", Kind: domain.NodeKindChat, ParentID: "folder-2", Order: 3},
+	}
+
+	rows, err := agentusecase.NewHomeCorrectedChats(inner, nodes).ListChatsInRepo(context.Background(), "r")
+
+	require.NoError(t, err)
+	require.Len(t, rows, 4)
+	assert.Equal(t, "folder-1", rows[0].ParentID)
+	assert.Equal(t, 3, rows[1].Order)
+	assert.Empty(t, rows[2].ParentID, "a bubble is left alone")
+	assert.Equal(t, "kept", rows[3].ParentID, "a row with no Node keeps its own placement")
+	assert.Equal(t, 0, nodes.gets)
+	assert.Equal(t, 1, nodes.all)
 }

@@ -34,13 +34,30 @@ export function blockedOn(activity: AgentActivity): AgentInterruption | null {
  * does not; a prompt is a QUESTION, each is separately answerable, and hiding all
  * but the newest would leave the CLI blocked on one nobody was shown.
  *
- * `pending` is read straight off the server on every poll, which is what makes a
- * prompt answered at the terminal disappear here without this view being told:
- * the terminal can resolve one at any instant, so this is advisory and the next
- * read is the authority.
+ * `pending` comes from the daemon's `choice` frames (see withPendingChoices), so a
+ * prompt answered at the terminal disappears here when the daemon says so, not
+ * when this view next asks.
  */
 export function pendingChoices(activity: AgentActivity): AgentChoice[] {
   return activity.choices.filter((choice) => choice.pending).sort((a, b) => a.seq - b.seq)
+}
+
+/**
+ * An activity read with the prompts the daemon has PUSHED laid over it.
+ *
+ * A read holds the whole record, resolved prompts included, but its pending ones
+ * are only as fresh as the read; the pushed set is the daemon's current answer,
+ * so it replaces them outright. Returns `activity` itself when nothing changes,
+ * so a chat with no prompts keeps one stable object.
+ */
+export function withPendingChoices(
+  activity: AgentActivity,
+  pending: readonly AgentChoice[],
+): AgentActivity {
+  if (pending.length === 0 && !activity.choices.some((choice) => choice.pending)) return activity
+  const pushed = new Set(pending.map((choice) => choice.id))
+  const history = activity.choices.filter((choice) => !choice.pending && !pushed.has(choice.id))
+  return { ...activity, choices: [...history, ...pending] }
 }
 
 /**

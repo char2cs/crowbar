@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -61,6 +63,30 @@ func TestRunHook_ForwardsSegmentProviderAndRawPayload(t *testing.T) {
 	require.Equal(t, "turn_stop", got["event"])
 	require.Equal(t, `{"session_id":"abc"}`, got["payload_raw"])
 	require.NotEmpty(t, got["delivery_id"])
+}
+
+func TestRunHook_PrintsTheReplyTheDaemonAnswersWith(t *testing.T) {
+	t.Setenv("CROWBAR_HOME", t.TempDir())
+	sock := filepath.Join(shortSocketDir(t), "h.sock")
+	var lc net.ListenConfig
+	ln, err := lc.Listen(context.Background(), "unix", sock)
+	require.NoError(t, err)
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(w, `{"data":{"reply":"{\"decision\":\"block\"}"}}`)
+	}), ReadHeaderTimeout: time.Minute}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	var out strings.Builder
+	err = runHook(hookRun{
+		Event: "turn_stop", Segment: "seg-42", Provider: "claude",
+		Project: "p1", Repo: "r1", Workspace: "w1",
+		Payload: []byte(`{}`), Host: "unix://" + sock, Out: &out,
+	})
+
+	require.NoError(t, err)
+	require.JSONEq(t, `{"decision":"block"}`, strings.TrimSpace(out.String()))
 }
 
 func TestNewHookCmd_HomeFlagOverridesEnv(t *testing.T) {

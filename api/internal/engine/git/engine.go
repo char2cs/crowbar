@@ -31,6 +31,8 @@ type engine struct {
 	execStdin execStdinFn
 	mu        sync.Map // key: common dir (string) -> *sync.RWMutex
 	commonDir sync.Map
+	verdicts  mergeVerdicts
+	tips      tipMemory
 }
 
 // repoMutex returns (or creates) the per-repo mutex for repoPath. The mutex is

@@ -24,6 +24,7 @@ import {
   resolvedChoices,
   runningSubagents,
   runningTools,
+  withPendingChoices,
 } from '@/features/agent/lib/agent-activity'
 
 function tool(overrides: Partial<AgentToolCall> = {}): AgentToolCall {
@@ -518,5 +519,34 @@ describe('choiceDetail', () => {
 
     expect(choiceDetail(NO_ACTIVITY, asked)).toBe('')
     expect(choiceDetail(NO_ACTIVITY, { ...asked, title: 'Deploy target' })).toBe('Deploy target')
+  })
+})
+
+describe('withPendingChoices', () => {
+  it('replaces the read’s pending prompts with the pushed set and keeps the history', () => {
+    const read = activity({
+      choices: [
+        choice({ id: 'stale', pending: true }),
+        choice({ id: 'done', pending: false, resolution: 'answered' }),
+      ],
+    })
+
+    const merged = withPendingChoices(read, [choice({ id: 'fresh' })])
+
+    expect(merged.choices.map((c) => c.id)).toEqual(['done', 'fresh'])
+  })
+
+  it('does not list a prompt twice when the read already resolved the one pushed earlier', () => {
+    const read = activity({
+      choices: [choice({ id: 'k1', pending: false, resolution: 'answered' })],
+    })
+
+    expect(withPendingChoices(read, [choice({ id: 'k1' })]).choices).toHaveLength(1)
+  })
+
+  it('hands back the same object when nothing is pending anywhere', () => {
+    const read = activity({ choices: [choice({ id: 'done', pending: false })] })
+
+    expect(withPendingChoices(read, [])).toBe(read)
   })
 })

@@ -30,6 +30,7 @@ func declaring() *spec.Descriptor {
 		ID: "claude",
 		InjectedPrompts: []spec.InjectedPromptSpec{
 			{Kind: spec.InjectedPromptTaskNotification, Needle: "<task-notification>"},
+			{Needle: "[Subagent hand-back]"},
 		},
 	}
 }
@@ -75,6 +76,16 @@ func TestMatch_IsPrefixAnchoredAndNotSqueezed(t *testing.T) {
 		{
 			name:   "the tag without its brackets is prose, not markup",
 			prompt: "task notification handling is broken",
+			want:   false,
+		},
+		{
+			name:   "the frame under one wrapping tag is still the harness",
+			prompt: "<wrapper from=\"x\">\n[Subagent hand-back] The report follows:\n  done\n</wrapper>",
+			want:   true,
+		},
+		{
+			name:   "markup the human typed is not a frame",
+			prompt: "<div>why is the hand-back missing?</div>",
 			want:   false,
 		},
 		{

@@ -211,6 +211,7 @@ func (p *Providers) ResolveProviders(
 			EffortSelect:      caps.EffortSelect,
 			ActivityEvents:    caps.Observes,
 			Hotswap:           caps.Hotswap,
+			PromptSteer:       caps.PromptSteer,
 			HasTerminal:       caps.HasTerminal,
 			TerminalStartHere: caps.TerminalStartHere,
 			Models:            d.Models(),

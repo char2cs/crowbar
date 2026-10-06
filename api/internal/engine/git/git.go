@@ -405,14 +405,15 @@ type Engine interface {
 		b string,
 	) (string, error)
 
-	// WouldMergeConflict reports whether a three-way merge of theirs into ours
-	// would conflict, computed non-destructively (git merge-tree --write-tree).
-	WouldMergeConflict(
+	// WouldMergeConflicts reports, for each pair, whether a three-way merge of
+	// Theirs into Ours would conflict, computed non-destructively (git merge-tree
+	// --write-tree): the branch tips are read once, verdicts are remembered by
+	// commit, and the rest run concurrently.
+	WouldMergeConflicts(
 		ctx context.Context,
 		repoPath string,
-		ours string,
-		theirs string,
-	) (bool, error)
+		pairs []MergePair,
+	) []MergeVerdict
 
 	// WorktreeAddBranch creates a new git worktree at worktreePath on a freshly
 	// created branch starting at startPoint, returning the resolved start SHA so

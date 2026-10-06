@@ -68,8 +68,6 @@ traffic — no fixture exists for any of them, and none should be invented:
 - `turn_failed` (StopFailure) — needs a captured run that errors out.
 - `message_delta` (MessageDisplay) — needs a captured streaming turn.
 - `tool_fail` (PostToolUseFailure) — needs a captured failing tool call.
-- `subagent_pre` / `subagent_post` (SubagentStart/SubagentStop) — needs a
-  captured Task-tool subagent run.
 - `notification` (Notification) — needs a captured idle/permission notice.
 - `compact_pre` / `compact_post` (PreCompact/PostCompact) — needs a captured
   `/compact`.
@@ -95,3 +93,13 @@ report for why (field-semantics change, owned by a later phase).
 UserPromptSubmit.json plus `agent_id`/`agent_type`, the documented keys every
 hook payload carries when it fires inside a subagent. Constructed, not a live
 capture: UserPromptSubmit firing inside a subagent is unverified against real traffic.
+
+## Subagent captures (claude 2.1.289, 2026-10-05)
+
+`SubagentStart.json`, `SubagentStop.json`, `PreToolUse.Subagent.json`,
+`PostToolUse.Subagent.json` and `UserPromptSubmit.AgentMessage.json` are
+VERBATIM from one interactive session with two background subagents, paths
+scrubbed as above. A subagent's own tool hooks carry `agent_id`/`agent_type`;
+the main agent's never do. The harness hands a subagent's report back through
+UserPromptSubmit wrapped in `<agent-message from=...>` — no `source` field
+distinguishes it from a human prompt.

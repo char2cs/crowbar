@@ -175,7 +175,7 @@ func newActivityStore(t *testing.T) (agentactivity.EventStore, func()) {
 
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	repo, err := agentactivity.NewEventSourced(ax, es, db, t.TempDir())
+	repo, err := agentactivity.NewEventSourced(ax, es, db, t.TempDir(), nil)
 	require.NoError(t, err)
 	return repo, ax.WaitPublish
 }

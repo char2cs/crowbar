@@ -175,9 +175,13 @@ func (t *Turns) ingestResolvedHook(
 		// carrying the CHILD's own thread id as session_id — see
 		// routeNestedSubagentEvent's own doc. Only once that returns false is
 		// this genuinely another conversation to drop.
-		if routed, err := t.routeNestedSubagentEvent(ctx, runner, ev); routed {
+		if routed, err := t.routeNestedSubagentEvent(ctx, runner, descriptor, ev, rawPayload); routed {
 			return err
 		}
+		return nil
+	}
+
+	if routeSubagentTool(ev) {
 		return nil
 	}
 

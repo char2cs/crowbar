@@ -1,0 +1,33 @@
+{
+ "session_id": "68a2773c-78c5-4edd-b4fe-bf5bd1309895",
+ "transcript_path": "/h/.claude/projects/-ws/68a2773c-78c5-4edd-b4fe-bf5bd1309895.jsonl",
+ "cwd": "/ws",
+ "prompt_id": "e0ff2382-e36e-4989-b778-101a8ff77351",
+ "permission_mode": "auto",
+ "agent_id": "af1db9e8443f0866d",
+ "agent_type": "",
+ "effort": {
+  "level": "medium"
+ },
+ "hook_event_name": "SubagentStop",
+ "stop_hook_active": false,
+ "agent_transcript_path": "/h/.claude/projects/-ws/68a2773c-78c5-4edd-b4fe-bf5bd1309895.jsonl",
+ "last_assistant_message": "what did the agents report?",
+ "background_tasks": [
+  {
+   "id": "a3edc502687d15840",
+   "type": "subagent",
+   "status": "running",
+   "description": "Read a.txt and echo",
+   "agent_type": "general-purpose"
+  },
+  {
+   "id": "a6fec6ffa95979d56",
+   "type": "subagent",
+   "status": "running",
+   "description": "Read a.txt and echo",
+   "agent_type": "general-purpose"
+  }
+ ],
+ "session_crons": []
+}

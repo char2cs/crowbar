@@ -126,3 +126,58 @@ func awaitPositionalPromptTurn(
 	})
 	return found.user, found.assistant
 }
+
+// A prompt sent while claude is mid-turn is delivered into that SAME process by
+// the Stop hook's reply: no respawn, one ledger row, in order.
+func TestAgent_ReactPromptMidTurnSteersTheRunningCLI(t *testing.T) {
+	requireCLI(t, "claude")
+	h := newHarness(t)
+	ctx := context.Background()
+
+	repoPath := kit.InitRepo(t)
+	_, _, wsID := h.importRepoAndWorkspace(t, "react-steer-claude", repoPath)
+	chatID, idleRunnerID, idleTermID, idleTap := spawnReady(t, h, wsID, "claude")
+	_, _ = awaitSessionBound(t, h, idleRunnerID, idleTermID, idleTap)
+
+	firstText := "Write the numbers 1 to 700 separated by commas in one single message, then the word CROWBAR-FIRST."
+	first, err := h.app.Usecases.AgentRunner.SubmitPrompt(ctx, chatID, firstText, uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	firstTap := kit.AttachPTY(t, h.eng.Terminal, first.TerminalSessionID)
+	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), first.TerminalSessionID) })
+	awaitHook(t, h, "the first turn is running", func() (bool, bool) {
+		working := chatWorking(t, h, chatID)
+		return working, working
+	})
+
+	secondText := "Now reply with only the exact text CROWBAR-SECOND"
+	second, err := h.app.Usecases.AgentRunner.SubmitPrompt(ctx, chatID, secondText, uuid.NewString(), "", nil)
+	require.NoError(t, err, "a prompt sent mid-turn must be accepted, not refused as busy")
+	require.Equal(t, first.RunnerID, second.RunnerID, "the monitored CLI must not be replaced")
+	require.Equal(t, first.TerminalSessionID, second.TerminalSessionID)
+
+	type turns struct{ firstDone, user, answer domain.LedgerMessage }
+	got := awaitHook(t, h, "the steered message and its answer", func() (turns, bool) {
+		page, readErr := h.app.Usecases.AgentChat.ReadMessages(ctx, chatID, 0, 0, 200)
+		if readErr != nil {
+			return turns{}, false
+		}
+		var out turns
+		for _, m := range page.Items {
+			switch {
+			case m.Role == "assistant" && strings.Contains(m.Text, "CROWBAR-FIRST"):
+				out.firstDone = m
+			case m.Role == "user" && m.Text == secondText:
+				out.user = m
+			case m.Role == "assistant" && strings.TrimSpace(m.Text) == "CROWBAR-SECOND":
+				out.answer = m
+			}
+		}
+		done := out.firstDone.Sequence > 0 && out.user.Sequence > out.firstDone.Sequence &&
+			out.answer.Sequence > out.user.Sequence && !chatWorking(t, h, chatID)
+		return out, done
+	})
+	require.NotZero(t, got.answer.Sequence)
+	require.True(t, h.eng.Terminal.SessionLive(ctx, first.TerminalSessionID),
+		"the CLI must still be the process that took the first prompt")
+	requireCLIAlive(t, h, firstTap, first.TerminalSessionID, "claude", "after taking a steered prompt")
+}

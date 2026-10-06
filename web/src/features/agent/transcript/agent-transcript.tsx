@@ -1,5 +1,15 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { layoutHeight } from '@/lib/layout-size'
+import { markEnd } from '@/lib/perf/instrumentation'
 import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual'
 import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
@@ -103,6 +113,9 @@ interface AgentTranscriptProps {
    * watching structurally cannot see.
    */
   dockHeight?: number
+  /** The surface around the list is still taking its final shape; showing it now
+   *  would move it. Held until false. */
+  holdReveal?: boolean
   /** Whether this chat is the ACTIVE tab in its pane — a background tab stays
    *  mounted behind `visibility:hidden`, which nothing here can observe on its
    *  own. See `UseTranscriptAnchorOptions.visible`. */
@@ -372,6 +385,9 @@ function observeScrollRect(
   const element = instance.scrollElement
   if (!element) return
   const report = (rect: { width: number; height: number }) => {
+    // A parked view is display:none, so its box reads 0x0: no viewport at all.
+    // Windowing to it unmounts every row, and showing it re-mounts them all.
+    if (rect.width === 0 && rect.height === 0) return
     cb({ width: Math.round(rect.width), height: Math.round(rect.height) })
   }
   let pending: { width: number; height: number } | null = null
@@ -401,37 +417,106 @@ function observeScrollRect(
   }
 }
 
-/**
- * One flattened message or activity row. Message-specific framing stays here;
- * activity row identity and order come from the canonical component.
- */
-function TranscriptRowView({
-  row,
-  providers,
-  firstTurnSequence,
-  firstReplySequence,
-  callsById,
-  subagentsByTurn,
-  choicesByTurn,
-  toolOutput,
-  wsId,
-  chatId,
-  precedingUserAt,
-  lastInAgentRun,
-}: {
-  row: TranscriptRow
-  providers: AgentProvider[]
+interface RowLookups {
   firstTurnSequence: number | undefined
   firstReplySequence: number | undefined
   callsById: Map<string, AgentToolCall>
   subagentsByTurn: Map<string, AgentSubagent[]>
   choicesByTurn: Map<string, AgentChoice[]>
   toolOutput?: { id: string; text: string }
-  wsId?: string
-  chatId?: string
   precedingUserAt: Map<number, string>
   lastInAgentRun: Set<number>
-}) {
+}
+
+/** What a row reads out of the transcript-wide lookups, as values of its OWN. A
+ *  row handed the lookups themselves re-renders whenever any other row changes
+ *  them; handed only its entries, it re-renders when its own entry does. */
+function resolveRowProps(row: TranscriptRow, lookups: RowLookups) {
+  if (row.kind === 'message') {
+    const { sequence } = row.message
+    return {
+      firstTurn: sequence === lookups.firstTurnSequence,
+      firstReply: sequence === lookups.firstReplySequence,
+      turnbar: lookups.lastInAgentRun.has(sequence),
+      precedingUserAt: lookups.precedingUserAt.get(sequence),
+    }
+  }
+  if (row.kind !== 'activity') return {}
+  const component = row.component
+  if (component.kind === 'tool_call') {
+    const call = lookups.callsById.get(component.id)
+    const output = call && lookups.toolOutput?.id === call.id ? lookups.toolOutput.text : undefined
+    return { call, output }
+  }
+  if (component.kind === 'subagent') {
+    return {
+      subagent: lookups.subagentsByTurn
+        .get(component.turnId)
+        ?.find((candidate) => candidate.id === component.id),
+    }
+  }
+  if (component.kind === 'permission_request' || component.kind === 'user_input_request') {
+    return {
+      choice: lookups.choicesByTurn
+        .get(component.turnId)
+        ?.find((candidate) => candidate.id === component.id),
+    }
+  }
+  return {}
+}
+
+/** Rows are rebuilt as new objects whenever the list is re-flattened, so row
+ *  identity says nothing; what the row draws is what it holds. */
+function sameRowContent(a: TranscriptRow, b: TranscriptRow): boolean {
+  if (a === b) return true
+  switch (a.kind) {
+    case 'message':
+      return b.kind === 'message' && a.message === b.message && a.streaming === b.streaming
+    case 'activity':
+      return b.kind === 'activity' && a.component === b.component
+    case 'event-divider':
+      return b.kind === 'event-divider' && a.tags === b.tags
+    case 'first-turn-divider':
+      return b.kind === 'first-turn-divider'
+  }
+}
+
+function sameRowProps(
+  prev: Parameters<typeof TranscriptRowViewBody>[0],
+  next: Parameters<typeof TranscriptRowViewBody>[0],
+): boolean {
+  if (!sameRowContent(prev.row, next.row)) return false
+  const keys = new Set([...Object.keys(prev), ...Object.keys(next)])
+  for (const key of keys) {
+    if (key === 'row') continue
+    if (prev[key as keyof typeof prev] !== next[key as keyof typeof next]) return false
+  }
+  return true
+}
+
+/**
+ * One flattened message or activity row. Message-specific framing stays here;
+ * activity row identity and order come from the canonical component.
+ */
+function TranscriptRowViewBody({
+  row,
+  providers,
+  wsId,
+  chatId,
+  call,
+  output,
+  subagent,
+  choice,
+  firstTurn,
+  firstReply,
+  turnbar,
+  precedingUserAt,
+}: {
+  row: TranscriptRow
+  providers: AgentProvider[]
+  wsId?: string
+  chatId?: string
+} & ReturnType<typeof resolveRowProps>) {
   switch (row.kind) {
     case 'event-divider':
       return <EventDivider tags={row.tags} providers={providers} />
@@ -440,12 +525,11 @@ function TranscriptRowView({
     case 'activity': {
       const component = row.component
       if (component.kind === 'tool_call') {
-        const call = callsById.get(component.id)
         if (!call) return null
         return (
           <AgentToolCallEntry
             call={call}
-            output={toolOutput?.id === call.id ? toolOutput.text : undefined}
+            output={output}
             wsId={wsId}
             chatId={chatId}
             parentId={component.parentId}
@@ -453,17 +537,13 @@ function TranscriptRowView({
         )
       }
       if (component.kind === 'subagent') {
-        const item = subagentsByTurn
-          .get(component.turnId)
-          ?.find((candidate) => candidate.id === component.id)
-        return item ? <AgentSubagentEntry subagent={item} parentId={component.parentId} /> : null
+        return subagent ? (
+          <AgentSubagentEntry subagent={subagent} parentId={component.parentId} />
+        ) : null
       }
       if (component.kind === 'permission_request' || component.kind === 'user_input_request') {
         const grouped = new Map<string, AgentChoice[]>()
-        const item = choicesByTurn
-          .get(component.turnId)
-          ?.find((candidate) => candidate.id === component.id)
-        if (item) grouped.set(component.turnId, [item])
+        if (choice) grouped.set(component.turnId, [choice])
         return <AgentTurnChoices choicesByTurn={grouped} turnId={component.turnId} />
       }
       return <ActivityComponentRow component={component} wsId={wsId} />
@@ -473,16 +553,18 @@ function TranscriptRowView({
         <MessageRow
           message={row.message}
           providers={providers}
-          firstTurn={row.message.sequence === firstTurnSequence}
-          firstReply={row.message.sequence === firstReplySequence}
-          turnbar={lastInAgentRun.has(row.message.sequence)}
+          firstTurn={firstTurn}
+          firstReply={firstReply}
+          turnbar={turnbar}
           streaming={row.streaming}
-          precedingUserAt={precedingUserAt.get(row.message.sequence)}
+          precedingUserAt={precedingUserAt}
         />
       )
     }
   }
 }
+
+const TranscriptRowView = memo(TranscriptRowViewBody, sameRowProps)
 
 /**
  * The conversation.
@@ -773,7 +855,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     // the gate on a settle nobody saw, and the reader got the whole cascade on
     // the first switch to that tab: measured live, three content states and a
     // 338px shift in ~130ms.
-    if (settled || rows.length === 0 || props.visible === false) return
+    if (settled || rows.length === 0 || props.visible === false || props.holdReveal) return
     let quiet = 0
     let last = -1
     let frame = 0
@@ -792,7 +874,9 @@ export function AgentTranscript(props: AgentTranscriptProps) {
         frame = requestAnimationFrame(step)
         return
       }
-      const total = rowVirtualizer.getTotalSize()
+      // The dock's height is part of the geometry: it pads the scroller, and a
+      // late measure moves the pinned bottom after the list is shown.
+      const total = rowVirtualizer.getTotalSize() + (dockHeight ?? 0)
       if (total !== last) {
         last = total
         quiet = 0
@@ -810,7 +894,14 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     // `anchor.scrollRef` is a ref: `.current` is read fresh inside the frame
     // callback regardless of this list — React's own documented exemption.
     // react-doctor-disable-next-line exhaustive-deps -- see comment above, anchor.scrollRef is a ref
-  }, [settled, rows.length, rowVirtualizer, props.visible])
+  }, [settled, rows.length, rowVirtualizer, props.visible, props.holdReveal, dockHeight])
+
+  // Closes the launch span opened in main.tsx; a no-op for every later reveal.
+  useEffect(() => {
+    if (!settled) return
+    const frame = requestAnimationFrame(() => markEnd('chat:first-row'))
+    return () => cancelAnimationFrame(frame)
+  }, [settled])
 
   // The queued row's own LAST REAL height, by clientRequestId — the same
   // idea as `lastStreamedHeight` above, one step earlier in a message's
@@ -865,6 +956,17 @@ export function AgentTranscript(props: AgentTranscriptProps) {
       }
     })
   }, [rows, rowVirtualizer])
+
+  const rowLookups: RowLookups = {
+    firstTurnSequence,
+    firstReplySequence,
+    callsById,
+    subagentsByTurn,
+    choicesByTurn,
+    toolOutput: props.toolOutput,
+    precedingUserAt,
+    lastInAgentRun,
+  }
 
   return (
     <div
@@ -955,16 +1057,9 @@ export function AgentTranscript(props: AgentTranscriptProps) {
                   <TranscriptRowView
                     row={row}
                     providers={props.providers}
-                    firstTurnSequence={firstTurnSequence}
-                    firstReplySequence={firstReplySequence}
-                    callsById={callsById}
-                    subagentsByTurn={subagentsByTurn}
-                    choicesByTurn={choicesByTurn}
-                    toolOutput={props.toolOutput}
                     wsId={props.wsId}
                     chatId={props.chatId}
-                    precedingUserAt={precedingUserAt}
-                    lastInAgentRun={lastInAgentRun}
+                    {...resolveRowProps(row, rowLookups)}
                   />
                 </div>
               )

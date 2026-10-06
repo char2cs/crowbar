@@ -75,6 +75,9 @@ export interface PromptQueueOptions {
   wsId: string
   chatId: string
   working: boolean
+  /** The daemon delivers a message sent mid-turn into the running turn, so
+   *  `working` alone does not hold the head. */
+  steerable?: boolean
   /** Busy in a way `working` cannot see. A bare /compact opens no tracked turn,
    *  so the aggregate reports idle for the whole compaction — dispatching against
    *  that "idle" hands the CLI a prompt mid-compaction and aborts the compaction.
@@ -131,6 +134,7 @@ export function usePromptQueue(options: PromptQueueOptions) {
     wsId,
     chatId,
     working,
+    steerable = false,
     compacting,
     live,
     canSend,
@@ -358,14 +362,19 @@ export function usePromptQueue(options: PromptQueueOptions) {
 
   // Recovers a prompt this tab's local queue lost entirely (idle reload,
   // crash, cleared storage) from the backend's own pending-prompt record.
-  // Runs once per chat becoming visible; only ever appends — never touches
-  // an existing item, never the busy barrier above.
+  // Runs once per mount, when the chat is first shown: a parked chat stays
+  // mounted, so its queue cannot lose a record between two showings. Only ever
+  // appends — never touches an existing item, never the busy barrier above.
+  const recoveredFor = useRef('')
   useEffect(() => {
-    if (!visible) return
+    const key = `${wsId}:${chatId}`
+    if (!visible || recoveredFor.current === key) return
     const controller = new AbortController()
     void (async () => {
       const pending = await getPendingPrompt(wsId, chatId, controller.signal).catch(() => null)
-      if (!pending || controller.signal.aborted) return
+      if (controller.signal.aborted) return
+      recoveredFor.current = key
+      if (!pending) return
       updateQueue((current) => {
         if (current.some((item) => item.text.trim() === pending.text.trim())) return current
         const recovered: PromptQueueItem = {
@@ -476,6 +485,26 @@ export function usePromptQueue(options: PromptQueueOptions) {
               error:
                 'The provider became busy before this prompt could start. It will wait for idle.',
             }))
+          } else if (code === 'request_outcome_uncertain') {
+            // The daemon cannot prove what became of this id and will refuse it
+            // forever, so a Retry on it can only conflict. Park the text under a
+            // fresh id the daemon has never seen; sending it is still the
+            // person's explicit Retry, never automatic.
+            let freshId: string
+            try {
+              freshId = requestId()
+            } catch {
+              freshId = item.clientRequestId
+            }
+            mark(item.clientRequestId, (current) => ({
+              ...current,
+              clientRequestId: freshId,
+              state: 'outcome_uncertain',
+              submittedAt: undefined,
+              error:
+                'The provider may already have this message. Retry sends it again as a new request.',
+            }))
+            refreshMessages()
           } else if (code === 'request_id_conflict') {
             mark(item.clientRequestId, (current) => ({
               ...current,
@@ -544,7 +573,7 @@ export function usePromptQueue(options: PromptQueueOptions) {
     if (
       !head ||
       head.state !== 'queued' ||
-      working ||
+      (working && !steerable) ||
       compacting ||
       !canSend ||
       !active ||
@@ -553,7 +582,7 @@ export function usePromptQueue(options: PromptQueueOptions) {
       return
     if (head.waitForIdleEpoch !== undefined && head.waitForIdleEpoch > idleEpoch) return
     void dispatch(head)
-  }, [queue, working, compacting, canSend, active, visible, idleEpoch, dispatch])
+  }, [queue, working, steerable, compacting, canSend, active, visible, idleEpoch, dispatch])
 
   // A replacement CLI that disappears before user_prompt is not accepted. Keep
   // the same request identity but require a human retry; never silently resubmit.
@@ -638,10 +667,10 @@ export function usePromptQueue(options: PromptQueueOptions) {
         ...item,
         state: 'queued',
         error: undefined,
-        waitForIdleEpoch: working ? idleEpochRef.current + 1 : undefined,
+        waitForIdleEpoch: working && !steerable ? idleEpochRef.current + 1 : undefined,
         // SAME clientRequestId: server dedupe can return the first successful result.
       })),
-    [mark, working],
+    [mark, working, steerable],
   )
 
   return {

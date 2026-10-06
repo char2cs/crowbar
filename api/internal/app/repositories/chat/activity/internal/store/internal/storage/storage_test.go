@@ -325,7 +325,8 @@ func TestResolveChoicesForTool_MatchesByNameWhenIDIsEmpty(t *testing.T) {
 		ID: "choice-1", ChatID: "c1", ToolName: "Bash", At: now,
 	}))
 
-	require.NoError(t, st.ResolveChoicesForTool(ctx, "c1", "", "Bash", &now))
+	_, err := st.ResolveChoicesForTool(ctx, "c1", "", "Bash", &now)
+	require.NoError(t, err)
 
 	choices, err := st.Choices(ctx, "c1")
 	require.NoError(t, err)
@@ -344,7 +345,7 @@ func TestResolveChoicesForTool_ClosedDatabaseReturnsError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	err = st.ResolveChoicesForTool(ctx, "c1", "tool-1", "Bash", &now)
+	_, err = st.ResolveChoicesForTool(ctx, "c1", "tool-1", "Bash", &now)
 	assert.Error(t, err)
 }
 
@@ -354,7 +355,7 @@ func TestResolveOpenChoices_ClosedDatabaseReturnsError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	err = st.ResolveOpenChoices(ctx, "c1", &now)
+	_, err = st.ResolveOpenChoices(ctx, "c1", &now)
 	assert.Error(t, err)
 }
 

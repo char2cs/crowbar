@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
@@ -30,7 +31,35 @@ func (r promptSubmit) Check(d *spec.Descriptor) error {
 	if err := r.checkSteps(d.ID, "resume", ps.Resume); err != nil {
 		return err
 	}
-	return r.checkLeadingSigils(d.ID, ps.LeadingSigils)
+	if err := r.checkLeadingSigils(d.ID, ps.LeadingSigils); err != nil {
+		return err
+	}
+	return checkSteer(d, ps.Steer)
+}
+
+func checkSteer(d *spec.Descriptor, steer *spec.SteerSpec) error {
+	if steer == nil {
+		return nil
+	}
+	if _, declared := d.Events[spec.HookTurnStop]; !declared {
+		return invalid(d.ID, "presentation.prompt_submit.steer needs the %s event", spec.HookTurnStop)
+	}
+	if strings.Count(steer.Frame, "{message}") != 1 {
+		return invalid(d.ID, "presentation.prompt_submit.steer.frame must place {message} exactly once")
+	}
+	if strings.Count(steer.Reply, "{message_json}") != 1 {
+		return invalid(d.ID, "presentation.prompt_submit.steer.reply must place {message_json} exactly once")
+	}
+	var probe any
+	if err := json.Unmarshal([]byte(strings.Replace(steer.Reply, "{message_json}", `"x"`, 1)), &probe); err != nil {
+		return invalid(d.ID, "presentation.prompt_submit.steer.reply is not JSON once {message_json} is filled: %v", err)
+	}
+	for _, prefix := range steer.SkipPrefixes {
+		if prefix == "" {
+			return invalid(d.ID, "presentation.prompt_submit.steer.skip_prefixes holds an empty entry")
+		}
+	}
+	return nil
 }
 
 func (promptSubmit) checkLeadingSigils(id string, sigils *spec.LeadingSigilsSpec) error {

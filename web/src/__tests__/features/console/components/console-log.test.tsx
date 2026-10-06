@@ -91,4 +91,27 @@ describe('ConsoleLog', () => {
     render(<ConsoleLog entries={entries(2)} {...props} />)
     expect(document.activeElement).toBe(log())
   })
+
+  it('keeps following the newest line when the viewport is resized', () => {
+    const observers: ((entries: unknown[]) => void)[] = []
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(cb: (entries: unknown[]) => void) {
+          observers.push(cb)
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    )
+    try {
+      render(<ConsoleLog entries={entries(200)} {...props} />)
+      log().scrollTop = 0
+      observers.forEach((cb) => cb([]))
+      expect(log().scrollTop).toBeGreaterThan(0)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })

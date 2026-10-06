@@ -9,7 +9,8 @@ import {
   setDropHoverAt,
   startFileDrag,
 } from '@/features/panes/stores/drag-store'
-import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
+import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { getDirName, getPathSeparator, joinPath } from '@/utils/path-helpers'
 
 interface DragState {
@@ -214,8 +215,9 @@ export function useFileExplorerDragDrop(
       // pane of its own, so the zone is not consulted.
       if (isOverPane && !isOverFileTree && draggedItem && !draggedItem.isDir) {
         const { paneId } = resolveDropTarget({ x: e.clientX, y: e.clientY })
-        if (paneId) {
-          void useFileSystemStore.getState().handleFileOpen?.(draggedItem.path, false, { paneId })
+        const wsId = getActiveWorkspaceId()
+        if (paneId && wsId) {
+          void openWorkspaceFile(wsId, draggedItem.path, { paneId })
         }
         setDragState(initialDragState)
         clearAutoExpand()

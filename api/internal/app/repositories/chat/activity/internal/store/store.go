@@ -28,7 +28,17 @@ type Store struct {
 	ax        asynx.Asynx[domain.ChatActivity]
 	es        asynxModels.Store
 
-	healOnce sync.Once
+	choiceWatch func(chatID string)
+	healOnce    sync.Once
+}
+
+// Option configures a Store.
+type Option func(*Store)
+
+// WithChoiceWatch has the store announce every chat whose pending prompts its
+// projection just changed. It runs on the projection goroutine, after the write.
+func WithChoiceWatch(watch func(chatID string)) Option {
+	return func(s *Store) { s.choiceWatch = watch }
 }
 
 func New(
@@ -36,6 +46,7 @@ func New(
 	contentRoot string,
 	ax asynx.Asynx[domain.ChatActivity],
 	es asynxModels.Store,
+	opts ...Option,
 ) (*Store, error) {
 	st, err := storage.New(db)
 	if err != nil {
@@ -48,10 +59,13 @@ func New(
 	s := &Store{
 		storage:   st,
 		content:   blobs,
-		projector: projections.New(st),
 		ax:        ax,
 		es:        es,
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	s.projector = projections.New(st, s.choiceWatch)
 	if _, err := ax.Subscribe(asynx.Topic("agentactivity.*"), s.onEvent); err != nil {
 		return nil, fmt.Errorf("agentactivity store: subscribe: %w", err)
 	}
@@ -225,6 +239,11 @@ func (s *Store) PendingChoices(
 ) ([]domain.ActivityChoice, error) {
 	s.heal(ctx)
 	return s.storage.PendingChoices(ctx, chatID)
+}
+
+func (s *Store) AllPendingChoices(ctx context.Context) ([]domain.ActivityChoice, error) {
+	s.heal(ctx)
+	return s.storage.AllPendingChoices(ctx)
 }
 
 func (s *Store) RecentToolCalls(

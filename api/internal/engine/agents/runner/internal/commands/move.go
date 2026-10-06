@@ -69,10 +69,10 @@ func (c Move) EmitEvent(current *agents.Runner) agents.Runner {
 	next.CurrentSessionSince = c.Now
 	next.CurrentSessionResumable = c.Resumable
 	if c.Model != "" {
-		next.LaunchModel = c.Model
+		next.ReportedModel = c.Model
 	}
 	if c.Effort != "" {
-		next.LaunchEffort = c.Effort
+		next.ReportedEffort = c.Effort
 	}
 	return next
 }

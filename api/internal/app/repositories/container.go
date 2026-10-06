@@ -57,7 +57,7 @@ type Container struct {
 	// vertical slice at a time.
 	Node node.EventStore
 	hub  hub.WebSocketHub
-	git  wsusecase.MergeConflictChecker
+	git  wsusecase.MergeConflictBatchChecker
 	// PurgeChat hard-deletes one chat and everything it owns — its aggregate, the
 	// CLIs on it, its conversation record and telemetry, its conversation history
 	// and its ledger directory. It is the chat usecase's own PurgeChat, the SAME
@@ -135,10 +135,11 @@ func New(
 	axAgentActivity asynx.Asynx[domain.ChatActivity],
 	axAgentRunner asynx.Asynx[agents.Runner],
 	axNode asynx.Asynx[domain.Node],
-	git wsusecase.MergeConflictChecker,
+	git wsusecase.MergeConflictBatchChecker,
 	chatWatch agentchat.WatchFunc,
 	runnerWatch agentrunner.WatchFunc,
 	nodeWatch node.WatchFunc,
+	choiceWatch agentactivity.WatchFunc,
 ) (*Container, error) {
 	c := &Container{
 		hub: h, git: git, inflight: map[string]int{},
@@ -196,7 +197,7 @@ func New(
 	// tool payloads are swept by the same retention policy as the rest of it.
 	agentActivity, err := agentactivity.NewEventSourced(
 		axAgentActivity, adapters.AgentActivityES(), adapters.AgentActivityReadDB(),
-		filepath.Join(adapters.CrowbarHome(), "state", "content"),
+		filepath.Join(adapters.CrowbarHome(), "state", "content"), choiceWatch,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: agent activity event store: %w", err)
@@ -727,8 +728,8 @@ func (c *Container) registerAgentWorkingProjection() error {
 // from `len(set) > 0`, so a second chat starting a turn in a workspace that is
 // already working, or the first of two concurrent chats stopping, changes NOTHING
 // observable — yet rebroadcasting anyway is far from free: broadcastWorkspace →
-// enrichFrame → eligibilityFor runs ListWorkspacesInRepo AND git.WouldMergeConflict,
-// a real `git merge-tree --write-tree` subprocess taken under the per-clone git
+// enrichFrame → eligibilityFor runs ListWorkspacesInRepo AND git.WouldMergeConflicts,
+// a git subprocess (one branch-tip read, then a `git merge-tree --write-tree` per unseen pair) taken under the per-clone git
 // mutex. Firing that on every turn_started/turn_stopped made N concurrently-working
 // chats in one workspace cost 2N git subprocesses per round on the shared lock —
 // the exact contention shape behind this repo's history of git-mutex hangs.
@@ -790,7 +791,7 @@ func agentEventKind(eventName string) string {
 
 // eligibilityFor resolves the merge-eligibility overlay (incl. the predicted
 // merge-conflict flag) for ws by reading its siblings and delegating to the
-// shared wsusecase.ResolveMergeEligibility — the SAME resolver the snapshot read
+// shared wsusecase.ResolveMergeEligibilities — the SAME resolver the snapshot read
 // path uses, so the live broadcast and the snapshot always agree. The sibling
 // read is best effort — a failed List degrades to no eligibility rather than
 // dropping the broadcast.
@@ -805,7 +806,7 @@ func (c *Container) eligibilityFor(
 	if err != nil {
 		return wsusecase.MergeEligibility{}
 	}
-	return wsusecase.ResolveMergeEligibility(ctx, ws, siblings, c.git)
+	return wsusecase.ResolveMergeEligibilities(ctx, []domain.Workspace{ws}, siblings, c.git)[0]
 }
 
 // ListWorkspaces returns every workspace row with the derived Working overlay

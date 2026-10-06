@@ -169,54 +169,50 @@ describe('useAgentActivity', () => {
     )
   })
 
-  // A prompt waiting on a human is the OTHER way a chat is unfinished. It can
-  // stop pending with no action here — somebody answers at the terminal, or the
-  // relay holding the CLI's gate expires — so the poll has to outlive the turn
-  // that opened it or the card would sit there offering buttons that reach nobody.
-  it('keeps polling for a pending prompt after the turn stops working', async () => {
+  // A prompt waiting on a human has a channel of its own — the daemon pushes it —
+  // so it is neither read for nor polled for. Only tool calls lack one.
+  it('does not poll on a pending prompt’s account once the turn stopped working', async () => {
     vi.useFakeTimers()
     try {
-      listChatActivity.mockResolvedValue({ ...empty, choices: [choice({ pending: true })] })
-
-      renderHook(() => useAgentActivity('ws1', 'c1', false, false, true))
-      // The mount read has to LAND before the window that observes polling: the
-      // prompt it carries is what makes the chat live in the first place.
+      const { result } = renderHook(() =>
+        useAgentActivity('ws1', 'c1', false, false, true, 0, [choice()] as never),
+      )
       await act(() => vi.advanceTimersByTimeAsync(0))
-      await act(() => vi.advanceTimersByTimeAsync(5_000))
+      await act(() => vi.advanceTimersByTimeAsync(10_000))
 
-      expect(listChatActivity.mock.calls.length).toBeGreaterThan(2)
+      expect(result.current.choices).toHaveLength(1)
+      expect(listChatActivity).toHaveBeenCalledTimes(1)
     } finally {
       vi.useRealTimers()
     }
   })
 
-  // And it goes quiet again the moment the server says the prompt stopped
-  // pending — however it stopped. This view is advisory: the terminal can resolve
-  // a prompt at any instant, so the read is the authority, not the click.
-  it('stops polling once the prompt stops pending', async () => {
-    vi.useFakeTimers()
-    try {
-      listChatActivity.mockResolvedValue({ ...empty, choices: [choice({ pending: true })] })
-      const { result } = renderHook(() => useAgentActivity('ws1', 'c1', false, false, true))
-      await act(() => vi.advanceTimersByTimeAsync(0))
-      await act(() => vi.advanceTimersByTimeAsync(5_000))
-      expect(listChatActivity.mock.calls.length).toBeGreaterThan(2)
+  it('shows the pushed prompt over a read that does not know it, and drops a stale pending one', async () => {
+    listChatActivity.mockResolvedValue({
+      ...empty,
+      choices: [choice({ id: 'stale', pending: true }), choice({ id: 'old', pending: false })],
+    })
 
-      // Answered at the TERMINAL, by somebody else.
-      listChatActivity.mockResolvedValue({
-        ...empty,
-        choices: [choice({ pending: false, resolution: 'proceeded' })],
-      })
-      await act(() => vi.advanceTimersByTimeAsync(5_000))
-      await act(() => vi.advanceTimersByTimeAsync(0))
-      expect(result.current.choices[0]?.pending).toBe(false)
+    const { result } = renderHook(() =>
+      useAgentActivity('ws1', 'c1', false, false, true, 0, [choice({ id: 'fresh' })] as never),
+    )
 
-      const settled = listChatActivity.mock.calls.length
-      await act(() => vi.advanceTimersByTimeAsync(10_000))
-      expect(listChatActivity.mock.calls.length).toBe(settled)
-    } finally {
-      vi.useRealTimers()
-    }
+    await waitFor(() => expect(result.current.choices.map((c) => c.id)).toEqual(['old', 'fresh']))
+  })
+
+  // However the prompt stopped pending — answered, expired, decided at the
+  // terminal — the daemon says so, and the resolved record is one read away.
+  it('takes one read of the resolved record when the pushed prompt goes away', async () => {
+    const { rerender } = renderHook(
+      ({ pending }: { pending: unknown[] }) =>
+        useAgentActivity('ws1', 'c1', false, false, true, 0, pending as never),
+      { initialProps: { pending: [choice()] } },
+    )
+    await waitFor(() => expect(listChatActivity).toHaveBeenCalledTimes(1))
+
+    rerender({ pending: [] })
+
+    await waitFor(() => expect(listChatActivity).toHaveBeenCalledTimes(2))
   })
 
   it('drops the previous chat timeline when the chat changes', async () => {
@@ -282,5 +278,92 @@ describe('useAgentActivity on mount', () => {
     renderHook(() => useAgentActivity('ws1', 'c1', false, false, false))
 
     expect(listChatActivity).not.toHaveBeenCalled()
+  })
+})
+
+// A parked chat stays mounted. Its timeline is kept current by the same edges a
+// visible chat sees, so showing it again reads nothing unless a turn is still
+// running (a tool starting mid-turn announces nothing, so that read is the only
+// way to catch up).
+describe('useAgentActivity across hide and show', () => {
+  type Props = { working: boolean; visible: boolean }
+  const mount = (initialProps: Props) =>
+    renderHook(
+      ({ working, visible }: Props) => useAgentActivity('ws1', 'c1', working, false, visible),
+      {
+        initialProps,
+      },
+    )
+
+  it('does not re-read an idle chat each time it is shown again', async () => {
+    const { rerender } = mount({ working: false, visible: true })
+    await waitFor(() => expect(listChatActivity).toHaveBeenCalledTimes(1))
+
+    rerender({ working: false, visible: false })
+    rerender({ working: false, visible: true })
+    rerender({ working: false, visible: false })
+    rerender({ working: false, visible: true })
+    await act(async () => {})
+
+    expect(listChatActivity).toHaveBeenCalledTimes(1)
+  })
+
+  it('takes the falling-edge read while hidden, so a turn that finished unseen shows its work on show', async () => {
+    const { rerender } = mount({ working: true, visible: true })
+    await waitFor(() => expect(listChatActivity).toHaveBeenCalled())
+    rerender({ working: true, visible: false })
+    listChatActivity.mockClear()
+
+    rerender({ working: false, visible: false })
+    await waitFor(() => expect(listChatActivity).toHaveBeenCalledTimes(1))
+
+    rerender({ working: false, visible: true })
+    await act(async () => {})
+    expect(listChatActivity).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads at once when a chat still running is shown, without waiting for the next poll', async () => {
+    const { rerender } = mount({ working: true, visible: false })
+    expect(listChatActivity).not.toHaveBeenCalled()
+
+    rerender({ working: true, visible: true })
+
+    await waitFor(() => expect(listChatActivity).toHaveBeenCalledTimes(1))
+  })
+
+  // A prompt that opened while the chat was parked is already there on the first
+  // frame it is shown: the daemon pushed it, so showing it reads nothing for it.
+  it('shows a prompt that arrived while hidden with no activity read on show', async () => {
+    const { result, rerender } = renderHook(
+      ({ visible, pending }: { visible: boolean; pending: unknown[] }) =>
+        useAgentActivity('ws1', 'c1', false, false, visible, 0, pending as never),
+      { initialProps: { visible: true, pending: [] as unknown[] } },
+    )
+    await waitFor(() => expect(listChatActivity).toHaveBeenCalledTimes(1))
+    rerender({ visible: false, pending: [] })
+
+    rerender({ visible: false, pending: [choice()] })
+    expect(result.current.choices.map((c) => c.id)).toEqual(['k1'])
+
+    rerender({ visible: true, pending: [choice()] })
+    expect(result.current.choices.map((c) => c.id)).toEqual(['k1'])
+    await act(async () => {})
+    expect(listChatActivity).toHaveBeenCalledTimes(1)
+  })
+
+  // A reconnect bumps every chat's turn revision with no working edge: a turn can
+  // have run, start to finish, inside the outage.
+  it('re-reads an idle hidden chat when its turn revision moves with no working edge', async () => {
+    const { rerender } = renderHook(
+      ({ turnRevision, visible }: { turnRevision: number; visible: boolean }) =>
+        useAgentActivity('ws1', 'c1', false, false, visible, turnRevision),
+      { initialProps: { turnRevision: 0, visible: true } },
+    )
+    await waitFor(() => expect(listChatActivity).toHaveBeenCalledTimes(1))
+    rerender({ turnRevision: 0, visible: false })
+
+    rerender({ turnRevision: 1, visible: false })
+
+    await waitFor(() => expect(listChatActivity).toHaveBeenCalledTimes(2))
   })
 })

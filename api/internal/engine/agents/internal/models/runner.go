@@ -67,6 +67,12 @@ type Runner struct {
 	// both register as a change.
 	LaunchModel  string `json:"launchModel,omitempty"`
 	LaunchEffort string `json:"launchEffort,omitempty"`
+	// ReportedModel and ReportedEffort are what the process itself said it
+	// resolved to (a session-start payload). They are display only: an alias
+	// picked at launch never equals them, so comparing them with a selection
+	// would call every unchanged pick a change.
+	ReportedModel  string `json:"reportedModel,omitempty"`
+	ReportedEffort string `json:"reportedEffort,omitempty"`
 	// LaunchPermissionLevel is the same persisted-launch-intent fact as
 	// LaunchModel/LaunchEffort above, for Crowbar's own permission level —
 	// never empty for a chat that has ever been seeded, unlike Model/Effort.

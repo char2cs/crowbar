@@ -285,3 +285,35 @@ func TestSnapshots_VersionsSurviveARestart(t *testing.T) {
 	require.NoError(t, err)
 	assert.Greater(t, fresh.Version, old.Version)
 }
+
+// A read of many chats overlays the Node placement ONCE for the lot, and does it
+// outside the owner's lock: the overlay reads the store, and a store read under
+// the lock stalls every event and every other read behind it.
+func TestSnapshots_GetManyCorrectsOncePerReadOutsideTheLock(t *testing.T) {
+	rd := &reader{chats: map[string]domain.Chat{
+		"a": {ID: "a", WorkspaceID: "w"}, "b": {ID: "b", WorkspaceID: "w"}, "c": {ID: "c", WorkspaceID: "w"},
+	}}
+	s, _, _ := newOwner(t, rd)
+	var calls, batch int
+	s.SetCorrect(func(_ context.Context, chats []domain.Chat) []domain.Chat {
+		calls++
+		batch = len(chats)
+		_ = s.Len() // takes the owner's lock: deadlocks if the overlay runs under it
+		out := append([]domain.Chat(nil), chats...)
+		for i := range out {
+			out[i].Order = 7
+		}
+		return out
+	})
+
+	got, err := s.GetMany(context.Background(), []string{"a", "b", "c"})
+
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+	assert.Equal(t, 1, calls)
+	assert.Equal(t, 3, batch)
+	for i, id := range []string{"a", "b", "c"} {
+		assert.Equal(t, id, got[i].Chat.ID, "answers keep the order asked")
+		assert.Equal(t, 7, got[i].Chat.Order)
+	}
+}

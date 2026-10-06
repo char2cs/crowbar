@@ -9,8 +9,7 @@ export interface JumpListEntry {
    * The workspace this entry was recorded in.
    *
    * This store is a process-GLOBAL singleton that outlives every workspace
-   * switch (`resetWorkspaceScopedStores` does not clear it), while `filePath`
-   * is workspace-RELATIVE. Linked worktrees of one repo hold the same relative
+   * switch, while `filePath` is workspace-RELATIVE. Linked worktrees of one repo hold the same relative
    * paths with different content, so an entry that does not name its own
    * workspace is ambiguous: resolving it against whatever is active at
    * navigation time opens a sibling checkout's file under the right tab title.

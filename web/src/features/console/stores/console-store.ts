@@ -2,6 +2,13 @@ import { create } from 'zustand'
 import type { ConsoleEntry, NewEntry } from '@/features/console/lib/entries'
 import type { LogFrame } from '@/features/console/lib/frames'
 import type { LogStreamState } from '@/features/console/lib/log-stream'
+import {
+  loadDockPrefs,
+  nextDock,
+  saveDockPrefs,
+  type ConsoleDock,
+  type ConsoleMode,
+} from '@/features/console/lib/dock-prefs'
 import { appendCapped } from '@/features/console/lib/ring'
 
 /** The most lines kept; the oldest go first. Matches the daemon's own ring. */
@@ -9,6 +16,10 @@ const BUFFER_CAP = 5000
 
 export interface ConsoleState {
   open: boolean
+  /** Where the console sits, whether it floats over the app or takes space, and its size; all persisted. */
+  dock: ConsoleDock
+  mode: ConsoleMode
+  size: number
   stream: LogStreamState
   entries: ConsoleEntry[]
   nextId: number
@@ -18,6 +29,10 @@ export interface ConsoleState {
 
   toggle: () => void
   setOpen: (open: boolean) => void
+  cycleDock: () => void
+  toggleMode: () => void
+  /** Commits a finished resize; the caller clamps it to the window. */
+  setSize: (size: number) => void
   setStream: (state: LogStreamState) => void
   /**
    * Folds frames from the log stream into the buffer. Hand it a whole replay,
@@ -32,8 +47,13 @@ function numbered(entries: readonly NewEntry[], from: number): ConsoleEntry[] {
   return entries.map((entry, i) => ({ ...entry, id: from + i }))
 }
 
+function persist({ dock, mode, size }: ConsoleState): void {
+  saveDockPrefs({ dock, mode, size })
+}
+
 export const useConsoleStore = create<ConsoleState>((set, get) => ({
   open: false,
+  ...loadDockPrefs(),
   stream: 'idle',
   entries: [],
   nextId: 1,
@@ -42,6 +62,18 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
 
   toggle: () => set((s) => ({ open: !s.open })),
   setOpen: (open) => set({ open }),
+  cycleDock: () => {
+    set((s) => ({ dock: nextDock(s.dock) }))
+    persist(get())
+  },
+  toggleMode: () => {
+    set((s) => ({ mode: s.mode === 'overlay' ? 'push' : 'overlay' }))
+    persist(get())
+  },
+  setSize: (size) => {
+    set({ size })
+    persist(get())
+  },
   setStream: (stream) => set({ stream }),
 
   ingest: (frames) => {

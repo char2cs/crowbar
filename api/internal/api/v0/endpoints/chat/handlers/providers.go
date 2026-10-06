@@ -133,6 +133,7 @@ func providerDTOs(in []domain.AgentProvider) []dto.AgentProviderDTO {
 			MCPEnabled:        p.MCPEnabled,
 			Compaction:        p.Compaction,
 			Hotswap:           p.Hotswap,
+			PromptSteer:       p.PromptSteer,
 			HasTerminal:       p.HasTerminal,
 			TerminalStartHere: p.TerminalStartHere,
 			ModelSelect:       p.ModelSelect,

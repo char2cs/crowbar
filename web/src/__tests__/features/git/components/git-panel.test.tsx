@@ -63,9 +63,11 @@ let mockGitStatus: {
   behind: number
   files: Array<{ path: string; status: string; staged: boolean }>
 } | null = null
-vi.mock('@/features/git/stores/git-store', () => ({
-  useGitStore: (sel: (s: { gitStatus: typeof mockGitStatus }) => unknown) =>
-    sel({ gitStatus: mockGitStatus }),
+vi.mock('@/features/workspace/stores/hooks/use-workspace-store-by-id', () => ({
+  useWorkspaceStoreById: (
+    _wsId: string,
+    sel: (s: { gitStatus: typeof mockGitStatus }) => unknown,
+  ) => sel({ gitStatus: mockGitStatus }),
 }))
 
 // activeWs is controlled per-test.

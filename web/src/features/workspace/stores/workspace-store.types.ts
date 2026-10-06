@@ -4,6 +4,8 @@ import type { FileWatcherSlice } from './slices/file-watcher-slice'
 import type { RecentFilesSlice } from './slices/recent-files-slice'
 import type { BranchReviewSlice } from './slices/branch-review-slice'
 import type { AgentChatsSlice } from './slices/agent-chats-slice'
+import type { FileTreeSlice } from './slices/file-tree-slice'
+import type { GitSlice } from './slices/git-slice'
 
 export interface WorkspaceBaseState {
   workspaceId: string
@@ -20,4 +22,6 @@ export type WorkspaceState = WorkspaceBaseState &
   FileWatcherSlice &
   RecentFilesSlice &
   BranchReviewSlice &
-  AgentChatsSlice
+  AgentChatsSlice &
+  FileTreeSlice &
+  GitSlice

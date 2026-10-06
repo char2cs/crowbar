@@ -1,4 +1,4 @@
-import { createRef, StrictMode } from 'react'
+import { createRef, memo, StrictMode } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
@@ -7,6 +7,18 @@ import {
   ChatMarkdownEditor,
   type ChatMarkdownEditorHandle,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
+
+// Counts renders of dnd-kit's provider: each one rebuilds the context values its
+// whole subtree is re-checked against.
+const dndRenders = vi.hoisted(() => ({ count: 0 }))
+vi.mock('@dnd-kit/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dnd-kit/core')>()
+  const Counted = memo(function Counted(props: React.ComponentProps<typeof actual.DndContext>) {
+    dndRenders.count++
+    return <actual.DndContext {...props} />
+  })
+  return { ...actual, DndContext: Counted }
+})
 
 const FENCE = '```text-attachment:AbC123xy\nsome long pasted text\n```'
 
@@ -67,6 +79,19 @@ afterEach(() => {
 })
 
 describe('DndScope', () => {
+  it('does not re-render the dnd-kit provider when only its children change', () => {
+    const view = (n: number) => (
+      <DndScope>
+        <span>{n}</span>
+      </DndScope>
+    )
+    const { rerender } = render(view(0))
+    const mounted = dndRenders.count
+    for (let n = 1; n <= 5; n++) rerender(view(n))
+    expect(screen.getByText('5')).toBeTruthy()
+    expect(dndRenders.count).toBe(mounted)
+  })
+
   it('mounts several scopes at once, under StrictMode, without throwing', () => {
     expect(() =>
       render(

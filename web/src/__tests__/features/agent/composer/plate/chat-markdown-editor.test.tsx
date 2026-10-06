@@ -697,13 +697,7 @@ describe('ChatMarkdownEditor height reporting', () => {
     globalThis.ResizeObserver = realResizeObserver
   })
 
-  // LAYOUT-effect-equivalent timing: the whole reason this reports via a ref
-  // callback (fired synchronously during commit, same phase as a layout
-  // effect) rather than a plain `useEffect` is so the very first frame the
-  // box is visible in already has the right height — see the file's own note
-  // on why a recalled multi-line draft used to paint one frame of the wrong
-  // (fully-rounded, single-line) pill radius before this fired.
-  it('reports the editable height synchronously on mount, before any resize fires', () => {
+  it('reports nothing on mount while the box has no layout', () => {
     const onHeightChange = vi.fn()
     render(
       <ChatMarkdownEditor
@@ -716,11 +710,53 @@ describe('ChatMarkdownEditor height reporting', () => {
       />,
     )
 
-    // jsdom always reports 0 for `getBoundingClientRect` — the value itself
-    // isn't the point here (the resize test below covers a real value); what
-    // matters is that mounting alone, with no resize ever firing, already
-    // reported SOMETHING, synchronously.
-    expect(onHeightChange).toHaveBeenCalledWith(0)
+    // jsdom reports an empty box, which is the absence of a box: not reported.
+    expect(onHeightChange).not.toHaveBeenCalled()
+  })
+
+  // LAYOUT-effect-equivalent timing: the whole reason this reports via a ref
+  // callback (fired synchronously during commit, same phase as a layout
+  // effect) rather than a plain `useEffect` is so the very first frame the
+  // box is visible in already has the right height — see the file's own note
+  // on why a recalled multi-line draft used to paint one frame of the wrong
+  // (fully-rounded, single-line) pill radius before this fired.
+  it('reports the height of the box it mounts into', () => {
+    const rect = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue({ height: 40, width: 0 } as DOMRect)
+    const onHeightChange = vi.fn()
+    render(
+      <ChatMarkdownEditor
+        initialValue="hello"
+        placeholder=""
+        ariaLabel="Message the agent"
+        onChange={vi.fn()}
+        onKeyDown={vi.fn()}
+        onHeightChange={onHeightChange}
+      />,
+    )
+    rect.mockRestore()
+
+    expect(onHeightChange).toHaveBeenCalledWith(40)
+  })
+
+  it('does not report a height once the box is gone', () => {
+    const onHeightChange = vi.fn()
+    const { container } = render(
+      <ChatMarkdownEditor
+        initialValue="hello"
+        placeholder=""
+        ariaLabel="Message the agent"
+        onChange={vi.fn()}
+        onKeyDown={vi.fn()}
+        onHeightChange={onHeightChange}
+      />,
+    )
+    const editable = container.querySelector('[data-slate-editor]') as HTMLElement
+    vi.spyOn(editable, 'getBoundingClientRect').mockReturnValue({ height: 0, width: 0 } as DOMRect)
+    FakeResizeObserver.instances[0]!.trigger()
+
+    expect(onHeightChange).not.toHaveBeenCalled()
   })
 
   it('reports a new height when the observed editable resizes', () => {

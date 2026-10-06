@@ -132,6 +132,9 @@ type Turns interface {
 		ctx context.Context,
 		chatID, runnerID string,
 	) (bool, error)
+	// QueueSteer parks s on runnerID's running turn so the turn's end hook
+	// delivers it. False when no turn is in flight (or one is already parked).
+	QueueSteer(runnerID string, s inflight.Steered) bool
 	// RecordStop notes, durably, that a person cut chatID's in-flight turn
 	// short. It always records: the caller decides whether a turn was open,
 	// before tearing anything down. runnerID serialises this against

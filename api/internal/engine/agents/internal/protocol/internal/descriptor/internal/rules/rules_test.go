@@ -128,6 +128,44 @@ func TestPromptSubmit_AcceptsADeclaredLeadingSigil(t *testing.T) {
 	require.NoError(t, rules.Apply(d))
 }
 
+func withSteer(d *spec.Descriptor) *spec.Descriptor {
+	d = withPromptSubmit(d, spec.DeliveryRestartTUI)
+	d.Presentation.PromptSubmit.Steer = &spec.SteerSpec{
+		SkipPrefixes: []string{"/"},
+		Frame:        "new message: {message}",
+		Reply:        `{"decision":"block","reason":{message_json}}`,
+	}
+	return d
+}
+
+func TestPromptSubmit_AcceptsADeclaredSteer(t *testing.T) {
+	require.NoError(t, rules.Apply(withSteer(valid())))
+}
+
+func TestPromptSubmit_RejectsTheBrokenSteerShapes(t *testing.T) {
+	testCases := []struct {
+		name    string
+		mutate  func(*spec.Descriptor)
+		wantMsg string
+	}{
+		{"no turn_stop event to carry it", func(d *spec.Descriptor) { delete(d.Events, spec.HookTurnStop) }, "needs the turn_stop event"},
+		{"frame without the message", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Steer.Frame = "hi" }, "frame must place {message}"},
+		{"frame placing the message twice", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Steer.Frame = "{message}{message}" }, "frame must place {message}"},
+		{"reply without the placeholder", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Steer.Reply = `{"a":1}` }, "reply must place {message_json}"},
+		{"reply that is not JSON", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Steer.Reply = `[{message_json}` }, "not JSON"},
+		{"an empty skip prefix", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Steer.SkipPrefixes = []string{""} }, "empty entry"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := withSteer(valid())
+			tc.mutate(d)
+			err := rules.Apply(d)
+			require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+			assert.Contains(t, err.Error(), tc.wantMsg)
+		})
+	}
+}
+
 func TestPromptSubmit_RejectsTheBrokenShapes(t *testing.T) {
 	testCases := []struct {
 		name    string

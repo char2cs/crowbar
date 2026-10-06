@@ -339,7 +339,7 @@ export function WorkspaceHost({
           </div>
         )
       })}
-      <WindowPaneSurface activeWsId={activeWsId} mountedIds={mountedIds} />
+      <WindowPaneSurface mountedIds={mountedIds} />
     </>
   )
 }
@@ -365,22 +365,17 @@ export function WorkspaceHost({
  *
  * It sits OUTSIDE the slots, as their sibling — layout-identical, because an
  * active slot is `display: contents` and so contributes no box of its own — and
- * carries the ACTIVE workspace's store as the ambient `WorkspaceStoreContext`,
- * which is exactly what the active slot used to give it. A pane holding another
- * workspace's chat re-provides its own store anyway (pane-container.tsx), so
- * the ambient one is only ever the documented fallback.
+ * carries one stable mounted store as the ambient `WorkspaceStoreContext`.
+ * Every pane re-provides its own workspace's store (pane-container.tsx), so the
+ * ambient one is only ever the documented fallback.
  */
-function WindowPaneSurface({
-  activeWsId,
-  mountedIds,
-}: {
-  activeWsId: string | null
-  mountedIds: readonly string[]
-}) {
-  // Activating a workspace not minted yet renders once before reconcile mints
-  // it; returning null then unmounted every pane in the window. A mounted
-  // workspace's store stands in as the ambient one for that render.
-  const ambientWsId = activeWsId && mountedIds.includes(activeWsId) ? activeWsId : mountedIds[0]
+function WindowPaneSurface({ mountedIds }: { mountedIds: readonly string[] }) {
+  // The ambient store is deliberately independent of the active workspace: it is
+  // a context value every pane reads, so following the active one re-rendered
+  // the whole window on each cross-workspace focus click. Panes provide their
+  // own workspace's store (pane-container.tsx); this one is only the fallback,
+  // and it changes only when the first mounted workspace is evicted.
+  const ambientWsId = mountedIds[0]
   const store = ambientWsId ? getWorkspaceStore(ambientWsId) : undefined
   if (!store) return null
   return (

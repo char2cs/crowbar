@@ -3,6 +3,11 @@ import type { Value } from 'platejs'
 import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
 import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-composer-serialization'
+import {
+  FRESH_CURSOR,
+  parseStreamingMarkdown,
+  type StreamCursor,
+} from '@/features/agent/transcript/plate/streaming-markdown-parse'
 import { applyStreamedValue } from '@/features/agent/transcript/plate/streaming-value-patch'
 import { markEnd, markStart } from '@/lib/perf/instrumentation'
 import { cn } from '@/lib/utils'
@@ -35,6 +40,7 @@ export function MarkdownMessage({ children, className }: MarkdownMessageProps) {
   // rerender to be thrown away.
   const initialValueRef = useRef<Value | undefined>(undefined)
   const appliedChildrenRef = useRef(children)
+  const cursorRef = useRef<StreamCursor>(FRESH_CURSOR)
   initialValueRef.current ??= chatMarkdownToValue(children)
 
   // Deps stay empty: this editor is created ONCE for the life of the bubble
@@ -47,8 +53,10 @@ export function MarkdownMessage({ children, className }: MarkdownMessageProps) {
     [],
   )
 
-  // Re-parsed and applied only when the text actually changes. A streaming
-  // message changes on every token and this is its hot path: `applyStreamedValue`
+  // Re-parsed and applied only when the text actually changes. Only the open
+  // tail is parsed (streaming-markdown-parse.ts); the settled blocks come from
+  // the editor itself. A streaming message changes on every token and this is
+  // its hot path: `applyStreamedValue`
   // touches only the blocks that differ from what the editor already holds
   // (see streaming-value-patch.ts) instead of rebuilding the document whole.
   // markStart/markEnd fire exactly once per distinct text value — including
@@ -57,7 +65,14 @@ export function MarkdownMessage({ children, className }: MarkdownMessageProps) {
   useEffect(() => {
     markStart('chat.stream.token')
     if (children !== appliedChildrenRef.current) {
-      applyStreamedValue(editor, chatMarkdownToValue(children))
+      const step = parseStreamingMarkdown(
+        children,
+        cursorRef.current,
+        editor.children as Value,
+        chatMarkdownToValue,
+      )
+      cursorRef.current = step.cursor
+      applyStreamedValue(editor, step.value)
       appliedChildrenRef.current = children
     }
     // Paint-inclusive: rAF defers markEnd past the commit this value produced,

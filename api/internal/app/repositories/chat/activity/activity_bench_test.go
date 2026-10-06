@@ -56,7 +56,7 @@ func newBenchRepo(b *testing.B) activity.EventStore {
 	b.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 	db, err := storesqlite.OpenDB(filepath.Join(dir, "store.db"))
 	require.NoError(b, err)
-	repo, err := activity.NewEventSourced(ax, es, db, filepath.Join(dir, "content"))
+	repo, err := activity.NewEventSourced(ax, es, db, filepath.Join(dir, "content"), nil)
 	require.NoError(b, err)
 	return repo
 }

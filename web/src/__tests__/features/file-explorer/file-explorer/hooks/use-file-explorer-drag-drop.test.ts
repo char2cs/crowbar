@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MockInstance } from 'vitest'
 import { useFileExplorerDragDrop } from '@/features/file-explorer/file-explorer/hooks/use-file-explorer-drag-drop'
 import type { FileEntry } from '@/features/file-system/types/app'
-import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useDragStore } from '@/features/panes/stores/drag-store'
 
 // moveFile is the only async side effect on drop; stub it so a "drop on a
@@ -11,6 +11,11 @@ import { useDragStore } from '@/features/panes/stores/drag-store'
 vi.mock('@/features/file-system/controllers/platform', () => ({
   moveFile: vi.fn().mockResolvedValue(undefined),
 }))
+
+const { openWorkspaceFile } = vi.hoisted(() => ({
+  openWorkspaceFile: vi.fn(async () => {}),
+}))
+vi.mock('@/features/files/lib/file-tree-handlers', () => ({ openWorkspaceFile }))
 
 const makeFile = (name: string, path: string, isDir = false): FileEntry => ({
   name,
@@ -167,7 +172,8 @@ describe('useFileExplorerDragDrop — dropping a file on a pane', () => {
 
   afterEach(() => {
     pane.remove()
-    useFileSystemStore.setState({ handleFileOpen: null })
+    setActiveWorkspaceId(null)
+    openWorkspaceFile.mockClear()
     delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint
     delete (document as unknown as { elementsFromPoint?: unknown }).elementsFromPoint
   })
@@ -189,8 +195,7 @@ describe('useFileExplorerDragDrop — dropping a file on a pane', () => {
   }
 
   it('opens the file in the pane it was dropped on, by id', () => {
-    const handleFileOpen = vi.fn(async () => {})
-    useFileSystemStore.setState({ handleFileOpen })
+    setActiveWorkspaceId('ws-a')
     const result = drag(makeFile('a.ts', 'src/a.ts'))
     expect(useDragStore.getState().file).toEqual({ path: 'src/a.ts', name: 'a.ts', isDir: false })
 
@@ -199,18 +204,17 @@ describe('useFileExplorerDragDrop — dropping a file on a pane', () => {
       document.dispatchEvent(mouseEvent('mouseup', 1, 50))
     })
 
-    expect(handleFileOpen).toHaveBeenCalledWith('src/a.ts', false, { paneId: 'pane-b' })
+    expect(openWorkspaceFile).toHaveBeenCalledWith('ws-a', 'src/a.ts', { paneId: 'pane-b' })
     expect(result.current.dragState.isDragging).toBe(false)
     expect(useDragStore.getState().file).toBeNull()
   })
 
   it('ignores a directory drop', () => {
-    const handleFileOpen = vi.fn(async () => {})
-    useFileSystemStore.setState({ handleFileOpen })
+    setActiveWorkspaceId('ws-a')
     drag(makeFile('src', 'src', true))
     act(() => {
       document.dispatchEvent(mouseEvent('mouseup', 50, 50))
     })
-    expect(handleFileOpen).not.toHaveBeenCalled()
+    expect(openWorkspaceFile).not.toHaveBeenCalled()
   })
 })

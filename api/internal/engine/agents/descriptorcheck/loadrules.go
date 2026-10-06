@@ -16,7 +16,7 @@ var loadRules = map[string]loadRule{
 	"parse":                 {"events", "the event table must match Crowbar's vocabulary; see the message for the event and field"},
 	"identity":              {"id", "set a non-empty id matching the file name"},
 	"spawn_command":         {"spawn", "set spawn.cmd and spawn.interactive_required: true"},
-	"prompt_submit":         {"presentation.prompt_submit", "prompt_submit needs strategy restart_tui and a session.resume"},
+	"prompt_submit":         {"presentation.prompt_submit", "prompt_submit needs strategy restart_tui and a session.resume; steer needs a turn_stop event, a frame with {message} and a JSON reply with {message_json}"},
 	"catalog_bounds":        {"presentation.slash_catalog", "keep the slash catalog's limits within Crowbar's bounds"},
 	"catalog_command":       {"presentation.slash_catalog", "declare a runnable catalog command"},
 	"catalog_item_mapping":  {"presentation.slash_catalog", "map every catalog item field Crowbar reads"},

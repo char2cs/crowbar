@@ -53,7 +53,7 @@ func newFixture(t *testing.T) fixture {
 	require.NoError(t, err)
 	dir := t.TempDir()
 
-	repo, err := activity.NewEventSourced(ax, es, db, dir)
+	repo, err := activity.NewEventSourced(ax, es, db, dir, nil)
 	require.NoError(t, err)
 	// Several tests here drive hundreds of commands (InvokeTool, OpenChoice...)
 	// at one aggregate with no snapshotting command interleaved; without this,
@@ -160,7 +160,7 @@ func TestPlanSurvivesTurnCloseReplayAndBackwardPagination(t *testing.T) {
 
 	rebuiltDB, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	rebuilt, err := activity.NewEventSourced(f.ax, f.es, rebuiltDB, f.dir)
+	rebuilt, err := activity.NewEventSourced(f.ax, f.es, rebuiltDB, f.dir, nil)
 	require.NoError(t, err)
 	replayed, err := rebuilt.Turns(f.ctx, chat, 0, 0, 0)
 	require.NoError(t, err)
@@ -775,13 +775,13 @@ func TestReadModel_IsRebuiltByReplayAndTheRebuildIsIdempotent(t *testing.T) {
 
 	rebuiltDB, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	rebuilt, err := activity.NewEventSourced(f.ax, f.es, rebuiltDB, f.dir)
+	rebuilt, err := activity.NewEventSourced(f.ax, f.es, rebuiltDB, f.dir, nil)
 	require.NoError(t, err)
 
 	after := snapshot(t, fixture{repo: rebuilt, ctx: f.ctx})
 	assert.Equal(t, before, after, "a replayed model must reproduce the live one row for row")
 
-	again, err := activity.NewEventSourced(f.ax, f.es, rebuiltDB, f.dir)
+	again, err := activity.NewEventSourced(f.ax, f.es, rebuiltDB, f.dir, nil)
 	require.NoError(t, err)
 	assert.Equal(t, before, snapshot(t, fixture{repo: again, ctx: f.ctx}),
 		"the projection is idempotent, so a repeated rebuild cannot double-count")
@@ -833,12 +833,12 @@ func TestNewEventSourced_ReportsAnUnusableReadModelOrContentRoot(t *testing.T) {
 	sql, err := closed.DB()
 	require.NoError(t, err)
 	require.NoError(t, sql.Close())
-	_, err = activity.NewEventSourced(ax, es, closed, t.TempDir())
+	_, err = activity.NewEventSourced(ax, es, closed, t.TempDir(), nil)
 	assert.Error(t, err, "an unusable read model must fail construction, not first write")
 
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	_, err = activity.NewEventSourced(ax, es, db, "")
+	_, err = activity.NewEventSourced(ax, es, db, "", nil)
 	assert.Error(t, err, "an empty content root is not a root")
 }
 
@@ -871,7 +871,7 @@ func TestReadModel_HealsOnFirstReadWhenTheStateDirectoryWasLost(t *testing.T) {
 
 	fresh, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	repo, err := activity.NewEventSourced(f.ax, f.es, fresh, f.dir)
+	repo, err := activity.NewEventSourced(f.ax, f.es, fresh, f.dir, nil)
 	require.NoError(t, err)
 
 	turns, err := repo.Turns(f.ctx, chat, 0, 0, 0)

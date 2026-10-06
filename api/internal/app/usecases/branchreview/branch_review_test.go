@@ -428,8 +428,10 @@ func (g *mockGitEngine) WorkingTreeSummary(ctx context.Context, repoPath, forkPo
 	return 0, 0, false, false, nil
 }
 
-func (g *mockGitEngine) WouldMergeConflict(ctx context.Context, repoPath, ours, theirs string) (bool, error) {
-	return false, nil
+func (g *mockGitEngine) WouldMergeConflicts(
+	ctx context.Context, repoPath string, pairs []gitengine.MergePair,
+) []gitengine.MergeVerdict {
+	return make([]gitengine.MergeVerdict, len(pairs))
 }
 
 func (g *mockGitEngine) MergeBase(ctx context.Context, repoPath, a, b string) (string, error) {

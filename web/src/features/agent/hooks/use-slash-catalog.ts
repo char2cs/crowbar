@@ -105,13 +105,16 @@ export function useSlashCatalog({ wsId, chatId, providerId, active, draft }: Sla
     [wsId, chatId, providerId],
   )
 
-  // Chat initiation: fetched once, well before the first `/`.
+  // Chat initiation: fetched once, well before the first `/`, and not again on a
+  // later show — the cached answer stands (a catalogue, or the daemon's 422 that
+  // there is none), and opening the picker refreshes it.
+  const cached = state.state === 'ready' || (state.state === 'error' && state.unavailable)
   useEffect(() => {
-    if (!active) return
+    if (!active || cached) return
     const controller = new AbortController()
     void probe(controller.signal)
     return () => controller.abort()
-  }, [active, probe])
+  }, [active, cached, probe])
 
   // Reopening asks again, still silently — whatever is cached rides until the
   // refresh lands, debounced so a `/` typed and immediately deleted never

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
-import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { revealInFolder } from '@/features/files/lib/file-tree-handlers'
 import { usePaneById, usePaneActions } from '@/features/workspace/stores/hooks/use-pane-store'
 import { useBufferActions } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -252,7 +252,7 @@ const TabBar = ({
   const updateActivePath = useSidebarStore((s) => s.updateActivePath)
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
-  const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || undefined
+  const rootFolderPath = wsId || undefined
   const isBottomPane = paneId === BOTTOM_PANE_ID
   // A pane holding NOTHING — no chat, no editor tabs — is a fallback screen,
   // not a view: "it should only appear when NO VIEW is opened." An emptied
@@ -287,7 +287,6 @@ const TabBar = ({
 
   const tabRefs = useRef<(HTMLDivElement | null)[]>([])
 
-  const handleRevealInFolder = useFileSystemStore.use.handleRevealInFolder?.()
   const { clearPositionCache } = useEditorStateStore.use.actions()
 
   const sensors = useSensors(
@@ -726,7 +725,7 @@ const TabBar = ({
         onCopyPath={handleCopyPath}
         onCopyRelativePath={handleCopyRelativePath}
         onReload={handleReloadTab}
-        onRevealInFinder={handleRevealInFolder ?? undefined}
+        onRevealInFinder={revealInFolder}
         onSplitRight={handleSplitRight}
         onSplitDown={handleSplitDown}
       />

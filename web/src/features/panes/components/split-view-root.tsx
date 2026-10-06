@@ -14,6 +14,7 @@ import { PaneNodeRenderer } from './pane-node-renderer'
 import { PaneBoundary } from './pane-boundary'
 import { ROOT_PANE_POSITION } from '../types/pane'
 import { getFirstLeafId } from '../utils/pane-layout'
+import { useMountedViews } from '../hooks/use-mounted-views'
 
 /** Module-level so the object identities are stable across renders — inline
  *  literals would hand every view's wrapper a new `style` prop every render. */
@@ -44,6 +45,8 @@ export function SplitViewRoot() {
     all.push({ id: getFirstLeafId(stage), layout: stage, showing: activeViewId === null })
     return all.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   }, [records, stage, activeViewId])
+
+  const mountedViews = useMountedViews(views)
 
   // Subscribe to ONLY the fullscreen pane (or nothing) — never the whole
   // `panes` record. Reading the whole record re-rendered SplitViewRoot, and
@@ -85,7 +88,7 @@ export function SplitViewRoot() {
 
           `inert` so nothing off screen is focusable, clickable or reachable by
           keyboard. */}
-      {views.map((view) => (
+      {mountedViews.map((view) => (
         <div
           key={view.id}
           className="h-full w-full"

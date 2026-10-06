@@ -232,6 +232,29 @@ describe('flattenTranscriptRows', () => {
     })
   })
 
+  it('keeps a streaming message above a tool that began after its text did', () => {
+    const tool: ActivityComponent = {
+      id: 'tool-1',
+      turnId: 't',
+      seq: 3,
+      kind: 'tool_call',
+      status: 'completed',
+      createdAt: '2026-09-01T12:00:05Z',
+      updatedAt: '2026-09-01T12:00:06Z',
+      payload: {},
+    }
+    const rows = flattenTranscriptRows({
+      messages: [],
+      streamingMessages: [
+        { ...msg(Number.MAX_SAFE_INTEGER, 'assistant'), at: '2026-09-01T12:00:01Z' },
+      ],
+      components: [tool],
+      firstTurnSequence: undefined,
+    })
+
+    expect(rows.map((row) => row.kind)).toEqual(['message', 'activity'])
+  })
+
   it('omits a canonical child rendered inside its owner without changing other row identities', () => {
     const diff: ActivityComponent = {
       id: 'turn-1:diff',

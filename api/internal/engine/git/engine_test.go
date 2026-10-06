@@ -15,7 +15,7 @@ import (
 )
 
 func gitRun(
-	t *testing.T,
+	t testing.TB,
 	dir string,
 	args ...string,
 ) {
@@ -27,7 +27,7 @@ func gitRun(
 }
 
 func initRepo(
-	t *testing.T,
+	t testing.TB,
 ) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -38,7 +38,7 @@ func initRepo(
 }
 
 func makeCommit(
-	t *testing.T,
+	t testing.TB,
 	dir string,
 	filename string,
 	content string,

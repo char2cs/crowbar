@@ -3,6 +3,7 @@ import type { WorkspaceState } from '../workspace-store.types'
 import type {
   AgentChat,
   AgentChatFolder,
+  AgentChoice,
   AgentProvider,
   AgentTelemetry,
   AgentTerminalWait,
@@ -186,7 +187,7 @@ export interface AgentChatsState {
    * of the ledger is what stops roughly 1.4 durable writes a second per
    * streaming chat to store text that is superseded a moment later.
    */
-  streamingMessages: Record<string, { id: string; text: string }[]>
+  streamingMessages: Record<string, { id: string; text: string; startedAt?: string }[]>
   /**
    * What the agent is THINKING right now, keyed by chat — the current thinking
    * block only, never a history.
@@ -230,6 +231,16 @@ export interface AgentChatsState {
    * once by the gauge's own first read; never polled.
    */
   telemetry: Record<string, AgentTelemetry>
+  /**
+   * The prompts each chat is BLOCKED on right now — permissions, questions,
+   * elicitations — keyed by chat.
+   *
+   * Written whole by the `choice` frame (and by the snapshot a connecting socket
+   * is sent), so a chat that was hidden when one opened already holds it the
+   * first time it is shown. Absent means none; resolved prompts are history and
+   * come from the activity read, never from here.
+   */
+  choices: Record<string, AgentChoice[]>
   /** Monotonic notification counter. It advances for every server turn state
    *  write even when React batches a fast true→false pair into one render, and
    *  on an authoritative reconnect reseed because a complete idle→idle turn
@@ -291,7 +302,7 @@ export interface AgentChatsSlice {
    *  ALL of a chat's in-flight messages with null (a new turn starting). */
   setAgentChatStreamingMessage: (
     chatId: string,
-    message: { id: string; text: string } | null,
+    message: { id: string; text: string; startedAt?: string } | null,
   ) => void
   /** Replace (or clear, with null) the thinking block a chat is mid-way through.
    *  Only the latest is kept — see AgentChatsState.streamingReasoning. */
@@ -314,6 +325,12 @@ export interface AgentChatsSlice {
   setAgentChatStreamingDiff: (chatId: string, diff: { id: string; text: string } | null) => void
   /** Replace (or clear, with null) the provider's newest usage report. */
   setAgentChatTelemetry: (chatId: string, report: AgentTelemetry | null) => void
+  /** Replace the prompts a chat is blocked on; an empty list clears them. */
+  setAgentChatChoices: (chatId: string, choices: AgentChoice[]) => void
+  /** Forget every chat's prompts. A reconnect does this before the new socket's
+   *  snapshot restates the ones still pending, so none that resolved during the
+   *  outage survives it. */
+  resetAgentChatChoices: () => void
   /** Drop the given ids' entries once the ledger has recorded them for real —
    *  see useChatMessages' streamingBubbles for the matching id computation
    *  this is the store-side twin of. NOT a blanket clear on a turn boundary:
@@ -379,6 +396,7 @@ export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   streamingPlan: {},
   streamingDiff: {},
   telemetry: {},
+  choices: {},
   turnRevision: {},
   excalidrawEditRequests: {},
   order: [],
@@ -512,6 +530,7 @@ export const createAgentChatsSlice: StateCreator<
       delete s.agentChats.streamingPlan[chatId]
       delete s.agentChats.streamingDiff[chatId]
       delete s.agentChats.telemetry[chatId]
+      delete s.agentChats.choices[chatId]
       delete s.agentChats.turnRevision[chatId]
       delete s.agentChats.excalidrawEditRequests[chatId]
       s.agentChats.order = s.agentChats.order.filter((id) => id !== chatId)
@@ -558,8 +577,10 @@ export const createAgentChatsSlice: StateCreator<
       // array on every token the way `.map()`/spread would.
       const list = (s.agentChats.streamingMessages[chatId] ??= [])
       const existing = list.find((m) => m.id === message.id)
-      if (existing) existing.text = message.text
-      else list.push(message)
+      if (existing) {
+        existing.text = message.text
+        existing.startedAt = message.startedAt
+      } else list.push(message)
     }),
 
   setAgentChatStreamingReasoning: (chatId, block) =>
@@ -602,6 +623,17 @@ export const createAgentChatsSlice: StateCreator<
     set((s) => {
       if (report) s.agentChats.telemetry[chatId] = report
       else delete s.agentChats.telemetry[chatId]
+    }),
+
+  setAgentChatChoices: (chatId, choices) =>
+    set((s) => {
+      if (choices.length > 0) s.agentChats.choices[chatId] = choices
+      else delete s.agentChats.choices[chatId]
+    }),
+
+  resetAgentChatChoices: () =>
+    set((s) => {
+      s.agentChats.choices = {}
     }),
 
   pruneAgentChatStreamingMessages: (chatId, ids) =>

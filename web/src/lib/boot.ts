@@ -6,6 +6,12 @@ import {
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { dataOf } from '@/lib/loadable'
+import { prefetchVisibleChats } from '@/features/agent/lib/prefetch-visible-chats'
+import { preloadAgentChatPane } from '@/features/panes/lib/chat-surface-loader'
+import { showingLayout } from '@/features/panes/lib/view-state'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
+import { markStart } from '@/lib/perf/instrumentation'
 import { retireOrphanedStorage } from '@/lib/persistence/retired-storage'
 
 /**
@@ -39,9 +45,23 @@ import { retireOrphanedStorage } from '@/lib/persistence/retired-storage'
 export async function hydrateCriticalStores(): Promise<void> {
   void retireOrphanedStorage()
   await hydrateWindowPaneLayout()
+  // The chat surface chunk loads beside the IndexedDB reads below, and render
+  // waits for it, so the restored chat mounts in the first commit.
+  const chatSurface = showsChat() ? preloadAgentChatPane() : undefined
+  // Layout hydration to the first transcript row shown; AgentTranscript closes it.
+  if (chatSurface) markStart('chat:first-row')
   // The one network step, deliberately not awaited: members stay unplaced until it answers.
   void placeRestoredChatMembers()
   await useWorkspaceListStore.getState().fetch()
   useSidebarStore.getState().setRepos(dataOf(useWorkspaceListStore.getState().data) ?? [])
+  // setRepos recorded each workspace's scope, which the messages URL needs. Not
+  // awaited: the first page loads while the chat surface's chunks do.
+  void prefetchVisibleChats()
   await hydrateSidebar()
+  await chatSurface?.catch(() => {})
+}
+
+function showsChat(): boolean {
+  const state = windowPaneStore.getState()
+  return getAllLeafIds(showingLayout(state)).some((id) => state.panes[id]?.chatId)
 }

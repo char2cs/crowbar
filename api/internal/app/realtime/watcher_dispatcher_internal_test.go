@@ -45,13 +45,14 @@ func (s *capturingSubscriber) PushAgentChatFolder(_, _, _ string) {}
 func (s *capturingSubscriber) PushAgentChatTerminalWait(_, _ string, _ *dto.AgentTerminalWaitDTO) {
 }
 
-func (s *capturingSubscriber) PushAgentChatPromptSettled(_, _, _ string, _ bool)      {}
-func (s *capturingSubscriber) PushAgentChatMessageDelta(_, _, _, _, _ string)         {}
-func (s *capturingSubscriber) PushAgentChatPlan(_, _ string, _ []agents.PlanStep)     {}
-func (s *capturingSubscriber) PushAgentChatTelemetry(_, _ string, _ agents.Telemetry) {}
-func (s *capturingSubscriber) PushAgentChatEvent(_ dto.AgentChatEvent)                {}
-func (s *capturingSubscriber) PushAgentChatCompaction(_, _ string, _ bool)            {}
-func (s *capturingSubscriber) PushAgentRunner(_, _, _, _ string)                      {}
+func (s *capturingSubscriber) PushAgentChatPromptSettled(_, _, _ string, _ bool)           {}
+func (s *capturingSubscriber) PushAgentChatMessageDelta(_, _, _, _, _ string, _ time.Time) {}
+func (s *capturingSubscriber) PushAgentChatPlan(_, _ string, _ []agents.PlanStep)          {}
+func (s *capturingSubscriber) PushAgentChatTelemetry(_, _ string, _ agents.Telemetry)      {}
+func (s *capturingSubscriber) PushAgentChatEvent(_ dto.AgentChatEvent)                     {}
+func (s *capturingSubscriber) PushAgentChatCompaction(_, _ string, _ bool)                 {}
+func (s *capturingSubscriber) PushAgentChatChoices(_, _ string, _ []dto.AgentChoiceDTO)    {}
+func (s *capturingSubscriber) PushAgentRunner(_, _, _, _ string)                           {}
 
 func (s *capturingSubscriber) PushGit(
 	wsID string,

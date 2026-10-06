@@ -347,7 +347,7 @@ func TestRegression_SurfaceGatedMessageDeltaSkipsChatWhileTheNativeViewIsShowing
 		Work:         inflight.NewWork(),
 	})
 	turns.SetRunners(nativeViewRunners{showing: true})
-	turns.SetFeed(seam.ChatFeed{MessageDelta: func(string, string, string, string, string) { delivered = true }})
+	turns.SetFeed(seam.ChatFeed{MessageDelta: func(string, string, string, string, string, time.Time) { delivered = true }})
 
 	err := turns.IngestHook(t.Context(), "runner-1", "codex", "message_delta",
 		[]byte(`{"threadId":"s1","itemId":"m1","delta":"hi","turnId":"t1"}`))
@@ -377,7 +377,7 @@ func TestRegression_SurfaceGatedMessageDeltaStillFlowsToChat(t *testing.T) {
 		Work:         inflight.NewWork(),
 	})
 	turns.SetRunners(nativeViewRunners{showing: false})
-	turns.SetFeed(seam.ChatFeed{MessageDelta: func(string, string, string, string, string) { delivered = true }})
+	turns.SetFeed(seam.ChatFeed{MessageDelta: func(string, string, string, string, string, time.Time) { delivered = true }})
 
 	err := turns.IngestHook(t.Context(), "runner-1", "codex", "message_delta",
 		[]byte(`{"threadId":"s1","itemId":"m1","delta":"hi","turnId":"t1"}`))

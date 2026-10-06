@@ -252,6 +252,10 @@ func (h *Handlers) List(
 ) {
 	rctx := ctx.Request.Context()
 
+	// Git resolves each worktree's merge overlay while the reads below run.
+	worktrees := h.beginWorktrees(rctx, ctx.Param("projectId"), ctx.Param("repoId"), nil)
+	defer worktrees.done()
+
 	chats, err := h.listChats(rctx, ctx.Param("wsId"), ctx.Param("repoId"))
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
@@ -261,19 +265,22 @@ func (h *Handlers) List(
 
 	// Every row is its versioned snapshot — the same answer, from the same
 	// in-memory owner, the chat feed's frames carry. No per-row query.
-	runtimes := make(map[string]dto.ChatRuntime, len(chats))
+	ids := make([]string, len(chats))
 	for i, c := range chats {
-		chat, rt, err := h.chatSnapshot(rctx, c.ID)
-		if err != nil {
-			status, msg := libs.StatusAndMessage(err)
-			libs.WriteErr(ctx, status, msg)
-			return
-		}
-		chats[i], runtimes[c.ID] = chat, rt
+		ids[i] = c.ID
+	}
+	snaps, err := h.chats.ChatSnapshotsOf(rctx, ids)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+	runtimes := make(map[string]dto.ChatRuntime, len(chats))
+	for i, s := range snaps {
+		chats[i], runtimes[ids[i]] = snapshotParts(s)
 	}
 
-	libs.WriteQueryOK(ctx, dto.AgentChatDTOList(
-		chats, runtimes, h.repoWorktrees(rctx, ctx.Param("projectId"), ctx.Param("repoId"))))
+	libs.WriteQueryOK(ctx, dto.AgentChatDTOList(chats, runtimes, worktrees.rowFn(rctx, chats)))
 }
 
 // listChats backs List: wsID scopes to ListChatsByWorkspace when the request
@@ -341,8 +348,14 @@ func (h *Handlers) chatSnapshot(
 	if err != nil {
 		return domain.Chat{}, dto.ChatRuntime{}, err
 	}
+	chat, rt := snapshotParts(s)
+	return chat, rt, nil
+}
+
+// snapshotParts splits a snapshot into the chat row and its runtime.
+func snapshotParts(s agentusecase.ChatSnapshot) (domain.Chat, dto.ChatRuntime) {
 	return s.Chat, dto.ChatSnapshotRuntime(s.Live, s.Phase, s.Version,
-		s.TerminalWait, s.AttachedSessionID, s.Session), nil
+		s.TerminalWait, s.AttachedSessionID, s.Session)
 }
 
 // requireChatInWorkspace loads chatID, 404ing on an unknown id, and holds it to

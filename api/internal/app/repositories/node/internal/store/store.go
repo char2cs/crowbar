@@ -60,6 +60,11 @@ type Store interface {
 		ctx context.Context,
 		parentID string,
 	) ([]domain.Node, error)
+	// ListAll returns every node in one read, healing the read model the same
+	// way — for a caller that would otherwise ask ListByParent per level.
+	ListAll(
+		ctx context.Context,
+	) ([]domain.Node, error)
 }
 
 // service is the node read model over the durable store projection. It holds es
@@ -158,6 +163,13 @@ func (s *service) ListByParent(
 		}
 	}
 	return result, nil
+}
+
+// ListAll returns every node, healing the read model first when empty.
+func (s *service) ListAll(
+	ctx context.Context,
+) ([]domain.Node, error) {
+	return s.allHealed(ctx)
 }
 
 // allHealed returns every row in the durable read model, first healing it via

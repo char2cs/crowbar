@@ -187,50 +187,7 @@ func (h *Handlers) Choices(ctx *gin.Context) {
 }
 
 func (h *Handlers) choiceDTOs(chatID string, in []domain.ActivityChoice) []dto.AgentChoiceDTO {
-	answerable := map[string]bool{}
-	for _, id := range h.answers.AnswerableChoiceIDs(chatID, in) {
-		answerable[id] = true
-	}
-	out := make([]dto.AgentChoiceDTO, 0, len(in))
-	for _, c := range in {
-		out = append(out, dto.AgentChoiceDTO{
-			ID: c.ID, TurnID: c.TurnID, Seq: c.Seq, Kind: c.Kind,
-			ToolName: c.ToolName, Title: c.Title, Question: c.Question,
-			Mode: c.Mode, Multi: c.Multi, Options: choiceOptionDTOs(c.Options),
-			Questions:  choiceQuestionDTOs(c.Questions),
-			Schema:     c.Schema,
-			Pending:    c.Pending(),
-			Answerable: answerable[c.ID],
-			At:         c.At, ResolvedAt: c.ResolvedAt, Resolution: c.Resolution,
-			AutoApproved:      c.AutoApproved,
-			AnsweredOptionIDs: c.AnsweredOptionIDs,
-		})
-	}
-	return out
-}
-
-func choiceQuestionDTOs(in []domain.ActivityChoiceQuestion) []dto.AgentChoiceQuestionDTO {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]dto.AgentChoiceQuestionDTO, 0, len(in))
-	for _, q := range in {
-		out = append(out, dto.AgentChoiceQuestionDTO{
-			ID: q.ID, Title: q.Title, Text: q.Text, Multi: q.Multi,
-			Options: choiceOptionDTOs(q.Options),
-		})
-	}
-	return out
-}
-
-func choiceOptionDTOs(in []domain.ActivityChoiceOption) []dto.AgentChoiceOptionDTO {
-	out := make([]dto.AgentChoiceOptionDTO, 0, len(in))
-	for _, o := range in {
-		out = append(out, dto.AgentChoiceOptionDTO{
-			ID: o.ID, Kind: o.Kind, Label: o.Label, Description: o.Description,
-		})
-	}
-	return out
+	return dto.AgentChoiceDTOsFrom(in, h.answers.AnswerableChoiceIDs(chatID, in))
 }
 
 func (h *Handlers) ToolPayload(ctx *gin.Context) {

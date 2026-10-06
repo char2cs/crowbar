@@ -337,6 +337,21 @@ func (f *fakeAgentUsecase) ChatSnapshot(
 	return agentusecase.ChatSnapshot{Chat: chat, Version: 1, Phase: agentusecase.ChatPhaseDormant}, nil
 }
 
+func (f *fakeAgentUsecase) ChatSnapshotsOf(
+	ctx context.Context,
+	ids []string,
+) ([]agentusecase.ChatSnapshot, error) {
+	out := make([]agentusecase.ChatSnapshot, len(ids))
+	for i, id := range ids {
+		snap, err := f.ChatSnapshot(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = snap
+	}
+	return out, nil
+}
+
 func (f *fakeAgentUsecase) ReadMessages(
 	_ context.Context,
 	chatID string,
@@ -593,6 +608,8 @@ func (f *fakeAgentUsecase) Interruptions(
 ) ([]domain.ActivityInterruption, error) {
 	return f.interruptions, f.interruptionsErr
 }
+
+func (f *fakeAgentUsecase) TakeHookReply(string) (string, bool) { return "", false }
 
 func (f *fakeAgentUsecase) ReadToolPayload(
 	_ context.Context, chatID, toolID, side string,

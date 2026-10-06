@@ -251,23 +251,40 @@ describe('WorkingLine', () => {
     expect(screen.getByText('Compacting…')).toBeInTheDocument()
   })
 
-  // A reasoning model spends most of a hard turn emitting nothing but this. With
-  // no home for it the whole of that stretch was a spinner over a frozen chat.
-  it('shows what the agent is thinking while it works', () => {
+  // The agent's own words replace the flavour verb in the heading; the verb list
+  // is only the fallback for when it says nothing.
+  it("headlines the agent's own words instead of a flavour verb", () => {
     render(<WorkingLine working activity={activity()} reasoning="**Clarifying** the wording" />)
-    expect(screen.getByTestId('agent-reasoning')).toHaveTextContent('Clarifying the wording')
+    const verb = screen.getByTestId('agent-activity-strip').querySelector('.verb')
+    expect(verb).toHaveTextContent('Clarifying the wording')
+    expect(verb).not.toHaveTextContent('…')
+    expect(screen.queryByTestId('agent-reasoning')).not.toBeInTheDocument()
   })
 
-  it('shows the complete thought as a subtitle below the working indicator', () => {
-    const long = `START${'x'.repeat(400)}NEWEST`
-    render(<WorkingLine working activity={activity()} reasoning={long} />)
+  it('headlines a bold title and keeps only the body below, never the same text twice', () => {
+    render(
+      <WorkingLine
+        working
+        activity={activity()}
+        reasoning={'**Checking the schema**\n\nThe table has no index on chat_id.'}
+      />,
+    )
+    const strip = screen.getByTestId('agent-activity-strip')
+    expect(strip.querySelector('.verb')).toHaveTextContent('Checking the schema')
+    const body = screen.getByTestId('agent-reasoning')
+    expect(body).toHaveClass('reasoning-subtitle')
+    expect(body).toHaveTextContent('The table has no index on chat_id.')
+    expect(body).not.toHaveTextContent('Checking the schema')
+  })
 
-    const el = screen.getByTestId('agent-reasoning')
-    expect(el.tagName).toBe('P')
-    expect(el).toHaveClass('reasoning-subtitle')
-    expect(el.previousElementSibling).toHaveClass('hd')
-    expect(el).toHaveTextContent('NEWEST')
-    expect(el).toHaveTextContent('START')
+  it("updates the heading as the agent's words change and falls back when they stop", () => {
+    const { rerender } = render(<WorkingLine working activity={activity()} reasoning="First" />)
+    const verb = () => screen.getByTestId('agent-activity-strip').querySelector('.verb')
+    expect(verb()).toHaveTextContent('First')
+    rerender(<WorkingLine working activity={activity()} reasoning="Second" />)
+    expect(verb()).toHaveTextContent('Second')
+    rerender(<WorkingLine working activity={activity()} />)
+    expect(verb()).toHaveTextContent(/…$/)
   })
 
   it('says nothing about thinking when the agent reports none', () => {

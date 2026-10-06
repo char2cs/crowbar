@@ -188,7 +188,7 @@ func (t *Turns) recordLiveReplacement(
 		blockID = ev.Delta.TurnID
 	}
 	text := t.live.replace(chat.ID, kind, blockID, ev.Delta.Text)
-	t.feed.MessageDelta(chat.ID, chat.WorkspaceID, blockID, text, kind)
+	t.feed.MessageDelta(chat.ID, chat.WorkspaceID, blockID, text, kind, time.Time{})
 }
 
 // sinceLastDelta reports when this chat last produced ANY live text — thinking,
@@ -232,5 +232,5 @@ func (t *Turns) recordLiveText(
 		blockID = ev.Delta.TurnID
 	}
 	text := t.live.observe(chat.ID, kind, blockID, ev.Delta.Index, ev.Delta.Text)
-	t.feed.MessageDelta(chat.ID, chat.WorkspaceID, blockID, text, kind)
+	t.feed.MessageDelta(chat.ID, chat.WorkspaceID, blockID, text, kind, time.Time{})
 }
