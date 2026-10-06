@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useWorkspaceGit } from '@/features/workspace/stores/hooks/use-workspace-git'
 import { requestGitRefresh, useGitRefreshStore } from '@/features/git/stores/git-refresh'
@@ -44,6 +44,16 @@ const onGitFrame = () => {
   const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
   return calls.find(([ep]) => ep === '/v0/chats/chat-test/git/status')![1]
 }
+
+// The slice loads its API modules on first use; transform them once, outside the waitFor budget.
+beforeAll(async () => {
+  await Promise.all([
+    import('@/features/git/api/git-data-api'),
+    import('@/features/git/api/git-commits-api'),
+    import('@/features/git/api/git-status-api'),
+    import('fast-deep-equal'),
+  ])
+})
 
 beforeEach(() => {
   vi.clearAllMocks()

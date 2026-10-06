@@ -1,13 +1,14 @@
 import type { StateCreator } from 'zustand'
 import { frontendTrace } from '@/utils/frontend-trace'
-import deepEqual from 'fast-deep-equal'
-import { COMMITS_PER_PAGE, fetchGitData, fetchReviewFiles } from '@/features/git/api/git-data-api'
-import { getGitLog } from '@/features/git/api/git-commits-api'
-import { getGitStatus } from '@/features/git/api/git-status-api'
 import type { GitCommit, GitDiff, GitStatus } from '@/features/git/types/git-types'
 import type { WorkspaceState } from '../workspace-store.types'
 
 const MAX_WORKSPACE_GIT_STATUS_FILES = 200
+
+// The git API modules load on first use: the store is on the boot path, a git fetch is not.
+const gitDataApi = () => import('@/features/git/api/git-data-api')
+const gitCommitsApi = () => import('@/features/git/api/git-commits-api')
+const gitStatusApi = () => import('@/features/git/api/git-status-api')
 
 /** `idle` until the workspace is first shown; only `ready` data is kept across switches. */
 type GitLoadStatus = 'idle' | 'loading' | 'ready' | 'failed'
@@ -61,6 +62,7 @@ export const createGitSlice: StateCreator<
       if (gitLoad === 'loading' || gitLoad === 'ready') return
       set({ gitLoad: 'loading' })
       try {
+        const { fetchGitData, COMMITS_PER_PAGE } = await gitDataApi()
         const { status, commits, reviewFiles } = await fetchGitData(workspaceId)
         set({
           gitLoad: 'ready',
@@ -78,6 +80,10 @@ export const createGitSlice: StateCreator<
     // Skips the write when nothing changed so an identical reload never churns
     // the memoized changed-files tree.
     async reloadReviewFiles() {
+      const [{ fetchReviewFiles }, { default: deepEqual }] = await Promise.all([
+        gitDataApi(),
+        import('fast-deep-equal'),
+      ])
       const next = await fetchReviewFiles(get().workspaceId)
       if (next && !deepEqual(next, get().reviewFiles)) set({ reviewFiles: next })
     },
@@ -87,6 +93,11 @@ export const createGitSlice: StateCreator<
     // first page replaces the list.
     async reloadStatusAndLog() {
       const wsId = get().workspaceId
+      const [{ getGitStatus }, { getGitLog }, { COMMITS_PER_PAGE }] = await Promise.all([
+        gitStatusApi(),
+        gitCommitsApi(),
+        gitDataApi(),
+      ])
       const [status, commits] = await Promise.all([
         getGitStatus(wsId),
         getGitLog(wsId, COMMITS_PER_PAGE, 0),
@@ -104,6 +115,10 @@ export const createGitSlice: StateCreator<
       if (!hasMoreCommits || isLoadingMoreCommits) return
       set({ isLoadingMoreCommits: true })
       try {
+        const [{ getGitLog }, { COMMITS_PER_PAGE }] = await Promise.all([
+          gitCommitsApi(),
+          gitDataApi(),
+        ])
         const next = await getGitLog(workspaceId, COMMITS_PER_PAGE, commits.length)
         const known = new Set(commits.map((c) => c.hash))
         const fresh = next.filter((c) => !known.has(c.hash))

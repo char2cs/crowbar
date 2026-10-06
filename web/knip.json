@@ -120,7 +120,6 @@
     "src/features/file-system/lib/tauri-file-drop.ts": ["exports", "types"],
     "src/features/files/lib/file-tree-api.ts": ["exports", "types"],
     "src/features/files/lib/file-upload.ts": ["exports"],
-    "src/features/git/api/git-status-api.ts": ["exports"],
     "src/features/git/api/review-api.ts": ["types"],
     "src/features/git/api/review-window-api.ts": ["exports"],
     "src/features/git/components/diff/use-review-annotations.tsx": ["exports"],

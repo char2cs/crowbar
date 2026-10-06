@@ -128,20 +128,60 @@ if (typeof Image !== 'undefined') {
 const PHOTO = {
   light: {
     src: skyUrl,
-    base: '#24395f',
-    scrim: '#24395f',
+    base: '#7fa8dc',
+    wash: 'rgba(196, 220, 248, 0.45)',
+    scrim: '26, 56, 118',
+    scrimPeak: 0.74,
     crop: { right: 0, top: -104 },
   },
   dark: {
     src: nightUrl,
     base: 'transparent',
-    scrim: '#212121',
+    wash: 'transparent',
+    scrim: '10, 10, 14',
+    scrimPeak: 0.8,
     crop: { left: 0, top: -60 },
   },
 } as const
 
-function BandPhoto({ isDark }: { isDark: boolean }) {
-  const { src, scrim, crop } = PHOTO[isDark ? 'dark' : 'light']
+// Smoothstep-sampled ramp from `from`% to `to`% (0 -> peak): a plain two-stop gradient
+// shows a visible crease where it starts; eased samples read as one continuous melt.
+function easedStops(
+  color: (a: number) => string,
+  from: number,
+  to: number,
+  peak = 1,
+  falling = false,
+): string {
+  const steps = 8
+  return Array.from({ length: steps + 1 }, (_, i) => {
+    const t = i / steps
+    const e = t * t * (3 - 2 * t)
+    const a = (falling ? 1 - e : e) * peak
+    return `${color(Number(a.toFixed(3)))} ${(from + (to - from) * t).toFixed(1)}%`
+  }).join(', ')
+}
+
+/** Mask: sidebar ground (transparent) at the button side, melting into the photo. */
+function bandFadeMask(toward: 'left' | 'right'): string {
+  return `linear-gradient(to ${toward}, ${easedStops((a) => `rgba(0,0,0,${a})`, 22, 52)})`
+}
+
+// Where the label sits along the band, measured from the button side.
+const LABEL_AT = { start: 60, end: 86 } as const
+
+function bandScrim(isDark: boolean, align: 'start' | 'end'): string {
+  const { scrim, scrimPeak } = PHOTO[isDark ? 'dark' : 'light']
+  const color = (a: number) => `rgba(${scrim},${a})`
+  if (isDark) {
+    return `linear-gradient(to right, ${easedStops(color, 26, 56, scrimPeak)})`
+  }
+  // Light: darken only directly behind the label so the clouds keep their contrast.
+  return `radial-gradient(ellipse 26% 100% at ${LABEL_AT[align]}% 50%, ${color(scrimPeak)} 0%, ${color(scrimPeak)} 55%, ${easedStops(color, 55, 100, scrimPeak, true)})`
+}
+
+function BandPhoto({ isDark, align }: { isDark: boolean; align: 'start' | 'end' }) {
+  const { src, wash, crop } = PHOTO[isDark ? 'dark' : 'light']
   return (
     <>
       <img
@@ -159,13 +199,10 @@ function BandPhoto({ isDark }: { isDark: boolean }) {
         className="absolute inset-0 opacity-10 mix-blend-multiply"
         style={{ background: GRAIN }}
       />
-      {/* Flat deep ground under the label so it reads over the dots. */}
-      <div
-        className="absolute inset-0"
-        style={{
-          background: `linear-gradient(to right, transparent 25%, ${scrim} 50%, ${scrim} 68%, transparent 92%)`,
-        }}
-      />
+      {/* Pale wash desaturates the photo's deep sky so the clouds stand out. */}
+      <div className="absolute inset-0" style={{ background: wash }} />
+      {/* Soft scrim keeps the label legible over the photo. */}
+      <div className="absolute inset-0" style={{ background: bandScrim(isDark, align) }} />
     </>
   )
 }
@@ -227,8 +264,8 @@ export function SidebarBuildBadgeBand({
           // edge — X must be the text side (`fadeToward`), not its opposite
           // (caught live: had these swapped, which faded out the text side
           // and left the button side solid instead).
-          maskImage: `linear-gradient(to ${fadeToward}, transparent 40%, black 70%)`,
-          WebkitMaskImage: `linear-gradient(to ${fadeToward}, transparent 40%, black 70%)`,
+          maskImage: bandFadeMask(fadeToward),
+          WebkitMaskImage: bandFadeMask(fadeToward),
         }}
       >
         {info.channel === 'nightly' && (
@@ -236,7 +273,7 @@ export function SidebarBuildBadgeBand({
             className="pointer-events-none absolute inset-0 overflow-hidden"
             style={align === 'start' ? { transform: 'scaleX(-1)' } : undefined}
           >
-            <BandPhoto isDark={isDark} />
+            <BandPhoto isDark={isDark} align={align} />
           </div>
         )}
       </div>
@@ -295,7 +332,7 @@ export function SidebarBuildBadgeLabel({ align = 'start' }: { align?: 'start' | 
         <span
           className={cn(
             'text-[9.5px] font-medium',
-            onSky ? 'text-white/85' : 'text-muted-foreground',
+            onSky ? 'text-white/90' : 'text-muted-foreground',
           )}
         >
           {subtitle}
