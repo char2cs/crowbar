@@ -23,6 +23,8 @@ type runnerRow struct {
 	LaunchSessionID         string
 	LaunchModel             string
 	LaunchEffort            string
+	ReportedModel           string
+	ReportedEffort          string
 	LaunchPermissionLevel   string
 	CurrentSessionResumable bool
 	StartedAt               time.Time
@@ -111,6 +113,8 @@ func (r runnerRow) toRunner() agents.Runner {
 		LaunchSessionID:         r.LaunchSessionID,
 		LaunchModel:             r.LaunchModel,
 		LaunchEffort:            r.LaunchEffort,
+		ReportedModel:           r.ReportedModel,
+		ReportedEffort:          r.ReportedEffort,
 		LaunchPermissionLevel:   r.LaunchPermissionLevel,
 		CurrentSessionResumable: r.CurrentSessionResumable,
 		StartedAt:               r.StartedAt,

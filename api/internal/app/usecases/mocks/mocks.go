@@ -358,6 +358,15 @@ func (s *NodePlacements) ListByParent(
 	return rows, nil
 }
 
+func (s *NodePlacements) ListAll(
+	ctx context.Context,
+) ([]domain.Node, error) {
+	if s.ListErr != nil {
+		return nil, s.ListErr
+	}
+	return append([]domain.Node(nil), s.Rows...), nil
+}
+
 // SetOrder writes the index and leaves the parent exactly as it stands, like
 // the command it stands in for. Refuses an id with no row, mirroring the real
 // command's Validate (asynxModels.ErrValidation on current == nil) — a fake
@@ -1040,12 +1049,12 @@ type WorkingTreeGitEngine struct {
 		repoPath string,
 		base string,
 	) (int, int, bool, bool, error)
-	WouldMergeConflictFn func(
+	// WouldMergeConflictsFn answers a batch; unset, every pair is clean.
+	WouldMergeConflictsFn func(
 		ctx context.Context,
 		repoPath string,
-		ours string,
-		theirs string,
-	) (bool, error)
+		pairs []gitengine.MergePair,
+	) []gitengine.MergeVerdict
 	RevParseFn func(
 		ctx context.Context,
 		repoPath string,
@@ -1066,16 +1075,15 @@ func (g *WorkingTreeGitEngine) WorkingTreeSummary(
 	return g.WorkingTreeSummaryFn(ctx, repoPath, base)
 }
 
-func (g *WorkingTreeGitEngine) WouldMergeConflict(
+func (g *WorkingTreeGitEngine) WouldMergeConflicts(
 	ctx context.Context,
 	repoPath string,
-	ours string,
-	theirs string,
-) (bool, error) {
-	if g.WouldMergeConflictFn == nil {
-		return false, nil
+	pairs []gitengine.MergePair,
+) []gitengine.MergeVerdict {
+	if g.WouldMergeConflictsFn != nil {
+		return g.WouldMergeConflictsFn(ctx, repoPath, pairs)
 	}
-	return g.WouldMergeConflictFn(ctx, repoPath, ours, theirs)
+	return make([]gitengine.MergeVerdict, len(pairs))
 }
 
 // RevParse resolves rev, or reports it as resolvable by default so summaryBase's

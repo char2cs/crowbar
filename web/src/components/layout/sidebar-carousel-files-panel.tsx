@@ -1,9 +1,14 @@
-import { useCallback, Suspense } from 'react'
+import { useCallback, useMemo, Suspense } from 'react'
 import { FileExplorerTree } from '@/features/file-explorer/components/file-explorer-tree'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { SidebarSkeleton } from './sidebar-skeleton'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
-import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import {
+  useRegisteredWorkspaceStore,
+  useWorkspaceStoreById,
+} from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
+import { isFileTreeLoading } from '@/features/workspace/stores/slices/file-tree-slice'
+import { createFileTreeHandlers, revealInFolder } from '@/features/files/lib/file-tree-handlers'
 import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
 import { resolveOnscreenPaneForWorkspace } from '@/features/panes/lib/pane-chat-workspace'
 import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
@@ -17,21 +22,14 @@ import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
 export function SidebarCarouselFilesPanel() {
   const workspaceId = useFocusedWorkspaceContextStore((s) => s.workspaceId)
   const rootPath = useFocusedWorkspaceContextStore((s) => s.rootPath)
-  const files = useFileSystemStore((s) => s.files)
-  const handleFileOpen = useFileSystemStore.use.handleFileOpen?.()
-  const handleFileSelect = useFileSystemStore.use.handleFileSelect?.()
-  // File-tree mutation handlers (create/rename/delete/refresh) live on the
-  // file-system store; thread them into the explorer so its context menu and
-  // inline-edit actions actually run (the daemon backs them via /files).
-  const setFiles = useFileSystemStore((s) => s.setFiles)
-  const handleCreateNewFileInDirectory = useFileSystemStore.use.handleCreateNewFileInDirectory?.()
-  const handleCreateNewFolderInDirectory =
-    useFileSystemStore.use.handleCreateNewFolderInDirectory?.()
-  const handleRenamePath = useFileSystemStore.use.handleRenamePath?.()
-  const handleDeletePath = useFileSystemStore.use.handleDeletePath?.()
-  const handleDuplicatePath = useFileSystemStore.use.handleDuplicatePath?.()
-  const handleRevealInFolder = useFileSystemStore.use.handleRevealInFolder?.()
-  const refreshDirectory = useFileSystemStore.use.refreshDirectory?.()
+  // The focused workspace's own tree: switching focus selects another store's
+  // slice, it never clears or refetches anything.
+  const wsId = workspaceId ?? ''
+  const store = useRegisteredWorkspaceStore(wsId)
+  const files = useWorkspaceStoreById(wsId, (s) => s.files)
+  const isLoading = useWorkspaceStoreById(wsId, isFileTreeLoading)
+  const setFiles = useWorkspaceStoreById(wsId, (s) => s.fileTreeActions.setFiles)
+  const handlers = useMemo(() => createFileTreeHandlers(wsId, store), [wsId, store])
   const handleUploadFile = useCallback(
     (directoryPath: string) => void pickAndUploadFiles(directoryPath),
     [],
@@ -53,33 +51,30 @@ export function SidebarCarouselFilesPanel() {
         <Suspense fallback={<SidebarSkeleton />}>
           <FileExplorerTree
             files={files}
+            isLoading={isLoading}
             workspaceId={workspaceId}
             rootFolderPath={rootPath}
             onFileSelect={(path, isDir) => {
               if (isDir) {
                 useFileTreeStore.getState().toggleFolder(workspaceId ?? '', path)
               } else {
-                handleFileSelect?.(path, false, fileOpenTarget())
+                handlers.handleFileSelect(path, false, fileOpenTarget())
               }
             }}
-            onFileOpen={
-              handleFileOpen
-                ? (path: string, isDir: boolean) => {
-                    if (!isDir) {
-                      void handleFileOpen(path, false, fileOpenTarget())
-                    }
-                  }
-                : undefined
-            }
+            onFileOpen={(path: string, isDir: boolean) => {
+              if (!isDir) {
+                void handlers.handleFileOpen(path, false, fileOpenTarget())
+              }
+            }}
             onUpdateFiles={setFiles}
-            onCreateNewFileInDirectory={handleCreateNewFileInDirectory ?? (() => {})}
-            onCreateNewFolderInDirectory={handleCreateNewFolderInDirectory ?? undefined}
-            onRenamePath={handleRenamePath ?? undefined}
-            onDeletePath={handleDeletePath ?? undefined}
-            onDuplicatePath={handleDuplicatePath ?? undefined}
-            onRevealInFinder={handleRevealInFolder ?? undefined}
+            onCreateNewFileInDirectory={handlers.handleCreateNewFileInDirectory}
+            onCreateNewFolderInDirectory={handlers.handleCreateNewFolderInDirectory}
+            onRenamePath={handlers.handleRenamePath}
+            onDeletePath={handlers.handleDeletePath}
+            onDuplicatePath={handlers.handleDuplicatePath}
+            onRevealInFinder={revealInFolder}
             onUploadFile={handleUploadFile}
-            onRefreshDirectory={refreshDirectory ?? undefined}
+            onRefreshDirectory={handlers.refreshDirectory}
           />
         </Suspense>
       </ErrorBoundary>

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"sync/atomic"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -31,6 +33,10 @@ type fakeWorktreeReads struct {
 	getErr    error
 	listErr   error
 	elig      workspace.MergeEligibility
+	// eligCalls counts merge-eligibility resolutions (each one a git dry-run in
+	// production), safe for the concurrent resolution the list performs.
+	eligCalls   atomic.Int32
+	eligBatches atomic.Int32
 }
 
 func (f *fakeWorktreeReads) Get(
@@ -60,12 +66,18 @@ func (f *fakeWorktreeReads) ListInRepo(
 	return f.rows, nil
 }
 
-func (f *fakeWorktreeReads) MergeEligibilityFor(
+func (f *fakeWorktreeReads) MergeEligibilitiesFor(
 	_ context.Context,
-	_ domain.Workspace,
+	wss []domain.Workspace,
 	_ []domain.Workspace,
-) workspace.MergeEligibility {
-	return f.elig
+) []workspace.MergeEligibility {
+	f.eligBatches.Add(1)
+	f.eligCalls.Add(int32(len(wss)))
+	out := make([]workspace.MergeEligibility, len(wss))
+	for i := range out {
+		out[i] = f.elig
+	}
+	return out
 }
 
 func newWorktreeHandlers(
@@ -337,4 +349,38 @@ func (m *mintingTree) DiscardOwningChat(
 ) error {
 	m.discards++
 	return nil
+}
+
+// A list of many chats over a few worktrees must cost one resolution per
+// WORKTREE, not per chat: eligibility is a git dry-run and the placement and
+// owner reads hit the store, and none of them changes between two chats that
+// share a workspace.
+func TestRegression_List_WorkTreeReadsAreOncePerWorkspaceNotPerChat(t *testing.T) {
+	const workspaces, perWorkspace = 3, 5
+	var chats []domain.Chat
+	var rows []domain.Workspace
+	for w := 0; w < workspaces; w++ {
+		wsID := fmt.Sprintf("ws-%d", w)
+		rows = append(rows, domain.Workspace{
+			ID: wsID, RepoID: "r1", ProjectID: "p1", ParentID: "ws-0",
+			Branch: "feature/" + wsID, Status: domain.WorkspaceStatusNew,
+		})
+		for c := 0; c < perWorkspace; c++ {
+			chats = append(chats, domain.Chat{ID: fmt.Sprintf("%s-chat-%d", wsID, c), WorkspaceID: wsID})
+		}
+	}
+	uc := &configurableListGetUsecase{chats: chats}
+	worktrees := &fakeWorktreeReads{rows: rows, elig: workspace.MergeEligibility{CanMergeLocally: true}}
+	h := newWorktreeHandlers(uc, worktrees).WithNodes(&fakeNodeReads{})
+
+	got := listChats(t, h)
+
+	require.Len(t, got, workspaces*perWorkspace)
+	for _, c := range got {
+		require.NotNil(t, c.Worktree)
+		assert.True(t, c.Worktree.CanMergeLocally)
+	}
+	assert.EqualValues(t, workspaces, worktrees.eligCalls.Load(), "one eligibility resolution per workspace")
+	assert.EqualValues(t, 1, worktrees.eligBatches.Load(), "one batched git read for the whole list")
+	assert.Empty(t, uc.listWsIDs, "the owner and placement come from the chats already listed, not a re-read of the store")
 }

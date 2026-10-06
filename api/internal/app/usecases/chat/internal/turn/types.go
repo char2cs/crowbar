@@ -3,6 +3,8 @@ package turn
 import (
 	"context"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -97,4 +99,7 @@ type Runners interface {
 	// without this the composer would sit on termwait's generic 30s quiet
 	// timeout even though the compaction itself already finished.
 	SettleDeliveryFor(ctx context.Context, chatID, runnerID string) error
+	// RefuseSteered fails a parked prompt the CLI provably never received, so
+	// the client keeps its text and may retry.
+	RefuseSteered(ctx context.Context, s inflight.Steered)
 }

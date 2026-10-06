@@ -415,6 +415,21 @@ func (u *configurableListGetUsecase) ChatSnapshot(
 	return snap, nil
 }
 
+func (u *configurableListGetUsecase) ChatSnapshotsOf(
+	ctx context.Context,
+	ids []string,
+) ([]agentusecase.ChatSnapshot, error) {
+	out := make([]agentusecase.ChatSnapshot, len(ids))
+	for i, id := range ids {
+		snap, err := u.ChatSnapshot(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = snap
+	}
+	return out, nil
+}
+
 func (configurableListGetUsecase) SpawnChat(
 	_ context.Context,
 	_ string,
@@ -587,6 +602,13 @@ func (configurableListGetUsecase) Compact(
 }
 
 func (configurableListGetUsecase) StopChat(
+	_ context.Context,
+	_ string,
+) error {
+	return nil
+}
+
+func (configurableListGetUsecase) CloseChat(
 	_ context.Context,
 	_ string,
 ) error {
@@ -1468,6 +1490,8 @@ func (configurableListGetUsecase) ReadActivity(
 ) (agentusecase.ChatActivity, error) {
 	return agentusecase.ChatActivity{}, nil
 }
+
+func (configurableListGetUsecase) TakeHookReply(string) (string, bool) { return "", false }
 
 func (configurableListGetUsecase) ReadToolPayload(
 	context.Context, string, string, string,

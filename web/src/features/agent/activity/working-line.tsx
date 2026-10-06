@@ -8,6 +8,7 @@ import {
   pendingChoices,
 } from '@/features/agent/lib/agent-activity'
 import { formatElapsed } from '@/features/agent/activity/lib/shelf-fit'
+import { reasoningHeadline } from '@/features/agent/activity/lib/reasoning-headline'
 import { VERB_ROTATION_MS, verbAt } from '@/features/agent/activity/lib/verbs'
 
 interface WorkingLineProps {
@@ -54,8 +55,9 @@ interface WorkingLineProps {
 /**
  * What the agent is doing, while it is doing it.
  *
- * The verb is CROWBAR'S — no provider reports one, so it is flavour, and it must
- * never wear a provider's name. What is real beside it is the elapsed clock,
+ * The heading is the agent's own live words when it is telling us what it is
+ * doing; only when it says nothing does it fall back to CROWBAR'S rotating verb,
+ * which is flavour and must never wear a provider's name. What is real beside it is the elapsed clock,
  * straight off the turn's own start.
  *
  * The tool calls are NOT here. They used to be, and being here was the whole of
@@ -88,6 +90,7 @@ export function WorkingLine({
   // `blockedOn(activity)?.kind === 'compaction'` can never be true — it would
   // be permanently dead code, not a fallback.
   const interruption = blockedOn(activity)
+  const thought = reasoning ? reasoningHeadline(reasoning) : null
   const compacting = compactingLive === true
 
   useEffect(() => {
@@ -152,13 +155,15 @@ export function WorkingLine({
       <div className="hd">
         <FlickerSpinner className="size-4" />
         <span>
-          <b className="verb">{compacting ? 'Compacting' : verbAt(tick)}…</b>
+          <b className="verb" data-testid="agent-working-heading">
+            {compacting ? 'Compacting…' : thought?.headline ? thought.headline : `${verbAt(tick)}…`}
+          </b>
           {elapsed > 0 && <span className="dim"> · {formatElapsed(elapsed)}</span>}
         </span>
       </div>
-      {reasoning && !compacting && (
+      {thought?.body && !compacting && (
         <p className="reasoning-subtitle" data-testid="agent-reasoning">
-          {reasoning.replace(/\*{1,3}/g, '')}
+          {thought.body}
         </p>
       )}
       {plan && plan.length > 0 && !compacting && (

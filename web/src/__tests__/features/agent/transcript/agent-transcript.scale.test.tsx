@@ -1,7 +1,17 @@
 import { render } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChatMessage } from '@/features/agent/api/agent-api'
 import { AgentTranscript, ESTIMATED_ROW_HEIGHT } from '@/features/agent/transcript/agent-transcript'
+
+// Counts every call of a row's component. Deliberately a plain function, not
+// memo(): any re-render of a row from above shows up as a call.
+const rowRenders = vi.hoisted(() => ({ count: 0 }))
+vi.mock('@/features/agent/transcript/message-row', () => ({
+  MessageRow: ({ message }: { message: { sequence: number } }) => {
+    rowRenders.count++
+    return <div data-testid={`agent-message-${message.sequence}`} />
+  },
+}))
 
 /**
  * Scale gate for Task 5's virtualization of the historical transcript rows,
@@ -87,13 +97,17 @@ function messagesOfLength(n: number): AgentChatMessage[] {
   }))
 }
 
-function draw(messages: AgentChatMessage[]) {
-  return render(
+// Held across renders, as the chat view holds them: only the callbacks are fresh.
+const PROVIDERS: never[] = []
+const ACTIVITY = { toolCalls: [], subagents: [], interruptions: [], choices: [] }
+
+function transcript(messages: AgentChatMessage[]) {
+  return (
     <AgentTranscript
       messages={messages}
       queue={[]}
-      providers={[]}
-      activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+      providers={PROVIDERS}
+      activity={ACTIVITY}
       working={false}
       loading={false}
       error={null}
@@ -104,8 +118,12 @@ function draw(messages: AgentChatMessage[]) {
       onEditPrompt={() => {}}
       onCancelPrompt={() => {}}
       onRetryPrompt={() => {}}
-    />,
+    />
   )
+}
+
+function draw(messages: AgentChatMessage[]) {
+  return render(transcript(messages))
 }
 
 function countMountedRows(container: HTMLElement) {
@@ -148,5 +166,32 @@ describe('AgentTranscript scale', () => {
     // rather than inferring it from a sibling test file.
     expect(countMountedMessageRows(small.container)).toBeGreaterThan(0)
     expect(countMountedMessageRows(large.container)).toBeGreaterThan(0)
+  })
+})
+
+// A pane click or a switch re-renders the transcript from above with the same data
+// and fresh callbacks. Rows whose own inputs did not change must not re-render.
+describe('AgentTranscript row renders', () => {
+  it('does not re-render a row when the transcript re-renders with the same messages', () => {
+    const messages = messagesOfLength(30)
+    const { rerender } = draw(messages)
+    const first = rowRenders.count
+    expect(first).toBeGreaterThan(0)
+
+    rerender(transcript(messages))
+
+    expect(rowRenders.count).toBe(first)
+  })
+
+  it('re-renders only the row whose message changed', () => {
+    const messages = messagesOfLength(30)
+    const { rerender } = draw(messages)
+    rerender(transcript(messages))
+    const settled = rowRenders.count
+    const edited = messages.map((m, i) => (i === 3 ? { ...m, text: 'changed' } : m))
+
+    rerender(transcript(edited))
+
+    expect(rowRenders.count).toBe(settled + 1)
   })
 })

@@ -228,6 +228,9 @@ func build(
 		}
 	case spec.HookToolPre, spec.HookToolPost, spec.HookToolFail:
 		ev.Tool = buildTool(fields, statusMap, kindMap, locations, diffFiles, patch, decoded)
+		if id := get("subagent_id"); id != "" {
+			ev.Subagent = &models.SubagentEvent{ID: id}
+		}
 	case spec.HookSubagentPre, spec.HookSubagentPost:
 		ev.Subagent = &models.SubagentEvent{
 			ID:        get("subagent_id"),

@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { __resetPerfForTests, markStart } from '@/lib/perf/instrumentation'
 import type { AgentChatMessage, AgentToolCall } from '@/features/agent/api/agent-api'
 import { activityComponents } from '@/features/agent/lib/activity-components'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
@@ -1864,6 +1865,27 @@ describe('AgentTranscript opening settle gate', () => {
     expect(virtualRows(container)?.style.visibility).toBe('')
   })
 
+  it('closes the chat:first-row span once the rows are shown, not before', () => {
+    __resetPerfForTests()
+    markStart('chat:first-row')
+    draw(conversation(12))
+
+    runFrames(1)
+    expect(performance.getEntriesByName('chat:first-row', 'measure')).toHaveLength(0)
+    runFrames(10)
+
+    expect(performance.getEntriesByName('chat:first-row', 'measure')).toHaveLength(1)
+    __resetPerfForTests()
+  })
+
+  it('keeps them hidden while the reveal is held, however still the height is', () => {
+    const { container } = draw(conversation(12), { holdReveal: true })
+
+    runFrames(10)
+
+    expect(virtualRows(container)?.style.visibility).toBe('hidden')
+  })
+
   it('gives up the gate the moment the reader actually touches the transcript', () => {
     const { container } = draw(conversation(12))
     const scroll = container.querySelector<HTMLElement>('.scroll')
@@ -1872,5 +1894,55 @@ describe('AgentTranscript opening settle gate', () => {
     fireEvent.wheel(scroll as HTMLElement)
 
     expect(virtualRows(container)?.style.visibility).toBe('')
+  })
+})
+
+// A parked view is `display:none`, which reports its scroll box as 0x0. That is not
+// a viewport, and windowing to it would unmount every row, so showing the view
+// again would mount (and Plate-render) the whole window from scratch.
+describe('AgentTranscript while its view is hidden', () => {
+  it('keeps its rows mounted when its box disappears, so showing it again mounts nothing', () => {
+    const observers: { target: Element; callback: ResizeObserverCallback }[] = []
+    class ControllableObserver {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        observers.push({ target, callback: this.callback })
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', ControllableObserver)
+    try {
+      const { container } = draw(
+        Array.from({ length: 12 }, (_, i) => ({
+          turnId: `t${i}`,
+          sequence: i,
+          role: i % 2 === 0 ? ('user' as const) : ('assistant' as const),
+          providerId: i % 2 === 0 ? '' : 'claude',
+          text: `turn ${i}`,
+          at: '',
+        })),
+      )
+      const scroll = container.querySelector('.scroll') as HTMLElement
+      const mounted = () => container.querySelectorAll('[data-index]').length
+      const before = mounted()
+      expect(before).toBeGreaterThan(0)
+
+      const gone = { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0 }
+      HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+        return { ...gone, toJSON: () => gone } as DOMRect
+      }
+      act(() => {
+        for (const { target, callback } of observers) {
+          if (target !== scroll) continue
+          const entry = { target, borderBoxSize: [{ inlineSize: 0, blockSize: 0 }] }
+          callback([entry as unknown as ResizeObserverEntry], {} as ResizeObserver)
+        }
+      })
+
+      expect(mounted()).toBe(before)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

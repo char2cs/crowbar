@@ -18,11 +18,13 @@ import {
 } from '@/features/settings/lib/settings-persistence'
 import { parseSettingsImportJson } from '@/features/settings/lib/settings-import-export'
 import { scoreSearchQuery } from '@/utils/search-match'
-import { settingsSearchIndex } from './config/search-index'
-import type { SearchResult, SearchState } from './types/search'
+import type { SearchResult, SearchState, SettingSearchRecord } from './types/search'
 import type { Settings } from './types/settings'
 
 export type { Settings } from './types/settings'
+
+// The index is ~9 KB of text only the settings dialog's search needs, so it stays out of the boot chunk.
+let searchIndex: SettingSearchRecord[] | null = null
 
 let settingsStoreInitPromise: Promise<Settings> | null = null
 
@@ -121,8 +123,17 @@ export const useSettingsStore = create(
             state.search.isSearching = true
           })
 
+          if (!searchIndex) {
+            // Re-runs against whatever the query is once the index lands, so a stale query never wins.
+            void import('./config/search-index').then((m) => {
+              searchIndex = m.settingsSearchIndex
+              useSettingsStore.getState().runSearch()
+            })
+            return
+          }
+
           const results: SearchResult[] = []
-          for (const record of settingsSearchIndex) {
+          for (const record of searchIndex) {
             const score = scoreSearchQuery(query, [
               { value: record.label, weight: 11 },
               { value: record.description, weight: 1 },

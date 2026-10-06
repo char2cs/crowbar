@@ -3,10 +3,6 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useEventListener } from '@/hooks/use-event-listener'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { fileOpenBenchmark } from '@/features/editor/utils/file-open-benchmark'
-import {
-  useFileSystemStore,
-  workspaceFoldersSupported,
-} from '@/features/file-system/controllers/store'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { isWorkspaceLockedInSidebar } from '@/lib/store/repo-tree'
@@ -30,6 +26,8 @@ interface FileExplorerTreeProps {
   /** The workspace this tree shows; keys every file-tree-store and daemon call. */
   workspaceId: string | null
   files: FileEntry[]
+  /** True until the workspace's tree has loaded, so an empty list reads as loading. */
+  isLoading: boolean
   activePath?: string
   updateActivePath?: (path: string) => void
   rootFolderPath?: string
@@ -73,6 +71,7 @@ function pruneToChanged(
 function FileExplorerTreeComponent({
   workspaceId,
   files,
+  isLoading: isFileTreeLoading,
   activePath,
   updateActivePath,
   rootFolderPath,
@@ -95,12 +94,6 @@ function FileExplorerTreeComponent({
   const [hasTreeFocus, setHasTreeFocus] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const documentRef = useRef<Document>(document)
-
-  const handleOpenFolder = useFileSystemStore((state) => state.handleOpenFolder)
-  const addFolderToWorkspace = useFileSystemStore((state) => state.addFolderToWorkspace)
-  const removeFolderFromWorkspace = useFileSystemStore((state) => state.removeFolderFromWorkspace)
-  const revealPathInTree = useFileSystemStore((state) => state.revealPathInTree)
-  const isFileTreeLoading = useFileSystemStore((state) => state.isFileTreeLoading)
 
   // A locked (protected-branch) worktree refuses every daemon write (409
   // "workspace locked"), so the context menu must not offer mutations there.
@@ -205,19 +198,6 @@ function FileExplorerTreeComponent({
       onRevealInFinder,
       onUploadFile,
       onDuplicatePath,
-      // The store impls behind these are still no-op stubs (no multi-root
-      // workspace model exists yet); an undefined handler hides the menu items
-      // so no dead actions render. See workspaceFoldersSupported (Task 28).
-      onAddFolderToWorkspace: workspaceFoldersSupported
-        ? () => {
-            void addFolderToWorkspace()
-          }
-        : undefined,
-      onRemoveFolderFromWorkspace: workspaceFoldersSupported
-        ? (path) => {
-            void removeFolderFromWorkspace(path)
-          }
-        : undefined,
       // Only the actual workspace root hides Rename/Delete. workspaceRootPaths
       // lists every top-level folder (a multi-root-workspace notion that doesn't
       // apply to Crowbar's single worktree); using it here wrongly treated every
@@ -303,11 +283,7 @@ function FileExplorerTreeComponent({
       onDrop={handleRootDrop}
       {...containerEvents}
     >
-      <FileExplorerSync
-        activePath={activePath}
-        updateActivePath={updateActivePath}
-        revealPathInTree={revealPathInTree}
-      />
+      <FileExplorerSync activePath={activePath} updateActivePath={updateActivePath} />
       {search.isOpen && (
         <FileExplorerSearchHeader
           search={search}
@@ -317,11 +293,7 @@ function FileExplorerTreeComponent({
       )}
       {!rootFolderPath ? (
         <div className="file-tree-empty-state flex flex-1 items-center justify-center">
-          <SidebarEmptyActionState
-            message="No folder open"
-            actionLabel="Open Folder"
-            onAction={handleOpenFolder}
-          />
+          <SidebarEmptyActionState message="No folder open" />
         </div>
       ) : displayedFiles.length === 0 ? (
         <div className="file-tree-empty-state flex flex-1 items-center justify-center">
@@ -394,7 +366,6 @@ function FileExplorerTreeComponent({
 function FileExplorerSync(props: {
   activePath?: string
   updateActivePath?: (path: string) => void
-  revealPathInTree: (path: string) => void | Promise<void>
 }): null {
   useFileExplorerSync(props)
   return null

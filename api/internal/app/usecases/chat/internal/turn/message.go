@@ -36,7 +36,7 @@ func (t *Turns) recordMessageDelta(
 	if t.feed.MessageDelta != nil {
 		// The empty kind is the ANSWER — the stream that existed before there was
 		// more than one, and the only one that is ever recorded.
-		t.feed.MessageDelta(chat.ID, chat.WorkspaceID, message.ID, message.Text, "")
+		t.feed.MessageDelta(chat.ID, chat.WorkspaceID, message.ID, message.Text, "", message.FirstAt)
 	}
 	// Hook processes race, so the closing increment can land before an earlier
 	// one: record once whole. The turn close records whatever is still partial.
@@ -225,7 +225,7 @@ func (t *Turns) closeTurnFromFailure(
 		return nil
 	}
 	appendErr := t.closeAssistantTurn(ctx, chat, runner, ev)
-	defer t.turns.Complete(runner.ID)
+	defer t.turns.Complete(ctx, runner.ID, inflight.TurnFailed)
 
 	if reason := failureNotice(ev); reason != "" {
 		note(ctx, "record turn failure", t.conversations.RecordTurn(
@@ -296,7 +296,7 @@ func (t *Turns) AbandonMessage(ctx context.Context, chatID string) (bool, error)
 	}
 	// The turn is over for every reader, not just the aggregate: a still-open
 	// in-flight record reads "busy" to the next send forever.
-	defer t.turns.Complete(runner.ID)
+	defer t.turns.Complete(ctx, runner.ID, inflight.TurnAbandoned)
 	defer t.idle.clear(chatID)
 
 	abandoned, err := t.chats.AbandonTurn(ctx, chatID, time.Now())

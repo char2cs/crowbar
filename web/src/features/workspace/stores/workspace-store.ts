@@ -7,6 +7,8 @@ import { createFileWatcherSlice } from './slices/file-watcher-slice'
 import { createRecentFilesSlice } from './slices/recent-files-slice'
 import { createBranchReviewSlice } from './slices/branch-review-slice'
 import { createAgentChatsSlice } from './slices/agent-chats-slice'
+import { createFileTreeSlice } from './slices/file-tree-slice'
+import { createGitSlice } from './slices/git-slice'
 import { ModelRegistry } from '@/features/editor/lib/model-registry'
 import { EditorManager, type BufferMeta } from '@/features/editor/lib/editor-manager'
 import {
@@ -69,6 +71,8 @@ export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot)
       ...createRecentFilesSlice(set, get, api),
       ...createBranchReviewSlice(set, get, api),
       ...createAgentChatsSlice(set, get, api),
+      ...createFileTreeSlice(set, get, api),
+      ...createGitSlice(set, get, api),
       ...(snapshot ?? {}),
     })),
   )

@@ -42,12 +42,24 @@ import { SplitViewRoot } from '@/features/panes/components/split-view-root'
 const mountsOf = (paneId: string) => mounts.current.get(paneId) ?? 0
 
 beforeEach(() => {
+  vi.useFakeTimers()
   mounts.current = new Map()
   resetWindowPaneStoreForTests()
 })
 afterEach(() => {
+  vi.useRealTimers()
   resetWindowPaneStoreForTests()
 })
+
+/** Parked views mount one idle slot at a time after the showing view. */
+async function mountParkedViews() {
+  // Each slot's effect re-arms the next one only after React commits it.
+  for (let slot = 0; slot < 5; slot++) {
+    await act(async () => {
+      await vi.runAllTimersAsync()
+    })
+  }
+}
 
 /** Two views, each one pane. The first is the promoted stage, so its view id
  *  is `ROOT_PANE_ID` too; returns the second's pane and view ids. */
@@ -65,6 +77,7 @@ describe('SplitViewRoot — only the active view occupies the content area', () 
     await act(async () => {
       render(createElement(SplitViewRoot))
     })
+    await mountParkedViews()
 
     const showing = screen.getByTestId(`pane-${second}`)
     const parked = screen.getByTestId(`pane-${ROOT_PANE_ID}`)
@@ -94,6 +107,7 @@ describe('SplitViewRoot — only the active view occupies the content area', () 
     await act(async () => {
       render(createElement(SplitViewRoot))
     })
+    await mountParkedViews()
     expect(mountsOf(ROOT_PANE_ID)).toBe(1)
     expect(mountsOf(second)).toBe(1)
 
@@ -117,6 +131,7 @@ describe('SplitViewRoot — only the active view occupies the content area', () 
     await act(async () => {
       render(createElement(SplitViewRoot))
     })
+    await mountParkedViews()
     const before = screen.getByTestId(`pane-${ROOT_PANE_ID}`)
 
     await act(async () => {
@@ -134,6 +149,7 @@ describe('SplitViewRoot — only the active view occupies the content area', () 
     await act(async () => {
       render(createElement(SplitViewRoot))
     })
+    await mountParkedViews()
 
     let third = ''
     await act(async () => {
@@ -154,6 +170,7 @@ describe('SplitViewRoot — only the active view occupies the content area', () 
     await act(async () => {
       render(createElement(SplitViewRoot))
     })
+    await mountParkedViews()
     expect(mountsOf(ROOT_PANE_ID)).toBe(1)
 
     await act(async () => {
@@ -180,5 +197,71 @@ describe('SplitViewRoot — only the active view occupies the content area', () 
     expect(windowPaneStore.getState().activeViewId).toBe(ROOT_PANE_ID)
     expect(screen.getByTestId(`pane-${ROOT_PANE_ID}`)).toBe(before)
     expect(mountsOf(ROOT_PANE_ID)).toBe(1)
+  })
+})
+
+describe('SplitViewRoot — parked views mount after the showing one', () => {
+  it('first commit renders only the showing view; parked ones follow in idle slots', async () => {
+    const { pane: second } = openSecondView()
+    await act(async () => {
+      render(createElement(SplitViewRoot))
+    })
+
+    expect(screen.getByTestId(`pane-${second}`)).toBeTruthy()
+    expect(screen.queryByTestId(`pane-${ROOT_PANE_ID}`)).toBeNull()
+
+    await mountParkedViews()
+    expect(screen.getByTestId(`pane-${ROOT_PANE_ID}`).getAttribute('data-showing')).toBe('false')
+  })
+
+  it('activating a view that is not mounted yet mounts it at once', async () => {
+    openSecondView()
+    await act(async () => {
+      render(createElement(SplitViewRoot))
+    })
+
+    await act(async () => {
+      windowPaneStore.getState().paneActions.activateView(ROOT_PANE_ID)
+    })
+
+    expect(screen.getByTestId(`pane-${ROOT_PANE_ID}`).getAttribute('data-showing')).toBe('true')
+  })
+
+  it('a view that was showing stays mounted once it parks', async () => {
+    const { pane: second } = openSecondView()
+    await act(async () => {
+      render(createElement(SplitViewRoot))
+    })
+    await act(async () => {
+      windowPaneStore.getState().paneActions.activateView(ROOT_PANE_ID)
+    })
+    await act(async () => {
+      windowPaneStore
+        .getState()
+        .paneActions.activateView(windowPaneStore.getState().panes[second].viewId!)
+    })
+
+    expect(screen.getByTestId(`pane-${ROOT_PANE_ID}`).getAttribute('data-showing')).toBe('false')
+    expect(mountsOf(ROOT_PANE_ID)).toBe(1)
+  })
+
+  it('mounts parked views most recently used first', async () => {
+    const { paneActions } = windowPaneStore.getState()
+    for (const chat of ['chat-1', 'chat-2', 'chat-3']) paneActions.openChat(chat)
+    const paneOf = (chat: string) => chatPaneIndex(windowPaneStore.getState().panes).get(chat)!
+    const viewOf = (chat: string) => windowPaneStore.getState().panes[paneOf(chat)].viewId!
+    // chat-1 was used after chat-2; chat-3 is showing.
+    paneActions.activateView(viewOf('chat-1'))
+    paneActions.activateView(viewOf('chat-3'))
+
+    await act(async () => {
+      render(createElement(SplitViewRoot))
+    })
+    await act(async () => {
+      await vi.advanceTimersToNextTimerAsync()
+    })
+
+    expect(screen.queryByTestId(`pane-${paneOf('chat-1')}`)).not.toBeNull()
+    expect(screen.queryByTestId(`pane-${paneOf('chat-2')}`)).toBeNull()
   })
 })

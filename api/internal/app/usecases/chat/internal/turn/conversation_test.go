@@ -172,7 +172,7 @@ func newDelegatingTurn(t *testing.T) delegatingTurn {
 	// EstablishSession claims it at spawn) — the whole of what tells it from the
 	// child threads codex opens for itself on this same connection.
 	turns.SetRunners(quietRunners{originated: map[string]bool{parentThread: true}})
-	turns.SetFeed(seam.ChatFeed{MessageDelta: func(string, string, string, string, string) {}})
+	turns.SetFeed(seam.ChatFeed{MessageDelta: func(string, string, string, string, string, time.Time) {}})
 
 	// The user's turn is running and the chat is lit — the state every
 	// assertion below is about. This is what StartTurn set when the prompt

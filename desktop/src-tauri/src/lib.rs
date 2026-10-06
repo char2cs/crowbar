@@ -1,4 +1,5 @@
 mod api_proxy;
+mod console_menu;
 mod diagnostics;
 mod fdlimit;
 mod navigation;
@@ -415,8 +416,11 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tau
         .id(CLOSE_WINDOW_MENU_ID)
         .accelerator("CmdOrCtrl+Shift+W")
         .build(app)?;
-    let window_menu = SubmenuBuilder::new(app, "Window")
+    // Accelerator is set at runtime from the keymap (console_menu::set_console_menu_chord).
+    let toggle_console = console_menu::menu_item(app)?;
+    let window_menu = SubmenuBuilder::with_id(app, console_menu::WINDOW_MENU_ID, "Window")
         .item(&new_window)
+        .item(&toggle_console)
         .item(&close_window)
         .separator()
         .minimize()
@@ -1004,6 +1008,7 @@ pub fn run() {
     {
         builder = builder.menu(build_app_menu);
         builder = builder.on_menu_event(|app, event| {
+            console_menu::handle_menu_event(app, event.id().as_ref());
             if event.id() == NEW_WINDOW_MENU_ID {
                 let app = app.clone();
                 // The command is async and menu events are sync: spawn so the menu
@@ -1139,6 +1144,7 @@ pub fn run() {
             set_traffic_light_position,
             popup_native_context_menu,
             open_window,
+            console_menu::set_console_menu_chord,
         ])
         .build(tauri::generate_context!())
         .expect("error building Tauri app")

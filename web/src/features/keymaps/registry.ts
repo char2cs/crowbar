@@ -38,6 +38,8 @@ export const EDITOR_SAVE_ALL = 'editor.saveAll'
 
 export const OPEN_WORKSPACE_SWITCHER = 'navigation.openWorkspaceSwitcher'
 
+export const TOGGLE_CONSOLE = 'navigation.toggleConsole'
+
 export const SIDEBAR_TAB_WORKSPACES = 'navigation.sidebarWorkspaces'
 export const SIDEBAR_TAB_FILES = 'navigation.sidebarFiles'
 export const SIDEBAR_TAB_GIT = 'navigation.sidebarGit'
@@ -229,6 +231,13 @@ export const COMMANDS: Command[] = [
     label: 'Open workspace switcher',
     category: 'Navigation',
     defaultChord: 'mod+k',
+    liveEditable: true,
+  },
+  {
+    id: TOGGLE_CONSOLE,
+    label: 'Toggle console',
+    category: 'Navigation',
+    defaultChord: 'mod+`',
     liveEditable: true,
   },
   // The digit IS the tab's position in the sidebar strip — mod+2 is whatever sits

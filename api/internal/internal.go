@@ -11,8 +11,10 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	crowbarapi "github.com/char2cs/crowbar/api/internal/api"
+	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/core/gateway"
+	"github.com/char2cs/crowbar/api/internal/core/logring"
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	"github.com/char2cs/crowbar/api/internal/core/selfinstall"
 	"github.com/char2cs/crowbar/api/internal/engine"
@@ -31,6 +33,7 @@ type Container struct {
 
 type rootOpts struct {
 	homeDir string
+	logs    logring.Ring
 }
 
 // Option configures internal.New.
@@ -42,6 +45,15 @@ func WithHomeDir(
 ) Option {
 	return func(o *rootOpts) {
 		o.homeDir = dir
+	}
+}
+
+// WithLogRing serves the ring's records on GET /v0/console/logs.
+func WithLogRing(
+	ring logring.Ring,
+) Option {
+	return func(o *rootOpts) {
+		o.logs = ring
 	}
 }
 
@@ -77,7 +89,8 @@ func New(
 		return nil, fmt.Errorf("internal: app: %w", err)
 	}
 
-	apiContainer, err := crowbarapi.New(appContainer, engines, staticFS)
+	//nolint:contextcheck // snapshot providers are context-free by design; this call only threads the log ring option.
+	apiContainer, err := crowbarapi.New(appContainer, engines, staticFS, v0.WithLogs(cfg.logs))
 	if err != nil {
 		return nil, fmt.Errorf("internal: api: %w", err)
 	}

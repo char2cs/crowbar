@@ -136,8 +136,10 @@ type Snapshots struct {
 	runtime Runtime
 	publish Publish
 	// correct overlays what the chat row does not own — its tree placement,
-	// which lives on the Node — onto every snapshot. Nil passes rows through.
-	correct func(ctx context.Context, chat domain.Chat) domain.Chat
+	// which lives on the Node — onto the rows it is given, in order. It reads a
+	// store, so a read applies it to all its rows at once and outside the lock.
+	// Nil passes rows through.
+	correct func(ctx context.Context, chats []domain.Chat) []domain.Chat
 }
 
 // New returns an empty owner. base is the first version it hands out; the
@@ -165,7 +167,7 @@ func (s *Snapshots) SetPublish(publish Publish) {
 }
 
 // SetCorrect binds the overlay applied to every snapshot's row.
-func (s *Snapshots) SetCorrect(correct func(ctx context.Context, chat domain.Chat) domain.Chat) {
+func (s *Snapshots) SetCorrect(correct func(ctx context.Context, chats []domain.Chat) []domain.Chat) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.correct = correct
@@ -295,19 +297,54 @@ func (s *Snapshots) Announce(ctx context.Context, chatID, kind string) {
 
 // Get returns chatID's current snapshot without advancing its version.
 func (s *Snapshots) Get(ctx context.Context, chatID string) (Snapshot, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, gone := s.deleted[chatID]; gone {
-		return Snapshot{}, ErrDeleted
-	}
-	st := s.stateLocked(chatID)
-	if err := s.loadLocked(ctx, chatID, st); err != nil {
-		if !st.loaded {
-			delete(s.chats, chatID)
-		}
+	snaps, err := s.GetMany(ctx, []string{chatID})
+	if err != nil {
 		return Snapshot{}, err
 	}
-	return s.buildLocked(ctx, chatID, st), nil
+	return snaps[0], nil
+}
+
+// GetMany returns the current snapshot of every chat in chatIDs, in order,
+// without advancing any version. The first chat that cannot be answered fails
+// the read. The placement overlay runs once for the whole read, after the lock
+// is released: it is a store read, and nothing it adds is versioned.
+func (s *Snapshots) GetMany(ctx context.Context, chatIDs []string) ([]Snapshot, error) {
+	snaps, correct, err := s.collect(ctx, chatIDs)
+	if err != nil || correct == nil {
+		return snaps, err
+	}
+	chats := make([]domain.Chat, len(snaps))
+	for i, snap := range snaps {
+		chats[i] = snap.Chat
+	}
+	for i, chat := range correct(ctx, chats) {
+		snaps[i].Chat = chat
+	}
+	return snaps, nil
+}
+
+// collect builds every snapshot, uncorrected, under one hold of the lock.
+func (s *Snapshots) collect(
+	ctx context.Context,
+	chatIDs []string,
+) ([]Snapshot, func(context.Context, []domain.Chat) []domain.Chat, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	snaps := make([]Snapshot, len(chatIDs))
+	for i, chatID := range chatIDs {
+		if _, gone := s.deleted[chatID]; gone {
+			return nil, nil, ErrDeleted
+		}
+		st := s.stateLocked(chatID)
+		if err := s.loadLocked(ctx, chatID, st); err != nil {
+			if !st.loaded {
+				delete(s.chats, chatID)
+			}
+			return nil, nil, err
+		}
+		snaps[i] = s.buildLocked(ctx, chatID, st)
+	}
+	return snaps, s.correct, nil
 }
 
 // Forget drops chatID's entry — a chat a client asked about that turned out
@@ -376,7 +413,11 @@ func (s *Snapshots) emitChatLocked(ctx context.Context, chatID, kind, runnerID s
 		return
 	}
 	st.version++
-	s.emitLocked(Frame{Snapshot: s.buildLocked(ctx, chatID, st), Kind: kind, RunnerID: runnerID})
+	snap := s.buildLocked(ctx, chatID, st)
+	if s.correct != nil {
+		snap.Chat = s.correct(ctx, []domain.Chat{snap.Chat})[0]
+	}
+	s.emitLocked(Frame{Snapshot: snap, Kind: kind, RunnerID: runnerID})
 }
 
 func (s *Snapshots) emitLocked(f Frame) {
@@ -388,9 +429,6 @@ func (s *Snapshots) emitLocked(f Frame) {
 func (s *Snapshots) buildLocked(ctx context.Context, chatID string, st *chatState) Snapshot {
 	s.seedLocked(ctx)
 	snap := Snapshot{Chat: st.chat, Version: st.version, Live: s.liveLocked(chatID)}
-	if s.correct != nil {
-		snap.Chat = s.correct(ctx, snap.Chat)
-	}
 	if s.runtime != nil {
 		snap.Phase = s.runtime.Phase(chatID)
 		snap.TerminalWait = s.runtime.TerminalWait(chatID)

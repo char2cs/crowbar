@@ -2,7 +2,12 @@ import { useSyncExternalStore } from 'react'
 import { getBuildInfo } from '@/lib/build-info'
 import type { BuildChannel, BuildInfo } from '@/lib/build-info'
 import { useSettingsStore } from '@/features/settings/store'
+import { useConsoleStore } from '@/features/console/stores/console-store'
 import { cn } from '@/utils/cn'
+import skyUrl from '@/assets/band-sky.png'
+import nightUrl from '@/assets/band-night.png'
+import grainUrl from '@/assets/band-grain.png'
+import grain2xUrl from '@/assets/band-grain@2x.png'
 
 // Same MutationObserver-on-`.dark`-class pattern as
 // features/editor/markdown/plate/mermaid-theme.ts's useMermaidThemeVersion —
@@ -68,7 +73,7 @@ function formatTimestamp(iso?: string): string {
 
 const TITLE_COLOR: Record<Exclude<BuildChannel, 'release'>, { dark: string; light: string }> = {
   dev: { dark: '#8fb0f2', light: '#3E5CB8' },
-  nightly: { dark: '#7DD3FC', light: '#0369A1' },
+  nightly: { dark: '#7DD3FC', light: '#FFFFFF' },
   beta: { dark: '#FBBF24', light: '#B45309' },
 }
 
@@ -109,41 +114,96 @@ function DevTraces() {
   )
 }
 
-function NightSky() {
-  return (
-    <svg width="256" height="44" viewBox="0 0 256 44" className="absolute inset-0">
-      <circle cx={230} cy={10} r={1.1} fill="#ffffff" opacity={0.85} />
-      <circle cx={206} cy={28} r={0.9} fill="#ffffff" opacity={0.7} />
-      <circle cx={188} cy={9} r={0.7} fill="#ffffff" opacity={0.6} />
-      <circle cx={150} cy={32} r={0.8} fill="#ffffff" opacity={0.65} />
-      <circle cx={122} cy={8} r={0.9} fill="#ffffff" opacity={0.7} />
-      <circle cx={96} cy={27} r={0.7} fill="#ffffff" opacity={0.55} />
-      <circle cx={241} cy={33} r={0.7} fill="#ffffff" opacity={0.55} />
-      <path
-        d="M173 6 L174 10.2 L178.2 11.2 L174 12.2 L173 16.4 L172 12.2 L167.8 11.2 L172 10.2 Z"
-        fill="#ffffff"
-        opacity={0.9}
-      />
-    </svg>
-  )
+// Halftone sky (light) / star field (dark), screened offline; the dark one is
+// white dots on transparent so the sidebar ground shows through.
+const GRAIN =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E\")"
+
+// While a pane is being dragged, index.css swaps GRAIN for this rasterised copy: WebKit
+// re-renders the SVG filter on every resize frame. Fetched now so the swap never loads.
+if (typeof Image !== 'undefined') {
+  new Image().src = window.devicePixelRatio >= 1.5 ? grain2xUrl : grainUrl
 }
 
-function DaySky() {
+const PHOTO = {
+  light: {
+    src: skyUrl,
+    base: '#7fa8dc',
+    wash: 'rgba(196, 220, 248, 0.45)',
+    scrim: '26, 56, 118',
+    scrimPeak: 0.74,
+    crop: { right: 0, top: -104 },
+  },
+  dark: {
+    src: nightUrl,
+    base: 'transparent',
+    wash: 'transparent',
+    scrim: '10, 10, 14',
+    scrimPeak: 0.8,
+    crop: { left: 0, top: -60 },
+  },
+} as const
+
+// Smoothstep-sampled ramp from `from`% to `to`% (0 -> peak): a plain two-stop gradient
+// shows a visible crease where it starts; eased samples read as one continuous melt.
+function easedStops(
+  color: (a: number) => string,
+  from: number,
+  to: number,
+  peak = 1,
+  falling = false,
+): string {
+  const steps = 8
+  return Array.from({ length: steps + 1 }, (_, i) => {
+    const t = i / steps
+    const e = t * t * (3 - 2 * t)
+    const a = (falling ? 1 - e : e) * peak
+    return `${color(Number(a.toFixed(3)))} ${(from + (to - from) * t).toFixed(1)}%`
+  }).join(', ')
+}
+
+/** Mask: sidebar ground (transparent) at the button side, melting into the photo. */
+function bandFadeMask(toward: 'left' | 'right'): string {
+  return `linear-gradient(to ${toward}, ${easedStops((a) => `rgba(0,0,0,${a})`, 22, 52)})`
+}
+
+// Where the label sits along the band, measured from the button side.
+const LABEL_AT = { start: 60, end: 86 } as const
+
+function bandScrim(isDark: boolean, align: 'start' | 'end'): string {
+  const { scrim, scrimPeak } = PHOTO[isDark ? 'dark' : 'light']
+  const color = (a: number) => `rgba(${scrim},${a})`
+  if (isDark) {
+    return `linear-gradient(to right, ${easedStops(color, 26, 56, scrimPeak)})`
+  }
+  // Light: darken only directly behind the label so the clouds keep their contrast.
+  return `radial-gradient(ellipse 26% 100% at ${LABEL_AT[align]}% 50%, ${color(scrimPeak)} 0%, ${color(scrimPeak)} 55%, ${easedStops(color, 55, 100, scrimPeak, true)})`
+}
+
+function BandPhoto({ isDark, align }: { isDark: boolean; align: 'start' | 'end' }) {
+  const { src, wash, crop } = PHOTO[isDark ? 'dark' : 'light']
   return (
-    <svg width="256" height="44" viewBox="0 0 256 44" className="absolute inset-0">
-      <g fill="#ffffff" opacity={0.75}>
-        <ellipse cx={228} cy={35} rx={13} ry={6} />
-        <circle cx={220} cy={31} r={6.5} />
-        <circle cx={230} cy={28} r={7.5} />
-        <circle cx={239} cy={32} r={6} />
-      </g>
-      <g fill="#ffffff" opacity={0.5}>
-        <ellipse cx={196} cy={30} rx={9} ry={4.5} />
-        <circle cx={190} cy={27.5} r={4.5} />
-        <circle cx={198} cy={25.5} r={5.5} />
-        <circle cx={204} cy={28.5} r={4} />
-      </g>
-    </svg>
+    <>
+      <img
+        src={src}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        draggable={false}
+        data-band-photo={isDark ? 'dark' : 'light'}
+        className="absolute max-w-none select-none"
+        style={{ width: 640, height: 272, ...crop }}
+      />
+      <div
+        data-band-grain=""
+        className="absolute inset-0 opacity-10 mix-blend-multiply"
+        style={{ background: GRAIN }}
+      />
+      {/* Pale wash desaturates the photo's deep sky so the clouds stand out. */}
+      <div className="absolute inset-0" style={{ background: wash }} />
+      {/* Soft scrim keeps the label legible over the photo. */}
+      <div className="absolute inset-0" style={{ background: bandScrim(isDark, align) }} />
+    </>
   )
 }
 
@@ -183,11 +243,19 @@ export function SidebarBuildBadgeBand({
   const fadeToward = align === 'end' ? 'right' : 'left'
 
   return (
-    <div className={className} aria-hidden="true">
+    <div
+      className={className}
+      aria-hidden="true"
+      data-slot="build-badge-band"
+      data-channel={info.channel}
+    >
       <div
         className="absolute inset-0"
         style={{
-          background: bandBackground(info.channel, isDark),
+          background:
+            info.channel === 'nightly'
+              ? PHOTO[isDark ? 'dark' : 'light'].base
+              : bandBackground(info.channel, isDark),
           // Fades OUT toward the button cluster's side, staying fully
           // opaque at the badge-text/window-edge side — this is the band's
           // own gradient/pattern fill, not just the decorative art above
@@ -196,24 +264,25 @@ export function SidebarBuildBadgeBand({
           // edge — X must be the text side (`fadeToward`), not its opposite
           // (caught live: had these swapped, which faded out the text side
           // and left the button side solid instead).
-          maskImage: `linear-gradient(to ${fadeToward}, transparent, black 65%)`,
-          WebkitMaskImage: `linear-gradient(to ${fadeToward}, transparent, black 65%)`,
+          maskImage: bandFadeMask(fadeToward),
+          WebkitMaskImage: bandFadeMask(fadeToward),
         }}
-      />
+      >
+        {info.channel === 'nightly' && (
+          <div
+            className="pointer-events-none absolute inset-0 overflow-hidden"
+            style={align === 'start' ? { transform: 'scaleX(-1)' } : undefined}
+          >
+            <BandPhoto isDark={isDark} align={align} />
+          </div>
+        )}
+      </div>
       {info.channel === 'dev' && (
         <div
           className="pointer-events-none absolute inset-0 overflow-hidden"
           style={align === 'start' ? { transform: 'scaleX(-1)' } : undefined}
         >
           <DevTraces />
-        </div>
-      )}
-      {info.channel === 'nightly' && (
-        <div
-          className="pointer-events-none absolute inset-0 overflow-hidden"
-          style={align === 'start' ? { transform: 'scaleX(-1)' } : undefined}
-        >
-          {isDark ? <NightSky /> : <DaySky />}
         </div>
       )}
     </div>
@@ -230,6 +299,8 @@ export function SidebarBuildBadgeBand({
 export function SidebarBuildBadgeLabel({ align = 'start' }: { align?: 'start' | 'end' }) {
   const info = useResolvedBuildInfo()
   const isDark = useIsDarkMode()
+  const consoleOpen = useConsoleStore((s) => s.open)
+  const toggleConsole = useConsoleStore((s) => s.toggle)
   if (!info) return null
 
   const title = info.channel === 'release' ? null : info.channel
@@ -238,11 +309,17 @@ export function SidebarBuildBadgeLabel({ align = 'start' }: { align?: 'start' | 
   const displayTitle = title === 'nightly' && !isDark ? 'daily' : title
   const subtitle = info.version ?? formatTimestamp(info.timestamp)
   const titleColor = title ? TITLE_COLOR[title][isDark ? 'dark' : 'light'] : undefined
+  const onSky = title === 'nightly' && !isDark
 
   return (
-    <div
+    <button
+      type="button"
+      aria-label="Toggle console"
+      aria-expanded={consoleOpen}
+      aria-controls="console-panel"
+      onClick={toggleConsole}
       className={cn(
-        'flex flex-col justify-center gap-px font-mono leading-tight',
+        'flex cursor-pointer flex-col justify-center gap-px font-mono leading-tight outline-none focus-visible:ring-2 focus-visible:ring-ring',
         align === 'end' ? 'items-end text-right' : 'items-start text-left',
       )}
     >
@@ -252,8 +329,15 @@ export function SidebarBuildBadgeLabel({ align = 'start' }: { align?: 'start' | 
         </span>
       )}
       {subtitle && (
-        <span className="text-[9.5px] font-medium text-muted-foreground">{subtitle}</span>
+        <span
+          className={cn(
+            'text-[9.5px] font-medium',
+            onSky ? 'text-white/90' : 'text-muted-foreground',
+          )}
+        >
+          {subtitle}
+        </span>
       )}
-    </div>
+    </button>
   )
 }

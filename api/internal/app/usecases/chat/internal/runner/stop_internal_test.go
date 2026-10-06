@@ -1,8 +1,11 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -86,7 +89,7 @@ func realStopTurns(inflightTurns *inflight.Turns, work *inflight.Work) (*turn.Tu
 func TestRegression_StopChatRecordsTheStopOnlyAfterTheCLIActuallyStops(t *testing.T) {
 	release := make(chan struct{})
 	inflightTurns, work := inflight.NewTurns(), inflight.NewWork()
-	inflightTurns.Begin("runner-1", "chat-1")
+	inflightTurns.Begin(context.Background(), "runner-1", "chat-1")
 	work.Set("chat-1", true)
 	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
 		_, msg, err := conn.ReadMessage() // turn/interrupt
@@ -97,7 +100,7 @@ func TestRegression_StopChatRecordsTheStopOnlyAfterTheCLIActuallyStops(t *testin
 		require.NoError(t, json.Unmarshal(msg, &req))
 		<-release // withheld, exactly like codex's own deferred turn/interrupt reply
 		work.Set("chat-1", false)
-		inflightTurns.Complete("runner-1")
+		inflightTurns.Complete(context.Background(), "runner-1", "completed")
 		resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{}})
 		require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
 		_, _, _ = conn.ReadMessage() // block until the client closes
@@ -154,6 +157,9 @@ type stopRetireRunnerStore struct {
 	agentrunner.EventStore
 	runner    engineagents.Runner
 	displaced bool
+	// failOnCanceled makes Displace fail the way a real store write does once
+	// its caller's context is gone.
+	failOnCanceled bool
 }
 
 func (s *stopRetireRunnerStore) LiveRunnerForChat(
@@ -163,8 +169,11 @@ func (s *stopRetireRunnerStore) LiveRunnerForChat(
 }
 
 func (s *stopRetireRunnerStore) Displace(
-	context.Context, string,
+	ctx context.Context, _ string,
 ) (engineagents.Runner, error) {
+	if s.failOnCanceled && ctx.Err() != nil {
+		return engineagents.Runner{}, ctx.Err()
+	}
 	s.displaced = true
 	return s.runner, nil
 }
@@ -236,7 +245,7 @@ func idleWork() *inflight.Work {
 // divider.
 func TestRegression_StopChatRecordsTheStopWhenTheTurnStopWinsTheRace(t *testing.T) {
 	inflightTurns, work := inflight.NewTurns(), inflight.NewWork()
-	inflightTurns.Begin("runner-1", "chat-1")
+	inflightTurns.Begin(context.Background(), "runner-1", "chat-1")
 	work.Set("chat-1", true)
 	turns, activity := realStopTurns(inflightTurns, work)
 
@@ -249,7 +258,7 @@ func TestRegression_StopChatRecordsTheStopWhenTheTurnStopWinsTheRace(t *testing.
 		require.NoError(t, json.Unmarshal(msg, &req))
 		// The turn_stop hook lands first, exactly as closeTurnFromStop does it.
 		work.Set("chat-1", false)
-		inflightTurns.Complete("runner-1")
+		inflightTurns.Complete(context.Background(), "runner-1", "completed")
 		resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{}})
 		require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
 		_, _, _ = conn.ReadMessage()
@@ -301,7 +310,7 @@ func TestRegression_StopChatRetiresWhenTheInterruptIsAnsweredButTheTurnStaysOpen
 	defer func() { _ = apiConn.Close() }()
 
 	inflightTurns, work := inflight.NewTurns(), inflight.NewWork()
-	inflightTurns.Begin("runner-1", "chat-1")
+	inflightTurns.Begin(context.Background(), "runner-1", "chat-1")
 	work.Set("chat-1", true)
 	turns, activity := realStopTurns(inflightTurns, work)
 	store := &stopRetireRunnerStore{
@@ -321,8 +330,96 @@ func TestRegression_StopChatRetiresWhenTheInterruptIsAnsweredButTheTurnStaysOpen
 	}
 	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
 
+	var logged bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
 	require.NoError(t, rs.StopChat(ctx, "chat-1"))
 
+	require.Equal(t, 1, strings.Count(logged.String(), "agent: turn ended"),
+		"a turn Stop cut short must log its end once: %s", logged.String())
+	require.Contains(t, logged.String(), "reason=stopped")
 	require.True(t, store.displaced, "a turn that outlived its interrupt must be ended by retiring the runner")
 	require.Equal(t, []string{"chat-1"}, activity.recorded())
+}
+
+// Closing a view ends the chat's session, even mid-turn: StopChat's in-place
+// interrupt (the Stop button) leaves the runner alive on a provider that can
+// interrupt over its api connection, so a closed view kept its CLI running with
+// nothing on screen to watch it.
+func TestRegression_CloseChatRetiresARunnerMidTurnEvenWhenTheProviderCanInterrupt(t *testing.T) {
+	inflightTurns, work := inflight.NewTurns(), inflight.NewWork()
+	inflightTurns.Begin(context.Background(), "runner-1", "chat-1")
+	work.Set("chat-1", true)
+	turns, activity := realStopTurns(inflightTurns, work)
+	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
+		_, msg, err := conn.ReadMessage() // turn/interrupt, answered the way a healthy codex does
+		if err != nil {
+			return
+		}
+		var req struct {
+			ID json.RawMessage `json:"id"`
+		}
+		require.NoError(t, json.Unmarshal(msg, &req))
+		work.Set("chat-1", false)
+		inflightTurns.Complete(context.Background(), "runner-1", "completed")
+		resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{}})
+		require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
+		_, _, _ = conn.ReadMessage()
+	})
+
+	agent := interruptTestAgent(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	require.NoError(t, err)
+	defer func() { _ = apiConn.Close() }()
+
+	store := &stopRetireRunnerStore{
+		runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "interrupt-test"},
+	}
+	rs := &Runners{
+		apiConns:      newAPIConnRegistry(),
+		attached:      newAttachRegistry(),
+		runnerStore:   store,
+		ws:            stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
+		agents:        stubAgentsForInterrupt{agent: agent},
+		spawns:        inflight.NewGate(),
+		inflightTurns: inflightTurns,
+		turns:         turns,
+		term:          &fakeTermForAttach{},
+	}
+	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
+
+	require.NoError(t, rs.CloseChat(ctx, "chat-1"))
+
+	require.True(t, store.displaced, "a closed chat's runner must be retired, not interrupted in place")
+	require.Equal(t, []string{"chat-1"}, activity.recorded(), "the turn it cut short still gets its Stopped divider")
+}
+
+// A close whose HTTP request is abandoned (the app quit, the socket dropped)
+// must still retire the runner: nothing else knows the view is gone.
+func TestRegression_CloseChatRetiresEvenWhenTheRequestIsAbandoned(t *testing.T) {
+	idleTurns, _ := realStopTurns(inflight.NewTurns(), idleWork())
+	store := &stopRetireRunnerStore{
+		runner:         engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "interrupt-test"},
+		failOnCanceled: true,
+	}
+	rs := &Runners{
+		apiConns:      newAPIConnRegistry(),
+		attached:      newAttachRegistry(),
+		runnerStore:   store,
+		ws:            stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
+		agents:        stubAgentsForInterrupt{},
+		spawns:        inflight.NewGate(),
+		inflightTurns: inflight.NewTurns(),
+		turns:         idleTurns,
+		term:          &fakeTermForAttach{},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	require.NoError(t, rs.CloseChat(ctx, "chat-1"))
+	require.True(t, store.displaced, "an abandoned close request must not leave the runner live")
 }

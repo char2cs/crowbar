@@ -601,14 +601,15 @@ func TestAgentRunner_BindSession_RecordsWhatTheProviderReportedItLaunchedAs(t *t
 	bound, err := repo.BindSession(ctx, "r1", "sess-1", false, now.Add(time.Second),
 		"claude-sonnet-5", "high")
 	require.NoError(t, err)
-	assert.Equal(t, "claude-sonnet-5", bound.LaunchModel)
-	assert.Equal(t, "high", bound.LaunchEffort)
+	assert.Equal(t, "claude-sonnet-5", bound.ReportedModel)
+	assert.Equal(t, "high", bound.ReportedEffort)
+	assert.Empty(t, bound.LaunchModel, "a report is not what Crowbar launched with")
 
 	runner.WaitQuiescentForTest(repo)
 	got, err := repo.Get(ctx, "r1")
 	require.NoError(t, err)
-	assert.Equal(t, "claude-sonnet-5", got.LaunchModel, "the read model must reflect the report")
-	assert.Equal(t, "high", got.LaunchEffort)
+	assert.Equal(t, "claude-sonnet-5", got.ReportedModel, "the read model must reflect the report")
+	assert.Equal(t, "high", got.ReportedEffort)
 }
 
 // TestAgentRunner_BindSession_EmptyReportNeverClobbersAnExistingLaunchValue
@@ -628,7 +629,7 @@ func TestAgentRunner_BindSession_EmptyReportNeverClobbersAnExistingLaunchValue(t
 
 	bound, err := repo.BindSession(ctx, "r1", "sess-1", false, now.Add(time.Second), "", "")
 	require.NoError(t, err)
-	assert.Equal(t, "claude-opus-5", bound.LaunchModel, "an empty report must not blank a real spawn value")
+	assert.Equal(t, "claude-opus-5", bound.LaunchModel, "a report must not touch the spawn value")
 	assert.Equal(t, "max", bound.LaunchEffort)
 }
 
@@ -644,6 +645,6 @@ func TestAgentRunner_Move_RecordsWhatTheProviderReportedItLaunchedAs(t *testing.
 	moved, err := repo.Move(ctx, "r1", "chat-b", "sess-2", false, now.Add(time.Second),
 		"gpt-5.6-sol", "medium")
 	require.NoError(t, err)
-	assert.Equal(t, "gpt-5.6-sol", moved.LaunchModel)
-	assert.Equal(t, "medium", moved.LaunchEffort)
+	assert.Equal(t, "gpt-5.6-sol", moved.ReportedModel)
+	assert.Equal(t, "medium", moved.ReportedEffort)
 }

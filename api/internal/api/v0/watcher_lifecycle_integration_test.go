@@ -119,12 +119,14 @@ func (fileProbe) PushAgentChatFolder(_, _, _ string) {}
 
 func (fileProbe) PushAgentChatPromptSettled(_, _, _ string, _ bool) {}
 
-func (fileProbe) PushAgentChatMessageDelta(_, _, _, _, _ string)         {}
-func (fileProbe) PushAgentChatPlan(_, _ string, _ []agents.PlanStep)     {}
-func (fileProbe) PushAgentChatTelemetry(_, _ string, _ agents.Telemetry) {}
-func (fileProbe) PushAgentChatEvent(_ dto.AgentChatEvent)                {}
+func (fileProbe) PushAgentChatMessageDelta(_, _, _, _, _ string, _ time.Time) {}
+func (fileProbe) PushAgentChatPlan(_, _ string, _ []agents.PlanStep)          {}
+func (fileProbe) PushAgentChatTelemetry(_, _ string, _ agents.Telemetry)      {}
+func (fileProbe) PushAgentChatEvent(_ dto.AgentChatEvent)                     {}
 
 func (fileProbe) PushAgentChatCompaction(_, _ string, _ bool) {}
+
+func (fileProbe) PushAgentChatChoices(_, _ string, _ []dto.AgentChoiceDTO) {}
 
 func (p fileProbe) PushFile(
 	e domain.FileChangeEvent,

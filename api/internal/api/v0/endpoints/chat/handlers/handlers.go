@@ -26,6 +26,13 @@ type ChatUsecase interface {
 		chatID string,
 	) (agentusecase.ChatSnapshot, error)
 
+	// ChatSnapshotsOf is ChatSnapshot for many chats, in order, read together:
+	// one placement read for the whole list instead of one per chat.
+	ChatSnapshotsOf(
+		ctx context.Context,
+		chatIDs []string,
+	) ([]agentusecase.ChatSnapshot, error)
+
 	// ListChatsByWorkspace returns every AgentChat anchored to workspaceID. List
 	// calls this when its request still names a workspace (the home mount's
 	// injected :wsId); otherwise it falls back to ListChats below.
@@ -138,6 +145,10 @@ type TurnUsecase interface {
 		ctx context.Context, deliveryID, runnerID, provider, canonicalEvent string,
 		rawPayload []byte,
 	) error
+
+	// TakeHookReply is the stdout the relay of deliveryID must print, when
+	// ingesting it produced one — a prompt riding the turn-end hook.
+	TakeHookReply(deliveryID string) (string, bool)
 
 	// ReadActivity is what the agent DID: tool calls, subagents, interruptions.
 	ReadActivity(
@@ -269,6 +280,13 @@ type RunnerUsecase interface {
 	// in-flight turn is aborted by design ("close = stop"). A chat with no live runner
 	// is a nil no-op.
 	StopChat(
+		ctx context.Context,
+		chatID string,
+	) error
+
+	// CloseChat retires chatID's live vendor CLI because no view displays the chat
+	// any more, mid-turn included, and leaves it dormant and resumable.
+	CloseChat(
 		ctx context.Context,
 		chatID string,
 	) error

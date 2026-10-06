@@ -60,6 +60,8 @@ func (stubTurns) ChatWorking(context.Context, string) (bool, error) { return fal
 
 func (stubTurns) TurnOpen(context.Context, string, string) (bool, error) { return false, nil }
 
+func (stubTurns) QueueSteer(string, inflight.Steered) bool { return false }
+
 func (stubTurns) RecordStop(context.Context, string, string) error { return nil }
 
 func (stubTurns) RecordChatSwitch(context.Context, string, string, string) error { return nil }
@@ -134,7 +136,7 @@ func TestStartTerminalWaitSweep_WiresMessageDeltaEvenWithNoDetector(t *testing.T
 	rs := runner.New(runner.Deps{Terminal: plainCommander{}})
 	rs.SetTurns(turns)
 
-	rs.StartTerminalWaitSweep(t.Context(), seam.ChatFeed{MessageDelta: func(_, _, _, _, _ string) {}})
+	rs.StartTerminalWaitSweep(t.Context(), seam.ChatFeed{MessageDelta: func(_, _, _, _, _ string, _ time.Time) {}})
 
 	require.True(t, turns.wired, "a daemon with no detector still has messages to stream")
 }

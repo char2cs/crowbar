@@ -5,7 +5,8 @@ import { useShallow } from 'zustand/react/shallow'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { exists } from '@/features/file-system/controllers/platform'
-import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
+import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { hasTextContent } from '@/features/panes/types/pane-content'
 import { openExternalUrl } from '@/lib/external-open'
 import { useSettingsStore } from '@/features/settings/store'
@@ -25,6 +26,11 @@ export interface MarkdownPreviewProps {
 }
 
 /** GitHub-style heading slug: `## Getting Started` → `getting-started`. */
+function openLinkedFile(path: string): Promise<void> {
+  const wsId = getActiveWorkspaceId()
+  return wsId ? openWorkspaceFile(wsId, path, { preview: true }) : Promise.resolve()
+}
+
 function slugify(text: string): string {
   return text
     .trim()
@@ -71,7 +77,6 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
   )
   const fontSize = useSettingsStore((state) => state.settings.fontSize)
   const uiFontFamily = useSettingsStore((state) => state.settings.uiFontFamily)
-  const handleFileSelect = useFileSystemStore((s) => s.handleFileSelect)
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Rendered by the app's one read-only markdown renderer (Plate static, the
@@ -134,13 +139,13 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
         // attempt. `exists` costs one lazy directory listing and rejects on a
         // real daemon error rather than reporting "not there".
         if (await exists(targetPath)) {
-          await handleFileSelect?.(targetPath, false)
+          await openLinkedFile(targetPath)
           return
         }
 
         const withMd = targetPath.endsWith('.md') ? targetPath : `${targetPath}.md`
         if (await exists(withMd)) {
-          await handleFileSelect?.(withMd, false)
+          await openLinkedFile(withMd)
           return
         }
 
@@ -149,7 +154,7 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
         logger.error('MarkdownPreview', 'Failed to handle link:', error)
       }
     },
-    [sourceBufferPath, handleFileSelect],
+    [sourceBufferPath],
   )
 
   const handleWheelCapture = useCallback((event: React.WheelEvent<HTMLDivElement>) => {

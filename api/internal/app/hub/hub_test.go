@@ -3,6 +3,7 @@ package hub_test
 import (
 	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -26,6 +27,7 @@ type fakeSubscriber struct {
 	agentCompactions []agentCompactionPush
 	promptSettled    []promptSettledPush
 	messageDeltas    []messageDeltaPush
+	choices          [][]dto.AgentChoiceDTO
 }
 
 type promptSettledPush struct {
@@ -114,6 +116,7 @@ func (f *fakeSubscriber) PushAgentChatMessageDelta(
 	messageID string,
 	text string,
 	_ string,
+	_ time.Time,
 ) {
 	f.messageDeltas = append(f.messageDeltas, messageDeltaPush{
 		chatID: chatID, workspaceID: workspaceID, messageID: messageID, text: text,
@@ -134,6 +137,10 @@ func (f *fakeSubscriber) PushAgentChatCompaction(
 	f.agentCompactions = append(f.agentCompactions, agentCompactionPush{
 		chatID: chatID, workspaceID: workspaceID, active: active,
 	})
+}
+
+func (f *fakeSubscriber) PushAgentChatChoices(_, _ string, choices []dto.AgentChoiceDTO) {
+	f.choices = append(f.choices, choices)
 }
 
 func (f *fakeSubscriber) PushAgentChatFolder(
@@ -269,6 +276,20 @@ func TestHub_BroadcastAgentChatCompaction_FansOut(t *testing.T) {
 	assert.Equal(t, want, b.agentCompactions)
 }
 
+func TestHub_BroadcastAgentChatChoices_FansOut(t *testing.T) {
+	h := hub.NewHub()
+	a := &fakeSubscriber{}
+	b := &fakeSubscriber{}
+	h.Register(a)
+	h.Register(b)
+
+	h.BroadcastAgentChatChoices("c1", "w1", []dto.AgentChoiceDTO{{ID: "choice-1"}})
+
+	want := [][]dto.AgentChoiceDTO{{{ID: "choice-1"}}}
+	assert.Equal(t, want, a.choices)
+	assert.Equal(t, want, b.choices)
+}
+
 // TestHub_BroadcastAgentChatPromptSettled_FansOut proves the "prompt retired
 // without ever opening a turn" edge reaches every registered subscriber with
 // the chat/workspace/request ids intact — this is the frame that clears a
@@ -302,8 +323,8 @@ func TestHub_BroadcastAgentChatMessageDelta_FansOut(t *testing.T) {
 	h.Register(a)
 	h.Register(b)
 
-	h.BroadcastAgentChatMessageDelta("c1", "w1", "m1", "partial tex", "")
-	h.BroadcastAgentChatMessageDelta("c1", "w1", "m1", "partial text", "")
+	h.BroadcastAgentChatMessageDelta("c1", "w1", "m1", "partial tex", "", time.Time{})
+	h.BroadcastAgentChatMessageDelta("c1", "w1", "m1", "partial text", "", time.Time{})
 
 	want := []messageDeltaPush{
 		{chatID: "c1", workspaceID: "w1", messageID: "m1", text: "partial tex"},

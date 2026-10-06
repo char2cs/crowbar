@@ -1,6 +1,7 @@
 package dto
 
 import (
+	"cmp"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -268,8 +269,8 @@ func AgentChatDTOFrom(
 	if rt.LiveRunner != nil {
 		out.LiveRunnerID = rt.LiveRunner.ID
 		out.TerminalSessionID = rt.LiveRunner.TerminalSession
-		out.LaunchModel = rt.LiveRunner.LaunchModel
-		out.LaunchEffort = rt.LiveRunner.LaunchEffort
+		out.LaunchModel = cmp.Or(rt.LiveRunner.ReportedModel, rt.LiveRunner.LaunchModel)
+		out.LaunchEffort = cmp.Or(rt.LiveRunner.ReportedEffort, rt.LiveRunner.LaunchEffort)
 		// The native view the user switched to is the runner's process now.
 		if rt.AttachedSessionID != "" {
 			out.TerminalSessionID = rt.AttachedSessionID
@@ -514,8 +515,12 @@ type AgentChoiceDTO struct {
 //
 // A hook that opened nothing answerable gets an empty body, and the relay exits
 // immediately — byte-identical to its behaviour before this field existed.
+//
+// Reply is the other: a hook the daemon answers at once. The relay prints it to
+// stdout and exits, which is how a message sent mid-turn reaches the running CLI.
 type AgentHookAckDTO struct {
 	Await *AgentHookAwaitDTO `json:"await,omitempty"`
+	Reply string             `json:"reply,omitempty"`
 }
 
 // AgentHookAwaitDTO tells a relay what it is waiting on and for how long.
@@ -767,7 +772,10 @@ type AgentProviderDTO struct {
 	MCPEnabled  bool   `json:"mcpEnabled"`
 	Compaction  bool   `json:"compaction"`
 	Hotswap     bool   `json:"hotswap"`
-	HasTerminal bool   `json:"hasTerminal"`
+	// PromptSteer says a message sent while a turn runs is delivered into that
+	// turn, so the composer need not hold it until the turn ends.
+	PromptSteer bool `json:"promptSteer"`
+	HasTerminal bool `json:"hasTerminal"`
 	// TerminalStartHere is domain.AgentProvider.TerminalStartHere — whether a
 	// brand-new chat may be launched DIRECTLY onto this provider's terminal
 	// surface (design spec 2.5). False whenever HasTerminal is false, and may
@@ -924,6 +932,9 @@ type AgentChatEvent struct {
 	// Telemetry is the provider's newest usage report, on the `telemetry` kind.
 	// Pushed as it arrives (about once a turn) so no client polls for it.
 	Telemetry *AgentTelemetryDTO `json:"telemetry,omitempty"`
+
+	// Choices is every prompt the chat is blocked on, on the `choice` kind.
+	Choices []AgentChoiceDTO `json:"choices,omitempty"`
 }
 
 // AgentPlanStepDTO is one entry of the agent's running plan.
@@ -937,6 +948,10 @@ type AgentPlanStepDTO struct {
 
 // AgentStreamingMessageDTO is one assistant message as far as it has been said.
 type AgentStreamingMessageDTO struct {
+	// StartedAt is when this message's first text arrived — the same instant the
+	// ledger will stamp the recorded row with — so a client orders the live bubble
+	// against tool rows exactly as the record will. Absent for the live-only kinds.
+	StartedAt time.Time `json:"startedAt,omitzero"`
 	// ID is the provider's own message identity, so a client can tell a message
 	// that is still growing from the next one starting.
 	ID string `json:"id"`

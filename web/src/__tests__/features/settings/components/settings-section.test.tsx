@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import Section, { SettingRow } from '@/features/settings/components/settings-section'
 import { useSettingsStore } from '@/features/settings/store'
@@ -104,5 +104,14 @@ describe('settings search row filtering', () => {
     expect(screen.getByText('Theme')).toBeVisible()
     expect(screen.getByText('Icons')).toBeVisible()
     expect(screen.getByText('Layout')).toBeVisible()
+  })
+
+  it('fills the search results once the lazily loaded index lands', async () => {
+    setQuery('font')
+
+    await waitFor(() =>
+      expect(useSettingsStore.getState().search.results.length).toBeGreaterThan(0),
+    )
+    expect(useSettingsStore.getState().search.isSearching).toBe(false)
   })
 })

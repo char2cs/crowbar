@@ -14,6 +14,7 @@ import {
   compactChat,
   stopChat,
   type AgentChatMessage,
+  type AgentChoice,
   type AgentInterruption,
   type AgentPromptResult,
   type AgentProvider,
@@ -124,6 +125,9 @@ export interface AgentChatViewProps {
   active: boolean
   /** False for a retained, hidden tab. Network polling pauses in that state. */
   visible: boolean
+  /** The chat list has not landed, so the controls around the transcript are
+   *  not final: the transcript waits to be shown rather than move under them. */
+  awaitingList?: boolean
   /** False when another PANE has focus — see agent-chat-pane.tsx's own prop
    *  doc. Distinct from `active`/`visible` above, which are both about THIS
    *  chat's own presentation/tab state and say nothing about which of
@@ -168,7 +172,7 @@ export interface AgentChatViewProps {
    *  See AgentChatsState.abandonedPrompts. */
   abandonedPrompts?: string[]
   /** The message(s) the agent is mid-way through saying — see useChatMessages. */
-  streamingMessages?: { id: string; text: string }[]
+  streamingMessages?: { id: string; text: string; startedAt?: string }[]
   /** The agent's in-flight thinking — live-only, never in the ledger.
    *  See AgentChatsState.streamingReasoning. */
   reasoning?: string
@@ -176,6 +180,9 @@ export interface AgentChatViewProps {
   toolOutput?: { id: string; text: string }
   /** The agent's own to-do list — see WorkingLine's own prop doc. */
   plan?: { text: string; status: string }[]
+  /** The prompts the daemon says the agent is blocked on — see
+   *  AgentChatsState.choices. */
+  pendingChoices?: AgentChoice[]
   /** The newest complete unified diff for the current turn. */
   diff?: { id: string; text: string }
   /** Prune confirmed ids out of the store's own streamingMessages[chatId] —
@@ -346,6 +353,7 @@ export function AgentChatView({
   sessionNote,
   active,
   visible,
+  awaitingList = false,
   isActivePane,
   onOpenTerminal,
   terminalWaiting = false,
@@ -359,6 +367,7 @@ export function AgentChatView({
   toolOutput,
   plan,
   diff,
+  pendingChoices,
   onStreamingSettled,
   onPromptSpawned,
   onPromptDispatchStart,
@@ -382,7 +391,15 @@ export function AgentChatView({
   onSelectPresentation,
   ref,
 }: AgentChatViewProps) {
-  const activity = useAgentActivity(wsId, chatId, working, compacting, visible)
+  const activity = useAgentActivity(
+    wsId,
+    chatId,
+    working,
+    compacting,
+    visible,
+    turnRevision,
+    pendingChoices,
+  )
   const telemetry = useAgentTelemetry(wsId, chatId, visible)
   // Read exactly once, at construction — this component remounts wholesale
   // on every chat switch (key={wsId:chatId} in AgentChatPane), so "once per
@@ -528,6 +545,7 @@ export function AgentChatView({
     wsId,
     chatId,
     working,
+    steerable: providers.find((candidate) => candidate.id === providerId)?.promptSteer === true,
     compacting,
     live,
     canSend,
@@ -578,7 +596,9 @@ export function AgentChatView({
     return () => cancelAnimationFrame(raf)
   }, [ledger.loading])
 
-  const slash = useSlashCatalog({ wsId, chatId, providerId, active, draft })
+  // A parked tab stays mounted but is not asking for a catalogue: it probes the
+  // moment it is shown, so N retained chats cost one probe, not N.
+  const slash = useSlashCatalog({ wsId, chatId, providerId, active: active && visible, draft })
 
   // The currently-loaded window of the person's own words, oldest first — what
   // ArrowUp/ArrowDown actually walk. Never reaches past a page not yet loaded,
@@ -1055,6 +1075,7 @@ export function AgentChatView({
       trailingInterruption={trailingTags}
       dockHeight={dockHeight}
       visible={visible}
+      holdReveal={awaitingList}
       initialScrollPosition={initialScrollPosition}
       onScrollPositionChange={(position) => setScrollPosition(chatId, position)}
       // The CSS var below covers `.scroll`'s own padding; the anchor's

@@ -9,7 +9,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-func BenchmarkMergeEligibilityFor_LargeSiblingSet(b *testing.B) {
+func BenchmarkMergeEligibilitiesFor_LargeSiblingSet(b *testing.B) {
 	uc := workspace.New(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	const n = 1000
@@ -31,6 +31,6 @@ func BenchmarkMergeEligibilityFor_LargeSiblingSet(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = uc.MergeEligibilityFor(context.Background(), ws, siblings)
+		_ = uc.MergeEligibilitiesFor(context.Background(), []domain.Workspace{ws}, siblings)
 	}
 }

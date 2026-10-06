@@ -234,7 +234,7 @@ func New(
 		engines.Git,
 		nowFunc,
 	)
-	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, workspaceUsecase, announceRepo, o.chatSnapshots)
+	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, workspaceUsecase, announceRepo, o.chatSnapshots, o.choiceWatch)
 	if err != nil {
 		return nil, err
 	}
@@ -340,6 +340,14 @@ type Option func(*options)
 
 type options struct {
 	chatSnapshots *agentusecase.ChatSnapshots
+	choiceWatch   *agentusecase.ChoiceWatch
+}
+
+// WithChoiceWatch hands the chat usecase the watch the composition root also gave
+// the activity repository, so a prompt that opens or resolves reaches the chat
+// feed.
+func WithChoiceWatch(w *agentusecase.ChoiceWatch) Option {
+	return func(o *options) { o.choiceWatch = w }
 }
 
 // WithChatSnapshots hands the chat usecase the snapshot owner the composition
@@ -359,6 +367,7 @@ func newAgentWiring(
 	workspaceUsecase workspace.Usecase,
 	announceRepo agentusecase.TreeRepoAnnouncer,
 	chatSnapshots *agentusecase.ChatSnapshots,
+	choiceWatch *agentusecase.ChoiceWatch,
 ) (agentWiring, error) {
 	wsReader := &agentWorkspaceReader{
 		workspaces:  repos.Workspace,
@@ -408,9 +417,10 @@ func newAgentWiring(
 		Home:                    crowbarHome,
 		// Installed is left nil: the usecase defaults to Agent.Installed, the real
 		// install probe. Only tests inject a stub to isolate from the host PATH.
-		Minter:    minter,
-		Tools:     toolDeps,
-		Snapshots: chatSnapshots,
+		Minter:      minter,
+		Tools:       toolDeps,
+		Snapshots:   chatSnapshots,
+		ChoiceWatch: choiceWatch,
 		// Folders/Nodes let own_worktree.go/promote.go/repo_scope.go/
 		// cwd_resolver.go's ancestor walks see past a Folder-only ancestor
 		// (2026-09-08 sidebar-placement-unification Task 8's own review fix

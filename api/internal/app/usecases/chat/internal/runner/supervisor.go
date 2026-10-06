@@ -7,6 +7,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -228,6 +229,7 @@ func (rs *Runners) Session(chatID string) domain.AgentSession {
 
 // noteLaunch records that chatID's new runner went live on rung.
 func (rs *Runners) noteLaunch(ctx context.Context, chatID, rung string) {
+	slog.InfoContext(ctx, "agent: runner launched", "component", "runner", "chat", chatID, "rung", rung)
 	rs.sessions.set(chatID, domain.AgentSession{Rung: rung})
 	rs.touch(ctx, chatID)
 }
@@ -248,6 +250,13 @@ func (rs *Runners) noteExit(ctx context.Context, chatID, runnerID string, refuse
 // noteChatExit records a reason on chatID directly, for an end no single
 // runner exit carries (a stop, a failed spawn, a daemon restart).
 func (rs *Runners) noteChatExit(ctx context.Context, chatID, reason string) {
+	// displaced is an intermediate note: a Stop or switch that follows records
+	// the final reason, so only that one is Info.
+	level := slog.LevelInfo
+	if reason == domain.AgentExitDisplaced {
+		level = slog.LevelDebug
+	}
+	slog.Log(ctx, level, "agent: runner ended", "component", "runner", "chat", chatID, "reason", reason)
 	rs.sessions.set(chatID, domain.AgentSession{ExitReason: reason, ExitedAt: time.Now()})
 	rs.touch(ctx, chatID)
 }

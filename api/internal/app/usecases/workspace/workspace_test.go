@@ -14,6 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
 func newWorkspaceUsecase(
@@ -425,7 +426,7 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_SyncError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestMergeEligibilityFor_NoParent(t *testing.T) {
+func TestMergeEligibilitiesFor_NoParent(t *testing.T) {
 	_, _, _, uc := newWorkspaceUsecase(t)
 
 	ws := domain.Workspace{ID: "w1"}
@@ -433,12 +434,12 @@ func TestMergeEligibilityFor_NoParent(t *testing.T) {
 		{ID: "p1", Branch: "main", Status: domain.WorkspaceStatusNew},
 	}
 
-	got := uc.MergeEligibilityFor(context.Background(), ws, siblings)
+	got := uc.MergeEligibilitiesFor(context.Background(), []domain.Workspace{ws}, siblings)[0]
 	assert.False(t, got.CanMergeLocally)
 	assert.Empty(t, got.ParentBranch)
 }
 
-func TestMergeEligibilityFor_ParentLocked(t *testing.T) {
+func TestMergeEligibilitiesFor_ParentLocked(t *testing.T) {
 	_, _, _, uc := newWorkspaceUsecase(t)
 
 	ws := domain.Workspace{ID: "w1", ParentID: "p1"}
@@ -446,12 +447,12 @@ func TestMergeEligibilityFor_ParentLocked(t *testing.T) {
 		{ID: "p1", Branch: "main", Status: domain.WorkspaceStatusLocked},
 	}
 
-	got := uc.MergeEligibilityFor(context.Background(), ws, siblings)
+	got := uc.MergeEligibilitiesFor(context.Background(), []domain.Workspace{ws}, siblings)[0]
 	assert.False(t, got.CanMergeLocally)
 	assert.Equal(t, "main", got.ParentBranch)
 }
 
-func TestMergeEligibilityFor_ParentDeleted(t *testing.T) {
+func TestMergeEligibilitiesFor_ParentDeleted(t *testing.T) {
 	_, _, _, uc := newWorkspaceUsecase(t)
 
 	ws := domain.Workspace{ID: "w1", ParentID: "p1"}
@@ -459,12 +460,12 @@ func TestMergeEligibilityFor_ParentDeleted(t *testing.T) {
 		{ID: "p1", Branch: "main", Status: domain.WorkspaceStatusDeleted},
 	}
 
-	got := uc.MergeEligibilityFor(context.Background(), ws, siblings)
+	got := uc.MergeEligibilitiesFor(context.Background(), []domain.Workspace{ws}, siblings)[0]
 	assert.False(t, got.CanMergeLocally)
 	assert.Equal(t, "main", got.ParentBranch)
 }
 
-func TestMergeEligibilityFor_ParentIdle(t *testing.T) {
+func TestMergeEligibilitiesFor_ParentIdle(t *testing.T) {
 	_, _, _, uc := newWorkspaceUsecase(t)
 
 	ws := domain.Workspace{ID: "w1", ParentID: "p1"}
@@ -472,12 +473,12 @@ func TestMergeEligibilityFor_ParentIdle(t *testing.T) {
 		{ID: "p1", Branch: "feature/x", Status: domain.WorkspaceStatusNew},
 	}
 
-	got := uc.MergeEligibilityFor(context.Background(), ws, siblings)
+	got := uc.MergeEligibilitiesFor(context.Background(), []domain.Workspace{ws}, siblings)[0]
 	assert.True(t, got.CanMergeLocally)
 	assert.Equal(t, "feature/x", got.ParentBranch)
 }
 
-func TestMergeEligibilityFor_ParentMissing(t *testing.T) {
+func TestMergeEligibilitiesFor_ParentMissing(t *testing.T) {
 	_, _, _, uc := newWorkspaceUsecase(t)
 
 	ws := domain.Workspace{ID: "w1", ParentID: "p1"}
@@ -485,9 +486,47 @@ func TestMergeEligibilityFor_ParentMissing(t *testing.T) {
 		{ID: "p2", Branch: "main", Status: domain.WorkspaceStatusNew},
 	}
 
-	got := uc.MergeEligibilityFor(context.Background(), ws, siblings)
+	got := uc.MergeEligibilitiesFor(context.Background(), []domain.Workspace{ws}, siblings)[0]
 	assert.False(t, got.CanMergeLocally)
 	assert.Empty(t, got.ParentBranch)
+}
+
+// The batch resolves each workspace exactly as the single call does, but asks
+// git ONCE per parent checkout, and a failed dry-run fails open.
+func TestMergeEligibilitiesFor_BatchesTheDryRunsAndFailsOpen(t *testing.T) {
+	_, git, _, uc := newWorkspaceUsecase(t)
+	var asked [][]enginegit.MergePair
+	git.WouldMergeConflictsFn = func(
+		_ context.Context,
+		repoPath string,
+		pairs []enginegit.MergePair,
+	) []enginegit.MergeVerdict {
+		assert.Equal(t, "/wt/parent", repoPath)
+		asked = append(asked, pairs)
+		return []enginegit.MergeVerdict{{Conflict: true}, {Err: errors.New("no such branch")}}
+	}
+	siblings := []domain.Workspace{
+		{ID: "p", Branch: "feature/p", WorktreePath: "/wt/parent", Status: domain.WorkspaceStatusNew},
+		{ID: "locked", Branch: "main", Status: domain.WorkspaceStatusLocked},
+	}
+	wss := []domain.Workspace{
+		{ID: "a", Branch: "feature/a", ParentID: "p"},
+		{ID: "orphan"},
+		{ID: "b", Branch: "feature/b", ParentID: "p"},
+		{ID: "c", Branch: "feature/c", ParentID: "locked"},
+	}
+
+	got := uc.MergeEligibilitiesFor(context.Background(), wss, siblings)
+
+	require.Len(t, got, len(wss))
+	assert.Equal(t, workspace.MergeEligibility{CanMergeLocally: true, ParentBranch: "feature/p", MergeConflicts: true}, got[0])
+	assert.Equal(t, workspace.MergeEligibility{}, got[1])
+	assert.Equal(t, workspace.MergeEligibility{CanMergeLocally: true, ParentBranch: "feature/p"}, got[2], "an error fails open")
+	assert.Equal(t, workspace.MergeEligibility{ParentBranch: "main"}, got[3], "a locked parent is never dry-run")
+	assert.Equal(t, [][]enginegit.MergePair{{
+		{Ours: "feature/p", Theirs: "feature/a"},
+		{Ours: "feature/p", Theirs: "feature/b"},
+	}}, asked, "one git read for the whole batch")
 }
 
 // TestWorkspaceUsecase_SyncWorkingTreeState_HomeSkipsGit pins the guard behind

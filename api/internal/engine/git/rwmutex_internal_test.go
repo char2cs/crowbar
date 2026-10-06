@@ -85,7 +85,7 @@ func TestRWMutex_ConcurrentReadsDoNotSerialize(t *testing.T) {
 	for range 2 {
 		go func() {
 			defer wg.Done()
-			_, _ = e.WouldMergeConflict(ctx, dir, "a", "b")
+			_ = e.WouldMergeConflicts(ctx, dir, []git.MergePair{{Ours: "a", Theirs: "b"}})
 		}()
 	}
 
@@ -120,7 +120,7 @@ func TestRWMutex_WriteBlocksConcurrentRead(t *testing.T) {
 
 	readDone := make(chan struct{})
 	go func() {
-		_, _ = e.WouldMergeConflict(ctx, dir, "a", "b")
+		_ = e.WouldMergeConflicts(ctx, dir, []git.MergePair{{Ours: "a", Theirs: "b"}})
 		close(readDone)
 	}()
 

@@ -2,7 +2,9 @@ package chat_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -2980,4 +2982,80 @@ func TestUserTurn_ADispatchedPromptIsRecordedUnderItsRequestID(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{requestID}, ids)
+}
+
+// claudeHookNames maps the provider's own hook names, as they appear in a
+// captured payload's hook_event_name, to the canonical events the ingest takes.
+var claudeHookNames = map[string]string{
+	"SessionStart": "session_start", "UserPromptSubmit": "user_prompt", "Stop": "turn_stop",
+	"MessageDisplay": "message_delta", "PreToolUse": "tool_pre", "PostToolUse": "tool_post",
+	"PostToolUseFailure": "tool_fail", "SubagentStart": "subagent_pre", "SubagentStop": "subagent_post",
+	"PreCompact": "compact_pre", "PostCompact": "compact_post", "SessionEnd": "session_end",
+}
+
+// replayRealClaudeSession feeds a sanitized capture of a REAL claude session
+// (two background subagents that call tools, their hand-backs, /compact, a
+// follow-up) through IngestHook in recorded order.
+func replayRealClaudeSession(t *testing.T, f testFixture, runnerID string) {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join("testdata", "claude-subagent-session", "*.json"))
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+	for i, path := range files {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+		var p struct {
+			Event   string `json:"hook_event_name"`
+			Session string `json:"session_id"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &p))
+		if i == 0 {
+			f.announce(t, runnerID, p.Session)
+		}
+		require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", claudeHookNames[p.Event], raw))
+		f.wait()
+	}
+}
+
+func TestRegression_RealClaudeSubagentSession_OnlyTheHumansWordsAreUserRows(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	replayRealClaudeSession(t, f, runnerID)
+
+	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 0)
+	require.NoError(t, err)
+	var users []string
+	harness := 0
+	for _, m := range page.Items {
+		switch m.Role {
+		case domain.TurnRoleUser:
+			users = append(users, m.Text)
+		case domain.TurnRoleHarness:
+			harness++
+		}
+	}
+	assert.Equal(t, []string{
+		"Launch two subagents in the background with the Agent tool (general-purpose), each must Read a.txt then run Bash 'echo hi'. Report each in one line. Then say DONE.",
+		"what is 2+2? one word",
+	}, users, "only what the human typed may be a user row")
+	assert.Equal(t, 2, harness, "each subagent hand-back is kept, as the harness's words")
+}
+
+func TestRegression_RealClaudeSubagentSession_SubagentToolCallsCreateNoRows(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	replayRealClaudeSession(t, f, runnerID)
+
+	calls, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	require.NoError(t, err)
+	var names []string
+	for _, c := range calls {
+		assert.Empty(t, c.SubagentID, "a subagent's tool call must not be recorded at all")
+		names = append(names, c.Name)
+	}
+	assert.Equal(t, []string{"Agent", "Agent"}, names, "only the main agent's own tool calls remain")
+
+	subs, err := f.activity.Subagents(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.Len(t, subs, 2, "the subagents themselves are still tracked")
 }

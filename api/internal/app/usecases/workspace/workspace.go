@@ -109,12 +109,11 @@ type WorkingTreeGitEngine interface {
 		repoPath string,
 		base string,
 	) (added, deleted int, hasConflicts, hasCommits bool, err error)
-	WouldMergeConflict(
+	WouldMergeConflicts(
 		ctx context.Context,
 		repoPath string,
-		ours string,
-		theirs string,
-	) (bool, error)
+		pairs []enginegit.MergePair,
+	) []enginegit.MergeVerdict
 	// RevParse resolves a ref to a commit SHA; summaryBase uses it only to verify
 	// a base branch still resolves in the worktree before diffing against it.
 	RevParse(
@@ -202,14 +201,15 @@ type Usecase interface {
 		now time.Time,
 	) (domain.Workspace, error)
 
-	// MergeEligibilityFor resolves whether ws can be merged into its local
-	// parent, reading the parent's status from the caller-held sibling set. The
-	// ctx scopes the predicted-conflict git dry-run.
-	MergeEligibilityFor(
+	// MergeEligibilitiesFor resolves whether each workspace in wss can be merged
+	// into its local parent, in order, reading the parent's status from the
+	// caller-held sibling set. The git dry-runs are batched: one git read per
+	// parent checkout. ctx scopes them.
+	MergeEligibilitiesFor(
 		ctx context.Context,
-		ws domain.Workspace,
+		wss []domain.Workspace,
 		siblings []domain.Workspace,
-	) MergeEligibility
+	) []MergeEligibility
 
 	// CreateChild creates a worktree-backed (or workspace-only) child (07 §4.1).
 	CreateChild(
@@ -453,17 +453,14 @@ func (u *workspaceUsecase) ResolveConflicts(
 	return ws, nil
 }
 
-// MergeEligibilityFor resolves whether ws can be merged into its local parent.
-// No repository call is made — the parent is resolved from siblings, which the
-// caller already holds from a preceding List call. Delegates to
-// ResolveMergeEligibility so the snapshot read and the live broadcast share one
-// implementation; the caller supplies the context for the conflict dry-run.
-func (u *workspaceUsecase) MergeEligibilityFor(
+// MergeEligibilitiesFor resolves every workspace's eligibility over one sibling
+// set, batching the conflict dry-runs.
+func (u *workspaceUsecase) MergeEligibilitiesFor(
 	ctx context.Context,
-	ws domain.Workspace,
+	wss []domain.Workspace,
 	siblings []domain.Workspace,
-) MergeEligibility {
-	return ResolveMergeEligibility(ctx, ws, siblings, u.git)
+) []MergeEligibility {
+	return ResolveMergeEligibilities(ctx, wss, siblings, u.git)
 }
 
 func (u *workspaceUsecase) summarize(

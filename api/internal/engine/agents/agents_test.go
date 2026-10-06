@@ -613,6 +613,26 @@ func TestAgent_PromptStepsAreUnsupportedWhereNoneAreDeclared(t *testing.T) {
 	assert.ErrorIs(t, err, agents.ErrPromptSubmitUnsupported)
 }
 
+func TestAgent_PromptSteerCarriesTheMessageAsAJSONStringAndSkipsCommands(t *testing.T) {
+	stdout, ok := get(t, "claude").PromptSteer("say \"hi\"\nthen {message_json}")
+
+	require.True(t, ok)
+	var reply struct {
+		Decision string `json:"decision"`
+		Reason   string `json:"reason"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &reply), "the reply must stay valid JSON whatever the user typed")
+	assert.Equal(t, "block", reply.Decision)
+	assert.Contains(t, reply.Reason, "say \"hi\"\nthen {message_json}")
+
+	for _, command := range []string{"/compact", "!ls"} {
+		_, ok := get(t, "claude").PromptSteer(command)
+		assert.False(t, ok, command)
+	}
+	_, ok = get(t, "codex").PromptSteer("hello")
+	assert.False(t, ok, "a provider that declares no steering is never steered")
+}
+
 func TestAgent_ResumeArgIsAbsentWhereNoneIsDeclared(t *testing.T) {
 	_, ok := stubAgent(t, "sh").ResumeArg()
 

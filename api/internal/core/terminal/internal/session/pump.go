@@ -3,10 +3,9 @@ package session
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
+	"log/slog"
 	"net/url"
-	"os"
 	"strings"
 	"syscall"
 	"time"
@@ -87,7 +86,7 @@ func (s *Session) resetModelLocked() {
 			old.Close()
 		}()
 	}
-	_, _ = fmt.Fprintf(os.Stderr, "terminal: session %s: model panic recovered, screen model rebuilt\n", s.id)
+	slog.Error("terminal: model panic recovered; screen model rebuilt", "component", "terminal", "session", s.id)
 }
 
 // scheduleEmitLocked implements the adaptive frame clock (spec §3.3, Task 7):
@@ -291,7 +290,7 @@ func (s *Session) pump() {
 		}
 		if err != nil {
 			if !isNormalPTYClose(err) {
-				_, _ = fmt.Fprintf(os.Stderr, "terminal: session %s: pump error: %v\n", s.id, err)
+				slog.Error("terminal: pump error", "component", "terminal", "session", s.id, "err", err)
 			}
 			return
 		}

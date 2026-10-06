@@ -94,6 +94,12 @@ func (rs *Runners) commitStagedSelection(
 	if selection == nil {
 		return nil
 	}
+	// The composer re-posts its picker on every send. A pick the chat already
+	// holds changes nothing, so it must not turn a deliverable send away as busy.
+	if current, err := rs.conversations.ChatSelection(ctx, chatID, false); err == nil &&
+		current.Model == selection.Model && current.Effort == selection.Effort {
+		return nil
+	}
 	if err := rs.requireChatAcceptingPrompt(ctx, chatID); err != nil {
 		return err
 	}

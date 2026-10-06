@@ -94,17 +94,39 @@ type Desk struct {
 
 	retention time.Duration
 	ledger    Ledger
+	// changed is told which chat's answerable prompts just moved, always AFTER the
+	// desk's lock is released so it may read the desk back.
+	changed func(chatID string)
+}
+
+// Option configures a Desk.
+type Option func(*Desk)
+
+// WithChange has the desk announce each chat whose set of answerable prompts it
+// changed: a relay parked, a verdict landed, a relay released unanswered.
+func WithChange(changed func(chatID string)) Option {
+	return func(d *Desk) { d.changed = changed }
 }
 
 // New returns an empty desk whose undelivered verdicts expire after retention and
 // whose outcomes are written back to ledger. A nil ledger is legal and simply
 // records nothing, which is what a test that only exercises the desk wants.
-func New(retention time.Duration, ledger Ledger) *Desk {
-	return &Desk{
+func New(retention time.Duration, ledger Ledger, opts ...Option) *Desk {
+	d := &Desk{
 		byChoice:   map[string]*Slot{},
 		byDelivery: map[string]*Slot{},
 		retention:  retention,
 		ledger:     ledger,
+	}
+	for _, opt := range opts {
+		opt(d)
+	}
+	return d
+}
+
+func (d *Desk) announce(chatID string) {
+	if d.changed != nil {
+		d.changed(chatID)
 	}
 }
 
@@ -116,6 +138,7 @@ func New(retention time.Duration, ledger Ledger) *Desk {
 func (d *Desk) Hold(deliveryID string, prompt Prompt) *Slot {
 	slot := &Slot{Prompt: prompt, done: make(chan struct{})}
 
+	defer d.announce(prompt.ChatID)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.dropExpiredLocked()
@@ -209,6 +232,7 @@ func (d *Desk) byDeliveryID(deliveryID string) (*Slot, bool) {
 // answerable at once, but the slot lingers for the desk's retention so a relay
 // that has not asked yet still finds its answer.
 func (d *Desk) Resolve(slot *Slot, stdout []byte) {
+	defer d.announce(slot.ChatID)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if slot.spent {
@@ -226,6 +250,7 @@ func (d *Desk) Resolve(slot *Slot, stdout []byte) {
 // already been reached. A false verdict is the caller's cue to close the ledger's
 // question as proceeded: the provider is about to resolve it through its own UI.
 func (d *Desk) Discard(slot *Slot) bool {
+	defer d.announce(slot.ChatID)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	decided := d.claimableLocked(slot)
@@ -243,6 +268,7 @@ func (d *Desk) Discard(slot *Slot) bool {
 func (d *Desk) ReleaseRunner(ctx context.Context, runnerID string) []*Slot {
 	blocked := d.releaseRunner(runnerID)
 	for _, slot := range blocked {
+		d.announce(slot.ChatID)
 		d.record(ctx, slot, domain.ChoiceResolutionAbandoned,
 			"agent: answer: release prompt of dead runner")
 	}
@@ -316,6 +342,7 @@ func (d *Desk) claim(slot *Slot) ([]byte, bool) {
 }
 
 func (d *Desk) release(slot *Slot) {
+	defer d.announce(slot.ChatID)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.claimableLocked(slot) {

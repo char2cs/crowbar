@@ -53,7 +53,7 @@ func (t *Turns) openTurnFromPrompt(
 				return fmt.Errorf("agent: ingest hook: start turn: %w", err)
 			}
 			t.work.Set(chat.ID, started.Working)
-			t.turns.Begin(runner.ID, chat.ID)
+			t.turns.Begin(ctx, runner.ID, chat.ID)
 			t.openAssistantTurn(ctx, chat, runner)
 			return nil
 		}
@@ -85,7 +85,7 @@ func (t *Turns) openTurnFromPrompt(
 			return fmt.Errorf("agent: ingest hook: start turn: %w", err)
 		}
 		t.work.Set(chat.ID, started.Working)
-		t.turns.Begin(runner.ID, chat.ID)
+		t.turns.Begin(ctx, runner.ID, chat.ID)
 		appendErr := t.conversations.AppendRunnerTurn(
 			ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
 			domain.TurnRoleHarness, ev.Message,
@@ -142,7 +142,7 @@ func (t *Turns) recordUserTurn(
 	// And record it as IN FLIGHT, which is the same fact without the read model's lag
 	// in front of it — a provider switch blocks on this rather than on Working, so that
 	// it never quits a CLI that is still answering (inflight.Turns).
-	t.turns.Begin(runner.ID, chat.ID)
+	t.turns.Begin(ctx, runner.ID, chat.ID)
 	// The hook is the provider's acknowledgement that the argv prompt was
 	// accepted. userText, not rawText: ConfirmPromptAccepted hashes this
 	// against the journal's own hash of the ORIGINAL dispatch text (prompts.go's

@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useStore } from 'zustand'
 import { listChatMessages, type AgentChatMessage } from '@/features/agent/api/agent-api'
+import { chatLedgerStore } from '@/features/agent/stores/chat-ledger-store'
 
 const MESSAGE_PAGE_SIZE = 100
 const MESSAGE_POLL_MS = 1_000
 const EVIDENCE_RECOVERY_MAX_PAGES = 100
 const EMPTY_MESSAGES: AgentChatMessage[] = []
+
+function ledgerStatus(chatId: string) {
+  return chatLedgerStore.getState().ledgers[chatId]?.status
+}
 
 function isAbort(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
@@ -24,30 +30,6 @@ function yieldToRenderer(): Promise<void> {
   return scheduler?.yield ? scheduler.yield() : new Promise((resolve) => setTimeout(resolve, 0))
 }
 
-// Sorted by displayOrder (dispatch order), NOT sequence (persist order) — an
-// interrupted turn that finishes late must still display before a later
-// turn that finished first. Falls back to sequence for anything predating
-// the field (old fixtures only; every real response has it).
-//
-// The merge MAP's key is turnId, NOT sequence: a turn can legitimately be
-// re-closed under a FRESH sequence for the SAME turnId (closeAssistantTurn's
-// reconciliation loop always re-records the last streamed item to layer the
-// terminating hook's effort/text onto it, even when nothing but that
-// changed) — a real, reported duplicate ("Noted — saw the Codex exchange…"
-// rendered twice, one copy missing `effort`, live 2026-08-29). Keying by
-// sequence treated that second close as a brand-new row instead of an
-// update to the first; turnId is the row's actual identity (every message
-// IS its turn — see AgentChatMessage.turnId) and survives it.
-function mergeMessages(current: AgentChatMessage[], incoming: AgentChatMessage[]) {
-  const byTurnId = new Map(current.map((item) => [item.turnId, item]))
-  for (const item of incoming) byTurnId.set(item.turnId, item)
-  return [...byTurnId.values()].sort(
-    (a, b) =>
-      (a.displayOrder ?? a.sequence) - (b.displayOrder ?? b.sequence) ||
-      (a.itemIndex ?? 0) - (b.itemIndex ?? 0),
-  )
-}
-
 export interface ChatMessagesOptions {
   wsId: string
   chatId: string
@@ -60,7 +42,7 @@ export interface ChatMessagesOptions {
   /** The message(s) the agent is mid-way through saying. An array because a
    *  turn can have more than one open item (Codex; Claude is always 0-or-1)
    *  — see agent-chats-slice.ts. */
-  streamingMessages?: { id: string; text: string }[]
+  streamingMessages?: { id: string; text: string; startedAt?: string }[]
   /** Ids from `streamingMessages` the ledger has now confirmed for real —
    *  see the `streamingBubbles` computation below, which this mirrors to
    *  prune the STORE side instead of just hiding the render. Their content
@@ -106,110 +88,108 @@ export function useChatMessages(options: ChatMessagesOptions) {
     onRecoveryExhausted,
   } = options
 
-  const [messages, setMessages] = useState<AgentChatMessage[]>([])
-  const messagesRef = useRef<AgentChatMessage[]>([])
-  const cursorRef = useRef(0)
-  const oldestCursorRef = useRef(0)
-  const [hasOlder, setHasOlder] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
+  const ledger = useStore(chatLedgerStore, (state) => state.ledgers[chatId])
+  const messages = ledger?.messages ?? EMPTY_MESSAGES
+  const hasOlder = ledger?.hasOlder ?? false
+  const error = ledger?.error ?? null
+  // The view's own wait: the first page (possibly fetched by bootstrap) and the
+  // recovery walk its queue callbacks drive. False at once on a loaded ledger.
+  const [loading, setLoading] = useState(() => ledgerStatus(chatId) !== 'loaded')
   const loadGeneration = useRef(0)
   const refreshInFlight = useRef(false)
   const refreshAgain = useRef(false)
 
   const applyMessages = useCallback(
     (incoming: AgentChatMessage[]) => {
-      if (incoming.length === 0) {
-        // Nothing new: skip the Map rebuild and setMessages entirely — a
-        // fresh array reference here forces AgentTranscript's messages.map()
-        // to re-run on every unchanged poll tick. Cursor bookkeeping has
-        // nothing to advance either. onApply still fires: it drives the
-        // prompt-queue recovery walk in loadInitial, which reads
-        // pendingEvidence()/recovery.hasMore after every applied page,
-        // empty or not.
-        onApply(messagesRef.current)
-        return
-      }
-      const next = mergeMessages(messagesRef.current, incoming)
-      messagesRef.current = next
-      setMessages(next)
-      cursorRef.current = Math.max(cursorRef.current, next.at(-1)?.sequence ?? 0)
-      oldestCursorRef.current =
-        oldestCursorRef.current === 0
-          ? (next[0]?.sequence ?? 0)
-          : Math.min(oldestCursorRef.current, next[0]?.sequence ?? oldestCursorRef.current)
-      onApply(next)
+      // onApply fires even for an empty page: it drives the prompt-queue
+      // recovery walk, which reads pendingEvidence() after every applied page.
+      onApply(chatLedgerStore.getState().merge(chatId, incoming))
     },
-    [onApply],
+    [chatId, onApply],
   )
 
-  const loadInitial = useCallback(async () => {
-    const generation = ++loadGeneration.current
-    setLoading(true)
-    setError(null)
-    try {
-      const page = await listChatMessages(wsId, chatId, { limit: MESSAGE_PAGE_SIZE })
-      if (generation !== loadGeneration.current) return
-      messagesRef.current = EMPTY_MESSAGES
-      setMessages(EMPTY_MESSAGES)
-      cursorRef.current = page.cursor
-      oldestCursorRef.current = page.oldestCursor
-      setHasOlder(page.hasMore)
-      applyMessages(page.items)
+  // The inputs a refresh reacts to, as of the last initial load: a load that
+  // started under the current ones already covers them, so refreshing again for
+  // them is a second fetch of the same page.
+  const refreshKeyRef = useRef('')
+  const coveredKeyRef = useRef<string | null>(null)
 
-      if (!pendingEvidence()) return
-      const baseline = Math.min(...pendingBaselines())
-      let exhaustedRecoveryBudget = false
+  const load = useCallback(
+    async (force: boolean) => {
+      const generation = ++loadGeneration.current
+      const status = ledgerStatus(chatId)
+      const fetching = force || status === undefined || status === 'error'
+      // A load that started under the current refresh inputs covers them; a
+      // ledger reused from before the view mounted has to catch up instead.
+      coveredKeyRef.current = fetching ? refreshKeyRef.current : null
+      if (fetching || status === 'loading' || pendingEvidence()) setLoading(true)
+      try {
+        await chatLedgerStore.getState().loadInitial(wsId, chatId, force)
+        if (generation !== loadGeneration.current) return
+        const first = chatLedgerStore.getState().ledgers[chatId]
+        if (!first || first.status === 'error') return
+        if (!fetching) coveredKeyRef.current = null
+        onApply(first.messages)
+        const page = { hasMore: first.hasOlder, oldestCursor: first.oldestCursor }
 
-      if (baseline > 0) {
-        // Ask forward from the evidence boundary. This avoids walking a long
-        // history backward when the confirming hook is old but its exact baseline
-        // is already persisted with the queue item.
-        let after = baseline
-        for (let index = 0; index < EVIDENCE_RECOVERY_MAX_PAGES; index++) {
-          const recovery = await listChatMessages(wsId, chatId, {
-            after,
-            limit: MESSAGE_PAGE_SIZE,
-          })
-          if (generation !== loadGeneration.current) return
-          applyMessages(recovery.items)
-          await yieldToRenderer()
-          if (!pendingEvidence() || !recovery.hasMore) return
-          if (recovery.cursor <= after) return
-          after = recovery.cursor
-          exhaustedRecoveryBudget = index === EVIDENCE_RECOVERY_MAX_PAGES - 1
+        if (!pendingEvidence()) return
+        const baseline = Math.min(...pendingBaselines())
+        let exhaustedRecoveryBudget = false
+
+        if (baseline > 0) {
+          // Ask forward from the evidence boundary. This avoids walking a long
+          // history backward when the confirming hook is old but its exact baseline
+          // is already persisted with the queue item.
+          let after = baseline
+          for (let index = 0; index < EVIDENCE_RECOVERY_MAX_PAGES; index++) {
+            const recovery = await listChatMessages(wsId, chatId, {
+              after,
+              limit: MESSAGE_PAGE_SIZE,
+            })
+            if (generation !== loadGeneration.current) return
+            applyMessages(recovery.items)
+            await yieldToRenderer()
+            if (!pendingEvidence() || !recovery.hasMore) return
+            if (recovery.cursor <= after) return
+            after = recovery.cursor
+            exhaustedRecoveryBudget = index === EVIDENCE_RECOVERY_MAX_PAGES - 1
+          }
+        } else if (page.hasMore && page.oldestCursor > 0) {
+          // A brand-new chat has baseline 0, which the paging API represents as
+          // "no after cursor". Walk older pages only for that special case.
+          let before = page.oldestCursor
+          for (let index = 0; index < EVIDENCE_RECOVERY_MAX_PAGES; index++) {
+            const recovery = await listChatMessages(wsId, chatId, {
+              before,
+              limit: MESSAGE_PAGE_SIZE,
+            })
+            if (generation !== loadGeneration.current) return
+            applyMessages(recovery.items)
+            await yieldToRenderer()
+            if (!pendingEvidence() || !recovery.hasMore) return
+            if (recovery.oldestCursor <= 0 || recovery.oldestCursor >= before) return
+            before = recovery.oldestCursor
+            exhaustedRecoveryBudget = index === EVIDENCE_RECOVERY_MAX_PAGES - 1
+          }
         }
-      } else if (page.hasMore && page.oldestCursor > 0) {
-        // A brand-new chat has baseline 0, which the paging API represents as
-        // "no after cursor". Walk older pages only for that special case.
-        let before = page.oldestCursor
-        for (let index = 0; index < EVIDENCE_RECOVERY_MAX_PAGES; index++) {
-          const recovery = await listChatMessages(wsId, chatId, {
-            before,
-            limit: MESSAGE_PAGE_SIZE,
-          })
-          if (generation !== loadGeneration.current) return
-          applyMessages(recovery.items)
-          await yieldToRenderer()
-          if (!pendingEvidence() || !recovery.hasMore) return
-          if (recovery.oldestCursor <= 0 || recovery.oldestCursor >= before) return
-          before = recovery.oldestCursor
-          exhaustedRecoveryBudget = index === EVIDENCE_RECOVERY_MAX_PAGES - 1
-        }
+
+        if (exhaustedRecoveryBudget && pendingEvidence()) onRecoveryExhausted()
+      } catch (err) {
+        if (generation !== loadGeneration.current || isAbort(err)) return
+        chatLedgerStore
+          .getState()
+          .setError(chatId, err instanceof Error ? err : new Error(String(err)))
+      } finally {
+        // False positive: this line IS the finally block's own body (see the
+        // `finally {` immediately above) — it already runs on both the success and
+        // rejection path.
+        // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally
+        if (generation === loadGeneration.current) setLoading(false)
       }
-
-      if (exhaustedRecoveryBudget && pendingEvidence()) onRecoveryExhausted()
-    } catch (err) {
-      if (generation !== loadGeneration.current || isAbort(err)) return
-      setError(err instanceof Error ? err : new Error(String(err)))
-    } finally {
-      // False positive: this line IS the finally block's own body (see the
-      // `finally {` immediately above) — it already runs on both the success and
-      // rejection path.
-      // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally
-      if (generation === loadGeneration.current) setLoading(false)
-    }
-  }, [wsId, chatId, applyMessages, pendingEvidence, pendingBaselines, onRecoveryExhausted])
+    },
+    [wsId, chatId, applyMessages, onApply, pendingEvidence, pendingBaselines, onRecoveryExhausted],
+  )
+  const loadInitial = useCallback(() => load(true), [load])
 
   const refresh = useCallback(async () => {
     if (refreshInFlight.current || loading) {
@@ -219,12 +199,12 @@ export function useChatMessages(options: ChatMessagesOptions) {
     refreshInFlight.current = true
     const generation = loadGeneration.current
     try {
-      let after = cursorRef.current
+      let after = chatLedgerStore.getState().ledgers[chatId]?.cursor ?? 0
       for (let index = 0; index < EVIDENCE_RECOVERY_MAX_PAGES; index++) {
         const page = await listChatMessages(wsId, chatId, { after, limit: MESSAGE_PAGE_SIZE })
         if (generation !== loadGeneration.current) return
         applyMessages(page.items)
-        setError(null)
+        chatLedgerStore.getState().setError(chatId, null)
         if (!page.hasMore) break
 
         // `hasMore` is only actionable when the server advanced the forward
@@ -236,7 +216,9 @@ export function useChatMessages(options: ChatMessagesOptions) {
       }
     } catch (err) {
       if (!isAbort(err) && generation === loadGeneration.current) {
-        setError(err instanceof Error ? err : new Error(String(err)))
+        chatLedgerStore
+          .getState()
+          .setError(chatId, err instanceof Error ? err : new Error(String(err)))
       }
     } finally {
       refreshInFlight.current = false
@@ -248,11 +230,11 @@ export function useChatMessages(options: ChatMessagesOptions) {
   }, [wsId, chatId, loading, applyMessages])
 
   useEffect(() => {
-    void loadInitial()
+    void load(false)
     return () => {
       loadGeneration.current += 1
     }
-  }, [loadInitial])
+  }, [load])
 
   // The message(s) being said right now, as bubbles below the recorded ones —
   // one per still-open item, in arrival order (Codex can have more than one
@@ -290,7 +272,14 @@ export function useChatMessages(options: ChatMessagesOptions) {
       const text = m.text.trim()
       const recordedTurnId = `msg-${m.id}`
       if (text && !messages.some((r) => r.role === 'assistant' && r.turnId === recordedTurnId)) {
-        bubbles.push({ sequence, role: 'assistant', text: m.text, providerId, turnId: '', at: '' })
+        bubbles.push({
+          sequence,
+          role: 'assistant',
+          text: m.text,
+          providerId,
+          turnId: '',
+          at: m.startedAt ?? '',
+        })
       }
       sequence++
     }
@@ -309,26 +298,52 @@ export function useChatMessages(options: ChatMessagesOptions) {
   // it, so a bubble whose row committed a moment later was stranded forever.
   // This is evidence-driven, not time-driven: it keeps polling for as long as
   // (and only while) an orphan actually exists, never on a fixed timeout.
+  const refreshKey = `${working}|${turnRevision}|${providerId}|${awaiting}|${streamingBubbles.length}`
+  refreshKeyRef.current = refreshKey
+  const live = working || awaiting || streamingBubbles.length > 0
+  const liveRef = useRef(live)
+  liveRef.current = live
+  const refreshRef = useRef(refresh)
+  refreshRef.current = refresh
+
+  // A parked chat stays mounted, so it takes the same edges a visible one does
+  // and is current when shown again.
   useEffect(() => {
-    if (!visible) return
-    void refresh()
-    if (!working && !awaiting && streamingBubbles.length === 0) return
+    if (coveredKeyRef.current !== refreshKey) void refresh()
+    coveredKeyRef.current = refreshKey
+  }, [refreshKey, refresh])
+
+  // Rows persisted mid-turn announce nothing, so only a chat somebody is looking
+  // at polls — and one shown while its turn runs catches up at once.
+  const shownBefore = useRef(visible)
+  useEffect(() => {
+    const justShown = visible && !shownBefore.current
+    shownBefore.current = visible
+    if (justShown && liveRef.current) void refreshRef.current()
+  }, [visible])
+
+  useEffect(() => {
+    if (!visible || !live) return
     const timer = window.setInterval(() => void refresh(), MESSAGE_POLL_MS)
     return () => window.clearInterval(timer)
-  }, [working, turnRevision, providerId, visible, awaiting, refresh, streamingBubbles.length])
+  }, [visible, live, refresh])
 
   const loadOlder = useCallback(async () => {
-    const before = oldestCursorRef.current
+    const before = chatLedgerStore.getState().ledgers[chatId]?.oldestCursor
     if (!before) return
     try {
       const page = await listChatMessages(wsId, chatId, { before, limit: MESSAGE_PAGE_SIZE })
-      applyMessages(page.items)
-      oldestCursorRef.current = page.oldestCursor
-      setHasOlder(page.hasMore)
+      onApply(
+        chatLedgerStore
+          .getState()
+          .merge(chatId, page.items, { oldestCursor: page.oldestCursor, hasMore: page.hasMore }),
+      )
     } catch (err) {
-      setError(err instanceof Error ? err : new Error(String(err)))
+      chatLedgerStore
+        .getState()
+        .setError(chatId, err instanceof Error ? err : new Error(String(err)))
     }
-  }, [wsId, chatId, applyMessages])
+  }, [wsId, chatId, onApply])
 
   // The store-side twin of the suppression above: once a streamed message is
   // confirmed (same `"msg-" + id` match), its entry in streamingMessages[chatId]
@@ -350,7 +365,10 @@ export function useChatMessages(options: ChatMessagesOptions) {
     if (confirmed.length > 0) onStreamingSettled(confirmed)
   }, [streamingMessages, messages, onStreamingSettled])
 
-  const getCursor = useCallback(() => cursorRef.current, [])
+  const getCursor = useCallback(
+    () => chatLedgerStore.getState().ledgers[chatId]?.cursor ?? 0,
+    [chatId],
+  )
 
   return {
     messages,

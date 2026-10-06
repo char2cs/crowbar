@@ -44,6 +44,8 @@ func (noopTurns) ChatWorking(context.Context, string) (bool, error) { return fal
 
 func (noopTurns) TurnOpen(context.Context, string, string) (bool, error) { return false, nil }
 
+func (noopTurns) QueueSteer(string, inflight.Steered) bool { return false }
+
 func (noopTurns) RecordStop(context.Context, string, string) error { return nil }
 
 func (noopTurns) RecordChatSwitch(context.Context, string, string, string) error { return nil }

@@ -1,13 +1,17 @@
-import { renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChatMessage } from '@/features/agent/api/agent-api'
 import { useChatMessages } from '@/features/agent/hooks/use-chat-messages'
+import { chatLedgerStore } from '@/features/agent/stores/chat-ledger-store'
 
 const { listChatMessagesFn } = vi.hoisted(() => ({ listChatMessagesFn: vi.fn() }))
 vi.mock('@/features/agent/api/agent-api', () => ({
   getPendingPrompt: vi.fn().mockResolvedValue(null),
   listChatMessages: listChatMessagesFn,
 }))
+
+// The ledger outlives a view, so a test must not inherit the previous one's.
+beforeEach(() => chatLedgerStore.setState({ ledgers: {} }))
 
 function message(sequence: number, overrides: Partial<AgentChatMessage> = {}): AgentChatMessage {
   return {
@@ -542,6 +546,29 @@ describe('streamingBubbles: suppressed by id, not by text', () => {
     await waitFor(() => expect(result.current.streamingBubbles).toHaveLength(1))
     expect(result.current.streamingBubbles[0].text).toBe('still being said')
   })
+
+  it('stamps a streaming bubble with when its text began so it orders against tool rows', async () => {
+    const options = {
+      wsId: 'ws',
+      chatId: 'c1',
+      providerId: 'claude',
+      visible: true,
+      working: true,
+      turnRevision: 0,
+      awaiting: false,
+      streamingMessages: [
+        { id: 'delta-1', text: 'said before the tool', startedAt: '2026-09-01T12:00:01Z' },
+      ],
+      onApply: () => {},
+      pendingEvidence: () => false,
+      pendingBaselines: (): number[] => [],
+      onRecoveryExhausted: () => {},
+    }
+    const { result } = renderHook(() => useChatMessages(options))
+
+    await waitFor(() => expect(result.current.streamingBubbles).toHaveLength(1))
+    expect(result.current.streamingBubbles[0].at).toBe('2026-09-01T12:00:01Z')
+  })
 })
 
 // onStreamingSettled is the store-side twin of streamingBubbles' suppression
@@ -761,5 +788,171 @@ describe('stranded streaming bubble: reconcile survives working/awaiting already
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('mount-time refresh', () => {
+  const page = { cursor: 5, oldestCursor: 1, hasMore: false, items: [message(1), message(5)] }
+  const options = {
+    wsId: 'ws',
+    chatId: 'c1',
+    providerId: 'claude',
+    working: false,
+    turnRevision: 0,
+    awaiting: false,
+    onApply: () => {},
+    pendingEvidence: () => false,
+    pendingBaselines: (): number[] => [],
+    onRecoveryExhausted: () => {},
+  }
+
+  beforeEach(() => {
+    listChatMessagesFn.mockReset()
+    listChatMessagesFn.mockResolvedValue(page)
+  })
+
+  it('does not re-fetch a chat that mounts visible: the initial page already covers it', async () => {
+    const { result } = renderHook(() => useChatMessages({ ...options, visible: true }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    expect(listChatMessagesFn).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not re-fetch a chat that loaded hidden when it is shown: nothing changed while parked', async () => {
+    const { result, rerender } = renderHook(
+      ({ visible }) => useChatMessages({ ...options, visible }),
+      { initialProps: { visible: false } },
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    rerender({ visible: true })
+    rerender({ visible: false })
+    rerender({ visible: true })
+    await act(async () => {})
+
+    expect(listChatMessagesFn).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes while hidden when a turn ends, so showing the chat needs no fetch', async () => {
+    const { result, rerender } = renderHook(
+      ({ visible, turnRevision }) => useChatMessages({ ...options, visible, turnRevision }),
+      { initialProps: { visible: false, turnRevision: 0 } },
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    rerender({ visible: false, turnRevision: 1 })
+    await waitFor(() => expect(listChatMessagesFn).toHaveBeenCalledTimes(2))
+    expect(listChatMessagesFn).toHaveBeenLastCalledWith('ws', 'c1', { after: 5, limit: 100 })
+
+    rerender({ visible: true, turnRevision: 1 })
+    await act(async () => {})
+
+    expect(listChatMessagesFn).toHaveBeenCalledTimes(2)
+  })
+
+  it('catches up at once when a chat whose turn is still running is shown', async () => {
+    const { result, rerender } = renderHook(
+      ({ visible }) => useChatMessages({ ...options, visible, working: true }),
+      { initialProps: { visible: false } },
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(listChatMessagesFn).toHaveBeenCalledTimes(1)
+
+    rerender({ visible: true })
+
+    await waitFor(() => expect(listChatMessagesFn).toHaveBeenCalledTimes(2))
+  })
+
+  it('refreshes when a turn changes while visible', async () => {
+    const { result, rerender } = renderHook(
+      ({ turnRevision }) => useChatMessages({ ...options, visible: true, turnRevision }),
+      { initialProps: { turnRevision: 0 } },
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    rerender({ turnRevision: 1 })
+
+    await waitFor(() => expect(listChatMessagesFn).toHaveBeenCalledTimes(2))
+  })
+})
+
+describe('ledger owned by the store, not the view', () => {
+  const page = { cursor: 5, oldestCursor: 1, hasMore: false, items: [message(1), message(5)] }
+  const options = {
+    wsId: 'ws',
+    chatId: 'c1',
+    providerId: 'claude',
+    visible: true,
+    working: false,
+    turnRevision: 0,
+    awaiting: false,
+    onApply: () => {},
+    pendingEvidence: () => false,
+    pendingBaselines: (): number[] => [],
+    onRecoveryExhausted: () => {},
+  }
+
+  beforeEach(() => {
+    listChatMessagesFn.mockReset()
+    listChatMessagesFn.mockResolvedValue(page)
+  })
+
+  it('renders a ledger that was loaded before the view mounted, without a first-page fetch', async () => {
+    await chatLedgerStore.getState().loadInitial('ws', 'c1')
+    listChatMessagesFn.mockClear()
+
+    const { result } = renderHook(() => useChatMessages(options))
+
+    expect(result.current.messages).toHaveLength(2)
+    expect(result.current.loading).toBe(false)
+    await waitFor(() =>
+      expect(listChatMessagesFn).toHaveBeenCalledWith('ws', 'c1', { after: 5, limit: 100 }),
+    )
+    expect(listChatMessagesFn).not.toHaveBeenCalledWith('ws', 'c1', { limit: 100 })
+  })
+
+  it('joins a first-page fetch already in flight instead of issuing a second', async () => {
+    const inFlight = chatLedgerStore.getState().loadInitial('ws', 'c1')
+
+    const { result } = renderHook(() => useChatMessages(options))
+    await inFlight
+    await waitFor(() => expect(result.current.messages).toHaveLength(2))
+
+    expect(listChatMessagesFn.mock.calls.filter(([, , o]) => o.after === undefined)).toHaveLength(1)
+  })
+
+  it('keeps the messages across an unmount, so reopening the chat is instant', async () => {
+    const first = renderHook(() => useChatMessages(options))
+    await waitFor(() => expect(first.result.current.messages).toHaveLength(2))
+    first.unmount()
+
+    const second = renderHook(() => useChatMessages(options))
+
+    expect(second.result.current.messages).toHaveLength(2)
+  })
+
+  it('still runs the evidence recovery walk when it mounts on a loaded ledger', async () => {
+    await chatLedgerStore.getState().loadInitial('ws', 'c1')
+    listChatMessagesFn.mockClear()
+    listChatMessagesFn.mockResolvedValue({
+      cursor: 9,
+      oldestCursor: 6,
+      hasMore: false,
+      items: [message(9)],
+    })
+
+    const { result } = renderHook(() =>
+      useChatMessages({
+        ...options,
+        visible: false,
+        // Evidence is pending until the confirming message 9 is in the ledger.
+        pendingEvidence: () =>
+          !chatLedgerStore.getState().ledgers.c1.messages.some((m) => m.sequence === 9),
+        pendingBaselines: () => [5],
+      }),
+    )
+
+    await waitFor(() => expect(result.current.messages.map((m) => m.sequence)).toEqual([1, 5, 9]))
+    expect(listChatMessagesFn).toHaveBeenCalledWith('ws', 'c1', { after: 5, limit: 100 })
   })
 })

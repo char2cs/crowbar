@@ -117,24 +117,7 @@ func (t *Turns) handleObservation(
 		t.restateAsyncWork(ctx, chat.ID)
 	case engineagents.HookNotification, engineagents.HookPermission,
 		engineagents.HookElicitation:
-		// Minted ONCE, threaded to both calls below — two independent
-		// choiceID/interruptionID draws each mint their own fallbackID()
-		// when PromptID is empty (Codex's own mapping never sets one),
-		// pairing a choice with an interruption that was never opened. See
-		// TestRegression_APermissionWithNoPromptIDStillPairsItsChoiceAndInterruption.
-		cid := ""
-		if ev.Choice != nil {
-			cid = choiceID(ctx, chat.ID, ev.Choice)
-		}
-		iid := answerdesk.PermissionInterruptionID(cid)
-		if iid == "" {
-			iid = interruptionID(ctx, chat.ID, ev)
-		}
-		note(ctx, "interrupted", t.activity.Interrupt(
-			ctx, chat.ID, iid, ev.Interrupt.Kind, ev.Interrupt.Detail, now,
-		))
-
-		t.openChoice(ctx, chat, runner, agent, ev, cid, raw, now)
+		t.raiseAsk(ctx, chat, runner, agent, ev, raw, now)
 	case engineagents.HookCompactPre:
 		// Arm BEFORE anything else below: codex's own compact_start round trip
 		// (api transport) wraps its contextCompaction item/started..completed in
@@ -204,49 +187,6 @@ func toolLocations(ev engineagents.CanonicalEvent) []domain.ActivityToolLocation
 		out = append(out, domain.ActivityToolLocation{Path: location.Path, Line: location.Line})
 	}
 	return out
-}
-
-func (t *Turns) openChoice(
-	ctx context.Context,
-	chat domain.Chat,
-	runner engineagents.Runner,
-	agent engineagents.Agent,
-	ev engineagents.CanonicalEvent,
-	id string,
-	raw []byte,
-	now time.Time,
-) {
-	if ev.Choice == nil {
-		return
-	}
-	chatID := chat.ID
-	// A choice never durably opened in the ledger must never be held for a
-	// human or auto-approved: both paths would act on a choice the ledger
-	// never recorded, and the provider's own AnswerChoice call would reject
-	// it as no longer pending. Falling through here leaves the CLI's own
-	// native prompt as the only path, same as holdForAnswer's own silent
-	// fallback for every other unanswerable-from-Crowbar reason.
-	if err := t.activity.OpenChoice(ctx, agentactivity.ChoiceInput{
-		ChatID:   chatID,
-		ChoiceID: id,
-		Kind:     ev.Choice.Kind,
-		PromptID: ev.Choice.PromptID,
-		ToolName: ev.Choice.ToolName,
-		Title:    ev.Choice.Title,
-		Question: ev.Choice.Question,
-		Mode:     ev.Choice.Mode,
-		Multi:    ev.Choice.Multi,
-		Options:  choiceOptions(ev.Choice.Options),
-
-		Questions: choiceQuestions(ev.Choice.Questions),
-		Schema:    string(ev.Choice.Schema),
-		Now:       now,
-	}); err != nil {
-		note(ctx, "choice opened", err)
-		return
-	}
-
-	t.holdForAnswer(ctx, chat, runner, agent, ev, id, raw)
 }
 
 // choiceID falls back to inflight.RecordID, not fallbackID, when the

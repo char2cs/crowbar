@@ -1,6 +1,7 @@
 package turn
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,7 +22,7 @@ import (
 // off" followed 5.2s later.
 func TestRegression_AnAutomaticCompactionDoesNotSwallowTheRealTurnsStop(t *testing.T) {
 	turns := New(Deps{InflightTurns: inflight.NewTurns()})
-	turns.turns.Begin("runner-1", "chat-1")
+	turns.turns.Begin(context.Background(), "runner-1", "chat-1")
 
 	turns.armCompaction("chat-1", "turn-1")
 

@@ -248,6 +248,18 @@ func (s *Store) PendingChoices(
 	return choiceDomains(rows), nil
 }
 
+// AllPendingChoices lists every unresolved prompt of every chat, oldest first.
+func (s *Store) AllPendingChoices(ctx context.Context) ([]domain.ActivityChoice, error) {
+	var rows []ChoiceRow
+	err := s.db.WithContext(ctx).Model(&ChoiceRow{}).
+		Where("resolved_at IS NULL").
+		Order("chat_id ASC, seq ASC").Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("agentactivity storage: all pending choices: %w", err)
+	}
+	return choiceDomains(rows), nil
+}
+
 func choiceDomains(rows []ChoiceRow) []domain.ActivityChoice {
 	out := make([]domain.ActivityChoice, 0, len(rows))
 	for _, r := range rows {

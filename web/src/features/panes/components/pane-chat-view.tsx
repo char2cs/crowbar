@@ -1,13 +1,11 @@
-import { lazy, Suspense, type ContextType, type Ref } from 'react'
+import { lazy, Suspense, useLayoutEffect, type ContextType, type Ref } from 'react'
+import { loadedAgentChatPane, preloadAgentChatPane } from '@/features/panes/lib/chat-surface-loader'
+import { pendingChatSurfaces } from '@/features/panes/stores/pending-chat-surfaces'
 import { ChatColumnHeader } from '@/features/tabs/components/chat-column-header'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { cn } from '@/lib/utils'
 
-const AgentChatPane = lazy(() =>
-  import('@/features/agent/components/agent-chat-pane').then((m) => ({
-    default: m.AgentChatPane,
-  })),
-)
+const LazyAgentChatPane = lazy(() => preloadAgentChatPane().then((pane) => ({ default: pane })))
 
 interface PaneChatViewProps {
   ref: Ref<HTMLDivElement>
@@ -46,6 +44,12 @@ export function PaneChatView({
   isActivePane,
   isVisible,
 }: PaneChatViewProps) {
+  const Surface = loadedAgentChatPane() ?? LazyAgentChatPane
+  // The surface commits later than this wrapper (lazy chunk); AgentChatPane ends the wait.
+  useLayoutEffect(() => {
+    pendingChatSurfaces.getState().begin(paneId)
+    return () => pendingChatSurfaces.getState().end(paneId)
+  }, [paneId])
   return (
     <div
       ref={ref}
@@ -67,7 +71,7 @@ export function PaneChatView({
         )}
         <div className="relative min-h-0 flex-1 overflow-hidden">
           <Suspense fallback={null}>
-            <AgentChatPane
+            <Surface
               chatId={chatId}
               runnerId={runnerId}
               wsId={wsId}

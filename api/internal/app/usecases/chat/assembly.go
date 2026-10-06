@@ -78,6 +78,10 @@ type Deps struct {
 	// exactly ONE per daemon: a runner's token must be minted by the same secret
 	// that verifies it.
 	Minter *agenttools.TokenMinter
+	// ChoiceWatch carries "this chat's pending prompts changed" from the activity
+	// ledger, which is built first, to the usecase's publisher. Nil is a daemon
+	// that announces none (tests).
+	ChoiceWatch *ChoiceWatch
 	// Snapshots is the chat snapshot owner the composition root built and fed
 	// to the fanout. Nil builds a private one (tests), fed by nothing until a
 	// test wires the fanout over Snapshots().
@@ -132,7 +136,9 @@ func New(d Deps) *Usecase {
 		turns:        inflight.NewTurns(),
 		turnStarts:   inflight.NewGate(),
 		pendingHooks: inflight.NewHooks(),
-		answers:      answerdesk.New(answerdesk.DefaultRetention, d.Activity),
+		answers: answerdesk.New(
+			answerdesk.DefaultRetention, d.Activity, answerdesk.WithChange(d.ChoiceWatch.Notify),
+		),
 	}
 	u := &Usecase{
 		chats:       d.Chats,
@@ -161,8 +167,8 @@ func New(d Deps) *Usecase {
 	}
 	u.buildComponents(d, sh)
 	if d.Nodes != nil {
-		u.snapshots.SetCorrect(func(ctx context.Context, chat domain.Chat) domain.Chat {
-			return correctHomeChat(ctx, d.Nodes, chat)
+		u.snapshots.SetCorrect(func(ctx context.Context, chats []domain.Chat) []domain.Chat {
+			return correctHomeChats(ctx, d.Nodes, chats)
 		})
 	}
 	u.snapshots.Bind(snapshotReader{chats: d.Chats, runners: d.Runners}, u.runners)
@@ -245,6 +251,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 
 		Conversations: u.conversations,
 	})
+	d.ChoiceWatch.bind(u.turns.PublishChoices)
 	u.runners = runner.New(runner.Deps{
 		Chats:         d.Chats,
 		Runners:       d.Runners,
@@ -271,5 +278,6 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	// reads screens through the hook ingress's own classifiers.
 	u.conversations.SetRunners(u.runners)
 	u.turns.SetRunners(u.runners)
+	sh.turns.OnDrop(u.runners.RefuseSteered)
 	u.runners.SetTurns(u.turns)
 }

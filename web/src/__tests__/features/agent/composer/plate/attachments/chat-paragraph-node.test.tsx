@@ -1,5 +1,7 @@
+import { useDndContext } from '@dnd-kit/core'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import { DndScope } from '@/features/agent/chat/dnd-scope'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 
@@ -11,6 +13,24 @@ describe('ChatParagraphElement', () => {
     const paragraph = screen.getByText('just some text').closest('.slate-p')
     expect(paragraph).not.toBeNull()
     expect(paragraph!.querySelector('.-top-px, .-bottom-px')).toBeNull()
+  })
+})
+
+describe('streaming message paragraphs', () => {
+  it('are not drop targets: a read-only message never receives an attachment', () => {
+    let registered = -1
+    function Probe() {
+      registered = useDndContext().droppableContainers.getEnabled().length
+      return null
+    }
+    render(
+      <DndScope>
+        <Probe />
+        <MarkdownMessage>{'one\n\ntwo'}</MarkdownMessage>
+      </DndScope>,
+    )
+    expect(screen.getByText('two')).toBeTruthy()
+    expect(registered).toBe(0)
   })
 })
 

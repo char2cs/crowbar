@@ -43,14 +43,14 @@ type Worktrees interface {
 		repoID string,
 	) ([]domain.Workspace, error)
 
-	// MergeEligibilityFor resolves whether ws can merge into its local parent,
-	// against siblings the caller already holds. It makes no repository call of
-	// its own, which is why the sibling read above is hoisted out of the loop.
-	MergeEligibilityFor(
+	// MergeEligibilitiesFor resolves whether each workspace in wss can merge into
+	// its local parent, in order, against siblings the caller already holds. The
+	// git dry-runs are batched: one git read per parent checkout.
+	MergeEligibilitiesFor(
 		ctx context.Context,
-		ws domain.Workspace,
+		wss []domain.Workspace,
 		siblings []domain.Workspace,
-	) workspace.MergeEligibility
+	) []workspace.MergeEligibility
 }
 
 // Nodes is the narrow read port a worktree-owning chat's DTO needs to carry
@@ -65,59 +65,6 @@ type Nodes interface {
 	) (domain.Node, error)
 }
 
-// nodePlacementReader adapts Handlers.nodes/chats/worktrees to
-// dto.WorkspacePlacementReader. A resolution failure (no Node row yet — see
-// dto.WorkspacePlacementReader's own doc) degrades to "" / 0 rather than an
-// error: this DTO is serialized for a chat list read, not a placement write,
-// and a row this fix has not reached yet is honestly "at the repo root,
-// first slot" until something places it.
-type nodePlacementReader struct {
-	nodes Nodes
-	chats ChatUsecase
-	wt    Worktrees
-}
-
-// Placement reads an ordinary fork's placement off its OWNING CHAT's own
-// ParentID/Order — PlaceWorkspace's write for exactly this case
-// (place_workspace.go's nodeID doc) lands on that same chat via
-// Chats.SetPlacement/SetOrder, a real AgentChat aggregate field, never a
-// Node row: no Node is ever minted for a plain chat, so reading one back via
-// r.nodes here always missed, silently degrading to "" / 0 regardless of
-// how long ago the drag landed. Caught live: a fork dragged into a folder
-// showed it there for a moment, then reseeded straight back to the repo
-// root — the response's own echoed placement was right, only the next read
-// was wrong. Only a LOCKED branch, whose owning chat carries no Node of its
-// own, is genuinely addressed by workspaceID's own Node{Kind:workspace} row
-// — the one case r.nodes still answers.
-func (r nodePlacementReader) Placement(
-	ctx context.Context,
-	workspaceID string,
-) (folderID string, order int) {
-	if ws, err := r.wt.Get(ctx, workspaceID); err == nil && !ws.RendersAsBranch() {
-		if rows, cErr := r.chats.ListChatsByWorkspace(ctx, workspaceID); cErr == nil {
-			if owner, ok := domain.ResolveOwningChat(rows); ok {
-				return owner.ParentID, owner.Order
-			}
-		}
-	}
-	n, err := r.nodes.GetNode(ctx, workspaceID)
-	if err != nil {
-		return "", 0
-	}
-	return n.ParentID, n.Order
-}
-
-// placementReader answers this Handlers' own dto.WorkspacePlacementReader,
-// or nil when unwired (h.nodes is nil for a test Handlers built with only
-// the fields its own assertion needs, matching Worktrees' own tolerance) —
-// dto.WorkspaceDTOFrom already degrades a nil reader to "" / 0.
-func (h *Handlers) placementReader() dto.WorkspacePlacementReader {
-	if h.nodes == nil {
-		return nil
-	}
-	return nodePlacementReader{nodes: h.nodes, chats: h.chats, wt: h.worktrees}
-}
-
 // worktreeScope is ONE read's worth of the answers the enrichment needs: the
 // repo's workspace rows, and the owning chat resolved per workspace.
 //
@@ -128,11 +75,34 @@ func (h *Handlers) placementReader() dto.WorkspacePlacementReader {
 // exact class of staleness this whole refactor exists to delete. Within one
 // response it is pure win, since a list of twenty chats sharing four worktrees
 // takes four reads instead of twenty.
+//
+// Everything it answers is memoized per WORKSPACE, because every chat of one
+// workspace asks the same questions: eligibility (a git dry-run), the chat rows
+// that name the owner and the placement (store reads). The distinct
+// workspaces' dry-runs are batched by warm.
 type worktreeScope struct {
-	handlers *Handlers
-	siblings []domain.Workspace
-	index    map[string]domain.Workspace
-	owners   map[string]string
+	handlers  *Handlers
+	siblings  []domain.Workspace
+	index     map[string]domain.Workspace
+	owners    map[string]string
+	elig      map[string]workspace.MergeEligibility
+	chatRows  map[string][]domain.Chat
+	placement map[string]placementAt
+	// warmed, when set, closes once the background eligibility work is done;
+	// nothing reads elig before then.
+	warmed chan struct{}
+}
+
+func (s *worktreeScope) await() {
+	if s.warmed != nil {
+		<-s.warmed
+	}
+}
+
+// placementAt is one workspace's resolved folder and order.
+type placementAt struct {
+	folderID string
+	order    int
 }
 
 // repoWorktrees builds the per-row worktree closure a repo-scoped chat list is
@@ -160,17 +130,84 @@ func (h *Handlers) repoWorktrees(
 	ctx context.Context,
 	projectID string,
 	repoID string,
+	chats []domain.Chat,
 ) func(domain.Chat) *dto.ChatWorktreeDTO {
+	pending := h.beginWorktrees(ctx, projectID, repoID, chatWorkspaces(chats))
+	defer pending.done()
+	return pending.rowFn(ctx, chats)
+}
+
+// chatWorkspaces is the distinct workspace ids chats name, in first-seen order.
+func chatWorkspaces(chats []domain.Chat) []domain.Workspace {
+	seen := map[string]bool{}
+	out := []domain.Workspace{} // non-nil: nil would name the whole repo
+	for _, c := range chats {
+		if c.WorkspaceID == "" || seen[c.WorkspaceID] {
+			continue
+		}
+		seen[c.WorkspaceID] = true
+		out = append(out, domain.Workspace{ID: c.WorkspaceID})
+	}
+	return out
+}
+
+// pendingWorktrees is a repo's worktree enrichment already under way: the
+// sibling read is done and every workspace's merge eligibility is resolving in
+// the background, so a caller with other reads to make overlaps them with git.
+// The zero value, from unwired or failed reads, enriches nothing.
+type pendingWorktrees struct {
+	scope *worktreeScope
+}
+
+// beginWorktrees reads the repo's siblings and starts resolving the named
+// workspaces' eligibility (nil names the whole repo). Every caller must call
+// done, which joins it.
+func (h *Handlers) beginWorktrees(
+	ctx context.Context,
+	projectID string,
+	repoID string,
+	named []domain.Workspace,
+) pendingWorktrees {
 	if h.worktrees == nil {
-		return nil
+		return pendingWorktrees{}
 	}
 	siblings, err := h.worktrees.ListInRepo(ctx, projectID, repoID)
 	if err != nil {
 		slog.WarnContext(ctx, "chat: list worktrees for chat enrichment",
 			"project_id", projectID, "repo_id", repoID, "err", err)
-		return nil
+		return pendingWorktrees{}
 	}
 	scope := h.newScope(siblings)
+	if named == nil {
+		named = siblings
+	}
+	scope.warmed = make(chan struct{})
+	go func() {
+		defer close(scope.warmed)
+		scope.warm(ctx, named)
+	}()
+	return pendingWorktrees{scope: scope}
+}
+
+// done joins the background eligibility work.
+func (p pendingWorktrees) done() {
+	if p.scope != nil {
+		p.scope.await()
+	}
+}
+
+// rowFn is the per-row worktree closure over the chats being listed; nil when
+// nothing could be read. Those chats are every row their workspaces have, so
+// the owner and placement reads answer from them instead of from the store.
+func (p pendingWorktrees) rowFn(
+	ctx context.Context,
+	chats []domain.Chat,
+) func(domain.Chat) *dto.ChatWorktreeDTO {
+	scope := p.scope
+	if scope == nil {
+		return nil
+	}
+	scope.seedRows(chats)
 	return func(c domain.Chat) *dto.ChatWorktreeDTO {
 		w, ok := scope.index[c.WorkspaceID]
 		if c.WorkspaceID == "" || !ok {
@@ -222,11 +259,78 @@ func (h *Handlers) newScope(
 		index[w.ID] = w
 	}
 	return &worktreeScope{
-		handlers: h,
-		siblings: siblings,
-		index:    index,
-		owners:   map[string]string{},
+		handlers:  h,
+		siblings:  siblings,
+		index:     index,
+		owners:    map[string]string{},
+		elig:      map[string]workspace.MergeEligibility{},
+		chatRows:  map[string][]domain.Chat{},
+		placement: map[string]placementAt{},
 	}
+}
+
+// warm resolves the merge eligibility of every named workspace the index holds
+// in one batch, so a list over N worktrees costs one git read per parent
+// checkout instead of N processes in series.
+func (s *worktreeScope) warm(
+	ctx context.Context,
+	named []domain.Workspace,
+) {
+	var todo []domain.Workspace
+	for _, n := range named {
+		if w, ok := s.index[n.ID]; ok {
+			todo = append(todo, w)
+		}
+	}
+	for i, e := range s.handlers.worktrees.MergeEligibilitiesFor(ctx, todo, s.siblings) {
+		s.elig[todo[i].ID] = e
+	}
+}
+
+// eligibility is w's merge overlay, resolved once per scope.
+func (s *worktreeScope) eligibility(
+	ctx context.Context,
+	w domain.Workspace,
+) workspace.MergeEligibility {
+	s.await()
+	if e, ok := s.elig[w.ID]; ok {
+		return e
+	}
+	e := s.handlers.worktrees.MergeEligibilitiesFor(ctx, []domain.Workspace{w}, s.siblings)[0]
+	s.elig[w.ID] = e
+	return e
+}
+
+// seedRows takes the chats a list already read as the rows of the workspaces
+// they name. A workspace's own chats are all in that list — the repo's list
+// holds every conversation whose workspace is in the repo — so reading them
+// again, which decodes every chat in the store, would only repeat it.
+func (s *worktreeScope) seedRows(chats []domain.Chat) {
+	seeded := map[string][]domain.Chat{}
+	for _, c := range chats {
+		if c.WorkspaceID != "" {
+			seeded[c.WorkspaceID] = append(seeded[c.WorkspaceID], c)
+		}
+	}
+	for id, rows := range seeded {
+		s.chatRows[id] = rows
+	}
+}
+
+// rowsOf is the chat rows that name workspaceID, read once per scope.
+func (s *worktreeScope) rowsOf(
+	ctx context.Context,
+	workspaceID string,
+) []domain.Chat {
+	if rows, ok := s.chatRows[workspaceID]; ok {
+		return rows
+	}
+	rows, err := s.handlers.chats.ListChatsByWorkspace(ctx, workspaceID)
+	if err != nil {
+		rows = nil
+	}
+	s.chatRows[workspaceID] = rows
+	return rows
 }
 
 // project is the one place a worktree becomes wire bytes, for both the list
@@ -238,9 +342,8 @@ func (s *worktreeScope) project(
 	c domain.Chat,
 	w domain.Workspace,
 ) *dto.ChatWorktreeDTO {
-	elig := s.handlers.worktrees.MergeEligibilityFor(ctx, w, s.siblings)
 	return dto.ChatWorktreeFrom(
-		dto.WorkspaceDTOFrom(ctx, w, elig, s.owner(ctx, c), s.handlers.placementReader()))
+		dto.WorkspaceDTOFrom(ctx, w, s.eligibility(ctx, w), s.owner(ctx, c), s.placements()))
 }
 
 // owner answers which chat OWNS the worktree c is describing — c itself for the
@@ -264,9 +367,55 @@ func (s *worktreeScope) owner(
 	if owner, ok := s.owners[c.WorkspaceID]; ok {
 		return owner
 	}
-	owner := s.handlers.OwnerOf(ctx, s.index[c.WorkspaceID])
-	s.owners[c.WorkspaceID] = owner
-	return owner
+	owner, _ := domain.ResolveOwningChat(s.rowsOf(ctx, c.WorkspaceID))
+	s.owners[c.WorkspaceID] = owner.ID
+	return owner.ID
+}
+
+// placements is the scope as a placement reader, or nil when the handlers carry
+// no Node port (dto.WorkspaceDTOFrom degrades a nil reader to "" / 0).
+func (s *worktreeScope) placements() dto.WorkspacePlacementReader {
+	if s.handlers.nodes == nil {
+		return nil
+	}
+	return s
+}
+
+// Placement implements dto.WorkspacePlacementReader over the scope's own reads.
+//
+// An ordinary fork's placement lives on its OWNING CHAT's own ParentID/Order —
+// PlaceWorkspace writes it there through Chats.SetPlacement/SetOrder, and no
+// Node is ever minted for a plain chat, so a Node lookup always missed and
+// snapped a dragged fork back to the repo root. Only a LOCKED branch, whose
+// owning chat carries no Node of its own, is addressed by the workspace's own
+// Node{Kind:workspace} row. A row with no Node yet degrades to "" / 0: the repo
+// root, first slot, until something places it.
+func (s *worktreeScope) Placement(
+	ctx context.Context,
+	workspaceID string,
+) (string, int) {
+	if p, ok := s.placement[workspaceID]; ok {
+		return p.folderID, p.order
+	}
+	p := s.placementOf(ctx, workspaceID)
+	s.placement[workspaceID] = p
+	return p.folderID, p.order
+}
+
+func (s *worktreeScope) placementOf(
+	ctx context.Context,
+	workspaceID string,
+) placementAt {
+	if ws, ok := s.index[workspaceID]; ok && !ws.RendersAsBranch() {
+		if owner, found := domain.ResolveOwningChat(s.rowsOf(ctx, workspaceID)); found {
+			return placementAt{owner.ParentID, owner.Order}
+		}
+	}
+	n, err := s.handlers.nodes.GetNode(ctx, workspaceID)
+	if err != nil {
+		return placementAt{}
+	}
+	return placementAt{n.ParentID, n.Order}
 }
 
 // OwnerOf answers the chat that owns ws: the row that records ownership, or ""
@@ -321,23 +470,16 @@ func (h *Handlers) Workspaces(
 		return
 	}
 
-	owners := map[string]string{}
-	ownerOf := func(w domain.Workspace) string {
-		if owner, ok := owners[w.ID]; ok {
-			return owner
-		}
-		owner := h.OwnerOf(rctx, w)
-		owners[w.ID] = owner
-		return owner
-	}
+	scope := h.newScope(rows)
+	scope.warm(rctx, rows)
 
 	libs.WriteQueryOK(ctx, dto.WorkspaceDTOList(
 		rctx,
 		rows,
-		func(w domain.Workspace) workspace.MergeEligibility {
-			return h.worktrees.MergeEligibilityFor(rctx, w, rows)
+		func(w domain.Workspace) workspace.MergeEligibility { return scope.eligibility(rctx, w) },
+		func(w domain.Workspace) string {
+			return scope.owner(rctx, domain.Chat{WorkspaceID: w.ID})
 		},
-		ownerOf,
-		h.placementReader(),
+		scope.placements(),
 	))
 }

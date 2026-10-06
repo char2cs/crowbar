@@ -82,6 +82,10 @@ func (h *Handlers) Hooks(
 	// A hook that opened nothing answerable — every hook of a provider with no
 	// answer channel, and most hooks of one that has — gets a bare 202 and exits, as
 	// it always did.
+	if reply, ok := h.turns.TakeHookReply(body.DeliveryID); ok && body.DeliveryID != "" {
+		libs.WriteQueryWithStatus(ctx, http.StatusAccepted, dto.AgentHookAckDTO{Reply: reply})
+		return
+	}
 	if pending, waiting := h.answers.PendingAnswer(body.DeliveryID); waiting {
 		libs.WriteQueryWithStatus(ctx, http.StatusAccepted, dto.AgentHookAckDTO{
 			Await: &dto.AgentHookAwaitDTO{

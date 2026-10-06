@@ -3,7 +3,9 @@ import { ArrowLeft } from '@phosphor-icons/react'
 import { useRef, useState } from 'react'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { logger } from '@/features/editor/utils/logger'
-import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
+import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { Button } from '@/components/ui/button'
 import { Dropdown, dropdownItemClassName } from '@/components/ui/dropdown'
@@ -17,13 +19,21 @@ interface FilePathBreadcrumbProps {
   className?: string
 }
 
+async function handleNavigate(path: string) {
+  try {
+    const wsId = getActiveWorkspaceId()
+    if (wsId) await openWorkspaceFile(wsId, path, { preview: true })
+  } catch (error) {
+    logger.error('Editor', 'Failed to navigate to path:', path, error)
+  }
+}
+
 export function FilePathBreadcrumb({
   filePath,
   interactive = true,
   className,
 }: FilePathBreadcrumbProps) {
-  const rootFolderPath = useFileSystemStore((s) => s.rootFolderPath)
-  const handleFileSelect = useFileSystemStore((s) => s.handleFileSelect)
+  const rootFolderPath = useFocusedWorkspaceContextStore((s) => s.workspaceId)
   const [dropdown, setDropdown] = useState<{
     segmentIndex: number
     x: number
@@ -52,14 +62,6 @@ export function FilePathBreadcrumb({
   }
 
   const segments = getPathSegments()
-
-  const handleNavigate = async (path: string) => {
-    try {
-      await handleFileSelect?.(path, false)
-    } catch (error) {
-      logger.error('Editor', 'Failed to navigate to path:', path, error)
-    }
-  }
 
   const handleGoBack = async () => {
     if (!dropdown || dropdown.navigationStack.length === 0) return

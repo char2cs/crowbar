@@ -21,6 +21,11 @@ import (
 
 const maxOCCAttempts = 8
 
+// WatchFunc is told which chat's pending prompts changed: one opened, was
+// resolved, or was swept up with its tool or turn. The repository announces; the
+// layer above decides what a client hears. Nil is a repository nobody watches.
+type WatchFunc = func(chatID string)
+
 type TurnInput struct {
 	ChatID     string
 	TurnID     string
@@ -189,6 +194,8 @@ type EventStore interface {
 	Choices(ctx context.Context, chatID string) ([]domain.ActivityChoice, error)
 
 	PendingChoices(ctx context.Context, chatID string) ([]domain.ActivityChoice, error)
+	// AllPendingChoices is every chat's unresolved prompts, grouped by chat.
+	AllPendingChoices(ctx context.Context) ([]domain.ActivityChoice, error)
 	RecentToolCalls(ctx context.Context, chatIDs []string, since time.Time, limit int) ([]domain.ActivityToolCall, error)
 
 	Payload(ctx context.Context, ref string) ([]byte, error)
@@ -243,8 +250,9 @@ func NewEventSourced(
 	es asynxModels.Store,
 	storeDB *gormdb.DB,
 	contentRoot string,
+	choiceWatch WatchFunc,
 ) (EventStore, error) {
-	st, err := store.New(storeDB, contentRoot, ax, es)
+	st, err := store.New(storeDB, contentRoot, ax, es, store.WithChoiceWatch(choiceWatch))
 	if err != nil {
 		return nil, fmt.Errorf("agentactivity: store: %w", err)
 	}
@@ -589,6 +597,10 @@ func (r *eventSourced) PendingChoices(
 	ctx context.Context, chatID string,
 ) ([]domain.ActivityChoice, error) {
 	return r.store.PendingChoices(ctx, chatID)
+}
+
+func (r *eventSourced) AllPendingChoices(ctx context.Context) ([]domain.ActivityChoice, error) {
+	return r.store.AllPendingChoices(ctx)
 }
 
 func (r *eventSourced) RecentToolCalls(

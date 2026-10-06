@@ -21,6 +21,7 @@ import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { pendingChatSurfaces } from '@/features/panes/stores/pending-chat-surfaces'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { usePaneSession } from '@/features/agent/hooks/use-pane-session'
@@ -144,6 +145,8 @@ export function AgentChatPane({
   belowOverlayHeader = false,
 }: AgentChatPaneProps) {
   const store = useWorkspaceStore()
+  // Passive, so it follows the wrapper's layout-effect `begin` even in one commit.
+  useEffect(() => pendingChatSurfaces.getState().end(paneId), [paneId])
   // Extra top clearance every pinned-near-top surface below needs to clear the
   // overlay header's own real click target, plus that surface's original
   // breathing room (8px — the `top-2`/`mt-2` each one used to carry on its own).
@@ -170,6 +173,10 @@ export function AgentChatPane({
   // Has an authoritative list ever landed? That is what turns `!known` from
   // "not yet" into "not in it" — see the resolve effect below.
   const listSeeded = useStore(store, (s) => s.agentChats.listSeeded)
+  // The pane's recorded workspace (C3) is what `wsId` already is; until the list
+  // lands it vouches that the chat exists, so a restored chat is not held back
+  // on a round trip. The list stays authoritative once seeded.
+  const placed = useStore(windowPaneStore, (s) => s.panes[paneId]?.workspaceId != null)
   const activeProviderId = useStore(
     store,
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.activeProviderId ?? '',
@@ -274,6 +281,9 @@ export function AgentChatPane({
   const toolOutput = useStore(store, (s) => s.agentChats.streamingToolOutput[shownChatId])
   const plan = useStore(store, (s) => s.agentChats.streamingPlan[shownChatId])
   const diff = useStore(store, (s) => s.agentChats.streamingDiff[shownChatId])
+  // The prompts the agent is blocked on, pushed by the daemon — present on the
+  // first frame a hidden chat is shown, with no read of its own.
+  const pendingChoices = useStore(store, (s) => s.agentChats.choices[shownChatId])
 
   const columnRef = useRef<HTMLDivElement>(null)
   const splitContainerRef = useRef<HTMLDivElement>(null)
@@ -970,7 +980,8 @@ export function AgentChatPane({
               active={presentation === 'chat' || splitting}
               // Unknown chats never resolve, so this doubles as "give up polling a
               // chat that will 404 forever" — not just tab visibility.
-              visible={isVisible && known}
+              visible={isVisible && (known || (!listSeeded && placed))}
+              awaitingList={!known && !listSeeded}
               isActivePane={isActivePane}
               // The daemon has confirmed shownChatId does not exist (a stale
               // pane from a wiped/reseeded backend, or a chat deleted from
@@ -1029,6 +1040,7 @@ export function AgentChatPane({
               toolOutput={toolOutput}
               plan={plan}
               diff={diff}
+              pendingChoices={pendingChoices}
               onStreamingSettled={handleStreamingSettled}
               // A send may replace the CLI (restart_tui) or revive a dormant
               // chat; either way it is this pane's own request in flight, so the

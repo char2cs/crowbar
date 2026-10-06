@@ -293,7 +293,7 @@ func (m *OriginSyncManager) syncTickWithTimeout(
 		return
 	}
 	if err := m.git.FetchRef(syncCtx, ws.WorktreePath, ws.Branch); err != nil {
-		slog.WarnContext(syncCtx, "origin sync: fetch ref", "workspace_id", wsID, "branch", ws.Branch, "err", err)
+		slog.DebugContext(syncCtx, "origin sync: fetch ref", "workspace_id", wsID, "branch", ws.Branch, "err", err)
 		return
 	}
 	if advance {
@@ -333,7 +333,7 @@ func (m *OriginSyncManager) advanceLockedRoot(
 		return
 	}
 	if errors.Is(err, enginegit.ErrDirtyTree) {
-		slog.InfoContext(ctx, "origin sync: locked root has local changes; leaving it where it is",
+		slog.DebugContext(ctx, "origin sync: locked root has local changes; leaving it where it is",
 			"workspace_id", ws.ID, "branch", ws.Branch)
 		return
 	}

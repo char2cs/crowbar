@@ -1,7 +1,8 @@
 import { useCallback, useState, type RefObject } from 'react'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useDragStore } from '@/features/panes/stores/drag-store'
-import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
+import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import { ensureBufferInPaneDropTarget } from '@/features/panes/utils/pane-drop-actions'
@@ -44,15 +45,12 @@ function adoptPanelTerminal(paneId: string, tab: TabDragPayload & { terminalId: 
   )
 }
 
-async function openDroppedFiles(
-  paths: readonly string[],
-  paneId: string,
-  open: ReturnType<typeof useFileSystemStore.use.handleFileOpen> | undefined,
-): Promise<void> {
-  if (!open) return
+async function openDroppedFiles(paths: readonly string[], paneId: string): Promise<void> {
+  const wsId = getActiveWorkspaceId()
+  if (!wsId) return
   for (const path of paths) {
     // react-doctor-disable-next-line async-await-in-loop -- kept sequential: each open appends to the pane's tab list, so concurrent opens would land tabs out of drop order.
-    await open(path, false, { paneId })
+    await openWorkspaceFile(wsId, path, { paneId })
   }
 }
 
@@ -70,7 +68,6 @@ export function usePaneDropHandlers(paneId: string, containerRef: RefObject<HTML
   const internalHoverZone = useDragStore((s): DropZone =>
     s.hover.paneId === paneId ? s.hover.zone : null,
   )
-  const handleFileOpen = useFileSystemStore.use.handleFileOpen?.()
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -131,14 +128,14 @@ export function usePaneDropHandlers(paneId: string, containerRef: RefObject<HTML
       setIsTabDragOver(false)
       // Tab drops are handled by SplitDropOverlay.
       if (e.dataTransfer.types.includes('application/tab-data')) return
-      await openDroppedFiles(extractDroppedFilePaths(e.dataTransfer), paneId, handleFileOpen)
+      await openDroppedFiles(extractDroppedFilePaths(e.dataTransfer), paneId)
     },
-    [paneId, handleFileOpen],
+    [paneId],
   )
 
   const handleTauriFileDrop = useCallback(
-    (paths: string[]) => openDroppedFiles(paths, paneId, handleFileOpen),
-    [paneId, handleFileOpen],
+    (paths: string[]) => openDroppedFiles(paths, paneId),
+    [paneId],
   )
   useTauriFileDrop(containerRef, handleTauriFileDrop)
 

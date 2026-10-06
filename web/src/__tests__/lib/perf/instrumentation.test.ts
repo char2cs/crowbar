@@ -30,6 +30,18 @@ describe('perf instrumentation', () => {
     vi.unstubAllEnvs()
   })
 
+  it("localStorage 'crowbar:perf' arms a packaged build, so a launch span is not missed", () => {
+    vi.stubEnv('DEV', false)
+    localStorage.setItem('crowbar:perf', '1')
+    try {
+      expect(perfEnabled()).toBe(true)
+    } finally {
+      localStorage.removeItem('crowbar:perf')
+    }
+    expect(perfEnabled()).toBe(false)
+    vi.unstubAllEnvs()
+  })
+
   it('__CROWBAR_PERF__ alone arms perf when DEV is false (packaged app)', () => {
     vi.stubEnv('DEV', false)
     ;(window as { __CROWBAR_PERF__?: boolean }).__CROWBAR_PERF__ = true

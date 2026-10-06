@@ -29,8 +29,18 @@ const MEASURE_RING_CAP = 2000
 let observer: PerformanceObserver | null = null
 const openMarks = new Set<string>()
 
+/** `localStorage['crowbar:perf'] = '1'` arms a packaged build across reloads,
+ *  which a launch span needs: the console flag comes too late for it. */
+function armedByStorage(): boolean {
+  try {
+    return localStorage.getItem('crowbar:perf') === '1'
+  } catch {
+    return false
+  }
+}
+
 export function perfEnabled(): boolean {
-  return Boolean(import.meta.env.DEV || window.__CROWBAR_PERF__)
+  return Boolean(import.meta.env.DEV || window.__CROWBAR_PERF__ || armedByStorage())
 }
 
 /**

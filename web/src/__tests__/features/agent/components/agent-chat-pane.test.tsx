@@ -11,6 +11,7 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
+import { chatLedgerStore } from '@/features/agent/stores/chat-ledger-store'
 import { resetChatPresentationMemoryForTests } from '@/features/agent/hooks/use-chat-presentation'
 import { nanoid } from 'nanoid'
 
@@ -20,6 +21,7 @@ const {
   switchProviderFn,
   resumeChatFn,
   listMessagesFn,
+  activityFn,
   submitPromptFn,
   slashCatalogFn,
   toastErrorFn,
@@ -30,6 +32,7 @@ const {
   switchProviderFn: vi.fn(),
   resumeChatFn: vi.fn(),
   listMessagesFn: vi.fn(),
+  activityFn: vi.fn(),
   submitPromptFn: vi.fn(),
   slashCatalogFn: vi.fn(),
   toastErrorFn: vi.fn(),
@@ -59,6 +62,7 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   switchProvider: (...a: unknown[]) => switchProviderFn(...a),
   resumeChat: (...a: unknown[]) => resumeChatFn(...a),
   listChatMessages: (...a: unknown[]) => listMessagesFn(...a),
+  listChatActivity: (...a: unknown[]) => activityFn(...a),
   submitAgentPrompt: (...a: unknown[]) => submitPromptFn(...a),
   getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
   switchToTerminal: (...a: unknown[]) => switchToTerminalFn(...a),
@@ -412,12 +416,15 @@ const paneOf = (_store: Store, id: string) => windowPaneStore.getState().panes[i
 // so explicitly by overriding these — nothing else has to opt in to "it worked".
 beforeEach(() => {
   resetWindowPaneStoreForTests()
+  chatLedgerStore.setState({ ledgers: {} })
   resetChatPresentationMemoryForTests()
   paneWorkspace.clear()
   getChatFn.mockReset()
   switchProviderFn.mockReset()
   resumeChatFn.mockReset()
   listMessagesFn.mockReset()
+  activityFn.mockReset()
+  activityFn.mockRejectedValue(new Error('no activity fixture'))
   submitPromptFn.mockReset()
   slashCatalogFn.mockReset()
   toastErrorFn.mockReset()
@@ -948,6 +955,27 @@ describe('AgentChatPane', () => {
     expect(screen.queryByTestId('xterm')).toBeNull()
     expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
     expect(screen.queryByText(/this agent has exited/i)).not.toBeInTheDocument()
+  })
+
+  it('reads a restored chat before the chat list lands, when its pane records the workspace', async () => {
+    const store = unseededWorkspace()
+    const paneId = openChatPane(store, 'c1', 'r1')
+    windowPaneStore.setState((s) => {
+      s.panes[paneId].workspaceId = 'w1'
+      return s
+    })
+    await renderPane(store, paneId)
+
+    await waitFor(() => expect(activityFn).toHaveBeenCalled())
+  })
+
+  it('reads nothing for a chat with no recorded workspace until the list says it is known', async () => {
+    const store = unseededWorkspace()
+    const paneId = openChatPane(store, 'c1', 'r1')
+    await renderPane(store, paneId)
+
+    await waitFor(() => expect(listMessagesFn).toHaveBeenCalled())
+    expect(activityFn).not.toHaveBeenCalled()
   })
 
   it('threads isActivePane=false through to the terminal', async () => {

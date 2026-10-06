@@ -41,6 +41,13 @@ function parsedValue(md: string): Value {
   return structuredClone(value)
 }
 
+/** One editor for every row: resolving the plugin set costs ~3ms per `createStaticEditor`.
+ *  `PlateStatic` installs its `value` and renders the subtree before the next row starts. */
+let staticEditor: ReturnType<typeof createStaticEditor> | null = null
+function sharedStaticEditor() {
+  return (staticEditor ??= createStaticEditor({ plugins: chatComposerPluginsStatic }))
+}
+
 /**
  * A settled message, rendered without an interactive editor.
  *
@@ -54,14 +61,13 @@ function parsedValue(md: string): Value {
  * only the one still-streaming bubble gets the interactive path instead.
  */
 export function MarkdownMessageStatic({ children, className }: MarkdownMessageStaticProps) {
-  const editor = useMemo(
-    () =>
-      createStaticEditor({
-        plugins: chatComposerPluginsStatic,
-        value: parsedValue(children),
-      }),
-    [children],
-  )
+  const value = useMemo(() => parsedValue(children), [children])
 
-  return <PlateStatic editor={editor} className={cn('agent-prose', className)} />
+  return (
+    <PlateStatic
+      editor={sharedStaticEditor()}
+      value={value}
+      className={cn('agent-prose', className)}
+    />
+  )
 }

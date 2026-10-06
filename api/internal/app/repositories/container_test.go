@@ -227,6 +227,7 @@ func newContainer(
 		noChatWatch,
 		noRunnerWatch,
 		noNodeWatch,
+		nil,
 	)
 	require.NoError(t, err)
 	return c
@@ -257,6 +258,7 @@ func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
 		noChatWatch,
 		noRunnerWatch,
 		noNodeWatch,
+		nil,
 	)
 	assert.Error(t, err)
 }
@@ -473,7 +475,7 @@ func TestContainer_ListWorkspaces_ListErrorPropagates(t *testing.T) {
 func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, noChatWatch, noRunnerWatch, noNodeWatch)
+	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, noChatWatch, noRunnerWatch, noNodeWatch, nil)
 	require.NoError(t, err)
 
 	// A real MANAGED worktree UNDER the crowbar home: the delete reactor's rm is
@@ -536,7 +538,7 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 func TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, noChatWatch, noRunnerWatch, noNodeWatch)
+	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, noChatWatch, noRunnerWatch, noNodeWatch, nil)
 	require.NoError(t, err)
 
 	// The user's real checkout, OUTSIDE the crowbar home (an adopted worktree).

@@ -48,6 +48,14 @@ type RunnerUsecase interface {
 		chatID string,
 	) error
 
+	// CloseChat retires the CLI on a chat nothing displays any more, even
+	// mid-turn, leaving the chat dormant. Unlike StopChat it never interrupts in
+	// place: the session ends with the view.
+	CloseChat(
+		ctx context.Context,
+		chatID string,
+	) error
+
 	// SwitchProvider replaces the chat's CLI with one from another provider,
 	// handing the incoming CLI the conversation so far. It WAITS for any in-flight
 	// turn rather than quitting a CLI mid-answer, and refuses a disabled target
@@ -299,6 +307,14 @@ func (u *Usecase) StopChat(
 	chatID string,
 ) error {
 	return u.runners.StopChat(ctx, chatID)
+}
+
+// CloseChat retires the CLI on a chat no view displays. The chat itself survives.
+func (u *Usecase) CloseChat(
+	ctx context.Context,
+	chatID string,
+) error {
+	return u.runners.CloseChat(ctx, chatID)
 }
 
 // SwitchProvider replaces the chat's CLI with another provider's, waiting for any

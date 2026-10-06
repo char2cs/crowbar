@@ -26,9 +26,9 @@ func (rs *Runners) displace(
 
 	if _, err := rs.runnerStore.Displace(ctx, runner.ID); err != nil {
 		if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, agentrunner.ErrNotFound) {
-			slog.WarnContext(ctx, "agent: displace runner: it had already exited (benign)",
+			slog.DebugContext(ctx, "agent: displace runner: it had already exited",
 				"runner_id", runner.ID, "chat_id", vacated)
-			rs.inflightTurns.Complete(runner.ID)
+			rs.inflightTurns.Complete(ctx, runner.ID, domain.AgentExitExited)
 			return nil
 		}
 		return fmt.Errorf("agent: displace runner: %w", err)
@@ -42,7 +42,7 @@ func (rs *Runners) displace(
 	// including the turn_stop that would have ended a turn it is still mid-way through.
 	// Nothing will ever close that turn where it stood, so anybody waiting on it is
 	// released here or waits for their context to die (inflight.Turns.Complete).
-	rs.inflightTurns.Complete(runner.ID)
+	rs.inflightTurns.Complete(ctx, runner.ID, domain.AgentExitDisplaced)
 	rs.closeAbandonedTurn(ctx, vacated, runner)
 	return nil
 }
@@ -182,7 +182,7 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
 	// that closes it, so a provider switch parked on that turn is released by the DEATH
 	// instead — the same real signal that ends the runner, and the reason the wait needs no
 	// timeout to be safe against a CLI that falls over.
-	rs.inflightTurns.Complete(runnerID)
+	rs.inflightTurns.Complete(ctx, runnerID, domain.AgentExitExited)
 
 	runner, err := rs.runnerStore.Get(ctx, runnerID)
 	if err != nil {

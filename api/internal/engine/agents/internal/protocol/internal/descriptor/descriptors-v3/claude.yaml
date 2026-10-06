@@ -74,7 +74,7 @@ events:
     required: [session_id, message]
     in: UserPromptSubmit
     map: { session_id: session_id, message: prompt, subagent_id: agent_id }
-    fixtures: [UserPromptSubmit.json, UserPromptSubmit.Subagent.json]
+    fixtures: [UserPromptSubmit.json, UserPromptSubmit.Subagent.json, UserPromptSubmit.AgentMessage.json]
 
   turn_stop:
     required: [session_id]
@@ -113,6 +113,7 @@ events:
     in: PreToolUse
     map:
       session_id:  session_id
+      subagent_id: agent_id
       tool_id:     tool_use_id
       tool_name:   tool_name
       tool_kind:   tool_name
@@ -120,7 +121,7 @@ events:
       tool_input:  tool_input
       edit_before: tool_input.old_string
       edit_after:  { first_present: [tool_input.new_string, tool_input.content] }
-    fixtures: [PreToolUse.json, PreToolUse.Edit.json]
+    fixtures: [PreToolUse.json, PreToolUse.Edit.json, PreToolUse.Subagent.json]
 
   tool_post:
     kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute, Grep: search, Glob: search, WebFetch: fetch, WebSearch: search }
@@ -128,6 +129,7 @@ events:
     in: PostToolUse
     map:
       session_id:  session_id
+      subagent_id: agent_id
       tool_id:     tool_use_id
       tool_name:   tool_name
       tool_kind:   tool_name
@@ -136,7 +138,7 @@ events:
       tool_result: tool_response
       duration_ms: duration_ms
     patch: { items: tool_response.structuredPatch, old_start: oldStart, new_start: newStart, lines: lines }
-    fixtures: [PostToolUse.json, PostToolUse.Edit.json]
+    fixtures: [PostToolUse.json, PostToolUse.Edit.json, PostToolUse.Subagent.json]
 
   # Fires INSTEAD OF PostToolUse, not alongside it — mapping only tool_post
   # leaves a failed tool open until the turn-close sweep abandons it.
@@ -147,6 +149,7 @@ events:
     in: PostToolUseFailure
     map:
       session_id:  session_id
+      subagent_id: agent_id
       tool_id:     tool_use_id
       tool_name:   tool_name
       tool_kind:   tool_name
@@ -158,15 +161,15 @@ events:
 
   subagent_pre:
     required: [session_id, subagent_id]
-    unverified: true
     in: SubagentStart
     map: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
+    fixtures: [SubagentStart.json]
 
   subagent_post:
     required: [session_id, subagent_id]
-    unverified: true
     in: SubagentStop
     map: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
+    fixtures: [SubagentStop.json]
 
   notification:
     required: [session_id]
@@ -357,6 +360,12 @@ presentation:
     leading_sigils:
       chars: ["!"]
       escape: " "
+    # A message sent mid-turn rides the Stop hook's block reply, so the running
+    # CLI takes it without a restart. `/` and `!` are commands, never steered.
+    steer:
+      skip_prefixes: ["/", "!"]
+      frame: "The user sent a new message while you were working. Respond to it now.\n\n{message}"
+      reply: '{"decision":"block","reason":{message_json}}'
   # Plugin metadata is readable without a model turn; project/user skills
   # are not, hence plugin_only rather than complete.
   slash_catalog:
@@ -508,12 +517,14 @@ telemetry:
 # TEXT MATCH, not a discriminator: UserPromptSubmit carries an identical key
 # set for Crowbar, a human, and claude's own harness, with no `source` field.
 # Delete this the day claude sends one. Prefix match, case-sensitive, on the
-# raw prompt — a miss degrades to "recorded as the user", a false hit
+# raw prompt, or under one wrapping tag (<agent-message> wraps the hand-back
+# frame) — a miss degrades to "recorded as the user", a false hit
 # silences a human.
 injected_prompts:
   - kind: task_notification
     needle: "<task-notification>"
   - needle: "<teammate-message"
+  - needle: "<agent-message"
   - needle: "[Subagent hand-back]"
 # claude paints its trust dialog BEFORE any hook fires, so a chat behind it
 # is an empty pane over a blocked process with no channel to answer it.

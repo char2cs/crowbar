@@ -135,11 +135,13 @@ func New(
 
 	h := hub.NewHub()
 	chatSnapshots := newChatSnapshots(h)
+	choiceWatch := agentusecase.NewChoiceWatch()
 	repos, err := newRepositoriesContainer(
 		ctx,
 		adapters,
 		h,
 		chatSnapshots,
+		choiceWatch,
 		axReviewThread,
 		axWorkspace,
 		axAgentChat,
@@ -161,6 +163,7 @@ func New(
 		announceHomeRow(h, chatSnapshots),
 		announceRepoPlacement(h, gormStores.Repositories),
 		usecases.WithChatSnapshots(chatSnapshots),
+		usecases.WithChoiceWatch(choiceWatch),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("app: usecases: %w", err)
@@ -458,6 +461,7 @@ func newRepositoriesContainer(
 	adapters *adapter.Container,
 	h *hub.Hub,
 	chatSnapshots *agentusecase.ChatSnapshots,
+	choiceWatch *agentusecase.ChoiceWatch,
 	axReviewThread asynx.Asynx[domain.ReviewThread],
 	axWorkspace asynx.Asynx[domain.Workspace],
 	axAgentChat asynx.Asynx[domain.Chat],
@@ -481,6 +485,7 @@ func newRepositoriesContainer(
 		agentFanout.ChatWatch(),
 		agentFanout.RunnerWatch(),
 		nil,
+		choiceWatch.Notify,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("app: repositories: %w", err)
@@ -536,6 +541,13 @@ func chatSnapshotEvent(f agentusecase.ChatSnapshotFrame) dto.AgentChatEvent {
 	return ev
 }
 
+// broadcastChoices publishes a chat's pending prompts as the wire frame.
+func broadcastChoices(h *hub.Hub) func(string, string, []domain.ActivityChoice, []string) {
+	return func(chatID, workspaceID string, choices []domain.ActivityChoice, answerable []string) {
+		h.BroadcastAgentChatChoices(chatID, workspaceID, dto.AgentChoiceDTOsFrom(choices, answerable))
+	}
+}
+
 // startTerminalWaitSweep begins the cadence that notices a vendor CLI parked on a
 // modal Crowbar cannot answer — the workspace-trust dialog and its relatives, which
 // reach the daemon through no hook and otherwise leave a chat pane showing nothing
@@ -557,6 +569,7 @@ func startTerminalWaitSweep(
 		Compaction:    h.BroadcastAgentChatCompaction,
 		Plan:          h.BroadcastAgentChatPlan,
 		Telemetry:     h.BroadcastAgentChatTelemetry,
+		Choices:       broadcastChoices(h),
 	})
 }
 

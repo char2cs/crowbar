@@ -291,3 +291,53 @@ func TestChatLineage_StopsAtNonChatRow(t *testing.T) {
 		t.Fatalf("lineage must only include Type==chat ancestors, got %v", got)
 	}
 }
+
+// countingNodes counts how the walk reads the Node table.
+type countingNodes struct {
+	*mocks.NodePlacements
+	byParent, gets, all int
+}
+
+func (c *countingNodes) ListByParent(ctx context.Context, id string) ([]domain.Node, error) {
+	c.byParent++
+	return c.NodePlacements.ListByParent(ctx, id)
+}
+
+func (c *countingNodes) GetNode(ctx context.Context, id string) (domain.Node, error) {
+	c.gets++
+	return c.NodePlacements.GetNode(ctx, id)
+}
+
+func (c *countingNodes) ListAll(ctx context.Context) ([]domain.Node, error) {
+	c.all++
+	return c.NodePlacements.ListAll(ctx)
+}
+
+// A walk over a whole list reads the Node table ONCE, however many folders and
+// workspace anchors it crosses: each read of it decodes every row.
+func TestCwdWorkspaceIDs_ReadsTheNodeTableOnce(t *testing.T) {
+	inner := mocks.NewNodePlacements()
+	inner.Rows = []domain.Node{
+		{ID: "folder-a", Kind: domain.NodeKindFolder, ParentID: "ws-anchor"},
+		{ID: "folder-b", Kind: domain.NodeKindFolder, ParentID: "folder-a"},
+		{ID: "ws-anchor", Kind: domain.NodeKindWorkspace, ParentID: ""},
+	}
+	nodes := &countingNodes{NodePlacements: inner}
+	folders := mocks.NewFolderStore()
+	folders.Saved = []domain.Folder{{ID: "folder-a", Name: "a"}, {ID: "folder-b", Name: "b"}}
+	rows := []domain.Chat{
+		{ID: "c1", WorkspaceID: "w1", ParentID: "folder-b"},
+		{ID: "c2", WorkspaceID: "w1", ParentID: "c1"},
+		{ID: "c3", WorkspaceID: "w1", ParentID: "folder-a"},
+	}
+
+	got := tree.CwdWorkspaceIDs(context.Background(), folders, nodes, nil, rows)
+
+	if got["c1"] != "w1" || got["c2"] != "w1" || got["c3"] != "w1" {
+		t.Fatalf("every row resolves its own workspace, got %v", got)
+	}
+	if nodes.byParent != 0 || nodes.gets != 0 || nodes.all != 1 {
+		t.Fatalf("one table read expected, got ListByParent=%d GetNode=%d ListAll=%d",
+			nodes.byParent, nodes.gets, nodes.all)
+	}
+}

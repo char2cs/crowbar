@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChatMessage } from '@/features/agent/api/agent-api'
+import { ApiError } from '@/lib/api'
 import {
   hasPendingImageUpload,
   usePromptQueue,
@@ -351,6 +352,21 @@ describe('usePromptQueue recovering a lost prompt from the backend', () => {
     expect(result.current.queue).toEqual([])
   })
 
+  // A parked chat stays mounted, so its queue is never lost to a reload between
+  // two showings: asking the backend again on every show is a request per switch
+  // for an answer this mount already has.
+  it('asks the backend once per mount, not each time the chat is shown again', async () => {
+    const { rerender } = mount(options({ visible: true }))
+    await act(async () => {})
+    expect(getPendingPrompt).toHaveBeenCalledTimes(1)
+
+    rerender(options({ visible: false }))
+    rerender(options({ visible: true }))
+    await act(async () => {})
+
+    expect(getPendingPrompt).toHaveBeenCalledTimes(1)
+  })
+
   // The dedup check must hold for a chat that already has its own record of the
   // same prompt — not just on the very first read. A second mount (a fresh tab,
   // or the same tab after a reload) re-reads the backend and must not duplicate
@@ -495,6 +511,87 @@ describe('usePromptQueue confirming a delivery', () => {
 
     act(() => result.current.reconcile([userRow('another-turn', 'continue')]))
 
+    expect(result.current.queue.map((item) => item.state)).toEqual(['awaiting_turn'])
+  })
+})
+
+describe('usePromptQueue while the agent is working', () => {
+  beforeEach(() => {
+    submitAgentPrompt.mockReset()
+    submitAgentPrompt.mockResolvedValue({ runnerId: 'r1' })
+    getPendingPrompt.mockReset()
+    getPendingPrompt.mockResolvedValue(null)
+    localStorage.clear()
+  })
+
+  it('sends a prompt immediately mid-turn when the provider delivers into the running turn', async () => {
+    const { result } = mount(options({ working: true, steerable: true }))
+
+    await act(async () => {
+      result.current.enqueue('also check the tests')
+    })
+
+    expect(submitAgentPrompt).toHaveBeenCalledTimes(1)
+    expect(submitAgentPrompt.mock.calls[0]?.[2]).toBe('also check the tests')
+    expect(result.current.queue.map((item) => item.state)).toEqual(['awaiting_turn'])
+  })
+
+  it('still holds a steerable provider while it compacts', async () => {
+    const { result } = mount(options({ working: true, steerable: true, compacting: true }))
+
+    await act(async () => {
+      result.current.enqueue('also check the tests')
+    })
+
+    expect(submitAgentPrompt).not.toHaveBeenCalled()
+  })
+
+  it('waits for the idle edge when the daemon refuses a mid-turn send as busy', async () => {
+    submitAgentPrompt
+      .mockRejectedValueOnce(new ApiError('chat is busy', 409, 'chat_busy'))
+      .mockResolvedValueOnce({ runnerId: 'r2' })
+    const { result, rerender } = mount(
+      options({ working: true, steerable: true, onRefreshChat: () => Promise.resolve(true) }),
+    )
+
+    await act(async () => {
+      result.current.enqueue('switch the model and carry on')
+    })
+    expect(submitAgentPrompt).toHaveBeenCalledTimes(1)
+    expect(result.current.queue.map((item) => item.state)).toEqual(['queued'])
+
+    await act(async () => {
+      rerender(options({ working: false, steerable: true, turnRevision: 2 }))
+    })
+    expect(submitAgentPrompt).toHaveBeenCalledTimes(2)
+    expect(result.current.queue.map((item) => item.state)).toEqual(['awaiting_turn'])
+  })
+
+  // The daemon refuses a request id whose outcome it cannot prove (a runner that
+  // exited before confirming it). That id can never be accepted, so a Retry that
+  // reused it conflicted forever and the person's text was stuck on the row.
+  it('retries as a new request once the daemon declares the old id unusable', async () => {
+    submitAgentPrompt
+      .mockRejectedValueOnce(new ApiError('outcome uncertain', 409, 'request_outcome_uncertain'))
+      .mockResolvedValueOnce({ runnerId: 'r2' })
+    const { result } = mount(options())
+
+    await act(async () => {
+      result.current.enqueue('keep my words')
+    })
+    const firstId = submitAgentPrompt.mock.calls[0]?.[3]
+    expect(result.current.queue[0]).toMatchObject({
+      state: 'outcome_uncertain',
+      text: 'keep my words',
+    })
+    expect(result.current.queue[0]?.clientRequestId).not.toBe(firstId)
+
+    await act(async () => {
+      result.current.retry(result.current.queue[0]?.clientRequestId as string)
+    })
+
+    expect(submitAgentPrompt).toHaveBeenCalledTimes(2)
+    expect(submitAgentPrompt.mock.calls[1]?.[3]).not.toBe(firstId)
     expect(result.current.queue.map((item) => item.state)).toEqual(['awaiting_turn'])
   })
 })

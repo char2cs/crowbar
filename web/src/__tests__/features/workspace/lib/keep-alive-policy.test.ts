@@ -1,14 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import {
-  planRetention,
-  workspacesWithViewChat,
-  RETENTION_CAP,
-} from '@/features/workspace/lib/keep-alive-policy'
+import { planRetention, workspacesWithViewChat } from '@/features/workspace/lib/keep-alive-policy'
 import type { PaneGroup } from '@/features/panes/types/pane'
 
 describe('planRetention', () => {
   it('retains a lone active workspace with no view chat', () => {
-    const plan = planRetention([{ wsId: 'a', hasViewChat: false, lastActiveAt: 1000 }], 'a')
+    const plan = planRetention([{ wsId: 'a', hasViewChat: false }], 'a')
     expect(plan.retain).toEqual(['a'])
     expect(plan.evict).toEqual([])
   })
@@ -21,8 +17,8 @@ describe('planRetention', () => {
   it('retains a non-active workspace that has a view chat', () => {
     const plan = planRetention(
       [
-        { wsId: 'active', hasViewChat: false, lastActiveAt: 100 },
-        { wsId: 'viewed', hasViewChat: true, lastActiveAt: 50 },
+        { wsId: 'active', hasViewChat: false },
+        { wsId: 'viewed', hasViewChat: true },
       ],
       'active',
     )
@@ -33,8 +29,8 @@ describe('planRetention', () => {
   it('evicts a non-active workspace the instant it has no view chat', () => {
     const plan = planRetention(
       [
-        { wsId: 'active', hasViewChat: false, lastActiveAt: 100 },
-        { wsId: 'stale', hasViewChat: false, lastActiveAt: 99 },
+        { wsId: 'active', hasViewChat: false },
+        { wsId: 'stale', hasViewChat: false },
       ],
       'active',
     )
@@ -43,7 +39,7 @@ describe('planRetention', () => {
   })
 
   it('never evicts the active workspace even with no view chat of its own', () => {
-    const plan = planRetention([{ wsId: 'active', hasViewChat: false, lastActiveAt: 1 }], 'active')
+    const plan = planRetention([{ wsId: 'active', hasViewChat: false }], 'active')
     expect(plan.retain).toEqual(['active'])
     expect(plan.evict).toEqual([])
   })
@@ -53,7 +49,7 @@ describe('planRetention', () => {
     // caller must include the active id in `entries` for it to be reported,
     // but nothing here should crash or misbehave if it's asked about ids
     // that don't include it.
-    const plan = planRetention([{ wsId: 'other', hasViewChat: false, lastActiveAt: 1 }], 'active')
+    const plan = planRetention([{ wsId: 'other', hasViewChat: false }], 'active')
     expect(plan.retain).toEqual([])
     expect(plan.evict).toEqual(['other'])
   })
@@ -61,8 +57,8 @@ describe('planRetention', () => {
   it('with no active workspace (home route), retains only entries with a view chat', () => {
     const plan = planRetention(
       [
-        { wsId: 'a', hasViewChat: true, lastActiveAt: 10 },
-        { wsId: 'b', hasViewChat: false, lastActiveAt: 20 },
+        { wsId: 'a', hasViewChat: true },
+        { wsId: 'b', hasViewChat: false },
       ],
       null,
     )
@@ -70,50 +66,24 @@ describe('planRetention', () => {
     expect(plan.evict).toEqual(['b'])
   })
 
-  it('caps the retained set at the hard cap, evicting the least-recently-active over the cap', () => {
-    const active = { wsId: 'active', hasViewChat: false, lastActiveAt: 1000 }
-    // 6 more with view chats, all candidates — 7 total, cap is 6.
-    const viewed = Array.from({ length: 6 }, (_, i) => ({
-      wsId: `v${i}`,
-      hasViewChat: true,
-      lastActiveAt: i, // v0 oldest ... v5 newest
-    }))
-    const plan = planRetention([active, ...viewed], 'active', 6)
-    expect(plan.retain).toEqual(['active', 'v1', 'v2', 'v3', 'v4', 'v5'])
-    expect(plan.evict).toEqual(['v0'])
-  })
-
-  it('the active workspace always wins a cap slot regardless of recency', () => {
-    const entries = [
-      { wsId: 'active', hasViewChat: false, lastActiveAt: 0 }, // oldest timestamp, but active
-      ...Array.from({ length: 6 }, (_, i) => ({
-        wsId: `v${i}`,
-        hasViewChat: true,
-        lastActiveAt: 100 + i,
-      })),
-    ]
-    const plan = planRetention(entries, 'active', 6)
-    expect(plan.retain).toContain('active')
-    expect(plan.retain).toHaveLength(6)
-    // The single oldest viewed workspace (v0) is the one pushed out.
-    expect(plan.evict).toEqual(['v0'])
+  it('retains every workspace with a view chat, however many there are', () => {
+    const viewed = Array.from({ length: 12 }, (_, i) => ({ wsId: `v${i}`, hasViewChat: true }))
+    const plan = planRetention([{ wsId: 'active', hasViewChat: false }, ...viewed], 'active')
+    expect(plan.retain).toEqual(['active', ...viewed.map((v) => v.wsId)])
+    expect(plan.evict).toEqual([])
   })
 
   it('preserves input order in retain and evict arrays', () => {
     const plan = planRetention(
       [
-        { wsId: 'x', hasViewChat: false, lastActiveAt: 1 }, // no view chat, evicted
-        { wsId: 'y', hasViewChat: false, lastActiveAt: 3 }, // active
-        { wsId: 'z', hasViewChat: true, lastActiveAt: 2 }, // has a view chat
+        { wsId: 'x', hasViewChat: false }, // no view chat, evicted
+        { wsId: 'y', hasViewChat: false }, // active
+        { wsId: 'z', hasViewChat: true }, // has a view chat
       ],
       'y',
     )
     expect(plan.retain).toEqual(['y', 'z'])
     expect(plan.evict).toEqual(['x'])
-  })
-
-  it('exposes a hard cap of 6', () => {
-    expect(RETENTION_CAP).toBe(6)
   })
 })
 

@@ -94,6 +94,29 @@ func (h *Handlers) Stop(
 	libs.WriteAccepted(ctx)
 }
 
+// Close handles POST .../repos/:repoId/chats/:id/close: the last view of the
+// chat closed, so its CLI is retired even mid-turn (Stop interrupts in place and
+// may leave it running). The chat entry stays, dormant and resumable. 404s (via
+// requireChatInWorkspace) on an unknown id.
+func (h *Handlers) Close(
+	ctx *gin.Context,
+) {
+	rctx := ctx.Request.Context()
+	id := ctx.Param("id")
+
+	if _, ok := h.requireChatInWorkspace(ctx, id); !ok {
+		return
+	}
+
+	if err := h.runners.CloseChat(rctx, id); err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+
+	libs.WriteAccepted(ctx)
+}
+
 // Handoff handles GET .../repos/:repoId/chats/:id/handoff: assembles
 // the chat's ledger into the legible handoff blob a freshly spawned provider
 // CLI can be given as prior context. Used by the `crowbar handoff dump` CLI

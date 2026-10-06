@@ -1,29 +1,17 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { beforeEach, describe, expect, test } from 'vitest'
 
-// Pin the WebSocket endpoints the frontend opens to the real backend routes.
-// Both topics below are now named the same way, and that is the contract: a
+// Pin the WebSocket endpoints the frontend opens to the real backend routes: a
 // live stream over a worktree is addressed by a CHAT holding it (the flat
-// /v0/chats/:chatId prefix), never by the workspace. The git store dials
-// through wsManager.subscribe; the files topic is built by filesWsEndpoint and
-// dialed from the workspace effects hook. Both resolve the owning chat from the
-// route-recorded workspace scope.
-const { subscribe } = vi.hoisted(() => ({ subscribe: vi.fn(() => () => {}) }))
-vi.mock('@/lib/ws/manager', () => ({
-  wsManager: {
-    subscribe,
-    send: vi.fn(),
-  },
-}))
-
+// /v0/chats/:chatId prefix), never by the workspace. Both resolve the owning
+// chat from the route-recorded workspace scope.
 // The scope lives in the dependency-free @/lib/workspace-scope module — record
 // it there so the URL builders resolve the owning chat without importing the
 // heavy registry.
 import { setWorkspaceScope } from '@/lib/workspace-scope'
-import { useGitStore } from '@/features/git/stores/git-store'
+import { gitBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { filesWsEndpoint } from '@/features/files/lib/file-tree-api'
 
 beforeEach(() => {
-  subscribe.mockClear()
   setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-123', owningChatId: 'chat-123' })
   setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-456', owningChatId: 'chat-456' })
 })
@@ -33,9 +21,8 @@ describe('WebSocket endpoint contract', () => {
   // holding the worktree, never by the workspace. Every chat sharing that
   // worktree subscribes to its own URL and the daemon fans one push out to all
   // of them.
-  test('git store subscribes to the chat-scoped .../git/status WS', () => {
-    useGitStore.getState().startGitSync('ws-123')
-    expect(subscribe).toHaveBeenCalledWith('/v0/chats/chat-123/git/status', expect.any(Function))
+  test('git status topic targets the chat-scoped .../git/status WS', () => {
+    expect(`${gitBaseForWorkspace('ws-123')}/status`).toBe('/v0/chats/chat-123/git/status')
   })
 
   // files completes the shared bucket's move. Sibling chats over one worktree

@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/console"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git"
@@ -66,6 +67,9 @@ func (c *Container) Register(
 	// Top-level, non-entity-scoped routes stay on rg (outside /projects).
 	health.Register(rg)
 	system.Register(rg)
+	if c.logs != nil {
+		console.Register(rg, c.logs)
+	}
 
 	projects := rg.Group("/projects")
 	projectScoped := projects.Group("/:projectId")

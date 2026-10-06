@@ -1,0 +1,12 @@
+{
+ "session_id": "68a2773c-78c5-4edd-b4fe-bf5bd1309895",
+ "transcript_path": "/h/.claude/projects/-ws/68a2773c-78c5-4edd-b4fe-bf5bd1309895.jsonl",
+ "cwd": "/ws",
+ "prompt_id": "e0ff2382-e36e-4989-b778-101a8ff77351",
+ "hook_event_name": "MessageDisplay",
+ "turn_id": "a52efa3c-3ba4-4f4c-b3ff-d69867b09f35",
+ "message_id": "afdda833-8347-4096-8718-2ee080e783ed",
+ "index": 0,
+ "final": false,
+ "delta": "Both subagents are running in the background. I haven't received a result from either one yet, so I have nothing to report on them.\n\n"
+}

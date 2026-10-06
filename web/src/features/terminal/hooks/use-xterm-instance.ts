@@ -2,7 +2,8 @@ import type { Terminal } from '@xterm/xterm'
 import { useEffect, useRef, useState } from 'react'
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
-import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
+import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { resolveWorkspaceRootPath } from '@/lib/workspace/resolve-root-path'
 import { toast } from '@/features/window/stores/toast-store'
 import { injectLinkStyles, removeLinkStyles, type TerminalAddons } from './use-terminal-addons'
@@ -31,12 +32,12 @@ function fileLinksFor(getSessionId: () => string): TerminalFileLinksOptions {
         toast.error('Cannot open file', `${absolutePath} is outside the current workspace.`)
         return
       }
-      const openHandler = useFileSystemStore.getState().handleFileOpen
-      if (!openHandler) {
+      const wsId = getActiveWorkspaceId()
+      if (!wsId) {
         toast.error('Cannot open file', 'No editor is available in this view.')
         return
       }
-      void openHandler(rel).catch(() => {
+      void openWorkspaceFile(wsId, rel).catch(() => {
         toast.error('Could not open file', absolutePath)
       })
     },

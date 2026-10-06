@@ -489,7 +489,12 @@ export function ChatMarkdownEditor({
       heightObserverRef.current?.disconnect()
       heightObserverRef.current = null
       if (!node || !onHeightChange) return
-      const report = () => onHeightChange(layoutHeight(node))
+      // A zero is the absence of a box (a parked view is display:none), never
+      // a height: publishing it re-renders the whole chat view on every switch.
+      const report = () => {
+        const height = layoutHeight(node)
+        if (height > 0) onHeightChange(height)
+      }
       report()
       const observer = new ResizeObserver(report)
       // react-doctor-disable-next-line effect-needs-cleanup -- cleanup exists (l.481: disconnect() at the top of this same callback, which also runs on every detach since React calls a ref callback with node=null then); tracer expects a useEffect return, not a ref-callback's own next invocation.

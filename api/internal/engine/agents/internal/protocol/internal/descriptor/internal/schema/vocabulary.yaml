@@ -50,7 +50,7 @@ events:
   tool_pre:
     direction: in
     required: []
-    optional: [session_id, tool_id, tool_name, tool_kind, tool_target, tool_input, edit_before, edit_after, nested_session_id]
+    optional: [session_id, tool_id, tool_name, tool_kind, tool_target, tool_input, edit_before, edit_after, nested_session_id, subagent_id]
     extras: [kind_map, locations, diff_files]
 
   tool_post:
@@ -73,6 +73,8 @@ events:
       # addressing) — never a provider's own vocabulary, just an id. See
       # turn/ingest.go's nested-session routing.
       - nested_session_id
+      # subagent_id set means a SUBAGENT made this call: the chat log never records it.
+      - subagent_id
 
   # PostToolUseFailure fires INSTEAD OF PostToolUse, not alongside it. Mapping only
   # tool_post left a failed tool in flight until the turn-close sweep abandoned it.
@@ -92,6 +94,7 @@ events:
       - tool_status
       - duration_ms
       - nested_session_id
+      - subagent_id
 
   subagent_pre:
     direction: in

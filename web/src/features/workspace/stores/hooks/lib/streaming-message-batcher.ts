@@ -1,6 +1,8 @@
 export interface StreamingMessage {
   id: string
   text: string
+  /** When the daemon first received this message's text. */
+  startedAt?: string
 }
 
 export interface StreamingMessageBatcher {

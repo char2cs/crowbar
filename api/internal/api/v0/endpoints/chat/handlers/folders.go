@@ -96,7 +96,7 @@ func (h *Handlers) folderDTOList(
 	rows []domain.Chat,
 ) []dto.AgentChatDTO {
 	worktreeFn := h.repoWorktrees(
-		ctx.Request.Context(), ctx.Param("projectId"), ctx.Param("repoId"))
+		ctx.Request.Context(), ctx.Param("projectId"), ctx.Param("repoId"), rows)
 	out := dto.AgentChatDTOList(rows, nil, worktreeFn)
 	slices.SortFunc(out, compareFolderDTOs)
 	return out

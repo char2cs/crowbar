@@ -11,6 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
 type stubWorkspaceRepo struct {
@@ -133,4 +134,40 @@ func TestBroadcastWorkspace_ParentLocked_NotEligible(t *testing.T) {
 
 	assert.False(t, h.last.CanMergeLocally)
 	assert.Equal(t, "main", h.last.ParentBranch)
+}
+
+// batchOnlyGit answers the batched dry-run and nothing else: the broadcast must
+// reach git only through it, so it shares the list's cached verdicts.
+type batchOnlyGit struct {
+	asked [][]gitengine.MergePair
+}
+
+func (g *batchOnlyGit) WouldMergeConflicts(
+	_ context.Context,
+	_ string,
+	pairs []gitengine.MergePair,
+) []gitengine.MergeVerdict {
+	g.asked = append(g.asked, pairs)
+	return []gitengine.MergeVerdict{{Conflict: true}}
+}
+
+func TestBroadcastWorkspace_PredictsTheConflictThroughTheBatchedDryRun(t *testing.T) {
+	h := &discardHub{}
+	git := &batchOnlyGit{}
+	c := &Container{
+		hub: h,
+		git: git,
+		Workspace: stubWorkspaceRepo{rows: []domain.Workspace{
+			{ID: "parent", ProjectID: "p1", RepoID: "r1", Branch: "feature/p", Status: domain.WorkspaceStatusNew},
+		}},
+	}
+
+	c.broadcastWorkspace(
+		context.Background(),
+		domain.Workspace{ID: "child", ProjectID: "p1", RepoID: "r1", ParentID: "parent", Branch: "feature/c"},
+	)
+
+	assert.True(t, h.last.MergeConflicts)
+	assert.True(t, h.last.CanMergeLocally)
+	assert.Equal(t, [][]gitengine.MergePair{{{Ours: "feature/p", Theirs: "feature/c"}}}, git.asked)
 }

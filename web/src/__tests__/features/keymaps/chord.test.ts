@@ -9,6 +9,7 @@ import {
   normalizeChord,
   eventMatchesChord,
   formatChord,
+  chordFromEvent,
 } from '@/features/keymaps/utils/chord'
 
 describe('chord parse/stringify', () => {
@@ -63,5 +64,15 @@ describe('formatChord (non-mac labels)', () => {
   it('renders Ctrl/Shift/Alt with arrow glyphs and a + separator', () => {
     expect(formatChord('mod+shift+t')).toBe('Ctrl+Shift+T')
     expect(formatChord('mod+alt+arrowleft')).toBe('Ctrl+Alt+←')
+  })
+})
+
+describe('backtick chord', () => {
+  it('round-trips through the parser, the recorder, the matcher and the label', () => {
+    expect(parseChord('mod+`')).toEqual({ mod: true, shift: false, alt: false, key: '`' })
+    const event = new KeyboardEvent('keydown', { key: '`', ctrlKey: true })
+    expect(chordFromEvent(event)).toBe('mod+`')
+    expect(eventMatchesChord(event, 'mod+`')).toBe(true)
+    expect(formatChord('mod+`')).toBe('Ctrl+`')
   })
 })

@@ -5,7 +5,12 @@ import {
   selectEnabledProviders,
 } from '@/features/workspace/stores/slices/agent-chats-slice'
 import type { WorkspaceState } from '@/features/workspace/stores/workspace-store.types'
-import type { AgentChat, AgentChatFolder, AgentProvider } from '@/features/agent/api/agent-api'
+import type {
+  AgentChat,
+  AgentChatFolder,
+  AgentChoice,
+  AgentProvider,
+} from '@/features/agent/api/agent-api'
 import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
 import {
   chatSnapshot,
@@ -346,6 +351,27 @@ describe('agent-chats-slice', () => {
     expect(st.telemetry.c1).toBeUndefined()
     expect(st.streamingPlan.c1).toBeUndefined()
     expect(st.turnRevision.c1).toBeUndefined()
+  })
+
+  it('holds a chat’s pushed prompts whole, clears them with an empty list, and drops them with the chat', () => {
+    const s = createWorkspaceStore('w1')
+    const prompt = { id: 'k1', pending: true } as AgentChoice
+    s.getState().applyAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
+
+    s.getState().setAgentChatChoices('c1', [prompt])
+    expect(s.getState().agentChats.choices.c1).toEqual([prompt])
+
+    s.getState().setAgentChatChoices('c1', [])
+    expect(s.getState().agentChats.choices.c1).toBeUndefined()
+
+    s.getState().setAgentChatChoices('c1', [prompt])
+    s.getState().setAgentChatChoices('c2', [prompt])
+    s.getState().resetAgentChatChoices()
+    expect(s.getState().agentChats.choices).toEqual({})
+
+    s.getState().setAgentChatChoices('c1', [prompt])
+    s.getState().removeAgentChat('c1')
+    expect(s.getState().agentChats.choices.c1).toBeUndefined()
   })
 
   it('a chat first seen on a frame joins the top of a saved arrangement', () => {

@@ -7,16 +7,11 @@ import type { PaneContent } from '@/features/panes/types/pane-content'
 interface UseFileExplorerSyncOptions {
   activePath?: string
   updateActivePath?: (path: string) => void
-  revealPathInTree: (path: string) => void | Promise<void>
 }
 
 const EMPTY_BUFFERS: PaneContent[] = []
 
-export function useFileExplorerSync({
-  activePath,
-  updateActivePath,
-  revealPathInTree,
-}: UseFileExplorerSyncOptions) {
+export function useFileExplorerSync({ activePath, updateActivePath }: UseFileExplorerSyncOptions) {
   // Task 26: buffers/panes are window-level and never destroyed — a plain
   // zustand selector off the one singleton store, no more "active workspace"
   // resubscription (the per-active-workspace-store hook this used to read
@@ -45,9 +40,4 @@ export function useFileExplorerSync({
     if (explorerTargetPath === activePath) return
     updateActivePath?.(explorerTargetPath)
   }, [activePath, explorerTargetPath, updateActivePath])
-
-  useEffect(() => {
-    if (!explorerTargetPath) return
-    void revealPathInTree(explorerTargetPath)
-  }, [explorerTargetPath, revealPathInTree])
 }

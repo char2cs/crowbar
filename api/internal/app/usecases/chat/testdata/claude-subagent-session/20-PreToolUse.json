@@ -1,0 +1,18 @@
+{
+ "session_id": "68a2773c-78c5-4edd-b4fe-bf5bd1309895",
+ "transcript_path": "/h/.claude/projects/-ws/68a2773c-78c5-4edd-b4fe-bf5bd1309895.jsonl",
+ "cwd": "/ws",
+ "prompt_id": "e0ff2382-e36e-4989-b778-101a8ff77351",
+ "permission_mode": "auto",
+ "agent_id": "a3edc502687d15840",
+ "agent_type": "general-purpose",
+ "effort": {
+  "level": "medium"
+ },
+ "hook_event_name": "PreToolUse",
+ "tool_name": "SubagentHandback",
+ "tool_input": {
+  "message": "a.txt contains \"alpha\" (one line), and `echo hi` printed \"hi\"."
+ },
+ "tool_use_id": "toolu_01Hf7jzsd6SNxrAeh6rRWyhL"
+}

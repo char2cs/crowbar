@@ -31,7 +31,7 @@ func TestSeedChat_WritesTheRequestedTurnsAndToolCalls(t *testing.T) {
 	require.NoError(t, err)
 	activityStore, err := agentactivity.NewEventSourced(
 		axAgentActivity, adapters.AgentActivityES(), adapters.AgentActivityReadDB(),
-		adapters.CrowbarHome()+"/state/content",
+		adapters.CrowbarHome()+"/state/content", nil,
 	)
 	require.NoError(t, err)
 

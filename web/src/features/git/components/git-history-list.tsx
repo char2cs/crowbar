@@ -1,21 +1,23 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useFileSystemStore } from '@/features/file-system/controllers/store'
-import { useGitStore } from '@/features/git/stores/git-store'
+import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
+import { useRegisteredWorkspaceStore } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
 import { resolveOnscreenPaneForWorkspace } from '@/features/panes/lib/pane-chat-workspace'
-import { dataOf } from '@/lib/loadable'
+import { useStore } from 'zustand'
 import type { GitCommit } from '../types/git-types'
 import { useGitDiffHandlers } from '../hooks/use-git-diff-handlers'
 import { commitDateLabel } from './git-history-list-utils'
 
 export function GitHistoryList({ wsId: scopedWsId }: { wsId: string | null }) {
-  const gitData = useGitStore((s) => s.gitData)
-  const commits = useGitStore((s) => s.commits)
-  const isLoadingMore = useGitStore((s) => s.isLoadingMoreCommits)
-
-  const isLoading = gitData.status === 'idle' || (gitData.status === 'loading' && !dataOf(gitData))
-
   const wsId = scopedWsId ?? ''
+  const store = useRegisteredWorkspaceStore(wsId)
+  const gitLoad = useStore(store, (s) => s.gitLoad)
+  const commits = useStore(store, (s) => s.commits)
+  const isLoadingMore = useStore(store, (s) => s.isLoadingMoreCommits)
+
+  const isLoading = gitLoad === 'idle' || gitLoad === 'loading'
+  const loadMore = useCallback(() => void store.getState().gitActions.loadMoreCommits(), [store])
+
   // Reuse the same diff-tab plumbing the Changes panel uses — a commit row
   // click opens the commit's multi-file diff tab.
   const { handleViewCommitDiff } = useGitDiffHandlers({
@@ -26,7 +28,7 @@ export function GitHistoryList({ wsId: scopedWsId }: { wsId: string | null }) {
       // Opens in this workspace's on-screen pane, named explicitly (C8) — the
       // focused pane can be a different chat sharing the workspace.
       const paneId = resolveOnscreenPaneForWorkspace(wsId) ?? undefined
-      void useFileSystemStore.getState().handleFileOpen?.(rel, false, { paneId })
+      void openWorkspaceFile(wsId, rel, { paneId })
     },
   })
 
@@ -50,6 +52,7 @@ export function GitHistoryList({ wsId: scopedWsId }: { wsId: string | null }) {
     <GitHistoryListBody
       commits={commits}
       isLoadingMore={isLoadingMore}
+      onNearEnd={loadMore}
       onViewCommitDiff={handleViewCommitDiff}
     />
   )
@@ -63,10 +66,12 @@ export function GitHistoryList({ wsId: scopedWsId }: { wsId: string | null }) {
 function GitHistoryListBody({
   commits,
   isLoadingMore,
+  onNearEnd,
   onViewCommitDiff,
 }: {
   commits: GitCommit[]
   isLoadingMore: boolean
+  onNearEnd: () => void
   onViewCommitDiff: (hash: string) => void | Promise<void>
 }) {
   // Plain scroll container (mirrors git-diff-editor-stack) so the virtualizer
@@ -88,12 +93,8 @@ function GitHistoryListBody({
   const lastIndex = virtualItems.length > 0 ? virtualItems[virtualItems.length - 1].index : -1
   useEffect(() => {
     if (lastIndex < commits.length - 5) return
-    const { currentRepoPath, hasMoreCommits, isLoadingMoreCommits, actions } =
-      useGitStore.getState()
-    if (currentRepoPath && hasMoreCommits && !isLoadingMoreCommits) {
-      void actions.loadMoreCommits(currentRepoPath)
-    }
-  }, [lastIndex, commits.length])
+    onNearEnd()
+  }, [lastIndex, commits.length, onNearEnd])
 
   return (
     <div

@@ -99,11 +99,7 @@ func (u *homeCorrectedChats) correctAll(
 	ctx context.Context,
 	rows []domain.Chat,
 ) []domain.Chat {
-	out := make([]domain.Chat, len(rows))
-	for i, row := range rows {
-		out[i] = u.correctOne(ctx, row)
-	}
-	return out
+	return correctHomeChats(ctx, u.nodes, rows)
 }
 
 // NewHomeCorrectedTreeChats is NewHomeCorrectedChats' counterpart for the
@@ -280,4 +276,38 @@ func correctHomeChat(
 	row.ParentID = n.ParentID
 	row.Order = n.Order
 	return row
+}
+
+// correctHomeChats is correctHomeChat for a whole list: one read of the Node
+// table instead of one lookup per row. A lone row keeps the by-id lookup, which
+// is cheaper than reading the table, and a failed read leaves every row as it
+// was, the same degradation a missing Node gets.
+func correctHomeChats(
+	ctx context.Context,
+	nodes TreeNodes,
+	rows []domain.Chat,
+) []domain.Chat {
+	out := make([]domain.Chat, len(rows))
+	copy(out, rows)
+	if len(out) == 0 {
+		return out
+	}
+	if len(out) == 1 {
+		out[0] = correctHomeChat(ctx, nodes, out[0])
+		return out
+	}
+	all, err := nodes.ListAll(ctx)
+	if err != nil {
+		return out
+	}
+	byID := make(map[string]domain.Node, len(all))
+	for _, n := range all {
+		byID[n.ID] = n
+	}
+	for i, row := range out {
+		if n, ok := byID[row.ID]; ok && row.WorkspaceID != "" {
+			out[i].ParentID, out[i].Order = n.ParentID, n.Order
+		}
+	}
+	return out
 }

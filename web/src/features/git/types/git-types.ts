@@ -50,9 +50,3 @@ export interface GitHunk {
   file_path: string
   lines: GitDiffLine[]
 }
-
-export interface GitStash {
-  index: number
-  message: string
-  date: string
-}

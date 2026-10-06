@@ -75,6 +75,7 @@ func newContainerDeps(
 		noChatWatch,
 		noRunnerWatch,
 		noNodeWatch,
+		nil,
 	)
 	require.NoError(t, err)
 

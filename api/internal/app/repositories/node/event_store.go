@@ -107,6 +107,11 @@ type EventStore interface {
 		ctx context.Context,
 		parentID string,
 	) ([]domain.Node, error)
+	// ListAll returns every node in one read: the snapshot a walk over many
+	// parents takes instead of one ListByParent (a full decode) per parent.
+	ListAll(
+		ctx context.Context,
+	) ([]domain.Node, error)
 	// Forget purges the node aggregate outright via ax.Forget: its synchronous
 	// OnForget drops the read-model row AND the underlying event log is erased,
 	// so a subsequent GetNode/ListByParent genuinely reports not found. Mirrors
@@ -289,6 +294,16 @@ func (r *eventSourced) ListByParent(
 	rows, err := r.store.ListByParent(ctx, parentID)
 	if err != nil {
 		return nil, fmt.Errorf("node: list by parent: %w", err)
+	}
+	return rows, nil
+}
+
+func (r *eventSourced) ListAll(
+	ctx context.Context,
+) ([]domain.Node, error) {
+	rows, err := r.store.ListAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("node: list all: %w", err)
 	}
 	return rows, nil
 }

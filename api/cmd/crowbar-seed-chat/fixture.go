@@ -80,7 +80,7 @@ func seedChat(ctx context.Context, adapters *adapter.Container, opts seedOptions
 	}
 	activityStore, err := agentactivity.NewEventSourced(
 		axAgentActivity, adapters.AgentActivityES(), adapters.AgentActivityReadDB(),
-		filepath.Join(adapters.CrowbarHome(), "state", "content"),
+		filepath.Join(adapters.CrowbarHome(), "state", "content"), nil,
 	)
 	if err != nil {
 		return "", fmt.Errorf("crowbar-seed-chat: activity store: %w", err)

@@ -4,9 +4,12 @@ package v0_test
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -15,6 +18,7 @@ import (
 
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/core/logring"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -417,6 +421,9 @@ func extraRoutes() []string {
 		//   the chat left DORMANT with its bound vendor conversation intact, which
 		//   is exactly the state resume above exists to pick back up.
 		"POST " + repo + "/chats/:id/stop",
+		//   close: the last view of the chat went away. Unlike stop it never
+		//   interrupts in place; the CLI is retired and the chat stays dormant.
+		"POST " + repo + "/chats/:id/close",
 		"POST " + repo + "/chats/:id/compact",
 		// Two more ways a session on a chat can end without the chat itself
 		// going anywhere: forcing the CLI into (or back out of) the host
@@ -542,6 +549,7 @@ func extraRoutes() []string {
 		// And the same close-is-not-delete stop, for the same reason: a home chat's
 		// tab closes exactly like any other chat's.
 		"POST " + home + "/chats/:id/stop",
+		"POST " + home + "/chats/:id/close",
 		"POST " + home + "/chats/:id/compact",
 		// Placement and chat FOLDERS re-mounted on the home group. This is the
 		// mount that matters most: the project home accumulates more chats than any
@@ -934,4 +942,35 @@ func TestRouteAudit_DualServe_WsMode(t *testing.T) {
 		require.NoErrorf(t, err, "upgrade must succeed: %s", path)
 		_ = conn.Close()
 	}
+}
+
+// TestConsoleLogs_WithRing_StreamsReplayReadyAndLiveRedacted drives the mounted
+// /v0/console/logs route over a real WebSocket: a replayed record, one ready
+// frame, then a live record whose secret field never leaves the daemon.
+func TestConsoleLogs_WithRing_StreamsReplayReadyAndLiveRedacted(t *testing.T) {
+	tc := newApp(t)
+	ring := logring.New()
+	log := slog.New(ring.Wrap(slog.NewTextHandler(&strings.Builder{}, nil)))
+	log.Info("old", "component", "boot")
+	r := gin.New()
+	v0.New(tc.app, tc.eng, v0.WithLogs(ring)).Register(r.Group("/v0"))
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	conn, resp, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http")+"/v0/console/logs", nil)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	t.Cleanup(func() { _ = conn.Close() })
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+
+	var replayed, ready, live map[string]any
+	require.NoError(t, conn.ReadJSON(&replayed))
+	require.NoError(t, conn.ReadJSON(&ready))
+	log.Warn("fresh", "api_token", "s3cret")
+	require.NoError(t, conn.ReadJSON(&live))
+
+	assert.Equal(t, "old", replayed["msg"])
+	assert.Equal(t, "boot", replayed["component"])
+	assert.Equal(t, map[string]any{"type": "ready", "seq": float64(1)}, ready)
+	assert.Equal(t, map[string]any{"api_token": "[redacted]"}, live["fields"])
 }

@@ -1,6 +1,8 @@
 package hub
 
 import (
+	"time"
+
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -59,6 +61,7 @@ type Subscriber interface {
 		messageID string,
 		text string,
 		kind string,
+		startedAt time.Time,
 	)
 	// PushAgentChatPlan receives the agent's own running to-do list for the turn,
 	// restated wholesale. Never stored: a plan for a turn in progress is a view of
@@ -84,6 +87,13 @@ type Subscriber interface {
 		chatID string,
 		workspaceID string,
 		active bool,
+	)
+	// PushAgentChatChoices receives the whole set of prompts a chat is blocked
+	// on, empty once none is. See dto.AgentChatKindChoice.
+	PushAgentChatChoices(
+		chatID string,
+		workspaceID string,
+		choices []dto.AgentChoiceDTO,
 	)
 	// PushAgentChatFolder receives a CHAT FOLDER lifecycle frame
 	// (folder_created/folder_updated/folder_deleted). It carries the folder id and

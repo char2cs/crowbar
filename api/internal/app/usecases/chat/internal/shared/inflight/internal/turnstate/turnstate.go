@@ -3,7 +3,13 @@
 // Working flag the turn commands return.
 package turnstate
 
-import "sync"
+import (
+	"context"
+	"log/slog"
+	"sync"
+
+	"github.com/char2cs/crowbar/api/internal/domain"
+)
 
 // Turns is the registry of TURNS CURRENTLY IN FLIGHT — one entry per runner that has
 // been handed a prompt and has not yet answered it — and the only thing in this package a
@@ -39,14 +45,60 @@ type Turns struct {
 	mu      sync.Mutex
 	turns   map[string]*inflightTurn
 	changed map[string]chan struct{}
+	drop    func(ctx context.Context, s Steered)
 }
 
 // inflightTurn is one runner's open turn: the chat it is answering into, and the channel
 // that is CLOSED when it stops being in flight. A closed channel (rather than a value) is
 // the release, so any number of waiters wake and a waiter that arrives late never blocks.
 type inflightTurn struct {
-	chatID string
-	done   chan struct{}
+	chatID  string
+	done    chan struct{}
+	steered *Steered
+}
+
+// Steered is a prompt accepted while this turn runs, held until the turn's own
+// end hook can carry it into the CLI. It dies with the turn: Complete hands an
+// undelivered one to the drop handler.
+type Steered struct {
+	ChatID       string
+	RequestID    string
+	Text         string
+	DispatchText string
+}
+
+// Steer parks s on runnerID's open turn. False when the runner has no turn in
+// flight or one is already parked: the caller falls back to its idle path.
+func (w *Turns) Steer(runnerID string, s Steered) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	t, ok := w.turns[runnerID]
+	if !ok || t.steered != nil {
+		return false
+	}
+	t.steered = &s
+	return true
+}
+
+// TakeSteered removes and returns the prompt parked on runnerID's turn.
+func (w *Turns) TakeSteered(runnerID string) (Steered, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	t, ok := w.turns[runnerID]
+	if !ok || t.steered == nil {
+		return Steered{}, false
+	}
+	s := *t.steered
+	t.steered = nil
+	return s, true
+}
+
+// OnDrop registers what happens to a prompt parked on a turn that ends without
+// delivering it. Set once at wiring.
+func (w *Turns) OnDrop(drop func(ctx context.Context, s Steered)) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.drop = drop
 }
 
 // NewTurns returns an empty in-flight-turn registry.
@@ -83,6 +135,7 @@ func (w *Turns) signalLocked(chatID string) {
 // A turn open on a DIFFERENT chat means the runner has moved without us being told, so the
 // old turn can never be closed where it stands: release it.
 func (w *Turns) Begin(
+	ctx context.Context,
 	runnerID string,
 	chatID string,
 ) {
@@ -99,33 +152,57 @@ func (w *Turns) Begin(
 		}
 		close(prev.done)
 		w.signalLocked(prev.chatID)
+		logTurnEnded(ctx, prev.chatID, runnerID, domain.AgentExitMoved)
 	}
 	w.turns[runnerID] = &inflightTurn{chatID: chatID, done: make(chan struct{})}
+	slog.InfoContext(ctx, "agent: turn started", "component", "turn", "chat", chatID, "runner", runnerID)
 	w.signalLocked(chatID)
 }
 
-// Complete ends runnerID's turn and releases everyone waiting on it. It is called on
+// Why a turn ended, logged with it. Begin and Complete are the only places a turn
+// opens or closes, so "turn started" and "turn ended" are each logged exactly once per
+// turn here, whichever path got it there.
+const (
+	ReasonCompleted = "completed"
+	ReasonFailed    = "failed"
+	ReasonAbandoned = "abandoned"
+)
+
+func logTurnEnded(ctx context.Context, chatID, runnerID, reason string) {
+	slog.InfoContext(ctx, "agent: turn ended",
+		"component", "turn", "chat", chatID, "runner", runnerID, "reason", reason)
+}
+
+// Complete ends runnerID's turn, for reason, and releases everyone waiting on it. It is called on
 // every way a turn can stop being in flight — the CLI answered, the CLI left the chat,
 // Crowbar took it off the chat, the process died — because a waiter released only by the
 // FIRST of those would hang on all the others. Completing a runner with no open turn is a
 // no-op, so every one of those paths can call it unconditionally.
 func (w *Turns) Complete(
+	ctx context.Context,
 	runnerID string,
+	reason string,
 ) {
 	if w == nil || runnerID == "" {
 		return
 	}
 
 	w.mu.Lock()
-	defer w.mu.Unlock()
-
 	t, ok := w.turns[runnerID]
 	if !ok {
+		w.mu.Unlock()
 		return
 	}
 	delete(w.turns, runnerID)
 	close(t.done)
 	w.signalLocked(t.chatID)
+	logTurnEnded(ctx, t.chatID, runnerID, reason)
+	drop := w.drop
+	w.mu.Unlock()
+
+	if t.steered != nil && drop != nil {
+		drop(ctx, *t.steered)
+	}
 }
 
 // Inflight snapshots the release channel of every turn currently open on chatID. Empty —

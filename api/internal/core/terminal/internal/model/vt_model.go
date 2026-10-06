@@ -2,7 +2,7 @@ package model
 
 import (
 	"image/color"
-	"log"
+	"log/slog"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
@@ -442,7 +442,7 @@ func (m *vtModel) reconcileAltScreen(
 		return
 	}
 	m.altDesyncWarned = true
-	log.Printf("terminal model: alt-screen shadow desync (emu=%v); reconciled to emulator", alt)
+	slog.Warn("terminal: alt-screen shadow desync; reconciled to emulator", "component", "terminal", "alt", alt)
 }
 
 func (m *vtModel) Close() {

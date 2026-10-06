@@ -5,7 +5,6 @@ import {
   createFileTreeGitStatusLookup,
   getFileTreeEntryGitStatusDecoration,
   getFileTreeGitStatusDecoration,
-  resolveActiveWorkspaceGitStatus,
 } from '@/features/file-explorer/file-explorer/lib/file-tree-git-status'
 
 const gitFile = (path: string, status: GitFile['status'], staged = false): GitFile => ({
@@ -155,29 +154,5 @@ describe('file tree git status lookup', () => {
       label: 'Modified',
       statusLetter: 'M',
     })
-  })
-})
-
-describe('resolveActiveWorkspaceGitStatus', () => {
-  const status: GitStatus = {
-    branch: 'epoch/first-pr',
-    ahead: 0,
-    behind: 1,
-    files: [gitFile('README.md', 'modified')],
-  }
-  const wsId = 'd2e0a0de-dbee-4fc3-a333-2cac9b6aeff3'
-
-  test('applies the status when the git store loaded the active workspace', () => {
-    expect(resolveActiveWorkspaceGitStatus(status, wsId, wsId)).toBe(status)
-  })
-
-  test('rejects a status loaded for a different workspace', () => {
-    expect(resolveActiveWorkspaceGitStatus(status, 'other-ws-id', wsId)).toBeNull()
-  })
-
-  test('returns null when any input is missing', () => {
-    expect(resolveActiveWorkspaceGitStatus(null, wsId, wsId)).toBeNull()
-    expect(resolveActiveWorkspaceGitStatus(status, null, wsId)).toBeNull()
-    expect(resolveActiveWorkspaceGitStatus(status, wsId, null)).toBeNull()
   })
 })

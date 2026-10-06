@@ -2,7 +2,7 @@ export PATH := $(HOME)/.bun/bin:$(HOME)/.cargo/bin:$(HOME)/.rustup/toolchains/st
 export RUSTUP_HOME := $(HOME)/.rustup
 export CARGO_HOME := $(HOME)/.cargo
 
-.PHONY: dev dev-api dev-web dev-desktop dev-bundle seed seed-chat web-install build test test-coverage lint pr-checks ci docker-up docker-down
+.PHONY: e2e e2e-browser dev dev-api dev-web dev-desktop dev-bundle seed seed-chat web-install build test test-coverage lint pr-checks ci docker-up docker-down
 
 # Dev isolation: every dev target roots Crowbar state (projects, store, socket,
 # logs) at <this workspace>/.crowbar instead of ~/.crowbar, so a dev instance
@@ -68,6 +68,17 @@ TOOL_CALLS ?= 5
 seed-chat:
 	@test -n "$(WORKSPACE_ID)" || (echo "usage: make seed-chat WORKSPACE_ID=<id> [TURNS=20] [TOOL_CALLS=5]" && exit 1)
 	@cd api && go run -tags noEmbed ./cmd/crowbar-seed-chat --workspace-id $(WORKSPACE_ID) --turns $(TURNS) --tool-calls $(TOOL_CALLS)
+
+# End-to-end suite against a real dev instance of this checkout, in an isolated
+# CROWBAR_HOME and webview origin (scripts/e2e/README.md). `e2e` drives the
+# Tauri desktop app; `e2e-browser` drives the same bundle in a headless Chrome.
+# ARGS passes flags through, e.g. make e2e ARGS=--only=console,recents
+ARGS ?=
+e2e:
+	@bun scripts/e2e/run.mjs --target=tauri $(ARGS)
+
+e2e-browser:
+	@bun scripts/e2e/run.mjs --target=browser $(ARGS)
 
 web-install:
 	$(MAKE) -C web install

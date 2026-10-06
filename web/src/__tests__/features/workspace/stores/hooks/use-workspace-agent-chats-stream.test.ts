@@ -24,6 +24,8 @@ const {
   removeAgentChat,
   setAgentChatCompacting,
   setAgentChatTelemetry,
+  setAgentChatChoices,
+  resetAgentChatChoices,
   setAgentChatPromptSettled,
   setAgentChatPromptAbandoned,
   setAgentChatStreamingMessage,
@@ -54,6 +56,8 @@ const {
   removeAgentChat: vi.fn(),
   setAgentChatCompacting: vi.fn(),
   setAgentChatTelemetry: vi.fn(),
+  setAgentChatChoices: vi.fn(),
+  resetAgentChatChoices: vi.fn(),
   setAgentChatPromptSettled: vi.fn(),
   setAgentChatPromptAbandoned: vi.fn(),
   setAgentChatStreamingMessage: vi.fn(),
@@ -107,6 +111,7 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   listProviders: (...a: unknown[]) => listProvidersFn(...a),
   listChatFolders: (...a: unknown[]) => listChatFoldersFn(...a),
   mapChat: (c: unknown) => c,
+  mapChoice: (c: unknown) => ({ answerable: false, options: [], ...(c as object) }),
 }))
 
 vi.mock('@/features/window/stores/toast-store', () => ({
@@ -133,6 +138,8 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
       removeAgentChat,
       setAgentChatCompacting,
       setAgentChatTelemetry,
+      setAgentChatChoices,
+      resetAgentChatChoices,
       setAgentChatPromptSettled,
       setAgentChatPromptAbandoned,
       setAgentChatStreamingMessage,
@@ -180,6 +187,7 @@ type Frame = {
   message?: { id: string; text: string; kind?: string }
   plan?: { text: string; status: string }[]
   telemetry?: { observedAt: string; source: string }
+  choices?: { id: string; kind: string; pending: boolean }[]
   clientRequestId?: string
   promptConsumed?: boolean
 }
@@ -436,8 +444,8 @@ describe('useWorkspaceAgentChatsStream', () => {
       expect(toastError).toHaveBeenCalled()
     })
 
-    // The hook runs for every MOUNTED workspace now (WorkspaceView, up to
-    // RETENTION_CAP = 6), and the daemon being unreachable fails all of them
+    // The hook runs for every MOUNTED workspace now (WorkspaceView, one per
+    // workspace with a view), and the daemon being unreachable fails all of them
     // at once — for the same machine-level list, with the same sentence. Its
     // only previous mount point was a single sidebar panel, so the plain toast
     // was correct then and would stack six identical copies now.
@@ -1527,6 +1535,7 @@ describe('useWorkspaceAgentChatsStream', () => {
       'exited',
       'plan',
       'telemetry',
+      'choice',
     ])('does NOT bump on %s — it says nothing about the tree', async (kind) => {
       renderHook(() => useWorkspaceAgentChatsStream('w1'))
       await flush()
@@ -1682,6 +1691,41 @@ it('writes the pushed usage report through on a telemetry frame', () => {
     source: 'statusline',
   })
   expect(getChatFn).not.toHaveBeenCalled()
+})
+
+// ── choice: the prompts a chat is blocked on ride the feed; nothing reads for them ──
+
+it('writes the pushed prompts through on a choice frame, whatever chat is on screen', () => {
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+
+  captureCb()({
+    chatId: 'c1',
+    workspaceId: 'w1',
+    kind: 'choice',
+    choices: [{ id: 'k1', kind: 'tool_permission', pending: true }],
+  })
+
+  expect(setAgentChatChoices).toHaveBeenCalledWith('c1', [
+    expect.objectContaining({ id: 'k1', pending: true, answerable: false, options: [] }),
+  ])
+  expect(getChatFn).not.toHaveBeenCalled()
+})
+
+it('clears a chat on a choice frame that carries none', () => {
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+
+  captureCb()({ chatId: 'c1', workspaceId: 'w1', kind: 'choice' })
+
+  expect(setAgentChatChoices).toHaveBeenCalledWith('c1', [])
+})
+
+it('forgets every chat’s prompts on a reconnect, for the new socket to restate', async () => {
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+  await flush()
+
+  captureCb()({ reconnected: true })
+
+  expect(resetAgentChatChoices).toHaveBeenCalledTimes(1)
 })
 
 // ── prompt_settled: which way a retired delivery is released ──

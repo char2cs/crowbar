@@ -18,8 +18,25 @@
   align-items: center;
   gap: 8px;
 }
+.agent-chat .activity .hd > span {
+  display: flex;
+  min-width: 0;
+}
+.agent-chat .activity .hd .dim {
+  flex: none;
+  white-space: pre;
+}
 .agent-chat .activity .verb {
-  font-weight: 500;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Heading face, user-configurable via the token. It is single-weight, so no
+     faux bold; size and line-height keep the row at the body font's 1.5 x 14px. */
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: 1.25em;
+  line-height: 1.2;
   color: var(--foreground);
 }
 .agent-chat .activity .dim {
@@ -34,7 +51,6 @@
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-family: var(--font-heading);
   font-size: var(--ui-text-xs);
   line-height: 1.35;
   color: var(--muted-foreground);

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   turnLatencyLabel,
   turnTimeLabel,
@@ -116,5 +116,26 @@ describe('turnTimeTitle', () => {
 
   it('returns empty for a timestamp it cannot parse', () => {
     expect(turnTimeTitle('not a date')).toBe('')
+  })
+})
+
+// A transcript labels every row on each mount; resolving the locale per call is
+// what made a chat switch pay for it per row.
+describe('turn time formatting cost', () => {
+  it('formats rows without resolving the locale on each call', () => {
+    const spies = (['toLocaleString', 'toLocaleDateString', 'toLocaleTimeString'] as const).map(
+      (method) => vi.spyOn(Date.prototype, method),
+    )
+    try {
+      for (let i = 0; i < 20; i++) {
+        const at = `2026-08-30T13:${String(i).padStart(2, '0')}:00Z`
+        turnTimeTitle(at)
+        turnTimestampLabel(at)
+        turnLatencyLabel(at, '2026-08-30T14:30:00Z')
+      }
+      for (const spy of spies) expect(spy).not.toHaveBeenCalled()
+    } finally {
+      for (const spy of spies) spy.mockRestore()
+    }
   })
 })

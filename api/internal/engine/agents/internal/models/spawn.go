@@ -19,6 +19,10 @@ type Capabilities struct {
 
 	Delivery string
 
+	// PromptSteer is true when a message sent while a turn runs is delivered
+	// into that turn (presentation.prompt_submit.steer) rather than waiting.
+	PromptSteer bool
+
 	SlashCatalog bool
 
 	Telemetry bool

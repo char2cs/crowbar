@@ -1,6 +1,9 @@
 package turnstate_test
 
 import (
+	"context"
+	"log/slog"
+	"sync"
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight/internal/turnstate"
@@ -15,6 +18,39 @@ func closed(ch <-chan struct{}) bool {
 	}
 }
 
+func TestTurns_SteeredPromptIsTakenOnceAndDroppedWhenTheTurnEndsWithoutIt(t *testing.T) {
+	t.Parallel()
+
+	w := turnstate.NewTurns()
+	var dropped []turnstate.Steered
+	w.OnDrop(func(_ context.Context, s turnstate.Steered) { dropped = append(dropped, s) })
+
+	if w.Steer("runner-1", turnstate.Steered{RequestID: "r0"}) {
+		t.Fatal("a prompt was parked on a runner with no turn in flight")
+	}
+	w.Begin(context.Background(), "runner-1", "chat-1")
+	if !w.Steer("runner-1", turnstate.Steered{RequestID: "r1"}) {
+		t.Fatal("a prompt could not be parked on a running turn")
+	}
+	if w.Steer("runner-1", turnstate.Steered{RequestID: "r2"}) {
+		t.Fatal("a second prompt displaced the one already parked")
+	}
+	if got, ok := w.TakeSteered("runner-1"); !ok || got.RequestID != "r1" {
+		t.Fatalf("TakeSteered = %v, %v; want r1", got, ok)
+	}
+	w.Complete(context.Background(), "runner-1", "completed")
+	if len(dropped) != 0 {
+		t.Fatalf("a delivered prompt was dropped: %v", dropped)
+	}
+
+	w.Begin(context.Background(), "runner-1", "chat-1")
+	w.Steer("runner-1", turnstate.Steered{RequestID: "r3"})
+	w.Complete(context.Background(), "runner-1", "failed")
+	if len(dropped) != 1 || dropped[0].RequestID != "r3" {
+		t.Fatalf("dropped = %v, want exactly r3", dropped)
+	}
+}
+
 func TestTurns_BeginOpensCompleteCloses(t *testing.T) {
 	t.Parallel()
 
@@ -23,7 +59,7 @@ func TestTurns_BeginOpensCompleteCloses(t *testing.T) {
 		t.Fatalf("a fresh registry reported %d open turns on a chat nothing has prompted", len(open))
 	}
 
-	w.Begin("runner-1", "chat-1")
+	w.Begin(context.Background(), "runner-1", "chat-1")
 	open := w.Inflight("chat-1")
 	if len(open) != 1 {
 		t.Fatalf("Inflight = %d turns after Begin, want 1", len(open))
@@ -32,7 +68,7 @@ func TestTurns_BeginOpensCompleteCloses(t *testing.T) {
 		t.Fatal("the turn's release channel was already closed while the turn was open")
 	}
 
-	w.Complete("runner-1")
+	w.Complete(context.Background(), "runner-1", "completed")
 	if !closed(open[0]) {
 		t.Fatal("Complete did not close the release channel a switch is parked on")
 	}
@@ -47,9 +83,9 @@ func TestTurns_SecondBeginOnSameChatKeepsOneTurn(t *testing.T) {
 	t.Parallel()
 
 	w := turnstate.NewTurns()
-	w.Begin("runner-1", "chat-1")
+	w.Begin(context.Background(), "runner-1", "chat-1")
 	first := w.Inflight("chat-1")
-	w.Begin("runner-1", "chat-1")
+	w.Begin(context.Background(), "runner-1", "chat-1")
 
 	again := w.Inflight("chat-1")
 	if len(again) != 1 {
@@ -59,7 +95,7 @@ func TestTurns_SecondBeginOnSameChatKeepsOneTurn(t *testing.T) {
 		t.Fatal("a repeat Begin closed the open turn's channel; the waiter would resume mid-answer")
 	}
 
-	w.Complete("runner-1")
+	w.Complete(context.Background(), "runner-1", "completed")
 	if !closed(first[0]) {
 		t.Fatal("the ORIGINAL channel stayed open after Complete; a repeat Begin had replaced it")
 	}
@@ -71,10 +107,10 @@ func TestTurns_BeginOnAnotherChatReleasesTheOldTurn(t *testing.T) {
 	t.Parallel()
 
 	w := turnstate.NewTurns()
-	w.Begin("runner-1", "chat-1")
+	w.Begin(context.Background(), "runner-1", "chat-1")
 	old := w.Inflight("chat-1")
 
-	w.Begin("runner-1", "chat-2")
+	w.Begin(context.Background(), "runner-1", "chat-2")
 
 	if !closed(old[0]) {
 		t.Fatal("moving a runner to another chat left the old chat's waiter parked forever")
@@ -95,7 +131,7 @@ func TestTurns_CompleteWithoutBeginIsSilent(t *testing.T) {
 	w := turnstate.NewTurns()
 	_, changed := w.Watch("chat-1")
 
-	w.Complete("runner-nobody")
+	w.Complete(context.Background(), "runner-nobody", "completed")
 
 	if closed(changed) {
 		t.Fatal("completing an unknown runner signalled a chat transition that never happened")
@@ -106,9 +142,9 @@ func TestTurns_EmptyIdentifiersAreIgnored(t *testing.T) {
 	t.Parallel()
 
 	w := turnstate.NewTurns()
-	w.Begin("", "chat-1")
-	w.Begin("runner-1", "")
-	w.Complete("")
+	w.Begin(context.Background(), "", "chat-1")
+	w.Begin(context.Background(), "runner-1", "")
+	w.Complete(context.Background(), "", "completed")
 
 	if open := w.Inflight("chat-1"); len(open) != 0 {
 		t.Fatalf("an empty runner id opened %d turns", len(open))
@@ -125,7 +161,7 @@ func TestTurns_WatchSignalsTheNextTransition(t *testing.T) {
 		t.Fatal("Watch reported an open turn on an idle chat")
 	}
 
-	w.Begin("runner-1", "chat-1")
+	w.Begin(context.Background(), "runner-1", "chat-1")
 	if !closed(changed) {
 		t.Fatal("Watch's signal did not close on Begin; a switch would sleep through the turn starting")
 	}
@@ -135,7 +171,7 @@ func TestTurns_WatchSignalsTheNextTransition(t *testing.T) {
 		t.Fatal("Watch reported no open turn while one was in flight")
 	}
 
-	w.Complete("runner-1")
+	w.Complete(context.Background(), "runner-1", "completed")
 	if !closed(changed) {
 		t.Fatal("Watch's signal did not close on Complete; a switch would sleep through the turn ending")
 	}
@@ -148,8 +184,8 @@ func TestTurns_InflightReturnsEveryOpenTurnOnTheChat(t *testing.T) {
 	t.Parallel()
 
 	w := turnstate.NewTurns()
-	w.Begin("runner-1", "chat-1")
-	w.Begin("runner-2", "chat-1")
+	w.Begin(context.Background(), "runner-1", "chat-1")
+	w.Begin(context.Background(), "runner-2", "chat-1")
 
 	if open := w.Inflight("chat-1"); len(open) != 2 {
 		t.Fatalf("Inflight = %d turns, want 2: a second runner on the chat was invisible", len(open))
@@ -236,5 +272,63 @@ func TestWorkAndTurns_ForgetWakesWaitersAndDropsTheChat(t *testing.T) {
 	}
 	if working, known, _ := work.Observe("chat-1"); working || known {
 		t.Fatalf("Observe after Forget = working %v known %v, want a fresh unknown state", working, known)
+	}
+}
+
+type recordedLog struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+func (r *recordedLog) Enabled(context.Context, slog.Level) bool { return true }
+func (r *recordedLog) WithAttrs([]slog.Attr) slog.Handler       { return r }
+func (r *recordedLog) WithGroup(string) slog.Handler            { return r }
+func (r *recordedLog) Handle(_ context.Context, rec slog.Record) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.records = append(r.records, rec)
+	return nil
+}
+
+func (r *recordedLog) lines(msg string) []map[string]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []map[string]string
+	for _, rec := range r.records {
+		if rec.Message != msg {
+			continue
+		}
+		attrs := map[string]string{}
+		rec.Attrs(func(a slog.Attr) bool { attrs[a.Key] = a.Value.String(); return true })
+		out = append(out, attrs)
+	}
+	return out
+}
+
+// Every turn that starts logs one "turn ended" carrying why, whichever path
+// ends it; ending a runner with no open turn logs nothing.
+func TestTurns_EveryStartedTurnLogsExactlyOneEndWithItsReason(t *testing.T) {
+	rec := &recordedLog{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(rec))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	ctx := context.Background()
+
+	w := turnstate.NewTurns()
+	w.Begin(ctx, "runner-1", "chat-1")
+	w.Begin(ctx, "runner-1", "chat-1") // a second prompt on the same open turn
+	w.Complete(ctx, "runner-1", "stopped")
+	w.Complete(ctx, "runner-1", "exited") // the runner's own exit arrives after
+	w.Complete(ctx, "runner-nobody", "exited")
+
+	if got := rec.lines("agent: turn started"); len(got) != 1 {
+		t.Fatalf("turn started logged %d times for one turn, want 1", len(got))
+	}
+	ended := rec.lines("agent: turn ended")
+	if len(ended) != 1 {
+		t.Fatalf("turn ended logged %d times for one turn, want 1", len(ended))
+	}
+	if ended[0]["reason"] != "stopped" || ended[0]["chat"] != "chat-1" || ended[0]["runner"] != "runner-1" {
+		t.Fatalf("turn ended attrs = %v, want reason=stopped chat=chat-1 runner=runner-1", ended[0])
 	}
 }

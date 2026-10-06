@@ -37,7 +37,6 @@ const MAX_LINES_BASELINE = [
   'src/__tests__/features/settings/components/tabs/providers-settings.test.tsx',
   'src/__tests__/features/terminal/hooks/use-terminal-connection.test.ts',
   'src/__tests__/features/workspace/stores/hooks/use-workspace-agent-chats-stream.test.ts',
-  'src/__tests__/features/workspace/stores/hooks/use-workspace-effects.test.ts',
   'src/__tests__/features/workspace/stores/slices/agent-chats-slice.test.ts',
   'src/__tests__/lib/persistence/hydrate.test.ts',
   'src/components/app-sync-engine.ts',
@@ -74,7 +73,6 @@ const UNDESCRIBED_DIRECTIVE_BASELINE = [
   'src/features/tabs/hooks/use-pane-top-row-edges.ts',
   'src/features/terminal/hooks/use-terminal-connection.ts',
   'src/features/terminal/utils/input-tape.ts',
-  'src/features/workspace/stores/hooks/use-workspace-effects.ts',
 ]
 const NO_ASSERTION_BASELINE = [
   'src/__tests__/features/agent/composer/agent-composer.test.tsx',

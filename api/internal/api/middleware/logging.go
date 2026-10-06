@@ -1,31 +1,49 @@
 package middleware
 
 import (
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
-// Logger access-logs every request except a websocket handshake (path ends in
-// "/ws" — files/ws, terminals/:id/ws, chats/ws, lsp/ws, ...). A live daemon.log
-// was 90% (10,153 of 11,254 lines) reconnect spam from a single files/ws
-// client polling roughly once a second, which buried every other line in it.
-// Its "duration" was also meaningless for a route gin hijacks into a
-// long-lived socket rather than returning from.
+// slowRequest is the duration past which a plain request is worth a Warn.
+const slowRequest = 2 * time.Second
+
+// Logger access-logs requests by what a debugger needs: failures (5xx or a
+// recorded gin error) at Error, slow requests at Warn, everything else at
+// Debug — the UI polls, so Info-level access lines drown the real signal.
+// Websocket handshakes (path ends in "/ws", or an Upgrade header) are skipped:
+// they reconnect about once a second and gin hijacks them, so their duration
+// means nothing.
 func Logger() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if strings.HasSuffix(c.Request.URL.Path, "/ws") {
+		if strings.HasSuffix(c.Request.URL.Path, "/ws") ||
+			strings.EqualFold(c.Request.Header.Get("Upgrade"), "websocket") {
 			c.Next()
 			return
 		}
 		start := time.Now()
 		c.Next()
-		if errs := c.Errors.Errors(); len(errs) > 0 {
-			log.Printf("%s %s %d %s: %s", c.Request.Method, c.Request.URL.Path, c.Writer.Status(), time.Since(start), strings.Join(errs, "; "))
+		took := time.Since(start)
+		status := c.Writer.Status()
+		attrs := []any{
+			"component", "http", "method", c.Request.Method,
+			"path", c.Request.URL.Path, "status", status, "took", took,
+		}
+		ctx := c.Request.Context()
+		if errs := c.Errors.Errors(); len(errs) > 0 && status >= 500 {
+			slog.ErrorContext(ctx, "http: request failed", append(attrs, "err", strings.Join(errs, "; "))...)
 			return
 		}
-		log.Printf("%s %s %d %s", c.Request.Method, c.Request.URL.Path, c.Writer.Status(), time.Since(start))
+		switch {
+		case status >= 500:
+			slog.ErrorContext(ctx, "http: request failed", attrs...)
+		case took >= slowRequest:
+			slog.WarnContext(ctx, "http: slow request", attrs...)
+		default:
+			slog.DebugContext(ctx, "http: request", attrs...)
+		}
 	}
 }

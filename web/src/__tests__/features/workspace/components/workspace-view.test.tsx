@@ -1,17 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, act, cleanup } from '@testing-library/react'
 
-// Focused WorkspaceView lifecycle tests for keep-alive semantics:
-//  - hydrate runs once per mount, never again on a warm re-activation;
-//  - a warm (hidden→active) transition reconciles open buffers against disk —
-//    the workspace's file watcher is gated off while hidden, and agents keep
-//    editing files in hidden worktrees, so without this the editors come back
-//    stale (the destroy-on-switch behaviour re-hydrated and reconciled);
-//  - the cold path does NOT double-reconcile (hydrateWorkspace already does).
+// Focused WorkspaceView lifecycle tests for keep-alive semantics: hydrate runs
+// once per mount and a warm (hidden -> active) flip does no work of its own
+// (disk reconciliation belongs to the files feed, see use-workspace-file-tree).
 const { hydrateSpy, reconcileSpy, activeEffectsSpy, agentChatsStreamSpy } = vi.hoisted(() => ({
   hydrateSpy: vi.fn(async (_wsId: string) => ({ layout: null, editorStates: [] })),
   reconcileSpy: vi.fn(async (_wsId: string) => {}),
-  activeEffectsSpy: vi.fn((_wsId: string) => {}),
+  activeEffectsSpy: vi.fn((_wsId: string, _active: boolean) => {}),
   agentChatsStreamSpy: vi.fn((_wsId: string) => {}),
 }))
 
@@ -28,7 +24,7 @@ vi.mock('@/features/workspace/components/workspace-layout-root', () => ({
 }))
 
 vi.mock('@/features/workspace/stores/hooks/use-workspace-effects', () => ({
-  useWorkspaceEffects: (wsId: string) => activeEffectsSpy(wsId),
+  useWorkspaceEffects: (wsId: string, active: boolean) => activeEffectsSpy(wsId, active),
 }))
 
 vi.mock('@/features/workspace/stores/hooks/use-workspace-agent-chats-stream', () => ({
@@ -77,49 +73,38 @@ describe('WorkspaceView keep-alive lifecycle', () => {
     expect(reconcileSpy).not.toHaveBeenCalled()
   })
 
-  it('warm re-activation: reconciles open buffers against disk, without re-hydrating', async () => {
+  it('warm re-activation: only flips the feeds, with no re-hydrate and no disk re-read', async () => {
     const { setActive } = await renderView(true)
-    await setActive(false) // hide (another workspace became active)
-    expect(reconcileSpy).not.toHaveBeenCalled()
+    await setActive(false)
+    await setActive(true)
 
-    await setActive(true) // warm return
-
-    expect(reconcileSpy).toHaveBeenCalledTimes(1)
-    expect(reconcileSpy).toHaveBeenCalledWith('ws-a')
     expect(hydrateSpy).toHaveBeenCalledTimes(1) // still only the cold hydrate
+    expect(reconcileSpy).not.toHaveBeenCalled()
   })
 
-  it('runs the workspace watchers only while active', async () => {
+  // The tree/git feeds stay mounted while hidden so a switch back is a
+  // selection, not a refetch; `active` only tells them whether to do a first load.
+  it('keeps the data feeds mounted while hidden and tells them whether the workspace is active', async () => {
     const { setActive } = await renderView(true)
-    expect(activeEffectsSpy).toHaveBeenCalledWith('ws-a')
+    expect(activeEffectsSpy).toHaveBeenLastCalledWith('ws-a', true)
 
-    activeEffectsSpy.mockClear()
     await setActive(false)
-    // Hidden: the active-effects subtree is unmounted; nothing re-invokes it.
-    expect(activeEffectsSpy).not.toHaveBeenCalled()
+    expect(activeEffectsSpy).toHaveBeenLastCalledWith('ws-a', false)
 
     await setActive(true)
-    expect(activeEffectsSpy).toHaveBeenCalledWith('ws-a')
+    expect(activeEffectsSpy).toHaveBeenLastCalledWith('ws-a', true)
   })
 
-  // The agent feed is NOT one of the active-only watchers. It seeds this
-  // workspace's providers/chats and feeds `working`, and three surfaces need
-  // that live while the workspace is hidden: the project-wide Recents band
-  // (recents-for-project.ts aggregates every retained workspace), spec Law 9
-  // ("anything running has a row"), and a window-level pane still holding this
-  // workspace's chat. Its only previous mount point was the Chats panel Task 8
-  // deleted, so nothing fed any of it at all.
+  // The agent feed seeds this workspace's providers/chats and feeds `working`;
+  // the Recents band, "anything running has a row" and a pane still holding this
+  // workspace's chat all need it live while the workspace is hidden.
   it('runs the agent chats stream for as long as the workspace is MOUNTED, active or not', async () => {
     const { setActive } = await renderView(true)
     expect(agentChatsStreamSpy).toHaveBeenCalledWith('ws-a')
 
     agentChatsStreamSpy.mockClear()
-    activeEffectsSpy.mockClear()
     await setActive(false)
 
-    // Hidden, but still mounted: the hook is still being called every render,
-    // unlike the active-only watchers above.
     expect(agentChatsStreamSpy).toHaveBeenCalledWith('ws-a')
-    expect(activeEffectsSpy).not.toHaveBeenCalled()
   })
 })
