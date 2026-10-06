@@ -4,15 +4,18 @@
 //! the web pushes the effective one here and this only mirrors it.
 
 #[cfg(target_os = "macos")]
-use tauri::Emitter;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
+#[cfg(target_os = "macos")]
 pub const WINDOW_MENU_ID: &str = "window_menu";
+#[cfg(target_os = "macos")]
 pub const CONSOLE_MENU_ID: &str = "toggle_console";
+#[cfg(target_os = "macos")]
 const TOGGLE_EVENT: &str = "console:toggle";
 
 /// Translate a normalized keymap chord (`mod+shift+\``) into a menu accelerator
 /// (`CmdOrCtrl+Shift+\``). `None` for anything a menu cannot express.
+#[cfg(any(target_os = "macos", test))]
 pub fn accelerator_for(chord: &str) -> Option<String> {
     let mut parts: Vec<&str> = Vec::new();
     let (mut modifier, mut shift, mut alt) = (false, false, false);
@@ -44,6 +47,7 @@ pub fn accelerator_for(chord: &str) -> Option<String> {
     Some(parts.join("+"))
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn menu_key(key: &str) -> Option<String> {
     let named = match key {
         "arrowleft" => "Left",
