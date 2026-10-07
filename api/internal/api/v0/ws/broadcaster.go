@@ -14,6 +14,9 @@ type filteredClient[T any] struct {
 	*client
 	predicate func(T) bool
 	bindings  []*binding
+	// requestScope is StreamDef.ScopeKey's answer, the lifecycle scope of a
+	// client without bindings (see scopeOf).
+	requestScope string
 }
 
 // Broadcaster fans a stream of T out to filtered WebSocket clients (03 §1).
@@ -96,11 +99,10 @@ func (b *Broadcaster[T]) Handle(
 		return
 	}
 
-	scope := b.scopeKey(c)
 	snapScope := clientScope(c)
 
 	cl := b.admit(c, snapScope)
-	defer b.remove(cl)
+	defer b.leave(cl)
 
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -108,15 +110,13 @@ func (b *Broadcaster[T]) Handle(
 		return
 	}
 	// The hijacked conn, the clients-map entry, and the watcher/LSP refcount must
-	// all be released even if snapshotFor/onSubscribe panics (gin's Recovery would
-	// otherwise unwind past the cleanup, leaking an FD, a dead map entry that every
-	// future Push iterates, and a watcher/LSP refcount). Defers make cleanup
+	// all be released even if snapshotFor panics (gin's Recovery would otherwise
+	// unwind past the cleanup, leaking an FD, a dead map entry that every future
+	// Push iterates, and a watcher/LSP refcount). Defers make cleanup
 	// unconditional; double-close of conn is harmless (the err is ignored).
 	defer func() { _ = conn.Close() }()
 
 	snapshot := b.snapshotFor(cl, snapScope)
-	b.onSubscribe(scope)
-	defer b.onUnsubscribe(scope)
 
 	safego.Go("broadcaster.writePump", func() { writePump(conn, cl.client, snapshot) })
 	readPump(conn)
@@ -131,10 +131,11 @@ func (b *Broadcaster[T]) scopeKey(
 	return b.def.ScopeKey(c)
 }
 
+// onSubscribe and onUnsubscribe skip "": an unplaced client holds no scope.
 func (b *Broadcaster[T]) onSubscribe(
 	scope string,
 ) {
-	if b.def.OnSubscribe == nil {
+	if b.def.OnSubscribe == nil || scope == "" {
 		return
 	}
 	b.def.OnSubscribe(scope)
@@ -143,7 +144,7 @@ func (b *Broadcaster[T]) onSubscribe(
 func (b *Broadcaster[T]) onUnsubscribe(
 	scope string,
 ) {
-	if b.def.OnUnsubscribe == nil {
+	if b.def.OnUnsubscribe == nil || scope == "" {
 		return
 	}
 	b.def.OnUnsubscribe(scope)
@@ -170,13 +171,19 @@ func (b *Broadcaster[T]) register(
 	}
 }
 
-func (b *Broadcaster[T]) remove(
+// leave removes cl and releases the scope it holds NOW, which a Rebind may
+// have moved since admit; rebindMu keeps a Rebind from moving it in between.
+func (b *Broadcaster[T]) leave(
 	cl *filteredClient[T],
 ) {
+	b.rebindMu.Lock()
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	delete(b.clients, cl)
+	b.mu.Unlock()
 	cl.closeDone()
+	scope := b.scopeOf(cl)
+	b.rebindMu.Unlock()
+	b.onUnsubscribe(scope)
 }
 
 // snapshotFor computes cl's snapshot OUTSIDE the broadcaster lock (b.def.Snapshot

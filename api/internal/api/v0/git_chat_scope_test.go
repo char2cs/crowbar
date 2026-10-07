@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/app"
 	chatrepo "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
@@ -252,22 +251,14 @@ func TestGitSnapshotOnSubscribe_AChatWithNoWorktreeReplaysNothing(t *testing.T) 
 	assert.Empty(t, gitSnapshot(a)("orphan"))
 }
 
-// TestGitStreamScopeKey_AChatSubscriberRefcountsTheResolvedWorkspace: the
-// ScopeKey refcounts the watcher that produces git pushes, so a chat-scoped
-// client must name the resolved workspace, asserted through New's wrapper chain.
-func TestGitStreamScopeKey_AChatSubscriberRefcountsTheResolvedWorkspace(t *testing.T) {
+// TestGitStreamScopeKey_AnUnboundClientRefcountsItsPathWorkspace: ScopeKey
+// answers only a client bound to no chat; a chat client is refcounted by its
+// binding (TestRegression_TheFileWatcherFollowsAChatToItsNewWorktree).
+func TestGitStreamScopeKey_AnUnboundClientRefcountsItsPathWorkspace(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a, _ := newAppAndEngine(t)
 	def := withOriginSyncLifecycle(withWatcherLifecycle(gitDef(a), a), a)
 	require.NotNil(t, def.ScopeKey)
-
-	viaChat, _ := gin.CreateTestContext(httptest.NewRecorder())
-	viaChat.Request = httptest.NewRequestWithContext(t.Context(), "GET", "/v0/chats/chat-a/git/status", nil)
-	viaChat.Params = gin.Params{{Key: "chatId", Value: "chat-a"}}
-	reqscope.SetWorkspace(viaChat, domain.Workspace{ID: "ws-a"})
-
-	assert.Equal(t, "ws-a", def.ScopeKey(viaChat),
-		"the watcher must be refcounted against the resolved worktree, not against nothing")
 
 	viaPathParam, _ := gin.CreateTestContext(httptest.NewRecorder())
 	viaPathParam.Request = httptest.NewRequestWithContext(t.Context(), "GET", workspaceGitRoute+"ws-direct/git/status", nil)
@@ -284,10 +275,19 @@ func placementEnv(
 	t *testing.T,
 ) (*Container, *httptest.Server, *app.Container) {
 	t.Helper()
+	return placementEnvAt(t, t.TempDir())
+}
+
+// placementEnvAt is placementEnv with ws-a's worktree at dirA.
+func placementEnvAt(
+	t *testing.T,
+	dirA string,
+) (*Container, *httptest.Server, *app.Container) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	a, eng := newAppAndEngine(t)
 	seedRepoRow(t, a, "p1", "r1")
-	seedWorkspaceAt(t, a, "ws-a", t.TempDir())
+	seedWorkspaceAt(t, a, "ws-a", dirA)
 	seedWorkspaceAt(t, a, "ws-b", initCleanGitRepo(t))
 	createRealChat(t, a, "owner-a", "ws-a", "")
 	createRealChat(t, a, "owner-b", "ws-b", "")

@@ -6,11 +6,11 @@ import "github.com/gin-gonic/gin"
 // snapshots a stream of T (03 §1, §1a).
 //
 // ScopeKey, OnSubscribe, and OnUnsubscribe are the optional lazy-lifecycle
-// hooks (03 §6). When ScopeKey is set, Handle derives a scope string from the
-// request and calls OnSubscribe after a successful client registration and
-// OnUnsubscribe after the client is removed. They drive refcounted per-scope
-// resources such as the FileWatcher and LSP servers. When the hooks are nil the
-// Broadcaster behaves exactly as without them (no regression).
+// hooks (03 §6) driving refcounted per-scope resources such as the FileWatcher
+// and LSP servers. When ScopeKey is set, each client holds one scope from
+// registration to removal: its bound filter's value if it has one (moved on
+// Rebind: the new scope is acquired, then the old released), else ScopeKey's
+// answer for the request. A scope of "" is never acquired.
 type StreamDef[T any] struct {
 	Namespace func(T) string
 	Serialize func(T) ([]byte, error)

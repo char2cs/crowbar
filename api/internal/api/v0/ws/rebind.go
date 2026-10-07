@@ -65,8 +65,9 @@ func hasBoundFilter[T any](
 	return slices.ContainsFunc(def.Filters, func(f FilterDef[T]) bool { return f.Resolve != nil })
 }
 
-// admit builds and registers the client under rebindMu, so a Rebind either
-// sees it or ran entirely before its bindings were resolved.
+// admit builds the client, acquires its scope and registers it under
+// rebindMu, so a Rebind either sees it or ran entirely before its bindings
+// were resolved. A panicking OnSubscribe leaves nothing registered.
 func (b *Broadcaster[T]) admit(
 	c *gin.Context,
 	snapScope string,
@@ -74,12 +75,38 @@ func (b *Broadcaster[T]) admit(
 	b.rebindMu.Lock()
 	defer b.rebindMu.Unlock()
 	predicate, bindings := BuildPredicate(c, b.def)
-	cl := &filteredClient[T]{client: newClient(), predicate: predicate, bindings: bindings}
+	cl := &filteredClient[T]{
+		client:       newClient(),
+		predicate:    predicate,
+		bindings:     bindings,
+		requestScope: b.scopeKey(c),
+	}
 	if b.def.Snapshot != nil {
 		cl.resnapshot = func() [][]byte { return b.snapshotFor(cl, snapScope) }
 	}
+	b.onSubscribe(b.scopeOf(cl))
 	b.register(cl)
 	return cl
+}
+
+// scopeOf is what cl's lifecycle hooks refcount: a bound client's binding,
+// read live so the held resource follows Rebind, else the request's ScopeKey.
+func (b *Broadcaster[T]) scopeOf(
+	cl *filteredClient[T],
+) string {
+	if b.def.ScopeKey == nil {
+		return ""
+	}
+	if len(cl.bindings) > 0 {
+		return cl.bindings[0].current()
+	}
+	return cl.requestScope
+}
+
+// moved is a client whose binding changed in a Rebind, with the scope it held.
+type moved[T any] struct {
+	cl   *filteredClient[T]
+	from string
 }
 
 // Rebind re-resolves every bound client in one Resolve call per bound filter
@@ -89,11 +116,29 @@ func (b *Broadcaster[T]) Rebind() int {
 	b.rebindMu.Lock()
 	defer b.rebindMu.Unlock()
 	answers := resolveBindings(b.def.Filters, b.allBindings())
-	moved := b.applyBindings(answers)
-	for _, cl := range moved {
-		cl.requestResnapshot()
+	moves := b.applyBindings(answers)
+	b.rescope(moves)
+	for _, m := range moves {
+		m.cl.requestResnapshot()
 	}
-	return len(moved)
+	return len(moves)
+}
+
+// rescope acquires every new scope before releasing any old one, so a scope
+// that stays held (two clients trading workspaces) never touches zero.
+func (b *Broadcaster[T]) rescope(
+	moves []moved[T],
+) {
+	for _, m := range moves {
+		if to := b.scopeOf(m.cl); to != m.from {
+			b.onSubscribe(to)
+		}
+	}
+	for _, m := range moves {
+		if b.scopeOf(m.cl) != m.from {
+			b.onUnsubscribe(m.from)
+		}
+	}
 }
 
 func (b *Broadcaster[T]) allBindings() []*binding {
@@ -110,11 +155,12 @@ func (b *Broadcaster[T]) allBindings() []*binding {
 // against an old binding once a resnapshot is requested.
 func (b *Broadcaster[T]) applyBindings(
 	answers map[*binding]string,
-) []*filteredClient[T] {
+) []moved[T] {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	var moved []*filteredClient[T]
+	var moves []moved[T]
 	for cl := range b.clients {
+		from := b.scopeOf(cl)
 		changed := false
 		for _, bd := range cl.bindings {
 			if value, ok := answers[bd]; ok && bd.set(value) {
@@ -122,10 +168,10 @@ func (b *Broadcaster[T]) applyBindings(
 			}
 		}
 		if changed {
-			moved = append(moved, cl)
+			moves = append(moves, moved[T]{cl: cl, from: from})
 		}
 	}
-	return moved
+	return moves
 }
 
 // RequestRebind asks the rebind worker for a Rebind without blocking. Requests

@@ -3,7 +3,11 @@ package v0
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
+	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -168,4 +173,61 @@ func TestRegression_FilesForkAfterConnectReachesEveryChatOnTheWorktree(t *testin
 
 	assert.Equal(t, "after-the-fork.go", readJSON(t, newcomer)["path"])
 	assert.Equal(t, "after-the-fork.go", readJSON(t, established)["path"])
+}
+
+// TestRegression_TheFileWatcherFollowsAChatToItsNewWorktree runs the REAL
+// watcher: the refcount that starts it must move with the chat's binding, or
+// nothing ever produces ws-b's events for a chat moved there after connect.
+func TestRegression_TheFileWatcherFollowsAChatToItsNewWorktree(t *testing.T) {
+	c, srv, a := placementEnvAt(t, initCleanGitRepo(t))
+	createRealChat(t, a, "chat-x", "", "owner-a")
+	paths := readPaths(t, dialWSAt(t, srv, "/v0/chats/chat-x/files/ws"))
+	c.files.WaitNRegistered(1)
+	dirA := worktreeOf(t, a, "ws-a")
+	dirB := worktreeOf(t, a, "ws-b")
+
+	awaitRealChange(t, paths, dirA, "a-probe")
+
+	_, err := a.Repositories.AgentChat.SetWorkspace(context.Background(), "chat-x", "ws-b")
+	require.NoError(t, err)
+	awaitRealChange(t, paths, dirB, "b-probe")
+
+	require.NoError(t, os.WriteFile(filepath.Join(dirA, "a-stale.txt"), []byte("x"), 0o600))
+	awaitRealChange(t, paths, dirB, "b-after")
+}
+
+func worktreeOf(t *testing.T, a *app.Container, wsID string) string {
+	t.Helper()
+	w, err := a.Repositories.Workspace.Get(context.Background(), wsID)
+	require.NoError(t, err)
+	return w.WorktreePath
+}
+
+// awaitRealChange writes a fresh prefix-named file into dir until one of them
+// reaches paths: the watcher arms asynchronously, so a single write could land
+// before it is watching. The tick outlasts the watcher's trailing debounce,
+// which writes any closer together would keep resetting. Any a-stale frame
+// seen on the way fails the test.
+func awaitRealChange(t *testing.T, paths <-chan string, dir, prefix string) {
+	t.Helper()
+	written := 0
+	require.Eventually(t, func() bool {
+		written++
+		name := fmt.Sprintf("%s-%d.txt", prefix, written)
+		if os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600) != nil {
+			return false
+		}
+		for {
+			select {
+			case p := <-paths:
+				base := filepath.Base(p)
+				assert.NotEqual(t, "a-stale.txt", base, "the old worktree's change reached the moved chat")
+				if strings.HasPrefix(base, prefix+"-") {
+					return true
+				}
+			default:
+				return false
+			}
+		}
+	}, wsReadBound, 250*time.Millisecond)
 }

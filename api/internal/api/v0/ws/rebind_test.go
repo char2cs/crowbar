@@ -3,6 +3,7 @@ package ws_test
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http/httptest"
 	"slices"
 	"sync"
@@ -281,4 +282,126 @@ func TestBroadcaster_CloseWithoutBoundFiltersIsANoOp(t *testing.T) {
 	b.RequestRebind()
 	b.Close()
 	b.Close()
+}
+
+// scopeLedger refcounts the lifecycle hooks the way the watcher manager does,
+// and records every hook call on ops and every scope that fell to zero.
+type scopeLedger struct {
+	mu      sync.Mutex
+	refs    map[string]int
+	dropped []string
+	ops     chan string
+}
+
+func newScopeLedger() *scopeLedger {
+	return &scopeLedger{refs: map[string]int{}, ops: make(chan string, 64)}
+}
+
+func (l *scopeLedger) acquire(scope string) {
+	l.mu.Lock()
+	l.refs[scope]++
+	l.mu.Unlock()
+	l.ops <- "+" + scope
+}
+
+func (l *scopeLedger) release(scope string) {
+	l.mu.Lock()
+	l.refs[scope]--
+	if l.refs[scope] == 0 {
+		delete(l.refs, scope)
+		l.dropped = append(l.dropped, scope)
+	}
+	l.mu.Unlock()
+	l.ops <- "-" + scope
+}
+
+func (l *scopeLedger) held() map[string]int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return maps.Clone(l.refs)
+}
+
+func (l *scopeLedger) drops() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.dropped)
+}
+
+// scopedBoundDef answers "from-request" as the request's scope, which a bound
+// client must never be refcounted by: its scope is its binding.
+func scopedBoundDef(p *placements, l *scopeLedger) ws.StreamDef[wsEvent] {
+	def := boundDef(p)
+	def.ScopeKey = func(*gin.Context) string { return "from-request" }
+	def.OnSubscribe = l.acquire
+	def.OnUnsubscribe = l.release
+	return def
+}
+
+func TestBroadcaster_ABoundClientsScopeFollowsItsBinding(t *testing.T) {
+	p := newPlacements(map[string]string{"chat-1": "ws-a", "chat-2": "ws-a"})
+	l := newScopeLedger()
+	b, srv := boundSetup(t, scopedBoundDef(p, l))
+
+	mover := dial(t, srv, "/chats/chat-1/ws")
+	assert.Equal(t, "+ws-a", <-l.ops)
+	stayer := dial(t, srv, "/chats/chat-2/ws")
+	assert.Equal(t, "+ws-a", <-l.ops)
+
+	p.move("chat-1", "ws-b")
+	require.Equal(t, 1, b.Rebind())
+	assert.Equal(t, []string{"+ws-b", "-ws-a"}, []string{<-l.ops, <-l.ops},
+		"the new scope is held before the old one is let go")
+	assert.Equal(t, map[string]int{"ws-a": 1, "ws-b": 1}, l.held())
+
+	require.NoError(t, mover.Close())
+	assert.Equal(t, "-ws-b", <-l.ops, "a disconnect releases the CURRENT scope")
+	require.NoError(t, stayer.Close())
+	assert.Equal(t, "-ws-a", <-l.ops)
+
+	assert.Empty(t, l.held(), "every acquired scope is released")
+	assert.Empty(t, l.ops, "no scope is acquired or released twice")
+	assert.Equal(t, []string{"ws-b", "ws-a"}, l.drops())
+}
+
+// TestBroadcaster_SwappedBindingsNeverDropAHeldScope: two clients trade
+// workspaces in one Rebind; both stay subscribed throughout, so neither
+// scope's refcount may touch zero (that would stop its watcher).
+func TestBroadcaster_SwappedBindingsNeverDropAHeldScope(t *testing.T) {
+	p := newPlacements(map[string]string{"chat-1": "ws-a", "chat-2": "ws-b"})
+	l := newScopeLedger()
+	b, srv := boundSetup(t, scopedBoundDef(p, l))
+	dial(t, srv, "/chats/chat-1/ws")
+	dial(t, srv, "/chats/chat-2/ws")
+	<-l.ops
+	<-l.ops
+
+	p.move("chat-1", "ws-b")
+	p.move("chat-2", "ws-a")
+	require.Equal(t, 2, b.Rebind())
+
+	assert.Empty(t, l.drops())
+	assert.Equal(t, map[string]int{"ws-a": 1, "ws-b": 1}, l.held())
+}
+
+// TestBroadcaster_AnUnplacedOrUnresolvedClientHoldsNoNewScope: a binding of
+// "" holds nothing, and a failed resolve keeps the last binding's scope.
+func TestBroadcaster_AnUnplacedOrUnresolvedClientHoldsNoNewScope(t *testing.T) {
+	p := newPlacements(map[string]string{})
+	l := newScopeLedger()
+	b, srv := boundSetup(t, scopedBoundDef(p, l))
+	conn := dial(t, srv, "/chats/chat-orphan/ws")
+	assert.Empty(t, l.held(), "an unplaced chat holds no scope")
+
+	p.move("chat-orphan", "ws-z")
+	require.Equal(t, 1, b.Rebind())
+	assert.Equal(t, "+ws-z", <-l.ops)
+
+	p.move("chat-orphan", "ws-y")
+	p.fail(true)
+	require.Equal(t, 0, b.Rebind())
+	assert.Equal(t, map[string]int{"ws-z": 1}, l.held(), "a failed resolve keeps the scope")
+
+	require.NoError(t, conn.Close())
+	assert.Equal(t, "-ws-z", <-l.ops)
+	assert.Empty(t, l.ops)
 }

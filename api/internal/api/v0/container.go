@@ -181,10 +181,8 @@ func (c *Container) resolveWorkspaceScope(
 }
 
 // withWatcherLifecycle attaches the Files∪Git watcher subscription triggers to a
-// StreamDef, scoping the refcount by wsId resolved from the path (still bound
-// on files' home mount; git's own :wsId mount is gone as of spec §8 step 6),
-// the chat group's resolved workspace, or the query, and delegating to the
-// app-layer realtime service.
+// StreamDef, scoping the refcount by a chat client's bound workspace or else
+// scopeWsID, and delegating to the app-layer realtime service.
 func withWatcherLifecycle[T any](
 	def ws.StreamDef[T],
 	appContainer *app.Container,
@@ -244,28 +242,15 @@ func withOriginSyncLifecycle[T any](
 }
 
 // scopeWsID resolves the workspace id the per-scope WS resources (the file
-// watcher, the protected-branch origin sync) are refcounted by: the path
-// param (still bound on files' home mount, and query-bound on neither git nor
-// files' own live mounts any more), then the chat group's already-resolved
-// workspace, then the query param.
-//
-// The reqscope step is what keeps those resources alive for a CHAT-scoped
-// subscriber. A client on /v0/chats/:chatId/git/status binds no :wsId at all,
-// so without it this resolved "" — and the acquire/release calls this feeds are
-// per-workspace refcounts, so the file watcher that PRODUCES git-status pushes
-// would never have been started for that workspace. The subscription would
-// connect, replay its snapshot, and then sit silent forever, which is the
-// failure mode the whole re-key would otherwise have shipped. resolveChatWorktree
-// has already resolved the workspace by the time the broadcaster reads the
-// scope, so this is a context read, not a second resolve.
+// watcher, the protected-branch origin sync) are refcounted by for a client
+// not bound to a chat: the :wsId path param, then the query. A chat-scoped
+// client is refcounted by its binding instead (ws.StreamDef), which follows
+// the chat across placement changes.
 func scopeWsID(
 	c *gin.Context,
 ) string {
 	if id := c.Param("wsId"); id != "" {
 		return id
-	}
-	if ws, ok := reqscope.Workspace(c); ok && ws.ID != "" {
-		return ws.ID
 	}
 	return c.Query("wsId")
 }
