@@ -299,6 +299,49 @@ func TestChatsForWorkspace_ARealFolderIsCrossedNotJustABakedInOne(t *testing.T) 
 	}
 }
 
+// TestChatsForWorkspace_ReadsTheNodeTableOncePerCallNotOncePerChat guards the
+// per-file-event fan-out: every node read decodes the whole table, so reading
+// once per chat made each filesystem event cost O(chats²).
+func TestChatsForWorkspace_ReadsTheNodeTableOncePerCallNotOncePerChat(t *testing.T) {
+	rows := []domain.Chat{{ID: "chat-a", Type: domain.ChatTypeChat, WorkspaceID: "ws-a"}}
+	nodes := &countingNodes{NodePlacements: mocks.NewNodePlacements()}
+	folders := mocks.NewFolderStore()
+	for i := range 20 {
+		id := "chat-" + string(rune('b'+i))
+		rows = append(rows, domain.Chat{ID: id, Type: domain.ChatTypeChat, ParentID: "chat-a"})
+	}
+
+	if _, err := worktree.ChatsForWorkspace(
+		context.Background(), "ws-a", &fakeChatLister{rows: rows}, folders, nodes,
+	); err != nil {
+		t.Fatalf("ChatsForWorkspace returned error: %v", err)
+	}
+	if nodes.reads != 1 {
+		t.Fatalf("node table reads = %d, want 1", nodes.reads)
+	}
+}
+
+// countingNodes counts every whole-or-partial read of the node table.
+type countingNodes struct {
+	*mocks.NodePlacements
+	reads int
+}
+
+func (c *countingNodes) ListByParent(
+	ctx context.Context,
+	parentID string,
+) ([]domain.Node, error) {
+	c.reads++
+	return c.NodePlacements.ListByParent(ctx, parentID)
+}
+
+func (c *countingNodes) ListAll(
+	ctx context.Context,
+) ([]domain.Node, error) {
+	c.reads++
+	return c.NodePlacements.ListAll(ctx)
+}
+
 // TestResolve_ChatListerErrorViaTheTreeAncestryReaderIsSurfacedWithContextNotSwallowed
 // mirrors TestResolve_ChatAncestryReaderErrorIsSurfacedWithContextNotSwallowed
 // for the new adapter's own failure path.
