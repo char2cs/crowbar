@@ -55,6 +55,7 @@ func serveChats(
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	c := New(a, nil)
+	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
 		"/v0/projects/:projectId/repos/:repoId/chats/ws",
@@ -95,6 +96,7 @@ func TestAgentChatScope_HomeWorkspaceResolvesItsProjectAndNoRepo(t *testing.T) {
 	a := newAppForSnapshot(t)
 	seedHomeWorkspace(t, a, "home-p2", "p2")
 	c := New(a, nil)
+	t.Cleanup(c.Close)
 
 	scope := c.agentChatScope("chat-home-p2", "home-p2")
 

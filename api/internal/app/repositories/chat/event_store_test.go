@@ -589,3 +589,74 @@ func TestAgentChat_ListReads_PropagateStorageFailure(t *testing.T) {
 	_, err = repo.ListByWorkspace(ctx, "w1")
 	require.Error(t, err, "a read-model failure must not read back as an empty chat list")
 }
+
+// placementLog records, for every placement announcement, the chat id and the
+// workspace and parent the READ MODEL held for it then ("gone" once deleted).
+type placementLog struct {
+	mu   sync.Mutex
+	repo chat.EventStore
+	seen []string
+}
+
+func (p *placementLog) record(id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	rows, err := p.repo.ListChats(context.Background())
+	if err != nil {
+		p.seen = append(p.seen, id+":error")
+		return
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			p.seen = append(p.seen, id+":"+row.WorkspaceID+":"+row.ParentID)
+			return
+		}
+	}
+	p.seen = append(p.seen, id+":gone")
+}
+
+func (p *placementLog) entries() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.seen...)
+}
+
+// TestAgentChat_PlacementWatchFiresAfterTheReadModelSaved: a listener re-reading
+// the read model on the announcement must already see the write, or a rebind
+// triggered by it would resolve the old placement and never be corrected.
+func TestAgentChat_PlacementWatchFiresAfterTheReadModelSaved(t *testing.T) {
+	es, err := eventsqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	ax, err := asynx.New[domain.Chat]().
+		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	log := &placementLog{}
+	repo, err := chat.NewEventSourced(ax, es, db, nil, chat.WithPlacementWatch(log.record))
+	require.NoError(t, err)
+	log.repo = repo
+	ctx := context.Background()
+	now := time.Unix(1, 0).UTC()
+
+	// A second row keeps the read model non-empty, so the post-delete read does
+	// not take the replay-heal path.
+	createChat(t, ctx, repo, "c0", "w0", now)
+	createChat(t, ctx, repo, "c1", "", now)
+	_, err = repo.SetWorkspace(ctx, "c1", "w2")
+	require.NoError(t, err)
+	_, err = repo.SetTitle(ctx, "c1", "renamed", "user")
+	require.NoError(t, err)
+	_, err = repo.SetPlacement(ctx, "c1", "parent-p", 0)
+	require.NoError(t, err)
+	ax.WaitPublish()
+	require.NoError(t, repo.Forget(ctx, "c1"))
+	ax.WaitPublish()
+
+	assert.Equal(t, []string{"c0:w0:", "c1::", "c1:w2:", "c1:w2:parent-p", "c1:gone"}, log.entries(),
+		"created, workspace_set, placement_set and the delete announce; a title change does not")
+}

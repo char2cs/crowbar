@@ -92,11 +92,7 @@ func TestTerminalsDef_SnapshotNilWithoutEngine(t *testing.T) {
 
 func TestGitDef_Lambdas(t *testing.T) {
 	def := gitDef(nil)
-	evt := gitdomain.GitStatusEvent{
-		WsID:    "w1",
-		ChatIDs: []string{"chat-a", "chat-b"},
-		Status:  gitdomain.GitStatus{Branch: "main"},
-	}
+	evt := gitdomain.GitStatusEvent{WsID: "w1", Status: gitdomain.GitStatus{Branch: "main"}}
 
 	assert.Equal(t, "w1", def.Namespace(evt))
 
@@ -104,40 +100,35 @@ func TestGitDef_Lambdas(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "main")
 	assert.NotContains(t, string(data), "wsId")
-	assert.NotContains(t, string(data), "chat-a",
-		"the fan-out set is routing, not payload: a consumer is never handed a workspace's chat roster")
 
-	// ONE filter: the chat-scoped mount is the only live route left (spec §8
-	// step 6 retired the old workspace-scoped one), matched by MEMBERSHIP
-	// against the fan-out set the event carries, and Required — a subscriber
-	// resolving no chat id gets nothing rather than every workspace.
+	// ONE filter, bound and Required: the chat id resolves to the workspace the
+	// event is matched against, and a client naming no chat gets nothing.
 	require.Len(t, def.Filters, 1)
 	assert.Equal(t, "chatId", def.Filters[0].Param)
-	assert.Equal(t, []string{"chat-a", "chat-b"}, def.Filters[0].ExtractSet(evt))
+	assert.Equal(t, "w1", def.Filters[0].Extract(evt))
+	assert.NotNil(t, def.Filters[0].Resolve)
 	assert.True(t, def.Filters[0].Required)
 }
 
 func TestFilesDef_Lambdas(t *testing.T) {
-	def := filesDef()
-	evt := domain.FileChangeEvent{WsID: "w1", Path: "a.go", ChatIDs: []string{"chat-a", "chat-b"}}
+	def := filesDef(nil)
+	evt := domain.FileChangeEvent{WsID: "w1", Path: "a.go"}
 
 	assert.Equal(t, "w1", def.Namespace(evt))
 
 	data, err := def.Serialize(evt)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "a.go")
-	assert.NotContains(t, string(data), "chat-a",
-		"the fan-out set is routing, not payload: a consumer is never handed a workspace's chat roster")
 
-	// TWO filters, for the two live mounts left (spec §8 step 6 retired the
-	// repo-scoped workspace mount): the home route resolves wsId (its own
-	// RequireHomeWorkspace injects one), the chat-scoped one resolves chatId,
-	// and each client activates only the one its own request binds.
+	// TWO filters for the two live mounts: the home route resolves wsId, the
+	// chat-scoped one a bound chatId; each client activates only its own.
 	require.Len(t, def.Filters, 2)
 	assert.Equal(t, "wsId", def.Filters[0].Param)
 	assert.Equal(t, "w1", def.Filters[0].Extract(evt))
 	assert.Equal(t, "chatId", def.Filters[1].Param)
-	assert.Equal(t, []string{"chat-a", "chat-b"}, def.Filters[1].ExtractSet(evt))
+	assert.Equal(t, "w1", def.Filters[1].Extract(evt))
+	assert.NotNil(t, def.Filters[1].Resolve)
+	assert.False(t, def.Filters[1].Required)
 }
 
 // TestFilesDef_CarriesNoSnapshot pins a real design answer rather than an
@@ -148,7 +139,7 @@ func TestFilesDef_Lambdas(t *testing.T) {
 // the BARE chat scope too (see gitSnapshot), and this is the test that will say
 // so.
 func TestFilesDef_CarriesNoSnapshot(t *testing.T) {
-	assert.Nil(t, filesDef().Snapshot)
+	assert.Nil(t, filesDef(nil).Snapshot)
 }
 
 func TestAgentChatDef_Lambdas(t *testing.T) {

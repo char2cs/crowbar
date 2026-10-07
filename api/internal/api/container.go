@@ -69,6 +69,11 @@ func (c *Container) ShutdownDetached(ctx context.Context) error {
 	return c.v0.ShutdownDetached(ctx)
 }
 
+// Close stops the v0 surface's background workers; see v0.Container.Close.
+func (c *Container) Close() {
+	c.v0.Close()
+}
+
 // Handler returns the underlying http.Handler.
 func (c *Container) Handler() http.Handler {
 	return c.router

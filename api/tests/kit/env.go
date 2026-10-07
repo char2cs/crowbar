@@ -258,6 +258,7 @@ func (e *Env) Close(
 		if err := e.app.Shutdown(ctx); err != nil {
 			t.Logf("kit.Env.Close: app drain: %v", err)
 		}
+		e.v0c.Close()
 		e.app.Close()
 		e.engine.Close()
 		if err := e.adapters.Close(); err != nil {
@@ -279,7 +280,8 @@ func (e *Env) CloseCrashing(
 	t.Helper()
 	e.closeOnce.Do(func() {
 		_ = e.server.Close() // abrupt: drop the listener + active conns, no drain.
-		e.app.Close()        // release realtime FDs (watchers/LSP) — not a data drain.
+		e.v0c.Close()
+		e.app.Close() // release realtime FDs (watchers/LSP) — not a data drain.
 		e.engine.Close()
 		if err := e.adapters.Close(); err != nil {
 			t.Logf("kit.Env.CloseCrashing: adapter: %v", err)
@@ -310,6 +312,7 @@ func (e *Env) CloseWithoutKilling(
 		if err := e.app.Shutdown(ctx); err != nil {
 			t.Logf("kit.Env.CloseWithoutKilling: app drain: %v", err)
 		}
+		e.v0c.Close()
 		e.app.Close()
 		// Deliberately NOT e.engine.Close(): leave PTY/LSP children running.
 		if err := e.adapters.Close(); err != nil {

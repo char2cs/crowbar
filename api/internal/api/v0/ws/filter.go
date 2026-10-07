@@ -224,13 +224,5 @@ func (a activeFilter[T]) matches(
 		value := a.bound.current()
 		return value != "" && a.fd.Match(value, a.fd.Extract(event))
 	}
-	if a.fd.ExtractSet == nil {
-		return a.fd.Match(a.param, a.fd.Extract(event))
-	}
-	for _, value := range a.fd.ExtractSet(event) {
-		if a.fd.Match(a.param, value) {
-			return true
-		}
-	}
-	return false
+	return a.fd.Match(a.param, a.fd.Extract(event))
 }

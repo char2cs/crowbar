@@ -35,7 +35,14 @@ const maxOCCAttempts = 8
 type (
 	WatchFunc = store.WatchFunc
 	ChatEvent = store.ChatEvent
+	Option    = store.Option
 )
+
+// WithPlacementWatch is told, once the read model holds it, of every chat whose
+// parent, workspace or type changed, or that was deleted.
+func WithPlacementWatch(watch func(chatID string)) Option {
+	return store.WithPlacementWatch(watch)
+}
 
 // CreateInput seeds a new AgentChat: identity, kind, workspace, clock, and the
 // two durable CHOICES a chat is born with — its landing view and its vendor. It
@@ -338,8 +345,9 @@ func NewEventSourced(
 	es asynxModels.Store,
 	storeDB *gormdb.DB,
 	watch WatchFunc,
+	opts ...Option,
 ) (EventStore, error) {
-	st, err := store.New(storeDB, es, ax, watch)
+	st, err := store.New(storeDB, es, ax, watch, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("agentchat: store: %w", err)
 	}

@@ -55,18 +55,13 @@ func TestWatcherLifecycle_FilesSubscriberStartsWatcher(t *testing.T) {
 		time.Unix(1, 0).UTC(),
 	)
 	require.NoError(t, err)
-	// wsToChats matters here, not just chatToWs: PushFile stamps the LIVE
-	// filesystem event with the fan-out set it resolves for the workspace, and
-	// this test's whole assertion is that a real edit's event reaches this
-	// chat-scoped subscriber — an empty set would drop it just as silently as
-	// a watcher that never started.
 	tc.app.Usecases.Worktree = stubChatWorktreeResolver{
 		chatToWs:   map[string]string{"chat-1": "w1"},
-		wsToChats:  map[string][]string{"w1": {"chat-1"}},
 		workspaces: tc.app.Repositories.Workspace,
 	}
 
 	c := v0.New(tc.app, tc.eng)
+	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
@@ -116,6 +111,7 @@ func (fileProbe) PushTerminalSession(_ dto.TerminalSessionDTO) {}
 func (fileProbe) PushGit(_ string, _ gitdomain.GitStatus)      {}
 
 func (fileProbe) PushAgentChatFolder(_, _, _ string) {}
+func (fileProbe) PushPlacementChanged()              {}
 
 func (fileProbe) PushAgentChatPromptSettled(_, _, _ string, _ bool) {}
 
@@ -161,6 +157,7 @@ func TestWatcherLifecycle_LSPOnlySubscriberDoesNotStartWatcher(t *testing.T) {
 	tc.app.Hub.Register(probe)
 
 	c := v0.New(tc.app, tc.eng)
+	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)

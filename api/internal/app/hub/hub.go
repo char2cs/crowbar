@@ -272,4 +272,14 @@ func (h *Hub) BroadcastAgentChatFolder(
 	}
 }
 
+// BroadcastPlacementChanged tells every subscriber that a chat's or folder's
+// placement was saved, so which worktree a chat resolves to may have changed.
+func (h *Hub) BroadcastPlacementChanged() {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushPlacementChanged()
+	}
+}
+
 var _ WebSocketHub = (*Hub)(nil)

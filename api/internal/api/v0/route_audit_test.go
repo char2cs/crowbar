@@ -28,18 +28,11 @@ type workspaceGetter interface {
 	Get(ctx context.Context, id string) (domain.Workspace, error)
 }
 
-// stubChatWorktreeResolver is the minimal usecases.WorktreeResolver the
-// chat-scoped group's resolveChatWorktree middleware (and PushGit/PushFile's
-// chatsHolding fan-out) need: Resolve answers a fixed workspace id per chat
-// id, looked up through the SAME workspace reader the test seeded its row
-// through, so the returned aggregate is the real seeded row rather than an
-// empty stand-in. ChatsForWorkspace answers wsToChats's fixed roster per
-// workspace id — nil (no chats) for any workspace not listed, which is
-// exactly the "no chat holds this" degradation a real fan-out gives an
-// unrelated push.
+// stubChatWorktreeResolver is the minimal usecases.WorktreeResolver the chat
+// routes and the bound worktree streams need: each chat resolves to a fixed
+// workspace id, read through the workspace reader the test seeded its row in.
 type stubChatWorktreeResolver struct {
 	chatToWs   map[string]string
-	wsToChats  map[string][]string
 	workspaces workspaceGetter
 }
 
@@ -54,11 +47,15 @@ func (s stubChatWorktreeResolver) Resolve(
 	return s.workspaces.Get(ctx, wsID)
 }
 
-func (s stubChatWorktreeResolver) ChatsForWorkspace(
+func (s stubChatWorktreeResolver) WorkspacesForChats(
 	_ context.Context,
-	workspaceID string,
-) ([]string, error) {
-	return s.wsToChats[workspaceID], nil
+	chatIDs []string,
+) (map[string]string, error) {
+	out := make(map[string]string, len(chatIDs))
+	for _, id := range chatIDs {
+		out[id] = s.chatToWs[id]
+	}
+	return out, nil
 }
 
 // expectedRoutes is the canonical method+path set the v0 surface must register,
@@ -602,6 +599,7 @@ func registeredRoutes(
 	t.Helper()
 	tc := newApp(t)
 	c := v0.New(tc.app, tc.eng)
+	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	out := map[string]struct{}{}
@@ -887,6 +885,7 @@ func TestRouteAudit_DualServe_RestMode(t *testing.T) {
 	seedWorkspace(t, tc, "w1")
 	tc.app.Usecases.Worktree = stubChatWorktreeResolver{chatToWs: map[string]string{"chat-1": "w1"}, workspaces: tc.app.Repositories.Workspace}
 	c := v0.New(tc.app, tc.eng)
+	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
@@ -922,6 +921,7 @@ func TestRouteAudit_DualServe_WsMode(t *testing.T) {
 	seedWorkspace(t, tc, "w1")
 	tc.app.Usecases.Worktree = stubChatWorktreeResolver{chatToWs: map[string]string{"chat-1": "w1"}, workspaces: tc.app.Repositories.Workspace}
 	c := v0.New(tc.app, tc.eng)
+	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
@@ -953,7 +953,9 @@ func TestConsoleLogs_WithRing_StreamsReplayReadyAndLiveRedacted(t *testing.T) {
 	log := slog.New(ring.Wrap(slog.NewTextHandler(&strings.Builder{}, nil)))
 	log.Info("old", "component", "boot")
 	r := gin.New()
-	v0.New(tc.app, tc.eng, v0.WithLogs(ring)).Register(r.Group("/v0"))
+	c := v0.New(tc.app, tc.eng, v0.WithLogs(ring))
+	t.Cleanup(c.Close)
+	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 

@@ -238,10 +238,8 @@ func (s *WebSocketSuite) TestWS_GitTopic_StatusBroadcast() {
 	watcher := s.env.DialGit(t, chatID)
 
 	// Inject the git status directly — the git WS topic is change-only and the
-	// OS file watcher is not running in the test environment. PushGit resolves
-	// the fan-out chat set live at push time (container.go's chatsHolding), so
-	// unlike the chat lifecycle feed this needs no extra trigger to reach a
-	// freshly-created chat's subscriber.
+	// OS file watcher is not running in the test environment. The subscriber
+	// bound its chat's workspace when it connected, so the push reaches it.
 	s.env.PushGit(kit.GitStatusEvent{
 		WsID:   wsID,
 		Branch: "feature/ws-git-test",

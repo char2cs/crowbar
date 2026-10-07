@@ -96,12 +96,17 @@ func New(
 	es asynxModels.Store,
 	ax asynx.Asynx[domain.Chat],
 	watch WatchFunc,
+	opts ...Option,
 ) (Store, error) {
 	st, err := newStorageStore(db)
 	if err != nil {
 		return nil, fmt.Errorf("agentchat store: %w", err)
 	}
-	if err := registerStoreProjection(st, ax); err != nil {
+	p := &storeProjector{storage: st}
+	for _, opt := range opts {
+		opt(p)
+	}
+	if err := registerStoreProjection(p, ax); err != nil {
 		return nil, fmt.Errorf("agentchat store: projections: %w", err)
 	}
 	if err := registerHubProjection(ax, watch); err != nil {
@@ -268,10 +273,9 @@ func (s *service) foldReplayed(
 // broadcast — Task 8's hub projection owns fan-out. Designed to register ONCE on
 // the singleton.
 func registerStoreProjection(
-	st storage,
+	p *storeProjector,
 	ax asynx.Asynx[domain.Chat],
 ) error {
-	p := &storeProjector{storage: st}
 	if _, err := ax.Subscribe(asynx.Topic("agentchat.*"), p.onEvent); err != nil {
 		return fmt.Errorf("agentchat store projection: subscribe: %w", err)
 	}
@@ -282,7 +286,18 @@ func registerStoreProjection(
 }
 
 type storeProjector struct {
-	storage storage
+	storage   storage
+	placement func(chatID string)
+}
+
+// Option configures the store projection.
+type Option func(*storeProjector)
+
+// WithPlacementWatch announces every chat whose parent, workspace or type the
+// projection just saved, or whose row it deleted. It runs after the write, so
+// a listener re-reading the read model sees the new placement.
+func WithPlacementWatch(watch func(chatID string)) Option {
+	return func(p *storeProjector) { p.placement = watch }
 }
 
 func (p *storeProjector) onEvent(
@@ -291,6 +306,28 @@ func (p *storeProjector) onEvent(
 ) {
 	if err := p.saveWithRetry(ctx, evt.Aggregate); err != nil {
 		slog.ErrorContext(ctx, "agentchat store projection: save", "id", evt.Aggregate.ID, "err", err)
+		return
+	}
+	if placementChanged(evt.PreviousAggregate, evt.Aggregate) {
+		p.announcePlacement(evt.Aggregate.ID)
+	}
+}
+
+func placementChanged(
+	before domain.Chat,
+	after domain.Chat,
+) bool {
+	return before.ID == "" ||
+		before.ParentID != after.ParentID ||
+		before.WorkspaceID != after.WorkspaceID ||
+		before.Type != after.Type
+}
+
+func (p *storeProjector) announcePlacement(
+	chatID string,
+) {
+	if p.placement != nil {
+		p.placement(chatID)
 	}
 }
 
@@ -322,5 +359,7 @@ func (p *storeProjector) onForget(
 ) {
 	if err := p.storage.Delete(ctx, evt.Aggregate.ID); err != nil {
 		slog.ErrorContext(ctx, "agentchat store projection: delete", "id", evt.Aggregate.ID, "err", err)
+		return
 	}
+	p.announcePlacement(evt.Aggregate.ID)
 }

@@ -33,7 +33,8 @@ func (bd *binding) set(value string) bool {
 }
 
 // resolveBindings answers every binding with ONE Resolve call per bound filter,
-// over the distinct params the bindings carry.
+// over the distinct params the bindings carry. A param Resolve left unanswered
+// (a failed read) is omitted, so its binding keeps its current value.
 func resolveBindings[T any](
 	filters []FilterDef[T],
 	bindings []*binding,
@@ -51,7 +52,9 @@ func resolveBindings[T any](
 	}
 	out := make(map[*binding]string, len(bindings))
 	for _, bd := range bindings {
-		out[bd] = answers[bd.filter][bd.param]
+		if value, ok := answers[bd.filter][bd.param]; ok {
+			out[bd] = value
+		}
 	}
 	return out
 }

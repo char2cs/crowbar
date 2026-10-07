@@ -41,7 +41,7 @@ func newProjected(
 	require.NoError(t, err)
 
 	h := &captureHub{}
-	require.NoError(t, registerStoreProjection(st, ax))
+	require.NoError(t, registerStoreProjection(&storeProjector{storage: st}, ax))
 	require.NoError(t, registerHubProjection(ax, h.watch))
 	return context.Background(), ax, st, h
 }
@@ -103,7 +103,7 @@ func TestRegisterStoreProjection_SubscribeError(t *testing.T) {
 	require.NoError(t, err)
 	st, err := newStorageStore(db)
 	require.NoError(t, err)
-	err = registerStoreProjection(st, &fakeAx{subscribeErr: errors.New("bus down")})
+	err = registerStoreProjection(&storeProjector{storage: st}, &fakeAx{subscribeErr: errors.New("bus down")})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentchat store projection: subscribe")
 }
@@ -113,7 +113,7 @@ func TestRegisterStoreProjection_OnForgetError(t *testing.T) {
 	require.NoError(t, err)
 	st, err := newStorageStore(db)
 	require.NoError(t, err)
-	err = registerStoreProjection(st, &fakeAx{forgetErr: errors.New("bus down")})
+	err = registerStoreProjection(&storeProjector{storage: st}, &fakeAx{forgetErr: errors.New("bus down")})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentchat store projection: on forget")
 }

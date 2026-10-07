@@ -107,32 +107,22 @@ func (c *Container) AgentToolMetrics() map[string]agentusecase.ToolStat {
 	return c.agentToolMetrics.Snapshot()
 }
 
-// WorktreeResolver is the Resolve(ctx, chatID) shape spec §3
-// (docs/superpowers/specs/2026-09-02-chat-scoped-api-design.md) describes a
-// future handler calling in place of h.wsReader.Get(ctx, wsID) — h.resolver
-// .Resolve(ctx, chatID) instead — plus its inverse, ChatsForWorkspace, which
-// spec §7.4 needs to fan a shared worktree's push out to every chat currently
-// resolving to it. The container's own worktreeResolver is the one concrete
-// value that satisfies both.
+// WorktreeResolver resolves a chat to the workspace behind its worktree: one
+// chat per request (Resolve), or every chat a realtime stream has bound in one
+// forest read (WorkspacesForChats, "" for a chat with no worktree).
 type WorktreeResolver interface {
 	Resolve(ctx context.Context, chatID string) (domain.Workspace, error)
-	ChatsForWorkspace(ctx context.Context, workspaceID string) ([]string, error)
+	WorkspacesForChats(ctx context.Context, chatIDs []string) (map[string]string, error)
 }
 
-// worktreeResolver adapts the package-level worktree.Resolve and
-// worktree.ChatsForWorkspace functions (internal/app/usecases/worktree) into a
-// WorktreeResolver value: chats, chatRows and workspaces are the container's
-// own concrete usecases, satisfying the resolver's locally-declared ports
-// (law 4) structurally.
+// worktreeResolver adapts the worktree package's functions over the
+// container's own chat, workspace, folder and node reads (law 4).
 type worktreeResolver struct {
 	chats      worktree.ChatAncestryReader
 	chatRows   worktree.ChatLister
 	workspaces worktree.WorkspaceReader
-	// folders/nodes let ChatsForWorkspace's own ancestry walk step past a
-	// Folder-only ancestor (2026-09-08 sidebar-placement-unification Task
-	// 8's own review fix round) — see worktree.ChatsForWorkspace's own doc.
-	folders worktree.Folders
-	nodes   worktree.Nodes
+	folders    worktree.Folders
+	nodes      worktree.Nodes
 }
 
 // Resolve implements WorktreeResolver.
@@ -143,7 +133,15 @@ func (r worktreeResolver) Resolve(
 	return worktree.Resolve(ctx, chatID, r.chats, r.workspaces)
 }
 
-// ChatsForWorkspace implements WorktreeResolver.
+// WorkspacesForChats implements WorktreeResolver.
+func (r worktreeResolver) WorkspacesForChats(
+	ctx context.Context,
+	chatIDs []string,
+) (map[string]string, error) {
+	return worktree.WorkspacesForChats(ctx, chatIDs, r.chatRows, r.folders, r.nodes)
+}
+
+// ChatsForWorkspace answers the chat tree's delete census (WorkspaceHolders).
 func (r worktreeResolver) ChatsForWorkspace(
 	ctx context.Context,
 	workspaceID string,
@@ -430,10 +428,8 @@ func newAgentWiring(
 		RepoRoots: workspaceGitStatusReader{workspace: workspaceUsecase, repos: gormStores.Repositories},
 	})
 	// The chat→worktree resolver, built here because it reads the chat forest
-	// off the usecase above and because the tree below needs its inverse. The
-	// container hands this same value to the chat-scoped routes (New's
-	// worktreeUsecase), so the fan-out set a shared write pushes to and the
-	// holder set a delete checks against are one function, not two.
+	// off the usecase above and because the tree below needs its inverse; the
+	// chat-scoped routes resolve through this same value.
 	worktreeUsecase := worktreeResolver{
 		chats:      worktree.NewChatTreeAncestryReader(chat, gormStores.Folders, repos.Node),
 		chatRows:   chat,

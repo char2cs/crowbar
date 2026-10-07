@@ -194,6 +194,8 @@ func (c *Container) Run(
 // and LSP hosts, which http.Server.Shutdown leaves running on hijacked WebSocket
 // connections), then releases the adapter layer and the listener.
 func (c *Container) Close() {
+	// The rebind workers read the stores, so they stop before anything closes.
+	c.api.Close()
 	c.app.Close()
 	// Tear down engine OS resources (live PTY child processes + master FDs) so a
 	// shutdown/restart doesn't orphan every open terminal's shell and the dev

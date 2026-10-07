@@ -56,12 +56,6 @@ type StreamDef[T any] struct {
 
 // FilterDef is an optional query-param predicate over a stream value.
 //
-// ExtractSet turns the filter from an equality test into a MEMBERSHIP one: the
-// event carries a SET of values and matches when Match holds for ANY member. It
-// is what lets ONE Push reach the several chats sharing a worktree (spec §7.4)
-// in a single fan-out pass, instead of a Push per chat. It replaces Extract
-// when set; a set carrying nothing matches nobody.
-//
 // Required refuses a client that resolves no value for Param — path, query and
 // Default all empty — instead of dropping the filter for that client. Without
 // it an unparameterised subscriber is silently over-subscribed to EVERY event
@@ -72,13 +66,13 @@ type StreamDef[T any] struct {
 // Resolve makes the filter BOUND: the client's Param value (a chat id) is
 // resolved to the value Extract is matched against (its workspace id) at
 // connect and again on every Broadcaster.Rebind, which passes all clients'
-// values in one call. A value resolving to "" matches nothing.
+// values in one call. A value resolving to "" matches nothing; one left out
+// of the answer keeps the client's current binding.
 type FilterDef[T any] struct {
-	Param      string
-	Extract    func(T) string
-	ExtractSet func(T) []string
-	Match      func(param, value string) bool
-	Default    string
-	Required   bool
-	Resolve    func(params []string) map[string]string
+	Param    string
+	Extract  func(T) string
+	Match    func(param, value string) bool
+	Default  string
+	Required bool
+	Resolve  func(params []string) map[string]string
 }

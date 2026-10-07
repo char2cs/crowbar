@@ -228,6 +228,7 @@ func newContainer(
 		noRunnerWatch,
 		noNodeWatch,
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	return c
@@ -258,6 +259,7 @@ func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
 		noChatWatch,
 		noRunnerWatch,
 		noNodeWatch,
+		nil,
 		nil,
 	)
 	assert.Error(t, err)
@@ -475,7 +477,7 @@ func TestContainer_ListWorkspaces_ListErrorPropagates(t *testing.T) {
 func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, noChatWatch, noRunnerWatch, noNodeWatch, nil)
+	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, noChatWatch, noRunnerWatch, noNodeWatch, nil, nil)
 	require.NoError(t, err)
 
 	// A real MANAGED worktree UNDER the crowbar home: the delete reactor's rm is
@@ -538,7 +540,7 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 func TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, noChatWatch, noRunnerWatch, noNodeWatch, nil)
+	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, noChatWatch, noRunnerWatch, noNodeWatch, nil, nil)
 	require.NoError(t, err)
 
 	// The user's real checkout, OUTSIDE the crowbar home (an adopted worktree).
@@ -673,4 +675,29 @@ func TestRegression_DeleteCascade_ToleratesAChatAlreadyPurged(t *testing.T) {
 
 	_, err = c.Workspace.Get(ctx, "w1")
 	assert.Error(t, err, "the workspace is purged regardless")
+}
+
+// TestContainer_New_PlacementWatchHearsChatsAndNodes: the one placement seam
+// is wired into both the chat and the node read models, so a rebind hears a
+// chat re-anchored to a worktree and a folder dragged across owners alike.
+func TestContainer_New_PlacementWatchHearsChatsAndNodes(t *testing.T) {
+	ad := newAdapter(t)
+	heard := make(chan string, 4)
+	c, err := repositories.New(
+		context.Background(), ad, hub.NewHub(),
+		ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad),
+		agentRunnerAx(t, ad), nodeAx(t, ad), nil,
+		noChatWatch, noRunnerWatch, noNodeWatch, nil,
+		func(id string) { heard <- id },
+	)
+	require.NoError(t, err)
+
+	_, err = c.AgentChat.Create(context.Background(), agentchat.CreateInput{
+		ID: "chat-1", Type: domain.ChatTypeChat, Now: time.Unix(1, 0).UTC(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "chat-1", <-heard)
+	_, err = c.Node.Create(context.Background(), "folder-1", domain.NodeKindFolder, "chat-1", 0)
+	require.NoError(t, err)
+	assert.Equal(t, "folder-1", <-heard)
 }

@@ -35,7 +35,7 @@ import (
 // baseline this file's isolation tests are contrasted against: a plain push
 // under a chat's own key reaches that chat's subscriber.
 func TestLSPDelivery_ChatScopedClientReceivesItsOwnSessionDiagnostics(t *testing.T) {
-	c, srv, _ := chatScopeEnv(t)
+	c, srv := chatScopeEnv(t)
 
 	conn := dialWSAt(t, srv, "/v0/chats/chat-a/lsp/ws")
 	c.lsp.WaitNRegistered(1)
@@ -59,7 +59,7 @@ func TestLSPDelivery_ChatScopedClientReceivesItsOwnSessionDiagnostics(t *testing
 // connection reads must be its own — a leaked chat-a frame would arrive
 // first and fail the assertion, proving isolation without a timeout.
 func TestLSPIsolation_ASiblingChatOnTheSameWorktreeDoesNotReceiveAnotherChatsSession(t *testing.T) {
-	c, srv, _ := chatScopeEnv(t)
+	c, srv := chatScopeEnv(t)
 
 	owner := dialWSAt(t, srv, "/v0/chats/chat-a/lsp/ws")
 	sibling := dialWSAt(t, srv, "/v0/chats/chat-b/lsp/ws")
@@ -79,7 +79,7 @@ func TestLSPIsolation_ASiblingChatOnTheSameWorktreeDoesNotReceiveAnotherChatsSes
 // editor/LSP has no surviving second mount (no home LSP route) — the flat
 // chat prefix is the ONLY way in.
 func TestLSPCoexistence_TheWorkspaceScopedRouteIsGone(t *testing.T) {
-	_, srv, _ := chatScopeEnv(t)
+	_, srv := chatScopeEnv(t)
 
 	url := "ws" + srv.URL[len("http"):] + workspaceGitRoute + "ws-a/lsp/ws"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
@@ -113,7 +113,7 @@ func TestLSPStreamScopeKey_AChatSubscriberRefcountsTheChatNotTheWorkspace(t *tes
 	require.NotNil(t, def.ScopeKey)
 
 	viaChat, _ := gin.CreateTestContext(httptest.NewRecorder())
-	viaChat.Request = httptest.NewRequest("GET", "/v0/chats/chat-a/lsp/ws", nil)
+	viaChat.Request = httptest.NewRequestWithContext(t.Context(), "GET", "/v0/chats/chat-a/lsp/ws", nil)
 	viaChat.Params = gin.Params{{Key: "chatId", Value: "chat-a"}}
 	reqscope.SetWorkspace(viaChat, domain.Workspace{ID: "ws-a"})
 
@@ -133,7 +133,7 @@ func TestLSPStreamScopeKey_NoChatIDResolvesEmpty(t *testing.T) {
 	def := withLSPLifecycle(lspDef(a, eng), a)
 
 	viaWorkspace, _ := gin.CreateTestContext(httptest.NewRecorder())
-	viaWorkspace.Request = httptest.NewRequest("GET", workspaceGitRoute+"ws-direct/lsp/ws", nil)
+	viaWorkspace.Request = httptest.NewRequestWithContext(t.Context(), "GET", workspaceGitRoute+"ws-direct/lsp/ws", nil)
 	viaWorkspace.Params = gin.Params{{Key: "wsId", Value: "ws-direct"}}
 
 	assert.Empty(t, def.ScopeKey(viaWorkspace),

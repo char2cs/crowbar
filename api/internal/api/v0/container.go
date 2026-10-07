@@ -76,7 +76,7 @@ func New(
 		threads:    ws.NewBroadcaster(threadsDef(appContainer)),
 		terminals:  ws.NewBroadcaster(terminalsDef(appContainer, engContainer)),
 		git:        ws.NewBroadcaster(withOriginSyncLifecycle(withWatcherLifecycle(gitDef(appContainer), appContainer), appContainer)),
-		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(), appContainer)),
+		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(appContainer), appContainer)),
 		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), appContainer)),
 		chatScopes: newAgentChatScopes(),
 		app:        appContainer,
@@ -400,23 +400,9 @@ func (c *Container) PushTerminalSession(
 	c.terminals.Push(s)
 }
 
-// PushGit implements hub.Subscriber. It wraps the status in an event carrying
-// BOTH scoping answers — the workspace it describes, and every chat currently
-// holding that workspace — so one Push serves the workspace-scoped route and
-// fans out to the chat-scoped one in a single pass (spec §7.4).
-//
-// This is the single production push site for the git topic: hub.BroadcastGit
-// is called only by the realtime watcher dispatcher's OnGitStatus. The "watcher
-// broadcast" that git's own write handlers name in their doc comments IS this
-// path — a write completes, the file watcher notices, and the post-op state
-// arrives here — not a second, handler-driven push of its own.
-//
-// The set is resolved at PUSH time rather than at connect time on purpose: a
-// client's predicate is compiled once, when it subscribes, so a chat forked
-// onto this worktree AFTER that moment can only be reached by news the event
-// itself carries. The resolve costs one chat-forest read per push, and the
-// watcher already dedups against its previous status, so it runs on real
-// change rather than per tick.
+// PushGit implements hub.Subscriber. The event names only its workspace: each
+// chat-scoped client matches it against its own bound workspace, so a push
+// reads no chat or placement state.
 func (c *Container) PushGit(
 	wsID string,
 	status gitdomain.GitStatus,
@@ -426,52 +412,28 @@ func (c *Container) PushGit(
 	if status.Files == nil {
 		status.Files = []gitdomain.GitFile{}
 	}
-	c.git.Push(gitdomain.GitStatusEvent{
-		WsID:    wsID,
-		ChatIDs: c.chatsHolding(context.Background(), wsID),
-		Status:  status,
-	})
+	c.git.Push(gitdomain.GitStatusEvent{WsID: wsID, Status: status})
 }
 
-// chatsHolding answers which chats currently resolve to workspaceID, degrading
-// to the empty set rather than an error: a fan-out that cannot be resolved
-// reaches nobody, which leaves the workspace-scoped subscribers on the same
-// event untouched. It never returns a nil-vs-empty distinction, because a set
-// carrying nothing already matches nobody (ws.FilterDef.ExtractSet).
-func (c *Container) chatsHolding(
-	ctx context.Context,
-	workspaceID string,
-) []string {
-	if c.app == nil || c.app.Usecases == nil || c.app.Usecases.Worktree == nil {
-		return nil
-	}
-	chatIDs, err := c.app.Usecases.Worktree.ChatsForWorkspace(ctx, workspaceID)
-	if err != nil {
-		return nil
-	}
-	return chatIDs
-}
-
-// PushFile implements hub.Subscriber. It stamps the event with every chat
-// currently holding the workspace it describes, so one Push serves the
-// workspace-scoped and home routes and fans out to the chat-scoped one in a
-// single pass (spec §7.4) — the same shape PushGit takes, for the same reason.
-//
-// The set is resolved at PUSH time rather than at connect time on purpose: a
-// client's predicate is compiled once, when it subscribes, so a chat forked
-// onto this worktree AFTER that moment can only be reached by news the event
-// itself carries.
-//
-// Unlike git's, this push arrives per DEBOUNCED filesystem event rather than
-// only on a changed status, so the resolve rides a burst rather than a real
-// change — it is one chat-forest read against the same in-memory rows the
-// resolver already serves, and the alternative (resolving at connect) cannot
-// answer the fork-after-connect case at all.
+// PushFile implements hub.Subscriber; like PushGit it reads no chat state.
 func (c *Container) PushFile(
 	evt domain.FileChangeEvent,
 ) {
-	evt.ChatIDs = c.chatsHolding(context.Background(), evt.WsID)
 	c.files.Push(evt)
+}
+
+// PushPlacementChanged implements hub.Subscriber: a chat may now resolve to
+// another worktree, so both worktree streams re-resolve their bound clients.
+func (c *Container) PushPlacementChanged() {
+	c.git.RequestRebind()
+	c.files.RequestRebind()
+}
+
+// Close stops the worktree streams' rebind workers. Call it once no placement
+// broadcast can arrive, before the stores their resolver reads are closed.
+func (c *Container) Close() {
+	c.git.Close()
+	c.files.Close()
 }
 
 // PushAgentChatPromptSettled implements hub.Subscriber, on the SAME
@@ -767,19 +729,9 @@ func terminalsDef(
 	}
 }
 
-// gitDef scopes the Git topic to a single worktree, named by the chat that
-// holds it. The wire payload is a bare GitStatus (the embedded Status),
-// matching the REST snapshot of the dual-serve route; the scoping field is
-// never serialized onto the Git stream.
-//
-// The chatId filter matches by MEMBERSHIP against the fan-out set the event
-// carries — every chat holding that worktree, resolved at push time (PushGit)
-// — via ws.ChatFanoutFilter, Required: a subscriber resolving no chat id at
-// all gets nothing rather than every workspace on the daemon (the trap
-// Required exists to close). The old /workspaces/:wsId/git/status mount that
-// once needed a second, non-required wsId filter beside this one is gone
-// (spec §8 step 6) — /chats/:chatId/git/status is the only live mount of this
-// broadcaster's Handle (router.go).
+// gitDef scopes the Git topic to the worktree a chat resolves to, bound per
+// connection (chatWorkspaces) and Required: a client naming no chat gets
+// nothing. The wire payload is the bare GitStatus.
 func gitDef(
 	appContainer *app.Container,
 ) ws.StreamDef[gitdomain.GitStatusEvent] {
@@ -788,53 +740,23 @@ func gitDef(
 		Serialize:     func(e gitdomain.GitStatusEvent) ([]byte, error) { return json.Marshal(e.Status) },
 		Snapshot:      gitSnapshot(appContainer),
 		FlatNamespace: true,
-		Filters: []ws.FilterDef[gitdomain.GitStatusEvent]{
-			ws.ChatFanoutFilter(func(e gitdomain.GitStatusEvent) []string { return e.ChatIDs }),
-		},
+		Filters: []ws.FilterDef[gitdomain.GitStatusEvent]{{
+			Param:    "chatId",
+			Extract:  func(e gitdomain.GitStatusEvent) string { return e.WsID },
+			Match:    ws.ExactMatch,
+			Required: true,
+			Resolve:  chatWorkspaces(appContainer),
+		}},
 	}
 }
 
-// filesDef scopes the Files topic to a single worktree, named either way its
-// live routes name one. Unlike gitDef the whole event goes on the wire, so the
-// fan-out set is the one field held back by its json tag rather than by the
-// Serialize lambda.
-//
-// It carries NO Snapshot, and that is the shape of the topic rather than an
-// omission: a file-change event is news, not state. A connecting client has
-// already fetched the tree over REST and has nothing to replay — which is why
-// this step needs no chat-scoped snapshot resolver of the kind gitSnapshot grew
-// (snapshots.go), and why a chat-scoped subscriber's first frame is simply the
-// next change.
-//
-// ONE StreamDef serves every mount, because there is one Broadcaster: it is
-// built once, in New, and every client registers against the same compiled def
-// regardless of which route it upgraded on. So the two filters below are not
-// alternatives the wiring picks between — both are declared for every client,
-// and each client activates whichever one its own request resolves:
-//
-//   - /projects/:p/repos/:r/workspaces/:wsId/files/ws binds :wsId, so the wsId
-//     filter is active and scopes it to exactly one workspace, exactly as
-//     before this step.
-//   - /projects/:p/home/files/ws binds no :wsId in its PATH, but
-//     RequireHomeWorkspace injects one before the upgrade runs, so it resolves
-//     the same wsId filter and is likewise untouched.
-//   - /chats/:chatId/files/ws binds :chatId and no :wsId, so the chatId filter
-//     is active and matches by MEMBERSHIP against the fan-out set the event
-//     carries — every chat holding that worktree, resolved at push time
-//     (PushFile) — while the wsId filter goes inactive.
-//
-// matchesAll requires every ACTIVE filter to match, so each client is scoped by
-// the one it actually resolved, and no mount can see another's traffic.
-//
-// NEITHER filter is Required, forced by the same argument gitDef records and
-// with one more mount to satisfy: Required on chatId would refuse every client
-// of the workspace-scoped route AND every client of the home route, neither of
-// which can resolve a :chatId; Required on wsId would refuse every chat-scoped
-// one. The trap Required exists to close — a client resolving NEITHER param and
-// being handed every workspace on the daemon — needs a mount binding neither,
-// and the three above are the only mounts of this broadcaster's Handle
-// (router.go, home/routes.go).
-func filesDef() ws.StreamDef[domain.FileChangeEvent] {
+// filesDef serves the home mount (wsId, injected by RequireHomeWorkspace) and
+// the chat mount (a bound chatId) from one broadcaster; each client activates
+// only the filter its route binds, so neither is Required. No snapshot: a
+// file change is news, not state.
+func filesDef(
+	appContainer *app.Container,
+) ws.StreamDef[domain.FileChangeEvent] {
 	return ws.StreamDef[domain.FileChangeEvent]{
 		Namespace:     func(e domain.FileChangeEvent) string { return e.WsID },
 		Serialize:     func(e domain.FileChangeEvent) ([]byte, error) { return json.Marshal(e) },
@@ -842,11 +764,31 @@ func filesDef() ws.StreamDef[domain.FileChangeEvent] {
 		Filters: []ws.FilterDef[domain.FileChangeEvent]{
 			{Param: "wsId", Extract: func(e domain.FileChangeEvent) string { return e.WsID }, Match: ws.ExactMatch},
 			{
-				Param:      "chatId",
-				ExtractSet: func(e domain.FileChangeEvent) []string { return e.ChatIDs },
-				Match:      ws.ExactMatch,
+				Param:   "chatId",
+				Extract: func(e domain.FileChangeEvent) string { return e.WsID },
+				Match:   ws.ExactMatch,
+				Resolve: chatWorkspaces(appContainer),
 			},
 		},
+	}
+}
+
+// chatWorkspaces resolves bound chat ids to workspaces in one forest read. A
+// failed read answers nothing, so every client keeps its current binding
+// rather than going silent until the next placement change.
+func chatWorkspaces(
+	appContainer *app.Container,
+) func(chatIDs []string) map[string]string {
+	return func(chatIDs []string) map[string]string {
+		if appContainer == nil || appContainer.Usecases == nil || appContainer.Usecases.Worktree == nil {
+			return nil
+		}
+		answers, err := appContainer.Usecases.Worktree.WorkspacesForChats(context.Background(), chatIDs)
+		if err != nil {
+			slog.Warn("v0: resolve chat workspaces", "chats", len(chatIDs), "err", err)
+			return nil
+		}
+		return answers
 	}
 }
 
@@ -952,9 +894,9 @@ func matchScopeOrUnscoped(
 //
 // The chatId filter scopes a client to exactly the diagnostics that chat's
 // own lsp/didOpen etc. calls produced (handlers.Handlers.lspOwnerID) — never a
-// sibling chat's, even one sharing this chat's worktree. It is NOT a fan-out
-// membership match (ExtractSet) the way gitDef/filesDef's chatId filter is:
-// editor/LSP is spec §4.2's OWNED bucket, so an event has exactly one owner.
+// sibling chat's, even one sharing this chat's worktree. Unlike gitDef/filesDef
+// it is not bound to a workspace: editor/LSP is spec §4.2's OWNED bucket, so
+// an event has exactly one owner.
 //
 // The old /workspaces/:wsId/lsp/ws mount that once needed a second, matching
 // wsId filter beside this one is gone (spec §8 step 6) — /chats/:chatId/lsp/ws

@@ -29,6 +29,8 @@ type placements struct {
 	chats map[string]string
 	gate  chan struct{}
 	calls chan []string
+	// down makes resolve answer nil, the way a failed store read does.
+	down bool
 }
 
 func newPlacements(chats map[string]string) *placements {
@@ -39,6 +41,12 @@ func (p *placements) move(chatID, wsID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.chats[chatID] = wsID
+}
+
+func (p *placements) fail(down bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.down = down
 }
 
 func (p *placements) hold(gate chan struct{}) {
@@ -58,6 +66,9 @@ func (p *placements) resolve(chatIDs []string) map[string]string {
 	out := make(map[string]string, len(chatIDs))
 	for _, id := range chatIDs {
 		out[id] = p.chats[id]
+	}
+	if p.down {
+		out = nil
 	}
 	gate := p.gate
 	p.mu.Unlock()
@@ -126,6 +137,27 @@ func TestBroadcaster_BoundClientFollowsItsChatAcrossRebind(t *testing.T) {
 	b.Push(wsEvent{WsID: "ws-a", Seq: 3})
 	b.Push(wsEvent{WsID: "ws-b", Seq: 4})
 	assert.Equal(t, wsEvent{WsID: "ws-b", Seq: 4}, readEvent(t, conn))
+}
+
+// TestBroadcaster_AFailedResolveKeepsTheLastBinding: a chat the resolver could
+// not answer keeps streaming its current workspace instead of going silent
+// until the next placement change.
+func TestBroadcaster_AFailedResolveKeepsTheLastBinding(t *testing.T) {
+	p := newPlacements(map[string]string{"chat-1": "ws-a"})
+	b, srv := boundSetup(t, boundDef(p))
+	conn := dial(t, srv, "/chats/chat-1/ws")
+
+	p.move("chat-1", "ws-b")
+	p.fail(true)
+	assert.Equal(t, 0, b.Rebind())
+	b.Push(wsEvent{WsID: "ws-a", Seq: 1})
+	assert.Equal(t, wsEvent{WsID: "ws-a", Seq: 1}, readEvent(t, conn))
+
+	p.fail(false)
+	assert.Equal(t, 1, b.Rebind())
+	b.Push(wsEvent{WsID: "ws-a", Seq: 2})
+	b.Push(wsEvent{WsID: "ws-b", Seq: 3})
+	assert.Equal(t, wsEvent{WsID: "ws-b", Seq: 3}, readEvent(t, conn))
 }
 
 // TestBroadcaster_UnplacedChatReceivesNothing: a chat resolving to no workspace
