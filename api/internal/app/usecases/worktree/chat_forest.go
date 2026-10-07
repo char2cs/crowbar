@@ -28,7 +28,7 @@ type Folders interface {
 }
 
 type Nodes interface {
-	ListByParent(ctx context.Context, parentID string) ([]domain.Node, error)
+	ListAll(ctx context.Context) ([]domain.Node, error)
 }
 
 // chatForest is one read of the whole chat/folder placement tree, indexed for
@@ -82,6 +82,14 @@ func foldersReachableFromRoots(
 	if folders == nil || nodes == nil {
 		return nil, nil
 	}
+	all, err := nodes.ListAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	byParent := make(map[string][]domain.Node)
+	for _, n := range all {
+		byParent[n.ParentID] = append(byParent[n.ParentID], n)
+	}
 	var found []domain.Chat
 	queried := map[string]bool{}
 	seenFolder := map[string]bool{}
@@ -97,11 +105,7 @@ func foldersReachableFromRoots(
 			continue
 		}
 		queried[parent] = true
-		children, err := nodes.ListByParent(ctx, parent)
-		if err != nil {
-			return nil, err
-		}
-		for _, n := range children {
+		for _, n := range byParent[parent] {
 			if n.Kind != domain.NodeKindFolder || seenFolder[n.ID] {
 				continue
 			}
