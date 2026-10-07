@@ -36,7 +36,7 @@ func TestChatFanoutFilter_EveryChatSharingTheWorktreeMatchesOnePush(t *testing.T
 	event := sharedWorkspaceEvent()
 
 	for _, chatID := range []string{"chat-a", "chat-b", "chat-c"} {
-		p := BuildPredicate(chatScopeCtx(gin.Params{{Key: "chatId", Value: chatID}}), sharedBucketDef())
+		p, _ := BuildPredicate(chatScopeCtx(gin.Params{{Key: "chatId", Value: chatID}}), sharedBucketDef())
 		assert.True(t, p(event), "%s shares ws-a and must receive its push", chatID)
 	}
 }
@@ -44,7 +44,7 @@ func TestChatFanoutFilter_EveryChatSharingTheWorktreeMatchesOnePush(t *testing.T
 // TestChatFanoutFilter_AChatOutsideTheResolvedSetIsRefused: chat-z resolves to
 // another worktree, so a write to ws-a is none of its business.
 func TestChatFanoutFilter_AChatOutsideTheResolvedSetIsRefused(t *testing.T) {
-	p := BuildPredicate(chatScopeCtx(gin.Params{{Key: "chatId", Value: "chat-z"}}), sharedBucketDef())
+	p, _ := BuildPredicate(chatScopeCtx(gin.Params{{Key: "chatId", Value: "chat-z"}}), sharedBucketDef())
 
 	assert.False(t, p(sharedWorkspaceEvent()))
 }
@@ -53,7 +53,7 @@ func TestChatFanoutFilter_AChatOutsideTheResolvedSetIsRefused(t *testing.T) {
 // workspace nobody currently resolves to is delivered to nobody — never to
 // everybody, the way an inactive filter would.
 func TestChatFanoutFilter_AnEmptyResolvedSetReachesNobody(t *testing.T) {
-	p := BuildPredicate(chatScopeCtx(gin.Params{{Key: "chatId", Value: "chat-a"}}), sharedBucketDef())
+	p, _ := BuildPredicate(chatScopeCtx(gin.Params{{Key: "chatId", Value: "chat-a"}}), sharedBucketDef())
 
 	assert.False(t, p(sharedEvent{wsID: "ws-nobody", chatIDs: nil}))
 	assert.False(t, p(sharedEvent{wsID: "ws-nobody", chatIDs: []string{}}))
@@ -65,7 +65,7 @@ func TestChatFanoutFilter_AnEmptyResolvedSetReachesNobody(t *testing.T) {
 // turning it into a no-op that matches every event on the stream. Required
 // makes the same client match nothing instead.
 func TestChatFanoutFilter_AClientCarryingNoChatIDIsRefusedNotOverSubscribed(t *testing.T) {
-	p := BuildPredicate(ctxWith("", ""), sharedBucketDef())
+	p, _ := BuildPredicate(ctxWith("", ""), sharedBucketDef())
 
 	assert.False(t, p(sharedWorkspaceEvent()))
 	assert.False(t, p(sharedEvent{wsID: "ws-other", chatIDs: []string{"chat-q"}}))
@@ -78,7 +78,7 @@ func TestChatFanoutFilter_AClientCarryingNoChatIDIsRefusedNotOverSubscribed(t *t
 // subscribed to every workspace on the daemon rather than to none. This is why
 // re-keying those routes cannot simply reuse the existing Filter.
 func TestBuildPredicate_AWsIdFilterHandsAChatScopedClientEveryWorkspace(t *testing.T) {
-	p := BuildPredicate(chatScopeCtx(gin.Params{{Key: "chatId", Value: "chat-a"}}), flatDef())
+	p, _ := BuildPredicate(chatScopeCtx(gin.Params{{Key: "chatId", Value: "chat-a"}}), flatDef())
 
 	assert.True(t, p(row{name: "A"}))
 	assert.True(t, p(row{name: "B"}), "the wsId filter is inactive, so every workspace matches")
@@ -88,7 +88,7 @@ func TestBuildPredicate_AWsIdFilterHandsAChatScopedClientEveryWorkspace(t *testi
 // non-nested caller (?chatId=) working, the same way resolveFilterValue already
 // serves the dual-served workspace routes from either shape.
 func TestChatFanoutFilter_ResolvesTheChatIDFromAQueryParamToo(t *testing.T) {
-	p := BuildPredicate(ctxWith("chatId=chat-b", ""), sharedBucketDef())
+	p, _ := BuildPredicate(ctxWith("chatId=chat-b", ""), sharedBucketDef())
 
 	assert.True(t, p(sharedWorkspaceEvent()))
 	assert.False(t, p(sharedEvent{wsID: "ws-other", chatIDs: []string{"chat-z"}}))
@@ -103,7 +103,7 @@ func TestChatFanoutFilter_ASharedStreamMustStayFlatNamespace(t *testing.T) {
 	hierarchical := sharedBucketDef()
 	hierarchical.FlatNamespace = false
 
-	p := BuildPredicate(chatScopeCtx(gin.Params{{Key: "chatId", Value: "chat-a"}}), hierarchical)
+	p, _ := BuildPredicate(chatScopeCtx(gin.Params{{Key: "chatId", Value: "chat-a"}}), hierarchical)
 
 	assert.False(t, p(sharedWorkspaceEvent()))
 }
@@ -112,7 +112,7 @@ func TestChatFanoutFilter_ASharedStreamMustStayFlatNamespace(t *testing.T) {
 // implementation (a joined string plus strings.Contains): chat-a1 is not
 // chat-a.
 func TestChatFanoutFilter_MembershipIsExactNotAPrefix(t *testing.T) {
-	p := BuildPredicate(chatScopeCtx(gin.Params{{Key: "chatId", Value: "chat-a"}}), sharedBucketDef())
+	p, _ := BuildPredicate(chatScopeCtx(gin.Params{{Key: "chatId", Value: "chat-a"}}), sharedBucketDef())
 
 	assert.False(t, p(sharedEvent{wsID: "ws-a", chatIDs: []string{"chat-a1", "chat-ab"}}))
 }

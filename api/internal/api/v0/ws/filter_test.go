@@ -35,19 +35,19 @@ func def() StreamDef[row] {
 }
 
 func TestBuildPredicate_FilterMatches(t *testing.T) {
-	p := BuildPredicate(ctxWith("kind=fruit", ""), def())
+	p, _ := BuildPredicate(ctxWith("kind=fruit", ""), def())
 	assert.True(t, p(row{name: "apple", kind: "fruit"}))
 	assert.False(t, p(row{name: "carrot", kind: "veg"}))
 }
 
 func TestBuildPredicate_NamespaceGlob(t *testing.T) {
-	p := BuildPredicate(ctxWith("", "al*"), def())
+	p, _ := BuildPredicate(ctxWith("", "al*"), def())
 	assert.True(t, p(row{name: "alpha"}))
 	assert.False(t, p(row{name: "beta"}))
 }
 
 func TestBuildPredicate_NoFiltersMatchesAll(t *testing.T) {
-	p := BuildPredicate(ctxWith("", ""), StreamDef[row]{Namespace: func(r row) string { return r.name }})
+	p, _ := BuildPredicate(ctxWith("", ""), StreamDef[row]{Namespace: func(r row) string { return r.name }})
 	assert.True(t, p(row{name: "anything"}))
 }
 
@@ -71,7 +71,7 @@ func TestBuildPredicate_DefaultFilter(t *testing.T) {
 			{Param: "kind", Extract: func(r row) string { return r.kind }, Match: ExactMatch, Default: "fruit"},
 		},
 	}
-	p := BuildPredicate(ctxWith("", ""), d)
+	p, _ := BuildPredicate(ctxWith("", ""), d)
 	assert.True(t, p(row{name: "apple", kind: "fruit"}))
 	assert.False(t, p(row{name: "carrot", kind: "veg"}))
 }
@@ -83,7 +83,7 @@ func TestBuildPredicate_DefaultFilter(t *testing.T) {
 // path param at all (e.g. the agent-chat WS's wsId Filter once its route
 // moved off .../workspaces/:wsId, Task 17), rather than refusing every event.
 func TestBuildPredicate_DeclaredFilterWithNoValueAnywhereMatchesAll(t *testing.T) {
-	p := BuildPredicate(ctxWith("", ""), def())
+	p, _ := BuildPredicate(ctxWith("", ""), def())
 	assert.True(t, p(row{name: "apple", kind: "fruit"}))
 	assert.True(t, p(row{name: "carrot", kind: "veg"}))
 }
@@ -110,25 +110,25 @@ func ctxWithParam(
 }
 
 func TestBuildPredicate_FilterFromQueryParam(t *testing.T) {
-	p := BuildPredicate(ctxWith("kind=fruit", ""), def())
+	p, _ := BuildPredicate(ctxWith("kind=fruit", ""), def())
 	assert.True(t, p(row{name: "apple", kind: "fruit"}))
 	assert.False(t, p(row{name: "carrot", kind: "veg"}))
 }
 
 func TestBuildPredicate_FilterFromPathParam(t *testing.T) {
-	p := BuildPredicate(ctxWithParam("", "kind", "fruit"), def())
+	p, _ := BuildPredicate(ctxWithParam("", "kind", "fruit"), def())
 	assert.True(t, p(row{name: "apple", kind: "fruit"}))
 	assert.False(t, p(row{name: "carrot", kind: "veg"}))
 }
 
 func TestBuildPredicate_PathParamWinsOverQuery(t *testing.T) {
-	p := BuildPredicate(ctxWithParam("kind=veg", "kind", "fruit"), def())
+	p, _ := BuildPredicate(ctxWithParam("kind=veg", "kind", "fruit"), def())
 	assert.True(t, p(row{name: "apple", kind: "fruit"}))
 	assert.False(t, p(row{name: "carrot", kind: "veg"}))
 }
 
 func TestBuildPredicate_FallsBackToQueryWhenPathEmpty(t *testing.T) {
-	p := BuildPredicate(ctxWithParam("kind=fruit", "other", "x"), def())
+	p, _ := BuildPredicate(ctxWithParam("kind=fruit", "other", "x"), def())
 	assert.True(t, p(row{name: "apple", kind: "fruit"}))
 	assert.False(t, p(row{name: "carrot", kind: "veg"}))
 }
@@ -194,7 +194,7 @@ func TestBuildPredicate_FlatNamespace_IgnoresHierarchicalScope(t *testing.T) {
 		{Key: "projectId", Value: "p1"},
 		{Key: "repoId", Value: "r1"},
 	})
-	p := BuildPredicate(ctx, flatDef())
+	p, _ := BuildPredicate(ctx, flatDef())
 	assert.True(t, p(row{name: "A"}), "matching wsId must pass despite the p1/r1 path")
 	assert.False(t, p(row{name: "B"}), "non-matching wsId is filtered by the Filter")
 }
@@ -208,7 +208,7 @@ func TestBuildPredicate_FlatNamespace_DualServePathParam(t *testing.T) {
 		{Key: "repoId", Value: "r1"},
 		{Key: "wsId", Value: "A"},
 	})
-	p := BuildPredicate(ctx, flatDef())
+	p, _ := BuildPredicate(ctx, flatDef())
 	assert.True(t, p(row{name: "A"}))
 	assert.False(t, p(row{name: "B"}))
 }

@@ -13,6 +13,7 @@ import (
 type filteredClient[T any] struct {
 	*client
 	predicate func(T) bool
+	bindings  []*binding
 }
 
 // Broadcaster fans a stream of T out to filtered WebSocket clients (03 §1).
@@ -25,18 +26,31 @@ type Broadcaster[T any] struct {
 	// regCount is a buffered semaphore channel: one token is sent per registration.
 	// Test helpers drain exactly n tokens to confirm n clients are registered.
 	regCount chan struct{}
+
+	// rebindMu serializes Rebind against a connecting client's registration
+	// and first resolve. The channels belong to the rebind worker (rebind.go),
+	// started only for a stream with a bound filter.
+	rebindMu  sync.Mutex
+	rebind    chan struct{}
+	stop      chan struct{}
+	stopped   chan struct{}
+	closeOnce sync.Once
 }
 
 // NewBroadcaster builds a Broadcaster from a StreamDef.
 func NewBroadcaster[T any](
 	def StreamDef[T],
 ) *Broadcaster[T] {
-	return &Broadcaster[T]{
+	b := &Broadcaster[T]{
 		def:        def,
 		clients:    make(map[*filteredClient[T]]struct{}),
 		registered: make(chan struct{}),
 		regCount:   make(chan struct{}, 1024),
 	}
+	if hasBoundFilter(def) {
+		b.startRebinder()
+	}
+	return b
 }
 
 // WaitRegistered blocks until at least one client has registered. Test-only.
@@ -82,13 +96,10 @@ func (b *Broadcaster[T]) Handle(
 		return
 	}
 
-	predicate := BuildPredicate(c, b.def)
-	cl := &filteredClient[T]{client: newClient(), predicate: predicate}
-
 	scope := b.scopeKey(c)
 	snapScope := clientScope(c)
 
-	b.register(cl)
+	cl := b.admit(c, snapScope)
 	defer b.remove(cl)
 
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)

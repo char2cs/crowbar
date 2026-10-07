@@ -68,6 +68,11 @@ type StreamDef[T any] struct {
 // on the stream rather than unsubscribed from all of them, which is the
 // difference between a chat-scoped client seeing one workspace and seeing all
 // of them.
+//
+// Resolve makes the filter BOUND: the client's Param value (a chat id) is
+// resolved to the value Extract is matched against (its workspace id) at
+// connect and again on every Broadcaster.Rebind, which passes all clients'
+// values in one call. A value resolving to "" matches nothing.
 type FilterDef[T any] struct {
 	Param      string
 	Extract    func(T) string
@@ -75,4 +80,5 @@ type FilterDef[T any] struct {
 	Match      func(param, value string) bool
 	Default    string
 	Required   bool
+	Resolve    func(params []string) map[string]string
 }

@@ -83,7 +83,8 @@ func repoMountPredicate(
 		{Key: "projectId", Value: projectID},
 		{Key: "repoId", Value: repoID},
 	}
-	return ws.BuildPredicate(ctx, agentChatDef())
+	predicate, _ := ws.BuildPredicate(ctx, agentChatDef())
+	return predicate
 }
 
 // TestAgentChatScope_HomeWorkspaceResolvesItsProjectAndNoRepo pins the fact the
