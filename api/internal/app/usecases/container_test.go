@@ -76,6 +76,7 @@ func newContainerDeps(
 		noRunnerWatch,
 		noNodeWatch,
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 

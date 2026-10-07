@@ -87,12 +87,17 @@ func New(
 	es asynxModels.Store,
 	ax asynx.Asynx[domain.Node],
 	watch WatchFunc,
+	opts ...Option,
 ) (Store, error) {
 	st, err := newStorageStore(db)
 	if err != nil {
 		return nil, fmt.Errorf("node store: %w", err)
 	}
-	if err := registerStoreProjection(st, ax); err != nil {
+	p := &storeProjector{storage: st}
+	for _, opt := range opts {
+		opt(p)
+	}
+	if err := registerStoreProjection(p, ax); err != nil {
 		return nil, fmt.Errorf("node store: projections: %w", err)
 	}
 	if err := registerHubProjection(ax, watch); err != nil {
@@ -246,10 +251,9 @@ func (s *service) foldReplayed(
 // broadcast — the hub projection owns fan-out. Designed to register ONCE on
 // the singleton.
 func registerStoreProjection(
-	st storage,
+	p *storeProjector,
 	ax asynx.Asynx[domain.Node],
 ) error {
-	p := &storeProjector{storage: st}
 	if _, err := ax.Subscribe(asynx.Topic("node.*"), p.onEvent); err != nil {
 		return fmt.Errorf("node store projection: subscribe: %w", err)
 	}
@@ -260,7 +264,18 @@ func registerStoreProjection(
 }
 
 type storeProjector struct {
-	storage storage
+	storage   storage
+	placement func(nodeID string)
+}
+
+// Option configures the store projection.
+type Option func(*storeProjector)
+
+// WithPlacementWatch announces every node the projection just created,
+// re-parented or deleted. It runs after the write, so a listener re-reading
+// the read model sees the new parent.
+func WithPlacementWatch(watch func(nodeID string)) Option {
+	return func(p *storeProjector) { p.placement = watch }
 }
 
 func (p *storeProjector) onEvent(
@@ -269,6 +284,18 @@ func (p *storeProjector) onEvent(
 ) {
 	if err := p.saveWithRetry(ctx, evt.Aggregate); err != nil {
 		slog.ErrorContext(ctx, "node store projection: save", "id", evt.Aggregate.ID, "err", err)
+		return
+	}
+	if evt.PreviousAggregate.ID == "" || evt.PreviousAggregate.ParentID != evt.Aggregate.ParentID {
+		p.announcePlacement(evt.Aggregate.ID)
+	}
+}
+
+func (p *storeProjector) announcePlacement(
+	nodeID string,
+) {
+	if p.placement != nil {
+		p.placement(nodeID)
 	}
 }
 
@@ -300,5 +327,7 @@ func (p *storeProjector) onForget(
 ) {
 	if err := p.storage.Delete(ctx, evt.Aggregate.ID); err != nil {
 		slog.ErrorContext(ctx, "node store projection: delete", "id", evt.Aggregate.ID, "err", err)
+		return
 	}
+	p.announcePlacement(evt.Aggregate.ID)
 }

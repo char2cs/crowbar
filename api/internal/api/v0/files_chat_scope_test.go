@@ -2,39 +2,31 @@ package v0
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
+	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// This file proves files' move onto /v0/chats/:chatId end to end over the REAL
-// delivery path — the real v0 Container, its real route registration, the real
-// filesDef predicate compiled for each connecting client, the real
-// worktree.ChatsForWorkspace fan-out, and real WebSocket connections. Only the
-// chat ROWS are stood in for (chatScopeEnv, git_chat_scope_test.go): every
-// ancestry and folder-crossing decision is still made by the resolver under
-// test.
-//
-// files is the LAST of spec §4.2's shared bucket, and shares the whole bucket's
-// premise: the worktree holds one tree, so a change made through ONE chat is
-// news for every sibling chat holding that worktree, not only the one whose
-// route wrote it.
-//
-// One thing here differs from git and is worth naming: filesDef carries NO
-// snapshot-on-subscribe (defs_test.go pins that), so there is no replay half to
-// prove — a chat-scoped subscriber's first frame is simply the next change, and
-// every assertion below reads a live push.
+// This file proves the files stream's chat-scoped mount end to end over the
+// real v0 Container (chatScopeEnv and placementEnv, git_chat_scope_test.go).
+// filesDef carries no snapshot, so every assertion reads a live push.
 
 const workspaceFilesRoute = "/v0/projects/p1/repos/r1/workspaces/"
 
-// fileChange is the event the watcher dispatcher hands PushFile. It deliberately
-// carries NO ChatIDs: resolving the fan-out set is PushFile's own job, and a
-// test that pre-stamped it would prove the broadcaster works and nothing about
-// the wiring this step adds.
 func fileChange(
 	wsID string,
 	path string,
@@ -42,21 +34,10 @@ func fileChange(
 	return domain.FileChangeEvent{Type: domain.FileChangeModified, WsID: wsID, Path: path}
 }
 
-// TestFilesFanout_OnePushReachesEveryChatHoldingTheWorktree is the scenario the
-// step exists for, over the real container: three chats subscribed at three
-// DIFFERENT chat-scoped URLs, one worktree behind them, one push.
-//
-// The set is NOT handed to the push — Container.PushFile resolves it itself,
-// the way the watcher dispatcher calls it in production. A fan-out that
-// silently resolved nothing would leave every client below empty-handed, and
-// their file trees frozen at whatever they last fetched.
-//
-// The unrelated chat's isolation is proven without a timeout: it is sent a
-// second, ws-z frame after the ws-a one, and its first read must be that second
-// frame. A leaked ws-a frame would arrive first — Push delivers in call order
-// into each client's own buffered channel — and fail the assertion.
+// TestFilesFanout_OnePushReachesEveryChatHoldingTheWorktree: three chats over
+// one worktree all receive one push; chat-z's first frame is its own.
 func TestFilesFanout_OnePushReachesEveryChatHoldingTheWorktree(t *testing.T) {
-	c, srv, _ := chatScopeEnv(t)
+	c, srv := chatScopeEnv(t)
 
 	owner := dialWSAt(t, srv, "/v0/chats/chat-a/files/ws")
 	sibling := dialWSAt(t, srv, "/v0/chats/chat-b/files/ws")
@@ -76,15 +57,10 @@ func TestFilesFanout_OnePushReachesEveryChatHoldingTheWorktree(t *testing.T) {
 		"chat-z holds ws-z: the ws-a frame must never have reached it")
 }
 
-// TestFilesCoexistence_TheWorkspaceScopedRouteIsGone proves spec §8 step 6's
-// deletion is real over the REAL delivery path: a WebSocket upgrade attempt on
-// the old /workspaces/:wsId/files/ws mount fails outright — the route no
-// longer exists to upgrade. filesDef's wsId filter itself is NOT retired: the
-// project-home mount (endpoints/home) still injects a real :wsId and shares
-// this exact broadcaster (see files/routes.go), which is why filesDef keeps
-// it even though this repo-scoped twin is gone.
+// TestFilesCoexistence_TheWorkspaceScopedRouteIsGone: the retired repo-scoped
+// mount refuses the upgrade; the wsId filter stays for the home mount.
 func TestFilesCoexistence_TheWorkspaceScopedRouteIsGone(t *testing.T) {
-	_, srv, _ := chatScopeEnv(t)
+	_, srv := chatScopeEnv(t)
 
 	url := "ws" + srv.URL[len("http"):] + workspaceFilesRoute + "ws-a/files/ws"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
@@ -97,66 +73,161 @@ func TestFilesCoexistence_TheWorkspaceScopedRouteIsGone(t *testing.T) {
 	require.Error(t, err, "the old workspace-scoped files mount must no longer upgrade")
 }
 
-// TestFilesFanout_AChatForkedAfterAClientConnectedWidensTheSet is why the
-// resolved set rides on the EVENT rather than being baked into a client's
-// predicate at connect time.
-//
-// chat-a subscribes while the worktree has three chats on it. A fourth is then
-// forked onto the same worktree and subscribes too, and ONE push reaches both —
-// including chat-a, whose predicate was compiled before chat-new existed and
-// which never reconnected. A set resolved at connect time could not have done
-// that: it would have had to be either chat-a's set (missing chat-new) or
-// chat-new's (compiled too late for chat-a).
-func TestFilesFanout_AChatForkedAfterAClientConnectedWidensTheSet(t *testing.T) {
-	c, srv, resolver := chatScopeEnv(t)
+// TestFilesDef_AChatWithNoWorktreeMatchesNothing: an unbound chat id matches
+// nothing, while a client naming only a wsId is scoped by that alone.
+func TestFilesDef_AChatWithNoWorktreeMatchesNothing(t *testing.T) {
+	a := newAppForSnapshot(t)
+	a.Usecases.Worktree = &rowsWorktreeResolver{
+		rows:       fanoutChatRows{{ID: "orphan", Type: domain.ChatTypeChat}},
+		workspaces: a.Repositories.Workspace,
+	}
+	viaChat, _ := gin.CreateTestContext(httptest.NewRecorder())
+	viaChat.Request = httptest.NewRequestWithContext(t.Context(), "GET", "/v0/chats/orphan/files/ws", nil)
+	viaChat.Params = gin.Params{{Key: "chatId", Value: "orphan"}}
+	viaHome, _ := gin.CreateTestContext(httptest.NewRecorder())
+	viaHome.Request = httptest.NewRequestWithContext(t.Context(), "GET", "/v0/projects/p1/home/files/ws", nil)
+	viaHome.Params = gin.Params{{Key: "wsId", Value: "ws-a"}}
 
-	established := dialWSAt(t, srv, "/v0/chats/chat-a/files/ws")
+	orphan, _ := ws.BuildPredicate(viaChat, filesDef(a))
+	home, _ := ws.BuildPredicate(viaHome, filesDef(a))
+
+	assert.False(t, orphan(fileChange("ws-a", "a.go")))
+	assert.False(t, orphan(fileChange("", "a.go")))
+	assert.True(t, home(fileChange("ws-a", "a.go")))
+	assert.False(t, home(fileChange("ws-z", "z.go")))
+}
+
+// readPaths streams every frame's path from conn until the test ends.
+func readPaths(
+	t *testing.T,
+	conn *websocket.Conn,
+) <-chan string {
+	t.Helper()
+	paths := make(chan string, 256)
+	go func() {
+		defer close(paths)
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var evt domain.FileChangeEvent
+			if json.Unmarshal(msg, &evt) == nil {
+				paths <- evt.Path
+			}
+		}
+	}()
+	return paths
+}
+
+// TestFilesBinding_FollowsAChatToItsNewWorktree: after a real placement write
+// moves the chat onto ws-b, the SAME connection receives ws-b changes and no
+// longer ws-a's. Files has no snapshot to signal the rebind, so the test
+// probes ws-b until one arrives.
+func TestFilesBinding_FollowsAChatToItsNewWorktree(t *testing.T) {
+	c, srv, a := placementEnv(t)
+	createRealChat(t, a, "chat-x", "", "owner-a")
+	paths := readPaths(t, dialWSAt(t, srv, "/v0/chats/chat-x/files/ws"))
 	c.files.WaitNRegistered(1)
 
-	resolver.fork("chat-new", "chat-a")
+	c.PushFile(fileChange("ws-a", "on-a.go"))
+	assert.Equal(t, "on-a.go", <-paths)
+
+	_, err := a.Repositories.AgentChat.SetWorkspace(context.Background(), "chat-x", "ws-b")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		c.PushFile(fileChange("ws-b", "probe.go"))
+		select {
+		case p := <-paths:
+			return p == "probe.go"
+		default:
+			return false
+		}
+	}, wsReadBound, 5*time.Millisecond)
+
+	c.PushFile(fileChange("ws-a", "stale-a.go"))
+	c.PushFile(fileChange("ws-b", "on-b.go"))
+	for p := range paths {
+		if p == "probe.go" {
+			continue
+		}
+		assert.Equal(t, "on-b.go", p, "the old worktree's changes no longer reach the moved chat")
+		return
+	}
+	t.Fatal("connection closed before the ws-b change arrived")
+}
+
+// TestRegression_FilesForkAfterConnectReachesEveryChatOnTheWorktree: a chat
+// forked onto a worktree after a sibling's stream opened, and the sibling
+// itself, both receive the next change.
+func TestRegression_FilesForkAfterConnectReachesEveryChatOnTheWorktree(t *testing.T) {
+	c, srv, a := placementEnv(t)
+	established := dialWSAt(t, srv, "/v0/chats/owner-a/files/ws")
+	c.files.WaitNRegistered(1)
+
+	createRealChat(t, a, "chat-new", "", "owner-a")
 	newcomer := dialWSAt(t, srv, "/v0/chats/chat-new/files/ws")
 	c.files.WaitNRegistered(1)
 
 	c.PushFile(fileChange("ws-a", "after-the-fork.go"))
 
-	assert.Equal(t, "after-the-fork.go", readJSON(t, newcomer)["path"],
-		"a chat forked onto the worktree after this stream opened must receive its changes")
-	assert.Equal(t, "after-the-fork.go", readJSON(t, established)["path"],
-		"and the chat that was already listening must not have been dropped to make room")
+	assert.Equal(t, "after-the-fork.go", readJSON(t, newcomer)["path"])
+	assert.Equal(t, "after-the-fork.go", readJSON(t, established)["path"])
 }
 
-// TestFilesPush_CarriesTheFanoutSetResolvedAtPushTime asserts the wiring this
-// step adds at its own seam, so a failure points at PushFile rather than at
-// whichever client stopped receiving frames.
-//
-// It also pins the degradation: a workspace no chat points at fans out to
-// nobody rather than erroring, which leaves the wsId-scoped subscribers on that
-// same event untouched.
-func TestFilesPush_CarriesTheFanoutSetResolvedAtPushTime(t *testing.T) {
-	a := newAppForSnapshot(t)
-	a.Usecases.Worktree = newRowsResolver(a)
-	c := New(a, nil)
+// TestRegression_TheFileWatcherFollowsAChatToItsNewWorktree runs the REAL
+// watcher: the refcount that starts it must move with the chat's binding, or
+// nothing ever produces ws-b's events for a chat moved there after connect.
+func TestRegression_TheFileWatcherFollowsAChatToItsNewWorktree(t *testing.T) {
+	c, srv, a := placementEnvAt(t, initCleanGitRepo(t))
+	createRealChat(t, a, "chat-x", "", "owner-a")
+	paths := readPaths(t, dialWSAt(t, srv, "/v0/chats/chat-x/files/ws"))
+	c.files.WaitNRegistered(1)
+	dirA := worktreeOf(t, a, "ws-a")
+	dirB := worktreeOf(t, a, "ws-b")
 
-	assert.Equal(t, []string{"chat-a", "chat-b", "chat-c"}, c.chatsHolding(context.Background(), "ws-a"))
-	assert.Empty(t, c.chatsHolding(context.Background(), "ws-nobody-holds"),
-		"a workspace no chat points at fans out to nobody, and is not an error")
-}
+	awaitRealChange(t, paths, dirA, "a-probe")
 
-// TestFilesWireShape_TheFanoutSetIsNeverSerialized is a guard the delivery
-// tests above cannot give. This topic serializes the WHOLE event — unlike git's,
-// which serializes only its embedded Status — so the chat roster is kept off the
-// wire by a json tag alone, and dropping that tag would leak every sibling
-// chat's id to every file-tree client on every keystroke-driven save.
-func TestFilesWireShape_TheFanoutSetIsNeverSerialized(t *testing.T) {
-	data, err := filesDef().Serialize(domain.FileChangeEvent{
-		Type:    domain.FileChangeModified,
-		WsID:    "ws-a",
-		Path:    "a.go",
-		ChatIDs: []string{"chat-a", "chat-b", "chat-c"},
-	})
+	_, err := a.Repositories.AgentChat.SetWorkspace(context.Background(), "chat-x", "ws-b")
 	require.NoError(t, err)
+	awaitRealChange(t, paths, dirB, "b-probe")
 
-	assert.Contains(t, string(data), "a.go", "the change itself is the payload")
-	assert.NotContains(t, string(data), "chat-a",
-		"the fan-out set is routing, not payload: a file-tree client is never handed a chat roster")
+	require.NoError(t, os.WriteFile(filepath.Join(dirA, "a-stale.txt"), []byte("x"), 0o600))
+	awaitRealChange(t, paths, dirB, "b-after")
+}
+
+func worktreeOf(t *testing.T, a *app.Container, wsID string) string {
+	t.Helper()
+	w, err := a.Repositories.Workspace.Get(context.Background(), wsID)
+	require.NoError(t, err)
+	return w.WorktreePath
+}
+
+// awaitRealChange writes a fresh prefix-named file into dir until one of them
+// reaches paths: the watcher arms asynchronously, so a single write could land
+// before it is watching. The tick outlasts the watcher's trailing debounce,
+// which writes any closer together would keep resetting. Any a-stale frame
+// seen on the way fails the test.
+func awaitRealChange(t *testing.T, paths <-chan string, dir, prefix string) {
+	t.Helper()
+	written := 0
+	require.Eventually(t, func() bool {
+		written++
+		name := fmt.Sprintf("%s-%d.txt", prefix, written)
+		if os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600) != nil {
+			return false
+		}
+		for {
+			select {
+			case p := <-paths:
+				base := filepath.Base(p)
+				assert.NotEqual(t, "a-stale.txt", base, "the old worktree's change reached the moved chat")
+				if strings.HasPrefix(base, prefix+"-") {
+					return true
+				}
+			default:
+				return false
+			}
+		}
+	}, wsReadBound, 250*time.Millisecond)
 }

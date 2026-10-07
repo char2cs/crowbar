@@ -16,16 +16,14 @@ import (
 // It exists because Chat.WorkspaceID answers a NARROWER question than the reap
 // was reading it as. It says which workspace a chat is anchored to — not that
 // the chat is the only one anchored there. A worktree is many-chats-to-one by
-// design (spec §3): ordinary sibling conversations legitimately share one, and
-// every shared read this refactor added (git, review, files, search, identity)
-// fans out over exactly that set. So a row naming a workspace is evidence the
-// chat USES it, never evidence it owns it alone.
+// design (spec §3): ordinary sibling conversations legitimately share one. So a
+// row naming a workspace is evidence the chat USES it, never evidence it owns
+// it alone.
 //
 // Declared here rather than imported from usecases/worktree (law 3, law 4):
 // worktree.ChatsForWorkspace already answers exactly this, and the container
-// hands the tree the same adapter the chat-scoped routes fan out through, so
-// "who holds this worktree" has one answer in the daemon rather than two that
-// could drift.
+// hands the tree the same resolver the chat-scoped routes resolve through, so
+// "who holds this worktree" has one answer in the daemon.
 type WorkspaceHolders interface {
 	ChatsForWorkspace(
 		ctx context.Context,

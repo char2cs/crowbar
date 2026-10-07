@@ -2,9 +2,10 @@ package realtime
 
 import (
 	"context"
-	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"testing"
 	"time"
+
+	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,6 +43,7 @@ func (s *capturingSubscriber) PushTerminalSession(_ dto.TerminalSessionDTO) {}
 func (s *capturingSubscriber) PushFile(e domain.FileChangeEvent)            { s.files <- e }
 
 func (s *capturingSubscriber) PushAgentChatFolder(_, _, _ string) {}
+func (s *capturingSubscriber) PushPlacementChanged()              {}
 func (s *capturingSubscriber) PushAgentChatTerminalWait(_, _ string, _ *dto.AgentTerminalWaitDTO) {
 }
 

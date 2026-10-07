@@ -47,6 +47,11 @@ type client struct {
 	// two writeNext iterations collapses to a single wakeup, exactly the way
 	// the payloads themselves already collapse to one pending value per key.
 	wake chan struct{}
+
+	// resnapshot, when set, rebuilds this client's snapshot for its current
+	// binding; rebound asks the write loop to send it, coalescing like wake.
+	resnapshot func() [][]byte
+	rebound    chan struct{}
 }
 
 func newClient() *client {
@@ -55,6 +60,19 @@ func newClient() *client {
 		done:    make(chan struct{}),
 		pending: make(map[string][]byte),
 		wake:    make(chan struct{}, 1),
+		rebound: make(chan struct{}, 1),
+	}
+}
+
+// requestResnapshot asks the write loop to resend the snapshot; a no-op for a
+// stream without one.
+func (c *client) requestResnapshot() {
+	if c.resnapshot == nil {
+		return
+	}
+	select {
+	case c.rebound <- struct{}{}:
+	default:
 	}
 }
 
@@ -179,18 +197,42 @@ func writeNext(
 	case msg := <-cl.send:
 		return writeFrame(conn, msg)
 	case <-cl.wake:
-		for _, msg := range cl.drainPending() {
-			if !writeFrame(conn, msg) {
-				return false
-			}
-		}
-		return true
+		return writeFrames(conn, cl.drainPending())
+	case <-cl.rebound:
+		return writeResnapshot(conn, cl)
 	case <-ticker.C:
 		_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 		return conn.WriteMessage(websocket.PingMessage, nil) == nil
 	case <-cl.done:
 		return false
 	}
+}
+
+// writeResnapshot writes everything queued before the rebind ahead of the new
+// snapshot: those frames may describe the old workspace, and the snapshot is
+// computed here, after them, so nothing older can follow it.
+func writeResnapshot(
+	conn *websocket.Conn,
+	cl *client,
+) bool {
+	for queued := len(cl.send); queued > 0; queued-- {
+		if !writeFrame(conn, <-cl.send) {
+			return false
+		}
+	}
+	if !writeFrames(conn, cl.drainPending()) {
+		return false
+	}
+	return writeFrames(conn, cl.resnapshot())
+}
+
+func writeFrames(conn *websocket.Conn, msgs [][]byte) bool {
+	for _, msg := range msgs {
+		if !writeFrame(conn, msg) {
+			return false
+		}
+	}
+	return true
 }
 
 func writeFrame(conn *websocket.Conn, msg []byte) bool {

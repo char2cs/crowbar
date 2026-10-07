@@ -106,4 +106,7 @@ type Subscriber interface {
 		workspaceID string,
 		kind string,
 	)
+	// PushPlacementChanged receives the fact that some chat or folder was
+	// created, moved, re-anchored or deleted, already visible in the read model.
+	PushPlacementChanged()
 }

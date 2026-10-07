@@ -6,11 +6,11 @@ import "github.com/gin-gonic/gin"
 // snapshots a stream of T (03 §1, §1a).
 //
 // ScopeKey, OnSubscribe, and OnUnsubscribe are the optional lazy-lifecycle
-// hooks (03 §6). When ScopeKey is set, Handle derives a scope string from the
-// request and calls OnSubscribe after a successful client registration and
-// OnUnsubscribe after the client is removed. They drive refcounted per-scope
-// resources such as the FileWatcher and LSP servers. When the hooks are nil the
-// Broadcaster behaves exactly as without them (no regression).
+// hooks (03 §6) driving refcounted per-scope resources such as the FileWatcher
+// and LSP servers. When ScopeKey is set, each client holds one scope from
+// registration to removal: its bound filter's value if it has one (moved on
+// Rebind: the new scope is acquired, then the old released), else ScopeKey's
+// answer for the request. A scope of "" is never acquired.
 type StreamDef[T any] struct {
 	Namespace func(T) string
 	Serialize func(T) ([]byte, error)
@@ -56,23 +56,23 @@ type StreamDef[T any] struct {
 
 // FilterDef is an optional query-param predicate over a stream value.
 //
-// ExtractSet turns the filter from an equality test into a MEMBERSHIP one: the
-// event carries a SET of values and matches when Match holds for ANY member. It
-// is what lets ONE Push reach the several chats sharing a worktree (spec §7.4)
-// in a single fan-out pass, instead of a Push per chat. It replaces Extract
-// when set; a set carrying nothing matches nobody.
-//
 // Required refuses a client that resolves no value for Param — path, query and
 // Default all empty — instead of dropping the filter for that client. Without
 // it an unparameterised subscriber is silently over-subscribed to EVERY event
 // on the stream rather than unsubscribed from all of them, which is the
 // difference between a chat-scoped client seeing one workspace and seeing all
 // of them.
+//
+// Resolve makes the filter BOUND: the client's Param value (a chat id) is
+// resolved to the value Extract is matched against (its workspace id) at
+// connect and again on every Broadcaster.Rebind, which passes all clients'
+// values in one call. A value resolving to "" matches nothing; one left out
+// of the answer keeps the client's current binding.
 type FilterDef[T any] struct {
-	Param      string
-	Extract    func(T) string
-	ExtractSet func(T) []string
-	Match      func(param, value string) bool
-	Default    string
-	Required   bool
+	Param    string
+	Extract  func(T) string
+	Match    func(param, value string) bool
+	Default  string
+	Required bool
+	Resolve  func(params []string) map[string]string
 }

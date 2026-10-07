@@ -35,7 +35,14 @@ const maxOCCAttempts = 8
 type (
 	WatchFunc = store.WatchFunc
 	NodeEvent = store.NodeEvent
+	Option    = store.Option
 )
+
+// WithPlacementWatch is told, once the read model holds it, of every node
+// created, re-parented or deleted.
+func WithPlacementWatch(watch func(nodeID string)) Option {
+	return store.WithPlacementWatch(watch)
+}
 
 // EventStore is the asynx-backed Node aggregate repository: mutations dispatch
 // the command layer with optimistic-concurrency retry (sendWithOCC), reads
@@ -143,8 +150,9 @@ func NewEventSourced(
 	es asynxModels.Store,
 	storeDB *gormdb.DB,
 	watch WatchFunc,
+	opts ...Option,
 ) (EventStore, error) {
-	st, err := store.New(storeDB, es, ax, watch)
+	st, err := store.New(storeDB, es, ax, watch, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("node: store: %w", err)
 	}

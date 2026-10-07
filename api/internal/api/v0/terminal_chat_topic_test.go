@@ -46,7 +46,7 @@ func subscriberOnChat(chatID string) *gin.Context {
 // below, which is the path that reads the scope string directly.
 func TestRegression_TerminalTopicDoesNotLeakAcrossChats(t *testing.T) {
 	def := terminalsDef(nil, nil)
-	predicate := ws.BuildPredicate(subscriberOnChat("chat-a"), def)
+	predicate, _ := ws.BuildPredicate(subscriberOnChat("chat-a"), def)
 
 	own := dto.TerminalSessionDTO{ID: "sess-a", ChatID: "chat-a", Status: "active"}
 	sibling := dto.TerminalSessionDTO{ID: "sess-b", ChatID: "chat-b", Status: "active"}
@@ -65,7 +65,7 @@ func TestRegression_TerminalTopicScopesEveryChatToItself(t *testing.T) {
 	chats := []string{"chat-a", "chat-b", "chat-c"}
 
 	for _, subscriber := range chats {
-		predicate := ws.BuildPredicate(subscriberOnChat(subscriber), def)
+		predicate, _ := ws.BuildPredicate(subscriberOnChat(subscriber), def)
 		for _, owner := range chats {
 			frame := dto.TerminalSessionDTO{ID: "sess-" + owner, ChatID: owner}
 			assert.Equal(t, subscriber == owner, predicate(frame),

@@ -260,13 +260,8 @@ func chatGitSnapshot(
 	return appendGitStatus(ctx, appContainer, make([]gitdomain.GitStatusEvent, 0, 1), workspace.ID)
 }
 
-// appendGitStatus appends wsID's current status as the fully-scoped event.
-//
-// It stamps the fan-out set for the same reason PushGit does: a snapshot frame
-// and a live frame are filtered by the SAME compiled predicate, so a replay
-// that carried no chat ids would be silently dropped for exactly the
-// chat-scoped clients this step exists to serve — a connection that opens,
-// replays nothing, and only comes alive on the next file change.
+// appendGitStatus appends wsID's current status as the event a live push for
+// it would carry, so the client's own predicate filters the replay alike.
 func appendGitStatus(
 	ctx context.Context,
 	appContainer *app.Container,
@@ -282,29 +277,7 @@ func appendGitStatus(
 	if status.Files == nil {
 		status.Files = []gitdomain.GitFile{}
 	}
-	return append(events, gitdomain.GitStatusEvent{
-		WsID:    wsID,
-		ChatIDs: snapshotChatsHolding(ctx, appContainer, wsID),
-		Status:  status,
-	})
-}
-
-// snapshotChatsHolding resolves wsID's fan-out set for a replay frame,
-// degrading to no chats rather than an error — the same way every other read on
-// this path degrades a snapshot instead of failing a subscribe.
-func snapshotChatsHolding(
-	ctx context.Context,
-	appContainer *app.Container,
-	wsID string,
-) []string {
-	if appContainer.Usecases == nil || appContainer.Usecases.Worktree == nil {
-		return nil
-	}
-	chatIDs, err := appContainer.Usecases.Worktree.ChatsForWorkspace(ctx, wsID)
-	if err != nil {
-		return nil
-	}
-	return chatIDs
+	return append(events, gitdomain.GitStatusEvent{WsID: wsID, Status: status})
 }
 
 // lspSnapshot builds the LSP snapshot-on-subscribe source (03 §1a): the current

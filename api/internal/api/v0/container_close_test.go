@@ -35,6 +35,7 @@ func TestAppClose_StopsLiveWatcher(t *testing.T) {
 	}
 
 	c := v0.New(tc.app, tc.eng)
+	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
@@ -51,7 +52,7 @@ func TestAppClose_StopsLiveWatcher(t *testing.T) {
 func TestAppClose_IdempotentAndEmpty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
-	v0.New(tc.app, tc.eng)
+	t.Cleanup(v0.New(tc.app, tc.eng).Close)
 
 	require.NotPanics(t, tc.app.Close) // no live resources: no-op
 	assert.NotPanics(t, tc.app.Close)  // second call is safe

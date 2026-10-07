@@ -96,6 +96,7 @@ func scopeParam(
 type activeFilter[T any] struct {
 	param string
 	fd    FilterDef[T]
+	bound *binding
 }
 
 // BuildPredicate compiles the client's namespace match and active query-param
@@ -113,14 +114,34 @@ type activeFilter[T any] struct {
 // structural projectId/repoId path params would otherwise build a "p/r" prefix
 // that can never match their bare wsId namespace and would drop every event.
 // They are scoped solely by their explicit wsId Filter.
+//
+// Bound filters (FilterDef.Resolve) are resolved here and returned so the
+// broadcaster can re-resolve them on Rebind.
 func BuildPredicate[T any](
 	c *gin.Context,
 	def StreamDef[T],
-) func(T) bool {
+) (func(T) bool, []*binding) {
 	active, unscoped := collectFilters(c, def)
 	if unscoped {
-		return func(T) bool { return false }
+		return func(T) bool { return false }, nil
 	}
+	var bindings []*binding
+	for _, af := range active {
+		if af.bound != nil {
+			bindings = append(bindings, af.bound)
+		}
+	}
+	for bd, value := range resolveBindings(def.Filters, bindings) {
+		bd.set(value)
+	}
+	return scopedPredicate(c, def, active), bindings
+}
+
+func scopedPredicate[T any](
+	c *gin.Context,
+	def StreamDef[T],
+	active []activeFilter[T],
+) func(T) bool {
 	if def.FlatNamespace {
 		return func(event T) bool {
 			return matchesAll(active, event)
@@ -149,7 +170,7 @@ func collectFilters[T any](
 	def StreamDef[T],
 ) ([]activeFilter[T], bool) {
 	var active []activeFilter[T]
-	for _, f := range def.Filters {
+	for i, f := range def.Filters {
 		v := resolveFilterValue(c, f)
 		if v == "" && f.Required {
 			return nil, true
@@ -157,7 +178,11 @@ func collectFilters[T any](
 		if v == "" {
 			continue
 		}
-		active = append(active, activeFilter[T]{param: v, fd: f})
+		af := activeFilter[T]{param: v, fd: f}
+		if f.Resolve != nil {
+			af.bound = &binding{filter: i, param: v}
+		}
+		active = append(active, af)
 	}
 	return active, false
 }
@@ -195,13 +220,9 @@ func matchesAll[T any](
 func (a activeFilter[T]) matches(
 	event T,
 ) bool {
-	if a.fd.ExtractSet == nil {
-		return a.fd.Match(a.param, a.fd.Extract(event))
+	if a.bound != nil {
+		value := a.bound.current()
+		return value != "" && a.fd.Match(value, a.fd.Extract(event))
 	}
-	for _, value := range a.fd.ExtractSet(event) {
-		if a.fd.Match(a.param, value) {
-			return true
-		}
-	}
-	return false
+	return a.fd.Match(a.param, a.fd.Extract(event))
 }

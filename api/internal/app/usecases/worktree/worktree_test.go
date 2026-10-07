@@ -299,9 +299,8 @@ func TestChatsForWorkspace_ARealFolderIsCrossedNotJustABakedInOne(t *testing.T) 
 	}
 }
 
-// TestChatsForWorkspace_ReadsTheNodeTableOncePerCallNotOncePerChat guards the
-// per-file-event fan-out: every node read decodes the whole table, so reading
-// once per chat made each filesystem event cost O(chats²).
+// TestChatsForWorkspace_ReadsTheNodeTableOncePerCallNotOncePerChat: every node
+// read decodes the whole table, so reading once per chat costs O(chats²).
 func TestChatsForWorkspace_ReadsTheNodeTableOncePerCallNotOncePerChat(t *testing.T) {
 	rows := []domain.Chat{{ID: "chat-a", Type: domain.ChatTypeChat, WorkspaceID: "ws-a"}}
 	nodes := &countingNodes{NodePlacements: mocks.NewNodePlacements()}
@@ -630,4 +629,83 @@ func (f *fakeWorkspaceReader) Get(
 		return domain.Workspace{}, f.err
 	}
 	return f.byID[id], nil
+}
+
+// TestWorkspacesForChats_AnswersEveryChatFromOneForestRead resolves every
+// requested chat against one read: the rebind of all chat-scoped streams
+// costs one ListChats and one node read however many clients are bound.
+func TestWorkspacesForChats_AnswersEveryChatFromOneForestRead(t *testing.T) {
+	lister := &fakeChatLister{rows: sharedWorktreeForest()}
+	nodes := &countingNodes{NodePlacements: mocks.NewNodePlacements()}
+
+	got, err := worktree.WorkspacesForChats(
+		context.Background(),
+		[]string{"chat-a", "chat-c", "chat-d", "chat-z-child", "chat-loose", "folder-f", "chat-gone"},
+		lister, mocks.NewFolderStore(), nodes,
+	)
+	if err != nil {
+		t.Fatalf("WorkspacesForChats returned error: %v", err)
+	}
+	want := map[string]string{
+		"chat-a": "ws-a", "chat-c": "ws-a", "chat-d": "ws-a", "chat-z-child": "ws-z",
+		"chat-loose": "", "folder-f": "", "chat-gone": "",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("answers = %v, want %v", got, want)
+	}
+	for id, ws := range want {
+		if answer, ok := got[id]; !ok || answer != ws {
+			t.Fatalf("chat %s = %q (answered %t), want %q", id, answer, ok, ws)
+		}
+	}
+	if lister.calls != 1 || nodes.reads != 1 {
+		t.Fatalf("ListChats calls = %d, node reads = %d, want 1 each", lister.calls, nodes.reads)
+	}
+}
+
+// TestWorkspacesForChats_AgreesWithResolve cross-checks the batch against the
+// per-chat Resolve over one forest, so a binding never disagrees with what the
+// chat's own REST routes resolve.
+func TestWorkspacesForChats_AgreesWithResolve(t *testing.T) {
+	rows := sharedWorktreeForest()
+	lister := &fakeChatLister{rows: rows}
+	chats := worktree.NewChatTreeAncestryReader(lister, nil, nil)
+	workspaces := &fakeWorkspaceReader{byID: map[string]domain.Workspace{
+		"ws-a": {ID: "ws-a"},
+		"ws-z": {ID: "ws-z"},
+	}}
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if row.Type != domain.ChatTypeFolder {
+			ids = append(ids, row.ID)
+		}
+	}
+
+	batch, err := worktree.WorkspacesForChats(context.Background(), ids, lister, nil, nil)
+	if err != nil {
+		t.Fatalf("WorkspacesForChats returned error: %v", err)
+	}
+	for _, id := range ids {
+		ws, resolveErr := worktree.Resolve(context.Background(), id, chats, workspaces)
+		if resolveErr != nil {
+			ws = domain.Workspace{}
+		}
+		if batch[id] != ws.ID {
+			t.Fatalf("chat %s: batch = %q, Resolve = %q", id, batch[id], ws.ID)
+		}
+	}
+}
+
+func TestWorkspacesForChats_ChatListerErrorIsSurfacedWithContext(t *testing.T) {
+	cause := errors.New("chat lister unavailable")
+
+	got, err := worktree.WorkspacesForChats(
+		context.Background(), []string{"chat-a"}, &fakeChatLister{err: cause}, nil, nil,
+	)
+	if !errors.Is(err, cause) {
+		t.Fatalf("err = %v, want it to wrap %v", err, cause)
+	}
+	if got != nil {
+		t.Fatalf("answers = %v, want nil alongside the error", got)
+	}
 }

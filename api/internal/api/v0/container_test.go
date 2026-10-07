@@ -63,6 +63,7 @@ func serveAgentChats(
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	c := v0.New(tc.app, tc.eng)
+	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET("/v0/chats/:chatId/ws", c.AgentChatsHandle)
 	r.GET("/v0/projects/:projectId/repos/:repoId/chats/ws", c.AgentChatsHandle)
@@ -196,6 +197,7 @@ func TestContainer_PushProject_RouteByPrefix(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
 	c := v0.New(tc.app, tc.eng)
+	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET("/v0/projects/:projectId", c.ProjectsHandle)
 	srv := httptest.NewServer(r)
@@ -221,6 +223,7 @@ func TestContainer_PushRepo_RouteByPrefix(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
 	c := v0.New(tc.app, tc.eng)
+	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET("/v0/projects/:projectId/repos", c.ReposHandle)
 	srv := httptest.NewServer(r)
@@ -253,6 +256,7 @@ func TestV0_PushLSP_ReachesFilteredClient(t *testing.T) {
 		workspaces: tc.app.Repositories.Workspace,
 	}
 	c := v0.New(tc.app, tc.eng)
+	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
@@ -276,17 +280,17 @@ func TestV0_PushLSP_ReachesFilteredClient(t *testing.T) {
 // chat-scoped mount (spec §8 step 6 retired git's .../workspaces/:wsId/git/
 // status twin entirely): a push for a workspace no chat resolves to (or a
 // DIFFERENT chat's worktree) must never reach this subscriber, which
-// gitDef's Required chatId membership filter is what now guarantees.
+// gitDef's Required, bound chatId filter guarantees.
 func TestV0_PushGit_ChatFanout_IsolatesUnrelatedWorkspace(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
 	seedWorkspace(t, tc, "A")
 	tc.app.Usecases.Worktree = stubChatWorktreeResolver{
 		chatToWs:   map[string]string{"chat-1": "A"},
-		wsToChats:  map[string][]string{"A": {"chat-1"}},
 		workspaces: tc.app.Repositories.Workspace,
 	}
 	c := v0.New(tc.app, tc.eng)
+	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
@@ -309,14 +313,13 @@ func TestV0_PushFile_ReachesFilteredClient(t *testing.T) {
 	tc := newApp(t)
 	seedWorkspace(t, tc, "w1")
 	// files' own repo-scoped .../workspaces/:wsId/files/ws mount is gone (spec
-	// §8 step 6); the flat chat prefix is what's left, fanned out by chat id
-	// (wsToChats) the same way git's chatId filter works.
+	// §8 step 6); the flat chat prefix is what's left, bound by chat id.
 	tc.app.Usecases.Worktree = stubChatWorktreeResolver{
 		chatToWs:   map[string]string{"chat-1": "w1"},
-		wsToChats:  map[string][]string{"w1": {"chat-1"}},
 		workspaces: tc.app.Repositories.Workspace,
 	}
 	c := v0.New(tc.app, tc.eng)
+	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)

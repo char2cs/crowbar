@@ -451,9 +451,8 @@ func newAxNode(
 // asynx singleton and the injected app-layer seams. The agent aggregates
 // announce; the fanout built here decides what a client is told — the hub
 // still reaches the repository layer for workspace frames, which are outside
-// this subsystem. No live-update consumer is wired to Node yet (Task 1 is
-// purely additive), so its watch is nil — safe, mirroring agentchat's own
-// nil-tolerant hub projection. Split out of New only to keep that constructor
+// this subsystem. Node's live-update watch is nil; its saved placements reach
+// the hub with the chats' through BroadcastPlacementChanged. Split out of New only to keep that constructor
 // within its length budget, mirroring newAgentWiring/newProjectImport in
 // usecases/container.go.
 func newRepositoriesContainer(
@@ -486,6 +485,7 @@ func newRepositoriesContainer(
 		agentFanout.RunnerWatch(),
 		nil,
 		choiceWatch.Notify,
+		func(string) { h.BroadcastPlacementChanged() },
 	)
 	if err != nil {
 		return nil, fmt.Errorf("app: repositories: %w", err)

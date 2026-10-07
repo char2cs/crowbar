@@ -438,3 +438,64 @@ func TestNode_ListByParent_PropagatesStorageFailure(t *testing.T) {
 	_, err = repo.ListByParent(ctx, "p1")
 	require.Error(t, err, "a read-model failure must not read back as an empty node list")
 }
+
+// nodePlacementLog records, per placement announcement, the parent the READ
+// MODEL held for the node at that moment ("gone" once deleted).
+type nodePlacementLog struct {
+	mu   sync.Mutex
+	repo nodecmds.EventStore
+	seen []string
+}
+
+func (p *nodePlacementLog) record(id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	all, err := p.repo.ListAll(context.Background())
+	if err != nil {
+		p.seen = append(p.seen, id+":error")
+		return
+	}
+	for _, n := range all {
+		if n.ID == id {
+			p.seen = append(p.seen, id+":"+n.ParentID)
+			return
+		}
+	}
+	p.seen = append(p.seen, id+":gone")
+}
+
+func (p *nodePlacementLog) entries() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.seen...)
+}
+
+// TestNode_PlacementWatchFiresAfterTheReadModelSaved: a re-parent or delete is
+// announced only once the read model holds it; a pure renumber is not.
+func TestNode_PlacementWatchFiresAfterTheReadModelSaved(t *testing.T) {
+	es, err := eventsqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	ax, err := asynx.New[domain.Node]().
+		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	log := &nodePlacementLog{}
+	repo, err := nodecmds.NewEventSourced(ax, es, db, nil, nodecmds.WithPlacementWatch(log.record))
+	require.NoError(t, err)
+	log.repo = repo
+	ctx := context.Background()
+
+	createNode(t, ctx, repo, "keep", domain.NodeKindChat, "", 0)
+	createNode(t, ctx, repo, "f1", domain.NodeKindFolder, "owner-a", 0)
+	require.NoError(t, repo.SetOrder(ctx, "f1", 3))
+	require.NoError(t, repo.SetPlacement(ctx, "f1", "owner-b", 0))
+	require.NoError(t, repo.Forget(ctx, "f1"))
+	ax.WaitPublish()
+
+	assert.Equal(t, []string{"keep:", "f1:owner-a", "f1:owner-b", "f1:gone"}, log.entries())
+}

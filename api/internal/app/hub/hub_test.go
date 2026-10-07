@@ -1,9 +1,10 @@
 package hub_test
 
 import (
-	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"testing"
 	"time"
+
+	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 
 	"github.com/stretchr/testify/assert"
 
@@ -28,6 +29,11 @@ type fakeSubscriber struct {
 	promptSettled    []promptSettledPush
 	messageDeltas    []messageDeltaPush
 	choices          [][]dto.AgentChoiceDTO
+	placements       int
+}
+
+func (f *fakeSubscriber) PushPlacementChanged() {
+	f.placements++
 }
 
 type promptSettledPush struct {
@@ -350,6 +356,19 @@ func TestHub_BroadcastAgentChatFolder_FansOut(t *testing.T) {
 	want := []agentChatFolderPush{{folderID: "f1", workspaceID: "w1", kind: "folder_created"}}
 	assert.Equal(t, want, a.agentChatFolders)
 	assert.Equal(t, want, b.agentChatFolders)
+}
+
+func TestHub_BroadcastPlacementChanged_FansOut(t *testing.T) {
+	h := hub.NewHub()
+	a := &fakeSubscriber{}
+	b := &fakeSubscriber{}
+	h.Register(a)
+	h.Register(b)
+
+	h.BroadcastPlacementChanged()
+
+	assert.Equal(t, 1, a.placements)
+	assert.Equal(t, 1, b.placements)
 }
 
 func TestHub_NoSubscribers_DoesNotPanic(t *testing.T) {

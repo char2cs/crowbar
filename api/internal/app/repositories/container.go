@@ -124,7 +124,8 @@ type ReactorDrain struct {
 // state/store/review_thread.db. The agentchat aggregate owns its central
 // per-type read model at state/store/agent_chat.db. The workspace-delete
 // cascade's chat purge, Container.PurgeChat, is assigned by the app layer once
-// the chat usecase exists; see the field's doc comment.
+// the chat usecase exists; see the field's doc comment. placementWatch hears
+// every chat and node placement once its read model holds it (nil: nobody).
 func New(
 	ctx context.Context,
 	adapters *adapter.Container,
@@ -140,6 +141,7 @@ func New(
 	runnerWatch agentrunner.WatchFunc,
 	nodeWatch node.WatchFunc,
 	choiceWatch agentactivity.WatchFunc,
+	placementWatch func(id string),
 ) (*Container, error) {
 	c := &Container{
 		hub: h, git: git, inflight: map[string]int{},
@@ -183,6 +185,7 @@ func New(
 	// so this projection is the one and only WS feed for agent chats.
 	agentChat, err := agentchat.NewEventSourced(
 		axAgentChat, adapters.AgentChatES(), adapters.AgentChatReadDB(), chatWatch,
+		agentchat.WithPlacementWatch(placementWatch),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: agent chat event store: %w", err)
@@ -229,6 +232,7 @@ func New(
 	// the codebase sends Node commands yet.
 	nodeStore, err := node.NewEventSourced(
 		axNode, adapters.NodeES(), adapters.NodeReadDB(), nodeWatch,
+		node.WithPlacementWatch(placementWatch),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: node event store: %w", err)

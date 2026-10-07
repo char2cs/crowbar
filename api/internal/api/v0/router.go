@@ -109,7 +109,7 @@ func (c *Container) Register(
 	// PR-status detection that moves a branch to pr-open/pr-merged/pr-closed —
 	// and the repo-wide list scope resolves no workspace, so it never did. This
 	// mount resolves one through chatScoped's own resolveChatWorktree, which is
-	// exactly what scopeWsID reads, so a client watching a chat starts the poll
+	// exactly what scopeChatWorktreeID reads, so a client watching a chat starts the poll
 	// for the worktree that chat holds. Without it, a frontend that stopped
 	// watching .../workspaces/:wsId would leave every PR status frozen at `new`.
 	chatScoped.GET("/ws", c.agentChats.Handle)

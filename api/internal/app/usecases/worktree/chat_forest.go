@@ -32,9 +32,9 @@ type Nodes interface {
 }
 
 // chatForest is one read of the whole chat/folder placement tree, indexed for
-// upward walks. Both directions of the resolver build it ONCE per call: an
-// ancestry walk cannot know which rows sit above chatID without the rest of the
-// forest, and ChatsForWorkspace would otherwise re-read it per chat.
+// upward walks. Every resolver entry point builds it ONCE per call: an ancestry
+// walk cannot know which rows sit above chatID without the rest of the forest,
+// and the batch answers would otherwise re-read it per chat.
 type chatForest struct {
 	byID map[string]domain.Chat
 	tree tree.Tree

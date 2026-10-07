@@ -13,6 +13,10 @@ import (
 type filteredClient[T any] struct {
 	*client
 	predicate func(T) bool
+	bindings  []*binding
+	// requestScope is StreamDef.ScopeKey's answer, the lifecycle scope of a
+	// client without bindings (see scopeOf).
+	requestScope string
 }
 
 // Broadcaster fans a stream of T out to filtered WebSocket clients (03 §1).
@@ -25,18 +29,31 @@ type Broadcaster[T any] struct {
 	// regCount is a buffered semaphore channel: one token is sent per registration.
 	// Test helpers drain exactly n tokens to confirm n clients are registered.
 	regCount chan struct{}
+
+	// rebindMu serializes Rebind against a connecting client's registration
+	// and first resolve. The channels belong to the rebind worker (rebind.go),
+	// started only for a stream with a bound filter.
+	rebindMu  sync.Mutex
+	rebind    chan struct{}
+	stop      chan struct{}
+	stopped   chan struct{}
+	closeOnce sync.Once
 }
 
 // NewBroadcaster builds a Broadcaster from a StreamDef.
 func NewBroadcaster[T any](
 	def StreamDef[T],
 ) *Broadcaster[T] {
-	return &Broadcaster[T]{
+	b := &Broadcaster[T]{
 		def:        def,
 		clients:    make(map[*filteredClient[T]]struct{}),
 		registered: make(chan struct{}),
 		regCount:   make(chan struct{}, 1024),
 	}
+	if hasBoundFilter(def) {
+		b.startRebinder()
+	}
+	return b
 }
 
 // WaitRegistered blocks until at least one client has registered. Test-only.
@@ -82,14 +99,10 @@ func (b *Broadcaster[T]) Handle(
 		return
 	}
 
-	predicate := BuildPredicate(c, b.def)
-	cl := &filteredClient[T]{client: newClient(), predicate: predicate}
-
-	scope := b.scopeKey(c)
 	snapScope := clientScope(c)
 
-	b.register(cl)
-	defer b.remove(cl)
+	cl := b.admit(c, snapScope)
+	defer b.leave(cl)
 
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -97,15 +110,13 @@ func (b *Broadcaster[T]) Handle(
 		return
 	}
 	// The hijacked conn, the clients-map entry, and the watcher/LSP refcount must
-	// all be released even if snapshotFor/onSubscribe panics (gin's Recovery would
-	// otherwise unwind past the cleanup, leaking an FD, a dead map entry that every
-	// future Push iterates, and a watcher/LSP refcount). Defers make cleanup
+	// all be released even if snapshotFor panics (gin's Recovery would otherwise
+	// unwind past the cleanup, leaking an FD, a dead map entry that every future
+	// Push iterates, and a watcher/LSP refcount). Defers make cleanup
 	// unconditional; double-close of conn is harmless (the err is ignored).
 	defer func() { _ = conn.Close() }()
 
 	snapshot := b.snapshotFor(cl, snapScope)
-	b.onSubscribe(scope)
-	defer b.onUnsubscribe(scope)
 
 	safego.Go("broadcaster.writePump", func() { writePump(conn, cl.client, snapshot) })
 	readPump(conn)
@@ -120,10 +131,11 @@ func (b *Broadcaster[T]) scopeKey(
 	return b.def.ScopeKey(c)
 }
 
+// onSubscribe and onUnsubscribe skip "": an unplaced client holds no scope.
 func (b *Broadcaster[T]) onSubscribe(
 	scope string,
 ) {
-	if b.def.OnSubscribe == nil {
+	if b.def.OnSubscribe == nil || scope == "" {
 		return
 	}
 	b.def.OnSubscribe(scope)
@@ -132,7 +144,7 @@ func (b *Broadcaster[T]) onSubscribe(
 func (b *Broadcaster[T]) onUnsubscribe(
 	scope string,
 ) {
-	if b.def.OnUnsubscribe == nil {
+	if b.def.OnUnsubscribe == nil || scope == "" {
 		return
 	}
 	b.def.OnUnsubscribe(scope)
@@ -159,13 +171,19 @@ func (b *Broadcaster[T]) register(
 	}
 }
 
-func (b *Broadcaster[T]) remove(
+// leave removes cl and releases the scope it holds NOW, which a Rebind may
+// have moved since admit; rebindMu keeps a Rebind from moving it in between.
+func (b *Broadcaster[T]) leave(
 	cl *filteredClient[T],
 ) {
+	b.rebindMu.Lock()
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	delete(b.clients, cl)
+	b.mu.Unlock()
 	cl.closeDone()
+	scope := b.scopeOf(cl)
+	b.rebindMu.Unlock()
+	b.onUnsubscribe(scope)
 }
 
 // snapshotFor computes cl's snapshot OUTSIDE the broadcaster lock (b.def.Snapshot

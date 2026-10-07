@@ -43,6 +43,7 @@ func serveV0(
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	c := v0.New(appC, engC)
+	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
@@ -107,13 +108,8 @@ func TestSnapshot_Git_DeliveredOnConnectScoped(t *testing.T) {
 		now,
 	)
 	require.NoError(t, err)
-	// wsToChats matters here, not just chatToWs: the replay frame carries the
-	// SAME fan-out set a live push would (appendGitStatus), and gitDef's
-	// chatId filter is a Required membership match — an empty set would drop
-	// the snapshot exactly as it would drop a live frame.
 	tc.app.Usecases.Worktree = stubChatWorktreeResolver{
 		chatToWs:   map[string]string{"chat-a": "A"},
-		wsToChats:  map[string][]string{"A": {"chat-a"}},
 		workspaces: tc.app.Repositories.Workspace,
 	}
 

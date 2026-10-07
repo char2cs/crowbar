@@ -184,6 +184,42 @@ func TestWriteNext_CoalescedValueDeliveredOnceSendIsEmpty(t *testing.T) {
 	require.Equal(t, "coalesced", string(msg))
 }
 
+// TestWriteNext_ResnapshotFollowsEverythingQueuedUnderTheOldBinding: frames
+// queued before a rebind may belong to the old workspace, so the new
+// workspace's snapshot must be written after them, never before.
+func TestWriteNext_ResnapshotFollowsEverythingQueuedUnderTheOldBinding(t *testing.T) {
+	server, client, cleanup := upgradedPair(t)
+	defer cleanup()
+
+	cl := newClient()
+	cl.resnapshot = func() [][]byte { return [][]byte{[]byte("snapshot")} }
+	cl.send <- []byte("queued")
+	cl.coalesce("k", []byte("coalesced"))
+
+	require.True(t, writeResnapshot(server, cl))
+
+	for _, want := range []string{"queued", "coalesced", "snapshot"} {
+		_, msg, err := client.ReadMessage()
+		require.NoError(t, err)
+		require.Equal(t, want, string(msg))
+	}
+}
+
+func TestWriteNext_ResnapshotArmWritesTheSnapshot(t *testing.T) {
+	server, client, cleanup := upgradedPair(t)
+	defer cleanup()
+
+	cl := newClient()
+	cl.resnapshot = func() [][]byte { return [][]byte{[]byte("snapshot")} }
+	cl.requestResnapshot()
+
+	require.True(t, writeNext(server, cl, inertTicker()))
+
+	_, msg, err := client.ReadMessage()
+	require.NoError(t, err)
+	require.Equal(t, "snapshot", string(msg))
+}
+
 func TestReadPump_ReturnsOnReadError(t *testing.T) {
 	server, client, cleanup := upgradedPair(t)
 	defer cleanup()
