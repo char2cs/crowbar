@@ -1,12 +1,7 @@
 // Crowbar system operations backed by the Go daemon's /v0 API.
 
 import { convertFileSrc as tauriConvertFileSrc } from '@tauri-apps/api/core'
-import { Menu } from '@tauri-apps/api/menu'
-import type {
-  MenuItemOptions,
-  SubmenuOptions,
-  PredefinedMenuItemOptions,
-} from '@tauri-apps/api/menu'
+import { Menu, MenuItem, PredefinedMenuItem, Submenu } from '@tauri-apps/api/menu'
 
 import { apiFetch } from '@/lib/api'
 import { wsUrl } from '@/lib/ws/url'
@@ -330,33 +325,62 @@ export async function onConsoleMenuToggle(handler: () => void): Promise<() => vo
 
 // ── Native Context Menu ───────────────────────────────────────────────────────
 
-type NativeMenuEntry = MenuItemOptions | SubmenuOptions | PredefinedMenuItemOptions
+type NativeMenuEntry = MenuItem | Submenu | PredefinedMenuItem
 
-function toNativeMenuEntries(items: ContextMenuItem[]): NativeMenuEntry[] {
-  return items.map((item): NativeMenuEntry => {
+// Every native resource of the open menu, in creation order. Tauri drops an
+// item's click channel when its Rust wrapper drops, and an item passed inline
+// to `Menu.new` is dropped as soon as the menu is built — so each item is
+// created through its own constructor and stays alive here.
+let openNativeMenu: Array<{ close(): Promise<void> }> = []
+
+// Tauri keys an item's click channel by item id and removes it when ANY item
+// with that id drops, so ids must be unique across menus alive at once.
+let nativeMenuSeq = 0
+
+async function toNativeMenuEntries(
+  items: ContextMenuItem[],
+  menuId: number,
+  owned: Array<{ close(): Promise<void> }>,
+  onChosen: () => void,
+): Promise<NativeMenuEntry[]> {
+  const entries: NativeMenuEntry[] = []
+  for (const item of items) {
+    let entry: NativeMenuEntry
     if (item.separator) {
-      return { item: 'Separator' }
-    }
-    if (item.items && item.items.length > 0) {
-      return {
+      entry = await PredefinedMenuItem.new({ item: 'Separator' })
+    } else if (item.items && item.items.length > 0) {
+      entry = await Submenu.new({
         text: item.label,
         enabled: !item.disabled,
-        items: toNativeMenuEntries(item.items),
-      }
+        items: await toNativeMenuEntries(item.items, menuId, owned, onChosen),
+      })
+    } else {
+      entry = await MenuItem.new({
+        id: `${menuId}:${item.id}`,
+        text: item.label,
+        enabled: !item.disabled,
+        accelerator: item.shortcut,
+        action: () => {
+          item.onClick()
+          onChosen()
+        },
+      })
     }
-    return {
-      id: item.id,
-      text: item.label,
-      enabled: !item.disabled,
-      accelerator: item.shortcut,
-      action: () => item.onClick(),
-    }
-  })
+    owned.push(entry)
+    entries.push(entry)
+  }
+  return entries
 }
 
-/** Pops up the OS's own context menu. Always closes the underlying native
- * resource handle when the popup dismisses, whether an item was picked or
- * the popup was closed with no selection.
+// Tauri delivers a click to the item's `action` through the event loop, after
+// the blocking popup call returns, and closing an item drops its click channel.
+// So the menu is closed once its action ran, or when the next menu replaces it.
+async function closeNativeMenu(owned: Array<{ close(): Promise<void> }>): Promise<void> {
+  if (openNativeMenu === owned) openNativeMenu = []
+  await Promise.all(owned.map((resource) => resource.close()))
+}
+
+/** Pops up the OS's own context menu.
  *
  * Deliberately does NOT call `menu.popup()` (the JS method `@tauri-apps/api/menu`
  * provides) — that invokes Tauri's built-in `plugin:menu|popup` command, which has
@@ -365,33 +389,35 @@ function toNativeMenuEntries(items: ContextMenuItem[]): NativeMenuEntry[] {
  * Tauri command (including this app's own terminal PTY channels) until it's
  * dismissed. `popup_native_context_menu` (`desktop/src-tauri/src/lib.rs`) is a
  * from-scratch command that does the same thing without holding that lock across
- * the blocking call. `menu.close()` below is unaffected — the generic
- * `plugin:resources|close` command it calls was never the buggy one.
+ * the blocking call.
  *
  * `isCancelled` guards against React StrictMode's dev-only double-invoke of
- * effects (setup → cleanup → setup again, synchronously, before this
- * function's first `await` can resolve): the caller flips its own flag in the
- * FIRST invocation's cleanup, then this function checks it right after
- * `Menu.new()` resolves. Without this, both invocations would go on to call
- * `Menu.new()` and pop up a REAL native menu each — two live, stacked
- * NSMenu tracking sessions — because a native popup, unlike a mocked one, has
- * already been dispatched to Rust by the time an effect's own `cancelled`
- * flag would normally stop it. Dismissing the top one then looks like "the
- * menu reopens": the second one is still sitting there underneath. */
+ * effects, which would otherwise pop two stacked native menus from one right-click. */
 export async function showNativeContextMenu(
   items: ContextMenuItem[],
   position: { x: number; y: number },
   isCancelled?: () => boolean,
 ): Promise<void> {
-  const menu = await Menu.new({ items: toNativeMenuEntries(items) })
+  await closeNativeMenu(openNativeMenu)
+  const owned: Array<{ close(): Promise<void> }> = []
+  const entries = await toNativeMenuEntries(
+    items,
+    nativeMenuSeq++,
+    owned,
+    () => void closeNativeMenu(owned),
+  )
+  const menu = await Menu.new({ items: entries })
+  owned.push(menu)
   if (isCancelled?.()) {
-    await menu.close()
+    await closeNativeMenu(owned)
     return
   }
+  openNativeMenu = owned
   try {
     await tauriInvoke('popup_native_context_menu', { rid: menu.rid, x: position.x, y: position.y })
-  } finally {
-    await menu.close()
+  } catch (error) {
+    await closeNativeMenu(owned)
+    throw error
   }
 }
 
