@@ -6,10 +6,17 @@ import { ContextMenu } from '@/components/ui/context-menu'
 const MENU_RID = 7
 
 const closeMock = vi.fn().mockResolvedValue(undefined)
-const menuNewMock = vi.fn().mockResolvedValue({ rid: MENU_RID, close: closeMock })
+const menuNewMock = vi.fn()
 
+// Items must be built through their own constructors: Tauri drops the click
+// channel of an item passed inline to Menu.new (see crowbar-bridge.ts).
 vi.mock('@tauri-apps/api/menu', () => ({
   Menu: { new: (...args: unknown[]) => menuNewMock(...args) },
+  MenuItem: {
+    new: async (options: Record<string, unknown>) => ({ options, close: closeMock }),
+  },
+  Submenu: { new: async () => ({ close: closeMock }) },
+  PredefinedMenuItem: { new: async () => ({ close: closeMock }) },
 }))
 
 // showNativeContextMenu (crowbar-bridge.ts) pops the menu through this app's
@@ -24,7 +31,7 @@ type TauriWindow = Window & { __TAURI_INTERNALS__?: { invoke: typeof invokeMock 
 
 beforeEach(() => {
   closeMock.mockClear()
-  menuNewMock.mockClear()
+  menuNewMock.mockReset()
   menuNewMock.mockResolvedValue({ rid: MENU_RID, close: closeMock })
   invokeMock.mockClear()
   invokeMock.mockResolvedValue(undefined)
@@ -54,10 +61,9 @@ describe('ContextMenu — native path (isTauri() true)', () => {
 
     await waitFor(() => expect(menuNewMock).toHaveBeenCalledOnce())
     const [{ items: nativeItems }] = menuNewMock.mock.calls[0] as [
-      { items: Array<{ action: (id: string) => void }> },
+      { items: Array<{ options: { action: () => void } }> },
     ]
-    expect(nativeItems[0].action).toBeInstanceOf(Function)
-    nativeItems[0].action('a')
+    nativeItems[0].options.action()
     expect(onClick).toHaveBeenCalledOnce()
 
     await waitFor(() =>
@@ -67,7 +73,7 @@ describe('ContextMenu — native path (isTauri() true)', () => {
         y: 7,
       }),
     )
-    await waitFor(() => expect(closeMock).toHaveBeenCalledOnce())
+    await waitFor(() => expect(closeMock).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce())
   })
 
@@ -102,7 +108,7 @@ describe('ContextMenu — native path (isTauri() true)', () => {
       />,
     )
 
-    await waitFor(() => expect(closeMock).toHaveBeenCalledOnce())
+    await waitFor(() => expect(closeMock).toHaveBeenCalledTimes(2))
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       'Failed to show native context menu:',
       expect.any(Error),
@@ -146,7 +152,8 @@ describe('ContextMenu — native path (isTauri() true)', () => {
     await waitFor(() => expect(invokeMock).toHaveBeenCalledOnce())
     // StrictMode's double-invoke DOES call Menu.new() twice — that's expected
     // and harmless (the cancelled invocation's menu resource just gets closed
-    // unopened, asserted below). What must stay singular is the actual popup.
+    // unopened, asserted below; the popped one stays open until its action
+    // runs or the next menu replaces it). What must stay singular is the actual popup.
     await waitFor(() => expect(menuNewMock).toHaveBeenCalledTimes(2))
     // Give any extra (buggy) popup call a chance to fire before asserting it didn't.
     await new Promise((resolve) => setTimeout(resolve, 20))
