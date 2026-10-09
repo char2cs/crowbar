@@ -236,6 +236,47 @@ describe('WSManager remote stream failures', () => {
     expect(failureOn('crowbar://h2/v0/projects')?.hostId).toBe('h2')
   })
 
+  it('never lets a remote outage look like a local one', () => {
+    createWSManager().subscribe('crowbar://h1/v0/projects', vi.fn())
+
+    tauriInstances[0].onopen?.()
+    tauriInstances[0].onerror?.('host-identity-changed: certificate mismatch')
+    tauriInstances[0].onclose?.()
+
+    expect(useConnectionStore.getState().status).toBe('idle')
+  })
+
+  it('stops redialling a host whose identity changed, until someone subscribes again', () => {
+    const mgr = createWSManager()
+    const unsubscribe = mgr.subscribe('crowbar://h1/v0/projects', vi.fn())
+    tauriInstances[0].onerror?.('host-identity-changed: certificate mismatch')
+    tauriInstances[0].onclose?.()
+
+    vi.advanceTimersByTime(120_000)
+    expect(tauriInstances).toHaveLength(1)
+
+    unsubscribe()
+    mgr.subscribe('crowbar://h1/v0/projects', vi.fn())
+    expect(tauriInstances).toHaveLength(2)
+  })
+
+  it('keeps redialling an unreachable host, backing off', () => {
+    createWSManager().subscribe('crowbar://h1/v0/projects', vi.fn())
+
+    for (const [attempt, wait] of [
+      [1, 1000],
+      [2, 2000],
+      [3, 4000],
+    ]) {
+      tauriInstances[attempt - 1].onerror?.('host-unreachable: connection refused')
+      tauriInstances[attempt - 1].onclose?.()
+      vi.advanceTimersByTime(wait - 1)
+      expect(tauriInstances).toHaveLength(attempt)
+      vi.advanceTimersByTime(1)
+      expect(tauriInstances).toHaveLength(attempt + 1)
+    }
+  })
+
   it('does not let a remote stream stand in for the local backend’s connection', () => {
     const mgr = createWSManager()
     mgr.subscribe('/v0/projects', vi.fn())

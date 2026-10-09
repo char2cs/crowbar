@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const tauri = vi.hoisted(() => ({
   instances: [] as Array<{ path: string; options?: { idleTimeoutMs?: number; hostId?: string } }>,
+  refuse: false,
 }))
 
 // The desktop transport: a WebSocket-shaped shim over the Rust bridge.
@@ -13,6 +14,7 @@ vi.mock('@/lib/ws/tauri-transport', () => ({
     send = vi.fn()
     close = vi.fn()
     constructor(path: string, options?: { idleTimeoutMs?: number; hostId?: string }) {
+      if (tauri.refuse) throw new Error('dial refused')
       tauri.instances.push({ path, options })
     }
   },
@@ -163,6 +165,7 @@ describe('openTerminal / terminalKill / terminalListLive', () => {
   beforeEach(() => {
     FakeWebSocket.instances = []
     tauri.instances = []
+    tauri.refuse = false
     vi.stubGlobal('WebSocket', FakeWebSocket as unknown as typeof WebSocket)
   })
   afterEach(() => {
@@ -242,6 +245,18 @@ describe('openTerminal / terminalKill / terminalListLive', () => {
       expect(() => openTerminal('s1', 'crowbar://h1/v0/chats/c1/terminals')).toThrow(/desktop app/)
       expect(FakeWebSocket.instances).toHaveLength(0)
     })
+  })
+
+  it('remembers no base for a terminal whose transport could not be built', async () => {
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+    tauri.refuse = true
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    expect(() => openTerminal('s7', '/v0/chats/c7/terminals')).toThrow('dial refused')
+    await terminalKill('s7')
+
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
   it('kills under the base the session was opened on; an unknown session sends nothing', async () => {

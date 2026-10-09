@@ -200,8 +200,14 @@ const sessionBases = new Map<string, string>()
 
 /** Open a view's stream to an existing daemon PTY session. */
 export function openTerminal(sessionId: string, base: string): TerminalConnection {
+  // Recorded only once the transport exists: a constructor that throws must not
+  // leave a base behind for terminalKill to act on.
+  const connection = new TerminalConnection(
+    sessionId,
+    `${base}/${encodeURIComponent(sessionId)}/ws`,
+  )
   sessionBases.set(sessionId, base)
-  return new TerminalConnection(sessionId, `${base}/${encodeURIComponent(sessionId)}/ws`)
+  return connection
 }
 
 /** Create a PTY session owned by the base's chat; returns its session id. */

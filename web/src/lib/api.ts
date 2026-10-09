@@ -51,11 +51,9 @@ export function apiBaseFor(hostId: string): string {
 }
 
 /**
- * Turn a daemon-relative path — bare for the local daemon, `crowbar://<hostId>/...`
- * for a remote host — into the absolute URL a request can be sent to. For the
- * few callers that build their own `fetch`; everything else goes through
- * {@link apiFetch}, which applies the base itself. Throws for a host this
- * window cannot reach rather than falling back to the local daemon.
+ * The absolute URL for a daemon-relative path, qualified or not, for callers that
+ * build their own `fetch`. Throws for a host this window cannot reach rather than
+ * falling back to the local daemon.
  */
 export function apiUrl(path: string): string {
   const target = routeToHost(path)
