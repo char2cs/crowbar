@@ -52,7 +52,7 @@ function recordScope(wsId: string, projectId: string): void {
 }
 
 beforeEach(() => {
-  useHostConfigStore.setState({ hosts: [] })
+  useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
   useProjectDataStore.setState({ data: idle() })
   __resetWorkspaceScopesForTest()
 })
@@ -69,6 +69,8 @@ describe('hostIdForProject', () => {
     expect(hostIdForProject('anything')).toBe('local')
     loadProjects(project('p-local', 'local'))
     expect(hostIdForProject('p-local')).toBe('local')
+    expect(hostIdForProject('p-unknown')).toBe('local')
+    useProjectDataStore.setState({ data: loading() })
     expect(hostIdForProject('p-unknown')).toBe('local')
   })
 
@@ -117,6 +119,16 @@ describe('hostIdForProject', () => {
     expect(unresolved(() => hostIdForProject('p-other')).message).toMatch(/not in the project list/)
   })
 
+  it('throws for a project on a host that is gone while another host is still configured', () => {
+    configureHosts('host-1', 'host-2')
+    loadProjects(project('p-on-1', 'host-1'))
+    expect(hostIdForProject('p-on-1')).toBe('host-1')
+    configureHosts('host-2')
+    expect(unresolved(() => hostIdForProject('p-on-1')).message).toMatch(
+      /its host "host-1" is not configured/,
+    )
+  })
+
   // Rows from the projects-by-host cache (or a corrupt crowbar.hosts) with no host configured.
   it.each<[string, Loadable<Project[]>]>([
     ['loaded', success([project('p-remote', 'host-1')])],
@@ -146,6 +158,44 @@ describe('hostIdForProject', () => {
     configureHosts('host-1')
     loadProjects(project('p-dup', 'host-1'), project('p-dup', 'host-1'))
     expect(hostIdForProject('p-dup')).toBe('host-1')
+  })
+})
+
+describe('after a remote host was paired and revoked', () => {
+  function pairThenRevoke(): void {
+    useHostConfigStore.getState().addHost(host('host-1'))
+    loadProjects(project('p-local', 'local'), project('p-remote', 'host-1'))
+    recordScope('ws-r', 'p-remote')
+    useHostConfigStore.getState().removeHost('host-1')
+  }
+
+  it('never answers local for the remote ids, even when a re-read returns no remote rows', () => {
+    const { result } = renderHook(() => useHostResolved({ wsId: 'ws-r' }))
+    act(pairThenRevoke)
+    expect(result.current).toBe(false)
+
+    act(() => loadProjects(project('p-local', 'local')))
+    expect(result.current).toBe(false)
+    expect(unresolved(() => hostIdForWorkspace('ws-r')).projectId).toBe('p-remote')
+    expect(unresolved(() => hostIdForProject('p-remote')).message).toMatch(
+      /not in the project list/,
+    )
+  })
+
+  it('still resolves a local project as soon as its row is held', () => {
+    pairThenRevoke()
+    loadProjects(project('p-local', 'local'))
+    recordScope('ws-l', 'p-local')
+    expect(hostIdForProject('p-local')).toBe('local')
+    expect(hostIdForWorkspace('ws-l')).toBe('local')
+  })
+
+  it('does not resolve an unknown id, whether the list is empty or has not loaded', () => {
+    pairThenRevoke()
+    useProjectDataStore.setState({ data: idle() })
+    expect(() => hostIdForProject('p-unknown')).toThrow(HostNotResolvedError)
+    loadProjects()
+    expect(() => hostIdForProject('p-unknown')).toThrow(HostNotResolvedError)
   })
 })
 
@@ -244,13 +294,27 @@ describe('useHostResolved', () => {
     expect(result.current).toBe(true)
   })
 
-  it('is true with no hosts and no remote rows, and settles back to true when the last host goes', () => {
+  it('follows a changed projectId', () => {
+    configureHosts('host-1')
+    loadProjects(project('p-a', 'host-1'))
+    const { result, rerender } = renderHook(
+      ({ projectId }: { projectId: string }) => useHostResolved({ projectId }),
+      { initialProps: { projectId: 'p-a' } },
+    )
+    expect(result.current).toBe(true)
+    rerender({ projectId: 'p-missing' })
+    expect(result.current).toBe(false)
+    rerender({ projectId: 'p-a' })
+    expect(result.current).toBe(true)
+  })
+
+  it('is true while no remote was ever paired, false once one is paired, and stays false after it is removed', () => {
     const { result } = renderHook(() => useHostResolved({ projectId: 'p1' }))
     expect(result.current).toBe(true)
-    act(() => configureHosts('host-1'))
+    act(() => useHostConfigStore.getState().addHost(host('host-1')))
     expect(result.current).toBe(false)
-    act(() => configureHosts())
-    expect(result.current).toBe(true)
+    act(() => useHostConfigStore.getState().removeHost('host-1'))
+    expect(result.current).toBe(false)
   })
 
   it('goes false when the last host is revoked while its project rows linger', () => {

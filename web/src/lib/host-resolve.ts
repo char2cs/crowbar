@@ -1,5 +1,5 @@
 import { useCallback, useSyncExternalStore } from 'react'
-import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { hasPairedRemote, useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { LOCAL_HOST } from '@/features/hosts/types'
 import { HostNotResolvedError } from '@/lib/host-path'
 import { dataOf } from '@/lib/loadable'
@@ -15,11 +15,11 @@ function heldProjects(): Project[] | undefined {
   return dataOf(useProjectDataStore.getState().data)
 }
 
-// The only proof that an entity we cannot find is local: no remote host is
-// configured and no held row names one. Zero hosts alone is not proof — a
-// revoked host's rows linger in the list and the cache.
+// The only proof that an unknown id is local: no remote was ever paired and no
+// held row names one. Zero hosts alone is not — a revoked host's ids outlive its
+// rows (scopes, route, panes), and a re-read without them must not read as local.
 function noRemoteEntityCanExist(): boolean {
-  if (useHostConfigStore.getState().hosts.length > 0) return false
+  if (hasPairedRemote(useHostConfigStore.getState())) return false
   return !heldProjects()?.some((p) => p.hostId !== LOCAL_HOST.id)
 }
 
@@ -37,6 +37,7 @@ function resolveProjectHost(projectId: string): Resolution {
       projects ? 'the project is not in the project list' : 'the project list is not loaded',
     )
   }
+  // A twin on a configured-but-down host (a copied database) shows no second row.
   const hostIds = [...new Set(rows.map((p) => p.hostId))]
   if (hostIds.length > 1) {
     return unresolved(`the project exists on more than one host (${hostIds.join(', ')})`)
