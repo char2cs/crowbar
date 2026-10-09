@@ -139,9 +139,9 @@ export function useHostResolved(key: HostKey): boolean {
  *  project, or holds it on a host that is not configured (or ambiguously). */
 export type HostUnavailable = 'project-missing' | 'host-unavailable'
 
-// Null while still waiting: the list has not loaded, or a workspace's scope (and so
-// its project) is not recorded yet, however loaded the list.
-function unavailability(key: HostKey): HostUnavailable | null {
+/** Why `key`'s host is not coming, or null while it is still worth waiting: the list
+ *  has not loaded, or a workspace's scope (and so its project) is not recorded yet. */
+export function hostUnavailability(key: HostKey): HostUnavailable | null {
   const { data } = useProjectDataStore.getState()
   if (data.status !== 'success' || isHostResolved(key)) return null
   const projectId = key.wsId !== undefined ? getWorkspaceScope(key.wsId)?.projectId : key.projectId
@@ -149,9 +149,9 @@ function unavailability(key: HostKey): HostUnavailable | null {
   return heldProjects()?.some((p) => p.id === projectId) ? 'host-unavailable' : 'project-missing'
 }
 
-/** `unavailability` as React state. */
+/** `hostUnavailability` as React state. */
 export function useHostUnavailable(key: HostKey): HostUnavailable | null {
-  return useSyncExternalStore(useResolutionSubscription(key), () => unavailability(key))
+  return useSyncExternalStore(useResolutionSubscription(key), () => hostUnavailability(key))
 }
 
 /** Settles with whether `key`'s host resolved: true as soon as it does, false once
@@ -160,7 +160,7 @@ export function awaitHost(key: HostKey): Promise<boolean> {
   return new Promise((resolve) => {
     const settle = () => {
       const resolved = isHostResolved(key)
-      if (!resolved && unavailability(key) === null) return
+      if (!resolved && hostUnavailability(key) === null) return
       stop()
       resolve(resolved)
     }

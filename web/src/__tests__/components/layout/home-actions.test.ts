@@ -13,7 +13,7 @@ const {
   postWorkspace: vi.fn(() => Promise.resolve()),
   createChat: vi.fn(() => Promise.resolve('chat-1')),
   createChatWithOwnWorktree: vi.fn(() => Promise.resolve('chat-1')),
-  listGlobalProviders: vi.fn(() => new Promise<never>(() => {})),
+  listGlobalProviders: vi.fn((): Promise<unknown[]> => new Promise(() => {})),
   toastError: vi.fn(),
   getHomeWorkspaceId: vi.fn(),
   presetChatLandingPresentation: vi.fn(),
@@ -108,7 +108,7 @@ describe('a project-home chat row resolves Thread through its home workspace, an
       providers: [{ id: 'claude', enabled: true }] as never,
     })
 
-    handleCreate('c1', 'thread', vi.fn())
+    await handleCreate('c1', 'thread', vi.fn())
 
     expect(createChat).toHaveBeenCalledExactlyOnceWith('home-ws-1', 'claude', 'c1', undefined)
     expect(usePendingCreatesStore.getState().entries).toMatchObject([
@@ -185,13 +185,13 @@ describe('a project-home chat row resolves Thread through its home workspace, an
       providers: [{ id: 'claude', enabled: true }] as never,
     })
 
-    handleCreate('c1', 'thread', vi.fn(), 'terminal')
+    await handleCreate('c1', 'thread', vi.fn(), 'terminal')
     await Promise.resolve()
 
     expect(presetChatLandingPresentation).toHaveBeenCalledExactlyOnceWith('chat-1', 'terminal')
   })
 
-  it('Fork is a silent no-op — no repo, no worktree to clone', () => {
+  it('Fork is a silent no-op — no repo, no worktree to clone', async () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
     useHomeTreeStore.setState({
       trees: {
@@ -206,7 +206,7 @@ describe('a project-home chat row resolves Thread through its home workspace, an
       providers: [{ id: 'claude', enabled: true }] as never,
     })
 
-    handleCreate('c1', 'workspace', vi.fn())
+    await handleCreate('c1', 'workspace', vi.fn())
 
     expect(createChatWithOwnWorktree).not.toHaveBeenCalled()
     expect(usePendingCreatesStore.getState().entries).toEqual([])
@@ -421,13 +421,53 @@ describe('a project-home thread on an install that has paired a remote host', ()
     expect(listGlobalProviders).not.toHaveBeenCalled()
   })
 
-  it('refuses, and reads that host’s list so the next try can use it, when it was never loaded', async () => {
+  it('reads that host’s list on the first click and starts the chat with it', async () => {
     useAgentProvidersStore.setState({ remote: {} })
+    listGlobalProviders.mockResolvedValueOnce([offered('codex-remote')])
 
     await handleCreateHomeThread('p-remote', 'home-remote', vi.fn())
 
-    expect(createChat).not.toHaveBeenCalled()
-    expect(toastError).toHaveBeenCalledOnce()
     expect(listGlobalProviders).toHaveBeenCalledExactlyOnceWith('host-1')
+    expect(started()).toEqual([['home-remote', 'codex-remote']])
+    expect(toastError).not.toHaveBeenCalled()
+  })
+
+  it('names the host it could not reach, once however often the button is clicked', async () => {
+    useAgentProvidersStore.setState({ remote: {} })
+    listGlobalProviders.mockRejectedValueOnce(new Error('offline'))
+
+    await Promise.all([
+      handleCreateHomeThread('p-remote', 'home-remote', vi.fn()),
+      handleCreateHomeThread('p-remote', 'home-remote', vi.fn()),
+    ])
+
+    expect(createChat).not.toHaveBeenCalled()
+    expect(listGlobalProviders).toHaveBeenCalledOnce()
+    expect(toastError).toHaveBeenCalledExactlyOnceWith('Couldn’t reach host-1', expect.any(String))
+  })
+
+  it('sends a project on a host that is not configured to Hosts, not to a retry', async () => {
+    loadProjects(projectOn('p-gone', 'host-2'))
+
+    await handleCreateHomeThread('p-gone', 'home-gone', vi.fn())
+
+    expect(createChat).not.toHaveBeenCalled()
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(
+      'This project’s host is not available',
+      expect.stringContaining('Hosts'),
+    )
+  })
+
+  it('does not blame a local project’s host while the project list is still loading', async () => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+
+    await handleCreateHomeThread('p-local', 'home-local', vi.fn())
+
+    expect(createChat).not.toHaveBeenCalled()
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(
+      'Still loading your projects',
+      expect.not.stringContaining('Hosts'),
+    )
   })
 })

@@ -4,7 +4,8 @@ import {
   providersOf,
   useAgentProvidersStore,
 } from '@/features/settings/stores/agent-providers-store'
-import { resolvedHostOf } from '@/lib/host-resolve'
+import { hostUnavailability, resolvedHostOf } from '@/lib/host-resolve'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { presetChatLandingPresentation } from '@/features/agent/hooks/use-chat-presentation'
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { usePendingCreatesStore } from '@/lib/store/pending-creates'
@@ -97,10 +98,14 @@ export interface ThreadCreate {
  * daemon's reason on a refused create or a row that never arrives.
  */
 export async function startThread(spec: ThreadCreate): Promise<void> {
-  const provider = enabledProvider(spec.projectId)
-  if (!provider) return
   if (createInFlight.has(spec.inFlightKey)) return
   createInFlight.add(spec.inFlightKey)
+  const read = readUnreadHostProviders(spec.projectId)
+  const provider = read && !(await read) ? null : enabledProvider(spec.projectId)
+  if (!provider) {
+    createInFlight.delete(spec.inFlightKey)
+    return
+  }
   const { projectId, workspaceId, parentId } = spec
   const { order, rowIdsAtClick } = panelRowsAtClick(projectId, parentId)
   const tempId = `pending-${crypto.randomUUID()}`
@@ -137,37 +142,62 @@ export async function startThread(spec: ThreadCreate): Promise<void> {
 }
 
 /**
- * The provider a new chat in `projectId` is started with, or null — having SAID
- * SO — when there is none.
- *
- * A provider list belongs to a daemon, so the pick comes from the list of the
- * project's own host: a provider only another host offers must never be sent to
- * this one. A remote host whose list was never read is read now, for the next try.
- *
- * Both create paths used to return silently here. A silent return is
- * indistinguishable from a dead button, and it is the shape both halves of "the
- * fork and thread buttons do nothing" took. A precondition that stops a click
- * has to be visible.
+ * The provider a new chat in `projectId` starts with, or null having said why — a
+ * click that is refused must be visible. It comes from the project's own host's
+ * list, so a remote host's list must have been read: see {@link readUnreadHostProviders}.
  */
 export function enabledProvider(projectId: string): AgentProvider | null {
   const hostId = resolvedHostOf({ projectId })
   if (hostId === null) {
-    toast.error('This project’s host is not available', 'Check the host in Settings → Hosts.')
+    refuseUnresolvedHost(projectId)
     return null
   }
-  const state = useAgentProvidersStore.getState()
-  const provider = providersOf(state, hostId).find((p) => p.enabled)
+  const provider = providersOf(useAgentProvidersStore.getState(), hostId).find((p) => p.enabled)
   if (provider) return provider
   if (hostId === LOCAL_HOST.id) {
     toast.error(
       'No agent provider is enabled',
       'Enable one in Settings → Providers to start a chat or fork a workspace.',
     )
-  } else if (state.remote[hostId] === undefined) {
-    void state.loadHost(hostId)
-    toast.error('Loading this host’s agents', 'Try again in a moment.')
   } else {
     toast.error('No agent provider is enabled on this host', 'Enable one there to start a chat.')
   }
   return null
+}
+
+/**
+ * Reads the provider list of a remote host nobody has asked yet; null when there is
+ * nothing to wait for, so a common click stays synchronous. False — the host named in
+ * a toast — when it did not answer.
+ */
+export function readUnreadHostProviders(projectId: string): Promise<boolean> | null {
+  const hostId = resolvedHostOf({ projectId })
+  const state = useAgentProvidersStore.getState()
+  if (hostId === null || hostId === LOCAL_HOST.id || state.remote[hostId] !== undefined) return null
+  return state.loadHost(hostId).then((providers) => {
+    if (providers === null) {
+      toast.error(
+        `Couldn’t reach ${hostName(hostId)}`,
+        'Check that it is online in Settings → Hosts.',
+      )
+    }
+    return providers !== null
+  })
+}
+
+function hostName(hostId: string): string {
+  return useHostConfigStore.getState().hosts.find((h) => h.id === hostId)?.name ?? hostId
+}
+
+// Only a project list that has loaded can say a host is gone; before that a local
+// project is merely not known yet, and Settings → Hosts would be the wrong advice.
+function refuseUnresolvedHost(projectId: string): void {
+  const why = hostUnavailability({ projectId })
+  if (why === 'host-unavailable') {
+    toast.error('This project’s host is not available', 'Check the host in Settings → Hosts.')
+  } else if (why === 'project-missing') {
+    toast.error('This project is no longer in your list')
+  } else {
+    toast.error('Still loading your projects', 'Try again in a moment.')
+  }
 }

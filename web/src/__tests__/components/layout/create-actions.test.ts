@@ -1,15 +1,21 @@
 /** The sidebar "+": forks (named, then minted) and threads off repo rows. */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
-const { postWorkspace, createChat, createChatWithOwnWorktree, deleteChat, toastError } = vi.hoisted(
-  () => ({
-    postWorkspace: vi.fn(() => Promise.resolve()),
-    createChat: vi.fn(() => Promise.resolve('chat-1')),
-    createChatWithOwnWorktree: vi.fn(() => Promise.resolve('chat-1')),
-    deleteChat: vi.fn(() => Promise.resolve()),
-    toastError: vi.fn(),
-  }),
-)
+const {
+  postWorkspace,
+  createChat,
+  createChatWithOwnWorktree,
+  deleteChat,
+  listGlobalProviders,
+  toastError,
+} = vi.hoisted(() => ({
+  postWorkspace: vi.fn(() => Promise.resolve()),
+  createChat: vi.fn(() => Promise.resolve('chat-1')),
+  createChatWithOwnWorktree: vi.fn(() => Promise.resolve('chat-1')),
+  deleteChat: vi.fn(() => Promise.resolve()),
+  listGlobalProviders: vi.fn((): Promise<unknown[]> => new Promise(() => {})),
+  toastError: vi.fn(),
+}))
 
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
@@ -20,6 +26,7 @@ vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
   createChat,
   createChatWithOwnWorktree,
   deleteChat,
+  listGlobalProviders,
 }))
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: toastError, success: vi.fn(), info: vi.fn() },
@@ -43,6 +50,12 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -521,5 +534,60 @@ describe('creating a workspace off a REGULAR fork row', () => {
     await Promise.resolve()
 
     expect(useFolderSignalStore.getState().generations['r1'] ?? 0).toBeGreaterThan(before)
+  })
+})
+
+// A provider list belongs to a daemon: a fork on a remote host reads that host's list
+// on its first use, and says so — once — when the host does not answer.
+describe('forking a workspace of a project on a remote host', () => {
+  const remoteRepo = () =>
+    repo({
+      projectId: 'p-remote',
+      workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0, owningChatId: 'c-owner' }],
+      chats: [
+        { id: 'c-owner', repoId: 'r1', type: 'chat', workspaceId: 'ws-a', title: '', order: 0 },
+      ],
+    })
+  const offered = [{ id: 'codex-remote', enabled: true }]
+
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    loadProjects(projectOn('p-remote', 'host-1'))
+    useAgentProvidersStore.setState({ status: 'ready', providers: [], remote: {} })
+    useSidebarStore.setState({ repos: [remoteRepo()] })
+  })
+  afterEach(() => resetHostWorld())
+
+  it('reads the host’s providers on the first click, then opens the naming input with one of them', async () => {
+    listGlobalProviders.mockResolvedValueOnce(offered)
+
+    await handleCreate('ws-a', 'workspace', vi.fn())
+    confirmArmedBranchName()
+    await Promise.resolve()
+
+    expect(listGlobalProviders).toHaveBeenCalledExactlyOnceWith('host-1')
+    expect(createChatWithOwnWorktree.mock.calls[0]?.slice(0, 3)).toEqual([
+      'p-remote',
+      'r1',
+      'codex-remote',
+    ])
+    expect(toastError).not.toHaveBeenCalled()
+  })
+
+  it('names the host it could not reach once, opens no naming input, and lets the next click retry', async () => {
+    listGlobalProviders.mockRejectedValueOnce(new Error('offline'))
+
+    await Promise.all([
+      handleCreate('ws-a', 'workspace', vi.fn()),
+      handleCreate('ws-a', 'workspace', vi.fn()),
+    ])
+
+    expect(toastError).toHaveBeenCalledExactlyOnceWith('Couldn’t reach host-1', expect.any(String))
+    expect(usePendingCreatesStore.getState().entries).toEqual([])
+
+    listGlobalProviders.mockResolvedValueOnce(offered)
+    await handleCreate('ws-a', 'workspace', vi.fn())
+    expect(usePendingCreatesStore.getState().entries).toMatchObject([{ status: 'naming' }])
   })
 })
