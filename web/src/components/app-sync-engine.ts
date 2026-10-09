@@ -5,8 +5,7 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { getVisibleProjectIds } from '@/lib/store/project-visibility'
 import { toSidebarRepo } from '@/lib/store/build-repo-tree'
 import { subscribeHomeTree } from '@/lib/store/home-tree'
-import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { isHostResolved } from '@/lib/host-resolve'
+import { isHostResolved, subscribeHostResolution } from '@/lib/host-resolve'
 import { projectBase, repoBase } from '@/lib/project-url'
 import { dataOf } from '@/lib/loadable'
 import {
@@ -518,11 +517,9 @@ export function useAppSyncEngine(): void {
     // -- which streams should be open right now ----------------------------
 
     function desiredKeys(): Set<string> {
-      // A project with no resolved host has no endpoint to open yet (the active one can be ahead
-      // of the list); it joins when its row or host arrives, which reconcile() re-runs on.
-      const visibleProjects = new Set(
-        [...getVisibleProjectIds()].filter((projectId) => isHostResolved({ projectId })),
-      )
+      // The active project can be ahead of the list: no host yet, so no endpoint to open.
+      const resolved = (projectId: string) => isHostResolved({ projectId })
+      const visibleProjects = new Set([...getVisibleProjectIds()].filter(resolved))
       const keys = new Set<string>()
       for (const projectId of visibleProjects) {
         keys.add(reposKey(projectId))
@@ -596,10 +593,9 @@ export function useAppSyncEngine(): void {
       //    Without this, importing the first project never populates the
       //    entity cache and the sidebar stays empty.
       //
-      //    The project-LIST subscription is what makes "open by default" work:
-      //    visibility is "every known project plus the active one", so the set
-      //    only grows when `/v0/projects` delivers. Its own `lastSignature`
-      //    guard keeps the extra wake-ups free.
+      //    The host-resolution subscription is what makes "open by default" work: a project
+      //    opens once the list (`/v0/projects`) names it and its host, so the set only grows
+      //    when that delivers. reconcile()'s desired-set guard keeps the extra wake-ups free.
       scheduleRebuild()
       reconcile()
       // Narrow: only the fields desiredKeys() reads wake it — not every
@@ -609,19 +605,10 @@ export function useAppSyncEngine(): void {
           if (s.activeProjectId !== prev.activeProjectId) reconcile()
         }),
       )
-      rootUnsubscribes.push(
-        useProjectDataStore.subscribe((s, prev) => {
-          if (s.data !== prev.data) reconcile()
-        }),
-      )
+      rootUnsubscribes.push(subscribeHostResolution(undefined, reconcile))
       rootUnsubscribes.push(
         useSidebarStore.subscribe((s, prev) => {
           if (s.repos !== prev.repos) reconcile()
-        }),
-      )
-      rootUnsubscribes.push(
-        useHostConfigStore.subscribe((s, prev) => {
-          if (s.hosts !== prev.hosts) reconcile()
         }),
       )
     }
