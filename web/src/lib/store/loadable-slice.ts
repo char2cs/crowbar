@@ -1,4 +1,4 @@
-import { idle, loading, success, failed, type Loadable } from '@/lib/loadable'
+import { dataOf, idle, loading, success, failed, type Loadable } from '@/lib/loadable'
 import { saveCache, loadCache, type CacheStoreName } from '@/lib/persistence/cache-store'
 import { wsManager } from '@/lib/ws/manager'
 import { isReconnectSentinel } from '@/lib/ws/types'
@@ -94,21 +94,28 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
       try {
         const cached = await loadCache<T>(cfg.store, key)
         if (seq !== latestFetch) return latestRun
-        set({
-          data: loading(cached ? success(cached.data, cached.fetchedAt) : get().data),
-        })
+        // What is held stays on screen while it is re-read: the cache is only a copy,
+        // which another window may have rewritten. It stands in when nothing is held.
+        const held = get().data
+        const shown =
+          dataOf(held) === undefined && cached ? success(cached.data, cached.fetchedAt) : held
+        set({ data: loading(shown) })
         try {
           unsent.delete(key)
           sent = true
           const fresh = replay(await cfg.fetcher(...args), frames)
+          const replayed = frames.length
           if (seq !== latestFetch) return latestRun
           // An unchanged answer is not re-written: a warm boot otherwise
           // re-puts every cached list it just read.
           if (!cached || !sameJson(cached.data, fresh)) await saveCache(cfg.store, key, fresh)
           // Re-checked after the write too: a supersede can land inside it.
           if (seq !== latestFetch) return latestRun
+          // Frames that landed during the write postdate the answer too.
+          const published = replay(fresh, frames.slice(replayed))
+          if (published !== fresh) void saveCache(cfg.store, key, published)
           heldKey = key
-          set({ data: success(fresh) })
+          set({ data: success(published) })
         } catch (err) {
           if (seq !== latestFetch) return latestRun
           set({ data: failed(err as Error, get().data) })

@@ -295,6 +295,54 @@ describe('createLoadableSlice', () => {
     expect(dataOf(store.getState().data)).toEqual([2])
   })
 
+  // Its answer is final only once it is published: a frame that lands while that answer
+  // is being cached postdates it just as much as one that landed while it was read.
+  it('a frame that lands while the answer is being cached is not lost', async () => {
+    const { fetcher, release, startedAt } = parkedFetcher(() => [1])
+    const store = makeLiveStore(() => fetcher(''))
+    const stop = store.getState().startSync()
+    const parked = deferred()
+    const reachedWrite = deferred()
+    saveCacheSpy.mockImplementationOnce(async (...args: unknown[]) => {
+      reachedWrite.resolve()
+      await parked.promise
+      return realSaveCache.fn!(...args)
+    })
+
+    const read = store.getState().fetch()
+    await startedAt[0]
+    release[0]()
+    await reachedWrite.promise
+    frameHandlers.get('/live')?.(2)
+    parked.resolve()
+    await read
+
+    expect(dataOf(store.getState().data)).toEqual([1, 2])
+    stop()
+  })
+
+  // What a store holds is the newest thing it knows; the cache is only a copy (another
+  // window may have written it since), so a re-read keeps showing what is held.
+  it('a re-read keeps what it holds on screen, not an older cached copy', async () => {
+    const { fetcher, release, startedAt } = parkedFetcher(() => [3])
+    let first = true
+    const store = makeStore(async (key) => {
+      if (!first) return fetcher(key)
+      first = false
+      return [1]
+    })
+    await store.getState().fetch('projects')
+    await saveCache('projects-data', 'projects', [9], 100)
+
+    const reread = store.getState().fetch('projects')
+    await startedAt[0]
+
+    expect(store.getState().data.status).toBe('loading')
+    expect(dataOf(store.getState().data)).toEqual([1])
+    release[0]()
+    await reread
+  })
+
   it('optimisticWrite commits on success', async () => {
     const store = makeStore(async () => [1])
     await store.getState().optimisticWrite([7], async () => [7])
