@@ -3,11 +3,15 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      args:
+        # "embed" bakes in web/dist (build it first); "none" is a headless API-only daemon.
+        WEB: ${CROWBAR_WEB:-embed}
     image: ghcr.io/rabbytesoftware/crowbar:latest
     ports:
-      - "3737:3737"
+      - "${CROWBAR_PORT:-3737}:3737"
     volumes:
-      - crowbar-data:/root/.crowbar
+      # TLS identity, paired clients and project state; keep it or every client must re-pair.
+      - crowbar-data:/home/crowbar/.crowbar
     restart: unless-stopped
 
 volumes:
