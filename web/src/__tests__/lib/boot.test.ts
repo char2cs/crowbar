@@ -134,6 +134,19 @@ describe('hydrateCriticalStores', () => {
     }
   })
 
+  it('fails as it did when the layout read fails where no remote host was ever paired', async () => {
+    const invoke = vi.fn(async () => undefined)
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = { invoke }
+    hydrateWindowPaneLayout.mockRejectedValueOnce(new Error('IndexedDB unavailable'))
+    try {
+      await expect(hydrateCriticalStores()).rejects.toThrow('IndexedDB unavailable')
+      expect(invoke).not.toHaveBeenCalled()
+      expect(placeRestoredChatMembers).not.toHaveBeenCalled()
+    } finally {
+      delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+    }
+  })
+
   it('resolves only after every step has completed — no step is fire-and-forget', async () => {
     let workspaceListResolved = false
     workspaceListFetch.mockImplementation(
@@ -203,6 +216,34 @@ describe('hydrateCriticalStores on an install that has paired a remote host', ()
       hostId: remoteHost.id,
       endpoint: remoteHost.endpoint,
     })
+  })
+
+  // main.tsx renders once boot settles, even when it fails: render must not overtake the
+  // registration already under way, or a restored remote stream meets an unknown host.
+  it('waits for the hosts to register even when the layout read fails', async () => {
+    const order: string[] = []
+    let finish!: () => void
+    invoke.mockImplementation(
+      (cmd: string) =>
+        new Promise<void>((resolve) => {
+          if (cmd !== 'register_remote_host') return resolve()
+          finish = () => {
+            order.push('registered')
+            resolve()
+          }
+        }),
+    )
+    hydrateWindowPaneLayout.mockRejectedValueOnce(new Error('IndexedDB unavailable'))
+    const hydrate = await freshBoot()
+
+    const settled = () => order.push('settled')
+    const done = hydrate().then(settled, settled)
+    // A macrotask: every microtask the layout's rejection set off has run by now.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    finish()
+    await done
+
+    expect(order).toEqual(['registered', 'settled'])
   })
 })
 
