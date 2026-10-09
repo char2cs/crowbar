@@ -406,6 +406,9 @@ describe('ProvidersSettings', () => {
   })
 
   describe('loading the list', () => {
+    // Opening the tab GETs /v0/settings/chat/providers (agent-api.test.ts pins the route)
+    // — not the in-view workspace's chat-providers route, which is the wrong daemon
+    // whenever that workspace is remote.
     it('reads the local daemon on open and mirrors it into the local workspace stores', async () => {
       act(() => {
         setActiveWorkspaceStoreForTests(store())
