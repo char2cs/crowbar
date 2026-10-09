@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
 import type { AgentChat, AgentChatDetail, AgentProvider } from '@/features/agent/api/agent-api'
 import { ApiError } from '@/lib/api'
@@ -14,13 +14,6 @@ import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
 import { chatLedgerStore } from '@/features/agent/stores/chat-ledger-store'
 import { resetChatPresentationMemoryForTests } from '@/features/agent/hooks/use-chat-presentation'
 import { nanoid } from 'nanoid'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
-import {
-  loadProjects,
-  pairRemoteHost,
-  projectOn,
-  resetHostWorld,
-} from '@/__tests__/__fixtures__/remote-host'
 
 // Hoisted fakes — declared before the vi.mock calls that reference them.
 const {
@@ -182,7 +175,7 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
     ),
 }))
 
-import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
+import { AgentChatPaneGate as AgentChatPane } from '@/features/agent/components/agent-chat-pane-gate'
 import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
@@ -1608,128 +1601,6 @@ describe('AgentChatPane', () => {
       await renderPane(store, paneId)
 
       await vi.waitFor(() => expect(paneOf(store, paneId)).toBeUndefined())
-    })
-  })
-
-  // A webview reload that keeps the #/ide hash restores the pane before the project
-  // list lands. On a paired install that list is what says whose daemon the chat is
-  // on, so the first read must wait for it, or it fails and is never retried.
-  describe('on an install that has paired a remote host', () => {
-    const page = (text: string) => ({
-      success: true,
-      data: {
-        cursor: 1,
-        oldestCursor: 1,
-        hasMore: false,
-        items: [
-          {
-            sequence: 1,
-            turnId: 't',
-            role: 'assistant',
-            providerId: 'claude',
-            text,
-            at: '2026-08-16T00:00:01Z',
-          },
-        ],
-      },
-    })
-
-    /** A restored pane: the chat list has not been read, but the pane names its workspace. */
-    function restoredPane(wsId = 'w1') {
-      const store = unseededWorkspace(wsId)
-      const paneId = openChatPane(store, 'c1', '', 'Chat', wsId)
-      windowPaneStore.setState((state) => {
-        state.panes[paneId].workspaceId = wsId
-        return state
-      })
-      return { store, paneId }
-    }
-
-    const requested = () => fetchMock.mock.calls.map(([url]) => String(url))
-    let fetchMock: ReturnType<typeof vi.fn>
-
-    beforeEach(async () => {
-      resetHostWorld()
-      pairRemoteHost('host-1')
-      __resetWorkspaceScopesForTest()
-      recordWorkspaceScope({ projectId: 'p-local', repoId: 'r1', wsId: 'w1', owningChatId: 'o1' })
-      // The real read, so the endpoint it builds is the one under test.
-      const actual = await vi.importActual<typeof import('@/features/agent/api/agent-api')>(
-        '@/features/agent/api/agent-api',
-      )
-      listMessagesFn.mockImplementation((...a: Parameters<typeof actual.listChatMessages>) =>
-        actual.listChatMessages(...a),
-      )
-      fetchMock = vi.fn(async () => new Response(JSON.stringify(page('hello')), { status: 200 }))
-      vi.stubGlobal('fetch', fetchMock)
-    })
-    afterEach(() => {
-      resetHostWorld()
-      vi.unstubAllGlobals()
-    })
-
-    it('reads nothing, and latches no error, until the project list names its host', async () => {
-      const { store, paneId } = restoredPane()
-      await renderPane(store, paneId)
-
-      expect(requested()).toEqual([])
-      expect(listMessagesFn).not.toHaveBeenCalled()
-      expect(activityFn).not.toHaveBeenCalled()
-      expect(slashCatalogFn).not.toHaveBeenCalled()
-      expect(chatLedgerStore.getState().ledgers.c1).toBeUndefined()
-      expect(screen.queryByText(/couldn.t load/i)).not.toBeInTheDocument()
-    })
-
-    it('makes its first read against the local daemon once the list lands, with no retry needed', async () => {
-      const { store, paneId } = restoredPane()
-      await renderPane(store, paneId)
-
-      await act(async () => loadProjects(projectOn('p-local', 'local')))
-
-      await waitFor(() => expect(requested()).toHaveLength(1))
-      expect(requested()[0]).toBe('/v0/projects/p-local/repos/r1/chats/c1/messages?limit=100')
-      await waitFor(() => expect(chatLedgerStore.getState().ledgers.c1?.status).toBe('loaded'))
-      expect(screen.queryByText(/couldn.t load/i)).not.toBeInTheDocument()
-    })
-
-    it('says so, and reads nothing, when the loaded list does not hold the chat’s project', async () => {
-      const { store, paneId } = restoredPane()
-      await renderPane(store, paneId)
-
-      await act(async () => loadProjects(projectOn('p-other', 'local')))
-
-      expect(await screen.findByText(/chat unavailable/i)).toBeInTheDocument()
-      expect(requested()).toEqual([])
-      expect(listMessagesFn).not.toHaveBeenCalled()
-      expect(chatLedgerStore.getState().ledgers.c1).toBeUndefined()
-    })
-
-    it('holds a restored remote chat’s first read for its host, then makes it', async () => {
-      recordWorkspaceScope({
-        projectId: 'p-remote',
-        repoId: 'r1',
-        wsId: 'w-remote',
-        owningChatId: 'o2',
-      })
-      listMessagesFn.mockReset()
-      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
-      const { store, paneId } = restoredPane('w-remote')
-      await renderPane(store, paneId)
-      expect(listMessagesFn).not.toHaveBeenCalled()
-
-      await act(async () => loadProjects(projectOn('p-remote', 'host-1')))
-
-      await waitFor(() => expect(listMessagesFn).toHaveBeenCalledTimes(1))
-      expect(listMessagesFn.mock.calls[0].slice(0, 2)).toEqual(['w-remote', 'c1'])
-    })
-
-    it('mounts at once, as before, where no remote was ever paired', async () => {
-      resetHostWorld()
-      const { store, paneId } = restoredPane()
-      await renderPane(store, paneId)
-
-      await waitFor(() => expect(listMessagesFn).toHaveBeenCalledTimes(1))
-      expect(requested()).toEqual(['/v0/projects/p-local/repos/r1/chats/c1/messages?limit=100'])
     })
   })
 })

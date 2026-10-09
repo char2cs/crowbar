@@ -19,15 +19,10 @@ import { AGENT_CYCLE_PROVIDER, AGENT_TOGGLE_VIEW_MODE } from '@/features/keymaps
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
-import {
-  providersOf,
-  useAgentProvidersStore,
-} from '@/features/settings/stores/agent-providers-store'
-import { LOCAL_HOST } from '@/features/hosts/types'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { pendingChatSurfaces } from '@/features/panes/stores/pending-chat-surfaces'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
+import { usePaneProviders } from '@/features/agent/hooks/use-pane-providers'
 import { usePaneSession } from '@/features/agent/hooks/use-pane-session'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import {
@@ -44,9 +39,7 @@ import {
   AgentTerminalWaitBanner,
 } from '@/features/agent/components/agent-terminal-wait-banner'
 import { AgentChatView, type AgentChatViewHandle } from '@/features/agent/chat/agent-chat-view'
-import { AgentChatUnavailable } from '@/features/agent/components/agent-chat-unavailable'
 import { AgentTerminalSurface } from '@/features/agent/terminal/agent-terminal-surface'
-import { resolvedHostOf, useHostResolved, useHostUnavailable } from '@/lib/host-resolve'
 
 // ── The split view's geometry ─────────────────────────────────────────────
 //
@@ -68,7 +61,7 @@ import { resolvedHostOf, useHostResolved, useHostUnavailable } from '@/lib/host-
 //     so the split STACKS instead of shrinking — a short terminal at the FULL pane
 //     width still wraps the way the CLI intended, where a tall narrow one does not.
 
-interface AgentChatPaneProps {
+export interface AgentChatPaneProps {
   /** The chat this pane is pointed at. NOT stable for its life: the pane re-points it. */
   chatId: string
   /** The runner this pane follows, or '' when it has none (a dormant chat). */
@@ -141,18 +134,20 @@ const CHAT_BLUR_ZONE_PX = HEADER_ROW_HEIGHT_PX + 56
 // OTHERWISE ADOPT WHOEVER IS ON MY CHAT. Attaching, relabelling and the exited state all
 // fall out of it rather than being engineered separately.
 // react-doctor-disable-next-line no-giant-component -- accepted: cohesive pane — drives a single live PTY-backed chat with tightly-coupled resize/focus/stream effects; no independent sub-surface to lift out.
-export function AgentChatPane({
+export function AgentChatPaneBody({
   chatId,
   runnerId,
   wsId,
+  hostId,
   paneId,
   isActivePane,
   isVisible,
   belowOverlayHeader = false,
-}: AgentChatPaneProps) {
+}: AgentChatPaneProps & {
+  /** The host `wsId` resolved to — the gate mounts this body only once it has. */
+  hostId: string
+}) {
   const store = useWorkspaceStore()
-  // Passive, so it follows the wrapper's layout-effect `begin` even in one commit.
-  useEffect(() => pendingChatSurfaces.getState().end(paneId), [paneId])
   // Extra top clearance every pinned-near-top surface below needs to clear the
   // overlay header's own real click target, plus that surface's original
   // breathing room (8px — the `top-2`/`mt-2` each one used to carry on its own).
@@ -179,11 +174,6 @@ export function AgentChatPane({
   // Has an authoritative list ever landed? That is what turns `!known` from
   // "not yet" into "not in it" — see the resolve effect below.
   const listSeeded = useStore(store, (s) => s.agentChats.listSeeded)
-  // Every read below is addressed through this workspace's host. A paired install
-  // restores the pane before the project list names it, so nothing mounts or asks
-  // until it does: the first read of the transcript, queue and activity then succeeds.
-  const hostResolved = useHostResolved({ wsId })
-  const hostUnavailable = useHostUnavailable({ wsId })
   // The pane's recorded workspace (C3) is what `wsId` already is; until the list
   // lands it vouches that the chat exists, so a restored chat is not held back
   // on a round trip. The list stays authoritative once seeded.
@@ -232,25 +222,7 @@ export function AgentChatPane({
     store,
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.launchModel ?? '',
   )
-  // THE DAEMON'S LIST WHEN THIS WORKSPACE HAS NO COPY OF ITS OWN.
-  //
-  // `agentChats.providers` is seeded by use-workspace-agent-chats-stream, which only
-  // runs while that workspace is MOUNTED, and a pane outlives that by design: it can
-  // land here with `[]`. Every provider control is absence-not-disabled, so an empty
-  // catalogue DELETES the picker. The fallback is the list of THIS workspace's own
-  // daemon (providers belong to a daemon): the local one, or its remote host's.
-  const wsProviders = useStore(store, (s) => s.agentChats.providers)
-  const hostId = resolvedHostOf({ wsId })
-  const daemonProviders = useAgentProvidersStore((s) => providersOf(s, hostId))
-  const providers = wsProviders.length > 0 ? wsProviders : daemonProviders
-  // Neither copy populated: this pane is the first surface to need the list, so
-  // it asks. The store owns the read/write generation rules, so a load issued
-  // here cannot clobber a preferences write it races.
-  useEffect(() => {
-    if (hostId === null || wsProviders.length > 0 || daemonProviders.length > 0) return
-    const { load, loadHost } = useAgentProvidersStore.getState()
-    void (hostId === LOCAL_HOST.id ? load(wsId) : loadHost(hostId))
-  }, [wsProviders.length, daemonProviders.length, wsId, hostId])
+  const providers = usePaneProviders(store, wsId, hostId)
 
   // Is this chat's CLI parked on a prompt Crowbar CANNOT answer — a workspace
   // trust dialog, a first-run screen, a login — which reaches the daemon through
@@ -474,7 +446,7 @@ export function AgentChatPane({
   // row lands in the store.
   const resolvedRef = useRef(new Set<string>())
   useEffect(() => {
-    if (!hostResolved || !listSeeded || known || !shownChatId) return
+    if (!listSeeded || known || !shownChatId) return
     if (resolvedRef.current.has(shownChatId)) return
     resolvedRef.current.add(shownChatId)
     void getChat(wsId, shownChatId)
@@ -486,7 +458,7 @@ export function AgentChatPane({
         // question; `pending` is now an honest "nothing to show" instead of a
         // wait, and the user drives from the sidebar.
       })
-  }, [store, wsId, hostResolved, listSeeded, known, shownChatId])
+  }, [store, wsId, listSeeded, known, shownChatId])
 
   // Switch the provider ON THE CHAT THE RUNNER IS IN NOW (shownChatId — after a
   // /clear the pane shows a different conversation than the one it opened on).
@@ -837,10 +809,6 @@ export function AgentChatPane({
     setSplitFocus('terminal')
     terminalApiRef.current?.focus()
   }
-
-  // Waiting renders nothing, like the moment before the chat list lands; once the
-  // project list has loaded without the project the wait is over and the pane says so.
-  if (!hostResolved) return hostUnavailable ? <AgentChatUnavailable /> : null
 
   return (
     // One flat surface — no card, no border, no raised panel, and NO background of its

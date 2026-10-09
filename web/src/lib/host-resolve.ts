@@ -119,32 +119,39 @@ export function subscribeHostResolution(
   return () => stops.forEach((stop) => stop())
 }
 
-/** True once `hostIdForProject`/`hostIdForWorkspace` would stop throwing for
- *  `key` — re-renders when the project list, the host list or the workspace's
- *  scope changes. */
+function useResolutionSubscription(key: HostKey) {
+  const wsId = key.wsId
+  return useCallback((onChange: () => void) => subscribeHostResolution(wsId, onChange), [wsId])
+}
+
+/** The host `key` resolves to, or null until it does — re-renders when the project
+ *  list, the host list or the workspace's scope changes. Never `'local'` as a guess. */
+export function useResolvedHost(key: HostKey): string | null {
+  return useSyncExternalStore(useResolutionSubscription(key), () => resolvedHostOf(key))
+}
+
+/** True once `hostIdForProject`/`hostIdForWorkspace` would stop throwing for `key`. */
 export function useHostResolved(key: HostKey): boolean {
-  const wsId = key.wsId
-  const subscribe = useCallback(
-    (onChange: () => void) => subscribeHostResolution(wsId, onChange),
-    [wsId],
-  )
-  return useSyncExternalStore(subscribe, () => isHostResolved(key))
+  return useResolvedHost(key) !== null
 }
 
-/** True once the project list has loaded and `key`'s host still does not resolve:
- *  nothing more is coming, so a waiter should say so instead of waiting on. */
-function isHostUnavailable(key: HostKey): boolean {
-  return useProjectDataStore.getState().data.status === 'success' && !isHostResolved(key)
+/** Why a host that will not resolve is not coming: the loaded list does not hold its
+ *  project, or holds it on a host that is not configured (or ambiguously). */
+export type HostUnavailable = 'project-missing' | 'host-unavailable'
+
+// Null while still waiting: the list has not loaded, or a workspace's scope (and so
+// its project) is not recorded yet, however loaded the list.
+function unavailability(key: HostKey): HostUnavailable | null {
+  const { data } = useProjectDataStore.getState()
+  if (data.status !== 'success' || isHostResolved(key)) return null
+  const projectId = key.wsId !== undefined ? getWorkspaceScope(key.wsId)?.projectId : key.projectId
+  if (projectId === undefined) return null
+  return heldProjects()?.some((p) => p.id === projectId) ? 'host-unavailable' : 'project-missing'
 }
 
-/** `isHostUnavailable` as React state. */
-export function useHostUnavailable(key: HostKey): boolean {
-  const wsId = key.wsId
-  const subscribe = useCallback(
-    (onChange: () => void) => subscribeHostResolution(wsId, onChange),
-    [wsId],
-  )
-  return useSyncExternalStore(subscribe, () => isHostUnavailable(key))
+/** `unavailability` as React state. */
+export function useHostUnavailable(key: HostKey): HostUnavailable | null {
+  return useSyncExternalStore(useResolutionSubscription(key), () => unavailability(key))
 }
 
 /** Settles with whether `key`'s host resolved: true as soon as it does, false once
@@ -153,7 +160,7 @@ export function awaitHost(key: HostKey): Promise<boolean> {
   return new Promise((resolve) => {
     const settle = () => {
       const resolved = isHostResolved(key)
-      if (!resolved && !isHostUnavailable(key)) return
+      if (!resolved && unavailability(key) === null) return
       stop()
       resolve(resolved)
     }

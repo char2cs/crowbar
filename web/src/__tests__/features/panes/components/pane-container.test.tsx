@@ -80,8 +80,8 @@ vi.mock('@/features/panes/components/terminal-pane', () => ({
 // pane shape, and does it call the renamed pane-slice actions. Stub each to a
 // passive marker recording the props PaneContainer threads through, mirroring
 // the pattern already used by pane-container-suspense.test.tsx.
-vi.mock('@/features/agent/components/agent-chat-pane', () => ({
-  AgentChatPane: ({
+vi.mock('@/features/agent/components/agent-chat-pane-gate', () => ({
+  AgentChatPaneGate: ({
     chatId,
     runnerId,
     wsId,

@@ -10,6 +10,7 @@ import {
   resolvedHostOf,
   useHostResolved,
   useHostUnavailable,
+  useResolvedHost,
 } from '@/lib/host-resolve'
 import { useProjectDataStore } from '@/lib/store/projects'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
@@ -423,31 +424,40 @@ describe('a host that will not resolve', () => {
     configureHosts('host-1')
     const remote = renderHook(() => useHostUnavailable({ projectId: 'p-remote' }))
     const other = renderHook(() => useHostUnavailable({ projectId: 'p-other' }))
-    expect(remote.result.current).toBe(false)
+    expect(remote.result.current).toBeNull()
     act(() => useProjectDataStore.setState({ data: loading() }))
-    expect(remote.result.current).toBe(false)
+    expect(remote.result.current).toBeNull()
     act(() => useProjectDataStore.setState({ data: failed(new Error('boom')) }))
-    expect(remote.result.current).toBe(false)
+    expect(remote.result.current).toBeNull()
     act(() => loadProjects(project('p-other', 'host-1')))
-    expect(remote.result.current).toBe(true)
-    expect(other.result.current).toBe(false)
+    expect(remote.result.current).toBe('project-missing')
+    expect(other.result.current).toBeNull()
+  })
+
+  it('tells a project gone from the list apart from one whose host is not configured', () => {
+    configureHosts('host-1')
+    loadProjects(project('p-remote', 'host-1'))
+    const { result } = renderHook(() => useHostUnavailable({ projectId: 'p-remote' }))
+    expect(result.current).toBeNull()
+    act(() => configureHosts())
+    expect(result.current).toBe('host-unavailable')
   })
 
   it('is never unavailable for an install that cannot hold a remote project', () => {
     loadProjects(project('p-local', 'local'))
     const { result } = renderHook(() => useHostUnavailable({ projectId: 'p-unknown' }))
-    expect(result.current).toBe(false)
+    expect(result.current).toBeNull()
   })
 
-  it('useHostUnavailable flips when the list lands without the project', () => {
+  it('keeps waiting on a workspace whose scope is not recorded yet, however loaded the list', () => {
     configureHosts('host-1')
-    recordScope('ws-1', 'p-remote')
+    loadProjects(project('p-other', 'host-1'))
     const { result } = renderHook(() => useHostUnavailable({ wsId: 'ws-1' }))
-    expect(result.current).toBe(false)
-    act(() => loadProjects(project('p-other', 'host-1')))
-    expect(result.current).toBe(true)
+    expect(result.current).toBeNull()
+    act(() => recordScope('ws-1', 'p-remote'))
+    expect(result.current).toBe('project-missing')
     act(() => loadProjects(project('p-other', 'host-1'), project('p-remote', 'host-1')))
-    expect(result.current).toBe(false)
+    expect(result.current).toBeNull()
   })
 
   it('awaitHost answers true when the project lands, false when the list lands without it', async () => {
@@ -475,5 +485,18 @@ describe('resolvedHostOf', () => {
     expect(resolvedHostOf({ wsId: 'ws-1' })).toBe('host-1')
     expect(resolvedHostOf({ projectId: 'p-local' })).toBe('local')
     expect(resolvedHostOf({ projectId: 'p-gone' })).toBeNull()
+  })
+})
+
+describe('useResolvedHost', () => {
+  it('answers null, never local, until the host resolves, then names it', () => {
+    configureHosts('host-1')
+    recordScope('ws-1', 'p-remote')
+    const { result } = renderHook(() => useResolvedHost({ wsId: 'ws-1' }))
+    expect(result.current).toBeNull()
+    act(() => loadProjects(project('p-remote', 'host-1')))
+    expect(result.current).toBe('host-1')
+    act(() => configureHosts())
+    expect(result.current).toBeNull()
   })
 })

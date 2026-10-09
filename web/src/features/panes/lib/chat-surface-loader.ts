@@ -1,5 +1,5 @@
 type AgentChatPaneComponent =
-  typeof import('@/features/agent/components/agent-chat-pane').AgentChatPane
+  typeof import('@/features/agent/components/agent-chat-pane-gate').AgentChatPaneGate
 
 let loaded: AgentChatPaneComponent | null = null
 
@@ -12,7 +12,7 @@ export function loadedAgentChatPane(): AgentChatPaneComponent | null {
 }
 
 export function preloadAgentChatPane(): Promise<AgentChatPaneComponent> {
-  return import('@/features/agent/components/agent-chat-pane').then(
-    (m) => (loaded = m.AgentChatPane),
+  return import('@/features/agent/components/agent-chat-pane-gate').then(
+    (m) => (loaded = m.AgentChatPaneGate),
   )
 }

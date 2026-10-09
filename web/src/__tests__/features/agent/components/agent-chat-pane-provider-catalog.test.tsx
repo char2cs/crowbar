@@ -80,7 +80,7 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
   ProviderSwitchDropdown: () => createElement('button', { 'data-testid': 'provider-switch' }),
 }))
 
-import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
+import { AgentChatPaneGate as AgentChatPane } from '@/features/agent/components/agent-chat-pane-gate'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import {
   setActiveWorkspaceId,

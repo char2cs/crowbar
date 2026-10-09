@@ -3,8 +3,8 @@ import { act, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
-vi.mock('@/features/agent/components/agent-chat-pane', () => ({
-  AgentChatPane: () => createElement('div', { 'data-testid': 'chat-surface' }),
+vi.mock('@/features/agent/components/agent-chat-pane-gate', () => ({
+  AgentChatPaneGate: () => createElement('div', { 'data-testid': 'chat-surface' }),
 }))
 
 type Module = typeof import('@/features/panes/components/pane-chat-view') &
