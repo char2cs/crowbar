@@ -52,8 +52,8 @@ function resolveProjectHost(projectId: string): Resolution {
   return unresolved(`its host "${hostId}" is not configured`)
 }
 
-// The wsId is always passed: getWorkspaceScope(undefined) falls back to the
-// ACTIVE workspace, which is how a call lands on the wrong host.
+// An empty wsId names no workspace; it must not borrow the one in view, which is how
+// a call lands on the wrong host.
 function resolveWorkspaceHost(wsId: string): Resolution {
   const scope = wsId ? getWorkspaceScope(wsId) : null
   if (!scope) return absentEntity('no scope is recorded for the workspace')
