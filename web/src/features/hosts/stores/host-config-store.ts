@@ -12,9 +12,33 @@ interface HostConfigState {
   removeHost: (id: string) => void
 }
 
+type Saved = Partial<Pick<HostConfigState, 'hosts' | 'remoteEverPaired'>>
+
 /** State saved before `remoteEverPaired` existed lacks it, so a configured host counts too. */
 export function hasPairedRemote(s: Pick<HostConfigState, 'hosts' | 'remoteEverPaired'>): boolean {
   return s.remoteEverPaired || s.hosts.length > 0
+}
+
+const STORAGE_KEY = 'crowbar.hosts'
+
+/**
+ * What is saved, over what this window holds. Every window saves to one key, so the saved
+ * host list is the newest word, a removal included (keeping a host the saved list lacks
+ * would bring back one revoked elsewhere); `remoteEverPaired` stays one-way.
+ */
+function withSaved<S extends HostConfigState>(saved: Saved | undefined, current: S): S {
+  return {
+    ...current,
+    hosts: saved?.hosts ?? current.hosts,
+    remoteEverPaired: current.remoteEverPaired || saved?.remoteEverPaired === true,
+  }
+}
+
+/** This window's state brought up to what is saved now: another window may have paired or
+ *  removed a host since, and a write from stale state would lose that. */
+function current(state: HostConfigState): HostConfigState {
+  const saved = useHostConfigStore.persist.getOptions().storage?.getItem(STORAGE_KEY)
+  return saved && !(saved instanceof Promise) ? withSaved(saved.state as Saved, state) : state
 }
 
 export const useHostConfigStore = create<HostConfigState>()(
@@ -23,16 +47,26 @@ export const useHostConfigStore = create<HostConfigState>()(
       hosts: [],
       remoteEverPaired: false,
       addHost: (host) =>
-        set((s) =>
-          host.id === 'local'
-            ? s
-            : { hosts: [...s.hosts.filter((h) => h.id !== host.id), host], remoteEverPaired: true },
-        ),
-      removeHost: (id) => set((s) => ({ hosts: s.hosts.filter((h) => h.id !== id) })),
+        set((s) => {
+          if (host.id === 'local') return s
+          const { hosts } = current(s)
+          return { hosts: [...hosts.filter((h) => h.id !== host.id), host], remoteEverPaired: true }
+        }),
+      removeHost: (id) =>
+        set((s) => {
+          const { hosts, remoteEverPaired } = current(s)
+          return { hosts: hosts.filter((h) => h.id !== id), remoteEverPaired }
+        }),
     }),
     {
-      name: 'crowbar.hosts',
+      name: STORAGE_KEY,
       partialize: (s) => ({ hosts: s.hosts, remoteEverPaired: s.remoteEverPaired }),
+      merge: (saved, state) => withSaved(saved as Saved | undefined, state),
     },
   ),
 )
+
+// The browser tells every other window when one saves: follow it.
+window.addEventListener('storage', (event) => {
+  if (event.key === STORAGE_KEY) void useHostConfigStore.persist.rehydrate()
+})

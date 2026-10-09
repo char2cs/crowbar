@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { hasPairedRemote, useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { LOCAL_HOST } from '@/features/hosts/types'
 
@@ -106,6 +106,90 @@ describe('useHostConfigStore', () => {
       localStorage.setItem('crowbar.hosts', JSON.stringify({ state: { hosts: [] }, version: 0 }))
       await useHostConfigStore.persist.rehydrate()
       expect(hasPairedRemote(useHostConfigStore.getState())).toBe(false)
+    })
+  })
+
+  // Every window ("New Window") saves its hosts to the same key.
+  describe('across windows', () => {
+    const host = (id: string) => ({
+      id,
+      name: id,
+      endpoint: `${id}.lan:3737`,
+      pairedFingerprint: 'ff',
+      clientId: `client-${id}`,
+    })
+
+    /** A window: its own store instance over the shared storage. */
+    async function openWindow() {
+      vi.resetModules()
+      const { useHostConfigStore: store } =
+        await import('@/features/hosts/stores/host-config-store')
+      return store
+    }
+
+    /** What the browser tells every other window when one of them saves. */
+    const announce = () =>
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'crowbar.hosts',
+          newValue: localStorage.getItem('crowbar.hosts'),
+        }),
+      )
+    const ids = (store: typeof useHostConfigStore) => store.getState().hosts.map((h) => h.id)
+
+    it('a host paired in one window appears in the other, which learns a remote was paired', async () => {
+      const a = await openWindow()
+      const b = await openWindow()
+
+      a.getState().addHost(host('h1'))
+      announce()
+
+      expect(ids(b)).toEqual(['h1'])
+      expect(b.getState().remoteEverPaired).toBe(true)
+    })
+
+    // Its client id is the only way to revoke that pairing server-side.
+    it('pairing in a window that has not heard of the other’s host yet keeps both', async () => {
+      const a = await openWindow()
+      const b = await openWindow()
+
+      a.getState().addHost(host('h1'))
+      b.getState().addHost(host('h2'))
+
+      expect(ids(b)).toEqual(['h1', 'h2'])
+      expect(JSON.parse(localStorage.getItem('crowbar.hosts')!).state.hosts).toEqual([
+        host('h1'),
+        host('h2'),
+      ])
+    })
+
+    it('a host removed in one window is gone from the other and stays gone', async () => {
+      const a = await openWindow()
+      a.getState().addHost(host('h1'))
+      a.getState().addHost(host('h2'))
+      const b = await openWindow()
+
+      a.getState().removeHost('h1')
+      announce()
+      expect(ids(b)).toEqual(['h2'])
+
+      b.getState().addHost(host('h3'))
+      announce()
+      expect(ids(a)).toEqual(['h2', 'h3'])
+    })
+
+    it('never forgets that a remote was paired, whatever another window saves', async () => {
+      const a = await openWindow()
+      a.getState().addHost(host('h1'))
+
+      localStorage.setItem(
+        'crowbar.hosts',
+        JSON.stringify({ state: { hosts: [], remoteEverPaired: false }, version: 0 }),
+      )
+      announce()
+
+      expect(ids(a)).toEqual([])
+      expect(a.getState().remoteEverPaired).toBe(true)
     })
   })
 
