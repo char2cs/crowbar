@@ -16,8 +16,10 @@ import { hostIdForProject, hostUnavailability } from '@/lib/host-resolve'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import {
   destroyHostRuntime,
+  getHostRuntime,
   getOrCreateHostRuntime,
 } from '@/features/hosts/stores/host-runtime-registry'
+import { startHostProber } from '@/features/hosts/lib/host-prober'
 import type { HostStatus } from '@/features/hosts/types'
 import type { Project } from '@/lib/types'
 
@@ -283,6 +285,40 @@ describe('the list order', () => {
 })
 
 describe('the local list never waits on a remote host', () => {
+  // Boot below the UI, as the sync engine runs it: the list's live sync, its read, the prober.
+  // The up host answers its probe only after Local is published, as a slower daemon would.
+  it('boots with one paired host up and one down: Local at once, the up host’s rows when it answers', async () => {
+    pair('h-up')
+    pair('h-down')
+    const upHealth = parked([])
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url === `${API_BASE}/v0/projects`) return answer([row('p-local')])
+        if (url === 'crowbar://h-up/v0/health') return upHealth.respond()
+        if (url === 'crowbar://h-up/v0/projects') return answer([row('p-up')])
+        return blackHole(() => {})(init)
+      }),
+    )
+    connectProjectList({ ...projectListTransport, subscribe: () => () => {} })
+    const stopSync = useProjectDataStore.getState().startSync()
+    const read = readList()
+    const stopProber = startHostProber()
+    try {
+      expect((await read).status).toBe('success')
+      expect(held()).toEqual(['p-local@local'])
+
+      upHealth.release()
+
+      await vi.waitFor(() => expect(held()).toEqual(['p-local@local', 'p-up@h-up']))
+      expect(getHostRuntime('h-up')?.getState().status).toBe('up')
+      expect(getHostRuntime('h-down')?.getState().status).toBe('probing')
+    } finally {
+      stopProber()
+      stopSync()
+    }
+  })
+
   it('publishes the local list while an up host has not answered, and merges that host when it does', async () => {
     pair('h1', 'up')
     const h1 = parked([row('p-h1')])
