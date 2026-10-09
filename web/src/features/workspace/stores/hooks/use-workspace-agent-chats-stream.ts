@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { LOCAL_HOST } from '@/features/hosts/types'
 import { resolvedHostOf, useHostResolved } from '@/lib/host-resolve'
 import { subscribeGuarded } from '@/lib/ws/subscribe-guarded'
 import {
@@ -38,10 +39,9 @@ import { NON_STRUCTURAL_CHAT_KINDS } from '@/lib/ws/chat-frame-kinds'
 
 type WorkspaceSnapshot = ReturnType<WorkspaceStore['getState']>
 
-/** Whether the "could not load agent providers" toast is already on screen for
- *  the current outage. MODULE scope, not per-hook: the provider list is
- *  machine-level and every mounted workspace's copy of this hook fails at the
- *  same moment for the same reason. Cleared by the next successful read. */
+/** Whether the "could not load agent providers" toast is already on screen for the
+ *  current outage. MODULE scope: every mounted workspace's copy of this hook fails
+ *  at once, with the same sentence. Cleared by the next successful read. */
 let providersUnreachableAnnounced = false
 
 /** Test-only: module state outlives a `renderHook`, so a suite with a
@@ -233,13 +233,13 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           if (cancelled) return
           // A newer read (a reconnect reseed) already owns the list.
           if (seq !== providerSeq) return
-          // A preferences write landed while this was in flight; it is newer
-          // truth and it already published to both copies.
-          if (!isLatestProviderWrite(writes)) return
-          ownStore.getState().setAgentProviders(providers)
-          // Providers belong to a daemon: file the list under this workspace's host, so
+          // Providers belong to a daemon: the list is filed under this workspace's host, so
           // Settings' app-wide list stays the local daemon's.
           const hostId = resolvedHostOf({ wsId })
+          // A preferences write landed while this was in flight; it is newer truth for the
+          // LOCAL daemon, and it already published to both copies.
+          if (hostId === LOCAL_HOST.id && !isLatestProviderWrite(writes)) return
+          ownStore.getState().setAgentProviders(providers)
           if (hostId) useAgentProvidersStore.getState().setHostProviders(hostId, providers)
           providersUnreachableAnnounced = false
           return
@@ -247,12 +247,8 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           if (cancelled || seq !== providerSeq) return
         }
       }
-      // ONCE PER OUTAGE, NOT ONCE PER WORKSPACE. This hook runs for every
-      // MOUNTED workspace now (WorkspaceView, one per workspace
-      // with a view), and the daemon being unreachable fails all of them at once —
-      // for the same machine-level list, with the same sentence. Its only
-      // previous mount point was a single sidebar panel, so the plain toast
-      // was correct then and would stack six identical copies now.
+      // Once per outage, not once per workspace: this runs for every mounted workspace,
+      // and an unreachable daemon fails all of them at once with the same sentence.
       if (providersUnreachableAnnounced) return
       providersUnreachableAnnounced = true
       toast.error(

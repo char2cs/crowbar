@@ -1866,6 +1866,24 @@ describe('on an install that has paired a remote host', () => {
     expect(() => renderHook(() => useWorkspaceAgentChatsStream('w-remote'))).not.toThrow()
   })
 
+  // The write fence guards the LOCAL list against a stale read undoing a Settings write;
+  // a remote daemon's seed describes a server that write never touched.
+  it('does not let a local preferences write discard a remote workspace’s provider seed', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    const remoteProviders = [{ id: 'codex', displayName: 'Codex', icon: '<svg/>' }]
+    let answer!: (list: typeof remoteProviders) => void
+    listProvidersFn.mockReturnValue(new Promise((r) => (answer = r)))
+    renderHook(() => useWorkspaceAgentChatsStream('w-remote'))
+    await flush()
+
+    beginProviderWrite()
+    answer(remoteProviders)
+    await flush()
+
+    expect(setAgentProviders).toHaveBeenCalledWith(remoteProviders)
+    expect(useAgentProvidersStore.getState().remote['host-1']).toEqual(remoteProviders)
+  })
+
   // Providers are per daemon: the app-wide list (Settings) is the local daemon's.
   it("files a remote daemon's providers under its host, never in the local list", async () => {
     loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
