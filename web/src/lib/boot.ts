@@ -72,12 +72,9 @@ export async function hydrateCriticalStores(): Promise<void> {
   await chatSurface?.catch(() => {})
 }
 
-/**
- * What an install that has paired a remote needs before its first reads, beside the
- * layout read: its hosts registered with the desktop proxy (in process), and its cached
- * project rows held, which is where a restored pane's host — local too — resolves from.
- * Undefined for an install that never paired one, whose boot does exactly what it did.
- */
+/** A paired install's hosts registered and its cached project rows held — where a restored
+ *  pane's host, local too, resolves from. Undefined where no remote was ever paired, so
+ *  that boot does exactly what it did. */
 function prepareRemoteHosts(): Promise<unknown> | undefined {
   if (!hasPairedRemote(useHostConfigStore.getState())) return undefined
   return Promise.all([hostsRegistered(), seedProjectList()])

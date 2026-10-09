@@ -178,12 +178,9 @@ export const useProjectDataStore = create<LoadableSlice<Project[], []>>()((set, 
   }
 })
 
-/**
- * Holds the cached list before its first read, so a restored pane resolves its host at
- * the first commit (an IDE route has no guard that loads the list). The rows stay
- * `loading` — stale — until that read replaces the local ones wholesale: a project
- * deleted meanwhile is gone at the first answer, and nothing reads it as gone before.
- */
+/** Holds the cached list before its first read, so restored panes resolve their hosts at
+ *  the first commit. The rows stay `loading` until that read replaces the local ones
+ *  wholesale, so a project deleted meanwhile is gone at the first answer, not before. */
 export async function seedProjectList(): Promise<void> {
   const cached = await loadCache<Project[]>('projects-data', CACHE_KEY)
   if (!cached || useProjectDataStore.getState().data.status !== 'idle') return
