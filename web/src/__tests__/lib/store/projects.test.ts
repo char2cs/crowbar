@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
+import { IDBFactory } from 'fake-indexeddb'
 
 // api.ts imports isTauri from crowbar-bridge, so this mock's factory runs
 // before this file's own top-level statements — vi.hoisted makes it exist by
@@ -6,9 +7,10 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 const { isTauri } = vi.hoisted(() => ({ isTauri: vi.fn(() => true) }))
 vi.mock('@/lib/crowbar-bridge', () => ({ isTauri }))
 
-import { dataOf, idle } from '@/lib/loadable'
+import { dataOf, idle, success } from '@/lib/loadable'
 import { API_BASE } from '@/lib/api'
 import { projectListTransport } from '@/lib/api/project-list-transport'
+import { saveCache } from '@/lib/persistence/cache-store'
 import { resetDB } from '@/lib/persistence/idb'
 import { connectProjectList, importProjectAndSync, useProjectDataStore } from '@/lib/store/projects'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
@@ -52,16 +54,38 @@ const serverError = () => ({
   json: async () => ({ success: false, error: 'boom' }),
 })
 
+type Respond = (init?: RequestInit) => unknown
+
 /** Answers `GET <base>/v0/projects` per base; any other request is a 500. */
-function serve(byBase: Record<string, () => unknown>) {
-  const fetchMock = vi.fn(async (url: string) => {
+function serve(byBase: Record<string, Respond>) {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     for (const [base, respond] of Object.entries(byBase)) {
-      if (url === `${base}/v0/projects`) return respond()
+      if (url === `${base}/v0/projects`) return respond(init)
     }
     return serverError()
   })
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
+}
+
+/** A host that accepts the request and never answers; only an abort ends it. */
+const blackHole =
+  (onAbort: () => void): Respond =>
+  (init) =>
+    new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => {
+        onAbort()
+        reject(new DOMException('aborted', 'AbortError'))
+      })
+    })
+
+/** An answer that waits until the test releases it. */
+function parked(rows: unknown[]): { respond: Respond; release: () => void } {
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  return { respond: () => gate.then(() => answer(rows)), release }
 }
 
 const paired: string[] = []
@@ -78,8 +102,13 @@ function pair(id: string, status?: HostStatus): void {
   if (status) getOrCreateHostRuntime(id).getState().setStatus(status)
 }
 
-beforeEach(async () => {
-  await resetDB()
+const project = (id: string, hostId: string): Project =>
+  ({ ...row(id), hostId }) as unknown as Project
+
+beforeEach(() => {
+  // A fresh database per test: the list falls back on its cache when nothing is held.
+  globalThis.indexedDB = new IDBFactory()
+  resetDB()
   connectProjectList(projectListTransport)
   useHostConfigStore.setState({ hosts: [] })
   useProjectDataStore.setState({ data: idle() })
@@ -91,7 +120,12 @@ async function readList() {
   return useProjectDataStore.getState().data
 }
 
+/** Every held row as `id@host`. */
+const held = () =>
+  (dataOf(useProjectDataStore.getState().data) ?? []).map((p) => `${p.id}@${p.hostId}`)
+
 afterEach(() => {
+  vi.useRealTimers()
   for (const id of paired.splice(0)) destroyHostRuntime(id)
   useHostConfigStore.setState({ hosts: [] })
   vi.unstubAllGlobals()
@@ -107,27 +141,22 @@ describe('reading the project list', () => {
       'crowbar://h1': () => answer([row('p-h1')]),
     })
 
-    const projects = dataOf(await readList()) ?? []
+    await readList()
 
-    expect(projects.map((p) => [p.id, p.hostId])).toEqual([
-      ['p-local', 'local'],
-      ['p-h1', 'h1'],
-    ])
+    await vi.waitFor(() => expect(held()).toEqual(['p-local@local', 'p-h1@h1']))
     const asked = fetchMock.mock.calls.map(([url]) => url)
     expect(asked).not.toContain('crowbar://h2/v0/projects')
     expect(asked).not.toContain('crowbar://h3/v0/projects')
   })
 
-  it('an up host that fails to answer drops only its own projects', async () => {
-    pair('h1', 'up')
-    serve({
-      [API_BASE]: () => answer([row('p-local')]),
-      'crowbar://h1': unreachable,
-    })
+  // A never-paired install asks exactly what it always asked: one GET, nothing else.
+  it('reads only the local daemon, with the very same request, where no host was ever paired', async () => {
+    const fetchMock = serve({ [API_BASE]: () => answer([row('p-local')]) })
 
-    const projects = dataOf(await readList()) ?? []
+    await readList()
 
-    expect(projects.map((p) => p.id)).toEqual(['p-local'])
+    expect(fetchMock.mock.calls).toEqual([[`${API_BASE}/v0/projects`, undefined]])
+    expect(held()).toEqual(['p-local@local'])
   })
 
   // An empty success here would read as "no projects": the root route sends
@@ -142,6 +171,151 @@ describe('reading the project list', () => {
     const list = await readList()
     expect(list.status).toBe('error')
     expect(list.status === 'error' && list.error).toMatchObject({ name: 'ApiError', status: 500 })
+  })
+})
+
+describe('a paired host’s rows outlive the reads that cannot reach it', () => {
+  it('a re-read keeps the rows of a host that went down', async () => {
+    pair('h1', 'up')
+    serve({
+      [API_BASE]: () => answer([row('p-local')]),
+      'crowbar://h1': () => answer([row('p-h1')]),
+    })
+    await readList()
+    await vi.waitFor(() => expect(held()).toContain('p-h1@h1'))
+    getOrCreateHostRuntime('h1').getState().setStatus('down')
+
+    expect((await readList()).status).toBe('success')
+
+    expect(held()).toEqual(['p-local@local', 'p-h1@h1'])
+  })
+
+  it('a re-read keeps the rows of an up host whose read fails', async () => {
+    pair('h1', 'up')
+    useProjectDataStore.setState({
+      data: success([project('p-local', 'local'), project('p-h1', 'h1')]),
+    })
+    const fetchMock = serve({
+      [API_BASE]: () => answer([row('p-local')]),
+      'crowbar://h1': unreachable,
+    })
+
+    await readList()
+
+    await vi.waitFor(() =>
+      expect(fetchMock.mock.calls.map(([url]) => url)).toContain('crowbar://h1/v0/projects'),
+    )
+    expect(held()).toEqual(['p-local@local', 'p-h1@h1'])
+  })
+
+  it('a re-read replaces the rows of the hosts it read, and only theirs', async () => {
+    pair('h1', 'up')
+    pair('h2', 'down')
+    useProjectDataStore.setState({
+      data: success([project('p-gone', 'local'), project('p-h1-old', 'h1'), project('p-h2', 'h2')]),
+    })
+    serve({
+      [API_BASE]: () => answer([row('p-local')]),
+      'crowbar://h1': () => answer([row('p-h1-new')]),
+    })
+
+    await readList()
+
+    await vi.waitFor(() => expect(held()).toContain('p-h1-new@h1'))
+    expect(held()).toEqual(['p-local@local', 'p-h1-new@h1', 'p-h2@h2'])
+  })
+
+  // Removing a host is not this list's call to make; it just stops carrying what it cannot route.
+  it('does not carry the rows of a host that is no longer configured', async () => {
+    useProjectDataStore.setState({
+      data: success([project('p-local', 'local'), project('p-x', 'h-removed')]),
+    })
+    serve({ [API_BASE]: () => answer([row('p-local')]) })
+
+    await readList()
+
+    expect(held()).toEqual(['p-local@local'])
+  })
+
+  // Boot placement treats the first answer as final: rows that only arrive later are
+  // skipped for that boot, so a paired host's cached rows must already be in it.
+  it('the first answer already holds the cached rows of a host not probed yet', async () => {
+    pair('h1')
+    await saveCache('projects-data', 'projects-by-host', [
+      project('p-local', 'local'),
+      project('p-h1', 'h1'),
+    ])
+    serve({ [API_BASE]: () => answer([row('p-local')]) })
+    const answers: string[][] = []
+    const stop = useProjectDataStore.subscribe((s) => {
+      if (s.data.status === 'success') answers.push(held())
+    })
+
+    await readList()
+    stop()
+
+    expect(answers[0]).toEqual(['p-local@local', 'p-h1@h1'])
+  })
+})
+
+describe('the list order', () => {
+  // Each daemon numbers only its own projects, so `order` cannot interleave two hosts.
+  it('keeps each host’s rows together, local first, through reads and frames alike', async () => {
+    pair('h1', 'up')
+    serve({
+      [API_BASE]: () =>
+        answer([
+          { ...row('p-b'), order: 0 },
+          { ...row('p-a'), order: 1 },
+        ]),
+      'crowbar://h1': () => answer([{ ...row('r-x'), order: 0 }]),
+    })
+    await readList()
+    await vi.waitFor(() => expect(held()).toContain('r-x@h1'))
+
+    await useProjectDataStore.getState().applyDelta({ ...row('p-c'), order: 2 })
+
+    expect(held()).toEqual(['p-b@local', 'p-a@local', 'p-c@local', 'r-x@h1'])
+  })
+})
+
+describe('the local list never waits on a remote host', () => {
+  it('publishes the local list while an up host has not answered, and merges that host when it does', async () => {
+    pair('h1', 'up')
+    const h1 = parked([row('p-h1')])
+    serve({ [API_BASE]: () => answer([row('p-local')]), 'crowbar://h1': h1.respond })
+
+    let published = false
+    void readList().then(() => (published = true))
+    await vi.waitFor(() => expect(published).toBe(true))
+    expect(held()).toEqual(['p-local@local'])
+
+    h1.release()
+    await vi.waitFor(() => expect(held()).toEqual(['p-local@local', 'p-h1@h1']))
+  })
+
+  it('an up host that never answers does not delay the local list, and its read is given up', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    pair('h1', 'up')
+    useProjectDataStore.setState({
+      data: success([project('p-old', 'local'), project('p-h1', 'h1')]),
+    })
+    let aborted = false
+    serve({
+      [API_BASE]: () => answer([row('p-local')]),
+      'crowbar://h1': blackHole(() => (aborted = true)),
+    })
+
+    let published = false
+    void readList().then(() => (published = true))
+    await vi.waitFor(() => expect(published).toBe(true))
+    expect(held()).toEqual(['p-local@local', 'p-h1@h1'])
+    expect(aborted).toBe(false)
+
+    // The bound on a remote project read.
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(aborted).toBe(true)
+    expect(held()).toEqual(['p-local@local', 'p-h1@h1'])
   })
 })
 

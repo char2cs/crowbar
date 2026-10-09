@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { Project } from '@/lib/types'
+import { dataOf } from '@/lib/loadable'
 import { createLoadableSlice, type LoadableSlice } from '@/lib/store/loadable-slice'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { getHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
@@ -43,8 +44,18 @@ interface ProjectState {
   setActiveProject: (id: string) => void
 }
 
-/** Sidebar order, as the daemon sorts it (compareProjectDTOs). */
+/** Local first, then each paired host in the order it was paired; unknown hosts last. */
+function hostRank(hostId: string): number {
+  if (hostId === LOCAL_HOST.id) return -1
+  const index = useHostConfigStore.getState().hosts.findIndex((host) => host.id === hostId)
+  return index === -1 ? Number.MAX_SAFE_INTEGER : index
+}
+
+/** Sidebar order: grouped by host (each daemon numbers only its own projects), then as
+ *  that daemon sorts them (compareProjectDTOs). */
 function byOrder(a: Project, b: Project): number {
+  const h = hostRank(a.hostId) - hostRank(b.hostId)
+  if (h !== 0) return h
   const d = (a.order ?? 0) - (b.order ?? 0)
   if (d !== 0) return d
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
@@ -72,22 +83,58 @@ function mergeProjectFrame(
   return next.sort(byOrder)
 }
 
+/** One paired host's rows, read on their own: they replace that host's rows and no others. */
+class HostRows {
+  constructor(
+    readonly hostId: string,
+    readonly rows: Project[],
+  ) {}
+}
+
+function isConfigured(hostId: string): boolean {
+  return useHostConfigStore.getState().hosts.some((host) => host.id === hostId)
+}
+
+/** `list` with `hostId`'s rows swapped for `rows` — `list` itself when they match. */
+function withHostRows(list: Project[], hostId: string, rows: Project[]): Project[] {
+  const current = list.filter((p) => p.hostId === hostId)
+  if (JSON.stringify(current) === JSON.stringify(rows)) return list
+  return [...list.filter((p) => p.hostId !== hostId), ...rows].sort(byOrder)
+}
+
 /**
- * Every project on the local daemon and on each paired host that is up. A
- * remote host failing drops only its own projects; the local daemon failing
- * fails the read, since an empty list would read as "no projects at all".
+ * A local answer plus the held rows of every configured host: a host that is down,
+ * slow or not probed yet keeps its projects until a read of its own replaces them.
+ * Rows are never invented for a host nobody configured.
  */
-async function readEveryHost(): Promise<Project[]> {
-  const { read } = connected()
-  const remotes = useHostConfigStore
-    .getState()
-    .hosts.filter((host) => getHostRuntime(host.id)?.getState().status === 'up')
-  const [local, ...remote] = await Promise.allSettled([
-    read(LOCAL_HOST.id),
-    ...remotes.map((host) => read(host.id)),
-  ])
-  if (local.status === 'rejected') throw local.reason
-  return [local.value, ...remote.map((r) => (r.status === 'fulfilled' ? r.value : []))].flat()
+function withHeldRemoteRows(local: Project[], held: Project[] | undefined): Project[] {
+  const remote = (held ?? []).filter((p) => p.hostId !== LOCAL_HOST.id && isConfigured(p.hostId))
+  return remote.length === 0 ? local : [...local, ...remote].sort(byOrder)
+}
+
+/** Per host, the newest read issued: an older answer that lands later is dropped. */
+const hostReads = new Map<string, number>()
+
+/**
+ * Reads one paired host's projects and merges them in. A host that does not answer
+ * keeps the rows it has: whether it is down is the prober's to say, not this read's.
+ */
+async function readHostRows(hostId: string): Promise<void> {
+  const issued = (hostReads.get(hostId) ?? 0) + 1
+  hostReads.set(hostId, issued)
+  const rows = await connected()
+    .read(hostId)
+    .catch(() => null)
+  if (rows === null || hostReads.get(hostId) !== issued || !isConfigured(hostId)) return
+  await useProjectDataStore.getState().applyDelta(new HostRows(hostId, rows))
+}
+
+function upHostIds(): string[] {
+  const up: string[] = []
+  for (const host of useHostConfigStore.getState().hosts) {
+    if (getHostRuntime(host.id)?.getState().status === 'up') up.push(host.id)
+  }
+  return up
 }
 
 // §6: the project list is GET-seeded once and then kept live by the
@@ -96,13 +143,22 @@ async function readEveryHost(): Promise<Project[]> {
 export const useProjectDataStore = create<LoadableSlice<Project[], []>>()((set, get) =>
   createLoadableSlice<Project[], []>({
     store: 'projects-data',
-    fetcher: readEveryHost,
+    // The local daemon's answer is published the moment it lands, with each paired host's
+    // held rows; a host that is up merges in when it answers. Its reads start only after
+    // a local success, so a failing local read never re-arms itself through them.
+    fetcher: async () => {
+      const local = await connected().read(LOCAL_HOST.id)
+      for (const hostId of upHostIds()) void readHostRows(hostId)
+      return withHeldRemoteRows(local, dataOf(get().data))
+    },
     // Not 'projects': a list cached before projects carried a host would hand
     // out rows with no hostId to route by.
     cacheKey: () => 'projects-by-host',
     subscribe: (onFrame) => connected().subscribe(onFrame),
-    // This socket is the local daemon's.
-    mergeFrame: (list, frame) => mergeProjectFrame(list, frame, LOCAL_HOST.id),
+    mergeFrame: (list, frame) => {
+      if (!(frame instanceof HostRows)) return mergeProjectFrame(list, frame, LOCAL_HOST.id)
+      return isConfigured(frame.hostId) ? withHostRows(list, frame.hostId, frame.rows) : list
+    },
   })(set, get),
 )
 

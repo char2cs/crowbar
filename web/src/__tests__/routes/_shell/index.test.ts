@@ -19,9 +19,12 @@ vi.mock('@/lib/store/projects', async (importOriginal) => ({
 }))
 
 const { connectProjectList, useProjectStore } = await import('@/lib/store/projects')
-// The local daemon's list read; the guard reads nothing else.
+// The list's reads, by host; the guard reads nothing else.
 const readLocal = vi.fn<(hostId: string) => Promise<Project[]>>()
 connectProjectList({ read: (hostId) => readLocal(hostId), subscribe: () => () => {} })
+const { useHostConfigStore } = await import('@/features/hosts/stores/host-config-store')
+const { destroyHostRuntime, getOrCreateHostRuntime } =
+  await import('@/features/hosts/stores/host-runtime-registry')
 
 async function runBeforeLoad() {
   // Dynamically import to pick up mocks
@@ -135,5 +138,36 @@ describe('_shell/index beforeLoad', () => {
       return
     }
     expect.fail('expected redirect to throw')
+  })
+
+  it('lands as soon as the local list is read, while a paired host that is up never answers', async () => {
+    useHostConfigStore.getState().addHost({
+      id: 'h1',
+      name: 'h1',
+      endpoint: 'h1.lan:9443',
+      pairedFingerprint: 'ff',
+      clientId: 'client-h1',
+    })
+    getOrCreateHostRuntime('h1').getState().setStatus('up')
+    const local = {
+      id: 'p2',
+      name: 'Other',
+      path: '/b',
+      lastActivity: new Date(0),
+      hostId: 'local',
+    }
+    readLocal.mockImplementation((hostId) =>
+      hostId === 'local' ? Promise.resolve([local]) : new Promise<Project[]>(() => {}),
+    )
+    try {
+      await expect(runBeforeLoad()).rejects.toMatchObject({
+        isRedirect: true,
+        options: { to: '/ide/$projectId/home', params: { projectId: 'p2' } },
+      })
+      expect(readLocal).toHaveBeenCalledWith('h1')
+    } finally {
+      useHostConfigStore.getState().removeHost('h1')
+      destroyHostRuntime('h1')
+    }
   })
 })

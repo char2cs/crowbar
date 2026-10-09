@@ -1,10 +1,16 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createElement, useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chatLedgerStore } from '@/features/agent/stores/chat-ledger-store'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import {
+  destroyHostRuntime,
+  getOrCreateHostRuntime,
+} from '@/features/hosts/stores/host-runtime-registry'
 import { failed } from '@/lib/loadable'
-import { useProjectDataStore } from '@/lib/store/projects'
+import type { Project } from '@/lib/types'
+import { projectListTransport } from '@/lib/api/project-list-transport'
+import { connectProjectList, useProjectDataStore } from '@/lib/store/projects'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { pendingChatSurfaces } from '@/features/panes/stores/pending-chat-surfaces'
@@ -23,7 +29,7 @@ import {
 
 // The chat view is where a pane's first read happens (the ledger's first page). A probe
 // makes that read through the real ledger and API, so the gate is judged by what reaches
-// the network, not by what it renders.
+// the network, not by what it renders. Its textarea stands in for the view's composer.
 const probe = vi.hoisted(() => ({ mounts: 0 }))
 vi.mock('@/features/agent/chat/agent-chat-view', () => ({
   AgentChatView: ({ wsId, chatId }: { wsId: string; chatId: string }) => {
@@ -31,7 +37,11 @@ vi.mock('@/features/agent/chat/agent-chat-view', () => ({
       probe.mounts++
       void chatLedgerStore.getState().loadInitial(wsId, chatId)
     }, [wsId, chatId])
-    return createElement('div', { 'data-testid': 'chat-view' })
+    return createElement(
+      'div',
+      { 'data-testid': 'chat-view' },
+      createElement('textarea', { 'aria-label': 'composer' }),
+    )
   },
 }))
 
@@ -39,6 +49,12 @@ import { AgentChatPaneGate } from '@/features/agent/components/agent-chat-pane-g
 
 const PAGE = { success: true, data: { cursor: 0, oldestCursor: 0, hasMore: false, items: [] } }
 const WAITING = 'Opening this chat…'
+
+const listAnswer = (...projects: Project[]) =>
+  new Response(JSON.stringify({ success: true, data: projects }), { status: 200 })
+// What the desktop proxy answers for a remote host it could not dial.
+const unreachable = () =>
+  new Response(null, { status: 502, headers: { 'x-crowbar-proxy': 'host-unreachable' } })
 
 let fetchMock: ReturnType<typeof vi.fn>
 const requested = () => fetchMock.mock.calls.map(([url]) => String(url))
@@ -66,6 +82,7 @@ function mount(wsId = 'w1') {
 
 beforeEach(() => {
   probe.mounts = 0
+  connectProjectList(projectListTransport)
   resetHostWorld()
   resetWindowPaneStoreForTests()
   chatLedgerStore.setState({ ledgers: {} })
@@ -80,6 +97,7 @@ afterEach(() => {
   // mounted mount its pane and read the network after the stub is gone.
   cleanup()
   resetHostWorld()
+  destroyHostRuntime('host-1')
   vi.unstubAllGlobals()
   delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
 })
@@ -204,6 +222,35 @@ describe('AgentChatPaneGate on an install that has paired a remote host', () => 
     expect(probe.mounts).toBe(2)
     expect(liveKeydown()).toBe(whileMounted)
   })
+
+  // A re-read (the local socket reconnecting, a wake from sleep) that cannot reach the
+  // remote host must not take its rows away: the pane, and what is typed in it, stay.
+  it.each([
+    ['down', 'down'],
+    ['up, but its read fails', 'up'],
+  ] as const)(
+    'keeps a live remote pane and its draft across a re-read while its host is %s',
+    async (_name, status) => {
+      ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+      recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r1', wsId: 'w-remote' })
+      loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
+      getOrCreateHostRuntime('host-1').getState().setStatus(status)
+      fetchMock.mockImplementation(async (url: string) => {
+        if (url === '/v0/projects') return listAnswer(projectOn('p-local', 'local'))
+        if (url === 'crowbar://host-1/v0/projects') return unreachable()
+        return new Response(JSON.stringify(PAGE), { status: 200 })
+      })
+      mount('w-remote')
+      const composer = await screen.findByLabelText('composer')
+      fireEvent.change(composer, { target: { value: 'half a thought' } })
+
+      await act(() => useProjectDataStore.getState().fetch())
+
+      expect(useProjectDataStore.getState().data.status).toBe('success')
+      expect(screen.getByLabelText('composer')).toBe(composer)
+      expect(composer).toHaveValue('half a thought')
+    },
+  )
 })
 
 describe('AgentChatPaneGate where no remote host was ever paired', () => {
