@@ -1180,7 +1180,7 @@ A project/workspace-scoped URL is built by a small set of builders (`lib/workspa
 
 ### Invariants (every task below, every review)
 
-- **I1 — no silent local.** Any code path that cannot determine a host must throw `HostNotResolvedError` or wait on a readiness hook; it must never default to `'local'`. Only two legitimate sources of `'local'`: *zero remote hosts configured* (no remote entity can exist, so it is true by construction), and an explicit `LOCAL_HOST` at a call site that is local by nature.
+- **I1 — no silent local.** Any code path that cannot determine a host must throw `HostNotResolvedError` or wait on a readiness hook; it must never default to `'local'`. Only two legitimate sources of `'local'`: (1) the entity's own row says `hostId: 'local'`, or the entity is NOT FOUND while *no remote hosts are configured AND no held project row carries a non-local `hostId`* (then no remote entity can exist — "zero hosts" alone is NOT enough: after the last host is revoked its rows linger in the list and the cache until Task 18 tombstones them, and a bare zero-hosts shortcut would silently answer `'local'` for them), and (2) an explicit `LOCAL_HOST` at a call site that is local by nature. The entity lookup always runs FIRST; a row found with a host that is neither `'local'` nor currently configured is unresolved (throw / readiness false), never a stale id and never `'local'`.
 - **I2 — no ambient fallback.** Never call `getWorkspaceScope()` without a `wsId` (it falls back to the active workspace — the documented bug class), never read an "active/current project/host". Host comes from the entity's own recorded project.
 - **I3 — zero change for local-only users.** With no remote hosts configured every builder returns byte-identical strings to today and every existing test passes unchanged. Add golden tests proving it.
 - **I4 — `apiFetch` signature is `apiFetch<T>(path, init?, retry?, hostId?)`.** `hostId` is the 4th positional argument. This off-by-one has already bitten four tasks.
@@ -1237,11 +1237,11 @@ Do not touch the maintainer's existing containers or `~/.crowbar`. Remove your t
 
 **Interfaces**
 - `qualify(hostId, path)`: `'local'` → `path` unchanged; otherwise `` `crowbar://${hostId}${path}` `` (`path` must start with `/`). Reject host ids that the Rust side rejects (`^[a-z0-9-]+$`, not `localhost`).
-- `splitHostPath(input)` → `{ hostId, path }`: the inverse. Anything not shaped `crowbar://<id>/...` is `local`. Define and test what happens to the local desktop base (`crowbar://localhost...`): it is local, never a remote host id.
+- `splitHostPath(input)` → `{ hostId, path }`: the inverse. Anything not shaped `crowbar://<id>/...` is `local`. Define and test what happens to the local desktop base (`crowbar://localhost...`): it is local, never a remote host id. Reject (don't misread as local) a wrongly-cased scheme, leading whitespace, a leading `//` path, and `qualify('local', 'crowbar://…')`.
 - `class HostNotResolvedError extends Error` — typed; model it on the existing `OwningChatNotRecordedError` pattern.
-- `hostIdForProject(projectId)`: zero configured hosts → `'local'`; otherwise read `useProjectDataStore`: found → `project.hostId`; not found → throw `HostNotResolvedError`.
+- `hostIdForProject(projectId)`: look the project up in `useProjectDataStore` FIRST. Found (and not ambiguous across hosts) → its `hostId` if that is `'local'` or a configured host, else unresolved. Not found → `'local'` only if no remote hosts are configured AND no held row has a non-local `hostId`; otherwise throw `HostNotResolvedError` (carry a reason + the project id).
 - `hostIdForWorkspace(wsId)`: `wsId` REQUIRED. Read that workspace's recorded scope from the wsId-keyed scope registry (`lib/workspace-scope.ts`) → `projectId` → `hostIdForProject`; missing scope → throw. Must never consult the active workspace.
-- `useHostResolved(key)`: readiness hook (`useSyncExternalStore`), true once `hostIdForProject/Workspace` would not throw. Mirror `useWorkspaceScopeReady`.
+- `useHostResolved(key)`: (false forever is legitimate for a deleted project — Task 17 must not show an unbounded spinner on it alone) readiness hook (`useSyncExternalStore`), true once `hostIdForProject/Workspace` would not throw. Mirror `useWorkspaceScopeReady`.
 
 **Tests (these are the invariants — write them first and break each once):** no hosts → `'local'` with no store reads; hosts configured + known remote project → its host; known local project → `'local'`; unknown project → throws; `hostIdForWorkspace` with no recorded scope throws even when a DIFFERENT workspace on another host is active; readiness hook flips when the project list loads; `qualify`/`splitHostPath` round-trip; invalid host ids rejected.
 
@@ -1269,7 +1269,8 @@ Do not touch the maintainer's existing containers or `~/.crowbar`. Remove your t
 1. Every builder returns `qualify(hostIdForWorkspace(wsId), <the path it returns today>)`.
 2. **Render-path safety.** Some callers (e.g. `workspaceBase`) run during render; a throw there reaches an ErrorBoundary. List every builder call reachable during render and make each safe (gate on `useHostResolved`, or catch and render a not-ready state). This is the main risk of the task — enumerate them in the report.
 3. Golden tests: with no remote hosts configured each builder returns exactly the string it returned before the change (record the "before" strings from the old code first). With a remote project configured each returns the `crowbar://<hostId>/…` form; with hosts configured and the project not yet loaded each throws `HostNotResolvedError` (not `'local'`).
-4. Do not add a `hostId` parameter to any workspace-scoped function; the whole point is that call sites are untouched. If a call site cannot get its host through a builder, report it rather than patching it with an argument.
+4. Builders addressed by CHAT id (`owningChatId`) must still resolve their host through the chat's workspace scope → project; do not invent a chat → host map or default to Local — report any chat-addressed builder you cannot resolve that way.
+5. Do not add a `hostId` parameter to any workspace-scoped function; the whole point is that call sites are untouched. If a call site cannot get its host through a builder, report it rather than patching it with an argument.
 
 ---
 
