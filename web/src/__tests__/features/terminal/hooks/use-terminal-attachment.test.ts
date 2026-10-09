@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // A fake bridge: each openTerminal is a new view transport the test can drop.
 const bridge = vi.hoisted(() => {
@@ -18,8 +18,10 @@ const bridge = vi.hoisted(() => {
     listCalls: [] as string[],
     listGate: null as Promise<void> | null,
     failList: false,
+    refuseOpen: false,
     created: 0,
     openTerminal: (sessionId: string, base: string) => {
+      if (bridge.refuseOpen) throw new Error('remote hosts need the desktop app')
       const drops: Array<() => void> = []
       const conn: Conn = {
         sessionId,
@@ -66,11 +68,22 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 
 import { useTerminalAttachment } from '@/features/terminal/hooks/use-terminal-attachment'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+import { toast } from '@/features/window/stores/toast-store'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { idle, success } from '@/lib/loadable'
 import { useProjectDataStore } from '@/lib/store/projects'
 import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
-import { useConnectionStore } from '@/lib/ws/connection-store'
+import {
+  reportChannelState,
+  resetConnectionState,
+  useConnectionStore,
+} from '@/lib/ws/connection-store'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 type Props = Parameters<typeof useTerminalAttachment>[0]
 
@@ -94,6 +107,7 @@ beforeEach(() => {
   bridge.listCalls.length = 0
   bridge.listGate = null
   bridge.failList = false
+  bridge.refuseOpen = false
   bridge.created = 0
   bridge.live = ['pty-1', 'pty-A', 'pty-B', 'pty-C']
   localStorage.clear()
@@ -293,5 +307,157 @@ describe('useTerminalAttachment', () => {
     await act(async () => {})
     expect(bridge.listCalls).toHaveLength(1)
     expect(bridge.opened).toHaveLength(0)
+  })
+})
+
+// A paired install cold-boots with the project list unloaded: the terminal's
+// host is unknown, so it may not address the daemon (any daemon) until it is.
+describe('on an install that has paired a remote host', () => {
+  const REMOTE_TERMINALS = 'crowbar://host-1/v0/chats/chat-r/terminals'
+  const LOCAL_TERMINALS = '/v0/chats/chat-l/terminals'
+  const REMOTE_CHANNEL = 'crowbar://host-1/v0/chats/chat-r/ws'
+
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    resetConnectionState()
+    __resetWorkspaceScopesForTest()
+    recordWorkspaceScope({
+      projectId: 'p-remote',
+      repoId: 'r',
+      wsId: 'ws-remote',
+      owningChatId: 'chat-r',
+    })
+    recordWorkspaceScope({
+      projectId: 'p-local',
+      repoId: 'r',
+      wsId: 'ws-local',
+      owningChatId: 'chat-l',
+    })
+    // A tab already bound to a PTY, so every attach has to ask the daemon.
+    useTerminalStore.getState().updateSession('tab-1', { connectionId: 'pty-1' })
+  })
+
+  afterEach(() => {
+    resetHostWorld()
+    vi.restoreAllMocks()
+  })
+
+  it('asks nothing and opens nothing until the project list says whose workspace it is', async () => {
+    const remote = render({ workspaceId: 'ws-remote' })
+    const local = render({ sessionId: 'tab-2', workspaceId: 'ws-local' })
+    useTerminalStore.getState().updateSession('tab-2', { connectionId: 'pty-A' })
+    await remote.settle()
+    expect(bridge.listCalls).toEqual([])
+    expect(bridge.opened).toHaveLength(0)
+    expect(bridge.created).toBe(0)
+
+    act(() => loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local')))
+    await remote.settle()
+
+    expect(bridge.opened.map((c) => c.base).sort()).toEqual(
+      [LOCAL_TERMINALS, REMOTE_TERMINALS].sort(),
+    )
+    expect(remote.result.current.connection).not.toBeNull()
+    expect(local.result.current.connection).not.toBeNull()
+  })
+
+  it('switching local to remote closes the local transport and attaches the remote one', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
+    const { rerender, props, result, settle } = render({ workspaceId: 'ws-local' })
+    await settle()
+    const local = bridge.opened[0]
+
+    rerender({ ...props, workspaceId: 'ws-remote' })
+    await settle()
+
+    expect(local.close).toHaveBeenCalled()
+    expect(bridge.opened.map((c) => c.base)).toEqual([LOCAL_TERMINALS, REMOTE_TERMINALS])
+    expect(result.current.connection).toBe(bridge.opened[1])
+  })
+
+  it('retries a remote terminal when ITS host reconnects, not when the local daemon does', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    bridge.failList = true
+    const { result, onEnded, settle } = render({ workspaceId: 'ws-remote' })
+    await settle()
+    expect(bridge.listCalls).toEqual([REMOTE_TERMINALS])
+
+    act(() => reportChannelState('/v0/projects', true, 'local'))
+    await settle()
+    expect(bridge.listCalls).toHaveLength(1)
+
+    act(() => reportChannelState(REMOTE_CHANNEL, true, 'host-1'))
+    await settle()
+    expect(bridge.opened.map((c) => c.base)).toEqual([REMOTE_TERMINALS])
+    expect(result.current.connection).toBe(bridge.opened[0])
+    expect(onEnded).not.toHaveBeenCalled()
+  })
+
+  it('retries a local terminal when the local daemon reconnects, not when a remote host does', async () => {
+    loadProjects(projectOn('p-local', 'local'))
+    bridge.failList = true
+    const { settle } = render({ workspaceId: 'ws-local' })
+    await settle()
+    expect(bridge.listCalls).toHaveLength(1)
+
+    act(() => reportChannelState(REMOTE_CHANNEL, true, 'host-1'))
+    await settle()
+    expect(bridge.listCalls).toHaveLength(1)
+
+    act(() => reportChannelState('/v0/projects', true, 'local'))
+    await settle()
+    expect(bridge.opened.map((c) => c.base)).toEqual([LOCAL_TERMINALS])
+  })
+
+  it('revoking the host lets go of its transport and attaches nowhere else, until it is paired back', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    const { result, settle } = render({ workspaceId: 'ws-remote' })
+    await settle()
+    const remote = bridge.opened[0]
+
+    act(() => useHostConfigStore.getState().removeHost('host-1'))
+    await settle()
+
+    expect(remote.close).toHaveBeenCalled()
+    expect(result.current.connection).toBeNull()
+    expect(bridge.listCalls).toEqual([REMOTE_TERMINALS])
+    expect(bridge.opened).toHaveLength(1)
+
+    act(() => pairRemoteHost('host-1'))
+    await settle()
+    expect(bridge.opened.map((c) => c.base)).toEqual([REMOTE_TERMINALS, REMOTE_TERMINALS])
+    expect(result.current.connection).toBe(bridge.opened[1])
+  })
+
+  it('opens nothing for a host revoked while the daemon was being asked', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    let release = () => {}
+    bridge.listGate = new Promise<void>((r) => {
+      release = r
+    })
+    const { result, settle } = render({ workspaceId: 'ws-remote' })
+    await settle()
+    expect(bridge.listCalls).toEqual([REMOTE_TERMINALS])
+
+    act(() => useHostConfigStore.getState().removeHost('host-1'))
+    release()
+    await settle()
+
+    expect(bridge.opened).toHaveLength(0)
+    expect(result.current.connection).toBeNull()
+  })
+
+  it('tells the user instead of letting a refused transport escape the attach', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    bridge.refuseOpen = true
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const toasted = vi.spyOn(toast, 'error').mockReturnValue('')
+    const { result, settle } = render({ workspaceId: 'ws-remote' })
+
+    await settle()
+
+    expect(toasted).toHaveBeenCalledWith('Terminal unavailable', expect.any(String))
+    expect(result.current.connection).toBeNull()
   })
 })

@@ -9,34 +9,62 @@ import { LOCAL_HOST } from '@/features/hosts/types'
 export type ConnectionStatus = 'idle' | 'connected' | 'disconnected'
 
 interface ConnectionState {
+  /** The local daemon's channels only. */
   status: ConnectionStatus
+  /** The same derivation per remote host, from that host's own channels. */
+  hostStatus: Record<string, ConnectionStatus>
   /** Why a remote host's stream last failed to open, by endpoint. Cleared when
    *  that stream opens or is torn down. */
   failures: Record<string, ApiError>
 }
 
-// Per-endpoint open/closed flags live outside the store so the store holds a
-// single primitive — components subscribe with a narrow selector on `status`.
-const channelStates = new Map<string, boolean>()
+// Per-endpoint open/closed flags live outside the store so the store holds
+// primitives — components subscribe with a narrow selector on `status`.
+const channelStates = new Map<string, { hostId: string; open: boolean }>()
 
-function deriveStatus(): ConnectionStatus {
-  if (channelStates.size === 0) return 'idle'
-  for (const open of channelStates.values()) {
-    if (open) return 'connected'
+function deriveStatus(hostId: string): ConnectionStatus {
+  let seen = false
+  for (const channel of channelStates.values()) {
+    if (channel.hostId !== hostId) continue
+    if (channel.open) return 'connected'
+    seen = true
   }
-  return 'disconnected'
+  return seen ? 'disconnected' : 'idle'
 }
 
 export const useConnectionStore = create<ConnectionState>(() => ({
   status: 'idle',
+  hostStatus: {},
   failures: {},
 }))
 
 function publish(): void {
-  const status = deriveStatus()
-  if (useConnectionStore.getState().status !== status) {
-    useConnectionStore.setState({ status })
+  const state = useConnectionStore.getState()
+  const status = deriveStatus(LOCAL_HOST.id)
+  const hostStatus: Record<string, ConnectionStatus> = {}
+  for (const { hostId } of channelStates.values()) {
+    if (hostId !== LOCAL_HOST.id) hostStatus[hostId] = deriveStatus(hostId)
   }
+  const sameHosts =
+    Object.keys(hostStatus).length === Object.keys(state.hostStatus).length &&
+    Object.entries(hostStatus).every(([hostId, next]) => state.hostStatus[hostId] === next)
+  if (state.status === status && sameHosts) return
+  useConnectionStore.setState({ status, hostStatus })
+}
+
+function statusOfHost(state: ConnectionState, hostId: string): ConnectionStatus {
+  return hostId === LOCAL_HOST.id ? state.status : (state.hostStatus[hostId] ?? 'idle')
+}
+
+/** Calls `onConnected` each time `hostId`'s channels go from none open to one open
+ *  ('local' follows the local backend). A caller that could not reach the host
+ *  waits on this for the app's own streams to report it back. */
+export function onHostConnected(hostId: string, onConnected: () => void): () => void {
+  return useConnectionStore.subscribe((state, prev) => {
+    if (statusOfHost(state, hostId) === 'connected' && statusOfHost(prev, hostId) !== 'connected') {
+      onConnected()
+    }
+  })
 }
 
 function setFailure(endpoint: string, failure: ApiError | undefined): void {
@@ -49,12 +77,11 @@ function setFailure(endpoint: string, failure: ApiError | undefined): void {
 }
 
 /** Called by the wsManager when a channel's socket opens or closes. Only the
- *  local daemon's channels speak for the backend's status: a remote host going
- *  up or down must neither hide nor cause a local outage. */
+ *  local daemon's channels speak for `status`: a remote host going up or down
+ *  must neither hide nor cause a local outage, so its own lands in `hostStatus`. */
 export function reportChannelState(endpoint: string, open: boolean, hostId: string): void {
   if (open) setFailure(endpoint, undefined)
-  if (hostId !== LOCAL_HOST.id) return
-  channelStates.set(endpoint, open)
+  channelStates.set(endpoint, { hostId, open })
   publish()
 }
 
@@ -73,5 +100,5 @@ export function reportChannelGone(endpoint: string): void {
 /** Test helper: clear all tracked channels. */
 export function resetConnectionState(): void {
   channelStates.clear()
-  useConnectionStore.setState({ status: 'idle', failures: {} })
+  useConnectionStore.setState({ status: 'idle', hostStatus: {}, failures: {} })
 }
