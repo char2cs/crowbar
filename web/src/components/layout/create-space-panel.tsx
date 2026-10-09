@@ -17,6 +17,7 @@ import { toast } from '@/features/window/stores/toast-store'
 import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { apiFetch, postProject } from '@/lib/api'
 import { awaitEntity } from '@/lib/ws/await-entity'
+import { qualify } from '@/lib/host-path'
 import { projectBaseOnHost } from '@/lib/project-url'
 import { projectFromDTO } from '@/lib/store/project-from-dto'
 import { cn } from '@/lib/utils'
@@ -182,11 +183,12 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
     try {
       // Same subscribe-before-POST shape as the retired ImportProjectModal:
       // postProject answers 202 with no body, so the real Project (with its
-      // daemon-assigned id) is read back off the /v0/projects WS stream,
-      // matched by the path we just submitted.
+      // daemon-assigned id) is read back off the /v0/projects WS stream of the
+      // host it is created on, matched by the path we just submitted — so the
+      // DTO stamped with that host really came from it.
       const trimmedName = name.trim() || getFilenameFromPath(selectedPath)
       const dto = await awaitEntity<ProjectDTO>({
-        endpoint: '/v0/projects',
+        endpoint: qualify(hostId, '/v0/projects'),
         match: (p) => p.path === selectedPath && p.status !== 'deleted',
         action: () => postProject(trimmedName, selectedPath, hostId),
       })

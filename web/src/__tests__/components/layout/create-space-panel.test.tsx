@@ -9,16 +9,19 @@ import type { Host } from '@/features/hosts/types'
 // `/v0/projects` WS stream. We mock postProject (the 202 mutation) and the
 // wsManager channel so the test can emit the canonical DTO frame the panel
 // is waiting on.
-const subscribers = new Set<(data: unknown) => void>()
-function emit(data: unknown): void {
-  subscribers.forEach((cb) => cb(data))
+// Keyed by endpoint: the host a project is created on is the host whose stream is awaited.
+const subscribers = new Map<string, Set<(data: unknown) => void>>()
+function emit(endpoint: string, data: unknown): void {
+  subscribers.get(endpoint)?.forEach((cb) => cb(data))
 }
 
 vi.mock('@/lib/ws/manager', () => ({
   wsManager: {
-    subscribe: (_endpoint: string, cb: (data: unknown) => void) => {
-      subscribers.add(cb)
-      return () => subscribers.delete(cb)
+    subscribe: (endpoint: string, cb: (data: unknown) => void) => {
+      const forEndpoint = subscribers.get(endpoint) ?? new Set<(data: unknown) => void>()
+      subscribers.set(endpoint, forEndpoint)
+      forEndpoint.add(cb)
+      return () => forEndpoint.delete(cb)
     },
     send: vi.fn(),
   },
@@ -28,6 +31,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
   return {
     ...actual,
+    apiFetch: vi.fn(() => Promise.resolve()),
     postProject: vi.fn((_name: string, _path: string, _hostId?: string) => Promise.resolve()),
   }
 })
@@ -149,7 +153,10 @@ describe('CreateSpacePanel — daemon picker', () => {
       expect(api.postProject).toHaveBeenCalledWith(expect.any(String), '/tmp/my-space', 'h1')
     })
 
-    emit(projectDTO({ id: 'server-id', path: '/tmp/my-space', name: 'my-space' }))
+    emit(
+      'crowbar://h1/v0/projects',
+      projectDTO({ id: 'server-id', path: '/tmp/my-space', name: 'my-space' }),
+    )
 
     await waitFor(() => {
       expect(onCreate).toHaveBeenCalledWith(
@@ -173,12 +180,90 @@ describe('CreateSpacePanel — daemon picker', () => {
       expect(api.postProject).toHaveBeenCalledWith(expect.any(String), '/tmp/local-space', 'local')
     })
 
-    emit(projectDTO({ id: 'server-id-2', path: '/tmp/local-space', name: 'local-space' }))
+    emit(
+      '/v0/projects',
+      projectDTO({ id: 'server-id-2', path: '/tmp/local-space', name: 'local-space' }),
+    )
 
     await waitFor(() =>
       expect(onCreate).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'server-id-2', hostId: 'local' }),
       ),
     )
+  })
+})
+
+// The DTO is stamped with the host it was created on, so it must be read from that host's
+// own stream: a local project at the same path must never be mistaken for the new remote one.
+describe('CreateSpacePanel — provenance of the created project', () => {
+  async function createOn(user: ReturnType<typeof userEvent.setup>, folder: string) {
+    await selectDaemonOption(user, /homelab-prox/i)
+    await waitFor(() => expect(daemonTrigger()).toHaveTextContent('homelab-prox'))
+    fireEvent.click(screen.getByRole('button', { name: /folder/i }))
+    await waitFor(() => expect(screen.getByText(folder)).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /create space/i }))
+    await waitFor(() => expect(api.postProject).toHaveBeenCalled())
+  }
+
+  beforeEach(() => {
+    vi.mocked(api.apiFetch).mockClear()
+    useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'homelab-prox' })] })
+    getOrCreateHostRuntime('h1').getState().setStatus('up')
+    vi.mocked(openNativeDialog).mockResolvedValue('/tmp/shared')
+  })
+
+  it('awaits the selected host’s stream, not the local one', async () => {
+    const user = userEvent.setup()
+    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
+    await createOn(user, 'shared')
+
+    expect([...subscribers.keys()]).toEqual(['crowbar://h1/v0/projects'])
+  })
+
+  it('resolves to the remote project when a local one has the same path', async () => {
+    const onCreate = vi.fn()
+    const user = userEvent.setup()
+    render(<CreateSpacePanel onCreate={onCreate} onCancel={vi.fn()} />)
+    await createOn(user, 'shared')
+
+    emit('/v0/projects', projectDTO({ id: 'local-twin', path: '/tmp/shared' }))
+    emit('crowbar://h1/v0/projects', projectDTO({ id: 'remote-id', path: '/tmp/shared' }))
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1))
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'remote-id', path: '/tmp/shared', hostId: 'h1' }),
+    )
+  })
+
+  it('applies a staged icon to the project on the host it was created on', async () => {
+    const user = userEvent.setup()
+    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: /edit space icon/i }))
+    await user.click(await screen.findByRole('button', { name: /emoji/i }))
+    await user.type(screen.getByPlaceholderText('Type an emoji…'), '🛰️')
+    await user.keyboard('{Enter}')
+    await user.keyboard('{Escape}')
+    await createOn(user, 'shared')
+
+    emit('crowbar://h1/v0/projects', projectDTO({ id: 'remote-id', path: '/tmp/shared' }))
+
+    await waitFor(() =>
+      expect(api.apiFetch).toHaveBeenCalledWith(
+        'crowbar://h1/v0/projects/remote-id/icon/emoji',
+        expect.objectContaining({ method: 'PUT' }),
+      ),
+    )
+  })
+
+  it('keeps a local create on the local stream', async () => {
+    vi.mocked(openNativeDialog).mockResolvedValue('/tmp/mine')
+    const onCreate = vi.fn()
+    render(<CreateSpacePanel onCreate={onCreate} onCancel={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /folder/i }))
+    await waitFor(() => expect(screen.getByText('mine')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /create space/i }))
+    await waitFor(() => expect(api.postProject).toHaveBeenCalled())
+
+    expect([...subscribers.keys()]).toEqual(['/v0/projects'])
   })
 })
