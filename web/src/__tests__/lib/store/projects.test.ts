@@ -6,7 +6,13 @@ import { API_BASE } from '@/lib/api'
 import { projectListTransport } from '@/lib/api/project-list-transport'
 import { saveCache } from '@/lib/persistence/cache-store'
 import { resetDB } from '@/lib/persistence/idb'
-import { connectProjectList, importProjectAndSync, useProjectDataStore } from '@/lib/store/projects'
+import {
+  connectProjectList,
+  importProjectAndSync,
+  seedProjectList,
+  useProjectDataStore,
+} from '@/lib/store/projects'
+import { hostIdForProject, hostUnavailability } from '@/lib/host-resolve'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import {
   destroyHostRuntime,
@@ -313,6 +319,43 @@ describe('the local list never waits on a remote host', () => {
     await vi.advanceTimersByTimeAsync(5_000)
     expect(aborted).toBe(true)
     expect(held()).toEqual(['p-local@local', 'p-h1@h1'])
+  })
+})
+
+describe('seedProjectList', () => {
+  beforeEach(async () => {
+    pair('h1')
+    await saveCache('projects-data', 'projects-by-host', [
+      project('p-gone', 'local'),
+      project('p-live', 'local'),
+      project('p-h1', 'h1'),
+    ])
+  })
+
+  // Held so hosts resolve at the first commit, but stale: nothing may conclude from them
+  // that a project is gone or kept until the list's own first read has answered.
+  it('holds the cached rows as stale until the first read replaces the local ones', async () => {
+    await seedProjectList()
+
+    expect(useProjectDataStore.getState().data.status).toBe('loading')
+    expect(held()).toEqual(['p-gone@local', 'p-live@local', 'p-h1@h1'])
+    expect(hostIdForProject('p-gone')).toBe('local')
+    expect(hostUnavailability({ projectId: 'p-gone' })).toBeNull()
+
+    serve({ [API_BASE]: () => answer([row('p-live')]) })
+    await readList()
+
+    expect(held()).toEqual(['p-live@local', 'p-h1@h1'])
+    expect(hostUnavailability({ projectId: 'p-gone' })).toBe('project-missing')
+  })
+
+  it('never replaces a list that is already held', async () => {
+    useProjectDataStore.setState({ data: success([project('p-now', 'local')]) })
+
+    await seedProjectList()
+
+    expect(useProjectDataStore.getState().data.status).toBe('success')
+    expect(held()).toEqual(['p-now@local'])
   })
 })
 

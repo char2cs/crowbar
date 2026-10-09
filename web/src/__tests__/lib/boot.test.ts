@@ -1,8 +1,20 @@
 import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest'
+import { IDBFactory } from 'fake-indexeddb'
 import { hydrateCriticalStores } from '@/lib/boot'
+import { chatLedgerStore } from '@/features/agent/stores/chat-ledger-store'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import {
+  resetWindowPaneStoreForTests,
+  windowPaneStore,
+} from '@/features/panes/stores/window-pane-store'
 import type { Host } from '@/features/hosts/types'
-import type { Loadable } from '@/lib/loadable'
+import { idle, type Loadable } from '@/lib/loadable'
+import { saveCache } from '@/lib/persistence/cache-store'
+import { resetDB } from '@/lib/persistence/idb'
+import { useProjectDataStore } from '@/lib/store/projects'
 import type { Repo } from '@/lib/store/sidebar'
+import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { projectOn } from '@/__tests__/__fixtures__/remote-host'
 
 const remoteHost: Host = {
   id: 'h1',
@@ -191,5 +203,63 @@ describe('hydrateCriticalStores on an install that has paired a remote host', ()
       hostId: remoteHost.id,
       endpoint: remoteHost.endpoint,
     })
+  })
+})
+
+// Boot awaits the restored chat surface's chunk. Collection has no test timeout: transform
+// that graph here, so the tests below time their boot rather than a cold import.
+await import('@/features/agent/components/agent-chat-pane-gate')
+
+// A reload that keeps an `#/ide/...` hash has no route guard to load the list first: the
+// cached rows are what let a restored pane resolve its host before the first commit.
+describe('the cached project list at boot', () => {
+  const PAGE = { success: true, data: { cursor: 0, oldestCursor: 0, hasMore: false, items: [] } }
+  const MESSAGES = '/v0/projects/p-local/repos/r1/chats/c1/messages?limit=100'
+  let fetchMock: ReturnType<typeof vi.fn>
+  const requested = () => fetchMock.mock.calls.map(([url]) => String(url))
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = { invoke: async () => {} }
+    globalThis.indexedDB = new IDBFactory()
+    resetDB()
+    useProjectDataStore.setState({ data: idle() })
+    resetWindowPaneStoreForTests()
+    chatLedgerStore.setState({ ledgers: {} })
+    __resetWorkspaceScopesForTest()
+    recordWorkspaceScope({ projectId: 'p-local', repoId: 'r1', wsId: 'w1', owningChatId: 'o1' })
+    fetchMock = vi.fn(async () => new Response(JSON.stringify(PAGE), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await saveCache('projects-data', 'projects-by-host', [
+      projectOn('p-local', 'local'),
+      projectOn('p-remote', 'h1'),
+    ])
+    hydrateWindowPaneLayout.mockImplementation(async () => {
+      windowPaneStore.getState().paneActions.setActiveProject('p-local')
+      windowPaneStore.getState().paneActions.openChat('c1', { workspaceId: 'w1' })
+    })
+  })
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+    vi.unstubAllGlobals()
+    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+  })
+
+  it('lets a restored local chat make its first read during boot on a paired install', async () => {
+    useHostConfigStore.setState({ hosts: [remoteHost], remoteEverPaired: true })
+
+    await hydrateCriticalStores()
+
+    await vi.waitFor(() => expect(requested()).toContain(MESSAGES))
+    // Held, but stale until the list's own first read replaces them.
+    expect(useProjectDataStore.getState().data.status).toBe('loading')
+    expect(requested()).not.toContain('/v0/projects')
+  })
+
+  it('leaves the list alone where no remote host was ever paired', async () => {
+    await hydrateCriticalStores()
+
+    expect(useProjectDataStore.getState().data.status).toBe('idle')
+    await vi.waitFor(() => expect(requested()).toContain(MESSAGES))
   })
 })

@@ -4,6 +4,7 @@ import {
   placeRestoredChatMembers,
 } from '@/lib/persistence/hydrate'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { seedProjectList } from '@/lib/store/projects'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { dataOf } from '@/lib/loadable'
 import { prefetchVisibleChats } from '@/features/agent/lib/prefetch-visible-chats'
@@ -66,13 +67,14 @@ export async function hydrateCriticalStores(): Promise<void> {
 }
 
 /**
- * What an install that has paired a remote needs before its first remote read: its
- * hosts registered with the desktop proxy (an in-process step, beside the layout read).
+ * What an install that has paired a remote needs before its first reads, beside the
+ * layout read: its hosts registered with the desktop proxy (in process), and its cached
+ * project rows held, which is where a restored pane's host — local too — resolves from.
  * Undefined for an install that never paired one, whose boot does exactly what it did.
  */
-function prepareRemoteHosts(): Promise<void> | undefined {
+function prepareRemoteHosts(): Promise<unknown> | undefined {
   if (!hasPairedRemote(useHostConfigStore.getState())) return undefined
-  return hostsRegistered()
+  return Promise.all([hostsRegistered(), seedProjectList()])
 }
 
 function showsChat(): boolean {

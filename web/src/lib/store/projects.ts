@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { Project } from '@/lib/types'
-import { dataOf } from '@/lib/loadable'
+import { dataOf, loading, success } from '@/lib/loadable'
+import { loadCache } from '@/lib/persistence/cache-store'
 import { createLoadableSlice, type LoadableSlice } from '@/lib/store/loadable-slice'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { getHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
@@ -83,6 +84,10 @@ function mergeProjectFrame(
   return next.sort(byOrder)
 }
 
+// Not 'projects': a list cached before projects carried a host would hand out rows
+// with no hostId to route by.
+const CACHE_KEY = 'projects-by-host'
+
 /** One paired host's rows, read on their own: they replace that host's rows and no others. */
 class HostRows {
   constructor(
@@ -151,9 +156,7 @@ export const useProjectDataStore = create<LoadableSlice<Project[], []>>()((set, 
       for (const hostId of upHostIds()) void readHostRows(hostId)
       return withHeldRemoteRows(local, dataOf(get().data))
     },
-    // Not 'projects': a list cached before projects carried a host would hand
-    // out rows with no hostId to route by.
-    cacheKey: () => 'projects-by-host',
+    cacheKey: () => CACHE_KEY,
     subscribe: (onFrame) => connected().subscribe(onFrame),
     mergeFrame: (list, frame) => {
       if (!(frame instanceof HostRows)) return mergeProjectFrame(list, frame, LOCAL_HOST.id)
@@ -161,6 +164,18 @@ export const useProjectDataStore = create<LoadableSlice<Project[], []>>()((set, 
     },
   })(set, get),
 )
+
+/**
+ * Holds the cached list before its first read, so a restored pane resolves its host at
+ * the first commit (an IDE route has no guard that loads the list). The rows stay
+ * `loading` — stale — until that read replaces the local ones wholesale: a project
+ * deleted meanwhile is gone at the first answer, and nothing reads it as gone before.
+ */
+export async function seedProjectList(): Promise<void> {
+  const cached = await loadCache<Project[]>('projects-data', CACHE_KEY)
+  if (!cached || useProjectDataStore.getState().data.status !== 'idle') return
+  useProjectDataStore.setState({ data: loading(success(cached.data, cached.fetchedAt)) })
+}
 
 export const useProjectStore = create<ProjectState>()(
   persist(
