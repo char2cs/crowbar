@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { fetchHomeWorkspace } from '@/lib/api'
+import { isHostResolved, subscribeHostResolution } from '@/lib/host-resolve'
 
 /**
  * Resolves (and caches) the stable home-workspace id for a project.
@@ -54,6 +55,8 @@ const UNRESOLVED: HomeWorkspaceState = {
 
 const states = new Map<string, HomeWorkspaceState>()
 const inflight = new Set<string>()
+/** Projects waiting for the project list to name their host, with the stop of that wait. */
+const awaitingHost = new Map<string, () => void>()
 const listeners = new Set<() => void>()
 
 function notify(): void {
@@ -72,11 +75,14 @@ function subscribe(listener: () => void): () => void {
  * stays visible until the next call re-fetches, so one lost GET at cold start
  * (daemon still replaying, sidecar respawn) cannot blank a project's home for
  * the whole session. A resolve that latched NO owning chat is not terminal
- * either: the daemon mints one on GET /home, so the next call re-reads.
+ * either: the daemon mints one on GET /home, so the next call re-reads. A
+ * project whose host is not known yet is pending, not failed: it re-enters
+ * once the project list places it.
  */
 export function ensureHomeWorkspaceResolved(projectId: string): void {
   const current = states.get(projectId)
   if ((current?.wsId && current.owningChatId) || inflight.has(projectId)) return
+  if (!isHostResolved({ projectId })) return awaitHost(projectId)
   inflight.add(projectId)
   fetchHomeWorkspace(projectId)
     .then((ws) => {
@@ -96,6 +102,17 @@ export function ensureHomeWorkspaceResolved(projectId: string): void {
       inflight.delete(projectId)
       notify()
     })
+}
+
+function awaitHost(projectId: string): void {
+  if (awaitingHost.has(projectId)) return
+  const stop = subscribeHostResolution(undefined, () => {
+    if (!isHostResolved({ projectId })) return
+    stop()
+    awaitingHost.delete(projectId)
+    ensureHomeWorkspaceResolved(projectId)
+  })
+  awaitingHost.set(projectId, stop)
 }
 
 /**
@@ -150,4 +167,6 @@ export function useHomeWorkspaceState(projectId: string | null): HomeWorkspaceSt
 export function __resetHomeWorkspaceResolverForTest(): void {
   states.clear()
   inflight.clear()
+  for (const stop of awaitingHost.values()) stop()
+  awaitingHost.clear()
 }

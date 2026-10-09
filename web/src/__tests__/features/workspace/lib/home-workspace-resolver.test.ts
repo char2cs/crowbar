@@ -1,5 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { idle, success } from '@/lib/loadable'
+import { useProjectDataStore } from '@/lib/store/projects'
+import type { Project } from '@/lib/types'
 
 const fetchHomeWorkspaceMock = vi.fn()
 
@@ -18,6 +22,14 @@ import {
 beforeEach(() => {
   fetchHomeWorkspaceMock.mockReset()
   __resetHomeWorkspaceResolverForTest()
+  useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+  useProjectDataStore.setState({ data: idle() })
+})
+
+afterEach(() => {
+  __resetHomeWorkspaceResolverForTest()
+  useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+  useProjectDataStore.setState({ data: idle() })
 })
 
 describe('home-workspace-resolver', () => {
@@ -152,5 +164,69 @@ describe('home-workspace-resolver', () => {
       })
       expect(getHomeWorkspaceId('p1')).toBeNull()
     })
+  })
+})
+
+// On a paired install a cold boot asks before the project list has named the project's host:
+// that is pending, not "Project Home unavailable", and it heals when the list lands.
+describe('home-workspace-resolver on an install that paired a remote', () => {
+  const row = (id: string, hostId = 'local'): Project => ({
+    id,
+    name: id,
+    path: `/work/${id}`,
+    lastActivity: new Date(0),
+    hostId,
+  })
+  beforeEach(() => {
+    useHostConfigStore.getState().addHost({
+      id: 'host-2',
+      name: 'host-2',
+      endpoint: 'host-2.example:3737',
+      pairedFingerprint: 'SHA256:aaaa',
+      clientId: 'client-host-2',
+    })
+    fetchHomeWorkspaceMock.mockImplementation((projectId: string) =>
+      Promise.resolve({ id: `ws-${projectId}`, projectId, kind: 'home', owningChatId: 'c-home' }),
+    )
+  })
+
+  it('shows no error and requests nothing until the project list places the project', async () => {
+    const { result } = renderHook(() => useHomeWorkspaceState('p1'))
+
+    act(() => ensureHomeWorkspaceResolved('p1'))
+    expect(fetchHomeWorkspaceMock).not.toHaveBeenCalled()
+    expect(result.current).toEqual({
+      wsId: null,
+      owningChatId: null,
+      localPath: null,
+      error: false,
+    })
+
+    act(() => useProjectDataStore.setState({ data: success([row('p1')]) }))
+    await waitFor(() => expect(result.current.wsId).toBe('ws-p1'))
+    expect(fetchHomeWorkspaceMock).toHaveBeenCalledExactlyOnceWith('p1')
+    expect(result.current.error).toBe(false)
+  })
+
+  it('stays pending, not failed, while a loaded list lacks the project, and heals when it arrives', async () => {
+    useProjectDataStore.setState({ data: success([row('other')]) })
+    const { result } = renderHook(() => useHomeWorkspaceState('p1'))
+
+    act(() => ensureHomeWorkspaceResolved('p1'))
+    expect(result.current.error).toBe(false)
+    expect(fetchHomeWorkspaceMock).not.toHaveBeenCalled()
+
+    act(() => useProjectDataStore.setState({ data: success([row('other'), row('p1', 'host-2')]) }))
+    await waitFor(() => expect(result.current.wsId).toBe('ws-p1'))
+  })
+
+  it('repeated calls while pending do not stack waits: one request when the host resolves', async () => {
+    ensureHomeWorkspaceResolved('p1')
+    ensureHomeWorkspaceResolved('p1')
+    ensureHomeWorkspaceResolved('p1')
+
+    act(() => useProjectDataStore.setState({ data: success([row('p1')]) }))
+    await waitFor(() => expect(getHomeWorkspaceId('p1')).toBe('ws-p1'))
+    expect(fetchHomeWorkspaceMock).toHaveBeenCalledTimes(1)
   })
 })
