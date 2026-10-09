@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-27-remote-instances-design.md` (§2 component boundaries, §4 project aggregation & routing, §5 UI). This plan's Tauri command calls are built in `docs/superpowers/plans/2026-09-27-remote-instances-tauri-bridge.md` (now fully complete, including its own final review and fix round) — confirm before this plan's Task 2.
 
-> **READ FIRST — Replan (2026-10-09, after rebasing onto develop).** Task 8 Steps 5–6 and Task 8b are SUPERSEDED, Task 10 is re-scoped, Task 9 gains a wiring step, and Tasks 12–19 are new (see "## Replan" at the bottom of this file). Execution order: 8 (Steps 1–4, done) → 12 → 13 → 14 → 15 → 16 → 17 → 18 → 6 → 9 → 10 → 11 → whole-plan review → 19. Where this banner conflicts with older text below, this banner wins.
+> **READ FIRST — Replan (2026-10-09, after rebasing onto develop).** Task 8 Steps 5–6 and Task 8b are SUPERSEDED, Task 10 is re-scoped, Task 9 gains a wiring step, and Tasks 12–19 are new (see "## Replan" at the bottom of this file). Execution order: 8 (Steps 1–4, done) → 12 → 20 → 13 → 14 → 15 → 16 → 17 → 18 → 6 → 9 → 10 → 11 → whole-plan review → 19. Where this banner conflicts with older text below, this banner wins.
 
 ## Amendment (written before Task 1 dispatch — the Tauri bridge plan's real command surface diverged from this draft)
 
@@ -1153,7 +1153,7 @@ The original Task 10's host up/down reconciliation, tombstoning and "host comes 
 1. A request failing with `isHostUnreachableError` → existing toast mechanism, "<host name> is unreachable"; runtime status `'down'`; rows stay.
 2. `isHostIdentityChangedError` → a distinctly worded, alarming message (spec §3: hard reject, "this host's identity changed"), status `'needs-repair'`, never retried; tell the user re-pairing is required and needs the host's CLI.
 3. A 401 on a host whose status was `'up'` → `'needs-repair'` (spec §3), no retry.
-4. Classified in ONE place (`classifyHostFailure(err)`) shared by the actions, not re-implemented per call site. Task 14 makes `apiFetch` attach the target `hostId` to `ApiError`, so the classifier needs no lookup.
+4. Classified in ONE place — reuse the `classifyHostFailure(err)` that Task 18 creates for the prober — shared by the actions, not re-implemented per call site. Task 14 makes `apiFetch` attach the target `hostId` to `ApiError`, so the classifier needs no lookup.
 5. Revoke (carry-forward from Task 5's review): if the server-side DELETE succeeds but a local cleanup call (`unregisterRemoteHost`/`forgetHostToken`) then throws, toast the failure, log it, and STILL remove the host row (the credential is dead server-side; a "live" row is wrong).
 6. Tests for every branch, including that no retry fires for 2 and 3.
 
@@ -1188,7 +1188,7 @@ A project/workspace-scoped URL is built by a small set of builders (`lib/workspa
 
 ### Execution order
 
-8 (Steps 1–4, done: `91dceb09b`) → **12 → 13 → 14 → 15 → 16 → 17 → 18** → 6 → 9 → 10 → 11 → whole-plan final review → Task 19 (end-to-end run). Strictly one task at a time in this worktree.
+8 (Steps 1–4, done: `91dceb09b`) → **12 → 20 → 13 → 14 → 15 → 16 → 17 → 18** → 6 → 9 → 10 → 11 → whole-plan final review → Task 19 (end-to-end run). Strictly one task at a time in this worktree.
 
 ---
 
@@ -1212,6 +1212,20 @@ e. `docker restart <c>`: fingerprint unchanged (identity persisted), token still
 f. With the token: `GET /v0/system/browse?path=<container home>` lists directories; create a project on a `git init`'d directory inside the container via `POST /v0/projects` and see it in `GET /v0/projects`.
 g. Revoke: `DELETE /v0/clients/:id` with the token → the same token now returns 401 and re-redeeming a fresh code for the same device name does NOT resurrect it.
 Do not touch the maintainer's existing containers or `~/.crowbar`. Remove your test containers/volumes afterwards.
+
+---
+
+### Task 20: guard `/v0/health` over TLS; persist remote projects (daemon + container)
+
+**Why:** `health.Register(rg)` is registered before `requireBearerAuth` (`api/internal/api/v0/router.go`, comment: "health is probed before a host is paired"). The app never probes health before pairing (its fingerprint probe is a bare TLS handshake), so the open route buys nothing and costs two things: it hands pid + version to anyone who can reach the TCP port, and a revoked or invalid token still sees the host as `up` on the periodic probe (spec §3 says a 401 must mark the host needs-repair). Plaintext listeners (unix socket, loopback dev TCP) already pass `requireBearerAuth`, so the desktop supervisor and the e2e harness are unaffected.
+
+**Files:** `api/internal/api/v0/router.go`, `api/internal/api/v0/route_audit_test.go`, the health endpoint tests, `docker/Dockerfile`, `docker/docker-compose.yml`.
+
+**Requirements**
+1. Move `health.Register(rg)` below `rg.Use(requireBearerAuth(...))`. Over TLS an unauthenticated `GET /v0/health` → 401; with a valid bearer → 200; over the unix socket and loopback TCP it still answers without a token. Update `route_audit_test.go`'s open-vs-guarded lists and the TLS no-auth test (it must now require 401 from `/v0/health` too, and fail if health is moved back above the guard — break it once to prove it). Pairing's `RegisterOpen` routes stay first and open.
+2. Grep every other consumer of `/v0/health` (desktop `sidecar/mod.rs`, `diagnostics.rs`, `scripts/e2e/lib/daemon.mjs`, CI workflows, compose/Docker healthchecks) and confirm each reaches the daemon over a plaintext listener; adapt any that don't.
+3. Docker: declare a second volume for projects (e.g. `/home/crowbar/projects`, owned by the non-root user) so repos created on the remote survive container recreation; document in the compose file. Verify: create a project on a git repo under that path, `docker rm -f` + run a new container on the same volumes → the repo is still there and the daemon lists the project.
+4. Verify with the real image: rebuild `crowbar-remote:dev`; unauthenticated `curl -k https://localhost:<port>/v0/health` → 401; after pairing, with the token → 200; `docker exec <c> crowbar pair` still works (it dials the local socket).
 
 ---
 
@@ -1285,7 +1299,7 @@ Do not touch the maintainer's existing containers or `~/.crowbar`. Remove your t
 
 **Requirements**
 1. **Bootstrap registration.** In Tauri, before the first project fetch, call `registerRemoteHost(id, endpoint)` for every persisted host (the Rust registry is in-memory). Await it; expose a readiness flag so nothing fetches a remote host earlier. Add/remove keep registry and store in step (`unregisterRemoteHost` on remove).
-2. **App-wide prober.** One owner starts probing every configured host for the app's lifetime (not only while Settings → Hosts is open) and stops on removal. Settings only reads status (it may offer "check now"). Boot with a down remote host must not delay or fail Local.
+2. **App-wide prober.** One owner starts probing every configured host for the app's lifetime (not only while Settings → Hosts is open) and stops on removal. Create `classifyHostFailure(err)` here (unreachable → `'down'`; identity-changed → `'needs-repair'`; HTTP 401 → `'needs-repair'`; anything else → `'down'`) and use it in `probeHost` — with Task 20 guarding `/v0/health`, a revoked/invalid token now shows up as 401 on the periodic probe (spec §3), so the prober must not treat it as plain `'down'`. Task 10 reuses this classifier. Settings only reads status (it may offer "check now"). Boot with a down remote host must not delay or fail Local.
 3. **Rows survive.** The project list keeps showing a host's projects (with a down/unknown dot) while that host is `unknown`/`down`; a re-read replaces only the rows of hosts that were read successfully. At boot, remote rows come from the `projects-by-host` cache until the host is probed `up`. A local read failure keeps today's behaviour (Task 8 deviation 3).
 4. **Per-host live streams.** For every host that is `up`, subscribe `qualify(hostId, '/v0/projects')` through `wsManager`; frames merge with the host taken from the endpoint (`mergeProjectFrame` stops defaulting to Local for non-local sockets — Task 8 gap D7). Unsubscribe when the host leaves `up` or is removed; on `down→up` re-fetch that host's projects (only that host) and resubscribe, no app restart.
 5. **Removal.** Removing/revoking a host tombstones that host's projects through the existing deleted-project path, destroys its runtime store, closes its subscriptions; if the open route belonged to it, the existing "project missing" redirect applies.
