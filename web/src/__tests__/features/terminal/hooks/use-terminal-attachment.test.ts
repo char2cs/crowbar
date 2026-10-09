@@ -17,6 +17,7 @@ const bridge = vi.hoisted(() => {
     live: ['pty-1', 'pty-A', 'pty-B', 'pty-C'] as string[],
     listCalls: [] as string[],
     listGate: null as Promise<void> | null,
+    createGate: null as Promise<void> | null,
     failList: false,
     refuseOpen: false,
     created: 0,
@@ -57,6 +58,7 @@ vi.mock('@/lib/crowbar-bridge', () => ({
     return [...bridge.live]
   },
   terminalCreate: async () => {
+    if (bridge.createGate) await bridge.createGate
     bridge.created++
     return `fresh-${bridge.created}`
   },
@@ -106,6 +108,7 @@ beforeEach(() => {
   bridge.opened.length = 0
   bridge.listCalls.length = 0
   bridge.listGate = null
+  bridge.createGate = null
   bridge.failList = false
   bridge.refuseOpen = false
   bridge.created = 0
@@ -446,6 +449,34 @@ describe('on an install that has paired a remote host', () => {
 
     expect(bridge.opened).toHaveLength(0)
     expect(result.current.connection).toBeNull()
+  })
+
+  // A PTY the daemon has made is the tab's, whether or not it could be opened: forgetting
+  // it would have the next attach make a second one and leave the first running unseen.
+  it('remembers a PTY created as the host was revoked, and re-attaches it when paired back', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    useTerminalStore.setState({ sessions: new Map() })
+    let created = () => {}
+    bridge.createGate = new Promise<void>((r) => {
+      created = r
+    })
+    const { result, settle } = render({ workspaceId: 'ws-remote' })
+    await settle()
+
+    act(() => useHostConfigStore.getState().removeHost('host-1'))
+    created()
+    await settle()
+
+    expect(bridge.opened).toHaveLength(0)
+    expect(useTerminalStore.getState().getSession('tab-1')?.connectionId).toBe('fresh-1')
+
+    bridge.live = [...bridge.live, 'fresh-1'] // the daemon is running the PTY it made
+    act(() => pairRemoteHost('host-1'))
+    await settle()
+
+    expect(bridge.created).toBe(1)
+    expect(bridge.opened.map((c) => c.sessionId)).toEqual(['fresh-1'])
+    expect(result.current.connection).toBe(bridge.opened[0])
   })
 
   it('tells the user instead of letting a refused transport escape the attach', async () => {
