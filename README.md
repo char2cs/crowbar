@@ -100,14 +100,14 @@ Builds are not code-signed yet, so macOS will ask you to confirm the first launc
 
 Crowbar is open-source and contributions are welcome. Building it needs Go, [Bun](https://bun.sh) and Rust.
 
-| Command              | Description                                       |
-| -------------------- | ------------------------------------------------- |
-| `make dev`           | Daemon, web and desktop together, with hot reload |
-| `make dev-desktop`   | Just the Tauri app                                |
-| `make build`         | Web bundle, Go daemon, and desktop app            |
-| `make test`          | api + web + desktop                               |
-| `make lint`          | Lint everything                                   |
-| `make test-coverage` | Tests with coverage reports                       |
+| Command              | Description                                                                       |
+| -------------------- | --------------------------------------------------------------------------------- |
+| `make dev`           | Daemon, web and desktop together, with hot reload                                 |
+| `make dev-desktop`   | Just the Tauri app                                                                |
+| `make build`         | Web bundle, Go daemon, and desktop app                                            |
+| `make test`          | api + web + desktop                                                               |
+| `make lint`          | Lint everything                                                                   |
+| `make test-coverage` | Tests with coverage reports                                                       |
 | `make docker-up`     | Self-hosted daemon at `https://localhost:${CROWBAR_PORT:-3737}` (self-signed TLS) |
 
 Before opening a PR, always run:

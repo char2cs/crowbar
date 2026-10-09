@@ -14,16 +14,20 @@ services:
     image: ghcr.io/rabbytesoftware/crowbar:${CROWBAR_WEB:-embed}
     ports:
       # Self-signed TLS: connect to https://localhost:${CROWBAR_PORT:-3737}; plain http gets 400.
+      # Never proxy to a plaintext `--host tcp://127.0.0.1:...` bind: "no TLS" is how the daemon
+      # recognises a local caller, so a proxy there exposes everything, pairing-code minting included.
       - "${CROWBAR_PORT:-3737}:3737"
     volumes:
-      # TLS identity and paired clients; losing it makes every client re-pair. A named volume,
-      # not a bind mount: Docker Desktop on macOS cannot host the daemon's unix socket on one.
-      # A /root/.crowbar volume from the old root-user image is not picked up; recreate it.
+      # Not disposable: the TLS identity, paired clients, the project/chat database and every
+      # worktree the daemon creates. Named volume, not a bind mount (Docker Desktop on macOS
+      # cannot host its unix socket). A /root/.crowbar volume from the old image is not picked up.
       - crowbar-data:/home/crowbar/.crowbar
       # Repos created on the remote must live under here to survive the container. A bind
       # mount works too; on Linux `chown 1000:1000` the host directory first.
       - crowbar-projects:/home/crowbar/projects
-      # ssh clones need a key and known_hosts, which a fresh container lacks (chmod 600 the key):
+      # ssh clones need a key and known_hosts, which a fresh container lacks. A bind-mounted key
+      # keeps the host uid: on Linux a mode-600 key owned by a uid other than 1000 is unreadable
+      # by the `crowbar` user, so chown it to 1000 first.
       # - ~/.ssh/id_ed25519:/home/crowbar/.ssh/id_ed25519:ro
       # - ~/.ssh/known_hosts:/home/crowbar/.ssh/known_hosts:ro
     # `git config --global` is stored in the crowbar-data volume (GIT_CONFIG_GLOBAL), so a
