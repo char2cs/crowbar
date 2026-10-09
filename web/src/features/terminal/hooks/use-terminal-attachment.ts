@@ -117,13 +117,13 @@ export function useTerminalAttachment({
         toast.error('Terminal unavailable', 'Could not start the terminal. Try reopening the tab.')
         return
       }
-      if (mine !== generation) return // superseded while the daemon answered
-      // A PTY the daemon made is this tab's even if it cannot be opened now: remember it
-      // first, or the next attach makes a second one and leaves this one running unseen.
+      // A PTY the daemon made is this tab's even if this attempt was superseded or the
+      // host cannot be dialled now: remember it first, or the next attach makes a second.
       if ('sessionId' in result) {
         useTerminalStore.getState().updateSession(sessionId, { connectionId: result.sessionId })
         saveReconnect(wsId, sessionId, result.sessionId)
       }
+      if (mine !== generation) return // superseded while the daemon answered
       // The host was revoked while it answered: wait for it again rather than dial it.
       if (!isHostResolved({ wsId })) {
         void attach()

@@ -259,6 +259,29 @@ describe('useTerminalAttachment', () => {
     expect(bridge.opened[0].close).toHaveBeenCalled()
   })
 
+  // The daemon made the PTY the moment it answered; forgetting it because the view left
+  // meanwhile would have the next mount make a second and leave this one running unseen.
+  it('unmount while the daemon creates the PTY remembers it, so a remount attaches it rather than making another', async () => {
+    let created = () => {}
+    bridge.createGate = new Promise<void>((r) => {
+      created = r
+    })
+    const first = render()
+    await first.settle()
+
+    first.unmount()
+    created()
+    await first.settle()
+
+    bridge.live = [...bridge.live, 'fresh-1'] // the daemon is running the PTY it made
+    const second = render()
+    await second.settle()
+
+    expect(bridge.created).toBe(1)
+    expect(bridge.opened.map((c) => c.sessionId)).toEqual(['fresh-1'])
+    expect(second.result.current.connection).toBe(bridge.opened[0])
+  })
+
   it('a daemon that cannot be asked is retried when the app reconnects to it — no timer', async () => {
     useTerminalStore.getState().updateSession('tab-1', { connectionId: 'pty-1' })
     useConnectionStore.setState({ status: 'disconnected' })
