@@ -5,7 +5,7 @@ import { dataOf, loading, success } from '@/lib/loadable'
 import { loadCache } from '@/lib/persistence/cache-store'
 import { createLoadableSlice, type LoadableSlice } from '@/lib/store/loadable-slice'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { getHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { getHostRuntime, onHostUp } from '@/features/hosts/stores/host-runtime-registry'
 import { LOCAL_HOST } from '@/features/hosts/types'
 
 /**
@@ -145,8 +145,8 @@ function upHostIds(): string[] {
 // §6: the project list is GET-seeded once and then kept live by the
 // `/v0/projects` WS stream's frames alone — the snapshot it sends on subscribe
 // merges as no-ops, so boot makes one request.
-export const useProjectDataStore = create<LoadableSlice<Project[], []>>()((set, get) =>
-  createLoadableSlice<Project[], []>({
+export const useProjectDataStore = create<LoadableSlice<Project[], []>>()((set, get) => {
+  const slice = createLoadableSlice<Project[], []>({
     store: 'projects-data',
     // The local daemon's answer is published the moment it lands, with each paired host's
     // held rows; a host that is up merges in when it answers. Its reads start only after
@@ -162,8 +162,21 @@ export const useProjectDataStore = create<LoadableSlice<Project[], []>>()((set, 
       if (!(frame instanceof HostRows)) return mergeProjectFrame(list, frame, LOCAL_HOST.id)
       return isConfigured(frame.hostId) ? withHostRows(list, frame.hostId, frame.rows) : list
     },
-  })(set, get),
-)
+  })(set, get)
+  return {
+    ...slice,
+    // Live: the local daemon's frames, and each paired host's rows whenever it comes up
+    // (at boot every host is still unknown when the list is first read).
+    startSync: () => {
+      const stopFrames = slice.startSync()
+      const stopHosts = onHostUp((hostId) => void readHostRows(hostId))
+      return () => {
+        stopFrames()
+        stopHosts()
+      }
+    },
+  }
+})
 
 /**
  * Holds the cached list before its first read, so a restored pane resolves its host at

@@ -6,6 +6,7 @@ import { getVisibleProjectIds } from '@/lib/store/project-visibility'
 import { toSidebarRepo } from '@/lib/store/build-repo-tree'
 import { subscribeHomeTree } from '@/lib/store/home-tree'
 import { isHostResolved, subscribeHostResolution } from '@/lib/host-resolve'
+import { startHostProber } from '@/features/hosts/lib/host-prober'
 import { projectBase, repoBase } from '@/lib/project-url'
 import { dataOf } from '@/lib/loadable'
 import {
@@ -584,15 +585,14 @@ export function useAppSyncEngine(): void {
       //    is joined rather than repeated (frames replay onto its answer).
       rootUnsubscribes.push(useProjectDataStore.getState().startSync())
       void useProjectDataStore.getState().fetch()
+      // Every paired host's status, for the app's life: a host found up merges into the list.
+      rootUnsubscribes.push(startHostProber())
 
-      // 3. Per-project / per-repo streams for whatever is visible. The provider
-      //    mounts at the root BEFORE any project exists (fresh start / OOBE), so
-      //    visibility usually arrives AFTER mount — reconcile now, and again on
-      //    every project-, project-list- or sidebar-store change (active project
-      //    switched, the project list landing, a repo seeded into the tree).
-      //    Without this, importing the first project never populates the
-      //    entity cache and the sidebar stays empty.
-      //
+      // 3. Per-project / per-repo streams for whatever is visible. The provider mounts
+      //    at the root BEFORE any project exists (fresh start / OOBE), so visibility
+      //    usually arrives AFTER mount: reconcile now, and again on every project-,
+      //    project-list- or sidebar-store change; otherwise importing the first project
+      //    never populates the entity cache and the sidebar stays empty.
       //    The host-resolution subscription is what makes "open by default" work: a project
       //    opens once the list (`/v0/projects`) names it and its host, so the set only grows
       //    when that delivers. reconcile()'s desired-set guard keeps the extra wake-ups free.

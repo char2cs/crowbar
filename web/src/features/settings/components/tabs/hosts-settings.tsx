@@ -1,13 +1,10 @@
 import { Plus, Trash } from '@phosphor-icons/react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { AddHostDialog } from '@/features/hosts/components/add-host-dialog'
-import { startHostProbing } from '@/features/hosts/lib/host-probe'
+import { useHostStatus } from '@/features/hosts/hooks/use-host-status'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import {
-  destroyHostRuntime,
-  getOrCreateHostRuntime,
-} from '@/features/hosts/stores/host-runtime-registry'
+import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { LOCAL_HOST, type Host, type HostStatus } from '@/features/hosts/types'
 import { forgetHostToken, unregisterRemoteHost } from '@/lib/crowbar-bridge'
 import { apiFetch } from '@/lib/api'
@@ -30,23 +27,9 @@ const STATUS_DOT_CLASS: Record<HostStatus, string> = {
   'needs-repair': 'bg-warning',
 }
 
-/** A row's live up/down dot. Probing is a side effect of THIS row being
- *  mounted, not of the host config store, so it starts/stops with the row —
- *  per this plan's Global Constraints (stores hold state, components own
- *  side effects). */
+/** A row's live dot: the status the app's own prober last recorded for the host. */
 function HostStatusDot({ hostId }: { hostId: string }) {
-  const [status, setStatus] = useState<HostStatus>('unknown')
-
-  useEffect(() => {
-    const runtime = getOrCreateHostRuntime(hostId)
-    setStatus(runtime.getState().status)
-    const unsubscribe = runtime.subscribe((s) => setStatus(s.status))
-    const stopProbing = startHostProbing(hostId)
-    return () => {
-      unsubscribe()
-      stopProbing()
-    }
-  }, [hostId])
+  const status = useHostStatus(hostId)
 
   return (
     <span

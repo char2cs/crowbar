@@ -17,11 +17,12 @@ vi.mock('@/lib/ws/manager', () => {
   throw new Error('the project list store loaded the socket manager')
 })
 
-// The list's transport, faked: the local read and the local `/v0/projects` socket.
+// The list's transport, faked: each host's read and the local `/v0/projects` socket.
 const readLocal = vi.fn<() => Promise<Project[]>>()
+const readRemote = vi.fn<(hostId: string) => Promise<Project[]>>()
 const socket = { emit: null as null | ((frame: unknown) => void) }
 const transport = {
-  read: () => readLocal(),
+  read: (hostId: string) => (hostId === 'local' ? readLocal() : readRemote(hostId)),
   subscribe: (cb: (frame: unknown) => void) => {
     socket.emit = cb
     return () => {
@@ -72,6 +73,7 @@ async function freshStore() {
 beforeEach(() => {
   resetDB()
   readLocal.mockReset()
+  readRemote.mockReset()
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
 })
 afterEach(() => {
@@ -175,5 +177,45 @@ describe('project list at boot', () => {
     socket.emit!({ reconnected: true })
     await settle()
     await vi.waitFor(() => expect(readLocal).toHaveBeenCalledTimes(2))
+  })
+})
+
+describe('a paired host coming up', () => {
+  const host = (id: string) => ({
+    id,
+    name: id,
+    endpoint: `${id}.lan:3737`,
+    pairedFingerprint: 'ff',
+    clientId: `client-${id}`,
+  })
+
+  // Boot reads the list while every host is still unknown: a host's rows arrive when it does.
+  it('has its rows read and merged while the list is live, and no other host read', async () => {
+    const store = await freshStore()
+    const { useHostConfigStore } = await import('@/features/hosts/stores/host-config-store')
+    const { getOrCreateHostRuntime } = await import('@/features/hosts/stores/host-runtime-registry')
+    useHostConfigStore.setState({ hosts: [host('h1'), host('h2')] })
+    readLocal.mockResolvedValue([p('a', 0)])
+    readRemote.mockImplementation(async (hostId) => [
+      { ...wire(`r-${hostId}`, 0), hostId } as unknown as Project,
+    ])
+    const stop = store.getState().startSync()
+    await store.getState().fetch()
+
+    getOrCreateHostRuntime('h1').getState().setStatus('up')
+
+    await vi.waitFor(() =>
+      expect(dataOf(store.getState().data)?.map((x) => `${x.id}@${x.hostId}`)).toEqual([
+        'a@local',
+        'r-h1@h1',
+      ]),
+    )
+    expect(readRemote.mock.calls).toEqual([['h1']])
+    expect(readLocal).toHaveBeenCalledTimes(1)
+
+    stop()
+    getOrCreateHostRuntime('h2').getState().setStatus('up')
+    await settle()
+    expect(readRemote.mock.calls).toEqual([['h1']])
   })
 })

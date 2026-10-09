@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 vi.mock('@/lib/crowbar-bridge', () => ({
   isTauri: () => true,
@@ -7,11 +7,8 @@ vi.mock('@/lib/crowbar-bridge', () => ({
   forgetHostToken: vi.fn(),
   probeRemoteFingerprint: vi.fn(),
 }))
-// A smart, path-agnostic mock: every test drives it with mockResolvedValue /
-// mockRejectedValue (never *Once*), so the DELETE call this suite asserts on
-// can never race a row's own health-probe apiFetch call for the same mock's
-// queued return value.
-vi.mock('@/lib/api', () => ({ apiFetch: vi.fn(), isHostIdentityChangedError: vi.fn(() => false) }))
+// Every request this tab can make goes through here: a revoke's DELETE, and nothing else.
+vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
 const toastErrorFn = vi.fn()
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: (...a: unknown[]) => toastErrorFn(...a) },
@@ -20,7 +17,12 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 import { apiFetch } from '@/lib/api'
 import { unregisterRemoteHost, forgetHostToken } from '@/lib/crowbar-bridge'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { getHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import {
+  destroyHostRuntime,
+  getHostRuntime,
+  getOrCreateHostRuntime,
+} from '@/features/hosts/stores/host-runtime-registry'
+import { useConnectionStore } from '@/lib/ws/connection-store'
 import { HostsSettings } from '@/features/settings/components/tabs/hosts-settings'
 
 describe('HostsSettings', () => {
@@ -49,6 +51,27 @@ describe('HostsSettings', () => {
     expect(screen.getByText('homelab')).toBeInTheDocument()
     expect(screen.getByTestId('host-status-local')).toBeInTheDocument()
     expect(screen.getByTestId('host-status-h1')).toBeInTheDocument()
+  })
+
+  // The app probes every host for its whole life; this tab only shows what it found.
+  it('shows each host’s status as the app last saw it, and probes nothing itself', () => {
+    useHostConfigStore.setState({
+      hosts: [{ id: 'h1', name: 'homelab', endpoint: 'x', pairedFingerprint: 'x', clientId: 'c1' }],
+    })
+    getOrCreateHostRuntime('h1').getState().setStatus('down')
+    useConnectionStore.setState({ status: 'connected' })
+
+    render(<HostsSettings />)
+
+    expect(screen.getByTestId('host-status-h1')).toHaveAttribute('aria-label', 'Offline')
+    expect(screen.getByTestId('host-status-local')).toHaveAttribute('aria-label', 'Online')
+    act(() => getOrCreateHostRuntime('h1').getState().setStatus('needs-repair'))
+    expect(screen.getByTestId('host-status-h1')).toHaveAttribute(
+      'aria-label',
+      'Needs repair — reconnect this host',
+    )
+    expect(apiFetch).not.toHaveBeenCalled()
+    destroyHostRuntime('h1')
   })
 
   it('does not offer to revoke or remove the Local entry', () => {

@@ -1,54 +1,73 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { probeHost } from '@/features/hosts/lib/host-probe'
-import {
-  getOrCreateHostRuntime,
-  destroyHostRuntime,
-} from '@/features/hosts/stores/host-runtime-registry'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
-vi.mock('@/lib/api', () => ({ apiFetch: vi.fn(), isHostIdentityChangedError: vi.fn(() => false) }))
-import { apiFetch, isHostIdentityChangedError } from '@/lib/api'
+const health = (status: number, headers: Record<string, string> = {}) =>
+  new Response(status === 200 ? JSON.stringify({ success: true, data: {} }) : null, {
+    status,
+    headers,
+  })
+
+let fetchMock: ReturnType<typeof vi.fn>
+
+beforeEach(() => {
+  ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+  pairRemoteHost('h1')
+  fetchMock = vi.fn()
+  vi.stubGlobal('fetch', fetchMock)
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+  resetHostWorld()
+  delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+})
 
 describe('probeHost', () => {
-  beforeEach(() => {
-    destroyHostRuntime('h1')
-    vi.mocked(apiFetch).mockReset()
-    vi.mocked(isHostIdentityChangedError).mockReset().mockReturnValue(false)
+  it('reads the host’s own /v0/health once and says it is up, with how long it took', async () => {
+    fetchMock.mockResolvedValue(health(200))
+
+    const probe = await probeHost('h1')
+
+    expect(probe).toEqual({ status: 'up', latencyMs: expect.any(Number) })
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['crowbar://h1/v0/health'])
   })
 
-  it('sets status "up" when the health call succeeds', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(undefined)
-    getOrCreateHostRuntime('h1')
-    await probeHost('h1')
-    expect(getOrCreateHostRuntime('h1').getState().status).toBe('up')
+  it('says down when the proxy cannot reach the host, and does not retry', async () => {
+    fetchMock.mockResolvedValue(health(503, { 'x-crowbar-proxy': 'host-unreachable' }))
+
+    expect(await probeHost('h1')).toEqual({ status: 'down' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('sets status "down" when the health call rejects with an ordinary error', async () => {
-    vi.mocked(apiFetch).mockRejectedValueOnce(new Error('unreachable'))
-    getOrCreateHostRuntime('h1')
-    await probeHost('h1')
-    expect(getOrCreateHostRuntime('h1').getState().status).toBe('down')
+  it('says needs-repair when the host presents another identity', async () => {
+    fetchMock.mockResolvedValue(health(502, { 'x-crowbar-proxy': 'host-identity-changed' }))
+
+    expect(await probeHost('h1')).toEqual({ status: 'needs-repair' })
   })
 
-  it('sets status "needs-repair" when the health call rejects with a host-identity-changed error', async () => {
-    const err = new Error('identity changed')
-    vi.mocked(apiFetch).mockRejectedValueOnce(err)
-    vi.mocked(isHostIdentityChangedError).mockReturnValue(true)
-    getOrCreateHostRuntime('h1')
-    await probeHost('h1')
-    expect(getOrCreateHostRuntime('h1').getState().status).toBe('needs-repair')
+  // /v0/health is guarded over TLS: a revoked token answers 401 on the periodic probe.
+  it('says needs-repair when the host refuses the token', async () => {
+    fetchMock.mockResolvedValue(health(401))
+
+    expect(await probeHost('h1')).toEqual({ status: 'needs-repair' })
   })
 
-  it('sets status "probing" while the call is in flight', async () => {
-    let resolve!: () => void
-    vi.mocked(apiFetch).mockReturnValueOnce(
-      new Promise((r) => {
-        resolve = () => r(undefined)
-      }),
+  it('says down when the host never answers, without waiting on the proxy’s own timeout', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    fetchMock.mockImplementation(
+      (_url: string, init?: RequestInit) =>
+        new Promise((_resolve, reject) =>
+          init?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('aborted', 'AbortError')),
+          ),
+        ),
     )
-    getOrCreateHostRuntime('h1')
-    const promise = probeHost('h1')
-    expect(getOrCreateHostRuntime('h1').getState().status).toBe('probing')
-    resolve()
-    await promise
+
+    const probe = probeHost('h1')
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(await probe).toEqual({ status: 'down' })
   })
 })

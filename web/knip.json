@@ -201,7 +201,7 @@
     "src/lib/types.ts": ["types"],
     "src/lib/workspace-scope.ts": ["exports"],
     "src/lib/workspace/branch-workspace.ts": ["files"],
-    "src/lib/ws/connection-store.ts": ["exports", "types"],
+    "src/lib/ws/connection-store.ts": ["exports"],
     "src/lib/ws/manager.ts": ["exports"],
     "src/lib/ws/types.ts": ["types"],
     "src/routes/_shell/ide/$projectId/home.tsx": ["exports"],
