@@ -21,6 +21,8 @@ import {
 import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
 import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
 import { fetchHomeChats, fetchRepoChats, fetchRepos, isNotFoundError } from '@/lib/api'
+import { isHostResolved, subscribeHostResolution } from '@/lib/host-resolve'
+import { useProjectDataStore } from '@/lib/store/projects'
 import { loadSidebarUI } from './sidebar-ui'
 import { useSidebarStore } from '@/lib/store/sidebar'
 
@@ -87,6 +89,7 @@ export async function upgradeWindowPaneLayout(layout: WorkspaceLayout): Promise<
  * chat listings of its view's project; drop a member only on a definitive
  * answer (the chat, or its whole project, is gone). A listing that fails
  * leaves its members unplaced for the next boot. No request when all placed.
+ * A project waits for its host to resolve (the project list names it).
  */
 export async function placeRestoredChatMembers(): Promise<void> {
   const { panes, views } = windowPaneStore.getState()
@@ -124,6 +127,7 @@ async function findProjectChats(
   projectId: string,
   wanted: ReadonlySet<string>,
 ): Promise<Map<string, string> | null | undefined> {
+  if (!(await projectHostSettled(projectId))) return undefined
   const found = new Map<string, string>()
   const record = (chats: ChatDTO[]) => {
     for (const chat of chats) if (wanted.has(chat.id)) found.set(chat.id, chat.workspaceId)
@@ -140,6 +144,21 @@ async function findProjectChats(
   } catch (err) {
     return isNotFoundError(err) ? null : undefined
   }
+}
+
+// Boot runs this before the project list loads, when a paired install cannot place any project.
+// Wait for the host; give up only once the loaded list still does not place it (no timer, no loop).
+function projectHostSettled(projectId: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const settle = () => {
+      const resolved = isHostResolved({ projectId })
+      if (!resolved && useProjectDataStore.getState().data.status !== 'success') return
+      stop()
+      resolve(resolved)
+    }
+    const stop = subscribeHostResolution(undefined, settle)
+    settle()
+  })
 }
 
 function emptyWhenNotFound(err: unknown): ChatDTO[] {
