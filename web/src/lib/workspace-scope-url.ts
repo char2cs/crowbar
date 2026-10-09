@@ -52,10 +52,8 @@ function ownedChatBase(wsId: string, leaf: string): string {
 }
 
 /**
- * The terminals base for a SPECIFIC chat opened in `wsId` — an agent pane, whose
- * PTY belongs to its own chat, which may be a sibling of the one that owns the
- * worktree. A sibling is no workspace's recorded owner, so `chatBase` could not
- * place it; the workspace it is opened in can.
+ * The terminals base for a SPECIFIC chat opened in `wsId` (an agent pane's own
+ * PTY). A sibling chat is no workspace's recorded owner, so only `wsId` can place it.
  */
 export function chatTerminalsBaseForWorkspace(wsId: string, chatId: string): string {
   return qualify(hostIdForWorkspace(wsId), `${chatPath(chatId)}/terminals`)

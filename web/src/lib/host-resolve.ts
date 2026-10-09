@@ -93,25 +93,33 @@ export function hostIdForChat(chatId: string): string {
 
 export type HostKey = { projectId: string; wsId?: never } | { wsId: string; projectId?: never }
 
+/** True when `hostIdForProject`/`hostIdForWorkspace` would not throw for `key`
+ *  right now — the non-hook twin of `useHostResolved`, for stream engines. */
+export function isHostResolved(key: HostKey): boolean {
+  const resolved =
+    key.wsId !== undefined ? resolveWorkspaceHost(key.wsId) : resolveProjectHost(key.projectId)
+  return 'hostId' in resolved
+}
+
+/** Calls `onChange` whenever something `isHostResolved` reads may have changed:
+ *  the host list, the project list and, for a workspace, its recorded scope. */
+export function subscribeHostResolution(
+  wsId: string | undefined,
+  onChange: () => void,
+): () => void {
+  const stops = [useHostConfigStore.subscribe(onChange), useProjectDataStore.subscribe(onChange)]
+  if (wsId !== undefined) stops.push(subscribeToWorkspaceScope(wsId, onChange))
+  return () => stops.forEach((stop) => stop())
+}
+
 /** True once `hostIdForProject`/`hostIdForWorkspace` would stop throwing for
  *  `key` — re-renders when the project list, the host list or the workspace's
  *  scope changes. */
 export function useHostResolved(key: HostKey): boolean {
   const wsId = key.wsId
   const subscribe = useCallback(
-    (onChange: () => void) => {
-      const stops = [
-        useHostConfigStore.subscribe(onChange),
-        useProjectDataStore.subscribe(onChange),
-      ]
-      if (wsId !== undefined) stops.push(subscribeToWorkspaceScope(wsId, onChange))
-      return () => stops.forEach((stop) => stop())
-    },
+    (onChange: () => void) => subscribeHostResolution(wsId, onChange),
     [wsId],
   )
-  return useSyncExternalStore(subscribe, () => {
-    const resolved =
-      key.wsId !== undefined ? resolveWorkspaceHost(key.wsId) : resolveProjectHost(key.projectId)
-    return 'hostId' in resolved
-  })
+  return useSyncExternalStore(subscribe, () => isHostResolved(key))
 }

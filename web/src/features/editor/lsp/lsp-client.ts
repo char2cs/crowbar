@@ -6,8 +6,9 @@
 
 import { apiFetch } from '@/lib/api'
 import { wsManager } from '@/lib/ws/manager'
+import { isHostResolved, subscribeHostResolution } from '@/lib/host-resolve'
 import { isHomeWorkspace, lspBaseForWorkspace } from '@/lib/workspace-scope-url'
-import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
+import { getOwningChatId } from '@/lib/workspace-scope'
 
 /** The daemon's lifecycle view of the server for one file's language. */
 export interface LspServerStatus {
@@ -42,9 +43,9 @@ const CHANGE_DEBOUNCE_MS = 400
 type DiagnosticsHandler = (filePath: string, diagnostics: LspDiagnostic[]) => void
 type OpenedListener = (wsId: string, filePath: string) => void
 
-/** The LSP route base for `wsId`, or null while it has none (home, no chat). */
+/** The LSP route base for `wsId`, or null while it has none (home, no chat, host not resolved). */
 function lspBase(wsId: string): string | null {
-  if (isHomeWorkspace(wsId) || !getOwningChatId(wsId)) return null
+  if (isHomeWorkspace(wsId) || !getOwningChatId(wsId) || !isHostResolved({ wsId })) return null
   return lspBaseForWorkspace(wsId)
 }
 
@@ -60,22 +61,22 @@ function post(url: string, body: unknown, signal?: AbortSignal): Promise<unknown
 /**
  * One workspace's LSP state. It exists while it holds an open document or a
  * diagnostics handler; its socket is open while it exists and the workspace's
- * owning chat is known (the scope registry is the owner of that fact).
+ * owning chat and host are known (the scope registry and host resolution own those).
  */
 class WorkspaceSession {
   readonly handlers = new Set<DiagnosticsHandler>()
   /** Open refcount per path: one didOpen for the first holder, didClose with the last. */
   readonly openRefs = new Map<string, number>()
-  /** Opens not sent yet because the owning chat is not known yet. */
+  /** Opens not sent yet because the owning chat or the host is not known yet. */
   readonly deferred = new Map<string, { content: string; languageId: string }>()
   readonly pendingChanges = new Map<
     string,
     { read: () => string | null; timer: ReturnType<typeof setTimeout> }
   >()
   private lastByFile = new Map<string, LspDiagnostic[]>()
-  /** The chat whose topic the socket is on, and its unsubscribe. */
-  private socket: { chatId: string; close: () => void } | null = null
-  private readonly stopWatchingScope: () => void
+  /** The route base the socket is on, and its unsubscribe. */
+  private socket: { base: string; close: () => void } | null = null
+  private readonly stopWatching: () => void
 
   constructor(
     readonly wsId: string,
@@ -86,8 +87,13 @@ class WorkspaceSession {
       text: string,
     ) => void,
   ) {
-    this.stopWatchingScope = subscribeToWorkspaceScope(wsId, () => this.followScope())
-    this.followScope()
+    this.stopWatching = subscribeHostResolution(wsId, () => this.followScope())
+    try {
+      this.followScope()
+    } catch (error) {
+      this.dispose() // a session that never gets stored must not leave a listener behind
+      throw error
+    }
   }
 
   base(): string | null {
@@ -111,21 +117,20 @@ class WorkspaceSession {
   }
 
   dispose(): void {
-    this.stopWatchingScope()
+    this.stopWatching()
     this.closeSocket()
     for (const filePath of [...this.pendingChanges.keys()]) this.cancelChange(filePath)
   }
 
-  // The owning chat arriving opens the socket and sends deferred opens; it
-  // going away (the workspace was deleted) closes the socket for good.
+  // The route base arriving (owning chat recorded, host resolved) opens the socket and
+  // sends deferred opens; it going away (workspace deleted, host revoked) closes it.
   private followScope(): void {
-    const chatId = this.base() ? getOwningChatId(this.wsId) : null
-    if (chatId === (this.socket?.chatId ?? null)) return
+    const base = this.base()
+    if (base === (this.socket?.base ?? null)) return
     this.closeSocket()
-    if (!chatId) return
-    const base = this.base()!
+    if (!base) return
     this.socket = {
-      chatId,
+      base,
       close: wsManager.subscribe(`${base}/ws`, (raw) => this.dispatch(raw as DiagnosticsEvent)),
     }
     const opens = [...this.deferred]

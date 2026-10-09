@@ -5,6 +5,7 @@ import {
   hostIdForChat,
   hostIdForProject,
   hostIdForWorkspace,
+  isHostResolved,
   useHostResolved,
 } from '@/lib/host-resolve'
 import { useProjectDataStore } from '@/lib/store/projects'
@@ -298,6 +299,24 @@ describe('hostIdForChat', () => {
     expect(hostIdForChat('sibling')).toBe('local')
     loadProjects(project('p-local', 'local'))
     expect(hostIdForChat('sibling')).toBe('local')
+  })
+})
+
+describe('isHostResolved', () => {
+  it('is useHostResolved’s answer for code that is not a component', () => {
+    configureHosts('host-1')
+    expect(isHostResolved({ projectId: 'p-remote' })).toBe(false)
+    loadProjects(project('p-remote', 'host-1'))
+    expect(isHostResolved({ projectId: 'p-remote' })).toBe(true)
+    expect(isHostResolved({ wsId: 'ws-1' })).toBe(false)
+    recordScope('ws-1', 'p-remote')
+    expect(isHostResolved({ wsId: 'ws-1' })).toBe(true)
+  })
+
+  it('never throws, where hostIdForProject does', () => {
+    configureHosts('host-1')
+    expect(() => hostIdForProject('p-unknown')).toThrow(HostNotResolvedError)
+    expect(isHostResolved({ projectId: 'p-unknown' })).toBe(false)
   })
 })
 

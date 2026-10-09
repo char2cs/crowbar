@@ -29,6 +29,7 @@ import {
   recordWorkspaceScope,
   setWorkspaceScope,
 } from '@/lib/workspace-scope'
+import type { Project } from '@/lib/types'
 
 const TOPIC_1 = '/v0/chats/chat-1/lsp/ws'
 const TOPIC_2 = '/v0/chats/chat-2/lsp/ws'
@@ -317,5 +318,111 @@ describe('LspClient.request', () => {
     await client.restart('w1', 'main.go')
     expect(posts()[1]).toBe('/v0/chats/chat-1/lsp/restart')
     expect(bodyOf(1)).toEqual({ path: 'main.go' })
+  })
+})
+
+// A remote workspace's LSP route names its host, which is unknown until the project
+// list loads and gone when the host is revoked. Neither may throw out of a scope write
+// (the IDE shell records the route's scope while rendering) or leave a socket behind.
+// Each test loads a fresh module graph: sessions follow the host and project stores,
+// so a session another test left open would otherwise react to this test's changes.
+describe('LspClient on a remote host', () => {
+  const REMOTE_TOPIC = 'crowbar://host-1/v0/chats/chat-4/lsp/ws'
+  const remoteProject = (): Project => ({
+    id: 'p-r',
+    name: 'p-r',
+    path: '/work/p-r',
+    lastActivity: new Date(0),
+    hostId: 'host-1',
+  })
+  const remoteScope = { projectId: 'p-r', repoId: 'r', wsId: 'w-remote', owningChatId: 'chat-4' }
+
+  async function freshGraph() {
+    vi.resetModules()
+    const [lsp, scopes, hosts, projects, loadable] = await Promise.all([
+      import('@/features/editor/lsp/lsp-client'),
+      import('@/lib/workspace-scope'),
+      import('@/features/hosts/stores/host-config-store'),
+      import('@/lib/store/projects'),
+      import('@/lib/loadable'),
+    ])
+    hosts.useHostConfigStore.getState().addHost({
+      id: 'host-1',
+      name: 'host-1',
+      endpoint: 'host-1.example:3737',
+      pairedFingerprint: 'SHA256:aaaa',
+      clientId: 'client-1',
+    })
+    return {
+      client: new lsp.LspClient(),
+      scopes,
+      removeHost: () => hosts.useHostConfigStore.getState().removeHost('host-1'),
+      loadProjects: (...rows: Project[]) =>
+        projects.useProjectDataStore.setState({ data: loadable.success(rows) }),
+    }
+  }
+
+  it('defers an open made before the project list loads, and sends it once when the host resolves', async () => {
+    const { client, scopes, loadProjects } = await freshGraph()
+    scopes.recordWorkspaceScope(remoteScope)
+
+    await expect(
+      client.documentOpen('w-remote', 'a.ts', 'x', 'typescript'),
+    ).resolves.toBeUndefined()
+    expect(() => scopes.recordWorkspaceScope(remoteScope)).not.toThrow()
+    expect(apiFetch).not.toHaveBeenCalled()
+    expect(subscribe).not.toHaveBeenCalled()
+
+    loadProjects(remoteProject())
+
+    expect(subscribe.mock.calls.map(([topic]) => topic)).toEqual([REMOTE_TOPIC])
+    expect(posts()).toEqual(['crowbar://host-1/v0/chats/chat-4/lsp/didOpen'])
+    scopes.recordWorkspaceScope(remoteScope)
+    expect(postsTo('/didOpen')).toHaveLength(1)
+  })
+
+  it('answers a request or status with nothing, not a throw, until the host resolves', async () => {
+    const { client, scopes, loadProjects } = await freshGraph()
+    scopes.recordWorkspaceScope(remoteScope)
+    await expect(client.request('w-remote', 'hover', {})).resolves.toBeNull()
+    await expect(client.status('w-remote', 'a.ts')).resolves.toBeNull()
+    expect(apiFetch).not.toHaveBeenCalled()
+
+    loadProjects(remoteProject())
+    await client.request('w-remote', 'hover', {})
+    expect(posts()).toEqual(['crowbar://host-1/v0/chats/chat-4/lsp/hover'])
+  })
+
+  it('closes its socket when the host is revoked, and a later scope write neither throws nor starves a listener', async () => {
+    const { client, scopes, loadProjects, removeHost } = await freshGraph()
+    loadProjects(remoteProject())
+    scopes.recordWorkspaceScope({ ...remoteScope, repoId: 'r1', wsId: 'ws-1' })
+    client.onDiagnosticsUpdate('ws-1', () => {})
+    expect(subscribe).toHaveBeenCalledTimes(1)
+    const topic = String(subscribe.mock.calls[0]?.[0])
+
+    removeHost()
+    expect(unsubscribes.get(topic)).toHaveBeenCalledTimes(1)
+    loadProjects() // the re-read that no longer holds the host's rows
+
+    const later = vi.fn()
+    scopes.subscribeToWorkspaceScope('ws-1', later)
+    expect(() => scopes.recordWorkspaceScopeFromPath('/ide/p-r/r1/ws-1')).not.toThrow()
+    expect(later).toHaveBeenCalledTimes(1)
+    expect(subscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves no scope listener behind when a new session fails to open its socket', async () => {
+    const { client, scopes, loadProjects } = await freshGraph()
+    loadProjects(remoteProject())
+    scopes.recordWorkspaceScope(remoteScope)
+    subscribe.mockImplementationOnce(() => {
+      throw new Error('socket refused')
+    })
+    expect(() => client.onDiagnosticsUpdate('w-remote', () => {})).toThrow('socket refused')
+
+    scopes.recordWorkspaceScope(remoteScope)
+
+    expect(subscribe).toHaveBeenCalledTimes(1)
   })
 })

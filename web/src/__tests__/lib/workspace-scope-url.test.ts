@@ -14,16 +14,12 @@ import {
   chatTerminalsBaseForWorkspace,
   filesBaseForWorkspace,
   gitBaseForWorkspace,
-  identityBaseForWorkspace,
   isHomeWorkspace,
-  lspBaseForWorkspace,
   OwningChatNotRecordedError,
-  repoChatsBaseForWorkspace,
-  reviewBaseForWorkspace,
-  terminalsBaseForWorkspace,
   workspaceBase,
   worktreeVerbBaseForWorkspace,
 } from '@/lib/workspace-scope-url'
+import * as urls from '@/lib/workspace-scope-url'
 import type { Host } from '@/features/hosts/types'
 import type { Project } from '@/lib/types'
 
@@ -38,10 +34,12 @@ const REPO: WorkspaceScope = {
 }
 const HOME: WorkspaceScope = { projectId: 'p1', repoId: '', wsId: HOME_WS }
 
+type Urls = typeof urls
 const THROWS = 'throws'
 interface Case {
   name: string
-  call: (wsId: string) => string
+  /** Takes the module so the desktop-base block can run the freshly reloaded one. */
+  call: (u: Urls, wsId: string) => string
   /** The bare `/v0/...` string recorded from the builder BEFORE it became host-aware. */
   repo: string
   home: string | typeof THROWS
@@ -49,51 +47,70 @@ interface Case {
 const BUILDERS: Case[] = [
   {
     name: 'terminals',
-    call: terminalsBaseForWorkspace,
+    call: (u, w) => u.terminalsBaseForWorkspace(w),
     repo: '/v0/chats/chat-1/terminals',
     home: '/v0/projects/p1/home/terminals',
   },
-  { name: 'lsp', call: lspBaseForWorkspace, repo: '/v0/chats/chat-1/lsp', home: THROWS },
-  { name: 'git', call: gitBaseForWorkspace, repo: '/v0/chats/chat-1/git', home: THROWS },
-  { name: 'review', call: reviewBaseForWorkspace, repo: '/v0/chats/chat-1/review', home: THROWS },
+  {
+    name: 'lsp',
+    call: (u, w) => u.lspBaseForWorkspace(w),
+    repo: '/v0/chats/chat-1/lsp',
+    home: THROWS,
+  },
+  {
+    name: 'git',
+    call: (u, w) => u.gitBaseForWorkspace(w),
+    repo: '/v0/chats/chat-1/git',
+    home: THROWS,
+  },
+  {
+    name: 'review',
+    call: (u, w) => u.reviewBaseForWorkspace(w),
+    repo: '/v0/chats/chat-1/review',
+    home: THROWS,
+  },
   {
     name: 'identity',
-    call: identityBaseForWorkspace,
+    call: (u, w) => u.identityBaseForWorkspace(w),
     repo: '/v0/chats/chat-1/identity',
     home: THROWS,
   },
   {
     name: 'files',
-    call: filesBaseForWorkspace,
+    call: (u, w) => u.filesBaseForWorkspace(w),
     repo: '/v0/chats/chat-1/files',
     home: '/v0/projects/p1/home/files',
   },
   {
     name: 'repoChats',
-    call: repoChatsBaseForWorkspace,
+    call: (u, w) => u.repoChatsBaseForWorkspace(w),
     repo: '/v0/projects/p1/repos/r1/chats',
     home: '/v0/projects/p1/home/chats',
   },
   {
     name: 'worktreeVerb',
-    call: worktreeVerbBaseForWorkspace,
+    call: (u, w) => u.worktreeVerbBaseForWorkspace(w),
     repo: '/v0/projects/p1/repos/r1/chats/chat-1',
     home: THROWS,
   },
   {
     name: 'workspaceBase',
-    call: workspaceBase,
+    call: (u, w) => u.workspaceBase(w),
     repo: '/v0/projects/p1/repos/r1/workspaces/ws-1',
     home: '/v0/projects/p1/home',
   },
 ]
 /** Every builder, including the chat-id and chat+workspace ones, by what it returns for REPO_WS. */
-const REPO_URLS: [string, () => string, string][] = [
-  ...BUILDERS.map((b): [string, () => string, string] => [b.name, () => b.call(REPO_WS), b.repo]),
-  ['chatBase', () => chatBase('chat-1'), '/v0/chats/chat-1'],
+const REPO_URLS: [string, (u: Urls) => string, string][] = [
+  ...BUILDERS.map((b): [string, (u: Urls) => string, string] => [
+    b.name,
+    (u) => b.call(u, REPO_WS),
+    b.repo,
+  ]),
+  ['chatBase', (u) => u.chatBase('chat-1'), '/v0/chats/chat-1'],
   [
     'chatTerminalsBase',
-    () => chatTerminalsBaseForWorkspace(REPO_WS, 'chat-1'),
+    (u) => u.chatTerminalsBaseForWorkspace(REPO_WS, 'chat-1'),
     '/v0/chats/chat-1/terminals',
   ],
 ]
@@ -142,12 +159,12 @@ afterEach(() => {
 
 describe('golden: no remote ever paired (I3) — byte-identical to the pre-host-aware builders', () => {
   it.each(BUILDERS)('$name returns the recorded bare path for a repo workspace', (b) => {
-    expect(b.call(REPO_WS)).toBe(b.repo)
+    expect(b.call(urls, REPO_WS)).toBe(b.repo)
   })
 
   it.each(BUILDERS)('$name for the project home', (b) => {
-    if (b.home === THROWS) expect(() => b.call(HOME_WS)).toThrow(OwningChatNotRecordedError)
-    else expect(b.call(HOME_WS)).toBe(b.home)
+    if (b.home === THROWS) expect(() => b.call(urls, HOME_WS)).toThrow(OwningChatNotRecordedError)
+    else expect(b.call(urls, HOME_WS)).toBe(b.home)
   })
 
   it('chat-id and chat+workspace builders return the recorded bare paths, ids encoded', () => {
@@ -172,17 +189,15 @@ describe('golden: no remote ever paired (I3) — byte-identical to the pre-host-
     expect([HOME_WS, REPO_WS, 'unknown'].map(isHomeWorkspace)).toEqual([true, false, false])
   })
 
-  it('does not consult the project list before it loads, even with a local row held', () => {
+  it('answers local from a held local row before any remote was ever paired', () => {
     loadProjects(project('p1', 'local'))
     expect(gitBaseForWorkspace(REPO_WS)).toBe('/v0/chats/chat-1/git')
   })
 })
 
-// jsdom runs with API_BASE='' but the desktop's is `crowbar://localhost`: a builder
-// that fed an API_BASE-prefixed string to qualify('local', …) would throw only there.
-// The builders also sit in an import cycle with the transport (workspace-scope-url ->
-// host-resolve -> projects -> api -> workspace-scope-url), so each member of it must
-// work when it is the first module loaded.
+// jsdom's API_BASE is '' but the desktop's is `crowbar://localhost`: a builder that feeds
+// an API_BASE-prefixed string to qualify('local', …) throws only there, so every builder runs
+// under both. They also sit in an import cycle with the transport, so each member loads first.
 const CYCLE = [
   '@/lib/api',
   '@/lib/crowbar-bridge',
@@ -197,19 +212,19 @@ describe.each([
   ['browser', ''],
   ['desktop', 'crowbar://localhost'],
 ])('under the %s API base', (_name, api) => {
-  it.each(CYCLE)('the builders are unchanged when %s loads first', async (entry) => {
+  it.each(CYCLE)('every builder is unchanged when %s loads first', async (entry) => {
     vi.resetModules()
     ;(window as { __CROWBAR__?: unknown }).__CROWBAR__ = { api }
     await import(/* @vite-ignore */ entry)
-    const urls = await import('@/lib/workspace-scope-url')
+    const fresh = await import('@/lib/workspace-scope-url')
     const scopes = await import('@/lib/workspace-scope')
     scopes.recordWorkspaceScope(REPO)
     scopes.recordWorkspaceScope(HOME)
     expect((await import('@/lib/api')).API_BASE).toBe(api)
-    expect(urls.gitBaseForWorkspace(REPO_WS)).toBe('/v0/chats/chat-1/git')
-    expect(urls.workspaceBase(REPO_WS)).toBe('/v0/projects/p1/repos/r1/workspaces/ws-1')
-    expect(urls.terminalsBaseForWorkspace(HOME_WS)).toBe('/v0/projects/p1/home/terminals')
-    expect(urls.chatBase('chat-1')).toBe('/v0/chats/chat-1')
+    for (const [name, call, bare] of REPO_URLS) expect([name, call(fresh)]).toEqual([name, bare])
+    for (const b of BUILDERS) {
+      if (b.home !== THROWS) expect([b.name, b.call(fresh, HOME_WS)]).toEqual([b.name, b.home])
+    }
   })
 })
 
@@ -220,11 +235,11 @@ describe('a remote project: every builder returns the crowbar://<host> form', ()
   })
 
   it.each(REPO_URLS)('%s', (_name, call, bare) => {
-    expect(call()).toBe(`crowbar://host-2${bare}`)
+    expect(call(urls)).toBe(`crowbar://host-2${bare}`)
   })
 
   it.each(BUILDERS.filter((b) => b.home !== THROWS))('$name for the remote project home', (b) => {
-    expect(b.call(HOME_WS)).toBe(`crowbar://host-2${b.home}`)
+    expect(b.call(urls, HOME_WS)).toBe(`crowbar://host-2${b.home}`)
   })
 
   it('stays bare for a local project while a remote is configured', () => {
@@ -260,13 +275,14 @@ describe('a remote project: every builder returns the crowbar://<host> form', ()
   })
 
   it('never returns a path that is still bare once qualified', () => {
-    for (const [, call] of REPO_URLS) expect(call().startsWith('crowbar://host-2/v0/')).toBe(true)
+    for (const [, call] of REPO_URLS)
+      expect(call(urls).startsWith('crowbar://host-2/v0/')).toBe(true)
   })
 })
 
 describe('hosts paired but the host cannot be determined: HostNotResolvedError, never local', () => {
   const everyBuilder = (wsId: string): [string, () => unknown][] => [
-    ...BUILDERS.map((b): [string, () => unknown] => [b.name, () => b.call(wsId)]),
+    ...BUILDERS.map((b): [string, () => unknown] => [b.name, () => b.call(urls, wsId)]),
     ['chatBase', () => chatBase('chat-1')],
     ['chatTerminalsBase', () => chatTerminalsBaseForWorkspace(wsId, 'chat-1')],
   ]
@@ -310,6 +326,13 @@ describe('hosts paired but the host cannot be determined: HostNotResolvedError, 
     expect(resolution(() => chatBase('unknown-chat')).entity).toBe('chat')
   })
 
+  it('chatBase of a missing chat id is unresolved even when an unowned scope exists', () => {
+    pair('host-1')
+    loadProjects(project('p1', 'host-1'))
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'unowned' })
+    expect(() => chatBase(undefined as unknown as string)).toThrow(HostNotResolvedError)
+  })
+
   it('isHomeWorkspace never throws while the host is unresolved (it names no URL)', () => {
     pair('host-1')
     expect(isHomeWorkspace(HOME_WS)).toBe(true)
@@ -334,7 +357,7 @@ describe('after the last host is revoked (its ids outlive its rows)', () => {
     loadProjects(project('p-local', 'local')) // a re-read that no longer holds the host's rows
 
     for (const [, call] of REPO_URLS)
-      expect(resolution(call).message).toMatch(/not in the project list/)
+      expect(resolution(() => call(urls)).message).toMatch(/not in the project list/)
     expect(getWorkspaceScope(REPO_WS)).not.toBeNull() // the scope really did outlive the host
   })
 })

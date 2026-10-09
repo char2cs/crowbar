@@ -172,6 +172,18 @@ describe('useTerminalAttachment', () => {
     ])
   })
 
+  it('does not pick the active workspace to place an explicit chat', async () => {
+    const { settle } = render({
+      sessionId: 'pty-1',
+      workspaceId: undefined,
+      chatId: 'chat-9',
+      attachOnly: true,
+    })
+    await settle()
+    expect(bridge.listCalls).toEqual([])
+    expect(bridge.opened).toHaveLength(0)
+  })
+
   it('falls back to the active workspace when no workspaceId is threaded', async () => {
     const { settle } = render({ workspaceId: undefined })
     await settle()

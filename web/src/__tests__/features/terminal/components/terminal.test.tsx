@@ -99,6 +99,7 @@ describe('XtermTerminal', () => {
     const onSessionGone = vi.fn()
     await mount({
       sessionId: 'agent-pty',
+      workspaceId: 'ws-1',
       chatId: 'chat-9',
       attachOnly: true,
       onTerminalExit,
@@ -112,6 +113,7 @@ describe('XtermTerminal', () => {
     const ref = createRef<TerminalFocusHandle>()
     const { unmount } = await mount({
       sessionId: 'agent-pty',
+      workspaceId: 'ws-1',
       chatId: 'chat-9',
       attachOnly: true,
       ref,

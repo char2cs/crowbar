@@ -35,10 +35,20 @@ const _scopes = new Map<string, WorkspaceScope>()
 // at mount. See `subscribeToWorkspaceScope` below.
 const _scopeListeners = new Map<string, Set<() => void>>()
 
+// Every listener runs even if one throws (a throw must not starve the hooks behind
+// it); the first error is rethrown afterwards, so a single failure still surfaces.
 function notifyScopeListeners(wsId: string): void {
   const listeners = _scopeListeners.get(wsId)
   if (!listeners) return
-  for (const listener of listeners) listener()
+  let failure: { error: unknown } | null = null
+  for (const listener of listeners) {
+    try {
+      listener()
+    } catch (error) {
+      failure ??= { error }
+    }
+  }
+  if (failure) throw failure.error
 }
 
 /**
@@ -179,12 +189,11 @@ export function getOwningChatId(wsId?: string): string | null {
 }
 
 /**
- * The workspace whose worktree `chatId` holds, or null when no recorded scope
- * names that chat. Only a workspace's OWNING chat is recorded: a sibling chat
- * sharing the worktree is not found here, so it must be addressed through the
- * workspace it is opened in.
+ * The workspace whose worktree `chatId` holds, or null. Only an OWNING chat is
+ * recorded, so a sibling must be placed through the workspace it is opened in.
  */
 export function getWorkspaceIdOwnedByChat(chatId: string): string | null {
+  if (!chatId) return null
   for (const scope of _scopes.values()) if (scope.owningChatId === chatId) return scope.wsId
   return null
 }

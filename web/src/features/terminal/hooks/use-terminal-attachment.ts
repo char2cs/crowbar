@@ -16,7 +16,7 @@ import { useTerminalStore } from '../stores/terminal-store'
 interface UseTerminalAttachmentOptions {
   /** The session this view shows (a terminal tab's id; an agent pane's PTY id). */
   sessionId: string
-  /** The workspace this terminal belongs to; falls back to the active one. */
+  /** The workspace this terminal belongs to; falls back to the active one unless `chatId` is set. */
   workspaceId?: string
   /** The chat that owns the PTY, when the caller knows it (an agent pane). */
   chatId?: string
@@ -79,7 +79,9 @@ export function useTerminalAttachment({
       const mine = ++generation
       stopWaiting?.()
       stopWaiting = null
-      const wsId = workspaceId ?? getActiveWorkspaceId()
+      // An explicit chat is placed on a host by the workspace it is opened in; the
+      // active workspace is no substitute for that.
+      const wsId = chatId ? workspaceId : (workspaceId ?? getActiveWorkspaceId())
       if (!wsId) return
       // Owner first, worktree second: an explicit chatId is this PTY's owner; a
       // shell tab falls back to the chat owning wsId's worktree.

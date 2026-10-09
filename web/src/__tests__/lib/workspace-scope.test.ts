@@ -138,7 +138,41 @@ describe('subscribeToWorkspaceScope', () => {
   })
 })
 
+describe('a throwing scope listener', () => {
+  it('does not starve the listeners after it, and its error still surfaces from the write', () => {
+    const scope = { projectId: 'p', repoId: 'r', wsId: 'ws-iso' }
+    const after = vi.fn()
+    const lastAfter = vi.fn()
+    subscribeToWorkspaceScope('ws-iso', () => {
+      throw new Error('first listener broke')
+    })
+    subscribeToWorkspaceScope('ws-iso', after)
+    subscribeToWorkspaceScope('ws-iso', () => {
+      throw new Error('second listener broke')
+    })
+    subscribeToWorkspaceScope('ws-iso', lastAfter)
+
+    expect(() => recordWorkspaceScope(scope)).toThrow('first listener broke')
+    expect(after).toHaveBeenCalledTimes(1)
+    expect(lastAfter).toHaveBeenCalledTimes(1)
+    expect(getWorkspaceScope('ws-iso')).toEqual(scope)
+  })
+
+  it('leaves a write with no failing listener unchanged', () => {
+    const onChange = vi.fn()
+    subscribeToWorkspaceScope('ws-ok', onChange)
+    expect(() => recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-ok' })).not.toThrow()
+    expect(onChange).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('getWorkspaceIdOwnedByChat', () => {
+  it('never matches a scope that records no owner for a missing chat id', () => {
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-unowned' })
+    expect(getWorkspaceIdOwnedByChat(undefined as unknown as string)).toBeNull()
+    expect(getWorkspaceIdOwnedByChat('')).toBeNull()
+  })
+
   it('finds the workspace whose recorded owning chat it is, and no other', () => {
     recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws1', owningChatId: 'chat-1' })
     recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws2', owningChatId: 'chat-2' })
