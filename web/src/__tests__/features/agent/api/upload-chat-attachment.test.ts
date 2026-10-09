@@ -318,8 +318,14 @@ describe('uploadChatAttachment from a disk path', () => {
     return uploads
   }
 
+  /** The asset protocol's answer: jsdom's own Blob stands in for the body, as in the webview. */
+  const assetResponse = (bytes: string, headers: Record<string, string> = {}) =>
+    Object.assign(new Response(null, { headers }), {
+      blob: vi.fn(async () => new Blob([bytes], { type: 'image/png' })),
+    })
+
   it('sends a remote chat the file’s bytes as multipart and never its local path', async () => {
-    const uploads = stubFetch(new Response('pixels', { headers: { 'content-type': 'image/png' } }))
+    const uploads = stubFetch(assetResponse('pixels'))
 
     await uploadChatAttachment('ws1', 'c1', { path: '/Users/me/pics/pic.png' }, 'x')
 
@@ -349,5 +355,18 @@ describe('uploadChatAttachment from a disk path', () => {
     const [url, init] = uploads[0]
     expect(url).toBe('/v0/projects/p-local/repos/r1/chats/c1/attachments')
     expect(JSON.parse(init.body as string)).toEqual({ path: '/tmp/dropped.png', id: 'x' })
+  })
+
+  // The daemon refuses an attachment over 25 MiB (attachments.MaxBytes), so a larger
+  // file is refused here before its bytes are read into memory and sent.
+  it('refuses an oversized file for a remote chat without reading it', async () => {
+    const answer = assetResponse('x', { 'content-length': String(25 * 1024 * 1024 + 1) })
+    const uploads = stubFetch(answer)
+
+    await expect(
+      uploadChatAttachment('ws1', 'c1', { path: '/Users/me/big.mov' }, 'x'),
+    ).rejects.toThrow(/big\.mov.*25 MB/)
+    expect(answer.blob).not.toHaveBeenCalled()
+    expect(uploads).toEqual([])
   })
 })
