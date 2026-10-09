@@ -15,11 +15,7 @@ import {
 import { useProjectDataStore } from '@/lib/store/projects'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { failed, idle, loading, success, type Loadable } from '@/lib/loadable'
-import {
-  __resetWorkspaceScopesForTest,
-  bindActiveWorkspaceId,
-  recordWorkspaceScope,
-} from '@/lib/workspace-scope'
+import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import type { Host } from '@/features/hosts/types'
 import type { Project } from '@/lib/types'
 
@@ -68,7 +64,6 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  bindActiveWorkspaceId(() => null)
   vi.restoreAllMocks()
 })
 
@@ -219,21 +214,12 @@ describe('hostIdForWorkspace', () => {
     expect(hostIdForWorkspace('ws-local')).toBe('local')
   })
 
-  it('throws for a workspace with no recorded scope even while a workspace on another host is active', () => {
+  it('throws for a workspace with no recorded scope even while one on another host is recorded', () => {
     configureHosts('host-1')
     loadProjects(project('p-remote', 'host-1'))
-    recordScope('ws-active', 'p-remote')
-    bindActiveWorkspaceId(() => 'ws-active')
+    recordScope('ws-recorded', 'p-remote')
     const err = unresolved(() => hostIdForWorkspace('ws-unrecorded'))
     expect(err.message).toMatch(/workspace ws-unrecorded: no scope is recorded/)
-  })
-
-  it('never reads the active workspace when handed no id', () => {
-    configureHosts('host-1')
-    loadProjects(project('p-remote', 'host-1'))
-    recordScope('ws-active', 'p-remote')
-    bindActiveWorkspaceId(() => 'ws-active')
-    expect(() => hostIdForWorkspace(undefined as unknown as string)).toThrow(HostNotResolvedError)
   })
 
   it('throws, naming the project, when the recorded project is not in the loaded list', () => {

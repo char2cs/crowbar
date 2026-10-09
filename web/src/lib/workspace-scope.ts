@@ -22,8 +22,6 @@ export interface WorkspaceScope {
   owningChatId?: string
 }
 
-/** Reads THE active workspace id, which the workspace registry owns (C4). */
-let readActiveWorkspaceId: () => string | null = () => null
 const _scopes = new Map<string, WorkspaceScope>()
 
 // Notified whenever a workspace's scope is (re)written — the only signal a
@@ -70,12 +68,6 @@ export function subscribeToWorkspaceScope(wsId: string, callback: () => void): (
     listeners!.delete(callback)
     if (listeners!.size === 0) _scopeListeners.delete(wsId)
   }
-}
-
-/** Bind the owner of the active workspace id (the registry) — this module
- *  stays dependency-free and keeps no copy of it. */
-export function bindActiveWorkspaceId(read: () => string | null): void {
-  readActiveWorkspaceId = read
 }
 
 /**
@@ -165,26 +157,25 @@ export function __resetWorkspaceScopesForTest(): void {
 }
 
 /**
- * Resolve the hierarchical scope for `wsId` (defaults to the active workspace).
- * Returns null when the scope was never recorded — callers throw/skip so a
- * workspace-scoped URL is never built with a missing project/repo segment.
+ * Resolve the hierarchical scope for `wsId`. Returns null when the scope was never
+ * recorded — callers throw/skip so a workspace-scoped URL is never built with a
+ * missing project/repo segment. There is no "active workspace" default: asking
+ * without naming one is how a call lands on the wrong workspace or host.
  */
-export function getWorkspaceScope(wsId?: string): WorkspaceScope | null {
-  const id = wsId ?? readActiveWorkspaceId()
-  if (!id) return null
-  return _scopes.get(id) ?? null
+export function getWorkspaceScope(wsId: string): WorkspaceScope | null {
+  return _scopes.get(wsId) ?? null
 }
 
 /**
- * The chat that owns `wsId`'s worktree (defaults to the active workspace), or
- * null when the scope was never recorded or the daemon resolved no owning chat.
+ * The chat that owns `wsId`'s worktree, or null when the scope was never recorded
+ * or the daemon resolved no owning chat.
  *
  * This is the bridge from "the id a terminal component holds" (a workspace) to
  * "the id its API routes are addressed by" (a chat). Callers throw or skip on
  * null rather than falling back to a workspace-scoped URL — those routes no
  * longer exist.
  */
-export function getOwningChatId(wsId?: string): string | null {
+export function getOwningChatId(wsId: string): string | null {
   return getWorkspaceScope(wsId)?.owningChatId || null
 }
 

@@ -9,7 +9,6 @@ import {
   forgetWorkspaceScope,
   subscribeToWorkspaceScope,
   __resetWorkspaceScopesForTest,
-  bindActiveWorkspaceId,
 } from '@/lib/workspace-scope'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 
@@ -41,21 +40,6 @@ describe('recordWorkspaceScopeFromPath', () => {
     const scope = recordWorkspaceScopeFromPath('/ide/p/r/w/some/deeper/route')
     expect(scope).toEqual({ projectId: 'p', repoId: 'r', wsId: 'w' })
     expect(workspaceBase('w')).toBe('/v0/projects/p/repos/r/workspaces/w')
-  })
-
-  // C4: the active workspace is one id, owned by the registry. Recording a
-  // route's scope — which the IDE shell does on every render — never makes
-  // that workspace active; the default-scope read follows the owner alone.
-  it('never decides which workspace is active; the default scope follows the bound owner', () => {
-    let active: string | null = null
-    bindActiveWorkspaceId(() => active)
-    recordWorkspaceScopeFromPath('/ide/p1/r1/ws-routed')
-    expect(getWorkspaceScope()).toBeNull()
-
-    recordWorkspaceScopeFromPath('/ide/p1/r1/ws-pane')
-    active = 'ws-pane'
-    expect(getWorkspaceScope()?.wsId).toBe('ws-pane')
-    bindActiveWorkspaceId(() => null)
   })
 
   it('returns null and records nothing for a non-ide path', () => {

@@ -16,7 +16,6 @@ import { getOwningChatId } from '@/lib/workspace-scope'
 // test controls exactly what "this workspace's owning chat" resolves to,
 // without needing a live sidebar/route to populate the real registry.
 vi.mock('@/lib/workspace-scope', () => ({
-  bindActiveWorkspaceId: () => {},
   getOwningChatId: vi.fn(),
 }))
 

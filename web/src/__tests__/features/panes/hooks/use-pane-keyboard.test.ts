@@ -161,7 +161,6 @@ vi.mock('@/features/panes/utils/pane-command-actions', async () => {
 
 const { getOwningChatId } = vi.hoisted(() => ({ getOwningChatId: vi.fn() }))
 vi.mock('@/lib/workspace-scope', () => ({
-  bindActiveWorkspaceId: () => {},
   getOwningChatId,
 }))
 
