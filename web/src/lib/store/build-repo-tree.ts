@@ -44,11 +44,9 @@ export function toSidebarStatus(ws: WorkspaceDTO): WorkspaceStatus {
   return ws.status as WorkspaceStatus
 }
 
-// repoAvatar resolves the sidebar avatar source from the §5 RepoDTO: a custom
-// emoji takes precedence (rendered as an `emoji:<char>` marker the sidebar
-// understands), otherwise the proxied /icon URL (resolved on the repo's own host so
-// WKWebView can load it cross-origin), otherwise undefined → initials fallback. A repo
-// whose host is not resolved yet gets the fallback; the rebuild that follows redraws it.
+// A custom emoji wins (an `emoji:<char>` marker), then the repo's /icon URL on its own host so
+// WKWebView can load it; else undefined (initials). An unresolved host gets the initials too:
+// the rebuild that follows once it resolves redraws it.
 function repoAvatarURL(repo: RepoDTO): string | undefined {
   if (repo.avatarEmoji) return `emoji:${repo.avatarEmoji}`
   if (!repo.avatarUrl || !isHostResolved({ projectId: repo.projectId })) return undefined

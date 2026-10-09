@@ -7,14 +7,12 @@ import { projectAssetURL, projectBase } from '@/lib/project-url'
 import { cn } from '@/lib/utils'
 
 /** What a project carries for its mark. Both custom states are optional; when
- *  neither is set the mark is the Library glyph. */
-export interface ProjectIconSource {
-  /** Places `avatarUrl` on its project's host; with no id an uploaded image is not drawn. */
-  id?: string
+ *  neither is set the mark is the Library glyph. An uploaded image names its
+ *  project's `id`: that is what places its URL on the project's host. */
+export type ProjectIconSource = {
   name: string
-  avatarUrl?: string
   avatarEmoji?: string
-}
+} & ({ id: string; avatarUrl?: string } | { id?: string; avatarUrl?: undefined })
 
 // Sized the way repo-avatar.tsx sizes its marks — by class, not by an inline
 // style — so the two stay comparable. `lg` is the sidebar row's 20px mark; `md`
@@ -69,7 +67,7 @@ export function ProjectIconMark({ project, size, version }: ProjectIconMarkProps
     </span>
   )
 
-  if (!project.avatarUrl || !project.id) return fallback
+  if (!project.avatarUrl) return fallback
 
   return (
     <ProjectIconImage

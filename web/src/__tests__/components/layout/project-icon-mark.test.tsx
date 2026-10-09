@@ -225,13 +225,6 @@ describe('a project on a remote host', () => {
     )
   })
 
-  it('draws no image for a source that names no project to place it on', () => {
-    const { container } = render(
-      <ProjectIconMark project={{ name: 'x', avatarUrl: '/v0/projects/p1/icon' }} size="lg" />,
-    )
-    expect(container.querySelector('img')).toBeNull()
-  })
-
   it('edits against its own host: an emoji is PUT to the qualified base', async () => {
     useProjectDataStore.setState({ data: success([row('host-2')]) })
     const user = userEvent.setup()

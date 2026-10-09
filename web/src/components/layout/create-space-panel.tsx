@@ -95,10 +95,8 @@ interface CreateSpacePanelProps {
   onCancel: () => void
 }
 
-/** Applies a staged icon pick against a real, just-created project — the
- *  exact same three routes IconPopover itself would have hit had the space
- *  already existed when the pick was made. The project is not in the project
- *  list yet, so the host it was created on is passed rather than looked up. */
+/** Applies a staged icon pick to the just-created project, on the three routes IconPopover would
+ *  have hit. It is not in the project list yet, so the host it was created on is passed in. */
 async function applyStagedIcon(
   hostId: string,
   projectId: string,
