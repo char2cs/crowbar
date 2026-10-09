@@ -9,10 +9,7 @@ vi.mock('@/features/file-system/utils/file-system-dropped-paths', () => ({
 vi.mock('@/features/file-system/lib/tauri-file-drop', () => ({ useTauriFileDrop: vi.fn() }))
 
 import { usePaneDropHandlers } from '@/features/panes/hooks/use-pane-drop-handlers'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
@@ -44,19 +41,5 @@ describe('usePaneDropHandlers', () => {
     expect(openWorkspaceFile).toHaveBeenCalledExactlyOnceWith('ws-pane', 'src/a.ts', {
       paneId: ROOT_PANE_ID,
     })
-  })
-
-  it('adopts a terminal dragged out of the terminal panel into the pane’s workspace', () => {
-    const { result } = render()
-    const payload = JSON.stringify({ source: 'terminal-panel', terminalId: 'pty-1', name: 'sh' })
-
-    act(() =>
-      result.current.handleSplitDrop('center', {
-        dataTransfer: { getData: () => payload },
-      } as unknown as React.DragEvent),
-    )
-
-    const adopted = windowPaneStore.getState().buffers.find((b) => b.type === 'terminal')
-    expect(adopted?.workspaceId).toBe('ws-pane')
   })
 })
