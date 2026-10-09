@@ -49,8 +49,6 @@ import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
 import { hydrateSidebar } from '@/lib/persistence/hydrate'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import type { FolderDTO, Project, RepoDTO, WorkspaceDTO } from '@/lib/types'
-import { destroyHostRuntime, getHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
-import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 const project = (id: string): Project => ({
   id,
@@ -471,42 +469,5 @@ describe('AppSyncProvider boot, end to end', () => {
     await boot()
     await waitFor(() => expect(workspaceIdsOf('r2')).toEqual(['w2']))
     expect(repoIds()).toEqual(['r1', 'r2'])
-  })
-})
-
-// The one owner of every host's status: probes run for the app's life, not a screen's.
-describe('AppSyncProvider probes the paired hosts', () => {
-  afterEach(() => {
-    vi.useRealTimers()
-    destroyHostRuntime('h1')
-    resetHostWorld()
-    vi.unstubAllGlobals()
-    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
-  })
-
-  it('probes every configured host for as long as the app is mounted', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = { invoke: async () => {} }
-    pairRemoteHost('h1')
-    const fetchMock = vi.fn(
-      async (_url: string) =>
-        new Response(JSON.stringify({ success: true, data: {} }), { status: 200 }),
-    )
-    vi.stubGlobal('fetch', fetchMock)
-    const probes = () =>
-      fetchMock.mock.calls.filter(([url]) => url === 'crowbar://h1/v0/health').length
-
-    const { unmount } = render(
-      <AppSyncProvider>
-        <div />
-      </AppSyncProvider>,
-    )
-    await vi.waitFor(() => expect(getHostRuntime('h1')?.getState().status).toBe('up'))
-    await vi.advanceTimersByTimeAsync(15_000)
-    expect(probes()).toBe(2)
-
-    unmount()
-    await vi.advanceTimersByTimeAsync(45_000)
-    expect(probes()).toBe(2)
   })
 })

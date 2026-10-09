@@ -52,6 +52,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 
 import { AppSyncProvider } from '@/components/app-sync-provider'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { destroyHostRuntime, getHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { success } from '@/lib/loadable'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
 import { wipeEntityCache } from '@/lib/persistence/idb'
@@ -372,6 +373,34 @@ describe('across hosts', () => {
     await waitFor(() =>
       expect(openedEndpoints()).toContain('crowbar://host-2/v0/projects/p-late/repos'),
     )
+  })
+
+  // The one owner of every host's status: probes run for the app's life, not a screen's.
+  it('probes every configured host for as long as the app is mounted', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = { invoke: async () => {} }
+    const fetchMock = vi.fn(
+      async (_url: string) =>
+        new Response(JSON.stringify({ success: true, data: {} }), { status: 200 }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const probes = () =>
+      fetchMock.mock.calls.filter(([url]) => url === 'crowbar://host-2/v0/health').length
+    try {
+      const { unmount } = mount()
+      await vi.waitFor(() => expect(getHostRuntime('host-2')?.getState().status).toBe('up'))
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(probes()).toBe(2)
+
+      unmount()
+      await vi.advanceTimersByTimeAsync(45_000)
+      expect(probes()).toBe(2)
+    } finally {
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+      delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+      destroyHostRuntime('host-2')
+    }
   })
 
   it('opens a row’s streams once the host it names is configured', async () => {
