@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-27-remote-instances-design.md` (§2 component boundaries, §4 project aggregation & routing, §5 UI). This plan's Tauri command calls are built in `docs/superpowers/plans/2026-09-27-remote-instances-tauri-bridge.md` (now fully complete, including its own final review and fix round) — confirm before this plan's Task 2.
 
+> **READ FIRST — Replan (2026-10-09, after rebasing onto develop).** Task 8 Steps 5–6 and Task 8b are SUPERSEDED, Task 10 is re-scoped, Task 9 gains a wiring step, and Tasks 12–19 are new (see "## Replan" at the bottom of this file). Execution order: 8 (Steps 1–4, done) → 12 → 13 → 14 → 15 → 16 → 17 → 18 → 6 → 9 → 10 → 11 → whole-plan review → 19. Where this banner conflicts with older text below, this banner wins.
+
 ## Amendment (written before Task 1 dispatch — the Tauri bridge plan's real command surface diverged from this draft)
 
 This plan was drafted before the Tauri bridge plan's Tasks 5/5b/6-8 (and that plan's final-review fix round) landed. The command surface below is what actually exists now in `web/src/lib/crowbar-bridge.ts`; every reference to `storeHostToken` or a 3-argument `registerRemoteHost` anywhere below (including inside code samples) is the STALE original draft and must not be followed literally:
@@ -964,6 +966,8 @@ In `projects.ts`: change `useProjectDataStore`'s `fetcher: () => fetchProjects()
 
 Run: `cd web && bunx vitest run src/__tests__/lib/api.test.ts`
 
+> **SUPERSEDED (Replan, 2026-10-09): Steps 5–6 below are NOT to be implemented.** A store-held `hostId` cannot be built (the workspace store is created before its project list loads; ~85 workspace calls never read the store). The host is resolved inside the URL builders and the transport instead — Tasks 13–18. Steps 1–4 and 7–9 were executed for the project-fetch half only (commit `91dceb09b`).
+
 - [ ] **Step 5: Write the failing test for workspace hostId binding**
 
 ```ts
@@ -999,101 +1003,15 @@ git commit -m "feat(web): multi-host project aggregation; every workspace binds 
 
 ---
 
-### Task 8b: `wsManager`/`awaitEntity` gain a `hostId` dimension
+### Task 8b: SUPERSEDED — do not dispatch
 
-**Written after Task 7 surfaced the gap during its own implementation.** Task 7's daemon picker correctly threads `hostId` into the REST POST that creates a project on a remote host — but the client-side "wait for the created entity to actually appear" step (`awaitEntity`, `web/src/lib/ws/await-entity.ts`) subscribes via `wsManager.subscribe(endpoint, cb)`, which has no host concept at all: `web/src/lib/ws/manager.ts`'s `createTransport(endpoint)` always resolves to the LOCAL daemon's WebSocket (`isTauri() ? new TauriWebSocket(endpoint) : new WebSocket(wsUrl(endpoint))`, neither call site passing a `hostId`), and the `channels` Map is keyed by bare `endpoint` string with no host axis — so even if a `hostId` were threaded into one call, two hosts' `/v0/projects` streams would collide under the same map key. Right now: creating a project on a remote host succeeds server-side (the 202 POST lands), but the frontend's `awaitEntity` call never sees the push frame — because it's listening on the wrong (local) socket — and the create flow hangs until `awaitEntity`'s 30s timeout, even though the project was actually created.
-
-This is also a real, independent gap in Task 8 above: spec §4 requires "One WS subscription to `/v0/projects` per live host, frames merged the same way" as the REST `fetchAllProjects` results — Task 8's own text above only does the one-shot REST fetch, never a live per-host WS subscription. Both gaps share the same root cause and the same fix.
-
-**Files:**
-- Modify: `web/src/lib/ws/manager.ts` (read in full first — already quoted in full above)
-- Modify: `web/src/lib/ws/await-entity.ts` (read in full first — already quoted in full above)
-- Modify: whichever component/hook currently wires `useProjectDataStore`'s live `/v0/projects` WS merge for local (search for the existing `wsManager.subscribe('/v0/projects', ...)` call site — there should be exactly one, since only 'local' exists today)
-- Modify: Task 7's Create-Space submit handler (wherever it calls `awaitEntity` for the new project) to pass the selected `hostId`
-- Test: `web/src/__tests__/lib/ws/manager.test.ts` (extend if it exists, else create), extend `web/src/__tests__/lib/ws/await-entity.test.ts` if it exists
-
-**Interfaces:**
-- `WSManager.subscribe(endpoint: string, cb: Callback, hostId?: string): () => void` and `WSManager.send(endpoint: string, data: unknown, hostId?: string): void` — both default `hostId` to `'local'`, zero behavior change for every existing call site (there are none yet that pass a third arg).
-- `Channel`'s registry keys change from bare `endpoint` to a composite key (e.g. `` `${hostId}:${endpoint}` ``) so two hosts' streams on the same endpoint path never collide — mirror the exact pattern Task 2's `sharedRead`'s in-flight-GET map already established (`` `${hostId}:${path}` ``) rather than inventing a new keying scheme.
-- `createTransport(endpoint, hostId)` threads `hostId` into `TauriWebSocket`'s constructor (already accepts it, per Task 2) and into `wsUrl(endpoint, hostId)` (already accepts it, per Task 2) — this task ties together plumbing Task 2 already built but never wired past the transport layer.
-- `AwaitEntityOptions<T>` gains an optional `hostId?: string` (default `'local'`), threaded into its internal `wsManager.subscribe` call.
-
-- [ ] **Step 1: Write the failing test proving two hosts' subscriptions on the same endpoint don't collide**
-
-```ts
-import { describe, expect, it, vi } from 'vitest'
-import { createWSManager } from '@/lib/ws/manager'
-
-// Mock the transport constructors this file uses (isTauri/TauriWebSocket/WebSocket/wsUrl) —
-// read manager.ts's actual imports first and copy this repo's existing WS-manager test
-// mocking convention if `manager.test.ts` already exists, rather than inventing a new one.
-
-describe('wsManager multi-host channel keying', () => {
-  it('subscribing to the same endpoint on two different hostIds opens two independent channels', () => {
-    const mgr = createWSManager()
-    const localFrames: unknown[] = []
-    const remoteFrames: unknown[] = []
-    mgr.subscribe('/v0/projects', (d) => localFrames.push(d), 'local')
-    mgr.subscribe('/v0/projects', (d) => remoteFrames.push(d), 'h1')
-    // Simulate a message arriving on ONLY the 'h1' transport (however this repo's
-    // existing WS-manager tests simulate an inbound frame — copy that mechanism)
-    // and assert it lands in remoteFrames, never localFrames.
-  })
-})
-```
-
-- [ ] **Step 2: Run to verify failure, then implement `manager.ts`**
-
-Re-key `channels` by `` `${hostId}:${endpoint}` ``, add the `hostId` parameter (default `'local'`) to `subscribe`/`send`, thread it into `createTransport`. Keep every other piece of `manager.ts`'s reconnect/backoff/`reportChannelState` logic untouched in shape — only the keying and transport-construction call sites change.
-
-- [ ] **Step 3: Run to verify the test passes**
-
-- [ ] **Step 4: Write the failing test for `awaitEntity`'s `hostId`**
-
-```ts
-it('awaitEntity subscribes on the given hostId, not always local', async () => {
-  const subscribeSpy = vi.spyOn(wsManager, 'subscribe')
-  void awaitEntity({
-    endpoint: '/v0/projects',
-    match: () => false,
-    action: async () => {},
-    hostId: 'h1',
-  })
-  expect(subscribeSpy).toHaveBeenCalledWith('/v0/projects', expect.any(Function), 'h1')
-})
-```
-
-- [ ] **Step 5: Run to verify failure, then implement**
-
-Add `hostId` to `AwaitEntityOptions`, thread it into the internal `wsManager.subscribe(endpoint, cb, hostId)` call. Default `'local'` — every existing caller (chat, git, terminal, LSP entity-creation waits) keeps working identically.
-
-- [ ] **Step 6: Wire Task 7's Create-Space submit to pass the selected hostId**
-
-Find where Task 7's daemon-picker-aware create-project call invokes `awaitEntity` (or whatever wraps it for project creation) and pass the selected `hostId` through. Write a test asserting a project created on a non-local host's `awaitEntity` call carries that host's id — this closes the exact gap Task 7's implementer flagged (create succeeds server-side, UI hangs waiting on the wrong socket).
-
-- [ ] **Step 7: Give `useProjectDataStore` a live WS subscription per up host (spec §4)**
-
-Find the existing local-only `wsManager.subscribe('/v0/projects', ...)` call site backing `useProjectDataStore`'s live merge. Extend it to also subscribe (with the matching `hostId`) for every currently-`up` saved host, merging each host's frames into the store the same way the existing local subscription already does — reuse the existing merge/`applyDelta` path, don't invent a parallel one. Wire host status transitions (a host going `up`) to open its subscription, and a host going `down`/being removed to close it (mirroring `getOrCreateHostRuntime`/`subscribeHostRuntimeRegistry`'s change notifications, already built in Task 1 — Task 10 also touches host up/down/removal behavior; if Task 10 hasn't landed yet when you reach this step, do the minimal subscribe/unsubscribe wiring here and leave the richer down/up UX polish to Task 10, noting the split in your report).
-
-- [ ] **Step 8: Run the FULL existing WS-consuming test suite**
-
-Run: `cd web && bunx vitest run src/__tests__/lib/ws/ src/__tests__/lib/store/projects.test.ts src/__tests__/features/`
-Expected: every pre-existing test passes unchanged (the "zero behavior change for local" invariant — this task touches a primitive nearly everything WS-related depends on: chat, git, terminal, LSP, file tree, projects) plus the new tests.
-
-- [ ] **Step 9: `tsc`, lint, knip, prettier**
-
-Run: `cd web && bunx tsc --noEmit && bunx eslint . --max-warnings 0 && bun run knip && bunx prettier --check .`
-
-- [ ] **Step 10: Commit**
-
-```bash
-git add web/src/lib/ws/ web/src/lib/store/projects.ts web/src/__tests__/
-git commit -m "feat(web): wsManager/awaitEntity gain a hostId dimension — remote project creation and live multi-host project streams"
-```
+Replaced by Tasks 14 (transport), 17 (stream gates) and 18 (per-host project streams). `wsManager`'s `channels` map is already keyed by the endpoint string, so a host-qualified endpoint (`crowbar://<hostId>/v0/...`) separates hosts without re-keying, and `awaitEntity` needs no `hostId` option — callers pass a qualified endpoint.
 
 ---
 
 ### Task 9: Coss UI tree + remote file picker
+
+**Replan addendum — wiring (this task now also owns it).** Building the component is not enough: remote hosts must actually use it. Audit every native folder/file picker call (`web/src/lib/native-dialog.ts`, the dialog-plugin use in `crowbar-bridge.ts`, and their callers). Classify each: (a) picks a path on the DAEMON's filesystem (Create Space's Folder field, add/import repository, …) vs (b) picks a LOCAL file to upload (chat attachments) — (b) always stays native. For every (a): when the target host is `local`, keep the native OS dialog exactly as today; when it is a remote host, open `RemoteFilePicker` browsing that host (`GET /v0/system/browse`, host-qualified). Put the classified list in the task report. `RemoteFilePicker` must handle: loading, empty directory, permission denied, an unreachable host, symlinked directories, and the host going down while open. Create Space's Folder field is mandatory; any other (a)-site is in scope unless it needs a new backend endpoint.
 
 **Files:**
 - Run the Coss UI CLI to add its tree component (creates files under `web/src/components/ui/` — exact paths determined by the CLI's own output).
@@ -1225,95 +1143,165 @@ git commit -m "feat(web): remote file picker — Coss UI tree, lazy per-director
 
 ---
 
-### Task 10: down/up/revoke behavior in the sidebar
+### Task 10: action-time failure UX + revoke robustness (re-scoped by the Replan)
 
-**Files:**
-- Modify: the component that renders the project's action surface (opening a chat/workspace) to catch a host-unreachable error — locate via how `host-fallback-notice.tsx`-style patterns are found in this codebase today (grep for any existing "unreachable"/error-toast pattern on a project-scoped action first) and extend rather than invent a parallel mechanism.
-- Modify: `useProjectDataStore`'s merge/refresh behavior — a host coming back `up` must trigger a re-fetch of ITS projects specifically (not a full-list refetch that would also hit every other host), and a host being removed must apply the existing deleted-project tombstone path to every project it owned.
-- Test: extend `web/src/__tests__/lib/store/projects.test.ts`.
+The original Task 10's host up/down reconciliation, tombstoning and "host comes back up" watcher moved to Task 18. What remains is what the user sees when an action targets a host that is down or untrusted, and revoke robustness.
 
-**Interfaces:**
-- Consumes: `subscribeHostRuntimeRegistry`/host status changes (Task 1/3), `useProjectDataStore.applyDelta` (existing, per `projects.ts`'s `mergeProjectFrame`/`status: 'deleted'` handling already quoted above).
+**Files:** the project-scoped action surface (opening/creating a workspace or chat — find it via the existing toast/error patterns first; extend, don't invent a parallel mechanism); `features/settings/components/tabs/hosts-settings.tsx` (revoke handler, from Task 5); tests alongside.
 
-- [ ] **Step 1: Write the failing test for host-removal tombstoning**
-
-```ts
-it('removing a host tombstones every project it owned', async () => {
-  useProjectDataStore.setState({ data: { status: 'ready', value: [
-    { id: 'p1', name: 'A', path: '/a', lastActivity: new Date(), hostId: 'local' },
-    { id: 'p2', name: 'B', path: '/b', lastActivity: new Date(), hostId: 'h1' },
-  ]}})
-  await tombstoneProjectsForHost('h1')
-  const remaining = useProjectDataStore.getState().data
-  expect(remaining.status === 'ready' && remaining.value.map((p) => p.id)).toEqual(['p1'])
-})
-```
-
-Adjust the `LoadableSlice`'s exact `data`/`status` shape to match `loadable-slice.ts`'s real `Loadable<T>` type (read it in full — this plan's research only captured `LoadableSlice`'s outer shape, not the inner `Loadable<T>` union) before finalizing this test.
-
-- [ ] **Step 2: Run to verify failure, then implement**
-
-```ts
-export async function tombstoneProjectsForHost(hostId: string): Promise<void> {
-  const current = useProjectDataStore.getState().data
-  if (current.status !== 'ready') return
-  for (const project of current.value.filter((p) => p.hostId === hostId)) {
-    await useProjectDataStore.getState().applyDelta({ id: project.id, status: 'deleted' })
-  }
-}
-```
-
-Call this from the Hosts settings tab's revoke handler (Task 5), right after `useHostConfigStore.getState().removeHost(id)`.
-
-- [ ] **Step 3: Write the failing test for a host coming back up**
-
-```ts
-it('a host transitioning to "up" re-fetches only that host\'s projects', async () => {
-  // Wire a subscribeHostRuntimeRegistry-or-per-host-store watcher (component
-  // or store-level effect — pick whichever this plan's existing patterns
-  // favor, e.g. a small hook mounted once near the app root, mirroring how
-  // startHostProbing's own interval is mounted) that calls
-  // fetchProjectsForHost(hostId) and merges each result via applyDelta on a
-  // 'unknown'|'down' -> 'up' transition. Assert fetchProjectsForHost is
-  // called with exactly the transitioning host's id, not refetch-all.
-})
-```
-
-- [ ] **Step 4: Implement the up-transition watcher and run the full projects test suite**
-
-Run: `cd web && bunx vitest run src/__tests__/lib/store/projects.test.ts`
-
-- [ ] **Step 5: Host-unreachable and host-identity-changed action errors are distinct, not the same toast**
-
-Find (or, if genuinely absent, add minimally) the point where opening/acting on a project's workspace makes its first API call; catch a rejection there and surface a message via this codebase's existing toast mechanism (`features/window/stores/toast-store.ts`, already used elsewhere — do not build a new notification surface), rather than letting the action hang or fail silently. Use `isHostUnreachableError`/`isHostIdentityChangedError` (Task 2's Step 5b) to tell the two apart — do not lump every rejection into one generic "host unreachable" message:
-- `host-unreachable` (or any other connection failure): the existing "host unreachable" toast, non-alarming, matches a transient network blip.
-- `host-identity-changed`: a distinctly worded, more alarming message (spec §3: "hard reject with a clear 'this host's identity changed' warning") — this is a potential MITM/re-imaged-server event, not a connectivity blip, and must read as one. Also set that host's runtime status to `'needs-repair'` (Task 1/3) here, the same as Task 3's health-probe path does, so the Settings row reflects it even if the user dismisses the toast.
-- A 401 specifically on a host whose runtime status was already `'up'` (i.e. a credential that worked moments ago suddenly doesn't — spec §3: "a 401 mid-session on an otherwise-'up' host marks it needs-repair rather than silently retrying") also sets `'needs-repair'`, distinct from both of the above — do not retry the request.
-
-Write tests asserting: the unreachable toast fires and status stays/becomes `'down'` on a plain rejection; the identity-changed toast (distinct copy) fires and status becomes `'needs-repair'` on that marker; a mid-session 401 on a previously-`'up'` host sets `'needs-repair'` without retrying.
-
-- [ ] **Step 6: `tsc`, lint, full web test suite**
-
-Run: `cd web && bunx tsc --noEmit && bunx eslint . --max-warnings 0 && bun run test:coverage`
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add <touched files>
-git commit -m "feat(web): host down/up/revoke — projects stay listed until reconciled, revoke tombstones cleanly"
-```
+**Requirements**
+1. A request failing with `isHostUnreachableError` → existing toast mechanism, "<host name> is unreachable"; runtime status `'down'`; rows stay.
+2. `isHostIdentityChangedError` → a distinctly worded, alarming message (spec §3: hard reject, "this host's identity changed"), status `'needs-repair'`, never retried; tell the user re-pairing is required and needs the host's CLI.
+3. A 401 on a host whose status was `'up'` → `'needs-repair'` (spec §3), no retry.
+4. Classified in ONE place (`classifyHostFailure(err)`) shared by the actions, not re-implemented per call site. Task 14 makes `apiFetch` attach the target `hostId` to `ApiError`, so the classifier needs no lookup.
+5. Revoke (carry-forward from Task 5's review): if the server-side DELETE succeeds but a local cleanup call (`unregisterRemoteHost`/`forgetHostToken`) then throws, toast the failure, log it, and STILL remove the host row (the credential is dead server-side; a "live" row is wrong).
+6. Tests for every branch, including that no retry fires for 2 and 3.
 
 ---
 
-### Task 11: full-branch gate
+### Task 11: full-branch gate (re-scoped by the Replan)
 
-- [ ] **Step 1: Full web gate**
+- [ ] **Step 1: Web gate** — `cd web && export PATH="$HOME/.bun/bin:$PATH" && bun install && bunx eslint . --max-warnings 0 && bun run knip && bun tsc --noEmit && bunx prettier --check . && bun run lint:doctor`. **`knip` must now be fully clean in BOTH passes** (the three accepted-transient `features/hosts` findings must have real production consumers by now; if any remain that is a real defect to fix here, not to defer). Then TARGETED vitest only — never the whole suite on this machine (CI runs it): `src/__tests__/lib/`, `src/__tests__/features/hosts/`, `src/__tests__/features/workspace/`, `src/__tests__/features/settings/`, `src/__tests__/components/` for every touched component. `bunx eslint .` may also report errors from the gitignored `web/coverage/` artifact — ignore those, they are not tracked.
+- [ ] **Step 2: Go gate** — from `api/`, `-tags noEmbed`: `go build ./...`, `make lint`, `make lint-backlog`, `make deadcode`, and `go test` for `./internal/api/v0/...`, `./internal/core/...`, `./internal/app/usecases/pairing/...`, `./cmd/...`. Two integration failures reproduce on develop itself (`TestScripted_SlowHook/claude`, live Codex tests that wait on a trust prompt) — confirm they are the only failures and report them; do not skip or fix them here.
+- [ ] **Step 3: Rust gate** — from `desktop/src-tauri/` (`export PATH="$HOME/.cargo/bin:$PATH"`): `cargo build`, `cargo test`, `cargo clippy --all-targets`, `cargo fmt --check`. Check `df -h /` first.
+- [ ] **Step 4: hygiene** — `.superpowers/` is gitignored; no scratch/QA/plan-as-scratch files staged; fix anything the gates surface, then commit.
 
-Run: `cd web && bunx eslint . --max-warnings 0 && bun run knip && bunx tsc --noEmit && bunx prettier --check . && bun run test:coverage && bun run lint:doctor`
-Expected: clean across the board.
+---
 
-- [ ] **Step 2: `.gitignore` check**
+## Replan (2026-10-09, written after rebasing onto develop and after Task 8's NEEDS_CONTEXT report)
 
-Confirm `.superpowers/` is in `.gitignore` (the brainstorming mockups under `.superpowers/brainstorm/` should not ship) — add it if missing.
+### Why
 
-- [ ] **Step 3: Fix anything the gates surface, then commit**
+Task 8's implementer proved the original "bind a `hostId` to each workspace store and pass it to every workspace call" design cannot be built: the workspace store is created before its project list loads, ~85 workspace-scoped calls never read the store at all, and passing `hostId` as a 4th argument at ~130 sites means one forgotten argument silently targets Local. Until project/workspace traffic is host-aware, a remote project's repos, trees, chats, git, files, LSP and terminals all hit the LOCAL daemon (404s). Two further gaps surfaced: **nothing registers persisted hosts with the Rust proxy at app start** (its registry is in-memory, so after any restart every `crowbar://<hostId>/...` request is a 502 until the host is re-paired), and **host probing only runs while Settings → Hosts is open** (no remote projects appear at boot, and any re-read of the project list drops a down host's rows, against spec §4).
+
+### Design — the URL builders and the transport own the host; call sites do not change
+
+A project/workspace-scoped URL is built by a small set of builders (`lib/workspace-scope-url.ts`, `agent-api.ts`'s `chatBase`) and by 29 hardcoded `/v0/projects/${id}/...` literals. Make those produce **host-qualified paths**: bare `/v0/...` for `local`, `crowbar://<hostId>/v0/...` for a remote host. Call sites concatenate suffixes onto the base exactly as today, so the prefix rides along. The transport (`apiFetchRaw`, `wsManager.createTransport`, `openSocket`/`openTerminal`, raw `API_BASE` fetches, `assetURL`) splits the prefix and routes to that host. `wsManager`'s channel map is keyed by the endpoint string, so a qualified endpoint separates hosts automatically.
+
+### Invariants (every task below, every review)
+
+- **I1 — no silent local.** Any code path that cannot determine a host must throw `HostNotResolvedError` or wait on a readiness hook; it must never default to `'local'`. Only two legitimate sources of `'local'`: *zero remote hosts configured* (no remote entity can exist, so it is true by construction), and an explicit `LOCAL_HOST` at a call site that is local by nature.
+- **I2 — no ambient fallback.** Never call `getWorkspaceScope()` without a `wsId` (it falls back to the active workspace — the documented bug class), never read an "active/current project/host". Host comes from the entity's own recorded project.
+- **I3 — zero change for local-only users.** With no remote hosts configured every builder returns byte-identical strings to today and every existing test passes unchanged. Add golden tests proving it.
+- **I4 — `apiFetch` signature is `apiFetch<T>(path, init?, retry?, hostId?)`.** `hostId` is the 4th positional argument. This off-by-one has already bitten four tasks.
+- **I5 — gates per task:** `bunx prettier --write` on touched files, `bunx eslint <touched> --max-warnings 0`, `bun tsc --noEmit` (use `bun tsc`, not `bunx tsc`), targeted vitest (NEVER the whole suite), `bun run knip` reported (the three known `features/hosts` findings are accepted transient state and must be gone by Task 11).
+
+### Execution order
+
+8 (Steps 1–4, done: `91dceb09b`) → **12 → 13 → 14 → 15 → 16 → 17 → 18** → 6 → 9 → 10 → 11 → whole-plan final review → Task 19 (end-to-end run). Strictly one task at a time in this worktree.
+
+---
+
+### Task 12: remote daemon container image
+
+**Files:** `docker/Dockerfile`, `docker/docker-compose.yml` (modify). No other files unless a build needs one.
+
+**Facts (verified):** the existing Dockerfile builds on `golang:1.25-alpine` but `api/go.mod` requires `go 1.26.2` — the image cannot currently build. It runs as root, has no `git`/`openssh-client`/init, and requires a prebuilt `web/dist` (embedded SPA). The daemon is started with `crowbar serve --host tcp://0.0.0.0:3737`; a non-loopback TCP host terminates TLS with a self-signed identity, requires paired clients, and also binds the local unix socket that `crowbar pair` dials. The TLS identity and the client registry live in `CROWBAR_HOME`.
+
+**Requirements**
+1. Builder image matches `go.mod` (verify the tag exists). Keep the default build behaviour (embedded web) working; add a headless path that builds with `-tags noEmbed` and does not need `web/dist` (e.g. a build arg) — verify BOTH build.
+2. Runtime image: `ca-certificates`, `git`, `openssh-client`, `tini` as PID 1 (the daemon spawns child processes), a non-root user with its own home, `CROWBAR_HOME` on a declared volume so identity and pairings survive restarts, `EXPOSE 3737`.
+3. Compose: keep the service; volume for `CROWBAR_HOME`; host port overridable (the maintainer's machine runs other services — do not hard-require 3737).
+
+**Verification (run it, report command + output; this is the daemon half of the end-to-end proof)**
+a. `docker build` succeeds for both paths on this machine; image runs as non-root.
+b. Start a container with a fresh named volume and a non-default host port. From the host: unauthenticated `curl -k https://localhost:<port>/v0/projects` → 401 and `/v0/health` → 401 (guarded); `/debug/pprof/` → 403.
+c. `docker exec <c> crowbar pair` (find the real subcommand in `api/cmd/crowbar/`) prints a 6-digit code AND the TLS fingerprint; the printed fingerprint equals the SHA-256 of the served certificate computed independently with `openssl s_client`/`openssl x509` (truncated display form per `tlsid`).
+d. Redeem the code with `curl -k -X POST .../v0/pair`, use the returned bearer token against `GET /v0/projects` → 200; a SECOND redeem of the same code → refused; a wrong code repeated ≥6× → rate limited.
+e. `docker restart <c>`: fingerprint unchanged (identity persisted), token still valid. `docker rm -f` + new empty volume: fingerprint CHANGES (this is what the app's identity-changed path will see).
+f. With the token: `GET /v0/system/browse?path=<container home>` lists directories; create a project on a `git init`'d directory inside the container via `POST /v0/projects` and see it in `GET /v0/projects`.
+g. Revoke: `DELETE /v0/clients/:id` with the token → the same token now returns 401 and re-redeeming a fresh code for the same device name does NOT resurrect it.
+Do not touch the maintainer's existing containers or `~/.crowbar`. Remove your test containers/volumes afterwards.
+
+---
+
+### Task 13: `lib/host-path.ts` — host-qualified paths and host resolution
+
+**Files:** create `web/src/lib/host-path.ts`; test `web/src/__tests__/lib/host-path.test.ts`. Depends on Task 8 (`Project.hostId`, `useProjectDataStore`) and Task 1 (`useHostConfigStore`, `LOCAL_HOST`).
+
+**Interfaces**
+- `qualify(hostId, path)`: `'local'` → `path` unchanged; otherwise `` `crowbar://${hostId}${path}` `` (`path` must start with `/`). Reject host ids that the Rust side rejects (`^[a-z0-9-]+$`, not `localhost`).
+- `splitHostPath(input)` → `{ hostId, path }`: the inverse. Anything not shaped `crowbar://<id>/...` is `local`. Define and test what happens to the local desktop base (`crowbar://localhost...`): it is local, never a remote host id.
+- `class HostNotResolvedError extends Error` — typed; model it on the existing `OwningChatNotRecordedError` pattern.
+- `hostIdForProject(projectId)`: zero configured hosts → `'local'`; otherwise read `useProjectDataStore`: found → `project.hostId`; not found → throw `HostNotResolvedError`.
+- `hostIdForWorkspace(wsId)`: `wsId` REQUIRED. Read that workspace's recorded scope from the wsId-keyed scope registry (`lib/workspace-scope.ts`) → `projectId` → `hostIdForProject`; missing scope → throw. Must never consult the active workspace.
+- `useHostResolved(key)`: readiness hook (`useSyncExternalStore`), true once `hostIdForProject/Workspace` would not throw. Mirror `useWorkspaceScopeReady`.
+
+**Tests (these are the invariants — write them first and break each once):** no hosts → `'local'` with no store reads; hosts configured + known remote project → its host; known local project → `'local'`; unknown project → throws; `hostIdForWorkspace` with no recorded scope throws even when a DIFFERENT workspace on another host is active; readiness hook flips when the project list loads; `qualify`/`splitHostPath` round-trip; invalid host ids rejected.
+
+---
+
+### Task 14: transport — apiFetch, wsManager, terminal, raw fetches, assets
+
+**Files:** `web/src/lib/api.ts`, `web/src/lib/ws/manager.ts`, `web/src/lib/crowbar-bridge.ts` (`openSocket`/`openTerminal`), `web/src/lib/ws/tauri-transport.ts` only if needed, the three raw `API_BASE` users (`agent-api.ts` `getToolPayload`, `lib/chat-asset-resolver.ts`, `lib/upload-chat-attachment.ts`), `assetURL`; tests next to each. Line numbers in older reports are stale after rebase — grep.
+
+**Requirements**
+1. `apiFetchRaw`/`apiFetch`: a `path` starting `crowbar://` is split with `splitHostPath`; the resolved host is used for base resolution, retry/in-flight-read keys and the `ApiError` (attach `hostId` to `ApiError`). The explicit 4th-arg `hostId` keeps working; if BOTH are given and disagree, throw — never pick one silently.
+2. `wsManager.createTransport(endpoint)`: split the prefix; pass `hostId` to `TauriWebSocket` / `wsUrl(path, hostId)`. The channel map stays keyed by the FULL (qualified) endpoint string. Check `connection-store`/`reportChannelState` consumers cope with qualified endpoints. `awaitEntity` needs no change — add a test that it works with a qualified endpoint (this is what fixes "create a project on a remote host then hang for 30s").
+3. `openTerminal(sessionId, base)`: a qualified base flows to `openSocket(..., hostId)`; the `sessionBases` reuse for kill keeps the qualified base.
+4. The three raw `API_BASE` fetches and `assetURL(path)`: accept a qualified path and resolve the base through `apiBaseFor(host)`.
+5. Zero change for unqualified paths (I3) — run the existing `lib/`, `lib/ws/` suites unchanged.
+6. `connect`-time failures for a remote host must surface the proxy markers (`host-unreachable`, `host-identity-changed`) exactly as Task 2 made `apiFetch` do; verify the WS path surfaces them too (the Rust side delivers WS failures as an error string with the marker as a prefix) — add handling if the manager swallows it.
+
+---
+
+### Task 15: workspace-scoped URL builders become host-aware
+
+**Files:** `web/src/lib/workspace-scope-url.ts` (the 10 builders: `chatBase`, `terminalsBase…`, `gitBase…`, `filesBase…`, `lspBase…`, `reviewBase…`, `worktreeVerbBase…`, `workspaceBase`, and the rest — read the file), `agent-api.ts`'s `chatBase`; tests. Depends on Tasks 13–14.
+
+**Requirements**
+1. Every builder returns `qualify(hostIdForWorkspace(wsId), <the path it returns today>)`.
+2. **Render-path safety.** Some callers (e.g. `workspaceBase`) run during render; a throw there reaches an ErrorBoundary. List every builder call reachable during render and make each safe (gate on `useHostResolved`, or catch and render a not-ready state). This is the main risk of the task — enumerate them in the report.
+3. Golden tests: with no remote hosts configured each builder returns exactly the string it returned before the change (record the "before" strings from the old code first). With a remote project configured each returns the `crowbar://<hostId>/…` form; with hosts configured and the project not yet loaded each throws `HostNotResolvedError` (not `'local'`).
+4. Do not add a `hostId` parameter to any workspace-scoped function; the whole point is that call sites are untouched. If a call site cannot get its host through a builder, report it rather than patching it with an argument.
+
+---
+
+### Task 16: project/repo builders, the 29 hardcoded literals, and the lint rule
+
+**Files:** create `web/src/lib/project-url.ts` (`projectBase(projectId)`, `repoBase(projectId, repoId)`), migrate the literals: `lib/api.ts` (~15), `lib/app-sync-engine.ts` (3), `sidebar-placement.ts` (3), `home-tree.ts`, `add-repository-modal.tsx`, `create-space-panel.tsx`, `repo-import-dialog.tsx`, `repo-icon-mark.tsx`, `project-icon-mark.tsx`, `agent-api.ts` — `grep -rn '/v0/projects/' web/src` to get the real current list; `eslint.config.js` (new rule); tests.
+
+**Requirements**
+1. `projectBase`/`repoBase` = `qualify(hostIdForProject(projectId), '/v0/projects/…')`. Every project-scoped read/write/stream in the list above goes through them: repos, workspaces, trees, home tree, home workspace, project writes (`postRepo`, `renameRepo`, `renameProject`, `deleteProject`, `importBranches`, `deleteRepo`, `getRepoPullRequests`), icons.
+2. Calls that CREATE a project (no project id yet: `POST /v0/projects`, import) keep their explicit host argument from Task 7/8 — unchanged.
+3. New ESLint rule (e.g. `no-restricted-syntax` on template literals/concatenations containing `/v0/projects/` or the other id-bearing prefixes) allowed ONLY in `lib/host-path.ts`, `lib/project-url.ts`, `lib/workspace-scope-url.ts`. No baseline additions (CLAUDE.md: baselines only shrink) — the rule must pass with zero violations after the migration.
+4. `app-sync-engine` opens its streams per VISIBLE project: those projects come from the list, so the host is known by construction; assert that with a test using one local and one remote project (each stream's endpoint is qualified correctly and the remote stream is never opened against Local).
+5. I3 golden tests for every migrated call (no hosts → identical URLs).
+
+---
+
+### Task 17: stream readiness gates and terminal attach
+
+**Files:** `use-workspace-agent-chats-stream.ts`, `use-workspace-threads-stream.ts`, `lsp-client.ts`, `use-workspace-file-tree.ts`, `use-workspace-git.ts` (post-#212 names; grep `wsManager.subscribe`), `use-terminal-attachment.ts`; tests. Depends on Tasks 13–16.
+
+**Requirements:** each effect that subscribes or fetches for a workspace waits until the host resolves (AND-ed with its existing scope-ready gate) instead of throwing, then uses the qualified endpoint. No subscription and no request is made for a workspace whose host is unresolved. Cleanup/unsubscribe unchanged. Tests per hook: hosts configured + project list not loaded → nothing opened; list loads → remote workspace subscribes with the `crowbar://<hostId>/…` endpoint, local workspace with the bare one; switching between a local and a remote workspace tears down and opens the right streams with no frames from one landing in the other's store.
+
+---
+
+### Task 18: host bootstrap, app-wide prober, per-host project streams, reconciliation
+
+**Files:** the app boot/sync path (`app-sync-engine.ts` and wherever the app mounts globally — find the right owner, do not add a parallel one), `web/src/lib/store/projects.ts`, `features/hosts/lib/host-probe.ts`, `hosts-settings.tsx` (probing moves out of it), `host-config-store`/`host-runtime-registry` as needed; tests.
+
+**Requirements**
+1. **Bootstrap registration.** In Tauri, before the first project fetch, call `registerRemoteHost(id, endpoint)` for every persisted host (the Rust registry is in-memory). Await it; expose a readiness flag so nothing fetches a remote host earlier. Add/remove keep registry and store in step (`unregisterRemoteHost` on remove).
+2. **App-wide prober.** One owner starts probing every configured host for the app's lifetime (not only while Settings → Hosts is open) and stops on removal. Settings only reads status (it may offer "check now"). Boot with a down remote host must not delay or fail Local.
+3. **Rows survive.** The project list keeps showing a host's projects (with a down/unknown dot) while that host is `unknown`/`down`; a re-read replaces only the rows of hosts that were read successfully. At boot, remote rows come from the `projects-by-host` cache until the host is probed `up`. A local read failure keeps today's behaviour (Task 8 deviation 3).
+4. **Per-host live streams.** For every host that is `up`, subscribe `qualify(hostId, '/v0/projects')` through `wsManager`; frames merge with the host taken from the endpoint (`mergeProjectFrame` stops defaulting to Local for non-local sockets — Task 8 gap D7). Unsubscribe when the host leaves `up` or is removed; on `down→up` re-fetch that host's projects (only that host) and resubscribe, no app restart.
+5. **Removal.** Removing/revoking a host tombstones that host's projects through the existing deleted-project path, destroys its runtime store, closes its subscriptions; if the open route belonged to it, the existing "project missing" redirect applies.
+6. Tests: boot with two persisted hosts (one up, one down) → Local interactive immediately, up host's projects appear after probe, down host's cached rows stay with a down dot; flip down→up → only that host refetched; remove host → rows gone, subscriptions closed; frame from a remote stream is tagged with the remote host (regression test for D7); `registerRemoteHost` called for each persisted host before any remote request.
+
+---
+
+### Task 19: end-to-end run (controller-driven; the production-readiness gate)
+
+Run against the REAL stack, not mocks: `make dev-desktop` (isolated dev home per the repo's dev-isolation recipe; never touch `~/.crowbar` or the production socket; exactly one dev instance) driven through the Tauri MCP bridge, plus the Task 12 container as the remote. Pass criteria — every item observed, with evidence:
+1. Add host: wrong address → clean error; right address → fingerprint shown; fingerprint equals the CLI's; wrong code rejected; right code pairs; host row shows `up`.
+2. Remote projects appear in the sidebar with the host subtitle + dot; Local projects unchanged.
+3. Create a project on the remote via the daemon picker + the REMOTE file picker (browse the container's FS); it appears and opens.
+4. In a remote project: open a workspace, chat round-trip (provider availability permitting; otherwise exercise the non-provider streams), terminal typing, git status, file tree, file open. Same in a Local project.
+5. **Switch back and forth between remote and local projects repeatedly (including quickly):** every request/stream lands on the right daemon (verify with the container's logs vs the local daemon's — nothing for a remote id ever reaches Local and vice-versa), no stale frames, no crash.
+6. `docker stop` the remote: rows stay, dot goes down, an action shows the unreachable message quickly (< ~6 s), Local unaffected. `docker start`: dot returns to up and the host's projects/streams resume without restarting the app.
+7. Restart the desktop app: remote projects are back (bootstrap registration works).
+8. Recreate the container with a fresh volume (identity change): hard-reject, identity-changed warning, host marked needs-repair, no token ever sent to the new identity.
+9. Revoke from Settings: the remote rows disappear; the old token is dead server-side; re-pairing needs a new CLI code.
+10. Final gates green: Go (`make lint`, `make deadcode`, targeted tests), Rust (`cargo test/clippy/fmt`), web (`tsc`, `prettier`, `eslint`, `knip` fully clean, targeted vitest).
