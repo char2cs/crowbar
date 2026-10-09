@@ -1,11 +1,14 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import {
   RepoIconMark,
   EditableRepoIcon,
   type RepoIconSource,
 } from '@/components/layout/repo-icon-mark'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { idle, success } from '@/lib/loadable'
+import { useProjectDataStore } from '@/lib/store/projects'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 vi.mock('@/lib/api', async (importOriginal) => ({
@@ -170,5 +173,61 @@ describe('EditableRepoIcon', () => {
     await screen.findByText('Icon') // wait for the popup to be open
     expect(screen.getAllByText('🛰️').length).toBeGreaterThanOrEqual(1)
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
+  })
+})
+
+// The REST base is built during render from the repo's project: it names the project's own
+// host, and nothing is editable (or thrown) until that host is known.
+describe('EditableRepoIcon on a remote host', () => {
+  const repo: RepoIconSource = { name: 'crowbar', avatarLabel: 'C', avatarColor: 'bg-indigo-700' }
+  const loadRow = (hostId: string) =>
+    useProjectDataStore.setState({
+      data: success([
+        { id: 'p1', name: 'p1', path: '/work/p1', lastActivity: new Date(0), hostId },
+      ]),
+    })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    apiFetch.mockResolvedValue(undefined)
+    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+    useHostConfigStore.getState().addHost({
+      id: 'host-2',
+      name: 'host-2',
+      endpoint: 'host-2.example:3737',
+      pairedFingerprint: 'SHA256:aaaa',
+      clientId: 'client-host-2',
+    })
+    useProjectDataStore.setState({ data: idle() })
+  })
+
+  afterEach(() => {
+    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+    useProjectDataStore.setState({ data: idle() })
+  })
+
+  it('PUTs an emoji to the repo’s qualified base', async () => {
+    loadRow('host-2')
+    const user = userEvent.setup()
+    render(<EditableRepoIcon repo={repo} projectId="p1" repoId="r1" size="lg" />)
+    await user.click(screen.getByRole('button', { name: /edit crowbar icon/i }))
+    await user.click(await screen.findByRole('button', { name: /emoji/i }))
+    await user.type(screen.getByPlaceholderText('Type an emoji…'), '🚀')
+    await user.keyboard('{Enter}')
+    expect(apiFetch).toHaveBeenCalledWith('crowbar://host-2/v0/projects/p1/repos/r1/icon/emoji', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emoji: '🚀' }),
+    })
+  })
+
+  it('draws the read-only mark, without throwing, until the host is known', () => {
+    const { container } = render(
+      <EditableRepoIcon repo={repo} projectId="p1" repoId="r1" size="lg" />,
+    )
+    expect(container.textContent).toBe('C')
+    expect(screen.queryByRole('button', { name: /edit crowbar icon/i })).toBeNull()
+    act(() => loadRow('host-2'))
+    expect(screen.getByRole('button', { name: /edit crowbar icon/i })).toBeInTheDocument()
   })
 })

@@ -10,6 +10,7 @@ import type {
 } from './types'
 import type { PRLink } from '@/lib/import/parent-plan'
 import { getOwningChatId } from '@/lib/workspace-scope'
+import { projectBase, repoBase } from '@/lib/project-url'
 import { daemonChanges, noteDaemonChange } from '@/lib/transport/daemon-changes'
 import { OwningChatNotRecordedError, worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { isTauri } from '@/lib/crowbar-bridge'
@@ -298,8 +299,9 @@ export async function fetchAllProjects(): Promise<Project[]> {
 // Hierarchical READ API (§3/§7).
 // ---------------------------------------------------------------------------
 
-export function fetchRepos(projectId: string): Promise<RepoDTO[]> {
-  return apiFetch(`/v0/projects/${projectId}/repos`)
+// Project-scoped calls are async: an unresolved host rejects like a failed request, never throws.
+export async function fetchRepos(projectId: string): Promise<RepoDTO[]> {
+  return apiFetch(`${projectBase(projectId)}/repos`)
 }
 
 /**
@@ -322,9 +324,7 @@ export function fetchRepos(projectId: string): Promise<RepoDTO[]> {
  * store, never discovers one — so it is untouched.
  */
 export async function fetchWorkspaces(projectId: string, repoId: string): Promise<WorkspaceDTO[]> {
-  const rows = await apiFetch<WorkspaceDTO[]>(
-    `/v0/projects/${projectId}/repos/${repoId}/workspaces`,
-  )
+  const rows = await apiFetch<WorkspaceDTO[]>(`${repoBase(projectId, repoId)}/workspaces`)
   return rows ?? []
 }
 
@@ -389,9 +389,7 @@ export function folderDTOFromWire(
  * scope for this task and the closed backend plan.
  */
 export async function fetchFolders(projectId: string, repoId: string): Promise<FolderDTO[]> {
-  const rows = await apiFetch<ChatsFolderWireDTO[]>(
-    `/v0/projects/${projectId}/repos/${repoId}/chats/folders`,
-  )
+  const rows = await apiFetch<ChatsFolderWireDTO[]>(`${repoBase(projectId, repoId)}/chats/folders`)
   return (rows ?? []).map((row) => folderDTOFromWire(row, projectId, repoId))
 }
 
@@ -591,7 +589,7 @@ export function chatDTOFromWire(row: RepoChatWireDTO, projectId: string, repoId:
  * tree.
  */
 export async function fetchRepoChats(projectId: string, repoId: string): Promise<ChatDTO[]> {
-  const rows = await apiFetch<RepoChatWireDTO[]>(`/v0/projects/${projectId}/repos/${repoId}/chats`)
+  const rows = await apiFetch<RepoChatWireDTO[]>(`${repoBase(projectId, repoId)}/chats`)
   return (rows ?? []).map((row) => chatDTOFromWire(row, projectId, repoId))
 }
 
@@ -609,9 +607,7 @@ export async function fetchWorkspace(
 ): Promise<WorkspaceDTO> {
   const chatId = getOwningChatId(wsId)
   if (!chatId) throw new OwningChatNotRecordedError(wsId)
-  const row = await apiFetch<RepoChatWireDTO>(
-    `/v0/projects/${projectId}/repos/${repoId}/chats/${chatId}`,
-  )
+  const row = await apiFetch<RepoChatWireDTO>(`${repoBase(projectId, repoId)}/chats/${chatId}`)
   const workspace = row ? workspaceDTOFromChat(row, projectId, repoId) : null
   if (!workspace) throw new Error(`chat ${chatId} holds no worktree for workspace ${wsId}`)
   return workspace
@@ -620,8 +616,8 @@ export async function fetchWorkspace(
 // The PROJECT-level home workspace, which is a different entity from a repo's
 // default branch: it rides no repo at all, so it appears in NO repo's chat list
 // and cannot be derived from one. This route stays as it is.
-export function fetchHomeWorkspace(projectId: string): Promise<WorkspaceDTO> {
-  return apiFetch(`/v0/projects/${projectId}/home`)
+export async function fetchHomeWorkspace(projectId: string): Promise<WorkspaceDTO> {
+  return apiFetch(`${projectBase(projectId)}/home`)
 }
 
 /**
@@ -634,12 +630,12 @@ export function fetchHomeWorkspace(projectId: string): Promise<WorkspaceDTO> {
  * matching `WorkspaceDTO.repoId` for the home workspace itself.
  */
 export async function fetchHomeChats(projectId: string): Promise<ChatDTO[]> {
-  const rows = await apiFetch<RepoChatWireDTO[]>(`/v0/projects/${projectId}/home/chats`)
+  const rows = await apiFetch<RepoChatWireDTO[]>(`${projectBase(projectId)}/home/chats`)
   return (rows ?? []).map((row) => chatDTOFromWire(row, projectId, ''))
 }
 
 export async function fetchHomeFolders(projectId: string): Promise<FolderDTO[]> {
-  const rows = await apiFetch<ChatsFolderWireDTO[]>(`/v0/projects/${projectId}/home/chats/folders`)
+  const rows = await apiFetch<ChatsFolderWireDTO[]>(`${projectBase(projectId)}/home/chats/folders`)
   return (rows ?? []).map((row) => folderDTOFromWire(row, projectId, ''))
 }
 
@@ -663,8 +659,8 @@ export function postProject(name: string, path: string, hostId = 'local'): Promi
   )
 }
 
-export function postRepo(projectId: string, name: string, path: string): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}/repos`, {
+export async function postRepo(projectId: string, name: string, path: string): Promise<void> {
+  return apiFetch(`${projectBase(projectId)}/repos`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, path }),
@@ -674,8 +670,8 @@ export function postRepo(projectId: string, name: string, path: string): Promise
 // Rename an already-added repo. Answers 204; the updated RepoDTO (new name +
 // regenerated avatar) arrives on the repos WS stream and merges into the cache,
 // so callers do not update the sidebar store themselves.
-export function renameRepo(projectId: string, repoId: string, name: string): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}`, {
+export async function renameRepo(projectId: string, repoId: string, name: string): Promise<void> {
+  return apiFetch(repoBase(projectId, repoId), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -686,8 +682,8 @@ export function renameRepo(projectId: string, repoId: string, name: string): Pro
  * Rename a project. The renamed ProjectDTO arrives on the projects WS stream, so
  * no caller patches its own cache from this — same contract as renameRepo.
  */
-export function renameProject(projectId: string, name: string): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}`, {
+export async function renameProject(projectId: string, name: string): Promise<void> {
+  return apiFetch(projectBase(projectId), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -695,8 +691,8 @@ export function renameProject(projectId: string, name: string): Promise<void> {
 }
 
 /** Delete a project, and with it every repo and workspace inside. */
-export function deleteProject(projectId: string, init?: RequestInit): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}`, { method: 'DELETE', ...init })
+export async function deleteProject(projectId: string, init?: RequestInit): Promise<void> {
+  return apiFetch(projectBase(projectId), { method: 'DELETE', ...init })
 }
 
 /**
@@ -717,8 +713,8 @@ export function setWorkspaceLock(wsId: string, locked: boolean | null): Promise<
 
 // Open-PR head→base graph for the import dialog's parent hint. Advisory only:
 // the import endpoint re-resolves parenting authoritatively server-side.
-export function getRepoPullRequests(projectId: string, repoId: string): Promise<PRLink[]> {
-  return apiFetch<PRLink[]>(`/v0/projects/${projectId}/repos/${repoId}/pull-requests`)
+export async function getRepoPullRequests(projectId: string, repoId: string): Promise<PRLink[]> {
+  return apiFetch<PRLink[]>(`${repoBase(projectId, repoId)}/pull-requests`)
 }
 
 // Batch-import branches as chats holding a worktree each. The daemon PR-parents
@@ -731,12 +727,12 @@ export function getRepoPullRequests(projectId: string, repoId: string): Promise<
 // the ancestors a branch is parented under, and falls back to a placeholder row
 // for a branch another worktree already holds. Driving it per-branch would drop
 // all three silently.
-export function importBranches(
+export async function importBranches(
   projectId: string,
   repoId: string,
   branches: string[],
 ): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/chats/import-batch`, {
+  return apiFetch(`${repoBase(projectId, repoId)}/chats/import-batch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ branches }),
@@ -747,8 +743,12 @@ export function importBranches(
 // and its workspaces' tombstones arrive on the entity streams; nothing here
 // writes the sidebar tree. This is the one removal the sidebar asks the user to
 // confirm — everything under the repo goes with it.
-export function deleteRepo(projectId: string, repoId: string, init?: RequestInit): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}`, { method: 'DELETE', ...init })
+export async function deleteRepo(
+  projectId: string,
+  repoId: string,
+  init?: RequestInit,
+): Promise<void> {
+  return apiFetch(repoBase(projectId, repoId), { method: 'DELETE', ...init })
 }
 
 // Rename a worktree's branch, addressed through the CHAT that holds it — a

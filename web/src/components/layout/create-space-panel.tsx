@@ -17,6 +17,7 @@ import { toast } from '@/features/window/stores/toast-store'
 import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { apiFetch, postProject } from '@/lib/api'
 import { awaitEntity } from '@/lib/ws/await-entity'
+import { projectBaseOnHost } from '@/lib/project-url'
 import { projectFromDTO } from '@/lib/store/project-from-dto'
 import { cn } from '@/lib/utils'
 import { AddHostDialog } from '@/features/hosts/components/add-host-dialog'
@@ -95,9 +96,14 @@ interface CreateSpacePanelProps {
 
 /** Applies a staged icon pick against a real, just-created project — the
  *  exact same three routes IconPopover itself would have hit had the space
- *  already existed when the pick was made. */
-async function applyStagedIcon(projectId: string, staged: StagedIcon): Promise<void> {
-  const base = `/v0/projects/${projectId}`
+ *  already existed when the pick was made. The project is not in the project
+ *  list yet, so the host it was created on is passed rather than looked up. */
+async function applyStagedIcon(
+  hostId: string,
+  projectId: string,
+  staged: StagedIcon,
+): Promise<void> {
+  const base = projectBaseOnHost(hostId, projectId)
   switch (staged.kind) {
     case 'emoji':
       await apiFetch(`${base}/icon/emoji`, {
@@ -189,7 +195,7 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
         // failed icon mutation surfaces its own toast rather than blocking
         // entry to the new space.
         try {
-          await applyStagedIcon(dto.id, stagedIcon)
+          await applyStagedIcon(hostId, dto.id, stagedIcon)
         } catch {
           toast.error('Failed to set icon')
         }

@@ -33,7 +33,8 @@ export type StagedIcon =
 interface IconPopoverProps {
   /**
    * The entity's REST base — `/v0/projects/<id>` or
-   * `/v0/projects/<id>/repos/<id>`. Every mutation below hangs off it, which is
+   * `/v0/projects/<id>/repos/<id>`, qualified with the entity's host (projectBase/repoBase,
+   * lib/project-url). Every mutation below hangs off it, which is
    * the whole reason one component can serve both: the daemon exposes the same
    * four routes under each. Unused when `onStage` is provided.
    */

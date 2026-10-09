@@ -3,6 +3,7 @@ import {
   type LandingChatPresentation,
 } from '@/features/settings/lib/chat-presentation'
 import { apiFetch, apiUrl } from '@/lib/api'
+import { repoBase } from '@/lib/project-url'
 import { repoChatsBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 import {
@@ -1153,9 +1154,7 @@ export async function createChatWithOwnWorktree(
   parentId = '',
   branch = '',
 ): Promise<string> {
-  const p = encodeURIComponent(projectId)
-  const r = encodeURIComponent(repoId)
-  const res = await apiFetch<{ id: string }>(`/v0/projects/${p}/repos/${r}/chats`, {
+  const res = await apiFetch<{ id: string }>(`${repoBase(projectId, repoId)}/chats`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

@@ -42,6 +42,7 @@ vi.mock('@/lib/ws/manager', () => ({
 }))
 
 import { AppSyncProvider } from '@/components/app-sync-provider'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { success } from '@/lib/loadable'
 import { resetDB } from '@/lib/persistence/idb'
 import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
@@ -470,5 +471,72 @@ describe('AppSyncProvider boot, end to end', () => {
     await boot()
     await waitFor(() => expect(workspaceIdsOf('r2')).toEqual(['w2']))
     expect(repoIds()).toEqual(['r1', 'r2'])
+  })
+})
+
+// Visible projects come from the list, so each one's host is known by construction: every
+// stream it opens is qualified with that host, and a remote project is never opened on Local.
+describe('AppSyncProvider across hosts', () => {
+  const remote = (id: string, hostId = 'host-2'): Project => ({ ...project(id), hostId })
+  const pair = (id: string) =>
+    useHostConfigStore.getState().addHost({
+      id,
+      name: id,
+      endpoint: `${id}.example:3737`,
+      pairedFingerprint: 'SHA256:aaaa',
+      clientId: `client-${id}`,
+    })
+  const openedEndpoints = () => [...handlers.keys()].sort()
+  const mount = () =>
+    render(
+      <AppSyncProvider>
+        <div />
+      </AppSyncProvider>,
+    )
+
+  beforeEach(() => {
+    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+    pair('host-2')
+  })
+
+  afterEach(() => {
+    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+  })
+
+  it('qualifies every stream of a remote project and leaves a local one bare', async () => {
+    useProjectDataStore.setState({ data: success([project('p1'), remote('p2')]) })
+    await boot()
+    await waitFor(() => expect(workspaceIdsOf('r2')).toEqual(['w2']))
+    expect(openedEndpoints()).toEqual([
+      '/v0/projects/p1/home/chats/ws',
+      '/v0/projects/p1/repos',
+      '/v0/projects/p1/repos/r1/chats/ws',
+      'crowbar://host-2/v0/projects/p2/home/chats/ws',
+      'crowbar://host-2/v0/projects/p2/repos',
+      'crowbar://host-2/v0/projects/p2/repos/r2/chats/ws',
+    ])
+  })
+
+  it('opens nothing for a project whose host is unknown, and everything once its row lands', async () => {
+    // The active project can be ahead of the list: it has no row to name its host yet.
+    useProjectStore.setState({ activeProjectId: 'p-late' })
+    useProjectDataStore.setState({ data: success([project('p1')]) })
+    mount()
+    await waitFor(() => expect(workspaceIdsOf('r1')).toEqual(['w1']))
+    expect(openedEndpoints().filter((e) => e.includes('p-late'))).toEqual([])
+
+    act(() => useProjectDataStore.setState({ data: success([project('p1'), remote('p-late')]) }))
+    await waitFor(() =>
+      expect(handlers.has('crowbar://host-2/v0/projects/p-late/repos')).toBe(true),
+    )
+  })
+
+  it('opens a row’s streams once the host it names is configured', async () => {
+    useProjectDataStore.setState({ data: success([project('p1'), remote('p2', 'host-3')]) })
+    await boot()
+    expect(openedEndpoints().filter((e) => e.includes('p2'))).toEqual([])
+
+    act(() => pair('host-3'))
+    await waitFor(() => expect(handlers.has('crowbar://host-3/v0/projects/p2/repos')).toBe(true))
   })
 })

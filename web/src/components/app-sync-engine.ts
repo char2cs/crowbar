@@ -5,6 +5,9 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { getVisibleProjectIds } from '@/lib/store/project-visibility'
 import { toSidebarRepo } from '@/lib/store/build-repo-tree'
 import { subscribeHomeTree } from '@/lib/store/home-tree'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { isHostResolved } from '@/lib/host-resolve'
+import { projectBase, repoBase } from '@/lib/project-url'
 import { dataOf } from '@/lib/loadable'
 import {
   fetchFolders,
@@ -378,7 +381,7 @@ export function useAppSyncEngine(): void {
       // agent-api.ts's chatBase → repoChatsBaseForWorkspace), so this reuses
       // the identical multiplexed connection rather than opening a second one.
       const unsubscribeFrames = wsManager.subscribe(
-        `/v0/projects/${projectId}/repos/${repoId}/chats/ws`,
+        `${repoBase(projectId, repoId)}/chats/ws`,
         (frame) => {
           if (disposed || closed) return
           if (frame && typeof frame === 'object' && 'reconnected' in frame) {
@@ -425,7 +428,7 @@ export function useAppSyncEngine(): void {
       const [kind, projectId, repoId] = key.split(KEY_SEP)
       if (kind === 'repos') {
         return subscribeEntityStream<RepoDTO>({
-          endpoint: `/v0/projects/${projectId}/repos`,
+          endpoint: `${projectBase(projectId)}/repos`,
           store: 'crowbar_repos',
           seed: () => fetchRepos(projectId),
           onChange: (change) => {
@@ -460,7 +463,7 @@ export function useAppSyncEngine(): void {
       // provider PR-status poll. That is the per-CHAT stream's job; see
       // use-workspace-provider-stream.ts.
       return subscribeEntityStream<WorkspaceDTO>({
-        endpoint: `/v0/projects/${projectId}/repos/${repoId}/chats/ws`,
+        endpoint: `${repoBase(projectId, repoId)}/chats/ws`,
         store: 'crowbar_workspaces',
         seed: async () => {
           const rows = await fetchWorkspaces(projectId, repoId)
@@ -515,7 +518,11 @@ export function useAppSyncEngine(): void {
     // -- which streams should be open right now ----------------------------
 
     function desiredKeys(): Set<string> {
-      const visibleProjects = getVisibleProjectIds()
+      // A project with no resolved host has no endpoint to open yet (the active one can be ahead
+      // of the list); it joins when its row or host arrives, which reconcile() re-runs on.
+      const visibleProjects = new Set(
+        [...getVisibleProjectIds()].filter((projectId) => isHostResolved({ projectId })),
+      )
       const keys = new Set<string>()
       for (const projectId of visibleProjects) {
         keys.add(reposKey(projectId))
@@ -610,6 +617,11 @@ export function useAppSyncEngine(): void {
       rootUnsubscribes.push(
         useSidebarStore.subscribe((s, prev) => {
           if (s.repos !== prev.repos) reconcile()
+        }),
+      )
+      rootUnsubscribes.push(
+        useHostConfigStore.subscribe((s, prev) => {
+          if (s.hosts !== prev.hosts) reconcile()
         }),
       )
     }

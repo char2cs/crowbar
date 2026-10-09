@@ -14,6 +14,7 @@ import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { useNavigate } from '@tanstack/react-router'
 import { isTauri } from '@/lib/crowbar-bridge'
 import { fetchWorkspaces, postRepo, workspaceDTOFromWorktreeFrame } from '@/lib/api'
+import { projectBase, repoBase } from '@/lib/project-url'
 import { useProjectStore } from '@/lib/store/projects'
 import { awaitEntity } from '@/lib/ws/await-entity'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
@@ -80,13 +81,13 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
       // by matching its path, then resolve its default WorkspaceDTO and navigate
       // into the IDE.
       const repo = await awaitEntity<RepoDTO>({
-        endpoint: `/v0/projects/${activeProjectId}/repos`,
+        endpoint: `${projectBase(activeProjectId)}/repos`,
         match: (r) => r.path === trimmedPath,
         action: () => postRepo(activeProjectId, repoName, trimmedPath),
       })
 
       const ws = await awaitEntity<WorkspaceDTO>({
-        endpoint: `/v0/projects/${activeProjectId}/repos/${repo.id}/chats/ws`,
+        endpoint: `${repoBase(activeProjectId, repo.id)}/chats/ws`,
         // The frames are chat lifecycle events, not workspace DTOs — pick the
         // owning row's worktree state out and build the DTO from it. Every
         // other kind maps to null and is skipped before `match` ever runs.

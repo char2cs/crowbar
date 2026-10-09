@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { idle, success } from '@/lib/loadable'
+import { useProjectDataStore } from '@/lib/store/projects'
 import {
   buildRepoTree,
   sortByPlacement,
@@ -118,6 +121,50 @@ describe('buildRepoTree', () => {
   it('maps avatarUrl from RepoDTO to Repo.avatarURL', () => {
     const repos = buildRepoTree([repo('r1', 'my-repo', { avatarUrl: '/v0/icon.png' })], [])
     expect(repos[0].avatarURL).toBe('/v0/icon.png')
+  })
+
+  describe('the icon of a repo on a remote host', () => {
+    const loadRow = (hostId: string) =>
+      useProjectDataStore.setState({
+        data: success([
+          { id: 'p1', name: 'p1', path: '/work/p1', lastActivity: new Date(0), hostId },
+        ]),
+      })
+    const withIcon = [repo('r1', 'my-repo', { avatarUrl: '/v0/projects/p1/repos/r1/icon?v=1' })]
+
+    beforeEach(() => {
+      ;(window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {}
+      useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+      useHostConfigStore.getState().addHost({
+        id: 'host-2',
+        name: 'host-2',
+        endpoint: 'host-2.example:3737',
+        pairedFingerprint: 'SHA256:aaaa',
+        clientId: 'client-host-2',
+      })
+      useProjectDataStore.setState({ data: idle() })
+    })
+
+    afterEach(() => {
+      delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
+      useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+      useProjectDataStore.setState({ data: idle() })
+    })
+
+    it('is loaded from that host, never from the local daemon', () => {
+      loadRow('host-2')
+      expect(buildRepoTree(withIcon, [])[0].avatarURL).toBe(
+        'crowbar://host-2/v0/projects/p1/repos/r1/icon?v=1',
+      )
+    })
+
+    it.each([
+      ['the project list has not loaded', () => undefined],
+      ['its host is not configured', () => loadRow('gone')],
+    ])('falls back to the letter tile, not a throw, while %s', (_why, arrange) => {
+      arrange()
+      expect(buildRepoTree(withIcon, [])[0].avatarURL).toBeUndefined()
+    })
   })
 
   it('prefers a custom emoji over the proxied icon url', () => {

@@ -39,6 +39,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
   return {
     ...actual,
     postRepo: vi.fn((_p: string, _name: string, _path: string) => Promise.resolve()),
+    fetchWorkspaces: vi.fn((_p: string, _r: string) => Promise.resolve([])),
   }
 })
 
@@ -53,7 +54,9 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 
 import * as api from '@/lib/api'
 import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
-import { useProjectStore } from '@/lib/store/projects'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { success } from '@/lib/loadable'
+import { useProjectDataStore, useProjectStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { wipeEntityCache } from '@/lib/persistence/idb'
 
@@ -136,6 +139,7 @@ beforeEach(async () => {
   vi.mocked(api.postRepo).mockResolvedValue(undefined)
   useProjectStore.setState({ activeProjectId: 'proj-1' })
   useSidebarStore.setState({ repos: [] })
+  useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
   await wipeEntityCache()
 })
 
@@ -286,5 +290,60 @@ test('resets loading and re-enables Add button when postRepo rejects', async () 
     expect(screen.getByRole('button', { name: /add repository/i })).not.toBeDisabled()
     expect(screen.queryByText('Adding…')).not.toBeInTheDocument()
   })
+  expect(navigateMock).not.toHaveBeenCalled()
+})
+
+// A project's streams are qualified with its own host, read off its row in the project list.
+const onHost2 = (id: string) => ({
+  id,
+  name: id,
+  path: `/work/${id}`,
+  lastActivity: new Date(0),
+  hostId: 'host-2',
+})
+function pairHost2() {
+  useHostConfigStore.getState().addHost({
+    id: 'host-2',
+    name: 'host-2',
+    endpoint: 'host-2.example:3737',
+    pairedFingerprint: 'SHA256:aaaa',
+    clientId: 'client-host-2',
+  })
+}
+
+test('adds a repo to a remote project through that host’s own streams', async () => {
+  pairHost2()
+  useProjectDataStore.setState({ data: success([onHost2('proj-2')]) })
+  render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-2" />)
+  fireEvent.change(pathInput(), { target: { value: '/tmp/my-repo' } })
+  fireEvent.click(screen.getByRole('button', { name: /add repository/i }))
+
+  const reposStream = 'crowbar://host-2/v0/projects/proj-2/repos'
+  await waitFor(() => expect(subscribers.has(reposStream)).toBe(true))
+  emit(reposStream, repoDTO({ id: 'repo-9', projectId: 'proj-2', path: '/tmp/my-repo' }))
+  const chatStream = `${reposStream}/repo-9/chats/ws`
+  await waitFor(() => expect(subscribers.has(chatStream)).toBe(true))
+  emit(
+    chatStream,
+    worktreeFrame(workspaceDTO({ id: 'ws-1', repoId: 'repo-9', projectId: 'proj-2' })),
+  )
+
+  await waitFor(() => expect(navigateMock).toHaveBeenCalled())
+  expect([...subscribers.keys()]).toEqual([reposStream, chatStream])
+  expect(api.fetchWorkspaces).toHaveBeenCalledWith('proj-2', 'repo-9')
+})
+
+test('subscribes nothing and posts nothing for a project whose host is not resolved', async () => {
+  pairHost2()
+  useProjectDataStore.setState({ data: success([onHost2('proj-2')]) })
+  render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-unknown" />)
+  fireEvent.change(pathInput(), { target: { value: '/tmp/my-repo' } })
+  fireEvent.click(screen.getByRole('button', { name: /add repository/i }))
+
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /add repository/i })).not.toBeDisabled(),
+  )
+  expect(subscribers.size).toBe(0)
+  expect(api.postRepo).not.toHaveBeenCalled()
   expect(navigateMock).not.toHaveBeenCalled()
 })
