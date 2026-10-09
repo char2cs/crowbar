@@ -1,4 +1,5 @@
 /** Creates in a project home: a thread under a home row, and the header's thread. */
+import { act } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
 const {
@@ -47,6 +48,9 @@ import { handleCreateHomeThread } from '@/components/layout/home-actions'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { useProjectDataStore } from '@/lib/store/projects'
+import { failed } from '@/lib/loadable'
 import { useSettingsStore } from '@/features/settings/store'
 import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
@@ -446,6 +450,25 @@ describe('a project-home thread on an install that has paired a remote host', ()
     expect(toastError).toHaveBeenCalledExactlyOnceWith('Couldn’t reach host-1', expect.any(String))
   })
 
+  it('names the host by its name, never its id, also when it was removed while being asked', async () => {
+    resetHostWorld()
+    pairRemoteHost('host-1', 'Studio Mac')
+    loadProjects(projectOn('p-remote', 'host-1'))
+    useAgentProvidersStore.setState({ remote: {} })
+    let fail!: (reason: Error) => void
+    listGlobalProviders.mockReturnValueOnce(new Promise((_, reject) => (fail = reject)))
+
+    const click = handleCreateHomeThread('p-remote', 'home-remote', vi.fn())
+    act(() => useHostConfigStore.getState().removeHost('host-1'))
+    fail(new Error('gone'))
+    await click
+
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(
+      'Couldn’t reach Studio Mac',
+      expect.any(String),
+    )
+  })
+
   it('sends a project on a host that is not configured to Hosts, not to a retry', async () => {
     loadProjects(projectOn('p-gone', 'host-2'))
 
@@ -468,6 +491,20 @@ describe('a project-home thread on an install that has paired a remote host', ()
     expect(toastError).toHaveBeenCalledExactlyOnceWith(
       'Still loading your projects',
       expect.not.stringContaining('Hosts'),
+    )
+  })
+
+  it('says the list could not be read, not that it is loading, when the read failed', async () => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    useProjectDataStore.setState({ data: failed(new Error('daemon down')) })
+
+    await handleCreateHomeThread('p-local', 'home-local', vi.fn())
+
+    expect(createChat).not.toHaveBeenCalled()
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(
+      'Couldn’t load your projects',
+      expect.any(String),
     )
   })
 })

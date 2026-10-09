@@ -6,6 +6,7 @@ import {
 } from '@/features/settings/stores/agent-providers-store'
 import { hostUnavailability, resolvedHostOf } from '@/lib/host-resolve'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { useProjectDataStore } from '@/lib/store/projects'
 import { presetChatLandingPresentation } from '@/features/agent/hooks/use-chat-presentation'
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { usePendingCreatesStore } from '@/lib/store/pending-creates'
@@ -174,10 +175,12 @@ export function readUnreadHostProviders(projectId: string): Promise<boolean> | n
   const hostId = resolvedHostOf({ projectId })
   const state = useAgentProvidersStore.getState()
   if (hostId === null || hostId === LOCAL_HOST.id || state.remote[hostId] !== undefined) return null
+  // Named before the wait: the host may be removed while it is asked.
+  const name = useHostConfigStore.getState().hosts.find((h) => h.id === hostId)?.name
   return state.loadHost(hostId).then((providers) => {
     if (providers === null) {
       toast.error(
-        `Couldn’t reach ${hostName(hostId)}`,
+        `Couldn’t reach ${name ?? 'that host'}`,
         'Check that it is online in Settings → Hosts.',
       )
     }
@@ -185,18 +188,19 @@ export function readUnreadHostProviders(projectId: string): Promise<boolean> | n
   })
 }
 
-function hostName(hostId: string): string {
-  return useHostConfigStore.getState().hosts.find((h) => h.id === hostId)?.name ?? hostId
-}
-
 // Only a project list that has loaded can say a host is gone; before that a local
-// project is merely not known yet, and Settings → Hosts would be the wrong advice.
+// project is merely not known yet (or the read failed), and Hosts would be the wrong advice.
 function refuseUnresolvedHost(projectId: string): void {
   const why = hostUnavailability({ projectId })
   if (why === 'host-unavailable') {
     toast.error('This project’s host is not available', 'Check the host in Settings → Hosts.')
   } else if (why === 'project-missing') {
     toast.error('This project is no longer in your list')
+  } else if (useProjectDataStore.getState().data.status === 'error') {
+    toast.error(
+      'Couldn’t load your projects',
+      'Check that Crowbar can reach its daemon, then retry.',
+    )
   } else {
     toast.error('Still loading your projects', 'Try again in a moment.')
   }

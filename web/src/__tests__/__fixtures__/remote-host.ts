@@ -10,10 +10,10 @@ export function resetHostWorld(): void {
 }
 
 /** Pairs `hostId` through the real store, so `remoteEverPaired` flips like production. */
-export function pairRemoteHost(hostId = 'host-1'): void {
+export function pairRemoteHost(hostId = 'host-1', name = hostId): void {
   useHostConfigStore.getState().addHost({
     id: hostId,
-    name: hostId,
+    name,
     endpoint: `${hostId}.example:3737`,
     pairedFingerprint: 'SHA256:aaaa',
     clientId: `client-${hostId}`,
