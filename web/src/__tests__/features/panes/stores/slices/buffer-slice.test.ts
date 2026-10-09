@@ -40,6 +40,7 @@ vi.mock('@/lib/persistence/workspace-layout', () => ({
 
 const editor = (path: string, extra: { isPreview?: boolean; workspaceId?: string } = {}) => ({
   type: 'editor' as const,
+  workspaceId: 'ws-test',
   path,
   name: path.split('/').pop() ?? path,
   content: '',
@@ -107,12 +108,13 @@ describe('buffer-slice', () => {
   it('opening an already-open terminal reveals its pane instead of adding a copy', () => {
     const { bufferActions } = store.getState()
     const id = bufferActions.openContent(
-      { type: 'terminal', sessionId: 'sess-1', name: 'Terminal 1' },
+      { type: 'terminal', sessionId: 'sess-1', name: 'Terminal 1', workspaceId: 'ws-test' },
       { paneId: BOTTOM_PANE_ID },
     )
 
     const again = bufferActions.openContent({
       type: 'terminal',
+      workspaceId: 'ws-test',
       sessionId: 'sess-1',
       name: 'Terminal 1',
     })
@@ -160,6 +162,7 @@ describe('buffer-slice', () => {
     killTerminalSession.mockClear()
     const id = store.getState().bufferActions.openContent({
       type: 'terminal',
+      workspaceId: 'ws-test',
       sessionId: 'sess-9',
       name: 'Terminal 1',
     })
@@ -194,6 +197,7 @@ describe('buffer-slice', () => {
     closeChat.mockClear()
     const id = store.getState().bufferActions.openContent({
       type: 'terminal',
+      workspaceId: 'ws-test',
       sessionId: 'sess-term',
       name: 'Terminal 1',
     })

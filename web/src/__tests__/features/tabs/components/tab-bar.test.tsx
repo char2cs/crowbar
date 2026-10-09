@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createElement } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import type { AgentChat } from '@/features/agent/api/agent-api'
@@ -29,11 +29,18 @@ vi.mock('@/features/file-explorer/components/file-explorer-icon', () => ({
   FileExplorerIcon: () => createElement('span', { 'data-testid': 'file-icon' }),
 }))
 
+const menu = vi.hoisted(() => ({
+  onRevealInFinder: undefined as undefined | ((path: string) => void),
+}))
 vi.mock('@/features/tabs/components/tab-context-menu', () => ({
-  default: () => null,
+  default: (props: { onRevealInFinder?: (path: string) => void }) => {
+    menu.onRevealInFinder = props.onRevealInFinder
+    return null
+  },
 }))
 
 import TabBar from '@/features/tabs/components/tab-bar'
+import * as fileTreeHandlers from '@/features/files/lib/file-tree-handlers'
 
 function makeEditorBuffer(i: number): EditorContent {
   return {
@@ -513,5 +520,38 @@ describe('TabBar — chat as a tab (showChatTab)', () => {
     })
 
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).toBe('buf-0')
+  })
+})
+
+describe('TabBar context menu', () => {
+  beforeEach(() => {
+    menu.onRevealInFinder = undefined
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('reveals a tab’s file in the workspace the tab belongs to, not the pane’s', () => {
+    const reveal = vi.spyOn(fileTreeHandlers, 'revealInFolder').mockImplementation(() => {})
+    const store = setupStore([{ ...makeEditorBuffer(0), workspaceId: 'w-tab' }])
+    act(() => {
+      renderTabBar(store, { wsId: 'w-pane' })
+    })
+
+    act(() => {
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /file-0\.ts/ }))
+    })
+    menu.onRevealInFinder?.('src/a.ts')
+
+    expect(reveal).toHaveBeenCalledExactlyOnceWith('w-tab', 'src/a.ts')
+  })
+
+  it('offers no Reveal while no tab’s menu is open, rather than guessing a workspace', () => {
+    const store = setupStore([makeEditorBuffer(0)])
+    act(() => {
+      renderTabBar(store, { wsId: 'w-pane' })
+    })
+
+    expect(menu.onRevealInFinder).toBeUndefined()
   })
 })

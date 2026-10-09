@@ -27,23 +27,25 @@ describe('revealInFolder', () => {
   // The tab menu passes workspace-relative buffer paths, the explorer absolute
   // ones, and virtual buffers must never reach the OS.
   it('reveals absolute paths as-is and relative ones under the worktree root', () => {
-    revealInFolder('/abs/path/file.ts')
+    revealInFolder('ws-a', '/abs/path/file.ts')
     expect(revealItemInFinder).toHaveBeenCalledWith('/abs/path/file.ts')
 
-    revealInFolder('api/main.go')
+    revealInFolder('ws-a', 'api/main.go')
     expect(revealItemInFinder).toHaveBeenCalledWith('/disk/worktree/api/main.go')
+    // ...resolved against the workspace the menu belongs to, not the one in view.
+    expect(resolveWorkspaceRootPath).toHaveBeenCalledExactlyOnceWith('ws-a')
   })
 
   it('does not reveal a virtual buffer or an unresolvable root', () => {
-    revealInFolder('remote://x/y.ts')
+    revealInFolder('ws-a', 'remote://x/y.ts')
     resolveWorkspaceRootPath.mockReturnValueOnce(undefined)
-    revealInFolder('api/main.go')
+    revealInFolder('ws-a', 'api/main.go')
     expect(revealItemInFinder).not.toHaveBeenCalled()
   })
 
   it('surfaces a failure as an error toast', async () => {
     revealItemInFinder.mockRejectedValueOnce(new Error('finder exploded'))
-    revealInFolder('/abs/file.ts')
+    revealInFolder('ws-a', '/abs/file.ts')
     await vi.waitFor(() =>
       expect(toastAdd).toHaveBeenCalledWith(
         expect.objectContaining({

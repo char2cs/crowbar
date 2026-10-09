@@ -73,7 +73,7 @@ export function PaneContainer({
   )
 
   const containerRef = useRef<HTMLDivElement>(null)
-  const drop = usePaneDropHandlers(pane.id, containerRef)
+  const drop = usePaneDropHandlers(pane.id, wsId, containerRef)
   usePaneActivation(pane.id, containerRef)
 
   const viewsContainerRef = useRef<HTMLDivElement>(null)

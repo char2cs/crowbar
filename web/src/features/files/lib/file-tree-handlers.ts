@@ -89,9 +89,9 @@ export function openWorkspaceFile(
 // buffer's workspace-relative path; the explorer passes an absolute one.
 // Relative paths resolve against the on-disk workspace root; virtual buffers
 // (diff:// …) have no disk presence to reveal.
-export function revealInFolder(path: string): void {
+export function revealInFolder(wsId: string, path: string): void {
   if (path.includes('://')) return
-  const root = path.startsWith('/') ? '' : resolveWorkspaceRootPath()
+  const root = path.startsWith('/') ? '' : resolveWorkspaceRootPath(wsId)
   if (root === undefined) return
   const absolute = root ? joinPath(root, path) : path
   revealItemInFinder(absolute).catch((error: unknown) => {

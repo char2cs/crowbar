@@ -14,7 +14,7 @@ interface BufferOpener {
       name: string
       content: string
       isPreview?: boolean
-      workspaceId?: string
+      workspaceId: string
     },
     opts?: { paneId?: string },
   ) => void

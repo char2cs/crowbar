@@ -295,12 +295,13 @@ export function useFileExplorerContextMenu({
           label: 'Open in Terminal',
           icon: <Terminal />,
           onClick: () => {
+            if (!workspaceId) return
             const folderName = getBaseName(dirTargetPath, 'terminal')
             windowPaneStore.getState().bufferActions.openContent({
               type: 'terminal',
               name: folderName,
               workingDirectory: dirTargetPath,
-              workspaceId: workspaceId ?? undefined,
+              workspaceId,
             })
           },
         },

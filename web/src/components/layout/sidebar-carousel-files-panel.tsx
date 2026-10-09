@@ -74,7 +74,7 @@ export function SidebarCarouselFilesPanel() {
             onRenamePath={handlers.handleRenamePath}
             onDeletePath={handlers.handleDeletePath}
             onDuplicatePath={handlers.handleDuplicatePath}
-            onRevealInFinder={revealInFolder}
+            onRevealInFinder={(path) => revealInFolder(wsId, path)}
             onUploadFile={handleUploadFile}
             onRefreshDirectory={handlers.refreshDirectory}
           />
