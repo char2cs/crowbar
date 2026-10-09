@@ -90,8 +90,19 @@ export const BASELINES = [
 ]
 
 // Entity-addressed API paths are built by lib/project-url.ts and lib/workspace-scope-url.ts, which
-// qualify them with the entity's host. `\x2f` is `/`: esquery's regex syntax cannot contain one.
-const ENTITY_API_PATH = '\\x2fv0\\x2f(projects|chats)\\x2f'
+// qualify them with the entity's host. Catches whole paths, `+`/template pieces and `/v0` fragments;
+// a path routed through a constant is beyond syntax. `\x2f` is `/`: esquery regexes cannot hold one.
+const ENTITY = '(projects|chats|workspaces)'
+const V0_TAIL = `\\x2fv0(\\x2f(${ENTITY}\\x2f?)?)?$`
+const ENTITY_API_SELECTORS = [
+  `Literal[value=/\\x2fv0\\x2f${ENTITY}\\x2f/]`,
+  `TemplateElement[value.raw=/\\x2fv0\\x2f${ENTITY}\\x2f/]`,
+  `BinaryExpression[operator='+'] > Literal[value=/${V0_TAIL}/]`,
+  `BinaryExpression[operator='+'] > TemplateLiteral > TemplateElement[value.raw=/${V0_TAIL}/]`,
+  `TemplateElement[tail=false][value.raw=/${V0_TAIL}/]`,
+  `TemplateElement[value.raw=/^${ENTITY}\\x2f/]`,
+  'Literal[value=/^\\x2f?v0\\x2f?$/]',
+]
 const ENTITY_API_PATH_MESSAGE =
   'Build project/repo/workspace/chat URLs with projectBase/repoBase (lib/project-url) or the ' +
   'lib/workspace-scope-url builders: a hand-written path carries no host and lands on the local daemon.'
@@ -170,11 +181,7 @@ export default tseslint.config(
     rules: {
       'no-restricted-syntax': [
         'error',
-        { selector: `Literal[value=/${ENTITY_API_PATH}/]`, message: ENTITY_API_PATH_MESSAGE },
-        {
-          selector: `TemplateElement[value.raw=/${ENTITY_API_PATH}/]`,
-          message: ENTITY_API_PATH_MESSAGE,
-        },
+        ...ENTITY_API_SELECTORS.map((selector) => ({ selector, message: ENTITY_API_PATH_MESSAGE })),
       ],
     },
   },
