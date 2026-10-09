@@ -108,7 +108,7 @@ Crowbar is open-source and contributions are welcome. Building it needs Go, [Bun
 | `make test`          | api + web + desktop                               |
 | `make lint`          | Lint everything                                   |
 | `make test-coverage` | Tests with coverage reports                       |
-| `make docker-up`     | Self-hosted daemon at `localhost:3737`            |
+| `make docker-up`     | Self-hosted daemon at `https://localhost:${CROWBAR_PORT:-3737}` (self-signed TLS) |
 
 Before opening a PR, always run:
 
