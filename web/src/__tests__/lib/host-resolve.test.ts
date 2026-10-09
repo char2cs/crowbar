@@ -7,7 +7,6 @@ import {
   hostIdForProject,
   hostIdForWorkspace,
   isHostResolved,
-  isHostUnavailable,
   resolvedHostOf,
   useHostResolved,
   useHostUnavailable,
@@ -422,19 +421,22 @@ describe('useHostResolved', () => {
 describe('a host that will not resolve', () => {
   it('is unavailable only once a loaded list still does not place it', () => {
     configureHosts('host-1')
-    expect(isHostUnavailable({ projectId: 'p-remote' })).toBe(false)
-    useProjectDataStore.setState({ data: loading() })
-    expect(isHostUnavailable({ projectId: 'p-remote' })).toBe(false)
-    useProjectDataStore.setState({ data: failed(new Error('boom')) })
-    expect(isHostUnavailable({ projectId: 'p-remote' })).toBe(false)
-    loadProjects(project('p-other', 'host-1'))
-    expect(isHostUnavailable({ projectId: 'p-remote' })).toBe(true)
-    expect(isHostUnavailable({ projectId: 'p-other' })).toBe(false)
+    const remote = renderHook(() => useHostUnavailable({ projectId: 'p-remote' }))
+    const other = renderHook(() => useHostUnavailable({ projectId: 'p-other' }))
+    expect(remote.result.current).toBe(false)
+    act(() => useProjectDataStore.setState({ data: loading() }))
+    expect(remote.result.current).toBe(false)
+    act(() => useProjectDataStore.setState({ data: failed(new Error('boom')) }))
+    expect(remote.result.current).toBe(false)
+    act(() => loadProjects(project('p-other', 'host-1')))
+    expect(remote.result.current).toBe(true)
+    expect(other.result.current).toBe(false)
   })
 
   it('is never unavailable for an install that cannot hold a remote project', () => {
     loadProjects(project('p-local', 'local'))
-    expect(isHostUnavailable({ projectId: 'p-unknown' })).toBe(false)
+    const { result } = renderHook(() => useHostUnavailable({ projectId: 'p-unknown' }))
+    expect(result.current).toBe(false)
   })
 
   it('useHostUnavailable flips when the list lands without the project', () => {

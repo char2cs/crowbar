@@ -133,7 +133,7 @@ export function useHostResolved(key: HostKey): boolean {
 
 /** True once the project list has loaded and `key`'s host still does not resolve:
  *  nothing more is coming, so a waiter should say so instead of waiting on. */
-export function isHostUnavailable(key: HostKey): boolean {
+function isHostUnavailable(key: HostKey): boolean {
   return useProjectDataStore.getState().data.status === 'success' && !isHostResolved(key)
 }
 
