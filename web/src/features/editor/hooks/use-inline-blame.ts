@@ -11,6 +11,7 @@ import type { BlameEntry } from '@/features/git/api/git-blame-api'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { useSettingsStore } from '@/features/settings/store'
+import { useHostResolved } from '@/lib/host-resolve'
 import { dataOf } from '@/lib/loadable'
 import { formatRelativeDate } from '@/utils/date'
 
@@ -38,10 +39,14 @@ export function useInlineBlame(
   const enabled = useSettingsStore((s) => s.settings.inlineBlame)
   const key = blameKey(workspaceId, filePath)
   const blame = useGitBlameStore((s) => s.blame[key])
+  // A load before the workspace's host is known is recorded as a failure and not retried.
+  const hostResolved = useHostResolved({ wsId: workspaceId })
 
   useEffect(() => {
-    if (enabled && editor && model && filePath && !blame) void loadBlame(workspaceId, filePath)
-  }, [enabled, editor, model, filePath, workspaceId, blame])
+    if (enabled && editor && model && filePath && !blame && hostResolved) {
+      void loadBlame(workspaceId, filePath)
+    }
+  }, [enabled, editor, model, filePath, workspaceId, blame, hostResolved])
 
   useEffect(() => {
     const entries = dataOf(blame)

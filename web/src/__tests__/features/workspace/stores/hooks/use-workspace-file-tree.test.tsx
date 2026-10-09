@@ -1,12 +1,19 @@
 import type { ReactNode } from 'react'
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { useWorkspaceFileTree } from '@/features/workspace/stores/hooks/use-workspace-file-tree'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
-import { setWorkspaceScope } from '@/lib/workspace-scope'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { __resetWorkspaceScopesForTest, setWorkspaceScope } from '@/lib/workspace-scope'
 import type { AppFile } from '@/features/file-system/types/app'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const { fetchFileTree, subscribe, reconcileBuffers } = vi.hoisted(() => ({
   fetchFileTree: vi.fn(),
@@ -148,5 +155,118 @@ describe('useWorkspaceFileTree', () => {
       ),
     })
     expect(fetchFileTree).not.toHaveBeenCalled()
+  })
+})
+
+describe('on an install that has paired a remote host', () => {
+  const REMOTE_FILES = 'crowbar://host-1/v0/chats/chat-remote/files/ws'
+  const LOCAL_FILES = '/v0/chats/chat-local/files/ws'
+  const filesEndpoints = () =>
+    (subscribe.mock.calls as unknown as [string][]).map(([endpoint]) => endpoint)
+
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    __resetWorkspaceScopesForTest()
+    setWorkspaceScope({
+      projectId: 'p-remote',
+      repoId: 'r1',
+      wsId: 'ws-remote',
+      owningChatId: 'chat-remote',
+    })
+    setWorkspaceScope({
+      projectId: 'p-local',
+      repoId: 'r1',
+      wsId: 'ws-local',
+      owningChatId: 'chat-local',
+    })
+  })
+
+  afterEach(() => resetHostWorld())
+
+  it('lists nothing and stays idle until the project list says whose workspace it is', async () => {
+    const remote = setup('ws-remote')
+    const local = setup('ws-local')
+    expect(fetchFileTree).not.toHaveBeenCalled()
+    expect(remote.store.getState().fileTreeStatus).toBe('idle')
+    expect(local.store.getState().fileTreeStatus).toBe('idle')
+
+    act(() => loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local')))
+
+    await waitFor(() => expect(remote.store.getState().fileTreeStatus).toBe('ready'))
+    await waitFor(() => expect(local.store.getState().fileTreeStatus).toBe('ready'))
+    await waitFor(() => expect(filesEndpoints().sort()).toEqual([LOCAL_FILES, REMOTE_FILES].sort()))
+  })
+
+  it('does not fetch an expanded folder before the host is known', () => {
+    useFileTreeStore.setState({ expandedPathsByWorkspace: { 'ws-remote': new Set(['src']) } })
+    const store = createWorkspaceStore('ws-remote')
+    store.getState().fileTreeActions.setFiles(rootTree)
+    renderHook(() => useWorkspaceFileTree('ws-remote', true, true), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <WorkspaceStoreContext.Provider value={store}>{children}</WorkspaceStoreContext.Provider>
+      ),
+    })
+    expect(fetchFileTree).not.toHaveBeenCalled()
+  })
+
+  it('switching local to remote closes the old channel and no event from it reaches the new tree', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
+    const unsubLocal = vi.fn()
+    subscribe.mockReturnValueOnce(unsubLocal)
+    const stores = {
+      'ws-local': createWorkspaceStore('ws-local'),
+      'ws-remote': createWorkspaceStore('ws-remote'),
+    }
+    let current: keyof typeof stores = 'ws-local'
+    const { rerender } = renderHook(() => useWorkspaceFileTree(current, true, true), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <WorkspaceStoreContext.Provider value={stores[current]}>
+          {children}
+        </WorkspaceStoreContext.Provider>
+      ),
+    })
+    await waitFor(() => expect(stores['ws-local'].getState().fileTreeStatus).toBe('ready'))
+    await waitFor(() => expect(subscribe).toHaveBeenCalledTimes(1))
+    const calls = () => subscribe.mock.calls as unknown as [string, (evt: unknown) => void][]
+    const fromLocalChannel = calls()[0][1]
+
+    current = 'ws-remote'
+    rerender()
+    await waitFor(() => expect(stores['ws-remote'].getState().fileTreeStatus).toBe('ready'))
+    await waitFor(() => expect(subscribe).toHaveBeenCalledTimes(2))
+
+    expect(unsubLocal).toHaveBeenCalledTimes(1)
+    expect(filesEndpoints()).toEqual([LOCAL_FILES, REMOTE_FILES])
+    fetchFileTree.mockClear()
+    reconcileBuffers.mockClear()
+    fromLocalChannel({ reconnected: true })
+    expect(reconcileBuffers).not.toHaveBeenCalledWith('ws-remote')
+  })
+
+  it('revoking the host closes its channel and never reopens it against the local daemon', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    const unsubscribe = vi.fn()
+    subscribe.mockReturnValueOnce(unsubscribe)
+    const { store } = setup('ws-remote')
+    await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
+    await waitFor(() => expect(subscribe).toHaveBeenCalledTimes(1))
+    fetchFileTree.mockClear()
+
+    act(() => useHostConfigStore.getState().removeHost('host-1'))
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+    expect(subscribe).toHaveBeenCalledTimes(1)
+    expect(fetchFileTree).not.toHaveBeenCalled()
+  })
+
+  it('does not let a refused channel escape the effect', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    subscribe.mockImplementationOnce(() => {
+      throw new Error('remote hosts need the desktop app')
+    })
+
+    expect(() => setup('ws-remote')).not.toThrow()
+    await waitFor(() => expect(fetchFileTree).toHaveBeenCalled())
   })
 })

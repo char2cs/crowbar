@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { getReviewOutline, type FileOutline } from '@/features/git/api/review-window-api'
+import { useHostResolved } from '@/lib/host-resolve'
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 import { onGitStatusChanged } from '@/features/git/stores/git-refresh'
 
@@ -59,9 +60,13 @@ export function useReviewOutline(wsId: string | null, commit?: string): UseRevie
     () => (wsId ? getOwningChatId(wsId) : null),
   )
 
+  // The host is named by the project list, which the sidebar's cache can outrun; a
+  // fetch before it is swallowed below and never retried. '' reads as unresolved.
+  const hostResolved = useHostResolved({ wsId: wsId ?? '' })
+
   useEffect(() => {
     if (!wsId) return
-    if (owningChatId === null) return
+    if (owningChatId === null || !hostResolved) return
 
     let cancelled = false
 
@@ -92,7 +97,7 @@ export function useReviewOutline(wsId: string | null, commit?: string): UseRevie
       cancelled = true
       stop()
     }
-  }, [wsId, commit, owningChatId])
+  }, [wsId, commit, owningChatId, hostResolved])
 
   return { outline, loaded }
 }

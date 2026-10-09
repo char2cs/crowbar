@@ -9,8 +9,9 @@ import {
 } from '@/features/files/lib/file-tree-api'
 import { refreshDirectory } from '@/features/files/lib/file-tree-handlers'
 import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
+import { useHostResolved } from '@/lib/host-resolve'
 import { reconcileWorkspaceBuffersWithDisk } from '@/lib/persistence/hydrate'
-import { wsManager } from '@/lib/ws/manager'
+import { subscribeGuarded } from '@/lib/ws/subscribe-guarded'
 import { useWorkspaceStore } from '../workspace-context'
 
 // Stable reference for a workspace with nothing expanded yet — a fresh
@@ -41,11 +42,12 @@ function isStructuralChange(type: string | undefined): boolean {
  * The tree is fetched the first time the workspace is shown and then stays
  * subscribed to the files stream for as long as the workspace is retained, so
  * switching back is a selection, never a reset or a refetch. Waits on
- * `chatScopeReady`: non-home file routes are chat-scoped and throw without an
- * owning chat id.
+ * `chatScopeReady` (non-home file routes are chat-scoped and throw without an
+ * owning chat id) and on the workspace's host being known.
  */
 export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeReady: boolean) {
   const store = useWorkspaceStore()
+  const addressable = useHostResolved({ wsId }) && chatScopeReady
   const status = useStore(store, (s) => s.fileTreeStatus)
   const files = useStore(store, (s) => s.files)
   const expandedPaths = useFileTreeStore(
@@ -54,7 +56,7 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
   const loadingDirs = useRef<Set<string>>(new Set())
 
   useEffect(() => {
-    if (!active || !chatScopeReady) return
+    if (!active || !addressable) return
     const { fileTreeStatus, fileTreeActions } = store.getState()
     if (fileTreeStatus === 'loading' || fileTreeStatus === 'ready') return
     fileTreeActions.setFileTreeStatus('loading')
@@ -69,14 +71,14 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
         // Buffers restored while this workspace was never shown may predate disk.
         void reconcileWorkspaceBuffersWithDisk(wsId).catch(() => {})
       })
-  }, [store, wsId, active, chatScopeReady])
+  }, [store, wsId, active, addressable])
 
   // Lazily fetch a directory's children the first time it is expanded, and
   // re-check on every `files` change: an expanded folder whose children were
   // dropped by a root re-list must refetch even though `expandedPaths` is the
   // same reference.
   useEffect(() => {
-    if (!chatScopeReady) return
+    if (!addressable) return
     for (const path of expandedPaths) {
       const node = findNode(files, path)
       if (!node?.isDir || node.children !== undefined) continue
@@ -90,15 +92,15 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
         .catch(() => {})
         .finally(() => loadingDirs.current.delete(path))
     }
-  }, [store, wsId, expandedPaths, files, chatScopeReady])
+  }, [store, wsId, expandedPaths, files, addressable])
 
   // Apply live file-change events in place, preserving expanded subtrees that
   // still exist. The stream carries no snapshot on subscribe, which is why it
   // stays attached once the tree has loaded rather than reattaching per switch.
   const seeded = status !== 'idle'
   useEffect(() => {
-    if (!chatScopeReady || !seeded) return
-    return wsManager.subscribe(filesWsEndpoint(wsId), (raw) => {
+    if (!addressable || !seeded) return
+    const onEvent = (raw: unknown) => {
       const evt = raw as FileChangeEvent
       // Writes may have been missed while the socket was down.
       if (evt?.reconnected) {
@@ -115,6 +117,7 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
       if (!isStructuralChange(evt.type)) return
       void refreshDirectory(wsId, store, parentDir(evt.path))
       if (evt.newPath) void refreshDirectory(wsId, store, parentDir(evt.newPath))
-    })
-  }, [store, wsId, chatScopeReady, seeded])
+    }
+    return subscribeGuarded(() => filesWsEndpoint(wsId), onEvent)
+  }, [store, wsId, addressable, seeded])
 }

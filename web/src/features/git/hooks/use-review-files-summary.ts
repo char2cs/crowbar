@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import deepEqual from 'fast-deep-equal'
 import { getReviewFiles } from '@/features/git/api/review-api'
 import { reviewFilesSummaryToChangedFiles } from '@/features/git/utils/review-file-summary-to-git-diff'
+import { useHostResolved } from '@/lib/host-resolve'
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 import type { GitDiff } from '@/features/git/types/git-types'
 import { onGitStatusChanged } from '@/features/git/stores/git-refresh'
@@ -65,9 +66,13 @@ export function useReviewFilesSummary(
     () => (wsId ? getOwningChatId(wsId) : null),
   )
 
+  // The host is named by the project list, which the sidebar's cache can outrun; a
+  // fetch before it is swallowed below and never retried. '' reads as unresolved.
+  const hostResolved = useHostResolved({ wsId: wsId ?? '' })
+
   useEffect(() => {
     if (!wsId) return
-    if (owningChatId === null) return
+    if (owningChatId === null || !hostResolved) return
 
     let cancelled = false
 
@@ -102,7 +107,7 @@ export function useReviewFilesSummary(
       cancelled = true
       stop()
     }
-  }, [wsId, commit, owningChatId])
+  }, [wsId, commit, owningChatId, hostResolved])
 
   return { files, loaded }
 }

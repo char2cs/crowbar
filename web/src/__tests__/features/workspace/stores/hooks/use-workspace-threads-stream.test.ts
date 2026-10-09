@@ -1,14 +1,23 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { act, renderHook, waitFor } from '@testing-library/react'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { setWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 // Hoisted fakes — must be declared before any vi.mock calls.
-const { subscribe, listThreadsFn, upsertReviewThread, removeReviewThread } = vi.hoisted(() => ({
-  subscribe: vi.fn(() => () => {}),
-  listThreadsFn: vi.fn(),
-  upsertReviewThread: vi.fn(),
-  removeReviewThread: vi.fn(),
-}))
+const { subscribe, listThreadsFn, upsertReviewThread, removeReviewThread, storesByWorkspace } =
+  vi.hoisted(() => ({
+    subscribe: vi.fn(() => () => {}),
+    listThreadsFn: vi.fn(),
+    upsertReviewThread: vi.fn(),
+    removeReviewThread: vi.fn(),
+    storesByWorkspace: new Map<string, { getState: () => Record<string, unknown> }>(),
+  }))
 
 vi.mock('@/lib/ws/manager', () => ({
   wsManager: { subscribe, send: vi.fn() },
@@ -24,9 +33,10 @@ vi.mock('@/features/git/api/review-api', async (importOriginal) => {
 })
 
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
-  getWorkspaceStore: () => ({
-    getState: () => ({ upsertReviewThread, removeReviewThread }),
-  }),
+  getWorkspaceStore: (wsId: string) =>
+    storesByWorkspace.get(wsId) ?? {
+      getState: () => ({ upsertReviewThread, removeReviewThread }),
+    },
 }))
 
 import { useWorkspaceThreadsStream } from '@/features/workspace/stores/hooks/use-workspace-threads-stream'
@@ -234,5 +244,91 @@ describe('useWorkspaceThreadsStream', () => {
     expect(subscribe).toHaveBeenCalledTimes(2)
     const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
     expect(calls[1][0]).toBe('/v0/projects/p1/repos/r1/workspaces/ws2/threads')
+  })
+})
+
+describe('on an install that has paired a remote host', () => {
+  const REMOTE_BASE = 'crowbar://host-1/v0/projects/p-remote/repos/r1/workspaces/ws-remote'
+  const LOCAL_BASE = '/v0/projects/p-local/repos/r1/workspaces/ws-local'
+  const frameOf = (id: string) => ({ ...WIRE_THREAD, id })
+  const frameCallbacks = () =>
+    (subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]).map(([, cb]) => cb)
+
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    __resetWorkspaceScopesForTest()
+    setWorkspaceScope({ projectId: 'p-remote', repoId: 'r1', wsId: 'ws-remote' })
+    setWorkspaceScope({ projectId: 'p-local', repoId: 'r1', wsId: 'ws-local' })
+  })
+
+  afterEach(() => {
+    storesByWorkspace.clear()
+    resetHostWorld()
+  })
+
+  it('asks nothing and opens no channel until the project list says whose workspace it is', () => {
+    renderHook(() => useWorkspaceThreadsStream('ws-remote'))
+    renderHook(() => useWorkspaceThreadsStream('ws-local'))
+    expect(subscribe).not.toHaveBeenCalled()
+    expect(listThreadsFn).not.toHaveBeenCalled()
+
+    act(() => loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local')))
+
+    expect(
+      (subscribe.mock.calls as unknown as [string][]).map(([endpoint]) => endpoint).sort(),
+    ).toEqual([`${LOCAL_BASE}/threads`, `${REMOTE_BASE}/threads`].sort())
+    expect(listThreadsFn.mock.calls.map(([wsId]) => wsId).sort()).toEqual(['ws-local', 'ws-remote'])
+  })
+
+  it('switching local to remote closes the old channel and no frame from it reaches the new store', () => {
+    const local = { getState: () => ({ upsertReviewThread: vi.fn(), removeReviewThread: vi.fn() }) }
+    const remoteUpsert = vi.fn()
+    const remote = { getState: () => ({ upsertReviewThread: remoteUpsert, removeReviewThread }) }
+    storesByWorkspace.set('ws-local', local)
+    storesByWorkspace.set('ws-remote', remote)
+    loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
+    const unsubLocal = vi.fn()
+    subscribe.mockReturnValueOnce(unsubLocal)
+
+    const { rerender } = renderHook(({ w }: { w: string }) => useWorkspaceThreadsStream(w), {
+      initialProps: { w: 'ws-local' },
+    })
+    rerender({ w: 'ws-remote' })
+
+    expect(unsubLocal).toHaveBeenCalledTimes(1)
+    expect((subscribe.mock.calls as unknown as [string][]).map(([endpoint]) => endpoint)).toEqual([
+      `${LOCAL_BASE}/threads`,
+      `${REMOTE_BASE}/threads`,
+    ])
+    const [fromLocalChannel, fromRemoteChannel] = frameCallbacks()
+    fromLocalChannel(frameOf('late-local'))
+    expect(remoteUpsert).not.toHaveBeenCalled()
+    fromRemoteChannel(frameOf('remote-1'))
+    expect(remoteUpsert).toHaveBeenCalledTimes(1)
+  })
+
+  it('revoking the host closes its channel and never reopens it against the local daemon', () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    const unsubscribe = vi.fn()
+    subscribe.mockReturnValueOnce(unsubscribe)
+    renderHook(() => useWorkspaceThreadsStream('ws-remote'))
+    expect(subscribe).toHaveBeenCalledTimes(1)
+    listThreadsFn.mockClear()
+
+    act(() => useHostConfigStore.getState().removeHost('host-1'))
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+    expect(subscribe).toHaveBeenCalledTimes(1)
+    expect(listThreadsFn).not.toHaveBeenCalled()
+  })
+
+  it('does not let a refused channel escape the effect', () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    subscribe.mockImplementationOnce(() => {
+      throw new Error('remote hosts need the desktop app')
+    })
+
+    expect(() => renderHook(() => useWorkspaceThreadsStream('ws-remote'))).not.toThrow()
   })
 })

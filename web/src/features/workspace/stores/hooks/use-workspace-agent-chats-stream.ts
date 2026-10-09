@@ -1,5 +1,7 @@
 import { useEffect } from 'react'
-import { wsManager } from '@/lib/ws/manager'
+import { LOCAL_HOST } from '@/features/hosts/types'
+import { hostIdForWorkspace, isHostResolved, useHostResolved } from '@/lib/host-resolve'
+import { subscribeGuarded } from '@/lib/ws/subscribe-guarded'
 import {
   chatBase,
   listChats,
@@ -48,6 +50,10 @@ let providersUnreachableAnnounced = false
  *  later one. Same shape as `_resetTerminalFocusRegistryForTests`. */
 export function _resetProviderToastForTests(): void {
   providersUnreachableAnnounced = false
+}
+
+function isLocalWorkspace(wsId: string): boolean {
+  return isHostResolved({ wsId }) && hostIdForWorkspace(wsId) === LOCAL_HOST.id
 }
 
 // The display name of the provider currently on `chatId`. Read BEFORE the
@@ -110,12 +116,14 @@ interface AgentStreamEvent {
  */
 export function useWorkspaceAgentChatsStream(wsId: string): void {
   // `chatBase(wsId)` below (agent-api.ts) throws the instant project/repo scope
-  // is missing entirely. This hook runs for EVERY mounted workspace, so it is
-  // exactly the effect a force-mounted, never-navigated-to workspace hits first.
-  // Wait rather than crash; see useWorkspaceScopeReady's own doc.
+  // is missing entirely, or its host is not known yet. This hook runs for EVERY
+  // mounted workspace, so it is exactly the effect a force-mounted,
+  // never-navigated-to workspace hits first. Wait rather than crash; see
+  // useWorkspaceScopeReady's own doc.
   const scopeReady = useWorkspaceScopeReady(wsId)
+  const hostResolved = useHostResolved({ wsId })
   useEffect(() => {
-    if (!scopeReady) return
+    if (!scopeReady || !hostResolved) return
     // The host mounted this store before this workspace's view rendered;
     // held here so a late frame writes to it rather than minting a new one.
     const ownStore = getWorkspaceStore(wsId)
@@ -240,8 +248,9 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           // Providers are machine-level, and the Settings dialog is global: give
           // the global store the same answer so opening Settings from anywhere
           // (Project Home, the projects screen) shows the real list instead of
-          // claiming the daemon has none.
-          useAgentProvidersStore.getState().setProviders(providers)
+          // claiming the daemon has none. Only the LOCAL daemon's list is that
+          // answer; a remote workspace's stays in its own store.
+          if (isLocalWorkspace(wsId)) useAgentProvidersStore.getState().setProviders(providers)
           providersUnreachableAnnounced = false
           return
         } catch {
@@ -345,7 +354,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     void seedChats()
     void seedProviders()
 
-    const unsubscribe = wsManager.subscribe(`${chatBase(wsId)}/ws`, (frame) => {
+    const onFrame = (frame: unknown) => {
       if (cancelled) return
       // Reconnect sentinel emitted by the manager after a socket drop+reopen —
       // reseed so pushes missed during the outage aren't lost.
@@ -451,12 +460,13 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
         default:
           applyLifecycle(ev)
       }
-    })
+    }
+    const unsubscribe = subscribeGuarded(() => `${chatBase(wsId)}/ws`, onFrame)
 
     return () => {
       cancelled = true
       unsubscribe()
       streamingMessages.dispose()
     }
-  }, [wsId, scopeReady])
+  }, [wsId, scopeReady, hostResolved])
 }
