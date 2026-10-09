@@ -4,7 +4,7 @@ import { HostNotResolvedError } from '@/lib/host-path'
 import { hostIdForProject, hostIdForWorkspace, useHostResolved } from '@/lib/host-resolve'
 import { useProjectDataStore } from '@/lib/store/projects'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { failed, idle, loading, success } from '@/lib/loadable'
+import { failed, idle, loading, success, type Loadable } from '@/lib/loadable'
 import {
   __resetWorkspaceScopesForTest,
   bindActiveWorkspaceId,
@@ -37,6 +37,16 @@ function loadProjects(...projects: Project[]): void {
   useProjectDataStore.setState({ data: success(projects) })
 }
 
+function unresolved(call: () => unknown): HostNotResolvedError {
+  try {
+    call()
+  } catch (err) {
+    expect(err).toBeInstanceOf(HostNotResolvedError)
+    return err as HostNotResolvedError
+  }
+  throw new Error('expected the call to throw HostNotResolvedError')
+}
+
 function recordScope(wsId: string, projectId: string): void {
   recordWorkspaceScope({ projectId, repoId: `repo-of-${projectId}`, wsId })
 }
@@ -53,13 +63,16 @@ afterEach(() => {
 })
 
 describe('hostIdForProject', () => {
-  it('is local with no hosts configured, without reading the project list', () => {
-    const read = vi.spyOn(useProjectDataStore, 'getState')
+  it('is local with no hosts and no remote rows, even before the list loads', () => {
     expect(hostIdForProject('anything')).toBe('local')
-    expect(read).not.toHaveBeenCalled()
+    loadProjects()
+    expect(hostIdForProject('anything')).toBe('local')
+    loadProjects(project('p-local', 'local'))
+    expect(hostIdForProject('p-local')).toBe('local')
+    expect(hostIdForProject('p-unknown')).toBe('local')
   })
 
-  it('returns the host recorded on a known remote project', () => {
+  it('returns the host recorded on a known remote project while that host is configured', () => {
     configureHosts('host-1', 'host-2')
     loadProjects(project('p-local', 'local'), project('p-remote', 'host-2'))
     expect(hostIdForProject('p-remote')).toBe('host-2')
@@ -74,12 +87,13 @@ describe('hostIdForProject', () => {
   it('throws, rather than answering local, for a project the list does not hold', () => {
     configureHosts('host-1')
     loadProjects(project('p-local', 'local'))
-    expect(() => hostIdForProject('p-missing')).toThrow(HostNotResolvedError)
+    const err = unresolved(() => hostIdForProject('p-missing'))
+    expect(err.message).toMatch(/project p-missing: the project is not in the project list/)
   })
 
   it('throws while the project list has not loaded', () => {
     configureHosts('host-1')
-    expect(() => hostIdForProject('p1')).toThrow(HostNotResolvedError)
+    expect(unresolved(() => hostIdForProject('p1')).message).toMatch(/project list is not loaded/)
   })
 
   it('keeps resolving from the held list while it re-reads or a re-read failed', () => {
@@ -89,6 +103,49 @@ describe('hostIdForProject', () => {
     expect(hostIdForProject('p-remote')).toBe('host-1')
     useProjectDataStore.setState({ data: failed(new Error('boom'), held) })
     expect(hostIdForProject('p-remote')).toBe('host-1')
+  })
+
+  // Settings -> Hosts -> Revoke removes the host and leaves its project rows.
+  it('throws for a remote project once its host is no longer configured', () => {
+    configureHosts('host-1')
+    loadProjects(project('p-remote', 'host-1'))
+    expect(hostIdForProject('p-remote')).toBe('host-1')
+    configureHosts()
+    expect(unresolved(() => hostIdForProject('p-remote')).message).toMatch(
+      /its host "host-1" is not configured/,
+    )
+    expect(unresolved(() => hostIdForProject('p-other')).message).toMatch(/not in the project list/)
+  })
+
+  // Rows from the projects-by-host cache (or a corrupt crowbar.hosts) with no host configured.
+  it.each<[string, Loadable<Project[]>]>([
+    ['loaded', success([project('p-remote', 'host-1')])],
+    ['re-reading', loading(success([project('p-remote', 'host-1')]))],
+    ['failed re-read', failed(new Error('boom'), success([project('p-remote', 'host-1')]))],
+  ])('throws for remote-tagged rows held while no host is configured (%s)', (_state, data) => {
+    useProjectDataStore.setState({ data })
+    expect(unresolved(() => hostIdForProject('p-remote')).message).toMatch(
+      /"host-1" is not configured/,
+    )
+    expect(unresolved(() => hostIdForProject('p-unknown')).message).toMatch(
+      /not in the project list/,
+    )
+  })
+
+  it('throws, whichever row comes first, for an id held on more than one host', () => {
+    configureHosts('host-1')
+    loadProjects(project('p-dup', 'local'), project('p-dup', 'host-1'))
+    expect(unresolved(() => hostIdForProject('p-dup')).message).toMatch(
+      /more than one host \(local, host-1\)/,
+    )
+    loadProjects(project('p-dup', 'host-1'), project('p-dup', 'local'))
+    expect(() => hostIdForProject('p-dup')).toThrow(HostNotResolvedError)
+  })
+
+  it('resolves an id repeated on one host', () => {
+    configureHosts('host-1')
+    loadProjects(project('p-dup', 'host-1'), project('p-dup', 'host-1'))
+    expect(hostIdForProject('p-dup')).toBe('host-1')
   })
 })
 
@@ -107,7 +164,8 @@ describe('hostIdForWorkspace', () => {
     loadProjects(project('p-remote', 'host-1'))
     recordScope('ws-active', 'p-remote')
     bindActiveWorkspaceId(() => 'ws-active')
-    expect(() => hostIdForWorkspace('ws-unrecorded')).toThrow(HostNotResolvedError)
+    const err = unresolved(() => hostIdForWorkspace('ws-unrecorded'))
+    expect(err.message).toMatch(/workspace ws-unrecorded: no scope is recorded/)
   })
 
   it('never reads the active workspace when handed no id', () => {
@@ -118,15 +176,37 @@ describe('hostIdForWorkspace', () => {
     expect(() => hostIdForWorkspace(undefined as unknown as string)).toThrow(HostNotResolvedError)
   })
 
-  it('throws when the recorded project is not in the loaded list', () => {
+  it('throws, naming the project, when the recorded project is not in the loaded list', () => {
     configureHosts('host-1')
     loadProjects(project('p-local', 'local'))
     recordScope('ws-1', 'p-unknown')
-    expect(() => hostIdForWorkspace('ws-1')).toThrow(HostNotResolvedError)
+    const err = unresolved(() => hostIdForWorkspace('ws-1'))
+    expect(err.projectId).toBe('p-unknown')
+    expect(err.message).toMatch(/workspace ws-1 \(project p-unknown\): the project is not in/)
   })
 
-  it('is local with no hosts configured, even before a scope is recorded', () => {
+  it('is local with no hosts and no remote rows, even before a scope is recorded', () => {
     expect(hostIdForWorkspace('ws-unrecorded')).toBe('local')
+    loadProjects(project('p-local', 'local'))
+    expect(hostIdForWorkspace('ws-unrecorded')).toBe('local')
+  })
+
+  it('throws for a workspace whose project host is no longer configured', () => {
+    configureHosts('host-1')
+    loadProjects(project('p-remote', 'host-1'))
+    recordScope('ws-remote', 'p-remote')
+    expect(hostIdForWorkspace('ws-remote')).toBe('host-1')
+    configureHosts()
+    expect(unresolved(() => hostIdForWorkspace('ws-remote')).message).toMatch(
+      /"host-1" is not configured/,
+    )
+  })
+
+  it('throws for an unrecorded workspace while remote rows are held, with or without hosts', () => {
+    loadProjects(project('p-remote', 'host-1'))
+    expect(() => hostIdForWorkspace('ws-unrecorded')).toThrow(HostNotResolvedError)
+    configureHosts('host-1')
+    expect(() => hostIdForWorkspace('ws-unrecorded')).toThrow(HostNotResolvedError)
   })
 })
 
@@ -149,13 +229,54 @@ describe('useHostResolved', () => {
     expect(result.current).toBe(true)
   })
 
-  it('is true at once when no hosts are configured and settles when the last host is removed', () => {
+  it('follows a changed wsId: the new workspace is awaited and flips when ITS scope is recorded', () => {
+    configureHosts('host-1')
+    loadProjects(project('p-remote', 'host-1'))
+    recordScope('ws-1', 'p-remote')
+    const { result, rerender } = renderHook(
+      ({ wsId }: { wsId: string }) => useHostResolved({ wsId }),
+      { initialProps: { wsId: 'ws-1' } },
+    )
+    expect(result.current).toBe(true)
+    rerender({ wsId: 'ws-2' })
+    expect(result.current).toBe(false)
+    act(() => recordScope('ws-2', 'p-remote'))
+    expect(result.current).toBe(true)
+  })
+
+  it('is true with no hosts and no remote rows, and settles back to true when the last host goes', () => {
     const { result } = renderHook(() => useHostResolved({ projectId: 'p1' }))
     expect(result.current).toBe(true)
     act(() => configureHosts('host-1'))
     expect(result.current).toBe(false)
     act(() => configureHosts())
     expect(result.current).toBe(true)
+  })
+
+  it('goes false when the last host is revoked while its project rows linger', () => {
+    configureHosts('host-1')
+    loadProjects(project('p-remote', 'host-1'))
+    const { result } = renderHook(() => useHostResolved({ projectId: 'p-remote' }))
+    expect(result.current).toBe(true)
+    act(() => configureHosts())
+    expect(result.current).toBe(false)
+  })
+
+  it.each<[string, Loadable<Project[]>]>([
+    ['loaded', success([project('p-remote', 'host-1')])],
+    ['re-reading', loading(success([project('p-remote', 'host-1')]))],
+    ['failed re-read', failed(new Error('boom'), success([project('p-remote', 'host-1')]))],
+  ])('is false for remote-tagged rows held while no host is configured (%s)', (_state, data) => {
+    useProjectDataStore.setState({ data })
+    const { result } = renderHook(() => useHostResolved({ projectId: 'p-remote' }))
+    expect(result.current).toBe(false)
+  })
+
+  it('is false for an id held on more than one host', () => {
+    configureHosts('host-1')
+    loadProjects(project('p-dup', 'local'), project('p-dup', 'host-1'))
+    const { result } = renderHook(() => useHostResolved({ projectId: 'p-dup' }))
+    expect(result.current).toBe(false)
   })
 
   it('does not flap while a loaded list re-reads', () => {

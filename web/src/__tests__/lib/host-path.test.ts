@@ -21,7 +21,24 @@ describe('qualify', () => {
   )
 
   it('rejects a remote path that does not start with a slash', () => {
-    expect(() => qualify('host-1', 'v0/projects')).toThrow(/must start with/)
+    expect(() => qualify('host-1', 'v0/projects')).toThrow(/must start with "\/"/)
+  })
+
+  it('rejects a remote path that starts with a second slash', () => {
+    expect(() => qualify('host-1', '//evil.example/v0/x')).toThrow(/must not start with "\/\/"/)
+  })
+
+  it('leaves unqualified local paths alone but refuses to carry another host through local', () => {
+    expect(qualify('local', '')).toBe('')
+    expect(qualify('local', '//x')).toBe('//x')
+    for (const path of [
+      'crowbar://host-1/v0/x',
+      'crowbar://localhost/v0/x',
+      'CROWBAR://host-1/v0/x',
+      ' crowbar://host-1/v0/x',
+    ]) {
+      expect(() => qualify('local', path)).toThrow(/must not be qualified/)
+    }
   })
 })
 
@@ -59,10 +76,34 @@ describe('splitHostPath', () => {
     expect(splitHostPath('crowbar://localhost')).toEqual({ hostId: 'local', path: '' })
   })
 
-  it.each(['crowbar://Host_1/v0/x', 'crowbar://local/v0/x', 'crowbar:///v0/x', 'crowbar://host-1'])(
-    'throws on the malformed qualified path %j instead of falling back to local',
-    (input) => {
-      expect(() => splitHostPath(input)).toThrow()
-    },
-  )
+  it.each([
+    ['crowbar://Host_1/v0/x', /invalid host id "Host_1"/],
+    ['crowbar://local/v0/x', /invalid host id "local"/],
+    ['crowbar:///v0/x', /invalid host id ""/],
+    ['crowbar://host-1', /must start with "\/"/],
+    ['crowbar://host-1//evil.example/x', /must not start with "\/\/"/],
+  ])('throws on the malformed qualified path %j instead of falling back to local', (input, why) => {
+    expect(() => splitHostPath(input)).toThrow(why)
+  })
+
+  it.each([
+    'CROWBAR://host-1/v0/x',
+    'Crowbar://host-1/v0/x',
+    ' crowbar://host-1/v0/x',
+    '\ncrowbar://host-1/v0/x',
+  ])('throws on the wrongly spelled scheme %j instead of passing it through as local', (input) => {
+    expect(() => splitHostPath(input)).toThrow(/scheme must be exactly "crowbar:\/\/"/)
+  })
+
+  // Intentional divergences from the desktop proxy (see host-path.ts).
+  it('is stricter than the proxy on a port or empty authority, and reads Monaco URIs as host ids', () => {
+    expect(() => splitHostPath('crowbar://localhost:3737/v0/x')).toThrow(
+      /invalid host id "localhost:3737"/,
+    )
+    expect(() => splitHostPath('crowbar:///')).toThrow(/invalid host id ""/)
+    expect(splitHostPath('crowbar://editor/models/1')).toEqual({
+      hostId: 'editor',
+      path: '/models/1',
+    })
+  })
 })
