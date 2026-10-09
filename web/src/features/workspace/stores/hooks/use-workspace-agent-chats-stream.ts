@@ -1,6 +1,5 @@
 import { useEffect } from 'react'
-import { LOCAL_HOST } from '@/features/hosts/types'
-import { hostIdForWorkspace, isHostResolved, useHostResolved } from '@/lib/host-resolve'
+import { resolvedHostOf, useHostResolved } from '@/lib/host-resolve'
 import { subscribeGuarded } from '@/lib/ws/subscribe-guarded'
 import {
   chatBase,
@@ -50,10 +49,6 @@ let providersUnreachableAnnounced = false
  *  later one. Same shape as `_resetTerminalFocusRegistryForTests`. */
 export function _resetProviderToastForTests(): void {
   providersUnreachableAnnounced = false
-}
-
-function isLocalWorkspace(wsId: string): boolean {
-  return isHostResolved({ wsId }) && hostIdForWorkspace(wsId) === LOCAL_HOST.id
 }
 
 // The display name of the provider currently on `chatId`. Read BEFORE the
@@ -115,11 +110,8 @@ interface AgentStreamEvent {
  * no pane — and the live views that are not chat state at all.
  */
 export function useWorkspaceAgentChatsStream(wsId: string): void {
-  // `chatBase(wsId)` below (agent-api.ts) throws the instant project/repo scope
-  // is missing entirely, or its host is not known yet. This hook runs for EVERY
-  // mounted workspace, so it is exactly the effect a force-mounted,
-  // never-navigated-to workspace hits first. Wait rather than crash; see
-  // useWorkspaceScopeReady's own doc.
+  // `chatBase(wsId)` below throws until the workspace's scope and host are known, and
+  // this runs for EVERY mounted workspace (a force-mounted one hits it first): wait.
   const scopeReady = useWorkspaceScopeReady(wsId)
   const hostResolved = useHostResolved({ wsId })
   useEffect(() => {
@@ -245,12 +237,10 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           // truth and it already published to both copies.
           if (!isLatestProviderWrite(writes)) return
           ownStore.getState().setAgentProviders(providers)
-          // Providers are machine-level, and the Settings dialog is global: give
-          // the global store the same answer so opening Settings from anywhere
-          // (Project Home, the projects screen) shows the real list instead of
-          // claiming the daemon has none. Only the LOCAL daemon's list is that
-          // answer; a remote workspace's stays in its own store.
-          if (isLocalWorkspace(wsId)) useAgentProvidersStore.getState().setProviders(providers)
+          // Providers belong to a daemon: file the list under this workspace's host, so
+          // Settings' app-wide list stays the local daemon's.
+          const hostId = resolvedHostOf({ wsId })
+          if (hostId) useAgentProvidersStore.getState().setHostProviders(hostId, providers)
           providersUnreachableAnnounced = false
           return
         } catch {

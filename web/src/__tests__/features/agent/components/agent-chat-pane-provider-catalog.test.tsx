@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 import { act, render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
 import { nanoid } from 'nanoid'
 import type { AgentChat, AgentChatDetail, AgentProvider } from '@/features/agent/api/agent-api'
@@ -24,6 +24,7 @@ const {
   switchToNativeFn,
   switchProviderFn,
   listProvidersFn,
+  listGlobalProvidersFn,
 } = vi.hoisted(() => ({
   getChatFn: vi.fn(),
   resumeChatFn: vi.fn(),
@@ -36,6 +37,7 @@ const {
   switchToNativeFn: vi.fn(),
   switchProviderFn: vi.fn(),
   listProvidersFn: vi.fn(),
+  listGlobalProvidersFn: vi.fn(),
 }))
 
 vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
@@ -53,6 +55,7 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   switchToTerminal: (...a: unknown[]) => switchToTerminalFn(...a),
   switchToNative: (...a: unknown[]) => switchToNativeFn(...a),
   listProviders: (...a: unknown[]) => listProvidersFn(...a),
+  listGlobalProviders: (...a: unknown[]) => listGlobalProvidersFn(...a),
 }))
 
 vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
@@ -86,6 +89,13 @@ import {
 } from '@/features/workspace/stores/workspace-store-registry'
 import { nextVersion, seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import { useSettingsStore } from '@/features/settings/store'
+import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const providers: AgentProvider[] = [
   {
@@ -217,6 +227,7 @@ beforeEach(() => {
     switchToNativeFn,
     switchProviderFn,
     listProvidersFn,
+    listGlobalProvidersFn,
   ]) {
     f.mockReset()
   }
@@ -228,7 +239,7 @@ beforeEach(() => {
   })
   slashCatalogFn.mockResolvedValue([])
   listProvidersFn.mockResolvedValue(providers)
-  useAgentProvidersStore.setState({ providers: [], status: 'idle' })
+  useAgentProvidersStore.setState({ providers: [], status: 'idle', remote: {} })
   useSettingsStore.setState((state) => ({
     settings: { ...state.settings, chatIsDefaultPresentation: true },
   }))
@@ -309,5 +320,45 @@ describe('a pane on a workspace the app never mounted (real registry)', () => {
 
     destroyWorkspaceStore('w-mounted')
     destroyWorkspaceStore('w-unmounted')
+  })
+})
+
+// A provider list belongs to a daemon. A pane on a remote host that has no copy of
+// its own must not be handed the local daemon's: its chat could then name, and the
+// user choose, a provider the remote does not have.
+describe('a pane on a remote host with no copy of its own', () => {
+  const codex = providers.filter((p) => p.id === 'codex')
+
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    __resetWorkspaceScopesForTest()
+    recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r', wsId: 'w-remote' })
+    loadProjects(projectOn('p-remote', 'host-1'))
+    useAgentProvidersStore.getState().setProviders(providers)
+  })
+  afterEach(() => resetHostWorld())
+
+  it('asks that host for its list rather than offering the local one', async () => {
+    const chat = { ...dormantChat('c9', 'codex'), workspaceId: 'w-remote' }
+    const store = unmountedWorkspace([chat], 'w-remote')
+    getChatFn.mockResolvedValue(detail(chat))
+    let answer!: (list: AgentProvider[]) => void
+    listGlobalProvidersFn.mockReturnValue(new Promise<AgentProvider[]>((r) => (answer = r)))
+
+    await renderPane(store, openChatPane('c9', 'w-remote'))
+    await settle()
+
+    expect(listGlobalProvidersFn).toHaveBeenCalledExactlyOnceWith('host-1')
+    expect(listProvidersFn).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('agent-selection-picker')).toBeNull()
+
+    await act(async () => answer(codex))
+    await settle()
+
+    const picker = screen.getByTestId('agent-selection-picker')
+    expect(picker.getAttribute('aria-label')).toContain('Codex')
+    // ...and the local daemon's list is exactly what it was.
+    expect(useAgentProvidersStore.getState().providers).toEqual(providers)
   })
 })

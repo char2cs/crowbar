@@ -510,6 +510,21 @@ describe('agent-api', () => {
     await expect(api.setChatSelection('w1', 'c1', 'nope', '')).rejects.toThrow('bad request')
   })
 
+  it('listGlobalProviders reads the local daemon’s list, or the named host’s own', async () => {
+    apiFetch.mockResolvedValue([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
+
+    await api.listGlobalProviders()
+    await api.listGlobalProviders('host-1')
+
+    expect(apiFetch.mock.calls[0].slice(0, 4)).toEqual(['/v0/settings/chat/providers'])
+    expect(apiFetch.mock.calls[1]).toEqual([
+      '/v0/settings/chat/providers',
+      undefined,
+      undefined,
+      'host-1',
+    ])
+  })
+
   it('listProviders returns [] when the backend responds with no body', async () => {
     apiFetch.mockResolvedValue(undefined)
     const p = await api.listProviders('w1')

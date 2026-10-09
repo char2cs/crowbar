@@ -1793,7 +1793,7 @@ describe('on an install that has paired a remote host', () => {
     __resetWorkspaceScopesForTest()
     setWorkspaceScope({ projectId: 'p-remote', repoId: 'r1', wsId: 'w-remote' })
     setWorkspaceScope({ projectId: 'p-local', repoId: 'r1', wsId: 'w-local' })
-    useAgentProvidersStore.setState({ providers: [], status: 'idle' })
+    useAgentProvidersStore.setState({ providers: [], status: 'idle', remote: {} })
   })
 
   afterEach(() => resetHostWorld())
@@ -1867,7 +1867,7 @@ describe('on an install that has paired a remote host', () => {
   })
 
   // Providers are per daemon: the app-wide list (Settings) is the local daemon's.
-  it("keeps a remote daemon's providers in its workspace store, out of the app-wide list", async () => {
+  it("files a remote daemon's providers under its host, never in the local list", async () => {
     loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
     const remoteProviders = [{ id: 'codex', displayName: 'Codex', icon: '<svg/>' }]
     const localProviders = [{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }]
@@ -1877,10 +1877,12 @@ describe('on an install that has paired a remote host', () => {
     await flush()
     expect(setAgentProviders).toHaveBeenCalledWith(remoteProviders)
     expect(useAgentProvidersStore.getState().providers).toEqual([])
+    expect(useAgentProvidersStore.getState().remote['host-1']).toEqual(remoteProviders)
 
     listProvidersFn.mockResolvedValue(localProviders)
     renderHook(() => useWorkspaceAgentChatsStream('w-local'))
     await flush()
     expect(useAgentProvidersStore.getState().providers).toEqual(localProviders)
+    expect(useAgentProvidersStore.getState().remote['host-1']).toEqual(remoteProviders)
   })
 })

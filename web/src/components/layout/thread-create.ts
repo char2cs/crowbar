@@ -1,5 +1,10 @@
 import { createChat, createSurfaceFor, type AgentProvider } from '@/features/agent/api/agent-api'
-import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import { LOCAL_HOST } from '@/features/hosts/types'
+import {
+  providersOf,
+  useAgentProvidersStore,
+} from '@/features/settings/stores/agent-providers-store'
+import { resolvedHostOf } from '@/lib/host-resolve'
 import { presetChatLandingPresentation } from '@/features/agent/hooks/use-chat-presentation'
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { usePendingCreatesStore } from '@/lib/store/pending-creates'
@@ -92,7 +97,7 @@ export interface ThreadCreate {
  * daemon's reason on a refused create or a row that never arrives.
  */
 export async function startThread(spec: ThreadCreate): Promise<void> {
-  const provider = enabledProvider()
+  const provider = enabledProvider(spec.projectId)
   if (!provider) return
   if (createInFlight.has(spec.inFlightKey)) return
   createInFlight.add(spec.inFlightKey)
@@ -132,23 +137,37 @@ export async function startThread(spec: ThreadCreate): Promise<void> {
 }
 
 /**
- * The provider a new chat is started with, or null — having SAID SO — when
- * there is none.
+ * The provider a new chat in `projectId` is started with, or null — having SAID
+ * SO — when there is none.
+ *
+ * A provider list belongs to a daemon, so the pick comes from the list of the
+ * project's own host: a provider only another host offers must never be sent to
+ * this one. A remote host whose list was never read is read now, for the next try.
  *
  * Both create paths used to return silently here. A silent return is
  * indistinguishable from a dead button, and it is the shape both halves of "the
- * fork and thread buttons do nothing" took: one because it genuinely had no
- * providers to find (see the thread branch's own note), the other because a
- * real outage empties this list (`use-workspace-agent-chats-stream.ts` toasts
- * once for that, but only for a MOUNTED workspace — the sidebar can be the only
- * thing on screen). A precondition that stops a click has to be visible.
+ * fork and thread buttons do nothing" took. A precondition that stops a click
+ * has to be visible.
  */
-export function enabledProvider(): AgentProvider | null {
-  const provider = useAgentProvidersStore.getState().providers.find((p) => p.enabled)
+export function enabledProvider(projectId: string): AgentProvider | null {
+  const hostId = resolvedHostOf({ projectId })
+  if (hostId === null) {
+    toast.error('This project’s host is not available', 'Check the host in Settings → Hosts.')
+    return null
+  }
+  const state = useAgentProvidersStore.getState()
+  const provider = providersOf(state, hostId).find((p) => p.enabled)
   if (provider) return provider
-  toast.error(
-    'No agent provider is enabled',
-    'Enable one in Settings → Providers to start a chat or fork a workspace.',
-  )
+  if (hostId === LOCAL_HOST.id) {
+    toast.error(
+      'No agent provider is enabled',
+      'Enable one in Settings → Providers to start a chat or fork a workspace.',
+    )
+  } else if (state.remote[hostId] === undefined) {
+    void state.loadHost(hostId)
+    toast.error('Loading this host’s agents', 'Try again in a moment.')
+  } else {
+    toast.error('No agent provider is enabled on this host', 'Enable one there to start a chat.')
+  }
   return null
 }

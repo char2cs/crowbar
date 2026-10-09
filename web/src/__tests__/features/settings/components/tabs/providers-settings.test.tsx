@@ -78,6 +78,13 @@ import {
 } from '@/features/workspace/stores/workspace-store-registry'
 import { setActiveWorkspaceStoreForTests } from '@/features/workspace/stores/workspace-store-registry'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
+import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const provider = (
   id: string,
@@ -111,7 +118,7 @@ function store() {
  * server would give, so re-fetching is a no-op rather than a surprise.
  */
 function seedProviders(providers: AgentProvider[]) {
-  listProvidersFn.mockResolvedValue(providers)
+  listGlobalProvidersFn.mockResolvedValue(providers)
   act(() => {
     store().getState().setAgentProviders(providers)
     setActiveWorkspaceStoreForTests(store())
@@ -338,7 +345,7 @@ describe('ProvidersSettings', () => {
         setActiveWorkspaceStoreForTests(store())
         setActiveWorkspaceId('w1')
       })
-      listProvidersFn.mockReturnValue(deferred<AgentProvider[]>().promise)
+      listGlobalProvidersFn.mockReturnValue(deferred<AgentProvider[]>().promise)
 
       render(<ProvidersSettings />)
 
@@ -351,7 +358,7 @@ describe('ProvidersSettings', () => {
         setActiveWorkspaceStoreForTests(store())
         setActiveWorkspaceId('w1')
       })
-      listProvidersFn.mockRejectedValue(new Error('daemon is down'))
+      listGlobalProvidersFn.mockRejectedValue(new Error('daemon is down'))
 
       render(<ProvidersSettings />)
 
@@ -399,17 +406,18 @@ describe('ProvidersSettings', () => {
   })
 
   describe('loading the list', () => {
-    it('fetches on mount through the active workspace and mirrors it into that store', async () => {
+    it('reads the local daemon on open and mirrors it into the local workspace stores', async () => {
       act(() => {
         setActiveWorkspaceStoreForTests(store())
         setActiveWorkspaceId('w1')
       })
-      listProvidersFn.mockResolvedValue([provider('codex', 'Codex', true, true)])
+      listGlobalProvidersFn.mockResolvedValue([provider('codex', 'Codex', true, true)])
 
       render(<ProvidersSettings />)
 
       await waitFor(() => expect(screen.getByText('Codex')).toBeInTheDocument())
-      expect(listProvidersFn).toHaveBeenCalledWith('w1')
+      expect(listGlobalProvidersFn).toHaveBeenCalledWith()
+      expect(listProvidersFn).not.toHaveBeenCalled()
       // The chat surfaces read the workspace copy — opening Settings must repair
       // it too, not just the dialog in front of the user.
       await waitFor(() => expect(workspaceEnabledById()).toEqual({ codex: true }))
@@ -421,7 +429,7 @@ describe('ProvidersSettings', () => {
         setActiveWorkspaceId('w1')
       })
       const inflight = deferred<AgentProvider[]>()
-      listProvidersFn.mockReturnValue(inflight.promise)
+      listGlobalProvidersFn.mockReturnValue(inflight.promise)
 
       render(<ProvidersSettings />)
 
@@ -434,7 +442,7 @@ describe('ProvidersSettings', () => {
         setActiveWorkspaceStoreForTests(store())
         setActiveWorkspaceId('w1')
       })
-      listProvidersFn.mockRejectedValue(new Error('daemon is down'))
+      listGlobalProvidersFn.mockRejectedValue(new Error('daemon is down'))
 
       render(<ProvidersSettings />)
 
@@ -590,7 +598,7 @@ describe('ProvidersSettings', () => {
     /** Both copies seeded, with the mount GET deliberately left in flight. */
     function seedWithGetInFlight(providers: AgentProvider[]) {
       const inflight = deferred<AgentProvider[]>()
-      listProvidersFn.mockReturnValue(inflight.promise)
+      listGlobalProvidersFn.mockReturnValue(inflight.promise)
       act(() => {
         store().getState().setAgentProviders(providers)
         setActiveWorkspaceStoreForTests(store())
@@ -883,5 +891,65 @@ describe('ProvidersSettings', () => {
       expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('full-auto')
       expect(toastErrorFn).not.toHaveBeenCalled()
     })
+  })
+})
+
+// The tab edits the LOCAL daemon's preferences. A remote workspace being the
+// active one must neither supply the list nor receive the write: the PUT goes to
+// the local daemon, so a body built from remote rows is a silent wrong-host write.
+describe('ProvidersSettings with a remote workspace in view', () => {
+  const remoteStore = () => getOrCreateWorkspaceStore('w-remote')
+  const remoteEnabled = () =>
+    Object.fromEntries(
+      remoteStore()
+        .getState()
+        .agentChats.providers.map((p) => [p.id, p.enabled]),
+    )
+
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    __resetWorkspaceScopesForTest()
+    recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r', wsId: 'w-remote' })
+    recordWorkspaceScope({ projectId: 'p-local', repoId: 'r', wsId: 'w1' })
+    loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
+    act(() => {
+      remoteStore()
+        .getState()
+        .setAgentProviders([provider('codex', 'Codex', true, true)])
+      setActiveWorkspaceStoreForTests(remoteStore())
+      setActiveWorkspaceId('w-remote')
+    })
+    listGlobalProvidersFn.mockResolvedValue([provider('claude', 'Claude', true, true)])
+  })
+  afterEach(() => {
+    resetHostWorld()
+    destroyWorkspaceStore('w-remote')
+  })
+
+  it('shows the local daemon’s list, not the remote workspace’s, and leaves that store alone', async () => {
+    render(<ProvidersSettings />)
+
+    await waitFor(() => expect(screen.getByText('Claude')).toBeInTheDocument())
+    expect(screen.queryByText('Codex')).toBeNull()
+    expect(listProvidersFn).not.toHaveBeenCalled()
+    expect(remoteEnabled()).toEqual({ codex: true })
+  })
+
+  it('builds the preference write from the local rows and keeps it out of the remote store', async () => {
+    store()
+    updateProviderPreferencesFn.mockResolvedValueOnce([provider('claude', 'Claude', true, false)])
+    render(<ProvidersSettings />)
+    await waitFor(() => expect(screen.getByText('Claude')).toBeInTheDocument())
+
+    await userEvent.click(screen.getByTestId('provider-toggle-claude'))
+
+    expect(updateProviderPreferencesFn).toHaveBeenCalledExactlyOnceWith([
+      { id: 'claude', disabled: true, mcpDisabled: false },
+    ])
+    await waitFor(() => expect(enabledById()).toEqual({ claude: false }))
+    expect(remoteEnabled()).toEqual({ codex: true })
+    // ...while a LOCAL workspace's copy follows, as it always did.
+    expect(workspaceEnabledById()).toEqual({ claude: false })
   })
 })

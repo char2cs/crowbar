@@ -996,8 +996,13 @@ export async function updateProviderPreferences(
   return (raw ?? []).map(mapProvider)
 }
 
-export async function listGlobalProviders(): Promise<AgentProvider[]> {
-  const raw = await apiFetch<AgentProvider[]>('/v0/settings/chat/providers')
+/** The providers the local daemon — or, given `hostId`, that remote host's daemon — offers.
+ *  Providers belong to a daemon, so this route needs no workspace to be addressed. */
+export async function listGlobalProviders(hostId?: string): Promise<AgentProvider[]> {
+  const path = '/v0/settings/chat/providers'
+  const raw = await (hostId === undefined
+    ? apiFetch<AgentProvider[]>(path)
+    : apiFetch<AgentProvider[]>(path, undefined, undefined, hostId))
   return (raw ?? []).map(mapProvider)
 }
 

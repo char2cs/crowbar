@@ -8,6 +8,7 @@ import {
   hostIdForWorkspace,
   isHostResolved,
   isHostUnavailable,
+  resolvedHostOf,
   useHostResolved,
   useHostUnavailable,
 } from '@/lib/host-resolve'
@@ -460,5 +461,17 @@ describe('a host that will not resolve', () => {
     configureHosts('host-1')
     loadProjects(project('p-remote', 'host-1'))
     await expect(awaitHost({ projectId: 'p-remote' })).resolves.toBe(true)
+  })
+})
+
+describe('resolvedHostOf', () => {
+  it('names the host once it resolves and answers null, never local, until then', () => {
+    configureHosts('host-1')
+    recordScope('ws-1', 'p-remote')
+    expect(resolvedHostOf({ wsId: 'ws-1' })).toBeNull()
+    loadProjects(project('p-remote', 'host-1'), project('p-local', 'local'))
+    expect(resolvedHostOf({ wsId: 'ws-1' })).toBe('host-1')
+    expect(resolvedHostOf({ projectId: 'p-local' })).toBe('local')
+    expect(resolvedHostOf({ projectId: 'p-gone' })).toBeNull()
   })
 })

@@ -91,6 +91,13 @@ export function hostIdForChat(chatId: string): string {
   return resolved.hostId
 }
 
+/** The host `key` resolves to, or null while it does not — never `'local'` as a guess. */
+export function resolvedHostOf(key: HostKey): string | null {
+  const resolved =
+    key.wsId !== undefined ? resolveWorkspaceHost(key.wsId) : resolveProjectHost(key.projectId)
+  return 'hostId' in resolved ? resolved.hostId : null
+}
+
 export type HostKey = { projectId: string; wsId?: never } | { wsId: string; projectId?: never }
 
 /** True when `hostIdForProject`/`hostIdForWorkspace` would not throw for `key`

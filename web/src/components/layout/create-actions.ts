@@ -150,7 +150,7 @@ export function handleCreate(
     // old `placement` distinguished — that split has no counterpart on this
     // endpoint's single `parentId`, so a folder click also just names
     // itself here) — resolved to the chat that owns it, see below.
-    const provider = enabledProvider()
+    const provider = enabledProvider(projectId)
     if (!provider) {
       release()
       return

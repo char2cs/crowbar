@@ -5,6 +5,7 @@ const {
   postWorkspace,
   createChat,
   createChatWithOwnWorktree,
+  listGlobalProviders,
   toastError,
   getHomeWorkspaceId,
   presetChatLandingPresentation,
@@ -12,6 +13,7 @@ const {
   postWorkspace: vi.fn(() => Promise.resolve()),
   createChat: vi.fn(() => Promise.resolve('chat-1')),
   createChatWithOwnWorktree: vi.fn(() => Promise.resolve('chat-1')),
+  listGlobalProviders: vi.fn(() => new Promise<never>(() => {})),
   toastError: vi.fn(),
   getHomeWorkspaceId: vi.fn(),
   presetChatLandingPresentation: vi.fn(),
@@ -25,6 +27,7 @@ vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
   createChat,
   createChatWithOwnWorktree,
+  listGlobalProviders,
 }))
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: toastError, success: vi.fn(), info: vi.fn() },
@@ -53,6 +56,12 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 afterEach(() => {
   // A GLOBAL store — a leaked 'terminal' default would silently arm every
@@ -72,7 +81,7 @@ beforeEach(() => {
   // CLI, unlike the old chat-less postWorkspace) — the global provider store
   // (agent-providers-store.ts), not a per-workspace one, since there is no
   // workspace yet to scope a per-workspace read through.
-  useAgentProvidersStore.setState({ status: 'ready', providers: [] })
+  useAgentProvidersStore.setState({ status: 'ready', providers: [], remote: {} })
 })
 
 // Regression, reported live: a project-home chat's Fork was offered with no
@@ -367,5 +376,58 @@ describe('handleCreateHomeThread', () => {
     )
     expect(consoleError).toHaveBeenCalled()
     consoleError.mockRestore()
+  })
+})
+
+// A provider list belongs to a daemon: a chat started in a remote project's home is
+// started with a provider THAT host offers, never one only the local daemon has.
+describe('a project-home thread on an install that has paired a remote host', () => {
+  const offered = (id: string, enabled = true) => ({ id, enabled }) as never
+  const started = () =>
+    (createChat.mock.calls as unknown as [string, string][]).map(([wsId, providerId]) => [
+      wsId,
+      providerId,
+    ])
+
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [offered('claude')],
+      remote: { 'host-1': [offered('codex-remote')] },
+    })
+  })
+  afterEach(() => resetHostWorld())
+
+  it('picks each project’s provider from its own host’s list', async () => {
+    await handleCreateHomeThread('p-local', 'home-local', vi.fn())
+    await handleCreateHomeThread('p-remote', 'home-remote', vi.fn())
+
+    expect(started()).toEqual([
+      ['home-local', 'claude'],
+      ['home-remote', 'codex-remote'],
+    ])
+  })
+
+  it('refuses, rather than borrowing the local list, when the remote host has none enabled', async () => {
+    useAgentProvidersStore.setState({ remote: { 'host-1': [offered('codex-remote', false)] } })
+
+    await handleCreateHomeThread('p-remote', 'home-remote', vi.fn())
+
+    expect(createChat).not.toHaveBeenCalled()
+    expect(toastError).toHaveBeenCalledOnce()
+    expect(listGlobalProviders).not.toHaveBeenCalled()
+  })
+
+  it('refuses, and reads that host’s list so the next try can use it, when it was never loaded', async () => {
+    useAgentProvidersStore.setState({ remote: {} })
+
+    await handleCreateHomeThread('p-remote', 'home-remote', vi.fn())
+
+    expect(createChat).not.toHaveBeenCalled()
+    expect(toastError).toHaveBeenCalledOnce()
+    expect(listGlobalProviders).toHaveBeenCalledExactlyOnceWith('host-1')
   })
 })

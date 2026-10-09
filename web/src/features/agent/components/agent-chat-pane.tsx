@@ -19,7 +19,11 @@ import { AGENT_CYCLE_PROVIDER, AGENT_TOGGLE_VIEW_MODE } from '@/features/keymaps
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
-import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import {
+  providersOf,
+  useAgentProvidersStore,
+} from '@/features/settings/stores/agent-providers-store'
+import { LOCAL_HOST } from '@/features/hosts/types'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { pendingChatSurfaces } from '@/features/panes/stores/pending-chat-surfaces'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -42,7 +46,7 @@ import {
 import { AgentChatView, type AgentChatViewHandle } from '@/features/agent/chat/agent-chat-view'
 import { AgentChatUnavailable } from '@/features/agent/components/agent-chat-unavailable'
 import { AgentTerminalSurface } from '@/features/agent/terminal/agent-terminal-surface'
-import { useHostResolved, useHostUnavailable } from '@/lib/host-resolve'
+import { resolvedHostOf, useHostResolved, useHostUnavailable } from '@/lib/host-resolve'
 
 // ── The split view's geometry ─────────────────────────────────────────────
 //
@@ -228,30 +232,25 @@ export function AgentChatPane({
     store,
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.launchModel ?? '',
   )
-  // THE MACHINE-LEVEL LIST WHEN THIS WORKSPACE HAS NO COPY OF ITS OWN.
+  // THE DAEMON'S LIST WHEN THIS WORKSPACE HAS NO COPY OF ITS OWN.
   //
-  // `agentChats.providers` is seeded by use-workspace-agent-chats-stream, which
-  // only runs while that workspace is MOUNTED. A pane outlives its workspace's
-  // visibility by design (WorkspaceView's own doc), and
-  // getOrCreateWorkspaceStore happily mints an empty store for a workspace
-  // nothing has opened — so reopening an already-run conversation could land
-  // here with `[]`. Every provider control is absence-not-disabled, so an empty
-  // catalogue does not grey the picker out, it DELETES it
-  // (agent-selection-picker's own `catalogueProviders.length === 0` guard):
-  // the chat renders with no provider named and no control to name one with,
-  // recoverable only by toggling a provider in Settings, whose write path
-  // repairs this copy as a side effect. Same reasoning space-content-actions.ts
-  // already reached for the New-thread button.
+  // `agentChats.providers` is seeded by use-workspace-agent-chats-stream, which only
+  // runs while that workspace is MOUNTED, and a pane outlives that by design: it can
+  // land here with `[]`. Every provider control is absence-not-disabled, so an empty
+  // catalogue DELETES the picker. The fallback is the list of THIS workspace's own
+  // daemon (providers belong to a daemon): the local one, or its remote host's.
   const wsProviders = useStore(store, (s) => s.agentChats.providers)
-  const globalProviders = useAgentProvidersStore((s) => s.providers)
-  const providers = wsProviders.length > 0 ? wsProviders : globalProviders
+  const hostId = resolvedHostOf({ wsId })
+  const daemonProviders = useAgentProvidersStore((s) => providersOf(s, hostId))
+  const providers = wsProviders.length > 0 ? wsProviders : daemonProviders
   // Neither copy populated: this pane is the first surface to need the list, so
   // it asks. The store owns the read/write generation rules, so a load issued
   // here cannot clobber a preferences write it races.
   useEffect(() => {
-    if (wsProviders.length > 0 || globalProviders.length > 0) return
-    void useAgentProvidersStore.getState().load(wsId)
-  }, [wsProviders.length, globalProviders.length, wsId])
+    if (hostId === null || wsProviders.length > 0 || daemonProviders.length > 0) return
+    const { load, loadHost } = useAgentProvidersStore.getState()
+    void (hostId === LOCAL_HOST.id ? load(wsId) : loadHost(hostId))
+  }, [wsProviders.length, daemonProviders.length, wsId, hostId])
 
   // Is this chat's CLI parked on a prompt Crowbar CANNOT answer — a workspace
   // trust dialog, a first-run screen, a login — which reaches the daemon through
