@@ -117,9 +117,11 @@ export function useTerminalAttachment({
         toast.error('Terminal unavailable', 'Could not start the terminal. Try reopening the tab.')
         return
       }
-      // A PTY the daemon made is this tab's even if this attempt was superseded or the
-      // host cannot be dialled now: remember it first, or the next attach makes a second.
-      if ('sessionId' in result) {
+      // A PTY the daemon made is this tab's even if the host cannot be dialled now, or this
+      // attempt was superseded and nothing newer has recorded one: remember it first, or the
+      // next attach makes a second. A superseded answer never overwrites a newer attempt's id.
+      const recorded = useTerminalStore.getState().getSession(sessionId)?.connectionId
+      if ('sessionId' in result && (mine === generation || recorded === existing?.connectionId)) {
         useTerminalStore.getState().updateSession(sessionId, { connectionId: result.sessionId })
         saveReconnect(wsId, sessionId, result.sessionId)
       }

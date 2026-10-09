@@ -18,6 +18,8 @@ const bridge = vi.hoisted(() => {
     listCalls: [] as string[],
     listGate: null as Promise<void> | null,
     createGate: null as Promise<void> | null,
+    // One gate per terminalCreate call, in call order; a call past the list uses createGate.
+    createGates: [] as Promise<void>[],
     failList: false,
     refuseOpen: false,
     created: 0,
@@ -58,9 +60,10 @@ vi.mock('@/lib/crowbar-bridge', () => ({
     return [...bridge.live]
   },
   terminalCreate: async () => {
-    if (bridge.createGate) await bridge.createGate
-    bridge.created++
-    return `fresh-${bridge.created}`
+    const id = `fresh-${++bridge.created}`
+    const gate = bridge.createGates.shift() ?? bridge.createGate
+    if (gate) await gate
+    return id
   },
 }))
 
@@ -105,6 +108,7 @@ beforeEach(() => {
   bridge.listCalls.length = 0
   bridge.listGate = null
   bridge.createGate = null
+  bridge.createGates = []
   bridge.failList = false
   bridge.refuseOpen = false
   bridge.created = 0
@@ -280,6 +284,34 @@ describe('useTerminalAttachment', () => {
     expect(bridge.created).toBe(1)
     expect(bridge.opened.map((c) => c.sessionId)).toEqual(['fresh-1'])
     expect(second.result.current.connection).toBe(bridge.opened[0])
+  })
+
+  // Mount, unmount, remount (StrictMode in dev, a quick remount anywhere) while the first
+  // create is in flight: the live attempt answers first, the superseded one last. The
+  // last must not replace the PTY the view shows, or a drop re-attaches to the wrong shell.
+  it('a superseded create answering last never replaces the PTY the view is showing', async () => {
+    const releases: Array<() => void> = []
+    bridge.createGates = [0, 1].map(() => new Promise<void>((r) => releases.push(r)))
+    const first = render()
+    await first.settle()
+    first.unmount()
+    const second = render()
+    await second.settle()
+
+    releases[1]()
+    await second.settle()
+    releases[0]()
+    await second.settle()
+
+    expect(bridge.opened.map((c) => c.sessionId)).toEqual(['fresh-2'])
+    expect(useTerminalStore.getState().getSession('tab-1')?.connectionId).toBe('fresh-2')
+
+    bridge.live = [...bridge.live, 'fresh-1', 'fresh-2']
+    act(() => bridge.opened[0].drop())
+    await second.settle()
+
+    expect(bridge.created).toBe(2)
+    expect(bridge.opened.map((c) => c.sessionId)).toEqual(['fresh-2', 'fresh-2'])
   })
 
   it('a daemon that cannot be asked is retried when the app reconnects to it — no timer', async () => {
