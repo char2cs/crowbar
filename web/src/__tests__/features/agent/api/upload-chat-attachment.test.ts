@@ -306,9 +306,9 @@ describe('uploadChatAttachment from a disk path', () => {
 
   const assetMethods: string[] = []
 
-  /** Serves the asset URL with `fileResponse` (a HEAD gets its headers, no body) and
-   *  records every other request. */
-  function stubFetch(fileResponse: Response) {
+  /** Serves the asset URL with `fileResponse` (a HEAD gets its headers, no body unless
+   *  `head` says otherwise) and records every other request. */
+  function stubFetch(fileResponse: Response, head?: () => Promise<Response>) {
     const uploads: [string, RequestInit][] = []
     assetMethods.length = 0
     vi.stubGlobal(
@@ -316,6 +316,7 @@ describe('uploadChatAttachment from a disk path', () => {
       vi.fn((url: string, init?: RequestInit) => {
         if (url.startsWith('asset://')) {
           assetMethods.push(init?.method ?? 'GET')
+          if (init?.method === 'HEAD' && head) return head()
           return Promise.resolve(
             init?.method === 'HEAD'
               ? new Response(null, { status: fileResponse.status, headers: fileResponse.headers })
@@ -380,6 +381,21 @@ describe('uploadChatAttachment from a disk path', () => {
     expect(assetMethods).toEqual(['HEAD'])
     expect(answer.blob).not.toHaveBeenCalled()
     expect(uploads).toEqual([])
+  })
+
+  // The HEAD is only a size probe: a protocol that cannot answer it must not cost the upload.
+  it.each([
+    ['answers HEAD with an error', () => Promise.resolve(new Response(null, { status: 405 }))],
+    ['rejects HEAD', () => Promise.reject(new Error('unsupported'))],
+  ])('still sends the bytes when the asset protocol %s', async (_name, head) => {
+    const uploads = stubFetch(assetResponse('pixels'), head)
+
+    await uploadChatAttachment('ws1', 'c1', { path: '/Users/me/pics/pic.png' }, 'x')
+
+    expect(assetMethods).toEqual(['HEAD', 'GET'])
+    expect(parseMultipart(uploads[0][1].body, uploads[0][1].headers).get('file')?.value).toBe(
+      'pixels',
+    )
   })
 
   it('refuses a file whose size only shows once read, before sending it', async () => {
