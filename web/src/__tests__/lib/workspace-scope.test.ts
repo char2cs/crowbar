@@ -11,6 +11,7 @@ import {
   __resetWorkspaceScopesForTest,
 } from '@/lib/workspace-scope'
 import { workspaceBase } from '@/lib/workspace-scope-url'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
 // Regression for the §14 add-repo failure: the workspace scope was recorded
 // only in the `$wsId` route component's post-render `useEffect`, but the IDE
@@ -40,6 +41,19 @@ describe('recordWorkspaceScopeFromPath', () => {
     const scope = recordWorkspaceScopeFromPath('/ide/p/r/w/some/deeper/route')
     expect(scope).toEqual({ projectId: 'p', repoId: 'r', wsId: 'w' })
     expect(workspaceBase('w')).toBe('/v0/projects/p/repos/r/workspaces/w')
+  })
+
+  // The workspace in view is the registry's to name; asking for no workspace ('') must
+  // never hand back its scope.
+  it('answers nothing for an empty id, whichever workspace is in view', () => {
+    recordWorkspaceScopeFromPath('/ide/p1/r1/ws-active')
+    setActiveWorkspaceId('ws-active')
+    try {
+      expect(getWorkspaceScope('ws-active')?.wsId).toBe('ws-active')
+      expect(getWorkspaceScope('')).toBeNull()
+    } finally {
+      setActiveWorkspaceId(null)
+    }
   })
 
   it('returns null and records nothing for a non-ide path', () => {

@@ -16,6 +16,7 @@ import { useProjectDataStore } from '@/lib/store/projects'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { failed, idle, loading, success, type Loadable } from '@/lib/loadable'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import type { Host } from '@/features/hosts/types'
 import type { Project } from '@/lib/types'
 
@@ -307,6 +308,30 @@ describe('isHostResolved', () => {
     configureHosts('host-1')
     expect(() => hostIdForProject('p-unknown')).toThrow(HostNotResolvedError)
     expect(isHostResolved({ projectId: 'p-unknown' })).toBe(false)
+  })
+})
+
+// Callers hand '' when they have no workspace yet. It must name nothing: falling back to
+// the workspace in view is how a request reaches the wrong host. The registry owns which
+// workspace is in view, so the test sets it there.
+describe('a workspace id of ""', () => {
+  beforeEach(() => {
+    configureHosts('host-1')
+    loadProjects(project('p-remote', 'host-1'))
+    recordScope('ws-active', 'p-remote')
+    setActiveWorkspaceId('ws-active')
+  })
+  afterEach(() => setActiveWorkspaceId(null))
+
+  it('does not resolve to the host of the workspace in view', () => {
+    expect(hostIdForWorkspace('ws-active')).toBe('host-1')
+    expect(unresolved(() => hostIdForWorkspace('')).message).toMatch(/no scope is recorded/)
+    expect(resolvedHostOf({ wsId: '' })).toBeNull()
+  })
+
+  it('is no host for a component either', () => {
+    const { result } = renderHook(() => useResolvedHost({ wsId: '' }))
+    expect(result.current).toBeNull()
   })
 })
 
