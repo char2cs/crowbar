@@ -260,6 +260,26 @@ describe('on an install that has paired a remote host', () => {
     expect(fetchFileTree).not.toHaveBeenCalled()
   })
 
+  // The files stream sends no snapshot, so a tree held across a gap in which the host
+  // stopped resolving may have missed changes: it is read again when the host is back.
+  it('reloads the tree when its host returns, picking up what changed in the gap', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    const { store } = setup('ws-remote')
+    await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
+    act(() => useHostConfigStore.getState().removeHost('host-1'))
+    fetchFileTree.mockClear()
+    fetchFileTree.mockResolvedValueOnce([
+      ...rootTree,
+      { name: 'new.ts', path: 'new.ts', isDir: false },
+    ])
+
+    act(() => pairRemoteHost('host-1'))
+
+    await waitFor(() => expect(store.getState().files).toHaveLength(3))
+    expect(fetchFileTree).toHaveBeenCalledExactlyOnceWith('ws-remote')
+    await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
+  })
+
   it('does not let a refused channel escape the effect', async () => {
     loadProjects(projectOn('p-remote', 'host-1'))
     subscribe.mockImplementationOnce(() => {

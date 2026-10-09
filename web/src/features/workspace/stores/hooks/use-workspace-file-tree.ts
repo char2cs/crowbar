@@ -55,6 +55,15 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
   )
   const loadingDirs = useRef<Set<string>>(new Set())
 
+  // The files stream sends no snapshot, so a tree held across a gap in which its host
+  // stopped resolving may have missed changes: mark it unloaded, and the load below
+  // reads it again when the host is back.
+  useEffect(() => {
+    if (addressable) return
+    const { fileTreeStatus, fileTreeActions } = store.getState()
+    if (fileTreeStatus === 'ready') fileTreeActions.setFileTreeStatus('idle')
+  }, [store, addressable])
+
   useEffect(() => {
     if (!active || !addressable) return
     const { fileTreeStatus, fileTreeActions } = store.getState()
