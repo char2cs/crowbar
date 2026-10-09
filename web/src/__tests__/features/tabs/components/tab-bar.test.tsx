@@ -42,6 +42,13 @@ vi.mock('@/features/tabs/components/tab-context-menu', () => ({
 import TabBar from '@/features/tabs/components/tab-bar'
 import * as fileTreeHandlers from '@/features/files/lib/file-tree-handlers'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 function makeEditorBuffer(i: number): EditorContent {
   return {
@@ -562,5 +569,24 @@ describe('TabBar context menu', () => {
     })
 
     expect(menu.onRevealInFinder).toBeUndefined()
+  })
+
+  // A remote workspace's path means nothing to this machine's Finder.
+  it('offers no Reveal for a tab whose workspace lives on a remote host', () => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    loadProjects(projectOn('p-remote', 'host-1'))
+    recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r1', wsId: 'w-remote' })
+    const store = setupStore([{ ...makeEditorBuffer(0), workspaceId: 'w-remote' }])
+    act(() => {
+      renderTabBar(store, { wsId: 'w-remote' })
+    })
+
+    act(() => {
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /file-0\.ts/ }))
+    })
+
+    expect(menu.onRevealInFinder).toBeUndefined()
+    resetHostWorld()
   })
 })

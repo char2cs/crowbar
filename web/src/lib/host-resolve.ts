@@ -130,6 +130,12 @@ export function useResolvedHost(key: HostKey): string | null {
   return useSyncExternalStore(useResolutionSubscription(key), () => resolvedHostOf(key))
 }
 
+/** True once `wsId` resolves to the local daemon: the only host whose paths mean
+ *  anything to this machine's OS (Finder, default apps). */
+export function useWorkspaceIsLocal(wsId: string): boolean {
+  return useResolvedHost({ wsId }) === LOCAL_HOST.id
+}
+
 /** True once `hostIdForProject`/`hostIdForWorkspace` would stop throwing for `key`. */
 export function useHostResolved(key: HostKey): boolean {
   return useResolvedHost(key) !== null

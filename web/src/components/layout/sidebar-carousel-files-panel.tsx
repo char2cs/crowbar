@@ -12,6 +12,7 @@ import { createFileTreeHandlers, revealInFolder } from '@/features/files/lib/fil
 import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
 import { resolveOnscreenPaneForWorkspace } from '@/features/panes/lib/pane-chat-workspace'
 import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
+import { useWorkspaceIsLocal } from '@/lib/host-resolve'
 
 /**
  * The carousel's Files panel — every file-system-store binding and the
@@ -25,6 +26,7 @@ export function SidebarCarouselFilesPanel() {
   // The focused workspace's own tree: switching focus selects another store's
   // slice, it never clears or refetches anything.
   const wsId = workspaceId ?? ''
+  const isLocal = useWorkspaceIsLocal(wsId)
   const store = useRegisteredWorkspaceStore(wsId)
   const files = useWorkspaceStoreById(wsId, (s) => s.files)
   const isLoading = useWorkspaceStoreById(wsId, isFileTreeLoading)
@@ -74,7 +76,7 @@ export function SidebarCarouselFilesPanel() {
             onRenamePath={handlers.handleRenamePath}
             onDeletePath={handlers.handleDeletePath}
             onDuplicatePath={handlers.handleDuplicatePath}
-            onRevealInFinder={(path) => revealInFolder(wsId, path)}
+            onRevealInFinder={isLocal ? (path) => revealInFolder(wsId, path) : undefined}
             onUploadFile={handleUploadFile}
             onRefreshDirectory={handlers.refreshDirectory}
           />

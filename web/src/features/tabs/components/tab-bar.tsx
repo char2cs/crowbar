@@ -14,6 +14,7 @@ import {
   openBranchReviewForWorkspace,
   ensurePaneChatThenOpen,
 } from '@/features/panes/utils/pane-command-actions'
+import { useWorkspaceIsLocal } from '@/lib/host-resolve'
 import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
 import { useSettingsStore } from '@/features/settings/store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
@@ -441,6 +442,7 @@ const TabBar = ({
 
   // The file lives in the workspace its tab was opened in, which the pane need not be.
   const menuWorkspaceId = contextMenu.buffer?.workspaceId
+  const menuOnLocalHost = useWorkspaceIsLocal(menuWorkspaceId ?? '')
 
   const closeContextMenu = useCallback(() => {
     setContextMenu({ isOpen: false, position: { x: 0, y: 0 }, buffer: null })
@@ -730,7 +732,9 @@ const TabBar = ({
         onCopyRelativePath={handleCopyRelativePath}
         onReload={handleReloadTab}
         onRevealInFinder={
-          menuWorkspaceId ? (path) => revealInFolder(menuWorkspaceId, path) : undefined
+          menuWorkspaceId && menuOnLocalHost
+            ? (path) => revealInFolder(menuWorkspaceId, path)
+            : undefined
         }
         onSplitRight={handleSplitRight}
         onSplitDown={handleSplitDown}
