@@ -29,10 +29,6 @@ vi.mock('@/lib/crowbar-bridge', () => ({
   terminalCreate: async () => 'fresh',
 }))
 
-vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
-  getActiveWorkspaceId: () => 'ws-active',
-}))
-
 import { XtermTerminal, type TerminalFocusHandle } from '@/features/terminal/components/terminal'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
