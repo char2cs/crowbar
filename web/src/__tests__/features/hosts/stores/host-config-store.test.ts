@@ -163,6 +163,19 @@ describe('useHostConfigStore', () => {
       ])
     })
 
+    // The host it has not heard of carries the only client id that can revoke it server-side.
+    it('revoking in a window that has not heard of the other’s newest host keeps that host', async () => {
+      const a = await openWindow()
+      a.getState().addHost(host('h1'))
+      const b = await openWindow()
+      a.getState().addHost(host('h2'))
+
+      b.getState().removeHost('h1')
+
+      expect(JSON.parse(localStorage.getItem('crowbar.hosts')!).state.hosts).toEqual([host('h2')])
+      expect(ids(b)).toEqual(['h2'])
+    })
+
     it('a host removed in one window is gone from the other and stays gone', async () => {
       const a = await openWindow()
       a.getState().addHost(host('h1'))
