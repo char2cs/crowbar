@@ -243,6 +243,24 @@ describe('a paired host coming up', () => {
     expect(readRemote.mock.calls).toEqual([['h1']])
   })
 
+  it('keeps the newer of two answers for one host, whatever order they land in', async () => {
+    const list = await liveList('h1')
+    const older = parkedRemote()
+    const newer = parkedRemote()
+    list.status('h1', 'up')
+    list.status('h1', 'down')
+    list.status('h1', 'up')
+    await vi.waitFor(() => expect(readRemote).toHaveBeenCalledTimes(2))
+
+    newer([remoteRow('r-new', 'h1')])
+    await vi.waitFor(() => expect(list.held()).toEqual(['a@local', 'r-new@h1']))
+    older([remoteRow('r-old', 'h1')])
+    await settle()
+
+    expect(list.held()).toEqual(['a@local', 'r-new@h1'])
+    list.stop()
+  })
+
   // A host removed meanwhile is gone from the sidebar; a late answer must not bring it back.
   it('brings back no rows from a host removed while its read was out', async () => {
     const list = await liveList('h1')
