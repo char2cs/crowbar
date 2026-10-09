@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/features/file-system/controllers/platform', () => ({ readDirectory: vi.fn() }))
+vi.mock('@/features/file-system/controllers/platform', () => ({ readWorkspaceDirectory: vi.fn() }))
 
-import { readDirectory } from '@/features/file-system/controllers/platform'
+import { readWorkspaceDirectory } from '@/features/file-system/controllers/platform'
 import {
   breadcrumbSegmentPath,
   loadDirectoryEntries,
 } from '@/features/editor/components/toolbar/breadcrumb-directory'
 
-const mockReadDirectory = readDirectory as ReturnType<typeof vi.fn>
+const mockReadDirectory = readWorkspaceDirectory as ReturnType<typeof vi.fn>
 
 beforeEach(() => vi.clearAllMocks())
 
@@ -38,9 +38,9 @@ describe('loadDirectoryEntries', () => {
       { name: 'a.ts', path: 'src/a.ts', isDirectory: false, is_dir: false, isFile: true },
     ])
 
-    const entries = await loadDirectoryEntries('src')
+    const entries = await loadDirectoryEntries('ws-b', 'src')
 
-    expect(mockReadDirectory).toHaveBeenCalledWith('src')
+    expect(mockReadDirectory).toHaveBeenCalledWith('ws-b', 'src')
     expect(entries).toEqual([
       { name: 'Utils', path: 'src/Utils', isDir: true, children: undefined },
       { name: 'a.ts', path: 'src/a.ts', isDir: false, children: undefined },
@@ -50,6 +50,6 @@ describe('loadDirectoryEntries', () => {
 
   it('propagates a read failure so the caller can report it', async () => {
     mockReadDirectory.mockRejectedValue(new Error('boom'))
-    await expect(loadDirectoryEntries('src')).rejects.toThrow('boom')
+    await expect(loadDirectoryEntries('ws-b', 'src')).rejects.toThrow('boom')
   })
 })

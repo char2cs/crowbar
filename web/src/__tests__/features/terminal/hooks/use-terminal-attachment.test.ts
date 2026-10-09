@@ -64,10 +64,6 @@ vi.mock('@/lib/crowbar-bridge', () => ({
   },
 }))
 
-vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
-  getActiveWorkspaceId: () => 'ws-active',
-}))
-
 import { useTerminalAttachment } from '@/features/terminal/hooks/use-terminal-attachment'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { toast } from '@/features/window/stores/toast-store'
@@ -119,7 +115,6 @@ beforeEach(() => {
   useTerminalStore.setState({ sessions: new Map() })
   __resetWorkspaceScopesForTest()
   recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-1', owningChatId: 'chat-1' })
-  recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-active', owningChatId: 'chat-x' })
   useConnectionStore.setState({ status: 'connected' })
 })
 
@@ -187,24 +182,6 @@ describe('useTerminalAttachment', () => {
       'crowbar://host-1/v0/chats/chat-9/terminals',
       '/v0/chats/chat-8/terminals',
     ])
-  })
-
-  it('does not pick the active workspace to place an explicit chat', async () => {
-    const { settle } = render({
-      sessionId: 'pty-1',
-      workspaceId: undefined,
-      chatId: 'chat-9',
-      attachOnly: true,
-    })
-    await settle()
-    expect(bridge.listCalls).toEqual([])
-    expect(bridge.opened).toHaveLength(0)
-  })
-
-  it('falls back to the active workspace when no workspaceId is threaded', async () => {
-    const { settle } = render({ workspaceId: undefined })
-    await settle()
-    expect(bridge.opened[0].base).toBe('/v0/chats/chat-x/terminals')
   })
 
   it('does nothing until enabled (a never-shown tab, or no owning chat yet)', async () => {

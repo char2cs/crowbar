@@ -1,5 +1,4 @@
 import { apiFetch, isNotFoundError } from '@/lib/api'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { filesBaseForWorkspace } from '@/lib/workspace-scope-url'
 import {
   decodeFileContent,
@@ -20,32 +19,14 @@ import {
 // dead. Do not reintroduce a reader that fabricates a success value — if the
 // operation cannot be performed, throw.
 
-// Resolve the active workspace and build its files base URL. Throws when no
-// workspace is active so callers fail loudly rather than silently dropping a
-// save.
-function filesBase(): string {
-  const wsId = getActiveWorkspaceId()
-  if (!wsId) throw new Error('no active workspace for file operation')
-  return filesBaseForWorkspace(wsId)
-}
-
-export async function writeFile(path: string, content: string): Promise<void> {
-  await apiFetch(`${filesBase()}/content`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, content }),
-  })
-}
+// Every operation names its workspace. There is deliberately no variant that resolves
+// the ACTIVE one: a save, a move or a read whose workspace is merely whichever is in
+// view lands in the wrong worktree (or, on a paired install, the wrong host).
 
 /**
- * Write a file to an explicit workspace. Buffers are window-level now (Task
- * 26) — a save/autosave/LSP-edit call site holds a `buffer.workspaceId` that
- * can disagree with whichever workspace is merely ACTIVE right now (the user
- * can switch workspaces while a different one's tab stays open, dirty, in
- * the shared pane tree). `writeFile`'s implicit active-workspace resolution
- * would silently write into the WRONG worktree's file in that case — mirrors
- * `readWorkspaceFile`'s own reasoning; every real write path must use this,
- * never `writeFile`, once a buffer's owning workspace is known.
+ * Write a file to an explicit workspace. Buffers are window-level — a
+ * save/autosave/LSP-edit call site holds a `buffer.workspaceId` that can disagree
+ * with whichever workspace is merely ACTIVE right now.
  */
 export async function writeWorkspaceFile(
   wsId: string,
@@ -59,20 +40,11 @@ export async function writeWorkspaceFile(
   })
 }
 
-export async function readFile(path: string): Promise<string> {
-  const payload = await apiFetch<FileContentPayload>(
-    `${filesBase()}/content?path=${encodeURIComponent(path)}`,
-  )
-  return decodeFileContent(payload)
-}
-
 /**
  * Read a file from an explicit workspace. Async flows that outlive the user's
  * focus (session-restore reconciliation, external FS-event buffer sync,
- * reopen-closed-tab) must use this instead of `readFile`: resolving the
- * *active* workspace at call time reads the same relative path from whichever
- * workspace the user switched to meanwhile — for linked worktrees of one repo
- * that silently loads a sibling checkout's content into the buffer.
+ * reopen-closed-tab) must name theirs: for linked worktrees of one repo the same
+ * relative path in a sibling checkout silently loads different content.
  */
 export async function readWorkspaceFile(wsId: string, path: string): Promise<string> {
   const payload = await apiFetch<FileContentPayload>(
@@ -98,16 +70,19 @@ interface FileTreeNode {
 }
 
 /**
- * List ONE level of `path` (workspace-relative; '' is the workspace root) via the
+ * List ONE level of `path` (workspace-relative; '' is the workspace root) of `wsId` via the
  * daemon's lazy tree route — the same route the file explorer is populated from.
  * Callers that need a recursive walk drive it themselves, one level per call.
  *
  * Rejects on a daemon failure. Callers depend on that: "Open All Files" catches
  * and falls back to the already-loaded tree.
  */
-export async function readDirectory(path: string): Promise<DirectoryEntry[]> {
+export async function readWorkspaceDirectory(
+  wsId: string,
+  path: string,
+): Promise<DirectoryEntry[]> {
   const query = path ? `?path=${encodeURIComponent(path)}` : ''
-  const nodes = await apiFetch<FileTreeNode[]>(`${filesBase()}/tree${query}`)
+  const nodes = await apiFetch<FileTreeNode[]>(`${filesBaseForWorkspace(wsId)}/tree${query}`)
   return nodes.map((node) => {
     const isDirectory = node.type === 'directory'
     return {
@@ -121,14 +96,14 @@ export async function readDirectory(path: string): Promise<DirectoryEntry[]> {
 }
 
 /**
- * Whether `path` (workspace-relative) is present in the workspace, resolved by
+ * Whether `path` (workspace-relative) is present in workspace `wsId`, resolved by
  * listing its parent directory — the daemon exposes no stat/HEAD verb, and one
  * lazy directory listing is far cheaper than reading the file's bytes.
  *
  * A missing PARENT (404) is an honest `false`. Any other failure rejects: "the
  * daemon errored" must never be reported to the user as "the file is not there".
  */
-export async function exists(path: string): Promise<boolean> {
+export async function workspaceFileExists(wsId: string, path: string): Promise<boolean> {
   const normalized = path.replace(/^\/+/, '').replace(/\/+$/, '')
   // The workspace root is always present and has no parent to list.
   if (!normalized) return true
@@ -137,7 +112,7 @@ export async function exists(path: string): Promise<boolean> {
   const parent = lastSlash === -1 ? '' : normalized.slice(0, lastSlash)
 
   try {
-    const entries = await readDirectory(parent)
+    const entries = await readWorkspaceDirectory(wsId, parent)
     return entries.some((entry) => entry.path === normalized)
   } catch (error) {
     if (isNotFoundError(error)) return false
@@ -145,26 +120,10 @@ export async function exists(path: string): Promise<boolean> {
   }
 }
 
-export async function moveFile(src: string, dest: string): Promise<void> {
-  await apiFetch(filesBase(), {
+export async function moveWorkspaceFile(wsId: string, src: string, dest: string): Promise<void> {
+  await apiFetch(filesBaseForWorkspace(wsId), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path: src, newPath: dest }),
-  })
-}
-
-export async function deleteFile(path: string): Promise<void> {
-  await apiFetch(filesBase(), {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path }),
-  })
-}
-
-export async function createDirectory(path: string): Promise<void> {
-  await apiFetch(filesBase(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, type: 'directory' }),
   })
 }

@@ -31,9 +31,9 @@ interface XtermTerminalProps {
    * The workspace this terminal BELONGS to. Attaching must target it, never the
    * currently-active one: workspace keep-alive keeps hidden workspaces'
    * terminals mounted, so a transport drop can land while a DIFFERENT workspace
-   * is active. Falls back to the active workspace when unset.
+   * is active.
    */
-  workspaceId?: string
+  workspaceId: string
   /**
    * The chat that OWNS this PTY, when the caller knows it directly — an agent
    * chat pane, whose terminal is that chat's own vendor-CLI session. Unset for a
@@ -74,12 +74,12 @@ interface XtermTerminalProps {
 /**
  * Reactive echo of `getOwningChatId(wsId)`: the sidebar records a workspace's
  * owning chat asynchronously, so a shell tab's terminals base cannot be built
- * until it has. Null (and no subscription) when there is no wsId to watch.
+ * until it has.
  */
-function useOwningChatIdFor(wsId: string | undefined): string | null {
+function useOwningChatIdFor(wsId: string): string | null {
   return useSyncExternalStore(
-    (onChange) => (wsId ? subscribeToWorkspaceScope(wsId, onChange) : () => {}),
-    () => (wsId ? getOwningChatId(wsId) : null),
+    (onChange) => subscribeToWorkspaceScope(wsId, onChange),
+    () => getOwningChatId(wsId),
   )
 }
 
@@ -115,8 +115,8 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   const [activated, setActivated] = useState(isVisible)
   if (isVisible && !activated) setActivated(true)
 
-  const owningChatId = useOwningChatIdFor(chatId ? undefined : workspaceId)
-  const chatScopeReady = Boolean(chatId) || !workspaceId || owningChatId !== null
+  const owningChatId = useOwningChatIdFor(workspaceId)
+  const chatScopeReady = Boolean(chatId) || owningChatId !== null
 
   // Where a new shell starts, recorded for the tab label and link resolution.
   useEffect(() => {

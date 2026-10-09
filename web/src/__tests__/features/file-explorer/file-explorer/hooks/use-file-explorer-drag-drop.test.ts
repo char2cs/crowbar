@@ -5,11 +5,12 @@ import { useFileExplorerDragDrop } from '@/features/file-explorer/file-explorer/
 import type { FileEntry } from '@/features/file-system/types/app'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useDragStore } from '@/features/panes/stores/drag-store'
+import { moveWorkspaceFile } from '@/features/file-system/controllers/platform'
 
-// moveFile is the only async side effect on drop; stub it so a "drop on a
+// moveWorkspaceFile is the only async side effect on drop; stub it so a "drop on a
 // directory" never hits the real platform controller.
 vi.mock('@/features/file-system/controllers/platform', () => ({
-  moveFile: vi.fn().mockResolvedValue(undefined),
+  moveWorkspaceFile: vi.fn().mockResolvedValue(undefined),
 }))
 
 const { openWorkspaceFile } = vi.hoisted(() => ({
@@ -58,7 +59,7 @@ describe('useFileExplorerDragDrop — stable listener subscription (H13)', () =>
     ).length
 
   it('attaches each document listener exactly once per drag, not once per mousemove', () => {
-    const { result } = renderHook(() => useFileExplorerDragDrop(undefined))
+    const { result } = renderHook(() => useFileExplorerDragDrop('ws-a', undefined))
 
     // Start a drag.
     act(() => {
@@ -96,7 +97,7 @@ describe('useFileExplorerDragDrop — stable listener subscription (H13)', () =>
   })
 
   it('still handles mouseup after many mousemoves (no stranded isDragging)', () => {
-    const { result } = renderHook(() => useFileExplorerDragDrop(undefined))
+    const { result } = renderHook(() => useFileExplorerDragDrop('ws-a', undefined))
 
     act(() => {
       const e = {
@@ -125,7 +126,7 @@ describe('useFileExplorerDragDrop — stable listener subscription (H13)', () =>
   })
 
   it('removes the document.body drag-preview div once the drag ends', () => {
-    const { result } = renderHook(() => useFileExplorerDragDrop(undefined))
+    const { result } = renderHook(() => useFileExplorerDragDrop('ws-a', undefined))
 
     act(() => {
       const e = {
@@ -179,7 +180,7 @@ describe('useFileExplorerDragDrop — dropping a file on a pane', () => {
   })
 
   function drag(file: FileEntry) {
-    const { result } = renderHook(() => useFileExplorerDragDrop(undefined))
+    const { result } = renderHook(() => useFileExplorerDragDrop('ws-a', undefined))
     act(() => {
       result.current.startDrag(
         {
@@ -195,7 +196,7 @@ describe('useFileExplorerDragDrop — dropping a file on a pane', () => {
   }
 
   it('opens the file in the pane it was dropped on, by id', () => {
-    setActiveWorkspaceId('ws-a')
+    setActiveWorkspaceId('ws-in-view')
     const result = drag(makeFile('a.ts', 'src/a.ts'))
     expect(useDragStore.getState().file).toEqual({ path: 'src/a.ts', name: 'a.ts', isDir: false })
 
@@ -210,11 +211,63 @@ describe('useFileExplorerDragDrop — dropping a file on a pane', () => {
   })
 
   it('ignores a directory drop', () => {
-    setActiveWorkspaceId('ws-a')
+    setActiveWorkspaceId('ws-in-view')
     drag(makeFile('src', 'src', true))
     act(() => {
       document.dispatchEvent(mouseEvent('mouseup', 50, 50))
     })
     expect(openWorkspaceFile).not.toHaveBeenCalled()
+  })
+})
+
+// The tree shows ONE workspace, and a move inside it is a write to that workspace —
+// whichever other workspace happens to be in view.
+describe('useFileExplorerDragDrop — moving a file within the tree', () => {
+  let folder: HTMLElement
+
+  beforeEach(() => {
+    const tree = document.createElement('div')
+    tree.className = 'file-tree-container'
+    folder = document.createElement('div')
+    folder.setAttribute('data-file-path', 'dst')
+    folder.setAttribute('data-is-dir', 'true')
+    tree.appendChild(folder)
+    document.body.appendChild(tree)
+    ;(document as unknown as { elementFromPoint: () => Element | null }).elementFromPoint = () =>
+      folder
+    setActiveWorkspaceId('ws-in-view')
+  })
+
+  afterEach(() => {
+    document.body.replaceChildren()
+    setActiveWorkspaceId(null)
+    vi.mocked(moveWorkspaceFile).mockClear()
+    delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint
+  })
+
+  it('moves within the explorer’s own workspace, not the one in view', async () => {
+    const onFileMove = vi.fn()
+    const { result } = renderHook(() => useFileExplorerDragDrop('ws-a', undefined, onFileMove))
+    act(() => {
+      result.current.startDrag(
+        {
+          preventDefault: vi.fn(),
+          stopPropagation: vi.fn(),
+          clientX: 10,
+          clientY: 10,
+        } as unknown as React.MouseEvent,
+        makeFile('a.ts', 'src/a.ts'),
+      )
+    })
+    act(() => {
+      document.dispatchEvent(mouseEvent('mousemove', 20, 20))
+    })
+
+    await act(async () => {
+      document.dispatchEvent(mouseEvent('mouseup', 20, 20))
+    })
+
+    expect(moveWorkspaceFile).toHaveBeenCalledExactlyOnceWith('ws-a', 'src/a.ts', 'dst/a.ts')
+    expect(onFileMove).toHaveBeenCalledWith('src/a.ts', 'dst/a.ts')
   })
 })

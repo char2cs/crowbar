@@ -1,6 +1,14 @@
-import { fireEvent, render } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createElement, StrictMode } from 'react'
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const { workspaceFileExists, openWorkspaceFile } = vi.hoisted(() => ({
+  workspaceFileExists: vi.fn(),
+  openWorkspaceFile: vi.fn(async () => {}),
+}))
+vi.mock('@/features/file-system/controllers/platform', () => ({ workspaceFileExists }))
+vi.mock('@/features/files/lib/file-tree-handlers', () => ({ openWorkspaceFile }))
+
 import { MarkdownPreview } from '@/features/editor/markdown/markdown-preview'
 import { clearPreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
@@ -15,6 +23,7 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
 const LONG_MARKDOWN = Array.from({ length: 200 }, (_, i) => `# Heading ${i}\n\nBody ${i}\n`).join(
   '\n',
@@ -154,5 +163,45 @@ describe('MarkdownPreview scroll retention', () => {
     // the CHANGELOG preview (the split-pane case).
     const view = renderPreview(store, 'preview-/repo/CHANGELOG.md')
     expect(view.container.innerHTML).toContain('Changelog only heading')
+  })
+})
+
+// A link in a preview resolves against, and opens in, the workspace the previewed file
+// belongs to: panes are window-level, so that is not necessarily the one in view.
+describe('MarkdownPreview links', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    clearPreservedScroll()
+    setActiveWorkspaceId('w-in-view')
+  })
+
+  it('checks and opens a relative link in the previewed file’s own workspace', async () => {
+    const store = setupStore(['docs/readme.md'])
+    windowPaneStore.setState((s) => {
+      s.buffers = s.buffers.map((b) =>
+        b.id === 'src-docs/readme.md'
+          ? ({ ...b, content: '[the spec](./spec)', workspaceId: 'w-buffer' } as typeof b)
+          : b.id === 'preview-docs/readme.md'
+            ? ({ ...b, workspaceId: 'w-buffer' } as typeof b)
+            : b,
+      )
+      return s
+    })
+    workspaceFileExists.mockImplementation(async (_wsId: string, path: string) =>
+      path.endsWith('.md'),
+    )
+
+    renderPreview(store, 'preview-docs/readme.md')
+    const anchor = (await screen.findByText('the spec')).closest('a')!
+    // Under jsdom the static renderer leaves the url on data-slate-url; the handler reads href.
+    anchor.setAttribute('href', anchor.getAttribute('data-slate-url')!)
+    fireEvent.click(anchor)
+
+    await waitFor(() =>
+      expect(openWorkspaceFile).toHaveBeenCalledExactlyOnceWith('w-buffer', 'docs/spec.md', {
+        preview: true,
+      }),
+    )
+    expect(workspaceFileExists.mock.calls.map(([wsId]) => wsId)).toEqual(['w-buffer', 'w-buffer'])
   })
 })

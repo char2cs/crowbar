@@ -5,7 +5,6 @@ import {
   terminalListLive,
   type TerminalConnection,
 } from '@/lib/crowbar-bridge'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { chatTerminalsBaseForWorkspace, terminalsBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { toast } from '@/features/window/stores/toast-store'
 import { hostIdForWorkspace, isHostResolved, subscribeHostResolution } from '@/lib/host-resolve'
@@ -17,8 +16,8 @@ import { useTerminalStore } from '../stores/terminal-store'
 interface UseTerminalAttachmentOptions {
   /** The session this view shows (a terminal tab's id; an agent pane's PTY id). */
   sessionId: string
-  /** The workspace this terminal belongs to; falls back to the active one unless `chatId` is set. */
-  workspaceId?: string
+  /** The workspace this terminal belongs to — the one that places it on a host. */
+  workspaceId: string
   /** The chat that owns the PTY, when the caller knows it (an agent pane). */
   chatId?: string
   /** Never spawn — see resolveTerminalSession. */
@@ -80,10 +79,7 @@ export function useTerminalAttachment({
       const mine = ++generation
       stopWatching?.()
       stopWatching = null
-      // An explicit chat is placed on a host by the workspace it is opened in; the
-      // active workspace is no substitute for that.
-      const wsId = chatId ? workspaceId : (workspaceId ?? getActiveWorkspaceId())
-      if (!wsId) return
+      const wsId = workspaceId
       // The project list names the host and a paired install has not read it at boot:
       // address the terminal nowhere until it has.
       if (!isHostResolved({ wsId })) {
