@@ -3,6 +3,18 @@ import { uploadChatAttachment } from '@/features/agent/api/upload-chat-attachmen
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import * as scopeUrl from '@/lib/workspace-scope-url'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
+
+// The desktop webview reads a picked path through Tauri's asset protocol.
+vi.mock('@/lib/crowbar-bridge', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/crowbar-bridge')>()),
+  convertFileSrc: (path: string) => `asset://localhost/${encodeURIComponent(path)}`,
+}))
 
 beforeEach(() => {
   recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1' })
@@ -257,7 +269,7 @@ describe('uploadChatAttachment on a remote host', () => {
       )
     vi.stubGlobal('fetch', fetchMock)
 
-    await uploadChatAttachment('ws1', 'c1', { path: '/tmp/x.png' }, 'x')
+    await uploadChatAttachment('ws1', 'c1', { file: new File(['x'], 'x.png') }, 'x')
 
     expect(fetchMock.mock.calls[0][0]).toBe(`${remoteBase}/c1/attachments`)
   })
@@ -271,5 +283,71 @@ describe('uploadChatAttachment on a remote host', () => {
       /unknown host/,
     )
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+// A remote daemon cannot read the desktop's disk: a path that means something
+// here means nothing there, so the bytes travel instead and the path never does.
+describe('uploadChatAttachment from a disk path', () => {
+  const UPLOADED = { data: { ref: 'r', fileName: 'pic.png', size: 6, contentType: 'image/png' } }
+
+  beforeEach(() => {
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    recordWorkspaceScope({ projectId: 'p-local', repoId: 'r1', wsId: 'ws-local' })
+    loadProjects(projectOn('p1', 'host-1'), projectOn('p-local', 'local'))
+  })
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+    resetHostWorld()
+    vi.unstubAllGlobals()
+  })
+
+  /** Serves the asset URL with `fileResponse` and records every other request. */
+  function stubFetch(fileResponse: Response) {
+    const uploads: [string, RequestInit][] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        if (url.startsWith('asset://')) return Promise.resolve(fileResponse)
+        uploads.push([url, init ?? {}])
+        return Promise.resolve(jsonResponse(UPLOADED))
+      }),
+    )
+    return uploads
+  }
+
+  it('sends a remote chat the file’s bytes as multipart and never its local path', async () => {
+    const uploads = stubFetch(new Response('pixels', { headers: { 'content-type': 'image/png' } }))
+
+    await uploadChatAttachment('ws1', 'c1', { path: '/Users/me/pics/pic.png' }, 'x')
+
+    expect(uploads).toHaveLength(1)
+    const [url, init] = uploads[0]
+    expect(url).toBe('crowbar://host-1/v0/projects/p1/repos/r1/chats/c1/attachments')
+    expect(init.body).toBeInstanceOf(Uint8Array)
+    const fields = parseMultipart(init.body, init.headers)
+    expect(fields.get('file')).toEqual({ value: 'pixels', filename: 'pic.png' })
+    expect(new TextDecoder().decode(init.body as Uint8Array)).not.toContain('/Users/me')
+  })
+
+  it('sends nothing when the file cannot be read for a remote chat', async () => {
+    const uploads = stubFetch(new Response('forbidden', { status: 403 }))
+
+    await expect(
+      uploadChatAttachment('ws1', 'c1', { path: '/Volumes/usb/pic.png' }, 'x'),
+    ).rejects.toThrow(/pic\.png/)
+    expect(uploads).toEqual([])
+  })
+
+  it('keeps handing a local chat the path, whatever hosts are paired', async () => {
+    const uploads = stubFetch(new Response('unused'))
+
+    await uploadChatAttachment('ws-local', 'c1', { path: '/tmp/dropped.png' }, 'x')
+
+    const [url, init] = uploads[0]
+    expect(url).toBe('/v0/projects/p-local/repos/r1/chats/c1/attachments')
+    expect(JSON.parse(init.body as string)).toEqual({ path: '/tmp/dropped.png', id: 'x' })
   })
 })
