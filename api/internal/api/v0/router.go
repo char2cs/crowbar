@@ -68,14 +68,14 @@ func (c *Container) Register(
 	rg.Use(rejectEmptyPathParams())
 
 	// Open routes go BEFORE requireBearerAuth: gin fixes a route's middleware
-	// chain at registration, so these never carry it. Pairing produces the
-	// credential itself, and health is probed before a host is paired.
+	// chain at registration, so these never carry it. Only pairing belongs here
+	// (it mints the credential); health is guarded so a revoked token reads 401.
 	pairingPkg.RegisterOpen(rg, c.pairing, newFixedWindowLimiter(5, time.Minute))
-	health.Register(rg)
 
 	// Every route from here down needs a bearer token over TLS; plaintext
 	// (unix socket, loopback dev TCP) passes through — see requireBearerAuth.
 	rg.Use(requireBearerAuth(c.app.GORM.Clients))
+	health.Register(rg)
 	pairingPkg.RegisterGuarded(rg, c.pairing)
 	system.Register(rg)
 	if c.logs != nil {

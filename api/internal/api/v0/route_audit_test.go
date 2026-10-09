@@ -5,6 +5,7 @@ package v0_test
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -986,6 +987,53 @@ func TestConsoleLogs_WithRing_StreamsReplayReadyAndLiveRedacted(t *testing.T) {
 	assert.Equal(t, map[string]any{"api_token": "[redacted]"}, live["fields"])
 }
 
+// serveTLS runs one request through h as if it arrived on the TLS listener,
+// the only one on which requireBearerAuth enforces anything.
+func serveTLS(
+	t *testing.T,
+	h http.Handler,
+	method, path, bearer, body string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), method, path, strings.NewReader(body))
+	req.TLS = &tls.ConnectionState{}
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// pairedToken mints a code over the plaintext path (as `crowbar pair` does on
+// the unix socket) and redeems it over TLS, returning the client's bearer token.
+func pairedToken(
+	t *testing.T,
+	h http.Handler,
+) string {
+	t.Helper()
+	mint := httptest.NewRecorder()
+	h.ServeHTTP(mint, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v0/pair/code", http.NoBody))
+	require.Equal(t, http.StatusOK, mint.Code, mint.Body.String())
+	var minted struct {
+		Data struct {
+			Code string `json:"code"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(mint.Body.Bytes(), &minted))
+
+	redeem := serveTLS(t, h, http.MethodPost, "/v0/pair", "", `{"code":"`+minted.Data.Code+`","name":"audit"}`)
+	require.Equal(t, http.StatusOK, redeem.Code, redeem.Body.String())
+	var paired struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(redeem.Body.Bytes(), &paired))
+	require.NotEmpty(t, paired.Data.Token)
+	return paired.Data.Token
+}
+
 // TestEndToEnd_TLSNoAuth_GuardedRoutesReject401 sends token-less TLS requests
 // through the daemon's full handler: route tables can't show middleware, so
 // only a real request proves each route's guard.
@@ -998,6 +1046,7 @@ func TestEndToEnd_TLSNoAuth_GuardedRoutesReject401(t *testing.T) {
 	r := daemon.Handler()
 
 	guarded := []string{
+		"GET /v0/health",
 		"GET /v0/system/prerequisites",
 		"GET /v0/system/perf",
 		"GET /v0/clients",
@@ -1011,10 +1060,7 @@ func TestEndToEnd_TLSNoAuth_GuardedRoutesReject401(t *testing.T) {
 	}
 	for _, route := range guarded {
 		method, path, _ := strings.Cut(route, " ")
-		req := httptest.NewRequestWithContext(t.Context(), method, path, http.NoBody)
-		req.TLS = &tls.ConnectionState{}
-		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, req)
+		rec := serveTLS(t, r, method, path, "", "")
 		assert.Equalf(t, http.StatusUnauthorized, rec.Code,
 			"%s must require a bearer token over TLS, got %d: %s", route, rec.Code, rec.Body.String())
 	}
@@ -1022,20 +1068,53 @@ func TestEndToEnd_TLSNoAuth_GuardedRoutesReject401(t *testing.T) {
 	// pprof is local-only: refused over TLS outright (403, like MintCode),
 	// not merely token-gated.
 	for _, path := range []string{"/debug/pprof/", "/debug/pprof/cmdline", "/debug/pprof/goroutine?debug=2"} {
-		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, http.NoBody)
-		req.TLS = &tls.ConnectionState{}
-		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, req)
+		rec := serveTLS(t, r, http.MethodGet, path, "", "")
 		assert.Equalf(t, http.StatusForbidden, rec.Code,
 			"%s must be refused over TLS, got %d", path, rec.Code)
 	}
 
-	// health stays reachable over TLS with no Authorization header at all —
-	// the pairing dialog's own first stage health-checks a host it hasn't
-	// paired with yet. Proves the guard above is selective, not just broken.
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v0/health", http.NoBody)
-	req.TLS = &tls.ConnectionState{}
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusOK, rec.Code, "health must stay open even over TLS with no auth header")
+	// A paired client's token opens health; a token that was never issued does
+	// not, which is how a revoked host surfaces on the periodic probe.
+	token := pairedToken(t, r)
+	assert.Equal(t, http.StatusOK, serveTLS(t, r, http.MethodGet, "/v0/health", token, "").Code,
+		"health must answer a paired client over TLS")
+	assert.Equal(t, http.StatusUnauthorized, serveTLS(t, r, http.MethodGet, "/v0/health", "never-issued", "").Code,
+		"health must refuse an unknown token over TLS")
+}
+
+// TestEndToEnd_TLSNoAuth_OnlyPairingIsOpen walks the registered route table
+// instead of a hand-kept list: gin fixes a route's middleware at registration,
+// so a route added above requireBearerAuth is open over TLS and only a request
+// to it shows that. Pairing answers from its own handlers, never the guard.
+func TestEndToEnd_TLSNoAuth_OnlyPairingIsOpen(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tc := newApp(t)
+	c := v0.New(tc.app, tc.eng, "", v0.WithLogs(logring.New()))
+	t.Cleanup(c.Close)
+	r := gin.New()
+	c.Register(r.Group("/v0"))
+
+	open := map[string]int{
+		"POST /v0/pair":      http.StatusBadRequest,
+		"POST /v0/pair/code": http.StatusForbidden,
+	}
+	seenOpen := 0
+	for _, rt := range r.Routes() {
+		route := rt.Method + " " + rt.Path
+		want, isOpen := open[route]
+		if isOpen {
+			seenOpen++
+		} else {
+			want = http.StatusUnauthorized
+		}
+		segments := strings.Split(rt.Path, "/")
+		for i, seg := range segments {
+			if strings.HasPrefix(seg, ":") || strings.HasPrefix(seg, "*") {
+				segments[i] = "x"
+			}
+		}
+		rec := serveTLS(t, r, rt.Method, strings.Join(segments, "/"), "", "")
+		assert.Equalf(t, want, rec.Code, "%s over TLS with no token: %s", route, rec.Body.String())
+	}
+	assert.Equal(t, len(open), seenOpen, "every open pairing route must still be registered")
 }
