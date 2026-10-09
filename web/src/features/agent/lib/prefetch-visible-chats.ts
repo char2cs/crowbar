@@ -2,6 +2,7 @@ import { chatLedgerStore } from '@/features/agent/stores/chat-ledger-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { showingLayout } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { awaitHost } from '@/lib/host-resolve'
 import { getWorkspaceScope } from '@/lib/workspace-scope'
 
 /**
@@ -11,7 +12,9 @@ import { getWorkspaceScope } from '@/lib/workspace-scope'
  *
  * The messages URL needs the workspace's project/repo scope, which the sidebar
  * tree records when it is seeded from its cache. A chat whose scope is not
- * known is left to its own view; never blocks render.
+ * known is left to its own view; never blocks render. A chat waits for its
+ * workspace's host (a paired install learns it from the project list) and is
+ * left to its own view if the list never places it.
  */
 export async function prefetchVisibleChats(): Promise<void> {
   const state = windowPaneStore.getState()
@@ -26,6 +29,7 @@ export async function prefetchVisibleChats(): Promise<void> {
 }
 
 async function load(wsId: string, chatId: string): Promise<void> {
+  if (!(await awaitHost({ wsId }))) return
   const { loadInitial, evict } = chatLedgerStore.getState()
   await loadInitial(wsId, chatId)
   // A failed prefetch must not show its error before the view retries.

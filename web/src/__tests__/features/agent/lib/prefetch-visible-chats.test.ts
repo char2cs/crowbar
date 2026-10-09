@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chatLedgerStore } from '@/features/agent/stores/chat-ledger-store'
 import { prefetchVisibleChats } from '@/features/agent/lib/prefetch-visible-chats'
 import {
@@ -6,6 +6,12 @@ import {
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const { listChatMessagesFn } = vi.hoisted(() => ({ listChatMessagesFn: vi.fn() }))
 vi.mock('@/features/agent/api/agent-api', () => ({ listChatMessages: listChatMessagesFn }))
@@ -70,6 +76,48 @@ describe('prefetchVisibleChats', () => {
 
     await prefetchVisibleChats()
 
+    expect(chatLedgerStore.getState().ledgers.c1).toBeUndefined()
+  })
+})
+
+// Boot prefetches before the project list loads. On a paired install that list
+// is what says whose daemon a chat is on, so a request sent first would fail,
+// be evicted, and leave the view to repeat it.
+describe('prefetchVisibleChats on an install that has paired a remote host', () => {
+  beforeEach(() => {
+    listChatMessagesFn.mockReset()
+    listChatMessagesFn.mockResolvedValue(emptyPage)
+    chatLedgerStore.setState({ ledgers: {} })
+    __resetWorkspaceScopesForTest()
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-a' })
+    resetWindowPaneStoreForTests()
+    actions().setActiveProject('p1')
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    actions().openChat('c1', { workspaceId: 'ws-a' })
+  })
+  afterEach(() => resetHostWorld())
+
+  it('asks nothing until the project list places the workspace, then loads the first page', async () => {
+    const prefetch = prefetchVisibleChats()
+    await Promise.resolve()
+    expect(listChatMessagesFn).not.toHaveBeenCalled()
+    expect(chatLedgerStore.getState().ledgers.c1).toBeUndefined()
+
+    loadProjects(projectOn('p1', 'local'))
+    await prefetch
+
+    expect(listChatMessagesFn).toHaveBeenCalledExactlyOnceWith('ws-a', 'c1', { limit: 100 })
+    expect(chatLedgerStore.getState().ledgers.c1.status).toBe('loaded')
+  })
+
+  it('gives up on a workspace whose project the loaded list does not hold, asking nothing', async () => {
+    const prefetch = prefetchVisibleChats()
+
+    loadProjects(projectOn('p-other', 'local'))
+    await prefetch
+
+    expect(listChatMessagesFn).not.toHaveBeenCalled()
     expect(chatLedgerStore.getState().ledgers.c1).toBeUndefined()
   })
 })

@@ -40,7 +40,9 @@ import {
   AgentTerminalWaitBanner,
 } from '@/features/agent/components/agent-terminal-wait-banner'
 import { AgentChatView, type AgentChatViewHandle } from '@/features/agent/chat/agent-chat-view'
+import { AgentChatUnavailable } from '@/features/agent/components/agent-chat-unavailable'
 import { AgentTerminalSurface } from '@/features/agent/terminal/agent-terminal-surface'
+import { useHostResolved, useHostUnavailable } from '@/lib/host-resolve'
 
 // ── The split view's geometry ─────────────────────────────────────────────
 //
@@ -173,6 +175,11 @@ export function AgentChatPane({
   // Has an authoritative list ever landed? That is what turns `!known` from
   // "not yet" into "not in it" — see the resolve effect below.
   const listSeeded = useStore(store, (s) => s.agentChats.listSeeded)
+  // Every read below is addressed through this workspace's host. A paired install
+  // restores the pane before the project list names it, so nothing mounts or asks
+  // until it does: the first read of the transcript, queue and activity then succeeds.
+  const hostResolved = useHostResolved({ wsId })
+  const hostUnavailable = useHostUnavailable({ wsId })
   // The pane's recorded workspace (C3) is what `wsId` already is; until the list
   // lands it vouches that the chat exists, so a restored chat is not held back
   // on a round trip. The list stays authoritative once seeded.
@@ -468,7 +475,7 @@ export function AgentChatPane({
   // row lands in the store.
   const resolvedRef = useRef(new Set<string>())
   useEffect(() => {
-    if (!listSeeded || known || !shownChatId) return
+    if (!hostResolved || !listSeeded || known || !shownChatId) return
     if (resolvedRef.current.has(shownChatId)) return
     resolvedRef.current.add(shownChatId)
     void getChat(wsId, shownChatId)
@@ -480,7 +487,7 @@ export function AgentChatPane({
         // question; `pending` is now an honest "nothing to show" instead of a
         // wait, and the user drives from the sidebar.
       })
-  }, [store, wsId, listSeeded, known, shownChatId])
+  }, [store, wsId, hostResolved, listSeeded, known, shownChatId])
 
   // Switch the provider ON THE CHAT THE RUNNER IS IN NOW (shownChatId — after a
   // /clear the pane shows a different conversation than the one it opened on).
@@ -831,6 +838,10 @@ export function AgentChatPane({
     setSplitFocus('terminal')
     terminalApiRef.current?.focus()
   }
+
+  // Waiting renders nothing, like the moment before the chat list lands; once the
+  // project list has loaded without the project the wait is over and the pane says so.
+  if (!hostResolved) return hostUnavailable ? <AgentChatUnavailable /> : null
 
   return (
     // One flat surface — no card, no border, no raised panel, and NO background of its

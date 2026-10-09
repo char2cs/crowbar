@@ -123,3 +123,34 @@ export function useHostResolved(key: HostKey): boolean {
   )
   return useSyncExternalStore(subscribe, () => isHostResolved(key))
 }
+
+/** True once the project list has loaded and `key`'s host still does not resolve:
+ *  nothing more is coming, so a waiter should say so instead of waiting on. */
+export function isHostUnavailable(key: HostKey): boolean {
+  return useProjectDataStore.getState().data.status === 'success' && !isHostResolved(key)
+}
+
+/** `isHostUnavailable` as React state. */
+export function useHostUnavailable(key: HostKey): boolean {
+  const wsId = key.wsId
+  const subscribe = useCallback(
+    (onChange: () => void) => subscribeHostResolution(wsId, onChange),
+    [wsId],
+  )
+  return useSyncExternalStore(subscribe, () => isHostUnavailable(key))
+}
+
+/** Settles with whether `key`'s host resolved: true as soon as it does, false once
+ *  it is unavailable. No timer; it listens only until it has an answer. */
+export function awaitHost(key: HostKey): Promise<boolean> {
+  return new Promise((resolve) => {
+    const settle = () => {
+      const resolved = isHostResolved(key)
+      if (!resolved && !isHostUnavailable(key)) return
+      stop()
+      resolve(resolved)
+    }
+    const stop = subscribeHostResolution(key.wsId, settle)
+    settle()
+  })
+}
