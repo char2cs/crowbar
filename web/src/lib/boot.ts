@@ -13,6 +13,8 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { markStart } from '@/lib/perf/instrumentation'
 import { retireOrphanedStorage } from '@/lib/persistence/retired-storage'
+import { hostsRegistered } from '@/features/hosts/lib/host-registration'
+import { hasPairedRemote, useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
 /**
  * Hydrates whatever this window's pane/buffer layout and sidebar tree were
@@ -44,12 +46,14 @@ import { retireOrphanedStorage } from '@/lib/persistence/retired-storage'
  */
 export async function hydrateCriticalStores(): Promise<void> {
   void retireOrphanedStorage()
+  const remoteHosts = prepareRemoteHosts()
   await hydrateWindowPaneLayout()
   // The chat surface chunk loads beside the IndexedDB reads below, and render
   // waits for it, so the restored chat mounts in the first commit.
   const chatSurface = showsChat() ? preloadAgentChatPane() : undefined
   // Layout hydration to the first transcript row shown; AgentTranscript closes it.
   if (chatSurface) markStart('chat:first-row')
+  if (remoteHosts) await remoteHosts
   // The one network step, deliberately not awaited: members stay unplaced until it answers.
   void placeRestoredChatMembers()
   await useWorkspaceListStore.getState().fetch()
@@ -59,6 +63,16 @@ export async function hydrateCriticalStores(): Promise<void> {
   void prefetchVisibleChats()
   await hydrateSidebar()
   await chatSurface?.catch(() => {})
+}
+
+/**
+ * What an install that has paired a remote needs before its first remote read: its
+ * hosts registered with the desktop proxy (an in-process step, beside the layout read).
+ * Undefined for an install that never paired one, whose boot does exactly what it did.
+ */
+function prepareRemoteHosts(): Promise<void> | undefined {
+  if (!hasPairedRemote(useHostConfigStore.getState())) return undefined
+  return hostsRegistered()
 }
 
 function showsChat(): boolean {

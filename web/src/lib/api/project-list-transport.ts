@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api'
+import { hostsRegistered } from '@/features/hosts/lib/host-registration'
 import { LOCAL_HOST } from '@/features/hosts/types'
 import type { ProjectListTransport } from '@/lib/store/projects'
 import type { Project } from '@/lib/types'
@@ -17,6 +18,7 @@ async function read(hostId: string): Promise<Project[]> {
   if (hostId === LOCAL_HOST.id) {
     return tagged(await apiFetch<Row[]>('/v0/projects', undefined, undefined, hostId), hostId)
   }
+  await hostsRegistered()
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), REMOTE_READ_TIMEOUT_MS)
   try {

@@ -1,12 +1,6 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 
-// api.ts imports isTauri from crowbar-bridge, so this mock's factory runs
-// before this file's own top-level statements — vi.hoisted makes it exist by
-// then. Tauri is on: only the desktop app can reach a remote host at all.
-const { isTauri } = vi.hoisted(() => ({ isTauri: vi.fn(() => true) }))
-vi.mock('@/lib/crowbar-bridge', () => ({ isTauri }))
-
 import { dataOf, idle, success } from '@/lib/loadable'
 import { API_BASE } from '@/lib/api'
 import { projectListTransport } from '@/lib/api/project-list-transport'
@@ -106,6 +100,8 @@ const project = (id: string, hostId: string): Project =>
   ({ ...row(id), hostId }) as unknown as Project
 
 beforeEach(() => {
+  // The desktop app: only it reaches a remote host, through a proxy that registers hosts.
+  ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = { invoke: async () => {} }
   // A fresh database per test: the list falls back on its cache when nothing is held.
   globalThis.indexedDB = new IDBFactory()
   resetDB()
@@ -125,6 +121,7 @@ const held = () =>
   (dataOf(useProjectDataStore.getState().data) ?? []).map((p) => `${p.id}@${p.hostId}`)
 
 afterEach(() => {
+  delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
   vi.useRealTimers()
   for (const id of paired.splice(0)) destroyHostRuntime(id)
   useHostConfigStore.setState({ hosts: [] })

@@ -1,7 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest'
 import { hydrateCriticalStores } from '@/lib/boot'
+import type { Host } from '@/features/hosts/types'
 import type { Loadable } from '@/lib/loadable'
 import type { Repo } from '@/lib/store/sidebar'
+
+const remoteHost: Host = {
+  id: 'h1',
+  name: 'homelab',
+  endpoint: 'h1.lan:3737',
+  pairedFingerprint: 'ff',
+  clientId: 'client-h1',
+}
 
 const { hydrateSidebar, hydrateWindowPaneLayout, placeRestoredChatMembers } = vi.hoisted(() => ({
   hydrateSidebar: vi.fn().mockResolvedValue(undefined),
@@ -102,6 +111,17 @@ describe('hydrateCriticalStores', () => {
     expect(order).toEqual(['fetch', 'setRepos', 'hydrateSidebar'])
   })
 
+  it('registers nothing with the desktop proxy where no remote host was ever paired', async () => {
+    const invoke = vi.fn(async () => undefined)
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = { invoke }
+    try {
+      await hydrateCriticalStores()
+      expect(invoke).not.toHaveBeenCalled()
+    } finally {
+      delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+    }
+  })
+
   it('resolves only after every step has completed — no step is fire-and-forget', async () => {
     let workspaceListResolved = false
     workspaceListFetch.mockImplementation(
@@ -117,5 +137,59 @@ describe('hydrateCriticalStores', () => {
     await hydrateCriticalStores()
 
     expect(workspaceListResolved).toBe(true)
+  })
+})
+
+describe('hydrateCriticalStores on an install that has paired a remote host', () => {
+  let invoke: ReturnType<typeof vi.fn>
+
+  /** A page load over a saved host list: fresh modules, as after a restart. */
+  async function freshBoot() {
+    vi.resetModules()
+    const { useHostConfigStore } = await import('@/features/hosts/stores/host-config-store')
+    useHostConfigStore.setState({ hosts: [remoteHost], remoteEverPaired: true })
+    return (await import('@/lib/boot')).hydrateCriticalStores
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    invoke = vi.fn(async () => undefined)
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = { invoke }
+  })
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+    localStorage.clear()
+  })
+
+  // The proxy's registry starts empty at every launch: a remote read sent first is refused.
+  it('registers every saved host before the first remote read goes out', async () => {
+    const order: string[] = []
+    let finish!: () => void
+    invoke.mockImplementation(
+      (cmd: string) =>
+        new Promise<void>((resolve) => {
+          if (cmd !== 'register_remote_host') return resolve()
+          order.push('register')
+          finish = () => {
+            order.push('registered')
+            resolve()
+          }
+        }),
+    )
+    placeRestoredChatMembers.mockImplementation(async () => {
+      order.push('place')
+    })
+    const hydrate = await freshBoot()
+
+    const done = hydrate()
+    await vi.waitFor(() => expect(order).toEqual(['register']))
+    finish()
+    await done
+
+    expect(order).toEqual(['register', 'registered', 'place'])
+    expect(invoke).toHaveBeenCalledWith('register_remote_host', {
+      hostId: remoteHost.id,
+      endpoint: remoteHost.endpoint,
+    })
   })
 })
