@@ -304,13 +304,24 @@ describe('uploadChatAttachment from a disk path', () => {
     vi.unstubAllGlobals()
   })
 
-  /** Serves the asset URL with `fileResponse` and records every other request. */
+  const assetMethods: string[] = []
+
+  /** Serves the asset URL with `fileResponse` (a HEAD gets its headers, no body) and
+   *  records every other request. */
   function stubFetch(fileResponse: Response) {
     const uploads: [string, RequestInit][] = []
+    assetMethods.length = 0
     vi.stubGlobal(
       'fetch',
       vi.fn((url: string, init?: RequestInit) => {
-        if (url.startsWith('asset://')) return Promise.resolve(fileResponse)
+        if (url.startsWith('asset://')) {
+          assetMethods.push(init?.method ?? 'GET')
+          return Promise.resolve(
+            init?.method === 'HEAD'
+              ? new Response(null, { status: fileResponse.status, headers: fileResponse.headers })
+              : fileResponse,
+          )
+        }
         uploads.push([url, init ?? {}])
         return Promise.resolve(jsonResponse(UPLOADED))
       }),
@@ -357,16 +368,30 @@ describe('uploadChatAttachment from a disk path', () => {
     expect(JSON.parse(init.body as string)).toEqual({ path: '/tmp/dropped.png', id: 'x' })
   })
 
-  // The daemon refuses an attachment over 25 MiB (attachments.MaxBytes), so a larger
-  // file is refused here before its bytes are read into memory and sent.
-  it('refuses an oversized file for a remote chat without reading it', async () => {
+  // The daemon refuses an attachment over 25 MiB (attachments.MaxBytes). A HEAD on the
+  // asset URL reports the size without a body; a GET would read the whole file first.
+  it('refuses an oversized file for a remote chat on its HEAD, never fetching its bytes', async () => {
     const answer = assetResponse('x', { 'content-length': String(25 * 1024 * 1024 + 1) })
     const uploads = stubFetch(answer)
 
     await expect(
       uploadChatAttachment('ws1', 'c1', { path: '/Users/me/big.mov' }, 'x'),
     ).rejects.toThrow(/big\.mov.*25 MB/)
+    expect(assetMethods).toEqual(['HEAD'])
     expect(answer.blob).not.toHaveBeenCalled()
+    expect(uploads).toEqual([])
+  })
+
+  it('refuses a file whose size only shows once read, before sending it', async () => {
+    const answer = Object.assign(new Response(null), {
+      blob: vi.fn(async () => ({ size: 25 * 1024 * 1024 + 1, type: 'video/quicktime' }) as Blob),
+    })
+    const uploads = stubFetch(answer)
+
+    await expect(
+      uploadChatAttachment('ws1', 'c1', { path: '/Users/me/big.mov' }, 'x'),
+    ).rejects.toThrow(/big\.mov.*25 MB/)
+    expect(assetMethods).toEqual(['HEAD', 'GET'])
     expect(uploads).toEqual([])
   })
 })

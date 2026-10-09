@@ -57,22 +57,29 @@ export async function uploadChatAttachment(
   return { ref: data.ref, filename: data.fileName, size: data.size, contentType: data.contentType }
 }
 
-// The daemon's attachment cap (attachments.MaxBytes); it exposes no endpoint for it.
+// An early-out only: the daemon's attachments.MaxBytes is the authority on the cap.
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 
 // The bytes of `path` for a chat whose host (named by its qualified `base`) is remote,
 // or null for a local chat, whose daemon reads the path itself. Read through the
-// webview's asset protocol.
+// webview's asset protocol, whose HEAD reports the size without reading the file.
 async function fileForRemoteChat(base: string, path: string): Promise<File | null> {
   if (splitHostPath(base).hostId === LOCAL_HOST.id) return null
   const name = path.split(/[\\/]/).pop() || 'attachment'
-  const res = await fetch(convertFileSrc(path)).catch(() => null)
-  if (!res?.ok) throw new Error(`could not read ${name} to send it to the remote host`)
-  if (Number(res.headers.get('content-length')) > MAX_ATTACHMENT_BYTES) {
-    throw new Error(`${name} is larger than the 25 MB attachment limit`)
+  const src = convertFileSrc(path)
+  const head = await fetch(src, { method: 'HEAD' }).catch(() => null)
+  if (head?.ok && Number(head.headers.get('content-length')) > MAX_ATTACHMENT_BYTES) {
+    throw tooLarge(name)
   }
+  const res = await fetch(src).catch(() => null)
+  if (!res?.ok) throw new Error(`could not read ${name} to send it to the remote host`)
   const blob = await res.blob()
+  if (blob.size > MAX_ATTACHMENT_BYTES) throw tooLarge(name)
   return new File([blob], name, { type: blob.type })
+}
+
+function tooLarge(name: string): Error {
+  return new Error(`${name} is larger than the 25 MB attachment limit`)
 }
 
 async function postMultipartAttachment(url: string, file: File, id: string): Promise<Response> {
