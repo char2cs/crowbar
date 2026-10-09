@@ -89,6 +89,13 @@ export const BASELINES = [
   { rule: 'vitest/expect-expect', files: NO_ASSERTION_BASELINE },
 ]
 
+// Entity-addressed API paths are built by lib/project-url.ts and lib/workspace-scope-url.ts, which
+// qualify them with the entity's host. `\x2f` is `/`: esquery's regex syntax cannot contain one.
+const ENTITY_API_PATH = '\\x2fv0\\x2f(projects|chats)\\x2f'
+const ENTITY_API_PATH_MESSAGE =
+  'Build project/repo/workspace/chat URLs with projectBase/repoBase (lib/project-url) or the ' +
+  'lib/workspace-scope-url builders: a hand-written path carries no host and lands on the local daemon.'
+
 const TAURI_IMPORTS = {
   group: ['@tauri-apps/*'],
   message: 'Import Tauri APIs through the bridge modules in src/lib/.',
@@ -149,6 +156,25 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-expressions': [
         'error',
         { allowShortCircuit: true, allowTernary: true },
+      ],
+    },
+  },
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: [
+      'src/__tests__/**',
+      'src/lib/host-path.ts',
+      'src/lib/project-url.ts',
+      'src/lib/workspace-scope-url.ts',
+    ],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        { selector: `Literal[value=/${ENTITY_API_PATH}/]`, message: ENTITY_API_PATH_MESSAGE },
+        {
+          selector: `TemplateElement[value.raw=/${ENTITY_API_PATH}/]`,
+          message: ENTITY_API_PATH_MESSAGE,
+        },
       ],
     },
   },
