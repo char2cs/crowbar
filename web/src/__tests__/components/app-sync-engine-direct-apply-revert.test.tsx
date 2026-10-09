@@ -42,7 +42,6 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   fetchWorkspaces: (...args: unknown[]) => fetchWorkspaces(...args),
   fetchFolders: (...args: unknown[]) => fetchFolders(...args),
   fetchRepoChats: (...args: unknown[]) => fetchRepoChats(...args),
-  fetchAllProjects: vi.fn().mockResolvedValue([]),
   fetchHomeWorkspace: vi.fn().mockResolvedValue(null),
   fetchHomeChats: vi.fn().mockResolvedValue([]),
   fetchHomeFolders: vi.fn().mockResolvedValue([]),

@@ -3,7 +3,6 @@ import type {
   ChatType,
   ChatWorktreeDTO,
   FolderDTO,
-  Project,
   Prerequisites,
   RepoDTO,
   WorkspaceDTO,
@@ -15,8 +14,6 @@ import { daemonChanges, noteDaemonChange } from '@/lib/transport/daemon-changes'
 import { OwningChatNotRecordedError, worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { isTauri } from '@/lib/crowbar-bridge'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { getHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
-import { LOCAL_HOST } from '@/features/hosts/types'
 import {
   ApiError,
   DAEMON_UNAVAILABLE_CODE,
@@ -265,34 +262,6 @@ export async function apiFetch<T>(
     )
   }
   return body.data as T
-}
-
-/** One daemon's projects, each tagged with that daemon's id. */
-export async function fetchProjectsForHost(hostId: string): Promise<Project[]> {
-  const rows = await apiFetch<Omit<Project, 'hostId'>[]>(
-    '/v0/projects',
-    undefined,
-    undefined,
-    hostId,
-  )
-  return (rows ?? []).map((row) => ({ ...row, hostId }))
-}
-
-/**
- * Every project on the local daemon and on each paired host that is up. A
- * remote host failing drops only its own projects; the local daemon failing
- * fails the read, since an empty list would read as "no projects at all".
- */
-export async function fetchAllProjects(): Promise<Project[]> {
-  const remotes = useHostConfigStore
-    .getState()
-    .hosts.filter((host) => getHostRuntime(host.id)?.getState().status === 'up')
-  const [local, ...remote] = await Promise.allSettled([
-    fetchProjectsForHost(LOCAL_HOST.id),
-    ...remotes.map((host) => fetchProjectsForHost(host.id)),
-  ])
-  if (local.status === 'rejected') throw local.reason
-  return [local.value, ...remote.map((r) => (r.status === 'fulfilled' ? r.value : []))].flat()
 }
 
 // ---------------------------------------------------------------------------

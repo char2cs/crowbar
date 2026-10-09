@@ -197,25 +197,14 @@ describe('golden: no remote ever paired (I3) — byte-identical to the pre-host-
 
 // jsdom's API_BASE is '' but the desktop's is `crowbar://localhost`: a builder that feeds
 // an API_BASE-prefixed string to qualify('local', …) throws only there, so every builder runs
-// under both. They also sit in an import cycle with the transport, so each member loads first.
-const CYCLE = [
-  '@/lib/api',
-  '@/lib/crowbar-bridge',
-  '@/lib/ws/url',
-  '@/lib/ws/manager',
-  '@/lib/store/loadable-slice',
-  '@/lib/store/projects',
-  '@/lib/host-resolve',
-  '@/lib/workspace-scope-url',
-]
+// under both.
 describe.each([
   ['browser', ''],
   ['desktop', 'crowbar://localhost'],
 ])('under the %s API base', (_name, api) => {
-  it.each(CYCLE)('every builder is unchanged when %s loads first', async (entry) => {
+  it('every builder is unchanged', async () => {
     vi.resetModules()
     ;(window as { __CROWBAR__?: unknown }).__CROWBAR__ = { api }
-    await import(/* @vite-ignore */ entry)
     const fresh = await import('@/lib/workspace-scope-url')
     const scopes = await import('@/lib/workspace-scope')
     scopes.recordWorkspaceScope(REPO)

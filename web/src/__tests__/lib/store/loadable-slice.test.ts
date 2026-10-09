@@ -15,18 +15,7 @@ vi.mock('@/lib/persistence/cache-store', async (importOriginal) => {
   return { ...actual, saveCache: (...a: unknown[]) => saveCacheSpy(...a) }
 })
 
-const { frameHandlers } = vi.hoisted(() => ({
-  frameHandlers: new Map<string, (frame: unknown) => void>(),
-}))
-
-vi.mock('@/lib/ws/manager', () => ({
-  wsManager: {
-    subscribe: (endpoint: string, cb: (frame: unknown) => void) => {
-      frameHandlers.set(endpoint, cb)
-      return () => frameHandlers.delete(endpoint)
-    },
-  },
-}))
+const frameHandlers = new Map<string, (frame: unknown) => void>()
 
 import { resetDB } from '@/lib/persistence/idb'
 import { saveCache } from '@/lib/persistence/cache-store'
@@ -56,7 +45,10 @@ function makeLiveStore(fetcher: () => Promise<number[]>) {
       store: 'projects-data',
       fetcher,
       cacheKey: () => 'projects',
-      wsEndpoint: () => '/live',
+      subscribe: (onFrame) => {
+        frameHandlers.set('/live', onFrame)
+        return () => frameHandlers.delete('/live')
+      },
       mergeFrame: (current, frame) =>
         typeof frame === 'number'
           ? current.includes(frame)

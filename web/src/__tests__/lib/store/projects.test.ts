@@ -6,9 +6,11 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 const { isTauri } = vi.hoisted(() => ({ isTauri: vi.fn(() => true) }))
 vi.mock('@/lib/crowbar-bridge', () => ({ isTauri }))
 
-import { dataOf } from '@/lib/loadable'
-import { API_BASE, fetchAllProjects } from '@/lib/api'
-import { importProjectAndSync, useProjectDataStore } from '@/lib/store/projects'
+import { dataOf, idle } from '@/lib/loadable'
+import { API_BASE } from '@/lib/api'
+import { projectListTransport } from '@/lib/api/project-list-transport'
+import { resetDB } from '@/lib/persistence/idb'
+import { connectProjectList, importProjectAndSync, useProjectDataStore } from '@/lib/store/projects'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import {
   destroyHostRuntime,
@@ -76,9 +78,18 @@ function pair(id: string, status?: HostStatus): void {
   if (status) getOrCreateHostRuntime(id).getState().setStatus(status)
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await resetDB()
+  connectProjectList(projectListTransport)
   useHostConfigStore.setState({ hosts: [] })
+  useProjectDataStore.setState({ data: idle() })
 })
+
+/** The list as a read publishes it: each project with the host it came from. */
+async function readList() {
+  await useProjectDataStore.getState().fetch()
+  return useProjectDataStore.getState().data
+}
 
 afterEach(() => {
   for (const id of paired.splice(0)) destroyHostRuntime(id)
@@ -86,7 +97,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('fetchAllProjects', () => {
+describe('reading the project list', () => {
   it('reads the local daemon plus every up host, tagging each project with the host it came from', async () => {
     pair('h1', 'up')
     pair('h2', 'down')
@@ -96,7 +107,7 @@ describe('fetchAllProjects', () => {
       'crowbar://h1': () => answer([row('p-h1')]),
     })
 
-    const projects = await fetchAllProjects()
+    const projects = dataOf(await readList()) ?? []
 
     expect(projects.map((p) => [p.id, p.hostId])).toEqual([
       ['p-local', 'local'],
@@ -114,7 +125,7 @@ describe('fetchAllProjects', () => {
       'crowbar://h1': unreachable,
     })
 
-    const projects = await fetchAllProjects()
+    const projects = dataOf(await readList()) ?? []
 
     expect(projects.map((p) => p.id)).toEqual(['p-local'])
   })
@@ -128,7 +139,9 @@ describe('fetchAllProjects', () => {
       'crowbar://h1': () => answer([row('p-h1')]),
     })
 
-    await expect(fetchAllProjects()).rejects.toMatchObject({ name: 'ApiError', status: 500 })
+    const list = await readList()
+    expect(list.status).toBe('error')
+    expect(list.status === 'error' && list.error).toMatchObject({ name: 'ApiError', status: 500 })
   })
 })
 

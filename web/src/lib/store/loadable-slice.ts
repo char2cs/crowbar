@@ -1,6 +1,5 @@
 import { dataOf, idle, loading, success, failed, type Loadable } from '@/lib/loadable'
 import { saveCache, loadCache, type CacheStoreName } from '@/lib/persistence/cache-store'
-import { wsManager } from '@/lib/ws/manager'
 import { isReconnectSentinel } from '@/lib/ws/types'
 
 export interface LoadableSlice<T, K extends unknown[] = [string]> {
@@ -15,7 +14,8 @@ interface LoadableConfig<T, K extends unknown[]> {
   store: CacheStoreName
   fetcher: (...args: K) => Promise<T>
   cacheKey?: (...args: K) => string
-  wsEndpoint?: (...args: K) => string
+  /** The value's live stream: calls `onFrame` per frame, returns its unsubscribe. */
+  subscribe?: (onFrame: (frame: unknown) => void, ...args: K) => () => void
   /**
    * For a socket whose frames are complete entities (a snapshot on subscribe,
    * then one whole DTO per change): fold one frame into the held value, or
@@ -170,13 +170,16 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
       },
 
       startSync: (...args: K) => {
-        if (!cfg.wsEndpoint) return () => {}
+        if (!cfg.subscribe) return () => {}
         const key = keyOf(...args)
         const merges = cfg.mergeFrame !== undefined
         if (merges) live.set(key, (live.get(key) ?? 0) + 1)
-        const unsubscribe = wsManager.subscribe(cfg.wsEndpoint(...args), (event) => {
-          void get().applyDelta(event, ...(args as unknown[] as K))
-        })
+        const unsubscribe = cfg.subscribe(
+          (event) => {
+            void get().applyDelta(event, ...(args as unknown[] as K))
+          },
+          ...args,
+        )
         return () => {
           unsubscribe()
           if (!merges) return

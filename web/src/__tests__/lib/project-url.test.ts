@@ -339,16 +339,10 @@ describe('hosts paired but the project list not loaded: a rejection, no request,
   })
 })
 
-// The builders sit in an import cycle with the transport (project-url -> host-resolve ->
-// projects -> api -> project-url), so each member must work when it is the first loaded,
+// project-url sits in an import cycle with the transport (its icon URLs go through api.ts,
+// whose project calls go through it), so each member must work when it is the first loaded,
 // and desktop's API_BASE is itself `crowbar://localhost`, which must never reach qualify.
-const CYCLE = [
-  '@/lib/api',
-  '@/lib/project-url',
-  '@/lib/host-resolve',
-  '@/lib/store/projects',
-  '@/lib/workspace-scope-url',
-]
+const CYCLE = ['@/lib/api', '@/lib/project-url', '@/lib/crowbar-bridge', '@/lib/ws/url']
 describe.each([
   ['browser', ''],
   ['desktop', 'crowbar://localhost'],

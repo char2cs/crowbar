@@ -2,8 +2,33 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { Project } from '@/lib/types'
 import { createLoadableSlice, type LoadableSlice } from '@/lib/store/loadable-slice'
-import { fetchAllProjects } from '@/lib/api'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { getHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { LOCAL_HOST } from '@/features/hosts/types'
+
+/**
+ * How the list reaches the daemons. Host resolution reads this store and the
+ * transport builds its URLs through host resolution, so the transport is handed
+ * in at boot (main.tsx) rather than imported: importing it was an import cycle.
+ */
+export interface ProjectListTransport {
+  /** `hostId`'s projects, each tagged with that host. */
+  read: (hostId: string) => Promise<Project[]>
+  /** The local daemon's `/v0/projects` frames; returns the unsubscribe. */
+  subscribe: (onFrame: (frame: unknown) => void) => () => void
+}
+
+let transport: ProjectListTransport | null = null
+
+/** Wires the list to the daemons, once, before anything reads it. */
+export function connectProjectList(next: ProjectListTransport): void {
+  transport = next
+}
+
+function connected(): ProjectListTransport {
+  if (!transport) throw new Error('the project list has no transport: connectProjectList first')
+  return transport
+}
 
 // Stable empty fallback for `useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)`
 // selectors. Returning a fresh `[]` each render makes Zustand's useSyncExternalStore
@@ -47,18 +72,36 @@ function mergeProjectFrame(
   return next.sort(byOrder)
 }
 
+/**
+ * Every project on the local daemon and on each paired host that is up. A
+ * remote host failing drops only its own projects; the local daemon failing
+ * fails the read, since an empty list would read as "no projects at all".
+ */
+async function readEveryHost(): Promise<Project[]> {
+  const { read } = connected()
+  const remotes = useHostConfigStore
+    .getState()
+    .hosts.filter((host) => getHostRuntime(host.id)?.getState().status === 'up')
+  const [local, ...remote] = await Promise.allSettled([
+    read(LOCAL_HOST.id),
+    ...remotes.map((host) => read(host.id)),
+  ])
+  if (local.status === 'rejected') throw local.reason
+  return [local.value, ...remote.map((r) => (r.status === 'fulfilled' ? r.value : []))].flat()
+}
+
 // §6: the project list is GET-seeded once and then kept live by the
 // `/v0/projects` WS stream's frames alone — the snapshot it sends on subscribe
 // merges as no-ops, so boot makes one request.
 export const useProjectDataStore = create<LoadableSlice<Project[], []>>()((set, get) =>
   createLoadableSlice<Project[], []>({
     store: 'projects-data',
-    fetcher: () => fetchAllProjects(),
+    fetcher: readEveryHost,
     // Not 'projects': a list cached before projects carried a host would hand
     // out rows with no hostId to route by.
     cacheKey: () => 'projects-by-host',
-    wsEndpoint: () => '/v0/projects',
-    // wsManager has no host dimension: this socket is the local daemon's.
+    subscribe: (onFrame) => connected().subscribe(onFrame),
+    // This socket is the local daemon's.
     mergeFrame: (list, frame) => mergeProjectFrame(list, frame, LOCAL_HOST.id),
   })(set, get),
 )

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { Project } from '@/lib/types'
 
 const redirectMock = vi.fn((opts: unknown) => {
   const err = new Error('redirect')
@@ -12,17 +13,15 @@ vi.mock('@tanstack/react-router', () => ({
   isRedirect: (e: unknown) => (e as { isRedirect?: boolean })?.isRedirect === true,
 }))
 
-vi.mock('@/lib/api', () => ({
-  fetchAllProjects: vi.fn(),
-}))
-
 vi.mock('@/lib/store/projects', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/store/projects')>()),
   useProjectStore: { getState: vi.fn(() => ({ activeProjectId: '' })) },
 }))
 
-const { fetchAllProjects } = await import('@/lib/api')
-const { useProjectStore } = await import('@/lib/store/projects')
+const { connectProjectList, useProjectStore } = await import('@/lib/store/projects')
+// The local daemon's list read; the guard reads nothing else.
+const readLocal = vi.fn<(hostId: string) => Promise<Project[]>>()
+connectProjectList({ read: (hostId) => readLocal(hostId), subscribe: () => () => {} })
 
 async function runBeforeLoad() {
   // Dynamically import to pick up mocks
@@ -34,14 +33,14 @@ async function runBeforeLoad() {
 describe('_shell/index beforeLoad', () => {
   beforeEach(() => {
     redirectMock.mockClear()
-    vi.mocked(fetchAllProjects).mockReset()
+    readLocal.mockReset()
     vi.mocked(useProjectStore.getState).mockReturnValue({
       activeProjectId: '',
     } as ReturnType<typeof useProjectStore.getState>)
   })
 
   it('redirects to /oobe when no projects', async () => {
-    vi.mocked(fetchAllProjects).mockResolvedValueOnce([])
+    readLocal.mockResolvedValueOnce([])
     try {
       await runBeforeLoad()
     } catch (e) {
@@ -53,7 +52,7 @@ describe('_shell/index beforeLoad', () => {
   })
 
   it('redirects to home route of active project', async () => {
-    vi.mocked(fetchAllProjects).mockResolvedValueOnce([
+    readLocal.mockResolvedValueOnce([
       {
         id: 'p1',
         name: 'Rabbyte',
@@ -88,7 +87,7 @@ describe('_shell/index beforeLoad', () => {
   // must land on the newer answer, not on the store its own read left unpublished.
   it('redirects to a project when a newer read supersedes its own', async () => {
     const answers: Array<(projects: unknown) => void> = []
-    vi.mocked(fetchAllProjects).mockImplementation(
+    readLocal.mockImplementation(
       () => new Promise((resolve) => answers.push(resolve as (projects: unknown) => void)),
     )
     const outcome = runBeforeLoad().catch((e: unknown) => e)
@@ -114,7 +113,7 @@ describe('_shell/index beforeLoad', () => {
   })
 
   it('falls back to first project when no active project', async () => {
-    vi.mocked(fetchAllProjects).mockResolvedValueOnce([
+    readLocal.mockResolvedValueOnce([
       {
         id: 'p2',
         name: 'Other',

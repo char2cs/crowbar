@@ -90,7 +90,6 @@ vi.mock('@/lib/api', () => ({
   fetchWorkspaces: (...args: unknown[]) => fetchWorkspaces(...args),
   fetchFolders: (...args: unknown[]) => fetchFolders(...args),
   fetchRepoChats: (...args: unknown[]) => fetchRepoChats(...args),
-  fetchAllProjects: vi.fn().mockResolvedValue([]),
   fetchHomeWorkspace: vi.fn().mockResolvedValue(null),
   fetchHomeChats: vi.fn().mockResolvedValue([]),
   fetchHomeFolders: vi.fn().mockResolvedValue([]),
@@ -98,7 +97,7 @@ vi.mock('@/lib/api', () => ({
 
 import { AppSyncProvider } from '@/components/app-sync-provider'
 import { success } from '@/lib/loadable'
-import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
+import { connectProjectList, useProjectStore, useProjectDataStore } from '@/lib/store/projects'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
@@ -193,6 +192,7 @@ beforeEach(async () => {
   fetchFolders.mockResolvedValue([])
   fetchRepoChats.mockResolvedValue([])
 
+  connectProjectList({ read: async () => [], subscribe: () => () => {} })
   useProjectStore.setState({ activeProjectId: 'p1' })
   useProjectDataStore.setState({ data: success([project('p1')]) })
   useSidebarStore.setState({ repos: [] })
