@@ -130,7 +130,7 @@ async function readHostRows(hostId: string): Promise<void> {
   const rows = await connected()
     .read(hostId)
     .catch(() => null)
-  if (rows === null || hostReads.get(hostId) !== issued || !isConfigured(hostId)) return
+  if (rows === null || hostReads.get(hostId) !== issued) return
   await useProjectDataStore.getState().applyDelta(new HostRows(hostId, rows))
 }
 

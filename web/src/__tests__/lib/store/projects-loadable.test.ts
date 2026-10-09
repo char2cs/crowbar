@@ -4,9 +4,11 @@
 // makes exactly one GET /v0/projects however the snapshot and the seed GET
 // interleave.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { IDBFactory } from 'fake-indexeddb'
 import { resetDB } from '@/lib/persistence/idb'
 import { dataOf } from '@/lib/loadable'
 import type { Project } from '@/lib/types'
+import type { HostStatus } from '@/features/hosts/types'
 
 // The transport builds its URLs through host resolution, which reads this store: if the
 // store (or host resolution) loaded either module, that would be an import cycle again.
@@ -71,6 +73,8 @@ async function freshStore() {
 }
 
 beforeEach(() => {
+  // A fresh database per test: a fresh store falls back on the cache the last one wrote.
+  globalThis.indexedDB = new IDBFactory()
   resetDB()
   readLocal.mockReset()
   readRemote.mockReset()
@@ -188,34 +192,88 @@ describe('a paired host coming up', () => {
     pairedFingerprint: 'ff',
     clientId: `client-${id}`,
   })
+  const remoteRow = (id: string, hostId: string) =>
+    ({ ...wire(id, 0), hostId }) as unknown as Project
 
-  // Boot reads the list while every host is still unknown: a host's rows arrive when it does.
-  it('has its rows read and merged while the list is live, and no other host read', async () => {
+  /** A live list holding the local answer, with `hostIds` configured. */
+  async function liveList(...hostIds: string[]) {
     const store = await freshStore()
     const { useHostConfigStore } = await import('@/features/hosts/stores/host-config-store')
     const { getOrCreateHostRuntime } = await import('@/features/hosts/stores/host-runtime-registry')
-    useHostConfigStore.setState({ hosts: [host('h1'), host('h2')] })
+    useHostConfigStore.setState({ hosts: hostIds.map(host) })
     readLocal.mockResolvedValue([p('a', 0)])
-    readRemote.mockImplementation(async (hostId) => [
-      { ...wire(`r-${hostId}`, 0), hostId } as unknown as Project,
-    ])
     const stop = store.getState().startSync()
     await store.getState().fetch()
+    return {
+      store,
+      stop,
+      config: useHostConfigStore,
+      status: (hostId: string, status: HostStatus) =>
+        getOrCreateHostRuntime(hostId).getState().setStatus(status),
+      held: () => dataOf(store.getState().data)?.map((x) => `${x.id}@${x.hostId}`),
+    }
+  }
 
-    getOrCreateHostRuntime('h1').getState().setStatus('up')
-
-    await vi.waitFor(() =>
-      expect(dataOf(store.getState().data)?.map((x) => `${x.id}@${x.hostId}`)).toEqual([
-        'a@local',
-        'r-h1@h1',
-      ]),
+  /** The next read of a remote host waits until it is answered with these rows. */
+  function parkedRemote(): (rows: Project[]) => void {
+    let answer!: (rows: Project[]) => void
+    readRemote.mockImplementationOnce(
+      () =>
+        new Promise<Project[]>((resolve) => {
+          answer = resolve
+        }),
     )
+    return (rows) => answer(rows)
+  }
+
+  // Boot reads the list while every host is still unknown: a host's rows arrive when it does.
+  it('has its rows read and merged while the list is live, and no other host read', async () => {
+    const list = await liveList('h1', 'h2')
+    readRemote.mockImplementation(async (hostId) => [remoteRow(`r-${hostId}`, hostId)])
+
+    list.status('h1', 'up')
+
+    await vi.waitFor(() => expect(list.held()).toEqual(['a@local', 'r-h1@h1']))
     expect(readRemote.mock.calls).toEqual([['h1']])
     expect(readLocal).toHaveBeenCalledTimes(1)
 
-    stop()
-    getOrCreateHostRuntime('h2').getState().setStatus('up')
+    list.stop()
+    list.status('h2', 'up')
     await settle()
     expect(readRemote.mock.calls).toEqual([['h1']])
+  })
+
+  // A host removed meanwhile is gone from the sidebar; a late answer must not bring it back.
+  it('brings back no rows from a host removed while its read was out', async () => {
+    const list = await liveList('h1')
+    const answer = parkedRemote()
+    list.status('h1', 'up')
+    await vi.waitFor(() => expect(readRemote).toHaveBeenCalledTimes(1))
+
+    list.config.getState().removeHost('h1')
+    answer([remoteRow('r-h1', 'h1')])
+    await settle()
+
+    expect(list.held()).toEqual(['a@local'])
+    list.stop()
+  })
+
+  it('brings back no rows from a host removed while its answer waited on a list re-read', async () => {
+    const list = await liveList('h1')
+    const release = await parkedRequest()
+    socket.emit!({ reconnected: true })
+    await settle()
+    await sent(2)
+    readRemote.mockResolvedValueOnce([remoteRow('r-h1', 'h1')])
+    list.status('h1', 'up')
+    await vi.waitFor(() => expect(readRemote).toHaveBeenCalledTimes(1))
+    await settle()
+
+    list.config.getState().removeHost('h1')
+    release([p('a', 0)])
+    await vi.waitFor(() => expect(list.store.getState().data.status).toBe('success'))
+
+    expect(list.held()).toEqual(['a@local'])
+    list.stop()
   })
 })
