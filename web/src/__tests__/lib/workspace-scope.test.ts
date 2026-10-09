@@ -4,7 +4,9 @@ import {
   parseWorkspaceScopeFromPath,
   getWorkspaceScope,
   getOwningChatId,
+  getWorkspaceIdOwnedByChat,
   recordWorkspaceScope,
+  forgetWorkspaceScope,
   subscribeToWorkspaceScope,
   __resetWorkspaceScopesForTest,
   bindActiveWorkspaceId,
@@ -133,5 +135,25 @@ describe('subscribeToWorkspaceScope', () => {
 
     expect(onChange3).toHaveBeenCalledTimes(1)
     expect(onChange4).not.toHaveBeenCalled()
+  })
+})
+
+describe('getWorkspaceIdOwnedByChat', () => {
+  it('finds the workspace whose recorded owning chat it is, and no other', () => {
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws1', owningChatId: 'chat-1' })
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws2', owningChatId: 'chat-2' })
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws3' })
+
+    expect(getWorkspaceIdOwnedByChat('chat-2')).toBe('ws2')
+    expect(getWorkspaceIdOwnedByChat('chat-sibling')).toBeNull()
+    expect(getWorkspaceIdOwnedByChat('')).toBeNull()
+  })
+
+  it('stops finding a chat once its workspace scope is forgotten or its owner changes', () => {
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws1', owningChatId: 'chat-1' })
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws1', owningChatId: 'chat-2' })
+    expect(getWorkspaceIdOwnedByChat('chat-1')).toBeNull()
+    forgetWorkspaceScope('ws1')
+    expect(getWorkspaceIdOwnedByChat('chat-2')).toBeNull()
   })
 })

@@ -1,13 +1,19 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
 import { formatAttachmentSize } from '@/features/agent/composer/plate/attachments/chat-attachment-file-card'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { idle, success } from '@/lib/loadable'
+import { useProjectDataStore } from '@/lib/store/projects'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import type { Project } from '@/lib/types'
 
 beforeEach(() => {
+  useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+  useProjectDataStore.setState({ data: idle() })
   __resetWorkspaceScopesForTest()
   recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1' })
 })
@@ -357,5 +363,74 @@ describe('chat attachment file card', () => {
     await expect(pending).resolves.toBeInstanceOf(Response)
 
     vi.unstubAllGlobals()
+  })
+})
+
+// The card builds its href while rendering, through the host-aware chat base,
+// which throws until the workspace's host is known.
+describe('chat attachment file card on a remote host', () => {
+  const pairHost = () =>
+    useHostConfigStore.getState().addHost({
+      id: 'host-1',
+      name: 'host-1',
+      endpoint: 'host-1.example:3737',
+      pairedFingerprint: 'SHA256:aaaa',
+      clientId: 'client-1',
+    })
+  const projectOn = (hostId: string): Project => ({
+    id: 'p1',
+    name: 'p1',
+    path: '/work/p1',
+    lastActivity: new Date(0),
+    hostId,
+  })
+  const REF = '[report.pdf](chats/c1/attachments/report.pdf)'
+  const renderCard = () =>
+    render(
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+        <MarkdownMessageStatic>{REF}</MarkdownMessageStatic>
+      </ChatMarkdownAssetProvider>,
+    )
+
+  it('renders without a link and asks nothing of the daemon until the host resolves, then links through that host', async () => {
+    Object.assign(window, { __TAURI_INTERNALS__: {} })
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 200, headers: { 'content-length': '2048' } }))
+    vi.stubGlobal('fetch', fetchSpy)
+    pairHost()
+
+    renderCard()
+    const anchor = () => screen.getByText('report.pdf').closest('a')!
+    expect(anchor()).not.toHaveAttribute('href')
+    expect(fetchSpy).not.toHaveBeenCalled()
+
+    act(() => useProjectDataStore.setState({ data: success([projectOn('host-1')]) }))
+
+    const remote = 'crowbar://host-1/v0/projects/p1/repos/r1/chats/c1/attachments/report.pdf'
+    expect(anchor()).toHaveAttribute('href', remote)
+    await waitFor(() => expect(screen.getByText('2.00 KB')).toBeInTheDocument())
+    expect(fetchSpy).toHaveBeenCalledWith(remote, expect.objectContaining({ method: 'HEAD' }))
+
+    delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
+    vi.unstubAllGlobals()
+  })
+
+  it('never falls back to the local daemon when the project turns out to be on another host', () => {
+    pairHost()
+    renderCard()
+    act(() => useProjectDataStore.setState({ data: success([projectOn('host-gone')]) }))
+    expect(screen.getByText('report.pdf').closest('a')).not.toHaveAttribute('href')
+  })
+
+  it('links a local project through the local daemon the moment its row arrives', () => {
+    pairHost()
+    renderCard()
+    expect(screen.getByText('report.pdf').closest('a')).not.toHaveAttribute('href')
+    act(() => useProjectDataStore.setState({ data: success([projectOn('local')]) }))
+    expect(screen.getByText('report.pdf').closest('a')).toHaveAttribute(
+      'href',
+      '/v0/projects/p1/repos/r1/chats/c1/attachments/report.pdf',
+    )
   })
 })

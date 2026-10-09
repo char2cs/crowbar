@@ -5,7 +5,11 @@ import { HostNotResolvedError } from '@/lib/host-path'
 import { dataOf } from '@/lib/loadable'
 import { useProjectDataStore } from '@/lib/store/projects'
 import type { Project } from '@/lib/types'
-import { getWorkspaceScope, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
+import {
+  getWorkspaceIdOwnedByChat,
+  getWorkspaceScope,
+  subscribeToWorkspaceScope,
+} from '@/lib/workspace-scope'
 
 type Resolution = { hostId: string } | { reason: string; projectId?: string }
 
@@ -57,6 +61,14 @@ function resolveWorkspaceHost(wsId: string): Resolution {
   return 'hostId' in project ? project : unresolved(project.reason, scope.projectId)
 }
 
+// A chat has no row of its own here: it is placed through the workspace whose
+// recorded scope names it as owner, and so through that workspace's project.
+function resolveChatHost(chatId: string): Resolution {
+  const wsId = getWorkspaceIdOwnedByChat(chatId)
+  if (wsId === null) return absentEntity('no workspace scope records this chat as its owner')
+  return resolveWorkspaceHost(wsId)
+}
+
 export function hostIdForProject(projectId: string): string {
   const resolved = resolveProjectHost(projectId)
   if (!('hostId' in resolved)) throw new HostNotResolvedError('project', projectId, resolved.reason)
@@ -67,6 +79,14 @@ export function hostIdForWorkspace(wsId: string): string {
   const resolved = resolveWorkspaceHost(wsId)
   if (!('hostId' in resolved)) {
     throw new HostNotResolvedError('workspace', wsId, resolved.reason, resolved.projectId)
+  }
+  return resolved.hostId
+}
+
+export function hostIdForChat(chatId: string): string {
+  const resolved = resolveChatHost(chatId)
+  if (!('hostId' in resolved)) {
+    throw new HostNotResolvedError('chat', chatId, resolved.reason, resolved.projectId)
   }
   return resolved.hostId
 }

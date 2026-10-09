@@ -17,12 +17,12 @@ export interface HostPath {
   path: string
 }
 
-/** A host could not be determined for a project or workspace; `reason` says
+/** A host could not be determined for a project, workspace or chat; `reason` says
  *  why. Callers wait on `useHostResolved` or surface "still loading" — they
  *  never default to local. */
 export class HostNotResolvedError extends Error {
   constructor(
-    readonly entity: 'project' | 'workspace',
+    readonly entity: 'project' | 'workspace' | 'chat',
     readonly id: string,
     readonly reason: string,
     /** The project a workspace belongs to, when its scope names one. */

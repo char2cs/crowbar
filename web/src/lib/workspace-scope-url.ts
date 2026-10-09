@@ -1,4 +1,9 @@
+import { qualify } from '@/lib/host-path'
+import { hostIdForChat, hostIdForWorkspace } from '@/lib/host-resolve'
 import { getOwningChatId, getWorkspaceScope } from '@/lib/workspace-scope'
+
+// Builders hand `qualify` BARE `/v0/...` paths (desktop's API_BASE is itself `crowbar://localhost`),
+// and resolve the host before the chat so an unplaceable workspace never reads as "chat not loaded".
 
 /**
  * Thrown by every chat-addressed URL builder below when no owning chat is
@@ -21,9 +26,39 @@ export class OwningChatNotRecordedError extends Error {
  * (backend spec §7.1). The daemon's chat-scoped middleware resolves the chat to
  * the worktree behind it, which is how a terminal opened here still gets the
  * right CWD without the URL naming a workspace.
+ *
+ * Its host is the one of the workspace that records `chatId` as its owner; a
+ * chat no recorded scope owns (a sibling, say) throws rather than guessing.
  */
 export function chatBase(chatId: string): string {
+  return qualify(hostIdForChat(chatId), chatPath(chatId))
+}
+
+function chatPath(chatId: string): string {
   return `/v0/chats/${encodeURIComponent(chatId)}`
+}
+
+/** The host and owning chat of `wsId`, or the error saying which is missing. */
+function chatAddress(wsId: string): { hostId: string; chatId: string } {
+  const hostId = hostIdForWorkspace(wsId)
+  const chatId = getOwningChatId(wsId)
+  if (!chatId) throw new OwningChatNotRecordedError(wsId)
+  return { hostId, chatId }
+}
+
+function ownedChatBase(wsId: string, leaf: string): string {
+  const { hostId, chatId } = chatAddress(wsId)
+  return qualify(hostId, `${chatPath(chatId)}/${leaf}`)
+}
+
+/**
+ * The terminals base for a SPECIFIC chat opened in `wsId` — an agent pane, whose
+ * PTY belongs to its own chat, which may be a sibling of the one that owns the
+ * worktree. A sibling is no workspace's recorded owner, so `chatBase` could not
+ * place it; the workspace it is opened in can.
+ */
+export function chatTerminalsBaseForWorkspace(wsId: string, chatId: string): string {
+  return qualify(hostIdForWorkspace(wsId), `${chatPath(chatId)}/terminals`)
 }
 
 /**
@@ -43,9 +78,7 @@ export function chatBase(chatId: string): string {
  */
 export function terminalsBaseForWorkspace(wsId: string): string {
   if (isHomeWorkspace(wsId)) return `${workspaceBase(wsId)}/terminals`
-  const chatId = getOwningChatId(wsId)
-  if (!chatId) throw new OwningChatNotRecordedError(wsId)
-  return `${chatBase(chatId)}/terminals`
+  return ownedChatBase(wsId, 'terminals')
 }
 
 /**
@@ -71,9 +104,7 @@ export function terminalsBaseForWorkspace(wsId: string): string {
  * does, rather than calling this and catching the throw.
  */
 export function lspBaseForWorkspace(wsId: string): string {
-  const chatId = getOwningChatId(wsId)
-  if (!chatId) throw new OwningChatNotRecordedError(wsId)
-  return `${chatBase(chatId)}/lsp`
+  return ownedChatBase(wsId, 'lsp')
 }
 
 /**
@@ -93,9 +124,7 @@ export function lspBaseForWorkspace(wsId: string): string {
  * are being retired and are deliberately not a fallback.
  */
 export function gitBaseForWorkspace(wsId: string): string {
-  const chatId = getOwningChatId(wsId)
-  if (!chatId) throw new OwningChatNotRecordedError(wsId)
-  return `${chatBase(chatId)}/git`
+  return ownedChatBase(wsId, 'git')
 }
 
 /**
@@ -110,9 +139,7 @@ export function gitBaseForWorkspace(wsId: string): string {
  * both apply identically here.
  */
 export function reviewBaseForWorkspace(wsId: string): string {
-  const chatId = getOwningChatId(wsId)
-  if (!chatId) throw new OwningChatNotRecordedError(wsId)
-  return `${chatBase(chatId)}/review`
+  return ownedChatBase(wsId, 'review')
 }
 
 /**
@@ -125,9 +152,7 @@ export function reviewBaseForWorkspace(wsId: string): string {
  * workspace-scoped-routes-still-exist caveat; both apply identically here.
  */
 export function identityBaseForWorkspace(wsId: string): string {
-  const chatId = getOwningChatId(wsId)
-  if (!chatId) throw new OwningChatNotRecordedError(wsId)
-  return `${chatBase(chatId)}/identity`
+  return ownedChatBase(wsId, 'identity')
 }
 
 /**
@@ -153,9 +178,7 @@ export function identityBaseForWorkspace(wsId: string): string {
  */
 export function filesBaseForWorkspace(wsId: string): string {
   if (isHomeWorkspace(wsId)) return `${workspaceBase(wsId)}/files`
-  const chatId = getOwningChatId(wsId)
-  if (!chatId) throw new OwningChatNotRecordedError(wsId)
-  return `${chatBase(chatId)}/files`
+  return ownedChatBase(wsId, 'files')
 }
 
 /**
@@ -175,7 +198,7 @@ export function repoChatsBaseForWorkspace(wsId: string): string {
   if (!scope || !scope.repoId) return `${workspaceBase(wsId)}/chats`
   const p = encodeURIComponent(scope.projectId)
   const r = encodeURIComponent(scope.repoId)
-  return `/v0/projects/${p}/repos/${r}/chats`
+  return qualify(hostIdForWorkspace(wsId), `/v0/projects/${p}/repos/${r}/chats`)
 }
 
 /**
@@ -197,8 +220,7 @@ export function repoChatsBaseForWorkspace(wsId: string): string {
  * never reach it for one.
  */
 export function worktreeVerbBaseForWorkspace(wsId: string): string {
-  const chatId = getOwningChatId(wsId)
-  if (!chatId) throw new OwningChatNotRecordedError(wsId)
+  const { chatId } = chatAddress(wsId)
   return `${repoChatsBaseForWorkspace(wsId)}/${encodeURIComponent(chatId)}`
 }
 
@@ -216,14 +238,15 @@ export function worktreeVerbBaseForWorkspace(wsId: string): string {
 // branch's own position is a fact about the workspace itself, not about any
 // conversation living inside it.
 export function workspaceBase(wsId: string): string {
+  const hostId = hostIdForWorkspace(wsId)
   const scope = getWorkspaceScope(wsId)
   if (!scope) throw new Error(`no project/repo scope recorded for workspace ${wsId}`)
   const p = encodeURIComponent(scope.projectId)
   // Home workspaces have no repoId — they route to /v0/projects/:p/home/...
-  if (!scope.repoId) return `/v0/projects/${p}/home`
+  if (!scope.repoId) return qualify(hostId, `/v0/projects/${p}/home`)
   const r = encodeURIComponent(scope.repoId)
   const w = encodeURIComponent(wsId)
-  return `/v0/projects/${p}/repos/${r}/workspaces/${w}`
+  return qualify(hostId, `/v0/projects/${p}/repos/${r}/workspaces/${w}`)
 }
 
 // A home (project-level) workspace has no owning repo: its scope is recorded

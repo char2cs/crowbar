@@ -1,7 +1,12 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HostNotResolvedError } from '@/lib/host-path'
-import { hostIdForProject, hostIdForWorkspace, useHostResolved } from '@/lib/host-resolve'
+import {
+  hostIdForChat,
+  hostIdForProject,
+  hostIdForWorkspace,
+  useHostResolved,
+} from '@/lib/host-resolve'
 import { useProjectDataStore } from '@/lib/store/projects'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { failed, idle, loading, success, type Loadable } from '@/lib/loadable'
@@ -257,6 +262,42 @@ describe('hostIdForWorkspace', () => {
     expect(() => hostIdForWorkspace('ws-unrecorded')).toThrow(HostNotResolvedError)
     configureHosts('host-1')
     expect(() => hostIdForWorkspace('ws-unrecorded')).toThrow(HostNotResolvedError)
+  })
+})
+
+describe('hostIdForChat', () => {
+  const ownedBy = (wsId: string, projectId: string, owningChatId: string) =>
+    recordWorkspaceScope({ projectId, repoId: 'r1', wsId, owningChatId })
+
+  it('resolves through the workspace that records the chat as its owner', () => {
+    configureHosts('host-1')
+    loadProjects(project('p-local', 'local'), project('p-remote', 'host-1'))
+    ownedBy('ws-remote', 'p-remote', 'chat-r')
+    ownedBy('ws-local', 'p-local', 'chat-l')
+    expect(hostIdForChat('chat-r')).toBe('host-1')
+    expect(hostIdForChat('chat-l')).toBe('local')
+  })
+
+  it('throws, naming the project, when the owner workspace cannot be placed', () => {
+    configureHosts('host-1')
+    ownedBy('ws-1', 'p-remote', 'chat-1')
+    const err = unresolved(() => hostIdForChat('chat-1'))
+    expect(err.entity).toBe('chat')
+    expect(err.projectId).toBe('p-remote')
+    expect(err.message).toMatch(/chat chat-1 \(project p-remote\): the project list is not loaded/)
+  })
+
+  it('throws for a chat no recorded scope owns once a remote was ever paired', () => {
+    configureHosts('host-1')
+    loadProjects(project('p-local', 'local'))
+    ownedBy('ws-1', 'p-local', 'chat-1')
+    expect(unresolved(() => hostIdForChat('sibling')).message).toMatch(/no workspace scope records/)
+  })
+
+  it('is local for an unowned chat only while no remote could exist', () => {
+    expect(hostIdForChat('sibling')).toBe('local')
+    loadProjects(project('p-local', 'local'))
+    expect(hostIdForChat('sibling')).toBe('local')
   })
 })
 

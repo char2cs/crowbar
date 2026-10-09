@@ -6,7 +6,7 @@ import {
   type TerminalConnection,
 } from '@/lib/crowbar-bridge'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { chatBase, terminalsBaseForWorkspace } from '@/lib/workspace-scope-url'
+import { chatTerminalsBaseForWorkspace, terminalsBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { toast } from '@/features/window/stores/toast-store'
 import { useConnectionStore } from '@/lib/ws/connection-store'
 import { resolveTerminalSession } from '../components/resolve-terminal-connection'
@@ -83,7 +83,9 @@ export function useTerminalAttachment({
       if (!wsId) return
       // Owner first, worktree second: an explicit chatId is this PTY's owner; a
       // shell tab falls back to the chat owning wsId's worktree.
-      const base = chatId ? `${chatBase(chatId)}/terminals` : terminalsBaseForWorkspace(wsId)
+      const base = chatId
+        ? chatTerminalsBaseForWorkspace(wsId, chatId)
+        : terminalsBaseForWorkspace(wsId)
       const existing = useTerminalStore.getState().getSession(sessionId)
       let result
       try {

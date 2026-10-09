@@ -66,6 +66,9 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 
 import { useTerminalAttachment } from '@/features/terminal/hooks/use-terminal-attachment'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { idle, success } from '@/lib/loadable'
+import { useProjectDataStore } from '@/lib/store/projects'
 import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import { useConnectionStore } from '@/lib/ws/connection-store'
 
@@ -94,6 +97,8 @@ beforeEach(() => {
   bridge.created = 0
   bridge.live = ['pty-1', 'pty-A', 'pty-B', 'pty-C']
   localStorage.clear()
+  useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+  useProjectDataStore.setState({ data: idle() })
   useTerminalStore.setState({ sessions: new Map() })
   __resetWorkspaceScopesForTest()
   recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-1', owningChatId: 'chat-1' })
@@ -122,6 +127,49 @@ describe('useTerminalAttachment', () => {
       sessionId: 'pty-1',
       base: '/v0/chats/chat-9/terminals',
     })
+  })
+
+  // A sibling chat is no workspace's recorded owner, so only the workspace it is
+  // opened in can say which daemon its PTY lives on.
+  it('addresses an explicit chat on the host of the workspace it is opened in', async () => {
+    useHostConfigStore.getState().addHost({
+      id: 'host-1',
+      name: 'host-1',
+      endpoint: 'host-1.example:3737',
+      pairedFingerprint: 'SHA256:aaaa',
+      clientId: 'client-1',
+    })
+    const project = (id: string, hostId: string) => ({
+      id,
+      name: id,
+      path: `/work/${id}`,
+      lastActivity: new Date(0),
+      hostId,
+    })
+    useProjectDataStore.setState({
+      data: success([project('p', 'host-1'), project('p-l', 'local')]),
+    })
+    recordWorkspaceScope({
+      projectId: 'p-l',
+      repoId: 'r',
+      wsId: 'ws-local',
+      owningChatId: 'chat-l',
+    })
+
+    const remote = render({ sessionId: 'pty-1', chatId: 'chat-9', attachOnly: true })
+    await remote.settle()
+    const local = render({
+      sessionId: 'pty-1',
+      workspaceId: 'ws-local',
+      chatId: 'chat-8',
+      attachOnly: true,
+    })
+    await local.settle()
+
+    expect(bridge.opened.map((c) => c.base)).toEqual([
+      'crowbar://host-1/v0/chats/chat-9/terminals',
+      '/v0/chats/chat-8/terminals',
+    ])
   })
 
   it('falls back to the active workspace when no workspaceId is threaded', async () => {

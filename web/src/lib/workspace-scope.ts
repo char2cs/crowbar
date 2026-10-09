@@ -179,6 +179,17 @@ export function getOwningChatId(wsId?: string): string | null {
 }
 
 /**
+ * The workspace whose worktree `chatId` holds, or null when no recorded scope
+ * names that chat. Only a workspace's OWNING chat is recorded: a sibling chat
+ * sharing the worktree is not found here, so it must be addressed through the
+ * workspace it is opened in.
+ */
+export function getWorkspaceIdOwnedByChat(chatId: string): string | null {
+  for (const scope of _scopes.values()) if (scope.owningChatId === chatId) return scope.wsId
+  return null
+}
+
+/**
  * Whether `wsId`'s project/repo scope has been recorded yet — `workspaceBase`
  * (and anything built on it, e.g. `repoChatsBaseForWorkspace`) throws without
  * it. WorkspaceHost can force-mount a workspace's effects (a pane/Recents-
