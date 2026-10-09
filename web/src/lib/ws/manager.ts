@@ -1,7 +1,10 @@
 import { isTauri } from '@/lib/crowbar-bridge'
+import { streamFailureOf } from '@/lib/api/errors'
+import { splitHostPath } from '@/lib/host-path'
+import { LOCAL_HOST } from '@/features/hosts/types'
 
 import { wsUrl, isWebSocketCapable } from './url'
-import { reportChannelState, reportChannelGone } from './connection-store'
+import { reportChannelState, reportChannelFailure, reportChannelGone } from './connection-store'
 import { TauriWebSocket } from './tauri-transport'
 import { noteDaemonChange } from '@/lib/transport/daemon-changes'
 
@@ -30,9 +33,14 @@ interface Channel {
 
 // Construct the live transport for the active environment: the native WebSocket
 // in the browser, the unix-socket-bridged shim on desktop (where `crowbar://`
-// has no native WebSocket). Both share the surface the manager uses.
+// has no native WebSocket). Both share the surface the manager uses. An endpoint
+// may be host-qualified (`crowbar://<hostId>/v0/...`); the socket dials that host.
 export function createTransport(endpoint: string): WSLike {
-  return isTauri() ? new TauriWebSocket(endpoint) : (new WebSocket(wsUrl(endpoint)) as WSLike)
+  const { hostId, path } = splitHostPath(endpoint)
+  if (isTauri()) {
+    return new TauriWebSocket(path, hostId === LOCAL_HOST.id ? undefined : { hostId })
+  }
+  return new WebSocket(wsUrl(path, hostId)) as WSLike
 }
 
 export interface WSManager {
@@ -61,6 +69,7 @@ export function createWSManager(): WSManager {
   /** `resumed`: this socket replaces a dropped one, so its open is the moment
    *  the stream is back and subscribers must refetch what they missed. */
   function open(endpoint: string, reconnectDelay = 1000, resumed = false): Channel {
+    const { hostId } = splitHostPath(endpoint)
     const ch: Channel = {
       socket: createTransport(endpoint),
       callbacks: new Set(),
@@ -73,7 +82,7 @@ export function createWSManager(): WSManager {
     ch.socket.onopen = () => {
       ch.reconnectDelay = 1000
       if (channels.get(endpoint) !== ch) return
-      reportChannelState(endpoint, true)
+      reportChannelState(endpoint, true, hostId)
       // Only now, not per attempt: a refetch while the daemon is still down
       // just fails, and every subscriber's refetch would repeat each retry.
       if (!resumed) return
@@ -95,7 +104,7 @@ export function createWSManager(): WSManager {
     ch.socket.onclose = () => {
       // Only the live channel for this endpoint reports state — a stale socket
       // closing after a reconnect must not flag the endpoint as down.
-      if (channels.get(endpoint) === ch) reportChannelState(endpoint, false)
+      if (channels.get(endpoint) === ch) reportChannelState(endpoint, false, hostId)
       if (ch.callbacks.size === 0) return
       setTimeout(() => {
         // All subscribers may have left while we waited — do not resurrect a
@@ -113,6 +122,15 @@ export function createWSManager(): WSManager {
         fresh.callbacks = ch.callbacks
         channels.set(endpoint, fresh)
       }, ch.reconnectDelay)
+    }
+
+    // A refused remote open reaches here as its reason; without this the app
+    // sees only that the stream closed, not whether the host is down or changed.
+    if (hostId !== LOCAL_HOST.id) {
+      ch.socket.onerror = (err) => {
+        const failure = streamFailureOf(err, hostId)
+        if (failure && channels.get(endpoint) === ch) reportChannelFailure(endpoint, failure)
+      }
     }
 
     channels.set(endpoint, ch)

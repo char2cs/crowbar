@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // The transport mints a Tauri Channel and bridges its frames into the
 // WebSocket-like onmessage callback. We mock @tauri-apps/api/core so a frame
@@ -12,7 +12,9 @@ interface MockChannel {
 const channels: MockChannel[] = []
 const invoke = vi.fn(async () => undefined)
 
+// convertFileSrc is only here because the manager imports the bridge, which re-exports it.
 vi.mock('@tauri-apps/api/core', () => ({
+  convertFileSrc: (path: string) => path,
   Channel: class {
     onmessage: ((data: string | ArrayBuffer) => void) | null = null
     constructor() {
@@ -29,6 +31,8 @@ beforeEach(() => {
 })
 
 const { TauriWebSocket } = await import('@/lib/ws/tauri-transport')
+const { createWSManager } = await import('@/lib/ws/manager')
+const { useConnectionStore, resetConnectionState } = await import('@/lib/ws/connection-store')
 
 describe('TauriWebSocket', () => {
   it('exposes the WebSocket readyState constants', () => {
@@ -118,6 +122,59 @@ describe('TauriWebSocket', () => {
     await vi.waitFor(() =>
       expect(invoke).toHaveBeenCalledWith('ws_open', expect.objectContaining({ hostId: 'h1' })),
     )
+  })
+
+  // ws_open rejects a remote host it cannot reach, or finds under another identity,
+  // as `<x-crowbar-proxy value>: <reason>` (ws_bridge/remote.rs); Tauri hands that
+  // string to JS as is. The app reads the marker from it, so it must not be altered.
+  it('hands a refused open’s reason to onerror exactly as Rust phrased it, then closes', async () => {
+    const reason = 'host-identity-changed: the certificate presented by box:3737 no longer matches'
+    invoke.mockRejectedValueOnce(reason)
+    const sock = new TauriWebSocket('/v0/projects', { hostId: 'h1' })
+    const events: unknown[] = []
+    sock.onerror = (e) => events.push(['error', e])
+    sock.onclose = () => events.push(['close'])
+
+    await vi.waitFor(() => expect(events).toHaveLength(2))
+
+    expect(events).toEqual([['error', reason], ['close']])
+    expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
+  })
+
+  describe('through the manager', () => {
+    beforeEach(() => {
+      ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+      resetConnectionState()
+    })
+    afterEach(() => {
+      delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+    })
+
+    it('tells a changed identity from an unreachable host on a remote stream', async () => {
+      invoke.mockRejectedValueOnce('host-identity-changed: certificate mismatch')
+      invoke.mockRejectedValueOnce('host-unreachable: cannot reach box2:3737: connection refused')
+      const mgr = createWSManager()
+
+      const stopChanged = mgr.subscribe('crowbar://h1/v0/projects', vi.fn())
+      const stopDown = mgr.subscribe('crowbar://h2/v0/projects', vi.fn())
+
+      await vi.waitFor(() =>
+        expect(Object.keys(useConnectionStore.getState().failures)).toHaveLength(2),
+      )
+      const { failures } = useConnectionStore.getState()
+      expect(failures['crowbar://h1/v0/projects']).toMatchObject({
+        code: 'host_identity_changed',
+        hostId: 'h1',
+      })
+      expect(failures['crowbar://h2/v0/projects']).toMatchObject({
+        code: 'host_unreachable',
+        hostId: 'h2',
+      })
+      expect(invoke).toHaveBeenCalledWith('ws_open', expect.objectContaining({ hostId: 'h1' }))
+      expect(invoke).toHaveBeenCalledWith('ws_open', expect.objectContaining({ hostId: 'h2' }))
+      stopChanged()
+      stopDown()
+    })
   })
 
   it('surfaces a binary frame (terminal output) as its ArrayBuffer', async () => {

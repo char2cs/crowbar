@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { uploadChatAttachment } from '@/features/agent/api/upload-chat-attachment'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
+import * as scopeUrl from '@/lib/workspace-scope-url'
 
 beforeEach(() => {
   recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1' })
@@ -224,5 +226,50 @@ describe('uploadChatAttachment', () => {
       /too big/,
     )
     vi.unstubAllGlobals()
+  })
+})
+
+// A remote chat's base arrives host-qualified from the URL builders.
+describe('uploadChatAttachment on a remote host', () => {
+  const remoteBase = 'crowbar://h1/v0/projects/p1/repos/r1/chats'
+
+  beforeEach(() => {
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+    vi.spyOn(scopeUrl, 'repoChatsBaseForWorkspace').mockReturnValue(remoteBase)
+    useHostConfigStore.setState({
+      hosts: [
+        { id: 'h1', name: 'Box', endpoint: 'box:3737', pairedFingerprint: 'ff', clientId: 'c' },
+      ],
+    })
+  })
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+    useHostConfigStore.setState({ hosts: [] })
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('posts to that host, not the local daemon', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ data: { ref: 'r', fileName: 'f', size: 1, contentType: 'image/png' } }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await uploadChatAttachment('ws1', 'c1', { path: '/tmp/x.png' }, 'x')
+
+    expect(fetchMock.mock.calls[0][0]).toBe(`${remoteBase}/c1/attachments`)
+  })
+
+  it('fails without sending anything when the host is not configured', async () => {
+    useHostConfigStore.setState({ hosts: [] })
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(uploadChatAttachment('ws1', 'c1', { path: '/tmp/x.png' }, 'x')).rejects.toThrow(
+      /unknown host/,
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

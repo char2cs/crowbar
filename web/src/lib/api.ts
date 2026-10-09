@@ -16,6 +16,17 @@ import { isTauri } from '@/lib/crowbar-bridge'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { getHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { LOCAL_HOST } from '@/features/hosts/types'
+import {
+  ApiError,
+  DAEMON_UNAVAILABLE_CODE,
+  HOST_IDENTITY_CHANGED_CODE,
+  HOST_UNREACHABLE_CODE,
+  PROXY_HEADER,
+  proxyMarkerError,
+} from './api/errors'
+import { routeToHost } from './api/host-route'
+
+export { ApiError } from './api/errors'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
@@ -40,10 +51,22 @@ export function apiBaseFor(hostId: string): string {
 }
 
 /**
+ * Turn a daemon-relative path — bare for the local daemon, `crowbar://<hostId>/...`
+ * for a remote host — into the absolute URL a request can be sent to. For the
+ * few callers that build their own `fetch`; everything else goes through
+ * {@link apiFetch}, which applies the base itself. Throws for a host this
+ * window cannot reach rather than falling back to the local daemon.
+ */
+export function apiUrl(path: string): string {
+  const target = routeToHost(path)
+  return `${apiBaseFor(target.hostId)}${target.path}`
+}
+
+/**
  * Turn a daemon-relative asset path into one the webview can actually load.
  *
  * Only for URLs handed to the BROWSER — an `<img src>`, not an `apiFetch` (which
- * applies API_BASE itself). A DTO's icon URL arrives as a bare `/v0/...` path,
+ * applies the base itself). A DTO's icon URL arrives as a bare `/v0/...` path,
  * and the desktop webview is served from its own origin: on the dev server that
  * path resolves to Vite, in a packaged build to the app bundle. Either way it is
  * not the daemon, so the request 404s and the <img> quietly falls back to the
@@ -54,24 +77,7 @@ export function apiBaseFor(hostId: string): string {
  * resolve the same kind of URL two different ways.
  */
 export function assetURL(path: string): string {
-  return `${API_BASE}${path}`
-}
-
-/** Error thrown by apiFetch carrying the HTTP status, so callers can make
- *  status-specific decisions (e.g. a 404 is terminal — never retried). */
-export class ApiError extends Error {
-  readonly status: number
-  /** Stable server recovery category. Most endpoints omit it. */
-  readonly code?: string
-  /** The error envelope's `data`, for the few refusals that carry detail. */
-  readonly data?: unknown
-  constructor(message: string, status: number, code?: string, data?: unknown) {
-    super(message)
-    this.name = 'ApiError'
-    this.status = status
-    this.code = code
-    this.data = data
-  }
+  return apiUrl(path)
 }
 
 /** What deleting one workspace would destroy that exists nowhere else. */
@@ -101,28 +107,9 @@ export function isNotFoundError(err: unknown): boolean {
   return err instanceof ApiError && err.status === 404
 }
 
-/**
- * The desktop proxy's own answer when nothing is listening on the daemon
- * socket (api_proxy.rs: a 503 carrying this header, text/plain, no envelope)
- * — the daemon is starting or respawning, not refusing. Named so UI copy can
- * say so; deliberately NOT retried in apiFetchRaw, the proxy already spent
- * the idempotent-read connect budget.
- */
-const PROXY_HEADER = 'x-crowbar-proxy'
-const DAEMON_UNAVAILABLE_CODE = 'daemon_unavailable'
-
 export function isDaemonUnavailableError(err: unknown): boolean {
   return err instanceof ApiError && err.code === DAEMON_UNAVAILABLE_CODE
 }
-
-/**
- * The same proxy header's remote-host markers (Tauri bridge plan): a failed
- * dial/handshake vs. a pinned certificate that no longer matches. The latter
- * is a hard reject — never transient, never retried, never shown the same way
- * as host-unreachable (spec §3).
- */
-const HOST_UNREACHABLE_CODE = 'host_unreachable'
-const HOST_IDENTITY_CHANGED_CODE = 'host_identity_changed'
 
 export function isHostUnreachableError(err: unknown): boolean {
   return err instanceof ApiError && err.code === HOST_UNREACHABLE_CODE
@@ -174,18 +161,19 @@ export async function apiFetchRaw(
   path: string,
   init?: RequestInit,
   retry: RetryConfig = DEFAULT_RETRY,
-  hostId = 'local',
+  hostId?: string,
 ): Promise<Response> {
+  const target = routeToHost(path, hostId)
   const read = isIdempotentRead(init)
   if (!read) noteDaemonChange()
   const maxAttempts = read ? Math.max(1, retry.attempts) : 1
   const sleep = retry.sleep ?? defaultSleep
-  const base = apiBaseFor(hostId)
+  const base = apiBaseFor(target.hostId)
 
   for (let attempt = 1; ; attempt++) {
     let res: Response
     try {
-      res = await fetch(`${base}${path}`, init)
+      res = await fetch(`${base}${target.path}`, init)
     } catch (err) {
       // Transport-level failure — the request never produced an HTTP response
       // (daemon not ready / connection refused). Retry idempotent reads with
@@ -205,26 +193,15 @@ export async function apiFetchRaw(
     // it is terminal (a 404 is meaningful; a 500 is a genuine server error) and
     // must never be retried.
     if (!res.ok) {
-      const proxyMarker = res.headers?.get(PROXY_HEADER)
-      if (proxyMarker === 'daemon-unavailable') {
-        throw new ApiError('the daemon is not running yet', res.status, DAEMON_UNAVAILABLE_CODE)
-      }
-      if (proxyMarker === 'host-unreachable') {
-        throw new ApiError('the remote host is unreachable', res.status, HOST_UNREACHABLE_CODE)
-      }
-      if (proxyMarker === 'host-identity-changed') {
-        throw new ApiError(
-          "this host's identity changed — its certificate no longer matches what was pinned",
-          res.status,
-          HOST_IDENTITY_CHANGED_CODE,
-        )
-      }
+      const proxied = proxyMarkerError(res.headers?.get(PROXY_HEADER), target.hostId, res.status)
+      if (proxied) throw proxied
       const errorBody = await res.json().catch(() => null)
       throw new ApiError(
         errorBody?.error ?? `${res.status} ${res.statusText}`,
         res.status,
         typeof errorBody?.code === 'string' ? errorBody.code : undefined,
         errorBody?.data,
+        target.hostId,
       )
     }
     return res
@@ -269,17 +246,24 @@ export async function apiFetch<T>(
   path: string,
   init?: RequestInit,
   retry: RetryConfig = DEFAULT_RETRY,
-  hostId = 'local',
+  hostId?: string,
 ): Promise<T> {
+  const target = routeToHost(path, hostId)
   const { status, statusText, body } =
     init === undefined
-      ? await sharedRead(path, retry, hostId)
-      : await readEnvelope(await apiFetchRaw(path, init, retry, hostId))
+      ? await sharedRead(target.path, retry, target.hostId)
+      : await readEnvelope(await apiFetchRaw(target.path, init, retry, target.hostId))
   if (body === null) {
     return undefined as T
   }
   if (!body.success) {
-    throw new ApiError(body.error ?? `${status} ${statusText}`, status)
+    throw new ApiError(
+      body.error ?? `${status} ${statusText}`,
+      status,
+      undefined,
+      undefined,
+      target.hostId,
+    )
   }
   return body.data as T
 }

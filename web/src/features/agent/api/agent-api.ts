@@ -2,7 +2,7 @@ import {
   getDefaultChatPresentation,
   type LandingChatPresentation,
 } from '@/features/settings/lib/chat-presentation'
-import { API_BASE, apiFetch } from '@/lib/api'
+import { apiFetch, apiUrl } from '@/lib/api'
 import { repoChatsBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 import {
@@ -819,7 +819,7 @@ export async function getToolPayload(
   const url =
     `${chatBase(wsId)}/${encodeURIComponent(id)}` +
     `/activity/${encodeURIComponent(toolId)}/payload?side=${side}`
-  const response = await fetch(`${API_BASE}${url}`, { signal })
+  const response = await fetch(apiUrl(url), { signal })
   if (response.status === 404) return null
   if (!response.ok) throw new Error(`tool payload: ${response.status}`)
   return response.text()

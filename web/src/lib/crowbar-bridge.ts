@@ -4,6 +4,7 @@ import { convertFileSrc as tauriConvertFileSrc } from '@tauri-apps/api/core'
 import { Menu, MenuItem, PredefinedMenuItem, Submenu } from '@tauri-apps/api/menu'
 
 import { apiFetch } from '@/lib/api'
+import { splitHostPath } from '@/lib/host-path'
 import { wsUrl } from '@/lib/ws/url'
 import { TauriWebSocket } from '@/lib/ws/tauri-transport'
 import type { ContextMenuItem } from '@/components/ui/context-menu'
@@ -179,7 +180,10 @@ export class TerminalConnection {
   }
 }
 
-function openSocket(path: string, hostId = 'local'): TerminalSocket {
+// `qualified` may be host-qualified (`crowbar://<hostId>/v0/...`): the base a
+// remote chat's terminals are built on carries its host.
+function openSocket(qualified: string): TerminalSocket {
+  const { hostId, path } = splitHostPath(qualified)
   if (isTauri()) {
     return new TauriWebSocket(path, { idleTimeoutMs: TERMINAL_READ_IDLE_TIMEOUT_MS, hostId })
   }

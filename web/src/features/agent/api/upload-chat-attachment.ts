@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid'
 import { chatBase } from '@/features/agent/api/agent-api'
-import { API_BASE } from '@/lib/api'
+import { apiUrl } from '@/lib/api'
 
 export interface UploadedChatAttachment {
   ref: string
@@ -35,7 +35,7 @@ export async function uploadChatAttachment(
   input: UploadChatAttachmentInput,
   id: string = nanoid(),
 ): Promise<UploadedChatAttachment> {
-  const url = `${API_BASE}${chatBase(wsId)}/${encodeURIComponent(chatId)}/attachments`
+  const url = apiUrl(`${chatBase(wsId)}/${encodeURIComponent(chatId)}/attachments`)
   const response =
     'file' in input
       ? await postMultipartAttachment(url, input.file, id)

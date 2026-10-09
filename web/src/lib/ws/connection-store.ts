@@ -1,4 +1,6 @@
 import { create } from 'zustand'
+import type { ApiError } from '@/lib/api/errors'
+import { LOCAL_HOST } from '@/features/hosts/types'
 
 // Backend connection state derived from the wsManager's channels:
 // - 'idle': no channels have reported yet (nothing to say about the backend)
@@ -8,6 +10,9 @@ export type ConnectionStatus = 'idle' | 'connected' | 'disconnected'
 
 interface ConnectionState {
   status: ConnectionStatus
+  /** Why a remote host's stream last failed to open, by endpoint. Cleared when
+   *  that stream opens or is torn down. */
+  failures: Record<string, ApiError>
 }
 
 // Per-endpoint open/closed flags live outside the store so the store holds a
@@ -24,6 +29,7 @@ function deriveStatus(): ConnectionStatus {
 
 export const useConnectionStore = create<ConnectionState>(() => ({
   status: 'idle',
+  failures: {},
 }))
 
 function publish(): void {
@@ -33,14 +39,33 @@ function publish(): void {
   }
 }
 
-/** Called by the wsManager when a channel's socket opens or closes. */
-export function reportChannelState(endpoint: string, open: boolean): void {
+function setFailure(endpoint: string, failure: ApiError | undefined): void {
+  const { failures } = useConnectionStore.getState()
+  if (failures[endpoint] === failure) return
+  const next = { ...failures }
+  if (failure) next[endpoint] = failure
+  else delete next[endpoint]
+  useConnectionStore.setState({ failures: next })
+}
+
+/** Called by the wsManager when a channel's socket opens or closes. Only the
+ *  local daemon's channels speak for the backend's status: a remote host going
+ *  up or down must neither hide nor cause a local outage. */
+export function reportChannelState(endpoint: string, open: boolean, hostId: string): void {
+  if (open) setFailure(endpoint, undefined)
+  if (hostId !== LOCAL_HOST.id) return
   channelStates.set(endpoint, open)
   publish()
 }
 
+/** Called by the wsManager when a remote host refused a channel's open. */
+export function reportChannelFailure(endpoint: string, failure: ApiError): void {
+  setFailure(endpoint, failure)
+}
+
 /** Called by the wsManager when a channel is torn down (last subscriber left). */
 export function reportChannelGone(endpoint: string): void {
+  setFailure(endpoint, undefined)
   channelStates.delete(endpoint)
   publish()
 }
@@ -48,5 +73,5 @@ export function reportChannelGone(endpoint: string): void {
 /** Test helper: clear all tracked channels. */
 export function resetConnectionState(): void {
   channelStates.clear()
-  useConnectionStore.setState({ status: 'idle' })
+  useConnectionStore.setState({ status: 'idle', failures: {} })
 }

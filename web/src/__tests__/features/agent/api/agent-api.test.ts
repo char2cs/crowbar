@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const apiFetch = vi.fn()
-vi.mock('@/lib/api', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }))
+vi.mock('@/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api')>()),
+  apiFetch: (...a: unknown[]) => apiFetch(...a),
+}))
 // Only the scope REGISTRY is faked; the URL builders themselves run for real,
 // so these assertions pin the actual paths this client dials rather than a
 // stand-in shape. 'w1' carries a real repo, so chatBase builds the Task-17
@@ -18,7 +21,9 @@ vi.mock('@/lib/workspace-scope', () => ({
 }))
 
 import * as api from '@/features/agent/api/agent-api'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { useSettingsStore } from '@/features/settings/store'
+import * as scopeUrl from '@/lib/workspace-scope-url'
 
 describe('agent-api: chatBase URL shape', () => {
   beforeEach(() => apiFetch.mockReset())
@@ -1071,5 +1076,52 @@ describe('createSurfaceFor', () => {
     setLandingDefault('terminal')
     expect(api.providerCanStartOnTerminal(undefined)).toBe(true)
     expect(api.createSurfaceFor(undefined)).toBeUndefined()
+  })
+})
+
+describe('agent-api: getToolPayload', () => {
+  const tauri = window as unknown as Record<string, unknown>
+  afterEach(() => {
+    delete tauri.__TAURI_INTERNALS__
+    useHostConfigStore.setState({ hosts: [] })
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('reads the payload from the local daemon at the chat-scoped path', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"a":1}'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(api.getToolPayload('w1', 'c1', 't 1', 'request')).resolves.toBe('{"a":1}')
+
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
+      '/v0/projects/p1/repos/r1/chats/c1/activity/t%201/payload?side=request',
+      { signal: undefined },
+    )
+  })
+
+  it('reads it from the host the chat base names', async () => {
+    tauri.__TAURI_INTERNALS__ = {}
+    useHostConfigStore.setState({
+      hosts: [
+        { id: 'h1', name: 'Box', endpoint: 'box:3737', pairedFingerprint: 'ff', clientId: 'c' },
+      ],
+    })
+    vi.spyOn(scopeUrl, 'repoChatsBaseForWorkspace').mockReturnValue(
+      'crowbar://h1/v0/projects/p1/repos/r1/chats',
+    )
+    const fetchMock = vi.fn().mockResolvedValue(new Response('out'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.getToolPayload('w1', 'c1', 't1', 'result')
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'crowbar://h1/v0/projects/p1/repos/r1/chats/c1/activity/t1/payload?side=result',
+    )
+  })
+
+  it('treats a swept payload as absent on any host', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 404 })))
+    await expect(api.getToolPayload('w1', 'c1', 't1', 'request')).resolves.toBeNull()
   })
 })
