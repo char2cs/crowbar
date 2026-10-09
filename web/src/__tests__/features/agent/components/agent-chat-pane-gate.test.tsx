@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { createElement, useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chatLedgerStore } from '@/features/agent/stores/chat-ledger-store'
@@ -76,6 +76,9 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock)
 })
 afterEach(() => {
+  // Unmount before the world resets: resetting it would let a gate that was still
+  // mounted mount its pane and read the network after the stub is gone.
+  cleanup()
   resetHostWorld()
   vi.unstubAllGlobals()
   delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
