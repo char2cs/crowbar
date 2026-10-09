@@ -41,6 +41,7 @@ vi.mock('@/features/tabs/components/tab-context-menu', () => ({
 
 import TabBar from '@/features/tabs/components/tab-bar'
 import * as fileTreeHandlers from '@/features/files/lib/file-tree-handlers'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
 function makeEditorBuffer(i: number): EditorContent {
   return {
@@ -181,8 +182,13 @@ describe('TabBar "+" placement', () => {
 })
 
 describe('TabBar "+" click behaviour', () => {
+  // A different workspace is in view: what the "+" opens belongs to the pane's.
+  beforeEach(() => {
+    setActiveWorkspaceId('w-in-view')
+  })
   afterEach(() => {
     vi.clearAllMocks()
+    setActiveWorkspaceId(null)
   })
 
   it('opens a dropdown offering New File and New Terminal', async () => {
@@ -204,7 +210,7 @@ describe('TabBar "+" click behaviour', () => {
     const buffers = [makeEditorBuffer(0)]
     const store = setupPaneStore({ buffers, chatId: 'chat-1' })
     act(() => {
-      renderTabBar(store, { wsId: 'w1' })
+      renderTabBar(store, { wsId: 'w-pane' })
     })
     act(() => {
       windowPaneStore.getState().paneActions.setActivePane('some-other-pane-first')
@@ -219,6 +225,8 @@ describe('TabBar "+" click behaviour', () => {
     const newBuf = windowPaneStore.getState().buffers.find((b) => b.id === editorTabIds[1])
     expect(newBuf?.type).toBe('editor')
     expect((newBuf as EditorContent)?.isVirtual).toBe(true)
+    // The pane's own workspace, not the one in view.
+    expect(newBuf?.workspaceId).toBe('w-pane')
   })
 
   it('"New Terminal" opens a new terminal tab in this pane', async () => {
@@ -226,7 +234,7 @@ describe('TabBar "+" click behaviour', () => {
     const buffers = [makeEditorBuffer(0)]
     const store = setupPaneStore({ buffers, chatId: 'chat-1' })
     act(() => {
-      renderTabBar(store, { wsId: 'w1' })
+      renderTabBar(store, { wsId: 'w-pane' })
     })
 
     await user.click(screen.getByRole('button', { name: 'New tab' }))
@@ -235,6 +243,7 @@ describe('TabBar "+" click behaviour', () => {
     const editorTabIds = windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds ?? []
     const newBuf = windowPaneStore.getState().buffers.find((b) => b.id === editorTabIds[1])
     expect(newBuf?.type).toBe('terminal')
+    expect(newBuf?.workspaceId).toBe('w-pane')
   })
 })
 

@@ -164,19 +164,16 @@ vi.mock('@/lib/workspace-scope', () => ({
   getOwningChatId,
 }))
 
-// pane-command-actions.ts (run for real above) also imports getActiveWorkspaceId
-// from the registry (for openBranchReviewForActiveWorkspace, unexercised here) —
-// mocked so importing it stays cheap: the real module pulls in the editor/Monaco
-// store graph, which previously timed out this suite's dynamic imports.
-vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
-  getActiveWorkspaceId: () => null,
-}))
-
 import { usePaneKeyboard } from '@/features/panes/hooks/use-pane-keyboard'
 import { useSettingsStore } from '@/features/settings/store'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+
+afterEach(() => setActiveWorkspaceId(null))
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // The workspace in view is not the pane's: what a chord opens belongs to the pane's.
+  setActiveWorkspaceId('ws-in-view')
   getOwningChatId.mockReset()
   fakeState.activePaneId = ROOT_PANE_ID
   fakeState.agentChats = { providers: [], chats: [] }
