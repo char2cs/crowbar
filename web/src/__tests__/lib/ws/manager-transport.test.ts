@@ -60,6 +60,8 @@ beforeEach(() => {
 const { createWSManager, wsManager } = await import('@/lib/ws/manager')
 const { awaitEntity } = await import('@/lib/ws/await-entity')
 const { useConnectionStore, resetConnectionState } = await import('@/lib/ws/connection-store')
+const { destroyHostRuntime, getOrCreateHostRuntime } =
+  await import('@/features/hosts/stores/host-runtime-registry')
 
 describe('WSManager transport selection', () => {
   it('uses the native WebSocket in the browser', () => {
@@ -167,7 +169,10 @@ describe('WSManager remote stream failures', () => {
     isTauri.mockReturnValue(true)
     resetConnectionState()
   })
-  afterEach(() => vi.useRealTimers())
+  afterEach(() => {
+    vi.useRealTimers()
+    destroyHostRuntime('h1')
+  })
 
   it('surfaces a changed host identity, not just that the stream closed', () => {
     createWSManager().subscribe('crowbar://h1/v0/projects', vi.fn())
@@ -246,18 +251,77 @@ describe('WSManager remote stream failures', () => {
     expect(useConnectionStore.getState().status).toBe('idle')
   })
 
-  it('stops redialling a host whose identity changed, until someone subscribes again', () => {
+  // The host's status, not the socket, says whether it is worth dialling: a host that needs
+  // repair refuses every attempt, so its channels wait for it rather than redial.
+  it('opens nothing for a host that needs repair, and reopens every channel once it is up', () => {
+    const h1 = getOrCreateHostRuntime('h1').getState()
+    h1.setStatus('up')
     const mgr = createWSManager()
-    const unsubscribe = mgr.subscribe('crowbar://h1/v0/projects', vi.fn())
+    const projects = vi.fn()
+    const repos = vi.fn()
+    mgr.subscribe('crowbar://h1/v0/projects', projects)
+    mgr.subscribe('crowbar://h1/v0/projects/p/repos', repos)
+    tauriInstances.forEach((s) => s.onopen?.())
+
+    h1.setStatus('needs-repair')
     tauriInstances[0].onerror?.('host-identity-changed: certificate mismatch')
     tauriInstances[0].onclose?.()
-
+    tauriInstances[1].onclose?.()
     vi.advanceTimersByTime(120_000)
-    expect(tauriInstances).toHaveLength(1)
-
-    unsubscribe()
+    mgr.subscribe('crowbar://h1/v0/chats/c/ws', vi.fn())
     mgr.subscribe('crowbar://h1/v0/projects', vi.fn())
     expect(tauriInstances).toHaveLength(2)
+
+    h1.setStatus('up')
+    expect(tauriInstances.slice(2).map((s) => [s.path, s.options?.hostId])).toEqual([
+      ['/v0/projects', 'h1'],
+      ['/v0/projects/p/repos', 'h1'],
+      ['/v0/chats/c/ws', 'h1'],
+    ])
+    // A reopened channel tells its subscribers to catch up, as after any outage.
+    tauriInstances[2].onopen?.()
+    tauriInstances[3].onopen?.()
+    expect(projects).toHaveBeenCalledWith({ reconnected: true })
+    expect(repos).toHaveBeenCalledWith({ reconnected: true })
+    expect(useConnectionStore.getState().failures).toEqual({})
+  })
+
+  it('does not redial a host that is down, until it is up again', () => {
+    const h1 = getOrCreateHostRuntime('h1').getState()
+    h1.setStatus('up')
+    createWSManager().subscribe('crowbar://h1/v0/projects', vi.fn())
+
+    h1.setStatus('down')
+    tauriInstances[0].onerror?.('host-unreachable: connection refused')
+    tauriInstances[0].onclose?.()
+    vi.advanceTimersByTime(120_000)
+    h1.setStatus('down')
+    expect(tauriInstances).toHaveLength(1)
+
+    h1.setStatus('up')
+    expect(tauriInstances).toHaveLength(2)
+  })
+
+  it('reopens nothing nobody holds any more', () => {
+    const h1 = getOrCreateHostRuntime('h1').getState()
+    h1.setStatus('needs-repair')
+    const unsubscribe = createWSManager().subscribe('crowbar://h1/v0/projects', vi.fn())
+
+    unsubscribe()
+    h1.setStatus('up')
+
+    expect(tauriInstances).toHaveLength(0)
+  })
+
+  it('holds back no other host and never the local daemon', () => {
+    getOrCreateHostRuntime('h1').getState().setStatus('needs-repair')
+    const mgr = createWSManager()
+
+    mgr.subscribe('/v0/projects', vi.fn())
+    mgr.subscribe('crowbar://h2/v0/projects', vi.fn())
+    mgr.subscribe('crowbar://h1/v0/projects', vi.fn())
+
+    expect(tauriInstances.map((s) => s.options?.hostId)).toEqual([undefined, 'h2'])
   })
 
   it('keeps redialling an unreachable host, backing off', () => {

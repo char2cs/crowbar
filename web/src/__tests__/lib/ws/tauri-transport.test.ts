@@ -33,6 +33,10 @@ beforeEach(() => {
 const { TauriWebSocket } = await import('@/lib/ws/tauri-transport')
 const { createWSManager } = await import('@/lib/ws/manager')
 const { useConnectionStore, resetConnectionState } = await import('@/lib/ws/connection-store')
+const { followStreamFailures } = await import('@/features/hosts/lib/host-failures')
+const { destroyHostRuntime, getHostRuntime, getOrCreateHostRuntime } =
+  await import('@/features/hosts/stores/host-runtime-registry')
+const { pairRemoteHost, resetHostWorld } = await import('@/__tests__/__fixtures__/remote-host')
 
 describe('TauriWebSocket', () => {
   it('exposes the WebSocket readyState constants', () => {
@@ -174,6 +178,40 @@ describe('TauriWebSocket', () => {
       expect(invoke).toHaveBeenCalledWith('ws_open', expect.objectContaining({ hostId: 'h2' }))
       stopChanged()
       stopDown()
+    })
+
+    // A halted channel used to come back only once every subscriber had left and one came
+    // back; now the host's own return reopens it, whoever holds it.
+    it('opens nothing more for a host whose identity changed, and reopens it once it is up', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      pairRemoteHost('h1')
+      getOrCreateHostRuntime('h1').getState().setStatus('up')
+      const stopFailures = followStreamFailures()
+      const opensOf = () =>
+        (invoke.mock.calls as unknown as [string, { hostId?: string }][]).filter(
+          ([command, args]) => command === 'ws_open' && args.hostId === 'h1',
+        ).length
+      try {
+        invoke.mockRejectedValueOnce('host-identity-changed: certificate mismatch')
+        const mgr = createWSManager()
+        const frames = vi.fn()
+        mgr.subscribe('crowbar://h1/v0/projects', frames)
+        mgr.subscribe('crowbar://h1/v0/projects', vi.fn())
+        await vi.waitFor(() => expect(getHostRuntime('h1')?.getState().status).toBe('needs-repair'))
+
+        await vi.advanceTimersByTimeAsync(120_000)
+        mgr.subscribe('crowbar://h1/v0/projects/p/repos', vi.fn())
+        expect(opensOf()).toBe(1)
+
+        getHostRuntime('h1')!.getState().setStatus('up')
+        await vi.waitFor(() => expect(frames).toHaveBeenCalledWith({ reconnected: true }))
+        expect(opensOf()).toBe(3)
+      } finally {
+        stopFailures()
+        destroyHostRuntime('h1')
+        resetHostWorld()
+        vi.useRealTimers()
+      }
     })
   })
 
