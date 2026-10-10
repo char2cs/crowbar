@@ -14,6 +14,8 @@ let stop: (() => void) | undefined
 const healthy = async () =>
   new Response(JSON.stringify({ success: true, data: {} }), { status: 200 })
 const refused = async () => new Response(null, { status: 401 })
+const unreachable = async () =>
+  new Response(null, { status: 502, headers: { 'x-crowbar-proxy': 'host-unreachable' } })
 const probesOf = (hostId: string) =>
   fetchMock.mock.calls.filter(([url]) => url === `crowbar://${hostId}/v0/health`).length
 const statusOf = (hostId: string) => getHostRuntime(hostId)?.getState().status
@@ -133,6 +135,64 @@ describe('startHostProber', () => {
 
     expect(getHostRuntime('h1')).toBeUndefined()
     expect(probesOf('h1')).toBe(1)
+  })
+
+  // A restarting daemon is back within seconds: its streams must not wait out a whole interval.
+  it('probes a host a stream finds down again within a second, and sees it back at once', async () => {
+    pairRemoteHost('h1')
+    answers = { h1: healthy }
+    stop = startHostProber()
+    await vi.waitFor(() => expect(statusOf('h1')).toBe('up'))
+
+    answers = { h1: unreachable }
+    getHostRuntime('h1')!.getState().setStatus('down')
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(probesOf('h1')).toBe(2)
+    expect(statusOf('h1')).toBe('down')
+
+    answers = { h1: healthy }
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(probesOf('h1')).toBe(3)
+    expect(statusOf('h1')).toBe('up')
+    await vi.advanceTimersByTimeAsync(INTERVAL - 1)
+    expect(probesOf('h1')).toBe(3)
+  })
+
+  it('backs a host that stays down off to the normal interval', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    const probedAt: number[] = []
+    pairRemoteHost('h1')
+    answers = {
+      h1: () => {
+        probedAt.push(Date.now())
+        return unreachable()
+      },
+    }
+    stop = startHostProber()
+
+    await vi.advanceTimersByTimeAsync(50_000)
+
+    const gaps = probedAt.slice(1).map((at, i) => at - probedAt[i])
+    expect(gaps).toEqual([1_000, 2_000, 4_000, 8_000, INTERVAL, INTERVAL])
+    expect(statusOf('h1')).toBe('down')
+  })
+
+  it('never overlaps two probes when a stream finds the host down mid-probe', async () => {
+    pairRemoteHost('h1')
+    answers = { h1: healthy }
+    stop = startHostProber()
+    await vi.waitFor(() => expect(statusOf('h1')).toBe('up'))
+    const h1 = parked()
+    answers = { h1: h1.answer }
+    await vi.advanceTimersByTimeAsync(INTERVAL)
+    expect(probesOf('h1')).toBe(2)
+
+    getHostRuntime('h1')!.getState().setStatus('down')
+    await vi.advanceTimersByTimeAsync(INTERVAL)
+    expect(probesOf('h1')).toBe(2)
+
+    h1.release()
+    await vi.waitFor(() => expect(statusOf('h1')).toBe('up'))
   })
 
   // A removed host has no status: nothing may go on reading it as up.

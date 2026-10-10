@@ -219,6 +219,55 @@ describe('TauriWebSocket', () => {
       }
     })
 
+    // Measured: a remote daemon back after a short restart has its streams back within
+    // seconds of answering, not a probe interval later.
+    it('reopens a restarted host’s streams within seconds of it answering again', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      let daemonUp = true
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () =>
+          daemonUp
+            ? new Response(JSON.stringify({ success: true, data: {} }), { status: 200 })
+            : new Response(null, {
+                status: 502,
+                headers: { 'x-crowbar-proxy': 'host-unreachable' },
+              }),
+        ),
+      )
+      invoke.mockImplementation(async (command: string) => {
+        if (command === 'ws_open' && !daemonUp) throw 'host-unreachable: connection refused'
+      })
+      pairRemoteHost('h1')
+      const stops = [startHostStatus()]
+      const status = () => getHostRuntime('h1')?.getState().status
+      try {
+        await vi.waitFor(() => expect(status()).toBe('up'))
+        const frames = vi.fn()
+        stops.push(createWSManager().subscribe('crowbar://h1/v0/projects/p/repos', frames))
+        await vi.waitFor(() => expect(channels).toHaveLength(1))
+
+        daemonUp = false
+        const stoppedAt = Date.now()
+        channels[0].onmessage?.('\u0000crowbar-ws-close')
+        await vi.advanceTimersByTimeAsync(1_500)
+        expect(status()).toBe('down')
+        daemonUp = true
+
+        await vi.advanceTimersByTimeAsync(2_000)
+        expect(frames).toHaveBeenCalledWith({ reconnected: true })
+        expect(status()).toBe('up')
+        expect(Date.now() - stoppedAt).toBe(3_500)
+      } finally {
+        stops.forEach((stop) => stop())
+        invoke.mockImplementation(async () => undefined)
+        destroyHostRuntime('h1')
+        resetHostWorld()
+        vi.unstubAllGlobals()
+        vi.useRealTimers()
+      }
+    })
+
     // The app's whole path: a host's daemon is replaced, its project stream's redial is refused,
     // nothing dials it while it needs repair, and once it is back it alone is re-read and streamed.
     it('streams a host’s projects again once it is back from a change of identity', async () => {
