@@ -53,6 +53,8 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 import { AppSyncProvider } from '@/components/app-sync-provider'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { destroyHostRuntime, getHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { proxyMarkerError } from '@/lib/api/errors'
+import { reportChannelFailure } from '@/lib/ws/connection-store'
 import { success } from '@/lib/loadable'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
 import { wipeEntityCache } from '@/lib/persistence/idb'
@@ -375,8 +377,9 @@ describe('across hosts', () => {
     )
   })
 
-  // The one owner of every host's status: probes run for the app's life, not a screen's.
-  it('probes every configured host for as long as the app is mounted', async () => {
+  // The one owner of every host's status: probes, and the streams' failures between them,
+  // for the app's life, not a screen's.
+  it('keeps every configured host’s status for as long as the app is mounted', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = { invoke: async () => {} }
     const fetchMock = vi.fn(
@@ -387,14 +390,22 @@ describe('across hosts', () => {
     const probes = () =>
       fetchMock.mock.calls.filter(([url]) => url === 'crowbar://host-2/v0/health').length
     try {
+      const status = () => getHostRuntime('host-2')?.getState().status
+      const refused = (endpoint: string) =>
+        reportChannelFailure(endpoint, proxyMarkerError('host-unreachable', 'host-2')!)
       const { unmount } = mount()
-      await vi.waitFor(() => expect(getHostRuntime('host-2')?.getState().status).toBe('up'))
+      await vi.waitFor(() => expect(status()).toBe('up'))
+      act(() => refused('crowbar://host-2/v0/projects'))
+      expect(status()).toBe('down')
       await vi.advanceTimersByTimeAsync(15_000)
       expect(probes()).toBe(2)
+      expect(status()).toBe('up')
 
       unmount()
       await vi.advanceTimersByTimeAsync(45_000)
+      act(() => refused('crowbar://host-2/v0/projects/p2/repos'))
       expect(probes()).toBe(2)
+      expect(status()).toBe('up')
     } finally {
       vi.useRealTimers()
       vi.unstubAllGlobals()

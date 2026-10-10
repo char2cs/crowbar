@@ -6,7 +6,7 @@ import { getVisibleProjectIds } from '@/lib/store/project-visibility'
 import { toSidebarRepo } from '@/lib/store/build-repo-tree'
 import { subscribeHomeTree } from '@/lib/store/home-tree'
 import { isHostResolved, subscribeHostResolution } from '@/lib/host-resolve'
-import { startHostProber } from '@/features/hosts/lib/host-prober'
+import { startHostStatus } from '@/features/hosts/lib/host-status'
 import { projectBase, repoBase } from '@/lib/project-url'
 import { dataOf } from '@/lib/loadable'
 import {
@@ -585,8 +585,8 @@ export function useAppSyncEngine(): void {
       //    is joined rather than repeated (frames replay onto its answer).
       rootUnsubscribes.push(useProjectDataStore.getState().startSync())
       void useProjectDataStore.getState().fetch()
-      // Every paired host's status, for the app's life: a host found up merges into the list.
-      rootUnsubscribes.push(startHostProber())
+      // Every paired host's status, for the app's life: a host found up streams into the list.
+      rootUnsubscribes.push(startHostStatus())
 
       // 3. Per-project / per-repo streams for whatever is visible. The provider mounts
       //    at the root BEFORE any project exists (fresh start / OOBE), so visibility
