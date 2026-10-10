@@ -10,7 +10,7 @@ interface MockChannel {
 }
 
 const channels: MockChannel[] = []
-const invoke = vi.fn(async () => undefined)
+const invoke = vi.fn(async (_command: string, _args?: unknown): Promise<unknown> => undefined)
 
 // convertFileSrc is only here because the manager imports the bridge, which re-exports it.
 vi.mock('@tauri-apps/api/core', () => ({
@@ -36,7 +36,11 @@ const { useConnectionStore, resetConnectionState } = await import('@/lib/ws/conn
 const { followStreamFailures } = await import('@/features/hosts/lib/host-failures')
 const { destroyHostRuntime, getHostRuntime, getOrCreateHostRuntime } =
   await import('@/features/hosts/stores/host-runtime-registry')
-const { pairRemoteHost, resetHostWorld } = await import('@/__tests__/__fixtures__/remote-host')
+const { pairRemoteHost, projectOn, resetHostWorld } =
+  await import('@/__tests__/__fixtures__/remote-host')
+const { startHostStatus } = await import('@/features/hosts/lib/host-status')
+const { connectProjectList, useProjectDataStore } = await import('@/lib/store/projects')
+const { projectListTransport } = await import('@/lib/api/project-list-transport')
 
 describe('TauriWebSocket', () => {
   it('exposes the WebSocket readyState constants', () => {
@@ -188,8 +192,9 @@ describe('TauriWebSocket', () => {
       getOrCreateHostRuntime('h1').getState().setStatus('up')
       const stopFailures = followStreamFailures()
       const opensOf = () =>
-        (invoke.mock.calls as unknown as [string, { hostId?: string }][]).filter(
-          ([command, args]) => command === 'ws_open' && args.hostId === 'h1',
+        invoke.mock.calls.filter(
+          ([command, args]) =>
+            command === 'ws_open' && (args as { hostId?: string }).hostId === 'h1',
         ).length
       try {
         invoke.mockRejectedValueOnce('host-identity-changed: certificate mismatch')
@@ -210,6 +215,62 @@ describe('TauriWebSocket', () => {
         stopFailures()
         destroyHostRuntime('h1')
         resetHostWorld()
+        vi.useRealTimers()
+      }
+    })
+
+    // The app's whole path: a host's daemon is replaced, its project stream's redial is refused,
+    // nothing dials it while it needs repair, and once it is back it alone is re-read and streamed.
+    it('streams a host’s projects again once it is back from a change of identity', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      let replaced = false
+      const fetchMock = vi.fn(async (url: string) => {
+        if (replaced && url === 'crowbar://h1/v0/health') {
+          return new Response(null, {
+            status: 502,
+            headers: { 'x-crowbar-proxy': 'host-identity-changed' },
+          })
+        }
+        const rows = url === 'crowbar://h1/v0/projects' ? [projectOn('p-h1', 'h1')] : []
+        return new Response(JSON.stringify({ success: true, data: rows }), { status: 200 })
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const opens = () =>
+        invoke.mock.calls.filter(
+          ([command, args]) =>
+            command === 'ws_open' && (args as { hostId?: string }).hostId === 'h1',
+        ).length
+      const reads = () =>
+        fetchMock.mock.calls.filter(([url]) => url === 'crowbar://h1/v0/projects').length
+      connectProjectList(projectListTransport)
+      pairRemoteHost('h1')
+      const stops = [useProjectDataStore.getState().startSync(), startHostStatus()]
+      try {
+        await useProjectDataStore.getState().fetch()
+        await vi.waitFor(() => expect(opens()).toBe(1))
+        const readsWhileUp = reads()
+
+        replaced = true
+        invoke.mockImplementation(async (command: string) => {
+          if (command === 'ws_open') throw 'host-identity-changed: certificate mismatch'
+        })
+        channels.at(-1)!.onmessage?.('\u0000crowbar-ws-close')
+        await vi.advanceTimersByTimeAsync(1_000)
+        expect(getHostRuntime('h1')?.getState().status).toBe('needs-repair')
+        await vi.advanceTimersByTimeAsync(60_000)
+        expect(opens()).toBe(2)
+
+        replaced = false
+        invoke.mockImplementation(async () => undefined)
+        await vi.advanceTimersByTimeAsync(15_000)
+        await vi.waitFor(() => expect(opens()).toBe(3))
+        await vi.waitFor(() => expect(reads()).toBe(readsWhileUp + 1))
+      } finally {
+        stops.forEach((stop) => stop())
+        invoke.mockImplementation(async () => undefined)
+        destroyHostRuntime('h1')
+        resetHostWorld()
+        vi.unstubAllGlobals()
         vi.useRealTimers()
       }
     })
