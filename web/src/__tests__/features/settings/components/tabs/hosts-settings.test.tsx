@@ -1,14 +1,19 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { NavigateFn } from '@tanstack/react-router'
 
 vi.mock('@/lib/crowbar-bridge', () => ({
   isTauri: () => true,
+  registerRemoteHost: vi.fn(async () => {}),
   unregisterRemoteHost: vi.fn(),
   forgetHostToken: vi.fn(),
   probeRemoteFingerprint: vi.fn(),
 }))
 // Every request this tab can make goes through here: a revoke's DELETE, and nothing else.
-vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
+vi.mock('@/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api')>()),
+  apiFetch: vi.fn(),
+}))
 const toastErrorFn = vi.fn()
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: (...a: unknown[]) => toastErrorFn(...a) },
@@ -24,6 +29,13 @@ import {
 } from '@/features/hosts/stores/host-runtime-registry'
 import { useConnectionStore } from '@/lib/ws/connection-store'
 import { HostsSettings } from '@/features/settings/components/tabs/hosts-settings'
+import { startHostStatus } from '@/features/hosts/lib/host-status'
+import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import { useRedirectIfProjectMissing } from '@/components/layout/use-redirect-if-project-missing'
+import { ApiError } from '@/lib/api'
+import { dataOf } from '@/lib/loadable'
+import { connectProjectList, EMPTY_PROJECTS, useProjectDataStore } from '@/lib/store/projects'
+import { pairRemoteHost, projectOn, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 describe('HostsSettings', () => {
   beforeEach(() => {
@@ -101,9 +113,6 @@ describe('HostsSettings', () => {
     expect(apiFetch).toHaveBeenCalledWith('/v0/clients/c1', { method: 'DELETE' }, undefined, 'h1')
     expect(unregisterRemoteHost).toHaveBeenCalledWith('h1')
     expect(forgetHostToken).toHaveBeenCalledWith('h1')
-    // No orphaned runtime-registry entry left behind for a host that no
-    // longer exists.
-    expect(getHostRuntime('h1')).toBeUndefined()
   })
 
   it('a failed server-side revoke leaves the host config and local token untouched', async () => {
@@ -118,5 +127,94 @@ describe('HostsSettings', () => {
     expect(unregisterRemoteHost).not.toHaveBeenCalled()
     expect(forgetHostToken).not.toHaveBeenCalled()
     expect(useHostConfigStore.getState().hosts).toHaveLength(1)
+  })
+})
+
+// Revoke as the running app meets it: the project list live, the host's status kept, its
+// providers read and one of its projects open.
+describe('revoking a host the app is using', () => {
+  const navigate = vi.fn()
+  const streams: string[] = []
+  let stops: Array<() => void> = []
+  const held = () =>
+    (dataOf(useProjectDataStore.getState().data) ?? []).map((p) => `${p.id}@${p.hostId}`)
+
+  function OpenProject({ projectId }: { projectId: string }) {
+    const projects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
+    useRedirectIfProjectMissing(projectId, projects, navigate as unknown as NavigateFn)
+    return null
+  }
+
+  const revoke = () => {
+    render(
+      <>
+        <HostsSettings />
+        <OpenProject projectId="p-remote" />
+      </>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke h1' }))
+  }
+
+  beforeEach(async () => {
+    navigate.mockReset()
+    streams.length = 0
+    toastErrorFn.mockReset()
+    vi.mocked(apiFetch).mockReset().mockResolvedValue(undefined)
+    vi.mocked(unregisterRemoteHost).mockReset()
+    vi.mocked(forgetHostToken).mockReset()
+    resetHostWorld()
+    connectProjectList({
+      read: async (hostId) =>
+        hostId === 'local' ? [projectOn('p-local', 'local')] : [projectOn('p-remote', hostId)],
+      subscribe: (hostId) => {
+        streams.push(`open ${hostId}`)
+        return () => streams.push(`close ${hostId}`)
+      },
+    })
+    pairRemoteHost('h1')
+    stops = [useProjectDataStore.getState().startSync(), startHostStatus()]
+    await useProjectDataStore.getState().fetch()
+    await waitFor(() => expect(held()).toEqual(['p-local@local', 'p-remote@h1']))
+    useAgentProvidersStore.setState({ remote: { h1: [] } })
+  })
+
+  afterEach(() => {
+    stops.forEach((stop) => stop())
+    destroyHostRuntime('h1')
+    useAgentProvidersStore.setState({ remote: {} })
+    resetHostWorld()
+  })
+
+  it('takes the host’s rows, stream, status and providers with it, and leaves its project', async () => {
+    expect(streams).toEqual(['open local', 'open h1'])
+
+    revoke()
+
+    await waitFor(() => expect(useHostConfigStore.getState().hosts).toEqual([]))
+    expect(held()).toEqual(['p-local@local'])
+    expect(streams).toEqual(['open local', 'open h1', 'close h1'])
+    expect(getHostRuntime('h1')).toBeUndefined()
+    expect(useAgentProvidersStore.getState().remote).toEqual({})
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith({ to: '/' }))
+  })
+
+  it('a revoke that cannot reach the host changes nothing here, and says why', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (path) => {
+      if (String(path).startsWith('/v0/clients/')) {
+        throw new ApiError('the remote host is unreachable', 503, 'host_unreachable', null, 'h1')
+      }
+    })
+
+    revoke()
+
+    await waitFor(() => expect(toastErrorFn).toHaveBeenCalled())
+    expect(useHostConfigStore.getState().hosts.map((h) => h.id)).toEqual(['h1'])
+    expect(held()).toEqual(['p-local@local', 'p-remote@h1'])
+    expect(streams).toEqual(['open local', 'open h1'])
+    expect(getHostRuntime('h1')?.getState().status).toBe('up')
+    expect(useAgentProvidersStore.getState().remote).toEqual({ h1: [] })
+    expect(unregisterRemoteHost).not.toHaveBeenCalled()
+    expect(forgetHostToken).not.toHaveBeenCalled()
+    expect(navigate).not.toHaveBeenCalled()
   })
 })

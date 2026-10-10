@@ -1,7 +1,10 @@
 import { hostsRegistered } from '@/features/hosts/lib/host-registration'
 import { probeHost } from '@/features/hosts/lib/host-probe'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import {
+  destroyHostRuntime,
+  getOrCreateHostRuntime,
+} from '@/features/hosts/stores/host-runtime-registry'
 
 // A host that went down or came back shows within one interval, and N paired hosts cost
 // N small requests per interval.
@@ -9,8 +12,8 @@ const HOST_PROBE_INTERVAL_MS = 15_000
 
 /**
  * Probes every configured host for as long as it stays configured: the app's one source
- * of each host's status. One probe at a time per host, the next an interval after the
- * last answered, so a host that hangs costs one request, never a pile.
+ * of each host's status, which goes with the host. One probe at a time per host, the next
+ * an interval after the last answered, so a host that hangs costs one request, never a pile.
  */
 export function startHostProber(): () => void {
   const loops = new Map<string, () => void>()
@@ -20,6 +23,7 @@ export function startHostProber(): () => void {
       if (configured.has(hostId)) continue
       stop()
       loops.delete(hostId)
+      destroyHostRuntime(hostId)
     }
     for (const hostId of configured) {
       if (!loops.has(hostId)) loops.set(hostId, probeLoop(hostId))

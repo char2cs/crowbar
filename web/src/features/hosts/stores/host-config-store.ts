@@ -66,6 +66,17 @@ export const useHostConfigStore = create<HostConfigState>()(
   ),
 )
 
+/** Calls `onRemoved(id)` for each host that leaves the list, whichever window removed it:
+ *  whatever holds a host's data lets it go here, so no removal path can leave it behind. */
+export function onHostRemoved(onRemoved: (hostId: string) => void): () => void {
+  return useHostConfigStore.subscribe((state, prev) => {
+    if (state.hosts === prev.hosts) return
+    for (const host of prev.hosts) {
+      if (!state.hosts.some((h) => h.id === host.id)) onRemoved(host.id)
+    }
+  })
+}
+
 // The browser tells every other window when one saves: follow it.
 window.addEventListener('storage', (event) => {
   if (event.key === STORAGE_KEY) void useHostConfigStore.persist.rehydrate()

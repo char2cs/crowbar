@@ -5,7 +5,7 @@ import { dataOf, loading, success } from '@/lib/loadable'
 import { loadCache } from '@/lib/persistence/cache-store'
 import { createLoadableSlice, type LoadableSlice } from '@/lib/store/loadable-slice'
 import { isReconnectSentinel } from '@/lib/ws/types'
-import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { onHostRemoved, useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { getHostRuntime, whileHostUp } from '@/features/hosts/stores/host-runtime-registry'
 import { LOCAL_HOST } from '@/features/hosts/types'
 
@@ -167,6 +167,15 @@ function onHostFrame(hostId: string, frame: unknown): void {
   void useProjectDataStore.getState().applyDelta(new HostFrame(hostId, frame))
 }
 
+/** A removed host's rows go the way a deleted project's do: a tombstone each. */
+function dropHostRows(hostId: string): void {
+  const { data, applyDelta } = useProjectDataStore.getState()
+  for (const project of dataOf(data) ?? []) {
+    if (project.hostId !== hostId) continue
+    void applyDelta(new HostFrame(hostId, { id: project.id, status: 'deleted' }))
+  }
+}
+
 function upHostIds(): string[] {
   const up: string[] = []
   for (const host of useHostConfigStore.getState().hosts) {
@@ -207,9 +216,11 @@ export const useProjectDataStore = create<LoadableSlice<Project[], []>>()((set, 
         void readHostRows(hostId)
         return connected().subscribe(hostId, (frame) => onHostFrame(hostId, frame))
       })
+      const stopRemovals = onHostRemoved(dropHostRows)
       return () => {
         stopFrames()
         stopHosts()
+        stopRemovals()
       }
     },
   }

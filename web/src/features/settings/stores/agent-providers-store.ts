@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { listGlobalProviders, listProviders } from '@/features/agent/api/agent-api'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
+import { onHostRemoved, useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { LOCAL_HOST } from '@/features/hosts/types'
 import { resolvedHostOf } from '@/lib/host-resolve'
 
@@ -134,7 +135,10 @@ export const useAgentProvidersStore = create<AgentProvidersState>((set, get) => 
 
     setHostProviders: (hostId, providers) => {
       if (hostId === LOCAL_HOST.id) get().setProviders(providers)
-      else set((s) => ({ remote: { ...s.remote, [hostId]: providers } }))
+      // A late answer from a host removed meanwhile is nobody's list any more.
+      else if (useHostConfigStore.getState().hosts.some((host) => host.id === hostId)) {
+        set((s) => ({ remote: { ...s.remote, [hostId]: providers } }))
+      }
     },
 
     load: async (wsId) =>
@@ -157,6 +161,15 @@ export const useAgentProvidersStore = create<AgentProvidersState>((set, get) => 
       set({ status: 'failed' })
     },
   }
+})
+
+// A removed host's list goes with it, whichever window removed it.
+onHostRemoved((hostId) => {
+  const { remote } = useAgentProvidersStore.getState()
+  if (!(hostId in remote)) return
+  useAgentProvidersStore.setState({
+    remote: Object.fromEntries(Object.entries(remote).filter(([id]) => id !== hostId)),
+  })
 })
 
 const NO_PROVIDERS: AgentProvider[] = []

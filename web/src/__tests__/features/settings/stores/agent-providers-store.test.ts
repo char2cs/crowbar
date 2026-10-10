@@ -28,6 +28,7 @@ import {
 } from '@/features/settings/stores/agent-providers-store'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import {
   loadProjects,
   pairRemoteHost,
@@ -253,6 +254,20 @@ describe('agent providers store across hosts', () => {
 
     expect(state().remote['host-1']).toBeUndefined()
     expect(providersOf(state(), 'host-1')).toEqual([])
+  })
+
+  it('forgets a removed host’s list, and a late answer from it does not bring it back', async () => {
+    const answer = deferred<AgentProvider[]>()
+    listGlobalProvidersFn.mockReturnValueOnce(answer.promise)
+    state().setHostProviders('host-1', [provider('codex')])
+    const late = state().loadHost('host-1')
+
+    useHostConfigStore.getState().removeHost('host-1')
+    expect(state().remote['host-1']).toBeUndefined()
+
+    answer.resolve([provider('claude')])
+    await late
+    expect(state().remote['host-1']).toBeUndefined()
   })
 
   it('setHostProviders files a remote list by host, and the local host’s as the local list', () => {

@@ -191,6 +191,28 @@ describe('useHostConfigStore', () => {
       expect(ids(a)).toEqual(['h2', 'h3'])
     })
 
+    // Whatever owns a host's data (rows, status, provider list) lets it go on this, so no
+    // removal path — this window's revoke or another window's — can leave it behind.
+    it('names each host that leaves the list, whichever window removed it', async () => {
+      const a = await openWindow()
+      a.getState().addHost(host('h1'))
+      a.getState().addHost(host('h2'))
+      vi.resetModules()
+      const b = await import('@/features/hosts/stores/host-config-store')
+      const removed: string[] = []
+      const stop = b.onHostRemoved((id) => removed.push(id))
+
+      a.getState().removeHost('h1')
+      announce()
+      b.useHostConfigStore.getState().addHost(host('h3'))
+      b.useHostConfigStore.getState().addHost(host('h2'))
+      b.useHostConfigStore.getState().removeHost('h3')
+      stop()
+      b.useHostConfigStore.getState().removeHost('h2')
+
+      expect(removed).toEqual(['h1', 'h3'])
+    })
+
     it('never forgets that a remote was paired, whatever another window saves', async () => {
       const a = await openWindow()
       a.getState().addHost(host('h1'))

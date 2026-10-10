@@ -366,4 +366,25 @@ describe('a paired host coming up', () => {
     await vi.waitFor(() => expect(list.held()).toEqual(['a@local', 'r-h1@h1', 'r-new@h1']))
     list.stop()
   })
+
+  // The deleted-project path: each row goes as a tombstone would take it, at once, and the
+  // route's "project missing" redirect follows from the list alone.
+  it('removing a host takes its rows with it, and nothing late from it comes back', async () => {
+    const list = await liveList('h1', 'h2')
+    readRemote.mockImplementation(async (hostId) => [
+      remoteRow(`r-${hostId}`, hostId),
+      remoteRow('shared', hostId),
+    ])
+    list.status('h1', 'up')
+    list.status('h2', 'up')
+    await vi.waitFor(() => expect(list.held()).toHaveLength(5))
+
+    list.config.getState().removeHost('h1')
+
+    expect(list.store.getState().data.status).toBe('success')
+    expect(list.held()).toEqual(['a@local', 'r-h2@h2', 'shared@h2'])
+    sockets.get('h1')!(wire('late', 0))
+    expect(list.held()).toEqual(['a@local', 'r-h2@h2', 'shared@h2'])
+    list.stop()
+  })
 })

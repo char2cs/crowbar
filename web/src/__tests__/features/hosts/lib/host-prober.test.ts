@@ -128,12 +128,23 @@ describe('startHostProber', () => {
     await vi.waitFor(() => expect(probesOf('h1')).toBe(1))
 
     useHostConfigStore.getState().removeHost('h1')
-    destroyHostRuntime('h1')
     h1.release()
     await vi.advanceTimersByTimeAsync(INTERVAL)
 
     expect(getHostRuntime('h1')).toBeUndefined()
     expect(probesOf('h1')).toBe(1)
+  })
+
+  // A removed host has no status: nothing may go on reading it as up.
+  it('lets go of a removed host’s runtime, however it was removed', async () => {
+    pairRemoteHost('h1')
+    answers = { h1: healthy }
+    stop = startHostProber()
+    await vi.waitFor(() => expect(statusOf('h1')).toBe('up'))
+
+    useHostConfigStore.setState({ hosts: [] })
+
+    expect(getHostRuntime('h1')).toBeUndefined()
   })
 
   it('stops every probe when the app stops it', async () => {

@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button'
 import { AddHostDialog } from '@/features/hosts/components/add-host-dialog'
 import { useHostStatus } from '@/features/hosts/hooks/use-host-status'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { LOCAL_HOST, type Host, type HostStatus } from '@/features/hosts/types'
 import { forgetHostToken, unregisterRemoteHost } from '@/lib/crowbar-bridge'
 import { apiFetch } from '@/lib/api'
@@ -61,8 +60,8 @@ async function revokeHost(host: Host): Promise<void> {
   }
   await unregisterRemoteHost(host.id)
   await forgetHostToken(host.id)
+  // Its rows, status, streams and provider list follow the removal (onHostRemoved).
   useHostConfigStore.getState().removeHost(host.id)
-  destroyHostRuntime(host.id)
 }
 
 interface HostRowProps {
