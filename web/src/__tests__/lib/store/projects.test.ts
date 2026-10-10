@@ -20,6 +20,7 @@ import {
   getOrCreateHostRuntime,
 } from '@/features/hosts/stores/host-runtime-registry'
 import { startHostProber } from '@/features/hosts/lib/host-prober'
+import { startHostStatus } from '@/features/hosts/lib/host-status'
 import type { HostStatus } from '@/features/hosts/types'
 import type { Project } from '@/lib/types'
 
@@ -162,6 +163,37 @@ describe('reading the project list', () => {
 
     expect(fetchMock.mock.calls).toEqual([[`${API_BASE}/v0/projects`, undefined]])
     expect(held()).toEqual(['p-local@local'])
+  })
+
+  // Boot as the sync engine runs it, over the real transport: the list's live sync, its read,
+  // the host status owner. Golden: 71a769f7c (before per-host streams) sends exactly this.
+  it('a never-paired install boots with the very request and stream it always had', async () => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+    const dialled: string[] = []
+    vi.stubGlobal(
+      'WebSocket',
+      class {
+        static OPEN = 1
+        readyState = 0
+        close = () => {}
+        constructor(url: string) {
+          dialled.push(url)
+        }
+      },
+    )
+    const fetchMock = serve({ [API_BASE]: () => answer([row('p-local')]) })
+
+    const stopSync = useProjectDataStore.getState().startSync()
+    const read = readList()
+    const stopStatus = startHostStatus()
+    await read
+    await useProjectDataStore.getState().applyDelta(row('p-new'))
+    stopStatus()
+    stopSync()
+
+    expect(fetchMock.mock.calls).toEqual([[`${API_BASE}/v0/projects`, undefined]])
+    expect(dialled.map((url) => new URL(url).pathname)).toEqual(['/v0/projects'])
+    expect(held()).toEqual(['p-local@local', 'p-new@local'])
   })
 
   // An empty success here would read as "no projects": the root route sends
