@@ -65,29 +65,52 @@ export function subscribeHostStatus(hostId: string, onChange: () => void): () =>
   }
 }
 
-/** Calls `onUp(hostId)` each time a host's status becomes 'up' from anything else. */
-export function onHostUp(onUp: (hostId: string) => void): () => void {
-  const watched = new Map<HostRuntimeStore, () => void>()
+interface UpWatch {
+  unsubscribe: () => void
+  /** What `run` returned for the host's current 'up', while it lasts. */
+  stop?: () => void
+}
+
+/**
+ * Runs `run(hostId)` while a host is 'up': each time it becomes 'up' (at once for one
+ * already up), calling what it returned when the host leaves 'up' or its runtime goes.
+ */
+export function whileHostUp(run: (hostId: string) => () => void): () => void {
+  const watched = new Map<HostRuntimeStore, UpWatch>()
+  const end = (watch: UpWatch) => {
+    const stop = watch.stop
+    watch.stop = undefined
+    stop?.()
+  }
   const follow = () => {
     const live = new Set(registry.values())
-    for (const [store, stop] of watched) {
+    for (const [store, watch] of watched) {
       if (live.has(store)) continue
-      stop()
+      watch.unsubscribe()
       watched.delete(store)
+      end(watch)
     }
     for (const [hostId, store] of registry) {
       if (watched.has(store)) continue
-      const stop = store.subscribe((state, prev) => {
-        if (state.status === 'up' && prev.status !== 'up') onUp(hostId)
-      })
-      watched.set(store, stop)
+      const watch: UpWatch = { unsubscribe: () => {} }
+      const sync = () => {
+        const up = store.getState().status === 'up'
+        if (up && !watch.stop) watch.stop = run(hostId)
+        else if (!up) end(watch)
+      }
+      watch.unsubscribe = store.subscribe(sync)
+      watched.set(store, watch)
+      sync()
     }
   }
   follow()
   const stopRegistry = subscribeHostRuntimeRegistry(follow)
   return () => {
     stopRegistry()
-    for (const stop of watched.values()) stop()
+    for (const watch of watched.values()) {
+      watch.unsubscribe()
+      end(watch)
+    }
     watched.clear()
   }
 }

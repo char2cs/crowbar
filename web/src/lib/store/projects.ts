@@ -4,8 +4,9 @@ import type { Project } from '@/lib/types'
 import { dataOf, loading, success } from '@/lib/loadable'
 import { loadCache } from '@/lib/persistence/cache-store'
 import { createLoadableSlice, type LoadableSlice } from '@/lib/store/loadable-slice'
+import { isReconnectSentinel } from '@/lib/ws/types'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { getHostRuntime, onHostUp } from '@/features/hosts/stores/host-runtime-registry'
+import { getHostRuntime, whileHostUp } from '@/features/hosts/stores/host-runtime-registry'
 import { LOCAL_HOST } from '@/features/hosts/types'
 
 /**
@@ -16,8 +17,8 @@ import { LOCAL_HOST } from '@/features/hosts/types'
 export interface ProjectListTransport {
   /** `hostId`'s projects, each tagged with that host. */
   read: (hostId: string) => Promise<Project[]>
-  /** The local daemon's `/v0/projects` frames; returns the unsubscribe. */
-  subscribe: (onFrame: (frame: unknown) => void) => () => void
+  /** `hostId`'s `/v0/projects` frames; returns the unsubscribe. */
+  subscribe: (hostId: string, onFrame: (frame: unknown) => void) => () => void
 }
 
 let transport: ProjectListTransport | null = null
@@ -64,21 +65,19 @@ function byOrder(a: Project, b: Project): number {
 
 /**
  * One `/v0/projects` frame — a complete ProjectDTO, or a `status: 'deleted'`
- * tombstone — folded into the list. Every project write broadcasts every row
+ * tombstone — folded into `hostId`'s rows. Every project write broadcasts every row
  * it changes, so the frames are the list and never need a re-read. A wire frame
- * names no host, so it takes its socket's; an imported Project keeps its own.
+ * names no host: it is the host of the socket it came on, whatever it says.
  */
-function mergeProjectFrame(
-  list: Project[],
-  frame: unknown,
-  socketHostId: string,
-): Project[] | undefined {
+function mergeProjectFrame(list: Project[], frame: unknown, hostId: string): Project[] | undefined {
   if (!frame || typeof frame !== 'object') return undefined
   const { status, ...fields } = frame as Partial<Project> & { id?: unknown; status?: string }
   if (typeof fields.id !== 'string') return undefined
-  const project = { ...fields, hostId: fields.hostId ?? socketHostId } as Project
-  const index = list.findIndex((p) => p.id === project.id)
-  if (status === 'deleted') return index === -1 ? list : list.filter((p) => p.id !== project.id)
+  const project = { ...fields, hostId } as Project
+  const index = list.findIndex((p) => p.id === project.id && p.hostId === hostId)
+  if (status === 'deleted') return index === -1 ? list : list.filter((_, i) => i !== index)
+  // A late frame from a host removed meanwhile: nothing could route the row it would add.
+  if (hostId !== LOCAL_HOST.id && !isConfigured(hostId)) return list
   if (index !== -1 && JSON.stringify(list[index]) === JSON.stringify(project)) return list
   const next = index === -1 ? [...list, project] : list.map((p, i) => (i === index ? project : p))
   return next.sort(byOrder)
@@ -93,6 +92,14 @@ class HostRows {
   constructor(
     readonly hostId: string,
     readonly rows: Project[],
+  ) {}
+}
+
+/** A frame from `hostId`'s own stream, or a project just created there: that host's row. */
+class HostFrame {
+  constructor(
+    readonly hostId: string,
+    readonly frame: unknown,
   ) {}
 }
 
@@ -120,6 +127,9 @@ function withHeldRemoteRows(local: Project[], held: Project[] | undefined): Proj
 /** Per host, the newest read issued: an older answer that lands later is dropped. */
 const hostReads = new Map<string, number>()
 
+/** Per host, the frames each of its reads in flight has not seen: its answer may predate them. */
+const unseenByReads = new Map<string, Set<unknown[]>>()
+
 /**
  * Reads one paired host's projects and merges them in. A host that does not answer
  * keeps the rows it has: whether it is down is the prober's to say, not this read's.
@@ -127,11 +137,34 @@ const hostReads = new Map<string, number>()
 async function readHostRows(hostId: string): Promise<void> {
   const issued = (hostReads.get(hostId) ?? 0) + 1
   hostReads.set(hostId, issued)
-  const rows = await connected()
-    .read(hostId)
-    .catch(() => null)
-  if (rows === null || hostReads.get(hostId) !== issued) return
-  await useProjectDataStore.getState().applyDelta(new HostRows(hostId, rows))
+  const unseen: unknown[] = []
+  const reads = unseenByReads.get(hostId) ?? new Set<unknown[]>()
+  reads.add(unseen)
+  unseenByReads.set(hostId, reads)
+  try {
+    const rows = await connected()
+      .read(hostId)
+      .catch(() => null)
+    if (rows === null || hostReads.get(hostId) !== issued) return
+    const current = unseen.reduce<Project[]>(
+      (list, frame) => mergeProjectFrame(list, frame, hostId) ?? list,
+      rows,
+    )
+    await useProjectDataStore.getState().applyDelta(new HostRows(hostId, current))
+  } finally {
+    reads.delete(unseen)
+    if (reads.size === 0) unseenByReads.delete(hostId)
+  }
+}
+
+function onHostFrame(hostId: string, frame: unknown): void {
+  // What the stream missed while it was down can only be read back, and only from that host.
+  if (isReconnectSentinel(frame)) {
+    void readHostRows(hostId)
+    return
+  }
+  for (const unseen of unseenByReads.get(hostId) ?? []) unseen.push(frame)
+  void useProjectDataStore.getState().applyDelta(new HostFrame(hostId, frame))
 }
 
 function upHostIds(): string[] {
@@ -157,19 +190,23 @@ export const useProjectDataStore = create<LoadableSlice<Project[], []>>()((set, 
       return withHeldRemoteRows(local, dataOf(get().data))
     },
     cacheKey: () => CACHE_KEY,
-    subscribe: (onFrame) => connected().subscribe(onFrame),
+    subscribe: (onFrame) => connected().subscribe(LOCAL_HOST.id, onFrame),
     mergeFrame: (list, frame) => {
+      if (frame instanceof HostFrame) return mergeProjectFrame(list, frame.frame, frame.hostId)
       if (!(frame instanceof HostRows)) return mergeProjectFrame(list, frame, LOCAL_HOST.id)
       return isConfigured(frame.hostId) ? withHostRows(list, frame.hostId, frame.rows) : list
     },
   })(set, get)
   return {
     ...slice,
-    // Live: the local daemon's frames, and each paired host's rows whenever it comes up
-    // (at boot every host is still unknown when the list is first read).
+    // Live: the local daemon's frames, and each paired host's own while it is up — read
+    // afresh each time it comes up (at boot every host is unknown when the list is read).
     startSync: () => {
       const stopFrames = slice.startSync()
-      const stopHosts = onHostUp((hostId) => void readHostRows(hostId))
+      const stopHosts = whileHostUp((hostId) => {
+        void readHostRows(hostId)
+        return connected().subscribe(hostId, (frame) => onHostFrame(hostId, frame))
+      })
       return () => {
         stopFrames()
         stopHosts()
@@ -203,5 +240,5 @@ export const useProjectStore = create<ProjectState>()(
  * import may still be on its way.
  */
 export function importProjectAndSync(project: Project): void {
-  void useProjectDataStore.getState().applyDelta(project)
+  void useProjectDataStore.getState().applyDelta(new HostFrame(project.hostId, project))
 }

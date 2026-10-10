@@ -1,9 +1,10 @@
 import { apiFetch } from '@/lib/api'
 import { hostsRegistered } from '@/features/hosts/lib/host-registration'
 import { LOCAL_HOST } from '@/features/hosts/types'
+import { qualify } from '@/lib/host-path'
 import type { ProjectListTransport } from '@/lib/store/projects'
 import type { Project } from '@/lib/types'
-import { wsManager } from '@/lib/ws/manager'
+import { subscribeGuarded } from '@/lib/ws/subscribe-guarded'
 
 // A paired host's list merges in whenever it answers, so nothing waits on it; the bound
 // only keeps a black-holed host from holding a request for the proxy's five minutes.
@@ -38,5 +39,6 @@ function tagged(rows: Row[] | undefined, hostId: string): Project[] {
 /** The project list's reads and stream, over the app's transport. */
 export const projectListTransport: ProjectListTransport = {
   read,
-  subscribe: (onFrame) => wsManager.subscribe('/v0/projects', onFrame),
+  // Called from a host's status change: a channel that cannot open must not throw into it.
+  subscribe: (hostId, onFrame) => subscribeGuarded(() => qualify(hostId, '/v0/projects'), onFrame),
 }

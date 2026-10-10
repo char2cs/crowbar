@@ -19,16 +19,24 @@ vi.mock('@/lib/ws/manager', () => {
   throw new Error('the project list store loaded the socket manager')
 })
 
-// The list's transport, faked: each host's read and the local `/v0/projects` socket.
+// The list's transport, faked: each host's read and its `/v0/projects` socket.
 const readLocal = vi.fn<() => Promise<Project[]>>()
 const readRemote = vi.fn<(hostId: string) => Promise<Project[]>>()
-const socket = { emit: null as null | ((frame: unknown) => void) }
+const sockets = new Map<string, (frame: unknown) => void>()
+const socketLog: string[] = []
+const socket = {
+  get emit() {
+    return sockets.get('local') ?? null
+  },
+}
 const transport = {
   read: (hostId: string) => (hostId === 'local' ? readLocal() : readRemote(hostId)),
-  subscribe: (cb: (frame: unknown) => void) => {
-    socket.emit = cb
+  subscribe: (hostId: string, cb: (frame: unknown) => void) => {
+    sockets.set(hostId, cb)
+    socketLog.push(`open ${hostId}`)
     return () => {
-      socket.emit = null
+      sockets.delete(hostId)
+      socketLog.push(`close ${hostId}`)
     }
   },
 }
@@ -78,6 +86,8 @@ beforeEach(() => {
   resetDB()
   readLocal.mockReset()
   readRemote.mockReset()
+  sockets.clear()
+  socketLog.length = 0
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
 })
 afterEach(() => {
@@ -292,6 +302,68 @@ describe('a paired host coming up', () => {
     await vi.waitFor(() => expect(list.store.getState().data.status).toBe('success'))
 
     expect(list.held()).toEqual(['a@local'])
+    list.stop()
+  })
+
+  it('streams a host only while it is up, and on its return re-reads that host alone', async () => {
+    const list = await liveList('h1', 'h2')
+    readRemote.mockImplementation(async (hostId) => [remoteRow(`r-${hostId}`, hostId)])
+    list.status('h2', 'up')
+    list.status('h1', 'up')
+    await vi.waitFor(() => expect(list.held()).toEqual(['a@local', 'r-h1@h1', 'r-h2@h2']))
+    list.status('h1', 'down')
+    expect(socketLog).toEqual(['open local', 'open h2', 'open h1', 'close h1'])
+    readRemote.mockClear()
+
+    list.status('h1', 'up')
+
+    expect(socketLog.at(-1)).toBe('open h1')
+    await vi.waitFor(() => expect(readRemote.mock.calls).toEqual([['h1']]))
+    expect(readLocal).toHaveBeenCalledTimes(1)
+    list.stop()
+  })
+
+  // Task 8 gap D7: a wire frame names no host, so the socket it came on is its host.
+  it('tags a host stream’s frame with that host: never Local, never over a Local row', async () => {
+    const list = await liveList('h1')
+    readRemote.mockResolvedValue([])
+    list.status('h1', 'up')
+    await vi.waitFor(() => expect(readRemote).toHaveBeenCalledTimes(1))
+    await settle()
+
+    sockets.get('h1')!({ ...wire('a', 0, 'The remote twin'), hostId: 'local' })
+
+    expect(list.held()).toEqual(['a@local', 'a@h1'])
+    expect(dataOf(list.store.getState().data)?.[0].name).toBe('A')
+    sockets.get('h1')!({ id: 'a', status: 'deleted' })
+    expect(list.held()).toEqual(['a@local'])
+    list.stop()
+  })
+
+  it('a reconnected host stream re-reads that host alone', async () => {
+    const list = await liveList('h1')
+    readRemote.mockResolvedValue([remoteRow('r-h1', 'h1')])
+    list.status('h1', 'up')
+    await vi.waitFor(() => expect(readRemote).toHaveBeenCalledTimes(1))
+
+    sockets.get('h1')!({ reconnected: true })
+
+    await vi.waitFor(() => expect(readRemote).toHaveBeenCalledTimes(2))
+    await settle()
+    expect(readLocal).toHaveBeenCalledTimes(1)
+    list.stop()
+  })
+
+  it('a frame that lands while its host is read is not rolled back by the older answer', async () => {
+    const list = await liveList('h1')
+    const answer = parkedRemote()
+    list.status('h1', 'up')
+    await vi.waitFor(() => expect(readRemote).toHaveBeenCalledTimes(1))
+
+    sockets.get('h1')!(wire('r-new', 1))
+    answer([remoteRow('r-h1', 'h1')])
+
+    await vi.waitFor(() => expect(list.held()).toEqual(['a@local', 'r-h1@h1', 'r-new@h1']))
     list.stop()
   })
 })

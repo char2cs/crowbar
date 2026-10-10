@@ -406,6 +406,7 @@ describe('importProjectAndSync', () => {
   })
 
   it('an imported project keeps the host it was created on', async () => {
+    pair('h1')
     serve({ [API_BASE]: () => answer([]) })
     await useProjectDataStore.getState().fetch()
     importProjectAndSync({ ...mockProject, id: 'p-remote', hostId: 'h1' })
