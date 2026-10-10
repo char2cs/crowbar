@@ -8,7 +8,8 @@ import {
 import { chatTerminalsBaseForWorkspace, terminalsBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { toast } from '@/features/window/stores/toast-store'
 import { hostIdForWorkspace, isHostResolved, subscribeHostResolution } from '@/lib/host-resolve'
-import { onHostConnected } from '@/lib/ws/connection-store'
+import { reportHostFailure } from '@/features/hosts/lib/host-failures'
+import { onHostUp } from '@/features/hosts/lib/host-status'
 import { resolveTerminalSession } from '../components/resolve-terminal-connection'
 import { saveReconnect } from '../lib/terminal-reconnect-map'
 import { useTerminalStore } from '../stores/terminal-store'
@@ -108,7 +109,13 @@ export function useTerminalAttachment({
           workspaceId: wsId,
           tabSessionId: sessionId,
           storeConnectionId: existing?.connectionId,
-          listLiveSessions: () => terminalListLive(base),
+          // A host that cannot be reached says so now, not at its next probe: that probe's
+          // 'up' is then the return this terminal waits for.
+          listLiveSessions: () =>
+            terminalListLive(base).catch((err: unknown) => {
+              reportHostFailure(err)
+              throw err
+            }),
           createTerminal: () => terminalCreate(base, existing?.profileId),
           attachOnly,
         })
@@ -132,9 +139,9 @@ export function useTerminalAttachment({
         return
       }
       // Could not ask the daemon (it is restarting, say): not a death. Stay detached
-      // and ask again the moment the app's own streams report THIS terminal's host back.
+      // and ask again the moment THIS terminal's host is up again.
       if ('unknown' in result) {
-        stopWatching = onHostConnected(hostId, () => void attach())
+        stopWatching = onHostUp(hostId, () => void attach())
         return
       }
       if ('gone' in result) {

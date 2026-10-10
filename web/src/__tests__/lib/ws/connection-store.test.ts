@@ -31,13 +31,8 @@ class MockWebSocket {
 vi.stubGlobal('WebSocket', MockWebSocket)
 
 const { createWSManager } = await import('@/lib/ws/manager')
-const {
-  useConnectionStore,
-  resetConnectionState,
-  reportChannelState,
-  reportChannelGone,
-  onHostConnected,
-} = await import('@/lib/ws/connection-store')
+const { useConnectionStore, resetConnectionState, reportChannelState, reportChannelGone } =
+  await import('@/lib/ws/connection-store')
 
 const status = () => useConnectionStore.getState().status
 
@@ -117,8 +112,10 @@ describe('connection store', () => {
   })
 })
 
-describe('connection state per host', () => {
-  const remoteStatus = (hostId: string) => useConnectionStore.getState().hostStatus[hostId]
+// Whether a remote host's live streams are open: not whether the host is up (its status
+// says that), but whether what the app shows of it is being kept current.
+describe('live streams per remote host', () => {
+  const remoteStatus = (hostId: string) => useConnectionStore.getState().hostStreams[hostId]
 
   it('tracks a remote host’s channels apart from the local backend', () => {
     reportChannelState('crowbar://h1/v0/projects', true, 'h1')
@@ -138,41 +135,5 @@ describe('connection state per host', () => {
     reportChannelState('crowbar://h2/v0/projects', false, 'h2')
     expect(remoteStatus('h1')).toBe('connected')
     expect(remoteStatus('h2')).toBe('disconnected')
-  })
-
-  describe('onHostConnected', () => {
-    it('fires when a remote host’s channels come back, not for another host or the local one', () => {
-      const connected = vi.fn()
-      onHostConnected('h1', connected)
-      reportChannelState('crowbar://h1/v0/projects', false, 'h1')
-
-      reportChannelState('/v0/projects', true, 'local')
-      reportChannelState('crowbar://h2/v0/projects', true, 'h2')
-      expect(connected).not.toHaveBeenCalled()
-
-      reportChannelState('crowbar://h1/v0/projects', true, 'h1')
-      expect(connected).toHaveBeenCalledTimes(1)
-
-      // Already connected: a second open channel is not another return.
-      reportChannelState('crowbar://h1/v0/chats', true, 'h1')
-      expect(connected).toHaveBeenCalledTimes(1)
-    })
-
-    it('fires on the local backend’s return for the local host', () => {
-      const connected = vi.fn()
-      onHostConnected('local', connected)
-      reportChannelState('crowbar://h1/v0/projects', true, 'h1')
-      expect(connected).not.toHaveBeenCalled()
-
-      reportChannelState('/v0/projects', true, 'local')
-      expect(connected).toHaveBeenCalledTimes(1)
-    })
-
-    it('stops when unsubscribed', () => {
-      const connected = vi.fn()
-      onHostConnected('h1', connected)()
-      reportChannelState('crowbar://h1/v0/projects', true, 'h1')
-      expect(connected).not.toHaveBeenCalled()
-    })
   })
 })

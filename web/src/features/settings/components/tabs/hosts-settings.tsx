@@ -2,7 +2,7 @@ import { Plus, Trash } from '@phosphor-icons/react'
 import { useCallback, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { AddHostDialog } from '@/features/hosts/components/add-host-dialog'
-import { useHostStatus } from '@/features/hosts/hooks/use-host-status'
+import { useHostStatus, useHostStreamsClosed } from '@/features/hosts/hooks/use-host-status'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { LOCAL_HOST, type Host, type HostStatus } from '@/features/hosts/types'
 import { forgetHostToken, unregisterRemoteHost } from '@/lib/crowbar-bridge'
@@ -18,6 +18,9 @@ const STATUS_LABEL: Record<HostStatus, string> = {
   'needs-repair': 'Needs repair — reconnect this host',
 }
 
+// It answers, but nothing it shows is kept current: its streams were refused or dropped.
+const NO_LIVE_STREAM_LABEL = 'Online — no live stream'
+
 const STATUS_DOT_CLASS: Record<HostStatus, string> = {
   unknown: 'border border-muted-foreground/50 bg-transparent',
   probing: 'border border-muted-foreground/50 bg-transparent',
@@ -26,15 +29,17 @@ const STATUS_DOT_CLASS: Record<HostStatus, string> = {
   'needs-repair': 'bg-warning',
 }
 
-/** A row's live dot: the status the app's own prober last recorded for the host. */
+/** A row's live dot: the host's status as the app last learned it. */
 function HostStatusDot({ hostId }: { hostId: string }) {
   const status = useHostStatus(hostId)
+  const streamsClosed = useHostStreamsClosed(hostId)
+  const label = status === 'up' && streamsClosed ? NO_LIVE_STREAM_LABEL : STATUS_LABEL[status]
 
   return (
     <span
       data-testid={`host-status-${hostId}`}
-      aria-label={STATUS_LABEL[status]}
-      title={STATUS_LABEL[status]}
+      aria-label={label}
+      title={label}
       className={cn('size-2 shrink-0 rounded-full', STATUS_DOT_CLASS[status])}
     />
   )

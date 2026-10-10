@@ -21,6 +21,8 @@ const bridge = vi.hoisted(() => {
     // One gate per terminalCreate call, in call order; a call past the list uses createGate.
     createGates: [] as Promise<void>[],
     failList: false,
+    /** What the next failing list throws; a plain error by default. */
+    listError: null as unknown,
     refuseOpen: false,
     created: 0,
     openTerminal: (sessionId: string, base: string) => {
@@ -54,7 +56,7 @@ vi.mock('@/lib/crowbar-bridge', () => ({
     bridge.listCalls.push(base)
     if (bridge.failList) {
       bridge.failList = false
-      throw new Error('daemon unreachable')
+      throw bridge.listError ?? new Error('daemon unreachable')
     }
     if (bridge.listGate) await bridge.listGate
     return [...bridge.live]
@@ -71,14 +73,18 @@ import { useTerminalAttachment } from '@/features/terminal/hooks/use-terminal-at
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { toast } from '@/features/window/stores/toast-store'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { idle, success } from '@/lib/loadable'
-import { useProjectDataStore } from '@/lib/store/projects'
 import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import {
   reportChannelState,
   resetConnectionState,
   useConnectionStore,
 } from '@/lib/ws/connection-store'
+import {
+  destroyHostRuntime,
+  getHostRuntime,
+  getOrCreateHostRuntime,
+} from '@/features/hosts/stores/host-runtime-registry'
+import { proxyMarkerError } from '@/lib/api/errors'
 import {
   loadProjects,
   pairRemoteHost,
@@ -110,12 +116,12 @@ beforeEach(() => {
   bridge.createGate = null
   bridge.createGates = []
   bridge.failList = false
+  bridge.listError = null
   bridge.refuseOpen = false
   bridge.created = 0
   bridge.live = ['pty-1', 'pty-A', 'pty-B', 'pty-C']
   localStorage.clear()
-  useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-  useProjectDataStore.setState({ data: idle() })
+  resetHostWorld()
   useTerminalStore.setState({ sessions: new Map() })
   __resetWorkspaceScopesForTest()
   recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-1', owningChatId: 'chat-1' })
@@ -148,23 +154,8 @@ describe('useTerminalAttachment', () => {
   // A sibling chat is no workspace's recorded owner, so only the workspace it is
   // opened in can say which daemon its PTY lives on.
   it('addresses an explicit chat on the host of the workspace it is opened in', async () => {
-    useHostConfigStore.getState().addHost({
-      id: 'host-1',
-      name: 'host-1',
-      endpoint: 'host-1.example:3737',
-      pairedFingerprint: 'SHA256:aaaa',
-      clientId: 'client-1',
-    })
-    const project = (id: string, hostId: string) => ({
-      id,
-      name: id,
-      path: `/work/${id}`,
-      lastActivity: new Date(0),
-      hostId,
-    })
-    useProjectDataStore.setState({
-      data: success([project('p', 'host-1'), project('p-l', 'local')]),
-    })
+    pairRemoteHost('host-1')
+    loadProjects(projectOn('p', 'host-1'), projectOn('p-l', 'local'))
     recordWorkspaceScope({
       projectId: 'p-l',
       repoId: 'r',
@@ -374,6 +365,7 @@ describe('on an install that has paired a remote host', () => {
   })
 
   afterEach(() => {
+    destroyHostRuntime('host-1')
     resetHostWorld()
     vi.restoreAllMocks()
   })
@@ -411,18 +403,24 @@ describe('on an install that has paired a remote host', () => {
     expect(result.current.connection).toBe(bridge.opened[1])
   })
 
-  it('retries a remote terminal when ITS host reconnects, not when the local daemon does', async () => {
+  // One source says a remote host is back: its status. A failed list marks a host still read
+  // as up down, so its next up is the return; channels opening re-attach nothing.
+  it('retries a remote terminal when ITS host is up again, and on nothing else', async () => {
     loadProjects(projectOn('p-remote', 'host-1'))
+    getOrCreateHostRuntime('host-1').getState().setStatus('up')
     bridge.failList = true
+    bridge.listError = proxyMarkerError('host-unreachable', 'host-1')
     const { result, onEnded, settle } = render({ workspaceId: 'ws-remote' })
     await settle()
     expect(bridge.listCalls).toEqual([REMOTE_TERMINALS])
+    expect(getHostRuntime('host-1')?.getState().status).toBe('down')
 
     act(() => reportChannelState('/v0/projects', true, 'local'))
+    act(() => reportChannelState(REMOTE_CHANNEL, true, 'host-1'))
     await settle()
     expect(bridge.listCalls).toHaveLength(1)
 
-    act(() => reportChannelState(REMOTE_CHANNEL, true, 'host-1'))
+    act(() => getHostRuntime('host-1')!.getState().setStatus('up'))
     await settle()
     expect(bridge.opened.map((c) => c.base)).toEqual([REMOTE_TERMINALS])
     expect(result.current.connection).toBe(bridge.opened[0])
@@ -431,12 +429,14 @@ describe('on an install that has paired a remote host', () => {
 
   it('retries a local terminal when the local daemon reconnects, not when a remote host does', async () => {
     loadProjects(projectOn('p-local', 'local'))
+    getOrCreateHostRuntime('host-1').getState().setStatus('down')
     bridge.failList = true
     const { settle } = render({ workspaceId: 'ws-local' })
     await settle()
     expect(bridge.listCalls).toHaveLength(1)
 
     act(() => reportChannelState(REMOTE_CHANNEL, true, 'host-1'))
+    act(() => getHostRuntime('host-1')!.getState().setStatus('up'))
     await settle()
     expect(bridge.listCalls).toHaveLength(1)
 

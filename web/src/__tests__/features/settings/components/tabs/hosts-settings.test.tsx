@@ -27,7 +27,11 @@ import {
   getHostRuntime,
   getOrCreateHostRuntime,
 } from '@/features/hosts/stores/host-runtime-registry'
-import { useConnectionStore } from '@/lib/ws/connection-store'
+import {
+  reportChannelState,
+  resetConnectionState,
+  useConnectionStore,
+} from '@/lib/ws/connection-store'
 import { HostsSettings } from '@/features/settings/components/tabs/hosts-settings'
 import { startHostStatus } from '@/features/hosts/lib/host-status'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
@@ -83,6 +87,32 @@ describe('HostsSettings', () => {
       'Needs repair — reconnect this host',
     )
     expect(apiFetch).not.toHaveBeenCalled()
+    destroyHostRuntime('h1')
+  })
+
+  // A host can answer its probe while every stream asked of it is refused: what it shows is
+  // then not kept current, and the row says so.
+  it('says when a host answers but none of its live streams is open', () => {
+    useHostConfigStore.setState({
+      hosts: [{ id: 'h1', name: 'homelab', endpoint: 'x', pairedFingerprint: 'x', clientId: 'c1' }],
+    })
+    getOrCreateHostRuntime('h1').getState().setStatus('up')
+    render(<HostsSettings />)
+    const dot = screen.getByTestId('host-status-h1')
+    expect(dot).toHaveAttribute('aria-label', 'Online')
+
+    act(() => reportChannelState('crowbar://h1/v0/projects', false, 'h1'))
+    expect(dot).toHaveAttribute('aria-label', 'Online — no live stream')
+
+    act(() => reportChannelState('crowbar://h1/v0/projects', true, 'h1'))
+    expect(dot).toHaveAttribute('aria-label', 'Online')
+
+    act(() => {
+      reportChannelState('crowbar://h1/v0/projects', false, 'h1')
+      getHostRuntime('h1')!.getState().setStatus('down')
+    })
+    expect(dot).toHaveAttribute('aria-label', 'Offline')
+    resetConnectionState()
     destroyHostRuntime('h1')
   })
 

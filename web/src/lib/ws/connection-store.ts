@@ -11,8 +11,9 @@ export type ConnectionStatus = 'idle' | 'connected' | 'disconnected'
 interface ConnectionState {
   /** The local daemon's channels only. */
   status: ConnectionStatus
-  /** The same derivation per remote host, from that host's own channels. */
-  hostStatus: Record<string, ConnectionStatus>
+  /** The same derivation per remote host, from that host's own channels: whether what the
+   *  app shows of it is kept live — not whether it is up, which its status says. */
+  hostStreams: Record<string, ConnectionStatus>
   /** Why a remote host's stream last failed to open, by endpoint. Cleared when
    *  that stream opens or is torn down. */
   failures: Record<string, ApiError>
@@ -34,37 +35,22 @@ function deriveStatus(hostId: string): ConnectionStatus {
 
 export const useConnectionStore = create<ConnectionState>(() => ({
   status: 'idle',
-  hostStatus: {},
+  hostStreams: {},
   failures: {},
 }))
 
 function publish(): void {
   const state = useConnectionStore.getState()
   const status = deriveStatus(LOCAL_HOST.id)
-  const hostStatus: Record<string, ConnectionStatus> = {}
+  const hostStreams: Record<string, ConnectionStatus> = {}
   for (const { hostId } of channelStates.values()) {
-    if (hostId !== LOCAL_HOST.id) hostStatus[hostId] = deriveStatus(hostId)
+    if (hostId !== LOCAL_HOST.id) hostStreams[hostId] = deriveStatus(hostId)
   }
   const sameHosts =
-    Object.keys(hostStatus).length === Object.keys(state.hostStatus).length &&
-    Object.entries(hostStatus).every(([hostId, next]) => state.hostStatus[hostId] === next)
+    Object.keys(hostStreams).length === Object.keys(state.hostStreams).length &&
+    Object.entries(hostStreams).every(([hostId, next]) => state.hostStreams[hostId] === next)
   if (state.status === status && sameHosts) return
-  useConnectionStore.setState({ status, hostStatus })
-}
-
-function statusOfHost(state: ConnectionState, hostId: string): ConnectionStatus {
-  return hostId === LOCAL_HOST.id ? state.status : (state.hostStatus[hostId] ?? 'idle')
-}
-
-/** Calls `onConnected` each time `hostId`'s channels go from none open to one open
- *  ('local' follows the local backend). A caller that could not reach the host
- *  waits on this for the app's own streams to report it back. */
-export function onHostConnected(hostId: string, onConnected: () => void): () => void {
-  return useConnectionStore.subscribe((state, prev) => {
-    if (statusOfHost(state, hostId) === 'connected' && statusOfHost(prev, hostId) !== 'connected') {
-      onConnected()
-    }
-  })
+  useConnectionStore.setState({ status, hostStreams })
 }
 
 function setFailure(endpoint: string, failure: ApiError | undefined): void {
@@ -78,7 +64,7 @@ function setFailure(endpoint: string, failure: ApiError | undefined): void {
 
 /** Called by the wsManager when a channel's socket opens or closes. Only the
  *  local daemon's channels speak for `status`: a remote host going up or down
- *  must neither hide nor cause a local outage, so its own lands in `hostStatus`. */
+ *  must neither hide nor cause a local outage, so its own lands in `hostStreams`. */
 export function reportChannelState(endpoint: string, open: boolean, hostId: string): void {
   if (open) setFailure(endpoint, undefined)
   channelStates.set(endpoint, { hostId, open })
@@ -100,5 +86,5 @@ export function reportChannelGone(endpoint: string): void {
 /** Test helper: clear all tracked channels. */
 export function resetConnectionState(): void {
   channelStates.clear()
-  useConnectionStore.setState({ status: 'idle', hostStatus: {}, failures: {} })
+  useConnectionStore.setState({ status: 'idle', hostStreams: {}, failures: {} })
 }
