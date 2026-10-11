@@ -116,35 +116,6 @@ beforeEach(() => {
 })
 
 describe('CreateSpacePanel — daemon picker', () => {
-  // Local by default; a saved host is listed whatever its state, and choosable only while up:
-  // down, or refusing this client until paired again, it is listed but disabled.
-  it.each([
-    ['up', false],
-    ['down', true],
-    ['needs-repair', true],
-  ] as const)('defaults to Local and lists a %s host, disabled: %s', async (status, disabled) => {
-    useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'office-vm' })] })
-    getOrCreateHostRuntime('h1').getState().setStatus(status)
-    const user = userEvent.setup()
-    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
-    expect(daemonTrigger()).toHaveTextContent('Local')
-
-    await user.click(daemonTrigger())
-    const option = await screen.findByRole('option', { name: /office-vm/i })
-    expect(option.getAttribute('aria-disabled') === 'true').toBe(disabled)
-  })
-
-  it("Local's dot says what the app knows of the local daemon, like every other host dot", async () => {
-    useConnectionStore.setState({ status: 'disconnected' })
-    const user = userEvent.setup()
-    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
-
-    expect(within(daemonTrigger()).getByTestId('host-status-local')).toHaveAccessibleName('Offline')
-    await user.click(daemonTrigger())
-    const local = await screen.findByRole('option', { name: /local/i })
-    expect(within(local).getByTestId('host-status-local')).toHaveAccessibleName('Offline')
-  })
-
   it('a selected host that stops answering cannot be created on until it answers again', async () => {
     useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'homelab-prox' })] })
     getOrCreateHostRuntime('h1').getState().setStatus('up')
@@ -162,41 +133,6 @@ describe('CreateSpacePanel — daemon picker', () => {
 
     act(() => getOrCreateHostRuntime('h1').getState().setStatus('up'))
     expect(create).toBeEnabled()
-  })
-
-  it('picking "+ Add a host…" opens AddHostDialog and leaves the daemon selection on Local', async () => {
-    const user = userEvent.setup()
-    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
-
-    await selectDaemonOption(user, /add a host/i)
-
-    expect(screen.getByRole('dialog', { name: /add remote host/i })).toBeInTheDocument()
-
-    // The dialog hides the rest of the page from the accessibility tree while
-    // open — close it before checking the trigger never picked up the
-    // sentinel value as a real selection.
-    await user.click(screen.getByRole('button', { name: /cancel/i }))
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    expect(daemonTrigger()).toHaveTextContent('Local')
-  })
-
-  // What was typed or confirmed in one add-host attempt must not carry into the next, even one
-  // picked while the last is still closing.
-  it('opens a fresh add-host attempt each time it is picked, before the last has closed', async () => {
-    const user = userEvent.setup()
-    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
-    await selectDaemonOption(user, /add a host/i)
-    const option = screen.getByRole('option', { name: /add a host/i, hidden: true })
-    const hostName = () => within(screen.getByRole('dialog')).getByLabelText(/name/i)
-    fireEvent.change(hostName(), { target: { value: 'homelab' } })
-
-    act(() => {
-      fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
-      fireEvent.pointerDown(option, { pointerType: 'mouse', buttons: 1 })
-      fireEvent.click(option)
-    })
-
-    expect(hostName()).toHaveValue('')
   })
 
   it("creating a space passes the selected daemon's hostId to the create call", async () => {

@@ -1,15 +1,8 @@
 import { useId, useState } from 'react'
-import { FolderOpen, HardDrives } from '@phosphor-icons/react'
+import { FolderOpen } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectPrimitive,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { CreateSpaceDaemonRow } from './create-space-daemon-row'
 import { ProjectIconMark } from './project-icon-mark'
 import { IconPopover, type StagedIcon } from './icon-popover'
 import { putIconFile } from './icon-upload'
@@ -21,47 +14,11 @@ import { awaitEntity } from '@/lib/ws/await-entity'
 import { qualify } from '@/lib/host-path'
 import { projectBaseOnHost } from '@/lib/project-url'
 import { projectFromDTO } from '@/lib/store/project-from-dto'
-import { AddHostDialog } from '@/features/hosts/components/add-host-dialog'
-import {
-  HostStatusDot,
-  hostDotLabel,
-  hostIsUnreachable,
-} from '@/features/hosts/components/host-status-dot'
+import { hostIsUnreachable } from '@/features/hosts/components/host-status-dot'
 import { useDaemonFolderPicker } from '@/features/hosts/hooks/use-daemon-folder-picker'
-import { useHostDotState, useHostView } from '@/features/hosts/hooks/use-host-status'
-import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { LOCAL_HOST, type Host } from '@/features/hosts/types'
+import { useHostView } from '@/features/hosts/hooks/use-host-status'
+import { LOCAL_HOST } from '@/features/hosts/types'
 import type { Project, ProjectDTO } from '@/lib/types'
-
-// A trailing pick that opens AddHostDialog rather than ever becoming the
-// selected daemon — `handleHostIdChange` intercepts it before `setHostId`.
-const ADD_HOST_VALUE = '__add-host__'
-
-/** One selectable saved host, disabled (not hidden) while nothing can be asked of it — a
- *  project can't be created on a host that can't currently be reached. */
-function DaemonOption({ host }: { host: Host }) {
-  const state = useHostDotState(host.id)
-  return (
-    <SelectItem value={host.id} disabled={hostIsUnreachable(state)}>
-      <span className="flex items-center gap-2">
-        <HostStatusDot hostId={host.id} state={state} />
-        {host.name}
-      </span>
-    </SelectItem>
-  )
-}
-
-function LocalOption() {
-  const state = useHostDotState(LOCAL_HOST.id)
-  return (
-    <SelectItem value={LOCAL_HOST.id}>
-      <span className="flex items-center gap-2">
-        <HostStatusDot hostId={LOCAL_HOST.id} state={state} />
-        {LOCAL_HOST.name}
-      </span>
-    </SelectItem>
-  )
-}
 
 interface CreateSpacePanelProps {
   onCreate: (project: Project) => void
@@ -128,10 +85,6 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
   const [stagedIcon, setStagedIcon] = useState<StagedIcon | null>(null)
   const [loading, setLoading] = useState(false)
   const [hostId, setHostId] = useState('local')
-  const [addHostOpen, setAddHostOpen] = useState(false)
-  // Each opening is a new attempt, even one made while the last is still closing.
-  const [addHostAttempt, setAddHostAttempt] = useState(0)
-  const hosts = useHostConfigStore((s) => s.hosts)
 
   const stagedEmoji = stagedIcon?.kind === 'emoji' ? stagedIcon.emoji : undefined
   const stagedIconUrl =
@@ -149,16 +102,6 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
     hostId !== LOCAL_HOST.id && !selectedPath && selectedHost.name !== undefined
       ? `Choose a folder on ${selectedHost.name} first.`
       : null
-
-  function handleHostIdChange(value: string | null) {
-    if (!value) return
-    if (value === ADD_HOST_VALUE) {
-      setAddHostAttempt((n) => n + 1)
-      setAddHostOpen(true)
-      return
-    }
-    setHostId(value)
-  }
 
   async function handleCreate() {
     if (!selectedPath || loading || hostRefusesCreate) return
@@ -234,35 +177,7 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
         />
       </div>
 
-      <div className="flex items-center justify-between rounded-lg border border-border bg-muted px-3 py-2.5 text-sm">
-        <span className="flex items-center gap-2 text-foreground">
-          <HardDrives size={16} className="text-muted-foreground" />
-          Daemon
-        </span>
-        <Select value={hostId} onValueChange={handleHostIdChange}>
-          <SelectTrigger
-            aria-label="Daemon"
-            size="sm"
-            className="h-auto min-h-0 w-auto min-w-0 border-none bg-transparent px-0 text-muted-foreground shadow-none before:hidden hover:bg-transparent"
-          >
-            <SelectValue>
-              <span className="flex items-center gap-1.5">
-                <HostStatusDot hostId={hostId} state={selectedHost.state} />
-                {selectedHost.name ?? hostDotLabel(selectedHost.state)}
-              </span>
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <LocalOption />
-            {hosts.length > 0 && <SelectPrimitive.Separator className="my-1 h-px bg-border" />}
-            {hosts.map((host) => (
-              <DaemonOption key={host.id} host={host} />
-            ))}
-            <SelectPrimitive.Separator className="my-1 h-px bg-border" />
-            <SelectItem value={ADD_HOST_VALUE}>+ Add a host…</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      <CreateSpaceDaemonRow hostId={hostId} onHostIdChange={setHostId} />
 
       <button
         type="button"
@@ -279,7 +194,6 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
       </button>
 
       {folderPicker.picker}
-      <AddHostDialog key={addHostAttempt} open={addHostOpen} onOpenChange={setAddHostOpen} />
 
       <div className="flex-1" />
 
