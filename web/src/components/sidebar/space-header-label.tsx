@@ -17,9 +17,12 @@ export function SpaceHeaderLabel({ project }: { project: Project }) {
     <span
       data-testid="space-header-label"
       data-unreachable={dimmed || undefined}
-      className="flex min-w-0 flex-1 flex-col justify-center gap-px data-unreachable:opacity-55"
+      className="group/label flex min-w-0 flex-1 flex-col justify-center gap-px"
     >
-      <span className="truncate font-heading text-[15px]/[1.15] font-normal">{project.name}</span>
+      {/* Only the name dims, less in light than in dark: every line keeps WCAG AA contrast. */}
+      <span className="truncate font-heading text-[15px]/[1.15] font-normal group-data-unreachable/label:opacity-70 dark:group-data-unreachable/label:opacity-55">
+        {project.name}
+      </span>
       <span className="flex min-w-0 items-center gap-1.25 text-[11px]/[13px] font-normal text-muted-foreground">
         <HostStatusDot hostId={project.hostId} state={state} className="size-1.5" />
         <span className="truncate">{hostName ?? hostDotLabel(state)}</span>
