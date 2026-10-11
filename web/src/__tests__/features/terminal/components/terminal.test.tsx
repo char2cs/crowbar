@@ -9,6 +9,8 @@ const bridge = vi.hoisted(() => ({
   opened: [] as Array<{ sessionId: string; base: string }>,
   live: [] as string[],
   unreachable: false,
+  /** The host's terminal list never answers: an attach still under way. */
+  hung: false,
 }))
 
 vi.mock('@/lib/crowbar-bridge', () => ({
@@ -27,6 +29,7 @@ vi.mock('@/lib/crowbar-bridge', () => ({
     }
   },
   terminalListLive: async () => {
+    if (bridge.hung) return new Promise<string[]>(() => {})
     if (bridge.unreachable) throw new Error('cannot reach the host')
     return [...bridge.live]
   },
@@ -37,6 +40,7 @@ import { XtermTerminal, type TerminalFocusHandle } from '@/features/terminal/com
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { hostDotLabel } from '@/features/hosts/components/host-status-dot'
 import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { reportChannelState, resetConnectionState } from '@/lib/ws/connection-store'
 import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import {
   loadProjects,
@@ -49,6 +53,7 @@ beforeEach(() => {
   bridge.opened.length = 0
   bridge.live = []
   bridge.unreachable = false
+  bridge.hung = false
   localStorage.clear()
   useTerminalStore.setState({ sessions: new Map() })
   __resetWorkspaceScopesForTest()
@@ -135,7 +140,7 @@ describe('XtermTerminal', () => {
 
   // A detached terminal is a blank xterm: while its host is the reason, it says so.
   describe('while its host is not there', () => {
-    function remoteWorkspace(status: 'down' | 'needs-repair') {
+    function remoteWorkspace(status: 'up' | 'down' | 'needs-repair') {
       pairRemoteHost('h1', 'Build box')
       loadProjects(projectOn('p', 'h1'))
       recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-r', owningChatId: 'chat-r' })
@@ -178,6 +183,32 @@ describe('XtermTerminal', () => {
       expect(screen.getByRole('status').textContent).toBe(
         `Build box is not available right now${hostDotLabel('needs-repair')}`,
       )
+    })
+
+    // Attaching says nothing about the host: no "Waiting for…" may flash over it.
+    it('says nothing while a terminal on an up host is attaching', async () => {
+      remoteWorkspace('up')
+      bridge.unreachable = false
+      bridge.hung = true
+      await mount({ workspaceId: 'ws-r' })
+
+      expect(bridge.opened).toHaveLength(0)
+      expect(screen.queryByRole('status')).toBeNull()
+    })
+
+    // It answers its probes, but refuses this terminal's stream: no blank, unexplained xterm.
+    it('says a host with no live stream cannot attach this terminal', async () => {
+      remoteWorkspace('up')
+      reportChannelState('crowbar://h1/v0/projects', false, 'h1')
+      try {
+        await mount({ workspaceId: 'ws-r' })
+
+        expect(screen.getByRole('status').textContent).toBe(
+          'Build box: no live stream — this terminal can’t attach',
+        )
+      } finally {
+        resetConnectionState()
+      }
     })
 
     it('says it waits while the workspace’s host is not known yet', async () => {
