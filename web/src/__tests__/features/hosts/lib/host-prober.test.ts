@@ -177,6 +177,26 @@ describe('startHostProber', () => {
     expect(statusOf('h1')).toBe('down')
   })
 
+  // A host back up has recovered: its next outage starts from the first step again.
+  it('restarts the backoff when a host that was down comes back', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    const probedAt: number[] = []
+    const sequence = [unreachable, unreachable, healthy, unreachable]
+    pairRemoteHost('h1')
+    answers = {
+      h1: () => {
+        probedAt.push(Date.now())
+        return (sequence[probedAt.length - 1] ?? unreachable)()
+      },
+    }
+    stop = startHostProber()
+
+    await vi.advanceTimersByTimeAsync(20_000)
+
+    const gaps = probedAt.slice(1).map((at, i) => at - probedAt[i])
+    expect(gaps).toEqual([1_000, 2_000, INTERVAL, 1_000])
+  })
+
   it('never overlaps two probes when a stream finds the host down mid-probe', async () => {
     pairRemoteHost('h1')
     answers = { h1: healthy }
