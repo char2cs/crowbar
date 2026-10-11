@@ -1,9 +1,12 @@
 import { Plus, Trash } from '@phosphor-icons/react'
 import { useCallback, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { primitiveConfirm } from '@/components/ui/primitive-dialog-service'
 import { AddHostDialog } from '@/features/hosts/components/add-host-dialog'
 import { HostStatusDot } from '@/features/hosts/components/host-status-dot'
 import { useHostDotState } from '@/features/hosts/hooks/use-host-status'
+import { hostFailureKind } from '@/features/hosts/lib/classify-host-failure'
+import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { LOCAL_HOST, type Host } from '@/features/hosts/types'
 import { forgetHostToken, unregisterRemoteHost } from '@/lib/crowbar-bridge'
@@ -12,24 +15,69 @@ import { toast } from '@/features/window/stores/toast-store'
 
 /**
  * Revoke order matters: the daemon's own `DELETE /v0/clients/:id`, dialed
- * over THAT host's own authed channel (hostId — never 'local'), must
- * succeed before any local cleanup. Getting this backwards would drop the
- * only credential able to ever revoke that client, leaving it authorized on
- * the daemon forever. A failure here is surfaced and stops immediately —
- * the local token/config row is left exactly as it was.
+ * over THAT host's own authed channel (hostId — never 'local'), goes before
+ * any local cleanup. Getting this backwards would drop the only credential
+ * able to ever revoke that client, leaving it authorized on the daemon forever.
  */
 async function revokeHost(host: Host): Promise<void> {
   try {
     await apiFetch(`/v0/clients/${host.clientId}`, { method: 'DELETE' }, undefined, host.id)
   } catch (err) {
-    toast.error(
-      `Could not revoke ${host.name}`,
-      err instanceof Error ? err.message : 'The host could not be reached.',
-    )
-    return
+    if (!(await mayRemoveUnrevoked(host, err))) return
   }
-  await unregisterRemoteHost(host.id)
-  await forgetHostToken(host.id)
+  await removeHere(host)
+}
+
+// A host that refuses this client already holds nothing it can use. One that cannot be asked
+// is the user's call: removing it here leaves its pairing valid there until revoked there.
+async function mayRemoveUnrevoked(host: Host, err: unknown): Promise<boolean> {
+  const kind = hostFailureKind(err)
+  if (kind === 'refused') {
+    toast.info(
+      `Removed ${host.name}`,
+      'Its pairing was already revoked or lost, so there was nothing left to revoke on it.',
+    )
+    return true
+  }
+  if (kind === 'unreachable') {
+    return primitiveConfirm(
+      `Crowbar couldn’t reach ${host.name} to revoke this computer’s access. Remove it from this app anyway? Its pairing stays valid on ${host.name} until it is revoked there.`,
+      { title: `Can’t reach ${host.name}`, confirmLabel: 'Remove anyway', cancelLabel: 'Keep it' },
+    )
+  }
+  if (kind === 'identity-changed') {
+    return primitiveConfirm(
+      `The host at ${host.endpoint} no longer presents the certificate you paired with, so Crowbar won’t send it anything — not even a revoke. Remove it from this app anyway? If the original host still exists, this computer’s pairing stays valid there until it is revoked there.`,
+      {
+        title: `${host.name}’s identity changed`,
+        confirmLabel: 'Remove anyway',
+        cancelLabel: 'Keep it',
+      },
+    )
+  }
+  toast.error(
+    `Could not revoke ${host.name}`,
+    actionErrorMessage(err, 'The host could not be reached.'),
+  )
+  return false
+}
+
+// The row goes whatever the cleanup says: a live row for a host that is revoked or given up on
+// is wrong. What could not be cleared is said, and logged for a bug report.
+async function removeHere(host: Host): Promise<void> {
+  const cleanup = await Promise.allSettled([
+    unregisterRemoteHost(host.id),
+    forgetHostToken(host.id),
+  ])
+  const failures = cleanup.flatMap((step) => (step.status === 'rejected' ? [step.reason] : []))
+  if (failures.length > 0) {
+    console.error(`removing ${host.name} left local state behind:`, ...failures)
+    const [first] = failures
+    toast.error(
+      `Removed ${host.name}, but couldn’t clear everything this app kept for it`,
+      first instanceof Error ? first.message : String(first),
+    )
+  }
   // Its rows, status, streams and provider list follow the removal (onHostRemoved).
   useHostConfigStore.getState().removeHost(host.id)
 }
