@@ -88,7 +88,8 @@ export async function upgradeWindowPaneLayout(layout: WorkspaceLayout): Promise<
  * chat listings of its view's project; drop a member only on a definitive
  * answer (the chat, or its whole project, is gone). A listing that fails
  * leaves its members unplaced for the next boot. No request when all placed.
- * A project waits for its host to resolve (the project list names it).
+ * A project waits for its host to resolve (the project list names it); each
+ * project is placed as it answers, never held for one still waiting.
  */
 export async function placeRestoredChatMembers(): Promise<void> {
   const { panes, views } = windowPaneStore.getState()
@@ -99,19 +100,21 @@ export async function placeRestoredChatMembers(): Promise<void> {
     const chats = byProject.get(projectId) ?? new Set<string>()
     byProject.set(projectId, chats.add(pane.chatId))
   }
+  await Promise.all(
+    [...byProject].map(([projectId, chatIds]) => placeProjectMembers(projectId, chatIds)),
+  )
+}
+
+async function placeProjectMembers(projectId: string, chatIds: ReadonlySet<string>): Promise<void> {
+  const found = await findProjectChats(projectId, chatIds)
+  if (found === undefined) return
   const placed = new Map<string, string>()
   const gone = new Set<string>()
-  await Promise.all(
-    [...byProject].map(async ([projectId, chatIds]) => {
-      const found = await findProjectChats(projectId, chatIds)
-      if (found === undefined) return
-      for (const chatId of chatIds) {
-        const workspaceId = found?.get(chatId)
-        if (workspaceId) placed.set(chatId, workspaceId)
-        else if (!found?.has(chatId)) gone.add(chatId)
-      }
-    }),
-  )
+  for (const chatId of chatIds) {
+    const workspaceId = found?.get(chatId)
+    if (workspaceId) placed.set(chatId, workspaceId)
+    else if (!found?.has(chatId)) gone.add(chatId)
+  }
   if (placed.size > 0 || gone.size > 0) {
     windowPaneStore.getState().paneActions.placeRestoredMembers(placed, gone)
   }

@@ -63,7 +63,7 @@ import { createLeaf, getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { failed, idle, success } from '@/lib/loadable'
+import { failed, idle, loading, success } from '@/lib/loadable'
 import { useProjectDataStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/lib/store/sidebar'
@@ -634,6 +634,41 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
       expect(fetchHomeChatsMock).not.toHaveBeenCalled()
       expect(windowPaneStore.getState().panes['pane-a'].workspaceId).toBeNull()
       expect(windowPaneStore.getState().viewOrder).toEqual(['view-a'])
+    })
+
+    it('places each project’s members as it answers, while another still waits for its host', async () => {
+      await seedBaseLayout({
+        panes: {
+          'pane-a': basePane('pane-a', 'view-a', { chatId: 'chat-a' }),
+          'pane-b': basePane('pane-b', 'view-b', { chatId: 'chat-b' }),
+          'bottom-pane': basePane('bottom-pane', null),
+        },
+        views: {
+          'view-a': { id: 'view-a', projectId: P, layout: createLeaf('pane-a') },
+          'view-b': { id: 'view-b', projectId: 'p2', layout: createLeaf('pane-b') },
+        },
+        viewOrder: ['view-a', 'view-b'],
+        activeViewId: 'view-a',
+        activePaneId: 'pane-a',
+      })
+      await hydrateWindowPaneLayout()
+      fetchHomeChatsMock.mockImplementation(async (projectId) => [
+        { id: `chat-${projectId === P ? 'a' : 'b'}`, workspaceId: `ws-${projectId}` } as ChatDTO,
+      ])
+      pairHost('host-2')
+      // The cached list places P; p2's row comes only with the list's first read.
+      useProjectDataStore.setState({ data: loading(success([row('local')])) })
+
+      const placing = placeRestoredChatMembers()
+      await flush()
+      expect(windowPaneStore.getState().panes['pane-a'].workspaceId).toBe(`ws-${P}`)
+      expect(windowPaneStore.getState().panes['pane-b'].workspaceId).toBeNull()
+
+      useProjectDataStore.setState({
+        data: success([row('local'), { ...row('host-2'), id: 'p2' }]),
+      })
+      await placing
+      expect(windowPaneStore.getState().panes['pane-b'].workspaceId).toBe('ws-p2')
     })
 
     it('keeps waiting while the list read has not succeeded', async () => {
