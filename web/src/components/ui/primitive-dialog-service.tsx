@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -175,11 +176,17 @@ function DialogHost({ request, onSettled }: { request: DialogRequest; onSettled:
       <DialogContent initialFocus={request.kind === 'confirm' ? cancelRef : undefined}>
         <DialogHeader>
           <DialogTitle>{request.title}</DialogTitle>
+          {/* A div, not Base UI's <p>: the message is a ReactNode and may hold block elements. */}
+          {request.kind !== 'prompt' && (
+            <DialogDescription render={<div />} className="whitespace-pre-wrap">
+              {request.message}
+            </DialogDescription>
+          )}
         </DialogHeader>
 
-        {request.kind === 'prompt' ? (
+        {request.kind === 'prompt' && (
           <form
-            className="flex flex-col gap-2"
+            className="flex flex-col gap-2 px-6 pb-6"
             onSubmit={(event) => {
               event.preventDefault()
               confirm()
@@ -195,8 +202,6 @@ function DialogHost({ request, onSettled }: { request: DialogRequest; onSettled:
               />
             </label>
           </form>
-        ) : (
-          <div className="whitespace-pre-wrap text-xs text-foreground">{request.message}</div>
         )}
 
         <DialogFooter>

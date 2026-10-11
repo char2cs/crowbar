@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   PrimitiveDialogProvider,
+  primitiveAlert,
   primitiveConfirm,
   primitivePrompt,
 } from '@/components/ui/primitive-dialog-service'
@@ -97,6 +98,39 @@ describe('primitive dialog service', () => {
     fireEvent.click(screen.getByRole('button', { name: 'OK' }))
 
     await expect(answered).resolves.toBe('feature')
+  })
+
+  // The header carries the dialog's gutter: a message outside it touches the dialog's edge.
+  it('a confirm shows its message as the dialog description, inside the header', async () => {
+    renderProvider()
+    const message = "To use it again you'll need to run crowbar pair on it."
+    void primitiveConfirm(message, { title: 'Revoke docker lab?' })
+
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Revoke docker lab?',
+      description: message,
+    })
+
+    expect(within(dialog).getByText(message).closest('[data-slot="dialog-header"]')).not.toBeNull()
+  })
+
+  it('an alert shows its message as the dialog description, inside the header', async () => {
+    renderProvider()
+    const message = 'Failed to open file a.txt: ENOENT'
+    void primitiveAlert(message, 'Open File')
+
+    const dialog = await screen.findByRole('dialog', { name: 'Open File', description: message })
+
+    expect(within(dialog).getByText(message).closest('[data-slot="dialog-header"]')).not.toBeNull()
+  })
+
+  it('a prompt labels its input with the message', async () => {
+    renderProvider()
+    void primitivePrompt('Enter a terminal name:', { defaultValue: 'main' })
+
+    expect(await screen.findByRole('textbox', { name: 'Enter a terminal name:' })).toHaveValue(
+      'main',
+    )
   })
 
   it('shows queued dialogs one at a time, in order', async () => {

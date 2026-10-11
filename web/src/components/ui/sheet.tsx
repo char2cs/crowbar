@@ -20,6 +20,8 @@ function SheetBackdrop({ className, ...props }: SheetPrimitive.Backdrop.Props): 
         className,
       )}
       data-slot="sheet-backdrop"
+      // Base UI skips the backdrop of a nested dialog; every modal here dims what is behind it.
+      forceRender
       {...props}
     />
   )
