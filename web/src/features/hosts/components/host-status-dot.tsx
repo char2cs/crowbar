@@ -6,7 +6,7 @@ const LABEL: Record<HostDotState, string> = {
   probing: 'Checking…',
   up: 'Online',
   down: 'Offline',
-  'needs-repair': 'Needs repair — reconnect this host',
+  'needs-repair': 'Needs pairing again',
   'no-live-stream': 'Online — no live stream',
   'not-available': 'Host not available',
 }

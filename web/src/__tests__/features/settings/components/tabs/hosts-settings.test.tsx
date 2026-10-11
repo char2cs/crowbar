@@ -88,30 +88,28 @@ beforeEach(() => {
 })
 
 describe('HostsSettings', () => {
-  it('lists Local plus every saved host, each with a live status dot', () => {
+  // The app probes every host for its whole life; this tab lists Local and every saved host with
+  // what it found, in words as well as by the dot's colour.
+  it('lists each host with its status as the app last saw it, and probes nothing itself', () => {
     useHostConfigStore.setState({ hosts: [homelab] })
-    render(<HostsSettings />)
-    expect(screen.getByText('Local')).toBeInTheDocument()
-    expect(screen.getByText('homelab')).toBeInTheDocument()
-    expect(screen.getByTestId('host-status-local')).toBeInTheDocument()
-    expect(screen.getByTestId('host-status-h1')).toBeInTheDocument()
-  })
-
-  // The app probes every host for its whole life; this tab only shows what it found.
-  it('shows each host’s status as the app last saw it, and probes nothing itself', () => {
-    useHostConfigStore.setState({ hosts: [homelab] })
-    getOrCreateHostRuntime('h1').getState().setStatus('down')
     useConnectionStore.setState({ status: 'connected' })
-
     render(<HostsSettings />)
+    const row = (id: string) =>
+      screen.getByTestId(`host-status-${id}`).closest('[data-testid="host-row"]')!
 
-    expect(screen.getByTestId('host-status-h1')).toHaveAttribute('aria-label', 'Offline')
-    expect(screen.getByTestId('host-status-local')).toHaveAttribute('aria-label', 'Online')
-    act(() => getOrCreateHostRuntime('h1').getState().setStatus('needs-repair'))
-    expect(screen.getByTestId('host-status-h1')).toHaveAttribute(
-      'aria-label',
-      'Needs repair — reconnect this host',
-    )
+    for (const [status, words] of [
+      ['down', 'Offline'],
+      ['needs-repair', 'Needs pairing again'],
+      ['unknown', 'Status unknown'],
+      ['probing', 'Checking…'],
+    ] as const) {
+      act(() => getOrCreateHostRuntime('h1').getState().setStatus(status))
+      expect(screen.getByTestId('host-status-h1')).toHaveAttribute('aria-label', words)
+      expect(row('h1')).toHaveTextContent(`homelab10.0.0.2:3737 · ${words}`)
+    }
+    act(() => getOrCreateHostRuntime('h1').getState().setStatus('up'))
+    expect(row('h1')).toHaveTextContent(/^homelab10\.0\.0\.2:3737$/)
+    expect(row('local')).toHaveTextContent(/^LocalThis computer$/)
     expect(apiFetch).not.toHaveBeenCalled()
     destroyHostRuntime('h1')
   })
@@ -125,22 +123,22 @@ describe('HostsSettings', () => {
     const dot = screen.getByTestId('host-status-h1')
     const row = dot.closest('[data-testid="host-row"]')!
     expect(dot).toHaveAttribute('aria-label', 'Online')
-    expect(row).not.toHaveTextContent('No live stream')
+    expect(row).not.toHaveTextContent('no live stream')
 
     act(() => reportChannelState('crowbar://h1/v0/projects', false, 'h1'))
     expect(dot).toHaveAttribute('aria-label', 'Online — no live stream')
-    expect(row).toHaveTextContent('No live stream')
+    expect(row).toHaveTextContent('10.0.0.2:3737 · Online — no live stream')
 
     act(() => reportChannelState('crowbar://h1/v0/projects', true, 'h1'))
     expect(dot).toHaveAttribute('aria-label', 'Online')
-    expect(row).not.toHaveTextContent('No live stream')
+    expect(row).not.toHaveTextContent('no live stream')
 
     act(() => {
       reportChannelState('crowbar://h1/v0/projects', false, 'h1')
       getHostRuntime('h1')!.getState().setStatus('down')
     })
     expect(dot).toHaveAttribute('aria-label', 'Offline')
-    expect(row).not.toHaveTextContent('No live stream')
+    expect(row).not.toHaveTextContent('no live stream')
     resetConnectionState()
     destroyHostRuntime('h1')
   })

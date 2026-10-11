@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { primitiveConfirm } from '@/components/ui/primitive-dialog-service'
 import { AddHostDialog } from '@/features/hosts/components/add-host-dialog'
-import { HostStatusDot } from '@/features/hosts/components/host-status-dot'
+import { HostStatusDot, hostDotLabel } from '@/features/hosts/components/host-status-dot'
 import { useHostDotState } from '@/features/hosts/hooks/use-host-status'
 import { hostFailureKind } from '@/features/hosts/lib/classify-host-failure'
 import { actionErrorMessage, carriesOnlyStatus } from '@/features/hosts/lib/host-failure-notice'
@@ -142,7 +142,7 @@ function HostRow({ host, isLocal, revoking, onRevoke }: HostRowProps) {
         <div className="ui-font ui-text-sm truncate text-foreground">{host.name}</div>
         <div className="ui-font ui-text-sm truncate text-muted-foreground">
           {isLocal ? 'This computer' : host.endpoint}
-          {state === 'no-live-stream' && ' · No live stream'}
+          {state !== 'up' && ` · ${hostDotLabel(state)}`}
         </div>
       </div>
       {!isLocal && (

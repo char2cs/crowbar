@@ -53,7 +53,7 @@ describe('SpaceHeaderLabel', () => {
 
   it.each([
     ['down', 'Offline'],
-    ['needs-repair', 'Needs repair — reconnect this host'],
+    ['needs-repair', 'Needs pairing again'],
   ] as const)('a host that is %s keeps its name, says so and dims the row', (status, text) => {
     remoteProject(status)
 
