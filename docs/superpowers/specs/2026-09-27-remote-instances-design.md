@@ -80,9 +80,10 @@ quiver's pairing-code UX**:
   a cert — closer to quiver's actual mental model, while closing the
   plaintext hole quiver itself leaves open (unacceptable for a daemon
   reachable over the open internet, which this one plausibly is).
-- **CLI, on the daemon's own host only:** `crowbar pair --name <label>`
-  mints a single-use, 6-digit, 5-minute-TTL pairing code and prints it
-  alongside the daemon's TLS fingerprint. This is the *only* way to
+- **CLI, on the daemon's own host only:** `crowbar pair` mints a
+  single-use, 6-digit, 5-minute-TTL pairing code and prints it alongside
+  the daemon's TLS fingerprint. It takes no name: the client names itself
+  when it redeems the code. This is the *only* way to
   generate a code — matches quiver exactly, and matches the user's
   explicit choice: pairing a new client always requires CLI access to the
   host, with no in-app "invite another device" shortcut even from an
@@ -93,7 +94,10 @@ quiver's pairing-code UX**:
      presented fingerprint for the user to confirm against what the CLI
      printed (trust-on-first-connect).
   2. 6-digit code entry → redeemed over that now-encrypted channel
-     (rate-limited server-side) → daemon returns a bearer token once.
+     (rate-limited server-side: 5 redeems a minute per source address,
+     taken from the TCP peer and never from a forwarded header; ten wrong
+     guesses from anywhere burn the outstanding code, so a brute force gets
+     ten tries in a million per code) → daemon returns a bearer token once.
 - **Persisted:** `{id, name, endpoint, pinnedFingerprint}` in the hosts
   config list; the raw token goes only to the OS keychain.
 - **Every later call:** TLS handshake re-checked against the pinned
@@ -103,7 +107,8 @@ quiver's pairing-code UX**:
 - **Health:** per-host probe against `/v0/health` (interval + on-demand)
   drives up/down/unreachable, surfaced in Settings.
 - **Revoke:** Settings → Hosts → Revoke marks the device permanently
-  revoked server-side and drops the local keychain entry/config row. A
+  revoked server-side — closing every stream (terminal, logs, workspace)
+  its token already opened — and drops the local keychain entry/config row. A
   401 mid-session on an otherwise-"up" host marks it needs-repair rather
   than silently retrying — re-pairing still requires CLI access regardless.
 
