@@ -24,6 +24,7 @@ const bridge = vi.hoisted(() => {
     /** What the next failing list throws; a plain error by default. */
     listError: null as unknown,
     refuseOpen: false,
+    createError: null as unknown,
     created: 0,
     openTerminal: (sessionId: string, base: string) => {
       if (bridge.refuseOpen) throw new Error('remote hosts need the desktop app')
@@ -62,6 +63,7 @@ vi.mock('@/lib/crowbar-bridge', () => ({
     return [...bridge.live]
   },
   terminalCreate: async () => {
+    if (bridge.createError) throw bridge.createError
     const id = `fresh-${++bridge.created}`
     const gate = bridge.createGates.shift() ?? bridge.createGate
     if (gate) await gate
@@ -118,6 +120,7 @@ beforeEach(() => {
   bridge.failList = false
   bridge.listError = null
   bridge.refuseOpen = false
+  bridge.createError = null
   bridge.created = 0
   bridge.live = ['pty-1', 'pty-A', 'pty-B', 'pty-C']
   localStorage.clear()
@@ -142,16 +145,7 @@ describe('useTerminalAttachment', () => {
     expect(useTerminalStore.getState().getSession('tab-1')?.connectionId).toBe('fresh-1')
   })
 
-  it('an explicit chatId owns the PTY: the chat base is used, whatever the workspace', async () => {
-    const { settle } = render({ sessionId: 'pty-1', chatId: 'chat-9', attachOnly: true })
-    await settle()
-    expect(bridge.opened[0]).toMatchObject({
-      sessionId: 'pty-1',
-      base: '/v0/chats/chat-9/terminals',
-    })
-  })
-
-  // A sibling chat is no workspace's recorded owner, so only the workspace it is
+  // An explicit chat owns the PTY; a sibling chat is no workspace's recorded owner, so only the workspace it is
   // opened in can say which daemon its PTY lives on.
   it('addresses an explicit chat on the host of the workspace it is opened in', async () => {
     pairRemoteHost('host-1')
@@ -222,8 +216,11 @@ describe('useTerminalAttachment', () => {
     expect(onEnded).toHaveBeenCalledExactlyOnceWith('agent')
   })
 
-  it('a swap closes the outgoing transport and attaches the incoming session', async () => {
-    const { rerender, props, result, settle } = render({ sessionId: 'pty-A', attachOnly: true })
+  it('a swap closes the outgoing transport and attaches the incoming one; unmount detaches', async () => {
+    const { rerender, props, result, settle, unmount } = render({
+      sessionId: 'pty-A',
+      attachOnly: true,
+    })
     await settle()
     const a = bridge.opened[0]
     rerender({ ...props, sessionId: 'pty-B' })
@@ -231,6 +228,8 @@ describe('useTerminalAttachment', () => {
     expect(a.close).toHaveBeenCalled()
     expect(bridge.opened.map((c) => c.sessionId)).toEqual(['pty-A', 'pty-B'])
     expect(result.current.connection).toBe(bridge.opened[1])
+    unmount() // the transport closes; the PTY is left running
+    expect(bridge.opened[1].close).toHaveBeenCalled()
   })
 
   it('racing swaps converge on the LATEST session; a superseded attempt opens nothing', async () => {
@@ -245,13 +244,6 @@ describe('useTerminalAttachment', () => {
     await settle()
     expect(bridge.opened.map((c) => c.sessionId)).toEqual(['pty-C'])
     expect(result.current.connection?.sessionId).toBe('pty-C')
-  })
-
-  it('unmount detaches: the transport closes, the PTY is left running', async () => {
-    const { unmount, settle } = render()
-    await settle()
-    unmount()
-    expect(bridge.opened[0].close).toHaveBeenCalled()
   })
 
   // The daemon made the PTY the moment it answered; forgetting it because the view left
@@ -511,16 +503,24 @@ describe('on an install that has paired a remote host', () => {
     expect(result.current.connection).toBe(bridge.opened[0])
   })
 
-  it('tells the user instead of letting a refused transport escape the attach', async () => {
-    loadProjects(projectOn('p-remote', 'host-1'))
-    bridge.refuseOpen = true
+  // A host's own failure names the host; anything else keeps its old words.
+  const unreachable = proxyMarkerError('host-unreachable', 'host-1')
+  it.each([
+    ['a refused transport', 'ws-remote', 'open', 'Terminal unavailable'],
+    ['a refused local create', 'ws-local', new Error('busy'), 'Terminal unavailable'],
+    ['a remote create its host failed', 'ws-remote', unreachable, 'Couldn’t reach host-1'],
+  ])('tells the user of %s, never letting it escape the attach', async (_, wsId, fail, title) => {
+    loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
+    useTerminalStore.setState({ sessions: new Map() })
+    if (fail === 'open') bridge.refuseOpen = true
+    else bridge.createError = fail
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const toasted = vi.spyOn(toast, 'error').mockReturnValue('')
-    const { result, settle } = render({ workspaceId: 'ws-remote' })
+    const { result, settle } = render({ workspaceId: wsId })
 
     await settle()
 
-    expect(toasted).toHaveBeenCalledWith('Terminal unavailable', expect.any(String))
+    expect(toasted).toHaveBeenCalledExactlyOnceWith(title, expect.any(String))
     expect(result.current.connection).toBeNull()
   })
 })
