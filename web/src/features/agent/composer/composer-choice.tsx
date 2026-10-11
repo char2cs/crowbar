@@ -21,6 +21,7 @@ import {
 } from '@/features/agent/lib/agent-activity'
 import { PermissionLevelSwitcher } from '@/features/agent/composer/permission-level-switcher'
 import { ApiError } from '@/lib/api'
+import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 
 // The verbs an elicitation is answered with. They are the PROVIDER's own words
 // (MCP's accept / decline / cancel) and they go in `optionIds` — a prompt with no
@@ -179,7 +180,8 @@ export function ComposerChoice({
     } catch (failure) {
       update({
         sending: false,
-        error: answerErrorMessage(failure),
+        // A 409 or 400 shows as a Terminal button (gateClosed/unsupportedHere), never as this text.
+        error: actionErrorMessage(failure, String(failure)),
         gateClosed: failure instanceof ApiError && failure.status === 409,
         unsupportedHere: failure instanceof ApiError && failure.status === 400,
       })
@@ -584,16 +586,4 @@ function prettySchema(schema: string): string {
  *  a question that is no longer on the prompt can never be sent. */
 function flatPicks(questions: AgentChoiceQuestion[], picked: Record<string, string[]>): string[] {
   return questions.flatMap((question) => picked[question.id] ?? [])
-}
-
-/**
- * Say what the server said, in the user's terms.
- *
- * A 409 (the gate closed) or a 400 (the shape isn't one this relay accepts) are
- * ordinary outcomes, not bugs to explain — `gateClosed`/`unsupportedHere` already
- * turn those into a Terminal button instead of a retry, so this text is never
- * shown for either. What's left here is whatever else actually went wrong.
- */
-function answerErrorMessage(failure: unknown): string {
-  return failure instanceof Error ? failure.message : String(failure)
 }
