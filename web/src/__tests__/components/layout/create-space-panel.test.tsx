@@ -46,6 +46,7 @@ import { CreateSpacePanel } from '@/components/layout/create-space-panel'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { useConnectionStore } from '@/lib/ws/connection-store'
+import { toast } from '@/features/window/stores/toast-store'
 
 function host(over: Partial<Host> & { id: string; name: string }): Host {
   return { endpoint: 'x', pairedFingerprint: 'x', clientId: 'c', ...over }
@@ -115,32 +116,22 @@ beforeEach(() => {
 })
 
 describe('CreateSpacePanel — daemon picker', () => {
-  it('defaults the daemon selection to Local', () => {
-    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
-    expect(daemonTrigger()).toHaveTextContent('Local')
-  })
-
-  it('lists a saved, reachable host as selectable', async () => {
-    useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'homelab-prox' })] })
-    getOrCreateHostRuntime('h1').getState().setStatus('up')
-    const user = userEvent.setup()
-    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
-
-    await user.click(daemonTrigger())
-    const option = await screen.findByRole('option', { name: /homelab-prox/i })
-    expect(option).not.toHaveAttribute('aria-disabled', 'true')
-  })
-
-  // Down, or refusing this client until paired again: listed, not hidden, but not choosable.
-  it.each(['down', 'needs-repair'] as const)('lists a %s host but disabled', async (status) => {
+  // Local by default; a saved host is listed whatever its state, and choosable only while up:
+  // down, or refusing this client until paired again, it is listed but disabled.
+  it.each([
+    ['up', false],
+    ['down', true],
+    ['needs-repair', true],
+  ] as const)('defaults to Local and lists a %s host, disabled: %s', async (status, disabled) => {
     useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'office-vm' })] })
     getOrCreateHostRuntime('h1').getState().setStatus(status)
     const user = userEvent.setup()
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
+    expect(daemonTrigger()).toHaveTextContent('Local')
 
     await user.click(daemonTrigger())
     const option = await screen.findByRole('option', { name: /office-vm/i })
-    expect(option).toHaveAttribute('aria-disabled', 'true')
+    expect(option.getAttribute('aria-disabled') === 'true').toBe(disabled)
   })
 
   it("Local's dot says what the app knows of the local daemon, like every other host dot", async () => {
@@ -365,9 +356,9 @@ describe('CreateSpacePanel — folder', () => {
 const PICKED = '/Users/me/icon.png'
 
 /** Stages an image picked on this computer, as the desktop app does (OS dialog, asset URL). */
-async function stageImage(user: ReturnType<typeof userEvent.setup>) {
+async function stageImage(user: ReturnType<typeof userEvent.setup>, size = 6) {
   Object.assign(window, { __TAURI_INTERNALS__: {} })
-  const image = Object.assign(new Response(null, { headers: { 'content-length': '6' } }), {
+  const image = Object.assign(new Response(null, { headers: { 'content-length': `${size}` } }), {
     blob: async () => new Blob(['pixels'], { type: 'image/png' }),
   })
   vi.stubGlobal(
@@ -383,6 +374,7 @@ async function stageImage(user: ReturnType<typeof userEvent.setup>) {
 afterEach(() => {
   delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 // The DTO is stamped with the host it was created on, so it must be read from that host's
@@ -462,7 +454,28 @@ describe('CreateSpacePanel — provenance of the created project', () => {
     expect(body).not.toContain(PICKED)
   })
 
-  it('still hands the local daemon a staged image’s path, exactly as before', async () => {
+  it('says why a staged image could not be sent to the host: its only clue', async () => {
+    const toastError = vi.spyOn(toast, 'error')
+    const user = userEvent.setup()
+    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
+    await stageImage(user, 3 * 1024 * 1024)
+    await createOn(user)
+
+    emit('crowbar://h1/v0/projects', projectDTO({ id: 'remote-id', path: '/tmp/shared' }))
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledExactlyOnceWith(
+        'Failed to set icon',
+        'icon.png is larger than the 2 MB icon limit',
+      ),
+    )
+  })
+
+  it('still hands the local daemon a staged image’s path, and says its failure as before', async () => {
+    const toastError = vi.spyOn(toast, 'error')
+    vi.mocked(api.apiFetch).mockImplementation((url, ...rest) =>
+      url.endsWith('/icon') ? Promise.reject(new Error('too big')) : serveApi(url, ...rest),
+    )
     const user = userEvent.setup()
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     await stageImage(user)
@@ -481,6 +494,7 @@ describe('CreateSpacePanel — provenance of the created project', () => {
         body: JSON.stringify({ path: PICKED }),
       }),
     )
+    await waitFor(() => expect(toastError).toHaveBeenCalledExactlyOnceWith('Failed to set icon'))
     expect(fetch).not.toHaveBeenCalled()
   })
 })

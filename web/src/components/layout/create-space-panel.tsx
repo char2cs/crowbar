@@ -99,6 +99,14 @@ async function applyStagedIcon(
   }
 }
 
+// Local keeps its one line; for a remote host the reason (too large, outside what this app may
+// read) is the user's only clue.
+function toastIconFailure(hostId: string, err: unknown): void {
+  if (toastHostFailure(err)) return
+  if (hostId === LOCAL_HOST.id) toast.error('Failed to set icon')
+  else toast.error('Failed to set icon', err instanceof Error ? err.message : String(err))
+}
+
 /**
  * Zen Browser's "Create a Space" sheet (spec: same name+icon row, a
  * folder-picker row standing in for its Profile row, no theme row), reached
@@ -174,7 +182,7 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
         try {
           await applyStagedIcon(hostId, dto.id, stagedIcon)
         } catch (err) {
-          if (!toastHostFailure(err)) toast.error('Failed to set icon')
+          toastIconFailure(hostId, err)
         }
       }
       onCreate(projectFromDTO(dto, hostId))
