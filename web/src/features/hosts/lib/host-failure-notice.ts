@@ -79,8 +79,9 @@ function describeHostFailure(err: unknown): HostFailureNotice | null {
   }
 }
 
-// The proxy's own plain-text answers (a 500/502/504) carry no daemon words, only the status.
-function carriesOnlyStatus(err: ApiError): boolean {
+/** Whether `err` is the proxy's own plain-text answer (a 401/500/502/504): no daemon words,
+ *  only the status. */
+export function carriesOnlyStatus(err: ApiError): boolean {
   return err.message === String(err.status) || err.message.startsWith(`${err.status} `)
 }
 
