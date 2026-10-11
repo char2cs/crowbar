@@ -61,44 +61,48 @@ describe('an action that failed because of its remote host', () => {
 
     const [message, description] = toastError.mock.calls[0] as [string, string]
     expect(message).toBe('Studio Mac’s identity changed — it must be paired again')
-    expect(description).toMatch(/refused to connect/)
-    expect(description).toMatch(/`crowbar pair`/)
+    expect(description).toMatch(/refused to connect.*run crowbar pair on that host/)
     expect(statusOf('h1')).toBe('needs-repair')
   })
 
+  // A 401 comes from the host refusing this client, or from the proxy holding no credential.
   it('says a host that refuses this computer (401) must be paired again, and records it so', () => {
     toastHostFailure(refused())
 
     const [message, description] = toastError.mock.calls[0] as [string, string]
     expect(message).toBe('Studio Mac needs to be paired again')
-    expect(description).toMatch(/`crowbar pair`/)
+    expect(description).toMatch(/doesn’t accept this computer’s credential, or none is stored/)
     expect(statusOf('h1')).toBe('needs-repair')
   })
 
-  it('never shows the host’s id, whatever went wrong', () => {
+  // The proxy's own plain-text 500/502/504 carry no daemon words: only a status.
+  it('says an answer that carries only a status is the host’s error, never a bare number', () => {
+    expect(toastHostFailure(new ApiError('502 ', 502, undefined, undefined, 'h1'))).toBe(true)
+    expect(
+      actionErrorMessage(new ApiError('504 Gateway Timeout', 504, undefined, undefined, 'h1'), 'x'),
+    ).toBe('Studio Mac returned an error (504)')
+
+    expect(toastError.mock.calls[0]?.[0]).toBe('Studio Mac returned an error (502)')
+    expect(statusOf('h1')).toBe('up')
+  })
+
+  it('never shows the host’s id or markup, whatever went wrong', () => {
     for (const err of [unreachable(), changed(), refused()]) toastHostFailure(err)
 
-    expect(toasted()).not.toMatch(/\bh1\b/)
+    expect(toasted()).not.toMatch(/\bh1\b|`/)
   })
 
-  it('says a host removed meanwhile is not available, not that it is unreachable', () => {
-    useHostConfigStore.getState().removeHost('h1')
-    destroyHostRuntime('h1')
-
-    toastHostFailure(unreachable())
-
-    expect(toastError).toHaveBeenCalledExactlyOnceWith(
-      'This project’s host is not available',
-      'Check the host in Settings → Hosts.',
-    )
-    expect(getHostRuntime('h1')).toBeUndefined()
-  })
-
-  it('says a request for a host this app has no pairing for is not available, never its id', () => {
-    toastHostFailure(new HostNotConfiguredError('h9'))
+  it.each([
+    [
+      'a host removed meanwhile',
+      () => (useHostConfigStore.getState().removeHost('h1'), unreachable()),
+    ],
+    ['a request for a host this app holds no pairing for', () => new HostNotConfiguredError('h9')],
+  ])('says %s is no longer paired, never its id', (_name, failure) => {
+    toastHostFailure(failure())
 
     expect(toasted()).toBe(
-      'This project’s host is not available | Check the host in Settings → Hosts.',
+      'That host is no longer paired with this computer | Pair it again in Settings → Hosts to use it.',
     )
   })
 })
@@ -168,6 +172,7 @@ describe('an action whose host could not be told yet', () => {
 describe('a failure that is not its host’s', () => {
   it.each([
     ['a local daemon’s 401', new ApiError('nope', 401, undefined, undefined, 'local')],
+    ['a local bare status', new ApiError('502 ', 502, undefined, undefined, 'local')],
     [
       'a remote daemon’s own error',
       new ApiError('branch is taken', 409, undefined, undefined, 'h1'),

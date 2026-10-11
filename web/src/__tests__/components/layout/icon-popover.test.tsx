@@ -209,7 +209,7 @@ describe('IconPopover — an upload to a remote entity sends the image, never it
     expect(apiFetch.mock.calls[0]?.[0]).toBe(`${REMOTE}/icon`)
   })
 
-  it('says the host is not available, and sends it nothing, when it was removed meanwhile', async () => {
+  it('says the host is no longer paired, and sends it nothing, when it was removed meanwhile', async () => {
     const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api')
     apiFetch.mockImplementation(actual.apiFetch)
     pairRemoteHost('h1', 'Studio Mac')
@@ -223,8 +223,8 @@ describe('IconPopover — an upload to a remote entity sends the image, never it
 
     await vi.waitFor(() =>
       expect(toast.error).toHaveBeenCalledExactlyOnceWith(
-        'This project’s host is not available',
-        'Check the host in Settings → Hosts.',
+        'That host is no longer paired with this computer',
+        'Pair it again in Settings → Hosts to use it.',
       ),
     )
     expect(sentTo('crowbar://')).toEqual([])

@@ -484,7 +484,7 @@ describe('a project-home thread on an install that has paired a remote host', ()
     expect(listGlobalProviders).toHaveBeenCalledOnce()
     expect(toastError).toHaveBeenCalledExactlyOnceWith(
       'Studio Mac’s identity changed — it must be paired again',
-      expect.stringContaining('`crowbar pair`'),
+      expect.stringContaining('run crowbar pair on that host'),
     )
     expect(getHostRuntime('host-1')?.getState().status).toBe('needs-repair')
     destroyHostRuntime('host-1')

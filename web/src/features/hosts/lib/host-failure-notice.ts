@@ -3,7 +3,7 @@ import { reportHostFailure } from '@/features/hosts/lib/host-failures'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { LOCAL_HOST } from '@/features/hosts/types'
 import { toast } from '@/features/window/stores/toast-store'
-import { HostNotConfiguredError, type ApiError } from '@/lib/api/errors'
+import { ApiError, HostNotConfiguredError } from '@/lib/api/errors'
 import { HostNotResolvedError } from '@/lib/host-path'
 import { hostUnavailability } from '@/lib/host-unavailability'
 import { useProjectDataStore } from '@/lib/store/projects'
@@ -14,18 +14,24 @@ interface HostFailureNotice {
 }
 
 const PAIR_AGAIN =
-  'To use it again, run `crowbar pair` on that host, then remove it and add it back in Settings → Hosts.'
+  'To use it again, run crowbar pair on that host, then remove it and add it back in Settings → Hosts.'
 
-const NOT_AVAILABLE: HostFailureNotice = {
+const PROJECT_HOST_UNAVAILABLE: HostFailureNotice = {
   message: 'This project’s host is not available',
   description: 'Check the host in Settings → Hosts.',
+}
+
+// A request for a host removed meanwhile, whatever it was for: there is no name left to show.
+const HOST_NOT_PAIRED: HostFailureNotice = {
+  message: 'That host is no longer paired with this computer',
+  description: 'Pair it again in Settings → Hosts to use it.',
 }
 
 // What to say when a project's host cannot be told: gone, on a host that is not configured,
 // or not known until the project list is read.
 function unresolvedHostNotice(projectId: string | undefined): HostFailureNotice {
   const why = projectId === undefined ? null : hostUnavailability({ projectId })
-  if (why === 'host-unavailable') return NOT_AVAILABLE
+  if (why === 'host-unavailable') return PROJECT_HOST_UNAVAILABLE
   if (why === 'project-missing') return { message: 'This project is no longer in your list' }
   // Before the list is read a local project is merely not known yet: Hosts is the wrong advice.
   if (useProjectDataStore.getState().data.status === 'error') {
@@ -41,13 +47,13 @@ function describeHostFailure(err: unknown): HostFailureNotice | null {
   if (err instanceof HostNotResolvedError) {
     return unresolvedHostNotice(err.entity === 'project' ? err.id : err.projectId)
   }
-  if (err instanceof HostNotConfiguredError) return NOT_AVAILABLE
-  const kind = hostFailureKind(err)
-  const { hostId } = err as ApiError
-  if (kind === null || !hostId || hostId === LOCAL_HOST.id) return null
-  // Named by the user's own name for it; a host removed meanwhile has none left to show.
+  if (err instanceof HostNotConfiguredError) return HOST_NOT_PAIRED
+  if (!(err instanceof ApiError) || !err.hostId || err.hostId === LOCAL_HOST.id) return null
+  const kind = hostFailureKind(err) ?? (carriesOnlyStatus(err) ? 'unexplained' : null)
+  if (kind === null) return null
+  const { hostId } = err
   const name = useHostConfigStore.getState().hosts.find((host) => host.id === hostId)?.name
-  if (name === undefined) return NOT_AVAILABLE
+  if (name === undefined) return HOST_NOT_PAIRED
   switch (kind) {
     case 'unreachable':
       return {
@@ -63,9 +69,19 @@ function describeHostFailure(err: unknown): HostFailureNotice | null {
     case 'refused':
       return {
         message: `${name} needs to be paired again`,
-        description: `It no longer accepts this computer’s credential. ${PAIR_AGAIN}`,
+        description: `It doesn’t accept this computer’s credential, or none is stored for it here. ${PAIR_AGAIN}`,
+      }
+    case 'unexplained':
+      return {
+        message: `${name} returned an error (${err.status})`,
+        description: 'It, or the connection to it, failed this request. Try again.',
       }
   }
+}
+
+// The proxy's own plain-text answers (a 500/502/504) carry no daemon words, only the status.
+function carriesOnlyStatus(err: ApiError): boolean {
+  return err.message === String(err.status) || err.message.startsWith(`${err.status} `)
 }
 
 // Every action's failure passes here, so the host's status learns of it as the user does.
