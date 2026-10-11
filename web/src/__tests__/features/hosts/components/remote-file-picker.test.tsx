@@ -32,11 +32,7 @@ function host(id: string, name: string): Host {
   return { id, name, endpoint: `${id}:3737`, pairedFingerprint: 'fp', clientId: 'c' }
 }
 
-const dir = (path: string): BrowseEntry => ({
-  name: path.split('/').pop()!,
-  path,
-  isDir: true,
-})
+const dir = (path: string): BrowseEntry => ({ name: path.split('/').pop()!, path, isDir: true })
 const file = (path: string): BrowseEntry => ({ ...dir(path), isDir: false })
 
 // What each host's daemon answers per path; a path with no answer stays pending until
@@ -194,6 +190,17 @@ describe('RemoteFilePicker — browsing', () => {
     expect(onSelect).toHaveBeenCalledWith('/home/mateo')
     expect(onOpenChange).toHaveBeenCalledWith(false)
     await findRow('p')
+  })
+
+  // Layout jsdom does not run: the name is cut on screen, so the button carries the whole path.
+  it('a long folder name still names the whole folder on its Select button', async () => {
+    const long = 'a-folder-with-a-very-long-name-'.repeat(10)
+    serve('h1', { '/': [dir(`/${long}`)] })
+    renderPicker()
+    fireEvent.click(await findRow(long))
+
+    expect(selectButton()).toHaveAccessibleName(`Select "${long}"`)
+    expect(selectButton()).toHaveAttribute('title', `/${long}`)
   })
 
   it('says the root is empty rather than showing nothing', async () => {

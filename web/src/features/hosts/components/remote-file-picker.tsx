@@ -130,19 +130,28 @@ function FolderBrowser({ hostId, listRef, onCancel, onChoose }: FolderBrowserPro
         </div>
       )}
       <DialogFooter className="items-center sm:justify-between">
-        <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+        <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
           <HostStatusDot hostId={hostId} state={state} />
-          {name ?? hostDotLabel(state)}
+          <span className="truncate">{name ?? hostDotLabel(state)}</span>
         </span>
-        <span className="flex gap-2">
+        <span className="flex min-w-0 gap-2">
           <Button variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
+          {/* A long name is cut to fit the dialog; the whole path shows on hover. */}
           <Button
+            className="min-w-0 shrink"
             disabled={selected === null || !canAsk}
+            title={selected?.path}
             onClick={() => selected && onChoose(selected.path)}
           >
-            {selected ? `Select "${selected.name}"` : 'Select'}
+            {selected ? (
+              <>
+                Select "<span className="min-w-0 truncate">{selected.name}</span>"
+              </>
+            ) : (
+              'Select'
+            )}
           </Button>
         </span>
       </DialogFooter>
