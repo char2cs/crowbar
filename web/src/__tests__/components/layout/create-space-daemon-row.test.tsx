@@ -16,6 +16,7 @@ import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import type { Host } from '@/features/hosts/types'
 import { useConnectionStore } from '@/lib/ws/connection-store'
+import { probeRemoteFingerprint } from '@/lib/crowbar-bridge'
 
 function host(over: Partial<Host> & { id: string; name: string }): Host {
   return { endpoint: 'x', pairedFingerprint: 'x', clientId: 'c', ...over }
@@ -31,6 +32,14 @@ const daemonTrigger = () => screen.getByRole('combobox', { name: /daemon/i })
 
 /** Waits for the popup's item to become the real, clickable thing (base-ui keeps every item
  *  mounted for measurement but `pointer-events: none`s the popup until `open` propagates). */
+/** Opens "+ Add a host…" and asks to pair `address` as `name`. */
+async function addHost(user: ReturnType<typeof userEvent.setup>, name: string, address: string) {
+  await selectDaemonOption(user, /add a host/i)
+  fireEvent.change(screen.getByLabelText(/name/i), { target: { value: name } })
+  fireEvent.change(screen.getByLabelText(/address/i), { target: { value: address } })
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+}
+
 async function selectDaemonOption(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
   await user.click(daemonTrigger())
   const option = await screen.findByRole('option', { name })
@@ -124,5 +133,23 @@ describe('CreateSpaceDaemonRow', () => {
     expect(await screen.findByRole('option', { name: /local/i })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: /office-vm/i })).toBeInTheDocument()
     expect(screen.queryByRole('option', { name: /add a host/i })).not.toBeInTheDocument()
+  })
+
+  it('"+ Add a host…" refuses a host that is already paired, as Settings does', async () => {
+    useHostConfigStore.setState({
+      hosts: [host({ id: 'h1', name: 'office-vm', endpoint: '10.0.0.5:3737' })],
+    })
+    vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:bbbb')
+    const user = userEvent.setup()
+    render(<DaemonRow />)
+
+    await addHost(user, 'again', '10.0.0.5')
+
+    expect(
+      await screen.findByText(
+        'This address is already paired as office-vm. Remove it in Settings → Hosts to pair it again.',
+      ),
+    ).toBeVisible()
+    expect(screen.queryByRole('button', { name: /confirm fingerprint/i })).toBeNull()
   })
 })
