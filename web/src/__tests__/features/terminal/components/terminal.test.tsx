@@ -38,7 +38,7 @@ vi.mock('@/lib/crowbar-bridge', () => ({
 
 import { XtermTerminal, type TerminalFocusHandle } from '@/features/terminal/components/terminal'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
-import { hostDotLabel } from '@/features/hosts/components/host-status-dot'
+import { hostDotLabel } from '@/features/hosts/lib/host-tone'
 import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { reportChannelState, resetConnectionState } from '@/lib/ws/connection-store'
 import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'

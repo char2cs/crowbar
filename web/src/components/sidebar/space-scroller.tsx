@@ -4,6 +4,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SidebarTree } from './sidebar-tree'
 import { SpaceHeader } from './space-header'
+import { SpaceHostScope } from './space-host-scope'
 import { RecentsBand } from './recents-band'
 import { CARD_BOTTOM_INSET_VAR } from '@/components/layout/sidebar-card-height'
 import { findScrollParent } from '@/components/layout/edge-scroll'
@@ -273,26 +274,28 @@ function SpacePanel({
       <AddRepositoryModal open={addRepoOpen} onOpenChange={setAddRepoOpen} projectId={project.id} />
       <ScrollArea className="flex-1">
         <div ref={contentRef} data-testid="space-scroll-content">
-          {!folded && (
-            <SidebarTree
-              rows={rows}
-              onOpen={onOpen}
-              onTrash={onTrash}
-              onCreate={onCreate}
+          <SpaceHostScope hostId={project.hostId}>
+            {!folded && (
+              <SidebarTree
+                rows={rows}
+                onOpen={onOpen}
+                onTrash={onTrash}
+                onCreate={onCreate}
+                scrollRef={viewportRef}
+                onDrop={onDrop}
+                onPaneDrop={onPaneDrop}
+              />
+            )}
+            <RecentsBand
+              viewIds={viewIds}
+              onFocus={onFocusRecent}
+              onClose={onCloseRecent}
+              onCloseChat={onCloseChatRecent}
               scrollRef={viewportRef}
               onDrop={onDrop}
               onPaneDrop={onPaneDrop}
             />
-          )}
-          <RecentsBand
-            viewIds={viewIds}
-            onFocus={onFocusRecent}
-            onClose={onCloseRecent}
-            onCloseChat={onCloseChatRecent}
-            scrollRef={viewportRef}
-            onDrop={onDrop}
-            onPaneDrop={onPaneDrop}
-          />
+          </SpaceHostScope>
         </div>
       </ScrollArea>
       {/* The clearance itself (spec §6: "the tree keeps a bottom inset the

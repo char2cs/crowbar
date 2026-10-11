@@ -1,5 +1,6 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import { hostStatusOf, subscribeHostStatusOf } from '@/features/hosts/lib/host-status'
+import { hostIsUnreachable } from '@/features/hosts/lib/host-tone'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { LOCAL_HOST, type HostDotState, type HostStatus } from '@/features/hosts/types'
 import { useConnectionStore } from '@/lib/ws/connection-store'
@@ -29,4 +30,17 @@ export function useHostView(hostId: string): { name: string | undefined; state: 
   )
   const state = useHostDotState(hostId)
   return { name, state: name === undefined ? 'not-available' : state }
+}
+
+/** A project's host as the sidebar shows it. Only a remote host is ever unreachable there: Local
+ *  is the app itself, and a dropped local socket never greys out a never-paired user's rows. */
+export function useProjectHost(hostId: string): {
+  name: string | undefined
+  state: HostDotState
+  remote: boolean
+  unreachable: boolean
+} {
+  const view = useHostView(hostId)
+  const remote = hostId !== LOCAL_HOST.id
+  return { ...view, remote, unreachable: remote && hostIsUnreachable(view.state) }
 }

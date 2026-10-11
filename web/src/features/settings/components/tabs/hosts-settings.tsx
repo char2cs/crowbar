@@ -3,10 +3,11 @@ import { useCallback, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { primitiveConfirm } from '@/components/ui/primitive-dialog-service'
 import { AddHostDialog } from '@/features/hosts/components/add-host-dialog'
-import { HostStatusDot, hostDotLabel } from '@/features/hosts/components/host-status-dot'
+import { HostStatusIcon } from '@/features/hosts/components/host-status-icon'
 import { useHostDotState } from '@/features/hosts/hooks/use-host-status'
 import { hostFailureKind } from '@/features/hosts/lib/classify-host-failure'
 import { actionErrorMessage, carriesOnlyStatus } from '@/features/hosts/lib/host-failure-notice'
+import { hostDotLabel, hostToneText } from '@/features/hosts/lib/host-tone'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { LOCAL_HOST, type Host } from '@/features/hosts/types'
 import { forgetHostToken, unregisterRemoteHost } from '@/lib/crowbar-bridge'
@@ -129,18 +130,21 @@ interface HostRowProps {
   onRevoke: (host: Host) => void
 }
 
+const SECONDARY = 'ui-font ui-text-sm truncate text-muted-foreground'
+
 function HostRow({ host, isLocal, revoking, onRevoke }: HostRowProps) {
   const state = useHostDotState(host.id)
 
   return (
     <div
       data-testid="host-row"
-      className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-muted/50"
+      className="flex items-center gap-3 rounded-lg px-1 py-2 transition-colors hover:bg-muted/50"
     >
-      <HostStatusDot hostId={host.id} state={state} />
+      <HostStatusIcon hostId={host.id} state={state} className="text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <div className="ui-font ui-text-sm truncate text-foreground">{host.name}</div>
-        <div className="ui-font ui-text-sm truncate text-muted-foreground">
+        {/* Local is the app itself: its line is never tinted. */}
+        <div {...(isLocal ? { className: SECONDARY } : hostToneText(state, SECONDARY))}>
           {isLocal ? 'This computer' : host.endpoint}
           {state !== 'up' && ` · ${hostDotLabel(state)}`}
         </div>
@@ -152,8 +156,8 @@ function HostRow({ host, isLocal, revoking, onRevoke }: HostRowProps) {
           size="icon-sm"
           disabled={revoking}
           aria-label={`Revoke ${host.name}`}
-          title={`Revoke ${host.name}`}
-          className="text-destructive hover:bg-destructive/10"
+          tooltip={`Revoke ${host.name}`}
+          className="text-muted-foreground hover:text-destructive"
           onClick={() => onRevoke(host)}
         >
           <Trash />
@@ -207,17 +211,20 @@ export function HostsSettings() {
         ))}
       </div>
 
-      <Button
-        type="button"
-        variant="outline"
-        onClick={() => {
-          setAddAttempt((n) => n + 1)
-          setAddOpen(true)
-        }}
-      >
-        <Plus />
-        Add host
-      </Button>
+      <div className="px-1">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setAddAttempt((n) => n + 1)
+            setAddOpen(true)
+          }}
+        >
+          <Plus />
+          Add host
+        </Button>
+      </div>
 
       <AddHostDialog key={addAttempt} open={addOpen} onOpenChange={setAddOpen} />
     </div>

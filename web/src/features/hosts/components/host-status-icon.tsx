@@ -1,0 +1,50 @@
+import { DesktopIcon } from '@phosphor-icons/react'
+import { hostDotLabel, hostTone, type HostTone } from '@/features/hosts/lib/host-tone'
+import type { HostDotState } from '@/features/hosts/types'
+import { cn } from '@/utils/cn'
+
+const DOT_FILL: Record<HostTone, string> = {
+  online: 'bg-success',
+  offline: 'bg-destructive',
+  'needs-attention': 'bg-warning',
+  unsettled: 'border border-muted-foreground/50',
+}
+
+// The dot sits over the screen's corner: the icon is cut away around it, so the dot reads on any
+// surface (the sidebar is translucent, so no ring colour could match what shows through it).
+const CUT_AROUND_DOT =
+  '[mask-image:radial-gradient(circle_at_calc(100%_-_1.5px)_calc(100%_-_1.5px),transparent_3.75px,black_4.25px)]'
+
+/** A computer with its host's status dot on the bottom-right corner, the dot labelled in words.
+ *  Every surface that shows a host's status draws this, so a state reads the same everywhere. */
+export function HostStatusIcon({
+  hostId,
+  state,
+  weight = 'regular',
+  showTitle = true,
+  className,
+}: {
+  hostId: string
+  state: HostDotState
+  weight?: 'regular' | 'bold'
+  /** Off inside a control that has a tooltip of its own, so two don't stack. */
+  showTitle?: boolean
+  /** Sizes the icon (`size-4` by default); the dot keeps its own size. */
+  className?: string
+}) {
+  const tone = hostTone(state)
+  return (
+    <span className={cn('relative inline-flex size-4 shrink-0', className)}>
+      <DesktopIcon aria-hidden="true" weight={weight} className={cn('size-full', CUT_AROUND_DOT)} />
+      <span
+        role="img"
+        data-testid={`host-status-${hostId}`}
+        data-host-state={state}
+        data-host-tone={tone}
+        aria-label={hostDotLabel(state)}
+        title={showTitle ? hostDotLabel(state) : undefined}
+        className={cn('absolute -right-px -bottom-px size-1.25 rounded-full', DOT_FILL[tone])}
+      />
+    </span>
+  )
+}

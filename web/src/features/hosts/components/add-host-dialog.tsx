@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { OTPField, OTPFieldInput, OTPFieldSeparator } from '@/components/ui/otp-field'
 import { probeRemoteFingerprint } from '@/lib/crowbar-bridge'
 import {
   alreadyPairedReason,
@@ -42,6 +43,9 @@ function makeHostId(name: string): string {
 }
 
 const focusOnMount = (element: HTMLElement | null) => element?.focus()
+
+// Full-width digits (an input method types them) read as the digits they are; the rest is dropped.
+const toAsciiDigits = (value: string) => value.normalize('NFKC').replace(/\D/g, '')
 
 /** Adds a host: probe its certificate, have the user confirm the fingerprint, then redeem a code
  *  from its `crowbar pair`. The code stage is reached only by that confirm, and pins exactly the
@@ -228,20 +232,24 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
         <form onSubmit={handleRedeem}>
           <div className="space-y-2 px-6 py-5">
             <Label htmlFor="add-host-code">Pairing code</Label>
-            <Input
+            <OTPField
               id="add-host-code"
-              autoFocus
+              length={6}
               value={code}
-              // Full-width digits read as digits (an IME types them); spaces go: a code copied
-              // from a terminal often brings some along.
-              onChange={(e) => setCode(e.target.value.normalize('NFKC').replace(/\s/g, ''))}
-              placeholder="123456"
+              onValueChange={setCode}
+              validationType="none"
               inputMode="numeric"
-              autoComplete="one-time-code"
-              aria-describedby={codeHintId}
-              className="font-mono text-[12px]"
+              normalizeValue={toAsciiDigits}
               disabled={pairing}
-            />
+            >
+              <OTPFieldInput autoFocus aria-describedby={codeHintId} />
+              <OTPFieldInput aria-label="Character 2 of 6" aria-describedby={codeHintId} />
+              <OTPFieldInput aria-label="Character 3 of 6" aria-describedby={codeHintId} />
+              <OTPFieldSeparator />
+              <OTPFieldInput aria-label="Character 4 of 6" aria-describedby={codeHintId} />
+              <OTPFieldInput aria-label="Character 5 of 6" aria-describedby={codeHintId} />
+              <OTPFieldInput aria-label="Character 6 of 6" aria-describedby={codeHintId} />
+            </OTPField>
             <p id={codeHintId} className="text-[12px] text-muted-foreground">
               {code === '' || codeValid
                 ? 'The 6-digit code crowbar pair printed on the host.'

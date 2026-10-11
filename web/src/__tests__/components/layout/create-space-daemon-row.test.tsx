@@ -54,16 +54,16 @@ beforeEach(() => {
 })
 
 describe('CreateSpaceDaemonRow', () => {
-  // Local by default; a saved host is listed whatever its state, says it in the words its dot
-  // (and Settings) use, and is choosable only while up: down, or refusing this client, disabled.
+  // Local by default; a saved host is listed whatever its state, says it in the words and colour
+  // its dot (and Settings) use, and is choosable only while up: down, or refusing it, disabled.
   it.each([
-    ['up', false, 'Online'],
-    ['down', true, 'Offline'],
-    ['needs-repair', true, 'Needs pairing again'],
-    ['probing', false, 'Checking…'],
+    ['up', false, 'Online', 'online'],
+    ['down', true, 'Offline', 'offline'],
+    ['needs-repair', true, 'Needs pairing again', 'needs-attention'],
+    ['probing', false, 'Checking…', 'unsettled'],
   ] as const)(
     'defaults to Local and lists a %s host, disabled: %s, saying %j',
-    async (status, disabled, words) => {
+    async (status, disabled, words, tone) => {
       useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'office-vm' })] })
       getOrCreateHostRuntime('h1').getState().setStatus(status)
       const user = userEvent.setup()
@@ -73,7 +73,11 @@ describe('CreateSpaceDaemonRow', () => {
       await user.click(daemonTrigger())
       const option = await screen.findByRole('option', { name: /office-vm/i })
       expect(option.getAttribute('aria-disabled') === 'true').toBe(disabled)
-      expect(within(option).getByText(words)).toBeInTheDocument()
+      expect(within(option).getByText(words)).toHaveAttribute('data-host-tone', tone)
+      expect(within(option).getByTestId('host-status-h1')).toHaveAttribute(
+        'data-host-state',
+        status,
+      )
       expect(screen.getByRole('option', { name: /local/i })).toHaveTextContent(/^Local$/)
     },
   )
@@ -84,6 +88,7 @@ describe('CreateSpaceDaemonRow', () => {
     render(<DaemonRow />)
 
     expect(within(daemonTrigger()).getByTestId('host-status-local')).toHaveAccessibleName('Offline')
+    expect(within(daemonTrigger()).getByText('Local')).not.toHaveAttribute('data-host-tone')
     await user.click(daemonTrigger())
     const local = await screen.findByRole('option', { name: /local/i })
     expect(within(local).getByTestId('host-status-local')).toHaveAccessibleName('Offline')
@@ -144,7 +149,9 @@ describe('CreateSpaceDaemonRow', () => {
 
     await addHost(user, 'homelab', '1.2.3.4:3737')
     fireEvent.click(await screen.findByRole('button', { name: /confirm fingerprint/i }))
-    fireEvent.change(screen.getByLabelText(/pairing code/i), { target: { value: '123456' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Pairing code' }), {
+      target: { value: '123456' },
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Pair' }))
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())

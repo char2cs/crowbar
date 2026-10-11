@@ -89,27 +89,33 @@ beforeEach(() => {
 
 describe('HostsSettings', () => {
   // The app probes every host for its whole life; this tab lists Local and every saved host with
-  // what it found, in words as well as by the dot's colour.
+  // what it found, in words as well as by the colour of its dot and address.
   it('lists each host with its status as the app last saw it, and probes nothing itself', () => {
     useHostConfigStore.setState({ hosts: [homelab] })
     useConnectionStore.setState({ status: 'connected' })
     render(<HostsSettings />)
     const row = (id: string) =>
       screen.getByTestId(`host-status-${id}`).closest('[data-testid="host-row"]')!
+    const address = () => screen.getByText(/^10\.0\.0\.2:3737/)
 
-    for (const [status, words] of [
-      ['down', 'Offline'],
-      ['needs-repair', 'Needs pairing again'],
-      ['unknown', 'Status unknown'],
-      ['probing', 'Checking…'],
+    for (const [status, words, tone] of [
+      ['down', 'Offline', 'offline'],
+      ['needs-repair', 'Needs pairing again', 'needs-attention'],
+      ['unknown', 'Status unknown', 'unsettled'],
+      ['probing', 'Checking…', 'unsettled'],
     ] as const) {
       act(() => getOrCreateHostRuntime('h1').getState().setStatus(status))
       expect(screen.getByTestId('host-status-h1')).toHaveAttribute('aria-label', words)
       expect(row('h1')).toHaveTextContent(`homelab10.0.0.2:3737 · ${words}`)
+      expect(address()).toHaveAttribute('data-host-tone', tone)
     }
     act(() => getOrCreateHostRuntime('h1').getState().setStatus('up'))
     expect(row('h1')).toHaveTextContent(/^homelab10\.0\.0\.2:3737$/)
+    expect(address()).toHaveAttribute('data-host-state', 'up')
+    // Local is the app itself: its dot says its state, its line is never tinted.
     expect(row('local')).toHaveTextContent(/^LocalThis computer$/)
+    expect(screen.getByTestId('host-status-local')).toHaveAttribute('data-host-state', 'up')
+    expect(screen.getByText('This computer')).not.toHaveAttribute('data-host-tone')
     expect(apiFetch).not.toHaveBeenCalled()
     destroyHostRuntime('h1')
   })
@@ -175,14 +181,14 @@ describe('HostsSettings', () => {
     fireEvent.change(screen.getByLabelText(/address/i), { target: { value: '1.2.3.4:3737' } })
     fireEvent.click(screen.getByRole('button', { name: /continue/i }))
     fireEvent.click(await screen.findByRole('button', { name: /confirm fingerprint/i }))
-    expect(screen.getByLabelText(/pairing code/i)).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Pairing code' })).toBeInTheDocument()
 
     act(() => {
       fireEvent.click(screen.getByRole('button', { name: 'Close' }))
       fireEvent.click(addHost)
     })
 
-    expect(screen.queryByLabelText(/pairing code/i)).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Pairing code' })).toBeNull()
     expect(screen.getByLabelText(/name/i)).toHaveValue('')
     expect(screen.queryByText('SHA256:aaaa')).toBeNull()
   })

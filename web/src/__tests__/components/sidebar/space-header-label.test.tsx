@@ -15,13 +15,21 @@ import {
 import { pairRemoteHost, projectOn, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 const label = () => screen.getByTestId('space-header-label')
-const dot = (hostId: string) => screen.getByTestId(`host-status-${hostId}`)
+const title = (name = 'Crowbar API') => screen.getByText(name)
+const hostLine = () => document.getElementById('host-line')!
 
 function remoteProject(status: HostStatus, hostName = 'homelab-prox') {
   pairRemoteHost('h1', hostName)
   getOrCreateHostRuntime('h1').getState().setStatus(status)
   render(<SpaceHeaderLabel project={projectOn('Crowbar API', 'h1')} hostLineId="host-line" />)
 }
+
+/** Both lines a remote project tints, in the state and tone they show. */
+const tints = () =>
+  [title(), hostLine()].map((el) => [
+    el.getAttribute('data-host-state'),
+    el.getAttribute('data-host-tone'),
+  ])
 
 beforeEach(() => resetHostWorld())
 
@@ -31,95 +39,81 @@ afterEach(() => {
 })
 
 describe('SpaceHeaderLabel', () => {
-  it('a local project reads Local, with the local daemon’s own status', () => {
+  it('a local project reads Local, untinted', () => {
     useConnectionStore.setState({ status: 'connected' })
     render(<SpaceHeaderLabel project={projectOn('Rabbyte Labs', 'local')} hostLineId="host-line" />)
 
-    expect(screen.getByText('Rabbyte Labs')).toBeInTheDocument()
-    expect(screen.getByText('Local')).toBeInTheDocument()
-    expect(dot('local')).toHaveAttribute('aria-label', 'Online')
-    expect(label()).not.toHaveAttribute('data-unreachable')
+    expect(title('Rabbyte Labs')).toBeInTheDocument()
+    expect(hostLine()).toHaveTextContent(/^Local$/)
+    expect(title('Rabbyte Labs')).not.toHaveAttribute('data-host-state')
+    expect(hostLine()).not.toHaveAttribute('data-host-state')
   })
 
-  // Only a remote host's rows dim: a dropped local socket (after sleep, say) never greys out a
-  // never-paired user's every row.
-  it('a local project never dims, whatever the local daemon’s status', () => {
+  // Local is the app itself: a dropped local socket (after sleep, say) never paints a
+  // never-paired user's project red.
+  it('a local project is never tinted, whatever the local daemon’s status', () => {
     useConnectionStore.setState({ status: 'disconnected' })
     render(<SpaceHeaderLabel project={projectOn('Rabbyte Labs', 'local')} hostLineId="host-line" />)
 
-    expect(dot('local')).toHaveAttribute('aria-label', 'Offline')
-    expect(label()).not.toHaveAttribute('data-unreachable')
+    expect(title('Rabbyte Labs')).not.toHaveAttribute('data-host-tone')
+    expect(hostLine()).not.toHaveAttribute('data-host-tone')
   })
 
-  it('a remote project reads its host’s name, online while the host is up', () => {
-    remoteProject('up')
+  it.each([
+    ['up', 'online'],
+    ['down', 'offline'],
+    ['needs-repair', 'needs-attention'],
+    ['unknown', 'unsettled'],
+    ['probing', 'unsettled'],
+  ] as const)('a remote host that is %s tints the name and host line %s', (status, tone) => {
+    remoteProject(status)
 
-    expect(screen.getByText('Crowbar API')).toBeInTheDocument()
-    expect(screen.getByText('homelab-prox')).toBeInTheDocument()
+    expect(title()).toBeInTheDocument()
+    expect(hostLine()).toHaveTextContent('homelab-prox')
     expect(screen.queryByText('Local')).not.toBeInTheDocument()
-    expect(dot('h1')).toHaveAttribute('aria-label', 'Online')
-    expect(label()).not.toHaveAttribute('data-unreachable')
+    expect(tints()).toEqual([
+      [status, tone],
+      [status, tone],
+    ])
   })
 
-  it.each([
-    ['down', 'Offline'],
-    ['needs-repair', 'Needs pairing again'],
-  ] as const)('a host that is %s keeps its name, says so and dims the row', (status, text) => {
-    remoteProject(status)
-
-    expect(screen.getByText('homelab-prox')).toBeInTheDocument()
-    expect(dot('h1')).toHaveAttribute('aria-label', text)
-    expect(dot('h1')).toHaveAttribute('title', text)
-    expect(label()).toHaveAttribute('data-unreachable')
-  })
-
-  it.each([
-    ['unknown', 'Status unknown'],
-    ['probing', 'Checking…'],
-  ] as const)('a host that is %s says so without dimming the row', (status, text) => {
-    remoteProject(status)
-
-    expect(dot('h1')).toHaveAttribute('aria-label', text)
-    expect(label()).not.toHaveAttribute('data-unreachable')
-  })
-
-  it('says when the host answers but none of its live streams is open', () => {
+  it('a host that answers with none of its live streams open stays online', () => {
     remoteProject('up')
     act(() => reportChannelState('crowbar://h1/v0/projects', false, 'h1'))
 
-    expect(dot('h1')).toHaveAttribute('aria-label', 'Online — no live stream')
-    expect(label()).not.toHaveAttribute('data-unreachable')
+    expect(tints()).toEqual([
+      ['no-live-stream', 'online'],
+      ['no-live-stream', 'online'],
+    ])
   })
 
   // A row whose host is not configured cannot be placed on any daemon: it is never Local.
-  it('a project whose host was removed reads not available, never Local', () => {
+  it('a project whose host was removed reads not available, never Local, in red', () => {
     pairRemoteHost('h1', 'homelab-prox')
     useHostConfigStore.getState().removeHost('h1')
     render(<SpaceHeaderLabel project={projectOn('Quiver Sync', 'h1')} hostLineId="host-line" />)
 
     expect(screen.queryByText('Local')).not.toBeInTheDocument()
     expect(screen.queryByText('homelab-prox')).not.toBeInTheDocument()
-    expect(screen.getByText('Host not available')).toBeInTheDocument()
-    expect(dot('h1')).toHaveAttribute('aria-label', 'Host not available')
-    expect(label()).toHaveAttribute('data-unreachable')
+    expect(hostLine()).toHaveTextContent(/^Host not available$/)
+    expect(hostLine()).toHaveAttribute('data-host-tone', 'offline')
+    expect(title('Quiver Sync')).toHaveAttribute('data-host-state', 'not-available')
   })
 
   it('a host id no configured host has reads not available even on a never-paired install', () => {
     render(<SpaceHeaderLabel project={projectOn('Quiver Sync', 'h9')} hostLineId="host-line" />)
 
     expect(screen.queryByText('Local')).not.toBeInTheDocument()
-    expect(dot('h9')).toHaveAttribute('aria-label', 'Host not available')
+    expect(hostLine()).toHaveAttribute('data-host-state', 'not-available')
   })
 
-  // The row's control is described by this line: two same-named projects on two hosts, and a
-  // host that is down, are told apart by ear too.
-  it('gives its host line, dot and name, the id the row’s control is described by', () => {
+  // The state's mark is the header's host button: the line under the name carries no dot.
+  it('gives its host line, by name and with no dot, the id the row’s control is described by', () => {
     remoteProject('down')
-    const line = document.getElementById('host-line')
 
-    expect(line).toHaveTextContent('homelab-prox')
-    expect(line).toContainElement(dot('h1'))
-    expect(screen.getByText('Crowbar API')).not.toBe(line)
+    expect(hostLine()).toHaveTextContent('homelab-prox')
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(title()).not.toBe(hostLine())
   })
 
   // What a screen reader hears on the row's control: the host, and its state unless it is up.
@@ -156,27 +150,26 @@ describe('SpaceHeaderLabel', () => {
     expect(screen.getByRole('button')).toHaveAccessibleDescription('Host not available')
   })
 
-  it('a status change redraws the dot in place, without remounting the row', () => {
+  it('a status change retints in place, without remounting the row', () => {
     remoteProject('up')
     const before = label()
-    const dotBefore = dot('h1')
+    const titleBefore = title()
 
     act(() => getOrCreateHostRuntime('h1').getState().setStatus('down'))
 
     expect(label()).toBe(before)
-    expect(dot('h1')).toBe(dotBefore)
-    expect(dotBefore).toHaveAttribute('aria-label', 'Offline')
-    expect(before).toHaveAttribute('data-unreachable')
+    expect(title()).toBe(titleBefore)
+    expect(titleBefore).toHaveAttribute('data-host-tone', 'offline')
   })
 
   // Truncation itself is layout jsdom does not run: this pins the structure it relies on.
-  it('a long host name is whole, on its own line, in its own element after the dot', () => {
+  it('a long host name is whole, on its own line, apart from the project name', () => {
     const long = 'homelab-prox-in-the-basement-rack-behind-the-old-nas-and-the-ups'
     remoteProject('up', long)
     const name = screen.getByText(long)
 
     expect(name.textContent).toBe(long)
-    expect(name.previousElementSibling).toBe(dot('h1'))
-    expect(screen.getByText('Crowbar API')).not.toContainElement(name)
+    expect(name).toBe(hostLine())
+    expect(title()).not.toContainElement(name)
   })
 })

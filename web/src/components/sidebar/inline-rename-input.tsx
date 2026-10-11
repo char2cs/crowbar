@@ -69,7 +69,7 @@ export function InlineRenameInput({
       className={cn(
         'min-w-0 flex-1 truncate bg-transparent text-left text-[13px] font-medium outline-none',
         font === 'mono' && 'font-mono',
-        font === 'heading' && 'font-heading text-[15px] font-normal',
+        font === 'heading' && 'font-heading text-[18px] font-normal',
       )}
     />
   )

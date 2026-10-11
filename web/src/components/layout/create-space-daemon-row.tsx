@@ -9,12 +9,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { AddHostDialog } from '@/features/hosts/components/add-host-dialog'
-import {
-  HostStatusDot,
-  hostDotLabel,
-  hostIsUnreachable,
-} from '@/features/hosts/components/host-status-dot'
+import { HostStatusIcon } from '@/features/hosts/components/host-status-icon'
 import { useHostDotState, useHostView } from '@/features/hosts/hooks/use-host-status'
+import { hostDotLabel, hostIsUnreachable, hostToneText } from '@/features/hosts/lib/host-tone'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { LOCAL_HOST, type Host } from '@/features/hosts/types'
 import { isTauri } from '@/lib/crowbar-bridge'
@@ -29,10 +26,10 @@ function DaemonOption({ host }: { host: Host }) {
   return (
     <SelectItem value={host.id} disabled={hostIsUnreachable(state)}>
       <span className="flex items-center gap-2">
-        <HostStatusDot hostId={host.id} state={state} />
+        <HostStatusIcon hostId={host.id} state={state} />
         <span className="min-w-0 flex-1 truncate">{host.name}</span>
-        {/* In its dot's words, which Settings and the sidebar use too. */}
-        <span className="text-muted-foreground text-xs">{hostDotLabel(state)}</span>
+        {/* In its dot's words and colour, which Settings and the sidebar use too. */}
+        <span {...hostToneText(state, 'text-xs')}>{hostDotLabel(state)}</span>
       </span>
     </SelectItem>
   )
@@ -43,7 +40,7 @@ function LocalOption() {
   return (
     <SelectItem value={LOCAL_HOST.id}>
       <span className="flex items-center gap-2">
-        <HostStatusDot hostId={LOCAL_HOST.id} state={state} />
+        <HostStatusIcon hostId={LOCAL_HOST.id} state={state} />
         {LOCAL_HOST.name}
       </span>
     </SelectItem>
@@ -89,8 +86,14 @@ export function CreateSpaceDaemonRow({ hostId, onHostIdChange }: CreateSpaceDaem
         >
           <SelectValue>
             <span className="flex items-center gap-1.5">
-              <HostStatusDot hostId={hostId} state={selected.state} />
-              {selected.name ?? hostDotLabel(selected.state)}
+              <HostStatusIcon hostId={hostId} state={selected.state} />
+              {hostId === LOCAL_HOST.id ? (
+                selected.name
+              ) : (
+                <span {...hostToneText(selected.state)}>
+                  {selected.name ?? hostDotLabel(selected.state)}
+                </span>
+              )}
             </span>
           </SelectValue>
         </SelectTrigger>

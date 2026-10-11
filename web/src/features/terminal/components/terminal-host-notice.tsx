@@ -1,4 +1,4 @@
-import { hostDotLabel, hostIsUnreachable } from '@/features/hosts/components/host-status-dot'
+import { hostDotLabel, hostIsUnreachable } from '@/features/hosts/lib/host-tone'
 import { useHostView } from '@/features/hosts/hooks/use-host-status'
 import { LOCAL_HOST } from '@/features/hosts/types'
 import { useResolvedHost } from '@/lib/host-resolve'

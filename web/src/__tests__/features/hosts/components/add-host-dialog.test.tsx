@@ -19,6 +19,27 @@ function fillAddressStage() {
   fireEvent.click(screen.getByRole('button', { name: /continue|next/i }))
 }
 
+// The first slot carries the field's label; autofill and an input method write the whole code there.
+const codeSlot = () => screen.findByRole('textbox', { name: 'Pairing code' })
+const codeField = () => screen.findByRole('group', { name: 'Pairing code' })
+const slotValues = () =>
+  screen.getAllByRole('textbox').map((slot) => (slot as HTMLInputElement).value)
+
+// The repo's DataTransfer stub does not map user.paste(string)'s `text` onto `text/plain`.
+function pasteText(user: ReturnType<typeof userEvent.setup>, text: string) {
+  const data = new DataTransfer()
+  data.setData('text/plain', text)
+  return user.paste(data)
+}
+
+async function reachCodeStage() {
+  vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
+  render(<AddHostDialog open onOpenChange={() => {}} />)
+  fillAddressStage()
+  fireEvent.click(await screen.findByRole('button', { name: /confirm fingerprint/i }))
+  await waitFor(async () => expect(await codeSlot()).toHaveFocus())
+}
+
 describe('AddHostDialog', () => {
   beforeEach(() => {
     vi.mocked(probeRemoteFingerprint).mockReset()
@@ -46,7 +67,7 @@ describe('AddHostDialog', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: /confirm|looks right/i }))
 
-    expect(await screen.findByLabelText(/code/i)).toBeInTheDocument()
+    expect(await codeField()).toBeInTheDocument()
   })
 
   it('does NOT call redeemPairingCode until the fingerprint has been confirmed', async () => {
@@ -65,7 +86,7 @@ describe('AddHostDialog', () => {
     await waitFor(() => expect(screen.getByText(/SHA256:aaaa/i)).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /confirm|looks right/i }))
 
-    fireEvent.change(await screen.findByLabelText(/code/i), { target: { value: '123456' } })
+    fireEvent.change(await codeSlot(), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: /pair|connect/i }))
 
     await waitFor(() =>
@@ -96,13 +117,12 @@ describe('AddHostDialog', () => {
     await waitFor(() => expect(screen.getByText(/SHA256:aaaa/i)).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /confirm|looks right/i }))
 
-    const codeInput = await screen.findByLabelText(/code/i)
-    fireEvent.change(codeInput, { target: { value: '000000' } })
+    fireEvent.change(await codeSlot(), { target: { value: '000000' } })
     fireEvent.click(screen.getByRole('button', { name: /pair|connect/i }))
     await waitFor(() => expect(redeemPairingCode).toHaveBeenCalledTimes(1))
     expect(await screen.findByRole('alert')).toHaveTextContent(/^That code didn’t work\./)
 
-    fireEvent.change(await screen.findByLabelText(/code/i), { target: { value: '123456' } })
+    fireEvent.change(await codeSlot(), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: /pair|connect/i }))
 
     await waitFor(() => expect(redeemPairingCode).toHaveBeenCalledTimes(2))
@@ -124,7 +144,7 @@ describe('AddHostDialog', () => {
     render(<AddHostDialog open onOpenChange={() => {}} />)
     fillAddressStage()
     fireEvent.click(await screen.findByRole('button', { name: /confirm fingerprint/i }))
-    fireEvent.change(screen.getByLabelText(/pairing code/i), { target: { value: '000000' } })
+    fireEvent.change(await codeSlot(), { target: { value: '000000' } })
     fireEvent.click(screen.getByRole('button', { name: 'Pair' }))
     await screen.findByRole('alert')
 
@@ -140,7 +160,7 @@ describe('AddHostDialog', () => {
     fillAddressStage()
     await waitFor(() => expect(screen.getByText(/SHA256:aaaa/i)).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /confirm|looks right/i }))
-    expect(await screen.findByLabelText(/code/i)).toBeInTheDocument()
+    expect(await codeField()).toBeInTheDocument()
 
     rerender(<AddHostDialog open={false} onOpenChange={() => {}} />)
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
@@ -148,7 +168,7 @@ describe('AddHostDialog', () => {
 
     expect(await screen.findByLabelText(/name/i)).toHaveValue('')
     expect(screen.getByLabelText(/address/i)).toHaveValue('')
-    expect(screen.queryByLabelText(/code/i)).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Pairing code' })).toBeNull()
     expect(screen.queryByText(/SHA256:aaaa/i)).toBeNull()
   })
 
@@ -224,45 +244,94 @@ describe('AddHostDialog', () => {
     })
     await waitFor(() => expect(fingerprint).toHaveFocus())
     await user.keyboard('{Enter}{Enter}')
-    expect(screen.queryByLabelText(/pairing code/i)).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Pairing code' })).toBeNull()
 
     await user.click(screen.getByRole('button', { name: /confirm fingerprint/i }))
-    await waitFor(() => expect(screen.getByLabelText(/pairing code/i)).toHaveFocus())
+    await waitFor(async () => expect(await codeSlot()).toHaveFocus())
   })
 
   // A code copied from a terminal often carries a space; the host wants exactly six digits.
   it('a pasted code loses its spaces, and Pair waits for exactly six digits, saying so', async () => {
-    vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
     const user = userEvent.setup()
-    render(<AddHostDialog open onOpenChange={() => {}} />)
-    fillAddressStage()
-    fireEvent.click(await screen.findByRole('button', { name: /confirm fingerprint/i }))
-    const code = screen.getByLabelText(/pairing code/i)
+    await reachCodeStage()
     const pair = screen.getByRole('button', { name: 'Pair' })
-    expect(code).toHaveAccessibleDescription('The 6-digit code crowbar pair printed on the host.')
+    expect(await codeSlot()).toHaveAccessibleDescription(
+      'The 6-digit code crowbar pair printed on the host.',
+    )
 
-    await user.click(code)
-    await user.paste(' 123 456\n')
-    expect(code).toHaveValue('123456')
+    await pasteText(user, ' 123 456\n')
+    expect(slotValues()).toEqual(['1', '2', '3', '4', '5', '6'])
     expect(pair).toBeEnabled()
 
-    await user.type(code, '7')
+    await user.keyboard('{Backspace}')
+    expect(slotValues()).toEqual(['1', '2', '3', '4', '5', ''])
     expect(pair).toBeDisabled()
-    expect(code).toHaveAccessibleDescription('A pairing code is exactly 6 digits.')
+    expect(
+      screen.getAllByRole('textbox', { description: 'A pairing code is exactly 6 digits.' }),
+    ).toHaveLength(6)
     expect(screen.getByText('A pairing code is exactly 6 digits.')).toBeVisible()
+  })
+
+  // A wrong code costs one of ten guesses before the host burns it: only the user's Pair sends one.
+  it('redeems the typed digits on Enter, never on the sixth keystroke', async () => {
+    vi.mocked(redeemPairingCode).mockResolvedValueOnce(undefined)
+    const user = userEvent.setup()
+    await reachCodeStage()
+    const pair = screen.getByRole('button', { name: 'Pair' })
+    expect(pair).toBeDisabled()
+
+    await user.keyboard('12345{Enter}')
+    expect(redeemPairingCode).not.toHaveBeenCalled()
+    expect(pair).toBeDisabled()
+
+    await user.keyboard('6')
+    expect(slotValues()).toEqual(['1', '2', '3', '4', '5', '6'])
+    expect(pair).toBeEnabled()
+    expect(redeemPairingCode).not.toHaveBeenCalled()
+
+    await user.keyboard('{Enter}')
+    await waitFor(() =>
+      expect(redeemPairingCode).toHaveBeenCalledWith(
+        expect.any(String),
+        '1.2.3.4:3737',
+        'SHA256:aaaa',
+        '123456',
+        'homelab',
+      ),
+    )
+    expect(redeemPairingCode).toHaveBeenCalledTimes(1)
+  })
+
+  it('a pasted six-digit code fills every slot and waits for Pair', async () => {
+    const user = userEvent.setup()
+    await reachCodeStage()
+
+    await pasteText(user, '654321')
+
+    expect(slotValues()).toEqual(['6', '5', '4', '3', '2', '1'])
+    expect(screen.getByRole('button', { name: 'Pair' })).toBeEnabled()
+    expect(redeemPairingCode).not.toHaveBeenCalled()
+  })
+
+  it('takes digits only, from the keyboard and from a paste', async () => {
+    const user = userEvent.setup()
+    await reachCodeStage()
+
+    await user.keyboard('1a2-b3')
+    expect(slotValues()).toEqual(['1', '2', '3', '', '', ''])
+
+    await pasteText(user, 'x9y')
+    expect(slotValues()).toEqual(['1', '2', '3', '9', '', ''])
+    expect(screen.getByRole('button', { name: 'Pair' })).toBeDisabled()
   })
 
   // An East Asian input method types full-width digits (and spaces) unless switched out of it.
   it('reads a code typed in full-width digits as the digits it is', async () => {
-    vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
     vi.mocked(redeemPairingCode).mockResolvedValueOnce(undefined)
-    render(<AddHostDialog open onOpenChange={() => {}} />)
-    fillAddressStage()
-    fireEvent.click(await screen.findByRole('button', { name: /confirm fingerprint/i }))
+    await reachCodeStage()
 
-    fireEvent.change(screen.getByLabelText(/pairing code/i), {
-      target: { value: '１２３\u3000４５６' },
-    })
+    fireEvent.change(await codeSlot(), { target: { value: '１２３\u3000４５６' } })
+    expect(slotValues()).toEqual(['1', '2', '3', '4', '5', '6'])
     fireEvent.click(screen.getByRole('button', { name: 'Pair' }))
 
     await waitFor(() =>

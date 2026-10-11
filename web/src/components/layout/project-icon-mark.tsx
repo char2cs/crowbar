@@ -20,6 +20,8 @@ export type ProjectIconSource = {
 const SIZES = {
   md: { box: 'size-4', emoji: 'text-sm', glyph: 14 },
   lg: { box: 'size-5', emoji: 'text-lg', glyph: 16 },
+  // The space header's own mark, a touch over `lg` beside its 18px heading.
+  header: { box: 'size-5.5', emoji: 'text-xl', glyph: 18 },
   // Headline size, matching RepoAvatar's own `xl`: on the New Tab surface the
   // repo/branch stack is the largest type in the pane, and a 20px mark beside it
   // reads as a stray favicon.
@@ -138,6 +140,7 @@ export function EditableProjectIcon({ project, size, onOpenChange }: EditablePro
       iconUrl={project.avatarUrl ? projectAssetURL(project.id, project.avatarUrl) : undefined}
       fallback={<ProjectIconMark project={project} size={size} />}
       fallbackLarge={<ProjectIconMark project={project} size="xl" />}
+      triggerClassName={SIZES[size].box}
       trigger={(version) => <ProjectIconMark project={project} size={size} version={version} />}
       onOpenChange={onOpenChange}
     />

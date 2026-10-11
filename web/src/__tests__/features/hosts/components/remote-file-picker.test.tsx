@@ -371,6 +371,8 @@ describe('RemoteFilePicker — the host', () => {
 
     setStatus('h1', 'down')
     expect(screen.getByRole('status')).toHaveTextContent('homelab-prox is not answering')
+    expect(screen.getByRole('img', { name: 'Offline' })).toHaveAttribute('data-host-state', 'down')
+    expect(screen.getByText('homelab-prox')).toHaveAttribute('data-host-tone', 'offline')
     expect(selectButton()).toBeDisabled()
     fireEvent.click(row('home'))
     expect(screen.getByText('Waiting for homelab-prox to answer')).toBeInTheDocument()

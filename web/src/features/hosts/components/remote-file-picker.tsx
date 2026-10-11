@@ -9,16 +9,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
-import {
-  HostStatusDot,
-  hostDotLabel,
-  hostIsUnreachable,
-} from '@/features/hosts/components/host-status-dot'
+import { HostStatusIcon } from '@/features/hosts/components/host-status-icon'
 import { RemoteFolderTree } from '@/features/hosts/components/remote-folder-tree'
 import { ROOT_PATH, useFolderListings } from '@/features/hosts/hooks/use-folder-listings'
 import { useHostView } from '@/features/hosts/hooks/use-host-status'
 import type { BrowseEntry } from '@/features/hosts/lib/browse'
 import { childrenOf, failureText } from '@/features/hosts/lib/folder-rows'
+import { hostDotLabel, hostIsUnreachable, hostToneText } from '@/features/hosts/lib/host-tone'
 import type { HostDotState } from '@/features/hosts/types'
 
 interface RemoteFilePickerProps {
@@ -131,8 +128,8 @@ function FolderBrowser({ hostId, listRef, onCancel, onChoose }: FolderBrowserPro
       )}
       <DialogFooter className="items-center sm:justify-between">
         <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
-          <HostStatusDot hostId={hostId} state={state} />
-          <span className="truncate">{name ?? hostDotLabel(state)}</span>
+          <HostStatusIcon hostId={hostId} state={state} />
+          <span {...hostToneText(state, 'truncate')}>{name ?? hostDotLabel(state)}</span>
         </span>
         <span className="flex min-w-0 gap-2">
           <Button variant="ghost" onClick={onCancel}>

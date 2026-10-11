@@ -6,6 +6,7 @@ import { SpaceHeader } from '@/components/sidebar/space-header'
 import * as rowActions from '@/components/sidebar/lib/row-actions'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import type { Project } from '@/lib/types'
+import { loadProjects, pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 vi.mock('@/components/sidebar/lib/row-actions', async (importOriginal) => ({
   ...(await importOriginal<typeof rowActions>()),
@@ -47,6 +48,8 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
+afterEach(() => resetHostWorld())
+
 describe('SpaceHeader', () => {
   it('at rest shows the project mark and name, no controls', () => {
     renderHeader()
@@ -59,15 +62,8 @@ describe('SpaceHeader', () => {
     expect(screen.getByText('p1')).toBeInTheDocument()
   })
 
-  // Spec §4: "On hover — the mark's slot becomes a chevron, and an overflow
-  // (…) appears." Task 5 (icon personalization) turned the resting-state
-  // mark into a real click target (EditableProjectIcon) too, which an
-  // EARLIER attempt at this hover swap broke: hovering the row swapped the
-  // mark for the chevron before a click could ever land on it, making the
-  // icon reachable in principle but unclickable in practice. The fix is not
-  // to drop the swap (that traded a real bug for a spec violation) but to
-  // scope it: hovering the ROW swaps the mark for the chevron, per spec;
-  // hovering the mark's OWN hit-target does not (see the next test).
+  // Spec §4: hovering the ROW swaps the mark for a chevron and shows the overflow; hovering the
+  // mark's own hit-target does not (next test), or its click-to-edit could never be reached.
   it('on hover (off the glyph) the chevron, thread button and overflow menu all appear', () => {
     renderHeader()
     fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
@@ -118,15 +114,8 @@ describe('SpaceHeader', () => {
     expect(screen.getByTestId('chevron')).toHaveClass('rotate-180')
   })
 
-  // Caught live: the fold button sized to its own text line-height inside
-  // the h-9 row, leaving an 8px dead band top and bottom that shared the
-  // row's hover ground but had no click handler — clicking near the row's
-  // own border, still visibly inside it, silently did nothing.
-  // `getBoundingClientRect` is meaningless in jsdom (no real layout), so
-  // this pins the actual mechanism instead: the button must stretch across
-  // the row's full cross-axis and re-center its own text, not merely occupy
-  // whatever the row's default `align-items: center` would give a
-  // block-level child.
+  // The whole row's height must fold, not just the text's own line box. jsdom runs no layout,
+  // so this pins the mechanism: the button stretches across the row and re-centres its text.
   it('fold button stretches to the row’s full height, not just its own text', () => {
     renderHeader()
     const foldButton = screen.getByRole('button', { name: 'Collapse p1' })
@@ -134,12 +123,7 @@ describe('SpaceHeader', () => {
     expect(foldButton).toHaveClass('items-center')
   })
 
-  // The row's own container (`space-header-row`) is a plain, non-interactive
-  // div now — no `role`, no `onClick` of its own — precisely so it cannot
-  // present as one giant button swallowing the overflow/thread controls'
-  // independent semantics (`html-no-nested-interactive`). The fold toggle is
-  // a real, independently-focusable `<button>` (the label) instead, so this
-  // asserts THAT control does the job, not a bare click on the container.
+  // The container is inert (it would swallow the nested controls); the label's own button folds.
   it('clicking the header (its label button) calls onToggleFold', () => {
     const onToggle = vi.fn()
     renderHeader({ onToggleFold: onToggle })
@@ -149,17 +133,45 @@ describe('SpaceHeader', () => {
 
   // The host line is part of the fold control, which it describes: clicking anywhere on the label
   // folds, and a screen reader hears which host (and its state) the project is on.
-  it('shows the project’s host under its name, inside the fold control it describes', () => {
+  it('shows the project’s host under its name, dotless, inside the fold control it describes', () => {
     const onToggle = vi.fn()
     renderHeader({ onToggleFold: onToggle })
     const fold = screen.getByRole('button', { name: 'Collapse p1' })
 
     expect(fold).toContainElement(screen.getByText('p1'))
     expect(fold).toContainElement(screen.getByText('Local'))
-    expect(fold).toContainElement(screen.getByTestId('host-status-local'))
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
     expect(fold).toHaveAccessibleDescription('Local, Status unknown')
     fireEvent.click(screen.getByText('Local'))
     expect(onToggle).toHaveBeenCalledTimes(1)
+  })
+
+  // Local is the app itself: only a remote project has a host to reach settings for.
+  it('a local project has no host button', () => {
+    renderHeader()
+    fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
+    expect(screen.queryByRole('button', { name: /^Host settings/ })).not.toBeInTheDocument()
+  })
+
+  it('a remote project’s host button is shown at rest, and last in the row’s tab order', async () => {
+    const project = { ...makeProject('p1'), hostId: 'h1' }
+    pairRemoteHost('h1', 'homelab-prox')
+    loadProjects(project)
+    const user = userEvent.setup()
+    renderHeader({ project })
+    const host = screen.getByRole('button', { name: /^Host settings: homelab-prox, / })
+
+    for (const name of [
+      /edit p1 icon/i,
+      'Collapse p1',
+      'More actions for p1',
+      'New thread on p1',
+    ]) {
+      await user.tab()
+      expect(screen.getByRole('button', { name })).toHaveFocus()
+    }
+    await user.tab()
+    expect(host).toHaveFocus()
   })
 
   // The container itself must NOT carry its own click behavior — that would
@@ -232,12 +244,7 @@ describe('SpaceHeader', () => {
     expect(onToggle).not.toHaveBeenCalled()
   })
 
-  // THE BUG: "can't start chats directly on a CLI, it always obligates me to
-  // use the native chat" — the header's own Thread button, like the row's,
-  // had no way to land the new chat on Terminal without flipping
-  // chatIsDefaultPresentation (Settings → Chat) globally. This is the
-  // discoverable, visible affordance for it: a second item in the SAME
-  // overflow menu Import a repo / Create a folder already live in.
+  // Starting ONE chat on the CLI without flipping Settings → Chat for every chat after it.
   describe('New thread in Terminal (overflow menu)', () => {
     afterEach(() => {
       useAgentProvidersStore.setState({ status: 'idle', providers: [] })
@@ -312,12 +319,7 @@ describe('SpaceHeader', () => {
   })
 
   it('keyboard-activating the thread button fires its own handler, not onToggleFold', async () => {
-    // Regression: a keydown on a nested button bubbles to the row's own
-    // onKeyDown. Without SidebarRow's `e.target !== e.currentTarget` guard,
-    // Enter/Space on the button fired onToggleFold instead of the button's
-    // own click. fireEvent.keyDown does not exercise this — jsdom does not
-    // synthesize a button's default click-on-Enter/Space action from a raw
-    // keydown event — so this uses userEvent, which does.
+    // userEvent, not fireEvent.keyDown: only it synthesizes a button's click from Enter.
     const onToggle = vi.fn()
     const onCreateThread = vi.fn()
     const user = userEvent.setup()
