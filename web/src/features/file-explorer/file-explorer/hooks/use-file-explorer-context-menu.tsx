@@ -221,6 +221,7 @@ export function useFileExplorerContextMenu({
     if (!contextMenu) return []
 
     const items: ContextMenuItem[] = []
+    const staged = [{ path: contextMenu.path, is_dir: contextMenu.isDir }]
 
     if (contextMenu.isDir) {
       // Empty-space (root) right-click passes the absolute wsId as contextMenu.path,
@@ -459,12 +460,7 @@ export function useFileExplorerContextMenu({
         id: 'copy',
         label: 'Copy',
         icon: <Copy />,
-        onClick: () => {
-          clipboardActions.copy(
-            [{ path: contextMenu.path, is_dir: contextMenu.isDir }],
-            workspaceId,
-          )
-        },
+        onClick: () => void clipboardActions.copy(staged, workspaceId),
       },
       // Cut stages a move whose completion (paste) deletes from this workspace —
       // a mutation, so hidden when locked. Copy above only reads, so it stays.
@@ -475,12 +471,7 @@ export function useFileExplorerContextMenu({
               id: 'cut',
               label: 'Cut',
               icon: <Scissors />,
-              onClick: () => {
-                clipboardActions.cut(
-                  [{ path: contextMenu.path, is_dir: contextMenu.isDir }],
-                  workspaceId,
-                )
-              },
+              onClick: () => void clipboardActions.cut(staged, workspaceId),
             },
           ]),
       ...(onRemoveFolderFromWorkspace && canRemoveWorkspaceRootPath?.(contextMenu.path)
