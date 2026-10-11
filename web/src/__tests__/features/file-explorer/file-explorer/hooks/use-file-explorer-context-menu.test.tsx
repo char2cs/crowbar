@@ -12,6 +12,7 @@ vi.mock('@/features/file-system/controllers/platform', () => ({
 }))
 
 import { useFileExplorerContextMenu } from '@/features/file-explorer/file-explorer/hooks/use-file-explorer-context-menu'
+import { useFileClipboardStore } from '@/features/file-explorer/stores/file-explorer-clipboard-store'
 import type { ContextMenuItem } from '@/components/ui/context-menu'
 import { joinPath } from '@/utils/path-helpers'
 
@@ -150,6 +151,27 @@ describe('useFileExplorerContextMenu — newly-rendered items', () => {
     expect(options.onUploadFile).toHaveBeenCalledWith('')
     click(root.items, 'Add Folder to Workspace')
     expect(options.onAddFolderToWorkspace).toHaveBeenCalledTimes(1)
+  })
+
+  // Its paths mean something only in the explorer's workspace: a paste anywhere else refuses.
+  it.each([
+    ['Copy', 'copy'],
+    ['Cut', 'cut'],
+  ] as const)('%s records the explorer’s workspace with the entry', (label, operation) => {
+    useFileClipboardStore.setState({ clipboard: null })
+    const { items } = openMenu(
+      { ...baseOptions(), workspaceId: 'ws-explorer' },
+      'api/main.go',
+      false,
+    )
+
+    click(items, label)
+
+    expect(useFileClipboardStore.getState().clipboard).toEqual({
+      entries: [{ path: 'api/main.go', is_dir: false }],
+      operation,
+      wsId: 'ws-explorer',
+    })
   })
 })
 
