@@ -1,7 +1,7 @@
 // Crowbar system operations backed by the Go daemon's /v0 API.
 
 import { convertFileSrc as tauriConvertFileSrc } from '@tauri-apps/api/core'
-import { Menu, MenuItem, PredefinedMenuItem, Submenu } from '@tauri-apps/api/menu'
+import type * as TauriMenu from '@tauri-apps/api/menu'
 
 import { apiFetch } from '@/lib/api'
 import { splitHostPath } from '@/lib/host-path'
@@ -318,7 +318,7 @@ export async function onConsoleMenuToggle(handler: () => void): Promise<() => vo
 
 // ── Native Context Menu ───────────────────────────────────────────────────────
 
-type NativeMenuEntry = MenuItem | Submenu | PredefinedMenuItem
+type NativeMenuEntry = TauriMenu.MenuItem | TauriMenu.Submenu | TauriMenu.PredefinedMenuItem
 
 // Every native resource of the open menu, in creation order. Tauri drops an
 // item's click channel when its Rust wrapper drops, and an item passed inline
@@ -330,7 +330,12 @@ let openNativeMenu: Array<{ close(): Promise<void> }> = []
 // with that id drops, so ids must be unique across menus alive at once.
 let nativeMenuSeq = 0
 
+// Loaded with the first native menu, not statically: nothing before a right-click needs it.
+let menuApi: Promise<typeof TauriMenu> | null = null
+const loadMenuApi = () => (menuApi ??= import('@tauri-apps/api/menu'))
+
 async function toNativeMenuEntries(
+  api: typeof TauriMenu,
   items: ContextMenuItem[],
   menuId: number,
   owned: Array<{ close(): Promise<void> }>,
@@ -340,15 +345,15 @@ async function toNativeMenuEntries(
   for (const item of items) {
     let entry: NativeMenuEntry
     if (item.separator) {
-      entry = await PredefinedMenuItem.new({ item: 'Separator' })
+      entry = await api.PredefinedMenuItem.new({ item: 'Separator' })
     } else if (item.items && item.items.length > 0) {
-      entry = await Submenu.new({
+      entry = await api.Submenu.new({
         text: item.label,
         enabled: !item.disabled,
-        items: await toNativeMenuEntries(item.items, menuId, owned, onChosen),
+        items: await toNativeMenuEntries(api, item.items, menuId, owned, onChosen),
       })
     } else {
-      entry = await MenuItem.new({
+      entry = await api.MenuItem.new({
         id: `${menuId}:${item.id}`,
         text: item.label,
         enabled: !item.disabled,
@@ -392,14 +397,16 @@ export async function showNativeContextMenu(
   isCancelled?: () => boolean,
 ): Promise<void> {
   await closeNativeMenu(openNativeMenu)
+  const api = await loadMenuApi()
   const owned: Array<{ close(): Promise<void> }> = []
   const entries = await toNativeMenuEntries(
+    api,
     items,
     nativeMenuSeq++,
     owned,
     () => void closeNativeMenu(owned),
   )
-  const menu = await Menu.new({ items: entries })
+  const menu = await api.Menu.new({ items: entries })
   owned.push(menu)
   if (isCancelled?.()) {
     await closeNativeMenu(owned)
