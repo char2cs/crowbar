@@ -17,8 +17,19 @@ import { projectFromDTO } from '@/lib/store/project-from-dto'
 import { hostIsUnreachable } from '@/features/hosts/components/host-status-dot'
 import { useDaemonFolderPicker } from '@/features/hosts/hooks/use-daemon-folder-picker'
 import { useHostView } from '@/features/hosts/hooks/use-host-status'
-import { LOCAL_HOST } from '@/features/hosts/types'
+import { LOCAL_HOST, type HostDotState } from '@/features/hosts/types'
 import type { Project, ProjectDTO } from '@/lib/types'
+
+/** Why Create waits on a remote host, or null when it doesn't: the host first, then the folder. */
+function remoteCreateHint(
+  { name, state }: { name: string | undefined; state: HostDotState },
+  selectedPath: string,
+): string | null {
+  if (name === undefined) return null
+  if (state === 'needs-repair') return `${name} needs pairing again.`
+  if (hostIsUnreachable(state)) return `${name} is not answering.`
+  return selectedPath ? null : `Choose a folder on ${name} first.`
+}
 
 interface CreateSpacePanelProps {
   onCreate: (project: Project) => void
@@ -97,11 +108,8 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
   const folderPicker = useDaemonFolderPicker(hostId, (path, pickedOn) =>
     setFolder({ hostId: pickedOn, path }),
   )
-  const folderHintId = useId()
-  const folderHint =
-    hostId !== LOCAL_HOST.id && !selectedPath && selectedHost.name !== undefined
-      ? `Choose a folder on ${selectedHost.name} first.`
-      : null
+  const createHintId = useId()
+  const createHint = hostId === LOCAL_HOST.id ? null : remoteCreateHint(selectedHost, selectedPath)
 
   async function handleCreate() {
     if (!selectedPath || loading || hostRefusesCreate) return
@@ -198,15 +206,15 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
       <div className="flex-1" />
 
       <div className="flex shrink-0 flex-col gap-2 pb-4">
-        {folderHint && (
-          <p id={folderHintId} className="text-center text-muted-foreground text-xs">
-            {folderHint}
+        {createHint && (
+          <p id={createHintId} className="text-center text-muted-foreground text-xs">
+            {createHint}
           </p>
         )}
         <Button
           onClick={() => void handleCreate()}
           disabled={!selectedPath || loading || hostRefusesCreate}
-          aria-describedby={folderHint ? folderHintId : undefined}
+          aria-describedby={createHint ? createHintId : undefined}
           className="w-full"
         >
           {loading ? 'Creating…' : 'Create Space'}

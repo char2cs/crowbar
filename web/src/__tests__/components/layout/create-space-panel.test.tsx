@@ -116,7 +116,7 @@ beforeEach(() => {
 })
 
 describe('CreateSpacePanel — daemon picker', () => {
-  it('a selected host that stops answering cannot be created on until it answers again', async () => {
+  it('a selected host that stops answering cannot be created on until it answers again, and says so', async () => {
     useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'homelab-prox' })] })
     getOrCreateHostRuntime('h1').getState().setStatus('up')
     remoteFolders.h1 = { '/': ['later'] }
@@ -130,9 +130,13 @@ describe('CreateSpacePanel — daemon picker', () => {
 
     act(() => getOrCreateHostRuntime('h1').getState().setStatus('down'))
     expect(create).toBeDisabled()
+    expect(create).toHaveAccessibleDescription('homelab-prox is not answering.')
+    act(() => getOrCreateHostRuntime('h1').getState().setStatus('needs-repair'))
+    expect(create).toHaveAccessibleDescription('homelab-prox needs pairing again.')
 
     act(() => getOrCreateHostRuntime('h1').getState().setStatus('up'))
     expect(create).toBeEnabled()
+    expect(create).not.toHaveAccessibleDescription()
   })
 
   it("creating a space passes the selected daemon's hostId to the create call", async () => {
