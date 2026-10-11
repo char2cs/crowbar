@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { resetDB } from '@/lib/persistence/idb'
-import { dataOf, failed, loading, success, type Loadable } from '@/lib/loadable'
+import { dataOf, failed, idle, loading, success, type Loadable } from '@/lib/loadable'
 import type { Project } from '@/lib/types'
 import type { HostStatus } from '@/features/hosts/types'
 
@@ -205,15 +205,18 @@ describe('a paired host coming up', () => {
   const remoteRow = (id: string, hostId: string) =>
     ({ ...wire(id, 0), hostId }) as unknown as Project
 
-  /** A live list holding the local answer, with `hostIds` configured. */
-  async function liveList(...hostIds: string[]) {
+  /** A synced list with `hostIds` configured, holding `data` — else the local answer. */
+  async function syncedList(hostIds: string[], data?: Loadable<Project[]>) {
     const store = await freshStore()
     const { useHostConfigStore } = await import('@/features/hosts/stores/host-config-store')
     const { getOrCreateHostRuntime } = await import('@/features/hosts/stores/host-runtime-registry')
     useHostConfigStore.setState({ hosts: hostIds.map(host) })
-    readLocal.mockResolvedValue([p('a', 0)])
     const stop = store.getState().startSync()
-    await store.getState().fetch()
+    if (data) store.setState({ data })
+    else {
+      readLocal.mockResolvedValue([p('a', 0)])
+      await store.getState().fetch()
+    }
     return {
       store,
       stop,
@@ -223,6 +226,7 @@ describe('a paired host coming up', () => {
       held: () => dataOf(store.getState().data)?.map((x) => `${x.id}@${x.hostId}`),
     }
   }
+  const liveList = (...hostIds: string[]) => syncedList(hostIds)
 
   /** The next read of a remote host waits until it is answered with these rows. */
   function parkedRemote(): (rows: Project[]) => void {
@@ -430,39 +434,61 @@ describe('a paired host coming up', () => {
     list.stop()
   })
 
-  // Held rows are rows whatever the list's load status: a removed host's go even while the
-  // local daemon is unreachable or being read, through the same tombstones.
-  it.each<[string, (rows: Project[]) => Loadable<Project[]>]>([
+  const UNPUBLISHED: Array<[string, (rows: Project[]) => Loadable<Project[]>]> = [
     ['failed', (rows) => failed(new Error('the local daemon is down'), success(rows))],
     ['loading', (rows) => loading(success(rows))],
-  ])('removing a host takes its held rows while the list is %s', async (_, holding) => {
-    const store = await freshStore()
-    const { useHostConfigStore } = await import('@/features/hosts/stores/host-config-store')
-    useHostConfigStore.setState({ hosts: [host('h1')] })
-    const stop = store.getState().startSync()
-    store.setState({ data: holding([p('a', 0), remoteRow('only-h1', 'h1')]) })
-    const { status } = store.getState().data
+  ]
 
-    useHostConfigStore.getState().removeHost('h1')
+  // Held rows are rows whatever the list's load status: a removed host's go even while the
+  // local daemon is unreachable or being read, through the same tombstones.
+  it.each(UNPUBLISHED)(
+    'removing a host takes its held rows while the list is %s',
+    async (_, holding) => {
+      const list = await syncedList(['h1'], holding([p('a', 0), remoteRow('only-h1', 'h1')]))
+      const { status } = list.store.getState().data
 
-    expect(store.getState().data.status).toBe(status)
-    expect(dataOf(store.getState().data)?.map((x) => `${x.id}@${x.hostId}`)).toEqual(['a@local'])
+      list.config.getState().removeHost('h1')
+
+      expect(list.store.getState().data.status).toBe(status)
+      expect(list.held()).toEqual(['a@local'])
+      await settle()
+      expect(readLocal).not.toHaveBeenCalled()
+      list.stop()
+    },
+  )
+
+  // The local answer is built on the rows held: a host's answer and frames land there, and a
+  // host is named read only once they have — without a local re-read per remote frame.
+  it.each(UNPUBLISHED)('holds an up host’s rows while the list is %s', async (_, holding) => {
+    const list = await syncedList(['h1'], holding([p('a', 0), remoteRow('r-old', 'h1')]))
+    readRemote.mockResolvedValueOnce([remoteRow('r-new', 'h1')])
+    readRemote.mockReturnValue(new Promise(() => {}))
+    list.status('h1', 'up')
+    await vi.waitFor(() => expect([...list.store.getState().readHosts]).toEqual(['h1']))
+    sockets.get('h1')!(wire('r-2', 1))
+
+    expect(list.held()).toEqual(['a@local', 'r-new@h1', 'r-2@h1'])
     await settle()
     expect(readLocal).not.toHaveBeenCalled()
-    stop()
+    readLocal.mockResolvedValueOnce([p('a', 0)])
+    await list.store.getState().fetch()
+    expect(list.store.getState().data.status).toBe('success')
+    expect(list.held()).toEqual(['a@local', 'r-new@h1', 'r-2@h1'])
+    list.stop()
   })
 
-  it('removing a host from a list never read holds nothing and reads nothing', async () => {
-    const store = await freshStore()
-    const { useHostConfigStore } = await import('@/features/hosts/stores/host-config-store')
-    useHostConfigStore.setState({ hosts: [host('h1')] })
-    const stop = store.getState().startSync()
-
-    useHostConfigStore.getState().removeHost('h1')
+  it('a list never read holds no host’s rows, names none read, and reads nothing', async () => {
+    const list = await syncedList(['h1'], idle())
+    readRemote.mockResolvedValueOnce([remoteRow('r-h1', 'h1')])
+    list.status('h1', 'up')
+    await vi.waitFor(() => expect(readRemote).toHaveBeenCalledTimes(1))
     await settle()
+    expect([...list.store.getState().readHosts]).toEqual([])
 
-    expect(store.getState().data.status).toBe('idle')
+    list.config.getState().removeHost('h1')
+    await settle()
+    expect(list.store.getState().data.status).toBe('idle')
     expect(readLocal).not.toHaveBeenCalled()
-    stop()
+    list.stop()
   })
 })

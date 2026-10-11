@@ -171,8 +171,8 @@ async function readHostRows(hostId: string): Promise<void> {
       (list, frame) => mergeProjectFrame(list, frame, hostId) ?? list,
       rows,
     )
-    await useProjectDataStore.getState().applyDelta(new HostRows(hostId, current))
-    if (hostReads.get(hostId) === issued && isConfigured(hostId) && isUp(hostId)) {
+    const landed = useProjectDataStore.getState().holdFrame(new HostRows(hostId, current))
+    if (landed && hostReads.get(hostId) === issued && isConfigured(hostId) && isUp(hostId)) {
       setHostRead(hostId, true)
     }
   } finally {
@@ -188,7 +188,7 @@ function onHostFrame(hostId: string, frame: unknown): void {
     return
   }
   for (const unseen of unseenByReads.get(hostId) ?? []) unseen.push(frame)
-  void useProjectDataStore.getState().applyDelta(new HostFrame(hostId, frame))
+  useProjectDataStore.getState().holdFrame(new HostFrame(hostId, frame))
 }
 
 /**
@@ -196,22 +196,10 @@ function onHostFrame(hostId: string, frame: unknown): void {
  * list holds — rows held while it is read, or after a read failed, are rows too.
  */
 function dropHostRows(hostId: string): void {
-  const { data, applyDelta } = useProjectDataStore.getState()
-  const held = dataOf(data) ?? []
-  const tombstones = held.flatMap((p) =>
-    p.hostId === hostId ? [{ id: p.id, status: 'deleted' }] : [],
-  )
-  if (data.status === 'success') {
-    for (const tombstone of tombstones) void applyDelta(new HostFrame(hostId, tombstone))
-    return
+  const { data, holdFrame } = useProjectDataStore.getState()
+  for (const p of dataOf(data) ?? []) {
+    if (p.hostId === hostId) holdFrame(new HostFrame(hostId, { id: p.id, status: 'deleted' }))
   }
-  // Not published: the next answer is rebuilt from what is held, so the tombstones go on that.
-  if (tombstones.length === 0 || data.status === 'idle') return
-  const staleData = tombstones.reduce(
-    (list, tombstone) => mergeProjectFrame(list, tombstone, hostId) ?? list,
-    held,
-  )
-  useProjectDataStore.setState({ data: { ...data, staleData } })
 }
 
 function upHostIds(): string[] {
@@ -227,8 +215,8 @@ export const useProjectDataStore = create<ProjectListState>()((set, get) => {
   const slice = createLoadableSlice<Project[], []>({
     store: 'projects-data',
     // The local daemon's answer is published the moment it lands, with each paired host's
-    // held rows; a host that is up merges in when it answers. Its reads start only after
-    // a local success, so a failing local read never re-arms itself through them.
+    // held rows; a host that is up merges in when it answers. A host's answer while the list
+    // is unpublished lands on those held rows, never as a local re-read.
     fetcher: async () => {
       const local = await connected().read(LOCAL_HOST.id)
       for (const hostId of upHostIds()) void readHostRows(hostId)

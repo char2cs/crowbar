@@ -7,6 +7,9 @@ export interface LoadableSlice<T, K extends unknown[] = [string]> {
   fetch: (...args: K) => Promise<void>
   startSync: (...args: K) => () => void
   applyDelta: (event: unknown, ...args: K) => Promise<void>
+  /** Lands a frame on whatever is held and never re-reads: merged into a published value, else
+   *  carried by each read in flight and folded into the stale value. False when nothing is held. */
+  holdFrame: (event: unknown, ...args: K) => boolean
   optimisticWrite: (optimistic: T, commit: () => Promise<T | void>) => Promise<void>
 }
 
@@ -211,6 +214,21 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
           }
         }
         scheduleRefetch(key, args)
+      },
+
+      holdFrame: (event: unknown, ...args: K) => {
+        const current = get().data
+        if (!cfg.mergeFrame) return false
+        if (current.status === 'success') {
+          void get().applyDelta(event, ...args)
+          return true
+        }
+        for (const frames of inFlightFrames.get(keyOf(...args)) ?? []) frames.push(event)
+        if (current.status === 'idle' || current.staleData === null) return false
+        const staleData = cfg.mergeFrame(current.staleData, event)
+        if (staleData === undefined) return false
+        if (staleData !== current.staleData) set({ data: { ...current, staleData } })
+        return true
       },
 
       optimisticWrite: async (optimistic: T, commit: () => Promise<T | void>) => {

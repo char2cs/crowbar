@@ -20,7 +20,7 @@ const frameHandlers = new Map<string, (frame: unknown) => void>()
 import { resetDB } from '@/lib/persistence/idb'
 import { saveCache } from '@/lib/persistence/cache-store'
 import { createLoadableSlice, type LoadableSlice } from '@/lib/store/loadable-slice'
-import { dataOf } from '@/lib/loadable'
+import { dataOf, failed, success } from '@/lib/loadable'
 
 beforeEach(() => {
   resetDB()
@@ -333,6 +333,37 @@ describe('createLoadableSlice', () => {
     expect(dataOf(store.getState().data)).toEqual([1])
     release[0]()
     await reread
+  })
+
+  // A frame from a source the read does not cover (another host's) lands on what is held,
+  // published or not, and is never answered with a re-read of this one.
+  it('holdFrame folds into a stale value without a re-read', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const fetcher = vi.fn(async () => [1])
+    const store = makeLiveStore(fetcher)
+    expect(store.getState().holdFrame(9)).toBe(false)
+    store.setState({ data: failed(new Error('down'), success([1])) })
+
+    expect(store.getState().holdFrame(2)).toBe(true)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(fetcher).not.toHaveBeenCalled()
+    expect(store.getState().data).toMatchObject({ status: 'error', staleData: [1, 2] })
+    await store.getState().fetch()
+    expect(store.getState().holdFrame(3)).toBe(true)
+    expect(dataOf(store.getState().data)).toEqual([1, 3])
+    vi.useRealTimers()
+  })
+
+  it('holdFrame rides the read in flight, whose answer would otherwise replace it', async () => {
+    const { fetcher, release, startedAt } = parkedFetcher(() => [1])
+    const store = makeLiveStore(() => fetcher(''))
+    const read = store.getState().fetch()
+    await startedAt[0]
+
+    store.getState().holdFrame(2)
+    release[0]()
+    await read
+    expect(dataOf(store.getState().data)).toEqual([1, 2])
   })
 
   it('optimisticWrite commits on success', async () => {
