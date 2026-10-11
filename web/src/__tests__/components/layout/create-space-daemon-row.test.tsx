@@ -54,12 +54,13 @@ beforeEach(() => {
 })
 
 describe('CreateSpaceDaemonRow', () => {
-  // Local by default; a saved host is listed whatever its state, says it in words as well as by
-  // its dot, and is choosable only while up: down, or refusing this client, it is disabled.
+  // Local by default; a saved host is listed whatever its state, says it in the words its dot
+  // (and Settings) use, and is choosable only while up: down, or refusing this client, disabled.
   it.each([
-    ['up', false, 'up'],
-    ['down', true, 'unreachable'],
-    ['needs-repair', true, 'needs pairing again'],
+    ['up', false, 'Online'],
+    ['down', true, 'Offline'],
+    ['needs-repair', true, 'Needs pairing again'],
+    ['probing', false, 'Checking…'],
   ] as const)(
     'defaults to Local and lists a %s host, disabled: %s, saying %j',
     async (status, disabled, words) => {
