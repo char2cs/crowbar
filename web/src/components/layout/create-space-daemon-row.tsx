@@ -16,11 +16,22 @@ import {
 } from '@/features/hosts/components/host-status-dot'
 import { useHostDotState, useHostView } from '@/features/hosts/hooks/use-host-status'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { LOCAL_HOST, type Host } from '@/features/hosts/types'
+import { LOCAL_HOST, type Host, type HostDotState } from '@/features/hosts/types'
 import { isTauri } from '@/lib/crowbar-bridge'
 
 // A trailing pick that opens AddHostDialog rather than ever becoming the selected daemon.
 const ADD_HOST_VALUE = '__add-host__'
+
+// A saved host's state in words beside its dot, as the approved mockup reads.
+const STATE_WORDS: Record<HostDotState, string> = {
+  unknown: 'checking…',
+  probing: 'checking…',
+  up: 'up',
+  'no-live-stream': 'up',
+  down: 'unreachable',
+  'not-available': 'unreachable',
+  'needs-repair': 'needs pairing again',
+}
 
 /** One selectable saved host, disabled (not hidden) while nothing can be asked of it — a
  *  project can't be created on a host that can't currently be reached. */
@@ -30,7 +41,8 @@ function DaemonOption({ host }: { host: Host }) {
     <SelectItem value={host.id} disabled={hostIsUnreachable(state)}>
       <span className="flex items-center gap-2">
         <HostStatusDot hostId={host.id} state={state} />
-        {host.name}
+        <span className="min-w-0 flex-1 truncate">{host.name}</span>
+        <span className="text-muted-foreground text-xs">{STATE_WORDS[state]}</span>
       </span>
     </SelectItem>
   )

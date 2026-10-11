@@ -45,23 +45,28 @@ beforeEach(() => {
 })
 
 describe('CreateSpaceDaemonRow', () => {
-  // Local by default; a saved host is listed whatever its state, and choosable only while up:
-  // down, or refusing this client until paired again, it is listed but disabled.
+  // Local by default; a saved host is listed whatever its state, says it in words as well as by
+  // its dot, and is choosable only while up: down, or refusing this client, it is disabled.
   it.each([
-    ['up', false],
-    ['down', true],
-    ['needs-repair', true],
-  ] as const)('defaults to Local and lists a %s host, disabled: %s', async (status, disabled) => {
-    useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'office-vm' })] })
-    getOrCreateHostRuntime('h1').getState().setStatus(status)
-    const user = userEvent.setup()
-    render(<DaemonRow />)
-    expect(daemonTrigger()).toHaveTextContent('Local')
+    ['up', false, 'up'],
+    ['down', true, 'unreachable'],
+    ['needs-repair', true, 'needs pairing again'],
+  ] as const)(
+    'defaults to Local and lists a %s host, disabled: %s, saying %j',
+    async (status, disabled, words) => {
+      useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'office-vm' })] })
+      getOrCreateHostRuntime('h1').getState().setStatus(status)
+      const user = userEvent.setup()
+      render(<DaemonRow />)
+      expect(daemonTrigger()).toHaveTextContent('Local')
 
-    await user.click(daemonTrigger())
-    const option = await screen.findByRole('option', { name: /office-vm/i })
-    expect(option.getAttribute('aria-disabled') === 'true').toBe(disabled)
-  })
+      await user.click(daemonTrigger())
+      const option = await screen.findByRole('option', { name: /office-vm/i })
+      expect(option.getAttribute('aria-disabled') === 'true').toBe(disabled)
+      expect(within(option).getByText(words)).toBeInTheDocument()
+      expect(screen.getByRole('option', { name: /local/i })).toHaveTextContent(/^Local$/)
+    },
+  )
 
   it("Local's dot says what the app knows of the local daemon, like every other host dot", async () => {
     useConnectionStore.setState({ status: 'disconnected' })
