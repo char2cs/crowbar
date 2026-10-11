@@ -149,14 +149,17 @@ export function HostsSettings() {
   const [addOpen, setAddOpen] = useState(false)
   // Each opening is a new attempt, even one made while the last is still closing.
   const [addAttempt, setAddAttempt] = useState(0)
-  // Which host's revoke is in flight, so a second click can't fire a second
-  // DELETE against the same client while the first is still out.
-  const [revokingId, setRevokingId] = useState<string | null>(null)
+  // Every host whose revoke is out: none of them can be asked to revoke twice.
+  const [revoking, setRevoking] = useState<ReadonlySet<string>>(() => new Set())
 
   const handleRevoke = useCallback((host: Host) => {
-    setRevokingId(host.id)
+    setRevoking((ids) => new Set(ids).add(host.id))
     void revokeHost(host).finally(() => {
-      setRevokingId((current) => (current === host.id ? null : current))
+      setRevoking((ids) => {
+        const next = new Set(ids)
+        next.delete(host.id)
+        return next
+      })
     })
   }, [])
 
@@ -177,7 +180,7 @@ export function HostsSettings() {
             key={host.id}
             host={host}
             isLocal={false}
-            revoking={revokingId === host.id}
+            revoking={revoking.has(host.id)}
             onRevoke={handleRevoke}
           />
         ))}

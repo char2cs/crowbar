@@ -214,6 +214,20 @@ describe('HostsSettings', () => {
       expect(screen.getByRole('button', { name: 'Revoke homelab' })).toBeEnabled()
     },
   )
+
+  // One DELETE per host while it is out, however many hosts are being revoked at once.
+  it('keeps each host’s trash disabled while its own revoke is out', async () => {
+    useHostConfigStore.setState({ hosts: [homelab, { ...homelab, id: 'h2', name: 'office' }] })
+    vi.mocked(apiFetch).mockReturnValue(new Promise(() => {}))
+    renderSettings()
+
+    await revoke('homelab')
+    await revoke('office')
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('button', { name: 'Revoke homelab' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Revoke office' })).toBeDisabled()
+  })
 })
 
 // Revoke as the running app meets it: the project list live, the host's status kept, its
