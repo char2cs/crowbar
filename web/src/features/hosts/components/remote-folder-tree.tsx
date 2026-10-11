@@ -25,8 +25,8 @@ function noteText(note: FolderNote, hostName: string): string {
       return 'Empty folder'
     case 'failed':
       return `Can't open: ${failureText(note.error)}`
-    case 'more':
-      return `${note.hidden} more not shown`
+    case 'more-files':
+      return `${note.hidden} more files not shown`
   }
 }
 

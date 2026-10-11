@@ -205,8 +205,8 @@ describe('RemoteFilePicker — browsing', () => {
   })
 
   it('a folder that vanished says so on that folder', async () => {
-    const gone = new ApiError('cannot read path: stat /tmp/x: no such file or directory', 400)
-    serve('h1', { '/': [dir('/tmp/x')], '/tmp/x': gone })
+    const gone = new ApiError('cannot read path: stat /x: no such file or directory', 400)
+    serve('h1', { '/': [dir('/x')], '/x': gone })
     renderPicker()
     fireEvent.click(await findRow('x'))
 
@@ -227,15 +227,16 @@ describe('RemoteFilePicker — browsing', () => {
     expect(requests.map((r) => r.path)).toEqual(['/', '/loop', '/loop/self'])
   })
 
-  it('a huge directory shows its folders first and says how much it left out', async () => {
-    const folders = Array.from({ length: 20 }, (_, i) => dir(`/big/d${i}`))
-    const files = Array.from({ length: 580 }, (_, i) => file(`/big/f${i}`))
+  // Folders are what can be chosen, so every one is shown; only inert files are cut.
+  it('a huge directory shows every folder and cuts only files, saying so', async () => {
+    const folders = Array.from({ length: 700 }, (_, i) => dir(`/d${i}`))
+    const files = Array.from({ length: 600 }, (_, i) => file(`/f${i}`))
     serve('h1', { '/': [...files, ...folders] })
     renderPicker()
 
-    expect(await screen.findByText('100 more not shown')).toBeInTheDocument()
-    expect(screen.getAllByRole('treeitem')).toHaveLength(501)
-    expect(row('d19')).toBeInTheDocument()
+    expect(await screen.findByText('100 more files not shown')).toBeInTheDocument()
+    expect(screen.getAllByRole('treeitem')).toHaveLength(700 + 500 + 1)
+    expect(row('d699')).toBeInTheDocument()
   })
 })
 

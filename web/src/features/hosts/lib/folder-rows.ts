@@ -12,18 +12,15 @@ export type FolderNote =
   | { type: 'loading' }
   | { type: 'empty' }
   | { type: 'failed'; error: unknown }
-  | { type: 'more'; hidden: number }
+  | { type: 'more-files'; hidden: number }
 
 export type FolderRow =
   | { kind: 'entry'; key: string; level: number; entry: BrowseEntry; expanded?: boolean }
   | { kind: 'note'; key: string; level: number; note: FolderNote }
 
-// The daemon lists a directory whole; past this many entries a listing is cut, folders kept first.
-const LISTING_CAP = 500
-
-function foldersFirst(entries: readonly BrowseEntry[]): BrowseEntry[] {
-  return [...entries.filter((e) => e.isDir), ...entries.filter((e) => !e.isDir)]
-}
+// The daemon lists a directory whole. Every folder is shown — folders are what can be chosen —
+// and past this many the inert files are cut.
+const FILE_CAP = 500
 
 function noteFor(listing: Listing | undefined): FolderNote | null {
   if (listing === undefined) return { type: 'waiting' }
@@ -41,9 +38,10 @@ export function folderRows(
   expanded: ReadonlySet<string>,
   level = 1,
 ): FolderRow[] {
-  const ordered = foldersFirst(entries)
+  const folders = entries.filter((e) => e.isDir)
+  const files = entries.filter((e) => !e.isDir)
   const rows: FolderRow[] = []
-  for (const entry of ordered.slice(0, LISTING_CAP)) {
+  for (const entry of [...folders, ...files.slice(0, FILE_CAP)]) {
     const open = expanded.has(entry.path)
     rows.push({
       kind: 'entry',
@@ -60,8 +58,8 @@ export function folderRows(
       rows.push(...folderRows(entry.path, listing.entries, listings, expanded, level + 1))
     }
   }
-  if (ordered.length > LISTING_CAP) {
-    const note: FolderNote = { type: 'more', hidden: ordered.length - LISTING_CAP }
+  if (files.length > FILE_CAP) {
+    const note: FolderNote = { type: 'more-files', hidden: files.length - FILE_CAP }
     rows.push({ kind: 'note', key: `${parent}\0more`, level, note })
   }
   return rows
