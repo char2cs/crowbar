@@ -176,8 +176,12 @@ type clientAuthStore interface {
 // requireBearerAuth authenticates a request by its Authorization: Bearer
 // header. A request with no TLS state (the unix socket, or a loopback dev TCP
 // bind) passes through unauthenticated — filesystem permission on the socket
-// is that path's trust boundary, not this middleware.
-func requireBearerAuth(clients clientAuthStore) gin.HandlerFunc {
+// is that path's trust boundary, not this middleware. A connection an
+// authenticated request hijacks is held in conns, for a revoke to end.
+func requireBearerAuth(
+	clients clientAuthStore,
+	conns *clientConns,
+) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.Request.TLS == nil {
 			c.Next()
@@ -190,18 +194,38 @@ func requireBearerAuth(clients clientAuthStore) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		token := auth[len(prefix):]
-		matches, err := clients.FindWhere(c.Request.Context(), domain.Client{TokenHash: pairing.HashToken(token)})
+		tokenHash := pairing.HashToken(auth[len(prefix):])
+		client, err := pairedClient(c.Request.Context(), clients, tokenHash)
 		if err != nil {
 			libs.WriteErr(c, http.StatusInternalServerError, "client lookup failed")
 			c.Abort()
 			return
 		}
-		if len(matches) == 0 || matches[0].RevokedAt != nil {
+		if client == nil {
 			libs.WriteErr(c, http.StatusUnauthorized, "client is not paired")
 			c.Abort()
 			return
 		}
+		c.Writer = &revocableWriter{
+			ResponseWriter: c.Writer, ctx: c.Request.Context(),
+			clients: clients, conns: conns, clientID: client.ID, tokenHash: tokenHash,
+		}
 		c.Next()
 	}
+}
+
+// pairedClient is the unrevoked client holding tokenHash, or nil.
+func pairedClient(
+	ctx context.Context,
+	clients clientAuthStore,
+	tokenHash string,
+) (*domain.Client, error) {
+	matches, err := clients.FindWhere(ctx, domain.Client{TokenHash: tokenHash})
+	if err != nil {
+		return nil, fmt.Errorf("v0: find client by token: %w", err)
+	}
+	if len(matches) == 0 || matches[0].RevokedAt != nil {
+		return nil, nil
+	}
+	return &matches[0], nil
 }

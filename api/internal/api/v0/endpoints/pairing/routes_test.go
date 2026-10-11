@@ -40,6 +40,10 @@ func (stubRegistry) FindByKey(context.Context, string) (*domain.Client, error) {
 	return &domain.Client{ID: "c1"}, nil
 }
 
+type stubStreams struct{}
+
+func (stubStreams) Disconnect(string) {}
+
 // countingLimiter aborts with 429 once it has let max requests through — a
 // deterministic stand-in for the real newSourceLimiter (package v0,
 // unreachable here without an import cycle back through router.go).
@@ -75,7 +79,7 @@ func doPair(t *testing.T, r *gin.Engine) *httptest.ResponseRecorder {
 }
 
 func TestRegisterOpen_MountsMintAndPair(t *testing.T) {
-	h := pairinghandlers.New(stubPairing{}, stubRegistry{}, "")
+	h := pairinghandlers.New(stubPairing{}, stubRegistry{}, stubStreams{}, "")
 	r := gin.New()
 	pairing.RegisterOpen(r.Group(""), h, countingLimiter(1000))
 
@@ -87,7 +91,7 @@ func TestRegisterOpen_MountsMintAndPair(t *testing.T) {
 // POST /pair alone: MintCode must stay reachable no matter how many times a
 // caller has hit /pair, and vice versa.
 func TestRegisterOpen_LimiterAppliesToPairOnly(t *testing.T) {
-	h := pairinghandlers.New(stubPairing{}, stubRegistry{}, "")
+	h := pairinghandlers.New(stubPairing{}, stubRegistry{}, stubStreams{}, "")
 	r := gin.New()
 	pairing.RegisterOpen(r.Group(""), h, countingLimiter(2))
 
@@ -103,7 +107,7 @@ func TestRegisterOpen_LimiterAppliesToPairOnly(t *testing.T) {
 }
 
 func TestRegisterGuarded_MountsListAndRevoke(t *testing.T) {
-	h := pairinghandlers.New(stubPairing{}, stubRegistry{}, "")
+	h := pairinghandlers.New(stubPairing{}, stubRegistry{}, stubStreams{}, "")
 	r := gin.New()
 	pairing.RegisterGuarded(r.Group(""), h)
 

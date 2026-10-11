@@ -48,8 +48,10 @@ type Container struct {
 	// pairing serves the pairing/client-registry routes (router.go); its
 	// usecase holds the single outstanding pairing code in memory.
 	pairing *pairinghandlers.Handlers
-	app     *app.Container
-	eng     *engine.Container
+	// conns holds the streams each paired client opened, for revoke to end.
+	conns *clientConns
+	app   *app.Container
+	eng   *engine.Container
 	// logs backs GET /console/logs; nil leaves the route unmounted.
 	logs logring.Ring
 	// detached are the Shutdowns of the handlers that hand work off after a 202.
@@ -78,6 +80,7 @@ func New(
 	if appContainer == nil {
 		panic("v0: appContainer is required")
 	}
+	conns := newClientConns()
 	c := &Container{
 		projects:   ws.NewBroadcaster(projectsDef(appContainer)),
 		repos:      ws.NewBroadcaster(reposDef(appContainer)),
@@ -87,7 +90,8 @@ func New(
 		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(appContainer), appContainer)),
 		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), appContainer)),
 		chatScopes: newAgentChatScopes(),
-		pairing:    pairinghandlers.New(pairing.New(appContainer.GORM.Clients), appContainer.GORM.Clients, serverFingerprint),
+		pairing:    pairinghandlers.New(pairing.New(appContainer.GORM.Clients), appContainer.GORM.Clients, conns, serverFingerprint),
+		conns:      conns,
 		app:        appContainer,
 		eng:        engContainer,
 	}

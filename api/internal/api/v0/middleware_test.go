@@ -354,7 +354,7 @@ func (s *stubClientStore) FindWhere(_ context.Context, match domain.Client) ([]d
 // entirely — no header is required.
 func TestRequireBearerAuth_NoTLS_PassesThrough(t *testing.T) {
 	r := gin.New()
-	r.Use(requireBearerAuth(&stubClientStore{}))
+	r.Use(requireBearerAuth(&stubClientStore{}, newClientConns()))
 	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil) // no TLS
@@ -368,7 +368,7 @@ func TestRequireBearerAuth_NoTLS_PassesThrough(t *testing.T) {
 // Authorization header is rejected rather than treated as anonymous.
 func TestRequireBearerAuth_TLS_NoHeader_Rejects(t *testing.T) {
 	r := gin.New()
-	r.Use(requireBearerAuth(&stubClientStore{}))
+	r.Use(requireBearerAuth(&stubClientStore{}, newClientConns()))
 	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
@@ -383,7 +383,7 @@ func TestRequireBearerAuth_TLS_NoHeader_Rejects(t *testing.T) {
 // matching client hash is rejected.
 func TestRequireBearerAuth_TLS_UnknownToken_Rejects(t *testing.T) {
 	r := gin.New()
-	r.Use(requireBearerAuth(&stubClientStore{}))
+	r.Use(requireBearerAuth(&stubClientStore{}, newClientConns()))
 	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
@@ -403,7 +403,7 @@ func TestRequireBearerAuth_TLS_ValidToken_Passes(t *testing.T) {
 		{ID: "c1", TokenHash: pairing.HashToken(token)},
 	}}
 	r := gin.New()
-	r.Use(requireBearerAuth(store))
+	r.Use(requireBearerAuth(store, newClientConns()))
 	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
@@ -425,7 +425,7 @@ func TestRequireBearerAuth_TLS_RevokedToken_Rejects(t *testing.T) {
 		{ID: "c1", TokenHash: pairing.HashToken(token), RevokedAt: &revokedAt},
 	}}
 	r := gin.New()
-	r.Use(requireBearerAuth(store))
+	r.Use(requireBearerAuth(store, newClientConns()))
 	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
@@ -475,7 +475,7 @@ func TestRegression_RequireBearerAuth_ConcurrentRevokeIsNotUndone(t *testing.T) 
 	}))
 
 	r := gin.New()
-	r.Use(requireBearerAuth(revokeOnReadStore{clients}))
+	r.Use(requireBearerAuth(revokeOnReadStore{clients}, newClientConns()))
 	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
@@ -498,7 +498,7 @@ func TestRegression_RequireBearerAuth_ConcurrentRevokeIsNotUndone(t *testing.T) 
 func TestRequireBearerAuth_TLS_StoreError_Returns500(t *testing.T) {
 	store := &stubClientStore{err: errors.New("client store unavailable")}
 	r := gin.New()
-	r.Use(requireBearerAuth(store))
+	r.Use(requireBearerAuth(store, newClientConns()))
 	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)

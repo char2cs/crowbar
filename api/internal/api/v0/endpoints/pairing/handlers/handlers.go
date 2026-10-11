@@ -27,6 +27,12 @@ type Registry interface {
 	Save(ctx context.Context, c domain.Client) error
 }
 
+// Streams ends the open streams a client holds — a WebSocket outlives the
+// one request its token was checked on.
+type Streams interface {
+	Disconnect(clientID string)
+}
+
 // mintCodeResponse is the body of POST /pair/code. ServerFingerprint is the
 // daemon's TLS identity fingerprint (tlsid.FingerprintOf's format): a human
 // compares it against what the pairing client shows as the trust-on-first-
@@ -53,13 +59,14 @@ type pairResponse struct {
 type Handlers struct {
 	pairing           Pairing
 	registry          Registry
+	streams           Streams
 	serverFingerprint string
 }
 
 // New builds the handler set. serverFingerprint is the daemon's TLS identity
 // fingerprint, echoed on every minted code (see mintCodeResponse).
-func New(p Pairing, registry Registry, serverFingerprint string) *Handlers {
-	return &Handlers{pairing: p, registry: registry, serverFingerprint: serverFingerprint}
+func New(p Pairing, registry Registry, streams Streams, serverFingerprint string) *Handlers {
+	return &Handlers{pairing: p, registry: registry, streams: streams, serverFingerprint: serverFingerprint}
 }
 
 // MintCode issues a fresh pairing code. Callable only over a non-TLS
@@ -109,8 +116,9 @@ func (h *Handlers) ListClients(c *gin.Context) {
 	libs.WriteQueryOK(c, out)
 }
 
-// RevokeClient permanently revokes one client. No later pairing code
-// reactivates a revoked id: a fresh pairing always mints a fresh client.
+// RevokeClient permanently revokes one client and ends the streams it holds.
+// No later pairing code reactivates a revoked id: a fresh pairing always
+// mints a fresh client.
 func (h *Handlers) RevokeClient(c *gin.Context) {
 	id := c.Param("id")
 	existing, err := h.registry.FindByKey(c.Request.Context(), id)
@@ -128,5 +136,7 @@ func (h *Handlers) RevokeClient(c *gin.Context) {
 		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// After the save: an upgrade racing this re-reads the row once registered.
+	h.streams.Disconnect(id)
 	libs.WriteQueryOK(c, gin.H{"revoked": true})
 }

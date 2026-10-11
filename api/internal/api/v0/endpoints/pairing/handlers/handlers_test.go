@@ -83,13 +83,26 @@ func (f *fakeRegistry) FindByKey(_ context.Context, id string) (*domain.Client, 
 	return nil, nil
 }
 
+// fakeStreams records which clients' streams were ended.
+type fakeStreams struct {
+	disconnected []string
+}
+
+func (f *fakeStreams) Disconnect(clientID string) {
+	f.disconnected = append(f.disconnected, clientID)
+}
+
 // newTestRouter mounts each handler method directly, the way routes.go's
 // RegisterOpen/RegisterGuarded do in production — this package has no
 // Register of its own (route mounting is the outer pairing package's job,
 // covered by its own routes_test.go).
 func newTestRouter(pairingUC *fakePairing, registry *fakeRegistry) *gin.Engine {
+	return newTestRouterWithStreams(pairingUC, registry, &fakeStreams{})
+}
+
+func newTestRouterWithStreams(pairingUC *fakePairing, registry *fakeRegistry, streams *fakeStreams) *gin.Engine {
 	r := gin.New()
-	h := handlers.New(pairingUC, registry, testFingerprint)
+	h := handlers.New(pairingUC, registry, streams, testFingerprint)
 	r.POST("/pair/code", h.MintCode)
 	r.POST("/pair", h.Pair)
 	r.GET("/clients", h.ListClients)
@@ -201,14 +214,32 @@ func TestListClients_StoreError_Returns500(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-func TestRevokeClient_MarksRevoked(t *testing.T) {
-	registry := &fakeRegistry{clients: []domain.Client{{ID: "c1"}}}
-	r := newTestRouter(&fakePairing{}, registry)
+// TestRevokeClient_MarksRevokedAndEndsItsStreams proves a revoke both persists
+// and ends the streams the client already holds, which no later request of
+// its own would ever re-check.
+func TestRevokeClient_MarksRevokedAndEndsItsStreams(t *testing.T) {
+	registry := &fakeRegistry{clients: []domain.Client{{ID: "c1"}, {ID: "c2"}}}
+	streams := &fakeStreams{}
+	r := newTestRouterWithStreams(&fakePairing{}, registry, streams)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodDelete, "/clients/c1", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.Equal(t, "c1", registry.revoked)
+	assert.Equal(t, []string{"c1"}, streams.disconnected)
+}
+
+// TestRevokeClient_SaveError_LeavesStreamsOpen proves a revoke that failed to
+// persist does not end the streams of a client that is still paired.
+func TestRevokeClient_SaveError_LeavesStreamsOpen(t *testing.T) {
+	registry := &fakeRegistry{clients: []domain.Client{{ID: "c1"}}, saveErr: errors.New("disk full")}
+	streams := &fakeStreams{}
+	r := newTestRouterWithStreams(&fakePairing{}, registry, streams)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodDelete, "/clients/c1", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.Empty(t, streams.disconnected)
 }
 
 func TestRevokeClient_UnknownID_Returns404(t *testing.T) {

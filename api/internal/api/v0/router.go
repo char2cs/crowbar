@@ -74,7 +74,7 @@ func (c *Container) Register(
 
 	// Every route from here down needs a bearer token over TLS; plaintext
 	// (unix socket, loopback dev TCP) passes through — see requireBearerAuth.
-	rg.Use(requireBearerAuth(c.app.GORM.Clients))
+	rg.Use(requireBearerAuth(c.app.GORM.Clients, c.conns))
 	health.Register(rg)
 	pairingPkg.RegisterGuarded(rg, c.pairing)
 	system.Register(rg)

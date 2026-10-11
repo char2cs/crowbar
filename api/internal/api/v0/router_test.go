@@ -5,12 +5,18 @@ package v0_test
 import (
 	"crypto/tls"
 	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -25,9 +31,18 @@ func daemonEngine(
 	t *testing.T,
 ) *gin.Engine {
 	t.Helper()
+	return daemonEngineWithLogs(t, logring.New())
+}
+
+// daemonEngineWithLogs is daemonEngine serving ring on GET /v0/console/logs.
+func daemonEngineWithLogs(
+	t *testing.T,
+	ring logring.Ring,
+) *gin.Engine {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
-	daemon, err := crowbarapi.New(tc.app, tc.eng, nil, "", v0.WithLogs(logring.New()))
+	daemon, err := crowbarapi.New(tc.app, tc.eng, nil, "", v0.WithLogs(ring))
 	require.NoError(t, err)
 	t.Cleanup(daemon.Close)
 	engine, ok := daemon.Handler().(*gin.Engine)
@@ -175,4 +190,81 @@ func TestRouter_TLS_PairRedeemIsLimitedPerSource(t *testing.T) {
 		"the sixth redeem from one source within the window must be refused")
 	rec := redeemFrom(t, engine, "198.51.100.7:50000", code)
 	assert.Equal(t, http.StatusOK, rec.Code, "another source must still redeem the valid code: %s", rec.Body.String())
+}
+
+// TestRouter_TLS_RevokeEndsTheClientsOpenStreams proves a revoke reaches the
+// streams a client already holds: the revoked client's console-log WebSocket
+// closes, while another paired client's keeps receiving new records.
+func TestRouter_TLS_RevokeEndsTheClientsOpenStreams(t *testing.T) {
+	ring := logring.New()
+	engine := daemonEngineWithLogs(t, ring)
+	srv := httptest.NewTLSServer(engine)
+	t.Cleanup(srv.Close)
+
+	revokedToken, revokedID := pairClient(t, engine)
+	keptToken, _ := pairClient(t, engine)
+	revoked := dialLogs(t, srv, revokedToken)
+	kept := dialLogs(t, srv, keptToken)
+
+	rec := serveTLS(t, engine, http.MethodDelete, "/v0/clients/"+revokedID, keptToken, "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	slog.New(ring.Wrap(slog.NewTextHandler(io.Discard, nil))).Info("logged after the revoke")
+
+	err := readUntilClosed(t, revoked)
+	var netErr net.Error
+	assert.False(t, errors.As(err, &netErr) && netErr.Timeout(),
+		"the revoked client's stream must be closed, not merely quiet: %v", err)
+	readUntilFrame(t, kept, "logged after the revoke")
+}
+
+// dialLogs opens GET /v0/console/logs over srv's TLS with token, returning once
+// the stream's ready frame says it is following live records.
+func dialLogs(
+	t *testing.T,
+	srv *httptest.Server,
+	token string,
+) *websocket.Conn {
+	t.Helper()
+	transport, ok := srv.Client().Transport.(*http.Transport)
+	require.True(t, ok)
+	dialer := websocket.Dialer{TLSClientConfig: transport.TLSClientConfig}
+	url := "wss" + strings.TrimPrefix(srv.URL, "https") + "/v0/console/logs"
+	conn, resp, err := dialer.DialContext(t.Context(), url, http.Header{"Authorization": {"Bearer " + token}})
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	t.Cleanup(func() { _ = conn.Close() })
+	readUntilFrame(t, conn, `"type":"ready"`)
+	return conn
+}
+
+// readUntilFrame reads frames until one contains want; the deadline only
+// bounds a failure.
+func readUntilFrame(
+	t *testing.T,
+	conn *websocket.Conn,
+	want string,
+) {
+	t.Helper()
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(10*time.Second)))
+	for {
+		_, msg, err := conn.ReadMessage()
+		require.NoError(t, err, "waiting for a frame containing %s", want)
+		if strings.Contains(string(msg), want) {
+			return
+		}
+	}
+}
+
+// readUntilClosed reads frames until the connection fails, returning why.
+func readUntilClosed(
+	t *testing.T,
+	conn *websocket.Conn,
+) error {
+	t.Helper()
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(10*time.Second)))
+	for {
+		if _, _, err := conn.ReadMessage(); err != nil {
+			return err
+		}
+	}
 }
