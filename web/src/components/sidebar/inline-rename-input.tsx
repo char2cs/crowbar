@@ -3,9 +3,9 @@ import { cn } from '@/lib/utils'
 
 interface InlineRenameInputProps {
   defaultValue: string
-  /** Branch rows draw their label monospace (sidebar-row.tsx); match it so
-   *  the editor doesn't change typeface under the cursor. */
-  mono?: boolean
+  /** The face of the label it replaces — a branch row's monospace, a project row's heading —
+   *  so the editor doesn't change typeface under the cursor. */
+  font?: 'mono' | 'heading'
   /** Shown only while `defaultValue` is empty (the browser's own rule) — a
    *  rename always seeds a real current name, so this is effectively a
    *  create-only affordance: what an unlabeled, empty row would otherwise
@@ -25,7 +25,7 @@ interface InlineRenameInputProps {
  */
 export function InlineRenameInput({
   defaultValue,
-  mono,
+  font,
   placeholder,
   onConfirm,
   onCancel,
@@ -79,7 +79,8 @@ export function InlineRenameInput({
       onBlur={handleBlur}
       className={cn(
         'min-w-0 flex-1 truncate bg-transparent text-left text-[13px] font-medium outline-none',
-        mono && 'font-mono',
+        font === 'mono' && 'font-mono',
+        font === 'heading' && 'font-heading text-[15px] font-normal',
       )}
     />
   )

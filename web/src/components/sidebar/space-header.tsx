@@ -219,6 +219,7 @@ export function SpaceHeader({
       {renaming ? (
         <InlineRenameInput
           defaultValue={project.name}
+          font="heading"
           onConfirm={(name) => {
             setRenaming(false)
             if (name !== project.name) void performRenameProject(project.id, name)

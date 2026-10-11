@@ -125,12 +125,14 @@ describe('InlineRenameInput', () => {
     }
   })
 
-  it('carries font-mono only when mono is set', () => {
+  it('carries font-mono only when its font is mono', () => {
     const { rerender } = render(
       <InlineRenameInput defaultValue="a" onConfirm={vi.fn()} onCancel={vi.fn()} />,
     )
     expect(screen.getByRole('textbox')).not.toHaveClass('font-mono')
-    rerender(<InlineRenameInput defaultValue="a" mono onConfirm={vi.fn()} onCancel={vi.fn()} />)
+    rerender(
+      <InlineRenameInput defaultValue="a" font="mono" onConfirm={vi.fn()} onCancel={vi.fn()} />,
+    )
     expect(screen.getByRole('textbox')).toHaveClass('font-mono')
   })
 })
