@@ -428,7 +428,7 @@ describe('LspClient on a remote host', () => {
 
     const later = vi.fn()
     scopes.subscribeToWorkspaceScope('ws-1', later)
-    expect(() => scopes.recordWorkspaceScopeFromPath('/ide/p-r/r1/ws-1')).not.toThrow()
+    expect(() => scopes.recordWorkspaceScopeFromPath('/ide/p-r/r2/ws-1')).not.toThrow()
     expect(later).toHaveBeenCalledTimes(1)
     expect(subscribe).toHaveBeenCalledTimes(1)
   })

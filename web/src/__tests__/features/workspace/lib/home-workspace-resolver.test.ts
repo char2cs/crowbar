@@ -4,6 +4,7 @@ import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { idle, success } from '@/lib/loadable'
 import { useProjectDataStore } from '@/lib/store/projects'
 import type { Project } from '@/lib/types'
+import { __resetWorkspaceScopesForTest, getWorkspaceScope } from '@/lib/workspace-scope'
 
 const fetchHomeWorkspaceMock = vi.fn()
 
@@ -22,6 +23,7 @@ import {
 beforeEach(() => {
   fetchHomeWorkspaceMock.mockReset()
   __resetHomeWorkspaceResolverForTest()
+  __resetWorkspaceScopesForTest()
   useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
   useProjectDataStore.setState({ data: idle(), readHosts: new Set() })
 })
@@ -70,6 +72,31 @@ describe('home-workspace-resolver', () => {
       })
     })
     expect(getKnownHomeWorkspaceIds()).toContain('ws-home-1')
+  })
+
+  // Whoever hears the id builds URLs with it at once, a chat-scoped one included.
+  it('records the home workspace scope, owning chat included, before anyone hears it resolved', async () => {
+    fetchHomeWorkspaceMock.mockResolvedValueOnce({
+      id: 'ws-home-1',
+      projectId: 'p1',
+      kind: 'home',
+      owningChatId: 'chat-home-1',
+    })
+    const { result } = renderHook(() => {
+      const { wsId } = useHomeWorkspaceState('p1')
+      return wsId ? getWorkspaceScope(wsId) : null
+    })
+
+    act(() => ensureHomeWorkspaceResolved('p1'))
+
+    await waitFor(() =>
+      expect(result.current).toEqual({
+        projectId: 'p1',
+        repoId: '',
+        wsId: 'ws-home-1',
+        owningChatId: 'chat-home-1',
+      }),
+    )
   })
 
   it('is idempotent: a second call for the same project id does not re-fetch', async () => {

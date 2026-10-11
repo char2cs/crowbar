@@ -187,8 +187,8 @@ export async function performRenameChat(chatId: string, title: string): Promise<
 /**
  * {@link performRenameChat}'s sibling for a project-home chat — no repo, so
  * no `scopedWorkspaceIdOf`/`bump` (home has neither): the home workspace's
- * scope is already recorded for every visible project (`space-scroller.tsx`'s
- * `SpacePanel` effect), which is all `renameChat`'s `chatBase(wsId)` needs to
+ * scope is recorded the moment its id resolves (home-workspace-resolver.ts),
+ * which is all `renameChat`'s `chatBase(wsId)` needs to
  * build the `/home/chats/...` URL, and home's own `/home/chats/ws` reseed —
  * the same feed folder creates already ride — is what settles the title.
  */

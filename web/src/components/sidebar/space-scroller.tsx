@@ -24,7 +24,6 @@ import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { attachRemovalState, renderedHiddenIds } from '@/components/layout/removal-plan'
-import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { selectProjectViewIds } from '@/features/panes/lib/view-selectors'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
@@ -106,30 +105,6 @@ function SpacePanel({
   useEffect(() => {
     ensureHomeWorkspaceResolved(projectId)
   }, [projectId])
-  // Every chat-scoped API call for this workspace (`setChatPlacement`,
-  // `createChat`, `workspaceBase`'s own throw) needs its scope RECORDED
-  // first (workspace-scope.ts) — `ide-shell.tsx` only ever records the
-  // ACTIVE route's home workspace, but `SpacePanel` mounts one per VISIBLE
-  // project, not just the active one. Without this, dragging/reordering (or
-  // even just opening) a home chat on any project OTHER than the one
-  // currently on screen throws "no project/repo scope recorded" instead of
-  // working — `recordWorkspaceScope` (not `setWorkspaceScope`) is the one
-  // that writes without also claiming this workspace as ACTIVE, exactly
-  // matching how `lib/store/sidebar.ts` already records every repo
-  // workspace's scope "as its data arrives," per that function's own doc.
-  //
-  // Recorded SYNCHRONOUSLY during render, not in a `useEffect` — mirrors
-  // `ide-shell.tsx`'s own `setWorkspaceScope` call and its doc comment: a
-  // `useEffect` here left a window, right after `homeWorkspaceId` first
-  // resolves, where the header's already-enabled Thread button reads a real
-  // `homeWorkspaceId` but the scope effect for THIS same value has not yet
-  // committed — a click landing in that window (caught live) threw "no
-  // project/repo scope recorded" from a workspace that plainly exists.
-  // `recordWorkspaceScope`'s listener notify is `useSyncExternalStore`-safe
-  // (see `useOwningChatId`, use-workspace-effects.ts) precisely so callers
-  // can do this — call it mid-render — the same guarantee `setWorkspaceScope`
-  // already relies on above.
-  if (homeWorkspaceId) recordWorkspaceScope({ projectId, repoId: '', wsId: homeWorkspaceId })
   // This project's home chats/folders — the same two aggregates a repo's
   // OWN tree holds, kept in their own per-project store (home-tree.ts) since
   // project home rides no repo. Rendered as FLAT TOP-LEVEL rows, exactly

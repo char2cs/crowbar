@@ -1,4 +1,11 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
+import type { ReactNode } from 'react'
+import { act, renderHook } from '@testing-library/react'
+import { useHostResolved } from '@/lib/host-resolve'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { useProjectDataStore } from '@/lib/store/projects'
+import { idle, success } from '@/lib/loadable'
+import type { Project } from '@/lib/types'
 import {
   recordWorkspaceScopeFromPath,
   parseWorkspaceScopeFromPath,
@@ -133,6 +140,100 @@ describe('subscribeToWorkspaceScope', () => {
 
     expect(onChange3).toHaveBeenCalledTimes(1)
     expect(onChange4).not.toHaveBeenCalled()
+  })
+})
+
+describe('a write that records nothing new', () => {
+  it('notifies no listener', () => {
+    recordWorkspaceScopeFromPath('/ide/p/r/ws1')
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws1', owningChatId: 'chat-1' })
+    const onChange = vi.fn()
+    subscribeToWorkspaceScope('ws1', onChange)
+
+    // The route's write carries no chat, so it keeps the one the sidebar recorded.
+    recordWorkspaceScopeFromPath('/ide/p/r/ws1')
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws1', owningChatId: 'chat-1' })
+    expect(onChange).not.toHaveBeenCalled()
+
+    recordWorkspaceScopeFromPath('/ide/p/r2/ws1')
+    expect(onChange).toHaveBeenCalledTimes(1)
+  })
+})
+
+// IDEShell re-records the routed workspace's scope during every render, and it renders on
+// every project-list change: the change that moves a mounted workspace's host answer.
+describe('re-recording the routed scope while the host answer moves', () => {
+  const project = (id: string, hostId: string): Project => ({
+    id,
+    name: id,
+    path: `/work/${id}`,
+    lastActivity: new Date(0),
+    hostId,
+  })
+  const host = (id: string) => ({
+    id,
+    name: id,
+    endpoint: `${id}.example:3737`,
+    pairedFingerprint: 'SHA256:aaaa',
+    clientId: `client-${id}`,
+  })
+
+  function RoutedShell({ children }: { children: ReactNode }) {
+    useProjectDataStore((s) => s.data)
+    recordWorkspaceScopeFromPath('/ide/p1/r1/ws-1')
+    return children
+  }
+
+  const renderPhaseUpdates = (calls: unknown[][]) =>
+    calls.filter((call) =>
+      call.some((arg) => typeof arg === 'string' && arg.includes('while rendering a different')),
+    )
+
+  beforeEach(() => {
+    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+    useProjectDataStore.setState({ data: idle() })
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it.each([
+    {
+      name: 'its host is removed',
+      before: () => {
+        useHostConfigStore.setState({ hosts: [host('h1')], remoteEverPaired: true })
+        useProjectDataStore.setState({ data: success([project('p1', 'h1')]) })
+      },
+      change: () => {
+        useHostConfigStore.setState({ hosts: [] })
+        useProjectDataStore.setState({ data: success([]) })
+      },
+    },
+    {
+      name: 'the project list lands on an install that paired a remote',
+      before: () => useHostConfigStore.setState({ hosts: [host('h1')], remoteEverPaired: true }),
+      change: () => useProjectDataStore.setState({ data: success([project('p1', 'local')]) }),
+    },
+    {
+      name: 'a second host lists the same project',
+      before: () => useProjectDataStore.setState({ data: success([project('p1', 'local')]) }),
+      change: () => {
+        useHostConfigStore.setState({ hosts: [host('h2')], remoteEverPaired: true })
+        useProjectDataStore.setState({
+          data: success([project('p1', 'local'), project('p1', 'h2')]),
+        })
+      },
+    },
+  ])('updates no other component mid-render when $name', ({ before, change }) => {
+    before()
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { result } = renderHook(() => useHostResolved({ wsId: 'ws-1' }), {
+      wrapper: RoutedShell,
+    })
+    const resolvedBefore = result.current
+
+    act(change)
+
+    expect(result.current).not.toBe(resolvedBefore)
+    expect(renderPhaseUpdates(errors.mock.calls)).toEqual([])
   })
 })
 

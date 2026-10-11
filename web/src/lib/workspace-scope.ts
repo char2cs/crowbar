@@ -50,12 +50,9 @@ function notifyScopeListeners(wsId: string): void {
 }
 
 /**
- * Subscribe to every future write of `wsId`'s scope (route-derived or
- * sidebar-derived). Fires on EVERY write, not just ones that change
- * `owningChatId` — callers that only care about that field re-read it
- * themselves and no-op if it hasn't actually changed, and writes are rare
- * enough (once per navigation, once per chat-list refresh) that this stays
- * cheap without the extra bookkeeping a diff would need.
+ * Subscribe to every future change of `wsId`'s scope (route-derived or
+ * sidebar-derived). Fires on any field that changes, not just `owningChatId` —
+ * callers that only care about that field re-read it themselves.
  */
 export function subscribeToWorkspaceScope(wsId: string, callback: () => void): () => void {
   let listeners = _scopeListeners.get(wsId)
@@ -85,12 +82,26 @@ function mergeScope(scope: WorkspaceScope): WorkspaceScope {
   return owningChatId ? { ...scope, owningChatId } : { ...scope }
 }
 
+const sameScope = (a: WorkspaceScope | undefined, b: WorkspaceScope): boolean =>
+  a !== undefined &&
+  a.projectId === b.projectId &&
+  a.repoId === b.repoId &&
+  a.owningChatId === b.owningChatId
+
+// A write that changes nothing notifies no one: the route's write runs during IDEShell's
+// render, and a listener whose answer moved with another store must not re-render from it.
+function writeScope(scope: WorkspaceScope): void {
+  const next = mergeScope(scope)
+  if (sameScope(_scopes.get(scope.wsId), next)) return
+  _scopes.set(scope.wsId, next)
+  notifyScopeListeners(scope.wsId)
+}
+
 /** Record the hierarchical scope (project+repo) for a workspace from the
  *  route. It never decides which workspace is active: that is the registry's
  *  one id, written by `WorkspaceHost`. */
 export function setWorkspaceScope(scope: WorkspaceScope): void {
-  _scopes.set(scope.wsId, mergeScope(scope))
-  notifyScopeListeners(scope.wsId)
+  writeScope(scope)
 }
 
 /**
@@ -101,8 +112,7 @@ export function setWorkspaceScope(scope: WorkspaceScope): void {
  * an unrecorded scope, which used to make those buttons silently no-op.
  */
 export function recordWorkspaceScope(scope: WorkspaceScope): void {
-  _scopes.set(scope.wsId, mergeScope(scope))
-  notifyScopeListeners(scope.wsId)
+  writeScope(scope)
 }
 
 /**

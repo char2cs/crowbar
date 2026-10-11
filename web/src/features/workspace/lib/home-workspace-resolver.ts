@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { fetchHomeWorkspace } from '@/lib/api'
 import { isHostResolved, subscribeHostResolution } from '@/lib/host-resolve'
 import { hostUnavailability } from '@/lib/host-unavailability'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 
 /**
  * Resolves (and caches) the stable home-workspace id for a project.
@@ -92,6 +93,14 @@ export function ensureHomeWorkspaceResolved(projectId: string): void {
         owningChatId: ws.owningChatId || null,
         localPath: ws.localPath || null,
         error: false,
+      })
+      // Recorded here, outside any render, before anyone hears the id: a scope write from a
+      // render body re-renders whatever already subscribes to it, mid-render.
+      recordWorkspaceScope({
+        projectId,
+        repoId: '',
+        wsId: ws.id,
+        owningChatId: ws.owningChatId || undefined,
       })
     })
     .catch(() => {
