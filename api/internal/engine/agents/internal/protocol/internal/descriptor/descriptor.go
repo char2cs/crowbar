@@ -40,13 +40,14 @@ var ErrInvalid = rules.ErrInvalidDescriptor
 
 // Load parses a descriptor and validates its event table against Crowbar's canonical
 // vocabulary, which is what makes a typo a startup failure rather than a field that
-// silently maps to nothing. An icon that is not plain SVG is dropped, never fatal: the
-// webview injects it as HTML, and the static check (descriptorcheck) reports it.
+// silently maps to nothing.
 func Load(data []byte) (*spec.Descriptor, error) {
 	d, err := ParseV3(data)
 	if err != nil {
 		return nil, err
 	}
+	// The webview injects the icon as HTML: one that is not plain SVG is dropped,
+	// never fatal, and descriptorcheck reports it.
 	if d.Icon != "" && svgicon.Validate(d.Icon) != nil {
 		d.Icon = ""
 	}

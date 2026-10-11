@@ -27,8 +27,7 @@ var (
 // safetyRules refuse what would let a descriptor — possibly one a user
 // uploaded — run something other than its CLI: a shell as the command, shell
 // syntax in an argv, a user-controlled value inside a hook command, an env
-// name that is not one, or a version range nothing can compare against. They
-// also flag an icon the webview could not inject safely.
+// name that is not one, or a version range nothing can compare against.
 func safetyRules(doc document, d *spec.Descriptor) []Finding {
 	var out []Finding
 	out = append(out, iconRules(doc, d)...)
@@ -50,8 +49,8 @@ func safetyRules(doc document, d *spec.Descriptor) []Finding {
 	return append(out, versionRules(doc, d)...)
 }
 
-// iconRules only warn: the daemon drops an unsafe icon at load and runs the
-// provider without one, so it never blocks the provider.
+// iconRules flag an icon the webview could not inject safely. Only a warning:
+// the daemon drops it at load and the provider runs without one.
 func iconRules(doc document, d *spec.Descriptor) []Finding {
 	if d.Icon == "" {
 		return nil

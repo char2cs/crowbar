@@ -189,10 +189,9 @@ func checkHref(
 	return nil
 }
 
-// checkValue admits CSS functions only where they cannot fetch or run
-// anything: colours, transforms in a transform attribute, and same-document
-// url(#id) outside style. Escapes and at-rules are refused so no other
-// function can be spelled past the check.
+// checkValue admits only CSS functions that cannot fetch or run anything:
+// colours, transforms in a transform attribute, url(#id) outside style. No
+// escapes or at-rules, so no other function can be spelled past the check.
 func checkValue(
 	attr xml.Attr,
 ) error {

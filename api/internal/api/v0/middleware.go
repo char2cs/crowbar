@@ -176,8 +176,7 @@ type clientAuthStore interface {
 // requireBearerAuth authenticates a request by its Authorization: Bearer
 // header. A request with no TLS state (the unix socket, or a loopback dev TCP
 // bind) passes through unauthenticated — filesystem permission on the socket
-// is that path's trust boundary, not this middleware. A connection an
-// authenticated request hijacks is held in conns, for a revoke to end.
+// is that path's trust boundary, not this middleware.
 func requireBearerAuth(
 	clients clientAuthStore,
 	conns *clientConns,
@@ -206,6 +205,7 @@ func requireBearerAuth(
 			c.Abort()
 			return
 		}
+		// A stream outlives this check, so the connection it hijacks is held for a revoke.
 		c.Writer = &revocableWriter{
 			ResponseWriter: c.Writer, ctx: c.Request.Context(),
 			clients: clients, conns: conns, clientID: client.ID, tokenHash: tokenHash,
