@@ -122,6 +122,40 @@ describe('SpaceHeaderLabel', () => {
     expect(screen.getByText('Crowbar API')).not.toBe(line)
   })
 
+  // What a screen reader hears on the row's control: the host, and its state unless it is up.
+  it.each([
+    ['up', 'homelab-prox'],
+    ['down', 'homelab-prox, Offline'],
+    ['needs-repair', 'homelab-prox, Needs pairing again'],
+    ['probing', 'homelab-prox, Checking…'],
+  ] as const)('a host that is %s is described to the row’s control as %j', (status, heard) => {
+    pairRemoteHost('h1', 'homelab-prox')
+    getOrCreateHostRuntime('h1').getState().setStatus(status)
+    render(
+      <>
+        <button type="button" aria-describedby="host-line">
+          Crowbar API
+        </button>
+        <SpaceHeaderLabel project={projectOn('Crowbar API', 'h1')} hostLineId="host-line" />
+      </>,
+    )
+
+    expect(screen.getByRole('button', { name: 'Crowbar API' })).toHaveAccessibleDescription(heard)
+  })
+
+  it('a removed host is described once, by what the line already says', () => {
+    render(
+      <>
+        <button type="button" aria-describedby="host-line">
+          Quiver Sync
+        </button>
+        <SpaceHeaderLabel project={projectOn('Quiver Sync', 'h9')} hostLineId="host-line" />
+      </>,
+    )
+
+    expect(screen.getByRole('button')).toHaveAccessibleDescription('Host not available')
+  })
+
   it('a status change redraws the dot in place, without remounting the row', () => {
     remoteProject('up')
     const before = label()

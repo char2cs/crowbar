@@ -157,7 +157,7 @@ describe('SpaceHeader', () => {
     expect(fold).toContainElement(screen.getByText('p1'))
     expect(fold).toContainElement(screen.getByText('Local'))
     expect(fold).toContainElement(screen.getByTestId('host-status-local'))
-    expect(fold).toHaveAccessibleDescription(/Local$/)
+    expect(fold).toHaveAccessibleDescription('Local, Status unknown')
     fireEvent.click(screen.getByText('Local'))
     expect(onToggle).toHaveBeenCalledTimes(1)
   })

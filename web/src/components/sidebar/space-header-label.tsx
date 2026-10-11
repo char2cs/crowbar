@@ -36,6 +36,10 @@ export function SpaceHeaderLabel({
       >
         <HostStatusDot hostId={project.hostId} state={state} className="size-1.5" />
         <span className="truncate">{hostName ?? hostDotLabel(state)}</span>
+        {/* The dot's label is not read in the control's description: its state is, in words. */}
+        {hostName !== undefined && state !== 'up' && (
+          <span className="sr-only">, {hostDotLabel(state)}</span>
+        )}
       </span>
     </span>
   )
