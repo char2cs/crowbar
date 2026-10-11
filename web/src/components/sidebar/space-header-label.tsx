@@ -1,10 +1,10 @@
-import { HostStatusDot, hostDotLabel } from '@/features/hosts/components/host-status-dot'
-import { useHostDotState } from '@/features/hosts/hooks/use-host-status'
-import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { LOCAL_HOST, type HostDotState } from '@/features/hosts/types'
+import {
+  HostStatusDot,
+  hostDotLabel,
+  hostIsUnreachable,
+} from '@/features/hosts/components/host-status-dot'
+import { useHostView } from '@/features/hosts/hooks/use-host-status'
 import type { Project } from '@/lib/types'
-
-const UNREACHABLE: ReadonlySet<HostDotState> = new Set(['down', 'needs-repair', 'not-available'])
 
 /**
  * The project row's two lines: its name, and the daemon it lives on with that daemon's
@@ -12,18 +12,12 @@ const UNREACHABLE: ReadonlySet<HostDotState> = new Set(['down', 'needs-repair', 
  * not available, never Local.
  */
 export function SpaceHeaderLabel({ project }: { project: Project }) {
-  const hostName = useHostConfigStore((s) =>
-    project.hostId === LOCAL_HOST.id
-      ? LOCAL_HOST.name
-      : s.hosts.find((h) => h.id === project.hostId)?.name,
-  )
-  const status = useHostDotState(project.hostId)
-  const state = hostName === undefined ? 'not-available' : status
+  const { name: hostName, state } = useHostView(project.hostId)
 
   return (
     <span
       data-testid="space-header-label"
-      data-unreachable={UNREACHABLE.has(state) || undefined}
+      data-unreachable={hostIsUnreachable(state) || undefined}
       className="flex min-w-0 flex-1 flex-col justify-center gap-px data-unreachable:opacity-55"
     >
       <span className="truncate font-heading text-[15px]/[1.15] font-normal">{project.name}</span>

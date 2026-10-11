@@ -31,6 +31,14 @@ export function hostDotLabel(state: HostDotState): string {
   return LABEL[state]
 }
 
+const UNREACHABLE: ReadonlySet<HostDotState> = new Set(['down', 'needs-repair', 'not-available'])
+
+/** Whether nothing can be asked of a host in `state` now: it does not answer, it refuses this
+ *  client until paired again, or it is gone. */
+export function hostIsUnreachable(state: HostDotState): boolean {
+  return UNREACHABLE.has(state)
+}
+
 /** A host's status dot, labelled for what it says. Every surface that shows a host's status
  *  draws this one, so a state reads the same wherever it appears. */
 export function HostStatusDot({

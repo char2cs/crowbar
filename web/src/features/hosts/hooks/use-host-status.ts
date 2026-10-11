@@ -1,6 +1,7 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import { hostStatusOf, subscribeHostStatusOf } from '@/features/hosts/lib/host-status'
-import type { HostDotState, HostStatus } from '@/features/hosts/types'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { LOCAL_HOST, type HostDotState, type HostStatus } from '@/features/hosts/types'
 import { useConnectionStore } from '@/lib/ws/connection-store'
 
 /** A host's status as the app last saw it — read only; its probes and streams keep it. */
@@ -18,4 +19,14 @@ export function useHostDotState(hostId: string): HostDotState {
   const status = useHostStatus(hostId)
   const streamsClosed = useConnectionStore((s) => s.hostStreams[hostId] === 'disconnected')
   return status === 'up' && streamsClosed ? 'no-live-stream' : status
+}
+
+/** `hostId` as a surface names it: its name and dot. A host no longer configured has no name
+ *  and is 'not-available' — never Local. */
+export function useHostView(hostId: string): { name: string | undefined; state: HostDotState } {
+  const name = useHostConfigStore((s) =>
+    hostId === LOCAL_HOST.id ? LOCAL_HOST.name : s.hosts.find((h) => h.id === hostId)?.name,
+  )
+  const state = useHostDotState(hostId)
+  return { name, state: name === undefined ? 'not-available' : state }
 }
