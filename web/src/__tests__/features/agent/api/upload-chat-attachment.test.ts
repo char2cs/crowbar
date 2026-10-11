@@ -240,6 +240,20 @@ describe('uploadChatAttachment', () => {
     )
     vi.unstubAllGlobals()
   })
+
+  // The local daemon's failures read as they always have, the proxy's own answers included.
+  it('says a local daemon that is not up yet in the same words as before hosts existed', async () => {
+    const notReady = new Response('crowbar daemon socket not ready', {
+      status: 503,
+      headers: { 'x-crowbar-proxy': 'daemon-unavailable' },
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(notReady))
+
+    await expect(uploadChatAttachment('ws1', 'c1', { path: '/tmp/x.png' }, 'x')).rejects.toThrow(
+      /^upload chat attachment failed: 503 crowbar daemon socket not ready$/,
+    )
+    vi.unstubAllGlobals()
+  })
 })
 
 // A remote chat's base arrives host-qualified from the URL builders.

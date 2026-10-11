@@ -56,13 +56,14 @@ export async function uploadChatAttachment(
   return { ref: data.ref, filename: data.fileName, size: data.size, contentType: data.contentType }
 }
 
-// Named the way apiFetch names a failure, so a host's own trouble reads as that host's.
-async function uploadFailure(response: Response, base: string): Promise<ApiError> {
+// A remote host's failure is named the way apiFetch names it, so its trouble reads as that
+// host's; the local daemon's reads exactly as it always has.
+async function uploadFailure(response: Response, base: string): Promise<Error> {
   const { hostId } = splitHostPath(base)
-  const marked = proxyMarkerError(response.headers.get(PROXY_HEADER), hostId, response.status)
-  if (marked) return marked
   const message = `upload chat attachment failed: ${response.status} ${await response.text()}`
-  return new ApiError(message, response.status, undefined, undefined, hostId)
+  if (hostId === LOCAL_HOST.id) return new Error(message)
+  const marked = proxyMarkerError(response.headers.get(PROXY_HEADER), hostId, response.status)
+  return marked ?? new ApiError(message, response.status, undefined, undefined, hostId)
 }
 
 // The daemon's attachments.MaxBytes is the authority on the cap.
