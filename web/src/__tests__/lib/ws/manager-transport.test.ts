@@ -62,6 +62,14 @@ const { awaitEntity } = await import('@/lib/ws/await-entity')
 const { useConnectionStore, resetConnectionState } = await import('@/lib/ws/connection-store')
 const { destroyHostRuntime, getOrCreateHostRuntime } =
   await import('@/features/hosts/stores/host-runtime-registry')
+const { pairRemoteHost, resetHostWorld } = await import('@/__tests__/__fixtures__/remote-host')
+
+// Only a paired host is dialled: the remote hosts these tests reach are paired ones.
+beforeEach(() => {
+  pairRemoteHost('h1')
+  pairRemoteHost('h2')
+})
+afterEach(() => resetHostWorld())
 
 describe('WSManager transport selection', () => {
   it('uses the native WebSocket in the browser', () => {
@@ -311,6 +319,26 @@ describe('WSManager remote stream failures', () => {
     h1.setStatus('up')
 
     expect(tauriInstances).toHaveLength(0)
+  })
+
+  // Something may hold a removed host's channel a while longer (a view not yet unmounted):
+  // it must not keep dialling a host nobody has paired.
+  it('never dials a host that is not configured, however long its channel is held', () => {
+    const h1 = getOrCreateHostRuntime('h1').getState()
+    h1.setStatus('up')
+    const mgr = createWSManager()
+    mgr.subscribe('crowbar://h1/v0/projects', vi.fn())
+    tauriInstances[0].onopen?.()
+
+    resetHostWorld()
+    tauriInstances[0].onclose?.()
+    vi.advanceTimersByTime(60_000)
+    h1.setStatus('up', 4)
+    destroyHostRuntime('h1')
+    mgr.subscribe('crowbar://h1/v0/projects/p/repos', vi.fn())
+    mgr.subscribe('crowbar://h9/v0/projects', vi.fn())
+
+    expect(tauriInstances).toHaveLength(1)
   })
 
   it('holds back no other host and never the local daemon', () => {

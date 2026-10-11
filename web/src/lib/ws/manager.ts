@@ -1,6 +1,7 @@
 import { isTauri } from '@/lib/crowbar-bridge'
 import { streamFailureOf } from '@/lib/api/errors'
 import { splitHostPath } from '@/lib/host-path'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { getHostRuntime, subscribeHostStatus } from '@/features/hosts/stores/host-runtime-registry'
 import { LOCAL_HOST } from '@/features/hosts/types'
 
@@ -34,10 +35,12 @@ interface Channel {
   hostId: string
 }
 
-// A remote host whose status is down or needs repair refuses every attempt: its channels
-// wait, parked, for it to be 'up' again. The local daemon is not probed; it is always dialled.
+// A remote host whose status is down or needs repair refuses every attempt, and one nobody
+// has paired is not to be dialled: its channels wait, parked, for it to be 'up' again. The
+// local daemon is not probed; it is always dialled.
 function mayDial(hostId: string): boolean {
   if (hostId === LOCAL_HOST.id) return true
+  if (!useHostConfigStore.getState().hosts.some((host) => host.id === hostId)) return false
   const status = getHostRuntime(hostId)?.getState().status
   return status !== 'down' && status !== 'needs-repair'
 }
@@ -84,7 +87,10 @@ export function createWSManager(): WSManager {
     reportChannelState(endpoint, false, hostId)
     if (!parkedHosts.has(hostId)) {
       const watch = subscribeHostStatus(hostId, () => {
-        if (getHostRuntime(hostId)?.getState().status === 'up') reopenParked(hostId)
+        // Up but not dialable (no longer paired) stays parked: reopening would park again.
+        if (getHostRuntime(hostId)?.getState().status === 'up' && mayDial(hostId)) {
+          reopenParked(hostId)
+        }
       })
       parkedHosts.set(hostId, watch)
     }

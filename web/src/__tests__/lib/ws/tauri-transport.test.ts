@@ -151,11 +151,17 @@ describe('TauriWebSocket', () => {
 
   describe('through the manager', () => {
     beforeEach(() => {
-      ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+      ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
+        invoke: async () => {},
+      }
       resetConnectionState()
+      // Only a paired host is dialled.
+      pairRemoteHost('h1')
+      pairRemoteHost('h2')
     })
     afterEach(() => {
       delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+      resetHostWorld()
     })
 
     it('tells a changed identity from an unreachable host on a remote stream', async () => {
