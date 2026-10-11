@@ -17,6 +17,7 @@ import { useTerminalShortcuts } from '../hooks/use-terminal-shortcuts'
 import { useTerminalTheme } from '../hooks/use-terminal-theme'
 import { useXtermInstance } from '../hooks/use-xterm-instance'
 import { useTerminalStore } from '../stores/terminal-store'
+import { TerminalHostNotice } from './terminal-host-notice'
 import { TerminalSearch } from './terminal-search'
 import '@xterm/xterm/css/xterm.css'
 import '../styles/terminal.css'
@@ -228,6 +229,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-transparent">
       <TerminalSearch {...search.barProps} />
+      {connection === null && <TerminalHostNotice wsId={workspaceId} />}
       <div className={`flex min-h-0 flex-1 flex-col ${flush ? '' : 'pl-[16px]'}`}>
         {/* react-doctor-disable-next-line no-static-element-interactions -- this div is xterm.js's mount point: xterm renders its own canvas + a hidden `.xterm-helper-textarea` inside it, which is the actual focusable/keyboard-operable surface. onMouseDown here only forwards DOM focus onto that textarea for clicks that land on the container's own padding rather than the canvas. */}
         <div
