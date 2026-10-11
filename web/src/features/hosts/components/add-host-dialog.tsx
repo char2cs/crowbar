@@ -144,6 +144,9 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
       {stage === 'address' && (
         <form onSubmit={handleProbe}>
           <div className="space-y-5 px-6 py-5">
+            <p className="text-sm text-muted-foreground">
+              Run crowbar pair on the host first: it shows the fingerprint and the code you’ll need.
+            </p>
             <div className="space-y-2">
               <Label htmlFor="add-host-name">Name</Label>
               <Input

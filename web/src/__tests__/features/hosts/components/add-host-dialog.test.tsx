@@ -26,6 +26,15 @@ describe('AddHostDialog', () => {
     useHostConfigStore.setState({ hosts: [] })
   })
 
+  it('says what to run on the host before anything is typed', () => {
+    render(<AddHostDialog open onOpenChange={() => {}} />)
+    expect(
+      screen.getByText(
+        'Run crowbar pair on the host first: it shows the fingerprint and the code you’ll need.',
+      ),
+    ).toBeVisible()
+  })
+
   it('stage 1: entering a name and address and confirming the fingerprint advances to the code stage', async () => {
     vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa bbbb cccc dddd eeee ffff')
     render(<AddHostDialog open onOpenChange={() => {}} />)
