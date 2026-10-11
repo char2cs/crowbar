@@ -15,21 +15,17 @@ interface FolderListings {
   retry: (path: string) => void
 }
 
-/**
- * The directories of `hostId` listed so far — the owner is keyed by `hostId`, so no listing
- * outlives its host. Each directory is fetched when first shown (the root, or a folder being
- * expanded) and only while `canAsk`; when the host is up again every shown directory without
- * a listing is fetched.
- */
+/** The directories of `hostId` listed so far (the owner is keyed by host). Each is fetched when
+ *  first shown and only while `canAsk`; once the host is up again so is every expanded one without
+ *  a listing, shown or not — one under a collapsed folder shows again when that folder reopens. */
 export function useFolderListings(hostId: string, canAsk: boolean): FolderListings {
   const [listings, setListings] = useState<Record<string, Listing>>({})
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const latest = useRef({ listings, expanded, canAsk })
   latest.current = { listings, expanded, canAsk }
-  // A listing is applied only by its latest request, and only while mounted.
+  // A listing is applied only by its latest request; unmounting forgets every request.
   const inFlight = useRef(new Map<string, number>())
   const nextRequest = useRef(0)
-  const mounted = useRef(false)
 
   const fetchListing = useCallback(
     (path: string) => {
@@ -37,7 +33,7 @@ export function useFolderListings(hostId: string, canAsk: boolean): FolderListin
       inFlight.current.set(path, request)
       setListings((prev) => ({ ...prev, [path]: { status: 'loading' } }))
       const settle = (listing: Listing): boolean => {
-        if (!mounted.current || inFlight.current.get(path) !== request) return false
+        if (inFlight.current.get(path) !== request) return false
         inFlight.current.delete(path)
         setListings((prev) => ({ ...prev, [path]: listing }))
         return true
@@ -71,14 +67,12 @@ export function useFolderListings(hostId: string, canAsk: boolean): FolderListin
 
   useEffect(() => {
     const requests = inFlight.current
-    mounted.current = true
     ensureListed([ROOT_PATH])
     // Called from the status change itself, before this component re-renders with it.
     const stopWatching = onHostUp(hostId, () =>
       listMissing([ROOT_PATH, ...latest.current.expanded]),
     )
     return () => {
-      mounted.current = false
       requests.clear()
       stopWatching()
     }

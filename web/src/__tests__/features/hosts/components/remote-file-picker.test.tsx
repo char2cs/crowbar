@@ -361,6 +361,22 @@ describe('RemoteFilePicker — the host', () => {
     expect(selectButton()).toBeEnabled()
   })
 
+  it('a folder that failed under a collapsed one is listed again when the host is up', async () => {
+    serve('h1', { ...HOME, '/home': [dir('/home/mateo')] })
+    renderPicker()
+    fireEvent.click(await findRow('home'))
+    fireEvent.click(await findRow('mateo'))
+    await answer('h1', '/home/mateo', proxyMarkerError('host-unreachable', 'h1')!)
+    fireEvent.click(chevron('home'))
+
+    serve('h1', { '/home/mateo': [dir('/home/mateo/code')] })
+    setStatus('h1', 'up')
+    await waitFor(() => expect(requested('/home/mateo')).toBe(2))
+    fireEvent.click(chevron('home'))
+
+    expect(await findRow('code')).toBeInTheDocument()
+  })
+
   it('a host that needs repair while open says so and cannot be chosen from', async () => {
     serve('h1', HOME)
     renderPicker()
