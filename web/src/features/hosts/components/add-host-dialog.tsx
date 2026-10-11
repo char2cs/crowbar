@@ -41,6 +41,8 @@ function makeHostId(name: string): string {
   return `${slug || 'host'}-${crypto.randomUUID().slice(0, 8)}`
 }
 
+const focusOnMount = (element: HTMLElement | null) => element?.focus()
+
 /** Adds a host: probe its certificate, have the user confirm the fingerprint, then redeem a code
  *  from its `crowbar pair`. The code stage is reached only by that confirm, and pins exactly the
  *  fingerprint shown — never a re-probed one. */
@@ -93,6 +95,8 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
   const probing = pending === 'probe'
   const pairing = pending === 'pair'
   const codeHintId = useId()
+  const promptId = useId()
+  const fingerprintId = useId()
   const codeValid = /^\d{6}$/.test(code)
 
   async function handleProbe(e: React.FormEvent) {
@@ -185,19 +189,27 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
       {stage === 'fingerprint' && (
         <div>
           <div className="space-y-3 px-6 py-5">
-            <p className="text-sm text-muted-foreground">
-              Confirm this matches the fingerprint printed by that host's CLI:
+            <p id={promptId} className="text-sm text-muted-foreground">
+              Confirm this matches the fingerprint printed by that host’s CLI:
             </p>
-            <p className="break-all rounded-lg border bg-muted/50 px-3 py-2 font-mono text-[12px]">
+            {/* Focused on arrival instead of Confirm: a stray or repeated Enter accepts nothing. */}
+            <div
+              ref={focusOnMount}
+              id={fingerprintId}
+              role="group"
+              tabIndex={-1}
+              aria-labelledby={`${promptId} ${fingerprintId}`}
+              className="break-all rounded-lg border bg-muted/50 px-3 py-2 font-mono text-[12px]"
+            >
               {fingerprint}
-            </p>
+            </div>
             {error && <p className="text-[12px] text-destructive">{error}</p>}
           </div>
           <DialogFooter>
             <Button variant="ghost" type="button" onClick={() => setStage('address')}>
               Back
             </Button>
-            <Button type="button" autoFocus onClick={handleConfirmFingerprint}>
+            <Button type="button" onClick={handleConfirmFingerprint}>
               Confirm fingerprint
             </Button>
           </DialogFooter>

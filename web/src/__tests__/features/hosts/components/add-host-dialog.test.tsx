@@ -198,16 +198,22 @@ describe('AddHostDialog', () => {
     expect(redeemPairingCode).not.toHaveBeenCalled()
   })
 
-  // Focus follows the flow: it never drops to the page behind the dialog.
-  it('moves focus to each stage’s next step: Confirm, then the code field', async () => {
+  // Focus follows the flow, never dropping to the page behind, and lands on the fingerprint
+  // itself: a stray or repeated Enter must not confirm one the user has not read.
+  it('moves focus to the fingerprint, where Enter confirms nothing, then to the code field', async () => {
     vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
+    const user = userEvent.setup()
     render(<AddHostDialog open onOpenChange={() => {}} />)
     fillAddressStage()
 
-    const confirm = await screen.findByRole('button', { name: /confirm fingerprint/i })
-    await waitFor(() => expect(confirm).toHaveFocus())
-    fireEvent.click(confirm)
+    const fingerprint = await screen.findByRole('group', {
+      name: 'Confirm this matches the fingerprint printed by that host’s CLI: SHA256:aaaa',
+    })
+    await waitFor(() => expect(fingerprint).toHaveFocus())
+    await user.keyboard('{Enter}{Enter}')
+    expect(screen.queryByLabelText(/pairing code/i)).toBeNull()
 
+    await user.click(screen.getByRole('button', { name: /confirm fingerprint/i }))
     await waitFor(() => expect(screen.getByLabelText(/pairing code/i)).toHaveFocus())
   })
 
