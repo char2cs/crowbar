@@ -460,7 +460,10 @@ export function useFileExplorerContextMenu({
         label: 'Copy',
         icon: <Copy />,
         onClick: () => {
-          clipboardActions.copy([{ path: contextMenu.path, is_dir: contextMenu.isDir }])
+          clipboardActions.copy(
+            [{ path: contextMenu.path, is_dir: contextMenu.isDir }],
+            workspaceId,
+          )
         },
       },
       // Cut stages a move whose completion (paste) deletes from this workspace —
@@ -473,7 +476,10 @@ export function useFileExplorerContextMenu({
               label: 'Cut',
               icon: <Scissors />,
               onClick: () => {
-                clipboardActions.cut([{ path: contextMenu.path, is_dir: contextMenu.isDir }])
+                clipboardActions.cut(
+                  [{ path: contextMenu.path, is_dir: contextMenu.isDir }],
+                  workspaceId,
+                )
               },
             },
           ]),

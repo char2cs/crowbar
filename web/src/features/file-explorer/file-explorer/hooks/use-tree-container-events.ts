@@ -216,7 +216,10 @@ export function useTreeContainerEvents(o: TreeContainerEventsOptions) {
         const clipboard = useFileClipboardStore.getState().actions
         if (e.key === 'c' || e.key === 'x') {
           e.preventDefault()
-          clipboard[e.key === 'c' ? 'copy' : 'cut']([{ path: current.path, is_dir: isDir }])
+          clipboard[e.key === 'c' ? 'copy' : 'cut'](
+            [{ path: current.path, is_dir: isDir }],
+            workspaceId,
+          )
           return
         }
         if (e.key === 'v') {

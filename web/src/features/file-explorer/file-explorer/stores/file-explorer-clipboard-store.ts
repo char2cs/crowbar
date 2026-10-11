@@ -11,6 +11,8 @@ export interface ClipboardEntry {
 export interface FileClipboardState {
   entries: ClipboardEntry[]
   operation: 'copy' | 'cut'
+  /** The workspace the entry paths are relative to: they name other files anywhere else. */
+  wsId: string | null
 }
 
 export interface PastedEntry {
@@ -23,22 +25,21 @@ export interface PastedEntry {
 interface FileClipboardStore {
   clipboard: FileClipboardState | null
   actions: {
-    copy: (entries: ClipboardEntry[]) => Promise<void>
-    cut: (entries: ClipboardEntry[]) => Promise<void>
+    copy: (entries: ClipboardEntry[], wsId: string | null) => Promise<void>
+    cut: (entries: ClipboardEntry[], wsId: string | null) => Promise<void>
     paste: (targetDirectory: string, wsId: string | null) => Promise<PastedEntry[]>
     clear: () => Promise<void>
-    setClipboard: (state: FileClipboardState | null) => void
   }
 }
 
 const useFileClipboardStoreBase = create<FileClipboardStore>()((set, get) => ({
   clipboard: null,
   actions: {
-    copy: async (entries: ClipboardEntry[]) => {
-      set({ clipboard: { entries, operation: 'copy' } })
+    copy: async (entries: ClipboardEntry[], wsId: string | null) => {
+      set({ clipboard: { entries, operation: 'copy', wsId } })
     },
-    cut: async (entries: ClipboardEntry[]) => {
-      set({ clipboard: { entries, operation: 'cut' } })
+    cut: async (entries: ClipboardEntry[], wsId: string | null) => {
+      set({ clipboard: { entries, operation: 'cut', wsId } })
     },
     /**
      * Complete the staged operation into `targetDirectory` (workspace-relative;
@@ -57,6 +58,9 @@ const useFileClipboardStoreBase = create<FileClipboardStore>()((set, get) => ({
       if (!clipboard || clipboard.entries.length === 0) return []
 
       if (!wsId) throw new Error('no workspace to paste into')
+      if (clipboard.wsId !== wsId) {
+        throw new Error('Copied from another workspace — paste there, or copy again here')
+      }
 
       const results: PastedEntry[] = []
       for (const entry of clipboard.entries) {
@@ -98,9 +102,6 @@ const useFileClipboardStoreBase = create<FileClipboardStore>()((set, get) => ({
     },
     clear: async () => {
       set({ clipboard: null })
-    },
-    setClipboard: (state: FileClipboardState | null) => {
-      set({ clipboard: state })
     },
   },
 }))
