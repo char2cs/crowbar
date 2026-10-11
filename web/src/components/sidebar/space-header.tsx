@@ -59,9 +59,9 @@ interface SpaceHeaderProps {
 
 /**
  * The space header (spec §4): "the `.row` component with different controls."
- * Built on the same layout tokens as SidebarRow (B.2) — ROW_BASE, ROW_GLYPH_BOX
- * at its size-5.5 "section header" exception size (see ROW_GLYPH_BOX's comment),
- * ROW_SUB_ACTION — rather than wrapping `<SidebarRow>` itself: this
+ * Built on the same layout tokens as SidebarRow (B.2) — ROW_BASE, the size-5
+ * glyph box the row's own comment already calls out as a "section header"
+ * exception, ROW_SUB_ACTION — rather than wrapping `<SidebarRow>` itself: this
  * row's interaction is a LEADING-slot swap (mark -> chevron) that SidebarRow's
  * trailing-controls-only model has no shape for.
  *
@@ -102,7 +102,7 @@ export function SpaceHeader({
   // nothing — caught live.
   const [menuOpen, setMenuOpen] = useState(false)
   // Whether the pointer is directly over the glyph's OWN hit-target (the
-  // size-5.5 box below), not the row generally — see `showChevron`.
+  // size-5 box below), not the row generally — see `showChevron`.
   const [glyphHovered, setGlyphHovered] = useState(false)
   // Whether the icon's OWN popover (icon-popover.tsx) is open — see
   // `showChevron`'s own doc for why this has to hold the swap off, not just
@@ -182,7 +182,7 @@ export function SpaceHeader({
     >
       <span
         data-testid="space-glyph"
-        className={cn(ROW_GLYPH_BOX, 'size-5.5')}
+        className={cn(ROW_GLYPH_BOX, 'size-5')}
         onMouseEnter={() => setGlyphHovered(true)}
         onMouseLeave={() => setGlyphHovered(false)}
       >
@@ -214,7 +214,7 @@ export function SpaceHeader({
           />
         </span>
         <span className={cn(showChevron && 'hidden')}>
-          <EditableProjectIcon project={project} size="header" onOpenChange={setIconPopoverOpen} />
+          <EditableProjectIcon project={project} size="lg" onOpenChange={setIconPopoverOpen} />
         </span>
       </span>
 

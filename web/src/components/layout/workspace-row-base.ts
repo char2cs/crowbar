@@ -224,8 +224,8 @@ export const ROW_SUB_ACTION_INVERTED =
 // Every LEADING glyph on a row sits in this box. One label position per level:
 // a box that differs by 2px between row types puts a visible wobble down the
 // left edge wherever those rows interleave — which is exactly what folders and
-// branches do. The repo avatar's slot (20px, h-5 w-5) and the space header's (22px, size-5.5,
-// 2px wider on purpose beside its 18px heading) are the section-header exceptions.
+// branches do. The repo avatar and the project row's slot are the two
+// deliberate exceptions at 20px (h-5 w-5); they are the section headers.
 export const ROW_GLYPH_BOX = 'inline-flex size-4 shrink-0 items-center justify-center'
 
 // The second line under a branch name (change counts today). Muted TOKEN, never

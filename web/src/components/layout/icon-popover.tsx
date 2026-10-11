@@ -17,7 +17,6 @@ import { toastActionFailure } from '@/features/hosts/lib/host-failure-notice'
 import { putIconFile } from './icon-upload'
 import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { isTauri, convertFileSrc } from '@/lib/crowbar-bridge'
-import { cn } from '@/lib/utils'
 
 /**
  * A pick made in `onStage` mode (create-space-panel.tsx) — nothing hits the
@@ -62,8 +61,6 @@ interface IconPopoverProps {
    * stable, so without it a mounted <img> keeps the old bytes.
    */
   trigger?: (version: number) => ReactNode
-  /** Replaces the trigger's default 20px box, for a `trigger` mark drawn larger. */
-  triggerClassName?: string
   /**
    * Offer the GitHub owner-avatar button. Repos only: it reads the repo's
    * `origin` remote, and a project has none of its own.
@@ -110,7 +107,6 @@ export function IconPopover({
   fallback,
   fallbackLarge,
   trigger: triggerOverride,
-  triggerClassName,
   github = false,
   onStage,
   onOpenChange,
@@ -258,10 +254,7 @@ export function IconPopover({
         // live as an uploaded project/repo icon sitting visibly high next to
         // its name. Meaningless (and harmless) once a caller's own wrapper is
         // itself a flex/grid container, so this is safe for every trigger.
-        className={cn(
-          'group/entity-icon relative inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md align-middle outline-none',
-          triggerClassName,
-        )}
+        className="group/entity-icon relative inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md align-middle outline-none"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
