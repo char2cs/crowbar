@@ -1,5 +1,5 @@
 import { Plus, Trash } from '@phosphor-icons/react'
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { primitiveConfirm } from '@/components/ui/primitive-dialog-service'
 import { AddHostDialog } from '@/features/hosts/components/add-host-dialog'
@@ -16,8 +16,8 @@ import { ApiError } from '@/lib/api/errors'
 import { toast } from '@/features/window/stores/toast-store'
 
 // The host's own DELETE (over its channel, never Local's) goes first: cleaning up here first
-// would drop the only credential that can ever revoke this client there.
-async function revokeHost(host: Host): Promise<void> {
+// would drop the only credential that can ever revoke this client there. Whether the host went.
+async function revokeHost(host: Host): Promise<boolean> {
   const confirmed = await primitiveConfirm(
     'To use it again you’ll need to run crowbar pair on it.',
     {
@@ -27,13 +27,19 @@ async function revokeHost(host: Host): Promise<void> {
       destructive: true,
     },
   )
-  if (!confirmed) return
+  if (!confirmed) return false
   try {
     await apiFetch(`/v0/clients/${host.clientId}`, { method: 'DELETE' }, undefined, host.id)
   } catch (err) {
-    if (!(await mayRemoveUnrevoked(host, err))) return
+    if (!(await mayRemoveUnrevoked(host, err))) return false
   }
   await removeHere(host)
+  return true
+}
+
+// Unless another modal now covers Settings: focus the user took there is theirs to keep.
+function focusUnlessCovered(target: HTMLElement | null) {
+  if (target && !target.closest('[aria-hidden="true"], [inert]')) target.focus()
 }
 
 // A host whose own 401 refuses this client holds nothing it can use. Any other failed revoke is
@@ -154,10 +160,11 @@ function HostRow({ host, isLocal, revoking, onRevoke }: HostRowProps) {
           type="button"
           variant="ghost"
           size="icon-sm"
-          disabled={revoking}
+          // Not `disabled`: the confirm returns focus here, and a disabled button takes none.
+          aria-disabled={revoking || undefined}
           aria-label={`Revoke ${host.name}`}
           tooltip={`Revoke ${host.name}`}
-          className="text-muted-foreground hover:text-destructive"
+          className="text-muted-foreground hover:text-destructive aria-disabled:pointer-events-none aria-disabled:opacity-64"
           onClick={() => onRevoke(host)}
         >
           <Trash />
@@ -174,19 +181,29 @@ export function HostsSettings() {
   const [addOpen, setAddOpen] = useState(false)
   // Each opening is a new attempt, even one made while the last is still closing.
   const [addAttempt, setAddAttempt] = useState(0)
-  // Every host whose revoke is out: none of them can be asked to revoke twice.
+  const addHostRef = useRef<HTMLButtonElement>(null)
+  // Every host whose revoke is under way: none of them can be asked to revoke twice.
   const [revoking, setRevoking] = useState<ReadonlySet<string>>(() => new Set())
 
-  const handleRevoke = useCallback((host: Host) => {
-    setRevoking((ids) => new Set(ids).add(host.id))
-    void revokeHost(host).finally(() => {
-      setRevoking((ids) => {
-        const next = new Set(ids)
-        next.delete(host.id)
-        return next
-      })
-    })
-  }, [])
+  const handleRevoke = useCallback(
+    (host: Host) => {
+      if (revoking.has(host.id)) return
+      setRevoking((ids) => new Set(ids).add(host.id))
+      void revokeHost(host)
+        .then((removed) => {
+          // The row that held the user's place is gone: Add host is the one control that stays.
+          if (removed) focusUnlessCovered(addHostRef.current)
+        })
+        .finally(() => {
+          setRevoking((ids) => {
+            const next = new Set(ids)
+            next.delete(host.id)
+            return next
+          })
+        })
+    },
+    [revoking],
+  )
 
   return (
     <div className="space-y-4">
@@ -213,6 +230,7 @@ export function HostsSettings() {
 
       <div className="px-1">
         <Button
+          ref={addHostRef}
           type="button"
           variant="outline"
           size="sm"

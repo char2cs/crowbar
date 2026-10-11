@@ -47,6 +47,16 @@ const focusOnMount = (element: HTMLElement | null) => element?.focus()
 // Full-width digits (an input method types them) read as the digits they are; the rest is dropped.
 const toAsciiDigits = (value: string) => value.normalize('NFKC').replace(/\D/g, '')
 
+// Base UI rewrites a slot and moves focus on every keystroke and input, which aborts an input
+// method's composition: the field sees none until compositionend replays the committed text.
+function holdWhileComposing(
+  event: React.SyntheticEvent<HTMLDivElement, InputEvent | KeyboardEvent>,
+) {
+  if (event.nativeEvent.isComposing) event.stopPropagation()
+}
+const replayCommittedText = (event: React.CompositionEvent<HTMLDivElement>) =>
+  event.target.dispatchEvent(new Event('input', { bubbles: true }))
+
 /** Adds a host: probe its certificate, have the user confirm the fingerprint, then redeem a code
  *  from its `crowbar pair`. The code stage is reached only by that confirm, and pins exactly the
  *  fingerprint shown — never a re-probed one. */
@@ -93,14 +103,20 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
   const [endpoint, setEndpoint] = useState('')
   const [fingerprint, setFingerprint] = useState('')
   const [code, setCode] = useState('')
+  // The code was turned away for not being exactly 6 digits; the next change to it ends that.
+  const [turnedAway, setTurnedAway] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Minted with the probe, so every code tried after one confirm pairs the same host id.
   const hostId = useRef('')
   const probing = pending === 'probe'
   const pairing = pending === 'pair'
   const codeHintId = useId()
+  const fieldRef = useRef<HTMLDivElement>(null)
+  const pairRef = useRef<HTMLButtonElement>(null)
   const promptId = useId()
   const fingerprintId = useId()
+  // An entry past the sixth slot is kept (to be refused whole) but never shown.
+  const shownCode = code.length > 6 ? '' : code
   const codeValid = /^\d{6}$/.test(code)
 
   async function handleProbe(e: React.FormEvent) {
@@ -133,9 +149,45 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
     setStage('code')
   }
 
+  // A failure about the old code is stale the moment the code changes.
+  function handleCodeChange(next: string) {
+    setCode(next)
+    setError(null)
+    setTurnedAway(false)
+  }
+
+  const codeSlots = () => Array.from(fieldRef.current?.querySelectorAll('input') ?? [])
+
+  // Base UI cuts an entry that runs past the sixth slot, leaving a wrong code that looks whole.
+  // Kept whole instead, it is no code: the slots empty and the correction says why.
+  function refuseOverrun(event: React.SyntheticEvent<HTMLDivElement>, text: string) {
+    if (pairing) return
+    const slots = codeSlots()
+    const at = slots.indexOf(event.target as HTMLInputElement)
+    const digits = toAsciiDigits(text)
+    if (at + digits.length <= slots.length) return
+    event.preventDefault()
+    slots[0].focus()
+    setError(null)
+    setTurnedAway(true)
+    setCode(code.slice(0, at) + digits + code.slice(at + digits.length))
+  }
+
+  // A pressed Pair button, or a click that focused nothing, is where focus is when a code fails:
+  // the user retypes from the first slot instead of from the page behind the dialog.
+  function refocusCode() {
+    const active = document.activeElement
+    if (active === pairRef.current || active === document.body) codeSlots()[0]?.focus()
+  }
+
   async function handleRedeem(e: React.FormEvent) {
     e.preventDefault()
-    if (!codeValid) return
+    if (pairing) return
+    if (!codeValid) {
+      setTurnedAway(true)
+      codeSlots()[Math.min(shownCode.length, 5)]?.focus()
+      return
+    }
     setError(null)
     onPendingChange('pair')
     try {
@@ -143,6 +195,7 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
       onPaired(hostId.current)
     } catch (err) {
       setError(pairingFailureText(err, endpoint.trim()))
+      refocusCode()
     } finally {
       onPendingChange(null)
     }
@@ -163,6 +216,7 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="homelab"
+                maxLength={64}
                 disabled={probing}
               />
             </div>
@@ -233,14 +287,21 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
           <div className="space-y-2 px-6 py-5">
             <Label htmlFor="add-host-code">Pairing code</Label>
             <OTPField
+              ref={fieldRef}
               id="add-host-code"
               length={6}
-              value={code}
-              onValueChange={setCode}
+              value={shownCode}
+              onValueChange={handleCodeChange}
               validationType="none"
               inputMode="numeric"
               normalizeValue={toAsciiDigits}
-              disabled={pairing}
+              // Not `disabled`: that would drop the focus the user is typing in.
+              readOnly={pairing}
+              onPasteCapture={(e) => refuseOverrun(e, e.clipboardData.getData('text/plain'))}
+              onChangeCapture={(e) => refuseOverrun(e, (e.target as HTMLInputElement).value)}
+              onInputCapture={holdWhileComposing}
+              onKeyDownCapture={holdWhileComposing}
+              onCompositionEnd={replayCommittedText}
             >
               <OTPFieldInput autoFocus aria-describedby={codeHintId} />
               <OTPFieldInput aria-label="Character 2 of 6" aria-describedby={codeHintId} />
@@ -250,11 +311,16 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
               <OTPFieldInput aria-label="Character 5 of 6" aria-describedby={codeHintId} />
               <OTPFieldInput aria-label="Character 6 of 6" aria-describedby={codeHintId} />
             </OTPField>
-            <p id={codeHintId} className="text-[12px] text-muted-foreground">
-              {code === '' || codeValid
-                ? 'The 6-digit code crowbar pair printed on the host.'
-                : 'A pairing code is exactly 6 digits.'}
-            </p>
+            <div className="text-[12px]">
+              <p id={codeHintId} className="text-muted-foreground">
+                The 6-digit code crowbar pair printed on the host.
+              </p>
+              {/* Live from the first render, outside aria-describedby: a region inserted with its
+                  text may go unannounced, and a described-by change would be read twice. */}
+              <p role="status" className="text-destructive">
+                {turnedAway && 'A pairing code is exactly 6 digits.'}
+              </p>
+            </div>
             {error && (
               <p role="alert" className="text-[12px] text-destructive">
                 {error}
@@ -270,7 +336,15 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
             >
               Back
             </Button>
-            <Button type="submit" disabled={!codeValid || pairing}>
+            {/* aria-disabled, not disabled: it keeps focus while a code is out, and a press before
+                the code is whole is answered instead of ignored. */}
+            <Button
+              ref={pairRef}
+              type="submit"
+              aria-disabled={!codeValid || pairing || undefined}
+              aria-busy={pairing || undefined}
+              className="aria-disabled:opacity-64"
+            >
               {pairing ? 'Pairing…' : 'Pair'}
             </Button>
           </DialogFooter>
