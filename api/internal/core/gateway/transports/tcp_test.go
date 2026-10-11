@@ -85,6 +85,64 @@ func TestNewTCP_NonLoopback_ServerTLSOnly_NoClientCertRequired(t *testing.T) {
 	}
 }
 
+// exposedLoopbackHost is classified as network-exposed (a DNS name) yet
+// resolves to loopback, so NewTCP's real exposed path binds without a macOS
+// "accept incoming connections" prompt.
+const exposedLoopbackHost = "tcp://localhost.:0"
+
+// acceptOne accepts a single connection on ln and completes its TLS handshake,
+// reporting the accepted type alongside the handshake's outcome.
+func acceptOne(
+	t *testing.T,
+	ln net.Listener,
+) <-chan error {
+	t.Helper()
+	handshaked := make(chan error, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			handshaked <- err
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		tlsConn, ok := conn.(*tls.Conn)
+		if !ok {
+			handshaked <- fmt.Errorf("accepted connection is %T, not *tls.Conn", conn)
+			return
+		}
+		handshaked <- tlsConn.HandshakeContext(t.Context())
+	}()
+	return handshaked
+}
+
+// TestNewTCP_Exposed_TerminatesTLS13 proves the listener NewTCP hands back for
+// a network-exposed bind speaks TLS, and only TLS 1.3: a TLS 1.2 client is
+// refused at the handshake.
+func TestNewTCP_Exposed_TerminatesTLS13(t *testing.T) {
+	require.True(t, IsNetworkExposed(exposedLoopbackHost))
+	id, err := tlsid.Load(t.TempDir())
+	require.NoError(t, err)
+	ln, err := NewTCP(exposedLoopbackHost, id)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+
+	handshaked := acceptOne(t, ln)
+	dialer := tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true}}
+	conn, err := dialer.DialContext(t.Context(), "tcp", ln.Addr().String())
+	require.NoError(t, err, "a TLS client must complete the handshake")
+	t.Cleanup(func() { _ = conn.Close() })
+	require.NoError(t, <-handshaked)
+	tlsConn, ok := conn.(*tls.Conn)
+	require.True(t, ok)
+	assert.Equal(t, uint16(tls.VersionTLS13), tlsConn.ConnectionState().Version)
+
+	handshaked = acceptOne(t, ln)
+	legacy := tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true, MaxVersion: tls.VersionTLS12}}
+	_, err = legacy.DialContext(t.Context(), "tcp", ln.Addr().String())
+	require.Error(t, err, "a TLS 1.2 client must be refused")
+	assert.Error(t, <-handshaked, "the server must refuse the TLS 1.2 handshake")
+}
+
 // TestIsNonLoopbackBind proves R17's bind classifier: wildcard/LAN/DNS addresses
 // are flagged as network-exposed (requiring a TLS identity), loopback addresses
 // are not.
