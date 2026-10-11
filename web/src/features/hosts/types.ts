@@ -15,9 +15,9 @@ export interface Host {
  *  distinct from 'down' so the UI doesn't silently retry a dead credential. */
 export type HostStatus = 'unknown' | 'probing' | 'up' | 'down' | 'needs-repair'
 
-/** What a host's status dot says: its status, or that it answers while none of its live
- *  streams is open. */
-export type HostDotState = HostStatus | 'no-live-stream'
+/** What a host's status dot says: its status, that it answers while none of its live
+ *  streams is open, or that no configured host has the id (it was removed). */
+export type HostDotState = HostStatus | 'no-live-stream' | 'not-available'
 
 /** The implicit local daemon — never persisted, never removable. */
 export const LOCAL_HOST: Host = {

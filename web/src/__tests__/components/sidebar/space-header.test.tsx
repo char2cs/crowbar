@@ -147,6 +147,19 @@ describe('SpaceHeader', () => {
     expect(onToggle).toHaveBeenCalledTimes(1)
   })
 
+  // The host line is part of the fold control, so clicking anywhere on the label folds.
+  it('shows the project’s host under its name, inside the fold control', () => {
+    const onToggle = vi.fn()
+    renderHeader({ onToggleFold: onToggle })
+    const fold = screen.getByRole('button', { name: 'Collapse p1' })
+
+    expect(fold).toContainElement(screen.getByText('p1'))
+    expect(fold).toContainElement(screen.getByText('Local'))
+    expect(fold).toContainElement(screen.getByTestId('host-status-local'))
+    fireEvent.click(screen.getByText('Local'))
+    expect(onToggle).toHaveBeenCalledTimes(1)
+  })
+
   // The container itself must NOT carry its own click behavior — that would
   // be exactly the reintroduced bug (a clickable ancestor wrapping the
   // overflow/thread buttons). A bare click on the row's own box, missing

@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { EditableProjectIcon } from '@/components/layout/project-icon-mark'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
+import { SpaceHeaderLabel } from '@/components/sidebar/space-header-label'
 import { performRenameProject } from '@/components/sidebar/lib/row-actions'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { providerCanStartOnTerminal } from '@/features/agent/api/agent-api'
@@ -266,7 +267,7 @@ export function SpaceHeader({
             setRenaming(true)
           }}
         >
-          {project.name}
+          <SpaceHeaderLabel project={project} />
         </button>
       )}
 

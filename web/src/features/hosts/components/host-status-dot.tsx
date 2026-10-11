@@ -8,6 +8,7 @@ const LABEL: Record<HostDotState, string> = {
   down: 'Offline',
   'needs-repair': 'Needs repair — reconnect this host',
   'no-live-stream': 'Online — no live stream',
+  'not-available': 'Host not available',
 }
 
 const UNSETTLED = 'border border-muted-foreground/50 bg-transparent'
@@ -19,6 +20,12 @@ const DOT_CLASS: Record<HostDotState, string> = {
   'no-live-stream': 'bg-success',
   down: 'bg-destructive',
   'needs-repair': 'bg-warning',
+  'not-available': 'bg-muted-foreground/50',
+}
+
+/** The words for `state`, for a surface that says it in text as well as on the dot. */
+export function hostDotLabel(state: HostDotState): string {
+  return LABEL[state]
 }
 
 /** A host's status dot, labelled for what it says. Every surface that shows a host's status
