@@ -44,6 +44,7 @@ export function Tree({
   className,
   onFocus,
   onKeyDown,
+  onMouseDown,
   ...props
 }: TreeProps) {
   const activeIndex = items.findIndex((item) => item.key === activeKey)
@@ -97,6 +98,13 @@ export function Tree({
         if (activeIndex < 0 && items.length > 0) onActiveKeyChange(items[0].key)
       }}
       onKeyDown={handleKeyDown}
+      onMouseDown={(event) => {
+        onMouseDown?.(event)
+        if (event.defaultPrevented || event.target === event.currentTarget) return
+        // A row never takes focus: the tree keeps it, so focus and the active row agree.
+        event.preventDefault()
+        event.currentTarget.focus()
+      }}
       {...props}
     />
   )

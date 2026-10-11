@@ -42,6 +42,7 @@ function EntryIcon({ entry, expanded }: { entry: BrowseEntry; expanded?: boolean
 }
 
 interface RemoteFolderTreeProps {
+  treeRef: (tree: HTMLDivElement | null) => void
   hostName: string
   entries: readonly BrowseEntry[]
   listings: Readonly<Record<string, Listing>>
@@ -57,6 +58,7 @@ interface RemoteFolderTreeProps {
 /** The listed part of a host's filesystem: folders expand in place and can be picked;
  *  files are shown but inert. */
 export function RemoteFolderTree({
+  treeRef,
   hostName,
   entries,
   listings,
@@ -82,6 +84,7 @@ export function RemoteFolderTree({
 
   return (
     <Tree
+      ref={treeRef}
       aria-label={`Folders on ${hostName}`}
       items={rows}
       activeKey={activeKey}

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useRef, useState, type RefObject } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -32,13 +32,15 @@ interface RemoteFilePickerProps {
 
 /** Picks a folder on a remote host's own filesystem, where no native dialog can reach. */
 export function RemoteFilePicker({ hostId, open, onOpenChange, onSelect }: RemoteFilePickerProps) {
+  const listRef = useRef<HTMLDivElement>(null)
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPopup className="max-w-sm">
+      <DialogPopup className="max-w-sm" initialFocus={() => listRef.current ?? true}>
         {/* Keyed: nothing listed on one host is ever shown, or applied, for another. */}
         <FolderBrowser
           key={hostId}
           hostId={hostId}
+          listRef={listRef}
           onCancel={() => onOpenChange(false)}
           onChoose={(path) => {
             onSelect(path)
@@ -57,16 +59,28 @@ function bannerText(name: string, state: HostDotState): string {
 
 interface FolderBrowserProps {
   hostId: string
+  /** The folder list, which holds focus until the tree inside it can take it. */
+  listRef: RefObject<HTMLDivElement | null>
   onCancel: () => void
   onChoose: (path: string) => void
 }
 
-function FolderBrowser({ hostId, onCancel, onChoose }: FolderBrowserProps) {
+function FolderBrowser({ hostId, listRef, onCancel, onChoose }: FolderBrowserProps) {
   const { name, state } = useHostView(hostId)
   const canAsk = !hostIsUnreachable(state)
   const folders = useFolderListings(hostId, canAsk)
   const [selected, setSelected] = useState<BrowseEntry | null>(null)
   const [activeKey, setActiveKey] = useState<string | null>(null)
+
+  const treeRef = useRef<HTMLDivElement | null>(null)
+  // Focus given to the list passes to the tree, whichever of the two arrives first.
+  const takeFocus = useCallback(
+    (tree: HTMLDivElement | null) => {
+      treeRef.current = tree
+      if (tree && document.activeElement === listRef.current) tree.focus()
+    },
+    [listRef],
+  )
 
   function pickFolder(entry: BrowseEntry) {
     setSelected(entry)
@@ -89,8 +103,18 @@ function FolderBrowser({ hostId, onCancel, onChoose }: FolderBrowserProps) {
         </p>
       )}
       {name !== undefined && (
-        <div className="mx-3 mb-3 max-h-60 min-h-32 overflow-auto">
+        <div
+          ref={listRef}
+          role="group"
+          aria-label="Folder list"
+          tabIndex={-1}
+          className="mx-3 mb-3 max-h-60 min-h-32 overflow-auto outline-none"
+          onFocus={(event) => {
+            if (event.target === event.currentTarget) treeRef.current?.focus()
+          }}
+        >
           <FolderRoot
+            treeRef={takeFocus}
             hostName={name}
             canAsk={canAsk}
             folders={folders}
@@ -123,6 +147,7 @@ function FolderBrowser({ hostId, onCancel, onChoose }: FolderBrowserProps) {
 }
 
 interface FolderRootProps {
+  treeRef: (tree: HTMLDivElement | null) => void
   hostName: string
   canAsk: boolean
   folders: ReturnType<typeof useFolderListings>

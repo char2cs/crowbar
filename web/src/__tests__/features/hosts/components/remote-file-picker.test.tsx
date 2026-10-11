@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { StrictMode } from 'react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/api', async (importOriginal) => ({
@@ -275,6 +276,41 @@ describe('RemoteFilePicker — keyboard', () => {
     fireEvent.keyDown(tree, { key: 'Enter' })
 
     expect(selectButton()).toHaveAccessibleName('Select "srv"')
+  })
+
+  // Focus and the active row must agree, or assistive tech reads one row while keys move another.
+  it('a click leaves focus on the tree, and the arrows move its active row from there', async () => {
+    serve('h1', HOME)
+    const user = userEvent.setup()
+    renderPicker()
+    const tree = await screen.findByRole('tree', { name: 'Folders on homelab-prox' })
+
+    await user.click(row('notes.txt'))
+    expect(tree).toHaveFocus()
+    expect(tree).toHaveAttribute('aria-activedescendant', row('notes.txt').id)
+    await user.keyboard('{ArrowUp}')
+
+    expect(tree).toHaveFocus()
+    expect(tree).toHaveAttribute('aria-activedescendant', row('srv').id)
+  })
+
+  it('opens with focus in the folder list, never on Cancel, and hands it to the tree once listed', async () => {
+    renderPicker()
+
+    const list = screen.getByRole('group', { name: 'Folder list' })
+    await waitFor(() => expect(list).toHaveFocus())
+    expect(list).toHaveTextContent('Loading folders…')
+    await answer('h1', '/', [dir('/home')])
+
+    expect(await screen.findByRole('tree')).toHaveFocus()
+  })
+
+  it('hands focus to the tree even when the listing answers before the dialog settles', async () => {
+    serve('h1', HOME)
+    renderPicker()
+
+    const tree = await screen.findByRole('tree')
+    await waitFor(() => expect(tree).toHaveFocus())
   })
 })
 
