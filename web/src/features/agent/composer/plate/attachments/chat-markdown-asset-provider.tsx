@@ -1,6 +1,7 @@
 import { useMemo, type ReactNode } from 'react'
 import { MarkdownAssetContext } from '@/features/editor/markdown/plate/markdown-asset'
 import { useHostResolved } from '@/lib/host-resolve'
+import { LinkWorkspaceContext } from '@/lib/markdown-link'
 import { chatMarkdownAssetInfo } from './chat-asset-resolver'
 import { ChatIdContext } from './chat-id-context'
 
@@ -30,7 +31,9 @@ export function ChatMarkdownAssetProvider({
   const value = useMemo(() => chatMarkdownAssetInfo(wsId), [wsId, hostResolved])
   return (
     <ChatIdContext.Provider value={chatId}>
-      <MarkdownAssetContext.Provider value={value}>{children}</MarkdownAssetContext.Provider>
+      <MarkdownAssetContext.Provider value={value}>
+        <LinkWorkspaceContext value={wsId}>{children}</LinkWorkspaceContext>
+      </MarkdownAssetContext.Provider>
     </ChatIdContext.Provider>
   )
 }

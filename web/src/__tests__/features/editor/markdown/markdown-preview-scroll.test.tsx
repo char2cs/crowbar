@@ -2,12 +2,14 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createElement, StrictMode } from 'react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { workspaceFileExists, openWorkspaceFile } = vi.hoisted(() => ({
+const { workspaceFileExists, openWorkspaceFile, openExternalUrl } = vi.hoisted(() => ({
   workspaceFileExists: vi.fn(),
   openWorkspaceFile: vi.fn(async () => {}),
+  openExternalUrl: vi.fn(async (_url: string) => {}),
 }))
 vi.mock('@/features/file-system/controllers/platform', () => ({ workspaceFileExists }))
 vi.mock('@/features/files/lib/file-tree-handlers', () => ({ openWorkspaceFile }))
+vi.mock('@/lib/external-open', () => ({ openExternalUrl }))
 
 import { MarkdownPreview } from '@/features/editor/markdown/markdown-preview'
 import { clearPreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
@@ -24,6 +26,14 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { toast } from '@/features/window/stores/toast-store'
+import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const LONG_MARKDOWN = Array.from({ length: 200 }, (_, i) => `# Heading ${i}\n\nBody ${i}\n`).join(
   '\n',
@@ -203,5 +213,56 @@ describe('MarkdownPreview links', () => {
       }),
     )
     expect(workspaceFileExists.mock.calls.map(([wsId]) => wsId)).toEqual(['w-buffer', 'w-buffer'])
+  })
+
+  // A README on a remote host that says "open http://localhost:3000" means that host's port.
+  describe('to a loopback address', () => {
+    beforeEach(() => {
+      resetHostWorld()
+      __resetWorkspaceScopesForTest()
+      vi.spyOn(toast, 'info').mockReturnValue('')
+      pairRemoteHost('h1', 'Build box')
+      loadProjects(projectOn('p-remote', 'h1'), projectOn('p-local', 'local'))
+      recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r', wsId: 'w-remote' })
+      recordWorkspaceScope({ projectId: 'p-local', repoId: 'r', wsId: 'w-local' })
+    })
+
+    async function clickLinkIn(wsId: string, url: string) {
+      const store = setupStore(['README.md'])
+      windowPaneStore.setState((s) => {
+        s.buffers = s.buffers.map((b) =>
+          b.id === 'src-README.md'
+            ? ({ ...b, content: `[the app](${url})`, workspaceId: wsId } as typeof b)
+            : ({ ...b, workspaceId: wsId } as typeof b),
+        )
+        return s
+      })
+      renderPreview(store, 'preview-README.md')
+      const anchor = (await screen.findByText('the app')).closest('a')!
+      anchor.setAttribute('href', anchor.getAttribute('data-slate-url')!)
+      fireEvent.click(anchor)
+    }
+
+    it('from a remote workspace names its host and opens nothing here', async () => {
+      await clickLinkIn('w-remote', 'http://localhost:3000/')
+
+      await waitFor(() => expect(toast.info).toHaveBeenCalledOnce())
+      expect(vi.mocked(toast.info).mock.calls[0][0]).toMatch(/^This link is on Build box, not/)
+      expect(openExternalUrl).not.toHaveBeenCalled()
+    })
+
+    it('from a Local workspace opens here', async () => {
+      await clickLinkIn('w-local', 'http://localhost:3000/')
+
+      await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith('http://localhost:3000/'))
+      expect(toast.info).not.toHaveBeenCalled()
+    })
+
+    it('is not why a public address from a remote workspace stays shut', async () => {
+      await clickLinkIn('w-remote', 'https://example.com/docs')
+
+      await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith('https://example.com/docs'))
+      expect(toast.info).not.toHaveBeenCalled()
+    })
   })
 })

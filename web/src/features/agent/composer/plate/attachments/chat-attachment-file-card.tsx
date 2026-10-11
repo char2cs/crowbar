@@ -166,7 +166,7 @@ function ChatAttachmentFileCard({ wsId, attachmentRef, filename, ...props }: Fil
         attributes={{
           ...props.attributes,
           href: href ?? undefined,
-          onClick: (e) => handleMarkdownAnchorClick(e, href),
+          onClick: (e) => handleMarkdownAnchorClick(e, href, wsId),
           onMouseOver: (e) => {
             e.stopPropagation()
           },
@@ -197,7 +197,7 @@ function ChatAttachmentFileCardStatic({ wsId, attachmentRef, filename, ...props 
       attributes={{
         ...props.attributes,
         href: href ?? undefined,
-        onClick: (e) => handleMarkdownAnchorClick(e, href),
+        onClick: (e) => handleMarkdownAnchorClick(e, href, wsId),
         onMouseOver: (e) => {
           e.stopPropagation()
         },

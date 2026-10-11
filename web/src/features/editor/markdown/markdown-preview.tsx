@@ -7,7 +7,8 @@ import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll
 import { workspaceFileExists } from '@/features/file-system/controllers/platform'
 import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
 import { hasTextContent } from '@/features/panes/types/pane-content'
-import { openExternalUrl } from '@/lib/external-open'
+import { LinkWorkspaceContext } from '@/lib/markdown-link'
+import { openWorkspaceLink } from '@/lib/workspace-link'
 import { useSettingsStore } from '@/features/settings/store'
 import { logger } from '../utils/logger'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
@@ -122,7 +123,7 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
 
       if (isExternalLink) {
         try {
-          await openExternalUrl(href)
+          await openWorkspaceLink(href, sourceWorkspaceId ?? null)
         } catch (error) {
           logger.error('MarkdownPreview', 'Failed to open external link:', error)
         }
@@ -189,7 +190,9 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
       onWheelCapture={handleWheelCapture}
     >
       <div className="markdown-content w-full max-w-3xl">
-        {body && <MarkdownMessageStatic>{body}</MarkdownMessageStatic>}
+        <LinkWorkspaceContext value={sourceWorkspaceId ?? null}>
+          {body && <MarkdownMessageStatic>{body}</MarkdownMessageStatic>}
+        </LinkWorkspaceContext>
       </div>
     </div>
   )

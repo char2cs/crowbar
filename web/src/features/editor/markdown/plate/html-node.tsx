@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react'
 import DOMPurify from 'dompurify'
 import { createPlatePlugin, PlateElement, type PlateElementProps } from 'platejs/react'
-import { handleMarkdownAnchorClick } from '@/lib/markdown-link'
+import { handleMarkdownAnchorClick, useLinkWorkspace } from '@/lib/markdown-link'
 import { loadLocalImage, useMarkdownAsset } from './markdown-asset'
 
 /**
@@ -34,6 +34,7 @@ export function HtmlElement(props: PlateElementProps) {
   const clean = DOMPurify.sanitize(raw)
 
   const asset = useMarkdownAsset()
+  const linkWorkspace = useLinkWorkspace()
   const ref = useRef<HTMLDivElement>(null)
 
   // Local `<img src="./logo.png">` references (common in README headers) don't
@@ -69,11 +70,11 @@ export function HtmlElement(props: PlateElementProps) {
     if (!el) return
     const onClick = (e: MouseEvent) => {
       const anchor = (e.target as HTMLElement | null)?.closest('a')
-      if (anchor) handleMarkdownAnchorClick(e, anchor.getAttribute('href'))
+      if (anchor) handleMarkdownAnchorClick(e, anchor.getAttribute('href'), linkWorkspace)
     }
     el.addEventListener('click', onClick)
     return () => el.removeEventListener('click', onClick)
-  }, [])
+  }, [linkWorkspace])
 
   return (
     <PlateElement {...props}>
