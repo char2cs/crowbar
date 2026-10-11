@@ -94,6 +94,12 @@ describe('a host that will not resolve', () => {
     expect(result.current).toBeNull()
   })
 
+  it('has nothing to wait on without a key, however final the list', () => {
+    loadProjects(project('p-local', 'local'))
+    const { result } = renderHook(() => useHostUnavailable(null))
+    expect(result.current).toBeNull()
+  })
+
   it('keeps waiting on a workspace whose scope is not recorded yet, however loaded the list', () => {
     configureHosts('host-1')
     loadProjects(project('p-other', 'host-1'))

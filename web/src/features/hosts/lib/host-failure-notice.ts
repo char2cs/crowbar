@@ -5,7 +5,12 @@ import { LOCAL_HOST } from '@/features/hosts/types'
 import { toast } from '@/features/window/stores/toast-store'
 import { ApiError, HostNotConfiguredError } from '@/lib/api/errors'
 import { HostNotResolvedError } from '@/lib/host-path'
-import { hostUnavailability } from '@/lib/host-unavailability'
+import {
+  hostUnavailability,
+  useHostUnavailable,
+  type HostUnavailable,
+} from '@/lib/host-unavailability'
+import type { Loadable } from '@/lib/loadable'
 import { useProjectDataStore } from '@/lib/store/projects'
 
 interface HostFailureNotice {
@@ -27,14 +32,23 @@ const HOST_NOT_PAIRED: HostFailureNotice = {
   description: 'Pair it again in Settings → Hosts to use it.',
 }
 
+/** What a host failure's words depend on besides the error itself. */
+interface HostFailureFacts {
+  /** The failing remote host's name; undefined once it is no longer paired. */
+  hostName: string | undefined
+  /** Why an unresolved project's host is not coming; null while it is worth waiting. */
+  unavailable: HostUnavailable | null
+  listStatus: Loadable<unknown>['status']
+}
+
 // What to say when a project's host cannot be told: gone, on a host that is not configured,
 // or not known until the project list is read.
-function unresolvedHostNotice(projectId: string | undefined): HostFailureNotice {
-  const why = projectId === undefined ? null : hostUnavailability({ projectId })
-  if (why === 'host-unavailable') return PROJECT_HOST_UNAVAILABLE
-  if (why === 'project-missing') return { message: 'This project is no longer in your list' }
+function unresolvedHostNotice({ unavailable, listStatus }: HostFailureFacts): HostFailureNotice {
+  if (unavailable === 'host-unavailable') return PROJECT_HOST_UNAVAILABLE
+  if (unavailable === 'project-missing')
+    return { message: 'This project is no longer in your list' }
   // Before the list is read a local project is merely not known yet: Hosts is the wrong advice.
-  if (useProjectDataStore.getState().data.status === 'error') {
+  if (listStatus === 'error') {
     return {
       message: 'Couldn’t load your projects',
       description: 'Check that Crowbar can reach its daemon, then retry.',
@@ -43,16 +57,25 @@ function unresolvedHostNotice(projectId: string | undefined): HostFailureNotice 
   return { message: 'Still loading your projects', description: 'Try again in a moment.' }
 }
 
-function describeHostFailure(err: unknown): HostFailureNotice | null {
-  if (err instanceof HostNotResolvedError) {
-    return unresolvedHostNotice(err.entity === 'project' ? err.id : err.projectId)
-  }
+/** The remote host `err` is a failure of, if any. */
+function failedRemoteHost(err: unknown): string | undefined {
+  if (!(err instanceof ApiError) || !err.hostId || err.hostId === LOCAL_HOST.id) return undefined
+  return err.hostId
+}
+
+/** The project whose host `err` could not tell, if it names one. */
+function unresolvedProject(err: unknown): string | undefined {
+  if (!(err instanceof HostNotResolvedError)) return undefined
+  return err.entity === 'project' ? err.id : err.projectId
+}
+
+function describeHostFailure(err: unknown, facts: HostFailureFacts): HostFailureNotice | null {
+  if (err instanceof HostNotResolvedError) return unresolvedHostNotice(facts)
   if (err instanceof HostNotConfiguredError) return HOST_NOT_PAIRED
-  if (!(err instanceof ApiError) || !err.hostId || err.hostId === LOCAL_HOST.id) return null
+  if (!(err instanceof ApiError) || failedRemoteHost(err) === undefined) return null
   const kind = hostFailureKind(err) ?? (carriesOnlyStatus(err) ? 'unexplained' : null)
   if (kind === null) return null
-  const { hostId } = err
-  const name = useHostConfigStore.getState().hosts.find((host) => host.id === hostId)?.name
+  const name = facts.hostName
   if (name === undefined) return HOST_NOT_PAIRED
   switch (kind) {
     case 'unreachable':
@@ -79,6 +102,15 @@ function describeHostFailure(err: unknown): HostFailureNotice | null {
   }
 }
 
+// For handlers and effects: the stores as they are now.
+function currentFacts(hostId: string | undefined, projectId: string | undefined): HostFailureFacts {
+  return {
+    hostName: useHostConfigStore.getState().hosts.find((host) => host.id === hostId)?.name,
+    unavailable: projectId === undefined ? null : hostUnavailability({ projectId }),
+    listStatus: useProjectDataStore.getState().data.status,
+  }
+}
+
 /** Whether `err` is the proxy's own plain-text answer (a 401/500/502/504): no daemon words,
  *  only the status. */
 export function carriesOnlyStatus(err: ApiError): boolean {
@@ -88,7 +120,7 @@ export function carriesOnlyStatus(err: ApiError): boolean {
 // Every action's failure passes here, so the host's status learns of it as the user does.
 function hostFailureNotice(err: unknown): HostFailureNotice | null {
   reportHostFailure(err)
-  return describeHostFailure(err)
+  return describeHostFailure(err, currentFacts(failedRemoteHost(err), unresolvedProject(err)))
 }
 
 function show({ message, description }: HostFailureNotice): void {
@@ -98,7 +130,7 @@ function show({ message, description }: HostFailureNotice): void {
 
 /** Toasts why nothing can be asked of `projectId`'s host yet, or any more. */
 export function toastUnresolvedHost(projectId: string): void {
-  show(unresolvedHostNotice(projectId))
+  show(unresolvedHostNotice(currentFacts(undefined, projectId)))
 }
 
 /** Toasts `err` as its host's failure when the host is why, and says whether it did; anything
@@ -115,10 +147,15 @@ export function toastActionFailure(err: unknown, fallback: string): void {
   if (!toastHostFailure(err)) toast.error(err instanceof Error ? err.message : fallback)
 }
 
-/** Its host's words for `err` when the host is why, else null: for a surface that says what
- *  failed in its own words. Only reads, so a render may ask it. */
-export function hostFailureMessage(err: unknown): string | null {
-  return describeHostFailure(err)?.message ?? null
+/** Its host's words for `err` when the host is why, else null — kept current as the host and
+ *  project lists change: for a surface that says what failed in its own words. */
+export function useHostFailureMessage(err: unknown): string | null {
+  const hostId = failedRemoteHost(err)
+  const projectId = unresolvedProject(err)
+  const hostName = useHostConfigStore((s) => s.hosts.find((host) => host.id === hostId)?.name)
+  const unavailable = useHostUnavailable(projectId === undefined ? null : { projectId })
+  const listStatus = useProjectDataStore((s) => s.data.status)
+  return describeHostFailure(err, { hostName, unavailable, listStatus })?.message ?? null
 }
 
 /** The words for a failed action shown inline or under the action's own title: its host's

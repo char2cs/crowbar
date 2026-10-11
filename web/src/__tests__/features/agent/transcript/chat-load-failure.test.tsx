@@ -1,8 +1,16 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatLoadFailure } from '@/features/agent/transcript/chat-load-failure'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { ApiError, proxyMarkerError } from '@/lib/api/errors'
-import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
+import { HostNotResolvedError } from '@/lib/host-path'
+import {
+  loadProjects,
+  markHostsRead,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 function renderFailure(error: Error) {
   const onRetry = vi.fn()
@@ -47,5 +55,30 @@ describe('ChatLoadFailure', () => {
 
     expect(screen.getByText('Couldn’t load this chat’s messages.')).toBeVisible()
     expect(screen.getByText(notice)).toBeVisible()
+  })
+
+  it('follows the project list: "still loading" becomes "gone" once the list lands', () => {
+    pairRemoteHost('h1', 'homelab')
+    renderFailure(new HostNotResolvedError('project', 'p-vanished', 'the list is not loaded'))
+    expect(screen.getByText('Still loading your projects')).toBeVisible()
+
+    // Loaded, but homelab has not said what it holds yet: the project may still be there.
+    act(() => loadProjects(projectOn('p-local', 'local')))
+    expect(screen.getByText('Still loading your projects')).toBeVisible()
+
+    act(() => markHostsRead('h1'))
+
+    expect(screen.queryByText('Still loading your projects')).toBeNull()
+    expect(screen.getByText('This project is no longer in your list')).toBeVisible()
+  })
+
+  it('follows the host list: a removed host stops being named', () => {
+    pairRemoteHost('h1', 'homelab')
+    renderFailure(proxyMarkerError('host-unreachable', 'h1')!)
+    expect(screen.getByText('Couldn’t reach homelab')).toBeVisible()
+
+    act(() => useHostConfigStore.getState().removeHost('h1'))
+
+    expect(screen.getByText('That host is no longer paired with this computer')).toBeVisible()
   })
 })

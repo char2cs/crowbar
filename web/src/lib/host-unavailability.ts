@@ -58,9 +58,10 @@ function paneUnavailability(key: HostKey): HostUnavailable | null {
 }
 
 /** What a pane waiting on `key`'s host says: why it is not coming (`hostUnavailability`),
- *  'host-unavailable' while it waits only on hosts that do not answer, or null (opening). */
-export function useHostUnavailable(key: HostKey): HostUnavailable | null {
-  const wsId = key.wsId
+ *  'host-unavailable' while it waits only on hosts that do not answer, or null (opening, or
+ *  no key: nothing to wait on). */
+export function useHostUnavailable(key: HostKey | null): HostUnavailable | null {
+  const wsId = key?.wsId
   const subscribe = useCallback(
     (onChange: () => void) => {
       const stops = [subscribeHostResolution(wsId, onChange), subscribeHostStatuses(onChange)]
@@ -68,7 +69,7 @@ export function useHostUnavailable(key: HostKey): HostUnavailable | null {
     },
     [wsId],
   )
-  return useSyncExternalStore(subscribe, () => paneUnavailability(key))
+  return useSyncExternalStore(subscribe, () => (key === null ? null : paneUnavailability(key)))
 }
 
 /** Settles with whether `key`'s host resolved: true as soon as it does, false once
