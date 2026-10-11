@@ -155,6 +155,7 @@ export function useXtermInstance({
               () => sessionIdRef.current,
               () => workspaceIdRef.current,
             ),
+            workspaceId: () => workspaceIdRef.current,
           },
         )
         fitToContainer(mounted.addons.fitAddon, container)

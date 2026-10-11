@@ -1,4 +1,4 @@
-import { openExternalUrl } from '@/lib/external-open'
+import { openWorkspaceLink } from '@/lib/workspace-link'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { SerializeAddon } from '@xterm/addon-serialize'
@@ -26,12 +26,11 @@ export function createTerminalAddons(terminal: Terminal): TerminalAddons {
   return { fitAddon, searchAddon, serializeAddon }
 }
 
-export function loadWebLinksAddon(terminal: Terminal): void {
-  // No confirmation step by design: clicking a URL goes straight to the
-  // default browser. openExternalUrl (not window.open): window.open is a
-  // silent no-op in the Tauri WKWebView.
+/** Opens a clicked URL in the default browser, with no confirmation step — unless it is a
+ *  loopback address printed in a workspace on another host (see openWorkspaceLink). */
+export function loadWebLinksAddon(terminal: Terminal, workspaceId: () => string): void {
   const webLinksAddon = new WebLinksAddon((_event: MouseEvent, uri: string) => {
-    openExternalUrl(uri).catch((error) => {
+    openWorkspaceLink(uri, workspaceId()).catch((error) => {
       console.error('Failed to open link:', error)
     })
   })

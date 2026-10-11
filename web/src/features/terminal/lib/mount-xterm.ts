@@ -20,6 +20,8 @@ interface MountXtermDeps {
   /** Sends input the terminal itself produces (key overrides, drops, IME replacements). */
   write: (data: string, origin: string) => void
   fileLinks: TerminalFileLinksOptions
+  /** The workspace the terminal belongs to, whose host its web links point at. */
+  workspaceId: () => string
 }
 
 /**
@@ -58,7 +60,7 @@ export function mountXterm(
     })
     if (terminal.textarea) releases.push(watchTextarea(terminal.textarea, deps.write))
     releases.push(ownCopy(container, terminal))
-    loadWebLinksAddon(terminal)
+    loadWebLinksAddon(terminal, deps.workspaceId)
     const fileLinks = registerTerminalFileLinks(terminal, deps.fileLinks)
     releases.push(() => fileLinks.dispose())
     terminal.unicode.activeVersion = '11'
