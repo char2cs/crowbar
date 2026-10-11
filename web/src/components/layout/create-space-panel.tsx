@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { FolderOpen, HardDrives } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,7 +14,6 @@ import { ProjectIconMark } from './project-icon-mark'
 import { IconPopover, type StagedIcon } from './icon-popover'
 import { getFilenameFromPath } from '@/features/file-system/controllers/file-utils'
 import { toast } from '@/features/window/stores/toast-store'
-import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { apiFetch, postProject } from '@/lib/api'
 import { awaitEntity } from '@/lib/ws/await-entity'
 import { qualify } from '@/lib/host-path'
@@ -26,6 +25,7 @@ import {
   hostDotLabel,
   hostIsUnreachable,
 } from '@/features/hosts/components/host-status-dot'
+import { useDaemonFolderPicker } from '@/features/hosts/hooks/use-daemon-folder-picker'
 import { useHostDotState, useHostView } from '@/features/hosts/hooks/use-host-status'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { LOCAL_HOST, type Host } from '@/features/hosts/types'
@@ -133,11 +133,12 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
   const selectedHost = useHostView(hostId)
   // Local keeps today's flow: only a remote that cannot be reached stops a create.
   const hostRefusesCreate = hostId !== LOCAL_HOST.id && hostIsUnreachable(selectedHost.state)
-
-  async function handleBrowse() {
-    const selected = await openDialog({ directory: true, multiple: false })
-    if (typeof selected === 'string') setSelectedPath(selected)
-  }
+  const folderPicker = useDaemonFolderPicker(hostId, setSelectedPath)
+  const folderHintId = useId()
+  const folderHint =
+    hostId !== LOCAL_HOST.id && !selectedPath && selectedHost.name !== undefined
+      ? `Choose a folder on ${selectedHost.name} first.`
+      : null
 
   function handleHostIdChange(value: string | null) {
     if (!value) return
@@ -146,6 +147,8 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
       setAddHostOpen(true)
       return
     }
+    // A folder names a path on the daemon it was picked on, and on no other.
+    if (value !== hostId) setSelectedPath('')
     setHostId(value)
   }
 
@@ -255,7 +258,7 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
 
       <button
         type="button"
-        onClick={() => void handleBrowse()}
+        onClick={folderPicker.pick}
         className="flex items-center justify-between rounded-lg border border-border bg-muted px-3 py-2.5 text-sm hover:bg-sidebar-element-hover"
       >
         <span className="flex items-center gap-2 text-foreground">
@@ -267,14 +270,21 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
         </span>
       </button>
 
+      {folderPicker.picker}
       <AddHostDialog key={addHostAttempt} open={addHostOpen} onOpenChange={setAddHostOpen} />
 
       <div className="flex-1" />
 
       <div className="flex shrink-0 flex-col gap-2 pb-4">
+        {folderHint && (
+          <p id={folderHintId} className="text-center text-muted-foreground text-xs">
+            {folderHint}
+          </p>
+        )}
         <Button
           onClick={() => void handleCreate()}
           disabled={!selectedPath || loading || hostRefusesCreate}
+          aria-describedby={folderHint ? folderHintId : undefined}
           className="w-full"
         >
           {loading ? 'Creating…' : 'Create Space'}
