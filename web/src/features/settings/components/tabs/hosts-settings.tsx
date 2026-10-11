@@ -28,38 +28,47 @@ async function revokeHost(host: Host): Promise<void> {
   await removeHere(host)
 }
 
-// A host that refuses this client already holds nothing it can use. One that cannot be asked
-// is the user's call: removing it here leaves its pairing valid there until revoked there.
+// A host that refuses this client holds nothing it can use. Any other failed revoke is the
+// user's call, never a host they cannot remove: no tool can end the pairing on the host itself.
 async function mayRemoveUnrevoked(host: Host, err: unknown): Promise<boolean> {
-  const kind = hostFailureKind(err)
-  if (kind === 'refused') {
+  if (hostFailureKind(err) === 'refused') {
     toast.info(
       `Removed ${host.name}`,
       'Its pairing was already revoked or lost, so there was nothing left to revoke on it.',
     )
     return true
   }
-  if (kind === 'unreachable') {
-    return primitiveConfirm(
-      `Crowbar couldn’t reach ${host.name} to revoke this computer’s access. Remove it from this app anyway? Its pairing stays valid on ${host.name} until it is revoked there.`,
-      { title: `Can’t reach ${host.name}`, confirmLabel: 'Remove anyway', cancelLabel: 'Keep it' },
-    )
-  }
-  if (kind === 'identity-changed') {
-    return primitiveConfirm(
-      `The host at ${host.endpoint} no longer presents the certificate you paired with, so Crowbar won’t send it anything — not even a revoke. Remove it from this app anyway? If the original host still exists, this computer’s pairing stays valid there until it is revoked there.`,
-      {
+  const { title, why, listed } = unrevoked(host, err)
+  const forgets = 'This computer forgets its key now, so nothing here can use it.'
+  return primitiveConfirm(`${why} Remove it from this app anyway? ${forgets} ${listed}`, {
+    title,
+    confirmLabel: 'Remove anyway',
+    cancelLabel: 'Keep it',
+  })
+}
+
+function unrevoked(host: Host, err: unknown): { title: string; why: string; listed: string } {
+  const listed = `${host.name} will still list this computer as paired.`
+  switch (hostFailureKind(err)) {
+    case 'unreachable':
+      return {
+        title: `Can’t reach ${host.name}`,
+        why: `Crowbar couldn’t reach ${host.name} to revoke this computer’s access.`,
+        listed,
+      }
+    case 'identity-changed':
+      return {
         title: `${host.name}’s identity changed`,
-        confirmLabel: 'Remove anyway',
-        cancelLabel: 'Keep it',
-      },
-    )
+        why: `The host at ${host.endpoint} no longer presents the certificate you paired with, so Crowbar won’t send it anything — not even a revoke.`,
+        listed: 'If the original host still exists, it will still list this computer as paired.',
+      }
+    default:
+      return {
+        title: `Couldn’t revoke ${host.name}`,
+        why: `The revoke failed: ${actionErrorMessage(err, String(err))}.`,
+        listed,
+      }
   }
-  toast.error(
-    `Could not revoke ${host.name}`,
-    actionErrorMessage(err, 'The host could not be reached.'),
-  )
-  return false
 }
 
 // The row goes whatever the cleanup says: a live row for a host that is revoked or given up on

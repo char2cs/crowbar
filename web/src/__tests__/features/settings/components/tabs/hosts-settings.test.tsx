@@ -178,20 +178,6 @@ describe('HostsSettings', () => {
     expect(unregisterRemoteHost).toHaveBeenCalledWith('h1')
     expect(forgetHostToken).toHaveBeenCalledWith('h1')
   })
-
-  it('a failed server-side revoke leaves the host config and local token untouched', async () => {
-    useHostConfigStore.setState({
-      hosts: [{ id: 'h1', name: 'homelab', endpoint: 'x', pairedFingerprint: 'x', clientId: 'c1' }],
-    })
-    vi.mocked(apiFetch).mockReset().mockRejectedValue(new Error('host unreachable'))
-    render(<HostsSettings />)
-    const row = screen.getByText('homelab').closest('[data-testid="host-row"]')!
-    fireEvent.click(row.querySelector('[aria-label*="revoke" i]')!)
-    await waitFor(() => expect(toastErrorFn).toHaveBeenCalled())
-    expect(unregisterRemoteHost).not.toHaveBeenCalled()
-    expect(forgetHostToken).not.toHaveBeenCalled()
-    expect(useHostConfigStore.getState().hosts).toHaveLength(1)
-  })
 })
 
 // Revoke as the running app meets it: the project list live, the host's status kept, its
@@ -270,7 +256,7 @@ describe('revoking a host the app is using', () => {
 
     revoke()
 
-    expect(await screen.findByText(/stays valid on h1 until it is revoked there/)).toBeVisible()
+    expect(await screen.findByText(/h1 will still list this computer as paired/)).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: 'Keep it' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(useHostConfigStore.getState().hosts.map((h) => h.id)).toEqual(['h1'])
@@ -342,33 +328,43 @@ describe('revoking a host when something fails', () => {
     expect(consoleError).toHaveBeenCalled()
   })
 
-  it('removes an unreachable host once the user says to, revoking nothing twice', async () => {
-    vi.mocked(apiFetch).mockRejectedValue(proxyMarkerError('host-unreachable', 'h1'))
+  // "Remove anyway" deletes the token from this computer, but no tool lists or revokes clients on
+  // the host: the dialog says what is true, and promises nothing more.
+  it.each([
+    ['cannot reach it', proxyMarkerError('host-unreachable', 'h1'), 'Can’t reach homelab'],
+    [
+      'finds its identity changed',
+      proxyMarkerError('host-identity-changed', 'h1'),
+      'homelab’s identity changed',
+    ],
+  ])(
+    'asks before removing a host the revoke %s, then revokes nothing twice',
+    async (_, err, title) => {
+      vi.mocked(apiFetch).mockRejectedValue(err)
 
-    revoke()
+      revoke()
 
-    const dialog = await screen.findByRole('dialog')
-    expect(dialog).toHaveTextContent('Can’t reach homelab')
-    expect(dialog).toHaveTextContent(/stays valid on homelab until it is revoked there/)
-    fireEvent.click(screen.getByRole('button', { name: 'Remove anyway' }))
+      const dialog = await screen.findByRole('dialog')
+      expect(dialog).toHaveTextContent(title)
+      expect(dialog).toHaveTextContent(
+        'This computer forgets its key now, so nothing here can use it.',
+      )
+      expect(dialog).toHaveTextContent(/will still list this computer as paired/)
+      expect(dialog).not.toHaveTextContent(/until it is revoked/)
+      fireEvent.click(screen.getByRole('button', { name: 'Remove anyway' }))
 
-    await waitFor(() => expect(hosts()).toEqual([]))
-    expect(deletes()).toBe(1)
-    expect(forgetHostToken).toHaveBeenCalledWith('h1')
-  })
+      await waitFor(() => expect(hosts()).toEqual([]))
+      expect(deletes()).toBe(1)
+      expect(forgetHostToken).toHaveBeenCalledWith('h1')
+    },
+  )
 
-  it('warns that a host’s identity changed before removing it, and sends it nothing more', async () => {
+  it('names the endpoint whose identity changed', async () => {
     vi.mocked(apiFetch).mockRejectedValue(proxyMarkerError('host-identity-changed', 'h1'))
 
     revoke()
 
-    const dialog = await screen.findByRole('dialog')
-    expect(dialog).toHaveTextContent('homelab’s identity changed')
-    expect(dialog).toHaveTextContent('10.0.0.2:3737')
-    fireEvent.click(screen.getByRole('button', { name: 'Remove anyway' }))
-
-    await waitFor(() => expect(hosts()).toEqual([]))
-    expect(deletes()).toBe(1)
+    expect(await screen.findByRole('dialog')).toHaveTextContent('10.0.0.2:3737')
   })
 
   it('removes a host that already refuses this computer (401) without asking, and says so', async () => {
@@ -385,21 +381,81 @@ describe('revoking a host when something fails', () => {
     expect(forgetHostToken).toHaveBeenCalledWith('h1')
   })
 
-  it('keeps a host whose daemon refused the revoke for its own reasons, and says why', async () => {
+  // Each as the real transport turns it into an error: the proxy's own plain-text answers carry
+  // only a status; the daemon's carry its words. A 404 comes from past the bearer check, so
+  // this computer's token still works there: it is a failed revoke, not an earlier one.
+  it.each([
+    [
+      'the keychain refused the token (proxy 500)',
+      500,
+      'token lookup failed',
+      'homelab returned an error (500)',
+    ],
+    [
+      'the host never answered (proxy 504)',
+      504,
+      'request timed out',
+      'homelab returned an error (504)',
+    ],
+    [
+      'the connection dropped (proxy 502)',
+      502,
+      'crowbar proxy error: reset',
+      'homelab returned an error (502)',
+    ],
+    [
+      'the proxy lost the host (502)',
+      502,
+      'unknown remote host h1',
+      'homelab returned an error (502)',
+    ],
+    [
+      'the daemon could not record it (500)',
+      500,
+      '{"success":false,"error":"database is locked"}',
+      'database is locked',
+    ],
+    [
+      'the daemon has no such client (404)',
+      404,
+      '{"success":false,"error":"client not found"}',
+      'client not found',
+    ],
+  ])(
+    'asks before removing a host when %s, with a readable reason',
+    async (_, status, body, reason) => {
+      const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api')
+      vi.mocked(apiFetch).mockImplementation(actual.apiFetch)
+      const fetch = vi.fn(async () => new Response(body, { status }))
+      vi.stubGlobal('fetch', fetch)
+
+      revoke()
+
+      const dialog = await screen.findByRole('dialog')
+      expect(dialog).toHaveTextContent('Couldn’t revoke homelab')
+      expect(dialog).toHaveTextContent(`The revoke failed: ${reason}.`)
+      expect(dialog).not.toHaveTextContent(/\bh1\b|\b\d{3} \./)
+      fireEvent.click(screen.getByRole('button', { name: 'Remove anyway' }))
+
+      await waitFor(() => expect(hosts()).toEqual([]))
+      expect(fetch).toHaveBeenCalledOnce()
+      expect(forgetHostToken).toHaveBeenCalledWith('h1')
+    },
+  )
+
+  it('keeps a host whose revoke failed when the user says to keep it', async () => {
     vi.mocked(apiFetch).mockRejectedValue(
-      new ApiError('client not found', 404, undefined, undefined, 'h1'),
+      new ApiError('database is locked', 500, undefined, undefined, 'h1'),
     )
 
     revoke()
 
-    await waitFor(() =>
-      expect(toastErrorFn).toHaveBeenCalledExactlyOnceWith(
-        'Could not revoke homelab',
-        'client not found',
-      ),
-    )
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep it' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(hosts()).toEqual(['h1'])
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(deletes()).toBe(1)
+    expect(unregisterRemoteHost).not.toHaveBeenCalled()
     expect(forgetHostToken).not.toHaveBeenCalled()
+    expect(toastErrorFn).not.toHaveBeenCalled()
   })
 })
