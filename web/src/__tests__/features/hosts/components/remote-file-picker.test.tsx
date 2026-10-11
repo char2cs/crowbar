@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/api', async (importOriginal) => ({
@@ -347,30 +348,55 @@ describe('RemoteFilePicker — the host', () => {
 })
 
 describe('RemoteFilePicker — late answers', () => {
-  it('an answer that arrives after the picker closed is dropped', async () => {
+  it('an answer that arrives after the picker closed is dropped, and says nothing of the host', async () => {
     const { rerender, onOpenChange, onSelect } = renderPicker()
     rerender(
       <RemoteFilePicker hostId="h1" open={false} onOpenChange={onOpenChange} onSelect={onSelect} />,
     )
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 
-    await answer('h1', '/', [dir('/home')])
+    await answer('h1', '/', proxyMarkerError('host-unreachable', 'h1')!)
 
-    expect(screen.queryByRole('treeitem')).not.toBeInTheDocument()
+    expect(getOrCreateHostRuntime('h1').getState().status).toBe('up')
+    rerender(<RemoteFilePicker hostId="h1" open onOpenChange={onOpenChange} onSelect={onSelect} />)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByText('Loading folders…')).toBeInTheDocument()
+    await answer('h1', '/', [dir('/home')])
+    expect(await findRow('home')).toBeInTheDocument()
   })
 
-  it('an answer for the host it was showing is never shown for another host', async () => {
+  it('what was listed on one host is never shown, or answered, for another', async () => {
+    serve('h1', { '/': [dir('/only-on-h1')] })
     const { rerender, onOpenChange, onSelect } = renderPicker('h1')
-    rerender(<RemoteFilePicker hostId="h2" open onOpenChange={onOpenChange} onSelect={onSelect} />)
+    fireEvent.click(await findRow('only-on-h1'))
 
-    await answer('h1', '/', [dir('/only-on-h1')])
+    rerender(<RemoteFilePicker hostId="h2" open onOpenChange={onOpenChange} onSelect={onSelect} />)
+    expect(screen.queryByRole('treeitem', { name: 'only-on-h1' })).not.toBeInTheDocument()
+    expect(selectButton()).toHaveAccessibleName('Select')
+    await answer('h1', '/only-on-h1', [dir('/only-on-h1/late')])
     await answer('h2', '/', [dir('/only-on-h2')])
 
     expect(await findRow('only-on-h2')).toBeInTheDocument()
-    expect(screen.queryByRole('treeitem', { name: 'only-on-h1' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('treeitem', { name: 'late' })).not.toBeInTheDocument()
     expect(
       within(screen.getByRole('dialog')).getByText("Browsing office-vm's filesystem"),
     ).toBeVisible()
+  })
+
+  it('a superseded answer never overwrites the one that replaced it', async () => {
+    render(
+      <StrictMode>
+        <RemoteFilePicker hostId="h1" open onOpenChange={vi.fn()} onSelect={vi.fn()} />
+      </StrictMode>,
+    )
+    expect(requested('/')).toBe(2)
+
+    const [first, second] = held.get('h1:/')!
+    await act(async () => second([dir('/fresh')]))
+    await act(async () => first([dir('/stale')]))
+
+    expect(await findRow('fresh')).toBeInTheDocument()
+    expect(screen.queryByRole('treeitem', { name: 'stale' })).not.toBeInTheDocument()
   })
 
   it('opening a folder that failed asks again, and shows the new answer', async () => {

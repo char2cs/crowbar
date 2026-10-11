@@ -92,6 +92,26 @@ describe('IconPopover — real (non-staged) mode is unchanged', () => {
   })
 })
 
+// An icon upload sends a file from this machine, whichever daemon the entity lives on — it
+// is never a path picked on the entity's own host.
+describe('IconPopover — an upload is a file on this machine', () => {
+  it("a remote entity's upload still picks an image with the OS dialog", async () => {
+    isTauri.mockReturnValue(true)
+    openDialog.mockResolvedValue(null)
+    render(<IconPopover {...baseProps} base="crowbar://h1/v0/projects/p1" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+
+    await vi.waitFor(() =>
+      expect(openDialog).toHaveBeenCalledExactlyOnceWith({
+        multiple: false,
+        filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
+      }),
+    )
+    expect(screen.queryByRole('dialog', { name: /choose a folder/i })).not.toBeInTheDocument()
+  })
+})
+
 describe('IconPopover — onStage mode stages locally instead of mutating the network', () => {
   it('emoji submit calls onStage, never apiFetch', () => {
     const onStage = vi.fn()
