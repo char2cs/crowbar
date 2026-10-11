@@ -82,10 +82,14 @@ function FolderBrowser({ hostId, listRef, onCancel, onChoose }: FolderBrowserPro
     [listRef],
   )
 
-  function pickFolder(entry: BrowseEntry) {
-    setSelected(entry)
-    folders.expand(entry.path)
-  }
+  const { expand } = folders
+  const pickFolder = useCallback(
+    (entry: BrowseEntry) => {
+      setSelected(entry)
+      expand(entry.path)
+    },
+    [expand],
+  )
 
   return (
     <>
@@ -159,6 +163,11 @@ interface FolderRootProps {
 
 /** The top of the tree, or what stands in for it until it is listed. */
 function FolderRoot({ hostName, canAsk, folders, ...tree }: FolderRootProps) {
+  const { expand, collapse } = folders
+  const setOpen = useCallback(
+    (path: string, open: boolean) => (open ? expand(path) : collapse(path)),
+    [expand, collapse],
+  )
   const root = folders.listings[ROOT_PATH]
   const notice = 'flex min-h-32 flex-col items-center justify-center gap-2 text-center text-sm'
   if (root === undefined && !canAsk) {
@@ -198,7 +207,7 @@ function FolderRoot({ hostName, canAsk, folders, ...tree }: FolderRootProps) {
       entries={root.entries}
       listings={folders.listings}
       expanded={folders.expanded}
-      onExpandedChange={(path, open) => (open ? folders.expand(path) : folders.collapse(path))}
+      onExpandedChange={setOpen}
       {...tree}
     />
   )

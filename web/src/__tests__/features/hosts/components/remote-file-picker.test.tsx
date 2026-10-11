@@ -7,6 +7,18 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
   apiFetch: vi.fn(),
 }))
+// Counts every row drawn, to see which rows a key press draws again.
+const drawn = vi.hoisted(() => ({ rows: 0 }))
+vi.mock('@/components/ui/tree-row', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/components/ui/tree-row')>()
+  return {
+    ...actual,
+    TreeRow: (props: Parameters<typeof actual.TreeRow>[0]) => {
+      drawn.rows++
+      return actual.TreeRow(props)
+    },
+  }
+})
 
 import { ApiError, apiFetch } from '@/lib/api'
 import { proxyMarkerError } from '@/lib/api/errors'
@@ -292,6 +304,20 @@ describe('RemoteFilePicker — keyboard', () => {
 
     expect(tree).toHaveFocus()
     expect(tree).toHaveAttribute('aria-activedescendant', row('srv').id)
+  })
+
+  // A big folder must stay quick to walk: a key press draws again only the rows it changed.
+  it('an arrow key draws again only the row it left and the row it reached', async () => {
+    serve('h1', { '/': Array.from({ length: 40 }, (_, i) => dir(`/d${i}`)) })
+    renderPicker()
+    const tree = await screen.findByRole('tree')
+    fireEvent.focus(tree)
+
+    drawn.rows = 0
+    fireEvent.keyDown(tree, { key: 'ArrowDown' })
+
+    expect(tree).toHaveAttribute('aria-activedescendant', row('d1').id)
+    expect(drawn.rows).toBe(2)
   })
 
   it('opens with focus in the folder list, never on Cancel, and hands it to the tree once listed', async () => {

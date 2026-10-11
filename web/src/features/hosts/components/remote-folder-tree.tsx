@@ -1,4 +1,4 @@
-import { useId, useMemo } from 'react'
+import { memo, useCallback, useId, useMemo } from 'react'
 import { FileIcon, FolderIcon, FolderOpenIcon, WarningIcon } from '@phosphor-icons/react'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { Tree, TreeItem } from '@/components/ui/tree'
@@ -55,6 +55,59 @@ interface RemoteFolderTreeProps {
   onPickFolder: (entry: BrowseEntry) => void
 }
 
+interface FolderTreeRowProps {
+  row: FolderRow
+  id: string
+  hostName: string
+  selected: boolean
+  active: boolean
+  onToggle: (path: string, expanded: boolean) => void
+  /** The row was clicked: it becomes the active row, and a folder is picked. */
+  onChoose: (key: string) => void
+}
+
+// Memoised, so a key press draws again only the two rows whose `active` it changed.
+const FolderTreeRow = memo(function FolderTreeRow({
+  row,
+  id,
+  hostName,
+  selected,
+  active,
+  onToggle,
+  onChoose,
+}: FolderTreeRowProps) {
+  if (row.kind === 'note') {
+    return (
+      <TreeItem
+        id={id}
+        level={row.level}
+        inert
+        active={active}
+        icon={<NoteIcon note={row.note} />}
+        className={row.note.type === 'failed' ? 'text-destructive' : 'text-muted-foreground'}
+      >
+        {noteText(row.note, hostName)}
+      </TreeItem>
+    )
+  }
+  return (
+    <TreeItem
+      id={id}
+      level={row.level}
+      expanded={row.expanded}
+      inert={!row.entry.isDir}
+      className={row.entry.isDir ? undefined : 'opacity-40'}
+      selected={selected}
+      active={active}
+      icon={<EntryIcon entry={row.entry} expanded={row.expanded} />}
+      onToggle={() => onToggle(row.key, !row.expanded)}
+      onClick={() => onChoose(row.key)}
+    >
+      {row.entry.name}
+    </TreeItem>
+  )
+})
+
 /** The listed part of a host's filesystem: folders expand in place and can be picked;
  *  files are shown but inert. */
 export function RemoteFolderTree({
@@ -75,12 +128,21 @@ export function RemoteFolderTree({
     [entries, listings, expanded],
   )
   const indexOf = useMemo(() => new Map(rows.map((row, i) => [row.key, i])), [rows])
-  const byKey = (key: string): FolderRow | undefined => rows[indexOf.get(key) ?? -1]
 
-  function pick(key: string) {
-    const row = byKey(key)
-    if (row?.kind === 'entry' && row.entry.isDir) onPickFolder(row.entry)
-  }
+  const pick = useCallback(
+    (key: string) => {
+      const row = rows[indexOf.get(key) ?? -1]
+      if (row?.kind === 'entry' && row.entry.isDir) onPickFolder(row.entry)
+    },
+    [rows, indexOf, onPickFolder],
+  )
+  const choose = useCallback(
+    (key: string) => {
+      onActiveKeyChange(key)
+      pick(key)
+    },
+    [onActiveKeyChange, pick],
+  )
 
   return (
     <Tree
@@ -93,40 +155,18 @@ export function RemoteFolderTree({
       onSelect={pick}
       itemId={(key) => `${baseId}-${indexOf.get(key)}`}
     >
-      {rows.map((row, index) =>
-        row.kind === 'note' ? (
-          <TreeItem
-            key={row.key}
-            id={`${baseId}-${index}`}
-            level={row.level}
-            inert
-            active={row.key === activeKey}
-            icon={<NoteIcon note={row.note} />}
-            className={row.note.type === 'failed' ? 'text-destructive' : 'text-muted-foreground'}
-          >
-            {noteText(row.note, hostName)}
-          </TreeItem>
-        ) : (
-          <TreeItem
-            key={row.key}
-            id={`${baseId}-${index}`}
-            level={row.level}
-            expanded={row.expanded}
-            inert={!row.entry.isDir}
-            className={row.entry.isDir ? undefined : 'opacity-40'}
-            selected={row.key === selectedPath}
-            active={row.key === activeKey}
-            icon={<EntryIcon entry={row.entry} expanded={row.expanded} />}
-            onToggle={() => onExpandedChange(row.key, !row.expanded)}
-            onClick={() => {
-              onActiveKeyChange(row.key)
-              pick(row.key)
-            }}
-          >
-            {row.entry.name}
-          </TreeItem>
-        ),
-      )}
+      {rows.map((row, index) => (
+        <FolderTreeRow
+          key={row.key}
+          row={row}
+          id={`${baseId}-${index}`}
+          hostName={hostName}
+          selected={row.key === selectedPath}
+          active={row.key === activeKey}
+          onToggle={onExpandedChange}
+          onChoose={choose}
+        />
+      ))}
     </Tree>
   )
 }
