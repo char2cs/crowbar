@@ -150,15 +150,7 @@ func TestLoad_DropsAnUnsafeIconAndKeepsTheProvider(t *testing.T) {
 	assert.Empty(t, d.Icon)
 }
 
-func TestLoad_KeepsAPlainSVGIcon(t *testing.T) {
-	const icon = `<svg viewBox="0 0 1 1"><path d="M0 0h1v1z"/></svg>`
-	d, err := descriptor.Load([]byte(minimal + "icon: '" + icon + "'\n"))
-
-	require.NoError(t, err)
-	assert.Equal(t, icon, d.Icon)
-}
-
-// Every shipped provider keeps its icon: none is dropped as unsafe at load.
+// Every shipped provider keeps its plain-SVG icon through Load.
 func TestShippedIconsArePlainSVG(t *testing.T) {
 	shipped, err := descriptor.All(context.Background(), "", nil)
 	require.NoError(t, err)
