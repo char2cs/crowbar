@@ -1,5 +1,5 @@
 import { renderHook, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { mountXterm, openWorkspaceFile } = vi.hoisted(() => ({
   mountXterm: vi.fn(),
@@ -15,6 +15,10 @@ import { useXtermInstance } from '@/features/terminal/hooks/use-xterm-instance'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import type { TerminalFileLinksOptions } from '@/features/terminal/lib/terminal-file-links'
+import { toast } from '@/features/window/stores/toast-store'
+import { proxyMarkerError } from '@/lib/api/errors'
+import { getHostRuntime, destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 const repo = {
   id: 'r1',
@@ -41,6 +45,12 @@ describe('useXtermInstance file links', () => {
       addons: { fitAddon: { fit: vi.fn(), proposeDimensions: () => undefined } },
       dispose: vi.fn(),
     })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    destroyHostRuntime('h1')
+    resetHostWorld()
   })
 
   async function fileLinks(): Promise<TerminalFileLinksOptions> {
@@ -71,6 +81,23 @@ describe('useXtermInstance file links', () => {
     links.openFile('/disk/worktrees/a/src/index.ts')
 
     expect(openWorkspaceFile).toHaveBeenCalledExactlyOnceWith('ws-terminal', 'src/index.ts')
+  })
+
+  it('names the remote host a linked file could not be opened from, and records it', async () => {
+    pairRemoteHost('h1', 'Studio Mac')
+    const toastError = vi.spyOn(toast, 'error').mockImplementation(() => '')
+    openWorkspaceFile.mockRejectedValueOnce(proxyMarkerError('host-unreachable', 'h1'))
+    const links = await fileLinks()
+
+    links.openFile('/disk/worktrees/a/src/index.ts')
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledExactlyOnceWith(
+        'Couldn’t reach Studio Mac',
+        'Check that it is online in Settings → Hosts.',
+      ),
+    )
+    expect(getHostRuntime('h1')?.getState().status).toBe('down')
   })
 
   it('resolves relative links against the terminal’s own workspace root', async () => {

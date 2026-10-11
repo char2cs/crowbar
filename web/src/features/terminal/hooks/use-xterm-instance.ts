@@ -5,6 +5,7 @@ import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
 import { resolveWorkspaceRootPath } from '@/lib/workspace/resolve-root-path'
 import { toast } from '@/features/window/stores/toast-store'
+import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 import { injectLinkStyles, removeLinkStyles, type TerminalAddons } from './use-terminal-addons'
 import { useTerminalTheme } from './use-terminal-theme'
 import { fitToContainer } from './use-pty-size-sync'
@@ -32,8 +33,8 @@ function fileLinksFor(getSessionId: () => string, getWsId: () => string): Termin
         toast.error('Cannot open file', `${absolutePath} is outside the current workspace.`)
         return
       }
-      void openWorkspaceFile(wsId, rel).catch(() => {
-        toast.error('Could not open file', absolutePath)
+      void openWorkspaceFile(wsId, rel).catch((err: unknown) => {
+        if (!toastHostFailure(err)) toast.error('Could not open file', absolutePath)
       })
     },
     onUnresolved: (candidateText) => {

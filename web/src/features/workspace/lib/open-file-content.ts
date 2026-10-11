@@ -5,6 +5,7 @@ import {
   type FileContentPayload,
 } from '@/features/file-system/utils/file-content-encoding'
 import { toast } from '@/features/window/stores/toast-store'
+import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 
 interface BufferOpener {
   openContent: (
@@ -49,7 +50,7 @@ export async function openFileContent(
       },
       { paneId: opts.paneId },
     )
-  } catch {
-    toast.error('Failed to open file', name)
+  } catch (err) {
+    if (!toastHostFailure(err)) toast.error('Failed to open file', name)
   }
 }
