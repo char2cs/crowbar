@@ -151,10 +151,19 @@ describe('HostsSettings', () => {
     expect(localRow?.querySelector('[aria-label*="revoke" i], [aria-label*="remove" i]')).toBeNull()
   })
 
-  it('clicking Add host opens the add-host dialog', () => {
+  it('Add host refuses a host that is already paired, however its address is typed', async () => {
+    useHostConfigStore.setState({ hosts: [homelab] })
+    vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:other')
     render(<HostsSettings />)
     fireEvent.click(screen.getByRole('button', { name: /add.*host/i }))
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'again' } })
+    fireEvent.change(screen.getByLabelText(/address/i), { target: { value: 'https://10.0.0.2/' } })
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+
+    expect(await screen.findByRole('dialog')).toHaveTextContent(
+      'This address is already paired as homelab. Remove it in Settings → Hosts to pair it again.',
+    )
+    expect(screen.queryByRole('button', { name: /confirm fingerprint/i })).toBeNull()
   })
 
   // A fingerprint confirmed in one attempt must never carry into the next, even one opened

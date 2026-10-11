@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
-vi.mock('@/features/hosts/lib/pairing', () => ({ redeemPairingCode: vi.fn() }))
+vi.mock('@/features/hosts/lib/pairing', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/hosts/lib/pairing')>()),
+  redeemPairingCode: vi.fn(),
+}))
 vi.mock('@/lib/crowbar-bridge', () => ({ probeRemoteFingerprint: vi.fn() }))
 
 import { redeemPairingCode } from '@/features/hosts/lib/pairing'
 import { probeRemoteFingerprint } from '@/lib/crowbar-bridge'
 import { AddHostDialog } from '@/features/hosts/components/add-host-dialog'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
 function fillAddressStage() {
   fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'homelab' } })
@@ -18,6 +22,7 @@ describe('AddHostDialog', () => {
   beforeEach(() => {
     vi.mocked(probeRemoteFingerprint).mockReset()
     vi.mocked(redeemPairingCode).mockReset()
+    useHostConfigStore.setState({ hosts: [] })
   })
 
   it('stage 1: entering a name and address and confirming the fingerprint advances to the code stage', async () => {
@@ -141,6 +146,34 @@ describe('AddHostDialog', () => {
 
     await waitFor(() => expect(screen.getByText(/unreachable/i)).toBeInTheDocument())
     expect(screen.queryByRole('button', { name: /confirm|looks right/i })).not.toBeInTheDocument()
+    expect(redeemPairingCode).not.toHaveBeenCalled()
+  })
+
+  // Two rows for one daemon would make every one of its projects ambiguous.
+  it('stops before the fingerprint when the address is already paired, and says what to do', async () => {
+    useHostConfigStore.setState({
+      hosts: [
+        {
+          id: 'h1',
+          name: 'homelab',
+          endpoint: '1.2.3.4:3737',
+          pairedFingerprint: 'SHA256:aaaa',
+          clientId: 'c1',
+        },
+      ],
+    })
+    vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:bbbb')
+    render(<AddHostDialog open onOpenChange={() => {}} />)
+
+    fillAddressStage()
+
+    expect(
+      await screen.findByText(
+        'This address is already paired as homelab. Remove it in Settings → Hosts to pair it again.',
+      ),
+    ).toBeVisible()
+    expect(screen.queryByText('SHA256:bbbb')).toBeNull()
+    expect(screen.getByLabelText(/address/i)).toBeEnabled()
     expect(redeemPairingCode).not.toHaveBeenCalled()
   })
 })

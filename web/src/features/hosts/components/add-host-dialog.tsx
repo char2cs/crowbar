@@ -10,7 +10,8 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { probeRemoteFingerprint } from '@/lib/crowbar-bridge'
-import { redeemPairingCode } from '@/features/hosts/lib/pairing'
+import { alreadyPairedReason, redeemPairingCode } from '@/features/hosts/lib/pairing'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
 type Stage = 'address' | 'fingerprint' | 'code'
 
@@ -96,6 +97,12 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
     onPendingChange('probe')
     try {
       const fp = await probeRemoteFingerprint(trimmedEndpoint)
+      const hosts = useHostConfigStore.getState().hosts
+      const paired = alreadyPairedReason(hosts, trimmedEndpoint, fp)
+      if (paired) {
+        setError(paired)
+        return
+      }
       hostId.current = makeHostId(trimmedName)
       setFingerprint(fp)
       setStage('fingerprint')
