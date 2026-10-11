@@ -52,6 +52,8 @@ func TestSourceLimiter_RejectsOverMaxPerSource(t *testing.T) {
 	}
 	assert.Equal(t, http.StatusTooManyRequests, hitFrom(t, r, "203.0.113.9:1001"),
 		"a new port is the same source")
+	assert.Equal(t, http.StatusTooManyRequests, hitFrom(t, r, "[::ffff:203.0.113.9]:1002"),
+		"its IPv4-mapped form is the same source")
 	for i := range 3 {
 		assert.Equalf(t, http.StatusOK, hitFrom(t, r, "198.51.100.7:2000"), "other source, request %d", i)
 	}
