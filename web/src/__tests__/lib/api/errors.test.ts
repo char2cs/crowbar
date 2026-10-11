@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { apiFetch, isDaemonUnavailableError } from '@/lib/api'
 import {
   ApiError,
   isHostIdentityChangedError,
@@ -53,5 +54,54 @@ describe('streamFailureOf', () => {
     expect(streamFailureOf(undefined, 'h1')).toBeNull()
     expect(streamFailureOf({ type: 'error' }, 'h1')).toBeNull()
     expect(streamFailureOf(new Event('error'), 'h1')).toBeNull()
+  })
+})
+
+// What the desktop proxy answers in the daemon's place (x-crowbar-proxy): a resolved response,
+// not a fetch rejection. Named, and never retried — the proxy already spent the read budget,
+// so with eight attempts allowed fetch still runs exactly once.
+describe('apiFetch on a proxy-marked answer', () => {
+  const eightAttempts = { attempts: 8, baseDelayMs: 0, maxDelayMs: 0, sleep: async () => {} }
+  const PREDICATES = [isDaemonUnavailableError, isHostUnreachableError, isHostIdentityChangedError]
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  function answer(status: number, headers: Record<string, string>, json: () => Promise<unknown>) {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status,
+      statusText: 'proxy',
+      headers: new Headers(headers),
+      json,
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+  const textPlain = async () => {
+    throw new SyntaxError('text/plain')
+  }
+
+  it.each([
+    [503, 'daemon-unavailable', 'daemon_unavailable', isDaemonUnavailableError],
+    [502, 'host-unreachable', 'host_unreachable', isHostUnreachableError],
+    [502, 'host-identity-changed', 'host_identity_changed', isHostIdentityChangedError],
+  ])('names a %i marked %s as %s, and as nothing else', async (status, marker, code, named) => {
+    const fetchMock = answer(status, { 'x-crowbar-proxy': marker }, textPlain)
+
+    const err: unknown = await apiFetch('/v0/projects', undefined, eightAttempts).catch((e) => e)
+
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err).toMatchObject({ status, code })
+    for (const is of PREDICATES) expect(is(err)).toBe(is === named)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves an unmarked 503 as a plain daemon answer', async () => {
+    answer(503, {}, async () => ({ success: false, error: 'busy' }))
+
+    const err: unknown = await apiFetch('/v0/projects', undefined, eightAttempts).catch((e) => e)
+
+    expect(err).toMatchObject({ status: 503, code: undefined })
+    expect(isDaemonUnavailableError(err)).toBe(false)
   })
 })

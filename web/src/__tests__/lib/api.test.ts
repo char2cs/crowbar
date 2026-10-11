@@ -10,14 +10,12 @@ import {
   apiFetch,
   ApiError,
   chatDTOFromWire,
-  isDaemonUnavailableError,
   fetchFolders,
   fetchHomeWorkspace,
   fetchRepoChats,
   workspaceDTOFromChat,
   type RepoChatWireDTO,
 } from '@/lib/api'
-import { isHostIdentityChangedError, isHostUnreachableError } from '@/lib/api/errors'
 import { noteDaemonChange } from '@/lib/transport/daemon-changes'
 import type { ChatWorktreeDTO } from '@/lib/types'
 
@@ -159,105 +157,6 @@ describe('apiFetch transient-transport retry', () => {
     expect(err).toBeInstanceOf(ApiError)
     expect(err.status).toBe(500)
     expect(fetchMock).toHaveBeenCalledTimes(1)
-  })
-
-  // The desktop proxy answers a connect-refused with its OWN 503 once its
-  // connect retries are spent (api_proxy.rs, header x-crowbar-proxy:
-  // daemon-unavailable). That is the daemon being absent, not a daemon
-  // answer: named as such so UI copy can say "starting" — and NOT retried
-  // here, since the proxy already spent the idempotent-read budget and a
-  // second layer would compound to ~36s per GET against a dead daemon.
-  it('names a proxy-marked 503 as daemon_unavailable, without retrying it', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 503,
-      statusText: 'Service Unavailable',
-      headers: new Headers({ 'x-crowbar-proxy': 'daemon-unavailable' }),
-      json: async () => {
-        throw new SyntaxError('text/plain')
-      },
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    const err = (await apiFetch('/v0/projects', undefined, fastRetry(8)).catch(
-      (e) => e,
-    )) as ApiError
-    expect(err).toBeInstanceOf(ApiError)
-    expect(err.status).toBe(503)
-    expect(err.code).toBe('daemon_unavailable')
-    expect(isDaemonUnavailableError(err)).toBe(true)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-  })
-
-  // The same proxy header, but for a REMOTE host's failed dial/handshake
-  // (Tauri bridge plan). Like daemon-unavailable this is a resolved response,
-  // not a fetch() rejection — so it must route through the error-status
-  // branch and never enter the transient-retry loop above. attempts:8 here is
-  // the investigation: if the retry loop wrongly fired, fetch would be called
-  // more than once.
-  it('names a proxy-marked host-unreachable response as host_unreachable, without retrying it', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 502,
-      statusText: 'Bad Gateway',
-      headers: new Headers({ 'x-crowbar-proxy': 'host-unreachable' }),
-      json: async () => {
-        throw new SyntaxError('text/plain')
-      },
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    const err = (await apiFetch('/v0/projects', undefined, fastRetry(8)).catch(
-      (e) => e,
-    )) as ApiError
-    expect(err).toBeInstanceOf(ApiError)
-    expect(err.code).toBe('host_unreachable')
-    expect(isHostUnreachableError(err)).toBe(true)
-    expect(isHostIdentityChangedError(err)).toBe(false)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-  })
-
-  // The pinned-certificate mismatch marker — a hard reject, never folded into
-  // the same code as host-unreachable, never retried (same investigation as
-  // above: attempts:8 but fetch must be called exactly once).
-  it('names a proxy-marked host-identity-changed response as host_identity_changed, without retrying it', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 502,
-      statusText: 'Bad Gateway',
-      headers: new Headers({ 'x-crowbar-proxy': 'host-identity-changed' }),
-      json: async () => {
-        throw new SyntaxError('text/plain')
-      },
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    const err = (await apiFetch('/v0/projects', undefined, fastRetry(8)).catch(
-      (e) => e,
-    )) as ApiError
-    expect(err).toBeInstanceOf(ApiError)
-    expect(err.code).toBe('host_identity_changed')
-    expect(isHostIdentityChangedError(err)).toBe(true)
-    expect(isHostUnreachableError(err)).toBe(false)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-  })
-
-  it('leaves an unmarked 503 as a plain daemon answer', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 503,
-        statusText: 'Service Unavailable',
-        headers: new Headers(),
-        json: async () => ({ success: false, error: 'busy' }),
-      }),
-    )
-    const err = (await apiFetch('/v0/projects', undefined, fastRetry(8)).catch(
-      (e) => e,
-    )) as ApiError
-    expect(err.code).toBeUndefined()
-    expect(isDaemonUnavailableError(err)).toBe(false)
   })
 })
 
