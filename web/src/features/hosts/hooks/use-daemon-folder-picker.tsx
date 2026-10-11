@@ -18,6 +18,8 @@ export function useDaemonFolderPicker(
   onPick: (path: string, pickedOn: string) => void,
 ): DaemonFolderPicker {
   const [openFor, setOpenFor] = useState<string | null>(null)
+  // A host change closes the picker for good: it must not reopen when that host comes back.
+  if (openFor !== null && openFor !== hostId) setOpenFor(null)
   const remote = hostId !== null && hostId !== LOCAL_HOST.id
 
   async function pickLocal() {

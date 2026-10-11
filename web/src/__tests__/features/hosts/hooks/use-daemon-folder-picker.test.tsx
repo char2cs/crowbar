@@ -107,13 +107,19 @@ describe('useDaemonFolderPicker', () => {
     expect(apiFetch).not.toHaveBeenCalled()
   })
 
-  it('the picker open for one host does not stay open for another', async () => {
-    const { rerender } = render(<Harness hostId="h1" onPick={vi.fn()} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Browse' }))
-    await screen.findByRole('dialog', { name: 'Choose a folder' })
+  // Whatever the host passes through on the way back — another host, or none resolved.
+  it.each(['h2', null])(
+    'a picker closed by a host change stays closed when that host comes back (via %s)',
+    async (between) => {
+      const { rerender } = render(<Harness hostId="h1" onPick={vi.fn()} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Browse' }))
+      await screen.findByRole('dialog', { name: 'Choose a folder' })
 
-    rerender(<Harness hostId="h2" onPick={vi.fn()} />)
+      rerender(<Harness hostId={between} onPick={vi.fn()} />)
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      rerender(<Harness hostId="h1" onPick={vi.fn()} />)
 
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-  })
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    },
+  )
 })
