@@ -115,6 +115,12 @@ export function toastActionFailure(err: unknown, fallback: string): void {
   if (!toastHostFailure(err)) toast.error(err instanceof Error ? err.message : fallback)
 }
 
+/** Its host's words for `err` when the host is why, else null: for a surface that says what
+ *  failed in its own words. Only reads, so a render may ask it. */
+export function hostFailureMessage(err: unknown): string | null {
+  return describeHostFailure(err)?.message ?? null
+}
+
 /** The words for a failed action shown inline or under the action's own title: its host's
  *  trouble when the host is why, else the error's own words (`fallback` for a non-Error). */
 export function actionErrorMessage<F extends string | undefined>(
