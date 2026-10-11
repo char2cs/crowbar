@@ -31,8 +31,8 @@ export class HostNotConfiguredError extends Error {
 // a hard reject that must never read as plain unreachable (spec §3).
 export const PROXY_HEADER = 'x-crowbar-proxy'
 export const DAEMON_UNAVAILABLE_CODE = 'daemon_unavailable'
-export const HOST_UNREACHABLE_CODE = 'host_unreachable'
-export const HOST_IDENTITY_CHANGED_CODE = 'host_identity_changed'
+const HOST_UNREACHABLE_CODE = 'host_unreachable'
+const HOST_IDENTITY_CHANGED_CODE = 'host_identity_changed'
 
 export function isHostUnreachableError(err: unknown): boolean {
   return err instanceof ApiError && err.code === HOST_UNREACHABLE_CODE
