@@ -88,7 +88,7 @@ function FolderBrowser({ hostId, onCancel, onChoose }: FolderBrowserProps) {
         </p>
       )}
       {name !== undefined && (
-        <div className="mx-3 mb-3 max-h-72 min-h-32 overflow-auto">
+        <div className="mx-3 mb-3 max-h-60 min-h-32 overflow-auto">
           <FolderRoot
             hostName={name}
             canAsk={canAsk}

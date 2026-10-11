@@ -143,7 +143,7 @@ export function TreeItem({
       baseIndent={6}
       className={cn(
         'group-focus-within/tree:data-active:ring-1 group-focus-within/tree:data-active:ring-ring h-7 gap-1.5 px-1.5',
-        inert && 'cursor-default text-muted-foreground opacity-60 hover:bg-transparent',
+        inert && 'cursor-default hover:bg-transparent',
         className,
       )}
       {...props}

@@ -99,7 +99,7 @@ export function RemoteFolderTree({
             inert
             active={row.key === activeKey}
             icon={<NoteIcon note={row.note} />}
-            className={row.note.type === 'failed' ? 'text-destructive' : undefined}
+            className={row.note.type === 'failed' ? 'text-destructive' : 'text-muted-foreground'}
           >
             {noteText(row.note, hostName)}
           </TreeItem>
@@ -110,6 +110,7 @@ export function RemoteFolderTree({
             level={row.level}
             expanded={row.expanded}
             inert={!row.entry.isDir}
+            className={row.entry.isDir ? undefined : 'opacity-40'}
             selected={row.key === selectedPath}
             active={row.key === activeKey}
             icon={<EntryIcon entry={row.entry} expanded={row.expanded} />}
