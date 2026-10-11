@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 vi.mock('@/features/hosts/lib/pairing', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/hosts/lib/pairing')>()),
@@ -199,5 +200,27 @@ describe('AddHostDialog', () => {
     fireEvent.click(confirm)
 
     await waitFor(() => expect(screen.getByLabelText(/pairing code/i)).toHaveFocus())
+  })
+
+  // A code copied from a terminal often carries a space; the host wants exactly six digits.
+  it('a pasted code loses its spaces, and Pair waits for exactly six digits, saying so', async () => {
+    vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
+    const user = userEvent.setup()
+    render(<AddHostDialog open onOpenChange={() => {}} />)
+    fillAddressStage()
+    fireEvent.click(await screen.findByRole('button', { name: /confirm fingerprint/i }))
+    const code = screen.getByLabelText(/pairing code/i)
+    const pair = screen.getByRole('button', { name: 'Pair' })
+    expect(code).toHaveAccessibleDescription('The 6-digit code crowbar pair printed on the host.')
+
+    await user.click(code)
+    await user.paste(' 123 456\n')
+    expect(code).toHaveValue('123456')
+    expect(pair).toBeEnabled()
+
+    await user.type(code, '7')
+    expect(pair).toBeDisabled()
+    expect(code).toHaveAccessibleDescription('A pairing code is exactly 6 digits.')
+    expect(screen.getByText('A pairing code is exactly 6 digits.')).toBeVisible()
   })
 })

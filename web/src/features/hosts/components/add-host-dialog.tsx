@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -91,6 +91,8 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
   const hostId = useRef('')
   const probing = pending === 'probe'
   const pairing = pending === 'pair'
+  const codeHintId = useId()
+  const codeValid = /^\d{6}$/.test(code)
 
   async function handleProbe(e: React.FormEvent) {
     e.preventDefault()
@@ -124,7 +126,7 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
 
   async function handleRedeem(e: React.FormEvent) {
     e.preventDefault()
-    if (!/^\d{6}$/.test(code)) return
+    if (!codeValid) return
     setError(null)
     onPendingChange('pair')
     try {
@@ -206,13 +208,20 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
               id="add-host-code"
               autoFocus
               value={code}
-              onChange={(e) => setCode(e.target.value)}
+              // Spaces only: a code copied from a terminal often brings some along.
+              onChange={(e) => setCode(e.target.value.replace(/\s/g, ''))}
               placeholder="123456"
               inputMode="numeric"
-              maxLength={6}
+              autoComplete="one-time-code"
+              aria-describedby={codeHintId}
               className="font-mono text-[12px]"
               disabled={pairing}
             />
+            <p id={codeHintId} className="text-[12px] text-muted-foreground">
+              {code === '' || codeValid
+                ? 'The 6-digit code crowbar pair printed on the host.'
+                : 'A pairing code is exactly 6 digits.'}
+            </p>
             {error && <p className="text-[12px] text-destructive">{error}</p>}
           </div>
           <DialogFooter>
@@ -224,7 +233,7 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
             >
               Back
             </Button>
-            <Button type="submit" disabled={!/^\d{6}$/.test(code) || pairing}>
+            <Button type="submit" disabled={!codeValid || pairing}>
               {pairing ? 'Pairing…' : 'Pair'}
             </Button>
           </DialogFooter>
