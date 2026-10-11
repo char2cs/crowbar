@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/select'
 import { ProjectIconMark } from './project-icon-mark'
 import { IconPopover, type StagedIcon } from './icon-popover'
+import { putIconFile } from './icon-upload'
 import { getFilenameFromPath } from '@/features/file-system/controllers/file-utils'
 import { toast } from '@/features/window/stores/toast-store'
 import { toastActionFailure, toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
@@ -84,11 +85,7 @@ async function applyStagedIcon(
       })
       return
     case 'path':
-      await apiFetch(`${base}/icon`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: staged.path }),
-      })
+      await putIconFile(`${base}/icon`, staged.path)
       return
     case 'file': {
       const form = new FormData()

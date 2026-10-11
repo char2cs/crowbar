@@ -1,6 +1,6 @@
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import type { ProjectDTO } from '@/lib/types'
 import type { Host } from '@/features/hosts/types'
 
@@ -436,5 +436,85 @@ describe('CreateSpacePanel — provenance of the created project', () => {
     await waitFor(() => expect(api.postProject).toHaveBeenCalled())
 
     expect([...subscribers.keys()]).toEqual(['/v0/projects'])
+  })
+})
+
+// An image staged at create is a file on this computer: the new space's own host reads it from
+// this disk only when that host is this computer.
+describe('CreateSpacePanel — a staged image icon', () => {
+  const PICKED = '/Users/me/icon.png'
+
+  async function stageImage(user: ReturnType<typeof userEvent.setup>) {
+    vi.mocked(openNativeDialog).mockResolvedValueOnce(PICKED)
+    await user.click(screen.getByRole('button', { name: /edit space icon/i }))
+    await user.click(await screen.findByRole('button', { name: /upload/i }))
+    await user.keyboard('{Escape}')
+  }
+
+  const iconPut = (url: string) =>
+    vi.mocked(api.apiFetch).mock.calls.find(([called]) => called === url)?.[1] as RequestInit
+
+  beforeEach(() => {
+    // The desktop app: Upload opens the OS dialog, and the asset protocol serves the pick.
+    Object.assign(window, { __TAURI_INTERNALS__: {} })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) =>
+        init?.method === 'HEAD'
+          ? new Response(null, { headers: { 'content-length': '6' } })
+          : Object.assign(new Response(null), {
+              blob: async () => new Blob(['pixels'], { type: 'image/png' }),
+            }),
+      ),
+    )
+  })
+
+  afterEach(() => {
+    delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
+    vi.unstubAllGlobals()
+  })
+
+  it('sends a remote space the image’s bytes, never its path on this computer', async () => {
+    useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'homelab-prox' })] })
+    getOrCreateHostRuntime('h1').getState().setStatus('up')
+    remoteFolders.h1 = { '/': ['tmp'], '/tmp': ['shared'] }
+    const user = userEvent.setup()
+    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
+    await stageImage(user)
+    await selectDaemonOption(user, /homelab-prox/i)
+    await pickRemoteFolder(user, '/tmp/shared')
+    fireEvent.click(createButton())
+    await waitFor(() => expect(api.postProject).toHaveBeenCalled())
+
+    emit('crowbar://h1/v0/projects', projectDTO({ id: 'remote-id', path: '/tmp/shared' }))
+
+    const url = 'crowbar://h1/v0/projects/remote-id/icon'
+    await waitFor(() => expect(iconPut(url)).toBeDefined())
+    const body = new TextDecoder().decode(iconPut(url).body as Uint8Array)
+    expect(body).toContain('name="icon"; filename="icon.png"')
+    expect(body).toContain('pixels')
+    expect(body).not.toContain(PICKED)
+  })
+
+  it('still hands a local space’s daemon the path, exactly as before', async () => {
+    const user = userEvent.setup()
+    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
+    await stageImage(user)
+    vi.mocked(openNativeDialog).mockResolvedValueOnce('/tmp/mine')
+    fireEvent.click(folderButton())
+    await waitFor(() => expect(screen.getByText('mine')).toBeInTheDocument())
+    fireEvent.click(createButton())
+    await waitFor(() => expect(api.postProject).toHaveBeenCalled())
+
+    emit('/v0/projects', projectDTO({ id: 'local-id', path: '/tmp/mine' }))
+
+    await waitFor(() =>
+      expect(api.apiFetch).toHaveBeenCalledWith('/v0/projects/local-id/icon', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: PICKED }),
+      }),
+    )
+    expect(fetch).not.toHaveBeenCalled()
   })
 })
