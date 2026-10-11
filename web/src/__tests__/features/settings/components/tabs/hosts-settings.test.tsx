@@ -314,6 +314,15 @@ describe('revoking a host the app is using', () => {
 // Revoke never leaves the user with a host they cannot remove, and never drops a live
 // credential silently: what could not be revoked or cleared is said, then the row goes.
 describe('revoking a host when something fails', () => {
+  /** Every request goes through the real transport, and the host answers `status` with `body`. */
+  async function answerThrough(status: number, body: string) {
+    const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api')
+    vi.mocked(apiFetch).mockImplementation(actual.apiFetch)
+    const fetch = vi.fn(async () => new Response(body, { status }))
+    vi.stubGlobal('fetch', fetch)
+    return fetch
+  }
+
   beforeEach(() => useHostConfigStore.setState({ hosts: [homelab] }))
 
   afterEach(() => {
@@ -383,10 +392,8 @@ describe('revoking a host when something fails', () => {
     expect(await screen.findByRole('dialog')).toHaveTextContent('10.0.0.2:3737')
   })
 
-  it('removes a host that already refuses this computer (401) without asking, and says so', async () => {
-    vi.mocked(apiFetch).mockRejectedValue(
-      new ApiError('client is not paired', 401, undefined, undefined, 'h1'),
-    )
+  it('removes a host that already refuses this computer (its 401) without asking, and says so', async () => {
+    await answerThrough(401, '{"success":false,"error":"client is not paired"}')
 
     renderSettings()
     await revoke()
@@ -396,6 +403,24 @@ describe('revoking a host when something fails', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(toastInfoFn).toHaveBeenCalledExactlyOnceWith('Removed homelab', expect.any(String))
     expect(forgetHostToken).toHaveBeenCalledWith('h1')
+  })
+
+  // The proxy's own 401: no key here, so nothing reached the host, which still lists this computer.
+  it('asks before removing a host this computer holds no key for, and says it stays paired there', async () => {
+    const fetch = await answerThrough(401, 'no stored credential for this host — pair it again')
+
+    renderSettings()
+    await revoke()
+
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('This computer holds no key for homelab')
+    expect(dialog).toHaveTextContent('homelab will still list this computer as paired.')
+    expect(dialog).not.toHaveTextContent(/nothing left to revoke|forgets its key/)
+    fireEvent.click(screen.getByRole('button', { name: 'Keep it' }))
+    await dialogGone()
+    expect(hosts()).toEqual(['h1'])
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(toastInfoFn).not.toHaveBeenCalled()
   })
 
   // Each as the real transport turns it into an error: the proxy's own plain-text answers carry
@@ -421,10 +446,7 @@ describe('revoking a host when something fails', () => {
   ])(
     'asks before removing a host when %s, with a readable reason',
     async (_, status, body, reason) => {
-      const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api')
-      vi.mocked(apiFetch).mockImplementation(actual.apiFetch)
-      const fetch = vi.fn(async () => new Response(body, { status }))
-      vi.stubGlobal('fetch', fetch)
+      const fetch = await answerThrough(status, body)
 
       renderSettings()
       await revoke()
