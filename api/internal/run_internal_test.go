@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"bufio"
 	"context"
 	"io"
 	"net"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -75,6 +77,83 @@ func TestRun_ServesEveryListener(t *testing.T) {
 
 	require.NoError(t, tcpLn.Close())
 	require.Error(t, <-done, "a failure on the second listener must surface from Run too")
+}
+
+// TestRun_ClosesAnIdleKeepAliveConnection proves the server drops a
+// connection left idle after a request, so an unauthenticated peer cannot hold
+// one open forever — while a hijacked connection (a WebSocket) outlives that
+// same idle period. The read deadline only bounds a failure.
+func TestRun_ClosesAnIdleKeepAliveConnection(t *testing.T) {
+	tcpLn, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	c := &Container{server: newHTTPServer(http.HandlerFunc(echoOrOK), 50*time.Millisecond), listeners: []net.Listener{tcpLn}}
+	done := make(chan error, 1)
+	go func() { done <- c.Run(context.Background()) }()
+	t.Cleanup(func() {
+		_ = tcpLn.Close()
+		<-done
+		_ = c.server.Close()
+	})
+
+	hijacked, hijackedReader := dialAndRequest(t, tcpLn.Addr().String(), "/hijack")
+	line, err := hijackedReader.ReadString('\n')
+	require.NoError(t, err)
+	require.Equal(t, "hijacked\n", line)
+
+	idle, idleReader := dialAndRequest(t, tcpLn.Addr().String(), "/")
+	resp, err := http.ReadResponse(idleReader, nil)
+	require.NoError(t, err)
+	_, err = io.Copy(io.Discard, resp.Body)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	require.False(t, resp.Close, "the response must keep the connection alive")
+	require.NoError(t, idle.SetReadDeadline(time.Now().Add(10*time.Second)))
+	_, err = idleReader.ReadByte()
+	require.ErrorIs(t, err, io.EOF, "the server must close a keep-alive connection left idle")
+
+	_, err = io.WriteString(hijacked, "still here\n")
+	require.NoError(t, err)
+	line, err = hijackedReader.ReadString('\n')
+	require.NoError(t, err, "a hijacked connection must outlive the idle timeout")
+	assert.Equal(t, "still here\n", line)
+}
+
+// echoOrOK answers "ok", or on /hijack takes the connection over and echoes
+// each line back, as a WebSocket handler holds its connection.
+func echoOrOK(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	if r.URL.Path != "/hijack" {
+		_, _ = io.WriteString(w, "ok")
+		return
+	}
+	conn, rw, err := http.NewResponseController(w).Hijack()
+	if err != nil {
+		return
+	}
+	defer func() { _ = conn.Close() }()
+	_, _ = rw.WriteString("hijacked\n")
+	for rw.Flush() == nil {
+		line, err := rw.ReadString('\n')
+		if err != nil {
+			return
+		}
+		_, _ = rw.WriteString(line)
+	}
+}
+
+func dialAndRequest(
+	t *testing.T,
+	addr, path string,
+) (net.Conn, *bufio.Reader) {
+	t.Helper()
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", addr)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	_, err = io.WriteString(conn, "GET "+path+" HTTP/1.1\r\nHost: daemon\r\n\r\n")
+	require.NoError(t, err)
+	return conn, bufio.NewReader(conn)
 }
 
 func get(t *testing.T, client *http.Client, url string) string {

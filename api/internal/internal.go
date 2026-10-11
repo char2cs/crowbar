@@ -118,13 +118,27 @@ func New(
 	}
 
 	return &Container{
-		server:    &http.Server{Handler: apiContainer.Handler(), ReadHeaderTimeout: 30 * time.Second},
+		server:    newHTTPServer(apiContainer.Handler(), idleConnTimeout),
 		listeners: listeners,
 		engines:   engines,
 		adapter:   adapters,
 		app:       appContainer,
 		api:       apiContainer,
 	}, nil
+}
+
+// idleConnTimeout closes a keep-alive connection left idle between requests,
+// so an unauthenticated peer cannot pin a descriptor per connection forever.
+const idleConnTimeout = 2 * time.Minute
+
+// newHTTPServer leaves ReadTimeout and WriteTimeout unset on purpose: a hijacked
+// WebSocket or a long streaming response must outlive any fixed deadline, and
+// the idle timeout only ever applies between requests.
+func newHTTPServer(
+	handler http.Handler,
+	idleTimeout time.Duration,
+) *http.Server {
+	return &http.Server{Handler: handler, ReadHeaderTimeout: 30 * time.Second, IdleTimeout: idleTimeout}
 }
 
 func adapterOptions(
