@@ -24,14 +24,19 @@ export interface HtmlElementNode {
   children: [{ text: '' }]
 }
 
+// The HTML comes from a file or an agent's message, maybe on another host: beyond scripts, it
+// may not restyle the app around it (style, class), take typing (forms) or carry inline SVG —
+// what README hosts drop too.
+const HTML_BLOCK_POLICY = {
+  USE_PROFILES: { html: true },
+  FORBID_TAGS: ['style', 'form', 'input', 'button', 'textarea', 'select', 'option', 'map', 'area'],
+  FORBID_ATTR: ['style', 'class', 'action', 'formaction'],
+}
+
 export function HtmlElement(props: PlateElementProps) {
   const raw = (props.element as unknown as { html?: string }).html ?? ''
-  // DOMPurify strips scripts/event handlers/etc. — the raw string is untrusted
-  // file content. `sanitize` runs against the live DOM in the app and jsdom in
-  // tests; both are fine. The sanitized output is display-only and never fed
-  // back into serialization (that uses the untouched `html` string), so
-  // sanitization can't corrupt the saved file.
-  const clean = DOMPurify.sanitize(raw)
+  // Display-only: serialization keeps the untouched `html` string, so this cannot corrupt the file.
+  const clean = DOMPurify.sanitize(raw, HTML_BLOCK_POLICY)
 
   const asset = useMarkdownAsset()
   const linkWorkspace = useLinkWorkspace()
