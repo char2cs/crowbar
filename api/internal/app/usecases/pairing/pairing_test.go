@@ -2,6 +2,7 @@ package pairing
 
 import (
 	"context"
+	"encoding/hex"
 	"sync"
 	"testing"
 	"time"
@@ -104,6 +105,32 @@ func TestRedeem_IsSingleUse(t *testing.T) {
 	}
 	if _, _, err := u.Redeem(context.Background(), code, "second", now); err == nil {
 		t.Fatal("expected the second redeem of the same code to fail")
+	}
+}
+
+// TestRedeem_TokenIs32RandomBytes pins the bearer token's strength: 64 hex
+// characters (32 bytes from crypto/rand), never repeated across redeems.
+func TestRedeem_TokenIs32RandomBytes(t *testing.T) {
+	u := New(&fakeClientStore{})
+	seen := map[string]bool{}
+	for i := 0; i < 16; i++ {
+		now := time.Now()
+		code, err := u.Mint(now)
+		if err != nil {
+			t.Fatalf("Mint: %v", err)
+		}
+		token, _, err := u.Redeem(context.Background(), code, "x", now)
+		if err != nil {
+			t.Fatalf("Redeem: %v", err)
+		}
+		raw, err := hex.DecodeString(token)
+		if err != nil || len(raw) != 32 {
+			t.Fatalf("expected 32 hex-encoded bytes, got %q", token)
+		}
+		if seen[token] {
+			t.Fatalf("token %q was issued twice", token)
+		}
+		seen[token] = true
 	}
 }
 
