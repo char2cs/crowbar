@@ -4,31 +4,12 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { Tree, TreeItem } from '@/components/ui/tree'
 import type { BrowseEntry } from '@/features/hosts/lib/browse'
 import {
+  folderNoteText,
   folderRows,
   type FolderNote,
   type FolderRow,
   type Listing,
 } from '@/features/hosts/lib/folder-rows'
-
-/** What a failed request says, for showing it. */
-export function failureText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function noteText(note: FolderNote, hostName: string): string {
-  switch (note.type) {
-    case 'waiting':
-      return `Waiting for ${hostName} to answer`
-    case 'loading':
-      return 'Loading…'
-    case 'empty':
-      return 'Empty folder'
-    case 'failed':
-      return `Can't open: ${failureText(note.error)}`
-    case 'more-files':
-      return `${note.hidden} more files not shown`
-  }
-}
 
 function NoteIcon({ note }: { note: FolderNote }) {
   if (note.type === 'loading') return <LoadingSpinner compact label="Loading folder" />
@@ -86,7 +67,7 @@ const FolderTreeRow = memo(function FolderTreeRow({
         icon={<NoteIcon note={row.note} />}
         className={row.note.type === 'failed' ? 'text-destructive' : 'text-muted-foreground'}
       >
-        {noteText(row.note, hostName)}
+        {folderNoteText(row.note, hostName)}
       </TreeItem>
     )
   }

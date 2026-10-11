@@ -14,11 +14,11 @@ import {
   hostDotLabel,
   hostIsUnreachable,
 } from '@/features/hosts/components/host-status-dot'
-import { RemoteFolderTree, failureText } from '@/features/hosts/components/remote-folder-tree'
+import { RemoteFolderTree } from '@/features/hosts/components/remote-folder-tree'
 import { ROOT_PATH, useFolderListings } from '@/features/hosts/hooks/use-folder-listings'
 import { useHostView } from '@/features/hosts/hooks/use-host-status'
 import type { BrowseEntry } from '@/features/hosts/lib/browse'
-import { childrenOf } from '@/features/hosts/lib/folder-rows'
+import { childrenOf, failureText } from '@/features/hosts/lib/folder-rows'
 import type { HostDotState } from '@/features/hosts/types'
 
 interface RemoteFilePickerProps {

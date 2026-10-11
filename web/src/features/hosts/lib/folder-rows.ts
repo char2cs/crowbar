@@ -77,3 +77,24 @@ export function folderRows(
   }
   return rows
 }
+
+/** What a failed request says, for showing it. */
+export function failureText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/** The words a note row shows. */
+export function folderNoteText(note: FolderNote, hostName: string): string {
+  switch (note.type) {
+    case 'waiting':
+      return `Waiting for ${hostName} to answer`
+    case 'loading':
+      return 'Loading…'
+    case 'empty':
+      return 'Empty folder'
+    case 'failed':
+      return `Can't open: ${failureText(note.error)}`
+    case 'more-files':
+      return `${note.hidden} more ${note.hidden === 1 ? 'file' : 'files'} not shown`
+  }
+}

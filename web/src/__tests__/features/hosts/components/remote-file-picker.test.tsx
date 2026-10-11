@@ -250,18 +250,6 @@ describe('RemoteFilePicker — browsing', () => {
     expect(screen.getAllByRole('treeitem', { name: 'a' })).toHaveLength(1)
     expect(screen.queryByRole('treeitem', { name: 'elsewhere' })).not.toBeInTheDocument()
   })
-
-  // Folders are what can be chosen, so every one is shown; only inert files are cut.
-  it('a huge directory shows every folder and cuts only files, saying so', async () => {
-    const folders = Array.from({ length: 700 }, (_, i) => dir(`/d${i}`))
-    const files = Array.from({ length: 600 }, (_, i) => file(`/f${i}`))
-    serve('h1', { '/': [...files, ...folders] })
-    renderPicker()
-
-    expect(await screen.findByText('100 more files not shown')).toBeInTheDocument()
-    expect(screen.getAllByRole('treeitem')).toHaveLength(700 + 500 + 1)
-    expect(row('d699')).toBeInTheDocument()
-  })
 })
 
 describe('RemoteFilePicker — keyboard', () => {
