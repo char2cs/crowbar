@@ -8,7 +8,7 @@ function Notice({ title, detail }: { title: string; detail?: string }) {
   return (
     <div
       role="status"
-      className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 p-8 text-center"
+      className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 bg-background/80 p-8 text-center"
     >
       <span className="text-sm font-medium text-foreground">{title}</span>
       {detail && <span className="text-xs text-muted-foreground">{detail}</span>}
@@ -38,7 +38,7 @@ function RemoteHostNotice({ hostId }: { hostId: string }) {
 }
 
 /** What a detached terminal says while its host is the reason: not known yet, or not
- *  answering. Static; a Local terminal never shows it. */
+ *  answering. Static, over any stale output; a Local terminal never shows it. */
 export function TerminalHostNotice({ wsId }: { wsId: string }) {
   const hostId = useResolvedHost({ wsId })
   if (hostId === null) return <UnresolvedHostNotice wsId={wsId} />
