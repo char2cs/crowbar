@@ -1,14 +1,52 @@
+# Pinned: the default project name is the directory ("docker"), so `down -v` from
+# another compose file there would delete the volume holding the TLS identity.
+name: crowbar
+
 services:
   crowbar:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: ghcr.io/rabbytesoftware/crowbar:latest
+      args:
+        # "embed" bakes in web/dist (build it first); "none" is a headless API-only daemon.
+        WEB: ${CROWBAR_WEB:-embed}
+    # One tag per variant, so building "none" does not overwrite the "embed" image.
+    image: ghcr.io/rabbytesoftware/crowbar:${CROWBAR_WEB:-embed}
     ports:
-      - "3737:3737"
+      # Self-signed TLS: connect to https://localhost:${CROWBAR_PORT:-3737}; plain http gets 400.
+      # Never proxy to a plaintext `--host tcp://127.0.0.1:...` bind: "no TLS" is how the daemon
+      # recognises a local caller, so a proxy there exposes everything, pairing-code minting included.
+      # Docker publishes ports through its own iptables rules, bypassing host firewalls (ufw,
+      # firewalld): this binds every interface. Prefix a specific IP to narrow it, e.g.
+      # "127.0.0.1:3737:3737" or "<lan-ip>:3737:3737".
+      - "${CROWBAR_PORT:-3737}:3737"
+    # The daemon runs as an unprivileged user on a high port: it needs no capabilities.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     volumes:
-      - crowbar-data:/root/.crowbar
+      # Not disposable: the TLS identity, paired clients, the project/chat database and every
+      # worktree the daemon creates. Named volume, not a bind mount (Docker Desktop on macOS
+      # cannot host its unix socket). A /root/.crowbar volume from the old image is not picked up.
+      - crowbar-data:/home/crowbar/.crowbar
+      # Repos created on the remote must live under here to survive the container. A bind
+      # mount works too; on Linux `chown 1000:1000` the host directory first.
+      - crowbar-projects:/home/crowbar/projects
+      # ssh clones need a key and known_hosts, which a fresh container lacks. A bind-mounted key
+      # keeps the host uid: on Linux a mode-600 key owned by a uid other than 1000 is unreadable
+      # by the `crowbar` user, so chown it to 1000 first.
+      # - ~/.ssh/id_ed25519:/home/crowbar/.ssh/id_ed25519:ro
+      # - ~/.ssh/known_hosts:/home/crowbar/.ssh/known_hosts:ro
+    # `git config --global` is stored in the crowbar-data volume (GIT_CONFIG_GLOBAL), so a
+    # commit identity set once survives recreates. Or pin one here:
+    # environment:
+    #   GIT_AUTHOR_NAME: Your Name
+    #   GIT_AUTHOR_EMAIL: you@example.com
+    #   GIT_COMMITTER_NAME: Your Name
+    #   GIT_COMMITTER_EMAIL: you@example.com
     restart: unless-stopped
 
 volumes:
   crowbar-data:
+  crowbar-projects:

@@ -10,6 +10,7 @@ import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-con
 import { setBufferContent } from '@/features/editor/lib/buffer-save'
 import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { MarkdownAssetContext, type MarkdownAssetInfo } from './markdown-asset'
+import { LinkWorkspaceContext } from '@/lib/markdown-link'
 import { hasTextContent } from '@/features/panes/types/pane-content'
 import { toast } from '@/features/window/stores/toast-store'
 import { useMarkdownViewStore } from './markdown-view-store'
@@ -306,8 +307,9 @@ function MarkdownRichEditor({
 
   return (
     <MarkdownAssetContext.Provider value={assetInfo}>
-      <Plate editor={editor} onChange={onChange}>
-        {/* `crowbar-markdown-editor` is the scope for markdown-editor.css: the
+      <LinkWorkspaceContext value={assetBuffer?.workspaceId ?? null}>
+        <Plate editor={editor} onChange={onChange}>
+          {/* `crowbar-markdown-editor` is the scope for markdown-editor.css: the
             reading column, the block rhythm and every node's typography hang
             off it. It is ALSO the scroll container. The editable can't be:
             Plate wraps `PlateContent` in a plain (non-flex) `w-full` div, so an
@@ -316,20 +318,21 @@ function MarkdownRichEditor({
             scroll. This bounded `h-full` ancestor is the reliable scroll host;
             the editable keeps its own padding, so the reading column still
             centres and the frontmatter banner scrolls with the content. */}
-        <div
-          ref={scrollRef}
-          className="crowbar-markdown-editor flex h-full flex-col overflow-y-auto"
-        >
-          {frontmatterText && <MarkdownFrontmatterBanner frontmatter={frontmatterText} />}
-          {/* Two placeholder mechanisms, deliberately non-overlapping:
+          <div
+            ref={scrollRef}
+            className="crowbar-markdown-editor flex h-full flex-col overflow-y-auto"
+          >
+            {frontmatterText && <MarkdownFrontmatterBanner frontmatter={frontmatterText} />}
+            {/* Two placeholder mechanisms, deliberately non-overlapping:
               BlockPlaceholderKit (markdown-plugins.ts) hints the FOCUSED empty
               line once the document already has other content — but its own
               `isPristineEmptyEditor` check suppresses it on a brand-new,
               wholly-empty file, which is exactly what Slate's native
               `placeholder` prop here covers instead. */}
-          <PlateContent className="outline-none" placeholder="Write…" />
-        </div>
-      </Plate>
+            <PlateContent className="outline-none" placeholder="Write…" />
+          </div>
+        </Plate>
+      </LinkWorkspaceContext>
     </MarkdownAssetContext.Provider>
   )
 }

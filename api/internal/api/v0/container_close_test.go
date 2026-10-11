@@ -34,7 +34,7 @@ func TestAppClose_StopsLiveWatcher(t *testing.T) {
 		workspaces: tc.app.Repositories.Workspace,
 	}
 
-	c := v0.New(tc.app, tc.eng)
+	c := v0.New(tc.app, tc.eng, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
@@ -52,7 +52,7 @@ func TestAppClose_StopsLiveWatcher(t *testing.T) {
 func TestAppClose_IdempotentAndEmpty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
-	t.Cleanup(v0.New(tc.app, tc.eng).Close)
+	t.Cleanup(v0.New(tc.app, tc.eng, "").Close)
 
 	require.NotPanics(t, tc.app.Close) // no live resources: no-op
 	assert.NotPanics(t, tc.app.Close)  // second call is safe

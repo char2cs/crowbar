@@ -4,11 +4,11 @@ import { useStore } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
-import { exists } from '@/features/file-system/controllers/platform'
+import { workspaceFileExists } from '@/features/file-system/controllers/platform'
 import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { hasTextContent } from '@/features/panes/types/pane-content'
-import { openExternalUrl } from '@/lib/external-open'
+import { LinkWorkspaceContext } from '@/lib/markdown-link'
+import { openWorkspaceLink } from '@/lib/workspace-link'
 import { useSettingsStore } from '@/features/settings/store'
 import { logger } from '../utils/logger'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
@@ -26,9 +26,8 @@ export interface MarkdownPreviewProps {
 }
 
 /** GitHub-style heading slug: `## Getting Started` → `getting-started`. */
-function openLinkedFile(path: string): Promise<void> {
-  const wsId = getActiveWorkspaceId()
-  return wsId ? openWorkspaceFile(wsId, path, { preview: true }) : Promise.resolve()
+function openLinkedFile(wsId: string, path: string): Promise<void> {
+  return openWorkspaceFile(wsId, path, { preview: true })
 }
 
 function slugify(text: string): string {
@@ -52,7 +51,7 @@ function findAnchorTarget(root: HTMLElement | null, id: string): Element | null 
 }
 
 export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
-  const { sourceBufferPath, sourceContent } = useStore(
+  const { sourceBufferPath, sourceWorkspaceId, sourceContent } = useStore(
     windowPaneStore,
     useShallow((state) => {
       // Prefer the buffer this instance was handed: with a split, the pane
@@ -65,12 +64,16 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
         (activeBufferId ? state.buffers.find((buffer) => buffer.id === activeBufferId) : null)
       const sourceBuffer =
         activeBuffer?.type === 'markdownPreview'
-          ? (state.buffers.find((buffer) => buffer.path === activeBuffer.sourceFilePath) ??
-            activeBuffer)
+          ? (state.buffers.find(
+              (buffer) =>
+                buffer.path === activeBuffer.sourceFilePath &&
+                buffer.workspaceId === activeBuffer.workspaceId,
+            ) ?? activeBuffer)
           : activeBuffer
 
       return {
         sourceBufferPath: sourceBuffer?.path,
+        sourceWorkspaceId: sourceBuffer?.workspaceId,
         sourceContent: sourceBuffer && hasTextContent(sourceBuffer) ? sourceBuffer.content : '',
       }
     }),
@@ -120,14 +123,14 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
 
       if (isExternalLink) {
         try {
-          await openExternalUrl(href)
+          await openWorkspaceLink(href, sourceWorkspaceId ?? null)
         } catch (error) {
           logger.error('MarkdownPreview', 'Failed to open external link:', error)
         }
         return
       }
 
-      if (!sourceBufferPath) return
+      if (!sourceBufferPath || !sourceWorkspaceId) return
 
       const targetPath = resolvePreviewLinkPath(href, sourceBufferPath)
 
@@ -136,16 +139,16 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
         // opening optimistically: bare markdown links ([spec](./spec)) are
         // extension-less by convention, and the open path swallows its own
         // failure into a toast, so a failed open cannot drive the second
-        // attempt. `exists` costs one lazy directory listing and rejects on a
+        // attempt. `workspaceFileExists` costs one lazy directory listing and rejects on a
         // real daemon error rather than reporting "not there".
-        if (await exists(targetPath)) {
-          await openLinkedFile(targetPath)
+        if (await workspaceFileExists(sourceWorkspaceId, targetPath)) {
+          await openLinkedFile(sourceWorkspaceId, targetPath)
           return
         }
 
         const withMd = targetPath.endsWith('.md') ? targetPath : `${targetPath}.md`
-        if (await exists(withMd)) {
-          await openLinkedFile(withMd)
+        if (await workspaceFileExists(sourceWorkspaceId, withMd)) {
+          await openLinkedFile(sourceWorkspaceId, withMd)
           return
         }
 
@@ -154,7 +157,7 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
         logger.error('MarkdownPreview', 'Failed to handle link:', error)
       }
     },
-    [sourceBufferPath],
+    [sourceBufferPath, sourceWorkspaceId],
   )
 
   const handleWheelCapture = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
@@ -187,7 +190,9 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
       onWheelCapture={handleWheelCapture}
     >
       <div className="markdown-content w-full max-w-3xl">
-        {body && <MarkdownMessageStatic>{body}</MarkdownMessageStatic>}
+        <LinkWorkspaceContext value={sourceWorkspaceId ?? null}>
+          {body && <MarkdownMessageStatic>{body}</MarkdownMessageStatic>}
+        </LinkWorkspaceContext>
       </div>
     </div>
   )

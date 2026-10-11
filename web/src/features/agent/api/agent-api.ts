@@ -2,7 +2,8 @@ import {
   getDefaultChatPresentation,
   type LandingChatPresentation,
 } from '@/features/settings/lib/chat-presentation'
-import { API_BASE, apiFetch } from '@/lib/api'
+import { apiFetch, apiUrl } from '@/lib/api'
+import { repoBase } from '@/lib/project-url'
 import { repoChatsBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 import {
@@ -819,7 +820,7 @@ export async function getToolPayload(
   const url =
     `${chatBase(wsId)}/${encodeURIComponent(id)}` +
     `/activity/${encodeURIComponent(toolId)}/payload?side=${side}`
-  const response = await fetch(`${API_BASE}${url}`, { signal })
+  const response = await fetch(apiUrl(url), { signal })
   if (response.status === 404) return null
   if (!response.ok) throw new Error(`tool payload: ${response.status}`)
   return response.text()
@@ -995,8 +996,13 @@ export async function updateProviderPreferences(
   return (raw ?? []).map(mapProvider)
 }
 
-export async function listGlobalProviders(): Promise<AgentProvider[]> {
-  const raw = await apiFetch<AgentProvider[]>('/v0/settings/chat/providers')
+/** The providers the local daemon — or, given `hostId`, that remote host's daemon — offers.
+ *  Providers belong to a daemon, so this route needs no workspace to be addressed. */
+export async function listGlobalProviders(hostId?: string): Promise<AgentProvider[]> {
+  const path = '/v0/settings/chat/providers'
+  const raw = await (hostId === undefined
+    ? apiFetch<AgentProvider[]>(path)
+    : apiFetch<AgentProvider[]>(path, undefined, undefined, hostId))
   return (raw ?? []).map(mapProvider)
 }
 
@@ -1153,9 +1159,7 @@ export async function createChatWithOwnWorktree(
   parentId = '',
   branch = '',
 ): Promise<string> {
-  const p = encodeURIComponent(projectId)
-  const r = encodeURIComponent(repoId)
-  const res = await apiFetch<{ id: string }>(`/v0/projects/${p}/repos/${r}/chats`, {
+  const res = await apiFetch<{ id: string }>(`${repoBase(projectId, repoId)}/chats`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

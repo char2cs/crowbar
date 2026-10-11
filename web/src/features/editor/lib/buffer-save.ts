@@ -21,6 +21,7 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent, type EditorContent } from '@/features/panes/types/pane-content'
 import { useSettingsStore } from '@/features/settings/store'
 import { toast } from '@/features/window/stores/toast-store'
+import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 
 /** Quiet period after the last edit before an autosave write. */
 /** @internal Exported for unit tests. */
@@ -46,7 +47,7 @@ function patchEditorBuffer(bufferId: string, patch: (b: EditorContent) => Editor
 // Surface save failures the user would otherwise never see. A locked workspace
 // (protected/default branch) rejects writes with 409 — explain how to fix it.
 function reportSaveError(error: unknown): void {
-  const message = error instanceof Error ? error.message : String(error)
+  const message = actionErrorMessage(error, String(error))
   if (/locked/i.test(message)) {
     toast.error('Workspace is read-only', 'Create or switch to a child workspace to edit files.')
     return

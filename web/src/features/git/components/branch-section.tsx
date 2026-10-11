@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { GitBranch, ArrowUp, ArrowDown } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
+import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 import { cn } from '@/utils/cn'
 import { CommitBox } from './commit-box'
 import { MergePopover } from './merge-popover'
@@ -53,7 +54,7 @@ export function BranchSection({
       await rebaseOntoParent(wsId)
       requestGitRefresh(wsId)
     } catch (e) {
-      setRebaseError(e instanceof Error ? e.message : 'Rebase failed')
+      setRebaseError(actionErrorMessage(e, 'Rebase failed'))
     } finally {
       setRebasing(false)
     }
@@ -70,7 +71,7 @@ export function BranchSection({
         setRemoteError(res.error || `Failed to ${kind}`)
       }
     } catch (e) {
-      setRemoteError(e instanceof Error ? e.message : `Failed to ${kind}`)
+      setRemoteError(actionErrorMessage(e, `Failed to ${kind}`))
     } finally {
       setRemoteBusy(false)
     }

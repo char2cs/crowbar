@@ -31,7 +31,8 @@ class MockWebSocket {
 vi.stubGlobal('WebSocket', MockWebSocket)
 
 const { createWSManager } = await import('@/lib/ws/manager')
-const { useConnectionStore, resetConnectionState } = await import('@/lib/ws/connection-store')
+const { useConnectionStore, resetConnectionState, reportChannelState, reportChannelGone } =
+  await import('@/lib/ws/connection-store')
 
 const status = () => useConnectionStore.getState().status
 
@@ -108,5 +109,31 @@ describe('connection store', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+// Whether a remote host's live streams are open: not whether the host is up (its status
+// says that), but whether what the app shows of it is being kept current.
+describe('live streams per remote host', () => {
+  const remoteStatus = (hostId: string) => useConnectionStore.getState().hostStreams[hostId]
+
+  it('tracks a remote host’s channels apart from the local backend', () => {
+    reportChannelState('crowbar://h1/v0/projects', true, 'h1')
+    expect(remoteStatus('h1')).toBe('connected')
+    expect(status()).toBe('idle')
+
+    reportChannelState('crowbar://h1/v0/projects', false, 'h1')
+    expect(remoteStatus('h1')).toBe('disconnected')
+    expect(status()).toBe('idle')
+
+    reportChannelGone('crowbar://h1/v0/projects')
+    expect(remoteStatus('h1')).toBeUndefined()
+  })
+
+  it('keeps one host’s channels from speaking for another’s', () => {
+    reportChannelState('crowbar://h1/v0/projects', true, 'h1')
+    reportChannelState('crowbar://h2/v0/projects', false, 'h2')
+    expect(remoteStatus('h1')).toBe('connected')
+    expect(remoteStatus('h2')).toBe('disconnected')
   })
 })

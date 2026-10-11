@@ -1,5 +1,5 @@
 import { chatBase } from '@/features/agent/api/agent-api'
-import { API_BASE } from '@/lib/api'
+import { apiUrl } from '@/lib/api'
 import type { MarkdownAssetInfo } from '@/features/editor/markdown/plate/markdown-asset'
 
 /** A chat-attachment logical reference, as stored in a message's markdown
@@ -31,9 +31,9 @@ export function chatAttachmentUrl(wsId: string, ref: string): string | null {
   const parsed = parseChatAttachmentRef(ref)
   if (!parsed) return null
   try {
-    return (
-      `${API_BASE}${chatBase(wsId)}/${encodeURIComponent(parsed.chatId)}` +
-      `/attachments/${encodeURIComponent(parsed.filename)}`
+    return apiUrl(
+      `${chatBase(wsId)}/${encodeURIComponent(parsed.chatId)}` +
+        `/attachments/${encodeURIComponent(parsed.filename)}`,
     )
   } catch {
     return null

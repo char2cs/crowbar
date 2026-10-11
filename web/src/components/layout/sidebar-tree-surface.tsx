@@ -187,7 +187,8 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
     [repos, navigate],
   )
   const createRow = useCallback(
-    (parentId: string, kind: 'workspace' | 'thread') => createSidebarRow(parentId, kind, navigate),
+    (parentId: string, kind: 'workspace' | 'thread') =>
+      void createSidebarRow(parentId, kind, navigate),
     [navigate],
   )
   const focusRecentEntry = useCallback(

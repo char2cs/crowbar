@@ -27,16 +27,15 @@ export function useLspDocumentSync(
       monacoEditor.setModelMarkers(model, LSP_MARKER_OWNER, diagnostics.map(toMonacoMarker))
     })
 
+    // The model owns the text: the client reads it whenever it sends it.
+    const read = () => (model.isDisposed() ? null : model.getValue())
     let opened = false
     const openHandle = scheduleIdleTask(() => {
       opened = true
-      void client.documentOpen(workspaceId, filePath, model.getValue(), languageId)
+      void client.documentOpen(workspaceId, filePath, read, languageId)
     })
     const changes = model.onDidChangeContent(() => {
-      if (!opened) return
-      client.scheduleChange(workspaceId, filePath, () =>
-        model.isDisposed() ? null : model.getValue(),
-      )
+      if (opened) client.scheduleChange(workspaceId, filePath, read)
     })
 
     return () => {

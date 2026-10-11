@@ -6,8 +6,9 @@ import {
   onGitRefreshRequested,
   onGitStatusChanged,
 } from '@/features/git/stores/git-refresh'
+import { useHostResolved } from '@/lib/host-resolve'
 import { gitBaseForWorkspace } from '@/lib/workspace-scope-url'
-import { wsManager } from '@/lib/ws/manager'
+import { subscribeGuarded } from '@/lib/ws/subscribe-guarded'
 import { useWorkspaceStore } from '../workspace-context'
 
 const GIT_REFRESH_DEBOUNCE_MS = 400
@@ -26,7 +27,7 @@ function framesEqual(prev: unknown, next: unknown): boolean {
  * workspace is shown, then kept current by the git/status stream while the
  * workspace is retained — so a switch never reloads it. Not for the home
  * workspace (no git surface). `owningChatId` is null until the sidebar records
- * it; the git routes are chat-scoped and throw without one.
+ * it; the git routes are chat-scoped and throw without one, or without a known host.
  */
 export function useWorkspaceGit(
   wsId: string,
@@ -36,7 +37,8 @@ export function useWorkspaceGit(
 ) {
   const store = useWorkspaceStore()
   const loaded = useStore(store, (s) => s.gitLoad === 'ready')
-  const canAddress = !homeWorkspace && owningChatId !== null
+  const hostResolved = useHostResolved({ wsId })
+  const canAddress = !homeWorkspace && owningChatId !== null && hostResolved
 
   useEffect(() => {
     if (!active || !canAddress) return
@@ -70,11 +72,14 @@ export function useWorkspaceGit(
     // The first push repeats the status the load returned; seeding from it
     // keeps that frame (and any identical repeat) from reloading.
     let lastFrame: unknown = store.getState().gitStatus
-    const unsubscribe = wsManager.subscribe(`${gitBaseForWorkspace(wsId)}/status`, (frame) => {
-      if (framesEqual(lastFrame, frame)) return
-      lastFrame = frame
-      scheduleStatusReload()
-    })
+    const unsubscribe = subscribeGuarded(
+      () => `${gitBaseForWorkspace(wsId)}/status`,
+      (frame) => {
+        if (framesEqual(lastFrame, frame)) return
+        lastFrame = frame
+        scheduleStatusReload()
+      },
+    )
     // Local actions that know THIS workspace's status is stale (an editor save,
     // push/pull) request a refresh without waiting for the backend watcher.
     const stopRefreshRequests = onGitRefreshRequested(wsId, scheduleStatusReload)

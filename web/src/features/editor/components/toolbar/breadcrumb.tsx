@@ -59,6 +59,7 @@ export default function Breadcrumb({
             path: buffer.path,
             name: buffer.name,
             type: buffer.type,
+            workspaceId: buffer.workspaceId,
           }
         : null
     }),
@@ -113,6 +114,7 @@ export default function Breadcrumb({
         name: previewName,
         content: bufferContent,
         sourceFilePath: fullActiveBuffer.path,
+        workspaceId: fullActiveBuffer.workspaceId,
       })
     } else if (isHtml) {
       windowPaneStore.getState().bufferActions.openContent({
@@ -121,6 +123,7 @@ export default function Breadcrumb({
         name: previewName,
         content: bufferContent,
         sourceFilePath: fullActiveBuffer.path,
+        workspaceId: fullActiveBuffer.workspaceId,
       })
     } else if (isCsv) {
       windowPaneStore.getState().bufferActions.openContent({
@@ -129,6 +132,7 @@ export default function Breadcrumb({
         name: previewName,
         content: bufferContent,
         sourceFilePath: fullActiveBuffer.path,
+        workspaceId: fullActiveBuffer.workspaceId,
       })
     }
   }
@@ -177,8 +181,12 @@ export default function Breadcrumb({
     <>
       <div className="flex min-h-7 select-none items-center justify-between bg-terniary-bg px-3 py-1">
         <div className="ui-font flex min-w-0 items-center gap-2 text-muted-foreground ui-text-xs">
-          {showPath && showBreadcrumbPath ? (
-            <FilePathBreadcrumb filePath={filePath} interactive={interactive} />
+          {showPath && showBreadcrumbPath && activeBuffer ? (
+            <FilePathBreadcrumb
+              workspaceId={activeBuffer.workspaceId}
+              filePath={filePath}
+              interactive={interactive}
+            />
           ) : null}
           {extensionActions.left.map((action) => (
             <ExtensionToolbarAction key={action.id} action={action} />

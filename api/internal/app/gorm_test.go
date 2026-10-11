@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	glebarez "github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -163,6 +164,37 @@ func TestNewGORMStores_FolderRoundTrip(t *testing.T) {
 	gone, err := stores.Folders.FindByKey(ctx, "f1")
 	require.NoError(t, err)
 	assert.Nil(t, gone)
+}
+
+func TestGORMStores_Clients_SaveFindRevoke(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	stores, err := newGORMStores(db)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	c := domain.Client{
+		ID:        "client-1",
+		TokenHash: "deadbeef",
+		Name:      "test-device",
+		PairedAt:  time.Now(),
+		LastSeen:  time.Now(),
+	}
+	require.NoError(t, stores.Clients.Save(ctx, c))
+
+	found, err := stores.Clients.FindWhere(ctx, domain.Client{TokenHash: "deadbeef"})
+	require.NoError(t, err)
+	require.Len(t, found, 1)
+	assert.Equal(t, "client-1", found[0].ID)
+
+	now := time.Now()
+	found[0].RevokedAt = &now
+	require.NoError(t, stores.Clients.Save(ctx, found[0]))
+
+	revoked, err := stores.Clients.FindByKey(ctx, "client-1")
+	require.NoError(t, err)
+	require.NotNil(t, revoked)
+	require.NotNil(t, revoked.RevokedAt)
 }
 
 func TestNewGORMStores_TerminalSessionRoundTrip(t *testing.T) {

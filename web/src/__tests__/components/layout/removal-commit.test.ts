@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/persistence/sidebar-ui', () => ({
   saveSidebarUI: vi.fn().mockResolvedValue(undefined),
@@ -37,6 +37,9 @@ import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { ApiError, DISCARD_WORK_INIT, type WorkAtRisk } from '@/lib/api'
+import { proxyMarkerError } from '@/lib/api/errors'
+import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 /**
  * COMMITTING A REMOVAL — the one step that destroys anything.
@@ -110,6 +113,11 @@ beforeEach(() => {
   useHomeTreeStore.setState({ trees: {} })
 })
 
+afterEach(() => {
+  destroyHostRuntime('h1')
+  resetHostWorld()
+})
+
 describe('committing a workspace removal', () => {
   /**
    * THE FALSE NEGATIVE. `getOwningChatId` reads `workspace-scope.ts`'s own
@@ -168,8 +176,15 @@ describe('committing a workspace removal', () => {
     expect(useFolderSignalStore.getState().generations['r1'] ?? 0).toBeGreaterThan(before)
   })
 
-  it('un-hides the rows and says why when the delete is refused', async () => {
-    deleteChat.mockRejectedValueOnce(new Error('worktree is busy'))
+  it.each([
+    ['in its own words', () => new Error('worktree is busy'), 'worktree is busy'],
+    [
+      'naming the remote host that failed it',
+      () => (pairRemoteHost('h1', 'Studio Mac'), proxyMarkerError('host-unreachable', 'h1')),
+      'Couldn’t reach Studio Mac',
+    ],
+  ])('un-hides the rows and says why when the delete is refused, %s', async (_, failure, why) => {
+    deleteChat.mockRejectedValueOnce(failure())
     useRemovalTrayStore.getState().hold([
       {
         kind: 'workspace',
@@ -189,7 +204,7 @@ describe('committing a workspace removal', () => {
 
     expect(useRemovalTrayStore.getState().hiddenIds.has('ws-fork')).toBe(false)
     expect(useRemovalTrayStore.getState().hiddenIds.has('chat-fork')).toBe(false)
-    expect(toastError).toHaveBeenCalledOnce()
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(`Couldn't remove feature/one: ${why}`)
   })
 
   it('still refuses when nothing anywhere knows the owning chat', async () => {

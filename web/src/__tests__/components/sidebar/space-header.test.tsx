@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react'
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -5,6 +6,7 @@ import { SpaceHeader } from '@/components/sidebar/space-header'
 import * as rowActions from '@/components/sidebar/lib/row-actions'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import type { Project } from '@/lib/types'
+import { loadProjects, pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 vi.mock('@/components/sidebar/lib/row-actions', async (importOriginal) => ({
   ...(await importOriginal<typeof rowActions>()),
@@ -23,26 +25,34 @@ function makeProject(id: string): Project {
     name: id,
     path: `/repos/${id}`,
     lastActivity: new Date('2026-08-28T00:00:00Z'),
+    hostId: 'local',
   }
+}
+
+function renderHeader(props: Partial<ComponentProps<typeof SpaceHeader>> = {}) {
+  return render(
+    <SpaceHeader
+      project={makeProject('p1')}
+      folded={false}
+      onToggleFold={vi.fn()}
+      onCreateThread={vi.fn()}
+      onImportRepo={vi.fn()}
+      onCreateFolder={vi.fn()}
+      onDeleteSpace={vi.fn()}
+      {...props}
+    />,
+  )
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
 })
 
+afterEach(() => resetHostWorld())
+
 describe('SpaceHeader', () => {
   it('at rest shows the project mark and name, no controls', () => {
-    render(
-      <SpaceHeader
-        project={makeProject('p1')}
-        folded={false}
-        onToggleFold={vi.fn()}
-        onCreateThread={vi.fn()}
-        onImportRepo={vi.fn()}
-        onCreateFolder={vi.fn()}
-        onDeleteSpace={vi.fn()}
-      />,
-    )
+    renderHeader()
     // The chevron stays mounted (icon-popover.tsx's own popover state lives
     // inside the icon it would otherwise unmount — see its own doc), so this
     // checks it is hidden rather than absent.
@@ -52,27 +62,10 @@ describe('SpaceHeader', () => {
     expect(screen.getByText('p1')).toBeInTheDocument()
   })
 
-  // Spec §4: "On hover — the mark's slot becomes a chevron, and an overflow
-  // (…) appears." Task 5 (icon personalization) turned the resting-state
-  // mark into a real click target (EditableProjectIcon) too, which an
-  // EARLIER attempt at this hover swap broke: hovering the row swapped the
-  // mark for the chevron before a click could ever land on it, making the
-  // icon reachable in principle but unclickable in practice. The fix is not
-  // to drop the swap (that traded a real bug for a spec violation) but to
-  // scope it: hovering the ROW swaps the mark for the chevron, per spec;
-  // hovering the mark's OWN hit-target does not (see the next test).
+  // Spec §4: hovering the ROW swaps the mark for a chevron and shows the overflow; hovering the
+  // mark's own hit-target does not (next test), or its click-to-edit could never be reached.
   it('on hover (off the glyph) the chevron, thread button and overflow menu all appear', () => {
-    render(
-      <SpaceHeader
-        project={makeProject('p1')}
-        folded={false}
-        onToggleFold={vi.fn()}
-        onCreateThread={vi.fn()}
-        onImportRepo={vi.fn()}
-        onCreateFolder={vi.fn()}
-        onDeleteSpace={vi.fn()}
-      />,
-    )
+    renderHeader()
     fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
     expect(screen.getByTestId('chevron')).toBeInTheDocument()
     expect(screen.getByTestId('new-thread')).toBeInTheDocument()
@@ -84,17 +77,7 @@ describe('SpaceHeader', () => {
   // affordance (icon-popover.tsx's hover-reveals-pencil) stays reachable
   // even while the row around it is hovered.
   it('hovering the glyph itself keeps the icon, not the chevron, even while the row is hovered', () => {
-    render(
-      <SpaceHeader
-        project={makeProject('p1')}
-        folded={false}
-        onToggleFold={vi.fn()}
-        onCreateThread={vi.fn()}
-        onImportRepo={vi.fn()}
-        onCreateFolder={vi.fn()}
-        onDeleteSpace={vi.fn()}
-      />,
-    )
+    renderHeader()
     const row = screen.getByTestId('space-header-row')
     fireEvent.mouseEnter(row)
     fireEvent.mouseEnter(screen.getByTestId('space-glyph'))
@@ -107,17 +90,7 @@ describe('SpaceHeader', () => {
   })
 
   it('mouse leave reverts the thread button and overflow menu away again', () => {
-    render(
-      <SpaceHeader
-        project={makeProject('p1')}
-        folded={false}
-        onToggleFold={vi.fn()}
-        onCreateThread={vi.fn()}
-        onImportRepo={vi.fn()}
-        onCreateFolder={vi.fn()}
-        onDeleteSpace={vi.fn()}
-      />,
-    )
+    renderHeader()
     const row = screen.getByTestId('space-header-row')
     fireEvent.mouseEnter(row)
     fireEvent.mouseLeave(row)
@@ -129,17 +102,7 @@ describe('SpaceHeader', () => {
   // all — the chevron stays whether or not the pointer is over the row,
   // unlike the unfolded case above, where hover is what puts it there.
   it('the chevron stays once folded regardless of hover', () => {
-    render(
-      <SpaceHeader
-        project={makeProject('p1')}
-        folded={true}
-        onToggleFold={vi.fn()}
-        onCreateThread={vi.fn()}
-        onImportRepo={vi.fn()}
-        onCreateFolder={vi.fn()}
-        onDeleteSpace={vi.fn()}
-      />,
-    )
+    renderHeader({ folded: true })
     expect(screen.getByTestId('chevron')).toBeInTheDocument()
     fireEvent.mouseLeave(screen.getByTestId('space-header-row'))
     expect(screen.getByTestId('chevron')).toBeInTheDocument()
@@ -147,67 +110,68 @@ describe('SpaceHeader', () => {
 
   it('clicking folds: chevron stays, rotated', () => {
     const onToggle = vi.fn()
-    render(
-      <SpaceHeader
-        project={makeProject('p1')}
-        folded={true}
-        onToggleFold={onToggle}
-        onCreateThread={vi.fn()}
-        onImportRepo={vi.fn()}
-        onCreateFolder={vi.fn()}
-        onDeleteSpace={vi.fn()}
-      />,
-    )
+    renderHeader({ folded: true, onToggleFold: onToggle })
     expect(screen.getByTestId('chevron')).toHaveClass('rotate-180')
   })
 
-  // Caught live: the fold button sized to its own text line-height inside
-  // the h-9 row, leaving an 8px dead band top and bottom that shared the
-  // row's hover ground but had no click handler — clicking near the row's
-  // own border, still visibly inside it, silently did nothing.
-  // `getBoundingClientRect` is meaningless in jsdom (no real layout), so
-  // this pins the actual mechanism instead: the button must stretch across
-  // the row's full cross-axis and re-center its own text, not merely occupy
-  // whatever the row's default `align-items: center` would give a
-  // block-level child.
+  // The whole row's height must fold, not just the text's own line box. jsdom runs no layout,
+  // so this pins the mechanism: the button stretches across the row and re-centres its text.
   it('fold button stretches to the row’s full height, not just its own text', () => {
-    render(
-      <SpaceHeader
-        project={makeProject('p1')}
-        folded={false}
-        onToggleFold={vi.fn()}
-        onCreateThread={vi.fn()}
-        onImportRepo={vi.fn()}
-        onCreateFolder={vi.fn()}
-        onDeleteSpace={vi.fn()}
-      />,
-    )
+    renderHeader()
     const foldButton = screen.getByRole('button', { name: 'Collapse p1' })
     expect(foldButton).toHaveClass('self-stretch')
     expect(foldButton).toHaveClass('items-center')
   })
 
-  // The row's own container (`space-header-row`) is a plain, non-interactive
-  // div now — no `role`, no `onClick` of its own — precisely so it cannot
-  // present as one giant button swallowing the overflow/thread controls'
-  // independent semantics (`html-no-nested-interactive`). The fold toggle is
-  // a real, independently-focusable `<button>` (the label) instead, so this
-  // asserts THAT control does the job, not a bare click on the container.
+  // The container is inert (it would swallow the nested controls); the label's own button folds.
   it('clicking the header (its label button) calls onToggleFold', () => {
     const onToggle = vi.fn()
-    render(
-      <SpaceHeader
-        project={makeProject('p1')}
-        folded={false}
-        onToggleFold={onToggle}
-        onCreateThread={vi.fn()}
-        onImportRepo={vi.fn()}
-        onCreateFolder={vi.fn()}
-        onDeleteSpace={vi.fn()}
-      />,
-    )
+    renderHeader({ onToggleFold: onToggle })
     fireEvent.click(screen.getByRole('button', { name: 'Collapse p1' }))
     expect(onToggle).toHaveBeenCalledTimes(1)
+  })
+
+  // The host line is part of the fold control, which it describes: clicking anywhere on the label
+  // folds, and a screen reader hears which host (and its state) the project is on.
+  it('shows the project’s host under its name, dotless, inside the fold control it describes', () => {
+    const onToggle = vi.fn()
+    renderHeader({ onToggleFold: onToggle })
+    const fold = screen.getByRole('button', { name: 'Collapse p1' })
+
+    expect(fold).toContainElement(screen.getByText('p1'))
+    expect(fold).toContainElement(screen.getByText('Local'))
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(fold).toHaveAccessibleDescription('Local, Status unknown')
+    fireEvent.click(screen.getByText('Local'))
+    expect(onToggle).toHaveBeenCalledTimes(1)
+  })
+
+  // Local is the app itself: only a remote project has a host to reach settings for.
+  it('a local project has no host button', () => {
+    renderHeader()
+    fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
+    expect(screen.queryByRole('button', { name: /^Host settings/ })).not.toBeInTheDocument()
+  })
+
+  it('a remote project’s host button is shown at rest, and last in the row’s tab order', async () => {
+    const project = { ...makeProject('p1'), hostId: 'h1' }
+    pairRemoteHost('h1', 'homelab-prox')
+    loadProjects(project)
+    const user = userEvent.setup()
+    renderHeader({ project })
+    const host = screen.getByRole('button', { name: /^Host settings: homelab-prox, / })
+
+    for (const name of [
+      /edit p1 icon/i,
+      'Collapse p1',
+      'More actions for p1',
+      'New thread on p1',
+    ]) {
+      await user.tab()
+      expect(screen.getByRole('button', { name })).toHaveFocus()
+    }
+    await user.tab()
+    expect(host).toHaveFocus()
   })
 
   // The container itself must NOT carry its own click behavior — that would
@@ -216,17 +180,7 @@ describe('SpaceHeader', () => {
   // every actual control, does nothing.
   it('a bare click on the row container (missing every real control) does not toggle', () => {
     const onToggle = vi.fn()
-    render(
-      <SpaceHeader
-        project={makeProject('p1')}
-        folded={false}
-        onToggleFold={onToggle}
-        onCreateThread={vi.fn()}
-        onImportRepo={vi.fn()}
-        onCreateFolder={vi.fn()}
-        onDeleteSpace={vi.fn()}
-      />,
-    )
+    renderHeader({ onToggleFold: onToggle })
     fireEvent.click(screen.getByTestId('space-header-row'))
     expect(onToggle).not.toHaveBeenCalled()
   })
@@ -234,17 +188,7 @@ describe('SpaceHeader', () => {
   it('clicking the thread button calls onCreateThread, not onToggleFold', () => {
     const onToggle = vi.fn()
     const onCreateThread = vi.fn()
-    render(
-      <SpaceHeader
-        project={makeProject('p1')}
-        folded={false}
-        onToggleFold={onToggle}
-        onCreateThread={onCreateThread}
-        onImportRepo={vi.fn()}
-        onCreateFolder={vi.fn()}
-        onDeleteSpace={vi.fn()}
-      />,
-    )
+    renderHeader({ onToggleFold: onToggle, onCreateThread })
     fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
     fireEvent.click(screen.getByTestId('new-thread'))
     expect(onCreateThread).toHaveBeenCalledTimes(1)
@@ -259,17 +203,7 @@ describe('SpaceHeader', () => {
     const user = userEvent.setup()
     const onToggle = vi.fn()
     const onImportRepo = vi.fn()
-    render(
-      <SpaceHeader
-        project={makeProject('p1')}
-        folded={false}
-        onToggleFold={onToggle}
-        onCreateThread={vi.fn()}
-        onImportRepo={onImportRepo}
-        onCreateFolder={vi.fn()}
-        onDeleteSpace={vi.fn()}
-      />,
-    )
+    renderHeader({ onToggleFold: onToggle, onImportRepo })
     fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
     await user.click(screen.getByTestId('delete-menu'))
     await user.click(await screen.findByText('Import a repo'))
@@ -282,17 +216,7 @@ describe('SpaceHeader', () => {
     const user = userEvent.setup()
     const onToggle = vi.fn()
     const onCreateFolder = vi.fn()
-    render(
-      <SpaceHeader
-        project={makeProject('p1')}
-        folded={false}
-        onToggleFold={onToggle}
-        onCreateThread={vi.fn()}
-        onImportRepo={vi.fn()}
-        onCreateFolder={onCreateFolder}
-        onDeleteSpace={vi.fn()}
-      />,
-    )
+    renderHeader({ onToggleFold: onToggle, onCreateFolder })
     fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
     await user.click(screen.getByTestId('delete-menu'))
     await user.click(await screen.findByText('Create a folder'))
@@ -311,17 +235,7 @@ describe('SpaceHeader', () => {
     const user = userEvent.setup()
     const onToggle = vi.fn()
     const onDeleteSpace = vi.fn()
-    render(
-      <SpaceHeader
-        project={makeProject('p1')}
-        folded={false}
-        onToggleFold={onToggle}
-        onCreateThread={vi.fn()}
-        onImportRepo={vi.fn()}
-        onCreateFolder={vi.fn()}
-        onDeleteSpace={onDeleteSpace}
-      />,
-    )
+    renderHeader({ onToggleFold: onToggle, onDeleteSpace })
     fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
     await user.click(screen.getByTestId('delete-menu'))
     await user.click(await screen.findByText('Delete Space'))
@@ -330,12 +244,7 @@ describe('SpaceHeader', () => {
     expect(onToggle).not.toHaveBeenCalled()
   })
 
-  // THE BUG: "can't start chats directly on a CLI, it always obligates me to
-  // use the native chat" — the header's own Thread button, like the row's,
-  // had no way to land the new chat on Terminal without flipping
-  // chatIsDefaultPresentation (Settings → Chat) globally. This is the
-  // discoverable, visible affordance for it: a second item in the SAME
-  // overflow menu Import a repo / Create a folder already live in.
+  // Starting ONE chat on the CLI without flipping Settings → Chat for every chat after it.
   describe('New thread in Terminal (overflow menu)', () => {
     afterEach(() => {
       useAgentProvidersStore.setState({ status: 'idle', providers: [] })
@@ -352,18 +261,7 @@ describe('SpaceHeader', () => {
       const onToggle = vi.fn()
       const onCreateThread = vi.fn()
       const onCreateThreadTerminal = vi.fn()
-      render(
-        <SpaceHeader
-          project={makeProject('p1')}
-          folded={false}
-          onToggleFold={onToggle}
-          onCreateThread={onCreateThread}
-          onCreateThreadTerminal={onCreateThreadTerminal}
-          onImportRepo={vi.fn()}
-          onCreateFolder={vi.fn()}
-          onDeleteSpace={vi.fn()}
-        />,
-      )
+      renderHeader({ onToggleFold: onToggle, onCreateThread, onCreateThreadTerminal })
       fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
       await user.click(screen.getByTestId('delete-menu'))
       await user.click(await screen.findByText('New thread in Terminal'))
@@ -380,18 +278,7 @@ describe('SpaceHeader', () => {
         providers: [{ id: 'claude', enabled: true, hasTerminal: false }] as never,
       })
       const user = userEvent.setup()
-      render(
-        <SpaceHeader
-          project={makeProject('p1')}
-          folded={false}
-          onToggleFold={vi.fn()}
-          onCreateThread={vi.fn()}
-          onCreateThreadTerminal={vi.fn()}
-          onImportRepo={vi.fn()}
-          onCreateFolder={vi.fn()}
-          onDeleteSpace={vi.fn()}
-        />,
-      )
+      renderHeader({ onCreateThreadTerminal: vi.fn() })
       fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
       await user.click(screen.getByTestId('delete-menu'))
 
@@ -409,18 +296,7 @@ describe('SpaceHeader', () => {
         providers: [{ id: 'codex', enabled: true, hasTerminal: true }] as never,
       })
       const user = userEvent.setup()
-      render(
-        <SpaceHeader
-          project={makeProject('p1')}
-          folded={false}
-          onToggleFold={vi.fn()}
-          onCreateThread={vi.fn()}
-          onCreateThreadTerminal={vi.fn()}
-          onImportRepo={vi.fn()}
-          onCreateFolder={vi.fn()}
-          onDeleteSpace={vi.fn()}
-        />,
-      )
+      renderHeader({ onCreateThreadTerminal: vi.fn() })
       fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
       await user.click(screen.getByTestId('delete-menu'))
 
@@ -434,18 +310,7 @@ describe('SpaceHeader', () => {
     it('is still offered when no provider is enabled yet', async () => {
       useAgentProvidersStore.setState({ status: 'idle', providers: [] })
       const user = userEvent.setup()
-      render(
-        <SpaceHeader
-          project={makeProject('p1')}
-          folded={false}
-          onToggleFold={vi.fn()}
-          onCreateThread={vi.fn()}
-          onCreateThreadTerminal={vi.fn()}
-          onImportRepo={vi.fn()}
-          onCreateFolder={vi.fn()}
-          onDeleteSpace={vi.fn()}
-        />,
-      )
+      renderHeader({ onCreateThreadTerminal: vi.fn() })
       fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
       await user.click(screen.getByTestId('delete-menu'))
 
@@ -454,26 +319,11 @@ describe('SpaceHeader', () => {
   })
 
   it('keyboard-activating the thread button fires its own handler, not onToggleFold', async () => {
-    // Regression: a keydown on a nested button bubbles to the row's own
-    // onKeyDown. Without SidebarRow's `e.target !== e.currentTarget` guard,
-    // Enter/Space on the button fired onToggleFold instead of the button's
-    // own click. fireEvent.keyDown does not exercise this — jsdom does not
-    // synthesize a button's default click-on-Enter/Space action from a raw
-    // keydown event — so this uses userEvent, which does.
+    // userEvent, not fireEvent.keyDown: only it synthesizes a button's click from Enter.
     const onToggle = vi.fn()
     const onCreateThread = vi.fn()
     const user = userEvent.setup()
-    render(
-      <SpaceHeader
-        project={makeProject('p1')}
-        folded={false}
-        onToggleFold={onToggle}
-        onCreateThread={onCreateThread}
-        onImportRepo={vi.fn()}
-        onCreateFolder={vi.fn()}
-        onDeleteSpace={vi.fn()}
-      />,
-    )
+    renderHeader({ onToggleFold: onToggle, onCreateThread })
     fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
     screen.getByTestId('new-thread').focus()
     await user.keyboard('{Enter}')
@@ -482,17 +332,7 @@ describe('SpaceHeader', () => {
   })
 
   it('no background at rest, the same idle-ground hover every other row takes', () => {
-    render(
-      <SpaceHeader
-        project={makeProject('p1')}
-        folded={false}
-        onToggleFold={vi.fn()}
-        onCreateThread={vi.fn()}
-        onImportRepo={vi.fn()}
-        onCreateFolder={vi.fn()}
-        onDeleteSpace={vi.fn()}
-      />,
-    )
+    renderHeader()
     const row = screen.getByTestId('space-header-row')
     expect(row.className).toMatch(/border-transparent/)
     expect(row.className).toMatch(/hover:bg-sidebar-element-idle/)
@@ -509,17 +349,7 @@ describe('SpaceHeader', () => {
   // develop's actual behavior — not a modal dialog.
   describe('double-click-to-rename', () => {
     it('double-clicking the project name replaces it with a focused input, not a dialog', () => {
-      render(
-        <SpaceHeader
-          project={makeProject('p1')}
-          folded={false}
-          onToggleFold={vi.fn()}
-          onCreateThread={vi.fn()}
-          onImportRepo={vi.fn()}
-          onCreateFolder={vi.fn()}
-          onDeleteSpace={vi.fn()}
-        />,
-      )
+      renderHeader()
       fireEvent.doubleClick(screen.getByText('p1'))
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
       const input = screen.getByRole('textbox') as HTMLInputElement
@@ -528,17 +358,7 @@ describe('SpaceHeader', () => {
     })
 
     it('Enter confirms and calls performRenameProject with the project id and new name', () => {
-      render(
-        <SpaceHeader
-          project={makeProject('p1')}
-          folded={false}
-          onToggleFold={vi.fn()}
-          onCreateThread={vi.fn()}
-          onImportRepo={vi.fn()}
-          onCreateFolder={vi.fn()}
-          onDeleteSpace={vi.fn()}
-        />,
-      )
+      renderHeader()
       fireEvent.doubleClick(screen.getByText('p1'))
       const input = screen.getByRole('textbox')
       fireEvent.change(input, { target: { value: 'New Name' } })
@@ -554,17 +374,7 @@ describe('SpaceHeader', () => {
     })
 
     it('Escape cancels with no call, restoring the plain label', () => {
-      render(
-        <SpaceHeader
-          project={makeProject('p1')}
-          folded={false}
-          onToggleFold={vi.fn()}
-          onCreateThread={vi.fn()}
-          onImportRepo={vi.fn()}
-          onCreateFolder={vi.fn()}
-          onDeleteSpace={vi.fn()}
-        />,
-      )
+      renderHeader()
       fireEvent.doubleClick(screen.getByText('p1'))
       const input = screen.getByRole('textbox')
       fireEvent.change(input, { target: { value: 'New Name' } })
@@ -574,17 +384,7 @@ describe('SpaceHeader', () => {
     })
 
     it('blur without Enter/Escape commits the rename, matching develop', () => {
-      render(
-        <SpaceHeader
-          project={makeProject('p1')}
-          folded={false}
-          onToggleFold={vi.fn()}
-          onCreateThread={vi.fn()}
-          onImportRepo={vi.fn()}
-          onCreateFolder={vi.fn()}
-          onDeleteSpace={vi.fn()}
-        />,
-      )
+      renderHeader()
       fireEvent.doubleClick(screen.getByText('p1'))
       const input = screen.getByRole('textbox')
       fireEvent.change(input, { target: { value: 'Blurred Name' } })
@@ -594,34 +394,14 @@ describe('SpaceHeader', () => {
 
     it('a single click on the name still folds the space, not just double-click', () => {
       const onToggle = vi.fn()
-      render(
-        <SpaceHeader
-          project={makeProject('p1')}
-          folded={false}
-          onToggleFold={onToggle}
-          onCreateThread={vi.fn()}
-          onImportRepo={vi.fn()}
-          onCreateFolder={vi.fn()}
-          onDeleteSpace={vi.fn()}
-        />,
-      )
+      renderHeader({ onToggleFold: onToggle })
       fireEvent.click(screen.getByText('p1'))
       expect(onToggle).toHaveBeenCalledTimes(1)
     })
 
     it('clicking inside the input while renaming does not toggle the fold', () => {
       const onToggle = vi.fn()
-      render(
-        <SpaceHeader
-          project={makeProject('p1')}
-          folded={false}
-          onToggleFold={onToggle}
-          onCreateThread={vi.fn()}
-          onImportRepo={vi.fn()}
-          onCreateFolder={vi.fn()}
-          onDeleteSpace={vi.fn()}
-        />,
-      )
+      renderHeader({ onToggleFold: onToggle })
       fireEvent.doubleClick(screen.getByText('p1'))
       fireEvent.click(screen.getByRole('textbox'))
       expect(onToggle).not.toHaveBeenCalled()
@@ -641,17 +421,7 @@ describe('SpaceHeader', () => {
     it('clicking the mark opens the icon picker, not onToggleFold', async () => {
       const user = userEvent.setup()
       const onToggle = vi.fn()
-      render(
-        <SpaceHeader
-          project={makeProject('p1')}
-          folded={false}
-          onToggleFold={onToggle}
-          onCreateThread={vi.fn()}
-          onImportRepo={vi.fn()}
-          onCreateFolder={vi.fn()}
-          onDeleteSpace={vi.fn()}
-        />,
-      )
+      renderHeader({ onToggleFold: onToggle })
       await user.click(screen.getByRole('button', { name: /edit p1 icon/i }))
       expect(await screen.findByText('Icon')).toBeInTheDocument()
       expect(onToggle).not.toHaveBeenCalled()
@@ -667,17 +437,7 @@ describe('SpaceHeader', () => {
     // pointer ever got there.
     it('stays open when the mouse leaves the glyph for elsewhere on the still-hovered row', async () => {
       const user = userEvent.setup()
-      render(
-        <SpaceHeader
-          project={makeProject('p1')}
-          folded={false}
-          onToggleFold={vi.fn()}
-          onCreateThread={vi.fn()}
-          onImportRepo={vi.fn()}
-          onCreateFolder={vi.fn()}
-          onDeleteSpace={vi.fn()}
-        />,
-      )
+      renderHeader()
       const row = screen.getByTestId('space-header-row')
       fireEvent.mouseEnter(row)
       fireEvent.mouseEnter(screen.getByTestId('space-glyph'))
@@ -710,17 +470,7 @@ describe('SpaceHeader', () => {
     // the direct way to prove the release side of the same wiring.
     it('the chevron gate releases once the popover reports closed', async () => {
       const user = userEvent.setup()
-      render(
-        <SpaceHeader
-          project={makeProject('p1')}
-          folded={false}
-          onToggleFold={vi.fn()}
-          onCreateThread={vi.fn()}
-          onImportRepo={vi.fn()}
-          onCreateFolder={vi.fn()}
-          onDeleteSpace={vi.fn()}
-        />,
-      )
+      renderHeader()
       const row = screen.getByTestId('space-header-row')
       fireEvent.mouseEnter(row)
       await user.click(screen.getByRole('button', { name: /edit p1 icon/i }))
@@ -735,17 +485,7 @@ describe('SpaceHeader', () => {
 
     it('setting an emoji persists it to this project’s own REST base', async () => {
       const user = userEvent.setup()
-      render(
-        <SpaceHeader
-          project={makeProject('p1')}
-          folded={false}
-          onToggleFold={vi.fn()}
-          onCreateThread={vi.fn()}
-          onImportRepo={vi.fn()}
-          onCreateFolder={vi.fn()}
-          onDeleteSpace={vi.fn()}
-        />,
-      )
+      renderHeader()
       await user.click(screen.getByRole('button', { name: /edit p1 icon/i }))
       await user.click(await screen.findByRole('button', { name: /emoji/i }))
       await user.type(screen.getByPlaceholderText('Type an emoji…'), '🛰️')

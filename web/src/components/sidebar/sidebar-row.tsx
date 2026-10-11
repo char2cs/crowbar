@@ -318,7 +318,7 @@ export function SidebarRow({
         {renaming ? (
           <InlineRenameInput
             defaultValue={row.label}
-            mono={row.kind === 'branch' && !showBranchSecondLine}
+            font={row.kind === 'branch' && !showBranchSecondLine ? 'mono' : undefined}
             onConfirm={(name) => {
               useSidebarInlineRenameStore.getState().stopRenaming()
               if (name !== row.label) void performRenameRow(row.id, name)
@@ -435,7 +435,7 @@ function PendingSidebarRow({
         {isNaming ? (
           <InlineRenameInput
             defaultValue=""
-            mono={row.kind === 'branch'}
+            font={row.kind === 'branch' ? 'mono' : undefined}
             // Naming is reached ONLY for a fork (pending-creates.ts's own
             // doc: a thread has nothing to name, so it skips straight to
             // 'creating') — an unlabeled empty input read as a chat box to

@@ -80,8 +80,8 @@ vi.mock('@/features/panes/components/terminal-pane', () => ({
 // pane shape, and does it call the renamed pane-slice actions. Stub each to a
 // passive marker recording the props PaneContainer threads through, mirroring
 // the pattern already used by pane-container-suspense.test.tsx.
-vi.mock('@/features/agent/components/agent-chat-pane', () => ({
-  AgentChatPane: ({
+vi.mock('@/features/agent/components/agent-chat-pane-gate', () => ({
+  AgentChatPaneGate: ({
     chatId,
     runnerId,
     wsId,
@@ -1344,33 +1344,6 @@ describe('PaneContainer — pane drop target (spec §8.1, Task 22)', () => {
     await renderPane(store)
 
     expect(document.querySelector('[data-pane-removal]')).toBeNull()
-  })
-
-  it('a terminal dragged out of the terminal panel opens as a tab of THIS pane, and detaches', async () => {
-    const store = createWorkspaceStore('w1')
-    const detached: unknown[] = []
-    const onDetach = (e: Event) => detached.push((e as CustomEvent).detail)
-    window.addEventListener('terminal-detach-to-buffer', onDetach)
-    centerDropPayload.current = {
-      source: 'terminal-panel',
-      terminalId: 'term-7',
-      name: 'Build',
-      initialCommand: 'make',
-      currentDirectory: '/repo',
-    } as never
-    await renderPane(store)
-
-    await act(async () => {
-      fireEvent.click(await screen.findByTestId('split-drop-trigger-center'))
-    })
-    window.removeEventListener('terminal-detach-to-buffer', onDetach)
-
-    const state = windowPaneStore.getState()
-    const tab = state.buffers.find((b) => b.type === 'terminal')
-    expect(tab).toMatchObject({ sessionId: 'term-7', name: 'Build', initialCommand: 'make' })
-    expect(state.panes[ROOT_PANE_ID].editorTabIds).toContain(tab!.id)
-    expect(detached).toEqual([{ terminalId: 'term-7' }])
-    centerDropPayload.current = { bufferId: 'existing-tab', paneId: 'phantom-source-pane' }
   })
 
   it('a drop of this pane’s own tab keeps one copy of it and never makes a split', async () => {

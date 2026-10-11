@@ -13,6 +13,8 @@ import { Input } from '@/components/ui/input'
 import { RepoAvatarImg } from './repo-avatar'
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/features/window/stores/toast-store'
+import { toastActionFailure } from '@/features/hosts/lib/host-failure-notice'
+import { putIconFile } from './icon-upload'
 import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { isTauri, convertFileSrc } from '@/lib/crowbar-bridge'
 
@@ -33,7 +35,8 @@ export type StagedIcon =
 interface IconPopoverProps {
   /**
    * The entity's REST base — `/v0/projects/<id>` or
-   * `/v0/projects/<id>/repos/<id>`. Every mutation below hangs off it, which is
+   * `/v0/projects/<id>/repos/<id>`, qualified with the entity's host (projectBase/repoBase,
+   * lib/project-url). Every mutation below hangs off it, which is
    * the whole reason one component can serve both: the daemon exposes the same
    * four routes under each. Unused when `onStage` is provided.
    */
@@ -133,16 +136,15 @@ export function IconPopover({
       await run()
       setVersion((v) => v + 1)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : failure)
+      toastActionFailure(err, failure)
     } finally {
       setLoading(false)
     }
   }
 
-  // Upload entry point. On the desktop the WKWebView crowbar:// transport cannot
-  // carry a multipart/binary body, so we use the native file dialog to get an
-  // absolute path and let the daemon read the file (PUT JSON {path}). In a real
-  // browser there is no filesystem path, so fall back to the hidden <input>.
+  // Upload entry point. On the desktop the native file dialog picks an image on this
+  // computer (putIconFile sends it to the entity's own host); a real browser has no
+  // filesystem path, so it falls back to the hidden <input>.
   async function handleUpload() {
     if (!isTauri()) {
       fileRef.current?.click()
@@ -157,15 +159,7 @@ export function IconPopover({
       onStage({ kind: 'path', path: selected, previewUrl: convertFileSrc(selected) })
       return
     }
-    await mutate(
-      () =>
-        apiFetch(`${base}/icon`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: selected }),
-        }),
-      'Failed to set icon',
-    )
+    await mutate(() => putIconFile(`${base}/icon`, selected), 'Failed to set icon')
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {

@@ -1,7 +1,6 @@
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { showingLayout } from '@/features/panes/lib/view-state'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { getOwningChatId } from '@/lib/workspace-scope'
 import { BOTTOM_PANE_ID } from '../constants/pane'
 import type { LayoutNode } from '../types/pane'
@@ -58,8 +57,7 @@ export function toggleActiveEditorGroupLock(): boolean {
 //
 // `paneId` names the pane the review lands in (C8) — an INACTIVE pane's own
 // review button opens it in that pane, not in whichever one has focus. Omit
-// it only for a caller with no pane of its own (see
-// `openBranchReviewForActiveWorkspace`).
+// it only for a caller with no pane of its own.
 export function openBranchReviewForWorkspace(
   wsId: string | null | undefined,
   paneId?: string,
@@ -73,19 +71,12 @@ export function openBranchReviewForWorkspace(
     .bufferActions.openContent({ type: 'branchReview', wsId, name: 'Branch Review' }, { paneId })
 }
 
-// Opens the Branch Review surface for the globally active workspace — for
-// callers with no pane/chat context of their own (GitPanel, a keyboard
-// shortcut), where "active workspace" is genuinely the only meaningful
-// answer. No paneId to assert: the currently active pane IS the right target.
-export function openBranchReviewForActiveWorkspace(): string | null {
-  return openBranchReviewForWorkspace(getActiveWorkspaceId())
-}
-
 // Law 3 (spec §7.2): "nothing lands in a pane of its own; everything lands in
 // the editor view [of a chat]". A pane must hold a chat before anything opens
 // into its editor view. When `paneId` already has one, `openTab` just runs.
 // `openTab` is handed the pane to open into — `paneId`, or the pane already
-// showing the workspace's owning chat — and opens there explicitly (C8).
+// showing the workspace's owning chat — and the workspace the tab belongs to, and
+// opens there explicitly (C8).
 //
 // Every workspace already has a real, permanent owning chat — the daemon
 // mints one per locked branch, repo home and project home
@@ -101,11 +92,11 @@ export function openBranchReviewForActiveWorkspace(): string | null {
 export function ensurePaneChatThenOpen(
   wsId: string,
   paneId: string,
-  openTab: (paneId: string) => void,
+  openTab: (paneId: string, wsId: string) => void,
 ): void {
   const paneActions = windowPaneStore.getState().paneActions
   const openIn = (target: string) => {
-    openTab(target)
+    openTab(target, wsId)
     paneActions.setActivePane(target)
   }
 

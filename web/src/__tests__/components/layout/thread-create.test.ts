@@ -43,6 +43,13 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { enabledProvider } from '@/components/layout/thread-create'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -71,10 +78,7 @@ beforeEach(() => {
   useRemovalTrayStore.setState(getInitialRemovalState())
   useHomeTreeStore.setState({ trees: {} })
   usePendingCreatesStore.setState(getInitialPendingCreatesState())
-  // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
-  // CLI, unlike the old chat-less postWorkspace) — the global provider store
-  // (agent-providers-store.ts), not a per-workspace one, since there is no
-  // workspace yet to scope a per-workspace read through.
+  // A create needs a provider, read from the global store: there is no workspace yet to scope by.
   useAgentProvidersStore.setState({ status: 'ready', providers: [] })
 })
 
@@ -214,6 +218,23 @@ describe('starting a thread on an empty folder', () => {
   })
 })
 
+// Settings → Providers sets up only this computer: a remote host's providers are its own.
+describe('starting a thread on a remote host with no provider enabled', () => {
+  afterEach(() => resetHostWorld())
+
+  it('names the host, and says its providers are enabled on it', () => {
+    pairRemoteHost('h1', 'homelab')
+    loadProjects(projectOn('p-remote', 'h1'))
+    useAgentProvidersStore.setState({ remote: { h1: [{ id: 'codex', enabled: false }] as never } })
+
+    expect(enabledProvider('p-remote')).toBeNull()
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(
+      'No agent provider is enabled on homelab',
+      'Enable one on homelab itself: Settings → Providers sets up only this computer.',
+    )
+  })
+})
+
 describe('starting a thread on a real workspace', () => {
   it('creates a chat with the first enabled provider', () => {
     useSidebarStore.setState({
@@ -231,11 +252,8 @@ describe('starting a thread on a real workspace', () => {
     expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a', undefined)
   })
 
-  // THE BUG: "can't start chats directly on a CLI, it always obligates me to
-  // use the native chat" — no creation entry point could land a single new
-  // chat on Terminal without flipping chatIsDefaultPresentation globally. An
-  // optional 4th `presentation` arg is the fix: handleCreate presets the
-  // landed chat's surface before opening it, same seam an in-pane pick uses.
+  // One new chat can land on Terminal without flipping the global default: handleCreate presets
+  // its surface before opening it, the seam an in-pane pick uses.
   it('presets the new chat onto Terminal when asked for one', async () => {
     useSidebarStore.setState({
       repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
@@ -266,14 +284,8 @@ describe('starting a thread on a real workspace', () => {
     expect(presetChatLandingPresentation).not.toHaveBeenCalled()
   })
 
-  // Regression, reported live: a repo-scoped thread's placement is ALSO a
-  // separate Node write from its mint (sidebar-placement-unification Task 8
-  // widened this off home-only) — the chat lifecycle hub broadcasts on the
-  // mint alone, so a reseed can land here with the chat already existing but
-  // still parented at root. `chatHasLanded` used to clear the pending row on
-  // existence alone; it must now wait for the chat's own `parentId` to match
-  // too, or the real (misplaced) row renders before self-correcting a beat
-  // later — the exact shape already fixed for home threads and forks.
+  // A thread's placement is a separate write from its mint, so it can exist still parented at
+  // root: the pending row waits for its own `parentId` too, or the misplaced row would flash.
   it('does not clear the pending row until the landed chat’s own placement matches — not merely once it exists', async () => {
     useSidebarStore.setState({
       repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
@@ -328,11 +340,7 @@ describe('starting a thread on a real workspace', () => {
     expect(usePendingCreatesStore.getState().entries).toEqual([])
   })
 
-  // Live-reported: "that new chat entity should be focused... it's just
-  // adding the row" — a freshly started thread updated the sidebar tree but
-  // never became the thing on screen, unlike `handleCreateHomeThread`'s own,
-  // already-correct "opens the moment it exists" contract for a project-home
-  // thread. This pins the repo-scoped path now matching it.
+  // A started thread becomes the thing on screen, as a project-home thread already does.
   it('opens the new thread into a pane immediately when its workspace is already active', async () => {
     resetWindowPaneStoreForTests()
     useSidebarStore.setState({
@@ -352,18 +360,8 @@ describe('starting a thread on a real workspace', () => {
     expect(navigate).not.toHaveBeenCalled()
   })
 
-  // Live-reported: "Creating a thread works, but the autoopen just go
-  // straight into that thread, to then come back to the latest chat I had
-  // opened." Root cause: the pane store's `activeProjectId` starts null every
-  // load and is set for the first time by ide-shell.tsx's route-driven
-  // effect calling `setActiveProject` — which can commit AFTER a thread
-  // created in that gap has already opened its own brand-new view (this
-  // handler's `addPane` path, reached because the active pane already holds
-  // a chat). `setActiveProject`'s bootstrap used to trust a persisted
-  // `activeViewByProject` pointer unconditionally and swap the just-opened
-  // thread back out for whatever chat that pointer named. See
-  // `pane-slice.project-scope.test.ts`'s §8 case for the underlying
-  // store-level mechanism this pins end-to-end through the real create flow.
+  // The project bootstrap can commit after a thread opened its own view; it must not swap that
+  // thread out for a persisted pointer (pane-slice.project-scope.test.ts §8, end to end here).
   it('a thread opened while an existing chat occupies the pane survives a delayed project bootstrap', async () => {
     resetWindowPaneStoreForTests()
     useSidebarStore.setState({

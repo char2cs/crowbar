@@ -3,28 +3,28 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 
-/**
- * Promise-based replacements for window.alert/confirm/prompt, rendered with the app's
- * own Dialog so they inherit theming and cannot block the main thread.
- *
- * Requests queue up and are shown one at a time. Every request carries a `dismiss`
- * outcome, so closing a dialog by any route — Cancel, Escape, or a backdrop click —
- * settles the caller's promise instead of leaving it pending forever.
- */
+// Promise-based alert/confirm/prompt in the app's own Dialog, shown one at a time. Closing one
+// by any route (Cancel, Escape, the backdrop) settles its promise: none is left pending.
 
-interface ConfirmOptions {
+interface DialogLabels {
   title?: string
   confirmLabel?: string
   cancelLabel?: string
 }
 
-interface PromptOptions extends ConfirmOptions {
+interface ConfirmOptions extends DialogLabels {
+  /** The confirm button reads as destructive. Focus starts on cancel whatever this says. */
+  destructive?: boolean
+}
+
+interface PromptOptions extends DialogLabels {
   defaultValue?: string
   placeholder?: string
 }
@@ -35,6 +35,7 @@ type DialogRequest = { id: number; title: string; message: ReactNode } & (
       kind: 'confirm'
       confirmLabel: string
       cancelLabel: string
+      destructive: boolean
       onConfirm: () => void
       onDismiss: () => void
     }
@@ -90,6 +91,7 @@ export function primitiveConfirm(
       message,
       confirmLabel: options.confirmLabel ?? 'Confirm',
       cancelLabel: options.cancelLabel ?? 'Cancel',
+      destructive: options.destructive ?? false,
       onConfirm: () => resolve(true),
       onDismiss: () => resolve(false),
     })
@@ -149,6 +151,8 @@ function DialogHost({ request, onSettled }: { request: DialogRequest; onSettled:
   // Closing the dialog makes Base UI emit onOpenChange(false) as it unmounts, which would
   // otherwise settle the request a second time and drop the next one off the queue.
   const settled = useRef(false)
+  // A confirm starts on its safe answer, so a stray Enter never confirms.
+  const cancelRef = useRef<HTMLButtonElement>(null)
 
   const settle = (notifyCaller: () => void) => {
     if (settled.current) return
@@ -169,14 +173,20 @@ function DialogHost({ request, onSettled }: { request: DialogRequest; onSettled:
 
   return (
     <Dialog open onOpenChange={(next) => !next && dismiss()}>
-      <DialogContent>
+      <DialogContent initialFocus={request.kind === 'confirm' ? cancelRef : undefined}>
         <DialogHeader>
           <DialogTitle>{request.title}</DialogTitle>
+          {/* A div, not Base UI's <p>: the message is a ReactNode and may hold block elements. */}
+          {request.kind !== 'prompt' && (
+            <DialogDescription render={<div />} className="whitespace-pre-wrap">
+              {request.message}
+            </DialogDescription>
+          )}
         </DialogHeader>
 
-        {request.kind === 'prompt' ? (
+        {request.kind === 'prompt' && (
           <form
-            className="flex flex-col gap-2"
+            className="flex flex-col gap-2 px-6 pb-6"
             onSubmit={(event) => {
               event.preventDefault()
               confirm()
@@ -192,17 +202,20 @@ function DialogHost({ request, onSettled }: { request: DialogRequest; onSettled:
               />
             </label>
           </form>
-        ) : (
-          <div className="whitespace-pre-wrap text-xs text-foreground">{request.message}</div>
         )}
 
         <DialogFooter>
           {request.kind !== 'alert' && (
-            <Button variant="outline" onClick={dismiss}>
+            <Button ref={cancelRef} variant="outline" onClick={dismiss}>
               {request.cancelLabel}
             </Button>
           )}
-          <Button onClick={confirm}>{request.confirmLabel}</Button>
+          <Button
+            variant={request.kind === 'confirm' && request.destructive ? 'destructive' : 'default'}
+            onClick={confirm}
+          >
+            {request.confirmLabel}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -97,7 +97,6 @@ function seedStore() {
     wsId: 'w1',
     sha: 'abc1234',
     name: 'Commit abc1234',
-    workspaceId: 'w1',
   })
   return { store, terminalId, diffId }
 }

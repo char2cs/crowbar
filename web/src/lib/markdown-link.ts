@@ -5,7 +5,8 @@
 // its default navigation. External URLs are then handed to the OS default
 // browser via the shell opener; relative/anchor links simply stop hijacking the
 // webview (the caller may resolve them separately).
-import { openExternalUrl } from '@/lib/external-open'
+import { createContext, useContext } from 'react'
+import { openWorkspaceLink } from '@/lib/workspace-link'
 
 const EXTERNAL_SCHEME = /^(?:https?|mailto|tel):/i
 
@@ -17,17 +18,29 @@ export function isExternalUrl(url: string): boolean {
   return url.startsWith('//') || EXTERNAL_SCHEME.test(url)
 }
 
+/** The workspace whose content a subtree renders — its links' host. Null: no workspace's. */
+export const LinkWorkspaceContext = createContext<string | null>(null)
+
+export function useLinkWorkspace(): string | null {
+  return useContext(LinkWorkspaceContext)
+}
+
 /**
- * Handle a click on a rendered markdown anchor. Always cancels the default
- * webview navigation (see module note); external hrefs are opened in the OS
- * default browser. A missing href is a no-op — nothing is cancelled.
+ * Handle a click on a rendered markdown anchor in workspace `wsId`'s content. Always cancels
+ * the default webview navigation (see module note); external hrefs open through
+ * openWorkspaceLink. A missing href is a no-op — nothing is cancelled.
  */
 export function handleMarkdownAnchorClick(
   event: Pick<Event, 'preventDefault' | 'stopPropagation'>,
   href: string | null | undefined,
+  wsId: string | null,
 ): void {
   if (!href) return
   event.preventDefault()
   event.stopPropagation()
-  if (isExternalUrl(href)) void openExternalUrl(href)
+  if (isExternalUrl(href)) {
+    openWorkspaceLink(href, wsId).catch((error: unknown) => {
+      console.error('Failed to open link:', error)
+    })
+  }
 }

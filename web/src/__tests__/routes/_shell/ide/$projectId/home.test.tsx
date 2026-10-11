@@ -1,5 +1,15 @@
 import { render, screen } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
+import {
+  destroyHostRuntime,
+  getOrCreateHostRuntime,
+} from '@/features/hosts/stores/host-runtime-registry'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: () => (config: unknown) => config,
@@ -39,5 +49,24 @@ describe('HomeRoute component', () => {
     useHomeWorkspaceStateMock.mockReturnValue({ wsId: null, error: true })
     render(<HomeRoute />)
     expect(screen.getByText(/unavailable/i)).toBeInTheDocument()
+  })
+
+  // The route stays while the host the project may be on is down; it must not stay blank.
+  describe('on an install that paired a remote host', () => {
+    afterEach(() => {
+      resetHostWorld()
+      destroyHostRuntime('h1')
+    })
+
+    it('says Project Home is unavailable while the only host that may hold it is down', () => {
+      pairRemoteHost('h1')
+      getOrCreateHostRuntime('h1').getState().setStatus('down')
+      loadProjects(projectOn('p-other', 'local'))
+      useHomeWorkspaceStateMock.mockReturnValue({ wsId: null, error: false })
+
+      render(<HomeRoute />)
+
+      expect(screen.getByText(/unavailable/i)).toBeInTheDocument()
+    })
   })
 })

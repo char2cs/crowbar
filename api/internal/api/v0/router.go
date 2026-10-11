@@ -1,6 +1,8 @@
 package v0
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat"
@@ -11,6 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/health"
 	homePkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/identity"
+	pairingPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/pairing"
 	projectsPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/provider"
 	reposPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
@@ -64,8 +67,16 @@ func (c *Container) Register(
 	// deeper nesting introduced here is guarded automatically.
 	rg.Use(rejectEmptyPathParams())
 
-	// Top-level, non-entity-scoped routes stay on rg (outside /projects).
+	// Open routes go BEFORE requireBearerAuth: gin fixes a route's middleware
+	// chain at registration, so these never carry it. Only pairing belongs here
+	// (it mints the credential); health is guarded so a revoked token reads 401.
+	pairingPkg.RegisterOpen(rg, c.pairing, newSourceLimiter(5, time.Minute, time.Now).handle)
+
+	// Every route from here down needs a bearer token over TLS; plaintext
+	// (unix socket, loopback dev TCP) passes through — see requireBearerAuth.
+	rg.Use(requireBearerAuth(c.app.GORM.Clients, c.conns))
 	health.Register(rg)
+	pairingPkg.RegisterGuarded(rg, c.pairing)
 	system.Register(rg)
 	if c.logs != nil {
 		console.Register(rg, c.logs)

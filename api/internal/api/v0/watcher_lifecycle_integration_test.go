@@ -60,7 +60,7 @@ func TestWatcherLifecycle_FilesSubscriberStartsWatcher(t *testing.T) {
 		workspaces: tc.app.Repositories.Workspace,
 	}
 
-	c := v0.New(tc.app, tc.eng)
+	c := v0.New(tc.app, tc.eng, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
@@ -156,7 +156,7 @@ func TestWatcherLifecycle_LSPOnlySubscriberDoesNotStartWatcher(t *testing.T) {
 	probe := fileProbe{ch: make(chan domain.FileChangeEvent, 1)}
 	tc.app.Hub.Register(probe)
 
-	c := v0.New(tc.app, tc.eng)
+	c := v0.New(tc.app, tc.eng, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))

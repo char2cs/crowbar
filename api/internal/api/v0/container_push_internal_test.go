@@ -54,7 +54,7 @@ func readJSON(t *testing.T, conn *websocket.Conn) map[string]any {
 func TestContainer_PushProject_ReachesClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
-	c := New(a, nil)
+	c := New(a, nil, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET("/v0/projects/:projectId", func(ctx *gin.Context) { c.projects.Handle(ctx) })
@@ -74,7 +74,7 @@ func TestContainer_PushProject_ReachesClient(t *testing.T) {
 func TestContainer_PushRepo_ReachesClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
-	c := New(a, nil)
+	c := New(a, nil, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET("/v0/projects/:projectId/repos", func(ctx *gin.Context) { c.repos.Handle(ctx) })
@@ -101,7 +101,7 @@ func TestContainer_PushRepo_ReachesClient(t *testing.T) {
 func TestContainer_PushWorkspace_ReachesChatClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
-	c := New(a, nil)
+	c := New(a, nil, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET("/v0/chats/:chatId/ws", func(ctx *gin.Context) { c.agentChats.Handle(ctx) })
@@ -123,7 +123,7 @@ func TestContainer_PushWorkspace_ReachesChatClient(t *testing.T) {
 func TestContainer_PushThread_ReachesClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
-	c := New(a, nil)
+	c := New(a, nil, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
@@ -145,7 +145,7 @@ func TestContainer_PushThread_ReachesClient(t *testing.T) {
 func TestContainer_PushTerminalSession_ReachesClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
-	c := New(a, nil)
+	c := New(a, nil, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
@@ -192,7 +192,7 @@ func TestContainer_PushGit_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
 	a.Usecases.Worktree = stubChatWorkspaces{"chat-a": "A", "chat-b": "B"}
-	c := New(a, nil)
+	c := New(a, nil, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
@@ -225,7 +225,7 @@ func TestContainer_PushFileAndPushGit_ReadNoChatOrNodeState(t *testing.T) {
 	a := newAppForSnapshot(t)
 	resolver := newRowsResolver(a)
 	a.Usecases.Worktree = resolver
-	c := New(a, nil)
+	c := New(a, nil, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET("/v0/chats/:chatId/git/status", func(ctx *gin.Context) { c.git.Handle(ctx) })
@@ -262,7 +262,7 @@ func TestContainer_PushFileAndPushGit_ReadNoChatOrNodeState(t *testing.T) {
 func TestContainer_PushFile_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
-	c := New(a, nil)
+	c := New(a, nil, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
@@ -302,7 +302,7 @@ func TestContainer_PushAgentChat_ReachesFilteredClient(t *testing.T) {
 	a := newAppForSnapshot(t)
 	seedWorkspace(t, a, "A", "p1", "r1", "", "")
 	seedWorkspace(t, a, "B", "p1", "r2", "", "")
-	c := New(a, nil)
+	c := New(a, nil, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
@@ -332,7 +332,7 @@ func TestContainer_PushAgentChat_ReachesFilteredClient(t *testing.T) {
 func TestContainer_PushAgentChatPromptSettled_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
-	c := New(a, nil)
+	c := New(a, nil, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
@@ -362,7 +362,7 @@ func TestContainer_PushAgentChatPromptSettled_ReachesFilteredClient(t *testing.T
 func TestContainer_PushAgentChatMessageDelta_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
-	c := New(a, nil)
+	c := New(a, nil, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
@@ -393,7 +393,7 @@ func TestContainer_PushAgentChatMessageDelta_ReachesFilteredClient(t *testing.T)
 func TestContainer_PushAgentChatCompaction_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
-	c := New(a, nil)
+	c := New(a, nil, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
@@ -424,7 +424,7 @@ func TestContainer_PushAgentChatCompaction_ReachesFilteredClient(t *testing.T) {
 func TestContainer_PushAgentChatFolder_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
-	c := New(a, nil)
+	c := New(a, nil, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
@@ -451,7 +451,7 @@ func TestContainer_PushAgentChatFolder_ReachesFilteredClient(t *testing.T) {
 func TestContainer_PushAgentChatEvent_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
-	c := New(a, nil)
+	c := New(a, nil, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
@@ -485,7 +485,7 @@ func TestContainer_PushAgentChatEvent_ReachesFilteredClient(t *testing.T) {
 // building a Container that would nil-panic on its first real request.
 func TestNew_PanicsOnNilAppContainer(t *testing.T) {
 	assert.PanicsWithValue(t, "v0: appContainer is required", func() {
-		New(nil, nil)
+		New(nil, nil, "")
 	})
 }
 
@@ -564,7 +564,7 @@ func TestOnTerminalEnded_PushesEndedFrame(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
 
-	c := New(a, nil)
+	c := New(a, nil, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
@@ -592,7 +592,7 @@ func TestOnTerminalEnded_PushesEndedFrame(t *testing.T) {
 func TestOnTerminalEnded_UnknownExitCodeOmitted(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
-	c := New(a, nil)
+	c := New(a, nil, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
@@ -620,7 +620,7 @@ func TestOnTerminalState_PushesStateFrame(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
 
-	c := New(a, nil)
+	c := New(a, nil, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(

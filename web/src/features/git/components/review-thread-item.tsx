@@ -32,6 +32,7 @@ import { cn } from '@/utils/cn'
 import { CommentComposer } from '@/features/panes/components/comment-composer'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { MARKDOWN_PROSE_CLASS } from '@/features/panes/lib/markdown-prose'
+import { LinkWorkspaceContext } from '@/lib/markdown-link'
 import { toast } from '@/features/window/stores/toast-store'
 import { ProviderIcon } from '@/components/ui/provider-icon'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
@@ -463,128 +464,126 @@ export function ReviewThreadItem({
   const deletingIsRoot = pendingDelete?.isRoot ?? false
 
   return (
-    <div
-      className={cn(
-        // `ui-font whitespace-normal`: a thread is slotted into the diff's
-        // <pre>, and inherits both its font AND its `white-space: pre`. The
-        // second one is the quieter bug — every newline between the tags a
-        // rendered comment is made of became a visible blank line, so a
-        // two-item list arrived with a gap between the bullets wide enough to
-        // read as separate paragraphs.
-        'ui-font whitespace-normal my-1 max-w-xl rounded-lg border border-border bg-muted/20',
-        thread.isResolved && 'opacity-60',
-        isOutdated && outdatedExpanded && 'border-border/40',
-      )}
-    >
-      {isOutdated && (
-        <div className="flex items-center gap-1.5 border-b border-border/40 px-3 py-1">
-          <Badge
-            variant="outline"
-            className="h-4 border-border/40 px-1 text-xs text-muted-foreground/60"
-          >
-            Outdated
-          </Badge>
-        </div>
-      )}
-
-      {/* Messages */}
-      <div className="flex flex-col">
-        {thread.messages.map((message, index) => {
-          const isRoot = index === 0
-          const canEdit =
-            Boolean(onEditMessage) &&
-            !message.isAgent &&
-            Boolean(currentLogin) &&
-            message.author === currentLogin
-          // Deleting the root removes the whole thread; a reply needs the reply handler.
-          const canDelete = isRoot ? Boolean(onDeleteThread) : Boolean(onDeleteMessage)
-          return (
-            <MessageRow
-              key={message.id}
-              message={message}
-              wsId={wsId}
-              currentIdentity={currentIdentity}
-              canEdit={canEdit}
-              canDelete={canDelete}
-              isEditing={editingId === message.id}
-              onStartEdit={() => setEditingId(message.id)}
-              onRequestDelete={() => setPendingDelete({ messageId: message.id, isRoot })}
-              onSubmitEdit={(body) => void handleSubmitEdit(message.id, body)}
-              onCancelEdit={() => setEditingId(null)}
-            />
-          )
-        })}
-      </div>
-
-      {/* Actions */}
-      <div className="px-3 py-2">
-        {isReplying ? (
-          <CommentComposer
-            placeholder="Reply…"
-            submitLabel="Reply"
-            onSubmit={handleReply}
-            onCancel={() => setIsReplying(false)}
-          />
-        ) : (
-          <div className="flex items-center justify-between gap-2">
-            {!thread.isResolved && (
-              <Input
-                size="sm"
-                readOnly
-                placeholder="Reply…"
-                className="flex-1 cursor-pointer"
-                onClick={() => setIsReplying(true)}
-              />
-            )}
-            {thread.isResolved ? (
-              <Button size="sm" variant="ghost" onClick={handleReopen} disabled={isSubmitting}>
-                <ArrowCounterClockwise className="size-3.5" />
-                Reopen
-              </Button>
-            ) : (
-              <Button size="sm" variant="default" onClick={handleResolve} disabled={isSubmitting}>
-                <CheckCircle className="size-3.5" />
-                Resolve
-              </Button>
-            )}
+    <LinkWorkspaceContext value={wsId}>
+      <div
+        className={cn(
+          // A thread sits in the diff's <pre>: undo its code font and `white-space: pre`,
+          // which turned every newline between a rendered comment's tags into a blank line.
+          'ui-font whitespace-normal my-1 max-w-xl rounded-lg border border-border bg-muted/20',
+          thread.isResolved && 'opacity-60',
+          isOutdated && outdatedExpanded && 'border-border/40',
+        )}
+      >
+        {isOutdated && (
+          <div className="flex items-center gap-1.5 border-b border-border/40 px-3 py-1">
+            <Badge
+              variant="outline"
+              className="h-4 border-border/40 px-1 text-xs text-muted-foreground/60"
+            >
+              Outdated
+            </Badge>
           </div>
         )}
-      </div>
 
-      {/* Delete confirmation */}
-      <AlertDialog
-        open={pendingDelete !== null}
-        onOpenChange={(open) => {
-          if (!open) setPendingDelete(null)
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {deletingIsRoot ? 'Delete this thread?' : 'Delete this comment?'}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {deletingIsRoot
-                ? hasReplies
-                  ? 'This permanently deletes the whole thread, including all replies.'
-                  : 'This permanently deletes the comment and its thread.'
-                : 'This permanently deletes this reply.'}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogClose
-              render={
-                <Button variant="outline" size="sm">
-                  Cancel
-                </Button>
-              }
+        {/* Messages */}
+        <div className="flex flex-col">
+          {thread.messages.map((message, index) => {
+            const isRoot = index === 0
+            const canEdit =
+              Boolean(onEditMessage) &&
+              !message.isAgent &&
+              Boolean(currentLogin) &&
+              message.author === currentLogin
+            // Deleting the root removes the whole thread; a reply needs the reply handler.
+            const canDelete = isRoot ? Boolean(onDeleteThread) : Boolean(onDeleteMessage)
+            return (
+              <MessageRow
+                key={message.id}
+                message={message}
+                wsId={wsId}
+                currentIdentity={currentIdentity}
+                canEdit={canEdit}
+                canDelete={canDelete}
+                isEditing={editingId === message.id}
+                onStartEdit={() => setEditingId(message.id)}
+                onRequestDelete={() => setPendingDelete({ messageId: message.id, isRoot })}
+                onSubmitEdit={(body) => void handleSubmitEdit(message.id, body)}
+                onCancelEdit={() => setEditingId(null)}
+              />
+            )
+          })}
+        </div>
+
+        {/* Actions */}
+        <div className="px-3 py-2">
+          {isReplying ? (
+            <CommentComposer
+              placeholder="Reply…"
+              submitLabel="Reply"
+              onSubmit={handleReply}
+              onCancel={() => setIsReplying(false)}
             />
-            <Button variant="destructive" size="sm" onClick={() => void handleConfirmDelete()}>
-              Delete
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+          ) : (
+            <div className="flex items-center justify-between gap-2">
+              {!thread.isResolved && (
+                <Input
+                  size="sm"
+                  readOnly
+                  placeholder="Reply…"
+                  className="flex-1 cursor-pointer"
+                  onClick={() => setIsReplying(true)}
+                />
+              )}
+              {thread.isResolved ? (
+                <Button size="sm" variant="ghost" onClick={handleReopen} disabled={isSubmitting}>
+                  <ArrowCounterClockwise className="size-3.5" />
+                  Reopen
+                </Button>
+              ) : (
+                <Button size="sm" variant="default" onClick={handleResolve} disabled={isSubmitting}>
+                  <CheckCircle className="size-3.5" />
+                  Resolve
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Delete confirmation */}
+        <AlertDialog
+          open={pendingDelete !== null}
+          onOpenChange={(open) => {
+            if (!open) setPendingDelete(null)
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {deletingIsRoot ? 'Delete this thread?' : 'Delete this comment?'}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {deletingIsRoot
+                  ? hasReplies
+                    ? 'This permanently deletes the whole thread, including all replies.'
+                    : 'This permanently deletes the comment and its thread.'
+                  : 'This permanently deletes this reply.'}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogClose
+                render={
+                  <Button variant="outline" size="sm">
+                    Cancel
+                  </Button>
+                }
+              />
+              <Button variant="destructive" size="sm" onClick={() => void handleConfirmDelete()}>
+                Delete
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    </LinkWorkspaceContext>
   )
 }

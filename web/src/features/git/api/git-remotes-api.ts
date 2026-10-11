@@ -1,5 +1,6 @@
 import { apiFetch } from '@/lib/api'
 import { gitBaseForWorkspace } from '@/lib/workspace-scope-url'
+import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 
 export interface GitRemoteActionResult {
   success: boolean
@@ -19,7 +20,7 @@ const gitRemoteOp = async (
     return { success: true }
   } catch (error) {
     console.error(`Failed to ${action}:`, error)
-    return { success: false, error: error instanceof Error ? error.message : String(error) }
+    return { success: false, error: actionErrorMessage(error, String(error)) }
   }
 }
 

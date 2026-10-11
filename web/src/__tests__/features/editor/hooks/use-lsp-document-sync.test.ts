@@ -10,7 +10,13 @@ import type * as Monaco from 'monaco-editor'
 const { apiFetch } = vi.hoisted(() => ({
   apiFetch: vi.fn(async (..._args: unknown[]): Promise<unknown> => ({ ok: true })),
 }))
-const { subscribe } = vi.hoisted(() => ({ subscribe: vi.fn(() => () => {}) }))
+// A channel open at once: documents reach the daemon only while their socket is open.
+const { subscribe } = vi.hoisted(() => ({
+  subscribe: vi.fn((_topic: string, _cb: unknown, onOpenChange?: (open: boolean) => void) => {
+    onOpenChange?.(true)
+    return () => {}
+  }),
+}))
 
 vi.mock('@/lib/api', () => ({ apiFetch }))
 vi.mock('@/lib/ws/manager', () => ({ wsManager: { subscribe } }))

@@ -16,7 +16,6 @@ import { getOwningChatId } from '@/lib/workspace-scope'
 // test controls exactly what "this workspace's owning chat" resolves to,
 // without needing a live sidebar/route to populate the real registry.
 vi.mock('@/lib/workspace-scope', () => ({
-  bindActiveWorkspaceId: () => {},
   getOwningChatId: vi.fn(),
 }))
 
@@ -244,7 +243,7 @@ describe('ensurePaneChatThenOpen', () => {
 
     ensurePaneChatThenOpen('ws-1', ROOT_PANE_ID, openTab)
 
-    expect(openTab).toHaveBeenCalledTimes(1)
+    expect(openTab).toHaveBeenCalledExactlyOnceWith(ROOT_PANE_ID, 'ws-1')
     expect(getOwningChatId).not.toHaveBeenCalled()
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('existing-chat')
   })
@@ -258,7 +257,7 @@ describe('ensurePaneChatThenOpen', () => {
 
     expect(getOwningChatId).toHaveBeenCalledWith('ws-1')
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('owning-chat-1')
-    expect(openTab).toHaveBeenCalledTimes(1)
+    expect(openTab).toHaveBeenCalledExactlyOnceWith(ROOT_PANE_ID, 'ws-1')
   })
 
   it('does nothing — no chat attached, openTab never runs — when no owning chat resolves', async () => {
@@ -286,7 +285,7 @@ describe('ensurePaneChatThenOpen', () => {
 
     expect(windowPaneStore.getState().activePaneId).toBe(otherPaneId)
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBeNull()
-    expect(openTab).toHaveBeenCalledTimes(1)
+    expect(openTab).toHaveBeenCalledExactlyOnceWith(otherPaneId, 'ws-1')
   })
 })
 
@@ -318,9 +317,12 @@ describe('openBranchReviewForWorkspace', () => {
     expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
     expect(windowPaneStore.getState().panes[otherPaneId]?.editorTabIds).toContain(bufferId)
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).not.toContain(bufferId)
+    // The review belongs to the workspace it was asked for, whichever is in view.
+    const opened = windowPaneStore.getState().buffers.find((b) => b.id === bufferId)
+    expect(opened?.workspaceId).toBe('ws-1')
   })
 
-  it('with no paneId, keeps opening into whichever pane is already active (openBranchReviewForActiveWorkspace’s own contract)', async () => {
+  it('with no paneId, keeps opening into whichever pane is already active (a caller with no pane of its own)', async () => {
     const { openBranchReviewForWorkspace } =
       await import('@/features/panes/utils/pane-command-actions')
     const paneActions = windowPaneStore.getState().paneActions

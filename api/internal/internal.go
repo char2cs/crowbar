@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
@@ -17,18 +18,20 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/logring"
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	"github.com/char2cs/crowbar/api/internal/core/selfinstall"
+	"github.com/char2cs/crowbar/api/internal/core/tlsid"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
-// Container is the root container owning the HTTP server, its listener, and the
-// adapter layer (closed on shutdown).
+// Container is the root container owning the HTTP server, its listeners, and
+// the adapter layer (closed on shutdown). One server serves every listener, so
+// a single Shutdown drains them all under one budget.
 type Container struct {
-	server   *http.Server
-	listener net.Listener
-	engines  *engine.Container
-	adapter  *adapter.Container
-	app      *app.Container
-	api      *crowbarapi.Container
+	server    *http.Server
+	listeners []net.Listener
+	engines   *engine.Container
+	adapter   *adapter.Container
+	app       *app.Container
+	api       *crowbarapi.Container
 }
 
 type rootOpts struct {
@@ -69,7 +72,16 @@ func New(
 		o(&cfg)
 	}
 
-	listener, err := gateway.New(host)
+	homeDir := cfg.homeDir
+	if homeDir == "" {
+		homeDir = metadata.GetHomePath()
+	}
+	identity, fingerprint, err := serverIdentity(host, homeDir)
+	if err != nil {
+		return nil, err
+	}
+
+	listeners, err := gateway.New(host, identity)
 	if err != nil {
 		return nil, fmt.Errorf("internal: gateway: %w", err)
 	}
@@ -89,8 +101,8 @@ func New(
 		return nil, fmt.Errorf("internal: app: %w", err)
 	}
 
-	//nolint:contextcheck // snapshot providers are context-free by design; this call only threads the log ring option.
-	apiContainer, err := crowbarapi.New(appContainer, engines, staticFS, v0.WithLogs(cfg.logs))
+	//nolint:contextcheck // snapshot providers are context-free by design; this call only threads the fingerprint and log ring option.
+	apiContainer, err := crowbarapi.New(appContainer, engines, staticFS, fingerprint, preAuthReadTimeout, v0.WithLogs(cfg.logs))
 	if err != nil {
 		return nil, fmt.Errorf("internal: api: %w", err)
 	}
@@ -100,22 +112,53 @@ func New(
 	// and dev instances (WithHomeDir) stay isolated; fall back to the resolved global
 	// home only when none was configured — the production `serve` path. Best-effort:
 	// never block startup, and never write to the real ~/.crowbar from a test.
-	installHome := cfg.homeDir
-	if installHome == "" {
-		installHome = metadata.GetHomePath()
-	}
-	if p, err := selfinstall.Install(installHome); err == nil {
+	if p, err := selfinstall.Install(homeDir); err == nil {
 		_ = p // path is re-derived by the agent engine when rendering descriptors
 	}
 
 	return &Container{
-		server:   &http.Server{Handler: apiContainer.Handler(), ReadHeaderTimeout: 30 * time.Second},
-		listener: listener,
-		engines:  engines,
-		adapter:  adapters,
-		app:      appContainer,
-		api:      apiContainer,
+		server:    newHTTPServer(apiContainer.Handler(), idleConnTimeout),
+		listeners: listeners,
+		engines:   engines,
+		adapter:   adapters,
+		app:       appContainer,
+		api:       apiContainer,
 	}, nil
+}
+
+// serverIdentity loads the TLS identity, and its fingerprint, for a
+// network-exposed bind only: a unix-socket or loopback daemon serves no TLS,
+// so a broken identity directory must not keep it from booting.
+func serverIdentity(
+	host, homeDir string,
+) (*tlsid.Identity, string, error) {
+	if !gateway.Exposed(host) {
+		return nil, "", nil
+	}
+	identity, err := tlsid.Load(filepath.Join(homeDir, "tls"))
+	if err != nil {
+		return nil, "", fmt.Errorf("internal: tls identity: %w", err)
+	}
+	return identity, identity.Fingerprint, nil
+}
+
+// idleConnTimeout closes a keep-alive connection left idle between requests,
+// so an unauthenticated peer cannot pin a descriptor per connection forever.
+const idleConnTimeout = 2 * time.Minute
+
+// preAuthReadTimeout bounds the reads of a TLS request until its bearer is
+// verified: the mid-request counterpart of idleConnTimeout.
+const preAuthReadTimeout = 10 * time.Second
+
+// newHTTPServer leaves ReadTimeout and WriteTimeout unset on purpose: a hijacked
+// WebSocket or a long streaming response must outlive any fixed deadline, and
+// the idle timeout only ever applies between requests. An anonymous request's
+// reads are bounded per request instead (preAuthReadTimeout).
+func newHTTPServer(
+	handler http.Handler,
+	idleTimeout time.Duration,
+) *http.Server {
+	return &http.Server{Handler: handler, ReadHeaderTimeout: 30 * time.Second, IdleTimeout: idleTimeout}
 }
 
 func adapterOptions(
@@ -127,16 +170,20 @@ func adapterOptions(
 	return []adapter.Option{adapter.WithHomeDir(homeDir)}
 }
 
-// Run serves until ctx is cancelled, then gracefully shuts down. It also watches
-// for an early Serve failure: if Serve returns before shutdown is requested
-// (listener invalidated, accept failing permanently under FD pressure), the
-// error is surfaced so the process exits non-zero and its supervisor restarts
-// the daemon — rather than silently hanging "up" while accepting no connections.
+// Run serves every listener until ctx is cancelled, then gracefully shuts down.
+// It also watches for an early Serve failure: if any listener's Serve returns
+// before shutdown is requested (listener invalidated, accept failing permanently
+// under FD pressure), the error is surfaced so the process exits non-zero and
+// its supervisor restarts the daemon — rather than silently hanging "up" while
+// accepting no connections.
 func (c *Container) Run(
 	ctx context.Context,
 ) error {
-	serveErr := make(chan error, 1)
-	go func() { serveErr <- c.server.Serve(c.listener) }()
+	// Buffered per listener so every Serve goroutine can exit once Run returns.
+	serveErr := make(chan error, len(c.listeners))
+	for _, ln := range c.listeners {
+		go func() { serveErr <- c.server.Serve(ln) }()
+	}
 	select {
 	case <-ctx.Done():
 		// Ordered, bounded graceful shutdown (spec §3.8): stop accepting new requests +
@@ -192,7 +239,7 @@ func (c *Container) Run(
 // stopped accepting connections (Run shuts it down before Close runs), so it
 // first closes the app layer's lazy realtime resource lifecycles (file watchers
 // and LSP hosts, which http.Server.Shutdown leaves running on hijacked WebSocket
-// connections), then releases the adapter layer and the listener.
+// connections), then releases the adapter layer and the listeners.
 func (c *Container) Close() {
 	// The rebind workers read the stores, so they stop before anything closes.
 	c.api.Close()
@@ -208,5 +255,7 @@ func (c *Container) Close() {
 	// by the PTY teardown write runner Exits and turn closes, and closing the store
 	// out from under them is what used to leave a chat spinning forever.
 	_ = c.adapter.Close()
-	_ = c.listener.Close()
+	for _, ln := range c.listeners {
+		_ = ln.Close()
+	}
 }

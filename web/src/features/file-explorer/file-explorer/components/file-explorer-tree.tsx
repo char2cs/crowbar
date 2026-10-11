@@ -114,6 +114,7 @@ function FileExplorerTreeComponent({
 
   const { showAlertDialog, requestDelete, openAllFilesInDirectory, dialogProps } =
     useFileExplorerDialogs({
+      workspaceId,
       filteredFiles,
       isVisible,
       rootFolderPath,
@@ -129,6 +130,7 @@ function FileExplorerTreeComponent({
   )
 
   const { dragState, startDrag } = useFileExplorerDragDrop(
+    workspaceId,
     rootFolderPath,
     onFileMove,
     handleAutoExpandDirectory,

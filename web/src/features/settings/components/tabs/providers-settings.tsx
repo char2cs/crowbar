@@ -18,16 +18,19 @@ import {
   updateProviderPreferences,
   uploadDescriptor,
 } from '@/features/agent/api/agent-api'
+import { LOCAL_HOST } from '@/features/hosts/types'
+import { resolvedHostOf } from '@/lib/host-resolve'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
 import { DescriptorStatus } from '@/features/agent/components/descriptor-status'
 import {
   beginProviderWrite,
   isLatestProviderWrite,
-  providerWriteGeneration,
   useAgentProvidersStore,
 } from '@/features/settings/stores/agent-providers-store'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { getActiveWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import {
+  getAllActiveWorkspaceIds,
+  getWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
 import { toast } from '@/features/window/stores/toast-store'
 import Section from '../settings-section'
 import { ChatPresentationSetting } from './chat-presentation-setting'
@@ -42,6 +45,23 @@ import {
 } from './provider-preferences'
 import type { ProviderFlags } from './provider-preferences'
 
+// The chat surfaces read each workspace's own copy. Only the LOCAL daemon's list
+// belongs in a local workspace: a remote workspace's copy is its own daemon's.
+function mirrorToLocalWorkspaces(resolved: AgentProvider[]): void {
+  for (const wsId of getAllActiveWorkspaceIds()) {
+    if (resolvedHostOf({ wsId }) === LOCAL_HOST.id) {
+      getWorkspaceStore(wsId)?.getState().setAgentProviders(resolved)
+    }
+  }
+}
+
+// BOTH copies, always together: the app-wide one this tab renders and the local
+// workspaces' that the chat surfaces render. Letting a write reach only one is how they drift.
+function publish(resolved: AgentProvider[]): void {
+  useAgentProvidersStore.getState().setProviders(resolved)
+  mirrorToLocalWorkspaces(resolved)
+}
+
 /**
  * The Agents settings tab: the enriched, priority-ordered provider list, drag to
  * reorder priority, a switch to disable one.
@@ -51,14 +71,12 @@ import type { ProviderFlags } from './provider-preferences'
  * Claude has its own `--agent`, so nothing below the copy moves: the tab id, the
  * component, the store, the DTOs and the wire all still say provider.
  *
- * IT READS THE GLOBAL PROVIDER STORE, NOT THE ACTIVE WORKSPACE. Providers are
- * machine-level — the daemon says as much (ListProviders: "workspaceID is only
- * used to resolve crowbar home") — but the frontend's only copy used to live in
- * the per-workspace store, and this dialog opens from anywhere. With no workspace
- * in view that copy is empty, and the tab announced "No providers available." to
- * a user with both CLIs installed and enabled. It also fetches on mount, so a
- * workspace whose own seed was lost (see use-workspace-agent-chats-stream) is
- * repaired by opening this tab rather than staying dead.
+ * IT READS THE APP-WIDE PROVIDER STORE, NOT THE ACTIVE WORKSPACE. A provider list
+ * belongs to a daemon, and this tab edits the LOCAL daemon's — so it is fed by the
+ * global route, whichever workspace (on whichever host) happens to be in view, and
+ * the dialog opens from anywhere. It also fetches on mount, so a local workspace
+ * whose own seed was lost (see use-workspace-agent-chats-stream) is repaired by
+ * opening this tab rather than staying dead.
  *
  * This is the first backend-persisted settings tab: on any change it PUTs the
  * COMPLETE ordered preference set and reconciles from the server's freshly
@@ -92,30 +110,14 @@ export const ProvidersSettings = () => {
     }
   }
 
-  // Refresh on open. A workspace in view also receives the fresh list for chat
-  // surfaces; elsewhere the global settings route supplies the same catalog.
+  // Refresh on open, from the local daemon: this tab edits its preferences, so it never
+  // reads another daemon's list. Local workspaces' copies are repaired with it.
   useEffect(() => {
-    const wsId = getActiveWorkspaceId()
-    if (!wsId) {
-      if (useAgentProvidersStore.getState().status === 'ready') return
-      const seq = providerWriteGeneration()
-      useAgentProvidersStore.setState({ status: 'loading' })
-      void listGlobalProviders()
-        .then((resolved) => {
-          if (isLatestProviderWrite(seq)) useAgentProvidersStore.getState().setProviders(resolved)
-        })
-        .catch(() => {
-          if (isLatestProviderWrite(seq)) useAgentProvidersStore.getState().markUnavailable()
-        })
-      return
-    }
     void useAgentProvidersStore
       .getState()
-      .load(wsId)
+      .loadLocal()
       .then((resolved) => {
-        // Repair the workspace copy too — it is what the chat surfaces read, and
-        // a lost seed there is exactly what sends the user to this tab.
-        if (resolved) getActiveWorkspaceStore()?.getState().setAgentProviders(resolved)
+        if (resolved) mirrorToLocalWorkspaces(resolved)
       })
   }, [])
 
@@ -123,14 +125,6 @@ export const ProvidersSettings = () => {
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
-
-  // BOTH copies, always together. The global one is what this tab renders; the
-  // per-workspace one is what the chat surfaces render. Letting a write reach
-  // only one of them is how they drift.
-  const publish = useCallback((resolved: AgentProvider[]) => {
-    useAgentProvidersStore.getState().setProviders(resolved)
-    getActiveWorkspaceStore()?.getState().setAgentProviders(resolved)
-  }, [])
 
   // THE ONLY WRITE PATH. Every change — a reorder, an enable toggle, a tools
   // toggle — is expressed as the same pair (the new order, the complete flags
@@ -171,7 +165,7 @@ export const ProvidersSettings = () => {
         toast.error('Could not save providers', 'Crowbar could not reach the daemon — try again.')
       }
     },
-    [publish],
+    [],
   )
 
   const handleToggle = useCallback(

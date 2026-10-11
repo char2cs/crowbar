@@ -145,7 +145,7 @@ func bootDaemon(t *testing.T, home string) *daemon {
 	router := gin.New()
 	hooks := &hookLog{}
 	router.Use(hooks.middleware())
-	v0.New(container, eng).Register(router.Group("/v0"))
+	v0.New(container, eng, "").Register(router.Group("/v0"))
 	ln, err := transports.NewSocket("unix://")
 	require.NoError(t, err)
 	go func() { _ = http.Serve(ln, router) }() //nolint:gosec // test server on a private unix socket

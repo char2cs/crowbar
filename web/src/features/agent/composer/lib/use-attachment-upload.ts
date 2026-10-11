@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import type { UploadChatAttachmentInput } from '@/features/agent/api/upload-chat-attachment'
 import { uploadAttachmentMarkdown } from '@/features/agent/composer/lib/attachment-upload'
 import { toast } from '@/features/window/stores/toast-store'
+import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 
 export interface UseAttachmentUploadResult {
   uploadAndInsert: (input: UploadChatAttachmentInput) => Promise<void>
@@ -57,7 +58,7 @@ export function useAttachmentUpload(
           settlePending(objectUrl, null)
           toast.error(
             'Could not attach that file',
-            err instanceof Error ? err.message : 'Crowbar could not reach the daemon — try again.',
+            actionErrorMessage(err, 'Crowbar could not reach the daemon — try again.'),
           )
         }
         return
@@ -69,7 +70,7 @@ export function useAttachmentUpload(
       } catch (err) {
         toast.error(
           'Could not attach that file',
-          err instanceof Error ? err.message : 'Crowbar could not reach the daemon — try again.',
+          actionErrorMessage(err, 'Crowbar could not reach the daemon — try again.'),
         )
       }
     },

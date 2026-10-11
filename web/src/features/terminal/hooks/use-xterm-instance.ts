@@ -3,9 +3,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { resolveWorkspaceRootPath } from '@/lib/workspace/resolve-root-path'
 import { toast } from '@/features/window/stores/toast-store'
+import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 import { injectLinkStyles, removeLinkStyles, type TerminalAddons } from './use-terminal-addons'
 import { useTerminalTheme } from './use-terminal-theme'
 import { fitToContainer } from './use-pty-size-sync'
@@ -19,26 +19,22 @@ import { resolveTerminalFont } from '../utils/resolve-font'
  * session cwd when known, else the workspace root, then are relativized back
  * onto the workspace root (the files API takes worktree-relative paths).
  */
-function fileLinksFor(getSessionId: () => string): TerminalFileLinksOptions {
+function fileLinksFor(getSessionId: () => string, getWsId: () => string): TerminalFileLinksOptions {
   return {
     getRoot: () => {
       const cwd = useTerminalStore.getState().getSession(getSessionId())?.currentDirectory
       if (cwd?.startsWith('/')) return cwd
-      return resolveWorkspaceRootPath()
+      return resolveWorkspaceRootPath(getWsId())
     },
     openFile: (absolutePath) => {
-      const rel = workspaceRelativePath(absolutePath, resolveWorkspaceRootPath())
+      const wsId = getWsId()
+      const rel = workspaceRelativePath(absolutePath, resolveWorkspaceRootPath(wsId))
       if (!rel) {
         toast.error('Cannot open file', `${absolutePath} is outside the current workspace.`)
         return
       }
-      const wsId = getActiveWorkspaceId()
-      if (!wsId) {
-        toast.error('Cannot open file', 'No editor is available in this view.')
-        return
-      }
-      void openWorkspaceFile(wsId, rel).catch(() => {
-        toast.error('Could not open file', absolutePath)
+      void openWorkspaceFile(wsId, rel).catch((err: unknown) => {
+        if (!toastHostFailure(err)) toast.error('Could not open file', absolutePath)
       })
     },
     onUnresolved: (candidateText) => {
@@ -49,6 +45,8 @@ function fileLinksFor(getSessionId: () => string): TerminalFileLinksOptions {
 
 interface UseXtermInstanceOptions {
   sessionId: string
+  /** The workspace this terminal belongs to: its file links resolve and open there. */
+  workspaceId: string
   container: HTMLDivElement | null
   /** False until the view has been shown once: a never-seen tab builds nothing. */
   enabled: boolean
@@ -68,6 +66,7 @@ export interface XtermInstance {
  */
 export function useXtermInstance({
   sessionId,
+  workspaceId,
   container,
   enabled,
   write,
@@ -75,10 +74,12 @@ export function useXtermInstance({
   const [instance, setInstance] = useState<XtermInstance>({ terminal: null, addons: null })
   const writeRef = useRef(write)
   const sessionIdRef = useRef(sessionId)
+  const workspaceIdRef = useRef(workspaceId)
   useEffect(() => {
     writeRef.current = write
     sessionIdRef.current = sessionId
-  }, [write, sessionId])
+    workspaceIdRef.current = workspaceId
+  }, [write, sessionId, workspaceId])
 
   const fontFamily = useSettingsStore((state) => state.settings.terminalFontFamily)
   const baseFontSize = useSettingsStore((state) => state.settings.terminalFontSize)
@@ -150,7 +151,11 @@ export function useXtermInstance({
           },
           {
             write: (data, origin) => writeRef.current(data, origin),
-            fileLinks: fileLinksFor(() => sessionIdRef.current),
+            fileLinks: fileLinksFor(
+              () => sessionIdRef.current,
+              () => workspaceIdRef.current,
+            ),
+            workspaceId: () => workspaceIdRef.current,
           },
         )
         fitToContainer(mounted.addons.fitAddon, container)

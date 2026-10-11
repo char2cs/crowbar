@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 import { commitChanges } from '../api/git-commits-api'
 import { stagePaths } from '../api/git-status-api'
 import type { GitFile } from '../types/git-types'
@@ -46,7 +47,7 @@ export function CommitBox({ wsId, files, onCommitted }: CommitBoxProps) {
       setMessage('')
       onCommitted()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to commit changes')
+      setError(actionErrorMessage(e, 'Failed to commit changes'))
     } finally {
       setIsCommitting(false)
     }

@@ -22,8 +22,6 @@ export interface WorkspaceScope {
   owningChatId?: string
 }
 
-/** Reads THE active workspace id, which the workspace registry owns (C4). */
-let readActiveWorkspaceId: () => string | null = () => null
 const _scopes = new Map<string, WorkspaceScope>()
 
 // Notified whenever a workspace's scope is (re)written — the only signal a
@@ -35,19 +33,26 @@ const _scopes = new Map<string, WorkspaceScope>()
 // at mount. See `subscribeToWorkspaceScope` below.
 const _scopeListeners = new Map<string, Set<() => void>>()
 
+// Every listener runs even if one throws (a throw must not starve the hooks behind
+// it); the first error is rethrown afterwards, so a single failure still surfaces.
 function notifyScopeListeners(wsId: string): void {
   const listeners = _scopeListeners.get(wsId)
   if (!listeners) return
-  for (const listener of listeners) listener()
+  let failure: { error: unknown } | null = null
+  for (const listener of listeners) {
+    try {
+      listener()
+    } catch (error) {
+      failure ??= { error }
+    }
+  }
+  if (failure) throw failure.error
 }
 
 /**
- * Subscribe to every future write of `wsId`'s scope (route-derived or
- * sidebar-derived). Fires on EVERY write, not just ones that change
- * `owningChatId` — callers that only care about that field re-read it
- * themselves and no-op if it hasn't actually changed, and writes are rare
- * enough (once per navigation, once per chat-list refresh) that this stays
- * cheap without the extra bookkeeping a diff would need.
+ * Subscribe to every future change of `wsId`'s scope (route-derived or
+ * sidebar-derived). Fires on any field that changes, not just `owningChatId` —
+ * callers that only care about that field re-read it themselves.
  */
 export function subscribeToWorkspaceScope(wsId: string, callback: () => void): () => void {
   let listeners = _scopeListeners.get(wsId)
@@ -60,12 +65,6 @@ export function subscribeToWorkspaceScope(wsId: string, callback: () => void): (
     listeners!.delete(callback)
     if (listeners!.size === 0) _scopeListeners.delete(wsId)
   }
-}
-
-/** Bind the owner of the active workspace id (the registry) — this module
- *  stays dependency-free and keeps no copy of it. */
-export function bindActiveWorkspaceId(read: () => string | null): void {
-  readActiveWorkspaceId = read
 }
 
 /**
@@ -83,12 +82,26 @@ function mergeScope(scope: WorkspaceScope): WorkspaceScope {
   return owningChatId ? { ...scope, owningChatId } : { ...scope }
 }
 
+const sameScope = (a: WorkspaceScope | undefined, b: WorkspaceScope): boolean =>
+  a !== undefined &&
+  a.projectId === b.projectId &&
+  a.repoId === b.repoId &&
+  a.owningChatId === b.owningChatId
+
+// A write that changes nothing notifies no one: the route's write runs during IDEShell's
+// render, and a listener whose answer moved with another store must not re-render from it.
+function writeScope(scope: WorkspaceScope): void {
+  const next = mergeScope(scope)
+  if (sameScope(_scopes.get(scope.wsId), next)) return
+  _scopes.set(scope.wsId, next)
+  notifyScopeListeners(scope.wsId)
+}
+
 /** Record the hierarchical scope (project+repo) for a workspace from the
  *  route. It never decides which workspace is active: that is the registry's
  *  one id, written by `WorkspaceHost`. */
 export function setWorkspaceScope(scope: WorkspaceScope): void {
-  _scopes.set(scope.wsId, mergeScope(scope))
-  notifyScopeListeners(scope.wsId)
+  writeScope(scope)
 }
 
 /**
@@ -99,8 +112,7 @@ export function setWorkspaceScope(scope: WorkspaceScope): void {
  * an unrecorded scope, which used to make those buttons silently no-op.
  */
 export function recordWorkspaceScope(scope: WorkspaceScope): void {
-  _scopes.set(scope.wsId, mergeScope(scope))
-  notifyScopeListeners(scope.wsId)
+  writeScope(scope)
 }
 
 /**
@@ -155,27 +167,36 @@ export function __resetWorkspaceScopesForTest(): void {
 }
 
 /**
- * Resolve the hierarchical scope for `wsId` (defaults to the active workspace).
- * Returns null when the scope was never recorded — callers throw/skip so a
- * workspace-scoped URL is never built with a missing project/repo segment.
+ * Resolve the hierarchical scope for `wsId`. Returns null when the scope was never
+ * recorded — callers throw/skip so a workspace-scoped URL is never built with a
+ * missing project/repo segment. There is no "active workspace" default: asking
+ * without naming one is how a call lands on the wrong workspace or host.
  */
-export function getWorkspaceScope(wsId?: string): WorkspaceScope | null {
-  const id = wsId ?? readActiveWorkspaceId()
-  if (!id) return null
-  return _scopes.get(id) ?? null
+export function getWorkspaceScope(wsId: string): WorkspaceScope | null {
+  return _scopes.get(wsId) ?? null
 }
 
 /**
- * The chat that owns `wsId`'s worktree (defaults to the active workspace), or
- * null when the scope was never recorded or the daemon resolved no owning chat.
+ * The chat that owns `wsId`'s worktree, or null when the scope was never recorded
+ * or the daemon resolved no owning chat.
  *
  * This is the bridge from "the id a terminal component holds" (a workspace) to
  * "the id its API routes are addressed by" (a chat). Callers throw or skip on
  * null rather than falling back to a workspace-scoped URL — those routes no
  * longer exist.
  */
-export function getOwningChatId(wsId?: string): string | null {
+export function getOwningChatId(wsId: string): string | null {
   return getWorkspaceScope(wsId)?.owningChatId || null
+}
+
+/**
+ * The workspace whose worktree `chatId` holds, or null. Only an OWNING chat is
+ * recorded, so a sibling must be placed through the workspace it is opened in.
+ */
+export function getWorkspaceIdOwnedByChat(chatId: string): string | null {
+  if (!chatId) return null
+  for (const scope of _scopes.values()) if (scope.owningChatId === chatId) return scope.wsId
+  return null
 }
 
 /**

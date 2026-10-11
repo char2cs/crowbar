@@ -28,10 +28,10 @@ const exposeHeaders = "X-Crowbar-Diff-Truncated"
 // webview, loopback dev servers, and any CROWBAR_ALLOWED_ORIGINS entry) — see
 // origin.Allowed. It echoes the specific Origin (not "*") so credentialed requests
 // are permitted, marks the response Vary: Origin, and short-circuits preflight
-// OPTIONS. A disallowed Origin gets NO Access-Control-Allow-Origin header, so the
-// browser blocks the cross-origin read; a disallowed preflight is rejected 403.
-// This replaces the previous reflect-any-Origin behaviour, which let any website
-// the user visited drive the daemon API from their browser.
+// OPTIONS. A request carrying a disallowed Origin — "null" included — is refused
+// 403 whatever its method, before any handler: a simple request (a text/plain
+// POST) needs no preflight, so withholding the response alone still lets a page
+// fire blind writes. A request with no Origin (CLI, hooks) is not a browser's.
 func CORS() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reqOrigin := c.GetHeader("Origin")
@@ -41,14 +41,7 @@ func CORS() gin.HandlerFunc {
 		}
 
 		if !origin.Allowed(reqOrigin, c.Request.Host) {
-			// No ACAO header: the browser blocks reading the cross-origin response.
-			// A disallowed preflight is rejected outright rather than handed to a
-			// route handler.
-			if c.Request.Method == http.MethodOptions {
-				c.AbortWithStatus(http.StatusForbidden)
-				return
-			}
-			c.Next()
+			c.AbortWithStatus(http.StatusForbidden)
 			return
 		}
 

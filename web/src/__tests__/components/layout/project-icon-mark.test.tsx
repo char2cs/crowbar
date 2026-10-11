@@ -1,8 +1,12 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ProjectIconMark, EditableProjectIcon } from '@/components/layout/project-icon-mark'
 import { assetURL } from '@/lib/api'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { idle, success } from '@/lib/loadable'
+import { useProjectDataStore } from '@/lib/store/projects'
+import type { Project } from '@/lib/types'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 vi.mock('@/lib/api', async (importOriginal) => ({
@@ -16,7 +20,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
  * icon in the sidebar row and the default glyph in the pill above it.
  */
 describe('ProjectIconMark', () => {
-  const project = { name: 'Crowbar' }
+  const project = { id: 'p1', name: 'Crowbar' }
 
   it('draws the Library default when the project has no icon', () => {
     const { container } = render(<ProjectIconMark project={project} size="lg" />)
@@ -153,5 +157,94 @@ describe('EditableProjectIcon', () => {
     expect(container.querySelector('img')?.getAttribute('src')).toBe(
       `${assetURL('/v0/projects/p1/icon')}?v=0`,
     )
+  })
+})
+
+// The icon URL is built during render, from the project's own host: an unplaceable project
+// draws the default mark, and a remote project's image is never fetched from the local daemon.
+describe('a project on a remote host', () => {
+  const project = { id: 'p1', name: 'harbour', avatarUrl: '/v0/projects/p1/icon?v=1' }
+  const row = (hostId: string): Project => ({
+    id: 'p1',
+    name: 'harbour',
+    path: '/work/p1',
+    lastActivity: new Date(0),
+    hostId,
+  })
+  const pairHost = (id: string) =>
+    useHostConfigStore.getState().addHost({
+      id,
+      name: id,
+      endpoint: `${id}.example:3737`,
+      pairedFingerprint: 'SHA256:aaaa',
+      clientId: `client-${id}`,
+    })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    apiFetch.mockResolvedValue(undefined)
+    ;(window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {}
+    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+    useProjectDataStore.setState({ data: idle() })
+    pairHost('host-2')
+  })
+
+  afterEach(() => {
+    delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
+    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+    useProjectDataStore.setState({ data: idle() })
+  })
+
+  it('loads the image from its own host', () => {
+    useProjectDataStore.setState({ data: success([row('host-2')]) })
+    const { container } = render(<ProjectIconMark project={project} size="lg" />)
+    expect(container.querySelector('img')?.getAttribute('src')).toBe(
+      'crowbar://host-2/v0/projects/p1/icon?v=1',
+    )
+  })
+
+  it.each([
+    ['the project list has not loaded', () => undefined],
+    [
+      'its host is not configured',
+      () => useProjectDataStore.setState({ data: success([row('gone')]) }),
+    ],
+  ])('draws the default mark, with no image, while %s', (_why, arrange) => {
+    arrange()
+    const { container } = render(<ProjectIconMark project={project} size="lg" />)
+    expect(container.querySelector('svg')).not.toBeNull()
+    expect(container.querySelector('img')).toBeNull()
+  })
+
+  it('swaps the default mark for the image once the project’s row arrives', () => {
+    const { container } = render(<ProjectIconMark project={project} size="lg" />)
+    expect(container.querySelector('img')).toBeNull()
+    act(() => useProjectDataStore.setState({ data: success([row('host-2')]) }))
+    expect(container.querySelector('img')?.getAttribute('src')).toBe(
+      'crowbar://host-2/v0/projects/p1/icon?v=1',
+    )
+  })
+
+  it('edits against its own host: an emoji is PUT to the qualified base', async () => {
+    useProjectDataStore.setState({ data: success([row('host-2')]) })
+    const user = userEvent.setup()
+    render(<EditableProjectIcon project={project} size="lg" />)
+    await user.click(screen.getByRole('button', { name: /edit harbour icon/i }))
+    await user.click(await screen.findByRole('button', { name: /emoji/i }))
+    await user.type(screen.getByPlaceholderText('Type an emoji…'), '🛰️')
+    await user.keyboard('{Enter}')
+    expect(apiFetch).toHaveBeenCalledWith('crowbar://host-2/v0/projects/p1/icon/emoji', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emoji: '🛰️' }),
+    })
+  })
+
+  it('offers no editing until the host is known, and never throws getting there', () => {
+    const { container } = render(<EditableProjectIcon project={project} size="lg" />)
+    expect(screen.queryByRole('button', { name: /edit harbour icon/i })).toBeNull()
+    expect(container.querySelector('img')).toBeNull()
+    act(() => useProjectDataStore.setState({ data: success([row('host-2')]) }))
+    expect(screen.getByRole('button', { name: /edit harbour icon/i })).toBeInTheDocument()
   })
 })

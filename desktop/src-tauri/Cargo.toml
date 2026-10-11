@@ -27,6 +27,18 @@ hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
 tokio-tungstenite = "0.30"
+rustls = "0.23"
+tokio-rustls = "0.26"
+# TCP keepalive on remote dials; already in the tree through tokio.
+socket2 = "0.6"
+sha2 = "0.10"
+# No default backend: bare "keyring = 3" silently resolves to keyring's
+# in-memory mock store on every platform (nothing persists). These are the
+# crate's own per-OS native-backend features (its docs.rs metadata enables
+# this exact set) — each is target-gated in keyring's own Cargo.toml, so
+# enabling all of them here only pulls in the one relevant to whatever OS
+# is actually being built for.
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-rust"] }
 futures-util = "0.3"
 bytes = "1"
 log = "0.4"
@@ -47,6 +59,12 @@ objc2 = "0.6"
 # already resolved at this exact version transitively (wry/window-vibrancy),
 # so this adds no new version to the tree.
 objc2-foundation = "0.3"
+
+[dev-dependencies]
+rcgen = "0.13"
+# "all" adds the keepalive getters the remote-dial tests read back.
+socket2 = { version = "0.6", features = ["all"] }
+tokio = { version = "1", features = ["test-util"] }
 
 [profile.release]
 panic = "abort"

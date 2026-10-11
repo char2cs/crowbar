@@ -1,9 +1,25 @@
-import { createChat, createSurfaceFor, type AgentProvider } from '@/features/agent/api/agent-api'
-import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import {
+  createChat,
+  createSurfaceFor,
+  listGlobalProviders,
+  type AgentProvider,
+} from '@/features/agent/api/agent-api'
+import { LOCAL_HOST } from '@/features/hosts/types'
+import {
+  providersOf,
+  useAgentProvidersStore,
+} from '@/features/settings/stores/agent-providers-store'
+import { resolvedHostOf } from '@/lib/host-resolve'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { presetChatLandingPresentation } from '@/features/agent/hooks/use-chat-presentation'
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { toast } from '@/features/window/stores/toast-store'
+import {
+  actionErrorMessage,
+  toastHostFailure,
+  toastUnresolvedHost,
+} from '@/features/hosts/lib/host-failure-notice'
 import { renderedProjectRows, visibleRepos } from '@/components/sidebar/lib/drop-actions'
 
 // The create machinery every sidebar create shares — the in-flight guard, the
@@ -29,11 +45,12 @@ export function panelRowsAtClick(
   }
 }
 
-/** Fails the pending row with the daemon's own reason, toasted and logged so it is diagnosable. */
+/** Fails the pending row with the daemon's own reason (or its host's trouble), toasted and
+ *  logged so it is diagnosable. */
 export function failCreate(tempId: string, err: unknown, fallback: string): void {
-  const reason = err instanceof Error ? err.message : fallback
+  const reason = actionErrorMessage(err, fallback)
   usePendingCreatesStore.getState().setError(tempId, reason)
-  toast.error(fallback, reason)
+  if (!toastHostFailure(err)) toast.error(fallback, reason)
   console.error(`${fallback}:`, err)
 }
 
@@ -92,10 +109,14 @@ export interface ThreadCreate {
  * daemon's reason on a refused create or a row that never arrives.
  */
 export async function startThread(spec: ThreadCreate): Promise<void> {
-  const provider = enabledProvider()
-  if (!provider) return
   if (createInFlight.has(spec.inFlightKey)) return
   createInFlight.add(spec.inFlightKey)
+  const read = readUnreadHostProviders(spec.projectId)
+  const provider = read && !(await read) ? null : enabledProvider(spec.projectId)
+  if (!provider) {
+    createInFlight.delete(spec.inFlightKey)
+    return
+  }
   const { projectId, workspaceId, parentId } = spec
   const { order, rowIdsAtClick } = panelRowsAtClick(projectId, parentId)
   const tempId = `pending-${crypto.randomUUID()}`
@@ -132,23 +153,61 @@ export async function startThread(spec: ThreadCreate): Promise<void> {
 }
 
 /**
- * The provider a new chat is started with, or null — having SAID SO — when
- * there is none.
- *
- * Both create paths used to return silently here. A silent return is
- * indistinguishable from a dead button, and it is the shape both halves of "the
- * fork and thread buttons do nothing" took: one because it genuinely had no
- * providers to find (see the thread branch's own note), the other because a
- * real outage empties this list (`use-workspace-agent-chats-stream.ts` toasts
- * once for that, but only for a MOUNTED workspace — the sidebar can be the only
- * thing on screen). A precondition that stops a click has to be visible.
+ * The provider a new chat in `projectId` starts with, or null having said why — a
+ * click that is refused must be visible. It comes from the project's own host's
+ * list, so a remote host's list must have been read: see {@link readUnreadHostProviders}.
  */
-export function enabledProvider(): AgentProvider | null {
-  const provider = useAgentProvidersStore.getState().providers.find((p) => p.enabled)
+export function enabledProvider(projectId: string): AgentProvider | null {
+  const hostId = resolvedHostOf({ projectId })
+  if (hostId === null) {
+    toastUnresolvedHost(projectId)
+    return null
+  }
+  const provider = providersOf(useAgentProvidersStore.getState(), hostId).find((p) => p.enabled)
   if (provider) return provider
-  toast.error(
-    'No agent provider is enabled',
-    'Enable one in Settings → Providers to start a chat or fork a workspace.',
-  )
+  if (hostId === LOCAL_HOST.id) {
+    toast.error(
+      'No agent provider is enabled',
+      'Enable one in Settings → Providers to start a chat or fork a workspace.',
+    )
+  } else {
+    // Settings → Providers sets up this computer only; a host's providers are set on it.
+    const name = useHostConfigStore.getState().hosts.find((h) => h.id === hostId)?.name
+    const host = name ?? 'that host'
+    toast.error(
+      `No agent provider is enabled on ${host}`,
+      `Enable one on ${host} itself: Settings → Providers sets up only this computer.`,
+    )
+  }
   return null
+}
+
+/**
+ * Reads the provider list of a remote host nobody has asked yet; null when there is
+ * nothing to wait for, so a common click stays synchronous. False — the host named in
+ * a toast — when it did not answer.
+ */
+export function readUnreadHostProviders(projectId: string): Promise<boolean> | null {
+  const hostId = resolvedHostOf({ projectId })
+  const state = useAgentProvidersStore.getState()
+  if (hostId === null || hostId === LOCAL_HOST.id || state.remote[hostId] !== undefined) return null
+  // Named before the wait: the host may be removed while it is asked.
+  const name = useHostConfigStore.getState().hosts.find((h) => h.id === hostId)?.name
+  // Read here rather than through the store's loadHost, which keeps no failure: a changed
+  // identity must not read as merely unreachable.
+  return listGlobalProviders(hostId).then(
+    (providers) => {
+      useAgentProvidersStore.getState().setHostProviders(hostId, providers)
+      return true
+    },
+    (err: unknown) => {
+      if (!toastHostFailure(err)) {
+        toast.error(
+          `Couldn’t reach ${name ?? 'that host'}`,
+          'Check that it is online in Settings → Hosts.',
+        )
+      }
+      return false
+    },
+  )
 }

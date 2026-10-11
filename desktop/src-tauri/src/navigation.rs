@@ -9,7 +9,9 @@ pub enum Navigation {
     Block,
 }
 
-const APP_SCHEMES: [&str; 7] = ["tauri", "crowbar", "asset", "ipc", "about", "blob", "data"];
+// No `data:`/`blob:`: a document of either has an opaque origin and must never replace the
+// app. Downloads of them never reach here (the webview hands those to its download path).
+const APP_SCHEMES: [&str; 5] = ["tauri", "crowbar", "asset", "ipc", "about"];
 const EXTERNAL_SCHEMES: [&str; 4] = ["http", "https", "mailto", "tel"];
 
 pub fn classify(url: &Url, dev_url: Option<&Url>) -> Navigation {
@@ -85,6 +87,25 @@ mod tests {
         assert_eq!(
             classify(&url("mailto:a@b.c"), None),
             Navigation::OpenExternally
+        );
+    }
+
+    // On macOS the handler also sees each subframe's navigation: the HTML preview's srcdoc
+    // frame is `about:srcdoc` and must stay.
+    #[test]
+    fn the_preview_frame_stays_but_an_opaque_document_never_replaces_the_app() {
+        assert_eq!(classify(&url("about:srcdoc"), None), Navigation::Allow);
+        assert_eq!(classify(&url("about:blank"), None), Navigation::Allow);
+        assert_eq!(
+            classify(&url("data:text/html,<script>alert(1)</script>"), None),
+            Navigation::Block
+        );
+        assert_eq!(
+            classify(
+                &url("blob:tauri://localhost/0b1c6a52-4f0e-4f43-9d8e-1f2a3b4c5d6e"),
+                None
+            ),
+            Navigation::Block
         );
     }
 

@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { getIdentity, type IdentityDTO } from '@/features/git/api/identity-api'
+import { useHostResolved } from '@/lib/host-resolve'
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 
 // Per-workspace in-memory cache so re-renders and sibling mounts do not
@@ -54,10 +55,12 @@ export function useCurrentIdentity(wsId: string): IdentityDTO | null {
     () => getOwningChatId(wsId),
   )
 
+  const hostResolved = useHostResolved({ wsId })
+
   useEffect(() => {
-    // Nothing to fetch yet — wait for owningChatId rather than firing a call
-    // that can only resolve to null.
-    if (owningChatId === null) return
+    // Nothing to fetch yet — wait for owningChatId and the workspace's host
+    // rather than firing a call that can only resolve to null.
+    if (owningChatId === null || !hostResolved) return
     let cancelled = false
     // Share the cache + in-flight request used by resolveIdentity, so the
     // identity always lands here even when a sibling (e.g. a comment submit)
@@ -68,7 +71,7 @@ export function useCurrentIdentity(wsId: string): IdentityDTO | null {
     return () => {
       cancelled = true
     }
-  }, [wsId, owningChatId])
+  }, [wsId, owningChatId, hostResolved])
 
   return identity
 }

@@ -11,7 +11,7 @@ function mount() {
   const mounted = mountXterm(
     container,
     {},
-    { write, fileLinks: { getRoot: () => '/repo', openFile: vi.fn() } },
+    { write, fileLinks: { getRoot: () => '/repo', openFile: vi.fn() }, workspaceId: () => 'ws-1' },
   )
   return { container, write, mounted }
 }

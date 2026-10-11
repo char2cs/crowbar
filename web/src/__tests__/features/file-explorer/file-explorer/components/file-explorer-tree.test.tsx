@@ -4,8 +4,9 @@ import { FileExplorerTree } from '@/features/file-explorer/file-explorer/compone
 import type { FileEntry } from '@/features/file-system/types/app'
 
 vi.mock('@/features/file-system/controllers/platform', () => ({
-  readDirectory: vi.fn(async () => []),
-  readFile: vi.fn(async () => ''),
+  readWorkspaceDirectory: vi.fn(async () => []),
+  readWorkspaceFile: vi.fn(async () => ''),
+  moveWorkspaceFile: vi.fn(async () => {}),
 }))
 
 const files: FileEntry[] = [

@@ -1,5 +1,8 @@
 import { useSyncExternalStore } from 'react'
 import { fetchHomeWorkspace } from '@/lib/api'
+import { isHostResolved, subscribeHostResolution } from '@/lib/host-resolve'
+import { hostUnavailability } from '@/lib/host-unavailability'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 
 /**
  * Resolves (and caches) the stable home-workspace id for a project.
@@ -54,6 +57,8 @@ const UNRESOLVED: HomeWorkspaceState = {
 
 const states = new Map<string, HomeWorkspaceState>()
 const inflight = new Set<string>()
+/** Projects waiting for the project list to name their host, with the stop of that wait. */
+const awaitingHost = new Map<string, () => void>()
 const listeners = new Set<() => void>()
 
 function notify(): void {
@@ -72,11 +77,14 @@ function subscribe(listener: () => void): () => void {
  * stays visible until the next call re-fetches, so one lost GET at cold start
  * (daemon still replaying, sidecar respawn) cannot blank a project's home for
  * the whole session. A resolve that latched NO owning chat is not terminal
- * either: the daemon mints one on GET /home, so the next call re-reads.
+ * either: the daemon mints one on GET /home, so the next call re-reads. A
+ * project whose host is not known yet is pending, not failed: it re-enters
+ * once the project list places it, and fails once that host is not coming.
  */
 export function ensureHomeWorkspaceResolved(projectId: string): void {
   const current = states.get(projectId)
   if ((current?.wsId && current.owningChatId) || inflight.has(projectId)) return
+  if (!isHostResolved({ projectId })) return awaitHost(projectId)
   inflight.add(projectId)
   fetchHomeWorkspace(projectId)
     .then((ws) => {
@@ -85,6 +93,14 @@ export function ensureHomeWorkspaceResolved(projectId: string): void {
         owningChatId: ws.owningChatId || null,
         localPath: ws.localPath || null,
         error: false,
+      })
+      // Recorded here, outside any render, before anyone hears the id: a scope write from a
+      // render body re-renders whatever already subscribes to it, mid-render.
+      recordWorkspaceScope({
+        projectId,
+        repoId: '',
+        wsId: ws.id,
+        owningChatId: ws.owningChatId || undefined,
       })
     })
     .catch(() => {
@@ -96,6 +112,29 @@ export function ensureHomeWorkspaceResolved(projectId: string): void {
       inflight.delete(projectId)
       notify()
     })
+}
+
+// Gives up on the rule boot placement gives up on, but keeps listening: a host paired again
+// still brings the project's home back.
+function awaitHost(projectId: string): void {
+  if (awaitingHost.has(projectId)) return
+  const follow = () => {
+    if (hostUnavailability({ projectId }) !== null) failPending(projectId)
+    if (!isHostResolved({ projectId })) return
+    stop()
+    awaitingHost.delete(projectId)
+    ensureHomeWorkspaceResolved(projectId)
+  }
+  const stop = subscribeHostResolution(undefined, follow)
+  awaitingHost.set(projectId, stop)
+  follow()
+}
+
+function failPending(projectId: string): void {
+  const current = states.get(projectId)
+  if (current?.wsId || current?.error) return
+  states.set(projectId, { wsId: null, owningChatId: null, localPath: null, error: true })
+  notify()
 }
 
 /**
@@ -150,4 +189,6 @@ export function useHomeWorkspaceState(projectId: string | null): HomeWorkspaceSt
 export function __resetHomeWorkspaceResolverForTest(): void {
   states.clear()
   inflight.clear()
+  for (const stop of awaitingHost.values()) stop()
+  awaitingHost.clear()
 }

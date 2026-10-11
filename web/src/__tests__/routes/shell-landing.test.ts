@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { isRedirect } from '@tanstack/react-router'
 import { Route } from '@/routes/_shell/index'
-import { useProjectStore } from '@/lib/store/projects'
+import { projectListTransport } from '@/lib/api/project-list-transport'
+import { connectProjectList, useProjectStore } from '@/lib/store/projects'
 
 // Blackbox integration test for the cold-start landing race (the real bug found
 // in the E2E run): at app launch the daemon sidecar's socket may not be
@@ -41,6 +42,7 @@ async function runBeforeLoad(): Promise<unknown> {
 }
 
 beforeEach(() => {
+  connectProjectList(projectListTransport)
   useProjectStore.setState({ activeProjectId: '' })
 })
 

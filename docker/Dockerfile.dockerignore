@@ -1,0 +1,7 @@
+# Local build output. A stale api/cmd/crowbar/web/dist already holds *.gz
+# siblings, which makes the Dockerfile's gzip step fail with "File exists".
+api/cmd/crowbar/web
+api/bin
+api/coverage*
+api/logs
+api/crowbar*

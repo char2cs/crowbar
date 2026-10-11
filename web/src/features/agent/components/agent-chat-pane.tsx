@@ -19,11 +19,10 @@ import { AGENT_CYCLE_PROVIDER, AGENT_TOGGLE_VIEW_MODE } from '@/features/keymaps
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
-import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { pendingChatSurfaces } from '@/features/panes/stores/pending-chat-surfaces'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
+import { usePaneProviders } from '@/features/agent/hooks/use-pane-providers'
 import { usePaneSession } from '@/features/agent/hooks/use-pane-session'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import {
@@ -62,7 +61,7 @@ import { AgentTerminalSurface } from '@/features/agent/terminal/agent-terminal-s
 //     so the split STACKS instead of shrinking — a short terminal at the FULL pane
 //     width still wraps the way the CLI intended, where a tall narrow one does not.
 
-interface AgentChatPaneProps {
+export interface AgentChatPaneProps {
   /** The chat this pane is pointed at. NOT stable for its life: the pane re-points it. */
   chatId: string
   /** The runner this pane follows, or '' when it has none (a dormant chat). */
@@ -135,18 +134,20 @@ const CHAT_BLUR_ZONE_PX = HEADER_ROW_HEIGHT_PX + 56
 // OTHERWISE ADOPT WHOEVER IS ON MY CHAT. Attaching, relabelling and the exited state all
 // fall out of it rather than being engineered separately.
 // react-doctor-disable-next-line no-giant-component -- accepted: cohesive pane — drives a single live PTY-backed chat with tightly-coupled resize/focus/stream effects; no independent sub-surface to lift out.
-export function AgentChatPane({
+export function AgentChatPaneBody({
   chatId,
   runnerId,
   wsId,
+  hostId,
   paneId,
   isActivePane,
   isVisible,
   belowOverlayHeader = false,
-}: AgentChatPaneProps) {
+}: AgentChatPaneProps & {
+  /** The host `wsId` resolved to — the gate mounts this body only once it has. */
+  hostId: string
+}) {
   const store = useWorkspaceStore()
-  // Passive, so it follows the wrapper's layout-effect `begin` even in one commit.
-  useEffect(() => pendingChatSurfaces.getState().end(paneId), [paneId])
   // Extra top clearance every pinned-near-top surface below needs to clear the
   // overlay header's own real click target, plus that surface's original
   // breathing room (8px — the `top-2`/`mt-2` each one used to carry on its own).
@@ -221,30 +222,7 @@ export function AgentChatPane({
     store,
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.launchModel ?? '',
   )
-  // THE MACHINE-LEVEL LIST WHEN THIS WORKSPACE HAS NO COPY OF ITS OWN.
-  //
-  // `agentChats.providers` is seeded by use-workspace-agent-chats-stream, which
-  // only runs while that workspace is MOUNTED. A pane outlives its workspace's
-  // visibility by design (WorkspaceView's own doc), and
-  // getOrCreateWorkspaceStore happily mints an empty store for a workspace
-  // nothing has opened — so reopening an already-run conversation could land
-  // here with `[]`. Every provider control is absence-not-disabled, so an empty
-  // catalogue does not grey the picker out, it DELETES it
-  // (agent-selection-picker's own `catalogueProviders.length === 0` guard):
-  // the chat renders with no provider named and no control to name one with,
-  // recoverable only by toggling a provider in Settings, whose write path
-  // repairs this copy as a side effect. Same reasoning space-content-actions.ts
-  // already reached for the New-thread button.
-  const wsProviders = useStore(store, (s) => s.agentChats.providers)
-  const globalProviders = useAgentProvidersStore((s) => s.providers)
-  const providers = wsProviders.length > 0 ? wsProviders : globalProviders
-  // Neither copy populated: this pane is the first surface to need the list, so
-  // it asks. The store owns the read/write generation rules, so a load issued
-  // here cannot clobber a preferences write it races.
-  useEffect(() => {
-    if (wsProviders.length > 0 || globalProviders.length > 0) return
-    void useAgentProvidersStore.getState().load(wsId)
-  }, [wsProviders.length, globalProviders.length, wsId])
+  const providers = usePaneProviders(store, wsId, hostId)
 
   // Is this chat's CLI parked on a prompt Crowbar CANNOT answer — a workspace
   // trust dialog, a first-run screen, a login — which reaches the daemon through

@@ -1,4 +1,4 @@
-import { isSelfLoading } from '@/features/editor/lib/asset-data-url'
+import { isSelfLoading, textFromDataUrl } from '@/features/editor/lib/asset-data-url'
 
 /**
  * Loads one local asset reference (as written in the HTML) as a URL the
@@ -12,6 +12,7 @@ export type LoadAsset = (reference: string) => Promise<string | null>
 const TAG_PATTERN = /<([a-z][a-z0-9-]*)\b[^>]*>/gi
 const URL_ATTRIBUTE_PATTERN = /\b(src|href|poster)=(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi
 const SRCSET_ATTRIBUTE_PATTERN = /\bsrcset=(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi
+const SRCDOC_ATTRIBUTE_PATTERN = /\ssrcdoc(?=[\s=/>])/i
 
 function escapeHtmlAttribute(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
@@ -20,6 +21,17 @@ function escapeHtmlAttribute(value: string): string {
 /** `href` is a resource only on <link>; on <a> it is navigation and stays. */
 function isResourceAttribute(tag: string, attribute: string): boolean {
   return attribute.toLowerCase() !== 'href' || tag.toLowerCase() === 'link'
+}
+
+// A frame's `src` is a navigation, and the desktop shell cancels data:
+// navigations in every frame; a text document goes in `srcdoc` instead.
+function frameSrcdoc(tagSource: string, tag: string, attribute: string, url: string) {
+  const isFrameSrc = tag.toLowerCase() === 'iframe' && attribute.toLowerCase() === 'src'
+  if (!isFrameSrc || SRCDOC_ATTRIBUTE_PATTERN.test(tagSource)) return null
+  const text = textFromDataUrl(url)
+  return text === null
+    ? null
+    : `srcdoc="${escapeHtmlAttribute(text).replace(/</g, '&lt;').replace(/>/g, '&gt;')}"`
 }
 
 function srcsetUrls(value: string): string[] {
@@ -53,7 +65,11 @@ function rewriteTags(html: string, resolved: Map<string, string>): string {
         (match, attribute: string, dq?: string, sq?: string, uq?: string) => {
           const value = dq ?? sq ?? uq ?? ''
           const url = isResourceAttribute(tag, attribute) ? resolved.get(value) : undefined
-          return url ? `${attribute}="${escapeHtmlAttribute(url)}"` : match
+          if (!url) return match
+          return (
+            frameSrcdoc(tagSource, tag, attribute, url) ??
+            `${attribute}="${escapeHtmlAttribute(url)}"`
+          )
         },
       )
       .replace(SRCSET_ATTRIBUTE_PATTERN, (match, dq?: string, sq?: string, uq?: string) => {
@@ -73,7 +89,8 @@ function rewriteTags(html: string, resolved: Map<string, string>): string {
 /**
  * The preview document for `html`: every local resource reference (img/
  * script/video/audio/source `src`, `poster`, `srcset`, and `<link href>`)
- * inlined via `loadAsset`. References that do not load are left untouched.
+ * inlined via `loadAsset`; an iframe's local text document becomes its
+ * `srcdoc`. References that do not load are left untouched.
  */
 export async function buildHtmlPreviewDocument(
   html: string,

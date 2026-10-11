@@ -1,0 +1,124 @@
+import { useState } from 'react'
+import { HardDrives } from '@phosphor-icons/react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectPrimitive,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { AddHostDialog } from '@/features/hosts/components/add-host-dialog'
+import { HostStatusIcon } from '@/features/hosts/components/host-status-icon'
+import { useHostDotState, useHostView } from '@/features/hosts/hooks/use-host-status'
+import { hostDotLabel, hostIsUnreachable, hostToneText } from '@/features/hosts/lib/host-tone'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { LOCAL_HOST, type Host } from '@/features/hosts/types'
+import { isTauri } from '@/lib/crowbar-bridge'
+
+// A trailing pick that opens AddHostDialog rather than ever becoming the selected daemon.
+const ADD_HOST_VALUE = '__add-host__'
+
+/** One selectable saved host, disabled (not hidden) while nothing can be asked of it — a
+ *  project can't be created on a host that can't currently be reached. */
+function DaemonOption({ host }: { host: Host }) {
+  const state = useHostDotState(host.id)
+  return (
+    <SelectItem value={host.id} disabled={hostIsUnreachable(state)}>
+      <span className="flex items-center gap-2">
+        <HostStatusIcon hostId={host.id} state={state} />
+        <span className="min-w-0 flex-1 truncate">{host.name}</span>
+        {/* In its dot's words and colour, which Settings and the sidebar use too. */}
+        <span {...hostToneText(state, 'text-xs')}>{hostDotLabel(state)}</span>
+      </span>
+    </SelectItem>
+  )
+}
+
+function LocalOption() {
+  const state = useHostDotState(LOCAL_HOST.id)
+  return (
+    <SelectItem value={LOCAL_HOST.id}>
+      <span className="flex items-center gap-2">
+        <HostStatusIcon hostId={LOCAL_HOST.id} state={state} />
+        {LOCAL_HOST.name}
+      </span>
+    </SelectItem>
+  )
+}
+
+interface CreateSpaceDaemonRowProps {
+  hostId: string
+  onHostIdChange: (hostId: string) => void
+}
+
+/** Create Space's Daemon row: Local, every saved host with its status, and "+ Add a host…". */
+export function CreateSpaceDaemonRow({ hostId, onHostIdChange }: CreateSpaceDaemonRowProps) {
+  const hosts = useHostConfigStore((s) => s.hosts)
+  const selected = useHostView(hostId)
+  const [addHostOpen, setAddHostOpen] = useState(false)
+  // Each opening is a new attempt, even one made while the last is still closing.
+  const [addHostAttempt, setAddHostAttempt] = useState(0)
+  // Pairing is the desktop shell's: anywhere else it could only end in an error.
+  const canAddHost = isTauri()
+
+  function handleValueChange(value: string | null) {
+    if (!value) return
+    if (value === ADD_HOST_VALUE) {
+      setAddHostAttempt((n) => n + 1)
+      setAddHostOpen(true)
+      return
+    }
+    onHostIdChange(value)
+  }
+
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-border bg-muted px-3 py-2.5 text-sm">
+      <span className="flex items-center gap-2 text-foreground">
+        <HardDrives size={16} className="text-muted-foreground" />
+        Daemon
+      </span>
+      <Select value={hostId} onValueChange={handleValueChange}>
+        <SelectTrigger
+          aria-label="Daemon"
+          size="sm"
+          className="h-auto min-h-0 w-auto min-w-0 border-none bg-transparent px-0 text-muted-foreground shadow-none before:hidden hover:bg-transparent"
+        >
+          <SelectValue>
+            <span className="flex items-center gap-1.5">
+              <HostStatusIcon hostId={hostId} state={selected.state} />
+              {hostId === LOCAL_HOST.id ? (
+                selected.name
+              ) : (
+                <span {...hostToneText(selected.state)}>
+                  {selected.name ?? hostDotLabel(selected.state)}
+                </span>
+              )}
+            </span>
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <LocalOption />
+          {hosts.length > 0 && <SelectPrimitive.Separator className="my-1 h-px bg-border" />}
+          {hosts.map((host) => (
+            <DaemonOption key={host.id} host={host} />
+          ))}
+          {canAddHost && (
+            <>
+              <SelectPrimitive.Separator className="my-1 h-px bg-border" />
+              <SelectItem value={ADD_HOST_VALUE}>+ Add a host…</SelectItem>
+            </>
+          )}
+        </SelectContent>
+      </Select>
+      {canAddHost && (
+        <AddHostDialog
+          key={addHostAttempt}
+          open={addHostOpen}
+          onOpenChange={setAddHostOpen}
+          onPaired={onHostIdChange}
+        />
+      )}
+    </div>
+  )
+}

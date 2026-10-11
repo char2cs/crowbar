@@ -11,7 +11,6 @@ import {
 import { layoutHeight } from '@/lib/layout-size'
 import { markEnd } from '@/lib/perf/instrumentation'
 import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual'
-import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type {
@@ -29,6 +28,7 @@ import {
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import { samePrompt } from '@/features/agent/hooks/use-prompt-queue'
 import { WorkingLine } from '@/features/agent/activity/working-line'
+import { ChatLoadFailure } from '@/features/agent/transcript/chat-load-failure'
 import {
   useTranscriptAnchor,
   type TranscriptScrollPosition,
@@ -1009,17 +1009,11 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           </div>
         )}
         {props.error && messages.length === 0 && (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center text-sm">
-            <p>Couldn’t load this chat’s messages.</p>
-            <div className="flex gap-2">
-              <Button size="sm" variant="secondary" onClick={props.onRetryLoad}>
-                Retry
-              </Button>
-              <Button size="sm" variant="ghost" onClick={props.onOpenTerminal}>
-                <TerminalIcon /> Terminal
-              </Button>
-            </div>
-          </div>
+          <ChatLoadFailure
+            error={props.error}
+            onRetry={props.onRetryLoad}
+            onOpenTerminal={props.onOpenTerminal}
+          />
         )}
         {/* Rendered only when there is something to render: an empty wrapper is
             still a flex child, and `.stream`'s `gap` would put 18px of nothing

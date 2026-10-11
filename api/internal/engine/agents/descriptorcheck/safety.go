@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/char2cs/crowbar/api/internal/core/svgicon"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
@@ -29,6 +30,7 @@ var (
 // name that is not one, or a version range nothing can compare against.
 func safetyRules(doc document, d *spec.Descriptor) []Finding {
 	var out []Finding
+	out = append(out, iconRules(doc, d)...)
 	out = append(out, shellCommandRules(doc, d)...)
 	for _, f := range argvFields(d) {
 		out = append(out, hookPlaceholderRules(doc, f)...)
@@ -45,6 +47,20 @@ func safetyRules(doc document, d *spec.Descriptor) []Finding {
 		}
 	}
 	return append(out, versionRules(doc, d)...)
+}
+
+// iconRules flag an icon the webview could not inject safely. Only a warning:
+// the daemon drops it at load and the provider runs without one.
+func iconRules(doc document, d *spec.Descriptor) []Finding {
+	if d.Icon == "" {
+		return nil
+	}
+	err := svgicon.Validate(d.Icon)
+	if err == nil {
+		return nil
+	}
+	return []Finding{doc.finding("icon.unsafe", SeverityWarning, "icon", err.Error(),
+		"use plain SVG shapes and gradients: no script, event handlers, external references or CSS functions; until then the provider has no icon")}
 }
 
 func shellCommandRules(doc document, d *spec.Descriptor) []Finding {

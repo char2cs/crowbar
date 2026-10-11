@@ -5,6 +5,7 @@ import {
   type PermissionLevel,
 } from '@/features/agent/api/agent-api'
 import { toast } from '@/features/window/stores/toast-store'
+import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 import {
   Select,
   SelectContent,
@@ -66,9 +67,10 @@ export function PermissionLevelSwitcher({
           if (writeGeneration.current !== generation) return // superseded by a later pick
           lastPickedLevel.set(chatId, value)
         })
-        .catch(() => {
+        .catch((err: unknown) => {
           if (writeGeneration.current !== generation) return
           setLevel(previous)
+          if (toastHostFailure(err)) return
           toast.error(
             'Could not set permission level',
             'Crowbar could not reach the daemon — try again.',

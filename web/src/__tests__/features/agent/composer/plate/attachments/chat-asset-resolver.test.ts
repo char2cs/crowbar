@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   chatAttachmentUrl,
   chatMarkdownAssetInfo,
@@ -6,7 +6,9 @@ import {
   fetchChatAttachmentMetadata,
   parseChatAttachmentRef,
 } from '@/features/agent/composer/plate/attachments/chat-asset-resolver'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import * as scopeUrl from '@/lib/workspace-scope-url'
 
 beforeEach(() => {
   __resetWorkspaceScopesForTest()
@@ -52,6 +54,50 @@ describe('chatAttachmentUrl', () => {
   it('returns null (never throws) when the workspace scope is unrecorded', () => {
     expect(() => chatAttachmentUrl('unknown-ws', 'chats/c1/attachments/x.png')).not.toThrow()
     expect(chatAttachmentUrl('unknown-ws', 'chats/c1/attachments/x.png')).toBeNull()
+  })
+})
+
+describe('chatAttachmentUrl on a remote host', () => {
+  const remoteBase = 'crowbar://h1/v0/projects/p1/repos/r1/chats'
+
+  beforeEach(() => {
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+    vi.spyOn(scopeUrl, 'repoChatsBaseForWorkspace').mockReturnValue(remoteBase)
+    useHostConfigStore.setState({
+      hosts: [
+        { id: 'h1', name: 'Box', endpoint: 'box:3737', pairedFingerprint: 'ff', clientId: 'c' },
+      ],
+    })
+  })
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+    useHostConfigStore.setState({ hosts: [] })
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('serves the attachment from that host', () => {
+    expect(chatAttachmentUrl('ws1', 'chats/c1/attachments/a b.png')).toBe(
+      `${remoteBase}/c1/attachments/a%20b.png`,
+    )
+  })
+
+  it('reads and probes it on that host', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 404 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchChatAttachmentMetadata('ws1', 'chats/c1/attachments/x.png')
+    await fetchChatAttachmentDataUrl('ws1', 'chats/c1/attachments/x.png')
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      `${remoteBase}/c1/attachments/x.png`,
+      `${remoteBase}/c1/attachments/x.png`,
+    ])
+  })
+
+  it('resolves to null, never a local URL, for a host that is not configured', () => {
+    useHostConfigStore.setState({ hosts: [] })
+    expect(chatAttachmentUrl('ws1', 'chats/c1/attachments/x.png')).toBeNull()
   })
 })
 

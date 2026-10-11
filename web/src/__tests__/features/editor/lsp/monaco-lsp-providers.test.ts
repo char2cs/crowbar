@@ -3,7 +3,7 @@
  * them into one Monaco command that has the daemon execute them and applies
  * the edits the server made while they ran.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as Monaco from 'monaco-editor'
 
 const monaco = vi.hoisted(() => ({
@@ -65,6 +65,10 @@ import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
+import { toast } from '@/features/window/stores/toast-store'
+import { proxyMarkerError } from '@/lib/api/errors'
+import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 registerLspProviders()
 
@@ -195,5 +199,34 @@ describe('LSP commands', () => {
       return buffer && 'content' in buffer ? buffer.content : undefined
     }
     await vi.waitFor(() => expect(content()).toBe('xya'))
+  })
+})
+
+// A server command the daemon could not run says so under the command's own title: in the
+// daemon's words, or naming the remote host that failed it.
+describe('a failed LSP command', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    destroyHostRuntime('h1')
+    resetHostWorld()
+  })
+
+  it.each([
+    ['in its own words', () => new Error('gopls crashed'), 'gopls crashed'],
+    [
+      'naming the remote host that failed it',
+      () => (pairRemoteHost('h1', 'Studio Mac'), proxyMarkerError('host-unreachable', 'h1')),
+      'Couldn’t reach Studio Mac',
+    ],
+  ])('is toasted %s', async (_, failure, description) => {
+    const toastError = vi.spyOn(toast, 'error').mockReturnValue('')
+    request.mockReset().mockRejectedValue(failure())
+    const command = { title: 'Tidy', command: 'gopls.tidy', arguments: [] }
+
+    monaco.commands.get('crowbar.lsp.runCommand')?.(undefined, 'ws1', 'main.go', null, command)
+
+    await vi.waitFor(() =>
+      expect(toastError).toHaveBeenCalledExactlyOnceWith('Command failed', description),
+    )
   })
 })

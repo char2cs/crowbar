@@ -1,5 +1,6 @@
 import { ApiError } from '@/lib/api'
 import { toast } from '@/features/window/stores/toast-store'
+import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 
 /** HTTP 424 Failed Dependency — the daemon could not find the provider's vendor CLI
  *  on this machine (not installed, or not on the PATH the daemon actually has). It is
@@ -44,7 +45,8 @@ export function describeSpawnError(
 /** Report a failed spawn to the user AND to the console — the toast is what they see,
  *  the console line is what a bug report can carry. */
 export function toastSpawnFailure(err: unknown, providerName: string, action: string): void {
-  const { message, description } = describeSpawnError(err, providerName, action)
   console.error(`Failed to ${action} agent chat:`, err)
+  if (toastHostFailure(err)) return
+  const { message, description } = describeSpawnError(err, providerName, action)
   toast.error(message, description)
 }

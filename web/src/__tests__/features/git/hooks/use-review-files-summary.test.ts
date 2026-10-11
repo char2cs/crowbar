@@ -16,6 +16,12 @@ import {
   recordWorkspaceScope,
   setWorkspaceScope,
 } from '@/lib/workspace-scope'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 function summaryFile(
   path: string,
@@ -192,5 +198,34 @@ describe('useReviewFilesSummary', () => {
       expect(mocks.getReviewFiles).toHaveBeenCalledWith({ wsId: 'ws-race', commit: undefined })
       expect(result.current.files).toHaveLength(1)
     })
+  })
+})
+
+describe('useReviewFilesSummary on an install that has paired a remote host', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.getReviewFiles.mockResolvedValue([summaryFile('src/a.ts')])
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    __resetWorkspaceScopesForTest()
+    setWorkspaceScope({
+      projectId: 'p-remote',
+      repoId: 'r1',
+      wsId: 'ws-remote',
+      owningChatId: 'chat-remote',
+    })
+  })
+  afterEach(() => resetHostWorld())
+
+  it('asks nothing until the project list names the host, then fetches', async () => {
+    const { result } = renderHook(() => useReviewFilesSummary('ws-remote'))
+    await act(async () => {})
+    expect(mocks.getReviewFiles).not.toHaveBeenCalled()
+    expect(result.current.loaded).toBe(false)
+
+    act(() => loadProjects(projectOn('p-remote', 'host-1')))
+
+    await waitFor(() => expect(result.current.loaded).toBe(true))
+    expect(mocks.getReviewFiles).toHaveBeenCalledWith({ wsId: 'ws-remote', commit: undefined })
   })
 })

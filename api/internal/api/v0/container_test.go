@@ -62,7 +62,7 @@ func serveAgentChats(
 ) (*v0.Container, *httptest.Server) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	c := v0.New(tc.app, tc.eng)
+	c := v0.New(tc.app, tc.eng, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET("/v0/chats/:chatId/ws", c.AgentChatsHandle)
@@ -196,7 +196,7 @@ func TestV0_WorktreeState_RepoScopeIsolatesOtherRepos(t *testing.T) {
 func TestContainer_PushProject_RouteByPrefix(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
-	c := v0.New(tc.app, tc.eng)
+	c := v0.New(tc.app, tc.eng, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET("/v0/projects/:projectId", c.ProjectsHandle)
@@ -222,7 +222,7 @@ func TestContainer_PushProject_RouteByPrefix(t *testing.T) {
 func TestContainer_PushRepo_RouteByPrefix(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
-	c := v0.New(tc.app, tc.eng)
+	c := v0.New(tc.app, tc.eng, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET("/v0/projects/:projectId/repos", c.ReposHandle)
@@ -255,7 +255,7 @@ func TestV0_PushLSP_ReachesFilteredClient(t *testing.T) {
 		chatToWs:   map[string]string{"chat-1": "w1"},
 		workspaces: tc.app.Repositories.Workspace,
 	}
-	c := v0.New(tc.app, tc.eng)
+	c := v0.New(tc.app, tc.eng, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
@@ -289,7 +289,7 @@ func TestV0_PushGit_ChatFanout_IsolatesUnrelatedWorkspace(t *testing.T) {
 		chatToWs:   map[string]string{"chat-1": "A"},
 		workspaces: tc.app.Repositories.Workspace,
 	}
-	c := v0.New(tc.app, tc.eng)
+	c := v0.New(tc.app, tc.eng, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
@@ -318,7 +318,7 @@ func TestV0_PushFile_ReachesFilteredClient(t *testing.T) {
 		chatToWs:   map[string]string{"chat-1": "w1"},
 		workspaces: tc.app.Repositories.Workspace,
 	}
-	c := v0.New(tc.app, tc.eng)
+	c := v0.New(tc.app, tc.eng, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))

@@ -30,7 +30,7 @@ import { SidebarPeek } from './sidebar-peek'
 import { useSidebarPanel, SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from './use-sidebar-panel'
 import { SidebarSplitPane } from './sidebar-split-pane'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
-import { recordWorkspaceScopeFromPath, setWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScopeFromPath } from '@/lib/workspace-scope'
 import { dataOf } from '@/lib/loadable'
 import {
   ensureHomeWorkspaceResolved,
@@ -92,29 +92,13 @@ function IdeShellBody() {
   // keep-alive retention, so a repeat visit is a warm slot reveal.
   // Not gated to `homeRouteMatch`: retention's sidebar-path lookup needs this project's home id/path off the home route too (a split can mix a home chat's pane with a repo route), or it falls through to the repo scan and dead-ends on "No folder open".
   const homeProjectId = activeProjectIdFromRoute
-  const {
-    wsId: homeWorkspaceId,
-    owningChatId: homeOwningChatId,
-    localPath: homeWorkspacePath,
-  } = useHomeWorkspaceState(homeProjectId ?? null)
+  // Its scope, owning chat included, is recorded by the resolver before this id arrives.
+  const { wsId: homeWorkspaceId, localPath: homeWorkspacePath } = useHomeWorkspaceState(
+    homeProjectId ?? null,
+  )
   useEffect(() => {
     if (homeProjectId) ensureHomeWorkspaceResolved(homeProjectId)
   }, [homeProjectId])
-  // Recorded SYNCHRONOUSLY during render (matches recordWorkspaceScopeFromPath
-  // above) — WorkspaceHost, rendered below, mounts this workspace's
-  // WorkspaceView in the same render pass, and workspaceBase() needs the
-  // scope to exist before that.
-  if (homeRouteMatch && homeProjectId && homeWorkspaceId) {
-    // owningChatId travels with it: home is project-level, so it never appears in
-    // the sidebar's repo tree that records every other workspace's owning chat,
-    // and a chat-scoped URL (a terminal's) could not be built for it otherwise.
-    setWorkspaceScope({
-      projectId: homeProjectId,
-      repoId: '',
-      wsId: homeWorkspaceId,
-      owningChatId: homeOwningChatId ?? undefined,
-    })
-  }
   // Every workspace-id fact WorkspaceHost's retention and the sidebar's
   // file-explorer path need, resolved off the active pane/route — see the
   // hook's own doc for why this lives outside IDEShell's body.
@@ -236,7 +220,7 @@ function IdeShellBody() {
 
   // See the hook's own doc for the "viewing a project that no longer exists"
   // invariant this enforces.
-  useRedirectIfProjectMissing(activeProjectIdFromRoute, allProjects, navigate)
+  useRedirectIfProjectMissing(activeProjectIdFromRoute, navigate)
 
   // SidebarPeek is a wrapper, not a branch: it renders in every state and only
   // restyles itself, so hiding the sidebar never rebuilds the subtree below it.

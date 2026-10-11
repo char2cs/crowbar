@@ -76,6 +76,7 @@ describe('buffer preview pane integration', () => {
 
     const firstPreviewId = bufferActions.openContent({
       type: 'editor',
+      workspaceId: 'ws-test',
       path: '/workspace/a.ts',
       name: 'a.ts',
       content: 'a',
@@ -88,6 +89,7 @@ describe('buffer preview pane integration', () => {
     // The split became the active pane, so the second preview opens there.
     const secondPreviewId = bufferActions.openContent({
       type: 'editor',
+      workspaceId: 'ws-test',
       path: '/workspace/b.ts',
       name: 'b.ts',
       content: 'b',
@@ -111,6 +113,7 @@ describe('buffer preview pane integration', () => {
 
     const previewId = bufferActions.openContent({
       type: 'editor',
+      workspaceId: 'ws-test',
       path: '/workspace/preview.ts',
       name: 'preview.ts',
       content: 'preview',
@@ -129,6 +132,7 @@ describe('buffer preview pane integration', () => {
 
     const previewId = bufferActions.openContent({
       type: 'editor',
+      workspaceId: 'ws-test',
       path: '/workspace/pinned.ts',
       name: 'pinned.ts',
       content: 'pinned',

@@ -4,6 +4,7 @@ import {
   placeRestoredChatMembers,
 } from '@/lib/persistence/hydrate'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { seedProjectList } from '@/lib/store/projects'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { dataOf } from '@/lib/loadable'
 import { prefetchVisibleChats } from '@/features/agent/lib/prefetch-visible-chats'
@@ -13,6 +14,8 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { markStart } from '@/lib/perf/instrumentation'
 import { retireOrphanedStorage } from '@/lib/persistence/retired-storage'
+import { hostsRegistered } from '@/features/hosts/lib/host-registration'
+import { hasPairedRemote, useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
 /**
  * Hydrates whatever this window's pane/buffer layout and sidebar tree were
@@ -44,12 +47,20 @@ import { retireOrphanedStorage } from '@/lib/persistence/retired-storage'
  */
 export async function hydrateCriticalStores(): Promise<void> {
   void retireOrphanedStorage()
-  await hydrateWindowPaneLayout()
+  const remoteHosts = prepareRemoteHosts()
+  try {
+    await hydrateWindowPaneLayout()
+  } catch (err) {
+    // main.tsx renders even after a failed boot: render must not overtake the registration.
+    if (remoteHosts) await remoteHosts
+    throw err
+  }
   // The chat surface chunk loads beside the IndexedDB reads below, and render
   // waits for it, so the restored chat mounts in the first commit.
   const chatSurface = showsChat() ? preloadAgentChatPane() : undefined
   // Layout hydration to the first transcript row shown; AgentTranscript closes it.
   if (chatSurface) markStart('chat:first-row')
+  if (remoteHosts) await remoteHosts
   // The one network step, deliberately not awaited: members stay unplaced until it answers.
   void placeRestoredChatMembers()
   await useWorkspaceListStore.getState().fetch()
@@ -59,6 +70,14 @@ export async function hydrateCriticalStores(): Promise<void> {
   void prefetchVisibleChats()
   await hydrateSidebar()
   await chatSurface?.catch(() => {})
+}
+
+/** A paired install's hosts registered and its cached project rows held — where a restored
+ *  pane's host, local too, resolves from. Undefined where no remote was ever paired, so
+ *  that boot does exactly what it did. */
+function prepareRemoteHosts(): Promise<unknown> | undefined {
+  if (!hasPairedRemote(useHostConfigStore.getState())) return undefined
+  return Promise.all([hostsRegistered(), seedProjectList()])
 }
 
 function showsChat(): boolean {

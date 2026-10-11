@@ -6,6 +6,10 @@ import type { AgentActivity, AgentChoice } from '@/features/agent/api/agent-api'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
 import { NO_ACTIVITY } from '@/features/agent/lib/agent-activity'
 import { ApiError } from '@/lib/api'
+import { proxyMarkerError } from '@/lib/api/errors'
+import { toast } from '@/features/window/stores/toast-store'
+import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 const { answerChoiceFn, setChatPermissionLevelFn } = vi.hoisted(() => ({
   answerChoiceFn: vi.fn(),
@@ -291,6 +295,22 @@ describe('ComposerChoice failures', () => {
       expect(screen.getByTestId('agent-choice-error')).toHaveTextContent('network blip'),
     )
     expect(screen.getByRole('button', { name: 'Allow' })).toBeEnabled()
+  })
+
+  it('names the remote host an answer could not reach', async () => {
+    pairRemoteHost('h1', 'Studio Mac')
+    answerChoiceFn.mockRejectedValue(proxyMarkerError('host-unreachable', 'h1'))
+    draw()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-choice-error')).toHaveTextContent(
+        'Couldn’t reach Studio Mac',
+      ),
+    )
+    destroyHostRuntime('h1')
+    resetHostWorld()
   })
 })
 
@@ -696,6 +716,26 @@ describe('ComposerChoice permission-level switcher', () => {
     await pickLevel(user, 'trusted')
 
     expect(setChatPermissionLevelFn).toHaveBeenCalledWith('w1', 'c1', 'trusted')
+  })
+
+  it('names the remote host a pick could not reach, instead of blaming the daemon', async () => {
+    pairRemoteHost('h1', 'Studio Mac')
+    const toastError = vi.spyOn(toast, 'error').mockImplementation(() => '')
+    setChatPermissionLevelFn.mockRejectedValue(proxyMarkerError('host-unreachable', 'h1'))
+    const user = userEvent.setup()
+    draw()
+
+    await pickLevel(user, 'trusted')
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledExactlyOnceWith(
+        'Couldn’t reach Studio Mac',
+        'Check that it is online in Settings → Hosts.',
+      ),
+    )
+    toastError.mockRestore()
+    destroyHostRuntime('h1')
+    resetHostWorld()
   })
 
   // `ComposerChoice` is unkeyed in the composer's own switch, and

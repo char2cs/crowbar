@@ -223,6 +223,7 @@ func specRoutes() []string {
 		"DELETE " + chat + "/terminals/:sessionId",
 		// §2.12 System
 		"GET /v0/system/prerequisites",
+		"GET /v0/system/browse",
 		// §2.13 Health
 		"GET /v0/health",
 		// §3 WebSocket endpoints, chat-scoped (W7-2 co-location; §8 step 6
@@ -590,6 +591,12 @@ func extraRoutes() []string {
 		// /system/prerequisites rather than inside the entity hierarchy.
 		"GET /v0/system/perf",
 		"POST /v0/system/perf",
+		// Pairing + client registry: mint/redeem stay open so an unpaired
+		// client can bootstrap trust; the registry routes are guarded.
+		"POST /v0/pair/code",
+		"POST /v0/pair",
+		"GET /v0/clients",
+		"DELETE /v0/clients/:id",
 	}
 }
 
@@ -598,7 +605,7 @@ func registeredRoutes(
 ) map[string]struct{} {
 	t.Helper()
 	tc := newApp(t)
-	c := v0.New(tc.app, tc.eng)
+	c := v0.New(tc.app, tc.eng, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
@@ -884,7 +891,7 @@ func TestRouteAudit_DualServe_RestMode(t *testing.T) {
 	tc := newApp(t)
 	seedWorkspace(t, tc, "w1")
 	tc.app.Usecases.Worktree = stubChatWorktreeResolver{chatToWs: map[string]string{"chat-1": "w1"}, workspaces: tc.app.Repositories.Workspace}
-	c := v0.New(tc.app, tc.eng)
+	c := v0.New(tc.app, tc.eng, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
@@ -920,7 +927,7 @@ func TestRouteAudit_DualServe_WsMode(t *testing.T) {
 	tc := newApp(t)
 	seedWorkspace(t, tc, "w1")
 	tc.app.Usecases.Worktree = stubChatWorktreeResolver{chatToWs: map[string]string{"chat-1": "w1"}, workspaces: tc.app.Repositories.Workspace}
-	c := v0.New(tc.app, tc.eng)
+	c := v0.New(tc.app, tc.eng, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
@@ -953,7 +960,7 @@ func TestConsoleLogs_WithRing_StreamsReplayReadyAndLiveRedacted(t *testing.T) {
 	log := slog.New(ring.Wrap(slog.NewTextHandler(&strings.Builder{}, nil)))
 	log.Info("old", "component", "boot")
 	r := gin.New()
-	c := v0.New(tc.app, tc.eng, v0.WithLogs(ring))
+	c := v0.New(tc.app, tc.eng, "", v0.WithLogs(ring))
 	t.Cleanup(c.Close)
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)

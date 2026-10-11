@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createElement } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import type { AgentChat } from '@/features/agent/api/agent-api'
@@ -29,11 +29,26 @@ vi.mock('@/features/file-explorer/components/file-explorer-icon', () => ({
   FileExplorerIcon: () => createElement('span', { 'data-testid': 'file-icon' }),
 }))
 
+const menu = vi.hoisted(() => ({
+  onRevealInFinder: undefined as undefined | ((path: string) => void),
+}))
 vi.mock('@/features/tabs/components/tab-context-menu', () => ({
-  default: () => null,
+  default: (props: { onRevealInFinder?: (path: string) => void }) => {
+    menu.onRevealInFinder = props.onRevealInFinder
+    return null
+  },
 }))
 
 import TabBar from '@/features/tabs/components/tab-bar'
+import * as fileTreeHandlers from '@/features/files/lib/file-tree-handlers'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 function makeEditorBuffer(i: number): EditorContent {
   return {
@@ -174,8 +189,13 @@ describe('TabBar "+" placement', () => {
 })
 
 describe('TabBar "+" click behaviour', () => {
+  // A different workspace is in view: what the "+" opens belongs to the pane's.
+  beforeEach(() => {
+    setActiveWorkspaceId('w-in-view')
+  })
   afterEach(() => {
     vi.clearAllMocks()
+    setActiveWorkspaceId(null)
   })
 
   it('opens a dropdown offering New File and New Terminal', async () => {
@@ -197,7 +217,7 @@ describe('TabBar "+" click behaviour', () => {
     const buffers = [makeEditorBuffer(0)]
     const store = setupPaneStore({ buffers, chatId: 'chat-1' })
     act(() => {
-      renderTabBar(store, { wsId: 'w1' })
+      renderTabBar(store, { wsId: 'w-pane' })
     })
     act(() => {
       windowPaneStore.getState().paneActions.setActivePane('some-other-pane-first')
@@ -212,6 +232,8 @@ describe('TabBar "+" click behaviour', () => {
     const newBuf = windowPaneStore.getState().buffers.find((b) => b.id === editorTabIds[1])
     expect(newBuf?.type).toBe('editor')
     expect((newBuf as EditorContent)?.isVirtual).toBe(true)
+    // The pane's own workspace, not the one in view.
+    expect(newBuf?.workspaceId).toBe('w-pane')
   })
 
   it('"New Terminal" opens a new terminal tab in this pane', async () => {
@@ -219,7 +241,7 @@ describe('TabBar "+" click behaviour', () => {
     const buffers = [makeEditorBuffer(0)]
     const store = setupPaneStore({ buffers, chatId: 'chat-1' })
     act(() => {
-      renderTabBar(store, { wsId: 'w1' })
+      renderTabBar(store, { wsId: 'w-pane' })
     })
 
     await user.click(screen.getByRole('button', { name: 'New tab' }))
@@ -228,6 +250,7 @@ describe('TabBar "+" click behaviour', () => {
     const editorTabIds = windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds ?? []
     const newBuf = windowPaneStore.getState().buffers.find((b) => b.id === editorTabIds[1])
     expect(newBuf?.type).toBe('terminal')
+    expect(newBuf?.workspaceId).toBe('w-pane')
   })
 })
 
@@ -513,5 +536,57 @@ describe('TabBar — chat as a tab (showChatTab)', () => {
     })
 
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).toBe('buf-0')
+  })
+})
+
+describe('TabBar context menu', () => {
+  beforeEach(() => {
+    menu.onRevealInFinder = undefined
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('reveals a tab’s file in the workspace the tab belongs to, not the pane’s', () => {
+    const reveal = vi.spyOn(fileTreeHandlers, 'revealInFolder').mockImplementation(() => {})
+    const store = setupStore([{ ...makeEditorBuffer(0), workspaceId: 'w-tab' }])
+    act(() => {
+      renderTabBar(store, { wsId: 'w-pane' })
+    })
+
+    act(() => {
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /file-0\.ts/ }))
+    })
+    menu.onRevealInFinder?.('src/a.ts')
+
+    expect(reveal).toHaveBeenCalledExactlyOnceWith('w-tab', 'src/a.ts')
+  })
+
+  it('offers no Reveal while no tab’s menu is open, rather than guessing a workspace', () => {
+    const store = setupStore([makeEditorBuffer(0)])
+    act(() => {
+      renderTabBar(store, { wsId: 'w-pane' })
+    })
+
+    expect(menu.onRevealInFinder).toBeUndefined()
+  })
+
+  // A remote workspace's path means nothing to this machine's Finder.
+  it('offers no Reveal for a tab whose workspace lives on a remote host', () => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    loadProjects(projectOn('p-remote', 'host-1'))
+    recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r1', wsId: 'w-remote' })
+    const store = setupStore([{ ...makeEditorBuffer(0), workspaceId: 'w-remote' }])
+    act(() => {
+      renderTabBar(store, { wsId: 'w-remote' })
+    })
+
+    act(() => {
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /file-0\.ts/ }))
+    })
+
+    expect(menu.onRevealInFinder).toBeUndefined()
+    resetHostWorld()
   })
 })

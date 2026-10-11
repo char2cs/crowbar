@@ -3,24 +3,65 @@ import type {
   ChatType,
   ChatWorktreeDTO,
   FolderDTO,
-  Project,
   Prerequisites,
   RepoDTO,
   WorkspaceDTO,
 } from './types'
 import type { PRLink } from '@/lib/import/parent-plan'
 import { getOwningChatId } from '@/lib/workspace-scope'
+import { projectBase, repoBase } from '@/lib/project-url'
 import { daemonChanges, noteDaemonChange } from '@/lib/transport/daemon-changes'
 import { OwningChatNotRecordedError, worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
+import { isTauri } from '@/lib/crowbar-bridge'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import {
+  ApiError,
+  DAEMON_UNAVAILABLE_CODE,
+  HostNotConfiguredError,
+  PROXY_HEADER,
+  proxyMarkerError,
+} from './api/errors'
+import { routeToHost } from './api/host-route'
+
+export { ApiError } from './api/errors'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
 
 /**
+ * Resolves the API base for a given host. 'local' (the default every existing
+ * call site keeps using unchanged) returns the SAME API_BASE this file has
+ * always exported — zero behavior change. Any other id must be a registered
+ * remote host; resolving one requires the desktop app, since only the Tauri
+ * bridge (crowbar://<hostId>) can complete the pinned-TLS dial.
+ */
+export function apiBaseFor(hostId: string): string {
+  if (hostId === 'local') return API_BASE
+  if (!isTauri()) {
+    throw new Error(`remote host "${hostId}" is only reachable from the desktop app`)
+  }
+  const known = useHostConfigStore.getState().hosts.some((h) => h.id === hostId)
+  if (!known) {
+    throw new HostNotConfiguredError(hostId)
+  }
+  return `crowbar://${hostId}`
+}
+
+/**
+ * The absolute URL for a daemon-relative path, qualified or not, for callers that
+ * build their own `fetch`. Throws for a host this window cannot reach rather than
+ * falling back to the local daemon.
+ */
+export function apiUrl(path: string): string {
+  const target = routeToHost(path)
+  return `${apiBaseFor(target.hostId)}${target.path}`
+}
+
+/**
  * Turn a daemon-relative asset path into one the webview can actually load.
  *
  * Only for URLs handed to the BROWSER — an `<img src>`, not an `apiFetch` (which
- * applies API_BASE itself). A DTO's icon URL arrives as a bare `/v0/...` path,
+ * applies the base itself). A DTO's icon URL arrives as a bare `/v0/...` path,
  * and the desktop webview is served from its own origin: on the dev server that
  * path resolves to Vite, in a packaged build to the app bundle. Either way it is
  * not the daemon, so the request 404s and the <img> quietly falls back to the
@@ -31,24 +72,7 @@ export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? 
  * resolve the same kind of URL two different ways.
  */
 export function assetURL(path: string): string {
-  return `${API_BASE}${path}`
-}
-
-/** Error thrown by apiFetch carrying the HTTP status, so callers can make
- *  status-specific decisions (e.g. a 404 is terminal — never retried). */
-export class ApiError extends Error {
-  readonly status: number
-  /** Stable server recovery category. Most endpoints omit it. */
-  readonly code?: string
-  /** The error envelope's `data`, for the few refusals that carry detail. */
-  readonly data?: unknown
-  constructor(message: string, status: number, code?: string, data?: unknown) {
-    super(message)
-    this.name = 'ApiError'
-    this.status = status
-    this.code = code
-    this.data = data
-  }
+  return apiUrl(path)
 }
 
 /** What deleting one workspace would destroy that exists nowhere else. */
@@ -77,16 +101,6 @@ export const DISCARD_WORK_INIT: RequestInit = { headers: { 'Crowbar-Discard-Work
 export function isNotFoundError(err: unknown): boolean {
   return err instanceof ApiError && err.status === 404
 }
-
-/**
- * The desktop proxy's own answer when nothing is listening on the daemon
- * socket (api_proxy.rs: a 503 carrying this header, text/plain, no envelope)
- * — the daemon is starting or respawning, not refusing. Named so UI copy can
- * say so; deliberately NOT retried in apiFetchRaw, the proxy already spent
- * the idempotent-read connect budget.
- */
-const PROXY_HEADER = 'x-crowbar-proxy'
-const DAEMON_UNAVAILABLE_CODE = 'daemon_unavailable'
 
 export function isDaemonUnavailableError(err: unknown): boolean {
   return err instanceof ApiError && err.code === DAEMON_UNAVAILABLE_CODE
@@ -134,16 +148,19 @@ export async function apiFetchRaw(
   path: string,
   init?: RequestInit,
   retry: RetryConfig = DEFAULT_RETRY,
+  hostId?: string,
 ): Promise<Response> {
+  const target = routeToHost(path, hostId)
   const read = isIdempotentRead(init)
   if (!read) noteDaemonChange()
   const maxAttempts = read ? Math.max(1, retry.attempts) : 1
   const sleep = retry.sleep ?? defaultSleep
+  const base = apiBaseFor(target.hostId)
 
   for (let attempt = 1; ; attempt++) {
     let res: Response
     try {
-      res = await fetch(`${API_BASE}${path}`, init)
+      res = await fetch(`${base}${target.path}`, init)
     } catch (err) {
       // Transport-level failure — the request never produced an HTTP response
       // (daemon not ready / connection refused). Retry idempotent reads with
@@ -163,15 +180,15 @@ export async function apiFetchRaw(
     // it is terminal (a 404 is meaningful; a 500 is a genuine server error) and
     // must never be retried.
     if (!res.ok) {
-      if (res.headers?.get(PROXY_HEADER) === 'daemon-unavailable') {
-        throw new ApiError('the daemon is not running yet', res.status, DAEMON_UNAVAILABLE_CODE)
-      }
+      const proxied = proxyMarkerError(res.headers?.get(PROXY_HEADER), target.hostId, res.status)
+      if (proxied) throw proxied
       const errorBody = await res.json().catch(() => null)
       throw new ApiError(
         errorBody?.error ?? `${res.status} ${res.statusText}`,
         res.status,
         typeof errorBody?.code === 'string' ? errorBody.code : undefined,
         errorBody?.data,
+        target.hostId,
       )
     }
     return res
@@ -191,20 +208,22 @@ async function readEnvelope(res: Response): Promise<Envelope> {
   return { status: res.status, statusText: res.statusText, body }
 }
 
-/** Plain GETs in flight, by path, with the change count they were sent at. */
+/** Plain GETs in flight, by `hostId:path`, with the change count they were
+ *  sent at — hostId keeps two hosts' reads of the same path from colliding. */
 const readsInFlight = new Map<string, { changes: number; envelope: Promise<Envelope> }>()
 
 /** A plain GET, shared with an identical one still in flight when nothing the
  *  client could know of has changed since that one was sent. Joiners get a
  *  copy: callers may hand their answer to a store that freezes it. */
-async function sharedRead(path: string, retry: RetryConfig): Promise<Envelope> {
-  const held = readsInFlight.get(path)
+async function sharedRead(path: string, retry: RetryConfig, hostId: string): Promise<Envelope> {
+  const key = `${hostId}:${path}`
+  const held = readsInFlight.get(key)
   if (held && held.changes === daemonChanges()) return structuredClone(await held.envelope)
-  const envelope = apiFetchRaw(path, undefined, retry).then(readEnvelope)
+  const envelope = apiFetchRaw(path, undefined, retry, hostId).then(readEnvelope)
   const entry = { changes: daemonChanges(), envelope }
-  readsInFlight.set(path, entry)
+  readsInFlight.set(key, entry)
   const release = () => {
-    if (readsInFlight.get(path) === entry) readsInFlight.delete(path)
+    if (readsInFlight.get(key) === entry) readsInFlight.delete(key)
   }
   envelope.then(release, release)
   return envelope
@@ -214,30 +233,35 @@ export async function apiFetch<T>(
   path: string,
   init?: RequestInit,
   retry: RetryConfig = DEFAULT_RETRY,
+  hostId?: string,
 ): Promise<T> {
+  const target = routeToHost(path, hostId)
   const { status, statusText, body } =
     init === undefined
-      ? await sharedRead(path, retry)
-      : await readEnvelope(await apiFetchRaw(path, init, retry))
+      ? await sharedRead(target.path, retry, target.hostId)
+      : await readEnvelope(await apiFetchRaw(target.path, init, retry, target.hostId))
   if (body === null) {
     return undefined as T
   }
   if (!body.success) {
-    throw new ApiError(body.error ?? `${status} ${statusText}`, status)
+    throw new ApiError(
+      body.error ?? `${status} ${statusText}`,
+      status,
+      undefined,
+      undefined,
+      target.hostId,
+    )
   }
   return body.data as T
-}
-
-export function fetchProjects(): Promise<Project[]> {
-  return apiFetch('/v0/projects')
 }
 
 // ---------------------------------------------------------------------------
 // Hierarchical READ API (§3/§7).
 // ---------------------------------------------------------------------------
 
-export function fetchRepos(projectId: string): Promise<RepoDTO[]> {
-  return apiFetch(`/v0/projects/${projectId}/repos`)
+// Project-scoped calls are async: an unresolved host rejects like a failed request, never throws.
+export async function fetchRepos(projectId: string): Promise<RepoDTO[]> {
+  return apiFetch(`${projectBase(projectId)}/repos`)
 }
 
 /**
@@ -260,9 +284,7 @@ export function fetchRepos(projectId: string): Promise<RepoDTO[]> {
  * store, never discovers one — so it is untouched.
  */
 export async function fetchWorkspaces(projectId: string, repoId: string): Promise<WorkspaceDTO[]> {
-  const rows = await apiFetch<WorkspaceDTO[]>(
-    `/v0/projects/${projectId}/repos/${repoId}/workspaces`,
-  )
+  const rows = await apiFetch<WorkspaceDTO[]>(`${repoBase(projectId, repoId)}/workspaces`)
   return rows ?? []
 }
 
@@ -327,9 +349,7 @@ export function folderDTOFromWire(
  * scope for this task and the closed backend plan.
  */
 export async function fetchFolders(projectId: string, repoId: string): Promise<FolderDTO[]> {
-  const rows = await apiFetch<ChatsFolderWireDTO[]>(
-    `/v0/projects/${projectId}/repos/${repoId}/chats/folders`,
-  )
+  const rows = await apiFetch<ChatsFolderWireDTO[]>(`${repoBase(projectId, repoId)}/chats/folders`)
   return (rows ?? []).map((row) => folderDTOFromWire(row, projectId, repoId))
 }
 
@@ -529,7 +549,7 @@ export function chatDTOFromWire(row: RepoChatWireDTO, projectId: string, repoId:
  * tree.
  */
 export async function fetchRepoChats(projectId: string, repoId: string): Promise<ChatDTO[]> {
-  const rows = await apiFetch<RepoChatWireDTO[]>(`/v0/projects/${projectId}/repos/${repoId}/chats`)
+  const rows = await apiFetch<RepoChatWireDTO[]>(`${repoBase(projectId, repoId)}/chats`)
   return (rows ?? []).map((row) => chatDTOFromWire(row, projectId, repoId))
 }
 
@@ -547,9 +567,7 @@ export async function fetchWorkspace(
 ): Promise<WorkspaceDTO> {
   const chatId = getOwningChatId(wsId)
   if (!chatId) throw new OwningChatNotRecordedError(wsId)
-  const row = await apiFetch<RepoChatWireDTO>(
-    `/v0/projects/${projectId}/repos/${repoId}/chats/${chatId}`,
-  )
+  const row = await apiFetch<RepoChatWireDTO>(`${repoBase(projectId, repoId)}/chats/${chatId}`)
   const workspace = row ? workspaceDTOFromChat(row, projectId, repoId) : null
   if (!workspace) throw new Error(`chat ${chatId} holds no worktree for workspace ${wsId}`)
   return workspace
@@ -558,8 +576,8 @@ export async function fetchWorkspace(
 // The PROJECT-level home workspace, which is a different entity from a repo's
 // default branch: it rides no repo at all, so it appears in NO repo's chat list
 // and cannot be derived from one. This route stays as it is.
-export function fetchHomeWorkspace(projectId: string): Promise<WorkspaceDTO> {
-  return apiFetch(`/v0/projects/${projectId}/home`)
+export async function fetchHomeWorkspace(projectId: string): Promise<WorkspaceDTO> {
+  return apiFetch(`${projectBase(projectId)}/home`)
 }
 
 /**
@@ -572,12 +590,12 @@ export function fetchHomeWorkspace(projectId: string): Promise<WorkspaceDTO> {
  * matching `WorkspaceDTO.repoId` for the home workspace itself.
  */
 export async function fetchHomeChats(projectId: string): Promise<ChatDTO[]> {
-  const rows = await apiFetch<RepoChatWireDTO[]>(`/v0/projects/${projectId}/home/chats`)
+  const rows = await apiFetch<RepoChatWireDTO[]>(`${projectBase(projectId)}/home/chats`)
   return (rows ?? []).map((row) => chatDTOFromWire(row, projectId, ''))
 }
 
 export async function fetchHomeFolders(projectId: string): Promise<FolderDTO[]> {
-  const rows = await apiFetch<ChatsFolderWireDTO[]>(`/v0/projects/${projectId}/home/chats/folders`)
+  const rows = await apiFetch<ChatsFolderWireDTO[]>(`${projectBase(projectId)}/home/chats/folders`)
   return (rows ?? []).map((row) => folderDTOFromWire(row, projectId, ''))
 }
 
@@ -588,16 +606,21 @@ export async function fetchHomeFolders(projectId: string): Promise<FolderDTO[]> 
 // await the WS DTO for navigation, never an id from these calls.
 // ---------------------------------------------------------------------------
 
-export function postProject(name: string, path: string): Promise<void> {
-  return apiFetch('/v0/projects', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, path }),
-  })
+export function postProject(name: string, path: string, hostId: string): Promise<void> {
+  return apiFetch(
+    '/v0/projects',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, path }),
+    },
+    undefined,
+    hostId,
+  )
 }
 
-export function postRepo(projectId: string, name: string, path: string): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}/repos`, {
+export async function postRepo(projectId: string, name: string, path: string): Promise<void> {
+  return apiFetch(`${projectBase(projectId)}/repos`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, path }),
@@ -607,8 +630,8 @@ export function postRepo(projectId: string, name: string, path: string): Promise
 // Rename an already-added repo. Answers 204; the updated RepoDTO (new name +
 // regenerated avatar) arrives on the repos WS stream and merges into the cache,
 // so callers do not update the sidebar store themselves.
-export function renameRepo(projectId: string, repoId: string, name: string): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}`, {
+export async function renameRepo(projectId: string, repoId: string, name: string): Promise<void> {
+  return apiFetch(repoBase(projectId, repoId), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -619,8 +642,8 @@ export function renameRepo(projectId: string, repoId: string, name: string): Pro
  * Rename a project. The renamed ProjectDTO arrives on the projects WS stream, so
  * no caller patches its own cache from this — same contract as renameRepo.
  */
-export function renameProject(projectId: string, name: string): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}`, {
+export async function renameProject(projectId: string, name: string): Promise<void> {
+  return apiFetch(projectBase(projectId), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -628,8 +651,8 @@ export function renameProject(projectId: string, name: string): Promise<void> {
 }
 
 /** Delete a project, and with it every repo and workspace inside. */
-export function deleteProject(projectId: string, init?: RequestInit): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}`, { method: 'DELETE', ...init })
+export async function deleteProject(projectId: string, init?: RequestInit): Promise<void> {
+  return apiFetch(projectBase(projectId), { method: 'DELETE', ...init })
 }
 
 /**
@@ -650,8 +673,8 @@ export function setWorkspaceLock(wsId: string, locked: boolean | null): Promise<
 
 // Open-PR head→base graph for the import dialog's parent hint. Advisory only:
 // the import endpoint re-resolves parenting authoritatively server-side.
-export function getRepoPullRequests(projectId: string, repoId: string): Promise<PRLink[]> {
-  return apiFetch<PRLink[]>(`/v0/projects/${projectId}/repos/${repoId}/pull-requests`)
+export async function getRepoPullRequests(projectId: string, repoId: string): Promise<PRLink[]> {
+  return apiFetch<PRLink[]>(`${repoBase(projectId, repoId)}/pull-requests`)
 }
 
 // Batch-import branches as chats holding a worktree each. The daemon PR-parents
@@ -664,12 +687,12 @@ export function getRepoPullRequests(projectId: string, repoId: string): Promise<
 // the ancestors a branch is parented under, and falls back to a placeholder row
 // for a branch another worktree already holds. Driving it per-branch would drop
 // all three silently.
-export function importBranches(
+export async function importBranches(
   projectId: string,
   repoId: string,
   branches: string[],
 ): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/chats/import-batch`, {
+  return apiFetch(`${repoBase(projectId, repoId)}/chats/import-batch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ branches }),
@@ -680,8 +703,12 @@ export function importBranches(
 // and its workspaces' tombstones arrive on the entity streams; nothing here
 // writes the sidebar tree. This is the one removal the sidebar asks the user to
 // confirm — everything under the repo goes with it.
-export function deleteRepo(projectId: string, repoId: string, init?: RequestInit): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}`, { method: 'DELETE', ...init })
+export async function deleteRepo(
+  projectId: string,
+  repoId: string,
+  init?: RequestInit,
+): Promise<void> {
+  return apiFetch(repoBase(projectId, repoId), { method: 'DELETE', ...init })
 }
 
 // Rename a worktree's branch, addressed through the CHAT that holds it — a

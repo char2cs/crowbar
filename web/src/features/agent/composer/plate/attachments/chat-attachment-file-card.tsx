@@ -6,6 +6,7 @@ import { PlateElement, type PlateElementProps, useComposedRef } from 'platejs/re
 import { LinkElement } from '@/components/ui/link-node'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
 import { useMarkdownAsset } from '@/features/editor/markdown/plate/markdown-asset'
+import { useHostResolved } from '@/lib/host-resolve'
 import { handleMarkdownAnchorClick } from '@/lib/markdown-link'
 import { cn } from '@/lib/utils'
 import {
@@ -99,8 +100,12 @@ function useChatAttachmentCardMeta(
   attachmentRef: string,
 ): { href: string | null; sizeLabel: string | null } {
   const [size, setSize] = useState<number | null>(null)
+  // The URL names the workspace's host, unknown until its project row loads: no
+  // link and no request before then, and the hook re-renders the card when it is.
+  const hostResolved = useHostResolved({ wsId })
 
   useEffect(() => {
+    if (!hostResolved) return
     let cancelled = false
     void fetchChatAttachmentMetadata(wsId, attachmentRef).then((meta) => {
       if (!cancelled) setSize(meta?.size ?? null)
@@ -108,9 +113,12 @@ function useChatAttachmentCardMeta(
     return () => {
       cancelled = true
     }
-  }, [wsId, attachmentRef])
+  }, [wsId, attachmentRef, hostResolved])
 
-  return { href: chatAttachmentUrl(wsId, attachmentRef), sizeLabel: formatAttachmentSize(size) }
+  return {
+    href: hostResolved ? chatAttachmentUrl(wsId, attachmentRef) : null,
+    sizeLabel: formatAttachmentSize(size),
+  }
 }
 
 type FileCardProps = PlateElementProps<TLinkElement> & {
@@ -158,7 +166,7 @@ function ChatAttachmentFileCard({ wsId, attachmentRef, filename, ...props }: Fil
         attributes={{
           ...props.attributes,
           href: href ?? undefined,
-          onClick: (e) => handleMarkdownAnchorClick(e, href),
+          onClick: (e) => handleMarkdownAnchorClick(e, href, wsId),
           onMouseOver: (e) => {
             e.stopPropagation()
           },
@@ -189,7 +197,7 @@ function ChatAttachmentFileCardStatic({ wsId, attachmentRef, filename, ...props 
       attributes={{
         ...props.attributes,
         href: href ?? undefined,
-        onClick: (e) => handleMarkdownAnchorClick(e, href),
+        onClick: (e) => handleMarkdownAnchorClick(e, href, wsId),
         onMouseOver: (e) => {
           e.stopPropagation()
         },
