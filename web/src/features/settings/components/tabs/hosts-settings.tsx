@@ -2,47 +2,13 @@ import { Plus, Trash } from '@phosphor-icons/react'
 import { useCallback, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { AddHostDialog } from '@/features/hosts/components/add-host-dialog'
-import { useHostStatus, useNoLiveStream } from '@/features/hosts/hooks/use-host-status'
+import { HostStatusDot } from '@/features/hosts/components/host-status-dot'
+import { useHostDotState } from '@/features/hosts/hooks/use-host-status'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { LOCAL_HOST, type Host, type HostStatus } from '@/features/hosts/types'
+import { LOCAL_HOST, type Host } from '@/features/hosts/types'
 import { forgetHostToken, unregisterRemoteHost } from '@/lib/crowbar-bridge'
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/features/window/stores/toast-store'
-import { cn } from '@/utils/cn'
-
-const STATUS_LABEL: Record<HostStatus, string> = {
-  unknown: 'Status unknown',
-  probing: 'Checking…',
-  up: 'Online',
-  down: 'Offline',
-  'needs-repair': 'Needs repair — reconnect this host',
-}
-
-// It answers, but nothing it shows is kept current: its streams were refused or dropped.
-const NO_LIVE_STREAM_LABEL = 'Online — no live stream'
-
-const STATUS_DOT_CLASS: Record<HostStatus, string> = {
-  unknown: 'border border-muted-foreground/50 bg-transparent',
-  probing: 'border border-muted-foreground/50 bg-transparent',
-  up: 'bg-success',
-  down: 'bg-destructive',
-  'needs-repair': 'bg-warning',
-}
-
-/** A row's live dot: the host's status as the app last learned it. */
-function HostStatusDot({ hostId, noLiveStream }: { hostId: string; noLiveStream: boolean }) {
-  const status = useHostStatus(hostId)
-  const label = noLiveStream ? NO_LIVE_STREAM_LABEL : STATUS_LABEL[status]
-
-  return (
-    <span
-      data-testid={`host-status-${hostId}`}
-      aria-label={label}
-      title={label}
-      className={cn('size-2 shrink-0 rounded-full', STATUS_DOT_CLASS[status])}
-    />
-  )
-}
 
 /**
  * Revoke order matters: the daemon's own `DELETE /v0/clients/:id`, dialed
@@ -76,19 +42,19 @@ interface HostRowProps {
 }
 
 function HostRow({ host, isLocal, revoking, onRevoke }: HostRowProps) {
-  const noLiveStream = useNoLiveStream(host.id)
+  const state = useHostDotState(host.id)
 
   return (
     <div
       data-testid="host-row"
       className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-muted/50"
     >
-      <HostStatusDot hostId={host.id} noLiveStream={noLiveStream} />
+      <HostStatusDot hostId={host.id} state={state} />
       <div className="min-w-0 flex-1">
         <div className="ui-font ui-text-sm truncate text-foreground">{host.name}</div>
         <div className="ui-font ui-text-sm truncate text-muted-foreground">
           {isLocal ? 'This computer' : host.endpoint}
-          {noLiveStream && ' · No live stream'}
+          {state === 'no-live-stream' && ' · No live stream'}
         </div>
       </div>
       {!isLocal && (

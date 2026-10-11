@@ -1,0 +1,43 @@
+import type { HostDotState } from '@/features/hosts/types'
+import { cn } from '@/utils/cn'
+
+const LABEL: Record<HostDotState, string> = {
+  unknown: 'Status unknown',
+  probing: 'Checking…',
+  up: 'Online',
+  down: 'Offline',
+  'needs-repair': 'Needs repair — reconnect this host',
+  'no-live-stream': 'Online — no live stream',
+}
+
+const UNSETTLED = 'border border-muted-foreground/50 bg-transparent'
+
+const DOT_CLASS: Record<HostDotState, string> = {
+  unknown: UNSETTLED,
+  probing: UNSETTLED,
+  up: 'bg-success',
+  'no-live-stream': 'bg-success',
+  down: 'bg-destructive',
+  'needs-repair': 'bg-warning',
+}
+
+/** A host's status dot, labelled for what it says. Every surface that shows a host's status
+ *  draws this one, so a state reads the same wherever it appears. */
+export function HostStatusDot({
+  hostId,
+  state,
+  className,
+}: {
+  hostId: string
+  state: HostDotState
+  className?: string
+}) {
+  return (
+    <span
+      data-testid={`host-status-${hostId}`}
+      aria-label={LABEL[state]}
+      title={LABEL[state]}
+      className={cn('size-2 shrink-0 rounded-full', DOT_CLASS[state], className)}
+    />
+  )
+}

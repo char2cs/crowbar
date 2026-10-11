@@ -20,8 +20,8 @@ import { awaitEntity } from '@/lib/ws/await-entity'
 import { qualify } from '@/lib/host-path'
 import { projectBaseOnHost } from '@/lib/project-url'
 import { projectFromDTO } from '@/lib/store/project-from-dto'
-import { cn } from '@/lib/utils'
 import { AddHostDialog } from '@/features/hosts/components/add-host-dialog'
+import { HostStatusDot } from '@/features/hosts/components/host-status-dot'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { LOCAL_HOST, type Host, type HostStatus } from '@/features/hosts/types'
@@ -30,25 +30,6 @@ import type { Project, ProjectDTO } from '@/lib/types'
 // A trailing pick that opens AddHostDialog rather than ever becoming the
 // selected daemon — `handleHostIdChange` intercepts it before `setHostId`.
 const ADD_HOST_VALUE = '__add-host__'
-
-// Same labels/colors as HostsSettings' own status dot (hosts-settings.tsx) —
-// no shared component to import yet, so inlined identically per this task's
-// brief.
-const DAEMON_STATUS_LABEL: Record<HostStatus, string> = {
-  unknown: 'Status unknown',
-  probing: 'Checking…',
-  up: 'Online',
-  down: 'Offline',
-  'needs-repair': 'Needs repair — reconnect this host',
-}
-
-const DAEMON_STATUS_DOT_CLASS: Record<HostStatus, string> = {
-  unknown: 'border border-muted-foreground/50 bg-transparent',
-  probing: 'border border-muted-foreground/50 bg-transparent',
-  up: 'bg-success',
-  down: 'bg-destructive',
-  'needs-repair': 'bg-warning',
-}
 
 /** The local daemon is always reachable from its own UI — there is nothing to
  *  probe, so its dot never leaves 'up' and it is never disabled. */
@@ -65,16 +46,6 @@ function useHostRuntimeStatus(hostId: string): HostStatus {
   return status
 }
 
-function DaemonStatusDot({ status }: { status: HostStatus }) {
-  return (
-    <span
-      aria-label={DAEMON_STATUS_LABEL[status]}
-      title={DAEMON_STATUS_LABEL[status]}
-      className={cn('size-2 shrink-0 rounded-full', DAEMON_STATUS_DOT_CLASS[status])}
-    />
-  )
-}
-
 /** One selectable daemon row: Local or a saved host, disabled (not hidden)
  *  while its runtime status is 'down' — a project can't be created on a host
  *  that can't currently be reached. */
@@ -83,7 +54,7 @@ function DaemonOption({ host }: { host: Host }) {
   return (
     <SelectItem value={host.id} disabled={status === 'down'}>
       <span className="flex items-center gap-2">
-        <DaemonStatusDot status={status} />
+        <HostStatusDot hostId={host.id} state={status} />
         {host.name}
       </span>
     </SelectItem>
@@ -265,7 +236,7 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
           >
             <SelectValue>
               <span className="flex items-center gap-1.5">
-                <DaemonStatusDot status={selectedHostStatus} />
+                <HostStatusDot hostId={selectedHost.id} state={selectedHostStatus} />
                 {selectedHost.name}
               </span>
             </SelectValue>
@@ -273,7 +244,7 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
           <SelectContent>
             <SelectItem value="local">
               <span className="flex items-center gap-2">
-                <DaemonStatusDot status="up" />
+                <HostStatusDot hostId={LOCAL_HOST.id} state="up" />
                 Local
               </span>
             </SelectItem>
