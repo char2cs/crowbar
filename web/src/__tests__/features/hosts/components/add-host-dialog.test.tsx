@@ -77,7 +77,9 @@ describe('AddHostDialog', () => {
   it('retrying a rejected code reuses the confirmed fingerprint without re-probing', async () => {
     vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
     vi.mocked(redeemPairingCode)
-      .mockRejectedValueOnce(new Error('bad code'))
+      .mockRejectedValueOnce(
+        'the host refused pairing (401 Unauthorized): pairing code is not valid',
+      )
       .mockResolvedValueOnce(undefined)
     render(<AddHostDialog open onOpenChange={() => {}} />)
     fillAddressStage()
@@ -88,6 +90,7 @@ describe('AddHostDialog', () => {
     fireEvent.change(codeInput, { target: { value: '000000' } })
     fireEvent.click(screen.getByRole('button', { name: /pair|connect/i }))
     await waitFor(() => expect(redeemPairingCode).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText(/^That code didn’t work\./)).toBeVisible()
 
     fireEvent.change(await screen.findByLabelText(/code/i), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: /pair|connect/i }))
@@ -139,12 +142,20 @@ describe('AddHostDialog', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
-  it('a fingerprint probe failure surfaces an error and does not advance to the confirm stage', async () => {
-    vi.mocked(probeRemoteFingerprint).mockRejectedValueOnce(new Error('unreachable'))
+  // The shell rejects with transport words; the dialog says what to do instead.
+  it('a fingerprint probe failure says what to check and does not advance to the confirm stage', async () => {
+    vi.mocked(probeRemoteFingerprint).mockRejectedValueOnce(
+      'cannot reach 1.2.3.4:3737: Connection refused (os error 61)',
+    )
     render(<AddHostDialog open onOpenChange={() => {}} />)
     fillAddressStage()
 
-    await waitFor(() => expect(screen.getByText(/unreachable/i)).toBeInTheDocument())
+    expect(
+      await screen.findByText(
+        'Can’t reach 1.2.3.4:3737. Check the address and port, and that the host is running.',
+      ),
+    ).toBeVisible()
+    expect(screen.queryByText(/os error|refused/i)).toBeNull()
     expect(screen.queryByRole('button', { name: /confirm|looks right/i })).not.toBeInTheDocument()
     expect(redeemPairingCode).not.toHaveBeenCalled()
   })

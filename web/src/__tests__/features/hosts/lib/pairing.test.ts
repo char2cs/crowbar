@@ -5,7 +5,11 @@ vi.mock('@/lib/crowbar-bridge', () => ({
 }))
 
 import { pairRemoteHost } from '@/lib/crowbar-bridge'
-import { alreadyPairedReason, redeemPairingCode } from '@/features/hosts/lib/pairing'
+import {
+  alreadyPairedReason,
+  pairingFailureText,
+  redeemPairingCode,
+} from '@/features/hosts/lib/pairing'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import type { Host } from '@/features/hosts/types'
 
@@ -80,5 +84,55 @@ describe('alreadyPairedReason', () => {
     const v6 = { ...homelab, endpoint: '[fd00::2]:3737' }
     expect(alreadyPairedReason([v6], '[FD00::2]', 'SHA256:cccc')).toBe(SAME_ADDRESS)
     expect(alreadyPairedReason([v6], '[fd00::2]:4000', 'SHA256:cccc')).toBeNull()
+  })
+})
+
+// What the desktop shell rejects with, said as what to do next: never transport or OS words.
+describe('pairingFailureText', () => {
+  const at = '1.2.3.4:3737'
+  const WRONG_CODE =
+    'That code didn’t work. It may be mistyped or expired — the host doesn’t say which. Check it, or run crowbar pair on the host again for a new one.'
+  const TOO_MANY =
+    'Too many attempts — wait a minute, or run crowbar pair on the host for a new code.'
+  const UNREACHABLE = `Can’t reach ${at}. Check the address and port, and that the host is running.`
+
+  it.each([
+    ['the host refused pairing (401 Unauthorized): pairing code is not valid', WRONG_CODE],
+    ['the host refused pairing (429 Too Many Requests): no reason given', TOO_MANY],
+    [
+      'the host refused pairing (429 Too Many Requests): too many requests, try again shortly',
+      TOO_MANY,
+    ],
+    ['cannot reach 1.2.3.4:3737: Connection refused (os error 61)', UNREACHABLE],
+    [
+      'cannot reach homelab: invalid socket address',
+      `Can’t reach ${at}. Check the address and port, and that the host is running.`,
+    ],
+    ['1.2.3.4:3737 did not answer within 5s', UNREACHABLE],
+    ['1.2.3.4:3737 did not finish pairing within 30s', UNREACHABLE],
+    ['pairing with 1.2.3.4:3737 failed: connection reset', UNREACHABLE],
+    [
+      'TLS handshake with 1.2.3.4:3737 failed: received corrupt message of type InvalidContentType',
+      `${at} answered, but not as a Crowbar host. Check the address and port.`,
+    ],
+    [
+      '1.2.3.4:3737 presented no certificate',
+      `${at} answered, but not as a Crowbar host. Check the address and port.`,
+    ],
+    [
+      '1.2.3.4:3737 does not hold the identity pinned as SHA256:aaaa — this host’s identity changed (invalid peer certificate)',
+      `The host at ${at} no longer presents the fingerprint you confirmed, so nothing was sent to it. Go back and check the address.`,
+    ],
+    [
+      'the host refused pairing (400 Bad Request): name is required',
+      `${at} refused pairing: name is required.`,
+    ],
+    [
+      'keychain is locked',
+      `Couldn’t pair with ${at}. Try again, or run crowbar pair on the host for a new code.`,
+    ],
+  ])('%s', (raw, text) => {
+    expect(pairingFailureText(raw, at)).toBe(text)
+    expect(pairingFailureText(new Error(raw), at)).toBe(text)
   })
 })
