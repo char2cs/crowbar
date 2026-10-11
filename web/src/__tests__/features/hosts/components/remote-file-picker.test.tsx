@@ -227,6 +227,17 @@ describe('RemoteFilePicker — browsing', () => {
     expect(requests.map((r) => r.path)).toEqual(['/', '/loop', '/loop/self'])
   })
 
+  // The daemon joins each child onto its directory; a listing that broke that must not loop.
+  it("only a folder's own children nest under it, so no listing can loop", async () => {
+    serve('h1', { '/': [dir('/a')], '/a': [dir('/a'), dir('/elsewhere'), dir('/a/b')] })
+    renderPicker()
+    fireEvent.click(await findRow('a'))
+
+    expect(await findRow('b')).toBeInTheDocument()
+    expect(screen.getAllByRole('treeitem', { name: 'a' })).toHaveLength(1)
+    expect(screen.queryByRole('treeitem', { name: 'elsewhere' })).not.toBeInTheDocument()
+  })
+
   // Folders are what can be chosen, so every one is shown; only inert files are cut.
   it('a huge directory shows every folder and cuts only files, saying so', async () => {
     const folders = Array.from({ length: 700 }, (_, i) => dir(`/d${i}`))

@@ -22,11 +22,23 @@ export type FolderRow =
 // and past this many the inert files are cut.
 const FILE_CAP = 500
 
-function noteFor(listing: Listing | undefined): FolderNote | null {
+// Only a directory's own children nest under it: an entry pointing back at an ancestor (or into
+// another directory) would recurse forever or repeat a row, whatever the daemon answered.
+export function childrenOf(dir: string, entries: readonly BrowseEntry[]): BrowseEntry[] {
+  const prefix = dir.endsWith('/') ? dir : `${dir}/`
+  return entries.filter(
+    (e) =>
+      e.path.length > prefix.length &&
+      e.path.startsWith(prefix) &&
+      !e.path.includes('/', prefix.length),
+  )
+}
+
+function noteFor(dir: string, listing: Listing | undefined): FolderNote | null {
   if (listing === undefined) return { type: 'waiting' }
   if (listing.status === 'loading') return { type: 'loading' }
   if (listing.status === 'failed') return { type: 'failed', error: listing.error }
-  return listing.entries.length === 0 ? { type: 'empty' } : null
+  return childrenOf(dir, listing.entries).length === 0 ? { type: 'empty' } : null
 }
 
 /** The visible rows under `parent`: its entries, and below each expanded folder its own
@@ -38,8 +50,9 @@ export function folderRows(
   expanded: ReadonlySet<string>,
   level = 1,
 ): FolderRow[] {
-  const folders = entries.filter((e) => e.isDir)
-  const files = entries.filter((e) => !e.isDir)
+  const own = childrenOf(parent, entries)
+  const folders = own.filter((e) => e.isDir)
+  const files = own.filter((e) => !e.isDir)
   const rows: FolderRow[] = []
   for (const entry of [...folders, ...files.slice(0, FILE_CAP)]) {
     const open = expanded.has(entry.path)
@@ -52,7 +65,7 @@ export function folderRows(
     })
     if (!entry.isDir || !open) continue
     const listing = listings[entry.path]
-    const note = noteFor(listing)
+    const note = noteFor(entry.path, listing)
     if (note) rows.push({ kind: 'note', key: `${entry.path}\0note`, level: level + 1, note })
     else if (listing?.status === 'loaded') {
       rows.push(...folderRows(entry.path, listing.entries, listings, expanded, level + 1))

@@ -18,6 +18,7 @@ import { RemoteFolderTree, failureText } from '@/features/hosts/components/remot
 import { ROOT_PATH, useFolderListings } from '@/features/hosts/hooks/use-folder-listings'
 import { useHostView } from '@/features/hosts/hooks/use-host-status'
 import type { BrowseEntry } from '@/features/hosts/lib/browse'
+import { childrenOf } from '@/features/hosts/lib/folder-rows'
 import type { HostDotState } from '@/features/hosts/types'
 
 interface RemoteFilePickerProps {
@@ -163,7 +164,9 @@ function FolderRoot({ hostName, canAsk, folders, ...tree }: FolderRootProps) {
       </div>
     )
   }
-  if (root.entries.length === 0) return <p className={notice}>This folder is empty.</p>
+  if (childrenOf(ROOT_PATH, root.entries).length === 0) {
+    return <p className={notice}>This folder is empty.</p>
+  }
   return (
     <RemoteFolderTree
       hostName={hostName}
