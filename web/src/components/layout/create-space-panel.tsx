@@ -14,6 +14,7 @@ import { ProjectIconMark } from './project-icon-mark'
 import { IconPopover, type StagedIcon } from './icon-popover'
 import { getFilenameFromPath } from '@/features/file-system/controllers/file-utils'
 import { toast } from '@/features/window/stores/toast-store'
+import { toastActionFailure, toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 import { apiFetch, postProject } from '@/lib/api'
 import { awaitEntity } from '@/lib/ws/await-entity'
 import { qualify } from '@/lib/host-path'
@@ -173,13 +174,13 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
         // entry to the new space.
         try {
           await applyStagedIcon(hostId, dto.id, stagedIcon)
-        } catch {
-          toast.error('Failed to set icon')
+        } catch (err) {
+          if (!toastHostFailure(err)) toast.error('Failed to set icon')
         }
       }
       onCreate(projectFromDTO(dto, hostId))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create space')
+      toastActionFailure(err, 'Failed to create space')
     } finally {
       setLoading(false)
     }

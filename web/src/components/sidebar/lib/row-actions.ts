@@ -20,6 +20,7 @@ import {
 } from '@/lib/api/sidebar-placement'
 import { renameChat } from '@/features/agent/api/agent-api'
 import { toast } from '@/features/window/stores/toast-store'
+import { actionErrorMessage, toastActionFailure } from '@/features/hosts/lib/host-failure-notice'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { OwningChatNotRecordedError } from '@/lib/workspace-scope-url'
@@ -35,8 +36,7 @@ export function chatNotLoadedYet(verb: string, branch: string | undefined): stri
   return `Can't ${verb} ${branch ?? 'this branch'} yet — its chat is still loading`
 }
 
-/** What a folder is called until the user says otherwise (matches the
- *  deleted workspace-tree-context.tsx's NEW_FOLDER_NAME). */
+/** What a folder is called until the user says otherwise. */
 const NEW_FOLDER_NAME = 'New folder'
 
 /**
@@ -73,7 +73,7 @@ export async function performRenameWorkspaceBranch(wsId: string, branch: string)
       toast.error(chatNotLoadedYet('rename', ws.branch))
       return
     }
-    toast.error(err instanceof Error ? err.message : 'Failed to rename branch')
+    toastActionFailure(err, 'Failed to rename branch')
   }
 }
 
@@ -107,7 +107,7 @@ export async function performRenameFolder(folderId: string, name: string): Promi
     } = await placeFolder(repo.projectId, repo.id, folderId, { name })
     await applyFolderPlacements(repo.id, [updated, ...shifted], shiftedRows)
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to rename folder')
+    toastActionFailure(err, 'Failed to rename folder')
   }
 }
 
@@ -128,7 +128,7 @@ export async function performRenameHomeFolder(
     const { folder: updated, shifted } = await placeHomeFolder(projectId, folderId, { name })
     applyHomeFolders(projectId, [updated, ...shifted].map(toSidebarFolder))
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to rename folder')
+    toastActionFailure(err, 'Failed to rename folder')
   }
 }
 
@@ -180,7 +180,7 @@ export async function performRenameChat(chatId: string, title: string): Promise<
     await renameChat(wsId, chatId, title)
     useFolderSignalStore.getState().bump(repo.id)
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to rename chat')
+    toastActionFailure(err, 'Failed to rename chat')
   }
 }
 
@@ -204,7 +204,7 @@ export async function performRenameHomeChat(
   try {
     await renameChat(homeWorkspaceId, chatId, title)
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to rename chat')
+    toastActionFailure(err, 'Failed to rename chat')
   }
 }
 
@@ -222,7 +222,7 @@ export async function performRenameRepo(repoId: string, name: string): Promise<v
   try {
     await renameRepo(repo.projectId, repoId, name)
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to rename repository')
+    toastActionFailure(err, 'Failed to rename repository')
   }
 }
 
@@ -237,7 +237,7 @@ export async function performRenameProject(projectId: string, name: string): Pro
   try {
     await renameProject(projectId, name)
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to rename project')
+    toastActionFailure(err, 'Failed to rename project')
   }
 }
 
@@ -350,7 +350,7 @@ export async function performSetWorkspaceLock(
       toast.error(chatNotLoadedYet(locked === false ? 'unlock' : 'lock', branch))
       return
     }
-    toast.error(err instanceof Error ? err.message : 'Failed to update lock')
+    toastActionFailure(err, 'Failed to update lock')
   }
 }
 
@@ -400,11 +400,11 @@ export async function performImportBranches(
       )
     }
   } catch (err) {
-    const reason = err instanceof Error ? err.message : 'Failed to import branches'
+    const reason = actionErrorMessage(err, 'Failed to import branches')
     for (const tempId of pendingIds.values()) {
       usePendingCreatesStore.getState().setError(tempId, reason)
     }
-    toast.error(reason)
+    toastActionFailure(err, reason)
   }
 }
 
@@ -611,7 +611,7 @@ export async function performCreateFolder(rowId: string): Promise<void> {
     )
     await applyFolderPlacements(repo.id, [folder, ...shifted], shiftedRows)
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to create folder')
+    toastActionFailure(err, 'Failed to create folder')
   }
 }
 
@@ -643,7 +643,7 @@ export async function performCreateFolderFromChat(chatId: string): Promise<void>
     )
     await applyFolderPlacements(repo.id, [folder, ...shifted], shiftedRows)
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to create folder')
+    toastActionFailure(err, 'Failed to create folder')
   }
 }
 
@@ -666,6 +666,6 @@ export async function performCreateHomeFolder(projectId: string, parentId = ''):
     const { folder, shifted } = await createHomeFolder(projectId, NEW_FOLDER_NAME, parentId)
     applyHomeFolders(projectId, [folder, ...shifted].map(toSidebarFolder))
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to create folder')
+    toastActionFailure(err, 'Failed to create folder')
   }
 }

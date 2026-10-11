@@ -6,6 +6,7 @@
  */
 import type * as Monaco from 'monaco-editor'
 import { toast } from '@/features/window/stores/toast-store'
+import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 import { uriToFsPath, uriToWorkspaceId } from '../lib/editor-uri'
 import { LspClient } from './lsp-client'
 
@@ -52,7 +53,7 @@ export async function query<T>(
     return { target, result }
   } catch (error) {
     if (!isAbort(error) && surface) {
-      toast.error(surface, error instanceof Error ? error.message : undefined)
+      toast.error(surface, actionErrorMessage(error, undefined))
     }
     return null
   } finally {

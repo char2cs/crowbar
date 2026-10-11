@@ -1,17 +1,25 @@
-import { createChat, createSurfaceFor, type AgentProvider } from '@/features/agent/api/agent-api'
+import {
+  createChat,
+  createSurfaceFor,
+  listGlobalProviders,
+  type AgentProvider,
+} from '@/features/agent/api/agent-api'
 import { LOCAL_HOST } from '@/features/hosts/types'
 import {
   providersOf,
   useAgentProvidersStore,
 } from '@/features/settings/stores/agent-providers-store'
 import { resolvedHostOf } from '@/lib/host-resolve'
-import { hostUnavailability } from '@/lib/host-unavailability'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { useProjectDataStore } from '@/lib/store/projects'
 import { presetChatLandingPresentation } from '@/features/agent/hooks/use-chat-presentation'
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { toast } from '@/features/window/stores/toast-store'
+import {
+  actionErrorMessage,
+  toastHostFailure,
+  toastUnresolvedHost,
+} from '@/features/hosts/lib/host-failure-notice'
 import { renderedProjectRows, visibleRepos } from '@/components/sidebar/lib/drop-actions'
 
 // The create machinery every sidebar create shares — the in-flight guard, the
@@ -37,11 +45,12 @@ export function panelRowsAtClick(
   }
 }
 
-/** Fails the pending row with the daemon's own reason, toasted and logged so it is diagnosable. */
+/** Fails the pending row with the daemon's own reason (or its host's trouble), toasted and
+ *  logged so it is diagnosable. */
 export function failCreate(tempId: string, err: unknown, fallback: string): void {
-  const reason = err instanceof Error ? err.message : fallback
+  const reason = actionErrorMessage(err, fallback)
   usePendingCreatesStore.getState().setError(tempId, reason)
-  toast.error(fallback, reason)
+  if (!toastHostFailure(err)) toast.error(fallback, reason)
   console.error(`${fallback}:`, err)
 }
 
@@ -151,7 +160,7 @@ export async function startThread(spec: ThreadCreate): Promise<void> {
 export function enabledProvider(projectId: string): AgentProvider | null {
   const hostId = resolvedHostOf({ projectId })
   if (hostId === null) {
-    refuseUnresolvedHost(projectId)
+    toastUnresolvedHost(projectId)
     return null
   }
   const provider = providersOf(useAgentProvidersStore.getState(), hostId).find((p) => p.enabled)
@@ -178,31 +187,21 @@ export function readUnreadHostProviders(projectId: string): Promise<boolean> | n
   if (hostId === null || hostId === LOCAL_HOST.id || state.remote[hostId] !== undefined) return null
   // Named before the wait: the host may be removed while it is asked.
   const name = useHostConfigStore.getState().hosts.find((h) => h.id === hostId)?.name
-  return state.loadHost(hostId).then((providers) => {
-    if (providers === null) {
-      toast.error(
-        `Couldn’t reach ${name ?? 'that host'}`,
-        'Check that it is online in Settings → Hosts.',
-      )
-    }
-    return providers !== null
-  })
-}
-
-// Only a project list that has loaded can say a host is gone; before that a local
-// project is merely not known yet (or the read failed), and Hosts would be the wrong advice.
-function refuseUnresolvedHost(projectId: string): void {
-  const why = hostUnavailability({ projectId })
-  if (why === 'host-unavailable') {
-    toast.error('This project’s host is not available', 'Check the host in Settings → Hosts.')
-  } else if (why === 'project-missing') {
-    toast.error('This project is no longer in your list')
-  } else if (useProjectDataStore.getState().data.status === 'error') {
-    toast.error(
-      'Couldn’t load your projects',
-      'Check that Crowbar can reach its daemon, then retry.',
-    )
-  } else {
-    toast.error('Still loading your projects', 'Try again in a moment.')
-  }
+  // Read here rather than through the store's loadHost, which keeps no failure: a changed
+  // identity must not read as merely unreachable.
+  return listGlobalProviders(hostId).then(
+    (providers) => {
+      useAgentProvidersStore.getState().setHostProviders(hostId, providers)
+      return true
+    },
+    (err: unknown) => {
+      if (!toastHostFailure(err)) {
+        toast.error(
+          `Couldn’t reach ${name ?? 'that host'}`,
+          'Check that it is online in Settings → Hosts.',
+        )
+      }
+      return false
+    },
+  )
 }

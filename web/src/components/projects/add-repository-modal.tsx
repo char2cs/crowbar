@@ -9,7 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FolderOpen } from '@phosphor-icons/react'
-import { toast } from '@/features/window/stores/toast-store'
+import { toastActionFailure } from '@/features/hosts/lib/host-failure-notice'
 import { useDaemonFolderPicker } from '@/features/hosts/hooks/use-daemon-folder-picker'
 import { useNavigate } from '@tanstack/react-router'
 import { isTauri } from '@/lib/crowbar-bridge'
@@ -120,7 +120,7 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
         params: { projectId, repoId: repo.id, wsId: ws.id },
       })
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to add repository')
+      toastActionFailure(err, 'Failed to add repository')
     } finally {
       setLoading(false)
     }

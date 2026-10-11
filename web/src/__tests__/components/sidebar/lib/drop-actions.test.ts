@@ -113,6 +113,7 @@ import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { useProjectDataStore } from '@/lib/store/projects'
 import { idle, success } from '@/lib/loadable'
 import { reparentWorkspace } from '@/lib/api/workspace'
+import { HostNotResolvedError } from '@/lib/host-path'
 import { setChatPlacement } from '@/features/agent/api/agent-api'
 import { toast } from '@/features/window/stores/toast-store'
 import {
@@ -804,6 +805,23 @@ describe('performSidebarDrop — failures', () => {
     ).resolves.toBeUndefined()
 
     expect(toast.error).toHaveBeenCalledWith('locked')
+  })
+
+  it('a move whose host is not known yet says the projects are loading, not why inside', async () => {
+    vi.mocked(placeWorkspace).mockRejectedValueOnce(
+      new HostNotResolvedError('workspace', 'ws-c', 'no scope is recorded for the workspace'),
+    )
+
+    await performSidebarDrop(
+      [branchRow('ws-c')],
+      branchRow('ws-a', { parentId: 'home-1' }),
+      'before',
+    )
+
+    expect(toast.error).toHaveBeenCalledExactlyOnceWith(
+      'Still loading your projects',
+      'Try again in a moment.',
+    )
   })
 })
 

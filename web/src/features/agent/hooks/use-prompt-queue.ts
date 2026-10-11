@@ -14,6 +14,7 @@ import {
   type PromptQueueItem,
 } from '@/features/agent/lib/prompt-queue-persistence'
 import { ApiError } from '@/lib/api'
+import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 
 const BUSY_RECHECK_MS = 1_000
 const AWAITING_TERMINAL_HINT_MS = 6_000
@@ -30,10 +31,6 @@ function requestId(): string {
   return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex
     .slice(6, 8)
     .join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10).join('')}`
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 /** True while an image attachment still shows its OWN optimistic local
@@ -538,7 +535,7 @@ export function usePromptQueue(options: PromptQueueOptions) {
             // safe to call failed; everything else blocks replay until hook
             // evidence or a human decision resolves it.
             state: definitive ? 'failed' : 'outcome_uncertain',
-            error: errorMessage(error),
+            error: actionErrorMessage(error, String(error)),
           }))
           if (!definitive) refreshMessages()
         }
@@ -623,7 +620,7 @@ export function usePromptQueue(options: PromptQueueOptions) {
       try {
         clientRequestId = requestId()
       } catch (error) {
-        return { ok: false, error: errorMessage(error) }
+        return { ok: false, error: actionErrorMessage(error, String(error)) }
       }
       const item: PromptQueueItem = {
         clientRequestId,

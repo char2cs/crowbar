@@ -49,6 +49,8 @@ import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { destroyHostRuntime, getHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { proxyMarkerError } from '@/lib/api/errors'
 import { useProjectDataStore } from '@/lib/store/projects'
 import { failed } from '@/lib/loadable'
 import { useSettingsStore } from '@/features/settings/store'
@@ -467,6 +469,46 @@ describe('a project-home thread on an install that has paired a remote host', ()
       'Couldn’t reach Studio Mac',
       expect.any(String),
     )
+  })
+
+  it('warns of a changed identity when the host’s list is asked, and asks it once', async () => {
+    resetHostWorld()
+    pairRemoteHost('host-1', 'Studio Mac')
+    loadProjects(projectOn('p-remote', 'host-1'))
+    useAgentProvidersStore.setState({ remote: {} })
+    listGlobalProviders.mockRejectedValueOnce(proxyMarkerError('host-identity-changed', 'host-1'))
+
+    await handleCreateHomeThread('p-remote', 'home-remote', vi.fn())
+
+    expect(createChat).not.toHaveBeenCalled()
+    expect(listGlobalProviders).toHaveBeenCalledOnce()
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(
+      'Studio Mac’s identity changed — it must be paired again',
+      expect.stringContaining('`crowbar pair`'),
+    )
+    expect(getHostRuntime('host-1')?.getState().status).toBe('needs-repair')
+    destroyHostRuntime('host-1')
+  })
+
+  it('fails a thread its host refused with the host’s trouble, on the row and in the toast', async () => {
+    resetHostWorld()
+    pairRemoteHost('host-1', 'Studio Mac')
+    loadProjects(projectOn('p-remote', 'host-1'))
+    useAgentProvidersStore.setState({ remote: { 'host-1': [offered('codex-remote')] } })
+    createChat.mockRejectedValueOnce(proxyMarkerError('host-unreachable', 'host-1'))
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await handleCreateHomeThread('p-remote', 'home-remote', vi.fn())
+
+    expect(usePendingCreatesStore.getState().entries).toMatchObject([
+      { status: 'error', error: 'Couldn’t reach Studio Mac' },
+    ])
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(
+      'Couldn’t reach Studio Mac',
+      'Check that it is online in Settings → Hosts.',
+    )
+    consoleError.mockRestore()
+    destroyHostRuntime('host-1')
   })
 
   it('sends a project on a host that is not configured to Hosts, not to a retry', async () => {

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { uploadChatAttachment } from '@/features/agent/api/upload-chat-attachment'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { ApiError } from '@/lib/api/errors'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import * as scopeUrl from '@/lib/workspace-scope-url'
 import {
@@ -272,6 +273,30 @@ describe('uploadChatAttachment on a remote host', () => {
     await uploadChatAttachment('ws1', 'c1', { file: new File(['x'], 'x.png') }, 'x')
 
     expect(fetchMock.mock.calls[0][0]).toBe(`${remoteBase}/c1/attachments`)
+  })
+
+  // Named the way apiFetch names them, so an upload's failure reads as its host's own trouble.
+  it.each([
+    ['could not reach it', { 'x-crowbar-proxy': 'host-unreachable' }, 503, 'host_unreachable'],
+    [
+      'met another identity',
+      { 'x-crowbar-proxy': 'host-identity-changed' },
+      502,
+      'host_identity_changed',
+    ],
+    ['was refused by it (401)', {}, 401, undefined],
+  ])('fails as that host’s when the upload %s', async (_name, headers, status, code) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status, headers })))
+
+    const err = await uploadChatAttachment(
+      'ws1',
+      'c1',
+      { file: new File(['x'], 'x.png') },
+      'x',
+    ).catch((e: unknown) => e)
+
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err).toMatchObject({ status, code, hostId: 'h1' })
   })
 
   it('fails without sending anything when the host is not configured', async () => {

@@ -15,6 +15,7 @@ import {
   settlePendingImageInto,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
 import { toast } from '@/features/window/stores/toast-store'
+import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 
 interface ChatPastePluginOptions {
   wsId: string
@@ -128,9 +129,7 @@ export function createChatPastePlugin({ wsId, chatId }: ChatPastePluginOptions) 
               // silently do nothing, mid-typing, with no feedback at all.
               toast.error(
                 'Could not attach that image',
-                err instanceof Error
-                  ? err.message
-                  : 'Crowbar could not reach the daemon — try again.',
+                actionErrorMessage(err, 'Crowbar could not reach the daemon — try again.'),
               )
             })
           return true
@@ -154,9 +153,7 @@ export function createChatPastePlugin({ wsId, chatId }: ChatPastePluginOptions) 
               .catch((err) => {
                 toast.error(
                   'Could not attach that file',
-                  err instanceof Error
-                    ? err.message
-                    : 'Crowbar could not reach the daemon — try again.',
+                  actionErrorMessage(err, 'Crowbar could not reach the daemon — try again.'),
                 )
               })
           }
@@ -181,9 +178,7 @@ export function createChatPastePlugin({ wsId, chatId }: ChatPastePluginOptions) 
             .catch((err) => {
               toast.error(
                 'Could not attach that text',
-                err instanceof Error
-                  ? err.message
-                  : 'Crowbar could not reach the daemon — try again.',
+                actionErrorMessage(err, 'Crowbar could not reach the daemon — try again.'),
               )
             })
           return true

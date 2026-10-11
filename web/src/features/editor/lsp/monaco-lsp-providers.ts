@@ -1,11 +1,9 @@
 /**
- * Monaco language-feature providers backed by the daemon's /lsp routes
- * (owner decision 1): completion, hover, signature help, definition,
- * references, rename, code actions, document symbols, code lens, semantic
- * tokens and document formatting. Monaco owns every widget (suggest, hover,
- * parameter hints, peek, rename box, lightbulb, lenses, outline); this module
- * only answers queries (each through `lsp-query.ts`) and runs the server
- * commands lenses and actions carry.
+ * Monaco language-feature providers backed by the daemon's /lsp routes: completion, hover,
+ * signature help, definition, references, rename, code actions, document symbols, code lens,
+ * semantic tokens and document formatting. Monaco owns every widget (suggest, hover, parameter
+ * hints, peek, rename box, lightbulb, lenses, outline); this module only answers queries (each
+ * through `lsp-query.ts`) and runs the server commands lenses and actions carry.
  */
 import { editor as monacoEditor, languages, Uri } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
@@ -27,6 +25,7 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
 import { toast } from '@/features/window/stores/toast-store'
+import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 import { fileUri, uriToFsPath, uriToWorkspaceId } from '../lib/editor-uri'
 import { langForUri } from '../lib/monaco-adapters'
 import { revealInEditor } from '../lib/reveal'
@@ -302,7 +301,7 @@ export function registerLspProviders(): void {
       command: Command | null,
     ) => {
       void runCommand(wsId, path, edit, command).catch((error: unknown) =>
-        toast.error('Command failed', error instanceof Error ? error.message : undefined),
+        toast.error('Command failed', actionErrorMessage(error, undefined)),
       )
     },
   )
@@ -318,7 +317,7 @@ export function registerLspProviders(): void {
         path: uriToFsPath(resource.toString()),
         position: positionOf(selectionOrPosition),
       }).catch((error: unknown) =>
-        toast.error('Could not open file', error instanceof Error ? error.message : undefined),
+        toast.error('Could not open file', actionErrorMessage(error, undefined)),
       )
       return true
     },

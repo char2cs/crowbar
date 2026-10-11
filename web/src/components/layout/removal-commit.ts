@@ -12,6 +12,7 @@ import { useProjectDataStore } from '@/lib/store/projects'
 import { dataOf } from '@/lib/loadable'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toast } from '@/features/window/stores/toast-store'
+import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 
 /**
  * Committing a hold — the one step of the removal path that destroys anything.
@@ -305,9 +306,7 @@ export async function commitRemoval(entry: RemovalEntry, context: RemovalContext
       return
     }
     useRemovalTrayStore.getState().release(entry.hiddenIds)
-    toast.error(
-      `Couldn't remove ${entry.label}: ${err instanceof Error ? err.message : 'request failed'}`,
-    )
+    toast.error(`Couldn't remove ${entry.label}: ${actionErrorMessage(err, 'request failed')}`)
     return
   }
 

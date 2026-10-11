@@ -9,6 +9,7 @@ import { chatTerminalsBaseForWorkspace, terminalsBaseForWorkspace } from '@/lib/
 import { toast } from '@/features/window/stores/toast-store'
 import { hostIdForWorkspace, isHostResolved, subscribeHostResolution } from '@/lib/host-resolve'
 import { reportHostFailure } from '@/features/hosts/lib/host-failures'
+import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 import { onHostUp } from '@/features/hosts/lib/host-status'
 import { resolveTerminalSession } from '../components/resolve-terminal-connection'
 import { saveReconnect } from '../lib/terminal-reconnect-map'
@@ -121,7 +122,12 @@ export function useTerminalAttachment({
         })
       } catch (err) {
         console.error('[terminal] attach failed:', err)
-        toast.error('Terminal unavailable', 'Could not start the terminal. Try reopening the tab.')
+        if (!toastHostFailure(err)) {
+          toast.error(
+            'Terminal unavailable',
+            'Could not start the terminal. Try reopening the tab.',
+          )
+        }
         return
       }
       // A PTY the daemon made is this tab's even if the host cannot be dialled now, or this

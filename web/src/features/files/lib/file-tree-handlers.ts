@@ -14,6 +14,7 @@ import type { AppFile } from '@/features/file-system/types/app'
 import { revealItemInFinder } from '@/lib/crowbar-bridge'
 import { resolveWorkspaceRootPath } from '@/lib/workspace/resolve-root-path'
 import { toast } from '@/features/window/stores/toast-store'
+import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 import { joinPath } from '@/utils/path-helpers'
 
 /** Which pane a file opens into (C8). Omitted, the focused pane. */
@@ -139,7 +140,7 @@ export function createFileTreeHandlers(wsId: string, store: WorkspaceStore) {
       try {
         await copyFileNode(wsId, path, duplicateDestPath(path, store.getState().files))
       } catch (error) {
-        toast.error('Duplicate failed', error instanceof Error ? error.message : String(error))
+        toast.error('Duplicate failed', actionErrorMessage(error, String(error)))
       }
     },
     handleRenamePath: async (path: string, newName?: string) => {

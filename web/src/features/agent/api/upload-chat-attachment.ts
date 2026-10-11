@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid'
 import { chatBase } from '@/features/agent/api/agent-api'
 import { LOCAL_HOST } from '@/features/hosts/types'
 import { apiUrl } from '@/lib/api'
+import { ApiError, PROXY_HEADER, proxyMarkerError } from '@/lib/api/errors'
 import { convertFileSrc } from '@/lib/crowbar-bridge'
 import { splitHostPath } from '@/lib/host-path'
 
@@ -50,11 +51,18 @@ export async function uploadChatAttachment(
         body: JSON.stringify({ path: (input as { path: string }).path, id }),
       })
 
-  if (!response.ok) {
-    throw new Error(`upload chat attachment failed: ${response.status} ${await response.text()}`)
-  }
+  if (!response.ok) throw await uploadFailure(response, base)
   const { data } = (await response.json()) as UploadAttachmentResponseBody
   return { ref: data.ref, filename: data.fileName, size: data.size, contentType: data.contentType }
+}
+
+// Named the way apiFetch names a failure, so a host's own trouble reads as that host's.
+async function uploadFailure(response: Response, base: string): Promise<ApiError> {
+  const { hostId } = splitHostPath(base)
+  const marked = proxyMarkerError(response.headers.get(PROXY_HEADER), hostId, response.status)
+  if (marked) return marked
+  const message = `upload chat attachment failed: ${response.status} ${await response.text()}`
+  return new ApiError(message, response.status, undefined, undefined, hostId)
 }
 
 // An early-out only: the daemon's attachments.MaxBytes is the authority on the cap.

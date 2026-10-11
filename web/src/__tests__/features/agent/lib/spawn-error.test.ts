@@ -1,7 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { describeSpawnError } from '@/features/agent/lib/spawn-error'
+const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }))
+vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: toastError } }))
+
+import { describeSpawnError, toastSpawnFailure } from '@/features/agent/lib/spawn-error'
+import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { ApiError } from '@/lib/api'
+import { proxyMarkerError } from '@/lib/api/errors'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 describe('describeSpawnError', () => {
   it('names the missing CLI on a 424 and tells the user what to do about it', () => {
@@ -34,5 +40,42 @@ describe('describeSpawnError', () => {
   it('survives a non-Error rejection', () => {
     const notice = describeSpawnError('kaboom', 'Claude Code', 'start')
     expect(notice.description).toContain('kaboom')
+  })
+})
+
+describe('toastSpawnFailure', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    toastError.mockReset()
+    destroyHostRuntime('h1')
+    resetHostWorld()
+  })
+
+  // A chat on a remote host that cannot be reached is not a CLI the user should go install.
+  it('names the host a spawn could not reach instead of the chat it could not start', () => {
+    pairRemoteHost('h1', 'Studio Mac')
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    toastSpawnFailure(proxyMarkerError('host-unreachable', 'h1'), 'Codex', 'start')
+
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(
+      'Couldn’t reach Studio Mac',
+      'Check that it is online in Settings → Hosts.',
+    )
+  })
+
+  it('says a local spawn failed exactly as before', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    toastSpawnFailure(
+      new ApiError('workspace is locked', 409, undefined, undefined, 'local'),
+      'Codex',
+      'start',
+    )
+
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(
+      'Couldn’t start Codex chat',
+      'workspace is locked',
+    )
   })
 })
