@@ -2,7 +2,7 @@ import { Plus, Trash } from '@phosphor-icons/react'
 import { useCallback, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { AddHostDialog } from '@/features/hosts/components/add-host-dialog'
-import { useHostStatus, useHostStreamsClosed } from '@/features/hosts/hooks/use-host-status'
+import { useHostStatus, useNoLiveStream } from '@/features/hosts/hooks/use-host-status'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { LOCAL_HOST, type Host, type HostStatus } from '@/features/hosts/types'
 import { forgetHostToken, unregisterRemoteHost } from '@/lib/crowbar-bridge'
@@ -30,10 +30,9 @@ const STATUS_DOT_CLASS: Record<HostStatus, string> = {
 }
 
 /** A row's live dot: the host's status as the app last learned it. */
-function HostStatusDot({ hostId }: { hostId: string }) {
+function HostStatusDot({ hostId, noLiveStream }: { hostId: string; noLiveStream: boolean }) {
   const status = useHostStatus(hostId)
-  const streamsClosed = useHostStreamsClosed(hostId)
-  const label = status === 'up' && streamsClosed ? NO_LIVE_STREAM_LABEL : STATUS_LABEL[status]
+  const label = noLiveStream ? NO_LIVE_STREAM_LABEL : STATUS_LABEL[status]
 
   return (
     <span
@@ -77,16 +76,19 @@ interface HostRowProps {
 }
 
 function HostRow({ host, isLocal, revoking, onRevoke }: HostRowProps) {
+  const noLiveStream = useNoLiveStream(host.id)
+
   return (
     <div
       data-testid="host-row"
       className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-muted/50"
     >
-      <HostStatusDot hostId={host.id} />
+      <HostStatusDot hostId={host.id} noLiveStream={noLiveStream} />
       <div className="min-w-0 flex-1">
         <div className="ui-font ui-text-sm truncate text-foreground">{host.name}</div>
         <div className="ui-font ui-text-sm truncate text-muted-foreground">
           {isLocal ? 'This computer' : host.endpoint}
+          {noLiveStream && ' · No live stream'}
         </div>
       </div>
       {!isLocal && (

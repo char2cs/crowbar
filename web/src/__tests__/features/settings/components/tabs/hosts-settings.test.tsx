@@ -99,19 +99,24 @@ describe('HostsSettings', () => {
     getOrCreateHostRuntime('h1').getState().setStatus('up')
     render(<HostsSettings />)
     const dot = screen.getByTestId('host-status-h1')
+    const row = dot.closest('[data-testid="host-row"]')!
     expect(dot).toHaveAttribute('aria-label', 'Online')
+    expect(row).not.toHaveTextContent('No live stream')
 
     act(() => reportChannelState('crowbar://h1/v0/projects', false, 'h1'))
     expect(dot).toHaveAttribute('aria-label', 'Online — no live stream')
+    expect(row).toHaveTextContent('No live stream')
 
     act(() => reportChannelState('crowbar://h1/v0/projects', true, 'h1'))
     expect(dot).toHaveAttribute('aria-label', 'Online')
+    expect(row).not.toHaveTextContent('No live stream')
 
     act(() => {
       reportChannelState('crowbar://h1/v0/projects', false, 'h1')
       getHostRuntime('h1')!.getState().setStatus('down')
     })
     expect(dot).toHaveAttribute('aria-label', 'Offline')
+    expect(row).not.toHaveTextContent('No live stream')
     resetConnectionState()
     destroyHostRuntime('h1')
   })
