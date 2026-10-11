@@ -4,8 +4,10 @@ import { toast } from '@/features/window/stores/toast-store'
 import { openExternalUrl } from '@/lib/external-open'
 import { resolvedHostOf } from '@/lib/host-resolve'
 
-// localhost and its subdomains, 127.0.0.0/8, 0.0.0.0 and [::1], as URL parsing normalises them.
-const LOOPBACK_HOSTNAME = /^(?:localhost|.+\.localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1\])\.?$/i
+// localhost and its subdomains, 127.0.0.0/8, 0.0.0.0, [::1], [::] and IPv4-mapped 127.0.0.0/8,
+// as URL parsing normalises them (`[::ffff:127.0.0.1]` reads `[::ffff:7f00:1]`).
+const LOOPBACK_HOSTNAME =
+  /^(?:localhost|.+\.localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1?\]|\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\])\.?$/i
 
 function isLoopbackUrl(url: string): boolean {
   try {
