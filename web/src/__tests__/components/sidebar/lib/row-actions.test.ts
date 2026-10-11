@@ -923,7 +923,7 @@ describe('a row action its host fails', () => {
       'a changed identity',
       502,
       { 'x-crowbar-proxy': 'host-identity-changed' },
-      'Studio Mac’s identity changed — it must be paired again',
+      'Studio Mac is presenting a different identity — confirm it before pairing again',
     ],
     ['a refused credential (401)', 401, {}, 'Studio Mac needs to be paired again'],
   ])(

@@ -56,12 +56,19 @@ describe('an action that failed because of its remote host', () => {
     expect(statusOf('h1')).toBe('down')
   })
 
-  it('warns that a host’s identity changed and that only pairing again on the host fixes it', () => {
+  // A changed identity can be an attack: it is never presented as routine re-pairing.
+  it('warns that a host presenting another identity may be intercepted, to be confirmed before pairing again', () => {
     toastHostFailure(changed())
 
     const [message, description] = toastError.mock.calls[0] as [string, string]
-    expect(message).toBe('Studio Mac’s identity changed — it must be paired again')
-    expect(description).toMatch(/refused to connect.*run crowbar pair on that host/)
+    expect(message).toBe(
+      'Studio Mac is presenting a different identity — confirm it before pairing again',
+    )
+    expect(description).toMatch(/reinstalled or reset, or someone may be intercepting/)
+    expect(description).toMatch(/refused to connect/)
+    expect(description).toMatch(
+      /confirm its new fingerprint with whoever runs it: run crowbar pair/,
+    )
     expect(statusOf('h1')).toBe('needs-repair')
   })
 
@@ -205,7 +212,7 @@ describe('a failure that is not its host’s', () => {
 describe('inline and toasted host failures read the same', () => {
   it('an inline message names the host and records its status', () => {
     expect(actionErrorMessage(changed(), 'Failed')).toBe(
-      'Studio Mac’s identity changed — it must be paired again',
+      'Studio Mac is presenting a different identity — confirm it before pairing again',
     )
     expect(statusOf('h1')).toBe('needs-repair')
   })

@@ -86,8 +86,8 @@ function describeHostFailure(err: unknown, facts: HostFailureFacts): HostFailure
     // Each message carries what to do on its own: an inline or described surface shows only it.
     case 'identity-changed':
       return {
-        message: `${name}’s identity changed — it must be paired again`,
-        description: `It no longer presents the certificate you paired with, so Crowbar refused to connect — it may not be your host. ${PAIR_AGAIN}`,
+        message: `${name} is presenting a different identity — confirm it before pairing again`,
+        description: `It may have been reinstalled or reset, or someone may be intercepting the connection, so Crowbar refused to connect. Only pair it again after you confirm its new fingerprint with whoever runs it: run crowbar pair on that host, then remove it and add it back in Settings → Hosts.`,
       }
     case 'refused':
       return {

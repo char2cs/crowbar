@@ -412,7 +412,7 @@ describe('a project-home thread on an install that has paired a remote host', ()
     [
       'found with another identity',
       proxyMarkerError('host-identity-changed', 'host-1'),
-      'host-1’s identity changed — it must be paired again',
+      'host-1 is presenting a different identity — confirm it before pairing again',
     ],
   ])('names the host it %s, once however often the button is clicked', async (_, err, said) => {
     useAgentProvidersStore.setState({ remote: {} })

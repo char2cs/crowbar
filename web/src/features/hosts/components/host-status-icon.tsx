@@ -3,11 +3,13 @@ import { hostDotLabel, hostTone, type HostTone } from '@/features/hosts/lib/host
 import type { HostDotState } from '@/features/hosts/types'
 import { cn } from '@/utils/cn'
 
+// A dot is a non-text indicator, so it needs 3:1. Light amber's base is 2.2:1 on the sidebar, so
+// light takes its -foreground (as the tone's text does); the unsettled ring is /65 for the same.
 const DOT_FILL: Record<HostTone, string> = {
   online: 'bg-success',
   offline: 'bg-destructive',
-  'needs-attention': 'bg-warning',
-  unsettled: 'border border-muted-foreground/50',
+  'needs-attention': 'bg-warning-foreground dark:bg-warning',
+  unsettled: 'border border-muted-foreground/65',
 }
 
 // The dot sits over the screen's corner: the icon is cut away around it, so the dot reads on any
