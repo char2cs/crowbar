@@ -171,7 +171,13 @@ export function enabledProvider(projectId: string): AgentProvider | null {
       'Enable one in Settings → Providers to start a chat or fork a workspace.',
     )
   } else {
-    toast.error('No agent provider is enabled on this host', 'Enable one there to start a chat.')
+    // Settings → Providers sets up this computer only; a host's providers are set on it.
+    const name = useHostConfigStore.getState().hosts.find((h) => h.id === hostId)?.name
+    const host = name ?? 'that host'
+    toast.error(
+      `No agent provider is enabled on ${host}`,
+      `Enable one on ${host} itself: Settings → Providers sets up only this computer.`,
+    )
   }
   return null
 }
