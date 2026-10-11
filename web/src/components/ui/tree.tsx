@@ -29,11 +29,8 @@ function parentIndex(items: readonly TreeNavItem[], index: number): number {
   return -1
 }
 
-/**
- * A single-select tree (WAI-ARIA tree pattern): focus stays on the tree, which moves an
- * active row through `aria-activedescendant`. Arrows move and expand/collapse, Home/End
- * jump, Enter and Space select.
- */
+/** A single-select WAI-ARIA tree: focus stays on it while `aria-activedescendant` moves the
+ *  active row. Arrows move and open/close, Home/End jump, Enter and Space select. */
 export function Tree({
   items,
   activeKey,
@@ -54,8 +51,12 @@ export function Tree({
     if (event.defaultPrevented || items.length === 0) return
     const index = Math.max(0, activeIndex)
     const current = items[index]
-    const moveTo = (to: number) =>
-      onActiveKeyChange(items[Math.min(items.length - 1, Math.max(0, to))].key)
+    const moveTo = (to: number) => {
+      const { key } = items[Math.min(items.length - 1, Math.max(0, to))]
+      onActiveKeyChange(key)
+      // aria-activedescendant never scrolls: the row the keyboard moves to is brought into view.
+      document.getElementById(itemId(key))?.scrollIntoView({ block: 'nearest' })
+    }
     switch (event.key) {
       case 'ArrowDown':
         moveTo(activeIndex + 1)
