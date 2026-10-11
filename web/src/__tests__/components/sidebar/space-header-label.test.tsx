@@ -41,6 +41,16 @@ describe('SpaceHeaderLabel', () => {
     expect(label()).not.toHaveAttribute('data-unreachable')
   })
 
+  // Only a remote host's rows dim: a dropped local socket (after sleep, say) never greys out a
+  // never-paired user's every row.
+  it('a local project never dims, whatever the local daemon’s status', () => {
+    useConnectionStore.setState({ status: 'disconnected' })
+    render(<SpaceHeaderLabel project={projectOn('Rabbyte Labs', 'local')} />)
+
+    expect(dot('local')).toHaveAttribute('aria-label', 'Offline')
+    expect(label()).not.toHaveAttribute('data-unreachable')
+  })
+
   it('a remote project reads its host’s name, online while the host is up', () => {
     remoteProject('up')
 
