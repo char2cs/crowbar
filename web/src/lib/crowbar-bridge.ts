@@ -249,14 +249,6 @@ export async function terminalListLive(base: string): Promise<string[]> {
 // completed move that never happened. It now lives in the file-explorer
 // clipboard store, where paste drives the daemon's real copy/rename verbs.
 
-// ── Native Dialogs ────────────────────────────────────────────────────────────
-// FUTURE: Tauri plugin-dialog when crowbar desktop wrapper exposes it
-
-export async function openDirectory(): Promise<string | null> {
-  // FUTURE: @tauri-apps/plugin-dialog open({ directory: true, multiple: false })
-  return null
-}
-
 // ── File Manager ──────────────────────────────────────────────────────────────
 
 // The `reveal_in_finder` invoke should always settle in well under a second —
