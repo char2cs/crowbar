@@ -12,7 +12,8 @@ import {
   seedProjectList,
   useProjectDataStore,
 } from '@/lib/store/projects'
-import { hostIdForProject, hostUnavailability } from '@/lib/host-resolve'
+import { hostIdForProject } from '@/lib/host-resolve'
+import { hostUnavailability } from '@/lib/host-unavailability'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import {
   destroyHostRuntime,

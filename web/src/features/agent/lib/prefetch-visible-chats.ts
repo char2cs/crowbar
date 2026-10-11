@@ -2,7 +2,7 @@ import { chatLedgerStore } from '@/features/agent/stores/chat-ledger-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { showingLayout } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { awaitHost } from '@/lib/host-resolve'
+import { awaitHost } from '@/lib/host-unavailability'
 import { getWorkspaceScope } from '@/lib/workspace-scope'
 
 /**

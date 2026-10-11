@@ -2,14 +2,12 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HostNotResolvedError } from '@/lib/host-path'
 import {
-  awaitHost,
   hostIdForChat,
   hostIdForProject,
   hostIdForWorkspace,
   isHostResolved,
   resolvedHostOf,
   useHostResolved,
-  useHostUnavailable,
   useResolvedHost,
 } from '@/lib/host-resolve'
 import { useProjectDataStore } from '@/lib/store/projects'
@@ -425,65 +423,6 @@ describe('useHostResolved', () => {
     const { result } = renderHook(() => useHostResolved({ projectId: 'p-remote' }))
     act(() => useProjectDataStore.setState({ data: loading(held) }))
     expect(result.current).toBe(true)
-  })
-})
-
-// A waiter cannot wait on a host forever: once the project list has loaded and
-// still does not place it, nothing more is coming.
-describe('a host that will not resolve', () => {
-  it('is unavailable only once a loaded list still does not place it', () => {
-    configureHosts('host-1')
-    const remote = renderHook(() => useHostUnavailable({ projectId: 'p-remote' }))
-    const other = renderHook(() => useHostUnavailable({ projectId: 'p-other' }))
-    expect(remote.result.current).toBeNull()
-    act(() => useProjectDataStore.setState({ data: loading() }))
-    expect(remote.result.current).toBeNull()
-    act(() => useProjectDataStore.setState({ data: failed(new Error('boom')) }))
-    expect(remote.result.current).toBeNull()
-    act(() => loadProjects(project('p-other', 'host-1')))
-    expect(remote.result.current).toBe('project-missing')
-    expect(other.result.current).toBeNull()
-  })
-
-  it('tells a project gone from the list apart from one whose host is not configured', () => {
-    configureHosts('host-1')
-    loadProjects(project('p-remote', 'host-1'))
-    const { result } = renderHook(() => useHostUnavailable({ projectId: 'p-remote' }))
-    expect(result.current).toBeNull()
-    act(() => configureHosts())
-    expect(result.current).toBe('host-unavailable')
-  })
-
-  it('is never unavailable for an install that cannot hold a remote project', () => {
-    loadProjects(project('p-local', 'local'))
-    const { result } = renderHook(() => useHostUnavailable({ projectId: 'p-unknown' }))
-    expect(result.current).toBeNull()
-  })
-
-  it('keeps waiting on a workspace whose scope is not recorded yet, however loaded the list', () => {
-    configureHosts('host-1')
-    loadProjects(project('p-other', 'host-1'))
-    const { result } = renderHook(() => useHostUnavailable({ wsId: 'ws-1' }))
-    expect(result.current).toBeNull()
-    act(() => recordScope('ws-1', 'p-remote'))
-    expect(result.current).toBe('project-missing')
-    act(() => loadProjects(project('p-other', 'host-1'), project('p-remote', 'host-1')))
-    expect(result.current).toBeNull()
-  })
-
-  it('awaitHost answers true when the project lands, false when the list lands without it', async () => {
-    configureHosts('host-1')
-    const lands = awaitHost({ projectId: 'p-remote' })
-    const absent = awaitHost({ projectId: 'p-gone' })
-    loadProjects(project('p-remote', 'host-1'))
-    await expect(lands).resolves.toBe(true)
-    await expect(absent).resolves.toBe(false)
-  })
-
-  it('awaitHost answers at once for a host that already resolves', async () => {
-    configureHosts('host-1')
-    loadProjects(project('p-remote', 'host-1'))
-    await expect(awaitHost({ projectId: 'p-remote' })).resolves.toBe(true)
   })
 })
 

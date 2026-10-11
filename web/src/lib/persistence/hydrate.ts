@@ -21,7 +21,7 @@ import {
 import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
 import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
 import { fetchHomeChats, fetchRepoChats, fetchRepos, isNotFoundError } from '@/lib/api'
-import { awaitHost } from '@/lib/host-resolve'
+import { awaitHost } from '@/lib/host-unavailability'
 import { loadSidebarUI } from './sidebar-ui'
 import { useSidebarStore } from '@/lib/store/sidebar'
 

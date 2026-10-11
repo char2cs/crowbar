@@ -4,7 +4,8 @@ import {
   providersOf,
   useAgentProvidersStore,
 } from '@/features/settings/stores/agent-providers-store'
-import { hostUnavailability, resolvedHostOf } from '@/lib/host-resolve'
+import { resolvedHostOf } from '@/lib/host-resolve'
+import { hostUnavailability } from '@/lib/host-unavailability'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { useProjectDataStore } from '@/lib/store/projects'
 import { presetChatLandingPresentation } from '@/features/agent/hooks/use-chat-presentation'

@@ -1,4 +1,4 @@
-import type { HostUnavailable } from '@/lib/host-resolve'
+import type { HostUnavailable } from '@/lib/host-unavailability'
 
 const COPY: Record<HostUnavailable | 'waiting', { title: string; body?: string }> = {
   waiting: { title: 'Opening this chat…' },

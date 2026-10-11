@@ -5,7 +5,8 @@ import {
 } from '@/features/agent/components/agent-chat-pane'
 import { AgentChatUnavailable } from '@/features/agent/components/agent-chat-unavailable'
 import { pendingChatSurfaces } from '@/features/panes/stores/pending-chat-surfaces'
-import { useHostUnavailable, useResolvedHost } from '@/lib/host-resolve'
+import { useResolvedHost } from '@/lib/host-resolve'
+import { useHostUnavailable } from '@/lib/host-unavailability'
 
 /**
  * The chat pane once its workspace's host is known. A paired install restores the
