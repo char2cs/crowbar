@@ -98,6 +98,42 @@ describe('AddHostDialog', () => {
     expect(probeRemoteFingerprint).toHaveBeenCalledTimes(1)
   })
 
+  // A closed dialog's attempt is over: its confirmed fingerprint must not carry into the next.
+  it('opens afresh after it was closed mid-attempt', async () => {
+    vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
+    const { rerender } = render(<AddHostDialog open onOpenChange={() => {}} />)
+    fillAddressStage()
+    await waitFor(() => expect(screen.getByText(/SHA256:aaaa/i)).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /confirm|looks right/i }))
+    expect(await screen.findByLabelText(/code/i)).toBeInTheDocument()
+
+    rerender(<AddHostDialog open={false} onOpenChange={() => {}} />)
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    rerender(<AddHostDialog open onOpenChange={() => {}} />)
+
+    expect(await screen.findByLabelText(/name/i)).toHaveValue('')
+    expect(screen.getByLabelText(/address/i)).toHaveValue('')
+    expect(screen.queryByLabelText(/code/i)).toBeNull()
+    expect(screen.queryByText(/SHA256:aaaa/i)).toBeNull()
+  })
+
+  it('cannot be dismissed while the host is still answering', async () => {
+    let answer!: (fingerprint: string) => void
+    vi.mocked(probeRemoteFingerprint).mockReturnValueOnce(new Promise((r) => (answer = r)))
+    const onOpenChange = vi.fn()
+    render(<AddHostDialog open onOpenChange={onOpenChange} />)
+    fillAddressStage()
+    await screen.findByRole('button', { name: /connecting/i })
+
+    fireEvent.click(screen.getByRole('button', { name: /close/i }))
+    expect(onOpenChange).not.toHaveBeenCalled()
+
+    answer('SHA256:aaaa')
+    await screen.findByText(/SHA256:aaaa/i)
+    fireEvent.click(screen.getByRole('button', { name: /close/i }))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
   it('a fingerprint probe failure surfaces an error and does not advance to the confirm stage', async () => {
     vi.mocked(probeRemoteFingerprint).mockRejectedValueOnce(new Error('unreachable'))
     render(<AddHostDialog open onOpenChange={() => {}} />)

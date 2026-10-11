@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -13,6 +13,9 @@ import { probeRemoteFingerprint } from '@/lib/crowbar-bridge'
 import { redeemPairingCode } from '@/features/hosts/lib/pairing'
 
 type Stage = 'address' | 'fingerprint' | 'code'
+
+/** The host's answer the dialog is waiting on; it cannot be dismissed meanwhile. */
+type Pending = 'probe' | 'pair' | null
 
 interface AddHostDialogProps {
   open: boolean
@@ -39,37 +42,50 @@ function makeHostId(name: string): string {
  * fingerprint shown in stage 1 — never a re-probed or re-derived value.
  */
 export function AddHostDialog({ open, onOpenChange }: AddHostDialogProps) {
+  const [pending, setPending] = useState<Pending>(null)
+
+  function handleOpenChange(next: boolean) {
+    if (!next && pending) return
+    onOpenChange(next)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogPopup className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add remote host</DialogTitle>
+        </DialogHeader>
+        {/* Lives as long as the popup, which unmounts once closed: each opening is a new
+            attempt, so a confirmed fingerprint never carries into the next one. */}
+        <AddHostAttempt
+          pending={pending}
+          onPendingChange={setPending}
+          onCancel={() => handleOpenChange(false)}
+          onPaired={() => onOpenChange(false)}
+        />
+      </DialogPopup>
+    </Dialog>
+  )
+}
+
+interface AddHostAttemptProps {
+  pending: Pending
+  onPendingChange: (pending: Pending) => void
+  onCancel: () => void
+  onPaired: () => void
+}
+
+function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHostAttemptProps) {
   const [stage, setStage] = useState<Stage>('address')
   const [name, setName] = useState('')
   const [endpoint, setEndpoint] = useState('')
-  const [hostId, setHostId] = useState('')
   const [fingerprint, setFingerprint] = useState('')
   const [code, setCode] = useState('')
-  const [probing, setProbing] = useState(false)
-  const [pairing, setPairing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  // A reopen starts a fresh attempt — the previous attempt's confirmed
-  // fingerprint must never leak into a new one.
-  useEffect(() => {
-    if (!open) return
-    setStage('address')
-    setName('')
-    setEndpoint('')
-    setHostId('')
-    setFingerprint('')
-    setCode('')
-    setProbing(false)
-    setPairing(false)
-    setError(null)
-  }, [open])
-
-  const busy = probing || pairing
-
-  function handleOpenChange(next: boolean) {
-    if (!next && busy) return
-    onOpenChange(next)
-  }
+  // Minted with the probe, so every code tried after one confirm pairs the same host id.
+  const hostId = useRef('')
+  const probing = pending === 'probe'
+  const pairing = pending === 'pair'
 
   async function handleProbe(e: React.FormEvent) {
     e.preventDefault()
@@ -77,16 +93,16 @@ export function AddHostDialog({ open, onOpenChange }: AddHostDialogProps) {
     const trimmedEndpoint = endpoint.trim()
     if (!trimmedName || !trimmedEndpoint) return
     setError(null)
-    setProbing(true)
+    onPendingChange('probe')
     try {
       const fp = await probeRemoteFingerprint(trimmedEndpoint)
-      setHostId(makeHostId(trimmedName))
+      hostId.current = makeHostId(trimmedName)
       setFingerprint(fp)
       setStage('fingerprint')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setProbing(false)
+      onPendingChange(null)
     }
   }
 
@@ -99,120 +115,109 @@ export function AddHostDialog({ open, onOpenChange }: AddHostDialogProps) {
     e.preventDefault()
     if (!/^\d{6}$/.test(code)) return
     setError(null)
-    setPairing(true)
+    onPendingChange('pair')
     try {
-      await redeemPairingCode(hostId, endpoint.trim(), fingerprint, code, name.trim())
-      onOpenChange(false)
+      await redeemPairingCode(hostId.current, endpoint.trim(), fingerprint, code, name.trim())
+      onPaired()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setPairing(false)
+      onPendingChange(null)
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogPopup className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Add remote host</DialogTitle>
-        </DialogHeader>
-
-        {stage === 'address' && (
-          <form onSubmit={handleProbe}>
-            <div className="space-y-5 px-6 py-5">
-              <div className="space-y-2">
-                <Label htmlFor="add-host-name">Name</Label>
-                <Input
-                  id="add-host-name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="homelab"
-                  disabled={probing}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="add-host-address">Address</Label>
-                <Input
-                  id="add-host-address"
-                  value={endpoint}
-                  onChange={(e) => setEndpoint(e.target.value)}
-                  placeholder="1.2.3.4:3737"
-                  className="font-mono text-[12px]"
-                  disabled={probing}
-                />
-              </div>
-              {error && <p className="text-[12px] text-destructive">{error}</p>}
-            </div>
-            <DialogFooter>
-              <Button
-                variant="ghost"
-                type="button"
-                disabled={probing}
-                onClick={() => handleOpenChange(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={!name.trim() || !endpoint.trim() || probing}>
-                {probing ? 'Connecting…' : 'Continue'}
-              </Button>
-            </DialogFooter>
-          </form>
-        )}
-
-        {stage === 'fingerprint' && (
-          <div>
-            <div className="space-y-3 px-6 py-5">
-              <p className="text-sm text-muted-foreground">
-                Confirm this matches the fingerprint printed by that host's CLI:
-              </p>
-              <p className="break-all rounded-lg border bg-muted/50 px-3 py-2 font-mono text-[12px]">
-                {fingerprint}
-              </p>
-              {error && <p className="text-[12px] text-destructive">{error}</p>}
-            </div>
-            <DialogFooter>
-              <Button variant="ghost" type="button" onClick={() => setStage('address')}>
-                Back
-              </Button>
-              <Button type="button" onClick={handleConfirmFingerprint}>
-                Confirm fingerprint
-              </Button>
-            </DialogFooter>
-          </div>
-        )}
-
-        {stage === 'code' && (
-          <form onSubmit={handleRedeem}>
-            <div className="space-y-2 px-6 py-5">
-              <Label htmlFor="add-host-code">Pairing code</Label>
+    <>
+      {stage === 'address' && (
+        <form onSubmit={handleProbe}>
+          <div className="space-y-5 px-6 py-5">
+            <div className="space-y-2">
+              <Label htmlFor="add-host-name">Name</Label>
               <Input
-                id="add-host-code"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                placeholder="123456"
-                inputMode="numeric"
-                maxLength={6}
-                className="font-mono text-[12px]"
-                disabled={pairing}
+                id="add-host-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="homelab"
+                disabled={probing}
               />
-              {error && <p className="text-[12px] text-destructive">{error}</p>}
             </div>
-            <DialogFooter>
-              <Button
-                variant="ghost"
-                type="button"
-                onClick={() => setStage('fingerprint')}
-                disabled={pairing}
-              >
-                Back
-              </Button>
-              <Button type="submit" disabled={!/^\d{6}$/.test(code) || pairing}>
-                {pairing ? 'Pairing…' : 'Pair'}
-              </Button>
-            </DialogFooter>
-          </form>
-        )}
-      </DialogPopup>
-    </Dialog>
+            <div className="space-y-2">
+              <Label htmlFor="add-host-address">Address</Label>
+              <Input
+                id="add-host-address"
+                value={endpoint}
+                onChange={(e) => setEndpoint(e.target.value)}
+                placeholder="1.2.3.4:3737"
+                className="font-mono text-[12px]"
+                disabled={probing}
+              />
+            </div>
+            {error && <p className="text-[12px] text-destructive">{error}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" type="button" disabled={probing} onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!name.trim() || !endpoint.trim() || probing}>
+              {probing ? 'Connecting…' : 'Continue'}
+            </Button>
+          </DialogFooter>
+        </form>
+      )}
+
+      {stage === 'fingerprint' && (
+        <div>
+          <div className="space-y-3 px-6 py-5">
+            <p className="text-sm text-muted-foreground">
+              Confirm this matches the fingerprint printed by that host's CLI:
+            </p>
+            <p className="break-all rounded-lg border bg-muted/50 px-3 py-2 font-mono text-[12px]">
+              {fingerprint}
+            </p>
+            {error && <p className="text-[12px] text-destructive">{error}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" type="button" onClick={() => setStage('address')}>
+              Back
+            </Button>
+            <Button type="button" onClick={handleConfirmFingerprint}>
+              Confirm fingerprint
+            </Button>
+          </DialogFooter>
+        </div>
+      )}
+
+      {stage === 'code' && (
+        <form onSubmit={handleRedeem}>
+          <div className="space-y-2 px-6 py-5">
+            <Label htmlFor="add-host-code">Pairing code</Label>
+            <Input
+              id="add-host-code"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="123456"
+              inputMode="numeric"
+              maxLength={6}
+              className="font-mono text-[12px]"
+              disabled={pairing}
+            />
+            {error && <p className="text-[12px] text-destructive">{error}</p>}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              type="button"
+              onClick={() => setStage('fingerprint')}
+              disabled={pairing}
+            >
+              Back
+            </Button>
+            <Button type="submit" disabled={!/^\d{6}$/.test(code) || pairing}>
+              {pairing ? 'Pairing…' : 'Pair'}
+            </Button>
+          </DialogFooter>
+        </form>
+      )}
+    </>
   )
 }
