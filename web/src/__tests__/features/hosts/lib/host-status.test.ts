@@ -97,10 +97,10 @@ describe('onHostUp', () => {
     reportChannelState('/v0/projects', true, 'local')
     expect(up).not.toHaveBeenCalled()
 
-    getHostRuntime('h1')!.getState().setStatus('up', 3)
-    getHostRuntime('h1')!.getState().setStatus('up', 4)
+    getHostRuntime('h1')!.getState().setStatus('up')
+    getHostRuntime('h1')!.getState().setStatus('up')
     getHostRuntime('h1')!.getState().setStatus('needs-repair')
-    getHostRuntime('h1')!.getState().setStatus('up', 5)
+    getHostRuntime('h1')!.getState().setStatus('up')
     expect(up).toHaveBeenCalledTimes(2)
   })
 

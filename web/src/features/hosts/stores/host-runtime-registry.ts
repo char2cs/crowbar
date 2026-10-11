@@ -3,8 +3,7 @@ import type { HostStatus } from '@/features/hosts/types'
 
 interface HostRuntimeState {
   status: HostStatus
-  latencyMs: number | null
-  setStatus: (status: HostStatus, latencyMs?: number | null) => void
+  setStatus: (status: HostStatus) => void
 }
 
 export type HostRuntimeStore = UseBoundStore<StoreApi<HostRuntimeState>>
@@ -12,8 +11,7 @@ export type HostRuntimeStore = UseBoundStore<StoreApi<HostRuntimeState>>
 function createHostRuntimeStore(): HostRuntimeStore {
   return create<HostRuntimeState>((set) => ({
     status: 'unknown',
-    latencyMs: null,
-    setStatus: (status, latencyMs = null) => set({ status, latencyMs }),
+    setStatus: (status) => set({ status }),
   }))
 }
 

@@ -67,7 +67,7 @@ describe('followStreamFailures', () => {
     reportChannelFailure(STREAM, unreachable())
     reportChannelFailure('crowbar://h1/v0/projects/p/repos', unreachable())
     expect(statusOf('h1')).toBe('down')
-    getHostRuntime('h1')!.getState().setStatus('up', 3)
+    getHostRuntime('h1')!.getState().setStatus('up')
 
     reportChannelState(STREAM, true, 'h1')
     reportChannelState('/v0/projects', true, 'local')

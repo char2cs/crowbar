@@ -66,7 +66,7 @@ function probeLoop(hostId: string): () => void {
     const probe = await probeHost(hostId)
     // A host removed meanwhile is not written to: its runtime stays gone.
     if (stopped) return
-    getOrCreateHostRuntime(hostId).getState().setStatus(probe.status, probe.latencyMs)
+    getOrCreateHostRuntime(hostId).getState().setStatus(probe.status)
     probing = false
     if (probe.status === 'down') {
       retryDown()

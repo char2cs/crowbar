@@ -25,12 +25,12 @@ afterEach(() => {
 })
 
 describe('probeHost', () => {
-  it('reads the host’s own /v0/health once and says it is up, with how long it took', async () => {
+  it('reads the host’s own /v0/health once and says it is up', async () => {
     fetchMock.mockResolvedValue(health(200))
 
     const probe = await probeHost('h1')
 
-    expect(probe).toEqual({ status: 'up', latencyMs: expect.any(Number) })
+    expect(probe).toEqual({ status: 'up' })
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['crowbar://h1/v0/health'])
   })
 

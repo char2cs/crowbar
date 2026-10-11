@@ -49,10 +49,10 @@ describe('whileHostUp', () => {
     const stop = whileHostUp(run)
     const h1 = getHostRuntime('h1')!.getState()
 
-    h1.setStatus('up', 12)
-    h1.setStatus('up', 9)
+    h1.setStatus('up')
+    h1.setStatus('up')
     h1.setStatus('needs-repair')
-    h1.setStatus('up', 5)
+    h1.setStatus('up')
 
     expect(log).toEqual(['start h1', 'stop h1', 'start h1'])
     stop()

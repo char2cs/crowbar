@@ -360,7 +360,7 @@ describe('WSManager remote stream failures', () => {
     resetHostWorld()
     tauriInstances[0].onclose?.()
     vi.advanceTimersByTime(60_000)
-    h1.setStatus('up', 4)
+    h1.setStatus('up')
     destroyHostRuntime('h1')
     mgr.subscribe('crowbar://h1/v0/projects/p/repos', vi.fn())
     mgr.subscribe('crowbar://h9/v0/projects', vi.fn())
