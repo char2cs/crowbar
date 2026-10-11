@@ -18,7 +18,7 @@ import {
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
-import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
+import { useSidebarStore, getInitialState, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
@@ -873,14 +873,6 @@ describe('performRenameRow — a project-home row', () => {
 // that says of the host, and is never sent again on its own.
 describe('a row action its host fails', () => {
   const statusOf = (hostId: string) => getHostRuntime(hostId)?.getState().status
-  const answer = (status: number, headers: Record<string, string> = {}) =>
-    vi.fn().mockResolvedValue({
-      ok: false,
-      status,
-      statusText: '',
-      headers: new Headers(headers),
-      json: async () => ({ error: 'client is not paired' }),
-    })
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -899,15 +891,26 @@ describe('a row action its host fails', () => {
     resetHostWorld()
   })
 
-  it('names a host it could not reach and records it down', async () => {
-    useSidebarStore.setState({
-      ...getInitialState(),
-      repos: [{ ...remoteRepo(), name: 'repo' }],
-    })
-    vi.mocked(api.renameRepo).mockRejectedValueOnce(proxyMarkerError('host-unreachable', 'h1'))
+  it('names a host an import could not reach, on its rows and in the toast, and records it down', async () => {
+    const repo: Repo = {
+      id: 'repo-r',
+      projectId: 'p-remote',
+      name: 'remote',
+      avatarLabel: 'R',
+      avatarColor: '',
+      defaultWorkspaceId: 'ws-r',
+      defaultBranch: 'main',
+      workspaces: [],
+      folders: [],
+    }
+    useSidebarStore.setState({ ...getInitialState(), repos: [repo] })
+    vi.mocked(api.importBranches).mockRejectedValueOnce(proxyMarkerError('host-unreachable', 'h1'))
 
-    await performRenameRow('ws-home', 'renamed')
+    await performImportBranches('repo-r', ['feature-a'])
 
+    expect(usePendingCreatesStore.getState().entries).toMatchObject([
+      { status: 'error', error: 'Couldn’t reach Studio Mac' },
+    ])
     expect(toast.error).toHaveBeenCalledExactlyOnceWith(
       'Couldn’t reach Studio Mac',
       'Check that it is online in Settings → Hosts.',
@@ -915,29 +918,30 @@ describe('a row action its host fails', () => {
     expect(statusOf('h1')).toBe('down')
   })
 
-  it('warns of a changed identity, marks the host for repair, and asks it once', async () => {
-    const fetch = answer(502, { 'x-crowbar-proxy': 'host-identity-changed' })
-    vi.stubGlobal('fetch', fetch)
-
-    await performRenameProject('p-remote', 'renamed')
-
-    expect(fetch).toHaveBeenCalledOnce()
-    expect(vi.mocked(toast.error).mock.calls[0]?.[0]).toBe(
+  it.each([
+    [
+      'a changed identity',
+      502,
+      { 'x-crowbar-proxy': 'host-identity-changed' },
       'Studio Mac’s identity changed — it must be paired again',
-    )
-    expect(statusOf('h1')).toBe('needs-repair')
-  })
+    ],
+    ['a refused credential (401)', 401, {}, 'Studio Mac needs to be paired again'],
+  ])(
+    'says %s needs pairing again, marks the host for repair, and asks it once',
+    async (_, status, headers, message) => {
+      const json = async () => ({ error: 'client is not paired' })
+      const fetch = vi
+        .fn()
+        .mockResolvedValue({ ok: false, status, headers: new Headers(headers), json })
+      vi.stubGlobal('fetch', fetch)
 
-  it('says a host that refuses this computer (401) needs pairing again, and asks it once', async () => {
-    const fetch = answer(401)
-    vi.stubGlobal('fetch', fetch)
+      await performRenameProject('p-remote', 'renamed')
 
-    await performRenameProject('p-remote', 'renamed')
-
-    expect(fetch).toHaveBeenCalledOnce()
-    expect(vi.mocked(toast.error).mock.calls[0]?.[0]).toBe('Studio Mac needs to be paired again')
-    expect(statusOf('h1')).toBe('needs-repair')
-  })
+      expect(fetch).toHaveBeenCalledOnce()
+      expect(vi.mocked(toast.error).mock.calls[0]?.[0]).toBe(message)
+      expect(statusOf('h1')).toBe('needs-repair')
+    },
+  )
 
   it('says the projects are still loading, never why the host is unknown inside', async () => {
     resetHostWorld()
@@ -953,30 +957,4 @@ describe('a row action its host fails', () => {
     )
     expect(fetch).not.toHaveBeenCalled()
   })
-
-  it('marks an import’s pending rows with the host’s trouble, not the proxy’s text', async () => {
-    useSidebarStore.setState({ ...getInitialState(), repos: [remoteRepo()] })
-    vi.mocked(api.importBranches).mockRejectedValueOnce(proxyMarkerError('host-unreachable', 'h1'))
-
-    await performImportBranches('repo-r', ['feature-a'])
-
-    expect(usePendingCreatesStore.getState().entries).toMatchObject([
-      { status: 'error', error: 'Couldn’t reach Studio Mac' },
-    ])
-  })
 })
-
-function remoteRepo() {
-  return {
-    id: 'repo-r',
-    projectId: 'p-remote',
-    name: 'remote-repo',
-    avatarLabel: 'R',
-    avatarColor: 'bg-indigo-700',
-    defaultWorkspaceId: 'ws-home',
-    defaultBranch: 'main',
-    workspaces: [],
-    folders: [],
-    chats: [],
-  }
-}

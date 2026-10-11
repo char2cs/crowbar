@@ -366,6 +366,29 @@ describe('CreateSpacePanel — folder', () => {
   })
 })
 
+const PICKED = '/Users/me/icon.png'
+
+/** Stages an image picked on this computer, as the desktop app does (OS dialog, asset URL). */
+async function stageImage(user: ReturnType<typeof userEvent.setup>) {
+  Object.assign(window, { __TAURI_INTERNALS__: {} })
+  const image = Object.assign(new Response(null, { headers: { 'content-length': '6' } }), {
+    blob: async () => new Blob(['pixels'], { type: 'image/png' }),
+  })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => image),
+  )
+  vi.mocked(openNativeDialog).mockResolvedValueOnce(PICKED)
+  await user.click(screen.getByRole('button', { name: /edit space icon/i }))
+  await user.click(await screen.findByRole('button', { name: /upload/i }))
+  await user.keyboard('{Escape}')
+}
+
+afterEach(() => {
+  delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
+  vi.unstubAllGlobals()
+})
+
 // The DTO is stamped with the host it was created on, so it must be read from that host's
 // own stream: a local project at the same path must never be mistaken for the new remote one.
 describe('CreateSpacePanel — provenance of the created project', () => {
@@ -426,77 +449,24 @@ describe('CreateSpacePanel — provenance of the created project', () => {
     )
   })
 
-  it('keeps a local create on the local stream', async () => {
-    vi.mocked(openNativeDialog).mockResolvedValue('/tmp/mine')
-    const onCreate = vi.fn()
-    render(<CreateSpacePanel onCreate={onCreate} onCancel={vi.fn()} />)
-    fireEvent.click(screen.getByRole('button', { name: /folder/i }))
-    await waitFor(() => expect(screen.getByText('mine')).toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: /create space/i }))
-    await waitFor(() => expect(api.postProject).toHaveBeenCalled())
-
-    expect([...subscribers.keys()]).toEqual(['/v0/projects'])
-  })
-})
-
-// An image staged at create is a file on this computer: the new space's own host reads it from
-// this disk only when that host is this computer.
-describe('CreateSpacePanel — a staged image icon', () => {
-  const PICKED = '/Users/me/icon.png'
-
-  async function stageImage(user: ReturnType<typeof userEvent.setup>) {
-    vi.mocked(openNativeDialog).mockResolvedValueOnce(PICKED)
-    await user.click(screen.getByRole('button', { name: /edit space icon/i }))
-    await user.click(await screen.findByRole('button', { name: /upload/i }))
-    await user.keyboard('{Escape}')
-  }
-
-  const iconPut = (url: string) =>
-    vi.mocked(api.apiFetch).mock.calls.find(([called]) => called === url)?.[1] as RequestInit
-
-  beforeEach(() => {
-    // The desktop app: Upload opens the OS dialog, and the asset protocol serves the pick.
-    Object.assign(window, { __TAURI_INTERNALS__: {} })
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (_url: string, init?: RequestInit) =>
-        init?.method === 'HEAD'
-          ? new Response(null, { headers: { 'content-length': '6' } })
-          : Object.assign(new Response(null), {
-              blob: async () => new Blob(['pixels'], { type: 'image/png' }),
-            }),
-      ),
-    )
-  })
-
-  afterEach(() => {
-    delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
-    vi.unstubAllGlobals()
-  })
-
-  it('sends a remote space the image’s bytes, never its path on this computer', async () => {
-    useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'homelab-prox' })] })
-    getOrCreateHostRuntime('h1').getState().setStatus('up')
-    remoteFolders.h1 = { '/': ['tmp'], '/tmp': ['shared'] }
+  it('sends a staged image to the host as its bytes, never its path on this computer', async () => {
     const user = userEvent.setup()
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     await stageImage(user)
-    await selectDaemonOption(user, /homelab-prox/i)
-    await pickRemoteFolder(user, '/tmp/shared')
-    fireEvent.click(createButton())
-    await waitFor(() => expect(api.postProject).toHaveBeenCalled())
+    await createOn(user)
 
     emit('crowbar://h1/v0/projects', projectDTO({ id: 'remote-id', path: '/tmp/shared' }))
 
     const url = 'crowbar://h1/v0/projects/remote-id/icon'
-    await waitFor(() => expect(iconPut(url)).toBeDefined())
-    const body = new TextDecoder().decode(iconPut(url).body as Uint8Array)
+    const put = () => vi.mocked(api.apiFetch).mock.calls.find(([called]) => called === url)?.[1]
+    await waitFor(() => expect(put()).toBeDefined())
+    const body = new TextDecoder().decode(put()?.body as Uint8Array)
     expect(body).toContain('name="icon"; filename="icon.png"')
     expect(body).toContain('pixels')
     expect(body).not.toContain(PICKED)
   })
 
-  it('still hands a local space’s daemon the path, exactly as before', async () => {
+  it('still hands the local daemon a staged image’s path, exactly as before', async () => {
     const user = userEvent.setup()
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     await stageImage(user)
@@ -516,5 +486,17 @@ describe('CreateSpacePanel — a staged image icon', () => {
       }),
     )
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('keeps a local create on the local stream', async () => {
+    vi.mocked(openNativeDialog).mockResolvedValue('/tmp/mine')
+    const onCreate = vi.fn()
+    render(<CreateSpacePanel onCreate={onCreate} onCancel={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /folder/i }))
+    await waitFor(() => expect(screen.getByText('mine')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /create space/i }))
+    await waitFor(() => expect(api.postProject).toHaveBeenCalled())
+
+    expect([...subscribers.keys()]).toEqual(['/v0/projects'])
   })
 })
