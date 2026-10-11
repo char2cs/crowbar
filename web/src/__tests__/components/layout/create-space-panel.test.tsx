@@ -45,6 +45,7 @@ import { openNativeDialog } from '@/lib/native-dialog'
 import { CreateSpacePanel } from '@/components/layout/create-space-panel'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { useConnectionStore } from '@/lib/ws/connection-store'
 
 function host(over: Partial<Host> & { id: string; name: string }): Host {
   return { endpoint: 'x', pairedFingerprint: 'x', clientId: 'c', ...over }
@@ -78,6 +79,7 @@ beforeEach(() => {
   vi.mocked(api.postProject).mockResolvedValue(undefined)
   vi.mocked(openNativeDialog).mockReset()
   useHostConfigStore.setState({ hosts: [] })
+  useConnectionStore.setState({ status: 'connected' })
 })
 
 describe('CreateSpacePanel — daemon picker', () => {
@@ -106,6 +108,47 @@ describe('CreateSpacePanel — daemon picker', () => {
     await user.click(daemonTrigger())
     const option = await screen.findByRole('option', { name: /office-vm/i })
     expect(option).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  it('lists a host that needs repair but disabled: it refuses this client until paired again', async () => {
+    useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'office-vm' })] })
+    getOrCreateHostRuntime('h1').getState().setStatus('needs-repair')
+    const user = userEvent.setup()
+    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
+
+    await user.click(daemonTrigger())
+    const option = await screen.findByRole('option', { name: /office-vm/i })
+    expect(option).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  it("Local's dot says what the app knows of the local daemon, like every other host dot", async () => {
+    useConnectionStore.setState({ status: 'disconnected' })
+    const user = userEvent.setup()
+    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
+
+    expect(within(daemonTrigger()).getByTestId('host-status-local')).toHaveAccessibleName('Offline')
+    await user.click(daemonTrigger())
+    const local = await screen.findByRole('option', { name: /local/i })
+    expect(within(local).getByTestId('host-status-local')).toHaveAccessibleName('Offline')
+  })
+
+  it('a selected host that stops answering cannot be created on until it answers again', async () => {
+    useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'homelab-prox' })] })
+    getOrCreateHostRuntime('h1').getState().setStatus('up')
+    vi.mocked(openNativeDialog).mockResolvedValue('/tmp/later')
+    const user = userEvent.setup()
+    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
+    await selectDaemonOption(user, /homelab-prox/i)
+    await waitFor(() => expect(daemonTrigger()).toHaveTextContent('homelab-prox'))
+    fireEvent.click(screen.getByRole('button', { name: /folder/i }))
+    const create = screen.getByRole('button', { name: /create space/i })
+    await waitFor(() => expect(create).toBeEnabled())
+
+    act(() => getOrCreateHostRuntime('h1').getState().setStatus('down'))
+    expect(create).toBeDisabled()
+
+    act(() => getOrCreateHostRuntime('h1').getState().setStatus('up'))
+    expect(create).toBeEnabled()
   })
 
   it('a trailing "+ Add a host…" entry is offered without becoming the selection', async () => {
