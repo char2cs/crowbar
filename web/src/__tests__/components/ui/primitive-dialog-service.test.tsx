@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import {
   PrimitiveDialogProvider,
   primitiveConfirm,
@@ -37,6 +38,22 @@ describe('primitive dialog service', () => {
     const answer = primitiveConfirm('Discard changes?')
 
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+
+    await expect(answer).resolves.toBe(false)
+  })
+
+  // The safe answer is the default, whatever the confirm does: a stray Enter never confirms.
+  it('a confirm starts on its cancel button, so Enter cancels', async () => {
+    const user = userEvent.setup()
+    renderProvider()
+    const answer = primitiveConfirm('Revoke it?', {
+      confirmLabel: 'Revoke',
+      cancelLabel: 'Keep it',
+      destructive: true,
+    })
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Keep it' })).toHaveFocus())
+    await user.keyboard('{Enter}')
 
     await expect(answer).resolves.toBe(false)
   })

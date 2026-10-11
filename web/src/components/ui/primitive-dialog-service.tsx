@@ -18,13 +18,18 @@ import { Input } from '@/components/ui/input'
  * settles the caller's promise instead of leaving it pending forever.
  */
 
-interface ConfirmOptions {
+interface DialogLabels {
   title?: string
   confirmLabel?: string
   cancelLabel?: string
 }
 
-interface PromptOptions extends ConfirmOptions {
+interface ConfirmOptions extends DialogLabels {
+  /** The confirm button reads as destructive. Focus starts on cancel whatever this says. */
+  destructive?: boolean
+}
+
+interface PromptOptions extends DialogLabels {
   defaultValue?: string
   placeholder?: string
 }
@@ -35,6 +40,7 @@ type DialogRequest = { id: number; title: string; message: ReactNode } & (
       kind: 'confirm'
       confirmLabel: string
       cancelLabel: string
+      destructive: boolean
       onConfirm: () => void
       onDismiss: () => void
     }
@@ -90,6 +96,7 @@ export function primitiveConfirm(
       message,
       confirmLabel: options.confirmLabel ?? 'Confirm',
       cancelLabel: options.cancelLabel ?? 'Cancel',
+      destructive: options.destructive ?? false,
       onConfirm: () => resolve(true),
       onDismiss: () => resolve(false),
     })
@@ -149,6 +156,8 @@ function DialogHost({ request, onSettled }: { request: DialogRequest; onSettled:
   // Closing the dialog makes Base UI emit onOpenChange(false) as it unmounts, which would
   // otherwise settle the request a second time and drop the next one off the queue.
   const settled = useRef(false)
+  // A confirm starts on its safe answer, so a stray Enter never confirms.
+  const cancelRef = useRef<HTMLButtonElement>(null)
 
   const settle = (notifyCaller: () => void) => {
     if (settled.current) return
@@ -169,7 +178,7 @@ function DialogHost({ request, onSettled }: { request: DialogRequest; onSettled:
 
   return (
     <Dialog open onOpenChange={(next) => !next && dismiss()}>
-      <DialogContent>
+      <DialogContent initialFocus={request.kind === 'confirm' ? cancelRef : undefined}>
         <DialogHeader>
           <DialogTitle>{request.title}</DialogTitle>
         </DialogHeader>
@@ -198,11 +207,16 @@ function DialogHost({ request, onSettled }: { request: DialogRequest; onSettled:
 
         <DialogFooter>
           {request.kind !== 'alert' && (
-            <Button variant="outline" onClick={dismiss}>
+            <Button ref={cancelRef} variant="outline" onClick={dismiss}>
               {request.cancelLabel}
             </Button>
           )}
-          <Button onClick={confirm}>{request.confirmLabel}</Button>
+          <Button
+            variant={request.kind === 'confirm' && request.destructive ? 'destructive' : 'default'}
+            onClick={confirm}
+          >
+            {request.confirmLabel}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { NavigateFn } from '@tanstack/react-router'
 
 vi.mock('@/lib/crowbar-bridge', () => ({
@@ -45,29 +46,50 @@ import { useRedirectIfProjectMissing } from '@/components/layout/use-redirect-if
 import { ApiError } from '@/lib/api'
 import { dataOf } from '@/lib/loadable'
 import { connectProjectList, useProjectDataStore } from '@/lib/store/projects'
+import type { Host } from '@/features/hosts/types'
 import { pairRemoteHost, projectOn, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
-describe('HostsSettings', () => {
-  beforeEach(() => {
-    useHostConfigStore.setState({ hosts: [] })
-    vi.mocked(apiFetch).mockReset().mockResolvedValue(undefined)
-    vi.mocked(unregisterRemoteHost).mockReset()
-    vi.mocked(forgetHostToken).mockReset()
-    toastErrorFn.mockReset()
-  })
+const homelab: Host = {
+  id: 'h1',
+  name: 'homelab',
+  endpoint: '10.0.0.2:3737',
+  pairedFingerprint: 'x',
+  clientId: 'c1',
+}
+const hosts = () => useHostConfigStore.getState().hosts.map((h) => h.id)
+const DELETE = ['/v0/clients/c1', { method: 'DELETE' }, undefined, 'h1']
+const deletes = () =>
+  vi.mocked(apiFetch).mock.calls.filter((call) => call[0] === '/v0/clients/c1').length
 
+function renderSettings(extra?: React.ReactNode) {
+  return render(
+    <PrimitiveDialogProvider>
+      <HostsSettings />
+      {extra}
+    </PrimitiveDialogProvider>,
+  )
+}
+
+/** Clicks a host's trash and says yes to the question it asks first. */
+async function revoke(name = 'homelab') {
+  fireEvent.click(screen.getByRole('button', { name: `Revoke ${name}` }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Revoke' }))
+}
+
+const dialogGone = () => waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+beforeEach(() => {
+  useHostConfigStore.setState({ hosts: [] })
+  vi.mocked(apiFetch).mockReset().mockResolvedValue(undefined)
+  vi.mocked(unregisterRemoteHost).mockReset()
+  vi.mocked(forgetHostToken).mockReset()
+  toastErrorFn.mockReset()
+  toastInfoFn.mockReset()
+})
+
+describe('HostsSettings', () => {
   it('lists Local plus every saved host, each with a live status dot', () => {
-    useHostConfigStore.setState({
-      hosts: [
-        {
-          id: 'h1',
-          name: 'homelab',
-          endpoint: '1.2.3.4:3737',
-          pairedFingerprint: 'SHA256:aaaa',
-          clientId: 'c1',
-        },
-      ],
-    })
+    useHostConfigStore.setState({ hosts: [homelab] })
     render(<HostsSettings />)
     expect(screen.getByText('Local')).toBeInTheDocument()
     expect(screen.getByText('homelab')).toBeInTheDocument()
@@ -77,9 +99,7 @@ describe('HostsSettings', () => {
 
   // The app probes every host for its whole life; this tab only shows what it found.
   it('shows each host’s status as the app last saw it, and probes nothing itself', () => {
-    useHostConfigStore.setState({
-      hosts: [{ id: 'h1', name: 'homelab', endpoint: 'x', pairedFingerprint: 'x', clientId: 'c1' }],
-    })
+    useHostConfigStore.setState({ hosts: [homelab] })
     getOrCreateHostRuntime('h1').getState().setStatus('down')
     useConnectionStore.setState({ status: 'connected' })
 
@@ -99,9 +119,7 @@ describe('HostsSettings', () => {
   // A host can answer its probe while every stream asked of it is refused: what it shows is
   // then not kept current, and the row says so.
   it('says when a host answers but none of its live streams is open', () => {
-    useHostConfigStore.setState({
-      hosts: [{ id: 'h1', name: 'homelab', endpoint: 'x', pairedFingerprint: 'x', clientId: 'c1' }],
-    })
+    useHostConfigStore.setState({ hosts: [homelab] })
     getOrCreateHostRuntime('h1').getState().setStatus('up')
     render(<HostsSettings />)
     const dot = screen.getByTestId('host-status-h1')
@@ -128,14 +146,12 @@ describe('HostsSettings', () => {
   })
 
   it('does not offer to revoke or remove the Local entry', () => {
-    useHostConfigStore.setState({ hosts: [] })
     render(<HostsSettings />)
     const localRow = screen.getByText('Local').closest('[data-testid="host-row"]')
     expect(localRow?.querySelector('[aria-label*="revoke" i], [aria-label*="remove" i]')).toBeNull()
   })
 
   it('clicking Add host opens the add-host dialog', () => {
-    useHostConfigStore.setState({ hosts: [] })
     render(<HostsSettings />)
     fireEvent.click(screen.getByRole('button', { name: /add.*host/i }))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
@@ -164,20 +180,40 @@ describe('HostsSettings', () => {
     expect(screen.queryByText('SHA256:aaaa')).toBeNull()
   })
 
-  it('clicking revoke calls the daemon DELETE first, then local cleanup, then drops the config row', async () => {
-    useHostConfigStore.setState({
-      hosts: [{ id: 'h1', name: 'homelab', endpoint: 'x', pairedFingerprint: 'x', clientId: 'c1' }],
-    })
-    render(<HostsSettings />)
-    const row = screen.getByText('homelab').closest('[data-testid="host-row"]')!
-    fireEvent.click(row.querySelector('[aria-label*="revoke" i]')!)
-    await waitFor(() => expect(useHostConfigStore.getState().hosts).toEqual([]))
-    // Targets the host's OWN authed channel (the 4th positional hostId arg) —
-    // never the local daemon's, which is the whole point of the amendment.
-    expect(apiFetch).toHaveBeenCalledWith('/v0/clients/c1', { method: 'DELETE' }, undefined, 'h1')
+  it('a confirmed revoke calls the daemon DELETE first, then local cleanup, then drops the row', async () => {
+    useHostConfigStore.setState({ hosts: [homelab] })
+    renderSettings()
+    await revoke()
+    await waitFor(() => expect(hosts()).toEqual([]))
+    // Targets the host's OWN authed channel (the 4th positional hostId arg) — never the
+    // local daemon's.
+    expect(apiFetch).toHaveBeenCalledWith(...DELETE)
     expect(unregisterRemoteHost).toHaveBeenCalledWith('h1')
     expect(forgetHostToken).toHaveBeenCalledWith('h1')
   })
+
+  // A revoke cannot be undone from here: the trash asks first, and the safe answer is the
+  // default, so a stray Enter keeps the host.
+  it.each(['{Enter}', '{Escape}'])(
+    'asks before revoking, starting on Keep it: %s keeps the host and asks it nothing',
+    async (key) => {
+      useHostConfigStore.setState({ hosts: [homelab] })
+      const user = userEvent.setup()
+      renderSettings()
+
+      await user.click(screen.getByRole('button', { name: 'Revoke homelab' }))
+
+      const dialog = await screen.findByRole('dialog')
+      expect(dialog).toHaveTextContent('Revoke homelab?')
+      expect(dialog).toHaveTextContent('To use it again you’ll need to run crowbar pair on it.')
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Keep it' })).toHaveFocus())
+      await user.keyboard(key)
+      await dialogGone()
+      expect(apiFetch).not.toHaveBeenCalled()
+      expect(hosts()).toEqual(['h1'])
+      expect(screen.getByRole('button', { name: 'Revoke homelab' })).toBeEnabled()
+    },
+  )
 })
 
 // Revoke as the running app meets it: the project list live, the host's status kept, its
@@ -194,23 +230,14 @@ describe('revoking a host the app is using', () => {
     return null
   }
 
-  const revoke = () => {
-    render(
-      <PrimitiveDialogProvider>
-        <HostsSettings />
-        <OpenProject projectId="p-remote" />
-      </PrimitiveDialogProvider>,
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Revoke h1' }))
+  async function revokeInUse() {
+    renderSettings(<OpenProject projectId="p-remote" />)
+    await revoke('h1')
   }
 
   beforeEach(async () => {
     navigate.mockReset()
     streams.length = 0
-    toastErrorFn.mockReset()
-    vi.mocked(apiFetch).mockReset().mockResolvedValue(undefined)
-    vi.mocked(unregisterRemoteHost).mockReset()
-    vi.mocked(forgetHostToken).mockReset()
     resetHostWorld()
     connectProjectList({
       read: async (hostId) =>
@@ -237,7 +264,7 @@ describe('revoking a host the app is using', () => {
   it('takes the host’s rows, stream, status and providers with it, and leaves its project', async () => {
     expect(streams).toEqual(['open local', 'open h1'])
 
-    revoke()
+    await revokeInUse()
 
     await waitFor(() => expect(useHostConfigStore.getState().hosts).toEqual([]))
     expect(held()).toEqual(['p-local@local'])
@@ -254,12 +281,12 @@ describe('revoking a host the app is using', () => {
       }
     })
 
-    revoke()
+    await revokeInUse()
 
     expect(await screen.findByText(/h1 will still list this computer as paired/)).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: 'Keep it' }))
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    expect(useHostConfigStore.getState().hosts.map((h) => h.id)).toEqual(['h1'])
+    await dialogGone()
+    expect(hosts()).toEqual(['h1'])
     expect(held()).toEqual(['p-local@local', 'p-remote@h1'])
     expect(streams).toEqual(['open local', 'open h1'])
     expect(getHostRuntime('h1')?.getState().status).toBe('up')
@@ -273,35 +300,7 @@ describe('revoking a host the app is using', () => {
 // Revoke never leaves the user with a host they cannot remove, and never drops a live
 // credential silently: what could not be revoked or cleared is said, then the row goes.
 describe('revoking a host when something fails', () => {
-  const homelab = {
-    id: 'h1',
-    name: 'homelab',
-    endpoint: '10.0.0.2:3737',
-    pairedFingerprint: 'x',
-    clientId: 'c1',
-  }
-  const DELETE = ['/v0/clients/c1', { method: 'DELETE' }, undefined, 'h1']
-  const deletes = () =>
-    vi.mocked(apiFetch).mock.calls.filter((call) => call[0] === '/v0/clients/c1').length
-  const hosts = () => useHostConfigStore.getState().hosts.map((h) => h.id)
-
-  function revoke() {
-    render(
-      <PrimitiveDialogProvider>
-        <HostsSettings />
-      </PrimitiveDialogProvider>,
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Revoke homelab' }))
-  }
-
-  beforeEach(() => {
-    useHostConfigStore.setState({ hosts: [homelab] })
-    vi.mocked(apiFetch).mockReset().mockResolvedValue(undefined)
-    vi.mocked(unregisterRemoteHost).mockReset()
-    vi.mocked(forgetHostToken).mockReset()
-    toastErrorFn.mockReset()
-    toastInfoFn.mockReset()
-  })
+  beforeEach(() => useHostConfigStore.setState({ hosts: [homelab] }))
 
   afterEach(() => {
     vi.restoreAllMocks()
@@ -315,7 +314,8 @@ describe('revoking a host when something fails', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     step().mockRejectedValueOnce(new Error('keychain locked'))
 
-    revoke()
+    renderSettings()
+    await revoke()
 
     await waitFor(() => expect(hosts()).toEqual([]))
     expect(apiFetch).toHaveBeenCalledWith(...DELETE)
@@ -342,7 +342,8 @@ describe('revoking a host when something fails', () => {
     async (_, err, title) => {
       vi.mocked(apiFetch).mockRejectedValue(err)
 
-      revoke()
+      renderSettings()
+      await revoke()
 
       const dialog = await screen.findByRole('dialog')
       expect(dialog).toHaveTextContent(title)
@@ -362,7 +363,8 @@ describe('revoking a host when something fails', () => {
   it('names the endpoint whose identity changed', async () => {
     vi.mocked(apiFetch).mockRejectedValue(proxyMarkerError('host-identity-changed', 'h1'))
 
-    revoke()
+    renderSettings()
+    await revoke()
 
     expect(await screen.findByRole('dialog')).toHaveTextContent('10.0.0.2:3737')
   })
@@ -372,7 +374,8 @@ describe('revoking a host when something fails', () => {
       new ApiError('client is not paired', 401, undefined, undefined, 'h1'),
     )
 
-    revoke()
+    renderSettings()
+    await revoke()
 
     await waitFor(() => expect(hosts()).toEqual([]))
     expect(deletes()).toBe(1)
@@ -385,30 +388,10 @@ describe('revoking a host when something fails', () => {
   // only a status; the daemon's carry its words. A 404 comes from past the bearer check, so
   // this computer's token still works there: it is a failed revoke, not an earlier one.
   it.each([
-    [
-      'the keychain refused the token (proxy 500)',
-      500,
-      'token lookup failed',
-      'homelab returned an error (500)',
-    ],
-    [
-      'the host never answered (proxy 504)',
-      504,
-      'request timed out',
-      'homelab returned an error (504)',
-    ],
-    [
-      'the connection dropped (proxy 502)',
-      502,
-      'crowbar proxy error: reset',
-      'homelab returned an error (502)',
-    ],
-    [
-      'the proxy lost the host (502)',
-      502,
-      'unknown remote host h1',
-      'homelab returned an error (502)',
-    ],
+    ['the keychain refused the token (proxy 500)', 500, 'token lookup failed', 'error (500)'],
+    ['the host never answered (proxy 504)', 504, 'request timed out', 'error (504)'],
+    ['the connection dropped (proxy 502)', 502, 'crowbar proxy error: reset', 'error (502)'],
+    ['the proxy lost the host (502)', 502, 'unknown remote host h1', 'error (502)'],
     [
       'the daemon could not record it (500)',
       500,
@@ -429,11 +412,13 @@ describe('revoking a host when something fails', () => {
       const fetch = vi.fn(async () => new Response(body, { status }))
       vi.stubGlobal('fetch', fetch)
 
-      revoke()
+      renderSettings()
+      await revoke()
 
       const dialog = await screen.findByRole('dialog')
       expect(dialog).toHaveTextContent('Couldn’t revoke homelab')
-      expect(dialog).toHaveTextContent(`The revoke failed: ${reason}.`)
+      const said = reason.startsWith('error') ? `homelab returned an ${reason}` : reason
+      expect(dialog).toHaveTextContent(`The revoke failed: ${said}.`)
       expect(dialog).not.toHaveTextContent(/\bh1\b|\b\d{3} \./)
       fireEvent.click(screen.getByRole('button', { name: 'Remove anyway' }))
 
@@ -443,15 +428,19 @@ describe('revoking a host when something fails', () => {
     },
   )
 
-  it('keeps a host whose revoke failed when the user says to keep it', async () => {
+  it('keeps a host whose revoke failed unless told otherwise: Keep it is first, Enter keeps', async () => {
     vi.mocked(apiFetch).mockRejectedValue(
       new ApiError('database is locked', 500, undefined, undefined, 'h1'),
     )
+    const user = userEvent.setup()
 
-    revoke()
+    renderSettings()
+    await revoke()
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Keep it' }))
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await screen.findByRole('button', { name: 'Remove anyway' })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Keep it' })).toHaveFocus())
+    await user.keyboard('{Enter}')
+    await dialogGone()
     expect(hosts()).toEqual(['h1'])
     expect(deletes()).toBe(1)
     expect(unregisterRemoteHost).not.toHaveBeenCalled()

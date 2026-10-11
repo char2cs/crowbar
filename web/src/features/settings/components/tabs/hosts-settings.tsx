@@ -13,13 +13,19 @@ import { forgetHostToken, unregisterRemoteHost } from '@/lib/crowbar-bridge'
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/features/window/stores/toast-store'
 
-/**
- * Revoke order matters: the daemon's own `DELETE /v0/clients/:id`, dialed
- * over THAT host's own authed channel (hostId — never 'local'), goes before
- * any local cleanup. Getting this backwards would drop the only credential
- * able to ever revoke that client, leaving it authorized on the daemon forever.
- */
+// The host's own DELETE (over its channel, never Local's) goes first: cleaning up here first
+// would drop the only credential that can ever revoke this client there.
 async function revokeHost(host: Host): Promise<void> {
+  const confirmed = await primitiveConfirm(
+    'To use it again you’ll need to run crowbar pair on it.',
+    {
+      title: `Revoke ${host.name}?`,
+      confirmLabel: 'Revoke',
+      cancelLabel: 'Keep it',
+      destructive: true,
+    },
+  )
+  if (!confirmed) return
   try {
     await apiFetch(`/v0/clients/${host.clientId}`, { method: 'DELETE' }, undefined, host.id)
   } catch (err) {
@@ -44,6 +50,7 @@ async function mayRemoveUnrevoked(host: Host, err: unknown): Promise<boolean> {
     title,
     confirmLabel: 'Remove anyway',
     cancelLabel: 'Keep it',
+    destructive: true,
   })
 }
 
