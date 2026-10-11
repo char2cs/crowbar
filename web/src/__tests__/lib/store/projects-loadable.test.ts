@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { resetDB } from '@/lib/persistence/idb'
-import { dataOf } from '@/lib/loadable'
+import { dataOf, failed, loading, success, type Loadable } from '@/lib/loadable'
 import type { Project } from '@/lib/types'
 import type { HostStatus } from '@/features/hosts/types'
 
@@ -386,5 +386,41 @@ describe('a paired host coming up', () => {
     sockets.get('h1')!(wire('late', 0))
     expect(list.held()).toEqual(['a@local', 'r-h2@h2', 'shared@h2'])
     list.stop()
+  })
+
+  // Held rows are rows whatever the list's load status: a removed host's go even while the
+  // local daemon is unreachable or being read, through the same tombstones.
+  it.each<[string, (rows: Project[]) => Loadable<Project[]>]>([
+    ['failed', (rows) => failed(new Error('the local daemon is down'), success(rows))],
+    ['loading', (rows) => loading(success(rows))],
+  ])('removing a host takes its held rows while the list is %s', async (_, holding) => {
+    const store = await freshStore()
+    const { useHostConfigStore } = await import('@/features/hosts/stores/host-config-store')
+    useHostConfigStore.setState({ hosts: [host('h1')] })
+    const stop = store.getState().startSync()
+    store.setState({ data: holding([p('a', 0), remoteRow('only-h1', 'h1')]) })
+    const { status } = store.getState().data
+
+    useHostConfigStore.getState().removeHost('h1')
+
+    expect(store.getState().data.status).toBe(status)
+    expect(dataOf(store.getState().data)?.map((x) => `${x.id}@${x.hostId}`)).toEqual(['a@local'])
+    await settle()
+    expect(readLocal).not.toHaveBeenCalled()
+    stop()
+  })
+
+  it('removing a host from a list never read holds nothing and reads nothing', async () => {
+    const store = await freshStore()
+    const { useHostConfigStore } = await import('@/features/hosts/stores/host-config-store')
+    useHostConfigStore.setState({ hosts: [host('h1')] })
+    const stop = store.getState().startSync()
+
+    useHostConfigStore.getState().removeHost('h1')
+    await settle()
+
+    expect(store.getState().data.status).toBe('idle')
+    expect(readLocal).not.toHaveBeenCalled()
+    stop()
   })
 })

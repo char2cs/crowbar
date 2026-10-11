@@ -167,13 +167,27 @@ function onHostFrame(hostId: string, frame: unknown): void {
   void useProjectDataStore.getState().applyDelta(new HostFrame(hostId, frame))
 }
 
-/** A removed host's rows go the way a deleted project's do: a tombstone each. */
+/**
+ * A removed host's rows go the way a deleted project's do: a tombstone each, on whatever the
+ * list holds — rows held while it is read, or after a read failed, are rows too.
+ */
 function dropHostRows(hostId: string): void {
   const { data, applyDelta } = useProjectDataStore.getState()
-  for (const project of dataOf(data) ?? []) {
-    if (project.hostId !== hostId) continue
-    void applyDelta(new HostFrame(hostId, { id: project.id, status: 'deleted' }))
+  const held = dataOf(data) ?? []
+  const tombstones = held.flatMap((p) =>
+    p.hostId === hostId ? [{ id: p.id, status: 'deleted' }] : [],
+  )
+  if (data.status === 'success') {
+    for (const tombstone of tombstones) void applyDelta(new HostFrame(hostId, tombstone))
+    return
   }
+  // Not published: the next answer is rebuilt from what is held, so the tombstones go on that.
+  if (tombstones.length === 0 || data.status === 'idle') return
+  const staleData = tombstones.reduce(
+    (list, tombstone) => mergeProjectFrame(list, tombstone, hostId) ?? list,
+    held,
+  )
+  useProjectDataStore.setState({ data: { ...data, staleData } })
 }
 
 function upHostIds(): string[] {
