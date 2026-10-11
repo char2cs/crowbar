@@ -163,11 +163,8 @@ function HostRow({ host, isLocal, revoking, onRevoke }: HostRowProps) {
   )
 }
 
-/**
- * Settings → Hosts: Local plus every paired remote daemon, each with a live
- * status dot, an Add host flow, and per-host revoke. Desktop-only — gated
- * out of SETTINGS_TAB_ITEMS in a non-Tauri build.
- */
+/** Settings → Hosts: Local and every paired daemon with its status, Add host, and revoke.
+ *  Desktop-only: SETTINGS_TAB_ITEMS leaves it out of a non-Tauri build. */
 export function HostsSettings() {
   const hosts = useHostConfigStore((s) => s.hosts)
   const [addOpen, setAddOpen] = useState(false)

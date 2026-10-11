@@ -9,14 +9,8 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 
-/**
- * Promise-based replacements for window.alert/confirm/prompt, rendered with the app's
- * own Dialog so they inherit theming and cannot block the main thread.
- *
- * Requests queue up and are shown one at a time. Every request carries a `dismiss`
- * outcome, so closing a dialog by any route — Cancel, Escape, or a backdrop click —
- * settles the caller's promise instead of leaving it pending forever.
- */
+// Promise-based alert/confirm/prompt in the app's own Dialog, shown one at a time. Closing one
+// by any route (Cancel, Escape, the backdrop) settles its promise: none is left pending.
 
 interface DialogLabels {
   title?: string

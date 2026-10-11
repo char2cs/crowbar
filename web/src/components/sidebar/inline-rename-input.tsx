@@ -6,23 +6,15 @@ interface InlineRenameInputProps {
   /** The face of the label it replaces — a branch row's monospace, a project row's heading —
    *  so the editor doesn't change typeface under the cursor. */
   font?: 'mono' | 'heading'
-  /** Shown only while `defaultValue` is empty (the browser's own rule) — a
-   *  rename always seeds a real current name, so this is effectively a
-   *  create-only affordance: what an unlabeled, empty row would otherwise
-   *  give no hint it even wants (see `CREATE_ROW_PLACEHOLDER`'s own doc). */
+  /** Shown only while the value is empty, so in effect only for a create: an empty row would
+   *  otherwise give no hint of what it wants (see `CREATE_ROW_PLACEHOLDER`). */
   placeholder?: string
   onConfirm: (value: string) => void
   onCancel: () => void
 }
 
-/**
- * A row's label, replaced in place by a real, focused, pre-selected
- * `<input>` — this is develop's actual double-click-to-rename behavior
- * (`workspace-inline-input.tsx`, deleted in the tree-retirement commit
- * f119a402, rebuilt fresh here per "no legacy"). Enter confirms, Escape
- * cancels, and blur confirms unless Enter/Escape already handled it —
- * `handledRef` is what stops blur from double-firing after either did.
- */
+/** A row's label replaced in place by a focused, pre-selected input. Enter confirms, Escape
+ *  cancels, blur confirms unless either already did (`handledRef` stops the double fire). */
 export function InlineRenameInput({
   defaultValue,
   font,
@@ -38,11 +30,8 @@ export function InlineRenameInput({
     if (!input) return
     input.focus()
     input.select()
-    // The editor does not always mount where the gesture happened: a rename
-    // started from a Recents row draws on that row's TREE copy instead
-    // (`inlineRenameDisabled`, recents-band.tsx), and the context menu can
-    // rename a row the shared scroller has scrolled away from. focus() alone
-    // leaves the caret in an input that is off-screen.
+    // The editor may mount away from the gesture (a Recents row renames its tree copy; the
+    // context menu can rename a row scrolled away): focus() alone can leave it off-screen.
     input.scrollIntoView({ block: 'nearest' })
   }, [])
 

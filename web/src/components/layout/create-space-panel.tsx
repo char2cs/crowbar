@@ -75,21 +75,9 @@ function toastIconFailure(hostId: string, err: unknown): void {
   else toast.error('Failed to set icon', err instanceof Error ? err.message : String(err))
 }
 
-/**
- * Zen Browser's "Create a Space" sheet (spec: same name+icon row, a
- * folder-picker row standing in for its Profile row, no theme row), reached
- * only via the `+` mark in SidebarFooter — it replaces SpaceScroller
- * entirely rather than joining its scroll-snap track, so the touchpad swipe
- * between real spaces never lands here by accident.
- *
- * The icon square is the real `IconPopover` — same Upload/Emoji/Reset sheet
- * every other project and repo icon opens — in its `onStage` mode: a pick is
- * held locally (`stagedIcon`) and fed straight back in as `emoji`/`iconUrl`
- * for the live preview, since there is no project id yet to mutate against.
- * `applyStagedIcon` persists it for real right after `postProject` answers,
- * before `onCreate` fires — the new space arrives with its icon already set,
- * not as a follow-up edit.
- */
+/** The "Create a Space" sheet, replacing SpaceScroller so a swipe never lands on it. Its icon
+ *  pick is staged (no project id yet) and applied right after the create answers, before
+ *  `onCreate`: the new space arrives with its icon already set. */
 export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) {
   const [name, setName] = useState('')
   const [folder, setFolder] = useState<{ hostId: string; path: string } | null>(null)
@@ -115,11 +103,8 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
     if (!selectedPath || loading || hostRefusesCreate) return
     setLoading(true)
     try {
-      // Same subscribe-before-POST shape as the retired ImportProjectModal:
-      // postProject answers 202 with no body, so the real Project (with its
-      // daemon-assigned id) is read back off the /v0/projects WS stream of the
-      // host it is created on, matched by the path we just submitted — so the
-      // DTO stamped with that host really came from it.
+      // postProject answers 202 with no body: the project is read back off the stream of the
+      // host it is created on, matched by path, so the DTO stamped with that host came from it.
       const trimmedName = name.trim() || getFilenameFromPath(selectedPath)
       const dto = await awaitEntity<ProjectDTO>({
         endpoint: qualify(hostId, '/v0/projects'),

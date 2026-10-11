@@ -2,10 +2,8 @@ import { pairRemoteHost } from '@/lib/crowbar-bridge'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import type { Host } from '@/features/hosts/types'
 
-/**
- * Pairs `hostId` with the fingerprint the user confirmed: exactly what they saw, never one
- * re-probed or re-derived here.
- */
+/** Pairs `hostId` with the fingerprint the user confirmed: exactly what they saw, never one
+ *  re-probed or re-derived here. */
 export async function redeemPairingCode(
   hostId: string,
   endpoint: string,

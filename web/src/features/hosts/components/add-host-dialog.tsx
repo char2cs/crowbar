@@ -41,13 +41,9 @@ function makeHostId(name: string): string {
   return `${slug || 'host'}-${crypto.randomUUID().slice(0, 8)}`
 }
 
-/**
- * Two-stage add-host flow: (1) name/address -> probe the presented TLS
- * certificate and require the human to explicitly confirm its fingerprint,
- * (2) redeem a pairing code minted by that host's own CLI. Stage 2 is only
- * ever reachable after that confirm click, and always reuses the exact
- * fingerprint shown in stage 1 — never a re-probed or re-derived value.
- */
+/** Adds a host: probe its certificate, have the user confirm the fingerprint, then redeem a code
+ *  from its `crowbar pair`. The code stage is reached only by that confirm, and pins exactly the
+ *  fingerprint shown — never a re-probed one. */
 export function AddHostDialog({ open, onOpenChange, onPaired }: AddHostDialogProps) {
   const [pending, setPending] = useState<Pending>(null)
 
