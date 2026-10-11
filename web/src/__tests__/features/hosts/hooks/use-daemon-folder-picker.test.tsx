@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/api', async (importOriginal) => ({
@@ -13,7 +13,9 @@ import { useDaemonFolderPicker } from '@/features/hosts/hooks/use-daemon-folder-
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 
-function Harness({ hostId, onPick }: { hostId: string | null; onPick: (path: string) => void }) {
+type OnPick = (path: string, pickedOn: string) => void
+
+function Harness({ hostId, onPick }: { hostId: string | null; onPick: OnPick }) {
   const { pick, picker } = useDaemonFolderPicker(hostId, onPick)
   return (
     <>
@@ -50,7 +52,7 @@ describe('useDaemonFolderPicker', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Browse' }))
 
-    await waitFor(() => expect(onPick).toHaveBeenCalledWith('/Users/me/code'))
+    await waitFor(() => expect(onPick).toHaveBeenCalledWith('/Users/me/code', 'local'))
     expect(openNativeDialog).toHaveBeenCalledExactlyOnceWith({ directory: true, multiple: false })
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(apiFetch).not.toHaveBeenCalled()
@@ -76,9 +78,23 @@ describe('useDaemonFolderPicker', () => {
     fireEvent.click(await within(picker).findByRole('treeitem', { name: 'srv' }))
     fireEvent.click(within(picker).getByRole('button', { name: 'Select "srv"' }))
 
-    expect(onPick).toHaveBeenCalledWith('/srv')
+    expect(onPick).toHaveBeenCalledWith('/srv', 'h1')
     expect(openNativeDialog).not.toHaveBeenCalled()
     expect(vi.mocked(apiFetch).mock.calls.every((call) => call[3] === 'h1')).toBe(true)
+  })
+
+  // The OS dialog can answer after the daemon changed: its answer is still a path on this machine.
+  it('a late OS dialog answer names the local daemon, whatever is selected by then', async () => {
+    let answer!: (path: string) => void
+    vi.mocked(openNativeDialog).mockReturnValue(new Promise((resolve) => (answer = resolve)))
+    const onPick = vi.fn()
+    const { rerender } = render(<Harness hostId="local" onPick={onPick} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Browse' }))
+
+    rerender(<Harness hostId="h1" onPick={onPick} />)
+    await act(async () => answer('/Users/me/code'))
+
+    expect(onPick).toHaveBeenCalledExactlyOnceWith('/Users/me/code', 'local')
   })
 
   it('a host not resolved yet picks nothing — neither Local nor a guess', () => {

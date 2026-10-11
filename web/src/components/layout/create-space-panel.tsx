@@ -116,7 +116,7 @@ async function applyStagedIcon(
  */
 export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) {
   const [name, setName] = useState('')
-  const [selectedPath, setSelectedPath] = useState('')
+  const [folder, setFolder] = useState<{ hostId: string; path: string } | null>(null)
   const [stagedIcon, setStagedIcon] = useState<StagedIcon | null>(null)
   const [loading, setLoading] = useState(false)
   const [hostId, setHostId] = useState('local')
@@ -131,7 +131,11 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
   const selectedHost = useHostView(hostId)
   // Local keeps today's flow: only a remote that cannot be reached stops a create.
   const hostRefusesCreate = hostId !== LOCAL_HOST.id && hostIsUnreachable(selectedHost.state)
-  const folderPicker = useDaemonFolderPicker(hostId, setSelectedPath)
+  // A folder names a path on the daemon it was picked on, and on no other.
+  const selectedPath = folder?.hostId === hostId ? folder.path : ''
+  const folderPicker = useDaemonFolderPicker(hostId, (path, pickedOn) =>
+    setFolder({ hostId: pickedOn, path }),
+  )
   const folderHintId = useId()
   const folderHint =
     hostId !== LOCAL_HOST.id && !selectedPath && selectedHost.name !== undefined
@@ -145,8 +149,6 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
       setAddHostOpen(true)
       return
     }
-    // A folder names a path on the daemon it was picked on, and on no other.
-    if (value !== hostId) setSelectedPath('')
     setHostId(value)
   }
 

@@ -131,20 +131,10 @@ describe('CreateSpacePanel — daemon picker', () => {
     expect(option).not.toHaveAttribute('aria-disabled', 'true')
   })
 
-  it('lists an unreachable host but disabled, not hidden', async () => {
+  // Down, or refusing this client until paired again: listed, not hidden, but not choosable.
+  it.each(['down', 'needs-repair'] as const)('lists a %s host but disabled', async (status) => {
     useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'office-vm' })] })
-    getOrCreateHostRuntime('h1').getState().setStatus('down')
-    const user = userEvent.setup()
-    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
-
-    await user.click(daemonTrigger())
-    const option = await screen.findByRole('option', { name: /office-vm/i })
-    expect(option).toHaveAttribute('aria-disabled', 'true')
-  })
-
-  it('lists a host that needs repair but disabled: it refuses this client until paired again', async () => {
-    useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'office-vm' })] })
-    getOrCreateHostRuntime('h1').getState().setStatus('needs-repair')
+    getOrCreateHostRuntime('h1').getState().setStatus(status)
     const user = userEvent.setup()
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
 
@@ -181,14 +171,6 @@ describe('CreateSpacePanel — daemon picker', () => {
 
     act(() => getOrCreateHostRuntime('h1').getState().setStatus('up'))
     expect(create).toBeEnabled()
-  })
-
-  it('a trailing "+ Add a host…" entry is offered without becoming the selection', async () => {
-    const user = userEvent.setup()
-    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
-
-    await user.click(daemonTrigger())
-    expect(await screen.findByRole('option', { name: /add a host/i })).toBeInTheDocument()
   })
 
   it('picking "+ Add a host…" opens AddHostDialog and leaves the daemon selection on Local', async () => {
@@ -259,20 +241,24 @@ describe('CreateSpacePanel — daemon picker', () => {
     })
   })
 
-  it('creating a space with the default Local daemon still works (regression: hostId threading has no effect on the local path)', async () => {
+  it('the default Local daemon keeps its flow: OS dialog, local create, local stream', async () => {
     vi.mocked(openNativeDialog).mockResolvedValue('/tmp/local-space')
     const onCreate = vi.fn()
 
     render(<CreateSpacePanel onCreate={onCreate} onCancel={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('button', { name: /folder/i }))
-    await waitFor(() => expect(screen.getByText('local-space')).toBeInTheDocument())
+    fireEvent.click(folderButton())
+    await waitFor(() => expect(folderButton()).toHaveTextContent('local-space'))
+    expect(openNativeDialog).toHaveBeenCalledWith({ directory: true, multiple: false })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /create space/i }))
+    fireEvent.click(createButton())
 
     await waitFor(() => {
       expect(api.postProject).toHaveBeenCalledWith(expect.any(String), '/tmp/local-space', 'local')
     })
+    expect([...subscribers.keys()]).toEqual(['/v0/projects'])
+    expect(browsed).toEqual([])
 
     emit(
       '/v0/projects',
@@ -296,18 +282,6 @@ describe('CreateSpacePanel — folder', () => {
     })
     getOrCreateHostRuntime('h1').getState().setStatus('up')
     getOrCreateHostRuntime('h2').getState().setStatus('up')
-  })
-
-  it("Local's folder comes from the OS dialog, and no host is browsed", async () => {
-    vi.mocked(openNativeDialog).mockResolvedValue('/Users/me/code')
-    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
-
-    fireEvent.click(folderButton())
-
-    await waitFor(() => expect(folderButton()).toHaveTextContent('code'))
-    expect(openNativeDialog).toHaveBeenCalledWith({ directory: true, multiple: false })
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(browsed).toEqual([])
   })
 
   it("a remote daemon's folder is browsed on that host, never through the OS dialog", async () => {
@@ -337,17 +311,39 @@ describe('CreateSpacePanel — folder', () => {
     expect(screen.queryByText('Choose a folder on homelab-prox first.')).not.toBeInTheDocument()
   })
 
-  it('changing the daemon drops the folder picked on the last one', async () => {
+  it('a folder belongs to the daemon it was picked on, whichever way the daemon changes', async () => {
     vi.mocked(openNativeDialog).mockResolvedValue('/Users/me/code')
+    remoteFolders.h1 = { '/': ['srv'] }
     const user = userEvent.setup()
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     fireEvent.click(folderButton())
     await waitFor(() => expect(createButton()).toBeEnabled())
 
     await selectDaemonOption(user, /homelab-prox/i)
+    expect(folderButton()).toHaveTextContent('Choose…')
+    await pickRemoteFolder(user, '/srv')
+    await selectDaemonOption(user, /local/i)
 
     expect(folderButton()).toHaveTextContent('Choose…')
     expect(createButton()).toBeDisabled()
+    await selectDaemonOption(user, /homelab-prox/i)
+    expect(folderButton()).toHaveTextContent('srv')
+  })
+
+  it('an OS dialog that answers after the daemon changed never lands on the new daemon', async () => {
+    let answer!: (path: string) => void
+    vi.mocked(openNativeDialog).mockReturnValue(new Promise((resolve) => (answer = resolve)))
+    const user = userEvent.setup()
+    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
+    fireEvent.click(folderButton())
+
+    await selectDaemonOption(user, /homelab-prox/i)
+    await act(async () => answer('/Users/me/code'))
+
+    expect(folderButton()).toHaveTextContent('Choose…')
+    expect(createButton()).toBeDisabled()
+    fireEvent.click(createButton())
+    expect(api.postProject).not.toHaveBeenCalled()
   })
 
   it('a selected host that is removed never leaves its folder to be created anywhere', async () => {
@@ -486,17 +482,5 @@ describe('CreateSpacePanel — provenance of the created project', () => {
       }),
     )
     expect(fetch).not.toHaveBeenCalled()
-  })
-
-  it('keeps a local create on the local stream', async () => {
-    vi.mocked(openNativeDialog).mockResolvedValue('/tmp/mine')
-    const onCreate = vi.fn()
-    render(<CreateSpacePanel onCreate={onCreate} onCancel={vi.fn()} />)
-    fireEvent.click(screen.getByRole('button', { name: /folder/i }))
-    await waitFor(() => expect(screen.getByText('mine')).toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: /create space/i }))
-    await waitFor(() => expect(api.postProject).toHaveBeenCalled())
-
-    expect([...subscribers.keys()]).toEqual(['/v0/projects'])
   })
 })

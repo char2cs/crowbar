@@ -10,21 +10,19 @@ interface DaemonFolderPicker {
   picker: ReactNode
 }
 
-/**
- * Picks a folder on `hostId`'s own filesystem: the OS dialog for the local daemon, as it always
- * was, and the remote picker for a paired host — whose disk no OS dialog can reach. A `null`
- * host (not resolved yet) picks nothing rather than guessing Local.
- */
+/** Picks a folder on `hostId`'s own disk: the OS dialog for Local (as always), the remote picker
+ *  for a paired host, nothing for `null` (unresolved — never a guess of Local). `onPick` names the
+ *  host the path was picked on: a slow dialog can answer after the selection changed. */
 export function useDaemonFolderPicker(
   hostId: string | null,
-  onPick: (path: string) => void,
+  onPick: (path: string, pickedOn: string) => void,
 ): DaemonFolderPicker {
   const [openFor, setOpenFor] = useState<string | null>(null)
   const remote = hostId !== null && hostId !== LOCAL_HOST.id
 
   async function pickLocal() {
     const selected = await openNativeDialog({ directory: true, multiple: false })
-    if (typeof selected === 'string') onPick(selected)
+    if (typeof selected === 'string') onPick(selected, LOCAL_HOST.id)
   }
 
   function pick() {
@@ -37,7 +35,7 @@ export function useDaemonFolderPicker(
       hostId={hostId}
       open={openFor === hostId}
       onOpenChange={(open) => setOpenFor(open ? hostId : null)}
-      onSelect={onPick}
+      onSelect={(path) => onPick(path, hostId)}
     />
   ) : null
   return { pick, picker }
