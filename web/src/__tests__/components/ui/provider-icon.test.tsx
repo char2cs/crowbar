@@ -121,10 +121,23 @@ describe('ProviderIcon', () => {
     expect(host.querySelector('[class]')).toBeNull()
   })
 
+  // A real overflow needs a ~5000-deep document: seconds of jsdom parsing, and the depth that
+  // overflows shifts with JIT warmth. So the serialiser's RangeError is injected on a tiny icon.
   it('renders an empty host instead of throwing when the icon nests too deep to serialise', () => {
-    const svg = `<svg>${'<g>'.repeat(5000)}<path d="M0 0"/>${'</g>'.repeat(5000)}</svg>`
-    expect(renderIcon(svg).innerHTML).toBe('')
-    expect(renderIcon(svg).innerHTML).toBe('')
+    const serialise = vi.spyOn(Element.prototype, 'outerHTML', 'get').mockImplementation(() => {
+      throw new RangeError('Maximum call stack size exceeded')
+    })
+    try {
+      const svg = '<svg viewBox="0 0 3 3"><path d="M2 2"/></svg>'
+      expect(renderIcon(svg).innerHTML).toBe('')
+      expect(renderIcon(svg).innerHTML).toBe('')
+      expect(
+        serialise,
+        'a failed icon is cached, not re-sanitised per render',
+      ).toHaveBeenCalledTimes(1)
+    } finally {
+      serialise.mockRestore()
+    }
   })
 
   it('renders an empty host instead of throwing when sanitising fails', () => {
