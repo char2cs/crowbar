@@ -11,6 +11,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,14 +34,20 @@ const testFingerprint = "SHA256:aaaa bbbb cccc dddd eeee ffff"
 type fakePairing struct {
 	mintCode   string
 	mintErr    error
+	mints      int
 	redeemErr  error
 	redeemTok  string
 	redeemName string
+	redeems    int
 }
 
-func (f *fakePairing) Mint(time.Time) (string, error) { return f.mintCode, f.mintErr }
+func (f *fakePairing) Mint(time.Time) (string, error) {
+	f.mints++
+	return f.mintCode, f.mintErr
+}
 
 func (f *fakePairing) Redeem(_ context.Context, code, name string, _ time.Time) (string, domain.Client, error) {
+	f.redeems++
 	f.redeemName = name
 	if f.redeemErr != nil {
 		return "", domain.Client{}, f.redeemErr
@@ -187,6 +194,64 @@ func TestPair_InternalError_Returns500(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusInternalServerError, rec.Code, "a non-pairing-sentinel error must not be reported as an invalid code")
+}
+
+// TestRegression_MintCode_WithoutATLSIdentity_Refuses proves a daemon serving
+// no TLS (unix socket or loopback only) mints no code: no client can reach it
+// to redeem one, and it has no fingerprint for the operator to confirm.
+func TestRegression_MintCode_WithoutATLSIdentity_Refuses(t *testing.T) {
+	pairingUC := &fakePairing{mintCode: "123456"}
+	r := gin.New()
+	r.POST("/pair/code", handlers.New(pairingUC, &fakeRegistry{}, &fakeStreams{}, "").MintCode)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/pair/code", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "network-exposed")
+	assert.Zero(t, pairingUC.mints, "no code may be minted")
+}
+
+// postPair posts body to POST /pair on r.
+func postPair(
+	t *testing.T,
+	r *gin.Engine,
+	body string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/pair", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
+// TestRegression_Pair_OversizedBodyIsRefused proves an anonymous caller cannot
+// make the daemon read more than a pairing request's few bytes: the body is
+// cut off at the cap and the code is never tried.
+func TestRegression_Pair_OversizedBodyIsRefused(t *testing.T) {
+	pairingUC := &fakePairing{redeemTok: "sometoken"}
+	r := newTestRouter(pairingUC, &fakeRegistry{})
+
+	rec := postPair(t, r, strings.Repeat(" ", 8<<10)+`{"code":"123456","name":"x"}`)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code, rec.Body.String())
+	assert.Zero(t, pairingUC.redeems, "an oversized request must not reach the code")
+}
+
+// TestRegression_Pair_NameIsCappedAt64Runes proves the client name a paired
+// device is listed under is bounded in characters, not bytes.
+func TestRegression_Pair_NameIsCappedAt64Runes(t *testing.T) {
+	pairingUC := &fakePairing{redeemTok: "sometoken"}
+	r := newTestRouter(pairingUC, &fakeRegistry{})
+
+	rec := postPair(t, r, `{"code":"123456","name":"`+strings.Repeat("é", 65)+`"}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	assert.Zero(t, pairingUC.redeems, "an over-long name must not reach the code")
+
+	rec = postPair(t, r, `{"code":"123456","name":"`+strings.Repeat("é", 64)+`"}`)
+	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 }
 
 func TestPair_MalformedJSON_Returns400(t *testing.T) {

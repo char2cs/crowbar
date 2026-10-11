@@ -1,8 +1,10 @@
 package transports
 
 import (
+	"bytes"
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 	"net"
 	"testing"
 
@@ -18,6 +20,24 @@ func TestNewTCP_ValidAddress(t *testing.T) {
 	t.Cleanup(func() { l.Close() })
 	_, ok := l.(*net.TCPListener)
 	assert.True(t, ok)
+}
+
+// TestNewTCP_Loopback_WarnsItIsUnauthenticated proves the plaintext dev bind
+// announces itself loudly: nothing on it checks who is calling, so it must
+// never be reverse-proxied or port-forwarded.
+func TestNewTCP_Loopback_WarnsItIsUnauthenticated(t *testing.T) {
+	var logged bytes.Buffer
+	restore := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+	t.Cleanup(func() { slog.SetDefault(restore) })
+
+	l, err := NewTCP("tcp://127.0.0.1:0", nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = l.Close() })
+
+	assert.Contains(t, logged.String(), "level=WARN")
+	assert.Contains(t, logged.String(), "unauthenticated")
+	assert.Contains(t, logged.String(), "port-forward")
 }
 
 func TestNewTCP_InvalidAddress_ReturnsError(t *testing.T) {
@@ -161,6 +181,9 @@ func TestIsNonLoopbackBind(t *testing.T) {
 		{"127.0.0.2:3737", false},
 		{"localhost:3737", false},
 		{"[::1]:3737", false},
+		{"::1", false},
+		{"localhost.:3737", true},
+		{"127.example.com:3737", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.addr, func(t *testing.T) {
@@ -169,4 +192,14 @@ func TestIsNonLoopbackBind(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRegression_NewTCP_DNSNameShapedLikeLoopbackIsExposed proves a DNS name
+// that merely starts with "127." resolves wherever its owner points it, so it
+// must take the TLS path, never the plaintext loopback one.
+func TestRegression_NewTCP_DNSNameShapedLikeLoopbackIsExposed(t *testing.T) {
+	const host = "tcp://127.example.com:3737"
+	assert.True(t, IsNetworkExposed(host))
+	_, err := NewTCP(host, nil)
+	assert.ErrorContains(t, err, "TLS identity", "an exposed bind without an identity must be refused, not bound plaintext")
 }

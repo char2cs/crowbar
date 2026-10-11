@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 	"net"
+	"net/netip"
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/core/tlsid"
@@ -23,7 +25,7 @@ func NewTCP(
 	if !isNonLoopbackBind(addr) {
 		// Loopback is the dev path and stays plaintext: make dev-api and
 		// crowbar-seed both dial it over http.
-		return listenTCP(addr)
+		return listenPlaintext(addr)
 	}
 	if id == nil {
 		return nil, fmt.Errorf(
@@ -36,6 +38,21 @@ func NewTCP(
 		return nil, err
 	}
 	return tlsListen(ln, id), nil
+}
+
+// listenPlaintext binds the loopback dev listener and says loudly what it is:
+// no request on it is authenticated, so anything that relays remote traffic
+// onto it (a reverse proxy, an ssh -L, a published port) hands that traffic
+// the whole API.
+func listenPlaintext(addr string) (net.Listener, error) {
+	ln, err := listenTCP(addr)
+	if err != nil {
+		return nil, err
+	}
+	slog.Warn("gateway: plaintext TCP is unauthenticated and for local development only; "+
+		"never reverse-proxy or port-forward it — bind a non-loopback address to serve other machines over TLS",
+		"component", "gateway", "addr", ln.Addr().String())
+	return ln, nil
 }
 
 // listenTCP binds addr. There is no caller-supplied context to thread
@@ -60,27 +77,21 @@ func IsNetworkExposed(host string) bool {
 	return isNonLoopbackBind(strings.TrimPrefix(host, "tcp://"))
 }
 
-// isNonLoopbackBind reports whether addr binds beyond loopback. An empty or
-// wildcard host (":3737", "0.0.0.0:3737", "[::]:3737") binds all interfaces; a
-// concrete loopback host (127.0.0.0/8, ::1, localhost) does not.
+// isNonLoopbackBind reports whether addr binds beyond loopback. Only a literal
+// loopback IP (127.0.0.0/8, ::1) or exactly "localhost" stays local: an empty
+// or wildcard host binds every interface, and any other DNS name resolves
+// wherever its owner points it, so it is treated as exposed.
 func isNonLoopbackBind(addr string) bool {
 	h, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		// No port (or malformed): treat the whole string as the host.
 		h = addr
 	}
-	switch h {
-	case "", "0.0.0.0", "::", "[::]":
-		return true
-	case "localhost", "::1", "[::1]":
+	if h == "localhost" {
 		return false
 	}
-	if strings.HasPrefix(h, "127.") {
-		return false
-	}
-	if ip := net.ParseIP(h); ip != nil {
+	if ip, err := netip.ParseAddr(strings.Trim(h, "[]")); err == nil {
 		return !ip.IsLoopback()
 	}
-	// A non-IP, non-localhost host (a DNS name): conservatively treat as exposed.
 	return true
 }

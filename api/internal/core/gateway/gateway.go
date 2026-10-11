@@ -30,6 +30,12 @@ func New(host string, id *tlsid.Identity) ([]net.Listener, error) {
 	return listeners, nil
 }
 
+// Exposed reports whether host binds beyond loopback: the one bind that serves
+// TLS, and so the only one that needs the daemon's TLS identity.
+func Exposed(host string) bool {
+	return strings.HasPrefix(host, "tcp://") && transports.IsNetworkExposed(host)
+}
+
 // bindAddrs lists the addresses New binds for host, in bind order. A
 // network-exposed tcp:// host also binds the local unix socket: `crowbar pair`
 // only dials that socket, and pairing must work from the daemon's own host.
@@ -37,7 +43,7 @@ func bindAddrs(host string) ([]string, error) {
 	switch {
 	case strings.HasPrefix(host, "unix://"):
 		return []string{host}, nil
-	case strings.HasPrefix(host, "tcp://") && transports.IsNetworkExposed(host):
+	case Exposed(host):
 		return []string{"unix://", host}, nil
 	case strings.HasPrefix(host, "tcp://"):
 		return []string{host}, nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/fs"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -34,12 +35,14 @@ type Container struct {
 // New builds the HTTP layer: middleware, the v0 surface (mounted at /v0 and
 // registered as a hub subscriber), and optional embedded static assets.
 // serverFingerprint is the daemon's TLS identity fingerprint, passed through
-// to the pairing routes (see v0.New).
+// to the pairing routes (see v0.New); preAuthReadTimeout bounds a TLS
+// request's reads until its bearer is verified (middleware.PreAuthReadDeadline).
 func New(
 	appContainer *app.Container,
 	engContainer *engine.Container,
 	staticFS fs.FS,
 	serverFingerprint string,
+	preAuthReadTimeout time.Duration,
 	v0Options ...v0.Option,
 ) (*Container, error) {
 	gin.SetMode(gin.ReleaseMode)
@@ -48,6 +51,9 @@ func New(
 	router.UnescapePathValues = true
 	router.MaxMultipartMemory = maxMultipartMemory
 	router.Use(
+		// First, so every route an anonymous TLS peer can reach is bounded:
+		// pairing, pprof, static, a CORS refusal, and the drain after a 401.
+		middleware.PreAuthReadDeadline(preAuthReadTimeout),
 		middleware.Logger(),
 		middleware.Timing(),
 		middleware.Recovery(),

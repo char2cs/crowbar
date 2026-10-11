@@ -62,7 +62,10 @@ func Load(dir string) (*Identity, error) {
 
 	pair, err := tls.LoadX509KeyPair(certPath, keyPath)
 	if err != nil {
-		return nil, fmt.Errorf("tlsid: load keypair: %w", err)
+		return nil, fmt.Errorf("tlsid: this host's TLS identity cannot be loaded from %s (%w). It is not "+
+			"regenerated, because paired clients pin it: restore %s and %s, or delete both to create a new "+
+			"identity, which every paired client will see as an identity change and must re-pair",
+			dir, err, certName, keyName)
 	}
 	if len(pair.Certificate) == 0 {
 		return nil, fmt.Errorf("tlsid: keypair carries no certificate")

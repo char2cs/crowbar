@@ -1,12 +1,15 @@
 package middleware
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/perf"
 )
@@ -48,6 +51,41 @@ func TestTiming_RecordsRouteTemplateNotConcretePath(
 	for _, s := range samples {
 		assert.Equal(t, "http.GET /v0/workspaces/:wsId/review/files", s.Name)
 	}
+}
+
+// TestTiming_ConnectionControlsReachThroughTheWrapper proves a handler behind
+// the timing wrapper can still set its connection's read deadline — what the
+// bearer guard does to lift the pre-auth bound once a client is verified.
+func TestTiming_ConnectionControlsReachThroughTheWrapper(
+	t *testing.T,
+) {
+	perf.SetEnabled(true)
+	t.Cleanup(func() {
+		perf.SetEnabled(false)
+		perf.Reset()
+	})
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(Timing())
+	r.GET("/x", func(c *gin.Context) {
+		if err := http.NewResponseController(c.Writer).SetReadDeadline(time.Time{}); err != nil {
+			c.String(http.StatusInternalServerError, err.Error())
+			return
+		}
+		c.Status(http.StatusOK)
+	})
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/x", http.NoBody)
+	require.NoError(t, err)
+	resp, err := srv.Client().Do(req)
+	require.NoError(t, err)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, string(body))
 }
 
 // TestTiming_RecordsNothingWhenDisabled proves the permanently-installed

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,7 +31,7 @@ func TestAPI_New_HealthRoute(t *testing.T) {
 	a, err := app.New(ctx, eng, adapters)
 	require.NoError(t, err)
 
-	c, err := crowbarapi.New(a, eng, nil, "")
+	c, err := crowbarapi.New(a, eng, nil, "", time.Minute)
 	require.NoError(t, err)
 
 	rec := httptest.NewRecorder()
@@ -56,7 +57,7 @@ func TestAPI_New_StaticFSServesAndAppCloses(t *testing.T) {
 		"index.html": {Data: []byte("<html>app</html>")},
 		"app.js":     {Data: []byte("console.log('ok')")},
 	}
-	c, err := crowbarapi.New(a, eng, staticFS, "")
+	c, err := crowbarapi.New(a, eng, staticFS, "", time.Minute)
 	require.NoError(t, err)
 
 	rec := httptest.NewRecorder()

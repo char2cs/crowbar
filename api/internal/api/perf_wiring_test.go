@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -38,7 +39,7 @@ func newRealAPI(
 	require.NoError(t, err)
 	t.Cleanup(a.Close)
 
-	c, err := crowbarapi.New(a, eng, nil, "")
+	c, err := crowbarapi.New(a, eng, nil, "", time.Minute)
 	require.NoError(t, err)
 	return c
 }

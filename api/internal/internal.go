@@ -76,9 +76,9 @@ func New(
 	if homeDir == "" {
 		homeDir = metadata.GetHomePath()
 	}
-	identity, err := tlsid.Load(filepath.Join(homeDir, "tls"))
+	identity, fingerprint, err := serverIdentity(host, homeDir)
 	if err != nil {
-		return nil, fmt.Errorf("internal: tls identity: %w", err)
+		return nil, err
 	}
 
 	listeners, err := gateway.New(host, identity)
@@ -102,7 +102,7 @@ func New(
 	}
 
 	//nolint:contextcheck // snapshot providers are context-free by design; this call only threads the fingerprint and log ring option.
-	apiContainer, err := crowbarapi.New(appContainer, engines, staticFS, identity.Fingerprint, v0.WithLogs(cfg.logs))
+	apiContainer, err := crowbarapi.New(appContainer, engines, staticFS, fingerprint, preAuthReadTimeout, v0.WithLogs(cfg.logs))
 	if err != nil {
 		return nil, fmt.Errorf("internal: api: %w", err)
 	}
@@ -111,8 +111,7 @@ func New(
 	// `crowbar hook` by absolute path. Use the container's CONFIGURED home so tests
 	// and dev instances (WithHomeDir) stay isolated; fall back to the resolved global
 	// home only when none was configured — the production `serve` path. Best-effort:
-	// never block startup, and never write to the real ~/.crowbar from a test. Reuses
-	// the same homeDir resolution the TLS identity load above already did.
+	// never block startup, and never write to the real ~/.crowbar from a test.
 	if p, err := selfinstall.Install(homeDir); err == nil {
 		_ = p // path is re-derived by the agent engine when rendering descriptors
 	}
@@ -127,13 +126,34 @@ func New(
 	}, nil
 }
 
+// serverIdentity loads the TLS identity, and its fingerprint, for a
+// network-exposed bind only: a unix-socket or loopback daemon serves no TLS,
+// so a broken identity directory must not keep it from booting.
+func serverIdentity(
+	host, homeDir string,
+) (*tlsid.Identity, string, error) {
+	if !gateway.Exposed(host) {
+		return nil, "", nil
+	}
+	identity, err := tlsid.Load(filepath.Join(homeDir, "tls"))
+	if err != nil {
+		return nil, "", fmt.Errorf("internal: tls identity: %w", err)
+	}
+	return identity, identity.Fingerprint, nil
+}
+
 // idleConnTimeout closes a keep-alive connection left idle between requests,
 // so an unauthenticated peer cannot pin a descriptor per connection forever.
 const idleConnTimeout = 2 * time.Minute
 
+// preAuthReadTimeout bounds the reads of a TLS request until its bearer is
+// verified: the mid-request counterpart of idleConnTimeout.
+const preAuthReadTimeout = 10 * time.Second
+
 // newHTTPServer leaves ReadTimeout and WriteTimeout unset on purpose: a hijacked
 // WebSocket or a long streaming response must outlive any fixed deadline, and
-// the idle timeout only ever applies between requests.
+// the idle timeout only ever applies between requests. An anonymous request's
+// reads are bounded per request instead (preAuthReadTimeout).
 func newHTTPServer(
 	handler http.Handler,
 	idleTimeout time.Duration,

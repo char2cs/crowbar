@@ -93,8 +93,9 @@ single-instance lock on the home dir.
   singleton — all before the adapter closes the DBs.
 
 ### `api/`
-- `container.go`: gin with logger, timing, recovery, CORS (`middleware/`, origins
-  in `origin/`), body limit; mounts `/v0`, debug routes, and the static bundle
+- `container.go`: gin with a pre-auth read deadline (TLS requests, lifted by the
+  `/v0` bearer guard), logger, timing, recovery, CORS (`middleware/`, origins in
+  `origin/`), body limit; mounts `/v0`, debug routes, and the static bundle
   (`static.go`: SPA fallback, precompressed `.gz` siblings, immutable `/assets/*`).
 - `v0/router.go`: the route table. Hierarchy
   `/v0/projects/:projectId/repos/:repoId/...` with guards that reject ids from

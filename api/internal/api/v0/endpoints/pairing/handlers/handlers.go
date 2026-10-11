@@ -43,10 +43,15 @@ type mintCodeResponse struct {
 	ServerFingerprint string `json:"serverFingerprint"`
 }
 
-// pairRequest is the body of POST /pair.
+// maxPairBodyBytes caps POST /pair's body, read before the caller holds any
+// credential: a code and a short name need a few dozen bytes.
+const maxPairBodyBytes = 4 << 10
+
+// pairRequest is the body of POST /pair. Name is what the client registry
+// lists the device as; max counts runes.
 type pairRequest struct {
 	Code string `json:"code" binding:"required"`
-	Name string `json:"name"`
+	Name string `json:"name" binding:"max=64"`
 }
 
 // pairResponse is the body of a successful POST /pair.
@@ -78,6 +83,12 @@ func (h *Handlers) MintCode(c *gin.Context) {
 		libs.WriteErr(c, http.StatusForbidden, "pairing codes can only be minted over the local socket")
 		return
 	}
+	// Only a network-exposed daemon serves TLS, so only it has a fingerprint.
+	if h.serverFingerprint == "" {
+		libs.WriteErr(c, http.StatusConflict, "this daemon is not network-exposed, so no client can reach it "+
+			"to pair: serve it on a non-loopback tcp:// address")
+		return
+	}
 	code, err := h.pairing.Mint(time.Now())
 	if err != nil {
 		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
@@ -88,8 +99,14 @@ func (h *Handlers) MintCode(c *gin.Context) {
 
 // Pair redeems a pairing code for a bearer token.
 func (h *Handlers) Pair(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxPairBodyBytes)
 	var req pairRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			libs.WriteErr(c, http.StatusRequestEntityTooLarge, "pairing request is too large")
+			return
+		}
 		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}

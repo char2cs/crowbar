@@ -22,6 +22,10 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
+// fingerprint stands in for a network-exposed daemon's TLS identity: a daemon
+// without one mints no codes.
+const fingerprint = "SHA256:aaaa bbbb cccc dddd eeee ffff"
+
 type stubPairing struct{}
 
 func (stubPairing) Mint(time.Time) (string, error) { return "111111", nil }
@@ -79,7 +83,7 @@ func doPair(t *testing.T, r *gin.Engine) *httptest.ResponseRecorder {
 }
 
 func TestRegisterOpen_MountsMintAndPair(t *testing.T) {
-	h := pairinghandlers.New(stubPairing{}, stubRegistry{}, stubStreams{}, "")
+	h := pairinghandlers.New(stubPairing{}, stubRegistry{}, stubStreams{}, fingerprint)
 	r := gin.New()
 	pairing.RegisterOpen(r.Group(""), h, countingLimiter(1000))
 
@@ -91,7 +95,7 @@ func TestRegisterOpen_MountsMintAndPair(t *testing.T) {
 // POST /pair alone: MintCode must stay reachable no matter how many times a
 // caller has hit /pair, and vice versa.
 func TestRegisterOpen_LimiterAppliesToPairOnly(t *testing.T) {
-	h := pairinghandlers.New(stubPairing{}, stubRegistry{}, stubStreams{}, "")
+	h := pairinghandlers.New(stubPairing{}, stubRegistry{}, stubStreams{}, fingerprint)
 	r := gin.New()
 	pairing.RegisterOpen(r.Group(""), h, countingLimiter(2))
 
@@ -107,7 +111,7 @@ func TestRegisterOpen_LimiterAppliesToPairOnly(t *testing.T) {
 }
 
 func TestRegisterGuarded_MountsListAndRevoke(t *testing.T) {
-	h := pairinghandlers.New(stubPairing{}, stubRegistry{}, stubStreams{}, "")
+	h := pairinghandlers.New(stubPairing{}, stubRegistry{}, stubStreams{}, fingerprint)
 	r := gin.New()
 	pairing.RegisterGuarded(r.Group(""), h)
 

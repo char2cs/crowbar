@@ -3,9 +3,11 @@
 package v0_test
 
 import (
+	"bufio"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -25,6 +27,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/logring"
 )
 
+// testFingerprint stands in for a network-exposed daemon's TLS identity: one
+// without an identity mints no pairing codes.
+const testFingerprint = "SHA256:aaaa bbbb cccc dddd eeee ffff"
+
 // daemonEngine builds the production HTTP surface, so routes mounted on the
 // engine itself (pprof) are walked alongside the /v0 group Register builds.
 func daemonEngine(
@@ -40,9 +46,20 @@ func daemonEngineWithLogs(
 	ring logring.Ring,
 ) *gin.Engine {
 	t.Helper()
+	return daemonEngineWith(t, ring, time.Minute)
+}
+
+// daemonEngineWith is daemonEngineWithLogs bounding an anonymous TLS request's
+// reads at preAuthReadTimeout.
+func daemonEngineWith(
+	t *testing.T,
+	ring logring.Ring,
+	preAuthReadTimeout time.Duration,
+) *gin.Engine {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
-	daemon, err := crowbarapi.New(tc.app, tc.eng, nil, "", v0.WithLogs(ring))
+	daemon, err := crowbarapi.New(tc.app, tc.eng, nil, testFingerprint, preAuthReadTimeout, v0.WithLogs(ring))
 	require.NoError(t, err)
 	t.Cleanup(daemon.Close)
 	engine, ok := daemon.Handler().(*gin.Engine)
@@ -215,6 +232,104 @@ func TestRouter_TLS_RevokeEndsTheClientsOpenStreams(t *testing.T) {
 	assert.False(t, errors.As(err, &netErr) && netErr.Timeout(),
 		"the revoked client's stream must be closed, not merely quiet: %v", err)
 	readUntilFrame(t, kept, "logged after the revoke")
+}
+
+// TestRegression_Router_TLS_StalledBodiesAreCutUntilAuthenticated proves an
+// unpaired peer cannot pin a connection by never finishing a request body —
+// on the open pairing routes, a guarded route refusing it, or no route at all —
+// while a paired client's slow upload and open stream outlive the same bound.
+func TestRegression_Router_TLS_StalledBodiesAreCutUntilAuthenticated(t *testing.T) {
+	const bound = 100 * time.Millisecond
+	ring := logring.New()
+	engine := daemonEngineWith(t, ring, bound)
+	srv := httptest.NewTLSServer(engine)
+	t.Cleanup(srv.Close)
+
+	for _, path := range []string{"/v0/pair", "/v0/pair/code", "/v0/settings/terminal/profiles", "/no-such-route"} {
+		t.Run("anonymous "+path, func(t *testing.T) {
+			start := time.Now()
+			requireStalledRequestCut(t, srv, path)
+			assert.GreaterOrEqual(t, time.Since(start), bound, "the cut must be the deadline's")
+		})
+	}
+
+	token, _ := pairClient(t, engine)
+	t.Run("paired upload", func(t *testing.T) {
+		const body = `{"name":"slow upload"}`
+		conn, reader := dialRaw(t, srv)
+		writeHead(t, conn, "/v0/settings/terminal/profiles", len(body),
+			"Authorization: Bearer "+token+"\r\nExpect: 100-continue\r\n")
+		// 100 Continue is sent once the handler reads the body: the guard has run.
+		continued, err := http.ReadResponse(reader, nil)
+		require.NoError(t, err)
+		require.NoError(t, continued.Body.Close())
+		require.Equal(t, http.StatusContinue, continued.StatusCode)
+
+		requireStalledRequestCut(t, srv, "/no-such-route")
+		_, err = io.WriteString(conn, body)
+		require.NoError(t, err)
+		resp, err := http.ReadResponse(reader, nil)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		assert.Equal(t, http.StatusCreated, resp.StatusCode, "a paired upload must not be cut by the pre-auth bound")
+	})
+	t.Run("paired stream", func(t *testing.T) {
+		stream := dialLogs(t, srv, token)
+		requireStalledRequestCut(t, srv, "/no-such-route")
+		slog.New(ring.Wrap(slog.NewTextHandler(io.Discard, nil))).Info("logged after the bound")
+		readUntilFrame(t, stream, "logged after the bound")
+	})
+}
+
+// dialRaw opens a TLS connection to srv for a test to drive byte by byte; the
+// deadline only bounds a failure.
+func dialRaw(
+	t *testing.T,
+	srv *httptest.Server,
+) (net.Conn, *bufio.Reader) {
+	t.Helper()
+	transport, ok := srv.Client().Transport.(*http.Transport)
+	require.True(t, ok)
+	dialer := tls.Dialer{Config: transport.TLSClientConfig}
+	conn, err := dialer.DialContext(t.Context(), "tcp", srv.Listener.Addr().String())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	require.NoError(t, conn.SetDeadline(time.Now().Add(10*time.Second)))
+	return conn, bufio.NewReader(conn)
+}
+
+// writeHead sends a POST's head declaring a length-byte JSON body.
+func writeHead(
+	t *testing.T,
+	conn net.Conn,
+	path string,
+	length int,
+	extraHeaders string,
+) {
+	t.Helper()
+	_, err := fmt.Fprintf(conn, "POST %s HTTP/1.1\r\nHost: daemon\r\nContent-Type: application/json\r\n"+
+		"Content-Length: %d\r\n%s\r\n", path, length, extraHeaders)
+	require.NoError(t, err)
+}
+
+// requireStalledRequestCut sends an anonymous POST to path whose body stops
+// short of its declared length, and waits for the server to close the
+// connection on it.
+func requireStalledRequestCut(
+	t *testing.T,
+	srv *httptest.Server,
+	path string,
+) {
+	t.Helper()
+	conn, reader := dialRaw(t, srv)
+	writeHead(t, conn, path, 64, "")
+	_, err := io.WriteString(conn, `{"code":`)
+	require.NoError(t, err)
+
+	_, err = io.Copy(io.Discard, reader)
+	var netErr net.Error
+	assert.Falsef(t, errors.As(err, &netErr) && netErr.Timeout(),
+		"%s: the server must close a stalled anonymous request: %v", path, err)
 }
 
 // dialLogs opens GET /v0/console/logs over srv's TLS with token, returning once

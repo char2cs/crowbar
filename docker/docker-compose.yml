@@ -16,7 +16,15 @@ services:
       # Self-signed TLS: connect to https://localhost:${CROWBAR_PORT:-3737}; plain http gets 400.
       # Never proxy to a plaintext `--host tcp://127.0.0.1:...` bind: "no TLS" is how the daemon
       # recognises a local caller, so a proxy there exposes everything, pairing-code minting included.
+      # Docker publishes ports through its own iptables rules, bypassing host firewalls (ufw,
+      # firewalld): this binds every interface. Prefix a specific IP to narrow it, e.g.
+      # "127.0.0.1:3737:3737" or "<lan-ip>:3737:3737".
       - "${CROWBAR_PORT:-3737}:3737"
+    # The daemon runs as an unprivileged user on a high port: it needs no capabilities.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     volumes:
       # Not disposable: the TLS identity, paired clients, the project/chat database and every
       # worktree the daemon creates. Named volume, not a bind mount (Docker Desktop on macOS
