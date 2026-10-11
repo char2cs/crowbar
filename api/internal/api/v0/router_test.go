@@ -53,9 +53,9 @@ func serveTLS(
 	return rec
 }
 
-// pairedToken mints a code over the plaintext path (as `crowbar pair` does on
-// the unix socket) and redeems it over TLS, returning the client's bearer token.
-func pairedToken(
+// mintCode mints a code over the plaintext path, as `crowbar pair` does on the
+// unix socket.
+func mintCode(
 	t *testing.T,
 	h http.Handler,
 ) string {
@@ -69,17 +69,43 @@ func pairedToken(
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(mint.Body.Bytes(), &minted))
+	return minted.Data.Code
+}
 
-	redeem := serveTLS(t, h, http.MethodPost, "/v0/pair", "", `{"code":"`+minted.Data.Code+`","name":"audit"}`)
+// redeemFrom posts code to the redeem route over TLS from the TCP peer remote.
+func redeemFrom(
+	t *testing.T,
+	h http.Handler,
+	remote, code string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v0/pair",
+		strings.NewReader(`{"code":"`+code+`","name":"audit"}`))
+	req.TLS = &tls.ConnectionState{}
+	req.RemoteAddr = remote
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// pairClient mints a code and redeems it over TLS, returning the client's
+// bearer token and id.
+func pairClient(
+	t *testing.T,
+	h http.Handler,
+) (string, string) {
+	t.Helper()
+	redeem := serveTLS(t, h, http.MethodPost, "/v0/pair", "", `{"code":"`+mintCode(t, h)+`","name":"audit"}`)
 	require.Equal(t, http.StatusOK, redeem.Code, redeem.Body.String())
 	var paired struct {
 		Data struct {
-			Token string `json:"token"`
+			Token    string `json:"token"`
+			ClientID string `json:"clientId"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(redeem.Body.Bytes(), &paired))
 	require.NotEmpty(t, paired.Data.Token)
-	return paired.Data.Token
+	return paired.Data.Token, paired.Data.ClientID
 }
 
 // TestRouter_TLSNoAuth_OnlyPairingAndPprofAreOpen requests every route on the real
@@ -123,9 +149,30 @@ func TestRouter_TLSNoAuth_OnlyPairingAndPprofAreOpen(t *testing.T) {
 func TestRouter_TLS_HealthNeedsAPairedToken(t *testing.T) {
 	engine := daemonEngine(t)
 
-	token := pairedToken(t, engine)
+	token, _ := pairClient(t, engine)
 	assert.Equal(t, http.StatusOK, serveTLS(t, engine, http.MethodGet, "/v0/health", token, "").Code,
 		"health must answer a paired client over TLS")
 	assert.Equal(t, http.StatusUnauthorized, serveTLS(t, engine, http.MethodGet, "/v0/health", "never-issued", "").Code,
 		"health must refuse an unknown token over TLS")
+}
+
+// TestRouter_TLS_PairRedeemIsLimitedPerSource proves the redeem limit is per TCP
+// peer: a sixth redeem from one source within the window is refused, while
+// another source's redeem still reaches the outstanding code.
+func TestRouter_TLS_PairRedeemIsLimitedPerSource(t *testing.T) {
+	engine := daemonEngine(t)
+	code := mintCode(t, engine)
+	wrong := "000000"
+	if code == wrong {
+		wrong = "000001"
+	}
+	const attacker = "203.0.113.9:40000"
+
+	for i := range 5 {
+		require.Equalf(t, http.StatusUnauthorized, redeemFrom(t, engine, attacker, wrong).Code, "guess %d", i)
+	}
+	assert.Equal(t, http.StatusTooManyRequests, redeemFrom(t, engine, attacker, code).Code,
+		"the sixth redeem from one source within the window must be refused")
+	rec := redeemFrom(t, engine, "198.51.100.7:50000", code)
+	assert.Equal(t, http.StatusOK, rec.Code, "another source must still redeem the valid code: %s", rec.Body.String())
 }

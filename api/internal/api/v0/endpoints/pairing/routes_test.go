@@ -41,7 +41,7 @@ func (stubRegistry) FindByKey(context.Context, string) (*domain.Client, error) {
 }
 
 // countingLimiter aborts with 429 once it has let max requests through — a
-// deterministic stand-in for the real newFixedWindowLimiter (package v0,
+// deterministic stand-in for the real newSourceLimiter (package v0,
 // unreachable here without an import cycle back through router.go).
 func countingLimiter(max int) gin.HandlerFunc {
 	n := 0

@@ -3,6 +3,7 @@ package pairing
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -132,6 +133,58 @@ func TestRedeem_TokenIs32RandomBytes(t *testing.T) {
 		}
 		seen[token] = true
 	}
+}
+
+// TestRedeem_WrongGuessesBurnTheCode proves maxFailedRedeems wrong guesses,
+// however they are spread across callers, burn the outstanding code: the right
+// code no longer redeems, so a brute force gets maxFailedRedeems tries per code.
+func TestRedeem_WrongGuessesBurnTheCode(t *testing.T) {
+	u := New(&fakeClientStore{})
+	now := time.Now()
+	code, err := u.Mint(now)
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+	wrong := wrongCode(code)
+	for i := 0; i < maxFailedRedeems; i++ {
+		if _, _, err := u.Redeem(context.Background(), wrong, "x", now); !errors.Is(err, ErrBadCode) {
+			t.Fatalf("guess %d: expected ErrBadCode, got %v", i, err)
+		}
+	}
+	if _, _, err := u.Redeem(context.Background(), code, "x", now); !errors.Is(err, ErrNoCode) {
+		t.Fatalf("expected the burned code to be gone, got %v", err)
+	}
+}
+
+// TestRedeem_FewerWrongGuessesLeaveTheCode proves a guess short of the burn
+// threshold does not lock the operator out, and a fresh mint resets the count.
+func TestRedeem_FewerWrongGuessesLeaveTheCode(t *testing.T) {
+	u := New(&fakeClientStore{})
+	now := time.Now()
+	first, err := u.Mint(now)
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+	for i := 0; i < maxFailedRedeems-1; i++ {
+		_, _, _ = u.Redeem(context.Background(), wrongCode(first), "x", now)
+	}
+	second, err := u.Mint(now)
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+	for i := 0; i < maxFailedRedeems-1; i++ {
+		_, _, _ = u.Redeem(context.Background(), wrongCode(second), "x", now)
+	}
+	if _, _, err := u.Redeem(context.Background(), second, "x", now); err != nil {
+		t.Fatalf("expected the code to survive %d wrong guesses after a fresh mint, got %v", maxFailedRedeems-1, err)
+	}
+}
+
+func wrongCode(code string) string {
+	if code == "000000" {
+		return "000001"
+	}
+	return "000000"
 }
 
 func TestHashToken_IsStableAndDistinct(t *testing.T) {

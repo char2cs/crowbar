@@ -9,7 +9,7 @@ import (
 
 // RegisterOpen mounts mint and redeem, which produce the bearer credential and
 // so must be registered before requireBearerAuth is installed. redeemLimiter
-// caps POST /pair globally: before pairing there is no client identity to key on.
+// caps POST /pair per source address: before pairing there is no client identity.
 func RegisterOpen(
 	open *gin.RouterGroup,
 	h *pairinghandlers.Handlers,

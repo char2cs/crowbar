@@ -70,7 +70,7 @@ func (c *Container) Register(
 	// Open routes go BEFORE requireBearerAuth: gin fixes a route's middleware
 	// chain at registration, so these never carry it. Only pairing belongs here
 	// (it mints the credential); health is guarded so a revoked token reads 401.
-	pairingPkg.RegisterOpen(rg, c.pairing, newFixedWindowLimiter(5, time.Minute))
+	pairingPkg.RegisterOpen(rg, c.pairing, newSourceLimiter(5, time.Minute, time.Now).handle)
 
 	// Every route from here down needs a bearer token over TLS; plaintext
 	// (unix socket, loopback dev TCP) passes through — see requireBearerAuth.

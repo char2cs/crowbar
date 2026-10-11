@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"sync"
 	"time"
@@ -31,6 +32,10 @@ var (
 // CodeTTL is the time-to-live for a minted pairing code.
 const CodeTTL = 5 * time.Minute
 
+// maxFailedRedeems wrong guesses burn the outstanding code, so however many
+// addresses a brute force spreads across, it gets this many tries in 1e6.
+const maxFailedRedeems = 10
+
 // ClientStore is the narrow persistence seam this package needs — satisfied
 // by store.ScopedStore[domain.Client, string] (api/internal/app/gorm.go).
 type ClientStore interface {
@@ -46,9 +51,10 @@ type Usecase interface {
 type usecase struct {
 	clients ClientStore
 
-	mu      sync.Mutex
-	code    string
-	expires time.Time
+	mu       sync.Mutex
+	code     string
+	expires  time.Time
+	failures int
 }
 
 // New builds the pairing usecase.
@@ -66,6 +72,7 @@ func (u *usecase) Mint(now time.Time) (string, error) {
 	defer u.mu.Unlock()
 	u.code = code
 	u.expires = now.Add(CodeTTL)
+	u.failures = 0
 	return code, nil
 }
 
@@ -113,7 +120,11 @@ func (u *usecase) claim(code string, now time.Time) (string, time.Time, error) {
 	}
 	// The code is a bearer secret; constant-time compare avoids a timing oracle.
 	if subtle.ConstantTimeCompare([]byte(u.code), []byte(code)) != 1 {
-		// Deliberately does not burn: a wrong guess must not lock out the operator.
+		u.failures++
+		if u.failures >= maxFailedRedeems {
+			u.code, u.expires = "", time.Time{}
+			slog.Warn("pairing: code burned after repeated wrong guesses; mint a new one with `crowbar pair`")
+		}
 		return "", time.Time{}, ErrBadCode
 	}
 	if now.After(u.expires) {
