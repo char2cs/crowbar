@@ -244,11 +244,6 @@ export async function terminalListLive(base: string): Promise<string[]> {
   return live
 }
 
-// The file clipboard used to live here as an in-memory copy/cut store whose
-// `clipboardPaste` was a `return []` stub — Cmd+X then Cmd+V reported a
-// completed move that never happened. It now lives in the file-explorer
-// clipboard store, where paste drives the daemon's real copy/rename verbs.
-
 // ── File Manager ──────────────────────────────────────────────────────────────
 
 // The `reveal_in_finder` invoke should always settle in well under a second —
@@ -294,10 +289,6 @@ export async function setMacOSWindowAppearance(
   // setTheme flips (fragile/inconsistent).
   if (!isTauri()) return
   await tauriInvoke('set_vibrancy_appearance', { dark: themeType === 'dark' })
-}
-
-export async function toggleMenuBar(_toggle: boolean): Promise<void> {
-  // FUTURE: invoke Tauri menu bar plugin
 }
 
 /** Move the macOS traffic lights to `(x, y)` (logical points, window-relative)
