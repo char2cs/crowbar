@@ -16,7 +16,7 @@ import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import type { Host } from '@/features/hosts/types'
 import { useConnectionStore } from '@/lib/ws/connection-store'
-import { probeRemoteFingerprint } from '@/lib/crowbar-bridge'
+import { pairRemoteHost, probeRemoteFingerprint } from '@/lib/crowbar-bridge'
 
 function host(over: Partial<Host> & { id: string; name: string }): Host {
   return { endpoint: 'x', pairedFingerprint: 'x', clientId: 'c', ...over }
@@ -133,6 +133,21 @@ describe('CreateSpaceDaemonRow', () => {
     expect(await screen.findByRole('option', { name: /local/i })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: /office-vm/i })).toBeInTheDocument()
     expect(screen.queryByRole('option', { name: /add a host/i })).not.toBeInTheDocument()
+  })
+
+  it('a host paired from "+ Add a host…" becomes the selected daemon', async () => {
+    vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
+    vi.mocked(pairRemoteHost).mockResolvedValueOnce('client-1')
+    const user = userEvent.setup()
+    render(<DaemonRow />)
+
+    await addHost(user, 'homelab', '1.2.3.4:3737')
+    fireEvent.click(await screen.findByRole('button', { name: /confirm fingerprint/i }))
+    fireEvent.change(screen.getByLabelText(/pairing code/i), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Pair' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(daemonTrigger()).toHaveTextContent('homelab')
   })
 
   it('"+ Add a host…" refuses a host that is already paired, as Settings does', async () => {

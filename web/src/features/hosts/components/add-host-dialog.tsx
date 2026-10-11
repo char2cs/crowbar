@@ -25,6 +25,8 @@ type Pending = 'probe' | 'pair' | null
 interface AddHostDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** The host just paired, once it is saved; the dialog closes either way. */
+  onPaired?: (hostId: string) => void
 }
 
 // Lowercase letters, digits and hyphens only, per register_remote_host's
@@ -46,7 +48,7 @@ function makeHostId(name: string): string {
  * ever reachable after that confirm click, and always reuses the exact
  * fingerprint shown in stage 1 — never a re-probed or re-derived value.
  */
-export function AddHostDialog({ open, onOpenChange }: AddHostDialogProps) {
+export function AddHostDialog({ open, onOpenChange, onPaired }: AddHostDialogProps) {
   const [pending, setPending] = useState<Pending>(null)
 
   function handleOpenChange(next: boolean) {
@@ -66,7 +68,10 @@ export function AddHostDialog({ open, onOpenChange }: AddHostDialogProps) {
           pending={pending}
           onPendingChange={setPending}
           onCancel={() => handleOpenChange(false)}
-          onPaired={() => onOpenChange(false)}
+          onPaired={(hostId) => {
+            onOpenChange(false)
+            onPaired?.(hostId)
+          }}
         />
       </DialogPopup>
     </Dialog>
@@ -77,7 +82,7 @@ interface AddHostAttemptProps {
   pending: Pending
   onPendingChange: (pending: Pending) => void
   onCancel: () => void
-  onPaired: () => void
+  onPaired: (hostId: string) => void
 }
 
 function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHostAttemptProps) {
@@ -131,7 +136,7 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
     onPendingChange('pair')
     try {
       await redeemPairingCode(hostId.current, endpoint.trim(), fingerprint, code, name.trim())
-      onPaired()
+      onPaired(hostId.current)
     } catch (err) {
       setError(pairingFailureText(err, endpoint.trim()))
     } finally {

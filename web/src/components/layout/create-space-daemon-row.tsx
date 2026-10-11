@@ -119,7 +119,12 @@ export function CreateSpaceDaemonRow({ hostId, onHostIdChange }: CreateSpaceDaem
         </SelectContent>
       </Select>
       {canAddHost && (
-        <AddHostDialog key={addHostAttempt} open={addHostOpen} onOpenChange={setAddHostOpen} />
+        <AddHostDialog
+          key={addHostAttempt}
+          open={addHostOpen}
+          onOpenChange={setAddHostOpen}
+          onPaired={onHostIdChange}
+        />
       )}
     </div>
   )
