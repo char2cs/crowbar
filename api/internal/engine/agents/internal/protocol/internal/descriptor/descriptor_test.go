@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/char2cs/crowbar/api/internal/core/svgicon"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
@@ -135,6 +136,37 @@ func TestLoad_RejectsADescriptorThatFailsARule(t *testing.T) {
 	_, err := descriptor.Load([]byte("id: \"\"\n"))
 
 	assert.ErrorIs(t, err, descriptor.ErrInvalid)
+}
+
+const unsafeIcon = `icon: '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><path d="M0 0"/></svg>'` + "\n"
+
+// An icon that is not plain SVG never takes its provider down: the descriptor
+// loads with the icon dropped, since the webview injects the icon as HTML.
+func TestLoad_DropsAnUnsafeIconAndKeepsTheProvider(t *testing.T) {
+	d, err := descriptor.Load([]byte(minimal + unsafeIcon))
+
+	require.NoError(t, err)
+	assert.Equal(t, "probe", d.ID)
+	assert.Empty(t, d.Icon)
+}
+
+func TestLoad_KeepsAPlainSVGIcon(t *testing.T) {
+	const icon = `<svg viewBox="0 0 1 1"><path d="M0 0h1v1z"/></svg>`
+	d, err := descriptor.Load([]byte(minimal + "icon: '" + icon + "'\n"))
+
+	require.NoError(t, err)
+	assert.Equal(t, icon, d.Icon)
+}
+
+// Every shipped provider keeps its icon: none is dropped as unsafe at load.
+func TestShippedIconsArePlainSVG(t *testing.T) {
+	shipped, err := descriptor.All(context.Background(), "", nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, shipped)
+	for _, d := range shipped {
+		require.NotEmptyf(t, d.Icon, "%s lost its icon", d.ID)
+		assert.NoErrorf(t, svgicon.Validate(d.Icon), "%s ships an icon that is not plain SVG", d.ID)
+	}
 }
 
 func TestResolve_PrefersAnOnDiskOverrideOverTheEmbeddedDefault(t *testing.T) {

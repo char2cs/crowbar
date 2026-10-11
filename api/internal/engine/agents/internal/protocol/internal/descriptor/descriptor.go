@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
+	"github.com/char2cs/crowbar/api/internal/core/svgicon"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor/internal/rules"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
@@ -39,11 +40,15 @@ var ErrInvalid = rules.ErrInvalidDescriptor
 
 // Load parses a descriptor and validates its event table against Crowbar's canonical
 // vocabulary, which is what makes a typo a startup failure rather than a field that
-// silently maps to nothing.
+// silently maps to nothing. An icon that is not plain SVG is dropped, never fatal: the
+// webview injects it as HTML, and the static check (descriptorcheck) reports it.
 func Load(data []byte) (*spec.Descriptor, error) {
 	d, err := ParseV3(data)
 	if err != nil {
 		return nil, err
+	}
+	if d.Icon != "" && svgicon.Validate(d.Icon) != nil {
+		d.Icon = ""
 	}
 	if err := rules.Apply(d); err != nil {
 		return nil, err

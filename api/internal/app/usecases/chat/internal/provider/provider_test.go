@@ -3,6 +3,7 @@ package provider_test
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -86,6 +87,41 @@ func TestInstallDescriptor_AddsAProviderAndRejectsInvalidOrExisting(t *testing.T
 	require.ErrorIs(t, err, apperr.ErrUnprocessable)
 	_, err = os.Stat(filepath.Join(home, "descriptors", "broken.yaml"))
 	assert.True(t, os.IsNotExist(err))
+}
+
+// An uploaded provider whose icon is not plain SVG is installed and served
+// without the icon: the webview injects icons as HTML.
+func TestInstallDescriptor_ServesAnUnsafeIconAsNone(t *testing.T) {
+	t.Parallel()
+	prefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
+	require.NoError(t, err)
+	home := t.TempDir()
+	table := provider.New(provider.Deps{
+		Agents: engineagents.New(), Home: func() (string, error) { return home, nil }, Prefs: prefs,
+		Installed: func(engineagents.Agent) bool { return false },
+	})
+	shipped, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "engine", "agents", "internal", "protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
+	require.NoError(t, err)
+	raw := strings.Replace(string(shipped), "id: claude", "id: customagent", 1)
+	raw = regexp.MustCompile(`(?m)^icon: .*$`).ReplaceAllString(raw,
+		`icon: '<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><img src="x" onerror="alert(1)"/></foreignObject></svg>'`)
+	require.Contains(t, raw, "foreignObject")
+
+	report, err := table.InstallDescriptor(t.Context(), []byte(raw))
+	require.NoError(t, err)
+	assert.Equal(t, "customagent", report.ID)
+
+	providers, err := table.ResolveProviders(t.Context())
+	require.NoError(t, err)
+	var installed *domain.AgentProvider
+	for i := range providers {
+		if providers[i].ID == "customagent" {
+			installed = &providers[i]
+		}
+	}
+	require.NotNil(t, installed, "the provider must still be listed")
+	assert.Empty(t, installed.Icon)
+	require.NoError(t, table.RequireProviderEnabled(t.Context(), "customagent"), "an unsafe icon never blocks its provider")
 }
 
 // A broken override is reported with its findings rather than silently
