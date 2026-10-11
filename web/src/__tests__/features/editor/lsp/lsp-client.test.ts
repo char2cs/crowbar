@@ -1,21 +1,23 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-// LspClient keeps one session per workspace, addressed by the id the caller
-// passes (the buffer's own workspace), never the active one. A session lives
-// while it has an open document or a diagnostics handler; its diagnostics
-// socket is open exactly while it lives AND the workspace's owning chat is
-// known.
+// LspClient keeps one session per workspace, addressed by the id the caller passes (the buffer's
+// own workspace), never the active one. A session lives while it has an open document or a
+// diagnostics handler; it holds a socket while it lives and the owning chat and host are known.
 
 const { apiFetch } = vi.hoisted(() => ({
   apiFetch: vi.fn(async (..._args: unknown[]): Promise<unknown> => null),
 }))
 const { subscribe, unsubscribes } = vi.hoisted(() => {
   const unsubscribes = new Map<string, ReturnType<typeof vi.fn>>()
-  const subscribe = vi.fn((topic: string, _cb: (frame: unknown) => void) => {
-    const off = vi.fn()
-    unsubscribes.set(topic, off)
-    return off
-  })
+  // A channel open at once: the session's documents go out as it subscribes.
+  const subscribe = vi.fn(
+    (topic: string, _cb: (frame: unknown) => void, onOpenChange?: (open: boolean) => void) => {
+      const off = vi.fn()
+      unsubscribes.set(topic, off)
+      onOpenChange?.(true)
+      return off
+    },
+  )
   return { subscribe, unsubscribes }
 })
 
@@ -48,6 +50,33 @@ function frameHandler(topic: string): (frame: unknown) => void {
   return call[1]
 }
 
+/** Sessions on the real socket manager, over sockets that open when the test says so. */
+async function onRealSockets() {
+  const sockets: Record<string, (() => void) | null>[] = []
+  vi.stubGlobal(
+    'WebSocket',
+    class {
+      static CONNECTING = 0
+      static OPEN = 1
+      close() {}
+      constructor() {
+        sockets.push(this as never)
+      }
+    },
+  )
+  const actual = await vi.importActual<typeof import('@/lib/ws/manager')>('@/lib/ws/manager')
+  const manager = actual.createWSManager()
+  const fake = subscribe.getMockImplementation()!
+  subscribe.mockImplementation((topic, onFrame, onOpenChange) =>
+    vi.fn(manager.subscribe(topic, onFrame, onOpenChange)),
+  )
+  const restore = () => {
+    subscribe.mockImplementation(fake)
+    vi.unstubAllGlobals()
+  }
+  return { sockets, restore }
+}
+
 const diag = (filePath: string) => ({
   filePath,
   range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
@@ -66,8 +95,10 @@ beforeEach(() => {
 })
 
 describe('LspClient document sync', () => {
-  it("addresses each document to its own workspace's chat", async () => {
+  it("addresses each document to its own workspace's chat, and says where it opened", async () => {
     const client = new LspClient()
+    const opened = vi.fn()
+    client.onDocumentOpened(opened)
     await client.documentOpen('w1', 'src/a.ts', () => 'one', 'typescript')
     await client.documentOpen('w2', 'src/a.ts', () => 'two', 'typescript')
     await client.documentSave('w2', 'src/a.ts')
@@ -80,10 +111,14 @@ describe('LspClient document sync', () => {
       '/v0/chats/chat-1/lsp/didClose',
     ])
     expect(bodyOf(1)).toEqual({ path: 'src/a.ts', languageId: 'typescript', text: 'two' })
+    expect(opened).toHaveBeenLastCalledWith('w2', 'src/a.ts')
   })
 
   it('opens a document once however many panes hold it, and closes it with the last', async () => {
     const client = new LspClient()
+    await client.documentClose('w1', 'a.ts')
+    await client.documentSave('w1', 'a.ts')
+    expect(apiFetch).not.toHaveBeenCalled()
     await client.documentOpen('w1', 'a.ts', () => 'x', 'typescript')
     await client.documentOpen('w1', 'a.ts', () => 'x', 'typescript')
     expect(postsTo('/didOpen')).toHaveLength(1)
@@ -97,19 +132,13 @@ describe('LspClient document sync', () => {
     expect(postsTo('/didOpen')).toHaveLength(2)
   })
 
-  it('a close or save for a document that is not open sends nothing', async () => {
-    const client = new LspClient()
-    await client.documentClose('w1', 'never.ts')
-    await client.documentSave('w1', 'never.ts')
-    expect(apiFetch).not.toHaveBeenCalled()
-  })
-
-  it('defers didOpen until the owning chat is recorded, and opens anew on a new one, with the latest text', async () => {
+  it('defers didOpen until the owning chat is recorded, with the latest text', async () => {
     setWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w3' })
     const client = new LspClient()
     await client.documentOpen('w3', 'a.ts', () => 'old', 'typescript')
     client.scheduleChange('w3', 'a.ts', () => 'new')
     await client.flushChange('w3', 'a.ts')
+    await expect(client.request('w3', 'hover', {})).resolves.toBeNull()
     expect(apiFetch).not.toHaveBeenCalled()
     expect(subscribe).not.toHaveBeenCalled()
 
@@ -117,11 +146,7 @@ describe('LspClient document sync', () => {
 
     expect(posts()).toEqual(['/v0/chats/chat-3/lsp/didOpen'])
     expect(bodyOf(0)).toEqual({ path: 'a.ts', languageId: 'typescript', text: 'new' })
-    expect(subscribe).toHaveBeenCalledWith('/v0/chats/chat-3/lsp/ws', expect.any(Function))
-
-    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w3', owningChatId: 'chat-4' })
-    expect(posts()).toEqual(['/v0/chats/chat-3/lsp/didOpen', '/v0/chats/chat-4/lsp/didOpen'])
-    expect(bodyOf(1)).toEqual({ path: 'a.ts', languageId: 'typescript', text: 'new' })
+    expect(subscribe.mock.calls[0]?.[0]).toBe('/v0/chats/chat-3/lsp/ws')
   })
 
   it('a document closed before its deferred didOpen went out is never sent', async () => {
@@ -150,14 +175,6 @@ describe('LspClient document sync', () => {
     await client.documentOpen('w1', 'a.ts', () => 'x', 'typescript')
     await client.reopen('w1', 'a.ts', 'y', 'typescript')
     expect(postsTo('/didOpen')).toHaveLength(2)
-  })
-
-  it('tells listeners which workspace a document opened in', async () => {
-    const client = new LspClient()
-    const opened = vi.fn()
-    client.onDocumentOpened(opened)
-    await client.documentOpen('w2', 'a.ts', () => 'x', 'typescript')
-    expect(opened).toHaveBeenCalledWith('w2', 'a.ts')
   })
 })
 
@@ -278,31 +295,18 @@ describe('LspClient diagnostics subscription', () => {
 })
 
 describe('LspClient.request', () => {
-  it("POSTs to the given workspace's owning chat", async () => {
+  it("POSTs to the given workspace's owning chat, with the caller's abort signal", async () => {
     const range = { start: { line: 3, character: 2 }, end: { line: 3, character: 9 } }
     apiFetch.mockResolvedValue([{ filePath: 'src/lib/target.ts', range }])
+    const { signal } = new AbortController()
+    const body = { path: 'src/app.ts', position: { line: 12, character: 4 } }
 
-    const result = await new LspClient().request('w2', 'definition', {
-      path: 'src/app.ts',
-      position: { line: 12, character: 4 },
-    })
+    const result = await new LspClient().request('w2', 'definition', body, signal)
 
     expect(result).toEqual([{ filePath: 'src/lib/target.ts', range }])
     expect(posts()).toEqual(['/v0/chats/chat-2/lsp/definition'])
-    expect((apiFetch.mock.calls[0]?.[1] as RequestInit).method).toBe('POST')
-    expect(bodyOf(0)).toEqual({ path: 'src/app.ts', position: { line: 12, character: 4 } })
-  })
-
-  it('passes the abort signal through to the fetch', async () => {
-    const controller = new AbortController()
-    await new LspClient().request('w1', 'hover', { path: 'a.ts' }, controller.signal)
-    expect((apiFetch.mock.calls[0]?.[1] as RequestInit).signal).toBe(controller.signal)
-  })
-
-  it('resolves null without a request when the workspace has no owning chat yet', async () => {
-    setWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w3' })
-    await expect(new LspClient().request('w3', 'hover', {})).resolves.toBeNull()
-    expect(apiFetch).not.toHaveBeenCalled()
+    expect(apiFetch.mock.calls[0]?.[1]).toMatchObject({ method: 'POST', signal })
+    expect(bodyOf(0)).toEqual(body)
   })
 
   it('propagates a daemon failure so the caller can surface it', async () => {
@@ -311,14 +315,11 @@ describe('LspClient.request', () => {
   })
 
   it('reads the server status and restarts through the daemon', async () => {
-    apiFetch.mockResolvedValue({ state: 'running', command: 'gopls', languageId: 'go' })
+    const running = { state: 'running', command: 'gopls', languageId: 'go' }
+    apiFetch.mockResolvedValue(running)
     const client = new LspClient()
 
-    expect(await client.status('w1', 'src/main go.go')).toEqual({
-      state: 'running',
-      command: 'gopls',
-      languageId: 'go',
-    })
+    expect(await client.status('w1', 'src/main go.go')).toEqual(running)
     expect(posts()[0]).toBe('/v0/chats/chat-1/lsp/status?path=src%2Fmain%20go.go')
 
     await client.restart('w1', 'main.go')
@@ -327,11 +328,9 @@ describe('LspClient.request', () => {
   })
 })
 
-// A remote workspace's LSP route names its host, which is unknown until the project
-// list loads and gone when the host is revoked. Neither may throw out of a scope write
-// (the IDE shell records the route's scope while rendering) or leave a socket behind.
-// Each test loads a fresh module graph: sessions follow the host and project stores,
-// so a session another test left open would otherwise react to this test's changes.
+// A remote workspace's LSP route names its host: unknown until the project list loads, gone when
+// the host is revoked. Neither may throw out of a scope write or leave a socket behind. Each test
+// loads a fresh module graph, so a session another test left open cannot react to its changes.
 describe('LspClient on a remote host', () => {
   const REMOTE_TOPIC = 'crowbar://host-1/v0/chats/chat-4/lsp/ws'
   const remoteProject = (): Project => ({
@@ -434,58 +433,53 @@ describe('LspClient on a remote host', () => {
     expect(subscribe).toHaveBeenCalledTimes(1)
   })
 
-  // Re-paired in place, a host keeps its id and so the route base: the socket manager parks
-  // the channel while the host needs repair and reopens it once it is up. The daemon closes a
-  // workspace's servers when its socket drops, so each open document is opened again on it.
-  it('has its socket cycled when its host is up again, and re-opens what is open with its text now', async () => {
+  // Re-paired in place, a host keeps its id and so the route base: the socket manager parks the
+  // channel while the host needs repair and reopens it once it is up. Each open document goes on
+  // each socket only once it is open: the daemon closes them all when a workspace's socket drops.
+  it('opens what is open, with its text now, once a reopened or new socket is open', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    const sockets: Record<string, (() => void) | null>[] = []
-    vi.stubGlobal(
-      'WebSocket',
-      class {
-        constructor() {
-          sockets.push(this as never)
-        }
-      },
-    )
     const { client, scopes, loadProjects, setStatus } = await freshGraph()
-    const actual = await vi.importActual<typeof import('@/lib/ws/manager')>('@/lib/ws/manager')
-    const manager = actual.createWSManager()
-    const fake = subscribe.getMockImplementation()!
-    subscribe.mockImplementation((topic, onFrame) => vi.fn(manager.subscribe(topic, onFrame)))
+    const real = await onRealSockets()
     try {
       setStatus('up')
       loadProjects(remoteProject())
       scopes.recordWorkspaceScope(remoteScope)
       let text = 'a1'
-      await client.documentOpen('w-remote', 'a.ts', () => text, 'typescript')
-      await client.documentOpen('w-remote', 'b.ts', () => 'b1', 'typescript')
-      await client.documentOpen('w-remote', 'closed.ts', () => 'c1', 'typescript')
+      for (const path of ['a.ts', 'b.ts', 'closed.ts'])
+        await client.documentOpen('w-remote', path, () => (path === 'a.ts' ? text : path), 'ts')
+      expect(posts()).toEqual([])
+      real.sockets[0].onopen?.()
       await client.documentClose('w-remote', 'closed.ts')
-      sockets[0].onopen?.()
       expect(postsTo('/didOpen')).toHaveLength(3)
 
       setStatus('needs-repair')
-      sockets[0].onclose?.()
-      apiFetch.mockRejectedValue(new Error('host-unreachable'))
+      real.sockets[0].onclose?.()
+      apiFetch.mockClear()
       text = 'a2'
       client.scheduleChange('w-remote', 'a.ts', () => text)
+      await client.documentOpen('w-remote', 'd.ts', () => 'd.ts', 'ts')
       await vi.advanceTimersByTimeAsync(60_000)
-      expect(sockets).toHaveLength(1)
-      apiFetch.mockReset().mockResolvedValue(null)
+      expect(real.sockets).toHaveLength(1)
 
       setStatus('up')
-      sockets[1].onopen?.()
+      expect(posts()).toEqual([])
+      real.sockets[1].onopen?.()
 
       expect(subscribe).toHaveBeenCalledTimes(1)
-      expect(posts()).toEqual(Array(2).fill(REMOTE_TOPIC.replace(/ws$/, 'didOpen')))
-      expect([bodyOf(0), bodyOf(1)]).toMatchObject([
+      expect(posts()).toEqual(Array(3).fill(REMOTE_TOPIC.replace(/ws$/, 'didOpen')))
+      expect([0, 1, 2].map(bodyOf)).toMatchObject([
         { path: 'a.ts', text: 'a2' },
-        { path: 'b.ts', text: 'b1' },
+        { path: 'b.ts', text: 'b.ts' },
+        { path: 'd.ts', text: 'd.ts' },
       ])
+
+      apiFetch.mockClear()
+      scopes.recordWorkspaceScope({ ...remoteScope, owningChatId: 'chat-5' })
+      expect(posts()).toEqual([])
+      real.sockets[2].onopen?.()
+      expect(posts()).toEqual(Array(3).fill('crowbar://host-1/v0/chats/chat-5/lsp/didOpen'))
     } finally {
-      subscribe.mockImplementation(fake)
-      vi.unstubAllGlobals()
+      real.restore()
       vi.useRealTimers()
     }
   })

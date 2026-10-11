@@ -11,6 +11,9 @@ import { TauriWebSocket } from './tauri-transport'
 import { noteDaemonChange } from '@/lib/transport/daemon-changes'
 
 type Callback = (data: unknown) => void
+/** Told when the subscriber's channel opens (its first open, every reopen, at once when it
+ *  joins one already open) and when that open socket closes. */
+type OnOpenChange = (open: boolean) => void
 
 // The subset of the WebSocket surface the manager drives. Both the native
 // `WebSocket` and the desktop `TauriWebSocket` shim satisfy it, so the manager
@@ -29,7 +32,9 @@ interface WSLike {
 interface Channel {
   /** Null while parked: its host may not be dialled now (see mayDial). */
   socket: WSLike | null
-  callbacks: Set<Callback>
+  callbacks: Map<Callback, OnOpenChange | undefined>
+  /** Its socket's open has happened and it has not closed since. */
+  opened: boolean
   reconnectDelay: number
   endpoint: string
   hostId: string
@@ -63,7 +68,7 @@ export function createTransport(endpoint: string): WSLike {
 }
 
 export interface WSManager {
-  subscribe(endpoint: string, cb: Callback): () => void
+  subscribe(endpoint: string, cb: Callback, onOpenChange?: OnOpenChange): () => void
   send(endpoint: string, data: unknown): void
 }
 
@@ -87,8 +92,15 @@ export function createWSManager(): WSManager {
   /** Per remote host with parked channels, the watch on its status that reopens them. */
   const parkedHosts = new Map<string, () => void>()
 
-  function park(endpoint: string, hostId: string, callbacks: Set<Callback>): Channel {
-    const ch: Channel = { socket: null, callbacks, reconnectDelay: 1000, endpoint, hostId }
+  function park(endpoint: string, hostId: string, callbacks: Channel['callbacks']): Channel {
+    const ch: Channel = {
+      socket: null,
+      callbacks,
+      opened: false,
+      reconnectDelay: 1000,
+      endpoint,
+      hostId,
+    }
     channels.set(endpoint, ch)
     reportChannelState(endpoint, false, hostId)
     if (!parkedHosts.has(hostId)) {
@@ -123,24 +135,26 @@ export function createWSManager(): WSManager {
     endpoint: string,
     reconnectDelay = 1000,
     resumed = false,
-    callbacks = new Set<Callback>(),
+    callbacks: Channel['callbacks'] = new Map(),
   ): Channel {
     const { hostId } = splitHostPath(endpoint)
     if (!mayDial(hostId)) return park(endpoint, hostId, callbacks)
     const socket = createTransport(endpoint)
-    const ch: Channel = { socket, callbacks, reconnectDelay, endpoint, hostId }
+    const ch: Channel = { socket, callbacks, opened: false, reconnectDelay, endpoint, hostId }
 
     // A successful connection resets the backoff so the next outage starts
     // from the base delay again.
     socket.onopen = () => {
       ch.reconnectDelay = 1000
       if (channels.get(endpoint) !== ch) return
+      ch.opened = true
       reportChannelState(endpoint, true, hostId)
+      for (const onOpenChange of ch.callbacks.values()) onOpenChange?.(true)
       // Only now, not per attempt: a refetch while the daemon is still down
       // just fails, and every subscriber's refetch would repeat each retry.
       if (!resumed) return
       noteDaemonChange()
-      ch.callbacks.forEach((cb) => cb({ reconnected: true }))
+      for (const cb of ch.callbacks.keys()) cb({ reconnected: true })
     }
 
     socket.onmessage = (e) => {
@@ -151,10 +165,14 @@ export function createWSManager(): WSManager {
         parsed = e.data
       }
       noteDaemonChange()
-      ch.callbacks.forEach((cb) => cb(parsed))
+      for (const cb of ch.callbacks.keys()) cb(parsed)
     }
 
     socket.onclose = () => {
+      if (ch.opened) {
+        ch.opened = false
+        for (const onOpenChange of ch.callbacks.values()) onOpenChange?.(false)
+      }
       // Only the live channel for this endpoint reports state — a stale socket
       // closing after a reconnect must not flag the endpoint as down.
       if (channels.get(endpoint) === ch) reportChannelState(endpoint, false, hostId)
@@ -189,7 +207,7 @@ export function createWSManager(): WSManager {
   }
 
   return {
-    subscribe(endpoint, cb) {
+    subscribe(endpoint, cb, onOpenChange) {
       // The active transport may not be able to carry a WebSocket (e.g. the
       // desktop's crowbar:// unix-socket scheme). Constructing one throws and
       // crashes startup, so skip the live channel entirely — mark it gone so
@@ -199,7 +217,9 @@ export function createWSManager(): WSManager {
         return () => {}
       }
       const ch = channels.get(endpoint) ?? open(endpoint)
-      ch.callbacks.add(cb)
+      ch.callbacks.set(cb, onOpenChange)
+      // Joining a channel that is already open: for this subscriber, the open is now.
+      if (ch.opened) onOpenChange?.(true)
       return () => {
         ch.callbacks.delete(cb)
         if (ch.callbacks.size === 0) {

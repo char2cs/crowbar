@@ -6,7 +6,6 @@
 
 import { apiFetch } from '@/lib/api'
 import { wsManager } from '@/lib/ws/manager'
-import { isReconnectSentinel } from '@/lib/ws/types'
 import { isHostResolved, subscribeHostResolution } from '@/lib/host-resolve'
 import { isHomeWorkspace, lspBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { getOwningChatId } from '@/lib/workspace-scope'
@@ -71,8 +70,10 @@ function post(url: string, body: unknown, signal?: AbortSignal): Promise<unknown
 
 /**
  * One workspace's LSP state. It exists while it holds an open document or a
- * diagnostics handler; its socket is open while it exists and the workspace's
+ * diagnostics handler; it holds a socket while it exists and the workspace's
  * owning chat and host are known (the scope registry and host resolution own those).
+ * Documents reach the daemon only while that socket is open: the daemon closes a
+ * workspace's servers, and so its documents, when its last LSP socket drops.
  */
 class WorkspaceSession {
   readonly handlers = new Set<DiagnosticsHandler>()
@@ -80,8 +81,8 @@ class WorkspaceSession {
   /** Debounced didChange timers per path. */
   readonly pendingChanges = new Map<string, ReturnType<typeof setTimeout>>()
   private lastByFile = new Map<string, LspDiagnostic[]>()
-  /** The route base the socket is on, and its unsubscribe. */
-  private socket: { base: string; close: () => void } | null = null
+  /** The route base the socket is on, whether it is open now, and its unsubscribe. */
+  private socket: { base: string; open: boolean; close: () => void } | null = null
   private readonly stopWatching: () => void
 
   constructor(
@@ -102,8 +103,9 @@ class WorkspaceSession {
     }
   }
 
-  base(): string | null {
-    return lspBase(this.wsId)
+  /** The route base while its socket is open, else null. */
+  openBase(): string | null {
+    return this.socket?.open ? this.socket.base : null
   }
 
   isIdle(): boolean {
@@ -129,16 +131,24 @@ class WorkspaceSession {
   // The route base arriving (owning chat recorded, host resolved) or changing opens a
   // socket; it going away (workspace deleted, host revoked) closes it.
   private followScope(): void {
-    const base = this.base()
+    const base = lspBase(this.wsId)
     if (base === (this.socket?.base ?? null)) return
     this.closeSocket()
     if (!base) return
-    this.socket = { base, close: wsManager.subscribe(`${base}/ws`, (raw) => this.dispatch(raw)) }
-    this.openDocuments(base)
+    const socket = { base, open: false, close: () => {} }
+    socket.close = wsManager.subscribe(
+      `${base}/ws`,
+      (raw) => this.dispatch(raw),
+      (open) => {
+        socket.open = open
+        if (open) this.openDocuments(base)
+      },
+    )
+    this.socket = socket
   }
 
-  // The daemon closes a workspace's servers when its last LSP socket drops, so a new or
-  // reopened socket faces servers with nothing open — and edits sent meanwhile were lost.
+  // Each time the socket opens, the daemon has nothing open (a new socket, or one back after a
+  // drop) and edits sent meanwhile were lost: every document goes with the text it has now.
   private openDocuments(base: string): void {
     for (const [path, { languageId, read }] of this.documents) {
       const text = read()
@@ -155,10 +165,6 @@ class WorkspaceSession {
   }
 
   private dispatch(frame: unknown): void {
-    if (isReconnectSentinel(frame)) {
-      if (this.socket) this.openDocuments(this.socket.base)
-      return
-    }
     const event = frame as DiagnosticsEvent | null
     if (!event?.diagnostics) return
     const byFile = new Map<string, LspDiagnostic[]>()
@@ -265,7 +271,7 @@ class LspClientImpl {
    */
   async reopen(wsId: string, filePath: string, content: string, languageId: string): Promise<void> {
     const session = this.sessions.get(wsId)
-    const base = session?.base()
+    const base = session?.openBase()
     if (!session?.documents.has(filePath) || !base) return
     await this.postOpen(wsId, base, filePath, languageId, content)
   }
@@ -284,8 +290,8 @@ class LspClientImpl {
       return
     }
     session.documents.set(filePath, { refs: 1, languageId, read })
-    // No route yet (owning chat or host not known): the socket that brings one opens it.
-    const base = session.base()
+    // No open socket yet: its open sends it.
+    const base = session.openBase()
     const text = read()
     if (!base || text === null) return
     await this.postOpen(wsId, base, filePath, languageId, text).catch(() => {})
@@ -293,7 +299,7 @@ class LspClientImpl {
 
   async documentSave(wsId: string, filePath: string): Promise<void> {
     const session = this.sessions.get(wsId)
-    const base = session?.base()
+    const base = session?.openBase()
     if (!session?.documents.has(filePath) || !base) return
     await post(`${base}/didSave`, { path: filePath }).catch(() => {})
   }
@@ -308,7 +314,7 @@ class LspClientImpl {
     }
     session.documents.delete(filePath)
     session.cancelChange(filePath)
-    const base = session.base()
+    const base = session.openBase()
     this.releaseIfIdle(session)
     if (!base) return
     await post(`${base}/didClose`, { path: filePath }).catch(() => {})
@@ -341,8 +347,8 @@ class LspClientImpl {
     const open = session?.documents.get(filePath)
     if (!session || !open || !session.pendingChanges.has(filePath)) return
     session.cancelChange(filePath)
-    // Without a route the edit waits in the model: the next socket's didOpen carries it.
-    const base = session.base()
+    // Without an open socket the edit waits in the model: the next open's didOpen carries it.
+    const base = session.openBase()
     const text = open.read()
     if (!base || text === null) return
     await post(`${base}/didChange`, { path: filePath, text }).catch(() => {})

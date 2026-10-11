@@ -93,6 +93,37 @@ describe('WSManager', () => {
     }
   })
 
+  // What a stream's server holds may only be sent while the stream is open (the LSP daemon
+  // closes a workspace's documents when its last socket drops).
+  it('tells a subscriber each time its channel opens and closes, and one joining an open channel at once', () => {
+    vi.useFakeTimers()
+    try {
+      const mgr = createWSManager()
+      const first = vi.fn()
+      mgr.subscribe('/v0/ws/git', vi.fn(), first)
+      expect(first).not.toHaveBeenCalled()
+      MockWebSocket.instances[0].simulateOpen()
+      const late = vi.fn()
+      mgr.subscribe('/v0/ws/git', vi.fn(), late)
+
+      MockWebSocket.instances[0].simulateClose()
+      const whileDown = vi.fn()
+      mgr.subscribe('/v0/ws/git', vi.fn(), whileDown)
+      vi.advanceTimersByTime(1000)
+      expect(whileDown).not.toHaveBeenCalled()
+      MockWebSocket.instances[1].simulateOpen()
+
+      const seen = (f: ReturnType<typeof vi.fn>) => f.mock.calls.map(([open]) => open)
+      expect([first, late, whileDown].map(seen)).toEqual([
+        [true, false, true],
+        [true, false, true],
+        [true],
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   // A refetch while the daemon is still down only fails (and retries): the
   // sentinel means "the stream is back", so each outage emits it once, on open.
   it('emits the reconnect sentinel once the stream is back, not per failed attempt', () => {
