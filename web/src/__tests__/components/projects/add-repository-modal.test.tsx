@@ -137,6 +137,7 @@ beforeEach(async () => {
   navigateMock.mockReset()
   vi.mocked(api.postRepo).mockReset()
   vi.mocked(api.postRepo).mockResolvedValue(undefined)
+  // The sidebar tree is built for the project in view; the modal never reads it.
   useProjectStore.setState({ activeProjectId: 'proj-1' })
   useSidebarStore.setState({ repos: [] })
   useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
@@ -144,19 +145,19 @@ beforeEach(async () => {
 })
 
 test('Add button is disabled when the path is empty', () => {
-  render(<AddRepositoryModal open={true} onOpenChange={() => {}} />)
+  render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-1" />)
   expect(screen.getByRole('button', { name: /add repository/i })).toBeDisabled()
 })
 
 test('Add stays disabled for a relative path and shows a hint', () => {
-  render(<AddRepositoryModal open={true} onOpenChange={() => {}} />)
+  render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-1" />)
   fireEvent.change(pathInput(), { target: { value: 'my-repo' } })
   expect(screen.getByRole('button', { name: /add repository/i })).toBeDisabled()
   expect(screen.getByText(/absolute path/i)).toBeInTheDocument()
 })
 
-test('posts the repo under the active project with the folder-name fallback', async () => {
-  render(<AddRepositoryModal open={true} onOpenChange={() => {}} />)
+test('posts the repo under its own project with the folder-name fallback', async () => {
+  render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-1" />)
   fireEvent.change(pathInput(), { target: { value: '/tmp/my-repo' } })
   fireEvent.click(screen.getByRole('button', { name: /add repository/i }))
 
@@ -169,7 +170,7 @@ test('posts the repo under the active project with the folder-name fallback', as
 })
 
 test('subscribes the per-project repos stream then resolves the repo by path', async () => {
-  render(<AddRepositoryModal open={true} onOpenChange={() => {}} />)
+  render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-1" />)
   fireEvent.change(pathInput(), { target: { value: '/tmp/my-repo' } })
   fireEvent.click(screen.getByRole('button', { name: /add repository/i }))
 
@@ -182,7 +183,7 @@ test('subscribes the per-project repos stream then resolves the repo by path', a
 
 test('two-stage resolve: RepoDTO by path then default WorkspaceDTO, then navigates into the IDE', async () => {
   const onOpenChange = vi.fn()
-  render(<AddRepositoryModal open={true} onOpenChange={onOpenChange} />)
+  render(<AddRepositoryModal open={true} onOpenChange={onOpenChange} projectId="proj-1" />)
   fireEvent.change(pathInput(), { target: { value: '/tmp/my-repo' } })
   fireEvent.click(screen.getByRole('button', { name: /add repository/i }))
 
@@ -210,7 +211,7 @@ test('two-stage resolve: RepoDTO by path then default WorkspaceDTO, then navigat
 })
 
 test('seeds the new repo+workspace into the sidebar tree before navigating (no /ide bounce)', async () => {
-  render(<AddRepositoryModal open={true} onOpenChange={() => {}} />)
+  render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-1" />)
   fireEvent.change(pathInput(), { target: { value: '/tmp/my-repo' } })
   fireEvent.click(screen.getByRole('button', { name: /add repository/i }))
 
@@ -234,7 +235,7 @@ test('seeds the new repo+workspace into the sidebar tree before navigating (no /
 })
 
 test('ignores a deleted-status workspace frame and waits for a live one', async () => {
-  render(<AddRepositoryModal open={true} onOpenChange={() => {}} />)
+  render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-1" />)
   fireEvent.change(pathInput(), { target: { value: '/tmp/my-repo' } })
   fireEvent.click(screen.getByRole('button', { name: /add repository/i }))
 
@@ -282,7 +283,7 @@ test('ignores a deleted-status workspace frame and waits for a live one', async 
 test('resets loading and re-enables Add button when postRepo rejects', async () => {
   vi.mocked(api.postRepo).mockRejectedValueOnce(new Error('not a git repo'))
 
-  render(<AddRepositoryModal open={true} onOpenChange={() => {}} />)
+  render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-1" />)
   fireEvent.change(pathInput(), { target: { value: '/tmp/my-repo' } })
   fireEvent.click(screen.getByRole('button', { name: /add repository/i }))
 
