@@ -16,11 +16,8 @@ const HOST_PROBE_INTERVAL_MS = 15_000
 // a restarting daemon is back in seconds. Doubling up to the interval, a dead one is not hammered.
 const DOWN_FIRST_RETRY_MS = 1_000
 
-/**
- * Probes every configured host for as long as it stays configured: the app's one source
- * of each host's status, which goes with the host. One probe at a time per host, the next
- * an interval after the last answered, so a host that hangs costs one request, never a pile.
- */
+/** Probes each configured host while it stays configured: the app's one source of its status.
+ *  One probe at a time, the next an interval after the last answered: a hung host costs one. */
 export function startHostProber(): () => void {
   const loops = new Map<string, () => void>()
   const follow = () => {

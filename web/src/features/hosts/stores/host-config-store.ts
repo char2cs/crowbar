@@ -21,11 +21,8 @@ export function hasPairedRemote(s: Pick<HostConfigState, 'hosts' | 'remoteEverPa
 
 const STORAGE_KEY = 'crowbar.hosts'
 
-/**
- * What is saved, over what this window holds. Every window saves to one key, so the saved
- * host list is the newest word, a removal included (keeping a host the saved list lacks
- * would bring back one revoked elsewhere); `remoteEverPaired` stays one-way.
- */
+/** What is saved, over what this window holds: every window saves to one key, so the saved
+ *  host list wins, a removal included (else a host revoked elsewhere comes back). */
 function withSaved<S extends HostConfigState>(saved: Saved | undefined, current: S): S {
   return {
     ...current,

@@ -12,11 +12,8 @@ export function hostFailureKind(err: unknown): HostFailureKind | null {
   return err instanceof ApiError && err.status === 401 ? 'refused' : null
 }
 
-/**
- * What a failed request to a remote host says about that host. A changed identity
- * and a refused token (401: revoked, or the host forgot this client) need the user to
- * pair again — no retry fixes them; anything else may pass on its own.
- */
+/** What a failed request says about its remote host: a changed identity or a refused token
+ *  (401) needs pairing again, which no retry fixes; anything else may pass on its own. */
 export function classifyHostFailure(err: unknown): Extract<HostStatus, 'down' | 'needs-repair'> {
   const kind = hostFailureKind(err)
   return kind === 'identity-changed' || kind === 'refused' ? 'needs-repair' : 'down'

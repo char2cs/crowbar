@@ -5,11 +5,8 @@ import { LOCAL_HOST } from '@/features/hosts/types'
 import type { ApiError } from '@/lib/api/errors'
 import { useConnectionStore } from '@/lib/ws/connection-store'
 
-/**
- * What a failure says about its host — not reached, another identity, or this client refused
- * (HTTP 401) — recorded now rather than at the next probe. Anything else (a daemon's own
- * error, an upgrade refused without a status) is the prober's to judge.
- */
+/** Records what a failure says about its host (not reached, another identity, a 401 refusal)
+ *  now rather than at the next probe; any other failure is the prober's to judge. */
 export function reportHostFailure(err: unknown): void {
   if (hostFailureKind(err) === null) return
   const { hostId } = err as ApiError
