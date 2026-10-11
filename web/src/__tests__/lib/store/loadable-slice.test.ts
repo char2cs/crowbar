@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { IDBFactory } from 'fake-indexeddb'
 import { create } from 'zustand'
 
 // The cache WRITE `fetch` awaits after its last supersede check, wrapped so one
@@ -355,12 +356,15 @@ describe('createLoadableSlice', () => {
   })
 
   it('holdFrame rides the read in flight, whose answer would otherwise replace it', async () => {
+    globalThis.indexedDB = new IDBFactory()
+    resetDB()
     const { fetcher, release, startedAt } = parkedFetcher(() => [1])
     const store = makeLiveStore(() => fetcher(''))
     const read = store.getState().fetch()
     await startedAt[0]
 
-    store.getState().holdFrame(2)
+    expect(dataOf(store.getState().data)).toBeUndefined()
+    expect(store.getState().holdFrame(2)).toBe(true)
     release[0]()
     await read
     expect(dataOf(store.getState().data)).toEqual([1, 2])

@@ -7,8 +7,9 @@ export interface LoadableSlice<T, K extends unknown[] = [string]> {
   fetch: (...args: K) => Promise<void>
   startSync: (...args: K) => () => void
   applyDelta: (event: unknown, ...args: K) => Promise<void>
-  /** Lands a frame on whatever is held and never re-reads: merged into a published value, else
-   *  carried by each read in flight and folded into the stale value. False when nothing is held. */
+  /** Lands a frame on whatever is held: a published value takes it as `applyDelta` does (one it
+   *  cannot merge is re-read), else each read in flight carries it and the stale value folds it
+   *  in. False when nothing holds it: no published value, no read in flight, no stale value. */
   holdFrame: (event: unknown, ...args: K) => boolean
   optimisticWrite: (optimistic: T, commit: () => Promise<T | void>) => Promise<void>
 }
@@ -223,8 +224,10 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
           void get().applyDelta(event, ...args)
           return true
         }
-        for (const frames of inFlightFrames.get(keyOf(...args)) ?? []) frames.push(event)
-        if (current.status === 'idle' || current.staleData === null) return false
+        const inFlight = inFlightFrames.get(keyOf(...args)) ?? new Set<unknown[]>()
+        for (const frames of inFlight) frames.push(event)
+        // A read in flight publishes the frame with its answer, stale value or not.
+        if (current.status === 'idle' || current.staleData === null) return inFlight.size > 0
         const staleData = cfg.mergeFrame(current.staleData, event)
         if (staleData === undefined) return false
         if (staleData !== current.staleData) set({ data: { ...current, staleData } })

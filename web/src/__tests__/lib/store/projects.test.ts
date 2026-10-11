@@ -389,6 +389,25 @@ describe('the local list never waits on a remote host', () => {
     expect(aborted).toBe(true)
     expect(held()).toEqual(['p-local@local', 'p-h1@h1'])
   })
+
+  // No cache: an up host answers while the first local read is out; that read carries its rows.
+  it('names an up host read whose answer rides the first local read in', async () => {
+    pair('h1', 'up')
+    const local = parked([row('p-local')])
+    serve({ [API_BASE]: local.respond, 'crowbar://h1': () => answer([row('p')]) })
+    connectProjectList({ ...projectListTransport, subscribe: () => () => {} })
+    const reading = readList()
+    await vi.waitFor(() => expect(useProjectDataStore.getState().data.status).toBe('loading'))
+    const stopSync = useProjectDataStore.getState().startSync()
+    try {
+      await vi.waitFor(() => expect(useProjectDataStore.getState().readHosts).toContain('h1'))
+    } finally {
+      local.release()
+      await reading
+      stopSync()
+    }
+    expect(held()).toEqual(['p-local@local', 'p@h1'])
+  })
 })
 
 describe('seedProjectList', () => {
