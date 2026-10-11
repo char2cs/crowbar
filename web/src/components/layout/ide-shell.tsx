@@ -236,7 +236,7 @@ function IdeShellBody() {
 
   // See the hook's own doc for the "viewing a project that no longer exists"
   // invariant this enforces.
-  useRedirectIfProjectMissing(activeProjectIdFromRoute, allProjects, navigate)
+  useRedirectIfProjectMissing(activeProjectIdFromRoute, navigate)
 
   // SidebarPeek is a wrapper, not a branch: it renders in every state and only
   // restyles itself, so hiding the sidebar never rebuilds the subtree below it.

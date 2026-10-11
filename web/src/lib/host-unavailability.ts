@@ -27,6 +27,14 @@ function unreadHosts(): string[] {
   return hostIds.filter((hostId) => !readHosts.has(hostId))
 }
 
+/** True once a loaded list holds no row of `projectId` and every paired host has said what it
+ *  has: nothing more can bring the project back. */
+export function isProjectGone(projectId: string): boolean {
+  const { data } = useProjectDataStore.getState()
+  if (data.status !== 'success' || dataOf(data)?.some((p) => p.id === projectId)) return false
+  return unreadHosts().length === 0
+}
+
 /** Why `key`'s host is not coming, or null while it is still worth waiting: the list has not
  *  loaded, a workspace's scope is not recorded yet, or a paired host has not said what it has. */
 export function hostUnavailability(key: HostKey): HostUnavailable | null {
@@ -34,7 +42,7 @@ export function hostUnavailability(key: HostKey): HostUnavailable | null {
   if (projectId === null) return null
   const held = dataOf(useProjectDataStore.getState().data)?.some((p) => p.id === projectId)
   if (held) return 'host-unavailable'
-  return unreadHosts().length === 0 ? 'project-missing' : null
+  return isProjectGone(projectId) ? 'project-missing' : null
 }
 
 // A wait only on hosts the app tried and could not reach is still a wait (one may come back

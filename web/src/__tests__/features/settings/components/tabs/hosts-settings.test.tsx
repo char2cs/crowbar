@@ -38,7 +38,7 @@ import { useAgentProvidersStore } from '@/features/settings/stores/agent-provide
 import { useRedirectIfProjectMissing } from '@/components/layout/use-redirect-if-project-missing'
 import { ApiError } from '@/lib/api'
 import { dataOf } from '@/lib/loadable'
-import { connectProjectList, EMPTY_PROJECTS, useProjectDataStore } from '@/lib/store/projects'
+import { connectProjectList, useProjectDataStore } from '@/lib/store/projects'
 import { pairRemoteHost, projectOn, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 describe('HostsSettings', () => {
@@ -175,8 +175,7 @@ describe('revoking a host the app is using', () => {
     (dataOf(useProjectDataStore.getState().data) ?? []).map((p) => `${p.id}@${p.hostId}`)
 
   function OpenProject({ projectId }: { projectId: string }) {
-    const projects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
-    useRedirectIfProjectMissing(projectId, projects, navigate as unknown as NavigateFn)
+    useRedirectIfProjectMissing(projectId, navigate as unknown as NavigateFn)
     return null
   }
 
