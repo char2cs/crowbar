@@ -152,6 +152,8 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
   const [loading, setLoading] = useState(false)
   const [hostId, setHostId] = useState('local')
   const [addHostOpen, setAddHostOpen] = useState(false)
+  // Each opening is a new attempt, even one made while the last is still closing.
+  const [addHostAttempt, setAddHostAttempt] = useState(0)
   const hosts = useHostConfigStore((s) => s.hosts)
 
   const stagedEmoji = stagedIcon?.kind === 'emoji' ? stagedIcon.emoji : undefined
@@ -169,6 +171,7 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
   function handleHostIdChange(value: string | null) {
     if (!value) return
     if (value === ADD_HOST_VALUE) {
+      setAddHostAttempt((n) => n + 1)
       setAddHostOpen(true)
       return
     }
@@ -298,7 +301,7 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
         </span>
       </button>
 
-      <AddHostDialog open={addHostOpen} onOpenChange={setAddHostOpen} />
+      <AddHostDialog key={addHostAttempt} open={addHostOpen} onOpenChange={setAddHostOpen} />
 
       <div className="flex-1" />
 

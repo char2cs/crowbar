@@ -55,8 +55,8 @@ export function AddHostDialog({ open, onOpenChange }: AddHostDialogProps) {
         <DialogHeader>
           <DialogTitle>Add remote host</DialogTitle>
         </DialogHeader>
-        {/* Lives as long as the popup, which unmounts once closed: each opening is a new
-            attempt, so a confirmed fingerprint never carries into the next one. */}
+        {/* Lives as long as the popup, which unmounts once closed, and callers key the dialog per
+            opening (one during the close too): a confirmed fingerprint never reaches the next. */}
         <AddHostAttempt
           pending={pending}
           onPendingChange={setPending}

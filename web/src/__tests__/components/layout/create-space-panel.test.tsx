@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { ProjectDTO } from '@/lib/types'
@@ -130,6 +130,25 @@ describe('CreateSpacePanel — daemon picker', () => {
     await user.click(screen.getByRole('button', { name: /cancel/i }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(daemonTrigger()).toHaveTextContent('Local')
+  })
+
+  // What was typed or confirmed in one add-host attempt must not carry into the next, even one
+  // picked while the last is still closing.
+  it('opens a fresh add-host attempt each time it is picked, before the last has closed', async () => {
+    const user = userEvent.setup()
+    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
+    await selectDaemonOption(user, /add a host/i)
+    const option = screen.getByRole('option', { name: /add a host/i, hidden: true })
+    const hostName = () => within(screen.getByRole('dialog')).getByLabelText(/name/i)
+    fireEvent.change(hostName(), { target: { value: 'homelab' } })
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
+      fireEvent.pointerDown(option, { pointerType: 'mouse', buttons: 1 })
+      fireEvent.click(option)
+    })
+
+    expect(hostName()).toHaveValue('')
   })
 
   it("creating a space passes the selected daemon's hostId to the create call", async () => {

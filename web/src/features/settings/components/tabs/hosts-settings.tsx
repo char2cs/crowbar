@@ -117,6 +117,8 @@ function HostRow({ host, isLocal, revoking, onRevoke }: HostRowProps) {
 export function HostsSettings() {
   const hosts = useHostConfigStore((s) => s.hosts)
   const [addOpen, setAddOpen] = useState(false)
+  // Each opening is a new attempt, even one made while the last is still closing.
+  const [addAttempt, setAddAttempt] = useState(0)
   // Which host's revoke is in flight, so a second click can't fire a second
   // DELETE against the same client while the first is still out.
   const [revokingId, setRevokingId] = useState<string | null>(null)
@@ -151,12 +153,19 @@ export function HostsSettings() {
         ))}
       </div>
 
-      <Button type="button" variant="outline" onClick={() => setAddOpen(true)}>
+      <Button
+        type="button"
+        variant="outline"
+        onClick={() => {
+          setAddAttempt((n) => n + 1)
+          setAddOpen(true)
+        }}
+      >
         <Plus />
         Add host
       </Button>
 
-      <AddHostDialog open={addOpen} onOpenChange={setAddOpen} />
+      <AddHostDialog key={addAttempt} open={addOpen} onOpenChange={setAddOpen} />
     </div>
   )
 }

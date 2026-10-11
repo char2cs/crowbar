@@ -20,7 +20,7 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 }))
 
 import { apiFetch } from '@/lib/api'
-import { unregisterRemoteHost, forgetHostToken } from '@/lib/crowbar-bridge'
+import { unregisterRemoteHost, forgetHostToken, probeRemoteFingerprint } from '@/lib/crowbar-bridge'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import {
   destroyHostRuntime,
@@ -133,6 +133,29 @@ describe('HostsSettings', () => {
     render(<HostsSettings />)
     fireEvent.click(screen.getByRole('button', { name: /add.*host/i }))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  // A fingerprint confirmed in one attempt must never carry into the next, even one opened
+  // while the last is still closing.
+  it('opens a fresh add-host attempt each time, before the last has finished closing', async () => {
+    vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
+    render(<HostsSettings />)
+    const addHost = screen.getByRole('button', { name: /add.*host/i })
+    fireEvent.click(addHost)
+    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'homelab' } })
+    fireEvent.change(screen.getByLabelText(/address/i), { target: { value: '1.2.3.4:3737' } })
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /confirm fingerprint/i }))
+    expect(screen.getByLabelText(/pairing code/i)).toBeInTheDocument()
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+      fireEvent.click(addHost)
+    })
+
+    expect(screen.queryByLabelText(/pairing code/i)).toBeNull()
+    expect(screen.getByLabelText(/name/i)).toHaveValue('')
+    expect(screen.queryByText('SHA256:aaaa')).toBeNull()
   })
 
   it('clicking revoke calls the daemon DELETE first, then local cleanup, then drops the config row', async () => {
