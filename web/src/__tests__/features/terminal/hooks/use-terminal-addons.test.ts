@@ -15,7 +15,11 @@ vi.mock('@xterm/addon-web-links', () => ({
 }))
 
 import type { Terminal } from '@xterm/xterm'
-import { loadWebLinksAddon } from '@/features/terminal/hooks/use-terminal-addons'
+import {
+  injectLinkStyles,
+  loadWebLinksAddon,
+  removeLinkStyles,
+} from '@/features/terminal/hooks/use-terminal-addons'
 import { toast } from '@/features/window/stores/toast-store'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
@@ -94,5 +98,22 @@ describe('a terminal link', () => {
     click('w-anything', 'http://localhost:3000/')
 
     expect(openExternalUrl).toHaveBeenCalledExactlyOnceWith('http://localhost:3000/')
+  })
+})
+
+// An agent pane's container id carries the PTY id its daemon chose, maybe on another host.
+describe('terminal link styles', () => {
+  it('stay scoped to the terminal’s own container whatever its id holds', () => {
+    const containerId = 'terminal-x,*{display:none} #y'
+    injectLinkStyles('pty', containerId)
+    const sheet = (document.getElementById('terminal-link-style-pty') as HTMLStyleElement).sheet!
+    const rules = Array.from(sheet.cssRules) as CSSStyleRule[]
+
+    expect(rules).toHaveLength(2)
+    for (const rule of rules) {
+      expect(rule.selectorText.startsWith(`#${CSS.escape(containerId)} `)).toBe(true)
+      expect(rule.style.display).toBe('')
+    }
+    removeLinkStyles('pty')
   })
 })

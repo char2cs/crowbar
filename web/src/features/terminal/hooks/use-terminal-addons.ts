@@ -46,17 +46,19 @@ export function injectLinkStyles(sessionId: string, containerId: string): void {
   const accentColor = getComputedStyle(document.documentElement)
     .getPropertyValue('--color-accent')
     .trim()
+  // Escaped: an agent pane's id carries a PTY id its daemon chose.
+  const scope = `#${CSS.escape(containerId)}`
 
   style.textContent = `
-    #${containerId} .xterm-screen a,
-    #${containerId} .xterm-link,
-    #${containerId} [style*="text-decoration"] {
+    ${scope} .xterm-screen a,
+    ${scope} .xterm-link,
+    ${scope} [style*="text-decoration"] {
       color: ${accentColor} !important;
       text-decoration: underline !important;
       cursor: pointer !important;
     }
-    #${containerId} .xterm-screen a:hover,
-    #${containerId} .xterm-link:hover {
+    ${scope} .xterm-screen a:hover,
+    ${scope} .xterm-link:hover {
       opacity: 0.8 !important;
     }
   `
