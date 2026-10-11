@@ -606,7 +606,7 @@ export async function fetchHomeFolders(projectId: string): Promise<FolderDTO[]> 
 // await the WS DTO for navigation, never an id from these calls.
 // ---------------------------------------------------------------------------
 
-export function postProject(name: string, path: string, hostId = 'local'): Promise<void> {
+export function postProject(name: string, path: string, hostId: string): Promise<void> {
   return apiFetch(
     '/v0/projects',
     {
