@@ -367,6 +367,48 @@ describe('a paired host coming up', () => {
     list.stop()
   })
 
+  // Only a host's own answer since it came up says which projects it has: cached rows, an
+  // answer still out or one from before it went away do not. A wait on an unlisted project
+  // may end only once every paired host has said.
+  it('names a host read once its own answer since it came up has landed', async () => {
+    const list = await liveList('h1', 'h2')
+    const read = () => [...list.store.getState().readHosts]
+    let answer = parkedRemote()
+    list.status('h1', 'up')
+    await vi.waitFor(() => expect(readRemote).toHaveBeenCalledTimes(1))
+    expect(read()).toEqual([])
+    answer([remoteRow('r-h1', 'h1')])
+    await vi.waitFor(() => expect(read()).toEqual(['h1']))
+
+    answer = parkedRemote()
+    sockets.get('h1')!({ reconnected: true })
+    expect(read()).toEqual([])
+    answer([remoteRow('r-h1', 'h1')])
+    await vi.waitFor(() => expect(read()).toEqual(['h1']))
+
+    list.status('h1', 'down')
+    expect(read()).toEqual([])
+    list.stop()
+  })
+
+  it('names no host read whose read failed, or whose answer landed after it went down', async () => {
+    const list = await liveList('h1')
+    const read = () => [...list.store.getState().readHosts]
+    readRemote.mockRejectedValueOnce(new Error('unreachable'))
+    list.status('h1', 'up')
+    await settle()
+    expect(read()).toEqual([])
+
+    list.status('h1', 'down')
+    const late = parkedRemote()
+    list.status('h1', 'up')
+    list.status('h1', 'down')
+    late([remoteRow('r-h1', 'h1')])
+    await settle()
+    expect(read()).toEqual([])
+    list.stop()
+  })
+
   // The deleted-project path: each row goes as a tombstone would take it, at once, and the
   // route's "project missing" redirect follows from the list alone.
   it('removing a host takes its rows with it, and nothing late from it comes back', async () => {

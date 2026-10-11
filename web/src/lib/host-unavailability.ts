@@ -1,4 +1,9 @@
 import { useCallback, useSyncExternalStore } from 'react'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import {
+  getHostRuntime,
+  subscribeHostStatuses,
+} from '@/features/hosts/stores/host-runtime-registry'
 import { isHostResolved, subscribeHostResolution, type HostKey } from '@/lib/host-resolve'
 import { dataOf } from '@/lib/loadable'
 import { useProjectDataStore } from '@/lib/store/projects'
@@ -8,24 +13,54 @@ import { getWorkspaceScope } from '@/lib/workspace-scope'
  *  project, or holds it on a host that is not configured (or ambiguously). */
 export type HostUnavailable = 'project-missing' | 'host-unavailable'
 
-/** Why `key`'s host is not coming, or null while it is still worth waiting: the list
- *  has not loaded, or a workspace's scope (and so its project) is not recorded yet. */
-export function hostUnavailability(key: HostKey): HostUnavailable | null {
-  const { data } = useProjectDataStore.getState()
-  if (data.status !== 'success' || isHostResolved(key)) return null
-  const projectId = key.wsId !== undefined ? getWorkspaceScope(key.wsId)?.projectId : key.projectId
-  if (projectId === undefined) return null
-  return dataOf(data)?.some((p) => p.id === projectId) ? 'host-unavailable' : 'project-missing'
+/** `key`'s project while a loaded list does not place its host; null while it resolves, the
+ *  list has not loaded, or a workspace's scope (and so its project) is not recorded yet. */
+function unplacedProject(key: HostKey): string | null {
+  if (useProjectDataStore.getState().data.status !== 'success' || isHostResolved(key)) return null
+  return (key.wsId !== undefined ? getWorkspaceScope(key.wsId)?.projectId : key.projectId) ?? null
 }
 
-/** `hostUnavailability` as React state. */
+/** Paired hosts not read since they last came up: a project in no row may be on any of them. */
+function unreadHosts(): string[] {
+  const { readHosts } = useProjectDataStore.getState()
+  const hostIds = useHostConfigStore.getState().hosts.map((host) => host.id)
+  return hostIds.filter((hostId) => !readHosts.has(hostId))
+}
+
+/** Why `key`'s host is not coming, or null while it is still worth waiting: the list has not
+ *  loaded, a workspace's scope is not recorded yet, or a paired host has not said what it has. */
+export function hostUnavailability(key: HostKey): HostUnavailable | null {
+  const projectId = unplacedProject(key)
+  if (projectId === null) return null
+  const held = dataOf(useProjectDataStore.getState().data)?.some((p) => p.id === projectId)
+  if (held) return 'host-unavailable'
+  return unreadHosts().length === 0 ? 'project-missing' : null
+}
+
+// A wait only on hosts the app tried and could not reach is still a wait (one may come back
+// with the project), but it is not "opening" any more: the pane says the host is not there.
+function paneUnavailability(key: HostKey): HostUnavailable | null {
+  const final = hostUnavailability(key)
+  if (final !== null || unplacedProject(key) === null) return final
+  const unreached = unreadHosts().every((hostId) => {
+    const status = getHostRuntime(hostId)?.getState().status
+    return status === 'down' || status === 'needs-repair'
+  })
+  return unreached ? 'host-unavailable' : null
+}
+
+/** What a pane waiting on `key`'s host says: why it is not coming (`hostUnavailability`),
+ *  'host-unavailable' while it waits only on hosts that do not answer, or null (opening). */
 export function useHostUnavailable(key: HostKey): HostUnavailable | null {
   const wsId = key.wsId
   const subscribe = useCallback(
-    (onChange: () => void) => subscribeHostResolution(wsId, onChange),
+    (onChange: () => void) => {
+      const stops = [subscribeHostResolution(wsId, onChange), subscribeHostStatuses(onChange)]
+      return () => stops.forEach((stop) => stop())
+    },
     [wsId],
   )
-  return useSyncExternalStore(subscribe, () => hostUnavailability(key))
+  return useSyncExternalStore(subscribe, () => paneUnavailability(key))
 }
 
 /** Settles with whether `key`'s host resolved: true as soon as it does, false once

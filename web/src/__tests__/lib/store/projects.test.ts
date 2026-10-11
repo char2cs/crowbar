@@ -117,7 +117,7 @@ beforeEach(() => {
   resetDB()
   connectProjectList(projectListTransport)
   useHostConfigStore.setState({ hosts: [] })
-  useProjectDataStore.setState({ data: idle() })
+  useProjectDataStore.setState({ data: idle(), readHosts: new Set() })
 })
 
 /** The list as a read publishes it: each project with the host it came from. */
@@ -415,6 +415,9 @@ describe('seedProjectList', () => {
     await readList()
 
     expect(held()).toEqual(['p-live@local', 'p-h1@h1'])
+    // h1 is read yet only as the cache had it: p-gone could be there now.
+    expect(hostUnavailability({ projectId: 'p-gone' })).toBeNull()
+    useProjectDataStore.setState({ readHosts: new Set(['h1']) })
     expect(hostUnavailability({ projectId: 'p-gone' })).toBe('project-missing')
   })
 

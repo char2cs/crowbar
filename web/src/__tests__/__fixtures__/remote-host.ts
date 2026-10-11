@@ -6,7 +6,7 @@ import type { Project } from '@/lib/types'
 /** The world of a user who never paired a remote and has not loaded any project. */
 export function resetHostWorld(): void {
   useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-  useProjectDataStore.setState({ data: idle() })
+  useProjectDataStore.setState({ data: idle(), readHosts: new Set() })
 }
 
 /** Pairs `hostId` through the real store, so `remoteEverPaired` flips like production. */
@@ -27,4 +27,9 @@ export function projectOn(id: string, hostId: string): Project {
 /** The project list landing: what makes a paired install's workspaces resolve. */
 export function loadProjects(...projects: Project[]): void {
   useProjectDataStore.setState({ data: success(projects) })
+}
+
+/** `hostIds`' own answers held since they came up: only then is an unlisted project gone. */
+export function markHostsRead(...hostIds: string[]): void {
+  useProjectDataStore.setState({ readHosts: new Set(hostIds) })
 }

@@ -591,7 +591,7 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
 
     afterEach(() => {
       useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-      useProjectDataStore.setState({ data: idle() })
+      useProjectDataStore.setState({ data: idle(), readHosts: new Set() })
     })
 
     const pairHost = (id: string) =>
@@ -623,10 +623,16 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
       expect(windowPaneStore.getState().panes['pane-a'].workspaceId).toBe('ws-a')
     })
 
-    it('leaves the member unplaced, without asking or looping, when the loaded list lacks its project', async () => {
+    it('leaves the member unplaced, without asking or looping, once the list and every host lack its project', async () => {
       pairHost('host-2')
       const placing = placeRestoredChatMembers()
+      const settled = vi.fn()
+      void placing.then(settled)
       useProjectDataStore.setState({ data: success([{ ...row('local'), id: 'other' }]) })
+      await flush()
+      // host-2 has not said what it has: the project may be there.
+      expect(settled).not.toHaveBeenCalled()
+      useProjectDataStore.setState({ readHosts: new Set(['host-2']) })
       await placing
 
       useProjectDataStore.setState({ data: success([{ ...row('local'), id: 'another' }]) })

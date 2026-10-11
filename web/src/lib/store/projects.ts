@@ -46,6 +46,12 @@ interface ProjectState {
   setActiveProject: (id: string) => void
 }
 
+interface ProjectListState extends LoadableSlice<Project[], []> {
+  /** Paired hosts whose rows the list holds as their own answer since they last came up, not
+   *  the cache's: until every one is here, a project in no row may still be on one of them. */
+  readHosts: ReadonlySet<string>
+}
+
 /** Local first, then each paired host in the order it was paired; unknown hosts last. */
 function hostRank(hostId: string): number {
   if (hostId === LOCAL_HOST.id) return -1
@@ -127,6 +133,19 @@ function withHeldRemoteRows(local: Project[], held: Project[] | undefined): Proj
 /** Per host, the newest read issued: an older answer that lands later is dropped. */
 const hostReads = new Map<string, number>()
 
+function setHostRead(hostId: string, read: boolean): void {
+  const { readHosts } = useProjectDataStore.getState()
+  if (readHosts.has(hostId) === read) return
+  const next = new Set(readHosts)
+  if (read) next.add(hostId)
+  else next.delete(hostId)
+  useProjectDataStore.setState({ readHosts: next })
+}
+
+function isUp(hostId: string): boolean {
+  return getHostRuntime(hostId)?.getState().status === 'up'
+}
+
 /** Per host, the frames each of its reads in flight has not seen: its answer may predate them. */
 const unseenByReads = new Map<string, Set<unknown[]>>()
 
@@ -137,6 +156,8 @@ const unseenByReads = new Map<string, Set<unknown[]>>()
 async function readHostRows(hostId: string): Promise<void> {
   const issued = (hostReads.get(hostId) ?? 0) + 1
   hostReads.set(hostId, issued)
+  // Until this answer lands, what is held of the host is the cache's or an older answer.
+  setHostRead(hostId, false)
   const unseen: unknown[] = []
   const reads = unseenByReads.get(hostId) ?? new Set<unknown[]>()
   reads.add(unseen)
@@ -151,6 +172,9 @@ async function readHostRows(hostId: string): Promise<void> {
       rows,
     )
     await useProjectDataStore.getState().applyDelta(new HostRows(hostId, current))
+    if (hostReads.get(hostId) === issued && isConfigured(hostId) && isUp(hostId)) {
+      setHostRead(hostId, true)
+    }
   } finally {
     reads.delete(unseen)
     if (reads.size === 0) unseenByReads.delete(hostId)
@@ -192,16 +216,14 @@ function dropHostRows(hostId: string): void {
 
 function upHostIds(): string[] {
   const up: string[] = []
-  for (const host of useHostConfigStore.getState().hosts) {
-    if (getHostRuntime(host.id)?.getState().status === 'up') up.push(host.id)
-  }
+  for (const host of useHostConfigStore.getState().hosts) if (isUp(host.id)) up.push(host.id)
   return up
 }
 
 // §6: the project list is GET-seeded once and then kept live by the
 // `/v0/projects` WS stream's frames alone — the snapshot it sends on subscribe
 // merges as no-ops, so boot makes one request.
-export const useProjectDataStore = create<LoadableSlice<Project[], []>>()((set, get) => {
+export const useProjectDataStore = create<ProjectListState>()((set, get) => {
   const slice = createLoadableSlice<Project[], []>({
     store: 'projects-data',
     // The local daemon's answer is published the moment it lands, with each paired host's
@@ -222,13 +244,18 @@ export const useProjectDataStore = create<LoadableSlice<Project[], []>>()((set, 
   })(set, get)
   return {
     ...slice,
+    readHosts: new Set<string>(),
     // Live: the local daemon's frames, and each paired host's own while it is up — read
     // afresh each time it comes up (at boot every host is unknown when the list is read).
     startSync: () => {
       const stopFrames = slice.startSync()
       const stopHosts = whileHostUp((hostId) => {
         void readHostRows(hostId)
-        return connected().subscribe(hostId, (frame) => onHostFrame(hostId, frame))
+        const stopStream = connected().subscribe(hostId, (frame) => onHostFrame(hostId, frame))
+        return () => {
+          stopStream()
+          setHostRead(hostId, false)
+        }
       })
       const stopRemovals = onHostRemoved(dropHostRows)
       return () => {

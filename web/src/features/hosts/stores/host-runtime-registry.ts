@@ -65,6 +65,29 @@ export function subscribeHostStatus(hostId: string, onChange: () => void): () =>
   }
 }
 
+/** Calls `onChange` when any host's status changes, or a runtime is minted or destroyed. */
+export function subscribeHostStatuses(onChange: () => void): () => void {
+  const watched = new Map<HostRuntimeStore, () => void>()
+  const follow = () => {
+    const live = new Set(registry.values())
+    for (const [store, unsubscribe] of watched) {
+      if (live.has(store)) continue
+      unsubscribe()
+      watched.delete(store)
+    }
+    for (const store of live) if (!watched.has(store)) watched.set(store, store.subscribe(onChange))
+  }
+  follow()
+  const stopRegistry = subscribeHostRuntimeRegistry(() => {
+    follow()
+    onChange()
+  })
+  return () => {
+    stopRegistry()
+    for (const unsubscribe of watched.values()) unsubscribe()
+  }
+}
+
 interface UpWatch {
   unsubscribe: () => void
   /** What `run` returned for the host's current 'up', while it lasts. */

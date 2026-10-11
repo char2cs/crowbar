@@ -22,6 +22,7 @@ import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/works
 import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
 import {
   loadProjects,
+  markHostsRead,
   pairRemoteHost,
   projectOn,
   resetHostWorld,
@@ -151,15 +152,46 @@ describe('AgentChatPaneGate on an install that has paired a remote host', () => 
     expect(requested()).toEqual([])
   })
 
-  it('says the project is gone, and reads nothing, when the loaded list does not hold it', async () => {
+  it('says the project is gone, and reads nothing, once the list and every host lack it', async () => {
     mount()
 
     await act(async () => loadProjects(projectOn('p-other', 'local')))
+    expect(screen.getByText(WAITING)).toBeInTheDocument()
+    await act(async () => markHostsRead('host-1'))
 
     expect(screen.getByText('Chat unavailable')).toBeInTheDocument()
     expect(screen.getByText(/no longer in your list/i)).toBeInTheDocument()
     expect(requested()).toEqual([])
     expect(chatLedgerStore.getState().ledgers.c1).toBeUndefined()
+  })
+
+  // A pane restored at boot whose project is in no cached row: the first local answer does
+  // not say it is gone while the host it may be on has not been read.
+  it('keeps opening a chat no row holds until its host is read, then mounts', async () => {
+    recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r1', wsId: 'w-remote' })
+    mount('w-remote')
+
+    await act(async () => loadProjects(projectOn('p-local', 'local')))
+    await act(async () => getOrCreateHostRuntime('host-1').getState().setStatus('up'))
+    expect(screen.getByText(WAITING)).toBeInTheDocument()
+
+    await act(async () => {
+      loadProjects(projectOn('p-local', 'local'), projectOn('p-remote', 'host-1'))
+      markHostsRead('host-1')
+    })
+    expect(await screen.findByTestId('chat-view')).toBeInTheDocument()
+  })
+
+  it('says the host is not available while the host it may be on needs repair', async () => {
+    recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r1', wsId: 'w-remote' })
+    mount('w-remote')
+
+    await act(async () => loadProjects(projectOn('p-local', 'local')))
+    await act(async () => getOrCreateHostRuntime('host-1').getState().setStatus('needs-repair'))
+
+    expect(screen.getByText('Chat unavailable')).toBeInTheDocument()
+    expect(screen.getByText(/not available right now/i)).toBeInTheDocument()
+    expect(requested()).toEqual([])
   })
 
   it('does not blame the project when it is listed on a host that is not configured', async () => {

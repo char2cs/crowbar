@@ -8,6 +8,7 @@ import {
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   loadProjects,
+  markHostsRead,
   pairRemoteHost,
   projectOn,
   resetHostWorld,
@@ -111,10 +112,15 @@ describe('prefetchVisibleChats on an install that has paired a remote host', () 
     expect(chatLedgerStore.getState().ledgers.c1.status).toBe('loaded')
   })
 
-  it('gives up on a workspace whose project the loaded list does not hold, asking nothing', async () => {
+  it('gives up on a workspace whose project the list and every paired host lack, asking nothing', async () => {
     const prefetch = prefetchVisibleChats()
+    const settled = vi.fn()
+    void prefetch.then(settled)
 
     loadProjects(projectOn('p-other', 'local'))
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+    expect(settled).not.toHaveBeenCalled()
+    markHostsRead('host-1')
     await prefetch
 
     expect(listChatMessagesFn).not.toHaveBeenCalled()
