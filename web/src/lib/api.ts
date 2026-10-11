@@ -17,14 +17,13 @@ import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import {
   ApiError,
   DAEMON_UNAVAILABLE_CODE,
-  HOST_IDENTITY_CHANGED_CODE,
-  HOST_UNREACHABLE_CODE,
+  HostNotConfiguredError,
   PROXY_HEADER,
   proxyMarkerError,
 } from './api/errors'
 import { routeToHost } from './api/host-route'
 
-export { ApiError } from './api/errors'
+export { ApiError, isHostIdentityChangedError, isHostUnreachableError } from './api/errors'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
@@ -43,7 +42,7 @@ export function apiBaseFor(hostId: string): string {
   }
   const known = useHostConfigStore.getState().hosts.some((h) => h.id === hostId)
   if (!known) {
-    throw new Error(`unknown host "${hostId}"`)
+    throw new HostNotConfiguredError(hostId)
   }
   return `crowbar://${hostId}`
 }
@@ -105,14 +104,6 @@ export function isNotFoundError(err: unknown): boolean {
 
 export function isDaemonUnavailableError(err: unknown): boolean {
   return err instanceof ApiError && err.code === DAEMON_UNAVAILABLE_CODE
-}
-
-export function isHostUnreachableError(err: unknown): boolean {
-  return err instanceof ApiError && err.code === HOST_UNREACHABLE_CODE
-}
-
-export function isHostIdentityChangedError(err: unknown): boolean {
-  return err instanceof ApiError && err.code === HOST_IDENTITY_CHANGED_CODE
 }
 
 /** Tunable transient-retry policy for {@link apiFetch}. A `fetch()` *rejection*

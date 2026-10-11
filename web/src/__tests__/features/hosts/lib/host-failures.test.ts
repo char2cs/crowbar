@@ -85,12 +85,18 @@ describe('followStreamFailures', () => {
 })
 
 describe('reportHostFailure', () => {
-  it('leaves a failure the proxy did not mark to the prober', () => {
-    reportHostFailure(new ApiError('Unauthorized', 401, undefined, undefined, 'h1'))
+  it('leaves a daemon’s own error, and an upgrade refused without a status, to the prober', () => {
     reportHostFailure(new ApiError('boom', 500, undefined, undefined, 'h1'))
     reportHostFailure(new Error('ws upgrade: HTTP error: 401 Unauthorized'))
 
     expect(statusOf('h1')).toBe('up')
+  })
+
+  // Spec §3: a 401 mid-session on an 'up' host is a dead credential, not a blip.
+  it('marks a host that answered 401 as needing repair, at once', () => {
+    reportHostFailure(new ApiError('client is not paired', 401, undefined, undefined, 'h1'))
+
+    expect(statusOf('h1')).toBe('needs-repair')
   })
 
   it('gives a host that is no longer configured no status, and the local daemon none', () => {

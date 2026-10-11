@@ -1,16 +1,17 @@
-import { classifyHostFailure } from '@/features/hosts/lib/classify-host-failure'
+import { classifyHostFailure, hostFailureKind } from '@/features/hosts/lib/classify-host-failure'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { LOCAL_HOST } from '@/features/hosts/types'
-import { isHostIdentityChangedError, isHostUnreachableError, type ApiError } from '@/lib/api'
+import type { ApiError } from '@/lib/api/errors'
 import { useConnectionStore } from '@/lib/ws/connection-store'
 
 /**
- * What a failure the desktop proxy marked says about its host, recorded now rather than at
- * the next probe. An unmarked one (a 401 on upgrade, a daemon error) is the prober's to judge.
+ * What a failure says about its host — not reached, another identity, or this client refused
+ * (HTTP 401) — recorded now rather than at the next probe. Anything else (a daemon's own
+ * error, an upgrade refused without a status) is the prober's to judge.
  */
 export function reportHostFailure(err: unknown): void {
-  if (!isHostUnreachableError(err) && !isHostIdentityChangedError(err)) return
+  if (hostFailureKind(err) === null) return
   const { hostId } = err as ApiError
   if (!hostId || hostId === LOCAL_HOST.id) return
   // A host removed meanwhile gets no runtime back.

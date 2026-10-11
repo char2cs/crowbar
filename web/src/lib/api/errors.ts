@@ -18,6 +18,14 @@ export class ApiError extends Error {
   }
 }
 
+/** A request named a remote host this window holds no pairing for: removed, or never paired. */
+export class HostNotConfiguredError extends Error {
+  constructor(readonly hostId: string) {
+    super(`unknown host "${hostId}"`)
+    this.name = 'HostNotConfiguredError'
+  }
+}
+
 // The desktop proxy's own answers (api_proxy.rs), named by this header. None is
 // retried: the proxy already spent its connect budget, and an identity change is
 // a hard reject that must never read as plain unreachable (spec §3).
@@ -25,6 +33,14 @@ export const PROXY_HEADER = 'x-crowbar-proxy'
 export const DAEMON_UNAVAILABLE_CODE = 'daemon_unavailable'
 export const HOST_UNREACHABLE_CODE = 'host_unreachable'
 export const HOST_IDENTITY_CHANGED_CODE = 'host_identity_changed'
+
+export function isHostUnreachableError(err: unknown): boolean {
+  return err instanceof ApiError && err.code === HOST_UNREACHABLE_CODE
+}
+
+export function isHostIdentityChangedError(err: unknown): boolean {
+  return err instanceof ApiError && err.code === HOST_IDENTITY_CHANGED_CODE
+}
 
 // `status` is what the proxy answers with for that marker; an HTTP response
 // carries its own, a rejected WebSocket upgrade has none and takes this one.

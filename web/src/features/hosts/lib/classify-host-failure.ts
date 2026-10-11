@@ -1,5 +1,16 @@
-import { ApiError, isHostIdentityChangedError } from '@/lib/api'
+import { ApiError, isHostIdentityChangedError, isHostUnreachableError } from '@/lib/api/errors'
 import type { HostStatus } from '@/features/hosts/types'
+
+/** A remote host's own trouble with a request: not reached, not the host that was paired, or
+ *  refusing this client (HTTP 401: revoked, or its credential is gone). */
+type HostFailureKind = 'unreachable' | 'identity-changed' | 'refused'
+
+/** Which of its host's own troubles failed a request, or null when the host is not why. */
+export function hostFailureKind(err: unknown): HostFailureKind | null {
+  if (isHostIdentityChangedError(err)) return 'identity-changed'
+  if (isHostUnreachableError(err)) return 'unreachable'
+  return err instanceof ApiError && err.status === 401 ? 'refused' : null
+}
 
 /**
  * What a failed request to a remote host says about that host. A changed identity
@@ -7,6 +18,6 @@ import type { HostStatus } from '@/features/hosts/types'
  * pair again — no retry fixes them; anything else may pass on its own.
  */
 export function classifyHostFailure(err: unknown): Extract<HostStatus, 'down' | 'needs-repair'> {
-  if (isHostIdentityChangedError(err)) return 'needs-repair'
-  return err instanceof ApiError && err.status === 401 ? 'needs-repair' : 'down'
+  const kind = hostFailureKind(err)
+  return kind === 'identity-changed' || kind === 'refused' ? 'needs-repair' : 'down'
 }
