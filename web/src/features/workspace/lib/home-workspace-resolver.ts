@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { fetchHomeWorkspace } from '@/lib/api'
 import { isHostResolved, subscribeHostResolution } from '@/lib/host-resolve'
+import { hostUnavailability } from '@/lib/host-unavailability'
 
 /**
  * Resolves (and caches) the stable home-workspace id for a project.
@@ -77,7 +78,7 @@ function subscribe(listener: () => void): () => void {
  * the whole session. A resolve that latched NO owning chat is not terminal
  * either: the daemon mints one on GET /home, so the next call re-reads. A
  * project whose host is not known yet is pending, not failed: it re-enters
- * once the project list places it.
+ * once the project list places it, and fails once that host is not coming.
  */
 export function ensureHomeWorkspaceResolved(projectId: string): void {
   const current = states.get(projectId)
@@ -104,15 +105,27 @@ export function ensureHomeWorkspaceResolved(projectId: string): void {
     })
 }
 
+// Gives up on the rule boot placement gives up on, but keeps listening: a host paired again
+// still brings the project's home back.
 function awaitHost(projectId: string): void {
   if (awaitingHost.has(projectId)) return
-  const stop = subscribeHostResolution(undefined, () => {
+  const follow = () => {
+    if (hostUnavailability({ projectId }) !== null) failPending(projectId)
     if (!isHostResolved({ projectId })) return
     stop()
     awaitingHost.delete(projectId)
     ensureHomeWorkspaceResolved(projectId)
-  })
+  }
+  const stop = subscribeHostResolution(undefined, follow)
   awaitingHost.set(projectId, stop)
+  follow()
+}
+
+function failPending(projectId: string): void {
+  const current = states.get(projectId)
+  if (current?.wsId || current?.error) return
+  states.set(projectId, { wsId: null, owningChatId: null, localPath: null, error: true })
+  notify()
 }
 
 /**

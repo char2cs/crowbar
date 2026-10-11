@@ -23,13 +23,13 @@ beforeEach(() => {
   fetchHomeWorkspaceMock.mockReset()
   __resetHomeWorkspaceResolverForTest()
   useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-  useProjectDataStore.setState({ data: idle() })
+  useProjectDataStore.setState({ data: idle(), readHosts: new Set() })
 })
 
 afterEach(() => {
   __resetHomeWorkspaceResolverForTest()
   useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-  useProjectDataStore.setState({ data: idle() })
+  useProjectDataStore.setState({ data: idle(), readHosts: new Set() })
 })
 
 describe('home-workspace-resolver', () => {
@@ -177,14 +177,15 @@ describe('home-workspace-resolver on an install that paired a remote', () => {
     lastActivity: new Date(0),
     hostId,
   })
+  const hostRecord = {
+    id: 'host-2',
+    name: 'host-2',
+    endpoint: 'host-2.example:3737',
+    pairedFingerprint: 'SHA256:aaaa',
+    clientId: 'client-host-2',
+  }
   beforeEach(() => {
-    useHostConfigStore.getState().addHost({
-      id: 'host-2',
-      name: 'host-2',
-      endpoint: 'host-2.example:3737',
-      pairedFingerprint: 'SHA256:aaaa',
-      clientId: 'client-host-2',
-    })
+    useHostConfigStore.getState().addHost(hostRecord)
     fetchHomeWorkspaceMock.mockImplementation((projectId: string) =>
       Promise.resolve({ id: `ws-${projectId}`, projectId, kind: 'home', owningChatId: 'c-home' }),
     )
@@ -218,6 +219,31 @@ describe('home-workspace-resolver on an install that paired a remote', () => {
 
     act(() => useProjectDataStore.setState({ data: success([row('other'), row('p1', 'host-2')]) }))
     await waitFor(() => expect(result.current.wsId).toBe('ws-p1'))
+  })
+
+  // The rule boot placement gives up on: a held row on a host that is not configured, or a
+  // project in no row once every paired host has said what it has.
+  it('says Project Home is unavailable, asking nothing, once its host is not coming, and heals when it is back', async () => {
+    useProjectDataStore.setState({ data: success([row('p1', 'host-gone')]) })
+    const { result } = renderHook(() => useHomeWorkspaceState('p1'))
+
+    act(() => ensureHomeWorkspaceResolved('p1'))
+    expect(result.current.error).toBe(true)
+    expect(fetchHomeWorkspaceMock).not.toHaveBeenCalled()
+
+    act(() => useHostConfigStore.getState().addHost({ ...hostRecord, id: 'host-gone' }))
+    await waitFor(() => expect(result.current).toMatchObject({ wsId: 'ws-p1', error: false }))
+  })
+
+  it('gives up on a project in no row only once every paired host was read', () => {
+    useProjectDataStore.setState({ data: success([row('other')]) })
+    const { result } = renderHook(() => useHomeWorkspaceState('p1'))
+
+    act(() => ensureHomeWorkspaceResolved('p1'))
+    expect(result.current.error).toBe(false)
+    act(() => useProjectDataStore.setState({ readHosts: new Set(['host-2']) }))
+    expect(result.current.error).toBe(true)
+    expect(fetchHomeWorkspaceMock).not.toHaveBeenCalled()
   })
 
   it('repeated calls while pending do not stack waits: one request when the host resolves', async () => {
