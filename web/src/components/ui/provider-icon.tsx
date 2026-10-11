@@ -138,18 +138,24 @@ function iconPurifier(): Purifier {
   return purifier
 }
 
+// Fails closed: a malformed or hostile icon (e.g. nested too deep to
+// serialise) must render nothing rather than throw out of a chat pane's render.
 function sanitizeIcon(svg: string): string {
-  const fragment = iconPurifier().sanitize(svg, {
-    ALLOWED_TAGS,
-    ALLOWED_ATTR,
-    FORBID_TAGS,
-    FORBID_ATTR: ['style', 'class'],
-    RETURN_DOM_FRAGMENT: true,
-  })
-  const root = Array.from(fragment.children).find(
-    (element) => element.localName === 'svg' && element.namespaceURI === SVG_NS,
-  )
-  return root?.outerHTML ?? ''
+  try {
+    const fragment = iconPurifier().sanitize(svg, {
+      ALLOWED_TAGS,
+      ALLOWED_ATTR,
+      FORBID_TAGS,
+      FORBID_ATTR: ['style', 'class'],
+      RETURN_DOM_FRAGMENT: true,
+    })
+    const root = Array.from(fragment.children).find(
+      (element) => element.localName === 'svg' && element.namespaceURI === SVG_NS,
+    )
+    return root?.outerHTML ?? ''
+  } catch {
+    return ''
+  }
 }
 
 // Few distinct icons exist, but a hostile daemon could serve endless variants.

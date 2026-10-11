@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { cleanup, render } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ProviderIcon } from '@/components/ui/provider-icon'
 
 afterEach(cleanup)
@@ -119,6 +119,23 @@ describe('ProviderIcon', () => {
   it('cannot restyle the app around it through class or style hooks', () => {
     const host = renderIcon('<svg class="fixed inset-0 z-50"><path d="M0 0" class="x"/></svg>')
     expect(host.querySelector('[class]')).toBeNull()
+  })
+
+  it('renders an empty host instead of throwing when the icon nests too deep to serialise', () => {
+    const svg = `<svg>${'<g>'.repeat(5000)}<path d="M0 0"/>${'</g>'.repeat(5000)}</svg>`
+    expect(renderIcon(svg).innerHTML).toBe('')
+    expect(renderIcon(svg).innerHTML).toBe('')
+  })
+
+  it('renders an empty host instead of throwing when sanitising fails', () => {
+    const parse = vi.spyOn(DOMParser.prototype, 'parseFromString').mockImplementation(() => {
+      throw new Error('parser exploded')
+    })
+    try {
+      expect(renderIcon('<svg viewBox="0 0 2 2"><path d="M1 1"/></svg>').innerHTML).toBe('')
+    } finally {
+      parse.mockRestore()
+    }
   })
 })
 
