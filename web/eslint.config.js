@@ -16,7 +16,6 @@ const MAX_LINES_BASELINE = [
   'src/__tests__/components/sidebar/lib/rows-from-repo.test.ts',
   'src/__tests__/components/sidebar/lib/sidebar-drop-policy.test.ts',
   'src/__tests__/components/sidebar/sidebar-row.test.tsx',
-  'src/__tests__/components/sidebar/space-header.test.tsx',
   'src/__tests__/components/sidebar/space-scroller.test.tsx',
   'src/__tests__/features/agent/api/agent-api.test.ts',
   'src/__tests__/features/agent/chat/agent-chat-view.test.tsx',
