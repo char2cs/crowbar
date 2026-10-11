@@ -184,7 +184,11 @@ describe('TauriWebSocket', () => {
         code: 'host_unreachable',
         hostId: 'h2',
       })
-      expect(invoke).toHaveBeenCalledWith('ws_open', expect.objectContaining({ hostId: 'h1' }))
+      // Armed with the bridge's read-idle close (two daemon pings): a half-open one reopens.
+      expect(invoke).toHaveBeenCalledWith(
+        'ws_open',
+        expect.objectContaining({ hostId: 'h1', idleTimeoutMs: 60_000 }),
+      )
       expect(invoke).toHaveBeenCalledWith('ws_open', expect.objectContaining({ hostId: 'h2' }))
       stopChanged()
       stopDown()

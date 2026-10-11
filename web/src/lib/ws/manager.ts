@@ -45,13 +45,19 @@ function mayDial(hostId: string): boolean {
   return status !== 'down' && status !== 'needs-repair'
 }
 
+// The daemon pings every stream each 30 s. A remote one silent for two pings is half-open
+// (a network change, sleep): the bridge closes it, and it is redialled like any drop instead of
+// read as live forever. The local daemon is a unix socket away, with no network to lose.
+const REMOTE_READ_IDLE_TIMEOUT_MS = 60_000
+
 // The live transport for the active environment: the native WebSocket in the
 // browser, the unix-socket-bridged shim on desktop (where `crowbar://` has no
 // native WebSocket). A host-qualified endpoint dials that host.
 export function createTransport(endpoint: string): WSLike {
   const { hostId, path } = splitHostPath(endpoint)
   if (isTauri()) {
-    return new TauriWebSocket(path, hostId === LOCAL_HOST.id ? undefined : { hostId })
+    if (hostId === LOCAL_HOST.id) return new TauriWebSocket(path)
+    return new TauriWebSocket(path, { hostId, idleTimeoutMs: REMOTE_READ_IDLE_TIMEOUT_MS })
   }
   return new WebSocket(wsUrl(path, hostId)) as WSLike
 }

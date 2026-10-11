@@ -106,7 +106,34 @@ describe('WSManager host routing', () => {
 
     expect(tauriInstances).toHaveLength(1)
     expect(tauriInstances[0].path).toBe('/v0/projects')
-    expect(tauriInstances[0].options).toEqual({ hostId: 'h1' })
+    expect(tauriInstances[0].options).toEqual({ hostId: 'h1', idleTimeoutMs: 60_000 })
+  })
+
+  // The daemon pings every stream each 30 s, but a network change or sleep can leave a remote
+  // socket half-open: silent, never closed. The local daemon's unix socket has no such hop.
+  it('has a remote stream silent for two pings closed and reopened, its subscribers caught up', () => {
+    vi.useFakeTimers()
+    isTauri.mockReturnValue(true)
+    const mgr = createWSManager()
+    const remote = vi.fn()
+    const local = vi.fn()
+    mgr.subscribe('crowbar://h1/v0/projects/p/repos', remote)
+    mgr.subscribe('/v0/projects', local)
+    expect(tauriInstances.map((s) => s.options)).toEqual([
+      { hostId: 'h1', idleTimeoutMs: 60_000 },
+      undefined,
+    ])
+    tauriInstances.forEach((s) => s.onopen?.())
+
+    // The bridge's read-idle timeout: the shim reports it as the daemon closing the stream.
+    tauriInstances[0].onclose?.()
+    vi.advanceTimersByTime(1_000)
+    tauriInstances[2].onopen?.()
+
+    expect(tauriInstances[2].options).toEqual({ hostId: 'h1', idleTimeoutMs: 60_000 })
+    expect(remote).toHaveBeenCalledWith({ reconnected: true })
+    expect(local).not.toHaveBeenCalled()
+    vi.useRealTimers()
   })
 
   it('dials an unqualified endpoint exactly as before: the path alone, no options', () => {
@@ -401,7 +428,7 @@ describe('awaitEntity on a qualified endpoint', () => {
     await Promise.resolve()
     await Promise.resolve()
     const [local, remote] = tauriInstances
-    expect(remote.options).toEqual({ hostId: 'h1' })
+    expect(remote.options).toEqual({ hostId: 'h1', idleTimeoutMs: 60_000 })
 
     local.onmessage?.({ data: '{"id":"local-twin","path":"/srv/app"}' })
     await Promise.resolve()
