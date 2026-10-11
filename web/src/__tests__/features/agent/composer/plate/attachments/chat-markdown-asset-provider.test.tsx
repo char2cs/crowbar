@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
+import { toast } from '@/features/window/stores/toast-store'
 import { useMarkdownAsset } from '@/features/editor/markdown/plate/markdown-asset'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { idle, success } from '@/lib/loadable'
@@ -8,6 +10,7 @@ import { useProjectDataStore } from '@/lib/store/projects'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
 import { useChatId } from '@/features/agent/composer/plate/attachments/chat-id-context'
+import { pairRemoteHost, projectOn } from '@/__tests__/__fixtures__/remote-host'
 
 beforeEach(() => {
   useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
@@ -65,6 +68,25 @@ describe('ChatMarkdownAssetProvider', () => {
       </ChatMarkdownAssetProvider>,
     )
     expect(seen[0]?.wsId).toBe('ws1')
+  })
+
+  // A message on another host that links that host's own localhost means that host.
+  it('makes the chat’s links its workspace’s: a remote loopback link is not opened here', () => {
+    pairRemoteHost('h1', 'Build box')
+    useProjectDataStore.setState({ data: success([projectOn('p1', 'h1')]) })
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    const info = vi.spyOn(toast, 'info').mockReturnValue('')
+    render(
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+        <MarkdownMessageStatic>[preview](http://localhost:3000/)</MarkdownMessageStatic>
+      </ChatMarkdownAssetProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('link', { name: 'preview' }))
+
+    expect(open).not.toHaveBeenCalled()
+    expect(info.mock.calls[0]?.[0]).toMatch(/^This link is on Build box/)
+    vi.restoreAllMocks()
   })
 
   it('supplies the chat id via ChatIdContext', () => {
