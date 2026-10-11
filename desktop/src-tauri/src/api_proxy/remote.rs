@@ -7,6 +7,7 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
+use http_body_util::LengthLimitError;
 use rustls::pki_types::ServerName;
 use socket2::{SockRef, TcpKeepalive};
 use tauri::http;
@@ -18,6 +19,11 @@ use super::{error_response, proxy, proxy_error, HOST_IDENTITY_CHANGED, HOST_UNRE
 use crate::host_tokens::{Credential, TokenStore};
 use crate::hosts::HostRegistry;
 use crate::tls_pin::{pinned_client_config, Pin};
+
+/// Most bytes the proxy buffers of one remote host's answer. The webview gets a
+/// body whole, so a hostile host could otherwise stream until the desktop runs
+/// out of memory; this is far above any honest answer.
+pub(crate) const REMOTE_BODY_LIMIT: usize = 256 * 1024 * 1024;
 
 /// Sent as SNI only: `PinnedVerifier` trusts the fingerprint and ignores names.
 const SERVER_NAME: &str = "crowbar-remote";
@@ -162,10 +168,19 @@ pub(super) async fn forward_remote(
         Ok(tls) => tls,
         Err(e) => return e.into_response(),
     };
-    match proxy(tls, request).await {
+    match proxy(tls, request, REMOTE_BODY_LIMIT).await {
         Ok(resp) => resp,
-        Err(e) => error_response(502, &format!("crowbar proxy error: {e}")),
+        Err(e) => relay_failure(&*e),
     }
+}
+
+/// A relay that failed after the dial. An oversized answer gets a plain 502 of
+/// its own: no proxy marker means "too large", and the host id stays out of it.
+fn relay_failure(e: &(dyn std::error::Error + Send + Sync + 'static)) -> http::Response<Vec<u8>> {
+    if e.is::<LengthLimitError>() {
+        return error_response(502, "remote response too large");
+    }
+    error_response(502, &format!("crowbar proxy error: {e}"))
 }
 
 /// What pairing stored for `host_id`; any other keychain entry counts as none.
@@ -193,17 +208,26 @@ pub(crate) fn bearer(token: &str) -> Result<http::HeaderValue, String> {
 
 #[cfg(test)]
 mod tests {
+    use std::convert::Infallible;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
+    use bytes::Bytes;
+    use futures_util::StreamExt;
+    use http_body_util::{LengthLimitError, StreamBody};
+    use hyper::body::Frame;
     use tauri::http;
 
+    use super::super::collect_capped;
     use super::super::test_support::{
         header, identity, marker, paired, refused_endpoint, registry, response, serve_once_tls,
         unrelated_key, Keychain, HOST_ID,
     };
     use super::super::{readable_by, HOST_IDENTITY_CHANGED, HOST_UNREACHABLE, PROXY_HEADER};
-    use super::{dial, forward_remote, RemoteHost, KEEPALIVE_IDLE, KEEPALIVE_INTERVAL};
+    use super::{
+        dial, forward_remote, relay_failure, RemoteHost, KEEPALIVE_IDLE, KEEPALIVE_INTERVAL,
+    };
     use crate::host_tokens::TokenStore;
     use crate::hosts::HostRegistry;
     use crate::tls_pin::{certificate_digest, Pin};
@@ -416,5 +440,45 @@ mod tests {
         assert!(socket.keepalive().unwrap(), "no keepalive probes");
         assert_eq!(socket.tcp_keepalive_time().unwrap(), KEEPALIVE_IDLE);
         assert_eq!(socket.tcp_keepalive_interval().unwrap(), KEEPALIVE_INTERVAL);
+    }
+
+    /// A body of `chunks` 1 KiB frames that counts how many were pulled.
+    fn counted_body(
+        chunks: usize,
+        pulled: Arc<AtomicUsize>,
+    ) -> impl hyper::body::Body<Data = Bytes, Error = Infallible> {
+        StreamBody::new(futures_util::stream::iter(0..chunks).map(move |_| {
+            pulled.fetch_add(1, Ordering::SeqCst);
+            Ok(Frame::data(Bytes::from_static(&[0u8; 1024])))
+        }))
+    }
+
+    #[tokio::test]
+    async fn an_oversized_remote_answer_is_cut_off_while_it_streams() {
+        let pulled = Arc::new(AtomicUsize::new(0));
+
+        let err = collect_capped(counted_body(1024, pulled.clone()), 4 * 1024)
+            .await
+            .expect_err("a body past the limit must not be buffered");
+
+        assert!(err.is::<LengthLimitError>(), "{err}");
+        assert!(
+            pulled.load(Ordering::SeqCst) <= 5,
+            "read {} KiB of a 4 KiB limit",
+            pulled.load(Ordering::SeqCst)
+        );
+        let resp = relay_failure(&*err);
+        assert_eq!(resp.status(), 502);
+        assert_eq!(text(&resp), "remote response too large");
+        assert_eq!(marker(&resp), None);
+    }
+
+    #[tokio::test]
+    async fn an_answer_within_the_limit_is_relayed_whole() {
+        let body = collect_capped(counted_body(3, Arc::default()), 4 * 1024)
+            .await
+            .expect("within the limit");
+
+        assert_eq!(body.len(), 3 * 1024);
     }
 }

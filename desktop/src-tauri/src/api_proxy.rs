@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use http_body_util::{BodyExt, Full};
+use http_body_util::{BodyExt, Full, Limited};
 use hyper::Request as HyperRequest;
 use hyper_util::rt::TokioIo;
 use tauri::http;
@@ -52,6 +52,8 @@ const CONNECT_FAST_STEPS: u32 = 40;
 const CONNECT_FAST_DELAY: Duration = Duration::from_millis(25);
 const CONNECT_RETRY_BASE: Duration = Duration::from_millis(100);
 const CONNECT_RETRY_CAP: Duration = Duration::from_secs(1);
+
+type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 /// Marks a response that is the PROXY's, not the daemon's; the value says why.
 pub(crate) const PROXY_HEADER: &str = "x-crowbar-proxy";
@@ -220,7 +222,8 @@ where
         wait(attempt).await;
         attempt += 1;
     };
-    match proxy(stream, request).await {
+    // The local daemon is this app's own: only a remote host's answer is capped.
+    match proxy(stream, request, usize::MAX).await {
         Ok(resp) => resp,
         Err(e) => error_response(502, &format!("crowbar proxy error: {e}")),
     }
@@ -229,7 +232,8 @@ where
 async fn proxy<S>(
     stream: S,
     request: http::Request<Vec<u8>>,
-) -> Result<http::Response<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>
+    body_limit: usize,
+) -> Result<http::Response<Vec<u8>>, BoxError>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -270,7 +274,7 @@ where
 
     let upstream_resp = sender.send_request(upstream_req).await?;
     let (resp_parts, resp_body) = upstream_resp.into_parts();
-    let collected = resp_body.collect().await?.to_bytes().to_vec();
+    let collected = collect_capped(resp_body, body_limit).await?;
 
     let mut out = http::Response::builder().status(resp_parts.status);
     if let Some(headers) = out.headers_mut() {
@@ -284,6 +288,17 @@ where
         }
     }
     Ok(out.body(collected)?)
+}
+
+/// Buffers `body`, failing with `LengthLimitError` once it passes `limit`:
+/// counted as it streams in, so an endless body never lands in memory.
+async fn collect_capped<B>(body: B, limit: usize) -> Result<Vec<u8>, BoxError>
+where
+    B: hyper::body::Body,
+    B::Error: Into<BoxError>,
+{
+    let collected = Limited::new(body, limit).collect().await?;
+    Ok(collected.to_bytes().to_vec())
 }
 
 #[cfg(test)]

@@ -11,7 +11,7 @@ use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream;
 
 use super::proxy;
-use super::remote::{dial, RemoteHost};
+use super::remote::{dial, RemoteHost, REMOTE_BODY_LIMIT};
 use crate::host_tokens::{Credential, TokenStore};
 use crate::hosts::{validate_host_id, HostRegistry};
 use crate::tls_pin::{certificate_digest, CertificateDigest, Pin};
@@ -81,7 +81,7 @@ async fn redeem(host: &RemoteHost, code: &str, name: &str) -> Result<Redeemed, S
         .header(http::header::CONTENT_TYPE, "application/json")
         .body(body.into_bytes())
         .map_err(|e| e.to_string())?;
-    let resp = proxy(tls, request)
+    let resp = proxy(tls, request, REMOTE_BODY_LIMIT)
         .await
         .map_err(|e| format!("pairing with {} failed: {e}", host.endpoint))?;
     let (token, client_id) = pairing_answer(&resp)?;
