@@ -1,5 +1,6 @@
 import { apiFetch } from '@/lib/api'
 import { gitBaseForWorkspace } from '@/lib/workspace-scope-url'
+import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 import type { GitCommit } from '../types/git-types'
 
 // Commit the staged changes. The first line is the subject; anything after a
@@ -15,6 +16,8 @@ export const commitChanges = async (wsId: string, message: string): Promise<bool
     return true
   } catch (error) {
     console.error('git commit failed:', error)
+    // The commit box only hears "failed": a remote host behind it is named here.
+    toastHostFailure(error)
     return false
   }
 }
