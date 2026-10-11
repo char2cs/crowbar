@@ -12,15 +12,18 @@ const LABEL: Record<HostDotState, string> = {
 }
 
 const UNSETTLED = 'border border-muted-foreground/50 bg-transparent'
+const UP = 'bg-success shadow-[0_0_4px_--theme(--color-success/60%)]'
+// Spec §5.1: a host that does not answer is a muted grey, not an alarm.
+const NOT_ANSWERING = 'bg-muted-foreground/50'
 
 const DOT_CLASS: Record<HostDotState, string> = {
   unknown: UNSETTLED,
   probing: UNSETTLED,
-  up: 'bg-success',
-  'no-live-stream': 'bg-success',
-  down: 'bg-destructive',
+  up: UP,
+  'no-live-stream': UP,
+  down: NOT_ANSWERING,
   'needs-repair': 'bg-warning',
-  'not-available': 'bg-muted-foreground/50',
+  'not-available': NOT_ANSWERING,
 }
 
 /** The words for `state`, for a surface that says it in text as well as on the dot. */
