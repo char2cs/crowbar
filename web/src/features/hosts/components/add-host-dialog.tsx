@@ -232,8 +232,9 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
               id="add-host-code"
               autoFocus
               value={code}
-              // Spaces only: a code copied from a terminal often brings some along.
-              onChange={(e) => setCode(e.target.value.replace(/\s/g, ''))}
+              // Full-width digits read as digits (an IME types them); spaces go: a code copied
+              // from a terminal often brings some along.
+              onChange={(e) => setCode(e.target.value.normalize('NFKC').replace(/\s/g, ''))}
               placeholder="123456"
               inputMode="numeric"
               autoComplete="one-time-code"

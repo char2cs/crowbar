@@ -251,4 +251,28 @@ describe('AddHostDialog', () => {
     expect(code).toHaveAccessibleDescription('A pairing code is exactly 6 digits.')
     expect(screen.getByText('A pairing code is exactly 6 digits.')).toBeVisible()
   })
+
+  // An East Asian input method types full-width digits (and spaces) unless switched out of it.
+  it('reads a code typed in full-width digits as the digits it is', async () => {
+    vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
+    vi.mocked(redeemPairingCode).mockResolvedValueOnce(undefined)
+    render(<AddHostDialog open onOpenChange={() => {}} />)
+    fillAddressStage()
+    fireEvent.click(await screen.findByRole('button', { name: /confirm fingerprint/i }))
+
+    fireEvent.change(screen.getByLabelText(/pairing code/i), {
+      target: { value: '１２３\u3000４５６' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Pair' }))
+
+    await waitFor(() =>
+      expect(redeemPairingCode).toHaveBeenCalledWith(
+        expect.any(String),
+        '1.2.3.4:3737',
+        'SHA256:aaaa',
+        '123456',
+        'homelab',
+      ),
+    )
+  })
 })
