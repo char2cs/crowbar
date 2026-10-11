@@ -8,11 +8,9 @@ export interface UploadLimit {
   label: string
 }
 
-/**
- * The bytes of this computer's file `path`, for a daemon on another host that cannot read
- * this disk. Read through the webview's asset protocol, whose HEAD reports the size without
- * reading the file: a file over `limit` is refused unread.
- */
+/** This computer's file `path`, for a daemon on another host that cannot read this disk. Read
+ *  through the webview's asset protocol, whose HEAD gives the size without reading the file: a
+ *  file over `limit` is refused unread. */
 export async function readDesktopFile(path: string, limit: UploadLimit): Promise<File> {
   const name = path.split(/[\\/]/).pop() || 'file'
   const tooLarge = () => new Error(`${name} is larger than the ${limit.label} limit`)

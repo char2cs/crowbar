@@ -23,7 +23,7 @@ import {
 } from './api/errors'
 import { routeToHost } from './api/host-route'
 
-export { ApiError, isHostIdentityChangedError, isHostUnreachableError } from './api/errors'
+export { ApiError } from './api/errors'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''

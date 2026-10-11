@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
-
-// The guards live in api.ts, which imports isTauri from the bridge.
-vi.mock('@/lib/crowbar-bridge', () => ({ isTauri: () => false }))
-
-import { ApiError, isHostIdentityChangedError, isHostUnreachableError } from '@/lib/api'
-import { streamFailureOf } from '@/lib/api/errors'
+import { describe, expect, it } from 'vitest'
+import {
+  ApiError,
+  isHostIdentityChangedError,
+  isHostUnreachableError,
+  streamFailureOf,
+} from '@/lib/api/errors'
 
 // What ws_open rejects with for a remote host (desktop/src-tauri/src/ws_bridge/remote.rs):
 // `<x-crowbar-proxy value>: <reason>`. Tauri hands a string error to JS as a string.

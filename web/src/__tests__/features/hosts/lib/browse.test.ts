@@ -5,7 +5,8 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   apiFetch: vi.fn(),
 }))
 
-import { ApiError, apiFetch, isHostUnreachableError } from '@/lib/api'
+import { ApiError, apiFetch } from '@/lib/api'
+import { isHostUnreachableError } from '@/lib/api/errors'
 import { proxyMarkerError } from '@/lib/api/errors'
 import { browseDirectory } from '@/features/hosts/lib/browse'
 

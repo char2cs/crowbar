@@ -11,14 +11,13 @@ import {
   ApiError,
   chatDTOFromWire,
   isDaemonUnavailableError,
-  isHostUnreachableError,
-  isHostIdentityChangedError,
   fetchFolders,
   fetchHomeWorkspace,
   fetchRepoChats,
   workspaceDTOFromChat,
   type RepoChatWireDTO,
 } from '@/lib/api'
+import { isHostIdentityChangedError, isHostUnreachableError } from '@/lib/api/errors'
 import { noteDaemonChange } from '@/lib/transport/daemon-changes'
 import type { ChatWorktreeDTO } from '@/lib/types'
 
