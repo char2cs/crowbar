@@ -1,5 +1,6 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { vi, expect, test, beforeEach } from 'vitest'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { vi, expect, test, beforeEach, describe, afterEach } from 'vitest'
 import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 // §3/§4 subscribe-before-POST: postRepo answers 202 (void). The daemon imports
@@ -38,6 +39,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
   return {
     ...actual,
+    apiFetch: vi.fn(),
     postRepo: vi.fn((_p: string, _name: string, _path: string) => Promise.resolve()),
     fetchWorkspaces: vi.fn((_p: string, _r: string) => Promise.resolve([])),
   }
@@ -55,6 +57,7 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 import * as api from '@/lib/api'
 import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { success } from '@/lib/loadable'
 import { useProjectDataStore, useProjectStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -347,4 +350,86 @@ test('subscribes nothing and posts nothing for a project whose host is not resol
   expect(subscribers.size).toBe(0)
   expect(api.postRepo).not.toHaveBeenCalled()
   expect(navigateMock).not.toHaveBeenCalled()
+})
+
+// The repo folder lives on the project's own daemon: Local's comes from the OS dialog as it
+// always did, a remote project's from its host's filesystem — and an unknown host's from neither.
+describe('the repository folder', () => {
+  const invoke = vi.fn()
+  const nativeDialogCalls = () => invoke.mock.calls.filter(([cmd]) => cmd === 'plugin:dialog|open')
+  const browseButton = () => screen.getByRole('button', { name: 'Browse…' })
+
+  beforeEach(() => {
+    invoke.mockReset()
+    invoke.mockImplementation((cmd: string) =>
+      cmd === 'plugin:dialog|open'
+        ? Promise.resolve('/Users/me/code/app')
+        : Promise.reject(new Error(`unexpected ${cmd}`)),
+    )
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = { invoke }
+    useProjectDataStore.setState({ data: success([{ ...onHost2('proj-1'), hostId: 'local' }]) })
+    vi.mocked(api.apiFetch).mockReset()
+    vi.mocked(api.apiFetch).mockImplementation((url: string) => {
+      const path = new URL(url, 'http://x').searchParams.get('path')
+      const names: Record<string, string[]> = { '/': ['srv'], '/srv': ['app'], '/srv/app': [] }
+      const base = path === '/' ? '' : path
+      const entries = (names[path ?? ''] ?? []).map((n) => ({
+        name: n,
+        path: `${base}/${n}`,
+        isDir: true,
+      }))
+      return Promise.resolve(entries as never)
+    })
+  })
+
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+  })
+
+  test("a local project's folder comes from the OS dialog, and no host is browsed", async () => {
+    render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-1" />)
+
+    fireEvent.click(browseButton())
+
+    await waitFor(() => expect(pathInput()).toHaveValue('/Users/me/code/app'))
+    expect(nativeDialogCalls()).toEqual([
+      ['plugin:dialog|open', { options: { directory: true, multiple: false } }, undefined],
+    ])
+    expect(screen.queryByRole('dialog', { name: /choose a folder/i })).not.toBeInTheDocument()
+    expect(api.apiFetch).not.toHaveBeenCalled()
+  })
+
+  test("a remote project's folder is browsed on its own host, never through the OS dialog", async () => {
+    pairHost2()
+    getOrCreateHostRuntime('host-2').getState().setStatus('up')
+    useProjectDataStore.setState({ data: success([onHost2('proj-2')]) })
+    const user = userEvent.setup()
+    render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-2" />)
+
+    await user.click(browseButton())
+    const picker = await screen.findByRole('dialog', { name: /choose a folder/i })
+    expect(within(picker).getByText("Browsing host-2's filesystem")).toBeInTheDocument()
+    await user.click(await within(picker).findByRole('treeitem', { name: 'srv' }))
+    await user.click(await within(picker).findByRole('treeitem', { name: 'app' }))
+    await user.click(within(picker).getByRole('button', { name: /^select/i }))
+
+    await waitFor(() => expect(pathInput()).toHaveValue('/srv/app'))
+    expect(screen.getByLabelText(/repository name/i)).toHaveValue('app')
+    expect(nativeDialogCalls()).toEqual([])
+    const hosts = vi.mocked(api.apiFetch).mock.calls.map((call) => call[3])
+    expect(new Set(hosts)).toEqual(new Set(['host-2']))
+  })
+
+  test('a project whose host is not resolved browses nothing — not Local, not a guess', async () => {
+    pairHost2()
+    useProjectDataStore.setState({ data: success([onHost2('proj-2')]) })
+    render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-unknown" />)
+
+    expect(browseButton()).toBeDisabled()
+    fireEvent.click(browseButton())
+
+    expect(nativeDialogCalls()).toEqual([])
+    expect(screen.queryByRole('dialog', { name: /choose a folder/i })).not.toBeInTheDocument()
+    expect(api.apiFetch).not.toHaveBeenCalled()
+  })
 })

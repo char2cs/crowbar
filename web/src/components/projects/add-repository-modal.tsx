@@ -10,10 +10,11 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FolderOpen } from '@phosphor-icons/react'
 import { toast } from '@/features/window/stores/toast-store'
-import { openNativeDialog as openDialog } from '@/lib/native-dialog'
+import { useDaemonFolderPicker } from '@/features/hosts/hooks/use-daemon-folder-picker'
 import { useNavigate } from '@tanstack/react-router'
 import { isTauri } from '@/lib/crowbar-bridge'
 import { fetchWorkspaces, postRepo, workspaceDTOFromWorktreeFrame } from '@/lib/api'
+import { useResolvedHost } from '@/lib/host-resolve'
 import { projectBase, repoBase } from '@/lib/project-url'
 import { awaitEntity } from '@/lib/ws/await-entity'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
@@ -36,20 +37,20 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
   const trimmedPath = path.trim()
   const pathLooksAbsolute = trimmedPath.startsWith('/') || /^[A-Za-z]:[\\/]/.test(trimmedPath)
 
-  async function handleBrowse() {
-    const selected = await openDialog({ directory: true, multiple: false })
-    if (typeof selected === 'string') {
-      setPath(selected)
-      if (!name) {
-        setName(
-          selected
-            .replace(/[\\/]+$/, '')
-            .split(/[\\/]/)
-            .pop() ?? '',
-        )
-      }
+  function handlePicked(selected: string) {
+    setPath(selected)
+    if (!name) {
+      setName(
+        selected
+          .replace(/[\\/]+$/, '')
+          .split(/[\\/]/)
+          .pop() ?? '',
+      )
     }
   }
+  // The folder is picked on the daemon the repo is imported by: the project's own host.
+  const folderHost = useResolvedHost({ projectId })
+  const folderPicker = useDaemonFolderPicker(folderHost, handlePicked)
 
   async function handleAdd() {
     if (!pathLooksAbsolute) return
@@ -146,10 +147,17 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
                 className="font-mono text-[12px]"
               />
               {isTauri() && (
-                <Button variant="outline" size="icon" onClick={handleBrowse} title="Browse…">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={folderPicker.pick}
+                  disabled={folderHost === null}
+                  title="Browse…"
+                >
                   <FolderOpen className="size-4" />
                 </Button>
               )}
+              {folderPicker.picker}
             </div>
             {trimmedPath !== '' && !pathLooksAbsolute && (
               <p className="text-[12px] text-destructive">
