@@ -100,7 +100,7 @@ describe('AddHostDialog', () => {
     fireEvent.change(codeInput, { target: { value: '000000' } })
     fireEvent.click(screen.getByRole('button', { name: /pair|connect/i }))
     await waitFor(() => expect(redeemPairingCode).toHaveBeenCalledTimes(1))
-    expect(await screen.findByText(/^That code didn’t work\./)).toBeVisible()
+    expect(await screen.findByRole('alert')).toHaveTextContent(/^That code didn’t work\./)
 
     fireEvent.change(await screen.findByLabelText(/code/i), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: /pair|connect/i }))
@@ -114,6 +114,23 @@ describe('AddHostDialog', () => {
       'homelab',
     )
     expect(probeRemoteFingerprint).toHaveBeenCalledTimes(1)
+  })
+
+  it('still says why a code failed after going Back to the fingerprint', async () => {
+    vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
+    vi.mocked(redeemPairingCode).mockRejectedValueOnce(
+      'the host refused pairing (401 Unauthorized): pairing code is not valid',
+    )
+    render(<AddHostDialog open onOpenChange={() => {}} />)
+    fillAddressStage()
+    fireEvent.click(await screen.findByRole('button', { name: /confirm fingerprint/i }))
+    fireEvent.change(screen.getByLabelText(/pairing code/i), { target: { value: '000000' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Pair' }))
+    await screen.findByRole('alert')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/^That code didn’t work\./)
   })
 
   // A closed dialog's attempt is over: its confirmed fingerprint must not carry into the next.
@@ -160,11 +177,9 @@ describe('AddHostDialog', () => {
     render(<AddHostDialog open onOpenChange={() => {}} />)
     fillAddressStage()
 
-    expect(
-      await screen.findByText(
-        'Can’t reach 1.2.3.4:3737. Check the address and port, and that the host is running.',
-      ),
-    ).toBeVisible()
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Can’t reach 1.2.3.4:3737. Check the address and port, and that the host is running.',
+    )
     expect(screen.queryByText(/os error|refused/i)).toBeNull()
     expect(screen.queryByRole('button', { name: /confirm|looks right/i })).not.toBeInTheDocument()
     expect(redeemPairingCode).not.toHaveBeenCalled()
@@ -188,11 +203,9 @@ describe('AddHostDialog', () => {
 
     fillAddressStage()
 
-    expect(
-      await screen.findByText(
-        'This address is already paired as homelab. Remove it in Settings → Hosts to pair it again.',
-      ),
-    ).toBeVisible()
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'This address is already paired as homelab. Remove it in Settings → Hosts to pair it again.',
+    )
     expect(screen.queryByText('SHA256:bbbb')).toBeNull()
     expect(screen.getByLabelText(/address/i)).toBeEnabled()
     expect(redeemPairingCode).not.toHaveBeenCalled()

@@ -173,7 +173,11 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
                 disabled={probing}
               />
             </div>
-            {error && <p className="text-[12px] text-destructive">{error}</p>}
+            {error && (
+              <p role="alert" className="text-[12px] text-destructive">
+                {error}
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="ghost" type="button" disabled={probing} onClick={onCancel}>
@@ -203,7 +207,11 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
             >
               {fingerprint}
             </div>
-            {error && <p className="text-[12px] text-destructive">{error}</p>}
+            {error && (
+              <p role="alert" className="text-[12px] text-destructive">
+                {error}
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="ghost" type="button" onClick={() => setStage('address')}>
@@ -238,7 +246,11 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
                 ? 'The 6-digit code crowbar pair printed on the host.'
                 : 'A pairing code is exactly 6 digits.'}
             </p>
-            {error && <p className="text-[12px] text-destructive">{error}</p>}
+            {error && (
+              <p role="alert" className="text-[12px] text-destructive">
+                {error}
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button
