@@ -9,7 +9,14 @@ import type { Project } from '@/lib/types'
 
 /** The project row's name over its own host and that host's status: one no longer configured
  *  is not available, never Local. Only a remote host's row dims. */
-export function SpaceHeaderLabel({ project }: { project: Project }) {
+export function SpaceHeaderLabel({
+  project,
+  hostLineId,
+}: {
+  project: Project
+  /** The host line's id, for the row's control to be described by. */
+  hostLineId: string
+}) {
   const { name: hostName, state } = useHostView(project.hostId)
   const dimmed = project.hostId !== LOCAL_HOST.id && hostIsUnreachable(state)
 
@@ -23,7 +30,10 @@ export function SpaceHeaderLabel({ project }: { project: Project }) {
       <span className="truncate font-heading text-[15px]/[1.15] font-normal group-data-unreachable/label:opacity-70 dark:group-data-unreachable/label:opacity-55">
         {project.name}
       </span>
-      <span className="flex min-w-0 items-center gap-1.25 text-[11px]/[13px] font-normal text-muted-foreground">
+      <span
+        id={hostLineId}
+        className="flex min-w-0 items-center gap-1.25 text-[11px]/[13px] font-normal text-muted-foreground"
+      >
         <HostStatusDot hostId={project.hostId} state={state} className="size-1.5" />
         <span className="truncate">{hostName ?? hostDotLabel(state)}</span>
       </span>

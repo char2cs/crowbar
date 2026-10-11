@@ -147,8 +147,9 @@ describe('SpaceHeader', () => {
     expect(onToggle).toHaveBeenCalledTimes(1)
   })
 
-  // The host line is part of the fold control, so clicking anywhere on the label folds.
-  it('shows the project’s host under its name, inside the fold control', () => {
+  // The host line is part of the fold control, which it describes: clicking anywhere on the label
+  // folds, and a screen reader hears which host (and its state) the project is on.
+  it('shows the project’s host under its name, inside the fold control it describes', () => {
     const onToggle = vi.fn()
     renderHeader({ onToggleFold: onToggle })
     const fold = screen.getByRole('button', { name: 'Collapse p1' })
@@ -156,6 +157,7 @@ describe('SpaceHeader', () => {
     expect(fold).toContainElement(screen.getByText('p1'))
     expect(fold).toContainElement(screen.getByText('Local'))
     expect(fold).toContainElement(screen.getByTestId('host-status-local'))
+    expect(fold).toHaveAccessibleDescription(/Local$/)
     fireEvent.click(screen.getByText('Local'))
     expect(onToggle).toHaveBeenCalledTimes(1)
   })

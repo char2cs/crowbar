@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import {
   ArrowElbowDownRight,
   CaretDown,
@@ -148,6 +148,7 @@ export function SpaceHeader({
   // through that shared state. A real inline `<input>` in place of the
   // label, matching `develop`'s actual behavior — not a modal.
   const [renaming, setRenaming] = useState(false)
+  const hostLineId = useId()
 
   return (
     <div
@@ -254,6 +255,7 @@ export function SpaceHeader({
           type="button"
           aria-expanded={!folded}
           aria-label={`${folded ? 'Expand' : 'Collapse'} ${project.name}`}
+          aria-describedby={hostLineId}
           className={cn(
             'flex min-w-0 flex-1 cursor-pointer items-center self-stretch truncate rounded-sm text-left outline-none',
             'focus-visible:ring-1 focus-visible:ring-ring',
@@ -267,7 +269,7 @@ export function SpaceHeader({
             setRenaming(true)
           }}
         >
-          <SpaceHeaderLabel project={project} />
+          <SpaceHeaderLabel project={project} hostLineId={hostLineId} />
         </button>
       )}
 

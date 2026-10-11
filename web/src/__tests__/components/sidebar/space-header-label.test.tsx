@@ -20,7 +20,7 @@ const dot = (hostId: string) => screen.getByTestId(`host-status-${hostId}`)
 function remoteProject(status: HostStatus, hostName = 'homelab-prox') {
   pairRemoteHost('h1', hostName)
   getOrCreateHostRuntime('h1').getState().setStatus(status)
-  render(<SpaceHeaderLabel project={projectOn('Crowbar API', 'h1')} />)
+  render(<SpaceHeaderLabel project={projectOn('Crowbar API', 'h1')} hostLineId="host-line" />)
 }
 
 beforeEach(() => resetHostWorld())
@@ -33,7 +33,7 @@ afterEach(() => {
 describe('SpaceHeaderLabel', () => {
   it('a local project reads Local, with the local daemon’s own status', () => {
     useConnectionStore.setState({ status: 'connected' })
-    render(<SpaceHeaderLabel project={projectOn('Rabbyte Labs', 'local')} />)
+    render(<SpaceHeaderLabel project={projectOn('Rabbyte Labs', 'local')} hostLineId="host-line" />)
 
     expect(screen.getByText('Rabbyte Labs')).toBeInTheDocument()
     expect(screen.getByText('Local')).toBeInTheDocument()
@@ -45,7 +45,7 @@ describe('SpaceHeaderLabel', () => {
   // never-paired user's every row.
   it('a local project never dims, whatever the local daemon’s status', () => {
     useConnectionStore.setState({ status: 'disconnected' })
-    render(<SpaceHeaderLabel project={projectOn('Rabbyte Labs', 'local')} />)
+    render(<SpaceHeaderLabel project={projectOn('Rabbyte Labs', 'local')} hostLineId="host-line" />)
 
     expect(dot('local')).toHaveAttribute('aria-label', 'Offline')
     expect(label()).not.toHaveAttribute('data-unreachable')
@@ -95,7 +95,7 @@ describe('SpaceHeaderLabel', () => {
   it('a project whose host was removed reads not available, never Local', () => {
     pairRemoteHost('h1', 'homelab-prox')
     useHostConfigStore.getState().removeHost('h1')
-    render(<SpaceHeaderLabel project={projectOn('Quiver Sync', 'h1')} />)
+    render(<SpaceHeaderLabel project={projectOn('Quiver Sync', 'h1')} hostLineId="host-line" />)
 
     expect(screen.queryByText('Local')).not.toBeInTheDocument()
     expect(screen.queryByText('homelab-prox')).not.toBeInTheDocument()
@@ -105,10 +105,21 @@ describe('SpaceHeaderLabel', () => {
   })
 
   it('a host id no configured host has reads not available even on a never-paired install', () => {
-    render(<SpaceHeaderLabel project={projectOn('Quiver Sync', 'h9')} />)
+    render(<SpaceHeaderLabel project={projectOn('Quiver Sync', 'h9')} hostLineId="host-line" />)
 
     expect(screen.queryByText('Local')).not.toBeInTheDocument()
     expect(dot('h9')).toHaveAttribute('aria-label', 'Host not available')
+  })
+
+  // The row's control is described by this line: two same-named projects on two hosts, and a
+  // host that is down, are told apart by ear too.
+  it('gives its host line, dot and name, the id the row’s control is described by', () => {
+    remoteProject('down')
+    const line = document.getElementById('host-line')
+
+    expect(line).toHaveTextContent('homelab-prox')
+    expect(line).toContainElement(dot('h1'))
+    expect(screen.getByText('Crowbar API')).not.toBe(line)
   })
 
   it('a status change redraws the dot in place, without remounting the row', () => {
