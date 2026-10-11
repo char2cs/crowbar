@@ -176,4 +176,17 @@ describe('AddHostDialog', () => {
     expect(screen.getByLabelText(/address/i)).toBeEnabled()
     expect(redeemPairingCode).not.toHaveBeenCalled()
   })
+
+  // Focus follows the flow: it never drops to the page behind the dialog.
+  it('moves focus to each stage’s next step: Confirm, then the code field', async () => {
+    vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
+    render(<AddHostDialog open onOpenChange={() => {}} />)
+    fillAddressStage()
+
+    const confirm = await screen.findByRole('button', { name: /confirm fingerprint/i })
+    await waitFor(() => expect(confirm).toHaveFocus())
+    fireEvent.click(confirm)
+
+    await waitFor(() => expect(screen.getByLabelText(/pairing code/i)).toHaveFocus())
+  })
 })

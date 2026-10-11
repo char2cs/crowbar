@@ -187,7 +187,7 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
             <Button variant="ghost" type="button" onClick={() => setStage('address')}>
               Back
             </Button>
-            <Button type="button" onClick={handleConfirmFingerprint}>
+            <Button type="button" autoFocus onClick={handleConfirmFingerprint}>
               Confirm fingerprint
             </Button>
           </DialogFooter>
@@ -200,6 +200,7 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
             <Label htmlFor="add-host-code">Pairing code</Label>
             <Input
               id="add-host-code"
+              autoFocus
               value={code}
               onChange={(e) => setCode(e.target.value)}
               placeholder="123456"
