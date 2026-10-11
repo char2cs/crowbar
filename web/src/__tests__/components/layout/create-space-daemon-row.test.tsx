@@ -1,7 +1,16 @@
 import { useState } from 'react'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const tauri = vi.hoisted(() => ({ on: true }))
+vi.mock('@/lib/crowbar-bridge', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/crowbar-bridge')>()),
+  isTauri: () => tauri.on,
+  probeRemoteFingerprint: vi.fn(),
+  pairRemoteHost: vi.fn(),
+}))
+
 import { CreateSpaceDaemonRow } from '@/components/layout/create-space-daemon-row'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
@@ -30,6 +39,7 @@ async function selectDaemonOption(user: ReturnType<typeof userEvent.setup>, name
 }
 
 beforeEach(() => {
+  tauri.on = true
   useHostConfigStore.setState({ hosts: [] })
   useConnectionStore.setState({ status: 'connected' })
 })
@@ -95,5 +105,19 @@ describe('CreateSpaceDaemonRow', () => {
     })
 
     expect(hostName()).toHaveValue('')
+  })
+
+  // Pairing is the desktop shell's: outside it, adding a host could only end in an error.
+  it('offers "+ Add a host…" only in the desktop app, and keeps the Daemon row', async () => {
+    tauri.on = false
+    useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'office-vm' })] })
+    const user = userEvent.setup()
+    render(<DaemonRow />)
+
+    await user.click(daemonTrigger())
+
+    expect(await screen.findByRole('option', { name: /local/i })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /office-vm/i })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /add a host/i })).not.toBeInTheDocument()
   })
 })

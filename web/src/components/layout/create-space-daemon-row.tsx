@@ -17,6 +17,7 @@ import {
 import { useHostDotState, useHostView } from '@/features/hosts/hooks/use-host-status'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { LOCAL_HOST, type Host } from '@/features/hosts/types'
+import { isTauri } from '@/lib/crowbar-bridge'
 
 // A trailing pick that opens AddHostDialog rather than ever becoming the selected daemon.
 const ADD_HOST_VALUE = '__add-host__'
@@ -59,6 +60,8 @@ export function CreateSpaceDaemonRow({ hostId, onHostIdChange }: CreateSpaceDaem
   const [addHostOpen, setAddHostOpen] = useState(false)
   // Each opening is a new attempt, even one made while the last is still closing.
   const [addHostAttempt, setAddHostAttempt] = useState(0)
+  // Pairing is the desktop shell's: anywhere else it could only end in an error.
+  const canAddHost = isTauri()
 
   function handleValueChange(value: string | null) {
     if (!value) return
@@ -95,11 +98,17 @@ export function CreateSpaceDaemonRow({ hostId, onHostIdChange }: CreateSpaceDaem
           {hosts.map((host) => (
             <DaemonOption key={host.id} host={host} />
           ))}
-          <SelectPrimitive.Separator className="my-1 h-px bg-border" />
-          <SelectItem value={ADD_HOST_VALUE}>+ Add a host…</SelectItem>
+          {canAddHost && (
+            <>
+              <SelectPrimitive.Separator className="my-1 h-px bg-border" />
+              <SelectItem value={ADD_HOST_VALUE}>+ Add a host…</SelectItem>
+            </>
+          )}
         </SelectContent>
       </Select>
-      <AddHostDialog key={addHostAttempt} open={addHostOpen} onOpenChange={setAddHostOpen} />
+      {canAddHost && (
+        <AddHostDialog key={addHostAttempt} open={addHostOpen} onOpenChange={setAddHostOpen} />
+      )}
     </div>
   )
 }
