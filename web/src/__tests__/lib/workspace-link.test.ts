@@ -64,6 +64,7 @@ describe('a link from a workspace on another host', () => {
     ['http://localhost:3000@evil.com/', 'http://localhost:3000@evil.com/'],
     ['https://example.com/docs', 'https://example.com/docs'],
     ['http://[::ffff:8.8.8.8]/', 'http://[::ffff:8.8.8.8]/'],
+    ['//cdn.example.com/logo.png', 'https://cdn.example.com/logo.png'],
   ])('opens %s, which is not a loopback address', async (url, opened) => {
     await openWorkspaceLink(url, 'w-remote')
 
@@ -80,5 +81,16 @@ describe('a link from this computer’s own content', () => {
     await openWorkspaceLink('http://localhost:3000/', wsId)
 
     expect(openExternalUrl).toHaveBeenCalledExactlyOnceWith('http://localhost:3000/')
+  })
+
+  // Nothing in the app has a page scheme for `//host` to inherit: it is a web link.
+  it('opens a protocol-relative link as https', async () => {
+    await openWorkspaceLink('//cdn.example.com/logo.png', 'w-local')
+    await openWorkspaceLink('//localhost:3000/', null)
+
+    expect(vi.mocked(openExternalUrl).mock.calls).toEqual([
+      ['https://cdn.example.com/logo.png'],
+      ['https://localhost:3000/'],
+    ])
   })
 })

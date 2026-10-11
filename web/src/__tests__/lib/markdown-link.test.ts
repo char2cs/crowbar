@@ -54,6 +54,12 @@ describe('handleMarkdownAnchorClick', () => {
     expect(openExternalUrl).toHaveBeenCalledWith('https://example.com/docs')
   })
 
+  it('opens a protocol-relative link as https', () => {
+    handleMarkdownAnchorClick(fakeClick(), '//cdn.example.com/logo.png', null)
+
+    expect(openExternalUrl).toHaveBeenCalledExactlyOnceWith('https://cdn.example.com/logo.png')
+  })
+
   it('still cancels the webview navigation for a non-external link but does not shell-open it', () => {
     const e = fakeClick()
     handleMarkdownAnchorClick(e, './notes/spec.md', null)

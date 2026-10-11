@@ -22,7 +22,9 @@ function isLoopbackUrl(url: string): boolean {
  * address from a workspace on another host — or one whose host is not known — is that host's,
  * so it is not opened on this computer.
  */
-export async function openWorkspaceLink(url: string, wsId: string | null): Promise<void> {
+export async function openWorkspaceLink(link: string, wsId: string | null): Promise<void> {
+  // No page scheme for a protocol-relative `//host/…` to inherit here: it is a web link.
+  const url = link.startsWith('//') ? `https:${link}` : link
   if (wsId !== null && isLoopbackUrl(url)) {
     const hostId = resolvedHostOf({ wsId })
     if (hostId !== LOCAL_HOST.id) {
