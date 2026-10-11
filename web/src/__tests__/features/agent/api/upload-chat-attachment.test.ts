@@ -313,6 +313,28 @@ describe('uploadChatAttachment on a remote host', () => {
     expect(err).toMatchObject({ status, code, hostId: 'h1' })
   })
 
+  // Read as apiFetch reads an answer: the daemon's own words, or only the status for the proxy's
+  // plain text, which can name the host by its id.
+  it.each([
+    [
+      'the daemon’s own words',
+      '{"success":false,"error":"attachment too large"}',
+      'attachment too large',
+    ],
+    ['only the status for the proxy’s plain text', 'unknown remote host h1', '502 '],
+  ])('fails with %s', async (_name, body, message) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body, { status: 502 })))
+
+    const err = await uploadChatAttachment(
+      'ws1',
+      'c1',
+      { file: new File(['x'], 'x.png') },
+      'x',
+    ).catch((e: unknown) => e)
+
+    expect(err).toMatchObject({ message, status: 502, hostId: 'h1' })
+  })
+
   it('fails without sending anything when the host is not configured', async () => {
     useHostConfigStore.setState({ hosts: [] })
     const fetchMock = vi.fn()

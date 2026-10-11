@@ -60,10 +60,16 @@ export async function uploadChatAttachment(
 // host's; the local daemon's reads exactly as it always has.
 async function uploadFailure(response: Response, base: string): Promise<Error> {
   const { hostId } = splitHostPath(base)
-  const message = `upload chat attachment failed: ${response.status} ${await response.text()}`
-  if (hostId === LOCAL_HOST.id) return new Error(message)
+  if (hostId === LOCAL_HOST.id) {
+    return new Error(`upload chat attachment failed: ${response.status} ${await response.text()}`)
+  }
   const marked = proxyMarkerError(response.headers.get(PROXY_HEADER), hostId, response.status)
-  return marked ?? new ApiError(message, response.status, undefined, undefined, hostId)
+  if (marked) return marked
+  // As apiFetch reads it: the daemon's own words, else only the status — the proxy's plain
+  // text can name the host by its id.
+  const said = (await response.json().catch(() => null))?.error
+  const reason = typeof said === 'string' ? said : `${response.status} ${response.statusText}`
+  return new ApiError(reason, response.status, undefined, undefined, hostId)
 }
 
 // The daemon's attachments.MaxBytes is the authority on the cap.
