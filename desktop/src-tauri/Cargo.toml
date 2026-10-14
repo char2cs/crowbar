@@ -36,7 +36,7 @@ tauri-plugin-macos-fps = "0.1.0"
 # behind cfg(debug_assertions) in lib.rs so it is never active in release builds.
 tauri-plugin-mcp-bridge = "0.13"
 # Diagnostics-bundle export (Settings -> Export diagnostics): deflate only.
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [target."cfg(unix)".dependencies]
 libc = "0.2"
