@@ -65,7 +65,7 @@ func TestResolveDiffBase_MergeBaseSucceedsWithEmptyOutput_TreatedAsNoCandidate(t
 	}
 	e := &engine{exec: fake}
 
-	got := e.resolveDiffBase(context.Background(), dir, "some-branch")
+	got, _ := e.resolveDiffBase(context.Background(), dir, "some-branch")
 
 	assert.Empty(t, got, "an empty-but-successful merge-base must not be adopted as the resolved base")
 }
@@ -95,4 +95,32 @@ func TestBaseRefCandidates_NonHexFortyCharString_TreatedAsBranchName(t *testing.
 	require.Len(t, got, 2)
 	assert.Equal(t, "origin/"+name, got[0])
 	assert.Equal(t, name, got[1])
+}
+
+// TestComputeWorkingTreeSummary_BranchBase_SpawnBudget pins how many git
+// processes one summary costs. The watcher runs it after every burst of file
+// changes, so each extra spawn is paid per burst, per workspace.
+func TestComputeWorkingTreeSummary_BranchBase_SpawnBudget(t *testing.T) {
+	dir := diffbaseInitRepo(t)
+	diffbaseCommit(t, dir, "base.txt", "base\n")
+	diffbaseGitRun(t, dir, "update-ref", "refs/remotes/origin/main", "HEAD")
+	diffbaseGitRun(t, dir, "checkout", "-b", "feature")
+	diffbaseCommit(t, dir, "feature.txt", "feature\n")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("feature\nmore\n"), 0o600))
+
+	var spawns []string
+	counting := func(ctx context.Context, repoDir string, args ...string) gitexec.Result {
+		spawns = append(spawns, strings.Join(args, " "))
+		return gitexec.Git(ctx, repoDir, args...)
+	}
+	e := &engine{exec: counting}
+
+	added, deleted, hasConflicts, hasCommits, err := e.computeWorkingTreeSummary(context.Background(), dir, "main")
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, added, "committed + uncommitted lines against the merge-base")
+	assert.Equal(t, 0, deleted)
+	assert.False(t, hasConflicts)
+	assert.True(t, hasCommits)
+	assert.LessOrEqual(t, len(spawns), 4, "git spawns per summary (conflict check runs outside e.exec): %v", spawns)
 }

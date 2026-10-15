@@ -3,7 +3,7 @@ package git
 import (
 	"context"
 	"fmt"
-	"math"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -20,21 +20,17 @@ func (e *engine) computeWorkingTreeSummary(
 		return 0, 0, false, false, fmt.Errorf("git: summary: conflicts: %w", err)
 	}
 
-	base = e.resolveDiffBase(ctx, repoPath, base)
+	base, ahead := e.resolveDiffBase(ctx, repoPath, base)
 
 	if base != "" {
 		added, deleted, err = e.numstatFromBase(ctx, repoPath, base)
 		if err != nil {
 			return 0, 0, hasConflicts, false, fmt.Errorf("git: summary: numstat: %w", err)
 		}
+		return added, deleted, hasConflicts, ahead > 0, nil
 	}
 
-	hasCommits, err = e.revListHasCommits(ctx, repoPath, base)
-	if err != nil {
-		return added, deleted, hasConflicts, false, fmt.Errorf("git: summary: revlist: %w", err)
-	}
-
-	return added, deleted, hasConflicts, hasCommits, nil
+	return 0, 0, hasConflicts, e.repoHasCommits(ctx, repoPath), nil
 }
 
 // resolveDiffBase returns the commit a working-tree summary should diff against,
@@ -59,30 +55,38 @@ func (e *engine) computeWorkingTreeSummary(
 // branch, or an empty base): callers treat that as "no committed diff", and the
 // app layer never passes an unverified branch name — it falls back to the
 // recorded fork point first (see workspace.summaryBase / realtime.watcherDiffBase).
+//
+// The second result is how many commits HEAD has beyond that base, so callers
+// need no extra rev-list to learn whether the branch has commits.
 func (e *engine) resolveDiffBase(
 	ctx context.Context,
 	repoPath string,
 	base string,
-) string {
+) (string, int) {
 	if base == "" {
-		return ""
+		return "", 0
 	}
-	best := ""
-	bestDist := math.MaxInt
+	type candidate struct {
+		ref   string
+		ahead int
+	}
+	var found []candidate
 	for _, ref := range baseRefCandidates(base) {
-		r := e.exec(ctx, repoPath, "merge-base", ref, "HEAD")
+		if ahead, ok := e.commitsAheadOf(ctx, repoPath, ref); ok {
+			found = append(found, candidate{ref, ahead})
+		}
+	}
+	sort.SliceStable(found, func(i, j int) bool { return found[i].ahead < found[j].ahead })
+	for _, c := range found {
+		r := e.exec(ctx, repoPath, "merge-base", c.ref, "HEAD")
 		if r.ExitCode != 0 {
 			continue
 		}
-		mergeBase := strings.TrimSpace(r.Stdout)
-		if mergeBase == "" {
-			continue
-		}
-		if dist := e.commitDistanceToHead(ctx, repoPath, mergeBase); dist < bestDist {
-			best, bestDist = mergeBase, dist
+		if mergeBase := strings.TrimSpace(r.Stdout); mergeBase != "" {
+			return mergeBase, c.ahead
 		}
 	}
-	return best
+	return "", 0
 }
 
 // baseRefCandidates lists the refs resolveDiffBase probes for a base: a branch
@@ -116,24 +120,21 @@ func looksLikeCommitSHA(
 	return true
 }
 
-// commitDistanceToHead returns the number of commits between rev and HEAD
-// (`git rev-list --count rev..HEAD`), i.e. how far below HEAD the ancestor rev
-// sits. resolveDiffBase uses it to pick the closest of several candidate
-// merge-bases. An unreadable count sorts last (math.MaxInt).
-func (e *engine) commitDistanceToHead(
+// commitsAheadOf counts the commits HEAD has that ref lacks (`git rev-list
+// --count ref..HEAD`). That equals the distance from merge-base(ref, HEAD) to
+// HEAD, so it ranks candidates by closeness without a merge-base spawn each, and
+// doubles as the "branch has commits" answer. ok is false when ref does not resolve.
+func (e *engine) commitsAheadOf(
 	ctx context.Context,
 	repoPath string,
-	rev string,
-) int {
-	r := e.exec(ctx, repoPath, "rev-list", "--count", rev+"..HEAD")
+	ref string,
+) (int, bool) {
+	r := e.exec(ctx, repoPath, "rev-list", "--count", ref+"..HEAD")
 	if r.ExitCode != 0 {
-		return math.MaxInt
+		return 0, false
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(r.Stdout))
-	if err != nil {
-		return math.MaxInt
-	}
-	return n
+	return n, err == nil
 }
 
 func (e *engine) numstatFromBase(
@@ -174,19 +175,14 @@ func parseNumstat(
 	return totalAdded, totalDeleted, nil
 }
 
-func (e *engine) revListHasCommits(
+func (e *engine) repoHasCommits(
 	ctx context.Context,
 	repoPath string,
-	forkPointSha string,
-) (bool, error) {
-	ref := forkPointSha + "..HEAD"
-	if forkPointSha == "" {
-		ref = "HEAD"
-	}
-	r := e.exec(ctx, repoPath, "rev-list", "--count", ref)
+) bool {
+	r := e.exec(ctx, repoPath, "rev-list", "--count", "HEAD")
 	if r.ExitCode != 0 {
-		return false, nil
+		return false
 	}
 	count, _ := strconv.Atoi(strings.TrimSpace(r.Stdout))
-	return count > 0, nil
+	return count > 0
 }

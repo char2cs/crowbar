@@ -62,16 +62,16 @@ func ExportedParseNumstat(
 	return parseNumstat(output)
 }
 
-// ExportedCommitDistanceToHead wraps commitDistanceToHead so tests can drive
-// its rev-list failure paths through a fake exec (NewWithExec) without a real
-// git subprocess ever needing to fail rev-list on a valid merge-base.
-func ExportedCommitDistanceToHead(
+// ExportedCommitsAheadOf wraps commitsAheadOf so tests can drive its rev-list
+// failure paths through a fake exec (NewWithExec) without a real git
+// subprocess ever needing to fail rev-list on a resolvable ref.
+func ExportedCommitsAheadOf(
 	e Engine,
 	ctx context.Context,
 	repoPath string,
-	rev string,
-) int {
-	return e.(*engine).commitDistanceToHead(ctx, repoPath, rev)
+	ref string,
+) (int, bool) {
+	return e.(*engine).commitsAheadOf(ctx, repoPath, ref)
 }
 
 // ExportedNumstatFromBase wraps numstatFromBase for the same reason: a real
@@ -96,7 +96,8 @@ func ExportedResolveDiffBase(
 	repoPath string,
 	base string,
 ) string {
-	return e.(*engine).resolveDiffBase(ctx, repoPath, base)
+	got, _ := e.(*engine).resolveDiffBase(ctx, repoPath, base)
+	return got
 }
 
 // ExportedLooksLikeCommitSHA wraps looksLikeCommitSHA for a direct unit test

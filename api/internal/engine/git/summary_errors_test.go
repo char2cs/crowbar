@@ -2,7 +2,6 @@ package git_test
 
 import (
 	"context"
-	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,30 +10,31 @@ import (
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// TestCommitDistanceToHead_RevListFails covers the branch a real repo cannot
-// reach: commitDistanceToHead is only ever called on a rev that `git
-// merge-base` just resolved successfully, so `rev-list --count` failing on it
-// needs a fake exec (a corrupted object database, an interrupted subprocess).
-func TestCommitDistanceToHead_RevListFails(t *testing.T) {
+// TestCommitsAheadOf_RevListFails covers the branch a real repo cannot reach for
+// a ref that resolves: `rev-list --count` failing needs a fake exec (a corrupted
+// object database, an interrupted subprocess). It must read as "no such ref".
+func TestCommitsAheadOf_RevListFails(t *testing.T) {
 	e := git.NewWithExec(func(_ context.Context, _ string, _ ...string) gitexec.Result {
 		return gitexec.Result{ExitCode: 128, Stderr: "fatal: bad object"}
 	})
 
-	got := git.ExportedCommitDistanceToHead(e, context.Background(), "/repo", "deadbeef")
+	got, ok := git.ExportedCommitsAheadOf(e, context.Background(), "/repo", "deadbeef")
 
-	assert.Equal(t, math.MaxInt, got)
+	assert.False(t, ok)
+	assert.Zero(t, got)
 }
 
-// TestCommitDistanceToHead_NonNumericOutput covers the strconv.Atoi failure
-// path: rev-list exits 0 but its stdout is not a bare integer.
-func TestCommitDistanceToHead_NonNumericOutput(t *testing.T) {
+// TestCommitsAheadOf_NonNumericOutput covers the strconv.Atoi failure path:
+// rev-list exits 0 but its stdout is not a bare integer.
+func TestCommitsAheadOf_NonNumericOutput(t *testing.T) {
 	e := git.NewWithExec(func(_ context.Context, _ string, _ ...string) gitexec.Result {
 		return gitexec.Result{ExitCode: 0, Stdout: "not-a-number\n"}
 	})
 
-	got := git.ExportedCommitDistanceToHead(e, context.Background(), "/repo", "deadbeef")
+	got, ok := git.ExportedCommitsAheadOf(e, context.Background(), "/repo", "deadbeef")
 
-	assert.Equal(t, math.MaxInt, got)
+	assert.False(t, ok)
+	assert.Zero(t, got)
 }
 
 // TestNumstatFromBase_DiffFails covers numstat's ExitCode != 0 branch, which
@@ -65,7 +65,7 @@ func TestResolveDiffBase_BlankMergeBaseOutput_TreatedAsNoCandidate(t *testing.T)
 			calls++
 			return gitexec.Result{ExitCode: 0, Stdout: "   \n"}
 		}
-		return gitexec.Result{ExitCode: 0}
+		return gitexec.Result{ExitCode: 0, Stdout: "1\n"}
 	})
 
 	got := git.ExportedResolveDiffBase(e, context.Background(), "/repo", "main")
