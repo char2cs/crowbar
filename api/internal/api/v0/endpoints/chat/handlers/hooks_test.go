@@ -95,6 +95,14 @@ func TestHooks_UsecaseError(
 // its call so tests can assert forwarding, and each returns a canned
 // error/value so tests can exercise the handlers' error branches.
 type fakeAgentUsecase struct {
+	// hookReply is the stdout the daemon wants a hook to print; validToken is the
+	// one runner token VerifyRunnerToken accepts; awaitStarted, when set, makes
+	// AwaitAnswer block until its request is cancelled.
+	hookReply    string
+	validToken   string
+	verifyCalls  [][2]string
+	awaitStarted chan struct{}
+
 	ingestCalls []ingestCall
 	ingestErr   error
 	// descriptorReports / descriptorErr answer DescriptorReports.
@@ -609,7 +617,14 @@ func (f *fakeAgentUsecase) Interruptions(
 	return f.interruptions, f.interruptionsErr
 }
 
-func (f *fakeAgentUsecase) TakeHookReply(string) (string, bool) { return "", false }
+func (f *fakeAgentUsecase) TakeHookReply(string) (string, bool) {
+	return f.hookReply, f.hookReply != ""
+}
+
+func (f *fakeAgentUsecase) VerifyRunnerToken(runnerID, token string) bool {
+	f.verifyCalls = append(f.verifyCalls, [2]string{runnerID, token})
+	return token == f.validToken && token != ""
+}
 
 func (f *fakeAgentUsecase) ReadToolPayload(
 	_ context.Context, chatID, toolID, side string,
@@ -648,9 +663,14 @@ func (f *fakeAgentUsecase) PendingAnswer(string) (agentusecase.PendingAnswer, bo
 }
 
 func (f *fakeAgentUsecase) AwaitAnswer(
-	_ context.Context, deliveryID string,
+	ctx context.Context, deliveryID string,
 ) (agentusecase.HookAnswer, error) {
 	f.awaitCalls = append(f.awaitCalls, deliveryID)
+	if f.awaitStarted != nil {
+		close(f.awaitStarted)
+		<-ctx.Done()
+		return agentusecase.HookAnswer{}, ctx.Err()
+	}
 	return f.awaitAnswer, f.awaitErr
 }
 
@@ -704,4 +724,115 @@ type activityCall struct {
 
 type payloadCall struct {
 	chatID, toolID, side string
+}
+
+// ---------------------------------------------------------------------------
+// HTTPHook — a vendor CLI's own HTTP hook, no relay process
+// ---------------------------------------------------------------------------
+
+func newHTTPHookContext(
+	t *testing.T,
+	token string,
+	body []byte,
+) (*gin.Context, *httptest.ResponseRecorder) {
+	t.Helper()
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/hooks", body)
+	ctx.Params = gin.Params{
+		{Key: "segid", Value: "seg-1"},
+		{Key: "provider", Value: "claude"},
+		{Key: "event", Value: "tool_pre"},
+	}
+	ctx.Request.Header.Set("X-Crowbar-Runner-Token", token)
+	return ctx, rec
+}
+
+func TestHTTPHook_IngestsTheRawBodyForTheRunnerInThePath(t *testing.T) {
+	uc := &fakeAgentUsecase{validToken: "tok"}
+	h := newChatHandlers(uc)
+	ctx, rec := newHTTPHookContext(t, "tok", []byte(`{"hook_event_name":"PreToolUse","tool_name":"Bash"}`))
+
+	h.HTTPHook(ctx)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Empty(t, rec.Body.Bytes(), "a hook that opens nothing answerable answers with no body")
+	require.Len(t, uc.ingestCalls, 1)
+	assert.Equal(t, "seg-1", uc.ingestCalls[0].segID)
+	assert.Equal(t, "claude", uc.ingestCalls[0].provider)
+	assert.Equal(t, "tool_pre", uc.ingestCalls[0].event)
+	assert.JSONEq(t, `{"hook_event_name":"PreToolUse","tool_name":"Bash"}`, string(uc.ingestCalls[0].raw))
+}
+
+func TestHTTPHook_RejectsAnUnauthenticatedCaller(t *testing.T) {
+	uc := &fakeAgentUsecase{validToken: "tok"}
+	h := newChatHandlers(uc)
+
+	for _, token := range []string{"", "wrong"} {
+		ctx, rec := newHTTPHookContext(t, token, []byte(`{}`))
+
+		h.HTTPHook(ctx)
+
+		assert.Equal(t, http.StatusUnauthorized, rec.Code, "token %q", token)
+	}
+	assert.Empty(t, uc.ingestCalls, "an unauthenticated hook must never reach the journal")
+}
+
+func TestHTTPHook_IngestErrorIsMapped(t *testing.T) {
+	uc := &fakeAgentUsecase{validToken: "tok", ingestErr: errors.New("boom")}
+	h := newChatHandlers(uc)
+	ctx, rec := newHTTPHookContext(t, "tok", []byte(`{}`))
+
+	h.HTTPHook(ctx)
+
+	assert.GreaterOrEqual(t, rec.Code, http.StatusBadRequest)
+}
+
+func TestHTTPHook_ReturnsTheDaemonsReplyAsTheBody(t *testing.T) {
+	uc := &fakeAgentUsecase{validToken: "tok", hookReply: `{"decision":"block"}`}
+	h := newChatHandlers(uc)
+	ctx, rec := newHTTPHookContext(t, "tok", []byte(`{}`))
+
+	h.HTTPHook(ctx)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"decision":"block"}`, rec.Body.String())
+	assert.Contains(t, rec.Header().Get("Content-Type"), "application/json")
+}
+
+func TestHTTPHook_HoldsTheRequestOpenUntilAHumanDecides(t *testing.T) {
+	uc := &fakeAgentUsecase{
+		validToken:   "tok",
+		pendingAwait: true,
+		awaitAnswer:  agentusecase.HookAnswer{Stdout: []byte(`{"behavior":"allow"}`)},
+	}
+	h := newChatHandlers(uc)
+	ctx, rec := newHTTPHookContext(t, "tok", []byte(`{}`))
+
+	h.HTTPHook(ctx)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"behavior":"allow"}`, rec.Body.String())
+	assert.Len(t, uc.awaitCalls, 1, "the daemon waits itself; the CLI never polls")
+	assert.Empty(t, uc.abandonCalls)
+}
+
+// The CLI closing its request is how an HTTP hook learns the human decided in
+// the terminal instead: the prompt must stop being shown in the chat.
+func TestHTTPHook_AbandonsThePromptWhenTheCLIHangsUp(t *testing.T) {
+	uc := &fakeAgentUsecase{validToken: "tok", pendingAwait: true, awaitStarted: make(chan struct{})}
+	h := newChatHandlers(uc)
+	ctx, _ := newHTTPHookContext(t, "tok", []byte(`{}`))
+	cancelled, cancel := context.WithCancel(ctx.Request.Context())
+	ctx.Request = ctx.Request.WithContext(cancelled)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		h.HTTPHook(ctx)
+	}()
+	<-uc.awaitStarted
+	cancel()
+	<-done
+
+	require.Len(t, uc.abandonCalls, 1)
+	assert.Equal(t, uc.awaitCalls[0], uc.abandonCalls[0], "the abandoned delivery is the one being awaited")
 }

@@ -958,41 +958,53 @@ config_injection:
   - pass_arg: { arg: "-c", value: 'tui.resume_cwd="current"' }
 # Hook wiring: applied to a PTY only, never to `app-server` — a process
 # reports over exactly one channel (spawn.InjectServe).
+#
+# codex hooks are command-only (it has no HTTP hook type), so each posts its stdin
+# to the daemon's hook server through curl rather than through a 50 MB relay
+# process; the reply is curl's stdout, and a held permission request is answered on
+# that same response. The runner token is read from {tmp}/hook.curl, not argv.
 hooks_injection:
+  - write_file:
+      path: "{tmp}/hook.curl"
+      content: |
+        header = "X-Crowbar-Runner-Token: {runner_token}"
+        header = "Content-Type: application/json"
+        data-binary = "@-"
+        connect-timeout = 5
   - pass_arg:
       arg: "-c"
-      value: 'hooks.SessionStart=[{hooks=[{type="command",command="{crowbar_hook} hook session_start --segment {segid} --provider {provider} {scope_flags}"}]}]'
+      value: 'hooks.SessionStart=[{hooks=[{type="command",command="{hook_curl} {hook_url}/session_start"}]}]'
   - pass_arg:
       arg: "-c"
-      value: 'hooks.UserPromptSubmit=[{hooks=[{type="command",command="{crowbar_hook} hook user_prompt --segment {segid} --provider {provider} {scope_flags}"}]}]'
+      value: 'hooks.UserPromptSubmit=[{hooks=[{type="command",command="{hook_curl} {hook_url}/user_prompt"}]}]'
   - pass_arg:
       arg: "-c"
-      value: 'hooks.Stop=[{hooks=[{type="command",command="{crowbar_hook} hook turn_stop --segment {segid} --provider {provider} {scope_flags}"}]}]'
+      value: 'hooks.Stop=[{hooks=[{type="command",command="{hook_curl} {hook_url}/turn_stop"}]}]'
   # codex exposes no Notification event. Absent capability, absent UI.
   - pass_arg:
       arg: "-c"
-      value: 'hooks.PreToolUse=[{hooks=[{type="command",command="{crowbar_hook} hook tool_pre --segment {segid} --provider {provider} {scope_flags}"}]}]'
+      value: 'hooks.PreToolUse=[{hooks=[{type="command",command="{hook_curl} {hook_url}/tool_pre"}]}]'
   - pass_arg:
       arg: "-c"
-      value: 'hooks.PostToolUse=[{hooks=[{type="command",command="{crowbar_hook} hook tool_post --segment {segid} --provider {provider} {scope_flags}"}]}]'
+      value: 'hooks.PostToolUse=[{hooks=[{type="command",command="{hook_curl} {hook_url}/tool_post"}]}]'
   - pass_arg:
       arg: "-c"
-      value: 'hooks.SubagentStart=[{hooks=[{type="command",command="{crowbar_hook} hook subagent_pre --segment {segid} --provider {provider} {scope_flags}"}]}]'
+      value: 'hooks.SubagentStart=[{hooks=[{type="command",command="{hook_curl} {hook_url}/subagent_pre"}]}]'
   - pass_arg:
       arg: "-c"
-      value: 'hooks.SubagentStop=[{hooks=[{type="command",command="{crowbar_hook} hook subagent_post --segment {segid} --provider {provider} {scope_flags}"}]}]'
+      value: 'hooks.SubagentStop=[{hooks=[{type="command",command="{hook_curl} {hook_url}/subagent_post"}]}]'
   - pass_arg:
       arg: "-c"
-      value: 'hooks.PermissionRequest=[{hooks=[{type="command",command="{crowbar_hook} hook permission --segment {segid} --provider {provider} {scope_flags}"}]}]'
+      value: 'hooks.PermissionRequest=[{hooks=[{type="command",command="{hook_curl} {hook_url}/permission"}]}]'
   - pass_arg:
       arg: "-c"
-      value: 'hooks.PreCompact=[{hooks=[{type="command",command="{crowbar_hook} hook compact_pre --segment {segid} --provider {provider} {scope_flags}"}]}]'
+      value: 'hooks.PreCompact=[{hooks=[{type="command",command="{hook_curl} {hook_url}/compact_pre"}]}]'
   - pass_arg:
       arg: "-c"
-      value: 'hooks.PostCompact=[{hooks=[{type="command",command="{crowbar_hook} hook compact_post --segment {segid} --provider {provider} {scope_flags}"}]}]'
+      value: 'hooks.PostCompact=[{hooks=[{type="command",command="{hook_curl} {hook_url}/compact_post"}]}]'
   - pass_arg:
       arg: "-c"
-      value: 'hooks.SessionEnd=[{hooks=[{type="command",command="{crowbar_hook} hook session_end --segment {segid} --provider {provider} {scope_flags}"}]}]'
+      value: 'hooks.SessionEnd=[{hooks=[{type="command",command="{hook_curl} {hook_url}/session_end"}]}]'
 mcp_injection:
   - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.command="{crowbar}"' }
   - pass_arg:

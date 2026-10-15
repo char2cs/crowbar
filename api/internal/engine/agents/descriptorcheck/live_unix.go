@@ -88,17 +88,18 @@ func (l *live) prepare(raw []byte) error {
 }
 
 func (l *live) close() {
+	l.hooks.close()
 	if l.svc != nil {
 		l.svc.Close()
 	}
 	_ = os.RemoveAll(l.scratch)
 }
 
-// templateCtx is what the runner fills for a spawn, with the recorder as the
-// hook relay.
+// templateCtx is what the runner fills for a spawn, with the recorder as both the
+// hook relay and the hook server.
 func (l *live) templateCtx(tmp string) agents.TemplateCtx {
 	return agents.TemplateCtx{
-		Tmp: tmp, Cwd: l.cwd, CrowbarHook: l.hooks.path, CrowbarHome: l.home,
+		Tmp: tmp, Cwd: l.cwd, CrowbarHook: l.hooks.path, HookBase: l.hooks.url, CrowbarHome: l.home,
 		Segid: "conformance", Provider: l.id, ProjectID: "conformance", WorkspaceID: "conformance",
 		ChatID: "conformance", RunnerToken: "conformance",
 	}

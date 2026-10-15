@@ -2,9 +2,12 @@ package handlers
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
@@ -96,4 +99,75 @@ func (h *Handlers) Hooks(
 		return
 	}
 	libs.WriteAccepted(ctx)
+}
+
+// runnerTokenHeader carries the per-runner token an HTTP hook proves itself with.
+const runnerTokenHeader = "X-Crowbar-Runner-Token"
+
+// HTTPHook handles POST .../chats/runners/:segid/hooks/:provider/:event: a vendor
+// CLI's own HTTP hook, which posts the provider's payload as the body with no relay
+// process in between. The runner, provider and event come from the path where the
+// relay put them in an envelope, and the runner token stands where the relay's
+// access to the socket did.
+//
+// The answer channel is the response itself. A hook that opened a prompt a human can
+// decide here is held open until they do, and the answer is the body — the relay's
+// await long-poll, with the CLI as the one waiting. The CLI closing its request is
+// the signal the relay used to send as SIGTERM: the prompt was decided at the
+// terminal, so it is abandoned.
+func (h *Handlers) HTTPHook(
+	ctx *gin.Context,
+) {
+	rctx := ctx.Request.Context()
+	runnerID := ctx.Param("segid")
+	if !h.providers.VerifyRunnerToken(runnerID, ctx.GetHeader(runnerTokenHeader)) {
+		libs.WriteErr(ctx, http.StatusUnauthorized, "invalid runner token")
+		return
+	}
+	raw, err := io.ReadAll(ctx.Request.Body)
+	if err != nil {
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	deliveryID := uuid.NewString()
+	if err := h.ingest(rctx, ctx.Param("wsId"), deliveryID,
+		runnerID, ctx.Param("provider"), ctx.Param("event"), raw); err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+
+	if reply, ok := h.turns.TakeHookReply(deliveryID); ok {
+		ctx.Data(http.StatusOK, "application/json", []byte(reply))
+		return
+	}
+	if _, waiting := h.answers.PendingAnswer(deliveryID); waiting {
+		h.holdForAnswer(ctx, deliveryID)
+		return
+	}
+	ctx.Status(http.StatusOK)
+}
+
+// holdForAnswer parks the request until the prompt deliveryID opened is decided.
+func (h *Handlers) holdForAnswer(
+	ctx *gin.Context,
+	deliveryID string,
+) {
+	rctx := ctx.Request.Context()
+	answer, err := h.answers.AwaitAnswer(rctx, deliveryID)
+	if err != nil {
+		if errors.Is(err, rctx.Err()) {
+			_ = h.answers.AbandonAnswer(context.WithoutCancel(rctx), deliveryID)
+			return
+		}
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+	if len(answer.Stdout) == 0 {
+		ctx.Status(http.StatusOK)
+		return
+	}
+	ctx.Data(http.StatusOK, "application/json", answer.Stdout)
 }

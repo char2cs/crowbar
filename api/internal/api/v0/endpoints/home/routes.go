@@ -171,6 +171,7 @@ func registerAgent(
 	home.PATCH("/chats/folders/:folderId", h.RequireHomeWorkspace, ah.PatchFolder)
 	home.DELETE("/chats/folders/:folderId", h.RequireHomeWorkspace, ah.DeleteFolder)
 	home.POST("/chats/runners/:segid/mcp", h.RequireHomeWorkspace, ah.MCP)
+	home.POST("/chats/runners/:segid/hooks/:provider/:event", h.RequireHomeWorkspace, ah.HTTPHook)
 	home.POST("/chats/hooks", h.RequireHomeWorkspace, ah.Hooks)
 	// The answer channel's relay half. It mounts here for exactly the reason the
 	// hook ingress above does: a project-home workspace's repo-less scope resolves

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/char2cs/crowbar/api/internal/core/hookserver"
 	"os"
 	"path/filepath"
 	"sync"
@@ -1289,6 +1290,8 @@ func newFixtureUsing(
 	// home. This mirrors production and is load-bearing now that every agent-path
 	// removal is guarded by worktreepath.RemoveUnderHome (a chats dir NOT under home is refused).
 	home := t.TempDir()
+	// The daemon publishes where hooks are served before it spawns anything.
+	require.NoError(t, hookserver.Publish(home, "http://127.0.0.1:4242"))
 	worktree := filepath.Join(home, "projects", "p1", "slug", "branch", "worktree")
 	ws := &fakeWorkspace{
 		home:      home,

@@ -40,6 +40,11 @@ import (
 // folders are needed, so mounting them once would have left the surface that
 // needs them most without them.
 //
+// .../chats/runners/:segid/hooks/:provider/:event is the same runner-keyed,
+// token-authenticated shape, for a vendor CLI that posts its hooks itself (an HTTP
+// hook) instead of running a relay process: the payload is the body, and a prompt
+// a human can decide here is answered on the same response.
+//
 // .../chats/:id/choices/:choiceId/answer and the two .../chats/hooks/*
 // leaves are the ANSWER CHANNEL, and they are three routes because they serve
 // two different callers. The first is a human, deciding a question in the chat.
@@ -148,6 +153,7 @@ func Register(
 	repoScoped.PATCH("/chats/folders/:folderId", h.PatchFolder)
 	repoScoped.DELETE("/chats/folders/:folderId", h.DeleteFolder)
 	repoScoped.POST("/chats/runners/:segid/mcp", h.MCP)
+	repoScoped.POST("/chats/runners/:segid/hooks/:provider/:event", h.HTTPHook)
 	repoScoped.POST("/chats/hooks", h.Hooks)
 	repoScoped.POST("/chats/hooks/await", h.AwaitHookAnswer)
 	repoScoped.POST("/chats/hooks/abandon", h.AbandonHookAnswer)

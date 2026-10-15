@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/core/hookserver"
 )
 
 // TestRun_ServeError_SurfacesNotHangs proves H16: when Serve fails (the listener
@@ -19,9 +21,13 @@ func TestRun_ServeError_SurfacesNotHangs(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, ln.Close()) // closed listener -> Serve returns immediately
 
+	hooks, err := hookserver.Listen(http.NewServeMux())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = hooks.Close() })
 	c := &Container{
 		server:   &http.Server{Handler: http.NewServeMux()},
 		listener: ln,
+		hooks:    hooks,
 	}
 
 	// Block on Run's own return — the real signal. A 2-second deadline here would
