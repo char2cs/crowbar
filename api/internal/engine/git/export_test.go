@@ -38,14 +38,14 @@ func ExportedComputeStatus(
 	return e.ComputeStatus(ctx, repoPath)
 }
 
-// ExportedComputeWorkingTreeSummary calls ComputeWorkingTreeSummary.
+// ExportedComputeWorkingTreeSummary calls computeWorkingTreeSummary.
 func ExportedComputeWorkingTreeSummary(
 	ctx context.Context,
 	repoPath string,
 	forkPointSha string,
 ) (int, int, bool, bool, error) {
 	e := New().(*engine)
-	return e.ComputeWorkingTreeSummary(ctx, repoPath, forkPointSha)
+	return e.computeWorkingTreeSummary(ctx, repoPath, forkPointSha)
 }
 
 // ExportedParseWorktreeList wraps parseWorktreeList for unit tests.

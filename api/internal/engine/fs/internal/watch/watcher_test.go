@@ -77,12 +77,20 @@ func (f *fakeGit) ComputeStatus(
 	return gitdomain.GitStatus{}, nil
 }
 
-func (f *fakeGit) ComputeWorkingTreeSummary(
+func (f *fakeGit) ResolveDiffBase(
 	_ context.Context,
 	_ string,
 	_ string,
-) (int, int, bool, bool, error) {
-	return 0, 0, false, false, nil
+) gitdomain.DiffBase {
+	return gitdomain.DiffBase{}
+}
+
+func (f *fakeGit) DiffStat(
+	_ context.Context,
+	_ string,
+	_ string,
+) (int, int, error) {
+	return 0, 0, nil
 }
 
 type fakeDispatcher struct {
@@ -311,12 +319,20 @@ func (g *countingGit) ComputeStatus(
 	return gitdomain.GitStatus{}, nil
 }
 
-func (g *countingGit) ComputeWorkingTreeSummary(
+func (g *countingGit) ResolveDiffBase(
 	_ context.Context,
 	_ string,
 	_ string,
-) (int, int, bool, bool, error) {
-	return 0, 0, false, false, nil
+) gitdomain.DiffBase {
+	return gitdomain.DiffBase{}
+}
+
+func (g *countingGit) DiffStat(
+	_ context.Context,
+	_ string,
+	_ string,
+) (int, int, error) {
+	return 0, 0, nil
 }
 
 func (g *countingGit) calls() int {

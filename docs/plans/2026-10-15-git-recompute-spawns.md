@@ -30,33 +30,30 @@ function of refs only, but it is re-derived on every working-tree burst. The
 watcher already distinguishes ref events (`maybeHandleGitRef`) from file
 events; the summary path does not.
 
-## Decision needed (CLAUDE.md: a second copy of state stops and plans)
+## Decision (approved, implemented)
 
-Skipping the ref-derived spawns on file-only bursts means holding the resolved
-base somewhere between recomputes, invalidated by ref events. That is derived
-state beside git's own, so it is written down here rather than shipped.
+1. **Watcher-owned resolved base.** `Watcher.diffBase` holds the engine's
+   `ResolveDiffBase` answer until a ref event (`handleOne`, for main and linked
+   worktrees alike) clears it. A file-only burst runs `status` and
+   `DiffStat` only.
+2. **Conflicts from status.** `hasConflicts` is read off the `status` the
+   watcher already ran; the `diff --diff-filter=U` spawn is gone from the
+   watcher path (`WorkingTreeSummary` for other callers still checks it).
+3. **No minimum recompute interval.** A timer over a symptom (CLAUDE.md), and it
+   would delay the status the UI shows.
 
-1. **Watcher-owned resolved base.** `Watcher` keeps the resolved merge-base
-   SHA, cleared in `maybeHandleGitRef` (HEAD, refs/, packed-refs are already
-   watched via `gitRefWatchPaths`, including a linked worktree's common dir and
-   origin fetches). Recompute then passes the SHA as `base`; the engine's SHA
-   path skips `origin/<sha>` probing. File-only burst: status + numstat +
-   conflicts + one `rev-list` (3-4 spawns). Needs a new engine call to resolve
-   the base once, so `git.Engine`, its mocks and `watch.GitStatusProvider`
-   change.
-2. **Conflicts from status.** `status` already reports unmerged (`u`) entries,
-   so `hasConflicts` needs no `diff --diff-filter=U`. The watcher has the
-   status when it computes the summary. Needs `GitStatusProvider` to take it.
-3. **Do not add a minimum recompute interval.** It is a timer over a symptom
-   (CLAUDE.md), and it would delay the status the UI shows.
+Because the cache is only as good as ref-event delivery, the watcher now
+watches the git dir and common dir as directories (git replaces `HEAD` and
+`packed-refs` by rename, which ends a watch on the file after the first change)
+and every directory of the ref trees, including ones created later (nested
+branches, `refs/remotes/<remote>/`). Before this, a fetch or a second `HEAD`
+change was only noticed because the next file burst recomputed everything.
+Events that cannot change a recompute's answer (index, lock files) no longer
+schedule one.
 
-Together 1 + 2 take a file-only burst from 6-8 spawns to 3 (`status`,
-`diff --numstat`, one `rev-list`), and 2 when the sha base is trusted.
+## Result
 
-## Steps
-
-1. Failing test: N file-only bursts after the first cost zero ref-derived
-   spawns; a ref event costs them once.
-2. Move base resolution to the watcher; pass SHA to the summary.
-3. Derive conflicts from the status the watcher already holds.
-4. Update `watcher.go`'s "two git invocations" comment to match.
+Seeded workspace, one subscriber, file writes every 400ms for 20s
+(`strace -f -e execve`): 294 spawns before, 101 after. Steady state is 2 spawns
+per recompute; a commit costs one extra base resolution (`merge-base` plus two
+`rev-list`).

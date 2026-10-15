@@ -396,6 +396,24 @@ type Engine interface {
 		base string,
 	) (added, deleted int, hasConflicts, hasCommits bool, err error)
 
+	// ResolveDiffBase resolves base (a branch name or fork-point SHA) to the
+	// commit WorkingTreeSummary diffs against, and whether the branch has commits
+	// beyond it. The result changes only when refs move, so a caller that sees
+	// refs move can reuse it across working-tree changes.
+	ResolveDiffBase(
+		ctx context.Context,
+		repoPath string,
+		base string,
+	) gitdomain.DiffBase
+
+	// DiffStat returns the +N/-N of the working tree against commit, as resolved
+	// by ResolveDiffBase. An empty commit yields 0, 0.
+	DiffStat(
+		ctx context.Context,
+		repoPath string,
+		commit string,
+	) (added, deleted int, err error)
+
 	// MergeBase returns the best common ancestor of commits a and b, used to seed
 	// the forkPointSha of adopted worktrees on project import (00 §5.7).
 	MergeBase(

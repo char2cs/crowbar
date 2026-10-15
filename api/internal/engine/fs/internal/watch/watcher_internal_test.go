@@ -24,12 +24,20 @@ func (g *minimalGit) ComputeStatus(_ context.Context, _ string) (gitdomain.GitSt
 	return gitdomain.GitStatus{}, nil
 }
 
-func (g *minimalGit) ComputeWorkingTreeSummary(
+func (g *minimalGit) ResolveDiffBase(
 	_ context.Context,
 	_ string,
 	_ string,
-) (int, int, bool, bool, error) {
-	return 0, 0, false, false, nil
+) gitdomain.DiffBase {
+	return gitdomain.DiffBase{}
+}
+
+func (g *minimalGit) DiffStat(
+	_ context.Context,
+	_ string,
+	_ string,
+) (int, int, error) {
+	return 0, 0, nil
 }
 
 // recordingDispatcher counts OnGitStatus calls and streams dispatched
@@ -39,6 +47,7 @@ func (g *minimalGit) ComputeWorkingTreeSummary(
 type recordingDispatcher struct {
 	mu       sync.Mutex
 	gitCount int
+	syncs    []SyncInput
 	files    chan string
 }
 
@@ -70,7 +79,20 @@ func (r *recordingDispatcher) OnGitStatus(_ context.Context, _ string, _ gitdoma
 	r.gitCount++
 }
 
-func (r *recordingDispatcher) OnSyncWorkingTreeState(_ context.Context, _ SyncInput) {}
+func (r *recordingDispatcher) OnSyncWorkingTreeState(_ context.Context, in SyncInput) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.syncs = append(r.syncs, in)
+}
+
+func (r *recordingDispatcher) lastSync() (SyncInput, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.syncs) == 0 {
+		return SyncInput{}, false
+	}
+	return r.syncs[len(r.syncs)-1], true
+}
 
 func (r *recordingDispatcher) count() int {
 	r.mu.Lock()
@@ -801,4 +823,89 @@ func TestLoop_TimerDrainPath(t *testing.T) {
 
 	cancel()
 	<-done // loop exits via ctx.Done()
+}
+
+// ---------------------------------------------------------------------------
+// fanOutGit — the diff base is a function of refs, so working-tree bursts reuse it
+// ---------------------------------------------------------------------------
+
+// baseCountingGit counts how often the watcher asks git for the diff base and
+// the working-tree stat, and answers the base from a field the test can change.
+type baseCountingGit struct {
+	minimalGit
+	mu           sync.Mutex
+	bases, stats int
+	base         gitdomain.DiffBase
+}
+
+func (g *baseCountingGit) ResolveDiffBase(
+	_ context.Context,
+	_ string,
+	_ string,
+) gitdomain.DiffBase {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.bases++
+	return g.base
+}
+
+func (g *baseCountingGit) DiffStat(
+	_ context.Context,
+	_ string,
+	_ string,
+) (int, int, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.stats++
+	return 0, 0, nil
+}
+
+func (g *baseCountingGit) setBase(b gitdomain.DiffBase) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.base = b
+}
+
+func (g *baseCountingGit) counts() (bases, stats int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.bases, g.stats
+}
+
+func TestFanOutGit_WorkingTreeBurstsReuseResolvedDiffBase(t *testing.T) {
+	g := &baseCountingGit{}
+	w := NewWatcher("ws-base", t.TempDir(), "main", g, &recordingDispatcher{})
+
+	for range 3 {
+		w.fanOutGit(context.Background())
+	}
+
+	bases, stats := g.counts()
+	assert.Equal(t, 1, bases, "no ref moved, so the base is resolved once")
+	assert.Equal(t, 3, stats, "the working-tree stat still follows every burst")
+}
+
+func TestFanOutGit_RefEventReResolvesDiffBase(t *testing.T) {
+	dir := t.TempDir()
+	g := &baseCountingGit{}
+	rd := &recordingDispatcher{}
+	w := NewWatcher("ws-base", dir, "main", g, rd)
+	w.fanOutGit(context.Background())
+
+	g.setBase(gitdomain.DiffBase{Commit: "abc", HasCommits: true})
+	w.fanOutGit(context.Background())
+	bases, _ := g.counts()
+	require.Equal(t, 1, bases, "a burst with no ref event must not see the new base")
+
+	w.handleOne(context.Background(), fsnotify.Event{
+		Name: filepath.Join(dir, ".git", "refs", "heads", "feature"),
+		Op:   fsnotify.Write,
+	})
+	w.fanOutGit(context.Background())
+
+	bases, _ = g.counts()
+	assert.Equal(t, 2, bases, "a ref event makes the next recompute resolve again")
+	got, ok := rd.lastSync()
+	require.True(t, ok, "the changed HasCommits must be dispatched")
+	assert.True(t, got.HasCommits)
 }

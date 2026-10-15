@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/conflicts"
 )
 
@@ -20,17 +21,27 @@ func (e *engine) computeWorkingTreeSummary(
 		return 0, 0, false, false, fmt.Errorf("git: summary: conflicts: %w", err)
 	}
 
-	base, ahead := e.resolveDiffBase(ctx, repoPath, base)
-
-	if base != "" {
-		added, deleted, err = e.numstatFromBase(ctx, repoPath, base)
-		if err != nil {
-			return 0, 0, hasConflicts, false, fmt.Errorf("git: summary: numstat: %w", err)
-		}
-		return added, deleted, hasConflicts, ahead > 0, nil
+	diffBase := e.diffBase(ctx, repoPath, base)
+	added, deleted, err = e.numstatFromBase(ctx, repoPath, diffBase.Commit)
+	if err != nil {
+		return 0, 0, hasConflicts, false, fmt.Errorf("git: summary: numstat: %w", err)
 	}
+	return added, deleted, hasConflicts, diffBase.HasCommits, nil
+}
 
-	return 0, 0, hasConflicts, e.repoHasCommits(ctx, repoPath), nil
+// diffBase resolves base to the commit the summary diffs against and whether
+// the branch has commits beyond it. With no resolvable base it falls back to
+// "does the repo have any commit".
+func (e *engine) diffBase(
+	ctx context.Context,
+	repoPath string,
+	base string,
+) gitdomain.DiffBase {
+	commit, ahead := e.resolveDiffBase(ctx, repoPath, base)
+	if commit == "" {
+		return gitdomain.DiffBase{HasCommits: e.repoHasCommits(ctx, repoPath)}
+	}
+	return gitdomain.DiffBase{Commit: commit, HasCommits: ahead > 0}
 }
 
 // resolveDiffBase returns the commit a working-tree summary should diff against,
@@ -142,6 +153,9 @@ func (e *engine) numstatFromBase(
 	repoPath string,
 	base string,
 ) (int, int, error) {
+	if base == "" {
+		return 0, 0, nil
+	}
 	r := e.exec(ctx, repoPath, "diff", "--numstat", base)
 	if r.ExitCode != 0 {
 		return 0, 0, nil

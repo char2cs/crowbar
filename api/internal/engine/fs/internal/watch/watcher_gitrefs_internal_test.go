@@ -9,10 +9,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 func git(
@@ -89,8 +92,8 @@ func TestStart_WatchesResolvedRefPathsOfLinkedWorktree(t *testing.T) {
 		"the common dir must resolve to the parent repo's .git")
 
 	watched := watchList(t, w)
-	assert.Contains(t, watched, filepath.Join(gitDir, "HEAD"),
-		"the worktree's own HEAD must be watched (branch switches)")
+	assert.Contains(t, watched, gitDir,
+		"the worktree's own git dir must be watched (HEAD is replaced by rename on a branch switch)")
 	assert.Contains(t, watched, filepath.Join(gitDir, "refs"),
 		"the worktree's private ref dir must be watched")
 	assert.Contains(t, watched, filepath.Join(commonDir, "refs"),
@@ -115,7 +118,7 @@ func TestStart_WatchesRefPathsOfMainWorktree(t *testing.T) {
 	require.Equal(t, gitDir, w.commonDir(), "a main worktree has no commondir file")
 
 	watched := watchList(t, w)
-	assert.Contains(t, watched, filepath.Join(gitDir, "HEAD"))
+	assert.Contains(t, watched, gitDir)
 	assert.Contains(t, watched, filepath.Join(gitDir, "refs"))
 	assert.Contains(t, watched, filepath.Join(gitDir, "refs", "heads"))
 }
@@ -187,4 +190,93 @@ func TestLinkedWorktree_WorkingTreeFileIsNotGitInternal(t *testing.T) {
 
 	assert.False(t, w.shouldIgnore(filepath.Join(worktree, "a.txt")))
 	assert.False(t, w.isGitInternal(filepath.Join(worktree, "a.txt")))
+}
+
+// resolveSignalGit reports every diff-base resolution, so a real-filesystem test
+// can wait on "the watcher noticed a ref move and re-derived the base".
+type resolveSignalGit struct {
+	minimalGit
+	resolved chan struct{}
+}
+
+func (g *resolveSignalGit) ResolveDiffBase(
+	_ context.Context,
+	_ string,
+	_ string,
+) gitdomain.DiffBase {
+	select {
+	case g.resolved <- struct{}{}:
+	default:
+	}
+	return gitdomain.DiffBase{}
+}
+
+// startResolveWatcher starts a watcher on worktree and primes its base cache with
+// one working-tree burst, so any later resolution is caused by a ref move.
+func startResolveWatcher(
+	t *testing.T,
+	worktree string,
+) *resolveSignalGit {
+	t.Helper()
+	g := &resolveSignalGit{resolved: make(chan struct{}, 16)}
+	w := NewWatcher("ws-resolve", worktree, "main", g, &recordingDispatcher{})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	t.Cleanup(w.Stop)
+	require.NoError(t, w.Start(ctx))
+
+	require.NoError(t, os.WriteFile(filepath.Join(worktree, "prime.txt"), []byte("x"), 0o600))
+	g.expectResolve(t, "the priming working-tree burst")
+	return g
+}
+
+func (g *resolveSignalGit) expectResolve(
+	t *testing.T,
+	after string,
+) {
+	t.Helper()
+	select {
+	case <-g.resolved:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("the diff base was not re-resolved after %s: the watcher never saw the ref move", after)
+	}
+}
+
+// A fetch rewrites refs/remotes/<remote>/<branch>, a directory below the one
+// Start adds; the cached base must still be dropped.
+func TestRefMove_RemoteTrackingRefUpdateReResolvesBase(t *testing.T) {
+	worktree, commonDir := newLinkedWorktree(t)
+	repo := filepath.Dir(commonDir)
+	git(t, repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+	g := startResolveWatcher(t, worktree)
+
+	git(t, repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+	g.expectResolve(t, "a remote-tracking ref update")
+}
+
+// A branch named feat/x lives in refs/heads/feat/, again below a watched root.
+func TestRefMove_NestedBranchUpdateReResolvesBase(t *testing.T) {
+	worktree, commonDir := newLinkedWorktree(t)
+	repo := filepath.Dir(commonDir)
+	git(t, repo, "branch", "feat/x")
+	g := startResolveWatcher(t, worktree)
+
+	git(t, repo, "update-ref", "refs/heads/feat/x", "HEAD")
+
+	g.expectResolve(t, "a nested branch ref update")
+}
+
+// git replaces HEAD by rename, so a watch on the HEAD file itself dies with the
+// first change; every later checkout must still be seen.
+func TestRefMove_RepeatedHeadChangesAllReResolveBase(t *testing.T) {
+	worktree, commonDir := newLinkedWorktree(t)
+	repo := filepath.Dir(commonDir)
+	git(t, repo, "commit", "-q", "--allow-empty", "-m", "second")
+	g := startResolveWatcher(t, worktree)
+
+	for _, rev := range []string{"main", "main~1", "main", "main~1"} {
+		git(t, worktree, "checkout", "-q", "--detach", rev)
+		g.expectResolve(t, "checkout --detach "+rev)
+	}
 }

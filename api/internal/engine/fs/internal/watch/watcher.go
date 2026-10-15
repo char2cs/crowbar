@@ -24,8 +24,7 @@ import (
 const debounceDuration = 100 * time.Millisecond
 
 // gitRecomputeDebounce is the trailing debounce applied to git recomputes
-// (fanOutGit = ComputeStatus + ComputeWorkingTreeSummary, two git invocations
-// per run). Workspaces sharing one .git (linked worktrees) all observe each
+// (fanOutGit = status + diff stat, two git invocations per run). Workspaces sharing one .git (linked worktrees) all observe each
 // other's ref events, so without coalescing a single ref update makes every
 // workspace's watcher shell out to git at once — measured as ~6Hz sustained
 // churn. Bursts collapse into a single recompute that always runs once the
@@ -112,6 +111,11 @@ type Watcher struct {
 
 	prevStatus    gitdomain.GitStatus
 	prevStatusSet bool
+
+	// diffBase is the resolved base of the last recompute, kept until a ref
+	// event says refs moved: it is a function of refs alone, so a working-tree
+	// burst never changes it. Only the loop goroutine touches it.
+	diffBase *gitdomain.DiffBase
 
 	// gitTimer is the trailing-debounce timer for git recomputes. It is
 	// created stopped in NewWatcher, armed by scheduleGitRecompute, and
@@ -218,40 +222,57 @@ func (w *Watcher) Start(
 		return fmt.Errorf("watch: start: add recursive %s: %w", w.repoPath, err)
 	}
 
-	// Explicitly watch HEAD and the ref trees so branch switches and remote fetches
-	// are detected: addRecursive skips .git entirely (it would flood inotify with
-	// objects/logs), so these are the only git-internal paths watched (05 §5). They
-	// are resolved, never joined onto repoPath/.git — in a Crowbar-managed workspace
-	// (always a LINKED worktree) that is a gitlink FILE, so every such join lands on
-	// a path that does not exist and every Add fails silently, leaving a ref-only
-	// change (a bare fetch, which touches no working-tree file) with nothing to
-	// trigger the recompute.
-	for _, p := range w.gitRefWatchPaths() {
-		// ignore errors — paths may legitimately be absent (no packed-refs until the
-		// first gc, no refs/remotes without a remote)
-		_ = w.fsw.Add(p)
+	// Explicitly watch the git directories and the ref trees so branch switches
+	// and remote fetches are detected: addRecursive skips .git entirely (it would
+	// flood inotify with objects/logs), so these are the only git-internal paths
+	// watched (05 §5). They are resolved, never joined onto repoPath/.git — in a
+	// Crowbar-managed workspace (always a LINKED worktree) that is a gitlink FILE,
+	// so every such join lands on a path that does not exist and every Add fails
+	// silently, leaving a ref-only change (a bare fetch, which touches no
+	// working-tree file) with nothing to trigger the recompute.
+	for _, dir := range w.gitWatchDirs() {
+		// ignore errors — a path may legitimately be absent
+		_ = w.fsw.Add(dir)
+	}
+	for _, root := range w.gitRefRoots() {
+		w.watchRefTree(root)
 	}
 
 	go w.loop(ctx)
 	return nil
 }
 
-// gitRefWatchPaths returns the git-internal paths whose changes mean "the refs
-// moved". The two roots differ for a linked worktree: HEAD (and any worktree-local
-// ref) belongs to that worktree's own gitdir, while the shared ref tree and
-// packed-refs live in the common dir of the parent repo. For a main worktree the two
-// roots coincide and the duplicate Adds collapse (fsnotify.Add is idempotent).
-func (w *Watcher) gitRefWatchPaths() []string {
-	gitDir := w.gitDir()
-	commonDir := w.commonDir()
+// gitWatchDirs returns the git directories watched as directories, not as the
+// HEAD and packed-refs files inside them: git replaces those two by rename, which
+// ends a watch on the file itself after the first change. The two roots differ for
+// a linked worktree: HEAD belongs to that worktree's own gitdir, packed-refs and
+// the shared ref tree to the common dir of the parent repo. For a main worktree
+// they coincide and the duplicate Add collapses (fsnotify.Add is idempotent).
+func (w *Watcher) gitWatchDirs() []string {
+	return []string{w.gitDir(), w.commonDir()}
+}
+
+// gitRefRoots returns the ref trees whose every directory is watched: a branch
+// named feat/x or a remote-tracking ref origin/main sits below refs/heads or
+// refs/remotes, and fsnotify watches one directory level only.
+func (w *Watcher) gitRefRoots() []string {
 	return []string{
-		filepath.Join(gitDir, "HEAD"),
-		filepath.Join(gitDir, "refs"),
-		filepath.Join(commonDir, "refs"),
-		filepath.Join(commonDir, "refs", "heads"),
-		filepath.Join(commonDir, "refs", "remotes"),
-		filepath.Join(commonDir, "packed-refs"),
+		filepath.Join(w.gitDir(), "refs"),
+		filepath.Join(w.commonDir(), "refs"),
 	}
+}
+
+// watchRefTree watches root and every directory below it. A path that is not a
+// directory, or no longer exists, adds nothing.
+func (w *Watcher) watchRefTree(
+	root string,
+) {
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() {
+			_ = w.fsw.Add(path)
+		}
+		return nil
+	})
 }
 
 // closeFSW closes the fsnotify watcher exactly once. It is safe to call from
@@ -363,19 +384,36 @@ func (w *Watcher) handleBurst(
 		}
 		merged[evt.Name] |= evt.Op
 	}
+	relevant := false
 	for _, name := range order {
-		w.handleOne(ctx, fsnotify.Event{Name: name, Op: merged[name]})
+		if w.handleOne(ctx, fsnotify.Event{Name: name, Op: merged[name]}) {
+			relevant = true
+		}
 	}
-	w.scheduleGitRecompute()
+	if relevant {
+		w.scheduleGitRecompute()
+	}
 }
 
+// handleOne reports whether the event can change what a git recompute would
+// answer: a ref moved or a working-tree path changed. Other git-internal churn
+// (the index, lock files) cannot.
 func (w *Watcher) handleOne(
 	ctx context.Context,
 	evt fsnotify.Event,
-) {
+) bool {
+	// Checked before shouldIgnore: a main worktree's ref events are not "ignored"
+	// (they pass as file changes), a linked worktree's are, and both move the base.
+	isRef := w.isGitRefPath(evt.Name)
+	if isRef {
+		w.diffBase = nil
+		if evt.Op&fsnotify.Create != 0 {
+			w.watchRefTree(evt.Name)
+		}
+	}
 	if w.shouldIgnore(evt.Name) {
 		w.maybeHandleGitRef(ctx, evt)
-		return
+		return isRef
 	}
 
 	rel := w.relPath(evt.Name)
@@ -394,6 +432,7 @@ func (w *Watcher) handleOne(
 	}
 	// The git recompute is intentionally NOT scheduled here; handleBurst
 	// schedules it once for the whole burst (Fix 2).
+	return true
 }
 
 func (w *Watcher) maybeHandleGitRef(
@@ -494,14 +533,16 @@ func (w *Watcher) fanOutGit(
 		w.dispatcher.OnGitStatus(ctx, w.wsID, status)
 	}
 
-	added, deleted, hasConflicts, hasCommits, err := w.git.ComputeWorkingTreeSummary(
-		ctx,
-		w.repoPath,
-		w.base,
-	)
+	if w.diffBase == nil {
+		resolved := w.git.ResolveDiffBase(ctx, w.repoPath, w.base)
+		w.diffBase = &resolved
+	}
+	added, deleted, err := w.git.DiffStat(ctx, w.repoPath, w.diffBase.Commit)
 	if err != nil {
 		return
 	}
+	hasConflicts := statusHasConflicts(status)
+	hasCommits := w.diffBase.HasCommits
 
 	if added == w.prevAdded && deleted == w.prevDeleted &&
 		hasConflicts == w.prevConflict && hasCommits == w.prevCommits {
@@ -520,6 +561,19 @@ func (w *Watcher) fanOutGit(
 		HasConflicts: hasConflicts,
 		HasCommits:   hasCommits,
 	})
+}
+
+// statusHasConflicts reads the unmerged entries git status already reported, so
+// the conflict check costs no process of its own.
+func statusHasConflicts(
+	status gitdomain.GitStatus,
+) bool {
+	for _, f := range status.Files {
+		if f.Status == gitdomain.GitFileStatusConflicted {
+			return true
+		}
+	}
+	return false
 }
 
 func (w *Watcher) isRewriteInProgress() bool {

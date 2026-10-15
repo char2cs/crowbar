@@ -290,10 +290,18 @@ func (g *gitProvider) ComputeStatus(
 	return g.engine.Status(ctx, repoPath)
 }
 
-func (g *gitProvider) ComputeWorkingTreeSummary(
+func (g *gitProvider) ResolveDiffBase(
 	ctx context.Context,
 	repoPath string,
-	forkPointSha string,
-) (int, int, bool, bool, error) {
-	return g.engine.WorkingTreeSummary(ctx, repoPath, forkPointSha)
+	base string,
+) gitdomain.DiffBase {
+	return g.engine.ResolveDiffBase(ctx, repoPath, base)
+}
+
+func (g *gitProvider) DiffStat(
+	ctx context.Context,
+	repoPath string,
+	commit string,
+) (int, int, error) {
+	return g.engine.DiffStat(ctx, repoPath, commit)
 }

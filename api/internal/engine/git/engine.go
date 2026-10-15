@@ -679,14 +679,25 @@ func (e *engine) ComputeStatus(
 	return status.Parse(ctx, repoPath)
 }
 
-// ComputeWorkingTreeSummary implements watch.GitStatusProvider.
-func (e *engine) ComputeWorkingTreeSummary(
+// ResolveDiffBase implements watch.GitStatusProvider.
+func (e *engine) ResolveDiffBase(
 	ctx context.Context,
 	repoPath string,
-	forkPointSha string,
-) (int, int, bool, bool, error) {
+	base string,
+) gitdomain.DiffBase {
 	defer e.lockRepoRead(ctx, repoPath)()
-	return e.computeWorkingTreeSummary(ctx, repoPath, forkPointSha)
+	return e.diffBase(ctx, repoPath, base)
+}
+
+// DiffStat implements watch.GitStatusProvider: the +N/-N of the working tree
+// against an already-resolved commit.
+func (e *engine) DiffStat(
+	ctx context.Context,
+	repoPath string,
+	commit string,
+) (int, int, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
+	return e.numstatFromBase(ctx, repoPath, commit)
 }
 
 func (e *engine) applyHunk(

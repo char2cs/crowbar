@@ -424,6 +424,14 @@ func (g *mockGitEngine) RebaseThenFFMerge(
 	return nil
 }
 
+func (g *mockGitEngine) ResolveDiffBase(context.Context, string, string) gitdomain.DiffBase {
+	return gitdomain.DiffBase{}
+}
+
+func (g *mockGitEngine) DiffStat(context.Context, string, string) (int, int, error) {
+	return 0, 0, nil
+}
+
 func (g *mockGitEngine) WorkingTreeSummary(ctx context.Context, repoPath, forkPointSha string) (int, int, bool, bool, error) {
 	return 0, 0, false, false, nil
 }
