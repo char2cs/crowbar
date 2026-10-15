@@ -39,8 +39,11 @@ events; the summary path does not.
 2. **Conflicts from status.** `hasConflicts` is read off the `status` the
    watcher already ran; the `diff --diff-filter=U` spawn is gone from the
    watcher path (`WorkingTreeSummary` for other callers still checks it).
-3. **No minimum recompute interval.** A timer over a symptom (CLAUDE.md), and it
-   would delay the status the UI shows.
+3. **Wait for the burst to end.** The existing trailing debounce goes from 250ms
+   to a 2s quiet period (`gitRecomputeQuiet`), bounded by a 10s ceiling
+   (`gitRecomputeMaxWait`) so a burst that never ends still updates the UI. This
+   is the same debounce with a longer wait and a ceiling, not a new timer. The
+   cost is that the git panel lags the last write by up to 2s.
 
 Because the cache is only as good as ref-event delivery, the watcher now
 watches the git dir and common dir as directories (git replaces `HEAD` and
@@ -54,6 +57,6 @@ schedule one.
 ## Result
 
 Seeded workspace, one subscriber, file writes every 400ms for 20s
-(`strace -f -e execve`): 294 spawns before, 101 after. Steady state is 2 spawns
+(`strace -f -e execve`): 294 spawns before, 101 after the base cache alone. Steady state is 2 spawns
 per recompute; a commit costs one extra base resolution (`merge-base` plus two
 `rev-list`).

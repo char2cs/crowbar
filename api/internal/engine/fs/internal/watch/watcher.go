@@ -23,14 +23,16 @@ import (
 
 const debounceDuration = 100 * time.Millisecond
 
-// gitRecomputeDebounce is the trailing debounce applied to git recomputes
-// (fanOutGit = status + diff stat, two git invocations per run). Workspaces sharing one .git (linked worktrees) all observe each
-// other's ref events, so without coalescing a single ref update makes every
-// workspace's watcher shell out to git at once — measured as ~6Hz sustained
-// churn. Bursts collapse into a single recompute that always runs once the
-// watcher has been quiet for this long; the trailing recompute is never
-// dropped, only delayed.
-const gitRecomputeDebounce = 250 * time.Millisecond
+// A git recompute (status + diff stat, two git processes) waits for changes to
+// stop for gitRecomputeQuiet, so an agent writing files in bursts costs one
+// recompute per burst rather than one per pause. gitRecomputeMaxWait bounds the
+// delay for a burst that never ends. Workspaces sharing one .git (linked
+// worktrees) all observe each other's ref events, so the same wait also keeps a
+// single ref update from making every workspace shell out at once.
+const (
+	gitRecomputeQuiet   = 2 * time.Second
+	gitRecomputeMaxWait = 10 * time.Second
+)
 
 // ErrAlreadyStarted is returned by Start when the watcher has already been
 // started (or stopped). A Watcher's lifecycle is single-use: the caller owns
@@ -123,6 +125,12 @@ type Watcher struct {
 	// whether a recompute is scheduled but not yet run (guarded by mu).
 	gitTimer   debounceTimer
 	gitPending bool
+	// gitPendingSince is when the oldest unrun change scheduled the recompute;
+	// the max wait counts from it (guarded by mu).
+	gitPendingSince time.Time
+
+	// now is the clock the max wait reads; a test injects its own.
+	now func() time.Time
 
 	// loopDone is closed when the loop goroutine returns. It is the real signal
 	// that the watcher has finished tearing down (used by tests to block on the
@@ -174,7 +182,8 @@ func NewWatcher(
 		ignore:     ignore.NewMatcher(repoPath),
 		stopCh:     make(chan struct{}),
 		loopDone:   make(chan struct{}),
-		gitTimer:   newStoppedTimer(gitRecomputeDebounce),
+		gitTimer:   newStoppedTimer(gitRecomputeQuiet),
+		now:        time.Now,
 	}
 }
 
@@ -484,15 +493,21 @@ func isUnder(
 }
 
 // scheduleGitRecompute arms (or re-arms) the trailing git-recompute debounce.
-// Back-to-back calls within gitRecomputeDebounce collapse into one fanOutGit
-// run, executed by loop once the quiet period elapses. It is called only from
-// the loop goroutine (handleBurst / maybeHandleGitRef), so resetting the timer
-// never races with loop's drain of gitTimer.C.
+// Back-to-back calls collapse into one fanOutGit run, executed by loop once
+// changes have been quiet for gitRecomputeQuiet, and never later than
+// gitRecomputeMaxWait after the first of them. It is called only from the loop
+// goroutine (handleBurst / maybeHandleGitRef), so resetting the timer never
+// races with loop's drain of gitTimer.C.
 func (w *Watcher) scheduleGitRecompute() {
 	w.mu.Lock()
+	now := w.now()
+	if !w.gitPending {
+		w.gitPendingSince = now
+	}
 	w.gitPending = true
+	wait := min(gitRecomputeQuiet, max(0, gitRecomputeMaxWait-now.Sub(w.gitPendingSince)))
 	w.mu.Unlock()
-	w.gitTimer.Reset(gitRecomputeDebounce)
+	w.gitTimer.Reset(wait)
 }
 
 // runGitRecompute clears the pending flag and performs the coalesced git

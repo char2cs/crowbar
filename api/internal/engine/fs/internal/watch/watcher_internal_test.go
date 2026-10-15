@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/stretchr/testify/assert"
@@ -908,4 +909,63 @@ func TestFanOutGit_RefEventReResolvesDiffBase(t *testing.T) {
 	got, ok := rd.lastSync()
 	require.True(t, ok, "the changed HasCommits must be dispatched")
 	assert.True(t, got.HasCommits)
+}
+
+// ---------------------------------------------------------------------------
+// scheduleGitRecompute — wait for the burst to end, but never past the ceiling
+// ---------------------------------------------------------------------------
+
+// delayRecordingTimer is a debounceTimer that records how long each Reset asked
+// to wait and never fires.
+type delayRecordingTimer struct {
+	delays []time.Duration
+}
+
+func (d *delayRecordingTimer) Reset(wait time.Duration) bool {
+	d.delays = append(d.delays, wait)
+	return true
+}
+
+func (d *delayRecordingTimer) Stop() bool { return true }
+
+func (d *delayRecordingTimer) Chan() <-chan time.Time { return nil }
+
+func (d *delayRecordingTimer) last() time.Duration { return d.delays[len(d.delays)-1] }
+
+func TestScheduleGitRecompute_WaitsForQuietNeverPastMaxWait(t *testing.T) {
+	clock := time.Unix(1_000, 0)
+	timer := &delayRecordingTimer{}
+	w := newBareWatcher(t.TempDir(), &recordingDispatcher{})
+	w.gitTimer = timer
+	w.now = func() time.Time { return clock }
+
+	w.scheduleGitRecompute()
+	assert.Equal(t, gitRecomputeQuiet, timer.last(), "a first change waits for the burst to end")
+
+	clock = clock.Add(gitRecomputeQuiet / 2)
+	w.scheduleGitRecompute()
+	assert.Equal(t, gitRecomputeQuiet, timer.last(), "more changes push the recompute back")
+
+	clock = clock.Add(gitRecomputeMaxWait - gitRecomputeQuiet/2 - gitRecomputeQuiet/4)
+	w.scheduleGitRecompute()
+	assert.Equal(t, gitRecomputeQuiet/4, timer.last(), "near the ceiling the wait shrinks to what is left")
+
+	clock = clock.Add(gitRecomputeMaxWait)
+	w.scheduleGitRecompute()
+	assert.Zero(t, timer.last(), "a burst that never ends still recomputes once the ceiling passes")
+}
+
+func TestScheduleGitRecompute_CeilingRestartsAfterARecompute(t *testing.T) {
+	clock := time.Unix(1_000, 0)
+	timer := &delayRecordingTimer{}
+	w := newBareWatcher(t.TempDir(), &recordingDispatcher{})
+	w.gitTimer = timer
+	w.now = func() time.Time { return clock }
+	w.scheduleGitRecompute()
+	clock = clock.Add(gitRecomputeMaxWait * 2)
+
+	w.runGitRecompute(context.Background())
+	w.scheduleGitRecompute()
+
+	assert.Equal(t, gitRecomputeQuiet, timer.last(), "the ceiling counts from the first change after a recompute")
 }
