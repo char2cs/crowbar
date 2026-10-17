@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -2584,15 +2585,13 @@ func TestSwitchProvider_DoesNotKillPromptAwaitingAcceptanceFromAnotherWindow(t *
 		"the replacement TUI awaiting its user_prompt hook must remain alive")
 }
 
+// segmentIDFromCommand is the runner id a CLI's hooks are addressed to: the
+// runner-keyed hook URL its argv carries.
 func segmentIDFromCommand(t *testing.T, argv []string) string {
 	t.Helper()
-	const marker = "--segment "
-	joined := strings.Join(argv, "\n")
-	start := strings.Index(joined, marker)
-	require.GreaterOrEqual(t, start, 0, "rendered hook command must carry the runner id")
-	fields := strings.Fields(joined[start+len(marker):])
-	require.NotEmpty(t, fields)
-	return strings.Trim(fields[0], `"'`)
+	m := regexp.MustCompile(`/chats/runners/([^/"]+)/hooks/`).FindStringSubmatch(strings.Join(argv, "\n"))
+	require.NotNil(t, m, "rendered hook URL must carry the runner id")
+	return m[1]
 }
 
 func TestSubmitPrompt_ExitAfterStartupBarrierBeforeJournalCommitIsUncertain(t *testing.T) {
@@ -3708,7 +3707,7 @@ func TestSpawnChat_ResolvesArgv0ToAbsolutePath(t *testing.T) {
 	assert.Equal(t, bin, f.term.calls[0].argv[0])
 }
 
-func TestSpawnRunner_CrowbarHookPathFallsBackToHomeBinCrowbar(t *testing.T) {
+func TestSpawnRunner_CrowbarBinaryPathFallsBackToHomeBinCrowbar(t *testing.T) {
 	f := newFixture(t)
 	// Override the fixture's default CROWBAR_HOOK_BIN so the path falls back to
 	// <home>/bin/crowbar.
@@ -3718,15 +3717,17 @@ func TestSpawnRunner_CrowbarHookPathFallsBackToHomeBinCrowbar(t *testing.T) {
 	f.spawn(t, "claude")
 
 	require.Equal(t, 1, f.term.callCount())
-	settingsPath := argAfter(t, f.term.calls[0].argv, "--settings")
-	data, err := os.ReadFile(settingsPath)
+	mcpConfig := argAfter(t, f.term.calls[0].argv, "--mcp-config")
+	assert.Contains(t, mcpConfig, filepath.Join(home, "bin", "crowbar"),
+		"the tool bridge still runs the binary installed under the home")
+	data, err := os.ReadFile(argAfter(t, f.term.calls[0].argv, "--settings"))
 	require.NoError(t, err)
-	assert.Contains(t, string(data), filepath.Join(home, "bin", "crowbar")+" hook")
+	assert.NotContains(t, string(data), "crowbar hook", "hooks no longer exec the binary per event")
 }
 
 // TestSpawn_HookConfigCarriesRunnerAndProvider guards the arg-based spawn attribution:
 // the RUNNER id (the crowbarSegmentID every hook carries) and the provider are
-// rendered into the hook config command line, not injected as an env var.
+// rendered into the hook URLs of the hook config, not injected as an env var.
 func TestSpawn_HookConfigCarriesRunnerAndProvider(t *testing.T) {
 	f := newFixture(t)
 
@@ -3737,7 +3738,7 @@ func TestSpawn_HookConfigCarriesRunnerAndProvider(t *testing.T) {
 	settingsPath := argAfter(t, call.argv, "--settings")
 	data, err := os.ReadFile(settingsPath)
 	require.NoError(t, err)
-	assert.Contains(t, string(data), "--segment "+runnerID+" --provider claude")
+	assert.Contains(t, string(data), "/chats/runners/"+runnerID+"/hooks/claude/")
 
 	for _, kv := range call.env {
 		assert.False(t, strings.HasPrefix(kv, "CROWBAR_SEGMENT_ID="), "env must not carry CROWBAR_SEGMENT_ID: %q", kv)

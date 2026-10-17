@@ -25,12 +25,20 @@ func (s stubGitEngine) Status(
 	return s.status, nil
 }
 
-func (s stubGitEngine) WorkingTreeSummary(
+func (s stubGitEngine) ResolveDiffBase(
 	_ context.Context,
 	_ string,
 	_ string,
-) (int, int, bool, bool, error) {
-	return s.added, s.deleted, true, true, nil
+) gitdomain.DiffBase {
+	return gitdomain.DiffBase{Commit: "resolved", HasCommits: true}
+}
+
+func (s stubGitEngine) DiffStat(
+	_ context.Context,
+	_ string,
+	_ string,
+) (int, int, error) {
+	return s.added, s.deleted, nil
 }
 
 func TestGitStatusProvider_DelegatesToEngine(t *testing.T) {
@@ -44,14 +52,11 @@ func TestGitStatusProvider_DelegatesToEngine(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "main", st.Branch)
 
-	added, deleted, hasConflicts, hasCommits, err := p.ComputeWorkingTreeSummary(
-		context.Background(),
-		"/repo",
-		"sha",
-	)
+	base := p.ResolveDiffBase(context.Background(), "/repo", "main")
+	assert.Equal(t, gitdomain.DiffBase{Commit: "resolved", HasCommits: true}, base)
+
+	added, deleted, err := p.DiffStat(context.Background(), "/repo", base.Commit)
 	require.NoError(t, err)
 	assert.Equal(t, 3, added)
 	assert.Equal(t, 1, deleted)
-	assert.True(t, hasConflicts)
-	assert.True(t, hasCommits)
 }

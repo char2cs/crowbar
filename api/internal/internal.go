@@ -14,6 +14,7 @@ import (
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/core/gateway"
+	"github.com/char2cs/crowbar/api/internal/core/hookserver"
 	"github.com/char2cs/crowbar/api/internal/core/logring"
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	"github.com/char2cs/crowbar/api/internal/core/selfinstall"
@@ -25,10 +26,13 @@ import (
 type Container struct {
 	server   *http.Server
 	listener net.Listener
-	engines  *engine.Container
-	adapter  *adapter.Container
-	app      *app.Container
-	api      *crowbarapi.Container
+	// hooks is the loopback listener for vendor CLIs' own HTTP hooks. It serves
+	// the hook route of the same router and nothing else of it.
+	hooks   *hookserver.Server
+	engines *engine.Container
+	adapter *adapter.Container
+	app     *app.Container
+	api     *crowbarapi.Container
 }
 
 type rootOpts struct {
@@ -108,9 +112,21 @@ func New(
 		_ = p // path is re-derived by the agent engine when rendering descriptors
 	}
 
+	// Published before anything can spawn a CLI: the spawner reads it to point the
+	// CLI's hooks here.
+	hooks, err := hookserver.Listen(ctx, apiContainer.Handler())
+	if err != nil {
+		return nil, fmt.Errorf("internal: hooks: %w", err)
+	}
+	if err := hookserver.Publish(installHome, hooks.URL()); err != nil {
+		_ = hooks.Close()
+		return nil, fmt.Errorf("internal: hooks: %w", err)
+	}
+
 	return &Container{
 		server:   &http.Server{Handler: apiContainer.Handler(), ReadHeaderTimeout: 30 * time.Second},
 		listener: listener,
+		hooks:    hooks,
 		engines:  engines,
 		adapter:  adapters,
 		app:      appContainer,
@@ -135,8 +151,9 @@ func adapterOptions(
 func (c *Container) Run(
 	ctx context.Context,
 ) error {
-	serveErr := make(chan error, 1)
+	serveErr := make(chan error, 2)
 	go func() { serveErr <- c.server.Serve(c.listener) }()
+	go func() { serveErr <- c.hooks.Serve() }()
 	select {
 	case <-ctx.Done():
 		// Ordered, bounded graceful shutdown (spec §3.8): stop accepting new requests +
@@ -167,9 +184,9 @@ func (c *Container) Run(
 			httpDrainGrace   = 1 * time.Second
 			writerDrainGrace = 4 * time.Second
 		)
-		httpCtx, cancelHTTP := context.WithTimeout(context.Background(), httpDrainGrace)
+		httpCtx, cancelHTTP := context.WithTimeout(context.WithoutCancel(ctx), httpDrainGrace)
 		defer cancelHTTP()
-		httpErr := c.server.Shutdown(httpCtx)
+		httpErr := errors.Join(c.server.Shutdown(httpCtx), c.hooks.Shutdown(httpCtx))
 
 		drainCtx, cancelDrain := context.WithTimeout(context.Background(), writerDrainGrace)
 		defer cancelDrain()
@@ -209,4 +226,5 @@ func (c *Container) Close() {
 	// out from under them is what used to leave a chat spinning forever.
 	_ = c.adapter.Close()
 	_ = c.listener.Close()
+	_ = c.hooks.Close()
 }

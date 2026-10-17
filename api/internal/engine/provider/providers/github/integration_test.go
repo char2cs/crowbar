@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -35,6 +36,14 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
+// originOf returns dir's real origin URL, which the engine would have detected.
+func originOf(t *testing.T, dir string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", dir, "remote", "get-url", "origin").Output()
+	require.NoError(t, err)
+	return strings.TrimSpace(string(out))
+}
+
 // TestIntegration_ProtectedBranches calls the real gh CLI against this repo.
 func TestIntegration_ProtectedBranches(t *testing.T) {
 	if _, err := exec.LookPath("gh"); err != nil {
@@ -42,7 +51,7 @@ func TestIntegration_ProtectedBranches(t *testing.T) {
 	}
 
 	dir := repoRoot(t)
-	p := github.New()
+	p := github.New(originOf(t, dir), exec.CommandContext)
 
 	branches, err := p.ProtectedBranches(context.Background(), dir)
 	require.NoError(t, err)
@@ -63,7 +72,7 @@ func TestIntegration_PullRequestForBranch(t *testing.T) {
 	}
 
 	dir := repoRoot(t)
-	p := github.New()
+	p := github.New(originOf(t, dir), exec.CommandContext)
 
 	pr, err := p.PullRequestForBranch(context.Background(), dir, "feature/wave2-engines")
 	require.NoError(t, err)
@@ -86,7 +95,7 @@ func TestIntegration_PullRequestForBranch_NoPR(t *testing.T) {
 	}
 
 	dir := repoRoot(t)
-	p := github.New()
+	p := github.New(originOf(t, dir), exec.CommandContext)
 
 	// Use a branch name that is extremely unlikely to have a PR.
 	pr, err := p.PullRequestForBranch(context.Background(), dir, "no-such-branch-xyzzy-12345")

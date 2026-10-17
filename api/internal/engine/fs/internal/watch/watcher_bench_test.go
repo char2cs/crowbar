@@ -22,12 +22,20 @@ func (p *benchGitProvider) ComputeStatus(
 	return gitdomain.GitStatus{Branch: "main"}, nil
 }
 
-func (p *benchGitProvider) ComputeWorkingTreeSummary(
+func (p *benchGitProvider) ResolveDiffBase(
 	_ context.Context,
 	_ string,
 	_ string,
-) (int, int, bool, bool, error) {
-	return 0, 0, false, false, nil
+) gitdomain.DiffBase {
+	return gitdomain.DiffBase{}
+}
+
+func (p *benchGitProvider) DiffStat(
+	_ context.Context,
+	_ string,
+	_ string,
+) (int, int, error) {
+	return 0, 0, nil
 }
 
 // benchDispatcher is a no-op Dispatcher for benchmarks.

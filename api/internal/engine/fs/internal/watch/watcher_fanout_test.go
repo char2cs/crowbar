@@ -144,53 +144,90 @@ func (c *capturingWatcher) recomputeNow() {
 // ---------------------------------------------------------------------------
 // maybeHandleGitRef and shouldIgnore
 // ---------------------------------------------------------------------------
-// These paths are exercised in watcher_internal_test.go via direct method
-// calls, because macOS kqueue does not report fsnotify events for files
-// inside a .git/ directory when only the parent dir is watched.
+// These paths are exercised in watcher_internal_test.go and
+// watcher_gitrefs_internal_test.go via direct method calls.
+
+// scriptedGit answers each provider call from a per-call script; call numbers
+// are 1-based. A nil script answers with the zero value.
+type scriptedGit struct {
+	mu                    sync.Mutex
+	status                func(call int) (gitdomain.GitStatus, error)
+	base                  func(call int) gitdomain.DiffBase
+	stat                  func(call int) (added, deleted int, err error)
+	statusN, baseN, statN int
+}
+
+func (g *scriptedGit) ComputeStatus(
+	_ context.Context,
+	_ string,
+) (gitdomain.GitStatus, error) {
+	g.mu.Lock()
+	g.statusN++
+	n := g.statusN
+	g.mu.Unlock()
+	if g.status == nil {
+		return gitdomain.GitStatus{}, nil
+	}
+	return g.status(n)
+}
+
+func (g *scriptedGit) ResolveDiffBase(
+	_ context.Context,
+	_ string,
+	_ string,
+) gitdomain.DiffBase {
+	g.mu.Lock()
+	g.baseN++
+	n := g.baseN
+	g.mu.Unlock()
+	if g.base == nil {
+		return gitdomain.DiffBase{}
+	}
+	return g.base(n)
+}
+
+func (g *scriptedGit) DiffStat(
+	_ context.Context,
+	_ string,
+	_ string,
+) (int, int, error) {
+	g.mu.Lock()
+	g.statN++
+	n := g.statN
+	g.mu.Unlock()
+	if g.stat == nil {
+		return 0, 0, nil
+	}
+	return g.stat(n)
+}
+
+func (g *scriptedGit) calls() (status, base, stat int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.statusN, g.baseN, g.statN
+}
+
+// secondCallOnward answers the given diff stat from the second call on and zero
+// before: the first recompute matches the watcher's zero-value previous state,
+// so only the second can dispatch a change.
+func secondCallOnward(
+	added, deleted int,
+) func(int) (int, int, error) {
+	return func(call int) (int, int, error) {
+		if call >= 2 {
+			return added, deleted, nil
+		}
+		return 0, 0, nil
+	}
+}
 
 // ---------------------------------------------------------------------------
 // fanOutGit — OnSyncWorkingTreeState fires when summary changes
 // ---------------------------------------------------------------------------
 
-// changingGit returns different values on successive ComputeWorkingTreeSummary
-// calls, exercising the "summary changed" branch of fanOutGit.
-type changingGit struct {
-	mu    sync.Mutex
-	calls int
-}
-
-func (g *changingGit) ComputeStatus(
-	_ context.Context,
-	_ string,
-) (gitdomain.GitStatus, error) {
-	return gitdomain.GitStatus{}, nil
-}
-
-func (g *changingGit) ComputeWorkingTreeSummary(
-	_ context.Context,
-	_ string,
-	_ string,
-) (int, int, bool, bool, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.calls++
-	// First call: 0,0,false,false (matches zero-value prev state — no sync)
-	// Second+ call: 1,0,false,false → triggers OnSyncWorkingTreeState
-	if g.calls >= 2 {
-		return 1, 0, false, false, nil
-	}
-	return 0, 0, false, false, nil
-}
-
-func (g *changingGit) summaryCalls() int {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.calls
-}
-
 func TestWatcher_FanOutGit_SyncCalledWhenSummaryChanges(t *testing.T) {
 	dir := t.TempDir()
-	git := &changingGit{}
+	git := &scriptedGit{stat: secondCallOnward(1, 0)}
 	cw := newCapturingWatcher(t, dir, git)
 
 	// Recompute #1 returns 0,0,false,false — identical to the zero-value prev
@@ -213,7 +250,7 @@ func TestWatcher_FanOutGit_SyncCalledWhenSummaryChanges(t *testing.T) {
 
 func TestWatcher_FanOutGit_MergeHeadSuppressesSync(t *testing.T) {
 	dir := t.TempDir()
-	git := &changingGit{}
+	git := &scriptedGit{stat: secondCallOnward(1, 0)}
 
 	gitDir := filepath.Join(dir, ".git")
 	require.NoError(t, os.MkdirAll(gitDir, 0o700))
@@ -231,7 +268,8 @@ func TestWatcher_FanOutGit_MergeHeadSuppressesSync(t *testing.T) {
 	cw.recomputeNow()
 
 	assert.Empty(t, cw.d.syncs(), "a mid-merge recompute must not dispatch a sync")
-	assert.Zero(t, git.summaryCalls(), "a mid-merge recompute must not even shell out to git")
+	status, base, stat := git.calls()
+	assert.Zero(t, status+base+stat, "a mid-merge recompute must not even shell out to git")
 	assert.Zero(t, cw.d.gitStatusCalls(), "a mid-merge recompute must not broadcast git status")
 }
 
@@ -290,83 +328,24 @@ func TestWatcher_ClassifyChange_Modify(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// fanOutGit — hasCommits toggling (false → true)
-// ---------------------------------------------------------------------------
-
-type commitTogglingGit struct {
-	mu    sync.Mutex
-	calls int
-}
-
-func (g *commitTogglingGit) ComputeStatus(
-	_ context.Context,
-	_ string,
-) (gitdomain.GitStatus, error) {
-	return gitdomain.GitStatus{}, nil
-}
-
-func (g *commitTogglingGit) ComputeWorkingTreeSummary(
-	_ context.Context,
-	_ string,
-	_ string,
-) (int, int, bool, bool, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.calls++
-	if g.calls >= 2 {
-		return 0, 0, false, true, nil
-	}
-	return 0, 0, false, false, nil
-}
-
-func TestWatcher_FanOutGit_HasCommitsChange(t *testing.T) {
-	dir := t.TempDir()
-	cw := newCapturingWatcher(t, dir, &commitTogglingGit{})
-
-	cw.recomputeNow() // prime: no toggle yet
-	cw.recomputeNow() // hasCommits flips false → true
-
-	syncs := cw.d.syncs()
-	require.Len(t, syncs, 1)
-	assert.True(t, syncs[0].HasCommits)
-}
-
-// ---------------------------------------------------------------------------
 // fanOutGit — hasConflicts toggling
 // ---------------------------------------------------------------------------
 
-type conflictTogglingGit struct {
-	mu    sync.Mutex
-	calls int
-}
-
-func (g *conflictTogglingGit) ComputeStatus(
-	_ context.Context,
-	_ string,
-) (gitdomain.GitStatus, error) {
-	return gitdomain.GitStatus{}, nil
-}
-
-func (g *conflictTogglingGit) ComputeWorkingTreeSummary(
-	_ context.Context,
-	_ string,
-	_ string,
-) (int, int, bool, bool, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.calls++
-	if g.calls >= 2 {
-		return 0, 0, true, false, nil
-	}
-	return 0, 0, false, false, nil
-}
-
 func TestWatcher_FanOutGit_HasConflictsChange(t *testing.T) {
 	dir := t.TempDir()
-	cw := newCapturingWatcher(t, dir, &conflictTogglingGit{})
+	cw := newCapturingWatcher(t, dir, &scriptedGit{
+		status: func(call int) (gitdomain.GitStatus, error) {
+			if call < 2 {
+				return gitdomain.GitStatus{}, nil
+			}
+			return gitdomain.GitStatus{Files: []gitdomain.GitFile{
+				{Path: "a.txt", Status: gitdomain.GitFileStatusConflicted},
+			}}, nil
+		},
+	})
 
 	cw.recomputeNow() // prime: no conflicts yet
-	cw.recomputeNow() // hasConflicts flips false → true
+	cw.recomputeNow() // status now reports an unmerged file
 
 	syncs := cw.d.syncs()
 	require.Len(t, syncs, 1)
@@ -377,35 +356,9 @@ func TestWatcher_FanOutGit_HasConflictsChange(t *testing.T) {
 // fanOutGit — deleted count change
 // ---------------------------------------------------------------------------
 
-type deletedChangeGit struct {
-	mu    sync.Mutex
-	calls int
-}
-
-func (g *deletedChangeGit) ComputeStatus(
-	_ context.Context,
-	_ string,
-) (gitdomain.GitStatus, error) {
-	return gitdomain.GitStatus{}, nil
-}
-
-func (g *deletedChangeGit) ComputeWorkingTreeSummary(
-	_ context.Context,
-	_ string,
-	_ string,
-) (int, int, bool, bool, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.calls++
-	if g.calls >= 2 {
-		return 0, 3, false, false, nil
-	}
-	return 0, 0, false, false, nil
-}
-
 func TestWatcher_FanOutGit_DeletedCountChange(t *testing.T) {
 	dir := t.TempDir()
-	cw := newCapturingWatcher(t, dir, &deletedChangeGit{})
+	cw := newCapturingWatcher(t, dir, &scriptedGit{stat: secondCallOnward(0, 3)})
 
 	cw.recomputeNow() // prime: no change yet
 	cw.recomputeNow() // deleted count 0 → 3
@@ -416,29 +369,14 @@ func TestWatcher_FanOutGit_DeletedCountChange(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// fanOutGit — ComputeWorkingTreeSummary error path (no sync dispatched)
+// fanOutGit — DiffStat error path (no sync dispatched)
 // ---------------------------------------------------------------------------
-
-type summaryErrorGit struct{}
-
-func (g *summaryErrorGit) ComputeStatus(
-	_ context.Context,
-	_ string,
-) (gitdomain.GitStatus, error) {
-	return gitdomain.GitStatus{}, nil
-}
-
-func (g *summaryErrorGit) ComputeWorkingTreeSummary(
-	_ context.Context,
-	_ string,
-	_ string,
-) (int, int, bool, bool, error) {
-	return 0, 0, false, false, assert.AnError
-}
 
 func TestWatcher_FanOutGit_SummaryErrorNoSync(t *testing.T) {
 	dir := t.TempDir()
-	cw := newCapturingWatcher(t, dir, &summaryErrorGit{})
+	cw := newCapturingWatcher(t, dir, &scriptedGit{
+		stat: func(int) (int, int, error) { return 0, 0, assert.AnError },
+	})
 
 	cw.recomputeNow()
 
@@ -450,45 +388,20 @@ func TestWatcher_FanOutGit_SummaryErrorNoSync(t *testing.T) {
 // fanOutGit — ComputeStatus error path (no git/sync dispatched at all)
 // ---------------------------------------------------------------------------
 
-type statusErrorGit struct {
-	mu    sync.Mutex
-	calls int
-}
-
-func (g *statusErrorGit) ComputeStatus(
-	_ context.Context,
-	_ string,
-) (gitdomain.GitStatus, error) {
-	g.mu.Lock()
-	g.calls++
-	g.mu.Unlock()
-	return gitdomain.GitStatus{}, assert.AnError
-}
-
-func (g *statusErrorGit) ComputeWorkingTreeSummary(
-	_ context.Context,
-	_ string,
-	_ string,
-) (int, int, bool, bool, error) {
-	return 0, 0, false, false, nil
-}
-
-func (g *statusErrorGit) statusCalls() int {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.calls
-}
-
 func TestWatcher_FanOutGit_StatusErrorNoGitCall(t *testing.T) {
 	dir := t.TempDir()
-	git := &statusErrorGit{}
+	git := &scriptedGit{
+		status: func(int) (gitdomain.GitStatus, error) { return gitdomain.GitStatus{}, assert.AnError },
+	}
 	cw := newCapturingWatcher(t, dir, git)
 
 	cw.recomputeNow()
 
 	// The recompute provably ran (ComputeStatus was attempted) and provably
 	// finished, so the absence of a broadcast is an assertion, not a guess.
-	assert.Equal(t, 1, git.statusCalls(), "the recompute must attempt ComputeStatus")
+	status, base, stat := git.calls()
+	assert.Equal(t, 1, status, "the recompute must attempt ComputeStatus")
+	assert.Zero(t, base+stat, "a failed status must not reach the diff base or stat")
 	assert.Zero(t, cw.d.gitStatusCalls(), "OnGitStatus must not be called when ComputeStatus fails")
 	assert.Empty(t, cw.d.syncs(), "a failed status must not dispatch a sync")
 }
@@ -499,7 +412,7 @@ func TestWatcher_FanOutGit_StatusErrorNoGitCall(t *testing.T) {
 
 func TestWatcher_FanOutGit_RebaseMergeSuppressesSync(t *testing.T) {
 	dir := t.TempDir()
-	git := &changingGit{}
+	git := &scriptedGit{stat: secondCallOnward(1, 0)}
 
 	gitDir := filepath.Join(dir, ".git")
 	require.NoError(t, os.MkdirAll(gitDir, 0o700))
@@ -511,12 +424,13 @@ func TestWatcher_FanOutGit_RebaseMergeSuppressesSync(t *testing.T) {
 	cw.recomputeNow()
 
 	assert.Empty(t, cw.d.syncs(), "a mid-rebase recompute must not dispatch a sync")
-	assert.Zero(t, git.summaryCalls(), "a mid-rebase recompute must not shell out to git")
+	status, base, stat := git.calls()
+	assert.Zero(t, status+base+stat, "a mid-rebase recompute must not shell out to git")
 }
 
 func TestWatcher_FanOutGit_RebaseApplySuppressesSync(t *testing.T) {
 	dir := t.TempDir()
-	git := &changingGit{}
+	git := &scriptedGit{stat: secondCallOnward(1, 0)}
 
 	gitDir := filepath.Join(dir, ".git")
 	require.NoError(t, os.MkdirAll(gitDir, 0o700))
@@ -528,5 +442,6 @@ func TestWatcher_FanOutGit_RebaseApplySuppressesSync(t *testing.T) {
 	cw.recomputeNow()
 
 	assert.Empty(t, cw.d.syncs(), "a mid-rebase recompute must not dispatch a sync")
-	assert.Zero(t, git.summaryCalls(), "a mid-rebase recompute must not shell out to git")
+	status, base, stat := git.calls()
+	assert.Zero(t, status+base+stat, "a mid-rebase recompute must not shell out to git")
 }

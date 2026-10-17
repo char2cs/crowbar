@@ -13,7 +13,11 @@ import (
 // hookCommandVars are the only placeholders a hook command may carry. The
 // vendor CLI runs a hook command through its shell, so anything a user or
 // provider controls ({message}, {cwd}, {context}, …) would be interpreted there.
-var hookCommandVars = []string{"crowbar_hook", "segid", "provider", "scope_flags"}
+var hookCommandVars = []string{"crowbar_hook", "segid", "provider", "scope_flags", "hook_curl", "hook_url"}
+
+// hookCommandStarts open a hook command inside a templated string: the relay
+// process, or curl posting to the daemon's hook server.
+var hookCommandStarts = []string{"{crowbar_hook} hook ", "{hook_curl} "}
 
 var shells = []string{"sh", "bash", "zsh", "dash", "ksh", "fish", "cmd", "cmd.exe", "powershell", "pwsh"}
 
@@ -110,11 +114,11 @@ func hookPlaceholderRules(doc document, f argvField) []Finding {
 }
 
 // hookCommands cuts every hook command out of a templated string: from each
-// "{crowbar_hook} hook " to the quote that closes the string embedding it.
+// hook command start to the quote that closes the string embedding it.
 func hookCommands(s string) []string {
 	var out []string
 	for {
-		start := strings.Index(s, "{crowbar_hook} hook ")
+		start := firstHookCommand(s)
 		if start < 0 {
 			return out
 		}
@@ -126,6 +130,17 @@ func hookCommands(s string) []string {
 		out = append(out, s[:end])
 		s = s[end:]
 	}
+}
+
+// firstHookCommand is the index of the earliest hook command start in s, or -1.
+func firstHookCommand(s string) int {
+	first := -1
+	for _, start := range hookCommandStarts {
+		if i := strings.Index(s, start); i >= 0 && (first < 0 || i < first) {
+			first = i
+		}
+	}
+	return first
 }
 
 func versionRules(doc document, d *spec.Descriptor) []Finding {

@@ -57,6 +57,13 @@ func TestValidate_HookWiringOutsideHooksInjectionIsAnError(t *testing.T) {
 	assert.Equal(t, "config_injection[0]", f.Path)
 }
 
+func TestValidate_CurlHookWiringOutsideHooksInjectionIsAnError(t *testing.T) {
+	rep := descriptorcheck.Validate(minimal(
+		"config_injection:\n  - pass_arg: { arg: -c, value: \"hooks.Stop={hook_curl} {hook_url}/turn_stop\" }\n"))
+	f := findingFor(t, rep, "hooks.in_config_injection")
+	assert.Equal(t, "config_injection[0]", f.Path)
+}
+
 func TestValidate_HookEventsWithNoWiringAreAnError(t *testing.T) {
 	rep := descriptorcheck.Validate(minimal("events:\n  session_start:\n    in: SessionStart\n    map: { session_id: session_id }\n"))
 	f := findingFor(t, rep, "hooks.not_wired")

@@ -140,7 +140,7 @@ func channelRules(doc document, d *spec.Descriptor) []Finding {
 	if usesHooks(d) && len(d.HooksInjection) == 0 && !wiresHooks(d.ConfigInjection) {
 		out = append(out, doc.finding("hooks.not_wired", SeverityError, "hooks_injection",
 			"events arrive over hooks but no process is told where to send them",
-			"declare hooks_injection steps that point the CLI's hooks at {crowbar_hook}"))
+			"declare hooks_injection steps that point the CLI's hooks at {crowbar_hook} or {hook_url}"))
 	}
 	for i, step := range d.ConfigInjection {
 		if wiresHooks([]spec.InjectStep{step}) {
@@ -173,7 +173,7 @@ func usesHooks(d *spec.Descriptor) bool {
 func wiresHooks(steps []spec.InjectStep) bool {
 	for _, step := range steps {
 		for _, v := range step.Args {
-			if s, ok := v.(string); ok && strings.Contains(s, "{crowbar_hook} hook ") {
+			if s, ok := v.(string); ok && firstHookCommand(s) >= 0 {
 				return true
 			}
 		}

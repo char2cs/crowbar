@@ -3,11 +3,13 @@ package runner
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
 
 	"github.com/char2cs/crowbar/api/internal/core/config"
+	"github.com/char2cs/crowbar/api/internal/core/hookserver"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -119,6 +121,20 @@ func canonicalDir(dir string) string {
 	return dir
 }
 
+// hookBase is where the daemon published its hook server under home. Without one a
+// CLI's hooks have nowhere to go, which is loud here because it is silent there.
+func hookBase(
+	home string,
+) string {
+	base, err := hookserver.Read(home)
+	if err != nil {
+		slog.Error("agent: the hook server is not published; this CLI's hooks will not reach the daemon",
+			"home", home, "err", err)
+		return ""
+	}
+	return base
+}
+
 func (rs *Runners) renderSpawnContext(
 	in spawnContext,
 ) (engineagents.TemplateCtx, bool) {
@@ -133,6 +149,7 @@ func (rs *Runners) renderSpawnContext(
 		// runner id is born, and by the SAME minter DispatchMCP verifies against —
 		// a token minted anywhere else would authenticate nothing.
 		RunnerToken: rs.mintRunnerToken(in.runnerID),
+		HookBase:    hookBase(in.crowbarHome),
 		Provider:    in.providerID,
 		ProjectID:   in.projectID,
 		RepoID:      in.repoID,

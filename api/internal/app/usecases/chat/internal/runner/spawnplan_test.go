@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/char2cs/crowbar/api/internal/core/hookserver"
 )
 
 func TestRenderSpawnContext_CarriesCrowbarHome(t *testing.T) {
@@ -36,5 +38,30 @@ func TestRenderSpawnContext_ResolvesASymlinkedWorktree(t *testing.T) {
 	tctx, _ := (&Runners{}).renderSpawnContext(spawnContext{worktree: link})
 	if tctx.Cwd != want {
 		t.Fatalf("TemplateCtx.Cwd = %q, want %q", tctx.Cwd, want)
+	}
+}
+
+// A CLI's hooks are pointed at the hook server the daemon published under the home
+// this spawn resolved against.
+func TestRenderSpawnContext_PointsHooksAtThePublishedHookServer(t *testing.T) {
+	home := t.TempDir()
+	if err := hookserver.Publish(home, "http://127.0.0.1:4242"); err != nil {
+		t.Fatal(err)
+	}
+
+	tctx, _ := (&Runners{}).renderSpawnContext(spawnContext{
+		crowbarHome: home, projectID: "p1", repoID: "r1", runnerID: "run1", providerID: "claude",
+	})
+
+	if tctx.HookBase != "http://127.0.0.1:4242" {
+		t.Fatalf("TemplateCtx.HookBase = %q, want the published hook server", tctx.HookBase)
+	}
+}
+
+func TestRenderSpawnContext_NoPublishedHookServerLeavesHooksUnpointed(t *testing.T) {
+	tctx, _ := (&Runners{}).renderSpawnContext(spawnContext{crowbarHome: t.TempDir(), runnerID: "run1"})
+
+	if tctx.HookBase != "" || tctx.HookURL() != "" {
+		t.Fatalf("HookBase = %q, HookURL = %q, want both empty", tctx.HookBase, tctx.HookURL())
 	}
 }

@@ -345,6 +345,8 @@ func (stubUsecase) SetChatSelection(
 	return nil
 }
 
+func (s stubUsecase) VerifyRunnerToken(string, string) bool { return false }
+
 func (s stubUsecase) DispatchMCP(
 	_ context.Context,
 	runnerID, token string,

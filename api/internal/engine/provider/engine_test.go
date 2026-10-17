@@ -3,8 +3,10 @@ package provider
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,7 +42,7 @@ func makeEngineWithProvider(
 		) (DetectResult, error) {
 			return DetectResult{Kind: kind, Enabled: enabled}, nil
 		},
-		providerFac: func(_ string) GitProvider {
+		providerFac: func(DetectResult) GitProvider {
 			return mp
 		},
 	}
@@ -85,18 +87,18 @@ func TestPollOnView_UnknownKind(t *testing.T) {
 }
 
 func TestProviderFor(t *testing.T) {
-	e := newEngine()
-	assert.NotNil(t, e.providerFor("github"))
-	assert.NotNil(t, e.providerFor("gitlab"))
-	assert.Nil(t, e.providerFor("none"))
-	assert.Nil(t, e.providerFor("bitbucket"))
+	e := newEngine(exec.CommandContext, time.Now)
+	assert.NotNil(t, e.providerFor(DetectResult{Kind: "github"}))
+	assert.NotNil(t, e.providerFor(DetectResult{Kind: "gitlab"}))
+	assert.Nil(t, e.providerFor(DetectResult{Kind: "none"}))
+	assert.Nil(t, e.providerFor(DetectResult{Kind: "bitbucket"}))
 }
 
 func TestPollOnce_Protected(t *testing.T) {
 	mp := &mockProvider{
 		protectedBranches: []string{"main", "develop"},
 	}
-	state, err := (&providerEngine{}).pollOnce(context.Background(), mp, "/repo", "main")
+	state, err := (&providerEngine{}).pollOnce(context.Background(), mp, DetectResult{}, "/repo", "main")
 	require.NoError(t, err)
 	assert.True(t, state.Protected)
 	assert.Nil(t, state.PR)
@@ -106,7 +108,7 @@ func TestPollOnce_NotProtected(t *testing.T) {
 	mp := &mockProvider{
 		protectedBranches: []string{"main"},
 	}
-	state, err := (&providerEngine{}).pollOnce(context.Background(), mp, "/repo", "feature")
+	state, err := (&providerEngine{}).pollOnce(context.Background(), mp, DetectResult{}, "/repo", "feature")
 	require.NoError(t, err)
 	assert.False(t, state.Protected)
 }
@@ -119,7 +121,7 @@ func TestPollOnce_WithPR(t *testing.T) {
 			Status: "open",
 		},
 	}
-	state, err := (&providerEngine{}).pollOnce(context.Background(), mp, "/repo", "feature")
+	state, err := (&providerEngine{}).pollOnce(context.Background(), mp, DetectResult{}, "/repo", "feature")
 	require.NoError(t, err)
 	assert.NotNil(t, state.PR)
 	assert.Equal(t, 1, state.PR.Number)
@@ -129,7 +131,7 @@ func TestPollOnce_ProtectedBranchesError(t *testing.T) {
 	mp := &mockProvider{
 		protectedErr: errors.New("api fail"),
 	}
-	_, err := (&providerEngine{}).pollOnce(context.Background(), mp, "/repo", "main")
+	_, err := (&providerEngine{}).pollOnce(context.Background(), mp, DetectResult{}, "/repo", "main")
 	require.Error(t, err)
 }
 

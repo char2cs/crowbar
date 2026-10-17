@@ -2,7 +2,7 @@ export PATH := $(HOME)/.bun/bin:$(HOME)/.cargo/bin:$(HOME)/.rustup/toolchains/st
 export RUSTUP_HOME := $(HOME)/.rustup
 export CARGO_HOME := $(HOME)/.cargo
 
-.PHONY: e2e e2e-browser dev dev-api dev-web dev-desktop dev-bundle seed seed-chat web-install build test test-coverage lint pr-checks ci docker-up docker-down
+.PHONY: e2e e2e-browser meter dev dev-api dev-web dev-desktop dev-bundle seed seed-chat web-install build test test-coverage lint pr-checks ci docker-up docker-down
 
 # Dev isolation: every dev target roots Crowbar state (projects, store, socket,
 # logs) at <this workspace>/.crowbar instead of ~/.crowbar, so a dev instance
@@ -79,6 +79,12 @@ e2e:
 
 e2e-browser:
 	@bun scripts/e2e/run.mjs --target=browser $(ARGS)
+
+# Endpoint-security meter: execs, file opens, held fds and file changes caused
+# by the desktop app and its daemon, per scenario (scripts/meter/README.md).
+# make meter ARGS='--only=burst --idle=60 --shims'
+meter:
+	@bun scripts/meter/run.mjs $(ARGS)
 
 web-install:
 	$(MAKE) -C web install

@@ -48,9 +48,14 @@ type GitStatusProvider interface {
 		ctx context.Context,
 		repoPath string,
 	) (gitdomain.GitStatus, error)
-	ComputeWorkingTreeSummary(
+	ResolveDiffBase(
 		ctx context.Context,
 		repoPath string,
 		base string,
-	) (added, deleted int, hasConflicts, hasCommits bool, err error)
+	) gitdomain.DiffBase
+	DiffStat(
+		ctx context.Context,
+		repoPath string,
+		commit string,
+	) (added, deleted int, err error)
 }

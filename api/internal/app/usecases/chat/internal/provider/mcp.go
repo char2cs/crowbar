@@ -23,3 +23,12 @@ func (p *Providers) DispatchMCP(
 	out, send := server.Handle(ctx, message)
 	return out, send, nil
 }
+
+// VerifyRunnerToken reports whether token is the one this daemon minted for
+// runnerID. With no minter nothing can be authenticated, so nothing is.
+func (p *Providers) VerifyRunnerToken(
+	runnerID string,
+	token string,
+) bool {
+	return p.minter != nil && p.minter.Verify(runnerID, token)
+}
