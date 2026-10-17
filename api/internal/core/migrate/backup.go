@@ -100,6 +100,13 @@ func singleSegment(
 		!strings.HasSuffix(runID, partialSuffix)
 }
 
+// backupRoom is the free space a backup of size bytes needs: the copy and its headroom.
+func backupRoom(
+	size int64,
+) uint64 {
+	return uint64(size) + backupHeadroom //nolint:gosec // G115: size sums file lengths, so it is never negative
+}
+
 func requireFreeSpace(
 	root string,
 	size int64,
@@ -109,7 +116,7 @@ func requireFreeSpace(
 	if err != nil {
 		return fmt.Errorf("migrate: backup: probe free space under %s: %w", root, err)
 	}
-	required := uint64(size) + backupHeadroom //nolint:gosec // G115: size sums file lengths, so it is never negative
+	required := backupRoom(size)
 	if available < required {
 		return fmt.Errorf("%w: %d bytes needed, %d free under %s", ErrInsufficientDisk, required, available, root)
 	}
@@ -244,6 +251,15 @@ func scanTree(
 		return stats.visit(root, path, entry, walkErr)
 	})
 	return stats, err
+}
+
+// treeSize is the total bytes of the regular files under dir, not counting the
+// home lock file. An absent dir has size zero.
+func treeSize(
+	dir string,
+) (int64, error) {
+	stats, err := scanTree(dir)
+	return stats.bytes, err
 }
 
 func (s *treeStats) visit(

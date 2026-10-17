@@ -46,8 +46,9 @@ func (l *homeLock) Close() error {
 	return nil
 }
 
-// probeLock reports whether another holder has the home lock. It never
-// creates the lock file, and an absent or unopenable one has no provable holder.
+// probeLock reports whether another process holds the home lock; an absent or
+// unopenable lock file has no provable holder and is never created. It takes
+// the lock for an instant, so a daemon booting right then may see ErrHomeLocked.
 func probeLock(
 	h home.Home,
 ) bool {

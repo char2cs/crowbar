@@ -395,12 +395,3 @@ func TestTreeSize_SumsFilesAndSkipsTheLock(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, missing)
 }
-
-// treeSize is the total bytes of the regular files under dir, not counting the
-// home lock file. An absent dir has size zero.
-func treeSize(
-	dir string,
-) (int64, error) {
-	stats, err := scanTree(dir)
-	return stats.bytes, err
-}

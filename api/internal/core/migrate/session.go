@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"sync/atomic"
 	"time"
@@ -112,23 +111,13 @@ func Begin(
 // migrated: a refused home must stay byte-identical, since an older binary
 // must not write into a newer home.
 func (s *Session) load() error {
-	layout, err := readLayout(s.home)
-	if err != nil {
-		s.refuse(HaltLayoutUnreadable, err.Error())
+	read := readHome(s.home, s.cat)
+	s.layout = read.layout
+	if read.refusal != nil {
+		s.refuse(read.refusal.reason, read.refusal.message)
 		return nil
 	}
-	s.layout = layout
-	if known := s.cat.Known(); layout > known {
-		s.refuse(HaltLayoutNewer, fmt.Sprintf(
-			"this home is at layout %d but this crowbar only knows layout %d: run a newer crowbar", layout, known))
-		return nil
-	}
-	begun, err := readLedger(s.ledgerPath())
-	if err != nil {
-		s.refuse(HaltLedgerCorrupt, err.Error())
-		return nil
-	}
-	s.begun = begun
+	s.begun = read.view
 	if err := cleanPartialBackups(s.home); err != nil {
 		return err
 	}
@@ -197,10 +186,6 @@ func (s *Session) Close() error {
 	return errors.Join(ledgerErr, lockErr)
 }
 
-func (s *Session) ledgerPath() string {
-	return filepath.Join(s.home.MigrateDir(), ledgerName)
-}
-
 // view is the ledger as it stands, whether or not the file is open yet.
 func (s *Session) view() ledgerView {
 	if s.led != nil {
@@ -214,7 +199,7 @@ func (s *Session) openForAppend() (*ledger, error) {
 	if s.led != nil {
 		return s.led, nil
 	}
-	l, err := openLedger(s.ledgerPath())
+	l, err := openLedger(ledgerPath(s.home))
 	if err != nil {
 		return nil, err
 	}

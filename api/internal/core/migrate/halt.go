@@ -3,7 +3,6 @@ package migrate
 import (
 	"errors"
 	"fmt"
-	"os"
 )
 
 // HaltReason says why a session stopped the boot.
@@ -121,10 +120,7 @@ func (s *Session) newHalt(
 	step Step,
 	cause error,
 ) *Halt {
-	h := s.baseHalt(reason, haltMessage(reason, step, cause))
-	id := step.ID()
-	h.Step, h.Phase = &id, step.Phase.String()
-	return h
+	return s.baseHalt(reason, haltMessage(reason, step, cause)).at(step)
 }
 
 // baseHalt is a halt with everything the session itself knows. Backup is the
@@ -133,20 +129,12 @@ func (s *Session) baseHalt(
 	reason HaltReason,
 	message string,
 ) *Halt {
-	h := &Halt{
-		Reason:  reason,
-		Message: message,
-		Layout:  s.layout,
-		Known:   s.cat.Known(),
-	}
+	h := haltAt(s.home, s.cat, s.layout, reason, message)
 	if path := s.view().backupInForce(); backupOnDisk(path) {
 		h.Backup = path
 	}
 	if s.run != nil {
 		h.Run = s.run.id
-	}
-	if _, err := os.Stat(s.ledgerPath()); err == nil {
-		h.Ledger = s.ledgerPath()
 	}
 	return h
 }
