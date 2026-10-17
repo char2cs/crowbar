@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 func TestHalt_FailureHaltsWithTheStepAndKeepsLayout(t *testing.T) {
@@ -116,6 +118,41 @@ func TestHalt_MissingImplHalts(t *testing.T) {
 	nilApply := b.begin()
 	err = nilApply.RunPreOpen(ctx, Impls{1: {}, 2: {}})
 	assert.Equal(t, HaltNoImpl, halted(t, err).Reason, "an Impl without Apply is no implementation")
+}
+
+func TestHalt_MissingImplInPostOpenEndsTheRunWithoutAStepFailure(t *testing.T) {
+	ctx := context.Background()
+	b := newBench(t, newStep(1, "a", PreOpen, 0, 0), newStep(2, "b", PostOpen, 0, 0))
+	s := b.begin()
+	require.NoError(t, s.RunPreOpen(ctx, healthy(1)))
+
+	err := s.RunPostOpen(ctx, healthy(1))
+
+	h := halted(t, err)
+	assert.Equal(t, HaltNoImpl, h.Reason)
+	require.NotNil(t, h.Step)
+	assert.Equal(t, 2, h.Step.Number)
+	records := b.records()
+	assert.Equal(t, []string{kindRunStart, kindStepStart, kindStepDone, kindRunEnd}, kindsOf(records), "step 2 never started, so it did not fail")
+	assert.Equal(t, outcomeFailed, records[3].Outcome)
+}
+
+func TestHalt_DoesNotPointAtABackupThatIsGone(t *testing.T) {
+	ctx := context.Background()
+	b := newBench(t, planned(newStep(1, "a", PreOpen, 0, 0), Plan{RewritesState: true}))
+	testutil.WriteFile(t, b.home, "state/view.db", "rows")
+	first := b.begin()
+	h := halted(t, first.RunPreOpen(ctx, Impls{1: impl(func(*Checkpoints) (Counts, error) {
+		return nil, errors.New("boom")
+	})}))
+	require.NotEmpty(t, h.Backup)
+	require.NoError(t, first.Close())
+	require.NoError(t, os.RemoveAll(filepath.Dir(h.Backup)))
+
+	again := halted(t, b.begin().RunPreOpen(ctx, Impls{}))
+
+	assert.Equal(t, HaltNoImpl, again.Reason)
+	assert.Empty(t, again.Backup, "a path nobody can restore from is not offered")
 }
 
 func TestHalt_EverythingAfterReturnsTheHalt(t *testing.T) {

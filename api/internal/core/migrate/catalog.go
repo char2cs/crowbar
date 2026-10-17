@@ -46,6 +46,15 @@ func (c *Catalog) Known() int {
 	return c.known
 }
 
+// has reports whether the catalog holds a step with this number.
+func (c *Catalog) has(
+	number int,
+) bool {
+	return slices.ContainsFunc(c.steps, func(s Step) bool {
+		return s.Number == number
+	})
+}
+
 // order lists the steps still to run from a home at layout; applied reports
 // whether an in-layout or post-open step already completed (bump steps ignore
 // it). Requires 0 <= layout <= Known().

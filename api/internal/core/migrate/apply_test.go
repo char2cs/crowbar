@@ -214,6 +214,9 @@ func TestRun_AClosingRecordThatFailsDoesNotUndoTheMigration(t *testing.T) {
 
 	require.NoError(t, b.begin().RunPreOpen(context.Background(), tracing(&order, 1)))
 	assert.Equal(t, []int{1}, order, "the finished step is not run again")
+	records := b.records()
+	assert.Equal(t, []string{kindRunStart, kindStepStart, kindStepDone, kindRunEnd}, kindsOf(records))
+	assert.Equal(t, outcomeCompleted, records[3].Outcome, "the next boot sees every step done and closes the run as completed")
 }
 
 func TestRun_TheRunStartsInPreOpenEvenWhenOnlyPostOpenIsPending(t *testing.T) {

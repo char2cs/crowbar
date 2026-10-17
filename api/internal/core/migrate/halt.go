@@ -14,7 +14,8 @@ const (
 	HaltLayoutNewer HaltReason = "layout_newer"
 	// HaltLayoutUnreadable means LAYOUT exists but is not a layout number.
 	HaltLayoutUnreadable HaltReason = "layout_unreadable"
-	// HaltLedgerCorrupt means a ledger line other than a torn tail is unreadable.
+	// HaltLedgerCorrupt means the ledger cannot be trusted: a line other than a
+	// torn tail is unparsable, or the file cannot be read.
 	HaltLedgerCorrupt HaltReason = "ledger_corrupt"
 	// HaltPlanFailed means a pending step could not compute its plan.
 	HaltPlanFailed HaltReason = "plan_failed"
@@ -69,9 +70,9 @@ func (s *Session) fail(
 	return s.stop(reason, step, cause, true)
 }
 
-// failBeforeSteps halts on step before any step has run, as plan and preflight
-// do: the run ends failed, with no step.fail, since no step failed.
-func (s *Session) failBeforeSteps(
+// failUnstarted halts on a step that never started, as a failed plan, preflight
+// or missing implementation does: the run ends failed, with no step.fail.
+func (s *Session) failUnstarted(
 	reason HaltReason,
 	step Step,
 	cause error,
@@ -127,7 +128,7 @@ func (s *Session) newHalt(
 }
 
 // baseHalt is a halt with everything the session itself knows. Backup is the
-// copy of state/ the migration in progress started from, if it took one.
+// copy of state/ this migration attempt started from, while it is still there.
 func (s *Session) baseHalt(
 	reason HaltReason,
 	message string,
@@ -137,7 +138,9 @@ func (s *Session) baseHalt(
 		Message: message,
 		Layout:  s.layout,
 		Known:   s.cat.Known(),
-		Backup:  s.view().backupInForce(),
+	}
+	if path := s.view().backupInForce(); backupOnDisk(path) {
+		h.Backup = path
 	}
 	if s.run != nil {
 		h.Run = s.run.id

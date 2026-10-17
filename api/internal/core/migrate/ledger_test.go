@@ -246,10 +246,10 @@ func TestLedger_DanglingRun(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			id, ok := ledgerView{records: tc.records}.danglingRun()
+			start, ok := ledgerView{records: tc.records}.danglingRun()
 
 			assert.Equal(t, tc.wantOK, ok)
-			assert.Equal(t, tc.wantID, id)
+			assert.Equal(t, tc.wantID, start.Run)
 		})
 	}
 }
@@ -422,9 +422,9 @@ func TestLedger_FailedAppendPoisonsTheLedger(t *testing.T) {
 
 	require.NoError(t, err, "the fragment is an unterminated tail, so the next boot repairs it")
 	assert.Equal(t, jsonLine(t, start), readRawLedger(t, path))
-	id, dangling := reopened.view.danglingRun()
-	assert.True(t, dangling)
-	assert.Equal(t, "r1", id)
+	dangling, ok := reopened.view.danglingRun()
+	assert.True(t, ok)
+	assert.Equal(t, "r1", dangling.Run)
 	require.NoError(t, reopened.append(record{Kind: "run.end", Run: "r1", Outcome: "interrupted"}))
 	require.NoError(t, reopened.Close())
 }

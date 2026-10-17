@@ -9,10 +9,9 @@ import (
 	"slices"
 )
 
-// preflight is everything a run checks and secures before its first step, so a
-// boot that is going to fail fails before it changes anything: every pending
-// step of both phases is planned offline, what the plans need is checked, and
-// state/ is backed up when a plan will rewrite it.
+// preflight plans every pending step of both phases offline, checks what the
+// plans need and backs up state/ when one rewrites it, so a boot that will fail
+// fails before it changes anything.
 func (s *Session) preflight(
 	ctx context.Context,
 	pending []Step,
@@ -42,7 +41,7 @@ func (s *Session) planAll(
 			return nil, s.interrupt(err)
 		}
 		if err != nil {
-			return nil, s.failBeforeSteps(HaltPlanFailed, step, err)
+			return nil, s.failUnstarted(HaltPlanFailed, step, err)
 		}
 		plans = append(plans, plan)
 	}
@@ -57,7 +56,7 @@ func (s *Session) checkGit(
 	if i < 0 || s.opts.HaveGit() {
 		return nil
 	}
-	return s.failBeforeSteps(HaltPreflight, pending[i], errors.New("git is required but was not found on PATH"))
+	return s.failUnstarted(HaltPreflight, pending[i], errors.New("git is required but was not found on PATH"))
 }
 
 // backUpState backs up state/ when a plan will rewrite it.
@@ -70,7 +69,7 @@ func (s *Session) backUpState(
 		return nil
 	}
 	if err := s.takeBackup(); err != nil {
-		return s.failBeforeSteps(HaltPreflight, pending[i], err)
+		return s.failUnstarted(HaltPreflight, pending[i], err)
 	}
 	return nil
 }
@@ -79,9 +78,13 @@ func (s *Session) backUpState(
 // backup no completed run has followed, a retry keeps it, so partially migrated
 // state never replaces the image a person would restore from.
 func (s *Session) takeBackup() error {
-	kept, err := backupExists(s.view().backupInForce())
+	path := s.view().backupInForce()
+	kept, err := backupExists(path)
 	if err != nil || kept {
 		return err
+	}
+	if path != "" {
+		s.opts.Log.Warn("migrate: the backup this migration started from is gone; taking a new one", "backup", path)
 	}
 	res, err := backupState(s.home, s.run.id, s.opts.FreeBytes)
 	if err != nil || res.Path == "" {
@@ -92,6 +95,14 @@ func (s *Session) takeBackup() error {
 		return fmt.Errorf("record backup %s: %w", res.Path, err)
 	}
 	return nil
+}
+
+// backupOnDisk reports whether the backup at path is there to restore from.
+func backupOnDisk(
+	path string,
+) bool {
+	on, err := backupExists(path)
+	return err == nil && on
 }
 
 // backupExists reports whether the backup at path is still on disk; no path

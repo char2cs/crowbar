@@ -100,13 +100,13 @@ func (v ledgerView) checkpoints(
 	return out
 }
 
-// danglingRun returns the id of the last run.start when it has no run.end.
-func (v ledgerView) danglingRun() (string, bool) {
+// danglingRun returns the last run.start when it has no run.end.
+func (v ledgerView) danglingRun() (record, bool) {
 	start, rest, ok := v.latestRun()
 	if !ok || slices.ContainsFunc(rest, endsRun(start.Run)) {
-		return "", false
+		return record{}, false
 	}
-	return start.Run, true
+	return start, true
 }
 
 // backupInForce is the path of the newest backup record that no completed run

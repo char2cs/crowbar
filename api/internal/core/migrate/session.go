@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -85,10 +86,11 @@ type Session struct {
 
 // Begin takes the home lock, reads the layout and the ledger, and closes a run
 // a crash left open. It returns an error, and no session, only when the home is
-// held by another process (ErrHomeLocked) or cannot be read or written (an I/O
-// failure); the lock is released. A home it must not migrate, because LAYOUT is
-// newer than the catalog or unreadable or the ledger is corrupt, is not an
-// error: the session is live, holds the lock, and its Halt says why.
+// held by another process (ErrHomeLocked) or cannot be cleaned or written (an
+// I/O failure); the lock is released. A home it must not migrate, because LAYOUT
+// is newer than the catalog or unreadable, or the ledger is corrupt or
+// unreadable, is no error: the session is live, holds the lock, and its Halt
+// says why.
 func Begin(
 	_ context.Context,
 	h home.Home,
@@ -122,12 +124,9 @@ func (s *Session) load() error {
 		return nil
 	}
 	begun, err := readLedger(s.ledgerPath())
-	if errors.Is(err, ErrLedgerCorrupt) {
+	if err != nil {
 		s.refuse(HaltLedgerCorrupt, err.Error())
 		return nil
-	}
-	if err != nil {
-		return err
 	}
 	s.begun = begun
 	if err := cleanPartialBackups(s.home); err != nil {
@@ -140,18 +139,34 @@ func (s *Session) load() error {
 // holds two live runs. It is the only ledger write Begin makes, and only when a
 // run is dangling.
 func (s *Session) closeDanglingRun() error {
-	id, ok := s.begun.danglingRun()
+	start, ok := s.begun.danglingRun()
 	if !ok {
 		return nil
 	}
+	outcome, detail := outcomeInterrupted, "the process stopped before the run ended"
+	if s.leftNothingUndone(start) {
+		outcome, detail = outcomeCompleted, ""
+	}
 	if _, err := s.openForAppend(); err != nil {
-		return fmt.Errorf("close interrupted run %s: open ledger: %w", id, err)
+		return fmt.Errorf("close unfinished run %s: open ledger: %w", start.Run, err)
 	}
-	if err := s.writeRunEnd(id, nil, outcomeInterrupted, "the process stopped before the run ended"); err != nil {
-		return fmt.Errorf("close interrupted run %s: %w", id, err)
+	if err := s.writeRunEnd(start.Run, nil, outcome, detail); err != nil {
+		return fmt.Errorf("close unfinished run %s: %w", start.Run, err)
 	}
-	s.opts.Log.Info("migrate: closed a run that never ended", "run", id)
+	s.opts.Log.Info("migrate: closed a run that never ended", "run", start.Run, "outcome", outcome)
 	return nil
+}
+
+// leftNothingUndone is whether every step the run set out to do is done in this
+// home, so only its closing record was lost. A step the catalog dropped cannot
+// be vouched for.
+func (s *Session) leftNothingUndone(
+	start record,
+) bool {
+	left := stepNumbers(s.pending())
+	return !slices.ContainsFunc(start.Pending, func(n int) bool {
+		return !s.cat.has(n) || slices.Contains(left, n)
+	})
 }
 
 // Halt is why the boot must not go on, or nil while it may. It is safe to call

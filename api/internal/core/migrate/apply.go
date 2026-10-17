@@ -106,7 +106,7 @@ func (s *Session) admit(
 	}
 	for _, step := range leading(pending, phase) {
 		if impls[step.Number].Apply == nil {
-			return s.fail(HaltNoImpl, step, errors.New("no implementation in this build"))
+			return s.failUnstarted(HaltNoImpl, step, errors.New("no implementation in this build"))
 		}
 	}
 	return nil
@@ -116,12 +116,8 @@ func (s *Session) admit(
 func (s *Session) checkKnown(
 	impls Impls,
 ) error {
-	known := make(map[int]bool, len(s.cat.steps))
-	for _, step := range s.cat.steps {
-		known[step.Number] = true
-	}
 	for _, n := range slices.Sorted(maps.Keys(impls)) {
-		if !known[n] {
+		if !s.cat.has(n) {
 			return fmt.Errorf("migrate: unknown implementation for step %d: the catalog has no such step", n)
 		}
 	}

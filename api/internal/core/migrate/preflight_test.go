@@ -1,12 +1,15 @@
 package migrate
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -255,6 +258,8 @@ func TestRun_OneBackupPerMigrationAttempt(t *testing.T) {
 func TestRun_ABackupSomeoneRemovedIsTakenAgain(t *testing.T) {
 	ctx := context.Background()
 	b := newBench(t, planned(newStep(1, "a", PreOpen, 0, 0), Plan{RewritesState: true}))
+	var logs bytes.Buffer
+	b.log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	testutil.WriteFile(t, b.home, "state/view.db", "rows")
 	failing := Impls{1: impl(func(*Checkpoints) (Counts, error) {
 		return nil, errors.New("boom")
@@ -268,4 +273,39 @@ func TestRun_ABackupSomeoneRemovedIsTakenAgain(t *testing.T) {
 
 	assert.NotEqual(t, firstHalt.Backup, secondHalt.Backup, "a backup that is gone is no backup")
 	assert.DirExists(t, secondHalt.Backup)
+	assert.Contains(t, logs.String(), firstHalt.Backup, "the loss of the first image is not silent")
+}
+
+func TestRun_ABackupTheLedgerCannotRecordHaltsAndIsNotInForce(t *testing.T) {
+	ctx := context.Background()
+	b := newBench(t, planned(newStep(1, "a", PreOpen, 0, 0), Plan{RewritesState: true}))
+	testutil.WriteFile(t, b.home, "state/view.db", "rows")
+	var s *Session
+	tick := tickingClock()
+	b.clock = func() time.Time {
+		if s != nil && s.run != nil {
+			require.NoError(t, s.led.Close()) // run.start is down; the backup record is next
+		}
+		return tick()
+	}
+	s = b.begin()
+	var order []int
+
+	err := s.RunPreOpen(ctx, tracing(&order, 1))
+
+	h := halted(t, err)
+	assert.Equal(t, HaltPreflight, h.Reason)
+	copied := filepath.Join(b.home.MigrateDir(), backupsDirName, h.Run, "state")
+	assert.Contains(t, h.Message, copied, "the copy exists, so the message says where")
+	assert.DirExists(t, copied)
+	assert.Empty(t, h.Backup, "no durable record, so nothing is in force")
+	assert.Empty(t, order)
+	require.NoError(t, s.Close())
+
+	b.clock = tick
+	require.NoError(t, b.begin().RunPreOpen(ctx, tracing(&order, 1)))
+	backups := ofKind(b.records(), kindBackup)
+	require.Len(t, backups, 1)
+	assert.NotEqual(t, copied, backups[0].Path, "the next boot backs up afresh")
+	assert.Equal(t, []int{1}, order)
 }

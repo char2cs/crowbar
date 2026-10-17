@@ -66,41 +66,17 @@ func TestBegin_RefusesAHomeAnotherSessionHolds(t *testing.T) {
 	b.begin()
 }
 
-func TestBegin_ReleasesTheLockWhenItCannotReadTheHome(t *testing.T) {
-	tests := []struct {
-		name  string
-		write func(*bench)
-		want  string
-	}{
-		{
-			name: "a ledger that cannot be read",
-			write: func(b *bench) {
-				require.NoError(b.tb, os.MkdirAll(filepath.Join(b.home.MigrateDir(), ledgerName), 0o700))
-			},
-			want: "ledger: read",
-		},
-		{
-			name: "half-written backups that cannot be listed",
-			write: func(b *bench) {
-				testutil.WriteFile(b.tb, b.home, "migrate/backups", "a file, not a directory")
-			},
-			want: "backup: list",
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			b := newBench(t)
-			tc.write(b)
+func TestBegin_ReleasesTheLockWhenItCannotCleanTheHome(t *testing.T) {
+	b := newBench(t)
+	testutil.WriteFile(t, b.home, "migrate/backups", "a file, not a directory")
 
-			_, err := Begin(context.Background(), b.home, b.cat, Options{})
+	_, err := Begin(context.Background(), b.home, b.cat, Options{})
 
-			require.ErrorContains(t, err, "migrate: begin")
-			require.ErrorContains(t, err, tc.want)
-			lock, lockErr := lockHome(b.home)
-			require.NoError(t, lockErr, "a failed Begin must not keep the home locked")
-			require.NoError(t, lock.Close())
-		})
-	}
+	require.ErrorContains(t, err, "migrate: begin")
+	require.ErrorContains(t, err, "backup: list")
+	lock, lockErr := lockHome(b.home)
+	require.NoError(t, lockErr, "a failed Begin must not keep the home locked")
+	require.NoError(t, lock.Close())
 }
 
 func TestBegin_RefusesANewerLayout(t *testing.T) {
@@ -118,8 +94,8 @@ func TestBegin_RefusesANewerLayout(t *testing.T) {
 		h := s.Halt()
 		require.NotNil(t, h)
 		assert.Equal(t, HaltLayoutNewer, h.Reason)
-		assert.Contains(t, h.Message, "5")
-		assert.Contains(t, h.Message, "1")
+		assert.Contains(t, h.Message, "layout 5")
+		assert.Contains(t, h.Message, "layout 1")
 		assert.Equal(t, 5, h.Layout)
 		assert.Equal(t, 1, h.Known)
 		assert.Nil(t, h.Step, "no step is to blame")
@@ -190,27 +166,51 @@ func TestBegin_UnreadableLayoutHaltsAndNeverRunsAnyStep(t *testing.T) {
 	}
 }
 
-func TestBegin_CorruptLedgerHalts(t *testing.T) {
-	b := newBench(t, newStep(1, "a", PreOpen, 0, 0))
-	testutil.WriteFile(t, b.home, "migrate/ledger.jsonl",
-		`{"v":1,"kind":"run.start","run":"r1"}`+"\n"+"garbage\n"+`{"v":1,"kind":"run.end","run":"r1"}`+"\n")
-	testutil.WriteFile(t, b.home, "migrate/backups/20261017T010203.000000000Z.partial/state/x", "x")
-	testutil.WriteFile(t, b.home, "state/.lock", "")
-	before := testutil.TreeSnapshot(t, b.home)
-	var order []int
+func TestBegin_ALedgerItCannotTrustHalts(t *testing.T) {
+	tests := []struct {
+		name  string
+		write func(*bench)
+		want  string
+	}{
+		{
+			name: "garbage in the middle",
+			write: func(b *bench) {
+				testutil.WriteFile(b.tb, b.home, "migrate/ledger.jsonl",
+					`{"v":1,"kind":"run.start","run":"r1"}`+"\n"+"garbage\n"+`{"v":1,"kind":"run.end","run":"r1"}`+"\n")
+			},
+			want: "line 2",
+		},
+		{
+			name: "a ledger that cannot be read",
+			write: func(b *bench) {
+				require.NoError(b.tb, os.MkdirAll(filepath.Join(b.home.MigrateDir(), ledgerName), 0o700))
+			},
+			want: "is a directory",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newBench(t, newStep(1, "a", PreOpen, 0, 0))
+			tc.write(b)
+			testutil.WriteFile(t, b.home, "migrate/backups/20261017T010203.000000000Z.partial/state/x", "x")
+			testutil.WriteFile(t, b.home, "state/.lock", "")
+			before := testutil.TreeSnapshot(t, b.home)
+			var order []int
 
-	s := b.begin()
+			s := b.begin()
 
-	h := s.Halt()
-	require.NotNil(t, h)
-	assert.Equal(t, HaltLedgerCorrupt, h.Reason)
-	assert.Contains(t, h.Message, "line 2")
-	assert.Equal(t, filepath.Join(b.home.MigrateDir(), ledgerName), h.Ledger)
-	assert.Same(t, h, halted(t, s.RunPreOpen(context.Background(), tracing(&order, 1))))
-	assert.Empty(t, order)
-	assert.Equal(t, before, testutil.TreeSnapshot(t, b.home), "a corrupt ledger is left for a person to read")
-	_, err := lockHome(b.home)
-	require.ErrorIs(t, err, ErrHomeLocked)
+			h := s.Halt()
+			require.NotNil(t, h)
+			assert.Equal(t, HaltLedgerCorrupt, h.Reason)
+			assert.Contains(t, h.Message, tc.want)
+			assert.Equal(t, filepath.Join(b.home.MigrateDir(), ledgerName), h.Ledger)
+			assert.Same(t, h, halted(t, s.RunPreOpen(context.Background(), tracing(&order, 1))))
+			assert.Empty(t, order)
+			assert.Equal(t, before, testutil.TreeSnapshot(t, b.home), "a ledger nobody can read is left for a person")
+			_, err := lockHome(b.home)
+			require.ErrorIs(t, err, ErrHomeLocked)
+		})
+	}
 }
 
 func TestBegin_ClosesADanglingRunAsInterrupted(t *testing.T) {
@@ -257,8 +257,67 @@ func TestBegin_ABumpWhoseLayoutLandedBeforeItsDoneRecordIsNotRerun(t *testing.T)
 	records := b.records()
 	require.Equal(t, []string{kindRunStart, kindStepStart, kindRunEnd}, kindsOf(records), "no new run for nothing to do")
 	assert.Equal(t, "r-killed", records[2].Run)
-	assert.Equal(t, outcomeInterrupted, records[2].Outcome)
+	assert.Equal(t, outcomeCompleted, records[2].Outcome, "the bump landed, so the run had nothing left to do")
 	assert.Equal(t, 1, layoutOf(records[2].To))
+}
+
+func TestBegin_ClosesADanglingRunByWhatItLeftUndone(t *testing.T) {
+	tests := []struct {
+		name    string
+		pending []int
+		want    string
+	}{
+		{name: "every step of the run is done", pending: []int{1, 2}, want: outcomeCompleted},
+		{name: "a step the catalog no longer has", pending: []int{1, 9}, want: outcomeInterrupted},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newBench(t, newStep(1, "a", PreOpen, 0, 0), newStep(2, "b", PreOpen, 0, 0))
+			recs := []record{{Kind: kindRunStart, At: ledgerEpoch, Run: "r-killed", Pending: tc.pending, From: new(int)}}
+			for i, name := range []string{"a", "b"} {
+				recs = append(recs, record{
+					Kind: kindStepDone, At: ledgerEpoch, Run: "r-killed", Step: i + 1, Name: name, Outcome: outcomeApplied,
+				})
+			}
+			b.seedLedger(recs...)
+
+			b.begin()
+
+			records := b.records()
+			end := records[len(records)-1]
+			assert.Equal(t, kindRunEnd, end.Kind)
+			assert.Equal(t, "r-killed", end.Run)
+			assert.Equal(t, tc.want, end.Outcome)
+		})
+	}
+}
+
+func TestBegin_AFinishedDanglingRunRetiresItsBackup(t *testing.T) {
+	rewrites := func(n int, name string) Step {
+		return planned(newStep(n, name, PreOpen, 0, 0), Plan{RewritesState: true})
+	}
+	b := newBench(t, rewrites(1, "a"), rewrites(2, "b"))
+	testutil.WriteFile(t, b.home, "state/view.db", "the rows now")
+	testutil.WriteFile(t, b.home, "migrate/backups/r-old/state/view.db", "the rows long ago")
+	old := filepath.Join(b.home.MigrateDir(), backupsDirName, "r-old", "state")
+	b.seedLedger(
+		record{Kind: kindRunStart, At: ledgerEpoch, Run: "r-old", Pending: []int{1}, From: new(int)},
+		record{Kind: kindBackup, At: ledgerEpoch, Run: "r-old", Path: old, Bytes: 17},
+		record{Kind: kindStepStart, At: ledgerEpoch, Run: "r-old", Step: 1, Name: "a", Phase: "pre-open"},
+		record{Kind: kindStepDone, At: ledgerEpoch, Run: "r-old", Step: 1, Name: "a", Phase: "pre-open", Outcome: outcomeApplied},
+	)
+	var order []int
+	s := b.begin()
+
+	require.NoError(t, s.RunPreOpen(context.Background(), tracing(&order, 1, 2)))
+
+	assert.Equal(t, []int{2}, order)
+	backups := ofKind(b.records(), kindBackup)
+	require.Len(t, backups, 2, "the finished run's backup is not the image a later migration starts from")
+	assert.NotEqual(t, old, backups[1].Path)
+	raw, err := os.ReadFile(filepath.Join(backups[1].Path, "view.db"))
+	require.NoError(t, err)
+	assert.Equal(t, "the rows now", string(raw))
 }
 
 func TestBegin_RemovesHalfWrittenBackups(t *testing.T) {
