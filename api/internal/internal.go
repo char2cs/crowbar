@@ -184,7 +184,7 @@ func (c *Container) Run(
 			httpDrainGrace   = 1 * time.Second
 			writerDrainGrace = 4 * time.Second
 		)
-		httpCtx, cancelHTTP := context.WithTimeout(context.Background(), httpDrainGrace)
+		httpCtx, cancelHTTP := context.WithTimeout(context.WithoutCancel(ctx), httpDrainGrace)
 		defer cancelHTTP()
 		httpErr := errors.Join(c.server.Shutdown(httpCtx), c.hooks.Shutdown(httpCtx))
 

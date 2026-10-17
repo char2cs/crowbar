@@ -89,17 +89,18 @@ func TestRun_ServesOnlyTheRunnerHookRouteOnALoopbackPort(t *testing.T) {
 		<-done
 	})
 
-	body := func(resp *http.Response) string {
-		b, _ := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
+	fetch := func(method, target string, payload io.Reader) string {
+		req, err := http.NewRequestWithContext(ctx, method, target, payload)
+		require.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		b, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
 		return string(b)
 	}
-	resp, err := http.Post(url+"/v0/projects/p/repos/r/chats/runners/seg/hooks/claude/tool_pre",
-		"application/json", strings.NewReader("{}"))
-	require.NoError(t, err)
-	assert.Contains(t, body(resp), "repository not found", "the real router, not the gate, answered")
-
-	resp, err = http.Get(url + "/v0/projects")
-	require.NoError(t, err)
-	assert.Equal(t, "404 page not found\n", body(resp), "the gate refuses the rest of the API")
+	assert.Contains(t, fetch(http.MethodPost, url+"/v0/projects/p/repos/r/chats/runners/seg/hooks/claude/tool_pre", strings.NewReader("{}")),
+		"repository not found", "the real router, not the gate, answered")
+	assert.Equal(t, "404 page not found\n", fetch(http.MethodGet, url+"/v0/projects", nil),
+		"the gate refuses the rest of the API")
 }
