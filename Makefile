@@ -123,9 +123,10 @@ RATCHETS := file-size counters loc-budgets
 
 # File-size cap, pattern counters and per-module LOC budgets (scripts/ratchet/).
 # Baselines only shrink: after deleting code run `make ratchet ARGS=--update`.
+# Every gate runs even when one fails, so one run reports everything to fix.
 ratchet:
 	@node --test scripts/ratchet/*.test.mjs
-	@for g in $(RATCHETS); do node scripts/ratchet/$$g.mjs $(ARGS) || exit 1; done
+	@rc=0; for g in $(RATCHETS); do node scripts/ratchet/$$g.mjs $(ARGS) || rc=1; done; exit $$rc
 
 pr-checks: ratchet lint test-coverage build
 	@echo "All PR checks passed! ✓"
