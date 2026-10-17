@@ -60,6 +60,19 @@ func readRawLedger(
 	return string(raw)
 }
 
+func appendRaw(
+	tb testing.TB,
+	path string,
+	content string,
+) {
+	tb.Helper()
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
+	require.NoError(tb, err)
+	_, writeErr := file.WriteString(content)
+	require.NoError(tb, writeErr)
+	require.NoError(tb, file.Close())
+}
+
 func jsonLine(
 	tb testing.TB,
 	r record,
@@ -197,6 +210,8 @@ func TestLedger_CorruptLinesAreAnError(t *testing.T) {
 		{name: "garbage final line that ends in a newline", content: good + "garbage\n"},
 		{name: "blank line between good lines", content: good + "\n" + good},
 		{name: "garbage before a torn tail", content: good + "garbage\n" + `{"v":1,"ki`},
+		{name: "terminated line with no kind", content: good + "{}\n"},
+		{name: "terminated null line", content: good + "null\n"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -304,6 +319,22 @@ func TestLedger_AbsentFileIsEmpty(t *testing.T) {
 	assert.NoDirExists(t, filepath.Dir(path), "the read path creates nothing")
 }
 
+func TestLedger_ZeroByteFileIsEmpty(t *testing.T) {
+	path := ledgerPathIn(t)
+	writeRawLedger(t, path, "")
+
+	view, err := readLedger(path)
+	require.NoError(t, err)
+	assert.Empty(t, view.records)
+
+	l, err := openLedger(path)
+	require.NoError(t, err)
+	assert.Empty(t, l.view.records)
+	require.NoError(t, l.append(record{Kind: "run.start", At: minute(0), Run: "r1"}))
+	require.NoError(t, l.Close())
+	assert.Equal(t, jsonLine(t, record{Kind: "run.start", At: minute(0), Run: "r1"}), readRawLedger(t, path))
+}
+
 func TestLedger_OpenCreatesAPrivateLedger(t *testing.T) {
 	path := ledgerPathIn(t)
 
@@ -336,6 +367,66 @@ func TestLedger_CloseIsIdempotentAndEndsAppends(t *testing.T) {
 
 	require.ErrorContains(t, l.append(record{Kind: "run.start", Run: "r1"}), "migrate: ledger:")
 	assert.Empty(t, l.view.records, "a failed append is not remembered")
+}
+
+func TestLedger_AppendStoresACopyOfTheRecord(t *testing.T) {
+	l, err := openLedger(ledgerPathIn(t))
+	require.NoError(t, err)
+	counts, pending, from := Counts{"n": 1}, []int{1, 2}, 3
+
+	require.NoError(t, l.append(record{Kind: "run.start", Run: "r1", Counts: counts, Pending: pending, From: &from}))
+	counts["n"], pending[0], from = 99, 99, 99
+
+	got := l.view.records[0]
+	assert.Equal(t, Counts{"n": 1}, got.Counts, "the view holds what is on disk, not the caller's map")
+	assert.Equal(t, []int{1, 2}, got.Pending)
+	assert.Equal(t, 3, *got.From)
+	require.NoError(t, l.Close())
+}
+
+func TestLedger_AppendRefusesARecordWithoutAKind(t *testing.T) {
+	path := ledgerPathIn(t)
+	l, err := openLedger(path)
+	require.NoError(t, err)
+
+	require.ErrorContains(t, l.append(record{Run: "r1"}), "no kind")
+
+	assert.Empty(t, l.view.records)
+	assert.Empty(t, readRawLedger(t, path), "a record that would read back as corrupt is never written")
+	require.NoError(t, l.append(record{Kind: "run.start", Run: "r1"}), "a refused record does not poison the ledger")
+	require.NoError(t, l.Close())
+}
+
+func TestLedger_FailedAppendPoisonsTheLedger(t *testing.T) {
+	path := ledgerPathIn(t)
+	start := record{Kind: "run.start", At: minute(0), Run: "r1"}
+	l, err := openLedger(path)
+	require.NoError(t, err)
+	require.NoError(t, l.append(start))
+	require.NoError(t, l.file.Close())
+	require.Error(t, l.append(record{Kind: "step.start", Run: "r1"}), "writing to a dead descriptor fails")
+	appendRaw(t, path, `{"v":1,"kind":"step.st`)
+	before := readRawLedger(t, path)
+	fresh, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
+	require.NoError(t, err)
+	l.file = fresh
+
+	err = l.append(record{Kind: "run.end", Run: "r1", Outcome: "failed"})
+
+	require.Error(t, err, "a ledger whose write failed refuses every later append")
+	assert.Equal(t, before, readRawLedger(t, path), "nothing may fuse onto the fragment a failed write left")
+	assert.Len(t, l.view.records, 1)
+	require.NoError(t, fresh.Close())
+
+	reopened, err := openLedger(path)
+
+	require.NoError(t, err, "the fragment is an unterminated tail, so the next boot repairs it")
+	assert.Equal(t, jsonLine(t, start), readRawLedger(t, path))
+	id, dangling := reopened.view.danglingRun()
+	assert.True(t, dangling)
+	assert.Equal(t, "r1", id)
+	require.NoError(t, reopened.append(record{Kind: "run.end", Run: "r1", Outcome: "interrupted"}))
+	require.NoError(t, reopened.Close())
 }
 
 func TestRecord_JSONKeysArePinned(t *testing.T) {

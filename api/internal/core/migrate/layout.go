@@ -95,8 +95,8 @@ func removeStaged(
 	return fmt.Errorf("migrate: remove %s: %w", path, err)
 }
 
-// syncDir makes a rename inside dir durable. Windows cannot flush a directory
-// handle, so it is skipped there.
+// syncDir makes a rename or file creation inside dir durable. Windows cannot
+// flush a directory handle, so it is skipped there.
 func syncDir(
 	dir string,
 ) error {

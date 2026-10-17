@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -187,8 +188,8 @@ func loadLedger(
 		if !terminated {
 			break
 		}
-		var r record
-		if err := json.Unmarshal(text, &r); err != nil {
+		r, err := parseRecord(text)
+		if err != nil {
 			return ledgerImage{}, fmt.Errorf("%w: %s: line %d: %w", ErrLedgerCorrupt, path, lineNo, err)
 		}
 		img.view.records = append(img.view.records, r)
@@ -196,6 +197,19 @@ func loadLedger(
 		rest = after
 	}
 	return img, nil
+}
+
+func parseRecord(
+	text []byte,
+) (record, error) {
+	var r record
+	if err := json.Unmarshal(text, &r); err != nil {
+		return record{}, err
+	}
+	if r.Kind == "" {
+		return record{}, errors.New("record has no kind")
+	}
+	return r, nil
 }
 
 // readLedger reads the ledger at path without creating or repairing anything;
@@ -208,9 +222,12 @@ func readLedger(
 }
 
 // ledger is the open, append-only run ledger. It is not safe for concurrent use.
+// A failed write may leave a fragment of a line, so broken keeps every later
+// append from fusing onto it; the next openLedger cuts the fragment off.
 type ledger struct {
-	view ledgerView
-	file *os.File
+	view   ledgerView
+	file   *os.File
+	broken error
 }
 
 // openLedger reads the ledger at path, cuts a torn final write off the file and
@@ -244,23 +261,58 @@ func openLedger(
 }
 
 // append stamps r with the ledger format version and durably adds it as one
-// line. The view only learns of a record once it is synced.
+// line. The view keeps its own copy, and only learns of a record once it is
+// synced. After a failed write or sync every append returns that failure.
 func (l *ledger) append(
 	r record,
 ) error {
+	if l.broken != nil {
+		return l.broken
+	}
+	if r.Kind == "" {
+		return errors.New("migrate: ledger: append: record has no kind")
+	}
+	r = r.detached()
 	r.V = recordVersion
 	line, err := json.Marshal(r)
 	if err != nil {
 		return fmt.Errorf("migrate: ledger: encode %s record: %w", r.Kind, err)
 	}
 	if _, err := l.file.Write(append(line, '\n')); err != nil {
-		return fmt.Errorf("migrate: ledger: append %s record: %w", r.Kind, err)
+		return l.poison("append", r.Kind, err)
 	}
 	if err := l.file.Sync(); err != nil {
-		return fmt.Errorf("migrate: ledger: sync %s record: %w", r.Kind, err)
+		return l.poison("sync", r.Kind, err)
 	}
 	l.view.records = append(l.view.records, r)
 	return nil
+}
+
+func (l *ledger) poison(
+	op string,
+	kind string,
+	err error,
+) error {
+	l.broken = fmt.Errorf("migrate: ledger: %s %s record: %w", op, kind, err)
+	return l.broken
+}
+
+// detached returns r sharing no maps, slices or pointers with the caller.
+func (r record) detached() record {
+	r.Counts = maps.Clone(r.Counts)
+	r.Pending = slices.Clone(r.Pending)
+	r.From, r.To = copyInt(r.From), copyInt(r.To)
+	return r
+}
+
+func copyInt(
+	p *int,
+) *int {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
 }
 
 // Close closes the ledger file. It is safe to call twice.

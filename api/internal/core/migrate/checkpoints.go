@@ -2,7 +2,6 @@ package migrate
 
 import (
 	"context"
-	"maps"
 	"time"
 )
 
@@ -53,7 +52,7 @@ func (c *Checkpoints) Mark(
 		Step:   c.step.Number,
 		Name:   c.step.Name,
 		Key:    key,
-		Counts: maps.Clone(n),
+		Counts: n,
 	})
 	if err != nil {
 		return err
