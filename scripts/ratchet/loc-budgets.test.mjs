@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
+import { join } from 'node:path'
 import test from 'node:test'
-import { measureLoc } from './loc-budgets.mjs'
+import { main, measureLoc } from './loc-budgets.mjs'
+import { tmpDir } from './test-helpers.mjs'
 
 const f = (path, lines, isTest = false) => ({
   path,
@@ -57,4 +59,46 @@ test('unassigned source file throws and names every offender', () => {
     () => measureLoc([f('api/new/x.go', 5), f('web/src/new/y.ts', 5)], modules),
     /unassigned source files[\s\S]*api\/new\/x\.go[\s\S]*web\/src\/new\/y\.ts/,
   )
+})
+
+const invalid = (modules) => () => measureLoc([], modules)
+
+test('a prefix claimed by two modules of one language is a config error naming every offender', () => {
+  assert.throws(
+    invalid({ go: { a: ['api/x', 'api/y'], b: ['api/x'], c: ['api/y'] }, web: { a: ['web/src/x'], b: ['web/src/x'] } }),
+    /modules\.json[\s\S]*go: "api\/x" is in a and b[\s\S]*go: "api\/y" is in a and c[\s\S]*web: "web\/src\/x" is in a and b/,
+  )
+})
+
+test('the same prefix in a different language is not a clash', () => {
+  assert.doesNotThrow(invalid({ go: { a: ['api/x'] }, web: { a: ['web/src/x'] } }))
+})
+
+test('a prefix ending in a slash is a config error naming every offender', () => {
+  assert.throws(
+    invalid({ go: { a: ['api/x/'] }, web: { b: ['web/src/y/'] } }),
+    /go\.a: "api\/x\/" ends with "\/"[\s\S]*web\.b: "web\/src\/y\/" ends with "\/"/,
+  )
+})
+
+test('a prefix outside its language root is a config error naming every offender', () => {
+  assert.throws(
+    invalid({ go: { a: ['web/src/x'], b: ['apix/y'] }, web: { c: ['api/z'], d: ['web/other'] } }),
+    /go\.a: "web\/src\/x" is outside api\/[\s\S]*go\.b: "apix\/y" is outside api\/[\s\S]*web\.c: "api\/z" is outside web\/src\/[\s\S]*web\.d: "web\/other" is outside web\/src\//,
+  )
+})
+
+test('a root directory or file inside the root is a valid prefix', () => {
+  assert.doesNotThrow(invalid({ go: { a: ['api', 'api/x.go'] }, web: { a: ['web/src'] } }))
+})
+
+test('a module named total is a config error naming every offender', () => {
+  assert.throws(invalid({ go: { total: ['api/x'] }, web: { total: ['web/src/y'] } }), /go: a module is named "total"[\s\S]*web: a module is named "total"/)
+})
+
+test('main prints a config error and fails without gating', (t) => {
+  const lines = []
+  const modules = { go: { total: ['api/x'] }, web: {} }
+  assert.equal(main([], { files: [], modules, baselinePath: join(tmpDir(t), 'baseline.json'), log: (l) => lines.push(l) }), 1)
+  assert.match(lines.join('\n'), /go: a module is named "total"/)
 })
