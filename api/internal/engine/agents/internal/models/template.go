@@ -48,6 +48,11 @@ type TemplateCtx struct {
 	// regardless of what environment the callback inherits.
 	CrowbarHome string
 
+	// DaemonSocket is the unix socket the daemon actually bound. Callbacks dial
+	// it as handed over (--host) and never derive one: the daemon owns its socket,
+	// and a path derived from --home can differ from the one it bound.
+	DaemonSocket string
+
 	// Socket is the unix socket path an api-transport provider's `serve` and
 	// `attach` argv template against ({socket} in codex.yaml's
 	// runtime.api.serve/.attach). Short-lived, per-runner, and NEVER under a
@@ -101,6 +106,9 @@ func (c TemplateCtx) ScopeFlags() string {
 	}
 	if c.CrowbarHome != "" {
 		flags += " --home=" + shellWord(c.CrowbarHome)
+	}
+	if c.DaemonSocket != "" {
+		flags += " --host=" + shellWord("unix://"+c.DaemonSocket)
 	}
 	return flags
 }

@@ -49,12 +49,13 @@ func scopedAgentPath(
 // See scope_roundtrip_test.go, which drives the real shell → real cobra path.
 func bindScopeFlags(
 	cmd *cobra.Command,
-	project, repo, workspace, homeFlag *string,
+	project, repo, workspace, homeFlag, host *string,
 ) {
 	cmd.Flags().StringVar(project, "project", "", "project id")
 	cmd.Flags().StringVar(repo, "repo", "", "repo id")
 	cmd.Flags().StringVar(workspace, "workspace", "", "workspace id")
 	cmd.Flags().StringVar(homeFlag, "home", "", "crowbar home this callback must operate against")
+	cmd.Flags().StringVar(host, "host", "unix://", "daemon address to dial; the spawn hands over the socket the daemon bound")
 }
 
 // applyHomeOverride sets CROWBAR_HOME for this process when override is non-empty.

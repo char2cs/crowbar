@@ -31,6 +31,29 @@ func TestNew_BootsFullStack(t *testing.T) {
 	assert.Equal(t, dir, c.Home())
 }
 
+// A callback is handed the socket the daemon bound, so the daemon must say which
+// one that is: the home as given, even when it is not clean, and none for TCP.
+func TestNew_ReportsTheSocketItBound(t *testing.T) {
+	t.Setenv(home.EnvVar, t.TempDir()+"/x/")
+	h, err := home.Resolve()
+	require.NoError(t, err)
+
+	c, err := internal.New(context.Background(), "unix://", nil)
+	require.NoError(t, err)
+	t.Cleanup(c.Close)
+
+	assert.Equal(t, h.Socket(), c.Socket())
+	assert.FileExists(t, c.Socket())
+}
+
+func TestNew_ReportsNoSocketOverTCP(t *testing.T) {
+	c, err := internal.New(context.Background(), "tcp://127.0.0.1:0", nil, internal.WithHomeDir(t.TempDir()))
+	require.NoError(t, err)
+	t.Cleanup(c.Close)
+
+	assert.Empty(t, c.Socket())
+}
+
 func TestNew_InvalidHost_ReturnsError(t *testing.T) {
 	_, err := internal.New(context.Background(), "bogus://x", nil, internal.WithHomeDir(t.TempDir()))
 	assert.Error(t, err)

@@ -71,6 +71,9 @@ type Deps struct {
 	// Home is the app-config crowbar-home resolver, NOT a wsId lookup: it resolves
 	// the descriptor catalog, and providers are global.
 	Home func() (string, error)
+	// DaemonSocket is the unix socket the daemon bound, handed to every callback a
+	// spawned CLI runs; empty over TCP.
+	DaemonSocket string
 	// Installed is the install probe. Nil defaults to Agent.Installed, the real
 	// one; only a test injects a stub, to isolate from the host PATH.
 	Installed func(a engineagents.Agent) bool
@@ -261,6 +264,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Workspace:     d.Workspace,
 		AncestorCwd:   cwdResolver{chats: d.Chats, folders: d.Folders, nodes: d.Nodes, roots: d.RepoRoots},
 		Home:          d.Home,
+		DaemonSocket:  d.DaemonSocket,
 		Spawns:        sh.spawns,
 		InflightTurns: sh.turns,
 		TurnStarts:    sh.turnStarts,

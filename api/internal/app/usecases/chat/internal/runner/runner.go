@@ -48,6 +48,9 @@ type Runners struct {
 	// anchors each chat's own prompt-delivery journal (worktreepath.LedgerChatsDir),
 	// which must stay put regardless of the chat's WorkspaceID (see promptJournalDirFor).
 	home func() (string, error)
+	// daemonSocket is the socket the daemon bound, rendered into every callback's
+	// scope flags so none derives one of its own.
+	daemonSocket string
 	// spawns serialises the USER-INITIATED spawn paths per chat. It is the only
 	// thing that can stop two concurrent switches putting two CLIs on one chat, and
 	// it is NEVER taken on the hook path.
@@ -138,6 +141,8 @@ type Deps struct {
 	// Home is the app-config crowbar-home resolver, NOT a wsId lookup — see the
 	// Runners.home field it fills.
 	Home func() (string, error)
+	// DaemonSocket is the socket the daemon bound, rendered into the callbacks.
+	DaemonSocket string
 
 	Spawns        *inflight.Gate
 	InflightTurns *inflight.Turns
@@ -165,6 +170,7 @@ func New(d Deps) *Runners {
 		ws:            d.Workspace,
 		ancestorCwd:   d.AncestorCwd,
 		home:          d.Home,
+		daemonSocket:  d.DaemonSocket,
 		spawns:        d.Spawns,
 		inflightTurns: d.InflightTurns,
 		turnStarts:    d.TurnStarts,

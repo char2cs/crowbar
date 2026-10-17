@@ -385,13 +385,11 @@ func newAgentWiring(
 	// needs the same answer and gets it from the chat usecase, which re-exposes
 	// this as Ancestors.)
 	//
-	// Wrapped, not the raw repository: a chat's ParentID is frozen at
-	// creation now (2026-09-08 sidebar-placement-unification Task 5 for
-	// home-scoped, Task 8 for repo-scoped too), and this lineage read
-	// (LoadChat/ListByWorkspace) is what decides what a freshly spawned CLI
-	// is told to read — unlike Container.AgentChat, wrapped separately above
-	// in New, this one is built here, independently, and was missed by that
-	// fix. See agentusecase.NewHomeCorrectedTreeChats' own doc.
+	// Wrapped, not the raw repository: a chat's ParentID is frozen at creation
+	// now, and this lineage read (LoadChat/ListByWorkspace) decides what a freshly
+	// spawned CLI is told to read. Container.AgentChat is wrapped separately in
+	// New; this one is built here, independently. See
+	// agentusecase.NewHomeCorrectedTreeChats' own doc.
 	lineage := agentusecase.NewChatLineage(agentusecase.NewHomeCorrectedTreeChats(
 		repos.AgentChat, repos.Node, gormStores.Folders,
 	))
@@ -413,6 +411,7 @@ func newAgentWiring(
 		ModelManifestFetchPrefs: gormStores.AgentModelManifestFetch,
 		ChatTelemetry:           gormStores.AgentChatTelemetry,
 		Home:                    crowbarHome,
+		DaemonSocket:            engines.DaemonSocket,
 		// Installed is left nil: the usecase defaults to Agent.Installed, the real
 		// install probe. Only tests inject a stub to isolate from the host PATH.
 		Minter:      minter,

@@ -139,11 +139,12 @@ func (rs *Runners) renderSpawnContext(
 	in spawnContext,
 ) (engineagents.TemplateCtx, bool) {
 	tctx := engineagents.TemplateCtx{
-		Tmp:         in.tmpDir,
-		Cwd:         canonicalDir(in.worktree),
-		CrowbarHook: rs.crowbarHookPath(in.crowbarHome),
-		CrowbarHome: in.crowbarHome,
-		Segid:       in.runnerID,
+		Tmp:          in.tmpDir,
+		Cwd:          canonicalDir(in.worktree),
+		CrowbarHook:  rs.crowbarHookPath(in.crowbarHome),
+		CrowbarHome:  in.crowbarHome,
+		DaemonSocket: rs.daemonSocket,
+		Segid:        in.runnerID,
 		// The credential the descriptors hand `crowbar mcp` so this runner's tool
 		// calls can be attributed to it. Minted here because this is where the
 		// runner id is born, and by the SAME minter DispatchMCP verifies against —

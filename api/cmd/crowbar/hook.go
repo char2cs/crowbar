@@ -17,7 +17,7 @@ import (
 const maxHookPayloadBytes = 64 << 20
 
 func newHookCmd() *cobra.Command {
-	var segment, provider, payloadFile, payloadInline, project, repo, workspace, home string
+	var segment, provider, payloadFile, payloadInline, project, repo, workspace, home, host string
 	cmd := &cobra.Command{
 		Use:    "hook <event>",
 		Short:  "Forward a vendor-CLI hook payload to the Crowbar daemon",
@@ -32,7 +32,7 @@ func newHookCmd() *cobra.Command {
 				err = runHook(hookRun{
 					Event: args[0], Segment: segment, Provider: provider,
 					Project: project, Repo: repo, Workspace: workspace,
-					Payload: payload, Host: "unix://", Out: os.Stdout,
+					Payload: payload, Host: host, Out: os.Stdout,
 				})
 			}
 			if err != nil {
@@ -45,7 +45,7 @@ func newHookCmd() *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", "", "provider id")
 	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "read the payload from this file instead of stdin")
 	cmd.Flags().StringVar(&payloadInline, "payload", "", "inline payload instead of stdin")
-	bindScopeFlags(cmd, &project, &repo, &workspace, &home)
+	bindScopeFlags(cmd, &project, &repo, &workspace, &home, &host)
 	return cmd
 }
 

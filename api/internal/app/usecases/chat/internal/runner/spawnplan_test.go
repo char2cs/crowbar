@@ -23,6 +23,17 @@ func TestRenderSpawnContext_CarriesCrowbarHome(t *testing.T) {
 	}
 }
 
+// Callbacks are handed the socket the daemon bound; they never derive one.
+func TestRenderSpawnContext_CarriesTheDaemonSocket(t *testing.T) {
+	rs := &Runners{daemonSocket: "/tmp/crowbar-abc.sock"}
+
+	tctx, _ := rs.renderSpawnContext(spawnContext{crowbarHome: "/tmp/h", runnerID: "run1"})
+
+	if tctx.DaemonSocket != "/tmp/crowbar-abc.sock" {
+		t.Fatalf("TemplateCtx.DaemonSocket = %q, want the daemon's socket", tctx.DaemonSocket)
+	}
+}
+
 // A provider keys its folder trust on the canonical path, so a symlinked
 // worktree must reach the CLI resolved or its trust prompt parks the TUI.
 func TestRenderSpawnContext_ResolvesASymlinkedWorktree(t *testing.T) {

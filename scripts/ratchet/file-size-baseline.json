@@ -52,7 +52,7 @@
   "api/internal/app/usecases/chat/providers_test.go": 845,
   "api/internal/app/usecases/chat/runner_test.go": 5482,
   "api/internal/app/usecases/chat/turn_test.go": 3061,
-  "api/internal/app/usecases/container.go": 1081,
+  "api/internal/app/usecases/container.go": 1080,
   "api/internal/app/usecases/git/git_write.go": 546,
   "api/internal/app/usecases/mocks/mocks.go": 2272,
   "api/internal/app/usecases/project/ordering_test.go": 629,

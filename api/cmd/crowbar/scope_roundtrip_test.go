@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/core/gateway/transports"
+	"github.com/char2cs/crowbar/api/internal/core/home"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -160,4 +163,47 @@ func TestHandoffDumpRoundTrip_ProjectHomeHasNoRepo(t *testing.T) {
 	require.Equal(t, []string{"chat-1"}, got.args)
 	require.Equal(t, "/v0/projects/PROJ/home/chats/chat-1/handoff",
 		scopedAgentPath(got.project, got.repo, got.workspace, "/"+got.args[0]+"/handoff"))
+}
+
+// The daemon binds the socket of CROWBAR_HOME exactly as given, but a callback's
+// --home is the cleaned root, so deriving a socket from it dials one nobody bound.
+// A callback must dial the socket its rendered scope flags hand it.
+func TestHookRoundTrip_DialsTheSocketTheDaemonBound_ForANonCleanHome(t *testing.T) {
+	base, err := os.MkdirTemp("", "cb")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	t.Setenv(home.EnvVar, base+"/x/")
+
+	ln, err := transports.NewSocket("unix://")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	reached := make(chan string, 1)
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached <- r.URL.Path
+		w.WriteHeader(http.StatusAccepted)
+	})}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	h, err := home.Resolve()
+	require.NoError(t, err)
+	ctx := engineagents.TemplateCtx{
+		CrowbarHook: argvDumper(t), Segid: "SEG-1", Provider: "claude",
+		ProjectID: "PROJ", RepoID: "REPO", WorkspaceID: "WS",
+		CrowbarHome: h.Root(), DaemonSocket: ln.Addr().String(),
+	}
+	command := engineagents.Expand(
+		"{crowbar} hook {scope_flags} --segment {segid} --provider {provider} --payload {} session_start", ctx,
+	)
+
+	root := newRootCmd()
+	root.SetArgs(argvThroughShell(t, command))
+	require.NoError(t, root.Execute())
+
+	select {
+	case path := <-reached:
+		require.Equal(t, "/v0/projects/PROJ/repos/REPO/chats/hooks", path)
+	default:
+		t.Fatalf("the hook never reached the socket the daemon bound (%s)", ln.Addr())
+	}
 }

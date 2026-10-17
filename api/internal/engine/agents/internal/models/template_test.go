@@ -14,6 +14,28 @@ func TestScopeFlags_IncludesHome(t *testing.T) {
 	}
 }
 
+// A callback dials the socket the daemon bound, not one it derives from --home.
+func TestScopeFlags_HandsCallbacksTheDaemonSocket(t *testing.T) {
+	c := TemplateCtx{
+		ProjectID: "p1", WorkspaceID: "w1", CrowbarHome: "/Users/x/.crowbar",
+		DaemonSocket: "/tmp/crowbar-abc.sock",
+	}
+	got := c.ScopeFlags()
+	want := "--project=p1 --workspace=w1 --home=/Users/x/.crowbar --host=unix:///tmp/crowbar-abc.sock"
+	if got != want {
+		t.Fatalf("ScopeFlags() = %q, want %q", got, want)
+	}
+}
+
+func TestScopeFlags_QuotesADaemonSocketWithASpace(t *testing.T) {
+	c := TemplateCtx{ProjectID: "p1", WorkspaceID: "w1", DaemonSocket: "/tmp/a b.sock"}
+	got := c.ScopeFlags()
+	want := "--project=p1 --workspace=w1 --host='unix:///tmp/a b.sock'"
+	if got != want {
+		t.Fatalf("ScopeFlags() = %q, want %q", got, want)
+	}
+}
+
 func TestScopeFlags_OmitsHomeWhenEmpty(t *testing.T) {
 	c := TemplateCtx{ProjectID: "p1", WorkspaceID: "w1"}
 	got := c.ScopeFlags()

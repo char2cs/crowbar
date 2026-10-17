@@ -77,7 +77,7 @@ func New(
 		return nil, fmt.Errorf("internal: gateway: %w", err)
 	}
 
-	engines, err := engine.New(ctx, engine.WithHomeDir(cfg.homeDir))
+	engines, err := engine.New(ctx, engine.WithHomeDir(cfg.homeDir), engine.WithDaemonSocket(socketOf(listener)))
 	if err != nil {
 		return nil, fmt.Errorf("internal: engine: %w", err)
 	}
@@ -126,6 +126,21 @@ func New(
 		app:      appContainer,
 		api:      apiContainer,
 	}, nil
+}
+
+// socketOf is the unix socket listener is bound to, or "" for any other kind.
+func socketOf(
+	listener net.Listener,
+) string {
+	if addr, ok := listener.Addr().(*net.UnixAddr); ok {
+		return addr.Name
+	}
+	return ""
+}
+
+// Socket is the unix socket the daemon bound, empty when it listens on TCP.
+func (c *Container) Socket() string {
+	return c.engines.DaemonSocket
 }
 
 func adapterOptions(

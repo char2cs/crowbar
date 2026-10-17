@@ -22,17 +22,17 @@ func newHandoffCmd() *cobra.Command {
 }
 
 func newHandoffDumpCmd() *cobra.Command {
-	var project, repo, workspace, home string
+	var project, repo, workspace, home, host string
 	cmd := &cobra.Command{
 		Use:   "dump <chatId>",
 		Short: "Print a chat's assembled handoff to stdout",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			applyHomeOverride(home)
-			return runHandoffDump(args[0], project, repo, workspace, "unix://", os.Stdout)
+			return runHandoffDump(args[0], project, repo, workspace, host, os.Stdout)
 		},
 	}
-	bindScopeFlags(cmd, &project, &repo, &workspace, &home)
+	bindScopeFlags(cmd, &project, &repo, &workspace, &home, &host)
 	return cmd
 }
 

@@ -73,7 +73,7 @@ func runServe(
 	defer container.Close()
 
 	slog.Info("daemon: listening", "component", "daemon", "version", metadata.GetVersion(),
-		"host", host, "pid", os.Getpid(), "home", container.Home())
+		"host", host, "socket", container.Socket(), "pid", os.Getpid(), "home", container.Home())
 	return container.Run(ctx)
 }
 
