@@ -67,6 +67,23 @@ jobs:
           fi
           echo "✅ Branch name valid"
 
+  ratchet-gates:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Ratchet script tests
+        run: node --test scripts/ratchet/*.test.mjs
+      - name: File size (500-line cap; baseline may only shrink)
+        if: ${{ !cancelled() }}
+        run: node scripts/ratchet/file-size.mjs
+      - name: Counters (timers, discarded errors, empty catch; baselines may only shrink)
+        if: ${{ !cancelled() }}
+        run: node scripts/ratchet/counters.mjs
+      - name: LOC budgets (per module; budgets may only shrink)
+        if: ${{ !cancelled() }}
+        run: node scripts/ratchet/loc-budgets.mjs
+
   go-checks:
     needs: changes
     if: needs.changes.outputs.go == 'true'
