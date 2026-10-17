@@ -101,6 +101,7 @@ func TestRegisterMountsRoutes(
 		stubImporter{},
 		stubDeleter{},
 		func(dto.ProjectDTO) {},
+		func() (string, error) { return t.TempDir(), nil },
 		noopWS,
 		ws.DualServe,
 	)

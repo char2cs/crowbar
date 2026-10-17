@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
@@ -106,13 +107,28 @@ func (f *fakeOwningChats) discards() []string {
 // literals in this package needing to carry it explicitly. A test that wants
 // to assert on the Node side (or inject a Create failure) sets deps.Nodes
 // itself before calling this.
+//
+// deps.CrowbarHome, which NewImport requires, defaults to a temp dir.
 func newImportUsecase(
+	t *testing.T,
 	deps project.ImportDeps,
 ) project.ImportUsecase {
+	t.Helper()
 	if deps.Nodes == nil {
 		deps.Nodes = mocks.NewNodePlacements()
+	}
+	if deps.CrowbarHome == nil {
+		deps.CrowbarHome = tempCrowbarHome(t)
 	}
 	uc := project.NewImport(deps)
 	uc.SetOwningChats(newFakeOwningChats())
 	return uc
+}
+
+// tempCrowbarHome resolves the crowbar home to a throwaway directory, so an
+// import under test never writes into a real home.
+func tempCrowbarHome(t *testing.T) func() (string, error) {
+	t.Helper()
+	dir := t.TempDir()
+	return func() (string, error) { return dir, nil }
 }

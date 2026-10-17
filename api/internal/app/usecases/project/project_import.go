@@ -252,8 +252,8 @@ type ImportDeps struct {
 	// import leaves no project behind. Defaults to os.Stat when nil; tests
 	// stub it to avoid touching the real filesystem.
 	Stat func(name string) (os.FileInfo, error)
-	// CrowbarHome resolves the ~/.crowbar root used to derive the entity-scoped
-	// repo icon path. Defaults to worktreepath.DefaultCrowbarHome when nil.
+	// CrowbarHome resolves the Crowbar home used to derive the entity-scoped
+	// repo icon path. Required: there is deliberately no default.
 	CrowbarHome func() (string, error)
 	// FetchAvatarBytes downloads the GitHub owner avatar bytes for a repo with
 	// no local icon. Defaults to avatar.FetchOwnerAvatarBytes when nil.
@@ -335,7 +335,7 @@ func NewImport(
 		deps.Stat = os.Stat
 	}
 	if deps.CrowbarHome == nil {
-		deps.CrowbarHome = worktreepath.DefaultCrowbarHome
+		panic("project: ImportDeps.CrowbarHome is required")
 	}
 	if deps.FetchAvatarBytes == nil {
 		deps.FetchAvatarBytes = avatar.FetchOwnerAvatarBytes

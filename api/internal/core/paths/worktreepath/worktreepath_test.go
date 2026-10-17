@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
 )
 
 func TestStorageDir(t *testing.T) {
@@ -57,21 +55,6 @@ func TestProjectStorageDir(t *testing.T) {
 func TestGlobalStateDir(t *testing.T) {
 	dir := GlobalStateDir("/crow")
 	assert.Equal(t, "/crow/state", dir)
-}
-
-func TestDefaultCrowbarHome(t *testing.T) {
-	t.Setenv(metadata.HomeEnvVar, "")
-	t.Setenv("HOME", "/home/tester")
-	home, err := DefaultCrowbarHome()
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join("/home/tester", ".crowbar"), home)
-}
-
-func TestDefaultCrowbarHome_EnvOverride(t *testing.T) {
-	t.Setenv(metadata.HomeEnvVar, "/tmp/dev-crowbar-home")
-	home, err := DefaultCrowbarHome()
-	require.NoError(t, err)
-	assert.Equal(t, "/tmp/dev-crowbar-home", home)
 }
 
 // --- Human-readable worktree path derivation (Task 3, spec §3.9) ---

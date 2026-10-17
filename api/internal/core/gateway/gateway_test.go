@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/core/gateway"
+	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
 func TestGatewayTCP(t *testing.T) {
@@ -39,10 +40,12 @@ func TestGatewayUnix_ExplicitPath(t *testing.T) {
 }
 
 func TestGatewayUnix_DefaultPath(t *testing.T) {
-	home, err := os.MkdirTemp("/tmp", "cb")
+	// A short prefix keeps ~/.crowbar/crowbar.sock under the sun_path limit.
+	userHome, err := os.MkdirTemp("", "cb")
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(home) })
-	t.Setenv("HOME", home)
+	t.Cleanup(func() { _ = os.RemoveAll(userHome) })
+	t.Setenv("HOME", userHome)
+	t.Setenv(home.EnvVar, "")
 	l, err := gateway.New("unix://")
 	require.NoError(t, err)
 	t.Cleanup(func() { l.Close() })

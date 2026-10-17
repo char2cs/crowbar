@@ -169,15 +169,16 @@ type Handlers struct {
 	async detached.Ops
 }
 
-// New builds the repos Handlers from the repository GORM store. The broadcast
-// func is the Repos-channel fan-out; a nil broadcast degrades to a no-op so the
-// handler never panics when wired without a hub (tests).
+// New builds the repos Handlers from the repository GORM store and the
+// crowbar-home resolver the icon handlers store and serve through. The
+// broadcast is a no-op until NewWithDeps wires the Repos-channel fan-out.
 func New(
 	store Store,
+	crowbarHome func() (string, error),
 ) *Handlers {
 	return &Handlers{
 		store:       store,
-		crowbarHome: icons.DefaultCrowbarHome,
+		crowbarHome: crowbarHome,
 		fetchAvatar: fetchGithubAvatarBytes,
 		broadcast:   func(dto.RepoDTO) {},
 		stat:        os.Stat,
@@ -192,6 +193,7 @@ func NewWithDeps(
 	prov BranchProviderEngine,
 	wsReader WorkspaceReader,
 	broadcast func(dto.RepoDTO),
+	crowbarHome func() (string, error),
 ) *Handlers {
 	if broadcast == nil {
 		broadcast = func(dto.RepoDTO) {}
@@ -200,7 +202,7 @@ func NewWithDeps(
 		store:       store,
 		provider:    prov,
 		wsReader:    wsReader,
-		crowbarHome: icons.DefaultCrowbarHome,
+		crowbarHome: crowbarHome,
 		fetchAvatar: fetchGithubAvatarBytes,
 		broadcast:   broadcast,
 		stat:        os.Stat,
@@ -274,22 +276,6 @@ func (h *Handlers) WithStat(
 ) *Handlers {
 	if stat != nil {
 		h.stat = stat
-	}
-	return h
-}
-
-// WithIconStorage overrides the crowbar-home resolver and the GitHub avatar
-// fetcher used by the icon handlers. Intended for tests; both nil args leave
-// the defaults in place.
-func (h *Handlers) WithIconStorage(
-	home func() (string, error),
-	fetch AvatarBytesFetcher,
-) *Handlers {
-	if home != nil {
-		h.crowbarHome = home
-	}
-	if fetch != nil {
-		h.fetchAvatar = fetch
 	}
 	return h
 }

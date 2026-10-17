@@ -26,7 +26,6 @@ import (
 	"github.com/rivo/uniseg"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
 )
 
 // MaxBytes caps a stored icon at 2 MiB. Any file larger than this is rejected
@@ -56,20 +55,6 @@ func ContentType(
 		return "image/svg+xml"
 	}
 	return ct
-}
-
-// DefaultCrowbarHome returns the root for all crowbar-managed state: the
-// CROWBAR_HOME env override when set (dev instances point it inside the
-// workspace being developed), otherwise ~/.crowbar.
-func DefaultCrowbarHome() (string, error) {
-	if override := os.Getenv(metadata.HomeEnvVar); override != "" {
-		return override, nil
-	}
-	h, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("crowbar home: %w", err)
-	}
-	return filepath.Join(h, ".crowbar"), nil
 }
 
 // Serve writes the icon at path as the response, or 404s.

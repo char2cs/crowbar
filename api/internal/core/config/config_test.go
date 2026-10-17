@@ -84,15 +84,22 @@ func TestGetPrompts_UserConfigOverlays(t *testing.T) {
 	t.Setenv("CROWBAR_HOME", dir)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yaml"),
 		[]byte("config:\n  prompts:\n    handoff_wrapper: \"CUSTOM {conversation}\"\n"), 0o644))
-	// metadata.resolveHome() reads CROWBAR_HOME straight from os.Getenv on
-	// every call (see resolve_home.go) and isn't cached anywhere, so no
-	// metadata-side reset is needed to pick up the new CROWBAR_HOME here.
+	// home.Resolve reads CROWBAR_HOME on every call, so only this package's
+	// singleton needs a reset to pick up the new home.
 	resetForTesting()
 
 	p := GetPrompts()
 	assert.Equal(t, "CUSTOM {conversation}", p.HandoffWrapper)
 	// absent field keeps the embedded default
 	assert.Contains(t, p.HandoffPointer, "{chat_id}")
+}
+
+func TestGetPrompts_UnresolvableHomeKeepsDefaults(t *testing.T) {
+	t.Setenv("CROWBAR_HOME", "relative/home")
+	resetForTesting()
+	t.Cleanup(resetForTesting)
+
+	assert.Contains(t, GetPrompts().HandoffPointer, "{chat_id}")
 }
 
 func resetForTesting() {

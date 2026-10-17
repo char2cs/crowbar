@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal"
+	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/hookserver"
 )
 
@@ -32,17 +35,21 @@ func TestNew_InvalidHost_ReturnsError(t *testing.T) {
 }
 
 func TestNew_InvalidHomeDir_ReturnsAdapterError(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(file, []byte("x"), 0o600))
+
 	_, err := internal.New(
 		context.Background(),
 		"tcp://127.0.0.1:0",
 		nil,
-		internal.WithHomeDir("/dev/null/no-such-subdir"),
+		internal.WithHomeDir(filepath.Join(file, "home")),
 	)
-	assert.Error(t, err)
+	assert.ErrorContains(t, err, "internal: adapter")
 }
 
 func TestNew_DefaultDirs_UsesHome(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv(home.EnvVar, "")
 	c, err := internal.New(
 		context.Background(),
 		"tcp://127.0.0.1:0",

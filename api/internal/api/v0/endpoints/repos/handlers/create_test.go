@@ -96,7 +96,7 @@ func newCreateRouterWithHandlers(
 	bc *recordingRepoBroadcaster,
 ) (*gin.Engine, *repohandlers.Handlers) {
 	r := gin.New()
-	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).WithStat(statRepoOK).
+	h := repohandlers.NewWithDeps(store, nil, nil, bc.push, unusedHome).WithStat(statRepoOK).
 		WithImporter(savingImporter{store: store})
 	rg := r.Group("/v0/projects/:projectId")
 	rg.POST("/repos", h.Create)
@@ -216,7 +216,7 @@ func TestCreateRepo_RunsFullImport(
 		Path:      "/tmp/repo",
 	})
 	r := gin.New()
-	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push).
+	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push, unusedHome).
 		WithStat(statRepoOK).
 		WithImporter(imp)
 	r.Group("/v0/projects/:projectId").POST("/repos", h.Create)
@@ -246,7 +246,7 @@ func TestCreateRepo_ValidationFailsSync_4xx(
 	bc := newRecordingRepoBroadcaster()
 	imp := newFakeRepoImporter(domain.Repository{ID: "r1"})
 	r := gin.New()
-	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push).
+	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push, unusedHome).
 		WithStat(func(string) (os.FileInfo, error) { return nil, os.ErrNotExist }).
 		WithImporter(imp)
 	r.Group("/v0/projects/:projectId").POST("/repos", h.Create)
@@ -286,7 +286,7 @@ func TestCreateRepo_AlreadyImported_409(
 	imp := newFakeRepoImporter(domain.Repository{ID: "r1"})
 	imp.importable = fmt.Errorf("%w in the project %q", project.ErrRepoAlreadyImported, "Cloned")
 	r := gin.New()
-	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push).
+	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push, unusedHome).
 		WithStat(statRepoOK).
 		WithImporter(imp)
 	r.Group("/v0/projects/:projectId").POST("/repos", h.Create)
@@ -316,7 +316,7 @@ func TestCreateRepo_ImportError_NoBroadcast(
 	imp := newFakeRepoImporter(domain.Repository{ID: "r1"})
 	imp.err = errStore
 	r := gin.New()
-	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push).
+	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push, unusedHome).
 		WithStat(statRepoOK).
 		WithImporter(imp)
 	r.Group("/v0/projects/:projectId").POST("/repos", h.Create)
@@ -336,7 +336,7 @@ func TestCreateRepo_PathMissing_4xx(
 ) {
 	bc := newRecordingRepoBroadcaster()
 	r := gin.New()
-	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push).
+	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push, unusedHome).
 		WithStat(func(string) (os.FileInfo, error) { return nil, os.ErrNotExist })
 	r.Group("/v0/projects/:projectId").POST("/repos", h.Create)
 
@@ -363,7 +363,7 @@ func TestDeleteRepo_Returns202(
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
 	deleter := &fakeRepoDeleter{}
 	bc := newRecordingRepoBroadcaster()
-	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).WithRepoDeleter(deleter)
+	h := repohandlers.NewWithDeps(store, nil, nil, bc.push, unusedHome).WithRepoDeleter(deleter)
 	r := gin.New()
 	r.Group("/v0/projects/:projectId/repos/:repoId").DELETE("", h.DeleteRepo)
 
@@ -390,7 +390,7 @@ func TestCreateRepo_BadJSON_4xx(
 ) {
 	bc := newRecordingRepoBroadcaster()
 	r := gin.New()
-	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push).WithStat(statRepoOK)
+	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push, unusedHome).WithStat(statRepoOK)
 	r.Group("/v0/projects/:projectId").POST("/repos", h.Create)
 
 	rec := httptest.NewRecorder()
@@ -425,7 +425,7 @@ func TestDeleteRepo_FindError_5xx(
 ) {
 	bc := newRecordingRepoBroadcaster()
 	store := &fakeStore{byKeErr: errStore}
-	h := repohandlers.NewWithDeps(store, nil, nil, bc.push)
+	h := repohandlers.NewWithDeps(store, nil, nil, bc.push, unusedHome)
 	r := gin.New()
 	r.Group("/v0/projects/:projectId/repos/:repoId").DELETE("", h.DeleteRepo)
 
@@ -443,7 +443,7 @@ func TestDeleteRepo_DeleteError_ReannouncesTheRepo(
 ) {
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Deleting: true, LastError: "wedged"}}
 	bc := newRecordingRepoBroadcaster()
-	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).
+	h := repohandlers.NewWithDeps(store, nil, nil, bc.push, unusedHome).
 		WithRepoDeleter(&fakeRepoDeleter{err: errStore})
 	r := gin.New()
 	r.Group("/v0/projects/:projectId/repos/:repoId").DELETE("", h.DeleteRepo)
@@ -517,7 +517,7 @@ func TestDeleteRepo_WorkAtRiskIsRefusedUntilTheDiscardHeaderConfirmsIt(t *testin
 		{WorkspaceID: "w1", Branch: "feature/x", UnmergedCommits: 1},
 	}}}
 	bc := newRecordingRepoBroadcaster()
-	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).WithRepoDeleter(deleter)
+	h := repohandlers.NewWithDeps(store, nil, nil, bc.push, unusedHome).WithRepoDeleter(deleter)
 	r := gin.New()
 	r.Group("/v0/projects/:projectId/repos/:repoId").DELETE("", h.DeleteRepo)
 
@@ -549,7 +549,7 @@ func TestDeleteRepo_NotFound_4xx(
 ) {
 	bc := newRecordingRepoBroadcaster()
 	store := &fakeStore{byKey: nil}
-	h := repohandlers.NewWithDeps(store, nil, nil, bc.push)
+	h := repohandlers.NewWithDeps(store, nil, nil, bc.push, unusedHome)
 	r := gin.New()
 	r.Group("/v0/projects/:projectId/repos/:repoId").DELETE("", h.DeleteRepo)
 

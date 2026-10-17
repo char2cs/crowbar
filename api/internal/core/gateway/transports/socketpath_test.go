@@ -1,13 +1,11 @@
 package transports
 
 import (
-	"fmt"
-	"hash/fnv"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
 func TestSocketPath_ExplicitPathPassthrough(t *testing.T) {
@@ -17,15 +15,30 @@ func TestSocketPath_ExplicitPathPassthrough(t *testing.T) {
 }
 
 func TestSocketPath_CrowbarHomeHashed(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("CROWBAR_HOME", home)
-	got, err := SocketPath("unix://")
+	t.Setenv(home.EnvVar, t.TempDir())
+	h, err := home.Resolve()
 	require.NoError(t, err)
 
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(home))
-	want := filepath.Join(os.TempDir(), "crowbar-"+hex64(h.Sum64())+".sock")
-	require.Equal(t, want, got)
+	got, err := SocketPath("unix://")
+	require.NoError(t, err)
+	require.Equal(t, h.Socket(), got)
 }
 
-func hex64(v uint64) string { return fmt.Sprintf("%x", v) }
+func TestSocketPath_DefaultHomeBindsInsideIt(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(home.EnvVar, "")
+	h, err := home.Resolve()
+	require.NoError(t, err)
+
+	got, err := SocketPath("unix://")
+	require.NoError(t, err)
+	require.Equal(t, h.Socket(), got)
+}
+
+func TestSocketPath_RelativeHomeFails(t *testing.T) {
+	t.Setenv(home.EnvVar, "relative/home")
+
+	_, err := SocketPath("unix://")
+
+	require.ErrorIs(t, err, home.ErrRelative)
+}

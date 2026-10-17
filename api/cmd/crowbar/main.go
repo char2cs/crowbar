@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/char2cs/crowbar/api/internal"
+	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	"github.com/char2cs/crowbar/api/internal/core/shellenv"
 )
@@ -61,6 +62,11 @@ func runServe(
 	// crippled environment. Degrades to the inherited PATH on failure.
 	shellenv.ApplyLoginShellPath(ctx)
 
+	h, err := home.Resolve()
+	if err != nil {
+		return fmt.Errorf("resolve home: %w", err)
+	}
+
 	staticFS, err := embeddedStaticFS()
 	if err != nil {
 		return err
@@ -73,7 +79,7 @@ func runServe(
 	defer container.Close()
 
 	slog.Info("daemon: listening", "component", "daemon", "version", metadata.GetVersion(),
-		"host", host, "pid", os.Getpid(), "home", metadata.GetHomePath())
+		"host", host, "pid", os.Getpid(), "home", h.Root())
 	return container.Run(ctx)
 }
 

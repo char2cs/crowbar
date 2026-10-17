@@ -83,7 +83,7 @@ func newRouter(
 	store repohandlers.Store,
 ) *gin.Engine {
 	r := gin.New()
-	h := repohandlers.New(store)
+	h := repohandlers.New(store, unusedHome)
 	rg := r.Group("/v0")
 	rg.GET("/repos", h.List)
 	rg.GET("/repos/:id", h.Detail)
@@ -202,10 +202,7 @@ func iconRouter(
 	method string,
 	path string,
 ) *gin.Engine {
-	h := repohandlers.New(store).WithIconStorage(
-		func() (string, error) { return home, nil },
-		fetch,
-	)
+	h := repohandlers.New(store, func() (string, error) { return home, nil }).WithAvatarFetcher(fetch)
 	r := gin.New()
 	switch method {
 	case http.MethodGet:
@@ -258,7 +255,7 @@ func TestIcon_NoIcon_Returns404(t *testing.T) {
 
 // putIconHandler builds a router wired to the multipart/JSON upload handler.
 func putIconRouter(store repohandlers.Store, home string) *gin.Engine {
-	h := repohandlers.New(store).WithIconStorage(func() (string, error) { return home, nil }, nil)
+	h := repohandlers.New(store, func() (string, error) { return home, nil })
 	r := gin.New()
 	r.PUT(iconRoute, h.PutIcon)
 	return r
@@ -381,6 +378,7 @@ func TestBranches_AnnotatesProtectionAndWorkspace(t *testing.T) {
 		&fakeBranchProvider{protected: []string{"main"}},
 		&fakeWSReader{},
 		nil,
+		unusedHome,
 	)
 	r := gin.New()
 	r.GET("/v0/repos/:id/branches", h.Branches)
@@ -401,6 +399,7 @@ func TestPullRequests_ReturnsOpenPRGraph(t *testing.T) {
 		}},
 		&fakeWSReader{},
 		nil,
+		unusedHome,
 	)
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/pull-requests", h.PullRequests)
@@ -416,7 +415,7 @@ func TestPullRequests_ReturnsOpenPRGraph(t *testing.T) {
 }
 
 func TestPullRequests_MissingRepo404(t *testing.T) {
-	h := repohandlers.NewWithDeps(&fakeStore{byKey: nil}, &fakeBranchProvider{}, &fakeWSReader{}, nil)
+	h := repohandlers.NewWithDeps(&fakeStore{byKey: nil}, &fakeBranchProvider{}, &fakeWSReader{}, nil, unusedHome)
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/pull-requests", h.PullRequests)
 
@@ -554,7 +553,7 @@ func TestRegression_RepoIcon_RejectsOversizeOrNonImage(t *testing.T) {
 		require.NoError(t, os.WriteFile(srcPath, oversize, 0o644))
 
 		store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
-		h := repohandlers.New(store).WithIconStorage(func() (string, error) { return home, nil }, nil)
+		h := repohandlers.New(store, func() (string, error) { return home, nil })
 		r := gin.New()
 		r.PUT("/v0/projects/:projectId/repos/:repoId/icon", h.PutIcon)
 
@@ -574,7 +573,7 @@ func TestRegression_RepoIcon_RejectsOversizeOrNonImage(t *testing.T) {
 		require.NoError(t, os.WriteFile(srcPath, []byte("root:x:0:0:root:/root:/bin/bash\n"), 0o644))
 
 		store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
-		h := repohandlers.New(store).WithIconStorage(func() (string, error) { return home, nil }, nil)
+		h := repohandlers.New(store, func() (string, error) { return home, nil })
 		r := gin.New()
 		r.PUT("/v0/projects/:projectId/repos/:repoId/icon", h.PutIcon)
 

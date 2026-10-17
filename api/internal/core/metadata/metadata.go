@@ -2,8 +2,6 @@ package metadata
 
 import (
 	_ "embed"
-	"path/filepath"
-	"strings"
 	"sync"
 
 	yaml "gopkg.in/yaml.v3"
@@ -32,29 +30,10 @@ type Version struct {
 	Codename string `yaml:"codename"`
 }
 
-// Paths holds path templates for all Crowbar data directories.
-type Paths struct {
-	Home     OsValue[string] `yaml:"home"`
-	State    string          `yaml:"state"`
-	Projects string          `yaml:"projects"`
-	Events   string          `yaml:"events"`
-	Store    string          `yaml:"store"`
-	Runs     string          `yaml:"runs"`
-	Config   string          `yaml:"config"`
-	Logs     string          `yaml:"logs"`
-}
-
-// HomeEnvVar overrides the crowbar home root when set to a non-empty absolute
-// path. Dev instances use it to keep all state (projects, store, socket, logs)
-// inside the workspace being developed instead of sharing ~/.crowbar with the
-// production app.
-const HomeEnvVar = "CROWBAR_HOME"
-
 // Metadata is the top-level structure parsed from metadata.yaml.
 type Metadata struct {
 	Version  Version      `yaml:"version"`
 	Metadata MetadataInfo `yaml:"metadata"`
-	Paths    Paths        `yaml:"paths"`
 }
 
 // Get returns the singleton Metadata parsed from the embedded metadata.yaml.
@@ -74,62 +53,6 @@ func GetVersion() string {
 	return Get().Version.Number
 }
 
-// GetHomePath returns the resolved crowbar home root: the CROWBAR_HOME env
-// override when set, otherwise the home template from metadata.yaml with "~"
-// expanded.
-func GetHomePath() string {
-	return resolveHome()
-}
-
-// DefaultHomePath returns the home template from metadata.yaml with "~"
-// expanded, ignoring CROWBAR_HOME even when it is set. Callers that need to
-// tell an actual isolation override apart from an env var that merely spells
-// out this same default (a hook/handoff callback's --home flag always carries
-// a concrete value, never a blank one) compare their home against this.
-func DefaultHomePath() string {
-	return defaultHome()
-}
-
-// GetStateDirPath returns the resolved absolute path to the state directory,
-// where the global event_stream.db and view.db live. It is computed from its
-// own template, independent of the events/store templates.
-func GetStateDirPath() string {
-	return resolvePath(Get().Paths.State, resolveHome())
-}
-
-// GetStateDirPathAt returns the state directory path rooted at homeDir.
-func GetStateDirPathAt(
-	homeDir string,
-) string {
-	return resolvePath(Get().Paths.State, homeDir)
-}
-
-// GetEventsPathAt returns the events directory path rooted at homeDir.
-func GetEventsPathAt(
-	homeDir string,
-) string {
-	return resolvePath(Get().Paths.Events, homeDir)
-}
-
-// GetStorePathAt returns the store directory path rooted at homeDir.
-func GetStorePathAt(
-	homeDir string,
-) string {
-	return resolvePath(Get().Paths.Store, homeDir)
-}
-
-// GetConfigPath returns the resolved absolute path to the config file.
-func GetConfigPath() string {
-	return resolvePath(Get().Paths.Config, resolveHome())
-}
-
-func resolvePath(
-	tmpl string,
-	home string,
-) string {
-	return filepath.FromSlash(strings.ReplaceAll(tmpl, "{{home}}", home))
-}
-
 func defaultMetadata() *Metadata {
 	return &Metadata{
 		Version: Version{Number: "0.1.0", Codename: "Crowbar"},
@@ -137,16 +60,6 @@ func defaultMetadata() *Metadata {
 			Name:        "Crowbar",
 			Description: "Local, single-user agentic development platform.",
 			Author:      "char2cs",
-		},
-		Paths: Paths{
-			Home:     OsValue[string]{Default: "~/.crowbar"},
-			State:    "{{home}}/state",
-			Projects: "{{home}}/projects",
-			Events:   "{{home}}/state/events",
-			Store:    "{{home}}/state/store",
-			Runs:     "{{home}}/runs",
-			Config:   "{{home}}/config.yaml",
-			Logs:     "{{home}}/logs",
 		},
 	}
 }

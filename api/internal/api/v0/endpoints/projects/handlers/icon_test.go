@@ -38,8 +38,7 @@ func iconRouter(t *testing.T) (*gin.Engine, *fakeReader, string) {
 	home := t.TempDir()
 	reader := &fakeReader{get: domain.Project{ID: "p1", Name: "harbour"}}
 	h := projecthandlers.
-		New(reader, &fakeImporter{}, &fakeDeleter{}, newRecordingBroadcaster().push).
-		WithIconStorage(func() (string, error) { return home, nil })
+		New(reader, &fakeImporter{}, &fakeDeleter{}, newRecordingBroadcaster().push, func() (string, error) { return home, nil })
 
 	r := gin.New()
 	rg := r.Group("/v0")
@@ -222,8 +221,7 @@ func TestGetIconIs404WithoutOne(t *testing.T) {
 // fails, standing in for an install whose state root cannot be resolved.
 func brokenHomeRouter(reader *fakeReader) *gin.Engine {
 	h := projecthandlers.
-		New(reader, &fakeImporter{}, &fakeDeleter{}, newRecordingBroadcaster().push).
-		WithIconStorage(func() (string, error) { return "", errNoHome })
+		New(reader, &fakeImporter{}, &fakeDeleter{}, newRecordingBroadcaster().push, unusedHome)
 
 	r := gin.New()
 	rg := r.Group("/v0")
@@ -234,6 +232,10 @@ func brokenHomeRouter(reader *fakeReader) *gin.Engine {
 }
 
 var errNoHome = errors.New("no crowbar home")
+
+// unusedHome is the resolver for handlers whose test never reaches an icon
+// route: reaching one fails loudly instead of touching a real home.
+func unusedHome() (string, error) { return "", errNoHome }
 
 func TestIconRoutes404WhenTheProjectIsGone(t *testing.T) {
 	reader := &fakeReader{getErr: apperr.ErrNotFound}
@@ -386,8 +388,7 @@ func TestPutIconSurfacesAFailedWriteToDisk(t *testing.T) {
 	}
 	reader := &fakeReader{get: domain.Project{ID: "p1", Name: "harbour"}}
 	h := projecthandlers.
-		New(reader, &fakeImporter{}, &fakeDeleter{}, newRecordingBroadcaster().push).
-		WithIconStorage(func() (string, error) { return home, nil })
+		New(reader, &fakeImporter{}, &fakeDeleter{}, newRecordingBroadcaster().push, func() (string, error) { return home, nil })
 	r := gin.New()
 	r.PUT("/v0/projects/:projectId/icon", h.PutIcon)
 

@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -38,7 +39,7 @@ func broadcastIconRouter(
 ) *gin.Engine {
 	h := repohandlers.NewWithDeps(store, nil, nil, func(d dto.RepoDTO) {
 		*frames = append(*frames, d)
-	}).WithIconStorage(func() (string, error) { return home, nil }, fetch)
+	}, func() (string, error) { return home, nil }).WithAvatarFetcher(fetch)
 	r := gin.New()
 	r.PUT("/v0/projects/:projectId/repos/:repoId/icon", h.PutIcon)
 	r.PUT("/v0/projects/:projectId/repos/:repoId/icon/emoji", h.PutIconEmoji)
@@ -185,3 +186,7 @@ func TestIcon_SetsNoCacheHeader(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "no-cache", rec.Header().Get("Cache-Control"))
 }
+
+// unusedHome is the resolver for handlers whose test never reaches an icon
+// route: reaching one fails loudly instead of touching a real home.
+func unusedHome() (string, error) { return "", errors.New("no crowbar home") }

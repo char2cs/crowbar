@@ -20,7 +20,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
+	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
 func main() {
@@ -132,13 +132,13 @@ func finish(
 // runs this binary directly instead of through `make seed`, which is the
 // only thing that reliably exports CROWBAR_HOME (Makefile:11).
 func seedRoot() (string, error) {
-	home := os.Getenv(metadata.HomeEnvVar)
-	if home == "" {
+	root := os.Getenv(home.EnvVar)
+	if root == "" {
 		return "", fmt.Errorf(
 			"seed: CROWBAR_HOME is not set — run this through `make seed` " +
 				"(or export CROWBAR_HOME yourself); crowbar-seed refuses to guess " +
 				"and never writes to a real ~/.crowbar",
 		)
 	}
-	return filepath.Join(home, "seed"), nil
+	return filepath.Join(root, "seed"), nil
 }

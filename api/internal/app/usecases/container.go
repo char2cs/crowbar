@@ -971,8 +971,8 @@ type repoGetter interface {
 // (AgentChatsDir), which for an adopted checkout reroots under crowbar home.
 //
 // It shares the container's injected crowbarHome resolver (the same one every
-// other path-deriving usecase here is built with) rather than reading
-// metadata.GetHomePath() directly: path-deriving usecases MUST resolve against
+// other path-deriving usecase here is built with) rather than resolving a
+// home of its own: path-deriving usecases MUST resolve against
 // the home the adapter container was actually opened against (see
 // adapter.Container.CrowbarHome's doc comment), and a hermetic test that
 // overrides the home via adapter.WithHomeDir (rather than the CROWBAR_HOME env

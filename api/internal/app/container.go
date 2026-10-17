@@ -39,6 +39,7 @@ type Container struct {
 	GORM         *GORMStores
 	Usecases     *usecases.Container
 	Realtime     *realtime.Service
+	crowbarHome  string
 
 	// engines is retained for ONE reason: Shutdown must quiesce the terminal engine
 	// (kill every PTY and JOIN the exit callbacks those deaths fire) BEFORE it drains
@@ -108,9 +109,7 @@ func New(
 	// running vendor CLI is now a modelled aggregate of its own, so moving one
 	// between chats (/clear, /resume) is a single write to a single aggregate
 	// instead of a delete-here/insert-there across two chats with no transaction.
-	// Built and its projections registered (via repositories.New ->
-	// runner.NewEventSourced); nothing SENDS runner commands yet — that
-	// cutover is a later task — so it is additive for now.
+	// Its projections are registered via repositories.New -> runner.NewEventSourced.
 	axAgentActivity, err := newAsynx[domain.ChatActivity](
 		adapters.AgentActivityES(), adapters.AgentActivitySS(),
 	)
@@ -213,6 +212,7 @@ func New(
 		GORM:            gormStores,
 		Usecases:        ucs,
 		Realtime:        rt,
+		crowbarHome:     crowbarHome,
 		engines:         engines,
 		axWorkspace:     axWorkspace,
 		axReviewThread:  axReviewThread,

@@ -2,28 +2,24 @@ package ipc_test
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/ipc"
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
 )
 
 // TestNewClient_BadHost_ReturnsError forces transports.SocketPath's default
-// derivation to fail: CROWBAR_HOME is pointed under an existing plain file, so
-// os.MkdirAll(override, ...) errors and NewClient must wrap and return it
-// rather than panic.
+// derivation to fail: CROWBAR_HOME is a relative path, so NewClient must wrap
+// and return the resolver's error rather than panic.
 func TestNewClient_BadHost_ReturnsError(t *testing.T) {
-	base := t.TempDir()
-	blocker := filepath.Join(base, "blocker")
-	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o644))
+	t.Setenv(home.EnvVar, "relative/home")
 
-	t.Setenv(metadata.HomeEnvVar, filepath.Join(blocker, "home"))
 	_, err := ipc.NewClient("unix://")
-	require.Error(t, err)
+
+	require.ErrorIs(t, err, home.ErrRelative)
 }
 
 // TestClient_Get_DialFailure_ReturnsError points the client at a socket path

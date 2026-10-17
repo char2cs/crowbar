@@ -214,7 +214,7 @@ func newRouterWithHandlers(
 	bc *recordingBroadcaster,
 ) (*gin.Engine, *projecthandlers.Handlers) {
 	r := gin.New()
-	h := projecthandlers.New(reader, importer, deleter, bc.push).WithStat(statOK)
+	h := projecthandlers.New(reader, importer, deleter, bc.push, unusedHome).WithStat(statOK)
 	rg := r.Group("/v0")
 	rg.GET("/projects", h.List)
 	rg.POST("/projects", h.Import)
@@ -413,7 +413,7 @@ func TestImportProject_PathMissing_4xx(
 ) {
 	r := gin.New()
 	bc := newRecordingBroadcaster()
-	h := projecthandlers.New(&fakeReader{}, &fakeImporter{}, &fakeDeleter{}, bc.push).
+	h := projecthandlers.New(&fakeReader{}, &fakeImporter{}, &fakeDeleter{}, bc.push, unusedHome).
 		WithStat(func(string) (os.FileInfo, error) { return nil, os.ErrNotExist })
 	r.POST("/v0/projects", h.Import)
 

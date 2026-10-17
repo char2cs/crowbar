@@ -10,16 +10,3 @@ metadata:
   # Dual-licensed: AGPL-3.0 by default, or a commercial license. See LICENSING.md.
   license: AGPL-3.0-only OR LicenseRef-Commercial
   copyright: Copyright 2026 Mateo Urrutia
-
-paths:
-  home:
-    default: "~/.crowbar"
-    os:
-      windows: 'C:\Users\{{USER}}\Documents\.crowbar'
-  state: "{{home}}/state"
-  projects: "{{home}}/projects"
-  events: "{{home}}/state/events"
-  store: "{{home}}/state/store"
-  runs: "{{home}}/runs"
-  config: "{{home}}/config.yaml"
-  logs: "{{home}}/logs"

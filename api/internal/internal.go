@@ -16,7 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/gateway"
 	"github.com/char2cs/crowbar/api/internal/core/hookserver"
 	"github.com/char2cs/crowbar/api/internal/core/logring"
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	"github.com/char2cs/crowbar/api/internal/core/selfinstall"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
@@ -100,14 +99,9 @@ func New(
 	}
 
 	// Install the crowbar binary into <home>/bin so vendor CLI hooks can invoke
-	// `crowbar hook` by absolute path. Use the container's CONFIGURED home so tests
-	// and dev instances (WithHomeDir) stay isolated; fall back to the resolved global
-	// home only when none was configured — the production `serve` path. Best-effort:
-	// never block startup, and never write to the real ~/.crowbar from a test.
-	installHome := cfg.homeDir
-	if installHome == "" {
-		installHome = metadata.GetHomePath()
-	}
+	// `crowbar hook` by absolute path, into the home the adapter opened so tests
+	// and dev instances stay isolated. Best-effort: never block startup.
+	installHome := adapters.CrowbarHome()
 	if p, err := selfinstall.Install(installHome); err == nil {
 		_ = p // path is re-derived by the agent engine when rendering descriptors
 	}

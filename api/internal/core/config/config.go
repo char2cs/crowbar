@@ -8,7 +8,7 @@ import (
 
 	yaml "gopkg.in/yaml.v3"
 
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
+	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
 var (
@@ -78,11 +78,16 @@ type Config struct {
 }
 
 // Get returns the singleton config: embedded defaults overlaid by the user's
-// config.yaml at metadata.GetConfigPath(). Absent user fields keep defaults.
+// config.yaml in the Crowbar home. Absent user fields keep defaults, and so
+// does any failure to resolve or read the home.
 func Get() *Config {
 	once.Do(func() {
 		config = getDefaultConfig()
-		configBytes, err := os.ReadFile(filepath.Clean(metadata.GetConfigPath()))
+		h, err := home.Resolve()
+		if err != nil {
+			return
+		}
+		configBytes, err := os.ReadFile(filepath.Clean(h.Config()))
 		if err != nil {
 			return
 		}

@@ -55,12 +55,11 @@ func initRepo(t *testing.T, dir string) {
 	runGit(t, dir, "commit", "-q", "-m", "init")
 }
 
-// TestDefaultCrowbarHome_CrowbarHomeOverride pins the dev-isolation root: with
-// CROWBAR_HOME set, the zero-arg New() constructor roots icon storage there
-// instead of ~/.crowbar.
-func TestDefaultCrowbarHome_CrowbarHomeOverride(t *testing.T) {
+// TestIcon_ServesFromTheInjectedCrowbarHome pins that icon storage is rooted at
+// the home the constructor was given, never at a home the handler resolves
+// itself.
+func TestIcon_ServesFromTheInjectedCrowbarHome(t *testing.T) {
 	devHome := t.TempDir()
-	t.Setenv("CROWBAR_HOME", devHome)
 
 	iconPath := filepath.Join(devHome, "projects", "probe-project", "probe-repo", "icon")
 	require.NoError(t, os.MkdirAll(filepath.Dir(iconPath), 0o755))
@@ -68,14 +67,14 @@ func TestDefaultCrowbarHome_CrowbarHomeOverride(t *testing.T) {
 	require.NoError(t, os.WriteFile(iconPath, png, 0o644))
 
 	store := &fakeStore{byKey: &domain.Repository{ID: "probe-repo", ProjectID: "probe-project", AvatarHasIcon: true}}
-	h := repohandlers.New(store) // real defaultCrowbarHome, CROWBAR_HOME override active
+	h := repohandlers.New(store, func() (string, error) { return devHome, nil })
 	r := gin.New()
 	r.GET("/v0/projects/:projectId/repos/:repoId/icon", h.Icon)
 
 	req := httptest.NewRequest(http.MethodGet, "/v0/projects/probe-project/repos/probe-repo/icon", http.NoBody)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusOK, rec.Code, "defaultCrowbarHome must resolve to CROWBAR_HOME for Icon to find the file")
+	assert.Equal(t, http.StatusOK, rec.Code, "Icon must read the file under the injected home")
 	assert.Equal(t, png, rec.Body.Bytes())
 }
 
@@ -212,11 +211,9 @@ func callFetchGithubAvatarBytes(t *testing.T, repoPath string) ([]byte, string, 
 	var saveErr error
 	store.SaveFn = func(_ context.Context, _ domain.Repository) error { return saveErr }
 
-	// New() wires fetchAvatar to the real fetchGithubAvatarBytes; only the
-	// crowbarHome resolver is overridden so storeIconBytes has somewhere to
-	// write on the (rare) success path.
-	h := repohandlers.New(store)
-	h = h.WithIconStorage(func() (string, error) { return home, nil }, nil)
+	// New() wires fetchAvatar to the real fetchGithubAvatarBytes; the injected
+	// home gives storeIconBytes somewhere to write on the (rare) success path.
+	h := repohandlers.New(store, func() (string, error) { return home, nil })
 	r := gin.New()
 	r.PUT("/v0/projects/:projectId/repos/:repoId/icon/github", h.PutIconGithub)
 
@@ -273,6 +270,7 @@ func TestBranches_Success_AnnotatesProtectionAndWorkspace(t *testing.T) {
 			{RepoID: "other", Branch: "feature", IsDefault: false},
 		}},
 		nil,
+		unusedHome,
 	).WithRemoteRefresher(enginegit.New())
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/branches", h.Branches)
@@ -304,7 +302,7 @@ func TestBranches_NoProviderOrWorkspaceReader_StillListsBranches(t *testing.T) {
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: clone}}
 	// NewWithDeps with nil provider/wsReader exercises both "if h.provider !=
 	// nil" / "if h.wsReader != nil" false branches.
-	h := repohandlers.NewWithDeps(store, nil, nil, nil).WithRemoteRefresher(enginegit.New())
+	h := repohandlers.NewWithDeps(store, nil, nil, nil, unusedHome).WithRemoteRefresher(enginegit.New())
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/branches", h.Branches)
 
@@ -329,7 +327,7 @@ func TestBranches_GitCommandFails_Returns500(t *testing.T) {
 	// branch -r` fails.
 	dir := t.TempDir()
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: dir}}
-	h := repohandlers.NewWithDeps(store, nil, nil, nil).WithRemoteRefresher(enginegit.New())
+	h := repohandlers.NewWithDeps(store, nil, nil, nil, unusedHome).WithRemoteRefresher(enginegit.New())
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/branches", h.Branches)
 
@@ -346,7 +344,7 @@ func TestBranches_GitCommandFails_Returns500(t *testing.T) {
 func TestRegression_Branches_ProtectionLookupFailureIsNotUnprotected(t *testing.T) {
 	clone := initRemoteTrackingRepo(t)
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: clone}}
-	h := repohandlers.NewWithDeps(store, &fakeBranchProvider{protectedErr: errors.New("gh down")}, nil, nil).
+	h := repohandlers.NewWithDeps(store, &fakeBranchProvider{protectedErr: errors.New("gh down")}, nil, nil, unusedHome).
 		WithRemoteRefresher(enginegit.New())
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/branches", h.Branches)
@@ -359,7 +357,7 @@ func TestRegression_Branches_ProtectionLookupFailureIsNotUnprotected(t *testing.
 
 func TestBranches_StoreLookupError_Returns404(t *testing.T) {
 	store := &fakeStore{byKeErr: errors.New("db down")}
-	h := repohandlers.NewWithDeps(store, nil, nil, nil).WithRemoteRefresher(enginegit.New())
+	h := repohandlers.NewWithDeps(store, nil, nil, nil, unusedHome).WithRemoteRefresher(enginegit.New())
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/branches", h.Branches)
 
@@ -388,10 +386,7 @@ func TestIcon_StoreLookupError_Returns404(t *testing.T) {
 
 func TestIcon_HomeResolutionFails_Returns404(t *testing.T) {
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", AvatarHasIcon: true}}
-	h := repohandlers.New(store).WithIconStorage(
-		func() (string, error) { return "", errors.New("no home") },
-		nil,
-	)
+	h := repohandlers.New(store, func() (string, error) { return "", errors.New("no home") })
 	r := gin.New()
 	r.GET("/v0/projects/:projectId/repos/:repoId/icon", h.Icon)
 
@@ -525,10 +520,7 @@ func TestDeleteIcon_HomeResolutionFails_StillClearsFlag(t *testing.T) {
 	var saved domain.Repository
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", AvatarHasIcon: true, AvatarEmoji: "🦊"}}
 	store.SaveFn = func(_ context.Context, r domain.Repository) error { saved = r; return nil }
-	h := repohandlers.New(store).WithIconStorage(
-		func() (string, error) { return "", errors.New("no home") },
-		nil,
-	)
+	h := repohandlers.New(store, func() (string, error) { return "", errors.New("no home") })
 	r := gin.New()
 	r.DELETE("/v0/projects/:projectId/repos/:repoId/icon", h.DeleteIcon)
 
@@ -635,10 +627,7 @@ func TestPutIcon_SaveError_Returns500(t *testing.T) {
 
 func TestPutIcon_StoreIconBytesFails_HomeResolutionError_Returns500(t *testing.T) {
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
-	h := repohandlers.New(store).WithIconStorage(
-		func() (string, error) { return "", errors.New("no home") },
-		nil,
-	)
+	h := repohandlers.New(store, func() (string, error) { return "", errors.New("no home") })
 	r := gin.New()
 	r.PUT("/v0/projects/:projectId/repos/:repoId/icon", h.PutIcon)
 
@@ -675,32 +664,6 @@ func TestPutIcon_LargerThanMax_ViaMultipart_Returns400(t *testing.T) {
 // ---------------------------------------------------------------------------
 // repoAvatar / githubSlugFromURL via generated-avatar + create-flow paths.
 // ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// defaultCrowbarHome error branch.
-// ---------------------------------------------------------------------------
-
-func TestDefaultCrowbarHome_UserHomeDirError_Returns500(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("HOME/USERPROFILE env stubbing is POSIX only")
-	}
-	// os.UserHomeDir errors when HOME (and on some platforms the OS-specific
-	// fallback vars) are unset. Icon calls h.crowbarHome() -> defaultCrowbarHome
-	// and treats a resolution error the same as 404.
-	t.Setenv("CROWBAR_HOME", "") // the override branch would mask the error path
-	t.Setenv("HOME", "")
-	// os.UserHomeDir on darwin only consults $HOME (already unset above).
-	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", AvatarHasIcon: true}}
-	h := repohandlers.New(store) // real defaultCrowbarHome, no override
-	r := gin.New()
-	r.GET("/v0/projects/:projectId/repos/:repoId/icon", h.Icon)
-
-	req := httptest.NewRequest(http.MethodGet, "/v0/projects/p1/repos/r1/icon", http.NoBody)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
 
 // ---------------------------------------------------------------------------
 // githubSlugFromURL branch coverage, exercised indirectly through
@@ -841,7 +804,7 @@ func TestRegression_DeleteRepo_HandsTheWholeRepoToTheLifecycle(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo", DefaultBranch: "main"}
 	deleter := &fakeRepoDeleter{}
-	h := repohandlers.NewWithDeps(&fakeStore{byKey: &repo}, nil, &fakeWSReader{}, nil).
+	h := repohandlers.NewWithDeps(&fakeStore{byKey: &repo}, nil, &fakeWSReader{}, nil, unusedHome).
 		WithRepoDeleter(deleter)
 
 	w := httptest.NewRecorder()
@@ -860,7 +823,7 @@ func TestRegression_DeleteRepo_HandsTheWholeRepoToTheLifecycle(t *testing.T) {
 func TestDeleteRepo_Unwired_Refuses(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo"}}
-	h := repohandlers.NewWithDeps(store, nil, nil, nil)
+	h := repohandlers.NewWithDeps(store, nil, nil, nil, unusedHome)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

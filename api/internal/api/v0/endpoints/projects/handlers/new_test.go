@@ -20,7 +20,7 @@ func TestNew_NilBroadcastDegradesToNoop(
 	t *testing.T,
 ) {
 	importer := &fakeImporter{project: domain.Project{ID: "new-id", Name: "gamma"}}
-	h := projecthandlers.New(&fakeReader{}, importer, &fakeDeleter{}, nil).WithStat(statOK)
+	h := projecthandlers.New(&fakeReader{}, importer, &fakeDeleter{}, nil, unusedHome).WithStat(statOK)
 
 	r := gin.New()
 	r.POST("/v0/projects", h.Import)

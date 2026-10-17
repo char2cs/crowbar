@@ -52,15 +52,12 @@ func patchRouter(
 	frames *[]dto.RepoDTO,
 ) *gin.Engine {
 	t.Helper()
-	// Inject a throwaway crowbar home. The default resolver is the process-global
-	// one, so without this the icon paths a broadcast derives land in the
-	// developer's real ~/.crowbar — this test moved a repo to project "p2" and
-	// created a projects/p2 directory there, which is how it was found.
+	// A throwaway crowbar home keeps the icon paths a broadcast derives out of
+	// the developer's real one.
 	home := t.TempDir()
 	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, func(d dto.RepoDTO) {
 		*frames = append(*frames, d)
-	}).WithUpdater(updater).
-		WithIconStorage(func() (string, error) { return home, nil }, nil)
+	}, func() (string, error) { return home, nil }).WithUpdater(updater)
 	r := gin.New()
 	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
 	return r
@@ -127,8 +124,7 @@ func TestPatchRepo_OrderOnlyNeedsNoName(t *testing.T) {
 	var frames []dto.RepoDTO
 	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, func(d dto.RepoDTO) {
 		frames = append(frames, d)
-	}).WithUpdater(upd).
-		WithIconStorage(func() (string, error) { return t.TempDir(), nil }, nil)
+	}, func() (string, error) { return t.TempDir(), nil }).WithUpdater(upd)
 	r := gin.New()
 	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
 
@@ -218,9 +214,8 @@ func TestPatchRepo_ProjectMoveSurvivesAnUnresolvableHome(t *testing.T) {
 	var frames []dto.RepoDTO
 	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, func(d dto.RepoDTO) {
 		frames = append(frames, d)
-	}).
-		WithUpdater(upd).
-		WithIconStorage(func() (string, error) { return "", errors.New("no home") }, nil)
+	}, func() (string, error) { return "", errors.New("no home") }).
+		WithUpdater(upd)
 	r := gin.New()
 	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
 
@@ -246,10 +241,9 @@ func TestRegression_PatchRepo_BroadcastsTheDecidedPlacementAndEveryShiftedRepo(t
 	store := &fakeStore{all: []domain.Repository{{ID: "r1", ProjectID: "p1"}, {ID: "r2", ProjectID: "p1", Name: "two"}}}
 	h := repohandlers.NewWithDeps(store, nil, nil, func(d dto.RepoDTO) {
 		frames = append(frames, d)
-	}).WithUpdater(upd).
+	}, func() (string, error) { return t.TempDir(), nil }).WithUpdater(upd).
 		// The projection still serves the PRE-write order.
-		WithNodes(fakeNodeReader{"r1": domain.Node{ID: "r1", Order: 3}, "r2": domain.Node{ID: "r2", Order: 0}}).
-		WithIconStorage(func() (string, error) { return t.TempDir(), nil }, nil)
+		WithNodes(fakeNodeReader{"r1": domain.Node{ID: "r1", Order: 3}, "r2": domain.Node{ID: "r2", Order: 0}})
 	r := gin.New()
 	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
 

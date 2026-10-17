@@ -12,8 +12,7 @@ import (
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
-	"github.com/char2cs/crowbar/api/internal/core/paths"
+	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
 // Global-plane DB file name under <home>/state: the non-aggregate view.db.
@@ -124,17 +123,26 @@ func New(
 		o(&cfg)
 	}
 
-	home, stateDir := resolveHome(cfg.homeDir)
-	if mkErr := os.MkdirAll(stateDir, 0o750); mkErr != nil {
-		return nil, fmt.Errorf("adapter: state dir: %w", mkErr)
+	h, err := resolveHome(cfg.homeDir)
+	if err != nil {
+		return nil, fmt.Errorf("adapter: home: %w", err)
+	}
+	// Root first, owner-only; events and store sit under state, so this creates all three.
+	for _, d := range []struct {
+		dir  string
+		perm os.FileMode
+	}{{h.Root(), 0o700}, {h.Events(), 0o750}, {h.Store(), 0o750}} {
+		if mkErr := os.MkdirAll(d.dir, d.perm); mkErr != nil {
+			return nil, fmt.Errorf("adapter: create %s: %w", d.dir, mkErr)
+		}
 	}
 
-	lock, err := acquireStateLock(stateDir)
+	lock, err := acquireStateLock(h.State())
 	if err != nil {
 		return nil, err
 	}
 
-	container, err := newLocked(home, stateDir, lock)
+	container, err := newLocked(h, lock)
 	if err != nil {
 		_ = lock.Close()
 		return nil, err
@@ -142,34 +150,22 @@ func New(
 	return container, nil
 }
 
-// resolveHome returns the crowbar home root and the global state directory. When
-// homeDir is empty the production location is used; the home root is derived as
-// the parent of the resolved state directory.
+// resolveHome returns the home rooted at homeDir, or the production home when
+// homeDir is empty.
 func resolveHome(
 	homeDir string,
-) (string, string) {
+) (home.Home, error) {
 	if homeDir != "" {
-		return homeDir, metadata.GetStateDirPathAt(homeDir)
+		return home.At(homeDir)
 	}
-	stateDir := metadata.GetStateDirPath()
-	return filepath.Dir(stateDir), stateDir
+	return home.Resolve()
 }
 
 func newLocked(
-	home string,
-	stateDir string,
+	h home.Home,
 	lock *instanceLock,
 ) (c *Container, err error) {
-	// Per-type planes derive from the resolved home, never from the env, so a
-	// test home cannot leak state into the prod ~/.crowbar (decision 14).
-	eventsDir, err := paths.EventsAt(home)
-	if err != nil {
-		return nil, fmt.Errorf("adapter: events dir: %w", err)
-	}
-	storeDir, err := paths.StoreAt(home)
-	if err != nil {
-		return nil, fmt.Errorf("adapter: store dir: %w", err)
-	}
+	eventsDir, storeDir := h.Events(), h.Store()
 
 	// Opening is a LIST, and o carries the two things every entry shares: the first
 	// error, and the rollback for everything opened before it. After the first
@@ -200,7 +196,7 @@ func newLocked(
 	nodeEventStore := o.eventStore(eventsDir, nodeDBName, "node event store")
 	nodeSnapshotStore := o.snapshotStore(eventsDir, nodeSnapshotDBName, "node snapshot store")
 	nodeStoreDB := o.viewDB(storeDir, nodeDBName, "node store db")
-	globalView := o.viewDB(stateDir, viewDBName, "global view")
+	globalView := o.viewDB(h.State(), viewDBName, "global view")
 
 	if o.err != nil {
 		err = o.err
@@ -208,7 +204,7 @@ func newLocked(
 	}
 
 	c = &Container{
-		crowbarHome:                home,
+		crowbarHome:                h.Root(),
 		reviewThreadES:             reviewThreadES,
 		reviewThreadSS:             reviewThreadSS,
 		workspaceEventStore:        workspaceEventStore,

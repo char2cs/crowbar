@@ -12,7 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
+	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
@@ -85,7 +85,11 @@ func descriptorBytes(target string) ([]byte, error) {
 		}
 		return raw, nil
 	}
-	reports, err := descriptorcheck.Sources(metadata.GetHomePath())
+	root, err := crowbarHome()
+	if err != nil {
+		return nil, err
+	}
+	reports, err := descriptorcheck.Sources(root)
 	if err != nil {
 		return nil, err
 	}
@@ -97,9 +101,22 @@ func descriptorBytes(target string) ([]byte, error) {
 	return nil, fmt.Errorf("descriptor: no provider %q", target)
 }
 
+// crowbarHome is the home whose descriptor overrides the commands check.
+func crowbarHome() (string, error) {
+	h, err := home.Resolve()
+	if err != nil {
+		return "", fmt.Errorf("descriptor: %w", err)
+	}
+	return h.Root(), nil
+}
+
 func validateTargets(files []string) ([]descriptorcheck.Report, error) {
 	if len(files) == 0 {
-		return descriptorcheck.ValidateAll(metadata.GetHomePath())
+		root, err := crowbarHome()
+		if err != nil {
+			return nil, err
+		}
+		return descriptorcheck.ValidateAll(root)
 	}
 	out := make([]descriptorcheck.Report, 0, len(files))
 	for _, f := range files {

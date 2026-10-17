@@ -241,20 +241,6 @@ func TestReadUploadRefusesAnOversizeFileBeforeReadingIt(t *testing.T) {
 	}
 }
 
-func TestDefaultCrowbarHomeHonoursTheEnvOverride(t *testing.T) {
-	// Dev instances point this inside the workspace being developed, which is
-	// the whole of their isolation from a real install.
-	t.Setenv("CROWBAR_HOME", "/tmp/crowbar-test-home")
-
-	got, err := icons.DefaultCrowbarHome()
-	if err != nil {
-		t.Fatalf("home: %v", err)
-	}
-	if got != "/tmp/crowbar-test-home" {
-		t.Fatalf("home = %q, want the override", got)
-	}
-}
-
 func TestContentTypeOnlySniffsTheFirst512Bytes(t *testing.T) {
 	// The SVG probe reads a HEAD, not the whole file: a multi-megabyte asset
 	// must not be scanned end to end on every request that serves it.

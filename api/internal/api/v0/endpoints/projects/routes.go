@@ -24,10 +24,11 @@ func Register(
 	importer projecthandlers.Importer,
 	deleter projecthandlers.Deleter,
 	broadcast func(dto.ProjectDTO),
+	crowbarHome func() (string, error),
 	projectsWS gin.HandlerFunc,
 	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
 ) func(context.Context) error {
-	h := projecthandlers.New(reader, importer, deleter, broadcast)
+	h := projecthandlers.New(reader, importer, deleter, broadcast, crowbarHome)
 	rg.GET("/projects", dispatch(h.List, projectsWS))
 	rg.POST("/projects", h.Import)
 	rg.GET("/projects/:projectId", dispatch(h.Detail, projectsWS))

@@ -34,7 +34,7 @@ func TestImport_EveryCreatedWorkspaceHasItsOwnNodeRow(t *testing.T) {
 	git := mocks.NewGitEngine()
 	prov := mocks.NewProviderEngine()
 	nodes := mocks.NewNodePlacements()
-	uc := newImportUsecase(project.ImportDeps{
+	uc := newImportUsecase(t, project.ImportDeps{
 		Projects:   projects,
 		Repos:      repos,
 		Workspaces: ws,
@@ -90,16 +90,17 @@ func TestImport_WorkspaceNodeMintFails_RollsBackTheWorkspaceAndChat(t *testing.T
 	nodes := mocks.NewNodePlacements()
 	nodes.CreateErr = errors.New("node create boom")
 	uc := project.NewImport(project.ImportDeps{
-		Projects:   projects,
-		Repos:      mocks.NewRepositoryStore(),
-		Workspaces: ws,
-		Git:        mocks.NewGitEngine(),
-		Provider:   mocks.NewProviderEngine(),
-		Discover:   func(string, int) ([]string, error) { return nil, nil },
-		RefRunner:  noRefRunner,
-		Nodes:      nodes,
-		Now:        func() time.Time { return time.Unix(1000, 0).UTC() },
-		Stat:       statExists,
+		CrowbarHome: tempCrowbarHome(t),
+		Projects:    projects,
+		Repos:       mocks.NewRepositoryStore(),
+		Workspaces:  ws,
+		Git:         mocks.NewGitEngine(),
+		Provider:    mocks.NewProviderEngine(),
+		Discover:    func(string, int) ([]string, error) { return nil, nil },
+		RefRunner:   noRefRunner,
+		Nodes:       nodes,
+		Now:         func() time.Time { return time.Unix(1000, 0).UTC() },
+		Stat:        statExists,
 	})
 	uc.SetOwningChats(chats)
 

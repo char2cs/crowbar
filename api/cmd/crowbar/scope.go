@@ -4,6 +4,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
 // scopedAgentPath builds the agent API path for the given project/repo ids,
@@ -55,7 +57,7 @@ func bindScopeFlags(
 	cmd.Flags().StringVar(home, "home", "", "crowbar home this callback must operate against")
 }
 
-// applyHomeOverride sets CROWBAR_HOME for this process when home is non-empty.
+// applyHomeOverride sets CROWBAR_HOME for this process when override is non-empty.
 // Every in-PTY callback (hook, mcp, handoff dump) is a fresh, short-lived
 // process invoked once per event/session, so mutating process-global state
 // here at startup is race-free — there is no concurrent second invocation in
@@ -68,8 +70,8 @@ func bindScopeFlags(
 // production. home is now baked into the command line at spawn time
 // (TemplateCtx.CrowbarHome / ScopeFlags, see spawnplan.go), so this override
 // always wins over ambient environment.
-func applyHomeOverride(home string) {
-	if home != "" {
-		_ = os.Setenv("CROWBAR_HOME", home)
+func applyHomeOverride(override string) {
+	if override != "" {
+		_ = os.Setenv(home.EnvVar, override)
 	}
 }

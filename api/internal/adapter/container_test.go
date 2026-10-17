@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
+	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
 func TestGlobalView_HoldsProfilesAndSettings(t *testing.T) {
@@ -140,11 +142,33 @@ func TestRegression_StateDirSingleInstanceLock(t *testing.T) {
 }
 
 func TestNew_DefaultDirs_UsesHome(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Setenv(home.EnvVar, "")
 	c, err := adapter.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 	assert.NotNil(t, c.GlobalView())
+	assert.Equal(t, filepath.Join(userHome, ".crowbar"), c.CrowbarHome())
+}
+
+func TestNew_CreatesAnOwnerOnlyHomeRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits not enforced on Windows")
+	}
+	root := filepath.Join(t.TempDir(), "home")
+	c, err := adapter.New(adapter.WithHomeDir(root))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	info, err := os.Stat(root)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+}
+
+func TestNew_RejectsARelativeHome(t *testing.T) {
+	_, err := adapter.New(adapter.WithHomeDir("relative/home"))
+	require.ErrorIs(t, err, home.ErrRelative)
 }
 
 func TestContainer_WithHomeDir_IsolatesAllState(t *testing.T) {

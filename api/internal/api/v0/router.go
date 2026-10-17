@@ -120,6 +120,7 @@ func (c *Container) Register(
 		c.app.Usecases.ProjectImport,
 		c.app.Usecases.ProjectDelete,
 		c.app.Hub.BroadcastProject,
+		c.crowbarHome,
 		c.projects.Handle,
 		ws.DualServe,
 	))
@@ -134,6 +135,7 @@ func (c *Container) Register(
 		c.eng.Git,
 		c.app.Usecases.ProjectDelete,
 		c.app.Hub.BroadcastRepo,
+		c.crowbarHome,
 		c.repos.Handle,
 		ws.DualServe,
 	))
@@ -331,4 +333,10 @@ func (c *Container) Register(
 		chatScoped,
 		c.eng.Identity,
 	)
+}
+
+// crowbarHome is the resolver the icon handlers store and serve through: the
+// home the app layer was opened against.
+func (c *Container) crowbarHome() (string, error) {
+	return c.app.CrowbarHome(), nil
 }

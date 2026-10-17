@@ -44,7 +44,7 @@ func (f fakeRepoGetter) FindByKey(
 // TestAgentWorkspaceReader_WorktreeDir_Success proves WorktreeDir resolves the
 // owning project/repo from the workspace repo and returns the git worktree
 // directory stored on the workspace read model's WorktreePath, rooted at the
-// injected crowbarHome (not metadata.GetHomePath, so it never diverges from a
+// injected crowbarHome (not a home resolved here, so it never diverges from a
 // hermetic test's overridden home).
 func TestAgentWorkspaceReader_WorktreeDir_Success(t *testing.T) {
 	r := &agentWorkspaceReader{

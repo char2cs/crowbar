@@ -17,17 +17,20 @@ import (
 // workspace — the project-level home, discovering no repo at all — so a test can
 // watch the chat side of that single create with no repo-tree noise around it.
 func newOwnedImportDeps(
+	t *testing.T,
 	projects *mocks.ProjectStore,
 	ws *mocks.WorkspaceRepo,
 ) project.ImportDeps {
+	t.Helper()
 	return project.ImportDeps{
-		Projects:   projects,
-		Repos:      mocks.NewRepositoryStore(),
-		Workspaces: ws,
-		Git:        mocks.NewGitEngine(),
-		Provider:   mocks.NewProviderEngine(),
-		Discover:   func(string, int) ([]string, error) { return nil, nil },
-		RefRunner:  noRefRunner,
+		CrowbarHome: tempCrowbarHome(t),
+		Projects:    projects,
+		Repos:       mocks.NewRepositoryStore(),
+		Workspaces:  ws,
+		Git:         mocks.NewGitEngine(),
+		Provider:    mocks.NewProviderEngine(),
+		Discover:    func(string, int) ([]string, error) { return nil, nil },
+		RefRunner:   noRefRunner,
 		// Every workspace this usecase creates mints its own Node row now
 		// (2026-09-08 sidebar-placement-unification Task 7), so a chat-side test
 		// that never cared about Nodes still needs a working surface wired —
@@ -48,7 +51,7 @@ func newOwnedImportDeps(
 func TestImport_NoOwningChatsWired_RefusesAndPersistsNothing(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	ws := mocks.NewWorkspaceRepo()
-	uc := project.NewImport(newOwnedImportDeps(projects, ws))
+	uc := project.NewImport(newOwnedImportDeps(t, projects, ws))
 
 	_, err := uc.Import(context.Background(), "P", "/root")
 
@@ -65,7 +68,7 @@ func TestImport_MintOwningChatFails_WritesNoWorkspaceRow(t *testing.T) {
 	ws := mocks.NewWorkspaceRepo()
 	chats := newFakeOwningChats()
 	chats.mintErr = errors.New("mint boom")
-	uc := project.NewImport(newOwnedImportDeps(projects, ws))
+	uc := project.NewImport(newOwnedImportDeps(t, projects, ws))
 	uc.SetOwningChats(chats)
 
 	_, err := uc.Import(context.Background(), "P", "/root")
@@ -86,7 +89,7 @@ func TestImport_AttachOwningWorkspaceFails_TakesBothHalvesBackOut(t *testing.T) 
 	ws := mocks.NewWorkspaceRepo()
 	chats := newFakeOwningChats()
 	chats.attachErr = errors.New("attach boom")
-	uc := project.NewImport(newOwnedImportDeps(projects, ws))
+	uc := project.NewImport(newOwnedImportDeps(t, projects, ws))
 	uc.SetOwningChats(chats)
 
 	_, err := uc.Import(context.Background(), "P", "/root")
@@ -110,7 +113,7 @@ func TestImport_AttachFails_WorkspaceDeleteAlsoFails_StillSurfacesTheCause(t *te
 	ws.DeleteErr = errors.New("delete boom")
 	chats := newFakeOwningChats()
 	chats.attachErr = errors.New("attach boom")
-	uc := project.NewImport(newOwnedImportDeps(projects, ws))
+	uc := project.NewImport(newOwnedImportDeps(t, projects, ws))
 	uc.SetOwningChats(chats)
 
 	_, err := uc.Import(context.Background(), "P", "/root")
@@ -128,7 +131,7 @@ func TestImport_HomeWorkspace_IsOwnedByTheChatMintedForIt(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	ws := mocks.NewWorkspaceRepo()
 	chats := newFakeOwningChats()
-	uc := project.NewImport(newOwnedImportDeps(projects, ws))
+	uc := project.NewImport(newOwnedImportDeps(t, projects, ws))
 	uc.SetOwningChats(chats)
 
 	_, err := uc.Import(context.Background(), "P", "/root")

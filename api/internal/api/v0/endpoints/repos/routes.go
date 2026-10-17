@@ -29,10 +29,11 @@ func Register(
 	remote repohandlers.RemoteRefresher,
 	deleter repohandlers.RepoDeleter,
 	broadcast func(dto.RepoDTO),
+	crowbarHome func() (string, error),
 	reposWS gin.HandlerFunc,
 	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
 ) func(context.Context) error {
-	h := repohandlers.NewWithDeps(store, prov, wsReader, broadcast).
+	h := repohandlers.NewWithDeps(store, prov, wsReader, broadcast, crowbarHome).
 		WithImporter(importer).
 		WithUpdater(updater).
 		WithNodes(nodes).

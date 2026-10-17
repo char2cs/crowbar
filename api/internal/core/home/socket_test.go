@@ -51,3 +51,41 @@ func TestSocket_OverrideLivesInTempKeyedByTheHome(t *testing.T) {
 func TestSocketName_IsStable(t *testing.T) {
 	assert.Equal(t, "crowbar-c13f09536446a88e.sock", socketName("/dev/crowbar-home"))
 }
+
+// Every in-PTY callback bakes a concrete --home into its command line, even on
+// the plain default home. Hashing that spelled-out default sent each hook to a
+// temp-dir socket the real daemon never listens on.
+func TestRegression_SocketPath_HomeEnvSpellingOutThePlainDefaultIsNotAnOverride(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("HOME does not set the user home on windows")
+	}
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+	plainDefault := filepath.Join(fakeHome, ".crowbar")
+
+	t.Setenv(EnvVar, "")
+	noOverride, err := Resolve()
+	require.NoError(t, err)
+
+	t.Setenv(EnvVar, plainDefault)
+	spelledOut, err := Resolve()
+	require.NoError(t, err)
+
+	assert.Equal(t, noOverride.Socket(), spelledOut.Socket(),
+		"a --home that only spells out the plain default must bind the daemon's own <home>/crowbar.sock")
+	assert.NotEqual(t, filepath.Join(os.TempDir(), socketName(plainDefault)), spelledOut.Socket(),
+		"must not fall into the dev-isolation hash path just because CROWBAR_HOME is set")
+}
+
+// The other side of the fix above: a home that differs from the plain default
+// must keep its own hashed, isolated socket.
+func TestRegression_SocketPath_ARealOverrideStillIsolates(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	realOverride := filepath.Join(t.TempDir(), "some-worktree", ".crowbar")
+	t.Setenv(EnvVar, realOverride)
+
+	h, err := Resolve()
+	require.NoError(t, err)
+
+	assert.Equal(t, filepath.Join(os.TempDir(), socketName(realOverride)), h.Socket())
+}

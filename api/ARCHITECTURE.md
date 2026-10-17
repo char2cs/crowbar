@@ -30,12 +30,14 @@ api       gin router, /v0 REST + WebSocket streams, static bundle
 
 Each layer imports only the layers below it. Guards in code:
 `engine/architecture_test.go` (engines never cross-import; engines never build
-event stores) and `app/repositories/architecture_test.go` (chat repositories never
-broadcast to clients).
+event stores), `app/repositories/architecture_test.go` (chat repositories never
+broadcast to clients) and `core/home/architecture_test.go` (only `core/home`
+resolves the Crowbar home).
 
 ### `core/`
-Process-level plumbing with no domain knowledge: `metadata` (home dir,
-`~/.crowbar` or `$CROWBAR_HOME`), `paths`, `config`, `gateway` (unix socket at
+Process-level plumbing with no domain knowledge: `home` (the one resolver of the
+Crowbar home, `~/.crowbar` or `$CROWBAR_HOME`, and the paths and socket derived
+from it), `metadata` (name, version), `paths/worktreepath`, `config`, `gateway` (unix socket at
 `~/.crowbar/crowbar.sock`, or `tcp://` for dev), `ipc` (the socket client the
 in-PTY callbacks use), `terminal` (the PTY session engine — spawn, resize,
 screen model, reap), `shellenv`/`binpath` (login-shell PATH and CLI lookup for a

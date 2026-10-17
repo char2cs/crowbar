@@ -12,7 +12,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/icons"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/internal/detached"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -88,14 +87,16 @@ type Handlers struct {
 }
 
 // New builds the projects Handlers from the project read, import, and delete
-// usecases plus the Projects-channel broadcast func. A nil broadcast degrades to
-// a no-op so the handler never panics when wired without a hub (tests, dormant
+// usecases, the Projects-channel broadcast func, and the crowbar-home resolver
+// the icon handlers store and serve through. A nil broadcast degrades to a
+// no-op so the handler never panics when wired without a hub (tests, dormant
 // surfaces).
 func New(
 	reader ListGetter,
 	importer Importer,
 	deleter Deleter,
 	broadcast func(dto.ProjectDTO),
+	crowbarHome func() (string, error),
 ) *Handlers {
 	if broadcast == nil {
 		broadcast = func(dto.ProjectDTO) {}
@@ -106,7 +107,7 @@ func New(
 		deleter:     deleter,
 		broadcast:   broadcast,
 		stat:        os.Stat,
-		crowbarHome: icons.DefaultCrowbarHome,
+		crowbarHome: crowbarHome,
 	}
 }
 
@@ -117,17 +118,6 @@ func (h *Handlers) WithStat(
 ) *Handlers {
 	if stat != nil {
 		h.stat = stat
-	}
-	return h
-}
-
-// WithIconStorage overrides the crowbar-home resolver the icon handlers store
-// and serve through. Intended for tests; a nil arg leaves the default in place.
-func (h *Handlers) WithIconStorage(
-	home func() (string, error),
-) *Handlers {
-	if home != nil {
-		h.crowbarHome = home
 	}
 	return h
 }
