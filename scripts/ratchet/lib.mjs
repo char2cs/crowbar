@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 
 const UPDATE_CMD = 'make ratchet ARGS=--update'
+const INIT_CMD = 'make ratchet ARGS=--init'
 
 /** Number of `\n` characters, like `wc -l`. Walks the text instead of splitting it: files are large. */
 export function countLines(text) {
@@ -76,17 +77,25 @@ const writeBaseline = (path, measured) => {
   writeFileSync(path, JSON.stringify(sorted, null, 2) + '\n')
 }
 
-/** @returns {number} the process exit code. */
-export function runGate({ name, baselinePath, measured, update, allowAdded, summary, hint, log = console.log }) {
+/**
+ * `init` is the only way to create a baseline, so a lost or misnamed file can never be
+ * silently re-recorded at today's numbers.
+ * @returns {number} the process exit code.
+ */
+export function runGate({ name, baselinePath, measured, init, update, allowAdded, summary, hint, log = console.log }) {
   const exists = existsSync(baselinePath)
-  if (!exists && !update) {
-    log(`${name}: no baseline at ${baselinePath}; run: ${UPDATE_CMD}`)
+  if (init && exists) {
+    log(`${name}: baseline already exists at ${baselinePath}; --init only creates a missing one`)
     return 1
   }
-  if (!exists) {
+  if (init) {
     writeBaseline(baselinePath, measured)
     log(`${name}: baseline created (${Object.keys(measured).length} keys)`)
     return 0
+  }
+  if (!exists) {
+    log(`${name}: no baseline at ${baselinePath}; run: ${INIT_CMD}`)
+    return 1
   }
 
   const diff = diffBaseline(JSON.parse(readFileSync(baselinePath, 'utf8')), measured)

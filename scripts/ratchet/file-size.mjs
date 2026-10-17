@@ -34,6 +34,7 @@ export function main(args, { files = loadCode(), baselinePath = join(dir, 'file-
     name: 'file-size',
     baselinePath,
     measured,
+    init: args.includes('--init'),
     update: args.includes('--update'),
     allowAdded: false,
     summary: summarize(measured),

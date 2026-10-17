@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import test from 'node:test'
 import { MAX_LINES, main, measureOversize } from './file-size.mjs'
@@ -22,4 +22,15 @@ test('a moved oversize file is told to split, never to re-key the baseline', (t)
   const out = lines.join('\n')
   assert.match(out, /Split the file below 500 lines\. Moving or renaming an oversize file counts as touching it: split it in the same change\./)
   assert.doesNotMatch(out, /Change its key/)
+})
+
+test('--init is the only way a baseline gets created', (t) => {
+  const baselinePath = join(tmpDir(t), 'baseline.json')
+  const lines = []
+  const run = (args) => main(args, { files: [f('api/big.go', 600)], baselinePath, log: (l) => lines.push(l) })
+  assert.equal(run([]), 1)
+  assert.equal(run(['--update']), 1)
+  assert.match(lines.join('\n'), /ARGS=--init/)
+  assert.equal(run(['--init']), 0)
+  assert.equal(readFileSync(baselinePath, 'utf8'), '{\n  "api/big.go": 600\n}\n')
 })

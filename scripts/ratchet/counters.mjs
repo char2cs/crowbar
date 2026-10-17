@@ -39,6 +39,7 @@ export function main(args) {
     name: 'counters',
     baselinePath: join(dirname(fileURLToPath(import.meta.url)), 'counters-baseline.json'),
     measured,
+    init: args.includes('--init'),
     update: args.includes('--update'),
     allowAdded: true,
     summary: Object.entries(measured).map(([id, n]) => `${id} ${n}`).join(', '),

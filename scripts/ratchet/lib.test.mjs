@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { classify, countLines, diffBaseline, loadCode, runGate } from './lib.mjs'
@@ -51,10 +51,13 @@ const gate = (dir) => {
   return { baselinePath, lines, run, text: () => lines.join('\n') }
 }
 
-test('check with no baseline file fails and points at --update', (t) => {
-  const g = gate(tmpDir(t))
-  assert.equal(g.run({ measured: { a: 1 } }), 1)
-  assert.match(g.text(), /demo: no baseline at .*baseline\.json; run: make ratchet ARGS=--update/)
+test('a missing baseline fails in check and update mode, names --init and writes nothing', (t) => {
+  for (const update of [false, true]) {
+    const g = gate(tmpDir(t))
+    assert.equal(g.run({ update, measured: { a: 1 } }), 1)
+    assert.match(g.text(), /demo: no baseline at .*baseline\.json; run: make ratchet ARGS=--init/)
+    assert.equal(existsSync(g.baselinePath), false)
+  }
 })
 
 test('check with an equal baseline passes', (t) => {
@@ -123,11 +126,19 @@ test('an oversize rename reports both ends and the hint', (t) => {
   assert.match(g.text(), /Split the file\./)
 })
 
-test('update with no baseline writes sorted keys with a trailing newline', (t) => {
+test('init creates a missing baseline with sorted keys and a trailing newline', (t) => {
   const g = gate(tmpDir(t))
-  assert.equal(g.run({ update: true, measured: { b: 2, a: 1 } }), 0)
+  assert.equal(g.run({ init: true, measured: { b: 2, a: 1 } }), 0)
   assert.equal(readFileSync(g.baselinePath, 'utf8'), '{\n  "a": 1,\n  "b": 2\n}\n')
   assert.match(g.lines[0], /^demo: baseline created \(2 keys\)$/)
+})
+
+test('init never overwrites an existing baseline', (t) => {
+  const g = gate(tmpDir(t))
+  writeFileSync(g.baselinePath, '{"a":9}')
+  assert.equal(g.run({ init: true, measured: { a: 1 } }), 1)
+  assert.equal(readFileSync(g.baselinePath, 'utf8'), '{"a":9}')
+  assert.match(g.text(), /demo: baseline already exists at .*baseline\.json; --init only creates a missing one/)
 })
 
 test('update logs each key it writes, before saying it updated', (t) => {

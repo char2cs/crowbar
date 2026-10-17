@@ -69,6 +69,7 @@ export function main(args) {
     name: 'loc-budgets',
     baselinePath: join(dir, 'loc-budgets-baseline.json'),
     measured,
+    init: args.includes('--init'),
     update: args.includes('--update'),
     allowAdded: true,
     summary: `go ${measured['go.total']}, web ${measured['web.total']}`,
