@@ -11,10 +11,8 @@
 package worktreepath
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -459,26 +457,22 @@ func FreePathBranch(
 }
 
 // RemoveUnderHome deletes target only when it is strictly under crowbar home,
-// and never fails the caller.
+// and says why when target stays: refused, or the removal failed.
 //
 // Every agent path the chat usecase reaps is derived from a workspace lookup, so
 // this guard is what stops a poisoned or misconfigured chats dir reaching the
-// user's real repository. It is best-effort by design: a reap that cannot happen
-// leaves disk behind, which is a nuisance; a reap that fails a delete would leave
-// a chat the user asked to erase still listed, which is not.
+// user's real repository.
 func RemoveUnderHome(
-	ctx context.Context,
 	home string,
 	target string,
-) {
+) error {
 	if !UnderHome(target, home) {
-		slog.WarnContext(ctx, "agent: refusing to rm agent path outside crowbar home (skipping)",
-			"target", target, "home", home)
-		return
+		return fmt.Errorf("worktreepath: refusing to remove %s: not under the crowbar home %s", target, home)
 	}
 	if err := os.RemoveAll(target); err != nil {
-		slog.WarnContext(ctx, "agent: reap agent path", "target", target, "err", err)
+		return fmt.Errorf("worktreepath: remove %s: %w", target, err)
 	}
+	return nil
 }
 
 // AttachmentsDir returns a chat's durable attachment store: the directory the

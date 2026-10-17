@@ -89,6 +89,7 @@ func apiRoot() string {
 // daemon is one boot of the backend, served on the unix socket the hook relay
 // dials. A restart is a second boot over the same home.
 type daemon struct {
+	t        *testing.T
 	app      *app.Container
 	eng      *engine.Container
 	adapters *adapter.Container
@@ -153,7 +154,7 @@ func bootDaemon(t *testing.T, home string) *daemon {
 	ln, err := transports.NewSocket("unix://")
 	require.NoError(t, err)
 	go func() { _ = http.Serve(ln, router) }() //nolint:gosec // test server on a private unix socket
-	return &daemon{app: container, eng: eng, adapters: adapters, session: session, ln: ln, hooks: hooks}
+	return &daemon{t: t, app: container, eng: eng, adapters: adapters, session: session, ln: ln, hooks: hooks}
 }
 
 // stop ends the daemon the way a crash does: no graceful drain, and every
@@ -163,7 +164,9 @@ func (d *daemon) stop() {
 	d.app.Close()
 	d.eng.Close()
 	_ = d.adapters.Close()
-	_ = d.session.Close()
+	if err := d.session.Close(); err != nil {
+		d.t.Logf("scripted daemon: release the home: %v", err)
+	}
 }
 
 // rig is one test's daemon, workspace, fake CLIs and their script and log.

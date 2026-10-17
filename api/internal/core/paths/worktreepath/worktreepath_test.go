@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 func TestStorageDir(t *testing.T) {
@@ -217,6 +219,34 @@ func TestLedgerChatsDir_IgnoresWorkspaceEntirely(t *testing.T) {
 	if got != want {
 		t.Fatalf("LedgerChatsDir = %q, want %q", got, want)
 	}
+}
+
+// A target that stays on disk comes back with the reason, so a caller can
+// tell a refused or failed removal from one that happened.
+func TestRemoveUnderHome_SaysWhyATargetStays(t *testing.T) {
+	home := t.TempDir()
+	outside := t.TempDir()
+	require.Error(t, RemoveUnderHome(home, outside))
+	assert.DirExists(t, outside)
+
+	removed := filepath.Join(home, "removed")
+	require.NoError(t, os.MkdirAll(filepath.Join(removed, "inner"), 0o700))
+	require.NoError(t, RemoveUnderHome(home, removed))
+	assert.NoDirExists(t, removed)
+	require.NoError(t, RemoveUnderHome(home, removed), "an absent target is already removed")
+}
+
+func TestRemoveUnderHome_ReportsARemovalThatFailed(t *testing.T) {
+	testutil.RequirePermissionEnforcement(t)
+	home := t.TempDir()
+	parent := filepath.Join(home, "parent")
+	stuck := filepath.Join(parent, "stuck")
+	require.NoError(t, os.MkdirAll(stuck, 0o700))
+	require.NoError(t, os.Chmod(parent, 0o500))
+	t.Cleanup(func() { require.NoError(t, os.Chmod(parent, 0o700)) })
+
+	require.ErrorIs(t, RemoveUnderHome(home, stuck), os.ErrPermission)
+	assert.DirExists(t, stuck)
 }
 
 // TestUnderHome is the shared predicate the chats-dir seam uses to tell a

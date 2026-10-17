@@ -121,7 +121,7 @@ func New(
 		o(&cfg)
 	}
 
-	h, err := resolveHome(cfg.homeDir)
+	h, err := home.ResolveDir(cfg.homeDir)
 	if err != nil {
 		return nil, fmt.Errorf("adapter: home: %w", err)
 	}
@@ -136,17 +136,6 @@ func New(
 	}
 
 	return openContainer(h)
-}
-
-// resolveHome returns the home rooted at homeDir, or the production home when
-// homeDir is empty.
-func resolveHome(
-	homeDir string,
-) (home.Home, error) {
-	if homeDir != "" {
-		return home.At(homeDir)
-	}
-	return home.Resolve()
 }
 
 func openContainer(

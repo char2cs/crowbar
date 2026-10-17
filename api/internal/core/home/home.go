@@ -44,6 +44,17 @@ func Resolve() (Home, error) {
 	return newHome(root, false)
 }
 
+// ResolveDir returns the home rooted at dir, or the one Resolve names when dir
+// is empty, for a caller handed an optional home directory.
+func ResolveDir(
+	dir string,
+) (Home, error) {
+	if dir == "" {
+		return Resolve()
+	}
+	return At(dir)
+}
+
 // At returns the home rooted at root, which must be an absolute path. A root
 // that differs from the default home counts as an override.
 func At(

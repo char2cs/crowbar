@@ -76,14 +76,21 @@ func TestNew_InvalidHomeDir_ReturnsError(t *testing.T) {
 }
 
 // The daemon holds its home while it runs, so a second one is refused before
-// it opens a store, and the home is free again once the first one closes.
+// it opens a store, without keeping the socket it bound, and the home is free
+// again once the first one closes.
 func TestNew_RefusesASecondDaemonOnTheSameHome(t *testing.T) {
 	dir := t.TempDir()
 	first, err := internal.New(context.Background(), "tcp://127.0.0.1:0", nil, internal.WithHomeDir(dir))
 	require.NoError(t, err)
+	// Short: a unix socket path is capped near 100 bytes, and t.TempDir's is longer.
+	sockDir, err := os.MkdirTemp("", "sock")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(sockDir)) })
+	sock := filepath.Join(sockDir, "second.sock")
 
-	_, err = internal.New(context.Background(), "tcp://127.0.0.1:0", nil, internal.WithHomeDir(dir))
+	_, err = internal.New(context.Background(), "unix://"+sock, nil, internal.WithHomeDir(dir))
 	require.ErrorIs(t, err, migrate.ErrHomeLocked)
+	assert.NoFileExists(t, sock)
 
 	first.Close()
 	again, err := internal.New(context.Background(), "tcp://127.0.0.1:0", nil, internal.WithHomeDir(dir))

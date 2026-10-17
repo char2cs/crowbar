@@ -12,6 +12,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter/migrations"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
@@ -29,7 +30,9 @@ type legacyFuncs struct {
 	untypedChats       func(ctx context.Context) ([]string, error)
 	restateProviders   func(ctx context.Context) (skipped int, err error)
 	staleProviders     func(ctx context.Context) ([]string, error)
-	removeHookJournals func(ctx context.Context, cp checkpoints) (skipped int, err error)
+	// hookJournals is what the hook-deliveries step must remove, and why each
+	// workspace it could not look in was left out.
+	hookJournals func(ctx context.Context) (journals []hookJournal, unresolved []error, err error)
 }
 
 // checkpoints is the part of *migrate.Checkpoints the legacy steps use.
@@ -39,7 +42,6 @@ type checkpoints interface {
 }
 
 func newLegacyFuncs(
-	crowbarHome string,
 	repos *repositories.Container,
 	ucs *usecases.Container,
 ) legacyFuncs {
@@ -62,8 +64,8 @@ func newLegacyFuncs(
 		untypedChats:      ucs.AgentChat.UntypedChats,
 		restateProviders:  ucs.AgentRunner.RestateProvidersFromHistory,
 		staleProviders:    ucs.AgentRunner.StaleProviders,
-		removeHookJournals: func(ctx context.Context, cp checkpoints) (int, error) {
-			return removeRetiredHookDeliveries(ctx, crowbarHome, repos, ucs, cp)
+		hookJournals: func(ctx context.Context) ([]hookJournal, []error, error) {
+			return retiredHookJournals(ctx, repos, ucs)
 		},
 	}
 }
@@ -88,12 +90,7 @@ func legacyImpls(
 			Apply:  skipping(f.restateProviders),
 			Verify: leftNothing("replayable chats on a provider their history disagrees with", f.staleProviders),
 		}),
-		migrations.StepHookDeliveries: migrations.Adopting(migrations.StepHookDeliveries, migrate.Impl{
-			Apply: func(ctx context.Context, _ migrate.Env, cp *migrate.Checkpoints) (migrate.Counts, error) {
-				skipped, err := f.removeHookJournals(ctx, cp)
-				return skippedRows(skipped), err
-			},
-		}),
+		migrations.StepHookDeliveries: migrations.Adopting(migrations.StepHookDeliveries, hookDeliveries(f.hookJournals)),
 	}
 }
 
@@ -117,6 +114,10 @@ func skippedRows(
 	return migrate.Counts{"skipped_rows": int64(n)}
 }
 
+// namedInHalt caps the rows a halt names: its message is kept in the ledger
+// and served to the user.
+const namedInHalt = 10
+
 // leftNothing is a Verify that fails while left lists anything.
 func leftNothing(
 	what string,
@@ -124,13 +125,14 @@ func leftNothing(
 ) func(context.Context, migrate.Env) error {
 	return func(ctx context.Context, _ migrate.Env) error {
 		ids, err := left(ctx)
-		if err != nil {
+		if err != nil || len(ids) == 0 {
 			return err
 		}
-		if len(ids) > 0 {
-			return fmt.Errorf("%d %s remain: %s", len(ids), what, strings.Join(ids, ", "))
+		named := strings.Join(ids[:min(len(ids), namedInHalt)], ", ")
+		if len(ids) > namedInHalt {
+			named += fmt.Sprintf(" and %d more", len(ids)-namedInHalt)
 		}
-		return nil
+		return fmt.Errorf("%d %s remain: %s", len(ids), what, named)
 	}
 }
 
@@ -177,20 +179,24 @@ func reconcileProjectHomes(
 	return nil
 }
 
-// homeless lists the live projects with no live home workspace.
+// homeless lists the live projects with no live home workspace, except one
+// whose home id a tombstone still holds: the home is not missing, and
+// CreateHome cannot reuse the id until the purge frees it.
 func homeless(
 	projects []domain.Project,
 	workspaces []domain.Workspace,
 ) []domain.Project {
 	homed := make(map[string]bool, len(workspaces))
+	taken := make(map[string]bool, len(workspaces))
 	for _, ws := range workspaces {
+		taken[ws.ID] = true
 		if ws.Kind == domain.WorkspaceKindHome && ws.Status != domain.WorkspaceStatusDeleted {
 			homed[ws.ProjectID] = true
 		}
 	}
 	var out []domain.Project
 	for _, p := range projects {
-		if !p.Deleting && !homed[p.ID] {
+		if !p.Deleting && !homed[p.ID] && !taken[workspace.ProjectHomeID(p.ID)] {
 			out = append(out, p)
 		}
 	}
@@ -211,78 +217,89 @@ func projectIDs(
 // which the pre-audit daemon kept in every workspace's chats directory.
 const hookDeliveriesDir = ".hook-deliveries"
 
-// removeRetiredHookDeliveries deletes that directory from each workspace's
-// Crowbar-managed chats directory, and nothing else. A workspace whose chats
-// directory cannot be resolved is skipped.
-func removeRetiredHookDeliveries(
+// hookJournal is one retired journal and the workspace it was found under.
+type hookJournal struct {
+	workspaceID string
+	path        string
+}
+
+// hookDeliveries deletes each retired journal journals lists. One that cannot
+// be deleted is logged, counted and kept, as is a workspace that could not be
+// looked in; the check then excuses exactly what this attempt kept.
+func hookDeliveries(
+	journals func(ctx context.Context) ([]hookJournal, []error, error),
+) migrate.Impl {
+	var kept map[string]bool
+	return migrate.Impl{
+		Apply: func(ctx context.Context, env migrate.Env, cp *migrate.Checkpoints) (migrate.Counts, error) {
+			found, unresolved, err := journals(ctx)
+			if err != nil {
+				return nil, err
+			}
+			for _, cause := range unresolved {
+				slog.WarnContext(ctx, "app: hook journals: skipped a workspace", "err", cause)
+			}
+			kept = map[string]bool{}
+			for _, j := range found {
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+				if err := worktreepath.RemoveUnderHome(env.Home.Root(), j.path); err != nil {
+					slog.WarnContext(ctx, "app: hook journals: kept one", "workspace_id", j.workspaceID, "err", err)
+					kept[j.path] = true
+					continue
+				}
+				if err := cp.Mark(j.workspaceID, migrate.Counts{"dirs_removed": 1}); err != nil {
+					return nil, err
+				}
+			}
+			return skippedRows(len(unresolved) + len(kept)), nil
+		},
+		Verify: leftNothing("retired hook journals", func(ctx context.Context) ([]string, error) {
+			found, _, err := journals(ctx)
+			var left []string
+			for _, j := range found {
+				if !kept[j.path] {
+					left = append(left, j.path)
+				}
+			}
+			return left, err
+		}),
+	}
+}
+
+// retiredHookJournals lists the retired journals still on disk in each
+// workspace's Crowbar-managed chats directory, never inside a live checkout.
+func retiredHookJournals(
 	ctx context.Context,
-	crowbarHome string,
 	repos *repositories.Container,
 	ucs *usecases.Container,
-	cp checkpoints,
-) (int, error) {
+) ([]hookJournal, []error, error) {
 	workspaces, err := repos.Workspace.List(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("list workspaces: %w", err)
+		return nil, nil, fmt.Errorf("list workspaces: %w", err)
 	}
-	skipped := 0
+	var found []hookJournal
+	var unresolved []error
 	seen := map[string]bool{}
 	for _, ws := range workspaces {
-		if cp.Done(ws.ID) {
-			continue
-		}
 		chatsDir, err := ucs.AgentWorkspaceReader.AgentChatsDir(ctx, ws.ID)
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return skipped, ctxErr
+			return nil, nil, ctxErr
 		}
 		if err != nil {
-			slog.WarnContext(ctx, "app: hook journals: skipped a workspace", "workspace_id", ws.ID, "err", err)
-			skipped++
+			unresolved = append(unresolved, fmt.Errorf("workspace %s: chats directory: %w", ws.ID, err))
 			continue
 		}
 		if seen[chatsDir] || worktreepath.IsLiveCheckout(chatsDir) {
 			continue
 		}
 		seen[chatsDir] = true
-		removed, err := removeHookJournal(ctx, crowbarHome, filepath.Join(chatsDir, hookDeliveriesDir))
-		if err != nil {
-			return skipped, err
-		}
-		if err := cp.Mark(ws.ID, migrate.Counts{"dirs_removed": removed}); err != nil {
-			return skipped, err
+		journal := filepath.Join(chatsDir, hookDeliveriesDir)
+		// A journal that cannot even be stat'ed is listed: its removal reports why.
+		if _, err := os.Lstat(journal); !errors.Is(err, fs.ErrNotExist) {
+			found = append(found, hookJournal{workspaceID: ws.ID, path: journal})
 		}
 	}
-	return skipped, nil
-}
-
-// removeHookJournal deletes journal, reporting 1 when it was there; one that
-// is still there afterwards could not be deleted.
-func removeHookJournal(
-	ctx context.Context,
-	crowbarHome string,
-	journal string,
-) (int64, error) {
-	there, err := exists(journal)
-	if err != nil || !there {
-		return 0, err
-	}
-	worktreepath.RemoveUnderHome(ctx, crowbarHome, journal)
-	if there, err = exists(journal); err != nil || there {
-		return 0, errors.Join(fmt.Errorf("could not delete %s", journal), err)
-	}
-	return 1, nil
-}
-
-func exists(
-	path string,
-) (bool, error) {
-	_, err := os.Lstat(path)
-	switch {
-	case err == nil:
-		return true, nil
-	case errors.Is(err, fs.ErrNotExist):
-		return false, nil
-	default:
-		return false, fmt.Errorf("stat %s: %w", path, err)
-	}
+	return found, unresolved, nil
 }

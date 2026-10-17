@@ -73,8 +73,11 @@ func newHarnessAt(
 	// The home is held, and its pre-open migrations run, before any store opens,
 	// and released after the stores close on every teardown path below.
 	session, err := kit.BootHome(ctx, home)
-	require.NoError(t, err)
 	releaseHome := func() { require.NoError(t, session.Close()) }
+	if session != nil {
+		t.Cleanup(releaseHome) // a boot that fails below still releases the home
+	}
+	require.NoError(t, err)
 
 	engines, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)

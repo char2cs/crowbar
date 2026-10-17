@@ -12,7 +12,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -133,7 +132,7 @@ func (rs *Runners) carryPromptOverAPIConn(ctx context.Context, req forkRequest) 
 func (rs *Runners) abandonAdoptedSpawn(ctx context.Context, req forkRequest) {
 	rs.apiConns.drop(req.runnerID)
 	rs.agents.ForgetRunner(req.runnerID)
-	worktreepath.RemoveUnderHome(ctx, req.crowbarHome, req.tmpDir)
+	reapRunnerDir(ctx, req.crowbarHome, req.tmpDir)
 }
 
 // handOverAPIConn marks runnerID's connection as being torn down in favour of

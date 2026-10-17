@@ -247,7 +247,11 @@ func (c *Conversations) PurgeLocked(
 			"chat_id", chatID, "err", err)
 		return nil
 	}
-	worktreepath.RemoveUnderHome(ctx, home, filepath.Join(worktreepath.LedgerChatsDir(home), chatID))
+	// Best-effort: a reap that cannot happen leaves disk behind; failing the purge
+	// would leave a chat the user asked to erase still listed.
+	if err := worktreepath.RemoveUnderHome(home, filepath.Join(worktreepath.LedgerChatsDir(home), chatID)); err != nil {
+		slog.WarnContext(ctx, "agent: purge chat: reap its ledger directory (best-effort)", "chat_id", chatID, "err", err)
+	}
 	return nil
 }
 

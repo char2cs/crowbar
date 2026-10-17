@@ -83,3 +83,30 @@ func TestRegression_Upgrade_AnUnreplayableUntypedChatIsSkippedNotFatal(t *testin
 	applied := migratetest.Applied(t, homeAt(t, home))
 	assert.Equal(t, []migrate.Counts{{"skipped_rows": 1}}, applied[migrations.StepChatTypes])
 }
+
+// Deleting a project home's only chat tombstones the home, and a tombstone
+// whose purge fails outlives the boot sweep. Its id is still taken, so the
+// project-homes step must not count the home as missing: creating it again
+// cannot succeed, and trying halted the boot.
+func TestRegression_Upgrade_AHomeTombstoneIsNotAMissingHome(t *testing.T) {
+	home := t.TempDir()
+	h := newHarnessAt(t, home)
+	imported := importProject(t, h)
+	h.Quiesce()
+	tomb, err := h.app.Repositories.Workspace.GetHomeForProject(context.Background(), imported.projectID)
+	require.NoError(t, err)
+	h.crash()
+
+	tomb.Status = domain.WorkspaceStatusDeleted
+	seed := openBaseEra(t, home)
+	seed.unreplayableWorkspace(tomb) // no command replays it, so its purge fails
+	seed.close()
+
+	h2 := newHarnessAt(t, home) // requires the migration to complete
+	h2.Quiesce()
+
+	got, err := h2.app.Repositories.Workspace.GetHomeForProject(context.Background(), imported.projectID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.WorkspaceStatusDeleted, got.Status, "the tombstone still holds the home's id")
+	assert.Len(t, migratetest.Applied(t, homeAt(t, home))[migrations.StepProjectHomes], 1)
+}

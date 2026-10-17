@@ -262,7 +262,7 @@ func (rs *Runners) reapCrashOrphanRunnerTmp(
 			"runner_id", runner.ID, "workspace_id", runner.WorkspaceID, "err", err)
 		return
 	}
-	worktreepath.RemoveUnderHome(ctx, home, worktreepath.RunnerDir(chatsDir, runner.ID, runner.ProviderID))
+	reapRunnerDir(ctx, home, worktreepath.RunnerDir(chatsDir, runner.ID, runner.ProviderID))
 }
 
 func (rs *Runners) retireOthersOn(

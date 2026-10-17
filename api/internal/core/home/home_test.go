@@ -107,6 +107,25 @@ func TestAt_AndResolve_NeverCreateTheHome(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(base, "not"))
 }
 
+// A caller handed an optional directory gets that home, or the one Resolve
+// names when it was handed none.
+func TestResolveDir_IsAtForADirAndResolveWithout(t *testing.T) {
+	override := filepath.Join(t.TempDir(), "override")
+	given := filepath.Join(t.TempDir(), "given")
+	t.Setenv(EnvVar, override)
+
+	h, err := ResolveDir(given)
+	require.NoError(t, err)
+	assert.Equal(t, given, h.Root())
+
+	h, err = ResolveDir("")
+	require.NoError(t, err)
+	assert.Equal(t, override, h.Root())
+
+	_, err = ResolveDir("relative")
+	require.ErrorIs(t, err, ErrRelative)
+}
+
 func TestIsDefault_IsTrueOnlyForTheUsersOwnHome(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("HOME does not set the user home on windows")

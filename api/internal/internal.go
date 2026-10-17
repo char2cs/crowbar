@@ -84,34 +84,36 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("internal: gateway: %w", err)
 	}
+	opened := &Container{listener: listener}
+	defer func() { //nolint:contextcheck // the Close methods take no ctx: a failed boot's teardown runs even after ctx is done.
+		if err != nil {
+			err = errors.Join(err, opened.abandon())
+		}
+	}()
 
 	h, session, err := openHome(ctx, cfg.homeDir)
 	if err != nil {
 		return nil, fmt.Errorf("internal: migrate: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			err = errors.Join(err, session.Close())
-		}
-	}()
+	opened.session = session
 
-	engines, err := engine.New(ctx, engine.WithHomeDir(cfg.homeDir), engine.WithDaemonSocket(socketOf(listener)))
+	opened.engines, err = engine.New(ctx, engine.WithHomeDir(cfg.homeDir), engine.WithDaemonSocket(socketOf(listener)))
 	if err != nil {
 		return nil, fmt.Errorf("internal: engine: %w", err)
 	}
 
-	adapters, err := adapter.New(adapter.WithHomeDir(h.Root()))
+	opened.adapter, err = adapter.New(adapter.WithHomeDir(h.Root()))
 	if err != nil {
 		return nil, fmt.Errorf("internal: adapter: %w", err)
 	}
 
-	appContainer, err := app.New(ctx, engines, adapters, session)
+	opened.app, err = app.New(ctx, opened.engines, opened.adapter, session)
 	if err != nil {
 		return nil, fmt.Errorf("internal: app: %w", err)
 	}
 
 	//nolint:contextcheck // snapshot providers are context-free by design; this call only threads the log ring option.
-	apiContainer, err := crowbarapi.New(appContainer, engines, staticFS, v0.WithLogs(cfg.logs))
+	opened.api, err = crowbarapi.New(opened.app, opened.engines, staticFS, v0.WithLogs(cfg.logs))
 	if err != nil {
 		return nil, fmt.Errorf("internal: api: %w", err)
 	}
@@ -119,14 +121,14 @@ func New(
 	// Install the crowbar binary into <home>/bin so vendor CLI hooks can invoke
 	// `crowbar hook` by absolute path, into the home the adapter opened so tests
 	// and dev instances stay isolated. Best-effort: never block startup.
-	installHome := adapters.CrowbarHome()
+	installHome := opened.adapter.CrowbarHome()
 	if p, err := selfinstall.Install(installHome); err == nil {
 		_ = p // path is re-derived by the agent engine when rendering descriptors
 	}
 
 	// Published before anything can spawn a CLI: the spawner reads it to point the
 	// CLI's hooks here.
-	hooks, err := hookserver.Listen(ctx, apiContainer.Handler())
+	hooks, err := hookserver.Listen(ctx, opened.api.Handler())
 	if err != nil {
 		return nil, fmt.Errorf("internal: hooks: %w", err)
 	}
@@ -134,17 +136,32 @@ func New(
 		_ = hooks.Close()
 		return nil, fmt.Errorf("internal: hooks: %w", err)
 	}
+	opened.hooks = hooks
+	opened.server = &http.Server{Handler: opened.api.Handler(), ReadHeaderTimeout: 30 * time.Second}
+	return opened, nil
+}
 
-	return &Container{
-		server:   &http.Server{Handler: apiContainer.Handler(), ReadHeaderTimeout: 30 * time.Second},
-		listener: listener,
-		session:  session,
-		hooks:    hooks,
-		engines:  engines,
-		adapter:  adapters,
-		app:      appContainer,
-		api:      apiContainer,
-	}, nil
+// abandon closes what a New that failed had opened, in Close's order, so the
+// home is released only after every store is closed.
+func (c *Container) abandon() error {
+	if c.api != nil {
+		c.api.Close()
+	}
+	if c.app != nil {
+		c.app.Close()
+	}
+	if c.engines != nil {
+		c.engines.Close()
+	}
+	var errs []error
+	if c.adapter != nil {
+		errs = append(errs, c.adapter.Close())
+	}
+	errs = append(errs, c.listener.Close())
+	if c.session != nil {
+		errs = append(errs, c.session.Close())
+	}
+	return errors.Join(errs...)
 }
 
 // socketOf is the unix socket listener is bound to, or "" for any other kind.
@@ -169,7 +186,7 @@ func openHome(
 	ctx context.Context,
 	dir string,
 ) (home.Home, *migrate.Session, error) {
-	h, err := resolveHome(dir)
+	h, err := home.ResolveDir(dir)
 	if err != nil {
 		return home.Home{}, nil, err
 	}
@@ -181,15 +198,6 @@ func openHome(
 		return home.Home{}, nil, errors.Join(err, session.Close())
 	}
 	return h, session, nil
-}
-
-func resolveHome(
-	dir string,
-) (home.Home, error) {
-	if dir != "" {
-		return home.At(dir)
-	}
-	return home.Resolve()
 }
 
 // Home is the Crowbar home the daemon opened.

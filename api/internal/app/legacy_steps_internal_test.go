@@ -3,6 +3,9 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -10,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/migrations"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -17,12 +21,18 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
+// fakeHomeCreator refuses a home whose id is taken, as the workspace create
+// command does for any row under that id, tombstones included.
 type fakeHomeCreator struct {
+	taken   map[string]bool
 	created []string
 	err     error
 }
 
 func (f *fakeHomeCreator) CreateHome(_ context.Context, p domain.Project) (domain.Workspace, error) {
+	if f.taken[workspace.ProjectHomeID(p.ID)] {
+		return domain.Workspace{}, errors.New("workspace already exists")
+	}
 	f.created = append(f.created, p.ID)
 	return domain.Workspace{}, f.err
 }
@@ -40,20 +50,23 @@ func (f fakeCheckpoints) Mark(key string, n migrate.Counts) error {
 	return nil
 }
 
-// Only a live project with no live home gets one, each checkpointed as it lands.
+// Only a live project with no live home gets one, each checkpointed as it
+// lands. A home tombstone still holds the home's id until its purge runs, so
+// that project's home is not missing and cannot be created again.
 func TestReconcileProjectHomes_CreatesOnlyTheMissingHomes(t *testing.T) {
-	c, cp := &fakeHomeCreator{}, fakeCheckpoints{}
+	tombstone := workspace.ProjectHomeID("tombstoned")
+	c, cp := &fakeHomeCreator{taken: map[string]bool{tombstone: true}}, fakeCheckpoints{}
 	err := reconcileProjectHomes(context.Background(),
 		[]domain.Project{{ID: "homed"}, {ID: "bare"}, {ID: "going", Deleting: true}, {ID: "tombstoned"}},
 		[]domain.Workspace{
 			{ID: "h1", ProjectID: "homed", Kind: domain.WorkspaceKindHome},
-			{ID: "h2", ProjectID: "tombstoned", Kind: domain.WorkspaceKindHome, Status: domain.WorkspaceStatusDeleted},
+			{ID: tombstone, ProjectID: "tombstoned", Kind: domain.WorkspaceKindHome, Status: domain.WorkspaceStatusDeleted},
 			{ID: "w", ProjectID: "bare", Kind: domain.WorkspaceKindGit},
 		}, c, cp)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"bare", "tombstoned"}, c.created)
-	assert.Equal(t, fakeCheckpoints{"bare": {"homes_created": 1}, "tombstoned": {"homes_created": 1}}, cp)
+	assert.Equal(t, []string{"bare"}, c.created)
+	assert.Equal(t, fakeCheckpoints{"bare": {"homes_created": 1}}, cp)
 }
 
 func TestReconcileProjectHomes_AHomeThatCannotBeCreatedFailsTheStep(t *testing.T) {
@@ -110,20 +123,71 @@ func TestLegacyImpls_AFailedListFailsTheStep(t *testing.T) {
 	assert.Contains(t, halt.Message, "disk gone")
 }
 
+// A retired hook journal that cannot be deleted is logged and counted, not
+// fatal: the step completes, and its check excuses the journal it kept.
+func TestLegacyImpls_AnUndeletableHookJournalIsSkippedNotFatal(t *testing.T) {
+	testutil.RequirePermissionEnforcement(t)
+	h := testutil.FixtureHome(t)
+	chats := filepath.Join(h.Root(), "projects", "p", "chats")
+	stuck := hookJournal{workspaceID: "stuck", path: filepath.Join(chats, hookDeliveriesDir)}
+	gone := hookJournal{workspaceID: "gone", path: filepath.Join(h.Root(), "projects", "q", "chats", hookDeliveriesDir)}
+	testutil.WriteFile(t, h, filepath.Join("projects", "p", "chats", hookDeliveriesDir, "seen"), "")
+	testutil.WriteFile(t, h, filepath.Join("projects", "q", "chats", hookDeliveriesDir, "seen"), "")
+	require.NoError(t, os.Chmod(chats, 0o500))
+	t.Cleanup(func() { require.NoError(t, os.Chmod(chats, 0o700)) })
+	f := upToDate()
+	f.hookJournals = journalsAt(stuck, gone)
+
+	require.NoError(t, runLegacyIn(t, h, f))
+
+	assert.DirExists(t, stuck.path)
+	assert.NoDirExists(t, gone.path)
+	applied := migratetest.Applied(t, h)
+	assert.Equal(t, []migrate.Counts{{"skipped_rows": 1, "dirs_removed": 1}}, applied[migrations.StepHookDeliveries])
+}
+
+// A halt names the first rows a check found, not all of them: the message is
+// kept in the ledger and served to the user.
+func TestLegacyImpls_AHaltNamesTheFirstTenRowsLeft(t *testing.T) {
+	f := upToDate()
+	f.missingHomes = func(context.Context) ([]string, error) {
+		ids := make([]string, 12)
+		for i := range ids {
+			ids[i] = fmt.Sprintf("row-%02d", i+1)
+		}
+		return ids, nil
+	}
+
+	_, err := runLegacy(t, f)
+
+	halt := requireHalt(t, err, migrate.HaltVerifyFailed)
+	assert.Contains(t, halt.Message, "12 projects without a home remain: row-01, ")
+	assert.Contains(t, halt.Message, "row-10 and 2 more")
+	assert.NotContains(t, halt.Message, "row-11")
+}
+
 // Each step checks its own postcondition: a row it could have replayed and
 // did not upgrade halts the boot, naming the step and the row.
 func TestLegacyImpls_ARowLeftBehindFailsVerification(t *testing.T) {
 	leftBehind := func(context.Context) ([]string, error) { return []string{"row-1"}, nil }
-	for name, spoil := range map[string]func(*legacyFuncs){
-		"project-homes":               func(f *legacyFuncs) { f.missingHomes = leftBehind },
-		"chat-types":                  func(f *legacyFuncs) { f.untypedChats = leftBehind },
-		"chat-providers-from-history": func(f *legacyFuncs) { f.staleProviders = leftBehind },
+	for name, spoil := range map[string]func(*legacyFuncs, home.Home){
+		"project-homes":               func(f *legacyFuncs, _ home.Home) { f.missingHomes = leftBehind },
+		"chat-types":                  func(f *legacyFuncs, _ home.Home) { f.untypedChats = leftBehind },
+		"chat-providers-from-history": func(f *legacyFuncs, _ home.Home) { f.staleProviders = leftBehind },
+		// Still listed after its removal reported no failure: nothing excuses it.
+		"hook-deliveries": func(f *legacyFuncs, h home.Home) {
+			journal := hookJournal{workspaceID: "ws", path: filepath.Join(h.Root(), "row-1")}
+			f.hookJournals = func(context.Context) ([]hookJournal, []error, error) {
+				return []hookJournal{journal}, nil, nil
+			}
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
+			h := testutil.FixtureHome(t)
 			f := upToDate()
-			spoil(&f)
+			spoil(&f, h)
 
-			_, err := runLegacy(t, f)
+			err := runLegacyIn(t, h, f)
 
 			halt := requireHalt(t, err, migrate.HaltVerifyFailed)
 			assert.Equal(t, name, halt.Step.Name)
@@ -144,11 +208,36 @@ func runLegacy(
 	for _, name := range markers {
 		testutil.WriteFile(t, h, filepath.Join("state", "upgrades", name), "")
 	}
-	sess, err := migrations.Begin(context.Background(), h, migrate.Options{Version: "v-test"})
+	return h, runLegacyIn(t, h, f)
+}
+
+func runLegacyIn(
+	t *testing.T,
+	h home.Home,
+	f legacyFuncs,
+) error {
+	t.Helper()
+	sess, err := migrations.Begin(t.Context(), h, migrate.Options{Version: "v-test"})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, sess.Close()) })
-	require.NoError(t, sess.RunPreOpen(context.Background(), migrations.PreOpenImpls()))
-	return h, sess.RunPostOpen(context.Background(), legacyImpls(f))
+	require.NoError(t, sess.RunPreOpen(t.Context(), migrations.PreOpenImpls()))
+	return sess.RunPostOpen(t.Context(), legacyImpls(f))
+}
+
+// journalsAt is a hook-journal listing that names each of journals while it is
+// still on disk, as the production listing does.
+func journalsAt(
+	journals ...hookJournal,
+) func(context.Context) ([]hookJournal, []error, error) {
+	return func(context.Context) ([]hookJournal, []error, error) {
+		var present []hookJournal
+		for _, j := range journals {
+			if _, err := os.Lstat(j.path); !errors.Is(err, fs.ErrNotExist) {
+				present = append(present, j)
+			}
+		}
+		return present, nil, nil
+	}
 }
 
 // upToDate is a home with nothing left to upgrade.
@@ -161,7 +250,7 @@ func upToDate() legacyFuncs {
 		untypedChats:       none,
 		restateProviders:   func(context.Context) (int, error) { return 0, nil },
 		staleProviders:     none,
-		removeHookJournals: func(context.Context, checkpoints) (int, error) { return 0, nil },
+		hookJournals:       journalsAt(),
 	}
 }
 
@@ -177,7 +266,9 @@ func untouchable() legacyFuncs {
 		untypedChats:       func(context.Context) ([]string, error) { return nil, called("untypedChats") },
 		restateProviders:   func(context.Context) (int, error) { return 0, called("restateProviders") },
 		staleProviders:     func(context.Context) ([]string, error) { return nil, called("staleProviders") },
-		removeHookJournals: func(context.Context, checkpoints) (int, error) { return 0, called("removeHookJournals") },
+		hookJournals: func(context.Context) ([]hookJournal, []error, error) {
+			return nil, nil, called("hookJournals")
+		},
 	}
 }
 

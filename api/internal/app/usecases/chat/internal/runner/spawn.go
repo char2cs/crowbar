@@ -298,7 +298,7 @@ func (rs *Runners) forkCLI(
 	}
 	rs.pendingHooks.Discard(req.runnerID)
 	rs.agents.ForgetRunner(req.runnerID)
-	worktreepath.RemoveUnderHome(ctx, req.crowbarHome, req.tmpDir)
+	reapRunnerDir(ctx, req.crowbarHome, req.tmpDir)
 
 	// A CLI that is not installed is the ONE spawn failure the user can act on, so
 	// it travels as its own sentinel (→ 424, a named message in the UI) rather than
@@ -435,9 +435,21 @@ func (rs *Runners) teardownAfterPersistFailure(
 	return cause
 }
 
+// reapRunnerDir deletes a runner's own directory, best-effort: a reap that
+// cannot happen leaves disk behind, which must not fail the runner's teardown.
+func reapRunnerDir(
+	ctx context.Context,
+	home string,
+	dir string,
+) {
+	if err := worktreepath.RemoveUnderHome(home, dir); err != nil {
+		slog.WarnContext(ctx, "agent: reap a runner directory (best-effort)", "err", err)
+	}
+}
+
 func (rs *Runners) onRunnerExit(home, runnerID, tmpDir string) func() {
 	return func() {
-		worktreepath.RemoveUnderHome(context.Background(), home, tmpDir)
+		reapRunnerDir(context.Background(), home, tmpDir)
 		// A dead PTY takes its api-transport connection (serve process + driver)
 		// with it — never leaked, and safe to call for a hooks-only runner that
 		// never had one.

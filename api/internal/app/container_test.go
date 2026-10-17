@@ -1,9 +1,13 @@
 package app_test
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"maps"
+	"runtime/pprof"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -88,26 +92,57 @@ func (r *recordingRunner) RunPostOpen(
 func TestApp_New_HandsEveryPostOpenStepToTheRunner(t *testing.T) {
 	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = adapters.Close() })
+	t.Cleanup(func() { require.NoError(t, adapters.Close()) })
 	runner := &recordingRunner{}
 
-	_, err = app.New(context.Background(), newEng(t), adapters, runner)
+	c, err := app.New(t.Context(), newEng(t), adapters, runner)
 
 	require.NoError(t, err)
+	t.Cleanup(c.Close)
 	assert.Equal(t, []int{
 		migrations.StepProjectHomes, migrations.StepChatTypes, migrations.StepChatProviders, migrations.StepHookDeliveries,
 	}, runner.steps)
 }
 
+// A halted migration fails the boot, and New stops everything it had started
+// before returning: every goroutine it spawned inherits its pprof label, so
+// none may outlive it.
 func TestApp_New_AHaltedMigrationFailsTheBoot(t *testing.T) {
 	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = adapters.Close() })
+	t.Cleanup(func() { require.NoError(t, adapters.Close()) })
+	eng := newEng(t)
 	halt := &migrate.Halt{Reason: migrate.HaltStepFailed, Message: "step 3 failed"}
 
-	_, err = app.New(context.Background(), newEng(t), adapters, &recordingRunner{err: halt})
+	pprof.Do(t.Context(), pprof.Labels("app_new", t.Name()), func(ctx context.Context) {
+		_, err = app.New(ctx, eng, adapters, &recordingRunner{err: halt})
+	})
 
 	var got *migrate.Halt
 	require.ErrorAs(t, err, &got)
 	assert.Same(t, halt, got)
+	stopped := assert.Eventually(t, func() bool { return !labelledGoroutines(t, t.Name()) },
+		5*time.Second, 10*time.Millisecond, "goroutines New started outlived it")
+	if !stopped {
+		t.Log(goroutineDump(t))
+	}
+}
+
+// labelledGoroutines reports whether any running goroutine carries value under
+// the app_new label.
+func labelledGoroutines(
+	t *testing.T,
+	value string,
+) bool {
+	t.Helper()
+	return strings.Contains(goroutineDump(t), fmt.Sprintf("%q:%q", "app_new", value))
+}
+
+func goroutineDump(
+	t *testing.T,
+) string {
+	t.Helper()
+	var buf bytes.Buffer
+	require.NoError(t, pprof.Lookup("goroutine").WriteTo(&buf, 1))
+	return buf.String()
 }
