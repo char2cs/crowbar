@@ -22,6 +22,18 @@ test('longest prefix wins', () => {
   assert.deepEqual(out, { 'go.svc': 10, 'go.mocks': 20, 'go.wiring': 30, 'go.total': 60, 'web.total': 0 })
 })
 
+test('longest prefix wins whatever order the modules are declared in', () => {
+  const reversed = {
+    go: { wiring: ['api/internal/app/container.go'], mocks: ['api/internal/app/mocks'], svc: ['api/internal/app'] },
+    web: {},
+  }
+  const out = measureLoc(
+    [f('api/internal/app/a.go', 10), f('api/internal/app/mocks/m.go', 20), f('api/internal/app/container.go', 30)],
+    reversed,
+  )
+  assert.deepEqual(out, { 'go.svc': 10, 'go.mocks': 20, 'go.wiring': 30, 'go.total': 60, 'web.total': 0 })
+})
+
 test('prefix respects directory boundaries', () => {
   assert.throws(() => measureLoc([f('api/internal/application/x.go', 5)], modules), /unassigned source files[\s\S]*api\/internal\/application\/x\.go/)
 })
