@@ -78,10 +78,20 @@ func TestDetect_GitHub(t *testing.T) {
 		{output: "", code: 0},
 	})
 
-	res, err := DetectWithExec(context.Background(), dir, execFn)
+	res, err := detectWithExec(context.Background(), dir, execFn)
 	require.NoError(t, err)
 	assert.Equal(t, "github", res.Kind)
 	assert.True(t, res.Enabled)
+	assert.Equal(t, "https://github.com/owner/repo.git", res.Remote)
+}
+
+func TestRepoKey_WorktreesOfOneRepoShareAKey(t *testing.T) {
+	home, feature := worktreePair(t)
+	assert.Equal(t, repoKey(home), repoKey(feature))
+	assert.Equal(t, repoKey(home), repoKey(home+"/"))
+
+	other := t.TempDir()
+	assert.Equal(t, other, repoKey(other), "a non-repo path keys as itself")
 }
 
 // A bare "git" goes through the macOS xcrun shim, which execs the real binary:
@@ -97,7 +107,7 @@ func TestDetect_AsksTheResolvedGitBinary(t *testing.T) {
 		return inner(ctx, name, args...)
 	}
 
-	_, err := DetectWithExec(context.Background(), t.TempDir(), execFn)
+	_, err := detectWithExec(context.Background(), t.TempDir(), execFn)
 	require.NoError(t, err)
 	require.NotEmpty(t, names)
 	assert.Equal(t, binpath.Git(), names[0])
@@ -110,7 +120,7 @@ func TestDetect_GitLab(t *testing.T) {
 		{output: "", code: 0},
 	})
 
-	res, err := DetectWithExec(context.Background(), dir, execFn)
+	res, err := detectWithExec(context.Background(), dir, execFn)
 	require.NoError(t, err)
 	assert.Equal(t, "gitlab", res.Kind)
 	assert.True(t, res.Enabled)
@@ -120,7 +130,7 @@ func TestDetect_Unknown(t *testing.T) {
 	dir := t.TempDir()
 	execFn := detectFakeCmd("https://bitbucket.org/owner/repo.git", 0)
 
-	res, err := DetectWithExec(context.Background(), dir, execFn)
+	res, err := detectWithExec(context.Background(), dir, execFn)
 	require.NoError(t, err)
 	assert.Equal(t, "none", res.Kind)
 	assert.False(t, res.Enabled)
@@ -130,7 +140,7 @@ func TestDetect_GitError(t *testing.T) {
 	dir := t.TempDir()
 	execFn := detectFakeCmd("", 1)
 
-	res, err := DetectWithExec(context.Background(), dir, execFn)
+	res, err := detectWithExec(context.Background(), dir, execFn)
 	require.NoError(t, err) // graceful degradation
 	assert.Equal(t, "none", res.Kind)
 	assert.False(t, res.Enabled)
@@ -143,7 +153,7 @@ func TestDetect_CLINotAuthed(t *testing.T) {
 		{output: "not logged in", code: 1},
 	})
 
-	res, err := DetectWithExec(context.Background(), dir, execFn)
+	res, err := detectWithExec(context.Background(), dir, execFn)
 	require.NoError(t, err)
 	assert.Equal(t, "github", res.Kind)
 	assert.False(t, res.Enabled)
@@ -169,7 +179,7 @@ func TestKindFromURL(t *testing.T) {
 }
 
 func TestDetect_DegradedInNonGitDir(t *testing.T) {
-	res, err := Detect(context.Background(), t.TempDir())
+	res, err := detectWithExec(context.Background(), t.TempDir(), exec.CommandContext)
 	require.NoError(t, err)
 	assert.Equal(t, "none", res.Kind)
 	assert.False(t, res.Enabled)
