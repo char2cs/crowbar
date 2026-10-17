@@ -26,16 +26,19 @@ function summarize(measured) {
   return `${Object.keys(measured).length} oversize files baselined: go src ${n.go.src}, go tests ${n.go.tests}, web src ${n.web.src}, web tests ${n.web.tests}`
 }
 
-export function main(args) {
-  const measured = measureOversize(loadCode())
+const dir = dirname(fileURLToPath(import.meta.url))
+
+export function main(args, { files = loadCode(), baselinePath = join(dir, 'file-size-baseline.json'), log = console.log } = {}) {
+  const measured = measureOversize(files)
   return runGate({
     name: 'file-size',
-    baselinePath: join(dirname(fileURLToPath(import.meta.url)), 'file-size-baseline.json'),
+    baselinePath,
     measured,
     update: args.includes('--update'),
     allowAdded: false,
     summary: summarize(measured),
-    hint: `Split the file below ${MAX_LINES} lines. Renamed an oversize file? Change its key in the baseline, value unchanged.`,
+    hint: `Split the file below ${MAX_LINES} lines. Moving or renaming an oversize file counts as touching it: split it in the same change.`,
+    log,
   })
 }
 

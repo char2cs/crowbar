@@ -99,14 +99,14 @@ test('check with an added key is growth unless allowAdded, and shows the hint on
   assert.doesNotMatch(allowed.text(), /Split the file\./)
 })
 
-test('an oversize rename reports both ends and the rename hint', () => {
+test('an oversize rename reports both ends and the hint', () => {
   const g = gate(tmp())
   writeFileSync(g.baselinePath, JSON.stringify({ 'old.go': 600 }))
-  const hint = 'Renamed an oversize file? Change its key in the baseline, value unchanged.'
+  const hint = 'Split the file.'
   assert.equal(g.run({ measured: { 'new.go': 600 }, hint }), 1)
   assert.match(g.text(), /  gone   old\.go: was 600/)
   assert.match(g.text(), /  new    new\.go: 600/)
-  assert.match(g.text(), /Renamed/)
+  assert.match(g.text(), /Split the file\./)
 })
 
 test('update with no baseline writes sorted keys with a trailing newline', () => {
