@@ -1,4 +1,7 @@
+pub mod paths;
 pub mod supervisor;
+
+pub use paths::{daemon_log_path, resolve, socket_path};
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -87,16 +90,6 @@ impl SidecarHandle {
     }
 }
 
-/// The daemon's captured stdout/stderr: `<crowbar home>/logs/daemon.log`.
-/// This is the only place a Go panic's stack trace survives in the packaged
-/// app — the sidecar's pipes are otherwise connected to nothing.
-pub fn daemon_log_path() -> PathBuf {
-    let (home, _) = crowbar_home();
-    home.unwrap_or_else(std::env::temp_dir)
-        .join("logs")
-        .join("daemon.log")
-}
-
 fn open_daemon_log() -> Option<std::fs::File> {
     let path = daemon_log_path();
     if let Some(dir) = path.parent() {
@@ -117,80 +110,6 @@ fn epoch_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// The daemon's unix-socket path: a fixed, well-known location matching the
-/// default the daemon itself resolves for `unix://`. A fixed path — rather
-/// than a per-process temp path — means the proxy always knows where to reach
-/// the daemon, and the daemon's own stale-socket handling (dial-to-detect +
-/// reclaim, unlink on clean shutdown) keeps it healthy across restarts instead
-/// of leaving a trail of dead per-PID sockets in the temp dir.
-///
-/// Production: `~/.crowbar/crowbar.sock`. Overridden homes (CROWBAR_HOME env
-/// or the dev-build workspace default): a short home-keyed name in the temp
-/// dir (see [`override_socket_path`]) — the socket cannot live inside the
-/// override home because macOS caps sun_path at 104 bytes and workspace
-/// worktree paths exceed it.
-pub fn socket_path() -> PathBuf {
-    let (home, overridden) = crowbar_home();
-    match (home, overridden) {
-        (Some(h), true) => override_socket_path(&h),
-        (Some(h), false) => h.join(DEFAULT_SOCKET_NAME),
-        (None, _) => std::env::temp_dir().join(DEFAULT_SOCKET_NAME),
-    }
-}
-
-const DEFAULT_SOCKET_NAME: &str = "crowbar.sock";
-
-/// The crowbar home root plus whether it is an override of the production
-/// default, mirroring the Go daemon's resolution order:
-/// 1. `CROWBAR_HOME` env override (must be an absolute path) — override.
-/// 2. Dev builds only: `.crowbar` inside the workspace being developed
-///    (`<repo root>/.crowbar`, derived from CARGO_MANIFEST_DIR at compile
-///    time), so a dev instance never shares state or the control socket with
-///    the production app in `~/.crowbar` — override.
-/// 3. `~/.crowbar` (`$HOME` on unix, `%USERPROFILE%` on Windows) — production.
-fn crowbar_home() -> (Option<PathBuf>, bool) {
-    if let Some(dir) = std::env::var_os("CROWBAR_HOME") {
-        if !dir.is_empty() {
-            return (Some(PathBuf::from(dir)), true);
-        }
-    }
-
-    #[cfg(debug_assertions)]
-    if let Some(root) = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|p| p.parent())
-    {
-        return (Some(root.join(".crowbar")), true);
-    }
-
-    #[cfg(windows)]
-    let home = std::env::var_os("USERPROFILE");
-    #[cfg(not(windows))]
-    let home = std::env::var_os("HOME");
-    (home.map(|h| PathBuf::from(h).join(".crowbar")), false)
-}
-
-/// Socket path for an overridden crowbar home: `crowbar-<fnv1a64(home)>.sock`
-/// in the temp dir. MUST stay byte-identical to the Go daemon's derivation
-/// (socketName in api/internal/core/home/socket.go) so a
-/// daemon restarted manually with CROWBAR_HOME set binds exactly where this
-/// proxy dials. The hash input is the home path string exactly as exported in
-/// the CROWBAR_HOME env var.
-fn override_socket_path(home: &std::path::Path) -> PathBuf {
-    let hash = fnv1a64(home.to_string_lossy().as_bytes());
-    std::env::temp_dir().join(format!("crowbar-{hash:x}.sock"))
-}
-
-/// FNV-1a 64-bit, matching Go's hash/fnv New64a.
-fn fnv1a64(bytes: &[u8]) -> u64 {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in bytes {
-        h ^= u64::from(*b);
-        h = h.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    h
-}
-
 pub async fn spawn<R: Runtime>(
     app: &AppHandle<R>,
     socket: PathBuf,
@@ -204,23 +123,13 @@ pub async fn spawn<R: Runtime>(
     }
 
     let host = format!("unix://{}", socket.display());
-    let mut sidecar = app
-        .shell()
-        .sidecar("crowbar-api")?
-        .args(["serve", "--host", &host]);
-
-    // Overridden home (CROWBAR_HOME env or dev-build workspace default):
-    // export it so the daemon roots all its state (projects, store, logs)
-    // there too — this is what isolates a dev instance from the production
-    // ~/.crowbar. Production keeps the env unset so the daemon resolves its
-    // own default.
-    let (home, overridden) = crowbar_home();
-    if overridden {
-        if let Some(home) = home {
-            let _ = std::fs::create_dir_all(&home);
-            sidecar = sidecar.env("CROWBAR_HOME", home.to_string_lossy().to_string());
-        }
-    }
+    // The same dev home `resolve` gave `paths`, so the daemon roots its state
+    // where the shell expects its socket.
+    let sidecar = paths::with_dev_home(
+        app.shell()
+            .sidecar("crowbar-api")?
+            .args(["serve", "--host", &host]),
+    );
 
     let (rx, child) = sidecar.spawn()?;
     // Read once, here: the plugin's wait thread only holds the shared_child lock
@@ -731,7 +640,7 @@ fn parse_health_pid(body: &[u8]) -> Option<i32> {
 
 #[cfg(test)]
 mod tests {
-    use super::{fnv1a64, override_socket_path, parse_health_pid, socket_path};
+    use super::parse_health_pid;
 
     #[cfg(unix)]
     mod signal_then_kill {
@@ -803,34 +712,6 @@ mod tests {
             parse_health_pid(br#"{"success":true,"data":{"pid":0}}"#),
             None,
             "pid 0 would signal the whole process group — never accept it"
-        );
-    }
-
-    #[test]
-    fn socket_path_is_fixed_and_deterministic() {
-        // cfg(test) implies debug_assertions, so this exercises the dev
-        // override branch: a short home-keyed socket in the temp dir (the
-        // workspace home itself exceeds macOS's 104-byte sun_path cap).
-        let p = socket_path();
-        let name = p.file_name().unwrap().to_string_lossy().into_owned();
-        assert!(
-            name.starts_with("crowbar-") && name.ends_with(".sock"),
-            "got {name}"
-        );
-        // Deterministic: the proxy must always find the daemon at the same path.
-        assert_eq!(p, socket_path());
-    }
-
-    // Pins the fnv1a64 hash so this derivation and the Go daemon's
-    // (socketName in api/internal/core/home/socket.go, pinned by
-    // TestSocketName_IsStable) can never drift.
-    #[test]
-    fn override_socket_path_matches_go_derivation() {
-        assert_eq!(fnv1a64(b"/dev/crowbar-home"), 0xc13f09536446a88e);
-        let p = override_socket_path(std::path::Path::new("/dev/crowbar-home"));
-        assert_eq!(
-            p.file_name().unwrap().to_string_lossy(),
-            "crowbar-c13f09536446a88e.sock"
         );
     }
 }

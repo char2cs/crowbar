@@ -1066,11 +1066,11 @@ pub fn run() {
                 outcome => log::info!("{outcome}"),
             }
 
-            // The daemon listens on a unix socket the webview reaches via the
-            // `crowbar://` custom protocol (bridged by api_proxy). The endpoint
-            // is injected into the webview by the crowbar-bootstrap init script
-            // above, so nothing to do here for that.
-            let socket = sidecar::socket_path();
+            // The daemon binary says where its home and socket are, before any window
+            // can call in; the webview reaches the socket via `crowbar://` (api_proxy).
+            tauri::async_runtime::block_on(sidecar::resolve(&app_handle))
+                .inspect_err(|e| log::error!("cannot resolve the Crowbar home: {e}"))
+                .map_err(|e| e as Box<dyn std::error::Error>)?;
 
             // Native macOS blur + WebKit 60fps un-cap. See decorate_window — applied
             // here for `main`, and again for every window `open_window` creates.
@@ -1086,7 +1086,7 @@ pub fn run() {
 
             // Spawn the Go daemon sidecar on the unix socket.
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = sidecar::spawn(&app_handle, socket).await {
+                if let Err(e) = sidecar::spawn(&app_handle, sidecar::socket_path()).await {
                     log::error!("failed to start crowbar daemon: {e}");
                 }
             });
