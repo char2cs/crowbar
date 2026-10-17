@@ -242,6 +242,16 @@ func TestCatalog_OrderWalksEveryLayoutFromTheCurrentOne(t *testing.T) {
 	assert.Equal(t, []int{1, 2, 3, 4}, numbers(c.order(0, neverApplied)))
 	assert.Equal(t, []int{2, 3, 4}, numbers(c.order(1, neverApplied)))
 	assert.Equal(t, []int{4}, numbers(c.order(2, neverApplied)))
+
+	t.Run("layout order wins over number order", func(t *testing.T) {
+		c, err := NewCatalog(
+			newStep(1, "b", PreOpen, 1, 2),
+			newStep(2, "a", PreOpen, 0, 1),
+		)
+		require.NoError(t, err)
+
+		assert.Equal(t, []int{2, 1}, numbers(c.order(0, neverApplied)))
+	})
 }
 
 func TestCatalog_OrderIgnoresTheOrderStepsWereGiven(t *testing.T) {

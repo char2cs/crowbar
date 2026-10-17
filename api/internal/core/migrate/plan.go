@@ -17,9 +17,7 @@ const Unknown int64 = -1
 type Action struct {
 	Kind    ActionKind
 	Subject string
-	Dest    string
 	Count   int64
-	Note    string
 }
 
 // Plan is what a step would do, computed without writing anything.

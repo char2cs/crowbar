@@ -49,12 +49,14 @@ func (c *Catalog) Known() int {
 // order lists the steps still to run from a home at layout, applied telling
 // whether an in-layout or post-open step already completed. A bump step is
 // pending exactly while the layout is its From, so applied never decides it.
+// It requires 0 <= layout <= Known(): callers validate LAYOUT first (readLayout
+// refuses negatives, Begin refuses a layout newer than Known).
 func (c *Catalog) order(
 	layout int,
 	applied func(Step) bool,
 ) []Step {
 	var out []Step
-	for at := max(layout, 0); at <= c.known; at++ {
+	for at := layout; at <= c.known; at++ {
 		out = c.appendPreOpen(out, at, applied)
 	}
 	for _, s := range c.steps {
