@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -122,10 +123,35 @@ func New(
 		if c.session.Halt() == nil {
 			return nil, errors.Join(err, c.release())
 		}
-		// serve logs the halt itself; this is the layer it stopped and any teardown failure.
-		slog.Debug("internal: boot halted", "err", err)
+		warnHaltedBoot(err)
 	}
 	return c, nil
+}
+
+// warnHaltedBoot logs a halted boot's error when it carries more than the halt,
+// such as a close failure: serve announces the halt alone.
+func warnHaltedBoot(
+	err error,
+) {
+	if besidesHalt(err) {
+		slog.Warn("internal: boot halted, and more failed", "err", err)
+	}
+}
+
+// besidesHalt reports whether err's tree has a leaf that is not a Halt.
+func besidesHalt(
+	err error,
+) bool {
+	if _, ok := err.(*migrate.Halt); ok { //nolint:errorlint // the tree is walked node by node: a wrapped Halt is reached below
+		return false
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		return slices.ContainsFunc(joined.Unwrap(), besidesHalt)
+	}
+	if next := errors.Unwrap(err); next != nil {
+		return besidesHalt(next)
+	}
+	return true
 }
 
 // boot stops at a home Begin refused. Otherwise it runs the pre-open migrations,

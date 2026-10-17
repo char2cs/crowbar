@@ -29,25 +29,6 @@ func TestCLIHelp(
 	}
 }
 
-// captureLog makes the default logger hand over the first record logged as
-// msg; serve logs through the default logger.
-func captureLog(
-	t *testing.T,
-	msg string,
-) <-chan slog.Record {
-	t.Helper()
-	records := make(chan slog.Record, 1)
-	prev := slog.Default()
-	slog.SetDefault(slog.New(testutil.OnLog(msg, func(r slog.Record) {
-		select {
-		case records <- r:
-		default:
-		}
-	})))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-	return records
-}
-
 // healthStatus is the status the daemon on sock reports on its health route.
 func healthStatus(
 	t *testing.T,
@@ -72,7 +53,7 @@ func healthStatus(
 // process exits cleanly rather than as a failed start, and logs what New said.
 func TestServe_ACancelledBootExitsCleanly(t *testing.T) {
 	h := testutil.FixtureHome(t)
-	interrupted := captureLog(t, "daemon: boot interrupted")
+	interrupted := testutil.CaptureLog(t, testutil.Message("daemon: boot interrupted"))
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
@@ -91,12 +72,12 @@ func TestServe_ACancelledBootExitsCleanly(t *testing.T) {
 	assert.Contains(t, logged.Error(), "internal: migrate: ")
 }
 
-// A halted daemon says so in its log and keeps serving its health route until
-// it is stopped, which is a clean exit: a supervisor must not respawn it.
+// A halted daemon says so in one error line and keeps serving its health route
+// until it is stopped, which is a clean exit: a supervisor must not respawn it.
 func TestServe_AHaltedDaemonLogsWhyAndServesUntilStopped(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "LAYOUT", "9\n")
-	halted := captureLog(t, "daemon: halted")
+	errorLines := testutil.CaptureLog(t, testutil.AtLeast(slog.LevelError))
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	sock := testutil.ShortSocket(t)
@@ -105,7 +86,7 @@ func TestServe_AHaltedDaemonLogsWhyAndServesUntilStopped(t *testing.T) {
 	go func() { done <- serve(ctx, "unix://"+sock, nil, internal.WithHomeDir(h.Root())) }()
 	var record slog.Record
 	select {
-	case record = <-halted:
+	case record = <-errorLines:
 	case err := <-done:
 		t.Fatalf("serve returned before it logged the halt: %v", err)
 	}
@@ -119,6 +100,8 @@ func TestServe_AHaltedDaemonLogsWhyAndServesUntilStopped(t *testing.T) {
 
 	require.NoError(t, <-done)
 	assert.Equal(t, "halted", status)
+	assert.Equal(t, "daemon: halted", record.Message, "the first error line names the halt")
+	assert.Empty(t, errorLines, "one halt, one error line")
 	attrs := testutil.Attrs(record)
 	assert.Equal(t, slog.LevelError, record.Level)
 	assert.Equal(t, "layout_newer", attrs["reason"].String())

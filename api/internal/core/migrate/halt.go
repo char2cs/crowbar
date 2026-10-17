@@ -55,7 +55,8 @@ func (s *Session) refuse(
 ) {
 	h := s.baseHalt(reason, message)
 	s.halted.Store(h)
-	s.opts.Log.Error("migrate: halted", "reason", string(reason), "message", message)
+	// Info: the session's owner reports the halt as the error it is, once.
+	s.opts.Log.Info("migrate: halted", "reason", string(reason), "message", message)
 }
 
 // fail halts the session on a step that was running, or about to. The halt is
@@ -87,7 +88,8 @@ func (s *Session) stop(
 ) error {
 	h := s.newHalt(reason, step, cause)
 	s.halted.Store(h)
-	s.opts.Log.Error("migrate: halted", "reason", string(reason), "message", h.Message)
+	// Info, as in refuse: the halt is reported once, by the session's owner.
+	s.opts.Log.Info("migrate: halted", "reason", string(reason), "message", h.Message)
 	if err := s.recordFailure(step, cause, h, stepRan); err != nil {
 		return errors.Join(h, err)
 	}

@@ -116,9 +116,12 @@ func TestNew_RunsTheLegacyStepsBeforeServing(t *testing.T) {
 func TestNew_HaltsOnANewerLayout(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "LAYOUT", "9\n")
+	warnings := testutil.CaptureLog(t, testutil.AtLeast(slog.LevelWarn))
 
 	d, err := boot(t.Context(), t, h)
 	require.NoError(t, err)
+
+	assert.Empty(t, warnings, "a clean halt warns of nothing: serve announces it")
 
 	health := d.get(t, "/v0/health")
 	require.Equal(t, http.StatusOK, health.status)
@@ -164,9 +167,12 @@ func TestNew_AHaltedDaemonAnswersTheWebview(t *testing.T) {
 func TestNew_HaltsWhenAStepFails(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "state/view.db", "not a database")
+	warnings := testutil.CaptureLog(t, testutil.AtLeast(slog.LevelWarn))
 
 	d, err := boot(t.Context(), t, h)
 	require.NoError(t, err)
+
+	assert.Empty(t, warnings, "a clean halt warns of nothing: serve announces it")
 
 	health := d.get(t, "/v0/health")
 	assert.Equal(t, "halted", health.Data.Status)
