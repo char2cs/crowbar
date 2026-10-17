@@ -204,7 +204,7 @@ func (g *glabProvider) branchContains(
 	branch string,
 	sha string,
 ) bool {
-	cmd := g.execFn(ctx, "git", "merge-base", "--is-ancestor", sha, branch)
+	cmd := g.execFn(ctx, binpath.Git(), "merge-base", "--is-ancestor", sha, branch)
 	cmd.Dir = repoPath
 	return cmd.Run() == nil
 }

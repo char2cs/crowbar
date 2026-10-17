@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/core/binpath"
 )
 
 // TestHelperProcess is the subprocess entry point used by detectFakeCmd.
@@ -80,6 +82,25 @@ func TestDetect_GitHub(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "github", res.Kind)
 	assert.True(t, res.Enabled)
+}
+
+// A bare "git" goes through the macOS xcrun shim, which execs the real binary:
+// two process spawns per call. Detection must ask the resolved one directly.
+func TestDetect_AsksTheResolvedGitBinary(t *testing.T) {
+	var names []string
+	inner := detectSequentialFake([]detectFakeResponse{
+		{output: "https://github.com/owner/repo.git", code: 0},
+		{output: "", code: 0},
+	})
+	execFn := func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		names = append(names, name)
+		return inner(ctx, name, args...)
+	}
+
+	_, err := DetectWithExec(context.Background(), t.TempDir(), execFn)
+	require.NoError(t, err)
+	require.NotEmpty(t, names)
+	assert.Equal(t, binpath.Git(), names[0])
 }
 
 func TestDetect_GitLab(t *testing.T) {
