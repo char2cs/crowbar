@@ -27,7 +27,8 @@ func FixtureHome(tb testing.TB) home.Home {
 }
 
 // WriteFile writes content at rel under the home, creating parent
-// directories with mode 0o700 and the file with mode 0o600.
+// directories with mode 0o700 and the file with mode 0o600. It fails the test
+// for a rel that is absolute or escapes the home.
 func WriteFile(
 	tb testing.TB,
 	h home.Home,
@@ -35,6 +36,9 @@ func WriteFile(
 	content string,
 ) {
 	tb.Helper()
+	if !filepath.IsLocal(rel) {
+		tb.Fatalf("write %q: path must stay inside the home", rel)
+	}
 	path := filepath.Join(h.Root(), rel)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		tb.Fatalf("write %s: create parents: %v", rel, err)

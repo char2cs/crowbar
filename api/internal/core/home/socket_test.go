@@ -3,6 +3,7 @@ package home
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,6 +11,9 @@ import (
 )
 
 func TestSocket_DefaultHomeBindsInsideTheHome(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("HOME does not set the user home on windows")
+	}
 	userHome := t.TempDir()
 	t.Setenv("HOME", userHome)
 	t.Setenv(EnvVar, "")
@@ -21,6 +25,9 @@ func TestSocket_DefaultHomeBindsInsideTheHome(t *testing.T) {
 }
 
 func TestSocket_SpelledOutDefaultIsNotAnOverride(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("HOME does not set the user home on windows")
+	}
 	userHome := t.TempDir()
 	t.Setenv("HOME", userHome)
 	t.Setenv(EnvVar, filepath.Join(userHome, ".crowbar"))

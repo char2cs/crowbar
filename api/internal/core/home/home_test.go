@@ -38,7 +38,7 @@ func TestResolve_RejectsARelativeCrowbarHome(t *testing.T) {
 
 func TestResolve_DefaultsToDotCrowbarUnderTheUserHome(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("windows keeps the default home under Documents")
+		t.Skip("HOME does not set the user home on windows")
 	}
 	userHome := t.TempDir()
 	t.Setenv(EnvVar, "")

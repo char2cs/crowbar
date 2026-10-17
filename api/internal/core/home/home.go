@@ -29,7 +29,7 @@ type Home struct {
 }
 
 // Resolve returns the home named by CROWBAR_HOME when it is set, otherwise
-// the operating system's default home.
+// the default home, .crowbar under the user's home directory.
 func Resolve() (Home, error) {
 	override := os.Getenv(EnvVar)
 	if override != "" {
@@ -43,7 +43,7 @@ func Resolve() (Home, error) {
 }
 
 // At returns the home rooted at root, which must be an absolute path. A root
-// that differs from the operating system's default counts as an override.
+// that differs from the default home counts as an override.
 func At(
 	root string,
 ) (Home, error) {
@@ -93,6 +93,14 @@ func (h Home) LockFile() string {
 // MigrateDir is the directory holding migration run records.
 func (h Home) MigrateDir() string {
 	return filepath.Join(h.root, "migrate")
+}
+
+func defaultRoot() (string, error) {
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("home: default root: %w", err)
+	}
+	return filepath.Join(userHome, ".crowbar"), nil
 }
 
 // newHome is the only constructor. Inside a test binary it refuses any home

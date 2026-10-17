@@ -24,7 +24,7 @@ func (h Home) Socket() string {
 func socketName(
 	root string,
 ) string {
-	// Typed hash.Hash, not Hash64: only that Write is known never to fail.
+	// gosec G104 exempts (hash.Hash).Write, but not the Hash64 fnv returns.
 	var digest hash.Hash = fnv.New64a()
 	digest.Write([]byte(root))
 	return fmt.Sprintf("crowbar-%x.sock", binary.BigEndian.Uint64(digest.Sum(nil)))
