@@ -22,11 +22,15 @@ const (
 	recordVersion = 1
 
 	kindRunStart   = "run.start"
+	kindStepStart  = "step.start"
 	kindCheckpoint = "checkpoint"
 	kindStepDone   = "step.done"
+	kindStepFail   = "step.fail"
 	kindRunEnd     = "run.end"
 
-	outcomeApplied = "applied"
+	outcomeApplied   = "applied"
+	outcomeCompleted = "completed"
+	outcomeFailed    = "failed"
 )
 
 // record is one ledger line. The JSON field names are the on-disk format.
