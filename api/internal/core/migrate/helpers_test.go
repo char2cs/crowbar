@@ -31,6 +31,9 @@ type bench struct {
 	cat   *Catalog
 	clock func() time.Time
 	log   *slog.Logger // nil means the default logger
+	// free and haveGit stand in for the machine, so no test depends on the disk or on git.
+	free    FreeBytesFunc
+	haveGit func() bool
 }
 
 func newBench(
@@ -40,13 +43,18 @@ func newBench(
 	tb.Helper()
 	cat, err := NewCatalog(steps...)
 	require.NoError(tb, err)
-	return &bench{tb: tb, home: testutil.FixtureHome(tb), cat: cat, clock: tickingClock()}
+	return &bench{
+		tb: tb, home: testutil.FixtureHome(tb), cat: cat, clock: tickingClock(),
+		free: plentyOfDisk, haveGit: func() bool { return true },
+	}
 }
 
 // begin opens a session that is closed with the test; closing it earlier is fine.
 func (b *bench) begin() *Session {
 	b.tb.Helper()
-	s, err := Begin(context.Background(), b.home, b.cat, Options{Version: "v-test", Clock: b.clock, Log: b.log})
+	s, err := Begin(context.Background(), b.home, b.cat, Options{
+		Version: "v-test", Clock: b.clock, Log: b.log, FreeBytes: b.free, HaveGit: b.haveGit,
+	})
 	require.NoError(b.tb, err)
 	b.tb.Cleanup(func() {
 		require.NoError(b.tb, s.Close())
@@ -60,6 +68,19 @@ func (b *bench) records() []record {
 	view, err := readLedger(filepath.Join(b.home.MigrateDir(), ledgerName))
 	require.NoError(b.tb, err)
 	return view.records
+}
+
+// seedLedger leaves the ledger a process that stopped part-way would have left.
+func (b *bench) seedLedger(
+	recs ...record,
+) {
+	b.tb.Helper()
+	l, err := openLedger(filepath.Join(b.home.MigrateDir(), ledgerName))
+	require.NoError(b.tb, err)
+	for _, r := range recs {
+		require.NoError(b.tb, l.append(r))
+	}
+	require.NoError(b.tb, l.Close())
 }
 
 func (b *bench) kinds() []string {

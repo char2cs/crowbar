@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"regexp"
 	"testing"
@@ -326,4 +327,132 @@ func TestProgress_ReportsThePhaseAndStep(t *testing.T) {
 
 	require.NoError(t, s.RunPostOpen(ctx, impls))
 	assert.Equal(t, Progress{Phase: PostOpen, Step: ID{Number: 2, Name: "b"}, Index: 2, Total: 2}, inPostOpen)
+}
+
+func TestRun_CancelledContextIsInterruptedNotHalted(t *testing.T) {
+	b := newBench(t, newStep(1, "a", PreOpen, 0, 1))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	marked := make(chan struct{})
+	interruptible := Impls{1: {Apply: func(ctx context.Context, _ Env, cp *Checkpoints) (Counts, error) {
+		if err := cp.Mark("a", Counts{"files": 1}); err != nil {
+			return nil, err
+		}
+		close(marked)
+		<-ctx.Done()
+		return nil, fmt.Errorf("walk: %w", ctx.Err())
+	}}}
+	s := b.begin()
+	done := make(chan error, 1)
+	go func() {
+		done <- s.RunPreOpen(ctx, interruptible)
+	}()
+	select {
+	case <-marked:
+	case err := <-done:
+		require.FailNow(t, "RunPreOpen returned before step 1 marked its work", "%v", err)
+	}
+
+	cancel()
+	err := <-done
+
+	require.ErrorIs(t, err, context.Canceled)
+	var h *Halt
+	assert.NotErrorAs(t, err, &h, "an interruption is not a halt")
+	assert.Nil(t, s.Halt())
+	records := b.records()
+	assert.Equal(t, []string{kindRunStart, kindStepStart, kindCheckpoint, kindRunEnd}, kindsOf(records))
+	assert.Equal(t, outcomeInterrupted, records[3].Outcome)
+	assert.NoFileExists(t, b.home.LayoutFile(), "an interrupted bump leaves LAYOUT alone")
+	require.NoError(t, s.Close())
+
+	var sawA bool
+	resumed := Impls{1: impl(func(cp *Checkpoints) (Counts, error) {
+		sawA = cp.Done("a")
+		return nil, nil
+	})}
+	require.NoError(t, b.begin().RunPreOpen(context.Background(), resumed))
+	assert.True(t, sawA, "the next boot resumes from the checkpoint")
+	assert.Equal(t, 1, b.layout())
+}
+
+func TestRun_InterruptionIsToldFromFailureByTheErrorNotJustTheContext(t *testing.T) {
+	tests := []struct {
+		name string
+		// stop runs in the failing call, which cancels ctx and returns the error.
+		stop        func(ctx context.Context, cancel context.CancelFunc) error
+		interrupted bool
+	}{
+		{
+			name: "the context's own error",
+			stop: func(ctx context.Context, cancel context.CancelFunc) error {
+				cancel()
+				return ctx.Err()
+			},
+			interrupted: true,
+		},
+		{
+			name: "the context's error wrapped",
+			stop: func(ctx context.Context, cancel context.CancelFunc) error {
+				cancel()
+				return fmt.Errorf("copy: %w", ctx.Err())
+			},
+			interrupted: true,
+		},
+		{
+			name: "an unrelated failure while the context is cancelled",
+			stop: func(_ context.Context, cancel context.CancelFunc) error {
+				cancel()
+				return errors.New("disk exploded")
+			},
+		},
+		{
+			name: "the context's error while the context is alive",
+			stop: func(context.Context, context.CancelFunc) error {
+				return context.Canceled
+			},
+		},
+	}
+	for _, tc := range tests {
+		for _, where := range []string{"plan", "apply", "verify"} {
+			t.Run(tc.name+" in "+where, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				step := newStep(1, "a", PreOpen, 0, 0)
+				impls := Impls{1: {Apply: func(context.Context, Env, *Checkpoints) (Counts, error) {
+					return nil, nil
+				}}}
+				switch where {
+				case "plan":
+					step.Plan = func(ctx context.Context, _ Env) (Plan, error) {
+						return Plan{}, tc.stop(ctx, cancel)
+					}
+				case "apply":
+					impls[1] = Impl{Apply: func(ctx context.Context, _ Env, _ *Checkpoints) (Counts, error) {
+						return nil, tc.stop(ctx, cancel)
+					}}
+				case "verify":
+					impls[1] = Impl{Apply: impls[1].Apply, Verify: func(ctx context.Context, _ Env) error {
+						return tc.stop(ctx, cancel)
+					}}
+				}
+				b := newBench(t, step)
+				s := b.begin()
+
+				err := s.RunPreOpen(ctx, impls)
+
+				if tc.interrupted {
+					require.ErrorIs(t, err, context.Canceled)
+					assert.Nil(t, s.Halt())
+					last := b.records()[len(b.records())-1]
+					assert.Equal(t, outcomeInterrupted, last.Outcome)
+					assert.Empty(t, ofKind(b.records(), kindStepFail))
+					return
+				}
+				require.NotNil(t, s.Halt())
+				assert.Same(t, s.Halt(), halted(t, err))
+				assert.Equal(t, outcomeFailed, b.records()[len(b.records())-1].Outcome)
+			})
+		}
+	}
 }

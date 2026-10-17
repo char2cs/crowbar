@@ -21,10 +21,12 @@ type runState struct {
 	counts Counts
 }
 
-// RunPreOpen starts the boot's run when any step is pending, then runs the
-// pending pre-open steps, in catalog order, before any database is open. A step
-// failure halts the session and is returned as the *Halt; a cancelled ctx ends
-// the run as interrupted before the next step and is returned as is.
+// RunPreOpen starts the boot's run when any step is pending, preflights every
+// pending step of both phases (plans, git, the state backup), then runs the
+// pending pre-open steps, in catalog order, before any database is open. A
+// failure halts the session and is returned as the *Halt; a ctx cancelled
+// before or during a step ends the run as interrupted, and its error is
+// returned as is.
 func (s *Session) RunPreOpen(
 	ctx context.Context,
 	impls Impls,
@@ -52,7 +54,7 @@ func (s *Session) runPhase(
 	if err := s.admit(phase, impls); err != nil {
 		return err
 	}
-	if err := s.ensureRun(phase); err != nil {
+	if err := s.ensureRun(ctx, phase); err != nil {
 		return err
 	}
 	for {
@@ -70,9 +72,10 @@ func (s *Session) runPhase(
 }
 
 // ensureRun opens the boot's run the first time anything is pending, whichever
-// phase it is in, so preflight and backup can precede every step. Only
-// RunPreOpen may start it: RunPostOpen runs after the stores are open.
+// phase it is in, and preflights every pending step before any of them runs.
+// Only RunPreOpen may start it: RunPostOpen runs after the stores are open.
 func (s *Session) ensureRun(
+	ctx context.Context,
 	phase Phase,
 ) error {
 	pending := s.pending()
@@ -82,7 +85,10 @@ func (s *Session) ensureRun(
 	if phase == PostOpen {
 		return errors.New("migrate: post-open steps are pending but RunPreOpen has not started a run")
 	}
-	return s.beginRun(pending)
+	if err := s.beginRun(pending); err != nil {
+		return err
+	}
+	return s.preflight(ctx, pending)
 }
 
 // admit refuses a phase that cannot run in full, before it changes anything.
@@ -149,14 +155,37 @@ func (s *Session) runStep(
 	env := Env{Home: s.home, Log: s.opts.Log}
 	counts, err := impl.Apply(ctx, env, cp)
 	if err != nil {
-		return s.fail(HaltStepFailed, step, err)
+		return s.stepError(ctx, HaltStepFailed, step, err)
 	}
 	if impl.Verify != nil {
 		if err := impl.Verify(ctx, env); err != nil {
-			return s.fail(HaltVerifyFailed, step, err)
+			return s.stepError(ctx, HaltVerifyFailed, step, err)
 		}
 	}
 	return s.complete(ctx, step, cp, counts)
+}
+
+// stepError ends the run as interrupted when err is the step stopping for a
+// cancelled ctx, and halts on it otherwise.
+func (s *Session) stepError(
+	ctx context.Context,
+	reason HaltReason,
+	step Step,
+	err error,
+) error {
+	if interrupted(ctx, err) {
+		return s.interrupt(err)
+	}
+	return s.fail(reason, step, err)
+}
+
+// interrupted reports whether err is a call giving up because ctx was cancelled.
+// An error that merely arrives while ctx is cancelled is a failure of its own.
+func interrupted(
+	ctx context.Context,
+	err error,
+) bool {
+	return err != nil && ctx.Err() != nil && errors.Is(err, ctx.Err())
 }
 
 // complete makes a verified step durable: LAYOUT first for a bump, since LAYOUT
@@ -233,6 +262,7 @@ func (s *Session) finish() error {
 func (s *Session) interrupt(
 	cause error,
 ) error {
+	s.opts.Log.Info("migrate: run interrupted", "run", s.run.id, "cause", cause)
 	if err := s.endRun(outcomeInterrupted, cause.Error()); err != nil {
 		return errors.Join(cause, err)
 	}
@@ -243,20 +273,34 @@ func (s *Session) endRun(
 	outcome string,
 	detail string,
 ) error {
+	if err := s.writeRunEnd(s.run.id, s.run.counts, outcome, detail); err != nil {
+		return err
+	}
+	s.run = nil
+	return nil
+}
+
+// writeRunEnd appends the record that closes run id, whether or not this
+// session started it.
+func (s *Session) writeRunEnd(
+	id string,
+	counts Counts,
+	outcome string,
+	detail string,
+) error {
 	layout := s.layout
 	err := s.led.append(record{
 		Kind:    kindRunEnd,
 		At:      s.now(),
-		Run:     s.run.id,
+		Run:     id,
 		To:      &layout,
-		Counts:  s.run.counts,
+		Counts:  counts,
 		Outcome: outcome,
 		Error:   detail,
 	})
 	if err != nil {
-		return fmt.Errorf("migrate: end run %s: %w", s.run.id, err)
+		return fmt.Errorf("migrate: end run %s: %w", id, err)
 	}
-	s.run = nil
 	return nil
 }
 

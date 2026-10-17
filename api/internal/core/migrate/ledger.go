@@ -22,6 +22,7 @@ const (
 	recordVersion = 1
 
 	kindRunStart   = "run.start"
+	kindBackup     = "backup"
 	kindStepStart  = "step.start"
 	kindCheckpoint = "checkpoint"
 	kindStepDone   = "step.done"
@@ -106,6 +107,22 @@ func (v ledgerView) danglingRun() (string, bool) {
 		return "", false
 	}
 	return start.Run, true
+}
+
+// backupInForce is the path of the newest backup record that no completed run
+// has followed: the image of the state this migration attempt started from. It
+// is empty once a run completes, so the next migration backs up afresh.
+func (v ledgerView) backupInForce() string {
+	for i := len(v.records) - 1; i >= 0; i-- {
+		r := v.records[i]
+		switch {
+		case r.Kind == kindRunEnd && r.Outcome == outcomeCompleted:
+			return ""
+		case r.Kind == kindBackup:
+			return r.Path
+		}
+	}
+	return ""
 }
 
 // lastRun summarises the last run.start and the records that belong to it.

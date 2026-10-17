@@ -83,10 +83,12 @@ type Session struct {
 	progress atomic.Pointer[Progress]
 }
 
-// Begin takes the home lock and reads the layout and the ledger. It returns an
-// error, and no session, when the home is held by another process
-// (ErrHomeLocked), LAYOUT is unreadable (ErrLayoutUnreadable), the ledger is
-// corrupt (ErrLedgerCorrupt) or the home cannot be read; the lock is released.
+// Begin takes the home lock, reads the layout and the ledger, and closes a run
+// a crash left open. It returns an error, and no session, only when the home is
+// held by another process (ErrHomeLocked) or cannot be read or written (an I/O
+// failure); the lock is released. A home it must not migrate, because LAYOUT is
+// newer than the catalog or unreadable or the ledger is corrupt, is not an
+// error: the session is live, holds the lock, and its Halt says why.
 func Begin(
 	_ context.Context,
 	h home.Home,
@@ -104,20 +106,51 @@ func Begin(
 	return s, nil
 }
 
+// load reads the home without changing it, until it knows the home may be
+// migrated: a refused home must stay byte-identical, since an older binary
+// must not write into a newer home.
 func (s *Session) load() error {
 	layout, err := readLayout(s.home)
 	if err != nil {
-		return err
+		s.refuse(HaltLayoutUnreadable, err.Error())
+		return nil
 	}
 	s.layout = layout
-	if err := cleanPartialBackups(s.home); err != nil {
-		return err
+	if known := s.cat.Known(); layout > known {
+		s.refuse(HaltLayoutNewer, fmt.Sprintf(
+			"this home is at layout %d but this crowbar only knows layout %d: run a newer crowbar", layout, known))
+		return nil
 	}
 	begun, err := readLedger(s.ledgerPath())
+	if errors.Is(err, ErrLedgerCorrupt) {
+		s.refuse(HaltLedgerCorrupt, err.Error())
+		return nil
+	}
 	if err != nil {
 		return err
 	}
 	s.begun = begun
+	if err := cleanPartialBackups(s.home); err != nil {
+		return err
+	}
+	return s.closeDanglingRun()
+}
+
+// closeDanglingRun ends the run a killed process left open, so the ledger never
+// holds two live runs. It is the only ledger write Begin makes, and only when a
+// run is dangling.
+func (s *Session) closeDanglingRun() error {
+	id, ok := s.begun.danglingRun()
+	if !ok {
+		return nil
+	}
+	if _, err := s.openForAppend(); err != nil {
+		return fmt.Errorf("close interrupted run %s: open ledger: %w", id, err)
+	}
+	if err := s.writeRunEnd(id, nil, outcomeInterrupted, "the process stopped before the run ended"); err != nil {
+		return fmt.Errorf("close interrupted run %s: %w", id, err)
+	}
+	s.opts.Log.Info("migrate: closed a run that never ended", "run", id)
 	return nil
 }
 

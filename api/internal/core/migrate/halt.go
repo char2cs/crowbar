@@ -47,17 +47,48 @@ func (h *Halt) Error() string {
 	return h.Message
 }
 
-// fail halts the session on step. The halt is set and returned even when the
-// ledger cannot record it: the ledger refuses every append once one failed.
+// refuse halts the session for a reason no step is to blame for: the home itself
+// cannot be taken on. It writes nothing, so a refused home stays as it was found.
+func (s *Session) refuse(
+	reason HaltReason,
+	message string,
+) {
+	h := s.baseHalt(reason, message)
+	s.halted.Store(h)
+	s.opts.Log.Error("migrate: halted", "reason", string(reason), "message", message)
+}
+
+// fail halts the session on a step that was running, or about to. The halt is
+// set and returned even when the ledger cannot record it: the ledger refuses
+// every append once one failed.
 func (s *Session) fail(
 	reason HaltReason,
 	step Step,
 	cause error,
 ) error {
+	return s.stop(reason, step, cause, true)
+}
+
+// failBeforeSteps halts on step before any step has run, as plan and preflight
+// do: the run ends failed, with no step.fail, since no step failed.
+func (s *Session) failBeforeSteps(
+	reason HaltReason,
+	step Step,
+	cause error,
+) error {
+	return s.stop(reason, step, cause, false)
+}
+
+func (s *Session) stop(
+	reason HaltReason,
+	step Step,
+	cause error,
+	stepRan bool,
+) error {
 	h := s.newHalt(reason, step, cause)
 	s.halted.Store(h)
 	s.opts.Log.Error("migrate: halted", "reason", string(reason), "message", h.Message)
-	if err := s.recordFailure(step, cause, h); err != nil {
+	if err := s.recordFailure(step, cause, h, stepRan); err != nil {
 		return errors.Join(h, err)
 	}
 	return h
@@ -69,14 +100,17 @@ func (s *Session) recordFailure(
 	step Step,
 	cause error,
 	h *Halt,
+	stepRan bool,
 ) error {
 	if s.run == nil {
 		return nil
 	}
-	failed := s.stepRecord(kindStepFail, step)
-	failed.Error = cause.Error()
-	if err := s.led.append(failed); err != nil {
-		return fmt.Errorf("migrate: record step failure: %w", err)
+	if stepRan {
+		failed := s.stepRecord(kindStepFail, step)
+		failed.Error = cause.Error()
+		if err := s.led.append(failed); err != nil {
+			return fmt.Errorf("migrate: record step failure: %w", err)
+		}
 	}
 	return s.endRun(outcomeFailed, h.Message)
 }
@@ -86,14 +120,24 @@ func (s *Session) newHalt(
 	step Step,
 	cause error,
 ) *Halt {
+	h := s.baseHalt(reason, haltMessage(reason, step, cause))
 	id := step.ID()
+	h.Step, h.Phase = &id, step.Phase.String()
+	return h
+}
+
+// baseHalt is a halt with everything the session itself knows. Backup is the
+// copy of state/ the migration in progress started from, if it took one.
+func (s *Session) baseHalt(
+	reason HaltReason,
+	message string,
+) *Halt {
 	h := &Halt{
 		Reason:  reason,
-		Message: haltMessage(reason, step, cause),
-		Step:    &id,
-		Phase:   step.Phase.String(),
+		Message: message,
 		Layout:  s.layout,
 		Known:   s.cat.Known(),
+		Backup:  s.view().backupInForce(),
 	}
 	if s.run != nil {
 		h.Run = s.run.id
@@ -106,6 +150,8 @@ func (s *Session) newHalt(
 
 // haltVerbs say what happened to a step; a reason without one means it failed.
 var haltVerbs = map[HaltReason]string{
+	HaltPlanFailed:   "could not be planned",
+	HaltPreflight:    "cannot run",
 	HaltVerifyFailed: "failed verification",
 	HaltNoImpl:       "cannot run",
 }

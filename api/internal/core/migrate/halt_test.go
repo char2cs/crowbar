@@ -2,9 +2,12 @@ package migrate
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -252,4 +255,35 @@ func TestHalt_IsSafeToReadWhileTheRunFails(t *testing.T) {
 		assert.Same(t, h, got)
 	}
 	assert.Same(t, h, s.Halt())
+}
+
+func TestHalt_JSONShape(t *testing.T) {
+	keys := func(h Halt) []string {
+		raw, err := json.Marshal(h)
+		require.NoError(t, err)
+		var fields map[string]any
+		require.NoError(t, json.Unmarshal(raw, &fields))
+		return slices.Sorted(maps.Keys(fields))
+	}
+
+	t.Run("every field set", func(t *testing.T) {
+		h := Halt{
+			Reason: HaltStepFailed, Message: "m", Step: &ID{Number: 2, Name: "b"}, Phase: "pre-open",
+			Layout: 1, Known: 3, Run: "r", Ledger: "l", Backup: "b",
+		}
+
+		assert.Equal(t, []string{"backup", "known", "layout", "ledger", "message", "phase", "reason", "run", "step"}, keys(h))
+		raw, err := json.Marshal(h)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{
+			"reason":"step_failed","message":"m","step":{"number":2,"name":"b"},"phase":"pre-open",
+			"layout":1,"known":3,"run":"r","ledger":"l","backup":"b"
+		}`, string(raw))
+	})
+
+	t.Run("a refusal names no step, run, ledger or backup", func(t *testing.T) {
+		h := Halt{Reason: HaltLayoutNewer, Message: "m", Layout: 5, Known: 1}
+
+		assert.Equal(t, []string{"known", "layout", "message", "reason"}, keys(h))
+	})
 }

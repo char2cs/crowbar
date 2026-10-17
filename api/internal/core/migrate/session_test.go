@@ -3,6 +3,7 @@ package migrate
 import (
 	"context"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -69,21 +70,21 @@ func TestBegin_ReleasesTheLockWhenItCannotReadTheHome(t *testing.T) {
 	tests := []struct {
 		name  string
 		write func(*bench)
-		want  error
+		want  string
 	}{
 		{
-			name: "unreadable LAYOUT",
+			name: "a ledger that cannot be read",
 			write: func(b *bench) {
-				testutil.WriteFile(b.tb, b.home, "LAYOUT", "abc\n")
+				require.NoError(b.tb, os.MkdirAll(filepath.Join(b.home.MigrateDir(), ledgerName), 0o700))
 			},
-			want: ErrLayoutUnreadable,
+			want: "ledger: read",
 		},
 		{
-			name: "corrupt ledger",
+			name: "half-written backups that cannot be listed",
 			write: func(b *bench) {
-				testutil.WriteFile(b.tb, b.home, "migrate/ledger.jsonl", "not json\nmore\n")
+				testutil.WriteFile(b.tb, b.home, "migrate/backups", "a file, not a directory")
 			},
-			want: ErrLedgerCorrupt,
+			want: "backup: list",
 		},
 	}
 	for _, tc := range tests {
@@ -93,13 +94,171 @@ func TestBegin_ReleasesTheLockWhenItCannotReadTheHome(t *testing.T) {
 
 			_, err := Begin(context.Background(), b.home, b.cat, Options{})
 
-			require.ErrorIs(t, err, tc.want)
 			require.ErrorContains(t, err, "migrate: begin")
+			require.ErrorContains(t, err, tc.want)
 			lock, lockErr := lockHome(b.home)
 			require.NoError(t, lockErr, "a failed Begin must not keep the home locked")
 			require.NoError(t, lock.Close())
 		})
 	}
+}
+
+func TestBegin_RefusesANewerLayout(t *testing.T) {
+	steps := []Step{newStep(1, "a", PreOpen, 0, 1), newStep(2, "b", PostOpen, 1, 1)}
+
+	t.Run("a fresh newer home gets no migrate directory", func(t *testing.T) {
+		b := newBench(t, steps...)
+		testutil.WriteFile(t, b.home, "LAYOUT", "5\n")
+		testutil.WriteFile(t, b.home, "state/.lock", "")
+		before := testutil.TreeSnapshot(t, b.home)
+		var order []int
+
+		s := b.begin()
+
+		h := s.Halt()
+		require.NotNil(t, h)
+		assert.Equal(t, HaltLayoutNewer, h.Reason)
+		assert.Contains(t, h.Message, "5")
+		assert.Contains(t, h.Message, "1")
+		assert.Equal(t, 5, h.Layout)
+		assert.Equal(t, 1, h.Known)
+		assert.Nil(t, h.Step, "no step is to blame")
+		assert.Same(t, h, halted(t, s.RunPreOpen(context.Background(), tracing(&order, 1, 2))))
+		assert.Same(t, h, halted(t, s.RunPostOpen(context.Background(), tracing(&order, 1, 2))))
+		assert.Empty(t, order)
+		assert.NoDirExists(t, b.home.MigrateDir(), "an older binary must not write into a newer home")
+		assert.Equal(t, before, testutil.TreeSnapshot(t, b.home))
+		raw, err := os.ReadFile(b.home.LayoutFile())
+		require.NoError(t, err)
+		assert.Equal(t, "5\n", string(raw))
+		_, err = lockHome(b.home)
+		require.ErrorIs(t, err, ErrHomeLocked, "the refused session still holds the home")
+	})
+
+	t.Run("a crashed run and half-written backups are left as they are", func(t *testing.T) {
+		b := newBench(t, steps...)
+		testutil.WriteFile(t, b.home, "LAYOUT", "5\n")
+		testutil.WriteFile(t, b.home, "migrate/backups/20261017T010203.000000000Z.partial/state/x", "x")
+		testutil.WriteFile(t, b.home, "state/.lock", "")
+		b.seedLedger(
+			record{Kind: kindRunStart, At: ledgerEpoch, Run: "r-newer", Pending: []int{1}},
+			record{Kind: kindStepStart, At: ledgerEpoch, Run: "r-newer", Step: 1, Name: "a"},
+		)
+		before := testutil.TreeSnapshot(t, b.home)
+
+		s := b.begin()
+
+		require.NotNil(t, s.Halt())
+		assert.Equal(t, HaltLayoutNewer, s.Halt().Reason)
+		assert.Equal(t, filepath.Join(b.home.MigrateDir(), ledgerName), s.Halt().Ledger)
+		assert.Equal(t, before, testutil.TreeSnapshot(t, b.home))
+		assert.Equal(t, []string{kindRunStart, kindStepStart}, b.kinds(), "the newer binary's run is not ours to close")
+	})
+}
+
+func TestBegin_UnreadableLayoutHaltsAndNeverRunsAnyStep(t *testing.T) {
+	tests := []struct {
+		name  string
+		write func(*bench)
+	}{
+		{"empty", func(b *bench) { testutil.WriteFile(b.tb, b.home, "LAYOUT", "") }},
+		{"not a number", func(b *bench) { testutil.WriteFile(b.tb, b.home, "LAYOUT", "abc\n") }},
+		{"negative", func(b *bench) { testutil.WriteFile(b.tb, b.home, "LAYOUT", "-1\n") }},
+		{"a directory", func(b *bench) { require.NoError(b.tb, os.Mkdir(b.home.LayoutFile(), 0o700)) }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			b := newBench(t, newStep(1, "legacy", PreOpen, 0, 0), newStep(2, "bump", PreOpen, 0, 1))
+			tc.write(b)
+			testutil.WriteFile(t, b.home, "state/.lock", "")
+			before := testutil.TreeSnapshot(t, b.home)
+			var order []int
+
+			s := b.begin()
+
+			h := s.Halt()
+			require.NotNil(t, h)
+			assert.Equal(t, HaltLayoutUnreadable, h.Reason)
+			assert.Contains(t, h.Message, "LAYOUT")
+			assert.Equal(t, 1, h.Known)
+			assert.Same(t, h, halted(t, s.RunPreOpen(ctx, tracing(&order, 1, 2))))
+			assert.Empty(t, order, "garbage is not a legacy layout")
+			assert.NoDirExists(t, b.home.MigrateDir())
+			assert.Equal(t, before, testutil.TreeSnapshot(t, b.home))
+		})
+	}
+}
+
+func TestBegin_CorruptLedgerHalts(t *testing.T) {
+	b := newBench(t, newStep(1, "a", PreOpen, 0, 0))
+	testutil.WriteFile(t, b.home, "migrate/ledger.jsonl",
+		`{"v":1,"kind":"run.start","run":"r1"}`+"\n"+"garbage\n"+`{"v":1,"kind":"run.end","run":"r1"}`+"\n")
+	testutil.WriteFile(t, b.home, "migrate/backups/20261017T010203.000000000Z.partial/state/x", "x")
+	testutil.WriteFile(t, b.home, "state/.lock", "")
+	before := testutil.TreeSnapshot(t, b.home)
+	var order []int
+
+	s := b.begin()
+
+	h := s.Halt()
+	require.NotNil(t, h)
+	assert.Equal(t, HaltLedgerCorrupt, h.Reason)
+	assert.Contains(t, h.Message, "line 2")
+	assert.Equal(t, filepath.Join(b.home.MigrateDir(), ledgerName), h.Ledger)
+	assert.Same(t, h, halted(t, s.RunPreOpen(context.Background(), tracing(&order, 1))))
+	assert.Empty(t, order)
+	assert.Equal(t, before, testutil.TreeSnapshot(t, b.home), "a corrupt ledger is left for a person to read")
+	_, err := lockHome(b.home)
+	require.ErrorIs(t, err, ErrHomeLocked)
+}
+
+func TestBegin_ClosesADanglingRunAsInterrupted(t *testing.T) {
+	ctx := context.Background()
+	b := newBench(t, newStep(1, "a", PreOpen, 0, 0))
+	b.seedLedger(
+		record{Kind: kindRunStart, At: ledgerEpoch, Run: "r-killed", Pending: []int{1}, From: new(int)},
+		record{Kind: kindStepStart, At: ledgerEpoch, Run: "r-killed", Step: 1, Name: "a", Phase: "pre-open"},
+	)
+
+	s := b.begin()
+
+	records := b.records()
+	require.Equal(t, []string{kindRunStart, kindStepStart, kindRunEnd}, kindsOf(records))
+	end := records[2]
+	assert.Equal(t, "r-killed", end.Run)
+	assert.Equal(t, outcomeInterrupted, end.Outcome)
+	assert.Equal(t, 0, layoutOf(end.To))
+	assert.NotEmpty(t, end.Error)
+	assert.Equal(t, []int{1}, numbers(s.pending()), "closing the run does not complete its step")
+	assert.Nil(t, s.Halt())
+
+	var order []int
+	require.NoError(t, s.RunPreOpen(ctx, tracing(&order, 1)))
+	assert.Equal(t, []int{1}, order, "the next run does the work the killed one did not finish")
+	assert.Len(t, ofKind(b.records(), kindRunStart), 2)
+}
+
+func TestBegin_ABumpWhoseLayoutLandedBeforeItsDoneRecordIsNotRerun(t *testing.T) {
+	ctx := context.Background()
+	b := newBench(t, newStep(1, "a", PreOpen, 0, 1))
+	testutil.WriteFile(t, b.home, "LAYOUT", "1\n")
+	b.seedLedger(
+		record{Kind: kindRunStart, At: ledgerEpoch, Run: "r-killed", Pending: []int{1}, From: new(int)},
+		record{Kind: kindStepStart, At: ledgerEpoch, Run: "r-killed", Step: 1, Name: "a", Phase: "pre-open"},
+	)
+	var order []int
+	s := b.begin()
+
+	require.NoError(t, s.RunPreOpen(ctx, tracing(&order, 1)))
+	require.NoError(t, s.RunPostOpen(ctx, tracing(&order, 1)))
+
+	assert.Empty(t, order, "LAYOUT alone decides a bump is done")
+	records := b.records()
+	require.Equal(t, []string{kindRunStart, kindStepStart, kindRunEnd}, kindsOf(records), "no new run for nothing to do")
+	assert.Equal(t, "r-killed", records[2].Run)
+	assert.Equal(t, outcomeInterrupted, records[2].Outcome)
+	assert.Equal(t, 1, layoutOf(records[2].To))
 }
 
 func TestBegin_RemovesHalfWrittenBackups(t *testing.T) {
