@@ -28,9 +28,10 @@ const (
 	kindStepFail   = "step.fail"
 	kindRunEnd     = "run.end"
 
-	outcomeApplied   = "applied"
-	outcomeCompleted = "completed"
-	outcomeFailed    = "failed"
+	outcomeApplied     = "applied"
+	outcomeCompleted   = "completed"
+	outcomeFailed      = "failed"
+	outcomeInterrupted = "interrupted"
 )
 
 // record is one ledger line. The JSON field names are the on-disk format.
@@ -79,13 +80,15 @@ func (v ledgerView) applied(
 	})
 }
 
-// checkpoints sums every checkpoint record of step n, across runs, by key.
+// checkpoints sums every checkpoint record of the step with this number and
+// name, across runs, by key. Like completion, it never crosses a rename.
 func (v ledgerView) checkpoints(
 	n int,
+	name string,
 ) map[string]Counts {
 	out := map[string]Counts{}
 	for _, r := range v.records {
-		if r.Kind != kindCheckpoint || r.Step != n {
+		if r.Kind != kindCheckpoint || r.Step != n || r.Name != name {
 			continue
 		}
 		if out[r.Key] == nil {

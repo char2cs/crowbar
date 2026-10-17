@@ -41,6 +41,18 @@ func TestCheckpoints_MarkIsDurableAndDoneSurvivesReopen(t *testing.T) {
 	require.NoError(t, reopened.Close())
 }
 
+func TestCheckpoints_ARenamedOrRenumberedStepStartsFresh(t *testing.T) {
+	l, err := openLedger(ledgerPathIn(t))
+	require.NoError(t, err)
+	first := newCheckpoints(l, "r1", ID{Number: 2, Name: "b"}, fixedClock)
+	require.NoError(t, first.Mark("a", Counts{"files": 2}))
+
+	assert.False(t, newCheckpoints(l, "r2", ID{Number: 2, Name: "renamed"}, fixedClock).Done("a"))
+	assert.False(t, newCheckpoints(l, "r2", ID{Number: 3, Name: "b"}, fixedClock).Done("a"))
+	assert.True(t, newCheckpoints(l, "r2", ID{Number: 2, Name: "b"}, fixedClock).Done("a"))
+	require.NoError(t, l.Close())
+}
+
 func TestCheckpoints_MarkCopiesItsCounts(t *testing.T) {
 	l, err := openLedger(ledgerPathIn(t))
 	require.NoError(t, err)

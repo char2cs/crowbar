@@ -295,16 +295,16 @@ func TestLedger_LastRun(t *testing.T) {
 
 func TestLedger_CheckpointsSumPerKeyAcrossRuns(t *testing.T) {
 	view := ledgerView{records: []record{
-		{Kind: "checkpoint", Run: "r1", Step: 1, Key: "a", Counts: Counts{"x": 1}},
-		{Kind: "checkpoint", Run: "r2", Step: 1, Key: "a", Counts: Counts{"x": 2}},
-		{Kind: "checkpoint", Run: "r2", Step: 1, Key: "b", Counts: Counts{"y": 5}},
-		{Kind: "checkpoint", Run: "r2", Step: 2, Key: "a", Counts: Counts{"x": 9}},
-		{Kind: "step.done", Run: "r2", Step: 1, Counts: Counts{"x": 100}},
+		{Kind: "checkpoint", Run: "r1", Step: 1, Name: "one", Key: "a", Counts: Counts{"x": 1}},
+		{Kind: "checkpoint", Run: "r2", Step: 1, Name: "one", Key: "a", Counts: Counts{"x": 2}},
+		{Kind: "checkpoint", Run: "r2", Step: 1, Name: "one", Key: "b", Counts: Counts{"y": 5}},
+		{Kind: "checkpoint", Run: "r2", Step: 2, Name: "two", Key: "a", Counts: Counts{"x": 9}},
+		{Kind: "step.done", Run: "r2", Step: 1, Name: "one", Counts: Counts{"x": 100}},
 	}}
 
-	assert.Equal(t, map[string]Counts{"a": {"x": 3}, "b": {"y": 5}}, view.checkpoints(1))
-	assert.Equal(t, map[string]Counts{"a": {"x": 9}}, view.checkpoints(2))
-	assert.Empty(t, view.checkpoints(3))
+	assert.Equal(t, map[string]Counts{"a": {"x": 3}, "b": {"y": 5}}, view.checkpoints(1, "one"))
+	assert.Equal(t, map[string]Counts{"a": {"x": 9}}, view.checkpoints(2, "two"))
+	assert.Empty(t, view.checkpoints(3, "three"))
 }
 
 func TestLedger_AbsentFileIsEmpty(t *testing.T) {

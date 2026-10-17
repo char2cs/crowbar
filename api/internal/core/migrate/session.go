@@ -67,7 +67,7 @@ var _ PostOpenRunner = (*Session)(nil)
 
 // Session owns the home for one boot: it holds the home lock, knows the layout,
 // and runs the catalog's pending steps in order, recording each run. It is not
-// safe for concurrent use, except Progress.
+// safe for concurrent use, except Halt and Progress.
 type Session struct {
 	home   home.Home
 	cat    *Catalog
@@ -79,13 +79,14 @@ type Session struct {
 	begun    ledgerView
 	led      *ledger
 	run      *runState
-	halted   *Halt
+	halted   atomic.Pointer[Halt]
 	progress atomic.Pointer[Progress]
 }
 
-// Begin takes the home lock and reads the layout and the ledger. It fails only
-// for a home another process holds (ErrHomeLocked) or an unexpected I/O error;
-// no session is returned then and the lock is not kept.
+// Begin takes the home lock and reads the layout and the ledger. It returns an
+// error, and no session, when the home is held by another process
+// (ErrHomeLocked), LAYOUT is unreadable (ErrLayoutUnreadable), the ledger is
+// corrupt (ErrLedgerCorrupt) or the home cannot be read; the lock is released.
 func Begin(
 	_ context.Context,
 	h home.Home,
@@ -120,9 +121,10 @@ func (s *Session) load() error {
 	return nil
 }
 
-// Halt is why the boot must not go on, or nil while it may.
+// Halt is why the boot must not go on, or nil while it may. It is safe to call
+// from another goroutine, and the Halt it returns is never changed.
 func (s *Session) Halt() *Halt {
-	return s.halted
+	return s.halted.Load()
 }
 
 // Progress is the step being run now, or the last one run. It is safe to call

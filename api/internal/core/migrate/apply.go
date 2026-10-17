@@ -21,9 +21,10 @@ type runState struct {
 	counts Counts
 }
 
-// RunPreOpen runs the pending pre-open steps, in catalog order, before any
-// database is open. A step failure halts the session and is returned as the
-// *Halt; a cancelled ctx stops before the next step and is returned as is.
+// RunPreOpen starts the boot's run when any step is pending, then runs the
+// pending pre-open steps, in catalog order, before any database is open. A step
+// failure halts the session and is returned as the *Halt; a cancelled ctx ends
+// the run as interrupted before the next step and is returned as is.
 func (s *Session) RunPreOpen(
 	ctx context.Context,
 	impls Impls,
@@ -31,8 +32,8 @@ func (s *Session) RunPreOpen(
 	return s.runPhase(ctx, PreOpen, impls)
 }
 
-// RunPostOpen runs the pending post-open steps and closes the run. It must
-// follow RunPreOpen: it refuses to run while a pre-open step is still pending.
+// RunPostOpen runs the pending post-open steps and closes the run RunPreOpen
+// started. It refuses to run while a pre-open step is pending or no run is open.
 func (s *Session) RunPostOpen(
 	ctx context.Context,
 	impls Impls,
@@ -45,10 +46,13 @@ func (s *Session) runPhase(
 	phase Phase,
 	impls Impls,
 ) error {
-	if s.halted != nil {
-		return s.halted
+	if h := s.halted.Load(); h != nil {
+		return h
 	}
 	if err := s.admit(phase, impls); err != nil {
+		return err
+	}
+	if err := s.ensureRun(phase); err != nil {
 		return err
 	}
 	for {
@@ -57,12 +61,28 @@ func (s *Session) runPhase(
 			return s.finish()
 		}
 		if err := ctx.Err(); err != nil {
-			return err
+			return s.interrupt(err)
 		}
 		if err := s.runStep(ctx, next[0], impls[next[0].Number]); err != nil {
 			return err
 		}
 	}
+}
+
+// ensureRun opens the boot's run the first time anything is pending, whichever
+// phase it is in, so preflight and backup can precede every step. Only
+// RunPreOpen may start it: RunPostOpen runs after the stores are open.
+func (s *Session) ensureRun(
+	phase Phase,
+) error {
+	pending := s.pending()
+	if len(pending) == 0 || s.run != nil {
+		return nil
+	}
+	if phase == PostOpen {
+		return errors.New("migrate: post-open steps are pending but RunPreOpen has not started a run")
+	}
+	return s.beginRun(pending)
 }
 
 // admit refuses a phase that cannot run in full, before it changes anything.
@@ -119,13 +139,10 @@ func (s *Session) runStep(
 	step Step,
 	impl Impl,
 ) error {
-	run, err := s.beginRun()
-	if err != nil {
-		return err
-	}
+	run := s.run
 	s.progress.Store(&Progress{Phase: step.Phase, Step: step.ID(), Index: run.done + 1, Total: run.total})
 	if err := s.led.append(s.stepRecord(kindStepStart, step)); err != nil {
-		return fmt.Errorf("migrate: step %d %q: record start: %w", step.Number, step.Name, err)
+		return s.fail(HaltStepFailed, step, fmt.Errorf("record start: %w", err))
 	}
 	s.opts.Log.InfoContext(ctx, "migrate: step started", "step", step.Number, "name", step.Name, "phase", step.Phase.String())
 	cp := newCheckpoints(s.led, run.id, step.ID(), s.now)
@@ -169,17 +186,16 @@ func (s *Session) complete(
 	return nil
 }
 
-// beginRun starts the boot's run on the first step to run, so a boot with
-// nothing to do, or one cancelled first, writes nothing.
-func (s *Session) beginRun() (*runState, error) {
-	if s.run != nil {
-		return s.run, nil
-	}
+// beginRun writes run.start for the steps pending now. A ledger that cannot be
+// written halts on the step that would have run first: the boot must not go on
+// unrecorded, and a halt is what the health endpoint can report.
+func (s *Session) beginRun(
+	pending []Step,
+) error {
 	l, err := s.openForAppend()
 	if err != nil {
-		return nil, fmt.Errorf("migrate: open ledger: %w", err)
+		return s.fail(HaltStepFailed, pending[0], fmt.Errorf("open ledger: %w", err))
 	}
-	pending := s.pending()
 	at := s.now()
 	run := &runState{id: at.Format(runIDLayout), total: len(pending), counts: Counts{}}
 	layout := s.layout
@@ -192,18 +208,35 @@ func (s *Session) beginRun() (*runState, error) {
 		Pending: stepNumbers(pending),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("migrate: start run %s: %w", run.id, err)
+		return s.fail(HaltStepFailed, pending[0], fmt.Errorf("start run %s: %w", run.id, err))
 	}
 	s.run = run
-	return run, nil
+	return nil
 }
 
-// finish closes the run once nothing is pending.
+// finish closes the run once nothing is pending. Every step is already durable
+// by then, so a ledger that cannot take the run.end does not undo the migration;
+// the next boot closes the dangling run.
 func (s *Session) finish() error {
 	if s.run == nil || len(s.pending()) > 0 {
 		return nil
 	}
-	return s.endRun(outcomeCompleted, "")
+	if err := s.endRun(outcomeCompleted, ""); err != nil {
+		s.opts.Log.Warn("migrate: every step is done but the run could not be closed", "run", s.run.id, "err", err)
+		s.run = nil
+	}
+	return nil
+}
+
+// interrupt closes the run a cancelled ctx stopped. It is not a failure, so
+// there is no halt; the next boot resumes from the checkpoints.
+func (s *Session) interrupt(
+	cause error,
+) error {
+	if err := s.endRun(outcomeInterrupted, cause.Error()); err != nil {
+		return errors.Join(cause, err)
+	}
+	return cause
 }
 
 func (s *Session) endRun(
@@ -239,79 +272,6 @@ func (s *Session) stepRecord(
 		Name:  step.Name,
 		Phase: step.Phase.String(),
 	}
-}
-
-// fail halts the session on step. The halt is set and returned even when the
-// ledger cannot record it: the ledger refuses every append once one failed.
-func (s *Session) fail(
-	reason HaltReason,
-	step Step,
-	cause error,
-) error {
-	h := s.newHalt(reason, step, cause)
-	s.halted = h
-	s.opts.Log.Error("migrate: halted", "reason", string(reason), "message", h.Message)
-	if err := s.recordFailure(step, cause, h); err != nil {
-		return errors.Join(h, err)
-	}
-	return h
-}
-
-// recordFailure ends the run the failure interrupted; with no run open there
-// is nothing in the ledger to close.
-func (s *Session) recordFailure(
-	step Step,
-	cause error,
-	h *Halt,
-) error {
-	if s.run == nil {
-		return nil
-	}
-	failed := s.stepRecord(kindStepFail, step)
-	failed.Error = cause.Error()
-	if err := s.led.append(failed); err != nil {
-		return fmt.Errorf("migrate: record step failure: %w", err)
-	}
-	return s.endRun(outcomeFailed, h.Message)
-}
-
-func (s *Session) newHalt(
-	reason HaltReason,
-	step Step,
-	cause error,
-) *Halt {
-	id := step.ID()
-	h := &Halt{
-		Reason:  reason,
-		Message: haltMessage(reason, step, cause),
-		Step:    &id,
-		Phase:   step.Phase.String(),
-		Layout:  s.layout,
-		Known:   s.cat.Known(),
-		Ledger:  s.ledgerPath(),
-	}
-	if s.run != nil {
-		h.Run = s.run.id
-	}
-	return h
-}
-
-// haltVerbs say what happened to a step; a reason without one means it failed.
-var haltVerbs = map[HaltReason]string{
-	HaltVerifyFailed: "failed verification",
-	HaltNoImpl:       "cannot run",
-}
-
-func haltMessage(
-	reason HaltReason,
-	step Step,
-	cause error,
-) string {
-	what, ok := haltVerbs[reason]
-	if !ok {
-		what = "failed"
-	}
-	return fmt.Sprintf("migration step %d %q %s: %v", step.Number, step.Name, what, cause)
 }
 
 func stepNumbers(

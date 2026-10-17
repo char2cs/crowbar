@@ -2,9 +2,10 @@ package migrate
 
 import (
 	"context"
-	"os"
+	"log/slog"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,6 +24,17 @@ func TestBegin_NothingPendingWritesNothing(t *testing.T) {
 		assert.NoFileExists(t, b.home.LayoutFile())
 		assert.NoDirExists(t, b.home.MigrateDir())
 		assert.Nil(t, s.Halt())
+	})
+
+	t.Run("a cancelled context with nothing pending", func(t *testing.T) {
+		b := newBench(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		s := b.begin()
+
+		require.NoError(t, s.RunPreOpen(ctx, nil))
+
+		assert.NoDirExists(t, b.home.MigrateDir())
 	})
 
 	t.Run("a step that already ran in an earlier session", func(t *testing.T) {
@@ -120,14 +132,12 @@ func TestSession_CloseWithoutALockIsSafe(t *testing.T) {
 	require.NoError(t, (&Session{}).Close())
 }
 
-func TestOptions_DefaultsAreUsable(t *testing.T) {
+func TestOptions_DefaultsProbeTheRealSystem(t *testing.T) {
 	opts := Options{}.withDefaults()
 
-	require.NotNil(t, opts.Clock)
-	require.NotNil(t, opts.HaveGit)
-	require.NotNil(t, opts.Log)
-	free, err := opts.FreeBytes(os.TempDir())
+	assert.WithinDuration(t, time.Now(), opts.Clock(), time.Minute)
+	free, err := opts.FreeBytes(t.TempDir())
 	require.NoError(t, err)
 	assert.NotZero(t, free)
-	assert.NotPanics(t, func() { opts.HaveGit() })
+	assert.Same(t, slog.Default(), opts.Log)
 }

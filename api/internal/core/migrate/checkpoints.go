@@ -27,7 +27,7 @@ func newCheckpoints(
 		run:    run,
 		step:   step,
 		now:    now,
-		done:   l.view.checkpoints(step.Number),
+		done:   l.view.checkpoints(step.Number, step.Name),
 	}
 }
 

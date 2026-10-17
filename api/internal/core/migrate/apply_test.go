@@ -1,12 +1,13 @@
 package migrate
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
+	"log/slog"
 	"regexp"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -161,108 +162,6 @@ func TestRun_ResumesFromCheckpoints(t *testing.T) {
 	assert.Equal(t, Counts{"files": 7, "skipped": 7}, done[0].Counts, "marks from every attempt plus what Apply returned")
 }
 
-func TestRun_FailureHaltsWithTheStepAndKeepsLayout(t *testing.T) {
-	ctx := context.Background()
-	b := newBench(t, newStep(1, "a", PreOpen, 0, 0), newStep(2, "b", PreOpen, 0, 1))
-	var order []int
-	impls := tracing(&order, 1)
-	impls[2] = impl(func(*Checkpoints) (Counts, error) {
-		order = append(order, 2)
-		return nil, errors.New("boom")
-	})
-	s := b.begin()
-
-	err := s.RunPreOpen(ctx, impls)
-
-	h := halted(t, err)
-	assert.Same(t, h, s.Halt())
-	require.EqualError(t, err, h.Message)
-	assert.Equal(t, HaltStepFailed, h.Reason)
-	require.NotNil(t, h.Step)
-	assert.Equal(t, ID{Number: 2, Name: "b"}, *h.Step)
-	assert.Equal(t, "pre-open", h.Phase)
-	assert.Contains(t, h.Message, "boom")
-	assert.Equal(t, 0, h.Layout)
-	assert.Equal(t, 1, h.Known)
-	assert.Equal(t, filepath.Join(b.home.MigrateDir(), ledgerName), h.Ledger)
-	records := b.records()
-	assert.Equal(t, []string{
-		kindRunStart, kindStepStart, kindStepDone, kindStepStart, kindStepFail, kindRunEnd,
-	}, kindsOf(records))
-	fail, end := records[4], records[5]
-	assert.Equal(t, 2, fail.Step)
-	assert.Contains(t, fail.Error, "boom")
-	assert.Equal(t, outcomeFailed, end.Outcome)
-	assert.Equal(t, h.Run, end.Run)
-	assert.NoFileExists(t, b.home.LayoutFile(), "a failed bump leaves LAYOUT alone")
-	require.NoError(t, s.Close())
-
-	order = nil
-	require.NoError(t, b.begin().RunPreOpen(ctx, tracing(&order, 1, 2)))
-	assert.Equal(t, []int{2}, order, "the next boot retries the failed step only")
-	assert.Equal(t, 1, b.layout())
-}
-
-func TestRun_VerifyFailureHalts(t *testing.T) {
-	b := newBench(t, newStep(1, "a", PreOpen, 0, 1))
-	applied := 0
-	bump := impl(func(*Checkpoints) (Counts, error) {
-		applied++
-		return nil, nil
-	})
-	bump.Verify = func(context.Context, Env) error {
-		return errors.New("mismatch")
-	}
-	s := b.begin()
-
-	err := s.RunPreOpen(context.Background(), Impls{1: bump})
-
-	h := halted(t, err)
-	assert.Equal(t, HaltVerifyFailed, h.Reason)
-	assert.Contains(t, h.Message, "mismatch")
-	assert.Equal(t, 1, applied)
-	assert.NoFileExists(t, b.home.LayoutFile(), "Apply alone never bumps the layout")
-	assert.Empty(t, ofKind(b.records(), kindStepDone))
-	assert.Equal(t, []string{kindRunStart, kindStepStart, kindStepFail, kindRunEnd}, b.kinds())
-}
-
-func TestRun_FailedLayoutWriteHalts(t *testing.T) {
-	b := newBench(t, newStep(1, "a", PreOpen, 0, 1))
-	bump := healthy(1)[1]
-	bump.Verify = func(context.Context, Env) error {
-		return os.Mkdir(b.home.LayoutFile(), 0o700) // a directory cannot be replaced by the staged file
-	}
-	s := b.begin()
-
-	err := s.RunPreOpen(context.Background(), Impls{1: bump})
-
-	h := halted(t, err)
-	assert.Equal(t, HaltStepFailed, h.Reason)
-	assert.Contains(t, h.Message, "LAYOUT")
-	assert.Empty(t, ofKind(b.records(), kindStepDone))
-}
-
-func TestRun_MissingImplHalts(t *testing.T) {
-	ctx := context.Background()
-	b := newBench(t, newStep(1, "a", PreOpen, 0, 0), newStep(2, "b", PreOpen, 0, 0))
-	var order []int
-	s := b.begin()
-
-	err := s.RunPreOpen(ctx, tracing(&order, 1))
-
-	h := halted(t, err)
-	assert.Equal(t, HaltNoImpl, h.Reason)
-	require.NotNil(t, h.Step)
-	assert.Equal(t, 2, h.Step.Number)
-	assert.Empty(t, order, "no step runs when any step of the phase cannot")
-	assert.NoDirExists(t, b.home.MigrateDir())
-	require.NoError(t, s.Close())
-
-	nilApply := b.begin()
-	err = nilApply.RunPreOpen(ctx, Impls{1: {}, 2: {}})
-	assert.Equal(t, HaltNoImpl, halted(t, err).Reason, "an Impl without Apply is no implementation")
-}
-
 func TestRun_AnImplementationNoStepOwnsIsAnError(t *testing.T) {
 	ctx := context.Background()
 	b := newBench(t, newStep(1, "a", PreOpen, 0, 0))
@@ -290,66 +189,62 @@ func TestRun_PostOpenWaitsForPendingPreOpenSteps(t *testing.T) {
 	assert.NoDirExists(t, b.home.MigrateDir())
 }
 
-func TestRun_AfterAHaltEverythingReturnsTheHalt(t *testing.T) {
+func TestRun_AClosingRecordThatFailsDoesNotUndoTheMigration(t *testing.T) {
+	b := newBench(t, newStep(1, "a", PreOpen, 0, 0))
+	var logs bytes.Buffer
+	b.log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	var s *Session
+	tick := tickingClock()
+	b.clock = func() time.Time {
+		if s != nil && s.run != nil && s.run.done == s.run.total {
+			require.NoError(t, s.led.Close()) // every step is recorded; run.end is next
+		}
+		return tick()
+	}
+	s = b.begin()
+	var order []int
+
+	require.NoError(t, s.RunPreOpen(context.Background(), tracing(&order, 1)))
+
+	assert.Nil(t, s.Halt())
+	assert.Contains(t, logs.String(), "could not be closed")
+	assert.Equal(t, []string{kindRunStart, kindStepStart, kindStepDone}, b.kinds())
+	require.NoError(t, s.Close())
+
+	require.NoError(t, b.begin().RunPreOpen(context.Background(), tracing(&order, 1)))
+	assert.Equal(t, []int{1}, order, "the finished step is not run again")
+}
+
+func TestRun_TheRunStartsInPreOpenEvenWhenOnlyPostOpenIsPending(t *testing.T) {
 	ctx := context.Background()
-	b := newBench(t, newStep(1, "a", PreOpen, 0, 0), newStep(2, "b", PostOpen, 0, 0))
+	b := newBench(t, newStep(1, "late", PostOpen, 0, 0))
 	var order []int
-	impls := tracing(&order, 1, 2)
-	impls[1] = impl(func(*Checkpoints) (Counts, error) {
-		return nil, errors.New("boom")
-	})
+	impls := tracing(&order, 1)
 	s := b.begin()
-	first := halted(t, s.RunPreOpen(ctx, impls))
 
-	assert.Same(t, first, halted(t, s.RunPostOpen(ctx, impls)))
-	assert.Same(t, first, halted(t, s.RunPreOpen(ctx, impls)))
-	assert.Empty(t, order, "no step runs after a halt")
-}
+	require.NoError(t, s.RunPreOpen(ctx, impls))
 
-func TestRun_FailureStaysHaltedWhenTheLedgerCannotRecordIt(t *testing.T) {
-	b := newBench(t, newStep(1, "a", PreOpen, 0, 0))
-	s := b.begin()
-	closeLedger := impl(func(*Checkpoints) (Counts, error) {
-		require.NoError(t, s.led.Close()) // the ledger can no longer be written
-		return nil, errors.New("boom")
-	})
-
-	err := s.RunPreOpen(context.Background(), Impls{1: closeLedger})
-
-	h := halted(t, err)
-	assert.Same(t, h, s.Halt())
-	assert.Equal(t, HaltStepFailed, h.Reason)
-	assert.Contains(t, h.Message, "boom", "the step's own error stays the cause")
-	require.ErrorIs(t, err, os.ErrClosed, "the append failure travels with the halt")
-}
-
-func TestRun_AnUnrecordedBumpStillHaltsAndKeepsTheBump(t *testing.T) {
-	b := newBench(t, newStep(1, "a", PreOpen, 0, 1))
-	s := b.begin()
-	closeLedger := impl(func(*Checkpoints) (Counts, error) {
-		return nil, s.led.Close()
-	})
-
-	err := s.RunPreOpen(context.Background(), Impls{1: closeLedger})
-
-	h := halted(t, err)
-	assert.Equal(t, HaltStepFailed, h.Reason)
-	assert.Equal(t, 1, h.Layout, "the bump landed and LAYOUT alone decides it is done")
-	assert.Equal(t, 1, b.layout())
-	require.ErrorIs(t, err, os.ErrClosed)
-}
-
-func TestRun_AnUnopenableLedgerIsAnErrorNotAHalt(t *testing.T) {
-	b := newBench(t, newStep(1, "a", PreOpen, 0, 0))
-	s := b.begin()
-	require.NoError(t, os.WriteFile(b.home.MigrateDir(), []byte("in the way"), 0o600))
-	var order []int
-
-	err := s.RunPreOpen(context.Background(), tracing(&order, 1))
-
-	require.ErrorContains(t, err, "open ledger")
-	assert.Nil(t, s.Halt(), "no step failed, so there is nothing to halt on")
+	records := b.records()
+	assert.Equal(t, []string{kindRunStart}, kindsOf(records), "preflight and backup must be able to precede the stores opening")
+	assert.Equal(t, []int{1}, records[0].Pending)
 	assert.Empty(t, order)
+
+	require.NoError(t, s.RunPostOpen(ctx, impls))
+	assert.Equal(t, []int{1}, order)
+	assert.Equal(t, []string{kindRunStart, kindStepStart, kindStepDone, kindRunEnd}, b.kinds())
+}
+
+func TestRun_PostOpenNeedsTheRunPreOpenStarted(t *testing.T) {
+	b := newBench(t, newStep(1, "late", PostOpen, 0, 0))
+	var order []int
+	s := b.begin()
+
+	err := s.RunPostOpen(context.Background(), tracing(&order, 1))
+
+	require.ErrorContains(t, err, "RunPreOpen")
+	assert.Nil(t, s.Halt())
+	assert.Empty(t, order)
+	assert.NoDirExists(t, b.home.MigrateDir())
 }
 
 func TestRun_CancelledContextStopsBetweenStepsWithoutAHalt(t *testing.T) {
@@ -370,23 +265,31 @@ func TestRun_CancelledContextStopsBetweenStepsWithoutAHalt(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Nil(t, s.Halt(), "an interruption is not a failure")
 	assert.Equal(t, []int{1}, order)
+	records := b.records()
+	assert.Equal(t, []string{kindRunStart, kindStepStart, kindStepDone, kindRunEnd}, kindsOf(records))
+	assert.Equal(t, outcomeInterrupted, records[3].Outcome)
 	require.NoError(t, s.Close())
 
 	require.NoError(t, b.begin().RunPreOpen(context.Background(), impls))
 	assert.Equal(t, []int{1, 2}, order, "the next boot resumes where the run stopped")
 }
 
-func TestRun_ContextCancelledBeforeAnyStepWritesNothing(t *testing.T) {
+func TestRun_ContextCancelledBeforeTheFirstStepEndsTheRunInterrupted(t *testing.T) {
 	b := newBench(t, newStep(1, "a", PreOpen, 0, 0))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var order []int
+	s := b.begin()
 
-	err := b.begin().RunPreOpen(ctx, tracing(&order, 1))
+	err := s.RunPreOpen(ctx, tracing(&order, 1))
 
 	require.ErrorIs(t, err, context.Canceled)
+	assert.Nil(t, s.Halt())
 	assert.Empty(t, order)
-	assert.NoDirExists(t, b.home.MigrateDir())
+	records := b.records()
+	assert.Equal(t, []string{kindRunStart, kindRunEnd}, kindsOf(records))
+	assert.Equal(t, outcomeInterrupted, records[1].Outcome)
+	assert.Equal(t, records[0].Run, records[1].Run)
 }
 
 func TestProgress_ReportsThePhaseAndStep(t *testing.T) {

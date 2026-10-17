@@ -2,6 +2,7 @@ package migrate
 
 import (
 	"context"
+	"log/slog"
 	"path/filepath"
 	"testing"
 	"time"
@@ -29,6 +30,7 @@ type bench struct {
 	home  home.Home
 	cat   *Catalog
 	clock func() time.Time
+	log   *slog.Logger // nil means the default logger
 }
 
 func newBench(
@@ -44,7 +46,7 @@ func newBench(
 // begin opens a session that is closed with the test; closing it earlier is fine.
 func (b *bench) begin() *Session {
 	b.tb.Helper()
-	s, err := Begin(context.Background(), b.home, b.cat, Options{Version: "v-test", Clock: b.clock})
+	s, err := Begin(context.Background(), b.home, b.cat, Options{Version: "v-test", Clock: b.clock, Log: b.log})
 	require.NoError(b.tb, err)
 	b.tb.Cleanup(func() {
 		require.NoError(b.tb, s.Close())
