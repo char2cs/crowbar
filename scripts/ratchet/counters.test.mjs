@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { COUNTERS, measureCounters } from './counters.mjs'
+import { COUNTERS, listMatches, main, measureCounters } from './counters.mjs'
 
 const file = (lang, text, isTest = false) => ({ path: 'x', lang, test: isTest, text })
 const count = (id, lang, ...lines) => measureCounters([file(lang, lines.join('\n'))])[id]
@@ -57,4 +57,38 @@ test('every counter id is present, zero for an empty input', () => {
   const out = measureCounters([])
   assert.deepEqual(Object.keys(out).sort(), COUNTERS.map((c) => c.id).sort())
   assert.ok(Object.values(out).every((n) => n === 0))
+})
+
+const src = (path, lang, text, isTest = false) => ({ path, lang, test: isTest, text })
+
+test('listMatches gives path:line for every match of one counter, in the files measureCounters scans', () => {
+  const files = [
+    src('api/a.go', 'go', 'x\n\ttime.After(d)\nfoo\n\ttime.NewTimer(d)\n'),
+    src('api/b.go', 'go', 'time.Now()\ntime.Tick(d)'),
+    src('api/a_test.go', 'go', 'time.After(d)', true),
+    src('web/src/c.ts', 'web', 'time.After(d)'),
+  ]
+  const hits = listMatches(files, 'go.timers')
+  assert.deepEqual(hits, ['api/a.go:2', 'api/a.go:4', 'api/b.go:2'])
+  assert.equal(hits.length, measureCounters(files)['go.timers'])
+})
+
+test('listMatches reports a multi-line match at the line it starts on', () => {
+  const files = [src('web/src/a.ts', 'web', 'a()\ntry {\n  b()\n} catch (e) {\n  // ignore\n}\nc()')]
+  assert.deepEqual(listMatches(files, 'web.empty-catch'), ['web/src/a.ts:4'])
+})
+
+test('main --list prints the matches of one counter and does not gate', () => {
+  const lines = []
+  const files = [src('api/a.go', 'go', 'x\ntime.After(d)')]
+  assert.equal(main(['--list', 'go.timers'], { files, log: (l) => lines.push(l) }), 0)
+  assert.deepEqual(lines, ['api/a.go:2'])
+})
+
+test('main --list with an unknown or missing id fails naming the valid ids', () => {
+  for (const args of [['--list', 'go.nope'], ['--list']]) {
+    const lines = []
+    assert.equal(main(args, { files: [], log: (l) => lines.push(l) }), 1)
+    assert.match(lines.join('\n'), /unknown counter.*valid ids: go\.timers, go\.discarded-errors, web\.timers, web\.empty-catch, web\.swallowed-promise/)
+  }
 })
