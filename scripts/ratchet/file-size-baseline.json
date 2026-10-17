@@ -18,7 +18,7 @@
   "api/internal/api/v0/endpoints/projects/handlers/projects_test.go": 678,
   "api/internal/api/v0/endpoints/repos/handlers/create_test.go": 592,
   "api/internal/api/v0/endpoints/repos/handlers/repos.go": 1067,
-  "api/internal/api/v0/endpoints/repos/handlers/repos_extra_test.go": 904,
+  "api/internal/api/v0/endpoints/repos/handlers/repos_extra_test.go": 872,
   "api/internal/api/v0/endpoints/repos/handlers/repos_test.go": 589,
   "api/internal/api/v0/route_audit_test.go": 980,
   "api/internal/app/container.go": 826,

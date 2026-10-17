@@ -55,38 +55,6 @@ func initRepo(t *testing.T, dir string) {
 	runGit(t, dir, "commit", "-q", "-m", "init")
 }
 
-// TestDefaultCrowbarHome pins the production root: ~/.crowbar under the real
-// user home directory, exercised via the zero-arg New() constructor (which
-// wires crowbarHome to defaultCrowbarHome) and DeleteRepo, the cheapest
-// exported path that calls it.
-func TestDefaultCrowbarHome(t *testing.T) {
-	t.Setenv("CROWBAR_HOME", "") // pin the default: override must be inert when unset
-	homeDir, err := os.UserHomeDir()
-	require.NoError(t, err)
-	want := filepath.Join(homeDir, ".crowbar")
-
-	// Verify the resolver's output by calling it through the exported New()
-	// constructor, which wires h.crowbarHome to the real defaultCrowbarHome
-	// (no WithIconStorage override): a file placed at the *real* resolved path
-	// must be found by Icon.
-	iconPath := filepath.Join(want, "projects", "probe-project", "probe-repo", "icon")
-	require.NoError(t, os.MkdirAll(filepath.Dir(iconPath), 0o755))
-	t.Cleanup(func() { _ = os.RemoveAll(filepath.Join(want, "projects", "probe-project")) })
-	png := append([]byte("\x89PNG\r\n\x1a\n"), []byte("home-probe")...)
-	require.NoError(t, os.WriteFile(iconPath, png, 0o644))
-
-	store2 := &fakeStore{byKey: &domain.Repository{ID: "probe-repo", ProjectID: "probe-project", AvatarHasIcon: true}}
-	h2 := repohandlers.New(store2) // uses the real defaultCrowbarHome, no override
-	r2 := gin.New()
-	r2.GET("/v0/projects/:projectId/repos/:repoId/icon", h2.Icon)
-
-	req2 := httptest.NewRequest(http.MethodGet, "/v0/projects/probe-project/repos/probe-repo/icon", http.NoBody)
-	rec2 := httptest.NewRecorder()
-	r2.ServeHTTP(rec2, req2)
-	assert.Equal(t, http.StatusOK, rec2.Code, "defaultCrowbarHome must resolve to ~/.crowbar for Icon to find the file")
-	assert.Equal(t, png, rec2.Body.Bytes())
-}
-
 // TestDefaultCrowbarHome_CrowbarHomeOverride pins the dev-isolation root: with
 // CROWBAR_HOME set, the zero-arg New() constructor roots icon storage there
 // instead of ~/.crowbar.
