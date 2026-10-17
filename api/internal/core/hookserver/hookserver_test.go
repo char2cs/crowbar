@@ -29,7 +29,7 @@ func gateStatus(
 		w.WriteHeader(http.StatusOK)
 	})
 	rec := httptest.NewRecorder()
-	hookserver.Gate(next).ServeHTTP(rec, httptest.NewRequest(method, path, nil))
+	hookserver.Gate(next).ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), method, path, nil))
 	return rec.Code, reached
 }
 
@@ -66,7 +66,7 @@ func TestGate_RefusesEverythingElse(t *testing.T) {
 }
 
 func TestListen_BindsLoopbackOnly(t *testing.T) {
-	s, err := hookserver.Listen(http.NotFoundHandler())
+	s, err := hookserver.Listen(t.Context(), http.NotFoundHandler())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 
@@ -76,27 +76,38 @@ func TestListen_BindsLoopbackOnly(t *testing.T) {
 }
 
 func TestServe_AnswersTheHookRouteAndNothingElse(t *testing.T) {
-	s, err := hookserver.Listen(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	s, err := hookserver.Listen(t.Context(), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "routed")
 	}))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 	go func() { _ = s.Serve() }()
 
-	resp, err := http.Post(s.URL()+hookPath, "application/json", strings.NewReader("{}"))
-	require.NoError(t, err)
+	resp := do(t, http.MethodPost, s.URL()+hookPath, strings.NewReader("{}"))
 	body, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 	assert.Equal(t, "routed", string(body))
 
-	resp, err = http.Get(s.URL() + "/v0/projects")
-	require.NoError(t, err)
+	resp = do(t, http.MethodGet, s.URL()+"/v0/projects", nil)
 	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
+func do(
+	t *testing.T,
+	method, url string,
+	body io.Reader,
+) *http.Response {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), method, url, body)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	return resp
+}
+
 func TestShutdown_StopsServing(t *testing.T) {
-	s, err := hookserver.Listen(http.NotFoundHandler())
+	s, err := hookserver.Listen(t.Context(), http.NotFoundHandler())
 	require.NoError(t, err)
 	served := make(chan error, 1)
 	go func() { served <- s.Serve() }()

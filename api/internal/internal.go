@@ -114,7 +114,7 @@ func New(
 
 	// Published before anything can spawn a CLI: the spawner reads it to point the
 	// CLI's hooks here.
-	hooks, err := hookserver.Listen(apiContainer.Handler())
+	hooks, err := hookserver.Listen(ctx, apiContainer.Handler())
 	if err != nil {
 		return nil, fmt.Errorf("internal: hooks: %w", err)
 	}

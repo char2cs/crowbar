@@ -3,7 +3,10 @@ package git
 
 import (
 	"context"
+	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
@@ -66,24 +69,28 @@ func ExportedParseNumstat(
 // failure paths through a fake exec (NewWithExec) without a real git
 // subprocess ever needing to fail rev-list on a resolvable ref.
 func ExportedCommitsAheadOf(
+	tb testing.TB,
 	e Engine,
 	ctx context.Context,
 	repoPath string,
 	ref string,
 ) (int, bool) {
-	return e.(*engine).commitsAheadOf(ctx, repoPath, ref)
+	tb.Helper()
+	return engineOf(tb, e).commitsAheadOf(ctx, repoPath, ref)
 }
 
 // ExportedNumstatFromBase wraps numstatFromBase for the same reason: a real
 // resolved base essentially never makes `git diff --numstat` fail, so the
 // ExitCode != 0 branch needs a fake exec to reach.
 func ExportedNumstatFromBase(
+	tb testing.TB,
 	e Engine,
 	ctx context.Context,
 	repoPath string,
 	base string,
 ) (int, int, error) {
-	return e.(*engine).numstatFromBase(ctx, repoPath, base)
+	tb.Helper()
+	return engineOf(tb, e).numstatFromBase(ctx, repoPath, base)
 }
 
 // ExportedResolveDiffBase wraps resolveDiffBase so a fake exec (NewWithExec)
@@ -91,12 +98,14 @@ func ExportedNumstatFromBase(
 // exits 0 with blank stdout, so the "candidate produced no usable SHA" guard
 // needs a fake exec to reach.
 func ExportedResolveDiffBase(
+	tb testing.TB,
 	e Engine,
 	ctx context.Context,
 	repoPath string,
 	base string,
 ) string {
-	got, _ := e.(*engine).resolveDiffBase(ctx, repoPath, base)
+	tb.Helper()
+	got, _ := engineOf(tb, e).resolveDiffBase(ctx, repoPath, base)
 	return got
 }
 
@@ -196,4 +205,15 @@ func NewWithRecordingExec() (Engine, *[][]string) {
 		},
 	}
 	return e, &recorded
+}
+
+// engineOf unwraps the concrete engine behind the Engine interface.
+func engineOf(
+	tb testing.TB,
+	e Engine,
+) *engine {
+	tb.Helper()
+	eng, ok := e.(*engine)
+	require.True(tb, ok, "expected *engine, got %T", e)
+	return eng
 }

@@ -32,7 +32,7 @@ func runLive(ctx context.Context, raw []byte, d *spec.Descriptor, opts LiveOptio
 	if err != nil {
 		return []Step{{Name: "setup", Status: StatusFail, Detail: err.Error()}}
 	}
-	defer l.close()
+	defer l.close(ctx)
 
 	steps := []Step{timed(l.binary)}
 	if steps[0].Status == StatusFail {
@@ -51,20 +51,20 @@ func newLive(ctx context.Context, raw []byte, d *spec.Descriptor, opts LiveOptio
 		return nil, fmt.Errorf("scratch dir: %w", err)
 	}
 	l := &live{opts: opts, d: d, id: d.ID, scratch: scratch, home: filepath.Join(scratch, "home")}
-	if err := l.prepare(raw); err != nil {
-		l.close()
+	if err := l.prepare(ctx, raw); err != nil {
+		l.close(ctx)
 		return nil, err
 	}
 	l.svc = agents.New()
 	l.agent, err = l.svc.Get(ctx, l.home, d.ID)
 	if err != nil {
-		l.close()
+		l.close(ctx)
 		return nil, fmt.Errorf("load descriptor: %w", err)
 	}
 	return l, nil
 }
 
-func (l *live) prepare(raw []byte) error {
+func (l *live) prepare(ctx context.Context, raw []byte) error {
 	dir := filepath.Join(l.home, "descriptors")
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("home: %w", err)
@@ -79,7 +79,7 @@ func (l *live) prepare(raw []byte) error {
 			return fmt.Errorf("work dir: %w", err)
 		}
 	}
-	hooks, err := newRecorder(l.scratch)
+	hooks, err := newRecorder(ctx, l.scratch)
 	if err != nil {
 		return err
 	}
@@ -87,8 +87,8 @@ func (l *live) prepare(raw []byte) error {
 	return nil
 }
 
-func (l *live) close() {
-	l.hooks.close()
+func (l *live) close(ctx context.Context) {
+	l.hooks.close(ctx)
 	if l.svc != nil {
 		l.svc.Close()
 	}

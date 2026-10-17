@@ -3,6 +3,7 @@
 package descriptorcheck
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
@@ -14,12 +15,16 @@ import (
 // A CLI with native HTTP hooks posts them to the recorder's own loopback server,
 // which keeps them as it keeps a relayed one: the event name and the raw payload.
 func TestRecorder_RecordsAHookPostedToItsLoopbackServer(t *testing.T) {
-	r, err := newRecorder(t.TempDir())
+	r, err := newRecorder(t.Context(), t.TempDir())
 	require.NoError(t, err)
-	t.Cleanup(r.close)
+	t.Cleanup(func() { r.close(context.Background()) })
 
-	resp, err := http.Post(r.url+"/v0/projects/p/home/chats/runners/s/hooks/claude/tool_pre",
-		"application/json", strings.NewReader(`{"tool_name":"Bash"}`))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
+		r.url+"/v0/projects/p/home/chats/runners/s/hooks/claude/tool_pre",
+		strings.NewReader(`{"tool_name":"Bash"}`))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 
@@ -31,5 +36,5 @@ func TestRecorder_RecordsAHookPostedToItsLoopbackServer(t *testing.T) {
 }
 
 func TestRecorder_CloseWithoutAServerIsHarmless(t *testing.T) {
-	assert.NotPanics(t, recorder{}.close)
+	assert.NotPanics(t, func() { recorder{}.close(t.Context()) })
 }

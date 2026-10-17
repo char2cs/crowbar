@@ -21,7 +21,7 @@ func TestRun_ServeError_SurfacesNotHangs(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, ln.Close()) // closed listener -> Serve returns immediately
 
-	hooks, err := hookserver.Listen(http.NewServeMux())
+	hooks, err := hookserver.Listen(context.Background(), http.NewServeMux())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = hooks.Close() })
 	c := &Container{

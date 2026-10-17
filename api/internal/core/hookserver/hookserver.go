@@ -47,9 +47,11 @@ type Server struct {
 
 // Listen binds an ephemeral port on 127.0.0.1 and gates next to the hook route.
 func Listen(
+	ctx context.Context,
 	next http.Handler,
 ) (*Server, error) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("hookserver: listen: %w", err)
 	}

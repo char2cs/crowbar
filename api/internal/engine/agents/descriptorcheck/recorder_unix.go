@@ -35,7 +35,7 @@ type hookRecord struct {
 	payload []byte
 }
 
-func newRecorder(dir string) (recorder, error) {
+func newRecorder(ctx context.Context, dir string) (recorder, error) {
 	r := recorder{path: filepath.Join(dir, "hook"), dir: filepath.Join(dir, "hooks")}
 	if err := os.MkdirAll(r.dir, 0o750); err != nil {
 		return recorder{}, fmt.Errorf("hook recorder: %w", err)
@@ -47,7 +47,8 @@ func newRecorder(dir string) (recorder, error) {
 	if err := os.WriteFile(r.path, []byte(script), 0o700); err != nil { //nolint:gosec // the recorder must be executable
 		return recorder{}, fmt.Errorf("hook recorder: %w", err)
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		return recorder{}, fmt.Errorf("hook recorder: %w", err)
 	}
@@ -85,12 +86,13 @@ func (r recorder) record(
 	w.WriteHeader(http.StatusOK)
 }
 
-// close stops the loopback server. A recorder that never started one is a no-op.
-func (r recorder) close() {
+// close stops the loopback server, waiting up to a second even when ctx is already
+// cancelled. A recorder that never started one is a no-op.
+func (r recorder) close(ctx context.Context) {
 	if r.server == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 	defer cancel()
 	_ = r.server.Shutdown(ctx)
 }
