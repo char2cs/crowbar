@@ -284,16 +284,7 @@ func (s *Session) writeRunEnd(
 	outcome string,
 	detail string,
 ) error {
-	layout := s.layout
-	err := s.led.append(record{
-		Kind:    kindRunEnd,
-		At:      s.now(),
-		Run:     id,
-		To:      &layout,
-		Counts:  counts,
-		Outcome: outcome,
-		Error:   detail,
-	})
+	err := s.led.append(runEnd{run: id, outcome: outcome, detail: detail}.record(s.now(), s.layout, counts))
 	if err != nil {
 		return fmt.Errorf("migrate: end run %s: %w", id, err)
 	}

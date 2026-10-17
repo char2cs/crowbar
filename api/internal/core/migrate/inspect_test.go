@@ -204,13 +204,13 @@ func TestInspect_NewerLayoutReturnsHalt(t *testing.T) {
 	assert.Contains(t, got.Message, "layout 9")
 }
 
-// sessionless is a Halt without what only a running session knows: its run, the
-// ledger it wrote and the backup it took.
+// sessionless is a Halt without what only a running session knows when the
+// preview is made: the run it started and the ledger file that run created.
 func sessionless(
 	h *Halt,
 ) Halt {
 	c := *h
-	c.Run, c.Ledger, c.Backup = "", "", ""
+	c.Run, c.Ledger = "", ""
 	return c
 }
 
@@ -220,11 +220,12 @@ func sessionless(
 func TestInspect_APreflightFailureIsTheHaltTheBootGives(t *testing.T) {
 	rewrites := Plan{Actions: []Action{{Kind: Convert, Subject: "state/x", Count: Unknown}}, RewritesState: true}
 	tests := []struct {
-		name    string
-		plan    func(context.Context, Env) (Plan, error)
-		arrange func(*bench)
-		reason  HaltReason
-		message string
+		name      string
+		plan      func(context.Context, Env) (Plan, error)
+		arrange   func(*bench)
+		reason    HaltReason
+		message   string
+		hasBackup bool
 	}{
 		{
 			name:   "a step whose plan fails",
@@ -264,6 +265,19 @@ func TestInspect_APreflightFailureIsTheHaltTheBootGives(t *testing.T) {
 			arrange: func(b *bench) { b.haveGit = func() bool { return false } },
 			reason:  HaltPreflight, message: "git is required",
 		},
+		{
+			name: "git missing on a retry that keeps an earlier backup",
+			plan: planning(Plan{NeedsGit: true, RewritesState: true}),
+			arrange: func(b *bench) {
+				testutil.WriteFile(b.tb, b.home, "state/a.db", "rows")
+				s := b.begin()
+				boom := Impls{1: impl(func(*Checkpoints) (Counts, error) { return nil, errors.New("boom") })}
+				assert.Equal(b.tb, HaltStepFailed, halted(b.tb, s.RunPreOpen(context.Background(), boom)).Reason)
+				require.NoError(b.tb, s.Close())
+				b.haveGit = func() bool { return false }
+			},
+			reason: HaltPreflight, message: "git is required", hasBackup: true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -283,6 +297,7 @@ func TestInspect_APreflightFailureIsTheHaltTheBootGives(t *testing.T) {
 			assert.Contains(t, got.Message, tc.message)
 			assert.Equal(t, &ID{Number: 2, Name: "b"}, got.Step)
 			assert.Equal(t, "post-open", got.Phase)
+			assert.Equal(t, tc.hasBackup, got.Backup != "", "a retry's halt names the backup it keeps")
 			boot := b.begin().RunPreOpen(context.Background(), healthy(1, 2))
 			assert.Equal(t, sessionless(halted(t, boot)), sessionless(got), "the preview halts as the boot does")
 		})
@@ -426,6 +441,48 @@ func TestInspect_KeepsTheBackupAnEarlierAttemptTook(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, report.Steps)
 		assert.Equal(t, BackupPlan{}, report.Backup)
+	})
+}
+
+// Begin ends a run a crash left open before the preflight looks at backups, and
+// a run it ends as completed retires its backup. The preview must read the
+// ledger as the boot will have left it.
+func TestInspect_ReadsTheLedgerAsBeginLeavesIt(t *testing.T) {
+	rewrites := Plan{Actions: []Action{{Kind: Convert, Subject: "state/x", Count: Unknown}}, RewritesState: true}
+	crashed := func(t *testing.T, started []int) *bench {
+		t.Helper()
+		b := newBench(t, newStep(1, "a", PreOpen, 0, 0), planStep(2, "b", PostOpen, 0, 0, rewrites))
+		testutil.WriteFile(t, b.home, "state/a.db", "rows")
+		backup := filepath.Join(b.home.MigrateDir(), backupsDirName, "r1", "state")
+		testutil.WriteFile(t, b.home, "migrate/backups/r1/state/a.db", "old")
+		b.seedLedger(
+			record{Kind: kindRunStart, At: minute(0), Run: "r1", From: intPtr(0), Pending: started},
+			record{Kind: kindBackup, At: minute(1), Run: "r1", Path: backup, Bytes: 3},
+			record{Kind: kindStepDone, At: minute(2), Run: "r1", Step: 1, Name: "a", Outcome: outcomeApplied},
+		)
+		return b
+	}
+
+	t.Run("a run with nothing left undone ends completed and its backup retires", func(t *testing.T) {
+		b := crashed(t, []int{1})
+
+		report, err := b.inspect()
+
+		require.NoError(t, err)
+		assert.Equal(t, BackupPlan{Required: true, Bytes: 4, FreeBytes: 1 << 40}, report.Backup)
+		require.NotNil(t, report.Last)
+		assert.Empty(t, report.Last.Outcome, "the ledger as it is: the run has not ended yet")
+		assert.Equal(t, 1, b.bootBackups(healthy(1, 2)))
+	})
+
+	t.Run("a run with steps undone ends interrupted and its backup stays in force", func(t *testing.T) {
+		b := crashed(t, []int{1, 2})
+
+		report, err := b.inspect()
+
+		require.NoError(t, err)
+		assert.Equal(t, BackupPlan{Kept: "r1"}, report.Backup)
+		assert.Zero(t, b.bootBackups(healthy(1, 2)))
 	})
 }
 

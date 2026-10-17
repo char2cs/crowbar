@@ -100,6 +100,13 @@ func (v ledgerView) checkpoints(
 	return out
 }
 
+// ended is the view with r, a run.end, appended; v itself is unchanged.
+func (v ledgerView) ended(
+	r record,
+) ledgerView {
+	return ledgerView{records: append(slices.Clone(v.records), r)}
+}
+
 // danglingRun returns the last run.start when it has no run.end.
 func (v ledgerView) danglingRun() (record, bool) {
 	start, rest, ok := v.latestRun()

@@ -51,13 +51,14 @@ func Inspect(
 	opts = opts.withDefaults()
 	read := readHome(h, cat)
 	if read.refusal != nil {
-		return Report{}, haltAt(h, cat, read.layout, read.refusal.reason, read.refusal.message)
+		return Report{}, haltAt(h, cat, read.layout, read.view, read.refusal.reason, read.refusal.message)
 	}
-	pending := cat.pending(read.layout, read.view)
-	res, err := checkPending(ctx, Env{Home: h, Log: opts.Log}, pending, read.view, opts)
+	view := cat.settled(read.layout, read.view)
+	pending := cat.pending(read.layout, view)
+	res, err := checkPending(ctx, Env{Home: h, Log: opts.Log}, pending, view, opts)
 	var f *fault
 	if errors.As(err, &f) {
-		return Report{}, haltAt(h, cat, read.layout, f.reason, f.Error()).at(f.step)
+		return Report{}, haltAt(h, cat, read.layout, view, f.reason, f.Error()).at(f.step)
 	}
 	if err != nil {
 		return Report{}, err
@@ -118,18 +119,22 @@ func ledgerPath(
 	return filepath.Join(h.MigrateDir(), ledgerName)
 }
 
-// haltAt is a Halt with everything the files alone tell: the layouts and the
-// ledger's path where one exists. A session adds what only it knows.
+// haltAt is a Halt with everything the files alone tell: the layouts, the ledger
+// where one exists and the backup in force. A session adds its run.
 func haltAt(
 	h home.Home,
 	cat *Catalog,
 	layout int,
+	view ledgerView,
 	reason HaltReason,
 	message string,
 ) *Halt {
 	halt := &Halt{Reason: reason, Message: message, Layout: layout, Known: cat.Known()}
 	if _, err := os.Stat(ledgerPath(h)); err == nil {
 		halt.Ledger = ledgerPath(h)
+	}
+	if path := view.backupInForce().Path; backupOnDisk(path) {
+		halt.Backup = path
 	}
 	return halt
 }

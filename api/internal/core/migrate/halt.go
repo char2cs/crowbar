@@ -129,10 +129,7 @@ func (s *Session) baseHalt(
 	reason HaltReason,
 	message string,
 ) *Halt {
-	h := haltAt(s.home, s.cat, s.layout, reason, message)
-	if path := s.view().backupInForce().Path; backupOnDisk(path) {
-		h.Backup = path
-	}
+	h := haltAt(s.home, s.cat, s.layout, s.view(), reason, message)
 	if s.run != nil {
 		h.Run = s.run.id
 	}

@@ -68,9 +68,8 @@ func (s *Session) preflight(
 }
 
 // checkPending plans the pending steps and makes every decision the run makes
-// before it writes anything. The session acts on the result and Inspect reports
-// it, so a preview cannot disagree with the boot. A check the steps fail is a
-// *fault; any other error is ctx giving up.
+// before it writes anything; the session acts on it and Inspect reports it. A
+// failed check is a *fault; any other error is ctx giving up.
 func checkPending(
 	ctx context.Context,
 	env Env,
@@ -111,10 +110,9 @@ func planSteps(
 	return plans, nil
 }
 
-// dueBackup is the one rule for the run's backup of state/. It is due when a plan
-// rewrites state/ and state/ holds files, unless a backup an earlier attempt took
-// is still on disk, which the run keeps. It fails as the run would: on an entry a
-// backup cannot take, or on too little room for the copy.
+// dueBackup is the one rule for the run's backup of state/: due when a plan
+// rewrites it and it holds files, unless an earlier attempt's backup is still on
+// disk. It fails as the run would, on an entry a backup cannot take or no room.
 func dueBackup(
 	h home.Home,
 	view ledgerView,
@@ -152,10 +150,9 @@ func dueBackup(
 	return due, nil
 }
 
-// backUpState acts on dueBackup: it copies state/ once per migration attempt.
-// While the ledger holds a backup no completed run has followed, a retry keeps
-// it, so partially migrated state never replaces the image a person would
-// restore from.
+// backUpState acts on dueBackup: one copy of state/ per migration attempt, kept
+// across retries, so partly migrated state never replaces the image a person
+// would restore from.
 func (s *Session) backUpState(
 	due backupDue,
 ) error {

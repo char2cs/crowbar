@@ -128,34 +128,66 @@ func (s *Session) load() error {
 // holds two live runs. It is the only ledger write Begin makes, and only when a
 // run is dangling.
 func (s *Session) closeDanglingRun() error {
-	start, ok := s.begun.danglingRun()
+	end, ok := s.cat.endOfDangling(s.layout, s.begun)
 	if !ok {
 		return nil
 	}
-	outcome, detail := outcomeInterrupted, "the process stopped before the run ended"
-	if s.leftNothingUndone(start) {
-		outcome, detail = outcomeCompleted, ""
-	}
 	if _, err := s.openForAppend(); err != nil {
-		return fmt.Errorf("close unfinished run %s: open ledger: %w", start.Run, err)
+		return fmt.Errorf("close unfinished run %s: open ledger: %w", end.run, err)
 	}
-	if err := s.writeRunEnd(start.Run, nil, outcome, detail); err != nil {
-		return fmt.Errorf("close unfinished run %s: %w", start.Run, err)
+	if err := s.writeRunEnd(end.run, nil, end.outcome, end.detail); err != nil {
+		return fmt.Errorf("close unfinished run %s: %w", end.run, err)
 	}
-	s.opts.Log.Info("migrate: closed a run that never ended", "run", start.Run, "outcome", outcome)
+	s.opts.Log.Info("migrate: closed a run that never ended", "run", end.run, "outcome", end.outcome)
 	return nil
 }
 
-// leftNothingUndone is whether every step the run set out to do is done in this
-// home, so only its closing record was lost. A step the catalog dropped cannot
-// be vouched for.
-func (s *Session) leftNothingUndone(
-	start record,
-) bool {
-	left := stepNumbers(s.pending())
-	return !slices.ContainsFunc(start.Pending, func(n int) bool {
-		return !s.cat.has(n) || slices.Contains(left, n)
+// runEnd is how a run ends: the record that closes it.
+type runEnd struct {
+	run     string
+	outcome string
+	detail  string
+}
+
+func (e runEnd) record(
+	at time.Time,
+	layout int,
+	counts Counts,
+) record {
+	return record{Kind: kindRunEnd, At: at, Run: e.run, To: &layout, Counts: counts, Outcome: e.outcome, Error: e.detail}
+}
+
+// endOfDangling is how Begin ends a run a killed process left open: completed
+// when every step it set out to do is done, else interrupted. A step the catalog
+// dropped cannot be vouched for.
+func (c *Catalog) endOfDangling(
+	layout int,
+	v ledgerView,
+) (runEnd, bool) {
+	start, ok := v.danglingRun()
+	if !ok {
+		return runEnd{}, false
+	}
+	left := stepNumbers(c.pending(layout, v))
+	undone := slices.ContainsFunc(start.Pending, func(n int) bool {
+		return !c.has(n) || slices.Contains(left, n)
 	})
+	if undone {
+		return runEnd{start.Run, outcomeInterrupted, "the process stopped before the run ended"}, true
+	}
+	return runEnd{start.Run, outcomeCompleted, ""}, true
+}
+
+// settled is the ledger as it stands once Begin has ended a dangling run; a
+// preview reads it so that it sees what the boot will.
+func (c *Catalog) settled(
+	layout int,
+	v ledgerView,
+) ledgerView {
+	if end, ok := c.endOfDangling(layout, v); ok {
+		return v.ended(end.record(time.Time{}, layout, nil))
+	}
+	return v
 }
 
 // Halt is why the boot must not go on, or nil while it may. It is safe to call
