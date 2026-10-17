@@ -79,7 +79,7 @@ const writeBaseline = (path, measured) => {
 
 /**
  * `init` is the only way to create a baseline, so a lost or misnamed file can never be
- * silently re-recorded at today's numbers. `allowAdded` is `true` or the only keys that may be added.
+ * silently re-recorded at today's numbers.
  * @returns {number} the process exit code.
  */
 export function runGate({ name, baselinePath, measured, init, update, allowAdded, summary, hint, log = console.log }) {
@@ -99,9 +99,8 @@ export function runGate({ name, baselinePath, measured, init, update, allowAdded
   }
 
   const diff = diffBaseline(JSON.parse(readFileSync(baselinePath, 'utf8')), measured)
-  const mayAdd = (key) => allowAdded === true || (Array.isArray(allowAdded) && allowAdded.includes(key))
-  const accepted = diff.added.filter((c) => mayAdd(c.key))
-  const refused = diff.added.filter((c) => !mayAdd(c.key))
+  const accepted = allowAdded ? diff.added : []
+  const refused = allowAdded ? [] : diff.added
   const growth = [...diff.grew, ...refused]
   const writeBack = [...diff.shrunk, ...diff.gone, ...accepted]
   const show = (kind, changes) => {

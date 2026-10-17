@@ -8,8 +8,6 @@ import { countLines, loadCode, runGate } from './lib.mjs'
 class ConfigError extends Error {}
 
 const ROOTS = { go: 'api', web: 'web/src' }
-// The test totals are the only keys `--update` may add; a new module budget is edited in by hand.
-const FIRST_TIME_KEYS = ['go.tests', 'web.tests']
 
 const dir = dirname(fileURLToPath(import.meta.url))
 const readModules = () => JSON.parse(readFileSync(join(dir, 'modules.json'), 'utf8'))
@@ -107,7 +105,7 @@ export function main(
     measured,
     init: args.includes('--init'),
     update: args.includes('--update'),
-    allowAdded: FIRST_TIME_KEYS,
+    allowAdded: false,
     summary: `go ${measured['go.total']}, web ${measured['web.total']}`,
     log,
   })

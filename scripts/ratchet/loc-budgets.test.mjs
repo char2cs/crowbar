@@ -118,19 +118,21 @@ const gateOf = (t, baseline, args) => {
 const svcModules = { go: { svc: ['api/internal'] }, web: {} }
 const svcFiles = [f('api/internal/a.go', 10), f('api/internal/a_test.go', 5, true)]
 
-test('the test totals are first-time keys: --update accepts them', (t) => {
-  const g = gateOf(t, { 'go.svc': 10, 'go.total': 10, 'web.total': 0 }, ['--update'])
-  assert.equal(g.run(svcFiles, svcModules), 0)
-  assert.deepEqual(JSON.parse(readFileSync(g.baselinePath, 'utf8')), { 'go.svc': 10, 'go.tests': 5, 'go.total': 10, 'web.tests': 0, 'web.total': 0 })
+test('--update never adds a key, not even go.tests: a hand-deleted one stays refused and the file is untouched', (t) => {
+  const before = { 'go.svc': 10, 'go.total': 10, 'web.tests': 0, 'web.total': 0 }
+  const g = gateOf(t, before, ['--update'])
+  assert.equal(g.run(svcFiles, svcModules), 1)
+  assert.match(g.text(), /  new    go\.tests: 5/)
+  assert.match(g.text(), /refusing to raise a baseline/)
+  assert.deepEqual(JSON.parse(readFileSync(g.baselinePath, 'utf8')), before)
 })
 
-test('a new module key is still refused, even beside the test totals', (t) => {
-  const before = { 'go.svc': 10, 'go.total': 13, 'web.total': 0 }
+test('--update refuses a new module key and leaves the file untouched', (t) => {
+  const before = { 'go.svc': 10, 'go.tests': 5, 'go.total': 13, 'web.tests': 0, 'web.total': 0 }
   const g = gateOf(t, before, ['--update'])
   const grown = { go: { svc: ['api/internal'], fresh: ['api/other'] }, web: {} }
   assert.equal(g.run([...svcFiles, f('api/other/b.go', 3)], grown), 1)
   assert.match(g.text(), /  new    go\.fresh: 3/)
-  assert.doesNotMatch(g.text(), /go\.tests/)
   assert.match(g.text(), /refusing to raise a baseline/)
   assert.deepEqual(JSON.parse(readFileSync(g.baselinePath, 'utf8')), before)
 })
