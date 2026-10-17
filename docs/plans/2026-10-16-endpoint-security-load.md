@@ -70,6 +70,27 @@ the real app:
 4. **Agent runs.** Count the `curl` execs left by the HTTP-hooks change
    (status line, Codex hooks) and cut them if they show up.
 
+## Result (`make meter`, fixture of this repo, two workspaces)
+
+| scenario | execs before → after | opens before → after | daemon fds before → after |
+| --- | --- | --- | --- |
+| cold-open (32s) | 92 → 33 | 17,048 → 241 | 8,593 → 133 |
+| idle (310s) | 545 → 4 | 568 → 17 | 8,592 → 132 |
+| 10 switches | 72 → 0 | 123 → 12 | 8,592 → 132 |
+| burst of 50 changes | 63 → 13 | 205 → 67 | 8,623 → 133 |
+| fetch in a sibling | 61 → 17 | 75 → 17 | 8,628 → 133 |
+
+What moved it:
+- **FSEvents.** It removed the per-file opens and also a loop that kqueue
+  caused: every workspace ran `status` + `diff --numstat` about every 2.4s
+  while idle.
+- **Provider detection.** It is now keyed by the repo's common dir, merges
+  concurrent misses, and parses the slug from the cached remote instead of
+  running `git remote get-url` per call.
+
+What remains while idle: one detection per repo per 5 min, plus the 5-min
+origin fetch. `gh pr list` is not exercised by the fixture (local remote).
+
 ## Acceptance (meter)
 
 - **Idle after settle:** zero execs and zero file opens.
