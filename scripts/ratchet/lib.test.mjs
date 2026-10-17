@@ -156,6 +156,19 @@ test('update refuses growth and leaves the file untouched', (t) => {
   assert.match(g.text(), /refusing to raise/)
 })
 
+test('allowAdded can name the only keys that may be added', (t) => {
+  const g = gate(tmpDir(t))
+  writeFileSync(g.baselinePath, '{"a":1}')
+  assert.equal(g.run({ update: true, allowAdded: ['ok'], measured: { a: 1, ok: 2, nope: 3 } }), 1)
+  assert.equal(readFileSync(g.baselinePath, 'utf8'), '{"a":1}')
+  assert.match(g.text(), /  new    nope: 3/)
+  assert.doesNotMatch(g.text(), /  new    ok/)
+
+  g.lines.length = 0
+  assert.equal(g.run({ update: true, allowAdded: ['ok'], measured: { a: 1, ok: 2 } }), 0)
+  assert.equal(readFileSync(g.baselinePath, 'utf8'), '{\n  "a": 1,\n  "ok": 2\n}\n')
+})
+
 test('update refuses an added key unless allowAdded', (t) => {
   const g = gate(tmpDir(t))
   writeFileSync(g.baselinePath, '{"a":1}')

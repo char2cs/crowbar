@@ -8,6 +8,8 @@ import { countLines, loadCode, runGate } from './lib.mjs'
 class ConfigError extends Error {}
 
 const ROOTS = { go: 'api', web: 'web/src' }
+// The test totals are the only keys `--update` may add; a new module budget is edited in by hand.
+const FIRST_TIME_KEYS = ['go.tests', 'web.tests']
 
 const dir = dirname(fileURLToPath(import.meta.url))
 const readModules = () => JSON.parse(readFileSync(join(dir, 'modules.json'), 'utf8'))
@@ -54,7 +56,7 @@ function validateModules(modules) {
 /**
  * @param {import('./lib.mjs').CodeFile[]} files
  * @param {{ go: Record<string, string[]>, web: Record<string, string[]> }} modules
- * @returns {Record<string, number>} `<lang>.<module>` and `<lang>.total` -> non-test source lines.
+ * @returns {Record<string, number>} `<lang>.<module>` and `<lang>.total` -> source lines; `<lang>.tests` -> test lines.
  */
 export function measureLoc(files, modules) {
   validateModules(modules)
@@ -62,10 +64,14 @@ export function measureLoc(files, modules) {
   for (const [lang, byName] of Object.entries(modules)) {
     for (const name of Object.keys(byName)) out[`${lang}.${name}`] = 0
     out[`${lang}.total`] = 0
+    out[`${lang}.tests`] = 0
   }
   const unassigned = []
   for (const file of files) {
-    if (file.test) continue
+    if (file.test) {
+      out[`${file.lang}.tests`] += countLines(file.text)
+      continue
+    }
     const owner = ownerOf(file.path, modules[file.lang] ?? {})
     if (owner === null) {
       unassigned.push(file.path)
@@ -101,7 +107,7 @@ export function main(
     measured,
     init: args.includes('--init'),
     update: args.includes('--update'),
-    allowAdded: true,
+    allowAdded: FIRST_TIME_KEYS,
     summary: `go ${measured['go.total']}, web ${measured['web.total']}`,
     log,
   })

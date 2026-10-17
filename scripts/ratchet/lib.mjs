@@ -79,7 +79,7 @@ const writeBaseline = (path, measured) => {
 
 /**
  * `init` is the only way to create a baseline, so a lost or misnamed file can never be
- * silently re-recorded at today's numbers.
+ * silently re-recorded at today's numbers. `allowAdded` is `true` or the only keys that may be added.
  * @returns {number} the process exit code.
  */
 export function runGate({ name, baselinePath, measured, init, update, allowAdded, summary, hint, log = console.log }) {
@@ -99,15 +99,19 @@ export function runGate({ name, baselinePath, measured, init, update, allowAdded
   }
 
   const diff = diffBaseline(JSON.parse(readFileSync(baselinePath, 'utf8')), measured)
-  const growth = [...diff.grew, ...(allowAdded ? [] : diff.added)]
-  const writeBack = [...diff.shrunk, ...diff.gone, ...(allowAdded ? diff.added : [])]
-  const emit = (kinds) => {
-    for (const kind of kinds) for (const change of diff[kind]) log(render[kind](change))
+  const mayAdd = (key) => allowAdded === true || (Array.isArray(allowAdded) && allowAdded.includes(key))
+  const accepted = diff.added.filter((c) => mayAdd(c.key))
+  const refused = diff.added.filter((c) => !mayAdd(c.key))
+  const growth = [...diff.grew, ...refused]
+  const writeBack = [...diff.shrunk, ...diff.gone, ...accepted]
+  const show = (kind, changes) => {
+    for (const change of changes) log(render[kind](change))
   }
 
   if (update) {
     if (growth.length > 0) {
-      emit(['grew', ...(allowAdded ? [] : ['added'])])
+      show('grew', diff.grew)
+      show('added', refused)
       log(`${name}: refusing to raise a baseline`)
       return 1
     }
@@ -115,7 +119,9 @@ export function runGate({ name, baselinePath, measured, init, update, allowAdded
       log(`${name}: already current`)
       return 0
     }
-    emit(['shrunk', 'gone', 'added'])
+    show('shrunk', diff.shrunk)
+    show('gone', diff.gone)
+    show('added', accepted)
     writeBaseline(baselinePath, measured)
     log(`${name}: baseline updated (${Object.keys(measured).length} keys)`)
     return 0
@@ -125,7 +131,10 @@ export function runGate({ name, baselinePath, measured, init, update, allowAdded
     log(`${name}: ok (${summary})`)
     return 0
   }
-  emit(['grew', 'added', 'shrunk', 'gone'])
+  show('grew', diff.grew)
+  show('added', diff.added)
+  show('shrunk', diff.shrunk)
+  show('gone', diff.gone)
   if (growth.length > 0) log(['Baselines never go up: delete or split code.', hint].filter(Boolean).join(' '))
   // `update` refuses a run with growth, so the write-back is only advice once the growth is gone.
   else log(`Write the shrink back: ${UPDATE_CMD}, then commit the baseline.`)

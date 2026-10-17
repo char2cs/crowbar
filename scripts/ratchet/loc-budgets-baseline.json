@@ -13,6 +13,7 @@
   "go.store": 6921,
   "go.stream": 3278,
   "go.test-support": 3461,
+  "go.tests": 209610,
   "go.total": 127962,
   "go.wiring": 4403,
   "web.app-shell": 1969,
@@ -26,6 +27,7 @@
   "web.settings": 5407,
   "web.sidebar": 18562,
   "web.terminal": 4031,
+  "web.tests": 113678,
   "web.total": 105828,
   "web.workspace-panes": 14211
 }
