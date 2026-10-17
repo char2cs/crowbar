@@ -3,6 +3,7 @@ package workspace_test
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -850,13 +851,20 @@ func TestList_DoesNotTriggerReconcile(t *testing.T) {
 // version that OCC and the delete cascade contend on.
 //
 // The polls below differ only in their timestamp, which is the sweep's steady
-// state and the case a version-bumping no-op hides in.
+// state and the case a version-bumping no-op hides in. Each broadcast frame costs
+// the daemon git work, so the frame count is pinned alongside the event count.
 func TestRegression_SyncProviderState_UnchangedPollAppendsNothing(t *testing.T) {
 	ad := newAdapter(t, t.TempDir())
 	repo := buildRepo(t, ad)
 	ctx := context.Background()
 	es := ad.WorkspaceES()
 	now := time.Unix(1000, 0).UTC()
+
+	var frames atomic.Int32
+	require.NoError(t, workspace.RegisterHubProjection(repo,
+		func(_ context.Context, ws domain.Workspace) domain.Workspace { return ws },
+		func(domain.Workspace) { frames.Add(1) },
+	))
 
 	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
@@ -875,6 +883,8 @@ func TestRegression_SyncProviderState_UnchangedPollAppendsNothing(t *testing.T) 
 	_, err = repo.SyncProviderState(ctx, in, now)
 	require.NoError(t, err)
 	settled := events()
+	workspace.WaitQuiescentForTest(repo)
+	settledFrames := frames.Load()
 
 	for i := range 10 {
 		got, syncErr := repo.SyncProviderState(ctx, in, now.Add(time.Duration(i)*time.Minute))
@@ -882,6 +892,8 @@ func TestRegression_SyncProviderState_UnchangedPollAppendsNothing(t *testing.T) 
 		assert.Equal(t, domain.WorkspaceStatusPROpen, got.Status)
 	}
 	assert.Equal(t, settled, events(), "an unchanged provider poll must append no event")
+	workspace.WaitQuiescentForTest(repo)
+	assert.Equal(t, settledFrames, frames.Load(), "an unchanged provider poll must broadcast nothing")
 
 	// The guard must not swallow a real change.
 	in.PRStatus = "merged"
@@ -889,6 +901,8 @@ func TestRegression_SyncProviderState_UnchangedPollAppendsNothing(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, domain.WorkspaceStatusPRMerged, changed.Status)
 	assert.Greater(t, events(), settled, "a changed provider poll must still append")
+	workspace.WaitQuiescentForTest(repo)
+	assert.Equal(t, settledFrames+1, frames.Load(), "a changed provider poll must broadcast once")
 }
 
 // A repo's home is keyed by a deterministic id, so concurrent adopts of the

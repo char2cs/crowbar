@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/char2cs/crowbar/api/internal/core/binpath"
 )
 
 // slug extracts the "owner/repo" slug from the git remote origin URL.
@@ -13,7 +15,7 @@ func slug(
 	repoPath string,
 	execFn ExecFn,
 ) (string, error) {
-	cmd := execFn(ctx, "git", "remote", "get-url", "origin")
+	cmd := execFn(ctx, binpath.Git(), "remote", "get-url", "origin")
 	cmd.Dir = repoPath
 
 	var out bytes.Buffer

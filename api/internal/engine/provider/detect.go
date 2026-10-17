@@ -89,7 +89,7 @@ func detectRemoteOrigin(
 	repoPath string,
 	execFn DetectExecFn,
 ) (string, error) {
-	cmd := execFn(ctx, "git", "remote", "get-url", "origin")
+	cmd := execFn(ctx, binpath.Git(), "remote", "get-url", "origin")
 	cmd.Dir = repoPath
 
 	var out, errBuf bytes.Buffer
