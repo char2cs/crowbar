@@ -24,11 +24,14 @@ func TestRun_ServeError_SurfacesNotHangs(t *testing.T) {
 	hooks, err := hookserver.Listen(context.Background(), http.NewServeMux())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = hooks.Close() })
+	server := &http.Server{Handler: http.NewServeMux()}
 	c := &Container{
-		server:   &http.Server{Handler: http.NewServeMux()},
+		server:   server,
 		listener: ln,
-		hooks:    hooks,
+		serveErr: make(chan error, 2),
+		stack:    &stack{hooks: hooks},
 	}
+	c.serve(func() error { return server.Serve(ln) })
 
 	// Block on Run's own return — the real signal. A 2-second deadline here would
 	// be a guess about how fast a loaded machine schedules a goroutine; if Run

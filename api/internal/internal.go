@@ -8,13 +8,17 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/adapter/migrations"
 	crowbarapi "github.com/char2cs/crowbar/api/internal/api"
+	"github.com/char2cs/crowbar/api/internal/api/middleware"
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
+	"github.com/char2cs/crowbar/api/internal/core/bootgate"
 	"github.com/char2cs/crowbar/api/internal/core/gateway"
 	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/hookserver"
@@ -25,25 +29,41 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
-// Container is the root container owning the HTTP server, its listener, and the
-// adapter layer (closed on shutdown).
+// Container is the root container. It owns the socket and the gate answering
+// on it from the moment it binds, and the session holding the home; once the
+// home is migrated, also the stack over its stores. A halted container has no
+// stack: it serves only the gate, which says why.
 type Container struct {
-	server   *http.Server
+	home     home.Home
 	listener net.Listener
+	server   *http.Server
+	gate     *bootgate.Gate
+	// serveErr carries each Serve's result: the gate's, and the hook server's
+	// once Run starts it.
+	serveErr chan error
+	// serving joins the goroutines running Serve.
+	serving sync.WaitGroup
 	// session holds the home from before the stores open until after they close.
 	session *migrate.Session
-	// hooks is the loopback listener for vendor CLIs' own HTTP hooks. It serves
-	// the hook route of the same router and nothing else of it.
-	hooks   *hookserver.Server
+	stack   *stack
+}
+
+// stack is what a migrated home serves: the engines, the stores and every
+// layer over them, and the hook server.
+type stack struct {
 	engines *engine.Container
 	adapter *adapter.Container
 	app     *app.Container
 	api     *crowbarapi.Container
+	// hooks is the loopback listener for vendor CLIs' own HTTP hooks. It serves
+	// the hook route of the same router and nothing else of it.
+	hooks *hookserver.Server
 }
 
 type rootOpts struct {
-	homeDir string
-	logs    logring.Ring
+	homeDir    string
+	logs       logring.Ring
+	migrateLog *slog.Logger
 }
 
 // Option configures internal.New.
@@ -67,101 +87,229 @@ func WithLogRing(
 	}
 }
 
-// New takes the home and runs its pre-open migrations, then wires engine →
-// adapter → app → api in order and returns the root container.
+// New binds the socket and serves the boot gate on it, takes the home and runs
+// its pre-open migrations, then wires engine → adapter → app → api and opens the
+// gate to the API. A home the migration halts on still yields a container, one
+// that serves only the gate and holds the home until it is closed.
 func New(
 	ctx context.Context,
 	host string,
 	staticFS fs.FS,
 	options ...Option,
-) (c *Container, err error) {
+) (*Container, error) {
 	cfg := rootOpts{}
 	for _, o := range options {
 		o(&cfg)
 	}
-
+	h, err := home.ResolveDir(cfg.homeDir)
+	if err != nil {
+		return nil, fmt.Errorf("internal: home: %w", err)
+	}
 	listener, err := gateway.New(host)
 	if err != nil {
 		return nil, fmt.Errorf("internal: gateway: %w", err)
 	}
-	opened := &Container{listener: listener}
-	defer func() { //nolint:contextcheck // the Close methods take no ctx: a failed boot's teardown runs even after ctx is done.
-		if err != nil {
-			err = errors.Join(err, opened.abandon())
+	c := &Container{home: h, listener: listener, serveErr: make(chan error, 2)}
+	report := &bootReport{}
+	c.gate = bootgate.New(metadata.GetVersion(), report.report, middleware.CORSHandler)
+	c.server = &http.Server{Handler: c.gate, ReadHeaderTimeout: 30 * time.Second}
+	c.serve(func() error { return c.server.Serve(listener) })
+
+	c.session, err = migrations.Begin(ctx, h, migrate.Options{Version: metadata.GetVersion(), Log: cfg.migrateLog})
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("internal: migrate: %w", err), c.release())
+	}
+	// Published before any step runs, so the health route names each one.
+	report.session.Store(c.session)
+	if err := c.boot(ctx, cfg, staticFS); err != nil {
+		if c.session.Halt() == nil {
+			return nil, errors.Join(err, c.release())
 		}
-	}()
-
-	h, session, err := openHome(ctx, cfg.homeDir)
-	if err != nil {
-		return nil, fmt.Errorf("internal: migrate: %w", err)
+		// The halt alone is served; this keeps the layer it stopped and any teardown failure.
+		slog.Warn("internal: boot halted", "err", err)
 	}
-	opened.session = session
+	return c, nil
+}
 
-	opened.engines, err = engine.New(ctx, engine.WithHomeDir(cfg.homeDir), engine.WithDaemonSocket(socketOf(listener)))
-	if err != nil {
-		return nil, fmt.Errorf("internal: engine: %w", err)
+// boot stops at a home Begin refused. Otherwise it runs the pre-open migrations,
+// opens the stack over the stores (app.New runs the post-open ones) and opens
+// the gate to its API.
+func (c *Container) boot(
+	ctx context.Context,
+	cfg rootOpts,
+	staticFS fs.FS,
+) error {
+	if halt := c.session.Halt(); halt != nil {
+		return halt
 	}
-
-	opened.adapter, err = adapter.New(adapter.WithHomeDir(h.Root()))
-	if err != nil {
-		return nil, fmt.Errorf("internal: adapter: %w", err)
+	if err := c.session.RunPreOpen(ctx, migrations.PreOpenImpls()); err != nil {
+		return fmt.Errorf("internal: migrate: %w", err)
 	}
-
-	opened.app, err = app.New(ctx, opened.engines, opened.adapter, session)
+	s, err := openStack(ctx, c.home, cfg, socketOf(c.listener), c.session, staticFS)
 	if err != nil {
-		return nil, fmt.Errorf("internal: app: %w", err)
+		return err
 	}
+	c.stack = s
+	c.gate.Open(s.api.Handler())
+	return nil
+}
 
+// openStack builds the stack in order. On failure it closes what it had
+// opened, so the stores are closed before the caller lets go of the home.
+func openStack(
+	ctx context.Context,
+	h home.Home,
+	cfg rootOpts,
+	socket string,
+	post migrate.PostOpenRunner,
+	staticFS fs.FS,
+) (*stack, error) {
+	s := &stack{}
+	if err := s.open(ctx, h, cfg, socket, post, staticFS); err != nil {
+		//nolint:contextcheck // the Close methods take no ctx: a failed boot's teardown runs even after ctx is done.
+		if closeErr := s.close(); closeErr != nil {
+			slog.Error("internal: close what a failed boot opened", "err", closeErr)
+		}
+		return nil, err
+	}
+	return s, nil
+}
+
+func (s *stack) open(
+	ctx context.Context,
+	h home.Home,
+	cfg rootOpts,
+	socket string,
+	post migrate.PostOpenRunner,
+	staticFS fs.FS,
+) error {
+	var err error
+	s.engines, err = engine.New(ctx, engine.WithHomeDir(cfg.homeDir), engine.WithDaemonSocket(socket))
+	if err != nil {
+		return fmt.Errorf("internal: engine: %w", err)
+	}
+	s.adapter, err = adapter.New(adapter.WithHomeDir(h.Root()))
+	if err != nil {
+		return fmt.Errorf("internal: adapter: %w", err)
+	}
+	s.app, err = app.New(ctx, s.engines, s.adapter, post)
+	if err != nil {
+		return fmt.Errorf("internal: app: %w", err)
+	}
 	//nolint:contextcheck // snapshot providers are context-free by design; this call only threads the log ring option.
-	opened.api, err = crowbarapi.New(opened.app, opened.engines, staticFS, v0.WithLogs(cfg.logs))
+	s.api, err = crowbarapi.New(s.app, s.engines, staticFS, v0.WithLogs(cfg.logs))
 	if err != nil {
-		return nil, fmt.Errorf("internal: api: %w", err)
+		return fmt.Errorf("internal: api: %w", err)
 	}
 
 	// Install the crowbar binary into <home>/bin so vendor CLI hooks can invoke
 	// `crowbar hook` by absolute path, into the home the adapter opened so tests
 	// and dev instances stay isolated. Best-effort: never block startup.
-	installHome := opened.adapter.CrowbarHome()
-	if p, err := selfinstall.Install(installHome); err == nil {
-		_ = p // path is re-derived by the agent engine when rendering descriptors
+	installHome := s.adapter.CrowbarHome()
+	if _, err := selfinstall.Install(installHome); err != nil {
+		slog.Warn("internal: install the crowbar binary for hooks", "home", installHome, "err", err)
 	}
 
 	// Published before anything can spawn a CLI: the spawner reads it to point the
 	// CLI's hooks here.
-	hooks, err := hookserver.Listen(ctx, opened.api.Handler())
+	s.hooks, err = hookserver.Listen(ctx, s.api.Handler())
 	if err != nil {
-		return nil, fmt.Errorf("internal: hooks: %w", err)
+		return fmt.Errorf("internal: hooks: %w", err)
 	}
-	if err := hookserver.Publish(installHome, hooks.URL()); err != nil {
-		_ = hooks.Close()
-		return nil, fmt.Errorf("internal: hooks: %w", err)
+	if err := hookserver.Publish(installHome, s.hooks.URL()); err != nil {
+		return fmt.Errorf("internal: hooks: %w", err)
 	}
-	opened.hooks = hooks
-	opened.server = &http.Server{Handler: opened.api.Handler(), ReadHeaderTimeout: 30 * time.Second}
-	return opened, nil
+	return nil
 }
 
-// abandon closes what a New that failed had opened, in Close's order, so the
-// home is released only after every store is closed.
-func (c *Container) abandon() error {
-	if c.api != nil {
-		c.api.Close()
-	}
-	if c.app != nil {
-		c.app.Close()
-	}
-	if c.engines != nil {
-		c.engines.Close()
-	}
+// close tears the stack down in dependency order, skipping the layers a failed
+// boot never built: the hook server, the app layer's lazy realtime resource
+// lifecycles (file watchers and LSP hosts, which http.Server.Shutdown leaves
+// running on hijacked WebSocket connections), the engines, then the stores.
+func (s *stack) close() error {
 	var errs []error
-	if c.adapter != nil {
-		errs = append(errs, c.adapter.Close())
+	if s.hooks != nil {
+		errs = append(errs, s.hooks.Close())
 	}
-	errs = append(errs, c.listener.Close())
-	if c.session != nil {
-		errs = append(errs, c.session.Close())
+	// The rebind workers read the stores, so they stop before anything closes.
+	if s.api != nil {
+		s.api.Close()
+	}
+	if s.app != nil {
+		s.app.Close()
+	}
+	// Tear down engine OS resources (live PTY child processes + master FDs) so a
+	// shutdown/restart doesn't orphan every open terminal's shell and the dev
+	// servers it spawned. On the graceful path the terminals are ALREADY quiesced
+	// (app.Shutdown step 1, which had to run before the aggregates drained), so this
+	// only finishes the job for the paths that never reached it — a Serve failure, or
+	// a caller that closes without running. It never re-enters that join.
+	if s.engines != nil {
+		s.engines.Close()
+	}
+	// The DBs go LAST, once every writer above is quiesced: the exit callbacks fired
+	// by the PTY teardown write runner Exits and turn closes, and closing the store
+	// out from under them is what used to leave a chat spinning forever.
+	if s.adapter != nil {
+		errs = append(errs, s.adapter.Close())
 	}
 	return errors.Join(errs...)
+}
+
+// serve runs a server's Serve, reporting its result on serveErr.
+func (c *Container) serve(
+	run func() error,
+) {
+	c.serving.Go(func() { c.serveErr <- run() })
+}
+
+// release undoes a New that fails: the gate stops serving, then the home is
+// let go. The stores, if any were opened, are closed by then.
+func (c *Container) release() error {
+	err := c.server.Close()
+	c.serving.Wait()
+	if c.session != nil {
+		err = errors.Join(err, c.session.Close())
+	}
+	return err
+}
+
+// startingMessage is what the gate says while no migration step has run.
+const startingMessage = "Crowbar is starting"
+
+// bootReport is what the gate says while the daemon is not serving: how far
+// the migration has got, or why it halted. The gate asks it from request
+// goroutines, so the session is published atomically.
+type bootReport struct {
+	session atomic.Pointer[migrate.Session]
+}
+
+// progressDetail is a migration's progress as the health route shows it.
+type progressDetail struct {
+	Phase string     `json:"phase"`
+	Step  migrate.ID `json:"step"`
+	Index int        `json:"index"`
+	Total int        `json:"total"`
+}
+
+// report is the gate's Reporter.
+func (b *bootReport) report() bootgate.Report {
+	s := b.session.Load()
+	if s == nil {
+		return bootgate.Report{State: bootgate.StateMigrating, Message: startingMessage}
+	}
+	if h := s.Halt(); h != nil {
+		return bootgate.Report{State: bootgate.StateHalted, Message: h.Message, Detail: h}
+	}
+	p := s.Progress()
+	if p.Total == 0 {
+		return bootgate.Report{State: bootgate.StateMigrating, Message: startingMessage}
+	}
+	return bootgate.Report{
+		State:   bootgate.StateMigrating,
+		Message: fmt.Sprintf("Crowbar is upgrading its data (step %d of %d: %s)", p.Index, p.Total, p.Step.Name),
+		Detail:  progressDetail{Phase: p.Phase.String(), Step: p.Step, Index: p.Index, Total: p.Total},
+	}
 }
 
 // socketOf is the unix socket listener is bound to, or "" for any other kind.
@@ -176,33 +324,17 @@ func socketOf(
 
 // Socket is the unix socket the daemon bound, empty when it listens on TCP.
 func (c *Container) Socket() string {
-	return c.engines.DaemonSocket
+	return socketOf(c.listener)
 }
 
-// openHome takes the home rooted at dir (the default home when dir is empty)
-// and runs the migrations that must finish before any store opens. Until the
-// daemon can serve a halt, a halted boot is an error and releases the home.
-func openHome(
-	ctx context.Context,
-	dir string,
-) (home.Home, *migrate.Session, error) {
-	h, err := home.ResolveDir(dir)
-	if err != nil {
-		return home.Home{}, nil, err
-	}
-	session, err := migrations.Begin(ctx, h, migrate.Options{Version: metadata.GetVersion()})
-	if err != nil {
-		return home.Home{}, nil, err
-	}
-	if err := session.RunPreOpen(ctx, migrations.PreOpenImpls()); err != nil {
-		return home.Home{}, nil, errors.Join(err, session.Close())
-	}
-	return h, session, nil
-}
-
-// Home is the Crowbar home the daemon opened.
+// Home is the Crowbar home the daemon holds.
 func (c *Container) Home() string {
-	return c.adapter.CrowbarHome()
+	return c.home.Root()
+}
+
+// Halt is why the daemon serves only its gate, or nil when it serves the API.
+func (c *Container) Halt() *migrate.Halt {
+	return c.session.Halt()
 }
 
 // Run serves until ctx is cancelled, then gracefully shuts down. It also watches
@@ -213,9 +345,9 @@ func (c *Container) Home() string {
 func (c *Container) Run(
 	ctx context.Context,
 ) error {
-	serveErr := make(chan error, 2)
-	go func() { serveErr <- c.server.Serve(c.listener) }()
-	go func() { serveErr <- c.hooks.Serve() }()
+	if c.stack != nil {
+		c.serve(c.stack.hooks.Serve)
+	}
 	select {
 	case <-ctx.Done():
 		// Ordered, bounded graceful shutdown (spec §3.8): stop accepting new requests +
@@ -248,16 +380,21 @@ func (c *Container) Run(
 		)
 		httpCtx, cancelHTTP := context.WithTimeout(context.WithoutCancel(ctx), httpDrainGrace)
 		defer cancelHTTP()
-		httpErr := errors.Join(c.server.Shutdown(httpCtx), c.hooks.Shutdown(httpCtx))
+		httpErr := c.server.Shutdown(httpCtx)
+		if c.stack == nil {
+			// A halted daemon opened no store, so it has no writer to drain.
+			return httpErr
+		}
+		httpErr = errors.Join(httpErr, c.stack.hooks.Shutdown(httpCtx))
 
-		drainCtx, cancelDrain := context.WithTimeout(context.Background(), writerDrainGrace)
+		drainCtx, cancelDrain := context.WithTimeout(context.WithoutCancel(ctx), writerDrainGrace)
 		defer cancelDrain()
 		// Work a handler detached after its 202 writes too — and runs git — so it
 		// ends before the app drains, never after the daemon is gone.
-		detachedErr := c.api.ShutdownDetached(drainCtx) //nolint:contextcheck // Run's ctx is already done here; the drain has its own budget (above).
-		drainErr := c.app.Shutdown(drainCtx)
+		detachedErr := c.stack.api.ShutdownDetached(drainCtx)
+		drainErr := c.stack.app.Shutdown(drainCtx)
 		return errors.Join(httpErr, detachedErr, drainErr)
-	case err := <-serveErr:
+	case err := <-c.serveErr:
 		// ErrServerClosed only occurs after Shutdown (handled above), so any error
 		// arriving here is a genuine listen/accept failure.
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -267,30 +404,17 @@ func (c *Container) Run(
 	}
 }
 
-// Close tears the backend down in dependency order: the HTTP server has already
-// stopped accepting connections (Run shuts it down before Close runs), so it
-// first closes the app layer's lazy realtime resource lifecycles (file watchers
-// and LSP hosts, which http.Server.Shutdown leaves running on hijacked WebSocket
-// connections), then releases the adapter layer and the listener.
+// Close stops serving and tears the backend down in dependency order (Run has
+// usually shut the servers down already), then lets go of the home.
 func (c *Container) Close() {
-	// The rebind workers read the stores, so they stop before anything closes.
-	c.api.Close()
-	c.app.Close()
-	// Tear down engine OS resources (live PTY child processes + master FDs) so a
-	// shutdown/restart doesn't orphan every open terminal's shell and the dev
-	// servers it spawned. On the graceful path the terminals are ALREADY quiesced
-	// (app.Shutdown step 1, which had to run before the aggregates drained), so this
-	// only finishes the job for the paths that never reached it — a Serve failure, or
-	// a caller that closes without running. It never re-enters that join.
-	c.engines.Close()
-	// The DBs go LAST, once every writer above is quiesced: the exit callbacks fired
-	// by the PTY teardown write runner Exits and turn closes, and closing the store
-	// out from under them is what used to leave a chat spinning forever.
-	_ = c.adapter.Close()
-	_ = c.listener.Close()
-	_ = c.hooks.Close()
+	errs := []error{c.server.Close()}
+	if c.stack != nil {
+		errs = append(errs, c.stack.close())
+	}
+	c.serving.Wait()
 	// Released last: the home is held until every store is closed.
-	if err := c.session.Close(); err != nil {
-		slog.Warn("internal: release the home", "err", err)
+	errs = append(errs, c.session.Close())
+	if err := errors.Join(errs...); err != nil {
+		slog.Warn("internal: close", "err", err)
 	}
 }

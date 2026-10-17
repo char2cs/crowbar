@@ -1,3 +1,4 @@
+import { Fatal } from './driver.mjs'
 import { until } from './wait.mjs'
 
 const BASE = 'http://crowbar.local'
@@ -50,10 +51,25 @@ export function daemonClient(socket) {
         return null
       }
     },
+    /**
+     * Waits until the daemon serves its API: a migrating daemon answers health
+     * too. A halted one never will, so it fails at once with the reason.
+     */
     waitHealthy(timeout = 60_000) {
-      return until('the daemon to answer /v0/health', () => this.health(), {
-        timeout,
-      })
+      return until(
+        'the daemon to report ok on /v0/health',
+        async () => {
+          const health = await this.health()
+          const status = health?.data?.status
+          if (status === 'halted') {
+            throw new Fatal(
+              `the daemon halted: ${health.data.detail?.message ?? 'no reason given'}`,
+            )
+          }
+          return status === 'ok' ? health : null
+        },
+        { timeout },
+      )
     },
   }
 }

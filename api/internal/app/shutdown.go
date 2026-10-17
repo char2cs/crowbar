@@ -203,13 +203,14 @@ func shutdownAgentRunners(ucs *usecases.Container) {
 
 // abandon stops what a New that failed with cause had started: the reactors,
 // then the aggregates' pools. No writer outlives it into the stores the caller
-// closes next.
+// closes next, even when cause is ctx giving up: the teardown ignores ctx.
 func (c *Container) abandon(
 	ctx context.Context,
 	cause error,
 ) error {
+	ctx = context.WithoutCancel(ctx)
 	err := c.Shutdown(ctx)
 	shutdownAgentRunners(c.Usecases)
-	c.stopBackgroundWorkers(context.WithoutCancel(ctx))
+	c.stopBackgroundWorkers(ctx)
 	return errors.Join(cause, err)
 }

@@ -301,7 +301,7 @@ export class Instance {
       timeout: 20_000,
     })
     if (this.target === 'browser') this.startDaemonProcess()
-    return until(
+    const pid = await until(
       'a new daemon to answer',
       async () => {
         const pid = await this.daemonPid()
@@ -309,6 +309,8 @@ export class Instance {
       },
       { timeout: 60_000 },
     )
+    await this.daemon.waitHealthy()
+    return pid
   }
 
   async teardown({ keep }) {

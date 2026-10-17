@@ -128,6 +128,43 @@ func TestApp_New_AHaltedMigrationFailsTheBoot(t *testing.T) {
 	}
 }
 
+// cancellingRunner cancels the boot as its post-open run starts.
+type cancellingRunner struct {
+	cancel context.CancelFunc
+}
+
+func (r cancellingRunner) RunPostOpen(
+	ctx context.Context,
+	_ migrate.Impls,
+) error {
+	r.cancel()
+	return ctx.Err()
+}
+
+// A boot cancelled during its post-open run still drains everything it started:
+// the done context must not cut the teardown short, so the teardown reports no
+// failure of its own and no goroutine of New's outlives it.
+func TestApp_New_ACancelledBootStillDrainsWhatItStarted(t *testing.T) {
+	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, adapters.Close()) })
+	eng := newEng(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	pprof.Do(ctx, pprof.Labels("app_new", t.Name()), func(ctx context.Context) {
+		_, err = app.New(ctx, eng, adapters, cancellingRunner{cancel: cancel})
+	})
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, "app: migrate: context canceled", err.Error(), "the teardown failed nothing")
+	stopped := assert.Eventually(t, func() bool { return !labelledGoroutines(t, t.Name()) },
+		5*time.Second, 10*time.Millisecond, "goroutines New started outlived it")
+	if !stopped {
+		t.Log(goroutineDump(t))
+	}
+}
+
 // labelledGoroutines reports whether any running goroutine carries value under
 // the app_new label.
 func labelledGoroutines(

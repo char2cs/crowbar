@@ -34,50 +34,74 @@ const exposeHeaders = "X-Crowbar-Diff-Truncated"
 // the user visited drive the daemon API from their browser.
 func CORS() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		reqOrigin := c.GetHeader("Origin")
-		if reqOrigin == "" {
-			c.Next()
+		if answerCORS(c.Writer, c.Request) {
+			c.Abort()
 			return
 		}
-
-		if !origin.Allowed(reqOrigin, c.Request.Host) {
-			// No ACAO header: the browser blocks reading the cross-origin response.
-			// A disallowed preflight is rejected outright rather than handed to a
-			// route handler.
-			if c.Request.Method == http.MethodOptions {
-				c.AbortWithStatus(http.StatusForbidden)
-				return
-			}
-			c.Next()
-			return
-		}
-
-		header := c.Writer.Header()
-		header.Set("Access-Control-Allow-Origin", reqOrigin)
-		header.Set("Access-Control-Allow-Credentials", "true")
-		header.Set("Access-Control-Expose-Headers", exposeHeaders)
-		header.Add("Vary", "Origin")
-
-		if c.Request.Method == http.MethodOptions {
-			writePreflight(c)
-			return
-		}
-
 		c.Next()
 	}
 }
 
+// CORSHandler is CORS in front of a handler the API's router does not serve:
+// the boot gate, whose answers the webview reads cross-origin too.
+func CORSHandler(
+	next http.Handler,
+) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if answerCORS(w, r) {
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// answerCORS sets the headers r's Origin is granted and reports whether it
+// answered r itself: a preflight, granted or refused.
+func answerCORS(
+	w http.ResponseWriter,
+	r *http.Request,
+) bool {
+	reqOrigin := r.Header.Get("Origin")
+	if reqOrigin == "" {
+		return false
+	}
+
+	if !origin.Allowed(reqOrigin, r.Host) {
+		// No ACAO header: the browser blocks reading the cross-origin response.
+		// A disallowed preflight is rejected outright rather than handed to a
+		// route handler.
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusForbidden)
+			return true
+		}
+		return false
+	}
+
+	header := w.Header()
+	header.Set("Access-Control-Allow-Origin", reqOrigin)
+	header.Set("Access-Control-Allow-Credentials", "true")
+	header.Set("Access-Control-Expose-Headers", exposeHeaders)
+	header.Add("Vary", "Origin")
+
+	if r.Method == http.MethodOptions {
+		writePreflight(w, r)
+		return true
+	}
+	return false
+}
+
 func writePreflight(
-	c *gin.Context,
+	w http.ResponseWriter,
+	r *http.Request,
 ) {
-	header := c.Writer.Header()
+	header := w.Header()
 	header.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 
-	requested := c.GetHeader("Access-Control-Request-Headers")
+	requested := r.Header.Get("Access-Control-Request-Headers")
 	if requested == "" {
 		requested = defaultAllowHeaders
 	}
 	header.Set("Access-Control-Allow-Headers", requested)
 
-	c.AbortWithStatus(http.StatusNoContent)
+	w.WriteHeader(http.StatusNoContent)
 }

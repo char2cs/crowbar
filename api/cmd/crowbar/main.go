@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -65,8 +66,22 @@ func runServe(
 	if err != nil {
 		return err
 	}
+	return serve(ctx, host, staticFS, internal.WithLogRing(installLogRing()))
+}
 
-	container, err := internal.New(ctx, host, staticFS, internal.WithLogRing(installLogRing()))
+// serve runs the daemon until ctx is done. A halted daemon runs too, serving
+// only its health route, so its supervisor reads why instead of respawning it.
+func serve(
+	ctx context.Context,
+	host string,
+	staticFS fs.FS,
+	options ...internal.Option,
+) error {
+	container, err := internal.New(ctx, host, staticFS, options...)
+	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+		// Stopped mid-migration: the run ended interrupted and the next boot resumes it.
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("failed to start: %w", err)
 	}
@@ -74,6 +89,10 @@ func runServe(
 
 	slog.Info("daemon: listening", "component", "daemon", "version", metadata.GetVersion(),
 		"host", host, "socket", container.Socket(), "pid", os.Getpid(), "home", container.Home())
+	if halt := container.Halt(); halt != nil {
+		slog.Error("daemon: halted", "component", "daemon", "reason", string(halt.Reason),
+			"message", halt.Message, "ledger", halt.Ledger, "backup", halt.Backup)
+	}
 	return container.Run(ctx)
 }
 
