@@ -85,6 +85,9 @@ export function MermaidDiagram({ code, onStateChange }: MermaidDiagramProps) {
           mermaid.initialize({
             startOnLoad: false,
             securityLevel: 'strict',
+            // Otherwise a failed render leaves mermaid's "Syntax error" graphic
+            // appended to document.body; our own error card below replaces it.
+            suppressErrorRendering: true,
             theme: 'base',
             themeVariables: buildMermaidThemeVariables(),
           })
