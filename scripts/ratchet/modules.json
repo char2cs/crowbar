@@ -1,0 +1,79 @@
+{
+  "go": {
+    "wiring": [
+      "api/internal/adapter/container.go",
+      "api/internal/api/container.go",
+      "api/internal/api/v0/container.go",
+      "api/internal/app/container.go",
+      "api/internal/app/repositories/container.go",
+      "api/internal/app/usecases/container.go",
+      "api/internal/engine/container.go"
+    ],
+    "domain": ["api/internal/domain"],
+    "chat": [
+      "api/internal/app/usecases/chat",
+      "api/internal/app/repositories/chat",
+      "api/internal/api/v0/endpoints/chat",
+      "api/internal/api/v0/endpoints/threads",
+      "api/internal/adapter/store/agentjournal"
+    ],
+    "engine-provider": ["api/internal/engine/agents", "api/internal/engine/provider", "api/internal/engine/mcp"],
+    "engine-other": ["api/internal/engine"],
+    "service": ["api/internal/app/usecases"],
+    "mocks": ["api/internal/app/usecases/mocks"],
+    "store": ["api/internal/adapter", "api/internal/app/repositories", "api/internal/app/tree"],
+    "stream": [
+      "api/internal/app/hub",
+      "api/internal/app/realtime",
+      "api/internal/api/v0/ws",
+      "api/internal/api/v0/snapshots.go"
+    ],
+    "dto": ["api/internal/api/v0/dto"],
+    "http": ["api/internal/api"],
+    "core": ["api/internal/core"],
+    "app-misc": ["api/internal/app", "api/internal/internal.go", "api/internal/perf"],
+    "cmd": ["api/cmd"],
+    "test-support": ["api/tests", "api/internal/testutil"]
+  },
+  "web": {
+    "chat-surface": ["web/src/features/agent"],
+    "sidebar": [
+      "web/src/components/sidebar",
+      "web/src/components/layout",
+      "web/src/components/tree-dnd",
+      "web/src/lib/store"
+    ],
+    "editor": ["web/src/features/editor", "web/src/components/editor"],
+    "kit-ui": ["web/src/components/ui"],
+    "workspace-panes": [
+      "web/src/features/panes",
+      "web/src/features/tabs",
+      "web/src/features/workspace",
+      "web/src/features/window",
+      "web/src/features/layout"
+    ],
+    "git-review": ["web/src/features/git"],
+    "settings": ["web/src/features/settings"],
+    "files": ["web/src/features/file-explorer", "web/src/features/file-system", "web/src/features/files"],
+    "terminal": ["web/src/features/terminal", "web/src/features/console"],
+    "core": [
+      "web/src/lib",
+      "web/src/utils",
+      "web/src/hooks",
+      "web/src/types",
+      "web/src/components/app-sync-engine.ts",
+      "web/src/components/app-sync-provider.tsx"
+    ],
+    "app-shell": [
+      "web/src/main.tsx",
+      "web/src/routeTree.gen.ts",
+      "web/src/vite-env.d.ts",
+      "web/src/routes",
+      "web/src/components/oobe",
+      "web/src/components/projects",
+      "web/src/components/error-boundary.tsx",
+      "web/src/features/keymaps"
+    ],
+    "extensions": ["web/src/extensions"]
+  }
+}
