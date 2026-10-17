@@ -39,7 +39,8 @@ type backupResult struct {
 // file is left out; every other regular file, however small, is copied. The
 // copy is built under <runID>.partial and renamed into place once complete, so
 // a failure leaves neither directory. Nothing is created unless the volume has
-// room for the copy plus backupHeadroom.
+// room for the copy plus backupHeadroom. The caller holds the home lock: the
+// copy is a consistent image only while nothing writes state/.
 func backupState(
 	h home.Home,
 	runID string,
@@ -52,11 +53,15 @@ func backupState(
 	if err != nil {
 		return backupResult{}, fmt.Errorf("migrate: backup: measure %s: %w", h.State(), err)
 	}
-	if stats.unsupported != "" {
-		return backupResult{}, unsupportedEntry(stats.unsupported)
+	if stats.unsupported != nil {
+		return backupResult{}, stats.unsupported
 	}
 	if stats.files == 0 {
 		return backupResult{}, nil
+	}
+	final := filepath.Join(h.MigrateDir(), backupsDirName, runID)
+	if err := requireAbsent(final); err != nil {
+		return backupResult{}, err
 	}
 	if err := requireFreeSpace(h.Root(), stats.bytes, free); err != nil {
 		return backupResult{}, err
@@ -160,10 +165,62 @@ func syncDirs(
 	return nil
 }
 
-func unsupportedEntry(
+func requireAbsent(
 	path string,
 ) error {
-	return fmt.Errorf("migrate: backup: %s is neither a regular file nor a directory, the only entries a backup can hold", path)
+	_, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("migrate: backup: inspect %s: %w", path, err)
+	}
+	return fmt.Errorf("migrate: backup: %s already exists: %w", path, fs.ErrExist)
+}
+
+func unsupportedEntry(
+	path string,
+	mode fs.FileMode,
+) error {
+	return fmt.Errorf("migrate: backup: %s: unsupported %s, a backup holds only regular files and directories", path, entryKind(mode))
+}
+
+func entryKind(
+	mode fs.FileMode,
+) string {
+	switch {
+	case mode&fs.ModeSymlink != 0:
+		return "symlink"
+	case mode&fs.ModeSocket != 0:
+		return "socket"
+	case mode&fs.ModeDevice != 0:
+		return "device"
+	case mode&fs.ModeNamedPipe != 0:
+		return "named pipe"
+	default:
+		return "irregular file"
+	}
+}
+
+// resolveRoot follows symlinks in dir itself, so a state directory moved to
+// another disk behind a link is scanned and copied as the directory it points
+// at. found is false, and root is dir unchanged, when nothing exists there; a
+// dangling link is an error.
+func resolveRoot(
+	dir string,
+) (root string, found bool, err error) {
+	_, err = os.Lstat(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return dir, false, nil
+	}
+	if err != nil {
+		return dir, false, err
+	}
+	root, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		return dir, false, err
+	}
+	return root, true, nil
 }
 
 // isHomeLock matches only <root>/.lock: a file of that name deeper in the tree
@@ -176,20 +233,24 @@ func isHomeLock(
 	return path == filepath.Join(root, homeLockName) && !entry.IsDir()
 }
 
-// treeStats is what a scan finds. unsupported is the first entry that is
+// treeStats is what a scan finds. unsupported describes the first entry that is
 // neither a directory nor a regular file.
 type treeStats struct {
 	files       int
 	bytes       int64
-	unsupported string
+	unsupported error
 }
 
 func scanTree(
 	dir string,
 ) (treeStats, error) {
 	var stats treeStats
-	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, walkErr error) error {
-		return stats.visit(dir, path, entry, walkErr)
+	root, found, err := resolveRoot(dir)
+	if err != nil || !found {
+		return stats, err
+	}
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		return stats.visit(root, path, entry, walkErr)
 	})
 	return stats, err
 }
@@ -200,9 +261,6 @@ func (s *treeStats) visit(
 	entry fs.DirEntry,
 	walkErr error,
 ) error {
-	if errors.Is(walkErr, fs.ErrNotExist) && path == root {
-		return nil
-	}
 	if walkErr != nil {
 		return walkErr
 	}
@@ -210,8 +268,8 @@ func (s *treeStats) visit(
 		return nil
 	}
 	if !entry.Type().IsRegular() {
-		if s.unsupported == "" {
-			s.unsupported = path
+		if s.unsupported == nil {
+			s.unsupported = unsupportedEntry(path, entry.Type())
 		}
 		return nil
 	}
@@ -237,8 +295,12 @@ func copyTree(
 	src string,
 	dst string,
 ) (int64, error) {
-	copying := &treeCopy{src: src, dst: dst}
-	if err := filepath.WalkDir(src, copying.visit); err != nil {
+	root, _, err := resolveRoot(src)
+	if err != nil {
+		return 0, fmt.Errorf("migrate: backup: resolve %s: %w", src, err)
+	}
+	copying := &treeCopy{src: root, dst: dst}
+	if err := filepath.WalkDir(root, copying.visit); err != nil {
 		return 0, fmt.Errorf("migrate: backup: copy %s: %w", src, err)
 	}
 	if err := syncDirs(append(copying.dirs, filepath.Dir(dst))...); err != nil {
@@ -270,7 +332,7 @@ func (c *treeCopy) visit(
 	case entry.Type().IsRegular():
 		return c.copyFile(path, target, entry)
 	default:
-		return unsupportedEntry(path)
+		return unsupportedEntry(path, entry.Type())
 	}
 }
 

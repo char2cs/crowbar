@@ -79,6 +79,19 @@ func assertNoBackupFor(
 	assert.NoDirExists(tb, filepath.Join(backups, runID))
 }
 
+func symlinkOrSkip(
+	tb testing.TB,
+	target string,
+	link string,
+) {
+	tb.Helper()
+	err := os.Symlink(target, link)
+	if err != nil && runtime.GOOS == "windows" {
+		tb.Skipf("creating a symlink on Windows needs privileges the runner may lack: %v", err)
+	}
+	require.NoError(tb, err)
+}
+
 func TestBackupState_CopiesTheTreeByteForByte(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	blob := make([]byte, 256)
@@ -209,17 +222,93 @@ func TestBackupState_RejectsAnUnsupportedEntry(t *testing.T) {
 	testutil.WriteFile(t, h, "state/a.db", "a")
 	testutil.WriteFile(t, h, "state/target", "t")
 	link := filepath.Join(h.State(), "z-link")
-	if err := os.Symlink(filepath.Join(h.State(), "target"), link); err != nil {
-		if runtime.GOOS == "windows" {
-			t.Skipf("creating a symlink on Windows needs privileges the runner may lack: %v", err)
-		}
-		require.NoError(t, err)
-	}
+	symlinkOrSkip(t, filepath.Join(h.State(), "target"), link)
 
 	_, err := backupState(h, "run-1", plentyOfDisk)
 
 	require.ErrorContains(t, err, link)
+	require.ErrorContains(t, err, "symlink")
 	assertNoBackupFor(t, h, "run-1")
+}
+
+func TestUnsupportedEntry_NamesTheKind(t *testing.T) {
+	for kind, mode := range map[string]fs.FileMode{
+		"symlink":        fs.ModeSymlink,
+		"socket":         fs.ModeSocket,
+		"device":         fs.ModeDevice | fs.ModeCharDevice,
+		"named pipe":     fs.ModeNamedPipe,
+		"irregular file": fs.ModeIrregular,
+	} {
+		err := unsupportedEntry("/state/odd", mode)
+
+		require.ErrorContains(t, err, "/state/odd")
+		require.ErrorContains(t, err, "unsupported "+kind)
+	}
+}
+
+func TestBackupState_FollowsASymlinkedStateRoot(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	elsewhere := filepath.Join(filepath.Dir(h.Root()), "other-disk-state")
+	for rel, content := range map[string]string{
+		"events/a.db":      "events database",
+		"content/aa/blob":  "blob bytes",
+		"view.db":          "view",
+		"events/.lock":     "user data, not the home lock",
+		"store/.keep-dirs": "",
+	} {
+		path := filepath.Join(elsewhere, filepath.FromSlash(rel))
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	}
+	symlinkOrSkip(t, elsewhere, h.State())
+	lock, err := lockHome(h)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, lock.Close()) })
+	var probed string
+
+	size, sizeErr := treeSize(h.State())
+	got, err := backupState(h, "run-1", func(path string) (uint64, error) {
+		probed = path
+		return plentyOfDisk(path)
+	})
+
+	require.NoError(t, sizeErr)
+	require.NoError(t, err)
+	want := readTree(t, elsewhere)
+	delete(want, ".lock")
+	assert.Equal(t, want, readTree(t, got.Path))
+	assert.Equal(t, filepath.Join(h.MigrateDir(), "backups", "run-1", "state"), got.Path)
+	assert.Equal(t, h.Root(), probed)
+	assert.Equal(t, got.Bytes, size)
+	assert.Equal(t, int64(len("events database")+len("blob bytes")+len("view")+len("user data, not the home lock")), size)
+}
+
+func TestBackupState_ADanglingStateRootIsAnError(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	symlinkOrSkip(t, filepath.Join(filepath.Dir(h.Root()), "gone"), h.State())
+
+	_, err := backupState(h, "run-1", plentyOfDisk)
+
+	require.Error(t, err)
+	assert.NoDirExists(t, h.MigrateDir())
+}
+
+func TestBackupState_AnExistingBackupForTheRunFailsBeforeCopying(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "state/a.db", "a")
+	testutil.WriteFile(t, h, "migrate/backups/run-1/state/a.db", "earlier")
+	probed := false
+
+	_, err := backupState(h, "run-1", func(path string) (uint64, error) {
+		probed = true
+		return plentyOfDisk(path)
+	})
+
+	require.ErrorIs(t, err, fs.ErrExist)
+	assert.False(t, probed, "the refusal must come before any space probe or copying")
+	assert.Equal(t, map[string]treeEntry{"state": {Dir: true}, "state/a.db": {Content: "earlier", Mode: 0o600}},
+		readTree(t, filepath.Join(h.MigrateDir(), "backups", "run-1")))
+	assert.NoDirExists(t, filepath.Join(h.MigrateDir(), "backups", "run-1.partial"))
 }
 
 func TestBackupState_AFileThatCannotBeReadLeavesNothingBehind(t *testing.T) {
