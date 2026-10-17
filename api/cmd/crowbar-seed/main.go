@@ -14,6 +14,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -125,20 +126,20 @@ func finish(
 // under a dev CROWBAR_HOME it is thrown away with the rest of the dev
 // instance.
 //
-// CROWBAR_HOME is REQUIRED, not defaulted: this is dev/test tooling that
-// mints throwaway projects and repos, and a silent fallback to the user's
-// real ~/.crowbar (formerly via os.UserHomeDir()) is exactly how a stray
-// "Crowbar Seed" project ends up seeded into production the one time someone
-// runs this binary directly instead of through `make seed`, which is the
-// only thing that reliably exports CROWBAR_HOME (Makefile:11).
+// A dev home is REQUIRED, not defaulted: a silent fallback to the user's own
+// home is how a stray "Crowbar Seed" project ends up in production the one
+// time this binary runs directly instead of through `make seed` (Makefile:11).
 func seedRoot() (string, error) {
-	root := os.Getenv(home.EnvVar)
-	if root == "" {
-		return "", fmt.Errorf(
-			"seed: CROWBAR_HOME is not set — run this through `make seed` " +
+	h, err := home.Resolve()
+	if err != nil {
+		return "", fmt.Errorf("seed: resolve home: %w", err)
+	}
+	if h.IsDefault() {
+		return "", errors.New(
+			"seed: CROWBAR_HOME does not name a dev home — run this through `make seed` " +
 				"(or export CROWBAR_HOME yourself); crowbar-seed refuses to guess " +
-				"and never writes to a real ~/.crowbar",
+				"and never writes to the user's own Crowbar home",
 		)
 	}
-	return filepath.Join(root, "seed"), nil
+	return filepath.Join(h.Root(), "seed"), nil
 }

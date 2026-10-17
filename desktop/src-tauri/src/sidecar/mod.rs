@@ -172,7 +172,7 @@ fn crowbar_home() -> (Option<PathBuf>, bool) {
 
 /// Socket path for an overridden crowbar home: `crowbar-<fnv1a64(home)>.sock`
 /// in the temp dir. MUST stay byte-identical to the Go daemon's derivation
-/// (overrideSocketPath in api/internal/core/gateway/transports/socket.go) so a
+/// (socketName in api/internal/core/home/socket.go) so a
 /// daemon restarted manually with CROWBAR_HOME set binds exactly where this
 /// proxy dials. The hash input is the home path string exactly as exported in
 /// the CROWBAR_HOME env var.
@@ -822,8 +822,8 @@ mod tests {
     }
 
     // Pins the fnv1a64 hash so this derivation and the Go daemon's
-    // (overrideSocketPath in api/.../transports/socket.go, pinned by
-    // TestOverrideSocketPath_MatchesDesktopDerivation) can never drift.
+    // (socketName in api/internal/core/home/socket.go, pinned by
+    // TestSocketName_IsStable) can never drift.
     #[test]
     fn override_socket_path_matches_go_derivation() {
         assert_eq!(fnv1a64(b"/dev/crowbar-home"), 0xc13f09536446a88e);

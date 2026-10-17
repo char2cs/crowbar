@@ -32,3 +32,13 @@ func TestNew_NilBroadcastDegradesToNoop(
 	})
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 }
+
+// A handler built without a crowbar home would resolve one of its own later,
+// so New refuses it up front.
+func TestNew_NilCrowbarHomePanics(
+	t *testing.T,
+) {
+	assert.Panics(t, func() {
+		projecthandlers.New(&fakeReader{}, &fakeImporter{}, &fakeDeleter{}, nil, nil)
+	})
+}

@@ -17,12 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// allowedFiles may name the Crowbar home themselves, keyed by slash path
-// relative to api/. Every other file under internal/ goes through this package.
-var allowedFiles = map[string]string{
-	"cmd/crowbar-seed/main.go": "dev tool that refuses to default; its messages name the real home",
-}
-
 // retiredResolver matches the identifiers the old resolvers were reached by,
 // plus the near-variants a sixth one would likely reuse.
 var retiredResolver = regexp.MustCompile(
@@ -47,7 +41,7 @@ func TestOnlyHomeResolvesTheCrowbarHome(t *testing.T) {
 			return nil
 		}
 		scanned++
-		if strings.HasPrefix(rel, "internal/core/home/") || allowedFiles[rel] != "" {
+		if strings.HasPrefix(rel, "internal/core/home/") {
 			return nil
 		}
 		file, parseErr := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
@@ -64,7 +58,7 @@ func TestOnlyHomeResolvesTheCrowbarHome(t *testing.T) {
 	require.Greater(t, scanned, 100, "a walk that scanned almost nothing proves nothing")
 	t.Logf("scanned %d non-test Go files", scanned)
 	for _, line := range describe(offenders) {
-		t.Errorf("%s: resolve the Crowbar home through core/home", line)
+		t.Errorf("%s: resolve the Crowbar home through core/home; nothing outside it may name it", line)
 	}
 }
 
@@ -83,6 +77,21 @@ func DefaultHome() {}
 	require.NoError(t, err)
 
 	assert.Len(t, resolverUses(file), 7)
+}
+
+func TestResolverUses_FlagsReadingTheEnvVarDirectly(t *testing.T) {
+	src := `package x
+import (
+	"os"
+	"github.com/char2cs/crowbar/api/internal/core/home"
+)
+var a = os.Getenv(home.EnvVar)
+var b, ok = os.LookupEnv(home.EnvVar)
+`
+	file, err := parser.ParseFile(token.NewFileSet(), "x.go", src, parser.SkipObjectResolution)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"os.Getenv of the home env var", "os.LookupEnv of the home env var"}, resolverUses(file))
 }
 
 func TestResolverUses_IgnoresNearMisses(t *testing.T) {
@@ -132,10 +141,32 @@ func resolverUses(file *ast.File) []string {
 			if retiredResolver.MatchString(node.Name) {
 				note("identifier " + node.Name)
 			}
+		case *ast.CallExpr:
+			if fn := readsEnvVar(node); fn != "" {
+				note("os." + fn + " of the home env var")
+			}
 		}
 		return true
 	})
 	return reasons
+}
+
+// readsEnvVar names the os function when call reads the home env var through
+// it, as os.Getenv(home.EnvVar) does; only core/home may.
+func readsEnvVar(call *ast.CallExpr) string {
+	fn, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || len(call.Args) == 0 {
+		return ""
+	}
+	pkg, ok := fn.X.(*ast.Ident)
+	if !ok || pkg.Name != "os" || (fn.Sel.Name != "Getenv" && fn.Sel.Name != "LookupEnv") {
+		return ""
+	}
+	arg, ok := call.Args[0].(*ast.SelectorExpr)
+	if !ok || arg.Sel.Name != "EnvVar" {
+		return ""
+	}
+	return fn.Sel.Name
 }
 
 func namesTheHome(quoted string) bool {

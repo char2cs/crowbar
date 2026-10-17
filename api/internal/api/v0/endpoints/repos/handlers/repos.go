@@ -170,12 +170,15 @@ type Handlers struct {
 }
 
 // New builds the repos Handlers from the repository GORM store and the
-// crowbar-home resolver the icon handlers store and serve through. The
-// broadcast is a no-op until NewWithDeps wires the Repos-channel fan-out.
+// crowbar-home resolver the icon handlers store and serve through, which is
+// required. The broadcast is a no-op until NewWithDeps wires the fan-out.
 func New(
 	store Store,
 	crowbarHome func() (string, error),
 ) *Handlers {
+	if crowbarHome == nil {
+		panic("repos: crowbarHome is required")
+	}
 	return &Handlers{
 		store:       store,
 		crowbarHome: crowbarHome,
@@ -195,18 +198,13 @@ func NewWithDeps(
 	broadcast func(dto.RepoDTO),
 	crowbarHome func() (string, error),
 ) *Handlers {
-	if broadcast == nil {
-		broadcast = func(dto.RepoDTO) {}
+	h := New(store, crowbarHome)
+	h.provider = prov
+	h.wsReader = wsReader
+	if broadcast != nil {
+		h.broadcast = broadcast
 	}
-	return &Handlers{
-		store:       store,
-		provider:    prov,
-		wsReader:    wsReader,
-		crowbarHome: crowbarHome,
-		fetchAvatar: fetchGithubAvatarBytes,
-		broadcast:   broadcast,
-		stat:        os.Stat,
-	}
+	return h
 }
 
 // WithRepoDeleter wires the delete lifecycle DeleteRepo runs.

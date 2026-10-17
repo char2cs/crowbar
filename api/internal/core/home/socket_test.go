@@ -1,6 +1,8 @@
 package home
 
 import (
+	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -48,8 +50,28 @@ func TestSocket_OverrideLivesInTempKeyedByTheHome(t *testing.T) {
 	assert.Equal(t, filepath.Join(os.TempDir(), socketName(root)), h.Socket())
 }
 
+// The desktop shell hashes CROWBAR_HOME exactly as exported, so a trailing
+// slash or a dot segment must reach the hash uncleaned while Root stays clean.
+func TestSocket_OverrideHashesTheHomeExactlyAsGiven(t *testing.T) {
+	base := t.TempDir()
+	for _, given := range []string{base + "/", base + "//", base + "/./", base + "/x/.."} {
+		t.Setenv(EnvVar, given)
+
+		h, err := Resolve()
+		require.NoError(t, err)
+
+		digest := fnv.New64a()
+		_, err = digest.Write([]byte(given))
+		require.NoError(t, err)
+		want := filepath.Join(os.TempDir(), fmt.Sprintf("crowbar-%x.sock", digest.Sum64()))
+		assert.Equal(t, want, h.Socket(), given)
+		assert.Equal(t, base, h.Root(), given)
+	}
+}
+
 func TestSocketName_IsStable(t *testing.T) {
 	assert.Equal(t, "crowbar-c13f09536446a88e.sock", socketName("/dev/crowbar-home"))
+	assert.Equal(t, "crowbar-a4c579b364108993.sock", socketName("/dev/crowbar-home/"))
 }
 
 // Every in-PTY callback bakes a concrete --home into its command line, even on

@@ -18,15 +18,17 @@ import (
 )
 
 func TestNew_BootsFullStack(t *testing.T) {
+	dir := t.TempDir()
 	c, err := internal.New(
 		context.Background(),
 		"tcp://127.0.0.1:0",
 		nil,
-		internal.WithHomeDir(t.TempDir()),
+		internal.WithHomeDir(dir),
 	)
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
 	assert.NotNil(t, c)
+	assert.Equal(t, dir, c.Home())
 }
 
 func TestNew_InvalidHost_ReturnsError(t *testing.T) {

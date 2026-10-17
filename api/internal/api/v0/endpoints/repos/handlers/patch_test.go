@@ -261,3 +261,10 @@ func TestRegression_PatchRepo_BroadcastsTheDecidedPlacementAndEveryShiftedRepo(t
 	assert.Equal(t, "two", byID["r2"].Name)
 	assert.NotContains(t, byID, "c1", "a chat rides its own channel")
 }
+
+// A handler built without a crowbar home would resolve one of its own later,
+// so both constructors refuse it up front.
+func TestNew_NilCrowbarHomePanics(t *testing.T) {
+	assert.Panics(t, func() { repohandlers.New(&fakeStore{}, nil) })
+	assert.Panics(t, func() { repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, nil) })
+}

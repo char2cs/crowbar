@@ -233,8 +233,8 @@ func brokenHomeRouter(reader *fakeReader) *gin.Engine {
 
 var errNoHome = errors.New("no crowbar home")
 
-// unusedHome is the resolver for handlers whose test never reaches an icon
-// route: reaching one fails loudly instead of touching a real home.
+// unusedHome is a resolver that always fails: handlers whose test never reaches
+// an icon route get it so reaching one is loud, and brokenHomeRouter relies on it.
 func unusedHome() (string, error) { return "", errNoHome }
 
 func TestIconRoutes404WhenTheProjectIsGone(t *testing.T) {

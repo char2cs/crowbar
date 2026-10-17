@@ -5,7 +5,6 @@ internal/api/v0/endpoints/projects/handlers/async.go: Handlers.WaitAsync
 internal/api/v0/endpoints/projects/handlers/projects.go: Handlers.WithStat
 internal/api/v0/endpoints/repos/handlers/async.go: Handlers.WaitAsync
 internal/api/v0/endpoints/repos/handlers/repos.go: Handlers.WithStat
-internal/api/v0/endpoints/repos/handlers/repos.go: New
 internal/api/v0/endpoints/worktree/handlers/async.go: Handlers.WaitAsync
 internal/app/repositories/workspace/internal/reactors/delete.go: WithReactorTimeout
 internal/app/repositories/workspace/internal/reconcile/reconcile.go: New

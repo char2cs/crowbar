@@ -79,18 +79,14 @@ type Handlers struct {
 	deleter   Deleter
 	broadcast func(dto.ProjectDTO)
 	stat      func(string) (os.FileInfo, error)
-	// Where the project's icon bytes live. Overridable for tests, exactly as the
-	// repo handlers' equivalent is.
+	// Where the project's icon bytes live, as the repo handlers' equivalent is.
 	crowbarHome func() (string, error)
 	// async owns the detached runAsync ops (see runAsync / WaitAsync / Shutdown).
 	async detached.Ops
 }
 
-// New builds the projects Handlers from the project read, import, and delete
-// usecases, the Projects-channel broadcast func, and the crowbar-home resolver
-// the icon handlers store and serve through. A nil broadcast degrades to a
-// no-op so the handler never panics when wired without a hub (tests, dormant
-// surfaces).
+// New builds the projects Handlers from the project usecases, the Projects
+// broadcast (nil is a no-op) and the crowbar-home resolver, which is required.
 func New(
 	reader ListGetter,
 	importer Importer,
@@ -98,6 +94,9 @@ func New(
 	broadcast func(dto.ProjectDTO),
 	crowbarHome func() (string, error),
 ) *Handlers {
+	if crowbarHome == nil {
+		panic("projects: crowbarHome is required")
+	}
 	if broadcast == nil {
 		broadcast = func(dto.ProjectDTO) {}
 	}

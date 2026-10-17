@@ -137,6 +137,11 @@ func adapterOptions(
 	return []adapter.Option{adapter.WithHomeDir(homeDir)}
 }
 
+// Home is the Crowbar home the daemon opened.
+func (c *Container) Home() string {
+	return c.adapter.CrowbarHome()
+}
+
 // Run serves until ctx is cancelled, then gracefully shuts down. It also watches
 // for an early Serve failure: if Serve returns before shutdown is requested
 // (listener invalidated, accept failing permanently under FD pressure), the

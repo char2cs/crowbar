@@ -84,13 +84,10 @@ func run(
 	return code
 }
 
-// isolateHome points the whole binary at a throwaway Crowbar home, so nothing
-// that resolves a home without an injected one reaches the developer's real
-// ~/.crowbar. An explicit CROWBAR_HOME is honoured as-is, though home.Resolve
-// still refuses one outside os.TempDir() in a test binary. It returns the
-// directory to remove, or "" when it made none.
+// isolateHome points the binary at a throwaway Crowbar home unless the caller
+// deliberately chose one, and returns the directory to remove ("" if none).
 func isolateHome() string {
-	if os.Getenv(home.EnvVar) != "" {
+	if h, err := home.Resolve(); err == nil && !h.IsDefault() {
 		return ""
 	}
 	isolated, err := os.MkdirTemp("", "crowbar-test-home")

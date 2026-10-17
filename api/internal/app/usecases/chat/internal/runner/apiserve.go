@@ -21,10 +21,9 @@ import (
 )
 
 // apiSocketPath derives a short path under the OS temp dir, keyed by a hash of
-// runnerID — mirroring internal/core/gateway/transports.overrideSocketPath's own
-// convention. It must be short and NEVER under a Crowbar worktree: macOS's
-// sun_path is a hard 104 bytes, and a worktree-rooted tmpDir routinely exceeds
-// it (see [[project_dev_home_isolation]]).
+// runnerID — mirroring core/home's socketName convention. It must be short and
+// NEVER under a Crowbar worktree: macOS's sun_path is a hard 104 bytes, and a
+// worktree-rooted tmpDir routinely exceeds it (see [[project_dev_home_isolation]]).
 func apiSocketPath(runnerID string) string {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(runnerID))

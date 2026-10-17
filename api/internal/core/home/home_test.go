@@ -107,6 +107,29 @@ func TestAt_AndResolve_NeverCreateTheHome(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(base, "not"))
 }
 
+func TestIsDefault_IsTrueOnlyForTheUsersOwnHome(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("HOME does not set the user home on windows")
+	}
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+
+	cases := map[string]bool{
+		"":                                  true,
+		filepath.Join(userHome, ".crowbar"): true,
+		filepath.Join(userHome, ".crowbar") + "/": true,
+		filepath.Join(userHome, "elsewhere"):      false,
+	}
+	for override, want := range cases {
+		t.Setenv(EnvVar, override)
+
+		h, err := Resolve()
+		require.NoError(t, err)
+
+		assert.Equal(t, want, h.IsDefault(), "CROWBAR_HOME=%q", override)
+	}
+}
+
 func realHomeDirOrSkip(t *testing.T) string {
 	t.Helper()
 	current, err := user.Current()

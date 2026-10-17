@@ -97,3 +97,9 @@ func TestImport_RemoteProtectedBranch_WorktreeAddAtRefError_IsBestEffort(t *test
 		assert.NotEqual(t, "release", w.Branch, "the branch whose checkout failed gets no row")
 	}
 }
+
+// NewImport has no default home: an unwired caller would otherwise write into
+// the real one.
+func TestNewImport_NilCrowbarHomePanics(t *testing.T) {
+	assert.Panics(t, func() { project.NewImport(project.ImportDeps{}) })
+}
