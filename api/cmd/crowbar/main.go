@@ -79,7 +79,9 @@ func serve(
 ) error {
 	container, err := internal.New(ctx, host, staticFS, options...)
 	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
-		// Stopped mid-migration: the run ended interrupted and the next boot resumes it.
+		// Stopped mid-migration: the next boot resumes the run, so this is no failed
+		// start. The error is kept: it carries any teardown failure joined to ctx's.
+		slog.Warn("daemon: boot interrupted", "component", "daemon", "err", err)
 		return nil
 	}
 	if err != nil {

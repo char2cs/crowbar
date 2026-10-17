@@ -10,6 +10,7 @@ package hookserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -78,9 +79,14 @@ func (s *Server) Shutdown(
 	return s.server.Shutdown(ctx)
 }
 
-// Close closes the listener and every connection.
+// Close closes the listener and every connection. It closes the listener itself
+// too: until Serve runs, the http.Server does not track it.
 func (s *Server) Close() error {
-	return s.server.Close()
+	err := s.server.Close()
+	if lerr := s.listener.Close(); lerr != nil && !errors.Is(lerr, net.ErrClosed) {
+		err = errors.Join(err, fmt.Errorf("hookserver: close listener: %w", lerr))
+	}
+	return err
 }
 
 func endpointFile(

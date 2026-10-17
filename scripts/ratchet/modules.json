@@ -31,7 +31,7 @@
     "dto": ["api/internal/api/v0/dto"],
     "http": ["api/internal/api"],
     "core": ["api/internal/core"],
-    "app-misc": ["api/internal/app", "api/internal/internal.go", "api/internal/perf"],
+    "app-misc": ["api/internal/app", "api/internal/bootreport.go", "api/internal/internal.go", "api/internal/perf"],
     "cmd": ["api/cmd"],
     "test-support": ["api/tests", "api/internal/testutil"]
   },

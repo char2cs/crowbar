@@ -86,7 +86,7 @@ func TestNew_RefusesASecondDaemonOnTheSameHome(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	_, err := boot(t.Context(), t, h)
 	require.NoError(t, err)
-	sock := newSocket(t)
+	sock := testutil.ShortSocket(t)
 
 	_, err = internal.New(t.Context(), "unix://"+sock, nil, internal.WithHomeDir(h.Root()))
 
@@ -188,12 +188,12 @@ func TestClose_ReleasesTheHomeLock(t *testing.T) {
 			if layout != "" {
 				testutil.WriteFile(t, h, "LAYOUT", layout)
 			}
-			c, err := internal.New(t.Context(), "unix://"+newSocket(t), nil, internal.WithHomeDir(h.Root()))
+			c, err := internal.New(t.Context(), "unix://"+testutil.ShortSocket(t), nil, internal.WithHomeDir(h.Root()))
 			require.NoError(t, err)
 
 			c.Close()
 
-			again, err := internal.New(t.Context(), "unix://"+newSocket(t), nil, internal.WithHomeDir(h.Root()))
+			again, err := internal.New(t.Context(), "unix://"+testutil.ShortSocket(t), nil, internal.WithHomeDir(h.Root()))
 			require.NoError(t, err)
 			again.Close()
 		})
@@ -206,7 +206,7 @@ func TestNew_CancelledDuringMigrationReturnsTheContextError(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	sock := newSocket(t)
+	sock := testutil.ShortSocket(t)
 
 	c, err := internal.New(ctx, "unix://"+sock, nil, internal.WithHomeDir(h.Root()))
 
@@ -225,19 +225,20 @@ func TestNew_CancelledDuringAPostOpenStepStopsWhatItStarted(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	cancelPostOpen := slog.New(onStepStart(func(phase string) {
-		if phase == "post-open" {
+	cancelPostOpen := slog.New(testutil.OnLog("migrate: step started", func(r slog.Record) {
+		if testutil.Attrs(r)["phase"].String() == "post-open" {
 			cancel()
 		}
 	}))
 	var err error
 
 	pprof.Do(ctx, pprof.Labels("internal_new", t.Name()), func(ctx context.Context) {
-		_, err = internal.New(ctx, "unix://"+newSocket(t), nil,
+		_, err = internal.New(ctx, "unix://"+testutil.ShortSocket(t), nil,
 			internal.WithHomeDir(h.Root()), internal.WithMigrateLog(cancelPostOpen))
 	})
 
 	require.ErrorIs(t, err, context.Canceled)
+	// openStack joins any close failure on, and Join gives it a line of its own.
 	assert.NotContains(t, err.Error(), "\n", "the teardown failed nothing")
 	records := readLedger(t, h)
 	assert.Equal(t, ledgerRecord{Kind: "run.end", Outcome: "interrupted"}, records[len(records)-1])
@@ -309,44 +310,4 @@ func TestRun_ServesOnlyTheRunnerHookRouteOnALoopbackPort(t *testing.T) {
 		"repository not found", "the real router, not the gate, answered")
 	assert.Equal(t, "404 page not found\n", fetch(http.MethodGet, url+"/v0/projects", nil),
 		"the gate refuses the rest of the API")
-}
-
-// progress is the health detail of a daemon still migrating.
-type progress struct {
-	Phase string     `json:"phase"`
-	Step  migrate.ID `json:"step"`
-	Index int        `json:"index"`
-	Total int        `json:"total"`
-}
-
-// While a step runs, health names it, from the first pre-open step on, and
-// every other request is refused with the same words.
-func TestReport_NamesTheStepThatIsRunning(t *testing.T) {
-	h := testutil.FixtureHome(t)
-	sock := newSocket(t)
-	client := unixClient(t, sock)
-	var healths, refusals []answer
-	askAtEachStep := slog.New(onStepStart(func(string) {
-		healths = append(healths, call(t, client, http.MethodGet, "/v0/health", nil))
-		refusals = append(refusals, call(t, client, http.MethodGet, "/v0/projects", nil))
-	}))
-
-	c, err := internal.New(t.Context(), "unix://"+sock, nil,
-		internal.WithHomeDir(h.Root()), internal.WithMigrateLog(askAtEachStep))
-	require.NoError(t, err)
-	t.Cleanup(c.Close)
-
-	require.Len(t, healths, 5)
-	for _, health := range healths {
-		assert.Equal(t, http.StatusOK, health.status)
-		assert.Equal(t, "migrating", health.Data.Status, health.raw)
-	}
-	assert.Equal(t, progress{Phase: "pre-open", Step: migrate.ID{Number: 2, Name: "workspace-paths-table"}, Index: 1, Total: 5},
-		detail[progress](t, healths[0]))
-	assert.Equal(t, progress{Phase: "post-open", Step: migrate.ID{Number: 1, Name: "project-homes"}, Index: 2, Total: 5},
-		detail[progress](t, healths[1]))
-	assert.Equal(t, http.StatusServiceUnavailable, refusals[0].status)
-	assert.Equal(t, "daemon_migrating", refusals[0].Code)
-	assert.Equal(t, "Crowbar is upgrading its data (step 1 of 5: workspace-paths-table)", refusals[0].Error)
-	assert.Equal(t, "Crowbar is upgrading its data (step 5 of 5: hook-deliveries)", refusals[4].Error)
 }

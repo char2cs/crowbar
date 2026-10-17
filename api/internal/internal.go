@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
@@ -29,10 +28,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
-// Container is the root container. It owns the socket and the gate answering
-// on it from the moment it binds, and the session holding the home; once the
-// home is migrated, also the stack over its stores. A halted container has no
-// stack: it serves only the gate, which says why.
+// Container is the root container: the socket, the gate answering on it from
+// the moment it binds, and the session holding the home. A migrated home adds
+// the stack over its stores; a halted one has none, and its gate says why.
 type Container struct {
 	home     home.Home
 	listener net.Listener
@@ -87,10 +85,9 @@ func WithLogRing(
 	}
 }
 
-// New binds the socket and serves the boot gate on it, takes the home and runs
-// its pre-open migrations, then wires engine → adapter → app → api and opens the
-// gate to the API. A home the migration halts on still yields a container, one
-// that serves only the gate and holds the home until it is closed.
+// New serves the boot gate on the socket before it migrates the home, so health
+// answers throughout. A halt still yields a container: one that serves only the
+// gate and holds the home until it is closed.
 func New(
 	ctx context.Context,
 	host string,
@@ -125,8 +122,8 @@ func New(
 		if c.session.Halt() == nil {
 			return nil, errors.Join(err, c.release())
 		}
-		// The halt alone is served; this keeps the layer it stopped and any teardown failure.
-		slog.Warn("internal: boot halted", "err", err)
+		// serve logs the halt itself; this is the layer it stopped and any teardown failure.
+		slog.Debug("internal: boot halted", "err", err)
 	}
 	return c, nil
 }
@@ -154,8 +151,9 @@ func (c *Container) boot(
 	return nil
 }
 
-// openStack builds the stack in order. On failure it closes what it had
-// opened, so the stores are closed before the caller lets go of the home.
+// openStack builds the stack in order. On failure it closes what it had opened
+// and returns any close failure with the error, so the stores are closed before
+// the caller lets go of the home.
 func openStack(
 	ctx context.Context,
 	h home.Home,
@@ -167,10 +165,7 @@ func openStack(
 	s := &stack{}
 	if err := s.open(ctx, h, cfg, socket, post, staticFS); err != nil {
 		//nolint:contextcheck // the Close methods take no ctx: a failed boot's teardown runs even after ctx is done.
-		if closeErr := s.close(); closeErr != nil {
-			slog.Error("internal: close what a failed boot opened", "err", closeErr)
-		}
-		return nil, err
+		return nil, errors.Join(err, s.close())
 	}
 	return s, nil
 }
@@ -223,9 +218,8 @@ func (s *stack) open(
 }
 
 // close tears the stack down in dependency order, skipping the layers a failed
-// boot never built: the hook server, the app layer's lazy realtime resource
-// lifecycles (file watchers and LSP hosts, which http.Server.Shutdown leaves
-// running on hijacked WebSocket connections), the engines, then the stores.
+// boot never built. The app layer's watchers and LSP hosts live on hijacked
+// connections, which http.Server.Shutdown leaves running.
 func (s *stack) close() error {
 	var errs []error
 	if s.hooks != nil {
@@ -238,12 +232,9 @@ func (s *stack) close() error {
 	if s.app != nil {
 		s.app.Close()
 	}
-	// Tear down engine OS resources (live PTY child processes + master FDs) so a
-	// shutdown/restart doesn't orphan every open terminal's shell and the dev
-	// servers it spawned. On the graceful path the terminals are ALREADY quiesced
-	// (app.Shutdown step 1, which had to run before the aggregates drained), so this
-	// only finishes the job for the paths that never reached it — a Serve failure, or
-	// a caller that closes without running. It never re-enters that join.
+	// Kills live PTY children so no terminal's shell outlives the daemon. The graceful
+	// path quiesced them already (app.Shutdown); this covers a Serve failure or a
+	// Close without Run, and never re-enters that join.
 	if s.engines != nil {
 		s.engines.Close()
 	}
@@ -272,44 +263,6 @@ func (c *Container) release() error {
 		err = errors.Join(err, c.session.Close())
 	}
 	return err
-}
-
-// startingMessage is what the gate says while no migration step has run.
-const startingMessage = "Crowbar is starting"
-
-// bootReport is what the gate says while the daemon is not serving: how far
-// the migration has got, or why it halted. The gate asks it from request
-// goroutines, so the session is published atomically.
-type bootReport struct {
-	session atomic.Pointer[migrate.Session]
-}
-
-// progressDetail is a migration's progress as the health route shows it.
-type progressDetail struct {
-	Phase string     `json:"phase"`
-	Step  migrate.ID `json:"step"`
-	Index int        `json:"index"`
-	Total int        `json:"total"`
-}
-
-// report is the gate's Reporter.
-func (b *bootReport) report() bootgate.Report {
-	s := b.session.Load()
-	if s == nil {
-		return bootgate.Report{State: bootgate.StateMigrating, Message: startingMessage}
-	}
-	if h := s.Halt(); h != nil {
-		return bootgate.Report{State: bootgate.StateHalted, Message: h.Message, Detail: h}
-	}
-	p := s.Progress()
-	if p.Total == 0 {
-		return bootgate.Report{State: bootgate.StateMigrating, Message: startingMessage}
-	}
-	return bootgate.Report{
-		State:   bootgate.StateMigrating,
-		Message: fmt.Sprintf("Crowbar is upgrading its data (step %d of %d: %s)", p.Index, p.Total, p.Step.Name),
-		Detail:  progressDetail{Phase: p.Phase.String(), Step: p.Step, Index: p.Index, Total: p.Total},
-	}
 }
 
 // socketOf is the unix socket listener is bound to, or "" for any other kind.
