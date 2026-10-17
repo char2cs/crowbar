@@ -22,6 +22,12 @@ test('classify admits only Go and web/src TypeScript and marks tests', () => {
     assert.equal(classify(p), null)
 })
 
+test('classify skips vendored and generated code but not look-alikes', () => {
+  for (const p of ['api/third_party/mod/a.go', 'api/third_party/mod/a_test.go', 'web/src/routeTree.gen.ts']) assert.equal(classify(p), null)
+  assert.deepEqual(classify('api/third_partyx/a.go'), { lang: 'go', test: false })
+  assert.deepEqual(classify('web/src/routes/routeTree.gen.ts'), { lang: 'web', test: false })
+})
+
 test('diffBaseline buckets every kind of change and is empty when equal', () => {
   assert.deepEqual(diffBaseline({ a: 1 }, { a: 1 }), { grew: [], added: [], shrunk: [], gone: [] })
   const d = diffBaseline({ up: 1, down: 5, old: 3 }, { up: 2, down: 4, fresh: 9 })

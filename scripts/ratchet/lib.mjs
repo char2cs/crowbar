@@ -18,6 +18,8 @@ export function countLines(text) {
 
 /** @returns {{ lang: 'go' | 'web', test: boolean } | null} null for anything the gates do not measure. */
 export function classify(path) {
+  // Vendored and generated code is not ours to shrink; golangci and eslint exclude the same paths.
+  if (path.startsWith('api/third_party/') || path === 'web/src/routeTree.gen.ts') return null
   if (path.startsWith('api/') && path.endsWith('.go')) return { lang: 'go', test: path.endsWith('_test.go') }
   if (path.startsWith('web/src/') && (path.endsWith('.ts') || path.endsWith('.tsx')))
     return { lang: 'web', test: path.startsWith('web/src/__tests__/') }
