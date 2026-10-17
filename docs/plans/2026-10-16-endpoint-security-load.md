@@ -23,9 +23,8 @@ could not see the dominant macOS cost.
   web's git/status frame then fetches status and log and reloads review files
   (4-6 more spawns).
 - Pollers run with no agents:
-  - `gh pr list` every minute for the active workspace.
-  - `SyncProviderState` appends an event and a snapshot on every tick, changed
-    or not, and that triggers another broadcast.
+  - `gh pr list` every minute for the active workspace. (An unchanged result
+    already writes nothing: the repository skips a no-op `SyncProviderState`.)
   - `git fetch` every 5 minutes per protected root.
   - Bare `git` through the `/usr/bin/git` xcrun shim (2 execs per call).
   - `binpath.Resolve` is uncached.
@@ -64,7 +63,6 @@ the real app:
    enrichment runs only when branch tips move. Test: N writes produce a fixed
    spawn count end to end.
 3. **Pollers do nothing when nothing changed.**
-   - `SyncProviderState` is a no-op when the provider state is unchanged.
    - Every git exec uses `binpath.Git()`.
    - `binpath.Resolve` caches its answer.
    - Further gating (focus or visibility) is decided from the meter's idle
