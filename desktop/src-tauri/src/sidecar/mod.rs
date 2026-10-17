@@ -1,7 +1,10 @@
+pub mod health;
 pub mod paths;
 pub mod supervisor;
 
 pub use paths::{daemon_log_path, resolve, socket_path};
+
+use health::{announce_halt, check_health, wait_for_health, Health};
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -25,10 +28,6 @@ const DAEMON_LOG_MAX_LEN: u64 = 4 * 1024 * 1024;
 const WATCHDOG_INTERVAL: Duration = Duration::from_secs(10);
 /// Per-probe budget; the deep path answers in microseconds when healthy.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
-/// Per-attempt budget for the startup health probe. A booting daemon answers
-/// /v0/health immediately or not at all, so this only has to outlast a loaded
-/// machine — never a slow request.
-const HEALTH_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 /// A final, more generous probe budget after the failure threshold trips,
 /// giving a daemon that just resumed from an OS suspension time to answer
 /// before the watchdog commits to a restart.
@@ -152,7 +151,9 @@ pub async fn spawn<R: Runtime>(
     let pump_app = app.clone();
     tauri::async_runtime::spawn(pump_output(pump_app, rx));
 
-    let pid = wait_for_health(&socket, 30).await?;
+    let pid = wait_for_health(&socket, 30)
+        .await
+        .inspect_err(|why| announce_halt(app, why))?;
     if let Some(reported) = pid.filter(|reported| *reported != spawned_pid) {
         // Someone else answers on our socket — a stale daemon from a previous run.
         // It is not ours to signal; our own process is what a stop must end.
@@ -267,45 +268,6 @@ fn handle_termination<R: Runtime>(app: &AppHandle<R>) {
     tauri::async_runtime::spawn(respawn);
 }
 
-async fn wait_for_health(
-    socket: &PathBuf,
-    attempts: u32,
-) -> Result<Option<i32>, Box<dyn std::error::Error + Send + Sync>> {
-    for i in 0..attempts {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
-        // Budget every attempt. A daemon that accepts the connection but never
-        // serves /v0/health would otherwise park this loop forever — and with it
-        // `spawn`, which is what records `daemon_pid`. The watchdog would then trip,
-        // find no pid, and fall back to `CommandChild::kill()`: the one call that
-        // deadlocks on a live daemon (see `SidecarHandle`). The supervisor would
-        // never run again, so the leak is not the descriptor, it is the recovery.
-        if let Ok(Ok(pid)) = tokio::time::timeout(HEALTH_PROBE_TIMEOUT, check_health(socket)).await
-        {
-            return Ok(pid);
-        }
-
-        if i == attempts - 1 {
-            return Err(format!("daemon did not become healthy in {attempts} attempts").into());
-        }
-    }
-    Ok(None)
-}
-
-/// Probes /v0/health; on success returns the daemon's self-reported pid
-/// (None for a daemon predating the pid field).
-async fn check_health(
-    socket: &PathBuf,
-) -> Result<Option<i32>, Box<dyn std::error::Error + Send + Sync>> {
-    let resp = http_get(socket, "/v0/health").await?;
-    if resp.status().is_success() {
-        let body = resp.into_body().collect().await?.to_bytes();
-        Ok(parse_health_pid(&body))
-    } else {
-        Err(format!("health check returned {}", resp.status()).into())
-    }
-}
-
 /// One HTTP/1.1 GET over the daemon's unix socket.
 pub(crate) async fn http_get(
     socket: &PathBuf,
@@ -341,6 +303,13 @@ pub(crate) async fn http_get(
 /// could dial at all: an exhausted app cannot reach even a perfectly healthy
 /// daemon, and the watchdog must not read that as the daemon's fault.
 async fn probe_ready(socket: &PathBuf) -> supervisor::Probe {
+    // A daemon preparing its home or halted refuses every route but /v0/health on
+    // purpose; the deep probe would read that refusal as a wedge.
+    match check_health(socket).await {
+        Ok(Health::Migrating | Health::Halted { .. }) => return supervisor::Probe::Held,
+        Ok(Health::Ready { .. }) => {}
+        Err(e) => return dial_failure(&*e),
+    }
     match http_get(socket, "/v0/projects").await {
         Ok(resp) => {
             let ok = resp.status().is_success();
@@ -351,8 +320,15 @@ async fn probe_ready(socket: &PathBuf) -> supervisor::Probe {
                 supervisor::Probe::Unserved
             }
         }
-        Err(e) if is_descriptor_exhaustion(&*e) => supervisor::Probe::LocalDescriptorExhaustion,
-        Err(_) => supervisor::Probe::Unserved,
+        Err(e) => dial_failure(&*e),
+    }
+}
+
+fn dial_failure(err: &(dyn std::error::Error + 'static)) -> supervisor::Probe {
+    if is_descriptor_exhaustion(err) {
+        supervisor::Probe::LocalDescriptorExhaustion
+    } else {
+        supervisor::Probe::Unserved
     }
 }
 
@@ -445,6 +421,11 @@ pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
                     "the app is out of file descriptors and cannot dial the daemon. \
                      NOT restarting it — the daemon is not what is broken here."
                 );
+                tracker.reset();
+                continue;
+            }
+            // Alive on purpose (migrating or halted): never a wedge, never killed.
+            if outcome == supervisor::Probe::Held {
                 tracker.reset();
                 continue;
             }
@@ -625,23 +606,8 @@ fn signal_then_kill(pid: i32, first: libc::c_int, grace: Duration) {
     unsafe { libc::kill(pid, libc::SIGKILL) };
 }
 
-/// Extracts the daemon's self-reported pid from the /v0/health envelope:
-/// `{"success":true,"data":{"status":"ok","version":"...","pid":<n>}}`.
-///
-/// This is the ONLY safe pid source: `CommandChild::pid()` locks the
-/// shared_child mutex that the shell plugin's wait thread holds for the
-/// child's entire lifetime — calling it on a live daemon deadlocks (observed
-/// live 2026-07-04: the watchdog froze inside pid() during the wedge drill).
-fn parse_health_pid(body: &[u8]) -> Option<i32> {
-    let v: serde_json::Value = serde_json::from_slice(body).ok()?;
-    let pid = v.get("data")?.get("pid")?.as_i64()?;
-    i32::try_from(pid).ok().filter(|p| *p > 0)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::parse_health_pid;
-
     #[cfg(unix)]
     mod signal_then_kill {
         use super::super::signal_then_kill;
@@ -692,26 +658,5 @@ mod tests {
             // kill(0, sig) would signal our whole process group.
             signal_then_kill(0, libc::SIGTERM, Duration::from_millis(1));
         }
-    }
-
-    #[test]
-    fn parse_health_pid_reads_the_envelope() {
-        let body = br#"{"success":true,"data":{"status":"ok","version":"0.1.0","pid":54321}}"#;
-        assert_eq!(parse_health_pid(body), Some(54321));
-    }
-
-    #[test]
-    fn parse_health_pid_rejects_missing_or_invalid() {
-        assert_eq!(
-            parse_health_pid(br#"{"success":true,"data":{"status":"ok"}}"#),
-            None,
-            "old daemons without a pid field must not yield one"
-        );
-        assert_eq!(parse_health_pid(b"not json"), None);
-        assert_eq!(
-            parse_health_pid(br#"{"success":true,"data":{"pid":0}}"#),
-            None,
-            "pid 0 would signal the whole process group — never accept it"
-        );
     }
 }

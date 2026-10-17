@@ -19,6 +19,9 @@ pub enum Probe {
     /// This process hit its own open-file limit (`EMFILE`/`ENFILE`) while dialling.
     /// Says nothing whatsoever about the daemon's health.
     LocalDescriptorExhaustion,
+    /// The daemon answered that it is alive but deliberately not serving: it is
+    /// preparing its home, or it halted. No restart fixes either.
+    Held,
 }
 
 /// Whether a probe outcome is evidence *about the daemon*.
@@ -160,6 +163,14 @@ mod tests {
             !probe_indicts_daemon(Probe::LocalDescriptorExhaustion),
             "the app ran out of descriptors; the daemon may be perfectly healthy \
              and killing it cannot hand one back"
+        );
+    }
+
+    #[test]
+    fn a_held_daemon_is_never_indicted() {
+        assert!(
+            !probe_indicts_daemon(Probe::Held),
+            "a daemon preparing its home, or halted, is alive on purpose"
         );
     }
 
