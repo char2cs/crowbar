@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/adapter/migrations"
@@ -40,8 +41,8 @@ func main() {
 	fmt.Printf("seeded chat %s (%d turns, %d tool calls/assistant turn)\n", got, *turns, *toolCalls)
 }
 
-// run seeds the chat into the home a daemon would open, holding it as the
-// daemon does: migrated before its stores open, released after they close.
+// run seeds the chat into the home a daemon has already migrated, holding it as
+// the daemon does: for as long as its stores are open.
 func run(
 	ctx context.Context,
 	opts seedOptions,
@@ -50,13 +51,16 @@ func run(
 	if err != nil {
 		return "", err
 	}
+	if err := requireMigrated(ctx, h); err != nil {
+		return "", err
+	}
 	session, err := migrations.Begin(ctx, h, migrate.Options{Version: metadata.GetVersion()})
 	if err != nil {
 		return "", err
 	}
 	defer func() { err = errors.Join(err, session.Close()) }()
-	if err := session.RunPreOpen(ctx, migrations.PreOpenImpls()); err != nil {
-		return "", fmt.Errorf("migrate: %w", err)
+	if halt := session.Halt(); halt != nil {
+		return "", halt
 	}
 	adapters, err := adapter.New(adapter.WithHomeDir(h.Root()))
 	if err != nil {
@@ -64,4 +68,30 @@ func run(
 	}
 	defer func() { err = errors.Join(err, adapters.Close()) }()
 	return seedChat(ctx, adapters, opts)
+}
+
+// requireMigrated refuses a home with migration steps left: running them is the
+// daemon's boot, and a seeder that started a run and left it unfinished would
+// have the next boot close that run as interrupted.
+func requireMigrated(
+	ctx context.Context,
+	h home.Home,
+) error {
+	cat, err := migrations.Catalog()
+	if err != nil {
+		return err
+	}
+	report, err := migrate.Inspect(ctx, h, cat, migrate.Options{})
+	if err != nil {
+		return fmt.Errorf("inspect %s: %w", h.Root(), err)
+	}
+	if len(report.Steps) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(report.Steps))
+	for _, sp := range report.Steps {
+		names = append(names, sp.Step.Name)
+	}
+	return fmt.Errorf("%s has migration steps pending (%s): start the daemon once to finish migrating this home",
+		h.Root(), strings.Join(names, ", "))
 }
