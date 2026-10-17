@@ -280,3 +280,136 @@ func TestRefMove_RepeatedHeadChangesAllReResolveBase(t *testing.T) {
 		g.expectResolve(t, "checkout --detach "+rev)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// maybeHandleGitRef — direct invocation
+// ---------------------------------------------------------------------------
+
+func TestMaybeHandleGitRef_HeadSuffix(t *testing.T) {
+	dir := t.TempDir()
+	rd := &recordingDispatcher{}
+	w := newBareWatcher(dir, rd)
+
+	// Build an event whose Name has the .git/HEAD suffix relative to dir.
+	evt := fsnotify.Event{
+		Name: filepath.Join(dir, ".git", "HEAD"),
+		Op:   fsnotify.Write,
+	}
+	w.maybeHandleGitRef(context.Background(), evt)
+
+	// The recompute is debounced: it is scheduled, never run synchronously.
+	assert.True(t, gitRecomputePending(w), "git recompute should be scheduled for .git/HEAD event")
+	assert.Equal(t, 0, rd.count(), "fanOutGit must not run synchronously (debounced)")
+}
+
+func TestMaybeHandleGitRef_RefsPath(t *testing.T) {
+	dir := t.TempDir()
+	rd := &recordingDispatcher{}
+	w := newBareWatcher(dir, rd)
+
+	evt := fsnotify.Event{
+		Name: filepath.Join(dir, ".git", "refs", "heads", "main"),
+		Op:   fsnotify.Write,
+	}
+	w.maybeHandleGitRef(context.Background(), evt)
+
+	assert.True(t, gitRecomputePending(w), "git recompute should be scheduled for .git/refs/ event")
+	assert.Equal(t, 0, rd.count(), "fanOutGit must not run synchronously (debounced)")
+}
+
+// A change to .git/packed-refs (where refs land after git gc / pack-refs) must
+// trigger the same GitStatus + SyncWorkingTreeState recompute as .git/HEAD.
+func TestMaybeHandleGitRef_PackedRefs(t *testing.T) {
+	dir := t.TempDir()
+	rd := &recordingDispatcher{}
+	w := newBareWatcher(dir, rd)
+
+	evt := fsnotify.Event{
+		Name: filepath.Join(dir, ".git", "packed-refs"),
+		Op:   fsnotify.Write,
+	}
+	w.maybeHandleGitRef(context.Background(), evt)
+
+	assert.True(t, gitRecomputePending(w), "git recompute should be scheduled for .git/packed-refs event")
+	assert.Equal(t, 0, rd.count(), "fanOutGit must not run synchronously (debounced)")
+}
+
+func TestMaybeHandleGitRef_UnrelatedGitFile_NoFanOut(t *testing.T) {
+	dir := t.TempDir()
+	rd := &recordingDispatcher{}
+	w := newBareWatcher(dir, rd)
+
+	evt := fsnotify.Event{
+		Name: filepath.Join(dir, ".git", "COMMIT_EDITMSG"),
+		Op:   fsnotify.Write,
+	}
+	w.maybeHandleGitRef(context.Background(), evt)
+
+	assert.False(t, gitRecomputePending(w), "no git recompute should be scheduled for unrelated .git files")
+	assert.Equal(t, 0, rd.count(), "OnGitStatus must NOT be called for unrelated .git files")
+}
+
+// ---------------------------------------------------------------------------
+// isRewriteInProgress — all three sentinel files
+// ---------------------------------------------------------------------------
+
+func TestIsRewriteInProgress_MergeHead(t *testing.T) {
+	dir := t.TempDir()
+	gitDir := filepath.Join(dir, ".git")
+	require.NoError(t, os.MkdirAll(gitDir, 0o700))
+
+	w := newBareWatcher(dir, &recordingDispatcher{})
+	assert.False(t, w.isRewriteInProgress(), "should be false before creating MERGE_HEAD")
+
+	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "MERGE_HEAD"), []byte("abc\n"), 0o600))
+	assert.True(t, w.isRewriteInProgress(), "should be true with MERGE_HEAD present")
+}
+
+func TestIsRewriteInProgress_RebaseMerge(t *testing.T) {
+	dir := t.TempDir()
+	gitDir := filepath.Join(dir, ".git")
+	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "rebase-merge"), 0o700))
+
+	w := newBareWatcher(dir, &recordingDispatcher{})
+	assert.True(t, w.isRewriteInProgress())
+}
+
+func TestIsRewriteInProgress_RebaseApply(t *testing.T) {
+	dir := t.TempDir()
+	gitDir := filepath.Join(dir, ".git")
+	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "rebase-apply"), 0o700))
+
+	w := newBareWatcher(dir, &recordingDispatcher{})
+	assert.True(t, w.isRewriteInProgress())
+}
+
+func TestIsRewriteInProgress_None(t *testing.T) {
+	dir := t.TempDir()
+	w := newBareWatcher(dir, &recordingDispatcher{})
+	assert.False(t, w.isRewriteInProgress())
+}
+
+// TestIsRewriteInProgress_LinkedWorktree proves H20: a child (linked) worktree's
+// .git is a FILE ("gitdir: <path>") whose rebase/merge markers live in the
+// per-worktree dir under the common dir, NOT in <worktree>/.git/. The guard must
+// resolve the real git dir, or it reads "false" mid-rebase and broadcasts
+// transient wrong status during the exact rewrite it should skip.
+func TestIsRewriteInProgress_LinkedWorktree(t *testing.T) {
+	root := t.TempDir()
+	worktree := filepath.Join(root, "wt")
+	require.NoError(t, os.MkdirAll(worktree, 0o700))
+	realGitDir := filepath.Join(root, "common", ".git", "worktrees", "wt")
+	require.NoError(t, os.MkdirAll(realGitDir, 0o700))
+	// .git is a gitlink file pointing at the per-worktree git dir.
+	require.NoError(t, os.WriteFile(filepath.Join(worktree, ".git"),
+		[]byte("gitdir: "+realGitDir+"\n"), 0o600))
+
+	w := newBareWatcher(worktree, &recordingDispatcher{})
+	assert.False(t, w.isRewriteInProgress(), "clean linked worktree")
+
+	// A rebase-merge in the REAL git dir must be detected. With the old code this
+	// stayed false (os.Stat(<worktree>/.git/rebase-merge) -> ENOTDIR, .git a file).
+	require.NoError(t, os.MkdirAll(filepath.Join(realGitDir, "rebase-merge"), 0o700))
+	assert.True(t, w.isRewriteInProgress(),
+		"a rebase in a linked worktree must be detected via the resolved git dir")
+}
