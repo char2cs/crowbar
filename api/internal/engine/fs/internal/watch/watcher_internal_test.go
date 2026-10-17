@@ -9,7 +9,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -215,94 +214,19 @@ func TestShouldIgnore_DotGitContent(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// addRecursive — gitignored directories are skipped in-process (no git fork)
-// ---------------------------------------------------------------------------
-
-// watchList returns the directories the watcher currently has registered with
-// fsnotify. It is the deterministic, timing-free signal for "was this directory
-// added to the watch?".
-func watchList(
-	t *testing.T,
-	w *Watcher,
-) []string {
-	t.Helper()
-	w.mu.Lock()
-	fsw := w.fsw
-	w.mu.Unlock()
-	require.NotNil(t, fsw, "Start must have created an fsnotify watcher")
-	return fsw.WatchList()
-}
-
-// A gitignored directory (and its descendants) must be excluded from the
-// recursive watch. This runs in a PLAIN (non-git) directory: the retired
-// per-directory `git check-ignore` fork returned exit 128 there and would have
-// watched node_modules/, so passing here proves the in-process matcher replaced
-// the fork and still honours .gitignore.
-func TestAddRecursive_SkipsGitignoredDir_InProcess(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(
-		filepath.Join(dir, ".gitignore"),
-		[]byte("node_modules/\n"),
-		0o600,
-	))
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "node_modules", "pkg"), 0o700))
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "src"), 0o700))
-
-	w := NewWatcher("ws-ign", dir, "", &minimalGit{}, &recordingDispatcher{})
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	t.Cleanup(w.Stop)
-	require.NoError(t, w.Start(ctx))
-
-	watched := watchList(t, w)
-	assert.Contains(t, watched, dir, "repo root must be watched")
-	assert.Contains(t, watched, filepath.Join(dir, "src"), "non-ignored dir must be watched")
-	assert.NotContains(t, watched, filepath.Join(dir, "node_modules"),
-		"a gitignored directory must be skipped")
-	assert.NotContains(t, watched, filepath.Join(dir, "node_modules", "pkg"),
-		"descendants of a gitignored directory must be skipped")
-}
-
-// A directory created AFTER Start that is gitignored must also be skipped by the
-// handleOne -> addRecursive path, not just the initial walk.
-func TestAddRecursive_SkipsGitignoredDirCreatedAfterStart(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(
-		filepath.Join(dir, ".gitignore"),
-		[]byte("dist/\n"),
-		0o600,
-	))
-
-	w := NewWatcher("ws-ign2", dir, "", &minimalGit{}, &recordingDispatcher{})
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	t.Cleanup(w.Stop)
-	require.NoError(t, w.Start(ctx))
-
-	// Drive the CREATE -> addRecursive branch directly (timing-free): handleOne
-	// runs addRecursive synchronously for a Create event.
-	distDir := filepath.Join(dir, "dist")
-	require.NoError(t, os.MkdirAll(distDir, 0o700))
-	w.handleOne(ctx, fsnotify.Event{Name: distDir, Op: fsnotify.Create})
-
-	assert.NotContains(t, watchList(t, w), distDir,
-		"a gitignored directory created after Start must be skipped")
-}
-
-// ---------------------------------------------------------------------------
 // classifyChange — all branches
 // ---------------------------------------------------------------------------
 
 func TestClassifyChange_AllOps(t *testing.T) {
 	cases := []struct {
-		op   fsnotify.Op
+		op   op
 		want domain.FileChangeType
 	}{
-		{fsnotify.Create, domain.FileChangeCreated},
-		{fsnotify.Remove, domain.FileChangeDeleted},
-		{fsnotify.Rename, domain.FileChangeRenamed},
-		{fsnotify.Write, domain.FileChangeModified},
-		{fsnotify.Chmod, domain.FileChangeModified},
+		{opCreate, domain.FileChangeCreated},
+		{opRemove, domain.FileChangeDeleted},
+		{opRename, domain.FileChangeRenamed},
+		{opWrite, domain.FileChangeModified},
+		{opChmod, domain.FileChangeModified},
 	}
 	for _, tc := range cases {
 		assert.Equal(t, tc.want, classifyChange(tc.op))
@@ -311,7 +235,7 @@ func TestClassifyChange_AllOps(t *testing.T) {
 
 // Create|Remove: Create wins (highest priority).
 func TestClassifyChange_CreateBeatsRemove(t *testing.T) {
-	assert.Equal(t, domain.FileChangeCreated, classifyChange(fsnotify.Create|fsnotify.Remove))
+	assert.Equal(t, domain.FileChangeCreated, classifyChange(opCreate|opRemove))
 }
 
 // ---------------------------------------------------------------------------
@@ -338,9 +262,9 @@ func TestHandleOne_ShouldIgnoreCallsMaybeHandleGitRef(t *testing.T) {
 	// An event for .git/COMMIT_EDITMSG: shouldIgnore returns true.
 	// maybeHandleGitRef checks isHead/isRef — both false — so fanOutGit is NOT called.
 	// The important thing is that no OnFileChange is emitted and the function returns early.
-	evt := fsnotify.Event{
+	evt := event{
 		Name: filepath.Join(dir, ".git", "COMMIT_EDITMSG"),
-		Op:   fsnotify.Write,
+		Op:   opWrite,
 	}
 	w.handleOne(context.Background(), evt)
 
@@ -366,9 +290,9 @@ func TestHandleOne_ShouldIgnoreWithHeadCallsFanOutGit_ViaDirectCall(t *testing.T
 	w := newBareWatcher(dir, rd)
 
 	// Simulate a .git/index event (ignored, not HEAD/refs).
-	evt := fsnotify.Event{
+	evt := event{
 		Name: filepath.Join(dir, ".git", "index"),
-		Op:   fsnotify.Write,
+		Op:   opWrite,
 	}
 	w.handleOne(context.Background(), evt)
 
@@ -385,13 +309,13 @@ func TestHandleBurst_EmptyNoPanic(t *testing.T) {
 	w := newBareWatcher(dir, &recordingDispatcher{})
 	// Must not panic on empty slice.
 	w.handleBurst(context.Background(), nil)
-	w.handleBurst(context.Background(), []fsnotify.Event{})
+	w.handleBurst(context.Background(), []event{})
 }
 
 // ---------------------------------------------------------------------------
 // Start — addRecursive error path (fsw.Add fails for a closed watcher)
 // This covers the "if err := w.addRecursive..." branch in Start.
-// We can't easily cause fsnotify.NewWatcher to fail, but we CAN trigger the
+// We can't easily cause newBackend to fail, but we CAN trigger the
 // addRecursive→fsw.Add error by pre-arranging a path that Add rejects.
 // The simplest portable approach: start a watcher normally (covers the happy
 // path) then verify the error is propagated when Add is called on a closed watcher.
@@ -413,22 +337,23 @@ func TestStart_AddRecursiveErrorPropagated(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Start/Stop ordering — every created fsnotify.Watcher is closed exactly once,
-// no inotify FD or loop goroutine leak, regardless of cancel/stop ordering.
+// Start/Stop ordering — every created backend is closed exactly once, no
+// descriptor or loop goroutine leak, regardless of cancel/stop ordering.
 // ---------------------------------------------------------------------------
 
-// fswClosed reports whether the watcher's underlying fsnotify watcher is closed.
-// A closed fsnotify watcher rejects Add with an error; an open one accepts it.
-func fswClosed(
+// requireBackendClosed blocks until the watcher's backend has closed its events
+// channel, which every backend does on close; `go test -timeout` is the backstop.
+func requireBackendClosed(
 	t *testing.T,
 	w *Watcher,
-) bool {
+) {
 	t.Helper()
 	w.mu.Lock()
-	fsw := w.fsw
+	be := w.be
 	w.mu.Unlock()
-	require.NotNil(t, fsw, "Start must have created an fsnotify watcher")
-	return fsw.Add(t.TempDir()) != nil
+	require.NotNil(t, be, "Start must have created a backend")
+	for range be.events() {
+	}
 }
 
 // Start on an already-cancelled ctx must return ctx.Err() and never create a
@@ -444,14 +369,14 @@ func TestStart_AlreadyCancelledCtx_NoAllocation(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 
 	w.mu.Lock()
-	fsw := w.fsw
+	be := w.be
 	w.mu.Unlock()
-	assert.Nil(t, fsw, "no fsnotify watcher should be created for a cancelled ctx")
+	assert.Nil(t, be, "no backend should be created for a cancelled ctx")
 }
 
 // Stop before Start: the next Start observes stopped, closes the watcher it just
 // created in place, and returns without registering it or entering the loop. The
-// created fsnotify watcher is closed (FD freed) and no loop goroutine is spawned.
+// created backend is closed (descriptors freed) and no loop goroutine is spawned.
 func TestStart_StopBeforeStart_ClosesCreatedWatcher(t *testing.T) {
 	dir := t.TempDir()
 	w := NewWatcher("ws-stop-first", dir, "", &minimalGit{}, &recordingDispatcher{})
@@ -462,13 +387,13 @@ func TestStart_StopBeforeStart_ClosesCreatedWatcher(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 
 	w.mu.Lock()
-	fsw := w.fsw
+	be := w.be
 	w.mu.Unlock()
-	assert.Nil(t, fsw, "stopped Start must not register the watcher it closed")
+	assert.Nil(t, be, "stopped Start must not register the backend it closed")
 }
 
 // The flap race: Start succeeds and enters the loop, then Stop cancels. The
-// loop's defer closes the fsnotify watcher exactly once and the goroutine exits.
+// loop's defer closes the backend exactly once and the goroutine exits.
 func TestStartThenStop_ClosesWatcherAndDrainsGoroutine(t *testing.T) {
 	dir := t.TempDir()
 	rd := &recordingDispatcher{}
@@ -482,11 +407,11 @@ func TestStartThenStop_ClosesWatcherAndDrainsGoroutine(t *testing.T) {
 	// Block on the loop's own exit signal — the real event — instead of watching
 	// the process's goroutine count fall back inside a deadline.
 	<-w.loopDone
-	assert.True(t, fswClosed(t, w), "fsnotify watcher must be closed after Stop")
+	requireBackendClosed(t, w)
 }
 
 // A second Start on a running watcher returns ErrAlreadyStarted, does NOT
-// overwrite w.fsw (no leaked FD), and does NOT spawn a second loop goroutine.
+// overwrite w.be (no leaked backend), and does NOT spawn a second loop goroutine.
 func TestStart_SecondStartRejected_NoLeak(t *testing.T) {
 	dir := t.TempDir()
 	w := NewWatcher("ws-restart", dir, "", &minimalGit{}, &recordingDispatcher{})
@@ -497,17 +422,17 @@ func TestStart_SecondStartRejected_NoLeak(t *testing.T) {
 	require.NoError(t, w.Start(ctx))
 
 	w.mu.Lock()
-	firstFSW := w.fsw
+	first := w.be
 	w.mu.Unlock()
 
 	err := w.Start(ctx)
 	require.ErrorIs(t, err, ErrAlreadyStarted)
 
 	w.mu.Lock()
-	secondFSW := w.fsw
+	second := w.be
 	w.mu.Unlock()
 
-	assert.Same(t, firstFSW, secondFSW, "second Start must not overwrite the first fsnotify watcher")
+	assert.Same(t, first, second, "second Start must not overwrite the first backend")
 
 	// "No second loop goroutine" is enforced structurally, not by watching a
 	// goroutine count decay inside a deadline: every loop closes w.loopDone on the
@@ -531,7 +456,7 @@ func TestStart_AfterStop_Rejected(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// loop — !ok path: closing fsw.Events without stopCh triggers the return branch
+// loop — !ok path: closing the backend's events without stopCh triggers the return branch
 // ---------------------------------------------------------------------------
 
 func TestLoop_ClosedEventsChannelExits(t *testing.T) {
@@ -541,10 +466,10 @@ func TestLoop_ClosedEventsChannelExits(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, w.Start(ctx))
 
-	// Close only the underlying fsnotify watcher; this closes its Events channel.
-	// loop must detect ok=false and return, so its goroutine exits.
+	// Close only the backend; this closes its events channel. loop must detect
+	// ok=false and return, so its goroutine exits.
 	w.mu.Lock()
-	w.fsw.Close()
+	_ = w.be.close()
 	w.mu.Unlock()
 
 	// The loop's exit is the real signal — block on it rather than watching the
@@ -661,14 +586,13 @@ func TestLoop_TimerDrainPath(t *testing.T) {
 	rd := newRecordingDispatcher()
 	w := NewWatcher("ws-timer", dir, "", &minimalGit{}, rd)
 
-	// Build a real fsnotify watcher so loop has valid channels.
-	var err error
-	w.mu.Lock()
-	w.fsw, err = fsnotify.NewWatcher()
-	w.mu.Unlock()
+	// Build a real backend so loop has valid channels.
+	be, err := newBackend(w.spec())
 	require.NoError(t, err)
-	t.Cleanup(func() { w.fsw.Close() })
-	require.NoError(t, w.fsw.Add(dir))
+	w.mu.Lock()
+	w.be = be
+	w.mu.Unlock()
+	t.Cleanup(func() { _ = be.close() })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

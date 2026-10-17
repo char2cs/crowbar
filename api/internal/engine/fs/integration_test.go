@@ -161,7 +161,7 @@ func TestGate1_WatcherFiresFanOut(
 	w := watch.NewWatcher("ws-gate1", dir, fork, gitProv, d)
 	require.NoError(t, w.Start(ctx))
 	t.Cleanup(w.Stop)
-	// No settle sleep: Start arms the fsnotify watch synchronously before it
+	// No settle sleep: Start arms the watch backend synchronously before it
 	// returns, so the write below is delivered; we wait on the real dispatched event.
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "newfile.txt"), []byte("new content\n"), 0o600))

@@ -144,9 +144,8 @@ func (c *capturingWatcher) recomputeNow() {
 // ---------------------------------------------------------------------------
 // maybeHandleGitRef and shouldIgnore
 // ---------------------------------------------------------------------------
-// These paths are exercised in watcher_internal_test.go via direct method
-// calls, because macOS kqueue does not report fsnotify events for files
-// inside a .git/ directory when only the parent dir is watched.
+// These paths are exercised in watcher_internal_test.go and
+// watcher_gitrefs_internal_test.go via direct method calls.
 
 // scriptedGit answers each provider call from a per-call script; call numbers
 // are 1-based. A nil script answers with the zero value.

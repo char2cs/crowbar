@@ -146,7 +146,7 @@ func (f *fakeDispatcher) find(
 }
 
 // waitForChange blocks until a dispatched file-change event satisfies match.
-// The wait is on the watcher's own callback — the real arrival of the fsnotify
+// The wait is on the watcher's own callback — the real arrival of the backend's
 // event through the debounce — with no deadline: `go test -timeout` is the only
 // backstop, and a watcher that never dispatches is a bug, not a slow machine.
 func (f *fakeDispatcher) waitForChange(
@@ -188,9 +188,9 @@ func newWatcher(
 	t.Cleanup(cancel)
 	t.Cleanup(w.Stop)
 	require.NoError(t, w.Start(ctx))
-	// No settle sleep: Start arms the fsnotify watch synchronously (addRecursive
-	// runs before Start returns), so any event emitted after this point is queued
-	// by the kernel and delivered to loop; callers wait on real observables.
+	// No settle sleep: Start arms the backend synchronously (the inotify walk, or
+	// the FSEvents stream, is in place before Start returns), so any event emitted
+	// after this point is delivered to loop; callers wait on real observables.
 	return w, d
 }
 
@@ -250,10 +250,9 @@ func TestWatcher_IgnoresDotGitContent(
 
 	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "COMMIT_EDITMSG"), []byte("msg"), 0o600))
 
-	// Barrier, not a window. .git/ is never added to the fsnotify watch, so the
-	// write above can only ever surface through the same Events channel and the
-	// same (single-goroutine, in-arrival-order) burst handler as the sentinel
-	// written after it. Once the sentinel has been dispatched, any COMMIT_EDITMSG
+	// Barrier, not a window. The write above can only ever surface through the
+	// same events channel and the same (single-goroutine, in-arrival-order) burst
+	// handler as the sentinel written after it. Once the sentinel has been dispatched, any COMMIT_EDITMSG
 	// event that was ever going to be dispatched already has been — so this is a
 	// real signal, not "nothing happened for 250ms".
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "sentinel.txt"), []byte("s"), 0o600))
@@ -291,6 +290,128 @@ func TestWatcher_SubdirCreatedAndWatched(
 	// that the watcher processed the burst (and, in handleOne, added the new
 	// directory to the watch).
 	_ = d.waitForChange(pathIs("subdir"))
+}
+
+// A file in a directory created after Start is seen at any depth: the new
+// directory is followed before its own change is dispatched.
+func TestWatcher_FileInNewNestedDirIsDispatched(
+	t *testing.T,
+) {
+	dir := t.TempDir()
+	_, d := newWatcher(t, dir, "ws-nested")
+
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "a", "b"), 0o700))
+	_ = d.waitForChange(pathIs("a"))
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a", "b", "c.txt"), []byte("x"), 0o600))
+	evt := d.waitForChange(pathIs(filepath.Join("a", "b", "c.txt")))
+	assert.Equal(t, domain.FileChangeCreated, evt.Type)
+}
+
+// Rewriting a file the watcher already reported as created is a modification;
+// a "created" would make every client re-list the directory.
+func TestWatcher_RewriteOfNewFileIsModified(
+	t *testing.T,
+) {
+	dir := t.TempDir()
+	_, d := newWatcher(t, dir, "ws-rewrite")
+	path := filepath.Join(dir, "fresh.txt")
+
+	require.NoError(t, os.WriteFile(path, []byte("v1"), 0o600))
+	_ = d.waitForChange(func(e domain.FileChangeEvent) bool {
+		return e.Path == "fresh.txt" && e.Type == domain.FileChangeCreated
+	})
+
+	require.NoError(t, os.WriteFile(path, []byte("v2"), 0o600))
+	_ = d.waitForChange(func(e domain.FileChangeEvent) bool {
+		return e.Path == "fresh.txt" && e.Type == domain.FileChangeModified
+	})
+}
+
+// underDir matches a dispatched event inside the workspace-relative dir.
+func underDir(
+	rel string,
+) func(domain.FileChangeEvent) bool {
+	return func(evt domain.FileChangeEvent) bool {
+		return strings.HasPrefix(evt.Path, rel+string(filepath.Separator))
+	}
+}
+
+// Gitignored trees (node_modules/, build output) never reach the dispatcher,
+// matched in-process. A plain directory: the retired per-directory `git
+// check-ignore` fork exited 128 there and would have watched node_modules/.
+func TestWatcher_GitignoredDirChangesAreNeverDispatched(
+	t *testing.T,
+) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("node_modules/\n"), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "node_modules", "pkg"), 0o700))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "src"), 0o700))
+	_, d := newWatcher(t, dir, "ws-ignored")
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "node_modules", "pkg", "index.js"), []byte("x"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "node_modules", "top.js"), []byte("x"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "src", "main.go"), []byte("x"), 0o600))
+
+	// Barrier: the watched write after the ignored ones is dispatched in arrival
+	// order, so an ignored change that was ever going to surface already has.
+	_ = d.waitForChange(pathIs(filepath.Join("src", "main.go")))
+	assert.False(t, d.hasChange(underDir("node_modules")), "a gitignored tree must never be dispatched")
+}
+
+// A gitignored directory created after Start is reported itself (its parent is
+// watched) but nothing inside it is.
+func TestWatcher_GitignoredDirCreatedAfterStartIsNotFollowed(
+	t *testing.T,
+) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("dist/\n"), 0o600))
+	_, d := newWatcher(t, dir, "ws-ignored-later")
+
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "dist"), 0o700))
+	_ = d.waitForChange(pathIs("dist"))
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "dist", "out.js"), []byte("x"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "sentinel.txt"), []byte("s"), 0o600))
+	_ = d.waitForChange(pathIs("sentinel.txt"))
+	assert.False(t, d.hasChange(underDir("dist")), "a gitignored directory created after Start must not be followed")
+}
+
+// openDescriptors counts the process's open file descriptors.
+func openDescriptors(
+	t *testing.T,
+) int {
+	t.Helper()
+	f, err := os.Open("/dev/fd")
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
+	// Names only: statting an entry races descriptors other goroutines close.
+	names, err := f.Readdirnames(-1)
+	require.NoError(t, err)
+	return len(names)
+}
+
+// Endpoint security inspects every open, so a watcher must not hold a
+// descriptor per file (kqueue opens each file in every watched directory).
+func TestWatcher_HeldDescriptorsDoNotGrowWithFileCount(
+	t *testing.T,
+) {
+	const dirs, filesPerDir = 50, 40
+	dir := t.TempDir()
+	for i := range dirs {
+		sub := filepath.Join(dir, fmt.Sprintf("d%02d", i))
+		require.NoError(t, os.MkdirAll(sub, 0o700))
+		for j := range filesPerDir {
+			require.NoError(t, os.WriteFile(filepath.Join(sub, fmt.Sprintf("f%02d.txt", j)), []byte("x"), 0o600))
+		}
+	}
+
+	before := openDescriptors(t)
+	newWatcher(t, dir, "ws-fds")
+	held := openDescriptors(t) - before
+
+	t.Logf("descriptors held by a watcher over %d files in %d dirs: %d", dirs*filesPerDir, dirs, held)
+	assert.Less(t, held, 16, "a watcher's descriptors must not scale with the files it watches")
 }
 
 // countingGit counts ComputeStatus invocations and signals each one, so tests

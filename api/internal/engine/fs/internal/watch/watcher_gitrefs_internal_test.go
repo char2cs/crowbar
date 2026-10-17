@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -61,29 +60,13 @@ func newLinkedWorktree(
 	return worktree, filepath.Join(repo, ".git")
 }
 
-func startWatcher(
-	t *testing.T,
-	repoPath string,
-) *Watcher {
-	t.Helper()
-	w := NewWatcher("ws-refs", repoPath, "", &minimalGit{}, &recordingDispatcher{})
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	t.Cleanup(w.Stop)
-	require.NoError(t, w.Start(ctx))
-	return w
-}
-
 // In a linked worktree the five paths the old code built (<worktree>/.git/HEAD, refs,
 // refs/heads, refs/remotes, packed-refs) do not exist — .git is a gitlink file — so
-// every Add failed and the ref watches were dead. Start must register the RESOLVED
-// paths instead: HEAD in the worktree's own gitdir, the ref tree in the common dir.
-func TestStart_WatchesResolvedRefPathsOfLinkedWorktree(t *testing.T) {
+// every watch on them was dead. The spec must name the RESOLVED paths instead: HEAD
+// in the worktree's own gitdir, the ref tree in the common dir.
+func TestSpec_NamesResolvedRefPathsOfLinkedWorktree(t *testing.T) {
 	worktree, commonDir := newLinkedWorktree(t)
-	// Whether `git worktree add` creates the private refs/ dir up front depends on
-	// the git version (2.43 does not); a per-worktree ref makes it exist on all.
-	git(t, worktree, "update-ref", "refs/bisect/bad", "HEAD")
-	w := startWatcher(t, worktree)
+	w := NewWatcher("ws-refs", worktree, "", &minimalGit{}, &recordingDispatcher{})
 
 	gitDir := w.gitDir()
 	require.NotEqual(t, filepath.Join(worktree, ".git"), gitDir,
@@ -91,36 +74,29 @@ func TestStart_WatchesResolvedRefPathsOfLinkedWorktree(t *testing.T) {
 	require.Equal(t, commonDir, w.commonDir(),
 		"the common dir must resolve to the parent repo's .git")
 
-	watched := watchList(t, w)
-	assert.Contains(t, watched, gitDir,
+	spec := w.spec()
+	assert.Equal(t, worktree, spec.tree)
+	assert.ElementsMatch(t, []string{gitDir, commonDir}, spec.gitDirs,
 		"the worktree's own git dir must be watched (HEAD is replaced by rename on a branch switch)")
-	assert.Contains(t, watched, filepath.Join(gitDir, "refs"),
-		"the worktree's private ref dir must be watched")
-	assert.Contains(t, watched, filepath.Join(commonDir, "refs"),
-		"the shared ref tree must be watched")
-	assert.Contains(t, watched, filepath.Join(commonDir, "refs", "heads"),
-		"shared branch refs must be watched (a bare fetch touches no working-tree file)")
-
-	assert.NotContains(t, watched, filepath.Join(worktree, ".git"),
-		"the gitlink file is not a watchable ref path")
+	assert.ElementsMatch(t, []string{filepath.Join(gitDir, "refs"), filepath.Join(commonDir, "refs")}, spec.refTrees,
+		"the private and the shared ref trees must be watched (a bare fetch touches no working-tree file)")
+	assert.True(t, spec.skip(filepath.Join(worktree, "sub", ".git")), "a nested .git dir is never watched as a working tree")
 }
 
-// The main-worktree layout (.git is a real directory) must keep watching the same
-// paths as before: git dir and common dir coincide.
-func TestStart_WatchesRefPathsOfMainWorktree(t *testing.T) {
+// The main-worktree layout (.git is a real directory): git dir and common dir coincide.
+func TestSpec_NamesRefPathsOfMainWorktree(t *testing.T) {
 	repo := t.TempDir()
 	git(t, repo, "init", "-q", "-b", "main")
-
-	w := startWatcher(t, repo)
+	w := NewWatcher("ws-refs", repo, "", &minimalGit{}, &recordingDispatcher{})
 
 	gitDir := filepath.Join(repo, ".git")
 	require.Equal(t, gitDir, w.gitDir())
 	require.Equal(t, gitDir, w.commonDir(), "a main worktree has no commondir file")
 
-	watched := watchList(t, w)
-	assert.Contains(t, watched, gitDir)
-	assert.Contains(t, watched, filepath.Join(gitDir, "refs"))
-	assert.Contains(t, watched, filepath.Join(gitDir, "refs", "heads"))
+	spec := w.spec()
+	assert.Equal(t, []string{gitDir, gitDir}, spec.gitDirs)
+	assert.Equal(t, []string{filepath.Join(gitDir, "refs"), filepath.Join(gitDir, "refs")}, spec.refTrees)
+	assert.True(t, spec.skip(gitDir), "the working-tree walk leaves .git to the git-dir watches")
 }
 
 // Ref events arriving from the resolved roots must be recognised as git internals:
@@ -162,7 +138,7 @@ func TestLinkedWorktree_RefEventSchedulesRecomputeAndNeverEmitsFileChange(t *tes
 			w.gitPending = false
 			w.mu.Unlock()
 
-			w.handleOne(context.Background(), fsnotify.Event{Name: tc.path, Op: fsnotify.Write})
+			w.handleOne(context.Background(), event{Name: tc.path, Op: opWrite})
 
 			assert.True(t, gitRecomputePending(w), "a ref change must schedule the git recompute")
 		})
@@ -178,7 +154,7 @@ func TestLinkedWorktree_NonRefGitFileSchedulesNothing(t *testing.T) {
 	index := filepath.Join(w.gitDir(), "index")
 	assert.True(t, w.shouldIgnore(index))
 
-	w.handleOne(context.Background(), fsnotify.Event{Name: index, Op: fsnotify.Write})
+	w.handleOne(context.Background(), event{Name: index, Op: opWrite})
 	assert.False(t, gitRecomputePending(w), "index churn must not schedule a git recompute")
 }
 
@@ -291,9 +267,9 @@ func TestMaybeHandleGitRef_HeadSuffix(t *testing.T) {
 	w := newBareWatcher(dir, rd)
 
 	// Build an event whose Name has the .git/HEAD suffix relative to dir.
-	evt := fsnotify.Event{
+	evt := event{
 		Name: filepath.Join(dir, ".git", "HEAD"),
-		Op:   fsnotify.Write,
+		Op:   opWrite,
 	}
 	w.maybeHandleGitRef(context.Background(), evt)
 
@@ -307,9 +283,9 @@ func TestMaybeHandleGitRef_RefsPath(t *testing.T) {
 	rd := &recordingDispatcher{}
 	w := newBareWatcher(dir, rd)
 
-	evt := fsnotify.Event{
+	evt := event{
 		Name: filepath.Join(dir, ".git", "refs", "heads", "main"),
-		Op:   fsnotify.Write,
+		Op:   opWrite,
 	}
 	w.maybeHandleGitRef(context.Background(), evt)
 
@@ -324,9 +300,9 @@ func TestMaybeHandleGitRef_PackedRefs(t *testing.T) {
 	rd := &recordingDispatcher{}
 	w := newBareWatcher(dir, rd)
 
-	evt := fsnotify.Event{
+	evt := event{
 		Name: filepath.Join(dir, ".git", "packed-refs"),
-		Op:   fsnotify.Write,
+		Op:   opWrite,
 	}
 	w.maybeHandleGitRef(context.Background(), evt)
 
@@ -339,9 +315,9 @@ func TestMaybeHandleGitRef_UnrelatedGitFile_NoFanOut(t *testing.T) {
 	rd := &recordingDispatcher{}
 	w := newBareWatcher(dir, rd)
 
-	evt := fsnotify.Event{
+	evt := event{
 		Name: filepath.Join(dir, ".git", "COMMIT_EDITMSG"),
-		Op:   fsnotify.Write,
+		Op:   opWrite,
 	}
 	w.maybeHandleGitRef(context.Background(), evt)
 
@@ -412,4 +388,39 @@ func TestIsRewriteInProgress_LinkedWorktree(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(realGitDir, "rebase-merge"), 0o700))
 	assert.True(t, w.isRewriteInProgress(),
 		"a rebase in a linked worktree must be detected via the resolved git dir")
+}
+
+// A per-worktree ref (refs/bisect/*) lives in the worktree's private gitdir,
+// outside both the worktree and the shared ref tree.
+func TestRefMove_PrivateWorktreeRefUpdateReResolvesBase(t *testing.T) {
+	worktree, _ := newLinkedWorktree(t)
+	git(t, worktree, "update-ref", "refs/bisect/bad", "HEAD")
+	g := startResolveWatcher(t, worktree)
+
+	git(t, worktree, "update-ref", "refs/bisect/good", "HEAD")
+
+	g.expectResolve(t, "a per-worktree ref update")
+}
+
+// pack-refs moves every loose ref into packed-refs, which git replaces by rename.
+func TestRefMove_PackRefsReResolvesBase(t *testing.T) {
+	worktree, commonDir := newLinkedWorktree(t)
+	repo := filepath.Dir(commonDir)
+	g := startResolveWatcher(t, worktree)
+
+	git(t, repo, "pack-refs", "--all")
+
+	g.expectResolve(t, "pack-refs rewriting packed-refs")
+}
+
+// In a main worktree the ref tree sits inside the watched working tree, below the
+// .git directory the working-tree watch skips.
+func TestRefMove_MainWorktreeBranchUpdateReResolvesBase(t *testing.T) {
+	_, commonDir := newLinkedWorktree(t)
+	repo := filepath.Dir(commonDir)
+	g := startResolveWatcher(t, repo)
+
+	git(t, repo, "update-ref", "refs/heads/other", "HEAD")
+
+	g.expectResolve(t, "a branch created in a main worktree")
 }

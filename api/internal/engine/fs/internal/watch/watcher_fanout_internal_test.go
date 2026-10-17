@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -86,9 +85,9 @@ func TestFanOutGit_RefEventReResolvesDiffBase(t *testing.T) {
 	bases, _ := g.counts()
 	require.Equal(t, 1, bases, "a burst with no ref event must not see the new base")
 
-	w.handleOne(context.Background(), fsnotify.Event{
+	w.handleOne(context.Background(), event{
 		Name: filepath.Join(dir, ".git", "refs", "heads", "feature"),
-		Op:   fsnotify.Write,
+		Op:   opWrite,
 	})
 	w.fanOutGit(context.Background())
 

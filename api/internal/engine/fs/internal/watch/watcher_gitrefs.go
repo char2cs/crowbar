@@ -2,12 +2,9 @@ package watch
 
 import (
 	"context"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/fsnotify/fsnotify"
 )
 
 // gitWatchDirs returns the git directories watched as directories, not as the
@@ -15,14 +12,14 @@ import (
 // ends a watch on the file itself after the first change. The two roots differ for
 // a linked worktree: HEAD belongs to that worktree's own gitdir, packed-refs and
 // the shared ref tree to the common dir of the parent repo. For a main worktree
-// they coincide and the duplicate Add collapses (fsnotify.Add is idempotent).
+// they coincide.
 func (w *Watcher) gitWatchDirs() []string {
 	return []string{w.gitDir(), w.commonDir()}
 }
 
 // gitRefRoots returns the ref trees whose every directory is watched: a branch
 // named feat/x or a remote-tracking ref origin/main sits below refs/heads or
-// refs/remotes, and fsnotify watches one directory level only.
+// refs/remotes, and inotify watches one directory level only.
 func (w *Watcher) gitRefRoots() []string {
 	return []string{
 		filepath.Join(w.gitDir(), "refs"),
@@ -30,22 +27,9 @@ func (w *Watcher) gitRefRoots() []string {
 	}
 }
 
-// watchRefTree watches root and every directory below it. A path that is not a
-// directory, or no longer exists, adds nothing.
-func (w *Watcher) watchRefTree(
-	root string,
-) {
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err == nil && d.IsDir() {
-			_ = w.fsw.Add(path)
-		}
-		return nil
-	})
-}
-
 func (w *Watcher) maybeHandleGitRef(
 	_ context.Context,
-	evt fsnotify.Event,
+	evt event,
 ) {
 	if !w.isGitRefPath(evt.Name) {
 		return

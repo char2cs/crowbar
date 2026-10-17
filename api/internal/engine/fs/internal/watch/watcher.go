@@ -1,18 +1,15 @@
-// Package watch wraps fsnotify with recursive watching and the fan-out pipeline
-// defined in 05 §5 and 03 §5.
+// Package watch watches a workspace recursively (inotify on Linux, FSEvents on
+// darwin) and runs the fan-out pipeline defined in 05 §5 and 03 §5.
 package watch
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/fsnotify/fsnotify"
 
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -35,7 +32,7 @@ const (
 
 // ErrAlreadyStarted is returned by Start when the watcher has already been
 // started (or stopped). A Watcher's lifecycle is single-use: the caller owns
-// exactly one Start. Re-Starting would leak the first fsnotify FD and its loop
+// exactly one Start. Re-Starting would leak the first backend and its loop
 // goroutine, so it is rejected instead.
 var ErrAlreadyStarted = errors.New("watch: already started")
 
@@ -92,12 +89,12 @@ type Watcher struct {
 	dispatcher Dispatcher
 	ignore     ignore.Matcher
 
-	fsw          *fsnotify.Watcher
-	mu           sync.Mutex
-	stopCh       chan struct{}
-	started      bool
-	stopped      bool
-	fswCloseOnce sync.Once
+	be          backend
+	mu          sync.Mutex
+	stopCh      chan struct{}
+	started     bool
+	stopped     bool
+	beCloseOnce sync.Once
 
 	gitDirOnce     sync.Once
 	resolvedGitDir string
@@ -167,15 +164,14 @@ func NewWatcher(
 }
 
 // Start begins watching the repo root recursively. It blocks until ctx is
-// cancelled or Stop is called. Every *fsnotify.Watcher Start creates is closed
-// exactly once regardless of cancel/stop ordering: if ctx is already cancelled
-// or Stop already ran before registration, the freshly created watcher is closed
-// immediately and Start returns without leaking an inotify FD or a loop goroutine.
+// cancelled or Stop is called. Every backend Start creates is closed exactly
+// once regardless of cancel/stop ordering: if ctx is already cancelled or Stop
+// already ran before registration, the freshly created backend is closed
+// immediately and Start returns without leaking a descriptor or a goroutine.
 //
 // A Watcher is single-use: calling Start a second time (after a prior Start, or
-// after Stop) returns ErrAlreadyStarted and closes the freshly created watcher
-// in place rather than overwriting w.fsw and leaking the first FD and loop
-// goroutine.
+// after Stop) returns ErrAlreadyStarted and closes the freshly created backend
+// in place rather than overwriting w.be and leaking the first one.
 func (w *Watcher) Start(
 	ctx context.Context,
 ) error {
@@ -185,67 +181,58 @@ func (w *Watcher) Start(
 	default:
 	}
 
-	fsw, err := fsnotify.NewWatcher()
+	be, err := newBackend(w.spec())
 	if err != nil {
-		return fmt.Errorf("watch: start: new fsnotify watcher: %w", err)
+		return fmt.Errorf("watch: start: %w", err)
 	}
 
 	w.mu.Lock()
 	if w.started {
 		w.mu.Unlock()
-		_ = fsw.Close()
+		_ = be.close()
 		return ErrAlreadyStarted
 	}
 	if w.stopped {
 		w.mu.Unlock()
-		_ = fsw.Close()
+		_ = be.close()
 		return context.Canceled
 	}
 	w.started = true
-	w.fsw = fsw
+	w.be = be
 	w.mu.Unlock()
-
-	if err := w.addRecursive(w.repoPath); err != nil {
-		w.closeFSW()
-		return fmt.Errorf("watch: start: add recursive %s: %w", w.repoPath, err)
-	}
-
-	// Explicitly watch the git directories and the ref trees so branch switches
-	// and remote fetches are detected: addRecursive skips .git entirely (it would
-	// flood inotify with objects/logs), so these are the only git-internal paths
-	// watched (05 §5). They are resolved, never joined onto repoPath/.git — in a
-	// Crowbar-managed workspace (always a LINKED worktree) that is a gitlink FILE,
-	// so every such join lands on a path that does not exist and every Add fails
-	// silently, leaving a ref-only change (a bare fetch, which touches no
-	// working-tree file) with nothing to trigger the recompute.
-	for _, dir := range w.gitWatchDirs() {
-		// ignore errors — a path may legitimately be absent
-		_ = w.fsw.Add(dir)
-	}
-	for _, root := range w.gitRefRoots() {
-		w.watchRefTree(root)
-	}
 
 	go w.loop(ctx)
 	return nil
 }
 
-// closeFSW closes the fsnotify watcher exactly once. It is safe to call from
-// Start's early-return paths, from loop on exit, and from Stop concurrently.
-func (w *Watcher) closeFSW() {
-	w.fswCloseOnce.Do(func() {
+// spec is what the watcher observes. The git dirs and ref trees are resolved,
+// never joined onto repoPath/.git: in a linked worktree that is a gitlink FILE,
+// and a ref-only change (a bare fetch) touches no working-tree file.
+func (w *Watcher) spec() watchSpec {
+	return watchSpec{
+		tree:     w.repoPath,
+		skip:     w.skipDir,
+		gitDirs:  w.gitWatchDirs(),
+		refTrees: w.gitRefRoots(),
+	}
+}
+
+// closeBackend closes the backend exactly once. It is safe to call from loop
+// on exit and from Stop concurrently.
+func (w *Watcher) closeBackend() {
+	w.beCloseOnce.Do(func() {
 		w.mu.Lock()
-		fsw := w.fsw
+		be := w.be
 		w.mu.Unlock()
-		if fsw != nil {
-			_ = fsw.Close()
+		if be != nil {
+			_ = be.close()
 		}
 	})
 }
 
 // Stop tears down the watcher. It is idempotent and safe to call before, during,
 // or after Start. Calling Stop before Start makes the next Start observe stopped
-// and close its watcher immediately rather than entering the loop.
+// and close its backend immediately rather than entering the loop.
 func (w *Watcher) Stop() {
 	w.mu.Lock()
 	if w.stopped {
@@ -256,7 +243,7 @@ func (w *Watcher) Stop() {
 	close(w.stopCh)
 	w.mu.Unlock()
 
-	w.closeFSW()
+	w.closeBackend()
 }
 
 // loop is the main event loop. It debounces events and calls handleBurst.
@@ -269,7 +256,7 @@ func (w *Watcher) loop(
 	// sound "the loop goroutine is gone" signal.
 	defer close(w.loopDone)
 	defer safego.Recover("fs.watch.loop")
-	defer w.closeFSW()
+	defer w.closeBackend()
 
 	// No initial git emit on subscribe: the snapshot-on-subscribe already delivers
 	// fresh git status (gitSnapshot reads real `git status`, not the read model),
@@ -283,15 +270,16 @@ func (w *Watcher) loop(
 	if !timer.Stop() {
 		<-timer.C
 	}
-	var pending []fsnotify.Event
+	var pending []event
+	events, errs := w.be.events(), w.be.errors()
 
 	for {
 		select {
-		case evt, ok := <-w.fsw.Events:
+		case evt, ok := <-events:
 			if !w.processEvent(evt, ok, &pending, timer) {
 				return
 			}
-		case <-w.fsw.Errors:
+		case <-errs:
 			// swallow individual watch errors
 		case <-timer.C:
 			w.handleBurst(ctx, pending)
@@ -309,9 +297,9 @@ func (w *Watcher) loop(
 // processEvent appends an event to pending and resets the debounce timer.
 // Returns false when the events channel is closed (loop should exit).
 func (w *Watcher) processEvent(
-	evt fsnotify.Event,
+	evt event,
 	ok bool,
-	pending *[]fsnotify.Event,
+	pending *[]event,
 	debounce *time.Timer,
 ) bool {
 	if !ok {
@@ -329,9 +317,9 @@ func (w *Watcher) processEvent(
 // and further coalesced across bursts by scheduleGitRecompute.
 func (w *Watcher) handleBurst(
 	ctx context.Context,
-	events []fsnotify.Event,
+	events []event,
 ) {
-	merged := make(map[string]fsnotify.Op, len(events))
+	merged := make(map[string]op, len(events))
 	order := make([]string, 0, len(events))
 	for _, evt := range events {
 		if _, seen := merged[evt.Name]; !seen {
@@ -341,7 +329,7 @@ func (w *Watcher) handleBurst(
 	}
 	relevant := false
 	for _, name := range order {
-		if w.handleOne(ctx, fsnotify.Event{Name: name, Op: merged[name]}) {
+		if w.handleOne(ctx, event{Name: name, Op: merged[name]}) {
 			relevant = true
 		}
 	}
@@ -355,86 +343,43 @@ func (w *Watcher) handleBurst(
 // (the index, lock files) cannot.
 func (w *Watcher) handleOne(
 	ctx context.Context,
-	evt fsnotify.Event,
+	evt event,
 ) bool {
+	// Before dispatching, so a dispatched directory is already being watched.
+	if evt.Op&opCreate != 0 {
+		w.be.created(evt.Name)
+	}
+	if evt.Op&opRemove != 0 {
+		w.be.removed(evt.Name)
+	}
 	// Checked before shouldIgnore: a main worktree's ref events are not "ignored"
 	// (they pass as file changes), a linked worktree's are, and both move the base.
 	isRef := w.isGitRefPath(evt.Name)
 	if isRef {
 		w.diffBase = nil
-		if evt.Op&fsnotify.Create != 0 {
-			w.watchRefTree(evt.Name)
-		}
 	}
 	if w.shouldIgnore(evt.Name) {
 		w.maybeHandleGitRef(ctx, evt)
 		return isRef
 	}
 
-	rel := w.relPath(evt.Name)
-	changeEvt := domain.FileChangeEvent{
+	w.dispatcher.OnFileChange(ctx, domain.FileChangeEvent{
 		Type: classifyChange(evt.Op),
-		Path: rel,
+		Path: w.relPath(evt.Name),
 		WsID: w.wsID,
-	}
-	w.dispatcher.OnFileChange(ctx, changeEvt)
-
-	if evt.Op&fsnotify.Create != 0 {
-		_ = w.addRecursive(evt.Name)
-	}
-	if evt.Op&fsnotify.Remove != 0 {
-		_ = w.fsw.Remove(evt.Name)
-	}
+	})
 	// The git recompute is intentionally NOT scheduled here; handleBurst
 	// schedules it once for the whole burst (Fix 2).
 	return true
 }
 
-// walkFn is the filepath.WalkDir callback used by addRecursive. WalkDir reads
-// entry types from the directory listing, so files are never lstat'd — only
-// directories are visited for real.
-func (w *Watcher) walkFn(
-	path string,
-	d fs.DirEntry,
-	err error,
-) error {
-	if err != nil {
-		return nil
-	}
-	if !d.IsDir() {
-		return nil
-	}
-	if w.shouldIgnoreDir(path) {
-		return filepath.SkipDir
-	}
-	// Fix 3: skip gitignored directories to avoid inotify exhaustion on large
-	// projects with node_modules/, dist/, etc. Matched in-process (ignore.Matcher)
-	// rather than forking `git check-ignore` once per directory (~458 forks per
-	// Start on a real repo).
-	if w.ignore.Match(path) {
-		return filepath.SkipDir
-	}
-	// WalkDir visits a directory before reading it, so an unreadable one reaches
-	// Add; skip it like the unreadable entries Walk never offered.
-	addErr := w.fsw.Add(path)
-	if errors.Is(addErr, fs.ErrPermission) {
-		return filepath.SkipDir
-	}
-	return addErr
-}
-
-// addRecursive watches root and all non-ignored subdirectories.
-func (w *Watcher) addRecursive(
-	root string,
-) error {
-	return filepath.WalkDir(root, w.walkFn)
-}
-
-func (w *Watcher) shouldIgnoreDir(
+// skipDir reports whether a working-tree directory is left unwatched: a .git
+// dir (its refs are watched separately) or a gitignored one such as
+// node_modules/, matched in-process rather than by forking `git check-ignore`.
+func (w *Watcher) skipDir(
 	path string,
 ) bool {
-	base := filepath.Base(path)
-	return base == ".git"
+	return filepath.Base(path) == ".git" || w.ignore.Match(path)
 }
 
 func (w *Watcher) shouldIgnore(
@@ -466,15 +411,15 @@ func (w *Watcher) relPath(
 }
 
 func classifyChange(
-	op fsnotify.Op,
+	o op,
 ) domain.FileChangeType {
-	if op&fsnotify.Create != 0 {
+	if o&opCreate != 0 {
 		return domain.FileChangeCreated
 	}
-	if op&fsnotify.Remove != 0 {
+	if o&opRemove != 0 {
 		return domain.FileChangeDeleted
 	}
-	if op&fsnotify.Rename != 0 {
+	if o&opRename != 0 {
 		return domain.FileChangeRenamed
 	}
 	return domain.FileChangeModified
