@@ -1,45 +1,11 @@
 package github
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestSlug_Success(t *testing.T) {
-	dir := t.TempDir()
-	s, err := slug(
-		context.Background(),
-		dir,
-		fakeCmd("https://github.com/owner/repo.git", 0),
-	)
-	require.NoError(t, err)
-	assert.Equal(t, "owner/repo", s)
-}
-
-func TestSlug_CommandError(t *testing.T) {
-	dir := t.TempDir()
-	_, err := slug(
-		context.Background(),
-		dir,
-		fakeCmd("", 1),
-	)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "remote: get-url")
-}
-
-func TestSlug_InvalidURL(t *testing.T) {
-	dir := t.TempDir()
-	_, err := slug(
-		context.Background(),
-		dir,
-		fakeCmd("totally-invalid-url", 0),
-	)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "remote: slug")
-}
 
 func TestSlugFromURL(t *testing.T) {
 	cases := []struct {
@@ -76,6 +42,11 @@ func TestSlugFromURL(t *testing.T) {
 		{
 			name:    "Unrecognised format",
 			url:     "totally-invalid",
+			wantErr: true,
+		},
+		{
+			name:    "Local path remote",
+			url:     "/srv/remotes/github.com/owner/repo.git",
 			wantErr: true,
 		},
 	}

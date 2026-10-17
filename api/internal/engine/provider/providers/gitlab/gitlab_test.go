@@ -75,7 +75,7 @@ func sequentialFake(
 
 func TestProtectedBranches_Success(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(fakeCmd("main\ndevelop\n", 0))
+	g := New(fakeCmd("main\ndevelop\n", 0))
 	branches, err := g.ProtectedBranches(context.Background(), dir)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"main", "develop"}, branches)
@@ -83,7 +83,7 @@ func TestProtectedBranches_Success(t *testing.T) {
 
 func TestProtectedBranches_Error(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(fakeCmd("permission denied", 1))
+	g := New(fakeCmd("permission denied", 1))
 	_, err := g.ProtectedBranches(context.Background(), dir)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "gitlab: protected-branches")
@@ -96,7 +96,7 @@ func TestProtectedBranches_Error(t *testing.T) {
 func TestRegression_PullRequestForBranch_MergedAfterRemoteBranchDeleted(t *testing.T) {
 	dir := t.TempDir()
 	mrJSON := `[{"iid":3,"state":"merged","web_url":"https://gitlab.com/o/r/-/merge_requests/3","title":"Done","target_branch":"main","sha":"3d06bd4"}]`
-	g := NewWithExec(sequentialFake([]fakeResponse{
+	g := New(sequentialFake([]fakeResponse{
 		{output: mrJSON, code: 0}, // glab mr list
 		{output: "", code: 0},     // git merge-base --is-ancestor → branch contains the MR head
 	}))
@@ -113,7 +113,7 @@ func TestRegression_PullRequestForBranch_MergedAfterRemoteBranchDeleted(t *testi
 func TestPullRequestForBranch_IgnoresStaleMRAfterBranchNameReuse(t *testing.T) {
 	dir := t.TempDir()
 	mrJSON := `[{"iid":3,"state":"merged","web_url":"https://gitlab.com/o/r/-/merge_requests/3","title":"Old","target_branch":"main","sha":"3d06bd4"}]`
-	g := NewWithExec(sequentialFake([]fakeResponse{
+	g := New(sequentialFake([]fakeResponse{
 		{output: mrJSON, code: 0}, // glab mr list
 		{output: "", code: 1},     // git merge-base --is-ancestor → branch does NOT contain it
 	}))
@@ -128,7 +128,7 @@ func TestPullRequestForBranch_IgnoresStaleMRAfterBranchNameReuse(t *testing.T) {
 func TestPullRequestForBranch_OpenMR(t *testing.T) {
 	dir := t.TempDir()
 	mrJSON := `[{"iid":7,"state":"opened","web_url":"https://gitlab.com/o/r/-/merge_requests/7","title":"My MR","target_branch":"main","sha":"deadbee"}]`
-	g := NewWithExec(sequentialFake([]fakeResponse{
+	g := New(sequentialFake([]fakeResponse{
 		{output: mrJSON, code: 0}, // glab mr list, and nothing else
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
@@ -145,7 +145,7 @@ func TestPullRequestForBranch_OpenMR(t *testing.T) {
 func TestPullRequestForBranch_MergedWithoutSHA(t *testing.T) {
 	dir := t.TempDir()
 	mrJSON := `[{"iid":3,"state":"merged","web_url":"https://gitlab.com/o/r/-/merge_requests/3","title":"Done","target_branch":"main"}]`
-	g := NewWithExec(sequentialFake([]fakeResponse{
+	g := New(sequentialFake([]fakeResponse{
 		{output: mrJSON, code: 0}, // glab mr list, and nothing else
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
@@ -156,7 +156,7 @@ func TestPullRequestForBranch_MergedWithoutSHA(t *testing.T) {
 
 func TestPullRequestForBranch_NoMRs(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(sequentialFake([]fakeResponse{
+	g := New(sequentialFake([]fakeResponse{
 		{output: "[]", code: 0},
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
@@ -166,7 +166,7 @@ func TestPullRequestForBranch_NoMRs(t *testing.T) {
 
 func TestPullRequestForBranch_GlabError(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(sequentialFake([]fakeResponse{
+	g := New(sequentialFake([]fakeResponse{
 		{output: "not authenticated", code: 1},
 	}))
 	_, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
@@ -228,7 +228,7 @@ func TestParseMRList_InvalidJSON(t *testing.T) {
 
 func TestGlabProvider_OwnerAvatarURL(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(fakeCmd("https://gitlab.com/uploads/group/avatar/42/icon.png", 0))
+	g := New(fakeCmd("https://gitlab.com/uploads/group/avatar/42/icon.png", 0))
 	got, err := g.OwnerAvatarURL(context.Background(), dir)
 	require.NoError(t, err)
 	assert.Equal(t, "https://gitlab.com/uploads/group/avatar/42/icon.png", got)
@@ -236,7 +236,7 @@ func TestGlabProvider_OwnerAvatarURL(t *testing.T) {
 
 func TestGlabProvider_OwnerAvatarURL_CliError_ReturnsEmpty(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(fakeCmd("", 1))
+	g := New(fakeCmd("", 1))
 	got, err := g.OwnerAvatarURL(context.Background(), dir)
 	require.NoError(t, err)
 	assert.Empty(t, got)
@@ -251,7 +251,7 @@ func TestGlabProvider_OpenPullRequests(t *testing.T) {
 		{"iid":7,"state":"opened","web_url":"https://gitlab.com/o/r/-/merge_requests/7","title":"Add A","source_branch":"feature/a","target_branch":"develop"},
 		{"iid":8,"state":"opened","web_url":"https://gitlab.com/o/r/-/merge_requests/8","title":"Add B","source_branch":"feature/b","target_branch":"feature/a"}
 	]`
-	g := NewWithExec(fakeCmd(mrJSON, 0))
+	g := New(fakeCmd(mrJSON, 0))
 
 	links, err := g.OpenPullRequests(context.Background(), dir)
 
@@ -269,7 +269,7 @@ func TestGlabProvider_OpenPullRequests(t *testing.T) {
 
 func TestGlabProvider_OpenPullRequests_NoOpenMRs(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(fakeCmd(`[]`, 0))
+	g := New(fakeCmd(`[]`, 0))
 
 	links, err := g.OpenPullRequests(context.Background(), dir)
 
@@ -279,7 +279,7 @@ func TestGlabProvider_OpenPullRequests_NoOpenMRs(t *testing.T) {
 
 func TestGlabProvider_OpenPullRequests_GlabError(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(fakeCmd("not authenticated", 1))
+	g := New(fakeCmd("not authenticated", 1))
 
 	_, err := g.OpenPullRequests(context.Background(), dir)
 
@@ -289,7 +289,7 @@ func TestGlabProvider_OpenPullRequests_GlabError(t *testing.T) {
 
 func TestGlabProvider_OpenPullRequests_InvalidJSON(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(fakeCmd(`{not json`, 0))
+	g := New(fakeCmd(`{not json`, 0))
 
 	_, err := g.OpenPullRequests(context.Background(), dir)
 

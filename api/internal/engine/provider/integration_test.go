@@ -25,11 +25,11 @@ func TestIntegration_WithGH(t *testing.T) {
 	mustRun(t, dir, "git", "remote", "add", "origin", "https://github.com/char2cs/crowbar")
 
 	ctx := context.Background()
-	res, err := provider.Detect(ctx, dir)
+	eng := provider.New()
+	res, err := eng.Capability(ctx, dir)
 	require.NoError(t, err)
 	assert.Equal(t, "github", res.Kind)
 
-	eng := provider.New()
 	// PollOnView may fail because the repo doesn't actually have a gh-accessible remote,
 	// but it must not panic and must return a wrapped error.
 	state, err := eng.PollOnView(ctx, "test-ws", dir, "main")

@@ -13,38 +13,41 @@ import (
 )
 
 type providerEngine struct {
+	exec        DetectExecFn
 	detectFn    func(ctx context.Context, repoPath string) (DetectResult, error)
-	providerFac func(kind string) GitProvider // injectable for tests; nil = production default
-	protected   *ttlCache[[]string]           // per-repo protected branches; nil = uncached
+	providerFac func(res DetectResult) GitProvider // injectable for tests; nil = production default
+	protected   *ttlCache[[]string]                // protected branches per remote; nil = uncached
 }
 
-func newEngine() *providerEngine {
+// newEngine builds the engine over the exec every provider subprocess goes
+// through and the clock its caches expire by.
+func newEngine(execFn DetectExecFn, now func() time.Time) *providerEngine {
 	return &providerEngine{
-		detectFn:  cachedDetect(Detect, time.Now),
-		protected: newTTLCache[[]string](protectedCacheCap, time.Now),
+		exec: execFn,
+		detectFn: cachedDetect(func(ctx context.Context, repoPath string) (DetectResult, error) {
+			return detectWithExec(ctx, repoPath, execFn)
+		}, now),
+		protected: newTTLCache[[]string](protectedCacheCap, now),
 	}
 }
 
-// protectedBranches returns prov's protected branches for repoPath, served from
-// the per-repo cache when one is configured. Failures are never cached.
+// protectedBranches returns prov's protected branches for the repo detected as
+// res, served from the per-remote cache when one is configured: every worktree
+// of the repo shares the list. Failures are never cached.
 func (e *providerEngine) protectedBranches(
 	ctx context.Context,
 	prov GitProvider,
+	res DetectResult,
 	repoPath string,
 ) ([]string, error) {
-	if e.protected != nil {
-		if branches, ok := e.protected.get(repoPath); ok {
-			return branches, nil
-		}
+	if e.protected == nil {
+		return prov.ProtectedBranches(ctx, repoPath)
 	}
-	branches, err := prov.ProtectedBranches(ctx, repoPath)
-	if err != nil {
-		return nil, err
-	}
-	if e.protected != nil {
-		e.protected.put(repoPath, branches, protectedTTL)
-	}
-	return branches, nil
+	entry, err := e.protected.load(res.Remote, func() ([]string, time.Duration, error) {
+		branches, err := prov.ProtectedBranches(ctx, repoPath)
+		return branches, protectedTTL, err
+	})
+	return entry.val, err
 }
 
 var _ Engine = (*providerEngine)(nil)
@@ -60,12 +63,12 @@ func (e *providerEngine) ProtectedBranches(
 		return FallbackProtectedBranches(), nil
 	}
 
-	prov := e.providerFor(res.Kind)
+	prov := e.providerFor(res)
 	if prov == nil {
 		return FallbackProtectedBranches(), nil
 	}
 
-	branches, err := e.protectedBranches(ctx, prov, repoPath)
+	branches, err := e.protectedBranches(ctx, prov, res, repoPath)
 	if err != nil {
 		return FallbackProtectedBranches(), nil
 	}
@@ -82,7 +85,7 @@ func (e *providerEngine) OwnerAvatarURL(
 	if err != nil || !res.Enabled {
 		return "", nil
 	}
-	prov := e.providerFor(res.Kind)
+	prov := e.providerFor(res)
 	if prov == nil {
 		return "", nil
 	}
@@ -103,7 +106,7 @@ func (e *providerEngine) OpenPullRequests(
 	if err != nil || !res.Enabled {
 		return nil, nil
 	}
-	prov := e.providerFor(res.Kind)
+	prov := e.providerFor(res)
 	if prov == nil {
 		return nil, nil
 	}
@@ -141,12 +144,12 @@ func (e *providerEngine) PollOnView(
 		return ProviderState{}, nil
 	}
 
-	prov := e.providerFor(res.Kind)
+	prov := e.providerFor(res)
 	if prov == nil {
 		return ProviderState{}, nil
 	}
 
-	return e.pollOnce(ctx, prov, repoPath, branch)
+	return e.pollOnce(ctx, prov, res, repoPath, branch)
 }
 
 // StartBackgroundSweep starts the 5-minute global cron sweep.
@@ -187,25 +190,25 @@ func (e *providerEngine) sweepPollFn() poll.PollFn {
 	}
 }
 
-// providerFor returns the GitProvider for a given kind string.
+// providerFor returns the GitProvider for the repo detected as res.
 func (e *providerEngine) providerFor(
-	kind string,
+	res DetectResult,
 ) GitProvider {
 	if e.providerFac != nil {
-		return e.providerFac(kind)
+		return e.providerFac(res)
 	}
-	return defaultProviderFor(kind)
+	return e.defaultProviderFor(res)
 }
 
-// defaultProviderFor returns the production GitProvider for kind.
-func defaultProviderFor(
-	kind string,
+// defaultProviderFor returns the production GitProvider for res.
+func (e *providerEngine) defaultProviderFor(
+	res DetectResult,
 ) GitProvider {
-	switch strings.ToLower(kind) {
+	switch strings.ToLower(res.Kind) {
 	case "github":
-		return github.New()
+		return github.New(res.Remote, github.ExecFn(e.exec))
 	case "gitlab":
-		return gitlab.New()
+		return gitlab.New(gitlab.ExecFn(e.exec))
 	default:
 		return nil
 	}
@@ -217,10 +220,11 @@ func defaultProviderFor(
 func (e *providerEngine) pollOnce(
 	ctx context.Context,
 	prov GitProvider,
+	res DetectResult,
 	repoPath string,
 	branch string,
 ) (ProviderState, error) {
-	protected, err := e.isProtected(ctx, prov, repoPath, branch)
+	protected, err := e.isProtected(ctx, prov, res, repoPath, branch)
 	if err != nil {
 		return ProviderState{}, err
 	}
@@ -240,10 +244,11 @@ func (e *providerEngine) pollOnce(
 func (e *providerEngine) isProtected(
 	ctx context.Context,
 	prov GitProvider,
+	res DetectResult,
 	repoPath string,
 	branch string,
 ) (bool, error) {
-	branches, err := e.protectedBranches(ctx, prov, repoPath)
+	branches, err := e.protectedBranches(ctx, prov, res, repoPath)
 	if err != nil {
 		return false, err
 	}

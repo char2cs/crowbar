@@ -41,6 +41,4 @@ internal/engine/agents/internal/protocol/internal/translate/outbound/outbound.go
 internal/engine/agents/internal/protocol/protocol.go: Sends
 internal/engine/lsp/internal/manager/manager.go: WithLookPath
 internal/engine/lsp/internal/server/server.go: newOverTransport
-internal/engine/provider/providers/github/github.go: NewWithExec
-internal/engine/provider/providers/gitlab/gitlab.go: NewWithExec
 internal/internal.go: WithHomeDir

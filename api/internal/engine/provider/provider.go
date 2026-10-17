@@ -5,6 +5,8 @@ package provider
 
 import (
 	"context"
+	"os/exec"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/engine/provider/poll"
 	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
@@ -96,5 +98,5 @@ type Engine interface {
 
 // New constructs the provider Engine, wiring detect + GitHub/GitLab + poller.
 func New() Engine {
-	return newEngine()
+	return newEngine(withWaitDelay(exec.CommandContext), time.Now)
 }

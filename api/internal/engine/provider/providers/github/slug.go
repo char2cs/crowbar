@@ -1,37 +1,9 @@
 package github
 
 import (
-	"bytes"
-	"context"
 	"fmt"
 	"strings"
-
-	"github.com/char2cs/crowbar/api/internal/core/binpath"
 )
-
-// slug extracts the "owner/repo" slug from the git remote origin URL.
-func slug(
-	ctx context.Context,
-	repoPath string,
-	execFn ExecFn,
-) (string, error) {
-	cmd := execFn(ctx, binpath.Git(), "remote", "get-url", "origin")
-	cmd.Dir = repoPath
-
-	var out bytes.Buffer
-	cmd.Stdout = &out
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("remote: get-url: %w", err)
-	}
-
-	url := strings.TrimSpace(out.String())
-	s, err := slugFromURL(url)
-	if err != nil {
-		return "", fmt.Errorf("remote: slug: %w", err)
-	}
-	return s, nil
-}
 
 // slugFromURL parses HTTPS and SSH remote URLs into "owner/repo".
 func slugFromURL(
