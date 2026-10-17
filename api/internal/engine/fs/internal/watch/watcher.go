@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -386,7 +385,8 @@ func (w *Watcher) shouldIgnore(
 	path string,
 ) bool {
 	rel := w.relPath(path)
-	if !strings.HasPrefix(rel, ".git") {
+	// ".gitignore", ".github/" and friends are working-tree files, not git internals.
+	if !isUnder(rel, ".git") {
 		// A linked worktree's gitdir, and the common dir holding the shared ref tree,
 		// sit OUTSIDE the worktree, so no relative-path test can recognise them. Their
 		// events are git internals: they drive the recompute (maybeHandleGitRef) and are
@@ -395,7 +395,7 @@ func (w *Watcher) shouldIgnore(
 		return w.isGitInternal(path)
 	}
 	isHead := rel == filepath.Join(".git", "HEAD")
-	isRefs := strings.HasPrefix(rel, filepath.Join(".git", "refs"))
+	isRefs := isUnder(rel, filepath.Join(".git", "refs"))
 	isPackedRefs := rel == filepath.Join(".git", "packed-refs")
 	return !isHead && !isRefs && !isPackedRefs
 }

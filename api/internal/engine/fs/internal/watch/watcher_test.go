@@ -263,6 +263,29 @@ func TestWatcher_IgnoresDotGitContent(
 	}), "COMMIT_EDITMSG must never surface as a file-change event")
 }
 
+// Working-tree files whose names merely begin with ".git" are ordinary files:
+// only the .git entry itself and what lies under it is git-internal.
+func TestWatcher_DispatchesDotGitPrefixedWorkingTreeFiles(
+	t *testing.T,
+) {
+	dir := t.TempDir()
+	gitDir := filepath.Join(dir, ".git")
+	require.NoError(t, os.MkdirAll(gitDir, 0o700))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".github", "workflows"), 0o700))
+	_, d := newWatcher(t, dir, "ws-dotgit-prefix")
+
+	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "COMMIT_EDITMSG"), []byte("msg"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("x"), 0o600))
+	workflow := filepath.Join(".github", "workflows", "x.yml")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, workflow), []byte("x"), 0o600))
+
+	_ = d.waitForChange(pathIs(".gitignore"))
+	_ = d.waitForChange(pathIs(workflow))
+	assert.False(t, d.hasChange(func(evt domain.FileChangeEvent) bool {
+		return strings.Contains(evt.Path, "COMMIT_EDITMSG")
+	}), "a write under .git must still never surface as a file-change event")
+}
+
 func TestWatcher_StopIdempotent(
 	t *testing.T,
 ) {
