@@ -21,7 +21,7 @@ func newRootCmd() *cobra.Command {
 		Use:   "crowbar",
 		Short: "Crowbar — self-improving agentic development platform",
 	}
-	root.AddCommand(newServeCmd(), newVersionCmd(), newHookCmd(), newHandoffCmd(), newMCPCmd(), newDescriptorCmd())
+	root.AddCommand(newServeCmd(), newVersionCmd(), newHookCmd(), newHandoffCmd(), newMCPCmd(), newDescriptorCmd(), newPathsCmd())
 	return root
 }
 
