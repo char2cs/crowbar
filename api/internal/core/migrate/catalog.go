@@ -46,11 +46,9 @@ func (c *Catalog) Known() int {
 	return c.known
 }
 
-// order lists the steps still to run from a home at layout, applied telling
-// whether an in-layout or post-open step already completed. A bump step is
-// pending exactly while the layout is its From, so applied never decides it.
-// It requires 0 <= layout <= Known(): callers validate LAYOUT first (readLayout
-// refuses negatives, Begin refuses a layout newer than Known).
+// order lists the steps still to run from a home at layout; applied reports
+// whether an in-layout or post-open step already completed (bump steps ignore
+// it). Requires 0 <= layout <= Known().
 func (c *Catalog) order(
 	layout int,
 	applied func(Step) bool,

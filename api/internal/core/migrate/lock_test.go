@@ -29,7 +29,7 @@ func TestLockHome_SecondLockerIsRefused(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, info.IsDir())
 	if runtime.GOOS != "windows" {
-		assert.Equal(t, os.FileMode(0o750), info.Mode().Perm())
+		assert.Zero(t, info.Mode().Perm()&^0o750, "umask may narrow the mode, never widen it")
 	}
 }
 
