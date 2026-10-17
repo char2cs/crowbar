@@ -309,3 +309,118 @@ func TestRun_ABackupTheLedgerCannotRecordHaltsAndIsNotInForce(t *testing.T) {
 	assert.NotEqual(t, copied, backups[0].Path, "the next boot backs up afresh")
 	assert.Equal(t, []int{1}, order)
 }
+
+// sessionless is a Halt without what only a running session knows when the
+// preview is made: the run it started and the ledger file that run created.
+func sessionless(
+	h *Halt,
+) Halt {
+	c := *h
+	c.Run, c.Ledger = "", ""
+	return c
+}
+
+// A preview that is green where the boot halts is worse than none: Inspect makes
+// the preflight's decisions through the code the session runs, so its Halt is the
+// boot's.
+func TestInspect_APreflightFailureIsTheHaltTheBootGives(t *testing.T) {
+	rewrites := Plan{Actions: []Action{{Kind: Convert, Subject: "state/x", Count: Unknown}}, RewritesState: true}
+	tests := []struct {
+		name      string
+		plan      func(context.Context, Env) (Plan, error)
+		arrange   func(*bench)
+		reason    HaltReason
+		message   string
+		hasBackup bool
+	}{
+		{
+			name:   "a step whose plan fails",
+			plan:   func(context.Context, Env) (Plan, error) { return Plan{}, errors.New("view.db is locked") },
+			reason: HaltPlanFailed, message: "view.db is locked",
+		},
+		{
+			name: "a symlink in state",
+			plan: planning(rewrites),
+			arrange: func(b *bench) {
+				testutil.WriteFile(b.tb, b.home, "state/a.db", "rows")
+				symlinkOrSkip(b.tb, filepath.Join(b.home.State(), "a.db"), filepath.Join(b.home.State(), "alias.db"))
+			},
+			reason: HaltPreflight, message: "unsupported symlink",
+		},
+		{
+			name: "no room for the copy",
+			plan: planning(rewrites),
+			arrange: func(b *bench) {
+				testutil.WriteFile(b.tb, b.home, "state/a.db", "rows")
+				b.free = diskOf(1)
+			},
+			reason: HaltPreflight, message: "not enough free disk space",
+		},
+		{
+			name: "free space that cannot be probed",
+			plan: planning(rewrites),
+			arrange: func(b *bench) {
+				testutil.WriteFile(b.tb, b.home, "state/a.db", "rows")
+				b.free = func(string) (uint64, error) { return 0, errors.New("statfs: no such device") }
+			},
+			reason: HaltPreflight, message: "statfs: no such device",
+		},
+		{
+			name:    "git missing",
+			plan:    planning(Plan{NeedsGit: true}),
+			arrange: func(b *bench) { b.haveGit = func() bool { return false } },
+			reason:  HaltPreflight, message: "git is required",
+		},
+		{
+			name: "git missing on a retry that keeps an earlier backup",
+			plan: planning(Plan{NeedsGit: true, RewritesState: true}),
+			arrange: func(b *bench) {
+				testutil.WriteFile(b.tb, b.home, "state/a.db", "rows")
+				s := b.begin()
+				boom := Impls{1: impl(func(*Checkpoints) (Counts, error) { return nil, errors.New("boom") })}
+				assert.Equal(b.tb, HaltStepFailed, halted(b.tb, s.RunPreOpen(context.Background(), boom)).Reason)
+				require.NoError(b.tb, s.Close())
+				b.haveGit = func() bool { return false }
+			},
+			reason: HaltPreflight, message: "git is required", hasBackup: true,
+		},
+		{
+			name: "git missing after a finished dangling run whose backup is on disk",
+			plan: planning(Plan{NeedsGit: true}),
+			arrange: func(b *bench) {
+				backup := filepath.Join(b.home.MigrateDir(), backupsDirName, "r1", "state")
+				testutil.WriteFile(b.tb, b.home, "migrate/backups/r1/state/a.db", "old")
+				b.seedLedger(
+					record{Kind: kindRunStart, At: minute(0), Run: "r1", From: intPtr(0), Pending: []int{1}},
+					record{Kind: kindBackup, At: minute(1), Run: "r1", Path: backup, Bytes: 3},
+					record{Kind: kindStepDone, At: minute(2), Run: "r1", Step: 1, Name: "a", Outcome: outcomeApplied},
+				)
+				b.haveGit = func() bool { return false }
+			},
+			reason: HaltPreflight, message: "git is required",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			step := newStep(2, "b", PostOpen, 0, 0)
+			step.Plan = tc.plan
+			b := newBench(t, newStep(1, "a", PreOpen, 0, 0), step)
+			if tc.arrange != nil {
+				tc.arrange(b)
+			}
+			before := testutil.TreeSnapshot(t, b.home)
+
+			_, err := b.inspect()
+
+			got := halted(t, err)
+			assert.Equal(t, before, testutil.TreeSnapshot(t, b.home))
+			assert.Equal(t, tc.reason, got.Reason)
+			assert.Contains(t, got.Message, tc.message)
+			assert.Equal(t, &ID{Number: 2, Name: "b"}, got.Step)
+			assert.Equal(t, "post-open", got.Phase)
+			assert.Equal(t, tc.hasBackup, got.Backup != "", "a retry's halt names the backup it keeps")
+			boot := b.begin().RunPreOpen(context.Background(), healthy(1, 2))
+			assert.Equal(t, sessionless(halted(t, boot)), sessionless(got), "the preview halts as the boot does")
+		})
+	}
+}
