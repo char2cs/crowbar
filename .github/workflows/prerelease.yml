@@ -37,7 +37,20 @@ jobs:
 
   daemon:
     needs: derive-tag
-    runs-on: ubuntu-latest
+    # The darwin watcher is an FSEvents stream (cgo), so darwin binaries build on
+    # a macOS runner; Linux stays CGO_ENABLED=0.
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            runner: ubuntu-latest
+            platforms: linux/amd64 linux/arm64
+            cgo: '0'
+          - os: darwin
+            runner: macos-26
+            platforms: darwin/amd64 darwin/arm64
+            cgo: '1'
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -54,18 +67,18 @@ jobs:
         run: cd web && bun install --frozen-lockfile && bun run build
       - name: Stage web assets for embedding
         run: cd api && make embed-web
-      - name: Cross-compile daemon
+      - name: Build daemon
         run: |
           mkdir -p dist
           cd api
-          for PLATFORM in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+          for PLATFORM in ${{ matrix.platforms }}; do
             OS=${PLATFORM%/*}; ARCH=${PLATFORM#*/}
-            GOOS=$OS GOARCH=$ARCH CGO_ENABLED=0 go build \
+            GOOS=$OS GOARCH=$ARCH CGO_ENABLED=${{ matrix.cgo }} go build \
               -o ../dist/crowbar-api-${OS}-${ARCH} ./cmd/crowbar
           done
       - uses: actions/upload-artifact@v7
         with:
-          name: daemon-binaries
+          name: daemon-binaries-${{ matrix.os }}
           path: dist/
 
   desktop-macos:
@@ -100,9 +113,9 @@ jobs:
         run: |
           mkdir -p desktop/src-tauri/binaries
           cd api
-          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -tags noEmbed \
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags noEmbed \
             -o ../desktop/src-tauri/binaries/crowbar-api-aarch64-apple-darwin ./cmd/crowbar
-          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -tags noEmbed \
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build -tags noEmbed \
             -o ../desktop/src-tauri/binaries/crowbar-api-x86_64-apple-darwin ./cmd/crowbar
           # cargo tauri build --target universal-apple-darwin bundles a single
           # sidecar named for the "universal-apple-darwin" triple — it does not
