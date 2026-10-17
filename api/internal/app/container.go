@@ -24,6 +24,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
+	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/internal/engine/provider"
@@ -69,12 +70,13 @@ type Container struct {
 	axNode asynx.Asynx[domain.Node]
 }
 
-// New constructs the application layer from the engine and adapter containers
-// and wires the aggregate repositories into the hub (00 §7).
+// New constructs the application layer from the engine and adapter containers,
+// wires the aggregate repositories into the hub (00 §7) and runs post's steps.
 func New(
 	ctx context.Context,
 	engines *engine.Container,
 	adapters *adapter.Container,
+	post migrate.PostOpenRunner,
 ) (*Container, error) {
 	axReviewThread, err := newAsynx[domain.ReviewThread](adapters.ReviewThreadES(), adapters.ReviewThreadSS())
 	if err != nil {
@@ -96,11 +98,8 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx workspace: %w", err)
 	}
-	// axAgentChat is the per-type singleton over state/events/agent_chat.db: it
-	// is built and its store/hub projections registered (via repositories.New ->
-	// agentchat.NewEventSourced), and the agent usecase now sends every AgentChat
-	// mutation through it (the gorm-backed store was retired in the Task 10
-	// cutover).
+	// axAgentChat is the per-type singleton over state/events/agent_chat.db; its
+	// projections are registered via repositories.New -> agentchat.NewEventSourced.
 	axAgentChat, err := newAsynx[domain.Chat](adapters.AgentChatES(), adapters.AgentChatSS())
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx agent chat: %w", err)
@@ -186,8 +185,9 @@ func New(
 	reconcileAgentRunners(ctx, ucs)
 	// After the runner reconcile (its history is final) and before the owner
 	// reconcile (a project home created here needs an owner).
-	runUpgrades(context.WithoutCancel(ctx), crowbarHome,
-		upgradeSteps(crowbarHome, adapters.GlobalView(), repos, ucs))
+	if err := post.RunPostOpen(ctx, legacyImpls(newLegacyFuncs(crowbarHome, repos, ucs))); err != nil {
+		return nil, fmt.Errorf("app: migrate: %w", err)
+	}
 	startOwningChatReconcile(ctx, repos, ucs)
 	startTerminalWaitSweep(ctx, h, ucs)
 	startModelDiscoveryWarmup(ctx, engines, crowbarHome)

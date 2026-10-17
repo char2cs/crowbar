@@ -14,6 +14,7 @@ import (
 	crowbarapi "github.com/char2cs/crowbar/api/internal/api"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/engine"
+	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
 func TestAPI_New_HealthRoute(t *testing.T) {
@@ -27,7 +28,7 @@ func TestAPI_New_HealthRoute(t *testing.T) {
 	// removal: app.New kicks a model-discovery warmup whose forked refresh still
 	// owes a write under this home, and Close is what joins it.
 	t.Cleanup(eng.Close)
-	a, err := app.New(ctx, eng, adapters)
+	a, err := app.New(ctx, eng, adapters, migratetest.NoPostOpen())
 	require.NoError(t, err)
 
 	c, err := crowbarapi.New(a, eng, nil)
@@ -49,7 +50,7 @@ func TestAPI_New_StaticFSServesAndAppCloses(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 	t.Cleanup(eng.Close)
-	a, err := app.New(ctx, eng, adapters)
+	a, err := app.New(ctx, eng, adapters, migratetest.NoPostOpen())
 	require.NoError(t, err)
 
 	staticFS := fstest.MapFS{

@@ -21,6 +21,7 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine"
+	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
 type testContainers struct {
@@ -37,7 +38,7 @@ func newApp(t *testing.T) testContainers {
 	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
-	a, err := app.New(ctx, eng, adapters)
+	a, err := app.New(ctx, eng, adapters, migratetest.NoPostOpen())
 	require.NoError(t, err)
 	// app.Close stops the asynx pools; t.Context's cancel stops the sweeps.
 	t.Cleanup(a.Close)

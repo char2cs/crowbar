@@ -89,7 +89,9 @@ func seedLegacyDormantChat(
 func bootBackfill(t *testing.T, h *harness) {
 	t.Helper()
 	require.NoError(t, h.app.Usecases.AgentRunner.ReconcileRunnersOnBoot(t.Context()))
-	require.True(t, h.app.Usecases.AgentRunner.RestateProvidersFromHistory(t.Context()))
+	skipped, err := h.app.Usecases.AgentRunner.RestateProvidersFromHistory(t.Context())
+	require.NoError(t, err)
+	require.Zero(t, skipped)
 	h.Quiesce()
 }
 

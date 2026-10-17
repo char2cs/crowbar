@@ -84,16 +84,13 @@ func run(
 	return code
 }
 
-// isolateHome points the binary at a throwaway Crowbar home. Only a non-default
-// home inside os.TempDir() is honoured; an unusable CROWBAR_HOME is named on
-// stderr and replaced. It returns the directory to remove, or "" if none.
+// isolateHome points the binary at a throwaway Crowbar home. A CROWBAR_HOME
+// naming a non-default home inside os.TempDir() is honoured; anything else,
+// unset included, is silently replaced. It returns the directory to remove,
+// or "" if none.
 func isolateHome() string {
-	h, err := home.Resolve()
-	if err == nil && !h.IsDefault() {
+	if h, err := home.Resolve(); err == nil && !h.IsDefault() {
 		return ""
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "kit: ignoring CROWBAR_HOME, using a throwaway home: %v\n", err)
 	}
 	isolated, err := os.MkdirTemp("", "crowbar-test-home")
 	if err != nil {

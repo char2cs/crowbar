@@ -394,13 +394,6 @@ func ProjectStorageDir(
 	return filepath.Join(ProjectDir(crowbarHome, projectID), "storages")
 }
 
-// GlobalStateDir returns the global state directory.
-//
-// Path: <crowbarHome>/state
-func GlobalStateDir(crowbarHome string) string {
-	return filepath.Join(crowbarHome, "state")
-}
-
 func workspaceDir(
 	crowbarHome string,
 	projectID string,

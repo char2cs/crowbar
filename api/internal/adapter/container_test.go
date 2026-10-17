@@ -5,15 +5,16 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
+	"github.com/char2cs/crowbar/api/internal/adapter/migrations"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/core/home"
+	"github.com/char2cs/crowbar/api/internal/core/migrate"
 )
 
 func TestGlobalView_HoldsProfilesAndSettings(t *testing.T) {
@@ -88,7 +89,7 @@ func TestAgentChatES_Global(t *testing.T) {
 	assert.NoError(t, statErr, "agent chat read-model db must exist under state/store/")
 }
 
-func TestClose_ClosesAllAndLock(t *testing.T) {
+func TestClose_ClosesAll(t *testing.T) {
 	home := t.TempDir()
 	c, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
@@ -110,8 +111,8 @@ func TestClose_ClosesAllAndLock(t *testing.T) {
 
 	require.NoError(t, c.Close())
 
-	// The lock is released, so a fresh container can open the same home and its
-	// per-type event store re-opens cleanly after the prior Close.
+	// A fresh container opens the same home, and its per-type event store
+	// re-opens cleanly after the prior Close.
 	again, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = again.Close() })
@@ -122,23 +123,18 @@ func TestClose_ClosesAllAndLock(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestRegression_StateDirSingleInstanceLock(t *testing.T) {
-	home := t.TempDir()
-
-	first, err := adapter.New(adapter.WithHomeDir(home))
+// The home is held by the boot's migration session, which opens the stores
+// after it; the stores must not try to take the same lock a second time.
+func TestNew_OpensAHomeItsMigrationSessionHolds(t *testing.T) {
+	h, err := home.At(t.TempDir())
 	require.NoError(t, err)
-
-	second, err := adapter.New(adapter.WithHomeDir(home))
-	require.Error(t, err)
-	assert.Nil(t, second)
-	assert.Contains(t, strings.ToLower(err.Error()), "lock")
-
-	require.NoError(t, first.Close())
-
-	third, err := adapter.New(adapter.WithHomeDir(home))
+	sess, err := migrations.Begin(context.Background(), h, migrate.Options{Version: "v-test"})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = third.Close() })
-	assert.NotNil(t, third.GlobalView())
+	t.Cleanup(func() { require.NoError(t, sess.Close()) })
+
+	c, err := adapter.New(adapter.WithHomeDir(h.Root()))
+	require.NoError(t, err)
+	require.NoError(t, c.Close())
 }
 
 func TestNew_DefaultDirs_UsesHome(t *testing.T) {

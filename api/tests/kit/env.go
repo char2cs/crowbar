@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -29,6 +30,7 @@ import (
 	wsrepo "github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/core/gateway"
+	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
@@ -60,6 +62,7 @@ type Env struct {
 	v0c      *v0.Container
 	homeDir  string
 	adapters *adapter.Container
+	session  *migrate.Session
 
 	// server + listener serve the real router over socketPath; client + dialer
 	// reach it (host-agnostic, unix-socket dial). closeOnce guards the three
@@ -172,23 +175,26 @@ func NewEnvWithHome(
 	homeDir string,
 ) (*Env, error) {
 	ctx := context.Background()
+	session, err := BootHome(ctx, homeDir)
+	if err != nil {
+		return nil, releaseHome(session, err)
+	}
 
 	eng, err := engine.New(ctx, engine.WithHomeDir(homeDir))
 	if err != nil {
-		return nil, fmt.Errorf("kit: engine: %w", err)
+		return nil, releaseHome(session, fmt.Errorf("kit: engine: %w", err))
 	}
 
 	adapters, err := adapter.New(adapter.WithHomeDir(homeDir))
 	if err != nil {
 		eng.Close()
-		return nil, fmt.Errorf("kit: adapter: %w", err)
+		return nil, releaseHome(session, fmt.Errorf("kit: adapter: %w", err))
 	}
 
-	appContainer, err := app.New(ctx, eng, adapters)
+	appContainer, err := app.New(ctx, eng, adapters, session)
 	if err != nil {
 		eng.Close()
-		_ = adapters.Close()
-		return nil, fmt.Errorf("kit: app: %w", err)
+		return nil, releaseHome(session, errors.Join(fmt.Errorf("kit: app: %w", err), adapters.Close()))
 	}
 
 	router := gin.New()
@@ -200,8 +206,7 @@ func NewEnvWithHome(
 	if err != nil {
 		appContainer.Close()
 		eng.Close()
-		_ = adapters.Close()
-		return nil, fmt.Errorf("kit: gateway: %w", err)
+		return nil, releaseHome(session, errors.Join(fmt.Errorf("kit: gateway: %w", err), adapters.Close()))
 	}
 
 	server := &http.Server{Handler: router, ReadHeaderTimeout: 30 * time.Second}
@@ -226,6 +231,7 @@ func NewEnvWithHome(
 		v0c:        apiContainer,
 		homeDir:    homeDir,
 		adapters:   adapters,
+		session:    session,
 		server:     server,
 		listener:   listener,
 		socketPath: socketPath,
@@ -261,9 +267,7 @@ func (e *Env) Close(
 		e.v0c.Close()
 		e.app.Close()
 		e.engine.Close()
-		if err := e.adapters.Close(); err != nil {
-			t.Logf("kit.Env.Close: adapter: %v", err)
-		}
+		e.releaseStores(t, "Close")
 		_ = e.listener.Close()
 	})
 }
@@ -283,9 +287,7 @@ func (e *Env) CloseCrashing(
 		e.v0c.Close()
 		e.app.Close() // release realtime FDs (watchers/LSP) — not a data drain.
 		e.engine.Close()
-		if err := e.adapters.Close(); err != nil {
-			t.Logf("kit.Env.CloseCrashing: adapter: %v", err)
-		}
+		e.releaseStores(t, "CloseCrashing")
 		_ = e.listener.Close()
 	})
 }
@@ -315,9 +317,7 @@ func (e *Env) CloseWithoutKilling(
 		e.v0c.Close()
 		e.app.Close()
 		// Deliberately NOT e.engine.Close(): leave PTY/LSP children running.
-		if err := e.adapters.Close(); err != nil {
-			t.Logf("kit.Env.CloseWithoutKilling: adapter: %v", err)
-		}
+		e.releaseStores(t, "CloseWithoutKilling")
 		_ = e.listener.Close()
 	})
 }

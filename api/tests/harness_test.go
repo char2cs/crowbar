@@ -27,6 +27,7 @@ import (
 	crowbarapi "github.com/char2cs/crowbar/api/internal/api"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/engine"
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // harness owns the booted server and its base URL. It exposes typed helpers for
@@ -63,23 +64,17 @@ func newHarnessAt(
 	home string,
 ) *harness {
 	t.Helper()
-	// The lifecycle ctx handed to engine.New/app.New is what the production
-	// daemon (internal.Container.New, then .Run) uses to stop the two
-	// long-running background loops app.New starts at boot: the provider
-	// engine's 5-minute cron sweep and the chat usecase's 2-second
-	// terminal-wait detector (startProviderSweep/startTerminalWaitSweep in
-	// internal/app/container.go). Production cancels that SAME ctx the instant
-	// a shutdown signal arrives — before Run's own drain/Close sequence even
-	// begins — which is what stops both loops.
-	//
-	// A bare context.Background() here never delivers that signal, so every
-	// harness this package ever boots leaked its own copy of both loops for
-	// the rest of the TEST BINARY's life (every test in ./tests shares one
-	// process): dozens of them accumulate over a full package run, each still
-	// ticking its 2s sweep against a torn-down harness while later tests run.
-	// cancelBoot closes that gap on every teardown path (see drainDown and
-	// crashDie below).
+	// The lifecycle ctx is the one production cancels on a shutdown signal to
+	// stop the background loops app.New starts (provider sweep, terminal-wait
+	// detector); every teardown path below cancels it, or each harness leaks
+	// its loops for the rest of the test binary.
 	ctx, cancelBoot := context.WithCancel(context.Background())
+
+	// The home is held, and its pre-open migrations run, before any store opens,
+	// and released after the stores close on every teardown path below.
+	session, err := kit.BootHome(ctx, home)
+	require.NoError(t, err)
+	releaseHome := func() { require.NoError(t, session.Close()) }
 
 	engines, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)
@@ -87,7 +82,7 @@ func newHarnessAt(
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 
-	appContainer, err := app.New(ctx, engines, adapters)
+	appContainer, err := app.New(ctx, engines, adapters, session)
 	require.NoError(t, err)
 
 	apiContainer, err := crowbarapi.New(appContainer, engines, fstest.MapFS{})
@@ -127,6 +122,7 @@ func newHarnessAt(
 		appContainer.Close()
 		engines.Close()
 		_ = adapters.Close()
+		releaseHome()
 	}
 	// crashDie is the POWER-CUT order, and the inversion is the whole point: the
 	// durable store goes FIRST, so nothing that happens afterwards can be recorded.
@@ -137,6 +133,7 @@ func newHarnessAt(
 		_ = adapters.Close()
 		appContainer.Close()
 		engines.Close()
+		releaseHome()
 	}
 	t.Cleanup(h.shutdown)
 

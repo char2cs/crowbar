@@ -39,6 +39,7 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/core/gateway/transports"
+	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -91,6 +92,7 @@ type daemon struct {
 	app      *app.Container
 	eng      *engine.Container
 	adapters *adapter.Container
+	session  *migrate.Session
 	ln       net.Listener
 	hooks    *hookLog
 }
@@ -136,11 +138,13 @@ func (h *hookLog) String() string {
 func bootDaemon(t *testing.T, home string) *daemon {
 	t.Helper()
 	ctx := context.Background()
+	session, err := kit.BootHome(ctx, home)
+	require.NoError(t, err)
 	eng, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
-	container, err := app.New(ctx, eng, adapters)
+	container, err := app.New(ctx, eng, adapters, session)
 	require.NoError(t, err)
 	router := gin.New()
 	hooks := &hookLog{}
@@ -149,16 +153,17 @@ func bootDaemon(t *testing.T, home string) *daemon {
 	ln, err := transports.NewSocket("unix://")
 	require.NoError(t, err)
 	go func() { _ = http.Serve(ln, router) }() //nolint:gosec // test server on a private unix socket
-	return &daemon{app: container, eng: eng, adapters: adapters, ln: ln, hooks: hooks}
+	return &daemon{app: container, eng: eng, adapters: adapters, session: session, ln: ln, hooks: hooks}
 }
 
 // stop ends the daemon the way a crash does: no graceful drain, and every
-// CLI it spawned dies with it.
+// CLI it spawned dies with it. The home is released last, as the OS would.
 func (d *daemon) stop() {
 	_ = d.ln.Close()
 	d.app.Close()
 	d.eng.Close()
 	_ = d.adapters.Close()
+	_ = d.session.Close()
 }
 
 // rig is one test's daemon, workspace, fake CLIs and their script and log.

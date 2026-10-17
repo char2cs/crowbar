@@ -158,10 +158,16 @@ type RunnerUsecase interface {
 
 	// RestateProvidersFromHistory makes each chat's durable provider agree with
 	// its runner history, as the pre-audit daemon resolved it. It runs once per
-	// install, after ReconcileRunnersOnBoot, and reports whether it finished.
+	// install, after ReconcileRunnersOnBoot, and counts the rows it skipped.
 	RestateProvidersFromHistory(
 		ctx context.Context,
-	) bool
+	) (skipped int, err error)
+
+	// StaleProviders lists the replayable chats RestateProvidersFromHistory left
+	// on a provider their runner history disagrees with.
+	StaleProviders(
+		ctx context.Context,
+	) ([]string, error)
 
 	// Compact asks the chat's CLI to compact its own context, using the gesture the
 	// provider declares. A provider that declares none reports ErrNotFound.
@@ -406,8 +412,15 @@ func (u *Usecase) ReconcileRunnersOnBoot(
 // provider to what its runner history names; see Conversations'.
 func (u *Usecase) RestateProvidersFromHistory(
 	ctx context.Context,
-) bool {
+) (int, error) {
 	return u.conversations.RestateProvidersFromHistory(ctx)
+}
+
+// StaleProviders implements RunnerUsecase.
+func (u *Usecase) StaleProviders(
+	ctx context.Context,
+) ([]string, error) {
+	return u.conversations.StaleProviders(ctx)
 }
 
 // Compact asks the chat's provider to compact its own context, through whichever

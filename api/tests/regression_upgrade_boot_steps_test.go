@@ -15,8 +15,10 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
-	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
+	crowbarhome "github.com/char2cs/crowbar/api/internal/core/home"
+	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
 // The one-off boot upgrades of what the pre-audit daemon left behind.
@@ -30,8 +32,10 @@ func TestRegression_Upgrade_AnUntypedLegacyChatIsAChatAfterBoot(t *testing.T) {
 	h.Quiesce()
 	h.crash()
 	now := time.Now().UTC()
-	legacy := domain.Chat{ID: uuid.NewString(), WorkspaceID: imported.workspaceID,
-		Title: "old chat", CreatedAt: now, LastActivityAt: now}
+	legacy := domain.Chat{
+		ID: uuid.NewString(), WorkspaceID: imported.workspaceID,
+		Title: "old chat", CreatedAt: now, LastActivityAt: now,
+	}
 	seed := openBaseEra(t, home)
 	seed.chat(legacy)
 	seed.close()
@@ -89,8 +93,8 @@ func TestRegression_Upgrade_BootDeletesTheRetiredHookJournal(t *testing.T) {
 		require.NoError(t, os.WriteFile(f, []byte("{}"), 0o644))
 	}
 	h.crash()
-	// A fresh marker set: the harness boot above already ran every step.
-	require.NoError(t, os.RemoveAll(filepath.Join(worktreepath.GlobalStateDir(home), "upgrades")))
+	// A fresh ledger: the harness boot above already ran every step.
+	forgetMigrations(t, home)
 
 	h2 := newHarnessAt(t, home)
 	h2.Quiesce()
@@ -106,7 +110,7 @@ func TestRegression_Upgrade_BootDropsTheRetiredWorkspacePathsTable(t *testing.T)
 	home := t.TempDir()
 	h := newHarnessAt(t, home)
 	h.crash()
-	require.NoError(t, os.RemoveAll(filepath.Join(worktreepath.GlobalStateDir(home), "upgrades")))
+	forgetMigrations(t, home)
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 	require.NoError(t, adapters.GlobalView().Exec(
@@ -120,4 +124,61 @@ func TestRegression_Upgrade_BootDropsTheRetiredWorkspacePathsTable(t *testing.T)
 	require.NoError(t, err)
 	defer func() { _ = after.Close() }()
 	assert.False(t, after.GlobalView().Migrator().HasTable("workspace_paths"))
+}
+
+// A home an older daemon upgraded carries its markers and no ledger. Each step
+// is adopted from its marker, never re-run (re-running the provider restate
+// can change which vendor a chat resumes on), and nothing is backed up.
+func TestRegression_Upgrade_AdoptsTheMarkersAnOlderDaemonLeft(t *testing.T) {
+	home := t.TempDir()
+	h := newHarnessAt(t, home)
+	imported := importProject(t, h)
+	h.Quiesce()
+	h.crash()
+	now := time.Now().UTC()
+	legacy := domain.Chat{
+		ID: uuid.NewString(), WorkspaceID: imported.workspaceID,
+		Title: "old chat", CreatedAt: now, LastActivityAt: now,
+	}
+	seed := openBaseEra(t, home)
+	seed.chat(legacy)
+	seed.close()
+	steps := []string{"project-homes", "workspace-paths-table", "chat-types", "chat-providers-from-history", "hook-deliveries"}
+	for _, name := range steps {
+		marker := filepath.Join(home, "state", "upgrades", name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(marker), 0o700))
+		require.NoError(t, os.WriteFile(marker, nil, 0o600))
+	}
+
+	h2 := newHarnessAt(t, home)
+	h2.Quiesce()
+
+	got, err := h2.app.Usecases.AgentChat.GetChat(context.Background(), legacy.ID)
+	require.NoError(t, err)
+	assert.Empty(t, got.Type, "chat-types was adopted, not re-run")
+	assert.NoDirExists(t, filepath.Join(home, "state", "upgrades"))
+	applied := migratetest.Applied(t, homeAt(t, home))
+	for i, name := range steps {
+		assert.Equal(t, []migrate.Counts{{"adopted": 1}}, applied[i+1], name)
+	}
+	assert.NoDirExists(t, filepath.Join(homeAt(t, home).MigrateDir(), "backups"))
+}
+
+// forgetMigrations leaves dir as a home no migration ever ran in, as base did.
+func forgetMigrations(
+	t *testing.T,
+	dir string,
+) {
+	t.Helper()
+	require.NoError(t, os.RemoveAll(homeAt(t, dir).MigrateDir()))
+}
+
+func homeAt(
+	t *testing.T,
+	dir string,
+) crowbarhome.Home {
+	t.Helper()
+	h, err := crowbarhome.At(dir)
+	require.NoError(t, err)
+	return h
 }

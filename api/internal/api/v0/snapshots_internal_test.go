@@ -16,6 +16,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
+	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
 var errSnapshotFake = errors.New("snapshot fake")
@@ -81,7 +82,7 @@ func newAppAndEngine(
 	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
-	a, err := app.New(ctx, eng, adapters)
+	a, err := app.New(ctx, eng, adapters, migratetest.NoPostOpen())
 	require.NoError(t, err)
 	t.Cleanup(a.Close)
 	return a, eng

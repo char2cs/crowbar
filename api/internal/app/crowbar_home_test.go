@@ -9,6 +9,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/app"
+	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
 func TestApp_CrowbarHome_IsTheHomeTheAdapterOpened(t *testing.T) {
@@ -17,7 +18,7 @@ func TestApp_CrowbarHome_IsTheHomeTheAdapterOpened(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	c, err := app.New(context.Background(), newEng(t), adapters)
+	c, err := app.New(context.Background(), newEng(t), adapters, migratetest.NoPostOpen())
 	require.NoError(t, err)
 
 	assert.Equal(t, root, c.CrowbarHome())

@@ -14,6 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/internal/engine/provider"
+	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
 func newSweepContainer(
@@ -26,7 +27,7 @@ func newSweepContainer(
 	eng, err := engine.New(context.Background())
 	require.NoError(t, err)
 	t.Cleanup(eng.Close)
-	c, err := New(context.Background(), eng, adapters)
+	c, err := New(context.Background(), eng, adapters, migratetest.NoPostOpen())
 	require.NoError(t, err)
 	return c
 }

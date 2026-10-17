@@ -52,11 +52,6 @@ func TestProjectStorageDir(t *testing.T) {
 	assert.Equal(t, "/crow/projects/proj-1/storages", dir)
 }
 
-func TestGlobalStateDir(t *testing.T) {
-	dir := GlobalStateDir("/crow")
-	assert.Equal(t, "/crow/state", dir)
-}
-
 // --- Human-readable worktree path derivation (Task 3, spec §3.9) ---
 
 func TestDerive(t *testing.T) {

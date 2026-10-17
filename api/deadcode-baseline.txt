@@ -1,6 +1,5 @@
 internal/adapter/store/agentjournal/agentjournal.go: WithDirSync
 internal/adapter/store/sqlite/sqlite.go: New
-internal/adapter/store/sqlite/sqlite.go: OpenDB
 internal/api/v0/endpoints/projects/handlers/async.go: Handlers.WaitAsync
 internal/api/v0/endpoints/projects/handlers/projects.go: Handlers.WithStat
 internal/api/v0/endpoints/repos/handlers/async.go: Handlers.WaitAsync

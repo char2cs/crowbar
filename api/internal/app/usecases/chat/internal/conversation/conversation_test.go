@@ -450,9 +450,8 @@ func TestSetChatSelection_ClearingBackToTheProviderDefaultIsAllowed(t *testing.T
 // three-projection scan's hardest case into the one-time backfill: vendor-b was
 // switched to and left dormant WITHOUT ever binding a session, so only vendor-a's
 // OLDER conversation exists and the durable switch interruption is the sole trace
-// of vendor-b. The backfill must record vendor-b, and ChatProviderID — the path
-// SetChatSelection, SwitchProvider and SubmitPrompt resolve through — then reads
-// the field.
+// of vendor-b. The backfill must record vendor-b, and ChatProviderID (the path
+// SetChatSelection, SwitchProvider and SubmitPrompt resolve through) reads it.
 func TestBackfillProviders_ASwitchNewerThanTheLastConversationWins(t *testing.T) {
 	t.Parallel()
 
@@ -479,11 +478,12 @@ func TestBackfillProviders_ASwitchNewerThanTheLastConversationWins(t *testing.T)
 	require.NoError(t, f.activity.ResolveInterruption(t.Context(), chatID, "int-1",
 		engineagents.InterruptProviderSwitched, "vendor-b", time.Unix(2, 0).UTC()))
 	f.settle()
-	require.True(t, f.conversations.RestateProvidersFromHistory(t.Context()))
+	skipped, err := f.conversations.RestateProvidersFromHistory(t.Context())
+	require.NoError(t, err)
+	require.Zero(t, skipped)
 	f.settle()
 
 	providerID, err := f.conversations.ChatProviderID(t.Context(), chatID)
-
 	require.NoError(t, err)
 	assert.Equal(t, "vendor-b", providerID,
 		"the switch interruption is the only trace vendor-b left, and must win over vendor-a's older conversation")

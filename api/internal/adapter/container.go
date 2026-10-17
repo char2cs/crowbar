@@ -91,8 +91,6 @@ type Container struct {
 
 	globalView *gormdb.DB
 
-	lock *instanceLock
-
 	globalClosers []io.Closer
 }
 
@@ -113,8 +111,8 @@ func WithHomeDir(
 }
 
 // New constructs the persistence layer: the global event stores, the global
-// view DB, and the lazy per-entity workspace registries. It acquires the
-// single-instance lock over the crowbar tree.
+// view DB, and the lazy per-entity workspace registries. It takes no lock: the
+// caller holds the home through its migration session (migrate.Begin).
 func New(
 	opts ...Option,
 ) (*Container, error) {
@@ -137,17 +135,7 @@ func New(
 		}
 	}
 
-	lock, err := acquireStateLock(h.State())
-	if err != nil {
-		return nil, err
-	}
-
-	container, err := newLocked(h, lock)
-	if err != nil {
-		_ = lock.Close()
-		return nil, err
-	}
-	return container, nil
+	return openContainer(h)
 }
 
 // resolveHome returns the home rooted at homeDir, or the production home when
@@ -161,9 +149,8 @@ func resolveHome(
 	return home.Resolve()
 }
 
-func newLocked(
+func openContainer(
 	h home.Home,
-	lock *instanceLock,
 ) (c *Container, err error) {
 	eventsDir, storeDir := h.Events(), h.Store()
 
@@ -224,13 +211,12 @@ func newLocked(
 		nodeSnapshotStore:          nodeSnapshotStore,
 		nodeStoreDB:                nodeStoreDB,
 		globalView:                 globalView,
-		lock:                       lock,
 	}
 	c.globalClosers = collectClosers(reviewThreadES, reviewThreadSS)
 	return c, nil
 }
 
-// opens is a fail-fast opener for newLocked: it keeps the FIRST error and the
+// opens is a fail-fast opener for openContainer: it keeps the FIRST error and the
 // rollback for everything opened before it.
 //
 // Fail-fast matters as much as the rollback. Once one open has failed the rest are
@@ -241,7 +227,7 @@ type opens struct {
 	rollback []func() error
 }
 
-// unwind closes what was opened, newest first. Only called when newLocked is
+// unwind closes what was opened, newest first. Only called when openContainer is
 // returning an error — on success the Container owns these and Close has them.
 func (o *opens) unwind() {
 	for i := len(o.rollback) - 1; i >= 0; i-- {
@@ -428,9 +414,8 @@ func (c *Container) CrowbarHome() string {
 }
 
 // Close drains and closes every persistence plane — the per-type event/read
-// handles, the global view DB, and the global event stores — then releases the
-// single-instance lock. Closing a WAL DB's last connection checkpoints its WAL,
-// so errors.Join spans all planes with the WAL checkpointed.
+// handles, the global view DB, and the global event stores. Closing a WAL DB's
+// last connection checkpoints its WAL, so errors.Join spans all planes.
 func (c *Container) Close() error {
 	var errs []error
 
@@ -464,8 +449,6 @@ func (c *Container) Close() error {
 		}
 	}
 	c.globalClosers = nil
-
-	closeEach(&errs, "release state lock", &c.lock, (*instanceLock).Close)
 	return errors.Join(errs...)
 }
 

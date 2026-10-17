@@ -5,17 +5,22 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
+	"github.com/char2cs/crowbar/api/internal/adapter/migrations"
 	crowbarapi "github.com/char2cs/crowbar/api/internal/api"
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/core/gateway"
+	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/hookserver"
 	"github.com/char2cs/crowbar/api/internal/core/logring"
+	"github.com/char2cs/crowbar/api/internal/core/metadata"
+	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/core/selfinstall"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
@@ -25,6 +30,8 @@ import (
 type Container struct {
 	server   *http.Server
 	listener net.Listener
+	// session holds the home from before the stores open until after they close.
+	session *migrate.Session
 	// hooks is the loopback listener for vendor CLIs' own HTTP hooks. It serves
 	// the hook route of the same router and nothing else of it.
 	hooks   *hookserver.Server
@@ -60,13 +67,14 @@ func WithLogRing(
 	}
 }
 
-// New wires engine → adapter → app → api in order and returns the root container.
+// New takes the home and runs its pre-open migrations, then wires engine →
+// adapter → app → api in order and returns the root container.
 func New(
 	ctx context.Context,
 	host string,
 	staticFS fs.FS,
 	options ...Option,
-) (*Container, error) {
+) (c *Container, err error) {
 	cfg := rootOpts{}
 	for _, o := range options {
 		o(&cfg)
@@ -77,17 +85,27 @@ func New(
 		return nil, fmt.Errorf("internal: gateway: %w", err)
 	}
 
+	h, session, err := openHome(ctx, cfg.homeDir)
+	if err != nil {
+		return nil, fmt.Errorf("internal: migrate: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, session.Close())
+		}
+	}()
+
 	engines, err := engine.New(ctx, engine.WithHomeDir(cfg.homeDir), engine.WithDaemonSocket(socketOf(listener)))
 	if err != nil {
 		return nil, fmt.Errorf("internal: engine: %w", err)
 	}
 
-	adapters, err := adapter.New(adapterOptions(cfg.homeDir)...)
+	adapters, err := adapter.New(adapter.WithHomeDir(h.Root()))
 	if err != nil {
 		return nil, fmt.Errorf("internal: adapter: %w", err)
 	}
 
-	appContainer, err := app.New(ctx, engines, adapters)
+	appContainer, err := app.New(ctx, engines, adapters, session)
 	if err != nil {
 		return nil, fmt.Errorf("internal: app: %w", err)
 	}
@@ -120,6 +138,7 @@ func New(
 	return &Container{
 		server:   &http.Server{Handler: apiContainer.Handler(), ReadHeaderTimeout: 30 * time.Second},
 		listener: listener,
+		session:  session,
 		hooks:    hooks,
 		engines:  engines,
 		adapter:  adapters,
@@ -143,13 +162,34 @@ func (c *Container) Socket() string {
 	return c.engines.DaemonSocket
 }
 
-func adapterOptions(
-	homeDir string,
-) []adapter.Option {
-	if homeDir == "" {
-		return nil
+// openHome takes the home rooted at dir (the default home when dir is empty)
+// and runs the migrations that must finish before any store opens. Until the
+// daemon can serve a halt, a halted boot is an error and releases the home.
+func openHome(
+	ctx context.Context,
+	dir string,
+) (home.Home, *migrate.Session, error) {
+	h, err := resolveHome(dir)
+	if err != nil {
+		return home.Home{}, nil, err
 	}
-	return []adapter.Option{adapter.WithHomeDir(homeDir)}
+	session, err := migrations.Begin(ctx, h, migrate.Options{Version: metadata.GetVersion()})
+	if err != nil {
+		return home.Home{}, nil, err
+	}
+	if err := session.RunPreOpen(ctx, migrations.PreOpenImpls()); err != nil {
+		return home.Home{}, nil, errors.Join(err, session.Close())
+	}
+	return h, session, nil
+}
+
+func resolveHome(
+	dir string,
+) (home.Home, error) {
+	if dir != "" {
+		return home.At(dir)
+	}
+	return home.Resolve()
 }
 
 // Home is the Crowbar home the daemon opened.
@@ -241,4 +281,8 @@ func (c *Container) Close() {
 	_ = c.adapter.Close()
 	_ = c.listener.Close()
 	_ = c.hooks.Close()
+	// Released last: the home is held until every store is closed.
+	if err := c.session.Close(); err != nil {
+		slog.Warn("internal: release the home", "err", err)
+	}
 }

@@ -70,8 +70,9 @@ Persistence only. Under `<home>/state`:
 
 Types: `workspace`, `review_thread`, `agent_chat`, `agent_activity` (a chat's
 turns and tool calls — separate so a tool-call storm never queues behind sidebar
-writes), `agent_runner`, `node` (sidebar placement). The adapter also takes the
-single-instance lock on the home dir.
+writes), `agent_runner`, `node` (sidebar placement). The adapter takes no lock:
+the boot's migration session (`core/migrate`, steps in `adapter/migrations`)
+holds the home from before the stores open until after they close.
 
 ### `app/`
 - **Aggregates** (`repositories/`, `engine/agents/runner`): each type is one

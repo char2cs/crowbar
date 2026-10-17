@@ -20,34 +20,61 @@ import (
 // history first and read the stored field only when there was none, so a row
 // it wrote may carry an empty or stale field. Every chat whose history names a
 // provider other than the stored one is restated to it; after this the field is
-// the one owner and nothing re-derives it. Best-effort per row: it reports
-// whether every row was examined, so an incomplete run is repeated next boot.
-func (c *Conversations) RestateProvidersFromHistory(ctx context.Context) bool {
+// the one owner and nothing re-derives it. A row that cannot be restated is
+// logged and counted in skipped; the error is for a failed list or a cancelled
+// ctx.
+func (c *Conversations) RestateProvidersFromHistory(ctx context.Context) (skipped int, err error) {
 	rows, err := c.chats.ListChats(ctx)
 	if err != nil {
-		slog.ErrorContext(ctx, "agent: restate chat providers: list", "err", err)
-		return false
+		return 0, fmt.Errorf("agent: restate chat providers: list: %w", err)
 	}
-	complete := true
 	for _, row := range rows {
-		if row.Type == domain.ChatTypeFolder {
+		err := c.restateProvider(ctx, row)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return skipped, fmt.Errorf("agent: restate chat providers: %w", ctxErr)
+		}
+		if err != nil {
+			slog.WarnContext(ctx, "agent: restate chat provider: skipped a row", "chat_id", row.ID, "err", err)
+			skipped++
+		}
+	}
+	return skipped, nil
+}
+
+// StaleProviders lists what RestateProvidersFromHistory leaves behind: the
+// chats whose history replays to a provider their runner history disagrees
+// with. A row that cannot be replayed is not listed; nothing could restate it.
+func (c *Conversations) StaleProviders(ctx context.Context) ([]string, error) {
+	rows, err := c.chats.ListChats(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("agent: stale chat providers: list: %w", err)
+	}
+	var out []string
+	for _, row := range rows {
+		chat, err := c.chats.LoadChat(ctx, row.ID)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, fmt.Errorf("agent: stale chat providers: %w", ctxErr)
+		}
+		if err != nil {
 			continue
 		}
-		if err := c.restateProvider(ctx, row); err != nil {
-			slog.WarnContext(ctx, "agent: restate chat provider (best-effort, continuing)",
-				"chat_id", row.ID, "err", err)
-			complete = false
+		_, stale, err := c.staleProvider(ctx, chat)
+		if err != nil {
+			return nil, fmt.Errorf("agent: stale chat providers: chat %s: %w", row.ID, err)
+		}
+		if stale {
+			out = append(out, row.ID)
 		}
 	}
-	return complete
+	return out, nil
 }
 
 func (c *Conversations) restateProvider(
 	ctx context.Context,
 	row domain.Chat,
 ) error {
-	providerID, found, err := c.newestPlacedProvider(ctx, row.ID)
-	if err != nil || !found || providerID == row.ProviderID {
+	providerID, stale, err := c.staleProvider(ctx, row)
+	if err != nil || !stale {
 		return err
 	}
 	if _, err := c.chats.SetProvider(ctx, row.ID, providerID); err != nil &&
@@ -55,6 +82,22 @@ func (c *Conversations) restateProvider(
 		return fmt.Errorf("set provider %q: %w", providerID, err)
 	}
 	return nil
+}
+
+// staleProvider is the provider chat's runner history names when that is not
+// the one chat records: what the restate acts on and StaleProviders checks.
+func (c *Conversations) staleProvider(
+	ctx context.Context,
+	chat domain.Chat,
+) (string, bool, error) {
+	if chat.Type == domain.ChatTypeFolder {
+		return "", false, nil
+	}
+	providerID, found, err := c.newestPlacedProvider(ctx, chat.ID)
+	if err != nil || !found || providerID == "" || providerID == chat.ProviderID {
+		return "", false, err
+	}
+	return providerID, true, nil
 }
 
 // newestPlacedProvider is the one-time migration of the old three-projection

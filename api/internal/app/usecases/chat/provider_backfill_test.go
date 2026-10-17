@@ -47,7 +47,7 @@ func TestBackfill_ALegacyChatLearnsItsProviderAtBoot(t *testing.T) {
 	f := newFixture(t)
 	chatID := legacyChat(t, f, "", "codex")
 
-	require.True(t, f.usecase.RestateProvidersFromHistory(f.ctx))
+	restate(t, f)
 
 	assert.Equal(t, "codex", f.chat(t, chatID).ProviderID)
 	got, err := f.usecase.ResumeChat(f.ctx, chatID)
@@ -67,7 +67,7 @@ func TestBackfill_AChatThatNeverRanStaysUnknown(t *testing.T) {
 	require.NoError(t, err)
 	f.wait()
 
-	require.True(t, f.usecase.RestateProvidersFromHistory(f.ctx))
+	restate(t, f)
 
 	assert.Empty(t, f.chat(t, chatID).ProviderID)
 	_, err = f.usecase.ResumeChat(f.ctx, chatID)
@@ -80,9 +80,37 @@ func TestBackfill_AStaleStoredProviderIsRestatedToTheHistory(t *testing.T) {
 	f := newFixture(t)
 	chatID := legacyChat(t, f, "claude", "codex")
 
-	require.True(t, f.usecase.RestateProvidersFromHistory(f.ctx))
+	restate(t, f)
 	f.wait()
-	require.True(t, f.usecase.RestateProvidersFromHistory(f.ctx), "a second run changes nothing")
+	restate(t, f)
 
 	assert.Equal(t, "codex", f.chat(t, chatID).ProviderID)
+}
+
+// StaleProviders is the restate's postcondition: what it lists is exactly what
+// a restate still has to do.
+func TestStaleProviders_ListsWhatTheRestateLeaves(t *testing.T) {
+	f := newFixture(t)
+	stale := legacyChat(t, f, "claude", "codex")
+	legacyChat(t, f, "claude", "claude")
+
+	before, err := f.usecase.StaleProviders(f.ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{stale}, before)
+
+	restate(t, f)
+
+	after, err := f.usecase.StaleProviders(f.ctx)
+	require.NoError(t, err)
+	assert.Empty(t, after, "the event log answers at once, without waiting on the read model")
+}
+
+func restate(
+	t *testing.T,
+	f testFixture,
+) {
+	t.Helper()
+	skipped, err := f.usecase.RestateProvidersFromHistory(f.ctx)
+	require.NoError(t, err)
+	require.Zero(t, skipped)
 }

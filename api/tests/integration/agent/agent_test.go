@@ -115,6 +115,12 @@ func newHarness(t *testing.T) *harness {
 	bin := buildCrowbarBinary(t)
 	t.Setenv("CROWBAR_HOOK_BIN", bin)
 
+	// Released after the adapter's cleanup below (LIFO): the home is held until
+	// its stores are closed.
+	session, err := kit.BootHome(ctx, home)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, session.Close()) })
+
 	eng, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)
 
@@ -122,7 +128,7 @@ func newHarness(t *testing.T) *harness {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	appContainer, err := app.New(ctx, eng, adapters)
+	appContainer, err := app.New(ctx, eng, adapters, session)
 	require.NoError(t, err)
 
 	router := gin.New()

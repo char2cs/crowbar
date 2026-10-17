@@ -5,8 +5,6 @@ package tests
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -14,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
-	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -37,9 +34,9 @@ func openBaseEra(
 	home string,
 ) *baseEra {
 	t.Helper()
-	// Base kept no record of upgrade steps; the harness boot that set the
-	// install up did, so they are taken back out.
-	require.NoError(t, os.RemoveAll(filepath.Join(worktreepath.GlobalStateDir(home), "upgrades")))
+	// Base kept no record of migrations; the harness boot that set the
+	// install up did, so it is taken back out.
+	forgetMigrations(t, home)
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 	return &baseEra{t: t, adapters: adapters}
@@ -81,6 +78,21 @@ func (b *baseEra) chat(
 ) {
 	b.t.Helper()
 	data := b.appendEvent(b.adapters.AgentChatES(), "agentchat.created."+c.ID, c.ID, 1, c)
+	require.NoError(b.t, b.adapters.AgentChatReadDB().Exec(
+		"INSERT OR REPLACE INTO agent_chats_read (id, workspace_id, data) VALUES (?, ?, ?)",
+		c.ID, c.WorkspaceID, data).Error)
+}
+
+// unreplayableChat writes c's read-model row over a history whose one event
+// cannot be applied, so every command on the chat fails its replay.
+func (b *baseEra) unreplayableChat(
+	c domain.Chat,
+) {
+	b.t.Helper()
+	ops := []map[string]any{{"op": "remove", "path": "/no-such-field"}}
+	b.appendPatch(b.adapters.AgentChatES(), "agentchat.created."+c.ID, c.ID, 1, ops)
+	data, err := json.Marshal(c)
+	require.NoError(b.t, err)
 	require.NoError(b.t, b.adapters.AgentChatReadDB().Exec(
 		"INSERT OR REPLACE INTO agent_chats_read (id, workspace_id, data) VALUES (?, ?, ?)",
 		c.ID, c.WorkspaceID, data).Error)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/app"
+	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
 // TestApp_Shutdown_BoundedByCtx_DoesNotHangOnStuckReactor asserts the ordered graceful
@@ -29,7 +30,7 @@ func TestApp_Shutdown_BoundedByCtx_DoesNotHangOnStuckReactor(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	c, err := app.New(ctx, newEng(t), adapters)
+	c, err := app.New(ctx, newEng(t), adapters, migratetest.NoPostOpen())
 	require.NoError(t, err)
 
 	// A reactor that is inside the gate and never leaves — exactly the shape of a real
@@ -75,7 +76,7 @@ func TestApp_Shutdown_HappyPath_DrainsCleanly(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	c, err := app.New(ctx, newEng(t), adapters)
+	c, err := app.New(ctx, newEng(t), adapters, migratetest.NoPostOpen())
 	require.NoError(t, err)
 
 	require.NoError(t, c.Shutdown(context.Background()))
@@ -94,7 +95,7 @@ func TestApp_Shutdown_LogsAgentToolUsage(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	c, err := app.New(ctx, newEng(t), adapters)
+	c, err := app.New(ctx, newEng(t), adapters, migratetest.NoPostOpen())
 	require.NoError(t, err)
 
 	// One call through DispatchMCP, the daemon's only entry to the tool surface.
@@ -132,7 +133,7 @@ func TestApp_Shutdown_GateRefusesNewWorkOnceDraining(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	c, err := app.New(ctx, newEng(t), adapters)
+	c, err := app.New(ctx, newEng(t), adapters, migratetest.NoPostOpen())
 	require.NoError(t, err)
 
 	gate := c.Repositories.Drain().Gate

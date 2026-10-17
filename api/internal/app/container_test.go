@@ -2,6 +2,8 @@ package app_test
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"testing"
 	"time"
 
@@ -9,10 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
+	"github.com/char2cs/crowbar/api/internal/adapter/migrations"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
+	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
 func newEng(t *testing.T) *engine.Container {
@@ -29,7 +34,7 @@ func TestApp_New_BootsFullLayer(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	c, err := app.New(ctx, newEng(t), adapters)
+	c, err := app.New(ctx, newEng(t), adapters, migratetest.NoPostOpen())
 	require.NoError(t, err)
 	assert.NotNil(t, c.Hub)
 	assert.NotNil(t, c.Repositories)
@@ -45,7 +50,7 @@ func TestApp_New_UsecasesWorkspaceListEndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	c, err := app.New(ctx, newEng(t), adapters)
+	c, err := app.New(ctx, newEng(t), adapters, migratetest.NoPostOpen())
 	require.NoError(t, err)
 
 	_, err = c.Repositories.Workspace.Create(
@@ -63,4 +68,46 @@ func TestApp_New_UsecasesWorkspaceListEndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	require.Equal(t, "w1", rows[0].ID)
+}
+
+// recordingRunner is a post-open runner that notes which steps it was handed
+// and returns err.
+type recordingRunner struct {
+	steps []int
+	err   error
+}
+
+func (r *recordingRunner) RunPostOpen(
+	_ context.Context,
+	impls migrate.Impls,
+) error {
+	r.steps = slices.Sorted(maps.Keys(impls))
+	return r.err
+}
+
+func TestApp_New_HandsEveryPostOpenStepToTheRunner(t *testing.T) {
+	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapters.Close() })
+	runner := &recordingRunner{}
+
+	_, err = app.New(context.Background(), newEng(t), adapters, runner)
+
+	require.NoError(t, err)
+	assert.Equal(t, []int{
+		migrations.StepProjectHomes, migrations.StepChatTypes, migrations.StepChatProviders, migrations.StepHookDeliveries,
+	}, runner.steps)
+}
+
+func TestApp_New_AHaltedMigrationFailsTheBoot(t *testing.T) {
+	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapters.Close() })
+	halt := &migrate.Halt{Reason: migrate.HaltStepFailed, Message: "step 3 failed"}
+
+	_, err = app.New(context.Background(), newEng(t), adapters, &recordingRunner{err: halt})
+
+	var got *migrate.Halt
+	require.ErrorAs(t, err, &got)
+	assert.Same(t, halt, got)
 }

@@ -15,6 +15,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal"
 	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/hookserver"
+	"github.com/char2cs/crowbar/api/internal/core/migrate"
+	"github.com/char2cs/crowbar/api/internal/testutil"
+	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
 func TestNew_BootsFullStack(t *testing.T) {
@@ -59,7 +62,7 @@ func TestNew_InvalidHost_ReturnsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestNew_InvalidHomeDir_ReturnsAdapterError(t *testing.T) {
+func TestNew_InvalidHomeDir_ReturnsError(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "file")
 	require.NoError(t, os.WriteFile(file, []byte("x"), 0o600))
 
@@ -69,7 +72,36 @@ func TestNew_InvalidHomeDir_ReturnsAdapterError(t *testing.T) {
 		nil,
 		internal.WithHomeDir(filepath.Join(file, "home")),
 	)
-	assert.ErrorContains(t, err, "internal: adapter")
+	assert.ErrorContains(t, err, "internal: migrate")
+}
+
+// The daemon holds its home while it runs, so a second one is refused before
+// it opens a store, and the home is free again once the first one closes.
+func TestNew_RefusesASecondDaemonOnTheSameHome(t *testing.T) {
+	dir := t.TempDir()
+	first, err := internal.New(context.Background(), "tcp://127.0.0.1:0", nil, internal.WithHomeDir(dir))
+	require.NoError(t, err)
+
+	_, err = internal.New(context.Background(), "tcp://127.0.0.1:0", nil, internal.WithHomeDir(dir))
+	require.ErrorIs(t, err, migrate.ErrHomeLocked)
+
+	first.Close()
+	again, err := internal.New(context.Background(), "tcp://127.0.0.1:0", nil, internal.WithHomeDir(dir))
+	require.NoError(t, err)
+	again.Close()
+}
+
+func TestNew_RunsTheLegacyStepsBeforeServing(t *testing.T) {
+	h := testutil.FixtureHome(t)
+
+	c, err := internal.New(context.Background(), "tcp://127.0.0.1:0", nil, internal.WithHomeDir(h.Root()))
+	require.NoError(t, err)
+	t.Cleanup(c.Close)
+
+	applied := migratetest.Applied(t, h)
+	for step := 1; step <= 5; step++ {
+		assert.Len(t, applied[step], 1, "step %d", step)
+	}
 }
 
 func TestNew_DefaultDirs_UsesHome(t *testing.T) {
