@@ -106,6 +106,7 @@ export function runGate({ name, baselinePath, measured, update, allowAdded, summ
       log(`${name}: already current`)
       return 0
     }
+    emit(['shrunk', 'gone', 'added'])
     writeBaseline(baselinePath, measured)
     log(`${name}: baseline updated (${Object.keys(measured).length} keys)`)
     return 0
@@ -117,6 +118,7 @@ export function runGate({ name, baselinePath, measured, update, allowAdded, summ
   }
   emit(['grew', 'added', 'shrunk', 'gone'])
   if (growth.length > 0) log(['Baselines never go up: delete or split code.', hint].filter(Boolean).join(' '))
-  if (writeBack.length > 0) log(`Write the shrink back: ${UPDATE_CMD}, then commit the baseline.`)
+  // `update` refuses a run with growth, so the write-back is only advice once the growth is gone.
+  else log(`Write the shrink back: ${UPDATE_CMD}, then commit the baseline.`)
   return 1
 }
