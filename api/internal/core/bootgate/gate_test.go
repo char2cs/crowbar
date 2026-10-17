@@ -31,6 +31,8 @@ type healthBody struct {
 	Data    healthData `json:"data"`
 }
 
+// healthData.Status is asserted by its wire spelling: the desktop parses those
+// exact strings, and reads one it does not know as ready.
 type healthData struct {
 	Status  string `json:"status"`
 	Version string `json:"version"`
@@ -46,14 +48,27 @@ type refusalBody struct {
 
 func migrating() bootgate.Report {
 	return bootgate.Report{
-		State:   "migrating",
+		State:   bootgate.StateMigrating,
 		Message: migratingMessage,
 		Detail:  map[string]any{"step": "backup"},
 	}
 }
 
 func halted() bootgate.Report {
-	return bootgate.Report{State: "halted", Message: haltedMessage}
+	return bootgate.Report{State: bootgate.StateHalted, Message: haltedMessage}
+}
+
+// bare is a gate middleware that adds nothing.
+func bare(
+	next http.Handler,
+) http.Handler {
+	return next
+}
+
+func newGate(
+	report bootgate.Reporter,
+) *bootgate.Gate {
+	return bootgate.New(testVersion, report, bare)
 }
 
 func realAPI() http.Handler {
@@ -170,7 +185,7 @@ func openWhenStarted(
 func TestGate_ServesHealthBeforeOpen(
 	t *testing.T,
 ) {
-	g := bootgate.New(testVersion, migrating)
+	g := newGate(migrating)
 
 	body := decodeHealth(t, send(g, http.MethodGet, healthPath))
 
@@ -184,7 +199,7 @@ func TestGate_ServesHealthBeforeOpen(
 func TestGate_RefusesEverythingElseBeforeOpen(
 	t *testing.T,
 ) {
-	g := bootgate.New(testVersion, migrating)
+	g := newGate(migrating)
 
 	assertRefused(t, send(g, http.MethodGet, projectsPath), "daemon_migrating", migratingMessage)
 	assertRefused(t, send(g, http.MethodPost, chatsPath), "daemon_migrating", migratingMessage)
@@ -194,7 +209,7 @@ func TestGate_RefusesEverythingElseBeforeOpen(
 func TestGate_HaltedUsesItsOwnCode(
 	t *testing.T,
 ) {
-	g := bootgate.New(testVersion, halted)
+	g := newGate(halted)
 
 	assert.Equal(t, "halted", decodeHealth(t, send(g, http.MethodGet, healthPath)).Data.Status)
 	assertRefused(t, send(g, http.MethodGet, projectsPath), "daemon_halted", haltedMessage)
@@ -204,8 +219,8 @@ func TestGate_ReporterIsCalledPerRequest(
 	t *testing.T,
 ) {
 	progress := 1
-	g := bootgate.New(testVersion, func() bootgate.Report {
-		return bootgate.Report{State: "migrating", Message: migratingMessage, Detail: fmt.Sprintf("step %d", progress)}
+	g := newGate(func() bootgate.Report {
+		return bootgate.Report{State: bootgate.StateMigrating, Message: migratingMessage, Detail: fmt.Sprintf("step %d", progress)}
 	})
 
 	first := decodeHealth(t, send(g, http.MethodGet, healthPath))
@@ -219,7 +234,7 @@ func TestGate_ReporterIsCalledPerRequest(
 func TestGate_OpenHandsEveryRequestToTheRealHandler(
 	t *testing.T,
 ) {
-	g := bootgate.New(testVersion, migrating)
+	g := newGate(migrating)
 	g.Open(realAPI())
 
 	assertReal(t, send(g, http.MethodGet, healthPath))
@@ -230,7 +245,7 @@ func TestGate_OpenIsSafeUnderConcurrentRequests(
 	t *testing.T,
 ) {
 	const requests = 64
-	g := bootgate.New(testVersion, migrating)
+	g := newGate(migrating)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	recs := make([]*httptest.ResponseRecorder, requests)
@@ -252,7 +267,7 @@ func TestGate_OpenIsSafeUnderConcurrentRequests(
 func TestGate_OpenRejectsNilHandler(
 	t *testing.T,
 ) {
-	g := bootgate.New(testVersion, migrating)
+	g := newGate(migrating)
 
 	assert.Panics(t, func() { g.Open(nil) })
 }
@@ -260,5 +275,57 @@ func TestGate_OpenRejectsNilHandler(
 func TestNew_RejectsNilReporter(
 	t *testing.T,
 ) {
-	assert.Panics(t, func() { bootgate.New(testVersion, nil) })
+	assert.Panics(t, func() { bootgate.New(testVersion, nil, bare) })
+}
+
+func TestNew_RejectsNilMiddleware(
+	t *testing.T,
+) {
+	assert.Panics(t, func() { bootgate.New(testVersion, migrating, nil) })
+}
+
+// An encode failure must not leave a 200 behind with half a body.
+func TestGate_AnUnencodableReportAnswers500(
+	t *testing.T,
+) {
+	g := newGate(func() bootgate.Report {
+		return bootgate.Report{State: bootgate.StateMigrating, Message: migratingMessage, Detail: make(chan int)}
+	})
+
+	rec := send(g, http.MethodGet, healthPath)
+
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+	var body refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.False(t, body.Success)
+	assert.Equal(t, "daemon_report_unencodable", body.Code)
+}
+
+// The gate's own answers carry what the real API adds to its answers (CORS, so
+// the webview can read them); once open, the real API adds its own.
+func TestGate_AnswersThroughItsMiddlewareUntilOpen(
+	t *testing.T,
+) {
+	through := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Through", "middleware")
+			next.ServeHTTP(w, r)
+		})
+	}
+	g := bootgate.New(testVersion, halted, through)
+
+	health := send(g, http.MethodGet, healthPath)
+	refused := send(g, http.MethodGet, projectsPath)
+	preflight := send(g, http.MethodOptions, projectsPath)
+	g.Open(realAPI())
+	opened := send(g, http.MethodGet, projectsPath)
+
+	assert.Equal(t, "halted", decodeHealth(t, health).Data.Status)
+	assert.Equal(t, "middleware", health.Header().Get("X-Through"))
+	assertRefused(t, refused, "daemon_halted", haltedMessage)
+	assert.Equal(t, "middleware", refused.Header().Get("X-Through"))
+	assert.Equal(t, "middleware", preflight.Header().Get("X-Through"))
+	assertReal(t, opened)
+	assert.Empty(t, opened.Header().Get("X-Through"))
 }
