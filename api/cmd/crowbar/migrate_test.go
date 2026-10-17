@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"io"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -78,4 +81,21 @@ func TestMigrateCmd_NewerLayoutExitsNonZero(t *testing.T) {
 
 	require.ErrorContains(t, err, "layout 9")
 	assert.Empty(t, out)
+}
+
+func TestMigrateCmd_APreflightHaltExitsNonZero(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating a symlink on Windows needs privileges the runner may lack")
+	}
+	h := testutil.FixtureHome(t)
+	t.Setenv(home.EnvVar, h.Root())
+	testutil.WriteFile(t, h, "state/view.db", "rows")
+	require.NoError(t, os.Symlink(filepath.Join(h.State(), "view.db"), filepath.Join(h.State(), "alias.db")))
+	before := testutil.TreeSnapshot(t, h)
+
+	out, err := runMigrate(t, "--plan")
+
+	require.ErrorContains(t, err, "unsupported symlink", "the boot would halt on it, so the preview does")
+	assert.Empty(t, out)
+	assert.Equal(t, before, testutil.TreeSnapshot(t, h))
 }

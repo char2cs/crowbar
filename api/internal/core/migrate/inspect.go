@@ -2,10 +2,10 @@ package migrate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 
 	"github.com/char2cs/crowbar/api/internal/core/home"
 )
@@ -16,12 +16,14 @@ type StepPlan struct {
 	Plan Plan
 }
 
-// BackupPlan says whether the run would copy state/ first, how much that copy
-// weighs and how much room the volume has.
+// BackupPlan is what the run does about state/ first. A copy is Required, and
+// weighs Bytes with FreeBytes to spare; Kept names the run whose backup of the
+// state a retry keeps instead of copying. Neither means there is nothing to do.
 type BackupPlan struct {
 	Required  bool
 	Bytes     int64
 	FreeBytes uint64
+	Kept      string
 }
 
 // Report is what booting this binary on a home would do, read without
@@ -37,10 +39,9 @@ type Report struct {
 	Last *RunSummary
 }
 
-// Inspect plans the migration of h against cat. It is read-only: it takes no
-// lock beyond a momentary probe, repairs no ledger, closes no run and creates
-// nothing, so it also works on a home with no state/ or migrate/. A home a
-// session would refuse comes back as the *Halt Begin would set.
+// Inspect previews the migration of h against cat without changing h: no lock
+// beyond a momentary probe, no repair, nothing created. A home or step the boot
+// would halt on comes back as the *Halt the boot would set.
 func Inspect(
 	ctx context.Context,
 	h home.Home,
@@ -52,17 +53,24 @@ func Inspect(
 	if read.refusal != nil {
 		return Report{}, haltAt(h, cat, read.layout, read.refusal.reason, read.refusal.message)
 	}
-	plans, err := planPending(ctx, h, cat, read, opts)
+	pending := cat.pending(read.layout, read.view)
+	res, err := checkPending(ctx, Env{Home: h, Log: opts.Log}, pending, read.view, opts)
+	var f *fault
+	if errors.As(err, &f) {
+		return Report{}, haltAt(h, cat, read.layout, f.reason, f.Error()).at(f.step)
+	}
 	if err != nil {
 		return Report{}, err
 	}
-	backup, err := planBackup(h, plans, opts.FreeBytes)
-	if err != nil {
-		return Report{}, err
+	steps := make([]StepPlan, 0, len(pending))
+	for i, step := range pending {
+		steps = append(steps, StepPlan{Step: step, Plan: res.plans[i]})
 	}
+	due := res.backup
 	report := Report{
 		Home: h.Root(), Layout: read.layout, Known: cat.Known(),
-		LockHeld: probeLock(h), Steps: plans, Backup: backup,
+		LockHeld: probeLock(h), Steps: steps,
+		Backup: BackupPlan{Required: due.copy, Bytes: due.bytes, FreeBytes: due.free, Kept: due.kept},
 	}
 	if last, ok := read.view.lastRun(); ok {
 		report.Last = &last
@@ -84,9 +92,7 @@ type homeRead struct {
 }
 
 // readHome reads LAYOUT and the ledger without changing anything. Begin and
-// Inspect both decide from it, so they refuse the same homes for the same
-// reasons: a LAYOUT unreadable or newer than cat knows, or a ledger corrupt or
-// unreadable.
+// Inspect refuse by it, so they refuse the same homes for the same reasons.
 func readHome(
 	h home.Home,
 	cat *Catalog,
@@ -110,53 +116,6 @@ func ledgerPath(
 	h home.Home,
 ) string {
 	return filepath.Join(h.MigrateDir(), ledgerName)
-}
-
-func planPending(
-	ctx context.Context,
-	h home.Home,
-	cat *Catalog,
-	read homeRead,
-	opts Options,
-) ([]StepPlan, error) {
-	env := Env{Home: h, Log: opts.Log}
-	pending := cat.pending(read.layout, read.view)
-	plans := make([]StepPlan, 0, len(pending))
-	for _, step := range pending {
-		plan, err := step.Plan(ctx, env)
-		if interrupted(ctx, err) {
-			return nil, err
-		}
-		if err != nil {
-			return nil, haltAt(h, cat, read.layout, HaltPlanFailed, haltMessage(HaltPlanFailed, step, err)).at(step)
-		}
-		plans = append(plans, StepPlan{Step: step, Plan: plan})
-	}
-	return plans, nil
-}
-
-// planBackup says whether a run would back up state/. backupState copies
-// nothing out of an empty state/, so there is no backup to plan for one.
-func planBackup(
-	h home.Home,
-	plans []StepPlan,
-	free FreeBytesFunc,
-) (BackupPlan, error) {
-	if !slices.ContainsFunc(plans, func(p StepPlan) bool { return p.Plan.RewritesState }) {
-		return BackupPlan{}, nil
-	}
-	size, err := treeSize(h.State())
-	if err != nil {
-		return BackupPlan{}, fmt.Errorf("migrate: inspect: measure %s: %w", h.State(), err)
-	}
-	if size == 0 {
-		return BackupPlan{}, nil
-	}
-	available, err := free(h.Root())
-	if err != nil {
-		return BackupPlan{}, fmt.Errorf("migrate: inspect: probe free space under %s: %w", h.Root(), err)
-	}
-	return BackupPlan{Required: true, Bytes: size, FreeBytes: available}, nil
 }
 
 // haltAt is a Halt with everything the files alone tell: the layouts and the

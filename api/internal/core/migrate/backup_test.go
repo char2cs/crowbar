@@ -266,21 +266,21 @@ func TestBackupState_FollowsASymlinkedStateRoot(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, lock.Close()) })
 	var probed string
 
-	size, sizeErr := treeSize(h.State())
+	stats, statsErr := measureState(h.State())
 	got, err := backupState(h, "run-1", func(path string) (uint64, error) {
 		probed = path
 		return plentyOfDisk(path)
 	})
 
-	require.NoError(t, sizeErr)
+	require.NoError(t, statsErr)
 	require.NoError(t, err)
 	want := readTree(t, elsewhere)
 	delete(want, ".lock")
 	assert.Equal(t, want, readTree(t, got.Path))
 	assert.Equal(t, filepath.Join(h.MigrateDir(), "backups", "run-1", "state"), got.Path)
 	assert.Equal(t, h.Root(), probed)
-	assert.Equal(t, got.Bytes, size)
-	assert.Equal(t, int64(len("events database")+len("blob bytes")+len("view")+len("user data, not the home lock")), size)
+	assert.Equal(t, got.Bytes, stats.bytes)
+	assert.Equal(t, int64(len("events database")+len("blob bytes")+len("view")+len("user data, not the home lock")), stats.bytes)
 }
 
 func TestBackupState_ADanglingStateRootIsAnError(t *testing.T) {
@@ -370,7 +370,7 @@ func TestCleanPartialBackups_RemovesOnlyPartials(t *testing.T) {
 	})
 }
 
-func TestTreeSize_SumsFilesAndSkipsTheLock(t *testing.T) {
+func TestMeasureState_CountsFilesAndBytesAndSkipsTheLock(t *testing.T) {
 	dir := t.TempDir()
 	for rel, content := range map[string]string{
 		"a":           "abc",
@@ -385,12 +385,13 @@ func TestTreeSize_SumsFilesAndSkipsTheLock(t *testing.T) {
 	}
 	require.NoError(t, os.Mkdir(filepath.Join(dir, "empty"), 0o700))
 
-	got, err := treeSize(dir)
+	got, err := measureState(dir)
 
 	require.NoError(t, err)
-	assert.Equal(t, int64(3+5+7), got)
+	assert.Equal(t, int64(3+5+7), got.bytes)
+	assert.Equal(t, 4, got.files, "a file of no bytes is still a file")
 
-	missing, err := treeSize(filepath.Join(dir, "missing"))
+	missing, err := measureState(filepath.Join(dir, "missing"))
 
 	require.NoError(t, err)
 	assert.Zero(t, missing)

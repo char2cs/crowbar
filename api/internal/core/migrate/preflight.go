@@ -7,7 +7,44 @@ import (
 	"io/fs"
 	"os"
 	"slices"
+
+	"github.com/char2cs/crowbar/api/internal/core/home"
 )
+
+// fault is a check the pending steps fail before the run writes anything, and
+// the step to blame. It is the cause of the boot's halt, and of the same halt in
+// a preview.
+type fault struct {
+	reason HaltReason
+	step   Step
+	cause  error
+}
+
+func (f *fault) Error() string {
+	return haltMessage(f.reason, f.step, f.cause)
+}
+
+func (f *fault) Unwrap() error {
+	return f.cause
+}
+
+// checked is what the preflight decided about the pending steps.
+type checked struct {
+	plans  []Plan
+	backup backupDue
+}
+
+// backupDue is what the run does about state/ first: copies it (copy), keeps a
+// backup an earlier attempt took (kept, that run's id), or neither. gone is a
+// backup the ledger names that is no longer on disk.
+type backupDue struct {
+	step  Step
+	copy  bool
+	bytes int64
+	free  uint64
+	kept  string
+	gone  string
+}
 
 // preflight plans every pending step of both phases offline, checks what the
 // plans need and backs up state/ when one rewrites it, so a boot that will fail
@@ -19,73 +56,122 @@ func (s *Session) preflight(
 	if err := ctx.Err(); err != nil {
 		return s.interrupt(err)
 	}
-	plans, err := s.planAll(ctx, pending)
-	if err != nil {
-		return err
+	res, err := checkPending(ctx, Env{Home: s.home, Log: s.opts.Log}, pending, s.view(), s.opts)
+	var f *fault
+	switch {
+	case errors.As(err, &f):
+		return s.failUnstarted(f.reason, f.step, f.cause)
+	case err != nil:
+		return s.interrupt(err)
 	}
-	if err := s.checkGit(pending, plans); err != nil {
-		return err
-	}
-	return s.backUpState(pending, plans)
+	return s.backUpState(res.backup)
 }
 
-func (s *Session) planAll(
+// checkPending plans the pending steps and makes every decision the run makes
+// before it writes anything. The session acts on the result and Inspect reports
+// it, so a preview cannot disagree with the boot. A check the steps fail is a
+// *fault; any other error is ctx giving up.
+func checkPending(
 	ctx context.Context,
+	env Env,
+	pending []Step,
+	view ledgerView,
+	opts Options,
+) (checked, error) {
+	plans, err := planSteps(ctx, env, pending)
+	if err != nil {
+		return checked{}, err
+	}
+	if i := slices.IndexFunc(plans, func(p Plan) bool { return p.NeedsGit }); i >= 0 && !opts.HaveGit() {
+		return checked{}, &fault{HaltPreflight, pending[i], errors.New("git is required but was not found on PATH")}
+	}
+	backup, err := dueBackup(env.Home, view, opts.FreeBytes, pending, plans)
+	if err != nil {
+		return checked{}, err
+	}
+	return checked{plans: plans, backup: backup}, nil
+}
+
+func planSteps(
+	ctx context.Context,
+	env Env,
 	pending []Step,
 ) ([]Plan, error) {
-	env := Env{Home: s.home, Log: s.opts.Log}
 	plans := make([]Plan, 0, len(pending))
 	for _, step := range pending {
 		plan, err := step.Plan(ctx, env)
 		if interrupted(ctx, err) {
-			return nil, s.interrupt(err)
+			return nil, err
 		}
 		if err != nil {
-			return nil, s.failUnstarted(HaltPlanFailed, step, err)
+			return nil, &fault{HaltPlanFailed, step, err}
 		}
 		plans = append(plans, plan)
 	}
 	return plans, nil
 }
 
-func (s *Session) checkGit(
+// dueBackup is the one rule for the run's backup of state/. It is due when a plan
+// rewrites state/ and state/ holds files, unless a backup an earlier attempt took
+// is still on disk, which the run keeps. It fails as the run would: on an entry a
+// backup cannot take, or on too little room for the copy.
+func dueBackup(
+	h home.Home,
+	view ledgerView,
+	free FreeBytesFunc,
 	pending []Step,
 	plans []Plan,
-) error {
-	i := slices.IndexFunc(plans, func(p Plan) bool { return p.NeedsGit })
-	if i < 0 || s.opts.HaveGit() {
-		return nil
-	}
-	return s.failUnstarted(HaltPreflight, pending[i], errors.New("git is required but was not found on PATH"))
-}
-
-// backUpState backs up state/ when a plan will rewrite it.
-func (s *Session) backUpState(
-	pending []Step,
-	plans []Plan,
-) error {
+) (backupDue, error) {
 	i := slices.IndexFunc(plans, func(p Plan) bool { return p.RewritesState })
 	if i < 0 {
+		return backupDue{}, nil
+	}
+	due := backupDue{step: pending[i]}
+	earlier := view.backupInForce()
+	kept, err := backupExists(earlier.Path)
+	if err != nil {
+		return backupDue{}, &fault{HaltPreflight, due.step, err}
+	}
+	if kept {
+		due.kept = earlier.Run
+		return due, nil
+	}
+	due.gone = earlier.Path
+	stats, err := measureState(h.State())
+	if err != nil {
+		return backupDue{}, &fault{HaltPreflight, due.step, err}
+	}
+	if stats.files == 0 {
+		return due, nil
+	}
+	available, err := probeRoom(h.Root(), stats.bytes, free)
+	if err != nil {
+		return backupDue{}, &fault{HaltPreflight, due.step, err}
+	}
+	due.copy, due.bytes, due.free = true, stats.bytes, available
+	return due, nil
+}
+
+// backUpState acts on dueBackup: it copies state/ once per migration attempt.
+// While the ledger holds a backup no completed run has followed, a retry keeps
+// it, so partially migrated state never replaces the image a person would
+// restore from.
+func (s *Session) backUpState(
+	due backupDue,
+) error {
+	if due.gone != "" {
+		s.opts.Log.Warn("migrate: the backup this migration started from is gone; taking a new one", "backup", due.gone)
+	}
+	if !due.copy {
 		return nil
 	}
 	if err := s.takeBackup(); err != nil {
-		return s.failUnstarted(HaltPreflight, pending[i], err)
+		return s.failUnstarted(HaltPreflight, due.step, err)
 	}
 	return nil
 }
 
-// takeBackup copies state/ once per migration attempt: while the ledger holds a
-// backup no completed run has followed, a retry keeps it, so partially migrated
-// state never replaces the image a person would restore from.
 func (s *Session) takeBackup() error {
-	path := s.view().backupInForce()
-	kept, err := backupExists(path)
-	if err != nil || kept {
-		return err
-	}
-	if path != "" {
-		s.opts.Log.Warn("migrate: the backup this migration started from is gone; taking a new one", "backup", path)
-	}
 	res, err := backupState(s.home, s.run.id, s.opts.FreeBytes)
 	if err != nil || res.Path == "" {
 		return err

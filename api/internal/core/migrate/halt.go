@@ -130,7 +130,7 @@ func (s *Session) baseHalt(
 	message string,
 ) *Halt {
 	h := haltAt(s.home, s.cat, s.layout, reason, message)
-	if path := s.view().backupInForce(); backupOnDisk(path) {
+	if path := s.view().backupInForce().Path; backupOnDisk(path) {
 		h.Backup = path
 	}
 	if s.run != nil {

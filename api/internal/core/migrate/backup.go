@@ -49,12 +49,9 @@ func backupState(
 	if !singleSegment(runID) {
 		return backupResult{}, fmt.Errorf("migrate: backup: run id %q is not a single path segment", runID)
 	}
-	stats, err := scanTree(h.State())
+	stats, err := measureState(h.State())
 	if err != nil {
-		return backupResult{}, fmt.Errorf("migrate: backup: measure %s: %w", h.State(), err)
-	}
-	if stats.unsupported != nil {
-		return backupResult{}, stats.unsupported
+		return backupResult{}, err
 	}
 	if stats.files == 0 {
 		return backupResult{}, nil
@@ -63,7 +60,7 @@ func backupState(
 	if err := requireAbsent(final); err != nil {
 		return backupResult{}, err
 	}
-	if err := requireFreeSpace(h.Root(), stats.bytes, free); err != nil {
+	if _, err := probeRoom(h.Root(), stats.bytes, free); err != nil {
 		return backupResult{}, err
 	}
 	return writeBackup(h, runID)
@@ -107,20 +104,21 @@ func backupRoom(
 	return uint64(size) + backupHeadroom //nolint:gosec // G115: size sums file lengths, so it is never negative
 }
 
-func requireFreeSpace(
+// probeRoom is the free space under root, which must hold a backup of size bytes.
+func probeRoom(
 	root string,
 	size int64,
 	free FreeBytesFunc,
-) error {
+) (uint64, error) {
 	available, err := free(root)
 	if err != nil {
-		return fmt.Errorf("migrate: backup: probe free space under %s: %w", root, err)
+		return 0, fmt.Errorf("migrate: backup: probe free space under %s: %w", root, err)
 	}
 	required := backupRoom(size)
 	if available < required {
-		return fmt.Errorf("%w: %d bytes needed, %d free under %s", ErrInsufficientDisk, required, available, root)
+		return 0, fmt.Errorf("%w: %d bytes needed, %d free under %s", ErrInsufficientDisk, required, available, root)
 	}
-	return nil
+	return available, nil
 }
 
 func writeBackup(
@@ -253,13 +251,16 @@ func scanTree(
 	return stats, err
 }
 
-// treeSize is the total bytes of the regular files under dir, not counting the
-// home lock file. An absent dir has size zero.
-func treeSize(
+// measureState scans dir for what a backup would copy. An entry a backup cannot
+// take is an error, so a backup that is due and cannot be made fails here.
+func measureState(
 	dir string,
-) (int64, error) {
+) (treeStats, error) {
 	stats, err := scanTree(dir)
-	return stats.bytes, err
+	if err != nil {
+		return treeStats{}, fmt.Errorf("migrate: backup: measure %s: %w", dir, err)
+	}
+	return stats, stats.unsupported
 }
 
 func (s *treeStats) visit(

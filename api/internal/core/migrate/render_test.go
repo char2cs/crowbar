@@ -117,22 +117,13 @@ func TestRender_StateBackup(t *testing.T) {
 		assert.Contains(t, render(t, r), "state backup  not needed")
 	})
 
-	t.Run("short of room", func(t *testing.T) {
-		r.Backup = BackupPlan{Required: true, Bytes: 5 << 30, FreeBytes: 3 << 20}
+	t.Run("kept from an earlier attempt, so nothing is copied", func(t *testing.T) {
+		r.Backup = BackupPlan{Kept: "20261017T090000.000000000Z"}
 
-		assert.Contains(t, render(t, r), "state backup  required   5.0 GiB to copy, 3.0 MiB free: not enough room, the boot will halt")
-	})
+		lines := render(t, r)
 
-	t.Run("room for the copy but not the headroom", func(t *testing.T) {
-		r.Backup = BackupPlan{Required: true, Bytes: 10, FreeBytes: 10 + backupHeadroom - 1}
-
-		assert.Contains(t, strings.Join(render(t, r), "\n"), "not enough room")
-	})
-
-	t.Run("room for the copy and its headroom", func(t *testing.T) {
-		r.Backup = BackupPlan{Required: true, Bytes: 10, FreeBytes: 10 + backupHeadroom}
-
-		assert.NotContains(t, strings.Join(render(t, r), "\n"), "not enough room")
+		assert.Contains(t, lines, "state backup  kept from run 20261017T090000.000000000Z")
+		assert.NotContains(t, strings.Join(lines, "\n"), "to copy")
 	})
 }
 

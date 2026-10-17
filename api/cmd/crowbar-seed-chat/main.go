@@ -41,12 +41,11 @@ func main() {
 	fmt.Printf("seeded chat %s (%d turns, %d tool calls/assistant turn)\n", got, *turns, *toolCalls)
 }
 
-// run seeds the chat into the home a daemon has already migrated, holding it as
-// the daemon does: for as long as its stores are open.
+// run seeds the chat into the home a daemon has already migrated.
 func run(
 	ctx context.Context,
 	opts seedOptions,
-) (chatID string, err error) {
+) (string, error) {
 	h, err := home.Resolve()
 	if err != nil {
 		return "", err
@@ -54,6 +53,17 @@ func run(
 	if err := requireMigrated(ctx, h); err != nil {
 		return "", err
 	}
+	return seedHeld(ctx, h, opts)
+}
+
+// seedHeld seeds while holding the home as the daemon does, for as long as its
+// stores are open. Begin halts on a home that changed since requireMigrated
+// looked, and the stores must not open on one.
+func seedHeld(
+	ctx context.Context,
+	h home.Home,
+	opts seedOptions,
+) (chatID string, err error) {
 	session, err := migrations.Begin(ctx, h, migrate.Options{Version: metadata.GetVersion()})
 	if err != nil {
 		return "", err

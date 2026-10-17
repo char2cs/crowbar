@@ -89,3 +89,19 @@ func TestRun_RefusesAHomeAnotherProcessHolds(t *testing.T) {
 
 	require.ErrorIs(t, err, migrate.ErrHomeLocked)
 }
+
+// requireMigrated looked first, but a home can change between its look and the
+// lock; whatever Begin then refuses, the seeder must not open the stores on.
+func TestSeedHeld_RefusesAHomeBeginHalts(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "LAYOUT", "9\n")
+	testutil.WriteFile(t, h, "state/.lock", "")
+	before := testutil.TreeSnapshot(t, h)
+
+	_, err := seedHeld(context.Background(), h, seedOptions{WorkspaceID: "ws-1", Turns: 1, ToolCallsPerTurn: 1})
+
+	var halt *migrate.Halt
+	require.ErrorAs(t, err, &halt)
+	assert.Equal(t, migrate.HaltLayoutNewer, halt.Reason)
+	assert.Equal(t, before, testutil.TreeSnapshot(t, h), "no ledger, store or backup is written")
+}

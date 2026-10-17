@@ -89,16 +89,15 @@ func (r Report) renderBackup(
 	p *printer,
 ) {
 	b := r.Backup
-	if !b.Required {
+	switch {
+	case b.Kept != "":
+		p.linef("\nstate backup  kept from run %s", b.Kept)
+	case b.Required:
+		size := uint64(b.Bytes) //nolint:gosec // G115: Bytes sums file lengths, so it is never negative
+		p.linef("\nstate backup  required   %s to copy, %s free", byteSize(size), byteSize(b.FreeBytes))
+	default:
 		p.linef("\nstate backup  not needed")
-		return
 	}
-	size := uint64(b.Bytes) //nolint:gosec // G115: Bytes sums file lengths, so it is never negative
-	line := fmt.Sprintf("state backup  required   %s to copy, %s free", byteSize(size), byteSize(b.FreeBytes))
-	if b.FreeBytes < backupRoom(b.Bytes) {
-		line += ": not enough room, the boot will halt"
-	}
-	p.linef("\n%s", line)
 }
 
 func countText(
