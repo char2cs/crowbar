@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { COUNTERS, measureCounters } from './counters.mjs'
 
-const file = (lang, text, test = false) => ({ path: 'x', lang, test, text })
+const file = (lang, text, isTest = false) => ({ path: 'x', lang, test: isTest, text })
 const count = (id, lang, ...lines) => measureCounters([file(lang, lines.join('\n'))])[id]
 
 test('go.timers counts the time package timer constructors only', () => {

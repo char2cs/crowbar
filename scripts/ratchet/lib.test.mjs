@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { classify, countLines, diffBaseline, loadCode, runGate } from './lib.mjs'
+import { tmpDir } from './test-helpers.mjs'
 
 test('countLines counts newline characters like wc -l', () => {
   assert.equal(countLines(''), 0)
@@ -50,23 +50,22 @@ const gate = (dir) => {
     runGate({ name: 'demo', baselinePath, summary: '2 things', update: false, allowAdded: false, log: (l) => lines.push(l), ...opts })
   return { baselinePath, lines, run, text: () => lines.join('\n') }
 }
-const tmp = () => mkdtempSync(join(tmpdir(), 'ratchet-'))
 
-test('check with no baseline file fails and points at --update', () => {
-  const g = gate(tmp())
+test('check with no baseline file fails and points at --update', (t) => {
+  const g = gate(tmpDir(t))
   assert.equal(g.run({ measured: { a: 1 } }), 1)
   assert.match(g.text(), /demo: no baseline at .*baseline\.json; run: make ratchet ARGS=--update/)
 })
 
-test('check with an equal baseline passes', () => {
-  const g = gate(tmp())
+test('check with an equal baseline passes', (t) => {
+  const g = gate(tmpDir(t))
   writeFileSync(g.baselinePath, JSON.stringify({ a: 1 }))
   assert.equal(g.run({ measured: { a: 1 } }), 0)
   assert.match(g.lines[0], /^demo: ok \(2 things\)$/)
 })
 
-test('check with growth fails, names the change and does not offer a write-back', () => {
-  const g = gate(tmp())
+test('check with growth fails, names the change and does not offer a write-back', (t) => {
+  const g = gate(tmpDir(t))
   writeFileSync(g.baselinePath, JSON.stringify({ a: 1 }))
   assert.equal(g.run({ measured: { a: 2 } }), 1)
   assert.match(g.text(), /  grew   a: 1 -> 2/)
@@ -74,8 +73,8 @@ test('check with growth fails, names the change and does not offer a write-back'
   assert.doesNotMatch(g.text(), /make ratchet ARGS=--update/)
 })
 
-test('check with a shrink fails until the shrink is written back', () => {
-  const g = gate(tmp())
+test('check with a shrink fails until the shrink is written back', (t) => {
+  const g = gate(tmpDir(t))
   writeFileSync(g.baselinePath, JSON.stringify({ a: 5 }))
   assert.equal(g.run({ measured: { a: 4 } }), 1)
   assert.match(g.text(), /  shrank a: 5 -> 4/)
@@ -83,24 +82,24 @@ test('check with a shrink fails until the shrink is written back', () => {
   assert.doesNotMatch(g.text(), /Baselines never go up/)
 })
 
-test('check with an added key is growth unless allowAdded, and shows the hint only as growth', () => {
+test('check with an added key is growth unless allowAdded, and shows the hint only as growth', (t) => {
   const hint = 'Split the file.'
-  const denied = gate(tmp())
+  const denied = gate(tmpDir(t))
   writeFileSync(denied.baselinePath, JSON.stringify({}))
   assert.equal(denied.run({ measured: { fresh: 9 }, hint }), 1)
   assert.match(denied.text(), /  new    fresh: 9/)
   assert.match(denied.text(), /Split the file\./)
   assert.doesNotMatch(denied.text(), /make ratchet ARGS=--update/)
 
-  const allowed = gate(tmp())
+  const allowed = gate(tmpDir(t))
   writeFileSync(allowed.baselinePath, JSON.stringify({}))
   assert.equal(allowed.run({ measured: { fresh: 9 }, allowAdded: true, hint }), 1)
   assert.match(allowed.text(), /make ratchet ARGS=--update/)
   assert.doesNotMatch(allowed.text(), /Split the file\./)
 })
 
-test('an oversize rename reports both ends and the hint', () => {
-  const g = gate(tmp())
+test('an oversize rename reports both ends and the hint', (t) => {
+  const g = gate(tmpDir(t))
   writeFileSync(g.baselinePath, JSON.stringify({ 'old.go': 600 }))
   const hint = 'Split the file.'
   assert.equal(g.run({ measured: { 'new.go': 600 }, hint }), 1)
@@ -109,23 +108,23 @@ test('an oversize rename reports both ends and the hint', () => {
   assert.match(g.text(), /Split the file\./)
 })
 
-test('update with no baseline writes sorted keys with a trailing newline', () => {
-  const g = gate(tmp())
+test('update with no baseline writes sorted keys with a trailing newline', (t) => {
+  const g = gate(tmpDir(t))
   assert.equal(g.run({ update: true, measured: { b: 2, a: 1 } }), 0)
   assert.equal(readFileSync(g.baselinePath, 'utf8'), '{\n  "a": 1,\n  "b": 2\n}\n')
   assert.match(g.lines[0], /^demo: baseline created \(2 keys\)$/)
 })
 
-test('update refuses growth and leaves the file untouched', () => {
-  const g = gate(tmp())
+test('update refuses growth and leaves the file untouched', (t) => {
+  const g = gate(tmpDir(t))
   writeFileSync(g.baselinePath, '{"a":1}')
   assert.equal(g.run({ update: true, measured: { a: 2 } }), 1)
   assert.equal(readFileSync(g.baselinePath, 'utf8'), '{"a":1}')
   assert.match(g.text(), /refusing to raise/)
 })
 
-test('update refuses an added key unless allowAdded', () => {
-  const g = gate(tmp())
+test('update refuses an added key unless allowAdded', (t) => {
+  const g = gate(tmpDir(t))
   writeFileSync(g.baselinePath, '{"a":1}')
   assert.equal(g.run({ update: true, measured: { a: 1, b: 1 } }), 1)
   assert.equal(readFileSync(g.baselinePath, 'utf8'), '{"a":1}')
@@ -135,8 +134,8 @@ test('update refuses an added key unless allowAdded', () => {
   assert.equal(readFileSync(g.baselinePath, 'utf8'), '{\n  "a": 1,\n  "b": 1\n}\n')
 })
 
-test('update writes a shrink and a gone key back, then reports already current', () => {
-  const g = gate(tmp())
+test('update writes a shrink and a gone key back, then reports already current', (t) => {
+  const g = gate(tmpDir(t))
   writeFileSync(g.baselinePath, JSON.stringify({ down: 5, old: 3, same: 1 }))
   assert.equal(g.run({ update: true, measured: { down: 4, same: 1 } }), 0)
   assert.equal(readFileSync(g.baselinePath, 'utf8'), '{\n  "down": 4,\n  "same": 1\n}\n')
@@ -147,8 +146,16 @@ test('update writes a shrink and a gone key back, then reports already current',
   assert.match(g.lines[0], /^demo: already current$/)
 })
 
-test('loadCode lists tracked and untracked unignored Go and web/src files that still exist', () => {
-  const dir = tmp()
+test('loadCode lists tracked and untracked unignored Go and web/src files that still exist', (t) => {
+  // Inside a git hook GIT_INDEX_FILE and friends point at the outer repo; the fixture repo must not inherit them.
+  for (const key of Object.keys(process.env).filter((k) => k.startsWith('GIT_'))) {
+    const value = process.env[key]
+    delete process.env[key]
+    t.after(() => {
+      process.env[key] = value
+    })
+  }
+  const dir = tmpDir(t)
   const put = (rel, text = 'x\n') => {
     mkdirSync(dirname(join(dir, rel)), { recursive: true })
     writeFileSync(join(dir, rel), text)

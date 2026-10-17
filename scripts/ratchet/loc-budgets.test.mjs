@@ -2,10 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { measureLoc } from './loc-budgets.mjs'
 
-const f = (path, lines, test = false) => ({
+const f = (path, lines, isTest = false) => ({
   path,
   lang: path.startsWith('api/') ? 'go' : 'web',
-  test,
+  test: isTest,
   text: '\n'.repeat(lines),
 })
 
