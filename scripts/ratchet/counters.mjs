@@ -60,7 +60,6 @@ export function main(args, { files, baselinePath = join(dir, 'counters-baseline.
     measured,
     init: args.includes('--init'),
     update: args.includes('--update'),
-    allowAdded: true,
     summary: Object.entries(measured).map(([id, n]) => `${id} ${n}`).join(', '),
     hint: 'Remove the pattern, or handle the case it hides. Find the matches: node scripts/ratchet/counters.mjs --list <id>',
     log,

@@ -82,7 +82,7 @@ const writeBaseline = (path, measured) => {
  * silently re-recorded at today's numbers.
  * @returns {number} the process exit code.
  */
-export function runGate({ name, baselinePath, measured, init, update, allowAdded, summary, hint, log = console.log }) {
+export function runGate({ name, baselinePath, measured, init, update, summary, hint, log = console.log }) {
   const exists = existsSync(baselinePath)
   if (init && exists) {
     log(`${name}: baseline already exists at ${baselinePath}; --init only creates a missing one`)
@@ -99,10 +99,8 @@ export function runGate({ name, baselinePath, measured, init, update, allowAdded
   }
 
   const diff = diffBaseline(JSON.parse(readFileSync(baselinePath, 'utf8')), measured)
-  const accepted = allowAdded ? diff.added : []
-  const refused = allowAdded ? [] : diff.added
-  const growth = [...diff.grew, ...refused]
-  const writeBack = [...diff.shrunk, ...diff.gone, ...accepted]
+  const growth = [...diff.grew, ...diff.added]
+  const writeBack = [...diff.shrunk, ...diff.gone]
   const show = (kind, changes) => {
     for (const change of changes) log(render[kind](change))
   }
@@ -110,7 +108,7 @@ export function runGate({ name, baselinePath, measured, init, update, allowAdded
   if (update) {
     if (growth.length > 0) {
       show('grew', diff.grew)
-      show('added', refused)
+      show('added', diff.added)
       log(`${name}: refusing to raise a baseline`)
       return 1
     }
@@ -120,7 +118,6 @@ export function runGate({ name, baselinePath, measured, init, update, allowAdded
     }
     show('shrunk', diff.shrunk)
     show('gone', diff.gone)
-    show('added', accepted)
     writeBaseline(baselinePath, measured)
     log(`${name}: baseline updated (${Object.keys(measured).length} keys)`)
     return 0

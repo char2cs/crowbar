@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import test from 'node:test'
 import { COUNTERS, listMatches, main, measureCounters } from './counters.mjs'
+import { tmpDir } from './test-helpers.mjs'
 
 const file = (lang, text, isTest = false) => ({ path: 'x', lang, test: isTest, text })
 const count = (id, lang, ...lines) => measureCounters([file(lang, lines.join('\n'))])[id]
@@ -91,4 +94,16 @@ test('main --list with an unknown or missing id fails naming the valid ids', () 
     assert.equal(main(args, { files: [], log: (l) => lines.push(l) }), 1)
     assert.match(lines.join('\n'), /unknown counter.*valid ids: go\.timers, go\.discarded-errors, web\.timers, web\.empty-catch, web\.swallowed-promise/)
   }
+})
+
+test('--update never adds a counter key, so a hand-deleted one stays refused and the file is untouched', (t) => {
+  const baselinePath = join(tmpDir(t), 'baseline.json')
+  const before = { 'go.discarded-errors': 0, 'web.timers': 0, 'web.empty-catch': 0, 'web.swallowed-promise': 0 }
+  writeFileSync(baselinePath, JSON.stringify(before))
+  const lines = []
+  const files = [src('api/a.go', 'go', 'time.After(d)')]
+  assert.equal(main(['--update'], { files, baselinePath, log: (l) => lines.push(l) }), 1)
+  assert.match(lines.join('\n'), /  new    go\.timers: 1/)
+  assert.match(lines.join('\n'), /refusing to raise a baseline/)
+  assert.deepEqual(JSON.parse(readFileSync(baselinePath, 'utf8')), before)
 })

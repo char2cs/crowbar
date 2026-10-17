@@ -36,7 +36,6 @@ export function main(args, { files = loadCode(), baselinePath = join(dir, 'file-
     measured,
     init: args.includes('--init'),
     update: args.includes('--update'),
-    allowAdded: false,
     summary: summarize(measured),
     hint: `Split the file below ${MAX_LINES} lines. Moving or renaming an oversize file counts as touching it: split it in the same change.`,
     log,

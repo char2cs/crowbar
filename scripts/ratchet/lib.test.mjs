@@ -47,7 +47,7 @@ const gate = (dir) => {
   const baselinePath = join(dir, 'baseline.json')
   const lines = []
   const run = (opts) =>
-    runGate({ name: 'demo', baselinePath, summary: '2 things', update: false, allowAdded: false, log: (l) => lines.push(l), ...opts })
+    runGate({ name: 'demo', baselinePath, summary: '2 things', update: false, log: (l) => lines.push(l), ...opts })
   return { baselinePath, lines, run, text: () => lines.join('\n') }
 }
 
@@ -100,20 +100,13 @@ test('check never advises a write-back that update would refuse', (t) => {
   assert.doesNotMatch(refused.text(), /Write the shrink back|make ratchet ARGS=--update/)
 })
 
-test('check with an added key is growth unless allowAdded, and shows the hint only as growth', (t) => {
-  const hint = 'Split the file.'
-  const denied = gate(tmpDir(t))
-  writeFileSync(denied.baselinePath, JSON.stringify({}))
-  assert.equal(denied.run({ measured: { fresh: 9 }, hint }), 1)
-  assert.match(denied.text(), /  new    fresh: 9/)
-  assert.match(denied.text(), /Split the file\./)
-  assert.doesNotMatch(denied.text(), /make ratchet ARGS=--update/)
-
-  const allowed = gate(tmpDir(t))
-  writeFileSync(allowed.baselinePath, JSON.stringify({}))
-  assert.equal(allowed.run({ measured: { fresh: 9 }, allowAdded: true, hint }), 1)
-  assert.match(allowed.text(), /make ratchet ARGS=--update/)
-  assert.doesNotMatch(allowed.text(), /Split the file\./)
+test('check with an added key is growth: it shows the hint and offers no write-back', (t) => {
+  const g = gate(tmpDir(t))
+  writeFileSync(g.baselinePath, JSON.stringify({}))
+  assert.equal(g.run({ measured: { fresh: 9 }, hint: 'Split the file.' }), 1)
+  assert.match(g.text(), /  new    fresh: 9/)
+  assert.match(g.text(), /Split the file\./)
+  assert.doesNotMatch(g.text(), /make ratchet ARGS=--update/)
 })
 
 test('an oversize rename reports both ends and the hint', (t) => {
@@ -144,8 +137,8 @@ test('init never overwrites an existing baseline', (t) => {
 test('update logs each key it writes, before saying it updated', (t) => {
   const g = gate(tmpDir(t))
   writeFileSync(g.baselinePath, JSON.stringify({ down: 5, old: 3, same: 1 }))
-  assert.equal(g.run({ update: true, allowAdded: true, measured: { down: 4, same: 1, fresh: 2 } }), 0)
-  assert.deepEqual(g.lines, ['  shrank down: 5 -> 4', '  gone   old: was 3', '  new    fresh: 2', 'demo: baseline updated (3 keys)'])
+  assert.equal(g.run({ update: true, measured: { down: 4, same: 1 } }), 0)
+  assert.deepEqual(g.lines, ['  shrank down: 5 -> 4', '  gone   old: was 3', 'demo: baseline updated (2 keys)'])
 })
 
 test('update refuses growth and leaves the file untouched', (t) => {
@@ -156,15 +149,13 @@ test('update refuses growth and leaves the file untouched', (t) => {
   assert.match(g.text(), /refusing to raise/)
 })
 
-test('update refuses an added key unless allowAdded', (t) => {
+test('update refuses an added key and leaves the file untouched', (t) => {
   const g = gate(tmpDir(t))
   writeFileSync(g.baselinePath, '{"a":1}')
   assert.equal(g.run({ update: true, measured: { a: 1, b: 1 } }), 1)
   assert.equal(readFileSync(g.baselinePath, 'utf8'), '{"a":1}')
+  assert.match(g.text(), /  new    b: 1/)
   assert.match(g.text(), /refusing to raise/)
-
-  assert.equal(g.run({ update: true, allowAdded: true, measured: { a: 1, b: 1 } }), 0)
-  assert.equal(readFileSync(g.baselinePath, 'utf8'), '{\n  "a": 1,\n  "b": 1\n}\n')
 })
 
 test('update writes a shrink and a gone key back, then reports already current', (t) => {

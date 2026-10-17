@@ -105,7 +105,6 @@ export function main(
     measured,
     init: args.includes('--init'),
     update: args.includes('--update'),
-    allowAdded: false,
     summary: `go ${measured['go.total']}, web ${measured['web.total']}`,
     log,
   })
