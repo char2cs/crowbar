@@ -2998,7 +2998,7 @@ var claudeHookNames = map[string]string{
 // follow-up) through IngestHook in recorded order.
 func replayRealClaudeSession(t *testing.T, f testFixture, runnerID string) {
 	t.Helper()
-	files, err := filepath.Glob(filepath.Join("testdata", "claude-subagent-session", "*.json"))
+	files, err := filepath.Glob(filepath.Join("..", "..", "..", "..", "tests", "testdata", "hooks", "claude-subagent-session", "*.json"))
 	require.NoError(t, err)
 	require.NotEmpty(t, files)
 	for i, path := range files {

@@ -78,6 +78,7 @@ func run(
 	cleanup := isolateHome()
 
 	code := m.Run()
+	removeFakeCLI()
 	if cleanup != "" {
 		_ = os.RemoveAll(cleanup)
 	}
