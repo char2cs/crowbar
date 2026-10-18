@@ -122,8 +122,9 @@ func (t *Turns) recordUserTurn(
 	// chats/<chatID>/attachments/<file> reference every other consumer of a
 	// stored turn (the asset-serving endpoint included) expects. Restore it
 	// before this text becomes anything durable: the title derived from it and
-	// the rows below, whose text must equal the prompt Crowbar recorded. A prompt typed straight into the CLI's own terminal never
-	// contains this shape, so the rewrite is a no-op for it.
+	// the rows below, whose text must equal the prompt Crowbar recorded. A
+	// prompt typed straight into the CLI's own terminal never contains this
+	// shape, so the rewrite is a no-op for it.
 	userText := rawText
 	if chatsDir, cErr := t.ws.AgentChatsDir(ctx, runner.WorkspaceID); cErr != nil {
 		slog.WarnContext(ctx, "agent: ingest hook: resolve chats dir for attachment ref restore",

@@ -146,19 +146,40 @@ func (rs *Runners) replayPriorPrompt(
 	ctx context.Context,
 	chatID, requestID, text string,
 ) (domain.AgentPromptSubmission, bool, error) {
-	st, err := rs.ledger.State(ctx, chatID)
+	st, err := rs.settleOrphanedPrompts(ctx, chatID)
 	if err != nil {
-		return domain.AgentPromptSubmission{}, true, fmt.Errorf("agent: submit prompt: ledger: %w", err)
+		return domain.AgentPromptSubmission{}, true, fmt.Errorf("agent: submit prompt: %w", err)
 	}
 	prior, replay, err := priorPrompt(st, requestID, text)
 	if err != nil || !replay {
 		return domain.AgentPromptSubmission{}, err != nil, err
 	}
-	result := domain.AgentPromptSubmission{RunnerID: prior.RunnerID}
-	if carrier, err := rs.runnerStore.Get(ctx, prior.RunnerID); err == nil {
-		result.TerminalSessionID = carrier.TerminalSession
+	carrier, err := rs.runnerStore.Get(ctx, prior.RunnerID)
+	if err != nil {
+		return domain.AgentPromptSubmission{}, true, fmt.Errorf("agent: submit prompt: resend: carrier: %w", err)
 	}
-	return result, true, nil
+	return domain.AgentPromptSubmission{RunnerID: prior.RunnerID, TerminalSessionID: carrier.TerminalSession}, true, nil
+}
+
+// settleOrphanedPrompts settles the chat's pending prompts whose carrier is not
+// one of its live runners, then returns the State. A departure that never
+// settled its prompt would otherwise hold the chat busy for good.
+func (rs *Runners) settleOrphanedPrompts(ctx context.Context, chatID string) (ledger.State, error) {
+	runners, err := rs.runnerStore.LiveRunnersForChat(ctx, chatID)
+	if err != nil {
+		return ledger.State{}, fmt.Errorf("pending prompts: live runners: %w", err)
+	}
+	live := make(map[string]bool, len(runners))
+	for _, r := range runners {
+		live[r.ID] = true
+	}
+	_, st, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		return ledger.SettleOrphaned(st, func(runnerID string) bool { return live[runnerID] })
+	})
+	if err != nil {
+		return ledger.State{}, fmt.Errorf("pending prompts: ledger: %w", err)
+	}
+	return st, nil
 }
 
 // priorPrompt is the ledger's verdict on requestID. The same text is a resend
@@ -201,31 +222,33 @@ func (rs *Runners) recordPrompt(ctx context.Context, chatID, requestID, text, de
 
 // failPrompt settles requestID as undelivered and returns cause.
 func (rs *Runners) failPrompt(ctx context.Context, chatID, requestID string, cause error) error {
-	rs.settlePrompts(ctx, chatID, ledger.ReasonDeliveryFailed, func(p ledger.Prompt) bool {
-		return p.RequestID == requestID
-	})
+	rs.settleUndelivered(ctx, chatID, requestID)
 	return cause
 }
 
-// settleCarriedPrompts settles the prompts runnerID was carrying on chatID:
-// once it has left the chat it can acknowledge none of them.
+func (rs *Runners) settleUndelivered(ctx context.Context, chatID, requestID string) {
+	rs.settlePrompts(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		return ledger.Settle(st, func(p ledger.Prompt) bool { return p.RequestID == requestID },
+			false, ledger.ReasonDeliveryFailed)
+	})
+}
+
+// settleCarriedPrompts settles the prompts runnerID was carrying on chatID.
 func (rs *Runners) settleCarriedPrompts(ctx context.Context, chatID, runnerID string) {
 	if chatID == "" {
 		return
 	}
-	rs.settlePrompts(ctx, chatID, ledger.ReasonRunnerExited, func(p ledger.Prompt) bool {
-		return p.RunnerID == runnerID
+	rs.settlePrompts(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		return ledger.SettleCarried(st, runnerID, false, ledger.ReasonRunnerExited)
 	})
 }
 
-// settlePrompts settles chatID's pending prompts that match as not consumed.
-// It outlives ctx: a prompt left pending would hold the chat busy.
-func (rs *Runners) settlePrompts(ctx context.Context, chatID, reason string, match func(ledger.Prompt) bool) {
+// settlePrompts commits decide's settles on chatID. It outlives ctx: a prompt
+// left pending would hold the chat busy.
+func (rs *Runners) settlePrompts(ctx context.Context, chatID string, decide func(ledger.State) ([]ledger.Row, error)) {
 	ctx = context.WithoutCancel(ctx)
-	if _, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		return ledger.Settle(st, match, false, reason)
-	}); err != nil {
-		slog.ErrorContext(ctx, "agent: settle pending prompt", "chat_id", chatID, "reason", reason, "err", err)
+	if _, _, err := rs.ledger.Do(ctx, chatID, decide); err != nil {
+		slog.ErrorContext(ctx, "agent: settle pending prompt", "chat_id", chatID, "err", err)
 	}
 }
 
@@ -390,12 +413,12 @@ func (rs *Runners) requireChatAcceptingPrompt(ctx context.Context, chatID string
 	return rs.requireNoPendingPrompt(ctx, chatID)
 }
 
-// requireNoPendingPrompt refuses at once while a prompt awaits the provider:
-// nothing settles one on a clock, so a wait could wait on nothing.
+// requireNoPendingPrompt refuses while a prompt awaits the provider, once those
+// whose carrier has left the chat are settled.
 func (rs *Runners) requireNoPendingPrompt(ctx context.Context, chatID string) error {
-	st, err := rs.ledger.State(ctx, chatID)
+	st, err := rs.settleOrphanedPrompts(ctx, chatID)
 	if err != nil {
-		return fmt.Errorf("agent: prompt guard: ledger: %w", err)
+		return fmt.Errorf("agent: prompt guard: %w", err)
 	}
 	if len(st.PendingPrompts()) > 0 {
 		return ErrPromptBusy
@@ -427,12 +450,13 @@ func (rs *Runners) reconcilePendingPromptsOnBoot(ctx context.Context) error {
 		return fmt.Errorf("agent: boot reconcile pending prompts: %w", err)
 	}
 	every := func(ledger.Prompt) bool { return true }
+	var errs []error
 	for _, chatID := range chats {
 		if _, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
 			return ledger.Settle(st, every, false, ledger.ReasonDaemonRestart)
 		}); err != nil {
-			return fmt.Errorf("agent: boot reconcile pending prompts: %s: %w", chatID, err)
+			errs = append(errs, fmt.Errorf("agent: boot reconcile pending prompts: %s: %w", chatID, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }

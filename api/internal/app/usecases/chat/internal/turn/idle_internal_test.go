@@ -7,7 +7,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
+	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/stream"
+	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
 // The whole reason this is a latch and not an action: measured against codex-cli
@@ -84,4 +88,40 @@ func TestTurns_ForgetChatDropsEveryPerChatEntry(t *testing.T) {
 	assert.Empty(t, turns.messages.UnfinishedAcrossRunners("c1"))
 	assert.False(t, turns.compacting.consume("c1", "turn-compact"))
 	assert.False(t, turns.manualCompact.peek("c1"))
+}
+
+// A provider that says it is idle before any turn started never took the prompt
+// its CLI carries; one idle inside a running turn says nothing about it.
+func TestRecordIdle_SettlesTheCarriedPromptOnlyWhenNoTurnStarted(t *testing.T) {
+	l := newTurnLedger(t)
+	turns := New(Deps{Ledger: l})
+	row, err := ledger.NewRow(ledger.KindUserMessage, "T1", "", ledger.UserMessage{
+		RequestID: "req-1", Text: "hello", Origin: ledger.OriginCrowbar, RunnerID: "runner-1",
+	})
+	require.NoError(t, err)
+	_, _, err = l.Append(t.Context(), "chat-1", row)
+	require.NoError(t, err)
+
+	turns.recordIdle(t.Context(), domain.Chat{ID: "chat-1", CurrentTurnStarted: &turnStarted}, "runner-1")
+	st, err := l.State(t.Context(), "chat-1")
+	require.NoError(t, err)
+	require.Len(t, st.PendingPrompts(), 1, "an idle inside a running turn settles nothing")
+
+	turns.recordIdle(t.Context(), domain.Chat{ID: "chat-1"}, "runner-1")
+	st, err = l.State(t.Context(), "chat-1")
+	require.NoError(t, err)
+	got, ok := st.Receipt("req-1")
+	require.True(t, ok)
+	assert.Equal(t, ledger.PromptStatusSettled, got.Status)
+	assert.False(t, got.Consumed)
+	assert.Equal(t, ledger.ReasonNotAcknowledged, got.Reason)
+}
+
+func newTurnLedger(t *testing.T) *ledgerstore.Store {
+	t.Helper()
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	l, err := ledgerstore.Open(db, time.Now)
+	require.NoError(t, err)
+	return l
 }

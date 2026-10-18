@@ -243,8 +243,8 @@ func (c *Conversations) PurgeLocked(
 	// config out from under it was only ever an accident of the old layout. It goes when the
 	// PTY does (onExit), or at the next boot if the daemon died first.
 	//
-	// Resolved via c.home, NOT c.ws.AgentChatsDir(chat.WorkspaceID): this dir must match
-	// wherever the chat's own ledger actually lives (worktreepath.LedgerChatsDir), which is
+	// Resolved via c.home, NOT c.ws.AgentChatsDir(chat.WorkspaceID): this is the chat's
+	// own directory (worktreepath.LedgerChatsDir, not chat_ledger.db, forgotten above),
 	// keyed by the chat's id alone because WorkspaceID is optional and mutable (spec §1.5) —
 	// a workspace lookup would error for a bubble and could target the wrong directory for a
 	// chat that has since been promoted. RemoveUnderHome re-asserts the target is strictly
@@ -258,7 +258,7 @@ func (c *Conversations) PurgeLocked(
 	// Best-effort: a reap that cannot happen leaves disk behind; failing the purge
 	// would leave a chat the user asked to erase still listed.
 	if err := worktreepath.RemoveUnderHome(home, filepath.Join(worktreepath.LedgerChatsDir(home), chatID)); err != nil {
-		slog.WarnContext(ctx, "agent: purge chat: reap its ledger directory (best-effort)", "chat_id", chatID, "err", err)
+		slog.WarnContext(ctx, "agent: purge chat: reap its chat directory (best-effort)", "chat_id", chatID, "err", err)
 	}
 	return nil
 }

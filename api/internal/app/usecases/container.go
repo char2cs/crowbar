@@ -998,10 +998,10 @@ func (r *agentWorkspaceReader) WorktreeDir(
 
 // AgentChatsDir implements agentusecase.WorkspaceReader: it resolves the directory that
 // holds a workspace's OWN agent-work state (per-spawn tmp dirs, the per-runner
-// hook-delivery journal), ALWAYS strictly under crowbar home. It is NOT where a
-// chat's own ledger lives — that is worktreepath.LedgerChatsDir, keyed by the
-// chat's id alone, because WorkspaceID is optional and mutable (spec §1.5) and
-// this lookup requires a resolvable workspace.
+// hook-delivery journal), ALWAYS strictly under crowbar home. It is NOT a chat's
+// own directory — that is worktreepath.LedgerChatsDir (not chat_ledger.db), keyed
+// by the chat's id alone, because WorkspaceID is optional and mutable (spec §1.5)
+// and this lookup requires a resolvable workspace.
 //
 // For a Crowbar-managed worktree (WorktreePath strictly under home) the chats dir
 // is the sibling of the worktree (worktreepath.ChatsDir), reaped with the

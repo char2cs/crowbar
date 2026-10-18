@@ -2,12 +2,14 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
@@ -117,4 +119,49 @@ func TestRegression_RetireTerminatesTheAttachedNativeViewNotJustTheStaleCompanio
 		"the actually-attached native view PTY — the one the user was looking at — must be torn down too")
 	_, stillAttached := rs.attached.get("runner-1")
 	assert.False(t, stillAttached, "the attach registry entry must be forgotten, or it answers for a runner nothing will revisit")
+}
+
+// displacingStore displaces any runner, with a successor already on its chat.
+type displacingStore struct{ stubRunnerStoreWithSuccessor }
+
+func (displacingStore) Displace(_ context.Context, runnerID string) (agents.Runner, error) {
+	return agents.Runner{ID: runnerID}, nil
+}
+
+// Once displaced a runner can acknowledge nothing in the chat it vacated, so
+// what it carried there is settled at once, and only that.
+func TestDisplace_SettlesOnlyThePromptsTheVacatingRunnerCarried(t *testing.T) {
+	rs := &Runners{
+		runnerStore:   displacingStore{},
+		turns:         &spyAbandonMessageForRunner{},
+		inflightTurns: inflight.NewTurns(),
+		ledger:        newTestLedger(t),
+	}
+	appendPrompt(t, rs.ledger, "req-old", "runner-old")
+	appendPrompt(t, rs.ledger, "req-new", "runner-new")
+
+	require.NoError(t, rs.displace(t.Context(), agents.Runner{ID: "runner-old", CurrentChatID: "chat-1"}))
+
+	old := promptReceipt(t, rs.ledger, "req-old")
+	assert.Equal(t, ledger.PromptStatusSettled, old.Status)
+	assert.Equal(t, ledger.ReasonRunnerExited, old.Reason)
+	assert.Equal(t, ledger.PromptStatusPending, promptReceipt(t, rs.ledger, "req-new").Status)
+}
+
+var errListing = errors.New("runner listing failed")
+
+type unlistableStore struct{ agentrunner.EventStore }
+
+func (unlistableStore) AllLive(context.Context) ([]agents.Runner, error) { return nil, errListing }
+
+// No carrier from before a restart survives it, so the prompt pass settles
+// even when the runners cannot be listed.
+func TestRegression_BootSettlesPendingPromptsEvenWhenTheRunnerListFails(t *testing.T) {
+	rs := &Runners{runnerStore: unlistableStore{}, ledger: newTestLedger(t)}
+	appendPrompt(t, rs.ledger, "req-1", "runner-1")
+
+	err := rs.ReconcileRunnersOnBoot(t.Context())
+
+	require.ErrorIs(t, err, errListing, "the listing failure is still reported")
+	assert.Equal(t, ledger.ReasonDaemonRestart, promptReceipt(t, rs.ledger, "req-1").Reason)
 }

@@ -174,7 +174,7 @@ func TestRegression_APromptWhoseLaunchFailsIsSettledNotLost(t *testing.T) {
 
 	assert.GreaterOrEqual(t, status, http.StatusBadRequest, "a launch that failed is not a delivery")
 	settled := readUntil(t, conn, isPromptSettled(requestID))
-	assert.NotEqual(t, true, settled["promptConsumed"], "nothing consumed the prompt")
+	assert.Contains(t, []any{nil, false}, settled["promptConsumed"], "nothing consumed the prompt: absent or false")
 	assert.Equal(t, http.StatusNoContent, pendingPromptStatus(t, h, imported, chatID),
 		"a settled prompt is not pending")
 }
@@ -240,7 +240,7 @@ func TestRegression_APromptTheProviderNeverAcknowledgesSettlesOnIdle(t *testing.
 	}
 
 	settled := readUntil(t, conn, isPromptSettled(requestID))
-	assert.NotEqual(t, true, settled["promptConsumed"], "the provider never took the prompt")
+	assert.Contains(t, []any{nil, false}, settled["promptConsumed"], "the provider never took the prompt: absent or false")
 	assert.Equal(t, http.StatusOK, postPrompt(t, h, imported, chatID, "and now?", uuid.NewString()),
 		"a settled prompt no longer holds the chat busy")
 }

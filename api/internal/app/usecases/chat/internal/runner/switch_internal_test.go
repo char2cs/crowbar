@@ -10,6 +10,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
@@ -170,6 +171,15 @@ func (s stubRunnerStoreLiveness) LiveRunnerForChat(
 	return s.runner, nil
 }
 
+func (s stubRunnerStoreLiveness) LiveRunnersForChat(
+	context.Context, string,
+) ([]engineagents.Runner, error) {
+	if !s.live {
+		return nil, nil
+	}
+	return []engineagents.Runner{s.runner}, nil
+}
+
 // runnersForDisplace builds the smallest Runners that can run displaceForSwitch:
 // a real turn-start gate and in-flight registry, an empty ledger (so the
 // pending-prompt guard passes), and the two answers under test.
@@ -234,6 +244,20 @@ func TestRegression_DisplaceForSwitch_LiveRunnerFlaggedWorking_StillWaits(t *tes
 	assert.True(t, retry,
 		"a LIVE runner still doing background work must still be waited for — "+
 			"there is a CLI to finish it and a hook coming to say so")
+}
+
+// A prompt steered into the turn the switch waited out is waited for too: the
+// switch goes round again to its pending-prompt wait rather than refusing.
+func TestDisplaceForSwitch_APromptSteeredAfterTheWaitsSendsTheSwitchRoundAgain(t *testing.T) {
+	rs := runnersForDisplace(t, false /* working */, true /* live */)
+	appendPrompt(t, rs.ledger, "steered", "r-1")
+
+	retry, err := rs.displaceForSwitch(context.Background(), domain.Chat{ID: "chat-1"})
+
+	require.NoError(t, err)
+	assert.True(t, retry)
+	assert.Equal(t, ledger.PromptStatusPending, promptReceipt(t, rs.ledger, "steered").Status,
+		"its live carrier still owes it")
 }
 
 // TestRegression_QuitOutgoingCLI_TerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY

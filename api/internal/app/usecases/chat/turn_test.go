@@ -22,6 +22,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -386,23 +387,9 @@ func TestRegression_SpawnAgentCompletionKeepsChatWorkingForTheNestedSubagent(t *
 	assert.Nil(t, subs[0].EndedAt, "opened, not yet closed")
 }
 
-// TestRegression_ASubagentsPromptAndReplyNeverEnterTheMainTranscript is the
-// bug reported live 2026-09-23: a codex chat running with
-// features.collab_agents filed its SUBAGENTS' prompts as the user's own
-// messages and their answers as the main agent's, interleaved into the
-// transcript (dev daemon, chat b1fb213e — three `turn_appended` role: user
-// rows carrying prompts Crowbar's own agent wrote, plus four assistant
-// messages under four different item ids).
-//
-// The precondition is the whole bug: a RESUMED chat can have no bound
-// conversation at all. codex's api transport resumes through thread/resume,
-// which fires no thread/started notification, so HandleSessionStart never
-// runs and the runner row keeps an empty currentSessionId for its entire
-// life — confirmed in the live daemon's own runner event log, which holds
-// exactly one runner.started for that chat's runner and no
-// runner.session_bound. namesAnotherConversation then had NOTHING to compare
-// each event's session id against and waved every foreign thread through,
-// including the child threads codex pushes down this same connection.
+// A resumed codex chat can have no bound conversation (thread/resume fires no
+// thread/started), and its subagents' prompts and replies must still stay out of
+// the main transcript rather than pass as the user's and the agent's own.
 func TestRegression_ASubagentsPromptAndReplyNeverEnterTheMainTranscript(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -1915,6 +1902,46 @@ func TestRegression_SubagentHandBackIsRecordedAsHarnessNotUser(t *testing.T) {
 	assert.Equal(t, domain.TurnRoleHarness, page.Items[0].Role)
 }
 
+// A user_prompt hook starts the turn for the Crowbar prompt only when its text is
+// that prompt's; text typed at the CLI or written by its harness starts its own
+// turn and leaves the Crowbar prompt pending.
+func TestUserPromptHook_AcknowledgesOnlyTheCrowbarPromptWhoseTextItCarries(t *testing.T) {
+	for _, tc := range []struct{ name, text, origin string }{
+		{"typed at the CLI", "something typed at the CLI", ledger.OriginProvider},
+		{"the provider's harness", taskNotificationPrompt, ledger.OriginHarness},
+		{"the prompt itself", "reply with only: SEED", ledger.OriginCrowbar},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			chatID, runnerID := f.spawn(t, "claude")
+			f.announce(t, runnerID, "sid-claude-native")
+			requestID := uuid.NewString()
+			_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "reply with only: SEED", requestID, "", nil)
+			require.NoError(t, err)
+			live, err := f.liveRunnerFor(t, chatID)
+			require.NoError(t, err)
+			before := len(ledgerRows(t, f, chatID))
+
+			prompt(t, f, live.ID, "claude", tc.text)
+
+			rows, got := ledgerRows(t, f, chatID)[before:], receipt(t, f, chatID, requestID)
+			if tc.origin == ledger.OriginCrowbar {
+				require.Len(t, rows, 1)
+				assert.Equal(t, ledger.KindTurnStarted, rows[0].Kind)
+				assert.Equal(t, got.TurnID, rows[0].TurnID, "the turn starts under the prompt's own TurnID")
+				assert.Equal(t, ledger.PromptStatusDelivered, got.Status)
+				return
+			}
+			require.Len(t, rows, 2)
+			msg, err := ledger.DecodeBody[ledger.UserMessage](rows[0])
+			require.NoError(t, err)
+			assert.Equal(t, tc.origin, msg.Origin)
+			assert.Equal(t, []any{ledger.KindTurnStarted, rows[0].TurnID}, []any{rows[1].Kind, rows[1].TurnID})
+			assert.Equal(t, ledger.PromptStatusPending, got.Status, "nothing Crowbar queued was taken")
+		})
+	}
+}
+
 func TestRegression_FinalIncrementAheadOfAnEarlierOneNeverRecordsATruncatedMessage(t *testing.T) {
 	f := newFixture(t)
 
@@ -2088,20 +2115,9 @@ func TestSwitchProvider_BackgroundWork_WaitsForAuthoritativeIdle(t *testing.T) {
 	require.Contains(t, f.term.terminatedIDs(), oldTerm)
 }
 
-// TestRegression_InterruptedTurnGraduallyFinishingIsNotMisattributedToTheNextProvider
-// is the exact bug reported live: Claude is asked to stop mid-message — a
-// graceful request, not a kill (runner/lifecycle.go's StopChat falls through
-// to TerminateGraceful for wire type "prompt") — the chat switches to Codex,
-// Codex's OWN turn closes FIRST, and Claude's real text, still gracefully
-// finishing, arrives LATE. Before the fix, closeAssistantTurn's
-// t.messages.Open(chatID) was scoped only by chat, not by runner: Codex's
-// turn_stop swept up Claude's still-open buffer and recorded Claude's own
-// words under CODEX's provider. runnersMove constructs the window this
-// needs (two runners placed on one chat — its own doc comment says this is
-// exactly what it is for), and everything downstream of that — the user
-// prompts, the deltas, the turn_stops — drives the real usecase, the real
-// descriptor, and the real event-sourced aggregate, the same path
-// production hits.
+// A stopped Claude still finishing its text after a switch to Codex: Codex's
+// turn_stop must not sweep Claude's open buffer under Codex's provider, so the
+// open message is scoped by runner, not just by chat.
 func TestRegression_InterruptedTurnGraduallyFinishingIsNotMisattributedToTheNextProvider(t *testing.T) {
 	f := newFixture(t)
 
@@ -2278,20 +2294,9 @@ func stopPayloadFor(t *testing.T, session, message string, tasks int) []byte {
 	})
 }
 
-// TestRegression_TurnStopWithBackgroundSubagent_KeepsChatWorking is THE BUG, end to end
-// through the real usecase, the real descriptor and the real aggregate — the hook payload
-// in, the spinner out.
-//
-// Traced against claude 2.1.212: the CLI spawns a BACKGROUND subagent, then goes quiet
-// waiting to be re-invoked when it reports back — which ends its turn for real, and it
-// fires Stop right there, ~18 seconds before the subagent actually finished. Crowbar read
-// that Stop as "done" and darkened the spinner on a chat whose agent was still working.
-// The user thinks it died.
-//
-// This is the guard on the wiring between them: the level claude reports on its Stop must
-// travel from the hook payload into the fold. Dropping it on the floor in the usecase —
-// passing 0 instead of ev.AsyncWork — reproduces the original bug exactly, with every
-// other test still green.
+// Claude fires Stop while a background subagent still works; the async-work level
+// on that Stop must travel from the hook payload into the fold so the chat stays
+// working.
 func TestRegression_TurnStopWithBackgroundSubagent_KeepsChatWorking(t *testing.T) {
 	f := newFixture(t)
 
@@ -2640,22 +2645,9 @@ func TestRegression_TwoPiecesOfWorkClosingAtOnce_StopsTheSpinner(t *testing.T) {
 	assert.Equal(t, 0, chat.AsyncWork)
 }
 
-// TestRegression_CodexSubagentsDrainOneAtATime_SpinnerFollowsTheLastOne pins the
-// read-after-write ordering restateAsyncWork depends on, in BOTH directions.
-//
-// subagent_post closes the subagent through the activity repo and then asks
-// OpenWork — a SQL read of the very row it just closed — whether any subagent is
-// still open. That write is projected by an asynx subscriber, so dispatching it
-// without waiting for handlers let the read still see the subagent running: the
-// recomputed level matched what the chat already held, restateAsyncWork returned
-// early WITHOUT emitting the turn_stopped that clears Working, and since nothing
-// re-runs that check the spinner stayed lit forever. Only codex shows it — claude
-// restates its own async_work level on every turn_stop and so has a second
-// mechanism that masks the stale read.
-//
-// Draining two subagents one at a time is what makes this a guard rather than a
-// coincidence: the middle assertion fails for a "just always clear it" fix, and
-// the last one fails for the stale-read bug.
+// subagent_post must read OpenWork after its own close is projected, or the
+// spinner stays lit. Draining two one at a time fails both a stale read (last
+// assertion) and an "always clear it" fix (middle assertion).
 func TestRegression_CodexSubagentsDrainOneAtATime_SpinnerFollowsTheLastOne(t *testing.T) {
 	f := newFixture(t)
 
@@ -2836,24 +2828,9 @@ func TestRegression_CodexFailedCompactionTurnRecordsNoFailureNotice(t *testing.T
 		"a failed compaction round trip must record NO notice row in the transcript")
 }
 
-// TestRegression_CodexManualCompactionIsLabelledManual: codex's own
-// contextCompaction item carries no trigger at all (see codex.yaml's
-// compact_pre comment), so without Crowbar's own record of having just
-// dispatched the request, every codex compaction — including one a person
-// explicitly asked for via Compact() — read as "automatic" in the transcript
-// divider. Compact() has no live api connection to actually send over in this
-// fixture and returns an error, but ArmManualCompaction fires before that
-// failure, exactly as it does in production.
-//
-// Drives compact_post too, not just compact_pre — live-confirmed critical:
-// commands.Interrupt's idle branch never adds the interruption to the
-// aggregate's own open-interruptions map, so commands.ResolveInterruption
-// (compact_post's own call) always finds it unknown and REBUILDS it from
-// scratch off compact_post's OWN (also-empty, for codex) detail, silently
-// discarding whatever compact_pre just wrote. A version of this fix that
-// only patched compact_pre passed this test right up until compact_post was
-// added to it — caught live (a curl read briefly saw "manual", then read
-// back empty about a second later) before it was caught here.
+// Codex's compaction item carries no trigger, so Crowbar's own record of the
+// Compact() it dispatched labels the divider manual. compact_post is driven too:
+// it rebuilds the interruption and must not discard what compact_pre wrote.
 func TestRegression_CodexManualCompactionIsLabelledManual(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")

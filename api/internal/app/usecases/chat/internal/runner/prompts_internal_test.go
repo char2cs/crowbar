@@ -13,6 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // stubConversationsForPromptRestart answers only ChatSelection — the one
@@ -152,6 +153,43 @@ func TestCommitPromptSpawn_ARunnerWithNeitherPTYNorConnectionIsStillRefused(t *t
 	require.True(t, ok)
 	assert.Equal(t, ledger.PromptStatusSettled, got.Status)
 	assert.Equal(t, ledger.ReasonDeliveryFailed, got.Reason)
+}
+
+// A resend answers with its carrier's terminal session; a carrier it cannot
+// read is an error, never a success that names no session at all.
+func TestReplayPriorPrompt_ACarrierItCannotReadIsAnError(t *testing.T) {
+	h := newSpawnHarness(t, engineagents.SurfaceChat)
+	appendPrompt(t, h.rs.ledger, "req-1", "runner-gone")
+	started, err := ledger.NewRow(ledger.KindTurnStarted, "T-req-1", "", ledger.TurnStarted{RequestID: "req-1"})
+	require.NoError(t, err)
+	_, _, err = h.rs.ledger.Append(t.Context(), "chat-1", started)
+	require.NoError(t, err)
+
+	_, done, err := h.rs.replayPriorPrompt(t.Context(), "chat-1", "req-1", "req-1")
+
+	assert.True(t, done, "the request is a resend")
+	require.ErrorIs(t, err, agentrunner.ErrNotFound)
+}
+
+// appendPrompt records a pending prompt on chat-1, carried by carrier, straight into l.
+func appendPrompt(t *testing.T, l *ledgerstore.Store, requestID, carrier string) {
+	t.Helper()
+	row, err := ledger.NewRow(ledger.KindUserMessage, "T-"+requestID, "", ledger.UserMessage{
+		RequestID: requestID, Text: requestID, Origin: ledger.OriginCrowbar,
+		Delivery: ledger.DeliveryRestart, RunnerID: carrier,
+	})
+	require.NoError(t, err)
+	_, _, err = l.Append(t.Context(), "chat-1", row)
+	require.NoError(t, err)
+}
+
+func promptReceipt(t *testing.T, l *ledgerstore.Store, requestID string) ledger.Prompt {
+	t.Helper()
+	st, err := l.State(t.Context(), "chat-1")
+	require.NoError(t, err)
+	p, ok := st.Receipt(requestID)
+	require.True(t, ok)
+	return p
 }
 
 // newTestLedger is an in-memory chat ledger.

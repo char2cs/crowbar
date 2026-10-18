@@ -16,6 +16,7 @@ import (
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
@@ -825,6 +826,7 @@ type testFixture struct {
 	// instead of usedChats.Create.
 	folders *mocks.FolderStore
 	nodes   *mocks.NodePlacements
+	ledger  *ledgerstore.Store
 	// sessions is the vendor-reported session id most recently announce()d per
 	// runnerID — a map, so it stays shared across every copy of this
 	// value-typed testFixture. turn()/hook() consult it (withTrackedSession)
@@ -1325,21 +1327,9 @@ func newFixtureUsing(
 	}
 	probe := func(a engineagents.Agent) bool { return connected[a.ID()] }
 	// The tool surface is wired over the SAME real stores the rest of the fixture
-	// reads, so an MCP tool call lands in the aggregates every other test asserts
-	// on. Only the workspace lister is a fake: these tests own no workspace
-	// repository, and the resolver only needs the caller's workspace to exist.
-	//
-	// Every port that CAN be supplied here is, so the usecase this fixture builds
-	// advertises the complete production tool surface — the same reason
-	// agenttools' own toolsetOn fixture wires every port with stubs (see its doc
-	// comment): a port left out here would silently narrow
-	// TestDispatchMCP_ListsTheChatTools back to a vacuous guard.
-	//
-	// Chats and ChatLogs are NOT set in this Deps literal: both are self-assigned
-	// by agentusecase.New once u exists (see its doc comment), the same chicken-and-egg
-	// every caller of New faces, so wiring them here would just be re-doing what
-	// New itself is responsible for — which is exactly the wiring
-	// TestDispatchMCP_ListsTheChatTools exists to guard.
+	// reads, with every port supplied, so TestDispatchMCP_ListsTheChatTools sees the
+	// production surface. Chats and ChatLogs are left to agentusecase.New, which
+	// self-assigns them: that wiring is what the test guards.
 	wt := &fakeWorktreeCreator{}
 	minter, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
@@ -1362,6 +1352,7 @@ func newFixtureUsing(
 	folders := mocks.NewFolderStore()
 	nodes := mocks.NewNodePlacements()
 	lineage := tree.NewLineage(agentusecase.NewHomeCorrectedTreeChats(usedChats, nodes, folders))
+	chatLedger := newLedger(t)
 	u := agentusecase.New(agentusecase.Deps{
 		Chats:           usedChats,
 		Runners:         usedRunners,
@@ -1374,7 +1365,7 @@ func newFixtureUsing(
 		ProviderPrefs:   providerPrefs,
 		PermissionPrefs: permissionPrefs,
 		Home:            homeFn,
-		Ledger:          newLedger(t),
+		Ledger:          chatLedger,
 		Installed:       probe,
 		Minter:          minter,
 		Tools: agenttools.Deps{
@@ -1424,6 +1415,7 @@ func newFixtureUsing(
 		nodes:         nodes,
 		sessions:      map[string]string{},
 		snapFrames:    snapFrames,
+		ledger:        chatLedger,
 	}
 	return f, realChats, realRunners
 }

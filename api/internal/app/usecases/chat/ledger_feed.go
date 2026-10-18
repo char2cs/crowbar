@@ -8,8 +8,8 @@ import (
 )
 
 // publishLedgerRows tells a chat's clients about every prompt the ledger
-// settled: the composer holding its text stops waiting for a turn. It runs
-// under the chat's ledger writer, so it reads only the in-memory snapshot.
+// settled. It runs under the chat's ledger writer; snapshots.Get takes the owner
+// lock and may read stores beneath it, which is the sanctioned lock order.
 func (u *Usecase) publishLedgerRows(chatID string, rows []ledger.Row, _ ledger.State) {
 	feed := u.feed.Load()
 	if feed == nil || feed.PromptSettled == nil {
@@ -25,8 +25,9 @@ func (u *Usecase) publishLedgerRows(chatID string, rows []ledger.Row, _ ledger.S
 		}
 		snap, err := u.snapshots.Get(context.Background(), chatID)
 		if err != nil {
-			slog.Warn("agent: publish settled prompt: chat snapshot", "chat_id", chatID, "err", err)
-			return
+			slog.Warn("agent: publish settled prompt: chat snapshot",
+				"chat_id", chatID, "request_id", body.RequestID, "err", err)
+			continue
 		}
 		feed.PromptSettled(chatID, snap.Chat.WorkspaceID, body.RequestID, body.Consumed)
 	}

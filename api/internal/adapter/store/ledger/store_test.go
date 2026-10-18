@@ -325,6 +325,43 @@ func TestStore_ForgetErasesAChat(t *testing.T) {
 	assert.Equal(t, []int64{1}, seqs(again), "a forgotten chat starts over from seq 1")
 }
 
+// fired reports whether ch is already closed; a commit closes it before Do returns.
+func fired(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+func TestStore_WatchIsWokenByTheNextCommitToThatChatOnly(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	_, _, err := s.Append(ctx, "c1", prompt(t, "r1", "a"))
+	require.NoError(t, err)
+
+	st, changed, err := s.Watch(ctx, "c1")
+	require.NoError(t, err)
+	assert.Len(t, st.PendingPrompts(), 1)
+	_, _, err = s.Append(ctx, "c2", prompt(t, "r2", "b"))
+	require.NoError(t, err)
+	_, _, err = s.Do(ctx, "c1", func(ledger.State) ([]ledger.Row, error) { return nil, nil })
+	require.NoError(t, err)
+	assert.False(t, fired(changed), "another chat's commit, or a decision with no rows, changes nothing")
+
+	_, _, err = s.Append(ctx, "c1", started(t, "r1"))
+	require.NoError(t, err)
+	assert.True(t, fired(changed))
+	st, again, err := s.Watch(ctx, "c1")
+	require.NoError(t, err)
+	assert.Empty(t, st.PendingPrompts())
+	assert.False(t, fired(again), "each commit arms a fresh signal")
+
+	require.NoError(t, s.Forget(ctx, "c1"))
+	assert.True(t, fired(again), "a forgotten chat wakes its watchers")
+}
+
 func TestStore_ReportsAClosedDatabase(t *testing.T) {
 	db, err := storesqlite.OpenDB(filepath.Join(t.TempDir(), ledgerstore.FileName))
 	require.NoError(t, err)
@@ -338,6 +375,8 @@ func TestStore_ReportsAClosedDatabase(t *testing.T) {
 	_, _, err = s.Append(ctx, "warm", prompt(t, "r2", "b"))
 	require.Error(t, err)
 	_, err = s.State(ctx, "cold")
+	require.Error(t, err)
+	_, _, err = s.Watch(ctx, "cold")
 	require.Error(t, err)
 	_, err = s.OpenChats(ctx)
 	require.Error(t, err)

@@ -18,7 +18,8 @@ import (
 const FileName = "chat_ledger.db"
 
 // Subscriber is called after commit, under the chat's writer, in seq order.
-// It must not block: hand work to a channel or do it in O(1).
+// It must not block: hand work to a channel or do it in O(1). st is a read-only
+// view of the writer's cache: never mutate it or Apply to it.
 type Subscriber func(chatID string, rows []ledger.Row, st ledger.State)
 
 // Store is the chat ledger. Each chat has a single writer that owns its seqs
@@ -33,9 +34,11 @@ type Store struct {
 }
 
 // chatWriter serialises one chat's appends; state is nil until first touch.
+// changed, once watched, is closed by the next commit or Forget.
 type chatWriter struct {
-	mu    sync.Mutex
-	state *ledger.State
+	mu      sync.Mutex
+	state   *ledger.State
+	changed chan struct{}
 }
 
 // Open creates the ledger tables on db if they are missing.
@@ -83,6 +86,7 @@ func (s *Store) Do(
 		return nil, cur.Clone(), err
 	}
 	w.state = &next
+	w.wake()
 	for _, fn := range s.subscribers() {
 		fn(chatID, stamped, next)
 	}
@@ -106,6 +110,22 @@ func (s *Store) State(ctx context.Context, chatID string) (ledger.State, error) 
 	return cur.Clone(), nil
 }
 
+// Watch is chatID's current State and a channel closed by the chat's next
+// commit, read together so no commit between them can be missed.
+func (s *Store) Watch(ctx context.Context, chatID string) (ledger.State, <-chan struct{}, error) {
+	w := s.writer(chatID)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	cur, err := s.load(ctx, chatID, w)
+	if err != nil {
+		return ledger.State{}, nil, err
+	}
+	if w.changed == nil {
+		w.changed = make(chan struct{})
+	}
+	return cur.Clone(), w.changed, nil
+}
+
 // Forget erases chatID's rows and head, as a purged chat must leave nothing.
 func (s *Store) Forget(ctx context.Context, chatID string) error {
 	w := s.writer(chatID)
@@ -124,7 +144,16 @@ func (s *Store) Forget(ctx context.Context, chatID string) error {
 		return fmt.Errorf("ledger: forget %s: %w", chatID, err)
 	}
 	w.state = nil
+	w.wake()
 	return nil
+}
+
+// wake closes the watchers' signal. The caller holds w.mu.
+func (w *chatWriter) wake() {
+	if w.changed != nil {
+		close(w.changed)
+		w.changed = nil
+	}
 }
 
 // writer is chatID's writer. Entries are never removed: a waiter holding one

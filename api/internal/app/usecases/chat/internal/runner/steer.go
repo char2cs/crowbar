@@ -59,7 +59,5 @@ func (rs *Runners) submitPromptSteered(
 // RefuseSteered settles a parked prompt whose turn ended without delivering
 // it, so the client keeps its own copy of the text.
 func (rs *Runners) RefuseSteered(ctx context.Context, s inflight.Steered) {
-	rs.settlePrompts(ctx, s.ChatID, ledger.ReasonDeliveryFailed, func(p ledger.Prompt) bool {
-		return p.RequestID == s.RequestID
-	})
+	rs.settleUndelivered(ctx, s.ChatID, s.RequestID)
 }

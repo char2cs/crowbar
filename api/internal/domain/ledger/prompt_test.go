@@ -39,30 +39,63 @@ func TestReceipt_RecordsAConsumedSettle(t *testing.T) {
 	assert.Equal(t, ledger.ReasonProviderBuiltin, got.Reason)
 }
 
-func TestSettle_SettlesOnlyThePendingPromptsItSelects(t *testing.T) {
-	carried := func(runnerID string) func(ledger.Prompt) bool {
-		return func(p ledger.Prompt) bool { return p.RunnerID == runnerID }
-	}
+// carriedPrompts is r1 and r3 on run-1 (r3 delivered), r2 on run-2, and r4
+// with no carrier.
+func carriedPrompts(t *testing.T) ledger.State {
+	t.Helper()
 	msg := func(requestID, runnerID, turnID string) ledger.Row {
 		return row(t, ledger.KindUserMessage, turnID, ledger.UserMessage{
 			RequestID: requestID, Text: requestID, Origin: ledger.OriginCrowbar, RunnerID: runnerID,
 		})
 	}
-	st := ledger.Fold("c1", sequenced(t,
+	return ledger.Fold("c1", sequenced(t,
 		msg("r1", "run-1", "T1"),
 		msg("r2", "run-2", "T2"),
 		msg("r3", "run-1", "T3"),
 		row(t, ledger.KindTurnStarted, "T3", ledger.TurnStarted{RequestID: "r3"}),
+		msg("r4", "", "T4"),
 	))
+}
 
-	rows, err := ledger.Settle(st, carried("run-1"), true, ledger.ReasonProviderBuiltin)
-	require.NoError(t, err)
-	require.Len(t, rows, 1, "r3 is delivered and r2 is carried by another runner")
-	body, err := ledger.DecodeBody[ledger.PromptSettled](rows[0])
-	require.NoError(t, err)
-	assert.Equal(t, ledger.PromptSettled{RequestID: "r1", Consumed: true, Reason: "provider_builtin"}, body)
+func settled(t *testing.T, rows []ledger.Row) []ledger.PromptSettled {
+	t.Helper()
+	out := make([]ledger.PromptSettled, 0, len(rows))
+	for _, r := range rows {
+		body, err := ledger.DecodeBody[ledger.PromptSettled](r)
+		require.NoError(t, err)
+		out = append(out, body)
+	}
+	return out
+}
 
-	none, err := ledger.Settle(st, carried("run-9"), false, ledger.ReasonRunnerExited)
+func TestSettle_SettlesOnlyThePendingPromptsItSelects(t *testing.T) {
+	st := carriedPrompts(t)
+	first := func(p ledger.Prompt) bool { return p.RequestID == "r1" || p.RequestID == "r3" }
+
+	rows, err := ledger.Settle(st, first, true, ledger.ReasonProviderBuiltin)
+	require.NoError(t, err)
+	assert.Equal(t, []ledger.PromptSettled{{RequestID: "r1", Consumed: true, Reason: "provider_builtin"}},
+		settled(t, rows), "r3 is delivered")
+}
+
+func TestSettleCarried_SettlesOnlyWhatThatRunnerCarries(t *testing.T) {
+	st := carriedPrompts(t)
+
+	rows, err := ledger.SettleCarried(st, "run-1", false, ledger.ReasonRunnerExited)
+	require.NoError(t, err)
+	assert.Equal(t, []ledger.PromptSettled{{RequestID: "r1", Reason: "runner_exited"}}, settled(t, rows))
+
+	none, err := ledger.SettleCarried(st, "run-9", false, ledger.ReasonRunnerExited)
 	require.NoError(t, err)
 	assert.Empty(t, none)
+}
+
+func TestSettleOrphaned_SettlesPromptsWhoseCarrierIsNotLive(t *testing.T) {
+	st := carriedPrompts(t)
+	live := func(runnerID string) bool { return runnerID == "run-1" }
+
+	rows, err := ledger.SettleOrphaned(st, live)
+	require.NoError(t, err)
+	assert.Equal(t, []ledger.PromptSettled{{RequestID: "r2", Reason: "runner_exited"}}, settled(t, rows),
+		"run-1 is live, and a prompt with no carrier is never orphaned")
 }

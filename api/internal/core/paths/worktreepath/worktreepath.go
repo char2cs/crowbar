@@ -201,9 +201,9 @@ func RunnerDir(chatsDir, runnerID, provider string) string {
 	return filepath.Join(chatsDir, "runners", runnerID+"-"+provider)
 }
 
-// LedgerChatsDir returns crowbar home's chat-ledger root: the parent a chat's
-// own on-disk bookkeeping — the at-most-once prompt-delivery journal — is
-// joined with the chat's id under.
+// LedgerChatsDir returns <crowbar home>/chats, the root a chat's own directory
+// is joined with its id under. It is not the chat ledger, which is
+// chat_ledger.db under the store directory.
 //
 // It is deliberately never AgentChatsDir/ChatsDir, i.e. never a function of
 // WorkspaceID: that field is optional and mutable (a bubble chat has none

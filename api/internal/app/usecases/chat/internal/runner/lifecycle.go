@@ -111,9 +111,12 @@ func (rs *Runners) closeAbandonedTurn(
 func (rs *Runners) ReconcileRunnersOnBoot(
 	ctx context.Context,
 ) error {
+	// First and independent of the listing: no carrier from before the restart
+	// can acknowledge a prompt, whatever the runner rows say.
+	promptsErr := rs.reconcilePendingPromptsOnBoot(ctx)
 	runners, err := rs.runnerStore.AllLive(ctx)
 	if err != nil {
-		return fmt.Errorf("agent: boot reconcile: list runners: %w", err)
+		return errors.Join(fmt.Errorf("agent: boot reconcile: list runners: %w", err), promptsErr)
 	}
 	for _, r := range runners {
 		// SessionLive is the seam that asks "is this PROCESS alive", NOT the engine's
@@ -157,7 +160,7 @@ func (rs *Runners) ReconcileRunnersOnBoot(
 		// no longer see the runner we have just reaped.
 		rs.closeAbandonedTurn(ctx, abandoned, r)
 	}
-	return rs.reconcilePendingPromptsOnBoot(ctx)
+	return promptsErr
 }
 
 func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {

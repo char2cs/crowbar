@@ -80,9 +80,8 @@ func (t *Turns) recordIdle(ctx context.Context, chat domain.Chat, runnerID strin
 
 // settleCarried settles the pending prompts runnerID carries on chatID.
 func (t *Turns) settleCarried(ctx context.Context, chatID, runnerID string, consumed bool, reason string) {
-	carried := func(p ledger.Prompt) bool { return p.RunnerID == runnerID }
 	_, _, err := t.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		return ledger.Settle(st, carried, consumed, reason)
+		return ledger.SettleCarried(st, runnerID, consumed, reason)
 	})
 	note(ctx, "settle pending prompt", err)
 }

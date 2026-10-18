@@ -12,9 +12,13 @@ import (
 )
 
 // What a provider switch PARKS ON before it destroys anything, and what
-// releases it. The wait sits ahead of every read switchProviderLocked makes,
+// releases it. Both waits sit ahead of every read switchProviderLocked makes,
 // so a parked switch holds nothing but its chat's spawn gate — see that
 // function's own doc.
+
+// WaitingForPendingPromptLog is logged the instant a switch parks on a prompt
+// the provider has not acknowledged, so a test can block on a real signal.
+const WaitingForPendingPromptLog = "agent: switch provider: waiting for the pending prompt"
 
 // forceSwitchAfter bounds how long a switch waits for the outgoing turn before
 // forcing it. AwaitTurnComplete itself is documented as needing no timeout,
@@ -36,6 +40,34 @@ func (rs *Runners) forceSwitchAfter() time.Duration {
 // production never calls it — so a deterministic test can force the timeout
 // path without actually waiting the real duration.
 func (rs *Runners) SetSwitchAwaitTimeout(d time.Duration) { rs.switchAwaitTimeout = d }
+
+// awaitNoPendingPrompt parks until the chat holds no prompt the provider has
+// yet to acknowledge: quitting the CLI carrying one would lose it. Only the
+// ledger's next commit to the chat, or the end of park, releases it.
+func (rs *Runners) awaitNoPendingPrompt(park context.Context, chatID string) error {
+	logged := false
+	for {
+		if _, err := rs.settleOrphanedPrompts(park, chatID); err != nil {
+			return fmt.Errorf("agent: switch provider: %w", err)
+		}
+		st, changed, err := rs.ledger.Watch(park, chatID)
+		if err != nil {
+			return fmt.Errorf("agent: switch provider: watch ledger: %w", err)
+		}
+		if len(st.PendingPrompts()) == 0 {
+			return nil
+		}
+		if !logged {
+			slog.InfoContext(park, WaitingForPendingPromptLog, "chat_id", chatID)
+			logged = true
+		}
+		select {
+		case <-changed:
+		case <-park.Done():
+			return fmt.Errorf("agent: switch provider: waiting for the pending prompt: %w", park.Err())
+		}
+	}
+}
 
 // awaitTurnOrForce is AwaitTurnComplete bounded by forceSwitchAfter. Distinguishing
 // "my own added deadline fired" from "the CALLER's context died" matters:

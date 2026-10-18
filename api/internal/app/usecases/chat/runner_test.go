@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -28,6 +27,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
@@ -271,32 +271,9 @@ func TestSwitchProvider_SwitchBack_ResumesTheConversationWithSeparateArgvTokens(
 	assert.NotContains(t, argv, "--resume sid-claude-native")
 }
 
-// TestSwitchProvider_SwitchBack_ResumesItsOwnSessionOverTheOnlyCodexThereIs
-// exercises the codex-target switch-back path with NO api connection —
-// this fixture pins CROWBAR_DISABLE_API_TRANSPORT (harness_test.go), which is
-// the same shape production degrades to whenever `codex app-server` fails to
-// fork, its socket never appears, or the handshake is refused (design spec
-// §2.2b: the session then runs over hooks alone).
-//
-// With no connection, the hooks PTY is not redundant — it is the ONLY codex,
-// and therefore the conversation. So it must carry the native `resume {id}`
-// itself: withholding it, as the descriptor-only apiOwnsResume check used to,
-// made codex mint a BRAND NEW thread and silently abandon the chat's own
-// conversation on every switch back. Live-confirmed by
-// TestAgent_SwitchBackToCodexResumesItsOwnSession
-// (tests/integration/agent/agent_gaps_test.go) against the real CLI.
-//
-// The WITHHOLDING contract — that a LIVE api connection's thread/resume makes
-// the companion PTY a second writer on a thread codex's own writer-lock
-// permits only one of — is unchanged, and is pinned directly on the decision
-// that now carries it:
-// TestBuildSpawnSteps_ApiResumes_WithholdsTheNativeResumeAndTheGap
-// (internal/runner/spawnsteps_internal_test.go).
-//
-// The api connection resuming silently, with no gap handed to it either, is a
-// real, separate, KNOWN gap this leaves in place — codex.yaml declares an
-// inject: at: context step (thread/inject_items) for exactly this, and
-// nothing calls it yet.
+// With no api connection (this fixture disables it, as production degrades to
+// when app-server fails), the hooks PTY is the only codex: it must carry the
+// native `resume {id}` itself, or codex mints a new thread on every switch back.
 func TestSwitchProvider_SwitchBack_ResumesItsOwnSessionOverTheOnlyCodexThereIs(t *testing.T) {
 	f := newFixture(t)
 
@@ -437,11 +414,8 @@ func TestSwitchProvider_WorkspaceReaderFailure_ReturnsWrappedError(t *testing.T)
 
 	chatID, _ := f.spawn(t, "claude")
 
-	// A workspace-reader failure surfaces wrapped, not swallowed. It now
-	// surfaces at the preflight WorktreeDir read rather than the pending-prompt
-	// guard: that guard's journal dir no longer resolves a workspace at all
-	// (worktreepath.LedgerChatsDir, keyed by chat id — spec §1.5), so it clears
-	// before the switch reaches this failing read.
+	// A workspace-reader failure surfaces wrapped, at the preflight WorktreeDir
+	// read: the pending-prompt wait before it reads only the chat ledger.
 	f.ws.err = errors.New("boom: workspace lookup")
 	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.Error(t, err)
@@ -1765,41 +1739,6 @@ func terminateSignal(
 	return ch
 }
 
-// parkedOnTurn returns a channel closed the moment a switch parks on an in-flight turn.
-// It is a REAL signal — the usecase's own log record, emitted immediately before it
-// blocks — and it is what lets these tests prove a negative ("the CLI was not killed
-// while the turn ran") without a single sleep: the assertion is made at a moment the test
-// KNOWS the switch has reached, not one it hopes it has.
-func parkedOnTurn(
-	t *testing.T,
-) <-chan struct{} {
-	t.Helper()
-	prev := slog.Default()
-	t.Cleanup(func() { slog.SetDefault(prev) })
-
-	h := &parkHandler{ch: make(chan struct{})}
-	slog.SetDefault(slog.New(h))
-	return h.ch
-}
-
-type parkHandler struct {
-	once sync.Once
-	ch   chan struct{}
-}
-
-func (h *parkHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
-
-func (h *parkHandler) Handle(_ context.Context, r slog.Record) error {
-	if strings.Contains(r.Message, agentusecase.WaitingForTurnLog) {
-		h.once.Do(func() { close(h.ch) })
-	}
-	return nil
-}
-
-func (h *parkHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
-
-func (h *parkHandler) WithGroup(_ string) slog.Handler { return h }
-
 // TestRegression_ClearMidTurn_ClosesTheTurnOnTheChatLeftBehind is the workspace-spinner
 // wedge, reported from production as "all the agents stopped working but the workspace
 // is still spinning".
@@ -2436,6 +2375,8 @@ func TestStartupHookBarrier_ReplaysPromptThatFiresBeforeRunnerPersistence(t *tes
 	assert.True(t, f.chat(t, chatID).Working)
 }
 
+// A switch parked on a prompt another window queued destroys nothing while it
+// waits, and the end of its own request ends the wait.
 func TestSwitchProvider_DoesNotKillPromptAwaitingAcceptanceFromAnotherWindow(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "codex")
@@ -2443,9 +2384,19 @@ func TestSwitchProvider_DoesNotKillPromptAwaitingAcceptanceFromAnotherWindow(t *
 	require.NoError(t, err)
 	spawnCount := f.term.callCount()
 	terminated := len(f.term.terminatedIDs())
+	parked := parkedOn(t, agentusecase.WaitingForPendingPromptLog)
+	ctx, cancel := context.WithCancel(f.ctx)
+	defer cancel()
+	go func() {
+		select {
+		case <-parked:
+		case <-ctx.Done():
+		}
+		cancel()
+	}()
 
-	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
-	assert.ErrorIs(t, err, agentusecase.ErrPromptBusy)
+	_, err = f.usecase.SwitchProvider(ctx, chatID, "claude")
+	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, spawnCount, f.term.callCount())
 	assert.Len(t, f.term.terminatedIDs(), terminated,
 		"the replacement TUI awaiting its user_prompt hook must remain alive")
@@ -2571,7 +2522,7 @@ func TestSubmitPrompt_RevivesADormantChatAndDelivers(t *testing.T) {
 	assert.Contains(t, strings.Join(argv, "\x00"), "hello again")
 }
 
-// A retry of a request whose outcome is recorded answers from the journal —
+// A retry of a request whose outcome is recorded answers from the ledger —
 // it never revives, so a retried send cannot spawn a CLI of its own.
 func TestSubmitPrompt_ARetryNeverRevives(t *testing.T) {
 	f := newFixture(t)
@@ -2842,19 +2793,9 @@ runtime:
     format: json
 `
 
-// TestRegression_CompactPreSettlesThePendingDeliveryImmediately is the fix for
-// the bug reported live 2026-08-29: "Crowbar just keeps waiting for something
-// that never happens" after /compact, even though the provider had already
-// finished compacting. Root cause, confirmed live: /compact is delivered as
-// an ordinary prompt (compact.go) that never confirms via a user_prompt hook
-// and produces no ledger turn, so before this fix the ONLY thing that ever
-// released the composer's "sending" state was termwait's generic 30s quiet
-// timeout — even though compact_pre itself, arriving on an idle chat (no open
-// turn, exactly compact's own shape), already marks the compaction
-// interruption resolved INSTANTLY (commands/interrupt.go's idle-chat
-// handling). compact_post is not a reliable second signal to wait for: live
-// testing showed it often never arrives at all for a small chat. compact_pre
-// must settle the still-pending delivery itself, immediately.
+// TestRegression_CompactPreSettlesThePendingDeliveryImmediately: /compact is an
+// ordinary prompt no user_prompt hook acknowledges, and compact_post often never
+// arrives, so compact_pre settles it as consumed by the provider's builtin.
 func TestRegression_CompactPreSettlesThePendingDeliveryImmediately(t *testing.T) {
 	f := newFixture(t)
 	writeDescriptor(t, f, "claude", compactingWithHooksDescriptorBody)
@@ -2875,9 +2816,11 @@ func TestRegression_CompactPreSettlesThePendingDeliveryImmediately(t *testing.T)
 		mustJSON(t, map[string]any{"session_id": "native-session", "trigger": "manual"})))
 
 	assert.False(t, agentusecase.HasPendingPrompt(f.usecase.RunnerUsecase, f.ctx, chatID),
-		"compact_pre alone (the chat is idle — no turn was ever open for /compact) must settle the "+
-			"delivery immediately, not leave it for compact_post (which does not reliably arrive) or "+
-			"the 30s quiet timeout")
+		"compact_pre alone must settle the delivery, not leave it for compact_post")
+	prompts := crowbarPrompts(t, f, chatID)
+	require.Len(t, prompts, 1)
+	assert.True(t, prompts[0].Consumed, "the CLI ran its own builtin")
+	assert.Equal(t, ledger.ReasonProviderBuiltin, prompts[0].Reason)
 }
 
 // TestRegression_CompactPostAlsoSettlesADeliveryCompactPreDidNot is the
@@ -2908,6 +2851,24 @@ func TestRegression_CompactPostAlsoSettlesADeliveryCompactPreDidNot(t *testing.T
 }
 
 // ─── from boot_test.go ────────────────────────────────────────────────
+
+// No carrier from before a restart can acknowledge a prompt, so boot settles
+// every pending one rather than leave its chat busy.
+func TestReconcileRunnersOnBoot_SettlesEveryPendingPromptAsDaemonRestart(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "s1")
+	requestID := uuid.NewString()
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "lost to the restart", requestID, "", nil)
+	require.NoError(t, err)
+	f.term.dieWithDaemon()
+
+	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
+
+	got := receipt(t, f, chatID, requestID)
+	assert.Equal(t, ledger.PromptStatusSettled, got.Status)
+	assert.Equal(t, ledger.ReasonDaemonRestart, got.Reason)
+}
 
 // TestRegression_DeadPTY_MeansDeadRunner: a runner cannot outlive its PTY. Boot
 // reconciliation is the ONE place liveness is reconciled, and it reconciles against the
@@ -3090,12 +3051,8 @@ func TestReconcileRunnersOnBoot_EmptyIsTheNormalAnswer(t *testing.T) {
 	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
 }
 
-// TestReconcileRunnersOnBoot_WorkspacelessChatDoesNotBreakTheSweep pins spec §1.5's
-// worst failure mode: before this fix, the prompt-journal boot sweep resolved every
-// chat's directory through AgentChatsDir(chat.WorkspaceID), which requires a
-// resolvable workspace row. A single chat with no workspace (a "bubble" — model spec
-// §3.1) would fail that lookup and abort reconciliation for EVERY chat, not just its
-// own — one unplaced chat bricking every other chat's boot recovery.
+// A chat with no workspace (a bubble, model spec §3.1) must not abort the boot
+// sweep for every other chat (spec §1.5).
 func TestReconcileRunnersOnBoot_WorkspacelessChatDoesNotBreakTheSweep(t *testing.T) {
 	f := newFixture(t)
 
@@ -4529,29 +4486,9 @@ func TestStartTerminalWaitSweep_PushesEveryDeltaAsTheMessageSoFar(t *testing.T) 
 	assert.Equal(t, "THE MESSAGE SO FAR", page.Items[0].Text)
 }
 
-// TestRegression_SubmitPromptWithStagedProvider_ConcurrentSendsNeverCrossDeliver
-// is the live concurrency counterpart to the atomicity fix
-// (Runners.SubmitPromptWithSwitch, promptswitch.go): before it existed,
-// Usecase.SubmitPrompt ran its internal provider switch as a FULL, separately
-// unlocked SwitchProvider call, then delivered through a SECOND, later Lock —
-// a gap wide enough for a second concurrent SubmitPrompt, staging a DIFFERENT
-// provider on the same chat, to land its own switch in between and steal the
-// first caller's delivery: whichever provider happened to be live when the
-// second Lock was finally acquired got the message, not the one that call
-// had actually staged.
-//
-// Reproducing that exact interleaving deterministically in this in-memory
-// fixture turned out not to be practical — Go's mutex favours the
-// already-running goroutine over a freshly woken waiter (barging), so the
-// first caller routinely finishes both of the old code's lock phases before
-// a second goroutine even gets scheduled, whatever hook it is launched from.
-// This is the black-box property that DOES hold either way: two real,
-// concurrently racing SubmitPrompt calls, each staging its OWN provider on
-// the same chat, must never cross-deliver — every interleaving a correct
-// (single-Lock) implementation can produce still lands each message on the
-// provider IT staged. The historical race itself is verified live, under
-// real OS-process scheduling, per this repo's own live-load-test convention
-// for timing-dependent fixes.
+// Two concurrent sends, each staging its own provider on one chat, never
+// cross-deliver: each message lands on the provider its own call staged
+// (SubmitPromptWithSwitch switches and delivers under one gate).
 func TestRegression_SubmitPromptWithStagedProvider_ConcurrentSendsNeverCrossDeliver(t *testing.T) {
 	f := newFixture(t)
 	chatID, claudeRunner := f.spawn(t, "claude")
@@ -4575,7 +4512,20 @@ func TestRegression_SubmitPromptWithStagedProvider_ConcurrentSendsNeverCrossDeli
 	launch("codex", "message meant for codex")
 	launch("claude", "message meant for claude")
 	close(start)
-	first, second := <-results, <-results
+	first := <-results
+	if first.err == nil {
+		// The later send's switch waits for this prompt: the provider takes it and answers.
+		prompt(t, f, first.result.RunnerID, first.provider, first.message)
+		turn(t, f, first.result.RunnerID, first.provider, "done")
+	}
+	deadline, cancel := context.WithTimeout(f.ctx, 10*time.Second)
+	defer cancel()
+	var second outcome
+	select {
+	case second = <-results:
+	case <-deadline.Done():
+		t.Fatal("the later send never finished")
+	}
 	f.wait()
 
 	for _, o := range []outcome{first, second} {
@@ -4682,6 +4632,39 @@ func TestRegression_AChatItsRunnerWalkedAwayFromIsStillResumable(t *testing.T) {
 	_, err = f.usecase.ResumeChat(f.ctx, chatID)
 
 	require.NoError(t, err, "the vacated chat must not be left owing an answer nobody can give")
+}
+
+// TestRegression_DormantChatWithAPromptFromAVanishedRunnerStillResumes: a
+// departure that never settled its prompt leaves one no runner can acknowledge.
+// The pending check settles it rather than refuse every resume for good.
+func TestRegression_DormantChatWithAPromptFromAVanishedRunnerStillResumes(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "codex")
+	f.announce(t, runnerID, "conversation-one")
+	turn(t, f, runnerID, "codex", "hello")
+	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
+	f.wait()
+	orphan := plantPrompt(t, f, chatID, "a-runner-that-no-longer-exists")
+
+	_, err := f.usecase.ResumeChat(f.ctx, chatID)
+
+	require.NoError(t, err, "a prompt whose carrier is gone must not refuse the resume forever")
+	got := receipt(t, f, chatID, orphan)
+	assert.Equal(t, ledger.PromptStatusSettled, got.Status)
+	assert.Equal(t, ledger.ReasonRunnerExited, got.Reason)
+}
+
+// The same orphan must not hold a live chat busy for its next prompt either.
+func TestRegression_APromptFromAVanishedRunnerDoesNotHoldTheNextPromptBusy(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-claude-native")
+	orphan := plantPrompt(t, f, chatID, "a-runner-that-no-longer-exists")
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "and now?", uuid.NewString(), "", nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, ledger.ReasonRunnerExited, receipt(t, f, chatID, orphan).Reason)
 }
 
 // ---------------------------------------------------------------------------
@@ -4930,6 +4913,8 @@ func TestResumeLadder_ARefusedResumesPromptIsSettledNotRedelivered(t *testing.T)
 	argv := f.term.calls[f.term.callCount()-1].argv
 	assert.NotContains(t, argv, "--resume", "never the refused session again")
 	assert.Contains(t, strings.Join(argv, "\x00"), "what came before", "handed the conversation so far")
+	assert.Equal(t, domain.AgentRungTranscript, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).Rung,
+		"the chat says which rung it continued on")
 }
 
 // A resumed CLI Crowbar stops before it announces anything did not refuse its
@@ -5061,11 +5046,12 @@ var sessionOps = []sessionOp{
 		// S5: a delivered send has a runner to continue the conversation on —
 		// unless a rival stop or crash took the chat once the send released it.
 		assert.NotEmpty(t, sub.RunnerID, "S5: a delivered send names no runner")
-		if endsRunner(w.rival) {
-			return
+		live, ok := w.live(t, f)
+		assert.True(t, ok || endsRunner(w.rival), "S5: a delivered send left the chat with no runner")
+		// The CLI takes what it is sent; a switch parked on the prompt waits for that.
+		if ok && live.ID == sub.RunnerID {
+			prompt(t, f, live.ID, live.ProviderID, "step")
 		}
-		_, ok := w.live(t, f)
-		assert.True(t, ok, "S5: a delivered send left the chat with no runner")
 	}},
 	{"stop", func(t *testing.T, f testFixture, w *sessionWalk) {
 		t.Helper()

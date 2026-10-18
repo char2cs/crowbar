@@ -137,7 +137,7 @@ func DecodeBody[B any](r Row) (B, error)
 
 | Kind | Body (JSON field names) | Added in |
 |---|---|---|
-| `user_message` | `requestId`, `text`, `origin` (`crowbar`\|`provider`\|`harness`), `delivery` (`restart`\|`steer`\|`api`, crowbar origin only) | T2 |
+| `user_message` | `requestId`, `text`, `origin` (`crowbar`\|`provider`\|`harness`), `delivery` (`restart`\|`steer`\|`api`, crowbar origin only), `runnerId` (the carrier: the runner that delivers a crowbar prompt; only it acknowledges or strands the prompt) | T2 |
 | `turn_started` | `requestId` (crowbar origin only), `providerTurnId`, `runnerId` | T2 |
 | `prompt_settled` | `requestId`, `consumed`, `reason` | T2 |
 | `turn_ended` | `status` (`done`\|`interrupted`), `reason`, `asyncWork` (deleted in T9), `effort` | T5 |

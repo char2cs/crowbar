@@ -84,3 +84,15 @@ func Settle(st State, match func(Prompt) bool, consumed bool, reason string) ([]
 	}
 	return rows, nil
 }
+
+// SettleCarried settles the pending prompts runnerID carries: a runner that has
+// left the chat can acknowledge none of them.
+func SettleCarried(st State, runnerID string, consumed bool, reason string) ([]Row, error) {
+	return Settle(st, func(p Prompt) bool { return p.RunnerID == runnerID }, consumed, reason)
+}
+
+// SettleOrphaned settles, as runner_exited, every pending prompt whose carrier
+// live does not report. A prompt with no carrier is never orphaned.
+func SettleOrphaned(st State, live func(runnerID string) bool) ([]Row, error) {
+	return Settle(st, func(p Prompt) bool { return p.RunnerID != "" && !live(p.RunnerID) }, false, ReasonRunnerExited)
+}

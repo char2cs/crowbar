@@ -14,6 +14,9 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
+// turnStarted is when the chat's running turn started.
+var turnStarted = time.Unix(1_700_000_000, 0)
+
 // A compaction's own turn_stop is skipped whole (compaction.go) — but the idle
 // report riding with it is about the COMPACTION, not the assistant turn still
 // running underneath it. Measured live against codex-cli: idle lands in the
@@ -28,9 +31,6 @@ import (
 // Only codex reaches this: it is the only descriptor mapping idle, and it marks
 // no message final, so no mid-turn recordAssistantMessage ever re-opens the
 // assistant turn to clear the latch on its own.
-// turnStarted is the assistant turn still running under the compaction.
-var turnStarted = time.Unix(1_700_000_000, 0)
-
 func TestRegression_ACompactionsOwnStopStillClearsTheIdleLatch(t *testing.T) {
 	turns := New(Deps{})
 	turns.compacting.arm("chat-1", "compaction-turn")
