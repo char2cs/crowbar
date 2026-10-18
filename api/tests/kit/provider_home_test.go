@@ -101,23 +101,21 @@ func TestProviderHomeIn_RefusesAHomeOutsideTheTestsTempDir(t *testing.T) {
 	}
 }
 
-// A credential the kit is pointed at through a link, or under a provider home
-// that is itself a link, is still refused.
-func TestIsolateProviderHomes_RefusesACredentialALinkHidesInAProviderHome(t *testing.T) {
-	home, dotfiles := t.TempDir(), t.TempDir()
+// A credential in a provider's own home is refused, named directly or through
+// a link to it.
+func TestIsolateProviderHomes_RefusesACredentialInAProviderHome(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 	t.Setenv("HOME", home)
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o700))
 	inClaude := filepath.Join(home, ".claude", ".credentials.json")
 	require.NoError(t, os.WriteFile(inClaude, []byte("{}"), 0o600))
-	require.NoError(t, os.Symlink(dotfiles, filepath.Join(home, ".codex")))
-	inCodex := filepath.Join(dotfiles, "auth.json")
-	require.NoError(t, os.WriteFile(inCodex, []byte("{}"), 0o600))
 	link := filepath.Join(t.TempDir(), "credentials.json")
 	require.NoError(t, os.Symlink(inClaude, link))
 	elsewhere := filepath.Join(t.TempDir(), "auth.json")
 	require.NoError(t, os.WriteFile(elsewhere, []byte("{}"), 0o600))
 
+	require.Error(t, outsideProviderHomes(ClaudeCredentialsEnv, inClaude), "named inside ~/.claude")
 	require.Error(t, outsideProviderHomes(ClaudeCredentialsEnv, link), "a link into ~/.claude")
-	require.Error(t, outsideProviderHomes(CodexAuthEnv, inCodex), "the real path of a linked ~/.codex")
 	require.NoError(t, outsideProviderHomes(CodexAuthEnv, elsewhere))
 }

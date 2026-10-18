@@ -89,7 +89,7 @@ func (rs *Runners) forkOrAdopt(
 // the connection delivers until runner_started commits.
 func (rs *Runners) adoptAPIConn(ctx context.Context, req forkRequest) error {
 	//nolint:contextcheck // the exit outlives the request; its values (gate holds, delivery ids) must not reach it.
-	if !rs.apiConns.watchExit(req.runnerID, rs.onRunnerExit(req.crowbarHome, req.runnerID, req.tmpDir, resumeWatch{})) {
+	if !rs.watchAPIConnExit(req.runnerID, req.crowbarHome, req.tmpDir) {
 		rs.pendingHooks.Discard(req.runnerID)
 		rs.abandonAdoptedSpawn(ctx, req)
 		return fmt.Errorf("agent: spawn runner: api connection vanished before its exit could be watched")
@@ -179,18 +179,23 @@ func (rs *Runners) exitProcesslessRunner(ctx context.Context, runnerID string) {
 	rs.reconcileRunnerExit(ctx, runnerID)
 }
 
-// rearmAPIConnExit points a PTY-less runner's exit signal back at the
-// connection SwitchToNative just re-established, and reports whether there
-// was one to point at. Without this the runner came back from its native view
-// with nothing watching it at all: adoptAPIConn arms the ORIGINAL connection
-// at spawn, and SwitchToTerminal killed that one.
-func (rs *Runners) rearmAPIConnExit(runnerID string, tctx engineagents.TemplateCtx) bool {
-	return rs.apiConns.watchExit(runnerID, rs.onRunnerExit(tctx.CrowbarHome, runnerID, tctx.Tmp, resumeWatch{}))
+// watchAPIConnExit makes runnerID's connection its process: the serve exiting
+// ends the runner, and a connection lost on its own names why. Armed at adoption
+// and again after SwitchToNative, which re-establishes the connection.
+func (rs *Runners) watchAPIConnExit(runnerID, home, tmpDir string) bool {
+	onExit := rs.onRunnerExit(home, runnerID, tmpDir, resumeWatch{})
+	return rs.apiConns.watchExit(runnerID, func(lost string) {
+		if lost != "" {
+			rs.live.noteCause(runnerID, lost)
+		}
+		// No screen: a connection's refusal is the establish error, not its exit.
+		onExit(engineterminal.Exit{})
+	})
 }
 
 // watchExit arms onExit against runnerID's `serve` process — the liveness
-// signal a PTY-less runner has instead of a terminal session, and the one
-// forkServeProcess's own doc already names as this connection's process.
+// signal a PTY-less runner has instead of a terminal session — handing it why
+// the connection died on its own, if it did.
 //
 // Reaping it here is also what keeps a killed `serve` from lingering as a
 // zombie: drop SIGKILLs without waiting, so before this nothing ever called
@@ -205,7 +210,7 @@ func (rs *Runners) rearmAPIConnExit(runnerID string, tctx engineagents.TemplateC
 //
 // false means there was no connection to watch, which is the caller's signal
 // that this spawn has no liveness signal at all and must not be recorded.
-func (r *apiConnRegistry) watchExit(runnerID string, onExit func(engineterminal.Exit)) bool {
+func (r *apiConnRegistry) watchExit(runnerID string, onExit func(lost string)) bool {
 	c, ok := r.get(runnerID)
 	if !ok || c.serve == nil {
 		return false
@@ -215,8 +220,7 @@ func (r *apiConnRegistry) watchExit(runnerID string, onExit func(engineterminal.
 		if c.detached.Load() {
 			return // not the runner's exit — see apiconn.detached
 		}
-		// No screen: a connection's refusal is the establish error, not its exit.
-		onExit(engineterminal.Exit{})
+		onExit(c.lostReason())
 	}()
 	return true
 }

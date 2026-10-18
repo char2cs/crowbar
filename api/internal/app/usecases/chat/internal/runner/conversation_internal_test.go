@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -240,9 +241,9 @@ func TestSubmitPromptOverAPI_ARefusedSessionIsLost(t *testing.T) {
 	assertSessionLost(t, rs, asked)
 }
 
-// refusingServeDescriptor is a provider whose `serve` is this test binary
-// running TestHelperRefusingServe: an api server that refuses every resume.
-const refusingServeDescriptor = `
+// helperServeDescriptor is a provider whose `serve` is this test binary
+// running TestHelperServe.
+const helperServeDescriptor = `
 id: carrier-test
 spawn:
   cmd: acme
@@ -265,16 +266,19 @@ runtime:
   transport: api
   api:
     protocol: jsonrpc2
-    serve: [%q, "-test.run=^TestHelperRefusingServe$", "--", "{socket}"]
+    serve: [%q, "-test.run=^TestHelperServe$", "--", "{socket}"]
     handshake: { call: initialize }
 `
 
-// TestHelperRefusingServe is not a test: it is the `serve` process a
-// refusingServeDescriptor spawn forks, and returns at once anywhere else.
-func TestHelperRefusingServe(t *testing.T) {
-	if os.Getenv("CROWBAR_TEST_REFUSING_SERVE") == "" || flag.NArg() != 1 {
+// TestHelperServe is not a test: it is the `serve` a helperServeDescriptor spawn
+// forks, and returns at once anywhere else. Mode "refuse" refuses every resume;
+// "drop-after <method>" hangs up once it has answered that call, and lives on.
+func TestHelperServe(t *testing.T) {
+	mode := os.Getenv(helperServeMode)
+	if mode == "" || flag.NArg() != 1 {
 		return
 	}
+	dropAfter, drops := strings.CutPrefix(mode, "drop-after ")
 	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", flag.Arg(0))
 	require.NoError(t, err)
 	upgrader := websocket.Upgrader{}
@@ -294,11 +298,12 @@ func TestHelperRefusingServe(t *testing.T) {
 			if len(req.ID) == 0 {
 				continue
 			}
-			resp := map[string]any{"id": req.ID, "result": map[string]any{}}
-			if req.Method == "thread/resume" {
+			resp := map[string]any{"id": req.ID, "result": map[string]any{"thread": map[string]any{"id": "T1"}}}
+			if mode == "refuse" && req.Method == "thread/resume" {
 				resp = map[string]any{"id": req.ID, "error": refusedResume["thread/resume"]["error"]}
 			}
-			if conn.WriteJSON(resp) != nil {
+			if conn.WriteJSON(resp) != nil || drops && req.Method == dropAfter {
+				_ = conn.Close()
 				return
 			}
 		}
@@ -309,13 +314,7 @@ func TestHelperRefusingServe(t *testing.T) {
 // the session is lost and the spawn goes on over its PTY.
 func refusedResumeSpawn(t *testing.T) (*spawnHarness, string) {
 	t.Helper()
-	h := newSpawnHarness(t, engineagents.SurfaceChat)
-	t.Setenv("CROWBAR_DISABLE_API_TRANSPORT", "")
-	t.Setenv("CROWBAR_TEST_REFUSING_SERVE", "1")
-	installDescriptor(t, h.home, fmt.Sprintf(refusingServeDescriptor, os.Args[0]))
-	h.rs.ledger = turnedTestLedger(t, "carrier-test", "S1")
-	h.rs.spawns = inflight.NewGate()
-	t.Cleanup(func() { _ = os.Remove(apiSocketPath("runner-refused-resume")) })
+	h := helperServeSpawn(t, "refuse", false, "runner-refused-resume")
 
 	runnerID, err := h.rs.spawnRunner(t.Context(), h.chatID, "ws-1", "carrier-test",
 		spawnInput{runnerID: "runner-refused-resume"}, false)
@@ -324,6 +323,27 @@ func refusedResumeSpawn(t *testing.T) (*spawnHarness, string) {
 	require.Equal(t, ledger.ConversationLost, c.State, "the provider refused the resume")
 	require.Len(t, h.term.created, 1, "the spawn went on over its PTY")
 	return h, runnerID
+}
+
+const helperServeMode = "CROWBAR_TEST_SERVE"
+
+// helperServeSpawn readies h to spawn runnerID on a turned carrier-test chat
+// whose serve runs as mode; attach makes the provider hotswap, so a PTY forks.
+func helperServeSpawn(t *testing.T, mode string, attach bool, runnerID string) *spawnHarness {
+	t.Helper()
+	h := newSpawnHarness(t, engineagents.SurfaceChat)
+	t.Setenv("CROWBAR_DISABLE_API_TRANSPORT", "")
+	t.Setenv(helperServeMode, mode)
+	doc := fmt.Sprintf(helperServeDescriptor, os.Args[0])
+	if attach {
+		doc = strings.Replace(doc, "  transport: api\n", "  transport: api\n  hotswap: true\n", 1) +
+			"    attach: [acme, resume, \"{session_id}\"]\n"
+	}
+	installDescriptor(t, h.home, doc)
+	h.rs.ledger = turnedTestLedger(t, "carrier-test", "S1")
+	h.rs.spawns = inflight.NewGate()
+	t.Cleanup(func() { _ = os.Remove(apiSocketPath(runnerID)) })
+	return h
 }
 
 // endedAs is how chat-1's one recorded runner exit names its end.

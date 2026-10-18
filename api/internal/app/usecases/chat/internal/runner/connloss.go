@@ -10,21 +10,19 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// onAPIConnLost ends a runner whose connection was its process: the serve
-// process is killed, and its exit watcher records the loss as the cause. A
-// runner with a PTY runs on.
-func (rs *Runners) onAPIConnLost(ctx context.Context, runnerID string) {
+// onAPIConnLost keeps why conn died on its own, then kills its serve process.
+// A runner whose process conn was ends with it, the loss as its cause; one
+// with a PTY, or still being spawned, runs on.
+func (rs *Runners) onAPIConnLost(ctx context.Context, conn *apiconn, runnerID string) {
 	if ctx.Err() != nil {
 		return // deliberate teardown; the caller that dropped it owns the rest
 	}
 	reason := domain.AgentExitConnectionLost
-	if conn, ok := rs.apiConns.get(runnerID); ok && conn.driver.Overflowed() {
+	if conn.driver.Overflowed() {
 		reason = domain.AgentExitTransportOverflow
 	}
-	slog.WarnContext(context.WithoutCancel(ctx), "agent: api transport: connection lost; ending its runner",
+	slog.WarnContext(context.WithoutCancel(ctx), "agent: api transport: connection lost",
 		"runner_id", runnerID, "reason", reason)
-	if r, ok := rs.live.byRunner(runnerID); ok && r.TerminalSession == "" {
-		rs.live.noteCause(runnerID, reason)
-	}
+	conn.lost.Store(&reason)
 	rs.apiConns.drop(runnerID)
 }

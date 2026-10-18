@@ -50,6 +50,17 @@ type apiconn struct {
 	// daemon shutting down, whose next boot reconciles the row. Read by
 	// watchExit (apirunner.go), which holds this pointer after the entry is gone.
 	detached atomic.Bool
+	// lost is why the connection died on its own, kept here because only a
+	// watched connection's death is its runner's exit (watchAPIConnExit).
+	lost atomic.Pointer[string]
+}
+
+// lostReason is why c died on its own; "" while it lives or was taken down.
+func (c *apiconn) lostReason() string {
+	if reason := c.lost.Load(); reason != nil {
+		return *reason
+	}
+	return ""
 }
 
 // apiConnRegistry is the per-runner registry pumpAPIConn's ingest loop and
@@ -298,7 +309,7 @@ func (rs *Runners) pumpAPIConn(
 ) {
 	ctx := conn.ctx
 	go func() {
-		defer rs.onAPIConnLost(ctx, runnerID)
+		defer rs.onAPIConnLost(ctx, conn, runnerID)
 		for ev := range conn.driver.Events() {
 			evCtx := inflight.WithAPITransport(ctx)
 			if ev.AskID != nil {

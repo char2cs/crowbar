@@ -37,18 +37,18 @@ func newLiveRig(t *testing.T) (*rig, *modelServer) {
 	model := newModelServer(t)
 	home := t.TempDir()
 	t.Setenv("CROWBAR_HOME", home)
-	providers := kit.IsolateProviderHomes(t)
+	homes := kit.IsolateProviderHomes(t)
 	t.Setenv("ANTHROPIC_BASE_URL", model.URL)
 	t.Setenv("ANTHROPIC_API_KEY", liveAPIKey)
 	t.Setenv("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
 	t.Setenv("DISABLE_TELEMETRY", "1")
 	t.Setenv("LIVE_OPENAI_KEY", "live")
-	require.NoError(t, os.WriteFile(filepath.Join(kit.RequireProviderHomeIn(t, kit.CodexHomeEnv, providers), "config.toml"), []byte(
+	require.NoError(t, os.WriteFile(filepath.Join(kit.RequireProviderHomeIn(t, kit.CodexHomeEnv, homes), "config.toml"), []byte(
 		"model = \"gpt-live\"\nmodel_provider = \"live\"\n[model_providers.live]\nname = \"live\"\n"+
 			"base_url = \""+model.URL+"/v1\"\nwire_api = \"responses\"\nenv_key = \"LIVE_OPENAI_KEY\"\n"), 0o600))
 	scratch := t.TempDir()
 	r := &rig{
-		t: t, home: home, providers: providers,
+		t: t, home: home, providers: homes,
 		script: filepath.Join(scratch, "unused.yaml"), log: filepath.Join(scratch, "unused.log"),
 	}
 	r.d = bootDaemon(t, home)

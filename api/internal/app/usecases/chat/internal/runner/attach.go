@@ -341,7 +341,8 @@ func (rs *Runners) detachNativeView(
 	// A runner without a PTY of its own has just swapped processes again: the
 	// re-established connection is its process, and if none came back it has
 	// none. Still under the spawn gate, so the view's exit callback cannot race.
-	if live.TerminalSession == "" && !rs.rearmAPIConnExit(live.ID, view.tctx) {
+	//nolint:contextcheck // the exit outlives the request; its values (gate holds, delivery ids) must not reach it.
+	if live.TerminalSession == "" && !rs.watchAPIConnExit(live.ID, view.tctx.CrowbarHome, view.tctx.Tmp) {
 		rs.exitProcesslessRunner(ctx, live.ID)
 	}
 	rs.moveSurface(ctx, chatID, live.ID, engineagents.SurfaceChat)

@@ -22,7 +22,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
-	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -213,7 +212,7 @@ func TestAPIConnRegistry_CloseAllIsNotARunnerExit(t *testing.T) {
 	serve := reapServe(cmd)
 	reg.set("runner-1", &apiconn{serve: serve})
 	exited := make(chan struct{}, 1)
-	require.True(t, reg.watchExit("runner-1", func(engineterminal.Exit) { exited <- struct{}{} }))
+	require.True(t, reg.watchExit("runner-1", func(string) { exited <- struct{}{} }))
 
 	reg.closeAll()
 

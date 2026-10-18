@@ -34,7 +34,7 @@
   "api/internal/app/usecases/chat/chat_test.go": 2122,
   "api/internal/app/usecases/chat/harness_test.go": 1449,
   "api/internal/app/usecases/chat/internal/conversation/conversation_test.go": 630,
-  "api/internal/app/usecases/chat/internal/runner/apiconn_internal_test.go": 530,
+  "api/internal/app/usecases/chat/internal/runner/apiconn_internal_test.go": 529,
   "api/internal/app/usecases/chat/internal/runner/apirunner_internal_test.go": 742,
   "api/internal/app/usecases/chat/internal/runner/attach_internal_test.go": 554,
   "api/internal/app/usecases/chat/internal/runner/internal/termwait/termwait_test.go": 1231,

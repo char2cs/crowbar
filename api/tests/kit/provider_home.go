@@ -114,7 +114,8 @@ func copyCredential(
 }
 
 // outsideProviderHomes refuses a credential kept in a provider's own home,
-// which the kit never reads. Both sides are resolved, so a link cannot hide one.
+// which the kit never reads. The path is checked as named, then as it resolves;
+// the homes are compared by name only, never touched.
 func outsideProviderHomes(
 	env string,
 	path string,
@@ -123,30 +124,31 @@ func outsideProviderHomes(
 	if err != nil {
 		return fmt.Errorf("kit: locate the user's home: %w", err)
 	}
-	cred, err := filepath.EvalSymlinks(path)
+	named, err := filepath.Abs(path)
 	if err != nil {
 		return fmt.Errorf("kit: resolve %s: %w", env, err)
 	}
-	for _, own := range []string{".claude", ".codex", ".claude.json"} {
-		for _, guarded := range resolvedForms(filepath.Join(home, own)) {
-			if within(cred, guarded) {
-				return fmt.Errorf("kit: %s names %s, inside a provider's own home: copy it elsewhere first", env, path)
-			}
-		}
+	if inProviderHome(home, named) {
+		return fmt.Errorf("kit: %s names %s, inside a provider's own home: copy it elsewhere first", env, path)
+	}
+	resolved, err := filepath.EvalSymlinks(named)
+	if err != nil {
+		return fmt.Errorf("kit: resolve %s: %w", env, err)
+	}
+	if inProviderHome(home, resolved) {
+		return fmt.Errorf("kit: %s links %s into a provider's own home: copy it elsewhere first", env, path)
 	}
 	return nil
 }
 
-// resolvedForms is path as written and as its symlinks resolve, when they do.
-func resolvedForms(path string) []string {
-	forms := []string{path}
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		forms = append(forms, resolved)
+// inProviderHome reports whether path lies in claude's or codex's home under home.
+func inProviderHome(home, path string) bool {
+	for _, own := range []string{".claude", ".codex", ".claude.json"} {
+		if within(path, filepath.Join(home, own)) {
+			return true
+		}
 	}
-	if dir, err := filepath.EvalSymlinks(filepath.Dir(path)); err == nil {
-		forms = append(forms, filepath.Join(dir, filepath.Base(path)))
-	}
-	return forms
+	return false
 }
 
 // within reports whether path is root or lies under it.
