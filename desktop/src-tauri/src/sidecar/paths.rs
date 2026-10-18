@@ -1,23 +1,25 @@
-//! The Crowbar home and daemon socket, as the daemon binary reports them, so
-//! Go's `core/home` is the only place either is decided.
+//! The daemon socket and daemon log, as the daemon binary reports them for its
+//! home, so Go's `core/home` is the only place either is decided.
 
 use std::error::Error;
 use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_shell::{process::Command, ShellExt};
 
 #[derive(Debug)]
 pub struct ResolvedPaths {
-    pub home: PathBuf,
     pub socket: PathBuf,
+    pub log: PathBuf,
 }
 
 static PATHS: OnceLock<ResolvedPaths> = OnceLock::new();
 
-/// Reads `crowbar-api paths`, which prints `{"home": ..., "socket": ...}`.
+/// Reads `crowbar-api paths`, which prints `{"home": ..., "socket": ..., "log": ...}`;
+/// the shell needs only the socket and the log.
 pub fn parse_paths(stdout: &[u8]) -> Result<ResolvedPaths, String> {
     let report: serde_json::Value =
         serde_json::from_slice(stdout).map_err(|e| format!("paths output is not JSON: {e}"))?;
@@ -34,8 +36,8 @@ pub fn parse_paths(stdout: &[u8]) -> Result<ResolvedPaths, String> {
         }
     };
     Ok(ResolvedPaths {
-        home: absolute("home")?,
         socket: absolute("socket")?,
+        log: absolute("log")?,
     })
 }
 
@@ -70,9 +72,44 @@ pub(super) fn with_dev_home(cmd: Command) -> Command {
     }
 }
 
-/// Asks the daemon binary where the home and socket are and caches the answer.
-/// Runs once in `setup`, before any window can reach the daemon.
-pub async fn resolve<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn Error + Send + Sync>> {
+/// Resolves the paths in `setup`, before any window can reach the daemon, or
+/// tells the user why Crowbar cannot start and quits once they dismiss it. The
+/// dialog never blocks: setup runs on the main thread, which it draws on.
+pub fn resolve_or_explain<R: Runtime>(app: &AppHandle<R>) -> bool {
+    let outcome = tauri::async_runtime::block_on(resolve(app));
+    explain_failure(outcome, |text| {
+        for window in app.webview_windows().into_values() {
+            if let Err(e) = window.hide() {
+                log::warn!("cannot hide window {}: {e}", window.label());
+            }
+        }
+        let quit = app.clone();
+        app.dialog()
+            .message(text)
+            .kind(MessageDialogKind::Error)
+            .title("Crowbar cannot start")
+            .show(move |_| quit.exit(1));
+    })
+}
+
+/// Whether setup may go on after `outcome`; a failure is handed to `explain`
+/// as the text the user reads.
+fn explain_failure(
+    outcome: Result<(), Box<dyn Error + Send + Sync>>,
+    explain: impl FnOnce(String),
+) -> bool {
+    let Err(e) = outcome else {
+        return true;
+    };
+    log::error!("cannot resolve the Crowbar home: {e}");
+    explain(format!(
+        "Crowbar could not find where its data lives, so it cannot start.\n\n{e}"
+    ));
+    false
+}
+
+/// Asks the daemon binary where the socket and log are and caches the answer.
+async fn resolve<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn Error + Send + Sync>> {
     let output = with_dev_home(app.shell().sidecar("crowbar-api")?.args(["paths"]))
         .output()
         .await?;
@@ -97,24 +134,50 @@ pub fn socket_path() -> PathBuf {
     resolved().socket.clone()
 }
 
-/// The daemon's captured stdout/stderr: `<crowbar home>/logs/daemon.log`.
-/// This is the only place a Go panic's stack trace survives in the packaged
-/// app — the sidecar's pipes are otherwise connected to nothing.
+/// The daemon's captured stdout/stderr, where `paths` says it goes. This is
+/// the only place a Go panic's stack trace survives in the packaged app — the
+/// sidecar's pipes are otherwise connected to nothing.
 pub fn daemon_log_path() -> PathBuf {
-    resolved().home.join("logs").join("daemon.log")
+    resolved().log.clone()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parse_paths;
+    use super::{explain_failure, parse_paths};
     use std::path::PathBuf;
 
     #[test]
-    fn parse_paths_reads_home_and_socket() {
-        let out = br#"{"home":"/Users/a/.crowbar","socket":"/tmp/crowbar-1f.sock"}"#;
+    fn a_failed_resolve_is_explained_and_stops_setup_instead_of_panicking() {
+        let mut told = None;
+        let go_on = explain_failure(
+            Err("home: CROWBAR_HOME must be an absolute path".into()),
+            |text| told = Some(text),
+        );
+        assert!(
+            !go_on,
+            "setup must not go on to spawn a daemon it cannot find"
+        );
+        let told = told.expect("the user is told why Crowbar cannot start");
+        assert!(
+            told.contains("CROWBAR_HOME must be an absolute path"),
+            "got {told:?}"
+        );
+    }
+
+    #[test]
+    fn a_resolved_home_lets_setup_go_on_and_tells_nobody() {
+        assert!(explain_failure(Ok(()), |text| panic!("told {text:?}")));
+    }
+
+    #[test]
+    fn parse_paths_reads_socket_and_log() {
+        let out = br#"{"home":"/Users/a/.crowbar","socket":"/tmp/crowbar-1f.sock","log":"/Users/a/.crowbar/logs/daemon.log"}"#;
         let paths = parse_paths(out).unwrap();
-        assert_eq!(paths.home, PathBuf::from("/Users/a/.crowbar"));
         assert_eq!(paths.socket, PathBuf::from("/tmp/crowbar-1f.sock"));
+        assert_eq!(
+            paths.log,
+            PathBuf::from("/Users/a/.crowbar/logs/daemon.log")
+        );
     }
 
     #[test]
@@ -122,13 +185,16 @@ mod tests {
         for (why, out) in [
             (
                 "relative socket",
-                r#"{"home":"/h","socket":"crowbar.sock"}"#,
+                r#"{"home":"/h","socket":"crowbar.sock","log":"/l"}"#,
             ),
-            ("relative home", r#"{"home":"h","socket":"/s.sock"}"#),
-            ("missing home", r#"{"socket":"/s.sock"}"#),
-            ("missing socket", r#"{"home":"/h"}"#),
-            ("empty home", r#"{"home":"","socket":"/s.sock"}"#),
-            ("not a string", r#"{"home":7,"socket":"/s.sock"}"#),
+            (
+                "relative log",
+                r#"{"home":"/h","socket":"/s.sock","log":"daemon.log"}"#,
+            ),
+            ("missing socket", r#"{"home":"/h","log":"/l"}"#),
+            ("missing log", r#"{"home":"/h","socket":"/s.sock"}"#),
+            ("empty log", r#"{"home":"/h","socket":"/s.sock","log":""}"#),
+            ("not a string", r#"{"home":"/h","socket":7,"log":"/l"}"#),
             ("not json", "starting daemon..."),
             ("empty output", ""),
         ] {

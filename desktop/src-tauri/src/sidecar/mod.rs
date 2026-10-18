@@ -4,7 +4,7 @@ pub mod stop;
 pub mod supervisor;
 pub mod watchdog;
 
-pub use paths::{daemon_log_path, resolve, socket_path};
+pub use paths::{daemon_log_path, resolve_or_explain, socket_path};
 pub use stop::shutdown;
 pub use watchdog::start_watchdog;
 

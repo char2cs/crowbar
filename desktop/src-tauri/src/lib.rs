@@ -1068,9 +1068,9 @@ pub fn run() {
 
             // The daemon binary says where its home and socket are, before any window
             // can call in; the webview reaches the socket via `crowbar://` (api_proxy).
-            tauri::async_runtime::block_on(sidecar::resolve(&app_handle))
-                .inspect_err(|e| log::error!("cannot resolve the Crowbar home: {e}"))
-                .map_err(|e| e as Box<dyn std::error::Error>)?;
+            if !sidecar::resolve_or_explain(&app_handle) {
+                return Ok(());
+            }
 
             // Native macOS blur + WebKit 60fps un-cap. See decorate_window — applied
             // here for `main`, and again for every window `open_window` creates.
