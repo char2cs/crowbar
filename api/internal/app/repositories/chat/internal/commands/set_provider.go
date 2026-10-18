@@ -11,8 +11,8 @@ import (
 // SetProvider restates the VENDOR a chat runs as — see domain.Chat.ProviderID.
 //
 // Create seeds the same field; this is what keeps it CURRENT, and its callers
-// are every moment a CLI is actually placed on the chat (a spawn, a switch, a
-// runner moved onto it by its own /clear). It is a record of what happened, not
+// are every moment a CLI is actually placed on the chat (a spawn or a switch).
+// It is a record of what happened, not
 // a decision: nothing here may invent a provider for a chat that has none.
 type SetProvider struct {
 	ChatID     string

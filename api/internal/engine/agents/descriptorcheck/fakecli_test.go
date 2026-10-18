@@ -46,7 +46,7 @@ type transcript struct {
 		Hooks        []string `yaml:"hooks"`
 		WriteSession bool     `yaml:"write_session"`
 	} `yaml:"turn"`
-	// UnknownResume is "exit" (the default) or "hang".
+	// UnknownResume is "exit" (the default), "hang" or "silent" (exits 1 saying nothing).
 	UnknownResume string `yaml:"unknown_resume"`
 	// Serve is "answer" (the default), "hang", "refuse" or "exit".
 	Serve    string            `yaml:"serve"`
@@ -128,6 +128,9 @@ func resumable(tr transcript, id string) bool {
 	}
 	if tr.UnknownResume == "hang" {
 		waitForKill()
+	}
+	if tr.UnknownResume == "silent" {
+		return false
 	}
 	say("No conversation found with session ID: " + id + "\n")
 	return false

@@ -111,11 +111,10 @@ var ErrTurnInProgress = fmt.Errorf("agent: provider cannot hand a live turn to i
 //   - its own PTY (claude; a chat born on the terminal): that PTY already is
 //     the TUI, so only the surface moves;
 //   - an api connection whose session the provider can load (a completed
-//     turn wrote its rollout): the session rung — the connection is handed
-//     over to a hooks-transport `attach` of that session, same runner;
-//   - otherwise: the TUI is launched through the resume ladder like any
-//     other replacement — Crowbar's transcript when there is history, fresh
-//     when there is none.
+//     turn wrote its rollout): the connection is handed over to a
+//     hooks-transport `attach` of that session, same runner;
+//   - otherwise: the TUI is launched like any other replacement, on the
+//     chat's session.
 //
 // A dormant chat only records the move; its next start lands there.
 func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string, error) {
@@ -164,29 +163,27 @@ func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string,
 	return rs.respawnOnSurface(ctx, park, chatID, live.ProviderID, engineagents.SurfaceTerminal)
 }
 
-// attachPlan is the session rung for an api runner's native view: its own
-// session resumed in the TUI, offered only once the provider can load it —
-// codex writes a thread's rollout when its first turn completes.
-//
-// live.CurrentSession, not conn.tctx.Session: turns are recorded under the
-// runner row's session, and the connection's copy is set once at establish.
+// attachPlan is an api runner's native view: the chat's bound session resumed
+// in the TUI, offered only once the provider can load it — codex writes a
+// thread's rollout when its first turn completes.
 func (rs *Runners) attachPlan(
 	ctx context.Context, chatID string, live engineagents.Runner, conn *apiconn,
 ) ([]string, engineagents.TemplateCtx, bool, error) {
 	tctx := conn.tctx
-	tctx.Session = live.CurrentSession
+	bound, err := rs.boundSession(ctx, chatID, live.ProviderID)
+	if err != nil {
+		return nil, tctx, false, fmt.Errorf("agent: switch to terminal: %w", err)
+	}
+	tctx.Session = bound
 	argv, ok := conn.agent.APIAttachArgv(tctx)
-	if !ok || live.CurrentSession == "" {
+	if !ok || bound == "" {
 		return nil, tctx, false, nil
 	}
-	_, everTurned, err := rs.activity.LastTurnForSession(ctx, chatID, live.ProviderID, live.CurrentSession)
+	_, everTurned, err := rs.activity.LastTurnForSession(ctx, chatID, live.ProviderID, bound)
 	if err != nil {
 		return nil, tctx, false, fmt.Errorf("agent: switch to terminal: check session history: %w", err)
 	}
-	if !everTurned || rs.verifiedResume(ctx, conn.agent, chatID, live.CurrentSession) == "" {
-		return nil, tctx, false, nil
-	}
-	return argv, tctx, true, nil
+	return argv, tctx, everTurned, nil
 }
 
 // attachNativeView hands live's api connection over to a hooks-transport PTY
@@ -220,9 +217,8 @@ func (rs *Runners) attachNativeView(
 }
 
 // respawnOnSurface moves chatID to surface by relaunching its provider there
-// through the resume ladder (switchProviderLocked to the same provider): its
-// own session when the provider still has it, else Crowbar's transcript,
-// else fresh. The surface is recorded first because the spawn reads it.
+// (switchProviderLocked to the same provider), resuming the chat's bound
+// session. The surface is recorded first because the spawn reads it.
 func (rs *Runners) respawnOnSurface(
 	ctx, park context.Context, chatID, providerID, surface string,
 ) (string, error) {
@@ -273,8 +269,8 @@ func (rs *Runners) moveSurface(ctx context.Context, chatID, runnerID, surface st
 // native view is torn down and the api connection re-established over the
 // same session; a runner that is its own PTY on the terminal surface either
 // keeps serving (a provider whose chat surface is hooks-fed) or is relaunched
-// on the chat surface through the resume ladder. A dormant chat only records
-// the move. Idempotent.
+// on the chat surface on the chat's session. A dormant chat only records the
+// move. Idempotent.
 func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
 	park, release, err := rs.spawns.Acquire(ctx, chatID)
 	if err != nil {
@@ -367,8 +363,8 @@ func (rs *Runners) detachNativeView(
 // every deliberate teardown (SwitchToNative, Stop, retire) calls that while
 // holding the chat's spawn gate — taking the gate here, in line, deadlocked
 // the chat for good.
-func (rs *Runners) onAttachExit(chatID, runnerID string) func() {
-	return func() {
+func (rs *Runners) onAttachExit(chatID, runnerID string) func(engineterminal.Exit) {
+	return func(engineterminal.Exit) {
 		rs.background.run(context.Background(), func(ctx context.Context) {
 			if _, ok := rs.attached.get(runnerID); ok {
 				if err := rs.SwitchToNative(ctx, chatID); err != nil {

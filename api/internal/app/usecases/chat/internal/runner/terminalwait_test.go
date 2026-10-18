@@ -28,7 +28,7 @@ var _ termwait.Screens = engineterminal.Engine(nil)
 type plainCommander struct{}
 
 func (plainCommander) CreateCommand(
-	context.Context, string, string, []string, []string, func(),
+	context.Context, string, string, []string, []string, func(engineterminal.Exit),
 ) (string, error) {
 	return "", nil
 }
@@ -227,7 +227,7 @@ func newLiveRig(t *testing.T, screen string) *liveRig {
 		t.TempDir(),
 		[]string{"/bin/sh", "-c", "printf '%s' \"$SCREEN\"; read -r _"},
 		append(os.Environ(), "SCREEN="+screen),
-		func() {},
+		func(engineterminal.Exit) {},
 	)
 	require.NoError(t, err)
 

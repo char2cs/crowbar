@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -87,7 +88,8 @@ func (rs *Runners) forkOrAdopt(
 // startup barrier spawnRunner opened before the connection holds every event
 // the connection delivers until the runner row commits.
 func (rs *Runners) adoptAPIConn(ctx context.Context, req forkRequest) error {
-	if !rs.apiConns.watchExit(req.runnerID, rs.onRunnerExit(req.crowbarHome, req.runnerID, req.tmpDir)) {
+	//nolint:contextcheck // the exit outlives the request; its values (gate holds, delivery ids) must not reach it.
+	if !rs.apiConns.watchExit(req.runnerID, rs.onRunnerExit(req.crowbarHome, req.runnerID, req.tmpDir, resumeWatch{})) {
 		rs.pendingHooks.Discard(req.runnerID)
 		rs.abandonAdoptedSpawn(ctx, req)
 		return fmt.Errorf("agent: spawn runner: api connection vanished before its exit could be watched")
@@ -183,7 +185,7 @@ func (rs *Runners) exitProcesslessRunner(ctx context.Context, runnerID string) {
 // with nothing watching it at all: adoptAPIConn arms the ORIGINAL connection
 // at spawn, and SwitchToTerminal killed that one.
 func (rs *Runners) rearmAPIConnExit(runnerID string, tctx engineagents.TemplateCtx) bool {
-	return rs.apiConns.watchExit(runnerID, rs.onRunnerExit(tctx.CrowbarHome, runnerID, tctx.Tmp))
+	return rs.apiConns.watchExit(runnerID, rs.onRunnerExit(tctx.CrowbarHome, runnerID, tctx.Tmp, resumeWatch{}))
 }
 
 // watchExit arms onExit against runnerID's `serve` process — the liveness
@@ -203,7 +205,7 @@ func (rs *Runners) rearmAPIConnExit(runnerID string, tctx engineagents.TemplateC
 //
 // false means there was no connection to watch, which is the caller's signal
 // that this spawn has no liveness signal at all and must not be recorded.
-func (r *apiConnRegistry) watchExit(runnerID string, onExit func()) bool {
+func (r *apiConnRegistry) watchExit(runnerID string, onExit func(engineterminal.Exit)) bool {
 	c, ok := r.get(runnerID)
 	if !ok || c.serve == nil {
 		return false
@@ -213,7 +215,8 @@ func (r *apiConnRegistry) watchExit(runnerID string, onExit func()) bool {
 		if c.detached.Load() {
 			return // not the runner's exit — see apiconn.detached
 		}
-		onExit()
+		// No screen: a connection's refusal is the establish error, not its exit.
+		onExit(engineterminal.Exit{})
 	}()
 	return true
 }

@@ -19,6 +19,7 @@ import (
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -47,7 +48,7 @@ type wiringPrefs struct {
 type screenReadingCommander struct{}
 
 func (screenReadingCommander) CreateCommand(
-	context.Context, string, string, []string, []string, func(),
+	context.Context, string, string, []string, []string, func(engineterminal.Exit),
 ) (string, error) {
 	return "", nil
 }
@@ -466,7 +467,7 @@ func TestInvariant_TheOnlyWayToEndARunnerIsGraceful(t *testing.T) {
 type terminalCommanderShape struct{}
 
 func (terminalCommanderShape) CreateCommand(
-	_ context.Context, _, _ string, _, _ []string, _ func(),
+	_ context.Context, _, _ string, _, _ []string, _ func(engineterminal.Exit),
 ) (string, error) {
 	return "", nil
 }

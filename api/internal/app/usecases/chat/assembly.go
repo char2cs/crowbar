@@ -19,6 +19,7 @@ import (
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
@@ -177,7 +178,7 @@ func New(d Deps) *Usecase {
 			return correctHomeChats(ctx, d.Nodes, chats)
 		})
 	}
-	u.snapshots.Bind(snapshotReader{chats: d.Chats, runners: d.Runners}, u.runners)
+	u.snapshots.Bind(snapshotReader{chats: d.Chats, runners: d.Runners, ledger: d.Ledger}, u.runners)
 	return u
 }
 
@@ -186,6 +187,11 @@ func New(d Deps) *Usecase {
 type snapshotReader struct {
 	chats   agentchat.EventStore
 	runners agentrunner.EventStore
+	ledger  *ledgerstore.Store
+}
+
+func (r snapshotReader) LedgerState(ctx context.Context, chatID string) (ledger.State, error) {
+	return r.ledger.State(ctx, chatID)
 }
 
 func (r snapshotReader) GetChat(ctx context.Context, chatID string) (domain.Chat, error) {
@@ -289,5 +295,10 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	u.turns.SetRunners(u.runners)
 	sh.turns.OnDrop(u.runners.RefuseSteered)
 	u.runners.SetTurns(u.turns)
+	// Facts first: every later subscriber reads snapshots, and a chat without
+	// facts would read the ledger under its own writer.
+	d.Ledger.Subscribe(func(chatID string, _ []ledger.Row, st ledger.State) {
+		u.snapshots.ApplyLedger(context.Background(), chatID, snapshot.FactsOf(st))
+	})
 	d.Ledger.Subscribe(u.publishLedgerRows)
 }

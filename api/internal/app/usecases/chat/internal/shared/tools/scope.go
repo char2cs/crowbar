@@ -196,11 +196,7 @@ func NewResolver(
 // see.
 //
 // It resolves through the runner's CURRENT chat rather than a chat id baked in
-// at spawn: an agent that clears its conversation moves to a different chat
-// while the runner id stays stable, so anything keyed on a baked-in chat id
-// would act on the chat the agent used to be on instead of the one it is
-// actually on. This is the same property agent.ChatUsecase.RenameByRunner
-// relies on. A runner with no current chat has been displaced — evicted from
+// at spawn: a runner with no current chat has been displaced — evicted from
 // the chat it was on, dying but not yet reaped — and must not resolve to
 // anything.
 func (r *Resolver) Resolve(ctx context.Context, runnerID, token string) (Caller, error) {

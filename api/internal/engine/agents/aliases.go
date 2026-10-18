@@ -46,9 +46,7 @@ type (
 
 	AnswerCapability = models.AnswerCapability
 	AnswerDecision   = models.AnswerDecision
-	Decision         = models.Decision
 	Selection        = models.Selection
-	MoveKind         = models.MoveKind
 
 	MessageDelta     = models.MessageDelta
 	PlanStep         = models.PlanStep
@@ -70,8 +68,8 @@ type (
 	// layer of indirection rather than re-exporting apidriver's types directly).
 	APIEvent = protocol.APIEvent
 	APIConn  = protocol.APIConn
-	// APISessionOrigin is how the runner layer learns which sessions a
-	// connection minted or re-entered ITSELF — see protocol's own alias.
+	// APISessionOrigin is how the runner layer learns every session a
+	// connection opens or enters — see protocol's own alias.
 	APISessionOrigin = protocol.APISessionOrigin
 )
 
@@ -85,13 +83,6 @@ const (
 const (
 	SurfaceChat     = spec.SurfaceChat
 	SurfaceTerminal = spec.SurfaceTerminal
-)
-
-const (
-	MoveNoop    = models.MoveNoop
-	MoveBind    = models.MoveBind
-	MoveToNew   = models.MoveToNew
-	MoveToKnown = models.MoveToKnown
 )
 
 const (

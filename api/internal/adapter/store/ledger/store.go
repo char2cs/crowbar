@@ -4,6 +4,7 @@ package ledger
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -16,6 +17,9 @@ import (
 
 // FileName is the ledger database under the store directory.
 const FileName = "chat_ledger.db"
+
+// ErrSessionClaimed is a session_bound row naming a session another chat owns.
+var ErrSessionClaimed = errors.New("ledger: session is bound to another chat")
 
 // Subscriber is called after commit, under the chat's writer, in seq order.
 // It must not block: hand work to a channel or do it in O(1). st is a read-only
@@ -126,7 +130,7 @@ func (s *Store) Watch(ctx context.Context, chatID string) (ledger.State, <-chan 
 	return cur.Clone(), w.changed, nil
 }
 
-// Forget erases chatID's rows and head, as a purged chat must leave nothing.
+// Forget erases chatID's rows, head and sessions, as a purged chat must leave nothing.
 func (s *Store) Forget(ctx context.Context, chatID string) error {
 	w := s.writer(chatID)
 	w.mu.Lock()
@@ -137,6 +141,9 @@ func (s *Store) Forget(ctx context.Context, chatID string) error {
 		}
 		if err := tx.Exec(`DELETE FROM chat_ledger_heads WHERE chat_id = ?`, chatID).Error; err != nil {
 			return fmt.Errorf("head: %w", err)
+		}
+		if err := tx.Exec(`DELETE FROM chat_ledger_sessions WHERE chat_id = ?`, chatID).Error; err != nil {
+			return fmt.Errorf("sessions: %w", err)
 		}
 		return nil
 	})
@@ -218,6 +225,9 @@ func (s *Store) commit(ctx context.Context, chatID string, rows []ledger.Row, ne
 			).Error; err != nil {
 				return fmt.Errorf("row %d: %w", r.Seq, err)
 			}
+			if err := claimSession(tx, chatID, r); err != nil {
+				return fmt.Errorf("row %d: %w", r.Seq, err)
+			}
 		}
 		if err := tx.Exec(
 			`INSERT INTO chat_ledger_heads (chat_id, last_seq, open) VALUES (?, ?, ?)
@@ -230,6 +240,31 @@ func (s *Store) commit(ctx context.Context, chatID string, rows []ledger.Row, ne
 	})
 	if err != nil {
 		return fmt.Errorf("ledger: append to %s: %w", chatID, err)
+	}
+	return nil
+}
+
+// claimSession indexes a session_bound row's session under chatID, refusing a
+// session another chat owns.
+func claimSession(tx *gorm.DB, chatID string, r ledger.Row) error {
+	if r.Kind != ledger.KindSessionBound {
+		return nil
+	}
+	body, err := ledger.DecodeBody[ledger.SessionBound](r)
+	if err != nil {
+		return err
+	}
+	var owners []string
+	if err := tx.Raw(`SELECT chat_id FROM chat_ledger_sessions WHERE provider = ? AND session_id = ?`,
+		body.Provider, body.SessionID).Scan(&owners).Error; err != nil {
+		return fmt.Errorf("session owner: %w", err)
+	}
+	if len(owners) > 0 && owners[0] != chatID {
+		return fmt.Errorf("%s %s: %w", body.Provider, body.SessionID, ErrSessionClaimed)
+	}
+	if err := tx.Exec(`INSERT INTO chat_ledger_sessions (provider, session_id, chat_id) VALUES (?, ?, ?)
+		ON CONFLICT(provider, session_id) DO NOTHING`, body.Provider, body.SessionID, chatID).Error; err != nil {
+		return fmt.Errorf("session index: %w", err)
 	}
 	return nil
 }

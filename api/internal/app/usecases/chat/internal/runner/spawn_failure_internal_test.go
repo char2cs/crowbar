@@ -106,11 +106,12 @@ func TestSpawnRunner_SpawnPlanFailure_ReturnsTheBuildError(t *testing.T) {
 		ws:            stubWorkspaceForSpawn{home: home, worktree: worktree, chatsDir: chatsDir},
 		providers:     stubProvidersForSpawn{},
 		conversations: stubConversationsForSpawn{},
+		ledger:        newTestLedger(t),
 		pendingHooks:  inflight.NewHooks(),
 	}
 
-	_, err := rs.spawnRunner(context.Background(), "chat-1", "ws-1", "boom-test", "runner-1",
-		nil, nil, "", 0, false, "", true, "hello")
+	_, err := rs.spawnRunner(context.Background(), "chat-1", "ws-1", "boom-test",
+		spawnInput{runnerID: "runner-1", promptMessage: "hello"}, true)
 
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "build spawn plan")
@@ -130,10 +131,11 @@ func TestSpawnRunner_DescriptorResolveFailure_ReturnsTheResolveError(t *testing.
 		ws:            stubWorkspaceForSpawn{home: home, worktree: worktree, chatsDir: chatsDir},
 		providers:     stubProvidersForSpawn{},
 		conversations: stubConversationsForSpawn{},
+		ledger:        newTestLedger(t),
 	}
 
-	_, err := rs.spawnRunner(context.Background(), "chat-1", "ws-1", "missing-test", "runner-1",
-		nil, nil, "", 0, false, "", true, "hello")
+	_, err := rs.spawnRunner(context.Background(), "chat-1", "ws-1", "missing-test",
+		spawnInput{runnerID: "runner-1", promptMessage: "hello"}, true)
 
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "resolve descriptor")
@@ -185,11 +187,12 @@ func TestSpawnRunner_PendingHooksRegisterFailure_ReturnsTheBarrierError(t *testi
 		ws:            stubWorkspaceForSpawn{home: home, worktree: worktree, chatsDir: chatsDir},
 		providers:     stubProvidersForSpawn{},
 		conversations: stubConversationsForSpawn{},
+		ledger:        newTestLedger(t),
 		pendingHooks:  pendingHooks,
 	}
 
-	_, err := rs.spawnRunner(context.Background(), "chat-1", "ws-1", "ok-test", "runner-1",
-		nil, nil, "", 0, false, "", true, "hello")
+	_, err := rs.spawnRunner(context.Background(), "chat-1", "ws-1", "ok-test",
+		spawnInput{runnerID: "runner-1", promptMessage: "hello"}, true)
 
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "install hook startup barrier")

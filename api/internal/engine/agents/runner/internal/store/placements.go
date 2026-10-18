@@ -1,21 +1,7 @@
-// This file holds the THIRD projection of the runner event stream: append-only
-// PLACEMENT history — which providers have been pointed at a chat, and when each
-// one last arrived there.
-//
-// It is the placement twin of the conversation history in store.go, and it
-// exists because that one is blind by construction. appendConversation can only
-// record a (chat, conversation) pair, so it records NOTHING for a provider that
-// binds via its own connection identity and never announces a conversation. A
-// chat that only ever ran such a provider — and was never switched, so it has no
-// interruption marker either — left no trace in any read model at all, and every
-// resolver answered "no provider has ever run here" for a chat whose CLI had
-// been running in it for days.
-//
-// A placement is recorded at the moment Crowbar points a runner at a chat, which
-// happens before the provider has announced anything and happens for EVERY
-// runner. That is the whole design: it derives from the same events, it is
-// append-only for the same reason (a dormant chat must still be able to say what
-// it ran), and it needs no cooperation from the vendor CLI.
+// This file holds the append-only PLACEMENT history of the runner event stream:
+// which providers have been pointed at a chat, and when each one last arrived
+// there. A placement is recorded the moment Crowbar points a runner at a chat,
+// for EVERY runner, so a dormant chat can still say what it ran.
 package store
 
 import (
@@ -31,7 +17,7 @@ import (
 
 // placementRow is APPEND-ONLY placement history: one row per (chat, provider)
 // pair any runner has ever been placed on, never deleted except by the chat
-// delete cascade (ForgetChat), exactly like conversationRow.
+// delete cascade (ForgetChat).
 //
 // The key is (chat, provider) rather than (chat, runner) because the question it
 // answers is "which VENDOR was last running here", not "which process": every
@@ -64,9 +50,7 @@ func (p placementRow) toPlacement() agents.ChatPlacement {
 // after the runners that were placed there have exited.
 //
 // It is the read that makes a dormant chat's provider recoverable when nothing
-// else knows it: no conversation (the provider never announced one), no switch
-// marker (it was never switched) and no durable choice on the chat itself (it
-// was minted before that field existed). An empty result means no CLI has ever
+// else knows it. An empty result means no CLI has ever
 // been started on this chat at all, which is a real and distinguishable answer,
 // not a lookup failure — so this returns no ErrNotFound.
 //
@@ -93,8 +77,7 @@ func (s *Store) PlacementsForChat(
 	return out, nil
 }
 
-// forgetPlacements drops a chat's placement history — the ForgetChat half of the
-// delete cascade for this projection, and, as for the conversation history, the
+// forgetPlacements drops a chat's placement history — the delete cascade, the
 // only thing permitted to remove append-only rows.
 func forgetPlacements(
 	ctx context.Context,
@@ -108,9 +91,8 @@ func forgetPlacements(
 }
 
 // appendPlacement records that a runner of r's provider is pointed at r's chat,
-// stamped with when it ARRIVED there (arrivedAt). Idempotent on (chat,
-// provider): a respawn, a rebind and a move back all restate the same pair and
-// only move the timestamp forward.
+// stamped with when it started. Idempotent on (chat, provider): a respawn
+// restates the same pair and only moves the timestamp forward.
 //
 // A runner placed NOWHERE writes nothing. That is not a special case, it is the
 // point: a displaced runner (the outgoing half of a switch, a chat deleted under
@@ -123,9 +105,6 @@ func forgetPlacements(
 // ACROSS providers — the resolver picks the newest arrival among them — and two
 // runners of different providers landing on one chat concurrently is exactly the
 // eviction window the live model already exists to survive.
-//
-// Package-level rather than a projector method for the same reason
-// appendConversation is: the boot heal folds it WITHOUT the live-row writer.
 func appendPlacement(
 	ctx context.Context,
 	db *gormdb.DB,
@@ -138,7 +117,7 @@ func appendPlacement(
 		ChatID:       r.CurrentChatID,
 		ProviderID:   r.ProviderID,
 		WorkspaceID:  r.WorkspaceID,
-		LastPlacedAt: arrivedAt(r),
+		LastPlacedAt: r.StartedAt,
 	}
 	err := db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "chat_id"}, {Name: "provider_id"}},
@@ -152,18 +131,4 @@ func appendPlacement(
 			r.CurrentChatID, r.ProviderID, err)
 	}
 	return nil
-}
-
-// arrivedAt is when this runner reached where it currently is: the later of its
-// spawn and its move into its current conversation. It is the Go twin of the
-// newestArrivalFirst ordering the live model uses, and it is deliberately the
-// same instant a conversation row is stamped with, so placement timestamps and
-// conversation timestamps order against each other correctly in one scan.
-func arrivedAt(
-	r agents.Runner,
-) time.Time {
-	if r.CurrentSessionSince.After(r.StartedAt) {
-		return r.CurrentSessionSince
-	}
-	return r.StartedAt
 }

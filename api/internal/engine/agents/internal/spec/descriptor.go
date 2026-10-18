@@ -77,18 +77,18 @@ type SpawnSpec struct {
 
 type SessionSpec struct {
 	Resume *ArgSpec `yaml:"resume"`
-	// Locate is where the provider keeps a session on disk, so a recorded id
-	// is verified before a resume is attempted (the resume ladder's first rung).
-	Locate *SessionLocateSpec `yaml:"locate"`
+	// Assign launches the CLI on a session id Crowbar minted.
+	Assign *ArgSpec `yaml:"assign"`
+	// Refused is how the CLI says it cannot resume a session: the only
+	// evidence that a chat's session is lost.
+	Refused *SessionRefusedSpec `yaml:"refused"`
 }
 
-// SessionLocateSpec finds a session file: Root (overridable by the RootEnv
-// environment variable, "~/" meaning the user's home), then any of Glob, whose
-// {id} is the session id and whose other segments may use shell wildcards.
-type SessionLocateSpec struct {
-	RootEnv string   `yaml:"root_env"`
-	Root    string   `yaml:"root"`
-	Glob    []string `yaml:"glob"`
+// SessionRefusedSpec is a refused resume: the CLI exits with ExitCode having
+// printed a line containing one of Needles.
+type SessionRefusedSpec struct {
+	ExitCode int      `yaml:"exit_code"`
+	Needles  []string `yaml:"needles"`
 }
 
 type ArgSpec struct {

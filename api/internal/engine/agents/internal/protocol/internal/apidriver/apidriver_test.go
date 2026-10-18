@@ -412,7 +412,7 @@ func TestRegression_EstablishSessionAlreadyEstablished_BlankCallerSessionIDFalls
 	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "t-resumed", "cwd": "/work"})
 	require.NoError(t, err)
 
-	// The runner row's own CurrentSession, exactly as a switch-back hands it in.
+	// A blank session id, as a launch with nothing to resume hands it in.
 	out, err := drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "", "cwd": "/work"})
 	require.NoError(t, err)
 	require.Equal(t, "t-resumed", out["session_id"],
@@ -453,11 +453,9 @@ func TestDispatch_SendsTheStructuredActionPayloadAfterEstablishing(t *testing.T)
 }
 
 // The connection is the authority on which thread it has open: a caller's
-// session id read from a runner row that never learned of a replacement must
-// not steer a later turn at the thread the provider already lost.
+// stale session id must not steer a later turn away from it.
 func TestRegression_DispatchOnAnEstablishedConnectionUsesTheThreadItOpened(t *testing.T) {
 	sockPath, seen := scriptedServer(t, []scriptedCall{
-		{method: "thread/resume", errCode: -32600, errMessage: "no rollout found for thread id t-old"},
 		{method: "thread/start", result: `{"thread":{"id":"t-new"}}`},
 		{method: "turn/start", result: `{"turn":{"id":"turn-1"}}`},
 	})
@@ -469,14 +467,14 @@ func TestRegression_DispatchOnAnEstablishedConnectionUsesTheThreadItOpened(t *te
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = drv.Close() })
 
-	established, err := drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "t-old", "cwd": "/work"})
+	established, err := drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "", "cwd": "/work"})
 	require.NoError(t, err)
 	require.Equal(t, "t-new", established["session_id"])
 
 	out, err := drv.Dispatch(ctx, "prompt", map[string]string{"session_id": "t-old", "cwd": "/work", "text": "hi"})
 	require.NoError(t, err)
 	require.Equal(t, "t-new", out["session_id"])
-	require.Contains(t, (*seen)[2], `"threadId":"t-new"`)
+	require.Contains(t, (*seen)[1], `"threadId":"t-new"`)
 }
 
 func TestDispatch_ASecondMessageOnAnEstablishedConnectionSkipsStraightToAction(t *testing.T) {
@@ -789,22 +787,11 @@ const (
 	lostOnTurnStartError = "thread not found: t-1"
 )
 
-// TestRegression_LostSessionOnResumeRebindsToAFreshThread pins the wedge that
-// made a codex chat permanently unreachable. codex writes no rollout for a
-// thread until a turn against it COMPLETES, so a thread that was started but
-// never finished a turn cannot be resumed once its app-server is replaced —
-// which happens on every restart. Resume then failed, the whole api connection
-// was torn down, and because nothing ever cleared the dead id off the chat,
-// every later spawn re-ran the identical doomed thread/resume. Observed four
-// times against one thread id in a single evening's daemon log.
-//
-// The recovery is the Fresh path — the same thread/start a chat's first-ever
-// message runs — because the old thread is genuinely gone provider-side and no
-// retry of it can ever succeed.
-func TestRegression_LostSessionOnResumeRebindsToAFreshThread(t *testing.T) {
+// A resume the provider refuses by a declared code is the session lost: the
+// caller is told so, and the driver never opens another thread in its place.
+func TestRegression_LostSessionOnResumeIsReportedNotReplaced(t *testing.T) {
 	sockPath, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/resume", errCode: lostSessionCode, errMessage: lostOnResumeMessage},
-		{method: "thread/start", result: `{"thread":{"id":"t-new"}}`},
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -815,28 +802,11 @@ func TestRegression_LostSessionOnResumeRebindsToAFreshThread(t *testing.T) {
 	require.NoError(t, err)
 	defer drv.Close()
 
-	out, err := drv.EstablishSession(ctx, "prompt", map[string]string{
-		"session_id": "t-dead", "cwd": "/work", "context": "what came before",
-		"permission.sandbox": "workspace-write", "permission.approvalPolicy": "on-request",
-	})
-	require.NoError(t, err, "a session the provider has forgotten must be replaced, not fatal")
-	require.Equal(t, "t-new", out["session_id"], "the caller must be handed the REPLACEMENT id")
-
-	require.Len(t, *seen, 2, "resume must be tried first, then exactly one thread/start")
-	require.Contains(t, (*seen)[1], `"sandbox":"workspace-write"`,
-		"the replacement thread must be born with the same settings as the original")
-	require.Contains(t, (*seen)[1], `"developerInstructions":"what came before"`,
-		"the replacement thread must carry the handoff, or the chat silently loses its history")
-
-	// The failed resume's OWN claim must be settled before establishFresh opens
-	// its own: claims nest via originatedSessions' pending counter rather than
-	// handing over, so one left open here never closes — and a permanently
-	// pending claim makes the hook ingress read EVERY conversation the provider
-	// announces on this connection, child threads included, as Crowbar's own.
-	assert.Equal(t, []string{"t-new"}, origins.ids,
-		"only the replacement actually came of this: the dead id must report nothing")
-	assert.Equal(t, 2, origins.claims, "the failed establish and its fresh replacement each claim once")
-	assert.Zero(t, origins.open, "every claim must be closed, the failed one included")
+	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "t-dead", "cwd": "/work"})
+	require.ErrorIs(t, err, apidriver.ErrSessionLost)
+	assert.Len(t, *seen, 1, "no thread/start follows the refusal")
+	assert.Empty(t, origins.ids, "the refused id reports nothing")
+	assert.Zero(t, origins.open, "the failed claim is closed")
 }
 
 // recordedOrigins collects the sessions a connection reports having produced
@@ -879,10 +849,6 @@ func establishAtSpawn(t *testing.T, ctx context.Context, drv *apidriver.Driver) 
 // that had created the thread nine hours earlier, still alive, reported it
 // unknown on the next prompt.
 //
-// The recovery used to blank the id and run Fresh, which starts an EMPTY
-// conversation: the user's own history was abandoned while the descriptor was
-// still declaring, for this same event, a provider-sanctioned way back into it.
-// Resume with the id we still hold comes FIRST.
 func TestRegression_LostSessionOnTurnStartReentersTheSameConversation(t *testing.T) {
 	sockPath, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-1"}}`},
@@ -919,22 +885,17 @@ func TestRegression_LostSessionOnTurnStartReentersTheSameConversation(t *testing
 	require.Contains(t, (*seen)[3], `"are you there?"`, "the user's prompt must actually be delivered")
 
 	assert.Equal(t, []string{"t-1", "t-1"}, origins.ids,
-		"the spawn-time establish claims the thread it minted, and the recovery claims the "+
-			"same conversation again — a recovered session is Crowbar's own even when its id did not change")
+		"the spawn-time establish reports the thread it minted, and the recovery the same one again")
 	assert.Zero(t, origins.open, "every claim must be closed")
 }
 
-// TestRegression_LostSessionFallsBackToFreshOnlyAfterResumeAlsoFails is the
-// other half of the same rule. Fresh throws the conversation away, so it is the
-// LAST answer, taken only once the provider has refused the held id on its own
-// declared resume path too — a thread that genuinely no longer exists anywhere.
-func TestRegression_LostSessionFallsBackToFreshOnlyAfterResumeAlsoFails(t *testing.T) {
+// A thread the provider refuses on its own resume path too is lost: the
+// prompt fails with ErrSessionLost rather than landing in a new thread.
+func TestRegression_LostSessionIsLostOnceResumeAlsoRefusesIt(t *testing.T) {
 	sockPath, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-1"}}`},
 		{method: "turn/start", errCode: lostSessionCode, errMessage: lostOnTurnStartError},
 		{method: "thread/resume", errCode: lostSessionCode, errMessage: lostOnResumeMessage},
-		{method: "thread/start", result: `{"thread":{"id":"t-2"}}`},
-		{method: "turn/start", result: `{"turn":{"id":"turn-9"}}`},
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -946,24 +907,13 @@ func TestRegression_LostSessionFallsBackToFreshOnlyAfterResumeAlsoFails(t *testi
 	defer drv.Close()
 	establishAtSpawn(t, ctx, drv)
 
-	out, err := drv.Dispatch(ctx, "prompt", map[string]string{
+	_, err = drv.Dispatch(ctx, "prompt", map[string]string{
 		"session_id": "t-1", "cwd": "/work", "text": "are you there?",
 	})
-	require.NoError(t, err, "an unrecoverable thread must still deliver the prompt somewhere live")
-	require.Equal(t, "t-2", out["session_id"])
-
-	require.Len(t, *seen, 5, "expected start, failed turn, failed resume, fresh start, retried turn")
-	require.Contains(t, (*seen)[3], `"sandbox":"workspace-write"`,
-		"the replacement thread must be born with the same settings as the original")
-	require.Contains(t, (*seen)[3], `"developerInstructions":"what came before"`,
-		"the replacement thread must carry the handoff, or the chat silently loses its history")
-	require.Contains(t, (*seen)[4], `"threadId":"t-2"`, "the retry must name the NEW thread")
-	require.Contains(t, (*seen)[4], `"are you there?"`, "the user's prompt must actually be delivered")
-
-	assert.Equal(t, []string{"t-1", "t-2"}, origins.ids,
-		"the spawn-time thread and its replacement are both Crowbar's own, or the ingest reads "+
-			"the replacement as a user-typed /clear")
-	assert.Zero(t, origins.open, "every claim must be closed, including the failed resume's")
+	require.ErrorIs(t, err, apidriver.ErrSessionLost)
+	assert.Len(t, *seen, 3, "start, refused turn, refused resume — and no new thread")
+	assert.Equal(t, []string{"t-1"}, origins.ids)
+	assert.Zero(t, origins.open, "every claim is closed, the refused resume's included")
 }
 
 // TestRegression_UndeclaredErrorCodeIsStillFatal keeps the recovery narrow: it
@@ -992,17 +942,8 @@ func TestRegression_UndeclaredErrorCodeIsStillFatal(t *testing.T) {
 	require.Len(t, *seen, 2, "a code the descriptor does not declare must not mint a new session")
 }
 
-// TestRegression_EstablishSessionFreshReportsTheSessionItMinted pins the root
-// cause of the 2026-09-23 collab-agents transcript bleed. Only the RECOVERY
-// paths used to claim what they produced; EstablishSession's ordinary success
-// path — the one EVERY fresh api-transport chat's first message takes — ran its
-// steps and returned, so the thread this connection had just minted was never
-// recorded as ours. Downstream, the runner row keeps CurrentSession AND
-// LaunchSessionID empty on this path (measured 47 of 49 real codex turn rows),
-// which left the hook ingress with no way to tell the parent conversation from
-// the child threads codex pushes down the very same websocket: the children's
-// assistant messages landed in the user's transcript and a child's
-// turn/completed closed the user's turn 83 seconds early.
+// The thread a fresh establish mints is reported: the chat binds it, and the
+// hook ingress tells it from the child threads pushed down the same websocket.
 func TestRegression_EstablishSessionFreshReportsTheSessionItMinted(t *testing.T) {
 	sockPath, _ := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-minted"}}`},
@@ -1052,12 +993,8 @@ func TestEstablishSession_ResumeReportsTheSessionItEntered(t *testing.T) {
 	assert.Zero(t, origins.open, "the claim must be closed")
 }
 
-// TestEstablishSession_AnAlreadyEstablishedConnectionOpensNoClaim keeps the
-// claim tied to an actual establish. The short-circuit produces NO session — it
-// hands back what this connection already remembers — and a claim opened there
-// would sit open for nothing while biasing originatedSessions.has (runner
-// package) to true, admitting whatever the provider announced in that window as
-// Crowbar's own doing.
+// The short-circuit on an established connection enters no session, so it
+// reports none.
 func TestEstablishSession_AnAlreadyEstablishedConnectionOpensNoClaim(t *testing.T) {
 	sockPath, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-1"}}`},

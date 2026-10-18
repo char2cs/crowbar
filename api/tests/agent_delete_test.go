@@ -33,6 +33,29 @@ func waitForChatFrame(
 	}
 }
 
+// boundTo reports whether frame's chat snapshot shows chatID bound to sessionID.
+func boundTo(frame map[string]any, chatID, sessionID string) bool {
+	chat, _ := frame["chat"].(map[string]any)
+	conversation, _ := chat["conversation"].(map[string]any)
+	return frame["chatId"] == chatID && conversation["sessionId"] == sessionID && conversation["state"] == "bound"
+}
+
+// waitForConversation waits for a frame showing chatID bound to sessionID,
+// discarding every other frame as waitForChatFrame does.
+func waitForConversation(t *testing.T, frames <-chan map[string]any, chatID, sessionID string) {
+	t.Helper()
+	for {
+		select {
+		case f := <-frames:
+			if boundTo(f, chatID, sessionID) {
+				return
+			}
+		case <-t.Context().Done():
+			t.Fatalf("timed out waiting for chat %s to bind session %s", chatID, sessionID)
+		}
+	}
+}
+
 // TestAgentDelete_HardDeletesAndBroadcastsScopedDeleted proves the Task 5
 // hard-delete route end-to-end: DELETE .../chats/:id responds 202,
 // the chat is genuinely gone (not merely tombstoned) from both List and a

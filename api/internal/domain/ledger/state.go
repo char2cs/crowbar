@@ -11,6 +11,9 @@ type State struct {
 	head     int64
 	receipts map[string]Prompt // every crowbar prompt, by request id
 	pending  []string          // request ids still pending, oldest first
+
+	conversations []Conversation // every (provider, session) bound, by first binding
+	current       map[string]int // provider → its conversation's index in conversations
 }
 
 // Fold replays rows, in seq order, into chatID's State.
@@ -41,6 +44,11 @@ func (s *State) Apply(r Row) {
 				p.Status, p.Consumed, p.Reason = PromptStatusSettled, body.Consumed, body.Reason
 			})
 		}
+	case KindSessionBound:
+		s.applySessionBound(r)
+	case KindSessionLost:
+		s.applySessionLost(r)
+	case KindMarker: // the chat's record of what happened; it changes no state
 	}
 }
 
@@ -77,6 +85,8 @@ func (s *State) advance(requestID string, move func(*Prompt)) {
 func (s State) Clone() State {
 	s.receipts = maps.Clone(s.receipts)
 	s.pending = slices.Clone(s.pending)
+	s.conversations = slices.Clone(s.conversations)
+	s.current = maps.Clone(s.current)
 	return s
 }
 

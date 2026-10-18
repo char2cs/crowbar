@@ -31,7 +31,7 @@ func (rs *Runners) SpawnChat(
 	}
 	defer release()
 
-	runnerID, err = rs.spawnRunner(ctx, chatID, workspaceID, providerID, "", nil, nil, "", 0, false, "", true, "")
+	runnerID, err = rs.spawnRunner(ctx, chatID, workspaceID, providerID, spawnInput{}, true)
 	if err != nil {
 		return "", "", rs.discardSpawnedChat(ctx, chatID, err)
 	}
@@ -54,7 +54,7 @@ func (rs *Runners) StartRunner(
 		return "", fmt.Errorf("agent: start runner: chat: %w", err)
 	}
 	defer rs.enterPhase(ctx, chatID, snapshot.PhaseStarting)()
-	return rs.spawnRunner(ctx, chatID, chat.WorkspaceID, providerID, "", nil, nil, "", 0, false, "", false, "")
+	return rs.spawnRunner(ctx, chatID, chat.WorkspaceID, providerID, spawnInput{}, false)
 }
 
 func (rs *Runners) discardSpawnedChat(
@@ -75,16 +75,8 @@ func (rs *Runners) spawnRunner(
 	chatID string,
 	workspaceID string,
 	providerID string,
-	preallocatedRunnerID string,
-	// The native resume argv the PTY carries if this spawn forks one.
-	resumeSteps []engineagents.InjectStep,
-	finalSteps []engineagents.InjectStep,
-	conversation string,
-	gapTurns int,
-	resuming bool,
-	launchSessionID string,
+	in spawnInput,
 	create bool,
-	promptMessage string,
 ) (_ string, err error) {
 	if !create {
 		defer rs.noteSpawnFailure(ctx, chatID, &err)
@@ -94,7 +86,7 @@ func (rs *Runners) spawnRunner(
 		return "", err
 	}
 	threads, sel := pre.threads, pre.selection
-	runnerID := newRunnerID(preallocatedRunnerID)
+	runnerID := newRunnerID(in.runnerID)
 
 	paths, err := rs.spawnPaths(ctx, chatID, workspaceID, runnerID, providerID)
 	if err != nil {
@@ -106,6 +98,10 @@ func (rs *Runners) spawnRunner(
 	descriptor, err := rs.agents.Get(ctx, crowbarHome, providerID)
 	if err != nil {
 		return "", fmt.Errorf("agent: spawn runner: resolve descriptor: %w", err)
+	}
+	launch, sessionSteps, err := rs.spawnLaunch(ctx, chatID, descriptor, in.launch)
+	if err != nil {
+		return "", err
 	}
 
 	// Copies of promptMessage and conversation for dispatch — the durable ledger
@@ -121,9 +117,9 @@ func (rs *Runners) spawnRunner(
 	// the logical `chats/<id>/attachments/<file>` reference its pattern is
 	// written against; the escape it may prepend does not disturb the rewrite.
 	sigils, escape := descriptor.PromptLeadingSigils()
-	guardedMessage := promptsigil.Guard(sigils, escape, chatID, promptMessage)
+	guardedMessage := promptsigil.Guard(sigils, escape, chatID, in.promptMessage)
 	dispatchMessage := materializeAttachmentsForDispatch(paths.chatsDir, chatID, guardedMessage)
-	dispatchConversation := materializeAttachmentsForDispatch(paths.chatsDir, chatID, conversation)
+	dispatchConversation := materializeAttachmentsForDispatch(paths.chatsDir, chatID, in.conversation)
 
 	// The tool surface is switched off by rendering a descriptor that does not
 	// declare one, rather than by filtering steps at the injection site: WHERE those
@@ -146,12 +142,12 @@ func (rs *Runners) spawnRunner(
 		tmpDir:          tmpDir,
 		worktree:        worktree,
 		crowbarHome:     crowbarHome,
-		launchSessionID: launchSessionID,
+		launchSessionID: launch.resumeID,
 		threads:         threads,
 		conversation:    dispatchConversation,
 		promptMessage:   dispatchMessage,
-		gapTurns:        gapTurns,
-		resuming:        resuming,
+		gapTurns:        in.gapTurns,
+		resuming:        in.resuming,
 		selection:       sel,
 		permissionVars:  descriptor.PermissionVars(sel.PermissionLevel),
 	})
@@ -195,10 +191,10 @@ func (rs *Runners) spawnRunner(
 	// when it does, the runner is that connection and the plan never runs;
 	// when it does not, the session runs over the PTY's hooks alone.
 	attachArgv := rs.apiTransportForSurface(
-		ctx, runnerID, providerID, descriptor, tctx, resumeContextFor(resuming, inject, tctx), pre.surface,
+		ctx, runnerID, providerID, descriptor, tctx, resumeContextFor(in.resuming, inject, tctx), pre.surface,
 	)
 	steps := buildSpawnSteps(
-		descriptor, resuming, inject, sel, resumeSteps, finalSteps,
+		descriptor, in.resuming, inject, sel, sessionSteps, in.finalSteps,
 	)
 
 	plan, err := descriptor.SpawnPlan(tctx, os.Environ(), steps)
@@ -216,6 +212,12 @@ func (rs *Runners) spawnRunner(
 		return "", fmt.Errorf("agent: spawn runner: build spawn plan: %w", err)
 	}
 	pointPlanAtAttach(plan, attachArgv)
+	if err := rs.bindAssigned(ctx, chatID, launch); err != nil {
+		rs.apiConns.drop(runnerID)
+		rs.pendingHooks.Discard(runnerID)
+		rs.agents.ForgetRunner(runnerID)
+		return "", err
+	}
 
 	// binpath.Resolve, never the bare descriptor cmd: the PTY exec's argv[0] through
 	// exec.Command, which resolves a bare name against the DAEMON's PATH — plan.Env is
@@ -241,22 +243,20 @@ func (rs *Runners) spawnRunner(
 		// forkOrAdopt returns whichever one actually did.
 		argvSelection: carriedSelection(sel, descriptor.SelectionSteps),
 		apiSelection:  carriedSelection(sel, descriptor.SelectionAPISteps),
+		resume:        resumeWatch{chatID: chatID, providerID: providerID, sessionID: launch.resumeID, agent: descriptor},
 	}, attachArgv)
 	if err != nil {
 		return "", err
 	}
 
 	if err := rs.recordRunner(
-		ctx, chatID, workspaceID, providerID, runnerID, termSessID, launchSessionID, carried, create,
+		ctx, chatID, workspaceID, providerID, runnerID, termSessID, carried, create,
 	); err != nil {
 		rs.pendingHooks.Discard(runnerID)
 		rs.agents.ForgetRunner(runnerID)
 		return "", err
 	}
-	rs.noteLaunch(ctx, chatID, rs.spawnRung(runnerID, launchSessionID != "", conversation))
-	if termSessID != "" {
-		rs.watchResume(runnerID, chatID, launchSessionID, promptMessage)
-	}
+	rs.noteLaunch(ctx, chatID)
 	// Keep the barrier installed throughout replay. A hook arriving while an
 	// earlier buffered hook is being applied joins the next batch, so it cannot
 	// overtake session_start or user_prompt on the normal persisted-runner path.
@@ -291,8 +291,9 @@ func (rs *Runners) forkCLI(
 	ctx context.Context,
 	req forkRequest,
 ) (string, error) {
+	//nolint:contextcheck // the exit outlives the request; its values (gate holds, delivery ids) must not reach it.
 	termSessID, err := rs.term.CreateCommand(ctx, req.chatID, req.worktree, req.argv, req.env,
-		rs.onRunnerExit(req.crowbarHome, req.runnerID, req.tmpDir))
+		rs.onRunnerExit(req.crowbarHome, req.runnerID, req.tmpDir, req.resume))
 	if err == nil {
 		return termSessID, nil
 	}
@@ -340,11 +341,9 @@ type spawnContext struct {
 	// that declares none.
 	permissionVars map[string]string
 
-	// launchSessionID is the prior session/thread id to resume, if any — the
-	// SAME value hooks-transport's own resume argv already carries, and what
-	// an api-transport connection's EstablishSession needs to know whether to
-	// run Fresh (nothing known yet) or Resume (known, but not yet loaded on
-	// THIS connection).
+	// launchSessionID is the bound session to resume, if any — the SAME id the
+	// resume argv carries, and what tells an api connection's EstablishSession
+	// to run Resume rather than Fresh.
 	launchSessionID string
 }
 
@@ -415,6 +414,8 @@ type forkRequest struct {
 	// the process never received — see carriedSelection (apirunner.go).
 	argvSelection engineagents.Selection
 	apiSelection  engineagents.Selection
+	// resume is how this process's exit tells a refusal of its session.
+	resume resumeWatch
 }
 
 func (rs *Runners) teardownAfterPersistFailure(
@@ -447,8 +448,9 @@ func reapRunnerDir(
 	}
 }
 
-func (rs *Runners) onRunnerExit(home, runnerID, tmpDir string) func() {
-	return func() {
+func (rs *Runners) onRunnerExit(home, runnerID, tmpDir string, resume resumeWatch) func(engineterminal.Exit) {
+	return func(exit engineterminal.Exit) {
+		rs.loseRefusedSession(context.Background(), resume, runnerID, exit)
 		reapRunnerDir(context.Background(), home, tmpDir)
 		// A dead PTY takes its api-transport connection (serve process + driver)
 		// with it — never leaked, and safe to call for a hooks-only runner that

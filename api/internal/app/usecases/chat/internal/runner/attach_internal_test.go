@@ -15,6 +15,7 @@ import (
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -115,7 +116,7 @@ type fakeTermForAttach struct {
 	mu         sync.Mutex
 	created    []fakeTermCall
 	nextID     int
-	onExit     map[string]func()
+	onExit     map[string]func(engineterminal.Exit)
 	terminated []string
 }
 
@@ -128,7 +129,7 @@ type fakeTermCall struct {
 }
 
 func (f *fakeTermForAttach) CreateCommand(
-	_ context.Context, chatID, cwd string, argv, env []string, onExit func(),
+	_ context.Context, chatID, cwd string, argv, env []string, onExit func(engineterminal.Exit),
 ) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -137,7 +138,7 @@ func (f *fakeTermForAttach) CreateCommand(
 	f.created = append(f.created,
 		fakeTermCall{chatID: chatID, cwd: cwd, argv: argv, env: env, termSessID: id})
 	if f.onExit == nil {
-		f.onExit = map[string]func(){}
+		f.onExit = map[string]func(engineterminal.Exit){}
 	}
 	f.onExit[id] = onExit
 	return id, nil
@@ -298,13 +299,12 @@ func TestSwitchToTerminal_ForksTheAttachProcessAndDropsTheAPIConnection(t *testi
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
 		runnerStore: stubRunnerStoreForAttach{
-			runner: engineagents.Runner{
-				ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test", CurrentSession: "sess-1",
-			},
+			runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test"},
 		},
 		turns:    stubTurnsForAttach{working: false},
 		activity: stubActivityForAttach{found: true},
 		term:     term,
+		ledger:   boundTestLedger(t, "attach-test", "sess-1"),
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
@@ -363,13 +363,12 @@ func TestRegression_SwitchToTerminalForksWithTheProcessEnvironment(t *testing.T)
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
 		runnerStore: stubRunnerStoreForAttach{
-			runner: engineagents.Runner{
-				ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test", CurrentSession: "sess-1",
-			},
+			runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test"},
 		},
 		turns:    stubTurnsForAttach{working: false},
 		activity: stubActivityForAttach{found: true},
 		term:     term,
+		ledger:   boundTestLedger(t, "attach-test", "sess-1"),
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
@@ -383,10 +382,9 @@ func TestRegression_SwitchToTerminalForksWithTheProcessEnvironment(t *testing.T)
 	require.Subset(t, term.lastCall().env, os.Environ())
 }
 
-// The attach decision reads the runner row's CurrentSession, under which
-// turns are recorded, not the connection's establish-time copy: a session
-// that completed a turn attaches even when the two differ.
-func TestRegression_SwitchToTerminal_ChecksRunnerCurrentSession_NotStaleAPIConnSession(t *testing.T) {
+// The attach decision reads the chat's bound session, under which turns are
+// recorded, not the connection's establish-time copy.
+func TestRegression_SwitchToTerminal_ChecksTheBoundSession_NotStaleAPIConnSession(t *testing.T) {
 	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
 		_, _, _ = conn.ReadMessage()
 	})
@@ -404,19 +402,16 @@ func TestRegression_SwitchToTerminal_ChecksRunnerCurrentSession_NotStaleAPIConnS
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
 		runnerStore: stubRunnerStoreForAttach{
-			runner: engineagents.Runner{
-				ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test",
-				CurrentSession: "durable-sess", // the id turns are actually recorded under
-			},
+			runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test"},
 		},
 		turns:    stubTurnsForAttach{working: false},
 		activity: stubActivityBySession{wantSession: "durable-sess"},
 		term:     term,
+		ledger:   boundTestLedger(t, "attach-test", "durable-sess"),
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
-		// tctx.Session deliberately differs from CurrentSession — the stale,
-		// establish-time copy the pre-fix guard checked instead.
+		// tctx.Session deliberately differs from the bound session.
 		tctx: engineagents.TemplateCtx{Socket: sockPath, Session: "stale-conn-sess", Cwd: "/work", Segid: "seg-1", CrowbarHook: "/bin/crowbar"},
 	})
 
@@ -601,9 +596,7 @@ func switchSurfaceFixture(t *testing.T) (*Runners, *spySurfaceChats) {
 		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(),
 		surfaces: newSurfaceRegistry(), spawns: inflight.NewGate(),
 		runnerStore: stubRunnerStoreForAttach{
-			runner: engineagents.Runner{
-				ID: "runner-1", ProviderID: "attach-test", CurrentSession: "sess-1", CurrentChatID: "chat-1",
-			},
+			runner: engineagents.Runner{ID: "runner-1", ProviderID: "attach-test", CurrentChatID: "chat-1"},
 		},
 		turns:         stubTurnsForAttach{working: false},
 		activity:      stubActivityForAttach{found: true},
@@ -613,7 +606,7 @@ func switchSurfaceFixture(t *testing.T) (*Runners, *spySurfaceChats) {
 		answers:       answerdesk.New(answerdesk.DefaultRetention, nil),
 		inflightTurns: inflight.NewTurns(),
 		work:          inflight.NewWork(),
-		ledger:        newTestLedger(t),
+		ledger:        boundTestLedger(t, "attach-test", "sess-1"),
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,

@@ -48,7 +48,7 @@ func (t *Turns) openAssistantTurnWithPlan(
 		TurnID:     openTurnID(chat.ID, runner.ID),
 		ProviderID: runner.ProviderID,
 		RunnerID:   runner.ID,
-		SessionID:  runner.CurrentSession,
+		SessionID:  t.boundSession(ctx, chat.ID, runner.ProviderID),
 		CarryPlan:  carryPlan,
 		Now:        time.Now(),
 	}); err != nil {

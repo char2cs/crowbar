@@ -147,8 +147,8 @@ func TestShowingNativeView_ASwitchedRunnerReadsTheSurfaceItSwitchedTo(t *testing
 func TestRegression_ASpawnSeedsTheRunnersCurrentSurfaceFromTheChat(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceTerminal)
 
-	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex", "runner-1",
-		nil, nil, "", 0, false, "", false, "")
+	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex",
+		spawnInput{runnerID: "runner-1"}, false)
 	require.NoError(t, err)
 
 	assert.True(t, h.rs.ShowingNativeView("runner-1"))
@@ -159,8 +159,8 @@ func TestRegression_ASpawnSeedsTheRunnersCurrentSurfaceFromTheChat(t *testing.T)
 func TestSpawnRunner_AChatSurfaceSpawnSeedsTheChatSurface(t *testing.T) {
 	h := newSpawnHarness(t, "")
 
-	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "claude", "runner-1",
-		nil, nil, "", 0, false, "", false, "")
+	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "claude",
+		spawnInput{runnerID: "runner-1"}, false)
 	require.NoError(t, err)
 
 	assert.False(t, h.rs.ShowingNativeView("runner-1"))
@@ -173,8 +173,8 @@ func TestSpawnRunner_AChatSurfaceSpawnSeedsTheChatSurface(t *testing.T) {
 func TestSpawnRunner_ASeededSurfaceDegradesWithTheProvidersOwn(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceTerminal)
 
-	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "claude", "runner-1",
-		nil, nil, "", 0, false, "", false, "")
+	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "claude",
+		spawnInput{runnerID: "runner-1"}, false)
 	require.NoError(t, err)
 
 	// claude declares surfaces.terminal.start_here, so this one does NOT
@@ -191,8 +191,8 @@ func TestSpawnRunner_ASeededSurfaceDegradesWithTheProvidersOwn(t *testing.T) {
 func TestRegression_ARespawnRebuildsOnTheSurfaceTheUserIsOnNow(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceTerminal)
 
-	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex", "runner-1",
-		nil, nil, "", 0, false, "", false, "")
+	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex",
+		spawnInput{runnerID: "runner-1"}, false)
 	require.NoError(t, err)
 
 	assert.True(t, h.rs.ShowingNativeView("runner-1"))

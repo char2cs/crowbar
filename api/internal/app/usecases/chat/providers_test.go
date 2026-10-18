@@ -562,12 +562,12 @@ func spawnArgvShape(
 	if pref != nil {
 		f.setPrefs(t, *pref)
 	}
-	_, runnerID := f.spawn(t, provider)
-	repl := strings.NewReplacer(
-		f.ws.home, "<HOME>",
-		runnerID, "<RUNNER>",
-		f.minter.Mint(runnerID), "<TOKEN>",
-	)
+	chatID, runnerID := f.spawn(t, provider)
+	pairs := []string{f.ws.home, "<HOME>", runnerID, "<RUNNER>", f.minter.Mint(runnerID), "<TOKEN>"}
+	if session := f.conversation(t, chatID, provider).SessionID; session != "" {
+		pairs = append(pairs, session, "<SESSION>")
+	}
+	repl := strings.NewReplacer(pairs...)
 	out := make([]string, 0, len(f.term.calls[0].argv))
 	for _, a := range f.term.calls[0].argv {
 		out = append(out, repl.Replace(a))
@@ -654,10 +654,10 @@ func TestSpawnChat_MCPDisabled_TheCLIStillSpawnsAndItsHooksStillFire(t *testing.
 			// And they FIRE: a session binds and a turn lands in the ledger, driven
 			// through IngestHook exactly as the real CLI drives it.
 			f.announce(t, runnerID, "sid-"+provider)
-			assert.Equal(t, "sid-"+provider, f.runner(t, runnerID).CurrentSession)
+			assert.Equal(t, "sid-"+provider, f.conversation(t, chatID, provider).SessionID)
 
 			turn(t, f, runnerID, provider, "still talking")
-			assert.Equal(t, chatID, f.chatForSession(t, "sid-"+provider))
+			assert.Equal(t, chatID, f.chatForSession(t, provider, "sid-"+provider))
 		})
 	}
 }

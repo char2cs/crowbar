@@ -354,8 +354,9 @@ func chatSnapshotEvent(f agentusecase.ChatSnapshotFrame) dto.AgentChatEvent {
 	if f.Deleted {
 		return ev
 	}
+	conversation, _ := s.Conversation()
 	chat := dto.AgentChatDTOFrom(s.Chat, dto.ChatSnapshotRuntime(s.Live, s.Phase, s.Version,
-		s.TerminalWait, s.AttachedSessionID, s.Session), nil)
+		s.TerminalWait, s.AttachedSessionID, s.Session, conversation), nil)
 	ev.Chat = &chat
 	return ev
 }
@@ -495,11 +496,6 @@ func startRestoreTerminalSessions(
 // Best-effort: a failure is logged and the daemon still boots. The chats it could not
 // reconcile are no worse off than they were a line earlier, and refusing to start the
 // daemon over them would be strictly worse.
-//
-// (Its sibling, seedAgentRegistry, is NOT coming back: it rehydrated an in-memory
-// session→chat index from persisted segments, and that index is now the runner aggregate's
-// append-only conversation history — already durable, and answering ChatForSession straight
-// from the read model.)
 func reconcileAgentRunners(
 	ctx context.Context,
 	ucs *usecases.Container,

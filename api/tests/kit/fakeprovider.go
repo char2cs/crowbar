@@ -95,8 +95,8 @@ type FakeSpec struct {
 // homes at temp dirs. Tests that call it must not run in parallel.
 func InstallFakeProvider(tb testing.TB, home string, spec FakeSpec) FakeProvider {
 	tb.Helper()
-	// Until a resume stops globbing the provider's transcript root, an unset root
-	// would be the real home; a temp root keeps "not found" without reading it.
+	// Crowbar never reads a provider's home; temp roots keep anything that would
+	// resolve one off the developer's real one.
 	tb.Setenv("CLAUDE_CONFIG_DIR", tb.TempDir())
 	tb.Setenv("CODEX_HOME", tb.TempDir())
 

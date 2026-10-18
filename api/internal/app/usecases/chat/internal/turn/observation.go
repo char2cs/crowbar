@@ -43,7 +43,7 @@ func (t *Turns) handleObservation(
 		}
 		note(ctx, "plan updated", t.activity.UpdatePlan(ctx, agentactivity.PlanInput{
 			ChatID: chat.ID, ProviderID: runner.ProviderID, RunnerID: runner.ID,
-			SessionID: runner.CurrentSession, Steps: steps, Now: now,
+			SessionID: t.boundSession(ctx, chat.ID, runner.ProviderID), Steps: steps, Now: now,
 		}))
 	case engineagents.HookIdle:
 		// ARMS a reconcile; closes nothing. This routinely arrives microseconds

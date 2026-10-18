@@ -104,14 +104,15 @@ func (rs *Runners) switchProviderLocked(
 			return "", parkErr(park, err)
 		}
 
-		priorSessionID, leftAt, err := rs.resumableConversation(ctx, chat, targetProviderID)
+		launch, err := rs.planLaunch(ctx, chatID, d)
 		if err != nil {
-			return "", fmt.Errorf("agent: switch provider: resumable conversation: %w", err)
+			return "", fmt.Errorf("agent: switch provider: %w", err)
 		}
-		// The ladder: a session the provider no longer has drops to the
-		// transcript rung — resuming false, the full conversation handed over.
-		priorSessionID = rs.verifiedResume(ctx, d, chatID, priorSessionID)
-		resuming := priorSessionID != ""
+		resuming := launch.resumeID != ""
+		leftAt, err := rs.leftAt(ctx, chatID, targetProviderID, launch.resumeID)
+		if err != nil {
+			return "", err
+		}
 
 		// Read-BEFORE-terminate: the ledger is built from hooks and is already on disk, so
 		// assembling the handoff never depends on the outgoing CLI still being alive — and
@@ -125,9 +126,12 @@ func (rs *Runners) switchProviderLocked(
 		// very turns it is meant to notice. A provider new to this chat has no history at
 		// all, so it gets the conversation so far — capped to the most recent turns, same
 		// as the gap, so a long-running chat does not grow the handoff without bound.
-		conversation, err := rs.conversations.AssembleConversation(ctx, chatID, resuming, leftAt)
-		if err != nil {
-			return "", fmt.Errorf("agent: switch provider: assemble handoff: %w", err)
+		conversation := ""
+		if !launch.lost {
+			conversation, err = rs.conversations.AssembleConversation(ctx, chatID, resuming, leftAt)
+			if err != nil {
+				return "", fmt.Errorf("agent: switch provider: assemble handoff: %w", err)
+			}
 		}
 
 		// How much of the record is NEW to the provider being resumed. It is what
@@ -150,21 +154,9 @@ func (rs *Runners) switchProviderLocked(
 			continue
 		}
 
-		// Resume arg must be split into separate argv tokens: exec.Command does NOT split
-		// a string on whitespace, so a whole "--resume {id}" template handed to a single
-		// pass_arg would become one literal argument.
-		var resumeSteps []engineagents.InjectStep
-		if resuming {
-			resumeSteps = resumeInjectionSteps(d, priorSessionID)
-		}
-
-		// Resume args go first so a positional resume_context_inject — codex's `resume
-		// <id>` subcommand, or claude's own --resume value — precedes rather than
-		// follows the positional context pointer built from it.
-		runnerID, err := rs.spawnRunner(
-			ctx, chatID, chat.WorkspaceID, targetProviderID,
-			"", resumeSteps, nil, conversation, gapTurns, resuming, priorSessionID, false, "",
-		)
+		runnerID, err := rs.spawnRunner(ctx, chatID, chat.WorkspaceID, targetProviderID, spawnInput{
+			launch: &launch, conversation: conversation, gapTurns: gapTurns, resuming: resuming,
+		}, false)
 		if err != nil {
 			return "", err
 		}
@@ -261,129 +253,15 @@ func (rs *Runners) displaceForSwitch(
 	return false, nil
 }
 
-// sessionAnnounceCrashWindow bounds how recently a conversation must have been
-// FIRST SEEN for a turnless session to still be read as the announce-then-crash
-// race resumableConversation exists to catch, rather than as a conversation
-// that simply predates the activity table (see below). A provider that crashes
-// before completing its first turn does so within moments of announcing the
-// session — it is a startup crash, not a stall — so tens of seconds comfortably
-// covers the race without also swallowing conversations that are merely old.
-//
-// termwait's constants (DefaultStallQuiet and friends) are NOT reused here:
-// every one of them bounds how long a LIVE, currently-running CLI may go quiet
-// before Crowbar treats it as stuck. This is a different question — how old a
-// conversation's FIRST ANNOUNCEMENT is — asked long after any such CLI is gone,
-// so borrowing one would just be reaching for a number that happens to exist
-// rather than one that means the right thing.
-const sessionAnnounceCrashWindow = 30 * time.Second
-
-// sessionLegacyMinAge bounds how old a turnless session's first announcement
-// must be before its absence from the activity table is even ELIGIBLE to mean
-// "predates this table" — as opposed to "simply abandoned," the ordinary shape
-// of switching to a provider and back before ever sending it anything, which
-// ages past sessionAnnounceCrashWindow exactly like a genuine crash does. A
-// real migration is measured in days at the very least, so a day is a
-// deliberately generous floor: anything newer cannot plausibly be legacy data,
-// whatever else is true about it.
-const sessionLegacyMinAge = 24 * time.Hour
-
-func (rs *Runners) resumableConversation(
-	ctx context.Context,
-	chat domain.Chat,
-	targetProviderID string,
-) (sessionID string, leftAt time.Time, err error) {
-	convs, err := rs.runnerStore.ConversationsForChat(ctx, chat.ID)
-	if err != nil {
-		return "", time.Time{}, fmt.Errorf("conversations: %w", err)
-	}
-	// Oldest first, so the LAST match is the most recent conversation this provider
-	// held in this chat.
-	var firstSeenAt time.Time
-	for _, c := range convs {
-		if c.ProviderID == targetProviderID {
-			sessionID = c.SessionID
-			firstSeenAt = c.FirstSeenAt
-		}
-	}
+// leftAt is when the chat last turned on sessionID: where the gap handed to a
+// resumed provider starts. Zero, the whole record, when it never turned there.
+func (rs *Runners) leftAt(ctx context.Context, chatID, providerID, sessionID string) (time.Time, error) {
 	if sessionID == "" {
-		return "", time.Time{}, nil
+		return time.Time{}, nil
 	}
-
-	leftAt, found, err := rs.activity.LastTurnForSession(ctx, chat.ID, targetProviderID, sessionID)
+	at, _, err := rs.activity.LastTurnForSession(ctx, chatID, providerID, sessionID)
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("last turn for session: %w", err)
+		return time.Time{}, fmt.Errorf("agent: switch provider: last turn for session: %w", err)
 	}
-	if found {
-		return sessionID, leftAt, nil
-	}
-	// No turn is recorded for this session in the activity table. That alone is
-	// ambiguous: it is exactly what a provider that announced a session and then
-	// crashed before its first turn also looks like — but it is ALSO exactly what
-	// every conversation from before the activity table existed looks like,
-	// forever, no matter how much real history it has on the provider's own side
-	// (see this function's package-level doc references for the migration this
-	// guards against). Age is what tells the two apart — UNLESS this SAME
-	// provider already has a recorded turn on THIS chat, under a different
-	// session, which age cannot overrule: proof the activity table was live for
-	// this exact (chat, provider) pair rules out "predates the table" no matter
-	// how old the current session's own first announcement is. Without this, a
-	// session that crashed on its first turn and was not retried within the
-	// window became permanently unresumable — every later attempt found the same
-	// zero rows, aged past the window, and kept re-resuming a corpse that dies
-	// again in a second or two.
-	//
-	// Scoped to THIS provider's own sessions, not a chat-wide turn count: a chat
-	// that switched providers has real, table-live history for the OTHER
-	// provider long before this one ever ran, and counting turns chat-wide would
-	// misread that as proof about a provider it says nothing about — discarding
-	// a genuinely resumable, pre-migration session for the provider actually
-	// being resumed.
-	for _, c := range convs {
-		if c.ProviderID != targetProviderID || c.SessionID == sessionID {
-			continue
-		}
-		_, siblingFound, err := rs.activity.LastTurnForSession(ctx, chat.ID, targetProviderID, c.SessionID)
-		if err != nil {
-			return "", time.Time{}, fmt.Errorf("last turn for sibling session: %w", err)
-		}
-		if siblingFound {
-			slog.InfoContext(ctx, "agent: prior conversation has no recorded turns but this provider has others on this chat; spawning fresh instead of resuming a corpse",
-				"chat_id", chat.ID, "provider", targetProviderID, "session_id", sessionID)
-			return "", time.Time{}, nil
-		}
-	}
-	if time.Since(firstSeenAt) < sessionAnnounceCrashWindow {
-		// Recent enough to be the genuine crash race: the CLI reported this
-		// conversation id but never recorded a turn under it, so there is no
-		// conversation on disk to resume. Spawn fresh.
-		slog.InfoContext(ctx, "agent: prior conversation has no recorded turns; spawning fresh instead of resuming",
-			"chat_id", chat.ID, "provider", targetProviderID, "session_id", sessionID)
-		return "", time.Time{}, nil
-	}
-	if time.Since(firstSeenAt) < sessionLegacyMinAge {
-		// Old enough to rule out the immediate crash race, but nowhere near old
-		// enough to plausibly predate a migration that shipped in the past — no
-		// real migration is measured in minutes. This is the ordinary shape of
-		// switching to a provider and back before ever sending it anything:
-		// the session was announced, then simply abandoned, not crashed and not
-		// legacy. sessionAnnounceCrashWindow (30s) only separates "still
-		// mid-crash" from "not"; reusing IT for the legacy question mistook
-		// every session merely switched away from for a minute or two as
-		// decades-old data, sent --resume at a session id the provider itself
-		// never wrote a conversation file for, and either failed outright or
-		// left the CLI in a broken half-started state.
-		slog.InfoContext(ctx, "agent: prior conversation has no recorded turns and is far too recent to be legacy data; spawning fresh instead of resuming an abandoned session",
-			"chat_id", chat.ID, "provider", targetProviderID, "session_id", sessionID, "first_seen_at", firstSeenAt)
-		return "", time.Time{}, nil
-	}
-	// Old enough that the missing row means "predates this table", not "crashed
-	// before its first turn" and not merely abandoned. The session id is still
-	// real and still resumable — refusing it here would be strictly more
-	// destructive than the race this guard exists to catch. There is no
-	// per-turn record to draw the gap cutoff from, so chat.LastActivityAt
-	// (folded from the chat's own turn events, which survive this migration
-	// untouched) stands in for it.
-	slog.InfoContext(ctx, "agent: prior conversation predates recorded turns; resuming anyway using the chat's last activity as the gap cutoff",
-		"chat_id", chat.ID, "provider", targetProviderID, "session_id", sessionID, "first_seen_at", firstSeenAt)
-	return sessionID, chat.LastActivityAt, nil
+	return at, nil
 }

@@ -50,20 +50,13 @@ type Conversations interface {
 // turn only this package can release, so a hook that waited on it would deadlock
 // against the very switch waiting on the hook.
 type Runners interface {
-	// ConfirmLaunch records that runnerID's CLI reported something: whatever
-	// session it was launched to resume, it accepted.
-	ConfirmLaunch(runnerID string)
-	// HandleSessionStart applies the placement a CLI has already performed: a
-	// /clear or /resume inside the TUI moves the runner, and Crowbar is told after
-	// the fact.
+	// HandleSessionStart applies a CLI's session announcement to the chat it
+	// is on: a /clear or /resume inside the TUI changes the chat's session.
 	HandleSessionStart(
 		ctx context.Context,
 		runner engineagents.Runner,
 		ev engineagents.CanonicalEvent,
 	) error
-	// HasLiveAPIConnection reports whether runnerID's channel is an api
-	// connection right now (whose originated-session record is then current).
-	HasLiveAPIConnection(runnerID string) bool
 	// TelemetryOnChatSurface reports whether the chat's current surface
 	// carries its provider's usage report at all.
 	TelemetryOnChatSurface(ctx context.Context, chatID string) bool
@@ -74,10 +67,6 @@ type Runners interface {
 	// reads it, to decide which surface a per-event surfaces: list is checked
 	// against.
 	ShowingNativeView(runnerID string) bool
-	// OriginatedSession reports whether runnerID's own api connection produced
-	// sessionID, or is producing one right now. False for a hooks-only runner,
-	// which has no connection that could.
-	OriginatedSession(runnerID, sessionID string) bool
 	// RefuseSteered fails a parked prompt the CLI provably never received, so
 	// the client keeps its text and may retry.
 	RefuseSteered(ctx context.Context, s inflight.Steered)

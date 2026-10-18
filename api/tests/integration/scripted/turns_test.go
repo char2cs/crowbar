@@ -69,18 +69,15 @@ func TestScripted_ASecondMessageContinuesTheSession(t *testing.T) {
 			}
 			assert.Len(t, sessions, 1, "both prompts reached one vendor session")
 			assert.Empty(t, r.logged("refused"))
-			if provider == "claude" {
-				assert.Equal(t, domain.AgentRungSession, r.snapshot(chatID).Session.Rung,
-					"claude relaunched on its own session")
-			} else {
+			if provider == "codex" {
 				assert.Len(t, r.logged("start"), 1, "codex kept its one app-server")
 			}
 		})
 	}
 }
 
-// A stopped chat's next message resumes the provider's OWN session — the
-// first rung — on both providers. For codex this needs the thread it announces
+// A stopped chat's next message resumes the provider's OWN session by its id,
+// on both providers. For codex this needs the thread it announces
 // before its runner row commits to be kept, not dropped.
 func TestScripted_ADormantChatResumesItsOwnSession(t *testing.T) {
 	for _, provider := range providers {
@@ -96,7 +93,7 @@ func TestScripted_ADormantChatResumesItsOwnSession(t *testing.T) {
 
 			prompts := r.logged("prompt")
 			assert.Equal(t, first, prompts[len(prompts)-1]["session"], "the same vendor session took the message")
-			assert.Equal(t, domain.AgentRungSession, r.snapshot(chatID).Session.Rung)
+			assert.Empty(t, r.logged("refused"))
 		})
 	}
 }

@@ -12,12 +12,22 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 type reader struct {
 	chats map[string]domain.Chat
 	live  []agents.Runner
+	// ledger answers LedgerState; nil reads every chat's ledger as empty.
+	ledger func(chatID string) (ledger.State, error)
+}
+
+func (r *reader) LedgerState(_ context.Context, chatID string) (ledger.State, error) {
+	if r.ledger == nil {
+		return ledger.State{ChatID: chatID}, nil
+	}
+	return r.ledger(chatID)
 }
 
 func (r *reader) GetChat(_ context.Context, id string) (domain.Chat, error) {
@@ -119,34 +129,6 @@ func TestSnapshots_AFrameNeverLagsTheEventItAnnounces(t *testing.T) {
 	assert.True(t, rec.last(t).Snapshot.Chat.Working, "an older aggregate version never overwrites a newer one")
 }
 
-// A moved runner changes TWO chats; both are republished, the one it left
-// without it.
-func TestSnapshots_AMoveRepublishesTheChatLeftAndTheChatEntered(t *testing.T) {
-	ctx := context.Background()
-	rd := &reader{
-		chats: map[string]domain.Chat{"a": {ID: "a"}, "b": {ID: "b"}},
-		live:  []agents.Runner{runnerOn("r1", "a", t0)},
-	}
-	s, rec, _ := newOwner(t, rd)
-
-	moved := runnerOn("r1", "b", t0)
-	moved.CurrentSessionSince = t0.Add(time.Second)
-	s.ApplyRunner(ctx, moved, runnerOn("r1", "a", t0), 3, "moved")
-
-	rec.mu.Lock()
-	frames := append([]snapshot.Frame(nil), rec.frames...)
-	rec.mu.Unlock()
-	require.Len(t, frames, 2)
-	assert.Equal(t, "b", frames[0].Snapshot.Chat.ID)
-	assert.Equal(t, "moved", frames[0].Kind)
-	require.NotNil(t, frames[0].Snapshot.Live)
-	assert.Equal(t, snapshot.PhaseLive, frames[0].Snapshot.Phase)
-	assert.Equal(t, "a", frames[1].Snapshot.Chat.ID)
-	assert.Nil(t, frames[1].Snapshot.Live, "the chat it left is dormant")
-	assert.Equal(t, snapshot.PhaseDormant, frames[1].Snapshot.Phase)
-	assert.Equal(t, "r1", frames[1].RunnerID)
-}
-
 // A runner taken off its chat, and its exit after that, both reach the chat it
 // held under their own kinds: a client lets go of a displaced runner at once.
 func TestSnapshots_ADisplacedRunnerAndItsExitReachTheChatItLeft(t *testing.T) {
@@ -170,9 +152,9 @@ func TestSnapshots_ADisplacedRunnerAndItsExitReachTheChatItLeft(t *testing.T) {
 	assert.Equal(t, "r1", last.RunnerID)
 }
 
-// Two runners claiming one chat: the newest arrival is the live one — the same
+// Two runners claiming one chat: the newest start is the live one — the same
 // answer the read model's single-chat query gives.
-func TestSnapshots_TheNewestArrivalIsLive(t *testing.T) {
+func TestSnapshots_TheNewestStartIsLive(t *testing.T) {
 	ctx := context.Background()
 	s, _, _ := newOwner(t, &reader{
 		chats: map[string]domain.Chat{"c1": {ID: "c1"}},

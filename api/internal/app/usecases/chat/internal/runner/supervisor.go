@@ -1,7 +1,6 @@
 // Package runner (file supervisor.go) is the session supervisor's record of
-// WHY each chat's session is in the state it is: which resume rung its runner
-// launched on, and how its last runner ended. The snapshot joins it onto every
-// chat frame, so a client renders the reason and never infers it.
+// how each chat's last runner ended. The snapshot joins it onto every chat
+// frame, so a client renders the reason and never infers it.
 package runner
 
 import (
@@ -20,19 +19,13 @@ import (
 type sessionBook struct {
 	mu    sync.Mutex
 	chats map[string]domain.AgentSession
-	// causes is the reason noted for a runner BEFORE Crowbar ends it, read
-	// once by the exit that produces. A runner with none exited on its own.
+	// causes is the reason noted for a runner BEFORE it ends, read once by
+	// the exit that produces. A runner with none exited on its own.
 	causes map[string]string
-	// probes are resume launches not yet confirmed by the CLI announcing a
-	// session; one that exits unconfirmed failed its resume (see ladder.go).
-	probes map[string]resumeProbe
-	// quarantined is, per chat, the vendor session ids a launch failed to
-	// resume: the ladder never offers them again.
-	quarantined map[string]map[string]struct{}
 }
 
-// backgroundWork is the supervisor's own follow-up work (a refused prompt's
-// redelivery): tracked, so Shutdown cancels it and waits, and none outlives
+// backgroundWork is the supervisor's own follow-up work (a native view's
+// exit handling): tracked, so Shutdown cancels it and waits, and none outlives
 // the daemon. A nil one (a bare Runners built by a test) runs untracked.
 type backgroundWork struct {
 	mu      sync.Mutex
@@ -91,17 +84,10 @@ func (b *backgroundWork) stop() {
 	b.wg.Wait()
 }
 
-type resumeProbe struct {
-	chatID, sessionID string
-	at                time.Time
-}
-
 func newSessionBook() *sessionBook {
 	return &sessionBook{
-		chats:       map[string]domain.AgentSession{},
-		causes:      map[string]string{},
-		probes:      map[string]resumeProbe{},
-		quarantined: map[string]map[string]struct{}{},
+		chats:  map[string]domain.AgentSession{},
+		causes: map[string]string{},
 	}
 }
 
@@ -132,17 +118,6 @@ func (b *sessionBook) cause(runnerID, reason string) {
 	b.causes[runnerID] = reason
 }
 
-// hasCause reports whether Crowbar itself is ending runnerID.
-func (b *sessionBook) hasCause(runnerID string) bool {
-	if b == nil {
-		return false
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	_, ok := b.causes[runnerID]
-	return ok
-}
-
 // takeCause consumes runnerID's noted cause; "exited" when none was noted.
 func (b *sessionBook) takeCause(runnerID string) string {
 	if b == nil {
@@ -165,82 +140,24 @@ func (b *sessionBook) forget(chatID string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	delete(b.chats, chatID)
-	delete(b.quarantined, chatID)
 }
-
-func (b *sessionBook) probe(runnerID string, p resumeProbe) {
-	if b == nil {
-		return
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.probes[runnerID] = p
-}
-
-// confirm drops runnerID's probe: its CLI announced a session, so the resume
-// was accepted.
-func (b *sessionBook) confirm(runnerID string) {
-	if b == nil {
-		return
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	delete(b.probes, runnerID)
-}
-
-// failedProbe consumes runnerID's probe and, when it is still unconfirmed and
-// the runner died within window of launching, quarantines the session.
-func (b *sessionBook) failedProbe(runnerID string, window time.Duration) bool {
-	if b == nil {
-		return false
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	p, ok := b.probes[runnerID]
-	delete(b.probes, runnerID)
-	if !ok || time.Since(p.at) > window {
-		return false
-	}
-	if b.quarantined[p.chatID] == nil {
-		b.quarantined[p.chatID] = map[string]struct{}{}
-	}
-	b.quarantined[p.chatID][p.sessionID] = struct{}{}
-	return true
-}
-
-func (b *sessionBook) isQuarantined(chatID, sessionID string) bool {
-	if b == nil {
-		return false
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	_, ok := b.quarantined[chatID][sessionID]
-	return ok
-}
-
-// ConfirmLaunch implements turn.Runners: a CLI that reports anything took
-// the session it was launched on, so its exit can never read as a refusal.
-func (rs *Runners) ConfirmLaunch(runnerID string) { rs.sessions.confirm(runnerID) }
 
 // Session implements snapshot.Runtime.
 func (rs *Runners) Session(chatID string) domain.AgentSession {
 	return rs.sessions.get(chatID)
 }
 
-// noteLaunch records that chatID's new runner went live on rung.
-func (rs *Runners) noteLaunch(ctx context.Context, chatID, rung string) {
-	slog.InfoContext(ctx, "agent: runner launched", "component", "runner", "chat", chatID, "rung", rung)
-	rs.sessions.set(chatID, domain.AgentSession{Rung: rung})
+// noteLaunch clears chatID's exit record: a runner is live on it again.
+func (rs *Runners) noteLaunch(ctx context.Context, chatID string) {
+	slog.InfoContext(ctx, "agent: runner launched", "component", "runner", "chat", chatID)
+	rs.sessions.set(chatID, domain.AgentSession{})
 	rs.touch(ctx, chatID)
 }
 
 // noteExit records how chatID's runner (runnerID) ended, consuming the cause
 // noted for it. A runner already off its chat (displaced) records nothing.
-func (rs *Runners) noteExit(ctx context.Context, chatID, runnerID string, refused bool) {
+func (rs *Runners) noteExit(ctx context.Context, chatID, runnerID string) {
 	reason := rs.sessions.takeCause(runnerID)
-	if refused {
-		reason = domain.AgentExitResumeFailed
-	}
 	if chatID == "" {
 		return
 	}
@@ -272,17 +189,4 @@ func (rs *Runners) noteSpawnFailure(ctx context.Context, chatID string, err *err
 		return
 	}
 	rs.noteChatExit(ctx, chatID, domain.AgentExitSpawnFailed)
-}
-
-// launchRung is how a spawn continues its chat: the provider's own session,
-// Crowbar's transcript handed to a fresh one, or nothing to continue.
-func launchRung(resuming bool, conversation string) string {
-	switch {
-	case resuming:
-		return domain.AgentRungSession
-	case conversation != "":
-		return domain.AgentRungTranscript
-	default:
-		return domain.AgentRungFresh
-	}
 }

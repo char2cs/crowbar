@@ -113,29 +113,17 @@ func (a *recordingTranscript) transcript() []string {
 	return append([]string(nil), a.recorded...)
 }
 
-// quietRunners answers the liveness reads, the one lifecycle call
-// closeTurnFromStop makes, and which conversations this runner's own api
-// connection produced — nothing else; every other method embeds turn.Runners
-// and panics if reached.
+// quietRunners answers the one question message_delta's surfaces: asks;
+// every other method embeds turn.Runners and panics if reached.
 type quietRunners struct {
 	turn.Runners
-	originated map[string]bool
 }
-
-func (quietRunners) ConfirmLaunch(string) {}
-
-func (r quietRunners) OriginatedSession(_, sessionID string) bool { return r.originated[sessionID] }
-
-// The frames these tests replay arrive OFF this connection, so it is there by
-// construction: namesAnotherConversation needs it to read the originated
-// record at all.
-func (quietRunners) HasLiveAPIConnection(string) bool { return true }
 
 // The chat is the surface in front of the user, so message_delta's own
 // surfaces: [chat] admits the parent's stream rather than gating it off.
 func (quietRunners) ShowingNativeView(string) bool { return false }
 
-// delegatingTurn is the live sequence: a sessionless codex runner mid-answer
+// delegatingTurn is the live sequence: a fresh codex api runner mid-answer
 // on its own thread, with a child thread the model spawned running alongside
 // it on the SAME connection.
 type delegatingTurn struct {
@@ -154,7 +142,8 @@ func newDelegatingTurn(t *testing.T) delegatingTurn {
 	work := inflight.NewWork()
 	turns := turn.New(turn.Deps{
 		Chats:         chats,
-		Runners:       sessionlessCodexRunnerStore{},
+		Runners:       codexRunnerStore{},
+		Ledger:        codexBoundLedger(t, parentThread),
 		Activity:      transcript,
 		Agents:        engineagents.New(),
 		Workspace:     stubWorkspace{home: home},
@@ -164,10 +153,9 @@ func newDelegatingTurn(t *testing.T) delegatingTurn {
 		Telemetry:     telemetry.New(),
 		Work:          work,
 	})
-	// The parent thread is one Crowbar's own driver minted (apidriver's
-	// EstablishSession claims it at spawn) — the whole of what tells it from the
-	// child threads codex opens for itself on this same connection.
-	turns.SetRunners(quietRunners{originated: map[string]bool{parentThread: true}})
+	// The parent thread is the chat's bound session: the driver's own establish
+	// announced it, which is what tells it from the child threads on this connection.
+	turns.SetRunners(quietRunners{})
 	turns.SetFeed(seam.ChatFeed{MessageDelta: func(string, string, string, string, string, time.Time) {}})
 
 	// The user's turn is running and the chat is lit — the state every
@@ -176,9 +164,7 @@ func newDelegatingTurn(t *testing.T) delegatingTurn {
 	work.Set("chat-1", true)
 
 	// The parent's own stream, opening the message the child's frames below must
-	// not close. Order is not load-bearing any more — the parent is ours by
-	// cause, not by having spoken first — which is precisely what the reverted
-	// learned baseline could not say.
+	// not close.
 	require.NoError(t, turns.IngestHook(apiCtx(t), "runner-1", "codex", "message_delta",
 		[]byte(parentDelta)))
 
@@ -195,18 +181,10 @@ func (d delegatingTurn) working(t *testing.T) bool {
 	return working
 }
 
-// TestRegression_AChildThreadsTurnCompletedLeavesASessionlessRunnersTurnOpen
-// is defect (A), measured live on codex-cli 0.149.1: a security review
-// delegated to a sub-agent, the CHILD's turn/completed arrived 83 SECONDS
-// before the user's own turn ended, and closeTurnFromStop filed it against
-// the user's chat — StopTurn, Working=false, spinner dark, while codex was
-// still writing the answer.
-//
-// The runner here names no conversation, which is why
-// TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn (turn_test.go)
-// could not catch this: it wires boundCodexRunnerStore, and a bound session
-// is exactly the case that always had something to compare against.
-func TestRegression_AChildThreadsTurnCompletedLeavesASessionlessRunnersTurnOpen(t *testing.T) {
+// TestRegression_AChildThreadsTurnCompletedLeavesTheChatsTurnOpen is defect
+// (A), measured live on codex-cli 0.149.1: the CHILD's turn/completed arrived
+// 83 SECONDS before the user's own turn ended, and closed the user's turn.
+func TestRegression_AChildThreadsTurnCompletedLeavesTheChatsTurnOpen(t *testing.T) {
 	t.Parallel()
 
 	d := newDelegatingTurn(t)
@@ -246,13 +224,13 @@ func TestRegression_AnUnregisteredChildThreadsAnswerNeverEntersTheTranscript(t *
 			"nor the parent's half-streamed one may be recorded off its turn/completed")
 }
 
-// TestRegression_AChildThreadsIdleNeverArmsASessionlessRunnersIdleFuse is the
+// TestRegression_AChildThreadsIdleNeverArmsTheChatsIdleFuse is the
 // other half of the same capture. The child reports
 // thread/status/changed(idle) when ITS turn ends, and recordIdle arms a latch
 // the terminal-wait sweep treats as "the provider says it is done and nothing
 // has closed the turn" — a 5s fuse (termwait.DefaultIdleQuiet) under the
 // user's still-running turn, gated on neither OpenWork nor the connection.
-func TestRegression_AChildThreadsIdleNeverArmsASessionlessRunnersIdleFuse(t *testing.T) {
+func TestRegression_AChildThreadsIdleNeverArmsTheChatsIdleFuse(t *testing.T) {
 	t.Parallel()
 
 	d := newDelegatingTurn(t)

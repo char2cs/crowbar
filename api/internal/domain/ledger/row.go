@@ -16,6 +16,9 @@ const (
 	KindUserMessage   Kind = "user_message"
 	KindTurnStarted   Kind = "turn_started"
 	KindPromptSettled Kind = "prompt_settled"
+	KindSessionBound  Kind = "session_bound"
+	KindSessionLost   Kind = "session_lost"
+	KindMarker        Kind = "marker"
 )
 
 // ErrMalformedRow is a row the ledger refuses to record.
@@ -61,6 +64,12 @@ func Check(_ State, r Row) error {
 		return checkTurnRow[TurnStarted](r)
 	case KindPromptSettled:
 		return checkBody[PromptSettled](r)
+	case KindSessionBound:
+		return checkSessionBound(r)
+	case KindSessionLost:
+		return checkNamed(r, func(b SessionLost) bool { return b.Provider != "" && b.SessionID != "" })
+	case KindMarker:
+		return checkNamed(r, func(b Marker) bool { return b.Kind != "" })
 	default:
 		return fmt.Errorf("%w: unknown kind %q", ErrMalformedRow, r.Kind)
 	}
@@ -76,6 +85,25 @@ func checkTurnRow[B any](r Row) error {
 func checkBody[B any](r Row) error {
 	if _, err := DecodeBody[B](r); err != nil {
 		return fmt.Errorf("%w: %w", ErrMalformedRow, err)
+	}
+	return nil
+}
+
+func checkSessionBound(r Row) error {
+	return checkNamed(r, func(b SessionBound) bool {
+		return b.Provider != "" && b.SessionID != "" &&
+			(b.Cause == CauseAssigned || b.Cause == CauseAnnounced || b.Cause == CauseFresh)
+	})
+}
+
+// checkNamed refuses a body that does not decode or that named rejects.
+func checkNamed[B any](r Row, named func(B) bool) error {
+	body, err := DecodeBody[B](r)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrMalformedRow, err)
+	}
+	if !named(body) {
+		return fmt.Errorf("%w: %s body is missing a required field", ErrMalformedRow, r.Kind)
 	}
 	return nil
 }

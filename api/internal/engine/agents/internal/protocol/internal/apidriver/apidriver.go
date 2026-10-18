@@ -27,17 +27,15 @@ type Event struct {
 	AskID     json.RawMessage
 }
 
-// SessionOrigin is told that this connection is about to produce a session of
-// its OWN, in place of the one its caller named. It is called before the
-// replacement exists — a provider can announce a new session before the call
-// that creates it has returned — and the func it returns takes the id once
-// there is one, or "" when nothing came of the attempt.
-//
-// Crowbar must know about every session Crowbar itself originates: the runner
-// layer infers "a session I have never seen means the user typed /clear" from
-// absence, and that inference is only sound while this is the one channel
-// through which a driver can mint one behind its back.
+// SessionOrigin is told about every session this connection opens or enters.
+// It is called before the call that does so, and the func it returns takes the
+// id once there is one, or "" when nothing came of the attempt.
 type SessionOrigin func() func(sessionID string)
+
+// ErrSessionLost is the provider refusing a session by the code the descriptor
+// declares (runtime.api.session_lost_codes): the caller loses it, never this
+// driver replacing it with another.
+var ErrSessionLost = errors.New("apidriver: the provider no longer has the session")
 
 type Driver struct {
 	conn   *wsrpc.Conn
@@ -60,12 +58,9 @@ type Driver struct {
 	// it without Crowbar's code knowing turns exist.
 	//
 	// birth is the value set the FIRST establish on this connection ran with.
-	// A rebind (see establishFresh) has to re-run the Fresh steps long after
-	// that call returned, and the caller driving it by then is a plain message
-	// push carrying only session_id/cwd/text — none of the sandbox, approval
-	// policy or handoff context a fresh session's opening call must send. Kept
-	// here so the replacement session is born with the SAME settings the
-	// original was, instead of a blank-argument thread the provider refuses.
+	// A re-entry (reestablish) re-runs the Resume steps long after that call
+	// returned, from a plain message push carrying only session_id/cwd/text, so
+	// it is re-entered with the settings the session was opened with.
 	mu          sync.Mutex
 	established bool
 	remembered  map[string]string
@@ -260,8 +255,7 @@ func (drv *Driver) EstablishSession(
 		// Resume captured at establish) is what Dispatch has always assumed
 		// happens here; an empty caller value must lose to it, not overwrite it.
 		out = fillBlanksFromRemembered(out, remembered)
-		// The connection alone knows which thread it opened; a caller's id may be
-		// a runner row that never learned of a replacement.
+		// The connection's own thread wins over whatever the caller named.
 		if id := remembered["session_id"]; id != "" {
 			out["session_id"] = id
 		}
@@ -279,36 +273,15 @@ func (drv *Driver) EstablishSession(
 	if !resuming {
 		steps = ev.Fresh
 	}
-	// The conversation this chat's FIRST message opens is Crowbar's own doing
-	// just as much as a recovery's replacement is, and this is the path EVERY
-	// fresh api-transport chat takes. Unclaimed (what this did before), nothing
-	// downstream had any record that the conversation it was watching was ours:
-	// CurrentSession and LaunchSessionID both stay empty on a pure api-transport
-	// spawn — measured 47 of 49 real codex turn rows — so the hook ingress'
-	// ownership guard had nothing to compare against and waved every child
-	// thread the provider pushed down this same connection into the user's
-	// transcript. Opened BEFORE the call, for the reason SessionOrigin states:
-	// the provider can announce the new conversation over this connection
-	// before the call that mints it has returned.
+	// Every session this connection opens is reported, so the chat binds the
+	// one its ingress filters against.
 	settle := drv.originate()
 	if err := drv.runSteps(ctx, steps, out); err != nil {
-		// Settled empty FIRST: the fallback below opens a claim of its own, and a
-		// claim left open here would never be closed by it — they nest via the
-		// pending counter, they do not hand over.
 		settle("")
-		// A resume that fails because the session is GONE is not a fatal error:
-		// the id came from a prior life of this chat and the provider has since
-		// forgotten it, so no amount of retrying that id can ever work. Left
-		// fatal (what this did before), the caller tears the connection down and
-		// every later spawn re-runs the same doomed resume against the same dead
-		// id forever — the chat can never speak over this transport again.
-		// Confirmed live, four times over, in one evening's daemon log.
-		if !resuming || !drv.sessionLost(err) {
-			return nil, err
+		if resuming && drv.sessionLost(err) {
+			return nil, fmt.Errorf("%w: %s: %w", ErrSessionLost, out["session_id"], err)
 		}
-		slog.WarnContext(ctx, "apidriver: session is gone; establishing a replacement",
-			"provider", drv.d.ID, "event", canonical, "lost_session_id", out["session_id"], "err", err)
-		return drv.establishFresh(ctx, ev, values)
+		return nil, err
 	}
 	drv.markEstablished(out)
 	settle(out["session_id"])
@@ -376,26 +349,6 @@ func (drv *Driver) reopen(values map[string]string) map[string]string {
 	return out
 }
 
-// establishFresh abandons whatever session this connection thought it had and
-// mints a genuinely new one by running the SAME Fresh steps a chat's
-// first-ever message runs — the one path that cannot depend on the provider
-// still remembering anything, and so the LAST one to try: it starts an empty
-// conversation, which is the user's own history thrown away.
-func (drv *Driver) establishFresh(
-	ctx context.Context, ev spec.EventSpec, values map[string]string,
-) (map[string]string, error) {
-	settle := drv.originate()
-	out := drv.reopen(values)
-	out["session_id"] = ""
-	if err := drv.runSteps(ctx, ev.Fresh, out); err != nil {
-		settle("")
-		return nil, fmt.Errorf("apidriver: %s: establish replacement session: %w", drv.d.ID, err)
-	}
-	drv.markEstablished(out)
-	settle(out["session_id"])
-	return out, nil
-}
-
 // reestablish re-enters the session the provider says it no longer has, by
 // running the event's OWN declared Resume steps with the id we still hold.
 //
@@ -419,47 +372,19 @@ func (drv *Driver) reestablish(
 }
 
 // recoverLostSession answers an Action the provider refused because it does not
-// have the session: re-enter it, and only mint a replacement once the provider
-// has refused the held id on its own resume path too. Either way the Action is
-// re-run, so the message the caller was delivering still lands.
+// have the session: re-enter it and re-run the Action, so the message still
+// lands. A session the provider refuses to resume as well is lost.
 func (drv *Driver) recoverLostSession(
 	ctx context.Context, ev spec.EventSpec, values map[string]string, lostSessionID string,
 ) (map[string]string, error) {
-	// A claim held across BOTH attempts, reporting no id of its own (whichever
-	// attempt succeeds already does): the instant BETWEEN them is one an
-	// announcement can land in.
-	defer drv.originate()("")
-
-	out, err := drv.reenterAndAct(ctx, ev, values, lostSessionID)
-	if err == nil {
-		return out, nil
-	}
-	if !errors.Is(err, errNoResumePath) && !drv.sessionLost(err) {
-		return nil, err
-	}
-	slog.WarnContext(ctx, "apidriver: the held session could not be re-entered; replacing it",
-		"provider", drv.d.ID, "lost_session_id", lostSessionID, "err", err)
-
-	out, err = drv.establishFresh(ctx, ev, values)
-	if err != nil {
-		return nil, err
-	}
-	return out, drv.runSteps(ctx, ev.Action, out)
-}
-
-// errNoResumePath means there was nothing to re-enter — no id held, or a
-// descriptor that declares no Resume steps for this event — so the Fresh
-// fallback is the only answer left.
-var errNoResumePath = errors.New("apidriver: no declared resume path")
-
-func (drv *Driver) reenterAndAct(
-	ctx context.Context, ev spec.EventSpec, values map[string]string, lostSessionID string,
-) (map[string]string, error) {
 	if lostSessionID == "" || len(ev.Resume) == 0 {
-		return nil, errNoResumePath
+		return nil, fmt.Errorf("%w: %s: no declared resume path", ErrSessionLost, lostSessionID)
 	}
 	out, err := drv.reestablish(ctx, ev, values, lostSessionID)
 	if err != nil {
+		if drv.sessionLost(err) {
+			return nil, fmt.Errorf("%w: %s: %w", ErrSessionLost, lostSessionID, err)
+		}
 		return nil, err
 	}
 	return out, drv.runSteps(ctx, ev.Action, out)

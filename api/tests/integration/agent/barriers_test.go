@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
 	"github.com/gin-gonic/gin"
@@ -17,38 +18,14 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// This file holds the harness's SYNCHRONISATION seams. There are exactly two
-// things a test driving a real vendor CLI ever has to wait for, and neither of
-// them is an amount of time:
-//
-//   - The CLI told the daemon something. Every state this suite asserts on —
-//     a conversation bound, a runner moved by /clear, a turn appended to the
-//     ledger — is produced by the CLI shelling out to `crowbar hook`, which POSTs
-//     to the daemon. That POST is an EVENT, and hookBarrier turns it into one a
-//     test can block on (awaitHook).
-//
-//   - The CLI is showing us something. A modal to acknowledge, or the text we typed
-//     echoed back into its composer. Both are visible ON SCREEN, and kit.PTYTap turns
-//     the PTY into a signal (settleCLI, drive).
-//
-// The suite used to sleep for both, because it had neither seam: nudgeUntil
-// re-sampled the read model every 250ms while blindly firing Enter into the PTY
-// every 2s, and a bare time.Sleep(300ms) stood in for "the TUI has taken my
-// input". Those are guesses about how fast this machine is, and they are wrong
-// under load — which is exactly when the CI runs.
+// This file holds the harness's synchronisation seams. A test driving a real CLI
+// waits for two things, never an amount of time: the CLI telling the daemon
+// something (a hook POST, which hookBarrier turns into awaitHook), and the CLI
+// showing something on screen (kit.PTYTap, behind settleCLI and drive).
 
-// backstop bounds a wait so a failure is DIAGNOSED rather than left to hang until
-// `go test -timeout` kills the binary with no message. It is NOT a synchronisation
-// device: no barrier below ever waits for it on the happy path — each one returns
-// the instant its real signal arrives — and lengthening it can never make a passing
-// test pass "more" or a slow machine pass "differently".
-//
-// It is deliberately far larger than any legitimate wait. The slowest real thing
-// here is one model turn on a resumed codex, which must first finish booting the
-// MCP servers the user's own ~/.codex config declares (observed live at ~50s before
-// the turn is even dispatched) and then think. A bound has to clear that with room
-// to spare, or it stops being a bound on FAILURE and starts being a bound on the
-// vendor's mood — which is the very thing this rewrite exists to remove.
+// backstop bounds a wait so a failure is diagnosed rather than hung; no barrier
+// waits for it on the happy path. It clears the slowest real wait, a resumed
+// codex booting its MCP servers before a turn, with room to spare.
 const backstop = 5 * time.Minute
 
 // hookBarrier observes COMPLETED agent-hook requests: gin middleware fires it
@@ -392,15 +369,13 @@ func settleCLI(
 			if provider == "codex" && codexReady(tap) {
 				return sawReady, true
 			}
-			// Already bound == already past every modal — but ONLY for a provider
-			// whose PTY *is* its conversation. Not codex: under the api transport
-			// its runner is bound within a second by the app-server's own
-			// thread/started, while the PTY this tap watches is still sitting on
-			// its trust dialog. Accepting that here is how a codex got declared
-			// settled before it had read a single keystroke.
+			// Already announced == already past every modal — but ONLY for a
+			// provider whose PTY *is* its conversation. Not codex: under the api
+			// transport its app-server announces within a second, while the PTY
+			// this tap watches is still sitting on its trust dialog.
 			if provider == "claude" {
 				if r, err := h.app.Repositories.AgentRunner.Get(context.Background(), runnerID); err == nil &&
-					r.CurrentSession != "" {
+					announcedSession(h, r) != "" {
 					return sawBound, true
 				}
 			}
@@ -807,16 +782,9 @@ func drive(
 	require.NoError(t, h.eng.Terminal.Write(ctx, termSessID, []byte("\r")), "drive: submit")
 }
 
-// awaitSessionBound blocks until runnerID has announced a native conversation —
-// the reducer's "bound" outcome, landed via the CLI's SessionStart hook — and
-// returns it with the runner row it read.
-//
-// It is keyed on the RUNNER because a runner id is minted at spawn and is stable
-// for the whole life of the process, INCLUDING across every conversation move it
-// makes: this one lookup keeps answering after a /clear has carried the CLI into
-// a different chat entirely. A dead runner reads as ErrNotFound rather than a
-// stale row, so a CLI that died on startup surfaces as "never bound" instead of
-// silently passing on a corpse.
+// awaitSessionBound blocks until runnerID's CLI has announced the session its
+// chat is bound to, and returns it with the runner row it read. A dead runner
+// reads as ErrNotFound, so a CLI that died on startup surfaces as "never bound".
 // A dead CLI can never bind, so awaitSessionBound watches the PTY as well as the
 // hook feed and fails the moment the process is gone — printing the screen it died
 // on. Without that, a CLI that exits on startup (a `--resume` against a session the
@@ -839,8 +807,8 @@ func awaitSessionBound(
 		h.app.Repositories.WaitQuiescent()
 		if runner, err := h.app.Repositories.AgentRunner.Get(context.Background(), runnerID); err == nil {
 			last = runner
-			if runner.CurrentSession != "" {
-				return runner.CurrentSession, true
+			if sid := announcedSession(h, runner); sid != "" {
+				return sid, true
 			}
 		}
 		// The PTY id is passed in rather than read off the runner row, because the row
@@ -855,6 +823,24 @@ func awaitSessionBound(
 		return "", false
 	}, h.hooks.sig, tap.Signal())
 	return sid, last
+}
+
+// announcedSession is the session r's CLI has announced on its chat, "" until it
+// has. Claude is bound at launch, so its announcement shows as the model its
+// SessionStart reported; codex is bound by its announcement alone.
+func announcedSession(h *harness, r agents.Runner) string {
+	snap, err := h.app.Usecases.AgentChat.ChatSnapshot(context.Background(), r.CurrentChatID)
+	if err != nil {
+		return ""
+	}
+	c, ok := snap.Conversation()
+	if !ok || c.Provider != r.ProviderID || c.State != ledger.ConversationBound {
+		return ""
+	}
+	if r.ProviderID == "claude" && r.ReportedModel == "" {
+		return ""
+	}
+	return c.SessionID
 }
 
 // awaitAssistantReply blocks until the ledger holds an assistant turn from

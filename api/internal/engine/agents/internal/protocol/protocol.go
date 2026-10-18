@@ -42,6 +42,8 @@ var (
 
 	ErrTelemetryUnsupported    = telemetry.ErrUnsupported
 	ErrTelemetryInvalidWorkdir = telemetry.ErrInvalidWorkdir
+
+	ErrAPISessionLost = apidriver.ErrSessionLost
 )
 
 // ForeignPayloadError reports which required field was absent, i.e. why the payload
@@ -197,8 +199,8 @@ func MatchTerminalPrompt(d *spec.Descriptor, screen string) (models.TerminalProm
 // frame. AskID is non-nil exactly when a human decision must be sent back.
 type APIEvent = apidriver.Event
 
-// APISessionOrigin is told which sessions an api connection produced ITSELF,
-// in place of the one its caller named — see apidriver.SessionOrigin.
+// APISessionOrigin is told every session an api connection opens or enters —
+// see apidriver.SessionOrigin.
 type APISessionOrigin = apidriver.SessionOrigin
 
 // APIConn wraps *apidriver.Driver so a caller outside this package's own

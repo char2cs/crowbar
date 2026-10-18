@@ -85,34 +85,6 @@ func TestRegression_SpawnChatSeedsThePermissionLevelFromTheCurrentGlobalDefault(
 			"not the fixture's own pinned guarded default nor the since-changed one")
 }
 
-// TestRegression_MoveToNewChatSeedsThePermissionLevelFromTheCurrentGlobalDefault
-// proves the THIRD chat-creation path — moveToNewChat, reached whenever a
-// live CLI announces a session id Crowbar's history doesn't recognise (an
-// everyday mid-conversation /clear or /new) — also seeds the new chat's
-// DISPLAY field from the global default in effect AT THE MOMENT the chat is
-// minted. As with the SpawnChat test above, this is the stored-field half
-// only — the new chat is never explicitly pinned, so it still follows a
-// later global-default change at its next spawn (ChatSelection); it is not
-// frozen against the dial.
-func TestRegression_MoveToNewChatSeedsThePermissionLevelFromTheCurrentGlobalDefault(t *testing.T) {
-	f := newFixtureWithPermissionDefault(t, "trusted")
-	chatA, runnerID := f.spawn(t, "claude")
-	f.announce(t, runnerID, "sA")
-	f.announce(t, runnerID, "sB") // /clear — moveToNewChat mints a brand-new chat
-
-	moved := f.runner(t, runnerID)
-	chatB := moved.CurrentChatID
-	require.NotEqual(t, chatA, chatB, "precondition: the runner really did move to a new chat")
-
-	require.NoError(t, f.usecase.SetDefaultPermissionLevel(f.ctx, "guarded"))
-
-	chat, err := f.usecase.GetChat(f.ctx, chatB)
-	require.NoError(t, err)
-	assert.Equal(t, "trusted", chat.PermissionLevel,
-		"chat B must have been seeded at trusted, the global default AT moveToNewChat's "+
-			"CREATION TIME, not the since-changed guarded default")
-}
-
 // TestRegression_ManyAnsweredPermissionsInOneTurnNeverHitMaxOpenPerTurn
 // proves a turn with more than domain.MaxOpenPerTurn (64) gated tool calls
 // never strands one past the cap. Each permission opens BOTH a choice AND

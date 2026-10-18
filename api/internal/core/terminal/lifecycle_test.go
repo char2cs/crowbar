@@ -227,6 +227,25 @@ func TestKill_SignalsProcessGroup(t *testing.T) {
 		"the session's background child must die with it")
 }
 
+func TestCreateCommand_OnExitCarriesCodeAndFinalScreen(t *testing.T) {
+	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
+	defer eng.Shutdown()
+	exits := make(chan terminal.Exit, 1)
+
+	_, err := eng.CreateCommand(context.Background(), "chat-exit", t.TempDir(),
+		[]string{"/bin/sh", "-c", "echo bye; exit 3"}, nil, func(e terminal.Exit) { exits <- e })
+	require.NoError(t, err)
+
+	select {
+	case exit := <-exits:
+		assert.Equal(t, 3, exit.Code)
+		assert.Contains(t, exit.Screen, "bye", "the screen the process left behind")
+	case <-time.After(10 * time.Second):
+		t.Fatal("onExit never ran for a process that exited")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Maintenance ceiling
 // ---------------------------------------------------------------------------

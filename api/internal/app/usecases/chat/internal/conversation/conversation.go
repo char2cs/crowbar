@@ -220,12 +220,10 @@ func (c *Conversations) PurgeLocked(
 	}
 	c.telemetry.Forget(ctx, chatID)
 
-	// Drop the chat's conversation history. It is append-only and outlives the
-	// process, so nothing else ever removes it — and a conversation still pointing
-	// at a hard-deleted chat is a live trap: a later /resume of that session id would
-	// resolve (ChatForSession) to a chat that no longer exists.
+	// Drop the chat's placement history: it is append-only and outlives the
+	// process, so nothing else ever removes it.
 	if err := c.runnerStore.ForgetChat(ctx, chatID); err != nil {
-		slog.ErrorContext(ctx, "agent: purge chat: forget conversation history (best-effort, continuing)",
+		slog.ErrorContext(ctx, "agent: purge chat: forget placement history (best-effort, continuing)",
 			"chat_id", chatID, "err", err)
 	}
 	if err := c.ledger.Forget(ctx, chatID); err != nil {

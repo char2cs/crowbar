@@ -19,15 +19,14 @@ const eventNamePrefix = "runner."
 // RunnerEvent is one projected agentrunner lifecycle event, in repo-owned terms:
 // the bare (runnerID, workspaceID, chatID, kind) facts a lifecycle frame is built
 // from.
-// chatID is the chat the runner is pointed at AS OF this event, so a `moved`
-// frame names the chat it entered — the frame carries placement, never liveness.
+// chatID is the chat the runner is pointed at AS OF this event — the frame
+// carries placement, never liveness.
 //
 // kind is the <kind> segment of the emitting command's EventName, so the
 // vocabulary is exactly one term per command:
 //
 //	started       — a CLI was spawned into a chat
-//	session_bound — the provider announced its first conversation id
-//	moved         — the CLI repointed at another chat/conversation (/clear, /resume)
+//	session_bound — the CLI reported the model/effort it resolved to (commands.Report)
 //	displaced     — Crowbar took the CLI OFF its chat (an eviction, the outgoing side of a
 //	                switch, a chat deleted under it). chatID is EMPTY on this frame: the
 //	                runner is on no chat. The process is still alive — this says nothing
@@ -41,8 +40,8 @@ type RunnerEvent struct {
 	ChatID      string
 	Kind        string
 	// Runner and Previous are the aggregate after and before this event, and
-	// Version its aggregate version: Previous.CurrentChatID is the chat a move
-	// or displacement LEFT, which ChatID alone cannot name.
+	// Version its aggregate version: Previous.CurrentChatID is the chat a
+	// displacement LEFT, which ChatID alone cannot name.
 	Runner   agents.Runner
 	Previous agents.Runner
 	Version  int64

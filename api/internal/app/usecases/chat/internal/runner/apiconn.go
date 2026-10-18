@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"sync"
@@ -44,12 +45,6 @@ type apiconn struct {
 	// connection later, on the way back to native — nothing else needs them.
 	agent engineagents.Agent
 	tctx  engineagents.TemplateCtx
-	// replacedSession is set when the provider refused the session this spawn
-	// asked to resume and a fresh one was opened in its place.
-	replacedSession bool
-	// originated is every conversation this connection's own driver opened in
-	// place of one Crowbar named — see sessionorigin.go.
-	originated *originatedSessions
 	// detached marks a connection whose process is being killed without the
 	// runner ending: handed over to its native view (SwitchToTerminal), or the
 	// daemon shutting down, whose next boot reconciles the row. Read by
@@ -191,20 +186,15 @@ func (rs *Runners) startAPIConn(
 		serve.kill()
 		return nil, false
 	}
-	// Built BEFORE the driver, and handed to it: a driver that recovers a lost
-	// session opens a conversation nobody asked for, and the claim has to be
-	// open before the first call of that recovery reaches the wire.
-	originated := newOriginatedSessions()
-	driver, err := agent.StartAPIConn(ctx, tctx.Socket, originated.Claim)
+	//nolint:contextcheck // the driver announces long after this request; its values must not reach the binding.
+	driver, err := agent.StartAPIConn(ctx, tctx.Socket, rs.sessionOrigin(tctx.ChatID, agent.ID()))
 	if err != nil {
 		slog.WarnContext(ctx, "agent: api transport: handshake", "err", err, "runner_id", runnerID)
 		serve.kill()
 		return nil, false
 	}
 	connCtx, cancel := context.WithCancel(context.Background())
-	conn := &apiconn{
-		serve: serve, driver: driver, ctx: connCtx, cancel: cancel, originated: originated,
-	}
+	conn := &apiconn{serve: serve, driver: driver, ctx: connCtx, cancel: cancel}
 	rs.apiConns.set(runnerID, conn)
 	return conn, true
 }
@@ -267,20 +257,16 @@ func (rs *Runners) applyAPITransport(
 	for k, v := range tctx.PermissionVars {
 		values["permission."+k] = v
 	}
-	requested := tctx.Session
 	established, err := conn.driver.EstablishSession(ctx, "prompt", values)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: api transport: establish session", "err", err, "runner_id", runnerID)
+		if errors.Is(err, engineagents.ErrAPISessionLost) {
+			rs.loseSession(ctx, tctx.ChatID, providerID, tctx.Session, err.Error(), runnerID)
+		}
 		rs.apiConns.drop(runnerID)
 		return nil
 	}
 	tctx.Session = established["session_id"]
-	if requested != "" && tctx.Session != requested {
-		// The provider refused the recorded session and a new one was opened:
-		// the ladder's transcript rung, so it is handed the whole conversation.
-		conn.replacedSession = true
-		resumeContext = rs.transcriptFor(ctx, tctx.ChatID)
-	}
 	// The only channel that reaches an already-resumed thread with the gap
 	// (thread/resume's own send: has nowhere to put it). Best effort: a failed
 	// inject leaves the resumed session running without the gap, not unresumed.

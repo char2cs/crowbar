@@ -31,6 +31,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -58,8 +59,9 @@ type Snapshot struct {
 
 	TerminalWait      domain.AgentTerminalWait
 	AttachedSessionID string
-	// Session is why the chat's vendor session is in the state it is.
+	// Session is how the chat's last runner ended.
 	Session domain.AgentSession
+	Ledger  LedgerFacts
 }
 
 // Reader is the read model the owner falls back to for a chat no event has
@@ -67,6 +69,9 @@ type Snapshot struct {
 type Reader interface {
 	GetChat(ctx context.Context, chatID string) (domain.Chat, error)
 	AllLive(ctx context.Context) ([]agents.Runner, error)
+	// LedgerState is never called under the owner's lock: the ledger writer
+	// publishes into the owner, so the lock order is writer → owner.
+	LedgerState(ctx context.Context, chatID string) (ledger.State, error)
 }
 
 // Runtime is the in-memory process state joined onto a snapshot. Its
@@ -107,6 +112,8 @@ type chatState struct {
 	chatVersion int64
 	loaded      bool
 	version     int64
+	facts       LedgerFacts
+	hasFacts    bool
 }
 
 // ErrDeleted is a chat whose delete this owner has applied.
@@ -232,9 +239,8 @@ func (s *Snapshots) ApplyChat(ctx context.Context, chat domain.Chat, version int
 }
 
 // ApplyRunner records one runner aggregate event and publishes the snapshot of
-// every chat whose placement it changed: the chat it is on now, and the one it
-// left. A runner now on no chat (displaced, exited) tells the chat it last held
-// why, so its exit reaches that chat's feed even after a displacement.
+// the chat it is on. A runner now on no chat (displaced, exited) tells the chat
+// it last held why, so its exit reaches that chat's feed after a displacement.
 func (s *Snapshots) ApplyRunner(ctx context.Context, runner, previous agents.Runner, version int64, kind string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -249,15 +255,10 @@ func (s *Snapshots) ApplyRunner(ctx context.Context, runner, previous agents.Run
 	s.recordRunnerLocked(runner, version, last)
 	if runner.CurrentChatID != "" {
 		s.emitChatLocked(ctx, runner.CurrentChatID, kind, runner.ID)
-	}
-	if last == "" || last == runner.CurrentChatID {
 		return
 	}
-	switch {
-	case runner.CurrentChatID == "" && (previous.CurrentChatID != "" || runner.ExitedAt != nil):
+	if last != "" && (previous.CurrentChatID != "" || runner.ExitedAt != nil) {
 		s.emitChatLocked(ctx, last, kind, runner.ID)
-	case previous.CurrentChatID != "":
-		s.emitChatLocked(ctx, last, KindSnapshot, runner.ID)
 	}
 }
 
@@ -309,6 +310,9 @@ func (s *Snapshots) Get(ctx context.Context, chatID string) (Snapshot, error) {
 // the read. The placement overlay runs once for the whole read, after the lock
 // is released: it is a store read, and nothing it adds is versioned.
 func (s *Snapshots) GetMany(ctx context.Context, chatIDs []string) ([]Snapshot, error) {
+	if err := s.preloadLedger(ctx, chatIDs); err != nil {
+		return nil, err
+	}
 	snaps, correct, err := s.collect(ctx, chatIDs)
 	if err != nil || correct == nil {
 		return snaps, err
@@ -428,7 +432,7 @@ func (s *Snapshots) emitLocked(f Frame) {
 
 func (s *Snapshots) buildLocked(ctx context.Context, chatID string, st *chatState) Snapshot {
 	s.seedLocked(ctx)
-	snap := Snapshot{Chat: st.chat, Version: st.version, Live: s.liveLocked(chatID)}
+	snap := Snapshot{Chat: st.chat, Version: st.version, Live: s.liveLocked(chatID), Ledger: st.facts}
 	if s.runtime != nil {
 		snap.Phase = s.runtime.Phase(chatID)
 		snap.TerminalWait = s.runtime.TerminalWait(chatID)
@@ -447,7 +451,7 @@ func (s *Snapshots) buildLocked(ctx context.Context, chatID string, st *chatStat
 }
 
 // liveLocked is the runner the single-chat read model would name: newest
-// arrival first, id ascending on a tie.
+// start first, id ascending on a tie.
 func (s *Snapshots) liveLocked(chatID string) *agents.Runner {
 	var placed []agents.Runner
 	for _, rs := range s.runners {
@@ -459,18 +463,10 @@ func (s *Snapshots) liveLocked(chatID string) *agents.Runner {
 		return nil
 	}
 	sort.Slice(placed, func(i, j int) bool {
-		ai, aj := arrival(placed[i]), arrival(placed[j])
-		if !ai.Equal(aj) {
+		if ai, aj := placed[i].StartedAt, placed[j].StartedAt; !ai.Equal(aj) {
 			return ai.After(aj)
 		}
 		return placed[i].ID < placed[j].ID
 	})
 	return &placed[0]
-}
-
-func arrival(r agents.Runner) time.Time {
-	if r.CurrentSessionSince.After(r.StartedAt) {
-		return r.CurrentSessionSince
-	}
-	return r.StartedAt
 }

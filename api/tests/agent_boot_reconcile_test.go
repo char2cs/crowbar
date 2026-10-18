@@ -16,8 +16,8 @@ import (
 // restart regressions below start from.
 //
 // Binding a conversation is load-bearing, not decoration: a chat with no
-// conversation history has nothing for ResumeChat to bring back
-// (LastConversation), so a chat that never announced could not distinguish "resume
+// conversation has nothing for ResumeChat to bring back (its ledger binds
+// none), so a chat that never announced could not distinguish "resume
 // is broken" from "there was nothing to resume".
 //
 // It returns the harness, the project-home mount, the chat, and the id of the
@@ -50,7 +50,7 @@ func bootReconcileFixture(
 
 	// Announce a conversation, so the chat has history to be revived from.
 	postHomeHook(t, h, homeBase, runnerID, "session_start", `{"session_id":"sess-before-restart"}`)
-	waitForChatFrame(t, frames, created.ID, "session_bound")
+	waitForConversation(t, frames, created.ID, "sess-before-restart")
 
 	// Open a turn, so the boot reconcile has a live turn to close — not merely a
 	// runner row to reap (the crash-mid-turn shape the FE spinner depends on).

@@ -6,17 +6,96 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
+// sessionLaunch is how one launch continues the chat's conversation with its
+// provider: resuming the bound session, or starting one — minted here when the
+// provider takes an id at launch, announced by the CLI otherwise.
+type sessionLaunch struct {
+	resumeID string
+	// assign binds the session Crowbar minted; it is appended before the fork.
+	assign *ledger.Row
+	// lost: the provider refused the chat's session, so the new one starts
+	// with no memory of the conversation and is handed none until it turns.
+	lost bool
+	// unspoken is the bound session the chat never turned on: its CLI never
+	// wrote it, so a provider that takes an id is given it again, not resumed.
+	unspoken string
+}
+
+// launchSession is the launch decision: the provider's bound session is
+// resumed by its id, and only by its id; an unbound or lost one starts anew.
+func launchSession(st ledger.State, d engineagents.Agent) (sessionLaunch, error) {
+	c, ok := st.Conversation(d.ID())
+	if ok && c.State == ledger.ConversationBound {
+		return sessionLaunch{resumeID: c.SessionID}, nil
+	}
+	launch := sessionLaunch{lost: ok && c.State == ledger.ConversationLost}
+	if _, ok := d.SessionAssignArg(); !ok {
+		return launch, nil
+	}
+	row, err := ledger.Assign(st, d.ID(), uuid.NewString())
+	if err != nil {
+		return sessionLaunch{}, fmt.Errorf("agent: assign session: %w", err)
+	}
+	launch.assign = &row
+	return launch, nil
+}
+
+// planLaunch reads chatID's ledger for launchSession. A provider that takes an
+// id is resumed only on a session the chat turned on: its CLI writes the session
+// at the first turn. Any other provider is resumed and refuses what it lacks.
+func (rs *Runners) planLaunch(ctx context.Context, chatID string, d engineagents.Agent) (sessionLaunch, error) {
+	st, err := rs.ledger.State(ctx, chatID)
+	if err != nil {
+		return sessionLaunch{}, fmt.Errorf("agent: plan launch: %w", err)
+	}
+	launch, err := launchSession(st, d)
+	if _, assigns := d.SessionAssignArg(); err != nil || launch.resumeID == "" || !assigns {
+		return launch, err
+	}
+	_, turned, err := rs.activity.LastTurnForSession(ctx, chatID, d.ID(), launch.resumeID)
+	if err != nil {
+		return sessionLaunch{}, fmt.Errorf("agent: plan launch: turns on the session: %w", err)
+	}
+	if turned {
+		return launch, nil
+	}
+	c, _ := st.Conversation(d.ID())
+	return sessionLaunch{unspoken: launch.resumeID, lost: c.Cause == ledger.CauseFresh}, nil
+}
+
+// steps are the argv steps that put the CLI on its session: the resume arg,
+// or the assign arg naming the minted or unspoken id. A provider that takes no
+// id launches fresh and announces its own.
+func (l sessionLaunch) steps(d engineagents.Agent) ([]engineagents.InjectStep, error) {
+	if l.resumeID != "" {
+		return resumeInjectionSteps(d, l.resumeID), nil
+	}
+	id := l.unspoken
+	if l.assign != nil {
+		bound, err := ledger.DecodeBody[ledger.SessionBound](*l.assign)
+		if err != nil {
+			return nil, fmt.Errorf("agent: assign session: %w", err)
+		}
+		id = bound.SessionID
+	}
+	if id == "" {
+		return nil, nil
+	}
+	arg, _ := d.SessionAssignArg()
+	return sessionArgSteps(arg, id), nil
+}
+
 // promptDelivery is what SubmitPrompt needs to restart a CLI carrying a
-// message: the InjectSteps to render, and the resume/handoff signal those
-// steps are chosen from.
+// message: the InjectSteps to render, and the session those steps continue.
 type promptDelivery struct {
-	promptSteps     []engineagents.InjectStep
-	resumeSteps     []engineagents.InjectStep
-	launchSessionID string
-	resuming        bool
+	promptSteps []engineagents.InjectStep
+	launch      sessionLaunch
 	// conversation and contextResuming carry a handoff for a restart whose
 	// LIVE runner (the one being displaced to deliver this message) has never
 	// itself turned — its first delivery, whether that runner is brand new to
@@ -34,10 +113,11 @@ func (rs *Runners) resolvePromptDelivery(
 	live engineagents.Runner,
 	descriptor engineagents.Agent,
 ) (promptDelivery, error) {
-	resuming, nativeSessionID, lostSession, err := rs.ladderTarget(ctx, chatID, live, descriptor)
+	launch, err := rs.planLaunch(ctx, chatID, descriptor)
 	if err != nil {
 		return promptDelivery{}, err
 	}
+	resuming, nativeSessionID := launch.resumeID != "", launch.resumeID
 
 	promptSteps, err := descriptor.PromptSteps(resuming)
 	if err != nil {
@@ -87,8 +167,8 @@ func (rs *Runners) resolvePromptDelivery(
 		return promptDelivery{}, fmt.Errorf("agent: submit prompt: check live runner history: %w", err)
 	}
 
-	out := promptDelivery{promptSteps: promptSteps, resuming: resuming, contextResuming: resuming}
-	if !liveTurned || lostSession {
+	out := promptDelivery{promptSteps: promptSteps, launch: launch, contextResuming: resuming}
+	if !liveTurned && !launch.lost {
 		conversation, err := rs.conversations.AssembleConversation(ctx, chatID, everTurned, leftAt)
 		if err != nil {
 			return promptDelivery{}, fmt.Errorf("agent: submit prompt: assemble handoff: %w", err)
@@ -106,32 +186,7 @@ func (rs *Runners) resolvePromptDelivery(
 	if _, resumable := descriptor.ResumeArg(); !resumable {
 		return promptDelivery{}, ErrPromptUnsupported
 	}
-	out.resumeSteps = resumeInjectionSteps(descriptor, nativeSessionID)
-	out.launchSessionID = nativeSessionID
 	return out, nil
-}
-
-func (rs *Runners) resumeTarget(
-	ctx context.Context,
-	chatID string,
-	live engineagents.Runner,
-) (bool, string, error) {
-	if live.LaunchSessionID != "" &&
-		(live.CurrentSession == "" || live.CurrentSession == live.LaunchSessionID) {
-		return true, live.LaunchSessionID, nil
-	}
-	if live.CurrentSession == "" {
-		return false, live.CurrentSession, nil
-	}
-
-	if live.CurrentSessionResumable || live.CurrentSessionSince.IsZero() {
-		return live.CurrentSessionResumable, live.CurrentSession, nil
-	}
-	resuming, err := rs.activity.HasTurnAtOrAfter(ctx, chatID, live.ProviderID, live.CurrentSessionSince)
-	if err != nil {
-		return false, "", fmt.Errorf("agent: submit prompt: inspect current conversation: %w", err)
-	}
-	return resuming, live.CurrentSession, nil
 }
 
 func (rs *Runners) RequirePromptRestart(

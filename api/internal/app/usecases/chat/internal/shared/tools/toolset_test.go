@@ -529,7 +529,6 @@ func newPerfRunnerStore(
 
 	store, err := agentrunner.NewEventSourced(
 		ax,
-		adapters.AgentRunnerES(),
 		adapters.AgentRunnerReadDB(),
 		func(agentrunner.RunnerEvent) {},
 	)

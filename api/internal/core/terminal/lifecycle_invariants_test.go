@@ -45,8 +45,8 @@ func (l *endedLedger) onEnded(_ context.Context, _, sid string, _ int) {
 	l.signal <- sid
 }
 
-func (l *endedLedger) onExit(sid *string) func() {
-	return func() {
+func (l *endedLedger) onExit(sid *string) func(terminal.Exit) {
+	return func(terminal.Exit) {
 		l.mu.Lock()
 		defer l.mu.Unlock()
 		l.exits[*sid]++

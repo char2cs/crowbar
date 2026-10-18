@@ -21,24 +21,6 @@ func TestChannelFor_APlainCtxSelectsTheHooksChannel(t *testing.T) {
 	assert.Equal(t, engineagents.ChannelHooks, channelFor(context.Background()))
 }
 
-// fakeLiveConn reports a fixed connection liveness and originated record for
-// every runner; nothing else on Runners is implemented.
-type fakeLiveConn struct {
-	Runners
-	live       bool
-	originated map[string]bool
-}
-
-func (fakeLiveConn) ConfirmLaunch(string) {}
-
-func (f fakeLiveConn) HasLiveAPIConnection(string) bool { return f.live }
-
-// originated is whatever this connection minted itself. Empty is the honest
-// answer for live:false — a connection that is gone keeps no record.
-func (f fakeLiveConn) OriginatedSession(_, sessionID string) bool {
-	return f.originated[sessionID]
-}
-
 func descriptorFor(t *testing.T, provider string) engineagents.Agent {
 	t.Helper()
 	agent, err := engineagents.New().Get(t.Context(), t.TempDir(), provider)
@@ -53,8 +35,6 @@ type showingRunners struct {
 	Runners
 	showing bool
 }
-
-func (showingRunners) ConfirmLaunch(string) {}
 
 func (r showingRunners) ShowingNativeView(string) bool { return r.showing }
 

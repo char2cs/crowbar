@@ -11,6 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/fanout"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
@@ -21,6 +22,9 @@ func (emptyReader) GetChat(_ context.Context, id string) (domain.Chat, error) {
 	return domain.Chat{ID: id}, nil
 }
 func (emptyReader) AllLive(context.Context) ([]agents.Runner, error) { return nil, nil }
+func (emptyReader) LedgerState(context.Context, string) (ledger.State, error) {
+	return ledger.State{}, nil
+}
 
 func owner(t *testing.T) (*snapshot.Snapshots, *[]snapshot.Frame) {
 	t.Helper()

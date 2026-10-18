@@ -8,22 +8,22 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
-func TestValidate_AResumeWithoutLocateIsAWarning(t *testing.T) {
+func TestValidate_AResumeWithoutARecognisedRefusalIsAWarning(t *testing.T) {
 	rep := descriptorcheck.Validate(complete("session:\n  resume: { arg: \"--resume {id}\" }\n"))
-	f := findingFor(t, rep, "session.resume_unverified")
+	f := findingFor(t, rep, "session.refusal_unrecognised")
 	assert.Equal(t, descriptorcheck.SeverityWarning, f.Severity)
 	assert.True(t, rep.OK(), "a warning does not block the descriptor")
 }
 
-func TestValidate_TheSessionRulesRefuseAnUnusableLadder(t *testing.T) {
+func TestValidate_TheSessionRulesRefuseAnUnusableSession(t *testing.T) {
 	cases := map[string]struct {
 		yaml, rule, path string
 	}{
 		"resume without id": {"session:\n  resume: { arg: \"--resume\" }\n", "session.resume_id", "session.resume.arg"},
-		"no root":           {locate("", "", `["{id}.jsonl"]`), "session.locate_root", "session.locate"},
-		"relative root":     {locate("sessions", "", `["{id}.jsonl"]`), "session.locate_root", "session.locate.root"},
-		"no glob":           {locate("~/.x", "", `[]`), "session.locate_glob", "session.locate"},
-		"glob without id":   {locate("~/.x", "X_HOME", `["*.jsonl"]`), "session.locate_glob", "session.locate.glob[0]"},
+		"assign without id": {"session:\n  assign: { arg: \"--session-id\" }\n", "session.assign_id", "session.assign.arg"},
+		"refused exit 0":    {refused("0", `["gone"]`), "session.refused_exit", "session.refused"},
+		"no needles":        {refused("1", `[]`), "session.refused_needles", "session.refused"},
+		"an empty needle":   {refused("1", `[""]`), "session.refused_needles", "session.refused"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -78,13 +78,6 @@ func TestValidate_AnAPIProviderNeedsAServeArgv(t *testing.T) {
 	assert.Equal(t, 7, f.Line)
 }
 
-func locate(root, env, glob string) string {
-	s := "session:\n  resume: { arg: \"--resume {id}\" }\n  locate:\n"
-	if root != "" {
-		s += "    root: " + root + "\n"
-	}
-	if env != "" {
-		s += "    root_env: " + env + "\n"
-	}
-	return s + "    glob: " + glob + "\n"
+func refused(code, needles string) string {
+	return "session:\n  resume: { arg: \"--resume {id}\" }\n  refused: { exit_code: " + code + ", needles: " + needles + " }\n"
 }

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -41,9 +42,12 @@ type ChatRuntime struct {
 	// stores, same reasoning as TerminalWait.
 	AttachedSessionID string
 
-	// Session is the supervisor's record of how the chat's session continues
-	// and how its last runner ended.
+	// Session is the supervisor's record of how the chat's last runner ended.
 	Session domain.AgentSession
+
+	// Conversation is the chat's conversation with its current provider, as its
+	// ledger holds it; the zero value when it has none.
+	Conversation ledger.Conversation
 
 	// Version and Phase come from the chat snapshot owner: the version that
 	// orders every answer about this chat, and the lifecycle phase it is in.
@@ -59,36 +63,53 @@ func ChatSnapshotRuntime(
 	wait domain.AgentTerminalWait,
 	attachedSessionID string,
 	session domain.AgentSession,
+	conversation ledger.Conversation,
 ) ChatRuntime {
 	return ChatRuntime{
 		LiveRunner:        live,
 		TerminalWait:      wait,
 		AttachedSessionID: attachedSessionID,
 		Session:           session,
+		Conversation:      conversation,
 		Version:           version,
 		Phase:             phase,
 	}
 }
 
-// AgentSessionDTO says how a chat's conversation continues (rung) and, while
-// dormant, how its last runner ended — rendered by the client, never inferred.
+// AgentSessionDTO says, while a chat is dormant, how its last runner ended —
+// rendered by the client, never inferred.
 type AgentSessionDTO struct {
-	Rung       string     `json:"rung,omitempty"`
 	ExitReason string     `json:"exitReason,omitempty"`
 	ExitedAt   *time.Time `json:"exitedAt,omitempty"`
 }
 
 // AgentSessionDTOFrom collapses an empty record to nil so the field is absent.
 func AgentSessionDTOFrom(s domain.AgentSession) *AgentSessionDTO {
-	if s.Rung == "" && s.ExitReason == "" {
+	if s.ExitReason == "" {
 		return nil
 	}
-	out := &AgentSessionDTO{Rung: s.Rung, ExitReason: s.ExitReason}
+	out := &AgentSessionDTO{ExitReason: s.ExitReason}
 	if !s.ExitedAt.IsZero() {
 		at := s.ExitedAt
 		out.ExitedAt = &at
 	}
 	return out
+}
+
+// AgentConversationDTO is the chat's conversation with one provider: the
+// session it resumes by, and whether that session is bound or lost.
+type AgentConversationDTO struct {
+	ProviderID string `json:"providerId"`
+	SessionID  string `json:"sessionId"`
+	State      string `json:"state"`
+}
+
+// agentConversationDTOFrom is nil for a chat bound to no session yet.
+func agentConversationDTOFrom(c ledger.Conversation) *AgentConversationDTO {
+	if c.State == "" || c.State == ledger.ConversationUnbound {
+		return nil
+	}
+	return &AgentConversationDTO{ProviderID: c.Provider, SessionID: c.SessionID, State: string(c.State)}
 }
 
 // AgentTerminalWaitDTO says a chat's CLI is blocked on a prompt Crowbar has no
@@ -230,8 +251,12 @@ type AgentChatDTO struct {
 	// or stopping. The client renders it; it never infers it.
 	Phase string `json:"phase"`
 
-	// Session is how the conversation continues and why the chat is dormant.
+	// Session is why the chat is dormant.
 	Session *AgentSessionDTO `json:"session,omitempty"`
+
+	// Conversation is the chat's conversation with its current provider,
+	// omitted until the chat is bound to a session.
+	Conversation *AgentConversationDTO `json:"conversation,omitempty"`
 }
 
 // AgentChatDTOFrom converts a persisted AgentChat plus its derived runtime into the
@@ -265,6 +290,7 @@ func AgentChatDTOFrom(
 		Version:          rt.Version,
 		Phase:            rt.Phase,
 		Session:          AgentSessionDTOFrom(rt.Session),
+		Conversation:     agentConversationDTOFrom(rt.Conversation),
 	}
 	if rt.LiveRunner != nil {
 		out.LiveRunnerID = rt.LiveRunner.ID
@@ -292,352 +318,6 @@ func TerminalWaitDTOFrom(
 	return &AgentTerminalWaitDTO{Kind: w.Kind}
 }
 
-// AgentMessageDTO is one complete hook-derived message in a chat. Sequence is
-// Crowbar's per-chat ledger append order; provider-owned transcript identifiers
-// and paths never cross this boundary.
-type AgentMessageDTO struct {
-	Sequence int `json:"sequence"`
-	// DisplayOrder/ItemIndex are what a client actually sorts by — reserved
-	// at dispatch time, unlike Sequence, which is the row's persist-order
-	// identity and paging cursor. See domain.ActivityTurn.
-	DisplayOrder int64 `json:"displayOrder"`
-	ItemIndex    int   `json:"itemIndex"`
-	// TurnID is what the activity record attaches tool calls to, so a client can
-	// show which tools produced which reply. A user turn Crowbar dispatched is
-	// named by that prompt's clientRequestId.
-	TurnID     string `json:"turnId"`
-	Role       string `json:"role"`
-	ProviderID string `json:"providerId"`
-	Text       string `json:"text"`
-	// Effort is the reasoning effort the provider itself reported for this turn
-	// (claude's turn_stop carries effort.level), which is NOT the same fact as the
-	// chat's requested selection: it is what the CLI says it actually used. Absent
-	// when the provider reported none, and never inferred from the request.
-	Effort string    `json:"effort,omitempty"`
-	At     time.Time `json:"at"`
-}
-
-// AgentMessagePageDTO is a bounded chronological ledger window. Cursor is the
-// newest item in this page; OldestCursor is the oldest and is used to request
-// the page above it. HasMore is directional (newer for after, older otherwise).
-type AgentMessagePageDTO struct {
-	Cursor       int               `json:"cursor"`
-	OldestCursor int               `json:"oldestCursor"`
-	HasMore      bool              `json:"hasMore"`
-	Items        []AgentMessageDTO `json:"items"`
-}
-
-// AgentActivityDTO is what the agent DID during a chat, as distinct from what it
-// said. Every list is independently present: an agent that reports no tool
-// activity yields an empty one, and the client renders nothing rather than a
-// disabled control implying breakage.
-type AgentActivityDTO struct {
-	ToolCalls     []AgentToolCallDTO          `json:"toolCalls"`
-	Subagents     []AgentSubagentDTO          `json:"subagents"`
-	Interruptions []AgentInterruptionDTO      `json:"interruptions"`
-	Choices       []AgentChoiceDTO            `json:"choices"`
-	Components    []AgentActivityComponentDTO `json:"components"`
-}
-
-// AgentActivityComponentDTO is the provider-neutral ordered activity stream.
-// Payload remains structured JSON so adding a field to one component kind does
-// not force unrelated providers or older clients to understand it.
-type AgentActivityComponentDTO struct {
-	ID          string                            `json:"id"`
-	TurnID      string                            `json:"turnId"`
-	ParentID    string                            `json:"parentId,omitempty"`
-	Seq         int64                             `json:"seq"`
-	Kind        string                            `json:"kind"`
-	Status      string                            `json:"status"`
-	CreatedAt   time.Time                         `json:"createdAt"`
-	UpdatedAt   time.Time                         `json:"updatedAt"`
-	CompletedAt *time.Time                        `json:"completedAt,omitempty"`
-	Payload     map[string]any                    `json:"payload"`
-	Updates     []AgentActivityComponentUpdateDTO `json:"updates,omitempty"`
-}
-
-// AgentActivityComponentUpdateDTO is one stable, ordered lifecycle change for
-// a component. The owning ledger currently retains lifecycle boundaries rather
-// than every live text delta; live deltas continue over the chat stream.
-type AgentActivityComponentUpdateDTO struct {
-	ID      string         `json:"id"`
-	Seq     int            `json:"seq"`
-	Kind    string         `json:"kind"`
-	At      time.Time      `json:"at"`
-	Status  string         `json:"status"`
-	Payload map[string]any `json:"payload"`
-}
-
-// AgentToolCallDTO is one tool invocation. The payloads themselves are NOT here:
-// they are content-addressed and fetched on demand, so a chat with a thousand
-// tool calls does not ship megabytes of tool output to render a timeline.
-type AgentToolCallDTO struct {
-	ID        string                 `json:"id"`
-	TurnID    string                 `json:"turnId"`
-	Seq       int64                  `json:"seq"`
-	Name      string                 `json:"name"`
-	Kind      string                 `json:"kind,omitempty"`
-	Locations []AgentToolLocationDTO `json:"locations,omitempty"`
-	// Target is the file, command or URL the tool acted on, when the provider
-	// reports one. Empty is legible; a guess would be wrong.
-	Target string `json:"target,omitempty"`
-	Status string `json:"status"`
-	// Error is a short caption for a failed call. The full failure text is the
-	// call's result payload, fetched on demand like any other.
-	Error      string `json:"error,omitempty"`
-	DurationMS int    `json:"durationMs,omitempty"`
-	HasRequest bool   `json:"hasRequest"`
-	HasResult  bool   `json:"hasResult"`
-	// Diff is a unified diff of an edit call's own change, when known.
-	Diff string `json:"diff,omitempty"`
-	// SubagentID — see domain.ActivityToolCall's own doc. Set instead of
-	// TurnID when this call belongs to a SUBAGENT's own nested activity, not
-	// the chat's top-level turn.
-	SubagentID string     `json:"subagentId,omitempty"`
-	StartedAt  time.Time  `json:"startedAt"`
-	EndedAt    *time.Time `json:"endedAt,omitempty"`
-}
-
-type AgentToolLocationDTO struct {
-	Path string `json:"path"`
-	Line int    `json:"line,omitempty"`
-}
-
-type AgentSubagentDTO struct {
-	ID        string     `json:"id"`
-	TurnID    string     `json:"turnId"`
-	Seq       int64      `json:"seq"`
-	AgentType string     `json:"agentType,omitempty"`
-	StartedAt time.Time  `json:"startedAt"`
-	EndedAt   *time.Time `json:"endedAt,omitempty"`
-	// Messages is the subagent's own nested reply history — see
-	// domain.ActivitySubagent's own doc.
-	Messages []AgentSubagentMessageDTO `json:"messages,omitempty"`
-}
-
-type AgentSubagentMessageDTO struct {
-	Text string    `json:"text"`
-	At   time.Time `json:"at"`
-}
-
-// AgentInterruptionDTO is the agent being blocked on, or interrupted by,
-// something outside the turn. These are what turn an apparently frozen agent into
-// a legible one: a permission wait, a notification, a compaction.
-type AgentInterruptionDTO struct {
-	ID     string `json:"id"`
-	TurnID string `json:"turnId"`
-	Seq    int64  `json:"seq"`
-	// DisplayOrder — see domain.ActivityInterruption.
-	DisplayOrder int64      `json:"displayOrder"`
-	Kind         string     `json:"kind"`
-	Detail       string     `json:"detail,omitempty"`
-	At           time.Time  `json:"at"`
-	ResolvedAt   *time.Time `json:"resolvedAt,omitempty"`
-}
-
-// AgentChoiceDTO is the agent waiting on a HUMAN DECISION — a tool permission, a
-// question it asked, an MCP server's elicitation.
-//
-// It is the one piece of agent state a user can act on, so it carries enough to be
-// drawn as a real prompt rather than a spinner: what kind of answer is wanted,
-// what is being asked, and which answers exist.
-//
-// An answer names this record by ID and an option by its own — see
-// POST .../chats/:id/choices/:choiceId/answer.
-type AgentChoiceDTO struct {
-	ID     string `json:"id"`
-	TurnID string `json:"turnId"`
-	Seq    int64  `json:"seq"`
-	Kind   string `json:"kind"`
-	// ToolName is the tool a permission is gating, when there is one.
-	ToolName string `json:"toolName,omitempty"`
-	Title    string `json:"title,omitempty"`
-	Question string `json:"question,omitempty"`
-	// Mode is the provider's own word for how it expects to be answered, carried
-	// verbatim and never interpreted.
-	Mode string `json:"mode,omitempty"`
-	// Multi describes the prompt-level Options. A question carries its own, because
-	// one payload can mix a single-select question with a multi-select one.
-	Multi   bool                   `json:"multi,omitempty"`
-	Options []AgentChoiceOptionDTO `json:"options"`
-	// Questions is the whole of what a question-kind prompt is asking, one entry
-	// per question, and it is what a client must render and answer from.
-	//
-	// ABSENT is meaningful and is not the same as empty: it says this record
-	// predates questions being modelled, and such a prompt is still a single
-	// question described by Question and Options. A client falls back to those
-	// rather than drawing a card with nothing in it.
-	//
-	// An answer covering only SOME of these is refused with 400. That is not
-	// strictness for its own sake: a partial answer hands the CLI an input covering
-	// part of what it asked, and it goes on waiting for the rest with nothing able
-	// to send it.
-	Questions []AgentChoiceQuestionDTO `json:"questions,omitempty"`
-	// Schema is the requested-input schema for a prompt whose answer is a FORM
-	// rather than a pick from Options. It is the provider's own JSON, verbatim.
-	Schema string `json:"schema,omitempty"`
-
-	Pending bool `json:"pending"`
-	// Answerable reports that a relay is holding the provider's gate open for this
-	// prompt RIGHT NOW, so answering it here will actually reach the CLI.
-	//
-	// It is a separate fact from Pending, and both are needed. A prompt whose relay
-	// has already timed out is still pending and still worth drawing — the CLI is
-	// asking it, at its own terminal — but a button on it would reach nobody, and a
-	// surface that cannot tell the two apart offers controls that silently fail.
-	Answerable bool       `json:"answerable"`
-	At         time.Time  `json:"at"`
-	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
-	// Resolution says HOW it stopped pending — answered through Crowbar, observed to
-	// have proceeded (someone answered at the terminal), or abandoned with the turn.
-	Resolution string `json:"resolution,omitempty"`
-	// AutoApproved says WHO answered it when Resolution is "answered": policy
-	// (true) or a human's own click (false) — currently always false, since
-	// Crowbar no longer decides permissions itself (see
-	// domain.ActivityChoice.AutoApproved). Never omitted — false is a real
-	// answer here, not an absence.
-	AutoApproved bool `json:"autoApproved"`
-	// AnsweredOptionIDs is which of Options/Questions was actually picked, set
-	// only when Resolution is "answered" through Crowbar — see
-	// domain.ActivityChoice.AnsweredOptionIDs.
-	AnsweredOptionIDs []string `json:"answeredOptionIds,omitempty"`
-}
-
-// AgentHookAckDTO is the daemon's reply to a relay that has just delivered a
-// hook, and it exists for exactly one instruction: STAY ALIVE.
-//
-// A vendor CLI holds its own permission gate open for as long as the hook process
-// it fired is running, so a relay that exits has already let the CLI's dialog
-// through. Await is how the daemon says "this hook opened a question a human can
-// answer here" — and it is returned rather than discovered because the relay
-// cannot name the prompt: identity is minted daemon-side, from the payload, after
-// the chat is resolved.
-//
-// A hook that opened nothing answerable gets an empty body, and the relay exits
-// immediately — byte-identical to its behaviour before this field existed.
-//
-// Reply is the other: a hook the daemon answers at once. The relay prints it to
-// stdout and exits, which is how a message sent mid-turn reaches the running CLI.
-type AgentHookAckDTO struct {
-	Await *AgentHookAwaitDTO `json:"await,omitempty"`
-	Reply string             `json:"reply,omitempty"`
-}
-
-// AgentHookAwaitDTO tells a relay what it is waiting on and for how long.
-type AgentHookAwaitDTO struct {
-	// ChoiceID is Crowbar's identity for the prompt. The relay never interprets it;
-	// it carries it so a log line can name what a hook is blocked on.
-	ChoiceID string `json:"choiceId"`
-	// WaitMS is the daemon's own budget, in milliseconds. The relay bounds its
-	// request by it instead of inventing a number, so the budget lives in exactly
-	// one place — the provider's descriptor — and stays comfortably inside the
-	// timeout injected on the provider's hook registration.
-	WaitMS int64 `json:"waitMs"`
-}
-
-// AgentHookAnswerDTO is the verdict handed back to a blocked relay.
-//
-// Stdout is printed VERBATIM, in one write, and is the provider's own JSON — the
-// daemon renders it from the descriptor so the relay carries bytes and decides
-// nothing. Empty means print nothing, which is the honest answer for a prompt
-// that expired or was decided at the terminal.
-type AgentHookAnswerDTO struct {
-	Stdout string `json:"stdout"`
-}
-
-// AgentChoiceQuestionDTO is ONE question inside a prompt, with the options that
-// answer it.
-//
-// Multi is per question and not per prompt because the provider says so: claude
-// carries multiSelect on each entry of its questions array, so one prompt can ask
-// "pick one" and "pick any" at the same time.
-type AgentChoiceQuestionDTO struct {
-	// ID is stable within its prompt. A client groups its picks by it; the answer
-	// endpoint takes them back as ONE FLAT list of option ids.
-	ID    string `json:"id"`
-	Title string `json:"title,omitempty"`
-	// Text is the question as asked, and also the key the provider files the answer
-	// under on the way back.
-	Text    string                 `json:"text,omitempty"`
-	Multi   bool                   `json:"multi,omitempty"`
-	Options []AgentChoiceOptionDTO `json:"options"`
-}
-
-// AgentChoiceOptionDTO is one answer a prompt will accept. A client renders by
-// Kind rather than by Label: allow and deny are Crowbar's own words, because no
-// provider enumerates the two answers a permission has by construction.
-//
-// ID is unique across the WHOLE prompt, not merely within the question that
-// offered it, because an answer names its picks in one flat list.
-type AgentChoiceOptionDTO struct {
-	ID          string `json:"id"`
-	Kind        string `json:"kind"`
-	Label       string `json:"label,omitempty"`
-	Description string `json:"description,omitempty"`
-}
-
-// AgentTelemetryDTO is what the provider itself reported about cost and capacity.
-//
-// Every field is a POINTER because "not reported" and "zero" are different facts
-// and a gauge rendering 0% for an unreported value is a lie. A provider that
-// reports nothing yields an absent section, and the client draws no gauge.
-type AgentTelemetryDTO struct {
-	ObservedAt time.Time              `json:"observedAt"`
-	Source     string                 `json:"source"`
-	Context    *AgentContextUsageDTO  `json:"context,omitempty"`
-	RateLimits []AgentRateLimitDTO    `json:"rateLimits,omitempty"`
-	Cost       *AgentSessionCostDTO   `json:"cost,omitempty"`
-	Model      *AgentModelIdentityDTO `json:"model,omitempty"`
-}
-
-// AgentTelemetryDTOFrom maps the provider's usage report onto the wire — the one
-// conversion the GET and the pushed `telemetry` frame share.
-func AgentTelemetryDTOFrom(report agents.Telemetry) AgentTelemetryDTO {
-	out := AgentTelemetryDTO{ObservedAt: report.ObservedAt, Source: report.Source}
-	if c := report.Context; c != nil {
-		out.Context = &AgentContextUsageDTO{
-			CapacityTokens: c.CapacityTokens, UsedTokens: c.UsedTokens,
-			UsedPercent: c.UsedPercent, RemainingPercent: c.RemainingPercent,
-		}
-	}
-	for _, w := range report.RateLimits {
-		out.RateLimits = append(out.RateLimits, AgentRateLimitDTO{
-			ID: w.ID, Label: w.Label, UsedPercent: w.UsedPercent, ResetsAt: w.ResetsAt,
-		})
-	}
-	if c := report.Cost; c != nil {
-		out.Cost = &AgentSessionCostDTO{TotalUSD: c.TotalUSD, APIDurationMS: c.APIDurationMS}
-	}
-	if m := report.Model; m != nil {
-		out.Model = &AgentModelIdentityDTO{ID: m.ID, DisplayName: m.DisplayName}
-	}
-	return out
-}
-
-type AgentContextUsageDTO struct {
-	CapacityTokens   *int     `json:"capacityTokens,omitempty"`
-	UsedTokens       *int     `json:"usedTokens,omitempty"`
-	UsedPercent      *float64 `json:"usedPercent,omitempty"`
-	RemainingPercent *float64 `json:"remainingPercent,omitempty"`
-}
-
-type AgentRateLimitDTO struct {
-	ID          string     `json:"id"`
-	Label       string     `json:"label,omitempty"`
-	UsedPercent *float64   `json:"usedPercent,omitempty"`
-	ResetsAt    *time.Time `json:"resetsAt,omitempty"`
-}
-
-type AgentSessionCostDTO struct {
-	TotalUSD      *float64 `json:"totalUsd,omitempty"`
-	APIDurationMS *int     `json:"apiDurationMs,omitempty"`
-}
-
-type AgentModelIdentityDTO struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"displayName,omitempty"`
-}
-
 // PromptSubmissionDTO is the wire shape of domain.AgentPromptSubmission — see
 // there for what the pair identifies and why a completed model turn is
 // deliberately absent from it.
@@ -656,25 +336,6 @@ type PendingPromptDTO struct {
 	// recovered row rejoins this chat's own dedup and settlement broadcasts
 	// instead of a freshly minted id nothing will ever match.
 	RequestID string `json:"requestId"`
-}
-
-// SlashCatalogDTO is one ephemeral deterministic provider capability response.
-// Completeness is never inferred by Crowbar; it is declared by the provider
-// descriptor so partial inventories remain visibly partial.
-type SlashCatalogDTO struct {
-	ProviderID   string                `json:"providerId"`
-	Completeness string                `json:"completeness"`
-	Items        []SlashCatalogItemDTO `json:"items"`
-	Warnings     []string              `json:"warnings"`
-}
-
-type SlashCatalogItemDTO struct {
-	ID          string `json:"id"`
-	Kind        string `json:"kind"`
-	Label       string `json:"label"`
-	Description string `json:"description"`
-	InsertText  string `json:"insertText"`
-	Source      string `json:"source"`
 }
 
 // activeProviderID is the live runner's provider while one is placed (mid-switch
@@ -753,260 +414,3 @@ func AgentChatDetailDTOFrom(
 type HandoffDTO struct {
 	Handoff string `json:"handoff"`
 }
-
-// AgentProviderDTO is the wire shape of domain.AgentProvider (00 agentic-engine
-// spec §7.2) — see there for what connected, enabled and mcpEnabled each mean,
-// what orders the list, and why efforts arrives already resolved. The catalog is
-// workspace-independent but served on the workspace-scoped route for surface
-// consistency.
-//
-// models and efforts are OMITTED rather than sent empty for a provider that
-// declares no catalogue: an absent field says the picker does not exist, which an
-// empty array would not.
-type AgentProviderDTO struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"displayName"`
-	Icon        string `json:"icon"`
-	Connected   bool   `json:"connected"`
-	Enabled     bool   `json:"enabled"`
-	MCPEnabled  bool   `json:"mcpEnabled"`
-	Compaction  bool   `json:"compaction"`
-	Hotswap     bool   `json:"hotswap"`
-	// PromptSteer says a message sent while a turn runs is delivered into that
-	// turn, so the composer need not hold it until the turn ends.
-	PromptSteer bool `json:"promptSteer"`
-	HasTerminal bool `json:"hasTerminal"`
-	// TerminalStartHere is domain.AgentProvider.TerminalStartHere — whether a
-	// brand-new chat may be launched DIRECTLY onto this provider's terminal
-	// surface (design spec 2.5). False whenever HasTerminal is false, and may
-	// be false even when it is true (codex: has a terminal, idle-only
-	// handoff, never a launch target).
-	TerminalStartHere bool     `json:"terminalStartHere"`
-	ModelSelect       bool     `json:"modelSelect"`
-	EffortSelect      bool     `json:"effortSelect"`
-	ActivityEvents    []string `json:"activityEvents,omitempty"`
-	Models            []string `json:"models,omitempty"`
-	// DefaultModel is domain.AgentProvider.DefaultModel: the provider's OWN
-	// stated default, omitted (never sent as "") when unknown — an absent
-	// field says "the provider didn't say", where "" could misread as "no
-	// default model" as a fact rather than as missing information.
-	DefaultModel string              `json:"defaultModel,omitempty"`
-	Efforts      map[string][]string `json:"efforts,omitempty"`
-
-	// PermissionLevels mirrors Models/Efforts' own "omitted, not empty" rule:
-	// absent says this provider's picker offers nothing, where an empty array
-	// would not. See domain.AgentProvider.PermissionLevels.
-	PermissionLevels []string `json:"permissionLevels,omitempty"`
-}
-
-// AgentChatEvent is the wire frame pushed on the agent-chat lifecycle WebSocket
-// (GET .../repos/:repoId/chats/ws, and still GET .../home/chats/ws): the thing
-// that changed, the workspace it belongs to, and the lifecycle kind — chat
-// kinds (created/turn_started/turn_stopped/title_set/placement_set/deleted),
-// runner kinds (started/session_bound/moved/displaced/exited), and folder
-// kinds (folder_created/folder_updated/folder_deleted), all of which ride this
-// same feed. It carries no snapshot; the stream is a bare event feed, not a
-// full-state resource stream. WorkspaceID rides along on the wire frame and
-// still scopes the home mount's feed (agentChatDef's wsId Filter, keyed off
-// its injected :wsId). The repo-scoped mount names no workspace in its URL, so
-// that Filter resolves inactive there and scopes nothing; what scopes it is
-// RepoID below, against the mount's own :repoId, together with ProjectID
-// against its :projectId. Before RepoID existed the wsId Filter was this
-// stream's only scoping mechanism and a repo-scoped client received every OTHER
-// repo's chat events too; before ProjectID existed, every REPO-LESS frame — a
-// folder row, a root bubble, and every chat in a project HOME — still did.
-//
-// ChatID is EMPTY on a `displaced` frame, and that is the frame's whole meaning: Crowbar
-// has taken that runner off its chat (an eviction, a provider switch, a chat deleted under
-// it) and it now holds nothing. The process may still be alive for a moment — displacement
-// asserts nothing about liveness — so a client must not wait for `exited` before letting go
-// of it: if the kill failed, `exited` never comes.
-type AgentChatEvent struct {
-	ChatID      string `json:"chatId"`
-	WorkspaceID string `json:"workspaceId"`
-	// RepoID is the repo the frame's row actually runs in, resolved server-side
-	// from the row's own ground: its workspace when it has one, and — for a
-	// BUBBLE, which has none — the workspace its cwd walk lands on (model spec
-	// §3.2). It is what scopes the repo-scoped mount (agentChatDef's repoId
-	// Filter). It is on the frame because a row's repo is DERIVED, never
-	// stored, so the only place it can be answered is where the walk runs.
-	//
-	// EMPTY means "this row has no repo to be held to" — a folder row, a
-	// bubble whose ancestry owns no workspace, or ANY row in a project home,
-	// which owns no repo — and such a frame reaches every subscriber of the
-	// same PROJECT rather than none (see matchScopeOrUnscoped).
-	RepoID string `json:"repoId,omitempty"`
-	// ProjectID is the project the frame's row runs in, resolved from the same
-	// workspace row RepoID is and in the same pass. It is what bounds a
-	// REPO-LESS frame, which RepoID by construction cannot: a project home owns
-	// no repo, so every frame its chats emit — a lifecycle edge, a plan, the
-	// streamed text of a turn — carried an empty RepoID and was therefore
-	// forwarded to every repo-scoped subscriber in the daemon, across projects.
-	// Holding those frames to an exact repo is not an option (it would drop the
-	// folder rows and root bubbles that legitimately have none), so they are
-	// held to the project instead: the narrowest scope that still keeps them.
-	//
-	// EMPTY means the row resolved nothing at all — its placement projection has
-	// not caught up, or its whole ancestry owns no workspace — and such a frame
-	// still reaches everyone, unchanged.
-	ProjectID string `json:"projectId,omitempty"`
-	Kind      string `json:"kind"`
-	// RunnerID names the vendor-CLI process the frame is about, and is set ONLY on
-	// the agent-RUNNER kinds (started/session_bound/moved/exited — see
-	// hub.BroadcastAgentRunner), which ride this same workspace-scoped feed rather
-	// than a second socket. It is empty on the chat kinds, which are about the chat
-	// itself and name no process. A `moved` frame's ChatID is the chat the runner
-	// moved INTO, so a client re-points the tab that was following RunnerID.
-	RunnerID string `json:"runnerId,omitempty"`
-	// FolderID names the CHAT FOLDER a frame is about, and is set ONLY on the
-	// folder kinds (folder_created/folder_updated/folder_deleted), which ride this
-	// same workspace-scoped feed rather than a second socket — the same reason the
-	// runner kinds do.
-	//
-	// It carries the id and nothing else, deliberately. This stream is a bare event
-	// feed, not a full-state resource stream: it has no snapshot, so a client
-	// cannot hold folders from it alone and must read the list anyway. Putting the
-	// row on the frame would create a second way to learn a folder's placement,
-	// and the two would disagree the moment a frame was dropped. A folder frame
-	// therefore means exactly "re-read this workspace's folders" — which is also
-	// what a reconnect does, so the outage path and the live path repair
-	// identically.
-	FolderID string `json:"folderId,omitempty"`
-	// ClientRequestID names one prompt the browser is still holding in its pending
-	// queue, and is set ONLY on the prompt_settled kind.
-	//
-	// The queue resolves an item when the prompt it sent turns up in the ledger as
-	// a user message. A provider's own built-in command never produces one — the
-	// CLI handles it and announces nothing — so without this frame the item waits
-	// forever on evidence that is not coming.
-	ClientRequestID string `json:"clientRequestId,omitempty"`
-
-	// Worktree rides the `worktree_state` kind and nothing else: the git state of
-	// the worktree ChatID owns, as of this event.
-	//
-	// It is on the frame rather than refetched for the same reason Working and
-	// TerminalWait are — the fact IS the change, and a client that had to ask for
-	// it would repaint a round trip after the diff counts moved. It is also what
-	// makes the chat feed a complete substitute for the workspace stream a client
-	// used to watch alongside it (spec §5): the same push site serves both, so a
-	// chat-scoped subscriber and a workspace-scoped one learn of a git change in
-	// the same instant and from the same bytes.
-	Worktree *ChatWorktreeDTO `json:"worktree,omitempty"`
-
-	// PromptConsumed rides the prompt_settled kind beside ClientRequestID and says
-	// whether anything actually proved the provider took that prompt.
-	//
-	// True is a provider built-in that demonstrably ran — a `/compact` the CLI
-	// handled itself, announcing nothing. False is every other settle: the launch
-	// failed, the CLI exited, or the provider went idle without taking the prompt.
-	//
-	// A client cannot derive it — neither case produced a turn — and discarding its
-	// queued copy on false would lose words the provider never read. Discard on
-	// true; keep the text and surface a failure on false.
-	//
-	// Omitempty makes the SAFE reading the default: a frame with the field absent
-	// preserves the text rather than dropping it.
-	PromptConsumed bool `json:"promptConsumed,omitempty"`
-
-	// Message is an assistant message still being produced, on the message_delta
-	// kind and nowhere else.
-	//
-	// It is deliberately NOT in the ledger. A message that is still growing is not
-	// a record of anything yet — it is a view — and writing every increment to
-	// durable storage would mean roughly 1.4 writes per second per streaming chat
-	// to persist text that is replaced a moment later. So the partial travels on
-	// the live feed only, and the ledger gets the message once, when it is done.
-	Message *AgentStreamingMessageDTO `json:"message,omitempty"`
-	// Plan is the agent's running to-do list, on the `plan` kind.
-	Plan []AgentPlanStepDTO `json:"plan,omitempty"`
-	// Chat is the chat's full snapshot as of this frame, on every frame the
-	// snapshot owner publishes — and Version its version. A client applies it
-	// only when Version is newer than the one it holds; it never refetches.
-	Chat    *AgentChatDTO `json:"chat,omitempty"`
-	Version int64         `json:"version,omitempty"`
-
-	// Telemetry is the provider's newest usage report, on the `telemetry` kind.
-	// Pushed as it arrives (about once a turn) so no client polls for it.
-	Telemetry *AgentTelemetryDTO `json:"telemetry,omitempty"`
-
-	// Choices is every prompt the chat is blocked on, on the `choice` kind.
-	Choices []AgentChoiceDTO `json:"choices,omitempty"`
-}
-
-// AgentPlanStepDTO is one entry of the agent's running plan.
-type AgentPlanStepDTO struct {
-	Text string `json:"text"`
-	// Status is CROWBAR'S word — pending, active or done — translated from the
-	// provider's own vocabulary by its descriptor, never by a client. An unknown
-	// value is still a step and must render unstyled rather than be dropped.
-	Status string `json:"status"`
-}
-
-// AgentStreamingMessageDTO is one assistant message as far as it has been said.
-type AgentStreamingMessageDTO struct {
-	// StartedAt is when this message's first text arrived — the same instant the
-	// ledger will stamp the recorded row with — so a client orders the live bubble
-	// against tool rows exactly as the record will. Absent for the live-only kinds.
-	StartedAt time.Time `json:"startedAt,omitzero"`
-	// ID is the provider's own message identity, so a client can tell a message
-	// that is still growing from the next one starting.
-	ID string `json:"id"`
-	// Text is everything said SO FAR, not the newest increment. A client that
-	// missed a frame is therefore correct again on the next one, with no
-	// reassembly and no gap detection of its own.
-	Text string `json:"text"`
-	// Kind names WHICH stream this text belongs to. Absent (the default) is the
-	// agent's answer — the stream that existed before there was more than one, and
-	// the only one that is ever recorded in the ledger. "reasoning" is the agent
-	// thinking on the way there: live-only, dropped when the turn ends, and
-	// rendered as a thought rather than as the reply.
-	//
-	// Omitempty deliberately: an answer frame is byte-identical to what every
-	// client already parses.
-	Kind string `json:"kind,omitempty"`
-}
-
-// AgentChatKindPromptSettled announces that a prompt Crowbar delivered is OVER
-// without having produced a turn, so nothing is still owed on it.
-//
-// It is emitted at most once per delivery, and only for the deliveries that need
-// it: an ordinary prompt is resolved by its own user message arriving in the
-// ledger and never reaches this path.
-const AgentChatKindPromptSettled = "prompt_settled"
-
-// AgentChatKindMessageDelta announces that an assistant message has grown.
-//
-// It carries the message SO FAR rather than the increment, so a dropped frame
-// self-heals on the next one. It stops when the message is complete: the message
-// then exists in the ledger, and the ledger is what the chat reads.
-const AgentChatKindMessageDelta = "message_delta"
-
-// AgentChatKindWorktreeState announces that the git state of the worktree a
-// chat OWNS has moved: a commit, a file edited, a PR opened, a lock taken.
-//
-// It is a CHAT kind — it names the row a client draws, carries no runner id,
-// and is emitted from the one place a workspace frame is already built, so the
-// chat-scoped feed and the workspace-scoped stream can never disagree about the
-// same branch. A chat that owns no worktree never produces one.
-const AgentChatKindWorktreeState = "worktree_state"
-
-// AgentChatKindPlan announces that the agent restated its own to-do list for the
-// turn. The list arrives WHOLESALE — the newest one is the entire truth, so a
-// client that missed a frame is correct again on the next one, and there is
-// nothing to merge. Never stored: a plan for a turn in progress is a view of it.
-const AgentChatKindPlan = "plan"
-
-// AgentChatKindTelemetry announces the provider's newest usage report for the
-// chat — context, rate limits, cost — carried whole on the frame.
-const AgentChatKindTelemetry = "telemetry"
-
-// AgentChatKindCompactionStarted and AgentChatKindCompactionStopped announce
-// the live compact_pre/compact_post edge — the one fact on this feed that
-// cannot ride the ledger's own event log, because the ledger's interruption
-// record for a compaction is born already resolved (see
-// hub.BroadcastAgentChatCompaction's doc comment). Two kinds, no extra
-// payload, same shape as turn_started/turn_stopped: the kind IS the answer.
-const (
-	AgentChatKindCompactionStarted = "compaction_started"
-	AgentChatKindCompactionStopped = "compaction_stopped"
-)

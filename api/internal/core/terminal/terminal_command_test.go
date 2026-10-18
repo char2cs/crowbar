@@ -37,7 +37,7 @@ func TestCreateCommand_OnExitFiresOnceSessionEnds(t *testing.T) {
 	var fired int32
 	exits := make(chan struct{}, 8) // buffered: a (buggy) duplicate fire must not block the reaper
 	id, err := e.CreateCommand(ctx, "chat1", t.TempDir(),
-		[]string{"/bin/sh", "-c", "true"}, os.Environ(), func() {
+		[]string{"/bin/sh", "-c", "true"}, os.Environ(), func(Exit) {
 			atomic.AddInt32(&fired, 1)
 			exits <- struct{}{}
 		})
@@ -71,7 +71,7 @@ func TestTerminateGraceful_OnExitFiresAfterGracefulSignal(t *testing.T) {
 	var fired int32
 	exits := make(chan struct{}, 8)
 	id, err := e.CreateCommand(ctx, "chat1", t.TempDir(),
-		[]string{"/bin/sh", "-c", "sleep 30"}, os.Environ(), func() {
+		[]string{"/bin/sh", "-c", "sleep 30"}, os.Environ(), func(Exit) {
 			atomic.AddInt32(&fired, 1)
 			exits <- struct{}{}
 		})
@@ -122,7 +122,7 @@ func TestTerminateGraceful_FallsBackToKill_OnExitStillFires(t *testing.T) {
 	// path while claiming to prove the FALLBACK one.
 	id, err := e.CreateCommand(ctx, "chat1", t.TempDir(),
 		[]string{"/bin/sh", "-c", "trap '' TERM; printf '%s%s\\n' TRAP PED; sleep 30"},
-		os.Environ(), func() {
+		os.Environ(), func(Exit) {
 			atomic.AddInt32(&fired, 1)
 			exits <- struct{}{}
 		})
@@ -211,7 +211,7 @@ func TestRegression_CreateCommandChildGetsUTF8Locale(t *testing.T) {
 	_, err := e.CreateCommand(context.Background(), "chat-locale", dir,
 		[]string{"/bin/sh", "-c", "printf '%s' \"$LANG\" > \"" + out + "\""},
 		[]string{"PATH=/usr/bin:/bin"},
-		func() { exits <- struct{}{} })
+		func(Exit) { exits <- struct{}{} })
 	require.NoError(t, err)
 
 	// onExit IS the signal: it fires only after reapOnDone has seen the process die,

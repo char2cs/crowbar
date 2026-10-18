@@ -44,6 +44,13 @@ var ErrShuttingDown = errors.New("terminal: engine is shutting down")
 // is not installed" apart from a genuine spawn failure.
 var ErrCommandNotFound = errors.New("terminal: command not found")
 
+// Exit is how a command session's process ended: its exit code (-1 when
+// unknown) and the text on its screen at the end.
+type Exit struct {
+	Code   int
+	Screen string
+}
+
 // Engine is the full PTY session operation surface.
 type Engine interface {
 	// Create spawns a new PTY session owned by chatID, running in
@@ -66,17 +73,15 @@ type Engine interface {
 	// over the terminal WS), skipping profile resolution. Used by the agentic
 	// engine to launch vendor CLIs (claude/codex) with descriptor-built argv/env.
 	// onExit, if non-nil, is invoked exactly once — after the session is fully
-	// reaped (natural PTY exit or an explicit Kill) — so a caller can release
-	// resources (e.g. the per-spawn hook-config tmp dir) that must stay alive for
-	// the whole lifetime of the running CLI. It is never called for a session
-	// that is merely suspended/detached.
+	// reaped (natural PTY exit or an explicit Kill) — with how the process ended.
+	// It is never called for a session that is merely suspended/detached.
 	CreateCommand(
 		ctx context.Context,
 		chatID string,
 		cwd string,
 		argv []string,
 		env []string,
-		onExit func(),
+		onExit func(Exit),
 	) (sessionID string, err error)
 
 	// Attach connects a WebSocket connection to an existing session, sending the

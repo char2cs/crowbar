@@ -97,11 +97,10 @@ func (rs *Runners) submitPromptLocked(
 		return domain.AgentPromptSubmission{}, rs.failPrompt(ctx, chat.ID, clientRequestID, err)
 	}
 
-	runnerID, err := rs.spawnRunner(
-		ctx, chatID, chat.WorkspaceID, live.ProviderID, replacementRunnerID,
-		delivery.resumeSteps, delivery.promptSteps, delivery.conversation, 0,
-		delivery.contextResuming, delivery.launchSessionID, false, text,
-	)
+	runnerID, err := rs.spawnRunner(ctx, chatID, chat.WorkspaceID, live.ProviderID, spawnInput{
+		runnerID: replacementRunnerID, launch: &delivery.launch, finalSteps: delivery.promptSteps,
+		conversation: delivery.conversation, resuming: delivery.contextResuming, promptMessage: text,
+	}, false)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, rs.failPrompt(ctx, chat.ID, clientRequestID, spawnFailure(ctx, err))
 	}
@@ -297,8 +296,13 @@ func (rs *Runners) submitPromptOverAPI(
 	if err := rs.recordPrompt(ctx, chat.ID, clientRequestID, text, ledger.DeliveryAPI, live.ID); err != nil {
 		return domain.AgentPromptSubmission{}, true, err
 	}
-	_, _, pushErr := rs.pushPromptOverAPI(ctx, live.ID, live.CurrentSession, worktree, dispatchText)
+	session, err := rs.boundSession(ctx, chat.ID, live.ProviderID)
+	if err != nil {
+		return domain.AgentPromptSubmission{}, true, rs.failPrompt(ctx, chat.ID, clientRequestID, err)
+	}
+	_, _, pushErr := rs.pushPromptOverAPI(ctx, live.ID, session, worktree, dispatchText)
 	if pushErr != nil {
+		rs.loseAPISession(ctx, chat.ID, live, session, pushErr)
 		return domain.AgentPromptSubmission{}, true, rs.failPrompt(
 			ctx, chat.ID, clientRequestID, uncertainPromptOutcome(ctx, "api push", pushErr),
 		)

@@ -165,7 +165,7 @@ func newRunnerStore(t *testing.T) (agentrunner.EventStore, func()) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	// The runner store REFUSES a nil watch: the fan-out seam is not optional.
-	repo, err := agentrunner.NewEventSourced(ax, es, db, func(agentrunner.RunnerEvent) {})
+	repo, err := agentrunner.NewEventSourced(ax, db, func(agentrunner.RunnerEvent) {})
 	require.NoError(t, err)
 	return repo, ax.WaitPublish
 }

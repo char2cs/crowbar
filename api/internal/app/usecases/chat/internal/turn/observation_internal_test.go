@@ -35,7 +35,7 @@ func (a *planRecordingActivity) UpdatePlan(_ context.Context, in agentactivity.P
 
 func TestPlanUpdate_KeepsTheLivePushAndRecordsCanonicalSteps(t *testing.T) {
 	activity := &planRecordingActivity{}
-	turns := New(Deps{Chats: raceChats{}, Activity: activity})
+	turns := New(Deps{Chats: raceChats{}, Activity: activity, Ledger: newTurnLedger(t)})
 	var live []engineagents.PlanStep
 	turns.SetFeed(seam.ChatFeed{Plan: func(_, _ string, steps []engineagents.PlanStep) {
 		live = append([]engineagents.PlanStep(nil), steps...)
@@ -44,9 +44,8 @@ func TestPlanUpdate_KeepsTheLivePushAndRecordsCanonicalSteps(t *testing.T) {
 		{Text: "inspect", Status: engineagents.PlanStepDone},
 		{Text: "verify", Status: engineagents.PlanStepActive},
 	}
-	runner := engineagents.Runner{
-		ID: "runner-1", ProviderID: "provider", CurrentChatID: "chat-1", CurrentSession: "session-1",
-	}
+	runner := engineagents.Runner{ID: "runner-1", ProviderID: "provider", CurrentChatID: "chat-1"}
+	announce(t, turns, "chat-1", "provider", "session-1")
 
 	err := turns.handleObservation(t.Context(), runner, nil, engineagents.CanonicalEvent{
 		Kind: engineagents.HookPlanUpdate, Plan: eventSteps,
@@ -114,8 +113,6 @@ type surfaceRunners struct {
 
 	native bool
 }
-
-func (surfaceRunners) ConfirmLaunch(string) {}
 
 func (r surfaceRunners) ShowingNativeView(string) bool { return r.native }
 

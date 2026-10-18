@@ -9,15 +9,13 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 )
 
-// Start records a freshly-spawned CLI. No conversation is bound yet — the
-// provider announces one via its session hook, which lands as BindSession.
+// Start records a freshly-spawned CLI, placed on the chat it was spawned into.
 type Start struct {
 	RunnerID              string
 	WorkspaceID           string
 	ProviderID            string
 	TerminalSession       string
 	ChatID                string
-	LaunchSessionID       string
 	LaunchModel           string
 	LaunchEffort          string
 	LaunchPermissionLevel string
@@ -55,7 +53,6 @@ func (c Start) EmitEvent(_ *agents.Runner) agents.Runner {
 		ProviderID:            c.ProviderID,
 		TerminalSession:       c.TerminalSession,
 		CurrentChatID:         c.ChatID,
-		LaunchSessionID:       c.LaunchSessionID,
 		LaunchModel:           c.LaunchModel,
 		LaunchEffort:          c.LaunchEffort,
 		LaunchPermissionLevel: c.LaunchPermissionLevel,

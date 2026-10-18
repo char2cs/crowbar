@@ -73,7 +73,7 @@ func newRepoWithDeps(
 	require.NoError(t, err)
 
 	cap := &captureBroadcast{}
-	repo, err := runner.NewEventSourced(ax, es, db, cap.watch)
+	repo, err := runner.NewEventSourced(ax, db, cap.watch)
 	require.NoError(t, err)
 	return context.Background(), repo, cap
 }
@@ -103,37 +103,27 @@ func startRunner(
 	return r
 }
 
-// TestAgentRunner_StartMoveGet_RoundTrip is the core round-trip: a runner is
-// started into one chat, MOVED to another (the single atomic write this whole
-// aggregate exists for), and the read model then reports the MOVED placement.
-func TestAgentRunner_StartMoveGet_RoundTrip(t *testing.T) {
+// TestAgentRunner_StartGet_RoundTrip: a runner started into a chat is live for
+// that chat and for no other.
+func TestAgentRunner_StartGet_RoundTrip(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
 
 	started := startRunner(t, ctx, repo, "r1", "chat-a", now)
 	assert.Equal(t, "chat-a", started.CurrentChatID)
-	assert.Empty(t, started.CurrentSession, "a fresh runner has announced no conversation yet")
-
-	moved, err := repo.Move(ctx, "r1", "chat-b", "sess-2", false, now.Add(time.Second), "", "")
-	require.NoError(t, err)
-	assert.Equal(t, "chat-b", moved.CurrentChatID)
-	assert.Equal(t, "sess-2", moved.CurrentSession)
 
 	runner.WaitQuiescentForTest(repo)
 	got, err := repo.Get(ctx, "r1")
 	require.NoError(t, err)
-	assert.Equal(t, "chat-b", got.CurrentChatID, "the read model must reflect the moved placement")
-	assert.Equal(t, "sess-2", got.CurrentSession)
-	assert.Equal(t, "term-r1", got.TerminalSession, "the PTY travels unchanged across a move")
+	assert.Equal(t, "chat-a", got.CurrentChatID)
+	assert.Equal(t, "term-r1", got.TerminalSession)
 
-	// The move is visible from the placement read paths too: the runner is live
-	// for the chat it ENTERED and absent from the one it LEFT.
-	live, err := repo.LiveRunnerForChat(ctx, "chat-b")
+	live, err := repo.LiveRunnerForChat(ctx, "chat-a")
 	require.NoError(t, err)
 	assert.Equal(t, "r1", live.ID)
 
-	_, err = repo.LiveRunnerForChat(ctx, "chat-a")
-	require.ErrorIs(t, err, runner.ErrNotFound, "the chat the runner left is dormant again")
+	_, err = repo.LiveRunnerForChat(ctx, "chat-b")
+	require.ErrorIs(t, err, runner.ErrNotFound)
 }
 
 // TestAgentRunner_Get_MissingBridgesToPackageErrNotFound pins the layering: the
@@ -154,70 +144,15 @@ func TestAgentRunner_MissingReadsBridgeToPackageErrNotFound(t *testing.T) {
 
 	_, err := repo.LiveRunnerForChat(ctx, "no-such-chat")
 	assert.ErrorIs(t, err, runner.ErrNotFound)
-
-	_, err = repo.LiveRunnerForSession(ctx, "w1", "no-such-session")
-	assert.ErrorIs(t, err, runner.ErrNotFound)
-
-	_, err = repo.ChatForSession(ctx, "w1", "no-such-session")
-	assert.ErrorIs(t, err, runner.ErrNotFound)
-
-	_, err = repo.LastConversation(ctx, "no-such-chat")
-	assert.ErrorIs(t, err, runner.ErrNotFound)
-}
-
-// TestAgentRunner_BindSession_OpensTheConversation: binding announces the
-// runner's first conversation, which lands in BOTH the live placement and the
-// append-only history.
-func TestAgentRunner_BindSession_OpensTheConversation(t *testing.T) {
-	ctx, repo := newRepo(t)
-	now := time.Unix(1000, 0).UTC()
-	startRunner(t, ctx, repo, "r1", "chat-a", now)
-
-	bound, err := repo.BindSession(ctx, "r1", "sess-1", false, now.Add(time.Second), "", "")
-	require.NoError(t, err)
-	assert.Equal(t, "sess-1", bound.CurrentSession)
-	assert.Equal(t, now.Add(time.Second), bound.CurrentSessionSince,
-		"the conversation's opening time is when it was BOUND, never when the runner spawned")
-
-	runner.WaitQuiescentForTest(repo)
-
-	live, err := repo.LiveRunnerForSession(ctx, "w1", "sess-1")
-	require.NoError(t, err)
-	assert.Equal(t, "r1", live.ID)
-
-	chatID, err := repo.ChatForSession(ctx, "w1", "sess-1")
-	require.NoError(t, err)
-	assert.Equal(t, "chat-a", chatID)
-
-	conv, err := repo.LastConversation(ctx, "chat-a")
-	require.NoError(t, err)
-	assert.Equal(t, "sess-1", conv.SessionID)
-	assert.Equal(t, "claude", conv.ProviderID)
-}
-
-// TestAgentRunner_BindSessionAndMove_RejectZeroNow pins the STRUCTURAL guard: a
-// conversation with no opening time would stamp FirstSeenAt zero and silently
-// drop history ordering back onto insertion order, so the commands refuse it.
-func TestAgentRunner_BindSessionAndMove_RejectZeroNow(t *testing.T) {
-	ctx, repo := newRepo(t)
-	startRunner(t, ctx, repo, "r1", "chat-a", time.Unix(1000, 0).UTC())
-
-	_, err := repo.BindSession(ctx, "r1", "sess-1", false, time.Time{}, "", "")
-	require.ErrorIs(t, err, asynxModels.ErrValidation)
-
-	_, err = repo.Move(ctx, "r1", "chat-b", "sess-2", false, time.Time{}, "", "")
-	require.ErrorIs(t, err, asynxModels.ErrValidation)
 }
 
 // TestAgentRunner_Exit_DropsTheLiveRow_KeepsHistory: the PTY died, so the live
 // row is GONE — its absence IS the dormancy, there is no status to flip. The
-// append-only conversation history survives, so the chat stays resumable.
+// append-only placement history survives.
 func TestAgentRunner_Exit_DropsTheLiveRow_KeepsHistory(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
 	startRunner(t, ctx, repo, "r1", "chat-a", now)
-	_, err := repo.BindSession(ctx, "r1", "sess-1", false, now.Add(time.Second), "", "")
-	require.NoError(t, err)
 
 	exited, err := repo.Exit(ctx, "r1", now.Add(2*time.Second))
 	require.NoError(t, err)
@@ -231,9 +166,9 @@ func TestAgentRunner_Exit_DropsTheLiveRow_KeepsHistory(t *testing.T) {
 	assert.ErrorIs(t, err, runner.ErrNotFound, "the chat is dormant again")
 
 	// History survives the process.
-	conv, err := repo.LastConversation(ctx, "chat-a")
+	placed, err := repo.PlacementsForChat(ctx, "chat-a")
 	require.NoError(t, err)
-	assert.Equal(t, "sess-1", conv.SessionID)
+	assert.Len(t, placed, 1)
 }
 
 // TestAgentRunner_AllLive_ListsRunningRunnersOnly backs boot reconciliation: it
@@ -261,7 +196,7 @@ func TestAgentRunner_AllLive_ListsRunningRunnersOnly(t *testing.T) {
 }
 
 // TestAgentRunner_ForgetChat_DropsHistoryNotTheRunner: the chat-delete cascade
-// removes the chat's conversation history — the one case where history has
+// removes the chat's placement history — the one case where history has
 // nothing left to describe — but never hand-deletes the live runner row. That
 // row belongs to the PTY's lifecycle; the cascade kills the process and lets the
 // row follow (Task 5).
@@ -269,16 +204,13 @@ func TestAgentRunner_ForgetChat_DropsHistoryNotTheRunner(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
 	startRunner(t, ctx, repo, "r1", "chat-a", now)
-	_, err := repo.BindSession(ctx, "r1", "sess-1", false, now.Add(time.Second), "", "")
-	require.NoError(t, err)
 	runner.WaitQuiescentForTest(repo)
 
 	require.NoError(t, repo.ForgetChat(ctx, "chat-a"))
 
-	_, err = repo.LastConversation(ctx, "chat-a")
-	assert.ErrorIs(t, err, runner.ErrNotFound, "the chat's history is gone")
-	_, err = repo.ChatForSession(ctx, "w1", "sess-1")
-	assert.ErrorIs(t, err, runner.ErrNotFound)
+	placed, err := repo.PlacementsForChat(ctx, "chat-a")
+	require.NoError(t, err)
+	assert.Empty(t, placed, "the chat's history is gone")
 
 	got, err := repo.Get(ctx, "r1")
 	require.NoError(t, err, "ForgetChat must NOT hand-delete the live runner row")
@@ -293,7 +225,7 @@ func TestAgentRunner_HubBroadcastsRunnerChatAndKind(t *testing.T) {
 	ctx, repo, cap := newRepoWithDeps(t)
 	now := time.Unix(1000, 0).UTC()
 	startRunner(t, ctx, repo, "r1", "chat-a", now)
-	_, err := repo.Move(ctx, "r1", "chat-b", "sess-2", false, now.Add(time.Second), "", "")
+	_, err := repo.Displace(ctx, "r1")
 	require.NoError(t, err)
 	_, err = repo.Exit(ctx, "r1", now.Add(2*time.Second))
 	require.NoError(t, err)
@@ -301,67 +233,51 @@ func TestAgentRunner_HubBroadcastsRunnerChatAndKind(t *testing.T) {
 	runner.WaitQuiescentForTest(repo)
 	assert.Equal(t, []string{
 		"r1:w1:chat-a:started",
-		"r1:w1:chat-b:moved",
-		"r1:w1:chat-b:exited",
-	}, cap.all(), "a moved frame must name the chat the runner ENTERED")
+		"r1:w1::displaced",
+		"r1:w1::exited",
+	}, cap.all(), "each frame names the chat the runner is on AS OF its event")
 }
 
-// concurrentMoveTrials is the number of independent fresh-runner trials
-// TestAgentRunner_ConcurrentMove_OCCRetryConverges runs, giving the race repeated
-// chances to surface nondeterminism.
-const concurrentMoveTrials = 10
+// concurrentReportTrials is the number of independent fresh-runner trials
+// TestAgentRunner_ConcurrentReport_OCCRetryConverges runs, giving the race
+// repeated chances to surface nondeterminism.
+const concurrentReportTrials = 10
 
-// TestAgentRunner_ConcurrentMove_OCCRetryConverges exercises the OCC retry
-// contract under a REAL race. Two Moves fire concurrently at the SAME runner
-// aggregate. asynx v0.7.0 enforces write-path optimistic concurrency — the loser
-// collides on (id,version) with ErrPipelineFailed — so sendWithOCC must RETRY it
-// against the now-committed state rather than surfacing the collision or
-// clobbering the winner.
-//
-// Move carries no state guard (a runner may move any number of times), so BOTH
-// sends must ultimately commit: the retry converges. The aggregate is left at
-// exactly one of the two placements — never a torn half-write — and the read
-// model holds exactly one live row for it.
-//
-// No sleeps: the goroutines are joined by errgroup.Wait and the read is preceded
-// by WaitQuiescentForTest (asynx WaitPublish). Convergence is guaranteed by
-// (id,version) uniqueness, not by timing.
-func TestAgentRunner_ConcurrentMove_OCCRetryConverges(t *testing.T) {
+// TestAgentRunner_ConcurrentReport_OCCRetryConverges exercises the OCC retry
+// contract under a REAL race: two Reports fire concurrently at the SAME runner
+// aggregate, the loser collides on (id,version) with ErrPipelineFailed, and
+// sendWithOCC must retry it against the committed state. Both commit, and the
+// runner is left at exactly one of the two reports — never a torn write.
+func TestAgentRunner_ConcurrentReport_OCCRetryConverges(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
 
-	for trial := range concurrentMoveTrials {
+	for trial := range concurrentReportTrials {
 		runnerID := fmt.Sprintf("race-runner-%d", trial)
-		chatA := fmt.Sprintf("race-a-%d", trial)
-		chatB := fmt.Sprintf("race-b-%d", trial)
 		startRunner(t, ctx, repo, runnerID, "race-home", now)
 
 		results := make([]error, 2)
 		var g errgroup.Group
 		g.Go(func() error {
-			_, results[0] = repo.Move(ctx, runnerID, chatA, "sess-a", false, now.Add(time.Second), "", "")
+			_, results[0] = repo.Report(ctx, runnerID, "model-a", "low")
 			return nil
 		})
 		g.Go(func() error {
-			_, results[1] = repo.Move(ctx, runnerID, chatB, "sess-b", false, now.Add(time.Second), "", "")
+			_, results[1] = repo.Report(ctx, runnerID, "model-b", "high")
 			return nil
 		})
 		require.NoError(t, g.Wait())
 
 		for i, e := range results {
-			require.NoErrorf(t, e, "trial %d: move %d must converge via OCC retry, never surface the collision", trial, i)
+			require.NoErrorf(t, e, "trial %d: report %d must converge via OCC retry, never surface the collision", trial, i)
 		}
 
 		runner.WaitQuiescentForTest(repo)
 		got, err := repo.Get(ctx, runnerID)
 		require.NoError(t, err)
-		require.Containsf(t, []string{chatA, chatB}, got.CurrentChatID,
-			"trial %d: the runner must land on exactly one of the two chats — never a torn write", trial)
-
-		// One runner, one live row: the placement is single-valued whichever move won.
-		live, err := repo.LiveRunnerForChat(ctx, got.CurrentChatID)
-		require.NoError(t, err)
-		require.Equal(t, runnerID, live.ID)
+		pair := got.ReportedModel + "/" + got.ReportedEffort
+		require.Containsf(t, []string{"model-a/low", "model-b/high"}, pair,
+			"trial %d: the runner must carry exactly one of the two reports — never a torn write", trial)
 	}
 }
 
@@ -478,7 +394,7 @@ func TestAgentRunner_ReadErrorsPropagateFromTheStore(t *testing.T) {
 
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	repo, err := runner.NewEventSourced(ax, es, db, func(runner.RunnerEvent) {})
+	repo, err := runner.NewEventSourced(ax, db, func(runner.RunnerEvent) {})
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -497,14 +413,6 @@ func TestAgentRunner_ReadErrorsPropagateFromTheStore(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentrunner: live runners for chat:")
 	assert.NotErrorIs(t, err, runner.ErrNotFound, "a genuine DB failure must never be mistaken for an empty result")
-
-	_, err = repo.LiveRunnersForSession(ctx, "w1", "sess-1")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "agentrunner: live runners for session:")
-
-	_, err = repo.ConversationsForChat(ctx, "chat-a")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "agentrunner: conversations for chat:")
 
 	_, err = repo.PlacementsForChat(ctx, "chat-a")
 	require.Error(t, err)
@@ -561,7 +469,7 @@ func TestAgentRunner_NewEventSourced_ErrorOnBadDB(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = runner.NewEventSourced(ax, es, db, func(runner.RunnerEvent) {})
+	_, err = runner.NewEventSourced(ax, db, func(runner.RunnerEvent) {})
 	require.Error(t, err)
 }
 
@@ -583,68 +491,32 @@ func TestAgentRunner_NewEventSourced_ErrorOnNilBroadcast(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 
-	_, err = runner.NewEventSourced(ax, es, db, nil)
+	_, err = runner.NewEventSourced(ax, db, nil)
 	require.Error(t, err)
 }
 
-// TestAgentRunner_BindSession_RecordsWhatTheProviderReportedItLaunchedAs pins
-// the fix for a real bug: a chat could be running a concrete model (confirmed
-// live — the assistant itself named it) with LaunchModel still empty, because
-// spawn only ever records what Crowbar REQUESTED (often "", meaning "provider's
-// own default"), never what the provider's own session-start payload reports it
-// actually resolved to. BindSession now carries that report and applies it.
-func TestAgentRunner_BindSession_RecordsWhatTheProviderReportedItLaunchedAs(t *testing.T) {
+// TestAgentRunner_Report_RecordsWhatTheProviderReportedItLaunchedAs: spawn
+// records only what Crowbar REQUESTED (often "", the provider's own default);
+// the session-start report is what the provider actually resolved to.
+func TestAgentRunner_Report_RecordsWhatTheProviderReportedItLaunchedAs(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
 	startRunner(t, ctx, repo, "r1", "chat-a", now)
 
-	bound, err := repo.BindSession(ctx, "r1", "sess-1", false, now.Add(time.Second),
-		"claude-sonnet-5", "high")
+	reported, err := repo.Report(ctx, "r1", "claude-sonnet-5", "high")
 	require.NoError(t, err)
-	assert.Equal(t, "claude-sonnet-5", bound.ReportedModel)
-	assert.Equal(t, "high", bound.ReportedEffort)
-	assert.Empty(t, bound.LaunchModel, "a report is not what Crowbar launched with")
+	assert.Equal(t, "claude-sonnet-5", reported.ReportedModel)
+	assert.Equal(t, "high", reported.ReportedEffort)
+	assert.Empty(t, reported.LaunchModel, "a report is not what Crowbar launched with")
 
 	runner.WaitQuiescentForTest(repo)
 	got, err := repo.Get(ctx, "r1")
 	require.NoError(t, err)
 	assert.Equal(t, "claude-sonnet-5", got.ReportedModel, "the read model must reflect the report")
 	assert.Equal(t, "high", got.ReportedEffort)
-}
+	assert.Equal(t, "chat-a", got.CurrentChatID, "a report never moves the runner")
 
-// TestAgentRunner_BindSession_EmptyReportNeverClobbersAnExistingLaunchValue
-// covers the other half: a provider whose descriptor maps no model field on
-// session_start (or a resume that re-announces with nothing new to say) must
-// leave whatever spawn already recorded alone, never blank it out.
-func TestAgentRunner_BindSession_EmptyReportNeverClobbersAnExistingLaunchValue(t *testing.T) {
-	ctx, repo := newRepo(t)
-	now := time.Unix(1000, 0).UTC()
-	r, err := repo.Start(ctx, runner.StartInput{
-		RunnerID: "r1", WorkspaceID: "w1", ProviderID: "claude",
-		TerminalSession: "term-r1", ChatID: "chat-a", Now: now,
-		LaunchModel: "claude-opus-5", LaunchEffort: "max",
-	})
-	require.NoError(t, err)
-	require.Equal(t, "claude-opus-5", r.LaunchModel)
-
-	bound, err := repo.BindSession(ctx, "r1", "sess-1", false, now.Add(time.Second), "", "")
-	require.NoError(t, err)
-	assert.Equal(t, "claude-opus-5", bound.LaunchModel, "a report must not touch the spawn value")
-	assert.Equal(t, "max", bound.LaunchEffort)
-}
-
-// TestAgentRunner_Move_RecordsWhatTheProviderReportedItLaunchedAs is Move's own
-// half of the same fix — a /clear or a resume onto a known chat announces via
-// Move, not BindSession, and needs the identical report-wins/empty-preserves
-// behavior.
-func TestAgentRunner_Move_RecordsWhatTheProviderReportedItLaunchedAs(t *testing.T) {
-	ctx, repo := newRepo(t)
-	now := time.Unix(1000, 0).UTC()
-	startRunner(t, ctx, repo, "r1", "chat-a", now)
-
-	moved, err := repo.Move(ctx, "r1", "chat-b", "sess-2", false, now.Add(time.Second),
-		"gpt-5.6-sol", "medium")
-	require.NoError(t, err)
-	assert.Equal(t, "gpt-5.6-sol", moved.ReportedModel)
-	assert.Equal(t, "medium", moved.ReportedEffort)
+	_, err = repo.Report(ctx, "r1", "", "")
+	require.ErrorIs(t, err, asynxModels.ErrValidation, "an empty report is refused, not recorded")
+	assert.Contains(t, err.Error(), "agentrunner: report:")
 }

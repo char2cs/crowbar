@@ -15,7 +15,7 @@ import (
 // scope.go builds its callback URLs as /v0/projects/:projectId/home/agent/...
 // (the home branch), and home.Register serves them. This fires the hook + rename
 // callbacks against that home path and asserts the agent lifecycle WS emits the
-// resulting session_bound / turn_started / turn_stopped / title_set frames — the
+// resulting conversation / turn_started / turn_stopped / title_set frames — the
 // live signals the FE working overlay, chat-row spinner, and derived titles rely
 // on. Without BOTH the scope.go home branch (commit 2) AND the home mount
 // (commit 1) these 404, so this is the guard for the spec's CRITICAL "chats work
@@ -46,10 +46,10 @@ func TestRegression_AgentHomeCallbacksReachDaemon(t *testing.T) {
 	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
 	segID := detail.LiveRunnerID
 
-	// session_start hook → the provider session binds (session_bound). Proves the
+	// session_start hook → the chat binds the provider session. Proves the
 	// project-home /chats/hooks callback (repo=="" ⇒ home path) reaches the daemon.
 	postHomeHook(t, h, homeBase, segID, "session_start", `{"session_id":"sess-home-1"}`)
-	waitForChatFrame(t, frames, created.ID, "session_bound")
+	waitForConversation(t, frames, created.ID, "sess-home-1")
 
 	// user_prompt hook → the turn opens (turn_started): the working overlay + chat
 	// spinner signal, now proven for a PROJECT-HOME workspace.

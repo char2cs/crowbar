@@ -188,9 +188,8 @@ type EventStore interface {
 	) (domain.Chat, error)
 	// SetProvider restates the VENDOR the chat runs as. Create seeds the same
 	// field, so this is what keeps domain.Chat.ProviderID a CURRENT fact
-	// rather than a birth record — its callers are the moments a CLI is
-	// actually placed on the chat (recordRunner, and the two hook-driven
-	// runner moves).
+	// rather than a birth record — its caller is the moment a CLI is
+	// actually placed on the chat (recordRunner).
 	//
 	// It may be called UNCONDITIONALLY, like AbandonTurn above and for the
 	// same reason: "the provider did not change" is decided by the command

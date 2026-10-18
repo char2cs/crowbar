@@ -31,7 +31,9 @@ type hookCLI struct {
 // launch prompt, then take every line typed into the PTY as a prompt.
 func runHookCLI(c *hookCLI, resumeID, prompt string) int {
 	record(c.name, "start", map[string]any{"argv": os.Args[1:], "resume": resumeID, "prompt": prompt})
-	c.session = newID()
+	if c.session == "" {
+		c.session = newID()
+	}
 	if resumeID != "" {
 		if loadScript().Resume == "refuse" || !exists(c.sessionFile(resumeID)) {
 			record(c.name, "refused", map[string]any{"session": resumeID})
@@ -137,8 +139,9 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// runClaude is claude's TUI: hooks from --settings, resume by --resume, the
-// prompt after "--", transcripts under CLAUDE_CONFIG_DIR/projects.
+// runClaude is claude's TUI: hooks from --settings, the session named by
+// --session-id or resumed by --resume, the prompt after "--", transcripts
+// under CLAUDE_CONFIG_DIR/projects.
 func runClaude(args []string) int {
 	switch {
 	case hasArg(args, "--version"):
@@ -151,6 +154,7 @@ func runClaude(args []string) int {
 	cwd, _ := os.Getwd()
 	c := &hookCLI{
 		name: "claude", hooks: claudeHooks(argAfter(args, "--settings")), cwd: cwd,
+		session: argAfter(args, "--session-id"),
 		sessionFile: func(id string) string {
 			slug := strings.ReplaceAll(cwd, string(filepath.Separator), "-")
 			return filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", slug, id+".jsonl")

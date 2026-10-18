@@ -15,10 +15,7 @@ spawn:
   args: ["--fake-tui"]
 session:
   resume: { arg: "--resume {id}" }
-  locate:
-    root_env: FAKECLI_HOME
-    root: "~/.fakecli"
-    glob: ["sessions/{id}.jsonl"]
+  refused: { exit_code: 1, needles: ["No conversation found with session ID"] }
 hooks_injection:
   - pass_arg: { arg: "--hook", value: "session_start={crowbar_hook} hook session_start --segment {segid}" }
   - pass_arg: { arg: "--hook", value: "user_prompt={crowbar_hook} hook user_prompt --segment {segid}" }

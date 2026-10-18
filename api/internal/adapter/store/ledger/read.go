@@ -55,5 +55,20 @@ func (s *Store) OpenChats(ctx context.Context) ([]string, error) {
 	return ids, nil
 }
 
+// SessionOwner answers which chat a (provider, session) is bound to.
+func (s *Store) SessionOwner(ctx context.Context, provider, sessionID string) (chatID string, ok bool, err error) {
+	var owners []string
+	err = s.db.WithContext(ctx).Raw(
+		`SELECT chat_id FROM chat_ledger_sessions WHERE provider = ? AND session_id = ?`, provider, sessionID,
+	).Scan(&owners).Error
+	if err != nil {
+		return "", false, fmt.Errorf("ledger: session owner %s %s: %w", provider, sessionID, err)
+	}
+	if len(owners) == 0 {
+		return "", false, nil
+	}
+	return owners[0], true, nil
+}
+
 // fromMicros is the time a stored at column names, as the store stamped it.
 func fromMicros(us int64) time.Time { return time.UnixMicro(us).UTC() }

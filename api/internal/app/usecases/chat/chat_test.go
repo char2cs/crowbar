@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -104,38 +103,6 @@ func TestRenameChat_UnknownChat_ReturnsWrappedError(t *testing.T) {
 	err := f.usecase.RenameChat(ctx, "does-not-exist", "Some Title", "user")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "rename chat: get")
-}
-
-// TestRegression_RenameResolvesChatAtCallTime guards the fix for the stale-title
-// bug: the OLD title instruction baked the chat id into the CLI's spawn-time
-// system prompt, so an agent that titled itself after a /clear or /resume moved
-// the runner to a NEW chat but still carried the OLD chat id — and renamed the
-// chat it used to be in, not the one the user was looking at.
-//
-// RenameByRunner resolves runnerID → runner → CurrentChatID at CALL TIME, the
-// same resolution IngestHook already uses for every hook (see its doc comment):
-// nothing is baked in, so nothing can go stale. This spawns a runner on chat A,
-// drives two conversation announcements — the second an unknown session id,
-// which the context-move reducer (engine/agent.Decide) resolves to MoveToNew —
-// so the runner ends up on a brand-new chat B while chat A still exists
-// untouched, and proves the rename lands on B, never on A.
-func TestRegression_RenameResolvesChatAtCallTime(t *testing.T) {
-	f := newFixture(t)
-	ctx := context.Background()
-
-	chatA, runnerID := f.spawn(t, "claude")
-	f.announce(t, runnerID, "sA")
-	f.announce(t, runnerID, "sB") // /clear — the runner moves to a NEW chat
-
-	require.NoError(t, f.usecase.RenameByRunner(ctx, runnerID, "New Title", "agent"))
-
-	moved := f.runner(t, runnerID)
-	require.NotEqual(t, chatA, moved.CurrentChatID, "precondition: the runner really did move off chat A")
-
-	assert.Equal(t, "New Title", getTitle(t, f, moved.CurrentChatID),
-		"the title lands on the chat the runner is on NOW")
-	assert.NotEqual(t, "New Title", getTitle(t, f, chatA),
-		"and NOT on the chat it used to be on")
 }
 
 // TestRenameByRunner_UnknownRunner_ReturnsWrappedError guards the error path: a
@@ -287,25 +254,21 @@ func TestPurgeChat_ForgetsTheChatOutright(t *testing.T) {
 	}
 }
 
-// TestPurgeChat_DropsConversationHistory: conversation history is append-only and
-// outlives the process, so nothing else ever removes it. A conversation left pointing
-// at a hard-deleted chat is a live trap — a later /resume of that id would resolve to
-// a chat that no longer exists, and the runner would be moved somewhere unreachable.
+// TestPurgeChat_DropsConversationHistory: a session left owned by a hard-deleted chat
+// would make every later announcement of it a conflict with a chat that is gone.
 func TestPurgeChat_DropsConversationHistory(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, runnerID := f.spawn(t, "claude")
+	chatID, runnerID := f.spawn(t, "codex")
 	f.announce(t, runnerID, "sid-1")
-	require.Equal(t, chatID, f.chatForSession(t, "sid-1"), "precondition: the conversation is known")
+	require.Equal(t, chatID, f.chatForSession(t, "codex", "sid-1"), "precondition: the conversation is known")
 
 	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID))
 	f.wait()
 
-	_, err := f.runners.ChatForSession(f.ctx, "ws1", "sid-1")
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound,
-		"the deleted chat's conversations must not keep resolving to it")
-	_, err = f.runners.LastConversation(f.ctx, chatID)
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound)
+	assert.Empty(t, f.chatForSession(t, "codex", "sid-1"),
+		"the deleted chat's sessions must not keep resolving to it")
+	assert.Empty(t, f.conversation(t, chatID, "codex").SessionID)
 }
 
 // TestPurgeChat_DormantChat_NothingToTerminate: a chat no runner points at has no CLI
@@ -493,10 +456,8 @@ func TestReadChatLog_UnknownChat_ReturnsWrappedError(t *testing.T) {
 
 // ─── from thread_test.go ──────────────────────────────────────────────
 
-// injectedContext returns the {context} document the Nth spawn was given.
-// claude's channel is --append-system-prompt, a silent flag whose VALUE is the
-// whole document — so what the CLI was told is read straight off the argv the
-// spawn built, not inferred from anything Crowbar kept.
+// injectedContext is the context document spawn carried: on its fresh launch's
+// system prompt, or in the system reminder a resume is handed.
 func injectedContext(
 	t *testing.T,
 	f testFixture,
@@ -504,10 +465,16 @@ func injectedContext(
 ) string {
 	t.Helper()
 	argv := f.term.calls[spawn].argv
-	at := indexOf(argv, "--append-system-prompt")
-	require.GreaterOrEqual(t, at, 0, "spawn %d carried no context channel", spawn)
-	require.Less(t, at+1, len(argv), "--append-system-prompt with no value")
-	return argv[at+1]
+	if at := indexOf(argv, "--append-system-prompt"); at >= 0 && at+1 < len(argv) {
+		return argv[at+1]
+	}
+	for _, a := range argv {
+		if strings.HasPrefix(a, "<system-reminder>") {
+			return a
+		}
+	}
+	require.Fail(t, "no context channel", "spawn %d carried no context: %v", spawn, argv)
+	return ""
 }
 
 // thread makes chatID a thread of parentID, the way a drag in the Chats panel
@@ -556,6 +523,22 @@ func lineageBlock(
 	return strings.ReplaceAll(config.GetPrompts().ThreadLineage, "{lineage}", strings.Join(lines, "\n"))
 }
 
+// spawnPlaced mints a claude chat, places it under parentID ("" leaves it
+// unplaced) and only then spawns it: a chat is told what it reads at its first launch.
+func spawnPlaced(t *testing.T, f testFixture, parentID string) string {
+	t.Helper()
+	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "claude", "")
+	require.NoError(t, err)
+	f.wait()
+	if parentID != "" {
+		thread(t, f, chatID, parentID)
+	}
+	_, err = f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+	return chatID
+}
+
 // A thread is SPAWNED knowing what it reads. Not handed the turns — handed the
 // ids and told to go and get them, which is what makes the relationship live:
 // the parent's later turns are in the answer too.
@@ -564,15 +547,9 @@ func TestSpawn_AThreadIsPointedAtTheChatItHangsOff(t *testing.T) {
 
 	parentID, parentRunner := f.spawn(t, "claude")
 	turn(t, f, parentRunner, "claude", "the parent worked out the plan here")
-	threadID, _ := f.spawn(t, "claude")
-	thread(t, f, threadID, parentID)
+	spawnPlaced(t, f, parentID)
 
-	// Any later spawn on that chat: a provider switch is the shortest one to drive.
-	_, err := f.usecase.SwitchProvider(f.ctx, threadID, "claude")
-	require.NoError(t, err)
-	f.wait()
-
-	got := injectedContext(t, f, 2)
+	got := injectedContext(t, f, 1)
 	assert.Contains(t, got, lineageBlock(parentID))
 	assert.Contains(t, got, "get_chat_log")
 	assert.NotContains(t, got, "the parent worked out the plan here",
@@ -586,22 +563,13 @@ func TestSpawn_FoldersDoNotChangeWhatAThreadIsTold(t *testing.T) {
 	f := newFixture(t)
 
 	parentID, _ := f.spawn(t, "claude")
-	directID, _ := f.spawn(t, "claude")
-	filedID, _ := f.spawn(t, "claude")
 	file(t, f, "outer", parentID)
 	file(t, f, "inner", "outer")
-	thread(t, f, directID, parentID)
-	thread(t, f, filedID, "inner")
+	spawnPlaced(t, f, parentID)
+	spawnPlaced(t, f, "inner")
 
-	_, err := f.usecase.SwitchProvider(f.ctx, directID, "claude")
-	require.NoError(t, err)
-	f.wait()
-	_, err = f.usecase.SwitchProvider(f.ctx, filedID, "claude")
-	require.NoError(t, err)
-	f.wait()
-
-	assert.Contains(t, injectedContext(t, f, 3), lineageBlock(parentID))
-	assert.Contains(t, injectedContext(t, f, 4), lineageBlock(parentID),
+	assert.Contains(t, injectedContext(t, f, 1), lineageBlock(parentID))
+	assert.Contains(t, injectedContext(t, f, 2), lineageBlock(parentID),
 		"filing a thread away is organisation; it must not change one word of what it reads")
 }
 
@@ -611,15 +579,10 @@ func TestSpawn_ADeepThreadIsToldItsWholeChainNearestFirst(t *testing.T) {
 
 	grandparentID, _ := f.spawn(t, "claude")
 	parentID, _ := f.spawn(t, "claude")
-	threadID, _ := f.spawn(t, "claude")
 	thread(t, f, parentID, grandparentID)
-	thread(t, f, threadID, parentID)
+	spawnPlaced(t, f, parentID)
 
-	_, err := f.usecase.SwitchProvider(f.ctx, threadID, "claude")
-	require.NoError(t, err)
-	f.wait()
-
-	assert.Contains(t, injectedContext(t, f, 3), lineageBlock(parentID, grandparentID))
+	assert.Contains(t, injectedContext(t, f, 2), lineageBlock(parentID, grandparentID))
 }
 
 // A chat with no chat ancestors must behave exactly as it does today — not
@@ -628,21 +591,13 @@ func TestSpawn_ADeepThreadIsToldItsWholeChainNearestFirst(t *testing.T) {
 func TestSpawn_AChatWithNoChatAncestorsIsToldNothingExtra(t *testing.T) {
 	f := newFixture(t)
 
-	plainID, _ := f.spawn(t, "claude")
-	filedID, _ := f.spawn(t, "claude")
 	file(t, f, "somewhere", "")
-	thread(t, f, filedID, "somewhere")
+	spawnPlaced(t, f, "")
+	spawnPlaced(t, f, "somewhere")
 
-	_, err := f.usecase.SwitchProvider(f.ctx, plainID, "claude")
-	require.NoError(t, err)
-	f.wait()
-	_, err = f.usecase.SwitchProvider(f.ctx, filedID, "claude")
-	require.NoError(t, err)
-	f.wait()
-
-	assert.Equal(t, injectedContext(t, f, 2), injectedContext(t, f, 3),
+	assert.Equal(t, injectedContext(t, f, 0), injectedContext(t, f, 1),
 		"a chat merely filed in a folder inherits nothing and is spawned identically to an unfiled one")
-	assert.NotContains(t, injectedContext(t, f, 3), "THREAD CONTEXT")
+	assert.NotContains(t, injectedContext(t, f, 1), "THREAD CONTEXT")
 }
 
 // A lineage that cannot be read fails the spawn. A thread that comes up silently
@@ -703,30 +658,19 @@ func TestNoteThreadLineage_UnknownChat_ReturnsError(t *testing.T) {
 	require.Error(t, f.usecase.NoteThreadLineage(f.ctx, "no-such-chat", []string{"parent-1"}))
 }
 
-// The note is tagged as Crowbar's own, never as a provider's. Ledger.LastTurnAt
-// decides whether a provider has a conversation on disk worth resuming, and a
-// note wearing a provider's name would answer yes on its behalf for a session it
-// never held — the exact confusion that once killed a chat on --resume.
+// The note is tagged as Crowbar's own, never as a provider's: a note wearing a
+// provider's name would move where that provider's resume gap starts.
 func TestNoteThreadLineage_IsNotAttributedToAnyProvider(t *testing.T) {
 	f := newFixture(t)
 
-	// claude opens a conversation and then says NOTHING in it. Only a turn tagged
-	// "claude" would make that conversation resumable — and the note below is the
-	// only turn this ledger is ever going to have.
 	chatID, runnerID := f.spawn(t, "claude")
 	f.announce(t, runnerID, "sid-claude")
 	require.NoError(t, f.usecase.NoteThreadLineage(f.ctx, chatID, []string{"parent-1"}))
-
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.NoError(t, err)
-	f.wait()
-	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
-	require.NoError(t, err)
 	f.wait()
 
-	assert.Equal(t, -1, indexOf(f.term.calls[2].argv, "--resume"),
-		"a Crowbar note is not a claude turn: resuming a session claude never spoke in is what "+
-			"claude refuses with \"No conversation found\", and it once killed a chat outright")
+	_, found, err := f.activity.LastTurnForSession(f.ctx, chatID, "claude", "sid-claude")
+	require.NoError(t, err)
+	assert.False(t, found, "a Crowbar note is not a claude turn")
 }
 
 // ---------------------------------------------------------------------------
@@ -1991,8 +1935,8 @@ func TestSubmitPrompt_AnUnreadableSelectionRefusesTheDelivery(t *testing.T) {
 // is an ordinary thing to do seconds after spawning. If that CLI's first session_start
 // lands in the window, an unguarded reducer BINDS it: the conversation projection then
 // writes a (deletedChatID, sessionID) row AFTER the purge already dropped that chat's
-// history. That row is a live trap — a later /resume of the id resolves to a chat that
-// does not exist.
+// history. That row is a live trap — a later announcement of the id conflicts with a
+// chat that does not exist.
 //
 // The announcement must be DROPPED, and the CLI killed again: it has nowhere to write.
 func TestRegression_SessionStartAfterItsChatWasDeleted_IsDroppedNotRecorded(t *testing.T) {
@@ -2006,72 +1950,11 @@ func TestRegression_SessionStartAfterItsChatWasDeleted_IsDroppedNotRecorded(t *t
 	// The CLI is still alive (SIGTERM has not landed yet) and announces its conversation.
 	f.announce(t, runnerID, "s-late")
 
-	_, err := f.runners.ChatForSession(f.ctx, "ws1", "s-late")
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound,
+	assert.Empty(t, f.chatForSession(t, "claude", "s-late"),
 		"a conversation must never be recorded against a chat that has been deleted")
 
 	assert.Contains(t, f.term.terminateRequestIDs(), termSess,
 		"a CLI with nowhere left to write must not be left running")
-}
-
-// TestRegression_ResumeIntoAPurgedChat_DoesNotStrandTheRunner
-//
-// No race needed for this one. Dropping a chat's conversation history is best-effort in
-// PurgeChat (a failure is logged and the delete still succeeds), and deleting a Crowbar
-// chat deliberately does NOT delete the vendor's own session file — so that conversation
-// is still sitting in claude's /resume picker. Pick it, and ChatForSession resolves to
-// the purged chat: the runner would be Moved onto a chat that does not exist, and every
-// turn it produced from then on would be silently dropped forever. An invisible CLI.
-//
-// The move must be refused — it is not a move Crowbar can honour — and the CLI retired.
-//
-// Note what "refused" does NOT mean: it does not mean the runner stays on chat B. The CLI
-// really has left sB; that is a fait accompli we cannot undo (spec §3), so recording it as
-// still on B would be a lie, and every turn it took in sA would be filed into B's ledger.
-// It has followed a conversation somewhere Crowbar cannot follow it, so it is placed
-// NOWHERE and killed. Chat B goes dormant — intact, with its history, and resumable.
-func TestRegression_ResumeIntoAPurgedChat_DoesNotStrandTheRunner(t *testing.T) {
-	f, _, rs := newFaultFixture(t)
-
-	chatA, r1 := f.spawn(t, "claude")
-	f.announce(t, r1, "sA")
-	turn(t, f, r1, "claude", "content, so sA is a real conversation on disk")
-
-	// The history drop fails: sA keeps resolving to chatA, which is about to be erased.
-	rs.failForgetChat = errors.New("boom: the history drop failed")
-	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatA))
-	require.Equal(t, chatA, f.chatForSession(t, "sA"),
-		"precondition: the purged chat's conversation survived the failed drop")
-
-	chatB, r2 := f.spawn(t, "codex")
-	f.announce(t, r2, "sB")
-	r2term := f.runner(t, r2).TerminalSession
-
-	// The user picks sA out of the CLI's own picker.
-	f.announce(t, r2, "sA")
-
-	moved := f.runner(t, r2)
-	assert.NotEqual(t, chatA, moved.CurrentChatID,
-		"a runner must never be moved onto a chat that does not exist")
-	assert.Empty(t, moved.CurrentChatID,
-		"it followed a conversation into nowhere: it is placed nowhere")
-	assert.Contains(t, f.term.terminateRequestIDs(), r2term,
-		"and it must not be left running")
-
-	// Its turns go nowhere — in particular, not into the chat it left.
-	require.NoError(t, f.usecase.IngestHook(f.ctx, r2, "codex", "turn_stop",
-		mustJSON(t, map[string]any{"last_assistant_message": "said inside the purged conversation"})))
-	f.wait()
-	handoff, err := f.usecase.AssembleHandoff(f.ctx, chatB)
-	require.NoError(t, err)
-	assert.NotContains(t, handoff, "said inside the purged conversation")
-
-	// And chat B is intact: dormant, with its history, and resumable.
-	_, err = f.chats.GetChat(f.ctx, chatB)
-	require.NoError(t, err)
-	last, err := f.runners.LastConversation(f.ctx, chatB)
-	require.NoError(t, err)
-	assert.Equal(t, "sB", last.SessionID)
 }
 
 // ---------------------------------------------------------------------------
@@ -2111,48 +1994,6 @@ func TestRegression_LateSessionAnnouncement_DoesNotStealTheChatFromTheIncomingCL
 		"I2: at most one runner is pointed at a chat, at every instant")
 }
 
-// TestRegression_UnkillableEvictee_CannotWriteIntoTheChatItLost
-//
-// An eviction whose kill FAILS leaves the evictee alive — and, if all we did was record
-// the mover's Move, the evictee would still be POINTED at the chat the mover now owns.
-// Its turn hooks would then append into that chat's ledger and toggle its Working state:
-// two CLIs writing one conversation, which is the corruption invariant I3 exists to
-// prevent.
-//
-// Taking it off the chat is a fact Crowbar owns (placement), and it says nothing about
-// whether the process is alive — so it is recorded even when the kill fails.
-func TestRegression_UnkillableEvictee_CannotWriteIntoTheChatItLost(t *testing.T) {
-	f := newFixture(t)
-
-	_, mover := f.spawn(t, "claude")
-	f.announce(t, mover, "sA")
-	chatB, incumbent := f.spawn(t, "codex")
-	f.announce(t, incumbent, "sB")
-
-	f.term.terminateErr = errors.New("boom: the incumbent refuses to die")
-
-	f.announce(t, mover, "sB") // the mover takes sB; the incumbent is evicted but survives
-
-	live, err := f.liveRunnerFor(t, chatB)
-	require.NoError(t, err)
-	require.Equal(t, mover, live.ID, "precondition: the mover holds chat B")
-
-	// The unkillable evictee keeps working and finishes a turn.
-	require.NoError(t, f.usecase.IngestHook(f.ctx, incumbent, "codex", "turn_stop",
-		mustJSON(t, map[string]any{"last_assistant_message": "the evictee is still talking"})))
-	f.wait()
-
-	handoff, err := f.usecase.AssembleHandoff(f.ctx, chatB)
-	require.NoError(t, err)
-	assert.NotContains(t, handoff, "the evictee is still talking",
-		"an evicted CLI must never write into the chat it lost")
-	assert.False(t, f.chat(t, chatB).Working,
-		"nor toggle its turn state")
-
-	assert.Len(t, f.placedRunnersFor(t, chatB), 1,
-		"I3/I2: the evictee is no longer placed anywhere, even though it is still alive")
-}
-
 // TestRegression_ConcurrentSwitches_LeaveExactlyOneCLIOnTheChat
 //
 // Displacement makes the READ side honest. Only serialisation fixes the WRITE side: two
@@ -2190,59 +2031,6 @@ func TestRegression_ConcurrentSwitches_LeaveExactlyOneCLIOnTheChat(t *testing.T)
 // ---------------------------------------------------------------------------
 // Placement onto a chat evicts whoever else is placed there.
 // ---------------------------------------------------------------------------
-
-// TestRegression_ResumeIntoAChatHeldByAnotherCLI_EvictsTheChatIncumbent
-//
-// The reported bug with ONE variable changed, and it needs no race at all.
-//
-// Eviction used to be keyed only on who holds the CONVERSATION. Nobody looked at who is
-// placed on the destination CHAT. So: chat B is being worked by codex (r3), which has not
-// announced its conversation yet — or has announced a different one. B's older claude
-// conversation sB is still in Crowbar's history AND still in claude's own /resume picker,
-// because Crowbar deliberately never deletes a vendor's session file. The user picks sB
-// from inside chat A's CLI. Nobody "holds" sB, so nothing is evicted — and chat B ends up
-// with TWO live CLIs on it, indefinitely, both appending to its ledger, one of them
-// invisible.
-//
-// Placement onto a chat must evict whoever else is placed there. That is what makes I2 an
-// invariant rather than a coincidence.
-func TestRegression_ResumeIntoAChatHeldByAnotherCLI_EvictsTheChatIncumbent(t *testing.T) {
-	f := newFixture(t)
-
-	// Chat B: claude ran and spoke (so sB is a real, resumable conversation), then the
-	// user switched B to codex. Codex (r3) is now working in B and has announced nothing.
-	chatB, claudeB := f.spawn(t, "claude")
-	f.announce(t, claudeB, "sB")
-	turn(t, f, claudeB, "claude", "what claude said in B")
-	r3, err := f.usecase.SwitchProvider(f.ctx, chatB, "codex")
-	require.NoError(t, err)
-	f.wait()
-	r3term := f.runner(t, r3).TerminalSession
-
-	require.Equal(t, r3, mustLive(t, f, chatB).ID, "precondition: codex holds chat B")
-
-	// Chat A, elsewhere. Inside its CLI the user /resumes B's old claude conversation.
-	_, r1 := f.spawn(t, "claude")
-	f.announce(t, r1, "sA")
-	f.announce(t, r1, "sB")
-
-	assert.Len(t, f.placedRunnersFor(t, chatB), 1,
-		"I2: a chat is held by ONE CLI — the one that just took it, never two")
-
-	live := mustLive(t, f, chatB)
-	assert.Equal(t, r1, live.ID, "the mover holds chat B")
-
-	assert.Contains(t, f.term.terminateRequestIDs(), r3term,
-		"the CLI that WAS on chat B must be evicted, not left running invisibly")
-
-	// And the evictee can no longer write into the chat it lost.
-	require.NoError(t, f.usecase.IngestHook(f.ctx, r3, "codex", "turn_stop",
-		mustJSON(t, map[string]any{"last_assistant_message": "codex is still talking in B"})))
-	f.wait()
-	handoff, err := f.usecase.AssembleHandoff(f.ctx, chatB)
-	require.NoError(t, err)
-	assert.NotContains(t, handoff, "codex is still talking in B")
-}
 
 // ---------------------------------------------------------------------------
 // Displacement must not orphan the turn the displaced CLI left open.
@@ -2398,208 +2186,4 @@ func mustLive(t *testing.T, f testFixture, chatID string) engineagents.Runner {
 	r, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
 	return r
-}
-
-// ---------------------------------------------------------------------------
-// The rule is general: EVERY placement onto a chat evicts whoever else is there.
-// ---------------------------------------------------------------------------
-
-// TestRegression_HookMovesOntoAChatMidSpawn_TheSpawnEvictsIt
-//
-// The rule "placement onto a chat evicts whoever else is placed there" was applied to
-// Move and NOT to Start — and the window that opens is not a hairline, it spans an entire
-// process fork:
-//
-//  1. SwitchProvider holds chat B's gate and quits + DISPLACES the outgoing CLI. Chat B now
-//     has ZERO placed runners.
-//  2. A hook — never gated, and never may be — moves another live CLI (r1) onto B. Nobody
-//     is placed on B and nobody holds that conversation, so nothing is evicted. The Move
-//     commits.
-//  3. The switch resolves its descriptor, renders its tmp dir, FORKS A PROCESS, and Starts
-//     the incoming runner onto B.
-//
-// Chat B ends up holding r1 AND the incoming CLI, both live, both placed, indefinitely —
-// and r1 is invisible, because LiveRunnerForChat hands out the newest arrival while r1 goes
-// on appending to B's ledger. The invisible-agent state, restored by the fix that was meant
-// to end it.
-//
-// duringFork drives step 2 INSIDE CreateCommand, so the interleaving is exact rather than
-// hoped for: no sleeps, no goroutine racing.
-func TestRegression_HookMovesOntoAChatMidSpawn_TheSpawnEvictsIt(t *testing.T) {
-	f := newFixture(t)
-
-	// Chat B: claude spoke here, so sB is a real conversation — known to Crowbar, and still
-	// in claude's own /resume picker.
-	chatB, claudeB := f.spawn(t, "claude")
-	f.announce(t, claudeB, "sB")
-	turn(t, f, claudeB, "claude", "what claude said in B")
-
-	// Another live CLI, elsewhere.
-	_, r1 := f.spawn(t, "codex")
-	f.announce(t, r1, "sA")
-
-	// While the switch is forking the incoming CLI, r1's user picks sB out of the picker.
-	var once sync.Once
-	f.term.duringFork = func() {
-		once.Do(func() {
-			require.NoError(t, f.usecase.IngestHook(f.ctx, r1, "codex", "session_start",
-				mustJSON(t, map[string]any{"session_id": "sB"})))
-		})
-	}
-
-	incoming, err := f.usecase.SwitchProvider(f.ctx, chatB, "codex")
-	require.NoError(t, err)
-	f.wait()
-
-	assert.Len(t, f.placedRunnersFor(t, chatB), 1,
-		"I2: a chat is held by ONE CLI — a spawn must evict whoever moved in while it forked")
-
-	live := mustLive(t, f, chatB)
-	assert.Equal(t, incoming, live.ID, "the chat belongs to the CLI that was spawned onto it")
-
-	assert.Contains(t, f.term.terminateRequestIDs(), f.runner(t, r1).TerminalSession,
-		"the CLI that moved in mid-spawn must be evicted, not left running invisibly")
-
-	// And it can no longer write into the chat it was evicted from.
-	require.NoError(t, f.usecase.IngestHook(f.ctx, r1, "codex", "turn_stop",
-		mustJSON(t, map[string]any{"last_assistant_message": "the invisible agent speaks"})))
-	f.wait()
-	handoff, err := f.usecase.AssembleHandoff(f.ctx, chatB)
-	require.NoError(t, err)
-	assert.NotContains(t, handoff, "the invisible agent speaks")
-}
-
-// TestRegression_EvictionHealsAnAlreadyBrokenInvariant: incumbentsOf used to read ONE row,
-// so if two runners were somehow already placed on a chat it would evict one and leave the
-// other — healing nothing. "Everyone else placed here is retired" must be literally what
-// the code does, or I2 is a coincidence rather than an invariant.
-func TestRegression_EvictionHealsAnAlreadyBrokenInvariant(t *testing.T) {
-	f := newFixture(t)
-
-	chatB, claudeB := f.spawn(t, "claude")
-	f.announce(t, claudeB, "sB")
-	turn(t, f, claudeB, "claude", "what claude said in B")
-
-	// Two other live CLIs, both moved onto chat B by hooks landing while it was vacant (the
-	// mid-spawn window, twice over — this is the already-broken state).
-	_, r1 := f.spawn(t, "codex")
-	f.announce(t, r1, "s1")
-	_, r2 := f.spawn(t, "codex")
-	f.announce(t, r2, "s2")
-	require.NoError(t, f.runnersMove(t, r1, chatB, "s1"))
-	require.NoError(t, f.runnersMove(t, r2, chatB, "s2"))
-	require.Len(t, f.placedRunnersFor(t, chatB), 3, "precondition: the invariant is already broken")
-
-	// A third CLI resumes B's conversation. Everyone else on B must go.
-	_, mover := f.spawn(t, "claude")
-	f.announce(t, mover, "sMover")
-	f.announce(t, mover, "sB")
-
-	assert.Len(t, f.placedRunnersFor(t, chatB), 1,
-		"an eviction must retire EVERY other runner placed on the chat, not just one")
-	assert.Equal(t, mover, mustLive(t, f, chatB).ID)
-}
-
-// TestRegression_FirstAnnouncementOfAHeldConversation_EvictsTheHolder
-//
-// MoveBind evicts nobody, and its I3 safety used to be an ARGUMENT: a CLI's first
-// conversation is one Crowbar itself chose (a fresh spawn, or a resume taken under the
-// chat's gate), so it cannot already be held.
-//
-// That argument is breakable FROM A CONFIG FILE. ResolveDescriptor merges on-disk overrides
-// from crowbar home, and spawn.args is user-configurable: drop in an override adding
-// `--continue`, or adopt any provider that auto-restores its last session, and a freshly
-// spawned CLI announces an id CROWBAR NEVER CHOSE — possibly one another live runner is
-// holding. Decide returns MoveBind (a first announcement wins over "known"), nobody is
-// evicted, and two CLIs write one provider session file: I3 violated, the PROVIDER'S OWN
-// DATA corrupted, with no Go error, no failing test and no log line.
-//
-// Go must never depend on what the YAML says for its invariants. So the bind evicts the
-// holder too — a no-op on every legitimate path, and a guard on this one.
-func TestRegression_FirstAnnouncementOfAHeldConversation_EvictsTheHolder(t *testing.T) {
-	f := newFixture(t)
-
-	chatA, holder := f.spawn(t, "claude")
-	f.announce(t, holder, "sHeld")
-	holderTerm := f.runner(t, holder).TerminalSession
-
-	// A second CLI comes up and announces — as its FIRST conversation — the id the first one
-	// is live on. (A `--continue`-style descriptor override is all it takes.)
-	_, newcomer := f.spawn(t, "claude")
-	f.announce(t, newcomer, "sHeld")
-
-	live, err := f.runners.LiveRunnerForSession(f.ctx, "ws1", "sHeld")
-	require.NoError(t, err)
-	assert.Equal(t, newcomer, live.ID, "the conversation is held by the CLI that announced it last")
-
-	assert.Contains(t, f.term.terminateRequestIDs(), holderTerm,
-		"I3: two CLIs must never hold one provider session id — the incumbent is evicted")
-
-	assert.Empty(t, f.placedRunnersFor(t, chatA),
-		"the evicted holder is taken off its chat like any other evictee")
-}
-
-// TestRegression_TwoPlacementsRacingOneChat_LeaveExactlyOneSurvivor
-//
-// retireOthersOn told each placement to retire everyone else on the chat. If a hook's Move
-// and a spawn's Start commit such that BOTH plural reads happen after BOTH writes, they
-// retire each other: the spawn kills the mover, the mover kills the spawn, and the chat is
-// left with NOBODY — while SwitchProvider cheerfully returns the id of a runner it has just
-// SIGTERM'd, so the pane attaches to a dying PTY.
-//
-// The list is ordered newest-arrival-first, so the rule is made total by making it
-// ASYMMETRIC: retire only the arrivals strictly OLDER than you, and nobody at all if you are
-// not on the list (someone else's placement already took you off). Exactly one runner — the
-// newest — retires anybody, and it is the same one the serving read hands out. The retire
-// rule and the read model agree by construction.
-//
-// The interleaving is forced through channels inside the committed commands, never timed.
-func TestRegression_TwoPlacementsRacingOneChat_LeaveExactlyOneSurvivor(t *testing.T) {
-	f, _, rs := newFaultFixture(t)
-
-	chatB, claudeB := f.spawn(t, "claude")
-	f.announce(t, claudeB, "sB")
-	turn(t, f, claudeB, "claude", "what claude said in B")
-
-	_, r1 := f.spawn(t, "codex")
-	f.announce(t, r1, "sA")
-
-	moved := make(chan struct{})
-	started := make(chan struct{})
-	var hook sync.WaitGroup
-
-	// The hook's Move commits, then it WAITS for the spawn's Start to commit before it runs
-	// its own "retire everyone else" read — so both reads see both runners.
-	rs.afterMove = func() {
-		close(moved)
-		<-started
-	}
-	rs.afterStart = func() { close(started) }
-
-	// The hook fires while the switch is forking its process — after the outgoing CLI has
-	// been displaced (the chat is momentarily empty) and before the incoming one is Started.
-	f.term.duringFork = func() {
-		hook.Add(1)
-		go func() {
-			defer hook.Done()
-			require.NoError(t, f.usecase.IngestHook(f.ctx, r1, "codex", "session_start",
-				mustJSON(t, map[string]any{"session_id": "sB"})))
-		}()
-		<-moved // the Move has committed; let the spawn proceed to Start
-	}
-
-	incoming, err := f.usecase.SwitchProvider(f.ctx, chatB, "codex")
-	require.NoError(t, err)
-	hook.Wait()
-	f.wait()
-
-	placed := f.placedRunnersFor(t, chatB)
-	require.Len(t, placed, 1, "two placements racing one chat must not retire EACH OTHER")
-	assert.Equal(t, incoming, placed[0].ID,
-		"the survivor is the newest arrival — the same runner the serving read hands out")
-
-	live := mustLive(t, f, chatB)
-	assert.Equal(t, incoming, live.ID)
-	assert.NotContains(t, f.term.terminatedIDs(), live.TerminalSession,
-		"SwitchProvider must never return a runner it has itself killed")
 }

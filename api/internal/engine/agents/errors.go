@@ -49,4 +49,8 @@ var (
 	ErrMalformedAnswer = protocol.ErrMalformedAnswer
 
 	ErrAPITransportNotDeclared = errAPITransportNotDeclared
+
+	// ErrAPISessionLost is an api connection's provider refusing the session
+	// it was asked to resume or act on.
+	ErrAPISessionLost = protocol.ErrAPISessionLost
 )

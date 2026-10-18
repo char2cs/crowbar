@@ -1,5 +1,5 @@
 // Package runner (file revive.go) is the server-owned revive: sending to a
-// dormant chat brings its provider back through the resume ladder, in the same
+// dormant chat brings its provider back on the chat's session, in the same
 // spawn-gate hold as the delivery. The client only ever sends; it never
 // orchestrates a revive of its own.
 package runner

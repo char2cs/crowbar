@@ -401,10 +401,8 @@ func TestRegression_ASubagentsPromptAndReplyNeverEnterTheMainTranscript(t *testi
 	f.wait()
 	resumedID, err := f.usecase.ResumeChat(f.ctx, chatID)
 	require.NoError(t, err)
-	resumed := f.runner(t, resumedID)
-	require.Equal(t, "thread-main", resumed.LaunchSessionID)
-	require.Empty(t, resumed.CurrentSession,
-		"precondition: an api-transport resume announces nothing, so the runner never binds a session")
+	require.Contains(t, f.term.calls[f.term.callCount()-1].argv, "thread-main",
+		"precondition: the revive resumes the chat's own thread")
 
 	// The parent's own spawnAgent completes, naming the child thread it just
 	// created — this is what opens the nested subagent.
@@ -1946,7 +1944,6 @@ func TestRegression_FinalIncrementAheadOfAnEarlierOneNeverRecordsATruncatedMessa
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
-	f.announce(t, runnerID, "sess-1")
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "greet me"})))
 
@@ -2133,12 +2130,10 @@ func TestRegression_InterruptedTurnGraduallyFinishingIsNotMisattributedToTheNext
 	f.wait()
 
 	// The provider switch: a second runner (codex) placed on the SAME chat
-	// while claude's runner still has it too — runnersMove constructs
-	// exactly this window (its own doc comment: "two runners placed on one
-	// chat"), matching the moment a real StopChat/displace has not yet won
-	// its race against the outgoing CLI's own still-in-flight hook.
-	_, codexRunnerID := f.spawn(t, "codex")
-	require.NoError(t, f.runnersMove(t, codexRunnerID, chatID, "codex-s1"))
+	// while claude's runner still has it too — the moment a real
+	// StopChat/displace has not yet won its race against the outgoing CLI's
+	// own still-in-flight hook.
+	codexRunnerID := f.placeRunner(t, chatID, "codex", "codex-s1")
 
 	// Codex, placed second, closes its OWN turn FIRST.
 	codexPrompt := map[string]any{"prompt": "what did we talk before"}
@@ -2193,9 +2188,6 @@ func TestRegression_StopChatSalvagesTheAlreadyStreamedText(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
-	// Named to match deltaHook's own session: a delta that names a conversation the
-	// runner is not on is another one's, and ingest drops it.
-	f.announce(t, runnerID, "sess-1")
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "write a long essay about the transistor"})))
 
@@ -2222,31 +2214,24 @@ func TestRegression_StopChatSalvagesTheAlreadyStreamedText(t *testing.T) {
 }
 
 // TestRegression_ClearMidStreamSalvagesTheAlreadyStreamedText is the same gap as
-// TestRegression_StopChatSalvagesTheAlreadyStreamedText, hit through a DIFFERENT door:
-// moveToNewChat, reached whenever the live CLI itself announces a /clear (a session_start
-// for a session id Crowbar doesn't recognise) while a message is still streaming on the
-// chat it is LEAVING. closeAbandonedTurn is the same function both paths funnel through,
-// so this is not a new bug — it is the same fix (AbandonMessageForRunner, threaded through
-// every closeAbandonedTurn call site) proven on its other callers too, not just StopChat's.
+// TestRegression_StopChatSalvagesTheAlreadyStreamedText through another door: the CLI
+// /clears onto a new session while a message is still streaming on the old one.
 func TestRegression_ClearMidStreamSalvagesTheAlreadyStreamedText(t *testing.T) {
 	f := newFixture(t)
 
 	chatA, runnerID := f.spawn(t, "claude")
-	// Named to match deltaHook's own session, so the stream below really does land
-	// on chat A — the turn moveToNewChat then has to salvage.
-	f.announce(t, runnerID, "sess-1")
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "write a long essay about the telegraph"})))
 
-	// Claude is still streaming on chat A — NOT final — when the CLI itself /clears.
+	// Claude is still streaming — NOT final — when the CLI itself /clears.
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "message_delta",
 		deltaHook(t, "clear-msg", 0, false, "The telegraph transformed long-distance communication...")))
 	f.wait()
 
-	f.announce(t, runnerID, "sB") // /clear — moveToNewChat mints chat B, abandoning A's turn
+	f.announce(t, runnerID, "sB")
+	f.wait()
 
-	moved := f.runner(t, runnerID)
-	require.NotEqual(t, chatA, moved.CurrentChatID, "precondition: the runner really did move to a new chat")
+	require.Equal(t, chatA, f.runner(t, runnerID).CurrentChatID, "precondition: a /clear keeps the runner on its chat")
 
 	turns, err := f.activity.Turns(f.ctx, chatA, 0, 0, 0)
 	require.NoError(t, err)
@@ -2258,7 +2243,7 @@ func TestRegression_ClearMidStreamSalvagesTheAlreadyStreamedText(t *testing.T) {
 		}
 	}
 	require.NotNil(t, salvaged,
-		"the same salvage StopChat gets must also cover moveToNewChat's abandon")
+		"the same salvage StopChat gets must also cover the session a /clear left")
 	assert.Equal(t, "claude", salvaged.ProviderID)
 }
 

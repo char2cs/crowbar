@@ -6,6 +6,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -62,7 +63,7 @@ func (sweepRecorder) Wake() {}
 type blindTerminal struct{}
 
 func (blindTerminal) CreateCommand(
-	context.Context, string, string, []string, []string, func(),
+	context.Context, string, string, []string, []string, func(engineterminal.Exit),
 ) (string, error) {
 	return "", nil
 }

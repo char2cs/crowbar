@@ -44,7 +44,7 @@ func (rs *Runners) endProcesses(ctx context.Context, runner agents.Runner) error
 // retire takes runner off its chat for good and ends it. Best-effort: a
 // runner still placed after a failed displace is reconciled by its own exit.
 func (rs *Runners) retire(ctx context.Context, runner agents.Runner) {
-	if err := rs.displace(ctx, runner); err != nil {
+	if err := rs.displaceInterlocked(ctx, runner); err != nil {
 		slog.ErrorContext(ctx, "agent: retire runner: displace (best-effort, continuing)",
 			"runner_id", runner.ID, "chat_id", runner.CurrentChatID, "err", err)
 	}
@@ -55,6 +55,16 @@ func (rs *Runners) retire(ctx context.Context, runner agents.Runner) {
 		slog.WarnContext(ctx, "agent: retire runner (best-effort, continuing)",
 			"runner_id", runner.ID, "err", err)
 	}
+}
+
+// displaceInterlocked displaces under the chat's turn-start interlock, as every
+// other displacement does: a user_prompt that passed its placement check opens
+// its turn before the displacement completes it, never after.
+func (rs *Runners) displaceInterlocked(ctx context.Context, runner agents.Runner) error {
+	if runner.CurrentChatID != "" {
+		defer rs.turnStarts.Lock(runner.CurrentChatID)()
+	}
+	return rs.displace(ctx, runner)
 }
 
 // quitOutgoingCLI ends chatID's live runner so a replacement can take the

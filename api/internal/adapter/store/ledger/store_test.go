@@ -325,6 +325,41 @@ func TestStore_ForgetErasesAChat(t *testing.T) {
 	assert.Equal(t, []int64{1}, seqs(again), "a forgotten chat starts over from seq 1")
 }
 
+// boundS is provider's CLI announcing session "S".
+func boundS(t *testing.T, provider string) ledger.Row {
+	t.Helper()
+	return mustRow(t, ledger.KindSessionBound, "", ledger.SessionBound{
+		Provider: provider, SessionID: "S", Cause: ledger.CauseAnnounced,
+	})
+}
+
+func TestStore_ASessionCanBeBoundToOneChatOnly(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	_, _, err := s.Append(ctx, "c1", boundS(t, "p"))
+	require.NoError(t, err)
+	_, _, err = s.Append(ctx, "c2", prompt(t, "r1", "a"))
+	require.NoError(t, err)
+
+	_, st, err := s.Append(ctx, "c2", boundS(t, "p"), settle(t, "r1"))
+	require.ErrorIs(t, err, ledgerstore.ErrSessionClaimed)
+	assert.Equal(t, int64(1), st.Head(), "the whole Do is refused")
+	_, _, err = s.Append(ctx, "c1", boundS(t, "p"))
+	require.NoError(t, err, "rebinding a chat's own session is no claim")
+	_, _, err = s.Append(ctx, "c2", boundS(t, "q"))
+	require.NoError(t, err, "a session is owned per provider")
+
+	owner, ok, err := s.SessionOwner(ctx, "p", "S")
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.Equal(t, "c1", owner)
+
+	require.NoError(t, s.Forget(ctx, "c1"))
+	_, ok, err = s.SessionOwner(ctx, "p", "S")
+	require.NoError(t, err)
+	assert.False(t, ok, "a forgotten chat owns nothing")
+}
+
 // fired reports whether ch is already closed; a commit closes it before Do returns.
 func fired(ch <-chan struct{}) bool {
 	select {
@@ -379,6 +414,8 @@ func TestStore_ReportsAClosedDatabase(t *testing.T) {
 	_, _, err = s.Watch(ctx, "cold")
 	require.Error(t, err)
 	_, err = s.OpenChats(ctx)
+	require.Error(t, err)
+	_, _, err = s.SessionOwner(ctx, "p", "S")
 	require.Error(t, err)
 	require.Error(t, s.Forget(ctx, "warm"))
 	st, err := s.State(ctx, "warm")

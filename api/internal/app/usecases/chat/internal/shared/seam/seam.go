@@ -19,6 +19,7 @@ import (
 	"context"
 	"time"
 
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -58,7 +59,7 @@ type TerminalCommander interface {
 		cwd string,
 		argv []string,
 		env []string,
-		onExit func(),
+		onExit func(engineterminal.Exit),
 	) (string, error)
 	// TerminateGraceful quits a vendor CLI: a clean-exit SIGTERM, never SIGKILL.
 	// It is the ONLY way this package ends a runner — we kill the process and let
@@ -66,11 +67,8 @@ type TerminalCommander interface {
 	// the live row disappears), because the PTY is the sole authority on liveness
 	// and asserting an Exit we have not observed would make us a second one.
 	//
-	// Graceful matters twice over: a well-behaved CLI flushes its native transcript
-	// on SIGTERM, so neither the provider being switched out nor the runner being
-	// EVICTED from a conversation loses its last turn — and an evicted runner's
-	// conversation is about to be read by the runner taking it over. Applies
-	// uniformly to every provider (Codex tolerates it too); no provider branching.
+	// Graceful because a well-behaved CLI flushes its native transcript on
+	// SIGTERM, so the provider being switched out keeps its last turn.
 	TerminateGraceful(
 		ctx context.Context,
 		sessionID string,

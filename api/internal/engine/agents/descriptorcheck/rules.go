@@ -2,7 +2,6 @@ package descriptorcheck
 
 import (
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -17,8 +16,8 @@ func (d document) finding(rule string, sev Severity, path, msg, hint string) Fin
 	return Finding{Rule: rule, Severity: sev, Path: path, Line: d.line(path), Message: msg, Hint: hint}
 }
 
-// sessionRules check what the resume ladder needs: a resume argv that names
-// the session, and a way to find the session on disk before trusting it.
+// sessionRules check what a chat's session needs: resume and assign argv that
+// name the session, and a refusal Crowbar can recognise.
 func sessionRules(doc document, d *spec.Descriptor) []Finding {
 	var out []Finding
 	s := d.Session
@@ -27,31 +26,26 @@ func sessionRules(doc document, d *spec.Descriptor) []Finding {
 			"session.resume.arg never names the session ({id})",
 			`write the resume argv with {id}, e.g. "--resume {id}"`))
 	}
-	if s.Resume != nil && s.Locate == nil {
-		out = append(out, doc.finding("session.resume_unverified", SeverityWarning, "session.resume",
-			"resume ids are never verified: a lost session is found only when the CLI exits",
-			"declare session.locate (root, root_env, glob with {id}) so a missing session continues from the transcript at once"))
+	if s.Assign != nil && !strings.Contains(s.Assign.Arg, "{id}") {
+		out = append(out, doc.finding("session.assign_id", SeverityError, "session.assign.arg",
+			"session.assign.arg never names the session ({id})",
+			`write the assign argv with {id}, e.g. "--session-id {id}"`))
 	}
-	if s.Locate == nil {
+	if s.Resume != nil && s.Refused == nil {
+		out = append(out, doc.finding("session.refusal_unrecognised", SeverityWarning, "session.resume",
+			"a refused resume is never recognised: a chat keeps a session the CLI cannot load",
+			"declare session.refused (exit_code, needles) with the line the CLI prints when it cannot resume"))
+	}
+	if s.Refused == nil {
 		return out
 	}
-	if s.Locate.Root == "" && s.Locate.RootEnv == "" {
-		out = append(out, doc.finding("session.locate_root", SeverityError, "session.locate",
-			"session.locate declares neither root nor root_env", `set root (e.g. "~/.codex") and, if the CLI honours one, root_env`))
+	if s.Refused.ExitCode == 0 {
+		out = append(out, doc.finding("session.refused_exit", SeverityError, "session.refused",
+			"session.refused.exit_code is 0, the code of a CLI that succeeded", "set the code the CLI exits with when it refuses"))
 	}
-	if r := s.Locate.Root; r != "" && !filepath.IsAbs(r) && !strings.HasPrefix(r, "~/") {
-		out = append(out, doc.finding("session.locate_root", SeverityError, "session.locate.root",
-			fmt.Sprintf("session.locate.root %q is relative", r), `use an absolute path or one under "~/"`))
-	}
-	if len(s.Locate.Glob) == 0 {
-		out = append(out, doc.finding("session.locate_glob", SeverityError, "session.locate",
-			"session.locate declares no glob", `add a glob naming the session file, e.g. "projects/*/{id}.jsonl"`))
-	}
-	for i, g := range s.Locate.Glob {
-		if strings.Count(g, "{id}") != 1 {
-			out = append(out, doc.finding("session.locate_glob", SeverityError, fmt.Sprintf("session.locate.glob[%d]", i),
-				fmt.Sprintf("glob %q must name the session id exactly once ({id})", g), "put {id} where the session id appears in the file name"))
-		}
+	if len(s.Refused.Needles) == 0 || slices.Contains(s.Refused.Needles, "") {
+		out = append(out, doc.finding("session.refused_needles", SeverityError, "session.refused",
+			"session.refused needs non-empty needles", "add the text of the line the CLI prints when it refuses a resume"))
 	}
 	return out
 }
@@ -96,6 +90,9 @@ func argvFields(d *spec.Descriptor) []argvField {
 	list("runtime.api.attach", d.Runtime.API.Attach)
 	if d.Session.Resume != nil {
 		out = append(out, argvField{"session.resume.arg", d.Session.Resume.Arg})
+	}
+	if d.Session.Assign != nil {
+		out = append(out, argvField{"session.assign.arg", d.Session.Assign.Arg})
 	}
 	for name, steps := range injections(d) {
 		for i, step := range steps {

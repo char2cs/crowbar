@@ -30,10 +30,8 @@ import (
 //	                  ▼                           ▼
 //	               Exited                      Removed
 //
-// Only Suspended is restorable. That single rule is what makes resurrection impossible: a
-// session whose process died is still Live until its reaper moves it to Exited, and an
-// Attach that lands in that window finds a dead process, not a placeholder — it reports
-// the exit instead of spawning a stranger under the old id.
+// Only Suspended is restorable: an Attach that lands between a process death and its reap
+// finds a dead Live process and reports the exit, never spawning a stranger under the id.
 //
 // Exited and Removed are terminal: the entry has left the registry, its .buf and meta row
 // are deleted, and its ended event (plus a command session's onExit) has been handed out
@@ -48,11 +46,9 @@ const (
 	stateRemoved
 )
 
-// sessionEntry is the single owner of one session's lifecycle. It is created at birth (or
-// when a persisted session is loaded) and never recycled: an operation that looked it up
-// keeps a pointer that stays valid — and keeps the SAME mutex — after the entry leaves the
-// registry, so a waiter can never end up holding a different lock than the operation it
-// was racing (the flaw of the old per-id mutex map, whose entries were deleted under it).
+// sessionEntry is the single owner of one session's lifecycle. It is never recycled: an
+// operation that looked it up keeps the SAME mutex after the entry leaves the registry, so
+// a waiter never holds a different lock than the operation it was racing.
 //
 // Lock order: entry.mu → session locks → engine.regMu.
 type sessionEntry struct {
@@ -75,8 +71,8 @@ type sessionEntry struct {
 	profileID string
 	// blob is the serialized screen a restore rebuilds from; set only while Suspended.
 	blob []byte
-	// onExit is a CreateCommand caller's cleanup, handed out once at Exited.
-	onExit     func()
+	// onExit is told how a command session ended, once, at Exited.
+	onExit     func(Exit)
 	lastActive time.Time
 }
 
@@ -379,7 +375,7 @@ func (e *terminalEngine) CreateCommand(
 	cwd string,
 	argv []string,
 	env []string,
-	onExit func(),
+	onExit func(Exit),
 ) (string, error) {
 	// A vendor CLI whose reaper never runs is strictly worse than one never spawned: its
 	// onExit is the ONLY thing that records the runner's death.
@@ -454,13 +450,17 @@ func (e *terminalEngine) endLocked(ctx context.Context, ent *sessionEntry, to se
 	e.unregister(ent)
 	e.discardPersisted(ctx, ent)
 	ent.state = to
-	ent.sess.Store(nil)
-	ent.blob = nil
 	var fx effects
 	if onExit := ent.onExit; onExit != nil {
+		exit := Exit{Code: exitCode}
+		if s := ent.sess.Load(); s != nil {
+			exit.Screen, _, _ = s.ScreenText(0)
+		}
 		ent.onExit = nil
-		fx = append(fx, onExit)
+		fx = append(fx, func() { onExit(exit) })
 	}
+	ent.sess.Store(nil)
+	ent.blob = nil
 	return append(fx, func() { e.fireEnded(ctx, ent.chatID, ent.id, exitCode) })
 }
 
@@ -657,11 +657,8 @@ func (e *terminalEngine) shutdownLocked(ctx context.Context, ent *sessionEntry) 
 	return nil
 }
 
-// resolveRestoreCWD returns a working directory guaranteed to exist for a restore spawn,
-// plus an optional on-screen notice. If the saved cwd still resolves to a directory it is
-// returned with no notice; otherwise it falls back to the user's home directory (or "" so
-// the shell defaults) and returns a one-line notice injected into the model (never the
-// persisted blob) so the user sees why their previous directory was not used.
+// resolveRestoreCWD returns a working directory that exists for a restore spawn: the saved
+// cwd, else the home directory with a one-line notice saying why the cwd was not used.
 func resolveRestoreCWD(cwd string) (string, []byte) {
 	if dirExists(cwd) {
 		return cwd, nil

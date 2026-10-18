@@ -21,6 +21,45 @@ import (
 // separable from the fork that follows. A plan that is wrong costs nothing; a fork
 // that is wrong costs a CLI on the user's machine.
 
+// spawnInput is what one spawn launches with beyond its chat and provider.
+type spawnInput struct {
+	runnerID string // preallocated; "" mints one
+	// launch is the session decision the caller already made; nil makes it here.
+	launch        *sessionLaunch
+	finalSteps    []engineagents.InjectStep
+	conversation  string
+	gapTurns      int
+	resuming      bool // the content signal: is the handoff a gap or the whole conversation
+	promptMessage string
+}
+
+// spawnLaunch is the spawn's session decision and the argv steps carrying it.
+func (rs *Runners) spawnLaunch(
+	ctx context.Context, chatID string, d engineagents.Agent, planned *sessionLaunch,
+) (sessionLaunch, []engineagents.InjectStep, error) {
+	if planned == nil {
+		launch, err := rs.planLaunch(ctx, chatID, d)
+		if err != nil {
+			return sessionLaunch{}, nil, err
+		}
+		planned = &launch
+	}
+	steps, err := planned.steps(d)
+	return *planned, steps, err
+}
+
+// bindAssigned appends the binding of a minted session before the CLI that
+// will announce it exists, so the announcement finds it already bound.
+func (rs *Runners) bindAssigned(ctx context.Context, chatID string, launch sessionLaunch) error {
+	if launch.assign == nil {
+		return nil
+	}
+	if _, _, err := rs.ledger.Append(ctx, chatID, *launch.assign); err != nil {
+		return fmt.Errorf("agent: spawn runner: bind assigned session: %w", err)
+	}
+	return nil
+}
+
 type spawnPaths struct {
 	crowbarHome string
 	projectID   string

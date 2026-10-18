@@ -108,3 +108,49 @@ func TestLedgerFeed_PublishesAPromptSettledWithoutATurn(t *testing.T) {
 	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "never forked", requestID, "", nil)
 	assert.ErrorIs(t, err, agentusecase.ErrPromptRequestIDConflict)
 }
+
+// A chat's first commit reaches a subscriber that reads the chat's snapshot.
+// Its facts are installed first, so no subscriber reads the ledger under the
+// writer still holding it.
+func TestLedgerFeed_AChatsFirstCommitCompletesAndItsSnapshotCarriesTheConversation(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "codex")
+	require.Empty(t, ledgerRows(t, f, chatID), "precondition: nothing has touched the chat's ledger")
+	settled := make(chan settledPrompt, 1)
+	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{
+		PromptSettled: func(chatID, workspaceID, requestID string, consumed bool) {
+			settled <- settledPrompt{chatID, workspaceID, requestID, consumed}
+		},
+	})
+	bound, err := ledger.Assign(ledger.State{}, "codex", "thread-1")
+	require.NoError(t, err)
+	asked, err := ledger.NewRow(ledger.KindUserMessage, "turn-1", "", ledger.UserMessage{
+		RequestID: "req-1", Text: "hi", Origin: ledger.OriginCrowbar, Delivery: ledger.DeliveryRestart,
+	})
+	require.NoError(t, err)
+	gaveUp, err := ledger.NewRow(ledger.KindPromptSettled, "", "", ledger.PromptSettled{
+		RequestID: "req-1", Reason: ledger.ReasonDeliveryFailed,
+	})
+	require.NoError(t, err)
+
+	committed := make(chan error, 1)
+	go func() {
+		_, _, err := f.ledger.Append(f.ctx, chatID, bound, asked, gaveUp)
+		committed <- err
+	}()
+	deadline, cancel := context.WithTimeout(f.ctx, 10*time.Second)
+	defer cancel()
+	select {
+	case err := <-committed:
+		require.NoError(t, err)
+	case <-deadline.Done():
+		t.Fatal("the chat's first commit deadlocked on its own subscribers")
+	}
+	assert.Equal(t, "req-1", (<-settled).requestID)
+
+	snap, err := f.usecase.ChatSnapshot(f.ctx, chatID)
+	require.NoError(t, err)
+	c, ok := snap.Conversation()
+	require.True(t, ok, "the snapshot carries the conversation the commit bound")
+	assert.Equal(t, "thread-1", c.SessionID)
+}

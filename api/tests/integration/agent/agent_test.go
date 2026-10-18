@@ -93,11 +93,10 @@ func newHarness(t *testing.T) *harness {
 	// `codex app-server` that owns the chat's conversation, and the disconnected
 	// companion PTY spawnRunner still manages alongside it (runner/attach.go calls
 	// that a known gap; HasLiveAPIConnection's own doc is where production tells the
-	// two apart). Left on, the app-server binds the runner to ITS OWN thread within
+	// two apart). Left on, the app-server binds the chat to ITS OWN thread within
 	// a second of the spawn — so a turn typed into the companion PTY announces a
-	// DIFFERENT session id, move.Decide files that as MoveToNew, and the turn lands
-	// in a brand-new chat while the chat under test stays empty forever. Waiting for
-	// it is waiting for something that is being recorded somewhere else.
+	// DIFFERENT session id, and the two CLIs fight over the chat's binding instead of
+	// recording the conversation under test.
 	//
 	// Off, codex runs exactly as design spec §2.2b requires a provider whose api
 	// transport is unavailable to run — over hooks alone — the PTY is the ONLY codex

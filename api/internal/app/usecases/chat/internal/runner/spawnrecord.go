@@ -28,7 +28,6 @@ func (rs *Runners) recordRunner(
 	providerID string,
 	runnerID string,
 	termSessID string,
-	launchSessionID string,
 	sel engineagents.Selection,
 	create bool,
 ) error {
@@ -54,7 +53,6 @@ func (rs *Runners) recordRunner(
 		ProviderID:      providerID,
 		TerminalSession: termSessID,
 		ChatID:          chatID,
-		LaunchSessionID: launchSessionID,
 		// The selection this process was ACTUALLY launched with, recorded from the
 		// same read that rendered its argv. It is the only authority on what this
 		// CLI is running: nothing can ask the process later.
@@ -73,18 +71,9 @@ func (rs *Runners) recordRunner(
 		rs.termWait.Wake() // the sweep parks while no runner is live
 	}
 
-	// A Start is a PLACEMENT, so it obeys the same rule a Move does: whoever else is on this
-	// chat is retired. The spawn gate cannot cover this, and it is not a hairline window —
-	// it is as wide as a process fork:
-	//
-	//	a gated SwitchProvider quits and DISPLACES the outgoing CLI, leaving the chat with
-	//	nobody on it; a HOOK (never gated, and never may be) moves another live CLI onto it,
-	//	evicting nobody because nobody is there; and only THEN do we resolve a descriptor,
-	//	render a tmp dir, fork a process and land here.
-	//
-	// Without this the chat ends up holding both, indefinitely — and the loser is INVISIBLE,
-	// because the serving read hands out the newest arrival while the other one goes on
-	// appending to the chat's ledger. Start is SendWait, so this read already sees us.
+	// A Start is a PLACEMENT: whoever else is on this chat is retired, so the chat
+	// holds one runner however its predecessor left. Start is SendWait, so this
+	// read already sees us.
 	rs.retireOthersOn(ctx, chatID, runnerID)
 	if !create {
 		rs.recordChatProvider(ctx, chatID, providerID)

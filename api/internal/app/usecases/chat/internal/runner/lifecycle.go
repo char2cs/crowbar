@@ -67,15 +67,25 @@ func (rs *Runners) closeAbandonedTurn(
 	// ledger for it, the frontend's streaming bubble (matched by the streamed
 	// message's own id, see use-chat-messages.ts) could never be dismissed: a
 	// real, reported duplicate, live 2026-08-31.
-	if rs.turns != nil {
-		if _, err := rs.turns.AbandonMessageForRunner(ctx, chatID, runner); err != nil {
-			slog.WarnContext(ctx, "agent: close abandoned turn: salvage streamed message (best-effort, continuing)",
-				"chat_id", chatID, "runner_id", runner.ID, "err", err)
-		}
-	}
+	rs.salvageStreamed(ctx, chatID, runner)
 	if _, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID); err == nil {
 		return // someone else is on this chat now: its TURN STATE is not ours to close
 	}
+	rs.abandonTurn(ctx, chatID)
+}
+
+func (rs *Runners) salvageStreamed(ctx context.Context, chatID string, runner agents.Runner) {
+	if rs.turns == nil {
+		return
+	}
+	if _, err := rs.turns.AbandonMessageForRunner(ctx, chatID, runner); err != nil {
+		slog.WarnContext(ctx, "agent: close abandoned turn: salvage streamed message (best-effort, continuing)",
+			"chat_id", chatID, "runner_id", runner.ID, "err", err)
+	}
+}
+
+// abandonTurn closes chatID's open turn, whatever its CLI last reported.
+func (rs *Runners) abandonTurn(ctx context.Context, chatID string) {
 	// AbandonTurn, not StopTurn: the CLI is GONE, so it will never restate the level of
 	// async work it last reported outstanding, and a plain StopTurn would leave that
 	// number standing — Working is folded from the turn OR that level, so the chat would
@@ -188,23 +198,14 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
 		}
 		// Already exited (a double exit is not an error — the row is simply gone).
 		rs.sessions.takeCause(runnerID)
-		rs.sessions.failedProbe(runnerID, 0)
 		return
 	}
-	// A CLI that refused its resume is quarantined, so the next send takes the
-	// next rung. Only an exit nobody asked for: a CLI Crowbar stopped or replaced
-	// was never given the chance to announce anything.
-	window := resumeProbeWindow
-	if rs.sessions.hasCause(runnerID) {
-		window = 0
-	}
-	refused := rs.sessions.failedProbe(runnerID, window)
 	rs.settleCarriedPrompts(ctx, runner.CurrentChatID, runnerID)
 	if _, err := rs.runnerStore.Exit(ctx, runnerID, time.Now()); err != nil {
 		slog.WarnContext(ctx, "agent: reconcile runner exit: exit runner", "runner_id", runnerID, "err", err)
 		return
 	}
-	rs.noteExit(ctx, runner.CurrentChatID, runnerID, refused)
+	rs.noteExit(ctx, runner.CurrentChatID, runnerID)
 
 	// Close a turn it left open — unless it had already been DISPLACED, in which case its
 	// chat (if it still had a turn to close) was dealt with at displacement time and
@@ -267,20 +268,6 @@ func (rs *Runners) retireOthersOn(
 	rs.retireOlderThan(ctx, placed, keepID, "chat", chatID)
 }
 
-func (rs *Runners) evictHolderOf(
-	ctx context.Context,
-	runner agents.Runner,
-	sessionID string,
-) {
-	holders, err := rs.runnerStore.LiveRunnersForSession(ctx, runner.WorkspaceID, sessionID)
-	if err != nil {
-		slog.ErrorContext(ctx, "agent: look up runners holding this conversation (best-effort, continuing)",
-			"session_id", sessionID, "err", err)
-		return
-	}
-	rs.retireOlderThan(ctx, holders, runner.ID, "conversation", sessionID)
-}
-
 func (rs *Runners) retireOlderThan(
 	ctx context.Context,
 	present []agents.Runner,
@@ -333,11 +320,4 @@ func (rs *Runners) LiveRunnerForChat(
 	chatID string,
 ) (agents.Runner, error) {
 	return rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-}
-
-func (rs *Runners) ConversationsForChat(
-	ctx context.Context,
-	chatID string,
-) ([]agents.ChatConversation, error) {
-	return rs.runnerStore.ConversationsForChat(ctx, chatID)
 }

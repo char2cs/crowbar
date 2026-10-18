@@ -28,16 +28,9 @@ type createRequest struct {
 	// create is about to cut.
 	Branch string               `json:"branch"`
 	Import *createImportRequest `json:"import"`
-	// Surface is the VIEW the new chat is born on — design spec 2.5's
-	// `surfaces.<name>`. Omitted (the overwhelming majority) means the
-	// provider's own default landing, byte-identical to every create made
-	// before this field existed. "terminal" births the chat directly on the
-	// provider's own CLI: no api connection is opened for it, so its PTY is
-	// the conversation.
-	//
-	// A provider that does not declare that surface launchable
-	// (surfaces.terminal.start_here) falls back to its default at spawn
-	// rather than failing the create — see spawnRunner's surfaceForSpawn.
+	// Surface is the view the new chat is born on; omitted means the provider's
+	// default. "terminal" births it on the provider's own CLI, whose PTY is the
+	// conversation; a provider that cannot start there falls back at spawn.
 	Surface string `json:"surface"`
 }
 
@@ -354,8 +347,9 @@ func (h *Handlers) chatSnapshot(
 
 // snapshotParts splits a snapshot into the chat row and its runtime.
 func snapshotParts(s agentusecase.ChatSnapshot) (domain.Chat, dto.ChatRuntime) {
+	conversation, _ := s.Conversation()
 	return s.Chat, dto.ChatSnapshotRuntime(s.Live, s.Phase, s.Version,
-		s.TerminalWait, s.AttachedSessionID, s.Session)
+		s.TerminalWait, s.AttachedSessionID, s.Session, conversation)
 }
 
 // requireChatInWorkspace loads chatID, 404ing on an unknown id, and holds it to

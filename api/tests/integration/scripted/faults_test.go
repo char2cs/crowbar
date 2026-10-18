@@ -31,7 +31,7 @@ func (r *rig) dormantSaying(chatID string, reasons ...string) {
 }
 
 // continues sends text and waits for the reply to land: the conversation
-// carried on, on some rung (S5).
+// carried on (S5).
 func (r *rig) continues(chatID, text string) {
 	r.t.Helper()
 	r.setScript(healthy)
@@ -63,8 +63,9 @@ func TestScripted_KillMidTurn(t *testing.T) {
 
 			r.dormantSaying(chatID, domain.AgentExitExited, domain.AgentExitConnectionLost)
 			r.continues(chatID, "are you back?")
-			assert.True(t, r.transcriptReached("PELICAN") || r.snapshot(chatID).Session.Rung == domain.AgentRungSession,
-				"the revived CLI has the conversation: its own session, or the transcript")
+			prompts := r.logged("prompt")
+			assert.Equal(t, prompts[0]["session"], prompts[len(prompts)-1]["session"],
+				"the revived CLI resumed the chat's own session")
 		})
 	}
 }
@@ -214,9 +215,9 @@ func allowOption(c domain.ActivityChoice) string {
 	return "allow"
 }
 
-// A vendor session the provider no longer has is never resumed: the chat
-// continues on a fresh session handed Crowbar's own transcript, and says so.
-func TestScripted_MissingSessionFileFallsToTheTranscript(t *testing.T) {
+// A vendor session the provider no longer has is refused by its CLI: the chat
+// loses it, and the next message starts a fresh session with no transcript.
+func TestScripted_MissingSessionFileIsLost(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
 			r := newRig(t)
@@ -226,18 +227,14 @@ func TestScripted_MissingSessionFileFallsToTheTranscript(t *testing.T) {
 			r.dormantSaying(chatID, domain.AgentExitStopped)
 			removeSessionFiles(t)
 
-			r.continues(chatID, "do you remember?")
-
-			assert.Empty(t, r.logged("refused"), "the lost session was never handed to the CLI")
-			assert.Equal(t, domain.AgentRungTranscript, r.snapshot(chatID).Session.Rung)
-			assert.True(t, r.transcriptReached("PELICAN"), "the fresh session was handed the conversation")
+			r.lostThenFresh(chatID, "do you remember?")
 		})
 	}
 }
 
 // A resume the CLI refuses although its session file exists (a changed CLI,
-// a corrupt transcript) still continues the conversation, on the next rung.
-func TestScripted_RefusedResumeContinuesOnTheTranscript(t *testing.T) {
+// a corrupt transcript) is lost the same way.
+func TestScripted_RefusedResumeIsLost(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
 			r := newRig(t)
@@ -247,16 +244,26 @@ func TestScripted_RefusedResumeContinuesOnTheTranscript(t *testing.T) {
 			r.dormantSaying(chatID, domain.AgentExitStopped)
 			r.setScript("resume: refuse\n" + healthy)
 
-			require.NoError(t, r.send(chatID, "carry on please"))
-
-			r.eventually(func() bool {
-				return slices.Contains(r.said(chatID), "assistant: continued") && !r.working(chatID)
-			}, "a refused resume stranded the chat")
-			assert.NotEmpty(t, r.logged("refused"), "the CLI did refuse\n%s", r.dump())
-			assert.Equal(t, domain.AgentRungTranscript, r.snapshot(chatID).Session.Rung)
-			assert.True(t, r.transcriptReached("PELICAN"))
+			r.lostThenFresh(chatID, "carry on please")
 		})
 	}
+}
+
+// lostThenFresh sends text to chatID, whose session its CLI refuses: the
+// message is not taken, and the next one starts a fresh session handed no
+// transcript of the conversation.
+func (r *rig) lostThenFresh(chatID, text string) {
+	r.t.Helper()
+	first := r.logged("prompt")[0]["session"]
+	require.NoError(r.t, r.send(chatID, text))
+	r.eventually(func() bool { return len(r.logged("refused")) > 0 && !r.working(chatID) },
+		"the CLI never refused the session")
+
+	r.continues(chatID, "start again")
+
+	prompts := r.logged("prompt")
+	assert.NotEqual(r.t, first, prompts[len(prompts)-1]["session"], "the refused session is never resumed again")
+	assert.False(r.t, r.transcriptReached("PELICAN"), "a lost session's replacement is handed no transcript\n%s", r.dump())
 }
 
 // transcriptReached reports whether a CLI after the first turn was handed

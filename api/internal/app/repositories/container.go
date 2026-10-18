@@ -208,14 +208,14 @@ func New(
 
 	// agentrunner: build the asynx-backed EventStore over the singleton
 	// axAgentRunner, registering its two read projections (live runners +
-	// append-only conversation history) and its hub projection exactly once, over
+	// append-only placement history) and its hub projection exactly once, over
 	// its OWN per-type planes (state/events/agent_runner.db and
 	// state/store/agent_runner.db). runnerWatch is the sole source of
-	// runner lifecycle frames (started/session_bound/moved/displaced/exited). The agent
+	// runner lifecycle frames (started/session_bound/displaced/exited). The agent
 	// usecase sends every runner command through this store, and the workspace-delete
 	// cascade below reads it to find the CLI pointed at a chat it is about to Forget.
 	agentRunner, err := agentrunner.NewEventSourced(
-		axAgentRunner, adapters.AgentRunnerES(), adapters.AgentRunnerReadDB(), runnerWatch,
+		axAgentRunner, adapters.AgentRunnerReadDB(), runnerWatch,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: agent runner event store: %w", err)

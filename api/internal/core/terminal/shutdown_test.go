@@ -174,7 +174,7 @@ func TestShutdown_JoinsExitCallbacks(t *testing.T) {
 	// still alive when the shutdown comes for it — the mid-turn shape.
 	var exited atomic.Bool
 	id, err := eng.CreateCommand(ctx, "chat-exit-drain", t.TempDir(),
-		[]string{"cat"}, os.Environ(), func() { exited.Store(true) })
+		[]string{"cat"}, os.Environ(), func(terminal.Exit) { exited.Store(true) })
 	require.NoError(t, err)
 	require.True(t, eng.SessionExists(ctx, id))
 

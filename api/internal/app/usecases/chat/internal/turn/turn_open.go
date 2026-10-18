@@ -95,7 +95,7 @@ func (t *Turns) openTurnFromPrompt(
 		t.work.Set(chat.ID, started.Working)
 		t.turns.Begin(ctx, runner.ID, chat.ID)
 		appendErr := t.conversations.AppendRunnerTurn(
-			ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
+			ctx, chat, runner.ProviderID, runner.ID, t.boundSession(ctx, chat.ID, runner.ProviderID),
 			domain.TurnRoleHarness, ev.Message,
 		)
 		t.openAssistantTurn(ctx, chat, runner)
@@ -162,7 +162,7 @@ func (t *Turns) recordUserTurn(
 		userCtx = inflight.WithRecordID(ctx, requestID)
 	}
 	appendErr := t.conversations.AppendRunnerTurn(
-		userCtx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
+		userCtx, chat, runner.ProviderID, runner.ID, t.boundSession(ctx, chat.ID, runner.ProviderID),
 		domain.TurnRoleUser, userText,
 	)
 	// The reply this prompt is about to produce, opened NOW so the tool calls,

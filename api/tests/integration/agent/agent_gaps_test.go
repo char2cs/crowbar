@@ -3,8 +3,7 @@
 // This file closes the remaining Priority-1 end-to-end gaps identified after
 // the initial acceptance pass (agent_test.go's TestAgent_ClaudeSpawnAndDetect /
 // TestAgent_SwitchClaudeToCodex): a real codex turn_stop -> ledger round trip,
-// the reducer's "registered" outcome (a live /clear) through the real Go
-// stack, and the receiving provider actually USING a cross-provider handoff
+// and the receiving provider actually USING a cross-provider handoff
 // (not just carrying the string). Reuses newHarness/importRepoAndWorkspace/
 // requireCLI/liveRunnerTerminalSession/waitForProviderSessionID/nudgeUntil from
 // agent_test.go.
@@ -14,8 +13,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-
-	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -186,98 +183,6 @@ func assistantReplies(turns []ledgerTurn, provider string) []string {
 		}
 	}
 	return out
-}
-
-// TestAgent_LiveClearRegistersNewChat proves the reducer's "registered"
-// outcome (internal/engine/agent/registry.go's OnSessionStart, CASE 2: "an
-// unknown id appeared -> register a new chat") through the REAL Go stack, not
-// just internal/engine/agent/registry_test.go's pure-registry unit test or
-// internal/app/usecases/chat/agent_test.go's TestIngestHook_SessionStart_
-// Registered_MovesOldSegmentAndCreatesNewChat (which fires IngestHook twice
-// with synthetic session ids, never a real CLI). TestAgent_ClaudeSpawnAndDetect
-// only proves the FIRST "bound" outcome for a freshly spawned segment; this
-// test drives a real claude session that is ALREADY bound to mint a brand new
-// native session id UNDERNEATH THE SAME LIVE PROCESS via a real `/clear`
-// (spike-proven in docs/superpowers/specs/spike-2026-07-05-agentic/drive.py to
-// re-fire SessionStart with a changed id — "Detection: a conversation move
-// re-fires SessionStart with a changed id" in docs/superpowers/specs/
-// 2026-07-05-crowbar-agentic-engine-design.md §1's scorecard), and asserts the
-// daemon reacted correctly end to end: the RUNNER moved to a brand-new AgentChat,
-// carrying a DIFFERENT native session id but the SAME runner id and the SAME PTY
-// (one process, which merely started a new conversation), and the chat it left is
-// dormant but intact.
-//
-// The PTY assertion is the one that matters most to a user: /clear must not remount
-// their terminal. Under the old segment model it did — the pane was attached to a
-// terminal session named by a segment row that /clear ended, so the pane had to find
-// the new segment and re-attach, taking the scrollback with it. Nothing about the
-// process ever changed.
-func TestAgent_LiveClearRegistersNewChat(t *testing.T) {
-	requireCLI(t, "claude")
-	h := newHarness(t)
-	ctx := context.Background()
-
-	repoPath := kit.InitRepo(t)
-	_, _, wsID := h.importRepoAndWorkspace(t, "claude-clear", repoPath)
-
-	originalChatID, runnerID, termSessID, tap := spawnReady(t, h, wsID, "claude")
-
-	originalProviderSessionID, runner := awaitSessionBound(t, h, runnerID, termSessID, tap)
-	require.NotEmpty(t, originalProviderSessionID, "claude never bound before /clear could be driven: %+v", runner)
-
-	// Drive a real /clear, blocking on claude echoing it into the composer before
-	// the submitting Enter (the two writes cannot be merged: a trailing \r in the
-	// same write lands as a literal newline, not a submit).
-	drive(t, h, tap, termSessID, "/clear")
-
-	// Watch the RUNNER, not the chat list. Its id is stable across the move — that is
-	// the whole point of the model — so "has the CLI moved yet?" is a single-row read of
-	// the process itself. The old version had to scan every chat for a non-original one
-	// that already carried an ActiveSegmentID, precisely because a chat could be
-	// observed half-formed (or already vacated again) mid-registration; there is no such
-	// state to trip over when the thing you ask is the process.
-	//
-	// The move is announced by /clear re-firing claude's SessionStart with a CHANGED
-	// id, so the arriving hook is exactly the right thing to block on.
-	moved := awaitHook(t, h, "/clear to move the runner into a new chat", func() (agents.Runner, bool) {
-		r, err := h.app.Repositories.AgentRunner.Get(ctx, runnerID)
-		if err != nil {
-			return agents.Runner{}, false // its CLI died
-		}
-		return r, r.CurrentChatID != "" && r.CurrentChatID != originalChatID
-	})
-
-	newChatID := moved.CurrentChatID
-	require.NotEqual(t, originalChatID, newChatID,
-		"the runner never moved to a NEW chat after driving a real /clear; this means either /clear never "+
-			"reached claude's TUI, SessionStart did not re-fire with a changed id, or the reducer did not "+
-			"persist a \"move to a new chat\" outcome — runner: %+v", moved)
-	require.NotEmpty(t, newChatID, "a moved runner is placed on a real chat, never nowhere")
-
-	// The chat really exists, and the SAME process is on it.
-	newChat, err := h.app.Usecases.AgentChat.GetChat(ctx, newChatID)
-	require.NoError(t, err)
-	require.Equal(t, newChatID, newChat.ID, "the chat /clear minted must be readable by id")
-
-	require.Equal(t, runnerID, liveRunnerID(t, h, newChatID),
-		"the new chat's live runner must be the SAME runner — /clear moves the process, it does not spawn one")
-	require.Equal(t, termSessID, moved.TerminalSession,
-		"...and it brings its PTY with it. The terminal session must be IDENTICAL across a /clear: this is "+
-			"what lets the chat pane follow a conversation switch without remounting the user's terminal")
-
-	require.NotEmpty(t, moved.CurrentSession, "the moved runner must carry the newly minted native session id")
-	require.NotEqual(t, originalProviderSessionID, moved.CurrentSession,
-		"/clear must mint a DIFFERENT native session id — that changed id is the ONLY signal Crowbar has")
-	require.Equal(t, []string{moved.CurrentSession}, chatSessionIDs(t, h, newChatID),
-		"the new chat hosts exactly the one conversation that minted it")
-
-	// The chat it left is DORMANT — nothing points at it — but INTACT.
-	require.Empty(t, liveRunnerID(t, h, originalChatID),
-		"the vacated chat must have no live runner: the CLI walked out of it, and a chat still advertising "+
-			"a runner that has left would hand a pane the PTY of a conversation the user just cleared")
-	require.Equal(t, []string{originalProviderSessionID}, chatSessionIDs(t, h, originalChatID),
-		"the vacated chat keeps its own conversation history — append-only, describing no process, and the "+
-			"only thing that makes it revivable")
 }
 
 // seedClaudeThenSwitchToCodex spawns claude, seeds it with codeword via one
@@ -477,10 +382,6 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 	require.Equal(t, origClaudeSessionID, resumedProviderSessionID,
 		"switch-back must --resume the ORIGINAL claude session id, not mint a new one — this is the "+
 			"Go-stack proof of native resume (Phase-0 spike's Case-1)")
-	require.Equal(t, origClaudeSessionID, resumedRunner.CurrentSession,
-		"native --resume reattaches the same provider session: the resumed RUNNER holds the ORIGINAL claude "+
-			"conversation id, not a freshly minted one (v2's continuity witness, replacing the pre-v2 "+
-			"transcript-path equality)")
 	require.Equal(t, newClaudeRunnerID, liveRunnerID(t, h, chatID),
 		"the resumed claude CLI must be the one placed on the chat")
 

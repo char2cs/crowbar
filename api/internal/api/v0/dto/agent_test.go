@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
 	"github.com/stretchr/testify/assert"
@@ -168,27 +169,6 @@ func TestAgentChatDTOFrom_UnselectedChatOmitsTheSelection(t *testing.T) {
 	assert.NotContains(t, string(raw), `"effort"`)
 }
 
-// TestRegression_AgentMessageDTO_CarriesTheReportedEffort.
-//
-// chatlog.Turn has carried Effort since claude's turn_stop mapping began reading
-// effort.level, and the projection stores it in the `effort` column — but the
-// wire shape had no field, so the value was written, read back and silently
-// dropped at the API boundary. Dead data, invisible to every client.
-//
-// The fact is the provider's own report of what it USED, which is not the chat's
-// requested selection: a chat that selected nothing can still receive one.
-func TestRegression_AgentMessageDTO_CarriesTheReportedEffort(t *testing.T) {
-	raw, err := json.Marshal(dto.AgentMessageDTO{Sequence: 1, TurnID: "t1", Effort: "high"})
-
-	require.NoError(t, err)
-	assert.Contains(t, string(raw), `"effort":"high"`)
-
-	bare, err := json.Marshal(dto.AgentMessageDTO{Sequence: 1, TurnID: "t1"})
-	require.NoError(t, err)
-	assert.NotContains(t, string(bare), `"effort"`,
-		"a provider that reported no effort must produce no field, never an empty one")
-}
-
 // TestTerminalWaitDTOFrom_NotWaitingIsNil proves the zero verdict — the answer
 // every chat gave before this fact existed, and the one every provider that
 // declares no needles gives forever — collapses to a nil DTO rather than a
@@ -273,4 +253,31 @@ func TestRegression_AgentChatDTOFrom_BornOnAProviderThatRecordedNothingIsStillNa
 	assert.Empty(t, got.LiveRunnerID, "the chat must be dormant for this to prove anything")
 	assert.Equal(t, "codex", got.ActiveProviderID,
 		"a dormant chat that recorded nothing still knows what it runs; \"\" is what let the UI guess")
+}
+
+// The chat carries its conversation with its current provider, and omits it
+// while there is none.
+func TestAgentChatDTOFrom_CarriesTheConversationAndOmitsAnUnboundOne(t *testing.T) {
+	chat := domain.Chat{ID: "c1", ProviderID: "claude"}
+	for _, state := range []ledger.ConversationState{ledger.ConversationBound, ledger.ConversationLost} {
+		got := dto.AgentChatDTOFrom(chat, dto.ChatRuntime{Conversation: ledger.Conversation{
+			Provider: "claude", SessionID: "S", State: state,
+		}}, nil)
+		assert.Equal(t, &dto.AgentConversationDTO{ProviderID: "claude", SessionID: "S", State: string(state)}, got.Conversation)
+	}
+
+	raw, err := json.Marshal(dto.AgentChatDTOFrom(chat, dto.ChatRuntime{}, nil))
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), `"conversation"`)
+}
+
+// Session says only how the chat's last runner ended.
+func TestAgentSessionDTOFrom_IsTheExitAlone(t *testing.T) {
+	assert.Nil(t, dto.AgentSessionDTOFrom(domain.AgentSession{}))
+	at := time.Unix(100, 0)
+	got := dto.AgentSessionDTOFrom(domain.AgentSession{ExitReason: domain.AgentExitResumeFailed, ExitedAt: at})
+	assert.Equal(t, &dto.AgentSessionDTO{ExitReason: domain.AgentExitResumeFailed, ExitedAt: &at}, got)
+	raw, err := json.Marshal(got)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), `"rung"`)
 }

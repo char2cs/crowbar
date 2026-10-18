@@ -19,7 +19,7 @@ var (
 	indexRE   = regexp.MustCompile(`\[(\d+)\]`)
 )
 
-// lookup returns the node at a path like "session.locate.glob[0]", or nil.
+// lookup returns the node at a path like "session.refused.needles[0]", or nil.
 func (d document) lookup(path string) *yaml.Node {
 	n := d.body()
 	for _, seg := range strings.Split(path, ".") {

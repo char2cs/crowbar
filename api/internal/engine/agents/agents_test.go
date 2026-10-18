@@ -500,17 +500,6 @@ func TestExpand_RendersCrowbarsOwnPrompts(t *testing.T) {
 	assert.Equal(t, "chat c1 limit 4", got)
 }
 
-func TestDecide_IsReExportedAsAPureFunction(t *testing.T) {
-	assert.Equal(t, agents.MoveNoop, agents.Decide("s1", "s1", "", false, false).Kind)
-	assert.Equal(t, agents.MoveBind, agents.Decide("", "s1", "", false, false).Kind)
-	assert.Equal(t, agents.MoveToNew, agents.Decide("s1", "s2", "", false, false).Kind)
-	assert.Equal(t, agents.MoveBind, agents.Decide("s1", "s2", "", false, true).Kind)
-
-	known := agents.Decide("s1", "s2", "chat-9", true, false)
-	assert.Equal(t, agents.MoveToKnown, known.Kind)
-	assert.Equal(t, "chat-9", known.ChatID)
-}
-
 func TestInjectionRegistry_RecognisesAnEchoOncePerRunner(t *testing.T) {
 	e := agents.New()
 	e.RecordInjection("runner-1", "handoff blob")

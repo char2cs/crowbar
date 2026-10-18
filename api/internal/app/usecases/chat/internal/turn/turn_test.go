@@ -7,7 +7,10 @@ import (
 	"testing"
 	"time"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
+	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,8 +45,6 @@ type recordingRunners struct {
 	mu       sync.Mutex
 	sessions []string
 }
-
-func (r *recordingRunners) ConfirmLaunch(string) {}
 
 func (r *recordingRunners) HandleSessionStart(
 	_ context.Context,
@@ -237,22 +238,22 @@ func (codexRunnerStore) Get(_ context.Context, id string) (engineagents.Runner, 
 	}, nil
 }
 
-// liveAPIRunners answers only HasLiveAPIConnection/OriginatedSession; every
-// other Runners method panics if reached.
-type liveAPIRunners struct {
-	turn.Runners
-	live bool
-	// originated is the conversations this runner's own api driver minted —
-	// what namesAnotherConversation judges an api-channel event against. Empty
-	// means "this connection opened nothing", the hooks-only shape.
-	originated map[string]bool
-}
+// bareRunners answers nothing: every Runners method panics if reached.
+type bareRunners struct{ turn.Runners }
 
-func (liveAPIRunners) ConfirmLaunch(string) {}
-
-func (r liveAPIRunners) HasLiveAPIConnection(string) bool { return r.live }
-func (r liveAPIRunners) OriginatedSession(_, sessionID string) bool {
-	return r.originated[sessionID]
+// codexBoundLedger is chat-1's ledger bound to codex's sessionID, as the CLI's
+// announcement or the api driver's own establish leaves it.
+func codexBoundLedger(t *testing.T, sessionID string) *ledgerstore.Store {
+	t.Helper()
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	l, err := ledgerstore.Open(db, time.Now)
+	require.NoError(t, err)
+	row, err := ledger.Assign(ledger.State{}, "codex", sessionID)
+	require.NoError(t, err)
+	_, _, err = l.Append(t.Context(), "chat-1", row)
+	require.NoError(t, err)
+	return l
 }
 
 // recordingToolActivity records InvokeTool calls and answers OpenWork's own
@@ -286,8 +287,8 @@ func (*recordingToolActivity) Subagents(context.Context, string) ([]domain.Activ
 	return nil, nil
 }
 
-// A hooks delivery is always recorded: no channel drops another channel's events.
-func TestIngestHook_AHooksDeliveryIsRecordedWhateverTheConnectionState(t *testing.T) {
+// A hooks delivery on a chat with no bound session is recorded: nothing to judge it against.
+func TestIngestHook_AHooksDeliveryOnAnUnboundChatIsRecorded(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
@@ -303,15 +304,13 @@ func TestIngestHook_AHooksDeliveryIsRecordedWhateverTheConnectionState(t *testin
 		Telemetry:    telemetry.New(),
 		Work:         inflight.NewWork(),
 	})
-	turns.SetRunners(liveAPIRunners{live: true})
+	turns.SetRunners(bareRunners{})
 
 	err := turns.IngestHook(t.Context(), "runner-1", "codex", "tool_pre",
 		[]byte(`{"session_id":"s1","tool_use_id":"tool-1","tool_name":"Bash","tool_input":{"command":"echo hi"}}`))
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"tool-1"}, activity.seen(),
-		"a hooks delivery is its turn's record "+
-			"regardless of any api connection")
+	assert.Equal(t, []string{"tool-1"}, activity.seen())
 }
 
 // nativeViewRunners answers only ShowingNativeView, for the surfaceGated
@@ -320,8 +319,6 @@ type nativeViewRunners struct {
 	turn.Runners
 	showing bool
 }
-
-func (nativeViewRunners) ConfirmLaunch(string) {}
 
 func (r nativeViewRunners) ShowingNativeView(string) bool { return r.showing }
 
@@ -384,24 +381,6 @@ func TestRegression_SurfaceGatedMessageDeltaStillFlowsToChat(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.True(t, delivered, "chat is the surface in front of the user, so a chat-gated event must flow")
-}
-
-// boundCodexRunnerStore is a codex runner that is ON a conversation, which is
-// what the two regression tests below turn on: the child-thread bug is invisible
-// unless the runner actually holds a session to compare an event against.
-type boundCodexRunnerStore struct {
-	agentrunner.EventStore
-	session string
-}
-
-func (s boundCodexRunnerStore) Get(_ context.Context, id string) (engineagents.Runner, error) {
-	return engineagents.Runner{
-		ID:             id,
-		ProviderID:     "codex",
-		WorkspaceID:    "ws-1",
-		CurrentChatID:  "chat-1",
-		CurrentSession: s.session,
-	}, nil
 }
 
 // stubSubagentActivity answers IsSubagentOpen and nothing else — every other
@@ -479,7 +458,8 @@ func TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn(t *testing.T) 
 
 	home := t.TempDir()
 	turns := turn.New(turn.Deps{
-		Runners:      boundCodexRunnerStore{session: "thread-main"},
+		Runners:      codexRunnerStore{},
+		Ledger:       codexBoundLedger(t, "thread-main"),
 		Activity:     stubSubagentActivity{open: false},
 		Agents:       engineagents.New(),
 		Workspace:    stubWorkspace{home: home},
@@ -488,7 +468,7 @@ func TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn(t *testing.T) 
 		Telemetry:    telemetry.New(),
 		Work:         inflight.NewWork(),
 	})
-	turns.SetRunners(liveAPIRunners{live: false})
+	turns.SetRunners(bareRunners{})
 
 	// api-shaped (threadId): a child thread's own turn/completed arrives over
 	// the SAME live api connection as the runner's own thread (see this
@@ -514,7 +494,8 @@ func TestRegression_AChildThreadsTurnStopClosesTheSubagentItBelongsTo(t *testing
 	home := t.TempDir()
 	activity := &recordingSubagentActivity{openSessionID: "thread-child"}
 	turns := turn.New(turn.Deps{
-		Runners:      boundCodexRunnerStore{session: "thread-main"},
+		Runners:      codexRunnerStore{},
+		Ledger:       codexBoundLedger(t, "thread-main"),
 		Activity:     activity,
 		Chats:        stubChats{},
 		Agents:       engineagents.New(),
@@ -524,7 +505,7 @@ func TestRegression_AChildThreadsTurnStopClosesTheSubagentItBelongsTo(t *testing
 		Telemetry:    telemetry.New(),
 		Work:         inflight.NewWork(),
 	})
-	turns.SetRunners(liveAPIRunners{live: false})
+	turns.SetRunners(bareRunners{})
 
 	// api-shaped (threadId/turn.items[type=agentMessage].text): the same
 	// live-connection shape as the sibling test above — a child thread's own
@@ -560,7 +541,8 @@ func TestRegression_AChildThreadsIdleNeverArmsThisChatsProviderIdleFuse(t *testi
 	newTurns := func() *turn.Turns {
 		turns := turn.New(turn.Deps{
 			Chats:        stubChats{working: true},
-			Runners:      boundCodexRunnerStore{session: "thread-main"},
+			Runners:      codexRunnerStore{},
+			Ledger:       codexBoundLedger(t, "thread-main"),
 			Activity:     stubSubagentActivity{open: false},
 			Agents:       engineagents.New(),
 			Workspace:    stubWorkspace{home: home},
@@ -569,7 +551,7 @@ func TestRegression_AChildThreadsIdleNeverArmsThisChatsProviderIdleFuse(t *testi
 			Telemetry:    telemetry.New(),
 			Work:         inflight.NewWork(),
 		})
-		turns.SetRunners(liveAPIRunners{live: false})
+		turns.SetRunners(bareRunners{})
 		return turns
 	}
 
@@ -588,52 +570,21 @@ func TestRegression_AChildThreadsIdleNeverArmsThisChatsProviderIdleFuse(t *testi
 		"the runner's OWN thread going idle must still arm the latch, or the turn nothing ever closes is unreachable again")
 }
 
-// sessionlessCodexRunnerStore is the runner row a FRESH codex api-transport
-// chat actually leaves behind: no CurrentSession and no LaunchSessionID.
-// applyAPITransport mints the thread id inside the driver's own establish call
-// and starts pumpAPIConn only afterwards (apiconn.go), so thread/started never
-// reaches HandleSessionStart and nothing ever binds. Measured 2026-09-23 over
-// this repo's dev runner store: 30 of 34 codex runners, every one of them a
-// chat that was not resumed.
-type sessionlessCodexRunnerStore struct {
-	agentrunner.EventStore
-}
-
-func (sessionlessCodexRunnerStore) Get(_ context.Context, id string) (engineagents.Runner, error) {
-	return engineagents.Runner{
-		ID:            id,
-		ProviderID:    "codex",
-		WorkspaceID:   "ws-1",
-		CurrentChatID: "chat-1",
-	}, nil
-}
-
-// TestRegression_AChildThreadIsForeignEvenWhenNothingEverNamedTheRunnersOwnSession
-// is the second shape of the 2026-09-23 collab-agents transcript bleed, live in
-// chat d4912d6d: three agent identities in one transcript, the subagents' own
-// replies ("seed", "0") filed as ordinary top-level assistant messages between
-// the main agent's opener and its summary, and GET .../activity reporting
-// subagents: 0 — no spawnAgent tool call ever arrived, so nothing registered
-// them and the nested routing never engaged.
-//
-// The launch-session fallback added for the resume case is inert here: this
-// runner names NO conversation at all, so the ownership guard had nothing to
-// compare against and waved every child thread through. The api channel is
-// answered by CAUSE instead — Crowbar's own driver minted thread-main at
-// establish and never opened thread-child — which is what the reverted
-// "first conversation named wins" heuristic only approximated.
+// TestRegression_AChildThreadIsForeignToTheThreadTheDriverOpened: a fresh codex
+// api chat binds the thread its own driver opened, so a subagent's thread on the
+// same connection is foreign even though nothing registered the subagent.
 //
 // Chats/Conversations are deliberately wired to nothing: a child thread's
 // turn/completed that is NOT dropped reaches closeAssistantTurn and panics on a
-// nil activity port, so "drops" is asserted by this call returning at all. Same
-// convention as TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn.
-func TestRegression_AChildThreadIsForeignEvenWhenNothingEverNamedTheRunnersOwnSession(t *testing.T) {
+// nil activity port, so "drops" is asserted by this call returning at all.
+func TestRegression_AChildThreadIsForeignToTheThreadTheDriverOpened(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
 	turns := turn.New(turn.Deps{
 		Chats:        stubChats{working: true},
-		Runners:      sessionlessCodexRunnerStore{},
+		Runners:      codexRunnerStore{},
+		Ledger:       codexBoundLedger(t, "thread-main"),
 		Activity:     stubSubagentActivity{open: false},
 		Agents:       engineagents.New(),
 		Workspace:    stubWorkspace{home: home},
@@ -642,7 +593,7 @@ func TestRegression_AChildThreadIsForeignEvenWhenNothingEverNamedTheRunnersOwnSe
 		Telemetry:    telemetry.New(),
 		Work:         inflight.NewWork(),
 	})
-	turns.SetRunners(liveAPIRunners{live: true, originated: map[string]bool{"thread-main": true}})
+	turns.SetRunners(bareRunners{})
 	// Nothing streams in this fixture, so closeAssistantTurn's delta race has
 	// nothing to wait for — without this a REGRESSION would idle 3s before
 	// failing. The passing path never reaches it.
@@ -652,8 +603,7 @@ func TestRegression_AChildThreadIsForeignEvenWhenNothingEverNamedTheRunnersOwnSe
 	require.NoError(t, turns.IngestHook(apiCtx(t), "runner-1", "codex", "idle",
 		[]byte(`{"threadId":"thread-main","status":{"type":"idle"}}`)))
 	_, armed := turns.ProviderIdleSince("chat-1")
-	require.True(t, armed,
-		"a runner that never bound a session must still act on its OWN thread's events")
+	require.True(t, armed, "the runner acts on its OWN thread's events")
 
 	// And only then the subagent codex spawned on the same connection.
 	require.NoError(t, turns.IngestHook(apiCtx(t), "runner-1", "codex", "turn_stop",

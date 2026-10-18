@@ -100,17 +100,13 @@ func (c *Conversations) staleProvider(
 	return providerID, true, nil
 }
 
-// newestPlacedProvider is the one-time migration of the old three-projection
-// scan: whichever of the chat's conversations, provider-switch interruptions
-// and runner placements is NEWEST names the provider last running here.
+// newestPlacedProvider is the one-time migration of the old projection scan:
+// whichever of the chat's provider-switch interruptions and runner placements
+// is NEWEST names the provider last running here.
 func (c *Conversations) newestPlacedProvider(
 	ctx context.Context,
 	chatID string,
 ) (providerID string, found bool, err error) {
-	convs, err := c.runnerStore.ConversationsForChat(ctx, chatID)
-	if err != nil {
-		return "", false, fmt.Errorf("conversations: %w", err)
-	}
 	interruptions, err := c.activity.Interruptions(ctx, chatID)
 	if err != nil {
 		return "", false, fmt.Errorf("interruptions: %w", err)
@@ -125,9 +121,6 @@ func (c *Conversations) newestPlacedProvider(
 		if !found || at.After(newest) {
 			providerID, newest, found = id, at, true
 		}
-	}
-	for _, conv := range convs {
-		consider(conv.ProviderID, conv.LastActiveAt)
 	}
 	for _, in := range interruptions {
 		if in.Kind == engineagents.InterruptProviderSwitched {

@@ -11,11 +11,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/catalog"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/modeldiscovery"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/move"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/registry"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/selection"
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/sessionstore"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spawn"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/template"
@@ -140,11 +138,9 @@ type Agent interface {
 	ContextSteps(resuming bool) []InjectStep
 
 	ResumeArg() (string, bool)
-
-	// SessionExists reports whether the provider still has sessionID on disk
-	// (session.locate); declared is false when the descriptor gives no way to
-	// check, and the id must then be trusted.
-	SessionExists(sessionID string) (exists, declared bool)
+	SessionAssignArg() (string, bool)
+	// RefusedResume is the line of output by which the CLI refused a resume.
+	RefusedResume(exitCode int, output string) (line string, refused bool)
 
 	// ParseHook turns one raw provider payload into a canonical event, reading
 	// the field map channel selects: the channel-scoped block the delivery
@@ -245,9 +241,6 @@ type service struct {
 	// it.
 	discovery *modeldiscovery.Cache
 
-	// sessions locates provider sessions on disk for the resume ladder.
-	sessions *sessionstore.Finder
-
 	// manifestFetchMu guards manifestFetch, the live getter
 	// SetManifestFetchEnabled installs — read fresh on every manifest
 	// refresh, never latched at construction, so a settings toggle takes
@@ -308,7 +301,6 @@ func New(opts ...Option) Agents {
 		injected:       registry.New(),
 		descriptors:    map[string]descriptorCacheEntry{},
 		discovery:      modeldiscovery.NewCache(cfg.lifecycle),
-		sessions:       sessionstore.New(),
 	}
 }
 
@@ -320,7 +312,7 @@ func (s *service) List(ctx context.Context, homeDir string) ([]Agent, error) {
 	out := make([]Agent, 0, len(descriptors))
 	for _, d := range descriptors {
 		s.refreshModelsIfDeclared(d, homeDir)
-		out = append(out, &agent{spec: d, discovery: s.discovery, sessions: s.sessions})
+		out = append(out, &agent{spec: d, discovery: s.discovery})
 	}
 	return out, nil
 }
@@ -341,7 +333,7 @@ func (s *service) Get(ctx context.Context, homeDir, id string) (Agent, error) {
 		return nil, err
 	}
 	s.refreshModelsIfDeclared(d, homeDir)
-	a := &agent{spec: d, discovery: s.discovery, sessions: s.sessions}
+	a := &agent{spec: d, discovery: s.discovery}
 
 	s.resolved.Lock()
 	s.descriptors[key] = descriptorCacheEntry{agent: a, overrideModTime: modTime}
@@ -423,15 +415,6 @@ func Expand(s string, ctx TemplateCtx) string {
 	return template.Expand(s, ctx)
 }
 
-// Decide places a conversation a CLI has announced — see move.Decide, and
-// especially what crowbarOriginated is load-bearing for.
-func Decide(
-	currentSession, announcedSession, knownChatID string,
-	known, crowbarOriginated bool,
-) Decision {
-	return move.Decide(currentSession, announcedSession, knownChatID, known, crowbarOriginated)
-}
-
 type agent struct {
 	spec *spec.Descriptor
 	// discovery is nil for an agent built outside this package's own New()
@@ -439,8 +422,6 @@ type agent struct {
 	// Models/Efforts fall back to the descriptor's static catalogue then,
 	// same as a descriptor with no discover: block at all.
 	discovery *modeldiscovery.Cache
-	// sessions is the service's shared session locator (nil in white-box tests).
-	sessions *sessionstore.Finder
 }
 
 func (a *agent) ID() string { return a.spec.ID }

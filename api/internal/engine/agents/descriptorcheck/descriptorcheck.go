@@ -30,7 +30,7 @@ const (
 type Finding struct {
 	Rule     string   `json:"rule"`
 	Severity Severity `json:"severity"`
-	// Path is the YAML path the finding is about, e.g. "session.locate.glob[0]".
+	// Path is the YAML path the finding is about, e.g. "session.refused.needles[0]".
 	Path    string `json:"path"`
 	Line    int    `json:"line"`
 	Message string `json:"message"`

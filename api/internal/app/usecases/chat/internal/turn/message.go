@@ -66,7 +66,7 @@ func (t *Turns) recordAssistantMessage(
 		TurnID:     assistantTurnID(messageID),
 		ProviderID: runner.ProviderID,
 		RunnerID:   runner.ID,
-		SessionID:  runner.CurrentSession,
+		SessionID:  t.boundSession(ctx, chat.ID, runner.ProviderID),
 		Text:       text,
 		Effort:     effort,
 		Status:     status,
@@ -229,7 +229,7 @@ func (t *Turns) closeTurnFromFailure(
 
 	if reason := failureNotice(ev); reason != "" {
 		note(ctx, "record turn failure", t.conversations.RecordTurn(
-			ctx, chat, runner.ProviderID, runner.ID, runner.CurrentSession,
+			ctx, chat, runner.ProviderID, runner.ID, t.boundSession(ctx, chat.ID, runner.ProviderID),
 			domain.TurnRoleNotice, reason, "",
 		))
 	}

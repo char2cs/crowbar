@@ -125,7 +125,7 @@ func (c *Container) agentChatScope(
 }
 
 // freshAgentChatScope is agentChatScope for a STRUCTURAL frame — a create, a
-// placement, a delete, a runner move — which is exactly the kind of change that
+// placement, a delete — which is exactly the kind of change that
 // can have moved a bubble into another repo. It drops the memo first, so the
 // answer it computes is the one after the change rather than the one before.
 func (c *Container) freshAgentChatScope(

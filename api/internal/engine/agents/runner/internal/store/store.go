@@ -1,32 +1,17 @@
-// Package store owns the agentrunner read side: TWO projections folded from the
-// AgentRunner event stream, which together replace everything AgentSegment used
-// to be asked. They are different in KIND, and the difference is the whole point.
+// Package store owns the agentrunner read side, folded from the AgentRunner
+// event stream:
 //
 //  1. agent_runners (runnerRow) — LIVE rows. One row per RUNNING CLI, deleted on
 //     exit. "Does a row exist for this chat" IS the liveness question: there is
-//     no status column, so there is nothing to go stale. This is the core rule of
-//     the refactor — we persist PLACEMENT (which chat, which conversation), never
-//     LIVENESS. Liveness belongs to the PTY alone. Two authorities on liveness
-//     always drift, and that drift is the bug being deleted here (today a segment
-//     can read "ended" while its CLI is demonstrably still running).
+//     no status column, so there is nothing to go stale. It is never rebuilt
+//     from the event log: a PTY does not survive a daemon restart, so every
+//     runner the log remembers is already dead.
 //
-//     This table is therefore NEVER rebuilt from the event log — see heal.go. A
-//     PTY does not survive a daemon restart, so every runner the log remembers is
-//     already dead by the time anything could replay it; resurrecting one would
-//     manufacture exactly the "live row, dead CLI" state this package exists to
-//     make unrepresentable. An empty agent_runners is the truth, not a symptom.
-//
-//  2. agent_chat_conversations (conversationRow) — APPEND-ONLY history. Every
-//     conversation a chat has ever hosted. Never updated, never deleted except by
-//     the chat delete cascade (ForgetChat). It survives the process, so a dormant
-//     chat stays resumable and its old conversations stay recognisable on a later
-//     /resume. Append-only history cannot drift from reality; only live state can
-//     — which is precisely why THIS one is durable truth worth healing, and is
-//     rebuilt from the log (once, at construction) when it is lost.
+//  2. agent_chat_placements (placementRow) — APPEND-ONLY placement history
+//     (placements.go).
 //
 // Both derive independently from the same event stream, alongside the hub
-// projection (hub.go) that owns WS fan-out — so none of them can drift from each
-// other either.
+// projection (hub.go) that owns WS fan-out.
 package store
 
 import (
@@ -44,7 +29,7 @@ import (
 )
 
 // ErrNotFound is returned when the read model holds no row for a query: no live
-// runner for a chat/session/id, or no conversation for a session/chat. Defined
+// runner for a chat or id. Defined
 // locally so the parent agentrunner package (which imports this one) can bridge
 // it outward to its own sentinel without an import cycle — the same layering
 // agentchat keeps between its store and its event_store.go (mapNotFound).
@@ -54,41 +39,26 @@ import (
 var ErrNotFound = errors.New("agentrunner store: not found")
 
 // Store is the AgentRunner read side: the live-runner model and the append-only
-// conversation history, both projected from the runner event stream.
+// placement history, both projected from the runner event stream.
 type Store struct {
 	db *gormdb.DB
 }
 
-// New builds both read models over db, heals the conversation history if it was
-// lost (heal.go — history only, never the live-runner table), then registers the
-// read-model projection (this file) and the hub broadcast projection (hub.go) on
-// ax.
+// New builds both read models over db, then registers the read-model projection
+// (this file) and the hub broadcast projection (hub.go) on ax.
 //
-// es is the same per-type event log ax wraps; the pair is used ONCE here, for
-// that construction-time heal, and never again from a read path. No read heals:
-// for the live table an empty model is the normal steady state of an idle
-// machine, so healing on a read would replay a monotonically-growing event log on
-// every dormant lookup — and would resurrect dead runners while doing it. The
-// heal itself fires on a MISSING MARKER, not on an empty table, so a user who
-// deletes their last chat does not get its history resurrected on the next boot
-// (heal.go).
-//
-// broadcast must not be nil: the hub projection calls it on every event, so a nil
+// watch must not be nil: the hub projection calls it on every event, so a nil
 // one panics inside a projection goroutine, far from whoever built the Store.
 func New(
 	db *gormdb.DB,
-	es asynxModels.Store,
 	ax asynx.Asynx[agents.Runner],
 	watch WatchFunc,
 ) (*Store, error) {
 	if watch == nil {
 		return nil, fmt.Errorf("agentrunner store: nil watch")
 	}
-	if err := db.AutoMigrate(&runnerRow{}, &conversationRow{}, &placementRow{}, &healMarkerRow{}); err != nil {
+	if err := db.AutoMigrate(&runnerRow{}, &placementRow{}); err != nil {
 		return nil, fmt.Errorf("agentrunner store: migrate: %w", err)
-	}
-	if err := healHistory(db, es, ax); err != nil {
-		return nil, err
 	}
 	if err := registerStoreProjection(db, ax); err != nil {
 		return nil, fmt.Errorf("agentrunner store: projections: %w", err)
@@ -99,31 +69,11 @@ func New(
 	return &Store{db: db}, nil
 }
 
-// newestArrivalFirst orders live runners by WHEN THEY ARRIVED where they are — the later
-// of "when this process started" and "when it took its current conversation" — newest
-// first, with the id as a final deterministic tiebreak.
-//
-// It is LOAD-BEARING on the eviction path, and a backstop everywhere else. Both halves of
-// that sentence matter, so read them together with runner.Displace's doc.
-//
-// Invariants I2/I3 are upheld primarily by DISPLACEMENT: Crowbar cannot kill a process
-// synchronously, so whenever it takes a CLI off a chat it records that placement fact at
-// once instead of waiting for the corpse to fall over, and a displaced runner points at
-// nothing and cannot be returned by these queries at all. On the switch and delete paths
-// that displace happens BEFORE any successor is spawned, so no two-candidate window exists.
-//
-// An EVICTION is different, and this ordering is what makes it come out right: the mover's
-// Move is recorded FIRST (reality is not negotiable — spec §3) and the incumbent is
-// displaced immediately after, so for that instant BOTH are placed on the chat. The one
-// that arrived last is the mover, which is exactly who holds it. Deleting this ordering
-// would hand out the evictee — a corpse — about half the time.
-//
-// What an ordering could NOT do, and why displacement exists at all: the outgoing CLI of a
-// provider switch may not have announced its conversation yet, and when it finally does —
-// AFTER the incoming CLI has started — it stamps a fresher timestamp than the incoming
-// runner's spawn, so "whoever arrived last" would hand the chat straight back to the
-// corpse. Timestamps say when things happened; only a displacement records what we DECIDED.
-const newestArrivalFirst = "MAX(current_session_since, started_at) DESC, id ASC"
+// newestArrivalFirst orders live runners newest start first, with the id as a
+// deterministic tiebreak. A provider switch and a chat delete displace the
+// outgoing CLI before any successor spawns, so two candidates on one chat exist
+// only in the window a Start retires (LiveRunnersForChat).
+const newestArrivalFirst = "started_at DESC, id ASC"
 
 // LiveRunnerForChat returns the runner currently pointed at chatID, or ErrNotFound when
 // the chat is dormant. There is no status column to consult: the row exists exactly while
@@ -155,22 +105,9 @@ func (s *Store) LiveRunnerForChat(
 	return row.toRunner(), nil
 }
 
-// LiveRunnersForChat returns EVERY live runner placed on chatID, newest arrival first.
-//
-// It is the read that makes I2 an invariant rather than a coincidence. LiveRunnerForChat
-// answers "who holds this chat" and is what serving paths want; this one answers "who is
-// ON this chat", which is the question the two PLACEMENT paths must ask — because their job
-// is to leave exactly one runner there, and a single-row read cannot tell "nobody else" from
-// "somebody else, and maybe more".
-//
-// Both placement paths call it immediately after their write commits (both are SendWait, so
-// the read sees it) and retire everyone but themselves. In the ordinary case it returns one
-// row — the caller itself — and nothing happens. It earns its keep only in the windows
-// where a CLI arrives on a chat between another one's decision to take it and its arrival:
-// a hook (never gated, never may be) moving a runner onto a chat a gated switch is mid-FORK
-// of, which is a window as wide as a process spawn.
-//
-// An empty chatID is NOWHERE, and nowhere holds nobody.
+// LiveRunnersForChat returns EVERY live runner placed on chatID, newest start
+// first: a Start reads it right after its write commits and retires everyone but
+// itself. An empty chatID is NOWHERE, and nowhere holds nobody.
 func (s *Store) LiveRunnersForChat(
 	ctx context.Context,
 	chatID string,
@@ -189,155 +126,6 @@ func (s *Store) LiveRunnersForChat(
 	out := make([]agents.Runner, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, row.toRunner())
-	}
-	return out, nil
-}
-
-// LiveRunnersForSession returns EVERY live runner holding conversation sessionID, newest
-// arrival first — the I3 twin of LiveRunnersForChat, and it exists for the same reason.
-//
-// A placement onto a conversation (a bind, a move) must leave exactly ONE runner holding it,
-// because two CLIs on one provider session id both write the same session file and corrupt
-// it. And the single-row read cannot serve that: by the time the write has committed, the
-// caller IS the newest holder, so LiveRunnerForSession would hand it back its own row and it
-// would evict nobody at all.
-//
-// An empty sessionID is NOWHERE, and nowhere is held by nobody.
-func (s *Store) LiveRunnersForSession(
-	ctx context.Context,
-	wsID string,
-	sessionID string,
-) ([]agents.Runner, error) {
-	if sessionID == "" {
-		return nil, nil
-	}
-	var rows []runnerRow
-	err := s.db.WithContext(ctx).
-		Where("workspace_id = ? AND current_session = ?", wsID, sessionID).
-		Order(newestArrivalFirst).
-		Find(&rows).Error
-	if err != nil {
-		return nil, fmt.Errorf("agentrunner store: live runners for session %q: %w", sessionID, err)
-	}
-	out := make([]agents.Runner, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, row.toRunner())
-	}
-	return out, nil
-}
-
-// LiveRunnerForSession returns the runner currently holding conversation sessionID in
-// wsID — the incumbent the eviction path must displace (invariant I3: at most one live
-// runner per conversation, because two CLIs on one provider session id both write the
-// same session file). ErrNotFound means nobody is running that conversation right now,
-// which is not the same as "it never existed" — that question is ChatForSession's, and
-// it is answered from history.
-//
-// Ordered newest-arrival-first for the same reason as LiveRunnerForChat: if a runner is
-// ALREADY being evicted off this conversation, the incumbent a second mover must
-// displace is the one that took it over, not the corpse.
-func (s *Store) LiveRunnerForSession(
-	ctx context.Context,
-	wsID string,
-	sessionID string,
-) (agents.Runner, error) {
-	// "" is NOWHERE — see LiveRunnerForChat. A runner that has been displaced, or that has
-	// not announced a conversation yet, holds no session, and must never be matched by one.
-	if sessionID == "" {
-		return agents.Runner{}, fmt.Errorf("agentrunner store: live runner for session: %w", ErrNotFound)
-	}
-	var row runnerRow
-	err := s.db.WithContext(ctx).
-		Where("workspace_id = ? AND current_session = ?", wsID, sessionID).
-		Order(newestArrivalFirst).
-		Take(&row).Error
-	if errors.Is(err, gormdb.ErrRecordNotFound) {
-		return agents.Runner{}, fmt.Errorf("agentrunner store: live runner for session %q: %w", sessionID, ErrNotFound)
-	}
-	if err != nil {
-		return agents.Runner{}, fmt.Errorf("agentrunner store: live runner for session %q: %w", sessionID, err)
-	}
-	return row.toRunner(), nil
-}
-
-// ChatForSession resolves which chat a provider conversation belongs to, from
-// APPEND-ONLY history — so it keeps answering long after the runner that opened
-// the conversation has moved on or died. This is what makes a re-announced
-// session id on /resume recognisable instead of looking like a brand-new
-// conversation.
-func (s *Store) ChatForSession(
-	ctx context.Context,
-	wsID string,
-	sessionID string,
-) (string, error) {
-	var row conversationRow
-	err := s.db.WithContext(ctx).
-		Where("workspace_id = ? AND session_id = ?", wsID, sessionID).
-		Take(&row).Error
-	if errors.Is(err, gormdb.ErrRecordNotFound) {
-		return "", fmt.Errorf("agentrunner store: chat for session %q: %w", sessionID, ErrNotFound)
-	}
-	if err != nil {
-		return "", fmt.Errorf("agentrunner store: chat for session %q: %w", sessionID, err)
-	}
-	return row.ChatID, nil
-}
-
-// LastConversation returns the chat's CURRENT conversation — the one a resume
-// picks up from, and the provider ActiveProviderID/ChatProviderID fall back to
-// once the chat goes dormant. Ordered by last_active_at, which is when a runner
-// most recently bound or MOVED INTO the conversation (never when its runner
-// spawned, and never merely when it first opened): a switch back to a provider
-// this chat already ran re-activates that provider's OWN prior conversation
-// without minting a new row, and first_seen_at (immutable, stamped once) cannot
-// tell that apart from a chat that has not touched that provider since. Ordering
-// by it instead named the provider the chat was switched AWAY FROM as still
-// current, forever, the instant the chat went dormant — confirmed live: a chat
-// handed from codex to claude and then stopped mid-turn came back on codex, the
-// stale provider, not claude, the one actually running and actually stopped.
-// SQLite's insertion-order rowid breaks an exact tie, keeping the answer
-// deterministic when two conversations share a timestamp.
-func (s *Store) LastConversation(
-	ctx context.Context,
-	chatID string,
-) (agents.ChatConversation, error) {
-	var row conversationRow
-	err := s.db.WithContext(ctx).
-		Where("chat_id = ?", chatID).
-		Order("last_active_at DESC, rowid DESC").
-		Take(&row).Error
-	if errors.Is(err, gormdb.ErrRecordNotFound) {
-		return agents.ChatConversation{}, fmt.Errorf("agentrunner store: last conversation for chat %q: %w", chatID, ErrNotFound)
-	}
-	if err != nil {
-		return agents.ChatConversation{}, fmt.Errorf("agentrunner store: last conversation for chat %q: %w", chatID, err)
-	}
-	return row.toConversation(), nil
-}
-
-// ConversationsForChat returns every conversation the chat has hosted, OLDEST
-// FIRST — the same ordering LastConversation reads backwards, so "the newest
-// conversation for provider X" is the last match when scanning forward.
-//
-// A provider switch needs this and cannot use LastConversation: after a handoff
-// the chat's newest conversation belongs to the provider being switched away
-// FROM, while the one being switched TO must be resumed into the conversation it
-// left behind here — an older row.
-func (s *Store) ConversationsForChat(
-	ctx context.Context,
-	chatID string,
-) ([]agents.ChatConversation, error) {
-	var rows []conversationRow
-	err := s.db.WithContext(ctx).
-		Where("chat_id = ?", chatID).
-		Order("first_seen_at ASC, rowid ASC").
-		Find(&rows).Error
-	if err != nil {
-		return nil, fmt.Errorf("agentrunner store: conversations for chat %q: %w", chatID, err)
-	}
-	out := make([]agents.ChatConversation, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, row.toConversation())
 	}
 	return out, nil
 }
@@ -382,23 +170,13 @@ func (s *Store) AllLive(
 	return out, nil
 }
 
-// ForgetChat drops the chat's conversation AND placement history. It is the chat
-// delete cascade — the ONLY thing permitted to remove append-only history,
-// because a deleted chat is the one case where the history has nothing left to
-// describe. It does not touch the live-runner model: a runner's row belongs to
-// the runner's lifecycle (its PTY), not to any chat's.
-//
-// Both append-only projections go together, or the cascade would be half done:
-// they answer the same question from the same events, so a chat whose
-// conversations were forgotten while its placements survived would still be
-// resolvable to a provider after being deleted.
+// ForgetChat drops the chat's placement history — the chat delete cascade, the
+// ONLY thing permitted to remove append-only history. It does not touch the
+// live-runner model: a runner's row belongs to its PTY, not to any chat.
 func (s *Store) ForgetChat(
 	ctx context.Context,
 	chatID string,
 ) error {
-	if err := s.db.WithContext(ctx).Delete(&conversationRow{}, "chat_id = ?", chatID).Error; err != nil {
-		return fmt.Errorf("agentrunner store: forget chat %q: %w", chatID, err)
-	}
 	return forgetPlacements(ctx, s.db, chatID)
 }
 
@@ -429,8 +207,7 @@ func (p *projector) onEvent(
 
 	// EXITED: drop the live row. That deletion IS how the chat goes dormant —
 	// there is no status to flip, so nothing is left behind that could later
-	// disagree with the PTY. History (conversationRow) is untouched: a dormant
-	// chat must stay resumable and its conversations recognisable on /resume.
+	// disagree with the PTY.
 	if r.ExitedAt != nil {
 		if err := p.db.WithContext(ctx).Delete(&runnerRow{}, "id = ?", r.ID).Error; err != nil {
 			slog.ErrorContext(ctx, "agentrunner projection: delete live row", "runner", r.ID, "err", err)
@@ -439,17 +216,13 @@ func (p *projector) onEvent(
 	}
 
 	p.upsertLive(ctx, r)
-	if err := appendConversation(ctx, p.db, r); err != nil {
-		slog.ErrorContext(ctx, "agentrunner projection: append conversation",
-			"chat", r.CurrentChatID, "session", r.CurrentSession, "err", err)
-	}
 	if err := appendPlacement(ctx, p.db, r); err != nil {
 		slog.ErrorContext(ctx, "agentrunner projection: append placement",
 			"chat", r.CurrentChatID, "provider", r.ProviderID, "err", err)
 	}
 }
 
-// upsertLive writes the single live row for STARTED / SESSION_BOUND / MOVED.
+// upsertLive writes the single live row for every event but EXITED.
 // Placement is whatever the aggregate says — Crowbar is its only writer, so it
 // cannot drift.
 func (p *projector) upsertLive(
@@ -457,21 +230,17 @@ func (p *projector) upsertLive(
 	r agents.Runner,
 ) {
 	row := runnerRow{
-		ID:                      r.ID,
-		WorkspaceID:             r.WorkspaceID,
-		ProviderID:              r.ProviderID,
-		TerminalSession:         r.TerminalSession,
-		CurrentChatID:           r.CurrentChatID,
-		CurrentSession:          r.CurrentSession,
-		CurrentSessionSince:     r.CurrentSessionSince,
-		LaunchSessionID:         r.LaunchSessionID,
-		LaunchModel:             r.LaunchModel,
-		LaunchEffort:            r.LaunchEffort,
-		ReportedModel:           r.ReportedModel,
-		ReportedEffort:          r.ReportedEffort,
-		LaunchPermissionLevel:   r.LaunchPermissionLevel,
-		CurrentSessionResumable: r.CurrentSessionResumable,
-		StartedAt:               r.StartedAt,
+		ID:                    r.ID,
+		WorkspaceID:           r.WorkspaceID,
+		ProviderID:            r.ProviderID,
+		TerminalSession:       r.TerminalSession,
+		CurrentChatID:         r.CurrentChatID,
+		LaunchModel:           r.LaunchModel,
+		LaunchEffort:          r.LaunchEffort,
+		ReportedModel:         r.ReportedModel,
+		ReportedEffort:        r.ReportedEffort,
+		LaunchPermissionLevel: r.LaunchPermissionLevel,
+		StartedAt:             r.StartedAt,
 	}
 	err := p.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "id"}},
@@ -480,47 +249,4 @@ func (p *projector) upsertLive(
 	if err != nil {
 		slog.ErrorContext(ctx, "agentrunner projection: upsert live row", "runner", r.ID, "err", err)
 	}
-}
-
-// appendConversation records the (chat, conversation) pair the runner now holds,
-// stamped with when that conversation OPENED (CurrentSessionSince — the moment it
-// was bound or moved into), never with the runner's spawn time. Idempotent: a
-// REVISIT of an already-known (chat, session) pair — a switch back to a provider
-// this chat already ran, resuming its own prior session — never touches
-// FirstSeenAt, only LastActiveAt, so a rebuilt model's append-only OPEN-time
-// history is identical to the one it replaces.
-//
-// Package-level rather than a projector method because the boot heal folds it
-// WITHOUT the live-row writer (heal.go) — history is the only thing a replay is
-// allowed to touch.
-//
-// It RETURNS its write error rather than logging it, because the two folds must
-// treat a failure differently: the live projection logs and carries on (a
-// projection must never take the daemon down), while the heal must refuse to mark
-// the read model built (heal.go) — a heal that lost rows is a failed heal.
-func appendConversation(
-	ctx context.Context,
-	db *gormdb.DB,
-	r agents.Runner,
-) error {
-	if r.CurrentSession == "" {
-		return nil
-	}
-	conv := conversationRow{
-		ChatID:       r.CurrentChatID,
-		SessionID:    r.CurrentSession,
-		WorkspaceID:  r.WorkspaceID,
-		ProviderID:   r.ProviderID,
-		FirstSeenAt:  r.CurrentSessionSince,
-		LastActiveAt: r.CurrentSessionSince,
-	}
-	err := db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "chat_id"}, {Name: "session_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"last_active_at"}),
-	}).Create(&conv).Error
-	if err != nil {
-		return fmt.Errorf("agentrunner store: append conversation (chat %q, session %q): %w",
-			r.CurrentChatID, r.CurrentSession, err)
-	}
-	return nil
 }

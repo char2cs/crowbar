@@ -18,6 +18,7 @@ import (
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -175,20 +176,15 @@ func (h *spawnHarness) seedLiveAPIConn(t *testing.T, runnerID string) *exec.Cmd 
 	return cmd
 }
 
-// TestRegression_AnAPIDrivenSpawnForksNoOrphanPTY is the reported defect:
-// EVERY api-transport codex spawn also forked a full interactive `codex` TUI
-// that nothing drove. attach is only rendered for a HOTSWAP provider
-// (applyAPITransport), codex is not one, so pointPlanAtAttach no-opped and
-// forkCLI forked the descriptor's own spawn.cmd instead. Measured live: 25
-// bare codex TUIs against 3 chats. Each one fires codex's whole hooks config
-// into Crowbar, which is what let a user type into an unrelated session and
-// have it promoted into a new chat.
+// TestRegression_AnAPIDrivenSpawnForksNoOrphanPTY: an api-transport spawn whose
+// provider is not hotswap must not also fork the descriptor's own TUI, which
+// nothing drives and whose hooks still reach Crowbar.
 func TestRegression_AnAPIDrivenSpawnForksNoOrphanPTY(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	h.seedLiveAPIConn(t, "runner-1")
 
-	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex", "runner-1",
-		nil, nil, "", 0, false, "", false, "")
+	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex",
+		spawnInput{runnerID: "runner-1"}, false)
 	require.NoError(t, err)
 
 	assert.Empty(t, h.term.created,
@@ -205,8 +201,8 @@ func TestRegression_APTYLessRunnerExitsWhenItsServeProcessDies(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	cmd := h.seedLiveAPIConn(t, "runner-1")
 
-	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex", "runner-1",
-		nil, nil, "", 0, false, "", false, "")
+	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex",
+		spawnInput{runnerID: "runner-1"}, false)
 	require.NoError(t, err)
 	<-h.store.started
 
@@ -225,8 +221,8 @@ func TestRegression_APTYLessRunnerExitsWhenItsServeProcessDies(t *testing.T) {
 func TestSpawnRunner_AHooksTransportProviderStillForksItsPTY(t *testing.T) {
 	h := newSpawnHarness(t, "")
 
-	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "claude", "runner-1",
-		nil, nil, "", 0, false, "", false, "")
+	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "claude",
+		spawnInput{runnerID: "runner-1"}, false)
 	require.NoError(t, err)
 
 	require.Len(t, h.term.created, 1, "claude's PTY is the session; it must still be forked")
@@ -240,8 +236,8 @@ func TestSpawnRunner_AHooksTransportProviderStillForksItsPTY(t *testing.T) {
 func TestSpawnRunner_AnAPITransportSpawnWithNoLiveConnectionStillForksItsPTY(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 
-	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex", "runner-1",
-		nil, nil, "", 0, false, "", false, "")
+	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex",
+		spawnInput{runnerID: "runner-1"}, false)
 	require.NoError(t, err)
 
 	require.Len(t, h.term.created, 1,
@@ -258,8 +254,8 @@ func TestRegression_SwitchToTerminalDoesNotExitThePTYLessRunnerItHandsOver(t *te
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	cmd := h.seedLiveAPIConn(t, "runner-1")
 
-	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex", "runner-1",
-		nil, nil, "", 0, false, "", false, "")
+	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex",
+		spawnInput{runnerID: "runner-1"}, false)
 	require.NoError(t, err)
 	<-h.store.started
 
@@ -321,7 +317,7 @@ func TestRegression_ANativeViewTornDownForGoodExitsThePTYLessRunner(t *testing.T
 
 	// retire()'s own order: forget the view first, then kill it.
 	rs.attached.drop("runner-1")
-	rs.onAttachExit("chat-1", "runner-1")()
+	rs.onAttachExit("chat-1", "runner-1")(engineterminal.Exit{})
 
 	select {
 	case exited := <-store.exited:
@@ -340,7 +336,7 @@ func TestOnAttachExit_ARunnerWithItsOwnPTYIsLeftToThatPTY(t *testing.T) {
 	store.runner.TerminalSession = "term-1"
 
 	rs.attached.drop("runner-1")
-	rs.onAttachExit("chat-1", "runner-1")()
+	rs.onAttachExit("chat-1", "runner-1")(engineterminal.Exit{})
 
 	select {
 	case exited := <-store.exited:
@@ -357,7 +353,7 @@ func TestOnAttachExit_AReestablishedConnectionKeepsThePTYLessRunnerAlive(t *test
 	rs.apiConns.set("runner-1", &apiconn{})
 
 	rs.attached.drop("runner-1")
-	rs.onAttachExit("chat-1", "runner-1")()
+	rs.onAttachExit("chat-1", "runner-1")(engineterminal.Exit{})
 
 	select {
 	case exited := <-store.exited:
@@ -519,8 +515,9 @@ func TestRegression_AnAdoptedPTYLessSpawnStillDeliversThePromptItCarries(t *test
 	promptSteps, err := agent.PromptSteps(false)
 	require.NoError(t, err)
 
-	_, err = h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test", "runner-1",
-		nil, promptSteps, "", 0, false, "", false, "hi there")
+	_, err = h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test", spawnInput{
+		runnerID: "runner-1", finalSteps: promptSteps, promptMessage: "hi there",
+	}, false)
 	require.NoError(t, err)
 
 	require.Empty(t, h.term.created,
@@ -548,8 +545,9 @@ func TestRegression_AnAdoptedSpawnThatCannotDeliverItsPromptFailsTheSpawn(t *tes
 	promptSteps, err := agent.PromptSteps(false)
 	require.NoError(t, err)
 
-	_, err = h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test", "runner-1",
-		nil, promptSteps, "", 0, false, "", false, "hi there")
+	_, err = h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test", spawnInput{
+		runnerID: "runner-1", finalSteps: promptSteps, promptMessage: "hi there",
+	}, false)
 
 	require.ErrorIs(t, err, ErrSpawnPromptUndeliverable)
 	select {
@@ -569,8 +567,9 @@ func TestSpawnRunner_TheForkedPTYCarriesThePromptWhenNoConnectionCameUp(t *testi
 	promptSteps, err := agent.PromptSteps(false)
 	require.NoError(t, err)
 
-	_, err = h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test", "runner-1",
-		nil, promptSteps, "", 0, false, "", false, "hi there")
+	_, err = h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test", spawnInput{
+		runnerID: "runner-1", finalSteps: promptSteps, promptMessage: "hi there",
+	}, false)
 	require.NoError(t, err)
 
 	require.Len(t, h.term.created, 1)
@@ -612,15 +611,9 @@ func (s selectionConversations) ChatSelection(
 	return s.sel, nil
 }
 
-// TestRegression_ASpawnWithAChosenModelKeepsItsAPIConnection is the reported
-// defect, and the reversal of the workaround that first answered it. A codex
-// chat with an explicit model was made to skip its api connection and fork a
-// PTY, because the selection was believed to have no api carrier — which cost
-// that chat streaming deltas and reasoning summaries for the life of the chat.
-//
-// It does have one: the serve process's own config channel (model.api_apply),
-// verified against codex-cli 0.154.0, whose `app-server --help` documents
-// `-c model="o3"` and offers no --model at all. So the connection stays.
+// TestRegression_ASpawnWithAChosenModelKeepsItsAPIConnection: a chosen model rides
+// the serve process's own config channel (model.api_apply), so the chat keeps its
+// api connection and the streaming it carries.
 func TestRegression_ASpawnWithAChosenModelKeepsItsAPIConnection(t *testing.T) {
 	received := make(chan string, 1)
 	sockPath := promptDispatchServer(t, received, false)
@@ -630,8 +623,8 @@ func TestRegression_ASpawnWithAChosenModelKeepsItsAPIConnection(t *testing.T) {
 	h.rs.conversations = selectionConversations{sel: engineagents.Selection{Model: "deep", Effort: "high"}}
 	h.seedAdoptableAPIConn(t, "runner-1", sockPath, agent)
 
-	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test", "runner-1",
-		nil, nil, "", 0, false, "", false, "")
+	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test",
+		spawnInput{runnerID: "runner-1"}, false)
 	require.NoError(t, err)
 
 	assert.Empty(t, h.term.created,
@@ -652,8 +645,8 @@ func TestRegression_ASelectionIsRecordedOnTheCarrierThatActuallyTookIt(t *testin
 	h.rs.conversations = selectionConversations{sel: engineagents.Selection{Model: "deep", Effort: "high"}}
 	h.seedAdoptableAPIConn(t, "runner-1", sockPath, agent)
 
-	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test", "runner-1",
-		nil, nil, "", 0, false, "", false, "")
+	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test",
+		spawnInput{runnerID: "runner-1"}, false)
 	require.NoError(t, err)
 
 	in := <-h.store.started
@@ -670,8 +663,8 @@ func TestSpawnRunner_TheForkedPTYCarriesTheSelectionWhenNoConnectionCameUp(t *te
 	installDescriptor(t, h.home, selectionCarrierDescriptor)
 	h.rs.conversations = selectionConversations{sel: engineagents.Selection{Model: "deep", Effort: "high"}}
 
-	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test", "runner-1",
-		nil, nil, "", 0, false, "", false, "")
+	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test",
+		spawnInput{runnerID: "runner-1"}, false)
 	require.NoError(t, err)
 
 	require.Len(t, h.term.created, 1)
@@ -700,8 +693,9 @@ func TestRegression_ASelectionCarryingSpawnStillDeliversItsPromptOverTheConnecti
 	promptSteps, err := agent.PromptSteps(false)
 	require.NoError(t, err)
 
-	_, err = h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test", "runner-1",
-		nil, promptSteps, "", 0, false, "", false, "hi there")
+	_, err = h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test", spawnInput{
+		runnerID: "runner-1", finalSteps: promptSteps, promptMessage: "hi there",
+	}, false)
 	require.NoError(t, err)
 
 	require.Empty(t, h.term.created)
@@ -745,8 +739,8 @@ func TestSpawnRunner_ASpawnWithNoSelectionStillAdoptsItsConnection(t *testing.T)
 	agent := installDescriptor(t, h.home, selectionCarrierDescriptor)
 	h.seedAdoptableAPIConn(t, "runner-1", sockPath, agent)
 
-	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test", "runner-1",
-		nil, nil, "", 0, false, "", false, "")
+	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test",
+		spawnInput{runnerID: "runner-1"}, false)
 	require.NoError(t, err)
 
 	assert.Empty(t, h.term.created,
@@ -762,8 +756,8 @@ func TestSpawnRunner_APermissionLevelAloneStillAdoptsTheConnection(t *testing.T)
 	h.rs.conversations = selectionConversations{sel: engineagents.Selection{PermissionLevel: "trusted"}}
 	h.seedLiveAPIConn(t, "runner-1")
 
-	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex", "runner-1",
-		nil, nil, "", 0, false, "", false, "")
+	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex",
+		spawnInput{runnerID: "runner-1"}, false)
 	require.NoError(t, err)
 
 	assert.Empty(t, h.term.created,

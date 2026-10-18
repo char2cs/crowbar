@@ -22,8 +22,7 @@ func TestStart_EmitsRunnerOnItsChat(t *testing.T) {
 	require.Equal(t, "r1", got.ID)
 	require.Equal(t, "c1", got.CurrentChatID)
 	require.Equal(t, "pty1", got.TerminalSession)
-	require.Empty(t, got.CurrentSession, "no conversation is bound until the provider announces one")
-	require.Zero(t, got.CurrentSessionSince, "nothing is bound yet, so nothing has a since")
+	require.Equal(t, time.Unix(1, 0), got.StartedAt)
 }
 
 // TestRegression_StartAcceptsARunnerWhoseProcessIsNotAPTY is the orphan-PTY
@@ -51,54 +50,16 @@ func TestStart_RejectsMissingChat(t *testing.T) {
 	require.Error(t, c.Validate(nil), "a runner always points at exactly one chat (spec I1)")
 }
 
-// Move is THE command the whole refactor exists for: one write, one aggregate.
-// It can never fail on the state of the destination chat, because it does not
-// touch the destination chat. That is what makes the torn write unrepresentable.
-func TestMove_RepointsRunnerAtomically(t *testing.T) {
-	cur := &agents.Runner{
-		ID: "r1", WorkspaceID: "w1", ProviderID: "claude",
-		TerminalSession: "pty1", CurrentChatID: "c1", CurrentSession: "s1",
-	}
-	c := commands.Move{RunnerID: "r1", ToChatID: "c2", SessionID: "s2", Now: time.Unix(2, 0)}
-	require.NoError(t, c.Validate(cur))
-	got := c.EmitEvent(cur)
-	require.Equal(t, "c2", got.CurrentChatID)
-	require.Equal(t, "s2", got.CurrentSession)
-	require.Equal(t, "pty1", got.TerminalSession, "the PTY travels with the runner — the terminal never changes")
-	require.Equal(t, "claude", got.ProviderID)
-	require.Equal(t, time.Unix(2, 0), got.CurrentSessionSince,
-		"the move carries WHEN the conversation was entered — the runner's spawn time is not it")
-}
+func TestReport_KeepsWhatTheCLIDidNotReport(t *testing.T) {
+	cur := &agents.Runner{ID: "r1", CurrentChatID: "c1", LaunchModel: "opus", ReportedModel: "m1", ReportedEffort: "high"}
+	require.ErrorIs(t, commands.Report{RunnerID: "r1"}.Validate(cur), asynxModels.ErrValidation, "nothing reported")
+	require.ErrorIs(t, commands.Report{RunnerID: "r1", Model: "m2"}.Validate(nil), asynxModels.ErrValidation)
 
-func TestMove_RejectsUnknownRunner(t *testing.T) {
-	c := commands.Move{RunnerID: "r1", ToChatID: "c2", SessionID: "s2", Now: time.Unix(2, 0)}
-	require.Error(t, c.Validate(nil))
-}
-
-// A zero Now is a conversation with no opening time. It would stamp FirstSeenAt
-// zero and drop conversation ordering back onto insertion order — silently
-// reintroducing the inversion bug with no test failing. Refuse it at the door.
-func TestMove_RejectsZeroNow(t *testing.T) {
-	cur := &agents.Runner{ID: "r1", CurrentChatID: "c1", CurrentSession: "s1"}
-	c := commands.Move{RunnerID: "r1", ToChatID: "c2", SessionID: "s2"}
-	require.Error(t, c.Validate(cur), "a move must say WHEN the conversation was entered")
-}
-
-func TestBindSession_RejectsZeroNow(t *testing.T) {
-	cur := &agents.Runner{ID: "r1", CurrentChatID: "c1"}
-	c := commands.BindSession{RunnerID: "r1", SessionID: "s1"}
-	require.Error(t, c.Validate(cur), "a bind must say WHEN the conversation opened")
-}
-
-func TestBindSession_SetsConversationWithoutMovingChat(t *testing.T) {
-	cur := &agents.Runner{ID: "r1", CurrentChatID: "c1"}
-	c := commands.BindSession{RunnerID: "r1", SessionID: "s1", Now: time.Unix(1, 0)}
-	require.NoError(t, c.Validate(cur))
-	got := c.EmitEvent(cur)
-	require.Equal(t, "s1", got.CurrentSession)
+	got := commands.Report{RunnerID: "r1", Model: "m2"}.EmitEvent(cur)
+	require.Equal(t, "m2", got.ReportedModel)
+	require.Equal(t, "high", got.ReportedEffort, "an effort the CLI did not report is left as it was")
+	require.Equal(t, "opus", got.LaunchModel, "what Crowbar asked for is never overwritten")
 	require.Equal(t, "c1", got.CurrentChatID)
-	require.Equal(t, time.Unix(1, 0), got.CurrentSessionSince,
-		"the bind carries WHEN the conversation opened, so history can order by it")
 }
 
 // The runner has NO status field to consult (spec §2). Exit is a tombstone for
@@ -118,17 +79,12 @@ func TestExit_TombstonesForAudit(t *testing.T) {
 // is the whole reason the command is allowed to exist: Crowbar owns placement outright,
 // so it may write it the moment it decides it, while liveness stays the PTY's alone.
 func TestDisplace_ClearsPlacementWithoutTouchingLiveness(t *testing.T) {
-	cur := &agents.Runner{
-		ID: "r1", CurrentChatID: "c1", CurrentSession: "s1",
-		CurrentSessionSince: time.Unix(5, 0), TerminalSession: "pty1",
-	}
+	cur := &agents.Runner{ID: "r1", CurrentChatID: "c1", TerminalSession: "pty1"}
 	c := commands.Displace{RunnerID: "r1"}
 	require.NoError(t, c.Validate(cur))
 
 	got := c.EmitEvent(cur)
 	require.Empty(t, got.CurrentChatID, "the runner is on no chat")
-	require.Empty(t, got.CurrentSession, "and holds no conversation")
-	require.True(t, got.CurrentSessionSince.IsZero(), "a timestamp must not outlive the fact it stamps")
 	require.Nil(t, got.ExitedAt, "displacement asserts NOTHING about whether the process is alive")
 	require.Equal(t, "pty1", got.TerminalSession, "it still has its PTY — it is still running")
 
@@ -143,8 +99,7 @@ func TestDisplace_RejectsUnknownRunner(t *testing.T) {
 
 func TestEventNames_AreAgentRunnerScoped(t *testing.T) {
 	require.Equal(t, "runner.started.r1", commands.Start{RunnerID: "r1"}.EventName())
-	require.Equal(t, "runner.session_bound.r1", commands.BindSession{RunnerID: "r1"}.EventName())
-	require.Equal(t, "runner.moved.r1", commands.Move{RunnerID: "r1"}.EventName())
+	require.Equal(t, "runner.session_bound.r1", commands.Report{RunnerID: "r1"}.EventName())
 	require.Equal(t, "runner.displaced.r1", commands.Displace{RunnerID: "r1"}.EventName())
 	require.Equal(t, "runner.exited.r1", commands.Exit{RunnerID: "r1"}.EventName())
 }

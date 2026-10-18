@@ -11,13 +11,11 @@ import (
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
-// TestBackfillProviders_ASwitchNewerThanTheLastConversationWins migrates the old
-// three-projection scan's hardest case into the one-time backfill: vendor-b was
-// switched to and left dormant WITHOUT ever binding a session, so only vendor-a's
-// OLDER conversation exists and the durable switch interruption is the sole trace
-// of vendor-b. The backfill must record vendor-b, and ChatProviderID (the path
-// SetChatSelection, SwitchProvider and SubmitPrompt resolve through) reads it.
-func TestBackfillProviders_ASwitchNewerThanTheLastConversationWins(t *testing.T) {
+// TestBackfillProviders_ASwitchNewerThanTheLastPlacementWins: vendor-b was
+// switched to and left dormant without ever running, so the durable switch
+// interruption is its sole trace. The backfill records vendor-b, and
+// ChatProviderID (what SubmitPrompt resolves through) reads it.
+func TestBackfillProviders_ASwitchNewerThanTheLastPlacementWins(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
@@ -32,8 +30,6 @@ func TestBackfillProviders_ASwitchNewerThanTheLastConversationWins(t *testing.T)
 		ChatID:          chatID,
 		Now:             time.Unix(1, 0).UTC(),
 	})
-	require.NoError(t, err)
-	_, err = f.runners.BindSession(t.Context(), chatID+"-runner", "sess-1", false, time.Unix(1, 0).UTC(), "", "")
 	require.NoError(t, err)
 	_, err = f.runners.Exit(t.Context(), chatID+"-runner", time.Unix(3, 0).UTC())
 	require.NoError(t, err)
@@ -51,5 +47,5 @@ func TestBackfillProviders_ASwitchNewerThanTheLastConversationWins(t *testing.T)
 	providerID, err := f.conversations.ChatProviderID(t.Context(), chatID)
 	require.NoError(t, err)
 	assert.Equal(t, "vendor-b", providerID,
-		"the switch interruption is the only trace vendor-b left, and must win over vendor-a's older conversation")
+		"the switch interruption is the only trace vendor-b left, and must win over vendor-a's older placement")
 }

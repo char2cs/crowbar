@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -118,7 +119,6 @@ func TestLive_TurnsContinueAndResumeTheSameSession(t *testing.T) {
 			r.eventually(r.replied(chatID, 3), "the revived real CLI never answered")
 
 			assert.Len(t, r.sessions(chatID), 1, "the revive resumed the same vendor session")
-			assert.Equal(t, domain.AgentRungSession, r.snapshot(chatID).Session.Rung)
 			assert.True(t, slices.Contains(r.said(chatID), "user: after a stop"), "%q\nhooks:\n%s", r.said(chatID), r.d.hooks)
 		})
 	}
@@ -166,7 +166,6 @@ func TestLive_CodexTerminalBeforeAnyTurnAndBack(t *testing.T) {
 	r.eventually(r.replied(chatID, 2), "the chat surface never answered")
 
 	assert.Equal(t, before, r.sessions(chatID), "the chat surface resumed the TUI's session, starting none")
-	assert.Equal(t, domain.AgentRungSession, r.snapshot(chatID).Session.Rung)
 }
 
 // A real codex chat born in its TUI moves to Crowbar's chat on the same
@@ -206,6 +205,8 @@ func TestLive_SwitchToCodexThenItsTerminal(t *testing.T) {
 	chatID := r.spawn("claude")
 	require.NoError(t, r.send(chatID, "first"))
 	r.eventually(r.replied(chatID, 1), "claude never answered")
+	before, ok := r.snapshot(chatID).Conversation()
+	require.True(t, ok)
 
 	_, err := r.runners().SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
@@ -218,12 +219,14 @@ func TestLive_SwitchToCodexThenItsTerminal(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, r.send(chatID, "claude again"))
 	r.eventually(r.replied(chatID, 3), "claude never answered again")
-	assert.Equal(t, domain.AgentRungSession, r.snapshot(chatID).Session.Rung, "claude resumed its own session")
+	after, ok := r.snapshot(chatID).Conversation()
+	require.True(t, ok)
+	assert.Equal(t, before.SessionID, after.SessionID, "claude resumed its own session")
 }
 
-// A vendor session the CLI no longer has continues on a fresh one handed the
-// transcript — with the real CLIs, which exit on an unknown session.
-func TestLive_LostSessionContinuesFromTheTranscript(t *testing.T) {
+// A vendor session the CLI no longer has is lost — the real CLIs exit on an
+// unknown session — and the next message starts a fresh one.
+func TestLive_LostSessionStartsFresh(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
 			r, _ := newLiveRig(t)
@@ -235,8 +238,12 @@ func TestLive_LostSessionContinuesFromTheTranscript(t *testing.T) {
 			removeSessionFiles(t)
 
 			require.NoError(t, r.send(chatID, "still there?"))
+			r.eventually(func() bool {
+				c, ok := r.snapshot(chatID).Conversation()
+				return ok && c.State == ledger.ConversationLost && !r.working(chatID)
+			}, "the CLI never refused the pruned session")
+			require.NoError(t, r.send(chatID, "start again"))
 			r.eventually(r.replied(chatID, 2), "a lost session stranded the chat")
-			assert.Equal(t, domain.AgentRungTranscript, r.snapshot(chatID).Session.Rung)
 			assert.Len(t, r.sessions(chatID), 2, "a new vendor session carries the chat on: %v\nhooks:\n%s", r.said(chatID), r.d.hooks)
 		})
 	}

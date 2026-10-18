@@ -146,7 +146,7 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 
 	// The user's own conversation announces itself and takes a turn.
 	postMemStubHook(t, h, ws, runner, "session_start", realStart)
-	frames.awaitRunner(runner, "session_bound")
+	frames.awaitConversation(chat, realSessionID)
 	postMemStubHook(t, h, ws, runner, "user_prompt", realPrompt)
 	frames.awaitChat(chat, "turn_started")
 	h.Quiesce()

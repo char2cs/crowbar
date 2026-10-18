@@ -136,3 +136,68 @@ func TestState_CloneIsIndependentOfTheOriginal(t *testing.T) {
 	assert.Len(t, snapshot.PendingPrompts(), 1)
 	assert.Equal(t, int64(1), snapshot.Head())
 }
+
+func bound(t *testing.T, provider, session, cause, previous string) ledger.Row {
+	t.Helper()
+	return row(t, ledger.KindSessionBound, "", ledger.SessionBound{
+		Provider: provider, SessionID: session, Cause: cause, Previous: previous,
+	})
+}
+
+// lostS1 is provider's session S1 refused by its CLI.
+func lostS1(t *testing.T, provider string) ledger.Row {
+	t.Helper()
+	return row(t, ledger.KindSessionLost, "", ledger.SessionLost{Provider: provider, SessionID: "S1", Reason: "refused"})
+}
+
+func TestFold_ConversationPerProvider(t *testing.T) {
+	st := ledger.Fold("c1", sequenced(t,
+		bound(t, "p1", "S1", ledger.CauseAssigned, ""),
+		bound(t, "p2", "X1", ledger.CauseAnnounced, ""),
+		lostS1(t, "p1"),
+		bound(t, "p1", "S2", ledger.CauseFresh, "S1"),
+	))
+
+	p1, ok := st.Conversation("p1")
+	require.True(t, ok)
+	assert.Equal(t, "S2", p1.SessionID)
+	assert.Equal(t, ledger.ConversationBound, p1.State)
+	p2, ok := st.Conversation("p2")
+	require.True(t, ok)
+	assert.Equal(t, "X1", p2.SessionID)
+	assert.Equal(t, ledger.ConversationBound, p2.State)
+	_, ok = st.Conversation("p3")
+	assert.False(t, ok, "a provider the chat never ran has no conversation")
+
+	var sessions []string
+	var states []ledger.ConversationState
+	for _, c := range st.Conversations() {
+		sessions = append(sessions, c.SessionID)
+		states = append(states, c.State)
+	}
+	assert.Equal(t, []string{"S1", "X1", "S2"}, sessions)
+	assert.Equal(t, []ledger.ConversationState{ledger.ConversationLost, ledger.ConversationBound, ledger.ConversationBound}, states)
+}
+
+func TestFold_ASessionLossOnlyLosesTheBoundSession(t *testing.T) {
+	st := ledger.Fold("c1", sequenced(t,
+		bound(t, "p1", "S1", ledger.CauseAssigned, ""),
+		bound(t, "p1", "S2", ledger.CauseAnnounced, "S1"),
+		lostS1(t, "p1"),
+		lostS1(t, "p9"),
+		bound(t, "p1", "S1", ledger.CauseAnnounced, "S2"),
+	))
+
+	current, ok := st.Conversation("p1")
+	require.True(t, ok)
+	assert.Equal(t, ledger.ConversationBound, current.State, "a refusal of a session the chat moved off is late")
+	assert.Equal(t, "S1", current.SessionID, "returning to an earlier session rebinds it")
+	got := st.Conversations()
+	require.Len(t, got, 2, "a session is listed once, where it was first bound")
+	assert.Equal(t, ledger.ConversationUnbound, got[1].State, "the session the chat moved off is no longer bound")
+
+	clone := st.Clone()
+	st.Apply(lostS1(t, "p1"))
+	again, _ := clone.Conversation("p1")
+	assert.Equal(t, ledger.ConversationBound, again.State, "a clone must not see rows applied to its original")
+}

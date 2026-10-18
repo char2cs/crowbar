@@ -22,7 +22,6 @@ import (
 func TestEventKind_ParsesAndFallsBack(t *testing.T) {
 	assert.Equal(t, "started", eventKind("runner.started.r1"))
 	assert.Equal(t, "session_bound", eventKind("runner.session_bound.r1"))
-	assert.Equal(t, "moved", eventKind("runner.moved.r1"))
 	assert.Equal(t, "exited", eventKind("runner.exited.r1"))
 
 	// A name that doesn't fit "runner.<kind>.<id>" still yields a frame
@@ -37,7 +36,7 @@ func newProjectorDB(
 	t.Helper()
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&runnerRow{}, &conversationRow{}, &placementRow{}, &healMarkerRow{}))
+	require.NoError(t, db.AutoMigrate(&runnerRow{}, &placementRow{}))
 	closeDB := func() {
 		sqlDB, err := db.DB()
 		require.NoError(t, err)
@@ -52,7 +51,7 @@ func evt(
 	return asynxModels.Event[agents.Runner]{AggregateID: r.ID, Aggregate: r}
 }
 
-// A write failure in any of the three fold branches is logged, not fatal — the
+// A write failure in any of the fold branches is logged, not fatal — the
 // projection must never take the daemon down with it.
 func TestProjector_WriteFailuresAreLoggedNotFatal(t *testing.T) {
 	p, closeDB := newProjectorDB(t)
@@ -60,7 +59,7 @@ func TestProjector_WriteFailuresAreLoggedNotFatal(t *testing.T) {
 
 	live := agents.Runner{
 		ID: "r1", WorkspaceID: "w1", ProviderID: "claude",
-		TerminalSession: "pty1", CurrentChatID: "c1", CurrentSession: "s1",
+		TerminalSession: "pty1", CurrentChatID: "c1",
 		StartedAt: time.Unix(1, 0),
 	}
 	assert.NotPanics(t, func() { p.onEvent(context.Background(), evt(live)) })
@@ -71,58 +70,9 @@ func TestProjector_WriteFailuresAreLoggedNotFatal(t *testing.T) {
 	assert.NotPanics(t, func() { p.onEvent(context.Background(), evt(exited)) })
 }
 
-// The heal must not mistake a broken read DB for a virgin one: an unreadable
-// marker is a hard error at construction, never a silent full replay.
-func TestHealHistory_MarkerReadFailureSurfaces(t *testing.T) {
-	p, closeDB := newProjectorDB(t)
-	closeDB()
-
-	err := healHistory(p.db, nil, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "read heal marker")
-}
-
-// The markers are written after the heal, so a first construction that FAILS is
-// retried on the next boot rather than being recorded as done — and EVERY
-// projection gets its own, which is what lets a new one be folded on a read DB
-// that already believes itself built.
-func TestHealHistory_MarksEveryProjectionBuilt(t *testing.T) {
-	p, closeDB := newProjectorDB(t)
-	defer closeDB()
-
-	require.NoError(t, healHistory(p.db, nil, nil))
-
-	for _, markerID := range []string{conversationsMarkerID, placementsMarkerID} {
-		built, err := readModelWasBuilt(context.Background(), p.db, markerID)
-		require.NoError(t, err)
-		assert.True(t, built, "an empty history table now means 'nothing to say', not 'heal me': "+markerID)
-	}
-}
-
-// TestRegression_HealHistory_APreExistingReadModelStillFoldsANewProjection is the
-// recovery half of the resume bug. A read DB built before the placement
-// projection existed carries the CONVERSATIONS marker and nothing else; under one
-// shared marker it would report itself built and every chat already on disk would
-// stay unresolvable forever. Per-projection markers make the placement fold
-// PENDING on exactly that DB.
-func TestRegression_HealHistory_APreExistingReadModelStillFoldsANewProjection(t *testing.T) {
-	p, closeDB := newProjectorDB(t)
-	defer closeDB()
-
-	require.NoError(t, markBuilt(context.Background(), p.db,
-		[]historyFold{{markerID: conversationsMarkerID}}))
-
-	pending, err := pendingFolds(context.Background(), p.db)
-	require.NoError(t, err)
-	require.Len(t, pending, 1, "the conversations fold is done; the placement fold is not")
-	assert.Equal(t, placementsMarkerID, pending[0].markerID)
-}
-
-// TestProjector_APlacementIsRecordedForARunnerThatAnnouncedNothing is the whole
-// point of the placement projection: the runner that leaves NO conversation row
-// (TestProjector_UnboundRunnerAppendsNoConversation below proves it leaves none)
-// still leaves a durable record naming its provider on its chat.
-func TestProjector_APlacementIsRecordedForARunnerThatAnnouncedNothing(t *testing.T) {
+// Every runner leaves a durable record naming its provider on its chat, alongside
+// its live row.
+func TestProjector_APlacementIsRecordedForEveryRunner(t *testing.T) {
 	p, closeDB := newProjectorDB(t)
 	defer closeDB()
 
@@ -130,6 +80,10 @@ func TestProjector_APlacementIsRecordedForARunnerThatAnnouncedNothing(t *testing
 		ID: "r1", WorkspaceID: "w1", ProviderID: "quietvendor",
 		TerminalSession: "pty1", CurrentChatID: "c1", StartedAt: time.Unix(1, 0),
 	}))
+
+	var runners int64
+	require.NoError(t, p.db.Model(&runnerRow{}).Count(&runners).Error)
+	assert.Equal(t, int64(1), runners)
 
 	var rows []placementRow
 	require.NoError(t, p.db.Where("chat_id = ?", "c1").Find(&rows).Error)
@@ -178,30 +132,4 @@ func TestProjector_ADisplacedRunnerRecordsNoPlacement(t *testing.T) {
 	var placements int64
 	require.NoError(t, p.db.Model(&placementRow{}).Count(&placements).Error)
 	assert.Equal(t, int64(0), placements)
-}
-
-// A runner with no conversation yet (spawned, provider has not announced) gets a
-// live row but appends NO history — history only records conversations that
-// actually existed.
-func TestProjector_UnboundRunnerAppendsNoConversation(t *testing.T) {
-	p, closeDB := newProjectorDB(t)
-	defer closeDB()
-
-	p.onEvent(context.Background(), evt(agents.Runner{
-		ID: "r1", WorkspaceID: "w1", ProviderID: "claude",
-		TerminalSession: "pty1", CurrentChatID: "c1", StartedAt: time.Unix(1, 0),
-	}))
-
-	var runners int64
-	require.NoError(t, p.db.Model(&runnerRow{}).Count(&runners).Error)
-	assert.Equal(t, int64(1), runners)
-
-	var convs int64
-	require.NoError(t, p.db.Model(&conversationRow{}).Count(&convs).Error)
-	assert.Equal(t, int64(0), convs, "no conversation was ever announced")
-
-	var placements int64
-	require.NoError(t, p.db.Model(&placementRow{}).Count(&placements).Error)
-	assert.Equal(t, int64(1), placements,
-		"but the PLACEMENT is recorded — it is what still names this chat's provider")
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -212,7 +213,7 @@ func TestAPIConnRegistry_CloseAllIsNotARunnerExit(t *testing.T) {
 	serve := reapServe(cmd)
 	reg.set("runner-1", &apiconn{serve: serve})
 	exited := make(chan struct{}, 1)
-	require.True(t, reg.watchExit("runner-1", func() { exited <- struct{}{} }))
+	require.True(t, reg.watchExit("runner-1", func(engineterminal.Exit) { exited <- struct{}{} }))
 
 	reg.closeAll()
 
@@ -324,14 +325,9 @@ func apiTransportTestAgent(t *testing.T) engineagents.Agent {
 	return a
 }
 
-// spyTurns records every IngestHook call, and the delivery id (if any) each one
-// carried — the whole surface pumpAPIConn actually exercises.
-//
-// For an event that carries a delivery id, it ALSO holds a slot on answers —
-// mirroring the ordering the real turn package's holdForAnswer guarantees
-// (synchronously, before IngestHook returns) so this test's own Resolve call
-// cannot race awaitAndReplyOverSocket's Await the way it would if nothing held
-// the slot until after pumpAPIConn had already moved on.
+// spyTurns records every IngestHook call and the delivery id it carried. Like the
+// real holdForAnswer, it holds a delivery's answer slot before IngestHook returns,
+// so the test's Resolve cannot race awaitAndReplyOverSocket's Await.
 type spyTurns struct {
 	noopTurns
 	answers *answerdesk.Desk

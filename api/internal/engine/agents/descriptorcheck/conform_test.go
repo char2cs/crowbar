@@ -75,7 +75,7 @@ func TestConform_AHealthyCLIPassesEveryStep(t *testing.T) {
 
 	assert.Equal(t, map[string]descriptorcheck.Status{
 		"binary": "pass", "version": "pass", "flags": "pass", "tui_boot": "pass",
-		"hooks": "pass", "turn": "pass", "session_locate": "pass", "resume_unknown": "pass",
+		"hooks": "pass", "turn": "pass", "resume_unknown": "pass",
 		"app_server": "skip",
 	}, statuses(rep), "%+v", rep.Steps)
 	assert.True(t, rep.OK())
@@ -107,8 +107,8 @@ func TestConform_ATrustPromptParksTheRunWithoutAnsweringIt(t *testing.T) {
 	assert.True(t, rep.OK(), "a parked prompt is reported, not failed")
 }
 
-// The resume probe reads an early exit as "that session is gone"; a CLI that
-// stays up on an unknown session would pass a lost session off as live.
+// A CLI that stays up on an unknown session would pass a lost session off as
+// live.
 func TestConform_AResumeOfAnUnknownSessionMustEnd(t *testing.T) {
 	rep := conform(t, run{descriptor: "descriptor.yaml", transcript: "resume_hangs"})
 
@@ -125,13 +125,12 @@ func TestConform_AHookPayloadTheDescriptorCannotReadFails(t *testing.T) {
 	assert.Contains(t, hooks.Detail, "session_start")
 }
 
-func TestConform_ASessionWrittenElsewhereFailsTheLocateStep(t *testing.T) {
-	rep := conform(t, run{descriptor: "descriptor.yaml", transcript: "session_elsewhere", turn: true})
+func TestConform_ARefusalTheDescriptorDoesNotRecogniseFails(t *testing.T) {
+	rep := conform(t, run{descriptor: "descriptor.yaml", transcript: "resume_unrecognised"})
 
-	assert.Equal(t, descriptorcheck.StatusPass, step(t, rep, "turn").Status)
-	locate := step(t, rep, "session_locate")
-	assert.Equal(t, descriptorcheck.StatusFail, locate.Status)
-	assert.Contains(t, locate.Detail, "not where session.locate points")
+	resume := step(t, rep, "resume_unknown")
+	assert.Equal(t, descriptorcheck.StatusFail, resume.Status)
+	assert.Contains(t, resume.Detail, "does not recognise")
 }
 
 // Without --turn, a provider that reports hooks only once a turn starts
@@ -142,7 +141,6 @@ func TestConform_WithoutATurnAQuietBootIsSkippedNotFailed(t *testing.T) {
 	got := statuses(rep)
 	assert.Equal(t, descriptorcheck.StatusSkip, got["hooks"])
 	assert.Equal(t, descriptorcheck.StatusSkip, got["turn"])
-	assert.Equal(t, descriptorcheck.StatusSkip, got["session_locate"])
 	assert.Equal(t, descriptorcheck.StatusWarn, got["flags"])
 	assert.Contains(t, step(t, rep, "flags").Detail, "--fake-tui")
 	assert.True(t, rep.OK())
