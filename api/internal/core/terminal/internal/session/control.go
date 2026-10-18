@@ -212,8 +212,8 @@ func (s *Session) killChild() {
 	}
 }
 
-// closePTY closes the PTY master. A second close is expected, not a failure: a Kill racing
-// the child's natural exit finds the master already closed by shutdown.
+// closePTY closes the PTY master. Kill and shutdown both nil ptmx under s.mu, so a second
+// close should not reach it; os.ErrClosed is filtered as a defence, not as an expected case.
 func closePTY(ptmx *os.File) {
 	if err := ptmx.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
 		slog.Warn("terminal: close pty", "err", err)

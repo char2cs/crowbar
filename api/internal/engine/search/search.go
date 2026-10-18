@@ -210,6 +210,7 @@ func buildIgnoreStack(
 		}
 		return nil
 	})
+	// The callback returns only nil or Skip*, so this guards a future callback error.
 	if err != nil {
 		slog.Warn("search: ignore files not all loaded", "repo", repoPath, "err", err)
 	}

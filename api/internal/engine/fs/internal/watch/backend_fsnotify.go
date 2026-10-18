@@ -78,7 +78,7 @@ func (b *fsnotifyBackend) created(
 		}
 	}
 	if isUnder(path, b.spec.tree) {
-		if err := b.addRecursive(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := b.addRecursive(path); err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, fsnotify.ErrClosed) {
 			slog.Warn("watch: follow new directory", "path", path, "err", err)
 		}
 	}
@@ -150,13 +150,13 @@ func (b *fsnotifyBackend) watchBestEffort(
 	}
 }
 
-// add watches dir. A dir that is absent or unreadable is not an error: git dirs
-// and ref trees may legitimately not exist yet.
+// add watches dir. A dir that is absent or unreadable is not an error (git dirs and ref
+// trees may not exist yet), nor is a watcher that Stop has already closed.
 func (b *fsnotifyBackend) add(
 	dir string,
 ) error {
 	err := b.fsw.Add(dir)
-	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) || errors.Is(err, fsnotify.ErrClosed) {
 		return nil
 	}
 	return err

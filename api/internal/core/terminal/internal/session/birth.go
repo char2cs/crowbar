@@ -212,7 +212,10 @@ func (s *Session) spawn(
 	if err := pty.Setsize(ptmx, &pty.Winsize{Cols: winDim(cols), Rows: winDim(rows)}); err != nil {
 		closePTY(ptmx)
 		killErr := killSignal(cmd.Process)
-		reap(cmd)
+		// A child that could not be killed is not waited on: reap would block.
+		if killErr == nil {
+			reap(cmd)
+		}
 		return errors.Join(fmt.Errorf("session: size pty: %w", err), killErr)
 	}
 

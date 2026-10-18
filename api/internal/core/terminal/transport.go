@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -145,7 +146,7 @@ func (e *terminalEngine) writeFrame(conn WSConn, messageType int, payload []byte
 
 // warnUnlessClosed logs err, except that a connection already closed is not a failure.
 func warnUnlessClosed(msg string, err error) {
-	if err != nil && !errors.Is(err, net.ErrClosed) {
+	if err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, os.ErrClosed) {
 		slog.Warn(msg, "err", err)
 	}
 }

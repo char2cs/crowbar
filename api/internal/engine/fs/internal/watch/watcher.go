@@ -189,11 +189,11 @@ func (w *Watcher) Start(
 	w.mu.Lock()
 	if w.started {
 		w.mu.Unlock()
-		return errors.Join(ErrAlreadyStarted, be.close())
+		return failStart(ErrAlreadyStarted, be)
 	}
 	if w.stopped {
 		w.mu.Unlock()
-		return errors.Join(context.Canceled, be.close())
+		return failStart(context.Canceled, be)
 	}
 	w.started = true
 	w.be = be
@@ -201,6 +201,18 @@ func (w *Watcher) Start(
 
 	go w.loop(ctx)
 	return nil
+}
+
+// failStart closes the backend Start built but will not use and returns why Start refused;
+// a close error rides along, and the reason keeps its identity when closing succeeds.
+func failStart(
+	reason error,
+	be backend,
+) error {
+	if err := be.close(); err != nil {
+		return errors.Join(reason, err)
+	}
+	return reason
 }
 
 // spec is what the watcher observes. The git dirs and ref trees are resolved,

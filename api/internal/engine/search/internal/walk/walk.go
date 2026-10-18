@@ -78,6 +78,7 @@ func Walk(
 			}
 			return nil
 		})
+		// The callback returns only nil or Skip*, so this guards a future callback error.
 		if err != nil {
 			slog.Warn("search: walk: producer stopped early", "repo", repoPath, "err", err)
 		}
