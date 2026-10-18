@@ -1,9 +1,11 @@
 package migrations
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -86,4 +88,28 @@ func TestAdopting_AnAdoptionOutlivesItsMarker(t *testing.T) {
 
 	assert.True(t, viewDBHasTable(t, h, "workspace_paths"))
 	assert.Equal(t, []migrate.Counts{{"adopted": 1}}, migratetest.Applied(t, h)[StepWorkspacePathsTable])
+}
+
+// A step is never run on the strength of a marker location it could not look at:
+// the older daemon may have finished it, and running it again can change which
+// provider a chat resumes.
+func TestAdopting_AnUnexaminableMarkerFailsTheStepWithoutRunningIt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows reports a path through a file as not found")
+	}
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "state/upgrades", "")
+	ran := false
+	impl := Adopting(StepChatTypes, migrate.Impl{
+		Apply: func(context.Context, migrate.Env, *migrate.Checkpoints) (migrate.Counts, error) {
+			ran = true
+			return nil, nil
+		},
+	})
+
+	_, err := impl.Apply(context.Background(), migrate.Env{Home: h}, nil)
+
+	require.Error(t, err)
+	require.NotErrorIs(t, err, fs.ErrNotExist)
+	assert.False(t, ran)
 }

@@ -2,6 +2,8 @@ package migrations
 
 import (
 	"context"
+	"runtime"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -41,6 +43,20 @@ func TestPlan_HookDeliveriesNeverRewritesState(t *testing.T) {
 	assert.False(t, planOf(t, h, StepHookDeliveries).RewritesState)
 }
 
+// A plan that cannot tell whether an older daemon finished the step fails: read
+// as "no marker", the step would run again over work already done.
+func TestPlan_AMarkerLocationThatCannotBeExaminedFailsThePlan(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows reports a path through a file as not found")
+	}
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "state/upgrades", "")
+
+	_, err := stepOf(t, StepChatTypes).Plan(context.Background(), migrate.Env{Home: h})
+
+	require.Error(t, err)
+}
+
 func TestPlan_WorkspacePathsTableHasNothingToDoWithoutAViewDB(t *testing.T) {
 	h := testutil.FixtureHome(t)
 
@@ -76,13 +92,18 @@ func planOf(
 	number int,
 ) migrate.Plan {
 	t.Helper()
-	for _, step := range legacySteps() {
-		if step.Number == number {
-			plan, err := step.Plan(context.Background(), migrate.Env{Home: h})
-			require.NoError(t, err)
-			return plan
-		}
-	}
-	t.Fatalf("no legacy step %d", number)
-	return migrate.Plan{}
+	plan, err := stepOf(t, number).Plan(context.Background(), migrate.Env{Home: h})
+	require.NoError(t, err)
+	return plan
+}
+
+func stepOf(
+	t *testing.T,
+	number int,
+) migrate.Step {
+	t.Helper()
+	steps := legacySteps()
+	i := slices.IndexFunc(steps, func(s migrate.Step) bool { return s.Number == number })
+	require.GreaterOrEqual(t, i, 0, "no legacy step %d", number)
+	return steps[i]
 }

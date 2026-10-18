@@ -3,6 +3,7 @@ package migrations
 import (
 	"context"
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -50,6 +51,33 @@ func TestPreOpen_CorruptViewDBHaltsNamingTheStep(t *testing.T) {
 	require.NotNil(t, halt.Step)
 	assert.Equal(t, "workspace-paths-table", halt.Step.Name)
 	assert.Same(t, halt, sess.Halt(), "the session stays live, holding the home")
+}
+
+// The step's postcondition is the table being gone, whatever Apply claimed.
+func TestVerify_FailsWhileTheRetiredTableRemains(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	verify := PreOpenImpls()[StepWorkspacePathsTable].Verify
+	env := migrate.Env{Home: h}
+	require.NoError(t, verify(context.Background(), env), "no view.db has no table to leave")
+	execViewDB(t, h, "CREATE TABLE workspace_paths (id TEXT)")
+
+	err := verify(context.Background(), env)
+
+	require.ErrorContains(t, err, "workspace_paths")
+}
+
+// A view.db that cannot be looked at is not "no view.db": reading it as absent
+// would skip the drop and let Verify pass over a table still there.
+func TestPlanWorkspacePaths_AViewDBThatCannotBeExaminedFailsThePlan(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows reports a path through a file as not found")
+	}
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "state", "")
+
+	_, err := planWorkspacePaths(context.Background(), migrate.Env{Home: h})
+
+	require.Error(t, err)
 }
 
 func TestDropRetiredTable_DropsItAndToleratesItsAbsence(t *testing.T) {
