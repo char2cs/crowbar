@@ -17,6 +17,7 @@
 // editor/languages singleton as the bare 'monaco-editor' specifier, without
 // eagerly bundling all built-in language contributions.
 import { editor, languages } from 'monaco-editor/esm/vs/editor/editor.api.js'
+import { onGrammarReady } from '@/features/editor/lib/shiki-grammars'
 import { lspViewportTokens } from '@/features/editor/lsp/semantic-tokens'
 import { getLanguageIdFromPath } from '@/features/editor/utils/language-id'
 import { SEMANTIC_TOKEN_LEGEND, encodeShikiTokens } from './semantic-tokens-legend'
@@ -63,5 +64,6 @@ let registered = false
 export function registerViewportSemanticTokens(): void {
   if (registered) return
   registered = true
+  onGrammarReady(fireProviderChange)
   languages.registerDocumentRangeSemanticTokensProvider('*', viewportSemanticTokensProvider)
 }

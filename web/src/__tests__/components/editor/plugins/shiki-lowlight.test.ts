@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   classesForScopes,
   onShikiLanguageReady,
   shikiLowlight,
   tokenizeToHast,
 } from '@/components/editor/plugins/shiki-lowlight'
+import { grammarFor } from '@/features/editor/lib/shiki-grammars'
 
 describe('classesForScopes', () => {
   it('maps the innermost matching scope onto the hljs class the code block colors', () => {
@@ -81,6 +82,13 @@ describe('shikiLowlight', () => {
     )
     expect(classes).toEqual(expect.arrayContaining(['hljs-keyword', 'hljs-string', 'hljs-comment']))
     expect(shikiLowlight.listLanguages()).toContain('javascript')
+  }, 30_000)
+
+  it('highlights at once a language the editor already loaded', async () => {
+    grammarFor('python')
+    await vi.waitFor(() => expect(grammarFor('python')).not.toBeNull(), { timeout: 10_000 })
+
+    expect(shikiLowlight.highlight('python', 'def probe(): pass').children).not.toEqual([])
   }, 30_000)
 
   it('stays plain for a language shiki has no grammar for', () => {

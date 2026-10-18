@@ -8,22 +8,12 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StateStack } from 'shiki/textmate'
+import type { ShikiGrammar } from '@/features/editor/lib/shiki-grammars'
 
-const mocks = vi.hoisted(() => {
-  const grammars: Record<string, unknown> = {}
-  return {
-    grammars,
-    bundledLanguages: {} as Record<string, unknown>,
-    loadLanguage: vi.fn(async () => {}),
-  }
-})
+const grammars = vi.hoisted(() => new Map<string, ShikiGrammar>())
 
-vi.mock('shiki/bundle/full', () => ({
-  bundledLanguages: mocks.bundledLanguages,
-  getSingletonHighlighter: vi.fn(async () => ({
-    loadLanguage: mocks.loadLanguage,
-    getInternalContext: () => ({ getLanguage: (name: string) => mocks.grammars[name] }),
-  })),
+vi.mock('@/features/editor/lib/shiki-grammars', () => ({
+  grammarFor: (languageId: string) => grammars.get(languageId) ?? null,
 }))
 
 import {
@@ -32,7 +22,6 @@ import {
   shikiTokensInRange,
   tokenizeRows,
   type ShikiToken,
-  type TokenizerGrammar,
   type TokenizerModel,
 } from '@/features/editor/monaco/shiki-tokens'
 
@@ -47,7 +36,7 @@ interface FakeStack {
  * threads a block-comment state across lines, so a viewport tokenized from the
  * wrong rule stack produces visibly wrong categories.
  */
-function fakeGrammar(): TokenizerGrammar {
+function fakeGrammar(): ShikiGrammar {
   return {
     tokenizeLine(line: string, prevState: StateStack | null) {
       let inComment = (prevState as unknown as FakeStack | null)?.inComment ?? false
@@ -110,23 +99,15 @@ function fakeModel(uri: string, lines: string[]) {
 
 beforeEach(() => {
   __resetShikiTokensForTests()
-  for (const key of Object.keys(mocks.bundledLanguages)) delete mocks.bundledLanguages[key]
-  for (const key of Object.keys(mocks.grammars)) delete mocks.grammars[key]
-  mocks.loadLanguage.mockClear()
+  grammars.clear()
 })
 
 afterEach(() => {
   vi.useRealTimers()
 })
 
-/** Drain the dynamic import + promise chain warmLanguage builds. */
-async function flush(): Promise<void> {
-  for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0))
-}
-
 function register(languageId: string): void {
-  mocks.bundledLanguages[languageId] = () => {}
-  mocks.grammars[languageId] = fakeGrammar()
+  grammars.set(languageId, fakeGrammar())
 }
 
 describe('scopeCategory', () => {
@@ -230,61 +211,30 @@ describe('tokenizeRows', () => {
   })
 })
 
-/**
- * Drive the two asynchronous steps a language goes through — loading the
- * grammar, then compiling its rules against real code on a timer — so the next
- * call is the synchronous one under test.
- */
+/** Run a language's first compile, which happens on a timer, so the next call is synchronous. */
 async function warm(model: TokenizerModel, languageId: string, endRow = 0): Promise<void> {
-  shikiTokensInRange(model, languageId, 0, endRow, () => {})
-  await flush()
-  shikiTokensInRange(model, languageId, 0, endRow, () => {})
-  await flush()
+  const onReady = vi.fn()
+  shikiTokensInRange(model, languageId, 0, endRow, onReady)
+  await vi.waitFor(() => expect(onReady).toHaveBeenCalled())
 }
 
 describe('shikiTokensInRange', () => {
-  it('defers both the grammar load and its first compile off the synchronous path', async () => {
-    register('fakelang')
+  it('stays null until the grammar is ready, then defers its first compile', async () => {
     const onReady = vi.fn()
     const { model } = fakeModel('file:///a.fake', ['Tfoo fnBar'])
 
-    // 1. grammar not loaded yet
+    // 1. no grammar yet: Monarch stands; the provider re-asks once one lands
+    expect(shikiTokensInRange(model, 'fakelang', 0, 0, onReady)).toBeNull()
+
+    // 2. ready, but its rules have never met real code — that pass runs on a timer
+    register('fakelang')
     expect(shikiTokensInRange(model, 'fakelang', 0, 0, onReady)).toBeNull()
     expect(onReady).not.toHaveBeenCalled()
-
-    await flush()
-    expect(onReady).toHaveBeenCalledOnce()
-    expect(mocks.loadLanguage).toHaveBeenCalledWith('fakelang')
-
-    // 2. loaded, but its rules have never met real code — that pass runs on a timer
-    expect(shikiTokensInRange(model, 'fakelang', 0, 0, onReady)).toBeNull()
-    await flush()
-    expect(onReady).toHaveBeenCalledTimes(2)
+    await vi.waitFor(() => expect(onReady).toHaveBeenCalledOnce())
 
     // 3. synchronous from here on
     const tokens = shikiTokensInRange(model, 'fakelang', 0, 0, onReady)
     expect(tokens?.map((t) => t.category)).toEqual(['type', 'function'])
-  })
-
-  it('maps a crowbar language id onto shiki’s bundle id', async () => {
-    register('tsx')
-    const { model } = fakeModel('file:///a.tsx', ['Tfoo'])
-
-    await warm(model, 'typescriptreact')
-
-    expect(mocks.loadLanguage).toHaveBeenCalledWith('tsx')
-    expect(shikiTokensInRange(model, 'typescriptreact', 0, 0, () => {})).toHaveLength(1)
-  })
-
-  it('stays null for a language shiki has no grammar for, and never retries', async () => {
-    const onReady = vi.fn()
-    const { model } = fakeModel('file:///.gitignore', ['Tfoo'])
-
-    expect(shikiTokensInRange(model, 'gitignore', 0, 0, onReady)).toBeNull()
-    await flush()
-    expect(onReady).not.toHaveBeenCalled()
-    expect(shikiTokensInRange(model, 'gitignore', 0, 0, onReady)).toBeNull()
-    expect(mocks.loadLanguage).not.toHaveBeenCalled()
   })
 
   it('resumes from the rule stack above the viewport instead of re-reading the file', async () => {

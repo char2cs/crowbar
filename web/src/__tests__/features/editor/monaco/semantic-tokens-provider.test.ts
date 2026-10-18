@@ -15,21 +15,29 @@ vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => ({
 }))
 vi.mock('@/features/editor/lsp/semantic-tokens', () => ({ lspViewportTokens: vi.fn(() => null) }))
 
-const shiki = vi.hoisted(() => ({
-  bundledLanguages: {} as Record<string, unknown>,
-  tokenizeLine: vi.fn(),
-}))
+const shiki = vi.hoisted(() => {
+  const tokenizeLine = vi.fn()
+  return {
+    ready: new Set<string>(),
+    grammar: { tokenizeLine },
+    tokenizeLine,
+    readyListeners: new Set<(languageId: string) => void>(),
+  }
+})
 
-vi.mock('shiki/bundle/full', () => ({
-  bundledLanguages: shiki.bundledLanguages,
-  getSingletonHighlighter: vi.fn(async () => ({
-    loadLanguage: async () => {},
-    getInternalContext: () => ({ getLanguage: () => ({ tokenizeLine: shiki.tokenizeLine }) }),
-  })),
+vi.mock('@/features/editor/lib/shiki-grammars', () => ({
+  grammarFor: (languageId: string) => (shiki.ready.has(languageId) ? shiki.grammar : null),
+  onGrammarReady: (listener: (languageId: string) => void) => {
+    shiki.readyListeners.add(listener)
+    return () => shiki.readyListeners.delete(listener)
+  },
 }))
 
 import { lspViewportTokens } from '@/features/editor/lsp/semantic-tokens'
-import { viewportSemanticTokensProvider } from '@/features/editor/monaco/semantic-tokens-provider'
+import {
+  registerViewportSemanticTokens,
+  viewportSemanticTokensProvider,
+} from '@/features/editor/monaco/semantic-tokens-provider'
 import { SEMANTIC_TOKEN_LEGEND } from '@/features/editor/monaco/semantic-tokens-legend'
 import { __resetShikiTokensForTests } from '@/features/editor/monaco/shiki-tokens'
 
@@ -54,11 +62,6 @@ function fakeGrammar(line: string) {
   return { tokens, ruleStack: null as unknown as StateStack }
 }
 
-/** Drain the dynamic import + promise chain the grammar warm-up builds. */
-async function flush(): Promise<void> {
-  for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0))
-}
-
 function fakeModel(path: string, value: string): editor.ITextModel {
   const lines = value.split('\n')
   return {
@@ -80,24 +83,24 @@ function provide(model: editor.ITextModel): languages.SemanticTokens {
   ) as languages.SemanticTokens
 }
 
-/** Shiki warms in two async steps: the grammar loads, then compiles on a timer. */
+/** A ready grammar's first compile runs on a timer, then the provider asks Monaco again. */
 async function warm(model: editor.ITextModel): Promise<void> {
+  const changed = vi.fn()
+  const subscription = viewportSemanticTokensProvider.onDidChange?.(changed)
   provide(model)
-  await flush()
-  provide(model)
-  await flush()
+  await vi.waitFor(() => expect(changed).toHaveBeenCalled())
+  subscription?.dispose()
 }
 
 describe('viewportSemanticTokensProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     __resetShikiTokensForTests()
-    for (const key of Object.keys(shiki.bundledLanguages)) delete shiki.bundledLanguages[key]
+    shiki.ready.clear()
     shiki.tokenizeLine.mockImplementation(fakeGrammar)
   })
 
-  it('answers synchronously before the grammar is warm', () => {
-    shiki.bundledLanguages.go = () => {}
+  it('answers synchronously before the grammar is ready', () => {
     const result = viewportSemanticTokensProvider.provideDocumentRangeSemanticTokens(
       fakeModel('/cold.go', 'Foo()\n'),
       range,
@@ -107,8 +110,19 @@ describe('viewportSemanticTokensProvider', () => {
     expect((result as languages.SemanticTokens).data).toHaveLength(0)
   })
 
+  it('asks Monaco to re-request once a grammar lands', () => {
+    registerViewportSemanticTokens()
+    const changed = vi.fn()
+    const subscription = viewportSemanticTokensProvider.onDidChange?.(changed)
+
+    for (const listener of shiki.readyListeners) listener('go')
+
+    expect(changed).toHaveBeenCalledOnce()
+    subscription?.dispose()
+  })
+
   it('colors identifiers from shiki once the grammar is warm', async () => {
-    shiki.bundledLanguages.go = () => {}
+    shiki.ready.add('go')
     const model = fakeModel('/warm.go', 'Widget thing # note\n')
     await warm(model)
 
@@ -118,7 +132,7 @@ describe('viewportSemanticTokensProvider', () => {
   })
 
   it('also colors comments where Monaco has no grammar at all', async () => {
-    shiki.bundledLanguages.nix = () => {}
+    shiki.ready.add('nix')
     const model = fakeModel('/flake.nix', 'Widget # note\n')
     await warm(model)
 

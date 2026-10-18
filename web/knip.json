@@ -103,7 +103,7 @@
     "src/features/editor/monaco/language-contributions.ts": ["exports"],
     "src/features/editor/monaco/language.ts": ["exports"],
     "src/features/editor/monaco/semantic-tokens-provider.ts": ["exports"],
-    "src/features/editor/monaco/shiki-tokens.ts": ["exports", "types"],
+    "src/features/editor/monaco/shiki-tokens.ts": ["exports"],
     "src/features/editor/theme/resolve-css-color.ts": ["exports"],
     "src/features/editor/utils/language-id.ts": ["exports"],
     "src/features/file-explorer/file-explorer/components/file-explorer-tree.tsx": [

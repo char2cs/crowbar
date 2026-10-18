@@ -3,31 +3,23 @@
  *
  * Plate's code block decorates through a lowlight instance: a SYNCHRONOUS
  * `highlight(lang, code)` returning a hast tree whose span classes become
- * decoration class names. The app already ships shiki (Monaco's grammar
- * fallback, fenced code in markdown previews) with the same TextMate grammars
- * VSCode uses, so a second highlighter — lowlight with every highlight.js
- * grammar — only duplicated it.
+ * decoration class names. Monaco already highlights with shiki's TextMate
+ * grammars, so the code block shares that highlighter (`shiki-grammars.ts`)
+ * instead of shipping lowlight with every highlight.js grammar.
  *
- * Shiki is async only while loading a grammar; once loaded, a grammar
- * tokenizes synchronously. So `highlight` returns an empty tree for a language
- * that is not loaded yet and starts loading it; `onShikiLanguageReady` tells
- * the code block to re-decorate when it lands. Scopes map onto the
- * `hljs-*` class names the code block's stylesheet already colors.
+ * `highlight` returns an empty tree for a language whose grammar is not ready
+ * yet and starts loading it; `onShikiLanguageReady` tells the code block to
+ * re-decorate when it lands. Scopes map onto the `hljs-*` class names the code
+ * block's stylesheet already colors.
  */
 import type { StateStack } from 'shiki/textmate'
+import {
+  grammarFor,
+  readyLanguageIds,
+  type ShikiGrammar,
+} from '@/features/editor/lib/shiki-grammars'
 
-type ShikiBundle = typeof import('shiki/bundle/full')
-type Highlighter = Awaited<ReturnType<ShikiBundle['getSingletonHighlighter']>>
-
-interface Grammar {
-  tokenizeLine(
-    line: string,
-    prev: StateStack | null,
-  ): {
-    tokens: readonly { startIndex: number; endIndex: number; scopes: string[] }[]
-    ruleStack: StateStack
-  }
-}
+export { onGrammarReady as onShikiLanguageReady } from '@/features/editor/lib/shiki-grammars'
 
 interface HastText {
   type: 'text'
@@ -94,7 +86,7 @@ export function classesForScopes(scopes: readonly string[]): string[] {
 
 /** Tokenizes `code` line by line into the hast shape Plate's decorator reads. */
 /** @internal Exported for unit tests. */
-export function tokenizeToHast(grammar: Grammar, code: string): HastRoot {
+export function tokenizeToHast(grammar: ShikiGrammar, code: string): HastRoot {
   const children: HastRoot['children'] = []
   let stack: StateStack | null = null
   code.split('\n').forEach((line, index) => {
@@ -120,53 +112,17 @@ export function tokenizeToHast(grammar: Grammar, code: string): HastRoot {
   return { type: 'root', children }
 }
 
-type LanguageState = { status: 'loading' | 'failed' } | { status: 'ready'; grammar: Grammar }
-
-const languages = new Map<string, LanguageState>()
-const readyListeners = new Set<(lang: string) => void>()
-let highlighter: Promise<Highlighter> | null = null
-
-function loadLanguage(lang: string) {
-  languages.set(lang, { status: 'loading' })
-  // The same `shiki/bundle/full` singleton Monaco and markdown previews use:
-  // one engine, one grammar cache.
-  void import('shiki/bundle/full')
-    .then(async ({ bundledLanguages, getSingletonHighlighter }) => {
-      if (!(lang in bundledLanguages)) throw new Error(`no shiki grammar: ${lang}`)
-      highlighter ??= getSingletonHighlighter({ themes: ['github-dark'], langs: [] })
-      const hl = await highlighter
-      await hl.loadLanguage(lang as Parameters<Highlighter['loadLanguage']>[0])
-      const grammar = hl.getInternalContext().getLanguage(lang) as unknown as Grammar
-      languages.set(lang, { status: 'ready', grammar })
-      for (const listener of readyListeners) listener(lang)
-    })
-    .catch(() => {
-      languages.set(lang, { status: 'failed' })
-    })
-}
-
-/** Called once per language when its grammar becomes ready. */
-export function onShikiLanguageReady(listener: (lang: string) => void): () => void {
-  readyListeners.add(listener)
-  return () => {
-    readyListeners.delete(listener)
-  }
-}
-
 const EMPTY: HastRoot = { type: 'root', children: [] }
 
 /** The lowlight surface `@platejs/code-block` calls. */
 export const shikiLowlight = {
   highlight(lang: string, code: string): HastRoot {
-    const state = languages.get(lang)
-    if (!state) loadLanguage(lang)
-    return state?.status === 'ready' ? tokenizeToHast(state.grammar, code) : EMPTY
+    const grammar = grammarFor(lang)
+    return grammar ? tokenizeToHast(grammar, code) : EMPTY
   },
   // Auto-detection was a highlight.js feature; an untagged block stays plain.
   highlightAuto(_code: string): HastRoot {
     return EMPTY
   },
-  listLanguages(): string[] {
-    return [...languages].flatMap(([lang, state]) => (state.status === 'ready' ? [lang] : []))
-  },
+  listLanguages: readyLanguageIds,
 }
