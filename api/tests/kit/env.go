@@ -202,7 +202,7 @@ func NewEnvWithHome(
 	apiContainer.Register(router.Group("/v0"))
 
 	socketPath := kitSocketPath()
-	listener, err := gateway.New("unix://" + socketPath)
+	listener, err := gateway.New("unix://", socketPath)
 	if err != nil {
 		appContainer.Close()
 		eng.Close()

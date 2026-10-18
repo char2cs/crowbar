@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -25,7 +26,9 @@ func runPaths(t *testing.T) (string, error) {
 	return out.String(), err
 }
 
-func TestPathsCmd_PrintsHomeAndSocket(t *testing.T) {
+// The desktop shell reads the daemon's log where this says it is, so the home
+// alone decides that path, as it does the socket.
+func TestPathsCmd_PrintsHomeSocketAndLog(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	t.Setenv(home.EnvVar, h.Root())
 
@@ -35,7 +38,9 @@ func TestPathsCmd_PrintsHomeAndSocket(t *testing.T) {
 	dec := json.NewDecoder(strings.NewReader(out))
 	var got map[string]string
 	require.NoError(t, dec.Decode(&got))
-	assert.Equal(t, map[string]string{"home": h.Root(), "socket": h.Socket()}, got)
+	assert.Equal(t, map[string]string{
+		"home": h.Root(), "socket": h.Socket(), "log": filepath.Join(h.Root(), "logs", "daemon.log"),
+	}, got)
 	require.ErrorIs(t, dec.Decode(new(any)), io.EOF)
 }
 

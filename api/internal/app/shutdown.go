@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 )
@@ -201,14 +202,19 @@ func shutdownAgentRunners(ucs *usecases.Container) {
 	ucs.AgentRunner.ShutdownAPIConnections()
 }
 
+// WriterDrainGrace bounds a teardown's wait for the writers, so a wedged reaper
+// cannot hang a daemon that has no supervisor to kill it.
+const WriterDrainGrace = 4 * time.Second
+
 // abandon stops what a New that failed with cause had started: the reactors,
-// then the aggregates' pools. No writer outlives it into the stores the caller
-// closes next, even when cause is ctx giving up: the teardown ignores ctx.
+// then the aggregates' pools. It ignores ctx, which may be what gave up, and
+// waits on the writers for WriterDrainGrace, as a daemon's shutdown does.
 func (c *Container) abandon(
 	ctx context.Context,
 	cause error,
 ) error {
-	ctx = context.WithoutCancel(ctx)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), WriterDrainGrace)
+	defer cancel()
 	err := c.Shutdown(ctx)
 	shutdownAgentRunners(c.Usecases)
 	c.stopBackgroundWorkers(ctx)

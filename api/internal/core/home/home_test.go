@@ -22,6 +22,8 @@ func TestResolve_RootsEverythingAtCrowbarHome(t *testing.T) {
 	assert.Equal(t, filepath.Join(root, "state"), h.State())
 	assert.Equal(t, filepath.Join(root, "state", "events"), h.Events())
 	assert.Equal(t, filepath.Join(root, "state", "store"), h.Store())
+	assert.Equal(t, filepath.Join(root, "state", "content"), h.Content())
+	assert.Equal(t, filepath.Join(root, "logs", "daemon.log"), h.DaemonLog())
 	assert.Equal(t, filepath.Join(root, "config.yaml"), h.Config())
 	assert.Equal(t, filepath.Join(root, "LAYOUT"), h.LayoutFile())
 	assert.Equal(t, filepath.Join(root, "state", ".lock"), h.LockFile())
@@ -33,7 +35,7 @@ func TestResolve_RejectsARelativeCrowbarHome(t *testing.T) {
 
 	_, err := Resolve()
 
-	require.ErrorIs(t, err, ErrRelative)
+	require.ErrorIs(t, err, errRelative)
 }
 
 func TestResolve_DefaultsToDotCrowbarUnderTheUserHome(t *testing.T) {
@@ -55,13 +57,13 @@ func TestResolve_RefusesAHomeOutsideTempInATestBinary(t *testing.T) {
 
 	_, err := Resolve()
 
-	require.ErrorIs(t, err, ErrOutsideTemp)
+	require.ErrorIs(t, err, errOutsideTemp)
 }
 
 func TestAt_RefusesAHomeOutsideTempInATestBinary(t *testing.T) {
 	_, err := At(filepath.Join(realHomeDirOrSkip(t), ".crowbar"))
 
-	require.ErrorIs(t, err, ErrOutsideTemp)
+	require.ErrorIs(t, err, errOutsideTemp)
 }
 
 func TestAt_AcceptsAHomeUnderTemp(t *testing.T) {
@@ -85,13 +87,13 @@ func TestAt_AcceptsASiblingNamedLikeAParentUnderTemp(t *testing.T) {
 func TestAt_RefusesTheTempDirsParent(t *testing.T) {
 	_, err := At(filepath.Dir(filepath.Clean(os.TempDir())))
 
-	require.ErrorIs(t, err, ErrOutsideTemp)
+	require.ErrorIs(t, err, errOutsideTemp)
 }
 
 func TestAt_RejectsARelativeRoot(t *testing.T) {
 	_, err := At("rel/dir")
 
-	require.ErrorIs(t, err, ErrRelative)
+	require.ErrorIs(t, err, errRelative)
 }
 
 func TestAt_AndResolve_NeverCreateTheHome(t *testing.T) {
@@ -123,7 +125,7 @@ func TestResolveDir_IsAtForADirAndResolveWithout(t *testing.T) {
 	assert.Equal(t, override, h.Root())
 
 	_, err = ResolveDir("relative")
-	require.ErrorIs(t, err, ErrRelative)
+	require.ErrorIs(t, err, errRelative)
 }
 
 func TestIsDefault_IsTrueOnlyForTheUsersOwnHome(t *testing.T) {

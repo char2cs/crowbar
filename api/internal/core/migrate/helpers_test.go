@@ -34,6 +34,8 @@ type bench struct {
 	// free and haveGit stand in for the machine, so no test depends on the disk or on git.
 	free    FreeBytesFunc
 	haveGit func() bool
+	// implemented is what a preview is told this build can run; every step by default.
+	implemented func(number int) bool
 }
 
 func newBench(
@@ -45,7 +47,7 @@ func newBench(
 	require.NoError(tb, err)
 	return &bench{
 		tb: tb, home: testutil.FixtureHome(tb), cat: cat, clock: tickingClock(),
-		free: plentyOfDisk, haveGit: func() bool { return true },
+		free: plentyOfDisk, haveGit: func() bool { return true }, implemented: func(int) bool { return true },
 	}
 }
 

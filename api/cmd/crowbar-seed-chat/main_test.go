@@ -105,3 +105,17 @@ func TestSeedHeld_RefusesAHomeBeginHalts(t *testing.T) {
 	assert.Equal(t, migrate.HaltLayoutNewer, halt.Reason)
 	assert.Equal(t, before, testutil.TreeSnapshot(t, h), "no ledger, store or backup is written")
 }
+
+// The look before the lock can be stale by the time the lock is held, so the
+// seeder looks again while holding it, and opens no store on a home with steps
+// left to run.
+func TestSeedHeld_RefusesAHomeWithStepsPendingUnderTheLock(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "state/upgrades/chat-types", "")
+
+	_, err := seedHeld(context.Background(), h, seedOptions{WorkspaceID: "ws-1", Turns: 1, ToolCallsPerTurn: 1})
+
+	require.ErrorContains(t, err, "start the daemon once to finish migrating this home")
+	assert.NoDirExists(t, h.Events(), "no store is opened")
+	assert.NoDirExists(t, h.MigrateDir(), "no run is started")
+}

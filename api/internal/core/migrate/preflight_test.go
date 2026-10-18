@@ -127,8 +127,9 @@ func TestRun_BacksUpStateBeforeTheFirstStepWhenAPlanRewritesIt(t *testing.T) {
 	assert.Equal(t, "the rows before", backedUp)
 	h := halted(t, err)
 	records := b.records()
-	want := filepath.Join(b.home.MigrateDir(), backupsDirName, records[0].Run, "state")
+	want := filepath.Join(b.home.MigrateDir(), backupsDirName, records[0].Run)
 	assert.Equal(t, want, h.Backup)
+	assert.Contains(t, h.Message, want, "the halt names the backup to restore from")
 	assert.Equal(t, []string{
 		kindRunStart, kindBackup, kindStepStart, kindStepDone, kindStepStart, kindStepFail, kindRunEnd,
 	}, kindsOf(records))
@@ -136,7 +137,7 @@ func TestRun_BacksUpStateBeforeTheFirstStepWhenAPlanRewritesIt(t *testing.T) {
 	assert.Equal(t, want, backup.Path)
 	assert.Equal(t, int64(len("the rows before")), backup.Bytes)
 	assert.Equal(t, records[0].Run, backup.Run)
-	assert.NoFileExists(t, filepath.Join(want, homeLockName), "the lock file is not state")
+	assert.NoFileExists(t, filepath.Join(want, "state", homeLockName), "the lock file is not state")
 }
 
 func TestRun_NoBackupWhenNoPlanRewritesStateOrStateIsEmpty(t *testing.T) {
@@ -229,7 +230,7 @@ func TestRun_OneBackupPerMigrationAttempt(t *testing.T) {
 	assert.Equal(t, firstHalt.Backup, secondHalt.Backup, "the retry's halt points at the pre-migration image")
 	assert.NotEqual(t, firstHalt.Run, secondHalt.Run)
 	assert.Len(t, ofKind(b.records(), kindBackup), 1, "a retry takes no second backup")
-	raw, err := os.ReadFile(filepath.Join(firstHalt.Backup, "view.db"))
+	raw, err := os.ReadFile(filepath.Join(firstHalt.Backup, "state", "view.db"))
 	require.NoError(t, err)
 	assert.Equal(t, "the rows before", string(raw), "partially migrated state never overwrites the image")
 	entries, err := os.ReadDir(filepath.Join(b.home.MigrateDir(), backupsDirName))
@@ -250,7 +251,7 @@ func TestRun_OneBackupPerMigrationAttempt(t *testing.T) {
 	backups := ofKind(b.records(), kindBackup)
 	require.Len(t, backups, 2)
 	assert.NotEqual(t, backups[0].Path, backups[1].Path)
-	raw, err = os.ReadFile(filepath.Join(backups[1].Path, "view.db"))
+	raw, err = os.ReadFile(filepath.Join(backups[1].Path, "state", "view.db"))
 	require.NoError(t, err)
 	assert.Equal(t, "half migrated", string(raw))
 }
@@ -267,7 +268,7 @@ func TestRun_ABackupSomeoneRemovedIsTakenAgain(t *testing.T) {
 	first := b.begin()
 	firstHalt := halted(t, first.RunPreOpen(ctx, failing))
 	require.NoError(t, first.Close())
-	require.NoError(t, os.RemoveAll(filepath.Dir(firstHalt.Backup)))
+	require.NoError(t, os.RemoveAll(firstHalt.Backup))
 
 	secondHalt := halted(t, b.begin().RunPreOpen(ctx, failing))
 
@@ -295,9 +296,8 @@ func TestRun_ABackupTheLedgerCannotRecordHaltsAndIsNotInForce(t *testing.T) {
 
 	h := halted(t, err)
 	assert.Equal(t, HaltPreflight, h.Reason)
-	copied := filepath.Join(b.home.MigrateDir(), backupsDirName, h.Run, "state")
-	assert.Contains(t, h.Message, copied, "the copy exists, so the message says where")
-	assert.DirExists(t, copied)
+	copied := filepath.Join(b.home.MigrateDir(), backupsDirName, h.Run)
+	assert.NoDirExists(t, copied, "a copy the ledger never knew of would never be offered or reused")
 	assert.Empty(t, h.Backup, "no durable record, so nothing is in force")
 	assert.Empty(t, order)
 	require.NoError(t, s.Close())

@@ -40,10 +40,25 @@ type ID struct {
 	Name   string `json:"name"`
 }
 
-// Env is what a step may touch: the home it migrates and a logger.
+// Env is what a step may touch: the home it migrates and a logger, and what the
+// step's earlier attempts checkpointed.
 type Env struct {
 	Home home.Home
 	Log  *slog.Logger
+	// Earlier lets a Plan, which has no Checkpoints, see how far an attempt that
+	// was stopped got.
+	Earlier Marks
+}
+
+// Marks are the keys a step checkpointed, with the counts marked under each.
+type Marks map[string]Counts
+
+// Done reports whether key was checkpointed.
+func (m Marks) Done(
+	key string,
+) bool {
+	_, ok := m[key]
+	return ok
 }
 
 // Counts tallies what a step did, by a step-chosen label.

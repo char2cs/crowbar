@@ -84,12 +84,12 @@ type Session struct {
 }
 
 // Begin takes the home lock, reads the layout and the ledger, and closes a run
-// a crash left open. It returns an error, and no session, only when the home is
-// held by another process (ErrHomeLocked) or cannot be cleaned or written (an
-// I/O failure); the lock is released. A home it must not migrate, because LAYOUT
-// is newer than the catalog or unreadable, or the ledger is corrupt or
-// unreadable, is no error: the session is live, holds the lock, and its Halt
-// says why.
+// a crash left open. It returns an error, and no session, only when the lock
+// cannot be taken: the home is held by another process (ErrHomeLocked) or
+// cannot be created. A home it must not or cannot migrate (LAYOUT newer or
+// unreadable, the ledger corrupt, unreadable or unwritable, a half-written
+// backup it cannot remove) is no error: the session is live, holds the lock,
+// and its Halt says why.
 func Begin(
 	_ context.Context,
 	h home.Home,
@@ -101,23 +101,29 @@ func Begin(
 		return nil, err
 	}
 	s := &Session{home: h, cat: cat, opts: opts.withDefaults(), lock: lock}
-	if err := s.load(); err != nil {
-		return nil, errors.Join(fmt.Errorf("migrate: begin: %w", err), s.Close())
-	}
+	s.load()
 	return s, nil
 }
 
 // load reads the home without changing it, until it knows the home may be
 // migrated: a refused home must stay byte-identical, since an older binary
 // must not write into a newer home.
-func (s *Session) load() error {
+func (s *Session) load() {
 	read := readHome(s.home, s.cat)
 	s.layout = read.layout
 	if read.refusal != nil {
 		s.refuse(read.refusal.reason, read.refusal.message)
-		return nil
+		return
 	}
 	s.begun = read.view
+	if err := s.tidy(); err != nil {
+		s.refuse(HaltIOFailed, err.Error())
+	}
+}
+
+// tidy undoes what a killed process left: half-written backups and a run with
+// no end. These are the only writes Begin makes.
+func (s *Session) tidy() error {
 	if err := cleanPartialBackups(s.home); err != nil {
 		return err
 	}

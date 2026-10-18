@@ -62,5 +62,5 @@ func TestSocketPath_RelativeHomeFails(t *testing.T) {
 
 	_, err := SocketPath("unix://")
 
-	require.ErrorIs(t, err, home.ErrRelative)
+	require.ErrorContains(t, err, "must be an absolute path")
 }

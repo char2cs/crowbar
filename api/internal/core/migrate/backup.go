@@ -21,29 +21,30 @@ const (
 	homeLockName   = ".lock"
 )
 
-// ErrInsufficientDisk is returned when the volume cannot hold a state backup.
-var ErrInsufficientDisk = errors.New("migrate: not enough free disk space for the state backup")
+// errInsufficientDisk is returned when the volume cannot hold a state backup.
+var errInsufficientDisk = errors.New("migrate: not enough free disk space for the state backup")
 
 // FreeBytesFunc reports the bytes this process can still allocate on the
 // volume holding path.
 type FreeBytesFunc func(path string) (uint64, error)
 
-// backupResult describes a finished backup. An empty Path means state/ held
-// nothing to back up.
+// backupResult describes a finished backup: Path is its directory. An empty
+// Path means state/ held nothing to back up.
 type backupResult struct {
 	Path  string
 	Bytes int64
 }
 
-// backupState copies state/ to migrate/backups/<runID>/state. The home lock
-// file is left out; every other regular file, however small, is copied. The
-// copy is built under <runID>.partial and renamed into place once complete, so
-// a failure leaves neither directory. Nothing is created unless the volume has
-// room for the copy plus backupHeadroom. The caller holds the home lock: the
-// copy is a consistent image only while nothing writes state/.
+// backupState writes migrate/backups/<runID>: state/ (the home lock file left
+// out), the layout and the ledger as they stand, which a restore rewinds
+// together. It is built under <runID>.partial and renamed once complete, so a
+// failure leaves neither, and only if the volume has room for the copy plus
+// backupHeadroom. The caller holds the lock and has started its run: the copy
+// is consistent only while nothing writes state/, and the ledger must exist.
 func backupState(
 	h home.Home,
 	runID string,
+	layout int,
 	free FreeBytesFunc,
 ) (backupResult, error) {
 	if !singleSegment(runID) {
@@ -63,7 +64,7 @@ func backupState(
 	if _, err := probeRoom(h.Root(), stats.bytes, free); err != nil {
 		return backupResult{}, err
 	}
-	return writeBackup(h, runID)
+	return writeBackup(h, runID, layout)
 }
 
 // cleanPartialBackups removes the half-written backups a crashed run left in
@@ -116,7 +117,7 @@ func probeRoom(
 	}
 	required := backupRoom(size)
 	if available < required {
-		return 0, fmt.Errorf("%w: %d bytes needed, %d free under %s", ErrInsufficientDisk, required, available, root)
+		return 0, fmt.Errorf("%w: %d bytes needed, %d free under %s", errInsufficientDisk, required, available, root)
 	}
 	return available, nil
 }
@@ -124,11 +125,12 @@ func probeRoom(
 func writeBackup(
 	h home.Home,
 	runID string,
+	layout int,
 ) (backupResult, error) {
 	backups := filepath.Join(h.MigrateDir(), backupsDirName)
 	partial := filepath.Join(backups, runID+partialSuffix)
 	final := filepath.Join(backups, runID)
-	copied, err := copyTree(h.State(), filepath.Join(partial, "state"))
+	copied, err := fillBackup(h, partial, layout)
 	if err != nil {
 		return backupResult{}, errors.Join(err, removeTree(partial))
 	}
@@ -138,7 +140,30 @@ func writeBackup(
 	if err := syncDirs(backups, h.MigrateDir(), h.Root()); err != nil {
 		return backupResult{}, errors.Join(fmt.Errorf("migrate: backup: make %s durable: %w", runID, err), removeTree(final))
 	}
-	return backupResult{Path: filepath.Join(final, "state"), Bytes: copied}, nil
+	return backupResult{Path: final, Bytes: copied}, nil
+}
+
+// fillBackup writes into dir what a restore puts back, under the names it has
+// in the home: state/, LAYOUT and the ledger.
+func fillBackup(
+	h home.Home,
+	dir string,
+	layout int,
+) (int64, error) {
+	copied, err := copyTree(h.State(), filepath.Join(dir, filepath.Base(h.State())))
+	if err != nil {
+		return 0, err
+	}
+	if err := stageLayout(filepath.Join(dir, filepath.Base(h.LayoutFile())), layout); err != nil {
+		return 0, fmt.Errorf("migrate: backup: %w", err)
+	}
+	if _, err := copyFileSynced(ledgerPath(h), filepath.Join(dir, ledgerName), 0o600); err != nil {
+		return 0, fmt.Errorf("migrate: backup: copy the ledger: %w", err)
+	}
+	if err := syncDir(dir); err != nil {
+		return 0, fmt.Errorf("migrate: backup: flush %s: %w", dir, err)
+	}
+	return copied, nil
 }
 
 func removeTree(

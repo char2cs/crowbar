@@ -164,6 +164,58 @@ func TestRegression_Upgrade_AdoptsTheMarkersAnOlderDaemonLeft(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(homeAt(t, home).MigrateDir(), "backups"))
 }
 
+// A backup restored as the upgrade notes say (quit, then put the backup's state/,
+// LAYOUT and ledger.jsonl back) rewinds the ledger with the data: the next boot
+// runs the steps again on what was restored, instead of serving it as migrated.
+func TestRegression_Upgrade_RestoringABackupAsDocumentedRerunsItsSteps(t *testing.T) {
+	home := t.TempDir()
+	h := newHarnessAt(t, home)
+	imported := importProject(t, h)
+	h.Quiesce()
+	h.crash()
+	now := time.Now().UTC()
+	legacy := domain.Chat{
+		ID: uuid.NewString(), WorkspaceID: imported.workspaceID,
+		Title: "old chat", CreatedAt: now, LastActivityAt: now,
+	}
+	seed := openBaseEra(t, home)
+	seed.chat(legacy)
+	seed.close()
+	upgraded := newHarnessAt(t, home)
+	upgraded.Quiesce()
+	upgraded.shutdown()
+	backups, err := os.ReadDir(filepath.Join(home, "migrate", "backups"))
+	require.NoError(t, err)
+	require.Len(t, backups, 1)
+
+	backup := filepath.Join(home, "migrate", "backups", backups[0].Name())
+	require.NoError(t, os.RemoveAll(filepath.Join(home, "state")))
+	require.NoError(t, os.CopyFS(filepath.Join(home, "state"), os.DirFS(filepath.Join(backup, "state"))))
+	copyFile(t, filepath.Join(backup, "LAYOUT"), filepath.Join(home, "LAYOUT"))
+	copyFile(t, filepath.Join(backup, "ledger.jsonl"), filepath.Join(home, "migrate", "ledger.jsonl"))
+	assert.Empty(t, migratetest.Applied(t, homeAt(t, home)), "the ledger is back to before the run")
+
+	restored := newHarnessAt(t, home)
+	restored.Quiesce()
+
+	got, err := restored.app.Usecases.AgentChat.GetChat(context.Background(), legacy.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ChatTypeChat, got.Type, "chat-types ran again on the restored chat")
+	assert.Len(t, migratetest.Applied(t, homeAt(t, home))[3], 1)
+}
+
+// copyFile replaces dst with src's bytes, as a person restoring by hand would.
+func copyFile(
+	t *testing.T,
+	src string,
+	dst string,
+) {
+	t.Helper()
+	raw, err := os.ReadFile(src)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(dst, raw, 0o600))
+}
+
 // forgetMigrations leaves dir as a home no migration ever ran in, as base did.
 func forgetMigrations(
 	t *testing.T,

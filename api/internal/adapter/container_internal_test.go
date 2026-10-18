@@ -67,7 +67,7 @@ func TestOpenContainer_Success(t *testing.T) {
 	require.NotNil(t, c)
 	t.Cleanup(func() { _ = c.Close() })
 
-	assert.Equal(t, h.Root(), c.crowbarHome)
+	assert.Equal(t, h, c.home)
 	assert.NotNil(t, c.reviewThreadES)
 	assert.NotNil(t, c.reviewThreadSS)
 	assert.NotNil(t, c.workspaceSnapshotStore)

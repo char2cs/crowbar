@@ -70,6 +70,15 @@ func newLegacyFuncs(
 	}
 }
 
+// Implemented reports whether this build implements migration step number, in
+// either phase: what migrate.Inspect needs to preview a boot it cannot run here.
+// It builds the impls over no stores, and runs none of them.
+func Implemented(
+	number int,
+) bool {
+	return migrations.PreOpenImpls()[number].Apply != nil || legacyImpls(legacyFuncs{})[number].Apply != nil
+}
+
 // legacyImpls implements the legacy post-open steps over f. Each adopts the
 // marker an older daemon left for it instead of running.
 func legacyImpls(

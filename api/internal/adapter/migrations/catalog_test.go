@@ -35,6 +35,30 @@ func TestPlan_MarkerPresentIsAnAdoptionNotAWork(t *testing.T) {
 	}, planOf(t, h, StepChatTypes))
 }
 
+// An attempt stopped between recording an adoption and finishing the step has
+// deleted the marker already; the retry's plan still reads it as an adoption, so
+// no copy of state/ is taken for a step that only adopts.
+func TestPlan_AnAdoptionAStoppedAttemptRecordedIsStillAnAdoption(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "state/view.db", "rows")
+	for _, number := range []int{StepProjectHomes, StepChatTypes, StepChatProviders, StepHookDeliveries} {
+		testutil.WriteFile(t, h, markerSubject(legacyNames[number]), "")
+	}
+	testutil.WriteFile(t, h, "migrate/ledger.jsonl",
+		`{"v":1,"kind":"run.start","run":"r1","pending":[2,1,3,4,5]}`+"\n"+
+			`{"v":1,"kind":"checkpoint","run":"r1","step":2,"name":"workspace-paths-table","key":"adopted-marker","counts":{"adopted":1}}`+"\n")
+	cat, err := Catalog()
+	require.NoError(t, err)
+
+	report, err := migrate.Inspect(context.Background(), h, cat, func(int) bool { return true }, migrate.Options{})
+
+	require.NoError(t, err)
+	assert.Equal(t, migrate.BackupPlan{}, report.Backup, "no pending step rewrites state")
+	assert.Equal(t, StepWorkspacePathsTable, report.Steps[0].Step.Number)
+	assert.Equal(t, []migrate.Action{{Kind: migrate.Delete, Subject: "state/upgrades/workspace-paths-table", Count: 1}},
+		report.Steps[0].Plan.Actions)
+}
+
 func TestPlan_HookDeliveriesNeverRewritesState(t *testing.T) {
 	h := testutil.FixtureHome(t)
 

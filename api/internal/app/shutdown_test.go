@@ -3,8 +3,10 @@ package app_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -145,4 +147,33 @@ func TestApp_Shutdown_GateRefusesNewWorkOnceDraining(t *testing.T) {
 	require.False(t, gate.Enter(),
 		"once the daemon has drained, a late event must NOT be able to spawn a reactor: its "+
 			"databases are closed, and the boot sweep is what picks the job back up")
+}
+
+// A New that fails tears down what it started without the caller's ctx, which
+// may be the very thing that gave up; a reactor that never leaves must still not
+// hold that teardown past the grace Run gives the writers.
+func TestApp_Abandon_AWedgedReactorHoldsItNoLongerThanTheWriterDrainGrace(t *testing.T) {
+	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapters.Close() })
+	c, err := app.New(context.Background(), newEng(t), adapters, migratetest.NoPostOpen())
+	require.NoError(t, err)
+	gate := c.Repositories.Drain().Gate
+	require.True(t, gate.Enter(), "a reactor that never leaves")
+	t.Cleanup(gate.Leave)
+	cause := errors.New("the boot failed")
+	done := make(chan error, 1)
+
+	go func() { done <- c.Abandon(context.Background(), cause) }()
+
+	var got error
+	require.Eventually(t, func() bool {
+		select {
+		case got = <-done:
+			return true
+		default:
+			return false
+		}
+	}, 2*app.WriterDrainGrace, 10*time.Millisecond, "abandon waited on the reactor past the grace")
+	require.ErrorIs(t, got, cause)
 }

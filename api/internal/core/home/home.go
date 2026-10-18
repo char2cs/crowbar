@@ -14,12 +14,12 @@ import (
 // EnvVar names the environment variable that relocates the Crowbar home.
 const EnvVar = "CROWBAR_HOME"
 
-// ErrRelative is returned when the requested home is not an absolute path.
-var ErrRelative = errors.New("home: CROWBAR_HOME must be an absolute path")
+// errRelative is returned when the requested home is not an absolute path.
+var errRelative = errors.New("home: CROWBAR_HOME must be an absolute path")
 
-// ErrOutsideTemp is returned inside a test binary for a home that is not
+// errOutsideTemp is returned inside a test binary for a home that is not
 // under os.TempDir().
-var ErrOutsideTemp = errors.New("home: a test binary may only use a home under os.TempDir()")
+var errOutsideTemp = errors.New("home: a test binary may only use a home under os.TempDir()")
 
 // Home is a validated Crowbar home directory. It only computes paths; it
 // never creates or touches anything on disk.
@@ -59,7 +59,7 @@ func At(
 	root string,
 ) (Home, error) {
 	if !filepath.IsAbs(root) {
-		return Home{}, fmt.Errorf("%w: %q", ErrRelative, root)
+		return Home{}, fmt.Errorf("%w: %q", errRelative, root)
 	}
 	fallback, err := defaultRoot()
 	overridden := err != nil || filepath.Clean(root) != filepath.Clean(fallback)
@@ -87,6 +87,12 @@ func (h Home) Events() string {
 	return filepath.Join(h.State(), "events")
 }
 
+// Content is the directory holding the payloads chat activity refers to, kept
+// under state/ so the same retention sweeps them.
+func (h Home) Content() string {
+	return filepath.Join(h.State(), "content")
+}
+
 // Store is the directory holding the view store.
 func (h Home) Store() string {
 	return filepath.Join(h.State(), "store")
@@ -105,6 +111,12 @@ func (h Home) LayoutFile() string {
 // LockFile is the path of the file that serialises access to the home.
 func (h Home) LockFile() string {
 	return filepath.Join(h.State(), ".lock")
+}
+
+// DaemonLog is the file the desktop shell writes the daemon's stdout and stderr
+// to: the one place a crash's stack trace survives.
+func (h Home) DaemonLog() string {
+	return filepath.Join(h.root, "logs", "daemon.log")
 }
 
 // MigrateDir is the directory holding migration run records.
@@ -128,7 +140,7 @@ func newHome(
 ) (Home, error) {
 	cleaned := filepath.Clean(given)
 	if testing.Testing() && !underDir(os.TempDir(), cleaned) {
-		return Home{}, fmt.Errorf("%w: %s", ErrOutsideTemp, cleaned)
+		return Home{}, fmt.Errorf("%w: %s", errOutsideTemp, cleaned)
 	}
 	return Home{root: cleaned, overridden: overridden}, nil
 }

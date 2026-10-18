@@ -61,7 +61,8 @@ func legacySteps() []migrate.Step {
 }
 
 // legacyStep plans the adoption of the step's marker where an older daemon
-// left one, and plan's work everywhere else.
+// left one, or an earlier attempt recorded adopting it, and plan's work
+// everywhere else.
 func legacyStep(
 	number int,
 	phase migrate.Phase,
@@ -73,11 +74,11 @@ func legacyStep(
 		Name:   name,
 		Phase:  phase,
 		Plan: func(ctx context.Context, env migrate.Env) (migrate.Plan, error) {
-			present, err := markerPresent(env.Home, name)
+			adopts, err := adopting(env.Home, name, env.Earlier.Done)
 			switch {
 			case err != nil:
 				return migrate.Plan{}, err
-			case present:
+			case adopts:
 				return migrate.Plan{Actions: []migrate.Action{
 					{Kind: migrate.Delete, Subject: markerSubject(name), Count: 1},
 				}}, nil

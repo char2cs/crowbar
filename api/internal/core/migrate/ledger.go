@@ -13,9 +13,9 @@ import (
 	"time"
 )
 
-// ErrLedgerCorrupt is returned when a ledger line other than a torn final
+// errLedgerCorrupt is returned when a ledger line other than a torn final
 // write cannot be parsed. The ledger is never repaired past a torn tail.
-var ErrLedgerCorrupt = errors.New("migrate: ledger is corrupt")
+var errLedgerCorrupt = errors.New("migrate: ledger is corrupt")
 
 const (
 	ledgerName    = "ledger.jsonl"
@@ -86,8 +86,8 @@ func (v ledgerView) applied(
 func (v ledgerView) checkpoints(
 	n int,
 	name string,
-) map[string]Counts {
-	out := map[string]Counts{}
+) Marks {
+	out := Marks{}
 	for _, r := range v.records {
 		if r.Kind != kindCheckpoint || r.Step != n || r.Name != name {
 			continue
@@ -221,7 +221,7 @@ func loadLedger(
 		}
 		r, err := parseRecord(text)
 		if err != nil {
-			return ledgerImage{}, fmt.Errorf("%w: %s: line %d: %w", ErrLedgerCorrupt, path, lineNo, err)
+			return ledgerImage{}, fmt.Errorf("%w: %s: line %d: %w", errLedgerCorrupt, path, lineNo, err)
 		}
 		img.view.records = append(img.view.records, r)
 		img.intact += int64(len(text)) + 1

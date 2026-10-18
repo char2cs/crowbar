@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -200,7 +199,7 @@ func New(
 	// tool payloads are swept by the same retention policy as the rest of it.
 	agentActivity, err := agentactivity.NewEventSourced(
 		axAgentActivity, adapters.AgentActivityES(), adapters.AgentActivityReadDB(),
-		filepath.Join(adapters.CrowbarHome(), "state", "content"), choiceWatch,
+		adapters.Home().Content(), choiceWatch,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: agent activity event store: %w", err)
@@ -244,7 +243,7 @@ func New(
 	// joined to the shared drain WaitGroup so graceful shutdown can quiesce them
 	// (Task 15). Every cascaded repo must already be built — forgetDependents
 	// calls into c.ReviewThread and c.AgentChat.
-	if err := c.wireCallbacks(ctx, adapters.CrowbarHome()); err != nil {
+	if err := c.wireCallbacks(ctx, adapters.Home().Root()); err != nil {
 		return nil, fmt.Errorf("repositories: wire callbacks: %w", err)
 	}
 	return c, nil

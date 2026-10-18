@@ -77,7 +77,7 @@ func checkPending(
 	view ledgerView,
 	opts Options,
 ) (checked, error) {
-	plans, err := planSteps(ctx, env, pending)
+	plans, err := planSteps(ctx, env, pending, view)
 	if err != nil {
 		return checked{}, err
 	}
@@ -95,9 +95,11 @@ func planSteps(
 	ctx context.Context,
 	env Env,
 	pending []Step,
+	view ledgerView,
 ) ([]Plan, error) {
 	plans := make([]Plan, 0, len(pending))
 	for _, step := range pending {
+		env.Earlier = view.checkpoints(step.Number, step.Name)
 		plan, err := step.Plan(ctx, env)
 		if interrupted(ctx, err) {
 			return nil, err
@@ -168,14 +170,16 @@ func (s *Session) backUpState(
 	return nil
 }
 
+// takeBackup copies state/ and records the copy. A copy the ledger cannot
+// record is removed: no halt would offer it, and no retry would reuse it.
 func (s *Session) takeBackup() error {
-	res, err := backupState(s.home, s.run.id, s.opts.FreeBytes)
+	res, err := backupState(s.home, s.run.id, s.layout, s.opts.FreeBytes)
 	if err != nil || res.Path == "" {
 		return err
 	}
 	err = s.led.append(record{Kind: kindBackup, At: s.now(), Run: s.run.id, Path: res.Path, Bytes: res.Bytes})
 	if err != nil {
-		return fmt.Errorf("record backup %s: %w", res.Path, err)
+		return errors.Join(fmt.Errorf("record backup: %w", err), removeTree(res.Path))
 	}
 	return nil
 }

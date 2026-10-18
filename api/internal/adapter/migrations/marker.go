@@ -36,11 +36,11 @@ func Adopting(
 	adopted := false
 	return migrate.Impl{
 		Apply: func(ctx context.Context, env migrate.Env, cp *migrate.Checkpoints) (migrate.Counts, error) {
-			present, err := markerPresent(env.Home, name)
+			var err error
+			adopted, err = adopting(env.Home, name, cp.Done)
 			if err != nil {
 				return nil, err
 			}
-			adopted = present || cp.Done(adoptedKey)
 			if !adopted {
 				return impl.Apply(ctx, env, cp)
 			}
@@ -53,6 +53,21 @@ func Adopting(
 			return impl.Verify(ctx, env)
 		},
 	}
+}
+
+// adopting reports whether the step adopts its marker instead of running: an
+// older daemon left the marker, or an attempt recorded the adoption (done) and
+// was stopped before the step finished. Plan and Apply decide by it alike.
+func adopting(
+	h home.Home,
+	name string,
+	done func(key string) bool,
+) (bool, error) {
+	present, err := markerPresent(h, name)
+	if err != nil {
+		return false, err
+	}
+	return present || done(adoptedKey), nil
 }
 
 func adopt(

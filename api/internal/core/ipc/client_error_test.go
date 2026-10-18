@@ -19,7 +19,7 @@ func TestNewClient_BadHost_ReturnsError(t *testing.T) {
 
 	_, err := ipc.NewClient("unix://")
 
-	require.ErrorIs(t, err, home.ErrRelative)
+	require.ErrorContains(t, err, "must be an absolute path")
 }
 
 // TestClient_Get_DialFailure_ReturnsError points the client at a socket path

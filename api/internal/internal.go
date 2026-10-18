@@ -103,7 +103,7 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("internal: home: %w", err)
 	}
-	listener, err := gateway.New(host)
+	listener, err := gateway.New(host, h.Socket())
 	if err != nil {
 		return nil, fmt.Errorf("internal: gateway: %w", err)
 	}
@@ -226,7 +226,7 @@ func (s *stack) open(
 	// Install the crowbar binary into <home>/bin so vendor CLI hooks can invoke
 	// `crowbar hook` by absolute path, into the home the adapter opened so tests
 	// and dev instances stay isolated. Best-effort: never block startup.
-	installHome := s.adapter.CrowbarHome()
+	installHome := s.adapter.Home().Root()
 	if _, err := selfinstall.Install(installHome); err != nil {
 		slog.Warn("internal: install the crowbar binary for hooks", "home", installHome, "err", err)
 	}
@@ -350,13 +350,10 @@ func (c *Container) Run(
 		// quiesce is where durable state is written, so it gets its own fresh budget that no
 		// HTTP request can touch. The desktop supervisor SIGKILLs the daemon 3s after
 		// SIGTERM (desktop/src-tauri/src/lib.rs), so httpDrainGrace is deliberately small to
-		// leave the writers the majority of that window; writerDrainGrace only binds when
+		// leave the writers the majority of that window; app.WriterDrainGrace only binds when
 		// the daemon runs with no supervisor (headless / tests), where a wedged reaper must
 		// still not hang the process.
-		const (
-			httpDrainGrace   = 1 * time.Second
-			writerDrainGrace = 4 * time.Second
-		)
+		const httpDrainGrace = 1 * time.Second
 		httpCtx, cancelHTTP := context.WithTimeout(context.WithoutCancel(ctx), httpDrainGrace)
 		defer cancelHTTP()
 		httpErr := c.server.Shutdown(httpCtx)
@@ -366,7 +363,7 @@ func (c *Container) Run(
 		}
 		httpErr = errors.Join(httpErr, c.stack.hooks.Shutdown(httpCtx))
 
-		drainCtx, cancelDrain := context.WithTimeout(context.WithoutCancel(ctx), writerDrainGrace)
+		drainCtx, cancelDrain := context.WithTimeout(context.WithoutCancel(ctx), app.WriterDrainGrace)
 		defer cancelDrain()
 		// Work a handler detached after its 202 writes too — and runs git — so it
 		// ends before the app drains, never after the daemon is gone.

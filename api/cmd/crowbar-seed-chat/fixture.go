@@ -12,7 +12,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"time"
 
 	"github.com/char2cs/asynx"
@@ -80,7 +79,7 @@ func seedChat(ctx context.Context, adapters *adapter.Container, opts seedOptions
 	}
 	activityStore, err := agentactivity.NewEventSourced(
 		axAgentActivity, adapters.AgentActivityES(), adapters.AgentActivityReadDB(),
-		filepath.Join(adapters.CrowbarHome(), "state", "content"), nil,
+		adapters.Home().Content(), nil,
 	)
 	if err != nil {
 		return "", fmt.Errorf("crowbar-seed-chat: activity store: %w", err)

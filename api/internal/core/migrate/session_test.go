@@ -66,17 +66,72 @@ func TestBegin_RefusesAHomeAnotherSessionHolds(t *testing.T) {
 	b.begin()
 }
 
-func TestBegin_ReleasesTheLockWhenItCannotCleanTheHome(t *testing.T) {
-	b := newBench(t)
-	testutil.WriteFile(t, b.home, "migrate/backups", "a file, not a directory")
+// A home Begin cannot clean or record into halts like any other refusal: the
+// daemon stays up holding the home, and its health says why.
+func TestBegin_AHomeItCannotCleanOrRecordIntoHalts(t *testing.T) {
+	tests := []struct {
+		name  string
+		perms bool
+		write func(*bench)
+		want  string
+	}{
+		{
+			name:  "the backups directory is a file",
+			write: func(b *bench) { testutil.WriteFile(b.tb, b.home, "migrate/backups", "a file, not a directory") },
+			want:  "backup: list",
+		},
+		{
+			name:  "a half-written backup that cannot be removed",
+			perms: true,
+			write: func(b *bench) {
+				testutil.WriteFile(b.tb, b.home, "migrate/backups/20261017T010203.000000000Z.partial/state/x", "x")
+				readOnly(b.tb, filepath.Join(b.home.MigrateDir(), backupsDirName, "20261017T010203.000000000Z.partial", "state"), 0o500)
+			},
+			want: "backup: remove",
+		},
+		{
+			name:  "a run left open in a ledger that cannot be written",
+			perms: true,
+			write: func(b *bench) {
+				b.seedLedger(record{Kind: kindRunStart, At: ledgerEpoch, Run: "r-killed", Pending: []int{1}, From: new(int)})
+				readOnly(b.tb, filepath.Join(b.home.MigrateDir(), ledgerName), 0o400)
+			},
+			want: "close unfinished run r-killed",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.perms {
+				testutil.RequirePermissionEnforcement(t)
+			}
+			b := newBench(t, newStep(1, "a", PreOpen, 0, 0))
+			tc.write(b)
+			var order []int
 
-	_, err := Begin(context.Background(), b.home, b.cat, Options{})
+			s := b.begin()
 
-	require.ErrorContains(t, err, "migrate: begin")
-	require.ErrorContains(t, err, "backup: list")
-	lock, lockErr := lockHome(b.home)
-	require.NoError(t, lockErr, "a failed Begin must not keep the home locked")
-	require.NoError(t, lock.Close())
+			h := s.Halt()
+			require.NotNil(t, h)
+			assert.Equal(t, HaltIOFailed, h.Reason)
+			assert.Contains(t, h.Message, tc.want)
+			assert.Same(t, h, halted(t, s.RunPreOpen(context.Background(), tracing(&order, 1))))
+			assert.Empty(t, order)
+			_, err := lockHome(b.home)
+			require.ErrorIs(t, err, ErrHomeLocked, "the halted session still holds the home")
+		})
+	}
+}
+
+// readOnly gives path mode until the test ends, then gives the owner back what
+// the temp dir's cleanup needs.
+func readOnly(
+	tb testing.TB,
+	path string,
+	mode os.FileMode,
+) {
+	tb.Helper()
+	require.NoError(tb, os.Chmod(path, mode))
+	tb.Cleanup(func() { require.NoError(tb, os.Chmod(path, 0o700)) })
 }
 
 func TestBegin_RefusesANewerLayout(t *testing.T) {
@@ -299,7 +354,7 @@ func TestBegin_AFinishedDanglingRunRetiresItsBackup(t *testing.T) {
 	b := newBench(t, rewrites(1, "a"), rewrites(2, "b"))
 	testutil.WriteFile(t, b.home, "state/view.db", "the rows now")
 	testutil.WriteFile(t, b.home, "migrate/backups/r-old/state/view.db", "the rows long ago")
-	old := filepath.Join(b.home.MigrateDir(), backupsDirName, "r-old", "state")
+	old := filepath.Join(b.home.MigrateDir(), backupsDirName, "r-old")
 	b.seedLedger(
 		record{Kind: kindRunStart, At: ledgerEpoch, Run: "r-old", Pending: []int{1}, From: new(int)},
 		record{Kind: kindBackup, At: ledgerEpoch, Run: "r-old", Path: old, Bytes: 17},
@@ -315,7 +370,7 @@ func TestBegin_AFinishedDanglingRunRetiresItsBackup(t *testing.T) {
 	backups := ofKind(b.records(), kindBackup)
 	require.Len(t, backups, 2, "the finished run's backup is not the image a later migration starts from")
 	assert.NotEqual(t, old, backups[1].Path)
-	raw, err := os.ReadFile(filepath.Join(backups[1].Path, "view.db"))
+	raw, err := os.ReadFile(filepath.Join(backups[1].Path, "state", "view.db"))
 	require.NoError(t, err)
 	assert.Equal(t, "the rows now", string(raw))
 }

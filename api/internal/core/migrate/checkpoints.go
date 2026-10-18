@@ -13,7 +13,7 @@ type Checkpoints struct {
 	run    string
 	step   ID
 	now    func() time.Time
-	done   map[string]Counts
+	done   Marks
 }
 
 func newCheckpoints(
@@ -35,8 +35,7 @@ func newCheckpoints(
 func (c *Checkpoints) Done(
 	key string,
 ) bool {
-	_, ok := c.done[key]
-	return ok
+	return c.done.Done(key)
 }
 
 // Mark durably records that the unit of work under key is finished, with the
@@ -83,3 +82,9 @@ type Impl struct {
 
 // Impls maps a Step.Number to its Impl.
 type Impls map[int]Impl
+
+func (i Impls) implements(
+	number int,
+) bool {
+	return i[number].Apply != nil
+}

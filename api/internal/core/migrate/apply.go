@@ -104,12 +104,26 @@ func (s *Session) admit(
 		return fmt.Errorf("migrate: post-open steps cannot run while pre-open step %d %q is pending",
 			pending[0].Number, pending[0].Name)
 	}
-	for _, step := range leading(pending, phase) {
-		if impls[step.Number].Apply == nil {
-			return s.failUnstarted(HaltNoImpl, step, errors.New("no implementation in this build"))
-		}
+	if step, ok := unimplemented(leading(pending, phase), impls.implements); ok {
+		return s.failUnstarted(HaltNoImpl, step, errNoImpl)
 	}
 	return nil
+}
+
+// errNoImpl is why a pending step this build has no implementation for cannot run.
+var errNoImpl = errors.New("no implementation in this build")
+
+// unimplemented is the first of steps this build cannot run: the step a boot
+// halts on, and a preview with it.
+func unimplemented(
+	steps []Step,
+	implemented func(number int) bool,
+) (Step, bool) {
+	i := slices.IndexFunc(steps, func(s Step) bool { return !implemented(s.Number) })
+	if i < 0 {
+		return Step{}, false
+	}
+	return steps[i], true
 }
 
 // checkKnown catches an implementation wired to a step the catalog lacks.
@@ -147,8 +161,8 @@ func (s *Session) runStep(
 		return s.fail(HaltStepFailed, step, fmt.Errorf("record start: %w", err))
 	}
 	s.opts.Log.InfoContext(ctx, "migrate: step started", "step", step.Number, "name", step.Name, "phase", step.Phase.String())
+	env := Env{Home: s.home, Log: s.opts.Log, Earlier: s.led.view.checkpoints(step.Number, step.Name)}
 	cp := newCheckpoints(s.led, run.id, step.ID(), s.now)
-	env := Env{Home: s.home, Log: s.opts.Log}
 	counts, err := impl.Apply(ctx, env, cp)
 	if err != nil {
 		return s.stepError(ctx, HaltStepFailed, step, err)

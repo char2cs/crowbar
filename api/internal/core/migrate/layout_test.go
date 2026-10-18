@@ -62,7 +62,7 @@ func TestReadLayout(t *testing.T) {
 
 			_, err := readLayout(h)
 
-			require.ErrorIs(t, err, ErrLayoutUnreadable)
+			require.ErrorIs(t, err, errLayoutUnreadable)
 		})
 	}
 }
@@ -73,7 +73,7 @@ func TestReadLayout_ALayoutThatCannotBeReadIsUnreadable(t *testing.T) {
 
 	_, err := readLayout(h)
 
-	require.ErrorIs(t, err, ErrLayoutUnreadable)
+	require.ErrorIs(t, err, errLayoutUnreadable)
 }
 
 func TestWriteLayout_RoundTripsAtomically(t *testing.T) {

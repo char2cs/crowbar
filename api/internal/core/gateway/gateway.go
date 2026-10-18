@@ -8,8 +8,15 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/gateway/transports"
 )
 
-func New(host string) (net.Listener, error) {
+// New listens on host: "tcp://addr", "unix:///path", or "unix://", which binds
+// socket, the socket of the home the caller holds, so the two never disagree.
+func New(
+	host string,
+	socket string,
+) (net.Listener, error) {
 	switch {
+	case host == "unix://":
+		return transports.NewSocket(host + socket)
 	case strings.HasPrefix(host, "unix://"):
 		return transports.NewSocket(host)
 	case strings.HasPrefix(host, "tcp://"):

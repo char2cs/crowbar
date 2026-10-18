@@ -27,7 +27,7 @@
   "api/internal/app/repositories/chat/activity/internal/commands/commands_test.go": 775,
   "api/internal/app/repositories/chat/event_store.go": 698,
   "api/internal/app/repositories/chat/event_store_test.go": 662,
-  "api/internal/app/repositories/container.go": 852,
+  "api/internal/app/repositories/container.go": 851,
   "api/internal/app/repositories/container_test.go": 703,
   "api/internal/app/repositories/node/event_store_test.go": 501,
   "api/internal/app/repositories/reviewthread/reviewthread_test.go": 566,

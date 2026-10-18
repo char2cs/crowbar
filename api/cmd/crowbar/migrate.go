@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/migrations"
+	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 )
@@ -43,7 +44,7 @@ func runMigratePlan(
 	if err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
-	report, err := migrate.Inspect(cmd.Context(), h, cat, migrate.Options{})
+	report, err := migrate.Inspect(cmd.Context(), h, cat, app.Implemented, migrate.Options{})
 	if err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}

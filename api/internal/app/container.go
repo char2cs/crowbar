@@ -151,7 +151,7 @@ func New(
 
 	// Path-deriving usecases must share the adapter's resolved home so git
 	// worktrees and per-entity storages land under the same root.
-	crowbarHome := adapters.CrowbarHome()
+	crowbarHome := adapters.Home().Root()
 	homeFunc := func() (string, error) { return crowbarHome, nil }
 	ucs, err := usecases.New(
 		repos, toUsecaseStores(gormStores), engines, homeFunc, agentThreadBroadcast(h),

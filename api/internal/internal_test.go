@@ -54,6 +54,20 @@ func TestNew_ReportsTheSocketItBound(t *testing.T) {
 	assert.FileExists(t, c.Socket())
 }
 
+// The daemon binds the socket of the home it holds: a home given in code wins
+// over CROWBAR_HOME for the socket, as it does for the data behind it.
+func TestNew_BindsTheSocketOfTheHomeItWasGiven(t *testing.T) {
+	t.Setenv(home.EnvVar, t.TempDir())
+	given := testutil.FixtureHome(t)
+
+	c, err := internal.New(context.Background(), "unix://", nil, internal.WithHomeDir(given.Root()))
+	require.NoError(t, err)
+	t.Cleanup(c.Close)
+
+	assert.Equal(t, given.Socket(), c.Socket())
+	assert.FileExists(t, given.Socket())
+}
+
 func TestNew_ReportsNoSocketOverTCP(t *testing.T) {
 	c, err := internal.New(context.Background(), "tcp://127.0.0.1:0", nil, internal.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
@@ -185,6 +199,49 @@ func TestNew_HaltsWhenAStepFails(t *testing.T) {
 		require.NoError(t, sess.Close())
 	}
 	require.ErrorIs(t, err, migrate.ErrHomeLocked, "the halted daemon still holds the home")
+}
+
+// A home the boot cannot put in order before any step halts the daemon instead
+// of exiting it: a supervisor would respawn an exited one into the same failure.
+func TestNew_HaltsOnAHomeItCannotPutInOrder(t *testing.T) {
+	partial := filepath.Join("migrate", "backups", "20261017T010203.000000000Z.partial")
+	tests := map[string]struct {
+		write  func(h home.Home)
+		locked string
+	}{
+		"a half-written backup that cannot be removed": {
+			write:  func(h home.Home) { testutil.WriteFile(t, h, filepath.Join(partial, "state", "x"), "x") },
+			locked: filepath.Join(partial, "state"),
+		},
+		"a run left open in a ledger that cannot be written": {
+			write: func(h home.Home) {
+				testutil.WriteFile(t, h, "migrate/ledger.jsonl", `{"v":1,"kind":"run.start","run":"r-killed","pending":[1]}`+"\n")
+			},
+			locked: filepath.Join("migrate", "ledger.jsonl"),
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			testutil.RequirePermissionEnforcement(t)
+			h := testutil.FixtureHome(t)
+			tc.write(h)
+			locked := filepath.Join(h.Root(), tc.locked)
+			require.NoError(t, os.Chmod(locked, 0o500))
+			t.Cleanup(func() { require.NoError(t, os.Chmod(locked, 0o700)) })
+
+			d, err := boot(t.Context(), t, h)
+
+			require.NoError(t, err)
+			health := d.get(t, "/v0/health")
+			assert.Equal(t, "halted", health.Data.Status, health.raw)
+			assert.Equal(t, migrate.HaltIOFailed, detail[migrate.Halt](t, health).Reason)
+			sess, err := migrations.Begin(t.Context(), h, migrate.Options{})
+			if sess != nil {
+				require.NoError(t, sess.Close())
+			}
+			require.ErrorIs(t, err, migrate.ErrHomeLocked, "the halted daemon still holds the home")
+		})
+	}
 }
 
 func TestClose_ReleasesTheHomeLock(t *testing.T) {

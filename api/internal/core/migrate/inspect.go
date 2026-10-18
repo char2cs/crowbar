@@ -39,13 +39,14 @@ type Report struct {
 	Last *RunSummary
 }
 
-// Inspect previews the migration of h against cat without changing h: no lock
-// beyond a momentary probe, no repair, nothing created. A home or step the boot
-// would halt on comes back as the *Halt the boot would set.
+// Inspect previews, for a build that implements the steps implemented reports,
+// the migration of h against cat without changing h (no lock beyond a probe, no
+// repair). A home or step the boot would halt on comes back as the boot's *Halt.
 func Inspect(
 	ctx context.Context,
 	h home.Home,
 	cat *Catalog,
+	implemented func(number int) bool,
 	opts Options,
 ) (Report, error) {
 	opts = opts.withDefaults()
@@ -55,13 +56,24 @@ func Inspect(
 	}
 	view := cat.settled(read.layout, read.view)
 	pending := cat.pending(read.layout, view)
+	halt := func(f *fault) *Halt {
+		return haltAt(h, cat, read.layout, view, f.reason, f.Error()).at(f.step)
+	}
+	// In the boot's order: RunPreOpen admits its steps before the preflight, and
+	// RunPostOpen admits the rest after it.
+	if step, ok := unimplemented(leading(pending, PreOpen), implemented); ok {
+		return Report{}, halt(&fault{HaltNoImpl, step, errNoImpl})
+	}
 	res, err := checkPending(ctx, Env{Home: h, Log: opts.Log}, pending, view, opts)
 	var f *fault
 	if errors.As(err, &f) {
-		return Report{}, haltAt(h, cat, read.layout, view, f.reason, f.Error()).at(f.step)
+		return Report{}, halt(f)
 	}
 	if err != nil {
 		return Report{}, err
+	}
+	if step, ok := unimplemented(pending, implemented); ok {
+		return Report{}, halt(&fault{HaltNoImpl, step, errNoImpl})
 	}
 	steps := make([]StepPlan, 0, len(pending))
 	for i, step := range pending {
@@ -120,7 +132,8 @@ func ledgerPath(
 }
 
 // haltAt is a Halt with everything the files alone tell: the layouts, the ledger
-// where one exists and the backup in force. A session adds its run.
+// where one exists and the backup in force, which the message names too, since
+// the message is all a person may see. A session adds its run.
 func haltAt(
 	h home.Home,
 	cat *Catalog,
@@ -135,6 +148,7 @@ func haltAt(
 	}
 	if path := view.backupInForce().Path; backupOnDisk(path) {
 		halt.Backup = path
+		halt.Message = fmt.Sprintf("%s (your data from before this migration is backed up in %s)", message, path)
 	}
 	return halt
 }

@@ -38,7 +38,7 @@ func planStep(
 // inspect runs Inspect over the bench's home with its injected machine.
 func (b *bench) inspect() (Report, error) {
 	b.tb.Helper()
-	return Inspect(context.Background(), b.home, b.cat, Options{FreeBytes: b.free, HaveGit: b.haveGit})
+	return Inspect(context.Background(), b.home, b.cat, b.implemented, Options{FreeBytes: b.free, HaveGit: b.haveGit})
 }
 
 func TestInspect_IsReadOnly(t *testing.T) {
@@ -192,6 +192,44 @@ func TestInspect_RefusesAHomeBeginRefuses(t *testing.T) {
 	}
 }
 
+// The boot halts on a pending step this build has no implementation for, so the
+// preview halts on it too, as the boot would: before the plans for a pre-open
+// step, and after them for a post-open one.
+func TestInspect_AStepThisBuildCannotRunIsTheHaltTheBootGives(t *testing.T) {
+	tests := []struct {
+		name    string
+		missing int
+		phase   string
+	}{
+		{name: "a pre-open step", missing: 1, phase: "pre-open"},
+		{name: "a post-open step", missing: 2, phase: "post-open"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			b := newBench(t, newStep(1, "a", PreOpen, 0, 0), newStep(2, "b", PostOpen, 0, 0))
+			b.implemented = func(n int) bool { return n != tc.missing }
+			impls := healthy(3 - tc.missing)
+			before := testutil.TreeSnapshot(t, b.home)
+
+			_, err := b.inspect()
+
+			got := halted(t, err)
+			assert.Equal(t, before, testutil.TreeSnapshot(t, b.home))
+			assert.Equal(t, HaltNoImpl, got.Reason)
+			assert.Equal(t, &ID{Number: tc.missing, Name: map[int]string{1: "a", 2: "b"}[tc.missing]}, got.Step)
+			assert.Equal(t, tc.phase, got.Phase)
+			s := b.begin()
+			boot := s.RunPreOpen(ctx, impls)
+			if tc.missing == 2 {
+				require.NoError(t, boot)
+				boot = s.RunPostOpen(ctx, impls)
+			}
+			assert.Equal(t, sessionless(halted(t, boot)), sessionless(got), "the preview halts as the boot does")
+		})
+	}
+}
+
 func TestInspect_NewerLayoutReturnsHalt(t *testing.T) {
 	b := newBench(t, newStep(1, "a", PreOpen, 0, 1))
 	testutil.WriteFile(t, b.home, "LAYOUT", "9\n")
@@ -213,7 +251,7 @@ func TestInspect_ACancelledContextIsNotAHalt(t *testing.T) {
 	}
 	b := newBench(t, waiting)
 
-	_, err := Inspect(ctx, b.home, b.cat, Options{})
+	_, err := Inspect(ctx, b.home, b.cat, b.implemented, Options{})
 
 	require.ErrorIs(t, err, context.Canceled)
 	var h *Halt

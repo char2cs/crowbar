@@ -55,7 +55,7 @@ const (
 // Projects, repositories, terminal profiles, and settings live in the global
 // view.db under <home>/state.
 type Container struct {
-	crowbarHome string
+	home home.Home
 
 	reviewThreadES asynxModels.Store
 	reviewThreadSS asynxModels.SnapshotStore
@@ -180,7 +180,7 @@ func openContainer(
 	}
 
 	c = &Container{
-		crowbarHome:                h.Root(),
+		home:                       h,
 		reviewThreadES:             reviewThreadES,
 		reviewThreadSS:             reviewThreadSS,
 		workspaceEventStore:        workspaceEventStore,
@@ -394,12 +394,11 @@ func (c *Container) GlobalView() *gormdb.DB {
 	return c.globalView
 }
 
-// CrowbarHome returns the resolved crowbar home root this container was opened
-// against. Path-deriving usecases (worktree add, project import/delete) MUST use
-// this same home so the git worktrees and the per-entity storages land under one
-// root — otherwise an overridden home (e.g. a test temp dir) splits them.
-func (c *Container) CrowbarHome() string {
-	return c.crowbarHome
+// Home is the Crowbar home this container was opened against. Path-deriving
+// usecases (worktree add, project import/delete) MUST use this same home so the
+// git worktrees and the per-entity storages land under one root.
+func (c *Container) Home() home.Home {
+	return c.home
 }
 
 // Close drains and closes every persistence plane — the per-type event/read

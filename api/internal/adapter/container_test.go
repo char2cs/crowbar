@@ -145,7 +145,7 @@ func TestNew_DefaultDirs_UsesHome(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 	assert.NotNil(t, c.GlobalView())
-	assert.Equal(t, filepath.Join(userHome, ".crowbar"), c.CrowbarHome())
+	assert.Equal(t, filepath.Join(userHome, ".crowbar"), c.Home().Root())
 }
 
 func TestNew_CreatesAnOwnerOnlyHomeRoot(t *testing.T) {
@@ -164,7 +164,7 @@ func TestNew_CreatesAnOwnerOnlyHomeRoot(t *testing.T) {
 
 func TestNew_RejectsARelativeHome(t *testing.T) {
 	_, err := adapter.New(adapter.WithHomeDir("relative/home"))
-	require.ErrorIs(t, err, home.ErrRelative)
+	require.ErrorContains(t, err, "must be an absolute path")
 }
 
 func TestContainer_WithHomeDir_IsolatesAllState(t *testing.T) {
@@ -197,7 +197,7 @@ func TestContainer_WithHomeDir_IsolatesAllState(t *testing.T) {
 
 // TestContainer_WithHomeDir_DoesNotUseEnvHome guards the decision-14 isolation
 // requirement: WithHomeDir must root every state subtree at the resolved
-// crowbarHome, never CROWBAR_HOME; otherwise the per-type DBs would leak into
+// home, never CROWBAR_HOME; otherwise the per-type DBs would leak into
 // the CROWBAR_HOME root instead of the temp home.
 func TestContainer_WithHomeDir_DoesNotUseEnvHome(t *testing.T) {
 	envHome := t.TempDir()

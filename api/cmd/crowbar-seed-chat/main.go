@@ -10,6 +10,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/adapter/migrations"
+	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
@@ -56,9 +57,9 @@ func run(
 	return seedHeld(ctx, h, opts)
 }
 
-// seedHeld seeds while holding the home as the daemon does, for as long as its
-// stores are open. Begin halts on a home that changed since requireMigrated
-// looked, and the stores must not open on one.
+// seedHeld seeds holding the home, as the daemon does, while its stores are
+// open. The home can change after requireMigrated looked, so it looks again
+// under the lock: no store opens on a halted home or one with steps pending.
 func seedHeld(
 	ctx context.Context,
 	h home.Home,
@@ -71,6 +72,9 @@ func seedHeld(
 	defer func() { err = errors.Join(err, session.Close()) }()
 	if halt := session.Halt(); halt != nil {
 		return "", halt
+	}
+	if err := requireMigrated(ctx, h); err != nil {
+		return "", err
 	}
 	adapters, err := adapter.New(adapter.WithHomeDir(h.Root()))
 	if err != nil {
@@ -91,7 +95,7 @@ func requireMigrated(
 	if err != nil {
 		return err
 	}
-	report, err := migrate.Inspect(ctx, h, cat, migrate.Options{})
+	report, err := migrate.Inspect(ctx, h, cat, app.Implemented, migrate.Options{})
 	if err != nil {
 		return fmt.Errorf("inspect %s: %w", h.Root(), err)
 	}

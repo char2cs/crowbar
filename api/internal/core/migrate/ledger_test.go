@@ -221,8 +221,8 @@ func TestLedger_CorruptLinesAreAnError(t *testing.T) {
 			_, readErr := readLedger(path)
 			l, openErr := openLedger(path)
 
-			require.ErrorIs(t, readErr, ErrLedgerCorrupt)
-			require.ErrorIs(t, openErr, ErrLedgerCorrupt)
+			require.ErrorIs(t, readErr, errLedgerCorrupt)
+			require.ErrorIs(t, openErr, errLedgerCorrupt)
 			assert.Nil(t, l)
 			assert.Equal(t, tc.content, readRawLedger(t, path), "corruption is reported, never repaired")
 		})
@@ -302,8 +302,8 @@ func TestLedger_CheckpointsSumPerKeyAcrossRuns(t *testing.T) {
 		{Kind: "step.done", Run: "r2", Step: 1, Name: "one", Counts: Counts{"x": 100}},
 	}}
 
-	assert.Equal(t, map[string]Counts{"a": {"x": 3}, "b": {"y": 5}}, view.checkpoints(1, "one"))
-	assert.Equal(t, map[string]Counts{"a": {"x": 9}}, view.checkpoints(2, "two"))
+	assert.Equal(t, Marks{"a": {"x": 3}, "b": {"y": 5}}, view.checkpoints(1, "one"))
+	assert.Equal(t, Marks{"a": {"x": 9}}, view.checkpoints(2, "two"))
 	assert.Empty(t, view.checkpoints(3, "three"))
 }
 

@@ -147,7 +147,7 @@ func TestHalt_DoesNotPointAtABackupThatIsGone(t *testing.T) {
 	})}))
 	require.NotEmpty(t, h.Backup)
 	require.NoError(t, first.Close())
-	require.NoError(t, os.RemoveAll(filepath.Dir(h.Backup)))
+	require.NoError(t, os.RemoveAll(h.Backup))
 
 	again := halted(t, b.begin().RunPreOpen(ctx, Impls{}))
 

@@ -486,7 +486,7 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	// must live under <home>/projects/... like a real crowbar-managed one.
 	// The identity-keyed shape every managed workspace has: the worktree sits in
 	// its own root, which is what makes removing that root safe.
-	worktree := filepath.Join(ad.CrowbarHome(), "projects", "p1", "workspaces", "w1", "worktree")
+	worktree := filepath.Join(ad.Home().Root(), "projects", "p1", "workspaces", "w1", "worktree")
 	require.NoError(t, os.MkdirAll(worktree, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(worktree, "f"), []byte("x"), 0o600))
 

@@ -16,6 +16,9 @@ const (
 	// HaltLedgerCorrupt means the ledger cannot be trusted: a line other than a
 	// torn tail is unparsable, or the file cannot be read.
 	HaltLedgerCorrupt HaltReason = "ledger_corrupt"
+	// HaltIOFailed means the home could not be put in order before any step: a
+	// half-written backup could not be removed, or the ledger could not be written.
+	HaltIOFailed HaltReason = "io_failed"
 	// HaltPlanFailed means a pending step could not compute its plan.
 	HaltPlanFailed HaltReason = "plan_failed"
 	// HaltPreflight means a precondition (disk, git) for the pending steps failed.

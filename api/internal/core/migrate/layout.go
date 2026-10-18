@@ -13,14 +13,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
-// ErrLayoutUnreadable is returned when the LAYOUT file exists but cannot be
+// errLayoutUnreadable is returned when the LAYOUT file exists but cannot be
 // read or does not hold a non-negative integer.
-var ErrLayoutUnreadable = errors.New("migrate: LAYOUT file is unreadable")
+var errLayoutUnreadable = errors.New("migrate: LAYOUT file is unreadable")
 
 var layoutNumber = regexp.MustCompile(`^[0-9]+$`)
 
 // readLayout returns the home's layout version: 0 when the file is absent (a
-// legacy home), an error wrapping ErrLayoutUnreadable for anything else that is
+// legacy home), an error wrapping errLayoutUnreadable for anything else that is
 // not a bare non-negative integer.
 func readLayout(
 	h home.Home,
@@ -31,15 +31,15 @@ func readLayout(
 		return 0, nil
 	}
 	if err != nil {
-		return 0, fmt.Errorf("%w: %s: %w", ErrLayoutUnreadable, path, err)
+		return 0, fmt.Errorf("%w: %s: %w", errLayoutUnreadable, path, err)
 	}
 	text := strings.TrimSpace(string(raw))
 	if !layoutNumber.MatchString(text) {
-		return 0, fmt.Errorf("%w: %s: not a non-negative integer", ErrLayoutUnreadable, path)
+		return 0, fmt.Errorf("%w: %s: not a non-negative integer", errLayoutUnreadable, path)
 	}
 	layout, err := strconv.Atoi(text)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %s: %w", ErrLayoutUnreadable, path, err)
+		return 0, fmt.Errorf("%w: %s: %w", errLayoutUnreadable, path, err)
 	}
 	return layout, nil
 }
@@ -65,22 +65,23 @@ func writeLayout(
 	return syncDir(h.Root())
 }
 
+// stageLayout durably writes v, as LAYOUT holds it, to the file at path.
 func stageLayout(
 	path string,
 	v int,
 ) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) //nolint:gosec // G304: path is the home's own LAYOUT temp file, not user input
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) //nolint:gosec // G304: path is a LAYOUT file of the home's own, not user input
 	if err != nil {
-		return fmt.Errorf("migrate: write LAYOUT: create temp: %w", err)
+		return fmt.Errorf("migrate: write layout: create %s: %w", path, err)
 	}
 	if _, err := file.WriteString(strconv.Itoa(v) + "\n"); err != nil {
-		return errors.Join(fmt.Errorf("migrate: write LAYOUT: write temp: %w", err), file.Close())
+		return errors.Join(fmt.Errorf("migrate: write layout: write %s: %w", path, err), file.Close())
 	}
 	if err := file.Sync(); err != nil {
-		return errors.Join(fmt.Errorf("migrate: write LAYOUT: sync temp: %w", err), file.Close())
+		return errors.Join(fmt.Errorf("migrate: write layout: sync %s: %w", path, err), file.Close())
 	}
 	if err := file.Close(); err != nil {
-		return fmt.Errorf("migrate: write LAYOUT: close temp: %w", err)
+		return fmt.Errorf("migrate: write layout: close %s: %w", path, err)
 	}
 	return nil
 }
