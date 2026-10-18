@@ -307,11 +307,12 @@ By who owns the build output:
 flowchart TB
   H["~/.crowbar/"]
   H --> V["LAYOUT — layout version (read before anything opens)"]
+  H --> Mig["migrate/ledger.jsonl — migration ledger, beside LAYOUT and outside state/ (migration engine plan R1)"]
   H --> Sock["crowbar.sock"]
   H --> Bin["bin/crowbar — replaced when its build hash differs, never by size"]
   H --> Logs["logs/"]
   H --> St["state/"]
-  St --> DB["crowbar.db — journal, projections, operations, settings, migration ledger (one SQLite file)"]
+  St --> DB["crowbar.db — journal, projections, operations, settings (one SQLite file)"]
   St --> Blobs["blobs/ — content-addressed payloads, refcounted in crowbar.db"]
   H --> WS["workspaces/&lt;workspaceId&gt;/ — one managed git worktree each"]
   H --> CH["chats/&lt;chatId&gt;/ — Crowbar's own per-chat files"]
@@ -330,7 +331,7 @@ The rules, each tied to a finding:
   chat removes the folder. This is the "stable per-conversation folder", for Crowbar's own files,
   not as the agent's working directory.
 - **One database file.** It holds the journal and the projections (the architecture doc's four
-  aggregates), operations, settings, the migration log and the reference counts for blobs. Ordinary
+  aggregates), operations, settings and the reference counts for blobs. Ordinary
   rows replace every one of the "ten places", the prompt journal files and `view.db`.
 - **Deletes are operations.** A delete marks the chat as deleting, removes what depends on it, and
   removes the record **last**. An interrupted delete is resumed at boot because the operation row

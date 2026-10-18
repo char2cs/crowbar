@@ -349,7 +349,7 @@ type ledgerView struct{ /* []record */ }
 func readLedger(path string) (ledgerView, error) // read-only; the only tolerated bad line is a FINAL one with no trailing newline (a torn write); any other bad line => ErrLedgerCorrupt
 func (v ledgerView) applied(n int, name string) bool         // a step.done with outcome applied for number AND name
 func (v ledgerView) checkpoints(n int) map[string]Counts     // all checkpoint records for step n, every run
-func (v ledgerView) danglingRun() (id string, ok bool)       // last run.start with no run.end
+func (v ledgerView) danglingRun() (record, bool)             // the last run.start, when no run.end follows it
 func (v ledgerView) lastRun() (RunSummary, bool)
 type ledger struct{ view ledgerView; /* *os.File */ }
 func openLedger(path string) (*ledger, error) // readLedger, truncate a torn tail, open O_APPEND|O_CREATE 0o600 (dir 0o700)
@@ -523,7 +523,7 @@ func (s *Session) Close() error // releases the lock; writes nothing
   - `TestBegin_CorruptLedgerHalts`: garbage in the middle gives `ledger_corrupt`, no step runs.
   - `TestRun_CancelledContextIsInterruptedNotHalted` (Review Focus 1): `Apply` marks `"a"`, then blocks on `<-ctx.Done()` and returns `ctx.Err()`; test cancels via a channel handshake; `RunPreOpen` returns an error with `errors.Is(err, context.Canceled)` that is NOT a `*Halt`; `s.Halt()==nil`; ledger ends `run.end{interrupted}`; `LAYOUT` unchanged; a second `Begin` resumes and sees `Done("a")`.
   - `TestBegin_ClosesADanglingRunAsInterrupted`: pre-seed a ledger with `run.start` and `step.start` but no `run.end` (a SIGKILL); `Begin` appends `run.end{interrupted}` for that run id and the pending list is unchanged.
-  - `TestBegin_ABumpWhoseLayoutLandedBeforeItsDoneRecordIsNotRerun` (R2): pre-seed `LAYOUT=1` and a ledger holding `run.start` and `step.start` for bump step `0->1` with no `step.done`; `Begin` plus both `Run*` calls never invoke that step's `Apply`; the dangling run is closed `interrupted`.
+  - `TestBegin_ABumpWhoseLayoutLandedBeforeItsDoneRecordIsNotRerun` (R2): pre-seed `LAYOUT=1` and a ledger holding `run.start` and `step.start` for bump step `0->1` with no `step.done`; `Begin` plus both `Run*` calls never invoke that step's `Apply`; the dangling run is closed `completed` (every step its `run.start` listed is done).
   - `TestRun_PlanErrorHalts`: a step whose `Plan` errors gives `plan_failed` naming the step; no `Apply`.
   - `TestRun_PreflightGit`: plan `NeedsGit:true` with `HaveGit` returning false gives `preflight_failed` mentioning git; no backup, no `Apply`.
   - `TestRun_BacksUpStateBeforeTheFirstStepWhenAPlanRewritesIt`: plan `RewritesState:true`, `state/view.db` has content; inside `Apply`, `migrate/backups/<run>/state/view.db` already exists with identical bytes; the ledger has a `backup` record; after a failing step `Halt().Backup` is that path.
@@ -533,7 +533,7 @@ func (s *Session) Close() error // releases the lock; writes nothing
 - [ ] **Step 2: Run to verify failure**
   Run: `cd api && go test -tags noEmbed -race ./internal/core/migrate/ -count=1`
   Expected: the new tests FAIL (no refusal, no interruption handling, no backup).
-- [ ] **Step 3: Implement.** In `Begin`: a layout greater than `Known()` sets `HaltLayoutNewer` and returns before the ledger is opened; `readLayout` error sets `HaltLayoutUnreadable`; `openLedger` corruption sets `HaltLedgerCorrupt`; `danglingRun` appends `run.end{interrupted}`. In `RunPreOpen`, after `run.start` and before the loop: call every pending step's `Plan` (offline, both phases), halt `plan_failed` on error, check `NeedsGit` against `HaveGit`, then if any plan has `RewritesState` call `backupState` (map `ErrInsufficientDisk` and other copy errors to `HaltPreflight`) and append a `backup` record. In the loop, an `Apply` error satisfying `errors.Is(err, ctx.Err())` with `ctx.Err()!=nil` appends `run.end{interrupted}` and is returned as is (never set `s.halt`).
+- [ ] **Step 3: Implement.** In `Begin`: a layout greater than `Known()` sets `HaltLayoutNewer` and returns before the ledger is opened; `readLayout` error sets `HaltLayoutUnreadable`; `openLedger` corruption sets `HaltLedgerCorrupt`; a dangling run gets `run.end{completed}` when every step its `run.start` listed is no longer pending, else `run.end{interrupted}`. In `RunPreOpen`, after `run.start` and before the loop: call every pending step's `Plan` (offline, both phases), halt `plan_failed` on error, check `NeedsGit` against `HaveGit`, then if any plan has `RewritesState` call `backupState` (map `ErrInsufficientDisk` and other copy errors to `HaltPreflight`) and append a `backup` record. In the loop, an `Apply` error satisfying `errors.Is(err, ctx.Err())` with `ctx.Err()!=nil` appends `run.end{interrupted}` and is returned as is (never set `s.halt`).
 - [ ] **Step 4: Run to verify pass** (same command). Expected: `ok`, no race reports.
 - [ ] **Step 5: Commit**
   `feat(api): migrate refuses newer layouts, backs up state, and distinguishes interruption from failure`

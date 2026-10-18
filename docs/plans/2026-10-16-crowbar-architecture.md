@@ -382,7 +382,7 @@ A moved conversation still holds absolute paths into the folder it left, and the
 
 Resume hazards become rows, never heuristics: a session is resumed only by its stored id (the "continue last" forms of both CLIs silently start a new conversation when nothing matches); a Claude process killed before its first model request leaves nothing to resume, so the conversation is `lost` with that reason and a fresh start is offered; a Codex process killed right after a turn starts resumes but drops that first prompt, so a prompt is `delivered` only when the provider's own acknowledgement has been recorded — until then it is re-driven at the next launch.
 
-The migration engine is a permanent, small module: an ordered list of idempotent, versioned steps over the home directory and the database, applied at boot before the daemon serves, recorded in the journal, reported on the health endpoint. First steps: fold today's twelve event/snapshot/store databases into one; move worktrees under `workspaces/`; record each existing chat's session id and bound workspace as ledger rows; stamp a protocol version so stale client caches are dropped once.
+The migration engine is a permanent, small module: an ordered list of idempotent, versioned steps over the home directory and the database, applied at boot before the daemon serves, recorded in `migrate/ledger.jsonl` (migration engine plan R1), reported on the health endpoint. First steps: fold today's twelve event/snapshot/store databases into one; move worktrees under `workspaces/`; record each existing chat's session id and bound workspace as ledger rows; stamp a protocol version so stale client caches are dropped once.
 
 ---
 

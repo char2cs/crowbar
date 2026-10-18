@@ -5,9 +5,14 @@ daemon (70ec430 and earlier), and why going back afterwards is not supported.
 
 ## What the first run does
 
-All of it runs synchronously at boot, before anything is served, and each
-step is best-effort per row: a row it cannot upgrade is logged and left for
-the next boot, and never keeps the daemon from starting.
+All of it runs synchronously at boot, before anything is served, through the
+migration engine (`api/internal/core/migrate`). The daemon answers
+`/v0/health` with `migrating` while it works. Over rows it cannot replay a
+step is best-effort: the rows are counted (`skipped_rows`, in the ledger and
+`crowbar migrate --plan`) and logged, the step completes, and the daemon
+starts. A step that fails outright (an I/O error, a corrupt ledger, or its own
+postcondition not holding) no longer lets the daemon carry on: see "When a
+step fails" below.
 
 Every boot:
 
@@ -21,7 +26,9 @@ Every boot:
   only when there is no candidate.
 - **Interrupted deletes** are resumed and tombstones purged, as before.
 
-Once per install (an empty marker per step under `<home>/state/upgrades/`):
+Once per install (recorded in the ledger at `<home>/migrate/ledger.jsonl`; a
+pre-audit home's existing markers under `<home>/state/upgrades/` are adopted
+once: the step is recorded as done, the marker deleted, nothing re-run):
 
 - `chat-types`: chat rows with no `type` (minted before the field) become `chat`.
 - `chat-providers-from-history`: each chat's stored provider is restated to
@@ -50,6 +57,26 @@ Also changed for old data, without a migration:
   override and its findings, and Settings → Providers shows "Override refused
   — using shipped" with the reasons.
 
+## When a step fails
+
+Run `crowbar migrate --plan` (same `CROWBAR_HOME`) to see the layout, the
+pending steps, whether `state/` would be backed up, and the last run.
+
+A failed step, a layout newer than this binary knows, an unreadable `LAYOUT`
+file or a corrupt ledger halts the boot. The daemon stays up holding the home,
+opens no database, answers `/v0/health` with `status: "halted"` and the reason
+in `detail.message`, and answers 503 `daemon_halted` to everything else. The
+desktop app shows the reason in place of its window and does not restart the
+daemon. Fix the cause and relaunch; the retry resumes from the checkpoints. A
+`LAYOUT` newer than the binary means a newer Crowbar has been here: run that
+one. A ctrl-C or SIGTERM mid-migration is not a failure: the run is recorded
+`interrupted` and the next boot resumes.
+
+Before a run that rewrites `state/`, the daemon copies it to
+`<home>/migrate/backups/<run-id>/state/` (needing the copy's size plus 64 MiB
+free, else it halts before touching anything). A halt names the backup; Crowbar
+never prunes or restores one, so restoring is a manual copy back.
+
 ## Downgrading is not supported
 
 After this version has run, going back to a pre-audit build is not supported.
@@ -67,3 +94,14 @@ field, so the fields vanish from the state it replays onto, any later patch
 that replaces one of them fails to apply, and any snapshot the old binary
 writes back persists the loss. Keep a copy of `~/.crowbar/state` before
 upgrading if a rollback might be needed.
+
+The automatic backup does not make a rollback safe across a halt. A retry
+reuses the backup taken before the failed attempt, because it is the image the
+migration started from. So a halt, then reinstalling an older release, running
+it for days, then upgrading again leaves the retry with that same pre-halt
+image: the days in between are in no backup, and the ledger cannot see them,
+since it records migrations, not normal use. Copy `~/.crowbar/state` yourself
+before upgrading again.
+
+A halt's `layout` field is 0 for `layout_unreadable`: the `LAYOUT` file could
+not be read, so no layout is known.
