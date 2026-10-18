@@ -91,16 +91,21 @@ func (r *restartConn) Close() error {
 	return nil
 }
 
+// restartWait bounds one wait on the shell. It is minutes, not seconds: a login
+// shell's start-up is the user's ~/.zshrc, which crawls under a loaded machine.
+const restartWait = 2 * time.Minute
+
 // waitFor blocks until some received frame satisfies pred, woken by this conn's
-// own WriteMessage — a REAL signal, never a poll.
-//
-// There is deliberately NO deadline: a PTY-backed login shell's start-up cost is
-// the user's ~/.zshrc, which under CPU load runs an order of magnitude slower
-// than on an idle machine. Any fixed wait here is a GUESS about someone else's
-// shell, and the previous 5 s guess is exactly what made this test fail in the
-// full suite while passing alone. Blocking on the arrival of output instead makes
-// a slow machine merely slow, never red; `go test -timeout` is the only backstop.
-func (r *restartConn) waitFor(pred func(restartFrame) bool) {
+// own WriteMessage, and fails the test at restartWait instead of hanging the binary.
+func (r *restartConn) waitFor(t *testing.T, pred func(restartFrame) bool) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), restartWait)
+	defer cancel()
+	defer context.AfterFunc(ctx, func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.cond.Broadcast()
+	})()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for {
@@ -109,13 +114,17 @@ func (r *restartConn) waitFor(pred func(restartFrame) bool) {
 				return
 			}
 		}
+		if ctx.Err() != nil {
+			t.Fatalf("no frame matched within %s", restartWait)
+		}
 		r.cond.Wait()
 	}
 }
 
 // waitForData blocks until any received frame's payload satisfies pred.
-func (r *restartConn) waitForData(pred func(string) bool) {
-	r.waitFor(func(f restartFrame) bool { return pred(f.Data) })
+func (r *restartConn) waitForData(t *testing.T, pred func(string) bool) {
+	t.Helper()
+	r.waitFor(t, func(f restartFrame) bool { return pred(f.Data) })
 }
 
 type restartConnClosedErr struct{}
@@ -231,13 +240,13 @@ func TestRegression_TerminalSession_RestartRoundTrip_RealStore(t *testing.T) {
 
 	// Block until the shell emits its initial prompt — the real signal that the
 	// PTY is live and the model has content Shutdown can flush to disk.
-	conn1.waitForData(func(data string) bool { return len(data) > 0 })
+	conn1.waitForData(t, func(data string) bool { return len(data) > 0 })
 
 	// Inject a known marker so we can assert scrollback content post-restart, and
 	// block until the PTY echoes it back — the real signal that the marker is in
 	// the model (and so will be in the .buf Shutdown writes).
 	require.NoError(t, eng1.Write(ctx, sessionID, []byte("echo restart-crossboundary-marker\n")))
-	conn1.waitForData(func(data string) bool { return rrHas(data, "restart-crossboundary-marker") })
+	conn1.waitForData(t, func(data string) bool { return rrHas(data, "restart-crossboundary-marker") })
 
 	// Capture the CWD the session was created in so we can assert it post-restart.
 	savedCWD := cwd
@@ -321,28 +330,19 @@ func TestRegression_TerminalSession_RestartRoundTrip_RealStore(t *testing.T) {
 	// the SNAPSHOT frame the writePump hands a freshly attached client, and it is
 	// read from disk — so it arrives immediately and says nothing about whether
 	// the re-spawned shell came up.
-	conn2.waitForData(func(data string) bool { return rrHas(data, "restart-crossboundary-marker") })
+	conn2.waitForData(t, func(data string) bool { return rrHas(data, "restart-crossboundary-marker") })
 
-	// Prove the restore produced a WORKING shell by DRIVING output, not by
-	// waiting for a spontaneous one. A freshly re-spawned login shell may fold
-	// its only spontaneous output — the prompt/title — into the scrollback-replay
-	// SNAPSHOT frame above; when it does, no non-snapshot frame ever follows, and
-	// a wait for spontaneous live output blocks until go test's whole-binary
-	// timeout, taking every test in this package's binary down with it. (That is
-	// the rare full-suite CI hang the earlier 5 s-deadline version papered over —
-	// removing the deadline turned a fast flake into a 10-minute one.) Echo a
-	// marker that cannot exist in the pre-restart scrollback and block on its
-	// echo instead: the shell must read input, run the command, and emit for that
-	// marker to arrive, which is a complete and deterministic proof of a live
-	// restored shell — and, unlike a prompt, cannot be pre-folded into a snapshot.
+	// Prove the restored shell WORKS by driving output: its spontaneous prompt may
+	// be folded into the snapshot above, but a marker it must run to emit cannot.
 	const liveMarker = "restored-shell-live-marker"
 	require.NoError(t, eng2.Write(ctx, sessionID, []byte("echo "+liveMarker+"\n")))
-	conn2.waitForData(func(data string) bool { return rrHas(data, liveMarker) })
+	conn2.waitForData(t, func(data string) bool { return rrHas(data, liveMarker) })
 
-	// The restored shell must run in the saved CWD (the working directory from
-	// before the restart). We write `pwd` and block until the path comes back.
-	require.NoError(t, eng2.Write(ctx, sessionID, []byte("pwd\n")))
-	conn2.waitForData(func(data string) bool { return rrHas(data, savedCWD) })
+	// The restored shell runs in the saved CWD. The shell proves it with a short
+	// token: a path wider than the 80-column screen is split across rows on the
+	// wire, and the typed line echoes $((6*7)), never 42.
+	require.NoError(t, eng2.Write(ctx, sessionID, []byte("[ . -ef '"+savedCWD+"' ] && echo restored-cwd-$((6*7))\n")))
+	conn2.waitForData(t, func(data string) bool { return rrHas(data, "restored-cwd-42") })
 
 	// Also verify the scrollback file still exists and the meta row is readable.
 	storageDir, storErr := ms2.StorageDir(ctx, chatID)
@@ -427,7 +427,7 @@ func TestRegression_TerminalSession_MetaRowSurvivesShutdown_RealStore(t *testing
 
 	// Block on the shell's first byte — the real signal that the model has
 	// content for Shutdown to flush.
-	conn.waitForData(func(data string) bool { return len(data) > 0 })
+	conn.waitForData(t, func(data string) bool { return len(data) > 0 })
 
 	// Graceful shutdown persists scrollback + state="suspended".
 	// The conn is still attached; Shutdown handles that path.
