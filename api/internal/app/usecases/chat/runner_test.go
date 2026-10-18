@@ -2589,10 +2589,9 @@ func TestRegression_AfterRestart_ResumeStillWorks(t *testing.T) {
 	assert.Equal(t, revived, live.ID, "and the chat is held by the CLI the user can actually talk to")
 }
 
-// TestRegression_ChatMidTurnAtShutdown_DoesNotSpinForever: Working is reconciled
-// state, never durable truth — a CLI that dies mid-turn never sends the
-// turn_stop that would close it, and after a restart no exit callback is left
-// to close it either. Boot does, since the runner it belonged to is gone.
+// TestRegression_ChatMidTurnAtShutdown_DoesNotSpinForever: a CLI that dies
+// mid-turn never sends its turn_stop, and after a restart no exit callback is
+// left to close it; boot does, since its runner is gone.
 func TestRegression_ChatMidTurnAtShutdown_DoesNotSpinForever(t *testing.T) {
 	f := newFixture(t)
 

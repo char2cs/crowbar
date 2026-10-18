@@ -68,10 +68,9 @@ func (rs *Runners) recordRunner(ctx context.Context, r engineagents.Runner, resu
 	return nil
 }
 
-// recordSpawnFailure takes a spawn that put no CLI on the chat out of the live
-// table and, for an existing chat, records spawn_failed and settles what the
-// runner carried. A CLI that died during startup recorded its own exit, and a
-// preempted spawn is the preempting Stop's to record.
+// recordSpawnFailure frees the chat of a spawn that put no CLI on it and, for an
+// existing chat, records spawn_failed. A CLI that died during startup recorded
+// its own exit; a preempted spawn is the preempting Stop's to record.
 func (rs *Runners) recordSpawnFailure(ctx context.Context, chatID, runnerID string, create bool, err *error) {
 	if *err == nil || errors.Is(*err, ErrProviderExitedDuringStartup) {
 		return

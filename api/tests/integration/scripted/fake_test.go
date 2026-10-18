@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // The scripted CLI. The test binary is linked in as `claude` and `codex`;
@@ -108,6 +110,18 @@ func newID() string {
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// providerHome is the vendor home env names. The rig keeps it beside the
+// script, in the test's temp dir; a fake handed any other refuses to run.
+func providerHome(env string) string {
+	dir, err := kit.ProviderHomeIn(env, filepath.Dir(os.Getenv(envScript)))
+	if err != nil {
+		record("fake", "unsafe-home", map[string]any{"err": err.Error()})
+		say(err.Error() + "\n")
+		os.Exit(4)
+	}
+	return dir
 }
 
 func writeSessionFile(path string) {

@@ -176,6 +176,8 @@ type rig struct {
 	wsID   string
 	script string
 	log    string
+	// providers is the temp dir the CLIs' own homes live under.
+	providers string
 }
 
 func newRig(t *testing.T) *rig {
@@ -184,7 +186,11 @@ func newRig(t *testing.T) *rig {
 	home := t.TempDir()
 	t.Setenv("CROWBAR_HOME", home)
 	scratch := t.TempDir()
-	r := &rig{t: t, home: home, script: filepath.Join(scratch, "script.yaml"), log: filepath.Join(scratch, "cli.log")}
+	kit.PointProviderHomesAt(t, scratch)
+	r := &rig{
+		t: t, home: home, providers: scratch,
+		script: filepath.Join(scratch, "script.yaml"), log: filepath.Join(scratch, "cli.log"),
+	}
 	t.Setenv(envScript, r.script)
 	t.Setenv(envLog, r.log)
 	r.setScript("turn: []\n")

@@ -37,17 +37,20 @@ func newLiveRig(t *testing.T) (*rig, *modelServer) {
 	model := newModelServer(t)
 	home := t.TempDir()
 	t.Setenv("CROWBAR_HOME", home)
-	kit.IsolateProviderHomes(t)
+	providers := kit.IsolateProviderHomes(t)
 	t.Setenv("ANTHROPIC_BASE_URL", model.URL)
 	t.Setenv("ANTHROPIC_API_KEY", liveAPIKey)
 	t.Setenv("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
 	t.Setenv("DISABLE_TELEMETRY", "1")
 	t.Setenv("LIVE_OPENAI_KEY", "live")
-	require.NoError(t, os.WriteFile(filepath.Join(os.Getenv("CODEX_HOME"), "config.toml"), []byte(
+	require.NoError(t, os.WriteFile(filepath.Join(kit.RequireProviderHomeIn(t, kit.CodexHomeEnv, providers), "config.toml"), []byte(
 		"model = \"gpt-live\"\nmodel_provider = \"live\"\n[model_providers.live]\nname = \"live\"\n"+
 			"base_url = \""+model.URL+"/v1\"\nwire_api = \"responses\"\nenv_key = \"LIVE_OPENAI_KEY\"\n"), 0o600))
 	scratch := t.TempDir()
-	r := &rig{t: t, home: home, script: filepath.Join(scratch, "unused.yaml"), log: filepath.Join(scratch, "unused.log")}
+	r := &rig{
+		t: t, home: home, providers: providers,
+		script: filepath.Join(scratch, "unused.yaml"), log: filepath.Join(scratch, "unused.log"),
+	}
 	r.d = bootDaemon(t, home)
 	t.Cleanup(func() { r.d.stop() })
 	r.wsID = r.workspace(kit.InitRepo(t))
@@ -61,7 +64,7 @@ const liveAPIKey = "sk-ant-api03-livelivelivelivelivelivelive"
 // key approved, the worktree trusted.
 func trustForClaude(t *testing.T, r *rig) {
 	t.Helper()
-	path := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), ".claude.json")
+	path := filepath.Join(kit.RequireProviderHomeIn(t, kit.ClaudeHomeEnv, r.providers), ".claude.json")
 	cfg := map[string]any{}
 	if raw, err := os.ReadFile(path); err == nil {
 		_ = json.Unmarshal(raw, &cfg)
@@ -235,7 +238,7 @@ func TestLive_LostSessionStartsFresh(t *testing.T) {
 			r.eventually(r.replied(chatID, 1), "the first real turn never landed")
 			require.NoError(t, r.runners().StopChat(context.Background(), chatID))
 			r.dormantSaying(chatID, domain.AgentExitStopped)
-			removeSessionFiles(t)
+			r.removeSessionFiles()
 
 			require.NoError(t, r.send(chatID, "still there?"))
 			r.eventually(func() bool {

@@ -271,7 +271,7 @@ func (rs *Runners) establishAPISession(
 		slog.WarnContext(ctx, "agent: api transport: establish session", "err", err, "runner_id", runnerID)
 		if errors.Is(err, engineagents.ErrAPISessionLost) &&
 			rs.loseSession(ctx, tctx.ChatID, providerID, tctx.Session, err.Error(), runnerID) {
-			rs.noteRefusedRunner(runnerID)
+			rs.noteRefusedRunner(tctx.ChatID, runnerID)
 		}
 		rs.apiConns.drop(runnerID)
 		return "", false

@@ -97,8 +97,8 @@ func InstallFakeProvider(tb testing.TB, home string, spec FakeSpec) FakeProvider
 	tb.Helper()
 	// Crowbar never reads a provider's home; temp roots keep anything that would
 	// resolve one off the developer's real one.
-	tb.Setenv("CLAUDE_CONFIG_DIR", tb.TempDir())
-	tb.Setenv("CODEX_HOME", tb.TempDir())
+	tb.Setenv(ClaudeHomeEnv, tb.TempDir())
+	tb.Setenv(CodexHomeEnv, tb.TempDir())
 
 	id := spec.ID
 	if id == "" {

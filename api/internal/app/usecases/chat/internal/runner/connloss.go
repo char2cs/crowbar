@@ -10,10 +10,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// onAPIConnLost ends a runner whose api channel is gone. A runner whose
-// connection IS its process is not left running without one: the serve
-// process is killed and its exit watcher records the runner's exit through
-// the one exit path, with the loss as the cause. A runner with a PTY runs on.
+// onAPIConnLost ends a runner whose connection was its process: the serve
+// process is killed, and its exit watcher records the loss as the cause. A
+// runner with a PTY runs on.
 func (rs *Runners) onAPIConnLost(ctx context.Context, runnerID string) {
 	if ctx.Err() != nil {
 		return // deliberate teardown; the caller that dropped it owns the rest

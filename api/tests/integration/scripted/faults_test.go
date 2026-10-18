@@ -16,6 +16,7 @@ import (
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 const healthy = "turn:\n  - say: continued\n"
@@ -225,7 +226,7 @@ func TestScripted_MissingSessionFileIsLost(t *testing.T) {
 			r.firstTurn(chatID)
 			require.NoError(t, r.runners().StopChat(context.Background(), chatID))
 			r.dormantSaying(chatID, domain.AgentExitStopped)
-			removeSessionFiles(t)
+			r.removeSessionFiles()
 
 			r.lostThenFresh(chatID, "do you remember?")
 		})
@@ -292,10 +293,13 @@ func (r *rig) transcriptReached(text string) bool {
 	return false
 }
 
-func removeSessionFiles(t *testing.T) {
-	t.Helper()
-	for _, root := range []string{os.Getenv("CLAUDE_CONFIG_DIR"), os.Getenv("CODEX_HOME")} {
-		require.NoError(t, filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+// removeSessionFiles deletes every transcript in the CLIs' homes, which must
+// lie inside the rig's temp dir.
+func (r *rig) removeSessionFiles() {
+	r.t.Helper()
+	for _, env := range []string{kit.ClaudeHomeEnv, kit.CodexHomeEnv} {
+		root := kit.RequireProviderHomeIn(r.t, env, r.providers)
+		require.NoError(r.t, filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 			if err == nil && !info.IsDir() && strings.HasSuffix(path, ".jsonl") {
 				return os.Remove(path)
 			}

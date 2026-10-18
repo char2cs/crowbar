@@ -391,10 +391,9 @@ func (f *fakeAgentUsecase) PendingPrompt(
 	return f.pendingPrompt, f.pendingPromptFound, f.pendingPromptErr
 }
 
-// ConversationsForChat backs the derived facts on the chat DTOs, which only the
-// List/Get read handlers compose (see configurableListGetUsecase in
-// chats_test.go). This double answers "no history", so the mutation handlers it
-// does serve never trip over it.
+// ConversationsForChat backs the chat DTOs' derived facts, which only the List/Get
+// read handlers compose; this double answers "no history" for the mutation
+// handlers it serves.
 func (f *fakeAgentUsecase) ConversationsForChat(
 	_ context.Context,
 	_ string,

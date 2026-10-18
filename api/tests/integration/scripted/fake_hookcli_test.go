@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // hookCLI is a vendor TUI that reports over hook commands: claude always,
@@ -157,7 +159,7 @@ func runClaude(args []string) int {
 		session: argAfter(args, "--session-id"),
 		sessionFile: func(id string) string {
 			slug := strings.ReplaceAll(cwd, string(filepath.Separator), "-")
-			return filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", slug, id+".jsonl")
+			return filepath.Join(providerHome(kit.ClaudeHomeEnv), "projects", slug, id+".jsonl")
 		},
 	}
 	return runHookCLI(c, argAfter(args, "--resume"), positionalsAfterDashes(args))

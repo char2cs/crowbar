@@ -64,11 +64,9 @@ func (rs *Runners) endRunner(
 // provider can interrupt a turn over its api connection, otherwise by retiring
 // it — and records exactly one "stopped" interruption when a turn was open.
 //
-// Whether a turn was open is read BEFORE either teardown runs, and is the only
-// input to the record: both teardowns end the turn themselves, so asking
-// afterwards answers "idle" and the divider is never written (P0-8). The record
-// comes AFTER the teardown, which returns once the CLI has stopped, so the
-// divider lands after the last content the CLI produced.
+// Whether a turn was open is read BEFORE either teardown, which ends it; the
+// one "stopped" record comes AFTER, once the CLI has stopped, so its divider
+// lands after the last content the CLI produced.
 func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Runner, gentle bool) error {
 	open, err := rs.turns.TurnOpen(ctx, chatID, live.ID)
 	if err != nil {

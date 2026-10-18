@@ -2082,9 +2082,8 @@ func TestSwitchProvider_MidTurn_ClosesTheOutgoingTurn(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestRegression_HookFromAPurgedChatsRunner_NeverTouchesTheChatModel: a late hook
-// from the CLI of a purged chat resolves to no runner, and so to no chat. GetChat's
-// lazy self-heal replays the whole event log on a miss, so a lookup here is a cost
-// every dying CLI's hook would pay. The fault-injected GetChat is the probe.
+// from a purged chat's CLI resolves to no runner and so no chat; GetChat's lazy
+// self-heal on a miss would replay the whole log for every dying CLI's hook.
 func TestRegression_HookFromAPurgedChatsRunner_NeverTouchesTheChatModel(t *testing.T) {
 	f, cs := newFaultFixture(t)
 

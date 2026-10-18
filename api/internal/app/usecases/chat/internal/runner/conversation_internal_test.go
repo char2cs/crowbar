@@ -305,9 +305,10 @@ func TestHelperRefusingServe(t *testing.T) {
 	})))
 }
 
-// A resume the api provider refuses at spawn loses the session, and the spawn
-// goes on over its PTY: that runner is healthy, so nothing waits it out.
-func TestSpawnRunner_ARefusedAPIResumeLeavesAHealthyRunner(t *testing.T) {
+// refusedResumeSpawn spawns a runner whose api resume the provider refuses:
+// the session is lost and the spawn goes on over its PTY.
+func refusedResumeSpawn(t *testing.T) (*spawnHarness, string) {
+	t.Helper()
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	t.Setenv("CROWBAR_DISABLE_API_TRANSPORT", "")
 	t.Setenv("CROWBAR_TEST_REFUSING_SERVE", "1")
@@ -322,6 +323,23 @@ func TestSpawnRunner_ARefusedAPIResumeLeavesAHealthyRunner(t *testing.T) {
 	c, _ := chatState(t, h.rs.ledger).Conversation("carrier-test")
 	require.Equal(t, ledger.ConversationLost, c.State, "the provider refused the resume")
 	require.Len(t, h.term.created, 1, "the spawn went on over its PTY")
+	return h, runnerID
+}
+
+// endedAs is how chat-1's one recorded runner exit names its end.
+func endedAs(t *testing.T, h *spawnHarness) string {
+	t.Helper()
+	rows, err := h.rs.ledger.Read(t.Context(), h.chatID, 0, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, countKind(rows, ledger.KindRunnerExited))
+	exit, _ := chatState(t, h.rs.ledger).LastExit()
+	return exit.Reason
+}
+
+// The runner a refused resume leaves is healthy: nothing waits it out, and
+// the refusal is not why it ends when the user stops it.
+func TestSpawnRunner_ARefusedAPIResumeLeavesAHealthyRunner(t *testing.T) {
+	h, runnerID := refusedResumeSpawn(t)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -330,6 +348,19 @@ func TestSpawnRunner_ARefusedAPIResumeLeavesAHealthyRunner(t *testing.T) {
 	assert.Equal(t, runnerID, resumed)
 	v, _ := h.rs.live.view(h.chatID)
 	assert.False(t, v.exiting)
+
+	require.NoError(t, h.rs.StopChat(ctx, h.chatID))
+	assert.Equal(t, domain.AgentExitStopped, endedAs(t, h))
+}
+
+// A daemon shutdown ends the runner a refused resume left as a daemon_restart.
+func TestSpawnRunner_ARefusedAPIResumesRunnerEndsAtShutdownAsADaemonRestart(t *testing.T) {
+	h, _ := refusedResumeSpawn(t)
+
+	h.rs.Shutdown()
+	require.NoError(t, h.term.TerminateGraceful(t.Context(), h.term.lastCall().termSessID))
+
+	assert.Equal(t, domain.AgentExitDaemonRestart, endedAs(t, h))
 }
 
 // touches counts the snapshot republishes a chat is given.

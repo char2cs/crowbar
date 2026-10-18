@@ -26,15 +26,9 @@ func KnownSurface(s string) bool {
 // through asynx commands. Conversation content lives in the ledger, not here —
 // this aggregate holds identity, title, live turn state, and a ledger cursor.
 //
-// It knows NOTHING about processes. `Segments []AgentSegment` and
-// `ActiveSegmentID` are gone, and nothing replaces them on the aggregate (spec
-// §2): a chat does not own the CLI that happens to be talking to it. The runner
-// points at the chat, never the reverse, so "is this chat live?" is a QUERY
-// against the supervisor's live table (LiveRunnerForChat — an entry exists
-// exactly while its process does), never a flag stored here that could
-// contradict the process. Which conversations a chat has hosted is likewise
-// chat-ledger rows, not chat state, so the aggregate is never written to for
-// either.
+// It knows nothing about processes: the runner points at the chat, never the
+// reverse, so "is this chat live?" asks the supervisor's live table, and the
+// conversations it hosted are chat-ledger rows.
 type Chat struct {
 	ID          string   `json:"id"`
 	Type        ChatType `json:"type"`

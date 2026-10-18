@@ -37,7 +37,7 @@ func TestIsolateProviderHomes_CodexRunsAuthenticatedOutOfTheTempHome(t *testing.
 func TestIsolateProviderHomes_ClaudeConfigIsSeededWithNoPlaces(t *testing.T) {
 	IsolateProviderHomes(t)
 
-	blob, err := os.ReadFile(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), ".claude.json"))
+	blob, err := os.ReadFile(filepath.Join(os.Getenv(ClaudeHomeEnv), ".claude.json"))
 	require.NoError(t, err, "the isolated config dir must be seeded before any CLI reads it")
 	var seeded map[string]any
 	require.NoError(t, json.Unmarshal(blob, &seeded))
@@ -57,13 +57,67 @@ func TestIsolateProviderHomes_CopiesTheNamedCredentialFile(t *testing.T) {
 
 	IsolateProviderHomes(t)
 
-	dst := filepath.Join(os.Getenv("CODEX_HOME"), "auth.json")
+	dst := filepath.Join(os.Getenv(CodexHomeEnv), "auth.json")
 	info, err := os.Lstat(dst)
 	require.NoError(t, err)
 	assert.True(t, info.Mode().IsRegular(), "the credential must be a copy, not a link")
 	blob, err := os.ReadFile(dst)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"token":"t"}`, string(blob))
-	assert.NoFileExists(t, filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), ".credentials.json"),
+	assert.NoFileExists(t, filepath.Join(os.Getenv(ClaudeHomeEnv), ".credentials.json"),
 		"no credential is named for claude, so none is written")
+}
+
+// A helper writes or deletes under a provider home only when the env var
+// resolves inside the test's temp dir; a link out of it does not count.
+func TestProviderHomeIn_RefusesAHomeOutsideTheTestsTempDir(t *testing.T) {
+	root, elsewhere := t.TempDir(), t.TempDir()
+	inside := filepath.Join(root, "codex")
+	require.NoError(t, os.Mkdir(inside, 0o700))
+	link := filepath.Join(root, "linked")
+	require.NoError(t, os.Symlink(elsewhere, link))
+
+	for name, tc := range map[string]struct {
+		home string
+		ok   bool
+	}{
+		"inside":                   {inside, true},
+		"outside":                  {elsewhere, false},
+		"a link inside to outside": {link, false},
+		"unset":                    {"", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(CodexHomeEnv, tc.home)
+			dir, err := ProviderHomeIn(CodexHomeEnv, root)
+			if !tc.ok {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			want, err := filepath.EvalSymlinks(inside)
+			require.NoError(t, err)
+			assert.Equal(t, want, dir)
+		})
+	}
+}
+
+// A credential the kit is pointed at through a link, or under a provider home
+// that is itself a link, is still refused.
+func TestIsolateProviderHomes_RefusesACredentialALinkHidesInAProviderHome(t *testing.T) {
+	home, dotfiles := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o700))
+	inClaude := filepath.Join(home, ".claude", ".credentials.json")
+	require.NoError(t, os.WriteFile(inClaude, []byte("{}"), 0o600))
+	require.NoError(t, os.Symlink(dotfiles, filepath.Join(home, ".codex")))
+	inCodex := filepath.Join(dotfiles, "auth.json")
+	require.NoError(t, os.WriteFile(inCodex, []byte("{}"), 0o600))
+	link := filepath.Join(t.TempDir(), "credentials.json")
+	require.NoError(t, os.Symlink(inClaude, link))
+	elsewhere := filepath.Join(t.TempDir(), "auth.json")
+	require.NoError(t, os.WriteFile(elsewhere, []byte("{}"), 0o600))
+
+	require.Error(t, outsideProviderHomes(ClaudeCredentialsEnv, link), "a link into ~/.claude")
+	require.Error(t, outsideProviderHomes(CodexAuthEnv, inCodex), "the real path of a linked ~/.codex")
+	require.NoError(t, outsideProviderHomes(CodexAuthEnv, elsewhere))
 }

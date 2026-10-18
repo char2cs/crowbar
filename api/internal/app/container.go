@@ -451,17 +451,12 @@ func startRestoreTerminalSessions(
 	_ = ucs.Terminal.RestorePersistedSessions(context.WithoutCancel(ctx))
 }
 
-// reconcileAgentRunners ends the previous run's runners: a PTY never survives a
-// restart, so every runner_started the ledger still holds open describes a CLI that
-// no longer exists, and nothing recorded its death. Left open, it would hold the
-// chat busy and, if it died mid-turn, spin its spinner forever.
+// reconcileAgentRunners ends the runners the ledger still holds open from the
+// previous run: their PTYs died with it, and left open one keeps its chat busy.
+// It runs before anything is served, so no client read races it.
 //
-// It runs SYNCHRONOUSLY, before anything is served: the first client read must not
-// race it.
-//
-// Best-effort: a failure is logged and the daemon still boots. The chats it could not
-// reconcile are no worse off than they were a line earlier, and refusing to start the
-// daemon over them would be strictly worse.
+// Best-effort: a failure is logged and the daemon still boots; those chats are no
+// worse off than before, and refusing to start would be strictly worse.
 func reconcileAgentRunners(
 	ctx context.Context,
 	ucs *usecases.Container,

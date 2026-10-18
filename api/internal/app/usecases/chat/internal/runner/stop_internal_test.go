@@ -178,16 +178,9 @@ func retiredAs(t *testing.T, rs *Runners) string {
 	return exit.Reason
 }
 
-// TestRegression_StopChatOnAnIdleChatActuallyRetires guards the bug reported
-// live 2026-09-08 ("chats losing its provider when closing"): interruptTurn's
-// own check has no notion of "idle" — a live api connection plus a descriptor
-// that declares a non-"prompt" interrupt gesture (codex, always) made it
-// return true regardless of whether a turn was actually running, so StopChat
-// on an IDLE chat neither interrupted anything nor retired the runner.
-// Confirmed live: closing a codex tab left its runner, its api connection and
-// its companion PTY all running indefinitely, still placed on the chat the
-// user had just "closed" — directly contradicting the frontend's own
-// documented "closing stops the CLI" contract.
+// TestRegression_StopChatOnAnIdleChatActuallyRetires: interruptTurn has no notion
+// of idle, so a stop that asked it first left an idle chat's runner, connection
+// and PTY running after the chat was closed.
 func TestRegression_StopChatOnAnIdleChatActuallyRetires(t *testing.T) {
 	interrupted := make(chan bool, 1)
 	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
@@ -217,8 +210,12 @@ func TestRegression_StopChatOnAnIdleChatActuallyRetires(t *testing.T) {
 
 	require.NoError(t, rs.StopChat(ctx, "chat-1"))
 
-	require.False(t, <-interrupted,
-		"StopChat sent turn/interrupt on an idle chat — there was nothing running to interrupt")
+	select {
+	case sent := <-interrupted:
+		require.False(t, sent, "StopChat sent turn/interrupt on an idle chat — there was nothing running to interrupt")
+	case <-ctx.Done():
+		t.Fatal("the retire never closed the api connection")
+	}
 	require.Equal(t, domain.AgentExitStopped, retiredAs(t, rs),
 		"an idle chat's runner must actually be retired on close, not left running forever")
 	require.Empty(t, activity.recorded(), "closing an idle chat interrupts nothing")

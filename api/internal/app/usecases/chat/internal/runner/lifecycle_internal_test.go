@@ -80,9 +80,8 @@ func TestCloseAbandonedTurn_EmptyChatID_SalvagesNothing(t *testing.T) {
 }
 
 // TestRegression_RetireTerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY:
-// SwitchToTerminal forks a NEW native-view PTY tracked only in rs.attached,
-// while runner.TerminalSession still names the companion PTY. Retiring the
-// chat ends both and forgets the view, or the visible process runs forever.
+// the native view SwitchToTerminal forks is tracked only in rs.attached, so a
+// retire must end it too, or the visible process runs forever.
 func TestRegression_RetireTerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY(t *testing.T) {
 	term := &fakeTermForAttach{}
 	rs := retiring(t, &Runners{

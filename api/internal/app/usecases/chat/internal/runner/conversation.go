@@ -139,7 +139,7 @@ func (rs *Runners) loseAPISession(ctx context.Context, chatID string, live engin
 		return
 	}
 	if rs.loseSession(ctx, chatID, live.ProviderID, sessionID, err.Error(), live.ID) {
-		rs.noteRefusedRunner(live.ID)
+		rs.noteRefusedRunner(chatID, live.ID)
 	}
 	if live.TerminalSession == "" {
 		rs.apiConns.drop(live.ID)
@@ -164,10 +164,11 @@ func (rs *Runners) loseSession(ctx context.Context, chatID, providerID, sessionI
 	return true
 }
 
-// noteRefusedRunner notes resume_failed on a runner the refusal leaves with no
-// process yet: if its connection was all it had, that is why it ends.
-func (rs *Runners) noteRefusedRunner(runnerID string) {
-	if r, ok := rs.live.byRunner(runnerID); ok && r.TerminalSession == "" {
+// noteRefusedRunner notes resume_failed on a started runner whose connection
+// was its only process. A refusal during a spawn is not why its runner ends:
+// the spawn forks the PTY next, or fails as spawn_failed.
+func (rs *Runners) noteRefusedRunner(chatID, runnerID string) {
+	if v, ok := rs.live.view(chatID); ok && v.runner.ID == runnerID && v.started && v.runner.TerminalSession == "" {
 		rs.live.noteCause(runnerID, domain.AgentExitResumeFailed)
 	}
 }

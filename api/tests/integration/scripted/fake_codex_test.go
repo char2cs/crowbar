@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // runCodex is codex: `app-server --listen unix://…` speaks JSON-RPC over a
@@ -39,7 +41,7 @@ func runCodex(args []string) int {
 }
 
 func codexRollout(id string) string {
-	return filepath.Join(os.Getenv("CODEX_HOME"), "sessions", "2026", "01", "01",
+	return filepath.Join(providerHome(kit.CodexHomeEnv), "sessions", "2026", "01", "01",
 		"rollout-2026-01-01T00-00-00-"+id+".jsonl")
 }
 
