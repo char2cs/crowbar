@@ -9,11 +9,11 @@ All of it runs synchronously at boot, before anything is served. The
 once-per-install steps below run through the migration engine
 (`api/internal/core/migrate`); the every-boot repairs run in `app.New`, outside
 it, as before. The daemon answers `/v0/health` with `migrating` while it
-works. Over rows it cannot replay a once-per-install step is best-effort: the rows are counted (`skipped_rows`, in the ledger and
-`crowbar migrate --plan`) and logged, the step completes, and the daemon
-starts. A step that fails outright (an I/O error, a corrupt ledger, or its own
-postcondition not holding) no longer lets the daemon carry on: see "When a
-step fails" below.
+works. Over rows it cannot replay a once-per-install step is best-effort: the
+rows are counted (`skipped_rows`, in the ledger and `crowbar migrate --plan`)
+and logged, the step completes, and the daemon starts. A step that fails
+outright (an I/O error, a corrupt ledger, or its own postcondition not holding)
+no longer lets the daemon carry on: see "When a step fails" below.
 
 Every boot:
 
@@ -65,9 +65,9 @@ pending steps, whether `state/` would be backed up, and the last run.
 
 A failed step, a layout newer than this binary knows, an unreadable `LAYOUT`
 file, a corrupt ledger, or a home the daemon cannot put in order before any
-step (a half-written backup it cannot remove, a ledger it cannot write:
-`io_failed`) halts the boot. The daemon stays up holding the home,
-opens no database, answers `/v0/health` with `status: "halted"` and the reason
+step (a half-written backup it cannot remove, a ledger it cannot write, a lock
+it cannot take: `io_failed`) halts the boot. The daemon stays up holding the
+home, opens no database, answers `/v0/health` with `status: "halted"` and the reason
 in `detail.message`, and answers 503 `daemon_halted` to everything else. The
 desktop app shows the reason in place of its window and does not restart the
 daemon. Fix the cause and relaunch; the retry resumes from the checkpoints. A
@@ -75,11 +75,18 @@ daemon. Fix the cause and relaunch; the retry resumes from the checkpoints. A
 one. A ctrl-C or SIGTERM mid-migration is not a failure: the run is recorded
 `interrupted` and the next boot resumes.
 
+When the lock itself cannot be taken (`state/` cannot be created, the lock file
+cannot be opened) the daemon halts the same way but holds no lock and runs
+nothing; a second Crowbar is still refused, at the socket. Only a home
+directory that cannot be created at all makes the daemon exit with the error.
+
 Before a run that rewrites `state/`, the daemon writes a backup to
 `<home>/migrate/backups/<run-id>/` (needing the copy's size plus 64 MiB free,
 else it halts before touching anything): `state/`, `LAYOUT` and `ledger.jsonl`,
-as they stood before the run. A halt names the backup in its message; Crowbar
-never prunes or restores one.
+as they stood before the run. A halt names the backup in its message. Crowbar
+never restores one, and never prunes `<home>/migrate/backups`: it is kept until
+you remove it, and once you have confirmed the upgrade you can safely delete
+it.
 
 ### Restoring a backup
 
@@ -92,6 +99,10 @@ never prunes or restores one.
 
 Restore all three together. `state/` alone would leave the ledger saying the
 steps were applied, so they would never run again over the restored data.
+
+Copy out of the backup rather than moving: the restored ledger does not refer to
+it, so it stays in `migrate/backups`, and the re-run takes a second full copy
+(the size plus 64 MiB free-space check applies again).
 
 ## Downgrading is not supported
 

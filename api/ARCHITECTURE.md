@@ -189,9 +189,13 @@ describe.
 `step_failed`, `verify_failed`, `no_implementation`) keeps the daemon alive,
 holding the lock and the socket, with no store open. `io_failed` is `Begin`
 unable to put the home in order (remove a half-written backup, close a dangling
-run in the ledger): the lock is already held, so it is kept like any halt. The `migrate.Halt` carries the reason, the
-step, the layouts, and the ledger and backup paths. A supervisor that
-respawned it would only meet the same failure. A cancelled context is the one
+run in the ledger), or unable to take the lock itself (`state/` cannot be made,
+the lock file cannot be opened). In the second case the session holds no lock
+and runs nothing, so only the socket still refuses a second daemon. A home
+directory that cannot be created at all is the one boot error that exits:
+there is nothing to hold or report on. The `migrate.Halt` carries the reason,
+the step, the layouts, and the ledger and backup paths. A supervisor that
+respawned it would only meet the same failure. A cancelled context is the other
 exception: the run ends `interrupted`, the process exits, and the next boot
 resumes from the checkpoints.
 
