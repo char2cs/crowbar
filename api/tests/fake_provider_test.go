@@ -50,9 +50,11 @@ func TestFakeProvider_LaunchIsCapturedAndHooksReachTheChat(t *testing.T) {
 	for _, step := range []struct{ event, payload string }{
 		{"session_start", `{"session_id":"s-1","source":"startup"}`},
 		{"user_prompt", `{"session_id":"s-1","prompt":"hello"}`},
+		// Claude sends MessageDisplay before Stop; a Stop with text and no open message waits 3s.
+		{"message_delta", `{"session_id":"s-1","turn_id":"t-1","message_id":"m-1","index":0,"final":true,"delta":"HI"}`},
 		{"turn_stop", `{"session_id":"s-1","last_assistant_message":"HI"}`},
 	} {
-		resp := l.PostHook(t, hookBase, "claude", step.event, []byte(step.payload))
+		resp := l.PostHook(t, hookBase, "claude", step.event, []byte(step.payload)) //nolint:bodyclose // PostHook closes the body and returns a buffered copy
 		require.Equal(t, http.StatusOK, resp.StatusCode, step.event)
 	}
 	h.Quiesce()
@@ -73,7 +75,7 @@ func TestFakeProvider_ReplaysTheRecordedClaudeSubagentSession(t *testing.T) {
 	chatID, l, hookBase := newFakeClaudeChat(t, h, imported)
 
 	dir := filepath.Join("testdata", "hooks", "claude-subagent-session")
-	responses, skipped := l.ReplayHooks(t, hookBase, "claude", dir, kit.ClaudeHookRoutes, nil)
+	responses, skipped := l.ReplayHooks(t, hookBase, "claude", dir, kit.ClaudeHookRoutes, nil) //nolint:bodyclose // PostHook closes each body and returns a buffered copy
 	h.Quiesce()
 
 	require.Empty(t, skipped, "every recorded hook has a route in the shipped descriptor")

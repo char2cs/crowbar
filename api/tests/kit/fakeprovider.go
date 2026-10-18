@@ -46,22 +46,22 @@ func apiDir() string {
 }
 
 // FakeCLIPath builds tests/kit/fakecli once per test binary and returns the binary.
-func FakeCLIPath(t testing.TB) string {
-	t.Helper()
+func FakeCLIPath(tb testing.TB) string {
+	tb.Helper()
 	fakeCLI.once.Do(func() {
 		fakeCLI.dir, fakeCLI.err = os.MkdirTemp("", "fakecli-")
 		if fakeCLI.err != nil {
 			return
 		}
 		fakeCLI.path = filepath.Join(fakeCLI.dir, "fakecli")
-		build := exec.CommandContext(context.Background(), "go", "build",
+		build := exec.CommandContext(context.Background(), "go", "build", //nolint:gosec // G204: fixed argv; the output path is a temp dir this call made
 			"-tags", "integration", "-o", fakeCLI.path, "./tests/kit/fakecli")
 		build.Dir = apiDir()
 		if out, err := build.CombinedOutput(); err != nil {
 			fakeCLI.err = fmt.Errorf("go build fakecli: %w: %s", err, out)
 		}
 	})
-	require.NoError(t, fakeCLI.err, "kit: build the fake provider CLI")
+	require.NoError(tb, fakeCLI.err, "kit: build the fake provider CLI")
 	return fakeCLI.path
 }
 
@@ -92,50 +92,50 @@ type FakeSpec struct {
 
 // InstallFakeProvider writes the descriptor and points the daemon's provider
 // homes at temp dirs. Tests that call it must not run in parallel.
-func InstallFakeProvider(t testing.TB, home string, spec FakeSpec) FakeProvider {
-	t.Helper()
+func InstallFakeProvider(tb testing.TB, home string, spec FakeSpec) FakeProvider {
+	tb.Helper()
 	// Until a resume stops globbing the provider's transcript root, an unset root
 	// would be the real home; a temp root keeps "not found" without reading it.
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("CODEX_HOME", t.TempDir())
+	tb.Setenv("CLAUDE_CONFIG_DIR", tb.TempDir())
+	tb.Setenv("CODEX_HOME", tb.TempDir())
 
 	id := spec.ID
 	if id == "" {
 		id = spec.Base
 	}
-	require.NotEmpty(t, id, "kit: a fake provider needs an ID or a Base")
-	dir := t.TempDir()
-	doc := fakeDocument(t, spec, FakeCLIPath(t), dir)
+	require.NotEmpty(tb, id, "kit: a fake provider needs an ID or a Base")
+	dir := tb.TempDir()
+	doc := fakeDocument(tb, spec, FakeCLIPath(tb), dir)
 	if spec.Patch != nil {
 		spec.Patch(doc)
 	}
 	doc["id"] = id
 
 	raw, err := yaml.Marshal(doc)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 	// A refused override silently falls back to the shipped descriptor, which
 	// would launch the real CLI.
 	for _, f := range descriptorcheck.Validate(raw).Findings {
-		require.NotEqual(t, descriptorcheck.SeverityError, f.Severity,
+		require.NotEqual(tb, descriptorcheck.SeverityError, f.Severity,
 			"kit: fake descriptor %q refused: %s (line %d): %s", id, f.Rule, f.Line, f.Message)
 	}
 	descriptors := filepath.Join(home, "descriptors")
-	require.NoError(t, os.MkdirAll(descriptors, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(descriptors, id+".yaml"), raw, 0o644))
+	require.NoError(tb, os.MkdirAll(descriptors, 0o750))
+	require.NoError(tb, os.WriteFile(filepath.Join(descriptors, id+".yaml"), raw, 0o600))
 	return FakeProvider{ID: id, Dir: dir}
 }
 
-func fakeDocument(t testing.TB, spec FakeSpec, cli, dir string) map[string]any {
-	t.Helper()
+func fakeDocument(tb testing.TB, spec FakeSpec, cli, dir string) map[string]any {
+	tb.Helper()
 	var doc map[string]any
 	if spec.Base == "" {
 		doc = bareDocument(cli)
 	} else {
-		doc = shippedDocument(t, spec.Base, cli)
+		doc = shippedDocument(tb, spec.Base, cli)
 	}
 	if spec.EventsYAML != "" {
 		var events map[string]any
-		require.NoError(t, yaml.Unmarshal([]byte(spec.EventsYAML), &events), "kit: EventsYAML")
+		require.NoError(tb, yaml.Unmarshal([]byte(spec.EventsYAML), &events), "kit: EventsYAML")
 		doc["events"] = events
 	}
 	doc["hooks_injection"] = []any{
@@ -165,19 +165,19 @@ func bareDocument(cli string) map[string]any {
 
 // shippedDocument is the embedded descriptor with the fake as its process and
 // everything the fake cannot take (flags, models, MCP, prompts) removed.
-func shippedDocument(t testing.TB, base, cli string) map[string]any {
-	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(apiDir(), shippedDescriptors, base+".yaml"))
-	require.NoError(t, err)
+func shippedDocument(tb testing.TB, base, cli string) map[string]any {
+	tb.Helper()
+	raw, err := os.ReadFile(filepath.Join(apiDir(), shippedDescriptors, base+".yaml")) //nolint:gosec // G304: a checked-in descriptor under api/
+	require.NoError(tb, err)
 	var doc map[string]any
-	require.NoError(t, yaml.Unmarshal(raw, &doc))
+	require.NoError(tb, yaml.Unmarshal(raw, &doc))
 
-	spawn := block(t, doc, "spawn")
+	spawn := block(tb, doc, "spawn")
 	spawn["cmd"] = cli
 	delete(spawn, "forbid_flags")
 	delete(spawn, "env")
-	block(t, block(t, doc, "runtime"), "spawn")["cmd"] = cli
-	delete(block(t, doc, "presentation"), "slash_catalog")
+	block(tb, block(tb, doc, "runtime"), "spawn")["cmd"] = cli
+	delete(block(tb, doc, "presentation"), "slash_catalog")
 	for _, key := range []string{
 		"model", "effort", "permission_levels", "telemetry", "mcp_injection",
 		"context_inject", "resume_context_inject", "terminal_prompts", "terminal_notices",
@@ -187,10 +187,10 @@ func shippedDocument(t testing.TB, base, cli string) map[string]any {
 	return doc
 }
 
-func block(t testing.TB, parent map[string]any, key string) map[string]any {
-	t.Helper()
+func block(tb testing.TB, parent map[string]any, key string) map[string]any {
+	tb.Helper()
 	child, ok := parent[key].(map[string]any)
-	require.True(t, ok, "kit: descriptor has no %q block", key)
+	require.True(tb, ok, "kit: descriptor has no %q block", key)
 	return child
 }
 
@@ -211,11 +211,11 @@ type Launch struct {
 }
 
 // AwaitLaunch blocks until the fake CLI for runnerID has written its capture.
-func (f FakeProvider) AwaitLaunch(t testing.TB, runnerID string) Launch {
-	t.Helper()
+func (f FakeProvider) AwaitLaunch(tb testing.TB, runnerID string) Launch {
+	tb.Helper()
 	var l Launch
-	require.Eventually(t, func() bool {
-		raw, err := os.ReadFile(filepath.Join(f.Dir, runnerID+".json"))
+	require.Eventually(tb, func() bool {
+		raw, err := os.ReadFile(filepath.Join(f.Dir, runnerID+".json")) //nolint:gosec // G304: the capture dir this provider made
 		return err == nil && json.Unmarshal(raw, &l) == nil
 	}, 10*time.Second, 20*time.Millisecond, "kit: fake CLI for runner %s never launched", runnerID)
 	return l
@@ -223,34 +223,34 @@ func (f FakeProvider) AwaitLaunch(t testing.TB, runnerID string) Launch {
 
 // RefuseResume makes every later launch that resumes sessionID print line and
 // exit 1.
-func (f FakeProvider) RefuseResume(t testing.TB, sessionID, line string) {
-	t.Helper()
-	require.NoError(t, os.WriteFile(filepath.Join(f.Dir, "refuse-"+sessionID), []byte(line+"\n"), 0o644))
+func (f FakeProvider) RefuseResume(tb testing.TB, sessionID, line string) {
+	tb.Helper()
+	require.NoError(tb, os.WriteFile(filepath.Join(f.Dir, "refuse-"+sessionID), []byte(line+"\n"), 0o600))
 }
 
 // Kill sends SIGTERM to the launch's process: an exit with no hook.
-func (l Launch) Kill(t testing.TB) {
-	t.Helper()
+func (l Launch) Kill(tb testing.TB) {
+	tb.Helper()
 	proc, err := os.FindProcess(l.PID)
-	require.NoError(t, err)
-	require.NoError(t, proc.Signal(syscall.SIGTERM))
+	require.NoError(tb, err)
+	require.NoError(tb, proc.Signal(syscall.SIGTERM))
 }
 
 // PostHook posts payload to <baseURL>/chats/runners/<runner>/hooks/<provider>/<event>
 // with the runner token. baseURL is the server URL plus the repo or home route
 // prefix. The body is read and closed, then kept readable on the response.
-func (l Launch) PostHook(t testing.TB, baseURL, provider, event string, payload []byte) *http.Response {
-	t.Helper()
+func (l Launch) PostHook(tb testing.TB, baseURL, provider, event string, payload []byte) *http.Response {
+	tb.Helper()
 	url := fmt.Sprintf("%s/chats/runners/%s/hooks/%s/%s", baseURL, l.RunnerID, provider, event)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader(payload))
-	require.NoError(t, err)
+	require.NoError(tb, err)
 	req.Header.Set(runnerTokenHeader, l.Token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.NoError(t, resp.Body.Close())
+	require.NoError(tb, err)
+	require.NoError(tb, resp.Body.Close())
 	resp.Body = io.NopCloser(bytes.NewReader(body))
 	return resp
 }
@@ -277,16 +277,15 @@ var ClaudeHookRoutes = map[string][]string{
 	"Notification":       {"notification", "idle"},
 }
 
-// ReplayHooks posts every *.json file in dir (lexical order) through l, once per
-// route in routes[payload.hook_event_name], after replacing every key of rewrite
-// with its value in the raw bytes. A payload whose hook name has no route is
-// skipped and its file name returned in skipped.
-func (l Launch) ReplayHooks(t testing.TB, baseURL, provider, dir string,
+// ReplayHooks posts each *.json in dir (lexical order) through l once per route of its
+// hook_event_name, after replacing every key of rewrite with its value in the raw bytes.
+// A payload with no route is skipped and its file name returned.
+func (l Launch) ReplayHooks(tb testing.TB, baseURL, provider, dir string,
 	routes map[string][]string, rewrite map[string]string,
 ) (responses []*http.Response, skipped []string) {
-	t.Helper()
+	tb.Helper()
 	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 	from := make([]string, 0, len(rewrite))
 	for old := range rewrite {
 		from = append(from, old)
@@ -296,22 +295,22 @@ func (l Launch) ReplayHooks(t testing.TB, baseURL, provider, dir string,
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		raw, err := os.ReadFile(filepath.Join(dir, entry.Name()))
-		require.NoError(t, err)
+		raw, err := os.ReadFile(filepath.Join(dir, entry.Name())) //nolint:gosec // G304: a fixture file the caller named
+		require.NoError(tb, err)
 		for _, old := range from {
 			raw = bytes.ReplaceAll(raw, []byte(old), []byte(rewrite[old]))
 		}
 		var head struct {
 			Name string `json:"hook_event_name"`
 		}
-		require.NoError(t, json.Unmarshal(raw, &head), entry.Name())
+		require.NoError(tb, json.Unmarshal(raw, &head), entry.Name())
 		events := routes[head.Name]
 		if len(events) == 0 {
 			skipped = append(skipped, entry.Name())
 			continue
 		}
 		for _, event := range events {
-			responses = append(responses, l.PostHook(t, baseURL, provider, event, raw))
+			responses = append(responses, l.PostHook(tb, baseURL, provider, event, raw)) //nolint:bodyclose // PostHook closes the body and returns a buffered copy
 		}
 	}
 	return responses, skipped

@@ -24,6 +24,10 @@ type launch struct {
 }
 
 func main() {
+	// Before the capture exists, so a SIGTERM sent the moment a test sees it is handled.
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
+
 	dir := os.Getenv("FAKECLI_DIR")
 	if dir == "" {
 		os.Exit(2) // an unset capture dir would write into the working directory
@@ -37,15 +41,27 @@ func main() {
 	if err := record(dir, rec); err != nil {
 		os.Exit(2)
 	}
-	if id := resumeValue(rec.Argv); id != "" {
-		if refusal, err := os.ReadFile(filepath.Join(dir, "refuse-"+id)); err == nil {
-			if _, err := os.Stdout.Write(refusal); err != nil {
-				os.Exit(2)
-			}
-			os.Exit(1)
-		}
+	if code := refuseResume(dir, rec.Argv); code != 0 {
+		os.Exit(code)
 	}
-	os.Exit(echoUntilStopped())
+	os.Exit(echoUntilStopped(stop))
+}
+
+// refuseResume prints the canned refusal and returns 1 when this launch resumes a
+// session the test marked refused; 0 when it does not, 2 when printing fails.
+func refuseResume(dir string, argv []string) int {
+	id := resumeValue(argv)
+	if id == "" {
+		return 0
+	}
+	refusal, err := os.ReadFile(filepath.Join(dir, "refuse-"+id)) //nolint:gosec // G304: dir is the harness-set capture dir
+	if err != nil {
+		return 0
+	}
+	if _, err := os.Stdout.Write(refusal); err != nil {
+		return 2
+	}
+	return 1
 }
 
 // record writes the capture under a temp name first, so a reader never sees half
@@ -56,10 +72,10 @@ func record(dir string, rec launch) error {
 		return err
 	}
 	tmp := filepath.Join(dir, "."+rec.RunnerID+".tmp")
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil { //nolint:gosec // G703: tmp is under the harness-set capture dir
 		return err
 	}
-	return os.Rename(tmp, filepath.Join(dir, rec.RunnerID+".json"))
+	return os.Rename(tmp, filepath.Join(dir, rec.RunnerID+".json")) //nolint:gosec // G703: both paths are under the harness-set capture dir
 }
 
 // resumeValue is the session a launch resumes: the arg after --resume, or the arg
@@ -84,9 +100,7 @@ func resumeValue(argv []string) string {
 
 // echoUntilStopped copies stdin to stdout and returns the exit code: 0 on EOF,
 // 143 on SIGTERM or SIGINT.
-func echoUntilStopped() int {
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
+func echoUntilStopped(stop <-chan os.Signal) int {
 	copied := make(chan error, 1)
 	go func() {
 		_, err := io.Copy(os.Stdout, os.Stdin)
