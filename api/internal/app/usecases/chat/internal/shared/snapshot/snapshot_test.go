@@ -235,11 +235,12 @@ func TestSnapshots_AnUnknownChatIsNotHeld(t *testing.T) {
 }
 
 // A restarted daemon's versions are larger than any the previous one issued,
-// so a client holding an old version accepts the new daemon's answers.
+// so a client holding an old version accepts the new daemon's answers. The
+// previous daemon booted a millisecond ago and issued fewer versions than that.
 func TestSnapshots_VersionsSurviveARestart(t *testing.T) {
 	ctx := context.Background()
 	rd := &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}}
-	before := snapshot.NewAtBoot()
+	before := snapshot.New(time.Now().Add(-time.Millisecond).UnixMicro())
 	before.Bind(rd, newRuntime())
 	for range 100 {
 		before.Touch(ctx, "c1")
@@ -247,7 +248,6 @@ func TestSnapshots_VersionsSurviveARestart(t *testing.T) {
 	old, err := before.Get(ctx, "c1")
 	require.NoError(t, err)
 
-	time.Sleep(time.Millisecond)
 	after := snapshot.NewAtBoot()
 	after.Bind(rd, newRuntime())
 	fresh, err := after.Get(ctx, "c1")

@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
@@ -91,9 +92,12 @@ type Deps struct {
 	// to the fanout. Nil builds a private one (tests), fed by nothing until a
 	// test wires the fanout over Snapshots().
 	Snapshots *snapshot.Snapshots
-	// Tools is the agent-facing capability surface. Its Chats, ChatLogs, Lineage
-	// and ToolAccess ports are filled in by New, because they are this usecase's
-	// own methods and it does not exist when the caller builds the Deps.
+	// SwitchGrace is how long a provider switch waits on the outgoing turn
+	// before forcing it; zero is the default.
+	SwitchGrace time.Duration
+	// Tools is the agent-facing capability surface. Its Chats, ChatLogs, Lineage,
+	// ToolAccess and Resolver are filled in by New: they are this usecase's own
+	// methods, and it does not exist when the caller builds the Deps.
 	Tools agenttools.Deps
 }
 
@@ -164,9 +168,7 @@ func New(d Deps) *Usecase {
 	u.tools.ChatLogs = u
 	u.tools.Lineage = u
 	u.tools.ToolAccess = u.providerMCPEnabled
-	if u.tools.Resolver != nil {
-		u.tools.Resolver = u.tools.Resolver.WithRunners(u)
-	}
+	u.tools.Resolver = agenttools.NewResolver(d.Minter, u, u.tools.ChatReads, u.tools.Scope)
 
 	u.snapshots = d.Snapshots
 	if u.snapshots == nil {
@@ -275,6 +277,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Conversations: u.conversations,
 		Providers:     u.providers,
 		Snapshots:     u.snapshots,
+		SwitchGrace:   d.SwitchGrace,
 	})
 	// The edges that can only close once both sides exist: a purge retires the
 	// CLI on the chat (and a failed spawn discards the chat it minted), a hook

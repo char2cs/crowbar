@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -94,11 +95,13 @@ func TestAwaitDormant_WaitsOutAnExitingRunnerOnly(t *testing.T) {
 	assert.Equal(t, "r1", r.ID, "a runner that is not exiting is returned at once")
 
 	rs.live.markExiting("r1", "stopped")
-	done := make(chan bool)
-	go func() {
-		_, live, _ := rs.awaitDormant(t.Context(), "chat-1")
-		done <- live
-	}()
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, _, err = rs.awaitDormant(cancelled, "chat-1")
+	require.ErrorIs(t, err, context.Canceled, "an exiting runner is waited out, never returned")
+
 	rs.live.remove("r1")
-	assert.False(t, <-done, "the chat is dormant once the exiting runner is gone")
+	_, live, err = rs.awaitDormant(t.Context(), "chat-1")
+	require.NoError(t, err)
+	assert.False(t, live, "the chat is dormant once the exiting runner is gone")
 }

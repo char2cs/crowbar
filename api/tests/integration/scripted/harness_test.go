@@ -183,7 +183,6 @@ func newRig(t *testing.T) *rig {
 	kit.RequireNoLeakedProcesses(t)
 	home := t.TempDir()
 	t.Setenv("CROWBAR_HOME", home)
-	kit.IsolateProviderHomes(t)
 	scratch := t.TempDir()
 	r := &rig{t: t, home: home, script: filepath.Join(scratch, "script.yaml"), log: filepath.Join(scratch, "cli.log")}
 	t.Setenv(envScript, r.script)

@@ -19,6 +19,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // legacyFuncs is the work behind the legacy post-open steps, the upgrades an
@@ -70,7 +71,11 @@ func newLegacyFuncs(
 			if err != nil {
 				return 0, err
 			}
-			return ucs.AgentRunner.RestateProvidersFromHistory(ctx, newest)
+			skipped, err := ucs.AgentRunner.RestateProvidersFromHistory(ctx, newest)
+			if err != nil {
+				return skipped, err
+			}
+			return skipped, adoptLegacyRunners(ctx, h, ucs)
 		},
 		staleProviders: func(ctx context.Context) ([]string, error) {
 			newest, err := chatledger.NewestProviders(ctx, h)
@@ -83,6 +88,20 @@ func newLegacyFuncs(
 			return retiredHookJournals(ctx, repos, ucs)
 		},
 	}
+}
+
+// adoptLegacyRunners hands the runner reconcile each CLI a crashed pre-ledger
+// daemon left live, so its turn is closed like any other on this boot.
+func adoptLegacyRunners(ctx context.Context, h home.Home, ucs *usecases.Container) error {
+	legacy, err := chatledger.LiveRunners(ctx, h)
+	if err != nil {
+		return err
+	}
+	runners := make([]engineagents.Runner, 0, len(legacy))
+	for _, r := range legacy {
+		runners = append(runners, engineagents.Runner{ID: r.ID, ProviderID: r.ProviderID, CurrentChatID: r.ChatID})
+	}
+	return ucs.AgentRunner.AdoptLegacyRunners(ctx, runners)
 }
 
 // Implemented reports whether this build implements migration step number, in

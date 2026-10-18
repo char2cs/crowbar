@@ -3,8 +3,6 @@ package chatledger
 import (
 	"context"
 	"database/sql"
-	"errors"
-	"fmt"
 	"path/filepath"
 
 	"github.com/char2cs/crowbar/api/internal/core/home"
@@ -16,37 +14,42 @@ type legacySource struct {
 	args             []any
 }
 
-// sources are read in this order; a later row wins only when strictly newer.
 var sources = []legacySource{
 	{
 		RunnerDB, "agent_chat_conversations",
-		"SELECT chat_id, provider_id, last_active_at FROM agent_chat_conversations", nil,
+		"SELECT chat_id, provider_id, last_active_at FROM agent_chat_conversations ORDER BY last_active_at, provider_id",
+		nil,
 	},
 	{
 		ActivityDB, "agent_interruptions",
-		"SELECT chat_id, detail, at FROM agent_interruptions WHERE kind = ?",
+		"SELECT chat_id, detail, at FROM agent_interruptions WHERE kind = ? ORDER BY at, detail",
 		[]any{providerSwitched},
 	},
 	{
 		RunnerDB, "agent_chat_placements",
-		"SELECT chat_id, provider_id, last_placed_at FROM agent_chat_placements", nil,
+		"SELECT chat_id, provider_id, last_placed_at FROM agent_chat_placements ORDER BY last_placed_at, provider_id",
+		nil,
 	},
 }
 
 // NewestProviders maps each chat the legacy history names to the provider it
-// names newest: among the chat's conversations, its provider switches and its
-// placements. Missing databases or tables are empty history.
+// names newest among its conversations, provider switches and placements; a
+// tie goes to the lowest provider id. Missing databases or tables are empty.
 func NewestProviders(ctx context.Context, h home.Home) (map[string]string, error) {
 	newest := map[string]placed{}
 	for _, src := range sources {
-		rows, err := readSource(ctx, filepath.Join(h.Store(), src.db), src)
-		if err != nil {
-			return nil, err
-		}
-		for _, p := range rows {
-			if seen, ok := newest[p.ChatID]; !ok || p.At.After(seen.At) {
+		err := queryLegacy(ctx, filepath.Join(h.Store(), src.db), src.table, func(rows *sql.Rows) error {
+			var p placed
+			if err := rows.Scan(&p.ChatID, &p.ProviderID, &p.At); err != nil {
+				return err
+			}
+			if seen, ok := newest[p.ChatID]; !ok || p.newerThan(seen) {
 				newest[p.ChatID] = p
 			}
+			return nil
+		}, src.query, src.args...)
+		if err != nil {
+			return nil, err
 		}
 	}
 	out := make(map[string]string, len(newest))
@@ -56,38 +59,6 @@ func NewestProviders(ctx context.Context, h home.Home) (map[string]string, error
 	return out, nil
 }
 
-func readSource(ctx context.Context, path string, src legacySource) (out []placed, err error) {
-	db, ok, err := openLegacy(path)
-	if err != nil || !ok {
-		return nil, err
-	}
-	defer func() { err = errors.Join(err, db.Close()) }()
-	var n int
-	if err := db.QueryRowContext(ctx,
-		"SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?", src.table).Scan(&n); err != nil {
-		return nil, fmt.Errorf("chatledger: %s: %w", src.table, err)
-	}
-	if n == 0 {
-		return nil, nil
-	}
-	rows, err := db.QueryContext(ctx, src.query, src.args...)
-	if err != nil {
-		return nil, fmt.Errorf("chatledger: %s: %w", src.table, err)
-	}
-	return scanPlaced(rows, src.table)
-}
-
-func scanPlaced(rows *sql.Rows, table string) (out []placed, err error) {
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	for rows.Next() {
-		var p placed
-		if err := rows.Scan(&p.ChatID, &p.ProviderID, &p.At); err != nil {
-			return nil, fmt.Errorf("chatledger: %s: %w", table, err)
-		}
-		out = append(out, p)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("chatledger: %s: %w", table, err)
-	}
-	return out, nil
+func (p placed) newerThan(seen placed) bool {
+	return p.At.After(seen.At) || p.At.Equal(seen.At) && p.ProviderID < seen.ProviderID
 }

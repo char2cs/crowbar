@@ -219,12 +219,6 @@ func codexReady(
 // directory and thrown away with it, instead of accumulating one dead stanza per test
 // run in the user's own ~/.codex/config.toml and ~/.claude.json forever.
 //
-// (Isolating claude was long believed impossible because CLAUDE_CONFIG_DIR "breaks its
-// auth". It does not break it so much as RENAME it: claude derives its keychain service
-// name from the config dir, so moving the dir makes it look up an item that does not
-// exist. CLAUDE_SECURESTORAGE_CONFIG_DIR="" pins the lookup back to the real
-// credential. See kit.IsolateProviderHomes.)
-//
 // What matters HERE is only that isolation does not change the SHAPE of the first run:
 // a throwaway home trusts nothing, exactly like a never-before-seen repo path in a real
 // home, so the dialog still appears exactly once per provider per test. Every test here

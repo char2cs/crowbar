@@ -5,11 +5,19 @@ package tests
 import (
 	"context"
 	"net/http"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/glebarez/sqlite"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
+	"github.com/char2cs/crowbar/api/internal/adapter/migrations/chatledger"
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -247,4 +255,58 @@ func TestRegression_ABootWithALiveRunnerRecordsDaemonRestart(t *testing.T) {
 	assert.Equal(t, "daemon_restart", exitReason(t, h2, imported, chatID))
 	l2 := promptLaunch(t, h2, imported, fake, chatID, "after the restart", "")
 	assert.NotEqual(t, l1.RunnerID, l2.RunnerID, "the prompt launched a new CLI")
+}
+
+// A daemon from before runners were ledger rows that crashed mid-turn left its
+// runner only in its own runner store. The upgrade boot ends it like any other,
+// or the chat's turn spins forever.
+func TestRegression_AgentBootReconcileEndsTheRunnerACrashedOldDaemonLeft(t *testing.T) {
+	home := t.TempDir()
+	h := newHarnessAt(t, home)
+	imported := importWritableWorkspace(t, h)
+	h.Quiesce()
+	h.crash()
+	now := time.Now().UTC()
+	chat := domain.Chat{
+		ID: uuid.NewString(), WorkspaceID: imported.workspaceID, ProviderID: "claude", Title: "mid-turn",
+		CreatedAt: now, LastActivityAt: now, Working: true, CurrentTurnStarted: &now,
+	}
+	seed := openBaseEra(t, home)
+	seed.chat(chat)
+	seed.close()
+	store := homeAt(t, home).Store()
+	legacy := openSQLite(t, filepath.Join(store, chatledger.RunnerDB))
+	require.NoError(t, legacy.Exec(chatledger.RunnersDDL).Error)
+	require.NoError(t, legacy.Exec(
+		"INSERT INTO agent_runners (id, provider_id, current_chat_id, started_at) VALUES (?, ?, ?, ?)",
+		"runner-old", "claude", chat.ID, now).Error)
+	closeSQLite(t, legacy)
+
+	h2 := newHarnessAt(t, home)
+	h2.Quiesce()
+
+	got, err := h2.app.Usecases.AgentChat.GetChat(context.Background(), chat.ID)
+	require.NoError(t, err)
+	assert.False(t, got.Working, "the turn the old daemon died in is closed")
+	assert.Equal(t, "daemon_restart", exitReason(t, h2, imported, chat.ID))
+	ledgerDB := openSQLite(t, filepath.Join(store, ledgerstore.FileName))
+	defer closeSQLite(t, ledgerDB)
+	var exits int64
+	require.NoError(t, ledgerDB.Raw(
+		"SELECT count(*) FROM chat_ledger WHERE chat_id = ? AND kind = 'runner_exited'", chat.ID).Scan(&exits).Error)
+	assert.Equal(t, int64(1), exits)
+}
+
+func openSQLite(t *testing.T, path string) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	require.NoError(t, err)
+	return db
+}
+
+func closeSQLite(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	raw, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, raw.Close())
 }

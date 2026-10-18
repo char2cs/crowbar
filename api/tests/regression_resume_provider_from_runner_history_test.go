@@ -17,18 +17,9 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 )
 
-// Resuming a dormant chat failed with "agentrunner not found", and it was common
-// for providers that bind via their own connection identity: they announce no
-// conversation, so the chat had no conversation row; it had never been switched,
-// so it had no provider-switch marker; and if it was minted before the chat
-// aggregate carried its own vendor, it had no stored provider either. The one
-// record that still named its vendor was the old daemon's runner history.
-//
-// Nothing writes that history any more: the upgrade boot reads it once and
-// restates each chat's own provider from it. These tests seed it between a crash
-// and that boot, then drive the REAL endpoints. Every one of them also asserts the
-// chat COUNT is unchanged across the resume: a resume that invents a chat is the
-// phantom-chat bug, not a fix for this one.
+// A chat with no conversation, no switch and no stored provider resumed as
+// "agentrunner not found": only the old daemon's runner history still named its
+// vendor. The upgrade boot restates the chat's provider from it, once.
 
 // chatCount counts the conversations a repo scope lists — the guard every test
 // below takes before and after a resume.
@@ -142,8 +133,8 @@ func TestRegression_ResumeFromRunnerHistoryPicksTheNEWESTPlacement(t *testing.T)
 
 	placedAt := time.Now()
 	h = upgradeWithRunnerHistory(t, h, home,
-		legacyPlacement{chatID, "streamstub", placedAt},
-		legacyPlacement{chatID, "quietstub", placedAt.Add(time.Minute)})
+		legacyPlacement{chatID, "quietstub", placedAt.Add(time.Minute)},
+		legacyPlacement{chatID, "streamstub", placedAt})
 	before := chatCount(t, h, imported)
 
 	detail := getAgentChat(t, h, repoBase(imported), chatID)

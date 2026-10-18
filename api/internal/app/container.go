@@ -175,12 +175,12 @@ func New(
 		slog.ErrorContext(ctx, "app: resume deletes (the next boot retries)", "err", err)
 	}
 	startRestoreTerminalSessions(ctx, ucs)
-	reconcileAgentRunners(ctx, ucs)
-	// After the runner reconcile (its history is final) and before the owner
-	// reconcile (a project home created here needs an owner).
+	// Before the owner reconcile (a project home created here needs an owner).
 	if err := post.RunPostOpen(ctx, legacyImpls(newLegacyFuncs(repos, ucs, adapters.Home()))); err != nil {
 		return nil, c.abandon(ctx, fmt.Errorf("app: migrate: %w", err))
 	}
+	// After the upgrade steps, which can hand it a runner a crashed old daemon left.
+	reconcileAgentRunners(ctx, ucs)
 	// Loops start once the boot can no longer fail, so a failed one leaves none.
 	startProviderSweep(ctx, engines, repos, ucs)
 	startOwningChatReconcile(ctx, repos, ucs)

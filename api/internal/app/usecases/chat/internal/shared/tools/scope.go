@@ -192,14 +192,6 @@ func NewResolver(
 	return &Resolver{minter: minter, runners: runners, chats: chats, workspaces: workspaces}
 }
 
-// WithRunners is r resolving through runners: the chat usecase binds its own
-// supervisor, which does not exist when the resolver is built.
-func (r *Resolver) WithRunners(runners RunnerReader) *Resolver {
-	bound := *r
-	bound.runners = runners
-	return &bound
-}
-
 // Resolve authenticates (runnerID, token) and computes what that caller may
 // see.
 //
@@ -208,7 +200,7 @@ func (r *Resolver) WithRunners(runners RunnerReader) *Resolver {
 func (r *Resolver) Resolve(ctx context.Context, runnerID, token string) (Caller, error) {
 	// A resolver missing a port authenticates nobody, so it refuses everybody:
 	// a misconfiguration fails CLOSED, never crashes on the first call.
-	if r.minter == nil || r.runners == nil {
+	if r.minter == nil || r.runners == nil || r.workspaces == nil {
 		return Caller{}, fmt.Errorf("agenttools: resolve: resolver not configured: %w", ErrUnauthorized)
 	}
 	if runnerID == "" || !r.minter.Verify(runnerID, token) {

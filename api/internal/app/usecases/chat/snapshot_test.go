@@ -84,8 +84,7 @@ func TestSnapshot_StopEndsDormant(t *testing.T) {
 // A switch parked on the outgoing turn reports "switching" while it waits —
 // the pane renders the phase, it does not infer it.
 func TestSnapshot_AParkedSwitchReportsSwitching(t *testing.T) {
-	f := newFixture(t)
-	agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, time.Hour)
+	f := newFixture(t).withSwitchGrace(t, time.Hour)
 	chatID, runnerID := f.spawn(t, "claude")
 	prompt(t, f, runnerID, "claude", "think hard")
 

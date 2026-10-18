@@ -3,7 +3,6 @@ package chat
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -46,13 +45,6 @@ func AllLiveRunners(u *Usecase) []engineagents.Runner {
 		panic(err)
 	}
 	return all
-}
-
-// SetSwitchAwaitTimeout overrides how long a provider switch waits for the
-// outgoing turn to finish naturally before forcing it (see forceSwitchAfter).
-// Test-only surface: production always uses termwait.DefaultStallQuiet.
-func SetSwitchAwaitTimeout(u RunnerUsecase, d time.Duration) {
-	concrete(u).runners.SetSwitchAwaitTimeout(d)
 }
 
 // RequirePromptRestart exposes the delivery guard SubmitPrompt runs before it

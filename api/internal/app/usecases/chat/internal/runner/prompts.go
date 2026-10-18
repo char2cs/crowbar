@@ -224,6 +224,13 @@ func (rs *Runners) settleUndelivered(ctx context.Context, chatID, requestID stri
 	})
 }
 
+// settleCarriedPrompts settles the prompts runnerID was carrying on chatID.
+func (rs *Runners) settleCarriedPrompts(ctx context.Context, chatID, runnerID string) {
+	rs.settlePrompts(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		return ledger.SettleCarried(st, runnerID, false, ledger.ReasonRunnerExited)
+	})
+}
+
 // settlePrompts commits decide's settles on chatID. It outlives ctx: a prompt
 // left pending would hold the chat busy.
 func (rs *Runners) settlePrompts(ctx context.Context, chatID string, decide func(ledger.State) ([]ledger.Row, error)) {

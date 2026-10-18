@@ -92,9 +92,11 @@ func TestRegression_StopChatRecordsTheStopOnlyAfterTheCLIActuallyStops(t *testin
 	inflightTurns, work := inflight.NewTurns(), inflight.NewWork()
 	inflightTurns.Begin(context.Background(), "runner-1", "chat-1")
 	work.Set("chat-1", true)
+	asked := make(chan struct{})
 	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
 		_, msg, err := conn.ReadMessage() // turn/interrupt
 		require.NoError(t, err)
+		close(asked)
 		var req struct {
 			ID json.RawMessage `json:"id"`
 		}
@@ -129,10 +131,9 @@ func TestRegression_StopChatRecordsTheStopOnlyAfterTheCLIActuallyStops(t *testin
 	done := make(chan error, 1)
 	go func() { done <- rs.StopChat(ctx, "chat-1") }()
 
-	// While the (fake) CLI's interrupt reply is still withheld — exactly the
-	// state a real, still-generating codex sits in — StopChat must not yet
-	// have recorded anything.
-	time.Sleep(200 * time.Millisecond)
+	// The interrupt is asked and its reply withheld, as a still-generating
+	// codex does: StopChat must not yet have recorded anything.
+	<-asked
 	require.Empty(t, activity.recorded(),
 		"RecordStop fired before the CLI's interrupt actually resolved — this is the reported bug")
 
@@ -188,11 +189,10 @@ func retiredAs(t *testing.T, rs *Runners) string {
 // user had just "closed" — directly contradicting the frontend's own
 // documented "closing stops the CLI" contract.
 func TestRegression_StopChatOnAnIdleChatActuallyRetires(t *testing.T) {
-	interrupted := make(chan struct{}, 1)
+	interrupted := make(chan bool, 1)
 	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		if _, _, err := conn.ReadMessage(); err == nil {
-			interrupted <- struct{}{}
-		}
+		_, _, err := conn.ReadMessage() // a message, or the close the retire makes
+		interrupted <- err == nil
 	})
 
 	agent := interruptTestAgent(t)
@@ -217,11 +217,8 @@ func TestRegression_StopChatOnAnIdleChatActuallyRetires(t *testing.T) {
 
 	require.NoError(t, rs.StopChat(ctx, "chat-1"))
 
-	select {
-	case <-interrupted:
-		t.Fatal("StopChat sent turn/interrupt on an idle chat — there was nothing running to interrupt")
-	case <-time.After(200 * time.Millisecond):
-	}
+	require.False(t, <-interrupted,
+		"StopChat sent turn/interrupt on an idle chat — there was nothing running to interrupt")
 	require.Equal(t, domain.AgentExitStopped, retiredAs(t, rs),
 		"an idle chat's runner must actually be retired on close, not left running forever")
 	require.Empty(t, activity.recorded(), "closing an idle chat interrupts nothing")

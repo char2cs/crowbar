@@ -23,7 +23,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -333,16 +332,6 @@ func (rs *Runners) HasLiveAPIConnection(runnerID string) bool {
 	return ok
 }
 
-// Shutdown notes daemon_restart as how every live runner ends, then kills
-// every api-transport connection: nothing else on the shutdown path reaches
-// this registry. A PTY killed after it records daemon_restart; a runner it
-// detaches is recorded by the next boot, for the same reason.
-func (rs *Runners) Shutdown() {
-	rs.live.exitAll(domain.AgentExitDaemonRestart)
-	rs.background.stop()
-	rs.apiConns.closeAll()
-}
-
 // awaitAndReplyOverSocket is the api channel's hook relay: it waits on the
 // answer desk and writes the verdict back. Every ask gets a reply — an api
 // provider has no TUI of its own to fall back to, so an ask left unanswered
@@ -368,64 +357,4 @@ func (rs *Runners) awaitAndReplyOverSocket(
 	if err := conn.driver.Reply(ev.AskID, reply); err != nil {
 		slog.WarnContext(ctx, "agent: api transport: write reply", "err", err, "runner_id", runnerID)
 	}
-}
-
-// backgroundWork is the supervisor's own follow-up work (a native view's
-// exit handling): tracked, so Shutdown cancels it and waits, and none outlives
-// the daemon. A nil one (a bare Runners built by a test) runs untracked.
-type backgroundWork struct {
-	mu      sync.Mutex
-	stopped bool
-	cancels map[*context.CancelFunc]struct{}
-	wg      sync.WaitGroup
-}
-
-func newBackgroundWork() *backgroundWork {
-	return &backgroundWork{cancels: map[*context.CancelFunc]struct{}{}}
-}
-
-// run starts fn with parent's values but the supervisor's lifetime: it
-// outlives the request that asked for it and ends with Shutdown.
-func (b *backgroundWork) run(parent context.Context, fn func(context.Context)) {
-	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
-	if b == nil {
-		go func() {
-			defer cancel()
-			fn(ctx)
-		}()
-		return
-	}
-	b.mu.Lock()
-	if b.stopped {
-		cancel() // after Shutdown it runs already cancelled, and is still waited for
-	}
-	b.cancels[&cancel] = struct{}{}
-	b.wg.Add(1)
-	b.mu.Unlock()
-	go func() {
-		defer b.wg.Done()
-		defer b.forget(&cancel)
-		fn(ctx)
-	}()
-}
-
-func (b *backgroundWork) forget(cancel *context.CancelFunc) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	delete(b.cancels, cancel)
-	(*cancel)()
-}
-
-// stop cancels every piece of background work and waits for it to return.
-func (b *backgroundWork) stop() {
-	if b == nil {
-		return
-	}
-	b.mu.Lock()
-	b.stopped = true
-	for cancel := range b.cancels {
-		(*cancel)()
-	}
-	b.mu.Unlock()
-	b.wg.Wait()
 }

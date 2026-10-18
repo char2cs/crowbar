@@ -94,10 +94,8 @@ func (rs *Runners) spawnPaths(
 		return spawnPaths{}, fmt.Errorf("agent: spawn runner: chats dir: %w", err)
 	}
 
-	// Under the workspace's chats dir (always beneath crowbar home), keyed by the RUNNER —
-	// id + provider — so it is derivable from a runner_started row alone; see
-	// worktreepath.RunnerDir. That lets BOTH removers find it: onExit below on a clean
-	// death, and boot reconciliation when the daemon died before onExit could run.
+	// Keyed by the runner's id and provider (worktreepath.RunnerDir), so a
+	// runner_started row alone finds it: the boot reaps what onExit never ran for.
 	//
 	// It holds the rendered hook config the CLI is pointed at, and must survive for the
 	// whole life of that CLI — so it is removed on PTY death, never eagerly after spawn.

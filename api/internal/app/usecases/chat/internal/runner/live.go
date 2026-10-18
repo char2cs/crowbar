@@ -101,8 +101,8 @@ func (t *liveTable) markStarted(runnerID string) {
 	}
 }
 
-// markExiting notes cause as how runnerID ends, unless one was noted first,
-// and returns the channel its exit closes.
+// markExiting notes cause and marks runnerID's end as under way, and returns
+// the channel its exit closes.
 func (t *liveTable) markExiting(runnerID, cause string) (<-chan struct{}, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -110,11 +110,26 @@ func (t *liveTable) markExiting(runnerID, cause string) (<-chan struct{}, bool) 
 	if !ok {
 		return nil, false
 	}
+	e.noteCause(cause)
+	e.exiting = true
+	return e.exited, true
+}
+
+// noteCause records why runnerID will end, if it ends, without saying that it
+// is ending: whoever waits on it still sees it live until its end is asked for.
+func (t *liveTable) noteCause(runnerID, cause string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if e, ok := t.runners[runnerID]; ok {
+		e.noteCause(cause)
+	}
+}
+
+// noteCause keeps the first cause noted.
+func (e *liveEntry) noteCause(cause string) {
 	if e.cause == "" {
 		e.cause = cause
 	}
-	e.exiting = true
-	return e.exited, true
 }
 
 // keepLive takes back an end that never got under way: the process is still
@@ -167,9 +182,7 @@ func (t *liveTable) exitAll(cause string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	for _, e := range t.runners {
-		if e.cause == "" {
-			e.cause = cause
-		}
+		e.noteCause(cause)
 		e.exiting = true
 	}
 }

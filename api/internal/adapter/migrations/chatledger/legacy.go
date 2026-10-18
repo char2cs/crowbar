@@ -1,5 +1,6 @@
 // Package chatledger reads what the pre-ledger daemon recorded about a chat,
-// for the upgrade steps that restate it. Nothing writes these tables any more.
+// for the upgrade steps that restate it. Only agent_interruptions is still
+// written, by the activity store this daemon keeps open.
 package chatledger
 
 import "time"
@@ -22,6 +23,11 @@ const (
 	chat_id TEXT, provider_id TEXT, workspace_id TEXT, last_placed_at DATETIME,
 	PRIMARY KEY (chat_id, provider_id))`
 
+	RunnersDDL = `CREATE TABLE agent_runners (
+	id TEXT PRIMARY KEY, workspace_id TEXT, provider_id TEXT, terminal_session TEXT,
+	current_chat_id TEXT, launch_model TEXT, launch_effort TEXT, reported_model TEXT,
+	reported_effort TEXT, launch_permission_level TEXT, started_at DATETIME)`
+
 	InterruptionsDDL = `CREATE TABLE agent_interruptions (
 	key TEXT PRIMARY KEY, id TEXT, turn_id TEXT, chat_id TEXT, seq INTEGER,
 	display_order INTEGER, kind TEXT, detail TEXT, at DATETIME, resolved_at DATETIME)`
@@ -35,4 +41,10 @@ const providerSwitched = "provider_switched"
 type placed struct {
 	ChatID, ProviderID string
 	At                 time.Time
+}
+
+// LegacyRunner is a CLI the pre-ledger daemon still held running on a chat:
+// one it never saw exit.
+type LegacyRunner struct {
+	ID, ChatID, ProviderID string
 }

@@ -281,3 +281,14 @@ func TestAgentSessionDTOFrom_IsTheExitAlone(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(raw), `"rung"`)
 }
+
+// What the CLI reported it resolved to outranks what Crowbar launched it with,
+// half by half.
+func TestAgentChatDTOFrom_TheReportedLaunchOutranksTheRequestedOne(t *testing.T) {
+	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{LiveRunner: &agents.Runner{
+		ID: "run-1", LaunchModel: "opus", ReportedModel: "claude-opus-4", LaunchEffort: "low",
+	}}, nil)
+
+	assert.Equal(t, "claude-opus-4", got.LaunchModel)
+	assert.Equal(t, "low", got.LaunchEffort, "an unreported half falls back to the launch")
+}

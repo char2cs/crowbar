@@ -70,8 +70,7 @@ func TestInvariantA1_ASecondStopRecordsNothingMore(t *testing.T) {
 }
 
 func TestInvariantA1_AForcedSwitchRecordsExactlyOneStop(t *testing.T) {
-	f := newFixture(t)
-	agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, 10*time.Millisecond)
+	f := newFixture(t).withSwitchGrace(t, 10*time.Millisecond)
 
 	chatID, runnerID := f.spawn(t, "claude")
 	prompt(t, f, runnerID, "claude", "think hard about this")
@@ -89,8 +88,7 @@ func TestInvariantA1_AForcedSwitchRecordsExactlyOneStop(t *testing.T) {
 // period; before the gate became preemptible Stop queued behind it for the
 // whole of that hour.
 func TestInvariantA2_StopPreemptsASwitchParkedOnTheTurn(t *testing.T) {
-	f := newFixture(t)
-	agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, time.Hour)
+	f := newFixture(t).withSwitchGrace(t, time.Hour)
 
 	chatID, runnerID := f.spawn(t, "claude")
 	prompt(t, f, runnerID, "claude", "think hard about this")

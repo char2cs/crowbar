@@ -252,13 +252,8 @@ func (rs *Runners) spawnRunner(
 		rs.agents.ForgetRunner(runnerID)
 		return "", err
 	}
-	// The barrier stays installed through replay, so a later hook cannot
-	// overtake the buffered session_start or user_prompt.
-	//
-	// exitedDuringStartup: the process died before runner_started committed,
-	// so its exit was left for now — after its buffered hooks had their ordered
-	// chance at the ledger. A CLI that dies a moment later is an ordinary exit
-	// into a dormant chat instead; 424 is not a liveness guarantee.
+	// The barrier stays up through replay, so no later hook overtakes a buffered
+	// one; a CLI that died before runner_started has its exit recorded only after.
 	exitedDuringStartup := rs.pendingHooks.Finish(runnerID, func(hook inflight.Hook) {
 		rs.turns.ReplayStartupHook(runnerID, hook)
 	})

@@ -19,16 +19,9 @@ import (
 // in dependency order, outermost writer first:
 //
 //  1. quiesce the terminal engine: kill every live PTY and JOIN the exit callbacks
-//     those deaths fire. This is FIRST, and it is not a resource release (Close
-//     does that) — it is the outermost writer. A dying vendor CLI's exit callback
-//     is the ONLY thing that records its death: it appends the runner's
-//     runner_exited and closes the turn the CLI abandoned. It runs on the terminal
-//     engine's reap goroutine, so leaving it to Close — after steps 2-3 and the
-//     adapter's DB close — is a RACE, and one that was lost in production ("close
-//     abandoned turn: get chat … sql: database is closed"). Losing it is worse
-//     than a lost warning: the exit commits while its turn is NOT closed, and with
-//     no live runner left the next boot's ReconcileRunnersOnBoot has nothing to
-//     reconcile, so NOTHING ever closes that turn. The chat spins forever;
+//     those deaths fire, the only record of a CLI's death. A callback that loses
+//     the race to step 4 cannot close its turn, so it records no exit either: the
+//     ledger keeps the runner live, and the next boot closes both;
 //  2. close the shared reactor drain gate (Cancel) so no post-commit reactor
 //     wireCallbacks registered starts new work;
 //  3. wait out the in-flight reactors, BOUNDED by ctx — a hung reactor cannot
@@ -38,8 +31,8 @@ import (
 //     pool (itself ctx-bounded) so no event is half-processed when the adapter
 //     WAL-checkpoints and closes the event/read/view DBs. Step 1's writes are
 //     folded into the read models here, which is the other half of why it must
-//     precede this: an Exit sent AFTER an asynx Shutdown is simply rejected
-//     ("asynx: shutting down") and the death goes unrecorded.
+//     precede this: a turn closed AFTER an asynx Shutdown is rejected ("asynx:
+//     shutting down"), and the death is left to the next boot.
 //
 // Note what step 1 is NOT: it is not a second opinion about liveness. The PTY
 // remains the sole authority — we kill the process and let its death carry the
@@ -180,10 +173,8 @@ func (c *Container) stopBackgroundWorkers(
 }
 
 // shutdownAgentRunners notes daemon_restart on every live runner and kills
-// every live api-transport connection before the daemon exits. It is the
-// shutdown-time mirror of reconcileAgentRunners: nothing else in Close's chain
-// (engine.Container.Close, Realtime.Close) reaches this registry, so without
-// this call every codex-style serve process outlives the daemon that spawned it.
+// every api-transport connection, which nothing else in Close's chain reaches:
+// without it each serve process outlives the daemon that spawned it.
 func shutdownAgentRunners(ucs *usecases.Container) {
 	if ucs == nil || ucs.AgentRunner == nil {
 		return

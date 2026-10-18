@@ -91,7 +91,9 @@ func (rs *Runners) leaveSession(ctx context.Context, runner engineagents.Runner)
 		return ledger.SettleCarried(st, runner.ID, false, ledger.ReasonNotAcknowledged)
 	})
 	rs.salvageStreamed(ctx, chatID, runner)
-	rs.abandonTurn(ctx, chatID)
+	if err := rs.abandonTurn(ctx, chatID); err != nil {
+		slog.WarnContext(ctx, "agent: leave session: close its turn", "chat_id", chatID, "err", err)
+	}
 }
 
 // sessionOrigin is told the session an api connection's own driver opened or
@@ -163,10 +165,10 @@ func (rs *Runners) loseSession(ctx context.Context, chatID, providerID, sessionI
 }
 
 // noteRefusedRunner notes resume_failed on a runner the refusal leaves with no
-// process: its connection was all it had.
+// process yet: if its connection was all it had, that is why it ends.
 func (rs *Runners) noteRefusedRunner(runnerID string) {
 	if r, ok := rs.live.byRunner(runnerID); ok && r.TerminalSession == "" {
-		rs.live.markExiting(runnerID, domain.AgentExitResumeFailed)
+		rs.live.noteCause(runnerID, domain.AgentExitResumeFailed)
 	}
 }
 

@@ -41,10 +41,8 @@ func (rs *Runners) endProcesses(ctx context.Context, runner agents.Runner) (bool
 }
 
 // quitRunner ends runner for cause and returns once its exit is recorded, so
-// a replacement never lands beside it. The wait is on the exit itself, never
-// a clock. A runner with no PTY of its own is recorded here: the native view
-// it may have been was its last process, and its exit handler needs the gate
-// the caller holds.
+// a replacement never lands beside it. A PTY-less runner is recorded here: its
+// exit handler needs the gate the caller holds.
 func (rs *Runners) quitRunner(ctx context.Context, runner agents.Runner, cause string) error {
 	exited, ok := rs.live.markExiting(runner.ID, cause)
 	if !ok {

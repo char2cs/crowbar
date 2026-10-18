@@ -229,12 +229,8 @@ func TestSpawnRunner_AnAPITransportSpawnWithNoLiveConnectionStillForksItsPTY(t *
 		"a failed api connection degrades to hooks over the PTY (design spec 2.2b), not to nothing")
 }
 
-// TestRegression_SwitchToTerminalDoesNotExitThePTYLessRunnerItHandsOver is
-// the hole the orphan-PTY fix opened in the other direction: with the `serve`
-// process now carrying the runner's liveness, SwitchToTerminal's own
-// deliberate teardown of that connection (attach.go — it MUST go first, codex
-// allows one writer per thread) looked exactly like the process dying, and
-// reconciled the runner away underneath the native view it had just forked.
+// SwitchToTerminal's own teardown of a PTY-less runner's `serve` process is a
+// handover, not the runner dying: the native view it forks is the runner now.
 func TestRegression_SwitchToTerminalDoesNotExitThePTYLessRunnerItHandsOver(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	cmd := h.seedLiveAPIConn(t, "runner-1")
@@ -286,15 +282,24 @@ func ptylessRunners(t *testing.T) (*Runners, *spyLifecycle) {
 		activity:      stubActivityForSpawn{},
 		chats:         stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}},
 		ledger:        newTestLedger(t),
+		background:    newBackgroundWork(),
 	}, lifecycle
 }
 
-// TestRegression_ANativeViewTornDownForGoodExitsThePTYLessRunner: retire and
-// a provider switch drop rs.attached and kill the native view without ever
-// re-establishing anything. For a runner with no PTY of its own that view WAS
-// its last process — and with the companion PTY gone there is nothing else
-// left whose death could carry the row away, so the chat would advertise a
-// live agent forever.
+// settled waits out every onAttachExit rs started, then reports any runner
+// they exited.
+func settled(rs *Runners, lifecycle *spyLifecycle) (string, bool) {
+	rs.background.wg.Wait()
+	select {
+	case exited := <-lifecycle.exited:
+		return exited, true
+	default:
+		return "", false
+	}
+}
+
+// Retire and a provider switch kill the native view and re-establish nothing:
+// for a runner with no PTY of its own that view was its last process.
 func TestRegression_ANativeViewTornDownForGoodExitsThePTYLessRunner(t *testing.T) {
 	rs, lifecycle := ptylessRunners(t)
 
@@ -320,11 +325,8 @@ func TestOnAttachExit_ARunnerWithItsOwnPTYIsLeftToThatPTY(t *testing.T) {
 	rs.attached.drop("runner-1")
 	rs.onAttachExit("chat-1", "runner-1")(engineterminal.Exit{})
 
-	select {
-	case exited := <-lifecycle.exited:
-		t.Fatalf("runner %s was exited while its own PTY is still the authority on that", exited)
-	case <-time.After(200 * time.Millisecond):
-	}
+	exited, ok := settled(rs, lifecycle)
+	assert.False(t, ok, "runner %s was exited while its own PTY is still the authority on that", exited)
 }
 
 // A re-established connection is a process again, so the view it replaced
@@ -336,19 +338,13 @@ func TestOnAttachExit_AReestablishedConnectionKeepsThePTYLessRunnerAlive(t *test
 	rs.attached.drop("runner-1")
 	rs.onAttachExit("chat-1", "runner-1")(engineterminal.Exit{})
 
-	select {
-	case exited := <-lifecycle.exited:
-		t.Fatalf("runner %s was exited while its api connection is live", exited)
-	case <-time.After(200 * time.Millisecond):
-	}
+	exited, ok := settled(rs, lifecycle)
+	assert.False(t, ok, "runner %s was exited while its api connection is live", exited)
 }
 
-// carrierTestDescriptor is the MIXED shape the live defect needs, and the one
-// every shipped api-transport provider is in: `transport: api` (so a spawn
-// whose connection comes up forks no PTY at all — apiConnIsTheRunner) PLUS
-// presentation.prompt_submit `strategy: restart_tui`, which renders the user's
-// message into that PTY's own argv. Those two together are what let a
-// prompt-bearing spawn complete with nothing carrying the prompt.
+// carrierTestDescriptor is api transport (a spawn whose connection comes up
+// forks no PTY) plus a restart_tui prompt_submit (the prompt rides that PTY's
+// argv): together they let a prompt-bearing spawn complete carrying nothing.
 const carrierTestDescriptor = `
 id: carrier-test
 spawn:

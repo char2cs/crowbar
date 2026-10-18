@@ -103,9 +103,8 @@ type Runners struct {
 	// background is the supervisor's own follow-up work; Shutdown ends it.
 	background *backgroundWork
 
-	// switchAwaitTimeout overrides forceSwitchAfter's bound. Zero (the production
-	// default) means "use termwait.DefaultStallQuiet" — see SetSwitchAwaitTimeout.
-	switchAwaitTimeout time.Duration
+	// switchGrace bounds a switch's wait on the outgoing turn; see forceSwitchAfter.
+	switchGrace time.Duration
 	// interruptTimeout overrides Stop's interrupt bound; zero is the default.
 	interruptTimeout time.Duration
 }
@@ -139,6 +138,9 @@ type Deps struct {
 	Providers     Providers
 	// Snapshots is the chat snapshot owner's announce side (optional).
 	Snapshots Snapshotter
+	// SwitchGrace is how long a provider switch waits on the outgoing turn
+	// before forcing it; zero is termwait.DefaultStallQuiet.
+	SwitchGrace time.Duration
 }
 
 // New builds the CLI lifecycle. The hook-ingress port is bound separately, by
@@ -170,6 +172,7 @@ func New(d Deps) *Runners {
 		phases:       newPhases(),
 		snapshots:    d.Snapshots,
 		background:   newBackgroundWork(),
+		switchGrace:  d.SwitchGrace,
 
 		conversations: d.Conversations,
 		providers:     d.Providers,

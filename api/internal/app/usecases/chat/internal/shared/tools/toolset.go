@@ -17,7 +17,10 @@ type ChatTurn = render.ChatTurn
 // phases extend this struct; a nil dependency simply means the tools that need
 // it are not registered.
 type Deps struct {
-	Resolver     *Resolver
+	// Resolver is built by the chat usecase from Scope and its own runners.
+	Resolver *Resolver
+	// Scope is the workspace store a caller is scoped against.
+	Scope        WorkspaceLister
 	Chats        ChatRenamer
 	Workspaces   WorkspaceBranchRenamer
 	Review       ReviewReader

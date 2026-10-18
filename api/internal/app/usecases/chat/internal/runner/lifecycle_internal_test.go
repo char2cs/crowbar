@@ -2,15 +2,23 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
+	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -150,13 +158,194 @@ func TestRegression_BootEndsTheLedgersLiveRunnerAsADaemonRestart(t *testing.T) {
 	assert.NoDirExists(t, runnerDir)
 
 	require.NoError(t, rs.ReconcileRunnersOnBoot(t.Context()))
-	exits := 0
 	rows, err := rs.ledger.Read(t.Context(), "chat-1", 0, 0)
 	require.NoError(t, err)
+	assert.Equal(t, 1, countKind(rows, ledger.KindRunnerExited), "a second boot finds nothing live to end")
+}
+
+// closingChats is a chat store that counts the turns it closes; refuse makes
+// every close fail, as the chat aggregate does once it has shut down.
+type closingChats struct {
+	stubChatsForSpawn
+	refuse error
+	closed map[string]int
+}
+
+func (c closingChats) AbandonTurn(_ context.Context, chatID string, _ time.Time) (domain.Chat, error) {
+	if c.refuse != nil {
+		return domain.Chat{}, c.refuse
+	}
+	c.closed[chatID]++
+	return domain.Chat{ID: chatID}, nil
+}
+
+func newClosingChats(refuse error) closingChats {
+	return closingChats{
+		stubChatsForSpawn: stubChatsForSpawn{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}},
+		refuse:            refuse, closed: map[string]int{},
+	}
+}
+
+func appendStarted(t *testing.T, l *ledgerstore.Store, chatID, runnerID string) {
+	t.Helper()
+	row, err := ledger.NewRow(ledger.KindRunnerStarted, "", "", ledger.RunnerStarted{RunnerID: runnerID, Provider: "claude"})
+	require.NoError(t, err)
+	_, _, err = l.Append(t.Context(), chatID, row)
+	require.NoError(t, err)
+}
+
+// A runner's exit is recorded only once its turn is closed. A close the chat
+// store refuses (a reaper that outlived its shutdown) leaves the runner live in
+// the ledger for the next boot, frees the chat now, and wedges no prompt.
+func TestReconcileRunnerExit_AnExitWhoseTurnCannotCloseIsLeftToTheBoot(t *testing.T) {
+	home := t.TempDir()
+	rs := retiring(t, &Runners{
+		agents: stubAgentsForInterrupt{}, turns: noopTurns{}, inflightTurns: inflight.NewTurns(),
+		ws: stubWorkspaceForSpawn{home: home, worktree: home, chatsDir: home},
+	})
+	appendStarted(t, rs.ledger, "chat-1", "runner-1")
+	appendPrompt(t, rs.ledger, "req-1", "runner-1")
+	rs.chats = newClosingChats(fmt.Errorf("agentchat: abandon turn: %w", asynxModels.ErrShuttingDown))
+
+	rs.reconcileRunnerExit(t.Context(), "runner-1")
+
+	assert.Empty(t, retiredAs(t, rs), "no exit is recorded over a turn that may still be open")
+	live, ok := chatState(t, rs.ledger).LiveRunner()
+	require.True(t, ok)
+	assert.Equal(t, "runner-1", live.RunnerID)
+	assert.Equal(t, ledger.PromptStatusSettled, promptReceipt(t, rs.ledger, "req-1").Status)
+	_, err := rs.LiveRunnerForChat(t.Context(), "chat-1")
+	require.ErrorIs(t, err, ErrNoLiveRunner)
+	require.NoError(t, rs.live.add(agents.Runner{ID: "runner-2", CurrentChatID: "chat-1"}), "the chat takes a new runner")
+	rs.live.remove("runner-2")
+
+	boot := newClosingChats(nil)
+	rs.chats = boot
+	require.NoError(t, rs.ReconcileRunnersOnBoot(t.Context()))
+
+	assert.Equal(t, domain.AgentExitDaemonRestart, retiredAs(t, rs))
+	assert.Equal(t, 1, boot.closed["chat-1"], "the boot closes the turn before it records the exit")
+}
+
+// The boot pass closes a chat's turn before it ends its runner, and one chat
+// it cannot reconcile stops no other.
+func TestReconcileRunnersOnBoot_OneChatsFailureLeavesTheOthersReconciled(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	l, err := ledgerstore.Open(db, time.Now)
+	require.NoError(t, err)
+	require.NoError(t, db.Exec(`CREATE TRIGGER refuse_exit BEFORE INSERT ON chat_ledger
+		WHEN NEW.kind = 'runner_exited' AND NEW.chat_id = 'chat-a' BEGIN SELECT RAISE(ABORT, 'boom'); END`).Error)
+	home := t.TempDir()
+	chats := newClosingChats(nil)
+	rs := &Runners{
+		ledger: l, chats: chats, activity: stubActivityForSpawn{}, work: inflight.NewWork(), turns: noopTurns{},
+		ws: stubWorkspaceForSpawn{home: home, worktree: home, chatsDir: home},
+	}
+	for _, chatID := range []string{"chat-a", "chat-b", "chat-c"} {
+		appendStarted(t, l, chatID, "runner-"+chatID)
+	}
+
+	require.ErrorContains(t, rs.ReconcileRunnersOnBoot(t.Context()), "chat-a")
+
+	for chatID, ended := range map[string]bool{"chat-a": false, "chat-b": true, "chat-c": true} {
+		st, err := l.State(t.Context(), chatID)
+		require.NoError(t, err)
+		_, live := st.LiveRunner()
+		assert.Equal(t, !ended, live, chatID)
+		assert.Equal(t, 1, chats.closed[chatID], "%s's turn is closed first", chatID)
+	}
+}
+
+// purgedChats is a chat store in which gone no longer exists.
+type purgedChats struct {
+	closingChats
+	gone string
+}
+
+func (c purgedChats) GetChat(ctx context.Context, chatID string) (domain.Chat, error) {
+	if chatID == c.gone {
+		return domain.Chat{}, agentchat.ErrNotFound
+	}
+	return c.closingChats.GetChat(ctx, chatID)
+}
+
+// A CLI a crashed pre-ledger daemon left running is adopted as its chat's
+// live runner, so this boot ends it and closes its turn. Adopting again
+// changes nothing, and a runner on a chat that is gone is skipped.
+func TestAdoptLegacyRunners_TheBootEndsWhatACrashedOldDaemonLeftRunning(t *testing.T) {
+	home := t.TempDir()
+	chats := newClosingChats(nil)
+	rs := &Runners{
+		ledger: newTestLedger(t), chats: purgedChats{closingChats: chats, gone: "chat-purged"},
+		activity: stubActivityForSpawn{}, work: inflight.NewWork(), turns: noopTurns{},
+		ws: stubWorkspaceForSpawn{home: home, worktree: home, chatsDir: home},
+	}
+	legacy := []agents.Runner{
+		{ID: "runner-1", ProviderID: "claude", CurrentChatID: "chat-1"},
+		{ID: "runner-p", ProviderID: "claude", CurrentChatID: "chat-purged"},
+	}
+
+	require.NoError(t, rs.AdoptLegacyRunners(t.Context(), legacy))
+	require.NoError(t, rs.AdoptLegacyRunners(t.Context(), legacy), "a step run again")
+	require.NoError(t, rs.ReconcileRunnersOnBoot(t.Context()))
+	require.NoError(t, rs.AdoptLegacyRunners(t.Context(), legacy), "a step run again after the boot ended it")
+
+	assert.Equal(t, domain.AgentExitDaemonRestart, retiredAs(t, rs))
+	assert.Equal(t, 1, chats.closed["chat-1"], "its turn is closed")
+	rows, err := rs.ledger.Read(t.Context(), "chat-1", 0, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 1, countKind(rows, ledger.KindRunnerStarted))
+	assert.Equal(t, 1, countKind(rows, ledger.KindRunnerExited))
+	purged, err := rs.ledger.Read(t.Context(), "chat-purged", 0, 0)
+	require.NoError(t, err)
+	assert.Empty(t, purged)
+}
+
+// A daemon shutting down ends every runner as daemon_restart: the exit each
+// PTY's death fires records that cause once, closes its turn and frees its chat.
+func TestShutdown_EveryRunnerEndsAsADaemonRestart(t *testing.T) {
+	home := t.TempDir()
+	chats := newClosingChats(nil)
+	rs := &Runners{
+		live: liveWith(t, agents.Runner{ID: "runner-a", CurrentChatID: "chat-a"},
+			agents.Runner{ID: "runner-b", CurrentChatID: "chat-b"}),
+		ledger: newTestLedger(t), chats: chats, activity: stubActivityForSpawn{}, work: inflight.NewWork(),
+		turns: noopTurns{}, agents: stubAgentsForInterrupt{}, surfaces: newSurfaceRegistry(),
+		answers: answerdesk.New(answerdesk.DefaultRetention, nil), inflightTurns: inflight.NewTurns(),
+		apiConns: newAPIConnRegistry(), pendingHooks: inflight.NewHooks(), background: newBackgroundWork(),
+	}
+	chatIDs := []string{"chat-a", "chat-b"}
+	for _, chatID := range chatIDs {
+		appendStarted(t, rs.ledger, chatID, "runner-"+chatID[len("chat-"):])
+	}
+
+	rs.Shutdown()
+	for _, id := range []string{"runner-a", "runner-b"} {
+		rs.onRunnerExit(home, id, filepath.Join(home, id), resumeWatch{})(engineterminal.Exit{Code: 143})
+	}
+
+	all, err := rs.AllLive(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, all)
+	for _, chatID := range chatIDs {
+		rows, err := rs.ledger.Read(t.Context(), chatID, 0, 0)
+		require.NoError(t, err)
+		st := ledger.Fold(chatID, rows)
+		exit, ok := st.LastExit()
+		require.True(t, ok, chatID)
+		assert.Equal(t, domain.AgentExitDaemonRestart, exit.Reason, chatID)
+		assert.Equal(t, 1, countKind(rows, ledger.KindRunnerExited), chatID)
+		assert.Equal(t, 1, chats.closed[chatID], "%s's turn is closed", chatID)
+	}
+}
+
+func countKind(rows []ledger.Row, kind ledger.Kind) int {
+	n := 0
 	for _, r := range rows {
-		if r.Kind == ledger.KindRunnerExited {
-			exits++
+		if r.Kind == kind {
+			n++
 		}
 	}
-	assert.Equal(t, 1, exits, "a second boot finds nothing live to end")
+	return n
 }

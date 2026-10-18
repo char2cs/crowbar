@@ -2104,11 +2104,9 @@ func TestRegression_HookFromAPurgedChatsRunner_NeverTouchesTheChatModel(t *testi
 // into the chat it erased.
 func TestRegression_APurgedChatKeepsNoRowOfItsRunnersExit(t *testing.T) {
 	f := newFixture(t)
-	chatID, runnerID := f.spawn(t, "claude")
-	term := f.runner(t, runnerID).TerminalSession
+	chatID, _ := f.spawn(t, "claude")
 
 	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID))
-	f.term.exit(t, term)
 	f.wait()
 
 	rows, err := f.ledger.Read(f.ctx, chatID, 0, 0)

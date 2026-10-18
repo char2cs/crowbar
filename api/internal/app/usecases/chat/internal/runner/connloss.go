@@ -25,7 +25,7 @@ func (rs *Runners) onAPIConnLost(ctx context.Context, runnerID string) {
 	slog.WarnContext(context.WithoutCancel(ctx), "agent: api transport: connection lost; ending its runner",
 		"runner_id", runnerID, "reason", reason)
 	if r, ok := rs.live.byRunner(runnerID); ok && r.TerminalSession == "" {
-		rs.live.markExiting(runnerID, reason)
+		rs.live.noteCause(runnerID, reason)
 	}
 	rs.apiConns.drop(runnerID)
 }

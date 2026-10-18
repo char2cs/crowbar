@@ -69,11 +69,8 @@ type fakeCommander struct {
 	terminateErr error
 	deadSessions map[string]bool
 	exited       map[string]bool // sessions whose onExit has run
-	// duringFork runs inside CreateCommand, without the mutex, before the session id
-	// exists: the exact window in which a hook races a spawn.
-	duringFork func()
-	// duringForkCall is the argument-aware twin used when a test needs the runner
-	// id embedded in the rendered hook command. It runs in the same exact window.
+	// duringForkCall runs inside CreateCommand, without the mutex, before the
+	// session id exists: the exact window in which a hook races a spawn.
 	duringForkCall func(commandCall)
 	// duringTerminate runs inside TerminateGraceful, without the mutex, as the
 	// outgoing CLI is asked to die.
@@ -96,9 +93,6 @@ func (f *fakeCommander) CreateCommand(
 			env:    append([]string{}, env...),
 			onExit: onExit,
 		})
-	}
-	if f.duringFork != nil {
-		f.duringFork()
 	}
 
 	f.mu.Lock()
@@ -676,6 +670,8 @@ type testFixture struct {
 	ledger  *ledgerstore.Store
 	// ledgerDB is the database under ledger, for faults no store method offers.
 	ledgerDB *gorm.DB
+	// switchGrace is what every boot of the usecase is given as its SwitchGrace.
+	switchGrace *time.Duration
 	// boot builds a daemon's usecase over the fixture's durable stores.
 	boot func(*agentusecase.ChatSnapshots) *agentusecase.Usecase
 	// sessions is the session id most recently announce()d per runnerID; a map,
@@ -1142,24 +1138,14 @@ func newFixtureUsing(
 	}
 	probe := func(a engineagents.Agent) bool { return connected[a.ID()] }
 	// The tool surface is wired over the SAME real stores the rest of the fixture
-	// reads, with every port supplied, so TestDispatchMCP_ListsTheChatTools sees the
-	// production surface. Chats and ChatLogs are left to agentusecase.New, which
-	// self-assigns them: that wiring is what the test guards.
+	// reads; its Resolver, Chats and ChatLogs are left to agentusecase.New, which
+	// builds them: that wiring is what TestDispatchMCP_ListsTheChatTools guards.
 	wt := &fakeWorktreeCreator{}
 	minter, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	chatReader := fixtureChatReader{chats: usedChats}
-	// Unbound: New binds it to the usecase's own live runners.
-	resolver := agenttools.NewResolver(minter, nil, chatReader, fixtureWorkspaceLister{})
-	// The REAL lineage resolver, wrapped over the chat store the SAME way
-	// container.go wires production (NewHomeCorrectedTreeChats) — a folder
-	// is Folder+Node-backed now (2026-09-08 sidebar-placement-unification
-	// Task 5 for home-scoped, Task 8 for repo-scoped too), never a row
-	// usedChats itself carries, so a threaded chat in this package resolves
-	// its ancestors exactly the way production does — folders and all — only
-	// once this same decorator folds them back in. A stub here would have
-	// let the walk and the spawn path agree with each other while both were
-	// wrong.
+	// The REAL lineage resolver over the same decorator production uses, so a
+	// threaded chat resolves its folder ancestors exactly as it does there.
 	folders := mocks.NewFolderStore()
 	nodes := mocks.NewNodePlacements()
 	lineage := tree.NewLineage(agentusecase.NewHomeCorrectedTreeChats(usedChats, nodes, folders))
@@ -1167,8 +1153,10 @@ func newFixtureUsing(
 	require.NoError(t, err)
 	chatLedger, err := ledgerstore.Open(ledgerDB, time.Now)
 	require.NoError(t, err)
+	switchGrace := new(time.Duration)
 	boot := func(snaps *agentusecase.ChatSnapshots) *agentusecase.Usecase {
 		return bootUsecase(t, agentusecase.Deps{
+			SwitchGrace:     *switchGrace,
 			Chats:           usedChats,
 			Activity:        usedActivity,
 			Agents:          engine,
@@ -1183,7 +1171,7 @@ func newFixtureUsing(
 			Installed:       probe,
 			Minter:          minter,
 			Tools: agenttools.Deps{
-				Resolver:        resolver,
+				Scope:           fixtureWorkspaceLister{},
 				ChatReads:       chatReader,
 				Review:          fixtureReviewReader{},
 				Threads:         fixtureThreadReader{},
@@ -1218,7 +1206,17 @@ func newFixtureUsing(
 		snapFrames:    snapFrames,
 		ledger:        chatLedger,
 		ledgerDB:      ledgerDB,
+		switchGrace:   switchGrace,
 	}
+	return f
+}
+
+// withSwitchGrace is f booted with d as how long a provider switch waits on the
+// outgoing turn before forcing it, as every later restart is too.
+func (f testFixture) withSwitchGrace(t *testing.T, d time.Duration) testFixture {
+	t.Helper()
+	*f.switchGrace = d
+	f.restart(t)
 	return f
 }
 

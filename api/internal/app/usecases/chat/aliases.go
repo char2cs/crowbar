@@ -35,8 +35,6 @@ type (
 	// authenticated by. There is exactly ONE per daemon: a runner's token must be
 	// minted by the same secret that verifies it.
 	TokenMinter = tools.TokenMinter
-	// ToolResolver authenticates a caller and computes what it may see.
-	ToolResolver = tools.Resolver
 	// ToolIdempotency deduplicates repeated writes from one agent.
 	ToolIdempotency = tools.Idempotency
 	// ToolMetrics counts calls per tool. It is the one fail-OPEN dependency: a
@@ -56,10 +54,6 @@ type (
 	ToolReviewReader = tools.ReviewReader
 	// ToolThreadBroadcast announces a review thread an agent just wrote.
 	ToolThreadBroadcast = tools.ThreadBroadcast
-	// ToolChatGetter and ToolWorkspaceLister are what a resolver authenticates
-	// and scopes a caller against, beside the live runners.
-	ToolChatGetter      = tools.ChatGetter
-	ToolWorkspaceLister = tools.WorkspaceLister
 	// ToolWorkspaceBranchRenamer is set_branch_name's write seam onto the
 	// workspace usecase. It is re-exported for the composition root's sake: the
 	// tool is withdrawn silently when it is nil, so the root has to be able to
@@ -135,16 +129,6 @@ func NewTokenMinter() (*TokenMinter, error) { return tools.NewTokenMinter() }
 // NewToolSet builds one authenticated caller's tool surface.
 func NewToolSet(deps ToolDeps, runnerID, token string) *ToolSet {
 	return tools.NewToolSet(deps, runnerID, token)
-}
-
-// NewToolResolver builds the authenticator and scoper for MCP callers. New
-// binds it to the usecase's own live runners, which do not exist yet.
-func NewToolResolver(
-	minter *TokenMinter,
-	chats ToolChatGetter,
-	workspaces ToolWorkspaceLister,
-) *ToolResolver {
-	return tools.NewResolver(minter, nil, chats, workspaces)
 }
 
 // NewToolIdempotency returns an empty write-deduplication ledger.

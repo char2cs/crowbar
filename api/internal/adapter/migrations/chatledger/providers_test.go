@@ -28,7 +28,12 @@ func TestNewestProviders_TheNewestOfConversationsSwitchesAndPlacementsWins(t *te
 	for _, c := range []struct {
 		chat, provider string
 		at             time.Time
-	}{{"switched", "claude", at(1)}, {"placed", "codex", at(3)}, {"tied", "claude", at(1)}} {
+	}{
+		{"switched", "claude", at(1)},
+		{"placed", "codex", at(3)},
+		{"tied", "claude", at(1)},
+		{"tied-reversed", "codex", at(1)},
+	} {
 		_, err := runner.ExecContext(t.Context(), "INSERT INTO agent_chat_conversations (chat_id, session_id, provider_id, last_active_at) VALUES (?, ?, ?, ?)",
 			c.chat, "s-"+c.chat, c.provider, c.at)
 		require.NoError(t, err)
@@ -36,7 +41,14 @@ func TestNewestProviders_TheNewestOfConversationsSwitchesAndPlacementsWins(t *te
 	for _, p := range []struct {
 		chat, provider string
 		at             time.Time
-	}{{"switched", "claude", at(0)}, {"placed", "claude", at(5)}, {"tied", "codex", at(1)}} {
+	}{
+		{"switched", "claude", at(0)},
+		{"placed", "claude", at(5)},
+		{"tied", "codex", at(1)},
+		{"tied-reversed", "claude", at(1)},
+		{"tied-placements", "codex", at(4)},
+		{"tied-placements", "claude", at(4)},
+	} {
 		_, err := runner.ExecContext(t.Context(), "INSERT INTO agent_chat_placements (chat_id, provider_id, last_placed_at) VALUES (?, ?, ?)",
 			p.chat, p.provider, p.at)
 		require.NoError(t, err)
@@ -59,10 +71,12 @@ func TestNewestProviders_TheNewestOfConversationsSwitchesAndPlacementsWins(t *te
 
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{
-		"switched":      "codex",  // the switch at :02 is newer than the conversation and the placement
-		"placed":        "claude", // the placement at :05 is newer than the conversation at :03
-		"tied":          "claude", // a tie keeps what was read first
-		"only-switched": "claude", // an interruption of another kind names no provider
+		"switched":        "codex",  // the switch at :02 is newer than the conversation and the placement
+		"placed":          "claude", // the placement at :05 is newer than the conversation at :03
+		"tied":            "claude", // a tie goes to the lowest provider id, whichever source names it
+		"tied-reversed":   "claude",
+		"tied-placements": "claude", // and whichever row was written first
+		"only-switched":   "claude", // an interruption of another kind names no provider
 	}, got)
 }
 

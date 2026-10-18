@@ -155,9 +155,16 @@ type RunnerUsecase interface {
 		ctx context.Context,
 	) error
 
+	// AdoptLegacyRunners records each runner the legacy store left live as its
+	// chat's live runner, once per install, before ReconcileRunnersOnBoot ends it.
+	AdoptLegacyRunners(
+		ctx context.Context,
+		runners []engineagents.Runner,
+	) error
+
 	// RestateProvidersFromHistory makes each chat's durable provider agree with
 	// newest, the provider the legacy history last names per chat. It runs once
-	// per install, after ReconcileRunnersOnBoot, and counts the rows it skipped.
+	// per install and counts the rows it skipped.
 	RestateProvidersFromHistory(
 		ctx context.Context,
 		newest map[string]string,
@@ -403,6 +410,14 @@ func (u *Usecase) ReconcileRunnersOnBoot(
 	ctx context.Context,
 ) error {
 	return u.runners.ReconcileRunnersOnBoot(ctx)
+}
+
+// AdoptLegacyRunners implements RunnerUsecase.
+func (u *Usecase) AdoptLegacyRunners(
+	ctx context.Context,
+	runners []engineagents.Runner,
+) error {
+	return u.runners.AdoptLegacyRunners(ctx, runners)
 }
 
 // RestateProvidersFromHistory is the one-off upgrade of every chat's durable

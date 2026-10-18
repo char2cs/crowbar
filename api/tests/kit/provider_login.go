@@ -3,51 +3,36 @@
 package kit
 
 import (
-	"context"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
 	"testing"
 )
 
 // RequireProviderLogin skips a test that needs a real model turn from
-// provider when this machine holds no credential for it. Without one the CLI
-// parks on its login screen and the test would wait out its whole budget.
+// provider unless a test env var supplies its credential: an API key, or a
+// credential file IsolateProviderHomes copies in.
 func RequireProviderLogin(
 	t *testing.T,
 	provider string,
 ) {
 	t.Helper()
-	if !providerLoggedIn(provider) {
-		t.Skipf("no %s credentials on this machine: this test needs a real model turn", provider)
+	keyEnv, fileEnv := credentialEnv(provider)
+	if keyEnv == "" {
+		t.Skipf("no credential source for %s", provider)
+	}
+	if os.Getenv(keyEnv) == "" && os.Getenv(fileEnv) == "" {
+		t.Skipf("set %s or %s: this test needs a real %s model turn", keyEnv, fileEnv, provider)
 	}
 }
 
-func providerLoggedIn(
+func credentialEnv(
 	provider string,
-) bool {
-	home := realUserHome()
+) (key, file string) {
 	switch provider {
 	case "claude":
-		return os.Getenv("ANTHROPIC_API_KEY") != "" ||
-			fileExists(filepath.Join(home, ".claude", ".credentials.json")) ||
-			(runtime.GOOS == "darwin" && keychainHasItem("Claude Code-credentials"))
+		return "ANTHROPIC_API_KEY", ClaudeCredentialsEnv
 	case "codex":
-		return os.Getenv("OPENAI_API_KEY") != "" || fileExists(filepath.Join(home, ".codex", "auth.json"))
+		return "OPENAI_API_KEY", CodexAuthEnv
 	default:
-		return false
+		return "", ""
 	}
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-// keychainHasItem reports whether the macOS login keychain holds service.
-func keychainHasItem(
-	service string,
-) bool {
-	return exec.CommandContext(context.Background(), "security", "find-generic-password", "-s", service).Run() == nil //nolint:gosec // fixed service names
 }

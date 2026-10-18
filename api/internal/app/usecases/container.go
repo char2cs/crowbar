@@ -552,11 +552,7 @@ func newAgentToolDeps(
 	}
 	chatReader := agentChatReader{chats: repos.AgentChat}
 	return agentusecase.ToolDeps{
-		Resolver: agentusecase.NewToolResolver(
-			minter,
-			chatReader,
-			repos.Workspace,
-		),
+		Scope:           repos.Workspace,
 		Workspaces:      workspaces,
 		Review:          review,
 		Threads:         repos.ReviewThread,

@@ -28,16 +28,11 @@ const WaitingForPendingPromptLog = "agent: switch provider: waiting for the pend
 // is reused rather than a second invented number: it is already this codebase's
 // definition of "quiet long enough to call it stuck" (see termwait).
 func (rs *Runners) forceSwitchAfter() time.Duration {
-	if rs.switchAwaitTimeout > 0 {
-		return rs.switchAwaitTimeout
+	if rs.switchGrace > 0 {
+		return rs.switchGrace
 	}
 	return termwait.DefaultStallQuiet
 }
-
-// SetSwitchAwaitTimeout overrides forceSwitchAfter's bound. Test-only surface —
-// production never calls it — so a deterministic test can force the timeout
-// path without actually waiting the real duration.
-func (rs *Runners) SetSwitchAwaitTimeout(d time.Duration) { rs.switchAwaitTimeout = d }
 
 // awaitNoPendingPrompt parks until the chat holds no prompt the provider has
 // yet to acknowledge: quitting the CLI carrying one would lose it. Only the

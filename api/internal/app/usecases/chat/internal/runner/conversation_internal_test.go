@@ -1,16 +1,23 @@
 package runner
 
 import (
+	"context"
 	"encoding/json"
+	"flag"
+	"fmt"
 	"maps"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -231,4 +238,133 @@ func TestSubmitPromptOverAPI_ARefusedSessionIsLost(t *testing.T) {
 	assert.True(t, handled)
 	require.ErrorIs(t, err, ErrPromptOutcomeUnknown)
 	assertSessionLost(t, rs, asked)
+}
+
+// refusingServeDescriptor is a provider whose `serve` is this test binary
+// running TestHelperRefusingServe: an api server that refuses every resume.
+const refusingServeDescriptor = `
+id: carrier-test
+spawn:
+  cmd: acme
+  interactive_required: true
+events:
+  prompt:
+    fresh:
+      - call: thread/start
+        capture: { session_id: thread.id }
+    resume:
+      - call: thread/resume
+        send: { threadId: "{session_id}" }
+    action:
+      - call: turn/start
+        send: { threadId: "{session_id}", text: "{text}" }
+session:
+  resume: { arg: "resume {id}" }
+  refused: { rpc_code: -32600, needles: ["no rollout found for thread id"] }
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    serve: [%q, "-test.run=^TestHelperRefusingServe$", "--", "{socket}"]
+    handshake: { call: initialize }
+`
+
+// TestHelperRefusingServe is not a test: it is the `serve` process a
+// refusingServeDescriptor spawn forks, and returns at once anywhere else.
+func TestHelperRefusingServe(t *testing.T) {
+	if os.Getenv("CROWBAR_TEST_REFUSING_SERVE") == "" || flag.NArg() != 1 {
+		return
+	}
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", flag.Arg(0))
+	require.NoError(t, err)
+	upgrader := websocket.Upgrader{}
+	require.Error(t, http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		for {
+			var req struct {
+				ID     json.RawMessage `json:"id"`
+				Method string          `json:"method"`
+			}
+			if conn.ReadJSON(&req) != nil {
+				return
+			}
+			if len(req.ID) == 0 {
+				continue
+			}
+			resp := map[string]any{"id": req.ID, "result": map[string]any{}}
+			if req.Method == "thread/resume" {
+				resp = map[string]any{"id": req.ID, "error": refusedResume["thread/resume"]["error"]}
+			}
+			if conn.WriteJSON(resp) != nil {
+				return
+			}
+		}
+	})))
+}
+
+// A resume the api provider refuses at spawn loses the session, and the spawn
+// goes on over its PTY: that runner is healthy, so nothing waits it out.
+func TestSpawnRunner_ARefusedAPIResumeLeavesAHealthyRunner(t *testing.T) {
+	h := newSpawnHarness(t, engineagents.SurfaceChat)
+	t.Setenv("CROWBAR_DISABLE_API_TRANSPORT", "")
+	t.Setenv("CROWBAR_TEST_REFUSING_SERVE", "1")
+	installDescriptor(t, h.home, fmt.Sprintf(refusingServeDescriptor, os.Args[0]))
+	h.rs.ledger = turnedTestLedger(t, "carrier-test", "S1")
+	h.rs.spawns = inflight.NewGate()
+	t.Cleanup(func() { _ = os.Remove(apiSocketPath("runner-refused-resume")) })
+
+	runnerID, err := h.rs.spawnRunner(t.Context(), h.chatID, "ws-1", "carrier-test",
+		spawnInput{runnerID: "runner-refused-resume"}, false)
+	require.NoError(t, err)
+	c, _ := chatState(t, h.rs.ledger).Conversation("carrier-test")
+	require.Equal(t, ledger.ConversationLost, c.State, "the provider refused the resume")
+	require.Len(t, h.term.created, 1, "the spawn went on over its PTY")
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	resumed, err := h.rs.ResumeChat(ctx, h.chatID)
+	require.NoError(t, err, "a healthy runner is not waited out")
+	assert.Equal(t, runnerID, resumed)
+	v, _ := h.rs.live.view(h.chatID)
+	assert.False(t, v.exiting)
+}
+
+// touches counts the snapshot republishes a chat is given.
+type touches struct {
+	*spyLifecycle
+	n map[string]int
+}
+
+func (s touches) Touch(_ context.Context, chatID string) { s.n[chatID]++ }
+
+// What a CLI reports it resolved to is kept beside what Crowbar launched it
+// with, half by half: an unreported half keeps its value, and a report of
+// nothing changes nothing.
+func TestHandleSessionStart_KeepsWhatTheCLIReportsItLaunchedAs(t *testing.T) {
+	snaps := touches{spyLifecycle: newSpyLifecycle(), n: map[string]int{}}
+	rs := &Runners{
+		ledger: newTestLedger(t), snapshots: snaps,
+		live: liveWith(t, engineagents.Runner{
+			ID: "runner-1", ProviderID: "claude", CurrentChatID: "chat-1",
+			LaunchModel: "opus", LaunchEffort: "low",
+		}),
+	}
+	runner, _ := rs.RunnerByID("runner-1")
+	for _, report := range []engineagents.CanonicalEvent{
+		{SessionID: "S1", Model: "claude-opus-4"},
+		{SessionID: "S1", Effort: "high"},
+		{SessionID: "S1"},
+	} {
+		require.NoError(t, rs.HandleSessionStart(t.Context(), runner, report))
+	}
+
+	got, _ := rs.RunnerByID("runner-1")
+	assert.Equal(t, "claude-opus-4", got.ReportedModel)
+	assert.Equal(t, "high", got.ReportedEffort)
+	assert.Equal(t, "opus", got.LaunchModel, "what Crowbar launched with is never overwritten")
+	assert.Equal(t, "low", got.LaunchEffort)
+	assert.Equal(t, 2, snaps.n["chat-1"], "each report republishes the chat; an empty one does not")
 }

@@ -1218,8 +1218,7 @@ func TestSwitchProvider_MidTurn_OutgoingCLIDies_ReleasesTheSwitch(t *testing.T) 
 // precisely because AwaitTurnComplete's own reasoning ("a live CLI finishes or
 // dies") never accounted for a CLI that is alive but simply stuck.
 func TestSwitchProvider_MidTurn_NeverCompletesOrDies_IsForcedAfterTheGracePeriod(t *testing.T) {
-	f := newFixture(t)
-	agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, 10*time.Millisecond)
+	f := newFixture(t).withSwitchGrace(t, 10*time.Millisecond)
 
 	chatID, runnerID := f.spawn(t, "claude")
 	oldTerm := f.runner(t, runnerID).TerminalSession
@@ -1264,8 +1263,7 @@ func TestSwitchProvider_MidTurn_NeverCompletesOrDies_IsForcedAfterTheGracePeriod
 // changed, exactly as TestSwitchProvider_MidTurn_ContextCancelled_AbortsWithNothingChanged
 // already requires with no grace period configured at all.
 func TestSwitchProvider_MidTurn_ContextCancelled_BeforeTheGracePeriod_StillAbortsCleanly(t *testing.T) {
-	f := newFixture(t)
-	agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, time.Hour)
+	f := newFixture(t).withSwitchGrace(t, time.Hour)
 
 	chatID, runnerID := f.spawn(t, "claude")
 	prompt(t, f, runnerID, "claude", "think hard about this")
@@ -1314,8 +1312,7 @@ func TestSwitchProvider_MidTurn_ContextCancelled_BeforeTheGracePeriod_StillAbort
 // cleanly — not just once — and that each force targets the CORRECT runner's terminal
 // session, never a stale one left over from the previous round.
 func TestSwitchProvider_RepeatedlyStuck_AcrossTwoProviders_KeepsForcingCleanly(t *testing.T) {
-	f := newFixture(t)
-	agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, 10*time.Millisecond)
+	f := newFixture(t).withSwitchGrace(t, 10*time.Millisecond)
 
 	chatID, claudeRunner := f.spawn(t, "claude")
 	claudeTerm := f.runner(t, claudeRunner).TerminalSession
@@ -1480,12 +1477,12 @@ func TestSwitchProvider_ARunnerThatCannotBeRecordedIsTornDown(t *testing.T) {
 	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.ErrorContains(t, err, "record runner")
 
-	// Two CLIs were spawned: term-1 (the original claude) and term-2 (the target codex
-	// whose runner could not be recorded). term-2 must have been torn down so no orphan
-	// process leaks; term-1 was terminated as the normal outgoing-CLI quit.
+	// term-2 is the codex CLI whose runner could not be recorded.
 	require.Equal(t, 2, f.term.callCount())
 	assert.Contains(t, f.term.terminatedIDs(), "term-2",
 		"the just-spawned CLI whose runner could not be recorded must be torn down")
+	_, err = f.liveRunnerFor(t, chatID)
+	assert.ErrorIs(t, err, agentusecase.ErrNoLiveRunner, "and the chat is free for the next one")
 }
 
 // ─── from spawn_startup_exit_test.go ──────────────────────────────────
@@ -1912,6 +1909,8 @@ func TestSubmitPrompt_RunnerPersistFailureAfterPTYStartIsOutcomeUnknown(t *testi
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", uuid.NewString(), "", nil)
 	assert.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown)
 	assert.Equal(t, 2, f.term.callCount(), "the replacement PTY started before runner persistence failed")
+	_, err = f.liveRunnerFor(t, chatID)
+	assert.ErrorIs(t, err, agentusecase.ErrNoLiveRunner, "the torn-down replacement leaves the chat free")
 }
 
 func TestSubmitPrompt_CompletedStoppedResumedChatKeepsNativeResumeIdentity(t *testing.T) {
@@ -2778,8 +2777,10 @@ func TestStopChat_ATerminateThatFailsKeepsTheRunner(t *testing.T) {
 
 	require.ErrorContains(t, f.usecase.StopChat(f.ctx, chatID), "terminate outgoing terminal")
 
-	resumed, err := f.usecase.ResumeChat(f.ctx, chatID)
-	require.NoError(t, err)
+	bounded, cancel := context.WithTimeout(f.ctx, 10*time.Second)
+	defer cancel()
+	resumed, err := f.usecase.ResumeChat(bounded, chatID)
+	require.NoError(t, err, "a runner left exiting would park the resume")
 	assert.Equal(t, runnerID, resumed, "the chat still belongs to the CLI that would not die")
 
 	f.term.terminateErr = nil
@@ -4400,7 +4401,6 @@ var sessionOps = []sessionOp{
 	{"restart", func(t *testing.T, f testFixture, _ *sessionWalk) {
 		t.Helper()
 		f.restart(t)
-		agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, 10*time.Millisecond)
 		require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
 	}},
 	{"announce", func(t *testing.T, f testFixture, w *sessionWalk) {
@@ -4491,8 +4491,7 @@ func sessionOpNamed(name string) sessionOp {
 func TestSessionInvariants_HoldWhenIntentsRace(t *testing.T) {
 	for seed := uint64(1); seed <= 10; seed++ {
 		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
-			f := newFixture(t)
-			agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, 10*time.Millisecond)
+			f := newFixture(t).withSwitchGrace(t, 10*time.Millisecond)
 			rng := rand.New(rand.NewPCG(seed, seed))
 			w := &sessionWalk{provider: "claude"}
 			var runnerID string
@@ -4553,8 +4552,7 @@ func TestSessionInvariants_AStopAfterADeliveredSendEndsItsRunnerAndSaysWhy(t *te
 func TestSessionInvariants_HoldUnderRandomInterleavings(t *testing.T) {
 	for seed := uint64(1); seed <= 10; seed++ {
 		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
-			f := newFixture(t)
-			agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, 10*time.Millisecond)
+			f := newFixture(t).withSwitchGrace(t, 10*time.Millisecond)
 			rng := rand.New(rand.NewPCG(seed, seed))
 			w := &sessionWalk{provider: "claude"}
 			w.chatID, _ = f.spawn(t, w.provider)
