@@ -18,7 +18,7 @@ export function DaemonHaltGate({ children }: { children: ReactNode }) {
           <CardTitle className="text-sm text-destructive">Crowbar could not start</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <p className="font-mono text-[11px] text-muted-foreground">{message}</p>
+          <p className="font-mono text-[11px] wrap-anywhere text-muted-foreground">{message}</p>
           <p className="text-xs text-muted-foreground">
             Quit Crowbar, fix the cause above, and open it again.
           </p>

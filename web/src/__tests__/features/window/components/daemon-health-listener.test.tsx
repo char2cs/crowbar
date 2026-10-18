@@ -119,12 +119,19 @@ describe('DaemonHealthListener', () => {
     })
   })
 
-  it('does nothing outside the desktop app', async () => {
+  it('reads a halt in the browser too, where no supervisor announces one', async () => {
     delete tauriWindow.__TAURI_INTERNALS__
+    vi.mocked(apiFetch).mockResolvedValue({
+      status: 'halted',
+      detail: { message: 'layout 9 is newer than this Crowbar knows' },
+    })
     render(<DaemonHealthListener />)
 
-    // Give any wrongly-registered listener a tick to appear.
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await waitFor(() =>
+      expect(useDaemonHaltStore.getState().message).toBe(
+        'layout 9 is newer than this Crowbar knows',
+      ),
+    )
     expect(handlers.size).toBe(0)
   })
 })
