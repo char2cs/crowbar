@@ -7,6 +7,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -14,6 +15,9 @@ type liveTable struct {
 	mu      sync.Mutex
 	chats   map[string]*liveEntry
 	runners map[string]*liveEntry
+	// turnStarts orders a turn opening on a chat's runner against its end: an
+	// end marked under it closes every turn opened before, and none opens after.
+	turnStarts *inflight.Gate
 }
 
 type liveEntry struct {
@@ -39,7 +43,9 @@ type liveView struct {
 }
 
 func newLiveTable() *liveTable {
-	return &liveTable{chats: map[string]*liveEntry{}, runners: map[string]*liveEntry{}}
+	return &liveTable{
+		chats: map[string]*liveEntry{}, runners: map[string]*liveEntry{}, turnStarts: inflight.NewGate(),
+	}
 }
 
 // add registers r on r.CurrentChatID, refusing while that chat has an entry.
@@ -75,6 +81,16 @@ func (t *liveTable) byRunner(runnerID string) (engineagents.Runner, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if e, ok := t.runners[runnerID]; ok {
+		return e.runner, true
+	}
+	return engineagents.Runner{}, false
+}
+
+// unending is runnerID's runner while its end is not under way.
+func (t *liveTable) unending(runnerID string) (engineagents.Runner, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if e, ok := t.runners[runnerID]; ok && !e.exiting {
 		return e.runner, true
 	}
 	return engineagents.Runner{}, false
@@ -217,6 +233,21 @@ func (rs *Runners) AllLive(context.Context) ([]engineagents.Runner, error) {
 // RunnerByID is runnerID's runner while it is in the table.
 func (rs *Runners) RunnerByID(runnerID string) (engineagents.Runner, bool) {
 	return rs.live.byRunner(runnerID)
+}
+
+// TurnRunner holds runnerID's chat against its runner's end and returns the
+// runner while a turn may open on it; release lets an end proceed.
+func (rs *Runners) TurnRunner(runnerID string) (engineagents.Runner, func(), bool) {
+	r, ok := rs.live.byRunner(runnerID)
+	if !ok {
+		return engineagents.Runner{}, nil, false
+	}
+	release := rs.live.turnStarts.Lock(r.CurrentChatID)
+	if r, ok = rs.live.unending(runnerID); !ok {
+		release()
+		return engineagents.Runner{}, nil, false
+	}
+	return r, release, true
 }
 
 // LiveRunner implements snapshot.Runtime: a runner is on the chat from its

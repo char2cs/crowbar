@@ -45,18 +45,14 @@ func (t *Turns) ingestUserPromptInterlocked(
 	runnerID, provider, canonicalEvent string,
 	rawPayload []byte,
 ) error {
-	runner, ok := t.runners.RunnerByID(runnerID)
+	// An end that came first has closed this runner's turn, and nothing would
+	// close one opened after it.
+	runner, release, ok := t.runners.TurnRunner(runnerID)
 	if !ok {
 		return nil
 	}
-	unlock := t.turnStarts.Lock(runner.CurrentChatID)
-	defer unlock()
-	// A replacement that held the interlock first has ended this runner.
-	current, ok := t.runners.RunnerByID(runnerID)
-	if !ok {
-		return nil
-	}
-	return t.ingestResolvedHook(ctx, current, provider, canonicalEvent, rawPayload)
+	defer release()
+	return t.ingestResolvedHook(ctx, runner, provider, canonicalEvent, rawPayload)
 }
 
 func (t *Turns) ingestResolvedHook(

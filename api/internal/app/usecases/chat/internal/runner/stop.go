@@ -74,7 +74,6 @@ func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Ru
 	}
 	var quitErr error
 	if !gentle || !open || !rs.interruptTurn(ctx, live) || !rs.turnEndedAfterInterrupt(ctx, chatID) {
-		rs.inflightTurns.Complete(ctx, live.ID, domain.AgentExitStopped)
 		if quitErr = rs.quitRunner(ctx, live, domain.AgentExitStopped); quitErr != nil {
 			quitErr = fmt.Errorf("agent: stop chat: %w", quitErr)
 		}

@@ -54,10 +54,7 @@ type Runners struct {
 	// inflightTurns is the in-flight-turn registry this type BLOCKS on before it
 	// quits a CLI.
 	inflightTurns *inflight.Turns
-	// turnStarts makes a hook's durable turn start atomic with the final
-	// idle-check-and-displace section of destructive TUI replacement.
-	turnStarts *inflight.Gate
-	work       *inflight.Work
+	work          *inflight.Work
 	// pendingHooks is the fork-before-runner-persistence barrier this type installs
 	// before the fork and finishes after runner_started commits.
 	pendingHooks *inflight.Hooks
@@ -128,7 +125,6 @@ type Deps struct {
 
 	Spawns        *inflight.Gate
 	InflightTurns *inflight.Turns
-	TurnStarts    *inflight.Gate
 	Work          *inflight.Work
 	PendingHooks  *inflight.Hooks
 	Minter        *agenttools.TokenMinter
@@ -157,7 +153,6 @@ func New(d Deps) *Runners {
 		daemonSocket:  d.DaemonSocket,
 		spawns:        d.Spawns,
 		inflightTurns: d.InflightTurns,
-		turnStarts:    d.TurnStarts,
 		work:          d.Work,
 		// Owned outright, so built here rather than handed in: the probe limiter is
 		// named by nothing outside this package.

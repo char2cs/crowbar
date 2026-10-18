@@ -193,12 +193,26 @@ func parkErr(park context.Context, err error) error {
 	return err
 }
 
+// displaceForSwitch quits the outgoing CLI once the chat is idle, or asks the
+// caller to wait and try again.
 func (rs *Runners) displaceForSwitch(
 	ctx context.Context,
 	chat domain.Chat,
 ) (bool, error) {
-	unlockTurnStart := rs.turnStarts.Lock(chat.ID)
-	defer unlockTurnStart()
+	if retry, err := rs.endIdleOutgoing(ctx, chat); retry || err != nil {
+		return retry, err
+	}
+	return false, rs.quitOutgoingCLI(ctx, chat.ID)
+}
+
+// endIdleOutgoing is the switch's final idle check, under the chat's
+// turn-start gate. Once it passes the outgoing runner is marked ending, so no
+// turn opens on it before the quit.
+func (rs *Runners) endIdleOutgoing(
+	ctx context.Context,
+	chat domain.Chat,
+) (bool, error) {
+	defer rs.live.turnStarts.Lock(chat.ID)()
 
 	st, err := rs.settleOrphanedPrompts(ctx, chat.ID)
 	if err != nil {
@@ -241,9 +255,7 @@ func (rs *Runners) displaceForSwitch(
 			"agent: switch provider: dormant chat still flagged working; proceeding rather than waiting for a hook that cannot arrive",
 			"chat_id", chat.ID)
 	}
-	if err := rs.quitOutgoingCLI(ctx, chat.ID); err != nil {
-		return false, err
-	}
+	rs.markOutgoingEnding(chat.ID)
 	return false, nil
 }
 

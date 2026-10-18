@@ -41,3 +41,13 @@ func CloseStalledTurn(u TurnUsecase, ctx context.Context, stall seam.Stall) {
 func SetMessageAwaitTimeout(u TurnUsecase, d time.Duration) {
 	u.(*Usecase).turns.SetMessageAwaitTimeout(d)
 }
+
+// TurnInFlight reports whether chatID holds a turn a provider switch would
+// wait on: one in flight, or work its chat still counts.
+func TurnInFlight(u *Usecase, chatID string) bool {
+	open, err := u.turns.TurnOpen(context.Background(), chatID, "")
+	if err != nil {
+		panic(err)
+	}
+	return open
+}

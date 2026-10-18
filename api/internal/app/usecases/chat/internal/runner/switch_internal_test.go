@@ -14,7 +14,7 @@ import (
 )
 
 // runnersForDisplace builds the smallest Runners that can run displaceForSwitch:
-// a real turn-start gate and in-flight registry, an empty ledger (so the
+// a real live table and in-flight registry, an empty ledger (so the
 // pending-prompt guard passes), and the two answers under test.
 func runnersForDisplace(t *testing.T, working, live bool) *Runners {
 	t.Helper()
@@ -26,7 +26,6 @@ func runnersForDisplace(t *testing.T, working, live bool) *Runners {
 	return &Runners{
 		ws:            fakeWSReader{chatsDir: home},
 		ledger:        newTestLedger(t),
-		turnStarts:    inflight.NewGate(),
 		inflightTurns: inflight.NewTurns(),
 		turns:         stubTurnsForAttach{working: working},
 		live:          liveTable,

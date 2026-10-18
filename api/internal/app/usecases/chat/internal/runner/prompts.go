@@ -327,13 +327,21 @@ func (rs *Runners) displaceForPrompt(
 	ctx context.Context,
 	chatID, liveRunnerID string,
 ) error {
-	unlockTurnStart := rs.turnStarts.Lock(chatID)
-	defer unlockTurnStart()
-
-	if err := rs.requirePromptIdle(ctx, chatID, liveRunnerID); err != nil {
+	if err := rs.endIdleForPrompt(ctx, chatID, liveRunnerID); err != nil {
 		return err
 	}
 	return rs.quitOutgoingCLI(ctx, chatID)
+}
+
+// endIdleForPrompt refuses a busy chat and marks its idle runner ending, under
+// the chat's turn-start gate: no turn opens on it before the quit.
+func (rs *Runners) endIdleForPrompt(ctx context.Context, chatID, liveRunnerID string) error {
+	defer rs.live.turnStarts.Lock(chatID)()
+	if err := rs.requirePromptIdle(ctx, chatID, liveRunnerID); err != nil {
+		return err
+	}
+	rs.markOutgoingEnding(chatID)
+	return nil
 }
 
 // commitPromptSpawn answers with the runner the prompt went to. What must exist

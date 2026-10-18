@@ -83,7 +83,6 @@ var sharedInstances = map[string][]string{
 	"the work mirror":     {"conversations.work", "turns.work", "runners.work"},
 	"the spawn gate":      {"conversations.spawns", "runners.spawns"},
 	"the turn registry":   {"turns.turns", "runners.inflightTurns"},
-	"the turn-start gate": {"turns.turnStarts", "runners.turnStarts"},
 	"the hook barrier":    {"turns.pendingHooks", "runners.pendingHooks"},
 	"the telemetry store": {"conversations.telemetry", "turns.telemetry"},
 	"the answer desk":     {"answers", "turns.answers", "runners.answers"},

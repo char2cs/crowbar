@@ -40,9 +40,6 @@ type Turns struct {
 	// turns is the in-flight-turn registry a provider switch BLOCKS on, so it
 	// never quits a CLI mid-answer.
 	turns *inflight.Turns
-	// turnStarts makes a hook's durable turn start atomic with the final
-	// idle-check-and-displace section of destructive TUI replacement.
-	turnStarts *inflight.Gate
 	// messages assembles each assistant message from the increments its provider
 	// streams, because the terminating hook carries only the LAST message of a turn.
 	messages *stream.Streams
@@ -114,7 +111,6 @@ type Deps struct {
 
 	Work          *inflight.Work
 	InflightTurns *inflight.Turns
-	TurnStarts    *inflight.Gate
 	PendingHooks  *inflight.Hooks
 	Answers       *answerdesk.Desk
 
@@ -136,16 +132,15 @@ const defaultMessageAwaitTimeout = 3 * time.Second
 // SetRunners, because the two call each other.
 func New(d Deps) *Turns {
 	return &Turns{
-		chats:      d.Chats,
-		activity:   d.Activity,
-		telemetry:  d.Telemetry,
-		agents:     d.Agents,
-		ws:         d.Workspace,
-		home:       d.Home,
-		ledger:     d.Ledger,
-		work:       d.Work,
-		turns:      d.InflightTurns,
-		turnStarts: d.TurnStarts,
+		chats:     d.Chats,
+		activity:  d.Activity,
+		telemetry: d.Telemetry,
+		agents:    d.Agents,
+		ws:        d.Workspace,
+		home:      d.Home,
+		ledger:    d.Ledger,
+		work:      d.Work,
+		turns:     d.InflightTurns,
 		// Owned outright, so built here rather than handed in: the message streams,
 		// the delivery dedup set and the per-runner ingest gate are named by
 		// nothing outside this package.

@@ -2,13 +2,16 @@ package chat_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -123,4 +126,84 @@ func TestInvariantA2_StopPreemptsASwitchParkedOnTheTurn(t *testing.T) {
 	_, err := f.liveRunnerFor(t, chatID)
 	require.Error(t, err, "after Stop the chat is dormant: the preempted switch spawned nothing")
 	assert.Equal(t, 1, stoppedInterruptions(t, f, chatID))
+}
+
+// abandonHook runs hook once, from inside the chat's AbandonTurn: where a
+// runner's end closes the chat's turn. after places it once the abandon commits.
+type abandonHook struct {
+	agentchat.EventStore
+	mu    sync.Mutex
+	hook  func()
+	after bool
+}
+
+func (s *abandonHook) AbandonTurn(ctx context.Context, chatID string, now time.Time) (domain.Chat, error) {
+	s.mu.Lock()
+	hook := s.hook
+	s.hook = nil
+	s.mu.Unlock()
+	if hook != nil && !s.after {
+		hook()
+	}
+	c, err := s.EventStore.AbandonTurn(ctx, chatID, now)
+	if hook != nil && s.after {
+		hook()
+	}
+	return c, err
+}
+
+// A CLI acknowledging a prompt as its runner ends — Stop, or the CLI dying on
+// its own — opens no turn on it: nothing would ever close that turn, and every
+// later resume, switch and send would wait on it.
+func TestEndingRunner_APromptItAcknowledgesOpensNoTurn(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		after bool
+		end   func(t *testing.T, f testFixture, chatID string, live engineagents.Runner)
+	}{
+		{"stop, before the abandon", false, stopChat},
+		{"stop, after the abandon", true, stopChat},
+		{"crash, before the abandon", false, crashRunner},
+		{"crash, after the abandon", true, crashRunner},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &abandonHook{after: tc.after}
+			f := newFixtureUsing(t, func(real agentchat.EventStore) agentchat.EventStore {
+				store.EventStore = real
+				return store
+			}, "")
+			chatID, runnerID := f.spawn(t, "claude")
+			f.announce(t, runnerID, "sid-ending")
+			live, err := f.liveRunnerFor(t, chatID)
+			require.NoError(t, err)
+			store.mu.Lock()
+			store.hook = func() {
+				payload := mustJSON(t, map[string]any{"prompt": "step"})
+				assert.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt", payload))
+			}
+			store.mu.Unlock()
+
+			tc.end(t, f, chatID, live)
+
+			_, err = f.liveRunnerFor(t, chatID)
+			require.ErrorIs(t, err, agentusecase.ErrNoLiveRunner)
+			assert.False(t, f.chat(t, chatID).Working, "the ended runner's chat is left working")
+			assert.False(t, agentusecase.TurnInFlight(f.usecase.own, chatID), "the ended runner left a turn in flight")
+			ctx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
+			defer cancel()
+			resumed, err := f.usecase.ResumeChat(ctx, chatID)
+			require.NoError(t, err, "the chat cannot be resumed")
+			assert.NotEmpty(t, resumed)
+		})
+	}
+}
+
+func stopChat(t *testing.T, f testFixture, chatID string, _ engineagents.Runner) {
+	t.Helper()
+	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
+}
+
+func crashRunner(t *testing.T, f testFixture, _ string, live engineagents.Runner) {
+	t.Helper()
+	f.term.exit(t, live.TerminalSession)
 }

@@ -159,9 +159,7 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
 	rs.agents.ForgetRunner(runnerID)
 	rs.surfaces.drop(runnerID)
 	rs.answers.ReleaseRunner(ctx, runnerID)
-	rs.inflightTurns.Complete(ctx, runnerID, domain.AgentExitExited)
-
-	entry, ok := rs.live.claimExit(runnerID)
+	entry, ok := rs.claimEnd(ctx, runnerID)
 	if !ok {
 		return
 	}

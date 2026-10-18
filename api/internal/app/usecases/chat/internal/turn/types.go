@@ -52,6 +52,9 @@ type Conversations interface {
 type Runners interface {
 	// RunnerByID is the live runner a hook names, also while it is exiting.
 	RunnerByID(runnerID string) (engineagents.Runner, bool)
+	// TurnRunner is the runner a hook names, held against its end until
+	// release; false once its end is under way, when no turn may open on it.
+	TurnRunner(runnerID string) (runner engineagents.Runner, release func(), ok bool)
 	// LiveRunnerForChat is the chat's live runner; an error when it is dormant.
 	LiveRunnerForChat(ctx context.Context, chatID string) (engineagents.Runner, error)
 	// HandleSessionStart applies a CLI's session announcement to the chat it

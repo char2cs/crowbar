@@ -4343,9 +4343,9 @@ type sessionWalk struct {
 	rival string
 }
 
-func (w *sessionWalk) live(t *testing.T, f testFixture) (agents.Runner, bool) {
-	t.Helper()
-	r, err := f.liveRunnerFor(t, w.chatID)
+// live never quiesces the model: a racing op reads it while its rival acts.
+func (w *sessionWalk) live(f testFixture) (agents.Runner, bool) {
+	r, err := f.usecase.own.LiveRunnerForChat(f.ctx, w.chatID)
 	return r, err == nil
 }
 
@@ -4359,16 +4359,17 @@ var sessionOps = []sessionOp{
 		// S5: a delivered send has a runner to continue the conversation on —
 		// unless a rival stop or crash took the chat once the send released it.
 		assert.NotEmpty(t, sub.RunnerID, "S5: a delivered send names no runner")
-		live, ok := w.live(t, f)
+		live, ok := w.live(f)
 		assert.True(t, ok || endsRunner(w.rival), "S5: a delivered send left the chat with no runner")
 		// The CLI takes what it is sent; a switch parked on the prompt waits for that.
 		if ok && live.ID == sub.RunnerID {
-			prompt(t, f, live.ID, live.ProviderID, "step")
+			payload := mustJSON(t, map[string]any{"prompt": "step"})
+			assert.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, live.ProviderID, "user_prompt", payload))
 		}
 	}},
 	{"stop", func(t *testing.T, f testFixture, w *sessionWalk) {
 		t.Helper()
-		// S4: Stop is bounded and leaves no turn open.
+		// S4: Stop is bounded. The turn it leaves closed is S3's, once both intents settle.
 		stopped := make(chan struct{})
 		go func() {
 			defer close(stopped)
@@ -4379,8 +4380,6 @@ var sessionOps = []sessionOp{
 		case <-time.After(10 * time.Second):
 			t.Fatal("S4: Stop did not return")
 		}
-		f.wait()
-		assert.False(t, f.chat(t, w.chatID).Working, "S4: a stopped chat is left working")
 	}},
 	{"switch", func(t *testing.T, f testFixture, w *sessionWalk) {
 		t.Helper()
@@ -4393,7 +4392,7 @@ var sessionOps = []sessionOp{
 	}},
 	{"crash", func(t *testing.T, f testFixture, w *sessionWalk) {
 		t.Helper()
-		if r, ok := w.live(t, f); ok && r.TerminalSession != "" && f.term.SessionLive(f.ctx, r.TerminalSession) {
+		if r, ok := w.live(f); ok && r.TerminalSession != "" && f.term.SessionLive(f.ctx, r.TerminalSession) {
 			f.term.exit(t, r.TerminalSession)
 		}
 	}},
@@ -4404,7 +4403,7 @@ var sessionOps = []sessionOp{
 	}},
 	{"announce", func(t *testing.T, f testFixture, w *sessionWalk) {
 		t.Helper()
-		if r, ok := w.live(t, f); ok {
+		if r, ok := w.live(f); ok {
 			w.sessions++
 			f.announce(t, r.ID, fmt.Sprintf("walk-%s-%d", w.chatID[:8], w.sessions))
 		}
@@ -4412,21 +4411,21 @@ var sessionOps = []sessionOp{
 	{"prompt", func(t *testing.T, f testFixture, w *sessionWalk) {
 		t.Helper()
 		// A turn the CLI opened and has not finished: whatever comes next must close it.
-		if r, ok := w.live(t, f); ok && f.sessions[r.ID] != "" {
+		if r, ok := w.live(f); ok && f.sessions[r.ID] != "" {
 			payload := map[string]any{"prompt": "typed in the terminal"}
 			require.NoError(t, f.usecase.IngestHook(f.ctx, r.ID, r.ProviderID, "user_prompt", mustJSON(t, payload)))
 		}
 	}},
 	{"turn", func(t *testing.T, f testFixture, w *sessionWalk) {
 		t.Helper()
-		if r, ok := w.live(t, f); ok && f.sessions[r.ID] != "" {
+		if r, ok := w.live(f); ok && f.sessions[r.ID] != "" {
 			turn(t, f, r.ID, r.ProviderID, "an answer")
 		}
 	}},
 	{"refuse", func(t *testing.T, f testFixture, w *sessionWalk) {
 		t.Helper()
 		// The CLI dies refusing its session; it loses it only if it was resuming one.
-		if r, ok := w.live(t, f); ok && r.TerminalSession != "" && f.term.SessionLive(f.ctx, r.TerminalSession) {
+		if r, ok := w.live(f); ok && r.TerminalSession != "" && f.term.SessionLive(f.ctx, r.TerminalSession) {
 			f.term.exitWith(t, r.TerminalSession, engineterminal.Exit{
 				Code: 1, Screen: "No conversation found with session ID\nError: no rollout found",
 			})
@@ -4462,10 +4461,11 @@ func checkSessionInvariants(t *testing.T, f testFixture, w *sessionWalk, trail [
 	}
 	// S2: a chat with no runner says why its last one ended.
 	// S3: and has no turn left open — nothing is left that could close it.
-	if _, ok := w.live(t, f); !ok {
+	if _, ok := w.live(f); !ok {
 		assert.NotEmpty(t, agentusecase.ChatSession(f.usecase.RunnerUsecase, w.chatID).ExitReason,
 			"S2, after %v", trail)
 		assert.False(t, f.chat(t, w.chatID).Working, "S3, after %v", trail)
+		assert.False(t, agentusecase.TurnInFlight(f.usecase.own, w.chatID), "S3 in flight, after %v", trail)
 	}
 }
 
@@ -4510,7 +4510,7 @@ func TestSessionInvariants_HoldWhenIntentsRace(t *testing.T) {
 				go func() { defer both.Done(); b.do(t, f, &wb) }()
 				both.Wait()
 				f.wait()
-				if live, ok := w.live(t, f); ok {
+				if live, ok := w.live(f); ok {
 					w.provider = live.ProviderID
 				}
 				checkSessionInvariants(t, f, w, trail)

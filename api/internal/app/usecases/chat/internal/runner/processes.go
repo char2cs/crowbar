@@ -44,7 +44,7 @@ func (rs *Runners) endProcesses(ctx context.Context, runner agents.Runner) (bool
 // a replacement never lands beside it. A PTY-less runner is recorded here: its
 // exit handler needs the gate the caller holds.
 func (rs *Runners) quitRunner(ctx context.Context, runner agents.Runner, cause string) error {
-	exited, ok := rs.live.markExiting(runner.ID, cause)
+	exited, ok := rs.markEnding(ctx, runner, cause)
 	if !ok {
 		return nil // already gone
 	}
@@ -64,6 +64,14 @@ func (rs *Runners) quitRunner(ctx context.Context, runner agents.Runner, cause s
 	}
 }
 
+// markOutgoingEnding marks chatID's runner ending once its chat was found
+// idle. The caller holds the chat's turn-start gate.
+func (rs *Runners) markOutgoingEnding(chatID string) {
+	if live, ok := rs.live.byChat(chatID); ok {
+		rs.live.markExiting(live.ID, domain.AgentExitDisplaced)
+	}
+}
+
 // quitOutgoingCLI ends chatID's live runner so a replacement can take the
 // chat, and aborts on failure: the replacement must never land beside a CLI
 // that is still running.
@@ -76,4 +84,27 @@ func (rs *Runners) quitOutgoingCLI(ctx context.Context, chatID string) error {
 		return fmt.Errorf("agent: switch provider: %w", err)
 	}
 	return nil
+}
+
+// markEnding marks runner's end as under way for cause and closes the turn it
+// had, under the chat's turn-start gate: no turn opens on it after. The gate
+// is released before the wait for the exit, whose record takes it again.
+func (rs *Runners) markEnding(ctx context.Context, runner agents.Runner, cause string) (<-chan struct{}, bool) {
+	defer rs.live.turnStarts.Lock(runner.CurrentChatID)()
+	exited, ok := rs.live.markExiting(runner.ID, cause)
+	rs.inflightTurns.Complete(ctx, runner.ID, cause)
+	return exited, ok
+}
+
+// claimEnd hands runnerID's exit to its one recorder and closes the turn it
+// had, under the chat's turn-start gate: a turn opened before this is closed
+// here, and none opens after.
+func (rs *Runners) claimEnd(ctx context.Context, runnerID string) (liveEntry, bool) {
+	runner, ok := rs.live.byRunner(runnerID)
+	if !ok {
+		return liveEntry{}, false
+	}
+	defer rs.live.turnStarts.Lock(runner.CurrentChatID)()
+	rs.inflightTurns.Complete(ctx, runnerID, domain.AgentExitExited)
+	return rs.live.claimExit(runnerID)
 }

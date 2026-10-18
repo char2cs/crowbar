@@ -121,9 +121,6 @@ type shared struct {
 	// turns is the in-flight-turn registry a provider switch BLOCKS on, so it never
 	// quits a CLI mid-answer.
 	turns *inflight.Turns
-	// turnStarts makes a hook's durable turn start atomic with the final
-	// idle-check-and-displace section of destructive TUI replacement.
-	turnStarts *inflight.Gate
 	// pendingHooks is the fork-before-runner-persistence barrier: the spawn path
 	// installs it before the fork and finishes it once the runner row exists, and
 	// the ingest path buffers into it meanwhile.
@@ -143,7 +140,6 @@ func New(d Deps) *Usecase {
 		work:         inflight.NewWork(),
 		spawns:       inflight.NewGate(),
 		turns:        inflight.NewTurns(),
-		turnStarts:   inflight.NewGate(),
 		pendingHooks: inflight.NewHooks(),
 		answers: answerdesk.New(
 			answerdesk.DefaultRetention, d.Activity, answerdesk.WithChange(d.ChoiceWatch.Notify),
@@ -251,7 +247,6 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Ledger:        d.Ledger,
 		Work:          sh.work,
 		InflightTurns: sh.turns,
-		TurnStarts:    sh.turnStarts,
 		PendingHooks:  sh.pendingHooks,
 		Answers:       sh.answers,
 
@@ -269,7 +264,6 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		DaemonSocket:  d.DaemonSocket,
 		Spawns:        sh.spawns,
 		InflightTurns: sh.turns,
-		TurnStarts:    sh.turnStarts,
 		Work:          sh.work,
 		PendingHooks:  sh.pendingHooks,
 		Minter:        d.Minter,
