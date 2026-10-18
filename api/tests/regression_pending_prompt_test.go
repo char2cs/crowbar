@@ -3,15 +3,19 @@
 package tests
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // livestubPromptSubmitYAML extends writeLiveStubProviderDescriptor's stub
@@ -117,8 +121,126 @@ func TestRegression_PendingPromptSurvivesAFrontendThatForgotItsOwnQueue(t *testi
 	assert.Equal(t, submittedText, got.Text,
 		"the recovered record must carry the literal submitted text, not merely a hash — "+
 			"the whole point of the fix is giving the user their words back")
-	assert.Equal(t, agentjournal.PromptStateSpawned, got.State,
+	assert.Equal(t, "pending", got.State,
 		"the replacement runner was spawned and its identity durably recorded, but nothing "+
 			"has fired the user_prompt hook that would confirm the provider accepted it, so the "+
-			"record must still read as spawned — never accepted")
+			"record must still read as pending — never accepted")
+}
+
+// postPrompt submits text under requestID and returns the response status.
+func postPrompt(t *testing.T, h *harness, imported importedRepo, chatID, text, requestID string) int {
+	t.Helper()
+	body, err := json.Marshal(map[string]string{"text": text, "clientRequestId": requestID})
+	require.NoError(t, err)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
+		h.url+repoBase(imported)+"/chats/"+chatID+"/prompts", bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	return statusOf(t, h, req)
+}
+
+func pendingPromptStatus(t *testing.T, h *harness, imported importedRepo, chatID string) int {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
+		h.url+repoBase(imported)+"/chats/"+chatID+"/pending-prompt", http.NoBody)
+	require.NoError(t, err)
+	return statusOf(t, h, req)
+}
+
+func statusOf(t *testing.T, h *harness, req *http.Request) int {
+	t.Helper()
+	resp, err := h.server.Client().Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	return resp.StatusCode
+}
+
+func isPromptSettled(requestID string) func(map[string]any) bool {
+	return func(m map[string]any) bool {
+		return m["kind"] == "prompt_settled" && m["clientRequestId"] == requestID
+	}
+}
+
+func TestRegression_APromptWhoseLaunchFailsIsSettledNotLost(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
+	chatID, _ := createFakeChat(t, h, imported, fake)
+	fake.BreakSpawn(t)
+	conn := h.dial(repoBase(imported) + "/chats/ws")
+	requestID := uuid.NewString()
+
+	status := postPrompt(t, h, imported, chatID, "a prompt no CLI will ever see", requestID)
+
+	assert.GreaterOrEqual(t, status, http.StatusBadRequest, "a launch that failed is not a delivery")
+	settled := readUntil(t, conn, isPromptSettled(requestID))
+	assert.NotEqual(t, true, settled["promptConsumed"], "nothing consumed the prompt")
+	assert.Equal(t, http.StatusNoContent, pendingPromptStatus(t, h, imported, chatID),
+		"a settled prompt is not pending")
+}
+
+func TestRegression_ResendingTheSameRequestIDNeverDeliversTwice(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
+	chatID, _ := createFakeChat(t, h, imported, fake)
+	const text = "deliver this exactly once"
+	requestID := uuid.NewString()
+
+	first := postPrompt(t, h, imported, chatID, text, requestID)
+	h.QuiesceReactors()
+	carrier := getAgentChat(t, h, repoBase(imported), chatID).LiveRunnerID
+	second := postPrompt(t, h, imported, chatID, text, requestID)
+	h.QuiesceReactors()
+
+	assert.Equal(t, http.StatusOK, first)
+	assert.Equal(t, http.StatusOK, second, "a resend of the same request is answered, not refused")
+	assert.Equal(t, carrier, getAgentChat(t, h, repoBase(imported), chatID).LiveRunnerID,
+		"the resend must not replace the CLI carrying the prompt")
+	fake.AwaitLaunch(t, carrier)
+	assert.Equal(t, 1, launchesCarrying(t, fake, text))
+}
+
+// launchesCarrying counts the fake CLI launches whose argv carried text.
+func launchesCarrying(t *testing.T, fake kit.FakeProvider, text string) int {
+	t.Helper()
+	captures, err := filepath.Glob(filepath.Join(fake.Dir, "*.json"))
+	require.NoError(t, err)
+	count := 0
+	for _, path := range captures {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+		var launch kit.Launch
+		require.NoError(t, json.Unmarshal(raw, &launch))
+		if strings.Contains(strings.Join(launch.Argv, "\x00"), text) {
+			count++
+		}
+	}
+	return count
+}
+
+func TestRegression_APromptTheProviderNeverAcknowledgesSettlesOnIdle(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
+	chatID, _ := createFakeChat(t, h, imported, fake)
+	hookBase := h.url + repoBase(imported)
+	conn := h.dial(repoBase(imported) + "/chats/ws")
+	requestID := uuid.NewString()
+
+	require.Equal(t, http.StatusOK, postPrompt(t, h, imported, chatID, "are you there", requestID))
+	h.QuiesceReactors()
+	launch := fake.AwaitLaunch(t, getAgentChat(t, h, repoBase(imported), chatID).LiveRunnerID)
+	for _, step := range []struct{ event, payload string }{
+		{"session_start", `{"session_id":"s-1","source":"resume"}`},
+		{"idle", `{"session_id":"s-1","message":"Claude is waiting for your input"}`},
+	} {
+		resp := launch.PostHook(t, hookBase, "claude", step.event, []byte(step.payload)) //nolint:bodyclose // PostHook closes the body and returns a buffered copy
+		require.Equal(t, http.StatusOK, resp.StatusCode, step.event)
+	}
+
+	settled := readUntil(t, conn, isPromptSettled(requestID))
+	assert.NotEqual(t, true, settled["promptConsumed"], "the provider never took the prompt")
+	assert.Equal(t, http.StatusOK, postPrompt(t, h, imported, chatID, "and now?", uuid.NewString()),
+		"a settled prompt no longer holds the chat busy")
 }

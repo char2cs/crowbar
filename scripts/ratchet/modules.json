@@ -2,6 +2,7 @@
   "go": {
     "wiring": [
       "api/internal/adapter/container.go",
+      "api/internal/adapter/chat_ledger.go",
       "api/internal/api/container.go",
       "api/internal/api/v0/container.go",
       "api/internal/app/container.go",
@@ -15,7 +16,7 @@
       "api/internal/app/repositories/chat",
       "api/internal/api/v0/endpoints/chat",
       "api/internal/api/v0/endpoints/threads",
-      "api/internal/adapter/store/agentjournal"
+      "api/internal/adapter/store/ledger"
     ],
     "engine-provider": ["api/internal/engine/agents", "api/internal/engine/provider", "api/internal/engine/mcp"],
     "engine-other": ["api/internal/engine"],

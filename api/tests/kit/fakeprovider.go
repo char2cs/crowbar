@@ -78,8 +78,9 @@ func removeFakeCLI() {
 // FakeProvider is a provider descriptor installed under <home>/descriptors whose
 // process is the fake CLI.
 type FakeProvider struct {
-	ID  string // descriptor id the chat is created with
-	Dir string // capture directory the fake CLI writes into
+	ID         string // descriptor id the chat is created with
+	Dir        string // capture directory the fake CLI writes into
+	descriptor string // the installed <home>/descriptors/<id>.yaml
 }
 
 // FakeSpec selects what the installed descriptor is built from.
@@ -113,16 +114,43 @@ func InstallFakeProvider(tb testing.TB, home string, spec FakeSpec) FakeProvider
 
 	raw, err := yaml.Marshal(doc)
 	require.NoError(tb, err)
+	descriptors := filepath.Join(home, "descriptors")
+	require.NoError(tb, os.MkdirAll(descriptors, 0o750))
+	path := filepath.Join(descriptors, id+".yaml")
+	writeDescriptor(tb, path, raw)
+	return FakeProvider{ID: id, Dir: dir, descriptor: path}
+}
+
+// writeDescriptor writes an override only once descriptorcheck accepts it.
+func writeDescriptor(tb testing.TB, path string, raw []byte) {
+	tb.Helper()
 	// A refused override silently falls back to the shipped descriptor, which
 	// would launch the real CLI.
 	for _, f := range descriptorcheck.Validate(raw).Findings {
 		require.NotEqual(tb, descriptorcheck.SeverityError, f.Severity,
-			"kit: fake descriptor %q refused: %s (line %d): %s", id, f.Rule, f.Line, f.Message)
+			"kit: fake descriptor %s refused: %s (line %d): %s", path, f.Rule, f.Line, f.Message)
 	}
-	descriptors := filepath.Join(home, "descriptors")
-	require.NoError(tb, os.MkdirAll(descriptors, 0o750))
-	require.NoError(tb, os.WriteFile(filepath.Join(descriptors, id+".yaml"), raw, 0o600))
-	return FakeProvider{ID: id, Dir: dir}
+	require.NoError(tb, os.WriteFile(path, raw, 0o600))
+}
+
+// BreakSpawn points every later launch at a CLI that does not exist. The new
+// mtime is what makes the daemon reload the descriptor.
+func (f FakeProvider) BreakSpawn(tb testing.TB) {
+	tb.Helper()
+	before, err := os.Stat(f.descriptor)
+	require.NoError(tb, err)
+	raw, err := os.ReadFile(f.descriptor)
+	require.NoError(tb, err)
+	var doc map[string]any
+	require.NoError(tb, yaml.Unmarshal(raw, &doc))
+	missing := filepath.Join(f.Dir, "missing-cli")
+	block(tb, doc, "spawn")["cmd"] = missing
+	block(tb, block(tb, doc, "runtime"), "spawn")["cmd"] = missing
+	raw, err = yaml.Marshal(doc)
+	require.NoError(tb, err)
+	writeDescriptor(tb, f.descriptor, raw)
+	bumped := before.ModTime().Add(time.Second)
+	require.NoError(tb, os.Chtimes(f.descriptor, bumped, bumped))
 }
 
 func fakeDocument(tb testing.TB, spec FakeSpec, cli, dir string) map[string]any {

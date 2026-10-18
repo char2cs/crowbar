@@ -45,9 +45,8 @@ func (r *Registry) SetInjected(runnerID string, docs ...string) {
 // argv token: it must be recognized here, not silently swallowed with the
 // preamble it happened to travel next to, or the ledger records Crowbar's own
 // injected document as what the user typed, the derived title is nonsense,
-// and every hash-based "was this prompt actually accepted" check downstream
-// (ConfirmPromptAccepted, promptRecordAccepted) can never match the original
-// dispatch text again.
+// and the "was this prompt actually accepted" match downstream (the hook
+// path's text comparison against the recorded prompt) can never succeed.
 // MergedSeparator is mergeLeadingPositional's own exact join string
 // (spawnsteps.go) between the rendered context step and the message step —
 // the one thing Go DOES get to choose, unlike the wrapping around the doc.

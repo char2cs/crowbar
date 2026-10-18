@@ -109,9 +109,9 @@ type WorkspaceReader interface {
 	// so plaintext state never lands on the user's filesystem. The worktree/Cwd is
 	// unaffected — WorktreeDir still returns it unchanged.
 	//
-	// NOT the chat's own ledger (its prompt-delivery journal): that is keyed by
-	// the chat's id alone (worktreepath.LedgerChatsDir), never by this workspace
-	// lookup, because WorkspaceID is optional and mutable (spec §1.5).
+	// NOT the chat's own ledger directory: that is keyed by the chat's id alone
+	// (worktreepath.LedgerChatsDir), never by this workspace lookup, because
+	// WorkspaceID is optional and mutable (spec §1.5).
 	AgentChatsDir(
 		ctx context.Context,
 		workspaceID string,

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
@@ -14,6 +15,7 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
@@ -48,15 +50,13 @@ type Container struct {
 	// runner command through it. The workspace-delete cascade reads it too, to find
 	// the CLI pointed at a chat it is about to Forget.
 	AgentRunner agentrunner.EventStore
-	// Node is the asynx-backed EventStore for the position aggregate
-	// (2026-09-08 sidebar-placement-unification): the ONE entity that owns
-	// every sidebar row's ParentID/Order, at every tree level. Wired here
-	// purely additively (Task 1) — nothing else in the codebase reads or
-	// writes it yet; later tasks migrate existing placement logic onto it one
-	// vertical slice at a time.
+	// Node is the position aggregate: the one owner of every sidebar row's
+	// ParentID/Order, at every tree level.
 	Node node.EventStore
-	hub  hub.WebSocketHub
-	git  wsusecase.MergeConflictBatchChecker
+	// ChatLedger is each chat's append-only ledger, one writer per chat.
+	ChatLedger *ledgerstore.Store
+	hub        hub.WebSocketHub
+	git        wsusecase.MergeConflictBatchChecker
 	// PurgeChat hard-deletes one chat and everything it owns — its aggregate, the
 	// CLIs on it, its conversation record and telemetry, its conversation history
 	// and its ledger directory. It is the chat usecase's own PurgeChat, the SAME
@@ -222,13 +222,6 @@ func New(
 	}
 	c.AgentRunner = agentRunner
 
-	// node: build the asynx-backed EventStore over the singleton axNode,
-	// registering its store + hub projections (store.New, invoked by
-	// NewEventSourced) exactly once, over its OWN per-type planes
-	// (state/events/node.db and state/store/node.db) — 2026-09-08
-	// sidebar-placement-unification, Task 1. Purely additive: nodeWatch is nil
-	// in production until a live-update consumer is wired, and nothing else in
-	// the codebase sends Node commands yet.
 	nodeStore, err := node.NewEventSourced(
 		axNode, adapters.NodeES(), adapters.NodeReadDB(), nodeWatch,
 		node.WithPlacementWatch(placementWatch),
@@ -237,6 +230,9 @@ func New(
 		return nil, fmt.Errorf("repositories: node event store: %w", err)
 	}
 	c.Node = nodeStore
+	if c.ChatLedger, err = ledgerstore.Open(adapters.ChatLedgerDB(), time.Now); err != nil {
+		return nil, fmt.Errorf("repositories: chat ledger: %w", err)
+	}
 
 	// Wire the post-commit cross-aggregate reactions (spec §3.6): the workspace
 	// delete reactor + its review-thread AND agent-chat forget cascades, all

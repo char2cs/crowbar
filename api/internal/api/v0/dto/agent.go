@@ -646,9 +646,9 @@ type PromptSubmissionDTO struct {
 	TerminalSessionID string `json:"terminalSessionId"`
 }
 
-// PendingPromptDTO is the wire shape of domain.PendingPrompt — a prompt
-// submission the journal has not yet confirmed the provider accepted, sent
-// so a client whose own local copy was lost can recover the literal text.
+// PendingPromptDTO is the wire shape of domain.PendingPrompt — a prompt the
+// provider has not acknowledged yet, sent so a client whose own local copy was
+// lost can recover the literal text.
 type PendingPromptDTO struct {
 	Text  string `json:"text"`
 	State string `json:"state"`
@@ -897,16 +897,12 @@ type AgentChatEvent struct {
 	// whether anything actually proved the provider took that prompt.
 	//
 	// True is a provider built-in that demonstrably ran — a `/compact` the CLI
-	// handled itself, announcing nothing. False is the terminal-wait sweep's bare
-	// thirty-second timeout: nothing was proved, and the prompt may never have been
-	// seen at all.
+	// handled itself, announcing nothing. False is every other settle: the launch
+	// failed, the CLI exited, or the provider went idle without taking the prompt.
 	//
-	// The distinction is not cosmetic, and a client cannot derive it: the two cases
-	// are identical in the ledger (neither produced a turn) and identical in the
-	// delivery journal, which records a HASH of the prompt and never its text. So a
-	// client's own pending-queue item holds the only surviving copy of what the user
-	// typed, and discarding it on the timeout case destroys their words outright.
-	// Discard on true; keep the text and surface a failure on false.
+	// A client cannot derive it — neither case produced a turn — and discarding its
+	// queued copy on false would lose words the provider never read. Discard on
+	// true; keep the text and surface a failure on false.
 	//
 	// Omitempty makes the SAFE reading the default: a frame with the field absent
 	// preserves the text rather than dropping it.

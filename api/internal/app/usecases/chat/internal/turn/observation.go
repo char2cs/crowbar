@@ -48,7 +48,7 @@ func (t *Turns) handleObservation(
 	case engineagents.HookIdle:
 		// ARMS a reconcile; closes nothing. This routinely arrives microseconds
 		// BEFORE the turn's own close — see idle.go.
-		t.recordIdle(chat)
+		t.recordIdle(ctx, chat, runner.ID)
 	case engineagents.HookReasoningDelta:
 		// Live only — see recordLiveText. Nothing durable is written, so a provider
 		// that maps either of these can never corrupt a transcript with them.

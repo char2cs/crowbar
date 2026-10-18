@@ -12,6 +12,7 @@ package turn
 import (
 	"time"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
@@ -33,6 +34,7 @@ type Turns struct {
 	agents      engineagents.Agents
 	ws          seam.WorkspaceReader
 	home        func() (string, error)
+	ledger      *ledgerstore.Store
 	// work is the authoritative process-local mirror of AgentChat.Working returned
 	// by the turn commands. Unlike the projection, it cannot briefly report idle
 	// after a hook has durably announced background work.
@@ -78,9 +80,9 @@ type Turns struct {
 	replies hookReplies
 
 	conversations Conversations
-	// runners is reached for the placement half of a hook and for the prompt
-	// journal a user_prompt confirms. Bound after construction: the two sides are
-	// built together and neither can name the other first.
+	// runners is reached for the placement half of a hook. Bound after
+	// construction: the two sides are built together and neither can name the
+	// other first.
 	runners Runners
 
 	// feed publishes the live facts no projection carries — a growing message,
@@ -111,6 +113,7 @@ type Deps struct {
 	Agents    engineagents.Agents
 	Workspace seam.WorkspaceReader
 	Home      func() (string, error)
+	Ledger    *ledgerstore.Store
 
 	Work          *inflight.Work
 	InflightTurns *inflight.Turns
@@ -143,6 +146,7 @@ func New(d Deps) *Turns {
 		agents:      d.Agents,
 		ws:          d.Workspace,
 		home:        d.Home,
+		ledger:      d.Ledger,
 		work:        d.Work,
 		turns:       d.InflightTurns,
 		turnStarts:  d.TurnStarts,

@@ -1,0 +1,86 @@
+package ledger
+
+import "time"
+
+// Who a user_message speaks for.
+const (
+	OriginCrowbar  = "crowbar"  // a prompt Crowbar delivered for its user
+	OriginProvider = "provider" // text typed into the CLI itself
+	OriginHarness  = "harness"  // the provider's own harness speaking as the user
+)
+
+// How Crowbar hands a prompt to the CLI.
+const (
+	DeliveryRestart = "restart" // a replacement CLI launched with the prompt
+	DeliverySteer   = "steer"   // parked on the running turn's end hook
+	DeliveryAPI     = "api"     // pushed over the live api connection
+)
+
+// Why a prompt ended without a turn.
+const (
+	ReasonProviderBuiltin = "provider_builtin" // a provider builtin consumed it (consumed)
+	ReasonNotAcknowledged = "not_acknowledged"
+	ReasonRunnerExited    = "runner_exited"
+	ReasonDaemonRestart   = "daemon_restart"
+	ReasonDeliveryFailed  = "delivery_failed"
+	ReasonSessionLost     = "session_lost"
+)
+
+// UserMessage is the body of a user_message row.
+type UserMessage struct {
+	RequestID string `json:"requestId,omitempty"`
+	Text      string `json:"text"`
+	Origin    string `json:"origin"`             // OriginCrowbar | OriginProvider | OriginHarness
+	Delivery  string `json:"delivery,omitempty"` // crowbar origin only
+	// RunnerID is the CLI carrying a crowbar prompt: only its exit strands it.
+	RunnerID string `json:"runnerId,omitempty"`
+}
+
+// TurnStarted is the body of a turn_started row: the provider took the turn.
+type TurnStarted struct {
+	RequestID      string `json:"requestId,omitempty"` // crowbar origin only
+	ProviderTurnID string `json:"providerTurnId,omitempty"`
+	RunnerID       string `json:"runnerId,omitempty"`
+}
+
+// PromptSettled is the body of a prompt_settled row: a crowbar prompt ended
+// without a turn.
+type PromptSettled struct {
+	RequestID string `json:"requestId"`
+	Consumed  bool   `json:"consumed"`
+	Reason    string `json:"reason"`
+}
+
+// PromptStatus is where a crowbar prompt is in its life.
+type PromptStatus string
+
+const (
+	PromptStatusPending   PromptStatus = "pending"   // recorded, not yet acknowledged
+	PromptStatusDelivered PromptStatus = "delivered" // a turn started for it
+	PromptStatusSettled   PromptStatus = "settled"   // ended without a turn
+)
+
+// Prompt is one crowbar prompt as the ledger has folded it.
+type Prompt struct {
+	RequestID, TurnID, Text, Delivery, RunnerID string
+	Status                                      PromptStatus
+	Consumed                                    bool
+	Reason                                      string
+	At                                          time.Time
+}
+
+// Settle is a prompt_settled row for every pending prompt match selects.
+func Settle(st State, match func(Prompt) bool, consumed bool, reason string) ([]Row, error) {
+	var rows []Row
+	for _, p := range st.PendingPrompts() {
+		if !match(p) {
+			continue
+		}
+		r, err := NewRow(KindPromptSettled, "", "", PromptSettled{RequestID: p.RequestID, Consumed: consumed, Reason: reason})
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, r)
+	}
+	return rows, nil
+}

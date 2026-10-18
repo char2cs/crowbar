@@ -401,6 +401,7 @@ func newAgentWiring(
 		Chats:                   repos.AgentChat,
 		Runners:                 repos.AgentRunner,
 		Activity:                repos.AgentActivity,
+		Ledger:                  repos.ChatLedger,
 		Agents:                  engines.Agents,
 		Terminal:                engines.Terminal,
 		Workspace:               wsReader,
@@ -418,10 +419,7 @@ func newAgentWiring(
 		Tools:       toolDeps,
 		Snapshots:   chatSnapshots,
 		ChoiceWatch: choiceWatch,
-		// Folders/Nodes let own_worktree.go/promote.go/repo_scope.go/
-		// cwd_resolver.go's ancestor walks see past a Folder-only ancestor
-		// (2026-09-08 sidebar-placement-unification Task 8's own review fix
-		// round) — see agentusecase.Deps' own doc.
+		// Folders/Nodes let the ancestor walks see past a Folder-only ancestor.
 		Folders:   gormStores.Folders,
 		Nodes:     repos.Node,
 		RepoRoots: workspaceGitStatusReader{workspace: workspaceUsecase, repos: gormStores.Repositories},

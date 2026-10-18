@@ -132,10 +132,9 @@ func (rs *Runners) moveToNewChat(
 	// Releasing it is what stops a switch on the old chat waiting for an answer that is now
 	// being written somewhere else.
 	rs.inflightTurns.Complete(ctx, runner.ID, domain.AgentExitMoved)
-	// Same rule for the DELIVERY it left behind, and the same reason every other
-	// departure path runs this (lifecycle.go): once the move commits, this runner
-	// can no longer confirm a prompt into the chat it left.
-	rs.reconcilePromptRunnerDeparture(ctx, runner, runner.CurrentChatID)
+	// Same rule for the prompt it was carrying: once the move commits, this
+	// runner can no longer acknowledge it in the chat it left.
+	rs.settleCarriedPrompts(ctx, runner.CurrentChatID, runner.ID)
 	// And the turn must be closed on the chat itself, not just released in memory. Left open
 	// it is durable: the chat reads Working forever, and the workspace's derived overlay
 	// keeps it in the mid-turn set for the life of the daemon — a sidebar spinner running
@@ -175,7 +174,7 @@ func (rs *Runners) moveToKnownChat(
 	// cannot go on advertising a turn whose turn_stop is landing elsewhere.
 	rs.inflightTurns.Complete(ctx, runner.ID, domain.AgentExitMoved)
 	if runner.CurrentChatID != toChatID {
-		rs.reconcilePromptRunnerDeparture(ctx, runner, runner.CurrentChatID)
+		rs.settleCarriedPrompts(ctx, runner.CurrentChatID, runner.ID)
 		rs.closeAbandonedTurn(ctx, runner.CurrentChatID, runner)
 	}
 	rs.noteMovedAway(ctx, runner.CurrentChatID, toChatID)

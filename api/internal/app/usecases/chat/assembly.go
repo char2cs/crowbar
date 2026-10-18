@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/conversation"
@@ -27,7 +28,7 @@ import (
 // of the daemon, and the agent-facing tool surface.
 //
 // What is NOT here is any of the shared in-flight state — the gates, the turn
-// registry, the work mirror, the journals. New builds those, and a caller must
+// registry, the work mirror. New builds those, and a caller must
 // not be able to supply them: a second instance of any one does not fail to
 // compile and does not fail a test that exercises a single path, it wedges a
 // switch or doubles a CLI in production.
@@ -71,6 +72,8 @@ type Deps struct {
 	// Home is the app-config crowbar-home resolver, NOT a wsId lookup: it resolves
 	// the descriptor catalog, and providers are global.
 	Home func() (string, error)
+	// Ledger is every chat's ledger; a prompt is a row there before any CLI sees it.
+	Ledger *ledgerstore.Store
 	// DaemonSocket is the unix socket the daemon bound, handed to every callback a
 	// spawned CLI runs; empty over TCP.
 	DaemonSocket string
@@ -233,6 +236,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Workspace: d.Workspace,
 		Lineage:   d.Lineage,
 		Home:      d.Home,
+		Ledger:    d.Ledger,
 		Work:      sh.work,
 		Spawns:    sh.spawns,
 
@@ -246,6 +250,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Agents:        d.Agents,
 		Workspace:     d.Workspace,
 		Home:          d.Home,
+		Ledger:        d.Ledger,
 		Work:          sh.work,
 		InflightTurns: sh.turns,
 		TurnStarts:    sh.turnStarts,
@@ -263,7 +268,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Terminal:      d.Terminal,
 		Workspace:     d.Workspace,
 		AncestorCwd:   cwdResolver{chats: d.Chats, folders: d.Folders, nodes: d.Nodes, roots: d.RepoRoots},
-		Home:          d.Home,
+		Ledger:        d.Ledger,
 		DaemonSocket:  d.DaemonSocket,
 		Spawns:        sh.spawns,
 		InflightTurns: sh.turns,
@@ -284,4 +289,5 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	u.turns.SetRunners(u.runners)
 	sh.turns.OnDrop(u.runners.RefuseSteered)
 	u.runners.SetTurns(u.turns)
+	d.Ledger.Subscribe(u.publishLedgerRows)
 }

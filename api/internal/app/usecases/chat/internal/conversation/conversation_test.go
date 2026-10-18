@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
@@ -21,6 +22,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
@@ -36,6 +38,7 @@ type fixture struct {
 	runners       agentrunner.EventStore
 	activity      agentactivity.EventStore
 	retired       *retiredRunners
+	ledger        *ledgerstore.Store
 	home          string
 	settle        func()
 }
@@ -94,6 +97,10 @@ func newFixture(t *testing.T, lineage stubLineage) fixture {
 	home := t.TempDir()
 	worktree := filepath.Join(home, "projects", "p1", "slug", "branch", "worktree")
 	retired := &retiredRunners{}
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	chatLedger, err := ledgerstore.Open(db, time.Now)
+	require.NoError(t, err)
 
 	conversations := conversation.New(conversation.Deps{
 		Chats:     chats,
@@ -104,6 +111,7 @@ func newFixture(t *testing.T, lineage stubLineage) fixture {
 		Workspace: stubWorkspace{home: home, worktree: worktree},
 		Lineage:   lineage,
 		Home:      func() (string, error) { return home, nil },
+		Ledger:    chatLedger,
 		Work:      inflight.NewWork(),
 		Spawns:    inflight.NewGate(),
 
@@ -117,6 +125,7 @@ func newFixture(t *testing.T, lineage stubLineage) fixture {
 		runners:       runners,
 		activity:      activity,
 		retired:       retired,
+		ledger:        chatLedger,
 		home:          home,
 		settle:        func() { waitChats(); waitRunners(); waitActivity() },
 	}
@@ -340,6 +349,7 @@ func TestRenameByRunner_ARunnerPlacedNowhereRenamesNothing(t *testing.T) {
 
 // A hard delete owes the processes on the chat exactly one thing: retirement.
 // The record decides the chat must go; it never learns how a CLI is torn down.
+// Its ledger goes with it, so the user's words outlive the chat nowhere.
 func TestPurgeChat_ErasesTheChatAndRetiresItsRunnersThroughThePort(t *testing.T) {
 	t.Parallel()
 
@@ -347,8 +357,15 @@ func TestPurgeChat_ErasesTheChatAndRetiresItsRunnersThroughThePort(t *testing.T)
 	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 	f.settle()
+	said, err := ledger.NewRow(ledger.KindUserMessage, "T1", "", ledger.UserMessage{Text: "secret", Origin: ledger.OriginProvider})
+	require.NoError(t, err)
+	_, _, err = f.ledger.Append(t.Context(), chatID, said)
+	require.NoError(t, err)
 
 	require.NoError(t, f.conversations.PurgeChat(t.Context(), chatID))
+	rows, err := f.ledger.Read(t.Context(), chatID, 0, 0)
+	require.NoError(t, err)
+	assert.Empty(t, rows, "a purged chat leaves no ledger row behind")
 
 	assert.Equal(t, []string{chatID}, f.retired.all(),
 		"the CLIs on a purged chat must be retired, and only through the port")
@@ -444,49 +461,6 @@ func TestSetChatSelection_ClearingBackToTheProviderDefaultIsAllowed(t *testing.T
 	require.NoError(t, err)
 	assert.Empty(t, chat.Model)
 	assert.Empty(t, chat.Effort)
-}
-
-// TestBackfillProviders_ASwitchNewerThanTheLastConversationWins migrates the old
-// three-projection scan's hardest case into the one-time backfill: vendor-b was
-// switched to and left dormant WITHOUT ever binding a session, so only vendor-a's
-// OLDER conversation exists and the durable switch interruption is the sole trace
-// of vendor-b. The backfill must record vendor-b, and ChatProviderID (the path
-// SetChatSelection, SwitchProvider and SubmitPrompt resolve through) reads it.
-func TestBackfillProviders_ASwitchNewerThanTheLastConversationWins(t *testing.T) {
-	t.Parallel()
-
-	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
-	require.NoError(t, err)
-
-	_, err = f.runners.Start(t.Context(), agentrunner.StartInput{
-		RunnerID:        chatID + "-runner",
-		WorkspaceID:     "ws-1",
-		ProviderID:      "vendor-a",
-		TerminalSession: "term-1",
-		ChatID:          chatID,
-		Now:             time.Unix(1, 0).UTC(),
-	})
-	require.NoError(t, err)
-	_, err = f.runners.BindSession(t.Context(), chatID+"-runner", "sess-1", false, time.Unix(1, 0).UTC(), "", "")
-	require.NoError(t, err)
-	_, err = f.runners.Exit(t.Context(), chatID+"-runner", time.Unix(3, 0).UTC())
-	require.NoError(t, err)
-
-	require.NoError(t, f.activity.Interrupt(t.Context(), chatID, "int-1",
-		engineagents.InterruptProviderSwitched, "vendor-b", time.Unix(2, 0).UTC()))
-	require.NoError(t, f.activity.ResolveInterruption(t.Context(), chatID, "int-1",
-		engineagents.InterruptProviderSwitched, "vendor-b", time.Unix(2, 0).UTC()))
-	f.settle()
-	skipped, err := f.conversations.RestateProvidersFromHistory(t.Context())
-	require.NoError(t, err)
-	require.Zero(t, skipped)
-	f.settle()
-
-	providerID, err := f.conversations.ChatProviderID(t.Context(), chatID)
-	require.NoError(t, err)
-	assert.Equal(t, "vendor-b", providerID,
-		"the switch interruption is the only trace vendor-b left, and must win over vendor-a's older conversation")
 }
 
 // The note is for a conversation ALREADY under way: a chat that has said nothing

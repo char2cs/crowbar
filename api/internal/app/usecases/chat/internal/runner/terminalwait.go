@@ -22,7 +22,6 @@ func (rs *Runners) TerminalWait(chatID string) domain.AgentTerminalWait {
 // chat UI, and dropping any of them on that path is invisible until a user
 // watches a message that never grows.
 func (rs *Runners) StartTerminalWaitSweep(ctx context.Context, feed seam.ChatFeed) {
-	rs.promptSettled = feed.PromptSettled
 	rs.turns.SetFeed(feed)
 	if rs.termWait == nil {
 		return

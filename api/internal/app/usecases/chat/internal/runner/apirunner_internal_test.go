@@ -10,12 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
@@ -157,8 +155,7 @@ func newSpawnHarness(t *testing.T, surface string) *spawnHarness {
 			work:          inflight.NewWork(),
 			turns:         noopTurns{},
 			activity:      stubActivityForSpawn{},
-			prompts:       agentjournal.NewPromptRequests(),
-			home:          func() (string, error) { return home, nil },
+			ledger:        newTestLedger(t),
 		},
 		term: term, store: store, home: home, chatID: "chat-1",
 	}
@@ -290,7 +287,8 @@ func waitProcessGone(t *testing.T, cmd *exec.Cmd) {
 // ptylessRunners is the teardown half of the harness: a runner already
 // recorded with NO terminal session, whose native view is the only process
 // it has left.
-func ptylessRunners(store *spyRunnerStoreForSpawn) *Runners {
+func ptylessRunners(t *testing.T, store *spyRunnerStoreForSpawn) *Runners {
+	t.Helper()
 	store.runner = engineagents.Runner{
 		ID: "runner-1", ProviderID: "codex", CurrentChatID: "chat-1", TerminalSession: "",
 	}
@@ -307,8 +305,7 @@ func ptylessRunners(store *spyRunnerStoreForSpawn) *Runners {
 		turns:         noopTurns{},
 		activity:      stubActivityForSpawn{},
 		chats:         stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}},
-		prompts:       agentjournal.NewPromptRequests(),
-		home:          func() (string, error) { return "", nil },
+		ledger:        newTestLedger(t),
 	}
 }
 
@@ -320,7 +317,7 @@ func ptylessRunners(store *spyRunnerStoreForSpawn) *Runners {
 // live agent forever.
 func TestRegression_ANativeViewTornDownForGoodExitsThePTYLessRunner(t *testing.T) {
 	store := newSpyRunnerStoreForSpawn()
-	rs := ptylessRunners(store)
+	rs := ptylessRunners(t, store)
 
 	// retire()'s own order: forget the view first, then kill it.
 	rs.attached.drop("runner-1")
@@ -339,7 +336,7 @@ func TestRegression_ANativeViewTornDownForGoodExitsThePTYLessRunner(t *testing.T
 // what ends the runner.
 func TestOnAttachExit_ARunnerWithItsOwnPTYIsLeftToThatPTY(t *testing.T) {
 	store := newSpyRunnerStoreForSpawn()
-	rs := ptylessRunners(store)
+	rs := ptylessRunners(t, store)
 	store.runner.TerminalSession = "term-1"
 
 	rs.attached.drop("runner-1")
@@ -356,7 +353,7 @@ func TestOnAttachExit_ARunnerWithItsOwnPTYIsLeftToThatPTY(t *testing.T) {
 // dying must not end the runner.
 func TestOnAttachExit_AReestablishedConnectionKeepsThePTYLessRunnerAlive(t *testing.T) {
 	store := newSpyRunnerStoreForSpawn()
-	rs := ptylessRunners(store)
+	rs := ptylessRunners(t, store)
 	rs.apiConns.set("runner-1", &apiconn{})
 
 	rs.attached.drop("runner-1")
@@ -507,8 +504,8 @@ func promptDispatchServer(t *testing.T, received chan<- string, refuse bool) str
 
 // TestRegression_AnAdoptedPTYLessSpawnStillDeliversThePromptItCarries is the
 // reported data loss: a codex chat answered a handoff prompt with nothing at
-// all, no reply and not even a user bubble, and its prompt journal sat on
-// `spawned` forever. An api-transport provider delivers a restart_tui prompt
+// all, no reply and not even a user bubble, and its prompt sat pending
+// forever. An api-transport provider delivers a restart_tui prompt
 // in the forked PTY's argv — and adoptAPIConn forks NOTHING, so the whole
 // plan, prompt included, was built and thrown away while the spawn reported
 // success. The connection it adopts instead is the only carrier that exists.
@@ -538,8 +535,8 @@ func TestRegression_AnAdoptedPTYLessSpawnStillDeliversThePromptItCarries(t *test
 
 // TestRegression_AnAdoptedSpawnThatCannotDeliverItsPromptFailsTheSpawn is the
 // other half of the invariant: a spawn that carries a prompt and cannot get it
-// to a carrier must FAIL, so the delivery journal settles as uncertain and the
-// client keeps the user's text. Reporting success with the message nowhere is
+// to a carrier must FAIL, so the prompt is settled and the client keeps the
+// user's text. Reporting success with the message nowhere is
 // the shape this whole change exists to make unreachable.
 func TestRegression_AnAdoptedSpawnThatCannotDeliverItsPromptFailsTheSpawn(t *testing.T) {
 	received := make(chan string, 1)
@@ -578,67 +575,6 @@ func TestSpawnRunner_TheForkedPTYCarriesThePromptWhenNoConnectionCameUp(t *testi
 
 	require.Len(t, h.term.created, 1)
 	assert.Contains(t, h.term.created[0].argv, "hi there")
-}
-
-// TestRegression_AnAdoptedSpawnsDeliveryJournalCanReachAccepted is the user's
-// own evidence, turned into an assertion: their journal held
-// `spawned | runner=<the adopted one>` forever, because MarkSpawned records a
-// delivery the provider was never actually given and only the provider's own
-// acknowledgement of that text can advance it.
-//
-// It drives the TAIL of submitPromptLocked verbatim — Begin, spawnRunner with
-// the preallocated replacement id, commitPromptSpawn — against the real
-// journal, and then acknowledges exactly the text that came off the wire, the
-// way the user_prompt echo does. Before the fix nothing reaches the wire at
-// all, so there is no text to acknowledge and the record is stuck.
-func TestRegression_AnAdoptedSpawnsDeliveryJournalCanReachAccepted(t *testing.T) {
-	received := make(chan string, 1)
-	sockPath := promptDispatchServer(t, received, false)
-
-	h := newSpawnHarness(t, engineagents.SurfaceChat)
-	agent := installCarrierDescriptor(t, h.home)
-	h.seedAdoptableAPIConn(t, "runner-1", sockPath, agent)
-	promptSteps, err := agent.PromptSteps(false)
-	require.NoError(t, err)
-
-	const text = "hi there"
-	journalDir, err := h.rs.promptJournalDirFor(h.chatID)
-	require.NoError(t, err)
-	requestID := uuid.NewString()
-	textHash := agentjournal.PromptTextHash(text)
-	_, existing, err := h.rs.prompts.Begin(
-		journalDir, requestID, text, textHash, "carrier-test", "outgoing-runner", "runner-1", time.Now(),
-	)
-	require.NoError(t, err)
-	require.False(t, existing)
-
-	runnerID, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test", "runner-1",
-		nil, promptSteps, "", 0, false, "", false, text)
-	require.NoError(t, err)
-	_, err = h.rs.commitPromptSpawn(context.Background(), journalDir, requestID, textHash, runnerID)
-	require.NoError(t, err)
-
-	record, found, err := h.rs.prompts.Lookup(journalDir, requestID, textHash)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, agentjournal.PromptStateSpawned, record.State)
-
-	var delivered string
-	select {
-	case delivered = <-received:
-	case <-time.After(5 * time.Second):
-		t.Fatal("nothing carried this delivery, so no acknowledgement can ever advance its journal past spawned")
-	}
-	// The provider's own acknowledgement of what it received — the hook/event
-	// echo, which is the ONLY thing that advances this record.
-	_, err = h.rs.ConfirmPromptAccepted(context.Background(),
-		domain.Chat{ID: h.chatID}, engineagents.Runner{ID: runnerID, ProviderID: "carrier-test"}, delivered)
-	require.NoError(t, err)
-
-	record, found, err = h.rs.prompts.Lookup(journalDir, requestID, textHash)
-	require.NoError(t, err)
-	require.True(t, found)
-	assert.Equal(t, agentjournal.PromptStateAccepted, record.State)
 }
 
 // selectionCarrierDescriptor is carrierTestDescriptor plus the OTHER thing a

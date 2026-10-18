@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -2206,28 +2205,6 @@ func TestSubmitPrompt_RejectsNULBeforeJournalOrTUITeardown(t *testing.T) {
 	live, liveErr := f.liveRunnerFor(t, chatID)
 	require.NoError(t, liveErr)
 	assert.Equal(t, runnerID, live.ID)
-	_, statErr := os.Stat(filepath.Join(worktreepath.LedgerChatsDir(f.ws.home), chatID, "prompt-requests"))
-	assert.ErrorIs(t, statErr, os.ErrNotExist, "validation must precede durable dispatch intent")
-}
-
-func TestSubmitPrompt_ParentDirectorySyncFailureAbortsBeforeTUITeardown(t *testing.T) {
-	f := newFixture(t)
-	chatID, runnerID := f.spawn(t, "codex")
-	spawnCount := f.term.callCount()
-	terminatedCount := len(f.term.terminatedIDs())
-	agentusecase.SetPromptJournalDirSync(f.usecase.RunnerUsecase, func(string) error {
-		return errors.New("injected parent fsync failure")
-	})
-
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "must be durable first", uuid.NewString(), "", nil)
-	require.Error(t, err)
-	assert.NotErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown,
-		"the replacement process was never attempted, so this is not an unknown delivery")
-	assert.Equal(t, spawnCount, f.term.callCount())
-	assert.Len(t, f.term.terminatedIDs(), terminatedCount)
-	live, liveErr := f.liveRunnerFor(t, chatID)
-	require.NoError(t, liveErr)
-	assert.Equal(t, runnerID, live.ID, "durability failure must leave the outgoing TUI untouched")
 }
 
 func TestSubmitPrompt_FreshLazyCodexNeedsNoBoundSession(t *testing.T) {
@@ -2319,40 +2296,6 @@ func TestSubmitPrompt_MatchingLateHookFromOutgoingRunnerDoesNotConfirmNewDispatc
 		"the old runner's matching hook must not clear the replacement's pending-delivery barrier")
 }
 
-func TestSubmitPrompt_ReplacementSpawnFailureStaysOutcomeUnknown(t *testing.T) {
-	f := newFixture(t)
-	chatID, _ := f.spawn(t, "codex")
-	requestID := uuid.NewString()
-	f.term.err = errors.New("replacement create failed")
-
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", requestID, "", nil)
-	require.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown,
-		"a non-command-not-found CreateCommand error may follow a successful fork")
-	record, readErr := os.ReadFile(filepath.Join(worktreepath.LedgerChatsDir(f.ws.home), chatID, "prompt-requests", requestID+".json"))
-	require.NoError(t, readErr)
-	assert.Contains(t, string(record), `"state":"uncertain"`,
-		"returning outcome_unknown must release the durable dispatching barrier")
-
-	_, retryErr := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", requestID, "", nil)
-	assert.ErrorIs(t, retryErr, agentusecase.ErrPromptOutcomeUnknown,
-		"outgoing displacement must not mark the blank-runner dispatch safely failed")
-}
-
-func TestSubmitPrompt_ReplacementExitBeforeHookStaysOutcomeUnknown(t *testing.T) {
-	f := newFixture(t)
-	chatID, _ := f.spawn(t, "codex")
-	requestID := uuid.NewString()
-
-	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", requestID, "", nil)
-	require.NoError(t, err)
-	f.term.exit(t, result.TerminalSessionID)
-	f.wait()
-
-	_, retryErr := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", requestID, "", nil)
-	assert.ErrorIs(t, retryErr, agentusecase.ErrPromptOutcomeUnknown,
-		"process exit can race a hook already in flight, so retrying must not duplicate the prompt")
-}
-
 func TestSubmitPrompt_RunnerPersistFailureAfterPTYStartIsOutcomeUnknown(t *testing.T) {
 	f, _, runners := newFaultFixture(t)
 	chatID, _ := f.spawn(t, "codex")
@@ -2361,78 +2304,6 @@ func TestSubmitPrompt_RunnerPersistFailureAfterPTYStartIsOutcomeUnknown(t *testi
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", uuid.NewString(), "", nil)
 	assert.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown)
 	assert.Equal(t, 2, f.term.callCount(), "the replacement PTY started before runner persistence failed")
-}
-
-func TestSubmitPrompt_RunnerLookupFailureAndAcceptedCrashGapAreSafe(t *testing.T) {
-	f, _, runners := newFaultFixture(t)
-	chatID, _ := f.spawn(t, "codex")
-	requestID := uuid.NewString()
-	message := "accepted before response bookkeeping"
-
-	runners.afterStart = func() {
-		runners.afterStart = nil
-		replacement, err := f.runners.LiveRunnerForChat(f.ctx, chatID)
-		require.NoError(t, err)
-		require.NoError(t, f.usecase.IngestHook(f.ctx, replacement.ID, "codex", "user_prompt",
-			mustJSON(t, map[string]any{"prompt": message})))
-
-		runners.failGet = errors.New("post-spawn runner lookup failed")
-
-		runners.failGetAfter = 2
-	}
-
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, requestID, "", nil)
-	require.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown)
-	runners.failGet = nil
-
-	_, retryErr := f.usecase.SubmitPrompt(f.ctx, chatID, message, requestID, "", nil)
-	assert.ErrorIs(t, retryErr, agentusecase.ErrPromptAlreadyAccepted,
-		"accepted-with-runner but without a committed terminal id must never return a blank success DTO")
-}
-
-func TestSubmitPrompt_JournalResultCommitFailureIsOutcomeUnknownAndDoesNotWedgeNewIDs(t *testing.T) {
-	f := newFixture(t)
-	chatID, _ := f.spawn(t, "codex")
-	journalDir := filepath.Join(worktreepath.LedgerChatsDir(f.ws.home), chatID, "prompt-requests")
-	blockedDir := journalDir + ".blocked"
-	f.term.duringFork = func() {
-		require.NoError(t, os.Rename(journalDir, blockedDir))
-	}
-
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "commit gap", uuid.NewString(), "", nil)
-	f.term.duringFork = nil
-	require.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown)
-	require.NoError(t, os.Rename(blockedDir, journalDir))
-
-	_, retryErr := f.usecase.SubmitPrompt(f.ctx, chatID, "deliberate follow-up", uuid.NewString(), "", nil)
-	require.NoError(t, retryErr)
-}
-
-func TestReconcileRunnersOnBoot_MarksBlankDispatchIntentUncertain(t *testing.T) {
-	f := newFixture(t)
-	chatID, _ := f.spawn(t, "codex")
-	requestID := uuid.NewString()
-	journalDir := filepath.Join(worktreepath.LedgerChatsDir(f.ws.home), chatID, "prompt-requests")
-	blockedDir := journalDir + ".blocked"
-	f.term.duringFork = func() {
-		require.NoError(t, os.Rename(journalDir, blockedDir))
-	}
-
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "crash gap", requestID, "", nil)
-	f.term.duringFork = nil
-	require.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown)
-	require.NoError(t, os.Rename(blockedDir, journalDir))
-	recordPath := filepath.Join(journalDir, requestID+".json")
-	before, err := os.ReadFile(recordPath)
-	require.NoError(t, err)
-	assert.Contains(t, string(before), `"state":"dispatching"`)
-
-	f.term.dieWithDaemon()
-	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
-	after, err := os.ReadFile(recordPath)
-	require.NoError(t, err)
-	assert.Contains(t, string(after), `"state":"uncertain"`,
-		"boot must durably release a crash-orphan dispatch barrier")
 }
 
 func TestSubmitPrompt_CompletedStoppedResumedChatKeepsNativeResumeIdentity(t *testing.T) {
@@ -2567,11 +2438,6 @@ func TestStartupHookBarrier_ReplaysPromptThatFiresBeforeRunnerPersistence(t *tes
 
 func TestSwitchProvider_DoesNotKillPromptAwaitingAcceptanceFromAnotherWindow(t *testing.T) {
 	f := newFixture(t)
-	// A delivery the provider never confirms is now WAITED for before it is
-	// refused (awaitPromptDeliverySettled), so this bounds that wait rather than
-	// sitting out the real one. Nothing else here moved: the refusal it still
-	// ends in, and the CLI that must survive it, are asserted exactly as before.
-	agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, 10*time.Millisecond)
 	chatID, _ := f.spawn(t, "codex")
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "queued elsewhere", uuid.NewString(), "", nil)
 	require.NoError(t, err)
@@ -2592,25 +2458,6 @@ func segmentIDFromCommand(t *testing.T, argv []string) string {
 	m := regexp.MustCompile(`/chats/runners/([^/"]+)/hooks/`).FindStringSubmatch(strings.Join(argv, "\n"))
 	require.NotNil(t, m, "rendered hook URL must carry the runner id")
 	return m[1]
-}
-
-func TestSubmitPrompt_ExitAfterStartupBarrierBeforeJournalCommitIsUncertain(t *testing.T) {
-	f, _, runners := newFaultFixture(t)
-	chatID, _ := f.spawn(t, "codex")
-	requestID := uuid.NewString()
-	runners.afterGet = func(replacement agents.Runner) {
-		runners.afterGet = nil
-
-		f.term.exit(t, replacement.TerminalSession)
-		f.wait()
-	}
-
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "exit in commit gap", requestID, "", nil)
-	require.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown)
-	record, readErr := os.ReadFile(filepath.Join(worktreepath.LedgerChatsDir(f.ws.home), chatID, "prompt-requests", requestID+".json"))
-	require.NoError(t, readErr)
-	assert.Contains(t, string(record), `"state":"uncertain"`,
-		"the pre-journaled runner id lets onExit correlate before markSpawned")
 }
 
 func TestSubmitPrompt_IdempotentRetryReturnsOriginalSpawnWhilePending(t *testing.T) {
@@ -3015,7 +2862,7 @@ func TestRegression_CompactPreSettlesThePendingDeliveryImmediately(t *testing.T)
 	f.announce(t, runnerID, "native-session")
 
 	require.NoError(t, f.usecase.Compact(f.ctx, chatID))
-	require.True(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
+	require.True(t, agentusecase.HasPendingPrompt(f.usecase.RunnerUsecase, f.ctx, chatID),
 		"precondition: compact is delivered as an ordinary prompt, with nothing yet confirming it")
 
 	// SubmitPrompt's restart_tui strategy REPLACES the runner to deliver
@@ -3027,7 +2874,7 @@ func TestRegression_CompactPreSettlesThePendingDeliveryImmediately(t *testing.T)
 	require.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "claude", "compact_pre",
 		mustJSON(t, map[string]any{"session_id": "native-session", "trigger": "manual"})))
 
-	assert.False(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
+	assert.False(t, agentusecase.HasPendingPrompt(f.usecase.RunnerUsecase, f.ctx, chatID),
 		"compact_pre alone (the chat is idle — no turn was ever open for /compact) must settle the "+
 			"delivery immediately, not leave it for compact_post (which does not reliably arrive) or "+
 			"the 30s quiet timeout")
@@ -3051,12 +2898,12 @@ func TestRegression_CompactPostAlsoSettlesADeliveryCompactPreDidNot(t *testing.T
 	// case (a turn open when compaction starts), which this test does not
 	// need to construct in full: it only needs SOMETHING left pending when
 	// compact_post arrives.
-	require.True(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID))
+	require.True(t, agentusecase.HasPendingPrompt(f.usecase.RunnerUsecase, f.ctx, chatID))
 
 	require.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "claude", "compact_post",
 		mustJSON(t, map[string]any{"session_id": "native-session", "trigger": "manual"})))
 
-	assert.False(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
+	assert.False(t, agentusecase.HasPendingPrompt(f.usecase.RunnerUsecase, f.ctx, chatID),
 		"compact_post must settle a delivery compact_pre left pending")
 }
 
@@ -4443,7 +4290,6 @@ func TestPromptErrorCode_NamesEveryPromptFailure(t *testing.T) {
 	}{
 		{agentusecase.ErrPromptBusy, agentusecase.PromptCodeBusy},
 		{agentusecase.ErrPromptOutcomeUnknown, agentusecase.PromptCodeOutcomeUnknown},
-		{agentusecase.ErrPromptAlreadyAccepted, agentusecase.PromptCodeAlreadyAccepted},
 		{agentusecase.ErrPromptRequestIDConflict, agentusecase.PromptCodeRequestIDConflict},
 		{agentusecase.ErrPromptUnsupported, agentusecase.PromptCodeUnsupported},
 		{agentusecase.ErrPromptSessionUnavailable, agentusecase.PromptCodeSessionRequired},
@@ -4803,57 +4649,12 @@ func TestRegression_SubmitPromptWithStagedSelection_ReplayedRequestChangesNothin
 	assert.Equal(t, before.Effort, after.Effort)
 }
 
-// ─── the prompt journal a departing runner leaves behind ──────────────
+// ─── the prompt a departing runner leaves behind ──────────────
 
-// writeSpawnedPromptRecord plants the exact record a chat is left holding when a
-// React prompt was dispatched and nothing ever settled it: state "spawned",
-// owned by runnerID. Written by hand rather than produced by a live dispatch
-// because the state under test is one no code path is supposed to leave behind —
-// that it CAN is the bug.
-func writeSpawnedPromptRecord(t *testing.T, f testFixture, chatID, runnerID string) {
-	t.Helper()
-	dir := filepath.Join(worktreepath.LedgerChatsDir(f.ws.home), chatID, "prompt-requests")
-	require.NoError(t, os.MkdirAll(dir, 0o700))
-	requestID := uuid.NewString()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, requestID+".json"), []byte(fmt.Sprintf(
-		`{"requestId":%q,"text":"can you call some subagents?","textHash":%q,`+
-			`"state":"spawned","providerId":"codex","outgoingRunnerId":%q,"runnerId":%q,`+
-			`"createdAt":"2026-09-23T11:50:36Z","updatedAt":"2026-09-23T11:50:36Z"}`,
-		requestID, strings.Repeat("a", 64), runnerID, runnerID)), 0o600))
-}
-
-// TestRegression_DormantChatWithASpawnedRecordFromAVanishedRunnerStillResumes is
-// the user's bricked chat, byte for byte: its journal holds one "spawned" record
-// naming a runner that no longer exists, and every POST .../resume answered 409
-// conflict for the life of the chat. "Is a delivery pending?" was answered from
-// the state string alone, and no boot, sweep or retry downgrades "spawned" —
-// only the departing runner's own reconcile does, and the path that lost this
-// runner never ran it.
-//
-// A record whose owner is not the chat's live runner is not a delivery in
-// flight, whatever the state field says.
-func TestRegression_DormantChatWithASpawnedRecordFromAVanishedRunnerStillResumes(t *testing.T) {
-	f := newFixture(t)
-	chatID, runnerID := f.spawn(t, "codex")
-	f.announce(t, runnerID, "conversation-one")
-	turn(t, f, runnerID, "codex", "hello")
-
-	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
-	f.wait()
-	writeSpawnedPromptRecord(t, f, chatID, "a-runner-that-no-longer-exists")
-
-	_, err := f.usecase.ResumeChat(f.ctx, chatID)
-
-	require.NoError(t, err,
-		"a spawned record owned by a runner that is gone must not refuse the resume forever")
-}
-
-// TestRegression_AChatItsRunnerWalkedAwayFromIsStillResumable is how that record
-// gets written in the first place. moveToNewChat/moveToKnownChat release the
-// in-flight turn and close the abandoned one, but settle nothing in the prompt
-// journal of the chat being VACATED — so the delivery that was in flight there
-// stays "spawned" for good and the chat answers 409 to every resume and every
-// later prompt.
+// TestRegression_AChatItsRunnerWalkedAwayFromIsStillResumable: a runner that
+// moves to another chat can no longer acknowledge the prompt it carried in the
+// chat it VACATED, so the move must settle it — else the chat answers 409 to
+// every resume and every later prompt.
 func TestRegression_AChatItsRunnerWalkedAwayFromIsStillResumable(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -4865,7 +4666,7 @@ func TestRegression_AChatItsRunnerWalkedAwayFromIsStillResumable(t *testing.T) {
 	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
 	f.announce(t, live.ID, "conversation-two")
-	require.True(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
+	require.True(t, agentusecase.HasPendingPrompt(f.usecase.RunnerUsecase, f.ctx, chatID),
 		"precondition: the delivery is spawned and nothing has confirmed it")
 
 	// A conversation Crowbar has never seen: the user typed /clear, and the CLI
@@ -4873,10 +4674,9 @@ func TestRegression_AChatItsRunnerWalkedAwayFromIsStillResumable(t *testing.T) {
 	f.announce(t, live.ID, "conversation-three")
 	require.NotEqual(t, chatID, f.runner(t, live.ID).CurrentChatID, "precondition: the runner left")
 
-	// Read straight off the journal (PendingDelivery settles nothing itself), so
-	// this pins the MOVE having settled the record, not the resume guard below
-	// repairing it after the fact.
-	assert.False(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
+	// Read straight off the ledger, so this pins the MOVE having settled the
+	// prompt, not the resume guard below.
+	assert.False(t, agentusecase.HasPendingPrompt(f.usecase.RunnerUsecase, f.ctx, chatID),
 		"the move must settle the delivery of the chat it vacated, as every other departure does")
 
 	_, err = f.usecase.ResumeChat(f.ctx, chatID)
@@ -5108,36 +4908,28 @@ func TestResumeLadder_AResumeTheCLIRefusesIsQuarantined(t *testing.T) {
 	assert.Contains(t, strings.Join(argv, "\x00"), "before the corruption")
 }
 
-// The prompt a refused resume carried was never read by its CLI, so the daemon
-// delivers it again on the next rung — the user never retries by hand.
-func TestResumeLadder_ARefusedResumesPromptIsDeliveredOnTheTranscriptRung(t *testing.T) {
+// The prompt a refused resume carried was never read by its CLI: nothing
+// re-drives it, it is settled unconsumed, and the next send takes the next rung.
+func TestResumeLadder_ARefusedResumesPromptIsSettledNotRedelivered(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	f.announce(t, runnerID, "sid-refused")
 	turn(t, f, runnerID, "claude", "what came before")
-	requestID := uuid.NewString()
 
-	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "carry on", requestID, "", nil)
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "carry on", uuid.NewString(), "", nil)
 	require.NoError(t, err)
 	f.wait()
 	calls := f.term.callCount()
 	f.term.exit(t, result.TerminalSessionID) // refuses: dies before any session_start
+	f.wait()
+	assert.Equal(t, calls, f.term.callCount(), "nothing re-drives the prompt")
+	assert.False(t, agentusecase.HasPendingPrompt(f.usecase.RunnerUsecase, f.ctx, chatID))
 
-	var argv []string
-	require.Eventually(t, func() bool {
-		for i := f.term.callCount() - 1; i >= calls; i-- {
-			if call := f.term.call(i); slices.Contains(call.argv, "carry on") {
-				argv = call.argv
-				return true
-			}
-		}
-		return false
-	}, 5*time.Second, time.Millisecond, "the refused prompt is delivered again")
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "carry on", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	argv := f.term.calls[f.term.callCount()-1].argv
 	assert.NotContains(t, argv, "--resume", "never the refused session again")
 	assert.Contains(t, strings.Join(argv, "\x00"), "what came before", "handed the conversation so far")
-	require.Eventually(t, func() bool {
-		return agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).Rung == domain.AgentRungTranscript
-	}, 5*time.Second, time.Millisecond, "the chat says which rung it continued on")
 }
 
 // A resumed CLI Crowbar stops before it announces anything did not refuse its

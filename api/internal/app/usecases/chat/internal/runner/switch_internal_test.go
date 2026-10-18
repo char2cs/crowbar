@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -172,15 +171,14 @@ func (s stubRunnerStoreLiveness) LiveRunnerForChat(
 }
 
 // runnersForDisplace builds the smallest Runners that can run displaceForSwitch:
-// a real turn-start gate and in-flight registry, an empty on-disk prompt journal
-// (so the delivery guard passes), and the two answers under test.
+// a real turn-start gate and in-flight registry, an empty ledger (so the
+// pending-prompt guard passes), and the two answers under test.
 func runnersForDisplace(t *testing.T, working, live bool) *Runners {
 	t.Helper()
 	home := t.TempDir()
 	return &Runners{
-		home:          func() (string, error) { return home, nil },
 		ws:            fakeWSReader{chatsDir: home},
-		prompts:       agentjournal.NewPromptRequests(),
+		ledger:        newTestLedger(t),
 		turnStarts:    inflight.NewGate(),
 		inflightTurns: inflight.NewTurns(),
 		turns:         stubTurnsForAttach{working: working},

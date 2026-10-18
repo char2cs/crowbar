@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/crowbar/api/tests/kit"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // TestTerminal_CreateStreamKill proves the PTY lifecycle end to end: create a

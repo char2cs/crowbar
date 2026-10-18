@@ -1,10 +1,8 @@
 package runner
 
 import (
-	"errors"
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
@@ -64,24 +62,19 @@ var ErrChatProviderUnknown = fmt.Errorf(
 )
 
 var (
-	// ErrPromptBusy means the chat began working, or still has a replacement TUI
-	// awaiting its user_prompt hook, before this request acquired the spawn gate.
+	// ErrPromptBusy means the chat is working, or holds a prompt the provider has
+	// not acknowledged yet.
 	ErrPromptBusy = fmt.Errorf("agent: chat is busy: %w", apperr.ErrConflict)
 
 	// ErrPromptRequestIDConflict means one clientRequestId was reused for different
-	// prompt text. Reusing an id can never silently submit a different operation.
+	// prompt text, or for a prompt already settled. Reusing an id can never
+	// silently submit a different operation.
 	ErrPromptRequestIDConflict = fmt.Errorf("agent: client request id was already used for a different prompt: %w", apperr.ErrConflict)
 
-	// ErrPromptOutcomeUnknown is the durable at-most-once recovery answer: Crowbar
-	// wrote the dispatch intent but crashed before it could confirm the replacement
-	// runner. Retrying automatically could duplicate a prompt the provider accepted.
+	// ErrPromptOutcomeUnknown means a CLI may have received the prompt but Crowbar
+	// cannot confirm it did. Retrying automatically could duplicate a prompt the
+	// provider accepted.
 	ErrPromptOutcomeUnknown = fmt.Errorf("agent: prior prompt delivery outcome is uncertain; inspect the chat before retrying with a new request id: %w", apperr.ErrConflict)
-
-	// ErrPromptAlreadyAccepted is crash recovery with positive hook evidence: the
-	// provider accepted the text, but Crowbar did not durably record the replacement
-	// PTY identity before restarting. The client reconciles from the ledger and must
-	// not submit it again.
-	ErrPromptAlreadyAccepted = fmt.Errorf("agent: prompt was already accepted by the provider; reconcile from chat messages: %w", apperr.ErrConflict)
 
 	// ErrPromptUnsupported leaves the native terminal fully usable while telling
 	// React that this provider has no declarative restart-TUI submission mapping.
@@ -93,8 +86,8 @@ var (
 	// connection it adopted INSTEAD of forking one — and a PTY-less spawn has
 	// only the second. Failing here is the point: reporting success with the
 	// message nowhere is what silently lost a user's prompt (see
-	// carryPromptOverAPIConn), and the caller turns this into the journal's
-	// "uncertain", which keeps the text in the client's own queue.
+	// carryPromptOverAPIConn), and the caller settles the prompt, which keeps the
+	// text in the client's own queue.
 	ErrSpawnPromptUndeliverable = fmt.Errorf("agent: spawn runner: the prompt this spawn carries reached no carrier: %w", apperr.ErrBadGateway)
 
 	// ErrPromptSessionUnavailable means there is no live native TUI to replace.
@@ -102,21 +95,3 @@ var (
 	// submission, not this error.
 	ErrPromptSessionUnavailable = fmt.Errorf("agent: chat has no live provider TUI for prompt submission: %w", apperr.ErrUnprocessable)
 )
-
-// promptJournalError translates the prompt journal's own refusals into this
-// package's sentinels, at the one boundary where the store's answer becomes the
-// caller's. The store cannot declare these itself: they wrap apperr classes,
-// which live above it — and their IDENTITY is what handlers switch on for an
-// HTTP status, so the translation must produce the very same values.
-func promptJournalError(err error) error {
-	switch {
-	case errors.Is(err, agentjournal.ErrPromptBusy):
-		return ErrPromptBusy
-	case errors.Is(err, agentjournal.ErrPromptRequestIDConflict):
-		return ErrPromptRequestIDConflict
-	case errors.Is(err, agentjournal.ErrPromptOutcomeUnknown):
-		return ErrPromptOutcomeUnknown
-	default:
-		return err
-	}
-}

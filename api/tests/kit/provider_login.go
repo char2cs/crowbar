@@ -3,6 +3,7 @@
 package kit
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,5 +49,5 @@ func fileExists(path string) bool {
 func keychainHasItem(
 	service string,
 ) bool {
-	return exec.Command("security", "find-generic-password", "-s", service).Run() == nil //nolint:gosec // fixed service names
+	return exec.CommandContext(context.Background(), "security", "find-generic-password", "-s", service).Run() == nil //nolint:gosec // fixed service names
 }

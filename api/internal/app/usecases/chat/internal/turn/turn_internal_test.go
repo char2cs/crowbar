@@ -28,10 +28,13 @@ import (
 // Only codex reaches this: it is the only descriptor mapping idle, and it marks
 // no message final, so no mid-turn recordAssistantMessage ever re-opens the
 // assistant turn to clear the latch on its own.
+// turnStarted is the assistant turn still running under the compaction.
+var turnStarted = time.Unix(1_700_000_000, 0)
+
 func TestRegression_ACompactionsOwnStopStillClearsTheIdleLatch(t *testing.T) {
 	turns := New(Deps{})
 	turns.compacting.arm("chat-1", "compaction-turn")
-	turns.recordIdle(domain.Chat{ID: "chat-1"})
+	turns.recordIdle(t.Context(), domain.Chat{ID: "chat-1", CurrentTurnStarted: &turnStarted}, "")
 
 	_, armed := turns.ProviderIdleSince("chat-1")
 	require.True(t, armed, "the idle report that rides the compaction's stop arms the latch")
@@ -54,7 +57,7 @@ func TestRegression_ACompactionsOwnStopStillClearsTheIdleLatch(t *testing.T) {
 func TestRegression_ACompactionsOwnFailureStillClearsTheIdleLatch(t *testing.T) {
 	turns := New(Deps{})
 	turns.compacting.arm("chat-1", "compaction-turn")
-	turns.recordIdle(domain.Chat{ID: "chat-1"})
+	turns.recordIdle(t.Context(), domain.Chat{ID: "chat-1", CurrentTurnStarted: &turnStarted}, "")
 
 	err := turns.closeTurnFromFailure(
 		t.Context(),
@@ -123,14 +126,8 @@ func (openWaitActivity) StartSubagent(context.Context, string, string, string, t
 	return nil
 }
 
-// noopRunners satisfies closeTurnFromStop's one call into the Runners port
-// (ReconcilePendingPromptFromLedger) with a no-op; nothing in this test
-// exercises the prompt journal.
+// noopRunners is a Runners port nothing in these tests calls.
 type noopRunners struct{ Runners }
-
-func (noopRunners) ReconcilePendingPromptFromLedger(context.Context, domain.Chat) error {
-	return nil
-}
 
 // TestRegression_TurnStopWithAnOpenWaitCallKeepsChatWorking guards the live-
 // reported bug: codex ends its OWN top-level turn the instant it delegates to

@@ -156,8 +156,7 @@ func TestMatchTerminal_IsSilentForEveryUnresolvableInput(t *testing.T) {
 }
 
 // ChatWorking falls back to the aggregate while the process-local mirror knows
-// nothing, and the mirror wins the moment it does. Assuming idle is what killed a
-// CLI still doing background work after its turn ended.
+// nothing, and the mirror wins the moment it does.
 func TestChatWorking_FallsBackToTheAggregateThenPrefersTheMirror(t *testing.T) {
 	t.Parallel()
 
@@ -174,20 +173,21 @@ func TestChatWorking_FallsBackToTheAggregateThenPrefersTheMirror(t *testing.T) {
 	assert.False(t, working, "a known mirror state is newer than any aggregate read")
 }
 
-// stubChats is the chat aggregate reduced to the one field these tests decide on.
+// stubChats is the chat aggregate reduced to Working; a working chat's turn is open.
 type stubChats struct {
 	agentchat.EventStore
 	working bool
 }
 
 func (s stubChats) GetChat(_ context.Context, id string) (domain.Chat, error) {
-	return domain.Chat{ID: id, WorkspaceID: "ws-1", Working: s.working}, nil
+	chat := domain.Chat{ID: id, WorkspaceID: "ws-1", Working: s.working}
+	if started := time.Now(); s.working {
+		chat.CurrentTurnStarted = &started
+	}
+	return chat, nil
 }
 
-// RestateAsyncWork answers restateAsyncWork's own recount call the same way
-// StopTurn would in production (event_store.go: RestateAsyncWork is StopTurn
-// with Restate:true) — a fixed reply, since these tests assert on what got
-// CALLED, not on a chat's own fold across several calls.
+// RestateAsyncWork answers as StopTurn would (event_store.go).
 func (s stubChats) RestateAsyncWork(
 	_ context.Context, chatID string, _ time.Time, asyncWork int,
 ) (domain.Chat, error) {

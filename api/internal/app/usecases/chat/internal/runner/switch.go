@@ -32,9 +32,9 @@ func (rs *Runners) SwitchProvider(
 // wiring either caller to SwitchProvider instead compiles and deadlocks that
 // goroutine on its own gate forever.
 //
-// park is the gate's park context: the two waits below park on it, so a Stop
-// that preempts the gate abandons them with nothing destroyed (ErrStopped).
-// Everything after the waits runs on ctx and is bounded, so a preemption never
+// park is the gate's park context: the turn wait below parks on it, so a Stop
+// that preempts the gate abandons it with nothing destroyed (ErrStopped).
+// Everything after the wait runs on ctx and is bounded, so a preemption never
 // leaves a switch half-done.
 func (rs *Runners) switchProviderLocked(
 	ctx context.Context,
@@ -61,14 +61,10 @@ func (rs *Runners) switchProviderLocked(
 		if err != nil {
 			return "", fmt.Errorf("agent: switch provider: chat: %w", err)
 		}
-		// Protect a React replacement that has not emitted its acceptance hook
-		// yet — by WAITING for it, not by refusing it. It is the same state as a
-		// turn in flight one moment earlier, and the turn below is waited for.
-		// The interlocked check inside displaceForSwitch still refuses outright:
-		// that one runs under turnStarts, which the hook that would release it
-		// must take.
-		if err := rs.awaitPromptDeliverySettled(park, chat); err != nil {
-			return "", parkErr(park, err)
+		// A prompt the provider has not acknowledged yet would be lost with the CLI
+		// carrying it. Nothing settles it on a clock, so the switch is refused.
+		if err := rs.requireNoPendingPrompt(ctx, chatID); err != nil {
+			return "", err
 		}
 		// Resolve the target while the outgoing CLI is still alive. A missing or
 		// malformed provider descriptor is a deterministic planning failure, not a
@@ -213,7 +209,7 @@ func (rs *Runners) displaceForSwitch(
 	unlockTurnStart := rs.turnStarts.Lock(chat.ID)
 	defer unlockTurnStart()
 
-	if err := rs.requireNoPendingPromptDelivery(ctx, chat); err != nil {
+	if err := rs.requireNoPendingPrompt(ctx, chat.ID); err != nil {
 		return false, err
 	}
 	if len(rs.inflightTurns.Inflight(chat.ID)) > 0 {

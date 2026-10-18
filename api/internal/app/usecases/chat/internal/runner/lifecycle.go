@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
@@ -33,10 +32,9 @@ func (rs *Runners) displace(
 		}
 		return fmt.Errorf("agent: displace runner: %w", err)
 	}
-	// Once displacement commits this runner can no longer deliver a hook into the
-	// vacated chat. Resolve any pending React dispatch from the hook-derived ledger,
-	// or mark it safely retryable when no matching user turn exists.
-	rs.reconcilePromptRunnerDeparture(ctx, runner, vacated)
+	// Once displacement commits this runner can no longer acknowledge a prompt
+	// in the vacated chat.
+	rs.settleCarriedPrompts(ctx, vacated, runner.ID)
 
 	// A displaced runner is on NO chat, so handleTurn drops every hook it has left —
 	// including the turn_stop that would have ended a turn it is still mid-way through.
@@ -145,7 +143,6 @@ func (rs *Runners) ReconcileRunnersOnBoot(
 				"runner_id", r.ID, "terminal_session_id", r.TerminalSession, "err", err)
 			continue
 		}
-		rs.reconcilePromptRunnerDeparture(ctx, r, r.CurrentChatID)
 		rs.reapCrashOrphanRunnerTmp(ctx, r)
 		rs.noteChatExit(ctx, abandoned, domain.AgentExitDaemonRestart)
 
@@ -160,10 +157,7 @@ func (rs *Runners) ReconcileRunnersOnBoot(
 		// no longer see the runner we have just reaped.
 		rs.closeAbandonedTurn(ctx, abandoned, r)
 	}
-	if err := rs.reconcilePromptJournalsOnBoot(ctx); err != nil {
-		return err
-	}
-	return nil
+	return rs.reconcilePendingPromptsOnBoot(ctx)
 }
 
 func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
@@ -194,21 +188,15 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
 		rs.sessions.failedProbe(runnerID, 0)
 		return
 	}
-	// A CLI that refused its resume never read the prompt its launch carried:
-	// that prompt goes to the next rung instead of being written off.
-	// Only an exit nobody asked for: a CLI Crowbar stopped or replaced was
-	// never given the chance to announce anything.
+	// A CLI that refused its resume is quarantined, so the next send takes the
+	// next rung. Only an exit nobody asked for: a CLI Crowbar stopped or replaced
+	// was never given the chance to announce anything.
 	window := resumeProbeWindow
 	if rs.sessions.hasCause(runnerID) {
 		window = 0
 	}
 	refused := rs.sessions.failedProbe(runnerID, window)
-	redeliver, again := agentjournal.PromptRequest{}, false
-	if refused {
-		redeliver, again = rs.refusedDelivery(ctx, runner)
-	} else {
-		rs.reconcilePromptRunnerDeparture(ctx, runner, runner.CurrentChatID)
-	}
+	rs.settleCarriedPrompts(ctx, runner.CurrentChatID, runnerID)
 	if _, err := rs.runnerStore.Exit(ctx, runnerID, time.Now()); err != nil {
 		slog.WarnContext(ctx, "agent: reconcile runner exit: exit runner", "runner_id", runnerID, "err", err)
 		return
@@ -219,9 +207,6 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
 	// chat (if it still had a turn to close) was dealt with at displacement time and
 	// CurrentChatID is now empty, meaning nowhere.
 	rs.closeAbandonedTurn(ctx, runner.CurrentChatID, runner)
-	if again {
-		rs.redeliverRefused(ctx, runner.CurrentChatID, redeliver)
-	}
 }
 
 func (rs *Runners) RetireChatRunners(

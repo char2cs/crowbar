@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/uuid"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
@@ -61,8 +62,9 @@ type Conversations struct {
 	lineage seam.ChatLineage
 	// home is the app-config crowbar-home resolver, NOT a wsId lookup: it resolves
 	// the descriptor catalog a chat's model/effort selection is validated against.
-	home func() (string, error)
-	work *inflight.Work
+	home   func() (string, error)
+	ledger *ledgerstore.Store
+	work   *inflight.Work
 	// defaultPermissionLevel resolves the current global default at mint time
 	// — Crowbar's own guarded/trusted/full-auto name, not yet checked against
 	// any provider (a bare-minted chat has none). It's a closure, not a
@@ -90,6 +92,7 @@ type Deps struct {
 	Workspace seam.WorkspaceReader
 	Lineage   seam.ChatLineage
 	Home      func() (string, error)
+	Ledger    *ledgerstore.Store
 
 	Work   *inflight.Work
 	Spawns *inflight.Gate
@@ -112,6 +115,7 @@ func New(d Deps) *Conversations {
 		ws:          d.Workspace,
 		lineage:     d.Lineage,
 		home:        d.Home,
+		ledger:      d.Ledger,
 		work:        d.Work,
 		spawns:      d.Spawns,
 
@@ -222,6 +226,10 @@ func (c *Conversations) PurgeLocked(
 	// resolve (ChatForSession) to a chat that no longer exists.
 	if err := c.runnerStore.ForgetChat(ctx, chatID); err != nil {
 		slog.ErrorContext(ctx, "agent: purge chat: forget conversation history (best-effort, continuing)",
+			"chat_id", chatID, "err", err)
+	}
+	if err := c.ledger.Forget(ctx, chatID); err != nil {
+		slog.ErrorContext(ctx, "agent: purge chat: forget ledger (best-effort, continuing)",
 			"chat_id", chatID, "err", err)
 	}
 

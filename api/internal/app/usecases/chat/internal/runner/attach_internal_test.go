@@ -12,7 +12,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
@@ -472,8 +471,7 @@ func TestSwitchToNative_TerminatesAndReestablishes(t *testing.T) {
 		inflightTurns: inflight.NewTurns(),
 		work:          inflight.NewWork(),
 		activity:      stubActivityForSpawn{},
-		prompts:       agentjournal.NewPromptRequests(),
-		home:          func() (string, error) { return t.TempDir(), nil },
+		ledger:        newTestLedger(t),
 	}
 	// Registered directly, as if SwitchToTerminal had already run and torn the
 	// api connection down — SwitchToNative's own job is reversing that.
@@ -615,8 +613,7 @@ func switchSurfaceFixture(t *testing.T) (*Runners, *spySurfaceChats) {
 		answers:       answerdesk.New(answerdesk.DefaultRetention, nil),
 		inflightTurns: inflight.NewTurns(),
 		work:          inflight.NewWork(),
-		prompts:       agentjournal.NewPromptRequests(),
-		home:          func() (string, error) { return t.TempDir(), nil },
+		ledger:        newTestLedger(t),
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,

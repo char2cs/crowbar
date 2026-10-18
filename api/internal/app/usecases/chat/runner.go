@@ -95,9 +95,9 @@ type RunnerUsecase interface {
 		chatID string,
 	) (engineagents.SlashCatalog, error)
 
-	// PendingPrompt returns the chat's most recent prompt submission the
-	// journal has not yet confirmed the provider accepted, so a client whose
-	// own local copy of the text was lost can recover it.
+	// PendingPrompt returns the chat's oldest prompt the provider has not
+	// acknowledged yet, so a client whose own local copy of the text was lost
+	// can recover it.
 	PendingPrompt(
 		ctx context.Context,
 		chatID string,
@@ -150,8 +150,8 @@ type RunnerUsecase interface {
 	) ([]engineagents.ChatConversation, error)
 
 	// ReconcileRunnersOnBoot Exits every recorded runner whose PTY did not survive
-	// the restart, closes the turns they died in, and recovers their prompt
-	// journals.
+	// the restart, closes the turns they died in, and settles the prompts they
+	// left pending.
 	ReconcileRunnersOnBoot(
 		ctx context.Context,
 	) error
@@ -209,7 +209,6 @@ var (
 	ErrPromptBusy               = runner.ErrPromptBusy
 	ErrPromptRequestIDConflict  = runner.ErrPromptRequestIDConflict
 	ErrPromptOutcomeUnknown     = runner.ErrPromptOutcomeUnknown
-	ErrPromptAlreadyAccepted    = runner.ErrPromptAlreadyAccepted
 	ErrPromptUnsupported        = runner.ErrPromptUnsupported
 	ErrPromptSessionUnavailable = runner.ErrPromptSessionUnavailable
 )
@@ -217,7 +216,6 @@ var (
 const (
 	PromptCodeBusy              = "chat_busy"
 	PromptCodeOutcomeUnknown    = "request_outcome_uncertain"
-	PromptCodeAlreadyAccepted   = "request_already_accepted"
 	PromptCodeRequestIDConflict = "request_id_conflict"
 	PromptCodeUnsupported       = "prompt_submit_unsupported"
 	PromptCodeSessionRequired   = "live_tui_required"
@@ -241,8 +239,6 @@ func PromptErrorCode(err error) string {
 		return PromptCodeBusy
 	case errors.Is(err, ErrPromptOutcomeUnknown):
 		return PromptCodeOutcomeUnknown
-	case errors.Is(err, ErrPromptAlreadyAccepted):
-		return PromptCodeAlreadyAccepted
 	case errors.Is(err, ErrPromptRequestIDConflict):
 		return PromptCodeRequestIDConflict
 	case errors.Is(err, ErrPromptUnsupported):
@@ -390,8 +386,8 @@ func (u *Usecase) SlashCatalog(
 	return u.runners.SlashCatalog(ctx, chatID)
 }
 
-// PendingPrompt returns the chat's most recent prompt submission the journal
-// has not yet confirmed the provider accepted.
+// PendingPrompt returns the chat's oldest prompt the provider has not
+// acknowledged yet.
 func (u *Usecase) PendingPrompt(
 	ctx context.Context,
 	chatID string,
@@ -470,5 +466,6 @@ func (u *Usecase) TerminalWait(chatID string) domain.AgentTerminalWait {
 // StartTerminalWaitSweep starts the screen sweep and wires the publish callbacks
 // the hub owns.
 func (u *Usecase) StartTerminalWaitSweep(ctx context.Context, feed ChatFeed) {
+	u.feed.Store(&feed)
 	u.runners.StartTerminalWaitSweep(ctx, feed)
 }

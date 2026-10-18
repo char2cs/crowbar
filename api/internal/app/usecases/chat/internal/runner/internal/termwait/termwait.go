@@ -14,8 +14,6 @@ const DefaultInterval = 2 * time.Second
 
 const DefaultStallQuiet = 120 * time.Second
 
-const DefaultDeliveryQuiet = 30 * time.Second
-
 const DefaultMessageQuiet = 30 * time.Second
 
 // DefaultIdleQuiet is how long a provider's own idle report is allowed to stand
@@ -103,23 +101,6 @@ type Liveness interface {
 	HasLiveAPIConnection(runnerID string) bool
 }
 
-type Deliveries interface {
-	PendingDelivery(ctx context.Context, chatID string) (Delivery, bool)
-
-	SettleDelivery(ctx context.Context, chatID, requestID string) (bool, error)
-}
-
-type Delivery struct {
-	RequestID string
-
-	RunnerID string
-
-	// CreatedAt is when this delivery was journalled, and is what the delivery
-	// timeout is actually measured against — see settleDelivery for why the
-	// screen's own quiet clock cannot stand in for it.
-	CreatedAt time.Time
-}
-
 type Deps struct {
 	Runners Runners
 	Chats   Chats
@@ -131,8 +112,6 @@ type Deps struct {
 	Work    Work
 	OnStall Stalled
 
-	Deliveries Deliveries
-
 	Messages Messages
 
 	Liveness Liveness
@@ -142,8 +121,6 @@ type Deps struct {
 	Interval time.Duration
 
 	StallQuiet time.Duration
-
-	DeliveryQuiet time.Duration
 
 	MessageQuiet time.Duration
 
@@ -192,8 +169,6 @@ type screenCache struct {
 
 	since time.Time
 
-	settled bool
-
 	fired bool
 }
 
@@ -219,13 +194,6 @@ func (d *detector) stallQuiet() time.Duration {
 		return d.deps.StallQuiet
 	}
 	return DefaultStallQuiet
-}
-
-func (d *detector) deliveryQuiet() time.Duration {
-	if d.deps.DeliveryQuiet > 0 {
-		return d.deps.DeliveryQuiet
-	}
-	return DefaultDeliveryQuiet
 }
 
 func (d *detector) messageQuiet() time.Duration {

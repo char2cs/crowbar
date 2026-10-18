@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -91,7 +90,6 @@ func (stubConversationsForOrigin) ChatTurns(
 
 func newOriginFixture(t *testing.T) (*Runners, *stubChatsForOrigin, *stubRunnerStoreForOrigin) {
 	t.Helper()
-	home := t.TempDir()
 	runner := engineagents.Runner{
 		ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "codex",
 		CurrentChatID: "chat-1", CurrentSession: "the-session-the-provider-forgot",
@@ -105,8 +103,7 @@ func newOriginFixture(t *testing.T) (*Runners, *stubChatsForOrigin, *stubRunnerS
 		apiConns:      newAPIConnRegistry(),
 		work:          inflight.NewWork(),
 		inflightTurns: inflight.NewTurns(),
-		prompts:       agentjournal.NewPromptRequests(),
-		home:          func() (string, error) { return home, nil },
+		ledger:        newTestLedger(t),
 	}
 	return rs, chats, store
 }

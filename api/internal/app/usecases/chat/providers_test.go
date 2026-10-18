@@ -324,7 +324,7 @@ func TestDispatchMCP_NotificationIsSilent(
 func TestDispatchMCP_UnconfiguredSurfaceIsAnError(
 	t *testing.T,
 ) {
-	u := agentusecase.New(agentusecase.Deps{})
+	u := agentusecase.New(agentusecase.Deps{Ledger: newLedger(t)})
 
 	_, send, err := u.DispatchMCP(t.Context(), "seg-1", "tok",
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))

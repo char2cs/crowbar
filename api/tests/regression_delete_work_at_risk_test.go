@@ -92,8 +92,8 @@ func TestRegression_DeleteRepo_KeepsUnmergedAndUncommittedWorkUnlessConfirmed(t 
 	assert.Equal(t, 1, risks[0].UnmergedCommits)
 	assert.Equal(t, 1, risks[0].UncommittedFiles)
 	h.QuiesceReactors()
-	assert.True(t, branchExists(imported.repoPath, "feature/pricing-rounding"), "the branch is kept")
-	assert.True(t, branchExists(imported.repoPath, "feature/merged"), "a refused delete touches nothing")
+	assert.True(t, branchExists(t, imported.repoPath, "feature/pricing-rounding"), "the branch is kept")
+	assert.True(t, branchExists(t, imported.repoPath, "feature/merged"), "a refused delete touches nothing")
 	assert.FileExists(t, filepath.Join(worktree, "notes.txt"), "the uncommitted edit is kept")
 	require.Len(t, listRepos(t, h, imported.projectID), 1, "the repo stays")
 
@@ -104,10 +104,10 @@ func TestRegression_DeleteRepo_KeepsUnmergedAndUncommittedWorkUnlessConfirmed(t 
 	})
 	h.QuiesceReactors()
 
-	assert.False(t, branchExists(imported.repoPath, "feature/pricing-rounding"), "confirmed: the branch goes")
-	assert.False(t, branchExists(imported.repoPath, "feature/merged"))
+	assert.False(t, branchExists(t, imported.repoPath, "feature/pricing-rounding"), "confirmed: the branch goes")
+	assert.False(t, branchExists(t, imported.repoPath, "feature/merged"))
 	assert.NoDirExists(t, worktree, "confirmed: the worktree goes")
-	assert.True(t, branchExists(imported.repoPath, "main"))
+	assert.True(t, branchExists(t, imported.repoPath, "main"))
 	assert.FileExists(t, users, "the main checkout is the user's, and is left as it was")
 	assert.DirExists(t, filepath.Join(imported.repoPath, ".git"))
 }
@@ -128,7 +128,7 @@ func TestRegression_DeleteRepo_WithoutConsentStillTakesAMergedCrowbarBranch(t *t
 	})
 	h.QuiesceReactors()
 
-	assert.False(t, branchExists(imported.repoPath, "feature/merged"))
+	assert.False(t, branchExists(t, imported.repoPath, "feature/merged"))
 	assert.NoDirExists(t, ws.WorktreePath)
 }
 
@@ -145,13 +145,13 @@ func TestRegression_DeleteWorkspace_KeepsUnmergedAndUncommittedWorkUnlessConfirm
 		WorkspaceID: risks[0].WorkspaceID, Branch: "feature/pricing-rounding",
 		UncommittedFiles: 1, UnmergedCommits: 1,
 	}, risks[0])
-	assert.True(t, branchExists(imported.repoPath, "feature/pricing-rounding"))
+	assert.True(t, branchExists(t, imported.repoPath, "feature/pricing-rounding"))
 	assert.FileExists(t, filepath.Join(worktree, "notes.txt"))
 
 	deleteAccepted(t, h, chatPath, true)
 	h.QuiesceReactors()
 
-	assert.False(t, branchExists(imported.repoPath, "feature/pricing-rounding"))
+	assert.False(t, branchExists(t, imported.repoPath, "feature/pricing-rounding"))
 	assert.NoDirExists(t, worktree)
 }
 
@@ -176,5 +176,5 @@ func TestRegression_DeleteRepo_NeverRemovesACheckoutCrowbarDidNotCreate(t *testi
 
 	assert.FileExists(t, filepath.Join(linked, ".git"), "the user's own checkout survives, still a checkout")
 	assert.FileExists(t, filepath.Join(linked, "README.md"))
-	assert.True(t, branchExists(main, "feature/users-own"))
+	assert.True(t, branchExists(t, main, "feature/users-own"))
 }

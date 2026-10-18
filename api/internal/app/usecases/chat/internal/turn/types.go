@@ -44,7 +44,7 @@ type Conversations interface {
 }
 
 // Runners is what a hook needs from the runner lifecycle: the placement half of
-// a session_start, and the two prompt-journal transitions a user_prompt confirms.
+// a session_start, and the refusal of a steered prompt its turn never delivered.
 //
 // NOTHING here may take the spawn gate. SwitchProvider holds it while parked on a
 // turn only this package can release, so a hook that waited on it would deadlock
@@ -60,21 +60,6 @@ type Runners interface {
 		ctx context.Context,
 		runner engineagents.Runner,
 		ev engineagents.CanonicalEvent,
-	) error
-	// ConfirmPromptAccepted closes the at-most-once journal entry for a React
-	// submission the CLI has now echoed back as its own user prompt, and
-	// returns that submission's request id ("" when it was none of Crowbar's).
-	ConfirmPromptAccepted(
-		ctx context.Context,
-		chat domain.Chat,
-		runner engineagents.Runner,
-		message string,
-	) (string, error)
-	// ReconcilePendingPromptFromLedger settles a delivery whose outcome the journal
-	// could not observe, using what the chat's ledger now shows.
-	ReconcilePendingPromptFromLedger(
-		ctx context.Context,
-		chat domain.Chat,
 	) error
 	// HasLiveAPIConnection reports whether runnerID's channel is an api
 	// connection right now (whose originated-session record is then current).
@@ -93,12 +78,6 @@ type Runners interface {
 	// sessionID, or is producing one right now. False for a hooks-only runner,
 	// which has no connection that could.
 	OriginatedSession(runnerID, sessionID string) bool
-	// SettleDeliveryFor retires runnerID's pending prompt delivery on chatID
-	// right now, if it has one. handleObservation calls this on compact_post:
-	// compaction never confirms via a user_prompt hook or a ledger turn, so
-	// without this the composer would sit on termwait's generic 30s quiet
-	// timeout even though the compaction itself already finished.
-	SettleDeliveryFor(ctx context.Context, chatID, runnerID string) error
 	// RefuseSteered fails a parked prompt the CLI provably never received, so
 	// the client keeps its text and may retry.
 	RefuseSteered(ctx context.Context, s inflight.Steered)

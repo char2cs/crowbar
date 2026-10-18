@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	repoattachments "github.com/char2cs/crowbar/api/internal/app/repositories/chat/attachments"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
@@ -180,7 +180,7 @@ func TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing(t *testing.T)
 	rs := &Runners{
 		apiConns:      newAPIConnRegistry(),
 		ws:            fakeWSReader{chatsDir: chatsDir, worktree: worktree},
-		prompts:       agentjournal.NewPromptRequests(),
+		ledger:        newTestLedger(t),
 		runnerStore:   stubRunnerStoreForAPIPush{terminalSession: "term-1"},
 		conversations: stubConversationsForPromptRestart{},
 	}
@@ -189,11 +189,9 @@ func TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing(t *testing.T)
 	chat := domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}
 	live := engineagents.Runner{ID: "runner-1", ProviderID: "api-push-test"}
 	text := "![photo](chats/chat-1/attachments/" + fileName + ")"
-	textHash := agentjournal.PromptTextHash(text)
-	journalDir := rs.prompts.Dir(chatsDir, "chat-1")
 
 	submission, handled, err := rs.submitPromptOverAPI(
-		ctx, chat, journalDir, uuid.NewString(), textHash, live, restartOnChangeAgent{}, worktree, text,
+		ctx, chat, uuid.NewString(), live, restartOnChangeAgent{}, worktree, text,
 	)
 	require.NoError(t, err)
 	assert.True(t, handled)
@@ -211,13 +209,11 @@ func TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing(t *testing.T)
 	assert.NotContains(t, dispatched, "]("+"chats/chat-1/attachments/"+fileName+")")
 }
 
-// TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_StillMarksUncertain
-// proves the reordering this task introduces (materialize, THEN push) does not
-// disturb pushPromptOverAPI's own pre-existing failure handling: a successfully
-// materialized (and rewritten) attachment reference still reaches the wire, and
-// a subsequent wire-level failure is still marked uncertain exactly as it was
-// before this task touched the function.
-func TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_StillMarksUncertain(t *testing.T) {
+// TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_SettlesThePrompt
+// proves a materialized attachment reference still reaches the wire, and a
+// wire-level failure after it settles the recorded prompt as undelivered while
+// telling the client the outcome is unknown.
+func TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_SettlesThePrompt(t *testing.T) {
 	home := t.TempDir()
 	worktree := filepath.Join(home, "worktree")
 	chatsDir := filepath.Join(home, "chats")
@@ -258,7 +254,7 @@ func TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_StillMarksUnc
 	rs := &Runners{
 		apiConns:      newAPIConnRegistry(),
 		ws:            fakeWSReader{chatsDir: chatsDir, worktree: worktree},
-		prompts:       agentjournal.NewPromptRequests(),
+		ledger:        newTestLedger(t),
 		conversations: stubConversationsForPromptRestart{},
 	}
 	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
@@ -266,12 +262,10 @@ func TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_StillMarksUnc
 	chat := domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}
 	live := engineagents.Runner{ID: "runner-1", ProviderID: "api-push-test"}
 	text := "![photo](chats/chat-1/attachments/" + fileName + ")"
-	textHash := agentjournal.PromptTextHash(text)
-	journalDir := rs.prompts.Dir(chatsDir, "chat-1")
 	requestID := uuid.NewString()
 
 	submission, handled, err := rs.submitPromptOverAPI(
-		ctx, chat, journalDir, requestID, textHash, live, restartOnChangeAgent{}, worktree, text,
+		ctx, chat, requestID, live, restartOnChangeAgent{}, worktree, text,
 	)
 	assert.True(t, handled)
 	assert.Equal(t, domain.AgentPromptSubmission{}, submission)
@@ -287,48 +281,43 @@ func TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_StillMarksUnc
 	assert.Contains(t, dispatched, filepath.ToSlash(filepath.Join(durableDir, fileName)),
 		"materialization must still have run before the wire-level failure")
 
-	record, found, lookupErr := rs.prompts.Lookup(journalDir, requestID, textHash)
-	require.NoError(t, lookupErr)
+	st, err := rs.ledger.State(ctx, "chat-1")
+	require.NoError(t, err)
+	got, found := st.Receipt(requestID)
 	require.True(t, found)
-	assert.Equal(t, agentjournal.PromptStateUncertain, record.State)
+	assert.Equal(t, ledger.DeliveryAPI, got.Delivery)
+	assert.Equal(t, ledger.PromptStatusSettled, got.Status)
+	assert.Equal(t, ledger.ReasonDeliveryFailed, got.Reason)
 }
 
-// TestSubmitPromptOverAPI_MaterializeFailure_MarksTheDispatchUncertain pins
-// this path's own failure handling: a materialize-attachments failure before
-// anything reaches the wire is treated exactly like pushPromptOverAPI's own
-// failure branch just below it in submitPromptOverAPI (mark the durable
-// dispatch record uncertain, return ErrPromptOutcomeUnknown) rather than
-// leaving the record BEGIN wrote stuck in "dispatching" — every other failure
-// branch after Begin succeeds in this function follows that same idiom.
-func TestSubmitPromptOverAPI_MaterializeFailure_MarksTheDispatchUncertain(t *testing.T) {
+// TestSubmitPromptOverAPI_MaterializeFailure_RecordsNothing: attachments are
+// materialized before the prompt is recorded, so a failure there reached no CLI
+// and leaves no prompt behind — the same request may simply be sent again.
+func TestSubmitPromptOverAPI_MaterializeFailure_RecordsNothing(t *testing.T) {
 	rs := &Runners{
 		apiConns:      newAPIConnRegistry(),
 		ws:            boomWorkspaceReader{},
-		prompts:       agentjournal.NewPromptRequests(),
+		ledger:        newTestLedger(t),
 		conversations: stubConversationsForPromptRestart{},
 	}
 	// A dummy entry is enough: materialization fails before pushPromptOverAPI
 	// ever dereferences the connection.
 	rs.apiConns.set("runner-1", &apiconn{})
 
-	journalDir := filepath.Join(t.TempDir(), "prompt-requests")
 	chat := domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}
 	live := engineagents.Runner{ID: "runner-1", ProviderID: "boom-provider"}
-	text := "hello"
-	textHash := agentjournal.PromptTextHash(text)
 	requestID := uuid.NewString()
 
 	submission, handled, err := rs.submitPromptOverAPI(
-		context.Background(), chat, journalDir, requestID, textHash, live, restartOnChangeAgent{}, "/worktree", text,
+		t.Context(), chat, requestID, live, restartOnChangeAgent{}, "/worktree", "hello",
 	)
 
 	assert.True(t, handled)
 	assert.Equal(t, domain.AgentPromptSubmission{}, submission)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrPromptOutcomeUnknown)
-
-	record, found, lookupErr := rs.prompts.Lookup(journalDir, requestID, textHash)
-	require.NoError(t, lookupErr)
-	require.True(t, found)
-	assert.Equal(t, agentjournal.PromptStateUncertain, record.State)
+	require.NotErrorIs(t, err, ErrPromptOutcomeUnknown, "nothing reached a CLI")
+	st, err := rs.ledger.State(t.Context(), "chat-1")
+	require.NoError(t, err)
+	_, found := st.Receipt(requestID)
+	assert.False(t, found)
 }

@@ -10,10 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/crowbar/api/tests/kit"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // cwdStubProviderDescriptorYAML spawns a shell that prints its OWN real OS

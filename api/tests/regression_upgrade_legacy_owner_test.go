@@ -38,14 +38,22 @@ func TestRegression_Upgrade_BootRecordsTheLegacyOwnerInsteadOfMintingOne(t *test
 		Branch: "release", Status: domain.WorkspaceStatusLocked, MergeStrategy: "merge",
 		CreatedAt: now, LastActivity: now,
 	}
-	forker := domain.Chat{ID: uuid.NewString(), Type: domain.ChatTypeChat, WorkspaceID: fork.ID,
-		Title: "Fix login", CreatedAt: now, LastActivityAt: now}
-	thread := domain.Chat{ID: uuid.NewString(), Type: domain.ChatTypeChat, WorkspaceID: fork.ID,
-		ParentID: forker.ID, CreatedAt: now.Add(-time.Minute), LastActivityAt: now}
-	conversation := domain.Chat{ID: uuid.NewString(), Type: domain.ChatTypeChat, WorkspaceID: locked.ID,
-		CreatedAt: now.Add(-time.Hour), LastActivityAt: now}
-	branchRow := domain.Chat{ID: uuid.NewString(), Type: domain.ChatTypeBranch, WorkspaceID: locked.ID,
-		CreatedAt: now, LastActivityAt: now}
+	forker := domain.Chat{
+		ID: uuid.NewString(), Type: domain.ChatTypeChat, WorkspaceID: fork.ID,
+		Title: "Fix login", CreatedAt: now, LastActivityAt: now,
+	}
+	thread := domain.Chat{
+		ID: uuid.NewString(), Type: domain.ChatTypeChat, WorkspaceID: fork.ID,
+		ParentID: forker.ID, CreatedAt: now.Add(-time.Minute), LastActivityAt: now,
+	}
+	conversation := domain.Chat{
+		ID: uuid.NewString(), Type: domain.ChatTypeChat, WorkspaceID: locked.ID,
+		CreatedAt: now.Add(-time.Hour), LastActivityAt: now,
+	}
+	branchRow := domain.Chat{
+		ID: uuid.NewString(), Type: domain.ChatTypeBranch, WorkspaceID: locked.ID,
+		CreatedAt: now, LastActivityAt: now,
+	}
 	seed := openBaseEra(t, home)
 	seed.workspace(fork)
 	seed.workspace(locked)

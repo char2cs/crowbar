@@ -5,7 +5,6 @@ package tests
 import (
 	"net/http"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,8 +28,8 @@ func TestRegression_RepoMoveToAnotherProject_IsRefusedAndChangesNothing(t *testi
 
 	otherPath := gitRepoWithCommit(t)
 	projectsWS := h.dial("/v0/projects")
-	h.raw(http.MethodPost, "/v0/projects",
-		map[string]string{"name": "other", "path": otherPath}, http.StatusAccepted).Body.Close()
+	require.NoError(t, h.raw(http.MethodPost, "/v0/projects",
+		map[string]string{"name": "other", "path": otherPath}, http.StatusAccepted).Body.Close())
 	other := readUntil(t, projectsWS, func(m map[string]any) bool { return m["path"] == otherPath })
 	otherID, _ := other["id"].(string)
 	require.NotEmpty(t, otherID)
@@ -38,8 +37,8 @@ func TestRegression_RepoMoveToAnotherProject_IsRefusedAndChangesNothing(t *testi
 	before := workspaceIDs(listWorkspaces(t, h, imported.projectID, imported.repoID))
 	require.NotEmpty(t, before)
 
-	h.raw(http.MethodPatch, repoBase(imported),
-		map[string]string{"projectId": otherID}, http.StatusConflict).Body.Close()
+	require.NoError(t, h.raw(http.MethodPatch, repoBase(imported),
+		map[string]string{"projectId": otherID}, http.StatusConflict).Body.Close())
 	h.Quiesce()
 
 	assert.Equal(t, before, workspaceIDs(listWorkspaces(t, h, imported.projectID, imported.repoID)),
@@ -51,15 +50,15 @@ func TestRegression_RepoMoveToAnotherProject_IsRefusedAndChangesNothing(t *testi
 		found = found || r.ID == imported.repoID
 	}
 	assert.True(t, found, "the repo is still listed under its own project")
-	h.raw(http.MethodGet, "/v0/projects/"+otherID+"/repos/"+imported.repoID, nil,
-		http.StatusNotFound).Body.Close()
+	require.NoError(t, h.raw(http.MethodGet, "/v0/projects/"+otherID+"/repos/"+imported.repoID, nil,
+		http.StatusNotFound).Body.Close())
 	assert.DirExists(t, childPath)
-	assert.True(t, strings.Contains(filepath.ToSlash(childPath), "/projects/"+imported.projectID+"/"),
+	assert.Contains(t, filepath.ToSlash(childPath), "/projects/"+imported.projectID+"/",
 		"the worktree lives under its own project's directory (D6)")
 
 	// Naming the project the repo is already in is not a move.
-	h.raw(http.MethodPatch, repoBase(imported),
-		map[string]string{"projectId": imported.projectID}, http.StatusNoContent).Body.Close()
+	require.NoError(t, h.raw(http.MethodPatch, repoBase(imported),
+		map[string]string{"projectId": imported.projectID}, http.StatusNoContent).Body.Close())
 }
 
 func workspaceIDs(rows []workspaceDTO) []string {

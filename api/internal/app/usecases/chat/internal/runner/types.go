@@ -193,7 +193,3 @@ type Providers interface {
 		providerID string,
 	) (bool, error)
 }
-
-// The detector reads an un-echoed React prompt through this type directly, so the
-// two halves of that seam are asserted here rather than discovered at wiring time.
-var _ termwait.Deliveries = (*Runners)(nil)

@@ -4,36 +4,15 @@ import (
 	"context"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// WaitingForPromptDeliveryLog is the log record a provider switch emits at the
-// INSTANT it parks on a committed-but-unconfirmed prompt delivery, exposed to
-// this package's external tests. Same role as WaitingForTurnLog, for the
-// window just before the turn exists.
-const WaitingForPromptDeliveryLog = runner.WaitingForPromptDeliveryLog
-
-// SetPromptJournalDirSync installs a deterministic durability fault for external
-// package tests. It is test-only surface; production always uses fsync+close on
-// the journal parent directory after the atomic rename.
-//
-// It REPLACES the journal, so it must be called before the chat under test has
-// submitted anything. The prompt journal holds no state between calls, so a
-// replacement loses nothing.
-func SetPromptJournalDirSync(u RunnerUsecase, syncDir func(string) error) {
-	u.(*Usecase).runners.SetPromptJournal(agentjournal.NewPromptRequests(agentjournal.WithDirSync(syncDir)))
-}
-
-// HasPendingDelivery reports whether chatID has an unsettled prompt delivery
-// in flight right now. Test-only surface: it exists to prove a delivery WAS
-// (or was not) settled by some signal without ever needing to wait out
-// termwait's real quiet timeout for it to settle on its own.
-func HasPendingDelivery(u RunnerUsecase, ctx context.Context, chatID string) bool {
-	_, ok := u.(*Usecase).runners.PendingDelivery(ctx, chatID)
-	return ok
+// HasPendingPrompt reports whether chatID holds a prompt the provider has not
+// acknowledged yet, read straight off the ledger.
+func HasPendingPrompt(u RunnerUsecase, ctx context.Context, chatID string) bool {
+	_, ok, err := u.PendingPrompt(ctx, chatID)
+	return err == nil && ok
 }
 
 // RequirePromptRestart exposes the delivery guard SubmitPrompt runs before it

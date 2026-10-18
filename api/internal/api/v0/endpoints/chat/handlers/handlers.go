@@ -224,9 +224,9 @@ type RunnerUsecase interface {
 		selection *domain.ChatSelection,
 	) (domain.AgentPromptSubmission, error)
 
-	// PendingPrompt returns chatID's most recent prompt submission the
-	// journal has not yet confirmed the provider accepted, so a client whose
-	// own local copy of the text was lost can recover it.
+	// PendingPrompt returns chatID's oldest prompt the provider has not
+	// acknowledged yet, so a client whose own local copy of the text was lost
+	// can recover it.
 	PendingPrompt(
 		ctx context.Context,
 		chatID string,

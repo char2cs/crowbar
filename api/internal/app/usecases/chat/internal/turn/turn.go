@@ -151,10 +151,6 @@ func (t *Turns) closeTurnFromStop(
 		return fmt.Errorf("agent: ingest hook: stop turn: %w", err)
 	}
 	t.work.Set(chat.ID, stopped.Working)
-	if err := t.runners.ReconcilePendingPromptFromLedger(ctx, chat); err != nil {
-		slog.WarnContext(ctx, "agent: reconcile React prompt acceptance on turn stop",
-			"chat_id", chat.ID, "runner_id", runner.ID, "err", err)
-	}
 	return appendErr
 }
 

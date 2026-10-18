@@ -6,10 +6,13 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/promptsigil"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -60,7 +63,9 @@ func (t *Turns) openTurnFromPrompt(
 		// A real prompt rode alongside the injected context in this same
 		// spawn: record and confirm ONLY the user's own words, exactly like
 		// the ordinary path below, never Crowbar's own injected preamble.
-		return t.recordUserTurn(ctx, chat, runner, agent, remainder)
+		rest := ev
+		rest.Message = remainder
+		return t.recordUserTurn(ctx, chat, runner, agent, rest)
 	}
 	// The PROVIDER's own harness talking to its own model on the user's hook: a
 	// background-subagent completion report is the measured case, and the ledger
@@ -74,12 +79,15 @@ func (t *Turns) openTurnFromPrompt(
 	//
 	// No derived title: a chat named after a subagent's completion report is named
 	// after nothing its user did. The turn still opens — the agent genuinely is
-	// about to work on this — and no prompt-delivery journal is advanced, because
+	// about to work on this — and a pending Crowbar prompt stays pending, because
 	// nothing Crowbar queued was accepted here.
 	if injected, ok := engineagents.MatchInjectedPrompt(agent, ev.Message); ok {
 		slog.DebugContext(ctx, "agent: ingest hook: user_prompt was injected by the provider's harness",
 			"chat_id", chat.ID, "runner_id", runner.ID, "provider", runner.ProviderID,
 			"kind", injected.Kind, "needle", injected.Needle)
+		if err := t.recordOtherTurn(ctx, chat.ID, runner.ID, ev.TurnID, ledger.OriginHarness, ev.Message); err != nil {
+			return err
+		}
 		started, err := t.chats.StartTurn(ctx, chat.ID, time.Now())
 		if err != nil {
 			return fmt.Errorf("agent: ingest hook: start turn: %w", err)
@@ -93,7 +101,7 @@ func (t *Turns) openTurnFromPrompt(
 		t.openAssistantTurn(ctx, chat, runner)
 		return appendErr
 	}
-	return t.recordUserTurn(ctx, chat, runner, agent, ev.Message)
+	return t.recordUserTurn(ctx, chat, runner, agent, ev)
 }
 
 // recordUserTurn is openTurnFromPrompt's shared tail for text genuinely
@@ -105,16 +113,16 @@ func (t *Turns) recordUserTurn(
 	chat domain.Chat,
 	runner engineagents.Runner,
 	agent engineagents.Agent,
-	rawText string,
+	ev engineagents.CanonicalEvent,
 ) error {
+	rawText := ev.Message
 	// This hook's own message IS the text the CLI actually received — which,
 	// whenever Crowbar's own dispatch referenced an attachment, is the file's
 	// real absolute path in the durable store, not the logical
 	// chats/<chatID>/attachments/<file> reference every other consumer of a
 	// stored turn (the asset-serving endpoint included) expects. Restore it
-	// before this text becomes anything durable: the title derived from it,
-	// the ledger row itself below, and the accept-confirmation hash beneath
-	// that. A prompt typed straight into the CLI's own terminal never
+	// before this text becomes anything durable: the title derived from it and
+	// the rows below, whose text must equal the prompt Crowbar recorded. A prompt typed straight into the CLI's own terminal never
 	// contains this shape, so the rewrite is a no-op for it.
 	userText := rawText
 	if chatsDir, cErr := t.ws.AgentChatsDir(ctx, runner.WorkspaceID); cErr != nil {
@@ -143,16 +151,9 @@ func (t *Turns) recordUserTurn(
 	// in front of it — a provider switch blocks on this rather than on Working, so that
 	// it never quits a CLI that is still answering (inflight.Turns).
 	t.turns.Begin(ctx, runner.ID, chat.ID)
-	// The hook is the provider's acknowledgement that the argv prompt was
-	// accepted. userText, not rawText: ConfirmPromptAccepted hashes this
-	// against the journal's own hash of the ORIGINAL dispatch text (prompts.go's
-	// Begin call, taken straight from the request before Guard/materialize or
-	// any injected preamble ever touched it) — the restored, stripped, and
-	// (for the merged case) preamble-free text is what can actually match it.
-	// The ledger is written whether or not the journal was: the hook itself is
-	// positive delivery evidence. A journal failure is repaired from the
-	// attributed turn by the turn_stop and pre-destructive reconciliation paths.
-	requestID, confirmErr := t.runners.ConfirmPromptAccepted(ctx, chat, runner, userText)
+	// The hook is the provider's acknowledgement of the prompt Crowbar recorded,
+	// matched on the text the request carried before dispatch rewrote it.
+	requestID, acceptErr := t.acceptPrompt(ctx, chat.ID, runner.ID, ev.TurnID, userText)
 	// Named by its request, the row is how the client that queued this prompt
 	// recognises it.
 	userCtx := ctx
@@ -172,8 +173,52 @@ func (t *Turns) recordUserTurn(
 	if appendErr != nil {
 		return appendErr
 	}
-	if confirmErr != nil {
-		return fmt.Errorf("agent: confirm React prompt acceptance: %w", confirmErr)
+	return acceptErr
+}
+
+// acceptPrompt starts the turn in the ledger: for the oldest pending Crowbar
+// prompt this runner carries when text is that prompt, else for text typed at
+// the CLI. It returns the request id of the prompt accepted, if any.
+func (t *Turns) acceptPrompt(ctx context.Context, chatID, runnerID, providerTurnID, text string) (string, error) {
+	var accepted string
+	_, _, err := t.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		for _, p := range st.PendingPrompts() {
+			if p.Text != text || (p.RunnerID != "" && p.RunnerID != runnerID) {
+				continue
+			}
+			accepted = p.RequestID
+			row, err := ledger.NewRow(ledger.KindTurnStarted, p.TurnID, "", ledger.TurnStarted{
+				RequestID: p.RequestID, ProviderTurnID: providerTurnID, RunnerID: runnerID,
+			})
+			return []ledger.Row{row}, err
+		}
+		accepted = ""
+		return otherTurnRows(runnerID, providerTurnID, ledger.OriginProvider, text)
+	})
+	if err != nil {
+		return "", fmt.Errorf("agent: ingest hook: accept prompt: %w", err)
+	}
+	return accepted, nil
+}
+
+// recordOtherTurn starts a turn nobody sent through Crowbar.
+func (t *Turns) recordOtherTurn(ctx context.Context, chatID, runnerID, providerTurnID, origin, text string) error {
+	if _, _, err := t.ledger.Do(ctx, chatID, func(ledger.State) ([]ledger.Row, error) {
+		return otherTurnRows(runnerID, providerTurnID, origin, text)
+	}); err != nil {
+		return fmt.Errorf("agent: ingest hook: record %s turn: %w", origin, err)
 	}
 	return nil
+}
+
+func otherTurnRows(runnerID, providerTurnID, origin, text string) ([]ledger.Row, error) {
+	turnID := uuid.NewString()
+	msg, err := ledger.NewRow(ledger.KindUserMessage, turnID, "", ledger.UserMessage{Text: text, Origin: origin})
+	if err != nil {
+		return nil, err
+	}
+	started, err := ledger.NewRow(ledger.KindTurnStarted, turnID, "", ledger.TurnStarted{
+		ProviderTurnID: providerTurnID, RunnerID: runnerID,
+	})
+	return []ledger.Row{msg, started}, err
 }

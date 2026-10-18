@@ -206,7 +206,7 @@ func TestRegression_ARespawnRebuildsOnTheSurfaceTheUserIsOnNow(t *testing.T) {
 // a recycled id could read a dead runner's surface.
 func TestReconcileRunnerExit_ForgetsTheRunnersSurface(t *testing.T) {
 	store := newSpyRunnerStoreForSpawn()
-	rs := ptylessRunners(store)
+	rs := ptylessRunners(t, store)
 	rs.surfaces.set("runner-1", engineagents.SurfaceTerminal)
 
 	rs.reconcileRunnerExit(context.Background(), "runner-1")

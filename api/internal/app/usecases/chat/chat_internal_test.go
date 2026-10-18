@@ -5,11 +5,14 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
+	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
@@ -64,12 +67,9 @@ func (screenReadingCommander) Screen(string, uint64) (string, uint64, bool) {
 // it is added; anything added here has to carry the reason it is legitimately nil
 // after construction.
 var constructorUnsetFields = map[string]string{
-	"runners.promptSettled": "wired by StartTerminalWaitSweep, not New: it " +
-		"publishes through the hub, a layer above this one, and stays nil in a " +
-		"daemon with no detector (internal/runner/runner.go).",
-	"turns.feed": "wired by StartTerminalWaitSweep beside promptSettled, for the " +
-		"same reason: a daemon with nobody to publish to records the message when " +
-		"it finishes instead (internal/turn/turns.go).",
+	"turns.feed": "wired by StartTerminalWaitSweep, not New: it publishes through " +
+		"the hub, a layer above this one, and a daemon with nobody to publish to " +
+		"records the message when it finishes instead (internal/turn/turns.go).",
 }
 
 // sharedInstances are the pieces of in-flight state that MUST be one instance
@@ -93,6 +93,7 @@ var sharedInstances = map[string][]string{
 	"the provider table":  {"providers", "runners.providers"},
 	"the CLI lifecycle":   {"runners", "conversations.runners", "turns.runners"},
 	"the hook ingress":    {"turns", "runners.turns"},
+	"the chat ledger":     {"conversations.ledger", "turns.ledger", "runners.ledger"},
 }
 
 var nilableKinds = map[reflect.Kind]bool{
@@ -119,6 +120,10 @@ func newWiringFixture(t *testing.T) *Usecase {
 	home := t.TempDir()
 	agentsEngine := engineagents.New()
 	t.Cleanup(agentsEngine.Close)
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	chatLedger, err := ledgerstore.Open(db, time.Now)
+	require.NoError(t, err)
 	return New(Deps{
 		Chats:         wiringChats{},
 		Runners:       wiringRunners{},
@@ -130,6 +135,7 @@ func newWiringFixture(t *testing.T) *Usecase {
 		Lineage:       wiringLineage{},
 		ProviderPrefs: wiringPrefs{},
 		Home:          func() (string, error) { return home, nil },
+		Ledger:        chatLedger,
 		Minter:        minter,
 		Tools:         agenttools.Deps{},
 		// Folders/Nodes are ALWAYS wired in production (container.go, both

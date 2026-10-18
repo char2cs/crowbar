@@ -81,7 +81,7 @@ func (t *Turns) deliverSteered(
 		return
 	}
 	t.replies.put(deliveryID, stdout)
-	if err := t.recordUserTurn(ctx, chat, runner, agent, s.Text); err != nil {
+	if err := t.recordUserTurn(ctx, chat, runner, agent, engineagents.CanonicalEvent{Message: s.Text}); err != nil {
 		slog.WarnContext(ctx, "agent: record steered prompt (delivered anyway)",
 			"chat_id", chat.ID, "runner_id", runner.ID, "client_request_id", s.RequestID, "err", err)
 	}

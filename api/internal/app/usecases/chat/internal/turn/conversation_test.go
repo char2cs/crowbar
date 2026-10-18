@@ -135,10 +135,6 @@ func (quietRunners) HasLiveAPIConnection(string) bool { return true }
 // surfaces: [chat] admits the parent's stream rather than gating it off.
 func (quietRunners) ShowingNativeView(string) bool { return false }
 
-func (quietRunners) ReconcilePendingPromptFromLedger(context.Context, domain.Chat) error {
-	return nil
-}
-
 // delegatingTurn is the live sequence: a sessionless codex runner mid-answer
 // on its own thread, with a child thread the model spawned running alongside
 // it on the SAME connection.

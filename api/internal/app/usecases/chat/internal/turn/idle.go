@@ -1,10 +1,12 @@
 package turn
 
 import (
+	"context"
 	"sync"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
 // idleLatch remembers that a provider said it was doing nothing, and when.
@@ -66,9 +68,23 @@ func (l *idleLatch) at(chatID string) (time.Time, bool) {
 	return t, ok
 }
 
-// recordIdle arms the latch. It closes nothing, on purpose — see idleLatch.
-func (t *Turns) recordIdle(chat domain.Chat) {
+// recordIdle arms the latch. It closes nothing, on purpose — see idleLatch. A
+// prompt runnerID carries that no turn opened for is one the CLI never took.
+func (t *Turns) recordIdle(ctx context.Context, chat domain.Chat, runnerID string) {
 	t.idle.arm(chat.ID, time.Now())
+	if chat.CurrentTurnStarted != nil {
+		return
+	}
+	t.settleCarried(ctx, chat.ID, runnerID, false, ledger.ReasonNotAcknowledged)
+}
+
+// settleCarried settles the pending prompts runnerID carries on chatID.
+func (t *Turns) settleCarried(ctx context.Context, chatID, runnerID string, consumed bool, reason string) {
+	carried := func(p ledger.Prompt) bool { return p.RunnerID == runnerID }
+	_, _, err := t.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		return ledger.Settle(st, carried, consumed, reason)
+	})
+	note(ctx, "settle pending prompt", err)
 }
 
 // ProviderIdleSince reports when the provider last said it was doing nothing, if

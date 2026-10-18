@@ -6,14 +6,13 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
@@ -37,8 +36,8 @@ func (rs *Runners) SubmitPrompt(
 // single gate hold — a staged provider switch and selection commit, then this,
 // never releasing the gate in between. See that file's own doc for why.
 //
-// admit (nil for none) runs once the request is known to be new — a retry of
-// a recorded attempt answers from the journal and must never spawn or mutate
+// admit (nil for none) runs once the request is known to be new — a resend of
+// a recorded prompt answers from the ledger and must never spawn or mutate
 // anything.
 func (rs *Runners) submitPromptLocked(
 	ctx context.Context,
@@ -49,24 +48,11 @@ func (rs *Runners) submitPromptLocked(
 	if err != nil {
 		return domain.AgentPromptSubmission{}, err
 	}
-	textHash := agentjournal.PromptTextHash(text)
-
 	chat, err := rs.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, fmt.Errorf("agent: submit prompt: chat: %w", err)
 	}
-	journalDir, err := rs.promptJournalDirFor(chat.ID)
-	if err != nil {
-		return domain.AgentPromptSubmission{}, fmt.Errorf("agent: submit prompt: journal dir: %w", err)
-	}
-	if err := rs.ReconcilePendingPromptFromLedger(ctx, chat); err != nil {
-		slog.ErrorContext(ctx, "agent: reconcile React prompt before submission (best-effort)",
-			"chat_id", chat.ID, "err", err)
-	}
-	rs.settleDepartedPromptDelivery(ctx, chat)
-
-	result, done, err := rs.replayPriorAttempt(ctx, chat, journalDir, clientRequestID, textHash)
-	if done {
+	if result, done, err := rs.replayPriorPrompt(ctx, chat.ID, clientRequestID, text); done {
 		return result, err
 	}
 	if admit != nil {
@@ -81,7 +67,7 @@ func (rs *Runners) submitPromptLocked(
 	}
 
 	if submission, handled, steerErr := rs.submitPromptSteered(
-		ctx, chat, journalDir, clientRequestID, textHash, live, descriptor, text,
+		ctx, chat, clientRequestID, live, descriptor, text,
 	); handled {
 		return submission, steerErr
 	}
@@ -91,7 +77,7 @@ func (rs *Runners) submitPromptLocked(
 	}
 
 	if submission, handled, pushErr := rs.submitPromptOverAPI(
-		ctx, chat, journalDir, clientRequestID, textHash, live, descriptor, worktree, text,
+		ctx, chat, clientRequestID, live, descriptor, worktree, text,
 	); handled {
 		return submission, pushErr
 	}
@@ -102,25 +88,13 @@ func (rs *Runners) submitPromptLocked(
 	}
 
 	replacementRunnerID := uuid.NewString()
-	prior, existingAttempt, err := rs.prompts.Begin(
-		journalDir, clientRequestID, text, textHash, live.ProviderID, live.ID, replacementRunnerID, time.Now(),
-	)
-	if err != nil {
-		return domain.AgentPromptSubmission{}, fmt.Errorf(
-			"agent: submit prompt: begin durable dispatch: %w", promptJournalError(err),
-		)
-	}
-	if existingAttempt {
-		result, done, classifyErr := rs.classifyPriorAttempt(
-			ctx, chat, journalDir, clientRequestID, prior,
-		)
-		if done {
-			return result, classifyErr
-		}
-		return domain.AgentPromptSubmission{}, ErrPromptOutcomeUnknown
-	}
-	if err := rs.displaceForPrompt(ctx, chatID, journalDir, clientRequestID, live.ID); err != nil {
+	if err := rs.recordPrompt(
+		ctx, chat.ID, clientRequestID, text, ledger.DeliveryRestart, replacementRunnerID,
+	); err != nil {
 		return domain.AgentPromptSubmission{}, err
+	}
+	if err := rs.displaceForPrompt(ctx, chatID, live.ID); err != nil {
+		return domain.AgentPromptSubmission{}, rs.failPrompt(ctx, chat.ID, clientRequestID, err)
 	}
 
 	runnerID, err := rs.spawnRunner(
@@ -129,15 +103,18 @@ func (rs *Runners) submitPromptLocked(
 		delivery.contextResuming, delivery.launchSessionID, false, text,
 	)
 	if err != nil {
-		if errors.Is(err, engineterminal.ErrCommandNotFound) {
-			_ = rs.prompts.MarkFailedDispatch(journalDir, clientRequestID, time.Now())
-			return domain.AgentPromptSubmission{}, fmt.Errorf("agent: submit prompt: replacement spawn: %w", err)
-		}
-		return domain.AgentPromptSubmission{}, rs.markPromptOutcomeUncertain(
-			ctx, journalDir, clientRequestID, "replacement spawn", err,
-		)
+		return domain.AgentPromptSubmission{}, rs.failPrompt(ctx, chat.ID, clientRequestID, spawnFailure(ctx, err))
 	}
-	return rs.commitPromptSpawn(ctx, journalDir, clientRequestID, textHash, runnerID)
+	return rs.commitPromptSpawn(ctx, chat.ID, clientRequestID, runnerID)
+}
+
+// spawnFailure is what a failed replacement spawn tells the client: only a CLI
+// that is not installed provably never ran, any other failure may follow a fork.
+func spawnFailure(ctx context.Context, err error) error {
+	if errors.Is(err, engineterminal.ErrCommandNotFound) {
+		return fmt.Errorf("agent: submit prompt: replacement spawn: %w", err)
+	}
+	return uncertainPromptOutcome(ctx, "replacement spawn", err)
 }
 
 func normalisePromptRequest(
@@ -163,25 +140,93 @@ func normalisePromptRequest(
 	return requestUUID.String(), nil
 }
 
-func (rs *Runners) replayPriorAttempt(
+// replayPriorPrompt answers a request the ledger already holds, and refuses a
+// new one while another prompt is pending. done=false: the request is new.
+func (rs *Runners) replayPriorPrompt(
 	ctx context.Context,
-	chat domain.Chat,
-	journalDir, clientRequestID, textHash string,
+	chatID, requestID, text string,
 ) (domain.AgentPromptSubmission, bool, error) {
-	existing, found, err := rs.prompts.Lookup(journalDir, clientRequestID, textHash)
-	err = promptJournalError(err)
-	if errors.Is(err, ErrPromptRequestIDConflict) {
-		return domain.AgentPromptSubmission{}, true, err
-	}
+	st, err := rs.ledger.State(ctx, chatID)
 	if err != nil {
-		return domain.AgentPromptSubmission{}, true, rs.markPromptOutcomeUncertain(
-			ctx, journalDir, clientRequestID, "idempotency lookup", err,
-		)
+		return domain.AgentPromptSubmission{}, true, fmt.Errorf("agent: submit prompt: ledger: %w", err)
 	}
-	if !found {
-		return domain.AgentPromptSubmission{}, false, nil
+	prior, replay, err := priorPrompt(st, requestID, text)
+	if err != nil || !replay {
+		return domain.AgentPromptSubmission{}, err != nil, err
 	}
-	return rs.classifyPriorAttempt(ctx, chat, journalDir, clientRequestID, existing)
+	result := domain.AgentPromptSubmission{RunnerID: prior.RunnerID}
+	if carrier, err := rs.runnerStore.Get(ctx, prior.RunnerID); err == nil {
+		result.TerminalSessionID = carrier.TerminalSession
+	}
+	return result, true, nil
+}
+
+// priorPrompt is the ledger's verdict on requestID. The same text is a resend
+// (replay); other text, or a prompt already settled, is a conflict; a new
+// request waits behind any prompt still pending.
+func priorPrompt(st ledger.State, requestID, text string) (ledger.Prompt, bool, error) {
+	p, ok := st.Receipt(requestID)
+	switch {
+	case ok && (p.Text != text || p.Status == ledger.PromptStatusSettled):
+		return p, false, ErrPromptRequestIDConflict
+	case ok:
+		return p, true, nil
+	case len(st.PendingPrompts()) > 0:
+		return p, false, ErrPromptBusy
+	}
+	return p, false, nil
+}
+
+// recordPrompt appends requestID's user_message before any CLI is touched: the
+// prompt exists, and is owed an outcome, from this commit on. carrier is the
+// runner that will deliver it.
+func (rs *Runners) recordPrompt(ctx context.Context, chatID, requestID, text, delivery, carrier string) error {
+	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		if _, replay, err := priorPrompt(st, requestID, text); err != nil || replay {
+			if err == nil {
+				err = ErrPromptRequestIDConflict
+			}
+			return nil, err
+		}
+		row, err := ledger.NewRow(ledger.KindUserMessage, uuid.NewString(), "", ledger.UserMessage{
+			RequestID: requestID, Text: text, Origin: ledger.OriginCrowbar, Delivery: delivery, RunnerID: carrier,
+		})
+		return []ledger.Row{row}, err
+	})
+	if err != nil {
+		return fmt.Errorf("agent: submit prompt: record: %w", err)
+	}
+	return nil
+}
+
+// failPrompt settles requestID as undelivered and returns cause.
+func (rs *Runners) failPrompt(ctx context.Context, chatID, requestID string, cause error) error {
+	rs.settlePrompts(ctx, chatID, ledger.ReasonDeliveryFailed, func(p ledger.Prompt) bool {
+		return p.RequestID == requestID
+	})
+	return cause
+}
+
+// settleCarriedPrompts settles the prompts runnerID was carrying on chatID:
+// once it has left the chat it can acknowledge none of them.
+func (rs *Runners) settleCarriedPrompts(ctx context.Context, chatID, runnerID string) {
+	if chatID == "" {
+		return
+	}
+	rs.settlePrompts(ctx, chatID, ledger.ReasonRunnerExited, func(p ledger.Prompt) bool {
+		return p.RunnerID == runnerID
+	})
+}
+
+// settlePrompts settles chatID's pending prompts that match as not consumed.
+// It outlives ctx: a prompt left pending would hold the chat busy.
+func (rs *Runners) settlePrompts(ctx context.Context, chatID, reason string, match func(ledger.Prompt) bool) {
+	ctx = context.WithoutCancel(ctx)
+	if _, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		return ledger.Settle(st, match, false, reason)
+	}); err != nil {
+		slog.ErrorContext(ctx, "agent: settle pending prompt", "chat_id", chatID, "reason", reason, "err", err)
+	}
 }
 
 // submitPromptOverAPI delivers text over live's connection when it has one —
@@ -203,7 +248,7 @@ func (rs *Runners) replayPriorAttempt(
 func (rs *Runners) submitPromptOverAPI(
 	ctx context.Context,
 	chat domain.Chat,
-	journalDir, clientRequestID, textHash string,
+	clientRequestID string,
 	live engineagents.Runner,
 	descriptor engineagents.Agent,
 	worktree, text string,
@@ -221,27 +266,21 @@ func (rs *Runners) submitPromptOverAPI(
 		return domain.AgentPromptSubmission{}, false, nil
 	}
 
-	if submission, done, beginErr := rs.beginLiveDelivery(
-		ctx, chat, journalDir, clientRequestID, textHash, live, text,
-	); done {
-		return submission, true, beginErr
-	}
-
 	// A COPY of text for dispatch — the durable ledger text is never mutated.
 	dispatchText, err := rs.rewritePromptTextForDispatch(ctx, chat.WorkspaceID, chat.ID, text)
 	if err != nil {
-		return domain.AgentPromptSubmission{}, true, rs.markPromptOutcomeUncertain(
-			ctx, journalDir, clientRequestID, "materialize attachments", err,
-		)
+		return domain.AgentPromptSubmission{}, true, fmt.Errorf("agent: submit prompt: materialize attachments: %w", err)
 	}
-
+	if err := rs.recordPrompt(ctx, chat.ID, clientRequestID, text, ledger.DeliveryAPI, live.ID); err != nil {
+		return domain.AgentPromptSubmission{}, true, err
+	}
 	_, _, pushErr := rs.pushPromptOverAPI(ctx, live.ID, live.CurrentSession, worktree, dispatchText)
 	if pushErr != nil {
-		return domain.AgentPromptSubmission{}, true, rs.markPromptOutcomeUncertain(
-			ctx, journalDir, clientRequestID, "api push", pushErr,
+		return domain.AgentPromptSubmission{}, true, rs.failPrompt(
+			ctx, chat.ID, clientRequestID, uncertainPromptOutcome(ctx, "api push", pushErr),
 		)
 	}
-	submission, err := rs.commitPromptSpawn(ctx, journalDir, clientRequestID, textHash, live.ID)
+	submission, err := rs.commitPromptSpawn(ctx, chat.ID, clientRequestID, live.ID)
 	return submission, true, err
 }
 
@@ -273,57 +312,36 @@ func (rs *Runners) promptTarget(
 
 func (rs *Runners) displaceForPrompt(
 	ctx context.Context,
-	chatID, journalDir, clientRequestID, liveRunnerID string,
+	chatID, liveRunnerID string,
 ) error {
 	unlockTurnStart := rs.turnStarts.Lock(chatID)
 	defer unlockTurnStart()
 
 	if err := rs.requirePromptIdle(ctx, chatID, liveRunnerID); err != nil {
-		_ = rs.prompts.MarkFailedDispatch(journalDir, clientRequestID, time.Now())
 		return err
 	}
-
-	if err := rs.quitOutgoingCLI(ctx, chatID); err != nil {
-		_ = rs.prompts.MarkFailedDispatch(journalDir, clientRequestID, time.Now())
-		return err
-	}
-	return nil
+	return rs.quitOutgoingCLI(ctx, chatID)
 }
 
+// commitPromptSpawn answers with the runner the prompt went to. What must exist
+// is a DELIVERY TARGET, not a PTY: an api-driven runner forks none
+// (apirunner.go), and its connection is that target.
 func (rs *Runners) commitPromptSpawn(
 	ctx context.Context,
-	journalDir, clientRequestID, textHash, runnerID string,
+	chatID, clientRequestID, runnerID string,
 ) (domain.AgentPromptSubmission, error) {
 	spawned, err := rs.runnerStore.Get(ctx, runnerID)
 	if err != nil {
-		return domain.AgentPromptSubmission{}, rs.markPromptOutcomeUncertain(
-			ctx, journalDir, clientRequestID, "read replacement runner", err,
-		)
+		// The carrier exists and may still acknowledge it; its exit settles it.
+		return domain.AgentPromptSubmission{}, uncertainPromptOutcome(ctx, "read replacement runner", err)
 	}
 	result := domain.AgentPromptSubmission{
 		RunnerID:          runnerID,
 		TerminalSessionID: spawned.TerminalSession,
 	}
-	// What must exist is a DELIVERY TARGET, not a PTY. An api-driven runner
-	// forks none at all (apirunner.go) and its connection is that target —
-	// refusing it here failed every api-dispatched prompt, which is
-	// submitPromptOverAPI's own success path. A runner with neither is the
-	// case this refusal was written for and still catches.
 	if result.TerminalSessionID == "" && !rs.HasLiveAPIConnection(runnerID) {
-		return domain.AgentPromptSubmission{}, rs.markPromptOutcomeUncertain(
-			ctx, journalDir, clientRequestID, "replacement delivery identity is missing", nil,
-		)
-	}
-	committed, err := rs.prompts.MarkSpawned(
-		journalDir, clientRequestID, textHash, result.RunnerID, result.TerminalSessionID, time.Now(),
-	)
-	if err != nil {
-		return domain.AgentPromptSubmission{}, rs.markPromptOutcomeUncertain(
-			ctx, journalDir, clientRequestID, "persist replacement identity", err,
-		)
-	}
-	if committed.State == agentjournal.PromptStateUncertain {
-		return domain.AgentPromptSubmission{}, ErrPromptOutcomeUnknown
+		return domain.AgentPromptSubmission{}, rs.failPrompt(ctx, chatID, clientRequestID,
+			uncertainPromptOutcome(ctx, "replacement delivery identity is missing", nil))
 	}
 	return result, nil
 }
@@ -335,18 +353,6 @@ func uncertainPromptOutcome(ctx context.Context, stage string, cause error) erro
 	}
 	slog.ErrorContext(ctx, "agent: React prompt delivery outcome is uncertain", attrs...)
 	return ErrPromptOutcomeUnknown
-}
-
-func (rs *Runners) markPromptOutcomeUncertain(
-	ctx context.Context,
-	journalDir, clientRequestID, stage string,
-	cause error,
-) error {
-	if err := rs.prompts.MarkUncertain(journalDir, clientRequestID, time.Now()); err != nil {
-		slog.ErrorContext(ctx, "agent: persist uncertain React prompt outcome",
-			"stage", stage, "client_request_id", clientRequestID, "err", err)
-	}
-	return uncertainPromptOutcome(ctx, stage, cause)
 }
 
 func (rs *Runners) requirePromptIdle(ctx context.Context, chatID, runnerID string) error {
@@ -381,52 +387,52 @@ func (rs *Runners) requireChatAcceptingPrompt(ctx context.Context, chatID string
 	if chat.Working || len(rs.inflightTurns.Inflight(chatID)) > 0 {
 		return ErrPromptBusy
 	}
-	return rs.requireNoPendingPromptDelivery(ctx, chat)
+	return rs.requireNoPendingPrompt(ctx, chatID)
 }
 
-func (rs *Runners) requireNoPendingPromptDelivery(ctx context.Context, chat domain.Chat) error {
-	if err := rs.ReconcilePendingPromptFromLedger(ctx, chat); err != nil {
-		return fmt.Errorf("agent: prompt delivery guard: reconcile ledger evidence: %w", err)
-	}
-	journalDir, err := rs.promptJournalDirFor(chat.ID)
+// requireNoPendingPrompt refuses at once while a prompt awaits the provider:
+// nothing settles one on a clock, so a wait could wait on nothing.
+func (rs *Runners) requireNoPendingPrompt(ctx context.Context, chatID string) error {
+	st, err := rs.ledger.State(ctx, chatID)
 	if err != nil {
-		return fmt.Errorf("agent: prompt delivery guard: journal dir: %w", err)
+		return fmt.Errorf("agent: prompt guard: ledger: %w", err)
 	}
-	// Ledger evidence above, ownership here: the journal answers from a state
-	// string, which cannot tell a delivery in flight from one whose runner is
-	// gone. See settleDepartedPromptDelivery.
-	rs.settleDepartedPromptDelivery(ctx, chat)
-	pending, err := rs.prompts.HasPendingDelivery(journalDir)
-	if err != nil {
-		return fmt.Errorf("agent: prompt delivery guard: inspect journal: %w", err)
-	}
-	if pending {
+	if len(st.PendingPrompts()) > 0 {
 		return ErrPromptBusy
 	}
 	return nil
 }
 
-func (rs *Runners) reconcilePromptJournalsOnBoot(ctx context.Context) error {
-	chats, err := rs.chats.ListChats(ctx)
+// PendingPrompt is the chat's oldest prompt still waiting on the provider, so a
+// client that lost its own copy can show the text back.
+func (rs *Runners) PendingPrompt(ctx context.Context, chatID string) (domain.PendingPrompt, bool, error) {
+	st, err := rs.ledger.State(ctx, chatID)
 	if err != nil {
-		return fmt.Errorf("agent: boot reconcile prompt journals: list chats: %w", err)
+		return domain.PendingPrompt{}, false, fmt.Errorf("agent: pending prompt: %w", err)
 	}
-	now := time.Now()
-	for _, chat := range chats {
-		dir, err := rs.promptJournalDirFor(chat.ID)
-		if err != nil {
-			return fmt.Errorf("agent: boot reconcile prompt journals: journal dir for %s: %w", chat.ID, err)
-		}
-		if err := rs.prompts.RecoverOrphanedDispatches(dir, now); err != nil {
-			return fmt.Errorf("agent: boot reconcile prompt journal for %s: %w", chat.ID, err)
+	pending := st.PendingPrompts()
+	if len(pending) == 0 {
+		return domain.PendingPrompt{}, false, nil
+	}
+	return domain.PendingPrompt{
+		Text: pending[0].Text, State: string(ledger.PromptStatusPending), RequestID: pending[0].RequestID,
+	}, true, nil
+}
+
+// reconcilePendingPromptsOnBoot settles every prompt a restart left pending: no
+// carrier from before it can acknowledge one now.
+func (rs *Runners) reconcilePendingPromptsOnBoot(ctx context.Context) error {
+	chats, err := rs.ledger.OpenChats(ctx)
+	if err != nil {
+		return fmt.Errorf("agent: boot reconcile pending prompts: %w", err)
+	}
+	every := func(ledger.Prompt) bool { return true }
+	for _, chatID := range chats {
+		if _, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+			return ledger.Settle(st, every, false, ledger.ReasonDaemonRestart)
+		}); err != nil {
+			return fmt.Errorf("agent: boot reconcile pending prompts: %s: %w", chatID, err)
 		}
 	}
 	return nil
-}
-
-func promptSubmission(record agentjournal.PromptRequest) domain.AgentPromptSubmission {
-	return domain.AgentPromptSubmission{
-		RunnerID:          record.RunnerID,
-		TerminalSessionID: record.TerminalSessionID,
-	}
 }

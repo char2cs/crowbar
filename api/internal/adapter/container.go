@@ -88,6 +88,7 @@ type Container struct {
 	nodeEventStore    asynxModels.Store
 	nodeSnapshotStore asynxModels.SnapshotStore
 	nodeStoreDB       *gormdb.DB
+	chatLedgerDB      *gormdb.DB
 
 	globalView *gormdb.DB
 
@@ -172,6 +173,7 @@ func openContainer(
 	nodeEventStore := o.eventStore(eventsDir, nodeDBName, "node event store")
 	nodeSnapshotStore := o.snapshotStore(eventsDir, nodeSnapshotDBName, "node snapshot store")
 	nodeStoreDB := o.viewDB(storeDir, nodeDBName, "node store db")
+	chatLedgerDB := o.chatLedgerDB(h)
 	globalView := o.viewDB(h.State(), viewDBName, "global view")
 
 	if o.err != nil {
@@ -199,6 +201,7 @@ func openContainer(
 		nodeEventStore:             nodeEventStore,
 		nodeSnapshotStore:          nodeSnapshotStore,
 		nodeStoreDB:                nodeStoreDB,
+		chatLedgerDB:               chatLedgerDB,
 		globalView:                 globalView,
 	}
 	c.globalClosers = collectClosers(reviewThreadES, reviewThreadSS)
@@ -322,10 +325,6 @@ func (c *Container) AgentChatReadDB() *gormdb.DB {
 	return c.agentChatStoreDB
 }
 
-// AgentRunnerES returns the agent-runner event log at
-// state/events/agent_runner.db. This is the singleton per-type handle: the app
-// layer builds ONE axAgentRunner over it and routes every runner id to a shard by
-// hash, mirroring WorkspaceES/ReviewThreadES/AgentChatES.
 // AgentActivityES returns the conversation-record event log at
 // state/events/agent_activity.db.
 func (c *Container) AgentActivityES() asynxModels.Store {
@@ -366,6 +365,7 @@ func (c *Container) NodeReadDB() *gormdb.DB {
 	return c.nodeStoreDB
 }
 
+// AgentRunnerES returns the agent-runner event log at state/events/agent_runner.db.
 func (c *Container) AgentRunnerES() asynxModels.Store {
 	return c.agentRunnerEventStore
 }
@@ -407,17 +407,15 @@ func (c *Container) Home() home.Home {
 func (c *Container) Close() error {
 	var errs []error
 
-	// Shutdown is a LIST, not a flow. Every entry is the same three steps — skip if
-	// never built, close it, forget it — and the only thing that varies is which
-	// handle and what to call it in the error. Written out inline that was twelve
-	// identical branches; written as a list, adding a store is one line and cannot
-	// forget to nil the field.
+	// A list, not a flow: each entry skips a handle never built, closes it and
+	// forgets it, so adding a store is one line that cannot forget to nil it.
 	closeEach(&errs, "workspace store db", &c.workspaceStoreDB, closeViewDB)
 	closeEach(&errs, "review thread view", &c.reviewThreadView, closeViewDB)
 	closeEach(&errs, "agent activity store db", &c.agentActivityStoreDB, closeViewDB)
 	closeEach(&errs, "agent chat store db", &c.agentChatStoreDB, closeViewDB)
 	closeEach(&errs, "agent runner store db", &c.agentRunnerStoreDB, closeViewDB)
 	closeEach(&errs, "node store db", &c.nodeStoreDB, closeViewDB)
+	closeEach(&errs, "chat ledger db", &c.chatLedgerDB, closeViewDB)
 	closeEach(&errs, "global view", &c.globalView, closeViewDB)
 
 	closeEach(&errs, "workspace event store", &c.workspaceEventStore, closeEventStore)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -241,6 +242,8 @@ type Usecase struct {
 	work *inflight.Work
 	// snapshots is the one owner of every chat's versioned snapshot.
 	snapshots *snapshot.Snapshots
+	// feed is the hub, bound at sweep start; ledger commits publish through it.
+	feed atomic.Pointer[ChatFeed]
 
 	// The five components. Each owns one responsibility, and the delegating
 	// methods in this file and the other five are the whole of what reaches them.

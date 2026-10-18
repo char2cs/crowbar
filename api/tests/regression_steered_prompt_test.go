@@ -10,12 +10,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 )
 
 // steerStubDescriptorYAML is a hooks-only CLI that appends a line to a launch
@@ -127,7 +126,10 @@ func (f steerFixture) submitBody(t *testing.T, body map[string]string, want int)
 
 func (f steerFixture) pendingState(t *testing.T) string {
 	t.Helper()
-	resp, err := f.h.server.Client().Get(f.h.url + repoBase(f.imported) + "/chats/" + f.chatID + "/pending-prompt")
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
+		f.h.url+repoBase(f.imported)+"/chats/"+f.chatID+"/pending-prompt", http.NoBody)
+	require.NoError(t, err)
+	resp, err := f.h.server.Client().Do(req)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNoContent {
@@ -162,7 +164,7 @@ func TestRegression_PromptSentMidTurnReachesTheRunningCLI(t *testing.T) {
 
 	f.submit(t, "also check the tests", requestID, http.StatusOK)
 
-	assert.Equal(t, agentjournal.PromptStateSpawned, f.pendingState(t))
+	assert.Equal(t, "pending", f.pendingState(t))
 	assert.Equal(t, f.runnerID, f.liveRunner(t), "the monitored CLI must not be replaced")
 	assert.Equal(t, 1, f.launchCount(t), "the CLI must be launched exactly once")
 
@@ -219,7 +221,8 @@ func TestRegression_PromptSentWhileIdleStillRestartsTheCLI(t *testing.T) {
 
 	f.submit(t, "hello", uuid.NewString(), http.StatusOK)
 
-	assert.Equal(t, 2, f.launchCount(t))
+	// The respawned CLI logs its launch on its own schedule, after the 200.
+	require.Eventually(t, func() bool { return f.launchCount(t) == 2 }, 10*time.Second, 5*time.Millisecond)
 }
 
 // Stop retires the runner; the message parked on its turn was never delivered

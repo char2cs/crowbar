@@ -2911,8 +2911,8 @@ func TestRegression_CodexAutomaticCompactionIsNotLabelledManual(t *testing.T) {
 // its context before it even starts processing a message a person already
 // sent — the same compact_pre/compact_post pair a manual /compact produces,
 // but this time a REAL prompt is what the daemon has pending, not the
-// compaction (codex's own Compact() dispatch never touches the prompt
-// journal at all — see settleCompactDelivery's own doc). Settling that real
+// compaction (codex's own Compact() dispatch never records a prompt
+// at all — see settleCompactDelivery's own doc). Settling that real
 // delivery made the just-submitted message vanish from the transcript for
 // the whole compaction, reappearing only once the real turn finally opened.
 func TestRegression_CodexAutoCompactionMidPromptDoesNotSettleTheRealDelivery(t *testing.T) {
@@ -2922,7 +2922,7 @@ func TestRegression_CodexAutoCompactionMidPromptDoesNotSettleTheRealDelivery(t *
 
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "what changed?", uuid.NewString(), "", nil)
 	require.NoError(t, err)
-	require.True(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
+	require.True(t, agentusecase.HasPendingPrompt(f.usecase.RunnerUsecase, f.ctx, chatID),
 		"precondition: the real prompt is dispatched and still unconfirmed")
 
 	// SubmitPrompt's dispatch may have replaced the runner (this fixture has
@@ -2941,7 +2941,7 @@ func TestRegression_CodexAutoCompactionMidPromptDoesNotSettleTheRealDelivery(t *
 		"turnId":   "auto-compact-turn-1",
 	})
 
-	require.True(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
+	require.True(t, agentusecase.HasPendingPrompt(f.usecase.RunnerUsecase, f.ctx, chatID),
 		"the real prompt must still be pending — compact_pre must not settle a delivery it did not itself create")
 
 	hookAPI(t, f, live.ID, "codex", "compact_post", map[string]any{
@@ -2950,7 +2950,7 @@ func TestRegression_CodexAutoCompactionMidPromptDoesNotSettleTheRealDelivery(t *
 		"turnId":   "auto-compact-turn-1",
 	})
 
-	require.True(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
+	require.True(t, agentusecase.HasPendingPrompt(f.usecase.RunnerUsecase, f.ctx, chatID),
 		"compact_post must not settle it either")
 }
 

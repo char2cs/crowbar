@@ -231,12 +231,6 @@ func (f *fakeCommander) callCount() int {
 	return len(f.calls)
 }
 
-func (f *fakeCommander) call(i int) commandCall {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.calls[i]
-}
-
 // terminatedIDs returns every session id TerminateGraceful successfully tore down.
 func (f *fakeCommander) terminatedIDs() []string {
 	f.mu.Lock()
@@ -1321,10 +1315,7 @@ func newFixtureUsing(
 		ID: domain.DefaultPermissionLevelKey, Level: pinnedDefault,
 	}))
 	connected := map[string]bool{}
-	// homeErr lets a test fault the crowbar-home resolver itself (distinct from
-	// f.ws.err, which only faults workspace lookups): the chat ledger's own reap
-	// and journal-dir derivation go through Home directly, never through a
-	// workspace, so that is the one hook that can exercise their failure path.
+	// homeErr faults the crowbar-home resolver itself, distinct from f.ws.err.
 	homeErr := new(error)
 	homeFn := func() (string, error) {
 		if *homeErr != nil {
@@ -1383,6 +1374,7 @@ func newFixtureUsing(
 		ProviderPrefs:   providerPrefs,
 		PermissionPrefs: permissionPrefs,
 		Home:            homeFn,
+		Ledger:          newLedger(t),
 		Installed:       probe,
 		Minter:          minter,
 		Tools: agenttools.Deps{

@@ -25,6 +25,14 @@ func newFakeClaudeChat(
 ) (chatID string, launch kit.Launch, hookBase string) {
 	t.Helper()
 	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
+	chatID, launch = createFakeChat(t, h, imported, fake)
+	return chatID, launch, h.url + repoBase(imported)
+}
+
+// createFakeChat creates a chat on an installed fake provider and returns it
+// with the launch of the CLI placed on it.
+func createFakeChat(t *testing.T, h *harness, imported importedRepo, fake kit.FakeProvider) (string, kit.Launch) {
+	t.Helper()
 	var created struct {
 		ID string `json:"id"`
 	}
@@ -36,7 +44,7 @@ func newFakeClaudeChat(
 
 	detail := getAgentChat(t, h, repoBase(imported), created.ID)
 	require.NotEmpty(t, detail.LiveRunnerID, "the fake CLI must be placed on the new chat")
-	return created.ID, fake.AwaitLaunch(t, detail.LiveRunnerID), h.url + repoBase(imported)
+	return created.ID, fake.AwaitLaunch(t, detail.LiveRunnerID)
 }
 
 func TestFakeProvider_LaunchIsCapturedAndHooksReachTheChat(t *testing.T) {

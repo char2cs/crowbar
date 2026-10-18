@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/catalog"
@@ -44,10 +44,8 @@ type Runners struct {
 	// walk — see AncestorCwd's own doc for why this is declared here rather
 	// than imported directly.
 	ancestorCwd AncestorCwd
-	// home is the app-config crowbar-home resolver, NOT a wsId lookup: it
-	// anchors each chat's own prompt-delivery journal (worktreepath.LedgerChatsDir),
-	// which must stay put regardless of the chat's WorkspaceID (see promptJournalDirFor).
-	home func() (string, error)
+	// ledger is each chat's ledger: a prompt is a row there before any CLI sees it.
+	ledger *ledgerstore.Store
 	// daemonSocket is the socket the daemon bound, rendered into every callback's
 	// scope flags so none derives one of its own.
 	daemonSocket string
@@ -62,9 +60,6 @@ type Runners struct {
 	// idle-check-and-displace section of destructive TUI replacement.
 	turnStarts *inflight.Gate
 	work       *inflight.Work
-	// prompts is the durable at-most-once React-submission journal and the
-	// process-local transition lock shared with user_prompt hook confirmation.
-	prompts agentjournal.PromptRequests
 	// pendingHooks is the fork-before-runner-persistence barrier this type installs
 	// before the fork and finishes after the runner row exists.
 	pendingHooks *inflight.Hooks
@@ -98,14 +93,6 @@ type Runners struct {
 	// NIL when the terminal seam cannot render a screen, in which case every chat
 	// reports the zero verdict.
 	termWait termwait.Detector
-	// promptSettled fans out the edge where a delivery is retired without ever
-	// having produced a turn. Wired at sweep start rather than at construction,
-	// because what it publishes through is the hub — a layer above this one.
-	//
-	// consumed says whether anything proved the provider took the prompt. It is
-	// false for the terminal-wait sweep's bare timeout, where the client's queue
-	// item holds the only surviving copy of the user's text — see settleDelivery.
-	promptSettled func(chatID, workspaceID, requestID string, consumed bool)
 
 	// phases is the lifecycle operation each chat is mid-way through — see
 	// phase.go — and snapshots is where a change no aggregate event carries is
@@ -138,9 +125,7 @@ type Deps struct {
 	// AncestorCwd resolves a bubble's cwd through the tree usecase's ancestor
 	// walk — see the AncestorCwd interface's own doc.
 	AncestorCwd AncestorCwd
-	// Home is the app-config crowbar-home resolver, NOT a wsId lookup — see the
-	// Runners.home field it fills.
-	Home func() (string, error)
+	Ledger      *ledgerstore.Store
 	// DaemonSocket is the socket the daemon bound, rendered into the callbacks.
 	DaemonSocket string
 
@@ -169,16 +154,14 @@ func New(d Deps) *Runners {
 		term:          d.Terminal,
 		ws:            d.Workspace,
 		ancestorCwd:   d.AncestorCwd,
-		home:          d.Home,
+		ledger:        d.Ledger,
 		daemonSocket:  d.DaemonSocket,
 		spawns:        d.Spawns,
 		inflightTurns: d.InflightTurns,
 		turnStarts:    d.TurnStarts,
 		work:          d.Work,
-		// Owned outright, so built here rather than handed in: the at-most-once
-		// submission journal and the probe limiter are named by nothing outside this
-		// package.
-		prompts:      agentjournal.NewPromptRequests(),
+		// Owned outright, so built here rather than handed in: the probe limiter is
+		// named by nothing outside this package.
 		catalogs:     catalog.New(),
 		pendingHooks: d.PendingHooks,
 		minter:       d.Minter,
@@ -212,18 +195,17 @@ func (rs *Runners) SetTurns(turns Turns) {
 		return
 	}
 	rs.termWait = termwait.New(termwait.Deps{
-		Runners:    rs.runnerStore,
-		Chats:      rs.chats,
-		Choices:    rs.activity,
-		Screens:    screens,
-		Prompts:    turns,
-		Notices:    turns,
-		Work:       turns,
-		OnStall:    turns.CloseStalledTurn,
-		Deliveries: rs,
-		Messages:   turns,
-		Liveness:   rs,
-		Idle:       turns,
+		Runners:  rs.runnerStore,
+		Chats:    rs.chats,
+		Choices:  rs.activity,
+		Screens:  screens,
+		Prompts:  turns,
+		Notices:  turns,
+		Work:     turns,
+		OnStall:  turns.CloseStalledTurn,
+		Messages: turns,
+		Liveness: rs,
+		Idle:     turns,
 	})
 }
 
@@ -249,12 +231,3 @@ func composeContext(sections ...string) string {
 // first. A composition rule tested through a memoised global is a test that passes
 // for the wrong reason.
 var ComposeContext = composeContext
-
-// SetPromptJournal replaces the at-most-once submission journal. It exists for
-// the deterministic durability faults the usecase's tests inject; production
-// always uses the fsync-on-rename journal New builds.
-//
-// It REPLACES the journal, so it must be called before the chat under test has
-// submitted anything. The prompt journal holds no state between calls, so a
-// replacement loses nothing.
-func (rs *Runners) SetPromptJournal(prompts agentjournal.PromptRequests) { rs.prompts = prompts }

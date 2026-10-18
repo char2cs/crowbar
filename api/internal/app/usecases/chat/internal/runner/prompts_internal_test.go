@@ -8,7 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
+	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -73,7 +76,7 @@ func TestRegression_SubmitPromptOverAPI_ChangedSelectionRefusesTheLiveConnection
 	rs.apiConns.set(live.ID, &apiconn{})
 
 	_, handled, err := rs.submitPromptOverAPI(
-		context.Background(), domain.Chat{ID: "chat-1"}, "", "", "",
+		context.Background(), domain.Chat{ID: "chat-1"}, "",
 		live, restartOnChangeAgent{}, "", "reply with only: TWO",
 	)
 
@@ -99,17 +102,15 @@ func TestSubmitPromptOverAPI_UnchangedSelectionStillUsesTheLiveConnection(t *tes
 	}
 	rs.apiConns.set(live.ID, &apiconn{})
 
-	// An unchanged selection must still reach durable dispatch (rs.prompts,
-	// left nil here), which panics on Begin — the same "control flow got
-	// past the guard being tested" signal every other narrow stub in this
-	// package relies on, rather than mocking the full journal for a
-	// property this test does not otherwise care about.
+	// An unchanged selection must still reach dispatch (rs.ws, left nil here),
+	// which panics — the same "control flow got past the guard being tested"
+	// signal every other narrow stub in this package relies on.
 	assert.Panics(t, func() {
 		_, _, _ = rs.submitPromptOverAPI(
-			context.Background(), domain.Chat{ID: "chat-1"}, "", "", "",
+			context.Background(), domain.Chat{ID: "chat-1"}, "",
 			live, restartOnChangeAgent{}, "", "reply with only: DONE",
 		)
-	}, "an unchanged selection must still reach durable dispatch (rs.prompts), not stop at the restart guard")
+	}, "an unchanged selection must still reach dispatch, not stop at the restart guard")
 }
 
 // TestRegression_CommitPromptSpawn_APTYLessRunnerIsNotAMissingIdentity is the
@@ -126,12 +127,9 @@ func TestRegression_CommitPromptSpawn_APTYLessRunnerIsNotAMissingIdentity(t *tes
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	h.seedLiveAPIConn(t, "runner-1")
 	h.store.runner = engineagents.Runner{ID: "runner-1", ProviderID: "codex", TerminalSession: ""}
+	require.NoError(t, h.rs.recordPrompt(t.Context(), "chat-1", "req-1", "hello", ledger.DeliveryAPI, "runner-1"))
 
-	dir := t.TempDir()
-	_, _, err := h.rs.prompts.Begin(dir, "req-1", "hello", "hash-1", "codex", "", "runner-1", time.Now())
-	require.NoError(t, err)
-
-	got, err := h.rs.commitPromptSpawn(context.Background(), dir, "req-1", "hash-1", "runner-1")
+	got, err := h.rs.commitPromptSpawn(t.Context(), "chat-1", "req-1", "runner-1")
 	require.NoError(t, err, "a runner whose api connection IS its process has a delivery identity")
 	assert.Equal(t, "runner-1", got.RunnerID)
 	assert.Empty(t, got.TerminalSessionID, "there is no PTY to name, and naming one would be a lie")
@@ -140,14 +138,28 @@ func TestRegression_CommitPromptSpawn_APTYLessRunnerIsNotAMissingIdentity(t *tes
 // The refusal must SURVIVE for the case it was written for: a replacement
 // spawn that produced neither a PTY nor a connection has no delivery target
 // at all, and reporting success for it is how a prompt goes silently nowhere.
+// The prompt is settled, so it holds the chat busy for nobody.
 func TestCommitPromptSpawn_ARunnerWithNeitherPTYNorConnectionIsStillRefused(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	h.store.runner = engineagents.Runner{ID: "runner-1", ProviderID: "codex", TerminalSession: ""}
+	require.NoError(t, h.rs.recordPrompt(t.Context(), "chat-1", "req-1", "hello", ledger.DeliveryRestart, "runner-1"))
 
-	dir := t.TempDir()
-	_, _, err := h.rs.prompts.Begin(dir, "req-1", "hello", "hash-1", "codex", "", "runner-1", time.Now())
-	require.NoError(t, err)
-
-	_, err = h.rs.commitPromptSpawn(context.Background(), dir, "req-1", "hash-1", "runner-1")
+	_, err := h.rs.commitPromptSpawn(t.Context(), "chat-1", "req-1", "runner-1")
 	require.ErrorIs(t, err, ErrPromptOutcomeUnknown)
+	st, err := h.rs.ledger.State(t.Context(), "chat-1")
+	require.NoError(t, err)
+	got, ok := st.Receipt("req-1")
+	require.True(t, ok)
+	assert.Equal(t, ledger.PromptStatusSettled, got.Status)
+	assert.Equal(t, ledger.ReasonDeliveryFailed, got.Reason)
+}
+
+// newTestLedger is an in-memory chat ledger.
+func newTestLedger(tb testing.TB) *ledgerstore.Store {
+	tb.Helper()
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(tb, err)
+	l, err := ledgerstore.Open(db, time.Now)
+	require.NoError(tb, err)
+	return l
 }

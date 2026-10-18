@@ -280,7 +280,7 @@ func (rs *Runners) spawnRunner(
 	if exitedDuringStartup {
 		// onExit could not reconcile before the row existed. Now it does, after
 		// every hook the provider emitted before dying has had its ordered chance
-		// to update the ledger and prompt journal.
+		// to update the ledger.
 		rs.reconcileRunnerExit(context.Background(), runnerID)
 		return "", ErrProviderExitedDuringStartup
 	}

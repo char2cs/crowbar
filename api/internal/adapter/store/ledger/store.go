@@ -1,0 +1,206 @@
+// Package ledger stores each chat's ledger rows in an append-only SQLite
+// table, one writer per chat. Import it as ledgerstore.
+package ledger
+
+import (
+	"context"
+	"fmt"
+	"slices"
+	"sync"
+	"time"
+
+	"gorm.io/gorm"
+
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+)
+
+// FileName is the ledger database under the store directory.
+const FileName = "chat_ledger.db"
+
+// Subscriber is called after commit, under the chat's writer, in seq order.
+// It must not block: hand work to a channel or do it in O(1).
+type Subscriber func(chatID string, rows []ledger.Row, st ledger.State)
+
+// Store is the chat ledger. Each chat has a single writer that owns its seqs
+// and its cached State.
+type Store struct {
+	db    *gorm.DB
+	clock func() time.Time
+
+	mu      sync.Mutex
+	writers map[string]*chatWriter
+	subs    []Subscriber
+}
+
+// chatWriter serialises one chat's appends; state is nil until first touch.
+type chatWriter struct {
+	mu    sync.Mutex
+	state *ledger.State
+}
+
+// Open creates the ledger tables on db if they are missing.
+func Open(db *gorm.DB, clock func() time.Time) (*Store, error) {
+	for _, ddl := range schema {
+		if err := db.Exec(ddl).Error; err != nil {
+			return nil, fmt.Errorf("ledger: open: create schema: %w", err)
+		}
+	}
+	return &Store{db: db, clock: clock, writers: map[string]*chatWriter{}}, nil
+}
+
+// Subscribe adds fn to the subscribers every later commit is published to.
+func (s *Store) Subscribe(fn Subscriber) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.subs = append(s.subs, fn)
+}
+
+// Do runs decide under chatID's writer against the chat's current State and
+// appends the rows it returns: seqs assigned, each row checked, rows and head
+// committed in one transaction, the State advanced, subscribers called. It
+// returns the committed rows and the State after them. No rows commit nothing.
+func (s *Store) Do(
+	ctx context.Context,
+	chatID string,
+	decide func(ledger.State) ([]ledger.Row, error),
+) ([]ledger.Row, ledger.State, error) {
+	w := s.writer(chatID)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	cur, err := s.load(ctx, chatID, w)
+	if err != nil {
+		return nil, ledger.State{}, err
+	}
+	rows, err := decide(cur.Clone())
+	if err != nil || len(rows) == 0 {
+		return nil, cur.Clone(), err
+	}
+	stamped, next, err := s.stamp(chatID, cur, rows)
+	if err != nil {
+		return nil, cur.Clone(), err
+	}
+	if err := s.commit(ctx, chatID, stamped, next); err != nil {
+		return nil, cur.Clone(), err
+	}
+	w.state = &next
+	for _, fn := range s.subscribers() {
+		fn(chatID, stamped, next)
+	}
+	return stamped, next.Clone(), nil
+}
+
+// Append is Do with a decision that always appends rows.
+func (s *Store) Append(ctx context.Context, chatID string, rows ...ledger.Row) ([]ledger.Row, ledger.State, error) {
+	return s.Do(ctx, chatID, func(ledger.State) ([]ledger.Row, error) { return rows, nil })
+}
+
+// State is chatID's current State.
+func (s *Store) State(ctx context.Context, chatID string) (ledger.State, error) {
+	w := s.writer(chatID)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	cur, err := s.load(ctx, chatID, w)
+	if err != nil {
+		return ledger.State{}, err
+	}
+	return cur.Clone(), nil
+}
+
+// Forget erases chatID's rows and head, as a purged chat must leave nothing.
+func (s *Store) Forget(ctx context.Context, chatID string) error {
+	w := s.writer(chatID)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(`DELETE FROM chat_ledger WHERE chat_id = ?`, chatID).Error; err != nil {
+			return fmt.Errorf("rows: %w", err)
+		}
+		if err := tx.Exec(`DELETE FROM chat_ledger_heads WHERE chat_id = ?`, chatID).Error; err != nil {
+			return fmt.Errorf("head: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("ledger: forget %s: %w", chatID, err)
+	}
+	w.state = nil
+	return nil
+}
+
+// writer is chatID's writer. Entries are never removed: a waiter holding one
+// must contend with every later caller on the same mutex.
+func (s *Store) writer(chatID string) *chatWriter {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, ok := s.writers[chatID]
+	if !ok {
+		w = &chatWriter{}
+		s.writers[chatID] = w
+	}
+	return w
+}
+
+func (s *Store) subscribers() []Subscriber {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.subs)
+}
+
+// load folds chatID's rows into w on first touch. The caller holds w.mu.
+func (s *Store) load(ctx context.Context, chatID string, w *chatWriter) (ledger.State, error) {
+	if w.state != nil {
+		return *w.state, nil
+	}
+	rows, err := s.Read(ctx, chatID, 0, 0)
+	if err != nil {
+		return ledger.State{}, err
+	}
+	st := ledger.Fold(chatID, rows)
+	w.state = &st
+	return st, nil
+}
+
+// stamp numbers and dates rows after cur and checks each against the State
+// the rows before it leave.
+func (s *Store) stamp(chatID string, cur ledger.State, rows []ledger.Row) ([]ledger.Row, ledger.State, error) {
+	next := cur.Clone()
+	stamped := make([]ledger.Row, 0, len(rows))
+	for _, r := range rows {
+		r.ChatID, r.Seq, r.At = chatID, next.Head()+1, fromMicros(s.clock().UnixMicro())
+		if err := ledger.Check(next, r); err != nil {
+			return nil, cur, fmt.Errorf("ledger: append to %s: %w", chatID, err)
+		}
+		next.Apply(r)
+		stamped = append(stamped, r)
+	}
+	return stamped, next, nil
+}
+
+func (s *Store) commit(ctx context.Context, chatID string, rows []ledger.Row, next ledger.State) error {
+	open := 0
+	if next.HasOpenWork() {
+		open = 1
+	}
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, r := range rows {
+			if err := tx.Exec(
+				`INSERT INTO chat_ledger (chat_id, seq, kind, turn_id, scope, at, body) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				r.ChatID, r.Seq, string(r.Kind), r.TurnID, r.Scope, r.At.UnixMicro(), []byte(r.Body),
+			).Error; err != nil {
+				return fmt.Errorf("row %d: %w", r.Seq, err)
+			}
+		}
+		if err := tx.Exec(
+			`INSERT INTO chat_ledger_heads (chat_id, last_seq, open) VALUES (?, ?, ?)
+			 ON CONFLICT(chat_id) DO UPDATE SET last_seq = excluded.last_seq, open = excluded.open`,
+			chatID, next.Head(), open,
+		).Error; err != nil {
+			return fmt.Errorf("head: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("ledger: append to %s: %w", chatID, err)
+	}
+	return nil
+}

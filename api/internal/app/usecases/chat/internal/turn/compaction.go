@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -193,21 +194,11 @@ func (m *manualCompactRequests) consume(chatID string) bool {
 // own doc for the call site and its limits.
 func (t *Turns) ArmManualCompaction(chatID string) { t.manualCompact.arm(chatID) }
 
-// settleCompactDelivery retires this chat's pending prompt delivery ONLY when
-// the provider's own compact_start rides the prompt-delivery wire (claude:
-// compact_start dispatches "/compact" through compact.go's ordinary
-// SubmitPrompt path, so the pending delivery genuinely IS the compaction
-// request itself — see SettleDeliveryFor's own doc for why nothing else
-// would ever settle it). For any other wire (codex: a direct api-transport
-// call that never touches the prompt journal at all), settling here is not a
-// harmless no-op — it is a live-reported bug: codex can decide to compact
-// automatically, entirely on its own, BEFORE processing a message a person
-// already submitted and is still genuinely waiting on. That message's own
-// delivery is what SettleDeliveryFor would find pending, and retiring it
-// makes the just-sent message vanish from the transcript for the whole
-// compaction, reappearing only once the real turn finally opens and the
-// ledger catches up — confirmed live (codex, high context usage, a fresh
-// prompt that forced an automatic pre-turn compaction).
+// settleCompactDelivery settles the prompt the runner carries as consumed ONLY
+// when compact_start rides the prompt wire (claude: "/compact" is an ordinary
+// SubmitPrompt, never acknowledged by a user_prompt hook). On any other wire a
+// compaction is the provider's own, and may run BEFORE a pending prompt is
+// processed: settling it would drop a message the person is still waiting on.
 func (t *Turns) settleCompactDelivery(
 	ctx context.Context,
 	chat domain.Chat,
@@ -218,5 +209,5 @@ func (t *Turns) settleCompactDelivery(
 	if !ok || wire != "prompt" {
 		return
 	}
-	note(ctx, "settle delivery after compaction", t.runners.SettleDeliveryFor(ctx, chat.ID, runner.ID))
+	t.settleCarried(ctx, chat.ID, runner.ID, true, ledger.ReasonProviderBuiltin)
 }

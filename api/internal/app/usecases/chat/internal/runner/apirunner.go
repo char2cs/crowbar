@@ -107,9 +107,8 @@ func (rs *Runners) adoptAPIConn(ctx context.Context, req forkRequest) error {
 // connection this runner adopted instead of forking a PTY — the only carrier
 // such a runner has (its rendered argv, prompt and all, is never run).
 //
-// A failure FAILS THE SPAWN: there is no other carrier, and the caller turns
-// it into the journal's "uncertain" rather than a runner reported healthy with
-// the user's message nowhere.
+// A failure FAILS THE SPAWN: there is no other carrier, and the caller settles
+// the prompt rather than report a runner healthy with the user's message nowhere.
 func (rs *Runners) carryPromptOverAPIConn(ctx context.Context, req forkRequest) error {
 	if req.promptMessage == "" {
 		return nil

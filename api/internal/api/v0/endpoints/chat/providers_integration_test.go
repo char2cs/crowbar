@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat"
@@ -38,10 +40,15 @@ func newProviderServer(
 
 	agentsEngine := engineagents.New()
 	t.Cleanup(agentsEngine.Close)
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	chatLedger, err := ledgerstore.Open(db, time.Now)
+	require.NoError(t, err)
 	uc := agentusecase.New(agentusecase.Deps{
 		Agents:        agentsEngine,
 		ProviderPrefs: prefs,
 		Home:          homeFn,
+		Ledger:        chatLedger,
 		Installed:     probe,
 	})
 
