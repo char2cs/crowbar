@@ -1,1 +1,1 @@
-{"success":true,"data":{"status":"halted","version":"0.1.0","pid":4242,"detail":{"reason":"layout_newer","message":"this home is at layout 9 but this crowbar only knows layout 0: run a newer crowbar","layout":9,"known":0}}}
+{"success":true,"data":{"status":"halted","version":"0.1.0","pid":4242,"detail":{"reason":"layout_newer","message":"this home is at layout 9 but this Crowbar only knows layout 0: run a newer Crowbar","layout":9,"known":0}}}

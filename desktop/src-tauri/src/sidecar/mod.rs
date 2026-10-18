@@ -1,10 +1,14 @@
 pub mod health;
 pub mod paths;
+pub mod stop;
 pub mod supervisor;
+pub mod watchdog;
 
 pub use paths::{daemon_log_path, resolve, socket_path};
+pub use stop::shutdown;
+pub use watchdog::start_watchdog;
 
-use health::{announce_halt, probe_ready, wait_for_health};
+use health::{announce_halt, wait_for_health};
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -12,7 +16,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use http_body_util::{BodyExt, Empty};
+use http_body_util::Empty;
 use hyper::Request;
 use hyper_util::rt::TokioIo;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
@@ -24,26 +28,10 @@ use tokio::net::UnixStream;
 
 /// Cap per daemon-log generation; one previous generation is kept as `.1`.
 const DAEMON_LOG_MAX_LEN: u64 = 4 * 1024 * 1024;
-/// How often the watchdog probes the daemon's deep readiness path.
-const WATCHDOG_INTERVAL: Duration = Duration::from_secs(10);
-/// Per-probe budget; the deep path answers in microseconds when healthy.
-const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
-/// A final, more generous probe budget after the failure threshold trips,
-/// giving a daemon that just resumed from an OS suspension time to answer
-/// before the watchdog commits to a restart.
-const SUSPEND_GRACE_PROBE: Duration = Duration::from_secs(8);
-/// Consecutive failed probes before the watchdog declares a wedge.
-const PROBE_FAILURE_THRESHOLD: u32 = 3;
 /// At most this many automatic respawns per window; beyond it the daemon is
 /// declared dead until the next app launch (guards against crash loops).
 const RESTART_MAX: usize = 3;
 const RESTART_WINDOW: Duration = Duration::from_secs(600);
-/// Grace between SIGQUIT (Go dumps goroutines to captured stderr) and SIGKILL.
-const SIGQUIT_GRACE: Duration = Duration::from_secs(2);
-/// How long an intentional stop waits for SIGTERM's graceful shutdown (Container.Close
-/// → Terminal.Shutdown → flush + persist) before resorting to SIGKILL.
-const SIGTERM_GRACE: Duration = Duration::from_secs(3);
-
 /// Holds the child process handle for the crowbar-api sidecar so it can be
 /// killed cleanly when the Tauri window closes, plus the path to the unix
 /// socket the daemon is listening on so lib.rs and the api_proxy can reach it.
@@ -291,313 +279,4 @@ pub(crate) async fn http_get(
         .body(Empty::<bytes::Bytes>::new())?;
 
     Ok(sender.send_request(req).await?)
-}
-
-/// Fetches a full goroutine dump from the daemon's pprof surface, so a wedge
-/// leaves behind the stacks that explain which lock everything was stuck on.
-async fn capture_goroutine_dump(socket: &PathBuf) -> Option<String> {
-    let resp = http_get(socket, "/debug/pprof/goroutine?debug=2")
-        .await
-        .ok()?;
-    if !resp.status().is_success() {
-        return None;
-    }
-    let body = resp.into_body().collect().await.ok()?.to_bytes();
-    Some(String::from_utf8_lossy(&body).into_owned())
-}
-
-/// Watches the daemon and recovers it from wedges: after
-/// PROBE_FAILURE_THRESHOLD consecutive failed deep probes it appends a
-/// goroutine dump to the daemon log, SIGQUITs the daemon (the Go runtime
-/// prints all stacks to the captured stderr and exits), and escalates to
-/// SIGKILL; the output pump's Terminated handler then respawns within budget.
-///
-/// Spawned once per app run — respawned daemons are picked up automatically
-/// because the probe reads the socket path from managed state on every tick.
-pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
-    tauri::async_runtime::spawn(async move {
-        let mut tracker = supervisor::FailureTracker::new(PROBE_FAILURE_THRESHOLD);
-        let mut prev_cycle = std::time::SystemTime::now();
-        loop {
-            tokio::time::sleep(WATCHDOG_INTERVAL).await;
-
-            // Wall-clock elapsed since the previous cycle. SystemTime — unlike a
-            // monotonic Instant — keeps advancing through a system sleep, so an
-            // OS suspension (App Nap / sleep) that froze this whole app surfaces
-            // here as a gap far larger than the nominal cycle.
-            let now = std::time::SystemTime::now();
-            let cycle = now.duration_since(prev_cycle).unwrap_or(Duration::ZERO);
-            prev_cycle = now;
-
-            let state = app.state::<SidecarHandle>();
-            if state.shutting_down.load(Ordering::SeqCst) {
-                return;
-            }
-            // No child: daemon is mid-respawn or gave up its budget; nothing
-            // to probe (and nothing the watchdog could kill anyway).
-            if state.child.lock().unwrap().is_none() {
-                tracker.reset();
-                continue;
-            }
-            let Some(socket) = state.socket_path() else {
-                continue;
-            };
-
-            // The app was suspended across this cycle (App Nap / system sleep):
-            // the daemon was frozen alongside us, not wedged, and answers again
-            // the instant it resumes. Counting this cycle's probe failure would
-            // SIGQUIT a healthy daemon on wake — the exact false positive behind
-            // the "backend closed itself while idle" reports. Discard the cycle.
-            if supervisor::cycle_was_suspended(cycle, WATCHDOG_INTERVAL, PROBE_TIMEOUT) {
-                tracker.reset();
-                continue;
-            }
-
-            let outcome = tokio::time::timeout(PROBE_TIMEOUT, probe_ready(&socket))
-                .await
-                .unwrap_or(supervisor::Probe::Unserved);
-
-            // We could not dial the daemon because *we* have no descriptors left.
-            // That is our bug, not the daemon's, and no restart of it can hand one
-            // back — the next probe would fail identically until the app is
-            // restarted. Killing a backend on this evidence is how a healthy daemon
-            // gets destroyed mid-session, so refuse to, and say so loudly.
-            if outcome == supervisor::Probe::LocalDescriptorExhaustion {
-                log::error!(
-                    "the app is out of file descriptors and cannot dial the daemon. \
-                     NOT restarting it — the daemon is not what is broken here."
-                );
-                tracker.reset();
-                continue;
-            }
-            if !tracker.observe_probe(outcome) {
-                continue;
-            }
-
-            // Three consecutive failed probes. Before the irreversible
-            // SIGQUIT+SIGKILL, rule out the false positive that dominates in
-            // practice: an OS-suspended daemon. macOS task-suspends an idle,
-            // backgrounded helper; while suspended it fails every probe because
-            // it is not executing, then answers the instant it resumes. Killing
-            // it is the "backend closed itself while idle" bug. A genuinely
-            // wedged daemon is running (state R/S) yet stuck, and answers
-            // neither the probe nor a longer grace probe.
-            let daemon_suspended = match state.daemon_pid() {
-                Some(pid) => process_is_suspended(pid).await,
-                None => false,
-            };
-            // A last, more generous probe. It exonerates the daemon two ways: it
-            // answered after all (it had merely resumed, or was transiently slow),
-            // or we could not even dial it because we are out of descriptors — in
-            // which case the silence was never the daemon's to explain.
-            let exonerated = if daemon_suspended {
-                false
-            } else {
-                !supervisor::probe_indicts_daemon(
-                    tokio::time::timeout(SUSPEND_GRACE_PROBE, probe_ready(&socket))
-                        .await
-                        .unwrap_or(supervisor::Probe::Unserved),
-                )
-            };
-            if !supervisor::should_kill_wedged(daemon_suspended, exonerated) {
-                log::warn!(
-                    "crowbar daemon failed {PROBE_FAILURE_THRESHOLD} probes but is {} \
-                     — not a wedge; leaving it to recover",
-                    if daemon_suspended {
-                        "OS-suspended"
-                    } else {
-                        "answering again"
-                    }
-                );
-                tracker.reset();
-                continue;
-            }
-
-            log::error!(
-                "crowbar daemon failed {PROBE_FAILURE_THRESHOLD} consecutive readiness \
-                 probes; capturing goroutine dump and restarting it"
-            );
-            let _ = app.emit("daemon:unhealthy", ());
-
-            if let Some(dump) =
-                tokio::time::timeout(Duration::from_secs(10), capture_goroutine_dump(&socket))
-                    .await
-                    .ok()
-                    .flatten()
-            {
-                if let Some(mut f) = open_daemon_log() {
-                    let _ = writeln!(
-                        f,
-                        "=== watchdog goroutine dump (epoch {}) ===\n{dump}\n=== end dump ===",
-                        epoch_secs()
-                    );
-                }
-            }
-
-            kill_wedged(&app).await;
-            tracker.reset();
-        }
-    });
-}
-
-/// Reports whether the process `pid` is OS-suspended (macOS task_suspend or a
-/// job-control SIGSTOP) rather than running. `ps -o stat` reports a leading 'T'
-/// for a stopped/suspended process and 'S'/'R' for a running one. On any error
-/// we report false: better to let a genuine wedge be killed than to suppress a
-/// restart because the process state could not be read.
-async fn process_is_suspended(pid: i32) -> bool {
-    let output = tokio::process::Command::new("ps")
-        .args(["-o", "stat=", "-p", &pid.to_string()])
-        .output()
-        .await;
-    match output {
-        Ok(out) => String::from_utf8_lossy(&out.stdout)
-            .trim_start()
-            .starts_with('T'),
-        Err(_) => false,
-    }
-}
-
-/// SIGQUIT then SIGKILL for a daemon that stopped answering. SIGQUIT is not
-/// caught by the daemon (it handles only SIGINT/SIGTERM), so the Go runtime's
-/// default handler prints every goroutine stack to stderr — captured by the
-/// output pump — and exits; SIGKILL covers a runtime too wedged even for that.
-///
-/// Signals go to the health-reported pid via libc; the CommandChild is taken
-/// and dropped without calling into it — pid()/kill() lock the shared_child
-/// mutex the shell plugin's wait thread holds for the child's lifetime, which
-/// deadlocked this exact path in the 2026-07-04 live wedge drill.
-async fn kill_wedged<R: Runtime>(app: &AppHandle<R>) {
-    let Some((child, pid)) = take_child(app.state::<SidecarHandle>().inner()) else {
-        return;
-    };
-    #[cfg(unix)]
-    {
-        let _ = tokio::task::spawn_blocking(move || {
-            signal_then_kill(pid, libc::SIGQUIT, SIGQUIT_GRACE);
-            drop(child);
-        })
-        .await;
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = pid;
-        let _ = child.kill();
-    }
-}
-
-/// Stops the daemon for good — the app is ending (last window closed, or Cmd+Q):
-/// SIGTERM, so it flushes and persists its terminals for the next launch, then
-/// SIGKILL only if it is still running when the grace runs out. Blocks for at most
-/// the grace; idempotent (the second ending finds no child).
-///
-/// Called from BOTH ways the app can end, because they are genuinely different code
-/// paths in tao: the last window being destroyed, and `RunEvent::Exit` — which is
-/// what Cmd+Q produces without closing windows individually.
-pub fn shutdown(state: &SidecarHandle, reason: &str) {
-    // Tell the supervisor this exit is intentional so neither the output pump nor
-    // the watchdog respawns the daemon.
-    state.shutting_down.store(true, Ordering::SeqCst);
-    let Some((child, pid)) = take_child(state) else {
-        log::debug!("daemon shutdown ({reason}): already stopped");
-        return;
-    };
-    log::info!("stopping crowbar daemon ({reason}, pid {pid})");
-    #[cfg(unix)]
-    {
-        signal_then_kill(pid, libc::SIGTERM, SIGTERM_GRACE);
-        drop(child);
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = pid;
-        let _ = child.kill();
-    }
-}
-
-/// Takes the running child and its pid out of the handle, so exactly one stop path
-/// owns ending it and no later path can signal a pid that has since been recycled.
-fn take_child(state: &SidecarHandle) -> Option<(CommandChild, i32)> {
-    let child = state.child.lock().unwrap().take()?;
-    let pid = state.daemon_pid.swap(0, Ordering::SeqCst);
-    Some((child, pid))
-}
-
-/// Sends `first` to `pid`, waits up to `grace` for the process to go, and SIGKILLs
-/// it only if it has not. A pid of 0 (never recorded) signals nothing.
-#[cfg(unix)]
-fn signal_then_kill(pid: i32, first: libc::c_int, grace: Duration) {
-    if pid <= 0 {
-        return;
-    }
-    let pid = pid as libc::pid_t;
-    unsafe { libc::kill(pid, first) };
-    let deadline = Instant::now() + grace;
-    // Poll before the first sleep: a daemon that exits promptly is the normal case.
-    loop {
-        // kill(pid, 0) fails (ESRCH) once the process is gone and reaped.
-        if unsafe { libc::kill(pid, 0) } != 0 {
-            return;
-        }
-        if Instant::now() >= deadline {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    unsafe { libc::kill(pid, libc::SIGKILL) };
-}
-
-#[cfg(test)]
-mod tests {
-    #[cfg(unix)]
-    mod signal_then_kill {
-        use super::super::signal_then_kill;
-        use std::process::Command;
-        use std::time::{Duration, Instant};
-
-        /// Spawn `script` and reap it on a thread, as the shell plugin's wait thread
-        /// does for the real daemon — an unreaped zombie still answers kill(pid, 0).
-        /// Callers hold the fd-test lock: spawning opens descriptors.
-        fn spawn_reaped(script: &str) -> (i32, std::thread::JoinHandle<()>) {
-            let mut child = Command::new("/bin/sh")
-                .args(["-c", script])
-                .spawn()
-                .unwrap();
-            let pid = child.id() as i32;
-            let reaper = std::thread::spawn(move || {
-                let _ = child.wait();
-            });
-            (pid, reaper)
-        }
-
-        #[test]
-        fn a_process_that_honours_the_first_signal_is_not_waited_out() {
-            let _serialised = crate::test_support::fd_tests_blocking();
-            let (pid, reaper) = spawn_reaped("exec sleep 30");
-            let started = Instant::now();
-            signal_then_kill(pid, libc::SIGTERM, Duration::from_secs(10));
-            reaper.join().unwrap();
-            assert!(
-                started.elapsed() < Duration::from_secs(5),
-                "a daemon that exits on SIGTERM must not be held for the whole grace"
-            );
-        }
-
-        #[test]
-        fn a_process_that_ignores_the_first_signal_is_killed_after_the_grace() {
-            let _serialised = crate::test_support::fd_tests_blocking();
-            // Signal-ignoring: the shell traps TERM and waits on its child.
-            let (pid, reaper) = spawn_reaped("trap '' TERM; while :; do sleep 1; done");
-            std::thread::sleep(Duration::from_millis(100)); // let the trap install
-            signal_then_kill(pid, libc::SIGTERM, Duration::from_millis(200));
-            reaper.join().unwrap(); // returns only because SIGKILL ended it
-            assert_ne!(unsafe { libc::kill(pid, 0) }, 0);
-        }
-
-        #[test]
-        fn a_zero_pid_signals_nothing() {
-            // kill(0, sig) would signal our whole process group.
-            signal_then_kill(0, libc::SIGTERM, Duration::from_millis(1));
-        }
-    }
 }

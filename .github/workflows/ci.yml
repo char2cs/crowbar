@@ -37,6 +37,8 @@ jobs:
               - 'web/**'
             tauri:
               - 'desktop/**'
+              # The Go-owned health fixtures the Rust health tests parse.
+              - 'api/internal/core/bootgate/testdata/**'
               - '.github/workflows/ci.yml'
             website:
               - 'website/**'

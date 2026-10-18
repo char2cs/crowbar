@@ -176,7 +176,8 @@ fn is_descriptor_exhaustion(err: &(dyn std::error::Error + 'static)) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{supervisor, PROBE_FAILURE_THRESHOLD};
+    use super::super::supervisor;
+    use super::super::watchdog::PROBE_FAILURE_THRESHOLD;
     use super::{parse_health, probe_ready, wait_for_health, Health, Unready};
     use std::path::{Path, PathBuf};
     use supervisor::{probe_indicts_daemon, FailureTracker, Probe};
@@ -191,7 +192,7 @@ mod tests {
     const HALTED: &str =
         include_str!("../../../../api/internal/core/bootgate/testdata/health-halted.json");
     const HALT_MESSAGE: &str =
-        "this home is at layout 9 but this crowbar only knows layout 0: run a newer crowbar";
+        "this home is at layout 9 but this Crowbar only knows layout 0: run a newer Crowbar";
 
     #[test]
     fn the_three_known_states_map_to_their_health() {

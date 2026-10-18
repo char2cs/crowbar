@@ -104,7 +104,7 @@ func readHome(
 	}
 	if known := cat.Known(); layout > known {
 		return homeRead{layout: layout, refusal: &refusal{HaltLayoutNewer, fmt.Sprintf(
-			"this home is at layout %d but this crowbar only knows layout %d: run a newer crowbar", layout, known)}}
+			"this home is at layout %d but this Crowbar only knows layout %d: run a newer Crowbar", layout, known)}}
 	}
 	view, err := readLedger(ledgerPath(h))
 	if err != nil {

@@ -376,7 +376,7 @@ func TestGate_HealthMatchesTheDesktopFixtures(
 			State: bootgate.StateHalted,
 			Detail: haltedDetail{
 				Reason:  "layout_newer",
-				Message: "this home is at layout 9 but this crowbar only knows layout 0: run a newer crowbar",
+				Message: "this home is at layout 9 but this Crowbar only knows layout 0: run a newer Crowbar",
 				Layout:  9,
 				Known:   0,
 			},

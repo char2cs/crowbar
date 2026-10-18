@@ -165,9 +165,7 @@ func TestHandoffDumpRoundTrip_ProjectHomeHasNoRepo(t *testing.T) {
 		scopedAgentPath(got.project, got.repo, got.workspace, "/"+got.args[0]+"/handoff"))
 }
 
-// The daemon binds the socket of CROWBAR_HOME exactly as given, but a callback's
-// --home is the cleaned root, so deriving a socket from it dials one nobody bound.
-// A callback must dial the socket its rendered scope flags hand it.
+// A callback must dial the socket its rendered scope flags hand it, not one derived from its --home.
 func TestHookRoundTrip_DialsTheSocketTheDaemonBound_ForANonCleanHome(t *testing.T) {
 	base, err := os.MkdirTemp("", "cb")
 	require.NoError(t, err)

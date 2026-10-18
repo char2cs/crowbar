@@ -201,7 +201,7 @@ func TestInspect_NewerLayoutReturnsHalt(t *testing.T) {
 	got := halted(t, err)
 	assert.Equal(t, HaltLayoutNewer, got.Reason)
 	assert.Equal(t, 9, got.Layout)
-	assert.Contains(t, got.Message, "layout 9")
+	assert.Equal(t, "this home is at layout 9 but this Crowbar only knows layout 1: run a newer Crowbar", got.Message)
 }
 
 func TestInspect_ACancelledContextIsNotAHalt(t *testing.T) {

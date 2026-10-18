@@ -26,7 +26,7 @@ vi.mock('@tauri-apps/api/event', () => ({
   }),
 }))
 
-const REASON = 'this home is at layout 9 but this crowbar only knows layout 0'
+const REASON = 'this home is at layout 9 but this Crowbar only knows layout 0'
 
 type TauriWindow = Window & { __TAURI_INTERNALS__?: object }
 const tauriWindow = window as TauriWindow
