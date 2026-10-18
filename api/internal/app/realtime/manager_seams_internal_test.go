@@ -23,8 +23,8 @@ func (m *OriginSyncManager) driveCyclesForTest(
 }
 
 // waitRunnersForTest blocks until every run goroutine started by Acquire has
-// actually returned. Release/StopAll only cancel a context; this is the real
-// signal that the sync has stopped, so a test can assert "nothing fires after
+// actually returned. Release only cancels a context; this is the real signal
+// that the sync has stopped, so a test can assert "nothing fires after
 // Release" without a sleep.
 func (m *OriginSyncManager) waitRunnersForTest() {
 	m.runners.Wait()

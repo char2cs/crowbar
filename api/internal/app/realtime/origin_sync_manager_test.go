@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -51,13 +52,13 @@ func (f *fakeOriginWorkspaces) Get(
 // the REAL "a fetch happened" signal instead of sleeping.
 type fakeOriginFetcher struct {
 	calls chan string
-	// ffCalls records `merge --ff-only` invocations as "<repoPath>:<ref>", so a
-	// test can assert both that an advance happened and that it targeted origin's
-	// ref. Buffered like calls so a fetcher never blocks a run goroutine.
+	// ffCalls records `merge --ff-only` calls as "<repoPath>:<ref>", buffered like
+	// calls so a fetcher never blocks a run goroutine.
 	ffCalls chan string
-	// ffErr, when set, is what MergeFFOnly returns — the seam for "git refused
-	// because the tree is dirty".
+	// ffErr, when set, is what MergeFFOnly returns: git refusing a dirty tree.
 	ffErr error
+	// hold, when set, keeps every FetchRef in flight until it is closed.
+	hold chan struct{}
 }
 
 func newFakeOriginFetcher() *fakeOriginFetcher {
@@ -79,25 +80,20 @@ func (f *fakeOriginFetcher) FetchRef(
 	branch string,
 ) error {
 	f.calls <- repoPath + ":" + branch
+	if f.hold != nil {
+		<-f.hold
+	}
 	return nil
 }
 
-// testOriginSyncInterval is deliberately far longer than any test can run: no
-// test waits for the cadence, and no cadence may fire behind a test's back.
-// Cycles are driven explicitly through the injected tick source (originDriver),
-// so the manager syncs exactly when the test says so — never on a clock. This
-// matters more here than anywhere: a real origin sync holds the per-clone git
-// mutex for up to 30 s, so "sleep long enough for a cycle" would be both a lie
-// and unbearably slow.
+// testOriginSyncInterval is far longer than any test runs: cycles happen only
+// when a test fires the injected tick source (originDriver), never on a clock,
+// because a real origin sync can hold the per-clone git mutex for up to 30 s.
 const testOriginSyncInterval = time.Hour
 
-// originDriver owns the manager's two deterministic seams.
-//
-//   - ticks is UNBUFFERED: sending on it is a rendezvous with the run goroutine,
-//     so the send itself proves a runner is alive and has taken the tick.
-//   - cycles receives once per COMPLETED cycle (the immediate-on-Acquire sync
-//     included), which is the signal a negative assertion needs: "the cycle ran to
-//     completion, and it fetched nothing".
+// originDriver owns the manager's two seams. ticks is UNBUFFERED, so a send is a
+// rendezvous proving a live runner took the tick; cycles receives once per
+// COMPLETED cycle (open-time sync included), which a "fetched nothing" check needs.
 type originDriver struct {
 	ticks  chan time.Time
 	cycles chan struct{}
@@ -168,9 +164,7 @@ func TestOriginSyncManager_Acquire_SkipsWorkspaceWithParent(t *testing.T) {
 
 	m.Acquire("w2")
 
-	// Block on the cycle actually COMPLETING, then assert it fetched nothing. The
-	// old form slept 20 ms and hoped the cycle had both run and skipped by then —
-	// which on a loaded machine proves neither.
+	// Block on the cycle COMPLETING, then assert it fetched nothing.
 	<-d.cycles
 	assert.Empty(t, f.calls, "FetchRef fired for a workspace with a parent")
 }
@@ -265,12 +259,39 @@ func TestOriginSyncManager_StopAll_Idempotent(t *testing.T) {
 
 	require.NotPanics(t, m.StopAll)
 	require.NotPanics(t, m.StopAll) // second call is safe
-	m.waitRunnersForTest()
 
 	m.mu.Lock()
 	count := len(m.handles)
 	m.mu.Unlock()
 	assert.Equal(t, 0, count)
+}
+
+// StopAll returns only once a fetch already in flight has finished: shutdown
+// closes the stores, and a test removes the repo, right after it.
+func TestOriginSyncManager_StopAll_WaitsForAFetchInFlight(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		w := newFakeOriginWorkspaces()
+		w.set(protectedWorkspace("w1"))
+		f := newFakeOriginFetcher()
+		f.hold = make(chan struct{})
+		m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, w, f)
+		m.Acquire("w1")
+		<-f.calls
+
+		stopped := make(chan struct{})
+		go func() { m.StopAll(); close(stopped) }()
+		synctest.Wait()
+		returnedEarly := false
+		select {
+		case <-stopped:
+			returnedEarly = true
+		default:
+		}
+
+		close(f.hold)
+		<-stopped
+		assert.False(t, returnedEarly, "StopAll returned while the open-time fetch was still running")
+	})
 }
 
 func TestOriginSyncManager_AcquireAfterClose_NoOp(t *testing.T) {
@@ -308,9 +329,7 @@ func TestOriginSyncManager_SyncTick_WorkspaceLookupError_Swallowed(t *testing.T)
 }
 
 // TestOriginSyncManager_TickSource_DefaultsToIntervalTicker pins the production
-// wiring the seam replaces: with no test source installed, run's cadence channel
-// is a real interval ticker. It asserts the SOURCE, never that it fires — so
-// there is nothing to wait for.
+// wiring the seam replaces: with no test source, the cadence is a real ticker.
 func TestOriginSyncManager_TickSource_DefaultsToIntervalTicker(t *testing.T) {
 	m := NewOriginSyncManager(
 		context.Background(),
@@ -324,10 +343,8 @@ func TestOriginSyncManager_TickSource_DefaultsToIntervalTicker(t *testing.T) {
 	stop()
 }
 
-// blockingFetcher blocks each FetchRef on the per-fetch context until that
-// context is cancelled, then reports the cancellation cause on a channel. It
-// proves the manager bounds a hung fetch: a remote that never returns must not
-// wedge the run goroutine forever.
+// blockingFetcher blocks each FetchRef until its context is cancelled, then
+// reports the cause, proving a hung remote cannot wedge the run goroutine.
 type blockingFetcher struct {
 	released chan error
 }
@@ -354,11 +371,9 @@ func (b *blockingFetcher) FetchRef(
 	return ctx.Err()
 }
 
-// TestOriginSyncManager_SyncTick_CancelsHungFetch is one of the two tests whose
-// SUBJECT is a timeout, so a clock is intrinsic: the injected 10 ms deadline
-// stands in for the production 30 s originSyncTimeout. It is not used as
-// synchronisation — every wait below blocks on a real signal (the fetcher's
-// released channel, the tick's own return).
+// TestOriginSyncManager_SyncTick_CancelsHungFetch has a timeout as its SUBJECT:
+// the injected 10 ms deadline stands in for originSyncTimeout and is never used
+// as synchronisation; every wait below blocks on a real signal.
 func TestOriginSyncManager_SyncTick_CancelsHungFetch(t *testing.T) {
 	w := newFakeOriginWorkspaces()
 	w.set(protectedWorkspace("w1"))
@@ -385,9 +400,8 @@ func TestOriginSyncManager_SyncTick_DecoupledFromConnCtx(t *testing.T) {
 	b := newBlockingFetcher()
 	m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, w, b)
 
-	// The per-connection ctx is ALREADY cancelled, yet WithoutCancel must let the
-	// fetch start (it only stops via its own timeout). This preserves the
-	// best-effort background-sync guarantee while still bounding the fetch.
+	// The per-connection ctx is ALREADY cancelled; WithoutCancel must still let
+	// the fetch start, stopping only on its own timeout.
 	connCtx, cancelConn := context.WithCancel(context.Background())
 	cancelConn()
 
@@ -409,15 +423,9 @@ var (
 	_ OriginFetcher        = (*blockingFetcher)(nil)
 )
 
-// TestOriginSyncManager_OpenFastForwardsLockedRoot pins the open-time advance: a
-// locked root's worktree is fast-forwarded onto origin's ref when the user opens
-// it, so the files they are about to read are the files origin has.
-//
-// A locked root is never advanced automatically otherwise — see the tick test
-// below — so this is the ONLY moment its working tree moves without the user
-// asking. Nothing else in the daemon advances it: FetchRef (every tick) touches
-// only refs/remotes/origin/<branch>, and a child forking off the parent
-// deliberately leaves the parent's ref alone.
+// TestOriginSyncManager_OpenFastForwardsLockedRoot pins the open-time advance:
+// opening a locked root fast-forwards it onto origin's ref. It is the ONLY moment
+// its working tree moves unasked; every tick's FetchRef touches only the ref.
 func TestOriginSyncManager_OpenFastForwardsLockedRoot(t *testing.T) {
 	w := newFakeOriginWorkspaces()
 	w.set(lockedRootWorkspace("w1"))
@@ -434,13 +442,9 @@ func TestOriginSyncManager_OpenFastForwardsLockedRoot(t *testing.T) {
 	<-d.cycles
 }
 
-// TestOriginSyncManager_IntervalTickDoesNotFastForward is the other half of the
-// contract, and the reason the advance is gated on open at all.
-//
-// The sync ticks only while a client is SUBSCRIBED to this workspace — i.e. only
-// while the user is looking at it. Advancing on a tick would therefore move files
-// under a live editor or a mid-task agent, and would do nothing during the whole
-// window when advancing is harmless. The tick must refresh the ref and stop there.
+// TestOriginSyncManager_IntervalTickDoesNotFastForward: the sync ticks only while
+// the user is looking, so advancing on a tick would move files under a live
+// editor or agent. A tick refreshes the ref and stops there.
 func TestOriginSyncManager_IntervalTickDoesNotFastForward(t *testing.T) {
 	w := newFakeOriginWorkspaces()
 	w.set(lockedRootWorkspace("w1"))
@@ -463,11 +467,9 @@ func TestOriginSyncManager_IntervalTickDoesNotFastForward(t *testing.T) {
 	assert.Empty(t, g.ffCalls, "...and it fast-forwarded nothing")
 }
 
-// TestOriginSyncManager_OpenSkipsWorkspacesItDoesNotOwn proves the advance is
-// confined to provisioned, locked, non-default roots. The repo home is the
-// user's own folder, which Crowbar does not own; a placeholder has no worktree
-// to advance; an unlocked root could carry local commits a fast-forward has no
-// business touching. Each still gets its ref refreshed.
+// TestOriginSyncManager_OpenSkipsWorkspacesItDoesNotOwn: only provisioned, locked,
+// non-default roots advance — not the user's repo home, a placeholder with no
+// worktree, or an unlocked root that may carry local commits. All still fetch.
 func TestOriginSyncManager_OpenSkipsWorkspacesItDoesNotOwn(t *testing.T) {
 	home := lockedRootWorkspace("home")
 	home.IsDefault = true
@@ -499,10 +501,8 @@ func TestOriginSyncManager_OpenSkipsWorkspacesItDoesNotOwn(t *testing.T) {
 	}
 }
 
-// TestOriginSyncManager_OpenSurvivesRefusedFastForward proves a refused advance
-// is inert. git refuses rather than overwrite local changes, which is exactly
-// why no pre-flight cleanliness check is needed — and a refusal must never break
-// opening a workspace.
+// TestOriginSyncManager_OpenSurvivesRefusedFastForward: git refuses rather than
+// overwrite local changes, and that refusal must never break opening a workspace.
 func TestOriginSyncManager_OpenSurvivesRefusedFastForward(t *testing.T) {
 	w := newFakeOriginWorkspaces()
 	w.set(lockedRootWorkspace("w1"))

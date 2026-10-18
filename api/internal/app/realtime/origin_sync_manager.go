@@ -50,11 +50,10 @@ type OriginFetcher interface {
 // staleness is far less time-sensitive than PR/CI status.
 const OriginSyncInterval = 5 * time.Minute
 
-// originSyncTimeout bounds a single FetchRef invocation. A hung remote
-// (network partition, credential prompt on stdin) must not leak the sync
-// goroutine forever; WithoutCancel decouples the fetch from the
-// per-connection ctx, and this timeout still guarantees forward progress on
-// every tick.
+// originSyncTimeout bounds a single FetchRef invocation, and so StopAll's join:
+// a hung remote (network partition, credential prompt on stdin) must not wedge
+// the sync goroutine or shutdown. WithoutCancel decouples the fetch from the
+// per-connection ctx; this timeout still guarantees forward progress.
 const originSyncTimeout = 30 * time.Second
 
 // originSyncHandle tracks one workspace's running origin-sync ticker: its
@@ -85,7 +84,7 @@ type OriginSyncManager struct {
 
 	// runners tracks the live run goroutines. Cancelling a context only ASKS a
 	// runner to stop; runners.Wait is the real "it has stopped" signal, which
-	// tests block on (waitRunnersForTest) instead of sleeping.
+	// StopAll joins on and tests block on after Release (waitRunnersForTest).
 	runners sync.WaitGroup
 
 	// ticks and cycleDone are the deterministic test seams installed by
@@ -167,9 +166,9 @@ func (m *OriginSyncManager) Release(
 	h.cancel()
 }
 
-// StopAll cancels every live sync and clears the handle map. It is idempotent
-// and marks the manager closed so subsequent Acquire calls no-op. It runs on
-// graceful shutdown (via the realtime Service Close).
+// StopAll cancels every live sync, clears the handle map and joins every
+// runner, so no fetch outlives shutdown into a closed store or a removed repo.
+// It is idempotent and marks the manager closed so later Acquire calls no-op.
 func (m *OriginSyncManager) StopAll() {
 	m.mu.Lock()
 	m.closed = true
@@ -180,6 +179,7 @@ func (m *OriginSyncManager) StopAll() {
 	for _, h := range handles {
 		h.cancel()
 	}
+	m.runners.Wait()
 }
 
 // run ticks every interval and issues a single-workspace origin sync until
