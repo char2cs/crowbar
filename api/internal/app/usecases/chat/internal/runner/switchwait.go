@@ -8,13 +8,11 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // What a provider switch PARKS ON before it destroys anything, and what
-// releases it. Both waits sit ahead of every read switchProviderLocked makes,
-// so a parked switch holds nothing but its chat's spawn gate — see that
-// function's own doc.
+// releases it. Both run before the switch assembles its handoff or touches the
+// outgoing CLI, so a parked switch holds nothing but its chat's spawn gate.
 
 // WaitingForPendingPromptLog is logged the instant a switch parks on a prompt
 // the provider has not acknowledged, so a test can block on a real signal.
@@ -99,15 +97,11 @@ func (rs *Runners) awaitTurnOrForce(ctx, park context.Context, chatID string) er
 // risk StopChat already accepts every day (a CLI terminated mid-turn may not
 // flush its native transcript) beats a switch that never completes at all.
 func (rs *Runners) forceOutgoingTurn(ctx context.Context, chatID string) error {
-	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if errors.Is(err, agentrunner.ErrNotFound) {
+	live, ok := rs.live.byChat(chatID)
+	if !ok {
 		return nil // it finished or died between the deadline firing and this read
-	}
-	if err != nil {
-		return fmt.Errorf("agent: switch provider: force outgoing turn: live runner: %w", err)
 	}
 	slog.WarnContext(ctx, "agent: switch provider: outgoing turn did not finish within the grace period; forcing it",
 		"chat_id", chatID, "runner_id", live.ID, "waited", rs.forceSwitchAfter())
-	rs.stopRunner(ctx, chatID, live, false)
-	return nil
+	return rs.stopRunner(ctx, chatID, live, false)
 }

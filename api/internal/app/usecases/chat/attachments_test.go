@@ -39,7 +39,7 @@ func TestUploadAttachment_RefusesAChatThatDoesNotExist(t *testing.T) {
 }
 
 func TestUploadAttachment_ChatLookupFailure_ReturnsWrappedError(t *testing.T) {
-	f, cs, _ := newFaultFixture(t)
+	f, cs := newFaultFixture(t)
 	chatID, _ := f.spawn(t, "claude")
 
 	cs.failGetChat = fmt.Errorf("boom: get chat")
@@ -97,7 +97,7 @@ func TestReadAttachment_MissingFileIsNotFound(t *testing.T) {
 }
 
 func TestReadAttachment_ChatLookupFailure_ReturnsWrappedError(t *testing.T) {
-	f, cs, _ := newFaultFixture(t)
+	f, cs := newFaultFixture(t)
 	chatID, _ := f.spawn(t, "claude")
 
 	cs.failGetChat = fmt.Errorf("boom: get chat")

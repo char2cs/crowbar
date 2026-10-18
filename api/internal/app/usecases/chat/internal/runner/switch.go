@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -10,7 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 func (rs *Runners) SwitchProvider(
@@ -23,7 +21,7 @@ func (rs *Runners) SwitchProvider(
 		return "", err
 	}
 	defer release()
-	defer rs.enterPhase(ctx, chatID, rs.replacementPhase(ctx, chatID))()
+	defer rs.enterPhase(ctx, chatID, rs.replacementPhase(chatID))()
 	return rs.switchProviderLocked(ctx, park, chatID, targetProviderID)
 }
 
@@ -236,12 +234,8 @@ func (rs *Runners) displaceForSwitch(
 		// pane that called it sat on its "Resuming this chat…" spinner until the user
 		// abandoned the chat. A dormant chat's stale flag is not a reason to wait; it
 		// is the thing the resume is here to clear.
-		_, liveErr := rs.runnerStore.LiveRunnerForChat(ctx, chat.ID)
-		switch {
-		case liveErr == nil:
+		if _, live := rs.live.byChat(chat.ID); live {
 			return true, nil
-		case !errors.Is(liveErr, agentrunner.ErrNotFound):
-			return false, fmt.Errorf("agent: switch provider: work-check live runner: %w", liveErr)
 		}
 		slog.WarnContext(ctx,
 			"agent: switch provider: dormant chat still flagged working; proceeding rather than waiting for a hook that cannot arrive",

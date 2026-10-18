@@ -98,7 +98,7 @@ func TestSnapshots_TheConversationIsTheLiveRunnersProvidersElseTheChats(t *testi
 			return boundTo(t, [2]string{"p1", "S1"}, [2]string{"p2", "X1"}), nil
 		},
 	}
-	s, _, _ := newOwner(t, rd)
+	s, _, rt := newOwner(t, rd)
 
 	dormant, err := s.Get(ctx, "c1")
 	require.NoError(t, err)
@@ -106,18 +106,45 @@ func TestSnapshots_TheConversationIsTheLiveRunnersProvidersElseTheChats(t *testi
 	assert.Equal(t, "S1", c.SessionID)
 	assert.Len(t, dormant.Ledger.Conversations, 2)
 
-	live := runnerOn("r1", "c1", t0)
+	live := liveR1
 	live.ProviderID = "p2"
-	s.ApplyRunner(ctx, live, live, 1, "started")
+	rt.place(live)
 	onP2, err := s.Get(ctx, "c1")
 	require.NoError(t, err)
 	c, _ = onP2.Conversation()
 	assert.Equal(t, "X1", c.SessionID)
 
 	live.ProviderID = "p3"
-	s.ApplyRunner(ctx, live, live, 2, "started")
+	rt.place(live)
 	onP3, err := s.Get(ctx, "c1")
 	require.NoError(t, err)
 	_, ok := onP3.Conversation()
 	assert.False(t, ok, "a provider the chat never bound has no conversation")
+}
+
+// How the last runner ended is a ledger fact: it survives the daemon, and it
+// is no answer while a runner is live.
+func TestSnapshots_TheSessionIsTheLedgersLastExit(t *testing.T) {
+	ctx := context.Background()
+	s, rec, rt := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}})
+	st := ledger.State{ChatID: "c1"}
+	apply := func(kind ledger.Kind, body any) {
+		r, err := ledger.NewRow(kind, "", "", body)
+		require.NoError(t, err)
+		r.Seq, r.At = st.Head()+1, t0
+		st.Apply(r)
+		s.ApplyLedger(ctx, "c1", snapshot.FactsOf(st))
+	}
+
+	apply(ledger.KindRunnerStarted, ledger.RunnerStarted{RunnerID: "r1", Provider: "claude"})
+	rt.place(liveR1)
+	live, err := s.Get(ctx, "c1")
+	require.NoError(t, err)
+	assert.Zero(t, live.Session)
+
+	rt.vacate("c1")
+	apply(ledger.KindRunnerExited, ledger.RunnerExited{RunnerID: "r1", Reason: domain.AgentExitStopped})
+
+	assert.Equal(t, domain.AgentSession{ExitReason: domain.AgentExitStopped, ExitedAt: t0}, rec.last(t).Snapshot.Session,
+		"the exit is announced")
 }

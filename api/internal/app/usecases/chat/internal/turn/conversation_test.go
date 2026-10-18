@@ -116,7 +116,7 @@ func (a *recordingTranscript) transcript() []string {
 // quietRunners answers the one question message_delta's surfaces: asks;
 // every other method embeds turn.Runners and panics if reached.
 type quietRunners struct {
-	turn.Runners
+	liveOn
 }
 
 // The chat is the surface in front of the user, so message_delta's own
@@ -142,7 +142,6 @@ func newDelegatingTurn(t *testing.T) delegatingTurn {
 	work := inflight.NewWork()
 	turns := turn.New(turn.Deps{
 		Chats:         chats,
-		Runners:       codexRunnerStore{},
 		Ledger:        codexBoundLedger(t, parentThread),
 		Activity:      transcript,
 		Agents:        engineagents.New(),
@@ -155,7 +154,7 @@ func newDelegatingTurn(t *testing.T) delegatingTurn {
 	})
 	// The parent thread is the chat's bound session: the driver's own establish
 	// announced it, which is what tells it from the child threads on this connection.
-	turns.SetRunners(quietRunners{})
+	turns.SetRunners(quietRunners{codexLive})
 	turns.SetFeed(seam.ChatFeed{MessageDelta: func(string, string, string, string, string, time.Time) {}})
 
 	// The user's turn is running and the chat is lit — the state every

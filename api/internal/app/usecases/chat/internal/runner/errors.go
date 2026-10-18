@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
@@ -24,7 +25,7 @@ var (
 var ErrStopped = fmt.Errorf("agent: the chat was stopped while this request waited: %w", apperr.ErrConflict)
 
 // ErrProviderExitedDuringStartup is returned when a provider's vendor CLI died
-// before its runner row could even be persisted.
+// before its runner_started row could commit.
 //
 // Crowbar hosts the ordinary INTERACTIVE CLI in a real PTY — the engine's hardest
 // constraint, asserted by every descriptor's spawn.interactive_required — so a
@@ -40,23 +41,18 @@ var ErrProviderExitedDuringStartup = fmt.Errorf(
 	"agent: spawn runner: provider process exited during startup: %w", apperr.ErrFailedDependency,
 )
 
+// ErrNoLiveRunner is a chat with no CLI on it: dormant, the normal state
+// between runs, so a reader treats it as an answer rather than a failure.
+var ErrNoLiveRunner = errors.New("agent: chat has no live runner")
+
+// ErrChatHasLiveRunner refuses a second CLI on a chat: one runner per chat is
+// the live table's key.
+var ErrChatHasLiveRunner = fmt.Errorf("agent: chat already has a live runner: %w", apperr.ErrConflict)
+
 // ErrChatProviderUnknown is returned when a dormant chat cannot be resumed
-// because nothing left on disk says which provider ever ran in it: no
-// conversation history, no provider-switch marker, no placement history and no
-// durable choice on the chat itself.
-//
-// It exists because this path used to answer agentrunner.ErrNotFound, which was
-// a lie about which thing was missing. A dormant chat having no live runner is
-// the NORMAL state and the entire reason Resume is being called — reporting
-// "agentrunner not found" sent every reader looking for an absent runner, when
-// the absent thing is the PROVIDER. Nothing is ever resolved by finding a
-// runner here, so nothing should ever say one was looked for.
-//
-// It wraps apperr.ErrNotFound, so it keeps the 404 the old sentinel mapped to:
-// the request is well-formed and the chat exists, but the record being resolved
-// — the provider this chat ran — genuinely is not there. The client's correct
-// response is to ASK which provider to start, never to pick one, which is what
-// the previous indistinguishable error let it do.
+// because the chat records no provider. It is the PROVIDER that is missing, not
+// a runner (a dormant chat has none by definition), so the client asks which
+// provider to start instead of picking one. It keeps the 404.
 var ErrChatProviderUnknown = fmt.Errorf(
 	"agent: this chat no longer records which provider it ran: %w", apperr.ErrNotFound,
 )

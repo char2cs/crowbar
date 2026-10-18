@@ -69,7 +69,7 @@ Each engine is a facade over one capability, with its implementation in
 - `agents` — everything vendor-specific about agent CLIs: YAML descriptors
   (`internal/protocol/internal/descriptor/descriptors-v3/{claude,codex}.yaml`)
   mapped to spawn plans, hook/telemetry interpretation, model discovery and
-  selection. `agents/runner` is the RUNNER aggregate: one live vendor CLI in one PTY.
+  selection.
 - `mcp` — JSON-RPC MCP protocol used by `crowbar mcp`.
 
 ### `adapter/`
@@ -83,7 +83,7 @@ Persistence only. Under `<home>/state`:
 
 Types: `workspace`, `review_thread`, `agent_chat`, `agent_activity` (a chat's
 turns and tool calls — separate so a tool-call storm never queues behind sidebar
-writes), `agent_runner`, `node` (sidebar placement). The adapter takes no lock:
+writes), `node` (sidebar placement). The adapter takes no lock:
 the boot's migration session holds the home from before the stores open until
 after they close.
 
@@ -93,7 +93,7 @@ run before any store opens. The post-open implementations live in `app`, beside
 the usecases they call.
 
 ### `app/`
-- **Aggregates** (`repositories/`, `engine/agents/runner`): each type is one
+- **Aggregates** (`repositories/`): each type is one
   `github.com/char2cs/asynx` singleton routing many ids by shard hash. Commands
   append events; projections fold them into the read model; post-commit reactors
   run side effects behind `repositories/drain`'s shutdown gate.

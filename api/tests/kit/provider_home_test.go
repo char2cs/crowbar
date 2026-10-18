@@ -21,7 +21,6 @@ func TestIsolateProviderHomes_CodexRunsAuthenticatedOutOfTheTempHome(t *testing.
 	codex := lookupCLI(t, "codex")
 	requireRealCodexLogin(t)
 
-	before := SnapshotProviderHomes()
 	IsolateProviderHomes(t)
 
 	home := os.Getenv("CODEX_HOME")
@@ -36,9 +35,6 @@ func TestIsolateProviderHomes_CodexRunsAuthenticatedOutOfTheTempHome(t *testing.
 	require.NotContains(t, strings.ToLower(out), "not logged in",
 		"codex reports NOT logged in inside the isolated CODEX_HOME: linking auth.json "+
 			"did not carry the credential. Output: %q", out)
-
-	require.Empty(t, SnapshotProviderHomes().Added(before),
-		"running codex under an isolated CODEX_HOME still wrote a place into the user's real home")
 }
 
 func TestIsolateProviderHomes_ClaudeKeychainLookupStaysOnTheRealCredential(t *testing.T) {
@@ -94,57 +90,10 @@ func TestIsolateProviderHomes_ClaudeConfigIsSeededWithNoPlaces(t *testing.T) {
 	}
 }
 
-func TestProviderHomeRecord_AddedNamesEveryNewPlace(t *testing.T) {
-	dir := t.TempDir()
-	codex := filepath.Join(dir, "config.toml")
-	claude := filepath.Join(dir, ".claude.json")
-
-	writeFile(t, codex, codexTrustStanzas("/repo/kept"))
-	writeFile(t, claude, `{"projects":{"/repo/kept":{}},"numStartups":1}`)
-	before := ProviderHomeRecord{codexProjectKeys(codex), claudeProjectKeys(claude)}
-
-	writeFile(t, codex, codexTrustStanzas("/repo/kept", "/private/tmp/leaked-repo"))
-	writeFile(t, claude, `{"projects":{"/repo/kept":{},"/private/tmp/leaked-chat":{}},"numStartups":2}`)
-	after := ProviderHomeRecord{codexProjectKeys(codex), claudeProjectKeys(claude)}
-
-	assert.Empty(t, before.Added(before), "a home compared with itself has leaked nothing")
-	assert.Empty(t, before.Added(after), "places going AWAY is the user pruning their own config, not a leak")
-
-	report := after.Added(before)
-	require.NotEmpty(t, report, "two new places were added and the guard reported nothing")
-	assert.Contains(t, report, "/private/tmp/leaked-repo", "the leaked codex place must be named")
-	assert.Contains(t, report, "/private/tmp/leaked-chat", "the leaked claude place must be named")
-	assert.NotContains(t, report, "/repo/kept", "a place that was already there is not a leak")
-	assert.NotContains(t, report, "numStartups",
-		"the guard counts PLACES; a provider rewriting its own counters is not pollution")
-}
-
-func TestSnapshotProviderHomes_SurvivesAbsentHomes(t *testing.T) {
-	missing := filepath.Join(t.TempDir(), "nope")
-	assert.Empty(t, codexProjectKeys(missing))
-	assert.Empty(t, claudeProjectKeys(missing))
-
-	snap := SnapshotProviderHomes()
-	assert.Empty(t, snap.Added(snap))
-}
-
 var oneTimeModalFlags = []string{
 	"hasCompletedOnboarding",
 	"hasCompletedClaudeInChromeOnboarding",
 	"theme",
-}
-
-func codexTrustStanzas(
-	places ...string,
-) string {
-	var out strings.Builder
-	for i, place := range places {
-		if i > 0 {
-			out.WriteString("\n")
-		}
-		out.WriteString("[projects.\"" + place + "\"]\ntrust_level = \"trusted\"\n")
-	}
-	return out.String()
 }
 
 func realClaudeConfig(
@@ -207,13 +156,4 @@ func runCLI(
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "%s %v failed: %s", bin, args, out)
 	return string(out)
-}
-
-func writeFile(
-	t *testing.T,
-	path string,
-	body string,
-) {
-	t.Helper()
-	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
 }

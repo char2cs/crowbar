@@ -87,7 +87,7 @@ func TestRegression_PermissionLevelFollowsTheGlobalDefaultOnAnInheritedChatsNext
 
 	chatID, _ := createStubChat(t, h, imported, "permstub")
 
-	before, err := h.app.Repositories.AgentRunner.LiveRunnerForChat(context.Background(), chatID)
+	before, err := h.app.Usecases.AgentRunner.LiveRunnerForChat(context.Background(), chatID)
 	require.NoError(t, err, "the freshly spawned chat must have a live runner")
 	require.Equal(t, "guarded", before.LaunchPermissionLevel,
 		"precondition: spawned under the global default in effect at creation")
@@ -101,7 +101,7 @@ func TestRegression_PermissionLevelFollowsTheGlobalDefaultOnAnInheritedChatsNext
 		map[string]string{"provider": "permstub"}, http.StatusOK, &result)
 	h.QuiesceReactors()
 
-	after, err := h.app.Repositories.AgentRunner.LiveRunnerForChat(context.Background(), chatID)
+	after, err := h.app.Usecases.AgentRunner.LiveRunnerForChat(context.Background(), chatID)
 	require.NoError(t, err, "the restart must leave a live runner on the chat")
 	assert.Equal(t, "full-auto", after.LaunchPermissionLevel,
 		"a chat that was never explicitly pinned (SetChatPermissionLevel) must follow the "+
@@ -137,7 +137,7 @@ func TestRegression_AnExplicitChatPickStillWinsOverALaterGlobalDefaultChange(t *
 		map[string]string{"provider": "permstub"}, http.StatusOK, &result)
 	h.QuiesceReactors()
 
-	after, err := h.app.Repositories.AgentRunner.LiveRunnerForChat(context.Background(), chatID)
+	after, err := h.app.Usecases.AgentRunner.LiveRunnerForChat(context.Background(), chatID)
 	require.NoError(t, err, "the restart must leave a live runner on the chat")
 	assert.Equal(t, "full-auto", after.LaunchPermissionLevel,
 		"an explicit per-chat pick must keep winning over the global default, even after "+

@@ -21,7 +21,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // Deps is everything the chat usecase is built over: the three stores it reads
@@ -35,7 +34,6 @@ import (
 // switch or doubles a CLI in production.
 type Deps struct {
 	Chats    agentchat.EventStore
-	Runners  agentrunner.EventStore
 	Activity agentactivity.EventStore
 	Agents   engineagents.Agents
 	Terminal TerminalCommander
@@ -148,25 +146,27 @@ func New(d Deps) *Usecase {
 		),
 	}
 	u := &Usecase{
-		chats:       d.Chats,
-		runnerStore: d.Runners,
-		activity:    d.Activity,
-		agents:      d.Agents,
-		ws:          d.Workspace,
-		worktree:    d.Worktree,
-		answers:     sh.answers,
-		tools:       d.Tools,
-		work:        sh.work,
-		folders:     d.Folders,
-		nodes:       d.Nodes,
-		repoRoots:   d.RepoRoots,
+		chats:     d.Chats,
+		activity:  d.Activity,
+		agents:    d.Agents,
+		ws:        d.Workspace,
+		worktree:  d.Worktree,
+		answers:   sh.answers,
+		tools:     d.Tools,
+		work:      sh.work,
+		folders:   d.Folders,
+		nodes:     d.Nodes,
+		repoRoots: d.RepoRoots,
 	}
-	// The tool surface's four self-ports, filled in here because the usecase does
+	// The tool surface's self-ports, filled in here because the usecase does
 	// not exist when the caller builds the Deps.
 	u.tools.Chats = u
 	u.tools.ChatLogs = u
 	u.tools.Lineage = u
 	u.tools.ToolAccess = u.providerMCPEnabled
+	if u.tools.Resolver != nil {
+		u.tools.Resolver = u.tools.Resolver.WithRunners(u)
+	}
 
 	u.snapshots = d.Snapshots
 	if u.snapshots == nil {
@@ -178,16 +178,15 @@ func New(d Deps) *Usecase {
 			return correctHomeChats(ctx, d.Nodes, chats)
 		})
 	}
-	u.snapshots.Bind(snapshotReader{chats: d.Chats, runners: d.Runners, ledger: d.Ledger}, u.runners)
+	u.snapshots.Bind(snapshotReader{chats: d.Chats, ledger: d.Ledger}, u.runners)
 	return u
 }
 
 // snapshotReader is the read model the snapshot owner falls back to for a
-// chat no event has touched since boot, and seeds live placement from.
+// chat no event has touched since boot.
 type snapshotReader struct {
-	chats   agentchat.EventStore
-	runners agentrunner.EventStore
-	ledger  *ledgerstore.Store
+	chats  agentchat.EventStore
+	ledger *ledgerstore.Store
 }
 
 func (r snapshotReader) LedgerState(ctx context.Context, chatID string) (ledger.State, error) {
@@ -196,13 +195,6 @@ func (r snapshotReader) LedgerState(ctx context.Context, chatID string) (ledger.
 
 func (r snapshotReader) GetChat(ctx context.Context, chatID string) (domain.Chat, error) {
 	return r.chats.GetChat(ctx, chatID)
-}
-
-func (r snapshotReader) AllLive(ctx context.Context) ([]engineagents.Runner, error) {
-	if r.runners == nil {
-		return nil, nil
-	}
-	return r.runners.AllLive(ctx)
 }
 
 // buildComponents assembles the four halves of the surface and closes the edges
@@ -235,7 +227,6 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	}
 	u.conversations = conversation.New(conversation.Deps{
 		Chats:     d.Chats,
-		Runners:   d.Runners,
 		Activity:  d.Activity,
 		Telemetry: sh.telemetry,
 		Agents:    d.Agents,
@@ -250,7 +241,6 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	})
 	u.turns = turn.New(turn.Deps{
 		Chats:         d.Chats,
-		Runners:       d.Runners,
 		Activity:      d.Activity,
 		Telemetry:     sh.telemetry,
 		Agents:        d.Agents,
@@ -268,7 +258,6 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	d.ChoiceWatch.bind(u.turns.PublishChoices)
 	u.runners = runner.New(runner.Deps{
 		Chats:         d.Chats,
-		Runners:       d.Runners,
 		Activity:      d.Activity,
 		Agents:        d.Agents,
 		Terminal:      d.Terminal,
@@ -287,9 +276,9 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Providers:     u.providers,
 		Snapshots:     u.snapshots,
 	})
-	// The three edges that can only close once both sides exist: a purge retires
-	// the CLIs on the chat (and a failed spawn discards the chat it minted), a hook
-	// applies a placement the CLI already performed, and the terminal-wait detector
+	// The edges that can only close once both sides exist: a purge retires the
+	// CLI on the chat (and a failed spawn discards the chat it minted), a hook
+	// resolves its runner through the live table, and the terminal-wait detector
 	// reads screens through the hook ingress's own classifiers.
 	u.conversations.SetRunners(u.runners)
 	u.turns.SetRunners(u.runners)

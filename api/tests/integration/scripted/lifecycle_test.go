@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -66,11 +67,8 @@ func TestScripted_DeleteMidTurn(t *testing.T) {
 			require.NoError(t, r.d.app.Usecases.AgentChat.PurgeChat(context.Background(), chatID))
 			assert.Less(t, time.Since(started), 15*time.Second, "a delete is bounded")
 
-			all, err := r.d.app.Repositories.AgentRunner.AllLive(context.Background())
-			require.NoError(t, err)
-			for _, runner := range all {
-				assert.NotEqual(t, chatID, runner.CurrentChatID, "a runner outlived its chat")
-			}
+			_, err := r.runners().LiveRunnerForChat(context.Background(), chatID)
+			assert.ErrorIs(t, err, agentusecase.ErrNoLiveRunner, "a runner outlived its chat")
 			_, err = r.d.app.Usecases.AgentChat.ChatSnapshot(context.Background(), chatID)
 			assert.Error(t, err, "the chat is gone")
 		})

@@ -392,7 +392,7 @@ func TestPumpAPIConn_RoutesOnlyAPITransportEventsAndDropsHooksDeclaredOnes(t *te
 	_ = subagentStart
 
 	spy := &spyTurns{}
-	rs := &Runners{turns: spy}
+	rs := &Runners{turns: spy, live: newLiveTable()}
 	conn := &apiconn{driver: apiConn, ctx: ctx}
 	rs.pumpAPIConn("runner-1", "api-test", agent, conn)
 
@@ -430,7 +430,7 @@ func TestPumpAPIConn_AskEventCarriesADeliveryIDAndRepliesOverTheSocket(t *testin
 
 	answers := answerdesk.New(answerdesk.DefaultRetention, nil)
 	spy := &spyTurns{answers: answers}
-	rs := &Runners{turns: spy, answers: answers}
+	rs := &Runners{turns: spy, answers: answers, live: newLiveTable()}
 	conn := &apiconn{driver: apiConn, ctx: ctx}
 	rs.pumpAPIConn("runner-1", "api-test", agent, conn)
 
@@ -484,7 +484,7 @@ func TestPumpAPIConn_AnAskNobodyAnswersIsRefused(t *testing.T) {
 	defer func() { _ = apiConn.Close() }()
 
 	// No slot is held: the ask reached nobody who could answer it.
-	rs := &Runners{turns: &spyTurns{}, answers: answerdesk.New(answerdesk.DefaultRetention, nil)}
+	rs := &Runners{turns: &spyTurns{}, answers: answerdesk.New(answerdesk.DefaultRetention, nil), live: newLiveTable()}
 	rs.pumpAPIConn("runner-1", "api-test", agent, &apiconn{driver: apiConn, ctx: ctx})
 
 	select {
@@ -521,7 +521,7 @@ func TestPumpAPIConn_AnUnansweredAskDoesNotBlockLaterEvents(t *testing.T) {
 
 	answers := answerdesk.New(answerdesk.DefaultRetention, nil)
 	spy := &spyTurns{answers: answers}
-	rs := &Runners{turns: spy, answers: answers}
+	rs := &Runners{turns: spy, answers: answers, live: newLiveTable()}
 	rs.pumpAPIConn("runner-1", "api-test", agent, &apiconn{driver: apiConn, ctx: ctx})
 
 	require.Eventually(t, func() bool { return len(spy.snapshot()) == 2 }, 3*time.Second, 10*time.Millisecond,

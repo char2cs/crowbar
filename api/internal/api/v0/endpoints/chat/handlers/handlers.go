@@ -172,15 +172,6 @@ type TurnUsecase interface {
 		chatID string,
 	) ([]domain.ActivityChoice, error)
 
-	// Interruptions returns a chat's durable interruption ledger — chatRuntime's
-	// source for the dormant-provider fallback once a chat's most-recently-active
-	// conversation alone is not enough (dto.ChatRuntime.Interruptions, joined in
-	// here because the DTO layer has no store access of its own).
-	Interruptions(
-		ctx context.Context,
-		chatID string,
-	) ([]domain.ActivityInterruption, error)
-
 	// Telemetry is the provider's own report of cost and capacity, absent until
 	// the provider makes one.
 	Telemetry(chatID string) (engineagents.Telemetry, bool)
@@ -236,16 +227,6 @@ type RunnerUsecase interface {
 		ctx context.Context,
 		chatID string,
 	) (engineagents.SlashCatalog, error)
-
-	// LiveRunnerForChat returns the runner PLACED on chatID right now.
-	// runner.ErrNotFound is not a failure here: it means the chat is DORMANT —
-	// no live row exists, because no PTY does. Row-existence IS the liveness answer,
-	// which is why the handlers ask no second question and no aggregate carries a
-	// status flag that could disagree.
-	LiveRunnerForChat(
-		ctx context.Context,
-		chatID string,
-	) (engineagents.Runner, error)
 
 	// ConversationsForChat returns every conversation chatID has hosted, oldest
 	// first — the append-only history that replaced the chat's embedded segments,

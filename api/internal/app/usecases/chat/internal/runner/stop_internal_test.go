@@ -14,10 +14,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // stopActivity records the stopped interruptions RecordStop writes — the only
@@ -116,7 +117,7 @@ func TestRegression_StopChatRecordsTheStopOnlyAfterTheCLIActuallyStops(t *testin
 	turns, activity := realStopTurns(inflightTurns, work)
 	rs := &Runners{
 		apiConns:      newAPIConnRegistry(),
-		runnerStore:   stubRunnerStoreForAttach{runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "interrupt-test"}},
+		live:          liveWith(t, interruptRunner),
 		ws:            stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
 		agents:        stubAgentsForInterrupt{agent: agent},
 		spawns:        inflight.NewGate(),
@@ -147,35 +148,33 @@ func TestRegression_StopChatRecordsTheStopOnlyAfterTheCLIActuallyStops(t *testin
 		"StopChat must record the interruption once the CLI has actually stopped")
 }
 
-// stopRetireRunnerStore answers LiveRunnerForChat with a fixed runner and
-// records whether Displace was ever called — the one call retire() makes that
-// TestRegression_StopChatOnAnIdleChatActuallyRetires needs to observe.
-// runner.CurrentChatID is deliberately "" so displace()'s own
-// reconcilePromptRunnerDeparture/closeAbandonedTurn calls both short-circuit
-// on their own empty-chatID guard, needing no chats/activity/prompts stubs.
-type stopRetireRunnerStore struct {
-	agentrunner.EventStore
-	runner    engineagents.Runner
-	displaced bool
-	// failOnCanceled makes Displace fail the way a real store write does once
-	// its caller's context is gone.
-	failOnCanceled bool
+// interruptRunner is runner-1, live on chat-1 over interrupt-test.
+var interruptRunner = engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "interrupt-test", CurrentChatID: "chat-1"}
+
+// retiring puts runner-1 live on chat-1 and fills in what its exit is
+// recorded through.
+func retiring(t *testing.T, rs *Runners) *Runners {
+	t.Helper()
+	rs.live = liveWith(t, interruptRunner)
+	rs.surfaces = newSurfaceRegistry()
+	rs.answers = answerdesk.New(answerdesk.DefaultRetention, nil)
+	rs.activity = stubActivityForSpawn{}
+	rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}}
+	rs.ledger = newTestLedger(t)
+	rs.work = inflight.NewWork()
+	return rs
 }
 
-func (s *stopRetireRunnerStore) LiveRunnerForChat(
-	context.Context, string,
-) (engineagents.Runner, error) {
-	return s.runner, nil
-}
-
-func (s *stopRetireRunnerStore) Displace(
-	ctx context.Context, _ string,
-) (engineagents.Runner, error) {
-	if s.failOnCanceled && ctx.Err() != nil {
-		return engineagents.Runner{}, ctx.Err()
+// retiredAs is the reason chat-1's ledger records runner-1's exit with; ""
+// while none is recorded.
+func retiredAs(t *testing.T, rs *Runners) string {
+	t.Helper()
+	exit, ok := chatState(t, rs.ledger).LastExit()
+	if !ok {
+		return ""
 	}
-	s.displaced = true
-	return s.runner, nil
+	require.Equal(t, "runner-1", exit.RunnerID)
+	return exit.Reason
 }
 
 // TestRegression_StopChatOnAnIdleChatActuallyRetires guards the bug reported
@@ -204,20 +203,16 @@ func TestRegression_StopChatOnAnIdleChatActuallyRetires(t *testing.T) {
 	defer func() { _ = apiConn.Close() }()
 
 	idleTurns, activity := realStopTurns(inflight.NewTurns(), idleWork())
-	store := &stopRetireRunnerStore{
-		runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "interrupt-test"},
-	}
-	rs := &Runners{
+	rs := retiring(t, &Runners{
 		apiConns:      newAPIConnRegistry(),
 		attached:      newAttachRegistry(),
-		runnerStore:   store,
 		ws:            stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
 		agents:        stubAgentsForInterrupt{agent: agent},
 		spawns:        inflight.NewGate(),
 		inflightTurns: inflight.NewTurns(),
 		turns:         idleTurns,
 		term:          &fakeTermForAttach{},
-	}
+	})
 	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
 
 	require.NoError(t, rs.StopChat(ctx, "chat-1"))
@@ -227,7 +222,7 @@ func TestRegression_StopChatOnAnIdleChatActuallyRetires(t *testing.T) {
 		t.Fatal("StopChat sent turn/interrupt on an idle chat — there was nothing running to interrupt")
 	case <-time.After(200 * time.Millisecond):
 	}
-	require.True(t, store.displaced,
+	require.Equal(t, domain.AgentExitStopped, retiredAs(t, rs),
 		"an idle chat's runner must actually be retired on close, not left running forever")
 	require.Empty(t, activity.recorded(), "closing an idle chat interrupts nothing")
 }
@@ -273,7 +268,7 @@ func TestRegression_StopChatRecordsTheStopWhenTheTurnStopWinsTheRace(t *testing.
 
 	rs := &Runners{
 		apiConns:      newAPIConnRegistry(),
-		runnerStore:   stubRunnerStoreForAttach{runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "interrupt-test"}},
+		live:          liveWith(t, interruptRunner),
 		ws:            stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
 		agents:        stubAgentsForInterrupt{agent: agent},
 		spawns:        inflight.NewGate(),
@@ -313,13 +308,9 @@ func TestRegression_StopChatRetiresWhenTheInterruptIsAnsweredButTheTurnStaysOpen
 	inflightTurns.Begin(context.Background(), "runner-1", "chat-1")
 	work.Set("chat-1", true)
 	turns, activity := realStopTurns(inflightTurns, work)
-	store := &stopRetireRunnerStore{
-		runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "interrupt-test"},
-	}
-	rs := &Runners{
+	rs := retiring(t, &Runners{
 		apiConns:         newAPIConnRegistry(),
 		attached:         newAttachRegistry(),
-		runnerStore:      store,
 		ws:               stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
 		agents:           stubAgentsForInterrupt{agent: agent},
 		spawns:           inflight.NewGate(),
@@ -327,7 +318,7 @@ func TestRegression_StopChatRetiresWhenTheInterruptIsAnsweredButTheTurnStaysOpen
 		turns:            turns,
 		term:             &fakeTermForAttach{},
 		interruptTimeout: 50 * time.Millisecond,
-	}
+	})
 	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
 
 	var logged bytes.Buffer
@@ -340,7 +331,7 @@ func TestRegression_StopChatRetiresWhenTheInterruptIsAnsweredButTheTurnStaysOpen
 	require.Equal(t, 1, strings.Count(logged.String(), "agent: turn ended"),
 		"a turn Stop cut short must log its end once: %s", logged.String())
 	require.Contains(t, logged.String(), "reason=stopped")
-	require.True(t, store.displaced, "a turn that outlived its interrupt must be ended by retiring the runner")
+	require.Equal(t, domain.AgentExitStopped, retiredAs(t, rs), "a turn that outlived its interrupt must be ended by retiring the runner")
 	require.Equal(t, []string{"chat-1"}, activity.recorded())
 }
 
@@ -376,25 +367,21 @@ func TestRegression_CloseChatRetiresARunnerMidTurnEvenWhenTheProviderCanInterrup
 	require.NoError(t, err)
 	defer func() { _ = apiConn.Close() }()
 
-	store := &stopRetireRunnerStore{
-		runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "interrupt-test"},
-	}
-	rs := &Runners{
+	rs := retiring(t, &Runners{
 		apiConns:      newAPIConnRegistry(),
 		attached:      newAttachRegistry(),
-		runnerStore:   store,
 		ws:            stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
 		agents:        stubAgentsForInterrupt{agent: agent},
 		spawns:        inflight.NewGate(),
 		inflightTurns: inflightTurns,
 		turns:         turns,
 		term:          &fakeTermForAttach{},
-	}
+	})
 	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
 
 	require.NoError(t, rs.CloseChat(ctx, "chat-1"))
 
-	require.True(t, store.displaced, "a closed chat's runner must be retired, not interrupted in place")
+	require.Equal(t, domain.AgentExitStopped, retiredAs(t, rs), "a closed chat's runner must be retired, not interrupted in place")
 	require.Equal(t, []string{"chat-1"}, activity.recorded(), "the turn it cut short still gets its Stopped divider")
 }
 
@@ -402,24 +389,19 @@ func TestRegression_CloseChatRetiresARunnerMidTurnEvenWhenTheProviderCanInterrup
 // must still retire the runner: nothing else knows the view is gone.
 func TestRegression_CloseChatRetiresEvenWhenTheRequestIsAbandoned(t *testing.T) {
 	idleTurns, _ := realStopTurns(inflight.NewTurns(), idleWork())
-	store := &stopRetireRunnerStore{
-		runner:         engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "interrupt-test"},
-		failOnCanceled: true,
-	}
-	rs := &Runners{
+	rs := retiring(t, &Runners{
 		apiConns:      newAPIConnRegistry(),
 		attached:      newAttachRegistry(),
-		runnerStore:   store,
 		ws:            stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
 		agents:        stubAgentsForInterrupt{},
 		spawns:        inflight.NewGate(),
 		inflightTurns: inflight.NewTurns(),
 		turns:         idleTurns,
 		term:          &fakeTermForAttach{},
-	}
+	})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	require.NoError(t, rs.CloseChat(ctx, "chat-1"))
-	require.True(t, store.displaced, "an abandoned close request must not leave the runner live")
+	require.Equal(t, domain.AgentExitStopped, retiredAs(t, rs), "an abandoned close request must not leave the runner live")
 }

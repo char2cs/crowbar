@@ -104,9 +104,6 @@ func TestClose_ClosesAll(t *testing.T) {
 	require.NotNil(t, c.AgentChatES())
 	require.NotNil(t, c.AgentChatSS())
 	require.NotNil(t, c.AgentChatReadDB())
-	require.NotNil(t, c.AgentRunnerES())
-	require.NotNil(t, c.AgentRunnerSS())
-	require.NotNil(t, c.AgentRunnerReadDB())
 	require.NotNil(t, c.GlobalView())
 
 	require.NoError(t, c.Close())

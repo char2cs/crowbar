@@ -22,19 +22,17 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/dedup"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/stream"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // Turns is the hook ingress.
 type Turns struct {
-	chats       agentchat.EventStore
-	runnerStore agentrunner.EventStore
-	activity    agentactivity.EventStore
-	telemetry   *telemetry.Store
-	agents      engineagents.Agents
-	ws          seam.WorkspaceReader
-	home        func() (string, error)
-	ledger      *ledgerstore.Store
+	chats     agentchat.EventStore
+	activity  agentactivity.EventStore
+	telemetry *telemetry.Store
+	agents    engineagents.Agents
+	ws        seam.WorkspaceReader
+	home      func() (string, error)
+	ledger    *ledgerstore.Store
 	// work is the authoritative process-local mirror of AgentChat.Working returned
 	// by the turn commands. Unlike the projection, it cannot briefly report idle
 	// after a hook has durably announced background work.
@@ -107,7 +105,6 @@ type Turns struct {
 // silently.
 type Deps struct {
 	Chats     agentchat.EventStore
-	Runners   agentrunner.EventStore
 	Activity  agentactivity.EventStore
 	Telemetry *telemetry.Store
 	Agents    engineagents.Agents
@@ -139,17 +136,16 @@ const defaultMessageAwaitTimeout = 3 * time.Second
 // SetRunners, because the two call each other.
 func New(d Deps) *Turns {
 	return &Turns{
-		chats:       d.Chats,
-		runnerStore: d.Runners,
-		activity:    d.Activity,
-		telemetry:   d.Telemetry,
-		agents:      d.Agents,
-		ws:          d.Workspace,
-		home:        d.Home,
-		ledger:      d.Ledger,
-		work:        d.Work,
-		turns:       d.InflightTurns,
-		turnStarts:  d.TurnStarts,
+		chats:      d.Chats,
+		activity:   d.Activity,
+		telemetry:  d.Telemetry,
+		agents:     d.Agents,
+		ws:         d.Workspace,
+		home:       d.Home,
+		ledger:     d.Ledger,
+		work:       d.Work,
+		turns:      d.InflightTurns,
+		turnStarts: d.TurnStarts,
 		// Owned outright, so built here rather than handed in: the message streams,
 		// the delivery dedup set and the per-runner ingest gate are named by
 		// nothing outside this package.
@@ -169,8 +165,8 @@ func New(d Deps) *Turns {
 	}
 }
 
-// SetRunners binds the runner lifecycle this package reaches for the placement
-// half of a hook.
+// SetRunners binds the runner lifecycle this package resolves a hook's runner
+// through.
 func (t *Turns) SetRunners(runners Runners) { t.runners = runners }
 
 // SetMessageAwaitTimeout overrides how long closeAssistantTurn waits for a

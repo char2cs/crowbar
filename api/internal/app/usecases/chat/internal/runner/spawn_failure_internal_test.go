@@ -11,6 +11,8 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
+	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -45,8 +47,7 @@ func (stubProvidersForSpawn) ProviderMCPEnabled(context.Context, string) (bool, 
 
 // stubConversationsForSpawn answers only the two calls a create=true spawn's
 // spawnPreflight makes — ThreadContext and ChatSelection — panicking on
-// anything else via the embedded nil interface, the same pattern
-// stubRunnerStoreForResumable uses in switch_internal_test.go.
+// anything else via the embedded nil interface.
 type stubConversationsForSpawn struct {
 	Conversations
 }
@@ -107,6 +108,7 @@ func TestSpawnRunner_SpawnPlanFailure_ReturnsTheBuildError(t *testing.T) {
 		providers:     stubProvidersForSpawn{},
 		conversations: stubConversationsForSpawn{},
 		ledger:        newTestLedger(t),
+		live:          newLiveTable(),
 		pendingHooks:  inflight.NewHooks(),
 	}
 
@@ -132,6 +134,7 @@ func TestSpawnRunner_DescriptorResolveFailure_ReturnsTheResolveError(t *testing.
 		providers:     stubProvidersForSpawn{},
 		conversations: stubConversationsForSpawn{},
 		ledger:        newTestLedger(t),
+		live:          newLiveTable(),
 	}
 
 	_, err := rs.spawnRunner(context.Background(), "chat-1", "ws-1", "missing-test",
@@ -188,6 +191,7 @@ func TestSpawnRunner_PendingHooksRegisterFailure_ReturnsTheBarrierError(t *testi
 		providers:     stubProvidersForSpawn{},
 		conversations: stubConversationsForSpawn{},
 		ledger:        newTestLedger(t),
+		live:          newLiveTable(),
 		pendingHooks:  pendingHooks,
 	}
 
@@ -196,4 +200,56 @@ func TestSpawnRunner_PendingHooksRegisterFailure_ReturnsTheBarrierError(t *testi
 
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "install hook startup barrier")
+}
+
+// A respawn that puts no CLI on an existing chat is recorded as spawn_failed,
+// and the prompt it was to carry is settled rather than left waiting on it.
+func TestSpawnRunner_AFailedRespawnRecordsSpawnFailedAndSettlesWhatItCarried(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(home, "descriptors", "ok-test.yaml"), []byte(okHooksDescriptor), 0o600))
+	pendingHooks := inflight.NewHooks()
+	require.NoError(t, pendingHooks.Register("runner-1"))
+	rs := &Runners{
+		agents:        engineagents.New(),
+		ws:            stubWorkspaceForSpawn{home: home, worktree: filepath.Join(home, "worktree"), chatsDir: filepath.Join(home, "chats")},
+		providers:     stubProvidersForSpawn{},
+		conversations: stubConversationsForSpawn{},
+		chats:         stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}},
+		ledger:        newTestLedger(t),
+		live:          newLiveTable(),
+		pendingHooks:  pendingHooks,
+	}
+	appendPrompt(t, rs.ledger, "req-1", "runner-1")
+
+	_, err := rs.spawnRunner(context.Background(), "chat-1", "ws-1", "ok-test",
+		spawnInput{runnerID: "runner-1"}, false)
+
+	require.Error(t, err)
+	exit, ok := chatState(t, rs.ledger).LastExit()
+	require.True(t, ok)
+	assert.Equal(t, ledger.RunnerExit{RunnerID: "runner-1", Reason: domain.AgentExitSpawnFailed, At: exit.At}, exit)
+	p := promptReceipt(t, rs.ledger, "req-1")
+	assert.Equal(t, ledger.PromptStatusSettled, p.Status)
+	assert.Equal(t, ledger.ReasonDeliveryFailed, p.Reason)
+	_, live := rs.RunnerByID("runner-1")
+	assert.False(t, live, "a failed spawn leaves nothing in the live table")
+}
+
+// A chat holds one CLI: a spawn onto a chat whose runner is live is refused
+// before anything forks, and the live runner keeps the chat.
+func TestSpawnRunner_ASecondRunnerOnALiveChatIsRefusedBeforeItForks(t *testing.T) {
+	h := newSpawnHarness(t, "")
+	h.rs.live = liveWith(t, engineagents.Runner{ID: "runner-0", ProviderID: "claude", CurrentChatID: "chat-1"})
+
+	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "claude", spawnInput{runnerID: "runner-1"}, false)
+
+	require.ErrorIs(t, err, ErrChatHasLiveRunner)
+	assert.Empty(t, h.term.created, "nothing forked")
+	live, err := h.rs.LiveRunnerForChat(t.Context(), "chat-1")
+	require.NoError(t, err)
+	assert.Equal(t, "runner-0", live.ID)
+	_, recorded := chatState(t, h.rs.ledger).LastExit()
+	assert.False(t, recorded, "a refused spawn records nothing over the live runner")
 }

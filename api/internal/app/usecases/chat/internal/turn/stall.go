@@ -56,8 +56,8 @@ func (t *Turns) CloseStalledTurn(ctx context.Context, stall seam.Stall) {
 // here regardless, but a client matching its own live bubble against the ledger
 // by turn id never finds a row and never stops treating it as in progress.
 func (t *Turns) salvageStalledMessage(ctx context.Context, stall seam.Stall) {
-	runner, err := t.runnerStore.Get(ctx, stall.RunnerID)
-	if err != nil {
+	runner, ok := t.runners.RunnerByID(stall.RunnerID)
+	if !ok {
 		return
 	}
 	chat, err := t.chats.GetChat(ctx, stall.ChatID)

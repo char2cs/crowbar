@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
@@ -30,18 +31,21 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
-// Runners is the one thing this package needs from the runner lifecycle: the
-// CLIs a hard delete owes retirement to.
+// Runners is what this package needs from the runner lifecycle: the live
+// runner a hook or a provider read names, and the CLI a hard delete retires.
 //
 // It is declared here, by the consumer, so the two never import each other. A
 // chat's erasure decides that the processes on it must go; how they are torn
 // down is not its business.
 type Runners interface {
-	// RetireChatRunners quits every CLI currently placed on the chat. It is
-	// best-effort: a chat is erased whether or not its processes could be reached.
+	// RunnerByID is the live runner runnerID, also while it is exiting.
+	RunnerByID(runnerID string) (engineagents.Runner, bool)
+	// LiveRunnerForChat is the chat's live runner; an error when it is dormant.
+	LiveRunnerForChat(ctx context.Context, chatID string) (engineagents.Runner, error)
+	// RetireChatRunners quits the CLI on the chat. It is best-effort: a chat is
+	// erased whether or not its processes could be reached.
 	RetireChatRunners(
 		ctx context.Context,
 		chatID string,
@@ -50,8 +54,7 @@ type Runners interface {
 
 // Conversations is the chat record.
 type Conversations struct {
-	chats       agentchat.EventStore
-	runnerStore agentrunner.EventStore
+	chats agentchat.EventStore
 	// activity is the conversation record: turns, tool calls, subagents and
 	// interruptions. Every read this type serves comes off it.
 	activity  agentactivity.EventStore
@@ -75,8 +78,8 @@ type Conversations struct {
 	// takes it for the same reason they do — a delete racing a switch would
 	// otherwise start a CLI onto a chat that has just been forgotten.
 	spawns *inflight.Gate
-	// runners is the runner lifecycle, reached for the one thing a hard delete
-	// owes the processes on the chat: retiring them. It is bound AFTER construction
+	// runners is the runner lifecycle: the live runner a read names, and the
+	// retirement a hard delete owes the processes on the chat. It is bound AFTER construction
 	// because the two sides are built together and neither can name the other
 	// first — see SetRunners.
 	runners Runners
@@ -85,7 +88,6 @@ type Conversations struct {
 // Deps is everything the chat record is built over.
 type Deps struct {
 	Chats     agentchat.EventStore
-	Runners   agentrunner.EventStore
 	Activity  agentactivity.EventStore
 	Telemetry *telemetry.Store
 	Agents    engineagents.Agents
@@ -107,17 +109,16 @@ type Deps struct {
 // New builds the chat record. The runner port is bound separately, by SetRunners.
 func New(d Deps) *Conversations {
 	return &Conversations{
-		chats:       d.Chats,
-		runnerStore: d.Runners,
-		activity:    d.Activity,
-		telemetry:   d.Telemetry,
-		agents:      d.Agents,
-		ws:          d.Workspace,
-		lineage:     d.Lineage,
-		home:        d.Home,
-		ledger:      d.Ledger,
-		work:        d.Work,
-		spawns:      d.Spawns,
+		chats:     d.Chats,
+		activity:  d.Activity,
+		telemetry: d.Telemetry,
+		agents:    d.Agents,
+		ws:        d.Workspace,
+		lineage:   d.Lineage,
+		home:      d.Home,
+		ledger:    d.Ledger,
+		work:      d.Work,
+		spawns:    d.Spawns,
 
 		defaultPermissionLevel: d.DefaultPermissionLevel,
 	}
@@ -165,12 +166,9 @@ func (c *Conversations) RenameByRunner(
 	ctx context.Context,
 	runnerID, title, source string,
 ) error {
-	runner, err := c.runnerStore.Get(ctx, runnerID)
-	if err != nil {
-		return fmt.Errorf("agent: rename by runner: runner: %w", err)
-	}
-	if runner.CurrentChatID == "" {
-		return nil
+	runner, ok := c.runners.RunnerByID(runnerID)
+	if !ok {
+		return fmt.Errorf("agent: rename by runner: runner %s is not live: %w", runnerID, apperr.ErrNotFound)
 	}
 	return c.RenameChat(ctx, runner.CurrentChatID, title, source)
 }
@@ -205,7 +203,7 @@ func (c *Conversations) PurgeLocked(
 	if _, err := c.chats.GetChat(ctx, chatID); err != nil {
 		return fmt.Errorf("agent: purge chat: get: %w", err)
 	}
-	// Retire first, so the chat's feed still carries its runners' displacement.
+	// Retire first, so the chat's feed still carries its runner's exit.
 	c.runners.RetireChatRunners(ctx, chatID)
 	if err := c.chats.Forget(ctx, chatID); err != nil {
 		return fmt.Errorf("agent: purge chat: forget: %w", err)
@@ -220,12 +218,6 @@ func (c *Conversations) PurgeLocked(
 	}
 	c.telemetry.Forget(ctx, chatID)
 
-	// Drop the chat's placement history: it is append-only and outlives the
-	// process, so nothing else ever removes it.
-	if err := c.runnerStore.ForgetChat(ctx, chatID); err != nil {
-		slog.ErrorContext(ctx, "agent: purge chat: forget placement history (best-effort, continuing)",
-			"chat_id", chatID, "err", err)
-	}
 	if err := c.ledger.Forget(ctx, chatID); err != nil {
 		slog.ErrorContext(ctx, "agent: purge chat: forget ledger (best-effort, continuing)",
 			"chat_id", chatID, "err", err)

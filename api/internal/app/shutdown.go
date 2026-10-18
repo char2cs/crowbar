@@ -21,16 +21,14 @@ import (
 //  1. quiesce the terminal engine: kill every live PTY and JOIN the exit callbacks
 //     those deaths fire. This is FIRST, and it is not a resource release (Close
 //     does that) — it is the outermost writer. A dying vendor CLI's exit callback
-//     is the ONLY thing that records its death: it Exits the runner and closes the
-//     turn the CLI abandoned. It runs on the terminal engine's reap goroutine, so
-//     leaving it to Close — after steps 2-3 and the adapter's DB close — is a
-//     RACE, and one that was lost in production ("close abandoned turn: get chat …
-//     sql: database is closed"). Losing it is worse than a lost warning: the two
-//     writes fall on opposite sides of the teardown, so the runner's Exit commits
-//     while its turn is NOT closed — and with no live runner row left, the next
-//     boot's ReconcileRunnersOnBoot has nothing to reconcile, so NOTHING ever
-//     closes that turn. The chat spins forever, across every restart, and takes
-//     the workspace's working overlay with it;
+//     is the ONLY thing that records its death: it appends the runner's
+//     runner_exited and closes the turn the CLI abandoned. It runs on the terminal
+//     engine's reap goroutine, so leaving it to Close — after steps 2-3 and the
+//     adapter's DB close — is a RACE, and one that was lost in production ("close
+//     abandoned turn: get chat … sql: database is closed"). Losing it is worse
+//     than a lost warning: the exit commits while its turn is NOT closed, and with
+//     no live runner left the next boot's ReconcileRunnersOnBoot has nothing to
+//     reconcile, so NOTHING ever closes that turn. The chat spins forever;
 //  2. close the shared reactor drain gate (Cancel) so no post-commit reactor
 //     wireCallbacks registered starts new work;
 //  3. wait out the in-flight reactors, BOUNDED by ctx — a hung reactor cannot
@@ -57,6 +55,8 @@ func (c *Container) Shutdown(
 	// moment the agent tool counters are ever read.
 	c.logAgentToolUsage()
 
+	// Before the PTYs die: their exits record daemon_restart, not exited.
+	shutdownAgentRunners(c.Usecases)
 	c.quiesceTerminal(ctx)
 
 	drain := c.Repositories.Drain()
@@ -71,19 +71,9 @@ func (c *Container) Shutdown(
 	// it. drain.Gate makes admitting work and beginning to drain one critical section.
 	drain.Gate.Wait(ctx)
 
-	// Order matters on the ABANDON path (the clean path already drained every reaper in
-	// quiesceTerminal above, so all its writes have landed). If a reaper is still in flight
-	// when we get here — quiesceTerminal was cut short by ctx — it writes runners.Exit
-	// FIRST and chats.StopTurn SECOND (reconcileRunnerExit), and it RETURNS EARLY if the
-	// first write is rejected. So shut the RUNNER store down before the CHAT store: a
-	// reaper that loses the race then has its Exit rejected and bails before StopTurn,
-	// leaving the runner row LIVE for the next boot's reconcile to retry both writes. The
-	// reverse order lets Exit commit while StopTurn is rejected — runner gone, turn
-	// stranded, and boot reconcile has no live row left to find. Recoverable vs permanent.
 	return errors.Join(
 		c.axWorkspace.Shutdown(ctx),
 		c.axReviewThread.Shutdown(ctx),
-		c.axAgentRunner.Shutdown(ctx),
 		c.axAgentChat.Shutdown(ctx),
 		c.axAgentActivity.Shutdown(ctx),
 		c.axNode.Shutdown(ctx),
@@ -184,19 +174,18 @@ func (c *Container) stopBackgroundWorkers(
 ) {
 	_ = c.axWorkspace.Shutdown(ctx)
 	_ = c.axReviewThread.Shutdown(ctx)
-	_ = c.axAgentRunner.Shutdown(ctx)
 	_ = c.axAgentChat.Shutdown(ctx)
 	_ = c.axAgentActivity.Shutdown(ctx)
 	_ = c.axNode.Shutdown(ctx)
 }
 
-// shutdownAgentRunners kills every live api-transport connection before the
-// daemon exits. It is the shutdown-time mirror of reconcileAgentRunners:
-// nothing else in Close's chain (engine.Container.Close, Realtime.Close)
-// reaches this registry, so without this call every codex-style serve
-// process outlives the daemon that spawned it.
+// shutdownAgentRunners notes daemon_restart on every live runner and kills
+// every live api-transport connection before the daemon exits. It is the
+// shutdown-time mirror of reconcileAgentRunners: nothing else in Close's chain
+// (engine.Container.Close, Realtime.Close) reaches this registry, so without
+// this call every codex-style serve process outlives the daemon that spawned it.
 func shutdownAgentRunners(ucs *usecases.Container) {
-	if ucs.AgentRunner == nil {
+	if ucs == nil || ucs.AgentRunner == nil {
 		return
 	}
 	ucs.AgentRunner.ShutdownAPIConnections()

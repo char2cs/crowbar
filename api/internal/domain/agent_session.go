@@ -2,12 +2,11 @@ package domain
 
 import "time"
 
-// AgentSession is why a chat's vendor session is in the state it is, as the
-// daemon's session supervisor recorded it — so a client renders it and never
-// infers it.
+// AgentSession is why a chat's vendor session is in the state it is, as its
+// ledger records it — so a client renders it and never infers it.
 type AgentSession struct {
 	// ExitReason is how the chat's last runner ended (AgentExit*); empty while
-	// a runner is live or when none has run since the daemon started.
+	// a runner is live or before any has run.
 	ExitReason string
 	ExitedAt   time.Time
 }
@@ -23,7 +22,7 @@ const (
 	AgentExitSpawnFailed       = "spawn_failed"
 	// AgentExitMoved: the CLI moved the chat to another session (/clear, /resume).
 	AgentExitMoved = "moved"
-	// AgentExitDisplaced: Crowbar took the CLI off the chat (another runner
-	// was placed on it, or a switch whose replacement never came up).
+	// AgentExitDisplaced: Crowbar ended the CLI to replace it (a switch, a
+	// restart) or because its chat was erased.
 	AgentExitDisplaced = "displaced"
 )

@@ -22,7 +22,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // apiCtx marks ctx as carrying a delivery over the live api connection —
@@ -40,7 +39,7 @@ func apiCtx(t *testing.T) context.Context {
 // through one of its gated doors — a switch holds the spawn gate while parked on
 // a turn only this side can release.
 type recordingRunners struct {
-	turn.Runners
+	liveOn
 
 	mu       sync.Mutex
 	sessions []string
@@ -99,7 +98,6 @@ func TestReplayStartupHook_RoutesASessionStartThroughTheRunnerPort(t *testing.T)
 	turns := turn.New(turn.Deps{
 		Ledger:       emptyLedger(t),
 		Chats:        stubChats{},
-		Runners:      stubRunnerStore{},
 		Agents:       engineagents.New(),
 		Workspace:    stubWorkspace{home: home},
 		Home:         func() (string, error) { return home, nil },
@@ -107,7 +105,7 @@ func TestReplayStartupHook_RoutesASessionStartThroughTheRunnerPort(t *testing.T)
 		Telemetry:    telemetry.New(),
 		Work:         inflight.NewWork(),
 	})
-	runners := &recordingRunners{}
+	runners := &recordingRunners{liveOn: claudeLive}
 	turns.SetRunners(runners)
 
 	turns.ReplayStartupHook("runner-1", inflight.Hook{
@@ -209,38 +207,26 @@ func (w stubWorkspace) AgentChatsDir(context.Context, string) (string, error) {
 	return w.home, nil
 }
 
-// stubRunnerStore answers "which runner is this" and nothing else.
-type stubRunnerStore struct {
-	agentrunner.EventStore
+// liveOn is the live table a hook resolves through: every runner id names a
+// runner of provider on chat-1. Every other Runners method panics if reached.
+type liveOn struct {
+	turn.Runners
+	provider string
 }
 
-func (stubRunnerStore) Get(_ context.Context, id string) (engineagents.Runner, error) {
-	return engineagents.Runner{
-		ID:            id,
-		ProviderID:    "claude",
-		WorkspaceID:   "ws-1",
-		CurrentChatID: "chat-1",
-	}, nil
+func (l liveOn) RunnerByID(id string) (engineagents.Runner, bool) {
+	return engineagents.Runner{ID: id, ProviderID: l.provider, WorkspaceID: "ws-1", CurrentChatID: "chat-1"}, true
 }
 
-// codexRunnerStore is stubRunnerStore for a codex runner instead of claude's —
-// TestIngestHook_DropsAHooksDeliveredCopyOfAnAPIOwnedEvent needs a provider
-// whose descriptor actually declares an api transport.
-type codexRunnerStore struct {
-	agentrunner.EventStore
-}
+// claudeLive and codexLive are a claude and a codex runner on chat-1; codex's
+// descriptor declares an api transport.
+var (
+	claudeLive = liveOn{provider: "claude"}
+	codexLive  = liveOn{provider: "codex"}
+)
 
-func (codexRunnerStore) Get(_ context.Context, id string) (engineagents.Runner, error) {
-	return engineagents.Runner{
-		ID:            id,
-		ProviderID:    "codex",
-		WorkspaceID:   "ws-1",
-		CurrentChatID: "chat-1",
-	}, nil
-}
-
-// bareRunners answers nothing: every Runners method panics if reached.
-type bareRunners struct{ turn.Runners }
+// bareRunners answers only which runner a hook names.
+type bareRunners struct{ liveOn }
 
 // emptyLedger is a ledger no chat has written to.
 func emptyLedger(t *testing.T) *ledgerstore.Store {
@@ -303,7 +289,6 @@ func TestIngestHook_AHooksDeliveryOnAnUnboundChatIsRecorded(t *testing.T) {
 	activity := &recordingToolActivity{}
 	turns := turn.New(turn.Deps{
 		Ledger:       emptyLedger(t),
-		Runners:      codexRunnerStore{},
 		Chats:        stubChats{},
 		Activity:     activity,
 		Agents:       engineagents.New(),
@@ -313,7 +298,7 @@ func TestIngestHook_AHooksDeliveryOnAnUnboundChatIsRecorded(t *testing.T) {
 		Telemetry:    telemetry.New(),
 		Work:         inflight.NewWork(),
 	})
-	turns.SetRunners(bareRunners{})
+	turns.SetRunners(bareRunners{codexLive})
 
 	err := turns.IngestHook(t.Context(), "runner-1", "codex", "tool_pre",
 		[]byte(`{"session_id":"s1","tool_use_id":"tool-1","tool_name":"Bash","tool_input":{"command":"echo hi"}}`))
@@ -325,7 +310,7 @@ func TestIngestHook_AHooksDeliveryOnAnUnboundChatIsRecorded(t *testing.T) {
 // nativeViewRunners answers only ShowingNativeView, for the surfaceGated
 // integration tests below.
 type nativeViewRunners struct {
-	turn.Runners
+	liveOn
 	showing bool
 }
 
@@ -344,7 +329,6 @@ func TestRegression_SurfaceGatedMessageDeltaSkipsChatWhileTheNativeViewIsShowing
 	var delivered bool
 	turns := turn.New(turn.Deps{
 		Ledger:       emptyLedger(t),
-		Runners:      codexRunnerStore{},
 		Chats:        stubChats{},
 		Agents:       engineagents.New(),
 		Workspace:    stubWorkspace{home: home},
@@ -353,7 +337,7 @@ func TestRegression_SurfaceGatedMessageDeltaSkipsChatWhileTheNativeViewIsShowing
 		Telemetry:    telemetry.New(),
 		Work:         inflight.NewWork(),
 	})
-	turns.SetRunners(nativeViewRunners{showing: true})
+	turns.SetRunners(nativeViewRunners{liveOn: codexLive, showing: true})
 	turns.SetFeed(seam.ChatFeed{MessageDelta: func(string, string, string, string, string, time.Time) { delivered = true }})
 
 	err := turns.IngestHook(t.Context(), "runner-1", "codex", "message_delta",
@@ -375,7 +359,6 @@ func TestRegression_SurfaceGatedMessageDeltaStillFlowsToChat(t *testing.T) {
 	var delivered bool
 	turns := turn.New(turn.Deps{
 		Ledger:       emptyLedger(t),
-		Runners:      codexRunnerStore{},
 		Chats:        stubChats{},
 		Agents:       engineagents.New(),
 		Workspace:    stubWorkspace{home: home},
@@ -384,7 +367,7 @@ func TestRegression_SurfaceGatedMessageDeltaStillFlowsToChat(t *testing.T) {
 		Telemetry:    telemetry.New(),
 		Work:         inflight.NewWork(),
 	})
-	turns.SetRunners(nativeViewRunners{showing: false})
+	turns.SetRunners(nativeViewRunners{liveOn: codexLive, showing: false})
 	turns.SetFeed(seam.ChatFeed{MessageDelta: func(string, string, string, string, string, time.Time) { delivered = true }})
 
 	err := turns.IngestHook(t.Context(), "runner-1", "codex", "message_delta",
@@ -453,7 +436,6 @@ func TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn(t *testing.T) 
 
 	home := t.TempDir()
 	turns := turn.New(turn.Deps{
-		Runners:      codexRunnerStore{},
 		Ledger:       codexBoundLedger(t, "thread-main"),
 		Activity:     stubSubagentActivity{open: false},
 		Agents:       engineagents.New(),
@@ -463,7 +445,7 @@ func TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn(t *testing.T) 
 		Telemetry:    telemetry.New(),
 		Work:         inflight.NewWork(),
 	})
-	turns.SetRunners(bareRunners{})
+	turns.SetRunners(bareRunners{codexLive})
 
 	// api-shaped (threadId): a child thread's own turn/completed arrives over
 	// the SAME live api connection as the runner's own thread (see this
@@ -489,7 +471,6 @@ func TestRegression_AChildThreadsTurnStopClosesTheSubagentItBelongsTo(t *testing
 	home := t.TempDir()
 	activity := &recordingSubagentActivity{openSessionID: "thread-child"}
 	turns := turn.New(turn.Deps{
-		Runners:      codexRunnerStore{},
 		Ledger:       codexBoundLedger(t, "thread-main"),
 		Activity:     activity,
 		Chats:        stubChats{},
@@ -500,7 +481,7 @@ func TestRegression_AChildThreadsTurnStopClosesTheSubagentItBelongsTo(t *testing
 		Telemetry:    telemetry.New(),
 		Work:         inflight.NewWork(),
 	})
-	turns.SetRunners(bareRunners{})
+	turns.SetRunners(bareRunners{codexLive})
 
 	// api-shaped (threadId/turn.items[type=agentMessage].text): the same
 	// live-connection shape as the sibling test above — a child thread's own
@@ -536,7 +517,6 @@ func TestRegression_AChildThreadsIdleNeverArmsThisChatsProviderIdleFuse(t *testi
 	newTurns := func() *turn.Turns {
 		turns := turn.New(turn.Deps{
 			Chats:        stubChats{working: true},
-			Runners:      codexRunnerStore{},
 			Ledger:       codexBoundLedger(t, "thread-main"),
 			Activity:     stubSubagentActivity{open: false},
 			Agents:       engineagents.New(),
@@ -546,7 +526,7 @@ func TestRegression_AChildThreadsIdleNeverArmsThisChatsProviderIdleFuse(t *testi
 			Telemetry:    telemetry.New(),
 			Work:         inflight.NewWork(),
 		})
-		turns.SetRunners(bareRunners{})
+		turns.SetRunners(bareRunners{codexLive})
 		return turns
 	}
 
@@ -578,7 +558,6 @@ func TestRegression_AChildThreadIsForeignToTheThreadTheDriverOpened(t *testing.T
 	home := t.TempDir()
 	turns := turn.New(turn.Deps{
 		Chats:        stubChats{working: true},
-		Runners:      codexRunnerStore{},
 		Ledger:       codexBoundLedger(t, "thread-main"),
 		Activity:     stubSubagentActivity{open: false},
 		Agents:       engineagents.New(),
@@ -588,7 +567,7 @@ func TestRegression_AChildThreadIsForeignToTheThreadTheDriverOpened(t *testing.T
 		Telemetry:    telemetry.New(),
 		Work:         inflight.NewWork(),
 	})
-	turns.SetRunners(bareRunners{})
+	turns.SetRunners(bareRunners{codexLive})
 	// Nothing streams in this fixture, so closeAssistantTurn's delta race has
 	// nothing to wait for — without this a REGRESSION would idle 3s before
 	// failing. The passing path never reaches it.

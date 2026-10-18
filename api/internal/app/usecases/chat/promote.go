@@ -8,7 +8,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // WorktreeCreator is the narrow write port Promote needs from the worktree
@@ -167,12 +166,8 @@ func (u *Usecase) currentProviderID(
 	ctx context.Context,
 	chatID string,
 ) (string, error) {
-	live, err := u.runners.LiveRunnerForChat(ctx, chatID)
-	if err == nil {
+	if live, err := u.runners.LiveRunnerForChat(ctx, chatID); err == nil {
 		return live.ProviderID, nil
-	}
-	if !errors.Is(err, agentrunner.ErrNotFound) {
-		return "", fmt.Errorf("current provider: live runner: %w", err)
 	}
 	chat, err := u.GetChat(ctx, chatID)
 	if err != nil {

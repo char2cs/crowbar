@@ -374,7 +374,7 @@ func settleCLI(
 			// transport its app-server announces within a second, while the PTY
 			// this tap watches is still sitting on its trust dialog.
 			if provider == "claude" {
-				if r, err := h.app.Repositories.AgentRunner.Get(context.Background(), runnerID); err == nil &&
+				if r, ok := runnerByID(h, runnerID); ok &&
 					announcedSession(h, r) != "" {
 					return sawBound, true
 				}
@@ -805,7 +805,7 @@ func awaitSessionBound(
 	var last agents.Runner
 	sid := kit.Await(t, ctx, "runner "+runnerID+" to bind a provider conversation", func() (string, bool) {
 		h.app.Repositories.WaitQuiescent()
-		if runner, err := h.app.Repositories.AgentRunner.Get(context.Background(), runnerID); err == nil {
+		if runner, ok := runnerByID(h, runnerID); ok {
 			last = runner
 			if sid := announcedSession(h, runner); sid != "" {
 				return sid, true

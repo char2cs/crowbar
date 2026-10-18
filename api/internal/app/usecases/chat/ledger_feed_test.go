@@ -114,7 +114,8 @@ func TestLedgerFeed_PublishesAPromptSettledWithoutATurn(t *testing.T) {
 // writer still holding it.
 func TestLedgerFeed_AChatsFirstCommitCompletesAndItsSnapshotCarriesTheConversation(t *testing.T) {
 	f := newFixture(t)
-	chatID, _ := f.spawn(t, "codex")
+	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "codex", "")
+	require.NoError(t, err)
 	require.Empty(t, ledgerRows(t, f, chatID), "precondition: nothing has touched the chat's ledger")
 	settled := make(chan settledPrompt, 1)
 	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{

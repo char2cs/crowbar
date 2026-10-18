@@ -11,7 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // This file is the door for everything the COMPOSITION ROOT builds itself: the
@@ -57,9 +56,8 @@ type (
 	ToolReviewReader = tools.ReviewReader
 	// ToolThreadBroadcast announces a review thread an agent just wrote.
 	ToolThreadBroadcast = tools.ThreadBroadcast
-	// ToolRunnerReader, ToolChatGetter and ToolWorkspaceLister are what a resolver
-	// authenticates and scopes a caller against.
-	ToolRunnerReader    = tools.RunnerReader
+	// ToolChatGetter and ToolWorkspaceLister are what a resolver authenticates
+	// and scopes a caller against, beside the live runners.
 	ToolChatGetter      = tools.ChatGetter
 	ToolWorkspaceLister = tools.WorkspaceLister
 	// ToolWorkspaceBranchRenamer is set_branch_name's write seam onto the
@@ -139,14 +137,14 @@ func NewToolSet(deps ToolDeps, runnerID, token string) *ToolSet {
 	return tools.NewToolSet(deps, runnerID, token)
 }
 
-// NewToolResolver builds the authenticator and scoper for MCP callers.
+// NewToolResolver builds the authenticator and scoper for MCP callers. New
+// binds it to the usecase's own live runners, which do not exist yet.
 func NewToolResolver(
 	minter *TokenMinter,
-	runners ToolRunnerReader,
 	chats ToolChatGetter,
 	workspaces ToolWorkspaceLister,
 ) *ToolResolver {
-	return tools.NewResolver(minter, runners, chats, workspaces)
+	return tools.NewResolver(minter, nil, chats, workspaces)
 }
 
 // NewToolIdempotency returns an empty write-deduplication ledger.
@@ -257,12 +255,13 @@ var (
 	// ErrToolUnauthorized is a runner callback that could not prove it is the
 	// runner it claims to be.
 	ErrToolUnauthorized = tools.ErrUnauthorized
-	// ErrChatProviderUnknown is a resume of a dormant chat that nothing left on
-	// disk can name a provider for: no conversation history, no switch marker, no
-	// placement history and no durable choice of its own. It is DISTINCT from a
-	// missing runner, which is the ordinary dormant state and the reason the
-	// resume was asked for in the first place.
+	// ErrChatProviderUnknown is a resume of a dormant chat that records no
+	// provider. It is DISTINCT from a missing runner, which is the ordinary
+	// dormant state and the reason the resume was asked for in the first place.
 	ErrChatProviderUnknown = runner.ErrChatProviderUnknown
+	// ErrNoLiveRunner is a chat with no CLI on it: dormant, the normal state
+	// between runs.
+	ErrNoLiveRunner = runner.ErrNoLiveRunner
 	// ErrStopped is a switch or resume that was parked when the user pressed
 	// Stop; Stop preempted it and it changed nothing.
 	ErrStopped = runner.ErrStopped
@@ -329,7 +328,4 @@ const (
 	ChatPhaseStopping  = snapshot.PhaseStopping
 )
 
-var (
-	_ = agentchat.WatchFunc(nil)
-	_ = agentrunner.WatchFunc(nil)
-)
+var _ = agentchat.WatchFunc(nil)

@@ -15,7 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 func TestMain(
@@ -249,18 +248,6 @@ func (stubUsecase) PendingPrompt(
 	chatID string,
 ) (domain.PendingPrompt, bool, error) {
 	return domain.PendingPrompt{}, false, nil
-}
-
-// LiveRunnerForChat answers agentrunner.ErrNotFound — "this chat is DORMANT", the
-// honest answer for a stub that starts no process, and not a failure: a live-runner row
-// exists exactly while a PTY does, so its absence IS the liveness verdict. The read
-// routes therefore still serve 200 with empty liveRunnerId/terminalSessionId, which is
-// what the mount test asserts on.
-func (stubUsecase) LiveRunnerForChat(
-	_ context.Context,
-	_ string,
-) (engineagents.Runner, error) {
-	return engineagents.Runner{}, agentrunner.ErrNotFound
 }
 
 func (stubUsecase) ConversationsForChat(
@@ -561,12 +548,6 @@ func (stubUsecase) TerminalWait(string) domain.AgentTerminalWait {
 func (stubUsecase) ReadPendingChoices(
 	context.Context, string,
 ) ([]domain.ActivityChoice, error) {
-	return nil, nil
-}
-
-func (stubUsecase) Interruptions(
-	context.Context, string,
-) ([]domain.ActivityInterruption, error) {
 	return nil, nil
 }
 

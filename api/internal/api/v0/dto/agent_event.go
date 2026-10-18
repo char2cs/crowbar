@@ -6,7 +6,7 @@ import "time"
 // (GET .../repos/:repoId/chats/ws, and still GET .../home/chats/ws): the thing
 // that changed, the workspace it belongs to, and the lifecycle kind — chat
 // kinds (created/turn_started/turn_stopped/title_set/placement_set/deleted),
-// runner kinds (started/session_bound/displaced/exited), and folder
+// runner kinds (started/exited), and folder
 // kinds (folder_created/folder_updated/folder_deleted), all of which ride this
 // same feed. It carries no snapshot; the stream is a bare event feed, not a
 // full-state resource stream. WorkspaceID rides along on the wire frame and
@@ -18,12 +18,6 @@ import "time"
 // stream's only scoping mechanism and a repo-scoped client received every OTHER
 // repo's chat events too; before ProjectID existed, every REPO-LESS frame — a
 // folder row, a root bubble, and every chat in a project HOME — still did.
-//
-// ChatID is EMPTY on a `displaced` frame, and that is the frame's whole meaning: Crowbar
-// has taken that runner off its chat (an eviction, a provider switch, a chat deleted under
-// it) and it now holds nothing. The process may still be alive for a moment — displacement
-// asserts nothing about liveness — so a client must not wait for `exited` before letting go
-// of it: if the kill failed, `exited` never comes.
 type AgentChatEvent struct {
 	ChatID      string `json:"chatId"`
 	WorkspaceID string `json:"workspaceId"`
@@ -55,10 +49,9 @@ type AgentChatEvent struct {
 	ProjectID string `json:"projectId,omitempty"`
 	Kind      string `json:"kind"`
 	// RunnerID names the vendor-CLI process the frame is about, and is set ONLY on
-	// the agent-RUNNER kinds (started/session_bound/displaced/exited — see
-	// hub.BroadcastAgentRunner), which ride this same workspace-scoped feed rather
-	// than a second socket. It is empty on the chat kinds, which are about the chat
-	// itself and name no process.
+	// the agent-RUNNER kinds (started/exited), which ride this same
+	// workspace-scoped feed rather than a second socket. It is empty on the chat
+	// kinds, which are about the chat itself and name no process.
 	RunnerID string `json:"runnerId,omitempty"`
 	// FolderID names the CHAT FOLDER a frame is about, and is set ONLY on the
 	// folder kinds (folder_created/folder_updated/folder_deleted), which ride this

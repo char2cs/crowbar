@@ -2,12 +2,9 @@ package runner
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
-
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // ResumeChat revives a dormant chat's last provider. Split out of lifecycle.go
@@ -22,12 +19,12 @@ func (rs *Runners) ResumeChat(
 	}
 	defer release()
 
-	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if err == nil {
-		return live.ID, nil
+	live, ok, err := rs.awaitDormant(park, chatID)
+	if err != nil {
+		return "", parkErr(park, fmt.Errorf("agent: resume chat: %w", err))
 	}
-	if !errors.Is(err, agentrunner.ErrNotFound) {
-		return "", fmt.Errorf("agent: resume chat: live runner: %w", err)
+	if ok {
+		return live.ID, nil
 	}
 	providerID, err := rs.lastActiveProviderID(ctx, chatID)
 	if err != nil {

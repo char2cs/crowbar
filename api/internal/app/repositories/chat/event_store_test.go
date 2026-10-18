@@ -132,8 +132,7 @@ func TestAgentChat_GetChat_MissingBridgesToPackageErrNotFound(t *testing.T) {
 // The segment lifecycle (EndSegment / OpenSegment / BindSession) and the
 // GetByProviderSession lookup that scanned segments are GONE, along with AgentSegment
 // itself. A chat holds no process state: which CLI is on it, and which conversations it
-// has hosted, are projections of RUNNER events (agentrunner). Their coverage lives
-// there and in the agent usecase's move/eviction tests.
+// has hosted, are chat-ledger rows, covered by the ledger and the chat usecase tests.
 
 func TestAgentChat_StartStopTurn(t *testing.T) {
 	ctx, repo := newRepo(t)

@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // bootReconcileFixture boots a daemon at home, spawns a livestub chat, binds a
@@ -197,4 +199,52 @@ func TestRegression_AfterRestart_ResumeStillWorks(t *testing.T) {
 			"re-serving the dead one is how the pane ends up attached to a suspended placeholder")
 	assert.Equal(t, "livestub", back.ActiveProviderID,
 		"resume brings back the provider the chat was last on, read from its conversation history")
+}
+
+// exitReason is how chatID's last runner ended, as the chat's session reports it.
+func exitReason(t *testing.T, h *harness, imported importedRepo, chatID string) string {
+	t.Helper()
+	view := readChatSession(t, h, imported, chatID)
+	if view.Session == nil {
+		return ""
+	}
+	return view.Session.ExitReason
+}
+
+// A chat's last exit reason is a ledger fact, so the next daemon still knows
+// why the CLI ended.
+func TestRegression_ARunnersExitReasonSurvivesARestart(t *testing.T) {
+	home := t.TempDir()
+	h := newHarnessAt(t, home)
+	imported := importWritableWorkspace(t, h)
+	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
+	chatID, l := createFakeChat(t, h, imported, fake)
+	killAndAwaitExit(t, h, h.dial(repoBase(imported)+"/chats/ws"), l)
+	require.Equal(t, "exited", exitReason(t, h, imported, chatID), "precondition: the exit was reported")
+
+	h.shutdown()
+	h2 := newHarnessAt(t, home)
+	h2.Quiesce()
+
+	assert.Equal(t, "exited", exitReason(t, h2, imported, chatID))
+}
+
+// A runner the ledger still holds live at boot died with the old daemon: boot
+// records it as daemon_restart, and the next prompt launches a new CLI.
+func TestRegression_ABootWithALiveRunnerRecordsDaemonRestart(t *testing.T) {
+	home := t.TempDir()
+	h := newHarnessAt(t, home)
+	imported := importWritableWorkspace(t, h)
+	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
+	chatID, l1 := createFakeChat(t, h, imported, fake)
+
+	h.crash()
+	h2 := newHarnessAt(t, home)
+	h2.Quiesce()
+
+	view := readChatSession(t, h2, imported, chatID)
+	assert.Empty(t, view.LiveRunnerID, "no CLI outlives the daemon that started it")
+	assert.Equal(t, "daemon_restart", exitReason(t, h2, imported, chatID))
+	l2 := promptLaunch(t, h2, imported, fake, chatID, "after the restart", "")
+	assert.NotEqual(t, l1.RunnerID, l2.RunnerID, "the prompt launched a new CLI")
 }

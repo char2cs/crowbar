@@ -22,14 +22,11 @@ import (
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // ─── from wiring_internal_test.go ─────────────────────────────────────
 
 type wiringChats struct{ agentchat.EventStore }
-
-type wiringRunners struct{ agentrunner.EventStore }
 
 type wiringActivity struct{ agentactivity.EventStore }
 
@@ -127,7 +124,6 @@ func newWiringFixture(t *testing.T) *Usecase {
 	require.NoError(t, err)
 	return New(Deps{
 		Chats:         wiringChats{},
-		Runners:       wiringRunners{},
 		Activity:      wiringActivity{},
 		Agents:        agentsEngine,
 		Terminal:      screenReadingCommander{},

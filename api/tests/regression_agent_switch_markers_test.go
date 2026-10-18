@@ -239,7 +239,7 @@ func TestRegression_SwitchingProvidersDropsAModelTheNewProviderDoesNotDeclare(t 
 		map[string]string{"provider": "otherswitchablestub"}, http.StatusOK, &result)
 	h.QuiesceReactors()
 
-	runner, err := h.app.Repositories.AgentRunner.LiveRunnerForChat(context.Background(), chatID)
+	runner, err := h.app.Usecases.AgentRunner.LiveRunnerForChat(context.Background(), chatID)
 	require.NoError(t, err, "the switch must leave a live runner on the chat")
 	assert.Empty(t, runner.LaunchModel,
 		"otherswitchablestub does not declare \"opus\" — the switch must not hand it "+

@@ -2,17 +2,16 @@ package runner
 
 import (
 	"context"
-	"errors"
 	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // Snapshotter is where a lifecycle change no aggregate event carries is
-// announced: the chat's phase, and a runner's in-memory process state.
+// announced: the chat's phase, and its runner starting, reporting or exiting.
 type Snapshotter interface {
 	Touch(ctx context.Context, chatID string)
+	ApplyRunner(ctx context.Context, chatID, runnerID, kind string)
 }
 
 // phases is the lifecycle operation each chat is in the middle of, set by the
@@ -57,8 +56,8 @@ func (rs *Runners) enterPhase(ctx context.Context, chatID, phase string) func() 
 
 // replacementPhase is what replacing chatID's CLI looks like from outside:
 // switching while one is live, starting while the chat is dormant.
-func (rs *Runners) replacementPhase(ctx context.Context, chatID string) string {
-	if _, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID); errors.Is(err, agentrunner.ErrNotFound) {
+func (rs *Runners) replacementPhase(chatID string) string {
+	if _, live := rs.live.byChat(chatID); !live {
 		return snapshot.PhaseStarting
 	}
 	return snapshot.PhaseSwitching
@@ -67,5 +66,12 @@ func (rs *Runners) replacementPhase(ctx context.Context, chatID string) string {
 func (rs *Runners) touch(ctx context.Context, chatID string) {
 	if rs.snapshots != nil {
 		rs.snapshots.Touch(ctx, chatID)
+	}
+}
+
+// announceRunner publishes chatID's snapshot for its runner's lifecycle event.
+func (rs *Runners) announceRunner(ctx context.Context, chatID, runnerID, kind string) {
+	if rs.snapshots != nil {
+		rs.snapshots.ApplyRunner(ctx, chatID, runnerID, kind)
 	}
 }

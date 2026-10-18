@@ -87,14 +87,7 @@ func (rs *Runners) Compact(ctx context.Context, chatID string) error {
 	// interruptTurn drives turn/interrupt — a fresh dial has no session to
 	// compact. A chat with no live api connection (still spawning, running
 	// over hooks-only, or between runners) cannot be asked yet.
-	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if err != nil {
-		return fmt.Errorf(
-			"agent: compact: %q compacts over the %q wire, which needs a live api "+
-				"connection this chat does not currently have: %w",
-			providerID, wire, apperr.ErrUnavailable,
-		)
-	}
+	live, _ := rs.live.byChat(chatID) // dormant: no id, so no connection
 	conn, ok := rs.apiConns.get(live.ID)
 	if !ok {
 		return fmt.Errorf(

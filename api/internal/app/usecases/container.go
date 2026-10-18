@@ -399,7 +399,6 @@ func newAgentWiring(
 	}
 	chat := agentusecase.New(agentusecase.Deps{
 		Chats:                   repos.AgentChat,
-		Runners:                 repos.AgentRunner,
 		Activity:                repos.AgentActivity,
 		Ledger:                  repos.ChatLedger,
 		Agents:                  engines.Agents,
@@ -540,8 +539,6 @@ func newAgentToolDeps(
 		return agentusecase.ToolDeps{}, fmt.Errorf("usecases: wire agent tools: no token minter")
 	case workspaces == nil:
 		return agentusecase.ToolDeps{}, fmt.Errorf("usecases: wire agent tools: no workspace usecase")
-	case repos.AgentRunner == nil:
-		return agentusecase.ToolDeps{}, fmt.Errorf("usecases: wire agent tools: no runner store")
 	case repos.AgentChat == nil:
 		return agentusecase.ToolDeps{}, fmt.Errorf("usecases: wire agent tools: no chat store")
 	case repos.Workspace == nil:
@@ -557,7 +554,6 @@ func newAgentToolDeps(
 	return agentusecase.ToolDeps{
 		Resolver: agentusecase.NewToolResolver(
 			minter,
-			repos.AgentRunner,
 			chatReader,
 			repos.Workspace,
 		),
@@ -997,11 +993,11 @@ func (r *agentWorkspaceReader) WorktreeDir(
 }
 
 // AgentChatsDir implements agentusecase.WorkspaceReader: it resolves the directory that
-// holds a workspace's OWN agent-work state (per-spawn tmp dirs, the per-runner
-// hook-delivery journal), ALWAYS strictly under crowbar home. It is NOT a chat's
-// own directory — that is worktreepath.LedgerChatsDir (not chat_ledger.db), keyed
-// by the chat's id alone, because WorkspaceID is optional and mutable (spec §1.5)
-// and this lookup requires a resolvable workspace.
+// holds a workspace's OWN agent-work state (per-spawn tmp dirs), ALWAYS strictly
+// under crowbar home. It is NOT a chat's own directory — that is
+// worktreepath.LedgerChatsDir (not chat_ledger.db), keyed by the chat's id alone,
+// because WorkspaceID is optional and mutable (spec §1.5) and this lookup requires
+// a resolvable workspace.
 //
 // For a Crowbar-managed worktree (WorktreePath strictly under home) the chats dir
 // is the sibling of the worktree (worktreepath.ChatsDir), reaped with the

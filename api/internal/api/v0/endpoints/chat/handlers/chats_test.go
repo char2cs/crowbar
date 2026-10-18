@@ -21,7 +21,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // TestCreate_Success proves Create reads the workspace id from the :wsId path
@@ -355,10 +354,9 @@ type configurableListGetUsecase struct {
 	promoted   []string
 	promoteErr error
 
-	// liveRunners maps a chat id to the runner PLACED on it. A chat ABSENT from
-	// the map is DORMANT, and LiveRunnerForChat answers agentrunner.ErrNotFound —
-	// which is the real answer (no live row exists, because no PTY does), not a
-	// failure. liveErr is the genuine-failure branch (a read that blew up).
+	// liveRunners maps a chat id to the runner live on it; a chat ABSENT from
+	// the map is DORMANT. liveErr is the genuine-failure branch (a read that
+	// blew up).
 	liveRunners map[string]engineagents.Runner
 	liveErr     error
 
@@ -367,13 +365,6 @@ type configurableListGetUsecase struct {
 	// dormant chat's activeProviderId derives from.
 	conversations map[string][]engineagents.ChatConversation
 	convErr       error
-
-	// interruptions maps a chat id to its durable interruption ledger — the
-	// second fallback source activeProviderId needs for a chat whose provider
-	// binds via its own connection identity and so never appears in
-	// conversations at all.
-	interruptions map[string][]domain.ActivityInterruption
-	interruptErr  error
 
 	selection    selectionCall
 	selectionErr error
@@ -545,20 +536,6 @@ func (*configurableListGetUsecase) PendingPrompt(
 	return domain.PendingPrompt{}, false, nil
 }
 
-func (u *configurableListGetUsecase) LiveRunnerForChat(
-	_ context.Context,
-	chatID string,
-) (engineagents.Runner, error) {
-	if u.liveErr != nil {
-		return engineagents.Runner{}, u.liveErr
-	}
-	runner, ok := u.liveRunners[chatID]
-	if !ok {
-		return engineagents.Runner{}, agentrunner.ErrNotFound
-	}
-	return runner, nil
-}
-
 func (u *configurableListGetUsecase) ConversationsForChat(
 	_ context.Context,
 	chatID string,
@@ -567,16 +544,6 @@ func (u *configurableListGetUsecase) ConversationsForChat(
 		return nil, u.convErr
 	}
 	return u.conversations[chatID], nil
-}
-
-func (u *configurableListGetUsecase) Interruptions(
-	_ context.Context,
-	chatID string,
-) ([]domain.ActivityInterruption, error) {
-	if u.interruptErr != nil {
-		return nil, u.interruptErr
-	}
-	return u.interruptions[chatID], nil
 }
 
 func (configurableListGetUsecase) SwitchProvider(

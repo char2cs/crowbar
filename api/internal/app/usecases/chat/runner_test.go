@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,7 +28,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // ─── from switch_test.go ──────────────────────────────────────────────
@@ -71,12 +69,12 @@ func TestSwitchProvider_TerminatesOutgoingCLI_AndTakesOverTheChat(t *testing.T) 
 	assert.Equal(t, "codex", live.ProviderID)
 	assert.NotEqual(t, oldTerm, live.TerminalSession, "the incoming CLI has its own PTY")
 
-	// The outgoing runner is still alive until its PTY actually dies — Crowbar never
-	// asserts a death it has not observed.
-	f.term.exit(t, oldTerm)
-	f.wait()
-	_, err = f.runners.Get(f.ctx, oldRunner)
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound, "and then the PTY's death carries it away")
+	// The switch returned only once the outgoing CLI's exit was recorded: a
+	// replacement never lands beside it.
+	assert.False(t, f.isLive(oldRunner))
+	exit, ok := f.lastExit(t, chatID)
+	require.True(t, ok)
+	assert.Equal(t, ledger.RunnerExit{RunnerID: oldRunner, Reason: domain.AgentExitDisplaced, At: exit.At}, exit)
 }
 
 // TestSwitchProvider_TerminateFailure_SessionAlreadyGone_ContinuesSwitch: when
@@ -156,11 +154,8 @@ func TestSwitchProvider_Forward_SpawnsTargetProviderWithHandoff(t *testing.T) {
 }
 
 // TestSwitchProvider_Broadcasts_TheChatsOwnProviderChange: a handoff changes which
-// CLI is on the chat, and the runner feed carries that whole story — the outgoing
-// runner is taken OFF the chat (displaced) the moment we quit it, the incoming one
-// starts, and the outgoing one exits later, when its PTY finally dies. The displaced
-// frame is what tells a client the old runner no longer holds the chat, without
-// waiting for a death it does not control.
+// CLI is on the chat, and the runner feed carries that whole story in order — the
+// outgoing runner exits, and only then does the incoming one start.
 //
 // The chat aggregate is written to exactly ONCE, and only for what durably moved: its
 // own vendor (domain.Chat.ProviderID), the same way SwitchToTerminal writes its
@@ -169,20 +164,17 @@ func TestSwitchProvider_Forward_SpawnsTargetProviderWithHandoff(t *testing.T) {
 func TestSwitchProvider_Broadcasts_TheChatsOwnProviderChange(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, oldRunner := f.spawn(t, "claude")
-	oldTerm := f.runner(t, oldRunner).TerminalSession
+	chatID, _ := f.spawn(t, "claude")
 	f.bc.reset()
-	f.rbc.reset()
+	f.snapFrames.reset()
 
 	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.NoError(t, err)
 	f.wait()
-	f.term.exit(t, oldTerm)
-	f.wait()
 
 	assert.Equal(t, []string{"provider_set"}, f.bcKinds(t),
 		"the only chat-aggregate write a switch makes is the chat's own vendor moving")
-	assert.Equal(t, []string{"displaced", "started", "exited"}, f.runnerKinds(t))
+	assert.Equal(t, []string{"exited", "started"}, f.runnerKinds(t))
 }
 
 // TestSwitchProvider_RecordsAProviderSwitchedInterruption guards the new
@@ -378,7 +370,7 @@ func TestSwitchProvider_DormantChat_SwitchesAnyway(t *testing.T) {
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
 	f.wait()
 	_, err := f.liveRunnerFor(t, chatID)
-	require.ErrorIs(t, err, agentrunner.ErrNotFound, "precondition: the chat is dormant")
+	require.ErrorIs(t, err, agentusecase.ErrNoLiveRunner, "precondition: the chat is dormant")
 
 	before := len(f.term.terminateRequestIDs())
 	newRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
@@ -800,7 +792,7 @@ func TestRegression_SubmitPromptWithStagedProvider_DormantChatRevivesOntoTheOthe
 	f.term.exit(t, f.runner(t, codexRunner).TerminalSession)
 	f.wait()
 	_, err = f.liveRunnerFor(t, chatID)
-	require.ErrorIs(t, err, agentrunner.ErrNotFound, "precondition: the chat is dormant")
+	require.ErrorIs(t, err, agentusecase.ErrNoLiveRunner, "precondition: the chat is dormant")
 
 	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "what did I miss?", uuid.NewString(), "claude", nil)
 	require.NoError(t, err)
@@ -872,7 +864,7 @@ func TestResumeChat_NoConversationButAProviderOfItsOwn_RevivesThatProvider(t *te
 // was ever placed on — a reducer mint, or a row from before the chat carried its
 // own vendor at all.
 //
-// It must refuse with ErrChatProviderUnknown, NOT with agentrunner.ErrNotFound.
+// It must refuse with ErrChatProviderUnknown, NOT with ErrNoLiveRunner.
 // A dormant chat having no live runner is the normal state and the entire reason
 // Resume was called, so reporting a missing RUNNER named the one thing that was
 // never in question — what could not be resolved is the PROVIDER.
@@ -889,7 +881,7 @@ func TestResumeChat_NothingHasEverRunHere_ReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "no longer records which provider it ran")
 	assert.ErrorIs(t, err, apperr.ErrNotFound,
 		"and it still maps to the 404 the old sentinel did, never a 500")
-	assert.NotErrorIs(t, err, agentrunner.ErrNotFound,
+	assert.NotErrorIs(t, err, agentusecase.ErrNoLiveRunner,
 		"a missing RUNNER is the expected dormant state, and is not what failed")
 }
 
@@ -957,33 +949,6 @@ func TestSwitchProvider_SwitchBackToProviderWithNoTurns_AssignsANewSession(t *te
 	assert.NotContains(t, argv, "--resume", "a session its CLI never wrote cannot be resumed")
 	assert.Contains(t, strings.Join(argv, "\x00"), "codex actually said something")
 	assert.Equal(t, assigned, f.conversation(t, chatID, "claude").SessionID)
-}
-
-// A placement retires every other runner on its chat however it got there: one
-// placed while the switch's CLI forked is ended, and the chat holds one runner.
-func TestSwitchProvider_RetiresARunnerPlacedWhileItForked(t *testing.T) {
-	f := newFixture(t)
-	chatID, _ := f.spawn(t, "claude")
-	var extra string
-	f.term.duringFork = func() {
-		f.term.duringFork = nil
-		extra = f.placeRunner(t, chatID, "claude", "sid-extra")
-	}
-
-	switched, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.NoError(t, err)
-	f.wait()
-
-	placed, err := f.runners.LiveRunnersForChat(f.ctx, chatID)
-	require.NoError(t, err)
-	require.Len(t, placed, 1)
-	assert.Equal(t, switched, placed[0].ID)
-	gone, err := f.runners.Get(f.ctx, extra)
-	if err == nil {
-		assert.Empty(t, gone.CurrentChatID, "the extra runner is retired off the chat")
-		return
-	}
-	require.ErrorIs(t, err, agentrunner.ErrNotFound)
 }
 
 // TestSwitchProvider_CodexKeepsItsOwnHome is the regression for the worst bug in this
@@ -1505,17 +1470,15 @@ func TestRegression_ClearMidTurn_ClosesTheOldSessionsTurn(t *testing.T) {
 // A CLI is live before its runner can be recorded, so a record that fails tears
 // the CLI down unconditionally and still surfaces the error: a CLI nothing
 // points at is invisible.
-func TestSwitchProvider_LostStartRace_TearsDownOrphanCLI(t *testing.T) {
-	f, _, rs := newFaultFixture(t)
+func TestSwitchProvider_ARunnerThatCannotBeRecordedIsTornDown(t *testing.T) {
+	f := newFixture(t)
 
 	chatID, _ := f.spawn(t, "claude")
 
-	rs.failStart = fmt.Errorf("start runner: %w", asynxModels.ErrValidation)
+	f.refuseRunnerStarted(t)
 
 	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, asynxModels.ErrValidation,
-		"a lost race must surface as a conflict (ErrValidation), not a bare failure")
+	require.ErrorContains(t, err, "record runner")
 
 	// Two CLIs were spawned: term-1 (the original claude) and term-2 (the target codex
 	// whose runner could not be recorded). term-2 must have been torn down so no orphan
@@ -1942,9 +1905,9 @@ func TestSubmitPrompt_MatchingLateHookFromOutgoingRunnerDoesNotConfirmNewDispatc
 }
 
 func TestSubmitPrompt_RunnerPersistFailureAfterPTYStartIsOutcomeUnknown(t *testing.T) {
-	f, _, runners := newFaultFixture(t)
+	f := newFixture(t)
 	chatID, _ := f.spawn(t, "codex")
-	runners.failStart = errors.New("runner persistence failed after fork")
+	f.refuseRunnerStarted(t)
 
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", uuid.NewString(), "", nil)
 	assert.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown)
@@ -2059,8 +2022,12 @@ func TestStartupHookBarrier_ReplaysPromptThatFiresBeforeRunnerPersistence(t *tes
 	var earlyRunnerID string
 	f.term.duringForkCall = func(call commandCall) {
 		earlyRunnerID = segmentIDFromCommand(t, call.argv)
-		_, err := f.runners.Get(f.ctx, earlyRunnerID)
-		require.Error(t, err, "precondition: the fork callback runs before recordRunner")
+		early, ok := f.usecase.own.RunnerByID(earlyRunnerID)
+		require.True(t, ok, "a spawn's hooks resolve from the first byte")
+		st, err := f.ledger.State(f.ctx, early.CurrentChatID)
+		require.NoError(t, err)
+		_, recorded := st.LiveRunner()
+		require.False(t, recorded, "precondition: the fork callback runs before runner_started commits")
 		require.NoError(t, f.usecase.IngestHook(f.ctx, earlyRunnerID, "codex", "user_prompt",
 			mustJSON(t, map[string]any{"prompt": message})))
 	}
@@ -2554,7 +2521,7 @@ func TestReconcileRunnersOnBoot_SettlesEveryPendingPromptAsDaemonRestart(t *test
 	requestID := uuid.NewString()
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "lost to the restart", requestID, "", nil)
 	require.NoError(t, err)
-	f.term.dieWithDaemon()
+	f.restart(t)
 
 	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
 
@@ -2563,38 +2530,34 @@ func TestReconcileRunnersOnBoot_SettlesEveryPendingPromptAsDaemonRestart(t *test
 	assert.Equal(t, ledger.ReasonDaemonRestart, got.Reason)
 }
 
-// TestRegression_DeadPTY_MeansDeadRunner: a runner cannot outlive its PTY. Boot
-// reconciliation is the ONE place liveness is reconciled, and it reconciles against the
-// single authority — the PTY — rather than against a second opinion Crowbar stored.
-//
-// What must NOT go with the runner is the chat: killing the live row is what makes the
-// chat dormant, and dormant is the state Resume revives from. A reconcile that took the
-// conversation history with it would turn a restart into data loss.
+// TestRegression_DeadPTY_MeansDeadRunner: no CLI outlives the daemon that
+// started it, so boot ends every runner the ledger still holds live — and
+// leaves the chat, whose ledger is what Resume revives from.
 func TestRegression_DeadPTY_MeansDeadRunner(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
 	f.announce(t, runnerID, "s1")
 
-	f.term.dieWithDaemon() // the daemon restarted; every PTY is gone
+	f.restart(t)
 
 	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
 	f.wait()
 
-	_, err := f.runners.LiveRunnerForChat(f.ctx, chatID)
-	require.ErrorIs(t, err, agentrunner.ErrNotFound, "no runner may outlive its PTY")
+	_, err := f.liveRunnerFor(t, chatID)
+	require.ErrorIs(t, err, agentusecase.ErrNoLiveRunner, "no runner may outlive its PTY")
+	exit, ok := f.lastExit(t, chatID)
+	require.True(t, ok)
+	assert.Equal(t, runnerID, exit.RunnerID)
+	assert.Equal(t, domain.AgentExitDaemonRestart, exit.Reason)
 
 	// ...but the chat is still resumable: its ledger describes what HAPPENED, which no
 	// restart can falsify.
 	require.Equal(t, "s1", f.conversation(t, chatID, "claude").SessionID)
 }
 
-// TestRegression_AfterRestart_ResumeStillWorks is the headline regression. The live-runner
-// table is durable sqlite and is never truncated at boot, so without this reconcile every
-// chat that ever had a runner is UNREVIVABLE for the rest of time: ResumeChat asks
-// LiveRunnerForChat first, is handed the stale row of a CLI that died with the daemon, and
-// returns it as a no-op. The Resume button silently does nothing, and the pane attaches to
-// a dead terminal session.
+// TestRegression_AfterRestart_ResumeStillWorks: a chat whose CLI died with the
+// daemon comes back as a NEW runner, never as the id of the dead one.
 func TestRegression_AfterRestart_ResumeStillWorks(t *testing.T) {
 	f := newFixture(t)
 
@@ -2602,14 +2565,15 @@ func TestRegression_AfterRestart_ResumeStillWorks(t *testing.T) {
 	f.announce(t, runnerID, "s1")
 	turn(t, f, runnerID, "claude", "the reply the user came back for")
 
-	f.term.dieWithDaemon()
+	f.restart(t)
 
-	// The row really does survive the death of the process it describes. That is not a
-	// bug in the model — the row is only ever removed by an Exit, and an Exit is only ever
-	// emitted because the PTY died, which is a fact nothing was alive to observe.
-	stale, err := f.liveRunnerFor(t, chatID)
-	require.NoError(t, err, "precondition: the pre-restart runner row outlives the daemon")
-	require.Equal(t, runnerID, stale.ID)
+	// The ledger still holds the runner live: its exit happened in a process
+	// that was gone before it could record it.
+	st, err := f.ledger.State(f.ctx, chatID)
+	require.NoError(t, err)
+	stale, ok := st.LiveRunner()
+	require.True(t, ok, "precondition: the pre-restart runner outlives the daemon in the ledger")
+	require.Equal(t, runnerID, stale.RunnerID)
 
 	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
 	f.wait()
@@ -2626,15 +2590,10 @@ func TestRegression_AfterRestart_ResumeStillWorks(t *testing.T) {
 	assert.Equal(t, revived, live.ID, "and the chat is held by the CLI the user can actually talk to")
 }
 
-// TestRegression_ChatMidTurnAtShutdown_DoesNotSpinForever: AgentChat.Working is
-// reconciled state, never durable truth — a CLI that dies mid-turn never sends the
-// turn_stop hook that would close it. When the daemon dies mid-turn there is nobody left
-// to run the runtime exit reconcile either, so the chat comes back Working, spins forever,
-// and keeps the whole workspace's overlay spinning with it.
-//
-// Closing that turn asserts nothing about any process: the runner it belonged to is gone
-// (we have just Exited it, on the PTY's authority) and no other runner is on the chat, so
-// "nobody is working on this chat" is simply the last true thing we can say about it.
+// TestRegression_ChatMidTurnAtShutdown_DoesNotSpinForever: Working is reconciled
+// state, never durable truth — a CLI that dies mid-turn never sends the
+// turn_stop that would close it, and after a restart no exit callback is left
+// to close it either. Boot does, since the runner it belonged to is gone.
 func TestRegression_ChatMidTurnAtShutdown_DoesNotSpinForever(t *testing.T) {
 	f := newFixture(t)
 
@@ -2644,7 +2603,7 @@ func TestRegression_ChatMidTurnAtShutdown_DoesNotSpinForever(t *testing.T) {
 		mustJSON(t, map[string]any{"prompt": "a long-running task the daemon died in the middle of"})))
 	require.True(t, f.chat(t, chatID).Working, "precondition: the chat is mid-turn")
 
-	f.term.dieWithDaemon()
+	f.restart(t)
 
 	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
 	f.wait()
@@ -2653,54 +2612,9 @@ func TestRegression_ChatMidTurnAtShutdown_DoesNotSpinForever(t *testing.T) {
 		"a chat that was mid-turn when the daemon died must not spin forever")
 }
 
-// TestReconcileRunnersOnBoot_ReapsADisplacedRunnerWhoseKillFailed pins the ONE runner
-// nothing else in the system will ever clean up.
-//
-// Displace takes a runner off its chat while its process is still alive, and the kill that
-// follows it is best-effort. When that kill genuinely fails, the runner is left placed
-// NOWHERE (empty CurrentChatID), owned by nobody, and never Exited — no hook can reach it,
-// no chat points at it, and no teardown path will visit it again. Its row is immortal, and
-// the rows accumulate across restarts. Boot reconcile is the only thing that reaps it,
-// which is why the reconcile must be driven off ALL live runners rather than off the chats.
-func TestReconcileRunnersOnBoot_ReapsADisplacedRunnerWhoseKillFailed(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	tmpDir := worktreepath.RunnerDir(f.ws.chatsDir, runnerID, "claude")
-	require.DirExists(t, tmpDir, "precondition: the spawned CLI has a tmp dir")
-
-	f.term.terminateErr = errors.New("boom: the SIGTERM did not land")
-
-	// A chat delete displaces the runner and then fails to kill it.
-	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID))
-	f.wait()
-
-	displaced, err := f.runners.Get(f.ctx, runnerID)
-	require.NoError(t, err, "precondition: a displaced runner whose kill failed keeps its live row")
-	require.Empty(t, displaced.CurrentChatID, "precondition: Displace erased the chat pointer")
-
-	f.term.dieWithDaemon()
-
-	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
-	f.wait()
-
-	_, err = f.runners.Get(f.ctx, runnerID)
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound,
-		"a runner placed nowhere is reaped by boot reconcile or by nothing at all")
-
-	// And its tmp dir goes too — which is only possible because the path is derived from the
-	// runner id and provider. Nothing on this row still names the chat it was spawned into,
-	// so a chat-keyed path would be unreachable here.
-	assert.NoDirExists(t, tmpDir, "the crash-orphan tmp dir of a displaced runner must be reaped")
-}
-
 // TestReconcileRunnersOnBoot_ReapsTheCrashOrphanTmpDir: on a clean exit the onExit callback
 // removes the runner's tmp dir. A crash is precisely the case where that callback never ran,
-// so these dirs are the one orphan class that would otherwise accumulate forever, one per
-// spawn, across every restart.
-//
-// They hold the rendered hook config and nothing else — no credentials (the engine has no
-// copy_file verb, and no descriptor references one) — so this is hygiene, not a leak.
+// so these dirs are the one orphan class that would otherwise accumulate forever.
 func TestReconcileRunnersOnBoot_ReapsTheCrashOrphanTmpDir(t *testing.T) {
 	f := newFixture(t)
 
@@ -2708,31 +2622,13 @@ func TestReconcileRunnersOnBoot_ReapsTheCrashOrphanTmpDir(t *testing.T) {
 	tmpDir := worktreepath.RunnerDir(f.ws.chatsDir, runnerID, "claude")
 	require.DirExists(t, tmpDir, "precondition: the spawned CLI has a tmp dir")
 
-	f.term.dieWithDaemon() // the daemon died: onExit never fired, so the dir was never removed
+	f.restart(t) // the daemon died: onExit never fired, so the dir was never removed
 	require.DirExists(t, tmpDir, "precondition: a crashed daemon reaps nothing on its way out")
 
 	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
 	f.wait()
 
 	assert.NoDirExists(t, tmpDir, "boot reconcile must reap the tmp dir of a CLI that died with the daemon")
-}
-
-// TestReconcileRunnersOnBoot_LeavesALiveRunnerAlone: the reconcile is not a truncation. It
-// asks the PTY about every runner and Exits only the ones the PTY says are gone — so a
-// runner whose CLI is genuinely still running (the daemon did not restart; something else
-// called this) is left exactly where it is, still holding its chat.
-func TestReconcileRunnersOnBoot_LeavesALiveRunnerAlone(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	f.announce(t, runnerID, "s1")
-
-	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
-	f.wait()
-
-	live, err := f.liveRunnerFor(t, chatID)
-	require.NoError(t, err, "a runner whose PTY is alive is not reaped")
-	assert.Equal(t, runnerID, live.ID)
 }
 
 // TestReconcileRunnersOnBoot_EmptyIsTheNormalAnswer: on an idle machine nothing is running,
@@ -2790,7 +2686,7 @@ func TestStopChat_TerminatesTheCLI_LeavesChatDormantAndResumable(t *testing.T) {
 
 	// (2) the chat is DORMANT — no runner points at it any more.
 	_, err := f.liveRunnerFor(t, chatID)
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound, "after close the chat has no live runner")
+	require.ErrorIs(t, err, agentusecase.ErrNoLiveRunner, "after close the chat has no live runner")
 
 	// (3) the chat still EXISTS, and its Working spinner was cleared (the aborted turn).
 	stopped := f.chat(t, chatID)
@@ -2800,12 +2696,11 @@ func TestStopChat_TerminatesTheCLI_LeavesChatDormantAndResumable(t *testing.T) {
 	assert.Equal(t, "sid-claude-native", f.conversation(t, chatID, "claude").SessionID,
 		"a close must keep the conversation it can be resumed into")
 
-	// The outgoing runner stays alive until its PTY actually dies — Crowbar never asserts
-	// a death it has not observed. Then the exit reconcile lands it Exited.
-	f.term.exit(t, oldTerm)
-	f.wait()
-	_, err = f.runners.Get(f.ctx, runnerID)
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound, "the PTY's death carries the runner away (Exited)")
+	// The close returned once the CLI's exit was recorded, as a stop.
+	assert.False(t, f.isLive(runnerID))
+	exit, ok := f.lastExit(t, chatID)
+	require.True(t, ok)
+	assert.Equal(t, domain.AgentExitStopped, exit.Reason)
 
 	// (5) reopening revives the REAL conversation: the last provider, resumed into its
 	// own native session, exactly where the user left it.
@@ -2862,7 +2757,7 @@ func TestStopChat_AlreadyDormant_IsNilNoop(t *testing.T) {
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession) // the CLI exits on its own
 	f.wait()
 	_, err := f.liveRunnerFor(t, chatID)
-	require.ErrorIs(t, err, agentrunner.ErrNotFound, "precondition: the chat is dormant")
+	require.ErrorIs(t, err, agentusecase.ErrNoLiveRunner, "precondition: the chat is dormant")
 
 	before := len(f.term.terminateRequestIDs())
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID), "stopping an already-dormant chat is a nil no-op")
@@ -2872,24 +2767,26 @@ func TestStopChat_AlreadyDormant_IsNilNoop(t *testing.T) {
 	assert.NotEmpty(t, f.chat(t, chatID).ID, "the chat is still there — a no-op close does not remove it")
 }
 
-// TestStopChat_TerminateFailure_StillDropsToDormant proves the ordering that makes a close
-// reliable: DISPLACE FIRST, terminate best-effort. Even when the SIGTERM genuinely fails,
-// the chat is already dormant (the placement fact was recorded before the kill), and the
-// close does not wedge — a failed terminate leaks a process that dies on its own, never a
-// close the user asked for.
-func TestStopChat_TerminateFailure_StillDropsToDormant(t *testing.T) {
+// TestStopChat_ATerminateThatFailsKeepsTheRunner: a CLI the terminate could not
+// end is still running, so the chat keeps it — live, not stuck mid-exit, so a
+// resume answers with it and a later stop can still end it.
+func TestStopChat_ATerminateThatFailsKeepsTheRunner(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
-	oldTerm := f.runner(t, runnerID).TerminalSession
 	f.term.terminateErr = errors.New("boom: terminate genuinely failed")
 
-	require.NoError(t, f.usecase.StopChat(f.ctx, chatID), "a best-effort close never fails on a terminate error")
-	f.wait()
+	require.ErrorContains(t, f.usecase.StopChat(f.ctx, chatID), "terminate outgoing terminal")
 
-	assert.Contains(t, f.term.terminateRequestIDs(), oldTerm, "the terminate was still ATTEMPTED")
-	_, err := f.liveRunnerFor(t, chatID)
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound, "displace-first means the chat is dormant even when the kill fails")
+	resumed, err := f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, runnerID, resumed, "the chat still belongs to the CLI that would not die")
+
+	f.term.terminateErr = nil
+	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
+	exit, ok := f.lastExit(t, chatID)
+	require.True(t, ok)
+	assert.Equal(t, domain.AgentExitStopped, exit.Reason)
 }
 
 // TestStopChat_DoesNotDeleteTheChat pins the boundary against PurgeChat: a close STOPS the
@@ -3125,7 +3022,7 @@ func TestIngestHook_SessionStart_Bind_RecordsTheConversation(t *testing.T) {
 
 	chatID, runnerID := f.spawn(t, "codex")
 	f.bc.reset()
-	f.rbc.reset()
+	f.snapFrames.reset()
 
 	f.announce(t, runnerID, "sid-abc")
 
@@ -3171,7 +3068,7 @@ func TestIngestHook_SessionStart_SameConversationIsANoop(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "codex")
-	f.rbc.reset()
+	f.snapFrames.reset()
 
 	f.announce(t, runnerID, "sid-1")
 	f.announce(t, runnerID, "sid-1")
@@ -3185,7 +3082,7 @@ func TestIngestHook_SessionStart_EmptySessionID_IsIgnored(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
-	f.rbc.reset()
+	f.snapFrames.reset()
 
 	f.announce(t, runnerID, "")
 
@@ -3280,7 +3177,7 @@ func TestIngestHook_UnknownRunner_IsIgnored(t *testing.T) {
 	require.NoError(t, f.usecase.IngestHook(f.ctx, "does-not-exist", "claude", "session_start",
 		mustJSON(t, map[string]any{"session_id": "sid-1"})))
 	assert.Empty(t, f.bc.snapshot())
-	assert.Empty(t, f.rbc.snapshot(), "a hook must never resurrect a runner we do not know")
+	assert.Empty(t, f.runnerKinds(t), "a hook must never resurrect a runner we do not know")
 }
 
 // TestIngestHook_ExitedRunner_IsIgnored: once the PTY is gone the runner is gone, and a
@@ -3292,7 +3189,7 @@ func TestIngestHook_ExitedRunner_IsIgnored(t *testing.T) {
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
 	f.wait()
 	f.bc.reset()
-	f.rbc.reset()
+	f.snapFrames.reset()
 
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "a ghost speaks"})))
@@ -3328,10 +3225,9 @@ func TestOnExit_DeadPTY_MeansDeadRunner(t *testing.T) {
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
 	f.wait()
 
-	_, err := f.runners.Get(f.ctx, runnerID)
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound, "no runner may outlive its PTY")
-	_, err = f.liveRunnerFor(t, chatID)
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound, "the chat is dormant")
+	assert.False(t, f.isLive(runnerID), "no runner may outlive its PTY")
+	_, err := f.liveRunnerFor(t, chatID)
+	require.ErrorIs(t, err, agentusecase.ErrNoLiveRunner, "the chat is dormant")
 
 	// ...but its conversation survives the process, so it stays resumable.
 	assert.Equal(t, "s1", f.conversation(t, chatID, "claude").SessionID)
@@ -3411,8 +3307,8 @@ func TestBroadcast_ChatAndRunnerFramesAreDistinct(t *testing.T) {
 	}, f.bcKinds(t))
 
 	assert.Equal(t, []string{
-		"started",   // SpawnChat
-		"displaced", // PurgeChat
+		"started", // SpawnChat
+		"exited",  // PurgeChat
 	}, f.runnerKinds(t))
 }
 
@@ -3421,7 +3317,7 @@ func TestBroadcast_ChatAndRunnerFramesAreDistinct(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSpawnChat_CreateChatFailure_TearsDownCLIAndWraps(t *testing.T) {
-	f, cs, _ := newFaultFixture(t)
+	f, cs := newFaultFixture(t)
 	cs.failCreate = fmt.Errorf("boom: create")
 
 	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
@@ -3437,13 +3333,11 @@ func TestSpawnChat_CreateChatFailure_TearsDownCLIAndWraps(t *testing.T) {
 // TestSpawnChat_StartRunnerFailure_TearsDownCLIAndWraps: a CLI whose runner cannot be
 // recorded is invisible to Crowbar. Kill it rather than leak it.
 func TestSpawnChat_StartRunnerFailure_TearsDownCLIAndWraps(t *testing.T) {
-	f, _, rs := newFaultFixture(t)
-	rs.failStart = fmt.Errorf("boom: start runner: %w", asynxModels.ErrValidation)
+	f := newFixture(t)
+	f.refuseRunnerStarted(t)
 
 	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "start runner")
-	assert.ErrorIs(t, err, asynxModels.ErrValidation, "a conflict must still classify as one upstream")
+	require.ErrorContains(t, err, "record runner")
 
 	require.Equal(t, 1, f.term.callCount())
 	assert.Contains(t, f.term.terminatedIDs(), "term-1",
@@ -3456,26 +3350,28 @@ func TestSpawnChat_StartRunnerFailure_TearsDownCLIAndWraps(t *testing.T) {
 func TestRegression_SpawnRefusedAfterTheChatWasWritten_ForgetsTheChat(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		arm  func(f testFixture, rs *fakeRunnerStore)
+		arm  func(t *testing.T, f testFixture)
 	}{
 		{
 			// The production case: `true` as a vendor CLI — a process that swears it is
 			// interactive and is already gone by the time its row could be written.
 			name: "the CLI exits during startup",
-			arm: func(f testFixture, _ *fakeRunnerStore) {
+			arm: func(t *testing.T, f testFixture) {
+				t.Helper()
 				f.term.duringForkCall = func(call commandCall) { call.onExit(engineterminal.Exit{}) }
 			},
 		},
 		{
 			name: "the runner row will not commit",
-			arm: func(_ testFixture, rs *fakeRunnerStore) {
-				rs.failStart = fmt.Errorf("boom: start runner: %w", asynxModels.ErrValidation)
+			arm: func(t *testing.T, f testFixture) {
+				t.Helper()
+				f.refuseRunnerStarted(t)
 			},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _, rs := newFaultFixture(t)
-			tc.arm(f, rs)
+			f := newFixture(t)
+			tc.arm(t, f)
 
 			chatID, runnerID, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
 			require.Error(t, err)
@@ -3543,7 +3439,7 @@ func TestIngestHook_WorktreeDirFailure_ReturnsWrappedError(t *testing.T) {
 }
 
 func TestIngestHook_ChatLookupFailure_ReturnsWrappedError(t *testing.T) {
-	f, cs, _ := newFaultFixture(t)
+	f, cs := newFaultFixture(t)
 
 	_, runnerID := f.spawn(t, "claude")
 
@@ -3630,7 +3526,7 @@ func TestSpawnChat_MissingCLI_PropagatesCommandNotFound(t *testing.T) {
 // view reads the ledger once on that edge and then stops, so a later append
 // would strand the reply.
 func TestRegression_TurnStop_AssistantMessageIsDurableBeforeTurnStateIsPublished(t *testing.T) {
-	f, cs, _ := newFaultFixture(t)
+	f, cs := newFaultFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
@@ -3996,16 +3892,23 @@ func TestRegression_SubmitPromptWithStagedProvider_ConcurrentSendsNeverCrossDeli
 	}
 	f.wait()
 
+	startedAs := map[string]string{}
+	for _, row := range ledgerRows(t, f, chatID) {
+		if row.Kind == ledger.KindRunnerStarted {
+			started, err := ledger.DecodeBody[ledger.RunnerStarted](row)
+			require.NoError(t, err)
+			startedAs[started.RunnerID] = started.Provider
+		}
+	}
 	for _, o := range []outcome{first, second} {
 		if o.err != nil {
 			// A refusal is never a misdelivery — only a wrong destination is
 			// the bug this test exists to catch.
 			continue
 		}
-		live := f.runner(t, o.result.RunnerID)
-		assert.Equal(t, o.provider, live.ProviderID,
+		assert.Equal(t, o.provider, startedAs[o.result.RunnerID],
 			"a staged-provider send must land on the provider IT staged, never a "+
-				"concurrent caller's: message=%q landed on provider=%s", o.message, live.ProviderID)
+				"concurrent caller's: message=%q landed on provider=%s", o.message, startedAs[o.result.RunnerID])
 	}
 }
 
@@ -4147,7 +4050,7 @@ func TestRegression_ReopeningADormantChatBornOnCodexKeepsCodex(t *testing.T) {
 	f.wait()
 
 	_, err := f.liveRunnerFor(t, chatID)
-	require.ErrorIs(t, err, agentrunner.ErrNotFound, "precondition: the chat is dormant")
+	require.ErrorIs(t, err, agentusecase.ErrNoLiveRunner, "precondition: the chat is dormant")
 	convs, err := f.usecase.ConversationsForChat(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Empty(t, convs, "precondition: codex bound nothing")
@@ -4224,31 +4127,6 @@ func TestRegression_SwitchProvider_ConvertingAChatWithNoResolvableProviderStillL
 	require.Len(t, ints, 1, "a conversion with an unknown starting point is still a conversion")
 	assert.Equal(t, agents.InterruptProviderSwitched, ints[0].Kind)
 	assert.Equal(t, "claude", ints[0].Detail)
-}
-
-// TestRegression_PlacementsForChat_SurvivesTheRunnerThatMadeIt is the read the
-// resume fix rests on, taken through the usecase door the API actually calls.
-//
-// The runner announces nothing and then dies: no conversation row is ever
-// written, and the exit deletes the live row, so both of the projections the
-// resolvers used to consult are empty. The placement remains, and it is what
-// still names the chat's provider — for the reporter's store, for 51 chats out of
-// 51.
-func TestRegression_PlacementsForChat_SurvivesTheRunnerThatMadeIt(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
-	f.wait()
-
-	_, err := f.runners.LiveRunnerForChat(f.ctx, chatID)
-	require.ErrorIs(t, err, agentrunner.ErrNotFound, "the chat must be dormant")
-
-	placements, err := f.runners.PlacementsForChat(f.ctx, chatID)
-	require.NoError(t, err)
-	require.Len(t, placements, 1)
-	assert.Equal(t, "claude", placements[0].ProviderID)
-	assert.Equal(t, chatID, placements[0].ChatID)
 }
 
 // A revive resumes the chat's own session by its id, and the chat says which one.
@@ -4445,7 +4323,7 @@ func TestSessionExit_AReplacementThatCannotStartRecordsSpawnFailed(t *testing.T)
 	require.Error(t, err)
 
 	_, err = f.liveRunnerFor(t, chatID)
-	require.ErrorIs(t, err, agentrunner.ErrNotFound)
+	require.ErrorIs(t, err, agentusecase.ErrNoLiveRunner)
 	assert.Equal(t, domain.AgentExitSpawnFailed, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
 }
 
@@ -4521,7 +4399,8 @@ var sessionOps = []sessionOp{
 	}},
 	{"restart", func(t *testing.T, f testFixture, _ *sessionWalk) {
 		t.Helper()
-		f.term.dieWithDaemon()
+		f.restart(t)
+		agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, 10*time.Millisecond)
 		require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
 	}},
 	{"announce", func(t *testing.T, f testFixture, w *sessionWalk) {
@@ -4560,8 +4439,10 @@ var sessionOps = []sessionOp{
 			return
 		}
 		f.wait()
-		// S8: nothing the supervisor kept outlives the chat.
-		assert.Equal(t, domain.AgentSession{}, agentusecase.ChatSession(f.usecase.RunnerUsecase, w.chatID))
+		// S8: nothing kept for the chat outlives it.
+		rows, err := f.ledger.Read(f.ctx, w.chatID, 0, 0)
+		require.NoError(t, err)
+		assert.Empty(t, rows)
 		w.chatID, _ = f.spawn(t, w.provider)
 	}},
 }
@@ -4569,10 +4450,8 @@ var sessionOps = []sessionOp{
 // checkSessionInvariants asserts S1 and S2 after every step of the walk.
 func checkSessionInvariants(t *testing.T, f testFixture, w *sessionWalk, trail []string) {
 	t.Helper()
-	// S1: at most one runner placed on the chat, and one per vendor session.
-	assert.LessOrEqual(t, len(f.placedRunnersFor(t, w.chatID)), 1, "S1 chat, after %v", trail)
-	all, err := f.runners.AllLive(f.ctx)
-	require.NoError(t, err)
+	// S1: one runner per vendor session (one per chat is the live table's key).
+	all := agentusecase.AllLiveRunners(f.usecase.own)
 	holders := map[string]int{}
 	for _, r := range all {
 		if c := f.conversation(t, r.CurrentChatID, r.ProviderID); r.CurrentChatID != "" && c.SessionID != "" {
@@ -4663,7 +4542,7 @@ func TestSessionInvariants_AStopAfterADeliveredSendEndsItsRunnerAndSaysWhy(t *te
 	f.wait()
 
 	_, err = f.liveRunnerFor(t, chatID)
-	require.ErrorIs(t, err, agentrunner.ErrNotFound)
+	require.ErrorIs(t, err, agentusecase.ErrNoLiveRunner)
 	assert.Equal(t, domain.AgentExitStopped, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
 	assert.False(t, f.chat(t, chatID).Working)
 }

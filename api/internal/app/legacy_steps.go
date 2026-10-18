@@ -11,9 +11,11 @@ import (
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/migrations"
+	"github.com/char2cs/crowbar/api/internal/adapter/migrations/chatledger"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
+	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -44,6 +46,7 @@ type checkpoints interface {
 func newLegacyFuncs(
 	repos *repositories.Container,
 	ucs *usecases.Container,
+	h home.Home,
 ) legacyFuncs {
 	return legacyFuncs{
 		createMissingHomes: func(ctx context.Context, cp checkpoints) error {
@@ -62,8 +65,20 @@ func newLegacyFuncs(
 		},
 		backfillChatTypes: ucs.AgentChat.BackfillChatTypes,
 		untypedChats:      ucs.AgentChat.UntypedChats,
-		restateProviders:  ucs.AgentRunner.RestateProvidersFromHistory,
-		staleProviders:    ucs.AgentRunner.StaleProviders,
+		restateProviders: func(ctx context.Context) (int, error) {
+			newest, err := chatledger.NewestProviders(ctx, h)
+			if err != nil {
+				return 0, err
+			}
+			return ucs.AgentRunner.RestateProvidersFromHistory(ctx, newest)
+		},
+		staleProviders: func(ctx context.Context) ([]string, error) {
+			newest, err := chatledger.NewestProviders(ctx, h)
+			if err != nil {
+				return nil, err
+			}
+			return ucs.AgentRunner.StaleProviders(ctx, newest)
+		},
 		hookJournals: func(ctx context.Context) ([]hookJournal, []error, error) {
 			return retiredHookJournals(ctx, repos, ucs)
 		},

@@ -53,7 +53,10 @@ func TestLoseRefusedSession_OnlyTheCLIsRefusalLosesTheSession(t *testing.T) {
 		"a crash without a line": {engineterminal.Exit{Code: 1, Screen: "Killed"}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			rs := &Runners{ledger: boundTestLedger(t, "claude", "S1"), sessions: newSessionBook()}
+			rs := &Runners{
+				ledger: boundTestLedger(t, "claude", "S1"),
+				live:   liveWith(t, engineagents.Runner{ID: "runner-1", CurrentChatID: "chat-1", TerminalSession: "term-1"}),
+			}
 			appendPrompt(t, rs.ledger, "req-1", "runner-1")
 			watch := resumeWatch{chatID: "chat-1", providerID: "claude", sessionID: "S1", agent: testAgent(t, "claude")}
 
@@ -66,20 +69,20 @@ func TestLoseRefusedSession_OnlyTheCLIsRefusalLosesTheSession(t *testing.T) {
 			if !tc.lost {
 				assert.Equal(t, ledger.ConversationBound, c.State)
 				assert.Equal(t, ledger.PromptStatusPending, p.Status)
-				assert.Equal(t, domain.AgentExitExited, rs.sessions.takeCause("runner-1"))
+				assert.Empty(t, exitCause(t, rs.live, "runner-1"), "the runner exited on its own")
 				return
 			}
 			assert.Equal(t, ledger.ConversationLost, c.State)
 			assert.Equal(t, ledger.PromptStatusSettled, p.Status)
 			assert.Equal(t, ledger.ReasonSessionLost, p.Reason)
-			assert.Equal(t, domain.AgentExitResumeFailed, rs.sessions.takeCause("runner-1"))
+			assert.Equal(t, domain.AgentExitResumeFailed, exitCause(t, rs.live, "runner-1"))
 		})
 	}
 }
 
 // A launch that resumed nothing has nothing to lose, whatever it exits with.
 func TestLoseRefusedSession_AFreshLaunchLosesNothing(t *testing.T) {
-	rs := &Runners{ledger: boundTestLedger(t, "claude", "S1"), sessions: newSessionBook()}
+	rs := &Runners{ledger: boundTestLedger(t, "claude", "S1"), live: newLiveTable()}
 	rs.loseRefusedSession(t.Context(), resumeWatch{}, "runner-1",
 		engineterminal.Exit{Code: 1, Screen: "No conversation found with session ID: S1"})
 
@@ -163,6 +166,13 @@ func apiLoseConn(t *testing.T, rs *Runners, replies map[string]map[string]any) (
 	return conn, asked
 }
 
+// apiLoseLive holds runner-1 on chat-1 with no PTY: its connection is its
+// only channel.
+func apiLoseLive(t *testing.T) *liveTable {
+	t.Helper()
+	return liveWith(t, engineagents.Runner{ID: "runner-1", ProviderID: apiLoseProvider, CurrentChatID: "chat-1"})
+}
+
 // assertSessionLost: the chat's session is lost, the prompt runner-1 carried is
 // settled as lost, runner-1 ends resume_failed, and no new thread was opened.
 func assertSessionLost(t *testing.T, rs *Runners, asked <-chan string) {
@@ -172,7 +182,7 @@ func assertSessionLost(t *testing.T, rs *Runners, asked <-chan string) {
 	p := promptReceipt(t, rs.ledger, "req-1")
 	assert.Equal(t, ledger.PromptStatusSettled, p.Status)
 	assert.Equal(t, ledger.ReasonSessionLost, p.Reason)
-	assert.Equal(t, domain.AgentExitResumeFailed, rs.sessions.takeCause("runner-1"))
+	assert.Equal(t, domain.AgentExitResumeFailed, exitCause(t, rs.live, "runner-1"))
 	_, live := rs.apiConns.get("runner-1")
 	require.False(t, live, "the connection is dropped")
 	var methods []string
@@ -183,7 +193,7 @@ func assertSessionLost(t *testing.T, rs *Runners, asked <-chan string) {
 }
 
 func TestSessionOrigin_TheSessionAConnectionOpensIsBound(t *testing.T) {
-	rs := &Runners{ledger: newTestLedger(t), apiConns: newAPIConnRegistry(), sessions: newSessionBook()}
+	rs := &Runners{ledger: newTestLedger(t), apiConns: newAPIConnRegistry(), live: newLiveTable()}
 	conn, _ := apiLoseConn(t, rs, map[string]map[string]any{
 		"thread/start": {"result": map[string]any{"thread": map[string]any{"id": "thr-1"}}},
 	})
@@ -199,7 +209,7 @@ func TestSessionOrigin_TheSessionAConnectionOpensIsBound(t *testing.T) {
 }
 
 func TestEstablishAPISession_ARefusedResumeLosesTheSession(t *testing.T) {
-	rs := &Runners{ledger: turnedTestLedger(t, apiLoseProvider, "S1"), apiConns: newAPIConnRegistry(), sessions: newSessionBook()}
+	rs := &Runners{ledger: turnedTestLedger(t, apiLoseProvider, "S1"), apiConns: newAPIConnRegistry(), live: apiLoseLive(t)}
 	appendPrompt(t, rs.ledger, "req-1", "runner-1")
 	conn, asked := apiLoseConn(t, rs, refusedResume)
 
@@ -211,7 +221,7 @@ func TestEstablishAPISession_ARefusedResumeLosesTheSession(t *testing.T) {
 
 func TestSubmitPromptOverAPI_ARefusedSessionIsLost(t *testing.T) {
 	rs := &Runners{
-		ledger: turnedTestLedger(t, apiLoseProvider, "S1"), apiConns: newAPIConnRegistry(), sessions: newSessionBook(),
+		ledger: turnedTestLedger(t, apiLoseProvider, "S1"), apiConns: newAPIConnRegistry(), live: apiLoseLive(t),
 		ws: fakeWSReader{chatsDir: t.TempDir()}, conversations: stubConversationsForPromptRestart{},
 	}
 	_, asked := apiLoseConn(t, rs, refusedResume)

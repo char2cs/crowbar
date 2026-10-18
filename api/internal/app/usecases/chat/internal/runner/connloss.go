@@ -10,10 +10,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// onAPIConnLost ends a runner whose api channel is gone. The connection IS
-// the runner's channel, so it is not left running without one: the serve
-// process is killed and its exit watcher reconciles the runner (turn closed,
-// row exited) through the one exit path, with the loss recorded as the cause.
+// onAPIConnLost ends a runner whose api channel is gone. A runner whose
+// connection IS its process is not left running without one: the serve
+// process is killed and its exit watcher records the runner's exit through
+// the one exit path, with the loss as the cause. A runner with a PTY runs on.
 func (rs *Runners) onAPIConnLost(ctx context.Context, runnerID string) {
 	if ctx.Err() != nil {
 		return // deliberate teardown; the caller that dropped it owns the rest
@@ -24,6 +24,8 @@ func (rs *Runners) onAPIConnLost(ctx context.Context, runnerID string) {
 	}
 	slog.WarnContext(context.WithoutCancel(ctx), "agent: api transport: connection lost; ending its runner",
 		"runner_id", runnerID, "reason", reason)
-	rs.sessions.cause(runnerID, reason)
+	if r, ok := rs.live.byRunner(runnerID); ok && r.TerminalSession == "" {
+		rs.live.markExiting(runnerID, reason)
+	}
 	rs.apiConns.drop(runnerID)
 }

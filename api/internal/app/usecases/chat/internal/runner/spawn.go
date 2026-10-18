@@ -14,7 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/promptsigil"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
-	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -78,15 +77,13 @@ func (rs *Runners) spawnRunner(
 	in spawnInput,
 	create bool,
 ) (_ string, err error) {
-	if !create {
-		defer rs.noteSpawnFailure(ctx, chatID, &err)
-	}
+	runnerID := newRunnerID(in.runnerID)
+	defer rs.recordSpawnFailure(ctx, chatID, runnerID, create, &err)
 	pre, err := rs.spawnPreflight(ctx, chatID, providerID, create)
 	if err != nil {
 		return "", err
 	}
 	threads, sel := pre.threads, pre.selection
-	runnerID := newRunnerID(in.runnerID)
 
 	paths, err := rs.spawnPaths(ctx, chatID, workspaceID, runnerID, providerID)
 	if err != nil {
@@ -177,9 +174,17 @@ func (rs *Runners) spawnRunner(
 		rs.agents.RecordInjection(runnerID, tctx.Context, tctx.ContextPointer)
 	}
 
+	// The chat's one entry, claimed before any process exists: a second
+	// spawn is refused here, never after it has forked.
+	if err := rs.live.add(engineagents.Runner{
+		ID: runnerID, WorkspaceID: workspaceID, ProviderID: providerID, CurrentChatID: chatID,
+	}); err != nil {
+		rs.agents.ForgetRunner(runnerID)
+		return "", err
+	}
 	// The startup barrier opens before anything can report: an api connection
 	// announces its session the moment it is established, long before the
-	// runner row exists, and that announcement is what makes it resumable.
+	// runner_started row exists, and that announcement is what makes it resumable.
 	if err := rs.pendingHooks.Register(runnerID); err != nil {
 		rs.agents.ForgetRunner(runnerID)
 		return "", fmt.Errorf("agent: spawn runner: install hook startup barrier: %w", err)
@@ -199,23 +204,12 @@ func (rs *Runners) spawnRunner(
 
 	plan, err := descriptor.SpawnPlan(tctx, os.Environ(), steps)
 	if err != nil {
-		// The injected-context entry above was registered before the CLI could exist, and
-		// only reconcileRunnerExit (via the onExit callback) ever forgets it — a callback
-		// that never fires when the CLI never goes live. Forget it here, or every failed
-		// spawn leaks one handoff-sized string until the daemon restarts.
-		//
-		// Same for the connection just established: onRunnerExit's own drop fires
-		// from a PTY dying, and this spawn never gets one.
-		rs.apiConns.drop(runnerID)
-		rs.pendingHooks.Discard(runnerID)
-		rs.agents.ForgetRunner(runnerID)
+		rs.abandonUnforked(runnerID)
 		return "", fmt.Errorf("agent: spawn runner: build spawn plan: %w", err)
 	}
 	pointPlanAtAttach(plan, attachArgv)
 	if err := rs.bindAssigned(ctx, chatID, launch); err != nil {
-		rs.apiConns.drop(runnerID)
-		rs.pendingHooks.Discard(runnerID)
-		rs.agents.ForgetRunner(runnerID)
+		rs.abandonUnforked(runnerID)
 		return "", err
 	}
 
@@ -249,42 +243,37 @@ func (rs *Runners) spawnRunner(
 		return "", err
 	}
 
-	if err := rs.recordRunner(
-		ctx, chatID, workspaceID, providerID, runnerID, termSessID, carried, create,
-	); err != nil {
+	if err := rs.recordRunner(ctx, engineagents.Runner{
+		ID: runnerID, WorkspaceID: workspaceID, ProviderID: providerID, TerminalSession: termSessID,
+		CurrentChatID: chatID, LaunchModel: carried.Model, LaunchEffort: carried.Effort,
+		LaunchPermissionLevel: carried.PermissionLevel,
+	}, launch.resumeID, create); err != nil {
 		rs.pendingHooks.Discard(runnerID)
 		rs.agents.ForgetRunner(runnerID)
 		return "", err
 	}
-	rs.noteLaunch(ctx, chatID)
-	// Keep the barrier installed throughout replay. A hook arriving while an
-	// earlier buffered hook is being applied joins the next batch, so it cannot
-	// overtake session_start or user_prompt on the normal persisted-runner path.
+	// The barrier stays installed through replay, so a later hook cannot
+	// overtake the buffered session_start or user_prompt.
 	//
-	// exitedDuringStartup means exactly one thing, and it is narrower than its name:
-	// the PTY died BEFORE the runner row committed, so the exit callback had no row
-	// to reconcile against and left the fact here instead. It is a RACE the CLI has
-	// to lose to be caught — one that dies 50ms later wins it, gets a 201, and
-	// reconciles through onRunnerExit into an ordinary DORMANT chat.
-	//
-	// So 424 is not a guarantee that a chat handed back has a living CLI behind it,
-	// and nothing may be built on reading it that way. Both outcomes are honest and
-	// both are visible — a refusal that names the dependency, or a chat the panel
-	// already draws as dormant with no runner on it — and the only way to collapse
-	// them into one deterministic answer would be to wait or probe after EVERY
-	// spawn, paying latency on the common path to close a corner. That is the trade,
-	// deliberately made in this direction; it is not an oversight to be tightened.
+	// exitedDuringStartup: the process died before runner_started committed,
+	// so its exit was left for now — after its buffered hooks had their ordered
+	// chance at the ledger. A CLI that dies a moment later is an ordinary exit
+	// into a dormant chat instead; 424 is not a liveness guarantee.
 	exitedDuringStartup := rs.pendingHooks.Finish(runnerID, func(hook inflight.Hook) {
 		rs.turns.ReplayStartupHook(runnerID, hook)
 	})
 	if exitedDuringStartup {
-		// onExit could not reconcile before the row existed. Now it does, after
-		// every hook the provider emitted before dying has had its ordered chance
-		// to update the ledger.
 		rs.reconcileRunnerExit(context.Background(), runnerID)
 		return "", ErrProviderExitedDuringStartup
 	}
 	return runnerID, nil
+}
+
+// abandonUnforked forgets what a spawn set up before it forked anything.
+func (rs *Runners) abandonUnforked(runnerID string) {
+	rs.apiConns.drop(runnerID)
+	rs.pendingHooks.Discard(runnerID)
+	rs.agents.ForgetRunner(runnerID)
 }
 
 func (rs *Runners) forkCLI(
@@ -434,37 +423,6 @@ func (rs *Runners) teardownAfterPersistFailure(
 	// above (see quitOutgoingCLI's comment), so it leaks unless dropped here too.
 	rs.apiConns.drop(runnerID)
 	return cause
-}
-
-// reapRunnerDir deletes a runner's own directory, best-effort: a reap that
-// cannot happen leaves disk behind, which must not fail the runner's teardown.
-func reapRunnerDir(
-	ctx context.Context,
-	home string,
-	dir string,
-) {
-	if err := worktreepath.RemoveUnderHome(home, dir); err != nil {
-		slog.WarnContext(ctx, "agent: reap a runner directory (best-effort)", "err", err)
-	}
-}
-
-func (rs *Runners) onRunnerExit(home, runnerID, tmpDir string, resume resumeWatch) func(engineterminal.Exit) {
-	return func(exit engineterminal.Exit) {
-		rs.loseRefusedSession(context.Background(), resume, runnerID, exit)
-		reapRunnerDir(context.Background(), home, tmpDir)
-		// A dead PTY takes its api-transport connection (serve process + driver)
-		// with it — never leaked, and safe to call for a hooks-only runner that
-		// never had one.
-		rs.apiConns.drop(runnerID)
-		// CreateCommand can observe process exit before recordRunner has a
-		// terminal-session id to persist. The startup barrier remembers that fact;
-		// spawnRunner reconciles it immediately after persistence and ordered hook
-		// replay, instead of this callback missing the not-yet-existing row forever.
-		if rs.pendingHooks.MarkExited(runnerID) {
-			return
-		}
-		rs.reconcileRunnerExit(context.Background(), runnerID)
-	}
 }
 
 func (rs *Runners) crowbarHookPath(home string) string {

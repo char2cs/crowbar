@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -10,7 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // StopChat answers the Stop button: the turn is interrupted in place where the
@@ -52,18 +50,14 @@ func (rs *Runners) endRunner(
 	defer release()
 	defer rs.enterPhase(ctx, chatID, snapshot.PhaseStopping)()
 
-	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if errors.Is(err, agentrunner.ErrNotFound) {
+	live, ok := rs.live.byChat(chatID)
+	if !ok {
 		return nil // already dormant: there is no live CLI to stop
-	}
-	if err != nil {
-		return fmt.Errorf("agent: stop chat: live runner: %w", err)
 	}
 	// Mid-turn, an api provider is interrupted in place (its session and
 	// connection survive); otherwise — idle, hooks-only, or an interrupt that
 	// does not land in time — the runner is retired.
-	rs.stopRunner(ctx, chatID, live, gentle)
-	return nil
+	return rs.stopRunner(ctx, chatID, live, gentle)
 }
 
 // stopRunner ends live's work on chatID — in place when gentle and the
@@ -71,31 +65,29 @@ func (rs *Runners) endRunner(
 // it — and records exactly one "stopped" interruption when a turn was open.
 //
 // Whether a turn was open is read BEFORE either teardown runs, and is the only
-// input to the record. Both teardowns end the turn themselves — displace
-// completes the in-flight entry, and an interrupt races the CLI's own
-// turn_stop — so asking afterwards answered "idle" on every path and the
-// divider was never written (P0-8).
-//
-// The record comes AFTER the teardown, never before: interruptTurn's Send
-// blocks until the CLI's turn has genuinely ended, and retire's kill is
-// synchronous, so the divider lands after the last content the CLI produced
-// rather than ahead of it.
-func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Runner, gentle bool) {
+// input to the record: both teardowns end the turn themselves, so asking
+// afterwards answers "idle" and the divider is never written (P0-8). The record
+// comes AFTER the teardown, which returns once the CLI has stopped, so the
+// divider lands after the last content the CLI produced.
+func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Runner, gentle bool) error {
 	open, err := rs.turns.TurnOpen(ctx, chatID, live.ID)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: stop: read turn state (assuming idle)", "chat_id", chatID, "err", err)
 	}
+	var quitErr error
 	if !gentle || !open || !rs.interruptTurn(ctx, live) || !rs.turnEndedAfterInterrupt(ctx, chatID) {
 		rs.inflightTurns.Complete(ctx, live.ID, domain.AgentExitStopped)
-		rs.retire(ctx, live)
-		rs.noteChatExit(ctx, chatID, domain.AgentExitStopped)
+		if quitErr = rs.quitRunner(ctx, live, domain.AgentExitStopped); quitErr != nil {
+			quitErr = fmt.Errorf("agent: stop chat: %w", quitErr)
+		}
 	}
 	if !open {
-		return
+		return quitErr
 	}
 	if err := rs.turns.RecordStop(ctx, chatID, live.ID); err != nil {
 		slog.WarnContext(ctx, "agent: stop: record interruption", "chat_id", chatID, "err", err)
 	}
+	return quitErr
 }
 
 // turnEndedAfterInterrupt waits, bounded, for the chat to go idle once an

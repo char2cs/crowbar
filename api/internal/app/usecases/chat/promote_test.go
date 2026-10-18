@@ -158,7 +158,7 @@ func TestPromote_CreateWorkspaceFailure_AbortsBeforeSettingTheWorkspace(t *testi
 // and chats.go's CreateChat→discard: the failure the caller is told about is
 // always the one that actually happened, and the half-made thing goes.
 func TestPromote_SetWorkspaceFailure_DiscardsTheOrphanedWorkspace(t *testing.T) {
-	f, chats, _ := newFaultFixture(t)
+	f, chats := newFaultFixture(t)
 	bubbleID, _, _ := seedBubbleChat(t, f, "claude")
 	chats.failSetWorkspace = errPromoteBoom
 
@@ -201,7 +201,7 @@ func TestPromote_RespawnFailure_RollsTheWholePromotionBack(t *testing.T) {
 // under a row that still owns it would turn a failed promotion into a chat
 // anchored to a worktree that no longer exists.
 func TestPromote_RespawnFailure_KeepsTheWorkspaceWhenTheSlotWillNotClear(t *testing.T) {
-	f, chats, _ := newFaultFixture(t)
+	f, chats := newFaultFixture(t)
 	bubbleID, _, _ := seedBubbleChat(t, f, "claude")
 	f.term.terminateErr = errors.New("boom: the outgoing CLI would not die")
 	chats.failClearWorkspace = errPromoteBoom

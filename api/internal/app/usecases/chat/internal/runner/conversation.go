@@ -4,6 +4,7 @@
 package runner
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -27,10 +28,6 @@ func (rs *Runners) HandleSessionStart(
 	if ev.SessionID == "" {
 		return nil
 	}
-	ok, err := rs.requirePlacement(ctx, runner, runner.CurrentChatID)
-	if err != nil || !ok {
-		return err
-	}
 	changed, err := rs.announceSession(ctx, runner.CurrentChatID, runner.ProviderID, ev.SessionID)
 	if err != nil {
 		return err
@@ -38,13 +35,23 @@ func (rs *Runners) HandleSessionStart(
 	if changed {
 		rs.leaveSession(ctx, runner)
 	}
-	if ev.Model == "" && ev.Effort == "" {
-		return nil
-	}
-	if _, err := rs.runnerStore.Report(ctx, runner.ID, ev.Model, ev.Effort); err != nil {
-		return fmt.Errorf("agent: ingest hook: report launch: %w", err)
-	}
+	rs.reportLaunch(ctx, runner.ID, ev.Model, ev.Effort)
 	return nil
+}
+
+// reportLaunch keeps what the CLI said it resolved to, for display; "" leaves
+// that half as it was.
+func (rs *Runners) reportLaunch(ctx context.Context, runnerID, model, effort string) {
+	if model == "" && effort == "" {
+		return
+	}
+	reported, ok := rs.live.update(runnerID, func(r *engineagents.Runner) {
+		r.ReportedModel = cmp.Or(model, r.ReportedModel)
+		r.ReportedEffort = cmp.Or(effort, r.ReportedEffort)
+	})
+	if ok {
+		rs.touch(ctx, reported.CurrentChatID)
+	}
 }
 
 // announceSession records that providerID's CLI on chatID is on sessionID,
@@ -117,8 +124,9 @@ func (rs *Runners) loseRefusedSession(ctx context.Context, w resumeWatch, runner
 	if w.sessionID == "" {
 		return
 	}
-	if reason, refused := w.agent.RefusedResume(exit.Code, exit.Screen); refused {
-		rs.loseSession(ctx, w.chatID, w.providerID, w.sessionID, reason, runnerID)
+	reason, refused := w.agent.RefusedResume(exit.Code, exit.Screen)
+	if refused && rs.loseSession(ctx, w.chatID, w.providerID, w.sessionID, reason, runnerID) {
+		rs.live.markExiting(runnerID, domain.AgentExitResumeFailed)
 	}
 }
 
@@ -128,28 +136,38 @@ func (rs *Runners) loseAPISession(ctx context.Context, chatID string, live engin
 	if !errors.Is(err, engineagents.ErrAPISessionLost) {
 		return
 	}
-	rs.loseSession(ctx, chatID, live.ProviderID, sessionID, err.Error(), live.ID)
+	if rs.loseSession(ctx, chatID, live.ProviderID, sessionID, err.Error(), live.ID) {
+		rs.noteRefusedRunner(live.ID)
+	}
 	if live.TerminalSession == "" {
 		rs.apiConns.drop(live.ID)
 	}
 }
 
-// loseSession moves sessionID to lost, settles what runnerID carried, and
-// notes resume_failed as how runnerID ends.
-func (rs *Runners) loseSession(ctx context.Context, chatID, providerID, sessionID, reason, runnerID string) {
+// loseSession moves sessionID to lost and settles what runnerID carried. It
+// reports whether that lost the session.
+func (rs *Runners) loseSession(ctx context.Context, chatID, providerID, sessionID, reason, runnerID string) bool {
 	rows, _, err := rs.ledger.Do(context.WithoutCancel(ctx), chatID, func(st ledger.State) ([]ledger.Row, error) {
 		return ledger.Lose(st, providerID, sessionID, reason, runnerID)
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "agent: lose a refused session", "chat_id", chatID, "err", err)
-		return
+		return false
 	}
 	if len(rows) == 0 {
-		return
+		return false
 	}
 	slog.InfoContext(ctx, "agent: the CLI refused the chat's session",
 		"chat_id", chatID, "provider", providerID, "session_id", sessionID, "reason", reason)
-	rs.sessions.cause(runnerID, domain.AgentExitResumeFailed)
+	return true
+}
+
+// noteRefusedRunner notes resume_failed on a runner the refusal leaves with no
+// process: its connection was all it had.
+func (rs *Runners) noteRefusedRunner(runnerID string) {
+	if r, ok := rs.live.byRunner(runnerID); ok && r.TerminalSession == "" {
+		rs.live.markExiting(runnerID, domain.AgentExitResumeFailed)
+	}
 }
 
 // boundSession is chatID's bound session with providerID, "" when there is none.

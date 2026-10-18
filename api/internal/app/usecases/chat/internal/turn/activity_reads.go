@@ -111,18 +111,6 @@ func (t *Turns) ReadActivity(
 	}, nil
 }
 
-// Interruptions returns chatID's durable interruption ledger — permission waits,
-// notifications, compactions, and Crowbar's own switch/model/effort markers. It is
-// the fallback source engineagents.ActiveProviderID needs once a chat's most
-// recently active conversation is not enough: a provider that binds via its own
-// connection identity never writes a conversation row at all.
-func (t *Turns) Interruptions(
-	ctx context.Context,
-	chatID string,
-) ([]domain.ActivityInterruption, error) {
-	return t.activity.Interruptions(ctx, chatID)
-}
-
 func (t *Turns) ReadPendingChoices(
 	ctx context.Context,
 	chatID string,

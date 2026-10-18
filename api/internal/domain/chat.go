@@ -30,13 +30,11 @@ func KnownSurface(s string) bool {
 // `ActiveSegmentID` are gone, and nothing replaces them on the aggregate (spec
 // §2): a chat does not own the CLI that happens to be talking to it. The runner
 // points at the chat, never the reverse, so "is this chat live?" is a QUERY
-// against the runner read model (runner.LiveRunnerForChat — a row exists
-// exactly while its PTY does), never a flag stored here that could contradict
-// the process. Which conversations a chat has hosted is likewise a PROJECTION of
-// runner events (agentrunner's append-only chat_conversations), not chat state —
-// so a conversation switch writes ONE aggregate (the runner) and the chat being
-// left is never written to at all. That is what makes the torn cross-aggregate
-// write that bricked a chat unrepresentable.
+// against the supervisor's live table (LiveRunnerForChat — an entry exists
+// exactly while its process does), never a flag stored here that could
+// contradict the process. Which conversations a chat has hosted is likewise
+// chat-ledger rows, not chat state, so the aggregate is never written to for
+// either.
 type Chat struct {
 	ID          string   `json:"id"`
 	Type        ChatType `json:"type"`

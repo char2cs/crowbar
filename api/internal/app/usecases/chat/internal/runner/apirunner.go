@@ -52,7 +52,7 @@ func carriedSelection(
 // forkOrAdopt starts whatever this spawn actually needs: the descriptor's
 // PTY, or nothing at all when the api connection is already the whole runner.
 // The terminal-session id it returns is "" in the second case, which is what
-// the runner row then records — see recordRunner's own StartInput.
+// its runner_started row then records.
 //
 // It is also the single door every spawn's PROMPT goes through, and the two
 // branches carry it differently: the PTY carries it in the argv the
@@ -86,7 +86,7 @@ func (rs *Runners) forkOrAdopt(
 // adoptAPIConn is forkCLI for a spawn with no PTY: it arms the same exit
 // reconcile against the `serve` process instead of a terminal session. The
 // startup barrier spawnRunner opened before the connection holds every event
-// the connection delivers until the runner row commits.
+// the connection delivers until runner_started commits.
 func (rs *Runners) adoptAPIConn(ctx context.Context, req forkRequest) error {
 	//nolint:contextcheck // the exit outlives the request; its values (gate holds, delivery ids) must not reach it.
 	if !rs.apiConns.watchExit(req.runnerID, rs.onRunnerExit(req.crowbarHome, req.runnerID, req.tmpDir, resumeWatch{})) {
@@ -95,8 +95,8 @@ func (rs *Runners) adoptAPIConn(ctx context.Context, req forkRequest) error {
 		return fmt.Errorf("agent: spawn runner: api connection vanished before its exit could be watched")
 	}
 	// AFTER the barrier, never before: the reply to this starts arriving
-	// immediately, over the same ingest the hook relay uses, and the runner row
-	// does not exist yet.
+	// immediately, over the same ingest the hook relay uses, and runner_started
+	// has not committed yet.
 	if err := rs.carryPromptOverAPIConn(ctx, req); err != nil {
 		rs.pendingHooks.Discard(req.runnerID)
 		rs.abandonAdoptedSpawn(ctx, req)
@@ -154,12 +154,12 @@ func (rs *Runners) handOverAPIConn(runnerID string) {
 // SwitchToTerminal and the matching SwitchToNative, while every other runner
 // is its own PTY. This is the one place that asks which, so no teardown path
 // has to know.
-func (rs *Runners) runnerHasAnotherProcess(ctx context.Context, runnerID string) bool {
+func (rs *Runners) runnerHasAnotherProcess(runnerID string) bool {
 	if rs.ShowingNativeView(runnerID) || rs.HasLiveAPIConnection(runnerID) {
 		return true
 	}
-	runner, err := rs.runnerStore.Get(ctx, runnerID)
-	return err == nil && runner.TerminalSession != ""
+	runner, ok := rs.live.byRunner(runnerID)
+	return ok && runner.TerminalSession != ""
 }
 
 // exitProcesslessRunner reconciles a runner that has just lost its last
@@ -173,7 +173,7 @@ func (rs *Runners) runnerHasAnotherProcess(ctx context.Context, runnerID string)
 func (rs *Runners) exitProcesslessRunner(ctx context.Context, runnerID string) {
 	// The exit is reconciled in full even if the request that noticed it ends.
 	ctx = context.WithoutCancel(ctx)
-	if rs.runnerHasAnotherProcess(ctx, runnerID) {
+	if rs.runnerHasAnotherProcess(runnerID) {
 		return
 	}
 	rs.reconcileRunnerExit(ctx, runnerID)

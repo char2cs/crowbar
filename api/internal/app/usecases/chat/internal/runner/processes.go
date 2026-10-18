@@ -13,21 +13,20 @@ import (
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
-// endProcesses ends runner's processes. The PTY goes first and its failure is
+// endProcesses ends runner's processes and reports whether its PTY's own exit
+// callback is still to record the end. The PTY goes first and its failure is
 // returned before anything else is touched, so a caller that must not proceed
 // on a still-running CLI (a switch) aborts with nothing changed.
-func (rs *Runners) endProcesses(ctx context.Context, runner agents.Runner) error {
-	// Noted before the kill, whose exit callback can run inside it: this end
-	// is Crowbar's doing, never the CLI refusing anything.
-	rs.sessions.cause(runner.ID, domain.AgentExitDisplaced)
+func (rs *Runners) endProcesses(ctx context.Context, runner agents.Runner) (bool, error) {
+	ptyExits := false
 	if runner.TerminalSession != "" {
 		err := rs.term.TerminateGraceful(ctx, runner.TerminalSession)
 		if err != nil && !errors.Is(err, engineterminal.ErrSessionNotFound) {
-			return fmt.Errorf("terminate outgoing terminal %s: %w", runner.TerminalSession, err)
+			return false, fmt.Errorf("terminate outgoing terminal %s: %w", runner.TerminalSession, err)
 		}
+		ptyExits = err == nil
 	}
 	if view, ok := rs.attached.get(runner.ID); ok {
 		rs.attached.drop(runner.ID)
@@ -38,52 +37,45 @@ func (rs *Runners) endProcesses(ctx context.Context, runner agents.Runner) error
 		}
 	}
 	rs.apiConns.drop(runner.ID)
-	return nil
+	return ptyExits, nil
 }
 
-// retire takes runner off its chat for good and ends it. Best-effort: a
-// runner still placed after a failed displace is reconciled by its own exit.
-func (rs *Runners) retire(ctx context.Context, runner agents.Runner) {
-	if err := rs.displaceInterlocked(ctx, runner); err != nil {
-		slog.ErrorContext(ctx, "agent: retire runner: displace (best-effort, continuing)",
-			"runner_id", runner.ID, "chat_id", runner.CurrentChatID, "err", err)
+// quitRunner ends runner for cause and returns once its exit is recorded, so
+// a replacement never lands beside it. The wait is on the exit itself, never
+// a clock. A runner with no PTY of its own is recorded here: the native view
+// it may have been was its last process, and its exit handler needs the gate
+// the caller holds.
+func (rs *Runners) quitRunner(ctx context.Context, runner agents.Runner, cause string) error {
+	exited, ok := rs.live.markExiting(runner.ID, cause)
+	if !ok {
+		return nil // already gone
 	}
-	if runner.CurrentChatID != "" {
-		rs.noteChatExit(ctx, runner.CurrentChatID, domain.AgentExitDisplaced)
+	ptyExits, err := rs.endProcesses(ctx, runner)
+	if err != nil {
+		rs.live.keepLive(runner.ID)
+		return err
 	}
-	if err := rs.endProcesses(ctx, runner); err != nil {
-		slog.WarnContext(ctx, "agent: retire runner (best-effort, continuing)",
-			"runner_id", runner.ID, "err", err)
+	if !ptyExits {
+		rs.reconcileRunnerExit(ctx, runner.ID)
 	}
-}
-
-// displaceInterlocked displaces under the chat's turn-start interlock, as every
-// other displacement does: a user_prompt that passed its placement check opens
-// its turn before the displacement completes it, never after.
-func (rs *Runners) displaceInterlocked(ctx context.Context, runner agents.Runner) error {
-	if runner.CurrentChatID != "" {
-		defer rs.turnStarts.Lock(runner.CurrentChatID)()
+	select {
+	case <-exited:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("agent: wait for runner %s to exit: %w", runner.ID, ctx.Err())
 	}
-	return rs.displace(ctx, runner)
 }
 
 // quitOutgoingCLI ends chatID's live runner so a replacement can take the
-// chat. Unlike retire it aborts on failure: the replacement must never land
-// beside a CLI that is still running and still placed.
+// chat, and aborts on failure: the replacement must never land beside a CLI
+// that is still running.
 func (rs *Runners) quitOutgoingCLI(ctx context.Context, chatID string) error {
-	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if errors.Is(err, agentrunner.ErrNotFound) {
+	live, ok := rs.live.byChat(chatID)
+	if !ok {
 		return nil // dormant: nothing to quit
 	}
-	if err != nil {
-		return fmt.Errorf("agent: switch provider: live runner: %w", err)
-	}
-	if err := rs.endProcesses(ctx, live); err != nil {
+	if err := rs.quitRunner(ctx, live, domain.AgentExitDisplaced); err != nil {
 		return fmt.Errorf("agent: switch provider: %w", err)
 	}
-	if err := rs.displace(ctx, live); err != nil {
-		return fmt.Errorf("agent: switch provider: %w", err)
-	}
-	rs.noteChatExit(ctx, chatID, domain.AgentExitDisplaced)
 	return nil
 }

@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 )
 
 // TestMCP_ReturnsRPCResponseInEnvelope proves MCP forwards the :segid path
@@ -107,7 +107,7 @@ func TestMCP_BadJSONIs400(
 
 // TestMCP_MapsUsecaseErrorsThroughStatusAndMessage proves the handler defers
 // status selection to the shared mapper rather than hardcoding 500, using
-// agentrunner.ErrNotFound as a stand-in for any mapped sentinel.
+// agentusecase.ErrNoLiveRunner as a stand-in for any mapped sentinel.
 //
 // Note what this does NOT claim. An unknown or exited runner does not reach here
 // as an error at all: DispatchMCP returns only nil or the surface-not-configured
@@ -118,7 +118,7 @@ func TestMCP_BadJSONIs400(
 func TestMCP_MapsUsecaseErrorsThroughStatusAndMessage(
 	t *testing.T,
 ) {
-	uc := &fakeAgentUsecase{dispatchMCPErr: agentrunner.ErrNotFound}
+	uc := &fakeAgentUsecase{dispatchMCPErr: agentusecase.ErrNoLiveRunner}
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"token":"TOK","rpc":{"jsonrpc":"2.0","id":1,"method":"ping"}}`)

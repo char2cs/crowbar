@@ -11,34 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
-
-// stubRunnerStoreLiveness answers only LiveRunnerForChat, either with a runner or
-// with ErrNotFound — the two answers displaceForSwitch's work check now turns on.
-type stubRunnerStoreLiveness struct {
-	agentrunner.EventStore
-	runner engineagents.Runner
-	live   bool
-}
-
-func (s stubRunnerStoreLiveness) LiveRunnerForChat(
-	context.Context, string,
-) (engineagents.Runner, error) {
-	if !s.live {
-		return engineagents.Runner{}, agentrunner.ErrNotFound
-	}
-	return s.runner, nil
-}
-
-func (s stubRunnerStoreLiveness) LiveRunnersForChat(
-	context.Context, string,
-) ([]engineagents.Runner, error) {
-	if !s.live {
-		return nil, nil
-	}
-	return []engineagents.Runner{s.runner}, nil
-}
 
 // runnersForDisplace builds the smallest Runners that can run displaceForSwitch:
 // a real turn-start gate and in-flight registry, an empty ledger (so the
@@ -46,16 +19,17 @@ func (s stubRunnerStoreLiveness) LiveRunnersForChat(
 func runnersForDisplace(t *testing.T, working, live bool) *Runners {
 	t.Helper()
 	home := t.TempDir()
+	liveTable := newLiveTable()
+	if live {
+		liveTable = liveWith(t, engineagents.Runner{ID: "r-1", CurrentChatID: "chat-1"})
+	}
 	return &Runners{
 		ws:            fakeWSReader{chatsDir: home},
 		ledger:        newTestLedger(t),
 		turnStarts:    inflight.NewGate(),
 		inflightTurns: inflight.NewTurns(),
 		turns:         stubTurnsForAttach{working: working},
-		runnerStore: stubRunnerStoreLiveness{
-			live:   live,
-			runner: engineagents.Runner{ID: "r-1"},
-		},
+		live:          liveTable,
 	}
 }
 
@@ -120,29 +94,20 @@ func TestDisplaceForSwitch_APromptSteeredAfterTheWaitsSendsTheSwitchRoundAgain(t
 		"its live carrier still owes it")
 }
 
-// TestRegression_QuitOutgoingCLI_TerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY
-// mirrors TestRegression_RetireTerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY
-// (lifecycle_internal_test.go): quitOutgoingCLI — SwitchProvider's own teardown of the
-// chat's outgoing CLI, reached from displaceForSwitch — had the SAME gap retire() did
-// before its fix. It terminated only live.TerminalSession, the ORIGINAL companion PTY
-// every api-transport spawn forks alongside its connection and never reassigns; once
-// SwitchToTerminal has run, that field names a different, already-abandoned process, and
-// the actually-attached native-view PTY it forks separately (tracked only in rs.attached)
-// kept running indefinitely — a real process leak reachable by switching provider on a
-// chat while it is attached to its native terminal view, with rs.attached left answering
-// AttachedTerminalSession for a runner id the switch has already moved past.
+// TestRegression_QuitOutgoingCLI_TerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY:
+// a provider switch on a chat attached to its native view must end that view
+// too, not only the companion PTY runner.TerminalSession still names.
 func TestRegression_QuitOutgoingCLI_TerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY(t *testing.T) {
 	term := &fakeTermForAttach{}
-	store := &stopRetireRunnerStore{
-		runner: engineagents.Runner{ID: "runner-1", TerminalSession: "companion-pty-term"},
-	}
-	rs := &Runners{
-		runnerStore:   store,
+	rs := retiring(t, &Runners{
 		attached:      newAttachRegistry(),
 		apiConns:      newAPIConnRegistry(),
 		term:          term,
+		agents:        stubAgentsForInterrupt{},
 		inflightTurns: inflight.NewTurns(),
-	}
+		turns:         noopTurns{},
+	})
+	rs.live.update("runner-1", func(r *engineagents.Runner) { r.TerminalSession = "companion-pty-term" })
 	rs.attached.set("runner-1", attachedView{termSessID: "native-view-term"})
 
 	require.NoError(t, rs.quitOutgoingCLI(context.Background(), "chat-1"))
@@ -153,5 +118,5 @@ func TestRegression_QuitOutgoingCLI_TerminatesTheAttachedNativeViewNotJustTheSta
 		"the actually-attached native view PTY — the one the user was looking at — must be torn down too")
 	_, stillAttached := rs.attached.get("runner-1")
 	assert.False(t, stillAttached, "the attach registry entry must be forgotten, or it answers for a runner nothing will revisit")
-	assert.True(t, store.displaced, "the outgoing runner must still be displaced from the chat")
+	assert.Equal(t, domain.AgentExitDisplaced, retiredAs(t, rs), "the outgoing runner must still be displaced from the chat")
 }

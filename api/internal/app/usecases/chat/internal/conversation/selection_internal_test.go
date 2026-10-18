@@ -7,14 +7,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
-// stubLiveRunnerForSelection answers only LiveRunnerForChat, so
-// ChatProviderID resolves without a real runner-event store — the same
-// panic-on-anything-else pattern the runner package's own narrow stubs use.
+// stubLiveRunnerForSelection answers only LiveRunnerForChat; every other
+// Runners method panics if reached.
 type stubLiveRunnerForSelection struct {
-	agentrunner.EventStore
+	Runners
 	runner engineagents.Runner
 }
 
@@ -56,9 +54,9 @@ func (s stubAgentsForSelection) Get(
 
 func conversationsForSelectionTest(agent engineagents.Agent) *Conversations {
 	return &Conversations{
-		runnerStore: stubLiveRunnerForSelection{runner: engineagents.Runner{ID: "r1", ProviderID: "fake-provider"}},
-		agents:      stubAgentsForSelection{agent: agent},
-		home:        func() (string, error) { return "/home", nil },
+		runners: stubLiveRunnerForSelection{runner: engineagents.Runner{ID: "r1", ProviderID: "fake-provider"}},
+		agents:  stubAgentsForSelection{agent: agent},
+		home:    func() (string, error) { return "/home", nil },
 	}
 }
 

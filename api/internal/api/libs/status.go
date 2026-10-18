@@ -18,7 +18,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
@@ -39,8 +38,7 @@ import (
 //     not exist on disk), enginegit.ErrBranchNotFound (a branch or
 //     revision operand git could not resolve), agentchat.ErrNotFound (an
 //     agent chat/segment id the agentic-chat repo has no row for),
-//     agentrunner.ErrNotFound (a runner id — a `--segment` value — with no
-//     live row, either never spawned or already exited),
+//     agentusecase.ErrNoLiveRunner (a chat with no live CLI, dormant),
 //     repoattachments.ErrNotFound (a stored chat attachment file name with no
 //     row on disk), and noderepo.ErrNotFound (a placement Node row no
 //     aggregate carries).
@@ -194,7 +192,7 @@ func isNotFound(
 		errors.Is(err, project.ErrFolderNotFound) ||
 		errors.Is(err, enginegit.ErrBranchNotFound) ||
 		errors.Is(err, agentchat.ErrNotFound) ||
-		errors.Is(err, agentrunner.ErrNotFound) ||
+		errors.Is(err, agentusecase.ErrNoLiveRunner) ||
 		errors.Is(err, repoattachments.ErrNotFound) ||
 		errors.Is(err, noderepo.ErrNotFound)
 }

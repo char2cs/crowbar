@@ -28,11 +28,11 @@ func TestMessageStreams_TheSweepAbandonsWhileAHookIsStillStreaming(t *testing.T)
 	// data race that is one field away.
 	turns := New(Deps{
 		Chats:    raceChats{},
-		Runners:  raceRunners{},
 		Activity: raceActivity{},
 		Work:     inflight.NewWork(),
 		Ledger:   newTurnLedger(t),
 	})
+	turns.SetRunners(raceRunners{})
 	racer := &streamRacer{
 		turns:    turns,
 		messages: turns.messages,
@@ -343,10 +343,10 @@ func TestAbandonMessageInferredInterrupt_RecordsAnInferredInterruptionThenAbando
 	activity := &fakeStopActivity{}
 	turns := New(Deps{
 		Chats:    raceChats{},
-		Runners:  raceRunners{},
 		Activity: activity,
 		Work:     inflight.NewWork(),
 	})
+	turns.SetRunners(raceRunners{})
 
 	abandoned, err := turns.AbandonMessageInferredInterrupt(context.Background(), "c")
 
@@ -372,10 +372,10 @@ func TestAbandonMessageInferredInterrupt_UsesAFreshIDPerCall(t *testing.T) {
 	activity := &fakeStopActivity{}
 	turns := New(Deps{
 		Chats:    raceChats{},
-		Runners:  raceRunners{},
 		Activity: activity,
 		Work:     inflight.NewWork(),
 	})
+	turns.SetRunners(raceRunners{})
 
 	_, err := turns.AbandonMessageInferredInterrupt(context.Background(), "c")
 	require.NoError(t, err)

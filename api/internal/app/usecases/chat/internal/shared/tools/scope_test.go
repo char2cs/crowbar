@@ -115,17 +115,33 @@ func TestResolve_RejectsBadToken(t *testing.T) {
 	require.ErrorIs(t, err, tools.ErrUnauthorized)
 }
 
-// A displaced runner has no current chat: it must not resolve to the chat it
-// used to be on.
-func TestResolve_RejectsDisplacedRunner(t *testing.T) {
+// A runner that has exited is out of the live table: its token, still valid,
+// must not resolve to the chat it used to be on.
+func TestResolve_RejectsAnExitedRunner(t *testing.T) {
 	m, err := tools.NewTokenMinter()
 	require.NoError(t, err)
-	r := tools.NewResolver(m,
-		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "", WorkspaceID: "ws-a"}},
-		stubChats{}, stubWorkspaces{all: tree()})
+	r := tools.NewResolver(m, stubRunners{}, stubChats{}, stubWorkspaces{all: tree()})
 
 	_, err = r.Resolve(context.Background(), "RUN", m.Mint("RUN"))
 	require.ErrorIs(t, err, tools.ErrUnauthorized)
+}
+
+// The chat usecase builds its resolver before its runners exist: unbound, it
+// refuses everybody; bound, it resolves through the runners it was given.
+func TestResolve_ResolvesOnlyOnceBoundToRunners(t *testing.T) {
+	m, err := tools.NewTokenMinter()
+	require.NoError(t, err)
+	unbound := tools.NewResolver(m, nil, stubChats{}, stubWorkspaces{all: tree()})
+
+	_, err = unbound.Resolve(context.Background(), "RUN", m.Mint("RUN"))
+	require.ErrorIs(t, err, tools.ErrUnauthorized)
+
+	bound := unbound.WithRunners(stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}})
+	c, err := bound.Resolve(context.Background(), "RUN", m.Mint("RUN"))
+	require.NoError(t, err)
+	require.Equal(t, "CHAT", c.ChatID)
+	_, err = unbound.Resolve(context.Background(), "RUN", m.Mint("RUN"))
+	require.ErrorIs(t, err, tools.ErrUnauthorized, "binding returns a copy")
 }
 
 // TestResolve_NeverSeesDeletedWorkspaces covers all three visibility branches,

@@ -16,10 +16,8 @@
 // model exactly like the list reads.
 //
 // There is no session→chat lookup here any more (the retired GetByProviderSession
-// scanned the chat's segments). A conversation belongs to a chat as a projection
-// of RUNNER events, so that question is answered by agentrunner's append-only
-// conversation history — which keeps answering long after the process that opened
-// the conversation is gone, something a scan of live chat state never could.
+// scanned the chat's segments): the chat ledger's session index answers it, long
+// after the process that opened the conversation is gone.
 package store
 
 import (

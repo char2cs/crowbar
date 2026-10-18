@@ -14,14 +14,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // stubChatsForSpawn answers the one read a create=false spawn makes of the
@@ -58,72 +59,55 @@ type stubActivityForSpawn struct {
 
 func (stubActivityForSpawn) Abandon(context.Context, string, time.Time) error { return nil }
 
-// spyRunnerStoreForSpawn records the Start input (the only place a runner's
-// terminal-session identity is ever written) and signals every Exit on a
-// channel, so a test can block on the REAL reconcile rather than on a timer.
-type spyRunnerStoreForSpawn struct {
-	agentrunner.EventStore
-	started chan agentrunner.StartInput
+// spyLifecycle hears what the runner lifecycle announces, so a test blocks on
+// a runner_started or runner_exited commit rather than on a timer.
+type spyLifecycle struct {
+	started chan string
 	exited  chan string
-	runner  engineagents.Runner
-	gone    bool
 }
 
-func newSpyRunnerStoreForSpawn() *spyRunnerStoreForSpawn {
-	return &spyRunnerStoreForSpawn{
-		started: make(chan agentrunner.StartInput, 4),
-		exited:  make(chan string, 4),
+func newSpyLifecycle() *spyLifecycle {
+	return &spyLifecycle{started: make(chan string, 16), exited: make(chan string, 16)}
+}
+
+func (*spyLifecycle) Touch(context.Context, string) {}
+
+func (s *spyLifecycle) ApplyRunner(_ context.Context, _, runnerID, kind string) {
+	switch kind {
+	case frameStarted:
+		s.started <- runnerID
+	case frameExited:
+		s.exited <- runnerID
 	}
 }
 
-func (s *spyRunnerStoreForSpawn) Start(
-	_ context.Context, in agentrunner.StartInput,
-) (engineagents.Runner, error) {
-	s.runner = engineagents.Runner{
-		ID: in.RunnerID, ProviderID: in.ProviderID, CurrentChatID: in.ChatID,
-		WorkspaceID: in.WorkspaceID, TerminalSession: in.TerminalSession,
+// startedRow is the runner_started row chat-1's ledger holds for runnerID.
+func startedRow(t *testing.T, l *ledgerstore.Store, runnerID string) ledger.RunnerStarted {
+	t.Helper()
+	rows, err := l.Read(t.Context(), "chat-1", 0, 0)
+	require.NoError(t, err)
+	for _, r := range rows {
+		if r.Kind != ledger.KindRunnerStarted {
+			continue
+		}
+		body, err := ledger.DecodeBody[ledger.RunnerStarted](r)
+		require.NoError(t, err)
+		if body.RunnerID == runnerID {
+			return body
+		}
 	}
-	s.started <- in
-	return s.runner, nil
-}
-
-func (s *spyRunnerStoreForSpawn) LiveRunnersForChat(
-	context.Context, string,
-) ([]engineagents.Runner, error) {
-	return nil, nil
-}
-
-func (s *spyRunnerStoreForSpawn) Get(
-	_ context.Context, runnerID string,
-) (engineagents.Runner, error) {
-	if s.gone || s.runner.ID != runnerID {
-		return engineagents.Runner{}, agentrunner.ErrNotFound
-	}
-	return s.runner, nil
-}
-
-func (s *spyRunnerStoreForSpawn) LiveRunnerForChat(
-	context.Context, string,
-) (engineagents.Runner, error) {
-	return engineagents.Runner{}, agentrunner.ErrNotFound
-}
-
-func (s *spyRunnerStoreForSpawn) Exit(
-	_ context.Context, runnerID string, _ time.Time,
-) (engineagents.Runner, error) {
-	s.gone = true
-	s.exited <- runnerID
-	return s.runner, nil
+	t.Fatalf("no runner_started row for %s", runnerID)
+	return ledger.RunnerStarted{}
 }
 
 // spawnHarness is the smallest Runners that can drive spawnRunner end to end
 // with a REAL shipped descriptor and a fake PTY seam.
 type spawnHarness struct {
-	rs     *Runners
-	term   *fakeTermForAttach
-	store  *spyRunnerStoreForSpawn
-	home   string
-	chatID string
+	rs        *Runners
+	term      *fakeTermForAttach
+	lifecycle *spyLifecycle
+	home      string
+	chatID    string
 }
 
 func newSpawnHarness(t *testing.T, surface string) *spawnHarness {
@@ -134,7 +118,7 @@ func newSpawnHarness(t *testing.T, surface string) *spawnHarness {
 
 	home := t.TempDir()
 	term := &fakeTermForAttach{}
-	store := newSpyRunnerStoreForSpawn()
+	lifecycle := newSpyLifecycle()
 	return &spawnHarness{
 		rs: &Runners{
 			agents:        engineagents.New(),
@@ -142,7 +126,8 @@ func newSpawnHarness(t *testing.T, surface string) *spawnHarness {
 			providers:     stubProvidersForSpawn{},
 			conversations: stubConversationsForSpawn{},
 			chats:         stubChatsForSpawn{chat: domain.Chat{ID: "chat-1", Surface: surface}},
-			runnerStore:   store,
+			live:          newLiveTable(),
+			snapshots:     lifecycle,
 			term:          term,
 			pendingHooks:  inflight.NewHooks(),
 			apiConns:      newAPIConnRegistry(),
@@ -158,7 +143,7 @@ func newSpawnHarness(t *testing.T, surface string) *spawnHarness {
 			activity:      stubActivityForSpawn{},
 			ledger:        newTestLedger(t),
 		},
-		term: term, store: store, home: home, chatID: "chat-1",
+		term: term, lifecycle: lifecycle, home: home, chatID: "chat-1",
 	}
 }
 
@@ -189,7 +174,7 @@ func TestRegression_AnAPIDrivenSpawnForksNoOrphanPTY(t *testing.T) {
 
 	assert.Empty(t, h.term.created,
 		"an api connection that is driving the surface must not also fork the vendor's own TUI")
-	in := <-h.store.started
+	in := startedRow(t, h.rs.ledger, <-h.lifecycle.started)
 	assert.Empty(t, in.TerminalSession,
 		"a runner with no PTY must record no terminal session rather than a stale one")
 }
@@ -204,12 +189,12 @@ func TestRegression_APTYLessRunnerExitsWhenItsServeProcessDies(t *testing.T) {
 	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex",
 		spawnInput{runnerID: "runner-1"}, false)
 	require.NoError(t, err)
-	<-h.store.started
+	<-h.lifecycle.started
 
 	require.NoError(t, cmd.Process.Kill())
 
 	select {
-	case exited := <-h.store.exited:
+	case exited := <-h.lifecycle.exited:
 		assert.Equal(t, "runner-1", exited)
 	case <-time.After(10 * time.Second):
 		t.Fatal("the serve process died and nothing ever exited the runner it was the whole of")
@@ -226,7 +211,7 @@ func TestSpawnRunner_AHooksTransportProviderStillForksItsPTY(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, h.term.created, 1, "claude's PTY is the session; it must still be forked")
-	in := <-h.store.started
+	in := startedRow(t, h.rs.ledger, <-h.lifecycle.started)
 	assert.Equal(t, h.term.created[0].termSessID, in.TerminalSession)
 }
 
@@ -257,7 +242,7 @@ func TestRegression_SwitchToTerminalDoesNotExitThePTYLessRunnerItHandsOver(t *te
 	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "codex",
 		spawnInput{runnerID: "runner-1"}, false)
 	require.NoError(t, err)
-	<-h.store.started
+	<-h.lifecycle.started
 
 	// What SwitchToTerminal does to the connection, in its own order.
 	h.rs.handOverAPIConn("runner-1")
@@ -265,7 +250,7 @@ func TestRegression_SwitchToTerminalDoesNotExitThePTYLessRunnerItHandsOver(t *te
 	waitProcessGone(t, cmd)
 
 	select {
-	case runnerID := <-h.store.exited:
+	case runnerID := <-h.lifecycle.exited:
 		t.Fatalf("a handover exited runner %s; the native view it forked is the process now", runnerID)
 	case <-time.After(300 * time.Millisecond):
 	}
@@ -281,15 +266,14 @@ func waitProcessGone(t *testing.T, cmd *exec.Cmd) {
 }
 
 // ptylessRunners is the teardown half of the harness: a runner already
-// recorded with NO terminal session, whose native view is the only process
-// it has left.
-func ptylessRunners(t *testing.T, store *spyRunnerStoreForSpawn) *Runners {
+// started with NO terminal session, whose native view is the only process it
+// has left.
+func ptylessRunners(t *testing.T) (*Runners, *spyLifecycle) {
 	t.Helper()
-	store.runner = engineagents.Runner{
-		ID: "runner-1", ProviderID: "codex", CurrentChatID: "chat-1", TerminalSession: "",
-	}
+	lifecycle := newSpyLifecycle()
 	return &Runners{
-		runnerStore:   store,
+		live:          liveWith(t, engineagents.Runner{ID: "runner-1", ProviderID: "codex", CurrentChatID: "chat-1"}),
+		snapshots:     lifecycle,
 		apiConns:      newAPIConnRegistry(),
 		attached:      newAttachRegistry(),
 		surfaces:      newSurfaceRegistry(),
@@ -302,7 +286,7 @@ func ptylessRunners(t *testing.T, store *spyRunnerStoreForSpawn) *Runners {
 		activity:      stubActivityForSpawn{},
 		chats:         stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}},
 		ledger:        newTestLedger(t),
-	}
+	}, lifecycle
 }
 
 // TestRegression_ANativeViewTornDownForGoodExitsThePTYLessRunner: retire and
@@ -312,18 +296,17 @@ func ptylessRunners(t *testing.T, store *spyRunnerStoreForSpawn) *Runners {
 // left whose death could carry the row away, so the chat would advertise a
 // live agent forever.
 func TestRegression_ANativeViewTornDownForGoodExitsThePTYLessRunner(t *testing.T) {
-	store := newSpyRunnerStoreForSpawn()
-	rs := ptylessRunners(t, store)
+	rs, lifecycle := ptylessRunners(t)
 
-	// retire()'s own order: forget the view first, then kill it.
+	// endProcesses' own order: forget the view first, then kill it.
 	rs.attached.drop("runner-1")
 	rs.onAttachExit("chat-1", "runner-1")(engineterminal.Exit{})
 
 	select {
-	case exited := <-store.exited:
+	case exited := <-lifecycle.exited:
 		assert.Equal(t, "runner-1", exited)
 	case <-time.After(5 * time.Second):
-		t.Fatal("the native view died with nothing to replace it and the runner row stayed live")
+		t.Fatal("the native view died with nothing to replace it and the runner stayed live")
 	}
 }
 
@@ -331,15 +314,14 @@ func TestRegression_ANativeViewTornDownForGoodExitsThePTYLessRunner(t *testing.T
 // nothing: that PTY is the liveness authority, and its own exit callback is
 // what ends the runner.
 func TestOnAttachExit_ARunnerWithItsOwnPTYIsLeftToThatPTY(t *testing.T) {
-	store := newSpyRunnerStoreForSpawn()
-	rs := ptylessRunners(t, store)
-	store.runner.TerminalSession = "term-1"
+	rs, lifecycle := ptylessRunners(t)
+	rs.live.update("runner-1", func(r *engineagents.Runner) { r.TerminalSession = "term-1" })
 
 	rs.attached.drop("runner-1")
 	rs.onAttachExit("chat-1", "runner-1")(engineterminal.Exit{})
 
 	select {
-	case exited := <-store.exited:
+	case exited := <-lifecycle.exited:
 		t.Fatalf("runner %s was exited while its own PTY is still the authority on that", exited)
 	case <-time.After(200 * time.Millisecond):
 	}
@@ -348,15 +330,14 @@ func TestOnAttachExit_ARunnerWithItsOwnPTYIsLeftToThatPTY(t *testing.T) {
 // A re-established connection is a process again, so the view it replaced
 // dying must not end the runner.
 func TestOnAttachExit_AReestablishedConnectionKeepsThePTYLessRunnerAlive(t *testing.T) {
-	store := newSpyRunnerStoreForSpawn()
-	rs := ptylessRunners(t, store)
+	rs, lifecycle := ptylessRunners(t)
 	rs.apiConns.set("runner-1", &apiconn{})
 
 	rs.attached.drop("runner-1")
 	rs.onAttachExit("chat-1", "runner-1")(engineterminal.Exit{})
 
 	select {
-	case exited := <-store.exited:
+	case exited := <-lifecycle.exited:
 		t.Fatalf("runner %s was exited while its api connection is live", exited)
 	case <-time.After(200 * time.Millisecond):
 	}
@@ -551,8 +532,8 @@ func TestRegression_AnAdoptedSpawnThatCannotDeliverItsPromptFailsTheSpawn(t *tes
 
 	require.ErrorIs(t, err, ErrSpawnPromptUndeliverable)
 	select {
-	case in := <-h.store.started:
-		t.Fatalf("runner %s was recorded live with the prompt it exists to deliver nowhere", in.RunnerID)
+	case runnerID := <-h.lifecycle.started:
+		t.Fatalf("runner %s was recorded live with the prompt it exists to deliver nowhere", runnerID)
 	default:
 	}
 }
@@ -649,7 +630,7 @@ func TestRegression_ASelectionIsRecordedOnTheCarrierThatActuallyTookIt(t *testin
 		spawnInput{runnerID: "runner-1"}, false)
 	require.NoError(t, err)
 
-	in := <-h.store.started
+	in := startedRow(t, h.rs.ledger, <-h.lifecycle.started)
 	assert.Equal(t, "deep", in.LaunchModel)
 	assert.Equal(t, "high", in.LaunchEffort)
 	assert.Empty(t, in.TerminalSession,
@@ -673,7 +654,7 @@ func TestSpawnRunner_TheForkedPTYCarriesTheSelectionWhenNoConnectionCameUp(t *te
 	assert.Contains(t, argv, "deep")
 	assert.Contains(t, argv, `reasoning="high"`)
 
-	in := <-h.store.started
+	in := startedRow(t, h.rs.ledger, <-h.lifecycle.started)
 	assert.Equal(t, "deep", in.LaunchModel)
 	assert.NotEmpty(t, in.TerminalSession)
 }

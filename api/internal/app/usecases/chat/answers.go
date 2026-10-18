@@ -248,7 +248,7 @@ func (u *Usecase) agentForChat(
 	ctx context.Context,
 	chatID string,
 ) (engineagents.Agent, error) {
-	runner, err := u.runnerStore.LiveRunnerForChat(ctx, chatID)
+	runner, err := u.runners.LiveRunnerForChat(ctx, chatID)
 	if err != nil {
 		return nil, fmt.Errorf("agent: answer choice: runner: %w", err)
 	}

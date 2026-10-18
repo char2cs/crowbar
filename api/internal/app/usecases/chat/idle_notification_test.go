@@ -144,7 +144,7 @@ func TestRegression_APermissionNotificationNeverArmsClaudesIdleLatch(t *testing.
 
 	// The interruption is still recorded: the discriminator selects one variant
 	// IN, it never filters the other out.
-	ints, err := f.usecase.Interruptions(f.ctx, chatID)
+	ints, err := f.activity.Interruptions(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, ints, 1)
 	assert.Equal(t, engineagents.InterruptNotification, ints[0].Kind)
@@ -162,7 +162,7 @@ func TestRegression_TheIdleNoticeIsStillRecordedAsAnInterruption(t *testing.T) {
 	hook(t, f, runnerID, "claude", engineagents.HookNotification, notice)
 	hook(t, f, runnerID, "claude", engineagents.HookIdle, notice)
 
-	ints, err := f.usecase.Interruptions(f.ctx, chatID)
+	ints, err := f.activity.Interruptions(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, ints, 1, "the idle reading must not duplicate or replace the notification row")
 	assert.Equal(t, engineagents.InterruptNotification, ints[0].Kind)

@@ -18,7 +18,6 @@ import (
 
 type reader struct {
 	chats map[string]domain.Chat
-	live  []agents.Runner
 	// ledger answers LedgerState; nil reads every chat's ledger as empty.
 	ledger func(chatID string) (ledger.State, error)
 }
@@ -38,11 +37,29 @@ func (r *reader) GetChat(_ context.Context, id string) (domain.Chat, error) {
 	return c, nil
 }
 
-func (r *reader) AllLive(context.Context) ([]agents.Runner, error) { return r.live, nil }
-
 type runtime struct {
 	mu     sync.Mutex
 	phases map[string]string
+	live   map[string]agents.Runner
+}
+
+func (r *runtime) place(runner agents.Runner) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.live[runner.CurrentChatID] = runner
+}
+
+func (r *runtime) vacate(chatID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.live, chatID)
+}
+
+func (r *runtime) LiveRunner(chatID string) (agents.Runner, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	live, ok := r.live[chatID]
+	return live, ok
 }
 
 func (r *runtime) Phase(chatID string) string {
@@ -52,7 +69,10 @@ func (r *runtime) Phase(chatID string) string {
 }
 func (*runtime) TerminalWait(string) domain.AgentTerminalWait  { return domain.AgentTerminalWait{} }
 func (*runtime) AttachedTerminalSession(string) (string, bool) { return "", false }
-func (*runtime) Session(string) domain.AgentSession            { return domain.AgentSession{} }
+
+func newRuntime() *runtime {
+	return &runtime{phases: map[string]string{}, live: map[string]agents.Runner{}}
+}
 
 type recorder struct {
 	mu     sync.Mutex
@@ -77,7 +97,7 @@ func newOwner(t *testing.T, rd *reader) (*snapshot.Snapshots, *recorder, *runtim
 	t.Helper()
 	s := snapshot.New(1000)
 	rec := &recorder{}
-	rt := &runtime{phases: map[string]string{}}
+	rt := newRuntime()
 	s.SetPublish(rec.publish)
 	s.Bind(rd, rt)
 	return s, rec, rt
@@ -85,21 +105,21 @@ func newOwner(t *testing.T, rd *reader) (*snapshot.Snapshots, *recorder, *runtim
 
 var t0 = time.Unix(1_000, 0).UTC()
 
-func runnerOn(id, chatID string, at time.Time) agents.Runner {
-	return agents.Runner{ID: id, CurrentChatID: chatID, ProviderID: "claude", StartedAt: at}
-}
+// liveR1 is runner r1, live on chat c1.
+var liveR1 = agents.Runner{ID: "r1", CurrentChatID: "c1", ProviderID: "claude", StartedAt: t0}
 
 // A6: every answer about a chat carries a version, and a later answer carries
 // a larger one — whatever produced it.
 func TestSnapshots_EveryChangeCarriesALargerVersion(t *testing.T) {
 	ctx := context.Background()
-	s, rec, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}})
+	s, rec, rt := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}})
 
 	first, err := s.Get(ctx, "c1")
 	require.NoError(t, err)
 	s.ApplyChat(ctx, domain.Chat{ID: "c1", Working: true}, 2, "turn_started", false)
 	started := rec.last(t).Snapshot
-	s.ApplyRunner(ctx, runnerOn("r1", "c1", t0), agents.Runner{}, 1, "started")
+	rt.place(liveR1)
+	s.ApplyRunner(ctx, "c1", "r1", "started")
 	placed := rec.last(t).Snapshot
 
 	assert.Greater(t, started.Version, first.Version)
@@ -129,57 +149,25 @@ func TestSnapshots_AFrameNeverLagsTheEventItAnnounces(t *testing.T) {
 	assert.True(t, rec.last(t).Snapshot.Chat.Working, "an older aggregate version never overwrites a newer one")
 }
 
-// A runner taken off its chat, and its exit after that, both reach the chat it
-// held under their own kinds: a client lets go of a displaced runner at once.
-func TestSnapshots_ADisplacedRunnerAndItsExitReachTheChatItLeft(t *testing.T) {
+// A runner's start and exit reach its chat under their own kinds, naming the
+// runner, and the live runner is whatever the supervisor holds at the time.
+func TestSnapshots_ARunnersStartAndExitReachItsChat(t *testing.T) {
 	ctx := context.Background()
-	s, rec, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}})
-	s.ApplyRunner(ctx, runnerOn("r1", "c1", t0), agents.Runner{}, 1, "started")
+	s, rec, rt := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}})
+	rt.place(liveR1)
+	s.ApplyRunner(ctx, "c1", "r1", "started")
+	started := rec.last(t)
+	require.NotNil(t, started.Snapshot.Live)
+	assert.Equal(t, snapshot.PhaseLive, started.Snapshot.Phase)
 
-	s.ApplyRunner(ctx, runnerOn("r1", "", t0), runnerOn("r1", "c1", t0), 2, "displaced")
-	displaced := rec.last(t)
-	assert.Equal(t, "displaced", displaced.Kind)
-	assert.Equal(t, "c1", displaced.Snapshot.Chat.ID)
-	assert.Nil(t, displaced.Snapshot.Live)
+	rt.vacate("c1")
+	s.ApplyRunner(ctx, "c1", "r1", "exited")
 
-	exited := runnerOn("r1", "", t0)
-	exitedAt := t0.Add(time.Minute)
-	exited.ExitedAt = &exitedAt
-	s.ApplyRunner(ctx, exited, runnerOn("r1", "", t0), 3, "exited")
-	last := rec.last(t)
-	assert.Equal(t, "exited", last.Kind)
-	assert.Equal(t, "c1", last.Snapshot.Chat.ID)
-	assert.Equal(t, "r1", last.RunnerID)
-}
-
-// Two runners claiming one chat: the newest start is the live one — the same
-// answer the read model's single-chat query gives.
-func TestSnapshots_TheNewestStartIsLive(t *testing.T) {
-	ctx := context.Background()
-	s, _, _ := newOwner(t, &reader{
-		chats: map[string]domain.Chat{"c1": {ID: "c1"}},
-		live:  []agents.Runner{runnerOn("old", "c1", t0), runnerOn("new", "c1", t0.Add(time.Minute))},
-	})
-	got, err := s.Get(ctx, "c1")
-	require.NoError(t, err)
-	require.NotNil(t, got.Live)
-	assert.Equal(t, "new", got.Live.ID)
-}
-
-// An exit removes the runner; a late, older event of the same runner cannot
-// bring it back.
-func TestSnapshots_AnExitedRunnerStaysGone(t *testing.T) {
-	ctx := context.Background()
-	s, _, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}})
-	s.ApplyRunner(ctx, runnerOn("r1", "c1", t0), agents.Runner{}, 1, "started")
-	exited := runnerOn("r1", "c1", t0)
-	exitedAt := t0.Add(time.Minute)
-	exited.ExitedAt = &exitedAt
-	s.ApplyRunner(ctx, exited, runnerOn("r1", "c1", t0), 3, "exited")
-
-	got, err := s.Get(ctx, "c1")
-	require.NoError(t, err)
-	assert.Nil(t, got.Live)
+	exited := rec.last(t)
+	assert.Equal(t, "exited", exited.Kind)
+	assert.Equal(t, "r1", exited.RunnerID)
+	assert.Nil(t, exited.Snapshot.Live)
+	assert.Equal(t, snapshot.PhaseDormant, exited.Snapshot.Phase)
 }
 
 // The phase a lifecycle operation sets rides the snapshot; with none set it is
@@ -223,13 +211,12 @@ func TestSnapshots_AnEventLandingAfterTheDeleteDoesNotResurrectTheChat(t *testin
 	ctx := context.Background()
 	s, rec, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}})
 	s.ApplyChat(ctx, domain.Chat{ID: "c1"}, 1, "created", false)
-	s.ApplyRunner(ctx, runnerOn("r1", "c1", t0), agents.Runner{}, 1, "placed")
+	s.ApplyRunner(ctx, "c1", "r1", "started")
 	s.ApplyChat(ctx, domain.Chat{ID: "c1"}, 3, "deleted", true)
 	deleted := len(rec.frames)
 
 	s.ApplyChat(ctx, domain.Chat{ID: "c1", Working: false}, 2, "turn_stopped", false)
-	exitedAt := t0.Add(time.Second)
-	s.ApplyRunner(ctx, agents.Runner{ID: "r1", ExitedAt: &exitedAt}, runnerOn("r1", "c1", t0), 2, "exited")
+	s.ApplyRunner(ctx, "c1", "r1", "exited")
 	s.Touch(ctx, "c1")
 
 	assert.Len(t, rec.frames, deleted, "nothing is published for a deleted chat")
@@ -253,7 +240,7 @@ func TestSnapshots_VersionsSurviveARestart(t *testing.T) {
 	ctx := context.Background()
 	rd := &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}}
 	before := snapshot.NewAtBoot()
-	before.Bind(rd, &runtime{phases: map[string]string{}})
+	before.Bind(rd, newRuntime())
 	for range 100 {
 		before.Touch(ctx, "c1")
 	}
@@ -262,7 +249,7 @@ func TestSnapshots_VersionsSurviveARestart(t *testing.T) {
 
 	time.Sleep(time.Millisecond)
 	after := snapshot.NewAtBoot()
-	after.Bind(rd, &runtime{phases: map[string]string{}})
+	after.Bind(rd, newRuntime())
 	fresh, err := after.Get(ctx, "c1")
 	require.NoError(t, err)
 	assert.Greater(t, fresh.Version, old.Version)

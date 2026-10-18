@@ -42,7 +42,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -270,7 +269,7 @@ func (r *rig) snapshot(chatID string) agentusecase.ChatSnapshot {
 
 func (r *rig) live(chatID string) (bool, string) {
 	runner, err := r.runners().LiveRunnerForChat(context.Background(), chatID)
-	if errors.Is(err, agentrunner.ErrNotFound) {
+	if errors.Is(err, agentusecase.ErrNoLiveRunner) {
 		return false, ""
 	}
 	require.NoError(r.t, err)

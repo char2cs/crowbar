@@ -24,7 +24,6 @@ import (
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // ─── from rename_test.go ──────────────────────────────────────────────
@@ -118,31 +117,6 @@ func TestRenameByRunner_UnknownRunner_ReturnsWrappedError(t *testing.T) {
 	assert.Contains(t, err.Error(), "rename by runner")
 }
 
-// TestRenameByRunner_DisplacedRunner_IsANoop guards the one legitimate case
-// where a runner's CurrentChatID is empty: it has been taken off its chat and
-// is being retired (a switch, an eviction, a deleted chat) but its process has
-// not yet died. There is nowhere to write the title, and — mirroring
-// handleTurn's identical guard on the hook path — this must be a silent no-op,
-// never an error that would otherwise reach the dying CLI's stderr for no
-// actionable reason.
-func TestRenameByRunner_DisplacedRunner_IsANoop(t *testing.T) {
-	f := newFixture(t)
-	ctx := context.Background()
-
-	_, runnerID := f.spawn(t, "claude")
-	require.NoError(t, f.usecase.PurgeChat(ctx, mustChatOf(t, f, runnerID)))
-
-	require.NoError(t, f.usecase.RenameByRunner(ctx, runnerID, "New Title", "agent"))
-}
-
-// mustChatOf reads back the chat id a freshly spawned runner is placed on.
-func mustChatOf(t *testing.T, f testFixture, runnerID string) string {
-	t.Helper()
-	r := f.runner(t, runnerID)
-	require.NotEmpty(t, r.CurrentChatID)
-	return r.CurrentChatID
-}
-
 // TestIngestHook_UserPrompt_SetsDerivedTitle guards the first-prompt fallback
 // wired into IngestHook's user_prompt case: deriveTitle(prompt) is applied via
 // RenameChat(..., "derived"), which only fills an empty title.
@@ -169,10 +143,8 @@ func TestIngestHook_UserPrompt_SetsDerivedTitle(t *testing.T) {
 // TestRegression_DeleteChat_KillsItsRunner
 //
 // A runner whose chat no longer exists is a runner with nowhere to write. The chat
-// delete cascade must therefore get rid of it — but NOT by deleting its row from the
-// read model. That would be Crowbar asserting a liveness fact it does not own (the
-// process would still be running, invisible), which is the exact dual-authority
-// mistake this model deletes. It kills the PROCESS and lets the row follow.
+// delete cascade kills its PROCESS and returns once that exit is recorded, never by
+// forgetting a runner whose CLI would still be running, invisible.
 func TestRegression_DeleteChat_KillsItsRunner(t *testing.T) {
 	f := newFixture(t)
 
@@ -184,15 +156,9 @@ func TestRegression_DeleteChat_KillsItsRunner(t *testing.T) {
 
 	assert.Contains(t, f.term.terminatedIDs(), r.TerminalSession,
 		"the chat's CLI must be terminated, not orphaned")
-
-	// The PTY dies, and THAT is what removes the runner.
-	f.term.exit(t, r.TerminalSession)
-	f.wait()
-
-	_, err := f.runners.Get(f.ctx, runnerID)
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound, "no runner may point at a hard-deleted chat")
-	_, err = f.runners.LiveRunnerForChat(f.ctx, chatID)
-	assert.ErrorIs(t, err, agentrunner.ErrNotFound)
+	assert.False(t, f.isLive(runnerID), "no runner may point at a hard-deleted chat")
+	_, err := f.liveRunnerFor(t, chatID)
+	assert.ErrorIs(t, err, agentusecase.ErrNoLiveRunner)
 }
 
 // TestRegression_DeleteChatMidTurn_DoesNotResurrectTheChat is the zombie-chat guard.
@@ -604,7 +570,7 @@ func TestSpawn_AChatWithNoChatAncestorsIsToldNothingExtra(t *testing.T) {
 // believing itself standalone would then do the whole task without the context
 // it exists to continue, and nothing anywhere would say so.
 func TestSpawn_ALineageThatCannotBeReadFailsTheSpawn(t *testing.T) {
-	f, cs, _ := newFaultFixture(t)
+	f, cs := newFaultFixture(t)
 
 	parentID, _ := f.spawn(t, "claude")
 	threadID, _ := f.spawn(t, "claude")
@@ -620,7 +586,7 @@ func TestSpawn_ALineageThatCannotBeReadFailsTheSpawn(t *testing.T) {
 // aggregate is written after the CLI is live — so that spawn resolves no lineage
 // at all rather than failing on a chat that does not exist.
 func TestSpawn_MintingAChatResolvesNoLineage(t *testing.T) {
-	f, cs, _ := newFaultFixture(t)
+	f, cs := newFaultFixture(t)
 	cs.failListByWorkspace = errors.New("folder table unreadable")
 
 	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
@@ -703,7 +669,7 @@ func TestMintChat_CreatesTheChatAndNoRunner(t *testing.T) {
 }
 
 func TestMintChat_SurfacesACreateFailure(t *testing.T) {
-	f, chatStore, _ := newFaultFixture(t)
+	f, chatStore := newFaultFixture(t)
 	chatStore.failCreate = errors.New("chat store down")
 
 	_, err := f.usecase.MintChat(f.ctx, "ws1", "", "")
@@ -800,7 +766,7 @@ func TestNoteThreadLineage_SurfacesAnUnreadableRecord(t *testing.T) {
 // testable at all: a spawn must not decide what a chat inherits on projected
 // state, whatever the projection happens to say.
 func TestStartRunner_ThreadsAChatTheReadModelStillReportsUnplaced(t *testing.T) {
-	f, chatStore, _ := newFaultFixture(t)
+	f, chatStore := newFaultFixture(t)
 
 	parentID, _ := f.spawn(t, "claude")
 	threadID, err := f.usecase.MintChat(f.ctx, "ws1", "", "")
@@ -1853,7 +1819,7 @@ func TestSetChatSelection_AChatNoProviderHasEverRunOnIsUnprocessable(t *testing.
 }
 
 func TestSetChatSelection_SaveFailureSurfaces(t *testing.T) {
-	f, cs, _ := newFaultFixture(t)
+	f, cs := newFaultFixture(t)
 	chatID, _ := f.spawn(t, "claude")
 	cs.failSetSelection = errors.New("boom: save selection")
 
@@ -1864,7 +1830,7 @@ func TestSetChatSelection_SaveFailureSurfaces(t *testing.T) {
 }
 
 func TestSpawn_AnUnreadableSelectionFailsBeforeTheFork(t *testing.T) {
-	f, cs, _ := newFaultFixture(t)
+	f, cs := newFaultFixture(t)
 	chatID, _ := f.spawn(t, "claude")
 	spawnsBefore := f.term.callCount()
 
@@ -1909,7 +1875,7 @@ runtime:
 }
 
 func TestSubmitPrompt_AnUnreadableSelectionRefusesTheDelivery(t *testing.T) {
-	f, cs, _ := newFaultFixture(t)
+	f, cs := newFaultFixture(t)
 	writeDescriptor(t, f, "claude", selectingDescriptorBody)
 	chatID, _ := f.spawn(t, "claude")
 	live, err := f.liveRunnerFor(t, chatID)
@@ -1994,8 +1960,7 @@ func TestRegression_LateSessionAnnouncement_DoesNotStealTheChatFromTheIncomingCL
 	assert.Equal(t, f.runner(t, incoming).TerminalSession, live.TerminalSession,
 		"the pane must attach to the incoming CLI's PTY")
 
-	assert.Len(t, f.placedRunnersFor(t, chatID), 1,
-		"I2: at most one runner is pointed at a chat, at every instant")
+	assert.False(t, f.isLive(outgoing), "the outgoing CLI was off the chat before the switch returned")
 }
 
 // TestRegression_ConcurrentSwitches_LeaveExactlyOneCLIOnTheChat
@@ -2024,12 +1989,15 @@ func TestRegression_ConcurrentSwitches_LeaveExactlyOneCLIOnTheChat(t *testing.T)
 	require.NoError(t, g.Wait())
 	f.wait()
 
-	placed := f.placedRunnersFor(t, chatID)
-	assert.Len(t, placed, 1, "two concurrent switches must not leave two CLIs on one chat")
-
 	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
-	assert.Equal(t, placed[0].ID, live.ID)
+	var onChat []string
+	for _, r := range agentusecase.AllLiveRunners(f.usecase.own) {
+		if r.CurrentChatID == chatID {
+			onChat = append(onChat, r.ID)
+		}
+	}
+	assert.Equal(t, []string{live.ID}, onChat, "two concurrent switches must not leave two CLIs on one chat")
 }
 
 // ---------------------------------------------------------------------------
@@ -2113,22 +2081,16 @@ func TestSwitchProvider_MidTurn_ClosesTheOutgoingTurn(t *testing.T) {
 // "" means NOWHERE, everywhere.
 // ---------------------------------------------------------------------------
 
-// TestRegression_HookFromADisplacedRunner_NeverTouchesTheChatModel
-//
-// A displaced-but-still-dying CLI is the NORMAL state of every switched-out, evicted and
-// purged runner for as long as SIGTERM takes — and its CurrentChatID is "". An unguarded
-// handleTurn hands that "" straight to GetChat, whose lazy self-heal REPLAYS THE ENTIRE
-// agentchat EVENT LOG on a miss. So every hook from a dying CLI would replay the whole log.
-//
-// The fault-injected GetChat is the probe: if the chat model is touched at all, the hook
-// fails. It must not be touched — "" is nowhere, and nowhere is not looked up.
-func TestRegression_HookFromADisplacedRunner_NeverTouchesTheChatModel(t *testing.T) {
-	f, cs, _ := newFaultFixture(t)
+// TestRegression_HookFromAPurgedChatsRunner_NeverTouchesTheChatModel: a late hook
+// from the CLI of a purged chat resolves to no runner, and so to no chat. GetChat's
+// lazy self-heal replays the whole event log on a miss, so a lookup here is a cost
+// every dying CLI's hook would pay. The fault-injected GetChat is the probe.
+func TestRegression_HookFromAPurgedChatsRunner_NeverTouchesTheChatModel(t *testing.T) {
+	f, cs := newFaultFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
-	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID)) // displaces + kills; the CLI still dies slowly
-	f.wait()
-	require.Empty(t, f.runner(t, runnerID).CurrentChatID, "precondition: the runner is placed nowhere")
+	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID))
+	require.False(t, f.isLive(runnerID), "precondition: the purge ended the runner")
 
 	cs.failGetChat = errors.New("boom: the chat model must not be consulted for nowhere")
 
@@ -2137,47 +2099,21 @@ func TestRegression_HookFromADisplacedRunner_NeverTouchesTheChatModel(t *testing
 		"a hook from a runner that is placed nowhere must resolve to nowhere, without a lookup")
 }
 
-// TestRegression_ExitOfADisplacedRunner_AsksNeitherAggregateAboutNowhere
-//
-// closeAbandonedTurn's `chatID == ""` check is now the ONLY thing standing between a
-// displaced runner and both aggregates, and this pins it.
-//
-// It did not used to be alone. The function read the chat through GetChat, whose store
-// has its OWN "" guard (agentchat store.GetChat refuses an empty id rather than missing
-// and replaying the entire event log to heal it). Closing the read-then-act race deleted
-// that call, so the backstop went with it — and neither remaining call catches "" by
-// itself: LiveRunnerForChat("") returns ErrNotFound, which is exactly the "nobody is on
-// this chat" answer that FALLS THROUGH to the abandon, and AbandonTurn("") would then
-// hand an empty aggregate id to asynx.
-//
-// This is the ordinary end of every switched-out, evicted and purged CLI: displaced
-// first, dying slowly, and reaching reconcileRunnerExit later with CurrentChatID = "".
-// The recorders are the probe — an id reaching either store at all is the failure, and
-// nothing else can observe it, because closeAbandonedTurn is best-effort and swallows
-// whatever either store returns.
-func TestRegression_ExitOfADisplacedRunner_AsksNeitherAggregateAboutNowhere(t *testing.T) {
-	f, cs, rs := newFaultFixture(t)
-
+// TestRegression_APurgedChatKeepsNoRowOfItsRunnersExit: the purge records its
+// runner's exit before it forgets the ledger, so the exit cannot write a row back
+// into the chat it erased.
+func TestRegression_APurgedChatKeepsNoRowOfItsRunnersExit(t *testing.T) {
+	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	term := f.runner(t, runnerID).TerminalSession
-	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID)) // displaces + kills; the CLI still dies slowly
-	f.wait()
-	require.Empty(t, f.runner(t, runnerID).CurrentChatID, "precondition: the runner is placed nowhere")
 
-	// The purge's own teardown legitimately consulted both stores about a REAL chat id.
-	// Only what the exit does is under test.
-	cs.forget()
-	rs.forget()
-
-	// And now the SIGTERM'd CLI finally falls over.
+	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID))
 	f.term.exit(t, term)
 	f.wait()
 
-	assert.Empty(t, rs.liveRunnerForChatIDs(),
-		"nowhere is not a chat: the live-runner query must not be asked about it — its ErrNotFound "+
-			"reads as 'nobody is on this chat' and would fall straight through to the abandon")
-	assert.Empty(t, cs.abandonTurnIDs(),
-		"nowhere is not a chat: no turn may be abandoned on an empty aggregate id")
+	rows, err := f.ledger.Read(f.ctx, chatID, 0, 0)
+	require.NoError(t, err)
+	assert.Empty(t, rows, "a purged chat keeps no ledger row, its runner's exit included")
 }
 
 // mustLive reads the chat's live runner, failing the test if the chat is dormant.

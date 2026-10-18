@@ -16,7 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 func newTestContext(
@@ -192,9 +191,6 @@ type fakeAgentUsecase struct {
 	pending       []domain.ActivityChoice
 	pendingErr    error
 	pendingCalls  []string
-
-	interruptions    []domain.ActivityInterruption
-	interruptionsErr error
 
 	uploadAttachmentCalls []uploadAttachmentCall
 	uploadAttachmentOut   agentusecase.StoredAttachment
@@ -395,18 +391,10 @@ func (f *fakeAgentUsecase) PendingPrompt(
 	return f.pendingPrompt, f.pendingPromptFound, f.pendingPromptErr
 }
 
-// LiveRunnerForChat/ConversationsForChat back the derived runner facts on the chat
-// DTOs, which only the List/Get read handlers compose (see
-// configurableListGetUsecase in chats_test.go, the double those tests dial in). This
-// double answers "dormant, no history" — the honest shape of a chat no runner has
-// ever been placed on — so the mutation handlers it does serve never trip over them.
-func (f *fakeAgentUsecase) LiveRunnerForChat(
-	_ context.Context,
-	_ string,
-) (engineagents.Runner, error) {
-	return engineagents.Runner{}, agentrunner.ErrNotFound
-}
-
+// ConversationsForChat backs the derived facts on the chat DTOs, which only the
+// List/Get read handlers compose (see configurableListGetUsecase in
+// chats_test.go). This double answers "no history", so the mutation handlers it
+// does serve never trip over it.
 func (f *fakeAgentUsecase) ConversationsForChat(
 	_ context.Context,
 	_ string,
@@ -609,12 +597,6 @@ func (f *fakeAgentUsecase) ReadActivity(
 ) (agentusecase.ChatActivity, error) {
 	f.activityCalls = append(f.activityCalls, activityCall{chatID: chatID, after: after, limit: limit})
 	return f.activity, f.activityErr
-}
-
-func (f *fakeAgentUsecase) Interruptions(
-	_ context.Context, _ string,
-) ([]domain.ActivityInterruption, error) {
-	return f.interruptions, f.interruptionsErr
 }
 
 func (f *fakeAgentUsecase) TakeHookReply(string) (string, bool) {

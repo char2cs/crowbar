@@ -63,14 +63,6 @@ type TurnUsecase interface {
 	// has just connected can be told what it missed.
 	PendingChoiceSets(ctx context.Context) ([]ChoiceSet, error)
 
-	// Interruptions returns a chat's durable interruption ledger — the fallback
-	// engineagents.ActiveProviderID needs once a provider that binds via its own
-	// connection identity never wrote a conversation row.
-	Interruptions(
-		ctx context.Context,
-		chatID string,
-	) ([]domain.ActivityInterruption, error)
-
 	// ReadToolPayload returns one tool call's stored request or result body.
 	// side is "result" for the result, anything else for the request.
 	ReadToolPayload(
@@ -194,14 +186,6 @@ func (u *Usecase) ReadPendingChoices(
 // PendingChoiceSets returns every chat's unresolved prompts.
 func (u *Usecase) PendingChoiceSets(ctx context.Context) ([]ChoiceSet, error) {
 	return u.turns.PendingChoiceSets(ctx)
-}
-
-// Interruptions returns the chat's durable interruption ledger.
-func (u *Usecase) Interruptions(
-	ctx context.Context,
-	chatID string,
-) ([]domain.ActivityInterruption, error) {
-	return u.turns.Interruptions(ctx, chatID)
 }
 
 // ReadToolPayload returns one side — request or result — of a recorded tool call.

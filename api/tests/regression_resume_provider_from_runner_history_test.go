@@ -4,33 +4,30 @@ package tests
 
 import (
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
+	"github.com/char2cs/crowbar/api/internal/adapter/migrations/chatledger"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 )
 
 // Resuming a dormant chat failed with "agentrunner not found", and it was common
 // for providers that bind via their own connection identity: they announce no
 // conversation, so the chat had no conversation row; it had never been switched,
 // so it had no provider-switch marker; and if it was minted before the chat
-// aggregate carried its own vendor, it had no stored provider either. Every
-// source the resolver consulted was empty, and the refusal it produced named a
-// missing RUNNER — which is the ordinary dormant state and the entire reason
-// Resume was being called.
+// aggregate carried its own vendor, it had no stored provider either. The one
+// record that still named its vendor was the old daemon's runner history.
 //
-// The daemon knew the answer the whole time. It records a PLACEMENT whenever it
-// points a runner at a chat: on the reporter's own store, every runner.started
-// event going back days carried both its provider and its chat, covering every
-// chat on the machine. Nothing read it.
-//
-// These tests drive the REAL endpoints. Every one of them also asserts the chat
-// COUNT is unchanged across the resume, because the failure mode being closed
-// here is a resolution, never a create: a resume that invents a chat is the
+// Nothing writes that history any more: the upgrade boot reads it once and
+// restates each chat's own provider from it. These tests seed it between a crash
+// and that boot, then drive the REAL endpoints. Every one of them also asserts the
+// chat COUNT is unchanged across the resume: a resume that invents a chat is the
 // phantom-chat bug, not a fix for this one.
 
 // chatCount counts the conversations a repo scope lists — the guard every test
@@ -46,53 +43,49 @@ func chatCount(
 	return len(conversationsOnly(rows))
 }
 
-// seedLegacyDormantChat builds the exact shape the reporter's store is full of: a
-// chat with NO conversation row, NO interruption ledger entry and NO stored
-// provider, whose ONLY trace of ever having run is the runner history.
-//
-// It is built through the real aggregates rather than by hand-writing rows. The
-// chat is minted with no provider (what every chat minted before the vendor field
-// existed carries), and a runner is then started on it and exited — announcing no
-// session, exactly as a provider that binds by its own connection identity never
-// does. The exit deletes the live row, which is what makes the chat dormant.
-func seedLegacyDormantChat(
-	t *testing.T,
-	h *harness,
-	imported importedRepo,
-	providerID string,
-) (chatID string, runnerID string) {
-	t.Helper()
-	ctx := t.Context()
-
-	chatID, err := h.app.Usecases.AgentChat.MintChat(ctx, imported.workspaceID, "", "")
-	require.NoError(t, err)
-
-	runnerID = uuid.NewString()
-	_, err = h.app.Repositories.AgentRunner.Start(ctx, agentrunner.StartInput{
-		RunnerID:    runnerID,
-		WorkspaceID: imported.workspaceID,
-		ProviderID:  providerID,
-		ChatID:      chatID,
-		Now:         time.Now(),
-	})
-	require.NoError(t, err)
-	_, err = h.app.Repositories.AgentRunner.Exit(ctx, runnerID, time.Now())
-	require.NoError(t, err)
-	h.Quiesce()
-
-	return chatID, runnerID
+// legacyPlacement is one row of the old daemon's runner history: providerID was
+// placed on chatID at at.
+type legacyPlacement struct {
+	chatID, providerID string
+	at                 time.Time
 }
 
-// bootBackfill runs what the upgrading boot does to a legacy row: the boot
-// reconcile, then the one-off restate of each chat's own vendor from its
-// runner history.
-func bootBackfill(t *testing.T, h *harness) {
+// upgradeWithRunnerHistory crashes h, writes placements into the legacy runner
+// history as the old daemon left it, and boots an upgrading daemon over home.
+func upgradeWithRunnerHistory(
+	t *testing.T,
+	h *harness,
+	home string,
+	placements ...legacyPlacement,
+) *harness {
 	t.Helper()
-	require.NoError(t, h.app.Usecases.AgentRunner.ReconcileRunnersOnBoot(t.Context()))
-	skipped, err := h.app.Usecases.AgentRunner.RestateProvidersFromHistory(t.Context())
-	require.NoError(t, err)
-	require.Zero(t, skipped)
 	h.Quiesce()
+	h.crash()
+	db, err := gorm.Open(sqlite.Open(filepath.Join(homeAt(t, home).Store(), chatledger.RunnerDB)), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.Exec(chatledger.PlacementsDDL).Error)
+	for _, p := range placements {
+		require.NoError(t, db.Exec(
+			"INSERT INTO agent_chat_placements (chat_id, provider_id, last_placed_at) VALUES (?, ?, ?)",
+			p.chatID, p.providerID, p.at).Error)
+	}
+	raw, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, raw.Close())
+	forgetMigrations(t, home)
+
+	upgraded := newHarnessAt(t, home)
+	upgraded.Quiesce()
+	return upgraded
+}
+
+// providerlessChat mints a chat with no stored provider, as every chat minted
+// before the vendor field existed carries.
+func providerlessChat(t *testing.T, h *harness, imported importedRepo) string {
+	t.Helper()
+	chatID, err := h.app.Usecases.AgentChat.MintChat(t.Context(), imported.workspaceID, "", "")
+	require.NoError(t, err)
+	return chatID
 }
 
 // TestRegression_ResumeDormantChatRecoversItsProviderFromRunnerHistory is the
@@ -100,13 +93,14 @@ func bootBackfill(t *testing.T, h *harness) {
 // resuming it answered "agentrunner not found"; it must instead come back on the
 // vendor the runner history names.
 func TestRegression_ResumeDormantChatRecoversItsProviderFromRunnerHistory(t *testing.T) {
-	h := newHarness(t)
+	home := t.TempDir()
+	h := newHarnessAt(t, home)
 	writeProviderDescriptor(t, h, "quietstub", quietStubProviderDescriptorYAML)
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
 	imported := importWritableWorkspace(t, h)
+	chatID := providerlessChat(t, h, imported)
 
-	chatID, _ := seedLegacyDormantChat(t, h, imported, "quietstub")
-	bootBackfill(t, h)
+	h = upgradeWithRunnerHistory(t, h, home, legacyPlacement{chatID, "quietstub", time.Now()})
 	before := chatCount(t, h, imported)
 
 	// Every precondition of the bug, asserted rather than assumed: take any one of
@@ -116,7 +110,7 @@ func TestRegression_ResumeDormantChatRecoversItsProviderFromRunnerHistory(t *tes
 	require.Empty(t, detail.sessionIDs(), "no conversation was ever announced on it")
 	require.Empty(t, readInterruptions(t, h, imported, chatID), "and it was never switched")
 	assert.Equal(t, "quietstub", detail.ActiveProviderID,
-		"placement history is the only thing left that knows, and the wire must say so")
+		"the runner history was the only thing left that knew, and the wire must say so")
 
 	var revived struct {
 		ID string `json:"id"`
@@ -137,33 +131,19 @@ func TestRegression_ResumeDormantChatRecoversItsProviderFromRunnerHistory(t *tes
 // TestRegression_ResumeFromRunnerHistoryPicksTheNEWESTPlacement holds the
 // recovered answer to the same ordering rule the other sources obey. A chat
 // handed from one vendor to another and then stopped must come back as the one
-// that was actually running — reading placement history as an unordered set would
-// resurrect whichever row happened to be first, which is the stale-provider bug
-// the conversation ordering was already fixed for once.
+// that was actually running, never whichever row happened to be read first.
 func TestRegression_ResumeFromRunnerHistoryPicksTheNEWESTPlacement(t *testing.T) {
-	h := newHarness(t)
+	home := t.TempDir()
+	h := newHarnessAt(t, home)
 	writeProviderDescriptor(t, h, "quietstub", quietStubProviderDescriptorYAML)
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
 	imported := importWritableWorkspace(t, h)
+	chatID := providerlessChat(t, h, imported)
 
-	ctx := t.Context()
-	chatID, firstRunner := seedLegacyDormantChat(t, h, imported, "streamstub")
-
-	second := uuid.NewString()
-	_, err := h.app.Repositories.AgentRunner.Start(ctx, agentrunner.StartInput{
-		RunnerID:    second,
-		WorkspaceID: imported.workspaceID,
-		ProviderID:  "quietstub",
-		ChatID:      chatID,
-		Now:         time.Now().Add(time.Minute),
-	})
-	require.NoError(t, err)
-	_, err = h.app.Repositories.AgentRunner.Exit(ctx, second, time.Now().Add(time.Minute))
-	require.NoError(t, err)
-	h.Quiesce()
-	require.NotEqual(t, firstRunner, second)
-	bootBackfill(t, h)
-
+	placedAt := time.Now()
+	h = upgradeWithRunnerHistory(t, h, home,
+		legacyPlacement{chatID, "streamstub", placedAt},
+		legacyPlacement{chatID, "quietstub", placedAt.Add(time.Minute)})
 	before := chatCount(t, h, imported)
 
 	detail := getAgentChat(t, h, repoBase(imported), chatID)
@@ -185,9 +165,9 @@ func TestRegression_ResumeFromRunnerHistoryPicksTheNEWESTPlacement(t *testing.T)
 // write is best-effort and runs after a fork that may never happen, so it could
 // leave a chat that could never say what it ran.
 //
-// It is proved where nothing else can answer instead: the runner is stopped AND
-// its placement history forgotten, so the chat's own stored provider is the only
-// surviving source. That is the field Part A writes at birth.
+// It is proved where nothing else can answer: the runner is stopped and announced
+// no conversation, so the chat's own stored provider is the only source. That is
+// the field Part A writes at birth.
 func TestRegression_FreshlyCreatedChatCarriesItsProviderFromBirth(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "quietstub", quietStubProviderDescriptorYAML)
@@ -204,10 +184,6 @@ func TestRegression_FreshlyCreatedChatCarriesItsProviderFromBirth(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, "quietstub", stored.ProviderID,
 		"the chat aggregate records its vendor from the mint, not from a later spawn")
-
-	// Take away every OTHER source, so only the durable field can answer.
-	require.NoError(t, h.app.Repositories.AgentRunner.ForgetChat(t.Context(), chatID))
-	h.Quiesce()
 
 	detail := getAgentChat(t, h, repoBase(imported), chatID)
 	require.Empty(t, detail.LiveRunnerID)
@@ -254,7 +230,7 @@ func TestRegression_ResumeWithNoEvidenceAnywhereFailsHonestlyAndCreatesNoChat(t 
 	msg := h.mutationError(http.MethodPost,
 		repoBase(imported)+"/chats/"+chatID+"/resume", nil, http.StatusNotFound)
 	assert.Contains(t, msg, "no longer records which provider it ran")
-	assert.NotContains(t, msg, "agentrunner: not found",
+	assert.NotContains(t, msg, agentusecase.ErrNoLiveRunner.Error(),
 		"a dormant chat has no runner BY DEFINITION; saying so named the wrong missing thing")
 
 	assert.Equal(t, before, chatCount(t, h, imported),

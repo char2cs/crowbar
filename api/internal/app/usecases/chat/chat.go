@@ -8,7 +8,6 @@ import (
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
@@ -65,8 +64,8 @@ type ChatUsecase interface {
 		chatID, title, source string,
 	) error
 
-	// RenameByRunner retitles whichever chat a runner is currently placed on. A
-	// runner placed nowhere renames nothing.
+	// RenameByRunner retitles the chat a live runner is on; a runner that is
+	// not live is apperr.ErrNotFound.
 	RenameByRunner(
 		ctx context.Context,
 		runnerID, title, source string,
@@ -206,12 +205,11 @@ var _ ChatUsecase = (*Usecase)(nil)
 type Usecase struct {
 	// The stores and seams the answer path reads directly. Everything else this
 	// type needs, it needs only long enough to build a component out of it.
-	chats       agentchat.EventStore
-	runnerStore agentrunner.EventStore
-	activity    agentactivity.EventStore
-	agents      engineagents.Agents
-	ws          WorkspaceReader
-	worktree    WorktreeCreator
+	chats    agentchat.EventStore
+	activity agentactivity.EventStore
+	agents   engineagents.Agents
+	ws       WorkspaceReader
+	worktree WorktreeCreator
 	// folders/nodes are the Folder+Node ports 2026-09-08
 	// sidebar-placement-unification Task 8's own review fix round added:
 	// own_worktree.go/promote.go/repo_scope.go/cwd_resolver.go all walk the
@@ -277,7 +275,7 @@ func (u *Usecase) RenameChat(
 	return u.conversations.RenameChat(ctx, chatID, title, source)
 }
 
-// RenameByRunner retitles whichever chat a runner is currently placed on.
+// RenameByRunner retitles the chat a live runner is on.
 func (u *Usecase) RenameByRunner(
 	ctx context.Context,
 	runnerID, title, source string,

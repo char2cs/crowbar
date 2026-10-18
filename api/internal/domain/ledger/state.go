@@ -14,6 +14,11 @@ type State struct {
 
 	conversations []Conversation // every (provider, session) bound, by first binding
 	current       map[string]int // provider → its conversation's index in conversations
+
+	live     RunnerStarted // the runner started and not exited, while hasLive
+	hasLive  bool
+	lastExit RunnerExit // the newest runner_exited, while hasExit
+	hasExit  bool
 }
 
 // Fold replays rows, in seq order, into chatID's State.
@@ -50,6 +55,10 @@ func (s *State) Apply(r Row) {
 	case KindSessionLost:
 		s.applySessionLost(r)
 	case KindMarker: // the chat's record of what happened; it changes no state
+	case KindRunnerStarted:
+		s.applyRunnerStarted(r)
+	case KindRunnerExited:
+		s.applyRunnerExited(r)
 	}
 }
 
@@ -94,8 +103,9 @@ func (s State) Clone() State {
 // Head is the seq of the last row applied; 0 for an empty chat.
 func (s State) Head() int64 { return s.head }
 
-// HasOpenWork reports whether something in the chat is still unfinished.
-func (s State) HasOpenWork() bool { return len(s.pending) > 0 }
+// HasOpenWork reports whether something in the chat is still unfinished: a
+// prompt awaiting the provider, or a runner that has not exited.
+func (s State) HasOpenWork() bool { return len(s.pending) > 0 || s.hasLive }
 
 // PendingPrompts are the crowbar prompts not yet acknowledged, oldest first.
 func (s State) PendingPrompts() []Prompt {

@@ -95,11 +95,9 @@ func (rs *Runners) spawnPaths(
 	}
 
 	// Under the workspace's chats dir (always beneath crowbar home), keyed by the RUNNER —
-	// id + provider — and NOT by the chat. The chat pointer is erasable (Displace clears it
-	// while the process still runs), and a dir that can only be found through an erasable
-	// pointer can never be reaped; see worktreepath.RunnerDir. This path is derivable from
-	// a bare runner row forever, which is what lets BOTH removers find it: onExit below on a
-	// clean death, and boot reconciliation when the daemon died before onExit could run.
+	// id + provider — so it is derivable from a runner_started row alone; see
+	// worktreepath.RunnerDir. That lets BOTH removers find it: onExit below on a clean
+	// death, and boot reconciliation when the daemon died before onExit could run.
 	//
 	// It holds the rendered hook config the CLI is pointed at, and must survive for the
 	// whole life of that CLI — so it is removed on PTY death, never eagerly after spawn.

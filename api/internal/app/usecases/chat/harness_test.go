@@ -11,8 +11,8 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxstore "github.com/char2cs/asynx/store"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
@@ -32,7 +32,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // mustJSON encodes a hook payload stamped with the transcript_path every real hook
@@ -56,9 +55,9 @@ type commandCall struct {
 	onExit func(engineterminal.Exit)
 }
 
-// fakeCommander is a thread-safe TerminalCommander double. A terminate never fires
-// onExit, since a real SIGTERM is no synchronous death: a test observes the death by
-// calling f.term.exit(id). deadSessions backs SessionLive.
+// fakeCommander is a thread-safe TerminalCommander double. A terminate ends the
+// session as the engine does, running its onExit before it returns; a CLI dying on
+// its own is f.term.exit(id). deadSessions backs SessionLive.
 type fakeCommander struct {
 	mu           sync.Mutex
 	calls        []commandCall
@@ -69,6 +68,7 @@ type fakeCommander struct {
 	err          error
 	terminateErr error
 	deadSessions map[string]bool
+	exited       map[string]bool // sessions whose onExit has run
 	// duringFork runs inside CreateCommand, without the mutex, before the session id
 	// exists: the exact window in which a hook races a spawn.
 	duringFork func()
@@ -131,16 +131,39 @@ func (f *fakeCommander) TerminateGraceful(
 	}
 
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	// terminateReq records EVERY attempt (even failed ones), so a best-effort caller
 	// can assert the terminate was attempted regardless of outcome; terminated stays
 	// success-only for callers that only care about the ids actually torn down.
 	f.terminateReq = append(f.terminateReq, sessionID)
 	if f.terminateErr != nil {
+		f.mu.Unlock()
 		return f.terminateErr
 	}
 	f.terminated = append(f.terminated, sessionID)
+	onExit := f.dieLocked(sessionID)
+	f.mu.Unlock()
+	if onExit != nil {
+		onExit(engineterminal.Exit{})
+	}
 	return nil
+}
+
+// dieLocked marks sessionID dead and returns its onExit, nil once it has run:
+// a session dies once.
+func (f *fakeCommander) dieLocked(sessionID string) func(engineterminal.Exit) {
+	if f.deadSessions == nil {
+		f.deadSessions = map[string]bool{}
+	}
+	if f.exited == nil {
+		f.exited = map[string]bool{}
+	}
+	f.deadSessions[sessionID] = true
+	idx, ok := f.byID[sessionID]
+	if !ok || f.exited[sessionID] {
+		return nil
+	}
+	f.exited[sessionID] = true
+	return f.calls[idx].onExit
 }
 
 // SessionLive implements the agentusecase.TerminalCommander liveness seam: a session's PTY
@@ -164,21 +187,15 @@ func (f *fakeCommander) exit(t *testing.T, sessionID string) {
 func (f *fakeCommander) exitWith(t *testing.T, sessionID string, exit engineterminal.Exit) {
 	t.Helper()
 	f.mu.Lock()
-	if f.deadSessions == nil {
-		f.deadSessions = map[string]bool{}
-	}
-	f.deadSessions[sessionID] = true
-	idx, ok := f.byID[sessionID]
-	// Copy the callback out UNDER the lock: calls is appended to by CreateCommand on
-	// another goroutine, so reading it after unlocking is a data race (the backing
-	// array can be reallocated mid-read).
-	var onExit func(engineterminal.Exit)
-	if ok {
-		onExit = f.calls[idx].onExit
-	}
+	_, ok := f.byID[sessionID]
+	// Copied out UNDER the lock: calls is appended to by CreateCommand on another
+	// goroutine, so reading it after unlocking is a data race.
+	onExit := f.dieLocked(sessionID)
 	f.mu.Unlock()
 	require.True(t, ok, "no spawned terminal session %q", sessionID)
-	onExit(exit)
+	if onExit != nil {
+		onExit(exit)
+	}
 }
 
 // dieWithDaemon models a DAEMON RESTART: every PTY dies, and NO onExit callback ever
@@ -259,59 +276,24 @@ func (f *fakeBroadcaster) reset() {
 // frame recorder, so every assertion in this package keeps its current shape.
 func (f *fakeBroadcaster) watchAgentChat(e agentchat.ChatEvent) {
 	f.BroadcastAgentChat(e.ChatID, e.WorkspaceID, e.Kind, e.Working && !e.Forgotten)
-	if f.fanout != nil {
-		f.fanout.ChatWatch()(e)
+	f.mu.Lock()
+	fan := f.fanout
+	f.mu.Unlock()
+	if fan != nil {
+		fan.ChatWatch()(e)
 	}
+}
+
+func (f *fakeBroadcaster) setFanout(fan *agentusecase.Fanout) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.fanout = fan
 }
 
 func (f *fakeBroadcaster) snapshot() []broadcastCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]broadcastCall{}, f.calls...)
-}
-
-type runnerFrame struct {
-	runnerID    string
-	workspaceID string
-	chatID      string
-	kind        string
-}
-
-// fakeRunnerBroadcaster captures the agentrunner hub frames (started/session_bound/
-// moved/exited) the runner projections emit.
-type fakeRunnerBroadcaster struct {
-	mu     sync.Mutex
-	frames []runnerFrame
-	// fanout feeds the usecase's snapshot owner, exactly as production wires
-	// the repositories' watch seams.
-	fanout *agentusecase.Fanout
-}
-
-// watchAgentRunner adapts the repository's announcement seam onto this fake's
-// existing frame recorder, so every assertion here keeps its current shape.
-func (f *fakeRunnerBroadcaster) watchAgentRunner(e agentrunner.RunnerEvent) {
-	f.BroadcastAgentRunner(e.RunnerID, e.WorkspaceID, e.ChatID, e.Kind)
-	if f.fanout != nil {
-		f.fanout.RunnerWatch()(e)
-	}
-}
-
-func (f *fakeRunnerBroadcaster) BroadcastAgentRunner(runnerID, workspaceID, chatID, kind string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.frames = append(f.frames, runnerFrame{runnerID: runnerID, workspaceID: workspaceID, chatID: chatID, kind: kind})
-}
-
-func (f *fakeRunnerBroadcaster) reset() {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.frames = nil
-}
-
-func (f *fakeRunnerBroadcaster) snapshot() []runnerFrame {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]runnerFrame{}, f.frames...)
 }
 
 type fakeWorkspace struct {
@@ -514,9 +496,6 @@ type fakeChatStore struct {
 	// only seam that can observe what a client would see the instant the turn-state
 	// change is published, which is what the assistant-message ordering turns on.
 	onStopTurn func()
-
-	mu           sync.Mutex
-	abandonedIDs []string
 }
 
 func (s *fakeChatStore) StopTurn(
@@ -529,32 +508,6 @@ func (s *fakeChatStore) StopTurn(
 		s.onStopTurn()
 	}
 	return s.EventStore.StopTurn(ctx, chatID, now, asyncWork)
-}
-
-func (s *fakeChatStore) AbandonTurn(
-	ctx context.Context,
-	chatID string,
-	now time.Time,
-) (domain.Chat, error) {
-	s.mu.Lock()
-	s.abandonedIDs = append(s.abandonedIDs, chatID)
-	s.mu.Unlock()
-	return s.EventStore.AbandonTurn(ctx, chatID, now)
-}
-
-// abandonTurnIDs returns every chat id AbandonTurn has been asked to close.
-func (s *fakeChatStore) abandonTurnIDs() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]string{}, s.abandonedIDs...)
-}
-
-// forget drops what has been recorded so far, so a test can assert on ONE step of a
-// scenario without the setup's own calls counting against it.
-func (s *fakeChatStore) forget() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.abandonedIDs = nil
 }
 
 func (s *fakeChatStore) SetSelection(
@@ -629,69 +582,6 @@ func (s *fakeChatStore) ListByWorkspace(ctx context.Context, workspaceID string)
 	return s.EventStore.ListByWorkspace(ctx, workspaceID)
 }
 
-// fakeRunnerStore is the same fault-injecting wrapper for the runner aggregate, and
-// records the chat ids LiveRunnerForChat was asked about (see fakeChatStore for why
-// recording rather than faulting).
-type fakeRunnerStore struct {
-	agentrunner.EventStore
-	failStart    error
-	failGet      error
-	failGetAfter int
-	afterGet     func(engineagents.Runner)
-
-	mu         sync.Mutex
-	lookedUpAt []string
-}
-
-func (s *fakeRunnerStore) Get(
-	ctx context.Context,
-	runnerID string,
-) (engineagents.Runner, error) {
-	if s.failGet != nil {
-		if s.failGetAfter > 0 {
-			s.failGetAfter--
-			return s.EventStore.Get(ctx, runnerID)
-		}
-		return engineagents.Runner{}, s.failGet
-	}
-	runner, err := s.EventStore.Get(ctx, runnerID)
-	if err == nil && s.afterGet != nil {
-		s.afterGet(runner)
-	}
-	return runner, err
-}
-
-func (s *fakeRunnerStore) LiveRunnerForChat(
-	ctx context.Context,
-	chatID string,
-) (engineagents.Runner, error) {
-	s.mu.Lock()
-	s.lookedUpAt = append(s.lookedUpAt, chatID)
-	s.mu.Unlock()
-	return s.EventStore.LiveRunnerForChat(ctx, chatID)
-}
-
-// liveRunnerForChatIDs returns every chat id the live-runner query has been asked about.
-func (s *fakeRunnerStore) liveRunnerForChatIDs() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]string{}, s.lookedUpAt...)
-}
-
-// forget drops what has been recorded so far — see fakeChatStore.forget.
-func (s *fakeRunnerStore) forget() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.lookedUpAt = nil
-}
-
-func (s *fakeRunnerStore) Start(ctx context.Context, in agentrunner.StartInput) (engineagents.Runner, error) {
-	if s.failStart != nil {
-		return engineagents.Runner{}, s.failStart
-	}
-	return s.EventStore.Start(ctx, in)
-}
-
 // harnessUsecase drives a whole chat — spawn, hook, read, answer — through the
 // FIVE PORTS rather than through the concrete usecase behind them.
 //
@@ -707,6 +597,10 @@ type harnessUsecase struct {
 	agentusecase.ProviderUsecase
 	// sessionOf is the session runnerID's CLI is on.
 	sessionOf func(runnerID string) string
+	// own is the same usecase at its concrete type, for the seams reached only
+	// through tree.Agent; snaps is the snapshot owner it was built over.
+	own   *agentusecase.Usecase
+	snaps *agentusecase.ChatSnapshots
 }
 
 // IngestHook delivers a hook as the runner's CLI sends it: every hook names a
@@ -746,24 +640,16 @@ type testFixture struct {
 	snapFrames *snapshotFrames
 	ctx        context.Context
 	usecase    *harnessUsecase
-	// own is the SAME usecase as usecase, held at its concrete type for the
-	// handful of methods (SpawnChatWithOwnWorktree) that are a seam reached only
-	// through tree.Agent — not part of any of the five public ports harnessUsecase
-	// embeds — so a test exercising them directly needs the concrete type to call
-	// through.
-	own *agentusecase.Usecase
-	// chats/runners are the REAL concrete EventStores, used for test reads; the
-	// usecase may be built over a fault-injecting wrapper of them (newFaultFixture)
-	// but writes still land here.
-	chats   agentchat.EventStore
-	runners agentrunner.EventStore
-	// waitFn drains both asynx dispatch queues and runs every projection handler
+	// chats is the REAL concrete EventStore, used for test reads; the usecase may
+	// be built over a fault-injecting wrapper of it (newFaultFixture) but writes
+	// still land here.
+	chats agentchat.EventStore
+	// waitFn drains the asynx dispatch queues and runs every projection handler
 	// (ax.WaitPublish), so a subsequent read observes all prior mutations with no
 	// polling and no timeouts.
 	waitFn func()
 	term   *fakeCommander
 	bc     *fakeBroadcaster
-	rbc    *fakeRunnerBroadcaster
 	ws     *fakeWorkspace
 	wt     *fakeWorktreeCreator
 	// homeErr faults the crowbar-home resolver (Home), independent of ws.err —
@@ -788,6 +674,10 @@ type testFixture struct {
 	folders *mocks.FolderStore
 	nodes   *mocks.NodePlacements
 	ledger  *ledgerstore.Store
+	// ledgerDB is the database under ledger, for faults no store method offers.
+	ledgerDB *gorm.DB
+	// boot builds a daemon's usecase over the fixture's durable stores.
+	boot func(*agentusecase.ChatSnapshots) *agentusecase.Usecase
 	// sessions is the session id most recently announce()d per runnerID; a map,
 	// so it is shared across every copy of this value-typed testFixture.
 	sessions map[string]string
@@ -795,13 +685,13 @@ type testFixture struct {
 
 // sessionOf is the session runnerID's CLI is on: the one it announced, else the
 // chat's bound session it was launched on, else one it has not announced yet.
-func sessionOf(runners agentrunner.EventStore, l *ledgerstore.Store, announced map[string]string) func(string) string {
+func sessionOf(u *agentusecase.Usecase, l *ledgerstore.Store, announced map[string]string) func(string) string {
 	return func(runnerID string) string {
 		if id, ok := announced[runnerID]; ok {
 			return id
 		}
-		r, err := runners.Get(context.Background(), runnerID)
-		if err != nil {
+		r, ok := u.RunnerByID(runnerID)
+		if !ok {
 			return "unannounced"
 		}
 		st, err := l.State(context.Background(), r.CurrentChatID)
@@ -992,40 +882,36 @@ func (f testFixture) chat(t *testing.T, chatID string) domain.Chat {
 	return c
 }
 
-// runner reads a live runner from the read model.
+// runner reads a live runner from the supervisor's live table.
 func (f testFixture) runner(t *testing.T, runnerID string) engineagents.Runner {
 	t.Helper()
 	f.wait()
-	r, err := f.runners.Get(f.ctx, runnerID)
-	require.NoError(t, err)
+	r, ok := f.usecase.own.RunnerByID(runnerID)
+	require.True(t, ok, "runner %s is live", runnerID)
 	return r
 }
 
-// liveRunnerFor answers "is this chat live, and who is on it" — the query that
-// replaced ActiveSegmentID.
+// isLive reports whether runnerID is still in the live table.
+func (f testFixture) isLive(runnerID string) bool {
+	f.wait()
+	_, ok := f.usecase.own.RunnerByID(runnerID)
+	return ok
+}
+
+// liveRunnerFor answers "is this chat live, and who is on it".
 func (f testFixture) liveRunnerFor(t *testing.T, chatID string) (engineagents.Runner, error) {
 	t.Helper()
 	f.wait()
-	return f.runners.LiveRunnerForChat(f.ctx, chatID)
+	return f.usecase.own.LiveRunnerForChat(f.ctx, chatID)
 }
 
-// placedRunnersFor returns every live runner POINTED AT chatID. LiveRunnerForChat only
-// answers "who holds it", so this is the invariant check: I2 says the answer must never
-// be more than one, at any instant. A runner Crowbar has taken off a chat (Displace) is
-// no longer pointed anywhere and so is not counted, even while its process is still
-// dying.
-func (f testFixture) placedRunnersFor(t *testing.T, chatID string) []engineagents.Runner {
+// lastExit is how chatID's last runner ended, as its ledger records it.
+func (f testFixture) lastExit(t *testing.T, chatID string) (ledger.RunnerExit, bool) {
 	t.Helper()
 	f.wait()
-	all, err := f.runners.AllLive(f.ctx)
+	st, err := f.ledger.State(f.ctx, chatID)
 	require.NoError(t, err)
-	var out []engineagents.Runner
-	for _, r := range all {
-		if r.CurrentChatID == chatID {
-			out = append(out, r)
-		}
-	}
-	return out
+	return st.LastExit()
 }
 
 // chatForSession is the chat that holds provider's sessionID, "" when none does.
@@ -1079,14 +965,15 @@ func (f testFixture) bcKinds(t *testing.T) []string {
 	return kinds
 }
 
-// runnerKinds is the same for the RUNNER hub frames.
+// runnerKinds is the kinds of the runner lifecycle frames published so far.
 func (f testFixture) runnerKinds(t *testing.T) []string {
 	t.Helper()
 	f.wait()
-	snap := f.rbc.snapshot()
-	kinds := make([]string, len(snap))
-	for i, fr := range snap {
-		kinds[i] = fr.kind
+	var kinds []string
+	for _, fr := range f.snapFrames.all() {
+		if fr.RunnerID != "" {
+			kinds = append(kinds, fr.Kind)
+		}
 	}
 	return kinds
 }
@@ -1143,35 +1030,9 @@ func newActivityStore(tb testing.TB) (agentactivity.EventStore, func()) {
 	return repo, ax.WaitPublish
 }
 
-// newRunnerStore builds the same for the agentrunner aggregate: the real commands,
-// the real live-runner + conversation-history projections, the real hub projection.
-func newRunnerStore(
-	t testing.TB,
-	watch agentrunner.WatchFunc,
-) (agentrunner.EventStore, func()) {
-	t.Helper()
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	ax, err := asynx.New[engineagents.Runner]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	repo, err := agentrunner.NewEventSourced(ax, db, watch)
-	require.NoError(t, err)
-	return repo, ax.WaitPublish
-}
-
 func newFixture(tb testing.TB) testFixture {
 	tb.Helper()
-	f, _, _ := newFixtureUsing(tb, nil, nil, "")
-	return f
+	return newFixtureUsing(tb, nil, "")
 }
 
 // newFixtureWithPermissionDefault is newFixture with the fixture's pinned global
@@ -1179,35 +1040,31 @@ func newFixture(tb testing.TB) testFixture {
 // something other than guarded.
 func newFixtureWithPermissionDefault(t *testing.T, level string) testFixture {
 	t.Helper()
-	f, _, _ := newFixtureUsing(t, nil, nil, level)
-	return f
+	return newFixtureUsing(t, nil, level)
 }
 
 // newFaultFixture builds a fixture whose usecase writes/reads through fault-injecting
 // wrappers the caller can arm; the fixture's own stores stay the real ones for reads.
-func newFaultFixture(t *testing.T) (testFixture, *fakeChatStore, *fakeRunnerStore) {
+func newFaultFixture(t *testing.T) (testFixture, *fakeChatStore) {
 	t.Helper()
 	cs := &fakeChatStore{}
-	rs := &fakeRunnerStore{}
-	f, _, _ := newFixtureUsing(t,
+	f := newFixtureUsing(t,
 		func(real agentchat.EventStore) agentchat.EventStore { cs.EventStore = real; return cs },
-		func(real agentrunner.EventStore) agentrunner.EventStore { rs.EventStore = real; return rs },
 		"",
 	)
-	return f, cs, rs
+	return f, cs
 }
 
-// newFixtureUsing builds a fixture; wrapChats/wrapRunners (if non-nil) adapt the real
-// stores into the stores the usecase is built over. permissionDefault seeds the
+// newFixtureUsing builds a fixture; wrapChats (if non-nil) adapts the real chat
+// store into the store the usecase is built over. permissionDefault seeds the
 // global permission-level preference the fixture starts with; the empty value
 // means "use the package's own pinned default" ("guarded" — see below).
 func newFixtureUsing(
 	t testing.TB,
 	wrapChats func(agentchat.EventStore) agentchat.EventStore,
-	wrapRunners func(agentrunner.EventStore) agentrunner.EventStore,
 	permissionDefault string,
 	wrapActivity ...func(agentactivity.EventStore) agentactivity.EventStore,
-) (testFixture, agentchat.EventStore, agentrunner.EventStore) {
+) testFixture {
 	t.Helper()
 	t.Setenv("CROWBAR_HOOK_BIN", "/fake/bin/crowbar")
 	// codex.yaml is api-transport, and startAPIConn resolves the real `codex`
@@ -1225,18 +1082,12 @@ func newFixtureUsing(
 	snaps.SetPublish(snapFrames.record)
 	fan := agentusecase.NewFanout(snaps)
 	bc := &fakeBroadcaster{fanout: fan}
-	rbc := &fakeRunnerBroadcaster{fanout: fan}
 	realChats, waitChats := newChatStore(t, bc.watchAgentChat)
-	realRunners, waitRunners := newRunnerStore(t, rbc.watchAgentRunner)
 	realActivity, waitActivity := newActivityStore(t)
 
 	usedChats := realChats
 	if wrapChats != nil {
 		usedChats = wrapChats(realChats)
-	}
-	usedRunners := realRunners
-	if wrapRunners != nil {
-		usedRunners = wrapRunners(realRunners)
 	}
 	usedActivity := realActivity
 	for _, wrap := range wrapActivity {
@@ -1298,12 +1149,8 @@ func newFixtureUsing(
 	minter, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	chatReader := fixtureChatReader{chats: usedChats}
-	resolver := agenttools.NewResolver(
-		minter,
-		usedRunners,
-		chatReader,
-		fixtureWorkspaceLister{},
-	)
+	// Unbound: New binds it to the usecase's own live runners.
+	resolver := agenttools.NewResolver(minter, nil, chatReader, fixtureWorkspaceLister{})
 	// The REAL lineage resolver, wrapped over the chat store the SAME way
 	// container.go wires production (NewHomeCorrectedTreeChats) — a folder
 	// is Folder+Node-backed now (2026-09-08 sidebar-placement-unification
@@ -1316,59 +1163,47 @@ func newFixtureUsing(
 	folders := mocks.NewFolderStore()
 	nodes := mocks.NewNodePlacements()
 	lineage := tree.NewLineage(agentusecase.NewHomeCorrectedTreeChats(usedChats, nodes, folders))
-	chatLedger := newLedger(t)
-	u := agentusecase.New(agentusecase.Deps{
-		Chats:           usedChats,
-		Runners:         usedRunners,
-		Activity:        usedActivity,
-		Agents:          engine,
-		Terminal:        term,
-		Workspace:       ws,
-		Worktree:        wt,
-		Lineage:         lineage,
-		ProviderPrefs:   providerPrefs,
-		PermissionPrefs: permissionPrefs,
-		Home:            homeFn,
-		Ledger:          chatLedger,
-		Installed:       probe,
-		Minter:          minter,
-		Tools: agenttools.Deps{
-			Resolver:        resolver,
-			ChatReads:       chatReader,
-			Review:          fixtureReviewReader{},
-			Threads:         fixtureThreadReader{},
-			ThreadWrites:    fixtureThreadWriter{},
-			Idempotency:     agenttools.NewIdempotency(),
-			ThreadBroadcast: noopThreadBroadcast,
-		},
-		Snapshots: snaps,
-	})
-	// closeAssistantTurn's real 3s AwaitOpen wait only matters against a
-	// concurrent delta, which resolves over its wake channel instantly, not by
-	// waiting out the clock — so shrinking it here doesn't weaken any race
-	// this package tests, it just stops every turn_stop-with-nothing-streamed
-	// call from sitting idle for the full 3s.
-	agentusecase.SetMessageAwaitTimeout(u, time.Millisecond)
-	// The supervisor's background work ends before the stores it writes close.
-	t.Cleanup(u.ShutdownAPIConnections)
+	ledgerDB, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	chatLedger, err := ledgerstore.Open(ledgerDB, time.Now)
+	require.NoError(t, err)
+	boot := func(snaps *agentusecase.ChatSnapshots) *agentusecase.Usecase {
+		return bootUsecase(t, agentusecase.Deps{
+			Chats:           usedChats,
+			Activity:        usedActivity,
+			Agents:          engine,
+			Terminal:        term,
+			Workspace:       ws,
+			Worktree:        wt,
+			Lineage:         lineage,
+			ProviderPrefs:   providerPrefs,
+			PermissionPrefs: permissionPrefs,
+			Home:            homeFn,
+			Ledger:          chatLedger,
+			Installed:       probe,
+			Minter:          minter,
+			Tools: agenttools.Deps{
+				Resolver:        resolver,
+				ChatReads:       chatReader,
+				Review:          fixtureReviewReader{},
+				Threads:         fixtureThreadReader{},
+				ThreadWrites:    fixtureThreadWriter{},
+				Idempotency:     agenttools.NewIdempotency(),
+				ThreadBroadcast: noopThreadBroadcast,
+			},
+			Snapshots: snaps,
+		})
+	}
+	u := boot(snaps)
 	sessions := map[string]string{}
 	f := testFixture{
-		ctx: context.Background(),
-		usecase: &harnessUsecase{
-			ChatUsecase:     u,
-			TurnUsecase:     u,
-			RunnerUsecase:   u,
-			AnswerUsecase:   u,
-			ProviderUsecase: u,
-			sessionOf:       sessionOf(realRunners, chatLedger, sessions),
-		},
-		own:           u,
+		ctx:           context.Background(),
+		usecase:       newHarnessUsecase(u, snaps, chatLedger, sessions),
+		boot:          boot,
 		chats:         realChats,
-		runners:       realRunners,
-		waitFn:        func() { waitChats(); waitRunners(); waitActivity() },
+		waitFn:        func() { waitChats(); waitActivity() },
 		term:          term,
 		bc:            bc,
-		rbc:           rbc,
 		ws:            ws,
 		wt:            wt,
 		homeErr:       homeErr,
@@ -1382,8 +1217,57 @@ func newFixtureUsing(
 		sessions:      sessions,
 		snapFrames:    snapFrames,
 		ledger:        chatLedger,
+		ledgerDB:      ledgerDB,
 	}
-	return f, realChats, realRunners
+	return f
+}
+
+func bootUsecase(tb testing.TB, d agentusecase.Deps) *agentusecase.Usecase {
+	tb.Helper()
+	u := agentusecase.New(d)
+	// closeAssistantTurn's AwaitOpen wait only matters against a concurrent
+	// delta, which resolves over its wake channel, never by the clock.
+	agentusecase.SetMessageAwaitTimeout(u, time.Millisecond)
+	// The supervisor's background work ends before the stores it writes close.
+	tb.Cleanup(u.ShutdownAPIConnections)
+	return u
+}
+
+func newHarnessUsecase(
+	u *agentusecase.Usecase, snaps *agentusecase.ChatSnapshots, l *ledgerstore.Store, sessions map[string]string,
+) *harnessUsecase {
+	return &harnessUsecase{
+		own:             u,
+		snaps:           snaps,
+		ChatUsecase:     u,
+		TurnUsecase:     u,
+		RunnerUsecase:   u,
+		AnswerUsecase:   u,
+		ProviderUsecase: u,
+		sessionOf:       sessionOf(u, l, sessions),
+	}
+}
+
+// restart is the daemon coming back over the same durable stores: every PTY
+// died with the old one, no exit callback ran, and nothing in memory survives.
+func (f testFixture) restart(t *testing.T) {
+	t.Helper()
+	f.term.dieWithDaemon()
+	f.wait()
+	f.usecase.snaps.SetPublish(func(agentusecase.ChatSnapshotFrame) {})
+	f.snapFrames.reset()
+	snaps := agentusecase.NewChatSnapshots()
+	snaps.SetPublish(f.snapFrames.record)
+	f.bc.setFanout(agentusecase.NewFanout(snaps))
+	*f.usecase = *newHarnessUsecase(f.boot(snaps), snaps, f.ledger, f.sessions)
+}
+
+// refuseRunnerStarted makes the ledger refuse every runner_started row, as a
+// failing disk refuses a write: the CLI is forked, its record is not.
+func (f testFixture) refuseRunnerStarted(t *testing.T) {
+	t.Helper()
+	require.NoError(t, f.ledgerDB.Exec(`CREATE TRIGGER refuse_runner_started BEFORE INSERT ON chat_ledger
+		WHEN NEW.kind = 'runner_started' BEGIN SELECT RAISE(ABORT, 'boom: disk refused'); END`).Error)
 }
 
 // indexOf is the argv helper the spawn/switch tests assert with.
@@ -1394,20 +1278,6 @@ func indexOf(ss []string, target string) int {
 		}
 	}
 	return -1
-}
-
-// placeRunner records a second runner on chatID with no process behind it —
-// only to CONSTRUCT two runners placed on one chat, which no production path does.
-func (f testFixture) placeRunner(t *testing.T, chatID, provider, sessionID string) string {
-	t.Helper()
-	runnerID := uuid.NewString()
-	_, err := f.runners.Start(f.ctx, agentrunner.StartInput{
-		RunnerID: runnerID, WorkspaceID: "ws1", ProviderID: provider, ChatID: chatID, Now: time.Now(),
-	})
-	require.NoError(t, err)
-	f.sessions[runnerID] = sessionID
-	f.wait()
-	return runnerID
 }
 
 // faultActivity wraps the real conversation record so a test can arm a read
@@ -1452,7 +1322,7 @@ func (f *faultActivity) Turns(
 func newActivityFaultFixture(t *testing.T) (testFixture, *faultActivity) {
 	t.Helper()
 	fa := &faultActivity{}
-	f, _, _ := newFixtureUsing(t, nil, nil, "", func(real agentactivity.EventStore) agentactivity.EventStore {
+	f := newFixtureUsing(t, nil, "", func(real agentactivity.EventStore) agentactivity.EventStore {
 		fa.EventStore = real
 		return fa
 	})
@@ -1534,7 +1404,7 @@ func (f *faultWriteActivity) AnswerChoice(
 func newActivityWriteFaultFixture(t *testing.T) (testFixture, *faultWriteActivity) {
 	t.Helper()
 	fa := &faultWriteActivity{}
-	f, _, _ := newFixtureUsing(t, nil, nil, "", func(real agentactivity.EventStore) agentactivity.EventStore {
+	f := newFixtureUsing(t, nil, "", func(real agentactivity.EventStore) agentactivity.EventStore {
 		fa.EventStore = real
 		return fa
 	})
@@ -1551,6 +1421,20 @@ func (r *snapshotFrames) record(f agentusecase.ChatSnapshotFrame) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.frames = append(r.frames, f)
+}
+
+// all returns every frame published, oldest first.
+func (r *snapshotFrames) all() []agentusecase.ChatSnapshotFrame {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]agentusecase.ChatSnapshotFrame{}, r.frames...)
+}
+
+// reset drops the frames recorded so far.
+func (r *snapshotFrames) reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.frames = nil
 }
 
 // forChat returns the frames published about chatID, oldest first.

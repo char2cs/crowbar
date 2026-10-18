@@ -14,18 +14,17 @@
 //   - the chat row comes from the chat aggregate carried ON its event (the
 //     command-side fold, Working included), falling back to the read model only
 //     for a chat no event has touched since boot;
-//   - runner placement comes from the runner aggregates carried on their events,
-//     seeded once from the live-runner read model at boot.
+//   - the live runner is read from the supervisor's table, and how the last
+//     one ended from the chat's ledger.
 //
-// Memory is bounded by live runners and by chats something has asked about;
-// a deleted chat's entry goes with it (invariant A7).
+// Memory is bounded by chats something has asked about; a deleted chat's
+// entry goes with it (invariant A7).
 package snapshot
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"sync"
 	"time"
 
@@ -35,7 +34,7 @@ import (
 	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Phases a chat is in. Live and dormant are derived from placement; the other
+// Phases a chat is in. Live and dormant are derived from the live runner; the other
 // three are set by the lifecycle operation holding the chat's spawn gate.
 const (
 	PhaseDormant   = "dormant"
@@ -65,10 +64,9 @@ type Snapshot struct {
 }
 
 // Reader is the read model the owner falls back to for a chat no event has
-// touched since boot, and seeds live placement from.
+// touched since boot.
 type Reader interface {
 	GetChat(ctx context.Context, chatID string) (domain.Chat, error)
-	AllLive(ctx context.Context) ([]agents.Runner, error)
 	// LedgerState is never called under the owner's lock: the ledger writer
 	// publishes into the owner, so the lock order is writer → owner.
 	LedgerState(ctx context.Context, chatID string) (ledger.State, error)
@@ -81,7 +79,7 @@ type Runtime interface {
 	Phase(chatID string) string
 	TerminalWait(chatID string) domain.AgentTerminalWait
 	AttachedTerminalSession(runnerID string) (string, bool)
-	Session(chatID string) domain.AgentSession
+	LiveRunner(chatID string) (agents.Runner, bool)
 }
 
 // Frame is one published change: the snapshot, the event kind that caused it,
@@ -98,14 +96,6 @@ type Frame struct {
 // Publish sends a frame to clients. It is called under the owner's lock, so
 // frames for one chat leave in version order; it must not block.
 type Publish func(Frame)
-
-type runnerState struct {
-	runner  agents.Runner
-	version int64
-	// lastChat is the chat the runner was last placed on, kept past a
-	// displacement so its exit still reaches that chat.
-	lastChat string
-}
 
 type chatState struct {
 	chat        domain.Chat
@@ -125,23 +115,17 @@ const deletedCap = 1024
 
 // Snapshots owns every chat's versioned snapshot.
 type Snapshots struct {
-	mu      sync.Mutex
-	base    int64
-	chats   map[string]*chatState
-	runners map[string]runnerState
+	mu    sync.Mutex
+	base  int64
+	chats map[string]*chatState
 	// deleted remembers recent deletes, oldest first: events are delivered
 	// concurrently, so one older than a delete can land after it, over a read
 	// model that may not have caught up, and must not resurrect the chat.
 	deleted      map[string]struct{}
 	deletedOrder []string
-	// exited remembers runners that left before the boot seed ran, so the seed
-	// never resurrects one from a read model that has not caught up. Dropped
-	// once seeded.
-	exited  map[string]struct{}
-	seeded  bool
-	reader  Reader
-	runtime Runtime
-	publish Publish
+	reader       Reader
+	runtime      Runtime
+	publish      Publish
 	// correct overlays what the chat row does not own — its tree placement,
 	// which lives on the Node — onto the rows it is given, in order. It reads a
 	// store, so a read applies it to all its rows at once and outside the lock.
@@ -156,8 +140,6 @@ func New(base int64) *Snapshots {
 	return &Snapshots{
 		base:    base,
 		chats:   map[string]*chatState{},
-		runners: map[string]runnerState{},
-		exited:  map[string]struct{}{},
 		deleted: map[string]struct{}{},
 	}
 }
@@ -180,36 +162,11 @@ func (s *Snapshots) SetCorrect(correct func(ctx context.Context, chats []domain.
 	s.correct = correct
 }
 
-// Bind wires the read model and runtime. Live placement is seeded from the
-// read model once, on first use; events applied before that are kept — they
-// are newer than anything the seed reads.
+// Bind wires the read model and runtime.
 func (s *Snapshots) Bind(reader Reader, runtime Runtime) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.reader, s.runtime = reader, runtime
-}
-
-// seedLocked reads live placement from the read model the first time a
-// snapshot is built. A failed read is retried on the next one.
-func (s *Snapshots) seedLocked(ctx context.Context) {
-	if s.seeded || s.reader == nil {
-		return
-	}
-	live, err := s.reader.AllLive(ctx)
-	if err != nil {
-		return
-	}
-	for _, r := range live {
-		if _, known := s.runners[r.ID]; known {
-			continue
-		}
-		if _, gone := s.exited[r.ID]; gone {
-			continue
-		}
-		s.runners[r.ID] = runnerState{runner: r}
-	}
-	s.exited = nil
-	s.seeded = true
 }
 
 // ApplyChat records one chat aggregate event and publishes its snapshot.
@@ -238,44 +195,15 @@ func (s *Snapshots) ApplyChat(ctx context.Context, chat domain.Chat, version int
 	s.emitChatLocked(ctx, chat.ID, kind, "")
 }
 
-// ApplyRunner records one runner aggregate event and publishes the snapshot of
-// the chat it is on. A runner now on no chat (displaced, exited) tells the chat
-// it last held why, so its exit reaches that chat's feed after a displacement.
-func (s *Snapshots) ApplyRunner(ctx context.Context, runner, previous agents.Runner, version int64, kind string) {
+// ApplyRunner publishes chatID's snapshot for a lifecycle event of runnerID:
+// started or exited.
+func (s *Snapshots) ApplyRunner(ctx context.Context, chatID, runnerID, kind string) {
+	if chatID == "" {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	cur, known := s.runners[runner.ID]
-	if known && version != 0 && cur.version > version {
-		return // an older event of this runner, delivered late
-	}
-	last := cur.lastChat
-	if previous.CurrentChatID != "" {
-		last = previous.CurrentChatID
-	}
-	s.recordRunnerLocked(runner, version, last)
-	if runner.CurrentChatID != "" {
-		s.emitChatLocked(ctx, runner.CurrentChatID, kind, runner.ID)
-		return
-	}
-	if last != "" && (previous.CurrentChatID != "" || runner.ExitedAt != nil) {
-		s.emitChatLocked(ctx, last, kind, runner.ID)
-	}
-}
-
-// recordRunnerLocked keeps a live runner at version and forgets an exited one — remembering
-// its exit until the seed, so the seed cannot resurrect it. Caller holds s.mu.
-func (s *Snapshots) recordRunnerLocked(runner agents.Runner, version int64, lastChat string) {
-	if runner.ExitedAt == nil {
-		if runner.CurrentChatID != "" {
-			lastChat = runner.CurrentChatID
-		}
-		s.runners[runner.ID] = runnerState{runner: runner, version: version, lastChat: lastChat}
-		return
-	}
-	delete(s.runners, runner.ID)
-	if !s.seeded {
-		s.exited[runner.ID] = struct{}{}
-	}
+	s.emitChatLocked(ctx, chatID, kind, runnerID)
 }
 
 // Touch publishes a fresh snapshot of chatID for a change no aggregate event
@@ -357,7 +285,7 @@ func (s *Snapshots) collect(
 			}
 			return nil, nil, err
 		}
-		snaps[i] = s.buildLocked(ctx, chatID, st)
+		snaps[i] = s.buildLocked(chatID, st)
 	}
 	return snaps, s.correct, nil
 }
@@ -428,7 +356,7 @@ func (s *Snapshots) emitChatLocked(ctx context.Context, chatID, kind, runnerID s
 		return
 	}
 	st.version++
-	snap := s.buildLocked(ctx, chatID, st)
+	snap := s.buildLocked(chatID, st)
 	if s.correct != nil {
 		snap.Chat = s.correct(ctx, []domain.Chat{snap.Chat})[0]
 	}
@@ -441,16 +369,25 @@ func (s *Snapshots) emitLocked(f Frame) {
 	}
 }
 
-func (s *Snapshots) buildLocked(ctx context.Context, chatID string, st *chatState) Snapshot {
-	s.seedLocked(ctx)
-	snap := Snapshot{Chat: st.chat, Version: st.version, Live: s.liveLocked(chatID), Ledger: st.facts}
+// applyRuntimeLocked fills in what only the running daemon knows about chatID.
+func (s *Snapshots) applyRuntimeLocked(chatID string, snap *Snapshot) {
+	snap.Phase = s.runtime.Phase(chatID)
+	snap.TerminalWait = s.runtime.TerminalWait(chatID)
+	live, ok := s.runtime.LiveRunner(chatID)
+	if !ok {
+		return
+	}
+	snap.Live = &live
+	snap.AttachedSessionID, _ = s.runtime.AttachedTerminalSession(live.ID)
+}
+
+func (s *Snapshots) buildLocked(chatID string, st *chatState) Snapshot {
+	snap := Snapshot{Chat: st.chat, Version: st.version, Ledger: st.facts}
 	if s.runtime != nil {
-		snap.Phase = s.runtime.Phase(chatID)
-		snap.TerminalWait = s.runtime.TerminalWait(chatID)
-		snap.Session = s.runtime.Session(chatID)
-		if snap.Live != nil {
-			snap.AttachedSessionID, _ = s.runtime.AttachedTerminalSession(snap.Live.ID)
-		}
+		s.applyRuntimeLocked(chatID, &snap)
+	}
+	if snap.Live == nil && st.facts.LastExit != nil {
+		snap.Session = domain.AgentSession{ExitReason: st.facts.LastExit.Reason, ExitedAt: st.facts.LastExit.At}
 	}
 	if snap.Phase == "" {
 		snap.Phase = PhaseDormant
@@ -459,25 +396,4 @@ func (s *Snapshots) buildLocked(ctx context.Context, chatID string, st *chatStat
 		}
 	}
 	return snap
-}
-
-// liveLocked is the runner the single-chat read model would name: newest
-// start first, id ascending on a tie.
-func (s *Snapshots) liveLocked(chatID string) *agents.Runner {
-	var placed []agents.Runner
-	for _, rs := range s.runners {
-		if rs.runner.CurrentChatID == chatID {
-			placed = append(placed, rs.runner)
-		}
-	}
-	if len(placed) == 0 {
-		return nil
-	}
-	sort.Slice(placed, func(i, j int) bool {
-		if ai, aj := placed[i].StartedAt, placed[j].StartedAt; !ai.Equal(aj) {
-			return ai.After(aj)
-		}
-		return placed[i].ID < placed[j].ID
-	})
-	return &placed[0]
 }

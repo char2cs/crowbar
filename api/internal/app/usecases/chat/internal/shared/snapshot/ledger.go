@@ -12,6 +12,8 @@ type LedgerFacts struct {
 	Conversations []ledger.Conversation
 	// Current is each provider's conversation now; it changes only with Conversations.
 	Current map[string]ledger.Conversation
+	// LastExit is how the chat's last runner ended; nil while one is live.
+	LastExit *ledger.RunnerExit
 }
 
 // FactsOf is what a ledger State contributes to its chat's snapshot.
@@ -19,6 +21,11 @@ func FactsOf(st ledger.State) LedgerFacts {
 	facts := LedgerFacts{Conversations: st.Conversations(), Current: map[string]ledger.Conversation{}}
 	for _, c := range facts.Conversations {
 		facts.Current[c.Provider], _ = st.Conversation(c.Provider)
+	}
+	if _, live := st.LiveRunner(); !live {
+		if exit, ok := st.LastExit(); ok {
+			facts.LastExit = &exit
+		}
 	}
 	return facts
 }
@@ -33,7 +40,8 @@ func (s *Snapshots) ApplyLedger(ctx context.Context, chatID string, facts Ledger
 		return
 	}
 	st := s.stateLocked(chatID)
-	changed := !sameConversations(st.facts.Conversations, facts.Conversations)
+	changed := !sameConversations(st.facts.Conversations, facts.Conversations) ||
+		!sameExit(st.facts.LastExit, facts.LastExit)
 	st.facts, st.hasFacts = facts, true
 	if changed {
 		s.emitChatLocked(ctx, chatID, KindSnapshot, "")
@@ -86,6 +94,13 @@ func (s *Snapshots) installFacts(chatID string, facts LedgerFacts) {
 	if st := s.stateLocked(chatID); !st.hasFacts {
 		st.facts, st.hasFacts = facts, true
 	}
+}
+
+func sameExit(a, b *ledger.RunnerExit) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.RunnerID == b.RunnerID && a.Reason == b.Reason && a.ExitCode == b.ExitCode && a.At.Equal(b.At)
 }
 
 func sameConversations(a, b []ledger.Conversation) bool {

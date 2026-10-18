@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
@@ -20,23 +21,38 @@ func HasPendingPrompt(u RunnerUsecase, ctx context.Context, chatID string) bool 
 	return err == nil && ok
 }
 
-// ChatSession is the session supervisor's record for chatID: the rung its
-// runner launched on and how its last runner ended.
+// ChatSession is how chatID's last runner ended, as its snapshot reports it.
 func ChatSession(u RunnerUsecase, chatID string) domain.AgentSession {
+	snap, err := concrete(u).ChatSnapshot(context.Background(), chatID)
+	if err != nil {
+		panic(err)
+	}
+	return snap.Session
+}
+
+// concrete is u at the type every test builds; any other is a test bug.
+func concrete(u RunnerUsecase) *Usecase {
 	uc, ok := u.(*Usecase)
 	if !ok {
-		return domain.AgentSession{}
+		panic(fmt.Sprintf("chat: %T is not the chat usecase", u))
 	}
-	return uc.runners.Session(chatID)
+	return uc
+}
+
+// AllLiveRunners is every started runner the supervisor holds.
+func AllLiveRunners(u *Usecase) []engineagents.Runner {
+	all, err := u.runners.AllLive(context.Background())
+	if err != nil {
+		panic(err)
+	}
+	return all
 }
 
 // SetSwitchAwaitTimeout overrides how long a provider switch waits for the
 // outgoing turn to finish naturally before forcing it (see forceSwitchAfter).
 // Test-only surface: production always uses termwait.DefaultStallQuiet.
 func SetSwitchAwaitTimeout(u RunnerUsecase, d time.Duration) {
-	if uc, ok := u.(*Usecase); ok {
-		uc.runners.SetSwitchAwaitTimeout(d)
-	}
+	concrete(u).runners.SetSwitchAwaitTimeout(d)
 }
 
 // RequirePromptRestart exposes the delivery guard SubmitPrompt runs before it

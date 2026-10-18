@@ -126,9 +126,6 @@ func (openWaitActivity) StartSubagent(context.Context, string, string, string, t
 	return nil
 }
 
-// noopRunners is a Runners port nothing in these tests calls.
-type noopRunners struct{ Runners }
-
 // TestRegression_TurnStopWithAnOpenWaitCallKeepsChatWorking guards the live-
 // reported bug: codex ends its OWN top-level turn the instant it delegates to
 // a subagent — its turn_stop hook reports AsyncWork=0, because codex has no
@@ -146,10 +143,9 @@ func TestRegression_TurnStopWithAnOpenWaitCallKeepsChatWorking(t *testing.T) {
 		Activity:      openWaitActivity{},
 		Work:          inflight.NewWork(),
 		InflightTurns: inflight.NewTurns(),
-		Runners:       raceRunners{},
 		Ledger:        newTurnLedger(t),
 	})
-	turns.SetRunners(noopRunners{})
+	turns.SetRunners(raceRunners{})
 
 	err := turns.closeTurnFromStop(
 		t.Context(),
@@ -188,10 +184,9 @@ func TestRegression_AToolCallStartingReopensAnAlreadyClosedChat(t *testing.T) {
 		Activity:      openWaitActivity{},
 		Work:          inflight.NewWork(),
 		InflightTurns: inflight.NewTurns(),
-		Runners:       raceRunners{},
 		Ledger:        newTurnLedger(t),
 	})
-	turns.SetRunners(noopRunners{})
+	turns.SetRunners(raceRunners{})
 
 	err := turns.handleObservation(
 		t.Context(),
@@ -221,10 +216,9 @@ func TestRegression_ASubagentStartingReopensAnAlreadyClosedChat(t *testing.T) {
 		Activity:      openWaitActivity{},
 		Work:          inflight.NewWork(),
 		InflightTurns: inflight.NewTurns(),
-		Runners:       raceRunners{},
 		Ledger:        newTurnLedger(t),
 	})
-	turns.SetRunners(noopRunners{})
+	turns.SetRunners(raceRunners{})
 
 	err := turns.handleObservation(
 		t.Context(),

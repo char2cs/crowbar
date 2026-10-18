@@ -50,9 +50,9 @@ var (
 )
 
 // RunnerReader is the narrow read port the resolver needs from the runner
-// store: enough to check who a token names and where that runner is placed.
+// supervisor: the live runner a token names, and so the chat it is on.
 type RunnerReader interface {
-	Get(ctx context.Context, runnerID string) (agents.Runner, error)
+	RunnerByID(runnerID string) (agents.Runner, bool)
 }
 
 // ChatGetter is the single-chat read port: one chat looked up by id. It is
@@ -192,29 +192,30 @@ func NewResolver(
 	return &Resolver{minter: minter, runners: runners, chats: chats, workspaces: workspaces}
 }
 
+// WithRunners is r resolving through runners: the chat usecase binds its own
+// supervisor, which does not exist when the resolver is built.
+func (r *Resolver) WithRunners(runners RunnerReader) *Resolver {
+	bound := *r
+	bound.runners = runners
+	return &bound
+}
+
 // Resolve authenticates (runnerID, token) and computes what that caller may
 // see.
 //
-// It resolves through the runner's CURRENT chat rather than a chat id baked in
-// at spawn: a runner with no current chat has been displaced — evicted from
-// the chat it was on, dying but not yet reaped — and must not resolve to
-// anything.
+// It resolves through the live table: a runner that has exited resolves to
+// nothing.
 func (r *Resolver) Resolve(ctx context.Context, runnerID, token string) (Caller, error) {
-	// A resolver with no minter can authenticate nobody, so it must refuse
-	// everybody. Without this it would instead panic inside Verify — and a
-	// misconfiguration must fail CLOSED, never crash the daemon on the first
-	// unauthenticated call an agent makes.
-	if r.minter == nil {
-		return Caller{}, fmt.Errorf("agenttools: resolve: no token minter: %w", ErrUnauthorized)
+	// A resolver missing a port authenticates nobody, so it refuses everybody:
+	// a misconfiguration fails CLOSED, never crashes on the first call.
+	if r.minter == nil || r.runners == nil {
+		return Caller{}, fmt.Errorf("agenttools: resolve: resolver not configured: %w", ErrUnauthorized)
 	}
 	if runnerID == "" || !r.minter.Verify(runnerID, token) {
 		return Caller{}, ErrUnauthorized
 	}
-	runner, err := r.runners.Get(ctx, runnerID)
-	if err != nil {
-		return Caller{}, fmt.Errorf("agenttools: get runner: %w", errors.Join(ErrUnauthorized, err))
-	}
-	if runner.CurrentChatID == "" {
+	runner, ok := r.runners.RunnerByID(runnerID)
+	if !ok {
 		return Caller{}, fmt.Errorf("agenttools: resolve runner: %w", ErrUnauthorized)
 	}
 	ws, err := r.workspaces.Get(ctx, runner.WorkspaceID)

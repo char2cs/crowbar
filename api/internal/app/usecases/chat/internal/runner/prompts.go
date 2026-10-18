@@ -14,7 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 const maxReactPromptBytes = 64 * 1024
@@ -153,27 +152,20 @@ func (rs *Runners) replayPriorPrompt(
 	if err != nil || !replay {
 		return domain.AgentPromptSubmission{}, err != nil, err
 	}
-	carrier, err := rs.runnerStore.Get(ctx, prior.RunnerID)
-	if err != nil {
-		return domain.AgentPromptSubmission{}, true, fmt.Errorf("agent: submit prompt: resend: carrier: %w", err)
+	carrier, ok := rs.live.byRunner(prior.RunnerID)
+	if !ok {
+		return domain.AgentPromptSubmission{}, true, fmt.Errorf("agent: submit prompt: resend: carrier: %w", ErrNoLiveRunner)
 	}
 	return domain.AgentPromptSubmission{RunnerID: prior.RunnerID, TerminalSessionID: carrier.TerminalSession}, true, nil
 }
 
 // settleOrphanedPrompts settles the chat's pending prompts whose carrier is not
-// one of its live runners, then returns the State. A departure that never
-// settled its prompt would otherwise hold the chat busy for good.
+// its live runner, then returns the State. A departure that never settled its
+// prompt would otherwise hold the chat busy for good.
 func (rs *Runners) settleOrphanedPrompts(ctx context.Context, chatID string) (ledger.State, error) {
-	runners, err := rs.runnerStore.LiveRunnersForChat(ctx, chatID)
-	if err != nil {
-		return ledger.State{}, fmt.Errorf("pending prompts: live runners: %w", err)
-	}
-	live := make(map[string]bool, len(runners))
-	for _, r := range runners {
-		live[r.ID] = true
-	}
+	live, _ := rs.live.byChat(chatID)
 	_, st, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		return ledger.SettleOrphaned(st, func(runnerID string) bool { return live[runnerID] })
+		return ledger.SettleOrphaned(st, func(runnerID string) bool { return runnerID == live.ID })
 	})
 	if err != nil {
 		return ledger.State{}, fmt.Errorf("pending prompts: ledger: %w", err)
@@ -229,16 +221,6 @@ func (rs *Runners) settleUndelivered(ctx context.Context, chatID, requestID stri
 	rs.settlePrompts(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
 		return ledger.Settle(st, func(p ledger.Prompt) bool { return p.RequestID == requestID },
 			false, ledger.ReasonDeliveryFailed)
-	})
-}
-
-// settleCarriedPrompts settles the prompts runnerID was carrying on chatID.
-func (rs *Runners) settleCarriedPrompts(ctx context.Context, chatID, runnerID string) {
-	if chatID == "" {
-		return
-	}
-	rs.settlePrompts(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		return ledger.SettleCarried(st, runnerID, false, ledger.ReasonRunnerExited)
 	})
 }
 
@@ -315,12 +297,9 @@ func (rs *Runners) promptTarget(
 	ctx context.Context,
 	chat domain.Chat,
 ) (engineagents.Runner, engineagents.Agent, string, error) {
-	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chat.ID)
-	if errors.Is(err, agentrunner.ErrNotFound) {
+	live, ok := rs.live.byChat(chat.ID)
+	if !ok {
 		return engineagents.Runner{}, nil, "", ErrPromptSessionUnavailable
-	}
-	if err != nil {
-		return engineagents.Runner{}, nil, "", fmt.Errorf("agent: submit prompt: live runner: %w", err)
 	}
 	cwdWorkspaceID, err := rs.cwdWorkspaceID(ctx, chat.ID, chat.WorkspaceID)
 	if err != nil {
@@ -357,10 +336,10 @@ func (rs *Runners) commitPromptSpawn(
 	ctx context.Context,
 	chatID, clientRequestID, runnerID string,
 ) (domain.AgentPromptSubmission, error) {
-	spawned, err := rs.runnerStore.Get(ctx, runnerID)
-	if err != nil {
-		// The carrier exists and may still acknowledge it; its exit settles it.
-		return domain.AgentPromptSubmission{}, uncertainPromptOutcome(ctx, "read replacement runner", err)
+	spawned, ok := rs.live.byRunner(runnerID)
+	if !ok {
+		// The carrier existed and may have acknowledged it; its exit settled it.
+		return domain.AgentPromptSubmission{}, uncertainPromptOutcome(ctx, "read replacement runner", ErrNoLiveRunner)
 	}
 	result := domain.AgentPromptSubmission{
 		RunnerID:          runnerID,
@@ -383,12 +362,9 @@ func uncertainPromptOutcome(ctx context.Context, stage string, cause error) erro
 }
 
 func (rs *Runners) requirePromptIdle(ctx context.Context, chatID, runnerID string) error {
-	current, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if errors.Is(err, agentrunner.ErrNotFound) {
+	current, ok := rs.live.byChat(chatID)
+	if !ok {
 		return ErrPromptSessionUnavailable
-	}
-	if err != nil {
-		return fmt.Errorf("agent: submit prompt: refresh live runner: %w", err)
 	}
 	if current.ID != runnerID {
 		return ErrPromptBusy

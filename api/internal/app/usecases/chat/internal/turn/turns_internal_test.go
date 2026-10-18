@@ -12,7 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/stream"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 const raceIncrements = 3000
@@ -36,8 +35,10 @@ func (raceChats) AbandonTurn(
 	return domain.Chat{ID: chatID}, nil
 }
 
+// raceRunners answers only which runner is live on a chat; every other
+// Runners method panics if reached.
 type raceRunners struct {
-	agentrunner.EventStore
+	Runners
 }
 
 func (raceRunners) LiveRunnerForChat(

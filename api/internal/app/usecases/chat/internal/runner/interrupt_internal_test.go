@@ -44,6 +44,8 @@ func (s stubAgentsForInterrupt) Get(
 	return s.agent, nil
 }
 
+func (stubAgentsForInterrupt) ForgetRunner(string) {}
+
 // interruptTestDescriptor mirrors apiTransportTestDescriptor's shape plus an
 // interrupt: gesture — a separate constant, not an addition to the shared one,
 // so a test wanting NO interrupt declared can still reuse apiTransportTestAgent.

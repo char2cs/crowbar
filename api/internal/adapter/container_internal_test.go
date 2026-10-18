@@ -72,7 +72,6 @@ func TestOpenContainer_Success(t *testing.T) {
 	assert.NotNil(t, c.reviewThreadSS)
 	assert.NotNil(t, c.workspaceSnapshotStore)
 	assert.NotNil(t, c.agentChatSnapshotStore)
-	assert.NotNil(t, c.agentRunnerSnapshotStore)
 	assert.NotNil(t, c.globalView)
 	// reviewThreadES + reviewThreadSS are the two globalClosers (the other three
 	// snapshot stores close via their dedicated fields in Close, like their

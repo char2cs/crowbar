@@ -10,7 +10,7 @@
 //
 // A runner's own PROCESS is the sole authority on its liveness. Nothing here
 // asserts a process is alive or dead that it has not observed; a CLI is ended
-// by killing it and letting its death carry the runner row away. That process
+// by killing it and letting its death record the runner's exit. That process
 // is usually a PTY, and for an api-driven runner it is the `serve` connection
 // or the native view it hands over to instead — see apirunner.go.
 package runner
@@ -29,17 +29,15 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // Runners is the CLI lifecycle.
 type Runners struct {
-	chats       agentchat.EventStore
-	runnerStore agentrunner.EventStore
-	activity    agentactivity.EventStore
-	agents      engineagents.Agents
-	term        seam.TerminalCommander
-	ws          seam.WorkspaceReader
+	chats    agentchat.EventStore
+	activity agentactivity.EventStore
+	agents   engineagents.Agents
+	term     seam.TerminalCommander
+	ws       seam.WorkspaceReader
 	// ancestorCwd resolves a bubble's cwd through the tree usecase's ancestor
 	// walk — see AncestorCwd's own doc for why this is declared here rather
 	// than imported directly.
@@ -61,7 +59,7 @@ type Runners struct {
 	turnStarts *inflight.Gate
 	work       *inflight.Work
 	// pendingHooks is the fork-before-runner-persistence barrier this type installs
-	// before the fork and finishes after the runner row exists.
+	// before the fork and finishes after runner_started commits.
 	pendingHooks *inflight.Hooks
 	// catalogs owns only cancellation for in-flight deterministic probes. Results
 	// are deliberately never cached.
@@ -94,12 +92,13 @@ type Runners struct {
 	// reports the zero verdict.
 	termWait termwait.Detector
 
+	// live is the one CLI on each chat: in memory, like every process registry
+	// here. Its durable facts are the ledger's runner rows.
+	live *liveTable
 	// phases is the lifecycle operation each chat is mid-way through — see
 	// phase.go — and snapshots is where a change no aggregate event carries is
 	// announced. snapshots is nil in tests that build a bare Runners.
-	phases *phases
-	// sessions is the supervisor's record of why each chat is in its state.
-	sessions  *sessionBook
+	phases    *phases
 	snapshots Snapshotter
 	// background is the supervisor's own follow-up work; Shutdown ends it.
 	background *backgroundWork
@@ -117,7 +116,6 @@ type Runners struct {
 // swap two of them silently.
 type Deps struct {
 	Chats     agentchat.EventStore
-	Runners   agentrunner.EventStore
 	Activity  agentactivity.EventStore
 	Agents    engineagents.Agents
 	Terminal  seam.TerminalCommander
@@ -148,7 +146,6 @@ type Deps struct {
 func New(d Deps) *Runners {
 	return &Runners{
 		chats:         d.Chats,
-		runnerStore:   d.Runners,
 		activity:      d.Activity,
 		agents:        d.Agents,
 		term:          d.Terminal,
@@ -169,8 +166,8 @@ func New(d Deps) *Runners {
 		apiConns:     newAPIConnRegistry(),
 		attached:     newAttachRegistry(),
 		surfaces:     newSurfaceRegistry(),
+		live:         newLiveTable(),
 		phases:       newPhases(),
-		sessions:     newSessionBook(),
 		snapshots:    d.Snapshots,
 		background:   newBackgroundWork(),
 
@@ -195,7 +192,7 @@ func (rs *Runners) SetTurns(turns Turns) {
 		return
 	}
 	rs.termWait = termwait.New(termwait.Deps{
-		Runners:  rs.runnerStore,
+		Runners:  rs,
 		Chats:    rs.chats,
 		Choices:  rs.activity,
 		Screens:  screens,

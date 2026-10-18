@@ -19,7 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 type fakeWSReader struct{ chatsDir, worktree string }
@@ -77,18 +76,6 @@ func TestRewritePromptTextForDispatch_ChatsDirLookupFailure_IsWrapped(t *testing
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "chats dir")
 	assert.ErrorContains(t, err, "boom")
-}
-
-// stubRunnerStoreForAPIPush answers only Get — the one call commitPromptSpawn
-// makes once pushPromptOverAPI has succeeded. The embedded nil interface
-// panics on anything else.
-type stubRunnerStoreForAPIPush struct {
-	agentrunner.EventStore
-	terminalSession string
-}
-
-func (s stubRunnerStoreForAPIPush) Get(context.Context, string) (engineagents.Runner, error) {
-	return engineagents.Runner{TerminalSession: s.terminalSession}, nil
 }
 
 // apiPushAttachmentTestDescriptor mirrors apiTransportTestDescriptor's shape
@@ -181,7 +168,7 @@ func TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing(t *testing.T)
 		apiConns:      newAPIConnRegistry(),
 		ws:            fakeWSReader{chatsDir: chatsDir, worktree: worktree},
 		ledger:        newTestLedger(t),
-		runnerStore:   stubRunnerStoreForAPIPush{terminalSession: "term-1"},
+		live:          liveWith(t, engineagents.Runner{ID: "runner-1", CurrentChatID: "chat-1", TerminalSession: "term-1"}),
 		conversations: stubConversationsForPromptRestart{},
 	}
 	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})

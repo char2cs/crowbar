@@ -2,6 +2,7 @@ package conversation_test
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -24,7 +25,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // The stores are the REAL asynx-backed aggregates over in-memory event logs, not
@@ -35,7 +35,6 @@ import (
 type fixture struct {
 	conversations *conversation.Conversations
 	chats         agentchat.EventStore
-	runners       agentrunner.EventStore
 	activity      agentactivity.EventStore
 	retired       *retiredRunners
 	ledger        *ledgerstore.Store
@@ -43,11 +42,19 @@ type fixture struct {
 	settle        func()
 }
 
-// retiredRunners is the runner lifecycle as a hard delete sees it: the one thing
-// a purge owes the processes on the chat.
+// retiredRunners is the runner lifecycle with no CLI live: a purge owes the
+// processes on the chat retirement, which it records.
 type retiredRunners struct {
 	mu   sync.Mutex
 	seen []string
+}
+
+func (*retiredRunners) RunnerByID(string) (engineagents.Runner, bool) {
+	return engineagents.Runner{}, false
+}
+
+func (*retiredRunners) LiveRunnerForChat(context.Context, string) (engineagents.Runner, error) {
+	return engineagents.Runner{}, errors.New("dormant")
 }
 
 func (r *retiredRunners) RetireChatRunners(_ context.Context, chatID string) {
@@ -91,7 +98,6 @@ func newFixture(t *testing.T, lineage stubLineage) fixture {
 	t.Helper()
 
 	chats, waitChats := newChatStore(t)
-	runners, waitRunners := newRunnerStore(t)
 	activity, waitActivity := newActivityStore(t)
 
 	home := t.TempDir()
@@ -104,7 +110,6 @@ func newFixture(t *testing.T, lineage stubLineage) fixture {
 
 	conversations := conversation.New(conversation.Deps{
 		Chats:     chats,
-		Runners:   runners,
 		Activity:  activity,
 		Telemetry: telemetry.New(),
 		Agents:    engineagents.New(),
@@ -122,12 +127,11 @@ func newFixture(t *testing.T, lineage stubLineage) fixture {
 	return fixture{
 		conversations: conversations,
 		chats:         chats,
-		runners:       runners,
 		activity:      activity,
 		retired:       retired,
 		ledger:        chatLedger,
 		home:          home,
-		settle:        func() { waitChats(); waitRunners(); waitActivity() },
+		settle:        func() { waitChats(); waitActivity() },
 	}
 }
 
@@ -146,26 +150,6 @@ func newChatStore(t *testing.T) (agentchat.EventStore, func()) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	repo, err := agentchat.NewEventSourced(ax, es, db, nil)
-	require.NoError(t, err)
-	return repo, ax.WaitPublish
-}
-
-func newRunnerStore(t *testing.T) (agentrunner.EventStore, func()) {
-	t.Helper()
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	ax, err := asynx.New[engineagents.Runner]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-	// The runner store REFUSES a nil watch: the fan-out seam is not optional.
-	repo, err := agentrunner.NewEventSourced(ax, db, func(agentrunner.RunnerEvent) {})
 	require.NoError(t, err)
 	return repo, ax.WaitPublish
 }
@@ -337,7 +321,7 @@ func TestRenameChat_AnEmptyTitleIsANoOp(t *testing.T) {
 	assert.Equal(t, "kept", title(t, f, chatID))
 }
 
-func TestRenameByRunner_ARunnerPlacedNowhereRenamesNothing(t *testing.T) {
+func TestRenameByRunner_ARunnerThatIsNotLiveRenamesNothing(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
@@ -545,13 +529,11 @@ func TestNotePromotion_AppendsTheNoteToAChatAlreadyUnderWay(t *testing.T) {
 func TestMintChat_SeedsThePermissionLevelFromTheCurrentGlobalDefault(t *testing.T) {
 	t.Parallel()
 	chats, waitChats := newChatStore(t)
-	runners, _ := newRunnerStore(t)
 	activity, _ := newActivityStore(t)
 	home := t.TempDir()
 
 	conversations := conversation.New(conversation.Deps{
 		Chats:     chats,
-		Runners:   runners,
 		Activity:  activity,
 		Telemetry: telemetry.New(),
 		Agents:    engineagents.New(),
@@ -596,14 +578,12 @@ func TestMintChat_SeedsThePermissionLevelFromTheCurrentGlobalDefault(t *testing.
 func TestMintChat_TheSeededFieldIsAFrozenSnapshotButChatSelectionTracksTheLiveDefault(t *testing.T) {
 	t.Parallel()
 	chats, waitChats := newChatStore(t)
-	runners, _ := newRunnerStore(t)
 	activity, _ := newActivityStore(t)
 	home := t.TempDir()
 	current := "guarded"
 
 	conversations := conversation.New(conversation.Deps{
 		Chats:     chats,
-		Runners:   runners,
 		Activity:  activity,
 		Telemetry: telemetry.New(),
 		Agents:    engineagents.New(),

@@ -26,7 +26,6 @@ const (
 	workspaceDBName     = "workspace.db"
 	reviewThreadDBName  = "review_thread.db"
 	agentChatDBName     = "agent_chat.db"
-	agentRunnerDBName   = "agent_runner.db"
 	agentActivityDBName = "agent_activity.db"
 	nodeDBName          = "node.db"
 )
@@ -40,7 +39,6 @@ const (
 	workspaceSnapshotDBName     = "workspace_snapshots.db"
 	reviewThreadSnapshotDBName  = "review_thread_snapshots.db"
 	agentChatSnapshotDBName     = "agent_chat_snapshots.db"
-	agentRunnerSnapshotDBName   = "agent_runner_snapshots.db"
 	agentActivitySnapshotDBName = "agent_activity_snapshots.db"
 	nodeSnapshotDBName          = "node_snapshots.db"
 )
@@ -78,9 +76,6 @@ type Container struct {
 	agentActivityEventStore    asynxModels.Store
 	agentActivitySnapshotStore asynxModels.SnapshotStore
 	agentActivityStoreDB       *gormdb.DB
-	agentRunnerEventStore      asynxModels.Store
-	agentRunnerSnapshotStore   asynxModels.SnapshotStore
-	agentRunnerStoreDB         *gormdb.DB
 	// The node plane (2026-09-08 sidebar-placement-unification) is its OWN event
 	// log, snapshot store and read model, mirroring every other per-type plane
 	// above — one entity owning every sidebar row's position, at every tree
@@ -167,9 +162,6 @@ func openContainer(
 	agentActivitySnapshotStore := o.snapshotStore(eventsDir, agentActivitySnapshotDBName, "agent activity snapshot store")
 	agentActivityStoreDB := o.viewDB(storeDir, agentActivityDBName, "agent activity read db")
 	agentChatStoreDB := o.viewDB(storeDir, agentChatDBName, "agent chat store db")
-	agentRunnerEventStore := o.eventStore(eventsDir, agentRunnerDBName, "agent runner event store")
-	agentRunnerSnapshotStore := o.snapshotStore(eventsDir, agentRunnerSnapshotDBName, "agent runner snapshot store")
-	agentRunnerStoreDB := o.viewDB(storeDir, agentRunnerDBName, "agent runner store db")
 	nodeEventStore := o.eventStore(eventsDir, nodeDBName, "node event store")
 	nodeSnapshotStore := o.snapshotStore(eventsDir, nodeSnapshotDBName, "node snapshot store")
 	nodeStoreDB := o.viewDB(storeDir, nodeDBName, "node store db")
@@ -195,9 +187,6 @@ func openContainer(
 		agentActivityEventStore:    agentActivityEventStore,
 		agentActivitySnapshotStore: agentActivitySnapshotStore,
 		agentActivityStoreDB:       agentActivityStoreDB,
-		agentRunnerEventStore:      agentRunnerEventStore,
-		agentRunnerSnapshotStore:   agentRunnerSnapshotStore,
-		agentRunnerStoreDB:         agentRunnerStoreDB,
 		nodeEventStore:             nodeEventStore,
 		nodeSnapshotStore:          nodeSnapshotStore,
 		nodeStoreDB:                nodeStoreDB,
@@ -365,27 +354,6 @@ func (c *Container) NodeReadDB() *gormdb.DB {
 	return c.nodeStoreDB
 }
 
-// AgentRunnerES returns the agent-runner event log at state/events/agent_runner.db.
-func (c *Container) AgentRunnerES() asynxModels.Store {
-	return c.agentRunnerEventStore
-}
-
-// AgentRunnerSS returns the agent-runner snapshot store at
-// state/events/agent_runner_snapshots.db — the asynx v0.8 O(1) warm-read cache
-// paired with AgentRunnerES.
-func (c *Container) AgentRunnerSS() asynxModels.SnapshotStore {
-	return c.agentRunnerSnapshotStore
-}
-
-// AgentRunnerReadDB returns the agent-runner read-model DB at
-// state/store/agent_runner.db, opened as a read pool (decision 12). It holds BOTH
-// runner projections: the live-runner model (rows exist exactly while their CLI
-// runs — no status column, so nothing can go stale) and the append-only
-// conversation history, mirroring AgentChatReadDB/WorkspaceView.
-func (c *Container) AgentRunnerReadDB() *gormdb.DB {
-	return c.agentRunnerStoreDB
-}
-
 // GlobalView returns the global view DB at state/view.db holding projects,
 // repositories, terminal profiles, and settings read models. It is a view DB, so
 // it is opened as a read pool (decision 12) — never the single-conn OpenDB that
@@ -413,7 +381,6 @@ func (c *Container) Close() error {
 	closeEach(&errs, "review thread view", &c.reviewThreadView, closeViewDB)
 	closeEach(&errs, "agent activity store db", &c.agentActivityStoreDB, closeViewDB)
 	closeEach(&errs, "agent chat store db", &c.agentChatStoreDB, closeViewDB)
-	closeEach(&errs, "agent runner store db", &c.agentRunnerStoreDB, closeViewDB)
 	closeEach(&errs, "node store db", &c.nodeStoreDB, closeViewDB)
 	closeEach(&errs, "chat ledger db", &c.chatLedgerDB, closeViewDB)
 	closeEach(&errs, "global view", &c.globalView, closeViewDB)
@@ -424,8 +391,6 @@ func (c *Container) Close() error {
 	closeEach(&errs, "agent activity snapshot store", &c.agentActivitySnapshotStore, closeSnapshotStore)
 	closeEach(&errs, "agent chat event store", &c.agentChatEventStore, closeEventStore)
 	closeEach(&errs, "agent chat snapshot store", &c.agentChatSnapshotStore, closeSnapshotStore)
-	closeEach(&errs, "agent runner event store", &c.agentRunnerEventStore, closeEventStore)
-	closeEach(&errs, "agent runner snapshot store", &c.agentRunnerSnapshotStore, closeSnapshotStore)
 	closeEach(&errs, "node event store", &c.nodeEventStore, closeEventStore)
 	closeEach(&errs, "node snapshot store", &c.nodeSnapshotStore, closeSnapshotStore)
 

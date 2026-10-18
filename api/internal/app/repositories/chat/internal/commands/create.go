@@ -11,7 +11,7 @@ import (
 
 // Create seeds a new AgentChat: an identity, a workspace and a clock. It carries
 // no terminal session because a chat does not own the process talking to it:
-// the runner does, Started as its own aggregate (agentrunner).
+// its ledger records each runner_started instead.
 type Create struct {
 	ID          string
 	WorkspaceID string

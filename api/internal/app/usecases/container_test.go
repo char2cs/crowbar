@@ -11,10 +11,7 @@ import (
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 
-	"github.com/char2cs/crowbar/api/internal/engine/agents"
-
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -69,11 +66,9 @@ func newContainerDeps(
 		newTestAsynx[domain.Workspace](t, adapters.WorkspaceES()),
 		newTestAsynx[domain.Chat](t, adapters.AgentChatES()),
 		newTestAsynx[domain.ChatActivity](t, adapters.AgentActivityES()),
-		newTestAsynx[agents.Runner](t, adapters.AgentRunnerES()),
 		newTestAsynx[domain.Node](t, adapters.NodeES()),
 		nil, // git conflict-checker not exercised by this test
 		noChatWatch,
-		noRunnerWatch,
 		noNodeWatch,
 		nil,
 		nil,
@@ -277,19 +272,18 @@ func TestContainer_AgentToolDeps_RefusesAPartialSurface(t *testing.T) {
 	require.Error(t, err, "no repository stores")
 
 	// A container with SOME stores wired still refuses a genuinely partial
-	// surface: bare's AgentRunner==nil check alone can never exercise the
+	// surface: bare's AgentChat==nil check alone can never exercise the
 	// Workspace/ReviewThread branches behind it in the same guard. Every store
 	// ahead of the one under test is therefore wired for real, and the message is
 	// asserted rather than just "an error" — a case that merely trips an earlier
 	// guard would pass while proving nothing about the branch it names.
-	chatOnly := &repositories.Container{AgentRunner: repos.AgentRunner, AgentChat: repos.AgentChat}
+	chatOnly := &repositories.Container{AgentChat: repos.AgentChat}
 	_, err = usecases.NewAgentToolDepsForTest(minter, chatOnly, review, noopThreadBroadcast, stubBranchRenamer{})
 	require.ErrorContains(t, err, "no workspace store")
 
 	noReviewThread := &repositories.Container{
-		AgentRunner: repos.AgentRunner,
-		AgentChat:   repos.AgentChat,
-		Workspace:   repos.Workspace,
+		AgentChat: repos.AgentChat,
+		Workspace: repos.Workspace,
 	}
 	_, err = usecases.NewAgentToolDepsForTest(minter, noReviewThread, review, noopThreadBroadcast, stubBranchRenamer{})
 	require.ErrorContains(t, err, "no review thread store")
@@ -453,14 +447,7 @@ func (containerStatusStub) GitStatus(
 	return gitdomain.GitStatus{}, nil
 }
 
-// noChatWatch / noRunnerWatch are the agent announcement seams for tests that assert
-// nothing about WS frames. They are non-nil on purpose: agentrunner's store REFUSES a
-// nil watch at construction (a store that silently drops every frame is worse than one
-// that fails to build), so `nil` here would break every container in this file.
-func noChatWatch(_ agentchat.ChatEvent)       {}
-func noRunnerWatch(_ agentrunner.RunnerEvent) {}
-
-// noNodeWatch is node's own announcement seam, spelled out for the same
-// readability reason noChatWatch/noRunnerWatch are — node's store (mirroring
-// agentchat's) tolerates a nil watch, unlike agentrunner's.
-func noNodeWatch(_ node.NodeEvent) {}
+// noChatWatch / noNodeWatch are the announcement seams for tests that assert
+// nothing about WS frames or live position updates.
+func noChatWatch(_ agentchat.ChatEvent) {}
+func noNodeWatch(_ node.NodeEvent)      {}

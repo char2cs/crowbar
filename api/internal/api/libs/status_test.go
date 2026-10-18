@@ -16,7 +16,6 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
@@ -65,8 +64,8 @@ func TestStatusAndMessageMapping(t *testing.T) {
 			status: http.StatusNotFound,
 		},
 		{
-			name:   "agentrunner not found",
-			err:    agentrunner.ErrNotFound,
+			name:   "no live runner",
+			err:    agentusecase.ErrNoLiveRunner,
 			status: http.StatusNotFound,
 		},
 		{

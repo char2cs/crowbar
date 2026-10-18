@@ -33,7 +33,7 @@ func TestSpawnChatWithImportedWorktree_FillsWorkspaceAndStartsTheCLI(t *testing.
 	rootChatID, _ := f.spawn(t, "claude")
 	bubbleID := seedPlacedBubble(t, f, rootChatID)
 
-	ws, runnerID, err := f.own.SpawnChatWithImportedWorktree(
+	ws, runnerID, err := f.usecase.own.SpawnChatWithImportedWorktree(
 		f.ctx, bubbleID, "claude", importedBranch())
 	require.NoError(t, err)
 	require.NotEmpty(t, runnerID)
@@ -64,7 +64,7 @@ func TestSpawnChatWithImportedWorktree_NoProviderStartsNoRunner(t *testing.T) {
 	rootChatID, _ := f.spawn(t, "claude")
 	bubbleID := seedPlacedBubble(t, f, rootChatID)
 
-	ws, runnerID, err := f.own.SpawnChatWithImportedWorktree(
+	ws, runnerID, err := f.usecase.own.SpawnChatWithImportedWorktree(
 		f.ctx, bubbleID, "", importedBranch())
 
 	require.NoError(t, err)
@@ -84,7 +84,7 @@ func TestSpawnChatWithImportedWorktree_CreateFailure_AbortsBeforeSettingTheWorks
 	bubbleID := seedPlacedBubble(t, f, rootChatID)
 	f.wt.importErr = errImportedWorktreeBoom
 
-	_, _, err := f.own.SpawnChatWithImportedWorktree(
+	_, _, err := f.usecase.own.SpawnChatWithImportedWorktree(
 		f.ctx, bubbleID, "claude", importedBranch())
 
 	require.ErrorIs(t, err, errImportedWorktreeBoom)
@@ -98,12 +98,12 @@ func TestSpawnChatWithImportedWorktree_CreateFailure_AbortsBeforeSettingTheWorks
 // setting the slot leaves a real worktree nothing points at — taken back out
 // rather than logged.
 func TestSpawnChatWithImportedWorktree_SetWorkspaceFailure_DiscardsTheOrphan(t *testing.T) {
-	f, chats, _ := newFaultFixture(t)
+	f, chats := newFaultFixture(t)
 	rootChatID, _ := f.spawn(t, "claude")
 	bubbleID := seedPlacedBubble(t, f, rootChatID)
 	chats.failSetWorkspace = errImportedWorktreeBoom
 
-	_, _, err := f.own.SpawnChatWithImportedWorktree(
+	_, _, err := f.usecase.own.SpawnChatWithImportedWorktree(
 		f.ctx, bubbleID, "claude", importedBranch())
 
 	require.ErrorIs(t, err, errImportedWorktreeBoom, "the caller is told the failure that happened")
@@ -121,7 +121,7 @@ func TestSpawnChatWithImportedWorktree_StartRunnerFailure_RollsTheWholeImportBac
 	bubbleID := seedPlacedBubble(t, f, rootChatID)
 	f.term.err = errImportedWorktreeBoom
 
-	_, _, err := f.own.SpawnChatWithImportedWorktree(
+	_, _, err := f.usecase.own.SpawnChatWithImportedWorktree(
 		f.ctx, bubbleID, "claude", importedBranch())
 
 	require.Error(t, err)
@@ -136,13 +136,13 @@ func TestSpawnChatWithImportedWorktree_StartRunnerFailure_RollsTheWholeImportBac
 // discardMintedWorkspace's own doc gives — the caller purges this chat outright
 // on any error from here, so "leave it, a row still points at it" is false.
 func TestSpawnChatWithImportedWorktree_StartAndClearFailure_StillDiscardsTheWorkspace(t *testing.T) {
-	f, chats, _ := newFaultFixture(t)
+	f, chats := newFaultFixture(t)
 	rootChatID, _ := f.spawn(t, "claude")
 	bubbleID := seedPlacedBubble(t, f, rootChatID)
 	f.term.err = errImportedWorktreeBoom
 	chats.failClearWorkspace = errors.New("imported worktree: the slot-clear also failed")
 
-	_, _, err := f.own.SpawnChatWithImportedWorktree(
+	_, _, err := f.usecase.own.SpawnChatWithImportedWorktree(
 		f.ctx, bubbleID, "claude", importedBranch())
 
 	require.Error(t, err)
@@ -160,7 +160,7 @@ func TestAttachWorkspace_PointsTheRowAtItsWorkspace(t *testing.T) {
 	require.NoError(t, err)
 	f.wait()
 
-	require.NoError(t, f.own.AttachWorkspace(f.ctx, chatID, "ws-built-elsewhere"))
+	require.NoError(t, f.usecase.own.AttachWorkspace(f.ctx, chatID, "ws-built-elsewhere"))
 	f.wait()
 
 	assert.Equal(t, "ws-built-elsewhere", f.chat(t, chatID).WorkspaceID)
@@ -170,13 +170,13 @@ func TestAttachWorkspace_PointsTheRowAtItsWorkspace(t *testing.T) {
 // row on its hands that nothing owns yet, and only an error tells it to roll
 // that row back.
 func TestAttachWorkspace_Failure_IsReported(t *testing.T) {
-	f, chats, _ := newFaultFixture(t)
+	f, chats := newFaultFixture(t)
 	chatID, err := f.usecase.MintChat(f.ctx, "", "", "")
 	require.NoError(t, err)
 	f.wait()
 	chats.failSetWorkspace = errImportedWorktreeBoom
 
-	err = f.own.AttachWorkspace(f.ctx, chatID, "ws-built-elsewhere")
+	err = f.usecase.own.AttachWorkspace(f.ctx, chatID, "ws-built-elsewhere")
 
 	require.ErrorIs(t, err, errImportedWorktreeBoom)
 	assert.Empty(t, f.chat(t, chatID).WorkspaceID)
@@ -192,7 +192,7 @@ func TestSpawnChatWithImportedWorktree_ReturnsTheWorkspaceItCreated(t *testing.T
 	bubbleID := seedPlacedBubble(t, f, rootChatID)
 	f.wt.importedWS = domain.Workspace{ID: "ws-locked", Status: domain.WorkspaceStatusLocked}
 
-	ws, _, err := f.own.SpawnChatWithImportedWorktree(
+	ws, _, err := f.usecase.own.SpawnChatWithImportedWorktree(
 		f.ctx, bubbleID, "", importedBranch())
 
 	require.NoError(t, err)

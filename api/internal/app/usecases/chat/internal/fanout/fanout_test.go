@@ -12,8 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
-	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 type emptyReader struct{}
@@ -21,7 +19,6 @@ type emptyReader struct{}
 func (emptyReader) GetChat(_ context.Context, id string) (domain.Chat, error) {
 	return domain.Chat{ID: id}, nil
 }
-func (emptyReader) AllLive(context.Context) ([]agents.Runner, error) { return nil, nil }
 func (emptyReader) LedgerState(context.Context, string) (ledger.State, error) {
 	return ledger.State{}, nil
 }
@@ -60,18 +57,4 @@ func TestFanout_ForgottenChatIsADeleteFrame(t *testing.T) {
 	require.Len(t, *frames, 1)
 	assert.True(t, (*frames)[0].Deleted)
 	assert.Equal(t, "chat-9", (*frames)[0].Snapshot.Chat.ID)
-}
-
-func TestFanout_RunnerEventPlacesTheRunner(t *testing.T) {
-	s, frames := owner(t)
-	fanout.New(s).RunnerWatch()(agentrunner.RunnerEvent{
-		RunnerID: "run-1", WorkspaceID: "ws-1", ChatID: "chat-1", Kind: "started",
-		Runner: agents.Runner{CurrentChatID: "chat-1", ProviderID: "claude"}, Version: 1,
-	})
-
-	require.Len(t, *frames, 1)
-	f := (*frames)[0]
-	assert.Equal(t, "run-1", f.RunnerID)
-	require.NotNil(t, f.Snapshot.Live)
-	assert.Equal(t, "run-1", f.Snapshot.Live.ID)
 }

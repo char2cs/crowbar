@@ -50,6 +50,10 @@ type Conversations interface {
 // turn only this package can release, so a hook that waited on it would deadlock
 // against the very switch waiting on the hook.
 type Runners interface {
+	// RunnerByID is the live runner a hook names, also while it is exiting.
+	RunnerByID(runnerID string) (engineagents.Runner, bool)
+	// LiveRunnerForChat is the chat's live runner; an error when it is dormant.
+	LiveRunnerForChat(ctx context.Context, chatID string) (engineagents.Runner, error)
 	// HandleSessionStart applies a CLI's session announcement to the chat it
 	// is on: a /clear or /resume inside the TUI changes the chat's session.
 	HandleSessionStart(

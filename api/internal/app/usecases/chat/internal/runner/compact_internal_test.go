@@ -119,9 +119,7 @@ func TestCompact_APITransport_SendsThreadCompactStart(t *testing.T) {
 		agents:        stubAgentsForInterrupt{agent: agent},
 		chats:         stubChatsForCompact{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}},
 		conversations: stubConversationsForCompact{providerID: "compact-api-test"},
-		runnerStore: stubRunnerStoreForAttach{
-			runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "compact-api-test"},
-		},
+		live:          liveWith(t, engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "compact-api-test", CurrentChatID: "chat-1"}),
 	}
 	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
 
@@ -147,9 +145,7 @@ func TestCompact_APITransport_NoLiveConnIsUnavailable(t *testing.T) {
 		agents:        stubAgentsForInterrupt{agent: agent},
 		chats:         stubChatsForCompact{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}},
 		conversations: stubConversationsForCompact{providerID: "compact-api-test"},
-		runnerStore: stubRunnerStoreForAttach{
-			runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "compact-api-test"},
-		},
+		live:          liveWith(t, engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "compact-api-test", CurrentChatID: "chat-1"}),
 	}
 
 	err := rs.Compact(context.Background(), "chat-1")
@@ -190,9 +186,7 @@ func TestCompact_IsOfferedOnCrowbarsOwnChatSurface(t *testing.T) {
 		agents:        stubAgentsForInterrupt{agent: agent},
 		chats:         stubChatsForCompact{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1", Surface: domain.SurfaceChat}},
 		conversations: stubConversationsForCompact{providerID: "compact-api-test"},
-		runnerStore: stubRunnerStoreForAttach{
-			runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "compact-api-test"},
-		},
+		live:          liveWith(t, engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "compact-api-test", CurrentChatID: "chat-1"}),
 	}
 
 	// No live connection, so this still refuses — but on availability, not

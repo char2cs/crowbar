@@ -286,7 +286,7 @@ func (t *Turns) AbandonMessage(ctx context.Context, chatID string) (bool, error)
 	if err != nil {
 		return false, fmt.Errorf("agent: abandon message: chat: %w", err)
 	}
-	runner, err := t.runnerStore.LiveRunnerForChat(ctx, chatID)
+	runner, err := t.runners.LiveRunnerForChat(ctx, chatID)
 	if err != nil {
 		return false, nil //nolint:nilerr // absence is an answer, not a failure
 	}

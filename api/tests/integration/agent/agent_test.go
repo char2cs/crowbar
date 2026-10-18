@@ -31,23 +31,19 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/core/gateway/transports"
 	"github.com/char2cs/crowbar/api/internal/engine"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // TestMain silences logs and enables gin test mode like every other integration
-// package, and additionally polices the user's REAL provider homes across the run.
-//
-// This is the only package that spawns real vendor CLIs, and a vendor CLI records
-// trust by PLACE in a home Crowbar does not own. Every test here builds a throwaway
-// repo, so an un-isolated run appends one permanent, already-dead stanza per test to
-// the user's own ~/.codex/config.toml and ~/.claude.json. newHarness isolates both
-// homes; this fails the run if anything slipped past that.
+// package. A vendor CLI records trust by place in its own home, so newHarness
+// points both provider homes at temp dirs before anything can spawn one.
 func TestMain(m *testing.M) {
-	kit.MainGuardingProviderHomes(m)
+	kit.Main(m)
 }
 
 // harness is a from-scratch daemon wired the same way cmd/crowbar's `serve`
@@ -265,18 +261,18 @@ func liveRunnerTerminalSession(t *testing.T, h *harness, chatID string) string {
 	return runner.TerminalSession
 }
 
-// runnerTerminalSession returns runnerID's PTY.
-//
-// It needs NO polling, and that is a real consequence of the refactor rather than a
-// stylistic choice. The old waitForSegmentTerminalSessionID had to poll the chat's
-// segment list after a switch, because the segment rows were written with an async
-// ax.Send and the read model could trail the id SwitchProvider had already returned.
-// Runner commands are SendWait: when SwitchProvider returns a runner id, that runner
-// is durable and visible. So this is a plain read.
+// runnerByID is runnerID's runner while the supervisor holds it, also while it
+// is exiting.
+func runnerByID(h *harness, runnerID string) (agents.Runner, bool) {
+	return h.app.Usecases.AgentRunner.(*agentusecase.Usecase).RunnerByID(runnerID)
+}
+
+// runnerTerminalSession returns runnerID's PTY. A plain read: a runner id
+// SwitchProvider returned is already in the supervisor's live table.
 func runnerTerminalSession(t *testing.T, h *harness, runnerID string) string {
 	t.Helper()
-	runner, err := h.app.Repositories.AgentRunner.Get(context.Background(), runnerID)
-	require.NoError(t, err, "runner %s is not live", runnerID)
+	runner, ok := runnerByID(h, runnerID)
+	require.True(t, ok, "runner %s is not live", runnerID)
 	require.NotEmpty(t, runner.TerminalSession)
 	return runner.TerminalSession
 }
@@ -288,7 +284,7 @@ func runnerTerminalSession(t *testing.T, h *harness, runnerID string) string {
 func liveRunnerID(t *testing.T, h *harness, chatID string) string {
 	t.Helper()
 	runner, err := h.app.Usecases.AgentRunner.LiveRunnerForChat(context.Background(), chatID)
-	if errors.Is(err, agentrunner.ErrNotFound) {
+	if errors.Is(err, agentusecase.ErrNoLiveRunner) {
 		return ""
 	}
 	require.NoError(t, err)

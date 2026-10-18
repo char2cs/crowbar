@@ -2,12 +2,10 @@ package conversation
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 func (c *Conversations) SetChatSelection(
@@ -97,22 +95,17 @@ func (c *Conversations) chatAgent(
 }
 
 // ChatProviderID resolves the provider a chat's next CLI should be: the live
-// runner's while one is placed (mid-switch the incoming runner is already the
+// runner's while there is one (mid-switch the incoming runner is already the
 // truth), else the chat's own durable vendor — domain.Chat.ProviderID, seeded at
-// birth, restated on every placement and backfilled once at boot for rows that
-// predate it (BackfillProviders). It is the ONE owner of the answer; nothing
-// re-derives it from the runner projections any more. Refuses with
-// apperr.ErrUnprocessable when no provider has ever been recorded.
+// birth, restated on every spawn and backfilled once at boot for rows that
+// predate it. Refuses with apperr.ErrUnprocessable when no provider has ever
+// been recorded.
 func (c *Conversations) ChatProviderID(
 	ctx context.Context,
 	chatID string,
 ) (string, error) {
-	live, err := c.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if err == nil {
+	if live, err := c.runners.LiveRunnerForChat(ctx, chatID); err == nil {
 		return live.ProviderID, nil
-	}
-	if !errors.Is(err, agentrunner.ErrNotFound) {
-		return "", fmt.Errorf("agent: chat provider: live runner: %w", err)
 	}
 	chat, err := c.chats.GetChat(ctx, chatID)
 	if err != nil {

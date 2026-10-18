@@ -13,7 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // attachedView is one runner's currently-live native-TUI PTY, and everything
@@ -54,10 +53,8 @@ func (r *attachRegistry) get(runnerID string) (attachedView, bool) {
 	return v, ok
 }
 
-// drop is nil-safe like apiConnRegistry's own, for the same reason: retire()
-// (lifecycle.go) now reaches this from every teardown path, including tests
-// and callers that construct a Runners with no attach registry at all because
-// nothing about their scenario ever attaches one.
+// drop is nil-safe like apiConnRegistry's own: every teardown reaches it
+// through endProcesses, including on a Runners that never attaches a view.
 func (r *attachRegistry) drop(runnerID string) {
 	if r == nil {
 		return
@@ -124,12 +121,12 @@ func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string,
 	}
 	defer release()
 
-	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if errors.Is(err, agentrunner.ErrNotFound) {
-		return "", rs.moveDormantSurface(ctx, chatID, engineagents.SurfaceTerminal)
-	}
+	live, ok, err := rs.awaitDormant(park, chatID)
 	if err != nil {
-		return "", fmt.Errorf("agent: switch to terminal: live runner: %w", err)
+		return "", parkErr(park, fmt.Errorf("agent: switch to terminal: %w", err))
+	}
+	if !ok {
+		return "", rs.moveDormantSurface(ctx, chatID, engineagents.SurfaceTerminal)
 	}
 	// Idempotent: a retry racing its own earlier success gets the same view.
 	if already, ok := rs.attached.get(live.ID); ok {
@@ -227,9 +224,9 @@ func (rs *Runners) respawnOnSurface(
 	if err != nil {
 		return "", err
 	}
-	runner, err := rs.runnerStore.Get(ctx, runnerID)
-	if err != nil {
-		return "", fmt.Errorf("agent: move chat to %s: new runner: %w", surface, err)
+	runner, ok := rs.live.byRunner(runnerID)
+	if !ok {
+		return "", fmt.Errorf("agent: move chat to %s: new runner: %w", surface, ErrNoLiveRunner)
 	}
 	return runner.TerminalSession, nil
 }
@@ -275,12 +272,12 @@ func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
 	}
 	defer release()
 
-	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if errors.Is(err, agentrunner.ErrNotFound) {
-		return rs.moveDormantSurface(ctx, chatID, engineagents.SurfaceChat)
-	}
+	live, ok, err := rs.awaitDormant(park, chatID)
 	if err != nil {
-		return fmt.Errorf("agent: switch to native: live runner: %w", err)
+		return parkErr(park, fmt.Errorf("agent: switch to native: %w", err))
+	}
+	if !ok {
+		return rs.moveDormantSurface(ctx, chatID, engineagents.SurfaceChat)
 	}
 	view, attachedView := rs.attached.get(live.ID)
 	if !attachedView && rs.surfaces.get(live.ID) != engineagents.SurfaceTerminal {
@@ -352,9 +349,9 @@ func (rs *Runners) detachNativeView(
 
 // onAttachExit runs when the native-view PTY exits on its own — the user
 // closed it, or its process died. Switching back to native automatically is
-// the same "nothing left to show" recovery StopChat's own retire() gives a
-// dead runner elsewhere: a chat left pointing at a terminal session that no
-// longer exists is worse than one quietly resuming its api connection.
+// the "nothing left to show" recovery: a chat left pointing at a terminal
+// session that no longer exists is worse than one quietly resuming its api
+// connection.
 //
 // Off the caller: the terminal engine runs this inside TerminateGraceful, and
 // every deliberate teardown (SwitchToNative, Stop, retire) calls that while

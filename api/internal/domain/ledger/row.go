@@ -19,6 +19,8 @@ const (
 	KindSessionBound  Kind = "session_bound"
 	KindSessionLost   Kind = "session_lost"
 	KindMarker        Kind = "marker"
+	KindRunnerStarted Kind = "runner_started"
+	KindRunnerExited  Kind = "runner_exited"
 )
 
 // ErrMalformedRow is a row the ledger refuses to record.
@@ -70,6 +72,10 @@ func Check(_ State, r Row) error {
 		return checkNamed(r, func(b SessionLost) bool { return b.Provider != "" && b.SessionID != "" })
 	case KindMarker:
 		return checkNamed(r, func(b Marker) bool { return b.Kind != "" })
+	case KindRunnerStarted:
+		return checkNamed(r, func(b RunnerStarted) bool { return b.RunnerID != "" && b.Provider != "" })
+	case KindRunnerExited:
+		return checkNamed(r, func(b RunnerExited) bool { return b.RunnerID != "" && b.Reason != "" })
 	default:
 		return fmt.Errorf("%w: unknown kind %q", ErrMalformedRow, r.Kind)
 	}

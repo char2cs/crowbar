@@ -1346,11 +1346,10 @@ func (o orderedActivity) AppendTurn(ctx context.Context, in agentactivity.TurnIn
 
 func TestRegression_StallNoticeIsDurableBeforeTheIdleEdgeIsPublished(t *testing.T) {
 	log := &orderLog{}
-	f, _, _ := newFixtureUsing(t,
+	f := newFixtureUsing(t,
 		func(real agentchat.EventStore) agentchat.EventStore {
 			return orderedChats{EventStore: real, log: log}
 		},
-		nil,
 		"",
 		func(real agentactivity.EventStore) agentactivity.EventStore {
 			return orderedActivity{EventStore: real, log: log}
@@ -2119,9 +2118,9 @@ func TestSwitchProvider_BackgroundWork_WaitsForAuthoritativeIdle(t *testing.T) {
 	require.Contains(t, f.term.terminatedIDs(), oldTerm)
 }
 
-// A stopped Claude still finishing its text after a switch to Codex: Codex's
-// turn_stop must not sweep Claude's open buffer under Codex's provider, so the
-// open message is scoped by runner, not just by chat.
+// A stopped Claude still finishing its text after a switch to Codex: what it
+// streamed is kept under Claude when it exits, and its late turn_stop finds no
+// runner, so nothing of it lands under Codex.
 func TestRegression_InterruptedTurnGraduallyFinishingIsNotMisattributedToTheNextProvider(t *testing.T) {
 	f := newFixture(t)
 
@@ -2136,21 +2135,19 @@ func TestRegression_InterruptedTurnGraduallyFinishingIsNotMisattributedToTheNext
 		deltaHook(t, "claude-msg", 0, false, "Valve Software: The Reluctant Giant")))
 	f.wait()
 
-	// The provider switch: a second runner (codex) placed on the SAME chat
-	// while claude's runner still has it too — the moment a real
-	// StopChat/displace has not yet won its race against the outgoing CLI's
-	// own still-in-flight hook.
-	codexRunnerID := f.placeRunner(t, chatID, "codex", "codex-s1")
+	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
+	codexRunnerID, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
+	f.announce(t, codexRunnerID, "codex-s1")
 
-	// Codex, placed second, closes its OWN turn FIRST.
 	codexPrompt := map[string]any{"prompt": "what did we talk before"}
 	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunnerID, "codex", "user_prompt", mustJSON(t, codexPrompt)))
 	codexStop := map[string]any{"last_assistant_message": "codex reply"}
 	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunnerID, "codex", "turn_stop", mustJSON(t, codexStop)))
 	f.wait()
 
-	// Claude's real text — still gracefully finishing — arrives LATE, after
-	// Codex has already closed its own turn on the same chat.
+	// Claude's text — still gracefully finishing — arrives LATE, after Codex
+	// has already closed its own turn on the same chat.
 	require.NoError(t, f.usecase.IngestHook(f.ctx, claudeRunnerID, "claude", "turn_stop",
 		mustJSON(t, map[string]any{
 			"session_id":             "s1",
@@ -2516,7 +2513,7 @@ func TestRegression_CodexTurnStopWithOpenSubagent_KeepsChatWorking(t *testing.T)
 // into a property a test can hold. Same law as AbandonTurn's: callers must not pre-check
 // turn state on the read model.
 func TestRegression_RestatingAsyncWorkDecidesOnTheLogNotTheProjection(t *testing.T) {
-	f, chats, _ := newFaultFixture(t)
+	f, chats := newFaultFixture(t)
 
 	chatID, runnerID := f.spawn(t, "codex")
 	f.announce(t, runnerID, "sess-1")

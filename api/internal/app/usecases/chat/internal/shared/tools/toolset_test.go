@@ -34,7 +34,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	"github.com/char2cs/crowbar/api/internal/perf"
 )
@@ -374,7 +373,7 @@ type perfStack struct {
 	chatQueries *queryCounter
 	reconciler  *countingReconciler
 	chatStore   agentchat.EventStore
-	runners     agentrunner.EventStore
+	runners     perfRunners
 	repos       store.Store[domain.Repository, string]
 	repoPath    string
 	featurePath string
@@ -413,7 +412,7 @@ func newPerfStack(
 		Register("agenttools_perf:count", chatQueries.record))
 
 	chatStore := newPerfChatStore(b, adapters)
-	runners := newPerfRunnerStore(b, adapters)
+	runners := perfRunners{}
 	chats := &countingChats{chats: chatStore}
 
 	minter, err := tools.NewTokenMinter()
@@ -514,26 +513,12 @@ func newPerfChatStore(
 	return store
 }
 
-func newPerfRunnerStore(
-	b *testing.B,
-	adapters *adapter.Container,
-) agentrunner.EventStore {
-	b.Helper()
-	ax, err := asynx.New[agents.Runner]().
-		WithEventStore(adapters.AgentRunnerES()).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(b, err)
-	b.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+// perfRunners is the live table the benchmark's caller is in.
+type perfRunners map[string]agents.Runner
 
-	store, err := agentrunner.NewEventSourced(
-		ax,
-		adapters.AgentRunnerReadDB(),
-		func(agentrunner.RunnerEvent) {},
-	)
-	require.NoError(b, err)
-	return store
+func (p perfRunners) RunnerByID(runnerID string) (agents.Runner, bool) {
+	r, ok := p[runnerID]
+	return r, ok
 }
 
 // perfDiffSpec is the shape of one review fixture. hunks is per file and is
@@ -780,15 +765,10 @@ func seedRunnerOn(
 		Now:         perfNow(),
 	})
 	require.NoError(b, err)
-	_, err = s.runners.Start(ctx, agentrunner.StartInput{
-		RunnerID:        perfRunnerID,
-		WorkspaceID:     wsID,
-		ProviderID:      "perf-provider",
-		TerminalSession: "perf-term",
-		ChatID:          chatID,
-		Now:             perfNow(),
-	})
-	require.NoError(b, err)
+	s.runners[perfRunnerID] = agents.Runner{
+		ID: perfRunnerID, WorkspaceID: wsID, ProviderID: "perf-provider",
+		TerminalSession: "perf-term", CurrentChatID: chatID,
+	}
 }
 
 // perfBucket is one perf-ring sample name's tally: how many samples landed under
@@ -1202,12 +1182,9 @@ func TestToolSet_OnlyTheToolsThatNeedTheTreeReadIt(t *testing.T) {
 	}
 }
 
-type stubRunners struct {
-	r   agents.Runner
-	err error
-}
+type stubRunners struct{ r agents.Runner }
 
-func (s stubRunners) Get(context.Context, string) (agents.Runner, error) { return s.r, s.err }
+func (s stubRunners) RunnerByID(string) (agents.Runner, bool) { return s.r, s.r.ID != "" }
 
 type stubChats struct {
 	c    domain.Chat

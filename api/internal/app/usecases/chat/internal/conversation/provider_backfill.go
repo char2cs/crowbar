@@ -5,16 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // RestateProvidersFromHistory makes domain.Chat.ProviderID agree with the
-// runner history for every chat, once, when an install is upgraded.
+// legacy history for every chat, once, when an install is upgraded. newest is
+// the provider that history last names per chat.
 //
 // The pre-audit daemon answered "as whom does this chat come back" from that
 // history first and read the stored field only when there was none, so a row
@@ -23,13 +22,16 @@ import (
 // the one owner and nothing re-derives it. A row that cannot be restated is
 // logged and counted in skipped; the error is for a failed list or a cancelled
 // ctx.
-func (c *Conversations) RestateProvidersFromHistory(ctx context.Context) (skipped int, err error) {
+func (c *Conversations) RestateProvidersFromHistory(
+	ctx context.Context,
+	newest map[string]string,
+) (skipped int, err error) {
 	rows, err := c.chats.ListChats(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("agent: restate chat providers: list: %w", err)
 	}
 	for _, row := range rows {
-		err := c.restateProvider(ctx, row)
+		err := c.restateProvider(ctx, row, newest)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return skipped, fmt.Errorf("agent: restate chat providers: %w", ctxErr)
 		}
@@ -42,9 +44,9 @@ func (c *Conversations) RestateProvidersFromHistory(ctx context.Context) (skippe
 }
 
 // StaleProviders lists what RestateProvidersFromHistory leaves behind: the
-// chats whose history replays to a provider their runner history disagrees
-// with. A row that cannot be replayed is not listed; nothing could restate it.
-func (c *Conversations) StaleProviders(ctx context.Context) ([]string, error) {
+// chats whose history replays to a provider newest disagrees with. A row that
+// cannot be replayed is not listed; nothing could restate it.
+func (c *Conversations) StaleProviders(ctx context.Context, newest map[string]string) ([]string, error) {
 	rows, err := c.chats.ListChats(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("agent: stale chat providers: list: %w", err)
@@ -58,11 +60,7 @@ func (c *Conversations) StaleProviders(ctx context.Context) ([]string, error) {
 		if err != nil {
 			continue
 		}
-		_, stale, err := c.staleProvider(ctx, chat)
-		if err != nil {
-			return nil, fmt.Errorf("agent: stale chat providers: chat %s: %w", row.ID, err)
-		}
-		if stale {
+		if _, stale := staleProvider(chat, newest); stale {
 			out = append(out, row.ID)
 		}
 	}
@@ -72,10 +70,11 @@ func (c *Conversations) StaleProviders(ctx context.Context) ([]string, error) {
 func (c *Conversations) restateProvider(
 	ctx context.Context,
 	row domain.Chat,
+	newest map[string]string,
 ) error {
-	providerID, stale, err := c.staleProvider(ctx, row)
-	if err != nil || !stale {
-		return err
+	providerID, stale := staleProvider(row, newest)
+	if !stale {
+		return nil
 	}
 	if _, err := c.chats.SetProvider(ctx, row.ID, providerID); err != nil &&
 		!errors.Is(err, asynxModels.ErrValidation) {
@@ -84,51 +83,12 @@ func (c *Conversations) restateProvider(
 	return nil
 }
 
-// staleProvider is the provider chat's runner history names when that is not
-// the one chat records: what the restate acts on and StaleProviders checks.
-func (c *Conversations) staleProvider(
-	ctx context.Context,
-	chat domain.Chat,
-) (string, bool, error) {
-	if chat.Type == domain.ChatTypeFolder {
-		return "", false, nil
+// staleProvider is the provider newest names for chat when that is not the
+// one chat records: what the restate acts on and StaleProviders checks.
+func staleProvider(chat domain.Chat, newest map[string]string) (string, bool) {
+	providerID := newest[chat.ID]
+	if chat.Type == domain.ChatTypeFolder || providerID == "" || providerID == chat.ProviderID {
+		return "", false
 	}
-	providerID, found, err := c.newestPlacedProvider(ctx, chat.ID)
-	if err != nil || !found || providerID == "" || providerID == chat.ProviderID {
-		return "", false, err
-	}
-	return providerID, true, nil
-}
-
-// newestPlacedProvider is the one-time migration of the old projection scan:
-// whichever of the chat's provider-switch interruptions and runner placements
-// is NEWEST names the provider last running here.
-func (c *Conversations) newestPlacedProvider(
-	ctx context.Context,
-	chatID string,
-) (providerID string, found bool, err error) {
-	interruptions, err := c.activity.Interruptions(ctx, chatID)
-	if err != nil {
-		return "", false, fmt.Errorf("interruptions: %w", err)
-	}
-	placements, err := c.runnerStore.PlacementsForChat(ctx, chatID)
-	if err != nil {
-		return "", false, fmt.Errorf("placements: %w", err)
-	}
-
-	var newest time.Time
-	consider := func(id string, at time.Time) {
-		if !found || at.After(newest) {
-			providerID, newest, found = id, at, true
-		}
-	}
-	for _, in := range interruptions {
-		if in.Kind == engineagents.InterruptProviderSwitched {
-			consider(in.Detail, in.At)
-		}
-	}
-	for _, p := range placements {
-		consider(p.ProviderID, p.LastPlacedAt)
-	}
-	return providerID, found, nil
+	return providerID, true
 }

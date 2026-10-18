@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 
 	"github.com/char2cs/asynx"
@@ -45,9 +44,8 @@ type Container struct {
 	// Shutdown step 1.
 	engines *engine.Container
 
-	// axWorkspace, axReviewThread, axAgentChat and axAgentRunner are the per-type
-	// asynx singletons, kept so the ordered graceful shutdown can drain each.
-	// axAgentRunner carries the runner aggregate: one live vendor CLI in one PTY.
+	// axWorkspace, axReviewThread and axAgentChat are the per-type asynx
+	// singletons, kept so the ordered graceful shutdown can drain each.
 	axWorkspace    asynx.Asynx[domain.Workspace]
 	axReviewThread asynx.Asynx[domain.ReviewThread]
 	axAgentChat    asynx.Asynx[domain.Chat]
@@ -57,7 +55,6 @@ type Container struct {
 	// turn, and sharing one single-writer event log would put a sidebar repaint
 	// behind a tool-call storm.
 	axAgentActivity asynx.Asynx[domain.ChatActivity]
-	axAgentRunner   asynx.Asynx[agents.Runner]
 	// axNode is the Node position aggregate's own per-type singleton
 	// (2026-09-08 sidebar-placement-unification): the ONE entity that will own
 	// every sidebar row's ParentID/Order. This wiring is purely additive —
@@ -99,19 +96,11 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx agent chat: %w", err)
 	}
-	// axAgentRunner is the per-type singleton over state/events/agent_runner.db: the
-	// running vendor CLI is an aggregate of its own, apart from the chat it serves.
-	// Its projections are registered via repositories.New -> runner.NewEventSourced.
 	axAgentActivity, err := newAsynx[domain.ChatActivity](
 		adapters.AgentActivityES(), adapters.AgentActivitySS(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("app container: agent activity asynx: %w", err)
-	}
-
-	axAgentRunner, err := newAsynx[agents.Runner](adapters.AgentRunnerES(), adapters.AgentRunnerSS())
-	if err != nil {
-		return nil, fmt.Errorf("app: asynx agent runner: %w", err)
 	}
 
 	axNode, err := newAxNode(adapters)
@@ -137,7 +126,6 @@ func New(
 		axWorkspace,
 		axAgentChat,
 		axAgentActivity,
-		axAgentRunner,
 		axNode,
 		engines,
 	)
@@ -174,7 +162,6 @@ func New(
 		axReviewThread:  axReviewThread,
 		axAgentChat:     axAgentChat,
 		axAgentActivity: axAgentActivity,
-		axAgentRunner:   axAgentRunner,
 		axNode:          axNode,
 	}
 
@@ -191,7 +178,7 @@ func New(
 	reconcileAgentRunners(ctx, ucs)
 	// After the runner reconcile (its history is final) and before the owner
 	// reconcile (a project home created here needs an owner).
-	if err := post.RunPostOpen(ctx, legacyImpls(newLegacyFuncs(repos, ucs))); err != nil {
+	if err := post.RunPostOpen(ctx, legacyImpls(newLegacyFuncs(repos, ucs, adapters.Home()))); err != nil {
 		return nil, c.abandon(ctx, fmt.Errorf("app: migrate: %w", err))
 	}
 	// Loops start once the boot can no longer fail, so a failed one leaves none.
@@ -280,7 +267,6 @@ func newRepositoriesContainer(
 	axWorkspace asynx.Asynx[domain.Workspace],
 	axAgentChat asynx.Asynx[domain.Chat],
 	axAgentActivity asynx.Asynx[domain.ChatActivity],
-	axAgentRunner asynx.Asynx[agents.Runner],
 	axNode asynx.Asynx[domain.Node],
 	engines *engine.Container,
 ) (*repositories.Container, error) {
@@ -293,11 +279,9 @@ func newRepositoriesContainer(
 		axWorkspace,
 		axAgentChat,
 		axAgentActivity,
-		axAgentRunner,
 		axNode,
 		engines.Git,
 		agentFanout.ChatWatch(),
-		agentFanout.RunnerWatch(),
 		nil,
 		choiceWatch.Notify,
 		func(string) { h.BroadcastPlacementChanged() },
@@ -467,27 +451,13 @@ func startRestoreTerminalSessions(
 	_ = ucs.Terminal.RestorePersistedSessions(context.WithoutCancel(ctx))
 }
 
-// reconcileAgentRunners reaps the live-runner rows of the previous run: agent_runners is
-// durable sqlite and is never truncated at boot, but a PTY never survives a restart, so
-// every row the daemon comes back to describes a CLI that no longer exists. Nothing
-// recorded those deaths — the only thing that ever does is an exit callback that lived in
-// the process that went away.
+// reconcileAgentRunners ends the previous run's runners: a PTY never survives a
+// restart, so every runner_started the ledger still holds open describes a CLI that
+// no longer exists, and nothing recorded its death. Left open, it would hold the
+// chat busy and, if it died mid-turn, spin its spinner forever.
 //
-// A stale row is not cosmetic: it is indistinguishable from a running CLI to every read in
-// the agent package, so it BRICKS the chat it names (ResumeChat finds it and no-ops, and
-// the pane attaches to a dead terminal session) and, if the chat was mid-turn, spins its
-// spinner forever. This runs on EVERY boot, so those states last until this call, not
-// until the user gives up.
-//
-// It runs SYNCHRONOUSLY and AFTER startRestoreTerminalSessions. Synchronously matters: the
-// first client read must not race it, or an HTTP read that beats the reconcile is served a
-// corpse. The ordering relative to the restore does NOT: the reconcile asks SessionLive,
-// which questions the PTY directly, not the terminal registry, so a not-yet-restored session
-// and a restored PTY-less placeholder both read false — correctly, since a restored session
-// is never live either way. (The hazard that WOULD make this ordering load-bearing belongs
-// to the engine's SessionExists, not SessionLive: SessionExists answers true for every
-// restored placeholder, which is exactly why ReconcileRunnersOnBoot insists on SessionLive
-// instead — see its call site in agent.go.)
+// It runs SYNCHRONOUSLY, before anything is served: the first client read must not
+// race it.
 //
 // Best-effort: a failure is logged and the daemon still boots. The chats it could not
 // reconcile are no worse off than they were a line earlier, and refusing to start the

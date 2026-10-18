@@ -13,7 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // stubConversationsForPromptRestart answers only ChatSelection — the one
@@ -127,7 +126,7 @@ func TestSubmitPromptOverAPI_UnchangedSelectionStillUsesTheLiveConnection(t *tes
 func TestRegression_CommitPromptSpawn_APTYLessRunnerIsNotAMissingIdentity(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	h.seedLiveAPIConn(t, "runner-1")
-	h.store.runner = engineagents.Runner{ID: "runner-1", ProviderID: "codex", TerminalSession: ""}
+	require.NoError(t, h.rs.live.add(engineagents.Runner{ID: "runner-1", ProviderID: "codex", CurrentChatID: "chat-1"}))
 	require.NoError(t, h.rs.recordPrompt(t.Context(), "chat-1", "req-1", "hello", ledger.DeliveryAPI, "runner-1"))
 
 	got, err := h.rs.commitPromptSpawn(t.Context(), "chat-1", "req-1", "runner-1")
@@ -142,7 +141,7 @@ func TestRegression_CommitPromptSpawn_APTYLessRunnerIsNotAMissingIdentity(t *tes
 // The prompt is settled, so it holds the chat busy for nobody.
 func TestCommitPromptSpawn_ARunnerWithNeitherPTYNorConnectionIsStillRefused(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
-	h.store.runner = engineagents.Runner{ID: "runner-1", ProviderID: "codex", TerminalSession: ""}
+	require.NoError(t, h.rs.live.add(engineagents.Runner{ID: "runner-1", ProviderID: "codex", CurrentChatID: "chat-1"}))
 	require.NoError(t, h.rs.recordPrompt(t.Context(), "chat-1", "req-1", "hello", ledger.DeliveryRestart, "runner-1"))
 
 	_, err := h.rs.commitPromptSpawn(t.Context(), "chat-1", "req-1", "runner-1")
@@ -168,7 +167,7 @@ func TestReplayPriorPrompt_ACarrierItCannotReadIsAnError(t *testing.T) {
 	_, done, err := h.rs.replayPriorPrompt(t.Context(), "chat-1", "req-1", "req-1")
 
 	assert.True(t, done, "the request is a resend")
-	require.ErrorIs(t, err, agentrunner.ErrNotFound)
+	require.ErrorIs(t, err, ErrNoLiveRunner)
 }
 
 // appendPrompt records a pending prompt on chat-1, carried by carrier, straight into l.

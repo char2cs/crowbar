@@ -9,12 +9,19 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// LiveRunnerForChat returns the CLI currently placed on the chat.
+// LiveRunnerForChat returns the CLI on the chat; ErrNoLiveRunner when it is
+// dormant.
 func (u *Usecase) LiveRunnerForChat(
 	ctx context.Context,
 	chatID string,
 ) (engineagents.Runner, error) {
 	return u.runners.LiveRunnerForChat(ctx, chatID)
+}
+
+// RunnerByID is the live runner runnerID, also while it is exiting: the MCP
+// resolver's port.
+func (u *Usecase) RunnerByID(runnerID string) (engineagents.Runner, bool) {
+	return u.runners.RunnerByID(runnerID)
 }
 
 // ConversationsForChat returns every (provider, session) the chat's ledger

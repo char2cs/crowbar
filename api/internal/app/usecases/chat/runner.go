@@ -129,14 +129,13 @@ type RunnerUsecase interface {
 	// be on different surfaces. See runner/capabilities.go.
 	TelemetryOnChatSurface(ctx context.Context, chatID string) bool
 
-	// ShutdownAPIConnections kills every live api-transport connection this
-	// daemon still holds. It is the shutdown-time counterpart to
-	// ReconcileRunnersOnBoot: that call cleans up the PREVIOUS run's dead
-	// rows on the way up, this one kills THIS run's live processes on the way
-	// down — neither path reaches the other's targets.
+	// ShutdownAPIConnections notes daemon_restart on every live runner and
+	// kills every api-transport connection this daemon still holds: the
+	// shutdown-time counterpart to ReconcileRunnersOnBoot.
 	ShutdownAPIConnections()
 
-	// LiveRunnerForChat returns the runner currently placed on a chat.
+	// LiveRunnerForChat returns the runner on a chat; ErrNoLiveRunner when it
+	// is dormant.
 	LiveRunnerForChat(
 		ctx context.Context,
 		chatID string,
@@ -149,24 +148,26 @@ type RunnerUsecase interface {
 		chatID string,
 	) ([]engineagents.ChatConversation, error)
 
-	// ReconcileRunnersOnBoot Exits every recorded runner whose PTY did not survive
-	// the restart, closes the turns they died in, and settles the prompts they
-	// left pending.
+	// ReconcileRunnersOnBoot records daemon_restart for every runner the ledger
+	// still holds live, closes the turns they died in, and settles the prompts
+	// they left pending.
 	ReconcileRunnersOnBoot(
 		ctx context.Context,
 	) error
 
 	// RestateProvidersFromHistory makes each chat's durable provider agree with
-	// its runner history, as the pre-audit daemon resolved it. It runs once per
-	// install, after ReconcileRunnersOnBoot, and counts the rows it skipped.
+	// newest, the provider the legacy history last names per chat. It runs once
+	// per install, after ReconcileRunnersOnBoot, and counts the rows it skipped.
 	RestateProvidersFromHistory(
 		ctx context.Context,
+		newest map[string]string,
 	) (skipped int, err error)
 
 	// StaleProviders lists the replayable chats RestateProvidersFromHistory left
-	// on a provider their runner history disagrees with.
+	// on a provider newest disagrees with.
 	StaleProviders(
 		ctx context.Context,
+		newest map[string]string,
 	) ([]string, error)
 
 	// Compact asks the chat's CLI to compact its own context, using the gesture the
@@ -395,8 +396,8 @@ func (u *Usecase) PendingPrompt(
 	return u.runners.PendingPrompt(ctx, chatID)
 }
 
-// ReconcileRunnersOnBoot exits every runner whose PTY did not survive the
-// restart. Nothing else can: no event was ever recorded for a process the daemon
+// ReconcileRunnersOnBoot ends every runner whose PTY did not survive the
+// restart. Nothing else can: no exit was ever recorded for a process the daemon
 // outlived.
 func (u *Usecase) ReconcileRunnersOnBoot(
 	ctx context.Context,
@@ -405,18 +406,20 @@ func (u *Usecase) ReconcileRunnersOnBoot(
 }
 
 // RestateProvidersFromHistory is the one-off upgrade of every chat's durable
-// provider to what its runner history names; see Conversations'.
+// provider to what its legacy history names; see Conversations'.
 func (u *Usecase) RestateProvidersFromHistory(
 	ctx context.Context,
+	newest map[string]string,
 ) (int, error) {
-	return u.conversations.RestateProvidersFromHistory(ctx)
+	return u.conversations.RestateProvidersFromHistory(ctx, newest)
 }
 
 // StaleProviders implements RunnerUsecase.
 func (u *Usecase) StaleProviders(
 	ctx context.Context,
+	newest map[string]string,
 ) ([]string, error) {
-	return u.conversations.StaleProviders(ctx)
+	return u.conversations.StaleProviders(ctx, newest)
 }
 
 // Compact asks the chat's provider to compact its own context, through whichever
@@ -451,8 +454,8 @@ func (u *Usecase) TelemetryOnChatSurface(ctx context.Context, chatID string) boo
 	return u.runners.TelemetryOnChatSurface(ctx, chatID)
 }
 
-// ShutdownAPIConnections kills every live api-transport connection this
-// daemon still holds.
+// ShutdownAPIConnections notes daemon_restart on every live runner and kills
+// every api-transport connection this daemon still holds.
 func (u *Usecase) ShutdownAPIConnections() {
 	u.runners.Shutdown()
 }

@@ -11,7 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 func (t *Turns) IngestHook(
@@ -46,37 +45,18 @@ func (t *Turns) ingestUserPromptInterlocked(
 	runnerID, provider, canonicalEvent string,
 	rawPayload []byte,
 ) error {
-	for {
-		runner, err := t.runnerStore.Get(ctx, runnerID)
-		if err != nil {
-			if errors.Is(err, agentrunner.ErrNotFound) {
-				return nil
-			}
-			return fmt.Errorf("agent: ingest hook: runner: %w", err)
-		}
-		if runner.CurrentChatID == "" {
-			return nil
-		}
-		chatID := runner.CurrentChatID
-		unlock := t.turnStarts.Lock(chatID)
-		current, err := t.runnerStore.Get(ctx, runnerID)
-		if err != nil {
-			unlock()
-			if errors.Is(err, agentrunner.ErrNotFound) {
-				return nil
-			}
-			return fmt.Errorf("agent: ingest hook: refresh runner under turn-start interlock: %w", err)
-		}
-		if current.CurrentChatID != chatID {
-			unlock()
-			// Placement changed before the lock. Retry against the durable current
-			// chat, or drop on the next iteration if the runner was displaced.
-			continue
-		}
-		err = t.ingestResolvedHook(ctx, current, provider, canonicalEvent, rawPayload)
-		unlock()
-		return err
+	runner, ok := t.runners.RunnerByID(runnerID)
+	if !ok {
+		return nil
 	}
+	unlock := t.turnStarts.Lock(runner.CurrentChatID)
+	defer unlock()
+	// A replacement that held the interlock first has ended this runner.
+	current, ok := t.runners.RunnerByID(runnerID)
+	if !ok {
+		return nil
+	}
+	return t.ingestResolvedHook(ctx, current, provider, canonicalEvent, rawPayload)
 }
 
 func (t *Turns) ingestResolvedHook(
@@ -292,14 +272,11 @@ func (t *Turns) ingestHookNow(
 	if canonicalEvent == "user_prompt" {
 		return t.ingestUserPromptInterlocked(ctx, runnerID, provider, canonicalEvent, rawPayload)
 	}
-	runner, err := t.runnerStore.Get(ctx, runnerID)
-	if err != nil {
-		if errors.Is(err, agentrunner.ErrNotFound) {
-			// A hook from a runner we do not know (or one whose PTY has already died):
-			// ignore it. Never resurrect a runner from a hook.
-			return nil
-		}
-		return fmt.Errorf("agent: ingest hook: runner: %w", err)
+	runner, ok := t.runners.RunnerByID(runnerID)
+	if !ok {
+		// A hook from a runner we do not know (or one whose PTY has already died):
+		// ignore it. Never resurrect a runner from a hook.
+		return nil
 	}
 	return t.ingestResolvedHook(ctx, runner, provider, canonicalEvent, rawPayload)
 }

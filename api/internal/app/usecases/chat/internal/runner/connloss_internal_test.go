@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // A connection that dies on its own ends its runner (the channel IS the
@@ -25,7 +26,8 @@ func TestRegression_ALostAPIConnectionEndsItsRunnerWithACause(t *testing.T) {
 	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
 
-	rs := &Runners{turns: &spyTurns{}, apiConns: newAPIConnRegistry(), sessions: newSessionBook()}
+	rs := &Runners{turns: &spyTurns{}, apiConns: newAPIConnRegistry(), live: newLiveTable()}
+	require.NoError(t, rs.live.add(engineagents.Runner{ID: "runner-1", CurrentChatID: "chat-1"}))
 	conn := &apiconn{driver: apiConn, ctx: ctx}
 	rs.apiConns.set("runner-1", conn)
 	require.True(t, rs.HasLiveAPIConnection("runner-1"))
@@ -34,7 +36,9 @@ func TestRegression_ALostAPIConnectionEndsItsRunnerWithACause(t *testing.T) {
 
 	require.Eventually(t, func() bool { return !rs.HasLiveAPIConnection("runner-1") },
 		3*time.Second, 10*time.Millisecond, "a dead connection must stop claiming to be the runner's channel")
-	require.Equal(t, domain.AgentExitConnectionLost, rs.sessions.takeCause("runner-1"))
+	exit, ok := rs.live.claimExit("runner-1")
+	require.True(t, ok)
+	require.Equal(t, domain.AgentExitConnectionLost, exit.cause)
 }
 
 // The mirror case: a DELIBERATE teardown (drop, on retire / provider switch /
@@ -53,7 +57,7 @@ func TestPumpAPIConn_ADeliberateTeardownIsNotTreatedAsALostConnection(t *testing
 	apiConn, err := agent.StartAPIConn(context.Background(), sockPath, nil)
 	require.NoError(t, err)
 
-	rs := &Runners{turns: &spyTurns{}, apiConns: newAPIConnRegistry()}
+	rs := &Runners{turns: &spyTurns{}, apiConns: newAPIConnRegistry(), live: newLiveTable()}
 	connCtx, connCancel := context.WithCancel(context.Background())
 	conn := &apiconn{driver: apiConn, ctx: connCtx, cancel: connCancel}
 	rs.apiConns.set("runner-1", conn)

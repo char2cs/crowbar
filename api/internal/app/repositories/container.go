@@ -9,8 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/engine/agents"
-
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
@@ -27,7 +25,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/purge"
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
 )
@@ -44,10 +41,6 @@ type Container struct {
 	// interruptions, in their own aggregate with their own read model. It replaced
 	// the flat-file ledger, which could represent none of those.
 	AgentActivity agentactivity.EventStore
-	// AgentRunner is the asynx-backed EventStore for the running vendor CLI. The
-	// workspace-delete cascade reads it too, to find the CLI on a chat it is about
-	// to Forget.
-	AgentRunner agentrunner.EventStore
 	// Node is the position aggregate: the one owner of every sidebar row's
 	// ParentID/Order, at every tree level.
 	Node node.EventStore
@@ -66,7 +59,7 @@ type Container struct {
 	// container. The cascade REFUSES to run without it rather than purging
 	// half a chat.
 	PurgeChat func(ctx context.Context, chatID string) error
-	// axWorkspace/axReviewThread/axAgentChat/axAgentRunner are the per-type asynx
+	// axWorkspace/axReviewThread/axAgentChat/axAgentActivity/axNode are the per-type asynx
 	// instances, retained so WaitQuiescent can drain their dispatch queues +
 	// projection handlers — the deterministic read-your-writes barrier for tests (no
 	// polling, no timeouts).
@@ -74,7 +67,6 @@ type Container struct {
 	axReviewThread  asynx.Asynx[domain.ReviewThread]
 	axAgentChat     asynx.Asynx[domain.Chat]
 	axAgentActivity asynx.Asynx[domain.ChatActivity]
-	axAgentRunner   asynx.Asynx[agents.Runner]
 	axNode          asynx.Asynx[domain.Node]
 	// inflight counts the background mutations currently running per workspace
 	// id (00 §4 fail-fast/good-path-async). It backs the derived Working overlay:
@@ -131,11 +123,9 @@ func New(
 	axWorkspace asynx.Asynx[domain.Workspace],
 	axAgentChat asynx.Asynx[domain.Chat],
 	axAgentActivity asynx.Asynx[domain.ChatActivity],
-	axAgentRunner asynx.Asynx[agents.Runner],
 	axNode asynx.Asynx[domain.Node],
 	git wsusecase.MergeConflictBatchChecker,
 	chatWatch agentchat.WatchFunc,
-	runnerWatch agentrunner.WatchFunc,
 	nodeWatch node.WatchFunc,
 	choiceWatch agentactivity.WatchFunc,
 	placementWatch func(id string),
@@ -144,7 +134,6 @@ func New(
 		hub: h, git: git, inflight: map[string]int{},
 		agentWorking: map[string]map[string]struct{}{},
 		axWorkspace:  axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat,
-		axAgentRunner:   axAgentRunner,
 		axAgentActivity: axAgentActivity,
 		axNode:          axNode,
 	}
@@ -204,22 +193,6 @@ func New(
 	}
 	c.AgentActivity = agentActivity
 
-	// agentrunner: build the asynx-backed EventStore over the singleton
-	// axAgentRunner, registering its two read projections (live runners +
-	// append-only placement history) and its hub projection exactly once, over
-	// its OWN per-type planes (state/events/agent_runner.db and
-	// state/store/agent_runner.db). runnerWatch is the sole source of
-	// runner lifecycle frames (started/session_bound/displaced/exited). The agent
-	// usecase sends every runner command through this store, and the workspace-delete
-	// cascade below reads it to find the CLI pointed at a chat it is about to Forget.
-	agentRunner, err := agentrunner.NewEventSourced(
-		axAgentRunner, adapters.AgentRunnerReadDB(), runnerWatch,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("repositories: agent runner event store: %w", err)
-	}
-	c.AgentRunner = agentRunner
-
 	nodeStore, err := node.NewEventSourced(
 		axNode, adapters.NodeES(), adapters.NodeReadDB(), nodeWatch,
 		node.WithPlacementWatch(placementWatch),
@@ -255,7 +228,6 @@ func (c *Container) WaitQuiescent() {
 	c.axReviewThread.WaitPublish()
 	c.axAgentChat.WaitPublish()
 	c.axAgentActivity.WaitPublish()
-	c.axAgentRunner.WaitPublish()
 	c.axNode.WaitPublish()
 }
 
