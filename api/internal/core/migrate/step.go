@@ -40,13 +40,12 @@ type ID struct {
 	Name   string `json:"name"`
 }
 
-// Env is what a step may touch: the home it migrates and a logger, and what the
-// step's earlier attempts checkpointed.
+// Env is what a step may touch: the home it migrates and a logger.
 type Env struct {
 	Home home.Home
 	Log  *slog.Logger
-	// Earlier lets a Plan, which has no Checkpoints, see how far an attempt that
-	// was stopped got.
+	// Earlier is set for a Plan alone, which has no Checkpoints: how far an
+	// attempt that was stopped got.
 	Earlier Marks
 }
 

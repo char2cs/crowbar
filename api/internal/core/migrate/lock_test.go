@@ -36,16 +36,14 @@ func TestRegression_StateDirSingleInstanceLock(t *testing.T) {
 	}
 }
 
-// The lock is the first thing a boot writes, so a fresh home's root is born
+// The home's root is the first thing a boot writes, so a fresh home is born
 // here and must be owner-only, as the stores opened after it expect.
-func TestLockHome_CreatesAnOwnerOnlyHome(t *testing.T) {
+func TestCreateHome_MakesAnOwnerOnlyHome(t *testing.T) {
 	testutil.RequirePermissionEnforcement(t)
 	h, err := home.At(filepath.Join(t.TempDir(), "fresh"))
 	require.NoError(t, err)
 
-	lock, err := lockHome(h)
-	require.NoError(t, err)
-	require.NoError(t, lock.Close())
+	require.NoError(t, createHome(h))
 
 	info, err := os.Stat(h.Root())
 	require.NoError(t, err)

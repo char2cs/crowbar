@@ -57,10 +57,10 @@ func New(
 		return nil, err
 	}
 	s := &Store{
-		storage:   st,
-		content:   blobs,
-		ax:        ax,
-		es:        es,
+		storage: st,
+		content: blobs,
+		ax:      ax,
+		es:      es,
 	}
 	for _, opt := range opts {
 		opt(s)

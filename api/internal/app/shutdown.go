@@ -213,7 +213,16 @@ func (c *Container) abandon(
 	ctx context.Context,
 	cause error,
 ) error {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), WriterDrainGrace)
+	return c.abandonWithin(ctx, cause, WriterDrainGrace)
+}
+
+// abandonWithin is abandon with the writers' wait bounded by grace.
+func (c *Container) abandonWithin(
+	ctx context.Context,
+	cause error,
+	grace time.Duration,
+) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), grace)
 	defer cancel()
 	err := c.Shutdown(ctx)
 	shutdownAgentRunners(c.Usecases)

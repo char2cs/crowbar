@@ -18,15 +18,22 @@ type homeLock struct {
 	file *os.File
 }
 
-// lockHome takes the home lock without blocking, creating an owner-only home,
-// state/ and the lock file when missing. A held lock yields an error wrapping
-// ErrHomeLocked.
+// createHome makes the owner-only home directory. Without it there is nothing
+// to hold or to report on.
+func createHome(
+	h home.Home,
+) error {
+	if err := os.MkdirAll(h.Root(), 0o700); err != nil {
+		return fmt.Errorf("migrate: create home: %w", err)
+	}
+	return nil
+}
+
+// lockHome takes the home lock without blocking, creating state/ and the lock
+// file when missing. A held lock yields an error wrapping ErrHomeLocked.
 func lockHome(
 	h home.Home,
 ) (*homeLock, error) {
-	if err := os.MkdirAll(h.Root(), 0o700); err != nil {
-		return nil, fmt.Errorf("migrate: create home: %w", err)
-	}
 	if err := os.MkdirAll(h.State(), 0o750); err != nil {
 		return nil, fmt.Errorf("migrate: create state directory: %w", err)
 	}

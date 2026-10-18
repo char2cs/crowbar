@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
@@ -132,6 +133,77 @@ func readOnly(
 	tb.Helper()
 	require.NoError(tb, os.Chmod(path, mode))
 	tb.Cleanup(func() { require.NoError(tb, os.Chmod(path, 0o700)) })
+}
+
+// A home whose lock cannot be taken for a reason other than another holder
+// halts like any refusal, but holds nothing: the daemon serves the halt, no step
+// runs, and there is no lock to release.
+func TestBegin_AHomeItCannotLockHaltsHoldingNothing(t *testing.T) {
+	tests := []struct {
+		name  string
+		perms bool
+		spoil func(*bench)
+		mend  func(*bench)
+		want  string
+	}{
+		{
+			name:  "state is a file",
+			spoil: func(b *bench) { testutil.WriteFile(b.tb, b.home, "state", "a file, not a directory") },
+			mend:  func(b *bench) { require.NoError(b.tb, os.Remove(b.home.State())) },
+			want:  "create state directory",
+		},
+		{
+			name:  "the lock file cannot be opened",
+			perms: true,
+			spoil: func(b *bench) {
+				testutil.WriteFile(b.tb, b.home, "state/.lock", "")
+				readOnly(b.tb, b.home.LockFile(), 0)
+			},
+			mend: func(b *bench) { require.NoError(b.tb, os.Chmod(b.home.LockFile(), 0o600)) },
+			want: "open lock file",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.perms {
+				testutil.RequirePermissionEnforcement(t)
+			}
+			b := newBench(t, newStep(1, "a", PreOpen, 0, 0))
+			tc.spoil(b)
+			var order []int
+
+			s := b.begin()
+
+			h := s.Halt()
+			require.NotNil(t, h)
+			assert.Equal(t, HaltIOFailed, h.Reason)
+			assert.Contains(t, h.Message, tc.want)
+			assert.Same(t, h, halted(t, s.RunPreOpen(context.Background(), tracing(&order, 1))))
+			assert.Empty(t, order)
+			assert.NoDirExists(t, b.home.MigrateDir())
+			tc.mend(b)
+			lock, err := lockHome(b.home)
+			require.NoError(t, err, "the halted session holds no lock")
+			require.NoError(t, lock.Close())
+		})
+	}
+}
+
+// A home that cannot be created has nothing to hold and nothing to report on,
+// so Begin returns the error and no session.
+func TestBegin_AHomeThatCannotBeCreatedIsAnError(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(file, []byte("x"), 0o600))
+	h, err := home.At(filepath.Join(file, "home"))
+	require.NoError(t, err)
+	cat, err := NewCatalog()
+	require.NoError(t, err)
+
+	s, err := Begin(context.Background(), h, cat, Options{})
+
+	require.ErrorContains(t, err, "create home")
+	require.NotErrorIs(t, err, ErrHomeLocked)
+	assert.Nil(t, s)
 }
 
 func TestBegin_RefusesANewerLayout(t *testing.T) {

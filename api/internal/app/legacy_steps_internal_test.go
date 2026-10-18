@@ -50,9 +50,6 @@ func (f fakeCheckpoints) Mark(key string, n migrate.Counts) error {
 	return nil
 }
 
-// Only a live project with no live home gets one, each checkpointed as it
-// lands. A home tombstone still holds the home's id until its purge runs, so
-// that project's home is not missing and cannot be created again.
 // migrate --plan previews a boot with Implemented: a step the catalog holds and
 // it does not name would preview as a halt the boot never gives.
 func TestImplemented_NamesEveryStepTheBootRuns(t *testing.T) {
@@ -66,6 +63,9 @@ func TestImplemented_NamesEveryStepTheBootRuns(t *testing.T) {
 	assert.False(t, Implemented(migrations.StepHookDeliveries+1), "no step past the catalog")
 }
 
+// Only a live project with no live home gets one, each checkpointed as it
+// lands. A home tombstone still holds the home's id until its purge runs, so
+// that project's home is not missing and cannot be created again.
 func TestReconcileProjectHomes_CreatesOnlyTheMissingHomes(t *testing.T) {
 	tombstone := workspace.ProjectHomeID("tombstoned")
 	c, cp := &fakeHomeCreator{taken: map[string]bool{tombstone: true}}, fakeCheckpoints{}

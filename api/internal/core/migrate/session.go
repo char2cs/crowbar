@@ -84,24 +84,28 @@ type Session struct {
 }
 
 // Begin takes the home lock, reads the layout and the ledger, and closes a run
-// a crash left open. It returns an error, and no session, only when the lock
-// cannot be taken: the home is held by another process (ErrHomeLocked) or
-// cannot be created. A home it must not or cannot migrate (LAYOUT newer or
-// unreadable, the ledger corrupt, unreadable or unwritable, a half-written
-// backup it cannot remove) is no error: the session is live, holds the lock,
-// and its Halt says why.
+// a crash left open. A session comes back unless the home cannot be created or
+// is held (ErrHomeLocked); any other refusal is its Halt, with no lock if that failed.
 func Begin(
 	_ context.Context,
 	h home.Home,
 	cat *Catalog,
 	opts Options,
 ) (*Session, error) {
-	lock, err := lockHome(h)
-	if err != nil {
+	if err := createHome(h); err != nil {
 		return nil, err
 	}
-	s := &Session{home: h, cat: cat, opts: opts.withDefaults(), lock: lock}
-	s.load()
+	s := &Session{home: h, cat: cat, opts: opts.withDefaults()}
+	lock, err := lockHome(h)
+	switch {
+	case errors.Is(err, ErrHomeLocked):
+		return nil, err
+	case err != nil:
+		s.refuse(HaltIOFailed, err.Error())
+	default:
+		s.lock = lock
+		s.load()
+	}
 	return s, nil
 }
 

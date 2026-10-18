@@ -151,11 +151,11 @@ func TestApp_Shutdown_GateRefusesNewWorkOnceDraining(t *testing.T) {
 
 // A New that fails tears down what it started without the caller's ctx, which
 // may be the very thing that gave up; a reactor that never leaves must still not
-// hold that teardown past the grace Run gives the writers.
-func TestApp_Abandon_AWedgedReactorHoldsItNoLongerThanTheWriterDrainGrace(t *testing.T) {
+// hold that teardown past the grace it is given.
+func TestApp_Abandon_AWedgedReactorHoldsItNoLongerThanTheGrace(t *testing.T) {
 	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = adapters.Close() })
+	t.Cleanup(func() { require.NoError(t, adapters.Close()) })
 	c, err := app.New(context.Background(), newEng(t), adapters, migratetest.NoPostOpen())
 	require.NoError(t, err)
 	gate := c.Repositories.Drain().Gate
@@ -164,16 +164,13 @@ func TestApp_Abandon_AWedgedReactorHoldsItNoLongerThanTheWriterDrainGrace(t *tes
 	cause := errors.New("the boot failed")
 	done := make(chan error, 1)
 
-	go func() { done <- c.Abandon(context.Background(), cause) }()
+	go func() { done <- c.AbandonWithin(context.Background(), cause, time.Millisecond) }()
 
-	var got error
-	require.Eventually(t, func() bool {
-		select {
-		case got = <-done:
-			return true
-		default:
-			return false
-		}
-	}, 2*app.WriterDrainGrace, 10*time.Millisecond, "abandon waited on the reactor past the grace")
-	require.ErrorIs(t, got, cause)
+	select {
+	case got := <-done:
+		require.ErrorIs(t, got, cause)
+		require.ErrorIs(t, got, context.DeadlineExceeded, "the wedge, not the teardown finishing, ended the wait")
+	case <-time.After(app.WriterDrainGrace / 2): // the default grace has not elapsed
+		t.Fatal("abandon waited on the reactor past the grace")
+	}
 }

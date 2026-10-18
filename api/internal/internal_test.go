@@ -91,7 +91,7 @@ func TestNew_InvalidHomeDir_ReturnsError(t *testing.T) {
 		nil,
 		internal.WithHomeDir(filepath.Join(file, "home")),
 	)
-	assert.ErrorContains(t, err, "internal: migrate")
+	assert.ErrorContains(t, err, "internal: migrate: migrate: create home")
 }
 
 // The daemon holds its home while it runs, so a second one is refused before
@@ -205,26 +205,21 @@ func TestNew_HaltsWhenAStepFails(t *testing.T) {
 // of exiting it: a supervisor would respawn an exited one into the same failure.
 func TestNew_HaltsOnAHomeItCannotPutInOrder(t *testing.T) {
 	partial := filepath.Join("migrate", "backups", "20261017T010203.000000000Z.partial")
-	tests := map[string]struct {
-		write  func(h home.Home)
-		locked string
-	}{
+	tests := map[string]struct{ file, content, locked string }{
 		"a half-written backup that cannot be removed": {
-			write:  func(h home.Home) { testutil.WriteFile(t, h, filepath.Join(partial, "state", "x"), "x") },
-			locked: filepath.Join(partial, "state"),
+			file: filepath.Join(partial, "state", "x"), content: "x", locked: filepath.Join(partial, "state"),
 		},
 		"a run left open in a ledger that cannot be written": {
-			write: func(h home.Home) {
-				testutil.WriteFile(t, h, "migrate/ledger.jsonl", `{"v":1,"kind":"run.start","run":"r-killed","pending":[1]}`+"\n")
-			},
-			locked: filepath.Join("migrate", "ledger.jsonl"),
+			file:    filepath.Join("migrate", "ledger.jsonl"),
+			content: `{"v":1,"kind":"run.start","run":"r-killed","pending":[1]}` + "\n",
+			locked:  filepath.Join("migrate", "ledger.jsonl"),
 		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			testutil.RequirePermissionEnforcement(t)
 			h := testutil.FixtureHome(t)
-			tc.write(h)
+			testutil.WriteFile(t, h, tc.file, tc.content)
 			locked := filepath.Join(h.Root(), tc.locked)
 			require.NoError(t, os.Chmod(locked, 0o500))
 			t.Cleanup(func() { require.NoError(t, os.Chmod(locked, 0o700)) })
@@ -242,6 +237,30 @@ func TestNew_HaltsOnAHomeItCannotPutInOrder(t *testing.T) {
 			require.ErrorIs(t, err, migrate.ErrHomeLocked, "the halted daemon still holds the home")
 		})
 	}
+}
+
+// A home whose lock cannot be taken halts the daemon too, though it holds
+// nothing: a daemon that exits would be respawned into the same failure.
+func TestNew_HaltsOnAHomeItCannotLock(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "state", "a file, not a directory")
+
+	d, err := boot(t.Context(), t, h)
+
+	require.NoError(t, err)
+	health := d.get(t, "/v0/health")
+	assert.Equal(t, "halted", health.Data.Status, health.raw)
+	halt := detail[migrate.Halt](t, health)
+	assert.Equal(t, migrate.HaltIOFailed, halt.Reason)
+	assert.Contains(t, halt.Message, "create state directory")
+	assert.Equal(t, http.StatusServiceUnavailable, d.get(t, "/v0/projects").status)
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	assert.NoError(t, d.Run(cancelled))
+	require.NoError(t, os.Remove(filepath.Join(h.Root(), "state")))
+	sess, err := migrations.Begin(t.Context(), h, migrate.Options{})
+	require.NoError(t, err, "the halted daemon holds no lock")
+	require.NoError(t, sess.Close())
 }
 
 func TestClose_ReleasesTheHomeLock(t *testing.T) {

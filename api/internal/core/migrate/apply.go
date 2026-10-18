@@ -161,7 +161,7 @@ func (s *Session) runStep(
 		return s.fail(HaltStepFailed, step, fmt.Errorf("record start: %w", err))
 	}
 	s.opts.Log.InfoContext(ctx, "migrate: step started", "step", step.Number, "name", step.Name, "phase", step.Phase.String())
-	env := Env{Home: s.home, Log: s.opts.Log, Earlier: s.led.view.checkpoints(step.Number, step.Name)}
+	env := Env{Home: s.home, Log: s.opts.Log}
 	cp := newCheckpoints(s.led, run.id, step.ID(), s.now)
 	counts, err := impl.Apply(ctx, env, cp)
 	if err != nil {

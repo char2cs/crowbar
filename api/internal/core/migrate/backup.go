@@ -35,12 +35,9 @@ type backupResult struct {
 	Bytes int64
 }
 
-// backupState writes migrate/backups/<runID>: state/ (the home lock file left
-// out), the layout and the ledger as they stand, which a restore rewinds
-// together. It is built under <runID>.partial and renamed once complete, so a
-// failure leaves neither, and only if the volume has room for the copy plus
-// backupHeadroom. The caller holds the lock and has started its run: the copy
-// is consistent only while nothing writes state/, and the ledger must exist.
+// backupState copies state/ (minus the lock file), LAYOUT and the ledger to
+// migrate/backups/<runID>, built as <runID>.partial and renamed once complete,
+// if the volume has room. The caller holds the lock and has started its run.
 func backupState(
 	h home.Home,
 	runID string,
