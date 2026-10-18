@@ -79,8 +79,7 @@ func (e *engine) WorktreeAddAtRef(
 		// Same dead-registration recovery WorktreeAdd performs: a worktree whose
 		// directory vanished still holds its branch "checked out" and blocks the
 		// add forever until the stale registration is pruned.
-		_ = gitexec.RequireSuccess("worktree prune",
-			e.exec(ctx, repoPath, "worktree", "prune"))
+		e.pruneBeforeRetry(ctx, repoPath)
 		r = e.exec(ctx, repoPath, "worktree", "add", worktreePath, "-B", branch, startSha)
 	}
 	if err := classifyGitError("worktree add at ref", r); err != nil {

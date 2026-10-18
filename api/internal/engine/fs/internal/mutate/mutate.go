@@ -2,6 +2,7 @@
 package mutate
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -90,8 +91,10 @@ func Copy(
 		// file view and make an identical retry fail on destination-exists (409).
 		// destFull was confirmed absent above, so RemoveAll only discards what
 		// this copy created.
-		_ = os.RemoveAll(destFull)
-		return fmt.Errorf("mutate: copy %s to %s: %w", sourcePath, destPath, err)
+		return errors.Join(
+			fmt.Errorf("mutate: copy %s to %s: %w", sourcePath, destPath, err),
+			os.RemoveAll(destFull),
+		)
 	}
 	return nil
 }
@@ -155,19 +158,18 @@ func copyDirEntry(
 func copyFileBytes(
 	srcFull string,
 	destFull string,
-) error {
+) (err error) {
 	in, err := os.Open(srcFull) //nolint:gosec // G304: srcFull derives from safepath.Resolve output (confined to repoPath)
 	if err != nil {
 		return err
 	}
-	defer in.Close()                                                            //nolint:errcheck // read-only source handle: a close error cannot lose data
+	defer func() { err = errors.Join(err, in.Close()) }()
 	out, err := os.OpenFile(destFull, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) //nolint:gosec // G304: destFull derives from safepath.Resolve output (confined to repoPath)
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		return err
+		return errors.Join(err, out.Close())
 	}
 	return out.Close()
 }

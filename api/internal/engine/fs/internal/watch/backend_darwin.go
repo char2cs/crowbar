@@ -107,9 +107,7 @@ func newBackend(
 	b.stream = C.watchStreamStart(C.int(w.Fd()), C.CFArrayRef(cfPaths), streamLatency, b.queue)
 	if b.stream == nil {
 		C.watchQueueRelease(b.queue)
-		_ = r.Close()
-		_ = w.Close()
-		return nil, errors.New("start FSEvents stream")
+		return nil, errors.Join(errors.New("start FSEvents stream"), r.Close(), w.Close())
 	}
 	go b.read()
 	return b, nil
@@ -167,18 +165,19 @@ func (b *fseventsBackend) created(string) {}
 
 func (b *fseventsBackend) removed(string) {}
 
-// close stops the stream, then closes the pipe's write end; the reader keeps
-// draining until EOF so a callback blocked on a full pipe can always finish.
+// close stops the stream, then closes the pipe's write end; the reader keeps draining
+// until EOF so a callback blocked on a full pipe can always finish. Later calls return nil.
 func (b *fseventsBackend) close() error {
+	var err error
 	b.once.Do(func() {
 		close(b.done)
 		C.watchStreamStop(b.stream, b.queue)
 		C.watchQueueRelease(b.queue)
-		_ = b.w.Close()
+		wErr := b.w.Close()
 		<-b.exited
-		_ = b.r.Close()
+		err = errors.Join(wErr, b.r.Close())
 	})
-	return nil
+	return err
 }
 
 // read decodes the pipe's records (flags, path length, path) until EOF, then

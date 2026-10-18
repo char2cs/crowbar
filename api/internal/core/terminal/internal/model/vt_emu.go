@@ -1,8 +1,10 @@
 package model
 
 import (
+	"errors"
 	"image/color"
 	"io"
+	"log/slog"
 	"sync/atomic"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -60,8 +62,8 @@ type vtEmu struct {
 	sink atomic.Pointer[func(p []byte)]
 }
 
-// Write feeds bytes to the underlying emulator, discarding its (n, err) return. The
-// emulator performs no IO, so a write to its internal grid never fails meaningfully.
+// Write feeds bytes to the underlying emulator. The emulator performs no IO; it refuses a
+// write only once closed, which Close below never does to it, so a refusal is logged.
 //
 // The pinned x/vt is NOT fully headless: its handlers answer device queries — Device
 // Attributes (ESC[c / ESC[>c), Device-Status / Cursor-Position reports (ESC[6n), and
@@ -76,7 +78,9 @@ type vtEmu struct {
 func (v *vtEmu) Write(
 	p []byte,
 ) {
-	_, _ = v.Emulator.Write(p)
+	if _, err := v.Emulator.Write(p); err != nil {
+		slog.Warn("terminal: emulator refused output", "err", err)
+	}
 }
 
 // drainResponses consumes the bytes x/vt auto-writes to its InputPipe in reply to device
@@ -122,7 +126,9 @@ func (v *vtEmu) SetResponseSink(f func(p []byte)) {
 // further Write races this teardown.
 func (v *vtEmu) Close() {
 	if pw, ok := v.Emulator.InputPipe().(io.Closer); ok { //nolint:staticcheck // QF1008: explicit Emulator qualifier mirrors the mandatory v.Emulator.Write above and documents that InputPipe is promoted from the embedded emulator.
-		_ = pw.Close()
+		if err := pw.Close(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
+			slog.Warn("terminal: close emulator input pipe", "err", err)
+		}
 	}
 	<-v.drainDone
 }

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"sync"
 	"time"
@@ -188,13 +189,11 @@ func (w *Watcher) Start(
 	w.mu.Lock()
 	if w.started {
 		w.mu.Unlock()
-		_ = be.close()
-		return ErrAlreadyStarted
+		return errors.Join(ErrAlreadyStarted, be.close())
 	}
 	if w.stopped {
 		w.mu.Unlock()
-		_ = be.close()
-		return context.Canceled
+		return errors.Join(context.Canceled, be.close())
 	}
 	w.started = true
 	w.be = be
@@ -224,7 +223,9 @@ func (w *Watcher) closeBackend() {
 		be := w.be
 		w.mu.Unlock()
 		if be != nil {
-			_ = be.close()
+			if err := be.close(); err != nil {
+				slog.Warn("watch: close backend", "workspace", w.wsID, "err", err)
+			}
 		}
 	})
 }

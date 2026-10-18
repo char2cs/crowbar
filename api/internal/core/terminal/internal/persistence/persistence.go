@@ -8,8 +8,10 @@
 package persistence
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 )
@@ -40,9 +42,10 @@ var createTemp = func(dir, pattern string) (tempFile, error) {
 //  3. The temp file is renamed over the destination (atomic on POSIX).
 //  4. The parent directory is fsynced so the rename entry is durable.
 //
-// On any error the temp file is removed; a pre-existing .buf is never
+// On any error the temp file is removed, and a removal that fails too is
+// reported with the error that caused it; a pre-existing .buf is never
 // corrupted by an interrupted call.
-func WriteBuf(dir, sessionID string, data []byte) error {
+func WriteBuf(dir, sessionID string, data []byte) (err error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // G301: the terminal-buffer dir lives under the user's own ~/.crowbar home; 0755 intentional and matches the rest of the tree.
 		return fmt.Errorf("persistence: mkdir %s: %w", dir, err)
 	}
@@ -52,41 +55,56 @@ func WriteBuf(dir, sessionID string, data []byte) error {
 		return fmt.Errorf("persistence: create temp: %w", err)
 	}
 	tmpName := tmp.Name()
+	defer func() {
+		if err == nil {
+			return
+		}
+		if rmErr := os.Remove(tmpName); rmErr != nil {
+			err = errors.Join(err, fmt.Errorf("persistence: remove temp: %w", rmErr))
+		}
+	}()
 
 	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("persistence: write temp: %w", err)
+		return closeAfter(tmp, fmt.Errorf("persistence: write temp: %w", err))
 	}
 
 	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("persistence: sync temp: %w", err)
+		return closeAfter(tmp, fmt.Errorf("persistence: sync temp: %w", err))
 	}
 
 	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
 		return fmt.Errorf("persistence: close temp: %w", err)
 	}
 
 	dest := filepath.Join(dir, sessionID+".buf")
 	if err := os.Rename(tmpName, dest); err != nil {
-		_ = os.Remove(tmpName)
 		return fmt.Errorf("persistence: rename: %w", err)
 	}
 
-	// Best-effort: fsync the parent directory so the rename entry is durable
-	// across power loss. The rename already succeeded, so the .buf is present
-	// and atomic; a dir-fsync failure (e.g. ENOTSUP on some APFS/network
-	// volumes) must NOT fail an otherwise-successful write, or it would turn
-	// every flush into a spurious error on those filesystems.
-	if d, err := os.Open(dir); err == nil { //nolint:gosec // dir is controlled by callers
-		_ = d.Sync()
-		_ = d.Close()
-	}
-
+	syncDir(dir)
 	return nil
+}
+
+// closeAfter closes tmp after failure, reporting a close error alongside it.
+func closeAfter(tmp tempFile, failure error) error {
+	if err := tmp.Close(); err != nil {
+		return errors.Join(failure, fmt.Errorf("persistence: close temp: %w", err))
+	}
+	return failure
+}
+
+// syncDir fsyncs dir so the completed rename survives power loss. Its failure (ENOTSUP on
+// some APFS/network volumes) is logged, not returned: the .buf is already in place and
+// returning it would fail every flush there.
+func syncDir(dir string) {
+	d, err := os.Open(dir) //nolint:gosec // dir is controlled by callers
+	if err != nil {
+		slog.Warn("persistence: open dir to sync", "dir", dir, "err", err)
+		return
+	}
+	if err := errors.Join(d.Sync(), d.Close()); err != nil {
+		slog.Warn("persistence: sync dir", "dir", dir, "err", err)
+	}
 }
 
 // DeleteBuf removes <dir>/<sessionID>.buf.

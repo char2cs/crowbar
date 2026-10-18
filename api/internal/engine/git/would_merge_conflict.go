@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-
-	"golang.org/x/sync/errgroup"
 )
 
 // MergePair is one dry-run: whether merging Theirs into Ours would conflict,
@@ -98,8 +96,8 @@ func (e *engine) WouldMergeConflicts(
 	defer e.lockRepoRead(ctx, repoPath)()
 	tips := e.branchTips(ctx, repoPath)
 
-	var g errgroup.Group
-	g.SetLimit(mergeDryRunConcurrency)
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, mergeDryRunConcurrency)
 	for i, p := range pairs {
 		ours, theirs, known := resolveTips(tips, p)
 		key := commitPair{ours, theirs}
@@ -107,16 +105,17 @@ func (e *engine) WouldMergeConflicts(
 			out[i] = MergeVerdict{Conflict: conflict}
 			continue
 		}
-		g.Go(func() error {
+		slots <- struct{}{}
+		wg.Go(func() {
+			defer func() { <-slots }()
 			conflict, err := e.mergeTreeConflicts(ctx, repoPath, ours, theirs)
 			out[i] = MergeVerdict{Conflict: conflict, Err: err}
 			if err == nil && known {
 				e.verdicts.put(key, conflict)
 			}
-			return nil
 		})
 	}
-	_ = g.Wait() // workers never return an error
+	wg.Wait()
 	return out
 }
 

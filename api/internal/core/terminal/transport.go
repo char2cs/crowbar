@@ -3,7 +3,10 @@ package terminal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
+	"net"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -90,9 +93,9 @@ func (e *terminalEngine) Attach(
 	if err != nil {
 		// The process exited and its reaper has not run yet. It is NOT restorable — tell
 		// the client it exited rather than leaving it to reconnect into nothing.
-		e.writeExit(conn, s.ExitCode())
-		_ = conn.Close()
-		return fmt.Errorf("terminal: attach: %w", err)
+		exitErr := e.writeExit(conn, s.ExitCode())
+		closeErr := conn.Close()
+		return errors.Join(fmt.Errorf("terminal: attach: %w", err), exitErr, closeErr)
 	}
 
 	writeDone := make(chan struct{})
@@ -121,13 +124,30 @@ func (e *terminalEngine) exitStatus(ent *sessionEntry, s *session.Session) (int,
 	return s.ExitCode(), !suspended
 }
 
-func (e *terminalEngine) writeExit(conn WSConn, code int) {
+func (e *terminalEngine) writeExit(conn WSConn, code int) error {
 	payload, err := json.Marshal(exitMsg{Type: "exit", Code: code})
 	if err != nil {
-		return
+		return fmt.Errorf("terminal: encode exit frame: %w", err)
 	}
-	_ = conn.SetWriteDeadline(time.Now().Add(e.cfg.writeWait))
-	_ = conn.WriteMessage(websocket.TextMessage, payload)
+	return e.writeFrame(conn, websocket.TextMessage, payload)
+}
+
+// writeFrame sends one message under the write deadline (invariant B6).
+func (e *terminalEngine) writeFrame(conn WSConn, messageType int, payload []byte) error {
+	if err := conn.SetWriteDeadline(time.Now().Add(e.cfg.writeWait)); err != nil {
+		return fmt.Errorf("terminal: set write deadline: %w", err)
+	}
+	if err := conn.WriteMessage(messageType, payload); err != nil {
+		return fmt.Errorf("terminal: write message: %w", err)
+	}
+	return nil
+}
+
+// warnUnlessClosed logs err, except that a connection already closed is not a failure.
+func warnUnlessClosed(msg string, err error) {
+	if err != nil && !errors.Is(err, net.ErrClosed) {
+		slog.Warn(msg, "err", err)
+	}
 }
 
 // maxCoalesceBytes caps how much queued PTY output writePump merges into a
@@ -155,14 +175,15 @@ func (e *terminalEngine) writePump(
 ) {
 	defer safego.Recover("terminal.writePump")
 	defer func() {
-		_ = conn.Close()
+		warnUnlessClosed("terminal: write pump: close conn", conn.Close())
 		close(done)
 	}()
 
 	buf := make([]byte, 0, 64*1024)
 	send := func(msg []byte) bool {
-		_ = conn.SetWriteDeadline(time.Now().Add(e.cfg.writeWait))
-		return conn.WriteMessage(websocket.BinaryMessage, msg) == nil
+		err := e.writeFrame(conn, websocket.BinaryMessage, msg)
+		warnUnlessClosed("terminal: write pump: client write failed", err)
+		return err == nil
 	}
 	start := func(tag byte, data []byte) {
 		buf = append(append(buf[:0], tag), data...)
@@ -217,7 +238,7 @@ func (e *terminalEngine) writePump(
 		}
 	}
 	if code, exited := exitStatus(); exited {
-		e.writeExit(conn, code)
+		warnUnlessClosed("terminal: write pump: exit frame not delivered", e.writeExit(conn, code))
 	}
 }
 
@@ -242,7 +263,9 @@ func (e *terminalEngine) readPump(
 			// Resize also invalidates the diff base, so the frame the app's SIGWINCH
 			// redraw produces is a keyframe: the client's reflowed buffer is replaced
 			// by the model's, with no separate resync round-trip.
-			_ = s.Resize(msg.Cols, msg.Rows)
+			if err := s.Resize(msg.Cols, msg.Rows); err != nil {
+				slog.Warn("terminal: input: resize dropped", "session", s.ID(), "err", err)
+			}
 		case "theme":
 			// Host light/dark theme changed: update the model's OSC 10/11 query answers
 			// and, if the foreground app subscribed to DEC 2031, push a live CSI ?997;n
@@ -250,9 +273,13 @@ func (e *terminalEngine) readPump(
 			// push at any of them is a statement about the host: record it for births too.
 			bg, fg := ParseHexColor(msg.Bg), ParseHexColor(msg.Fg)
 			e.SetHostTheme(bg, fg)
-			s.SetTheme(bg, fg, msg.Dark)
+			if err := s.SetTheme(bg, fg, msg.Dark); err != nil {
+				slog.Warn("terminal: input: theme report dropped", "session", s.ID(), "err", err)
+			}
 		default:
-			_ = s.Write([]byte(msg.Data))
+			if err := s.Write([]byte(msg.Data)); err != nil {
+				slog.Warn("terminal: input: keystrokes dropped", "session", s.ID(), "err", err)
+			}
 		}
 	}
 }

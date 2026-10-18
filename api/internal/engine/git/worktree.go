@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
@@ -22,8 +23,7 @@ func (e *engine) WorktreeAdd(
 		// Prune dead registrations and retry once. `git worktree prune` only
 		// removes worktrees whose directory is gone, so a genuine conflict with a
 		// live worktree still fails on the retry (correctly).
-		_ = gitexec.RequireSuccess("worktree prune",
-			e.exec(ctx, repoPath, "worktree", "prune"))
+		e.pruneBeforeRetry(ctx, repoPath)
 		r = e.exec(ctx, repoPath, "worktree", "add", worktreePath, branch)
 	}
 	return classifyGitError("worktree add", r)
@@ -84,8 +84,27 @@ func (e *engine) WorktreePrune(
 	repoPath string,
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
+	return e.pruneWorktrees(ctx, repoPath)
+}
+
+// pruneWorktrees runs `git worktree prune`. The caller holds the repo lock.
+func (e *engine) pruneWorktrees(
+	ctx context.Context,
+	repoPath string,
+) error {
 	r := e.exec(ctx, repoPath, "worktree", "prune")
 	return gitexec.RequireSuccess("worktree prune", r)
+}
+
+// pruneBeforeRetry clears dead registrations ahead of a second worktree add. A prune
+// that fails is logged, not returned: the add that follows is what decides the outcome.
+func (e *engine) pruneBeforeRetry(
+	ctx context.Context,
+	repoPath string,
+) {
+	if err := e.pruneWorktrees(ctx, repoPath); err != nil {
+		slog.Warn("git: stale worktree registrations not pruned", "repo", repoPath, "err", err)
+	}
 }
 
 func (e *engine) WorktreeList(

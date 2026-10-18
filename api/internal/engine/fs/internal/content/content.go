@@ -3,6 +3,7 @@ package content
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -137,7 +138,7 @@ func Write(
 func writeAtomic(
 	full string,
 	data []byte,
-) error {
+) (err error) {
 	if fi, err := os.Lstat(full); err == nil && fi.Mode()&os.ModeSymlink != 0 {
 		return os.WriteFile(full, data, 0o600)
 	}
@@ -153,13 +154,15 @@ func writeAtomic(
 		return err
 	}
 	tmpName := tmp.Name()
-	// Best-effort cleanup of the temp on any error path; a no-op once the rename
-	// below has consumed tmpName.
-	defer func() { _ = os.Remove(tmpName) }()
+	// A failure leaves no temp behind; a removal that fails too is reported with it.
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, os.Remove(tmpName))
+		}
+	}()
 
 	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
+		return errors.Join(err, tmp.Close())
 	}
 	if err := tmp.Close(); err != nil {
 		return err

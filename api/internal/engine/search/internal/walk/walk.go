@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -50,7 +51,7 @@ func Walk(
 	go func() {
 		defer safego.Recover("search.walk.producer")
 		defer close(raw)
-		_ = filepath.WalkDir(repoPath, func(
+		err := filepath.WalkDir(repoPath, func(
 			path string,
 			d fs.DirEntry,
 			err error,
@@ -77,6 +78,9 @@ func Walk(
 			}
 			return nil
 		})
+		if err != nil {
+			slog.Warn("search: walk: producer stopped early", "repo", repoPath, "err", err)
+		}
 	}()
 
 	// Fan-out to a worker pool.

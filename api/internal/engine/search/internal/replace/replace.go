@@ -37,18 +37,11 @@ func ApplyToFile(
 	}
 	originalMode := info.Mode()
 
-	// Binary sniff: read first 8 KB.
-	f, err := os.Open(absPath) //nolint:gosec // path is controlled by the caller
+	binary, err := sniffBinary(absPath)
 	if err != nil {
-		return fmt.Errorf("replace: open for sniff %s: %w", absPath, err)
+		return err
 	}
-	sample := make([]byte, 8192)
-	n, readErr := f.Read(sample)
-	_ = f.Close()
-	if readErr != nil && readErr != io.EOF {
-		return fmt.Errorf("replace: sniff %s: %w", absPath, readErr)
-	}
-	if match.IsBinary(sample[:n]) {
+	if binary {
 		return nil // skip binary files silently
 	}
 
@@ -66,38 +59,60 @@ func ApplyToFile(
 	return nil
 }
 
+// sniffBinary reports whether the first 8 KB of absPath look binary.
+func sniffBinary(
+	absPath string,
+) (binary bool, err error) {
+	f, err := os.Open(absPath) //nolint:gosec // path is controlled by the caller
+	if err != nil {
+		return false, fmt.Errorf("replace: open for sniff %s: %w", absPath, err)
+	}
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("replace: close %s: %w", absPath, closeErr))
+		}
+	}()
+	sample := make([]byte, 8192)
+	n, readErr := f.Read(sample)
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		return false, fmt.Errorf("replace: sniff %s: %w", absPath, readErr)
+	}
+	return match.IsBinary(sample[:n]), nil
+}
+
 // writeAtomic writes content to a sibling temp file, sets its permissions to
-// match originalMode, then renames it over dst.
+// match originalMode, then renames it over dst. A failure removes the temp, and
+// a removal that fails too is reported with it.
 func writeAtomic(
 	dst string,
 	content string,
 	originalMode os.FileMode,
-) error {
+) (err error) {
 	dir := filepath.Dir(dst)
 	tmp, err := os.CreateTemp(dir, ".crowbar-replace-*")
 	if err != nil {
 		return fmt.Errorf("replace: create temp: %w", err)
 	}
 	tmpName := tmp.Name()
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, os.Remove(tmpName))
+		}
+	}()
 
 	if _, err := tmp.WriteString(content); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("replace: write temp: %w", err)
+		return errors.Join(fmt.Errorf("replace: write temp: %w", err), tmp.Close())
 	}
 
 	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
 		return fmt.Errorf("replace: close temp: %w", err)
 	}
 
 	if err := os.Chmod(tmpName, originalMode); err != nil {
-		_ = os.Remove(tmpName)
 		return fmt.Errorf("replace: chmod %s: %w", tmpName, err)
 	}
 
 	if err := os.Rename(tmpName, dst); err != nil {
-		_ = os.Remove(tmpName)
 		return fmt.Errorf("replace: rename: %w", err)
 	}
 

@@ -2,12 +2,15 @@ package persistence
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // fakeTempFile is a tempFile whose Write/Sync/Close can be made to fail, so the
@@ -20,6 +23,7 @@ type fakeTempFile struct {
 	failSync    bool
 	failClose   bool
 	closeCalled bool
+	afterClose  func()
 }
 
 var errInjected = errors.New("injected failure")
@@ -45,6 +49,9 @@ func (f *fakeTempFile) Close() error {
 	// Always release the underlying fd so the test's TempDir cleanup succeeds,
 	// but report the injected error to the caller when requested.
 	cerr := f.real.Close()
+	if f.afterClose != nil {
+		f.afterClose()
+	}
 	if f.failClose {
 		return errInjected
 	}
@@ -129,4 +136,26 @@ func TestWriteBuf_CreateTempError(t *testing.T) {
 	err := WriteBuf(dir, "s", []byte("data"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "create temp")
+}
+
+func TestWriteBuf_ACleanupFailureIsReturnedWithTheRenameFailure(t *testing.T) {
+	testutil.RequirePermissionEnforcement(t)
+	dir := t.TempDir()
+	orig := createTemp
+	t.Cleanup(func() { createTemp = orig })
+	t.Cleanup(func() { require.NoError(t, os.Chmod(dir, 0o700)) })
+
+	// The directory turns read-only once the staging file is closed, so renaming
+	// into it and removing the staging file both fail.
+	createTemp = func(d, pattern string) (tempFile, error) {
+		real, err := os.CreateTemp(d, pattern)
+		require.NoError(t, err)
+		return &fakeTempFile{real: real, afterClose: func() { require.NoError(t, os.Chmod(dir, 0o500)) }}, nil
+	}
+
+	err := WriteBuf(dir, "s", []byte("data"))
+
+	require.ErrorIs(t, err, fs.ErrPermission)
+	assert.Contains(t, err.Error(), "persistence: rename")
+	assert.Contains(t, err.Error(), "persistence: remove temp")
 }

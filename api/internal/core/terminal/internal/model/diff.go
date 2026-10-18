@@ -338,7 +338,7 @@ func (e *DiffEmitter) scrollbackNewStart(vm *vtModel, sbLen int) (start int, ok 
 func scrollbackLineHash(vm *vtModel, idx int) uint64 {
 	line := vm.emu.ScrollbackLine(idx)
 	h := fnv.New64a()
-	_, _ = h.Write([]byte(encodeLine(line, len(line), true)))
+	h.Write([]byte(encodeLine(line, len(line), true))) //nolint:gosec // G104: a hash.Hash never fails a Write
 	return h.Sum64()
 }
 

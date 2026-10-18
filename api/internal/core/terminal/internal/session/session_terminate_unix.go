@@ -3,6 +3,8 @@
 package session
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"syscall"
 
@@ -31,10 +33,13 @@ func terminateSignal(proc *os.Process) error {
 // killSignal SIGKILLs the child's whole process group — the same group Terminate signals —
 // so a hard kill cannot leave the processes the child spawned running behind it. It falls
 // back to killing the single process when the group send fails (the child changed its own
-// pgid), for the same reason terminateSignal does.
-func killSignal(proc *os.Process) {
+// pgid), for the same reason terminateSignal does. A child that already exited is not an error.
+func killSignal(proc *os.Process) error {
 	if err := unix.Kill(-proc.Pid, syscall.SIGKILL); err == nil {
-		return
+		return nil
 	}
-	_ = proc.Kill()
+	if err := proc.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return fmt.Errorf("session: kill pid %d: %w", proc.Pid, err)
+	}
+	return nil
 }

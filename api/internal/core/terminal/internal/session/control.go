@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"log/slog"
 	"os"
 	"os/exec"
 	"time"
@@ -111,16 +112,18 @@ func (s *Session) Write(
 // The model mutation runs under s.mu (via the §8.5 recover backstop, like every model
 // access); the PTY write is issued OFF the lock through s.Write, so it can never run the
 // blocking ptmx.Write while the session lock is held (the C1 invariant, spec §3.8).
+//
+// It returns the error of that PTY write, if the report was due and could not be delivered.
 func (s *Session) SetTheme(
 	bg color.Color,
 	fg color.Color,
 	dark bool,
-) {
+) error {
 	s.mu.Lock()
 	ta, ok := s.model.(model.ThemeAware)
 	if s.model == nil || !ok {
 		s.mu.Unlock()
-		return
+		return nil
 	}
 	var notifyEnabled bool
 	s.mutateModelLocked(func() {
@@ -139,8 +142,9 @@ func (s *Session) SetTheme(
 	s.mu.Unlock()
 
 	if emit {
-		_ = s.Write(themeNotifySeq(dark))
+		return s.Write(themeNotifySeq(dark))
 	}
+	return nil
 }
 
 // themeNotifySeq returns the DEC mode 2031 theme-change report a terminal sends to a
@@ -190,14 +194,30 @@ func (s *Session) Kill() {
 		s.shutdown()
 		return
 	}
-	_ = s.ptmx.Close()
-	if s.cmd != nil && s.cmd.Process != nil {
-		killSignal(s.cmd.Process)
-	}
+	closePTY(s.ptmx)
+	s.killChild()
 	s.ptmx = nil
 	s.mu.Unlock()
 
 	s.shutdown()
+}
+
+// killChild SIGKILLs the child's process group, if the session has a child.
+func (s *Session) killChild() {
+	if s.cmd == nil || s.cmd.Process == nil {
+		return
+	}
+	if err := killSignal(s.cmd.Process); err != nil {
+		slog.Warn("terminal: kill: child not signalled", "session", s.id, "err", err)
+	}
+}
+
+// closePTY closes the PTY master. A second close is expected, not a failure: a Kill racing
+// the child's natural exit finds the master already closed by shutdown.
+func closePTY(ptmx *os.File) {
+	if err := ptmx.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+		slog.Warn("terminal: close pty", "err", err)
+	}
 }
 
 // Terminate gracefully quits the session's child process (spec §8): it sends
@@ -278,7 +298,7 @@ func (s *Session) shutdown() {
 		// A Kill racing a natural exit closed and nil'd ptmx under this same lock, so
 		// the nil check is what keeps this from being a double close.
 		if s.ptmx != nil {
-			_ = s.ptmx.Close()
+			closePTY(s.ptmx)
 		}
 		s.ptmx = nil
 		if s.model != nil {

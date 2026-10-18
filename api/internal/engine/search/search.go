@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -188,7 +189,7 @@ func buildIgnoreStack(
 	repoPath string,
 ) *ignore.Stack {
 	var s ignore.Stack
-	_ = filepath.WalkDir(repoPath, func(
+	err := filepath.WalkDir(repoPath, func(
 		path string,
 		d fs.DirEntry,
 		err error,
@@ -203,9 +204,15 @@ func buildIgnoreStack(
 		if d.Name() == ".git" {
 			return filepath.SkipDir
 		}
-		_ = s.Add(path, filepath.Join(path, ".gitignore"))
+		// Like git, an unreadable .gitignore is skipped, not fatal.
+		if err := s.Add(path, filepath.Join(path, ".gitignore")); err != nil {
+			slog.Warn("search: ignore file skipped", "dir", path, "err", err)
+		}
 		return nil
 	})
+	if err != nil {
+		slog.Warn("search: ignore files not all loaded", "repo", repoPath, "err", err)
+	}
 	return &s
 }
 

@@ -179,3 +179,12 @@ func TestSession_SetTheme_DedupesSamePolarityAndNotifiesOnFlip(t *testing.T) {
 		"want exactly the two flip reports: a same-polarity push must not add a third; got %q",
 		d.snapshot())
 }
+
+// A theme push whose report cannot reach the PTY says so: the session is gone.
+func TestSession_SetTheme_ANotifyWriteFailureIsReturned(t *testing.T) {
+	s, _ := newThemeTestSession(t, "sid-theme-notify-fail")
+	s.PumpChunkForTest([]byte("\x1b[?2031h"))
+	s.Kill()
+
+	require.ErrorContains(t, s.SetTheme(color.White, color.Black, true), "session not live")
+}

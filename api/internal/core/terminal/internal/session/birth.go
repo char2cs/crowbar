@@ -3,8 +3,10 @@ package session
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image/color"
+	"log/slog"
 	"math"
 	"os"
 	"os/exec"
@@ -205,9 +207,14 @@ func (s *Session) spawn(
 		return fmt.Errorf("session: pty start: %w", err)
 	}
 
-	// Size the PTY to the persisted/requested dimensions before any Read so the shell's
-	// first output is generated at the correct width.
-	_ = pty.Setsize(ptmx, &pty.Winsize{Cols: winDim(cols), Rows: winDim(rows)})
+	// Size the PTY before any Read so the shell's first output has the right width. A PTY
+	// that cannot be sized is abandoned here (killed, reaped): no session owns the child yet.
+	if err := pty.Setsize(ptmx, &pty.Winsize{Cols: winDim(cols), Rows: winDim(rows)}); err != nil {
+		closePTY(ptmx)
+		killErr := killSignal(cmd.Process)
+		reap(cmd)
+		return errors.Join(fmt.Errorf("session: size pty: %w", err), killErr)
+	}
 
 	m, ser := s.newModel(cols, rows, sbLines)
 	if len(redraw) > 0 {
@@ -281,10 +288,11 @@ func (s *Session) startResponseSink(
 		for {
 			select {
 			case reply := <-replyCh:
-				// Ignore write errors: a failing write means the PTY is going
-				// away, so keep draining replyCh (the sink must never block)
-				// until s.done releases the goroutine.
-				_, _ = ptmx.Write(reply)
+				// A failing write means the PTY is going away: log it and keep
+				// draining replyCh until s.done releases the goroutine.
+				if _, err := ptmx.Write(reply); err != nil {
+					slog.Warn("terminal: device-query reply not delivered", "session", s.id, "err", err)
+				}
 			case <-done:
 				return
 			}

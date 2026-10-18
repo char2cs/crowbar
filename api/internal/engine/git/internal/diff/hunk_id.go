@@ -17,6 +17,8 @@ func HunkID(
 ) string {
 	h := sha256.New()
 	// Writing to a hash.Hash never returns an error.
-	_, _ = fmt.Fprintf(h, "%s\n%s", filePath, hunkBody)
+	h.Write([]byte(filePath))
+	h.Write([]byte("\n"))
+	h.Write([]byte(hunkBody))
 	return fmt.Sprintf("%x", h.Sum(nil))[:12]
 }

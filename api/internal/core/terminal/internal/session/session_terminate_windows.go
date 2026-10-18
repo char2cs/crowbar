@@ -2,7 +2,11 @@
 
 package session
 
-import "os"
+import (
+	"errors"
+	"fmt"
+	"os"
+)
 
 // terminateSignal has no clean-exit primitive to fall back on: Windows has no
 // POSIX signal delivery, and os.Process.Signal only supports os.Kill there
@@ -13,7 +17,11 @@ func terminateSignal(proc *os.Process) error {
 	return proc.Kill()
 }
 
-// killSignal hard-kills the process; Windows has no process-group signal to send.
-func killSignal(proc *os.Process) {
-	_ = proc.Kill()
+// killSignal hard-kills the process; Windows has no process-group signal to send. A child
+// that already exited is not an error.
+func killSignal(proc *os.Process) error {
+	if err := proc.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return fmt.Errorf("session: kill pid %d: %w", proc.Pid, err)
+	}
+	return nil
 }
