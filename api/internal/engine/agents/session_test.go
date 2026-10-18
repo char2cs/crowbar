@@ -1,6 +1,7 @@
 package agents_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,6 +24,32 @@ func TestRefusedResume_NeedsTheExitCodeAndTheLine(t *testing.T) {
 	assert.True(t, refused)
 	_, refused = stubAgent(t, "sh").RefusedResume(1, "No conversation found with session ID: abc")
 	assert.False(t, refused, "a descriptor declaring no refusal never refuses")
+}
+
+// The exit screen holds terminal rows, trimmed of trailing blanks: a refusal the
+// terminal wrapped, mid-word or on a space, is still the refusal.
+func TestRefusedResume_ALineWrappedAcrossRowsIsStillTheRefusal(t *testing.T) {
+	claude := get(t, "claude")
+	want := "No conversation found with session ID: abc"
+	for name, tc := range map[string]struct{ screen, line string }{
+		"80 columns": {
+			strings.Repeat("0", 60) + "No conversation foun\nd with session ID: abc\n\n\n",
+			strings.Repeat("0", 60) + want,
+		},
+		"20 columns, one break on a space": {
+			"Fatal error: No conv\nersation found with\nsession ID: abc\n",
+			"Fatal error: " + want,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			line, refused := claude.RefusedResume(1, tc.screen)
+			assert.True(t, refused)
+			assert.Equal(t, tc.line, line)
+		})
+	}
+
+	_, refused := claude.RefusedResume(143, "No conversation found\nwith session ID: abc\n")
+	assert.False(t, refused, "a needle across two lines under another exit code is not a refusal")
 }
 
 func TestSessionAssignArg_IsClaudesAlone(t *testing.T) {

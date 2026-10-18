@@ -218,18 +218,10 @@ func (drv *Driver) Send(ctx context.Context, canonical string, values map[string
 	return nil
 }
 
-// EstablishSession runs canonical's Fresh steps (no session id known yet) or
-// Resume steps (one is known, e.g. carried over from a prior life of this
-// chat, but this connection has never itself loaded it) — whichever applies —
-// and is a no-op on every later call once this connection has already
-// established a session once. It returns values merged with whatever each
-// step's Capture pulled out of its response (a freshly-minted session id,
-// most notably), for the caller to keep and to pass to Dispatch.
-//
-// Split out from Dispatch so a caller can establish a session (and learn its
-// id) before anything needs to be SAID on it — attach's argv must name the
-// same thread turn/start will act on, and that id has to exist before the
-// attach process is even spawned, well before the first message.
+// EstablishSession runs canonical's Fresh steps (no session id yet) or Resume
+// steps, once per connection, and returns values merged with what each step
+// captured. It is apart from Dispatch so an attach argv can name the session
+// before anything is said on it.
 func (drv *Driver) EstablishSession(
 	ctx context.Context, canonical string, values map[string]string,
 ) (map[string]string, error) {
@@ -244,20 +236,10 @@ func (drv *Driver) EstablishSession(
 	remembered := cloneValues(drv.remembered)
 	drv.mu.Unlock()
 	if already {
-		// A later caller on an established connection (pushPromptOverAPI, after
-		// a switch back to a resumed session) reads session_id from the RUNNER
-		// ROW, not this driver — and that row is never rebound on a pure
-		// api-transport resume (thread/resume fires no thread/started
-		// notification for pumpAPIConn to carry into HandleSessionStart), so it
-		// hands back "". Passed straight through before this fix, turn/start
-		// got literally session_id="" and codex refused it outright ("invalid
-		// thread id: ... found 0"), permanently uncertain-ing every prompt to
-		// this runner from then on — confirmed live. Filling any BLANK field
-		// from what THIS connection actually remembers (the real thing Fresh or
-		// Resume captured at establish) is what Dispatch has always assumed
-		// happens here; an empty caller value must lose to it, not overwrite it.
+		// A later caller may pass blank values (a pure api resume announces no
+		// session), so blanks are filled from what this connection established;
+		// its own thread wins over whatever the caller named.
 		out = fillBlanksFromRemembered(out, remembered)
-		// The connection's own thread wins over whatever the caller named.
 		if id := remembered["session_id"]; id != "" {
 			out["session_id"] = id
 		}
@@ -290,14 +272,9 @@ func (drv *Driver) EstablishSession(
 	return out, nil
 }
 
-// markEstablished latches this connection as established and remembers the
-// session id it settled on.
-//
-// Resume's own steps declare no capture: (only Fresh's thread/start does) —
-// session_id survives Resume's runSteps only because it was already non-empty
-// going IN, from the caller's own prior-session value. Remembered explicitly
-// here too, or a LATER call on this SAME connection with a blank caller value
-// (see EstablishSession's established branch) has nothing to fall back to.
+// markEstablished latches this connection as established and remembers its
+// session id. Resume captures none, so the id is kept from its input, or a later
+// blank caller (EstablishSession's established branch) has nothing to fall back to.
 func (drv *Driver) markEstablished(out map[string]string) {
 	if out["session_id"] == "" {
 		return
@@ -322,18 +299,9 @@ func (drv *Driver) sessionLost(err error) bool {
 	})
 }
 
-// reopen assembles the value set a re-establish runs with — birth (the settings
-// the original session was born with: sandbox, approval policy, handoff
-// context) overlaid with the caller's current values (the text actually being
-// sent) — and drops everything the session we are leaving behind left standing.
-//
-// `established` is a claim about this connection's own history that nothing on
-// the wire can clear, so it is cleared HERE or the next EstablishSession
-// short-circuits over a session that is gone. remembered goes wholesale, not
-// just session_id: every other field in it (turn_id, most of all) was captured
-// from that session and would otherwise be handed to a Send against the new
-// one, a different kind of wrong answer than simply not knowing it yet. Both
-// are restated by markEstablished once a recovery actually succeeds.
+// reopen is the value set a re-establish runs with: the session's birth values
+// overlaid with the caller's. It clears established and all of remembered (a
+// turn_id among them), which belong to the session being left.
 func (drv *Driver) reopen(values map[string]string) map[string]string {
 	drv.mu.Lock()
 	out := cloneValues(drv.birth)
@@ -347,13 +315,9 @@ func (drv *Driver) reopen(values map[string]string) map[string]string {
 	return out
 }
 
-// reestablish re-enters the session the provider says it no longer has, by
-// running the event's OWN declared Resume steps with the id we still hold.
-//
-// A provider forgetting a session is not the same as a session ceasing to
-// exist: an app-server pages an idle conversation out of memory, which is what
-// a resume call is for. Measured — the process that created the thread, nine
-// hours earlier, was still alive when it reported the thread unknown.
+// reestablish re-enters a session the provider says it no longer has through
+// the event's declared Resume steps: a provider pages an idle session out of
+// memory, which is what a resume is for.
 func (drv *Driver) reestablish(
 	ctx context.Context, ev spec.EventSpec, values map[string]string, sessionID string,
 ) (map[string]string, error) {
@@ -404,18 +368,9 @@ func fillBlanksFromRemembered(out, remembered map[string]string) map[string]stri
 	return out
 }
 
-// Dispatch establishes canonical's session if this connection has not already
-// (see EstablishSession), then runs its Action steps — the actual "do the
-// thing" call (turn/start), always last, always run.
-//
-// The established latch is a claim about THIS connection's own history, never
-// a fact about the provider: it is set once and nothing on the wire can clear
-// it. So a session that dies after it was set leaves every later Action
-// naming a session that is gone, forever — the message is refused, the caller
-// records the delivery as uncertain, and the chat wedges with nothing
-// streaming and no way back. An Action refused for exactly that reason is
-// therefore recovered ONCE (see recoverLostSession), which is the only outcome
-// that is not either a lie or a dead end.
+// Dispatch establishes canonical's session if this connection has not, then runs
+// its Action steps. The established latch never clears itself, so an Action
+// refused because the session is gone is recovered once (recoverLostSession).
 func (drv *Driver) Dispatch(
 	ctx context.Context, canonical string, values map[string]string,
 ) (map[string]string, error) {

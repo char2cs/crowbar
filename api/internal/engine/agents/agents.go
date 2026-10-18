@@ -139,7 +139,7 @@ type Agent interface {
 
 	ResumeArg() (string, bool)
 	SessionAssignArg() (string, bool)
-	// RefusedResume is the line of output by which the CLI refused a resume.
+	// RefusedResume is the line by which the CLI refused a resume, even wrapped.
 	RefusedResume(exitCode int, output string) (line string, refused bool)
 
 	// ParseHook turns one raw provider payload into a canonical event, reading
