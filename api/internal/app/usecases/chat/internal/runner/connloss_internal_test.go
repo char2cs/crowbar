@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -74,17 +75,55 @@ func TestPumpAPIConn_ADeliberateTeardownIsNotTreatedAsALostConnection(t *testing
 		500*time.Millisecond, 25*time.Millisecond)
 }
 
+// A watched serve that dies on its own is a lost connection, even before
+// anything has read its hang-up; one Crowbar takes down names nothing, since
+// its teardown records its own cause.
+func TestWatchExit_OnlyAServeThatDiesOnItsOwnIsALostConnection(t *testing.T) {
+	for name, tc := range map[string]struct {
+		dropped bool
+		want    string
+	}{
+		"it dies on its own": {false, domain.AgentExitConnectionLost},
+		"Crowbar drops it":   {true, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cmd := exec.CommandContext(t.Context(), "sleep", "30")
+			require.NoError(t, cmd.Start())
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			reg := newAPIConnRegistry()
+			reg.set("runner-1", &apiconn{serve: reapServe(cmd), ctx: ctx, cancel: cancel})
+			lost := make(chan string, 1)
+			require.True(t, reg.watchExit("runner-1", func(why string) { lost <- why }))
+
+			if tc.dropped {
+				reg.drop("runner-1")
+			} else {
+				require.NoError(t, cmd.Process.Kill())
+			}
+			assert.Equal(t, tc.want, <-lost)
+		})
+	}
+}
+
 // afterLoss blocks until runnerID's api connection is gone, so a test puts the
-// loss before whatever step of the spawn calls it.
+// loss before whatever step of the spawn calls it. crash kills its serve first;
+// otherwise the serve hangs up on its own.
 type afterLoss struct {
 	conns    *apiConnRegistry
 	runnerID string
+	crash    bool
 }
 
 func (a afterLoss) wait(ctx context.Context) error {
 	c, ok := a.conns.get(a.runnerID)
 	if !ok {
 		return nil
+	}
+	if a.crash {
+		if err := c.serve.cmd.Process.Kill(); err != nil {
+			return fmt.Errorf("crash the serve: %w", err)
+		}
 	}
 	select {
 	case <-c.ctx.Done():
@@ -128,7 +167,7 @@ func (seedingConversations) SeedPermissionLevel(context.Context, string) {}
 // ends: it ends as the user's Stop.
 func TestSpawnRunner_AConnectionLostBeforeThePTYForkIsNoExitCause(t *testing.T) {
 	h := helperServeSpawn(t, "drop-after thread/resume", true, "runner-1")
-	h.rs.term = forkAfterLoss{h.term, afterLoss{h.rs.apiConns, "runner-1"}}
+	h.rs.term = forkAfterLoss{h.term, afterLoss{conns: h.rs.apiConns, runnerID: "runner-1"}}
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
@@ -141,27 +180,65 @@ func TestSpawnRunner_AConnectionLostBeforeThePTYForkIsNoExitCause(t *testing.T) 
 	assert.Equal(t, domain.AgentExitStopped, endedAs(t, h))
 }
 
-// An adopted connection is its runner's process: lost during startup, it still
-// ends that runner as connection_lost.
+// An adopted connection is its runner's process: lost during startup after the
+// carried prompt's turn/start, it still ends that runner as connection_lost.
 func TestSpawnRunner_AnAdoptedConnectionLostDuringStartupEndsItsRunner(t *testing.T) {
-	h := helperServeSpawn(t, "drop-after turn/start", false, "runner-1")
-	h.rs.chats = createAfterLoss{stubChatsForSpawn{chat: domain.Chat{ID: h.chatID}}, afterLoss{h.rs.apiConns, "runner-1"}}
-	h.rs.conversations = seedingConversations{}
+	for name, tc := range map[string]struct {
+		mode  string
+		crash bool
+	}{
+		"its serve hangs up": {"drop-after turn/start", false},
+		"its serve crashes":  {"answer", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := helperServeSpawn(t, tc.mode, false, "runner-1")
+			h.rs.chats = createAfterLoss{
+				stubChatsForSpawn{chat: domain.Chat{ID: h.chatID}},
+				afterLoss{conns: h.rs.apiConns, runnerID: "runner-1", crash: tc.crash},
+			}
+			h.rs.conversations = seedingConversations{}
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+
+			_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test",
+				spawnInput{runnerID: "runner-1", promptMessage: "hi"}, true)
+			if err != nil {
+				require.ErrorIs(t, err, ErrProviderExitedDuringStartup)
+			}
+			require.Empty(t, h.term.created, "the connection was the runner")
+			if v, ok := h.rs.live.view(h.chatID); ok {
+				awaitExit(t, ctx, v)
+			}
+			assert.Equal(t, domain.AgentExitConnectionLost, endedAs(t, h))
+		})
+	}
+}
+
+// A started runner whose connection is its process ends as connection_lost
+// when its serve crashes mid-turn.
+func TestSpawnRunner_APTYLessRunnerWhoseServeCrashesEndsAsALostConnection(t *testing.T) {
+	h := helperServeSpawn(t, "answer", false, "runner-1")
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
+	_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"}, false)
+	require.NoError(t, err)
+	require.Empty(t, h.term.created, "the connection is the runner")
+	v, ok := h.rs.live.view(h.chatID)
+	require.True(t, ok)
+	_, _, err = h.rs.pushPromptOverAPI(ctx, "runner-1", "S1", "", "hi")
+	require.NoError(t, err, "the serve answered turn/start")
 
-	_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test",
-		spawnInput{runnerID: "runner-1", promptMessage: "hi"}, true)
-	if err != nil {
-		require.ErrorIs(t, err, ErrProviderExitedDuringStartup)
-	}
-	require.Empty(t, h.term.created, "the connection was the runner")
-	if v, ok := h.rs.live.view(h.chatID); ok {
-		select {
-		case <-v.exited:
-		case <-ctx.Done():
-			t.Fatal("the runner outlived its connection")
-		}
-	}
+	require.NoError(t, afterLoss{conns: h.rs.apiConns, runnerID: "runner-1", crash: true}.wait(ctx))
+	awaitExit(t, ctx, v)
 	assert.Equal(t, domain.AgentExitConnectionLost, endedAs(t, h))
+}
+
+// awaitExit blocks until v's runner has left the live table.
+func awaitExit(t *testing.T, ctx context.Context, v liveView) {
+	t.Helper()
+	select {
+	case <-v.exited:
+	case <-ctx.Done():
+		t.Fatal("the runner outlived its connection")
+	}
 }

@@ -272,15 +272,19 @@ runtime:
 
 // TestHelperServe is not a test: it is the `serve` a helperServeDescriptor spawn
 // forks, and returns at once anywhere else. Mode "refuse" refuses every resume;
-// "drop-after <method>" hangs up once it has answered that call, and lives on.
+// "drop-after <method>" hangs up once it has answered that call, and lives on;
+// any other mode answers every call until the process is killed.
 func TestHelperServe(t *testing.T) {
 	mode := os.Getenv(helperServeMode)
 	if mode == "" || flag.NArg() != 1 {
 		return
 	}
 	dropAfter, drops := strings.CutPrefix(mode, "drop-after ")
-	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", flag.Arg(0))
+	// Moved into place once listening: waitForSocket takes the path's existence
+	// as ready, and a bound socket refuses until it listens.
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", flag.Arg(0)+".bind")
 	require.NoError(t, err)
+	require.NoError(t, os.Rename(flag.Arg(0)+".bind", flag.Arg(0)))
 	upgrader := websocket.Upgrader{}
 	require.Error(t, http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)

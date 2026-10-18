@@ -220,7 +220,7 @@ func (r *apiConnRegistry) watchExit(runnerID string, onExit func(lost string)) b
 		if c.detached.Load() {
 			return // not the runner's exit — see apiconn.detached
 		}
-		onExit(c.lostReason())
+		onExit(c.exitCause())
 	}()
 	return true
 }
