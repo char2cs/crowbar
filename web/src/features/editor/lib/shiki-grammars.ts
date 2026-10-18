@@ -1,12 +1,9 @@
 /**
- * The one shiki highlighter Monaco's semantic tokens and Plate's code blocks
- * share: `shiki/core`, the JavaScript regex engine and one dynamic import per
- * grammar, so a first open pays neither the oniguruma wasm nor the full bundle.
- *
- * A grammar is async only while it loads; once ready it tokenizes
- * synchronously. Each language moves `loading → ready | failed` exactly once.
+ * The one shiki highlighter Monaco and Plate share, on the JavaScript regex engine
+ * so a first open skips the oniguruma wasm. Grammars load once, then tokenize synchronously.
  */
 import type { HighlighterCore } from 'shiki/core'
+import type { JavaScriptRegexEngineOptions } from 'shiki/engine/javascript'
 import type { BundledLanguage } from 'shiki/langs'
 import type { StateStack } from 'shiki/textmate'
 
@@ -43,16 +40,41 @@ const languages = new Map<
 const readyListeners = new Set<(languageId: string) => void>()
 let highlighter: Promise<HighlighterCore> | null = null
 
+/**
+ * Never `auto`: it picks ES2025 on new V8, which mis-tokenizes uppercase SQL and
+ * PowerShell. ES2024 matches oniguruma but needs the `v` flag (Safari 17+).
+ * @internal Exported for unit tests.
+ */
+export function regexEngineOptions(
+  target: 'ES2024' | 'ES2018' = supportsUnicodeSets() ? 'ES2024' : 'ES2018',
+): JavaScriptRegexEngineOptions {
+  return { forgiving: true, target }
+}
+
+function supportsUnicodeSets(): boolean {
+  try {
+    return new RegExp('', 'v') instanceof RegExp
+  } catch {
+    return false
+  }
+}
+
 async function createHighlighter(): Promise<HighlighterCore> {
-  const [{ createHighlighterCore }, { createJavaScriptRegexEngine }] = await Promise.all([
-    import('shiki/core'),
-    import('shiki/engine/javascript'),
-  ])
-  // No theme: nothing here reads colours, and scopes need none.
-  return createHighlighterCore({
-    langs: [],
-    engine: createJavaScriptRegexEngine({ forgiving: true }),
-  })
+  try {
+    const [{ createHighlighterCore }, { createJavaScriptRegexEngine }] = await Promise.all([
+      import('shiki/core'),
+      import('shiki/engine/javascript'),
+    ])
+    // No theme: nothing here reads colours, and scopes need none.
+    return await createHighlighterCore({
+      langs: [],
+      engine: createJavaScriptRegexEngine(regexEngineOptions()),
+    })
+  } catch (error) {
+    // A failed chunk load fails the languages waiting on it, not every later one.
+    highlighter = null
+    throw error
+  }
 }
 
 async function loadGrammar(shikiLang: string): Promise<ShikiGrammar> {

@@ -1,10 +1,11 @@
 /**
  * The one shiki highlighter Monaco and Plate share: a grammar loads on first
- * ask and is announced once, and the JavaScript regex engine must tokenize the
- * editor languages exactly as the oniguruma engine does.
+ * ask and is announced once, and the JavaScript regex engine, under each target
+ * the app can pick, must tokenize the editor languages exactly as oniguruma does.
  */
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { createHighlighterCore, type HighlighterCore } from 'shiki/core'
+import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
 import { createOnigurumaEngine } from 'shiki/engine/oniguruma'
 import { bundledLanguages, type BundledLanguage } from 'shiki/langs'
 import type { StateStack } from 'shiki/textmate'
@@ -12,8 +13,27 @@ import {
   grammarFor,
   grammarStateOf,
   onGrammarReady,
+  regexEngineOptions,
   type ShikiGrammar,
 } from '@/features/editor/lib/shiki-grammars'
+
+const engine = vi.hoisted(() => ({ failNextBuild: false }))
+
+vi.mock('shiki/engine/javascript', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('shiki/engine/javascript')>()
+  return {
+    ...actual,
+    createJavaScriptRegexEngine: (
+      ...args: Parameters<typeof actual.createJavaScriptRegexEngine>
+    ) => {
+      if (engine.failNextBuild) {
+        engine.failNextBuild = false
+        throw new Error('chunk failed to load')
+      }
+      return actual.createJavaScriptRegexEngine(...args)
+    },
+  }
+})
 
 const LOAD = { timeout: 10_000 }
 
@@ -68,6 +88,51 @@ it('stays failed for a language shiki has no grammar for', async () => {
   // Asking again did not restart the load.
   expect(grammarStateOf('gitignore')).toBe('failed')
 }, 30_000)
+
+it('announces a language once, however often it is asked', async () => {
+  const announced: string[] = []
+  const off = onGrammarReady((languageId) => announced.push(languageId))
+
+  grammarFor('rust')
+  grammarFor('rust')
+  await vi.waitFor(() => expect(grammarStateOf('rust')).toBe('ready'), LOAD)
+  grammarFor('rust')
+  off()
+
+  expect(announced).toEqual(['rust'])
+}, 30_000)
+
+it('builds the highlighter again after a failed build, but never retries a failed language', async () => {
+  vi.resetModules()
+  const fresh = await import('@/features/editor/lib/shiki-grammars')
+
+  engine.failNextBuild = true
+  fresh.grammarFor('python')
+  await vi.waitFor(() => expect(fresh.grammarStateOf('python')).toBe('failed'), LOAD)
+
+  fresh.grammarFor('go')
+  await vi.waitFor(() => expect(fresh.grammarStateOf('go')).not.toBe('loading'), LOAD)
+  expect(fresh.grammarStateOf('go')).toBe('ready')
+  expect(fresh.grammarFor('python')).toBeNull()
+  expect(fresh.grammarStateOf('python')).toBe('failed')
+}, 30_000)
+
+it('targets ES2024 regexes where the v flag compiles, else ES2018, never auto', () => {
+  expect(regexEngineOptions()).toEqual({ forgiving: true, target: 'ES2024' })
+
+  const noVFlag = new Proxy(RegExp, {
+    construct(target, args: [string, string?]) {
+      if (args[1]?.includes('v')) throw new SyntaxError('Invalid flags')
+      return Reflect.construct(target, args)
+    },
+  })
+  vi.stubGlobal('RegExp', noVFlag)
+  try {
+    expect(regexEngineOptions()).toEqual({ forgiving: true, target: 'ES2018' })
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})
 
 // Fenced code stays untagged: markdown embeds a fence's grammar only once it is loaded.
 const FIXTURES: Record<string, string[]> = {
@@ -215,22 +280,58 @@ const FIXTURES: Record<string, string[]> = {
     '</body>',
     '</html>',
   ],
+  sql: [
+    'SELECT u.id, COUNT(*) AS total, MAX(o.created_at) AS latest',
+    'FROM users AS u',
+    "LEFT JOIN orders o ON o.user_id = u.id AND o.status IN ('paid', 'shipped')",
+    "WHERE u.email LIKE '%@example.com' AND u.deleted_at IS NULL",
+    'GROUP BY u.id HAVING COUNT(*) > 10',
+    'ORDER BY total DESC LIMIT 50; -- trailing comment',
+    "INSERT INTO audit (id, note) VALUES (1, 'it''s done');",
+    'UPDATE users SET active = TRUE WHERE id = 42;',
+    "CREATE TABLE t (id INT PRIMARY KEY, name VARCHAR(255) NOT NULL DEFAULT '');",
+    'select lower(name) from t where id between 1 and 9;',
+  ],
+  powershell: [
+    '#Requires -Version 7',
+    '[CmdletBinding()] param([Parameter(Mandatory)][string]$Path, [switch]$Force)',
+    "$ErrorActionPreference = 'Stop'",
+    'function Get-Total { param([int[]]$Values) ($Values | Measure-Object -Sum).Sum }',
+    '$items = Get-ChildItem -Path $Path -Filter *.log -Recurse | Where-Object { $_.Length -gt 1KB }',
+    'foreach ($item in $items) { Write-Host "Found $($item.Name) at $(Get-Date -Format \'HH:mm\')" }',
+    'if ($Force -and -not (Test-Path $HOME)) { New-Item -ItemType Directory -Path $Path | Out-Null }',
+    '$hash = @{ Name = \'probe\'; Count = 3 }; [System.IO.File]::ReadAllText("$env:TEMP\\x.txt")',
+    '<# block comment #>',
+    "try { throw [System.Exception]::new('boom') } catch { Write-Error $_ } finally { exit 0 }",
+  ],
 }
 
-describe('tokenizes the editor languages like the oniguruma engine', { timeout: 30_000 }, () => {
-  let reference: HighlighterCore
+describe.each(['ES2024', 'ES2018'] as const)(
+  'tokenizes the editor languages like the oniguruma engine, targeting %s',
+  { timeout: 30_000 },
+  (target) => {
+    let ours: HighlighterCore
+    let reference: HighlighterCore
 
-  beforeAll(async () => {
-    reference = await createHighlighterCore({
-      engine: createOnigurumaEngine(import('shiki/wasm')),
-      langs: [],
+    beforeAll(async () => {
+      ours = await createHighlighterCore({
+        engine: createJavaScriptRegexEngine(regexEngineOptions(target)),
+        langs: [],
+      })
+      reference = await createHighlighterCore({
+        engine: createOnigurumaEngine(import('shiki/wasm')),
+        langs: [],
+      })
+    }, 30_000)
+
+    it.each(Object.entries(FIXTURES))('%s', async (languageId, lines) => {
+      const grammar = bundledLanguages[languageId as BundledLanguage]
+      await ours.loadLanguage(grammar)
+      await reference.loadLanguage(grammar)
+
+      expect(tokenize(ours.getLanguage(languageId), lines)).toEqual(
+        tokenize(reference.getLanguage(languageId), lines),
+      )
     })
-  }, 30_000)
-
-  it.each(Object.entries(FIXTURES))('%s', async (languageId, lines) => {
-    const ours = await readyGrammar(languageId)
-    await reference.loadLanguage(bundledLanguages[languageId as BundledLanguage])
-
-    expect(tokenize(ours, lines)).toEqual(tokenize(reference.getLanguage(languageId), lines))
-  })
-})
+  },
+)

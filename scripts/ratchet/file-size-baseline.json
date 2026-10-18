@@ -176,7 +176,6 @@
   "web/src/features/agent/transcript/turn-tools.tsx": 514,
   "web/src/features/editor/lsp/monaco-lsp-providers.ts": 502,
   "web/src/features/editor/monaco/language-contributions.ts": 545,
-  "web/src/features/editor/monaco/shiki-tokens.ts": 524,
   "web/src/features/file-explorer/file-explorer/hooks/use-file-explorer-context-menu.tsx": 618,
   "web/src/features/git/components/review-thread-item.tsx": 590,
   "web/src/features/tabs/components/tab-bar.tsx": 749,

@@ -398,9 +398,8 @@ export function shikiTokensInRange(
   const state = getModelState(model, languageId, grammar)
   const getLine = (row: number) => model.getLineContent(row + 1)
 
-  // A grammar compiles its rules into regex scanners lazily, as the code it is
-  // tokenizing reaches them — 60-78ms (oniguruma) for the first viewport of
-  // tsx/typescript, then ~3ms once compiled. Walk the first viewport on a timer
+  // A grammar compiles its regexes lazily as tokenizing reaches them, so a
+  // language's first viewport costs far more than later ones. Walk it on a timer
   // so that one-off cost never lands inside a synchronous provider call.
   if (!compiledLanguages.has(languageId)) {
     compiledLanguages.add(languageId)

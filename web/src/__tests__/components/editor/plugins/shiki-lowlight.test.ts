@@ -1,11 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   classesForScopes,
-  onShikiLanguageReady,
   shikiLowlight,
   tokenizeToHast,
 } from '@/components/editor/plugins/shiki-lowlight'
-import { grammarFor } from '@/features/editor/lib/shiki-grammars'
+import { grammarFor, onGrammarReady } from '@/features/editor/lib/shiki-grammars'
 
 describe('classesForScopes', () => {
   it('maps the innermost matching scope onto the hljs class the code block colors', () => {
@@ -64,7 +63,7 @@ describe('tokenizeToHast', () => {
 describe('shikiLowlight', () => {
   it('is plain until the grammar loads, announces it, then highlights with the real grammar', async () => {
     const ready = new Promise<string>((resolve) => {
-      const off = onShikiLanguageReady((lang) => {
+      const off = onGrammarReady((lang) => {
         off()
         resolve(lang)
       })

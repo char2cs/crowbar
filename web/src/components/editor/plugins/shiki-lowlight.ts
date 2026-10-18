@@ -1,16 +1,7 @@
 /**
- * A lowlight-shaped highlighter backed by shiki, for `@platejs/code-block`.
- *
- * Plate's code block decorates through a lowlight instance: a SYNCHRONOUS
- * `highlight(lang, code)` returning a hast tree whose span classes become
- * decoration class names. Monaco already highlights with shiki's TextMate
- * grammars, so the code block shares that highlighter (`shiki-grammars.ts`)
- * instead of shipping lowlight with every highlight.js grammar.
- *
- * `highlight` returns an empty tree for a language whose grammar is not ready
- * yet and starts loading it; `onShikiLanguageReady` tells the code block to
- * re-decorate when it lands. Scopes map onto the `hljs-*` class names the code
- * block's stylesheet already colors.
+ * A lowlight stand-in for `@platejs/code-block` over the shared shiki grammars. `highlight`
+ * must stay synchronous: an unready grammar yields an empty tree, and the block re-decorates
+ * on `onGrammarReady`. Scopes map onto the `hljs-*` classes the block's stylesheet colours.
  */
 import type { StateStack } from 'shiki/textmate'
 import {
@@ -18,8 +9,6 @@ import {
   readyLanguageIds,
   type ShikiGrammar,
 } from '@/features/editor/lib/shiki-grammars'
-
-export { onGrammarReady as onShikiLanguageReady } from '@/features/editor/lib/shiki-grammars'
 
 interface HastText {
   type: 'text'

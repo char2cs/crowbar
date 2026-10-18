@@ -11,7 +11,7 @@ import { useEditorRef, useElement, useReadOnly } from 'platejs/react'
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { onShikiLanguageReady } from '@/components/editor/plugins/shiki-lowlight'
+import { onGrammarReady } from '@/features/editor/lib/shiki-grammars'
 
 // This file is `components/ui` only by shadcn-registry convention — it is
 // already Plate/markdown-specific (it imports `platejs` types and reads
@@ -229,13 +229,13 @@ export function CodeBlockElement({ showLanguageLabel = true, ...props }: CodeBlo
   const { editor, element } = props
   const isMermaid = element.lang === 'mermaid'
 
-  // Highlighting grammars load on demand (shiki-lowlight.ts): this block was
+  // Highlighting grammars load on demand (shiki-grammars.ts): this block was
   // decorated as plain text until its language landed, so drop that cached
   // decoration and re-decorate once it has.
   React.useEffect(() => {
     const lang = element.lang
     if (!lang) return
-    return onShikiLanguageReady((ready) => {
+    return onGrammarReady((ready) => {
       if (ready !== lang) return
       resetCodeBlockDecorations(element)
       editor.api.redecorate()
