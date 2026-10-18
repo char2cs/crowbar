@@ -4367,20 +4367,7 @@ var sessionOps = []sessionOp{
 			assert.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, live.ProviderID, "user_prompt", payload))
 		}
 	}},
-	{"stop", func(t *testing.T, f testFixture, w *sessionWalk) {
-		t.Helper()
-		// S4: Stop is bounded. The turn it leaves closed is S3's, once both intents settle.
-		stopped := make(chan struct{})
-		go func() {
-			defer close(stopped)
-			_ = f.usecase.StopChat(f.ctx, w.chatID)
-		}()
-		select {
-		case <-stopped:
-		case <-time.After(10 * time.Second):
-			t.Fatal("S4: Stop did not return")
-		}
-	}},
+	{"stop", stopOp},
 	{"switch", func(t *testing.T, f testFixture, w *sessionWalk) {
 		t.Helper()
 		w.provider = map[string]string{"claude": "codex", "codex": "claude"}[w.provider]
@@ -4467,6 +4454,7 @@ func checkSessionInvariants(t *testing.T, f testFixture, w *sessionWalk, trail [
 		assert.False(t, f.chat(t, w.chatID).Working, "S3, after %v", trail)
 		assert.False(t, agentusecase.TurnInFlight(f.usecase.own, w.chatID), "S3 in flight, after %v", trail)
 	}
+	assertTurnsStartOnTheLiveRunner(t, f, w.chatID, trail)
 }
 
 // concurrentOps are the user's own intents, which really do race each other
@@ -4518,6 +4506,7 @@ func TestSessionInvariants_HoldWhenIntentsRace(t *testing.T) {
 					return
 				}
 			}
+			endWalk(t, f, w, trail)
 		})
 	}
 }

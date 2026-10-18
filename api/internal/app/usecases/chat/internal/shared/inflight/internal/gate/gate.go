@@ -16,10 +16,10 @@ var ErrPreempted = errors.New("gate: preempted by a stop")
 // Gate is a per-key mutex whose waits honour a context, and whose holders can
 // be asked to let go.
 //
-// The chat usecase builds three: the per-chat SPAWN gate (every user-initiated
-// path that starts, replaces, attaches, prompts or purges a chat's CLI), the
-// per-chat TURN-START gate (a hook's turn start versus a runner's end) and the
-// per-runner HOOK gate (one runner's hook ingestion).
+// Three are built: the per-chat SPAWN gate (every user-initiated path that
+// starts, replaces, attaches, prompts or purges a chat's CLI), the per-runner
+// HOOK gate (one runner's hook ingestion) and, inside the runner live table,
+// the per-chat TURN-START gate (a turn opening versus its runner's end).
 //
 // Starting a CLI is not a database write, so nothing in the persistence layer
 // can order two of them: two concurrent switches on one chat would both read

@@ -75,6 +75,8 @@ func (rs *Runners) recordSpawnFailure(ctx context.Context, chatID, runnerID stri
 	if *err == nil || errors.Is(*err, ErrProviderExitedDuringStartup) {
 		return
 	}
+	// Claimed first, under the turn-start gate: a turn a hook opened on it closes.
+	rs.claimEnd(ctx, runnerID)
 	rs.live.remove(runnerID)
 	if create || errors.Is(*err, context.Canceled) {
 		return

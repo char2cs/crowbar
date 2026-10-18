@@ -89,22 +89,27 @@ func (rs *Runners) quitOutgoingCLI(ctx context.Context, chatID string) error {
 // markEnding marks runner's end as under way for cause and closes the turn it
 // had, under the chat's turn-start gate: no turn opens on it after. The gate
 // is released before the wait for the exit, whose record takes it again.
-func (rs *Runners) markEnding(ctx context.Context, runner agents.Runner, cause string) (<-chan struct{}, bool) {
-	defer rs.live.turnStarts.Lock(runner.CurrentChatID)()
-	exited, ok := rs.live.markExiting(runner.ID, cause)
-	rs.inflightTurns.Complete(ctx, runner.ID, cause)
+func (rs *Runners) markEnding(
+	ctx context.Context, runner agents.Runner, cause string,
+) (exited <-chan struct{}, ok bool) {
+	rs.live.inTurnOrder(runner.CurrentChatID, func() {
+		exited, ok = rs.live.markExiting(runner.ID, cause)
+		rs.inflightTurns.Complete(ctx, runner.ID, cause)
+	})
 	return exited, ok
 }
 
 // claimEnd hands runnerID's exit to its one recorder and closes the turn it
 // had, under the chat's turn-start gate: a turn opened before this is closed
 // here, and none opens after.
-func (rs *Runners) claimEnd(ctx context.Context, runnerID string) (liveEntry, bool) {
+func (rs *Runners) claimEnd(ctx context.Context, runnerID string) (claimed liveEntry, ok bool) {
 	runner, ok := rs.live.byRunner(runnerID)
 	if !ok {
 		return liveEntry{}, false
 	}
-	defer rs.live.turnStarts.Lock(runner.CurrentChatID)()
-	rs.inflightTurns.Complete(ctx, runnerID, domain.AgentExitExited)
-	return rs.live.claimExit(runnerID)
+	rs.live.inTurnOrder(runner.CurrentChatID, func() {
+		rs.inflightTurns.Complete(ctx, runnerID, domain.AgentExitExited)
+		claimed, ok = rs.live.claimExit(runnerID)
+	})
+	return claimed, ok
 }

@@ -208,12 +208,21 @@ func (rs *Runners) displaceForSwitch(
 // endIdleOutgoing is the switch's final idle check, under the chat's
 // turn-start gate. Once it passes the outgoing runner is marked ending, so no
 // turn opens on it before the quit.
-func (rs *Runners) endIdleOutgoing(
+func (rs *Runners) endIdleOutgoing(ctx context.Context, chat domain.Chat) (retry bool, err error) {
+	rs.live.inTurnOrder(chat.ID, func() {
+		if retry, err = rs.outgoingBusy(ctx, chat); !retry && err == nil {
+			rs.markOutgoingEnding(chat.ID)
+		}
+	})
+	return retry, err
+}
+
+// outgoingBusy reports whether chat has work its outgoing CLI must finish
+// before the switch may quit it.
+func (rs *Runners) outgoingBusy(
 	ctx context.Context,
 	chat domain.Chat,
 ) (bool, error) {
-	defer rs.live.turnStarts.Lock(chat.ID)()
-
 	st, err := rs.settleOrphanedPrompts(ctx, chat.ID)
 	if err != nil {
 		return false, fmt.Errorf("agent: switch provider: %w", err)
@@ -255,7 +264,6 @@ func (rs *Runners) endIdleOutgoing(
 			"agent: switch provider: dormant chat still flagged working; proceeding rather than waiting for a hook that cannot arrive",
 			"chat_id", chat.ID)
 	}
-	rs.markOutgoingEnding(chat.ID)
 	return false, nil
 }
 

@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -252,4 +253,31 @@ func TestSpawnRunner_ASecondRunnerOnALiveChatIsRefusedBeforeItForks(t *testing.T
 	assert.Equal(t, "runner-0", live.ID)
 	_, recorded := chatState(t, h.rs.ledger).LastExit()
 	assert.False(t, recorded, "a refused spawn records nothing over the live runner")
+}
+
+// A turn a hook opened on a spawn that then failed is closed with it, and none
+// opens on the runner after: the chat is free, and nothing waits on that turn.
+func TestRecordSpawnFailure_ClosesATurnOpenedInTheWindow(t *testing.T) {
+	runner := engineagents.Runner{ID: "runner-1", ProviderID: "claude", CurrentChatID: "chat-1"}
+	rs := &Runners{
+		ledger:        newTestLedger(t),
+		live:          newLiveTable(),
+		inflightTurns: inflight.NewTurns(),
+	}
+	require.NoError(t, rs.live.add(runner))
+	begin := func(r engineagents.Runner) error {
+		rs.inflightTurns.Begin(t.Context(), r.ID, r.CurrentChatID)
+		return nil
+	}
+	opened, err := rs.TurnRunner(runner.ID, begin)
+	require.NoError(t, err)
+	require.True(t, opened, "precondition: a turn opens on the spawning runner")
+
+	spawnErr := errors.New("spawn failed")
+	rs.recordSpawnFailure(t.Context(), runner.CurrentChatID, runner.ID, false, &spawnErr)
+
+	assert.Empty(t, rs.inflightTurns.Inflight(runner.CurrentChatID), "the failed spawn left its turn in flight")
+	opened, err = rs.TurnRunner(runner.ID, begin)
+	require.NoError(t, err)
+	assert.False(t, opened, "a turn opened on a runner whose spawn failed")
 }

@@ -74,13 +74,16 @@ func (t *Turns) handleTurn(
 
 	switch ev.Kind {
 	case "user_prompt":
-		return t.openTurnFromPrompt(ctx, chat, runner, agent, ev)
+		_, err := t.openingTurn(runner.ID, func(h turnHold) error {
+			return t.openTurnFromPrompt(ctx, chat, h, agent, ev)
+		})
+		return err
 	case "turn_stop":
 		// Taken BEFORE the close: Complete drops whatever is still parked.
 		steered, parked := t.turns.TakeSteered(runner.ID)
 		err := t.closeTurnFromStop(ctx, chat, runner, agent, ev)
 		if parked {
-			t.deliverSteered(ctx, chat, runner, agent, steered)
+			t.deliverSteered(ctx, chat, runner.ID, agent, steered)
 		}
 		return err
 	case engineagents.HookTurnFailed:

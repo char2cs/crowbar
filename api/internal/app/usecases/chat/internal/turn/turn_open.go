@@ -16,13 +16,41 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
+// turnHold is a runner held against its end. startTurn needs one, and only
+// openingTurn makes one, so no turn opens on a runner whose end is under way.
+type turnHold struct{ runner engineagents.Runner }
+
+// openingTurn runs open on runnerID's runner held against its end, and reports
+// false without running it once that end is under way: nothing would close a
+// turn opened after it.
+func (t *Turns) openingTurn(runnerID string, open func(turnHold) error) (bool, error) {
+	return t.runners.TurnRunner(runnerID, func(runner engineagents.Runner) error {
+		return open(turnHold{runner: runner})
+	})
+}
+
+// startTurn marks h's chat working and its turn in flight, the same fact
+// without the read model's lag: a provider switch blocks on the latter
+// (inflight.Turns) so it never quits a CLI that is still answering.
+func (t *Turns) startTurn(ctx context.Context, h turnHold) error {
+	chatID := h.runner.CurrentChatID
+	started, err := t.chats.StartTurn(ctx, chatID, time.Now())
+	if err != nil {
+		return fmt.Errorf("agent: ingest hook: start turn: %w", err)
+	}
+	t.work.Set(chatID, started.Working)
+	t.turns.Begin(ctx, h.runner.ID, chatID)
+	return nil
+}
+
 func (t *Turns) openTurnFromPrompt(
 	ctx context.Context,
 	chat domain.Chat,
-	runner engineagents.Runner,
+	h turnHold,
 	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
 ) error {
+	runner := h.runner
 	// A prompt fired inside a subagent is the parent agent talking to it, never the
 	// user; the subagent's own events already carry its activity.
 	if ev.Subagent != nil {
@@ -51,12 +79,9 @@ func (t *Turns) openTurnFromPrompt(
 			// the ledger and from title derivation, but still open the turn:
 			// the CLI really is working on it, and the workspace's working
 			// overlay must say so.
-			started, err := t.chats.StartTurn(ctx, chat.ID, time.Now())
-			if err != nil {
-				return fmt.Errorf("agent: ingest hook: start turn: %w", err)
+			if err := t.startTurn(ctx, h); err != nil {
+				return err
 			}
-			t.work.Set(chat.ID, started.Working)
-			t.turns.Begin(ctx, runner.ID, chat.ID)
 			t.openAssistantTurn(ctx, chat, runner)
 			return nil
 		}
@@ -65,7 +90,7 @@ func (t *Turns) openTurnFromPrompt(
 		// the ordinary path below, never Crowbar's own injected preamble.
 		rest := ev
 		rest.Message = remainder
-		return t.recordUserTurn(ctx, chat, runner, agent, rest)
+		return t.recordUserTurn(ctx, chat, h, agent, rest)
 	}
 	// The PROVIDER's own harness talking to its own model on the user's hook: a
 	// background-subagent completion report is the measured case, and the ledger
@@ -88,12 +113,9 @@ func (t *Turns) openTurnFromPrompt(
 		if err := t.recordOtherTurn(ctx, chat.ID, runner, ev.TurnID, ledger.OriginHarness, ev.Message); err != nil {
 			return err
 		}
-		started, err := t.chats.StartTurn(ctx, chat.ID, time.Now())
-		if err != nil {
-			return fmt.Errorf("agent: ingest hook: start turn: %w", err)
+		if err := t.startTurn(ctx, h); err != nil {
+			return err
 		}
-		t.work.Set(chat.ID, started.Working)
-		t.turns.Begin(ctx, runner.ID, chat.ID)
 		appendErr := t.conversations.AppendRunnerTurn(
 			ctx, chat, runner.ProviderID, runner.ID, t.boundSession(ctx, chat.ID, runner.ProviderID),
 			domain.TurnRoleHarness, ev.Message,
@@ -101,7 +123,7 @@ func (t *Turns) openTurnFromPrompt(
 		t.openAssistantTurn(ctx, chat, runner)
 		return appendErr
 	}
-	return t.recordUserTurn(ctx, chat, runner, agent, ev)
+	return t.recordUserTurn(ctx, chat, h, agent, ev)
 }
 
 // recordUserTurn is openTurnFromPrompt's shared tail for text genuinely
@@ -111,10 +133,11 @@ func (t *Turns) openTurnFromPrompt(
 func (t *Turns) recordUserTurn(
 	ctx context.Context,
 	chat domain.Chat,
-	runner engineagents.Runner,
+	h turnHold,
 	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
 ) error {
+	runner := h.runner
 	rawText := ev.Message
 	// This hook's own message IS the text the CLI actually received — which,
 	// whenever Crowbar's own dispatch referenced an attachment, is the file's
@@ -141,17 +164,11 @@ func (t *Turns) recordUserTurn(
 	if err := t.conversations.RenameChat(ctx, chat.ID, deriveTitle(userText), "derived"); err != nil {
 		slog.WarnContext(ctx, "agent: ingest hook: derived title", "err", err, "chat_id", chat.ID)
 	}
-	// A user prompt opens the turn: mark the chat Working so the read model (and
-	// the workspace spinner) see a live turn.
-	started, err := t.chats.StartTurn(ctx, chat.ID, time.Now())
-	if err != nil {
-		return fmt.Errorf("agent: ingest hook: start turn: %w", err)
+	// A user prompt opens the turn: the read model (and the workspace spinner)
+	// see a live turn.
+	if err := t.startTurn(ctx, h); err != nil {
+		return err
 	}
-	t.work.Set(chat.ID, started.Working)
-	// And record it as IN FLIGHT, which is the same fact without the read model's lag
-	// in front of it — a provider switch blocks on this rather than on Working, so that
-	// it never quits a CLI that is still answering (inflight.Turns).
-	t.turns.Begin(ctx, runner.ID, chat.ID)
 	// The hook is the provider's acknowledgement of the prompt Crowbar recorded,
 	// matched on the text the request carried before dispatch rewrote it.
 	requestID, acceptErr := t.acceptPrompt(ctx, chat.ID, runner, ev.TurnID, userText)

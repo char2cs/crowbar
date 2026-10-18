@@ -17,6 +17,7 @@ type liveTable struct {
 	runners map[string]*liveEntry
 	// turnStarts orders a turn opening on a chat's runner against its end: an
 	// end marked under it closes every turn opened before, and none opens after.
+	// Only inTurnOrder takes it.
 	turnStarts *inflight.Gate
 }
 
@@ -84,6 +85,13 @@ func (t *liveTable) byRunner(runnerID string) (engineagents.Runner, bool) {
 		return e.runner, true
 	}
 	return engineagents.Runner{}, false
+}
+
+// inTurnOrder runs fn under chatID's turn-start gate: a turn opens on the
+// chat's runner (TurnRunner), or that runner's end is marked, inside one.
+func (t *liveTable) inTurnOrder(chatID string, fn func()) {
+	defer t.turnStarts.Lock(chatID)()
+	fn()
 }
 
 // unending is runnerID's runner while its end is not under way.
@@ -235,19 +243,20 @@ func (rs *Runners) RunnerByID(runnerID string) (engineagents.Runner, bool) {
 	return rs.live.byRunner(runnerID)
 }
 
-// TurnRunner holds runnerID's chat against its runner's end and returns the
-// runner while a turn may open on it; release lets an end proceed.
-func (rs *Runners) TurnRunner(runnerID string) (engineagents.Runner, func(), bool) {
+// TurnRunner runs open on runnerID's runner held against its end, and reports
+// false without running it once that end is under way: no turn may open then.
+func (rs *Runners) TurnRunner(runnerID string, open func(engineagents.Runner) error) (bool, error) {
 	r, ok := rs.live.byRunner(runnerID)
 	if !ok {
-		return engineagents.Runner{}, nil, false
+		return false, nil
 	}
-	release := rs.live.turnStarts.Lock(r.CurrentChatID)
-	if r, ok = rs.live.unending(runnerID); !ok {
-		release()
-		return engineagents.Runner{}, nil, false
-	}
-	return r, release, true
+	var err error
+	rs.live.inTurnOrder(r.CurrentChatID, func() {
+		if r, ok = rs.live.unending(runnerID); ok {
+			err = open(r)
+		}
+	})
+	return ok, err
 }
 
 // LiveRunner implements snapshot.Runtime: a runner is on the chat from its

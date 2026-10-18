@@ -40,21 +40,6 @@ func (t *Turns) IngestHook(
 	return t.ingestHookNow(ctx, runnerID, provider, canonicalEvent, rawPayload)
 }
 
-func (t *Turns) ingestUserPromptInterlocked(
-	ctx context.Context,
-	runnerID, provider, canonicalEvent string,
-	rawPayload []byte,
-) error {
-	// An end that came first has closed this runner's turn, and nothing would
-	// close one opened after it.
-	runner, release, ok := t.runners.TurnRunner(runnerID)
-	if !ok {
-		return nil
-	}
-	defer release()
-	return t.ingestResolvedHook(ctx, runner, provider, canonicalEvent, rawPayload)
-}
-
 func (t *Turns) ingestResolvedHook(
 	ctx context.Context,
 	runner engineagents.Runner,
@@ -265,9 +250,6 @@ func (t *Turns) ingestHookNow(
 	canonicalEvent string,
 	rawPayload []byte,
 ) error {
-	if canonicalEvent == "user_prompt" {
-		return t.ingestUserPromptInterlocked(ctx, runnerID, provider, canonicalEvent, rawPayload)
-	}
 	runner, ok := t.runners.RunnerByID(runnerID)
 	if !ok {
 		// A hook from a runner we do not know (or one whose PTY has already died):

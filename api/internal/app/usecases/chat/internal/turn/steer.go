@@ -66,11 +66,12 @@ func (t *Turns) QueueSteer(runnerID string, s inflight.Steered) bool {
 
 // deliverSteered answers the turn-end hook with the parked message and records
 // it as the user turn the CLI's continuation is about to answer. The CLI never
-// fires a prompt hook for it, so this is the only place the turn opens.
+// fires a prompt hook for it, so this is the only place the turn opens; on a
+// runner whose end is under way it is refused instead, and never delivered.
 func (t *Turns) deliverSteered(
 	ctx context.Context,
 	chat domain.Chat,
-	runner engineagents.Runner,
+	runnerID string,
 	agent engineagents.Agent,
 	s inflight.Steered,
 ) {
@@ -80,9 +81,16 @@ func (t *Turns) deliverSteered(
 		t.runners.RefuseSteered(ctx, s)
 		return
 	}
-	t.replies.put(deliveryID, stdout)
-	if err := t.recordUserTurn(ctx, chat, runner, agent, engineagents.CanonicalEvent{Message: s.Text}); err != nil {
+	opened, err := t.openingTurn(runnerID, func(h turnHold) error {
+		t.replies.put(deliveryID, stdout)
+		return t.recordUserTurn(ctx, chat, h, agent, engineagents.CanonicalEvent{Message: s.Text})
+	})
+	if !opened {
+		t.runners.RefuseSteered(ctx, s)
+		return
+	}
+	if err != nil {
 		slog.WarnContext(ctx, "agent: record steered prompt (delivered anyway)",
-			"chat_id", chat.ID, "runner_id", runner.ID, "client_request_id", s.RequestID, "err", err)
+			"chat_id", chat.ID, "runner_id", runnerID, "client_request_id", s.RequestID, "err", err)
 	}
 }
