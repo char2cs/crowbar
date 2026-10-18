@@ -37,6 +37,7 @@ func (s *State) Apply(r Row) {
 	case KindTurnStarted:
 		if body, err := DecodeBody[TurnStarted](r); err == nil {
 			s.advance(body.RequestID, func(p *Prompt) { p.Status = PromptStatusDelivered })
+			s.markTurned(body.Provider, body.SessionID)
 		}
 	case KindPromptSettled:
 		if body, err := DecodeBody[PromptSettled](r); err == nil {

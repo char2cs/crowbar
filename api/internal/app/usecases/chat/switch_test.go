@@ -40,7 +40,7 @@ func TestRegression_ASwitchParkedOnAPromptGoesAheadOnceThePromptSettles(t *testi
 	f, chatID, carrier, done := switchParkedOnAPendingPrompt(t)
 
 	require.NoError(t, f.usecase.IngestHook(f.ctx, carrier, "claude", "idle", mustJSON(t,
-		map[string]any{"session_id": "sid-claude-native", "message": "Claude is waiting for your input"})))
+		map[string]any{"message": "Claude is waiting for your input"})))
 
 	got := awaitSwitch(t, done)
 	require.NoError(t, got.err)

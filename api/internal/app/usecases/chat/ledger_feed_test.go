@@ -133,9 +133,51 @@ func TestLedgerFeed_AChatsFirstCommitCompletesAndItsSnapshotCarriesTheConversati
 	})
 	require.NoError(t, err)
 
+	appendWithin(t, f, chatID, bound, asked, gaveUp)
+	deadline, cancel := context.WithTimeout(f.ctx, 10*time.Second)
+	defer cancel()
+	select {
+	case got := <-settled:
+		assert.Equal(t, "req-1", got.requestID)
+	case <-deadline.Done():
+		t.Fatal("no prompt_settled was published")
+	}
+
+	snap, err := f.usecase.ChatSnapshot(f.ctx, chatID)
+	require.NoError(t, err)
+	c, ok := snap.Conversation()
+	require.True(t, ok, "the snapshot carries the conversation the commit bound")
+	assert.Equal(t, "thread-1", c.SessionID)
+}
+
+// A commit for a chat the snapshot owner cannot read (here: none exists) still
+// completes: its publication never reads the ledger under the chat's writer.
+func TestLedgerFeed_ACommitForAChatThatCannotBeReadCompletes(t *testing.T) {
+	f := newFixture(t)
+	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{
+		PromptSettled: func(string, string, string, bool) {},
+	})
+	bound, err := ledger.Assign(ledger.State{}, "codex", "thread-1")
+	require.NoError(t, err)
+	asked, err := ledger.NewRow(ledger.KindUserMessage, "turn-1", "", ledger.UserMessage{
+		RequestID: "req-1", Text: "hi", Origin: ledger.OriginCrowbar, Delivery: ledger.DeliveryRestart,
+	})
+	require.NoError(t, err)
+	gaveUp, err := ledger.NewRow(ledger.KindPromptSettled, "", "", ledger.PromptSettled{
+		RequestID: "req-1", Reason: ledger.ReasonDeliveryFailed,
+	})
+	require.NoError(t, err)
+
+	appendWithin(t, f, uuid.NewString(), bound, asked, gaveUp)
+}
+
+// appendWithin commits rows to chatID, failing the test if the commit does not
+// return: a subscriber reading the ledger under its writer never would.
+func appendWithin(t *testing.T, f testFixture, chatID string, rows ...ledger.Row) {
+	t.Helper()
 	committed := make(chan error, 1)
 	go func() {
-		_, _, err := f.ledger.Append(f.ctx, chatID, bound, asked, gaveUp)
+		_, _, err := f.ledger.Append(f.ctx, chatID, rows...)
 		committed <- err
 	}()
 	deadline, cancel := context.WithTimeout(f.ctx, 10*time.Second)
@@ -144,13 +186,6 @@ func TestLedgerFeed_AChatsFirstCommitCompletesAndItsSnapshotCarriesTheConversati
 	case err := <-committed:
 		require.NoError(t, err)
 	case <-deadline.Done():
-		t.Fatal("the chat's first commit deadlocked on its own subscribers")
+		t.Fatal("the commit deadlocked on its own subscribers")
 	}
-	assert.Equal(t, "req-1", (<-settled).requestID)
-
-	snap, err := f.usecase.ChatSnapshot(f.ctx, chatID)
-	require.NoError(t, err)
-	c, ok := snap.Conversation()
-	require.True(t, ok, "the snapshot carries the conversation the commit bound")
-	assert.Equal(t, "thread-1", c.SessionID)
 }

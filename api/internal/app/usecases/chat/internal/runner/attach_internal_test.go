@@ -12,7 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
@@ -70,43 +70,6 @@ func (s stubTurnsForAttach) ChatWorking(context.Context, string) (bool, error) {
 
 func (s stubTurnsForAttach) TurnOpen(context.Context, string, string) (bool, error) {
 	return s.working, nil
-}
-
-// stubActivityForAttach answers LastTurnForSession and CountTurns — the calls
-// SwitchToTerminal's guard and resumableConversation's legacy-vs-crash check
-// make. The embedded nil interface panics on anything else. turnCount
-// defaults to zero, which is what every pre-existing test wants (a chat with
-// no other recorded activity), so callers that don't care about it need no
-// changes.
-type stubActivityForAttach struct {
-	agentactivity.EventStore
-	found     bool
-	turnCount int64
-}
-
-func (s stubActivityForAttach) LastTurnForSession(
-	context.Context, string, string, string,
-) (time.Time, bool, error) {
-	return time.Time{}, s.found, nil
-}
-
-func (s stubActivityForAttach) CountTurns(context.Context, string) (int64, error) {
-	return s.turnCount, nil
-}
-
-// stubActivityBySession answers LastTurnForSession by exact sessionID match
-// against wantSession — unlike stubActivityForAttach's session-agnostic
-// canned bool, this lets a test tell apart a call made with the runner row's
-// durable CurrentSession from one made with an apiconn's own tctx.Session.
-type stubActivityBySession struct {
-	agentactivity.EventStore
-	wantSession string
-}
-
-func (s stubActivityBySession) LastTurnForSession(
-	_ context.Context, _, _, sessionID string,
-) (time.Time, bool, error) {
-	return time.Time{}, sessionID == s.wantSession, nil
 }
 
 // fakeTermForAttach is a minimal seam.TerminalCommander: it records every
@@ -301,10 +264,9 @@ func TestSwitchToTerminal_ForksTheAttachProcessAndDropsTheAPIConnection(t *testi
 		runnerStore: stubRunnerStoreForAttach{
 			runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test"},
 		},
-		turns:    stubTurnsForAttach{working: false},
-		activity: stubActivityForAttach{found: true},
-		term:     term,
-		ledger:   boundTestLedger(t, "attach-test", "sess-1"),
+		turns:  stubTurnsForAttach{working: false},
+		term:   term,
+		ledger: turnedTestLedger(t, "attach-test", "sess-1"),
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
@@ -365,10 +327,9 @@ func TestRegression_SwitchToTerminalForksWithTheProcessEnvironment(t *testing.T)
 		runnerStore: stubRunnerStoreForAttach{
 			runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test"},
 		},
-		turns:    stubTurnsForAttach{working: false},
-		activity: stubActivityForAttach{found: true},
-		term:     term,
-		ledger:   boundTestLedger(t, "attach-test", "sess-1"),
+		turns:  stubTurnsForAttach{working: false},
+		term:   term,
+		ledger: turnedTestLedger(t, "attach-test", "sess-1"),
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
@@ -385,6 +346,19 @@ func TestRegression_SwitchToTerminalForksWithTheProcessEnvironment(t *testing.T)
 // The attach decision reads the chat's bound session, under which turns are
 // recorded, not the connection's establish-time copy.
 func TestRegression_SwitchToTerminal_ChecksTheBoundSession_NotStaleAPIConnSession(t *testing.T) {
+	for name, turned := range map[string]bool{"turned": true, "never turned": false} {
+		t.Run(name, func(t *testing.T) {
+			l := boundTestLedger(t, "attach-test", "durable-sess")
+			if turned {
+				l = turnedTestLedger(t, "attach-test", "durable-sess")
+			}
+			switchToTerminalOnTheBoundSession(t, l, turned)
+		})
+	}
+}
+
+func switchToTerminalOnTheBoundSession(t *testing.T, l *ledgerstore.Store, attached bool) {
+	t.Helper()
 	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
 		_, _, _ = conn.ReadMessage()
 	})
@@ -404,10 +378,9 @@ func TestRegression_SwitchToTerminal_ChecksTheBoundSession_NotStaleAPIConnSessio
 		runnerStore: stubRunnerStoreForAttach{
 			runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test"},
 		},
-		turns:    stubTurnsForAttach{working: false},
-		activity: stubActivityBySession{wantSession: "durable-sess"},
-		term:     term,
-		ledger:   boundTestLedger(t, "attach-test", "durable-sess"),
+		turns:  stubTurnsForAttach{working: false},
+		term:   term,
+		ledger: l,
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
@@ -416,9 +389,15 @@ func TestRegression_SwitchToTerminal_ChecksTheBoundSession_NotStaleAPIConnSessio
 	})
 
 	termSessID, err := rs.SwitchToTerminal(context.Background(), "chat-1")
+	if !attached {
+		require.ErrorIs(t, err, ErrNoNativeTerminal, "a session that never turned cannot be loaded by the TUI")
+		require.Zero(t, term.callCount())
+		return
+	}
 	require.NoError(t, err)
 	require.NotEmpty(t, termSessID)
 	require.Equal(t, 1, term.callCount(), "the guard's stale-session check must not block a session that has turned")
+	require.Contains(t, term.created[0].argv, "durable-sess")
 }
 
 func TestSwitchToNative_IsANoop_WhenNothingAttached(t *testing.T) {
@@ -598,15 +577,15 @@ func switchSurfaceFixture(t *testing.T) (*Runners, *spySurfaceChats) {
 		runnerStore: stubRunnerStoreForAttach{
 			runner: engineagents.Runner{ID: "runner-1", ProviderID: "attach-test", CurrentChatID: "chat-1"},
 		},
-		turns:         stubTurnsForAttach{working: false},
-		activity:      stubActivityForAttach{found: true},
+		turns: stubTurnsForAttach{working: false},
+
 		term:          &fakeTermForAttach{},
 		chats:         chats,
 		agents:        engineagents.New(),
 		answers:       answerdesk.New(answerdesk.DefaultRetention, nil),
 		inflightTurns: inflight.NewTurns(),
 		work:          inflight.NewWork(),
-		ledger:        boundTestLedger(t, "attach-test", "sess-1"),
+		ledger:        turnedTestLedger(t, "attach-test", "sess-1"),
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,

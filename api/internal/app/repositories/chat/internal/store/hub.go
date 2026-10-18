@@ -40,10 +40,7 @@ const eventNamePrefix = "agentchat."
 // ("agentchat.<kind>.<id>"), so the full lifecycle vocabulary is exactly one
 // term per command:
 //
-//	created         — a fresh chat + its first segment (SpawnChat / a moved-to new chat)
-//	segment_opened  — a new active segment on an existing chat (switch-in / resume / focus)
-//	segment_ended   — the active segment closed (switch-out / process exit / boot reconcile)
-//	session_bound   — a provider's native session id recorded on a segment
+//	created         — a fresh chat (SpawnChat / MintChat)
 //	turn_started    — a turn opened (user_prompt hook → Working)
 //	turn_stopped    — a turn closed (turn_stop hook / boot reconcile → idle)
 //	title_set       — the chat title changed (derived / agent / user rename)

@@ -295,8 +295,8 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	u.turns.SetRunners(u.runners)
 	sh.turns.OnDrop(u.runners.RefuseSteered)
 	u.runners.SetTurns(u.turns)
-	// Facts first: every later subscriber reads snapshots, and a chat without
-	// facts would read the ledger under its own writer.
+	// Subscribers run under the chat's ledger writer: they read snapshots only
+	// through Held, which never reads the ledger.
 	d.Ledger.Subscribe(func(chatID string, _ []ledger.Row, st ledger.State) {
 		u.snapshots.ApplyLedger(context.Background(), chatID, snapshot.FactsOf(st))
 	})

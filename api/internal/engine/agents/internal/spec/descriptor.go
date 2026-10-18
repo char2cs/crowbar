@@ -84,10 +84,12 @@ type SessionSpec struct {
 	Refused *SessionRefusedSpec `yaml:"refused"`
 }
 
-// SessionRefusedSpec is a refused resume: the CLI exits with ExitCode having
-// printed a line containing one of Needles.
+// SessionRefusedSpec is a refused resume, by one rule per channel: on the
+// terminal the CLI exits with ExitCode having printed a line containing one of
+// Needles; over the api a call fails with RPCCode and a message containing one.
 type SessionRefusedSpec struct {
 	ExitCode int      `yaml:"exit_code"`
+	RPCCode  int      `yaml:"rpc_code"`
 	Needles  []string `yaml:"needles"`
 }
 

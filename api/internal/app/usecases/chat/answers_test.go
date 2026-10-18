@@ -28,7 +28,6 @@ func deliver(
 ) string {
 	t.Helper()
 	deliveryID := uuid.NewString()
-	f.withTrackedSession(runnerID, payload)
 	require.NoError(t, f.usecase.IngestHookDelivery(
 		f.ctx, deliveryID, runnerID, provider, kind, mustJSON(t, payload),
 	))
@@ -38,7 +37,7 @@ func deliver(
 
 func askUserQuestionPermission() map[string]any {
 	return map[string]any{
-		"session_id": "s1", "prompt_id": "2819fe04",
+		"prompt_id":       "2819fe04",
 		"hook_event_name": "PermissionRequest", "tool_name": "AskUserQuestion",
 		"tool_input": map[string]any{
 			"questions": []any{map[string]any{
@@ -55,7 +54,7 @@ func askUserQuestionPermission() map[string]any {
 
 func threeQuestionPermission() map[string]any {
 	return map[string]any{
-		"session_id": "s1", "prompt_id": "3q",
+		"prompt_id":       "3q",
 		"hook_event_name": "PermissionRequest", "tool_name": "AskUserQuestion",
 		"tool_input": map[string]any{
 			"questions": []any{
@@ -273,7 +272,7 @@ func TestRegression_AProviderWithNoAnswerChannelHoldsNoRelay(t *testing.T) {
 
 	hook(t, f, runnerID, "codex", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
 	deliveryID := deliver(t, f, runnerID, "codex", engineagents.HookToolPre, map[string]any{
-		"session_id": "s1", "tool_use_id": "tool-1", "tool_name": "shell",
+		"tool_use_id": "tool-1", "tool_name": "shell",
 		"tool_input": map[string]any{"command": "touch PROOF"},
 	})
 
@@ -295,7 +294,7 @@ func TestRegression_ACodexPermissionIsAnsweredFromCrowbarAndReachesTheCLI(t *tes
 
 	hook(t, f, runnerID, "codex", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
 	deliveryID := deliver(t, f, runnerID, "codex", engineagents.HookPermission, map[string]any{
-		"session_id": "s1", "tool_name": "Bash",
+		"tool_name":  "Bash",
 		"tool_input": map[string]any{"command": "touch PROOF"},
 	})
 
@@ -319,7 +318,7 @@ func TestRegression_AnOrdinaryHookNeverHoldsItsRelay(t *testing.T) {
 
 	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
 	deliveryID := deliver(t, f, runnerID, "claude", engineagents.HookToolPre, map[string]any{
-		"session_id": "s1", "tool_use_id": "tool-1", "tool_name": "Bash",
+		"tool_use_id": "tool-1", "tool_name": "Bash",
 		"tool_input": map[string]any{"command": "ls"},
 	})
 
@@ -499,7 +498,7 @@ func TestAnswer_AnElicitationIsAnsweredWithAVerbAndAForm(t *testing.T) {
 	chatID, runnerID := f.spawn(t, "claude")
 	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
 	deliveryID := deliver(t, f, runnerID, "claude", engineagents.HookElicitation, map[string]any{
-		"session_id": "s1", "mcp_server_name": "spike", "mode": "form",
+		"mcp_server_name": "spike", "mode": "form",
 		"message":          "do you prefer A or B?",
 		"requested_schema": map[string]any{"type": "object"},
 	})
@@ -714,7 +713,7 @@ func TestAnswer_AQuestionWithNoTextOfItsOwnIsNotGivenAnInventedKey(t *testing.T)
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, map[string]any{
-		"session_id": "s1", "prompt_id": "nk", "tool_name": "AskUserQuestion",
+		"prompt_id": "nk", "tool_name": "AskUserQuestion",
 		"tool_input": map[string]any{"questions": []any{
 			map[string]any{"options": []any{map[string]any{"label": "A"}}},
 			map[string]any{

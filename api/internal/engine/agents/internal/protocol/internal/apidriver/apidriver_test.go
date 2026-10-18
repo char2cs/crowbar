@@ -320,26 +320,9 @@ func TestEstablishSession_KnownSessionRunsResumeNotFresh(t *testing.T) {
 	require.Contains(t, (*seen)[0], `"threadId":"known-1"`)
 }
 
-// TestRegression_EstablishSessionResumeAlsoCarriesTheCurrentPermissionLevel
-// pins the codex resume gap: thread/resume's own send: template used to
-// carry only threadId/cwd, never {permission.sandbox}/{permission.
-// approvalPolicy} — unlike thread/start's. So a chat whose permission level
-// changed (an explicit SetChatPermissionLevel pick, or an inherited chat
-// following a later global-default change — see selection.go) after its
-// codex thread had already started kept resuming under the sandbox the
-// thread was ORIGINALLY created with, forever: RestartRequired forces a
-// restart on the level change, but a restart that only ever RESUMES never
-// applied the new choice.
-//
-// Confirmed live and safe against the real codex-cli 0.154.0 app-server
-// (throwaway CODEX_HOME/cwd, no repos or ~/.crowbar touched): thread/resume
-// accepted sandbox/approvalPolicy in its params with no parse/validation
-// error, failing only on the separate, already-documented "no rollout yet"
-// condition (session_lost_codes) for a thread with no completed turn —
-// exactly what codex.yaml's own comment on that code already says to
-// expect. ThreadResumeParams's own published JSON schema (`codex app-server
-// generate-json-schema`) also declares both fields, typed identically to
-// ThreadStartParams's.
+// A resume carries the current permission level too: a restart that only
+// resumes would otherwise keep the sandbox the thread was created with after
+// the chat's level changed.
 func TestRegression_EstablishSessionResumeAlsoCarriesTheCurrentPermissionLevel(t *testing.T) {
 	sockPath, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/resume", result: `{"thread":{"id":"known-1"},"cwd":"/work","model":"m","modelProvider":"p","sandbox":{"type":"dangerFullAccess"},"approvalPolicy":"never","approvalsReviewer":"user"}`},
@@ -696,24 +679,9 @@ func TestSend_PropagatesAJSONRPCErrorFromTheReply(t *testing.T) {
 	require.Contains(t, err.Error(), "missing field")
 }
 
-// TestInjectAt_RunsTheDeclaredContextStepAfterResume is the fix for the gap left
-// by apiOwnsResume (chat/internal/runner/prompts.go): a resumed codex thread has
-// no CLI argv left to carry "what happened while you were away" (the redundant
-// hooks-only PTY is deliberately starved of both the native resume id and any
-// positional prompt — handing either to a second writer on the same thread is
-// what corrupted the switch in the first place). codex.yaml's own inject: at:
-// context step (thread/inject_items) is what reaches the resumed thread
-// instead, called from apiconn.go's applyAPITransport right after
-// EstablishSession's resume completes — this pins that the driver actually runs
-// it, templating {session_id} from what THIS connection just resumed and
-// {context} from the caller's document into the item shape confirmed LIVE
-// against a real codex-cli 0.149.1 thread as the one that is actually recalled
-// on the next turn — a "message"/role "user" Responses API item. codex.yaml's
-// items field has no schema at all (ThreadInjectItemsParams declares its
-// element type unconstrained), so a wrong role here fails silently — codex
-// accepts and discards a "developer" or "system" item with no error and no
-// later trace of it — which is exactly why this pins the exact shape rather
-// than a loose substring.
+// A resumed thread gets the gap through the declared inject step, templated from
+// the session this connection resumed. The exact item shape is pinned: a wrong
+// role is accepted and silently discarded.
 func TestInjectAt_RunsTheDeclaredContextStepAfterResume(t *testing.T) {
 	sockPath, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/resume", result: `{"thread":{"id":"sid-1"}}`},
@@ -778,9 +746,7 @@ func TestInjectAt_UndeclaredMomentIsANoop(t *testing.T) {
 }
 
 // The two live-captured refusals (codex-cli 0.149.1) for a thread the server
-// no longer has. Both carry the same code, which is the ONLY part of them Go
-// is allowed to know — the wording is the provider's, and the code is what
-// codex.yaml declares under runtime.api.session_lost_codes.
+// no longer has: codex.yaml's session.refused names their code and wording.
 const (
 	lostSessionCode      = -32600
 	lostOnResumeMessage  = "no rollout found for thread id t-dead"
@@ -807,6 +773,28 @@ func TestRegression_LostSessionOnResumeIsReportedNotReplaced(t *testing.T) {
 	assert.Len(t, *seen, 1, "no thread/start follows the refusal")
 	assert.Empty(t, origins.ids, "the refused id reports nothing")
 	assert.Zero(t, origins.open, "the failed claim is closed")
+}
+
+// A refusal is the declared code AND a declared line: the same code on any other
+// error is a request the provider rejected, not a session it lacks.
+func TestEstablishSession_ARefusalNeedsTheDeclaredCodeAndLine(t *testing.T) {
+	for name, refusal := range map[string]scriptedCall{
+		"another error under the code": {method: "thread/resume", errCode: lostSessionCode, errMessage: "Invalid request: missing field `cwd`"},
+		"the line under another code":  {method: "thread/resume", errCode: -32603, errMessage: lostOnResumeMessage},
+	} {
+		t.Run(name, func(t *testing.T) {
+			sockPath, _ := scriptedServer(t, []scriptedCall{refusal})
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			drv, err := apidriver.Start(ctx, loadCodexAPIDescriptor(t), sockPath, nil)
+			require.NoError(t, err)
+			defer func() { _ = drv.Close() }()
+
+			_, err = drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "t-1", "cwd": "/work"})
+			require.Error(t, err)
+			assert.NotErrorIs(t, err, apidriver.ErrSessionLost)
+		})
+	}
 }
 
 // recordedOrigins collects the sessions a connection reports having produced
@@ -842,13 +830,9 @@ func establishAtSpawn(t *testing.T, ctx context.Context, drv *apidriver.Driver) 
 	require.NoError(t, err)
 }
 
-// TestRegression_LostSessionOnTurnStartReentersTheSameConversation pins what a
-// provider actually means when it says it does not have a thread: an app-server
-// pages an idle thread out of memory, which is precisely what thread/resume
-// exists for. Measured against the real incident — the same app-server process
-// that had created the thread nine hours earlier, still alive, reported it
-// unknown on the next prompt.
-//
+// A provider that says it lacks a thread has usually paged an idle one out of
+// memory, which thread/resume is for: an action refused that way re-enters the
+// same thread rather than losing it.
 func TestRegression_LostSessionOnTurnStartReentersTheSameConversation(t *testing.T) {
 	sockPath, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-1"}}`},

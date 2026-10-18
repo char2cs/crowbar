@@ -36,11 +36,14 @@ type UserMessage struct {
 	RunnerID string `json:"runnerId,omitempty"`
 }
 
-// TurnStarted is the body of a turn_started row: the provider took the turn.
+// TurnStarted is the body of a turn_started row: the provider took the turn,
+// on the session the chat was bound to with it.
 type TurnStarted struct {
 	RequestID      string `json:"requestId,omitempty"` // crowbar origin only
 	ProviderTurnID string `json:"providerTurnId,omitempty"`
 	RunnerID       string `json:"runnerId,omitempty"`
+	Provider       string `json:"provider,omitempty"`
+	SessionID      string `json:"sessionId,omitempty"`
 }
 
 // PromptSettled is the body of a prompt_settled row: a crowbar prompt ended

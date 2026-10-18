@@ -144,6 +144,12 @@ func bound(t *testing.T, provider, session, cause, previous string) ledger.Row {
 	})
 }
 
+// turnedOn is a turn the provider started on session.
+func turnedOn(t *testing.T, provider, session string) ledger.Row {
+	t.Helper()
+	return row(t, ledger.KindTurnStarted, "T-"+session, ledger.TurnStarted{Provider: provider, SessionID: session})
+}
+
 // lostS1 is provider's session S1 refused by its CLI.
 func lostS1(t *testing.T, provider string) ledger.Row {
 	t.Helper()
@@ -177,6 +183,23 @@ func TestFold_ConversationPerProvider(t *testing.T) {
 	}
 	assert.Equal(t, []string{"S1", "X1", "S2"}, sessions)
 	assert.Equal(t, []ledger.ConversationState{ledger.ConversationLost, ledger.ConversationBound, ledger.ConversationBound}, states)
+}
+
+func TestFold_AConversationHasTurnedOnceATurnStartsOnIt(t *testing.T) {
+	st := ledger.Fold("c1", sequenced(t,
+		bound(t, "p1", "S1", ledger.CauseAssigned, ""),
+		bound(t, "p2", "X1", ledger.CauseAnnounced, ""),
+		turnedOn(t, "p1", "S1"),
+		row(t, ledger.KindTurnStarted, "T-none", ledger.TurnStarted{}),
+		bound(t, "p1", "S2", ledger.CauseAnnounced, "S1"),
+		bound(t, "p1", "S1", ledger.CauseAnnounced, "S2"),
+	))
+
+	p1, _ := st.Conversation("p1")
+	assert.True(t, p1.Turned, "a session keeps having turned when the chat returns to it")
+	p2, _ := st.Conversation("p2")
+	assert.False(t, p2.Turned, "a turn names its own conversation only")
+	assert.False(t, st.Conversations()[2].Turned, "S2 was bound but never turned")
 }
 
 func TestFold_ASessionLossOnlyLosesTheBoundSession(t *testing.T) {

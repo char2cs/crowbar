@@ -147,6 +147,7 @@ func TestRegression_TurnStopWithAnOpenWaitCallKeepsChatWorking(t *testing.T) {
 		Work:          inflight.NewWork(),
 		InflightTurns: inflight.NewTurns(),
 		Runners:       raceRunners{},
+		Ledger:        newTurnLedger(t),
 	})
 	turns.SetRunners(noopRunners{})
 
@@ -188,6 +189,7 @@ func TestRegression_AToolCallStartingReopensAnAlreadyClosedChat(t *testing.T) {
 		Work:          inflight.NewWork(),
 		InflightTurns: inflight.NewTurns(),
 		Runners:       raceRunners{},
+		Ledger:        newTurnLedger(t),
 	})
 	turns.SetRunners(noopRunners{})
 
@@ -220,6 +222,7 @@ func TestRegression_ASubagentStartingReopensAnAlreadyClosedChat(t *testing.T) {
 		Work:          inflight.NewWork(),
 		InflightTurns: inflight.NewTurns(),
 		Runners:       raceRunners{},
+		Ledger:        newTurnLedger(t),
 	})
 	turns.SetRunners(noopRunners{})
 

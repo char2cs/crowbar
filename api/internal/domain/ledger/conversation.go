@@ -59,6 +59,13 @@ type Conversation struct {
 	State               ConversationState
 	BoundAt             time.Time
 	Cause               string // of its latest binding
+	// Turned: a turn started on it, so its CLI has written it and can resume it.
+	Turned bool
+}
+
+// Resumable reports whether the chat's next launch resumes this session.
+func (c Conversation) Resumable() bool {
+	return c.State == ConversationBound && c.Turned
 }
 
 // Conversation is the chat's current conversation with provider.
@@ -98,6 +105,15 @@ func (s *State) applySessionBound(r Row) {
 	s.current[body.Provider] = i
 }
 
+func (s *State) markTurned(provider, sessionID string) {
+	i := slices.IndexFunc(s.conversations, func(c Conversation) bool {
+		return c.Provider == provider && c.SessionID == sessionID
+	})
+	if sessionID != "" && i >= 0 {
+		s.conversations[i].Turned = true
+	}
+}
+
 func (s *State) applySessionLost(r Row) {
 	body, err := DecodeBody[SessionLost](r)
 	if err != nil {
@@ -110,29 +126,30 @@ func (s *State) applySessionLost(r Row) {
 	s.conversations[i].State, _ = s.conversations[i].State.Next(ConversationLost)
 }
 
-// Assign is the session_bound row for a session Crowbar minted for provider:
-// fresh when it replaces a lost one.
+// Assign is the session_bound row for a session Crowbar minted for provider,
+// replacing the one it had. It is fresh while it replaces a lost session or a
+// fresh one that never turned: neither carries the conversation.
 func Assign(st State, provider, sessionID string) (Row, error) {
 	body := SessionBound{Provider: provider, SessionID: sessionID, Cause: CauseAssigned}
-	if c, ok := st.Conversation(provider); ok && c.State == ConversationLost {
-		body.Cause, body.Previous = CauseFresh, c.SessionID
+	if c, ok := st.Conversation(provider); ok {
+		body.Previous = c.SessionID
+		if c.State == ConversationLost || (c.Cause == CauseFresh && !c.Turned) {
+			body.Cause = CauseFresh
+		}
 	}
 	return NewRow(KindSessionBound, "", "", body)
 }
 
 // Announce is what a CLI announcing sessionID adds: nothing for the bound
-// session, a binding for an unbound chat, a change, or a conflict when
-// ownedElsewhere reports that another chat holds the session.
-func Announce(st State, provider, sessionID string, ownedElsewhere func() (bool, error)) ([]Row, error) {
+// session, a binding, a change, or a conflict when the session is claimed by
+// another chat. Only leaving a session that turned is a change: one that never
+// turned held nothing of the conversation.
+func Announce(st State, provider, sessionID string, claimedElsewhere bool) ([]Row, error) {
 	c, ok := st.Conversation(provider)
 	if ok && c.SessionID == sessionID && c.State == ConversationBound {
 		return nil, nil
 	}
-	taken, err := ownedElsewhere()
-	if err != nil {
-		return nil, err
-	}
-	if taken {
+	if claimedElsewhere {
 		r, err := NewRow(KindMarker, "", "", Marker{Kind: MarkerSessionConflict, Detail: sessionID})
 		return []Row{r}, err
 	}
@@ -141,7 +158,7 @@ func Announce(st State, provider, sessionID string, ownedElsewhere func() (bool,
 		bound.Previous = c.SessionID
 	}
 	r, err := NewRow(KindSessionBound, "", "", bound)
-	if err != nil || !ok || c.State != ConversationBound {
+	if err != nil || !ok || !c.Resumable() {
 		return []Row{r}, err
 	}
 	m, err := NewRow(KindMarker, "", "", Marker{Kind: MarkerSessionChanged, Detail: sessionID})

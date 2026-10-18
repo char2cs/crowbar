@@ -44,11 +44,9 @@ type Container struct {
 	// interruptions, in their own aggregate with their own read model. It replaced
 	// the flat-file ledger, which could represent none of those.
 	AgentActivity agentactivity.EventStore
-	// AgentRunner is the asynx-backed EventStore for the running vendor CLI — the
-	// thing that MOVES between chats on /clear and /resume. Its store/hub
-	// projections are live on axAgentRunner, and the agent usecase now sends every
-	// runner command through it. The workspace-delete cascade reads it too, to find
-	// the CLI pointed at a chat it is about to Forget.
+	// AgentRunner is the asynx-backed EventStore for the running vendor CLI. The
+	// workspace-delete cascade reads it too, to find the CLI on a chat it is about
+	// to Forget.
 	AgentRunner agentrunner.EventStore
 	// Node is the position aggregate: the one owner of every sidebar row's
 	// ParentID/Order, at every tree level.

@@ -35,16 +35,13 @@ import (
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
-// mustJSON encodes a hook payload stamped with the transcript_path and session_id
-// every real hook carries. A test wanting either absent sets the key itself: a nil
-// transcript_path is what marks codex's internal memory session.
+// mustJSON encodes a hook payload stamped with the transcript_path every real hook
+// carries; a nil one marks codex's internal memory session. A payload naming no
+// session is sent on the runner's own (harnessUsecase.IngestHook).
 func mustJSON(t *testing.T, m map[string]any) []byte {
 	t.Helper()
 	if _, set := m["transcript_path"]; !set {
 		m["transcript_path"] = "/rollouts/transcript.jsonl"
-	}
-	if _, set := m["session_id"]; !set {
-		m["session_id"] = "s1"
 	}
 	b, err := json.Marshal(m)
 	require.NoError(t, err)
@@ -637,11 +634,10 @@ func (s *fakeChatStore) ListByWorkspace(ctx context.Context, workspaceID string)
 // recording rather than faulting).
 type fakeRunnerStore struct {
 	agentrunner.EventStore
-	failStart      error
-	failGet        error
-	failGetAfter   int
-	afterGet       func(engineagents.Runner)
-	failForgetChat error
+	failStart    error
+	failGet      error
+	failGetAfter int
+	afterGet     func(engineagents.Runner)
 
 	mu         sync.Mutex
 	lookedUpAt []string
@@ -689,13 +685,6 @@ func (s *fakeRunnerStore) forget() {
 	s.lookedUpAt = nil
 }
 
-func (s *fakeRunnerStore) ForgetChat(ctx context.Context, chatID string) error {
-	if s.failForgetChat != nil {
-		return s.failForgetChat
-	}
-	return s.EventStore.ForgetChat(ctx, chatID)
-}
-
 func (s *fakeRunnerStore) Start(ctx context.Context, in agentrunner.StartInput) (engineagents.Runner, error) {
 	if s.failStart != nil {
 		return engineagents.Runner{}, s.failStart
@@ -716,31 +705,32 @@ type harnessUsecase struct {
 	agentusecase.RunnerUsecase
 	agentusecase.AnswerUsecase
 	agentusecase.ProviderUsecase
-	// launchedOn is the session runnerID's CLI was launched on and has not
-	// announced away from; "" when there is none.
-	launchedOn func(runnerID string) string
+	// sessionOf is the session runnerID's CLI is on.
+	sessionOf func(runnerID string) string
 }
 
-// IngestHook reports a hook as the CLI would: a payload naming the placeholder
-// session "s1" names the session the runner was launched on.
+// IngestHook delivers a hook as the runner's CLI sends it: every hook names a
+// session, and one whose payload names none names the CLI's own.
 func (h *harnessUsecase) IngestHook(ctx context.Context, runnerID, provider, kind string, payload []byte) error {
-	return h.TurnUsecase.IngestHook(ctx, runnerID, provider, kind, h.asLaunched(runnerID, payload))
+	return h.TurnUsecase.IngestHook(ctx, runnerID, provider, kind, h.onItsSession(runnerID, payload))
 }
 
 // IngestHookDelivery is IngestHook for a relayed hook.
 func (h *harnessUsecase) IngestHookDelivery(
 	ctx context.Context, deliveryID, runnerID, provider, kind string, payload []byte,
 ) error {
-	return h.TurnUsecase.IngestHookDelivery(ctx, deliveryID, runnerID, provider, kind, h.asLaunched(runnerID, payload))
+	return h.TurnUsecase.IngestHookDelivery(ctx, deliveryID, runnerID, provider, kind, h.onItsSession(runnerID, payload))
 }
 
-func (h *harnessUsecase) asLaunched(runnerID string, payload []byte) []byte {
-	id := h.launchedOn(runnerID)
+func (h *harnessUsecase) onItsSession(runnerID string, payload []byte) []byte {
 	var m map[string]any
-	if id == "" || json.Unmarshal(payload, &m) != nil || m["session_id"] != "s1" {
+	if json.Unmarshal(payload, &m) != nil {
 		return payload
 	}
-	m["session_id"] = id
+	if _, set := m["session_id"]; set {
+		return payload
+	}
+	m["session_id"] = h.sessionOf(runnerID)
 	out, err := json.Marshal(m)
 	if err != nil {
 		return payload
@@ -798,27 +788,27 @@ type testFixture struct {
 	folders *mocks.FolderStore
 	nodes   *mocks.NodePlacements
 	ledger  *ledgerstore.Store
-	// sessions is the vendor-reported session id most recently announce()d per
-	// runnerID — a map, so it stays shared across every copy of this
-	// value-typed testFixture. turn()/hook() consult it (withTrackedSession)
-	// so a hooks-shaped payload that does not care about its own session_id
-	// still reports the SAME one session_start already announced, matching a
-	// real CLI's own hooks across one conversation — required: (design spec
-	// 2.3) now enforces session_id is never empty, and a test payload
-	// carrying a DIFFERENT placeholder id than the one it announced silently
-	// broke resume/identity checks that key off session_id.
+	// sessions is the session id most recently announce()d per runnerID; a map,
+	// so it is shared across every copy of this value-typed testFixture.
 	sessions map[string]string
 }
 
-// withTrackedSession fills payload["session_id"] from sessions[runnerID] —
-// the id this runner's OWN most recent announce() reported — unless the
-// caller already set one explicitly. See the sessions field's own doc.
-func (f testFixture) withTrackedSession(runnerID string, payload map[string]any) {
-	if _, set := payload["session_id"]; set {
-		return
-	}
-	if id, ok := f.sessions[runnerID]; ok {
-		payload["session_id"] = id
+// sessionOf is the session runnerID's CLI is on: the one it announced, else the
+// chat's bound session it was launched on, else one it has not announced yet.
+func sessionOf(runners agentrunner.EventStore, l *ledgerstore.Store, announced map[string]string) func(string) string {
+	return func(runnerID string) string {
+		if id, ok := announced[runnerID]; ok {
+			return id
+		}
+		r, err := runners.Get(context.Background(), runnerID)
+		if err != nil {
+			return "unannounced"
+		}
+		st, err := l.State(context.Background(), r.CurrentChatID)
+		if c, ok := st.Conversation(r.ProviderID); err == nil && ok && c.State == ledger.ConversationBound {
+			return c.SessionID
+		}
+		return "unannounced"
 	}
 }
 
@@ -988,9 +978,8 @@ func (f testFixture) announce(t *testing.T, runnerID, sessionID string) {
 // ledger's provider tag and timestamps are exactly what the resume path later reads.
 func turn(t *testing.T, f testFixture, runnerID, provider, content string) {
 	t.Helper()
-	payload := map[string]any{"last_assistant_message": content}
-	f.withTrackedSession(runnerID, payload)
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, provider, "turn_stop", mustJSON(t, payload)))
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, provider, "turn_stop",
+		mustJSON(t, map[string]any{"last_assistant_message": content})))
 	f.wait()
 }
 
@@ -1371,7 +1360,7 @@ func newFixtureUsing(
 			RunnerUsecase:   u,
 			AnswerUsecase:   u,
 			ProviderUsecase: u,
-			launchedOn:      launchedOn(realRunners, chatLedger, sessions),
+			sessionOf:       sessionOf(realRunners, chatLedger, sessions),
 		},
 		own:           u,
 		chats:         realChats,
@@ -1395,27 +1384,6 @@ func newFixtureUsing(
 		ledger:        chatLedger,
 	}
 	return f, realChats, realRunners
-}
-
-// launchedOn is the chat's bound session for a runner that has announced none.
-func launchedOn(runners agentrunner.EventStore, l *ledgerstore.Store, announced map[string]string) func(string) string {
-	return func(runnerID string) string {
-		if _, ok := announced[runnerID]; ok {
-			return ""
-		}
-		r, err := runners.Get(context.Background(), runnerID)
-		if err != nil || r.CurrentChatID == "" {
-			return ""
-		}
-		st, err := l.State(context.Background(), r.CurrentChatID)
-		if err != nil {
-			return ""
-		}
-		if c, ok := st.Conversation(r.ProviderID); ok && c.State == ledger.ConversationBound {
-			return c.SessionID
-		}
-		return ""
-	}
 }
 
 // indexOf is the argv helper the spawn/switch tests assert with.

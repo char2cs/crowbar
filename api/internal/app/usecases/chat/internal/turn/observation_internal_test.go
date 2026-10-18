@@ -45,7 +45,7 @@ func TestPlanUpdate_KeepsTheLivePushAndRecordsCanonicalSteps(t *testing.T) {
 		{Text: "verify", Status: engineagents.PlanStepActive},
 	}
 	runner := engineagents.Runner{ID: "runner-1", ProviderID: "provider", CurrentChatID: "chat-1"}
-	announce(t, turns, "chat-1", "provider", "session-1")
+	announce(t, turns, "provider", "session-1")
 
 	err := turns.handleObservation(t.Context(), runner, nil, engineagents.CanonicalEvent{
 		Kind: engineagents.HookPlanUpdate, Plan: eventSteps,

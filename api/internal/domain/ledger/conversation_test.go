@@ -1,7 +1,6 @@
 package ledger_test
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -53,8 +52,6 @@ func decodeRows(t *testing.T, rows []ledger.Row) []string {
 	return out
 }
 
-func notOwned() (bool, error) { return false, nil }
-
 func TestAssign_IsFreshOnlyAfterALoss(t *testing.T) {
 	first, err := ledger.Assign(ledger.State{}, "p1", "S1")
 	require.NoError(t, err)
@@ -69,36 +66,43 @@ func TestAssign_IsFreshOnlyAfterALoss(t *testing.T) {
 	st.Apply(again)
 	c, _ := st.Conversation("p1")
 	assert.Equal(t, ledger.CauseFresh, c.Cause, "the conversation remembers it replaced a lost one")
+
+	stillFresh, err := ledger.Assign(st, "p1", "S3")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"bound S3 fresh after S2"}, decodeRows(t, []ledger.Row{stillFresh}),
+		"a fresh session that never turned is replaced by another fresh one")
+
+	unturned := ledger.Fold("c1", sequenced(t, bound(t, "p1", "S1", ledger.CauseAssigned, "")))
+	replaced, err := ledger.Assign(unturned, "p1", "S2")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"bound S2 assigned after S1"}, decodeRows(t, []ledger.Row{replaced}))
 }
 
 func TestAnnounce_DecidesBetweenNothingABindingAChangeAndAConflict(t *testing.T) {
 	boundS1 := ledger.Fold("c1", sequenced(t, bound(t, "p1", "S1", ledger.CauseAssigned, "")))
+	turnedS1 := ledger.Fold("c1", sequenced(t, bound(t, "p1", "S1", ledger.CauseAssigned, ""), turnedOn(t, "p1", "S1")))
 	lostS1 := ledger.Fold("c1", sequenced(t, bound(t, "p1", "S1", ledger.CauseAssigned, ""), lostS1(t, "p1")))
-	owned := func() (bool, error) { return true, nil }
 	cases := []struct {
-		name  string
-		st    ledger.State
-		id    string
-		owned func() (bool, error)
-		want  []string
+		name    string
+		st      ledger.State
+		id      string
+		claimed bool
+		want    []string
 	}{
-		{"the bound session", boundS1, "S1", owned, []string{}},
-		{"an unbound chat", ledger.State{}, "S1", notOwned, []string{"bound S1 announced after "}},
-		{"a lost chat", lostS1, "S2", notOwned, []string{"bound S2 announced after S1"}},
-		{"a change", boundS1, "S2", notOwned, []string{"bound S2 announced after S1", "marker session_changed S2"}},
-		{"another chat's session", boundS1, "S2", owned, []string{"marker session_conflict S2"}},
+		{"the bound session", boundS1, "S1", true, []string{}},
+		{"an unbound chat", ledger.State{}, "S1", false, []string{"bound S1 announced after "}},
+		{"a lost chat", lostS1, "S2", false, []string{"bound S2 announced after S1"}},
+		{"a binding that never turned", boundS1, "S2", false, []string{"bound S2 announced after S1"}},
+		{"a change", turnedS1, "S2", false, []string{"bound S2 announced after S1", "marker session_changed S2"}},
+		{"another chat's session", turnedS1, "S2", true, []string{"marker session_conflict S2"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			rows, err := ledger.Announce(tc.st, "p1", tc.id, tc.owned)
+			rows, err := ledger.Announce(tc.st, "p1", tc.id, tc.claimed)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, decodeRows(t, rows))
 		})
 	}
-
-	failed := errors.New("index unavailable")
-	_, err := ledger.Announce(boundS1, "p1", "S2", func() (bool, error) { return false, failed })
-	assert.ErrorIs(t, err, failed)
 }
 
 func TestLose_LosesTheBoundSessionAndSettlesItsCarriersPrompt(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -47,14 +48,13 @@ func (rs *Runners) HandleSessionStart(
 }
 
 // announceSession records that providerID's CLI on chatID is on sessionID,
-// and reports whether that moved the chat off the session it was on.
+// and reports whether that moved the chat off the session it was on. The
+// ledger's session index alone judges a session another chat holds.
 func (rs *Runners) announceSession(ctx context.Context, chatID, providerID, sessionID string) (bool, error) {
-	rows, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		return ledger.Announce(st, providerID, sessionID, func() (bool, error) {
-			owner, owned, err := rs.ledger.SessionOwner(ctx, providerID, sessionID)
-			return owned && owner != chatID, err
-		})
-	})
+	rows, err := rs.announce(ctx, chatID, providerID, sessionID, false)
+	if errors.Is(err, ledgerstore.ErrSessionClaimed) {
+		rows, err = rs.announce(ctx, chatID, providerID, sessionID, true)
+	}
 	if err != nil {
 		return false, fmt.Errorf("agent: announce session: %w", err)
 	}
@@ -65,6 +65,13 @@ func (rs *Runners) announceSession(ctx context.Context, chatID, providerID, sess
 		}
 	}
 	return false, nil
+}
+
+func (rs *Runners) announce(ctx context.Context, chatID, providerID, sessionID string, claimed bool) ([]ledger.Row, error) {
+	rows, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		return ledger.Announce(st, providerID, sessionID, claimed)
+	})
+	return rows, err
 }
 
 // leaveSession closes what runner left open in the session it moved off: its

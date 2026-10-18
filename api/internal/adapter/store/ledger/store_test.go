@@ -333,6 +333,32 @@ func boundS(t *testing.T, provider string) ledger.Row {
 	})
 }
 
+// Chats racing to bind one new session: exactly one claim lands, and every other
+// chat is refused rather than told it holds the session too.
+func TestStore_ConcurrentClaimsOfOneSessionHaveOneWinner(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	errs := make([]error, 8)
+	var all sync.WaitGroup
+	for i := range errs {
+		all.Go(func() { _, _, errs[i] = s.Append(ctx, fmt.Sprintf("c%d", i), boundS(t, "p")) })
+	}
+	all.Wait()
+
+	var winners []string
+	for i, err := range errs {
+		if err == nil {
+			winners = append(winners, fmt.Sprintf("c%d", i))
+			continue
+		}
+		require.ErrorIs(t, err, ledgerstore.ErrSessionClaimed)
+	}
+	require.Len(t, winners, 1)
+	owner, _, err := s.SessionOwner(ctx, "p", "S")
+	require.NoError(t, err)
+	assert.Equal(t, winners[0], owner)
+}
+
 func TestStore_ASessionCanBeBoundToOneChatOnly(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()

@@ -245,7 +245,8 @@ func (s *Store) commit(ctx context.Context, chatID string, rows []ledger.Row, ne
 }
 
 // claimSession indexes a session_bound row's session under chatID, refusing a
-// session another chat owns.
+// session another chat owns. The insert is the claim: only when it took no row
+// is the session already someone's, and then only its owner may rebind it.
 func claimSession(tx *gorm.DB, chatID string, r ledger.Row) error {
 	if r.Kind != ledger.KindSessionBound {
 		return nil
@@ -254,17 +255,21 @@ func claimSession(tx *gorm.DB, chatID string, r ledger.Row) error {
 	if err != nil {
 		return err
 	}
+	claim := tx.Exec(`INSERT INTO chat_ledger_sessions (provider, session_id, chat_id) VALUES (?, ?, ?)
+		ON CONFLICT(provider, session_id) DO NOTHING`, body.Provider, body.SessionID, chatID)
+	if claim.Error != nil {
+		return fmt.Errorf("session index: %w", claim.Error)
+	}
+	if claim.RowsAffected == 1 {
+		return nil
+	}
 	var owners []string
 	if err := tx.Raw(`SELECT chat_id FROM chat_ledger_sessions WHERE provider = ? AND session_id = ?`,
 		body.Provider, body.SessionID).Scan(&owners).Error; err != nil {
 		return fmt.Errorf("session owner: %w", err)
 	}
-	if len(owners) > 0 && owners[0] != chatID {
+	if len(owners) != 1 || owners[0] != chatID {
 		return fmt.Errorf("%s %s: %w", body.Provider, body.SessionID, ErrSessionClaimed)
-	}
-	if err := tx.Exec(`INSERT INTO chat_ledger_sessions (provider, session_id, chat_id) VALUES (?, ?, ?)
-		ON CONFLICT(provider, session_id) DO NOTHING`, body.Provider, body.SessionID, chatID).Error; err != nil {
-		return fmt.Errorf("session index: %w", err)
 	}
 	return nil
 }

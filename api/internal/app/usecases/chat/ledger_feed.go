@@ -8,8 +8,8 @@ import (
 )
 
 // publishLedgerRows tells a chat's clients about every prompt the ledger
-// settled. It runs under the chat's ledger writer; snapshots.Get takes the owner
-// lock and may read stores beneath it, which is the sanctioned lock order.
+// settled. It runs under the chat's ledger writer, so it reads the snapshot
+// through Held: Get may read the ledger, and would wait on that writer.
 func (u *Usecase) publishLedgerRows(chatID string, rows []ledger.Row, _ ledger.State) {
 	feed := u.feed.Load()
 	if feed == nil || feed.PromptSettled == nil {
@@ -23,7 +23,7 @@ func (u *Usecase) publishLedgerRows(chatID string, rows []ledger.Row, _ ledger.S
 		if err != nil {
 			continue
 		}
-		snap, err := u.snapshots.Get(context.Background(), chatID)
+		snap, err := u.snapshots.Held(context.Background(), chatID)
 		if err != nil {
 			slog.Warn("agent: publish settled prompt: chat snapshot",
 				"chat_id", chatID, "request_id", body.RequestID, "err", err)

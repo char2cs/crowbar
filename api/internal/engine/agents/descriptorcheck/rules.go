@@ -24,12 +24,12 @@ func sessionRules(doc document, d *spec.Descriptor) []Finding {
 	if s.Resume != nil && !strings.Contains(s.Resume.Arg, "{id}") {
 		out = append(out, doc.finding("session.resume_id", SeverityError, "session.resume.arg",
 			"session.resume.arg never names the session ({id})",
-			`write the resume argv with {id}, e.g. "--resume {id}"`))
+			`write the resume argv with {id} where the CLI takes the session, e.g. "<flag> {id}"`))
 	}
 	if s.Assign != nil && !strings.Contains(s.Assign.Arg, "{id}") {
 		out = append(out, doc.finding("session.assign_id", SeverityError, "session.assign.arg",
 			"session.assign.arg never names the session ({id})",
-			`write the assign argv with {id}, e.g. "--session-id {id}"`))
+			`write the assign argv with {id} where the CLI takes the session, e.g. "<flag> {id}"`))
 	}
 	if s.Resume != nil && s.Refused == nil {
 		out = append(out, doc.finding("session.refusal_unrecognised", SeverityWarning, "session.resume",

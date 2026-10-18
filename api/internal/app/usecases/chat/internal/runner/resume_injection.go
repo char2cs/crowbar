@@ -17,7 +17,7 @@ func resumeInjectionSteps(d engineagents.Agent, sessionID string) []engineagents
 	return sessionArgSteps(arg, sessionID)
 }
 
-// sessionArgSteps splits a session arg template ("--resume {id}") into one
+// sessionArgSteps splits a session arg template ("<flag> {id}") into one
 // pass_arg per token: exec.Command never splits a string on whitespace.
 func sessionArgSteps(arg, sessionID string) []engineagents.InjectStep {
 	ctx := engineagents.TemplateCtx{ID: sessionID}

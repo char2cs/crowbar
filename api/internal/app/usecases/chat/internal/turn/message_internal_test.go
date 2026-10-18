@@ -31,6 +31,7 @@ func TestMessageStreams_TheSweepAbandonsWhileAHookIsStillStreaming(t *testing.T)
 		Runners:  raceRunners{},
 		Activity: raceActivity{},
 		Work:     inflight.NewWork(),
+		Ledger:   newTurnLedger(t),
 	})
 	racer := &streamRacer{
 		turns:    turns,
@@ -90,7 +91,7 @@ func (r *recordingActivity) CloseTurn(_ context.Context, in agentactivity.TurnIn
 // provider- and transport-agnostic, not a Claude- or hooks-specific quirk.
 func TestRegression_ATurnStopThatBeatsItsOwnFinalDeltaDoesNotMintADuplicateMessage(t *testing.T) {
 	activity := &recordingActivity{}
-	turns := &Turns{messages: stream.New(), activity: activity}
+	turns := &Turns{ledger: newTurnLedger(t), messages: stream.New(), activity: activity}
 	turns.SetMessageAwaitTimeout(2 * time.Second)
 
 	chat := domain.Chat{ID: "c"}
@@ -132,7 +133,7 @@ func TestRegression_ATurnStopThatBeatsItsOwnFinalDeltaDoesNotMintADuplicateMessa
 // (and so from every reload, unlike a still-visible-until-refresh bug).
 func TestRegression_ATerminatingHookThatUnderreportsTextNeverTruncatesTheStream(t *testing.T) {
 	activity := &recordingActivity{}
-	turns := &Turns{messages: stream.New(), activity: activity}
+	turns := &Turns{ledger: newTurnLedger(t), messages: stream.New(), activity: activity}
 
 	chat := domain.Chat{ID: "c"}
 	runner := engineagents.Runner{ID: "runner-1", ProviderID: "claude"}
@@ -170,7 +171,7 @@ func TestRegression_ATerminatingHookThatUnderreportsTextNeverTruncatesTheStream(
 // report is the correct one to trust in that direction.
 func TestCloseAssistantTurn_ATerminatingHookThatReportsMoreTextStillWins(t *testing.T) {
 	activity := &recordingActivity{}
-	turns := &Turns{messages: stream.New(), activity: activity}
+	turns := &Turns{ledger: newTurnLedger(t), messages: stream.New(), activity: activity}
 
 	chat := domain.Chat{ID: "c"}
 	runner := engineagents.Runner{ID: "runner-1", ProviderID: "claude"}
@@ -201,7 +202,7 @@ func TestCloseAssistantTurn_ATerminatingHookThatReportsMoreTextStillWins(t *test
 
 func TestCloseAssistantTurn_PersistsTheFinalDiffSnapshot(t *testing.T) {
 	activity := &recordingActivity{}
-	turns := &Turns{messages: stream.New(), activity: activity, live: newLiveText()}
+	turns := &Turns{ledger: newTurnLedger(t), messages: stream.New(), activity: activity, live: newLiveText()}
 	chat := domain.Chat{ID: "c"}
 	runner := engineagents.Runner{ID: "runner-1", ProviderID: "codex"}
 	const diff = "diff --git a/file.txt b/file.txt\n+new content"
@@ -231,7 +232,7 @@ func TestCloseAssistantTurn_PersistsTheFinalDiffSnapshot(t *testing.T) {
 // can only time out and record the reply twice, once under each id.
 func TestRegression_ATurnStopWaitingUnderTheHookGateLetsItsOwnDeltaIn(t *testing.T) {
 	activity := &recordingActivity{}
-	turns := &Turns{messages: stream.New(), activity: activity, hookGates: inflight.NewGate()}
+	turns := &Turns{ledger: newTurnLedger(t), messages: stream.New(), activity: activity, hookGates: inflight.NewGate()}
 	turns.SetMessageAwaitTimeout(5 * time.Second)
 
 	chat := domain.Chat{ID: "c"}

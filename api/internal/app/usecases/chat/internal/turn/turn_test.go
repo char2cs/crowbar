@@ -97,6 +97,7 @@ func TestReplayStartupHook_RoutesASessionStartThroughTheRunnerPort(t *testing.T)
 
 	home := t.TempDir()
 	turns := turn.New(turn.Deps{
+		Ledger:       emptyLedger(t),
 		Chats:        stubChats{},
 		Runners:      stubRunnerStore{},
 		Agents:       engineagents.New(),
@@ -241,14 +242,21 @@ func (codexRunnerStore) Get(_ context.Context, id string) (engineagents.Runner, 
 // bareRunners answers nothing: every Runners method panics if reached.
 type bareRunners struct{ turn.Runners }
 
-// codexBoundLedger is chat-1's ledger bound to codex's sessionID, as the CLI's
-// announcement or the api driver's own establish leaves it.
-func codexBoundLedger(t *testing.T, sessionID string) *ledgerstore.Store {
+// emptyLedger is a ledger no chat has written to.
+func emptyLedger(t *testing.T) *ledgerstore.Store {
 	t.Helper()
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	l, err := ledgerstore.Open(db, time.Now)
 	require.NoError(t, err)
+	return l
+}
+
+// codexBoundLedger is chat-1's ledger bound to codex's sessionID, as the CLI's
+// announcement or the api driver's own establish leaves it.
+func codexBoundLedger(t *testing.T, sessionID string) *ledgerstore.Store {
+	t.Helper()
+	l := emptyLedger(t)
 	row, err := ledger.Assign(ledger.State{}, "codex", sessionID)
 	require.NoError(t, err)
 	_, _, err = l.Append(t.Context(), "chat-1", row)
@@ -294,6 +302,7 @@ func TestIngestHook_AHooksDeliveryOnAnUnboundChatIsRecorded(t *testing.T) {
 	home := t.TempDir()
 	activity := &recordingToolActivity{}
 	turns := turn.New(turn.Deps{
+		Ledger:       emptyLedger(t),
 		Runners:      codexRunnerStore{},
 		Chats:        stubChats{},
 		Activity:     activity,
@@ -334,6 +343,7 @@ func TestRegression_SurfaceGatedMessageDeltaSkipsChatWhileTheNativeViewIsShowing
 	home := t.TempDir()
 	var delivered bool
 	turns := turn.New(turn.Deps{
+		Ledger:       emptyLedger(t),
 		Runners:      codexRunnerStore{},
 		Chats:        stubChats{},
 		Agents:       engineagents.New(),
@@ -364,6 +374,7 @@ func TestRegression_SurfaceGatedMessageDeltaStillFlowsToChat(t *testing.T) {
 	home := t.TempDir()
 	var delivered bool
 	turns := turn.New(turn.Deps{
+		Ledger:       emptyLedger(t),
 		Runners:      codexRunnerStore{},
 		Chats:        stubChats{},
 		Agents:       engineagents.New(),
@@ -434,25 +445,9 @@ func (r *recordingSubagentActivity) Subagents(
 	return nil, nil
 }
 
-// TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn guards the bug
-// reported live 2026-09-11 ("we're still missing that the agent is working...
-// it always happens during a security review"). codex pushes a child thread's
-// COMPLETE, independent turn cycle down the SAME websocket the runner's own
-// thread uses — a collab agent, or the review/compaction/memory threads it
-// spawns unbidden. Captured live on a security review that delegated to a
-// sub-agent: the child's turn/completed arrived 83 SECONDS before the user's own
-// turn ended, and ingest filed it against the user's chat, closing the turn and
-// darkening the spinner while codex was still writing the answer.
-//
-// This chat never opened a subagent (stubSubagentActivity{open: false}), so
-// the child thread's own turn_stop is genuinely foreign to it and must still
-// drop before reaching closeTurnFromStop — which is why Chats/Conversations
-// are still wired to nothing at all: routeNestedSubagentEvent's own
-// IsSubagentOpen check is now the first activity touch on this path, but
-// finding nothing open must return control to the SAME early drop this test
-// always pinned, never fall through to code that needs those ports. See
-// TestRegression_AChildThreadsTurnStopClosesTheSubagentItBelongsTo below for
-// the OTHER half — a chat that DID open one.
+// A child thread's turn cycle arrives on the runner's own connection; in a chat
+// that opened no subagent its turn_stop is foreign and must drop, or it closes
+// the user's turn while the answer is still being written.
 func TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn(t *testing.T) {
 	t.Parallel()
 

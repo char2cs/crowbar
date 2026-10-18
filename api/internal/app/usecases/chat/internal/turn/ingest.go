@@ -169,7 +169,11 @@ func (t *Turns) ingestResolvedHook(
 		return nil
 	}
 
-	if t.namesAnotherConversation(ctx, runner, ev) {
+	ctx, bound, err := t.withHookSession(ctx, runner)
+	if err != nil {
+		return err
+	}
+	if namesAnotherConversation(bound, ev) {
 		// Not necessarily foreign: a codex-shaped provider pushes a spawned
 		// subagent's OWN complete turn/item stream over this SAME connection,
 		// carrying the CHILD's own thread id as session_id — see

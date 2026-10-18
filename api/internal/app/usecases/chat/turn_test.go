@@ -30,9 +30,16 @@ import (
 
 func hook(t *testing.T, f testFixture, runnerID, provider, kind string, payload map[string]any) {
 	t.Helper()
-	f.withTrackedSession(runnerID, payload)
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, provider, kind, mustJSON(t, payload)))
 	f.wait()
+}
+
+// exchange is a whole turn on runnerID's CLI: the prompt that starts it on the
+// chat's bound session, which makes that session resumable, then the reply.
+func exchange(t *testing.T, f testFixture, runnerID, provider, reply string) {
+	t.Helper()
+	prompt(t, f, runnerID, provider, "go on")
+	turn(t, f, runnerID, provider, reply)
 }
 
 // hookAPI is hook() delivered on an API-marked ctx — inflight.WithAPITransport,
@@ -394,7 +401,7 @@ func TestRegression_ASubagentsPromptAndReplyNeverEnterTheMainTranscript(t *testi
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
 	f.announce(t, runnerID, "thread-main")
-	turn(t, f, runnerID, "codex", "answered before the TUI stopped")
+	exchange(t, f, runnerID, "codex", "answered before the TUI stopped")
 
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
 	f.term.exit(t, "term-1")
@@ -1370,7 +1377,7 @@ func TestRegression_StallNoticeIsDurableBeforeTheIdleEdgeIsPublished(t *testing.
 
 func permissionPayload() map[string]any {
 	return map[string]any{
-		"session_id": "s1", "prompt_id": "81899da5", "permission_mode": "default",
+		"prompt_id": "81899da5", "permission_mode": "default",
 		"hook_event_name": "PermissionRequest", "tool_name": "Bash",
 		"tool_input": map[string]any{
 			"command": "touch PROOF", "description": "Create proof control file",
@@ -1528,7 +1535,7 @@ func TestObservation_AskUserQuestionIsRecordedWithItsLabelledOptions(t *testing.
 
 	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
 	hook(t, f, runnerID, "claude", engineagents.HookPermission, map[string]any{
-		"session_id": "s1", "prompt_id": "q1", "tool_name": "AskUserQuestion",
+		"prompt_id": "q1", "tool_name": "AskUserQuestion",
 		"tool_input": map[string]any{"questions": []any{map[string]any{
 			"question": "Do you prefer option A or option B?",
 			"header":   "Pick",
@@ -1622,7 +1629,7 @@ func TestObservation_ACodexChatObservesNoNotification(t *testing.T) {
 	hook(t, f, runnerID, "codex", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
 
 	err := f.usecase.IngestHook(f.ctx, runnerID, "codex", engineagents.HookNotification,
-		mustJSON(t, map[string]any{"session_id": "s1", "message": "needs your attention"}))
+		mustJSON(t, map[string]any{"message": "needs your attention"}))
 	f.wait()
 
 	require.NoError(t, err, "an unmapped kind is dropped, never failed")
@@ -1704,7 +1711,7 @@ func TestObservation_ACodexPermissionReportsAllowAndDenyAndNothingInvented(t *te
 
 	hook(t, f, runnerID, "codex", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
 	hook(t, f, runnerID, "codex", engineagents.HookPermission, map[string]any{
-		"session_id": "s1", "tool_name": "shell",
+		"tool_name":  "shell",
 		"tool_input": map[string]any{"command": "rm -rf /"},
 	})
 
@@ -2137,10 +2144,8 @@ func TestRegression_InterruptedTurnGraduallyFinishingIsNotMisattributedToTheNext
 
 	// Codex, placed second, closes its OWN turn FIRST.
 	codexPrompt := map[string]any{"prompt": "what did we talk before"}
-	f.withTrackedSession(codexRunnerID, codexPrompt)
 	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunnerID, "codex", "user_prompt", mustJSON(t, codexPrompt)))
 	codexStop := map[string]any{"last_assistant_message": "codex reply"}
-	f.withTrackedSession(codexRunnerID, codexStop)
 	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunnerID, "codex", "turn_stop", mustJSON(t, codexStop)))
 	f.wait()
 
@@ -2681,19 +2686,9 @@ func TestRegression_CodexSubagentsDrainOneAtATime_SpinnerFollowsTheLastOne(t *te
 	}
 }
 
-// TestRegression_CodexCompactionTurnNeverStopsTheChat is B1's own regression.
-//
-// Moving compact_pre/compact_post onto the live api transport (item/started /
-// item/completed, item.type: contextCompaction) surfaced a trap only live
-// capture found: thread/compact/start's response wraps that item pair in its
-// OWN turn/started..turn/completed round trip, on the connection's SAME wire
-// event turn_stop already consumes unconditionally. Confirmed live against
-// codex-cli 0.149.1, that wrapper's turn/completed is byte-for-byte the same
-// shape (items: [], itemsView: "notLoaded", status: "completed") a genuinely
-// interrupted real turn produces — so nothing on the frame itself can tell a
-// compaction's own close from an ordinary one. Without the turn_id-armed
-// latch in turn/compaction.go, every compaction would append an inert-but-real
-// turn_stopped event and reset the chat's turn bookkeeping.
+// thread/compact/start wraps its item pair in its own turn/started..completed,
+// byte-for-byte an ordinary turn's close; only the turn_id-armed latch keeps a
+// compaction from stopping the chat's turn.
 func TestRegression_CodexCompactionTurnNeverStopsTheChat(t *testing.T) {
 	f := newFixture(t)
 
@@ -2923,7 +2918,7 @@ func TestUserTurn_ADispatchedPromptIsRecordedUnderItsRequestID(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	f.announce(t, runnerID, "sid-1")
-	turn(t, f, runnerID, "claude", "an earlier answer")
+	exchange(t, f, runnerID, "claude", "an earlier answer")
 	requestID := uuid.NewString()
 
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "the dispatched prompt", requestID, "", nil)

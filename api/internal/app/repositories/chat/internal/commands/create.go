@@ -9,12 +9,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Create seeds a new AgentChat: an identity, a workspace and a clock, and
-// nothing else. It carries no segment, no provider and no terminal session
-// because a chat does not own the process talking to it — the runner does, and
-// it is Started as its own aggregate (agentrunner). A chat can therefore be
-// minted by the reducer (a /clear that lands on an unknown conversation) without
-// any process fact being invented for it.
+// Create seeds a new AgentChat: an identity, a workspace and a clock. It carries
+// no terminal session because a chat does not own the process talking to it:
+// the runner does, Started as its own aggregate (agentrunner).
 type Create struct {
 	ID          string
 	WorkspaceID string
@@ -27,10 +24,7 @@ type Create struct {
 	// field existed carries.
 	Surface string
 	// ProviderID is the vendor the chat is BORN on — see domain.Chat.ProviderID.
-	// Still not a process fact: the runner is a separate aggregate and this
-	// mint starts nothing. "" is what a chat minted before the field carries,
-	// and what a reducer-minted chat (a /clear landing on an unknown
-	// conversation) carries until its runner's own move restates it.
+	// This mint starts nothing; "" is what a chat minted before the field carries.
 	ProviderID string
 	Now        time.Time
 }

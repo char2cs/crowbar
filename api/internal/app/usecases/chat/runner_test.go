@@ -34,21 +34,9 @@ import (
 
 // ─── from switch_test.go ──────────────────────────────────────────────
 
-// TestSwitchProvider_ResolvesCwdThroughTheAncestorWalkForABubble proves the
-// LAST call site that still resolved a cwd straight off chat.WorkspaceID. Its
-// preflight (switch.go) reads WorktreeDir before anything is torn down, to
-// resolve the incoming provider's descriptor — and for a bubble that read went
-// out with the empty id.
-//
-// It matters more now than when Task 22 fixed the spawn path: Promote respawns
-// through SwitchProvider, and a bubble is the only kind of chat Promote can be
-// called on at all, so this is on the promotion path by construction.
-//
-// The assertion is on worktreeDirIDs rather than lastWorkspaceID: the switch
-// resolves a cwd twice (this preflight, then the spawn), so the LAST id is
-// "ws1" whether or not the preflight was fixed. Only the whole call list tells
-// them apart, and fakeWorkspace answers "" as happily as any real id — which is
-// exactly how this survived a green suite.
+// A switch's preflight resolves a bubble's cwd through the ancestor walk too.
+// The whole call list is asserted: the spawn resolves "ws1" last either way, and
+// fakeWorkspace answers "" as readily as a real id.
 func TestSwitchProvider_ResolvesCwdThroughTheAncestorWalkForABubble(t *testing.T) {
 	f := newFixture(t)
 	bubbleID, _, _ := seedBubbleChat(t, f, "claude")
@@ -245,7 +233,7 @@ func TestSwitchProvider_SwitchBack_ResumesTheConversationWithSeparateArgvTokens(
 
 	// A conversation id is not a conversation: the CLI only WRITES one once it has said
 	// something, so it is only resumable after a real turn.
-	turn(t, f, runnerID, "claude", "claude said something")
+	exchange(t, f, runnerID, "claude", "claude said something")
 
 	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.NoError(t, err)
@@ -279,7 +267,7 @@ func TestSwitchProvider_SwitchBack_ResumesItsOwnSessionOverTheOnlyCodexThereIs(t
 
 	chatID, codexRunner := f.spawn(t, "codex")
 	f.announce(t, codexRunner, "sid-codex-native")
-	turn(t, f, codexRunner, "codex", "codex ledger content")
+	exchange(t, f, codexRunner, "codex", "codex ledger content")
 
 	claudeRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
 	require.NoError(t, err)
@@ -450,7 +438,7 @@ func TestResumeChat_RevivesLastProviderIntoItsOwnConversation(t *testing.T) {
 
 	chatID, runnerID := f.spawn(t, "claude")
 	f.announce(t, runnerID, "sid-claude-native")
-	turn(t, f, runnerID, "claude", "claude said something")
+	exchange(t, f, runnerID, "claude", "claude said something")
 
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession) // the CLI dies
 	f.wait()
@@ -485,18 +473,9 @@ func TestResumeChat_RevivesLastProviderIntoItsOwnConversation(t *testing.T) {
 	}
 }
 
-// TestRegression_ResumeChat_RevivesProviderThatNeverBoundAConversation is the
-// mechanism behind a live report: "I sent codex a message, it closed itself, and
-// reloading was the only way to send the same message again" — the backend's
-// activeProviderId had moved WITHOUT the frontend, or anything, ever calling
-// /switch or /selection.
-//
-// An api-transport CLI (codex) binds its session on the runner via its own
-// connection identity, never a hook-reported session id — so a chat switched to
-// it and then left dormant (its CLI died) has NO conversation row for it at all,
-// only an OLDER row from whatever provider ran before. Before this fix, Resume
-// read only that older row and silently switched the chat BACK to it — a real,
-// implicit provider change with no /switch call anywhere in the request log.
+// Reviving a chat revives the provider it was on, even one that never bound a
+// conversation; reading only an older provider's row switched the chat back
+// with no /switch anywhere.
 func TestRegression_ResumeChat_RevivesProviderThatNeverBoundAConversation(t *testing.T) {
 	f := newFixture(t)
 
@@ -561,7 +540,7 @@ func TestSwitchProvider_ClaudeSwitchBack_ResumesAndPointsAtTheGap(t *testing.T) 
 
 	chatID, claudeRunner := f.spawn(t, "claude")
 	f.announce(t, claudeRunner, "sid-claude-native")
-	turn(t, f, claudeRunner, "claude", "claude ledger content")
+	exchange(t, f, claudeRunner, "claude", "claude ledger content")
 	// The gap is drawn as started_at > this turn's own timestamp (TurnsSince):
 	// without a real tick between them, codex's turn below can land on the
 	// identical wall-clock instant and be silently excluded from the gap.
@@ -610,26 +589,15 @@ func TestSwitchProvider_ClaudeSwitchBack_ResumesAndPointsAtTheGap(t *testing.T) 
 	}
 }
 
-// TestRegression_SubmitPromptWithStagedProvider_DeliverySpawnCarriesTheGap is the
-// same shape as TestSwitchProvider_ClaudeSwitchBack_ResumesAndPointsAtTheGap, but
-// through the combined path a real "switch, then send" click actually takes:
-// SubmitPrompt with a staged provider, not a bare SwitchProvider call. SubmitPrompt
-// runs SwitchProvider internally — which spawns its own silent resume runner,
-// correctly carrying the gap — and then immediately displaces THAT runner to spawn
-// a second, replacement one that actually delivers the user's text. The bug this
-// guards: the replacement spawn computed its own context independently via
-// resolvePromptDelivery, whose everTurned gate saw claude's native session already
-// had turns (from before the switch away) and concluded no handoff was owed —
-// discarding the gap the switch had just assembled, because the runner that HELD
-// it was never the one that delivered anything. Live-confirmed as the reason a
-// real switch-then-send never reached claude, even though AssembleConversation
-// itself always produced the right content.
+// Switch-then-send through SubmitPrompt: the replacement spawn that delivers the
+// text must carry the gap the switch assembled, not recompute that none is owed
+// because the session had turned before the switch away.
 func TestRegression_SubmitPromptWithStagedProvider_DeliverySpawnCarriesTheGap(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, claudeRunner := f.spawn(t, "claude")
 	f.announce(t, claudeRunner, "sid-claude-native")
-	turn(t, f, claudeRunner, "claude", "claude ledger content")
+	exchange(t, f, claudeRunner, "claude", "claude ledger content")
 	waitForClockTick(t)
 
 	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
@@ -681,25 +649,15 @@ func TestRegression_SubmitPromptWithStagedProvider_DeliverySpawnCarriesTheGap(t 
 		"exactly one argv entry must follow the final \"--\": argv was %v", argv)
 }
 
-// TestRegression_SubmitPromptWithStagedProvider_RealPromptIsRecordedNotSuppressed
-// is the SAME shape as the DeliverySpawnCarriesTheGap test above, but proves
-// the OTHER half of the same live bug: registering the injected document for
-// echo-suppression on a spawn that ALSO carries a real prompt. Consume's own
-// match is containment, not equality (the descriptor's <system-reminder>
-// wrapping is unknown to Go), which is correct for a BARE echo — but once the
-// user's own message is folded ahead of it into one combined positional (see
-// mergeLeadingPositional), the delivered text still CONTAINS the registered
-// document, so registering unconditionally suppressed the WHOLE turn: the
-// user's real question never reached the ledger even though claude answered
-// it, and the client's own evidence match — which waits for exactly that
-// ledger row — eventually told the user their message was never picked up
-// when it plainly had been.
+// Echo suppression matches by containment, so a spawn carrying a real prompt
+// alongside the injected document must not register it: the user's own message
+// would be suppressed with it and never reach the ledger.
 func TestRegression_SubmitPromptWithStagedProvider_RealPromptIsRecordedNotSuppressed(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, claudeRunner := f.spawn(t, "claude")
 	f.announce(t, claudeRunner, "sid-claude-native")
-	turn(t, f, claudeRunner, "claude", "claude ledger content")
+	exchange(t, f, claudeRunner, "claude", "claude ledger content")
 	waitForClockTick(t)
 
 	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
@@ -717,11 +675,8 @@ func TestRegression_SubmitPromptWithStagedProvider_RealPromptIsRecordedNotSuppre
 	argv := f.term.calls[f.term.callCount()-1].argv
 	delivered := argv[len(argv)-1]
 
-	// Exactly what the real claude CLI's own user_prompt hook fires with:
-	// the combined positional this exact spawn was handed, on the
-	// conversation it was resumed into. mustJSON's placeholder "s1" names a
-	// conversation this runner is on no transport, which
-	// namesAnotherConversation (turn/ingest.go) correctly refuses.
+	// Exactly what the real claude CLI's own user_prompt hook fires with: the
+	// combined positional this spawn was handed, on the session it resumed.
 	require.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": delivered, "session_id": "sid-claude-native"})))
 	f.wait()
@@ -734,29 +689,15 @@ func TestRegression_SubmitPromptWithStagedProvider_RealPromptIsRecordedNotSuppre
 	assert.True(t, f.chat(t, chatID).Working, "the CLI is answering the real prompt: the chat must read as working")
 }
 
-// AUDIT FINDING (unverified-by-parent, reproduced by a fork): the RecordInjection
-// gate (spawn.go, promptMessage=="") correctly stops the WHOLE turn from being
-// suppressed when a real prompt rides the same spawn as injected context — but
-// nothing strips the injected CONTEXT back out of what the CLI's own user_prompt
-// hook reports. turn.go's handleUserPrompt-equivalent calls promptsigil.Strip on
-// ev.Message to undo dispatch's own sigil-guard escape, and Strip is anchored
-// with strings.HasPrefix(text, escape) — true only when the escaped MESSAGE is
-// the very first thing in the text. After mergeLeadingPositional, the delivered
-// text is context+"\n\n"+guardedMessage: context is first, so HasPrefix always
-// fails, Strip is a no-op, and the ENTIRE combined blob — the whole injected
-// "WHILE YOU WERE AWAY" wrapper, gap content included — is stored VERBATIM as
-// the permanent ledger row for this turn. The very comment RecordInjection's own
-// gate was built under warns about exactly this shape: "that is what made
-// handoffs nest inside themselves" — and it is happening again, one layer
-// downstream of the gate that was supposed to prevent it. A second switch away
-// and back would fold THIS turn's already-injected gap into the NEXT gap,
-// compounding without bound.
+// The ledger row for a prompt delivered with injected context holds the user's
+// message, not the merged blob: storing the context would fold it into the next
+// gap, nesting handoffs without bound.
 func TestAudit_SubmitPromptWithStagedProvider_LedgerMustNotPermanentlyStoreTheInjectedContext(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, claudeRunner := f.spawn(t, "claude")
 	f.announce(t, claudeRunner, "sid-claude-native")
-	turn(t, f, claudeRunner, "claude", "claude ledger content")
+	exchange(t, f, claudeRunner, "claude", "claude ledger content")
 	waitForClockTick(t)
 
 	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
@@ -805,7 +746,7 @@ func TestRegression_SubmitPromptWithStagedProviderModelAndEffort_GapStillDeliver
 
 	chatID, claudeRunner := f.spawn(t, "claude")
 	f.announce(t, claudeRunner, "sid-claude-native")
-	turn(t, f, claudeRunner, "claude", "claude ledger content")
+	exchange(t, f, claudeRunner, "claude", "claude ledger content")
 	waitForClockTick(t)
 
 	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
@@ -848,7 +789,7 @@ func TestRegression_SubmitPromptWithStagedProvider_DormantChatRevivesOntoTheOthe
 
 	chatID, claudeRunner := f.spawn(t, "claude")
 	f.announce(t, claudeRunner, "sid-claude-native")
-	turn(t, f, claudeRunner, "claude", "claude has real history before going dormant")
+	exchange(t, f, claudeRunner, "claude", "claude has real history before going dormant")
 
 	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.NoError(t, err)
@@ -963,7 +904,7 @@ func TestRegression_SubmitPromptWithStagedProvider_CodexTargetUnaffectedByMerge(
 
 	chatID, claudeRunner := f.spawn(t, "claude")
 	f.announce(t, claudeRunner, "sid-claude-native")
-	turn(t, f, claudeRunner, "claude", "claude has real, table-recorded history")
+	exchange(t, f, claudeRunner, "claude", "claude has real, table-recorded history")
 
 	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.NoError(t, err)
@@ -971,7 +912,7 @@ func TestRegression_SubmitPromptWithStagedProvider_CodexTargetUnaffectedByMerge(
 	codexRunner, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
 	f.announce(t, codexRunner.ID, "sid-codex-native")
-	turn(t, f, codexRunner.ID, "codex", "codex has its own real history now too")
+	exchange(t, f, codexRunner.ID, "codex", "codex has its own real history now too")
 
 	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
 	require.NoError(t, err)
@@ -991,10 +932,10 @@ func TestRegression_SubmitPromptWithStagedProvider_CodexTargetUnaffectedByMerge(
 		"with no api connection, the PTY must still resume codex's own thread: %v", call.argv)
 }
 
-// TestSwitchProvider_SwitchBackToProviderWithNoTurns_AssignsItsSessionAgain: a
-// provider that never spoke here still owns its session, but its CLI never wrote
-// it, so a switch back assigns the same id again and hands over the whole conversation.
-func TestSwitchProvider_SwitchBackToProviderWithNoTurns_AssignsItsSessionAgain(t *testing.T) {
+// TestSwitchProvider_SwitchBackToProviderWithNoTurns_AssignsANewSession: a provider
+// that never spoke here has a session its CLI never wrote, so a switch back assigns
+// a new one and hands over the whole conversation.
+func TestSwitchProvider_SwitchBackToProviderWithNoTurns_AssignsANewSession(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, claudeRunner := f.spawn(t, "claude")
@@ -1011,9 +952,38 @@ func TestSwitchProvider_SwitchBackToProviderWithNoTurns_AssignsItsSessionAgain(t
 
 	require.Equal(t, 3, f.term.callCount())
 	argv := f.term.calls[2].argv
-	assert.Equal(t, "sid-claude-empty", argAfter(t, argv, "--session-id"), "the chat keeps its session")
+	assigned := argAfter(t, argv, "--session-id")
+	assert.NotEqual(t, "sid-claude-empty", assigned, "an id its CLI never wrote is never handed out again")
 	assert.NotContains(t, argv, "--resume", "a session its CLI never wrote cannot be resumed")
 	assert.Contains(t, strings.Join(argv, "\x00"), "codex actually said something")
+	assert.Equal(t, assigned, f.conversation(t, chatID, "claude").SessionID)
+}
+
+// A placement retires every other runner on its chat however it got there: one
+// placed while the switch's CLI forked is ended, and the chat holds one runner.
+func TestSwitchProvider_RetiresARunnerPlacedWhileItForked(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "claude")
+	var extra string
+	f.term.duringFork = func() {
+		f.term.duringFork = nil
+		extra = f.placeRunner(t, chatID, "claude", "sid-extra")
+	}
+
+	switched, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
+	f.wait()
+
+	placed, err := f.runners.LiveRunnersForChat(f.ctx, chatID)
+	require.NoError(t, err)
+	require.Len(t, placed, 1)
+	assert.Equal(t, switched, placed[0].ID)
+	gone, err := f.runners.Get(f.ctx, extra)
+	if err == nil {
+		assert.Empty(t, gone.CurrentChatID, "the extra runner is retired off the chat")
+		return
+	}
+	require.ErrorIs(t, err, agentrunner.ErrNotFound)
 }
 
 // TestSwitchProvider_CodexKeepsItsOwnHome is the regression for the worst bug in this
@@ -1030,7 +1000,7 @@ func TestSwitchProvider_CodexKeepsItsOwnHome(t *testing.T) {
 
 	chatID, codexRunner := f.spawn(t, "codex")
 	f.announce(t, codexRunner, "sid-codex")
-	turn(t, f, codexRunner, "codex", "codex said something")
+	exchange(t, f, codexRunner, "codex", "codex said something")
 
 	for _, call := range f.term.calls {
 		for _, kv := range call.env {
@@ -1488,7 +1458,6 @@ func prompt(
 ) {
 	t.Helper()
 	payload := map[string]any{"prompt": message}
-	f.withTrackedSession(runnerID, payload)
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, provider, "user_prompt", mustJSON(t, payload)))
 	f.wait()
 }
@@ -1508,21 +1477,9 @@ func terminateSignal(
 	return ch
 }
 
-// TestRegression_ClearMidTurn_ClosesTheOldSessionsTurn is the workspace-spinner
-// wedge, reported from production as "all the agents stopped working but the workspace
-// is still spinning".
-//
-// A turn is opened by user_prompt and closed by turn_stop. A /clear taken mid-turn
-// moves the chat onto a new session, and a turn_stop naming the old one is another
-// conversation's: nothing closes the turn but the change itself.
-//
-// The cost is not cosmetic. domain.Chat.Working stays true forever, and the
-// workspace's derived Working overlay (repositories.Container.agentWorking) keeps that
-// chat in its mid-turn set for the life of the daemon — so the sidebar and context-pill
-// spinners run forever over a workspace where nothing at all is happening. The chat ROWS
-// look idle the whole time, because the frontend clears its own working map on every
-// reseed while the daemon-side set has no such reset. That asymmetry is exactly what the
-// bug report described.
+// A /clear mid-turn moves the chat onto a new session; nothing else will close
+// the old session's turn, so the change does, or Working stays true and the
+// workspace spins forever.
 func TestRegression_ClearMidTurn_ClosesTheOldSessionsTurn(t *testing.T) {
 	f := newFixture(t)
 
@@ -1545,21 +1502,9 @@ func TestRegression_ClearMidTurn_ClosesTheOldSessionsTurn(t *testing.T) {
 
 // ─── from race_test.go ────────────────────────────────────────────────
 
-// TestSwitchProvider_LostStartRace_TearsDownOrphanCLI is the retarget of the old
-// keyed_mutex / OpenSegment-race test. Both are gone: per-aggregate concurrency is the
-// asynx write-path (id,version) optimistic-concurrency control, and there is no longer
-// an OpenSegment that can be rejected because "an active segment already exists" — a
-// chat holds no process state to conflict over.
-//
-// What the USECASE still owns, and what this pins deterministically, is the orphan
-// teardown. A pure command cannot spawn a process, so the CLI is necessarily live
-// BEFORE the runner that describes it can be recorded; if that record fails for any
-// reason, the just-spawned CLI must be torn down. A running CLI that nothing in Crowbar
-// points at is invisible — it is the state the whole refactor exists to make
-// impossible — so the teardown is unconditional, and the original error still surfaces
-// (an ErrValidation still classifies as a conflict upstream). We force the failure with
-// a store double rather than a timing-dependent goroutine storm: no sleeps, no
-// nondeterminism.
+// A CLI is live before its runner can be recorded, so a record that fails tears
+// the CLI down unconditionally and still surfaces the error: a CLI nothing
+// points at is invisible.
 func TestSwitchProvider_LostStartRace_TearsDownOrphanCLI(t *testing.T) {
 	f, _, rs := newFaultFixture(t)
 
@@ -1927,7 +1872,7 @@ func TestSubmitPrompt_ResumeCodexOrdersSubcommandSessionThenPrompt(t *testing.T)
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
 	f.announce(t, runnerID, "native-session")
-	turn(t, f, runnerID, "codex", "the current conversation exists")
+	exchange(t, f, runnerID, "codex", "the current conversation exists")
 	message := "CONTINUE FROM REACT"
 
 	// codex is api-transport, non-hotswap — but this fixture has no api
@@ -2010,7 +1955,7 @@ func TestSubmitPrompt_CompletedStoppedResumedChatKeepsNativeResumeIdentity(t *te
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
 	f.announce(t, runnerID, "durable-session")
-	turn(t, f, runnerID, "codex", "completed before the TUI stopped")
+	exchange(t, f, runnerID, "codex", "completed before the TUI stopped")
 
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
 	f.term.exit(t, "term-1")
@@ -2035,7 +1980,7 @@ func TestSubmitPrompt_NativeTUIResumeOfKnownSessionKeepsContext(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
 	f.announce(t, runnerID, "known-session")
-	turn(t, f, runnerID, "codex", "completed in the known conversation")
+	exchange(t, f, runnerID, "codex", "completed in the known conversation")
 
 	f.announce(t, runnerID, "temporary-new-session")
 	f.announce(t, runnerID, "known-session")
@@ -2099,7 +2044,7 @@ func TestSubmitPrompt_AlreadyTurnedNativeSessionStaysOnTheCheapPath(t *testing.T
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	f.announce(t, runnerID, "claude-session")
-	turn(t, f, runnerID, "claude", "first answer")
+	exchange(t, f, runnerID, "claude", "first answer")
 
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "a normal follow-up", uuid.NewString(), "", nil)
 	require.NoError(t, err)
@@ -2262,7 +2207,7 @@ func TestSubmitPrompt_RevivesADormantChatAndDelivers(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	f.announce(t, runnerID, "sid-dormant")
-	turn(t, f, runnerID, "claude", "said before stopping")
+	exchange(t, f, runnerID, "claude", "said before stopping")
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
 	f.wait()
 
@@ -2478,17 +2423,9 @@ func TestCompact_AnUnknownChatSendsNothing(t *testing.T) {
 		"an unknown chat must reach no CLI at all")
 }
 
-// TestCompact_ResolvesCwdThroughTheAncestorWalkForABubble proves Compact
-// (compact.go) resolves a bubble's cwd through the SAME ancestor walk
-// spawnPaths uses (Task 22) — a genuinely separate call site that used to
-// resolve WorktreeDir from chat.WorkspaceID directly.
-//
-// A no-gesture refusal and a cwd-resolution failure both surface as
-// apperr.ErrNotFound here (see TestCompact_AProviderWithNoGestureIsNotFound
-// above), so the error alone cannot tell them apart — the assertion that
-// actually proves the fallback ran is on f.ws.lastWorkspaceID: fakeWorkspace
-// answers every id identically, including "", which is exactly how the
-// original bug went undetected through 21 tasks.
+// Compact resolves a bubble's cwd through the ancestor walk. The error alone
+// cannot show it (a refusal is also ErrNotFound), so the resolved workspace id
+// is asserted.
 func TestCompact_ResolvesCwdThroughTheAncestorWalkForABubble(t *testing.T) {
 	f := newFixture(t)
 	writeDescriptor(t, f, "claude", nonCompactingDescriptorBody)
@@ -2994,6 +2931,7 @@ func TestRegression_ClearKeepsTheChatAndThePTY(t *testing.T) {
 
 	chatA, r1 := f.spawn(t, "codex")
 	f.announce(t, r1, "s1")
+	exchange(t, f, r1, "codex", "said on s1")
 	before := f.runner(t, r1)
 
 	f.announce(t, r1, "s2") // /clear: a conversation nobody has seen
@@ -3212,7 +3150,7 @@ func TestIngestHook_SessionStart_FirstAnnouncementOfAKnownID_BindsInPlace(t *tes
 
 	chatA, r1 := f.spawn(t, "claude")
 	f.announce(t, r1, "sA")
-	turn(t, f, r1, "claude", "content so sA is resumable")
+	exchange(t, f, r1, "claude", "content so sA is resumable")
 	f.term.exit(t, f.runner(t, r1).TerminalSession) // the CLI exits; chat A goes dormant
 	f.wait()
 
@@ -3224,8 +3162,8 @@ func TestIngestHook_SessionStart_FirstAnnouncementOfAKnownID_BindsInPlace(t *tes
 
 	assert.Equal(t, chatA, f.runner(t, revived).CurrentChatID, "the resumed runner stays on the chat it was spawned into")
 	assert.Equal(t, "sA", f.conversation(t, chatA, "claude").SessionID)
-	assert.Equal(t, []string{"session_changed:sA"}, f.markers(t, chatA),
-		"only the first launch's own announcement changed the session")
+	assert.Empty(t, f.markers(t, chatA),
+		"the first announcement replaced a session that never turned, and the revive's is the bound one")
 	assert.Empty(t, f.term.terminateRequestIDs(), "and nothing is evicted: the runner did not move")
 }
 
@@ -3266,7 +3204,7 @@ func TestIngestHook_TurnStopAppendsAssistantTurn(t *testing.T) {
 	f.bc.reset()
 
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
-		mustJSON(t, map[string]any{"session_id": "s1", "last_assistant_message": "done thing"})))
+		mustJSON(t, map[string]any{"last_assistant_message": "done thing"})))
 
 	handoff, err := f.usecase.AssembleHandoff(f.ctx, chatID)
 	require.NoError(t, err)
@@ -3512,23 +3450,9 @@ func TestSpawnChat_StartRunnerFailure_TearsDownCLIAndWraps(t *testing.T) {
 		"a CLI nothing points at must never be left running")
 }
 
-// TestRegression_SpawnRefusedAfterTheChatWasWritten_ForgetsTheChat pins the rule
-// TestRegression_DisabledProviderIsRefusedNotJustHidden already states in words — "a
-// refused spawn must not leave a chat behind" — on the two refusals that actually
-// broke it.
-//
-// A provider refused BEFORE anything is written (a disabled one, an unresolvable
-// descriptor, a CLI that is not installed) never had a chat to leave, which is why
-// that rule looked kept. The chat is written mid-spawn, by recordRunner, and BOTH
-// refusals downstream of it returned the error while leaving the chat standing: a CLI
-// that exits during startup (424) and a runner row that will not commit (500). The
-// caller was told the spawn failed and could then list the chat it had made — the
-// record contradicting its own response, the same defect class as a prompt recorded
-// `answered` whose bytes never reached the CLI.
-//
-// The frame sequence is what makes this non-vacuous: it asserts the chat was really
-// CREATED before it was deleted, so the test cannot pass by the spawn failing earlier
-// than the bug it is about.
+// A spawn refused after the chat was written (a CLI exiting at startup, a runner
+// row that will not commit) forgets the chat. The frames prove it was created
+// first, so the test cannot pass by failing earlier.
 func TestRegression_SpawnRefusedAfterTheChatWasWritten_ForgetsTheChat(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -3702,17 +3626,9 @@ func TestSpawnChat_MissingCLI_PropagatesCommandNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "claude", "and it must name the provider the UI has to report")
 }
 
-// TestRegression_TurnStop_AssistantMessageIsDurableBeforeTurnStateIsPublished pins the
-// ordering the React chat depends on. StopTurn's projection broadcasts Working=false,
-// and the chat view treats that edge as its cue to do ONE ledger read and then stop
-// polling. While StopTurn ran BEFORE the ledger append, that read could be served
-// before the assistant row existed — and with the turn over and the queue empty,
-// nothing ever re-read it. Live on 2026-08-16 that stranded a real reply in the ledger:
-// the user's message rendered, the answer did not, and it only appeared after an
-// unrelated refresh (switching chats).
-//
-// The seam fires inside StopTurn, which is the earliest moment any client can learn the
-// turn ended. The ledger must already hold the answer by then.
+// The answer is in the ledger before StopTurn publishes Working=false: the chat
+// view reads the ledger once on that edge and then stops, so a later append
+// would strand the reply.
 func TestRegression_TurnStop_AssistantMessageIsDurableBeforeTurnStateIsPublished(t *testing.T) {
 	f, cs, _ := newFaultFixture(t)
 
@@ -3749,7 +3665,7 @@ func TestRegression_TurnStop_EmptyMessageStillClosesTheTurn(t *testing.T) {
 		mustJSON(t, map[string]any{"prompt": "ask"})))
 	f.wait()
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
-		mustJSON(t, map[string]any{"session_id": "s1"})))
+		mustJSON(t, map[string]any{})))
 	f.wait()
 
 	chat, err := f.usecase.GetChat(f.ctx, chatID)
@@ -3938,7 +3854,6 @@ func (r *deltaCallbackRecorder) texts() []string {
 func deltaHook(t *testing.T, messageID string, index int, final bool, text string) []byte {
 	t.Helper()
 	return mustJSON(t, map[string]any{
-		"session_id": "s1",
 		"turn_id":    "turn-1",
 		"message_id": messageID,
 		"index":      index,
@@ -3995,21 +3910,9 @@ func TestRegression_ReasoningStreamsLiveAndIsNeverRecorded(t *testing.T) {
 	}
 }
 
-// TestStartTerminalWaitSweep_PushesEveryDeltaAsTheMessageSoFar pins the live
-// streaming callback: the thing that puts an assistant message on screen WHILE
-// it is being said. It is a plain field on the usecase, assigned at sweep start
-// and read on every delta, so nothing about it fails to compile if it stops
-// being called — the chat pane simply goes silent until the turn ends.
-//
-// It asserts the CUMULATIVE text, not the increment. A client that missed one
-// frame must be correct again on the next one with no reassembly of its own,
-// which is only true if each call carries everything said so far.
-//
-// No goroutine and no timing: fakeCommander implements no Screen method, so
-// newTerminalWaitDetector finds no termwait.Screens, u.termWait stays nil, and
-// StartTerminalWaitSweep assigns the callbacks and returns without starting the
-// sweep. Every call below therefore lands on this test's own goroutine, inside
-// IngestHookDelivery.
+// Every streamed delta pushes the cumulative message, so a client that missed a
+// frame is right again on the next. fakeCommander has no Screen, so the sweep
+// never starts and every call lands on this goroutine.
 func TestStartTerminalWaitSweep_PushesEveryDeltaAsTheMessageSoFar(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -4174,7 +4077,7 @@ func TestRegression_AChatWhoseCLIClearedIsNotLeftOwingAPrompt(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
 	f.announce(t, runnerID, "conversation-one")
-	turn(t, f, runnerID, "codex", "hello")
+	exchange(t, f, runnerID, "codex", "hello")
 
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "can you call some subagents?", uuid.NewString(), "", nil)
 	require.NoError(t, err)
@@ -4231,17 +4134,9 @@ func TestRegression_APromptFromAVanishedRunnerDoesNotHoldTheNextPromptBusy(t *te
 // A chat never changes provider without being asked
 // ---------------------------------------------------------------------------
 
-// TestRegression_ReopeningADormantChatBornOnCodexKeepsCodex is the
-// data-integrity bug, reproduced 3/3 live: a codex chat whose process was
-// killed came back running CLAUDE, keeping its codex transcript, on nothing
-// but a click on its sidebar row.
-//
-// The measured shape is exactly this one. codex binds by its own connection
-// identity, so it never writes a conversation row; a chat BORN on it was never
-// switched, so it carries no provider_switched marker either. Both runner
-// projections are empty, every resolver answered "no provider has ever run
-// here", and the pane resolved that absence by starting the first ENABLED
-// provider on the chat. Re-opening a chat is not asking to change it.
+// Re-opening a dormant chat born on codex keeps codex: it wrote no conversation
+// row and no switch marker, and resolving that absence to the first enabled
+// provider changed the chat on a click.
 func TestRegression_ReopeningADormantChatBornOnCodexKeepsCodex(t *testing.T) {
 	f := newFixture(t)
 
@@ -4361,7 +4256,7 @@ func TestResumeBySessionID_ARevivedChatResumesItsBoundSession(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	f.announce(t, runnerID, "sid-kept")
-	turn(t, f, runnerID, "claude", "kept content")
+	exchange(t, f, runnerID, "claude", "kept content")
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
 	f.wait()
 
@@ -4378,50 +4273,69 @@ func TestResumeBySessionID_ARevivedChatResumesItsBoundSession(t *testing.T) {
 	assert.Equal(t, "sid-kept", c.SessionID)
 }
 
-// A session the chat never turned on was never written by its CLI, so there is
-// nothing to resume: the next launch assigns the same id again. Once the chat
-// has turned on it, it is resumed.
-func TestResumeBySessionID_ASessionThatNeverTurnedIsAssignedAgainNotResumed(t *testing.T) {
+// A session the chat never turned on was never written by its CLI: every launch
+// until it turns is assigned a new id, never its old one and never resumed.
+func TestResumeBySessionID_ASessionThatNeverTurnedIsReplacedNotResumed(t *testing.T) {
 	f := newFixture(t)
-	chatID, _ := f.spawn(t, "claude")
-	assigned := argAfter(t, f.term.calls[f.term.callCount()-1].argv, "--session-id")
-
-	first, err := f.usecase.SubmitPrompt(f.ctx, chatID, "first words", uuid.NewString(), "", nil)
-	require.NoError(t, err)
-	f.wait()
-	argv := f.term.calls[f.term.callCount()-1].argv
-	assert.Equal(t, assigned, argAfter(t, argv, "--session-id"), "the first prompt rides the assigned session")
-	assert.NotContains(t, argv, "--resume", "a session its CLI never wrote cannot be resumed")
-
-	prompt(t, f, first.RunnerID, "claude", "first words")
-	turn(t, f, first.RunnerID, "claude", "answered")
-	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "second words", uuid.NewString(), "", nil)
-	require.NoError(t, err)
-	f.wait()
-	argv = f.term.calls[f.term.callCount()-1].argv
-	assert.Equal(t, assigned, argAfter(t, argv, "--resume"))
-	assert.NotContains(t, argv, "--session-id")
-	c := f.conversation(t, chatID, "claude")
-	assert.Equal(t, assigned, c.SessionID)
-	assert.Equal(t, ledger.ConversationBound, c.State)
-}
-
-// A provider that takes no id at launch cannot be given its session again, so
-// its unspoken session is still resumed and only its own refusal ends it.
-func TestResumeBySessionID_AnUnspokenSessionOfAProviderThatTakesNoIDIsResumed(t *testing.T) {
-	f := newFixture(t)
-	chatID, runnerID := f.spawn(t, "codex")
-	f.announce(t, runnerID, "thread-unspoken")
+	chatID, runnerID := f.spawn(t, "claude")
+	spawned := argAfter(t, f.term.calls[0].argv, "--session-id")
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
 	f.wait()
 
 	_, err := f.usecase.ResumeChat(f.ctx, chatID)
 	require.NoError(t, err)
 	f.wait()
+	argv := f.term.calls[1].argv
+	revived := argAfter(t, argv, "--session-id")
+	assert.NotEqual(t, spawned, revived, "a revive never reuses an id its CLI never wrote")
+	assert.NotContains(t, argv, "--resume", "nor resumes it")
 
+	first, err := f.usecase.SubmitPrompt(f.ctx, chatID, "first words", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	f.wait()
+	argv = f.term.calls[2].argv
+	delivering := argAfter(t, argv, "--session-id")
+	assert.NotContains(t, []string{spawned, revived}, delivering)
+	assert.NotContains(t, argv, "--resume")
+	c := f.conversation(t, chatID, "claude")
+	assert.Equal(t, ledger.CauseAssigned, c.Cause)
+
+	hook(t, f, first.RunnerID, "claude", "user_prompt", map[string]any{"prompt": "first words", "session_id": delivering})
+	turn(t, f, first.RunnerID, "claude", "answered")
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "second words", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	f.wait()
+	argv = f.term.calls[f.term.callCount()-1].argv
+	assert.Equal(t, delivering, argAfter(t, argv, "--resume"), "once it turned, it is resumed")
+	assert.NotContains(t, argv, "--session-id")
+}
+
+// A provider that takes no id at launch starts fresh on a session that never
+// turned; its announcement rebinds the chat with no change, so the prompt the
+// launch carries stays owed and is delivered.
+func TestResumeBySessionID_AnUnturnedSessionOfAProviderThatTakesNoIDLaunchesFresh(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "codex")
+	f.announce(t, runnerID, "thread-unturned")
+	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
+	f.wait()
+
+	requestID := uuid.NewString()
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello codex", requestID, "", nil)
+	require.NoError(t, err)
+	f.wait()
 	argv := f.term.calls[f.term.callCount()-1].argv
-	assert.Contains(t, argv, "resume")
-	assert.Contains(t, argv, "thread-unspoken")
+	assert.NotContains(t, argv, "resume")
+	assert.NotContains(t, argv, "thread-unturned")
+
+	f.announce(t, result.RunnerID, "thread-fresh")
+	assert.Equal(t, "thread-fresh", f.conversation(t, chatID, "codex").SessionID)
+	assert.Empty(t, f.markers(t, chatID), "leaving a session that never turned is no change")
+	require.True(t, agentusecase.HasPendingPrompt(f.usecase.RunnerUsecase, f.ctx, chatID),
+		"the prompt this launch carries is still owed")
+
+	prompt(t, f, result.RunnerID, "codex", "hello codex")
+	assert.Equal(t, ledger.PromptStatusDelivered, receipt(t, f, chatID, requestID).Status)
 }
 
 // A resume the CLI itself refuses loses the session: the chat says why its runner
@@ -4430,7 +4344,7 @@ func TestResumeBySessionID_ARefusedResumeLosesTheSession(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	f.announce(t, runnerID, "sid-corrupt")
-	turn(t, f, runnerID, "claude", "before the corruption")
+	exchange(t, f, runnerID, "claude", "before the corruption")
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
 	f.wait()
 
@@ -4460,9 +4374,38 @@ func TestResumeBySessionID_ARefusedResumeLosesTheSession(t *testing.T) {
 	require.NoError(t, err)
 	f.wait()
 	argv = f.term.calls[f.term.callCount()-1].argv
-	assert.Equal(t, fresh.SessionID, argAfter(t, argv, "--session-id"), "the prompt rides the fresh session")
+	assert.NotEqual(t, fresh.SessionID, argAfter(t, argv, "--session-id"), "the fresh session never turned")
+	assert.Equal(t, ledger.CauseFresh, f.conversation(t, chatID, "claude").Cause, "and its replacement is fresh too")
 	assert.Contains(t, strings.Join(argv, "\x00"), "after the loss")
 	assert.NotContains(t, strings.Join(argv, "\x00"), "before the corruption", "nor to the launch carrying the prompt")
+}
+
+// The prompt that launched a resume the CLI refuses is lost with the session,
+// and nothing launches again to redeliver it.
+func TestResumeBySessionID_APromptCarriedIntoARefusedResumeIsLostWithIt(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-corrupt")
+	exchange(t, f, runnerID, "claude", "an answer")
+	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
+	f.wait()
+
+	requestID := uuid.NewString()
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "lost with it", requestID, "", nil)
+	require.NoError(t, err)
+	f.wait()
+	require.Equal(t, "sid-corrupt", argAfter(t, f.term.calls[f.term.callCount()-1].argv, "--resume"))
+	calls := f.term.callCount()
+	f.term.exitWith(t, result.TerminalSessionID, engineterminal.Exit{
+		Code: 1, Screen: "No conversation found with session ID: sid-corrupt",
+	})
+	f.wait()
+
+	got := receipt(t, f, chatID, requestID)
+	assert.Equal(t, ledger.PromptStatusSettled, got.Status)
+	assert.Equal(t, ledger.ReasonSessionLost, got.Reason)
+	assert.False(t, agentusecase.HasPendingPrompt(f.usecase.RunnerUsecase, f.ctx, chatID))
+	assert.Equal(t, calls, f.term.callCount(), "the lost prompt is not redelivered")
 }
 
 // A resumed CLI Crowbar stops did not refuse its session: the chat says it was
@@ -4471,7 +4414,7 @@ func TestResumeBySessionID_AResumeStoppedBeforeItSpeaksIsNotARefusal(t *testing.
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	f.announce(t, runnerID, "sid-kept")
-	turn(t, f, runnerID, "claude", "an answer")
+	exchange(t, f, runnerID, "claude", "an answer")
 	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "next", uuid.NewString(), "", nil)
 	require.NoError(t, err)
 	f.wait()
@@ -4593,7 +4536,6 @@ var sessionOps = []sessionOp{
 		// A turn the CLI opened and has not finished: whatever comes next must close it.
 		if r, ok := w.live(t, f); ok && f.sessions[r.ID] != "" {
 			payload := map[string]any{"prompt": "typed in the terminal"}
-			f.withTrackedSession(r.ID, payload)
 			require.NoError(t, f.usecase.IngestHook(f.ctx, r.ID, r.ProviderID, "user_prompt", mustJSON(t, payload)))
 		}
 	}},

@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
@@ -32,9 +34,9 @@ type Event struct {
 // id once there is one, or "" when nothing came of the attempt.
 type SessionOrigin func() func(sessionID string)
 
-// ErrSessionLost is the provider refusing a session by the code the descriptor
-// declares (runtime.api.session_lost_codes): the caller loses it, never this
-// driver replacing it with another.
+// ErrSessionLost is the provider refusing a session as the descriptor's
+// session.refused declares: the caller loses it, never this driver replacing
+// it with another.
 var ErrSessionLost = errors.New("apidriver: the provider no longer has the session")
 
 type Driver struct {
@@ -306,22 +308,18 @@ func (drv *Driver) markEstablished(out map[string]string) {
 	drv.remembered["session_id"] = out["session_id"]
 }
 
-// sessionLost reports whether err is the provider saying the session id we
-// named does not exist any more — matched on the numeric protocol code the
-// DESCRIPTOR declares (runtime.api.session_lost_codes), never on the message
-// text, which is the provider's own wording and has no business being known
-// here. A descriptor that declares no codes never recovers, it just fails.
+// sessionLost reports whether err is the provider saying it does not have the
+// session we named: the descriptor's session.refused code AND one of its lines,
+// since a code alone is often the protocol's generic "invalid request".
 func (drv *Driver) sessionLost(err error) bool {
 	var callErr *wsrpc.CallError
-	if !errors.As(err, &callErr) {
+	r := drv.d.Session.Refused
+	if !errors.As(err, &callErr) || r == nil || r.RPCCode == 0 || callErr.Code != r.RPCCode {
 		return false
 	}
-	for _, code := range drv.d.Runtime.API.SessionLostCodes {
-		if code == callErr.Code {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(r.Needles, func(needle string) bool {
+		return needle != "" && strings.Contains(callErr.Message, needle)
+	})
 }
 
 // reopen assembles the value set a re-establish runs with — birth (the settings

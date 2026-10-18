@@ -66,23 +66,13 @@ type CreateInput struct {
 // EventStore is the asynx-backed AgentChat aggregate repository: mutations
 // dispatch the command layer with optimistic-concurrency retry (sendWithOCC),
 // reads delegate to the store package's read-model projection. It is the sole
-// AgentChat repository — the agent usecase sends every mutation through it.
-//
-// There is no OpenSegment/EndSegment/BindSession any more, and their absence is
-// the point: a process moving between chats used to be an EndSegment on the chat
-// it left plus an OpenSegment on the chat it entered — two writes across two
-// aggregates with no transaction, which tore in half and bricked a chat. The
-// runner aggregate now owns that move as ONE write, and the chat is never written
-// to when a CLI leaves it.
+// AgentChat repository — the agent usecase sends every mutation through it. The
+// chat holds no process fact: the CLI talking to it is the runner aggregate's.
 type EventStore interface {
-	// Create mints a chat. It is the ONE agentchat command that blocks until its
-	// projections have folded (SendWait, not Send): the very next thing that
-	// happens after a chat is minted is a hook writing into it (a /clear mints a
-	// chat and the CLI's first prompt lands milliseconds later), and that hook path
-	// reads the chat's existence from the read model before it appends. A Send
-	// would let the read model lag behind the mint and the turn would be dropped
-	// as "no such chat". No other command needs this: every other write validates
-	// against the EVENT LOG (which is synchronous), not the read model.
+	// Create mints a chat. It alone blocks until its projections fold (SendWait):
+	// the first hook of the CLI spawned onto it reads the chat from the read model,
+	// which a Send could leave lagging. Every other write validates against the
+	// synchronous event log.
 	Create(
 		ctx context.Context,
 		in CreateInput,
@@ -405,10 +395,7 @@ func (r *eventSourced) sendWithOCC(
 	return occSend(ctx, r.ax.Send, cmd)
 }
 
-// Create is deliberately the ONLY command on the SendWait path: it returns once
-// the read model reflects the new chat, so the hook that lands microseconds later
-// (a /clear mints a chat and the CLI's next prompt arrives immediately) cannot see
-// "no such chat" and drop the turn. See the EventStore interface doc.
+// Create is the only command on the SendWait path; see the EventStore interface doc.
 //
 // The turn commands stay on the async Send path on purpose: StartTurn/StopTurn fire
 // on EVERY hook, and one of their projections (the workspace working overlay) can

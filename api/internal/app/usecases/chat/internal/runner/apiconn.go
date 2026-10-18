@@ -199,31 +199,9 @@ func (rs *Runners) startAPIConn(
 	return conn, true
 }
 
-// applyAPITransport starts serve+handshake for an api-transport descriptor,
-// ESTABLISHES its session (Fresh or Resume) before anything else, and — for a
-// hotswap descriptor only — RETURNS `attach`'s argv for the caller's PTY to
-// run instead of the descriptor's spawn.cmd. Returns nil otherwise.
-//
-// The session must exist BEFORE attach's argv is rendered: attach has to name
-// the SAME thread `prompt`'s turn/start will act on (codex.yaml's attach is
-// `codex resume {session_id} --remote ...`), and that id is not known until
-// EstablishSession has run — which is why this happens here, at spawn time,
-// rather than lazily on the first message the way sending itself still does.
-//
-// A no-op for a hooks-transport descriptor (agent.APIServeArgv reports
-// ok=false) and, per design spec §2.2b, never a reason to fail the spawn: a
-// failed serve OR a failed establish leaves plan untouched and the session
-// runs over hooks alone.
-//
-// resumeContext is non-empty exactly when this is resuming a session that
-// already existed (tctx.Session was non-blank going in) AND there is a real
-// gap to hand over (renderSpawnContext's own inject gate — nothing recorded
-// while this provider was away yields ""). It rides a SEPARATE call
-// (InjectAt "context") from EstablishSession's own "context" value below:
-// codex's thread/resume never accepts a context field (confirmed live — its
-// own send: template does not reference {context} at all), so the identical
-// composed document is threaded through twice, once per channel that can
-// actually carry it depending on which branch runs.
+// applyAPITransport connects an api-transport descriptor and establishes its
+// session first, so a hotswap attach argv (returned for the PTY) names the thread
+// prompts act on. Any failure leaves the spawn to run over hooks alone.
 func (rs *Runners) applyAPITransport(
 	ctx context.Context,
 	runnerID, providerID string,
@@ -235,38 +213,9 @@ func (rs *Runners) applyAPITransport(
 	if !ok {
 		return nil
 	}
-	values := map[string]string{
-		"session_id": tctx.Session,
-		"cwd":        tctx.Cwd,
-		// Same tctx.Context a restart_tui spawn's ContextSteps would fold into
-		// its CLI argv (see spawnRunner/renderSpawnContext) — composed exactly
-		// once, transport-agnostic. Fresh's own thread/start send: template is
-		// the only Fresh-or-Resume step that references {context} (as
-		// developerInstructions); Resume's ignores it, so passing it
-		// unconditionally is a no-op on that branch — resumeContext below is
-		// how the SAME document still reaches a resumed thread.
-		"context": tctx.Context,
-	}
-	// permission.<key>, the SAME family a restart_tui spawn's own
-	// permission_levels.apply pass_arg steps render from tctx.PermissionVars
-	// via TemplateCtx.Replacer() — Fresh's thread/start send: tree references
-	// these as {permission.sandbox}/{permission.approvalPolicy} (codex.yaml),
-	// so a fresh api-transport session must resolve them from the same
-	// source, or a codex chat spawned over this channel launches with an
-	// EMPTY sandbox/approvalPolicy regardless of the chat's own dial.
-	for k, v := range tctx.PermissionVars {
-		values["permission."+k] = v
-	}
-	established, err := conn.driver.EstablishSession(ctx, "prompt", values)
-	if err != nil {
-		slog.WarnContext(ctx, "agent: api transport: establish session", "err", err, "runner_id", runnerID)
-		if errors.Is(err, engineagents.ErrAPISessionLost) {
-			rs.loseSession(ctx, tctx.ChatID, providerID, tctx.Session, err.Error(), runnerID)
-		}
-		rs.apiConns.drop(runnerID)
+	if tctx.Session, ok = rs.establishAPISession(ctx, conn, runnerID, providerID, tctx); !ok {
 		return nil
 	}
-	tctx.Session = established["session_id"]
 	// The only channel that reaches an already-resumed thread with the gap
 	// (thread/resume's own send: has nowhere to put it). Best effort: a failed
 	// inject leaves the resumed session running without the gap, not unresumed.
@@ -295,6 +244,38 @@ func (rs *Runners) applyAPITransport(
 	}
 	rs.pumpAPIConn(runnerID, providerID, agent, conn)
 	return attach
+}
+
+// establishAPISession opens or resumes tctx's session on conn. A session the
+// provider refuses is lost, and any failure drops the connection.
+func (rs *Runners) establishAPISession(
+	ctx context.Context,
+	conn *apiconn,
+	runnerID, providerID string,
+	tctx engineagents.TemplateCtx,
+) (string, bool) {
+	values := map[string]string{
+		"session_id": tctx.Session,
+		"cwd":        tctx.Cwd,
+		// Only Fresh renders {context}; a resumed session gets the same document
+		// through applyAPITransport's resumeContext inject.
+		"context": tctx.Context,
+	}
+	// A fresh session renders the chat's permission level from the same vars a
+	// restart_tui spawn's argv does, or it launches with none.
+	for k, v := range tctx.PermissionVars {
+		values["permission."+k] = v
+	}
+	established, err := conn.driver.EstablishSession(ctx, "prompt", values)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: api transport: establish session", "err", err, "runner_id", runnerID)
+		if errors.Is(err, engineagents.ErrAPISessionLost) {
+			rs.loseSession(ctx, tctx.ChatID, providerID, tctx.Session, err.Error(), runnerID)
+		}
+		rs.apiConns.drop(runnerID)
+		return "", false
+	}
+	return established["session_id"], true
 }
 
 // pointPlanAtAttach redirects a spawn plan's PTY at applyAPITransport's attach

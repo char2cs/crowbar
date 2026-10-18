@@ -237,7 +237,7 @@ func TestPromote_AppendsThePromotionNote(t *testing.T) {
 	f := newFixture(t)
 	bubbleID, runnerID, _ := seedBubbleChat(t, f, "claude")
 	f.announce(t, runnerID, "sid-bubble")
-	turn(t, f, runnerID, "claude", "hello from the bubble")
+	exchange(t, f, runnerID, "claude", "hello from the bubble")
 
 	_, err := f.usecase.Promote(f.ctx, bubbleID)
 	require.NoError(t, err)

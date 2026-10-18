@@ -305,6 +305,17 @@ func (s *Snapshots) Get(ctx context.Context, chatID string) (Snapshot, error) {
 	return snaps[0], nil
 }
 
+// Held is chatID's snapshot from what the owner holds and the chat row, never
+// reading the ledger: the read for a ledger subscriber, which runs under the
+// chat's writer. It skips the placement overlay.
+func (s *Snapshots) Held(ctx context.Context, chatID string) (Snapshot, error) {
+	snaps, _, err := s.collect(ctx, []string{chatID})
+	if err != nil {
+		return Snapshot{}, err
+	}
+	return snaps[0], nil
+}
+
 // GetMany returns the current snapshot of every chat in chatIDs, in order,
 // without advancing any version. The first chat that cannot be answered fails
 // the read. The placement overlay runs once for the whole read, after the lock

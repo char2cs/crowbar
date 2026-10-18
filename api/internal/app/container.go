@@ -45,11 +45,9 @@ type Container struct {
 	// Shutdown step 1.
 	engines *engine.Container
 
-	// axWorkspace, axReviewThread, axAgentChat, and axAgentRunner are the per-type
-	// asynx singletons (one per aggregate type, routing every id by shard hash).
-	// They are retained here so Task 15's ordered graceful shutdown can drain each
-	// via ax.Shutdown. axAgentRunner carries the RUNNER aggregate — one live vendor CLI
-	// in one PTY, the thing that moves between chats on /clear and /resume.
+	// axWorkspace, axReviewThread, axAgentChat and axAgentRunner are the per-type
+	// asynx singletons, kept so the ordered graceful shutdown can drain each.
+	// axAgentRunner carries the runner aggregate: one live vendor CLI in one PTY.
 	axWorkspace    asynx.Asynx[domain.Workspace]
 	axReviewThread asynx.Asynx[domain.ReviewThread]
 	axAgentChat    asynx.Asynx[domain.Chat]
@@ -102,9 +100,7 @@ func New(
 		return nil, fmt.Errorf("app: asynx agent chat: %w", err)
 	}
 	// axAgentRunner is the per-type singleton over state/events/agent_runner.db: the
-	// running vendor CLI is now a modelled aggregate of its own, so moving one
-	// between chats (/clear, /resume) is a single write to a single aggregate
-	// instead of a delete-here/insert-there across two chats with no transaction.
+	// running vendor CLI is an aggregate of its own, apart from the chat it serves.
 	// Its projections are registered via repositories.New -> runner.NewEventSourced.
 	axAgentActivity, err := newAsynx[domain.ChatActivity](
 		adapters.AgentActivityES(), adapters.AgentActivitySS(),

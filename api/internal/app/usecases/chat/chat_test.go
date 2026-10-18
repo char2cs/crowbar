@@ -421,7 +421,7 @@ func TestReadChatLog_RendersTheLedger(t *testing.T) {
 
 	chatID, runnerID := f.spawn(t, "claude")
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
-		mustJSON(t, map[string]any{"session_id": "s1", "last_assistant_message": "done thing"})))
+		mustJSON(t, map[string]any{"last_assistant_message": "done thing"})))
 
 	out, err := f.usecase.ReadChatLog(f.ctx, chatID)
 	require.NoError(t, err)
@@ -659,7 +659,7 @@ func TestNoteThreadLineage_UnknownChat_ReturnsError(t *testing.T) {
 }
 
 // The note is tagged as Crowbar's own, never as a provider's: a note wearing a
-// provider's name would move where that provider's resume gap starts.
+// provider's name would make a session it never spoke in look resumable.
 func TestNoteThreadLineage_IsNotAttributedToAnyProvider(t *testing.T) {
 	f := newFixture(t)
 
@@ -671,6 +671,13 @@ func TestNoteThreadLineage_IsNotAttributedToAnyProvider(t *testing.T) {
 	_, found, err := f.activity.LastTurnForSession(f.ctx, chatID, "claude", "sid-claude")
 	require.NoError(t, err)
 	assert.False(t, found, "a Crowbar note is not a claude turn")
+	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
+	f.wait()
+	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	require.NoError(t, err)
+	f.wait()
+	assert.Equal(t, -1, indexOf(f.term.calls[2].argv, "--resume"), "claude never spoke in sid-claude")
 }
 
 // ---------------------------------------------------------------------------
@@ -858,11 +865,8 @@ func TestAssembleHandoff_UnknownChat_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 }
 
-// resumeClaudeWithGap's callers all stamp session_id: "sid-claude" on the
-// user_prompt they then deliver. It is the conversation this resumed runner
-// was launched on, and a real CLI's own hook carries it — mustJSON's
-// placeholder "s1" names a conversation the runner is on no transport, which
-// namesAnotherConversation (turn/ingest.go) correctly refuses.
+// resumeClaudeWithGap's callers stamp session_id: "sid-claude", the session the
+// resumed runner was launched on, on the user_prompt they deliver.
 //
 // resumeClaudeWithGap drives the one path where Crowbar's own context document comes
 // back at it as a user prompt: claude switched away and then BACK. A resumed
@@ -882,7 +886,7 @@ func resumeClaudeWithGap(t *testing.T, f testFixture) (chatID, claudeRunnerID, i
 
 	chatID, claudeRunner := f.spawn(t, "claude")
 	f.announce(t, claudeRunner, "sid-claude")
-	turn(t, f, claudeRunner, "claude", "claude said this before leaving")
+	exchange(t, f, claudeRunner, "claude", "claude said this before leaving")
 
 	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.NoError(t, err)
@@ -1585,7 +1589,7 @@ func TestSubmitPrompt_TheRestartResumesTheNativeConversation(t *testing.T) {
 	writeDescriptor(t, f, "claude", selectingDescriptorBody)
 	chatID, runnerID := f.spawn(t, "claude")
 	f.announce(t, runnerID, "native-session")
-	turn(t, f, runnerID, "claude", "the conversation exists")
+	exchange(t, f, runnerID, "claude", "the conversation exists")
 	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", ""))
 
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "keep my history", uuid.NewString(), "", nil)
@@ -2027,10 +2031,6 @@ func TestRegression_ConcurrentSwitches_LeaveExactlyOneCLIOnTheChat(t *testing.T)
 	require.NoError(t, err)
 	assert.Equal(t, placed[0].ID, live.ID)
 }
-
-// ---------------------------------------------------------------------------
-// Placement onto a chat evicts whoever else is placed there.
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Displacement must not orphan the turn the displaced CLI left open.

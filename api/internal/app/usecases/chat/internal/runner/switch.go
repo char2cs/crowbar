@@ -253,15 +253,16 @@ func (rs *Runners) displaceForSwitch(
 	return false, nil
 }
 
-// leftAt is when the chat last turned on sessionID: where the gap handed to a
-// resumed provider starts. Zero, the whole record, when it never turned there.
+// leftAt is where the gap handed to a resumed sessionID starts: its last turn
+// in the activity record the gap is rendered from, so the cut and the gap share
+// one clock. Zero, the whole record, when nothing is resumed.
 func (rs *Runners) leftAt(ctx context.Context, chatID, providerID, sessionID string) (time.Time, error) {
 	if sessionID == "" {
 		return time.Time{}, nil
 	}
 	at, _, err := rs.activity.LastTurnForSession(ctx, chatID, providerID, sessionID)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("agent: switch provider: last turn for session: %w", err)
+		return time.Time{}, fmt.Errorf("agent: last turn on the session: %w", err)
 	}
 	return at, nil
 }

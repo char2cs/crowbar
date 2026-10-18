@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -22,19 +21,17 @@ type sessionLaunch struct {
 	// lost: the provider refused the chat's session, so the new one starts
 	// with no memory of the conversation and is handed none until it turns.
 	lost bool
-	// unspoken is the bound session the chat never turned on: its CLI never
-	// wrote it, so a provider that takes an id is given it again, not resumed.
-	unspoken string
 }
 
-// launchSession is the launch decision: the provider's bound session is
-// resumed by its id, and only by its id; an unbound or lost one starts anew.
+// launchSession is the launch decision. A bound session that turned is resumed
+// by its id, and only by its id. Any other starts anew: one that never turned
+// was never written by its CLI, so a new id replaces it rather than reusing it.
 func launchSession(st ledger.State, d engineagents.Agent) (sessionLaunch, error) {
 	c, ok := st.Conversation(d.ID())
-	if ok && c.State == ledger.ConversationBound {
+	if ok && c.Resumable() {
 		return sessionLaunch{resumeID: c.SessionID}, nil
 	}
-	launch := sessionLaunch{lost: ok && c.State == ledger.ConversationLost}
+	launch := sessionLaunch{lost: ok && (c.State == ledger.ConversationLost || c.Cause == ledger.CauseFresh)}
 	if _, ok := d.SessionAssignArg(); !ok {
 		return launch, nil
 	}
@@ -46,49 +43,31 @@ func launchSession(st ledger.State, d engineagents.Agent) (sessionLaunch, error)
 	return launch, nil
 }
 
-// planLaunch reads chatID's ledger for launchSession. A provider that takes an
-// id is resumed only on a session the chat turned on: its CLI writes the session
-// at the first turn. Any other provider is resumed and refuses what it lacks.
+// planLaunch reads chatID's ledger for launchSession.
 func (rs *Runners) planLaunch(ctx context.Context, chatID string, d engineagents.Agent) (sessionLaunch, error) {
 	st, err := rs.ledger.State(ctx, chatID)
 	if err != nil {
 		return sessionLaunch{}, fmt.Errorf("agent: plan launch: %w", err)
 	}
-	launch, err := launchSession(st, d)
-	if _, assigns := d.SessionAssignArg(); err != nil || launch.resumeID == "" || !assigns {
-		return launch, err
-	}
-	_, turned, err := rs.activity.LastTurnForSession(ctx, chatID, d.ID(), launch.resumeID)
-	if err != nil {
-		return sessionLaunch{}, fmt.Errorf("agent: plan launch: turns on the session: %w", err)
-	}
-	if turned {
-		return launch, nil
-	}
-	c, _ := st.Conversation(d.ID())
-	return sessionLaunch{unspoken: launch.resumeID, lost: c.Cause == ledger.CauseFresh}, nil
+	return launchSession(st, d)
 }
 
 // steps are the argv steps that put the CLI on its session: the resume arg,
-// or the assign arg naming the minted or unspoken id. A provider that takes no
-// id launches fresh and announces its own.
+// or the assign arg naming the minted id. A provider that takes no id launches
+// fresh and announces its own.
 func (l sessionLaunch) steps(d engineagents.Agent) ([]engineagents.InjectStep, error) {
 	if l.resumeID != "" {
 		return resumeInjectionSteps(d, l.resumeID), nil
 	}
-	id := l.unspoken
-	if l.assign != nil {
-		bound, err := ledger.DecodeBody[ledger.SessionBound](*l.assign)
-		if err != nil {
-			return nil, fmt.Errorf("agent: assign session: %w", err)
-		}
-		id = bound.SessionID
-	}
-	if id == "" {
+	if l.assign == nil {
 		return nil, nil
 	}
+	bound, err := ledger.DecodeBody[ledger.SessionBound](*l.assign)
+	if err != nil {
+		return nil, fmt.Errorf("agent: assign session: %w", err)
+	}
 	arg, _ := d.SessionAssignArg()
-	return sessionArgSteps(arg, id), nil
+	return sessionArgSteps(arg, bound.SessionID), nil
 }
 
 // promptDelivery is what SubmitPrompt needs to restart a CLI carrying a
@@ -130,26 +109,13 @@ func (rs *Runners) resolvePromptDelivery(
 		return promptDelivery{}, err
 	}
 
-	// everTurned/leftAt answer "does the NATIVE SESSION have history of its
-	// own" — true whenever ANY runner ever recorded a turn under it, which
-	// says nothing about whether the runner THIS restart is replacing was the
-	// one that produced it. A provider switch spawns its own silent resume
-	// runner to compute and carry a handoff, then this restart immediately
-	// displaces it to actually deliver the prompt — so nativeSessionID here
-	// routinely already has turns from BEFORE that runner ever ran a single
-	// one. Gating on everTurned alone (as this once did) reads that prior
-	// history as "already caught up" and skips the handoff entirely — live-
-	// confirmed as the reason a switch-then-send never reached Claude: the
-	// switch's own assembled context was thrown away with the runner it was
-	// injected into, and this restart's replacement carried none.
-	everTurned := false
-	var leftAt time.Time
-	if nativeSessionID != "" {
-		at, found, err := rs.activity.LastTurnForSession(ctx, chatID, live.ProviderID, nativeSessionID)
-		if err != nil {
-			return promptDelivery{}, fmt.Errorf("agent: submit prompt: check native session history: %w", err)
-		}
-		everTurned, leftAt = found, at
+	// Only a session that turned is resumed, so a resumed one has history of its
+	// own; the gap since its last turn is what it lacks. Whether THIS restart owes
+	// that handoff is liveTurned's question below.
+	everTurned := resuming
+	leftAt, err := rs.leftAt(ctx, chatID, live.ProviderID, nativeSessionID)
+	if err != nil {
+		return promptDelivery{}, err
 	}
 
 	// liveTurned is the question that actually decides whether THIS restart

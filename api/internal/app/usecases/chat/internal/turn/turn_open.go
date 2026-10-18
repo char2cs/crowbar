@@ -85,7 +85,7 @@ func (t *Turns) openTurnFromPrompt(
 		slog.DebugContext(ctx, "agent: ingest hook: user_prompt was injected by the provider's harness",
 			"chat_id", chat.ID, "runner_id", runner.ID, "provider", runner.ProviderID,
 			"kind", injected.Kind, "needle", injected.Needle)
-		if err := t.recordOtherTurn(ctx, chat.ID, runner.ID, ev.TurnID, ledger.OriginHarness, ev.Message); err != nil {
+		if err := t.recordOtherTurn(ctx, chat.ID, runner, ev.TurnID, ledger.OriginHarness, ev.Message); err != nil {
 			return err
 		}
 		started, err := t.chats.StartTurn(ctx, chat.ID, time.Now())
@@ -154,7 +154,7 @@ func (t *Turns) recordUserTurn(
 	t.turns.Begin(ctx, runner.ID, chat.ID)
 	// The hook is the provider's acknowledgement of the prompt Crowbar recorded,
 	// matched on the text the request carried before dispatch rewrote it.
-	requestID, acceptErr := t.acceptPrompt(ctx, chat.ID, runner.ID, ev.TurnID, userText)
+	requestID, acceptErr := t.acceptPrompt(ctx, chat.ID, runner, ev.TurnID, userText)
 	// Named by its request, the row is how the client that queued this prompt
 	// recognises it.
 	userCtx := ctx
@@ -180,21 +180,24 @@ func (t *Turns) recordUserTurn(
 // acceptPrompt starts the turn in the ledger: for the oldest pending Crowbar
 // prompt this runner carries when text is that prompt, else for text typed at
 // the CLI. It returns the request id of the prompt accepted, if any.
-func (t *Turns) acceptPrompt(ctx context.Context, chatID, runnerID, providerTurnID, text string) (string, error) {
+func (t *Turns) acceptPrompt(
+	ctx context.Context, chatID string, runner engineagents.Runner, providerTurnID, text string,
+) (string, error) {
 	var accepted string
+	started := t.turnStarted(ctx, chatID, runner, providerTurnID)
 	_, _, err := t.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
 		for _, p := range st.PendingPrompts() {
-			if p.Text != text || (p.RunnerID != "" && p.RunnerID != runnerID) {
+			if p.Text != text || (p.RunnerID != "" && p.RunnerID != runner.ID) {
 				continue
 			}
 			accepted = p.RequestID
-			row, err := ledger.NewRow(ledger.KindTurnStarted, p.TurnID, "", ledger.TurnStarted{
-				RequestID: p.RequestID, ProviderTurnID: providerTurnID, RunnerID: runnerID,
-			})
+			body := started
+			body.RequestID = p.RequestID
+			row, err := ledger.NewRow(ledger.KindTurnStarted, p.TurnID, "", body)
 			return []ledger.Row{row}, err
 		}
 		accepted = ""
-		return otherTurnRows(runnerID, providerTurnID, ledger.OriginProvider, text)
+		return otherTurnRows(started, ledger.OriginProvider, text)
 	})
 	if err != nil {
 		return "", fmt.Errorf("agent: ingest hook: accept prompt: %w", err)
@@ -203,23 +206,35 @@ func (t *Turns) acceptPrompt(ctx context.Context, chatID, runnerID, providerTurn
 }
 
 // recordOtherTurn starts a turn nobody sent through Crowbar.
-func (t *Turns) recordOtherTurn(ctx context.Context, chatID, runnerID, providerTurnID, origin, text string) error {
+func (t *Turns) recordOtherTurn(
+	ctx context.Context, chatID string, runner engineagents.Runner, providerTurnID, origin, text string,
+) error {
+	started := t.turnStarted(ctx, chatID, runner, providerTurnID)
 	if _, _, err := t.ledger.Do(ctx, chatID, func(ledger.State) ([]ledger.Row, error) {
-		return otherTurnRows(runnerID, providerTurnID, origin, text)
+		return otherTurnRows(started, origin, text)
 	}); err != nil {
 		return fmt.Errorf("agent: ingest hook: record %s turn: %w", origin, err)
 	}
 	return nil
 }
 
-func otherTurnRows(runnerID, providerTurnID, origin, text string) ([]ledger.Row, error) {
+// turnStarted is the turn_started body for a turn runner's CLI took on the
+// chat's bound session: the turn that makes that session resumable.
+func (t *Turns) turnStarted(
+	ctx context.Context, chatID string, runner engineagents.Runner, providerTurnID string,
+) ledger.TurnStarted {
+	return ledger.TurnStarted{
+		ProviderTurnID: providerTurnID, RunnerID: runner.ID,
+		Provider: runner.ProviderID, SessionID: t.boundSession(ctx, chatID, runner.ProviderID),
+	}
+}
+
+func otherTurnRows(started ledger.TurnStarted, origin, text string) ([]ledger.Row, error) {
 	turnID := uuid.NewString()
 	msg, err := ledger.NewRow(ledger.KindUserMessage, turnID, "", ledger.UserMessage{Text: text, Origin: origin})
 	if err != nil {
 		return nil, err
 	}
-	started, err := ledger.NewRow(ledger.KindTurnStarted, turnID, "", ledger.TurnStarted{
-		ProviderTurnID: providerTurnID, RunnerID: runnerID,
-	})
-	return []ledger.Row{msg, started}, err
+	row, err := ledger.NewRow(ledger.KindTurnStarted, turnID, "", started)
+	return []ledger.Row{msg, row}, err
 }

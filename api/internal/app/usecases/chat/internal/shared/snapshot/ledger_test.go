@@ -72,6 +72,24 @@ func TestSnapshots_AChatWithoutFactsReadsItsLedgerWithTheLockReleased(t *testing
 	require.Error(t, err)
 }
 
+// Held is what a ledger subscriber reads under the chat's writer: the ledger is
+// never read, so it cannot wait on that writer.
+func TestSnapshots_HeldNeverReadsTheLedger(t *testing.T) {
+	ctx := context.Background()
+	rd := &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", WorkspaceID: "ws1"}}}
+	rd.ledger = func(string) (ledger.State, error) {
+		t.Error("Held read the ledger")
+		return ledger.State{}, nil
+	}
+	s, _, _ := newOwner(t, rd)
+
+	got, err := s.Held(ctx, "c1")
+	require.NoError(t, err)
+	assert.Equal(t, "ws1", got.Chat.WorkspaceID)
+	_, err = s.Held(ctx, "c2")
+	require.Error(t, err)
+}
+
 func TestSnapshots_TheConversationIsTheLiveRunnersProvidersElseTheChats(t *testing.T) {
 	ctx := context.Background()
 	rd := &reader{

@@ -108,11 +108,11 @@ var ErrTurnInProgress = fmt.Errorf("agent: provider cannot hand a live turn to i
 // SwitchToTerminal moves chatID onto its provider's own TUI and returns the
 // terminal session that TUI is. How depends on what the runner is now:
 //
-//   - its own PTY (claude; a chat born on the terminal): that PTY already is
-//     the TUI, so only the surface moves;
-//   - an api connection whose session the provider can load (a completed
-//     turn wrote its rollout): the connection is handed over to a
-//     hooks-transport `attach` of that session, same runner;
+//   - its own PTY (a chat born on the terminal): that PTY already is the TUI,
+//     so only the surface moves;
+//   - an api connection whose session has turned, so the TUI can load it: the
+//     connection is handed over to a hooks-transport `attach` of that session,
+//     same runner;
 //   - otherwise: the TUI is launched like any other replacement, on the
 //     chat's session.
 //
@@ -164,26 +164,23 @@ func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string,
 }
 
 // attachPlan is an api runner's native view: the chat's bound session resumed
-// in the TUI, offered only once the provider can load it — codex writes a
-// thread's rollout when its first turn completes.
+// in the TUI, offered only once that session has turned — a CLI need not write
+// a session before its first turn, and could not load it.
 func (rs *Runners) attachPlan(
 	ctx context.Context, chatID string, live engineagents.Runner, conn *apiconn,
 ) ([]string, engineagents.TemplateCtx, bool, error) {
 	tctx := conn.tctx
-	bound, err := rs.boundSession(ctx, chatID, live.ProviderID)
+	st, err := rs.ledger.State(ctx, chatID)
 	if err != nil {
 		return nil, tctx, false, fmt.Errorf("agent: switch to terminal: %w", err)
 	}
-	tctx.Session = bound
-	argv, ok := conn.agent.APIAttachArgv(tctx)
-	if !ok || bound == "" {
+	c, _ := st.Conversation(live.ProviderID)
+	if !c.Resumable() {
 		return nil, tctx, false, nil
 	}
-	_, everTurned, err := rs.activity.LastTurnForSession(ctx, chatID, live.ProviderID, bound)
-	if err != nil {
-		return nil, tctx, false, fmt.Errorf("agent: switch to terminal: check session history: %w", err)
-	}
-	return argv, tctx, everTurned, nil
+	tctx.Session = c.SessionID
+	argv, ok := conn.agent.APIAttachArgv(tctx)
+	return argv, tctx, ok, nil
 }
 
 // attachNativeView hands live's api connection over to a hooks-transport PTY
