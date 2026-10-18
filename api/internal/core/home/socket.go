@@ -13,13 +13,13 @@ const socketFile = "crowbar.sock"
 
 // Socket is where the daemon for this home listens. The default home binds
 // inside itself; an overridden home binds a short name in the temp dir (macOS
-// caps sun_path at 104 bytes) hashed from the home exactly as given, the way the
-// desktop shell derives it.
+// caps sun_path at 104 bytes) hashed from the cleaned home, so every spelling
+// of one home names one socket. The desktop shell asks `crowbar paths` for it.
 func (h Home) Socket() string {
 	if !h.overridden {
 		return filepath.Join(h.root, socketFile)
 	}
-	return filepath.Join(os.TempDir(), socketName(h.given))
+	return filepath.Join(os.TempDir(), socketName(h.root))
 }
 
 func socketName(

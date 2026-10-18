@@ -1,8 +1,6 @@
 package home
 
 import (
-	"fmt"
-	"hash/fnv"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -50,9 +48,9 @@ func TestSocket_OverrideLivesInTempKeyedByTheHome(t *testing.T) {
 	assert.Equal(t, filepath.Join(os.TempDir(), socketName(root)), h.Socket())
 }
 
-// The desktop shell hashes CROWBAR_HOME exactly as exported, so a trailing
-// slash or a dot segment must reach the hash uncleaned while Root stays clean.
-func TestSocket_OverrideHashesTheHomeExactlyAsGiven(t *testing.T) {
+// One spelling of a home gets one socket: a trailing slash or a dot segment
+// must not name a different daemon.
+func TestSocket_OverrideHashesTheCleanedHome(t *testing.T) {
 	base := t.TempDir()
 	for _, given := range []string{base + "/", base + "//", base + "/./", base + "/x/.."} {
 		t.Setenv(EnvVar, given)
@@ -60,11 +58,7 @@ func TestSocket_OverrideHashesTheHomeExactlyAsGiven(t *testing.T) {
 		h, err := Resolve()
 		require.NoError(t, err)
 
-		digest := fnv.New64a()
-		_, err = digest.Write([]byte(given))
-		require.NoError(t, err)
-		want := filepath.Join(os.TempDir(), fmt.Sprintf("crowbar-%x.sock", digest.Sum64()))
-		assert.Equal(t, want, h.Socket(), given)
+		assert.Equal(t, filepath.Join(os.TempDir(), socketName(base)), h.Socket(), given)
 		assert.Equal(t, base, h.Root(), given)
 	}
 }

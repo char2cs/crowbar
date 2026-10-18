@@ -24,9 +24,7 @@ var ErrOutsideTemp = errors.New("home: a test binary may only use a home under o
 // Home is a validated Crowbar home directory. It only computes paths; it
 // never creates or touches anything on disk.
 type Home struct {
-	root string
-	// given is root as supplied; the desktop shell hashes it uncleaned.
-	given      string
+	root       string
 	overridden bool
 }
 
@@ -132,7 +130,7 @@ func newHome(
 	if testing.Testing() && !underDir(os.TempDir(), cleaned) {
 		return Home{}, fmt.Errorf("%w: %s", ErrOutsideTemp, cleaned)
 	}
-	return Home{root: cleaned, given: given, overridden: overridden}, nil
+	return Home{root: cleaned, overridden: overridden}, nil
 }
 
 func underDir(

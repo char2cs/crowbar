@@ -67,6 +67,17 @@ impl FailureTracker {
     pub fn reset(&mut self) {
         self.consecutive = 0;
     }
+
+    /// Feeds one readiness outcome. Only an unserved daemon counts toward a wedge:
+    /// a held one is alive on purpose and a local descriptor failure says nothing
+    /// about the daemon, so both clear the streak.
+    pub fn observe_probe(&mut self, outcome: Probe) -> bool {
+        if outcome == Probe::Unserved {
+            return self.observe(false);
+        }
+        self.reset();
+        false
+    }
 }
 
 /// Extra wall-clock time beyond a nominal probe cycle still attributable to a
@@ -172,6 +183,21 @@ mod tests {
             !probe_indicts_daemon(Probe::Held),
             "a daemon preparing its home, or halted, is alive on purpose"
         );
+    }
+
+    #[test]
+    fn only_an_unserved_probe_counts_toward_a_wedge() {
+        let mut t = FailureTracker::new(2);
+        assert!(!t.observe_probe(Probe::Unserved));
+        assert!(
+            !t.observe_probe(Probe::Held),
+            "a held probe clears the streak"
+        );
+        assert!(!t.observe_probe(Probe::Unserved));
+        assert!(!t.observe_probe(Probe::LocalDescriptorExhaustion));
+        assert!(!t.observe_probe(Probe::Unserved));
+        assert!(t.observe_probe(Probe::Unserved), "two in a row trip it");
+        assert!(!t.observe_probe(Probe::Healthy));
     }
 
     #[test]

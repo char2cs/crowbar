@@ -4,7 +4,7 @@ pub mod supervisor;
 
 pub use paths::{daemon_log_path, resolve, socket_path};
 
-use health::{announce_halt, check_health, wait_for_health, Health};
+use health::{announce_halt, probe_ready, wait_for_health};
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -293,60 +293,6 @@ pub(crate) async fn http_get(
     Ok(sender.send_request(req).await?)
 }
 
-/// Deep readiness probe. Unlike /v0/health — which answers from a static
-/// handler and stays green while the daemon is wedged — /v0/projects goes
-/// through the global view store, the exact resource every observed
-/// production wedge pinned. A daemon that cannot answer this is not serving
-/// users, whatever its liveness endpoint says.
-///
-/// Dialling costs a descriptor of *this* process, so the probe reports whether it
-/// could dial at all: an exhausted app cannot reach even a perfectly healthy
-/// daemon, and the watchdog must not read that as the daemon's fault.
-async fn probe_ready(socket: &PathBuf) -> supervisor::Probe {
-    // A daemon preparing its home or halted refuses every route but /v0/health on
-    // purpose; the deep probe would read that refusal as a wedge.
-    match check_health(socket).await {
-        Ok(Health::Migrating | Health::Halted { .. }) => return supervisor::Probe::Held,
-        Ok(Health::Ready { .. }) => {}
-        Err(e) => return dial_failure(&*e),
-    }
-    match http_get(socket, "/v0/projects").await {
-        Ok(resp) => {
-            let ok = resp.status().is_success();
-            let _ = resp.into_body().collect().await;
-            if ok {
-                supervisor::Probe::Healthy
-            } else {
-                supervisor::Probe::Unserved
-            }
-        }
-        Err(e) => dial_failure(&*e),
-    }
-}
-
-fn dial_failure(err: &(dyn std::error::Error + 'static)) -> supervisor::Probe {
-    if is_descriptor_exhaustion(err) {
-        supervisor::Probe::LocalDescriptorExhaustion
-    } else {
-        supervisor::Probe::Unserved
-    }
-}
-
-/// Whether a dial failed because this process is out of file descriptors. hyper
-/// wraps the `connect(2)` error, so the cause chain has to be walked.
-fn is_descriptor_exhaustion(err: &(dyn std::error::Error + 'static)) -> bool {
-    let mut cause = Some(err);
-    while let Some(e) = cause {
-        if let Some(io) = e.downcast_ref::<std::io::Error>() {
-            if matches!(io.raw_os_error(), Some(libc::EMFILE) | Some(libc::ENFILE)) {
-                return true;
-            }
-        }
-        cause = e.source();
-    }
-    false
-}
-
 /// Fetches a full goroutine dump from the daemon's pprof surface, so a wedge
 /// leaves behind the stacks that explain which lock everything was stuck on.
 async fn capture_goroutine_dump(socket: &PathBuf) -> Option<String> {
@@ -424,12 +370,7 @@ pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
                 tracker.reset();
                 continue;
             }
-            // Alive on purpose (migrating or halted): never a wedge, never killed.
-            if outcome == supervisor::Probe::Held {
-                tracker.reset();
-                continue;
-            }
-            if !tracker.observe(outcome == supervisor::Probe::Healthy) {
+            if !tracker.observe_probe(outcome) {
                 continue;
             }
 

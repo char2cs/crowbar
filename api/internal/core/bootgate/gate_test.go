@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -328,4 +330,64 @@ func TestGate_AnswersThroughItsMiddlewareUntilOpen(
 	assert.Equal(t, "middleware", preflight.Header().Get("X-Through"))
 	assertReal(t, opened)
 	assert.Empty(t, opened.Header().Get("X-Through"))
+}
+
+// pinned fixes the two values that differ per run, so a body can be compared with
+// its fixture byte for byte.
+func pinned(
+	body string,
+) string {
+	body = strings.Replace(body, fmt.Sprintf(`"pid":%d`, os.Getpid()), `"pid":4242`, 1)
+	return strings.Replace(body, `"version":"`+testVersion+`"`, `"version":"0.1.0"`, 1)
+}
+
+// testdata/health-*.json are what the desktop shell's tests parse, so the states
+// it must recognise are pinned here, in Go, where their spelling is decided.
+func TestGate_HealthMatchesTheDesktopFixtures(
+	t *testing.T,
+) {
+	type step struct {
+		Number int    `json:"number"`
+		Name   string `json:"name"`
+	}
+	type migratingDetail struct {
+		Phase string `json:"phase"`
+		Step  step   `json:"step"`
+		Index int    `json:"index"`
+		Total int    `json:"total"`
+	}
+	type haltedDetail struct {
+		Reason  string `json:"reason"`
+		Message string `json:"message"`
+		Layout  int    `json:"layout"`
+		Known   int    `json:"known"`
+	}
+	cases := map[string]bootgate.Report{
+		"health-migrating.json": {
+			State: bootgate.StateMigrating,
+			Detail: migratingDetail{
+				Phase: "pre-open",
+				Step:  step{Number: 2, Name: "workspace-paths-table"},
+				Index: 1,
+				Total: 5,
+			},
+		},
+		"health-halted.json": {
+			State: bootgate.StateHalted,
+			Detail: haltedDetail{
+				Reason:  "layout_newer",
+				Message: "this home is at layout 9 but this crowbar only knows layout 0: run a newer crowbar",
+				Layout:  9,
+				Known:   0,
+			},
+		},
+	}
+	for file, report := range cases {
+		want, err := os.ReadFile(filepath.Join("testdata", file))
+		require.NoError(t, err)
+
+		rec := send(newGate(func() bootgate.Report { return report }), http.MethodGet, healthPath)
+
+		assert.Equal(t, string(want), pinned(rec.Body.String()), file)
+	}
 }

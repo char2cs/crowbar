@@ -1,10 +1,14 @@
 package handlers_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -12,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/health/handlers"
+	"github.com/char2cs/crowbar/api/internal/core/metadata"
 )
 
 func TestMain(
@@ -55,4 +60,22 @@ func TestCheckReturnsEnvelopeOK(
 	// tauri-shell child handle for it deadlocks against the plugin's blocking
 	// wait thread, so the daemon self-reports instead.
 	assert.Equal(t, os.Getpid(), body.Data.PID)
+}
+
+// The desktop shell's tests parse this fixture, which the boot gate's tests also
+// own; a changed spelling of the ready state has to change it, and them, with it.
+func TestCheckMatchesTheDesktopFixture(
+	t *testing.T,
+) {
+	want, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "core", "bootgate", "testdata", "health-ok.json"))
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/health", nil)
+
+	handlers.Check(ctx)
+
+	body := strings.Replace(rec.Body.String(), `"pid":`+strconv.Itoa(os.Getpid()), `"pid":4242`, 1)
+	body = strings.Replace(body, `"version":"`+metadata.GetVersion()+`"`, `"version":"0.1.0"`, 1)
+	assert.Equal(t, string(want), body)
 }

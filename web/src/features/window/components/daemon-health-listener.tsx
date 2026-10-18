@@ -2,22 +2,12 @@ import { useEffect } from 'react'
 import { apiFetch } from '@/lib/api'
 import { bestEffort } from '@/lib/best-effort'
 import { isTauri } from '@/lib/crowbar-bridge'
+import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 import { toast } from '@/features/window/stores/toast-store'
 
 interface DaemonHealth {
   status?: string
   detail?: { message?: string }
-}
-
-// One key, so the supervisor's event and the on-mount read collapse into one toast.
-function showHalt(reason: unknown) {
-  toast.show({
-    key: 'daemon-halted',
-    type: 'error',
-    message: 'Crowbar could not start',
-    description: String(reason),
-    duration: 0,
-  })
 }
 
 /**
@@ -31,8 +21,9 @@ function showHalt(reason: unknown) {
  * exit is followed by either `daemon:restarted` or `daemon:dead`.
  *
  * `daemon:halted` is a daemon that is alive but refused to open its home; its
- * payload is the reason, and nothing restarts it, so the toast stays up. The
- * daemon halts before this page mounts, so mounting also asks it, the owner.
+ * payload is the reason. It goes to the halt store, which the root renders in
+ * place of every route, and `daemon:restarted` clears it. The daemon halts
+ * before this page mounts, so mounting also asks it, the owner.
  */
 export function DaemonHealthListener() {
   useEffect(() => {
@@ -54,7 +45,10 @@ export function DaemonHealthListener() {
         ],
         [
           'daemon:restarted',
-          () => toast.success('Backend restarted', 'Sessions reconnect automatically.'),
+          () => {
+            useDaemonHaltStore.getState().clear()
+            toast.success('Backend restarted', 'Sessions reconnect automatically.')
+          },
         ],
         [
           'daemon:dead',
@@ -64,7 +58,7 @@ export function DaemonHealthListener() {
               'Export diagnostics from Settings → Developer, then restart the app.',
             ),
         ],
-        ['daemon:halted', ({ payload }) => showHalt(payload)],
+        ['daemon:halted', ({ payload }) => useDaemonHaltStore.getState().halt(String(payload))],
       ]
       // Each subscription is an independent event name, so register them
       // concurrently instead of one at a time.
@@ -77,7 +71,9 @@ export function DaemonHealthListener() {
       bestEffort(
         apiFetch<DaemonHealth | undefined>('/v0/health').then((health) => {
           if (!disposed && health?.status === 'halted') {
-            showHalt(health.detail?.message ?? 'the daemon halted without saying why')
+            useDaemonHaltStore
+              .getState()
+              .halt(health.detail?.message ?? 'the daemon halted without saying why')
           }
         }),
         'daemon health read',

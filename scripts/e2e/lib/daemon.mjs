@@ -3,16 +3,6 @@ import { until } from './wait.mjs'
 
 const BASE = 'http://crowbar.local'
 
-/** fnv1a64 of the home string, byte-identical to the daemon's own socket derivation. */
-export function socketPathFor(home, tmpdir) {
-  let h = 0xcbf29ce484222325n
-  for (const byte of new TextEncoder().encode(home)) {
-    h ^= BigInt(byte)
-    h = (h * 0x100000001b3n) & 0xffffffffffffffffn
-  }
-  return `${tmpdir.replace(/\/$/, '')}/crowbar-${h.toString(16)}.sock`
-}
-
 /** A client for one daemon over its unix socket. Bun's fetch takes the socket as an option. */
 export function daemonClient(socket) {
   async function call(method, path, body) {
