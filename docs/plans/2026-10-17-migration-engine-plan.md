@@ -4,7 +4,7 @@
 
 **Goal:** Build Crowbar's permanent migration engine skeleton: one home resolver, a `LAYOUT` version read before any store opens, a home lock, a step contract (plan / apply / verify, pre-open and post-open), a run ledger, a `state/` backup, a halt-loudly boot, and `crowbar migrate --plan`; port today's `upgrade.go` steps into it and delete the marker-file mechanism in the same change.
 
-**Architecture:** `core/home` resolves the home once. `core/migrate` is the engine (no store, no domain knowledge): a validated `Catalog` of `Step`s (offline identity and plan) paired at run time with `Impl`s (apply and verify); a `Session` takes the lock, reads `LAYOUT`, runs the pre-open phase before any database opens and the post-open phase where `runUpgrades` ran. `adapter/migrations` holds the production catalog, the pre-open legacy step and `Boot`; `app` supplies the post-open legacy impls; `core/bootgate` serves `/v0/health` (`migrating` / `halted`) from the moment the socket is bound.
+**Architecture:** `core/home` resolves the home once. `core/migrate` is the engine (no store, no domain knowledge): a validated `Catalog` of `Step`s (offline identity and plan) paired at run time with `Impl`s (apply and verify); a `Session` takes the lock, reads `LAYOUT`, runs the pre-open phase before any database opens and the post-open phase inside `app.New`, between the runner reconcile and the owning-chat reconcile. `adapter/migrations` holds the production catalog, the pre-open legacy step and `Begin`; `app` supplies the post-open legacy impls; `core/bootgate` serves `/v0/health` (`migrating` / `halted`) from the moment the socket is bound.
 
 **Tech Stack:** Go 1.26 (`-tags noEmbed`), cobra, testify, existing SQLite adapter (GORM); Rust (Tauri sidecar) and one TS listener for the desktop tasks.
 
@@ -48,7 +48,7 @@ Decisions the plan makes so executors do not have to.
 - **R6. The home lock stays at `state/.lock`.** It moves from `adapter` to `migrate`, is taken before `LAYOUT` is read and released after the databases close. Older binaries cannot read `LAYOUT` but they do `flock` this file, so a running new daemon still excludes them.
 - **R7. One backup per run,** before the first step, at `<home>/migrate/backups/<run-id>/state/` (a copy, built as `<run-id>.partial` and renamed when complete). Taken iff some pending step's plan sets `RewritesState` and `state/` holds files; free space of at least size + 64 MiB is checked first. Crowbar never deletes backups; restoring is manual and its path is in the ledger and the halt message.
 - **R8. Halt, do not exit.** A failure or refusal keeps the process up, holding the lock and the socket, serving only `GET /v0/health` (200, `status:"halted"`, the `Halt` object) and 503 `{code:"daemon_halted"}` for everything else. During a long migration health says `"migrating"` with progress. Exiting would make the desktop supervisor respawn into the same failure and leaves no channel for the reason. A cancelled context is the exception: outcome `interrupted`, process exits, next boot resumes.
-- **R9. `app` takes the post-open runner as an option** (`app.WithPostOpen`), so the existing `app.New(ctx, eng, adapters)` call sites (about 25 test files) compile unchanged. It is optional only in the sense that absence means nothing to migrate; production (`internal.New`) and the black-box harnesses always pass it, and a wiring test pins that.
+- **R9. `app.New` takes the post-open runner as a required argument** (`app.New(ctx, eng, adapters, post)`), never an option: a constructor that could run without it would skip the post-open steps silently. Production (`internal.New`) passes the session; tests with nothing to migrate pass `migratetest.NoPostOpen()`, and a wiring test pins that every post-open step reaches the runner.
 - **R10. Ported steps.** The five legacy fix-ups lose their fail-soft stance: a closure that reports "unfinished" now fails the step and halts boot (a half-applied step looking finished was the flaw D1 names). Each step consumes its own `state/upgrades/<name>` marker: marker present means record `adopted`, delete the marker, run nothing. That is the only reader of the old mechanism and it dies with the steps. A stage that deletes the code a ported step calls deletes the step in the same change.
 - **R11. Records only for runs with work.** A boot with nothing pending writes nothing (no `migrate/` directory on a clean current home). Run id is the run's start time, `20060102T150405.000000Z`.
 
@@ -65,10 +65,10 @@ Decisions the plan makes so executors do not have to.
 
 1. `home.Resolve()` (or `home.At(dir)` for `WithHomeDir`).
 2. Bind the socket; start serving through `bootgate` (health: `migrating`).
-3. `migrations.Boot`: `migrate.Begin` (lock, `LAYOUT`, ledger, pending) then `RunPreOpen` (plans, preflight, backup, pre-open steps). Refusal or failure: the gate reports `halted`, the container holds the lock and serves the gate only.
-4. Engines, adapter (no lock), `app.New`, which calls `RunPostOpen` where `runUpgrades` ran.
-5. `gate.Open(router)`; hook server; serve.
-6. Close: databases first, then the session (lock) last.
+3. `migrations.Begin` (lock, `LAYOUT`, ledger, closing a dangling run), then `session.RunPreOpen` (plans, preflight, backup, pre-open steps). Refusal or failure: the gate reports `halted`, the container holds the lock and serves the gate only.
+4. Engines, adapter (no lock), `app.New(ctx, engines, adapter, session)`, which calls `RunPostOpen` after the runner reconcile and before the owning-chat reconcile; then the API, the `crowbar` binary installed for hooks, and the hook server listening and published.
+5. `gate.Open(api handler)`: the server already serving since step 2 starts passing requests to the API.
+6. Close: servers, app and databases first, then the session (lock) last.
 
 ## File map
 
@@ -78,7 +78,7 @@ Decisions the plan makes so executors do not have to.
 | `api/internal/testutil/fixturehome.go` | fixture homes for tests |
 | `api/internal/core/migrate/{step,plan,catalog,layout,lock,lock_unix,lock_windows,ledger,checkpoints,backup,disk_unix,disk_windows,halt,session,apply,inspect,render}.go` (+ `_test.go` each, `helpers_test.go`) | the engine |
 | `api/internal/core/bootgate/gate.go` (+ test) | pre-serve health and refusal handler |
-| `api/internal/adapter/migrations/{catalog,workspace_paths,marker,boot}.go` (+ tests) | production catalog, pre-open legacy step, `Boot` |
+| `api/internal/adapter/migrations/{catalog,workspace_paths,marker}.go` (+ tests) | production catalog, pre-open legacy step, `Begin` |
 | `api/internal/app/legacy_steps.go` (+ test; replaces `upgrade.go`) | post-open legacy impls |
 | `api/cmd/crowbar/{paths,migrate}.go` (+ tests) | `crowbar paths`, `crowbar migrate --plan` |
 | `desktop/src-tauri/src/sidecar/paths.rs` | Rust side of `crowbar paths` |

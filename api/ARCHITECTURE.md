@@ -131,16 +131,20 @@ the usecases they call.
 `internal.New` boots the daemon in six steps:
 
 1. `home.ResolveDir` — `home.Resolve()` (or `home.At(dir)` for `WithHomeDir`).
-2. Bind the socket and start serving the `bootgate` at once; `/v0/health` says
-   `migrating`.
+2. Bind the home's socket (`gateway.New(host, h.Socket())`) and start serving
+   the `bootgate` at once; `/v0/health` says `migrating`.
 3. `migrations.Begin` takes the home lock (`state/.lock`), reads `LAYOUT` and
-   the ledger and closes a run a crash left open. The session is published to
-   the gate, then `RunPreOpen` runs, so health names each step as it starts:
-   it plans every pending step of both phases, checks git where a plan needs
-   it, backs up `state/` when a plan rewrites it, and runs the pre-open steps.
+   the ledger, removes half-written backups and closes a run a crash left open.
+   The session is published to the gate, then `RunPreOpen` runs, so health
+   names each step as it starts: it plans every pending step of both phases,
+   checks git where a plan needs it, backs up `state/` when a plan rewrites it,
+   and runs the pre-open steps.
 4. Engines, adapter, and `app.New(ctx, engines, adapter, session)`: the session
-   is the post-open runner, called where `runUpgrades` used to run.
-5. `gate.Open(router)`, the hook server, `Serve`.
+   is the post-open runner, which `app.New` calls after the runner reconcile and
+   before the owning-chat reconcile. Then the API, the `crowbar` binary
+   installed into `<home>/bin`, and the hook server, listening and published.
+5. `gate.Open(api handler)`: the server, serving since step 2, starts passing
+   requests to the API.
 6. Close: servers, app and databases first, the session (the lock) last.
 
 **Layout and ledger.** `<home>/LAYOUT` holds the layout version (a decimal
@@ -150,8 +154,9 @@ non-negative integer, halts the boot before anything is written. A *bump* step
 (`To == From+1`, pre-open only) is pending exactly while `LAYOUT == From`, and
 runs Apply, then Verify, then writes `LAYOUT`, then records `step.done`. An in-layout step is
 done when the ledger says so. The ledger is `<home>/migrate/ledger.jsonl`:
-append-only JSON lines, fsynced per record, mode 0600, outside `state/` so a
-restored `state/` cannot rewind it. A boot with nothing pending writes nothing,
+append-only JSON lines, fsynced per record, mode 0600, outside `state/`, so
+restoring `state/` alone does not rewind it: a backup carries the `LAYOUT` and
+ledger to restore with it. A boot with nothing pending writes nothing,
 not even `migrate/`. It records `run.start`, `backup`, `step.start`,
 `checkpoint`, `step.done`, `step.fail`, `run.end`. A torn final line is dropped;
 any other unreadable line is `ledger_corrupt`.
@@ -168,16 +173,23 @@ counts them as `skipped_rows` and completes; only an engine failure or a failed
 Verify halts.
 
 **Backup.** When a pending plan sets `RewritesState` and `state/` holds files,
-the run copies it to `<home>/migrate/backups/<run-id>/state/` first (built as
+the run first writes `<home>/migrate/backups/<run-id>/` (built as
 `<run-id>.partial`, renamed when whole) after checking free space for the copy
-plus 64 MiB. A retry after a halt keeps the earlier attempt's backup rather
-than copying the half-migrated state over it. Crowbar never prunes backups;
-restoring is manual.
+plus 64 MiB. It holds `state/`, the `LAYOUT` value and a copy of
+`migrate/ledger.jsonl`, all as they stood before the run: restoring all three
+rewinds the data and the record of what was done to it together, so the next
+boot runs the steps again on the restored data. A retry after a halt keeps the
+earlier attempt's backup rather than copying the half-migrated state over it.
+A halt's message names the backup in force. Crowbar never prunes backups;
+restoring is manual (quit Crowbar, put the three back), as the upgrade notes
+describe.
 
 **Halt, not exit.** A failure or refusal (`layout_newer`, `layout_unreadable`,
-`ledger_corrupt`, `plan_failed`, `preflight_failed`, `step_failed`,
-`verify_failed`, `no_implementation`) keeps the daemon alive, holding the lock
-and the socket, with no store open. The `migrate.Halt` carries the reason, the
+`ledger_corrupt`, `io_failed`, `plan_failed`, `preflight_failed`,
+`step_failed`, `verify_failed`, `no_implementation`) keeps the daemon alive,
+holding the lock and the socket, with no store open. `io_failed` is `Begin`
+unable to put the home in order (remove a half-written backup, close a dangling
+run in the ledger): the lock is already held, so it is kept like any halt. The `migrate.Halt` carries the reason, the
 step, the layouts, and the ledger and backup paths. A supervisor that
 respawned it would only meet the same failure. A cancelled context is the one
 exception: the run ends `interrupted`, the process exits, and the next boot
@@ -199,11 +211,13 @@ refusing routes is not a wedge) and replaces its window with a halt screen
 carrying `detail.message`.
 
 **One socket rule.** `home.Home.Socket()` is the only place a socket path is
-decided: `<home>/crowbar.sock` for the default home; for a home set by
-`CROWBAR_HOME`, `$TMPDIR/crowbar-<fnv1a64 of the cleaned home>.sock` (macOS caps
-`sun_path` at 104 bytes). The desktop shell and the e2e helper run `crowbar
-paths` and use what it prints; the daemon hands its bound socket to the
-callbacks it spawns instead of letting them derive one.
+decided: `<home>/crowbar.sock` for the default home; for any non-default home
+(`CROWBAR_HOME`, `WithHomeDir`), `$TMPDIR/crowbar-<fnv1a64 of the cleaned
+home>.sock` (macOS caps `sun_path` at 104 bytes). The daemon binds the socket
+of the home it holds. The desktop shell and the e2e helper run `crowbar paths`
+and use the socket and daemon log path (`home.Home.DaemonLog()`) it prints; the
+daemon hands its bound socket to the callbacks it spawns instead of letting
+them derive one.
 
 ## Request flows
 

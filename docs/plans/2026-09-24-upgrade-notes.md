@@ -5,10 +5,11 @@ daemon (70ec430 and earlier), and why going back afterwards is not supported.
 
 ## What the first run does
 
-All of it runs synchronously at boot, before anything is served, through the
-migration engine (`api/internal/core/migrate`). The daemon answers
-`/v0/health` with `migrating` while it works. Over rows it cannot replay a
-step is best-effort: the rows are counted (`skipped_rows`, in the ledger and
+All of it runs synchronously at boot, before anything is served. The
+once-per-install steps below run through the migration engine
+(`api/internal/core/migrate`); the every-boot repairs run in `app.New`, outside
+it, as before. The daemon answers `/v0/health` with `migrating` while it
+works. Over rows it cannot replay a once-per-install step is best-effort: the rows are counted (`skipped_rows`, in the ledger and
 `crowbar migrate --plan`) and logged, the step completes, and the daemon
 starts. A step that fails outright (an I/O error, a corrupt ledger, or its own
 postcondition not holding) no longer lets the daemon carry on: see "When a
@@ -63,7 +64,9 @@ Run `crowbar migrate --plan` (same `CROWBAR_HOME`) to see the layout, the
 pending steps, whether `state/` would be backed up, and the last run.
 
 A failed step, a layout newer than this binary knows, an unreadable `LAYOUT`
-file or a corrupt ledger halts the boot. The daemon stays up holding the home,
+file, a corrupt ledger, or a home the daemon cannot put in order before any
+step (a half-written backup it cannot remove, a ledger it cannot write:
+`io_failed`) halts the boot. The daemon stays up holding the home,
 opens no database, answers `/v0/health` with `status: "halted"` and the reason
 in `detail.message`, and answers 503 `daemon_halted` to everything else. The
 desktop app shows the reason in place of its window and does not restart the
@@ -72,10 +75,23 @@ daemon. Fix the cause and relaunch; the retry resumes from the checkpoints. A
 one. A ctrl-C or SIGTERM mid-migration is not a failure: the run is recorded
 `interrupted` and the next boot resumes.
 
-Before a run that rewrites `state/`, the daemon copies it to
-`<home>/migrate/backups/<run-id>/state/` (needing the copy's size plus 64 MiB
-free, else it halts before touching anything). A halt names the backup; Crowbar
-never prunes or restores one, so restoring is a manual copy back.
+Before a run that rewrites `state/`, the daemon writes a backup to
+`<home>/migrate/backups/<run-id>/` (needing the copy's size plus 64 MiB free,
+else it halts before touching anything): `state/`, `LAYOUT` and `ledger.jsonl`,
+as they stood before the run. A halt names the backup in its message; Crowbar
+never prunes or restores one.
+
+### Restoring a backup
+
+1. Quit Crowbar, so the daemon lets go of the home.
+2. In the home, replace `state/` with the backup's `state/`, `LAYOUT` with the
+   backup's `LAYOUT`, and `migrate/ledger.jsonl` with the backup's
+   `ledger.jsonl`.
+3. Open Crowbar. The restored ledger says the steps were not done, so the boot
+   runs them again on the restored data (taking a fresh backup first).
+
+Restore all three together. `state/` alone would leave the ledger saying the
+steps were applied, so they would never run again over the restored data.
 
 ## Downgrading is not supported
 
@@ -92,16 +108,23 @@ every workspace it backfills or provisions in place; the old binary decodes
 that snapshot into a struct with no `provisioning` (or `createdBranch`)
 field, so the fields vanish from the state it replays onto, any later patch
 that replaces one of them fails to apply, and any snapshot the old binary
-writes back persists the loss. Keep a copy of `~/.crowbar/state` before
-upgrading if a rollback might be needed.
+writes back persists the loss. If a rollback might be needed, quit Crowbar
+and copy `state/`, `LAYOUT` and `migrate/ledger.jsonl` from the home (the last
+two may not exist yet) before upgrading; a rollback puts back all three and
+deletes whichever the copy did not have.
+
+A pre-audit build that does run again redoes its five one-time upgrades: this
+version deleted their markers when it adopted them. Each is idempotent over the
+data it finds, and `chat-providers-from-history` re-derives each chat's
+provider from its runner history once more.
 
 The automatic backup does not make a rollback safe across a halt. A retry
 reuses the backup taken before the failed attempt, because it is the image the
 migration started from. So a halt, then reinstalling an older release, running
 it for days, then upgrading again leaves the retry with that same pre-halt
 image: the days in between are in no backup, and the ledger cannot see them,
-since it records migrations, not normal use. Copy `~/.crowbar/state` yourself
-before upgrading again.
+since it records migrations, not normal use. Copy `state/`, `LAYOUT` and
+`migrate/ledger.jsonl` yourself, with Crowbar quit, before upgrading again.
 
 A halt's `layout` field is 0 for `layout_unreadable`: the `LAYOUT` file could
 not be read, so no layout is known.
