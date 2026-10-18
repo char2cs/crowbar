@@ -106,7 +106,7 @@ func anthropicReply(w http.ResponseWriter, body []byte, id string) {
 	_ = json.Unmarshal(body, &req)
 	if !req.Stream {
 		writeJSON(w, map[string]any{
-			"id": "msg_"+id, "type": "message", "role": "assistant", "model": req.Model,
+			"id": "msg_" + id, "type": "message", "role": "assistant", "model": req.Model,
 			"content": []any{map[string]any{"type": "text", "text": liveReply}}, "stop_reason": "end_turn",
 			"usage": map[string]any{"input_tokens": 10, "output_tokens": 3},
 		})
@@ -114,7 +114,7 @@ func anthropicReply(w http.ResponseWriter, body []byte, id string) {
 	}
 	w.Header().Set("content-type", "text/event-stream")
 	sse(w, "message_start", map[string]any{"type": "message_start", "message": map[string]any{
-		"id": "msg_"+id, "type": "message", "role": "assistant", "model": req.Model, "content": []any{},
+		"id": "msg_" + id, "type": "message", "role": "assistant", "model": req.Model, "content": []any{},
 		"usage": map[string]any{"input_tokens": 10, "output_tokens": 1},
 	}})
 	sse(w, "content_block_start", map[string]any{"type": "content_block_start", "index": 0,
@@ -129,18 +129,18 @@ func anthropicReply(w http.ResponseWriter, body []byte, id string) {
 
 func openAIStream(w http.ResponseWriter, id string) {
 	w.Header().Set("content-type", "text/event-stream")
-	base := map[string]any{"id": "resp_"+id, "object": "response", "status": "in_progress", "model": "gpt-live", "output": []any{}}
-	item := map[string]any{"id": "msg_"+id, "type": "message", "role": "assistant", "status": "in_progress", "content": []any{}}
+	base := map[string]any{"id": "resp_" + id, "object": "response", "status": "in_progress", "model": "gpt-live", "output": []any{}}
+	item := map[string]any{"id": "msg_" + id, "type": "message", "role": "assistant", "status": "in_progress", "content": []any{}}
 	sse(w, "response.created", map[string]any{"type": "response.created", "response": base})
 	sse(w, "response.output_item.added", map[string]any{"type": "response.output_item.added", "output_index": 0, "item": item})
-	sse(w, "response.content_part.added", map[string]any{"type": "response.content_part.added", "item_id": "msg_"+id,
+	sse(w, "response.content_part.added", map[string]any{"type": "response.content_part.added", "item_id": "msg_" + id,
 		"output_index": 0, "content_index": 0, "part": map[string]any{"type": "output_text", "text": "", "annotations": []any{}}})
-	sse(w, "response.output_text.delta", map[string]any{"type": "response.output_text.delta", "item_id": "msg_"+id,
+	sse(w, "response.output_text.delta", map[string]any{"type": "response.output_text.delta", "item_id": "msg_" + id,
 		"output_index": 0, "content_index": 0, "delta": liveReply})
-	done := map[string]any{"id": "msg_"+id, "type": "message", "role": "assistant", "status": "completed",
+	done := map[string]any{"id": "msg_" + id, "type": "message", "role": "assistant", "status": "completed",
 		"content": []any{map[string]any{"type": "output_text", "text": liveReply, "annotations": []any{}}}}
 	sse(w, "response.output_item.done", map[string]any{"type": "response.output_item.done", "output_index": 0, "item": done})
-	final := map[string]any{"id": "resp_"+id, "object": "response", "status": "completed", "model": "gpt-live",
+	final := map[string]any{"id": "resp_" + id, "object": "response", "status": "completed", "model": "gpt-live",
 		"output": []any{done}, "usage": map[string]any{"input_tokens": 10, "output_tokens": 3, "total_tokens": 13,
 			"input_tokens_details": map[string]any{"cached_tokens": 0}, "output_tokens_details": map[string]any{"reasoning_tokens": 0}}}
 	sse(w, "response.completed", map[string]any{"type": "response.completed", "response": final})
