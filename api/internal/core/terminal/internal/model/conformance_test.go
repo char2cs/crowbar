@@ -9,6 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// wrapTestURL is 58 characters: after "see " it fills one 40-column row and wraps 22 onto the next.
+const wrapTestURL = "https://example.com/docs/guide/getting-started?ref=crowbar"
+
 // clientSim mirrors a live client's terminal: a fresh model instance re-created
 // on every keyframe (terminal.reset() equivalent) and Written to incrementally
 // on every diff frame.

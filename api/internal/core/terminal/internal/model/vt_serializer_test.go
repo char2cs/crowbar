@@ -9,6 +9,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
+	"github.com/stretchr/testify/assert"
 )
 
 func serialize(
@@ -565,45 +566,24 @@ func lineCellAt(
 	return &l[x]
 }
 
-// TestSoftWrapResidualHardBreaksButPreservesCells pins the §6.2-family accepted residual
-// documented in the package doc: the pinned x/vt commit surfaces no per-row soft-wrap bit,
-// so the serializer emits a soft-wrapped logical line HARD-broken (full row + CR/LF + the
-// continuation) instead of as one continuous autowrap flow. The test proves both halves of
-// the accepted contract: (1) the wrap semantic is lost — a CR/LF separator IS emitted
-// between the two physical rows of one soft-wrapped logical line; (2) the visible CELLS are
-// nonetheless preserved exactly through a round-trip into a fresh emulator. If a future
-// x/vt commit surfaces the wrap bit and steps 5/7 implement wrap-awareness, the CR/LF
-// assertion flips and this test is rewritten alongside the package-doc residual.
-func TestSoftWrapResidualHardBreaksButPreservesCells(t *testing.T) {
-	const cols, rows = 10, 4
-	m, s := New(cols, rows, 100)
-	// 20 printable chars at width 10 fill row0 (0-9) and soft-wrap into row1 (A-J): one
-	// logical line spanning two physical rows with no intervening CR/LF in the input.
-	m.Write([]byte("0123456789ABCDEFGHIJ"))
+// A URL that filled a row and autowrapped must reach the client as one flow.
+func TestSerialize_SoftWrappedURLIsUnbroken(t *testing.T) {
+	m, s := New(40, 6, 100)
+	t.Cleanup(m.Close)
+	m.Write([]byte("see " + wrapTestURL))
+
+	assert.Contains(t, string(s.Serialize(m)), wrapTestURL)
+}
+
+// A program that filled a row exactly and then broke the line must not be joined.
+func TestSerialize_ProgramHardBreakStaysBroken(t *testing.T) {
+	m, s := New(40, 6, 100)
+	t.Cleanup(m.Close)
+	m.Write([]byte("see " + wrapTestURL[:36] + "\r\n" + wrapTestURL[36:]))
 
 	payload := string(s.Serialize(m))
-
-	// (1) The wrap is lost: the two physical rows are separated by a hard CR/LF. A
-	// wrap-aware serializer would emit "0123456789ABCDEFGHIJ" with NO separator.
-	if !strings.Contains(payload, "0123456789\r\nABCDEFGHIJ") {
-		t.Fatalf("expected hard CR/LF between the soft-wrapped rows; payload=%q", payload)
-	}
-	if strings.Contains(payload, "0123456789ABCDEFGHIJ") {
-		t.Fatal("payload emitted the wrapped line as one continuous flow; the residual no " +
-			"longer holds — implement steps 5/7 wrap-awareness and update the package doc")
-	}
-
-	// (2) The visible cells survive exactly through the round-trip into a fresh emulator.
-	fresh := vt.NewEmulator(cols, rows)
-	if _, err := fresh.Write([]byte(payload)); err != nil {
-		t.Fatalf("fresh emulator write: %v", err)
-	}
-	vm := m.(*vtModel)
-	for y := 0; y < rows; y++ {
-		for x := 0; x < cols; x++ {
-			assertCellEqual(t, x, y, vm.emu.CellAt(x, y), fresh.CellAt(x, y))
-		}
-	}
+	assert.Contains(t, payload, wrapTestURL[:36]+"\r\n"+wrapTestURL[36:])
+	assert.NotContains(t, payload, wrapTestURL)
 }
 
 func assertCellEqual(

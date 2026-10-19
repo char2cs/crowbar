@@ -449,3 +449,32 @@ func TestDiffEmitter_CursorShapeResetForwarded(t *testing.T) {
 	require.False(t, need)
 	assert.Contains(t, string(data), ansi.SetCursorStyle(0), "cursor-shape set→unset must emit the DECSCUSR default form")
 }
+
+// A URL that filled a row and autowrapped must be written to the client as one flow.
+func TestDiffEmitter_SoftWrappedURLWrittenUnbroken(t *testing.T) {
+	m, _ := New(40, 6, 100)
+	t.Cleanup(m.Close)
+	e := NewDiffEmitter()
+	e.Prime(m)
+
+	m.Write([]byte("see " + wrapTestURL))
+	data, needKeyframe := e.Emit(m)
+	require.False(t, needKeyframe)
+	assert.Contains(t, string(data), wrapTestURL)
+}
+
+// A program that filled a row exactly and then broke the line must not be joined.
+func TestDiffEmitter_ProgramHardBreakNotJoined(t *testing.T) {
+	m, _ := New(40, 6, 100)
+	t.Cleanup(m.Close)
+	e := NewDiffEmitter()
+	e.Prime(m)
+
+	m.Write([]byte("see " + wrapTestURL[:36] + "\r\n" + wrapTestURL[36:]))
+	data, needKeyframe := e.Emit(m)
+	require.False(t, needKeyframe)
+	frame := string(data)
+	assert.Contains(t, frame, wrapTestURL[:36])
+	assert.Contains(t, frame, wrapTestURL[36:])
+	assert.NotContains(t, frame, wrapTestURL)
+}
