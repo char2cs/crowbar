@@ -2,15 +2,15 @@ package realtime
 
 import "context"
 
-// watcherProc is the lifecycle surface the WatcherManager drives: a blocking
-// Start and an idempotent Stop. *watch.Watcher satisfies it; tests inject a
-// fake to assert lazy start/stop without real fsnotify.
+// watcherProc is the lifecycle surface the WatcherManager drives. *watch.Watcher
+// satisfies it; tests inject a fake to assert lazy start/stop without real fsnotify.
 type watcherProc interface {
-	// Start begins watching and blocks until ctx is cancelled or Stop is called.
+	// Start begins watching under ctx and returns once the watch runs. ctx bounds
+	// the whole watch, so cancelling it also cuts a slow start short.
 	Start(
 		ctx context.Context,
 	) error
-	// Stop tears the watcher down. It is idempotent.
+	// Stop ends the watch, returning only once it has so StopAll can join it. Idempotent.
 	Stop()
 }
 

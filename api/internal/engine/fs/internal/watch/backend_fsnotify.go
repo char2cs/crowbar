@@ -3,6 +3,7 @@
 package watch
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -34,6 +35,7 @@ type fsnotifyBackend struct {
 }
 
 func newBackend(
+	ctx context.Context,
 	spec watchSpec,
 ) (backend, error) {
 	fsw, err := fsnotify.NewWatcher()
@@ -41,7 +43,7 @@ func newBackend(
 		return nil, fmt.Errorf("new fsnotify watcher: %w", err)
 	}
 	b := &fsnotifyBackend{fsw: fsw, spec: spec}
-	if err := b.addRecursive(spec.tree); err != nil {
+	if err := b.addRecursive(ctx, spec.tree); err != nil {
 		return nil, errors.Join(fmt.Errorf("add recursive %s: %w", spec.tree, err), fsw.Close())
 	}
 	// HEAD and packed-refs are replaced by rename, which ends a watch on the file
@@ -64,6 +66,7 @@ func (b *fsnotifyBackend) errors() <-chan error {
 }
 
 func (b *fsnotifyBackend) created(
+	ctx context.Context,
 	path string,
 ) {
 	for _, root := range b.spec.refTrees {
@@ -78,8 +81,10 @@ func (b *fsnotifyBackend) created(
 		}
 	}
 	if isUnder(path, b.spec.tree) {
-		if err := b.addRecursive(path); err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, fsnotify.ErrClosed) {
-			slog.Warn("watch: follow new directory", "path", path, "err", err)
+		// A walk cut short by Stop is not a failure.
+		err := b.addRecursive(ctx, path)
+		if err != nil && ctx.Err() == nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, fsnotify.ErrClosed) {
+			slog.WarnContext(ctx, "watch: follow new directory", "path", path, "err", err)
 		}
 	}
 }
@@ -100,8 +105,10 @@ func (b *fsnotifyBackend) close() error {
 }
 
 // addRecursive watches root and every subdirectory spec.skip keeps. WalkDir
-// reads entry types from the listing, so files are never lstat'd.
+// reads entry types from the listing, so files are never lstat'd. It checks ctx
+// at each directory, so a stop never waits out the walk of a large tree.
 func (b *fsnotifyBackend) addRecursive(
+	ctx context.Context,
 	root string,
 ) error {
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -110,6 +117,9 @@ func (b *fsnotifyBackend) addRecursive(
 		}
 		if !d.IsDir() {
 			return nil
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
 		}
 		if b.spec.skip(path) {
 			return filepath.SkipDir

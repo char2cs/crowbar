@@ -1,5 +1,7 @@
 package watch
 
+import "context"
+
 // watchSpec is what a watcher observes: the working tree minus the directories
 // skip prunes, each git dir one level deep, and the ref trees in full.
 type watchSpec struct {
@@ -16,7 +18,7 @@ type backend interface {
 	errors() <-chan error
 	// created and removed let a backend that watches directory by directory
 	// follow the tree as directories come and go.
-	created(path string)
+	created(ctx context.Context, path string)
 	removed(path string)
 	close() error
 }

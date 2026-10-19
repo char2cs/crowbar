@@ -11,6 +11,7 @@ import "C"
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -77,6 +78,7 @@ type streamRoot struct {
 }
 
 func newBackend(
+	_ context.Context,
 	spec watchSpec,
 ) (backend, error) {
 	r, w, err := os.Pipe()
@@ -161,7 +163,7 @@ func (b *fseventsBackend) errors() <-chan error {
 }
 
 // created and removed are no-ops: the stream is recursive.
-func (b *fseventsBackend) created(string) {}
+func (b *fseventsBackend) created(context.Context, string) {}
 
 func (b *fseventsBackend) removed(string) {}
 

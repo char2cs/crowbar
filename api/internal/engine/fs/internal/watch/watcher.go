@@ -179,7 +179,7 @@ func (w *Watcher) Start(
 	default:
 	}
 
-	be, err := newBackend(w.spec())
+	be, err := newBackend(ctx, w.spec())
 	if err != nil {
 		return fmt.Errorf("watch: start: %w", err)
 	}
@@ -357,7 +357,7 @@ func (w *Watcher) handleOne(
 ) bool {
 	// Before dispatching, so a dispatched directory is already being watched.
 	if evt.Op&opCreate != 0 {
-		w.be.created(evt.Name)
+		w.be.created(ctx, evt.Name)
 	}
 	if evt.Op&opRemove != 0 {
 		w.be.removed(evt.Name)

@@ -3,6 +3,7 @@
 package watch
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,7 +29,7 @@ func newTestBackend(
 	spec watchSpec,
 ) backend {
 	t.Helper()
-	be, err := newBackend(spec)
+	be, err := newBackend(t.Context(), spec)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = be.close() })
 	return be
@@ -54,8 +55,8 @@ func TestFsnotifyBackend_SkippedDirsAreNeverWatched(t *testing.T) {
 
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "dist"), 0o700))
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "lib", "x"), 0o700))
-	be.created(filepath.Join(dir, "dist"))
-	be.created(filepath.Join(dir, "lib"))
+	be.created(t.Context(), filepath.Join(dir, "dist"))
+	be.created(t.Context(), filepath.Join(dir, "lib"))
 
 	watched = watchList(t, be)
 	assert.NotContains(t, watched, filepath.Join(dir, "dist"), "a skipped directory created later must not be watched")
@@ -84,10 +85,32 @@ func TestFsnotifyBackend_WatchesResolvedGitDirsAndRefTrees(t *testing.T) {
 	rebase := filepath.Join(gitDir, "rebase-merge")
 	require.NoError(t, os.MkdirAll(feat, 0o700))
 	require.NoError(t, os.MkdirAll(rebase, 0o700))
-	be.created(feat)
-	be.created(rebase)
+	be.created(t.Context(), feat)
+	be.created(t.Context(), rebase)
 
 	watched = watchList(t, be)
 	assert.Contains(t, watched, feat, "a new ref directory (branch feat/x) is followed")
 	assert.NotContains(t, watched, rebase, "git-internal directories outside the ref trees are not")
+}
+
+// A stop must not wait out the walk of a large tree: the walk checks ctx between
+// directories and gives up with ctx's error, watching nothing.
+func TestFsnotifyBackend_WalkStopsAtTheNextDirectoryOnceCancelled(t *testing.T) {
+	dir := t.TempDir()
+	for _, sub := range []string{"a", "b", "c"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, sub), 0o700))
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	var visited []string
+	skip := func(p string) bool {
+		visited = append(visited, p)
+		cancel()
+		return false
+	}
+
+	be, err := newBackend(ctx, watchSpec{tree: dir, skip: skip})
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Nil(t, be)
+	assert.Equal(t, []string{dir}, visited, "no directory is visited after the cancel")
 }

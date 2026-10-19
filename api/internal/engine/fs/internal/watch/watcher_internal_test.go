@@ -587,7 +587,7 @@ func TestLoop_TimerDrainPath(t *testing.T) {
 	w := NewWatcher("ws-timer", dir, "", &minimalGit{}, rd)
 
 	// Build a real backend so loop has valid channels.
-	be, err := newBackend(w.spec())
+	be, err := newBackend(t.Context(), w.spec())
 	require.NoError(t, err)
 	w.mu.Lock()
 	w.be = be
