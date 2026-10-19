@@ -919,8 +919,8 @@ func (e *Emulator) registerDefaultCsiHandlers() {
 
 			width := e.Width()
 			right, _, _ := params.Param(1, width)
-			if right < 1 {
-				right = width
+			if right < 1 || right > width {
+				right = width // as in xterm, a margin past the screen ends at its last column
 			}
 
 			if left >= right {

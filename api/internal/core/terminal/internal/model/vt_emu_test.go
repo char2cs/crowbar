@@ -118,6 +118,11 @@ func TestRowWrapped(t *testing.T) {
 			grid: "F F", screen: "\n", history: "hist|top",
 		},
 		{
+			name:  "a right margin past the screen is clamped: a wrap scrolls into the scrollback",
+			bytes: "\x1b[?69h\x1b[1;20s" + thirty + crlf(4),
+			grid:  "F F F F", scrollback: "F T T", history: "0123456789|ABCDEFGHIJ|KLMNOPQRST",
+		},
+		{
 			name:  "ED3 drops the scrollback flags with their lines",
 			bytes: thirty + crlf(4) + "\x1b[3J" + crlf(2), grid: "F F F F", scrollback: "F F",
 		},
