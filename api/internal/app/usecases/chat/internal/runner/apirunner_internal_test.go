@@ -366,8 +366,7 @@ runtime:
     protocol: jsonrpc2
     serve: [acme, serve]
     handshake: { call: initialize }
-session:
-  resume: { arg: "resume {id}" }
+session: { resume: { arg: "resume {id}" }, persists: turn_start }
 presentation:
   prompt_submit:
     strategy: restart_tui

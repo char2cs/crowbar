@@ -176,12 +176,8 @@ func New(
 		repos.Workspace,
 		gormStores.Folders,
 		repos.Node,
-		// homeChats restores the per-project scoping a bare-root repo reorder
-		// needs for its CHAT-kind Node siblings (SDD review fix round 2,
-		// 2026-09-08 sidebar-placement-unification Task 5) — see
-		// project.HomeChats' own doc for why this narrow read is needed even
-		// though the rest of project.go deliberately dropped the chat
-		// package as a sibling-read dependency.
+		// homeChats scopes a bare-root repo reorder's CHAT-kind Node siblings
+		// to their project (see project.HomeChats).
 		repos.AgentChat,
 		// Announces a repo reorder's COLLATERAL chat/folder siblings on the
 		// same chats WS their own drag would use — see project.New's own doc
@@ -597,8 +593,7 @@ func (r agentChatReader) ListChats(
 // rows by, never a live git call.
 type workspaceGitStatusReader struct {
 	workspace workspace.Usecase
-	// repos is used ONLY by RepoIDsForHome (SDD review fix round 3) — every
-	// other method here predates it and never touches it.
+	// repos resolves a repo id to its project and workspaces.
 	repos store.ScopedStore[domain.Repository, string]
 }
 
@@ -614,15 +609,9 @@ func (w workspaceGitStatusReader) RepoOf(
 	return ws.RepoID, nil
 }
 
-// RepoIDsForHome implements agentusecase.TreeWorkspaceGitStatus. It answers
-// every repo id belonging to the SAME project as home workspace
-// homeWorkspaceID — the tree package's own counterpart to project.go's
-// repoIDSet, added in the SDD review's fix round 3: mergeHomeForest's
-// repo-phantom rows (domain.Node carries no project id of its own) must be
-// scoped the same way home-scoped CHAT rows already are (the review's
-// Critical 2 fix), or a bare-root chat/folder placement in one project
-// renumbers — and WRITES, via Nodes.SetOrder/.SetPlacement — another
-// project's repo Node row as a side effect.
+// RepoIDsForHome implements agentusecase.TreeWorkspaceGitStatus: every repo
+// id in home workspace homeWorkspaceID's project, so a bare-root placement in
+// one project never renumbers another project's repo Node row.
 func (w workspaceGitStatusReader) RepoIDsForHome(
 	ctx context.Context,
 	homeWorkspaceID string,
@@ -640,6 +629,16 @@ func (w workspaceGitStatusReader) RepoIDsForHome(
 		ids[r.ID] = true
 	}
 	return ids, nil
+}
+
+// OutlivesItsChats implements agentusecase.TreeWorkspaceGitStatus: a
+// project's home and a repo's default checkout are never reaped with a chat.
+func (w workspaceGitStatusReader) OutlivesItsChats(ctx context.Context, workspaceID string) (bool, error) {
+	ws, err := w.workspace.Get(ctx, workspaceID)
+	if err != nil {
+		return false, err
+	}
+	return ws.Kind == domain.WorkspaceKindHome || ws.IsDefault, nil
 }
 
 // RendersAsBranch implements agentusecase.TreeWorkspaceGitStatus.

@@ -470,40 +470,6 @@ func TestRegression_AChildThreadsTurnStopClosesTheSubagentItBelongsTo(t *testing
 		"the subagent's own final reply must be captured, not discarded")
 }
 
-// TestRegression_AChildThreadsIdleNeverEndsThisChatsTurn is the other half of
-// the same live capture: the child thread reports thread/status/changed(idle)
-// when ITS turn ends. Only the runner's own thread going idle ends its turn.
-func TestRegression_AChildThreadsIdleNeverEndsThisChatsTurn(t *testing.T) {
-	t.Parallel()
-
-	home := t.TempDir()
-	newTurns := func() (*turn.Turns, *ledgerstore.Store) {
-		l := codexRunningLedger(t, "thread-main")
-		turns := turn.New(turn.Deps{
-			Chats:        stubChats{},
-			Ledger:       l,
-			Activity:     stubSubagentActivity{open: false},
-			Agents:       engineagents.New(),
-			Workspace:    stubWorkspace{home: home},
-			Home:         func() (string, error) { return home, nil },
-			PendingHooks: inflight.NewHooks(),
-			Telemetry:    telemetry.New(),
-		})
-		turns.SetRunners(bareRunners{codexLive})
-		return turns, l
-	}
-
-	foreign, l := newTurns()
-	require.NoError(t, foreign.IngestHook(t.Context(), "runner-1", "codex", "idle",
-		[]byte(`{"threadId":"thread-child","status":{"type":"idle"}}`)))
-	require.True(t, busy(t, l), "a child thread finishing says nothing about the runner's own turn")
-
-	own, l := newTurns()
-	require.NoError(t, own.IngestHook(t.Context(), "runner-1", "codex", "idle",
-		[]byte(`{"threadId":"thread-main","status":{"type":"idle"}}`)))
-	require.False(t, busy(t, l), "the runner's OWN thread going idle ends its turn")
-}
-
 // TestRegression_AChildThreadIsForeignToTheThreadTheDriverOpened: a fresh codex
 // api chat binds the thread its own driver opened, so a subagent's thread on the
 // same connection is foreign even though nothing registered the subagent.
@@ -530,13 +496,36 @@ func TestRegression_AChildThreadIsForeignToTheThreadTheDriverOpened(t *testing.T
 	})
 	turns.SetRunners(bareRunners{codexLive})
 
-	// The runner's own thread speaks first, as it must.
-	require.NoError(t, turns.IngestHook(apiCtx(t), "runner-1", "codex", "idle",
-		[]byte(`{"threadId":"thread-main","status":{"type":"idle"}}`)))
-	require.False(t, busy(t, l), "the runner acts on its OWN thread's events")
-
-	// And only then the subagent codex spawned on the same connection.
 	require.NoError(t, turns.IngestHook(apiCtx(t), "runner-1", "codex", "turn_stop",
 		[]byte(`{"threadId":"thread-child","turn":{"items":[{"type":"agentMessage","text":"seed"}]}}`)),
 		"the subagent's own reply must never be recorded as this chat's assistant message")
+	assert.True(t, busy(t, l), "and its turn/completed leaves the chat's turn running")
+}
+
+// An end that closes no turn is still written, and the live runner's last
+// end, late or not, restates its background work.
+func TestTurnStop_ALateEndIsWrittenAndRestatesBackgroundWork(t *testing.T) {
+	t.Parallel()
+
+	l := emptyLedger(t)
+	_, _, err := l.Append(t.Context(), "chat-1",
+		ledgerRow(t, ledger.KindRunnerStarted, "", ledger.RunnerStarted{RunnerID: "runner-1", Provider: "claude"}))
+	require.NoError(t, err)
+	turns := claudeTurns(t, l)
+	stop := func(tasks string) {
+		t.Helper()
+		require.NoError(t, turns.IngestHook(t.Context(), "runner-1", "claude", "turn_stop",
+			[]byte(`{"session_id":"s-1","last_assistant_message":"","background_tasks":[`+tasks+`]}`)))
+	}
+
+	stop(`{"id":"b1","type":"subagent","status":"running"}`)
+	assert.True(t, chatState(t, l).Busy(), "a late end restating background work keeps the chat busy")
+	stop("")
+	assert.False(t, chatState(t, l).Busy(), "and the next one restating none clears it")
+
+	rows, err := l.Read(t.Context(), "chat-1", 1, 0)
+	require.NoError(t, err)
+	require.Len(t, rows, 2, "both late ends are written")
+	_, hasTurn := chatState(t, l).LastTurn()
+	assert.False(t, hasTurn, "and neither opened a turn")
 }

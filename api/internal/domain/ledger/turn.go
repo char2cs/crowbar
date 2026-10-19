@@ -3,6 +3,8 @@ package ledger
 import (
 	"slices"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Why a turn ended.
@@ -50,6 +52,7 @@ func (s TurnStatus) Next(to TurnStatus) (TurnStatus, bool) {
 type TurnEnded struct {
 	Status    string `json:"status"` // "done" | "interrupted"
 	Reason    string `json:"reason,omitempty"`
+	RunnerID  string `json:"runnerId,omitempty"`  // whose end it is
 	AsyncWork int    `json:"asyncWork,omitempty"` // deleted in T9
 	Effort    string `json:"effort,omitempty"`
 }
@@ -78,7 +81,12 @@ func (t Turn) Names(providerTurnID string) bool {
 type turnState struct {
 	Turn
 	provider, sessionID, persists string
-	asyncWork                     int
+}
+
+// background is the background work a runner's last turn end restated.
+type background struct {
+	runnerID  string
+	asyncWork int
 }
 
 // RunningTurn is the chat's main-scope turn while it runs.
@@ -89,14 +97,25 @@ func (s State) RunningTurn() (Turn, bool) {
 	return Turn{}, false
 }
 
+// LastTurn is the chat's newest main-scope turn, in any status.
+func (s State) LastTurn() (Turn, bool) {
+	return s.turn.Turn, s.hasTurn
+}
+
 // Busy reports whether the chat is working: a main-scope turn runs, or the
-// last one ended leaving background work its still-live runner carries (T9
+// live runner's last turn end, late or not, restated background work (T9
 // replaces that second clause with live subagents).
 func (s State) Busy() bool {
 	if _, ok := s.RunningTurn(); ok {
 		return true
 	}
-	return s.hasTurn && s.turn.asyncWork > 0 && s.hasLive && s.live.RunnerID == s.turn.RunnerID
+	return s.bg.asyncWork > 0 && s.hasLive && s.live.RunnerID == s.bg.runnerID
+}
+
+// startsTurn reports whether a turn_started may open its turn: never over a
+// running turn, and never reopening a closed one.
+func (s State) startsTurn(r Row) bool {
+	return r.Scope != "" || !s.hasTurn || (s.turn.Status != TurnStatusRunning && s.turn.ID != r.TurnID)
 }
 
 func (s *State) applyTurnStarted(r Row, body TurnStarted) {
@@ -116,10 +135,17 @@ func (s *State) applyTurnStarted(r Row, body TurnStarted) {
 	s.hasTurn = true
 }
 
-// applyTurnEnded closes the running turn it names; any other close is late.
+// applyTurnEnded closes the running turn it names; any other close is late,
+// though the live runner's end restates its background work either way.
 func (s *State) applyTurnEnded(r Row) {
 	body, err := DecodeBody[TurnEnded](r)
-	if err != nil || r.Scope != "" || !s.hasTurn || s.turn.ID != r.TurnID {
+	if err != nil || r.Scope != "" {
+		return
+	}
+	if s.hasLive && body.RunnerID == s.live.RunnerID {
+		s.bg = background{runnerID: body.RunnerID, asyncWork: max(body.AsyncWork, 0)}
+	}
+	if !s.hasTurn || s.turn.ID != r.TurnID {
 		return
 	}
 	to := TurnStatus(body.Status)
@@ -127,7 +153,7 @@ func (s *State) applyTurnEnded(r Row) {
 	if !ok || to == TurnStatusFailed {
 		return
 	}
-	s.turn.Status, s.turn.asyncWork = next, max(body.AsyncWork, 0)
+	s.turn.Status = next
 	if next == TurnStatusDone && s.turn.persists == PersistsTurnEnd {
 		s.markTurned(s.turn.provider, s.turn.sessionID)
 	}
@@ -147,19 +173,35 @@ func EndTurn(st State, status TurnStatus, reason string, asyncWork int, effort s
 		return nil, nil
 	}
 	r, err := NewRow(KindTurnEnded, t.ID, "", TurnEnded{
-		Status: string(status), Reason: reason, AsyncWork: asyncWork, Effort: effort,
+		Status: string(status), Reason: reason, RunnerID: t.RunnerID, AsyncWork: asyncWork, Effort: effort,
 	})
 	return []Row{r}, err
 }
 
-// FailTurn is the turn_failed row for the running turn; none when no turn runs.
-func FailTurn(st State, reason, detail string) ([]Row, error) {
-	t, ok := st.RunningTurn()
-	if !ok {
-		return nil, nil
+// EndTurnOf is runnerID's report that the turn providerTurnID names ended. It
+// closes the running turn when runnerID runs it and the name fits; otherwise
+// the row is late and names the closed turn it is about, or a fresh id.
+func EndTurnOf(st State, runnerID, providerTurnID string, end TurnEnded) (Row, bool, error) {
+	turnID, closes := st.turnOf(runnerID, providerTurnID)
+	end.RunnerID = runnerID
+	r, err := NewRow(KindTurnEnded, turnID, "", end)
+	return r, closes, err
+}
+
+// FailTurnOf is EndTurnOf for runnerID's report that the turn failed.
+func FailTurnOf(st State, runnerID, providerTurnID string, fail TurnFailed) (Row, bool, error) {
+	turnID, closes := st.turnOf(runnerID, providerTurnID)
+	r, err := NewRow(KindTurnFailed, turnID, "", fail)
+	return r, closes, err
+}
+
+// turnOf is the turn a report by runnerID naming providerTurnID is about, and
+// whether it is running; a fresh id when the ledger holds no such turn.
+func (s State) turnOf(runnerID, providerTurnID string) (string, bool) {
+	if !s.hasTurn || s.turn.RunnerID != runnerID || !s.turn.Names(providerTurnID) {
+		return uuid.NewString(), false
 	}
-	r, err := NewRow(KindTurnFailed, t.ID, "", TurnFailed{Reason: reason, Detail: detail})
-	return []Row{r}, err
+	return s.turn.ID, s.turn.Status == TurnStatusRunning
 }
 
 // Stop is a user's Stop as rows: the running turn interrupted, and every

@@ -72,11 +72,13 @@ func (t *Turns) handleTurn(
 	return nil
 }
 
-// runningOn is the turn ev ends: the chat's running turn, when runnerID runs
-// it and ev names it. Any other end is late.
-func runningOn(st ledger.State, runnerID string, ev engineagents.CanonicalEvent) bool {
-	turn, ok := st.RunningTurn()
-	return ok && turn.RunnerID == runnerID && turn.Names(ev.TurnID)
+// stopStatus is how a turn_stop's provider status ended its turn: anything but
+// a completed turn did not finish its work.
+func stopStatus(providerStatus string) ledger.TurnStatus {
+	if providerStatus == "" || providerStatus == "completed" {
+		return ledger.TurnStatusDone
+	}
+	return ledger.TurnStatusInterrupted
 }
 
 func (t *Turns) closeTurnFromStop(
@@ -99,16 +101,16 @@ func (t *Turns) closeTurnFromStop(
 	end := func(held bool) error {
 		_, _, err := t.ledger.Do(ctx, chat.ID, func(st ledger.State) ([]ledger.Row, error) {
 			steered = nil
-			if !runningOn(st, runner.ID, ev) {
-				return nil, nil
-			}
-			rows, err := ledger.EndTurn(st, ledger.TurnStatusDone, "", ev.AsyncWork, ev.Effort)
+			ended, closes, err := ledger.EndTurnOf(st, runner.ID, ev.TurnID, ledger.TurnEnded{
+				Status: string(stopStatus(ev.TurnStatus)), AsyncWork: ev.AsyncWork, Effort: ev.Effort,
+			})
+			rows := []ledger.Row{ended}
 			p, ok := pendingSteer(st, runner.ID)
-			if err != nil || !ok {
+			if err != nil || !closes || !ok {
 				return rows, err
 			}
 			stdout, deliverable := t.steerReply(ctx, chat.ID, p, agent)
-			if !held || !deliverable {
+			if !held || !deliverable || !startsOn(st, runner.ID) {
 				settled, err := settleSteer(st, runner.ID, ledger.ReasonDeliveryFailed)
 				return append(rows, settled...), err
 			}
@@ -155,31 +157,26 @@ func (t *Turns) closeTurnFromFailure(
 	if ev.Failure != nil {
 		reason, detail = cmp.Or(ev.Failure.Reason, reason), ev.Failure.Detail
 	}
-	if err := t.failTurn(ctx, chat.ID, runner.ID, func(st ledger.State) bool {
-		return runningOn(st, runner.ID, ev)
-	}, reason, detail); err != nil {
+	_, _, err := t.ledger.Do(ctx, chat.ID, func(st ledger.State) ([]ledger.Row, error) {
+		rows, _, err := failRows(st, runner.ID, ev.TurnID, reason, detail)
+		return rows, err
+	})
+	if err != nil {
 		return fmt.Errorf("agent: ingest hook: fail turn: %w", err)
 	}
 	return appendErr
 }
 
-// failTurn records the running turn failed when ends says this failure is
-// its, settling the steered prompt it would have delivered.
-func (t *Turns) failTurn(
-	ctx context.Context, chatID, runnerID string, ends func(ledger.State) bool, reason, detail string,
-) error {
-	_, _, err := t.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		if !ends(st) {
-			return nil, nil
-		}
-		rows, err := ledger.FailTurn(st, reason, detail)
-		if err != nil {
-			return nil, err
-		}
-		settled, err := settleSteer(st, runnerID, ledger.ReasonTurnFailed)
-		return append(rows, settled...), err
-	})
-	return err
+// failRows is runnerID's turn_failed row for the turn providerTurnID names,
+// late or not, and whether it closes the running turn and the steer it carried.
+func failRows(st ledger.State, runnerID, providerTurnID, reason, detail string) ([]ledger.Row, bool, error) {
+	failed, closes, err := ledger.FailTurnOf(st, runnerID, providerTurnID, ledger.TurnFailed{Reason: reason, Detail: detail})
+	rows := []ledger.Row{failed}
+	if err != nil || !closes {
+		return rows, closes, err
+	}
+	settled, err := settleSteer(st, runnerID, ledger.ReasonTurnFailed)
+	return append(rows, settled...), true, err
 }
 
 func failureNotice(ev engineagents.CanonicalEvent) string {
@@ -192,35 +189,31 @@ func failureNotice(ev engineagents.CanonicalEvent) string {
 	return ev.Failure.Reason
 }
 
-// endIdleTurn ends turn on its own runner's idle report, and the steer it
-// carried with it.
-func endIdleTurn(st ledger.State, turn ledger.Turn, runnerID string) ([]ledger.Row, error) {
-	if turn.RunnerID != runnerID {
-		return nil, nil
-	}
-	rows, err := ledger.EndTurn(st, ledger.TurnStatusDone, ledger.ReasonProviderIdle, 0, "")
-	if err != nil {
-		return nil, err
-	}
-	settled, err := settleSteer(st, runnerID, ledger.ReasonDeliveryFailed)
-	return append(rows, settled...), err
-}
-
 // recordIdle is the provider saying it is doing nothing: the turn runner was
-// running is over. With no turn running, a hooks CLI's report means the
-// prompts it carried were never taken; an api connection's says nothing.
+// running is over, and its steer undelivered; any other end is late. With no
+// turn running, a hooks CLI's report means the prompts it carried were never
+// taken; an api connection's says nothing more.
 func (t *Turns) recordIdle(ctx context.Context, chatID string, runner engineagents.Runner) {
 	api := inflight.FromAPITransport(ctx)
 	_, _, err := t.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		if turn, ok := st.RunningTurn(); ok {
-			return endIdleTurn(st, turn, runner.ID)
+		ended, closes, err := ledger.EndTurnOf(st, runner.ID, "", ledger.TurnEnded{
+			Status: string(ledger.TurnStatusDone), Reason: ledger.ReasonProviderIdle,
+		})
+		rows := []ledger.Row{ended}
+		if err != nil {
+			return nil, err
 		}
-		if api {
-			return nil, nil
+		if closes {
+			settled, err := settleSteer(st, runner.ID, ledger.ReasonDeliveryFailed)
+			return append(rows, settled...), err
 		}
-		return ledger.Settle(st, func(p ledger.Prompt) bool {
+		if _, running := st.RunningTurn(); running || api {
+			return rows, nil
+		}
+		settled, err := ledger.Settle(st, func(p ledger.Prompt) bool {
 			return p.RunnerID == runner.ID && p.Delivery != ledger.DeliverySteer
 		}, false, ledger.ReasonNotAcknowledged)
+		return append(rows, settled...), err
 	})
 	note(ctx, "provider idle", err)
 }

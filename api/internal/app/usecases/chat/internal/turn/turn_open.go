@@ -34,7 +34,7 @@ func (t *Turns) openingTurn(runnerID string, open func(turnHold) error) (bool, e
 func (t *Turns) startTurn(ctx context.Context, h turnHold, decide func(ledger.State) ([]ledger.Row, error)) error {
 	runnerID := h.runner.ID
 	_, _, err := t.ledger.Do(ctx, h.runner.CurrentChatID, func(st ledger.State) ([]ledger.Row, error) {
-		if live, ok := st.LiveRunner(); !ok || live.RunnerID != runnerID {
+		if !startsOn(st, runnerID) {
 			return nil, nil
 		}
 		rows, err := ledger.EndTurn(st, ledger.TurnStatusDone, ledger.ReasonSuperseded, 0, "")
@@ -48,6 +48,13 @@ func (t *Turns) startTurn(ctx context.Context, h turnHold, decide func(ledger.St
 		return fmt.Errorf("agent: ingest hook: start turn: %w", err)
 	}
 	return nil
+}
+
+// startsOn reports whether a turn may start on runnerID's CLI: only the
+// chat's live runner's.
+func startsOn(st ledger.State, runnerID string) bool {
+	live, ok := st.LiveRunner()
+	return ok && live.RunnerID == runnerID
 }
 
 func (t *Turns) openTurnFromPrompt(

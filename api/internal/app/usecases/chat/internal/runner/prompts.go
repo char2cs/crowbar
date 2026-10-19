@@ -410,11 +410,18 @@ func (rs *Runners) requireNotBusy(ctx context.Context, chatID string) error {
 
 // ChatBusy reports whether chatID's ledger folds it working.
 func (rs *Runners) ChatBusy(ctx context.Context, chatID string) (bool, error) {
+	busy, _, err := rs.ChatWork(ctx, chatID)
+	return busy, err
+}
+
+// ChatWork reports whether chatID's ledger folds it working, and whether a
+// prompt still awaits its provider.
+func (rs *Runners) ChatWork(ctx context.Context, chatID string) (busy, awaiting bool, err error) {
 	st, err := rs.ledger.State(ctx, chatID)
 	if err != nil {
-		return false, fmt.Errorf("agent: chat busy: %w", err)
+		return false, false, fmt.Errorf("agent: chat work: %w", err)
 	}
-	return st.Busy(), nil
+	return st.Busy(), len(st.PendingPrompts()) > 0, nil
 }
 
 // requireNoPendingPrompt refuses while a prompt awaits the provider, once those

@@ -65,5 +65,5 @@ func TestSessionAssignArg_IsClaudesAlone(t *testing.T) {
 // as soon as a turn starts.
 func TestSessionPersists_IsWhenTheCLIHasWrittenItsSession(t *testing.T) {
 	assert.Equal(t, "turn_end", get(t, "codex").SessionPersists())
-	assert.Empty(t, get(t, "claude").SessionPersists())
+	assert.Equal(t, "turn_start", get(t, "claude").SessionPersists())
 }

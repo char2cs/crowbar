@@ -38,8 +38,7 @@ spawn:
   cmd: "sh"
   args: ["-c", "cat"]
   interactive_required: true
-session:
-  resume: { arg: "--resume {id}" }
+session: { resume: { arg: "--resume {id}" }, persists: turn_start }
 events:
   session_start:
     in: session_start

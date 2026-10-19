@@ -38,8 +38,7 @@ spawn:
   cmd: "sh"
   args: ["-c", "echo CROWBAR_CWD:$(pwd); exec cat"]
   interactive_required: true
-session:
-  resume: { arg: "--resume {id}" }
+session: { resume: { arg: "--resume {id}" }, persists: turn_start }
 presentation:
   prompt_submit:
     strategy: restart_tui

@@ -51,7 +51,8 @@ func TestRecordIdle_EndsTheRunnersRunningTurn(t *testing.T) {
 	assert.Equal(t, ledger.ReasonDeliveryFailed, got.Reason)
 }
 
-// An idle report from a runner the running turn is not on says nothing about it.
+// An idle report from a runner the running turn is not on is written late,
+// and says nothing about that turn.
 func TestRecordIdle_LeavesAnotherRunnersTurnRunning(t *testing.T) {
 	l := newTurnLedger(t)
 	appendTurnRows(t, l, turnRow(t, "runner-2"))
@@ -62,6 +63,11 @@ func TestRecordIdle_LeavesAnotherRunnersTurnRunning(t *testing.T) {
 	st, err := l.State(t.Context(), "chat-1")
 	require.NoError(t, err)
 	assert.True(t, st.Busy())
+	rows, err := l.Read(t.Context(), "chat-1", 1, 0)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, ledger.KindTurnEnded, rows[0].Kind)
+	assert.NotEqual(t, "T-runner-2", rows[0].TurnID)
 }
 
 // A provider that says it is idle before any turn started never took the

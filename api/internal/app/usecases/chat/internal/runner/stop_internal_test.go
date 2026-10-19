@@ -227,3 +227,42 @@ func TestRegression_CloseChatRetiresEvenWhenTheRequestIsAbandoned(t *testing.T) 
 	require.NoError(t, rs.CloseChat(ctx, "chat-1"))
 	assert.Equal(t, domain.AgentExitStopped, retiredAs(t, rs), "an abandoned close request must not leave the runner live")
 }
+
+// quittingTerm is a PTY that takes its quit signal and exits later, on its own.
+type quittingTerm struct{ fakeTermForAttach }
+
+func (*quittingTerm) TerminateGraceful(context.Context, string) error { return nil }
+
+// Stop on a provider that cannot interrupt tells its CLI to quit and returns
+// without waiting: the CLI's own exit records the end.
+func TestStopChat_RetiresWithoutWaitingForTheCLIToExit(t *testing.T) {
+	turns, activity := realStopTurns()
+	rs := retiring(t, &Runners{
+		apiConns: newAPIConnRegistry(),
+		attached: newAttachRegistry(),
+		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
+		agents:   stubAgentsForInterrupt{},
+		spawns:   inflight.NewGate(),
+		turns:    turns,
+		term:     &quittingTerm{},
+	})
+	pty := interruptRunner
+	pty.TerminalSession = "pty-1"
+	rs.live = liveWith(t, pty)
+	runnerStarted(t, rs, true)
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- rs.StopChat(t.Context(), "chat-1") }()
+	select {
+	case err := <-stopped:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop waited for the CLI to exit")
+	}
+	assert.False(t, chatState(t, rs.ledger).Busy(), "the turn ended before Stop returned")
+	assert.Equal(t, []string{"chat-1"}, activity.recorded())
+	assert.Empty(t, retiredAs(t, rs), "the CLI's exit is its own to record")
+
+	rs.reconcileRunnerExit(t.Context(), "runner-1") // the PTY's exit callback
+	assert.Equal(t, domain.AgentExitStopped, retiredAs(t, rs))
+}

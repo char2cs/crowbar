@@ -22,6 +22,7 @@ type State struct {
 
 	turn    turnState // the newest main-scope turn, while hasTurn
 	hasTurn bool
+	bg      background // the live runner's last restated background work
 }
 
 // Fold replays rows, in seq order, into chatID's State.
@@ -43,7 +44,7 @@ func (s *State) Apply(r Row) {
 	case KindUserMessage:
 		s.applyUserMessage(r)
 	case KindTurnStarted:
-		if body, err := DecodeBody[TurnStarted](r); err == nil {
+		if body, err := DecodeBody[TurnStarted](r); err == nil && s.startsTurn(r) {
 			s.advance(body.RequestID, func(p *Prompt) { p.Status = PromptStatusDelivered })
 			s.applyTurnStarted(r, body)
 		}

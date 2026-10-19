@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -315,13 +316,9 @@ func TestSwitchProvider_ForwardSwitch_CarriesWholeConversation(t *testing.T) {
 	assert.Contains(t, doc, "claude said this first")
 }
 
-// TestRegression_ForwardSwitchOfALongChatCapsTheHandoffToTheRecentWindow pins the
-// bug this cap fixes: before it existed, the "whole ledger" the test above
-// describes was UNBOUNDED — a chat with a long-running conversation on the other
-// provider dumped its entire history into the incoming CLI's context on every
-// single switch. The handoff must now carry only the most recent
-// defaultChatLogTurns turns, with the earliest ones pointed at through
-// get_chat_log rather than replayed.
+// A switch's handoff carries only the most recent defaultChatLogTurns turns,
+// pointing at the earlier ones through get_chat_log rather than replaying a
+// long chat's whole history into the incoming CLI.
 func TestRegression_ForwardSwitchOfALongChatCapsTheHandoffToTheRecentWindow(t *testing.T) {
 	f := newFixture(t)
 
@@ -518,15 +515,9 @@ func waitForClockTick(t *testing.T) {
 	}
 }
 
-// TestSwitchProvider_ClaudeSwitchBack_ResumesAndPointsAtTheGap pins the live bug:
-// a claude chat resumed into its own conversation recalled nothing that happened
-// while it was away — first because --append-system-prompt is silent config a
-// model already carrying its own --resume-restored history is free to
-// deprioritize, and then, after that was fixed by delivering a pointer as a real
-// user turn instead, because a pointer asking the model to call get_chat_log for
-// the gap depends on the model actually choosing to call it, and confirmed live
-// it often just doesn't. This asserts the real gap conversation rides that same
-// positional channel directly, not a pointer to it.
+// A claude chat resumed into its own conversation is handed what happened while
+// it was away as a real user turn: silent config and a get_chat_log pointer are
+// both free for the model to ignore.
 func TestSwitchProvider_ClaudeSwitchBack_ResumesAndPointsAtTheGap(t *testing.T) {
 	f := newFixture(t)
 
@@ -1612,15 +1603,9 @@ func TestSubmitPrompt_NativeTUIResumeOfKnownSessionKeepsContext(t *testing.T) {
 	assert.Equal(t, "known-session", argv[resumeIdx+1])
 }
 
-// TestSubmitPrompt_VirginNativeSessionAfterSwitchCarriesTheFullHandoff pins the
-// exact bug a live user hit: switching providers spawns the new CLI with the
-// whole conversation correctly injected on its silent placeholder — but every
-// restart_tui provider (see claude.yaml/codex.yaml) delivers EVERY message,
-// including the first, by killing that placeholder and respawning with the
-// message baked in. Before this fix, that replacement spawn hardcoded an
-// empty conversation and zero gap regardless of history, discarding the
-// handoff the instant the user typed anything: the new provider answered as
-// if it had never been told what came before.
+// A restart_tui provider delivers even the first message after a switch by
+// respawning its placeholder; that respawn must carry the handoff the
+// placeholder held, or the new provider answers with no history.
 func TestSubmitPrompt_VirginNativeSessionAfterSwitchCarriesTheFullHandoff(t *testing.T) {
 	f := newFixture(t)
 	chatID, codexRunnerID := f.spawn(t, "codex")
@@ -1933,8 +1918,7 @@ display_name: Compacting
 spawn:
   cmd: claude
   interactive_required: true
-session:
-  resume: { arg: "--resume {id}" }
+session: { resume: { arg: "--resume {id}" }, persists: turn_start }
 presentation:
   prompt_submit:
     strategy: restart_tui
@@ -1969,8 +1953,7 @@ display_name: NotCompacting
 spawn:
   cmd: claude
   interactive_required: true
-session:
-  resume: { arg: "--resume {id}" }
+session: { resume: { arg: "--resume {id}" }, persists: turn_start }
 presentation:
   prompt_submit:
     strategy: restart_tui
@@ -2065,8 +2048,7 @@ display_name: Compacting
 spawn:
   cmd: claude
   interactive_required: true
-session:
-  resume: { arg: "--resume {id}" }
+session: { resume: { arg: "--resume {id}" }, persists: turn_start }
 presentation:
   prompt_submit:
     strategy: restart_tui
@@ -2767,8 +2749,10 @@ func TestIngestHook_UserPromptAppendsUserTurn(t *testing.T) {
 	assert.Contains(t, handoff, "user: please do the thing")
 
 	// The derived title (the chat record) and the turn's start (the ledger)
-	// each emit exactly one frame.
-	assert.ElementsMatch(t, []string{"title_set", "turn_started"}, f.bcKinds(t))
+	// each emit exactly one frame, on its own feed.
+	kinds := f.bcKinds(t)
+	assert.Equal(t, []string{"title_set"}, inFeed(kinds, recordFeed...))
+	assert.Equal(t, []string{"turn_started"}, inFeed(kinds, ledgerFeed...))
 }
 
 // TestIngestHook_TurnStop_EmptyMessage_AppendsNoLedgerTurnButStillClosesTurn: an empty
@@ -2916,6 +2900,17 @@ func TestOnExit_AfterSwitch_DoesNotCloseTheIncomingRunnersTurn(t *testing.T) {
 // Broadcast
 // ---------------------------------------------------------------------------
 
+// recordFeed and ledgerFeed are the chat frame kinds each feed publishes.
+var (
+	recordFeed = []string{"created", "permission_level_set", "title_set", "deleted"}
+	ledgerFeed = []string{"turn_started", "turn_stopped"}
+)
+
+// inFeed is kinds kept to feed's, in order: frames are ordered within one feed.
+func inFeed(kinds []string, feed ...string) []string {
+	return slices.DeleteFunc(slices.Clone(kinds), func(k string) bool { return !slices.Contains(feed, k) })
+}
+
 // TestBroadcast_ChatAndRunnerFramesAreDistinct pins the single-broadcaster invariant
 // across both aggregates: each event produces exactly one frame on its own feed, in
 // order, and a session change produces neither — it is the chat ledger's alone.
@@ -2935,14 +2930,14 @@ func TestBroadcast_ChatAndRunnerFramesAreDistinct(t *testing.T) {
 
 	// The chat record and the ledger are two feeds, so only each one's own
 	// frames are ordered.
-	assert.ElementsMatch(t, []string{
+	kinds := f.bcKinds(t)
+	assert.Equal(t, []string{
 		"created",              // SpawnChat
 		"permission_level_set", // SpawnChat: seeded from the global default
 		"title_set",            // user_prompt: derived title
-		"turn_started",         // user_prompt: the turn starts
-		"turn_stopped",         // turn_stop: the turn ends
 		"deleted",              // PurgeChat (asynx Forget's OnForget)
-	}, f.bcKinds(t))
+	}, inFeed(kinds, recordFeed...))
+	assert.Equal(t, []string{"turn_started", "turn_stopped"}, inFeed(kinds, ledgerFeed...))
 
 	assert.Equal(t, []string{
 		"started", // SpawnChat

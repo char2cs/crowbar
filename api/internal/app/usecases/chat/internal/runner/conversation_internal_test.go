@@ -262,6 +262,7 @@ events:
 session:
   resume: { arg: "resume {id}" }
   refused: { rpc_code: -32600, needles: ["no rollout found for thread id"] }
+  persists: turn_start
 runtime:
   transport: api
   api:

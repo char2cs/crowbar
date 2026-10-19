@@ -243,3 +243,15 @@ func TestAgent_AnUnmappedPlanStatusPassesThrough(t *testing.T) {
 	require.Len(t, ev.Plan, 1)
 	assert.Equal(t, "somethingCodexAddedLater", ev.Plan[0].Status)
 }
+
+// A codex prompt names the turn it opens, so only that turn's own
+// turn/completed closes it.
+func TestRegression_CodexUserPromptNamesItsTurn(t *testing.T) {
+	raw := []byte(`{"item":{"type":"userMessage","id":"u1","content":[{"type":"text","text":"hi"}]},
+	  "threadId":"thread-1","turnId":"turn-1"}`)
+
+	ev, err := get(t, "codex").ParseHook(agents.HookUserPrompt, raw, agents.ChannelAPI)
+
+	require.NoError(t, err)
+	assert.Equal(t, "turn-1", ev.TurnID)
+}

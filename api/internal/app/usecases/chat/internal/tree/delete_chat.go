@@ -176,21 +176,11 @@ func (u *chatFolderUsecase) refuseLoss(
 	return nil
 }
 
-// outlivesItsChats reports whether wsID is a project's home (it has no repo)
-// or its repo's main checkout: neither is torn down with the chats in it.
-func (u *chatFolderUsecase) outlivesItsChats(
-	ctx context.Context,
-	wsID string,
-) bool {
-	repoID, err := u.workspaces.RepoOf(ctx, wsID)
-	if err != nil {
-		return false
-	}
-	if repoID == "" {
-		return true
-	}
-	def, err := u.workspaces.DefaultWorkspaceOf(ctx, repoID)
-	return err == nil && def == wsID
+// outlivesItsChats asks the workspace layer, which owns the answer, whether
+// wsID survives the chats in it.
+func (u *chatFolderUsecase) outlivesItsChats(ctx context.Context, wsID string) bool {
+	outlives, err := u.workspaces.OutlivesItsChats(ctx, wsID)
+	return err == nil && outlives
 }
 
 // ownsWorktree reports whether row is the chat that owns its workspace, by

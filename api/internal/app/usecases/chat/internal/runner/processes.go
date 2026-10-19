@@ -41,20 +41,11 @@ func (rs *Runners) endProcesses(ctx context.Context, runner agents.Runner) (bool
 }
 
 // quitRunner ends runner for cause and returns once its exit is recorded, so
-// a replacement never lands beside it. A PTY-less runner is recorded here: its
-// exit handler needs the gate the caller holds.
+// a replacement never lands beside it.
 func (rs *Runners) quitRunner(ctx context.Context, runner agents.Runner, cause string) error {
-	exited, ok := rs.markEnding(runner, cause)
-	if !ok {
-		return nil // already gone
-	}
-	ptyExits, err := rs.endProcesses(ctx, runner)
-	if err != nil {
-		rs.live.keepLive(runner.ID)
+	exited, err := rs.retire(ctx, runner, cause)
+	if err != nil || exited == nil {
 		return err
-	}
-	if !ptyExits {
-		rs.reconcileRunnerExit(ctx, runner.ID)
 	}
 	select {
 	case <-exited:
@@ -62,6 +53,26 @@ func (rs *Runners) quitRunner(ctx context.Context, runner agents.Runner, cause s
 	case <-ctx.Done():
 		return fmt.Errorf("agent: wait for runner %s to exit: %w", runner.ID, ctx.Err())
 	}
+}
+
+// retire marks runner ending for cause and ends its processes, without waiting
+// for its exit: a PTY's own exit callback records it, and a PTY-less runner is
+// recorded here, as its exit handler needs the gate the caller holds. The
+// channel closes once the exit is recorded; nil when runner was already gone.
+func (rs *Runners) retire(ctx context.Context, runner agents.Runner, cause string) (<-chan struct{}, error) {
+	exited, ok := rs.markEnding(runner, cause)
+	if !ok {
+		return nil, nil
+	}
+	ptyExits, err := rs.endProcesses(ctx, runner)
+	if err != nil {
+		rs.live.keepLive(runner.ID)
+		return nil, err
+	}
+	if !ptyExits {
+		rs.reconcileRunnerExit(ctx, runner.ID)
+	}
+	return exited, nil
 }
 
 // markOutgoingEnding marks chatID's runner ending once its chat was found

@@ -916,8 +916,7 @@ id: picker
 spawn:
   cmd: picker-cli
   interactive_required: true
-session:
-  resume: { arg: "--resume {id}" }
+session: { resume: { arg: "--resume {id}" }, persists: turn_start }
 model:
   available: [sonnet, opus]
   strategy: restart_tui

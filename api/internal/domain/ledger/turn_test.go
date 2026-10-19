@@ -86,18 +86,20 @@ func TestFold_TurnLifecycle(t *testing.T) {
 	assert.False(t, st.Busy())
 }
 
-// A close naming a turn that is not the running one leaves it running.
+// A close naming a turn that is not the running one leaves it running, and
+// so does a close of the running turn into a status the diagram refuses.
 func TestFold_ACloseOfAnotherTurnKeepsTheRunningOne(t *testing.T) {
 	st := ledger.Fold("c1", sequenced(t,
 		turnStarted(t, "T1", "run-1"),
 		turnEnded(t, "T9", ledger.TurnEnded{Status: "done"}),
 		row(t, ledger.KindTurnFailed, "T9", ledger.TurnFailed{Reason: "overloaded"}),
-		row(t, ledger.KindTurnStarted, "T5", ledger.TurnStarted{RunnerID: "sub"}),
 		turnEnded(t, "T1", ledger.TurnEnded{Status: "running"}),
+		turnEnded(t, "T1", ledger.TurnEnded{Status: "failed"}),
 	))
 	running, ok := st.RunningTurn()
 	require.True(t, ok)
-	assert.Equal(t, "T5", running.ID, "the newest turn started is the running one")
+	assert.Equal(t, "T1", running.ID)
+	assert.Equal(t, ledger.TurnStatusRunning, running.Status)
 
 	st = ledger.Fold("c1", sequenced(t,
 		turnStarted(t, "T1", "run-1"),
@@ -111,11 +113,110 @@ func TestFold_ACloseOfAnotherTurnKeepsTheRunningOne(t *testing.T) {
 	assert.True(t, ok, "a subagent scope's close is not the main turn's")
 }
 
+// A turn_started over a running turn, or naming a closed one, is late: the
+// running turn keeps running, a closed one never reopens, and the prompt it
+// names stays pending.
+func TestFold_ATurnStartedOverAnOpenTurnIsLate(t *testing.T) {
+	st := ledger.Fold("c1", sequenced(t,
+		turnStarted(t, "T1", "run-1"),
+		crowbarPrompt(t, "r2", "b", "T2"),
+		row(t, ledger.KindTurnStarted, "T2", ledger.TurnStarted{RequestID: "r2", RunnerID: "run-1"}),
+	))
+	running, ok := st.RunningTurn()
+	require.True(t, ok)
+	assert.Equal(t, "T1", running.ID)
+	assert.Len(t, st.PendingPrompts(), 1, "a refused start delivers nothing")
+
+	st = ledger.Fold("c1", sequenced(t,
+		turnStarted(t, "T1", "run-1"),
+		turnEnded(t, "T1", ledger.TurnEnded{Status: "done"}),
+		turnStarted(t, "T1", "run-1"),
+	))
+	_, ok = st.RunningTurn()
+	assert.False(t, ok, "a closed turn never reopens")
+}
+
+// An end that closes nothing is still a row: it names the closed turn it is
+// about, or a turn the ledger never ran, and never the running one.
+func TestEndTurnOf_AnEndThatClosesNothingIsALateRow(t *testing.T) {
+	running := ledger.Fold("c1", sequenced(t,
+		started(t, "r1"),
+		row(t, ledger.KindTurnStarted, "T1", ledger.TurnStarted{RunnerID: "r1", ProviderTurnID: "p1"}),
+	))
+	r, closes, err := ledger.EndTurnOf(running, "r1", "p1", ledger.TurnEnded{Status: "done", AsyncWork: 1})
+	require.NoError(t, err)
+	assert.True(t, closes)
+	assert.Equal(t, "T1", r.TurnID)
+	body, err := ledger.DecodeBody[ledger.TurnEnded](r)
+	require.NoError(t, err)
+	assert.Equal(t, ledger.TurnEnded{Status: "done", RunnerID: "r1", AsyncWork: 1}, body)
+
+	for name, by := range map[string][2]string{
+		"another runner's end":       {"r0", ""},
+		"an end naming another turn": {"r1", "p0"},
+	} {
+		r, closes, err := ledger.EndTurnOf(running, by[0], by[1], ledger.TurnEnded{Status: "done"})
+		require.NoError(t, err, name)
+		assert.False(t, closes, name)
+		assert.NotEqual(t, "T1", r.TurnID, "%s never names the running turn", name)
+		require.NoError(t, ledger.Check(running, r), name)
+		after := running.Clone()
+		r.Seq = 9
+		after.Apply(r)
+		_, still := after.RunningTurn()
+		assert.True(t, still, name)
+	}
+
+	closed := running.Clone()
+	end := turnEnded(t, "T1", ledger.TurnEnded{Status: "done", RunnerID: "r1"})
+	end.Seq = 3
+	closed.Apply(end)
+	r, closes, err = ledger.EndTurnOf(closed, "r1", "", ledger.TurnEnded{Status: "done"})
+	require.NoError(t, err)
+	assert.False(t, closes)
+	assert.Equal(t, "T1", r.TurnID, "a late end names the closed turn it is about")
+
+	r, closes, err = ledger.FailTurnOf(ledger.Fold("c1", nil), "r1", "", ledger.TurnFailed{Reason: "overloaded"})
+	require.NoError(t, err)
+	assert.False(t, closes)
+	require.NoError(t, ledger.Check(ledger.State{}, r), "a late failure with no turn to name gets one")
+
+	r, closes, err = ledger.FailTurnOf(running, "r1", "p1", ledger.TurnFailed{Reason: "overloaded"})
+	require.NoError(t, err)
+	assert.True(t, closes)
+	assert.Equal(t, "T1", r.TurnID)
+}
+
+// The background-work clause reads the live runner's last end, late or not:
+// a late restatement clears it, and a dead runner's late end changes nothing.
+func TestFold_ALateEndRestatesTheLiveRunnersBackgroundWork(t *testing.T) {
+	st := ledger.Fold("c1", sequenced(t,
+		started(t, "r1"),
+		turnStarted(t, "T1", "r1"),
+		turnEnded(t, "T1", ledger.TurnEnded{Status: "done", RunnerID: "r1", AsyncWork: 2}),
+	))
+	require.True(t, st.Busy())
+
+	apply := func(runnerID string, seq int64) {
+		r, closes, err := ledger.EndTurnOf(st, runnerID, "", ledger.TurnEnded{Status: "done"})
+		require.NoError(t, err)
+		require.False(t, closes)
+		r.Seq = seq
+		st.Apply(r)
+	}
+	apply("r0", 4)
+	assert.True(t, st.Busy(), "another runner's late end restates nothing of r1's")
+	apply("r1", 5)
+	assert.False(t, st.Busy(), "the live runner's late end restating no work clears it")
+	_, running := st.RunningTurn()
+	assert.False(t, running)
+}
+
 func TestFold_AsyncWorkKeepsTheChatBusyOnlyWhileARunnerLives(t *testing.T) {
 	st := ledger.Fold("c1", sequenced(t,
 		started(t, "r1"),
 		turnStarted(t, "T1", "r1"),
-		turnEnded(t, "T1", ledger.TurnEnded{Status: "done", AsyncWork: 1}),
+		turnEnded(t, "T1", ledger.TurnEnded{Status: "done", RunnerID: "r1", AsyncWork: 1}),
 	))
 	_, running := st.RunningTurn()
 	assert.False(t, running)
@@ -137,9 +238,6 @@ func TestEndTurn_ClosesOnlyARunningTurn(t *testing.T) {
 	rows, err := ledger.EndTurn(idle, ledger.TurnStatusDone, ledger.ReasonProviderIdle, 0, "")
 	require.NoError(t, err)
 	assert.Empty(t, rows)
-	rows, err = ledger.FailTurn(idle, "overloaded", "")
-	require.NoError(t, err)
-	assert.Empty(t, rows)
 
 	st := ledger.Fold("c1", sequenced(t, turnStarted(t, "T1", "run-1")))
 	rows, err = ledger.EndTurn(st, ledger.TurnStatusInterrupted, ledger.ReasonStopped, 3, "high")
@@ -149,15 +247,17 @@ func TestEndTurn_ClosesOnlyARunningTurn(t *testing.T) {
 	assert.Equal(t, "T1", rows[0].TurnID)
 	body, err := ledger.DecodeBody[ledger.TurnEnded](rows[0])
 	require.NoError(t, err)
-	assert.Equal(t, ledger.TurnEnded{Status: "interrupted", Reason: "stopped", AsyncWork: 3, Effort: "high"}, body)
+	assert.Equal(t, ledger.TurnEnded{
+		Status: "interrupted", Reason: "stopped", RunnerID: "run-1", AsyncWork: 3, Effort: "high",
+	}, body)
 
-	rows, err = ledger.FailTurn(st, "usage_limit", "limit reached")
+	r, closes, err := ledger.FailTurnOf(st, "run-1", "", ledger.TurnFailed{Reason: "usage_limit", Detail: "limit reached"})
 	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	failed, err := ledger.DecodeBody[ledger.TurnFailed](rows[0])
+	assert.True(t, closes)
+	failed, err := ledger.DecodeBody[ledger.TurnFailed](r)
 	require.NoError(t, err)
 	assert.Equal(t, ledger.TurnFailed{Reason: "usage_limit", Detail: "limit reached"}, failed)
-	assert.Equal(t, "T1", rows[0].TurnID)
+	assert.Equal(t, "T1", r.TurnID)
 }
 
 func TestTurn_NamesAnEventOnlyWhenNeitherIDDisagrees(t *testing.T) {
@@ -236,7 +336,7 @@ func TestExit_EndsTheTurnItsRunnerWasOn(t *testing.T) {
 	assert.Equal(t, []ledger.Kind{ledger.KindTurnEnded, ledger.KindRunnerExited}, []ledger.Kind{rows[0].Kind, rows[1].Kind})
 	body, err := ledger.DecodeBody[ledger.TurnEnded](rows[0])
 	require.NoError(t, err)
-	assert.Equal(t, ledger.TurnEnded{Status: "interrupted", Reason: ledger.ReasonRunnerExited}, body)
+	assert.Equal(t, ledger.TurnEnded{Status: "interrupted", Reason: ledger.ReasonRunnerExited, RunnerID: "r1"}, body)
 	for i := range rows {
 		rows[i].Seq = int64(3 + i)
 		st.Apply(rows[i])
@@ -260,7 +360,7 @@ func TestStop_InterruptsTheTurnAndSettlesEveryPendingPrompt(t *testing.T) {
 	require.Len(t, rows, 2)
 	ended, err := ledger.DecodeBody[ledger.TurnEnded](rows[0])
 	require.NoError(t, err)
-	assert.Equal(t, ledger.TurnEnded{Status: "interrupted", Reason: "stopped"}, ended)
+	assert.Equal(t, ledger.TurnEnded{Status: "interrupted", Reason: "stopped", RunnerID: "run-1"}, ended)
 	assert.Equal(t, []ledger.PromptSettled{{RequestID: "r2", Reason: "stopped"}}, settled(t, rows[1:]))
 
 	rows, err = ledger.Stop(ledger.Fold("c1", nil))

@@ -182,7 +182,7 @@ type liveRig struct {
 
 func (r *liveRig) AllLive(context.Context) ([]engineagents.Runner, error) { return r.runners, nil }
 
-func (r *liveRig) ChatBusy(context.Context, string) (bool, error) { return r.busy, nil }
+func (r *liveRig) ChatWork(context.Context, string) (bool, bool, error) { return r.busy, false, nil }
 
 func (r *liveRig) PendingChoices(context.Context, string) ([]domain.ActivityChoice, error) {
 	return r.pending, nil
@@ -227,7 +227,7 @@ func newLiveRig(t *testing.T, screen string) *liveRig {
 	}
 	rig.detector = termwait.New(termwait.Deps{
 		Runners: rig,
-		Busy:    rig,
+		Work:    rig,
 		Choices: rig,
 		Screens: engine,
 		Prompts: rig,

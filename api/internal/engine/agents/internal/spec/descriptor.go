@@ -49,9 +49,9 @@ type Descriptor struct {
 
 	InjectedPrompts []InjectedPromptSpec `yaml:"injected_prompts"`
 
-	// NotEmitted names canonical in/ask events this provider genuinely never
-	// fires — an absent event otherwise means both "the provider doesn't do
-	// this" and "we forgot", indistinguishably. Enforced (rules.notEmitted):
+	// NotEmitted names canonical in/ask events this provider never fires, or
+	// fires only where mapping them would misread it — an absent event otherwise
+	// means both "the provider doesn't do this" and "we forgot", indistinguishably. Enforced (rules.notEmitted):
 	// every in/ask canonical event must be mapped in events: or listed here
 	// (design spec 2.6).
 	NotEmitted []string `yaml:"not_emitted"`

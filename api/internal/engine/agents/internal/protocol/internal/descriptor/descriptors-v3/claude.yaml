@@ -326,6 +326,7 @@ session:
   resume:  { arg: "--resume {id}" }
   assign:  { arg: "--session-id {id}" }
   refused: { exit_code: 1, needles: ["No conversation found with session ID"] }
+  persists: turn_start
 presentation:
   prompt_submit:
     strategy: restart_tui

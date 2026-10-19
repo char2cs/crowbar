@@ -104,6 +104,12 @@ type WorkspaceGitStatus interface {
 		ctx context.Context,
 		workspaceID string,
 	) (repoID string, err error)
+	// OutlivesItsChats reports whether workspaceID is never reaped with the
+	// chats in it: a project's home, or its repo's default checkout.
+	OutlivesItsChats(
+		ctx context.Context,
+		workspaceID string,
+	) (bool, error)
 	// DefaultWorkspaceOf answers repoID's default checkout — whose root chats
 	// sit at the repo's root level beside its folders and locked branches.
 	DefaultWorkspaceOf(

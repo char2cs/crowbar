@@ -111,15 +111,28 @@ func TestMatchNotice_FirstDeclaredMatchWins(t *testing.T) {
 	two := &spec.Descriptor{
 		ID: "codex",
 		TerminalNotices: []spec.TerminalNoticeSpec{
-			{Kind: spec.TerminalNoticeUsageLimit, Needle: "hit your usage limit", EndsTurn: true},
-			{Kind: spec.TerminalNoticeUsageLimit, Needle: "Upgrade to Pro"},
+			{Kind: spec.TerminalNoticeUsageLimit, Needle: "You've hit your usage limit", EndsTurn: true},
+			{Kind: spec.TerminalNoticeUsageLimit, Needle: "You've hit"},
 		},
 	}
 
 	got, ok := termprompt.MatchNotice(two, codexUsageLimitScreen)
 
 	require.True(t, ok)
-	assert.Equal(t, "hit your usage limit", got.Needle)
+	assert.Equal(t, "You've hit your usage limit", got.Needle)
+}
+
+// Model output or a prompt echo quoting the banner is not the banner: only a
+// row the needle opens is.
+func TestMatchNotice_AQuoteInsideARowIsNotTheBanner(t *testing.T) {
+	for _, screen := range []string{
+		"• The docs say You've hit your usage limit when credits run out.",
+		"› why does codex print You've hit your usage limit?\n  ⏎ send",
+	} {
+		_, ok := termprompt.MatchNotice(noticing(), screen)
+
+		assert.False(t, ok, screen)
+	}
 }
 
 func TestMatchNotice_OrdinaryScreenMatchesNothing(t *testing.T) {

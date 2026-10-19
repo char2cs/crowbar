@@ -32,9 +32,19 @@ func sessionRules(doc document, d *spec.Descriptor) []Finding {
 			`write the assign argv with {id} where the CLI takes the session, e.g. "<flag> {id}"`))
 	}
 	if s.Resume != nil && s.Refused == nil {
-		out = append(out, doc.finding("session.refusal_unrecognised", SeverityWarning, "session.resume",
+		// Over an api connection the refusal is an error reply on the asked-for turn.
+		sev := SeverityWarning
+		if d.Runtime.Transport == string(spec.ChannelAPI) {
+			sev = SeverityError
+		}
+		out = append(out, doc.finding("session.refusal_unrecognised", sev, "session.resume",
 			"a refused resume is never recognised: a chat keeps a session the CLI cannot load",
 			"declare session.refused (exit_code, needles) with the line the CLI prints when it cannot resume"))
+	}
+	if s.Resume != nil && s.Persists == "" {
+		out = append(out, doc.finding("session.persists_missing", SeverityError, "session.resume",
+			"a resumable session never says when the CLI has written it: a chat may resume one that is not there",
+			`set session.persists to "turn_start" or "turn_end"`))
 	}
 	if s.Persists != "" && s.Persists != "turn_start" && s.Persists != "turn_end" {
 		out = append(out, doc.finding("session.persists", SeverityError, "session.persists",

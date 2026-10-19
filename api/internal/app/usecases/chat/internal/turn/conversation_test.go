@@ -2,6 +2,7 @@ package turn_test
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -34,8 +35,11 @@ const (
 
 	parentDelta     = `{"threadId":"` + parentThread + `","itemId":"m1","delta":"the parent is ","turnId":"t1"}`
 	childCompleted  = `{"threadId":"` + childThread + `","turn":{"id":"ct","items":[{"type":"agentMessage","text":"the child thread's answer"}]}}`
-	childIdle       = `{"threadId":"` + childThread + `","status":{"type":"idle"}}`
 	parentCompleted = `{"threadId":"` + parentThread + `","turn":{"id":"t1","items":[{"type":"agentMessage","text":"the parent is still writing the real answer"}]}}`
+
+	parentIdle        = `{"threadId":"` + parentThread + `","status":{"type":"idle"}}`
+	parentInterrupted = `{"threadId":"` + parentThread + `","turn":{"id":"t1","status":"interrupted","items":[{"type":"agentMessage","text":"the parent's answer"}]}}`
+	parentFailed      = `{"threadId":"` + parentThread + `","turn":{"id":"t1","status":"failed","error":{"message":"overloaded"}}}`
 )
 
 // recordingChats is the chat record the delegating turn runs on.
@@ -54,8 +58,10 @@ func (c *recordingChats) GetChat(_ context.Context, id string) (domain.Chat, err
 // must still stay out.
 type recordingTranscript struct {
 	agentactivity.EventStore
+	ledger   *ledgerstore.Store
 	mu       sync.Mutex
 	recorded []string
+	busyAt   []bool // whether the chat was busy as each answer was recorded
 }
 
 func (a *recordingTranscript) IsSubagentOpen(context.Context, string, string) (bool, error) {
@@ -64,12 +70,38 @@ func (a *recordingTranscript) IsSubagentOpen(context.Context, string, string) (b
 
 func (a *recordingTranscript) OpenTurn(context.Context, agentactivity.TurnInput) error { return nil }
 
-func (a *recordingTranscript) CloseTurn(_ context.Context, in agentactivity.TurnInput) error {
+func (a *recordingTranscript) CloseTurn(ctx context.Context, in agentactivity.TurnInput) error {
+	st, err := a.ledger.State(ctx, "chat-1")
+	if err != nil {
+		return err
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.recorded = append(a.recorded, in.Text)
+	a.busyAt = append(a.busyAt, st.Busy())
 	return nil
 }
+
+func (*recordingTranscript) Abandon(context.Context, string, time.Time) error { return nil }
+
+func (a *recordingTranscript) busyAtClose() []bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]bool(nil), a.busyAt...)
+}
+
+// quietConversations takes every turn the conversation record is handed.
+type quietConversations struct{ turn.Conversations }
+
+func (quietConversations) RecordTurn(context.Context, domain.Chat, string, string, string, string, string, string) error {
+	return nil
+}
+
+func (quietConversations) AppendRunnerTurn(context.Context, domain.Chat, string, string, string, string, string) error {
+	return nil
+}
+
+func (quietConversations) RenameChat(context.Context, string, string, string) error { return nil }
 
 func (*recordingTranscript) Subagents(
 	context.Context, string,
@@ -100,23 +132,27 @@ type delegatingTurn struct {
 	turns      *turn.Turns
 	transcript *recordingTranscript
 	ledger     *ledgerstore.Store
+	home       string
 }
 
 func newDelegatingTurn(t *testing.T) delegatingTurn {
 	t.Helper()
 
 	home := t.TempDir()
-	transcript := &recordingTranscript{}
 	l := codexBoundLedger(t, parentThread)
+	transcript := &recordingTranscript{ledger: l}
 	turns := turn.New(turn.Deps{
-		Chats:        &recordingChats{},
-		Ledger:       l,
-		Activity:     transcript,
-		Agents:       engineagents.New(),
-		Workspace:    stubWorkspace{home: home},
-		Home:         func() (string, error) { return home, nil },
-		PendingHooks: inflight.NewHooks(),
-		Telemetry:    telemetry.New(),
+		Chats:         &recordingChats{},
+		Ledger:        l,
+		Activity:      transcript,
+		Conversations: quietConversations{},
+		Agents:        engineagents.New(),
+		Workspace:     stubWorkspace{home: home},
+		Home:          func() (string, error) { return home, nil },
+		PendingHooks:  inflight.NewHooks(),
+		Telemetry:     telemetry.New(),
+		// Only the parent's first answer streams: a later one must not idle out the default wait.
+		MessageAwaitTimeout: time.Millisecond,
 	})
 	// The parent thread is the chat's bound session: the driver's own establish
 	// announced it, which is what tells it from the child threads on this connection.
@@ -137,7 +173,20 @@ func newDelegatingTurn(t *testing.T) delegatingTurn {
 	require.NoError(t, turns.IngestHook(apiCtx(t), "runner-1", "codex", "message_delta",
 		[]byte(parentDelta)))
 
-	return delegatingTurn{turns: turns, transcript: transcript, ledger: l}
+	return delegatingTurn{turns: turns, transcript: transcript, ledger: l, home: home}
+}
+
+// deliverDeclared ingests, in order, each api report codex's descriptor maps
+// to a canonical event; the driver resolves nothing else.
+func (d delegatingTurn) deliverDeclared(t *testing.T, events ...[2]string) {
+	t.Helper()
+	codex, err := engineagents.New().Get(t.Context(), d.home, "codex")
+	require.NoError(t, err)
+	for _, ev := range events {
+		if slices.Contains(codex.Capabilities().Observes, ev[0]) {
+			require.NoError(t, d.turns.IngestHook(apiCtx(t), "runner-1", "codex", ev[0], []byte(ev[1])))
+		}
+	}
 }
 
 // working is the chat's ledger saying it is busy.
@@ -189,19 +238,56 @@ func TestRegression_AnUnregisteredChildThreadsAnswerNeverEntersTheTranscript(t *
 			"nor the parent's half-streamed one may be recorded off its turn/completed")
 }
 
-// TestRegression_AChildThreadsIdleNeverEndsTheChatsTurn is the other half of
-// the same capture: the child reports thread/status/changed(idle) when ITS
-// turn ends, and an idle report closes the running turn at once.
-func TestRegression_AChildThreadsIdleNeverEndsTheChatsTurn(t *testing.T) {
+// The runner's own thread reports idle IMMEDIATELY BEFORE its turn/completed
+// (codex-cli 0.149.1). Fed as the descriptor maps it, the turn ends on
+// turn/completed alone: its answer is recorded while the chat is still busy,
+// and the provider's own status is what the turn folds to.
+func TestRegression_TheRunnersIdleBeforeItsTurnCompletedNeverEndsTheTurn(t *testing.T) {
 	t.Parallel()
 
+	for name, c := range map[string]struct {
+		event, completed string
+		status           ledger.TurnStatus
+	}{
+		"interrupted": {"turn_stop", parentInterrupted, ledger.TurnStatusInterrupted},
+		"failed":      {"turn_failed", parentFailed, ledger.TurnStatusFailed},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			d := newDelegatingTurn(t)
+
+			d.deliverDeclared(t, [2]string{"idle", parentIdle}, [2]string{c.event, c.completed})
+
+			st, err := d.ledger.State(t.Context(), "chat-1")
+			require.NoError(t, err)
+			last, ok := st.LastTurn()
+			require.True(t, ok)
+			assert.Equal(t, c.status, last.Status, "the provider's own close decides how the turn ended")
+			assert.Equal(t, []bool{true}, d.transcript.busyAtClose(), "the answer is recorded before the turn ends")
+		})
+	}
+}
+
+// Ends of a turn that already ended are written late: the fold keeps the turn
+// as its own close left it.
+func TestRegression_AnEndOfAClosedTurnIsWrittenLate(t *testing.T) {
+	t.Parallel()
 	d := newDelegatingTurn(t)
-
-	err := d.turns.IngestHook(apiCtx(t), "runner-1", "codex", "idle",
-		[]byte(childIdle))
-
+	d.deliverDeclared(t, [2]string{"turn_stop", parentCompleted})
+	closed, err := d.ledger.State(t.Context(), "chat-1")
 	require.NoError(t, err)
-	assert.True(t, d.working(t), "only the runner's OWN thread going idle ends its turn")
+
+	d.deliverDeclared(t, [2]string{"turn_stop", parentInterrupted}, [2]string{"turn_failed", parentFailed})
+
+	rows, err := d.ledger.Read(t.Context(), "chat-1", closed.Head(), 0)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	assert.Equal(t, []ledger.Kind{ledger.KindTurnEnded, ledger.KindTurnFailed}, []ledger.Kind{rows[0].Kind, rows[1].Kind})
+	st, err := d.ledger.State(t.Context(), "chat-1")
+	require.NoError(t, err)
+	last, _ := st.LastTurn()
+	assert.Equal(t, ledger.TurnStatusDone, last.Status, "a late end never re-closes the turn")
+	assert.False(t, st.Busy())
 }
 
 // TestTheRunnersOwnTurnStillClosesItsChat is the admitting half all three

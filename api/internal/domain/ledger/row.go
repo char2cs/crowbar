@@ -63,9 +63,9 @@ func DecodeBody[B any](r Row) (B, error) {
 func Check(_ State, r Row) error {
 	switch r.Kind {
 	case KindUserMessage:
-		return checkTurnRow[UserMessage](r)
+		return checkTurnNamed(r, func(UserMessage) bool { return true })
 	case KindTurnStarted:
-		return checkTurnRow[TurnStarted](r)
+		return checkTurnNamed(r, func(TurnStarted) bool { return true })
 	case KindPromptSettled:
 		return checkBody[PromptSettled](r)
 	case KindSessionBound:
@@ -87,13 +87,6 @@ func Check(_ State, r Row) error {
 	default:
 		return fmt.Errorf("%w: unknown kind %q", ErrMalformedRow, r.Kind)
 	}
-}
-
-func checkTurnRow[B any](r Row) error {
-	if r.TurnID == "" {
-		return fmt.Errorf("%w: %s without a turn id", ErrMalformedRow, r.Kind)
-	}
-	return checkBody[B](r)
 }
 
 func checkTurnNamed[B any](r Row, named func(B) bool) error {

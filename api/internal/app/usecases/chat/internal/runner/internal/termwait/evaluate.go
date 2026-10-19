@@ -9,35 +9,41 @@ import (
 )
 
 // evaluate is runner's verdict and screen this sweep, and whether a notice
-// that ends the turn has just appeared on a busy chat's screen.
+// that ends its work has just appeared on the screen of a chat running a turn
+// or awaiting a prompt. A choice the person has yet to make holds either.
 func (d *detector) evaluate(
 	ctx context.Context,
 	runner agents.Runner,
 	prev screenCache,
 ) (domain.AgentTerminalWait, screenCache, bool) {
-	busy, err := d.deps.Busy.ChatBusy(ctx, runner.CurrentChatID)
+	busy, awaiting, err := d.deps.Work.ChatWork(ctx, runner.CurrentChatID)
 	if err != nil {
 		return domain.AgentTerminalWait{}, prev, false
 	}
 	if runner.TerminalSession == "" {
 		return domain.AgentTerminalWait{}, screenCache{}, false
 	}
-	if busy {
-		screen := d.readScreen(ctx, runner, prev)
-		appeared := screen.notice != prev.notice || screen.session != prev.session
-		return domain.AgentTerminalWait{}, screen, screen.notice.EndsTurn && appeared
-	}
-
-	pending, err := d.deps.Choices.PendingChoices(ctx, runner.CurrentChatID)
-	if err != nil {
-		return domain.AgentTerminalWait{}, prev, false
-	}
-	if len(pending) > 0 {
+	if !busy && d.choicePending(ctx, runner.CurrentChatID) {
 		return domain.AgentTerminalWait{}, prev, false
 	}
 
 	screen := d.readScreen(ctx, runner, prev)
-	return screen.matched, screen, false
+	ends := (busy || awaiting) && screen.notice.EndsTurn &&
+		(screen.notice != prev.notice || screen.session != prev.session)
+	if ends && busy && d.choicePending(ctx, runner.CurrentChatID) {
+		return domain.AgentTerminalWait{}, prev, false
+	}
+	if busy {
+		return domain.AgentTerminalWait{}, screen, ends
+	}
+	return screen.matched, screen, ends
+}
+
+// choicePending reports whether chatID holds a choice the person has yet to
+// make; an unreadable answer holds it too, until the next sweep.
+func (d *detector) choicePending(ctx context.Context, chatID string) bool {
+	pending, err := d.deps.Choices.PendingChoices(ctx, chatID)
+	return err != nil || len(pending) > 0
 }
 
 func (d *detector) readScreen(

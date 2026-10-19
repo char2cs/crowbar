@@ -10,6 +10,9 @@ import (
 
 const maxNoticeRows = 8
 
+// MatchNotice is the first notice d declares whose needle opens a row of
+// screen, never one quoted inside a row, with the provider's own sentence from
+// that row. Rows compare squeezed, so a needle a narrow pane wrapped matches.
 func MatchNotice(d *spec.Descriptor, screen string) (models.TerminalNotice, bool) {
 	if d == nil || len(d.TerminalNotices) == 0 || screen == "" {
 		return models.TerminalNotice{}, false
@@ -25,8 +28,8 @@ func MatchNotice(d *spec.Descriptor, screen string) (models.TerminalNotice, bool
 		if needle == "" {
 			continue
 		}
-		at := strings.Index(haystack, needle)
-		if at < 0 {
+		at, ok := opensARow(haystack, rowOf, needle)
+		if !ok {
 			continue
 		}
 		return models.TerminalNotice{
@@ -37,6 +40,22 @@ func MatchNotice(d *spec.Descriptor, screen string) (models.TerminalNotice, bool
 		}, true
 	}
 	return models.TerminalNotice{}, false
+}
+
+// opensARow is the offset in haystack where needle begins a row's text.
+func opensARow(haystack string, rowOf []int, needle string) (int, bool) {
+	for from := 0; from < len(haystack); {
+		i := strings.Index(haystack[from:], needle)
+		if i < 0 {
+			return 0, false
+		}
+		at := from + i
+		if at == 0 || rowOf[at-1] != rowOf[at] {
+			return at, true
+		}
+		from = at + 1
+	}
+	return 0, false
 }
 
 func squeezeRows(rows []string) (string, []int) {

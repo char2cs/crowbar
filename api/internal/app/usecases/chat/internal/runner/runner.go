@@ -171,7 +171,7 @@ func (rs *Runners) SetTurns(turns Turns) {
 	}
 	rs.termWait = termwait.New(termwait.Deps{
 		Runners:  rs,
-		Busy:     rs,
+		Work:     rs,
 		Choices:  rs.activity,
 		Screens:  screens,
 		Prompts:  turns,

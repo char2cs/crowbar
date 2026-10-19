@@ -1,6 +1,7 @@
 package chat_test
 
 import (
+	"cmp"
 	"context"
 	"sync"
 	"testing"
@@ -111,50 +112,64 @@ func (s *readHook) arm(deliveryID string, hook func()) {
 func TestEndingRunner_APromptItAcknowledgesOpensNoTurn(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		end  func(t *testing.T, f testFixture, chatID string, live engineagents.Runner)
+		end  func(t *testing.T, f testFixture, store *readHook, live engineagents.Runner)
 	}{
-		{"while the stop ends it", func(t *testing.T, f testFixture, chatID string, live engineagents.Runner) {
+		{"while the stop ends it", func(t *testing.T, f testFixture, _ *readHook, live engineagents.Runner) {
 			t.Helper()
 			var once sync.Once
-			f.term.duringTerminate = func(string) { once.Do(func() { acknowledge(t, f, live.ID) }) }
-			stopChat(t, f, chatID, live)
+			f.term.duringTerminate = func(string) { once.Do(func() { acknowledge(t, f, live.ID, "") }) }
+			stopChat(t, f, live.CurrentChatID, live)
 		}},
-		{"after the stop", func(t *testing.T, f testFixture, chatID string, live engineagents.Runner) {
+		{"after the stop", func(t *testing.T, f testFixture, _ *readHook, live engineagents.Runner) {
 			t.Helper()
-			stopChat(t, f, chatID, live)
-			acknowledge(t, f, live.ID)
+			stopChat(t, f, live.CurrentChatID, live)
+			acknowledge(t, f, live.ID, "")
 		}},
-		{"before the crash", func(t *testing.T, f testFixture, chatID string, live engineagents.Runner) {
+		{"while it is ingested, the CLI dies", func(t *testing.T, f testFixture, store *readHook, live engineagents.Runner) {
 			t.Helper()
-			acknowledge(t, f, live.ID)
-			crashRunner(t, f, chatID, live)
+			deliveryID := uuid.NewString()
+			store.arm(deliveryID, func() { crashRunner(t, f, live.CurrentChatID, live) })
+			acknowledge(t, f, live.ID, deliveryID)
 		}},
-		{"after the crash", func(t *testing.T, f testFixture, chatID string, live engineagents.Runner) {
+		{"once the CLI's death is recorded", func(t *testing.T, f testFixture, _ *readHook, live engineagents.Runner) {
 			t.Helper()
-			crashRunner(t, f, chatID, live)
-			acknowledge(t, f, live.ID)
+			acked := onceExitRecorded(t, f, live, func() { acknowledge(t, f, live.ID, "") })
+			crashRunner(t, f, live.CurrentChatID, live)
+			finished(t, acked, "the acknowledgement")
+		}},
+		{"after the crash", func(t *testing.T, f testFixture, _ *readHook, live engineagents.Runner) {
+			t.Helper()
+			crashRunner(t, f, live.CurrentChatID, live)
+			acknowledge(t, f, live.ID, "")
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := newFixture(t)
+			store := &readHook{}
+			f := newFixtureUsing(t, func(real agentchat.EventStore) agentchat.EventStore {
+				store.EventStore = real
+				return store
+			}, "")
 			chatID, runnerID := f.spawn(t, "claude")
 			f.announce(t, runnerID, "sid-ending")
 			live, err := f.liveRunnerFor(t, chatID)
 			require.NoError(t, err)
 
-			tc.end(t, f, chatID, live)
+			tc.end(t, f, store, live)
 
 			assertEndedAndResumable(t, f, chatID)
 		})
 	}
 }
 
-func acknowledge(t *testing.T, f testFixture, runnerID string) {
+// acknowledge ingests runnerID's user_prompt as delivery deliveryID; a fresh
+// one when it is "".
+func acknowledge(t *testing.T, f testFixture, runnerID, deliveryID string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
 	defer cancel()
 	payload := mustJSON(t, map[string]any{"prompt": "step"})
-	assert.NoError(t, f.usecase.IngestHook(ctx, runnerID, "claude", "user_prompt", payload))
+	assert.NoError(t, f.usecase.IngestHookDelivery(ctx, cmp.Or(deliveryID, uuid.NewString()), runnerID, "claude",
+		"user_prompt", payload))
 }
 
 // A steered prompt the ending runner's last turn_stop carries opens no turn on
@@ -162,10 +177,12 @@ func acknowledge(t *testing.T, f testFixture, runnerID string) {
 func TestEndingRunner_ASteerItsTurnStopCarriesOpensNoTurn(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		race func(t *testing.T, f testFixture, store *readHook, deliveryID string, live engineagents.Runner) func()
+		race func(t *testing.T, f testFixture, store *readHook, deliveryID string, live engineagents.Runner, stop func())
+		said string
 	}{
-		{"stop", stopWhileTheReplyStreams},
-		{"crash", crashBeforeTheStop},
+		{"stop", stopWhileTheReplyStreams, "done"},
+		{"crash", crashWhileTheStopIsIngested, ""},
+		{"crash recorded", stopOnceTheCrashIsRecorded, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &readHook{}
@@ -183,13 +200,12 @@ func TestEndingRunner_ASteerItsTurnStopCarriesOpensNoTurn(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, runnerID, steered.RunnerID, "precondition: the prompt is steered into the running turn")
 			deliveryID := uuid.NewString()
-			ended := tc.race(t, f, store, deliveryID, live)
-
-			ctx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
-			defer cancel()
-			require.NoError(t, f.usecase.IngestHookDelivery(ctx, deliveryID, runnerID, "claude", "turn_stop",
-				mustJSON(t, map[string]any{"last_assistant_message": "done"})))
-			ended()
+			tc.race(t, f, store, deliveryID, live, func() {
+				ctx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
+				defer cancel()
+				assert.NoError(t, f.usecase.IngestHookDelivery(ctx, deliveryID, runnerID, "claude", "turn_stop",
+					mustJSON(t, map[string]any{"last_assistant_message": tc.said})))
+			})
 
 			assert.Equal(t, ledger.PromptStatusSettled, receipt(t, f, chatID, requestID).Status,
 				"a steer its ending runner never took is refused, so the client keeps its text")
@@ -202,8 +218,8 @@ func TestEndingRunner_ASteerItsTurnStopCarriesOpensNoTurn(t *testing.T) {
 // hook gate; the reply streams only after the stop ended the turn, so the
 // turn_stop ends after it.
 func stopWhileTheReplyStreams(
-	t *testing.T, f testFixture, store *readHook, deliveryID string, live engineagents.Runner,
-) func() {
+	t *testing.T, f testFixture, store *readHook, deliveryID string, live engineagents.Runner, stop func(),
+) {
 	t.Helper()
 	stopped := make(chan error, 1)
 	streamed := make(chan struct{})
@@ -224,22 +240,77 @@ func stopWhileTheReplyStreams(
 	store.arm(deliveryID, func() {
 		go func() { stopped <- f.usecase.StopChat(f.ctx, live.CurrentChatID) }()
 	})
-	return func() {
-		select {
-		case err := <-stopped:
-			require.NoError(t, err)
-		case <-time.After(5 * time.Second):
-			t.Fatal("StopChat never returned")
-		}
-		<-streamed
+	stop()
+	select {
+	case err := <-stopped:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("StopChat never returned")
 	}
+	<-streamed
 }
 
-// crashBeforeTheStop crashes the CLI before its turn_stop is ingested.
-func crashBeforeTheStop(t *testing.T, f testFixture, _ *readHook, _ string, live engineagents.Runner) func() {
+// crashWhileTheStopIsIngested crashes the CLI once the turn_stop's ingest holds
+// its hook gate, before it reads the steer it would deliver.
+func crashWhileTheStopIsIngested(
+	t *testing.T, f testFixture, store *readHook, deliveryID string, live engineagents.Runner, stop func(),
+) {
 	t.Helper()
+	crashed := false
+	store.arm(deliveryID, func() {
+		crashRunner(t, f, live.CurrentChatID, live)
+		crashed = true
+	})
+	stop()
+	require.True(t, crashed, "the turn_stop never read its chat")
+}
+
+// stopOnceTheCrashIsRecorded ingests the turn_stop once the CLI's death is in
+// the ledger, while its runner is still being retired.
+func stopOnceTheCrashIsRecorded(
+	t *testing.T, f testFixture, _ *readHook, _ string, live engineagents.Runner, stop func(),
+) {
+	t.Helper()
+	stopped := onceExitRecorded(t, f, live, stop)
 	crashRunner(t, f, live.CurrentChatID, live)
-	return func() {}
+	finished(t, stopped, "the turn_stop")
+}
+
+// onceExitRecorded runs during from the frame announcing live's exit: after
+// the ledger recorded it, before its runner leaves the live table, which waits
+// until during commits or returns. The channel closes once during returns.
+func onceExitRecorded(t *testing.T, f testFixture, live engineagents.Runner, during func()) <-chan struct{} {
+	t.Helper()
+	done := make(chan struct{})
+	var once sync.Once
+	f.usecase.snaps.SetPublish(func(fr agentusecase.ChatSnapshotFrame) {
+		f.snapFrames.record(fr)
+		if fr.RunnerID != live.ID || fr.Kind != "exited" {
+			return
+		}
+		once.Do(func() {
+			_, committed, err := f.ledger.Watch(f.ctx, live.CurrentChatID)
+			require.NoError(t, err)
+			go func() {
+				defer close(done)
+				during()
+			}()
+			select {
+			case <-done:
+			case <-committed:
+			}
+		})
+	})
+	return done
+}
+
+func finished(t *testing.T, done <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("%s never ran to its end", what)
+	}
 }
 
 func assertEndedAndResumable(t *testing.T, f testFixture, chatID string) {

@@ -1014,8 +1014,7 @@ spawn:
   cmd: claude
   interactive_required: true
   forbid_flags: ["-p", "--print"]
-session:
-  resume: { arg: "--resume {id}" }
+session: { resume: { arg: "--resume {id}" }, persists: turn_start }
 presentation:
   prompt_submit:
     strategy: restart_tui
@@ -1058,8 +1057,7 @@ id: claude
 spawn:
   cmd: claude
   interactive_required: true
-session:
-  resume: { arg: "--resume {id}" }
+session: { resume: { arg: "--resume {id}" }, persists: turn_start }
 presentation:
   prompt_submit:
     strategy: restart_tui
@@ -1266,8 +1264,7 @@ id: claude
 spawn:
   cmd: claude
   interactive_required: true
-session:
-  resume: { arg: "--resume {id}" }
+session: { resume: { arg: "--resume {id}" }, persists: turn_start }
 model:
   available: [sonnet, opus]
   strategy: restart_tui
@@ -1851,8 +1848,7 @@ id: claude
 spawn:
   cmd: claude
   interactive_required: true
-session:
-  resume: { arg: "--resume {id}" }
+session: { resume: { arg: "--resume {id}" }, persists: turn_start }
 events:
   session_start:
     in: session_start

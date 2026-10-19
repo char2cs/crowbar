@@ -270,7 +270,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	// through Held, which never reads the ledger.
 	d.Ledger.Subscribe(func(chatID string, rows []ledger.Row, st ledger.State) {
 		ctx := context.Background()
-		flipped, wsID := u.snapshots.ApplyLedger(ctx, chatID, snapshot.FactsOf(st), turnKind(rows))
+		flipped, wsID := u.snapshots.ApplyLedger(ctx, chatID, snapshot.FactsOf(st), turnKind(rows, st))
 		if flipped && d.AgentWorking != nil {
 			d.AgentWorking(ctx, wsID, chatID, st.Busy())
 		}
@@ -278,12 +278,14 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	d.Ledger.Subscribe(u.publishLedgerRows)
 }
 
-// turnKind is the chat frame kind a batch's last turn row announces: a turn
-// started, or one stopped; "" for a batch with none.
-func turnKind(rows []ledger.Row) string {
+// turnKind is the chat frame kind a batch's last row about the chat's newest
+// turn announces: a turn started, or one stopped; "" for a batch with none. A
+// row about any other turn is late and announces nothing.
+func turnKind(rows []ledger.Row, st ledger.State) string {
 	kind := ""
+	last, _ := st.LastTurn()
 	for _, r := range rows {
-		if r.Scope != "" {
+		if r.Scope != "" || r.TurnID != last.ID {
 			continue
 		}
 		if r.Kind == ledger.KindTurnStarted {

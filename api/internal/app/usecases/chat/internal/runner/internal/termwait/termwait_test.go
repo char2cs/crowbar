@@ -42,26 +42,32 @@ func (f *fakeRunners) AllLive(context.Context) ([]engineagents.Runner, error) {
 	return f.live, nil
 }
 
-// fakeBusy is the ledger's busy answer, the same for every chat.
-type fakeBusy struct {
-	mu   sync.Mutex
-	busy bool
-	err  error
+// fakeWork is the ledger's answer, the same for every chat.
+type fakeWork struct {
+	mu             sync.Mutex
+	busy, awaiting bool
+	err            error
 }
 
-func (f *fakeBusy) set(busy bool) {
+func (f *fakeWork) set(busy bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.busy = busy
 }
 
-func (f *fakeBusy) ChatBusy(context.Context, string) (bool, error) {
+func (f *fakeWork) await(awaiting bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.awaiting = awaiting
+}
+
+func (f *fakeWork) ChatWork(context.Context, string) (bool, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {
-		return false, f.err
+		return false, false, f.err
 	}
-	return f.busy, nil
+	return f.busy, f.awaiting, nil
 }
 
 type fakeChoices struct {
@@ -235,7 +241,7 @@ const (
 type rig struct {
 	detector termwait.Detector
 	runners  *fakeRunners
-	busy     *fakeBusy
+	busy     *fakeWork
 	choices  *fakeChoices
 	screens  *fakeScreens
 	prompts  *fakePrompts
@@ -261,7 +267,7 @@ func newRigEvery(t *testing.T, interval time.Duration) *rig {
 	screens := newScreens()
 	screens.set(session, trustScreen)
 	r := &rig{
-		runners: runners, busy: &fakeBusy{}, screens: screens,
+		runners: runners, busy: &fakeWork{}, screens: screens,
 		choices: &fakeChoices{pending: map[string][]domain.ActivityChoice{}},
 		prompts: &fakePrompts{needles: map[string][]engineagents.TerminalPrompt{
 			"claude": {{Kind: domain.AgentTerminalWaitTrust, Needle: "I trust this folder"}},
@@ -278,7 +284,7 @@ func newRigEvery(t *testing.T, interval time.Duration) *rig {
 	}
 	r.detector = termwait.New(termwait.Deps{
 		Runners:  runners,
-		Busy:     r.busy,
+		Work:     r.busy,
 		Choices:  r.choices,
 		Screens:  screens,
 		Prompts:  r.prompts,
@@ -590,122 +596,6 @@ func TestDetector_Run_DefaultsItsInterval(t *testing.T) {
 		t.Fatal("a detector with no declared interval must still sweep")
 	}
 	assert.Equal(t, termwait.DefaultInterval, 2*time.Second)
-}
-
-// A notice that ends the turn fails it the moment it appears on a busy chat's
-// screen: the screen is the only place the provider says so.
-func TestDetector_Sweep_ReportsANoticeThatEndsTheTurn(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-
-	r.sweep()
-
-	got := r.ended.all()
-	require.Len(t, got, 1)
-	assert.Equal(t, engineagents.TerminalNoticeUsageLimit, got[0].Kind)
-	assert.Equal(t, "runner-1", r.ended.on[0].ID)
-	assert.Empty(t, r.rec.all(), "a busy chat is never waiting")
-}
-
-func TestDetector_Sweep_ANoticeIsReportedOnceWhileItStays(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-
-	r.sweep()
-	r.screens.set(session, usageLimitScreen+"\n  more output")
-	r.sweep()
-	r.screens.repaint(session)
-	r.sweep()
-
-	assert.Len(t, r.ended.all(), 1)
-}
-
-func TestDetector_Sweep_ANoticeOnAReplacedRunnersScreenIsReportedAgain(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	r.sweep()
-
-	r.runners.live[0].TerminalSession = "pty-2"
-	r.screens.set("pty-2", usageLimitScreen)
-	r.sweep()
-
-	assert.Len(t, r.ended.all(), 2)
-}
-
-func TestDetector_Sweep_ANoticeReturningAfterItScrolledAwayIsReportedAgain(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	r.sweep()
-
-	r.screens.set(session, idleScreen)
-	r.sweep()
-	r.screens.set(session, usageLimitScreen)
-	r.sweep()
-
-	assert.Len(t, r.ended.all(), 2)
-}
-
-func TestDetector_Sweep_ANoticeNeverEndsAnIdleChatsTurn(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	r.busy.set(false)
-
-	r.sweep()
-
-	assert.Empty(t, r.ended.all())
-}
-
-func TestDetector_Sweep_ABannerLeftFromAnEarlierTurnEndsNothing(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	r.busy.set(false)
-	r.sweep()
-
-	r.busy.set(true)
-	r.sweep()
-
-	assert.Empty(t, r.ended.all())
-}
-
-func TestDetector_Sweep_NoticeWithoutEndsTurnEndsNothing(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	r.notices.needles["codex"] = []engineagents.TerminalNotice{{
-		Kind:   engineagents.TerminalNoticeUsageLimit,
-		Needle: usageLimitNeedle,
-		Text:   usageLimitSentence,
-	}}
-
-	r.sweep()
-
-	assert.Empty(t, r.ended.all())
-}
-
-func TestDetector_Sweep_ProviderDeclaringNoNoticesEndsNothing(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	r.runners.live[0].ProviderID = "claude"
-
-	r.sweep()
-
-	assert.Empty(t, r.ended.all())
-}
-
-func TestDetector_Sweep_WithoutNoticeDependenciesNothingEnds(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	waitOnly := termwait.New(termwait.Deps{
-		Runners: r.runners,
-		Busy:    r.busy,
-		Choices: r.choices,
-		Screens: r.screens,
-		Prompts: r.prompts,
-	})
-
-	waitOnly.Sweep(context.Background(), r.rec.publish)
-
-	assert.Empty(t, r.ended.all())
-	assert.Zero(t, r.notices.asked)
 }
 
 // §6a: an idle daemon does no periodic work. With no live runner the sweep

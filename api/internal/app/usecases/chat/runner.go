@@ -240,7 +240,8 @@ const (
 )
 
 // PromptErrorCode returns the stable machine-readable API code for a prompt
-// submission error. The human message may evolve; clients branch only on this.
+// submission or provider switch error. The human message may evolve; clients
+// branch only on this.
 func PromptErrorCode(err error) string {
 	switch {
 	case errors.Is(err, ErrPromptBusy):

@@ -32,8 +32,8 @@ const (
 
 	HookTurnFailed = "turn_failed"
 
-	// HookIdle is the provider reporting that it is doing nothing. It is NOT a
-	// turn close — it routinely precedes one — and only ever arms a reconcile.
+	// HookIdle is the provider reporting that it is doing nothing; it ends the
+	// running turn, so a descriptor maps it only where no turn-close follows it.
 	HookIdle = "idle"
 
 	// HookPlanUpdate is the agent restating its own to-do list for this turn.

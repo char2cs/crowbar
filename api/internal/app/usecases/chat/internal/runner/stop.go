@@ -55,9 +55,9 @@ func (rs *Runners) endRunner(
 }
 
 // stopRunner ends the chat's turn and settles its pending prompts in one
-// commit, records the divider when that stopped a turn, then tells live: an
-// api provider mid-turn is interrupted in place without waiting for it, and
-// otherwise the runner is retired.
+// commit, records the divider when that stopped a turn, then tells live and
+// returns without waiting for it: an api provider mid-turn is interrupted in
+// place, and otherwise the runner is told to quit, its exit recorded by its own.
 func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Runner, gentle bool) error {
 	stopped := false
 	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
@@ -75,7 +75,7 @@ func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Ru
 	if gentle && stopped && rs.interruptTurn(ctx, live) {
 		return nil
 	}
-	if err := rs.quitRunner(ctx, live, domain.AgentExitStopped); err != nil {
+	if _, err := rs.retire(ctx, live, domain.AgentExitStopped); err != nil {
 		return fmt.Errorf("agent: stop chat: %w", err)
 	}
 	return nil

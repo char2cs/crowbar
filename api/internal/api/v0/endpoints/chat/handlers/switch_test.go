@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -96,6 +97,25 @@ func TestSwitch_UsecaseError(
 	h.Switch(ctx)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// A switch refused because the chat is working carries the busy code, so a
+// client tells it apart from every other conflict.
+func TestSwitch_ABusyChatIsRefusedWithTheBusyCode(t *testing.T) {
+	uc := &fakeAgentUsecase{switchErr: agentusecase.ErrPromptBusy}
+	h := newChatHandlers(uc)
+
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/switch", []byte(`{"provider":"vendor-b"}`))
+	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
+
+	h.Switch(ctx)
+
+	assert.Equal(t, http.StatusConflict, rec.Code)
+	var envelope struct {
+		Code string `json:"code"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
+	assert.Equal(t, agentusecase.PromptCodeBusy, envelope.Code)
 }
 
 // TestHandoff_Success proves Handoff calls AssembleHandoff for the path id and

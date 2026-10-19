@@ -439,9 +439,8 @@ func (s *NodePlacements) Forget(
 	return nil
 }
 
-// FolderStore is a fake store.Store[domain.Folder, string] — the plain-GORM
-// identity surface a home-scoped folder's name now lives on (2026-09-08
-// sidebar-placement-unification Task 5).
+// FolderStore is a fake store.Store[domain.Folder, string], where a
+// home-scoped folder's name lives.
 type FolderStore struct {
 	Saved        []domain.Folder
 	SaveErr      error
@@ -1917,12 +1916,9 @@ func (s *AgentChatPlacements) AttachWorkspace(
 	return nil
 }
 
-// parentOf answers chatID's CURRENT parent for StartCall.ParentAtStart's
-// ordering proof (2026-09-08 sidebar-placement-unification Task 8 note: a
-// Node-backed chat's placement never touches Chat.ParentID at all, so this
-// checks Nodes FIRST — set it via AgentChatPlacements.Nodes for a test
-// exercising a repo-scoped (or home-scoped) placement, matching production's
-// own Node-first dispatch — falling back to the Chat row for a bubble.
+// parentOf answers chatID's CURRENT parent for StartCall.ParentAtStart: Nodes
+// first, as production dispatches, since a Node-backed placement never
+// touches Chat.ParentID; the Chat row for a bubble.
 func (s *AgentChatPlacements) parentOf(
 	chatID string,
 ) string {
@@ -1945,17 +1941,12 @@ func (s *AgentChatPlacements) parentOf(
 // seam: the read-model facts about each workspace, keyed by workspace id,
 // with no live git call behind it.
 type AgentWorkspaceGitStatus struct {
-	// Repos answers RepoOf, keyed by workspace id — the fake's stand-in for
-	// domain.Workspace.RepoID. A workspace never Set here answers "", the
-	// same value the real home workspace's RepoOf answers.
+	// Repos answers RepoOf, keyed by workspace id; a workspace never Set here
+	// answers "", as the real home workspace does.
 	Repos map[string]string
 	Err   error
-	// HomeRepoMembers answers RepoIDsForHome directly, keyed by home
-	// workspace id, to the repo id set that home workspace's own project
-	// owns — a test-friendly stand-in for the real adapter's
-	// workspace-then-project-then-repos join (SDD review fix round 3). A
-	// home workspace id never Set here answers nil (no filter), matching
-	// mergeHomeForest's own "nil means do not filter" contract.
+	// HomeRepoMembers answers RepoIDsForHome, keyed by home workspace id; one
+	// never Set here answers nil, mergeHomeForest's "do not filter".
 	HomeRepoMembers map[string]map[string]bool
 	RepoIDsErr      error
 	// Branches answers RendersAsBranch, keyed by workspace id. A workspace
@@ -2069,6 +2060,15 @@ func (s *AgentWorkspaceGitStatus) HomeOfRepo(
 		}
 	}
 	return "", nil
+}
+
+// OutlivesItsChats implements tree.WorkspaceGitStatus: a home (no repo) or a default.
+func (s *AgentWorkspaceGitStatus) OutlivesItsChats(_ context.Context, workspaceID string) (bool, error) {
+	if s.Err != nil {
+		return false, s.Err
+	}
+	repo := s.Repos[workspaceID]
+	return repo == "" || s.Defaults[repo] == workspaceID, nil
 }
 
 // RepoIDsForHome implements tree.WorkspaceGitStatus.

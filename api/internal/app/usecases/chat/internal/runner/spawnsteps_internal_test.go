@@ -98,8 +98,7 @@ id: apiresume-test
 spawn:
   cmd: acme
   interactive_required: true
-session:
-  resume: { arg: "resume {id}" }
+session: { resume: { arg: "resume {id}" }, persists: turn_start }
 resume_context_inject:
   - pass_arg: { positional: "<system-reminder>{context}</system-reminder>" }
 events:

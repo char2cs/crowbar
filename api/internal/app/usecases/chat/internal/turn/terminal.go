@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -10,24 +11,23 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// FailTurnOnNotice records runner's running turn failed for a notice on its
-// screen that ends a turn — a usage limit, an outage — which no hook reports.
+// FailTurnOnNotice ends what a notice on runner's screen ends — a usage limit,
+// an outage — which no hook reports: the turn it runs fails, or with none
+// running, the prompts it carries settle unconsumed. It holds runner's hook
+// gate, so no hook ends that work between its check and its record.
 func (t *Turns) FailTurnOnNotice(ctx context.Context, runner engineagents.Runner, notice engineagents.TerminalNotice) {
+	defer t.hookGates.Lock(runner.ID)()
 	chat, ok, err := t.chatForRunner(ctx, runner)
 	if err != nil || !ok {
 		return
 	}
-	ends := func(st ledger.State) bool {
-		turn, running := st.RunningTurn()
-		return running && turn.RunnerID == runner.ID
-	}
 	st, err := t.ledger.State(ctx, chat.ID)
-	if err != nil || !ends(st) {
+	if err != nil || !noticeEnds(st, runner.ID) {
 		note(ctx, "fail turn on terminal notice: read turn", err)
 		return
 	}
-	// The explanation is recorded before the turn's end: a client reads the
-	// record once on that edge.
+	// The explanation is recorded before the end: a client reads the record
+	// once on that edge.
 	if _, err := t.salvageUnfinished(ctx, chat, runner); err != nil {
 		note(ctx, "terminal notice: salvage streamed text", err)
 	}
@@ -38,12 +38,37 @@ func (t *Turns) FailTurnOnNotice(ctx context.Context, runner engineagents.Runner
 			domain.TurnRoleNotice, notice.Text, "",
 		))
 	}
-	if err := t.failTurn(ctx, chat.ID, runner.ID, ends, notice.Kind, notice.Text); err != nil {
+	_, _, err = t.ledger.Do(ctx, chat.ID, func(st ledger.State) ([]ledger.Row, error) {
+		return noticeRows(st, runner.ID, notice)
+	})
+	if err != nil {
 		note(ctx, "fail turn on terminal notice", err)
 		return
 	}
 	slog.InfoContext(ctx, "agent: a terminal notice ended the turn",
 		"chat_id", chat.ID, "runner_id", runner.ID, "notice", notice.Kind)
+}
+
+// noticeEnds reports whether a notice on runnerID's screen ends anything: the
+// turn it runs, or with none running, a prompt it carries.
+func noticeEnds(st ledger.State, runnerID string) bool {
+	if turn, running := st.RunningTurn(); running {
+		return turn.RunnerID == runnerID
+	}
+	return slices.ContainsFunc(st.PendingPrompts(), func(p ledger.Prompt) bool { return p.RunnerID == runnerID })
+}
+
+// noticeRows fail the turn runnerID runs for notice, or with none running,
+// settle the prompts it carries unconsumed.
+func noticeRows(st ledger.State, runnerID string, notice engineagents.TerminalNotice) ([]ledger.Row, error) {
+	if _, running := st.RunningTurn(); !running {
+		return ledger.SettleCarried(st, runnerID, false, notice.Kind)
+	}
+	rows, closes, err := failRows(st, runnerID, "", notice.Kind, notice.Text)
+	if !closes {
+		return nil, err
+	}
+	return rows, err
 }
 
 // MatchTerminalNotice asks runner's descriptor whether screen shows one of

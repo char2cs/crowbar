@@ -7,6 +7,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 )
 
 // Switch handles POST .../repos/:repoId/chats/:id/switch: terminates
@@ -34,8 +35,7 @@ func (h *Handlers) Switch(
 
 	newSegID, err := h.runners.SwitchProvider(rctx, id, body.Provider)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		writeCodedErr(ctx, err, agentusecase.PromptErrorCode(err))
 		return
 	}
 

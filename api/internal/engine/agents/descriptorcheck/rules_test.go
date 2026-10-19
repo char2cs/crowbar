@@ -9,22 +9,33 @@ import (
 )
 
 func TestValidate_AResumeWithoutARecognisedRefusalIsAWarning(t *testing.T) {
-	rep := descriptorcheck.Validate(complete("session:\n  resume: { arg: \"--resume {id}\" }\n"))
+	rep := descriptorcheck.Validate(complete("session:\n  resume: { arg: \"--resume {id}\" }\n  persists: turn_start\n"))
 	f := findingFor(t, rep, "session.refusal_unrecognised")
 	assert.Equal(t, descriptorcheck.SeverityWarning, f.Severity)
 	assert.True(t, rep.OK(), "a warning does not block the descriptor")
+}
+
+// Over an api connection a refused resume is an error reply on the turn it
+// was asked for; unrecognised, the chat keeps a session the server lost.
+func TestValidate_AnAPIProvidersResumeWithoutARecognisedRefusalIsAnError(t *testing.T) {
+	api := "id: api\nspawn:\n  cmd: api\n  interactive_required: true\nruntime:\n  transport: api\n" +
+		"  api: { protocol: jsonrpc2, serve: [api, serve] }\n"
+	f := findingFor(t, descriptorcheck.Validate([]byte(api+"session:\n  resume: { arg: \"--resume {id}\" }\n")),
+		"session.refusal_unrecognised")
+	assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
 }
 
 func TestValidate_TheSessionRulesRefuseAnUnusableSession(t *testing.T) {
 	cases := map[string]struct {
 		yaml, rule, path string
 	}{
-		"resume without id": {"session:\n  resume: { arg: \"--resume\" }\n", "session.resume_id", "session.resume.arg"},
-		"assign without id": {"session:\n  assign: { arg: \"--session-id\" }\n", "session.assign_id", "session.assign.arg"},
-		"refused exit 0":    {refused("0", `["gone"]`), "session.refused_exit", "session.refused"},
-		"no needles":        {refused("1", `[]`), "session.refused_needles", "session.refused"},
-		"an empty needle":   {refused("1", `[""]`), "session.refused_needles", "session.refused"},
-		"unknown persists":  {"session:\n  persists: turn_middle\n", "session.persists", "session.persists"},
+		"resume without id":   {"session:\n  resume: { arg: \"--resume\" }\n", "session.resume_id", "session.resume.arg"},
+		"assign without id":   {"session:\n  assign: { arg: \"--session-id\" }\n", "session.assign_id", "session.assign.arg"},
+		"refused exit 0":      {refused("0", `["gone"]`), "session.refused_exit", "session.refused"},
+		"no needles":          {refused("1", `[]`), "session.refused_needles", "session.refused"},
+		"an empty needle":     {refused("1", `[""]`), "session.refused_needles", "session.refused"},
+		"unknown persists":    {"session:\n  persists: turn_middle\n", "session.persists", "session.persists"},
+		"resume, no persists": {"session:\n  resume: { arg: \"--resume {id}\" }\n", "session.persists_missing", "session.resume"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
