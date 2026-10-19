@@ -98,6 +98,20 @@ func (s *Screen) Width() int {
 	return s.buf.Width()
 }
 
+// setWrapped sets whether row y continues row y-1. A row off the grid, where
+// x/vt can park the cursor, is ignored, and row 0 of a screen with no history
+// never continues anything.
+func (s *Screen) setWrapped(y int, v bool) {
+	if y >= 0 && y < len(s.wrapped) {
+		s.wrapped[y] = v && (y > 0 || s.scrollback != nil)
+	}
+}
+
+// isWrapped reports whether row y continues row y-1; false off the grid.
+func (s *Screen) isWrapped(y int) bool {
+	return y >= 0 && y < len(s.wrapped) && s.wrapped[y]
+}
+
 // Clear clears the screen with blank cells.
 func (s *Screen) Clear() {
 	s.ClearArea(s.Bounds())
@@ -116,7 +130,7 @@ func (s *Screen) ClearWithScrollback() {
 			line := s.buf.Line(y)
 			saved := line != nil && !s.isLineEmpty(line)
 			if saved {
-				s.scrollback.PushWrapped(line, head && s.wrapped[y])
+				s.scrollback.PushWrapped(line, head && s.isWrapped(y))
 			}
 			head = saved
 		}
@@ -351,8 +365,9 @@ func (s *Screen) InsertLine(n int) bool {
 	s.buf.InsertLineArea(y, n, s.blankCell(), s.scroll)
 	if s.scroll.Min.X == 0 && s.scroll.Max.X == s.buf.Width() {
 		k := min(n, s.scroll.Max.Y-y)
-		copy(s.wrapped[y+k:s.scroll.Max.Y], s.wrapped[y:])
-		clear(s.wrapped[y : y+k])
+		for r := s.scroll.Max.Y - 1; r >= y; r-- {
+			s.setWrapped(r, r >= y+k && s.isWrapped(r-k))
+		}
 	}
 
 	return true
@@ -388,17 +403,18 @@ func (s *Screen) DeleteLine(n int) bool {
 		// Save lines that will be deleted. The first one's head stays on
 		// screen unless it is row 0.
 		for i := range k {
-			s.scrollback.PushWrapped(s.buf.Line(y+i), s.wrapped[y+i] && (i > 0 || y == 0))
+			s.scrollback.PushWrapped(s.buf.Line(y+i), s.isWrapped(y+i) && (i > 0 || y == 0))
 		}
 	}
 
 	s.buf.DeleteLineArea(y, n, s.blankCell(), scroll)
 	if full {
-		copy(s.wrapped[y:], s.wrapped[y+k:scroll.Max.Y])
-		clear(s.wrapped[scroll.Max.Y-k : scroll.Max.Y])
-		if y == 0 && !saved {
-			s.wrapped[0] = false // no history holds its head
+		for r := y; r < scroll.Max.Y; r++ {
+			s.setWrapped(r, r+k < scroll.Max.Y && s.isWrapped(r+k))
 		}
+	}
+	if saved && y > 0 {
+		s.setWrapped(0, false) // the newest history line is no longer its head
 	}
 
 	return true

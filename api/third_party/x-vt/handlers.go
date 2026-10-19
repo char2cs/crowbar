@@ -553,7 +553,9 @@ func (e *Emulator) registerDefaultCsiHandlers() {
 			e.scr.FillArea(e.scr.blankCell(), rect2)
 			// As in xterm, the rows below lose their wrap, the cursor row
 			// only when erased from column 0.
-			clear(e.scr.wrapped[y+min(x, 1):])
+			for r := y + min(x, 1); r < height; r++ {
+				e.scr.setWrapped(r, false)
+			}
 		case 1: // Erase screen above (including cursor)
 			rect := uv.Rect(0, 0, width, y+1)
 			e.scr.FillArea(e.scr.blankCell(), rect)
@@ -563,7 +565,9 @@ func (e *Emulator) registerDefaultCsiHandlers() {
 			if x == width-1 {
 				end++
 			}
-			clear(e.scr.wrapped[:min(end, height)])
+			for r := range end {
+				e.scr.setWrapped(r, false)
+			}
 		case 2: // erase screen
 			// Save screen content to scrollback before clearing
 			e.scr.ClearWithScrollback()
@@ -603,7 +607,7 @@ func (e *Emulator) registerDefaultCsiHandlers() {
 		// As in xterm, a row erased from column 0 by EL 0 or EL 2 no longer
 		// continues the row above; EL 1 keeps it.
 		if n == 2 || x == 0 && n == 0 {
-			e.scr.wrapped[y] = false
+			e.scr.setWrapped(y, false)
 		}
 		return true
 	})

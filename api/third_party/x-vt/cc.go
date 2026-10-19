@@ -19,7 +19,7 @@ func (e *Emulator) linefeed() {
 	e.index()
 	// As in xterm, a line feed onto an existing row (not IND) ends its wrap.
 	if _, ny := e.scr.CursorPosition(); ny != y {
-		e.scr.wrapped[ny] = false
+		e.scr.setWrapped(ny, false)
 	}
 	if e.isModeSet(ansi.ModeLineFeedNewLine) {
 		e.carriageReturn()

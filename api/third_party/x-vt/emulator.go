@@ -479,7 +479,7 @@ func (e *Emulator) ScrollbackCellAt(x, y int) *uv.Cell {
 // RowWrapped reports whether row y of the active screen continues row y-1
 // because the cursor autowrapped into it.
 func (e *Emulator) RowWrapped(y int) bool {
-	return y >= 0 && y < len(e.scr.wrapped) && e.scr.wrapped[y]
+	return e.scr.isWrapped(y)
 }
 
 // ScrollbackRowWrapped reports whether scrollback line i (0 = oldest)

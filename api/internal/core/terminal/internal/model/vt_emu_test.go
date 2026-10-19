@@ -14,15 +14,20 @@ func TestRowWrapped(t *testing.T) {
 	const (
 		wrap   = "0123456789ABCDEFGHIJ" // row 0 full, autowraps into row 1
 		thirty = "0123456789ABCDEFGHIJKLMNOPQRST"
+		// One history line and "top" on row 0, for the rows that park the cursor below the grid.
+		parked = "hist\r\n\r\n\r\n\r\n\x1b[Htop"
 	)
 	crlf := func(n int) string { return strings.Repeat("\r\n", n) }
 	tests := []struct {
 		name       string
 		bytes      string
 		resize     [2]int // cols, rows; zero means no resize
+		after      string // written after the resize
 		maxLines   int    // scrollback cap; zero means 100
 		grid       string
 		scrollback string // empty means not checked
+		screen     string // ScreenText; empty means not checked
+		history    string // scrollback text joined by "|"; empty means not checked
 	}{
 		{name: "autowrap sets it", bytes: wrap, grid: "F T F F"},
 		{name: "exact fit + CRLF is a hard break", bytes: "0123456789\r\nABCDEFGHIJ", grid: "F F F F"},
@@ -73,7 +78,44 @@ func TestRowWrapped(t *testing.T) {
 			name:  "a margin-confined scroll saves its top row without the head left on screen",
 			bytes: "X" + crlf(4) + "\x1b[2;4r" + wrap + "\x1b[S", grid: "F F F F", scrollback: "F F",
 		},
+		{name: "RI moves flags down with their rows", bytes: wrap + "\x1b[H\x1bM", grid: "F F T F"},
 		{name: "RIS clears", bytes: wrap + "\x1bc", grid: "F F F F"},
+		{name: "a 1-row alt screen never flags row 0", bytes: "\x1b[?1049h", resize: [2]int{10, 1}, after: wrap, grid: "F"},
+		{
+			name:  "a scroll under a top margin drops row 0's flag",
+			bytes: thirty + crlf(3) + "\x1b[2;4r\x1b[S", grid: "F F F F", scrollback: "F T F",
+		},
+		// x/vt leaves the cursor below the grid in these; a flag access there must not panic.
+		{
+			name:  "alt exit after a shrink, then ED0",
+			bytes: parked + "\x1b[4;1Hprompt\x1b[?1049h", resize: [2]int{10, 2}, after: "\x1b[?1049l\x1b[J",
+			grid: "F F", screen: "top\n", history: "hist",
+		},
+		{
+			name:  "DECSC, a shrink, DECRC, then EL2",
+			bytes: parked + "\x1b[4;1H\x1b7", resize: [2]int{10, 2}, after: "\x1b8\x1b[2K",
+			grid: "F F", screen: "top\n", history: "hist",
+		},
+		{
+			name:  "DECSC, a shrink, DECRC, then EL0 at col 0",
+			bytes: parked + "\x1b[4;1H\x1b7", resize: [2]int{10, 2}, after: "\x1b8\x1b[K",
+			grid: "F F", screen: "top\n", history: "hist",
+		},
+		{
+			name:  "a bottom margin past the screen, then LF",
+			bytes: parked + "\x1b[1;20r\n\n\n\n\n",
+			grid:  "F F F F", screen: "top\n\n\n", history: "hist",
+		},
+		{
+			name:  "a bottom margin past the screen, then IL and DL below the grid",
+			bytes: parked + "\x1b[1;20r\n\n\n\n\n\x1b[L\x1b[M",
+			grid:  "F F F F", screen: "top\n\n\n", history: "hist",
+		},
+		{
+			name:  "a bottom margin past the screen, then autowrap",
+			bytes: parked + "\x1b[1;20r\x1b[6B" + wrap,
+			grid:  "F F F F", screen: "top\n\n\n BCDEFGHIJ", history: "hist", // x/vt clamps the print back on-grid
+		},
 		{
 			name:  "ED3 drops the scrollback flags with their lines",
 			bytes: thirty + crlf(4) + "\x1b[3J" + crlf(2), grid: "F F F F", scrollback: "F F",
@@ -87,20 +129,27 @@ func TestRowWrapped(t *testing.T) {
 			if tc.resize != [2]int{} {
 				vm.Resize(tc.resize[0], tc.resize[1])
 			}
+			vm.Write([]byte(tc.after))
+			assert.False(t, vm.Degraded(), "a flag access must not panic the emulator")
 
 			grid := make([]string, vm.emu.Height())
 			for y := range grid {
 				grid[y] = flagLetter(vm.emu.RowWrapped(y))
 			}
 			assert.Equal(t, tc.grid, strings.Join(grid, " "), "grid flags")
-			if tc.scrollback == "" {
-				return
+			if tc.scrollback != "" {
+				sb := make([]string, vm.emu.ScrollbackLen())
+				for i := range sb {
+					sb[i] = flagLetter(vm.emu.ScrollbackRowWrapped(i))
+				}
+				assert.Equal(t, tc.scrollback, strings.Join(sb, " "), "scrollback flags")
 			}
-			sb := make([]string, vm.emu.ScrollbackLen())
-			for i := range sb {
-				sb[i] = flagLetter(vm.emu.ScrollbackRowWrapped(i))
+			if tc.screen != "" {
+				assert.Equal(t, tc.screen, vm.ScreenText(), "screen")
 			}
-			assert.Equal(t, tc.scrollback, strings.Join(sb, " "), "scrollback flags")
+			if tc.history != "" {
+				assert.Equal(t, tc.history, strings.Join(scrollbackStrings(vm), "|"), "scrollback text")
+			}
 		})
 	}
 }

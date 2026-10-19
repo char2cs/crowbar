@@ -58,7 +58,7 @@ func (e *Emulator) handleGrapheme(content string, width int) {
 		e.index()
 		_, y = e.scr.CursorPosition()
 		x = 0
-		e.scr.wrapped[y] = true // the new row continues the one that overflowed
+		e.scr.setWrapped(y, true) // the new row continues the one that overflowed
 	}
 
 	// Handle character set mappings
