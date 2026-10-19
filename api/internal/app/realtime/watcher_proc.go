@@ -10,7 +10,7 @@ type watcherProc interface {
 	Start(
 		ctx context.Context,
 	) error
-	// Stop ends the watch, returning only once it has so StopAll can join it. Idempotent.
+	// Stop ends a running watch and waits for it (a Start in flight is the manager's to join).
 	Stop()
 }
 

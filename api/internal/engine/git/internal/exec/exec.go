@@ -164,12 +164,7 @@ func execGit(
 	hasStdin bool,
 	args []string,
 ) (Result, bool) {
-	//nolint:gosec // G204: running git with caller-supplied args is the purpose of this package.
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Dir = dir
-	cmd.Env = gitEnv()
-	cmd.Cancel = func() error { return terminate(cmd.Process) }
-	cmd.WaitDelay = waitDelay
+	cmd := command(ctx, bin, dir, args)
 	if hasStdin {
 		cmd.Stdin = strings.NewReader(stdin)
 	}
@@ -191,6 +186,23 @@ func execGit(
 		r.Stderr = runErr.Error()
 	}
 	return r, cmd.Process != nil
+}
+
+// command builds every git subprocess in the package, buffered or streamed, so
+// they share one environment and one cancel policy.
+func command(
+	ctx context.Context,
+	bin string,
+	dir string,
+	args []string,
+) *exec.Cmd {
+	//nolint:gosec // G204: running git with caller-supplied args is the purpose of this package.
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Dir = dir
+	cmd.Env = gitEnv()
+	cmd.Cancel = func() error { return terminate(cmd.Process) }
+	cmd.WaitDelay = waitDelay
+	return cmd
 }
 
 // terminate ends a cancelled git with SIGTERM, on which git removes its own

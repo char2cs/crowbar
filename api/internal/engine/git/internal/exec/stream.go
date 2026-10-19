@@ -27,9 +27,9 @@ const stderrCaptureLimit = 64 << 10
 // buffering path costs that much resident memory for the duration of every
 // concurrent call — output its consumers walk a line at a time and discard.
 //
-// The caller must Close the reader. Closing before EOF kills the subprocess, so
+// The caller must Close the reader. Closing before EOF ends the subprocess, so
 // a consumer that has seen enough — a paginated patch, a search that found its
-// match — stops paying for the rest; the returned wait then describes that kill
+// match — stops paying for the rest; the returned wait then describes that signal
 // rather than the command's own verdict.
 //
 // wait blocks until the subprocess exits and reports a non-zero exit as a
@@ -76,11 +76,7 @@ func startStream(
 	args []string,
 ) (*gitStream, error) {
 	sctx, cancel := context.WithCancel(ctx)
-	//nolint:gosec // G204: running git with caller-supplied args is the purpose of this package.
-	cmd := exec.CommandContext(sctx, bin, args...)
-	cmd.Dir = dir
-	cmd.Env = gitEnv()
-	cmd.WaitDelay = waitDelay
+	cmd := command(sctx, bin, dir, args)
 
 	s := &gitStream{cmd: cmd, cancel: cancel, op: subcommandName(args)}
 	cmd.Stderr = &s.stderr
@@ -123,7 +119,7 @@ func (s *gitStream) Read(
 	return n, err
 }
 
-// Close kills the subprocess unless the reader already reached EOF, closes the
+// Close ends the subprocess unless the reader already reached EOF, closes the
 // read end of the pipe, and reaps. Closing the read end is what keeps an
 // early-closing consumer from wedging git on a full pipe buffer: a write with
 // no reader fails rather than blocking forever. The EOF check matters because
@@ -164,7 +160,7 @@ func (s *gitStream) exitError() error {
 		return nil
 	}
 	r := Result{Stderr: s.stderr.String(), ExitCode: exitCode(s.cmd, s.waitErr)}
-	// A kill leaves no git-produced stderr, and a watchdog failure can even
+	// A signal leaves no git-produced stderr, and a watchdog failure can even
 	// leave a zero exit status on a command that never ran to completion.
 	// Neither may be reported as success.
 	if r.ExitCode == 0 {

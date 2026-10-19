@@ -52,7 +52,7 @@ const OriginSyncInterval = 5 * time.Minute
 
 // originSyncTimeout bounds a single FetchRef invocation: a hung remote (network
 // partition, credential prompt on stdin) must not wedge the sync goroutine. A
-// Release or StopAll cancels the fetch sooner, killing the git process.
+// Release or StopAll cancels the fetch sooner, terminating the git process.
 const originSyncTimeout = 30 * time.Second
 
 // originSyncHandle tracks one workspace's running origin-sync ticker: its
@@ -326,7 +326,12 @@ func (m *OriginSyncManager) advanceLockedRoot(
 	if ws.Status != domain.WorkspaceStatusLocked || ws.Provisioning != domain.WorkspaceProvisioned {
 		return
 	}
-	err := m.git.MergeFFOnly(ctx, ws.WorktreePath, "origin/"+ws.Branch)
+	// A cancel decides only whether the fast-forward starts: killed mid-checkout,
+	// git leaves the tree half-advanced and refuses every later fast-forward.
+	if ctx.Err() != nil {
+		return
+	}
+	err := m.git.MergeFFOnly(context.WithoutCancel(ctx), ws.WorktreePath, "origin/"+ws.Branch)
 	if err == nil {
 		return
 	}
