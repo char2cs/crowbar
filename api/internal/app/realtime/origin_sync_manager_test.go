@@ -278,19 +278,8 @@ func TestOriginSyncManager_StopAll_WaitsForAFetchInFlight(t *testing.T) {
 		m.Acquire("w1")
 		<-f.calls
 
-		stopped := make(chan struct{})
-		go func() { m.StopAll(); close(stopped) }()
-		synctest.Wait()
-		returnedEarly := false
-		select {
-		case <-stopped:
-			returnedEarly = true
-		default:
-		}
-
-		close(f.hold)
-		<-stopped
-		assert.False(t, returnedEarly, "StopAll returned while the open-time fetch was still running")
+		assert.False(t, stopReturnedEarly(m.StopAll, f.hold),
+			"StopAll returned while the open-time fetch was still running")
 	})
 }
 
@@ -331,12 +320,7 @@ func TestOriginSyncManager_SyncTick_WorkspaceLookupError_Swallowed(t *testing.T)
 // TestOriginSyncManager_TickSource_DefaultsToIntervalTicker pins the production
 // wiring the seam replaces: with no test source, the cadence is a real ticker.
 func TestOriginSyncManager_TickSource_DefaultsToIntervalTicker(t *testing.T) {
-	m := NewOriginSyncManager(
-		context.Background(),
-		testOriginSyncInterval,
-		newFakeOriginWorkspaces(),
-		newFakeOriginFetcher(),
-	)
+	m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, newFakeOriginWorkspaces(), newFakeOriginFetcher())
 
 	tickC, stop := m.tickSource()
 	require.NotNil(t, tickC)
@@ -391,29 +375,25 @@ func TestOriginSyncManager_SyncTick_CancelsHungFetch(t *testing.T) {
 	<-done // syncTick returned once the fetch was cancelled
 }
 
-// TestOriginSyncManager_SyncTick_DecoupledFromConnCtx also has a timeout as its
-// subject (see above): the injected 10 ms deadline must be the ONLY thing that
-// stops the fetch, even though the per-connection ctx is already cancelled.
-func TestOriginSyncManager_SyncTick_DecoupledFromConnCtx(t *testing.T) {
-	w := newFakeOriginWorkspaces()
-	w.set(protectedWorkspace("w1"))
-	b := newBlockingFetcher()
-	m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, w, b)
+// Release and StopAll cancel a hung fetch through its context instead of
+// waiting out originSyncTimeout, so StopAll's join is prompt.
+func TestOriginSyncManager_CancelReachesAHungFetch(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		w := newFakeOriginWorkspaces()
+		w.set(protectedWorkspace("w1"))
+		w.set(protectedWorkspace("w2"))
+		b := newBlockingFetcher()
+		m := NewOriginSyncManager(context.Background(), testOriginSyncInterval, w, b)
+		t.Cleanup(m.StopAll)
+		m.Acquire("w1")
+		m.Acquire("w2")
+		synctest.Wait()
 
-	// The per-connection ctx is ALREADY cancelled; WithoutCancel must still let
-	// the fetch start, stopping only on its own timeout.
-	connCtx, cancelConn := context.WithCancel(context.Background())
-	cancelConn()
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		m.syncTickWithTimeout(connCtx, "w1", 10*time.Millisecond, false)
-	}()
-
-	assert.ErrorIs(t, <-b.released, context.DeadlineExceeded,
-		"fetch must run under WithoutCancel and stop only on its own timeout")
-	<-done
+		m.Release("w1")
+		require.ErrorIs(t, <-b.released, context.Canceled, "Release must cancel its fetch")
+		m.StopAll()
+		require.ErrorIs(t, <-b.released, context.Canceled, "StopAll must cancel the fetch it joins")
+	})
 }
 
 // ensure the fakes satisfy their interfaces at compile time.

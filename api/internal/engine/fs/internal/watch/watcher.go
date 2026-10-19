@@ -91,7 +91,7 @@ type Watcher struct {
 
 	be          backend
 	mu          sync.Mutex
-	stopCh      chan struct{}
+	cancelLoop  context.CancelFunc
 	started     bool
 	stopped     bool
 	beCloseOnce sync.Once
@@ -128,9 +128,8 @@ type Watcher struct {
 	// now is the clock the max wait reads; a test injects its own.
 	now func() time.Time
 
-	// loopDone is closed when the loop goroutine returns. It is the real signal
-	// that the watcher has finished tearing down (used by tests to block on the
-	// loop's exit instead of polling the process's goroutine count).
+	// loopDone is closed when the loop goroutine returns: the real signal that
+	// the watcher has finished tearing down, which Stop joins on.
 	loopDone chan struct{}
 
 	// onGitRecompute, when non-nil, is invoked by the loop goroutine after every
@@ -156,14 +155,13 @@ func NewWatcher(
 		git:        git,
 		dispatcher: dispatcher,
 		ignore:     ignore.NewMatcher(repoPath),
-		stopCh:     make(chan struct{}),
 		loopDone:   make(chan struct{}),
 		gitTimer:   newStoppedTimer(gitRecomputeQuiet),
 		now:        time.Now,
 	}
 }
 
-// Start begins watching the repo root recursively. It blocks until ctx is
+// Start begins watching the repo root recursively; its loop runs until ctx is
 // cancelled or Stop is called. Every backend Start creates is closed exactly
 // once regardless of cancel/stop ordering: if ctx is already cancelled or Stop
 // already ran before registration, the freshly created backend is closed
@@ -197,9 +195,11 @@ func (w *Watcher) Start(
 	}
 	w.started = true
 	w.be = be
+	loopCtx, cancel := context.WithCancel(ctx)
+	w.cancelLoop = cancel
 	w.mu.Unlock()
 
-	go w.loop(ctx)
+	go w.loop(loopCtx)
 	return nil
 }
 
@@ -227,8 +227,7 @@ func (w *Watcher) spec() watchSpec {
 	}
 }
 
-// closeBackend closes the backend exactly once. It is safe to call from loop
-// on exit and from Stop concurrently.
+// closeBackend closes the backend exactly once, as the loop exits.
 func (w *Watcher) closeBackend() {
 	w.beCloseOnce.Do(func() {
 		w.mu.Lock()
@@ -242,20 +241,21 @@ func (w *Watcher) closeBackend() {
 	})
 }
 
-// Stop tears down the watcher. It is idempotent and safe to call before, during,
-// or after Start. Calling Stop before Start makes the next Start observe stopped
-// and close its backend immediately rather than entering the loop.
+// Stop cancels the loop, and with it a git recompute in flight, then waits for
+// the loop to exit. It is idempotent and safe before, during, or after Start;
+// before Start, it makes the next Start close its backend instead of looping.
 func (w *Watcher) Stop() {
 	w.mu.Lock()
-	if w.stopped {
-		w.mu.Unlock()
-		return
-	}
 	w.stopped = true
-	close(w.stopCh)
+	cancel, started := w.cancelLoop, w.started
 	w.mu.Unlock()
 
-	w.closeBackend()
+	if cancel != nil {
+		cancel()
+	}
+	if started {
+		<-w.loopDone
+	}
 }
 
 // loop is the main event loop. It debounces events and calls handleBurst.
@@ -299,8 +299,6 @@ func (w *Watcher) loop(
 		case <-w.gitTimer.Chan():
 			w.runGitRecompute(ctx)
 		case <-ctx.Done():
-			return
-		case <-w.stopCh:
 			return
 		}
 	}

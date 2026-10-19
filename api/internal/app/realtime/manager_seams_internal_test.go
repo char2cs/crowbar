@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"context"
+	"testing/synctest"
 	"time"
 )
 
@@ -50,6 +51,27 @@ func (m *ProviderPollManager) driveCyclesForTest(
 // Release" without a sleep.
 func (m *ProviderPollManager) waitRunnersForTest() {
 	m.runners.Wait()
+}
+
+// stopReturnedEarly runs stop inside a synctest bubble and reports whether it
+// returned while work was still blocked on tail; it then releases tail and
+// waits for stop, so nothing outlives the bubble.
+func stopReturnedEarly(
+	stop func(),
+	tail chan struct{},
+) bool {
+	stopped := make(chan struct{})
+	go func() { stop(); close(stopped) }()
+	synctest.Wait()
+	early := false
+	select {
+	case <-stopped:
+		early = true
+	default:
+	}
+	close(tail)
+	<-stopped
+	return early
 }
 
 // NoopLSPLifecycle returns a lifecycle whose edges do no work, for tests that

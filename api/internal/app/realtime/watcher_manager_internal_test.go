@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -16,9 +17,11 @@ type fakeWatcherProc struct {
 	started chan struct{}
 	stopped chan struct{}
 	once    sync.Once
-	// startErr, when set, makes Start fail immediately instead of blocking on ctx —
-	// the real watcher's EMFILE-while-adding-watches failure.
+	// startErr, when set, makes Start fail at once (EMFILE while adding watches).
 	startErr error
+	// startTail and stopTail, when set, keep Start (once its ctx ends) or Stop
+	// running until closed: work still in flight when StopAll runs.
+	startTail, stopTail chan struct{}
 }
 
 func newFakeWatcherProc() *fakeWatcherProc {
@@ -36,16 +39,21 @@ func (f *fakeWatcherProc) Start(
 		return f.startErr
 	}
 	<-ctx.Done()
+	if f.startTail != nil {
+		<-f.startTail
+	}
 	return ctx.Err()
 }
 
 func (f *fakeWatcherProc) Stop() {
 	f.once.Do(func() { close(f.stopped) })
+	if f.stopTail != nil {
+		<-f.stopTail
+	}
 }
 
-// fakeLingerTimer is the controllable timer injected into the WatcherManager so
-// linger expiry is driven explicitly (fire / forceFire), never by wall-clock
-// waits — satisfying the no-timing test rule.
+// fakeLingerTimer drives linger expiry explicitly (fire / forceFire), never by
+// wall-clock waits.
 type fakeLingerTimer struct {
 	mu      sync.Mutex
 	fn      func()
@@ -63,8 +71,7 @@ func (t *fakeLingerTimer) Stop() bool {
 	return true
 }
 
-// fire runs the expiry callback as a normal (un-raced) timer would: only if the
-// timer was not already stopped.
+// fire runs the expiry callback only if the timer was not already stopped.
 func (t *fakeLingerTimer) fire() {
 	t.mu.Lock()
 	if t.stopped {
@@ -77,9 +84,8 @@ func (t *fakeLingerTimer) fire() {
 	fn()
 }
 
-// forceFire runs the expiry callback unconditionally, simulating the AfterFunc
-// race where the callback is already scheduled and fires even though Stop
-// returned false. It exercises the manager's generation guard.
+// forceFire runs the expiry callback unconditionally: the AfterFunc race where a
+// scheduled callback fires even though Stop returned false.
 func (t *fakeLingerTimer) forceFire() {
 	t.mu.Lock()
 	t.fired = true
@@ -122,11 +128,11 @@ func countingFactory(
 	return factory, &calls
 }
 
-// failingFactory builds procs whose Start fails immediately — the shape of a real
-// watcher that dies inside Start (EMFILE while registering watches).
-func failingFactory(
+// shapedFactory builds procs that shape adjusts before they start: one whose
+// Start fails, or one whose Start or Stop is still running at StopAll.
+func shapedFactory(
 	procs chan<- *fakeWatcherProc,
-	startErr error,
+	shape func(*fakeWatcherProc),
 ) (watcherFactory, *int32) {
 	var calls int32
 	factory := func(
@@ -135,7 +141,7 @@ func failingFactory(
 	) (watcherProc, error) {
 		atomic.AddInt32(&calls, 1)
 		p := newFakeWatcherProc()
-		p.startErr = startErr
+		shape(p)
 		procs <- p
 		return p, nil
 	}
@@ -143,8 +149,7 @@ func failingFactory(
 }
 
 // newTestManager wires a WatcherManager over the counting factory and the
-// controllable timer, returning the proc and timer channels plus the build
-// counter so tests drive linger deterministically.
+// controllable timer, so tests drive linger deterministically.
 func newTestManager(
 	t *testing.T,
 ) (*WatcherManager, chan *fakeWatcherProc, chan *fakeLingerTimer, *int32) {
@@ -222,9 +227,8 @@ func TestWatcherManager_GitOnlyKeepsWatcherAlive(t *testing.T) {
 	assert.EqualValues(t, 1, *calls)
 }
 
-// A reconnect (Release then Acquire) that lands inside the linger window must
-// reuse the live watcher: the factory is called exactly once no matter how many
-// times the single subscriber flaps.
+// A reconnect inside the linger window reuses the live watcher: the factory runs
+// exactly once however often the single subscriber flaps.
 func TestWatcherManager_ReconnectWithinLingerReusesWatcher(t *testing.T) {
 	m, procs, timers, calls := newTestManager(t)
 
@@ -254,8 +258,7 @@ func TestWatcherManager_ReconnectWithinLingerReusesWatcher(t *testing.T) {
 	<-p.stopped
 }
 
-// Once the linger window fully elapses, the watcher is stopped and a later
-// subscribe builds a fresh one.
+// Once the linger elapses the watcher stops, and a later subscribe builds anew.
 func TestWatcherManager_ExpiredLingerRebuildsFresh(t *testing.T) {
 	m, procs, timers, calls := newTestManager(t)
 
@@ -279,10 +282,8 @@ func TestWatcherManager_ExpiredLingerRebuildsFresh(t *testing.T) {
 	<-p2.stopped
 }
 
-// TestWatcherManager_SupersededLingerExpiryIsIgnored proves the Acquire/expire
-// race is safe: if a linger timer's callback fires AFTER a reconnect superseded
-// it, the generation guard makes the expiry a no-op and the reused watcher
-// survives.
+// TestWatcherManager_SupersededLingerExpiryIsIgnored: a linger callback firing
+// after a reconnect superseded it is a no-op, so the reused watcher survives.
 func TestWatcherManager_SupersededLingerExpiryIsIgnored(t *testing.T) {
 	m, procs, timers, _ := newTestManager(t)
 
@@ -331,15 +332,14 @@ func TestWatcherManager_FactoryErrorDoesNotRegister(t *testing.T) {
 	require.NotPanics(t, func() { m.Release("w1") })
 }
 
-// A watcher whose Start fails (EMFILE while adding watches) is dead: it emits no
-// file-change and no git-status event, ever. Leaving its handle in the map would
-// make every later Acquire bump the refcount of that corpse, silently blinding the
-// workspace for the life of the subscription. The failed start must retire the
+// A watcher whose Start fails is dead: left in the map, every later Acquire would
+// refcount the corpse and blind the workspace. The failed start must retire the
 // handle so the next subscriber builds a fresh watcher.
 func TestWatcherManager_FailedStartRetiresHandleAndRebuilds(t *testing.T) {
 	procs := make(chan *fakeWatcherProc, 4)
 	timers := make(chan *fakeLingerTimer, 4)
-	factory, calls := failingFactory(procs, errors.New("too many open files"))
+	tooManyFiles := errors.New("too many open files")
+	factory, calls := shapedFactory(procs, func(p *fakeWatcherProc) { p.startErr = tooManyFiles })
 	m := newWatcherManager(context.Background(), factory, time.Second, recordingTimerFactory(timers))
 
 	m.Acquire("w1")
@@ -409,8 +409,7 @@ func TestWatcherManager_StopAllStopsLiveWatchers(t *testing.T) {
 	assert.Equal(t, 0, remaining)
 }
 
-// StopAll must tear down a watcher that is currently lingering (post-release,
-// pre-expiry) and cancel its pending linger timer.
+// StopAll tears down a lingering watcher and cancels its pending linger timer.
 func TestWatcherManager_StopAllStopsLingeringWatcher(t *testing.T) {
 	m, procs, timers, _ := newTestManager(t)
 
@@ -472,4 +471,30 @@ func TestWatcherManager_AcquireAfterStopAllIsNoop(t *testing.T) {
 		t.Fatal("a watcher was started after StopAll")
 	default:
 	}
+}
+
+func TestWatcherManager_StopAllJoinsAStartInFlight(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		tail, procs := make(chan struct{}), make(chan *fakeWatcherProc, 1)
+		factory, _ := shapedFactory(procs, func(p *fakeWatcherProc) { p.startTail = tail })
+		m := newWatcherManager(context.Background(), factory, time.Second, nil)
+		m.Acquire("w1")
+		<-(<-procs).started
+
+		assert.False(t, stopReturnedEarly(m.StopAll, tail), "StopAll returned while a Start was still running")
+	})
+}
+
+func TestWatcherManager_StopAllJoinsAnExpiryInFlight(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		tail, procs, timers := make(chan struct{}), make(chan *fakeWatcherProc, 1), make(chan *fakeLingerTimer, 1)
+		factory, _ := shapedFactory(procs, func(p *fakeWatcherProc) { p.stopTail = tail })
+		m := newWatcherManager(context.Background(), factory, time.Second, recordingTimerFactory(timers))
+		m.Acquire("w1")
+		m.Release("w1")
+		go (<-timers).fire()
+		synctest.Wait()
+
+		assert.False(t, stopReturnedEarly(m.StopAll, tail), "StopAll returned while an expiry was still stopping its watcher")
+	})
 }

@@ -50,10 +50,9 @@ type OriginFetcher interface {
 // staleness is far less time-sensitive than PR/CI status.
 const OriginSyncInterval = 5 * time.Minute
 
-// originSyncTimeout bounds a single FetchRef invocation, and so StopAll's join:
-// a hung remote (network partition, credential prompt on stdin) must not wedge
-// the sync goroutine or shutdown. WithoutCancel decouples the fetch from the
-// per-connection ctx; this timeout still guarantees forward progress.
+// originSyncTimeout bounds a single FetchRef invocation: a hung remote (network
+// partition, credential prompt on stdin) must not wedge the sync goroutine. A
+// Release or StopAll cancels the fetch sooner, killing the git process.
 const originSyncTimeout = 30 * time.Second
 
 // originSyncHandle tracks one workspace's running origin-sync ticker: its
@@ -183,9 +182,8 @@ func (m *OriginSyncManager) StopAll() {
 }
 
 // run ticks every interval and issues a single-workspace origin sync until
-// the per-connection context is cancelled. The sync runs on a
-// WithoutCancel-derived context so a Release/StopAll mid-tick cannot abort
-// an in-flight fetch.
+// the per-connection context is cancelled. The sync runs under that context,
+// so Release and StopAll cancel a fetch in flight instead of waiting it out.
 func (m *OriginSyncManager) run(
 	ctx context.Context,
 	wsID string,
@@ -259,11 +257,11 @@ func (m *OriginSyncManager) notifyCycle(
 }
 
 // syncTick loads the workspace and, only if it has no parent (a protected/
-// root branch), issues a single FetchRef on a context.WithoutCancel-derived,
-// timeout-bounded context. A workspace with a parent is left alone: its fork
-// point is already kept fresh at fork-time by FastForwardBranch. Any failure
-// (workspace lookup or fetch) is logged and swallowed — this is best-effort
-// background work the user never explicitly requested.
+// root branch), issues a single FetchRef bounded by originSyncTimeout. A
+// workspace with a parent is left alone: its fork point is already kept fresh
+// at fork-time by FastForwardBranch. Any failure (workspace lookup or fetch) is
+// logged and swallowed — this is best-effort background work the user never
+// explicitly requested.
 func (m *OriginSyncManager) syncTick(
 	ctx context.Context,
 	wsID string,
@@ -281,7 +279,7 @@ func (m *OriginSyncManager) syncTickWithTimeout(
 	timeout time.Duration,
 	advance bool,
 ) {
-	syncCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	syncCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	ws, err := m.workspace.Get(syncCtx, wsID)

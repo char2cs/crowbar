@@ -3,6 +3,7 @@ package realtime
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -13,6 +14,8 @@ import (
 // REAL "a poll happened" signal instead of sleeping.
 type fakePoller struct {
 	calls chan string
+	// hold, when set, keeps every PollWorkspace in flight until it is closed.
+	hold chan struct{}
 }
 
 func newFakePoller() *fakePoller {
@@ -24,6 +27,9 @@ func (f *fakePoller) PollWorkspace(
 	wsID string,
 ) error {
 	f.calls <- wsID
+	if f.hold != nil {
+		<-f.hold
+	}
 	return nil
 }
 
@@ -160,12 +166,26 @@ func TestProviderPollManager_StopAll_Idempotent(t *testing.T) {
 
 	require.NotPanics(t, m.StopAll)
 	require.NotPanics(t, m.StopAll) // second call is safe
-	m.waitRunnersForTest()
 
 	m.mu.Lock()
 	count := len(m.handles)
 	m.mu.Unlock()
 	assert.Equal(t, 0, count)
+}
+
+// StopAll returns only once a poll already in flight has finished: shutdown
+// closes the stores the poll writes right after it.
+func TestProviderPollManager_StopAll_WaitsForAPollInFlight(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		p := newFakePoller()
+		p.hold = make(chan struct{})
+		m := NewProviderPollManager(context.Background(), testPollInterval, p)
+		m.Acquire("w1")
+		<-p.calls
+
+		assert.False(t, stopReturnedEarly(m.StopAll, p.hold),
+			"StopAll returned while the open-time poll was still running")
+	})
 }
 
 func TestProviderPollManager_AcquireAfterClose_NoOp(t *testing.T) {
@@ -218,11 +238,9 @@ func (b *blockingPoller) PollWorkspace(
 	return ctx.Err()
 }
 
-// TestProviderPollManager_PollTick_CancelsHungPoll is one of the two tests whose
-// SUBJECT is a timeout, so a clock is intrinsic: the injected 10 ms deadline
-// stands in for the production 30 s pollTimeout. It is not used as
-// synchronisation — every wait below blocks on a real signal (the poller's
-// released channel, the tick's own return).
+// TestProviderPollManager_PollTick_CancelsHungPoll has a timeout as its SUBJECT:
+// the injected 10 ms deadline stands in for pollTimeout and is never used as
+// synchronisation; every wait below blocks on a real signal.
 func TestProviderPollManager_PollTick_CancelsHungPoll(t *testing.T) {
 	b := newBlockingPoller()
 	m := NewProviderPollManager(context.Background(), testPollInterval, b)
@@ -238,28 +256,22 @@ func TestProviderPollManager_PollTick_CancelsHungPoll(t *testing.T) {
 	<-done // pollTick returned once the poll was cancelled
 }
 
-// TestProviderPollManager_PollTick_DecoupledFromConnCtx also has a timeout as its
-// subject (see above): the injected 10 ms deadline must be the ONLY thing that
-// stops the poll, even though the per-connection ctx is already cancelled.
-func TestProviderPollManager_PollTick_DecoupledFromConnCtx(t *testing.T) {
-	b := newBlockingPoller()
-	m := NewProviderPollManager(context.Background(), testPollInterval, b)
+// Release and StopAll cancel a hung poll through its context instead of
+// waiting out pollTimeout, so StopAll's join is prompt.
+func TestProviderPollManager_CancelReachesAHungPoll(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		b := newBlockingPoller()
+		m := NewProviderPollManager(context.Background(), testPollInterval, b)
+		t.Cleanup(m.StopAll)
+		m.Acquire("w1")
+		m.Acquire("w2")
+		synctest.Wait()
 
-	// The per-connection ctx is ALREADY cancelled, yet WithoutCancel must let the
-	// poll start (it only stops via its own timeout). This preserves the in-flight
-	// Asynx write guarantee while still bounding the poll.
-	connCtx, cancelConn := context.WithCancel(context.Background())
-	cancelConn()
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		m.pollTickWithTimeout(connCtx, "w1", 10*time.Millisecond)
-	}()
-
-	assert.ErrorIs(t, <-b.released, context.DeadlineExceeded,
-		"poll must run under WithoutCancel and stop only on its own timeout")
-	<-done
+		m.Release("w1")
+		require.ErrorIs(t, <-b.released, context.Canceled, "Release must cancel its poll")
+		m.StopAll()
+		require.ErrorIs(t, <-b.released, context.Canceled, "StopAll must cancel the poll it joins")
+	})
 }
 
 // ensure fakePoller satisfies the ProviderPoller interface at compile time.

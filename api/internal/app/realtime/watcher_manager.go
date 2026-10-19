@@ -51,6 +51,9 @@ type WatcherManager struct {
 	mu       sync.Mutex
 	handles  map[string]*watcherHandle
 	closed   bool
+	// live counts Start goroutines and expiries still stopping a watcher;
+	// StopAll joins them so no watcher outlives it.
+	live sync.WaitGroup
 }
 
 // NewWatcherManager builds the production WatcherManager from its dependencies.
@@ -94,13 +97,9 @@ func newWatcherManager(
 
 // Acquire records one subscriber for wsID. On the 0→1 transition it builds and
 // starts the watcher in a goroutine under a cancelable context. A re-Acquire
-// that lands while the watcher is lingering (post-release, pre-expiry) reuses
-// the live watcher: it cancels the linger timer and bumps the handle generation
-// so a stale timer callback that fires anyway is ignored — no teardown, no
-// rebuild. A blank wsID is ignored so a misrouted subscribe can never start an
-// unscoped watcher. After StopAll has run it is a no-op, so a late subscribe
-// from a not-yet-closed hijacked WS connection cannot start a watcher under the
-// cancelled root.
+// while the watcher lingers reuses it: it cancels the linger timer and bumps the
+// generation so a stale timer callback is ignored. A blank wsID is ignored, and
+// after StopAll it is a no-op, so a late subscribe cannot start a watcher.
 func (m *WatcherManager) Acquire(
 	wsID string,
 ) {
@@ -129,9 +128,11 @@ func (m *WatcherManager) Acquire(
 	}
 	ctx, cancel := context.WithCancel(m.root)
 	m.handles[wsID] = &watcherHandle{refs: 1, cancel: cancel, proc: proc}
+	m.live.Add(1)
 	m.mu.Unlock()
 
 	go func() {
+		defer m.live.Done()
 		defer safego.Recover("realtime.watcher.start")
 		err := proc.Start(ctx)
 		if err == nil || errors.Is(err, context.Canceled) {
@@ -214,19 +215,17 @@ func (m *WatcherManager) expire(
 		return
 	}
 	delete(m.handles, wsID)
+	m.live.Add(1)
 	m.mu.Unlock()
+	defer m.live.Done()
 
 	h.cancel()
 	h.proc.Stop()
 }
 
-// StopAll cancels and stops every live watcher — including any that is currently
-// lingering — cancels their pending linger timers, and clears the handle map. It
-// is idempotent and safe to call when no watcher is running: a manager holding
-// nothing is a no-op. It runs on graceful shutdown so inotify file descriptors
-// are closed promptly rather than waiting on process exit. Because it replaces
-// the handle map, any linger timer that fires after StopAll finds no handle and
-// no-ops.
+// StopAll cancels and stops every live watcher, lingering ones included, cancels
+// their linger timers and clears the handle map, then joins every Start and
+// expiry still running. It is idempotent; a linger timer firing after it no-ops.
 func (m *WatcherManager) StopAll() {
 	m.mu.Lock()
 	m.closed = true
@@ -241,4 +240,5 @@ func (m *WatcherManager) StopAll() {
 		h.cancel()
 		h.proc.Stop()
 	}
+	m.live.Wait()
 }

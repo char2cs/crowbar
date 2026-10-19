@@ -221,6 +221,39 @@ func secondCallOnward(
 	}
 }
 
+// hungStatus is a `git status` that never returns on its own, as a hung git
+// process would: it ends only when its ctx is cancelled.
+type hungStatus struct {
+	scriptedGit
+	entered, returned chan struct{}
+}
+
+func (g *hungStatus) ComputeStatus(
+	ctx context.Context,
+	_ string,
+) (gitdomain.GitStatus, error) {
+	close(g.entered)
+	<-ctx.Done()
+	close(g.returned)
+	return gitdomain.GitStatus{}, ctx.Err()
+}
+
+// Stop cancels a git recompute in flight and returns only once the loop running
+// it has exited, so no git process outlives the watcher.
+func TestWatcher_Stop_CancelsAndJoinsAGitRecomputeInFlight(t *testing.T) {
+	g := &hungStatus{entered: make(chan struct{}), returned: make(chan struct{})}
+	c := newCapturingWatcher(t, t.TempDir(), g)
+	c.timer.Fire()
+	<-g.entered
+
+	c.w.Stop()
+	select {
+	case <-g.returned:
+	default:
+		t.Fatal("Stop returned while the git recompute was still running")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // fanOutGit — OnSyncWorkingTreeState fires when summary changes
 // ---------------------------------------------------------------------------

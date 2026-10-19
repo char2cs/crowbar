@@ -29,9 +29,8 @@ type providerPollHandle struct {
 // per-active-WS-connection provider poll (D10/§11). It mirrors WatcherManager
 // with its OWN handle map so its refcount is independent of the watcher/LSP
 // lifecycles: the first subscriber on a single workspace WS starts a goroutine
-// ticking every interval, and the last unsubscribe stops it. Each tick issues
-// the provider poll on a context.WithoutCancel-derived context so a mid-tick
-// cancel (Release/StopAll) never aborts an in-flight Asynx write.
+// ticking every interval, and the last unsubscribe stops it. Each poll runs under
+// the runner's context, so Release and StopAll cancel it rather than wait it out.
 type ProviderPollManager struct {
 	root     context.Context
 	interval time.Duration
@@ -42,7 +41,7 @@ type ProviderPollManager struct {
 
 	// runners tracks the live run goroutines. Cancelling a context only ASKS a
 	// runner to stop; runners.Wait is the real "it has stopped" signal, which
-	// tests block on (waitRunnersForTest) instead of sleeping.
+	// StopAll joins on and tests block on after Release (waitRunnersForTest).
 	runners sync.WaitGroup
 
 	// ticks and cycleDone are the deterministic test seams installed by
@@ -54,9 +53,7 @@ type ProviderPollManager struct {
 // pollTimeout bounds a single PollWorkspace invocation. The chain runs network
 // subprocesses (gh auth status, gh api, git ls-remote, gh pr list) and a hung
 // remote (network partition, credential prompt on stdin) would otherwise leak
-// the poll goroutine + child forever and stall all PR polling. WithoutCancel
-// keeps the poll decoupled from the per-connection ctx; this timeout still
-// guarantees forward progress on every tick.
+// the poll goroutine + child forever and stall all PR polling.
 const pollTimeout = 30 * time.Second
 
 // NewProviderPollManager builds the manager over the per-connection poll
@@ -129,9 +126,9 @@ func (m *ProviderPollManager) Release(
 	h.cancel()
 }
 
-// StopAll cancels every live poll and clears the handle map. It is idempotent
-// and marks the manager closed so subsequent Acquire calls no-op. It runs on
-// graceful shutdown (via the realtime Service Close).
+// StopAll cancels every live poll, clears the handle map and joins every runner,
+// so no poll outlives shutdown into a closed store. It is idempotent and marks
+// the manager closed so later Acquire calls no-op.
 func (m *ProviderPollManager) StopAll() {
 	m.mu.Lock()
 	m.closed = true
@@ -142,11 +139,11 @@ func (m *ProviderPollManager) StopAll() {
 	for _, h := range handles {
 		h.cancel()
 	}
+	m.runners.Wait()
 }
 
 // run ticks every interval and issues a single-workspace provider poll until the
-// per-connection context is cancelled. The poll runs on a WithoutCancel-derived
-// context so a Release/StopAll mid-tick cannot abort an in-flight Asynx write.
+// per-connection context is cancelled, which also cancels a poll in flight.
 func (m *ProviderPollManager) run(
 	ctx context.Context,
 	wsID string,
@@ -218,10 +215,8 @@ func (m *ProviderPollManager) notifyCycle(
 	}
 }
 
-// pollTick issues a single PollWorkspace on a context.WithoutCancel-derived,
-// timeout-bounded context. WithoutCancel keeps an in-flight Asynx write from
-// being aborted by a mid-tick Release/StopAll; the timeout still cancels a poll
-// whose subprocesses hang, so the run goroutine cannot wedge forever.
+// pollTick issues a single PollWorkspace bounded by pollTimeout, so a poll whose
+// subprocesses hang cannot wedge the run goroutine forever.
 func (m *ProviderPollManager) pollTick(
 	ctx context.Context,
 	wsID string,
@@ -237,7 +232,7 @@ func (m *ProviderPollManager) pollTickWithTimeout(
 	wsID string,
 	timeout time.Duration,
 ) {
-	pollCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	pollCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	_ = m.poll.PollWorkspace(pollCtx, wsID)
 }
