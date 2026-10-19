@@ -886,8 +886,8 @@ func (e *Emulator) registerDefaultCsiHandlers() {
 
 		height := e.Height()
 		bottom, _ := e.parser.Param(1, height)
-		if bottom < 1 {
-			bottom = height
+		if bottom < 1 || bottom > height {
+			bottom = height // as in xterm, a margin past the screen ends at its last row
 		}
 
 		if top >= bottom {

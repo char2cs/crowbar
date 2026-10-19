@@ -101,20 +101,21 @@ func TestRowWrapped(t *testing.T) {
 			bytes: parked + "\x1b[4;1H\x1b7", resize: [2]int{10, 2}, after: "\x1b8\x1b[K",
 			grid: "F F", screen: "top\n", history: "hist",
 		},
+		// As in xterm, a bottom margin never reaches past the screen, so a scroll cannot run off it.
 		{
-			name:  "a bottom margin past the screen, then LF",
-			bytes: parked + "\x1b[1;20r\n\n\n\n\n",
-			grid:  "F F F F", screen: "top\n\n\n", history: "hist",
+			name:  "a bottom margin past the screen is clamped: DL at its top",
+			bytes: parked + "\x1b[1;20r\x1b[M",
+			grid:  "F F F F", screen: "\n\n\n", history: "hist|top",
 		},
 		{
-			name:  "a bottom margin past the screen, then IL and DL below the grid",
-			bytes: parked + "\x1b[1;20r\n\n\n\n\n\x1b[L\x1b[M",
-			grid:  "F F F F", screen: "top\n\n\n", history: "hist",
+			name:  "a bottom margin past the screen is clamped: LF scrolls at the last row",
+			bytes: parked + "\x1b[1;20r\x1b[20B\n",
+			grid:  "F F F F", screen: "\n\n\n", history: "hist|top",
 		},
 		{
-			name:  "a bottom margin past the screen, then autowrap",
-			bytes: parked + "\x1b[1;20r\x1b[6B" + wrap,
-			grid:  "F F F F", screen: "top\n\n\n BCDEFGHIJ", history: "hist", // x/vt clamps the print back on-grid
+			name:  "a shrink resets the margins",
+			bytes: parked + "\x1b[1;4r", resize: [2]int{10, 2}, after: "\x1b[M",
+			grid: "F F", screen: "\n", history: "hist|top",
 		},
 		{
 			name:  "ED3 drops the scrollback flags with their lines",
@@ -130,13 +131,14 @@ func TestRowWrapped(t *testing.T) {
 				vm.Resize(tc.resize[0], tc.resize[1])
 			}
 			vm.Write([]byte(tc.after))
-			assert.False(t, vm.Degraded(), "a flag access must not panic the emulator")
+			assert.False(t, vm.Degraded(), "the emulator must not panic")
 
 			grid := make([]string, vm.emu.Height())
 			for y := range grid {
 				grid[y] = flagLetter(vm.emu.RowWrapped(y))
 			}
 			assert.Equal(t, tc.grid, strings.Join(grid, " "), "grid flags")
+			assert.False(t, vm.emu.RowWrapped(-1) || vm.emu.RowWrapped(vm.emu.Height()), "a row off the grid reads unwrapped")
 			if tc.scrollback != "" {
 				sb := make([]string, vm.emu.ScrollbackLen())
 				for i := range sb {

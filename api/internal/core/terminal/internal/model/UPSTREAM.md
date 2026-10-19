@@ -17,9 +17,11 @@ no spec-locked decision is made silently.
 
 **Local patch to `api/third_party/x-vt`:** each screen row and scrollback line carries xterm's
 `isWrapped` (`Emulator.RowWrapped` / `ScrollbackRowWrapped`): set by autowrap, moved with its row,
-cleared where xterm clears it, on a width change and on ring eviction. The alternate screen keeps
-no scrollback, and a row off the grid (where x/vt can park the cursor) is ignored. Drop the patch
-once upstream exposes the bit.
+cleared where xterm clears it, on a width change and on ring eviction; a row off the grid is ignored.
+The alternate screen keeps no scrollback, and DECSTBM clamps its bottom margin to the screen, as
+xterm does. Drop the patch once upstream has both.
+ED 1 also clears the next row when it erases the cursor row whole, as xterm's comment intends; xterm's
+code (`InputHandler.ts:1218`) indexes that row without `ybase`, a bug deliberately not copied.
 
 ## Backend adopted: `x/vt` (foundation phase)
 
