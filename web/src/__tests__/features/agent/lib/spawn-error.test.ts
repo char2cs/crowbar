@@ -26,6 +26,17 @@ describe('describeSpawnError', () => {
     expect(notice.message).toContain('Codex')
   })
 
+  it('says calmly that a working chat cannot switch, instead of echoing the refusal', () => {
+    const notice = describeSpawnError(
+      new ApiError('agent: chat is busy: conflict', 409, 'chat_busy'),
+      'Codex',
+      'switch to',
+    )
+
+    expect(notice.message).toBe('Can’t switch to Codex while the chat is working')
+    expect(notice.description).not.toMatch(/conflict/)
+  })
+
   it('carries the verb of the action that failed', () => {
     const resumed = describeSpawnError(new Error('boom'), 'Codex', 'resume')
     expect(resumed.message).toBe('Couldn’t resume Codex chat')

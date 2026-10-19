@@ -6,6 +6,9 @@ import { toast } from '@/features/window/stores/toast-store'
  *  the one spawn failure the user can fix, so it gets its own words. */
 const CLI_NOT_FOUND = 424
 
+/** The daemon's code for a chat that is working and so refuses the action. */
+const CHAT_BUSY = 'chat_busy'
+
 export interface SpawnErrorNotice {
   message: string
   description: string
@@ -32,6 +35,12 @@ export function describeSpawnError(
       description:
         `Crowbar couldn’t find the ${providerName} command on this machine. ` +
         `Install it and make sure it’s on your PATH, then try again.`,
+    }
+  }
+  if (err instanceof ApiError && err.code === CHAT_BUSY) {
+    return {
+      message: `Can’t ${action} ${providerName} while the chat is working`,
+      description: 'Wait for the current turn to finish, or stop it, then try again.',
     }
   }
   const detail = err instanceof Error ? err.message : String(err)

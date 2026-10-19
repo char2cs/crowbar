@@ -489,11 +489,16 @@ export function AgentChatPane({
   //
   // AWAITABLE, and its answer is load-bearing: picking another provider's model
   // from the identity chip is two writes, and the second is only legal once the
-  // first has landed.
+  // first has landed. The daemon refuses a switch while a turn runs.
   const [switchInFlight, setSwitchInFlight] = useState(false)
+  const switchBlocked =
+    working ||
+    switchInFlight ||
+    promptReplacing ||
+    deliveryPending ||
+    attachment.state === 'reviving'
   const handleSwitch = async (providerId: string): Promise<boolean> => {
-    if (switchInFlight || promptReplacing || deliveryPending || attachment.state === 'reviving')
-      return false
+    if (switchBlocked) return false
     const name = providers.find((p) => p.id === providerId)?.displayName ?? providerId
     setSwitchInFlight(true)
     try {
@@ -961,12 +966,7 @@ export function AgentChatPane({
               chatId={shownChatId}
               providerId={activeProviderId}
               providers={providers}
-              switchDisabled={
-                switchInFlight ||
-                promptReplacing ||
-                deliveryPending ||
-                attachment.state === 'reviving'
-              }
+              switchDisabled={switchBlocked}
               working={working}
               compacting={compacting}
               turnRevision={turnRevision}
@@ -1102,12 +1102,7 @@ export function AgentChatPane({
             gridSlack={gridSlack}
             providers={providers}
             activeProviderId={activeProviderId}
-            switchDisabled={
-              switchInFlight ||
-              promptReplacing ||
-              deliveryPending ||
-              attachment.state === 'reviving'
-            }
+            switchDisabled={switchBlocked}
             splitEnabled={splitEnabled}
             working={working}
             onSwitchProvider={handleSwitch}

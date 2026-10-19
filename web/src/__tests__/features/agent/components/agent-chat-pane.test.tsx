@@ -1204,14 +1204,8 @@ describe('AgentChatPane', () => {
       expect(toastErrorFn).not.toHaveBeenCalled()
     })
 
-    // Regression: a switch never toggles `presentation` itself (see the test
-    // above — it stays on whatever surface the user was already looking at),
-    // and switchProvider/adopt alone never re-request an attach. A chat already
-    // ON the terminal surface that switches from a hotswap provider (claude) to
-    // a non-hotswap one (codex) used to strand the view on the OLD provider's
-    // live PTY label with the new runner's empty attachment underneath it —
-    // "This agent has no terminal view attached right now" — because nothing
-    // ever asked codex for one.
+    // A switch keeps the surface, and only an attach request gives a non-hotswap
+    // provider a terminal view to show on it.
     it('re-requests an attach when switching TO a non-hotswap provider while already on the terminal surface', async () => {
       const store = seedWorkspace([
         liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' }),
@@ -1503,6 +1497,20 @@ describe('AgentChatPane', () => {
       expect(switchProviderFn).not.toHaveBeenCalled()
     })
 
+    // The daemon refuses a switch while a turn runs; the pane offers none.
+    it('offers no provider switch while the chat is working', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      setChatWorking(store, 'c1', true)
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText('Terminal'))
+      })
+
+      expect(screen.getByTestId('provider-switch')).toBeDisabled()
+      await act(async () => setChatWorking(store, 'c1', false))
+      expect(screen.getByTestId('provider-switch')).toBeEnabled()
+    })
+
     it('reconciles a failed send to dormant instead of retaining a dead PTY attachment', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       submitPromptFn.mockRejectedValue(new ApiError('replacement failed', 500))
@@ -1519,16 +1527,9 @@ describe('AgentChatPane', () => {
     })
   })
 
-  // Regression: `AgentTerminalWaitBanner` (a pane-level overlay) and the
-  // composer's own `signpost` (reason: 'terminal_wait', via `resolveComposerState`)
-  // both render off the SAME `waiting` signal — but only the banner is meant to
-  // survive once the composer can actually show it. Before this test existed, both
-  // rendered at once for any chat with messages, which is exactly the duplication
-  // "one box, one occupant, never two stacked" (composer-state.ts) already forbids
-  // for every OTHER reason. The banner earns its keep only for a blank, first-turn
-  // chat, where AgentChatView renders AgentEmptyDocument instead of AgentComposer
-  // and there is no composer slot to mutate — see agent-chat-pane-terminal-wait.test.tsx
-  // for that half.
+  // The banner and the composer's signpost render off the same `waiting` signal;
+  // once a composer can show it, the signpost is its one occupant. The blank-chat
+  // half is in agent-chat-pane-terminal-wait.test.tsx.
   describe('terminal_wait on a chat that already has messages', () => {
     it('mutates the composer into a signpost instead of duplicating a pane-level banner', async () => {
       const store = seedWorkspace([
@@ -1554,17 +1555,9 @@ describe('AgentChatPane', () => {
     })
   })
 
-  // ── Regression: a 404 from the WRONG ambient workspace must not close the pane ──
-  // WorkspaceHost keeps several WorkspaceViews mounted at once (keep-alive), each
-  // rendering its own copy of the shared window-level pane tree. Opening a chat
-  // writes ONE global `pane.chatId`, so every mounted workspace's own AgentChatPane
-  // tries to render it — including one whose ambient wsId is a totally different
-  // workspace than the chat's real owner. That copy's ledger fetch 404s (the chat
-  // genuinely isn't reachable under the wrong scope), which used to be treated as
-  // "the daemon confirmed this chat is deleted" and closed the pane — wiping out
-  // the correct copy's content too. `known` (this ambient workspace's own chat
-  // list) must gate that close: a chat this workspace never lists is never grounds
-  // to close what another, correct workspace is showing.
+  // ── A 404 from the WRONG ambient workspace must not close the pane ──
+  // Every kept-alive workspace renders the one global pane; a copy whose own
+  // chat list never names the chat 404s, and that is no ground to close it.
   describe('a 404 from a workspace that does not know the chat', () => {
     it('does not close the pane when the ambient workspace never lists the chat', async () => {
       // Empty chat list for 'w1': `known` is permanently false for 'c1' here,
