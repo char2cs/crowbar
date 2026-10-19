@@ -30,25 +30,6 @@
 // than being exact on attach. Scrollback is sourced from x/vt's own built-in scrollback buffer
 // rather than a pre-scroll eviction hook (which the pinned commit does not provide). The
 // recorded spike findings and the adoption/deviation decisions live in model/UPSTREAM.md.
-//
-// Accepted residual — soft-wrap / reflow bit (spec §6.2 family, extending steps 5/7):
-// the design declares soft-wrap preservation load-bearing — a row that soft-wrapped into
-// the next physical row should be emitted at full cols width with NO trailing-blank trim
-// and NO CR/LF separator, so the attached xterm keeps the wrapped/reflow attribute and
-// identical physical-line semantics. The pinned x/vt commit exposes NO per-row wrap
-// signal: ultraviolet's uv.Line is a flat []Cell with no isWrapped attribute, the visible
-// grid offers no RowWrapped getter, and x/vt's built-in Scrollback even trims trailing
-// cells off each pushed line, so there is no source from which the serializer could
-// recover the wrap bit (the design's HARD P0 adoption gate for the wrap flag, §15, is
-// therefore not met at this pin). The serializer consequently emits EVERY scrollback and
-// grid row hard-broken with CR/LF and trimmed. The VISIBLE CELLS are preserved exactly —
-// only the wrapped/reflow semantic is lost, so a width resize on the xterm.js client after
-// attach reflows a previously-wrapped logical line differently from the model. The loss is
-// bounded to that post-attach-resize corner and self-heals on the app's next full repaint
-// (TUIs repaint on the SIGWINCH the attach implies; shells re-emit the prompt). Asserted as
-// a tracked, non-regressing fact by TestSoftWrapResidualHardBreaksButPreservesCells. If a
-// future x/vt commit surfaces the wrapped bit, steps 5/7 wrap-awareness is implemented then
-// (and this residual is deleted).
 package model
 
 import "image/color"

@@ -456,9 +456,9 @@ func TestSanitizeOSCText(t *testing.T) {
 // the serializer is a correct INVERSE of x/vt's own parser — a useful fixpoint that catches
 // encoder regressions — but it is structurally incapable of catching x/vt-vs-xterm.js
 // divergences in exactly the behaviors the spec says to verify against the oracle: DECSTR's
-// implementation-defined autowrap effect, region-relative CUP under origin mode, and
-// soft-wrap CR/LF handling. The real client is xterm.js, and its buffer-equivalence is
-// UNPROVEN by this foundation.
+// implementation-defined autowrap effect, region-relative CUP under origin mode, and the
+// autowrap out of a full-width soft-wrapped row. The real client is xterm.js, and its
+// buffer-equivalence is UNPROVEN by this foundation.
 //
 // The xterm.js SerializeAddon buffer-equivalence harness (committed @xterm/xterm +
 // @xterm/addon-serialize lockfile, real-app PTY fixtures) is an explicitly DEFERRED §15 P0

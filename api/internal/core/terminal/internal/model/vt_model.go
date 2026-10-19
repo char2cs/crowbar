@@ -255,11 +255,11 @@ func (m *vtModel) applyThemeColorsLocked() {
 // What survives the recreate: the configured scrollback DEPTH (the SetScrollbackSize
 // capacity, re-applied by buildEmu) and the title (it is shadow state, not parser state).
 // What is LOST: the visible grid AND the scrollback CONTENT (history). At this pin
-// scrollback is sourced entirely from the x/vt emulator's own buffer (D1: the compact-ring
+// scrollback is sourced entirely from the x/vt emulator's own buffer (the compact-ring
 // mechanism that would let history outlive the emulator is deferred), so building a fresh
 // emulator discards all accumulated scrollback lines. A client that attaches in the window
 // between the panic and the app's next repaint sees a blank screen with no history. This is
-// an accepted, self-healing degraded-path residual, recorded in UPSTREAM.md alongside D1 and
+// an accepted, self-healing degraded-path residual, recorded in UPSTREAM.md as D1a and
 // pinned by TestWriteRecoverDiscardsScrollbackContent.
 func (m *vtModel) Write(
 	p []byte,

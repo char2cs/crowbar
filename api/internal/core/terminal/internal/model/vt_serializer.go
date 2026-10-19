@@ -89,21 +89,25 @@ func writeContent(
 	cols int,
 	rows int,
 ) {
+	emu := vm.emu
 	if !alt {
-		n := vm.emu.ScrollbackLen()
-		for y := 0; y < n; y++ {
-			line := vm.emu.ScrollbackLine(y)
-			b.WriteString(encodeLine(line, len(line), true))
-			b.WriteString("\r\n")
+		n := emu.ScrollbackLen()
+		for i := 0; i < n; i++ {
+			next := emu.ScrollbackRowWrapped(i + 1)
+			if i == n-1 {
+				next = emu.RowWrapped(0)
+			}
+			b.WriteString(encodeChainRow(emu.ScrollbackLine(i), cols, emu.ScrollbackRowWrapped(i), next, "\r\n"))
 		}
 	}
 	var scratch []uv.Cell
 	for y := 0; y < rows; y++ {
-		if y > 0 {
-			b.WriteString("\r\n")
+		brk := "\r\n"
+		if y == rows-1 {
+			brk = ""
 		}
-		scratch = snapshotRowInto(vm.emu, scratch, cols, y)
-		b.WriteString(encodeLine(scratch, cols, true))
+		scratch = snapshotRowInto(emu, scratch, cols, y)
+		b.WriteString(encodeChainRow(scratch, cols, emu.RowWrapped(y), emu.RowWrapped(y+1), brk))
 	}
 }
 

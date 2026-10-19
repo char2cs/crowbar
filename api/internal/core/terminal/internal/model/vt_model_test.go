@@ -119,7 +119,7 @@ func TestWriteRecoversParsePanicAndRecreates(t *testing.T) {
 }
 
 // TestWriteRecoverDiscardsScrollbackContent pins the ACCEPTED RESIDUAL recorded in
-// UPSTREAM.md (alongside D1): at this pin scrollback is sourced entirely from the x/vt
+// UPSTREAM.md (D1a): at this pin scrollback is sourced entirely from the x/vt
 // emulator's own buffer, so the parse-panic recreate — which builds a brand-new blank
 // emulator via the newEmulator seam — discards the scrollback CONTENT (history) along with
 // the visible grid. Only the configured scrollback DEPTH and the title survive. This is a

@@ -8,17 +8,17 @@ import (
 	"time"
 )
 
-// wrapScenario prints, on the 80-column terminal, a 120-column URL (the terminal soft-wraps
-// it), an exactly 80-column row of x and a y row after it (the program hard-breaks them). The
-// marker is assembled from a shell variable so it appears only in the output, never the echoed
-// command.
+// wrapScenario prints a 120-column URL the 80-column terminal soft-wraps, then an exactly
+// 80-column x row the program hard-breaks before a y row. The marker is built from a shell
+// variable, so only the output contains it, never the echoed command.
 const wrapScenario = "printf 'https://example.com/%0100d\\n' 0 | tr 0 a; printf '%080d\\n' 0 | tr 0 x; " +
 	"echo yyyyyyyyyy; M=WRAP_DONE; echo \"${M}_7d1c\"; sleep 30\n"
 
 var (
 	wrapURL     = "https://example.com/" + strings.Repeat("a", 100)
 	exactFitRow = strings.Repeat("x", 80)
-	// A live frame reaches the row after an exact-fit row by a cursor address to column 1; an
+	// A column-1 cursor address sits between an exact-fit row and the next: the y row's own, or
+	// the emitter's cursor park after the x row's CRLF. Either breaks the flow on the client; an
 	// autowrap continuation would follow the x row with no address at all.
 	liveHardBreak = regexp.MustCompile(exactFitRow + "[^y]*?\x1b\\[[0-9]+;1H[^y]*?yyyyyyyyyy")
 )
