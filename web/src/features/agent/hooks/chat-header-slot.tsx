@@ -1,4 +1,4 @@
-import { createContext, use, useState, type ReactNode } from 'react'
+import { createContext, use, useMemo, useState, type ReactNode } from 'react'
 
 interface ChatHeaderSlot {
   element: HTMLElement | null
@@ -11,7 +11,8 @@ const ChatHeaderSlotContext = createContext<ChatHeaderSlot | null>(null)
  *  surface reaches the row's slot through this rather than a second copy of its state. */
 export function ChatHeaderSlotProvider({ children }: { children: ReactNode }) {
   const [element, setElement] = useState<HTMLElement | null>(null)
-  return <ChatHeaderSlotContext value={{ element, setElement }}>{children}</ChatHeaderSlotContext>
+  const value = useMemo(() => ({ element, setElement }), [element, setElement])
+  return <ChatHeaderSlotContext value={value}>{children}</ChatHeaderSlotContext>
 }
 
 /** Where a header row lets the chat surface draw its own controls. */
