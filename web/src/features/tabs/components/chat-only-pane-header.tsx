@@ -4,6 +4,7 @@ import { openBranchReviewForWorkspace } from '@/features/panes/utils/pane-comman
 import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
 import { useSettingsStore } from '@/features/settings/store'
 import type { PaneGroup } from '@/features/panes/types/pane'
+import { ChatHeaderSlot } from '@/features/agent/hooks/chat-header-slot'
 import { ChatBranchHeader } from './chat-branch-header'
 import { BranchReviewShortcutButton } from './branch-review-shortcut-button'
 import { PaneTopRow } from './pane-top-row'
@@ -50,6 +51,7 @@ export function ChatOnlyPaneHeader({ pane, wsId }: ChatOnlyPaneHeaderProps) {
       overlay
     >
       <ChatBranchHeader chatId={pane.chatId ?? ''} wsId={wsId} className="h-full min-w-0 flex-1" />
+      <ChatHeaderSlot />
       {!isThread && (
         <BranchReviewShortcutButton
           isBottomPane={isBottomPane}

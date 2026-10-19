@@ -1,5 +1,6 @@
 import { usePaneTopRowEdges } from '../hooks/use-pane-top-row-edges'
 import { useSettingsStore } from '@/features/settings/store'
+import { ChatHeaderSlot } from '@/features/agent/hooks/chat-header-slot'
 import { ChatBranchHeader } from './chat-branch-header'
 import { PaneTopRow } from './pane-top-row'
 
@@ -36,6 +37,7 @@ export function ChatColumnHeader({ chatId, wsId, isBottomPane }: ChatColumnHeade
       overlay
     >
       <ChatBranchHeader chatId={chatId} wsId={wsId} className="h-full min-w-0 flex-1" />
+      <ChatHeaderSlot />
     </PaneTopRow>
   )
 }
