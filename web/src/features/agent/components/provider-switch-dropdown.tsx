@@ -4,10 +4,8 @@ import { Dropdown, dropdownTriggerClassName } from '@/components/ui/dropdown'
 import { ProviderIcon } from '@/components/ui/provider-icon'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
 
-// The trigger's width AND its menu's — one number so they cannot drift apart. The shared
-// dropdown's 240px default ballooned the menu far wider than the trigger beneath it;
-// matching the menu to the trigger instead shrank both to ~100px. This is the sane
-// middle: wide enough for a provider row, narrow enough not to loom over the chat.
+// The terminal-strip trigger and menu share one width. The header uses a compact,
+// content-sized trigger while keeping this wider menu for readable provider names.
 //
 // The menu takes it as an inline STYLE, not a class, and that is deliberate. Dropdown
 // locks its measured content width on open (applyLockedWidth) and would overwrite a
@@ -23,6 +21,8 @@ export interface ProviderSwitchDropdownProps {
   currentProviderId: string
   onSwitch: (providerId: string) => void
   disabled?: boolean
+  /** Use a content-sized trigger when the control sits in a pane header. */
+  compact?: boolean
 }
 
 // Chat-pane footer control (Task 15 places it): trigger shows the chat's
@@ -32,6 +32,7 @@ export function ProviderSwitchDropdown({
   currentProviderId,
   onSwitch,
   disabled = false,
+  compact = false,
 }: ProviderSwitchDropdownProps) {
   const [isOpen, setIsOpen] = useState(false)
   const anchorRef = useRef<HTMLButtonElement>(null)
@@ -78,12 +79,9 @@ export function ProviderSwitchDropdown({
           lives at the RIGHT end of the status line now: the edge that has to land on
           the terminal's last column is the caret's, not the icon's. Measured in the
           running app. The hover background still covers the full padded width. */}
-      {/* The trigger and its menu are ONE control, so they share one width. Both are
-          SWITCHER_WIDTH; anything else and they read as two unrelated things stacked by
-          accident. justify-between is what makes the extra width usable: buttonVariants
-          CENTRES its content, so widening the button alone would drift the icon into the
-          middle and undo the column alignment above. Provider name left, caret right —
-          a select. */}
+      {/* In the terminal strip, the trigger and menu share SWITCHER_WIDTH so the name
+          and caret align to the character grid. In a pane header the trigger is
+          content-sized to leave room for the branch-review action. */}
       <button
         ref={anchorRef}
         type="button"
@@ -91,7 +89,9 @@ export function ProviderSwitchDropdown({
         title={disabled ? 'Wait for prompt delivery before switching providers' : undefined}
         onClick={() => setIsOpen((open) => !open)}
         className={dropdownTriggerClassName(
-          `-mr-[9px] h-7 ${SWITCHER_WIDTH_CLASS} shrink-0 justify-between text-foreground`,
+          compact
+            ? 'h-7 w-fit max-w-40 shrink-0 justify-between px-1.5 text-foreground'
+            : `-mr-[9px] h-7 ${SWITCHER_WIDTH_CLASS} shrink-0 justify-between text-foreground`,
           'ghost',
         )}
       >

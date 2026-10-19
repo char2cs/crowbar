@@ -1,8 +1,10 @@
+import { createPortal } from 'react-dom'
 import type { CSSProperties, MouseEvent, Ref } from 'react'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
 import { ProviderSwitchDropdown } from '@/features/agent/components/provider-switch-dropdown'
+import { useChatHeaderSlotElement } from '@/features/agent/hooks/chat-header-slot'
 import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import {
@@ -46,8 +48,6 @@ export interface AgentTerminalSurfaceProps {
   basis: number
   isActivePane: boolean
   isVisible: boolean
-  /** The chat's name, shown on the strip. */
-  title: string
   /** Right inset so the strip ends on the character grid's last column. */
   gridSlack: number
   providers: AgentProvider[]
@@ -92,7 +92,6 @@ export function AgentTerminalSurface({
   basis,
   isActivePane,
   isVisible,
-  title,
   gridSlack,
   providers,
   activeProviderId,
@@ -108,6 +107,28 @@ export function AgentTerminalSurface({
   ref,
 }: AgentTerminalSurfaceProps) {
   const provider = providers.find((candidate) => candidate.id === activeProviderId)
+  const headerSlot = useChatHeaderSlotElement()
+  // EXACTLY ONE view switcher exists on a pane. In split the chat's provider
+  // bar is on screen and carries it; on the terminal surface it is here.
+  const controls = (
+    <>
+      {presentation === 'terminal' && provider?.hasTerminal !== false && (
+        <ViewSwitcher
+          presentation={presentation}
+          splitEnabled={splitEnabled && provider?.hotswap === true}
+          handoverBlocked={!provider?.hotswap && working}
+          onSelect={onSelectPresentation}
+        />
+      )}
+      <ProviderSwitchDropdown
+        providers={providers}
+        currentProviderId={activeProviderId}
+        onSwitch={onSwitchProvider}
+        disabled={switchDisabled}
+        compact={Boolean(headerSlot)}
+      />
+    </>
+  )
   return (
     <div
       ref={ref}
@@ -189,40 +210,24 @@ export function AgentTerminalSurface({
         </div>
       )}
 
-      {/* The status line, spanning the character grid: what this conversation IS
-          on the left, who is running it on the right. Both sit on the column, so
-          the title starts on the agent's first character and the switcher ends
-          on its last one. `min-w-0` is what lets a long title truncate instead
-          of shoving the switcher off the column — a flex child defaults to
-          min-width:auto and refuses to shrink below its content.
+      {/* Which face of the provider you are looking at, and which agent runs it.
+          Drawn in the pane's header row when it has one, so the terminal keeps
+          the height; a pane with no header row keeps them on a strip here.
 
           NOT DRAWN ON THE CHAT SURFACE. Chat states what it is running as in its
           own underbar, on the composer's measure; repeating it under a surface
           that already says all of it is two answers to one question. */}
-      {presentation !== 'chat' && (
-        <div
-          className="flex items-center justify-between gap-3 py-2"
-          style={{ paddingRight: gridSlack }}
-        >
-          <span className="min-w-0 truncate text-muted-foreground text-sm">{title}</span>
-          {/* EXACTLY ONE of these exists on a pane. In split the chat's provider
-              bar is on screen and carries it; here it is the only bar there is. */}
-          {presentation === 'terminal' && provider?.hasTerminal !== false && (
-            <ViewSwitcher
-              presentation={presentation}
-              splitEnabled={splitEnabled && provider?.hotswap === true}
-              handoverBlocked={!provider?.hotswap && working}
-              onSelect={onSelectPresentation}
-            />
-          )}
-          <ProviderSwitchDropdown
-            providers={providers}
-            currentProviderId={activeProviderId}
-            onSwitch={onSwitchProvider}
-            disabled={switchDisabled}
-          />
-        </div>
-      )}
+      {presentation !== 'chat' &&
+        (headerSlot ? (
+          createPortal(controls, headerSlot)
+        ) : (
+          <div
+            className="flex items-center justify-end gap-3 py-2"
+            style={{ paddingRight: gridSlack }}
+          >
+            {controls}
+          </div>
+        ))}
     </div>
   )
 }

@@ -197,10 +197,6 @@ export function AgentChatPane({
   // `activity`. See AgentChatsState.compacting's own doc comment for why.
   const compacting = useStore(store, (s) => s.agentChats.compacting[shownChatId] ?? false)
   const turnRevision = useStore(store, (s) => s.agentChats.turnRevision[shownChatId] ?? 0)
-  const title = useStore(
-    store,
-    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.title ?? '',
-  )
   // The chat's sticky selection, '' when it has made none. Two narrow selectors
   // rather than the chat object: a selector returning the row itself would re-run
   // every consumer on any field of it.
@@ -1098,7 +1094,6 @@ export function AgentChatPane({
             basis={splitSizes[1]}
             isActivePane={isActivePane}
             isVisible={isVisible}
-            title={title}
             gridSlack={gridSlack}
             providers={providers}
             activeProviderId={activeProviderId}

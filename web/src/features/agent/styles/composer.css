@@ -929,11 +929,9 @@
 }
 
 /* ── the view switcher (ui/tabs pill variant) ──────────── */
-/* Scoped to the PANE, not the chat. The terminal surface draws this same
-   switcher in its status strip and is not inside `.agent-chat`, so a chat-scoped
-   rule left the TUI's copy completely unstyled — three bare glyphs on the
-   background. Everything both surfaces share hangs off `.agent-chat-pane`. */
-.agent-chat-pane .viewswitch {
+/* Unscoped: the terminal surface portals this into the pane header, outside
+   both `.agent-chat` and `.agent-chat-pane`. */
+.viewswitch {
   display: inline-flex;
   gap: 2px;
   flex: none;
@@ -941,7 +939,7 @@
   border-radius: 9999px;
   background: var(--muted);
 }
-.agent-chat-pane .viewswitch button {
+.viewswitch button {
   display: grid;
   place-items: center;
   width: 22px;
@@ -953,11 +951,11 @@
   color: var(--muted-foreground);
   cursor: pointer;
 }
-.agent-chat-pane .viewswitch button:hover:not(:disabled):not(.on) {
+.viewswitch button:hover:not(:disabled):not(.on) {
   background: var(--accent);
   color: var(--foreground);
 }
-.agent-chat-pane .viewswitch button.on {
+.viewswitch button.on {
   border-color: var(--background);
   background: var(--background);
   color: var(--foreground);
@@ -965,11 +963,11 @@
     0 1px 2px oklch(0 0 0 / 0.1),
     inset 0 1px var(--elevated-highlight);
 }
-.agent-chat-pane .viewswitch button:disabled {
+.viewswitch button:disabled {
   opacity: 0.35;
   cursor: default;
 }
-.agent-chat-pane .viewswitch svg {
+.viewswitch svg {
   width: 14px;
   height: 14px;
 }

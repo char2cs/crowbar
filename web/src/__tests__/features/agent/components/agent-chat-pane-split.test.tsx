@@ -13,7 +13,7 @@
  * two buttons, one live surface, the other dormant under `display:none`.
  */
 import { createElement, type ReactNode } from 'react'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChat, AgentProvider } from '@/features/agent/api/agent-api'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
@@ -120,6 +120,7 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
   ProviderSwitchDropdown: () => createElement('button', { 'data-testid': 'provider-switch' }),
 }))
 
+import { ChatHeaderSlot, ChatHeaderSlotProvider } from '@/features/agent/hooks/chat-header-slot'
 import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 import { useSettingsStore } from '@/features/settings/store'
@@ -281,6 +282,38 @@ describe('AgentChatPane — with the split view switched off', () => {
     expect(chatHalf()).toHaveClass('hidden')
     expect(xterm()).toHaveAttribute('data-visible', 'true')
     expect(xterm()).toHaveAttribute('data-active', 'true')
+  })
+})
+
+describe('AgentChatPane — terminal controls', () => {
+  it('draws the switcher and provider changer in the header row, not under the terminal', async () => {
+    await act(async () =>
+      render(
+        createElement(
+          ChatHeaderSlotProvider,
+          null,
+          createElement('header', { 'data-testid': 'header' }, createElement(ChatHeaderSlot)),
+          createElement(
+            WorkspaceStoreContext.Provider,
+            { value: seed() },
+            createElement(AgentChatPane, {
+              chatId: 'c1',
+              runnerId: 'r1',
+              wsId: 'w1',
+              paneId: 'b1',
+              isActivePane: true,
+              isVisible: true,
+            }),
+          ),
+        ),
+      ),
+    )
+    await choose('Terminal')
+
+    const header = screen.getByTestId('header')
+    expect(within(header).getByRole('tab', { name: 'Terminal' })).toBeInTheDocument()
+    expect(within(header).getByTestId('provider-switch')).toBeInTheDocument()
+    expect(within(terminalHalf()).queryByTestId('provider-switch')).not.toBeInTheDocument()
   })
 })
 
