@@ -17,7 +17,10 @@ import {
   type ShikiGrammar,
 } from '@/features/editor/lib/shiki-grammars'
 
-const engine = vi.hoisted(() => ({ failNextBuild: false }))
+const engine = vi.hoisted(() => ({
+  failNextBuild: false,
+  builtWith: [] as unknown[],
+}))
 
 vi.mock('shiki/engine/javascript', async (importOriginal) => {
   const actual = await importOriginal<typeof import('shiki/engine/javascript')>()
@@ -26,6 +29,7 @@ vi.mock('shiki/engine/javascript', async (importOriginal) => {
     createJavaScriptRegexEngine: (
       ...args: Parameters<typeof actual.createJavaScriptRegexEngine>
     ) => {
+      engine.builtWith.push(args[0])
       if (engine.failNextBuild) {
         engine.failNextBuild = false
         throw new Error('chunk failed to load')
@@ -115,6 +119,17 @@ it('builds the highlighter again after a failed build, but never retries a faile
   expect(fresh.grammarStateOf('go')).toBe('ready')
   expect(fresh.grammarFor('python')).toBeNull()
   expect(fresh.grammarStateOf('python')).toBe('failed')
+}, 30_000)
+
+it('builds the highlighter with the pinned regex options', async () => {
+  vi.resetModules()
+  const fresh = await import('@/features/editor/lib/shiki-grammars')
+  engine.builtWith.length = 0
+
+  fresh.grammarFor('lua')
+  await vi.waitFor(() => expect(fresh.grammarStateOf('lua')).toBe('ready'), LOAD)
+
+  expect(engine.builtWith).toEqual([{ forgiving: true, target: 'ES2024' }])
 }, 30_000)
 
 it('targets ES2024 regexes where the v flag compiles, else ES2018, never auto', () => {

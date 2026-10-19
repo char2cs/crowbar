@@ -636,7 +636,7 @@ it('tokenizes the editor languages like the oniguruma engine')
   - `createHighlighterCore({ themes: [import('shiki/themes/github-dark.mjs')], langs: [], engine: createJavaScriptRegexEngine({ forgiving: true }) })` from `shiki/core` and `shiki/engine/javascript`.
   - Language loaders come from `shiki/langs` (`bundledLanguages`, `bundledLanguagesAlias`): a 25 KB index of per-language dynamic imports.
   - Each language moves `loading → ready | failed` exactly once.
-  - `shiki-tokens` asks `grammarFor`/`onGrammarReady` instead of warming its own. `shiki-lowlight` does the same, and `onShikiLanguageReady` delegates to `onGrammarReady`.
+  - `shiki-tokens` asks `grammarFor`/`onGrammarReady` instead of warming its own. `shiki-lowlight` does the same, and `code-block-node` subscribes to `onGrammarReady` directly.
   - The one-off compile deferral in `shikiTokensInRange` (`compiledLanguages`) stays where it is.
 - [ ] **Step 4:** Run the new test, `shiki-tokens.test.ts`, `shiki-lowlight.test.ts` and `semantic-tokens-provider.test.ts`; then `bun tsc --noEmit`, eslint and knip. Check `grep -rn "bundle/full" web/src` is empty.
 - [ ] **Step 5: Live.**
