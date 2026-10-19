@@ -11,7 +11,7 @@ no spec-locked decision is made silently.
 
 | module | pin |
 | --- | --- |
-| `github.com/charmbracelet/x/vt` | `v0.0.0-20260629091435-9c70f75e26a4` (untagged) |
+| `github.com/charmbracelet/x/vt` | `v0.0.0-20260629091435-9c70f75e26a4` (untagged), vendored at `api/third_party/x-vt` and wired by `replace` in `api/go.mod`; not read from the module cache |
 | `github.com/charmbracelet/ultraviolet` | `v0.0.0-20260622092850-f39628c8a989` |
 | `github.com/charmbracelet/x/ansi` | `v0.11.7` |
 

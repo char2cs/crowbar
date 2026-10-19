@@ -27,3 +27,14 @@ Copyright (c) 2014 Ryan L McIntyre (https://github.com/ryanoasis/nerd-fonts)
 Licensed under the MIT License. The font aggregates glyphs from upstream icon sets
 that carry their own licenses; see the note in the license file.
 Full license text: [`licenses/SymbolsNerdFont-MIT.txt`](licenses/SymbolsNerdFont-MIT.txt)
+
+## Go source
+
+### charmbracelet/x/vt — `api/third_party/x-vt`
+
+Copyright (c) 2023 Charmbracelet, Inc.
+
+Licensed under the MIT License. Vendored from `github.com/charmbracelet/x/vt` at
+`v0.0.0-20260629091435-9c70f75e26a4` (untagged commit `9c70f75e26a4`); the `replace`
+in `api/go.mod` points the module at this directory.
+Full license text: [`api/third_party/x-vt/LICENSE`](api/third_party/x-vt/LICENSE)

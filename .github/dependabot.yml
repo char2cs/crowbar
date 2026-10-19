@@ -19,6 +19,9 @@ updates:
     commit-message:
       prefix: build
       include: scope
+    # Vendored at api/third_party/x-vt; the replace in go.mod overrides any bump.
+    ignore:
+      - dependency-name: github.com/charmbracelet/x/vt
     groups:
       go:
         patterns: ['*']
