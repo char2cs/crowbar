@@ -82,6 +82,9 @@ func NewEmulator(w, h int) *Emulator {
 	t := new(Emulator)
 	t.scrs[0] = *NewScreen(w, h)
 	t.scrs[1] = *NewScreen(w, h)
+	// The alternate screen keeps no history, as in xterm, so a row it
+	// scrolls off can never head a wrapped one.
+	t.scrs[1].SetScrollback(nil)
 	t.scr = &t.scrs[0]
 	t.scrs[0].cb = &t.cb
 	t.scrs[1].cb = &t.cb
@@ -471,6 +474,19 @@ func (e *Emulator) ScrollbackCellAt(x, y int) *uv.Cell {
 		return nil
 	}
 	return sb.CellAt(x, y)
+}
+
+// RowWrapped reports whether row y of the active screen continues row y-1
+// because the cursor autowrapped into it.
+func (e *Emulator) RowWrapped(y int) bool {
+	return y >= 0 && y < len(e.scr.wrapped) && e.scr.wrapped[y]
+}
+
+// ScrollbackRowWrapped reports whether scrollback line i (0 = oldest)
+// continues line i-1 because the cursor autowrapped into it.
+func (e *Emulator) ScrollbackRowWrapped(i int) bool {
+	sb := e.Scrollback()
+	return sb != nil && i >= 0 && i < len(sb.wrapped) && sb.wrapped[i]
 }
 
 // SetScrollbackSize sets the maximum number of lines in the scrollback buffer.

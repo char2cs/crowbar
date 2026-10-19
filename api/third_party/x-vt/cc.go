@@ -15,7 +15,12 @@ func (e *Emulator) handleControl(r byte) {
 
 // linefeed is the same as [index], except that it respects [ansi.LNM] mode.
 func (e *Emulator) linefeed() {
+	_, y := e.scr.CursorPosition()
 	e.index()
+	// As in xterm, a line feed onto an existing row (not IND) ends its wrap.
+	if _, ny := e.scr.CursorPosition(); ny != y {
+		e.scr.wrapped[ny] = false
+	}
 	if e.isModeSet(ansi.ModeLineFeedNewLine) {
 		e.carriageReturn()
 	}

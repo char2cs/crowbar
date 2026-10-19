@@ -69,6 +69,8 @@ func (f *fakeEmu) ScrollbackLine(y int) uv.Line {
 	}
 	return f.scrollback[y]
 }
+func (f *fakeEmu) RowWrapped(int) bool                   { return false }
+func (f *fakeEmu) ScrollbackRowWrapped(int) bool         { return false }
 func (f *fakeEmu) Close()                                { f.closed++ }
 func (f *fakeEmu) SetResponseSink(func(p []byte))        {}
 func (f *fakeEmu) SetDefaultBackgroundColor(color.Color) {}

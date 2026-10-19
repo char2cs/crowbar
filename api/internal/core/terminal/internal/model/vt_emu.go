@@ -37,6 +37,14 @@ type emulator interface {
 	ScrollbackLine(
 		y int,
 	) uv.Line
+	// RowWrapped / ScrollbackRowWrapped report xterm's isWrapped for a grid row or a
+	// scrollback line (0 = oldest): it continues the row above by autowrap.
+	RowWrapped(
+		y int,
+	) bool
+	ScrollbackRowWrapped(
+		i int,
+	) bool
 	// Close releases the emulator (and, for the production emulator, stops its
 	// response-pipe drain goroutine). Idempotent.
 	Close()

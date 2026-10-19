@@ -37,4 +37,5 @@ Copyright (c) 2023 Charmbracelet, Inc.
 Licensed under the MIT License. Vendored from `github.com/charmbracelet/x/vt` at
 `v0.0.0-20260629091435-9c70f75e26a4` (untagged commit `9c70f75e26a4`); the `replace`
 in `api/go.mod` points the module at this directory.
+The copy is locally patched; details in `api/internal/core/terminal/internal/model/UPSTREAM.md`.
 Full license text: [`api/third_party/x-vt/LICENSE`](api/third_party/x-vt/LICENSE)

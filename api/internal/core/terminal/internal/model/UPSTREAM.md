@@ -15,6 +15,11 @@ no spec-locked decision is made silently.
 | `github.com/charmbracelet/ultraviolet` | `v0.0.0-20260622092850-f39628c8a989` |
 | `github.com/charmbracelet/x/ansi` | `v0.11.7` |
 
+**Local patch to `api/third_party/x-vt`:** each screen row and scrollback line carries xterm's
+`isWrapped` (`Emulator.RowWrapped` / `ScrollbackRowWrapped`): set by autowrap, moved with its row,
+cleared where xterm clears it, on a width change and on ring eviction. The alternate screen keeps
+no scrollback. Drop the patch once upstream exposes the bit.
+
 ## Backend adopted: `x/vt` (foundation phase)
 
 `x/vt` is adopted for the foundational `model/` package. The `midterm` fall-through (§5.4 /
