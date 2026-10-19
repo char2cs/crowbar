@@ -193,7 +193,7 @@ func (rs *Runners) startAPIConn(
 }
 
 // applyAPITransport connects an api-transport descriptor and establishes its
-// session first, so a hotswap attach argv (returned for the PTY) names the thread
+// session first, so a hotswap attach argv (returned for the PTY) names the session
 // prompts act on. Any failure leaves the spawn to run over hooks alone.
 func (rs *Runners) applyAPITransport(
 	ctx context.Context,
@@ -209,8 +209,8 @@ func (rs *Runners) applyAPITransport(
 	if tctx.Session, ok = rs.establishAPISession(ctx, conn, runnerID, providerID, tctx); !ok {
 		return nil
 	}
-	// The only channel that reaches an already-resumed thread with the gap
-	// (thread/resume's own send: has nowhere to put it). Best effort: a failed
+	// The only channel that reaches an already-resumed session with the gap
+	// (the resume call's own send: has nowhere to put it). Best effort: a failed
 	// inject leaves the resumed session running without the gap, not unresumed.
 	if resumeContext != "" {
 		if err := conn.driver.InjectAt(ctx, "context", map[string]string{

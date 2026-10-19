@@ -69,7 +69,7 @@ func newDescriptorTestCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
-	cmd.Flags().BoolVar(&isLive, "live", false, "spawn the real CLI: binary, version, flags, TUI boot, hooks, resume, app-server")
+	cmd.Flags().BoolVar(&isLive, "live", false, "spawn the real CLI: binary, version, flags, TUI boot, hooks, resume, api serve")
 	cmd.Flags().BoolVar(&opts.Turn, "turn", false, "with --live, run one real model turn (one billed request)")
 	cmd.Flags().StringVar(&opts.Cwd, "cwd", "", "with --live, boot the CLI here instead of a fresh temporary directory")
 	return cmd

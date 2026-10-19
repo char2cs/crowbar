@@ -76,7 +76,7 @@ func TestConform_AHealthyCLIPassesEveryStep(t *testing.T) {
 	assert.Equal(t, map[string]descriptorcheck.Status{
 		"binary": "pass", "version": "pass", "flags": "pass", "tui_boot": "pass",
 		"hooks": "pass", "turn": "pass", "resume_unknown": "pass",
-		"app_server": "skip",
+		"api_serve": "skip",
 	}, statuses(rep), "%+v", rep.Steps)
 	assert.True(t, rep.OK())
 	assert.Contains(t, step(t, rep, "hooks").Detail, "session_start, user_prompt, turn_stop")
@@ -183,7 +183,7 @@ func TestConform_TheAppServerMustAnswerInitialize(t *testing.T) {
 	for transcript, want := range cases {
 		t.Run(transcript, func(t *testing.T) {
 			rep := conform(t, run{descriptor: "serve.yaml", transcript: transcript})
-			s := step(t, rep, "app_server")
+			s := step(t, rep, "api_serve")
 			assert.Equal(t, want, s.Status, s.Detail)
 		})
 	}

@@ -169,13 +169,13 @@ func channelRules(doc document, d *spec.Descriptor) []Finding {
 	for i, step := range d.ConfigInjection {
 		if wiresHooks([]spec.InjectStep{step}) {
 			out = append(out, doc.finding("hooks.in_config_injection", SeverityError, fmt.Sprintf("config_injection[%d]", i),
-				"hook wiring in config_injection also reaches the app-server, so events arrive twice",
+				"hook wiring in config_injection also reaches the api serve process, so events arrive twice",
 				"move hook wiring to hooks_injection, which is applied to a PTY only"))
 		}
 	}
 	if d.Runtime.Transport == string(spec.ChannelAPI) && len(d.Runtime.API.Serve) == 0 {
 		out = append(out, doc.finding("runtime.api_serve", SeverityError, "runtime.api",
-			"runtime.transport is api but runtime.api.serve is empty", "declare the argv that starts the provider's app-server"))
+			"runtime.transport is api but runtime.api.serve is empty", "declare the argv that starts the provider's api serve process"))
 	}
 	return out
 }

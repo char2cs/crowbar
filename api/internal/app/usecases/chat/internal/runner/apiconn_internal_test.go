@@ -179,6 +179,7 @@ func TestStartAPIConn_ServeIsReadyOnlyOnceItAnswers(t *testing.T) {
 	select {
 	case release := <-opened:
 		assert.False(t, h.rs.HasLiveAPIConnection("runner-1"), "a silent serve was taken as ready")
+		assert.Zero(t, h.term.callCount(), "a silent serve was given up for a PTY")
 		require.NoError(t, release.Close())
 	case err := <-spawned:
 		t.Fatalf("the spawn went on before its serve answered: %v", err)

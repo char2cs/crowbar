@@ -13,22 +13,22 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// appServer starts runtime.api.serve and runs the handshake the runner runs:
+// apiServe starts runtime.api.serve and runs the handshake the runner runs:
 // serve is ready only once it answers over its own stdio.
-func (l *live) appServer(ctx context.Context) Step {
+func (l *live) apiServe(ctx context.Context) Step {
 	if l.d.Runtime.Transport != string(spec.ChannelAPI) {
-		return skip("app_server", "not an api-transport provider")
+		return skip("api_serve", "not an api-transport provider")
 	}
 	argv, ok := l.agent.APIServeArgv(l.templateCtx(filepath.Join(l.scratch, "serve")))
 	if !ok {
-		return skip("app_server", "the descriptor declares no runtime.api.serve")
+		return skip("api_serve", "the descriptor declares no runtime.api.serve")
 	}
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // the descriptor's own serve argv, run on purpose
 	cmd.Env, cmd.Dir = l.opts.Env, l.cwd
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdio, err := agents.StartServe(cmd)
 	if err != nil {
-		return fail("app_server", "start: "+err.Error())
+		return fail("api_serve", "start: "+err.Error())
 	}
 	defer func() {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
@@ -39,8 +39,8 @@ func (l *live) appServer(ctx context.Context) Step {
 	defer cancel()
 	conn, err := l.agent.StartAPIConn(ctx, stdio, nil)
 	if err != nil {
-		return fail("app_server", err.Error())
+		return fail("api_serve", err.Error())
 	}
 	_ = conn.Close()
-	return pass("app_server", "initialize answered over the stdio of "+strings.Join(argv, " "))
+	return pass("api_serve", l.d.Runtime.API.Handshake["call"]+" answered over the stdio of "+strings.Join(argv, " "))
 }

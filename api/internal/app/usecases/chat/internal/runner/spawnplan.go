@@ -101,7 +101,7 @@ func (rs *Runners) spawnPaths(
 	// whole life of that CLI — so it is removed on PTY death, never eagerly after spawn.
 	//
 	// It holds no secret: a provider owns its own credentials and Crowbar never copies
-	// them anywhere (that rule is why CODEX_HOME is not ours, and why codex's sessions
+	// them anywhere (that rule is why a provider's home is not ours, and why its sessions
 	// survive a switch). Nothing in the descriptors puts a credential here, and nothing
 	// may.
 	tmpDir := worktreepath.RunnerDir(chatsDir, runnerID, providerID)
@@ -208,8 +208,8 @@ func (rs *Runners) renderSpawnContext(
 		// or a freshly minted one) before attach's argv is ever rendered.
 		Session: in.launchSessionID,
 	}
-	// The message for a provider that can ONLY be reached through a user message (a
-	// resumed codex ignores every config channel). It POINTS at the ledger already on
+	// The message for a provider that can ONLY be reached through a user message (one
+	// that, resumed, ignores every config channel). It POINTS at the ledger already on
 	// disk and says where to start reading — it never carries the transcript, which
 	// would dump the whole handed-off exchange into the chat for the user to scroll
 	// past. An agent reads files.
@@ -229,13 +229,13 @@ func (rs *Runners) renderSpawnContext(
 	// A handoff is something that HAPPENED and is always worth delivering. The
 	// capability preamble is standing orientation, so it may only drive delivery down a
 	// SILENT channel: a fresh spawn's ContextInject is a config key or a flag, but a
-	// resume's ResumeContextInject can be a USER MESSAGE — a resumed codex can be
-	// reached no other way (see codex.yaml) — and reopening a closed tab resumes a
-	// provider with nothing recorded in between. Letting the preamble deliver there
-	// would open every revived codex chat with a "while you were away" pointer about
-	// nothing, and codex answers its opening message on sight.
+	// resume's ResumeContextInject can be a USER MESSAGE — some resumed providers can
+	// be reached no other way (their descriptor says so) — and reopening a closed tab
+	// resumes a provider with nothing recorded in between. Letting the preamble deliver
+	// there would open every such revived chat with a "while you were away" pointer
+	// about nothing, which the provider answers on sight.
 	//
-	// The cost is that a provider whose resume channel IS silent (claude's is a flag)
+	// The cost is that a provider whose resume channel IS silent (a flag, say)
 	// also loses the preamble on a gapless revive. That is deliberate over the
 	// alternative: whether a resume channel speaks out loud is the DESCRIPTOR's
 	// knowledge, and inventing a "this channel is silent" field to recover one

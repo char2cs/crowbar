@@ -60,7 +60,7 @@ type LiveOptions struct {
 	ResumeWindow time.Duration
 	// TurnTimeout bounds the model turn.
 	TurnTimeout time.Duration
-	// ServeWindow bounds the app-server's start and its initialize answer.
+	// ServeWindow bounds runtime.api.serve's start and its handshake answer.
 	ServeWindow time.Duration
 	// Env is the CLI's base environment; the daemon's own if nil.
 	Env []string
@@ -89,7 +89,7 @@ func (o LiveOptions) withDefaults() LiveOptions {
 }
 
 // Conform validates raw and, when nothing static blocks it, runs it against
-// the real CLI: binary, version, flags, TUI boot, hooks, resume, app-server.
+// the real CLI: binary, version, flags, TUI boot, hooks, resume, api serve.
 func Conform(ctx context.Context, raw []byte, opts LiveOptions) LiveReport {
 	rep := LiveReport{Report: Validate(raw)}
 	if !rep.Report.OK() {

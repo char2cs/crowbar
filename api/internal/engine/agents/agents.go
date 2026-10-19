@@ -220,9 +220,9 @@ type service struct {
 	// itself is deliberately always-fresh (reads and re-validates the YAML on
 	// every call, so an on-disk override edited mid-development is picked up
 	// at once — see its own tests), and measured at over a millisecond per
-	// call for codex's descriptor alone. Paying that on every token is what
-	// made Codex's live streaming view visibly stall while Claude's (whose
-	// hooks-paced deltas arrive far less often) did not: the single goroutine
+	// call for a shipped descriptor alone. Paying that on every token is what
+	// made an api provider's live streaming view visibly stall while a hooks
+	// provider's (whose deltas arrive far less often) did not: the single goroutine
 	// that folds each event into the ledger (apiconn.go's pumpAPIConn) fell
 	// behind the incoming rate and only caught up once the provider stopped
 	// producing more — confirmed live. Invalidated by Stat'ing the override
@@ -634,11 +634,11 @@ func (a *agent) APIServeArgv(ctx TemplateCtx) ([]string, bool) {
 //
 // It also carries spawn.Args (see spawn.PrependArgs), the same as a primary
 // interactive spawn does — the attached process IS an interactive TUI in
-// every way that matters here. Without this, codex's attached `resume`
-// carries config_injection's per-segment hook wiring but never
-// --dangerously-bypass-hook-trust, so it parks on its interactive hook-trust
-// confirmation screen instead of reaching the composer: confirmed live, this
-// is what "switch to terminal" looked like for codex before this fix.
+// every way that matters here. Without this, an attached resume carries
+// config_injection's per-segment hook wiring but not spawn.Args' trust flag,
+// so it parks on an interactive hook-trust confirmation screen instead of
+// reaching the composer: confirmed live, this is what "switch to terminal"
+// looked like before this fix.
 func (a *agent) APIAttachArgv(ctx TemplateCtx) ([]string, bool) {
 	if len(a.spec.Runtime.API.Attach) == 0 {
 		return nil, false
@@ -678,8 +678,8 @@ func expandArgv(argv []string, ctx TemplateCtx) []string {
 
 // hasAPIEventOverride reports whether any event declares transport: api even
 // when the runtime default is something else — defensive: neither shipped
-// descriptor relies on this today (codex's runtime.transport IS api once
-// merged), but StartAPIConn must not assume Runtime.Transport is the only
+// descriptor relies on this today (an api provider's runtime.transport IS api
+// once merged), but StartAPIConn must not assume Runtime.Transport is the only
 // source of truth.
 func hasAPIEventOverride(d *spec.Descriptor) bool {
 	for _, e := range d.Events {

@@ -53,11 +53,11 @@ type Driver struct {
 	// reopen does, and only when a lost session is being recovered.
 	//
 	// remembered holds every field ANY step's capture: has ever pulled out of a
-	// response on this connection — session_id from thread/start, turn_id from
-	// turn/start, whatever a descriptor names — so a LATER Send (which has no
-	// step of its own to capture from) can still reference it. A codex
-	// interrupt needs the turn/start it never ran itself; this is how it gets
-	// it without Crowbar's code knowing turns exist.
+	// response on this connection — session_id from a session-creating call,
+	// turn_id from a turn call, whatever a descriptor names — so a LATER Send
+	// (which has no step of its own to capture from) can still reference it. An
+	// interrupt needs the turn id of a call it never made itself; this is how
+	// it gets it without Crowbar's code knowing turns exist.
 	//
 	// birth is the value set the FIRST establish on this connection ran with.
 	// A re-entry (reestablish) re-runs the Resume steps long after that call
@@ -184,13 +184,13 @@ func (drv *Driver) Reply(askID json.RawMessage, rendered []byte) error {
 // Send drives an outbound canonical event (interrupt, compact_start) by
 // resolving it through the SAME outbound.Resolve the hooks transport's
 // injection-based sends use, merged over every value this connection has ever
-// remembered (so interrupt's turnId is there without the caller supplying it),
+// remembered (so interrupt's turn id is there without the caller supplying it),
 // then calling it over the connection and waiting for the reply — an
 // interrupt is a request needing a real response, not a fire-and-forget
-// notification: a malformed one comes back a JSON-RPC error, not silence. For an event that must first establish a session before
-// acting, see Dispatch instead — Send's flat {field: "{value}"} template
-// cannot express a typed/nested payload or a response value feeding a later
-// call.
+// notification: a malformed one comes back a JSON-RPC error, not silence.
+// For an event that must first establish a session before acting, see
+// Dispatch instead — Send's flat {field: "{value}"} template cannot express a
+// typed/nested payload or a response value feeding a later call.
 func (drv *Driver) Send(ctx context.Context, canonical string, values map[string]string) error {
 	drv.mu.Lock()
 	merged := cloneValues(drv.remembered)
@@ -234,7 +234,7 @@ func (drv *Driver) EstablishSession(
 	if already {
 		// A later caller may pass blank values (a pure api resume announces no
 		// session), so blanks are filled from what this connection established;
-		// its own thread wins over whatever the caller named.
+		// its own session wins over whatever the caller named.
 		out = fillBlanksFromRemembered(out, remembered)
 		if id := remembered["session_id"]; id != "" {
 			out["session_id"] = id
@@ -400,11 +400,11 @@ func (drv *Driver) Dispatch(
 //
 // Unlike EstablishSession/Dispatch's Fresh/Resume/Action lists (bound to a
 // canonical EVENT, always run in the same place in that event's lifecycle),
-// an inject step is bound to a lifecycle MOMENT the caller decides on: codex's
-// own thread/inject_items (at: context) has to run once, right after a RESUME
+// an inject step is bound to a lifecycle MOMENT the caller decides on: a
+// context inject (at: context) has to run once, right after a RESUME
 // establishes a session that existed before this connection loaded it — never
-// on a fresh thread/start, which already carries {context} as
-// developerInstructions in the very call that creates the thread.
+// on a fresh session, whose creating call already carries {context} in the
+// very call that creates it.
 func (drv *Driver) InjectAt(ctx context.Context, at string, values map[string]string) error {
 	var step *spec.InjectSpec
 	for i := range drv.d.Inject {
@@ -439,13 +439,13 @@ func (drv *Driver) InjectAt(ctx context.Context, at string, values map[string]st
 // first, before the call goes out — never left standing until the reply
 // lands. Send (interrupt, compact_start) reads remembered concurrently with
 // this, on a caller's own goroutine, and turn_id is exactly the field a
-// second turn/start overwrites: leaving the PREVIOUS turn's id in place for
+// second turn call overwrites: leaving the PREVIOUS turn's id in place for
 // the whole round trip means a Stop racing in while this call is still in
-// flight would ship turn/interrupt naming a turn that already ended — not
+// flight would ship an interrupt naming a turn that already ended — not
 // loudly rejected (that's the safe, already-handled empty-field case), but
 // silently pointed at the wrong turn while the real one keeps generating.
 // Clearing here trades that silent miss for the safe one: an empty field
-// fails codex's own validation and StopChat falls back to a full stop.
+// fails the provider's own validation and StopChat falls back to a full stop.
 func (drv *Driver) runSteps(ctx context.Context, steps []spec.CallStep, values map[string]string) error {
 	for _, step := range steps {
 		if len(step.Capture) > 0 {

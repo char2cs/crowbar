@@ -53,10 +53,10 @@ type TemplateCtx struct {
 	// and a path derived from --home can differ from the one it bound.
 	DaemonSocket string
 
-	// Session is the session/thread id an api-transport provider's live
-	// connection has established ({session_id} in codex.yaml's
+	// Session is the session id an api-transport provider's live
+	// connection has established ({session_id} in a descriptor's
 	// runtime.api.attach) — set only AFTER EstablishSession has run, so
-	// attach's argv can point at the SAME conversation `prompt`'s turn/start
+	// attach's argv can point at the SAME conversation `prompt`'s turn call
 	// acts on rather than a disconnected one of its own.
 	Session string
 
@@ -64,7 +64,7 @@ type TemplateCtx struct {
 	// values, exactly as its descriptor's permission_levels.<level>.vars
 	// declared them — opaque to Go. Referenced as {permission.<key>}, the
 	// same dotted-family shape as suggestion_label.* (see vocabulary.yaml's
-	// own permission.* entry), for a transport (codex's thread/start) whose
+	// own permission.* entry), for a transport (a session-creating call) whose
 	// spawn-time behavior is a request field, not an argv flag Apply's
 	// pass_arg can reach.
 	PermissionVars map[string]string
@@ -85,8 +85,8 @@ func (c TemplateCtx) HookURL() string {
 	return c.HookBase + scope + "/chats/runners/" + c.Segid + "/hooks/" + c.Provider
 }
 
-// HookCurl is the curl command a CLI that can only run a command (Claude's status
-// line, Codex's hooks) posts its stdin through. The runner token is in the config
+// HookCurl is the curl command a CLI that can only run a command (a status
+// line, a hook entry) posts its stdin through. The runner token is in the config
 // file the descriptor writes there, not on the command line: argv is visible to
 // every process of the user.
 func (c TemplateCtx) HookCurl() string {

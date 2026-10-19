@@ -124,7 +124,7 @@ func TestScripted_SlowHook(t *testing.T) {
 
 // A dropped api connection ends its runner with a reason; the next message
 // re-establishes the conversation.
-func TestScripted_SocketDrop(t *testing.T) {
+func TestScripted_ConnectionDrop(t *testing.T) {
 	r := newRig(t)
 	chatID := r.spawn("codex")
 	r.firstTurn(chatID)

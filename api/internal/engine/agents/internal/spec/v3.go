@@ -8,7 +8,7 @@ package spec
 // declares one or the other, never both.
 
 // VersionRange bounds the provider protocol a descriptor was written against.
-// Codex's app-server is flagged experimental and its method names move; without this
+// A provider's api can be experimental, its method names moving; without this
 // a rename surfaces as a runtime mystery instead of a startup failure.
 type VersionRange struct {
 	Min string `yaml:"min"`
@@ -80,8 +80,8 @@ type EventSpec struct {
 	// event.
 	Surfaces []string `yaml:"surfaces"`
 
-	// When selects among events sharing one wire event, by discriminator. Codex's
-	// `item` is a sum type and item/started serves three canonical events.
+	// When selects among events sharing one wire event, by discriminator: a wire
+	// event whose payload is a sum type can serve several canonical events.
 	When WhenMap `yaml:"when"`
 
 	// Map pulls canonical fields out of an inbound payload.
@@ -95,7 +95,7 @@ type EventSpec struct {
 
 	// Fixtures is the legacy flat form's own recorded-payload list — the
 	// counterpart of ChannelBlock.Fixtures for an event with no api:/hooks:
-	// blocks (a hooks-only provider like claude never splits). Parsed and
+	// blocks (a hooks-only provider never splits). Parsed and
 	// exposed this phase (Descriptor.EventFixtures); enforced by
 	// TestV3Descriptors_ResolveAgainstRecordedTraffic (design spec 2.4).
 	Fixtures []string `yaml:"fixtures"`
@@ -107,10 +107,10 @@ type EventSpec struct {
 
 	// API/Hooks are this event's own per-CHANNEL blocks: the same canonical
 	// event can arrive shaped differently depending on which wire actually
-	// delivered it — codex's session_start/user_prompt/turn_stop inherit the
-	// api default yet are ALSO fired hooks-shaped by codex's own internal
-	// memory-consolidation session (see translate/inbound/hooks.go's own doc
-	// comment, and the design spec's 1.1). Nil for a legacy event, which
+	// delivered it — an event that inherits the api default can ALSO be fired
+	// hooks-shaped by a provider's own internal sessions (see
+	// translate/inbound/hooks.go's own doc comment, and the design spec's
+	// 1.1). Nil for a legacy event, which
 	// still declares one flat In/When/Map above and answers the same on
 	// every channel — see EventSpec.WireEventFor/WhenFor, which fall back to
 	// those fields when neither block is set. An event must not mix the two
@@ -150,14 +150,14 @@ type EventSpec struct {
 	Patch *PatchSpec `yaml:"patch"`
 
 	// Fresh/Resume/Action are the alternative to Out/Send for an api-transport
-	// event that must first ESTABLISH a session before it can act — codex's
-	// `turn/start` needs a `thread/start` (nothing known yet) or a
-	// `thread/resume` (a session id is already known, e.g. from a prior life of
+	// event that must first ESTABLISH a session before it can act — a turn
+	// call can need a session-creating call (nothing known yet) or a
+	// session-loading one (a session id is already known, e.g. from a prior life of
 	// this chat, but THIS connection has never itself loaded it) ahead of it,
 	// and neither the field-per-string Send shape nor a single Out call can
-	// express a call whose params are typed/nested (thread/start's `input` is
-	// an array of typed content blocks) or whose response feeds the next call
-	// (thread/start's id becomes turn/start's threadId).
+	// express a call whose params are typed/nested (an `input` that is an
+	// array of typed content blocks) or whose response feeds the next call
+	// (the created session's id becomes the turn call's session field).
 	//
 	// Fresh runs when no session id is known yet; Resume runs when one is known
 	// but this connection has not itself established it; Action always runs
@@ -175,7 +175,7 @@ type EventSpec struct {
 // YAML rather than something Go code assembles. Capture pulls named fields out
 // of the call's JSON response, by the SAME dotted-path grammar Map already
 // uses, into the caller's own values for later steps (and the caller) to read
-// — thread/start's response has no field literally called "session_id"; a
+// — a response need have no field literally called "session_id"; a
 // descriptor names whatever dotted path it actually returned.
 type CallStep struct {
 	Call    string            `yaml:"call"`
@@ -185,8 +185,8 @@ type CallStep struct {
 
 // StepsSpec maps a provider's plan array onto Crowbar's own step vocabulary.
 //
-// StatusMap is what keeps provider words out of Go: codex says "inProgress",
-// another provider will say something else, and the descriptor translates both
+// StatusMap is what keeps provider words out of Go: each provider names its
+// statuses its own way, and the descriptor translates them all
 // into Crowbar's own pending/active/done. A status with no entry passes through
 // unchanged rather than being dropped — an unrecognised status is still a step.
 type StepsSpec struct {
@@ -234,8 +234,8 @@ type CallSpec struct {
 }
 
 // InjectSpec is one setup action, keyed by the lifecycle moment it happens at:
-// config | mcp | context | resume. Send is a TREE like CallStep's own — codex's
-// thread/inject_items needs a nested Responses API item, not a flat
+// config | mcp | context | resume. Send is a TREE like CallStep's own — an
+// injected item can be a nested object, not a flat
 // {field: "{value}"} shape.
 type InjectSpec struct {
 	At    string         `yaml:"at"`

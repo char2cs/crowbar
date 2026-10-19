@@ -41,7 +41,7 @@ func runLive(ctx context.Context, raw []byte, d *spec.Descriptor, opts LiveOptio
 	steps = append(steps, timed(func() Step { return l.version(ctx) }), timed(func() Step { return l.flags(ctx) }))
 	steps = append(steps, l.boot(ctx)...)
 	steps = append(steps, timed(func() Step { return l.resumeUnknown(ctx) }))
-	return append(steps, timed(func() Step { return l.appServer(ctx) }))
+	return append(steps, timed(func() Step { return l.apiServe(ctx) }))
 }
 
 func newLive(ctx context.Context, raw []byte, d *spec.Descriptor, opts LiveOptions) (*live, error) {
