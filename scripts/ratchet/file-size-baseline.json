@@ -17,7 +17,6 @@
   "api/internal/api/v0/endpoints/repos/handlers/repos_test.go": 588,
   "api/internal/api/v0/route_audit_test.go": 980,
   "api/internal/app/container.go": 590,
-  "api/internal/app/realtime/origin_sync_manager_test.go": 520,
   "api/internal/app/repositories/chat/activity/activity.go": 630,
   "api/internal/app/repositories/chat/activity/agentactivity_test.go": 973,
   "api/internal/app/repositories/chat/activity/internal/commands/commands_test.go": 775,
