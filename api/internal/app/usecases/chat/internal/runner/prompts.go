@@ -88,7 +88,7 @@ func (rs *Runners) submitPromptLocked(
 
 	replacementRunnerID := uuid.NewString()
 	if err := rs.recordPrompt(
-		ctx, chat.ID, clientRequestID, text, ledger.DeliveryRestart, replacementRunnerID,
+		ctx, chat.ID, clientRequestID, text, ledger.DeliveryRestart, replacementRunnerID, nil,
 	); err != nil {
 		return domain.AgentPromptSubmission{}, err
 	}
@@ -191,9 +191,16 @@ func priorPrompt(st ledger.State, requestID, text string) (ledger.Prompt, bool, 
 
 // recordPrompt appends requestID's user_message before any CLI is touched: the
 // prompt exists, and is owed an outcome, from this commit on. carrier is the
-// runner that will deliver it.
-func (rs *Runners) recordPrompt(ctx context.Context, chatID, requestID, text, delivery, carrier string) error {
+// runner that will deliver it; admit, when set, refuses the record.
+func (rs *Runners) recordPrompt(
+	ctx context.Context, chatID, requestID, text, delivery, carrier string, admit func(ledger.State) error,
+) error {
 	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		if admit != nil {
+			if err := admit(st); err != nil {
+				return nil, err
+			}
+		}
 		if _, replay, err := priorPrompt(st, requestID, text); err != nil || replay {
 			if err == nil {
 				err = ErrPromptRequestIDConflict
@@ -221,13 +228,6 @@ func (rs *Runners) settleUndelivered(ctx context.Context, chatID, requestID stri
 	rs.settlePrompts(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
 		return ledger.Settle(st, func(p ledger.Prompt) bool { return p.RequestID == requestID },
 			false, ledger.ReasonDeliveryFailed)
-	})
-}
-
-// settleCarriedPrompts settles the prompts runnerID was carrying on chatID.
-func (rs *Runners) settleCarriedPrompts(ctx context.Context, chatID, runnerID string) {
-	rs.settlePrompts(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		return ledger.SettleCarried(st, runnerID, false, ledger.ReasonRunnerExited)
 	})
 }
 
@@ -282,7 +282,7 @@ func (rs *Runners) submitPromptOverAPI(
 	if err != nil {
 		return domain.AgentPromptSubmission{}, true, fmt.Errorf("agent: submit prompt: materialize attachments: %w", err)
 	}
-	if err := rs.recordPrompt(ctx, chat.ID, clientRequestID, text, ledger.DeliveryAPI, live.ID); err != nil {
+	if err := rs.recordPrompt(ctx, chat.ID, clientRequestID, text, ledger.DeliveryAPI, live.ID, nil); err != nil {
 		return domain.AgentPromptSubmission{}, true, err
 	}
 	session, err := rs.boundSession(ctx, chat.ID, live.ProviderID)
@@ -384,28 +384,37 @@ func (rs *Runners) requirePromptIdle(ctx context.Context, chatID, runnerID strin
 	if current.ID != runnerID {
 		return ErrPromptBusy
 	}
-	chat, err := rs.chats.GetChat(ctx, chatID)
-	if err != nil {
-		return fmt.Errorf("agent: submit prompt: refresh chat: %w", err)
-	}
-
-	if chat.Working || len(rs.inflightTurns.Inflight(chatID)) > 0 {
-		return ErrPromptBusy
-	}
-	return nil
+	return rs.requireNotBusy(ctx, chatID)
 }
 
 // requireChatAcceptingPrompt is the busy verdict a send would otherwise reach
 // only after its staged selection was committed.
 func (rs *Runners) requireChatAcceptingPrompt(ctx context.Context, chatID string) error {
-	chat, err := rs.chats.GetChat(ctx, chatID)
-	if err != nil {
-		return fmt.Errorf("agent: submit prompt: chat: %w", err)
-	}
-	if chat.Working || len(rs.inflightTurns.Inflight(chatID)) > 0 {
-		return ErrPromptBusy
+	if err := rs.requireNotBusy(ctx, chatID); err != nil {
+		return err
 	}
 	return rs.requireNoPendingPrompt(ctx, chatID)
+}
+
+// requireNotBusy refuses while the chat's ledger folds it working.
+func (rs *Runners) requireNotBusy(ctx context.Context, chatID string) error {
+	busy, err := rs.ChatBusy(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	if busy {
+		return ErrPromptBusy
+	}
+	return nil
+}
+
+// ChatBusy reports whether chatID's ledger folds it working.
+func (rs *Runners) ChatBusy(ctx context.Context, chatID string) (bool, error) {
+	st, err := rs.ledger.State(ctx, chatID)
+	if err != nil {
+		return false, fmt.Errorf("agent: chat busy: %w", err)
+	}
+	return st.Busy(), nil
 }
 
 // requireNoPendingPrompt refuses while a prompt awaits the provider, once those

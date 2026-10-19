@@ -3,7 +3,6 @@ package termwait
 import (
 	"context"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -25,19 +24,25 @@ func (d *detector) sweep(ctx context.Context, publish Publish) bool {
 }
 
 func (d *detector) publishAndClose(ctx context.Context, publish Publish, runners []agents.Runner) {
-	changed, stalls := d.fold(ctx, runners)
+	changed, notices := d.fold(ctx, runners)
 
 	if publish != nil {
 		for _, c := range changed {
 			publish(c.chatID, c.workspaceID, c.wait)
 		}
 	}
-	if d.deps.OnStall == nil {
+	if d.deps.OnNotice == nil {
 		return
 	}
-	for _, s := range stalls {
-		d.deps.OnStall(ctx, s)
+	for _, n := range notices {
+		d.deps.OnNotice(ctx, n.runner, n.notice)
 	}
+}
+
+// endingNotice is a notice that ends the turn, on runner's screen.
+type endingNotice struct {
+	runner agents.Runner
+	notice agents.TerminalNotice
 }
 
 type change struct {
@@ -49,7 +54,7 @@ type change struct {
 func (d *detector) fold(
 	ctx context.Context,
 	runners []agents.Runner,
-) ([]change, []seam.Stall) {
+) ([]change, []endingNotice) {
 	d.mu.RLock()
 	prev := make(map[string]chatState, len(d.state))
 	for k, v := range d.state {
@@ -59,27 +64,20 @@ func (d *detector) fold(
 
 	next := make(map[string]chatState, len(runners))
 	var changed []change
-	var stalls []seam.Stall
+	var notices []endingNotice
 	for _, runner := range runners {
 		chatID := runner.CurrentChatID
 		if chatID == "" {
 			continue
 		}
 		was := prev[chatID]
-		verdict, screen, stalled := d.evaluate(ctx, runner, was.screen)
+		verdict, screen, ends := d.evaluate(ctx, runner, was.screen)
 		next[chatID] = chatState{workspaceID: runner.WorkspaceID, screen: screen, published: verdict}
 		if verdict != was.published {
 			changed = append(changed, change{chatID, runner.WorkspaceID, verdict})
 		}
-		if stalled {
-			stalls = append(stalls, seam.Stall{
-				ChatID:      chatID,
-				WorkspaceID: runner.WorkspaceID,
-				ProviderID:  runner.ProviderID,
-				RunnerID:    runner.ID,
-				SessionID:   runner.TerminalSession,
-				Notice:      screen.notice,
-			})
+		if ends {
+			notices = append(notices, endingNotice{runner: runner, notice: screen.notice})
 		}
 	}
 
@@ -93,5 +91,5 @@ func (d *detector) fold(
 	d.mu.Lock()
 	d.state = next
 	d.mu.Unlock()
-	return changed, stalls
+	return changed, notices
 }

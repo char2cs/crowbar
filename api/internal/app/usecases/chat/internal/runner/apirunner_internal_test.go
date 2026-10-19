@@ -37,12 +37,6 @@ func (s stubChatsForSpawn) GetChat(context.Context, string) (domain.Chat, error)
 	return s.chat, nil
 }
 
-func (s stubChatsForSpawn) AbandonTurn(
-	context.Context, string, time.Time,
-) (domain.Chat, error) {
-	return s.chat, nil
-}
-
 // SetProvider is the durable-vendor restatement every committed spawn makes
 // (recordChatProvider). Best-effort there, so the value is never read back here.
 func (s stubChatsForSpawn) SetProvider(
@@ -136,12 +130,10 @@ func newSpawnHarness(t *testing.T, surface string) *spawnHarness {
 			// Everything reconcileRunnerExit touches on its way through a
 			// runner's death — the real registries, so the exit path under
 			// test is the production one and not a nil-guarded shortcut.
-			answers:       answerdesk.New(answerdesk.DefaultRetention, nil),
-			inflightTurns: inflight.NewTurns(),
-			work:          inflight.NewWork(),
-			turns:         noopTurns{},
-			activity:      stubActivityForSpawn{},
-			ledger:        newTestLedger(t),
+			answers:  answerdesk.New(answerdesk.DefaultRetention, nil),
+			turns:    noopTurns{},
+			activity: stubActivityForSpawn{},
+			ledger:   newTestLedger(t),
 		},
 		term: term, lifecycle: lifecycle, home: home, chatID: "chat-1",
 	}
@@ -268,21 +260,19 @@ func ptylessRunners(t *testing.T) (*Runners, *spyLifecycle) {
 	t.Helper()
 	lifecycle := newSpyLifecycle()
 	return &Runners{
-		live:          liveWith(t, engineagents.Runner{ID: "runner-1", ProviderID: "codex", CurrentChatID: "chat-1"}),
-		snapshots:     lifecycle,
-		apiConns:      newAPIConnRegistry(),
-		attached:      newAttachRegistry(),
-		surfaces:      newSurfaceRegistry(),
-		spawns:        inflight.NewGate(),
-		agents:        engineagents.New(),
-		answers:       answerdesk.New(answerdesk.DefaultRetention, nil),
-		inflightTurns: inflight.NewTurns(),
-		work:          inflight.NewWork(),
-		turns:         noopTurns{},
-		activity:      stubActivityForSpawn{},
-		chats:         stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}},
-		ledger:        newTestLedger(t),
-		background:    newBackgroundWork(),
+		live:       liveWith(t, engineagents.Runner{ID: "runner-1", ProviderID: "codex", CurrentChatID: "chat-1"}),
+		snapshots:  lifecycle,
+		apiConns:   newAPIConnRegistry(),
+		attached:   newAttachRegistry(),
+		surfaces:   newSurfaceRegistry(),
+		spawns:     inflight.NewGate(),
+		agents:     engineagents.New(),
+		answers:    answerdesk.New(answerdesk.DefaultRetention, nil),
+		turns:      noopTurns{},
+		activity:   stubActivityForSpawn{},
+		chats:      stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}},
+		ledger:     newTestLedger(t),
+		background: newBackgroundWork(),
 	}, lifecycle
 }
 

@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -29,7 +28,7 @@ func newHomeUsecaseFull(
 	nodes := mocks.NewNodePlacements()
 	chats.Nodes = nodes
 	gitStatus := mocks.NewAgentWorkspaceGitStatus()
-	uc := tree.New(chats, chats, inflight.NewWork(), gitStatus,
+	uc := tree.New(chats, chats, newBusyChats(), gitStatus,
 		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats), folders, nodes)
 	return chats, folders, nodes, gitStatus, uc
 }
@@ -204,7 +203,7 @@ func TestRegression_PlaceChat_AnnouncesEveryRepoItShifted(t *testing.T) {
 		order      int
 	}
 	var frames []announced
-	uc := tree.New(chats, chats, inflight.NewWork(), gitStatus,
+	uc := tree.New(chats, chats, newBusyChats(), gitStatus,
 		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats), folders, nodes,
 		tree.WithRepoAnnouncer(func(_ context.Context, id, parent string, order int) {
 			frames = append(frames, announced{id, parent, order})

@@ -160,11 +160,13 @@ func TestInterruptTurn_SendsTheInterruptAndReturnsTrue(t *testing.T) {
 	}
 }
 
-// A provider that never answers the interrupt (a wedged turn) must not hold
-// Stop: past the bound interruptTurn reports failure and Stop retires.
-func TestInterruptTurn_IsBoundedWhenTheProviderNeverAnswers(t *testing.T) {
+// A provider that never answers the interrupt (a wedged turn) never holds
+// Stop: the turn already ended in the ledger, so nothing waits for the reply.
+func TestInterruptTurn_NeverWaitsForTheProvidersAnswer(t *testing.T) {
+	received := make(chan struct{})
 	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
 		_, _, _ = conn.ReadMessage() // the interrupt, never answered
+		close(received)
 		_, _, _ = conn.ReadMessage()
 	})
 	agent := interruptTestAgent(t)
@@ -175,15 +177,13 @@ func TestInterruptTurn_IsBoundedWhenTheProviderNeverAnswers(t *testing.T) {
 	defer func() { _ = apiConn.Close() }()
 
 	rs := &Runners{
-		apiConns:         newAPIConnRegistry(),
-		ws:               stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
-		agents:           stubAgentsForInterrupt{agent: agent},
-		interruptTimeout: 50 * time.Millisecond,
+		apiConns: newAPIConnRegistry(),
+		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
+		agents:   stubAgentsForInterrupt{agent: agent},
 	}
 	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
 	live := engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "interrupt-test"}
 
-	start := time.Now()
-	require.False(t, rs.interruptTurn(ctx, live))
-	require.Less(t, time.Since(start), 2*time.Second, "Stop must be bounded (invariant S4)")
+	require.True(t, rs.interruptTurn(ctx, live))
+	<-received
 }

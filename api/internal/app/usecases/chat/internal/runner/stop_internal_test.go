@@ -1,16 +1,14 @@
 package runner
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"log/slog"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
@@ -18,6 +16,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -49,104 +48,11 @@ func (a *stopActivity) recorded() []string {
 	return append([]string(nil), a.stopped...)
 }
 
-// realStopTurns is the REAL hook ingress over a recording ledger, sharing the
-// in-flight registries with the Runners under test — so whether RecordStop
-// fires, and how often, is decided by production code on both sides. A spy
-// that recorded unconditionally is what hid P0-8: the real RecordStop used to
-// re-ask "is a turn open" after the teardown had already closed it.
-func realStopTurns(inflightTurns *inflight.Turns, work *inflight.Work) (*turn.Turns, *stopActivity) {
+// realStopTurns is the real hook ingress over a recording activity ledger, so
+// whether RecordStop fires is decided by production code.
+func realStopTurns() (*turn.Turns, *stopActivity) {
 	activity := &stopActivity{}
-	return turn.New(turn.Deps{
-		Activity:      activity,
-		InflightTurns: inflightTurns,
-		Work:          work,
-	}), activity
-}
-
-// TestRegression_StopChatRecordsTheStopOnlyAfterTheCLIActuallyStops guards
-// the bug reported live 2026-09-09: the user clicked Stop mid-generation, and
-// not only did the "Interrupted" divider land in the wrong place in the
-// transcript, the underlying codex process kept generating — more tool calls,
-// more assistant text — for a full extra minute afterward.
-//
-// Root cause: StopChat used to call RecordStop BEFORE attempting
-// interruptTurn, durably marking the turn "Interrupted" the INSTANT Stop was
-// clicked, unconditionally. But codex's own turn/interrupt genuinely defers
-// its JSON-RPC reply until the turn actually ends (confirmed against
-// codex-rs's turn_interrupt_inner/respond_to_pending_interrupts: a real
-// interrupt returns Ok(None) — no reply at all — until TurnAborted or
-// TurnComplete fires) — so interruptTurn's own Send, which blocks for that
-// reply, does not mean the turn has stopped merely because it was called; it
-// means the turn has stopped once it RETURNS. Recording before that point was
-// both a lie (nothing had stopped yet) and out of order (real content kept
-// landing in the ledger after the premature marker). The two symptoms are one
-// bug, not two.
-//
-// This reuses interrupt_internal_test.go's own live-api-connection fixture so
-// it stays end to end through StopChat itself, not a direct call to
-// interruptTurn — the ordering under test is StopChat's — but withholds the
-// fake server's reply exactly as codex's real app-server does, to prove
-// RecordStop cannot fire until that reply (i.e., the actual stop) arrives.
-func TestRegression_StopChatRecordsTheStopOnlyAfterTheCLIActuallyStops(t *testing.T) {
-	release := make(chan struct{})
-	inflightTurns, work := inflight.NewTurns(), inflight.NewWork()
-	inflightTurns.Begin(context.Background(), "runner-1", "chat-1")
-	work.Set("chat-1", true)
-	asked := make(chan struct{})
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, msg, err := conn.ReadMessage() // turn/interrupt
-		require.NoError(t, err)
-		close(asked)
-		var req struct {
-			ID json.RawMessage `json:"id"`
-		}
-		require.NoError(t, json.Unmarshal(msg, &req))
-		<-release // withheld, exactly like codex's own deferred turn/interrupt reply
-		work.Set("chat-1", false)
-		inflightTurns.Complete(context.Background(), "runner-1", "completed")
-		resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{}})
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
-		_, _, _ = conn.ReadMessage() // block until the client closes
-	})
-
-	agent := interruptTestAgent(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
-	require.NoError(t, err)
-	defer func() { _ = apiConn.Close() }()
-
-	turns, activity := realStopTurns(inflightTurns, work)
-	rs := &Runners{
-		apiConns:      newAPIConnRegistry(),
-		live:          liveWith(t, interruptRunner),
-		ws:            stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
-		agents:        stubAgentsForInterrupt{agent: agent},
-		spawns:        inflight.NewGate(),
-		inflightTurns: inflightTurns,
-		turns:         turns,
-	}
-	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
-
-	done := make(chan error, 1)
-	go func() { done <- rs.StopChat(ctx, "chat-1") }()
-
-	// The interrupt is asked and its reply withheld, as a still-generating
-	// codex does: StopChat must not yet have recorded anything.
-	<-asked
-	require.Empty(t, activity.recorded(),
-		"RecordStop fired before the CLI's interrupt actually resolved — this is the reported bug")
-
-	close(release) // now let the (fake) app-server answer, as codex does once the turn truly ends
-
-	select {
-	case err := <-done:
-		require.NoError(t, err)
-	case <-time.After(3 * time.Second):
-		t.Fatal("StopChat never returned once the interrupt resolved")
-	}
-	require.Equal(t, []string{"chat-1"}, activity.recorded(),
-		"StopChat must record the interruption once the CLI has actually stopped")
+	return turn.New(turn.Deps{Activity: activity}), activity
 }
 
 // interruptRunner is runner-1, live on chat-1 over interrupt-test.
@@ -161,9 +67,27 @@ func retiring(t *testing.T, rs *Runners) *Runners {
 	rs.answers = answerdesk.New(answerdesk.DefaultRetention, nil)
 	rs.activity = stubActivityForSpawn{}
 	rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}}
-	rs.ledger = newTestLedger(t)
-	rs.work = inflight.NewWork()
+	if rs.ledger == nil {
+		rs.ledger = newTestLedger(t)
+	}
 	return rs
+}
+
+// runnerStarted records runner-1 started on chat-1, running a turn when
+// running is set.
+func runnerStarted(t *testing.T, rs *Runners, running bool) {
+	t.Helper()
+	rows := []ledger.Row{}
+	started, err := ledger.NewRow(ledger.KindRunnerStarted, "", "", ledger.RunnerStarted{RunnerID: "runner-1", Provider: "interrupt-test"})
+	require.NoError(t, err)
+	rows = append(rows, started)
+	if running {
+		turnRow, err := ledger.NewRow(ledger.KindTurnStarted, "T-1", "", ledger.TurnStarted{RunnerID: "runner-1"})
+		require.NoError(t, err)
+		rows = append(rows, turnRow)
+	}
+	_, _, err = rs.ledger.Append(t.Context(), "chat-1", rows...)
+	require.NoError(t, err)
 }
 
 // retiredAs is the reason chat-1's ledger records runner-1's exit with; ""
@@ -178,224 +102,128 @@ func retiredAs(t *testing.T, rs *Runners) string {
 	return exit.Reason
 }
 
-// TestRegression_StopChatOnAnIdleChatActuallyRetires: interruptTurn has no notion
-// of idle, so a stop that asked it first left an idle chat's runner, connection
-// and PTY running after the chat was closed.
-func TestRegression_StopChatOnAnIdleChatActuallyRetires(t *testing.T) {
-	interrupted := make(chan bool, 1)
+// interruptServer is an api connection whose provider answers turn/interrupt
+// only once release closes, as codex does once the turn truly ends.
+func interruptServer(t *testing.T, asked chan<- struct{}, release <-chan struct{}) *apiconn {
+	t.Helper()
 	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, _, err := conn.ReadMessage() // a message, or the close the retire makes
-		interrupted <- err == nil
-	})
-
-	agent := interruptTestAgent(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
-	require.NoError(t, err)
-	defer func() { _ = apiConn.Close() }()
-
-	idleTurns, activity := realStopTurns(inflight.NewTurns(), idleWork())
-	rs := retiring(t, &Runners{
-		apiConns:      newAPIConnRegistry(),
-		attached:      newAttachRegistry(),
-		ws:            stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
-		agents:        stubAgentsForInterrupt{agent: agent},
-		spawns:        inflight.NewGate(),
-		inflightTurns: inflight.NewTurns(),
-		turns:         idleTurns,
-		term:          &fakeTermForAttach{},
-	})
-	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
-
-	require.NoError(t, rs.StopChat(ctx, "chat-1"))
-
-	select {
-	case sent := <-interrupted:
-		require.False(t, sent, "StopChat sent turn/interrupt on an idle chat — there was nothing running to interrupt")
-	case <-ctx.Done():
-		t.Fatal("the retire never closed the api connection")
-	}
-	require.Equal(t, domain.AgentExitStopped, retiredAs(t, rs),
-		"an idle chat's runner must actually be retired on close, not left running forever")
-	require.Empty(t, activity.recorded(), "closing an idle chat interrupts nothing")
-}
-
-func idleWork() *inflight.Work {
-	w := inflight.NewWork()
-	w.Set("chat-1", false)
-	return w
-}
-
-// P0-8, the interrupt path: codex answers turn/interrupt only once the turn
-// has ended, and its turn_stop can be ingested BEFORE that reply reaches
-// StopChat — completing the in-flight turn and clearing Working. The Stop
-// still interrupted a running turn, so it must still leave exactly one
-// divider.
-func TestRegression_StopChatRecordsTheStopWhenTheTurnStopWinsTheRace(t *testing.T) {
-	inflightTurns, work := inflight.NewTurns(), inflight.NewWork()
-	inflightTurns.Begin(context.Background(), "runner-1", "chat-1")
-	work.Set("chat-1", true)
-	turns, activity := realStopTurns(inflightTurns, work)
-
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, msg, err := conn.ReadMessage() // turn/interrupt
-		require.NoError(t, err)
-		var req struct {
-			ID json.RawMessage `json:"id"`
-		}
-		require.NoError(t, json.Unmarshal(msg, &req))
-		// The turn_stop hook lands first, exactly as closeTurnFromStop does it.
-		work.Set("chat-1", false)
-		inflightTurns.Complete(context.Background(), "runner-1", "completed")
-		resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{}})
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
-		_, _, _ = conn.ReadMessage()
-	})
-
-	agent := interruptTestAgent(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
-	require.NoError(t, err)
-	defer func() { _ = apiConn.Close() }()
-
-	rs := &Runners{
-		apiConns:      newAPIConnRegistry(),
-		live:          liveWith(t, interruptRunner),
-		ws:            stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
-		agents:        stubAgentsForInterrupt{agent: agent},
-		spawns:        inflight.NewGate(),
-		inflightTurns: inflightTurns,
-		turns:         turns,
-	}
-	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
-
-	require.NoError(t, rs.StopChat(ctx, "chat-1"))
-	require.Equal(t, []string{"chat-1"}, activity.recorded())
-}
-
-// A codex that has no turn to cancel answers turn/interrupt at once, so a
-// reply is not proof the turn Crowbar still counts as open has ended: Stop must
-// retire the runner rather than leave the spinner up for good.
-func TestRegression_StopChatRetiresWhenTheInterruptIsAnsweredButTheTurnStaysOpen(t *testing.T) {
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, msg, err := conn.ReadMessage() // turn/interrupt
-		require.NoError(t, err)
-		var req struct {
-			ID json.RawMessage `json:"id"`
-		}
-		require.NoError(t, json.Unmarshal(msg, &req))
-		resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{}})
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
-		_, _, _ = conn.ReadMessage()
-	})
-
-	agent := interruptTestAgent(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
-	require.NoError(t, err)
-	defer func() { _ = apiConn.Close() }()
-
-	inflightTurns, work := inflight.NewTurns(), inflight.NewWork()
-	inflightTurns.Begin(context.Background(), "runner-1", "chat-1")
-	work.Set("chat-1", true)
-	turns, activity := realStopTurns(inflightTurns, work)
-	rs := retiring(t, &Runners{
-		apiConns:         newAPIConnRegistry(),
-		attached:         newAttachRegistry(),
-		ws:               stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
-		agents:           stubAgentsForInterrupt{agent: agent},
-		spawns:           inflight.NewGate(),
-		inflightTurns:    inflightTurns,
-		turns:            turns,
-		term:             &fakeTermForAttach{},
-		interruptTimeout: 50 * time.Millisecond,
-	})
-	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
-
-	var logged bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-
-	require.NoError(t, rs.StopChat(ctx, "chat-1"))
-
-	require.Equal(t, 1, strings.Count(logged.String(), "agent: turn ended"),
-		"a turn Stop cut short must log its end once: %s", logged.String())
-	require.Contains(t, logged.String(), "reason=stopped")
-	require.Equal(t, domain.AgentExitStopped, retiredAs(t, rs), "a turn that outlived its interrupt must be ended by retiring the runner")
-	require.Equal(t, []string{"chat-1"}, activity.recorded())
-}
-
-// Closing a view ends the chat's session, even mid-turn: StopChat's in-place
-// interrupt (the Stop button) leaves the runner alive on a provider that can
-// interrupt over its api connection, so a closed view kept its CLI running with
-// nothing on screen to watch it.
-func TestRegression_CloseChatRetiresARunnerMidTurnEvenWhenTheProviderCanInterrupt(t *testing.T) {
-	inflightTurns, work := inflight.NewTurns(), inflight.NewWork()
-	inflightTurns.Begin(context.Background(), "runner-1", "chat-1")
-	work.Set("chat-1", true)
-	turns, activity := realStopTurns(inflightTurns, work)
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, msg, err := conn.ReadMessage() // turn/interrupt, answered the way a healthy codex does
+		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			return
 		}
+		close(asked)
 		var req struct {
 			ID json.RawMessage `json:"id"`
 		}
 		require.NoError(t, json.Unmarshal(msg, &req))
-		work.Set("chat-1", false)
-		inflightTurns.Complete(context.Background(), "runner-1", "completed")
+		<-release
 		resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{}})
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
+		_ = conn.WriteMessage(websocket.TextMessage, resp)
 		_, _, _ = conn.ReadMessage()
 	})
-
-	agent := interruptTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	t.Cleanup(cancel)
+	driver, err := interruptTestAgent(t).StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
-	defer func() { _ = apiConn.Close() }()
+	t.Cleanup(func() { _ = driver.Close() })
+	return &apiconn{driver: driver, ctx: ctx}
+}
 
+// Stop ends the turn in the ledger, records its divider, then asks the
+// provider to interrupt and returns without waiting for the provider's answer.
+func TestStopChat_EndsTheTurnThenInterruptsWithoutWaiting(t *testing.T) {
+	asked, release := make(chan struct{}), make(chan struct{})
+	defer close(release)
+	turns, activity := realStopTurns()
 	rs := retiring(t, &Runners{
-		apiConns:      newAPIConnRegistry(),
-		attached:      newAttachRegistry(),
-		ws:            stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
-		agents:        stubAgentsForInterrupt{agent: agent},
-		spawns:        inflight.NewGate(),
-		inflightTurns: inflightTurns,
-		turns:         turns,
-		term:          &fakeTermForAttach{},
+		apiConns: newAPIConnRegistry(),
+		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
+		agents:   stubAgentsForInterrupt{agent: interruptTestAgent(t)},
+		spawns:   inflight.NewGate(),
+		turns:    turns,
 	})
-	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
+	runnerStarted(t, rs, true)
+	rs.apiConns.set("runner-1", interruptServer(t, asked, release))
 
-	require.NoError(t, rs.CloseChat(ctx, "chat-1"))
+	require.NoError(t, rs.StopChat(t.Context(), "chat-1"))
 
-	require.Equal(t, domain.AgentExitStopped, retiredAs(t, rs), "a closed chat's runner must be retired, not interrupted in place")
-	require.Equal(t, []string{"chat-1"}, activity.recorded(), "the turn it cut short still gets its Stopped divider")
+	st := chatState(t, rs.ledger)
+	assert.False(t, st.Busy(), "Stop ends the turn before it returns")
+	assert.Equal(t, []string{"chat-1"}, activity.recorded())
+	<-asked
+	assert.Empty(t, retiredAs(t, rs), "an interruptible provider keeps its CLI")
+}
+
+// TestRegression_StopChatOnAnIdleChatActuallyRetires: there is nothing to
+// interrupt on an idle chat, so Stop retires its runner.
+func TestRegression_StopChatOnAnIdleChatActuallyRetires(t *testing.T) {
+	asked := make(chan struct{})
+	turns, activity := realStopTurns()
+	rs := retiring(t, &Runners{
+		apiConns: newAPIConnRegistry(),
+		attached: newAttachRegistry(),
+		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
+		agents:   stubAgentsForInterrupt{agent: interruptTestAgent(t)},
+		spawns:   inflight.NewGate(),
+		turns:    turns,
+		term:     &fakeTermForAttach{},
+	})
+	runnerStarted(t, rs, false)
+	rs.apiConns.set("runner-1", interruptServer(t, asked, nil))
+
+	require.NoError(t, rs.StopChat(t.Context(), "chat-1"))
+
+	select {
+	case <-asked:
+		t.Fatal("StopChat sent turn/interrupt on an idle chat")
+	default:
+	}
+	assert.Equal(t, domain.AgentExitStopped, retiredAs(t, rs),
+		"an idle chat's runner must actually be retired on close, not left running forever")
+	assert.Empty(t, activity.recorded(), "closing an idle chat interrupts nothing")
+}
+
+// Closing a view ends the chat's session, even mid-turn on a provider that
+// could interrupt in place: nothing on screen would watch the CLI.
+func TestRegression_CloseChatRetiresARunnerMidTurnEvenWhenTheProviderCanInterrupt(t *testing.T) {
+	asked := make(chan struct{})
+	turns, activity := realStopTurns()
+	rs := retiring(t, &Runners{
+		apiConns: newAPIConnRegistry(),
+		attached: newAttachRegistry(),
+		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
+		agents:   stubAgentsForInterrupt{agent: interruptTestAgent(t)},
+		spawns:   inflight.NewGate(),
+		turns:    turns,
+		term:     &fakeTermForAttach{},
+	})
+	runnerStarted(t, rs, true)
+	rs.apiConns.set("runner-1", interruptServer(t, asked, nil))
+
+	require.NoError(t, rs.CloseChat(t.Context(), "chat-1"))
+
+	assert.Equal(t, domain.AgentExitStopped, retiredAs(t, rs), "a closed chat's runner must be retired, not interrupted in place")
+	assert.Equal(t, []string{"chat-1"}, activity.recorded(), "the turn it cut short still gets its Stopped divider")
+	assert.False(t, chatState(t, rs.ledger).Busy())
 }
 
 // A close whose HTTP request is abandoned (the app quit, the socket dropped)
 // must still retire the runner: nothing else knows the view is gone.
 func TestRegression_CloseChatRetiresEvenWhenTheRequestIsAbandoned(t *testing.T) {
-	idleTurns, _ := realStopTurns(inflight.NewTurns(), idleWork())
+	turns, _ := realStopTurns()
 	rs := retiring(t, &Runners{
-		apiConns:      newAPIConnRegistry(),
-		attached:      newAttachRegistry(),
-		ws:            stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
-		agents:        stubAgentsForInterrupt{},
-		spawns:        inflight.NewGate(),
-		inflightTurns: inflight.NewTurns(),
-		turns:         idleTurns,
-		term:          &fakeTermForAttach{},
+		apiConns: newAPIConnRegistry(),
+		attached: newAttachRegistry(),
+		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
+		agents:   stubAgentsForInterrupt{},
+		spawns:   inflight.NewGate(),
+		turns:    turns,
+		term:     &fakeTermForAttach{},
 	})
+	runnerStarted(t, rs, false)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	require.NoError(t, rs.CloseChat(ctx, "chat-1"))
-	require.Equal(t, domain.AgentExitStopped, retiredAs(t, rs), "an abandoned close request must not leave the runner live")
+	assert.Equal(t, domain.AgentExitStopped, retiredAs(t, rs), "an abandoned close request must not leave the runner live")
 }

@@ -34,7 +34,7 @@ func TestRegression_Upgrade_AnUntypedLegacyChatIsAChatAfterBoot(t *testing.T) {
 	now := time.Now().UTC()
 	legacy := domain.Chat{
 		ID: uuid.NewString(), WorkspaceID: imported.workspaceID,
-		Title: "old chat", CreatedAt: now, LastActivityAt: now,
+		Title: "old chat", CreatedAt: now,
 	}
 	seed := openBaseEra(t, home)
 	seed.chat(legacy)
@@ -138,7 +138,7 @@ func TestRegression_Upgrade_AdoptsTheMarkersAnOlderDaemonLeft(t *testing.T) {
 	now := time.Now().UTC()
 	legacy := domain.Chat{
 		ID: uuid.NewString(), WorkspaceID: imported.workspaceID,
-		Title: "old chat", CreatedAt: now, LastActivityAt: now,
+		Title: "old chat", CreatedAt: now,
 	}
 	seed := openBaseEra(t, home)
 	seed.chat(legacy)
@@ -176,7 +176,7 @@ func TestRegression_Upgrade_RestoringABackupAsDocumentedRerunsItsSteps(t *testin
 	now := time.Now().UTC()
 	legacy := domain.Chat{
 		ID: uuid.NewString(), WorkspaceID: imported.workspaceID,
-		Title: "old chat", CreatedAt: now, LastActivityAt: now,
+		Title: "old chat", CreatedAt: now,
 	}
 	seed := openBaseEra(t, home)
 	seed.chat(legacy)

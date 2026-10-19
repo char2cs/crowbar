@@ -2,14 +2,12 @@
 // started and has not yet seen finish.
 //
 // None of it is durable and none of it may be: every value here describes a live
-// process — a CLI being started, a turn being answered, a hook arriving before its
-// runner row exists. A daemon restart kills every process it could have been
-// describing, so an empty inflight after a restart is the truth, not a loss.
+// process — a CLI being started, a hook arriving before its runner row exists. A
+// daemon restart kills every process it could have been describing, so an empty
+// inflight after a restart is the truth, not a loss.
 //
 // It is built ONCE per daemon, in the chat usecase's New, and the same values are
-// handed to every component that needs them. A second instance of any of them is a
-// silent wedge: two turn registries means a switch parks on a turn nothing will
-// ever complete, and two gates means two CLIs on one chat.
+// handed to every component that needs them: two gates means two CLIs on one chat.
 package inflight
 
 import (
@@ -19,7 +17,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight/internal/gate"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight/internal/pending"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight/internal/turnstate"
 )
 
 // Gate serialises work on one chat (or runner) and lets a Stop preempt a
@@ -32,28 +29,6 @@ func NewGate() *Gate { return gate.New() }
 // Preempted reports whether a park context Gate.Acquire handed out was
 // cancelled because a Stop wanted the gate.
 func Preempted(park context.Context) bool { return gate.Preempted(park) }
-
-// Turns is the registry of turns currently in flight, keyed by runner.
-type Turns = turnstate.Turns
-
-// Steered is a prompt parked on a running turn until its end hook carries it.
-type Steered = turnstate.Steered
-
-// The reasons a turn ends for that no runner-side cause already names.
-const (
-	TurnCompleted = turnstate.ReasonCompleted
-	TurnFailed    = turnstate.ReasonFailed
-	TurnAbandoned = turnstate.ReasonAbandoned
-)
-
-// NewTurns returns an empty in-flight-turn registry.
-func NewTurns() *Turns { return turnstate.NewTurns() }
-
-// Work mirrors the authoritative Working flag the turn commands return.
-type Work = turnstate.Work
-
-// NewWork returns an empty work mirror.
-func NewWork() *Work { return turnstate.NewWork() }
 
 // Hooks buffers hooks fired before their runner row exists.
 type Hooks = pending.Hooks

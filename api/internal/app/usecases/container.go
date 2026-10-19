@@ -419,9 +419,10 @@ func newAgentWiring(
 		Snapshots:   chatSnapshots,
 		ChoiceWatch: choiceWatch,
 		// Folders/Nodes let the ancestor walks see past a Folder-only ancestor.
-		Folders:   gormStores.Folders,
-		Nodes:     repos.Node,
-		RepoRoots: workspaceGitStatusReader{workspace: workspaceUsecase, repos: gormStores.Repositories},
+		Folders:      gormStores.Folders,
+		Nodes:        repos.Node,
+		RepoRoots:    workspaceGitStatusReader{workspace: workspaceUsecase, repos: gormStores.Repositories},
+		AgentWorking: repos.SetAgentWorking,
 	})
 	// The chat→worktree resolver, built here because it reads the chat forest
 	// off the usecase above and because the tree below needs its inverse; the
@@ -436,7 +437,7 @@ func newAgentWiring(
 	chatTree := agentusecase.NewTree(
 		repos.AgentChat,
 		chat,
-		chat.Work(),
+		chat,
 		workspaceGitStatusReader{workspace: workspaceUsecase, repos: gormStores.Repositories},
 		// The SAME adapter the chat usecase's own WorktreeCreator is satisfied
 		// with, handed here a second time on purpose: a cascading delete and a
@@ -447,9 +448,7 @@ func newAgentWiring(
 		// chat is anchored to, never that it is anchored there alone, so the
 		// delete asks who else is currently resolving to it before cascading.
 		worktreeUsecase,
-		// Home-scoped (project-home) folders/chat placement now go through
-		// Folder/Node (2026-09-08 sidebar-placement-unification Task 5) —
-		// repo-scoped folders/chats are untouched by these, still Chat-backed.
+		// Home-scoped folders and chat placement go through Folder/Node.
 		gormStores.Folders,
 		repos.Node,
 		agentusecase.WithTreeRepoAnnouncer(announceRepo),

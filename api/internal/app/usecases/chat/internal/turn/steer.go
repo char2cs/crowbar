@@ -2,12 +2,12 @@ package turn
 
 import (
 	"context"
-	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -56,41 +56,75 @@ func (t *Turns) TakeHookReply(deliveryID string) (string, bool) {
 	return t.replies.get(deliveryID)
 }
 
-// QueueSteer parks s on runnerID's running turn so the turn's end hook delivers
-// it. It takes the runner's hook gate: either the end hook has not been ingested
-// yet and will find s, or it already completed and the turn is no longer open.
-func (t *Turns) QueueSteer(runnerID string, s inflight.Steered) bool {
-	defer t.hookGates.Lock(runnerID)()
-	return t.turns.Steer(runnerID, s)
+// steerTexts holds each chat's steered prompt's dispatch text until the end
+// hook of the turn it rides delivers it: the ledger keeps the text the user
+// wrote, and the CLI is handed the rewritten one.
+type steerTexts struct {
+	mu     sync.Mutex
+	byChat map[string]steerText
 }
 
-// deliverSteered answers the turn-end hook with the parked message and records
-// it as the user turn the CLI's continuation is about to answer. The CLI never
-// fires a prompt hook for it, so this is the only place the turn opens; on a
-// runner whose end is under way it is refused instead, and never delivered.
-func (t *Turns) deliverSteered(
-	ctx context.Context,
-	chat domain.Chat,
-	runnerID string,
-	agent engineagents.Agent,
-	s inflight.Steered,
-) {
-	stdout, ok := agent.PromptSteer(s.DispatchText)
-	deliveryID := inflight.DeliveryID(ctx)
-	if !ok || deliveryID == "" {
-		t.runners.RefuseSteered(ctx, s)
-		return
+type steerText struct{ requestID, text string }
+
+func (s *steerTexts) put(chatID, requestID, text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.byChat == nil {
+		s.byChat = map[string]steerText{}
 	}
-	opened, err := t.openingTurn(runnerID, func(h turnHold) error {
-		t.replies.put(deliveryID, stdout)
-		return t.recordUserTurn(ctx, chat, h, agent, engineagents.CanonicalEvent{Message: s.Text})
-	})
-	if !opened {
-		t.runners.RefuseSteered(ctx, s)
-		return
+	s.byChat[chatID] = steerText{requestID: requestID, text: text}
+}
+
+// take removes and returns the chat's held dispatch text.
+func (s *steerTexts) take(chatID string) steerText {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	held := s.byChat[chatID]
+	delete(s.byChat, chatID)
+	return held
+}
+
+// HoldSteer keeps dispatchText for requestID, a prompt about to be recorded
+// as steered on chatID's running turn.
+func (t *Turns) HoldSteer(chatID, requestID, dispatchText string) {
+	t.steers.put(chatID, requestID, dispatchText)
+}
+
+// pendingSteer is the steered prompt runnerID carries on its running turn.
+func pendingSteer(st ledger.State, runnerID string) (ledger.Prompt, bool) {
+	for _, p := range st.PendingPrompts() {
+		if p.Delivery == ledger.DeliverySteer && p.RunnerID == runnerID {
+			return p, true
+		}
 	}
-	if err != nil {
-		slog.WarnContext(ctx, "agent: record steered prompt (delivered anyway)",
-			"chat_id", chat.ID, "runner_id", runnerID, "client_request_id", s.RequestID, "err", err)
+	return ledger.Prompt{}, false
+}
+
+// settleSteer settles the steered prompt runnerID carries for reason.
+func settleSteer(st ledger.State, runnerID, reason string) ([]ledger.Row, error) {
+	return ledger.Settle(st, func(p ledger.Prompt) bool {
+		return p.Delivery == ledger.DeliverySteer && p.RunnerID == runnerID
+	}, false, reason)
+}
+
+// steerReply is the hook reply that hands p to the CLI as its turn ends, or
+// false when the relay cannot carry one.
+func (t *Turns) steerReply(ctx context.Context, chatID string, p ledger.Prompt, agent engineagents.Agent) (string, bool) {
+	text := p.Text
+	if held := t.steers.take(chatID); held.requestID == p.RequestID && held.text != "" {
+		text = held.text
 	}
+	stdout, ok := agent.PromptSteer(text)
+	return stdout, ok && inflight.DeliveryID(ctx) != ""
+}
+
+// recordSteered records a delivered steered prompt in the conversation record
+// as the user turn the CLI's continuation answers.
+func (t *Turns) recordSteered(ctx context.Context, chat domain.Chat, runner engineagents.Runner, p ledger.Prompt) {
+	err := t.conversations.AppendRunnerTurn(
+		inflight.WithRecordID(ctx, p.RequestID), chat, runner.ProviderID, runner.ID,
+		t.boundSession(ctx, chat.ID, runner.ProviderID), domain.TurnRoleUser, p.Text,
+	)
+	t.openAssistantTurn(ctx, chat, runner)
+	note(ctx, "record steered prompt", err)
 }

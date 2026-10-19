@@ -69,7 +69,6 @@ func (t *Turns) handleNestedObservation(
 	case engineagents.HookTurnStop, engineagents.HookTurnFailed:
 		note(ctx, "nested subagent turn closed",
 			t.activity.StopSubagent(ctx, chatID, subagentID, "", ev.Message, now))
-		t.restateAsyncWork(ctx, chatID)
 	case engineagents.HookToolPre:
 		note(ctx, "nested subagent tool invoked", t.activity.InvokeSubagentTool(ctx,
 			agentactivity.SubagentToolInput{

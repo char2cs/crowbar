@@ -82,6 +82,9 @@ type SessionSpec struct {
 	// Refused is how the CLI says it cannot resume a session: the only
 	// evidence that a chat's session is lost.
 	Refused *SessionRefusedSpec `yaml:"refused"`
+	// Persists is when the CLI has written a session it can resume:
+	// "turn_start" (the default) or "turn_end", once a turn on it completes.
+	Persists string `yaml:"persists"`
 }
 
 // SessionRefusedSpec is a refused resume, by one rule per channel: on the

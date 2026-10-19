@@ -28,11 +28,9 @@ import (
 // and writes, the engine it resolves providers through, the seams onto the rest
 // of the daemon, and the agent-facing tool surface.
 //
-// What is NOT here is any of the shared in-flight state — the gates, the turn
-// registry, the work mirror. New builds those, and a caller must
-// not be able to supply them: a second instance of any one does not fail to
-// compile and does not fail a test that exercises a single path, it wedges a
-// switch or doubles a CLI in production.
+// What is NOT here is any of the shared in-flight state — the gates, the hook
+// barrier. New builds those, and a caller must not be able to supply them: a
+// second instance of any one doubles a CLI in production.
 type Deps struct {
 	Chats    agentchat.EventStore
 	Activity agentactivity.EventStore
@@ -92,9 +90,12 @@ type Deps struct {
 	// to the fanout. Nil builds a private one (tests), fed by nothing until a
 	// test wires the fanout over Snapshots().
 	Snapshots *snapshot.Snapshots
-	// SwitchGrace is how long a provider switch waits on the outgoing turn
-	// before forcing it; zero is the default.
-	SwitchGrace time.Duration
+	// MessageAwaitTimeout bounds how long a turn's end waits for a message
+	// still streaming; zero is the default.
+	MessageAwaitTimeout time.Duration
+	// AgentWorking is told when a chat's busy answer flips, for its
+	// workspace's working overlay.
+	AgentWorking func(ctx context.Context, wsID, chatID string, working bool)
 	// Tools is the agent-facing capability surface. Its Chats, ChatLogs, Lineage,
 	// ToolAccess and Resolver are filled in by New: they are this usecase's own
 	// methods, and it does not exist when the caller builds the Deps.
@@ -110,17 +111,10 @@ type Deps struct {
 // every process it could have been describing.
 type shared struct {
 	telemetry *telemetry.Store
-	// work mirrors the authoritative Working flag the turn commands return. Unlike
-	// the projection, it cannot briefly report idle after a hook has durably
-	// announced background work.
-	work *inflight.Work
 	// spawns serialises the USER-INITIATED spawn paths per chat. It is the only
 	// thing that can stop two concurrent switches putting two CLIs on one chat, and
 	// it is NEVER taken on the hook path.
 	spawns *inflight.Gate
-	// turns is the in-flight-turn registry a provider switch BLOCKS on, so it never
-	// quits a CLI mid-answer.
-	turns *inflight.Turns
 	// pendingHooks is the fork-before-runner-persistence barrier: the spawn path
 	// installs it before the fork and finishes it once the runner row exists, and
 	// the ingest path buffers into it meanwhile.
@@ -137,9 +131,7 @@ func New(d Deps) *Usecase {
 	// codebase (e.g. container.go's sweepTargets).
 	sh := shared{
 		telemetry:    telemetry.NewDurable(context.Background(), d.ChatTelemetry),
-		work:         inflight.NewWork(),
 		spawns:       inflight.NewGate(),
-		turns:        inflight.NewTurns(),
 		pendingHooks: inflight.NewHooks(),
 		answers: answerdesk.New(
 			answerdesk.DefaultRetention, d.Activity, answerdesk.WithChange(d.ChoiceWatch.Notify),
@@ -153,7 +145,6 @@ func New(d Deps) *Usecase {
 		worktree:  d.Worktree,
 		answers:   sh.answers,
 		tools:     d.Tools,
-		work:      sh.work,
 		folders:   d.Folders,
 		nodes:     d.Nodes,
 		repoRoots: d.RepoRoots,
@@ -232,25 +223,23 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Lineage:   d.Lineage,
 		Home:      d.Home,
 		Ledger:    d.Ledger,
-		Work:      sh.work,
 		Spawns:    sh.spawns,
 
 		DefaultPermissionLevel: u.DefaultPermissionLevel,
 	})
 	u.turns = turn.New(turn.Deps{
-		Chats:         d.Chats,
-		Activity:      d.Activity,
-		Telemetry:     sh.telemetry,
-		Agents:        d.Agents,
-		Workspace:     d.Workspace,
-		Home:          d.Home,
-		Ledger:        d.Ledger,
-		Work:          sh.work,
-		InflightTurns: sh.turns,
-		PendingHooks:  sh.pendingHooks,
-		Answers:       sh.answers,
+		Chats:        d.Chats,
+		Activity:     d.Activity,
+		Telemetry:    sh.telemetry,
+		Agents:       d.Agents,
+		Workspace:    d.Workspace,
+		Home:         d.Home,
+		Ledger:       d.Ledger,
+		PendingHooks: sh.pendingHooks,
+		Answers:      sh.answers,
 
-		Conversations: u.conversations,
+		Conversations:       u.conversations,
+		MessageAwaitTimeout: d.MessageAwaitTimeout,
 	})
 	d.ChoiceWatch.bind(u.turns.PublishChoices)
 	u.runners = runner.New(runner.Deps{
@@ -263,15 +252,12 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Ledger:        d.Ledger,
 		DaemonSocket:  d.DaemonSocket,
 		Spawns:        sh.spawns,
-		InflightTurns: sh.turns,
-		Work:          sh.work,
 		PendingHooks:  sh.pendingHooks,
 		Minter:        d.Minter,
 		Answers:       sh.answers,
 		Conversations: u.conversations,
 		Providers:     u.providers,
 		Snapshots:     u.snapshots,
-		SwitchGrace:   d.SwitchGrace,
 	})
 	// The edges that can only close once both sides exist: a purge retires the
 	// CLI on the chat (and a failed spawn discards the chat it minted), a hook
@@ -279,12 +265,33 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	// reads screens through the hook ingress's own classifiers.
 	u.conversations.SetRunners(u.runners)
 	u.turns.SetRunners(u.runners)
-	sh.turns.OnDrop(u.runners.RefuseSteered)
 	u.runners.SetTurns(u.turns)
 	// Subscribers run under the chat's ledger writer: they read snapshots only
 	// through Held, which never reads the ledger.
-	d.Ledger.Subscribe(func(chatID string, _ []ledger.Row, st ledger.State) {
-		u.snapshots.ApplyLedger(context.Background(), chatID, snapshot.FactsOf(st))
+	d.Ledger.Subscribe(func(chatID string, rows []ledger.Row, st ledger.State) {
+		ctx := context.Background()
+		flipped, wsID := u.snapshots.ApplyLedger(ctx, chatID, snapshot.FactsOf(st), turnKind(rows))
+		if flipped && d.AgentWorking != nil {
+			d.AgentWorking(ctx, wsID, chatID, st.Busy())
+		}
 	})
 	d.Ledger.Subscribe(u.publishLedgerRows)
+}
+
+// turnKind is the chat frame kind a batch's last turn row announces: a turn
+// started, or one stopped; "" for a batch with none.
+func turnKind(rows []ledger.Row) string {
+	kind := ""
+	for _, r := range rows {
+		if r.Scope != "" {
+			continue
+		}
+		if r.Kind == ledger.KindTurnStarted {
+			kind = "turn_started"
+		}
+		if r.Kind == ledger.KindTurnEnded || r.Kind == ledger.KindTurnFailed {
+			kind = "turn_stopped"
+		}
+	}
+	return kind
 }

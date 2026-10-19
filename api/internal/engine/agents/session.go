@@ -13,6 +13,9 @@ func (a *agent) SessionAssignArg() (string, bool) {
 	return a.spec.Session.Assign.Arg, true
 }
 
+// SessionPersists is when the CLI has written a session it can resume.
+func (a *agent) SessionPersists() string { return a.spec.Session.Persists }
+
 // RefusedResume is refused only for the declared exit code AND one of the
 // descriptor's needles on the screen, matched without whitespace so a line the
 // terminal wrapped across rows still counts. Any other exit says nothing.

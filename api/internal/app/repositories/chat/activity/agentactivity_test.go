@@ -232,18 +232,9 @@ func TestToolCall_RoundTripsThroughInvokeAndComplete(t *testing.T) {
 	assert.Equal(t, "applied", string(result))
 }
 
-// TestRegression_CompleteTool_IsDurableBeforeItReturns_NoWaitNeeded is the
-// fix for the identical stale-read race StopSubagent already had fixed for
-// it (see that method's own doc comment): observation.go's HookToolPost/
-// HookToolFail case calls CompleteTool and then IMMEDIATELY
-// restateAsyncWork, whose OpenWork is a SQL read of the very row
-// CompleteTool just wrote — with no wait of its own, exactly like this test
-// deliberately has none. Under the old fire-and-forget `send`, the read
-// could land before the write projected, still see the tool "running", and
-// the chat's Working spinner would stick forever. `sendWait` makes the
-// write durable before CompleteTool returns, which is what this test
-// actually proves: NOT calling f.wait() and still seeing the completed
-// status immediately.
+// TestRegression_CompleteTool_IsDurableBeforeItReturns_NoWaitNeeded: the hook
+// that completes a tool reads the activity back at once, so CompleteTool is
+// durable before it returns — no f.wait() here.
 func TestRegression_CompleteTool_IsDurableBeforeItReturns_NoWaitNeeded(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.repo.InvokeTool(f.ctx, activity.ToolInput{
@@ -385,8 +376,7 @@ func TestStopSubagentWithoutStartDoesNotCreateARow(t *testing.T) {
 // ever tells Crowbar it finished. Abandon already force-closed a tool call
 // left running the same way (TestCloseTurn_AbandonsToolsWhoseCompletionNever
 // Arrived), but had no equivalent for subagents, so this row's EndedAt stayed
-// nil forever: OpenWork checks Subagents chat-wide with no time bound, so
-// every future turn in that chat read as "still working" too. Confirmed live
+// nil forever, read as running chat-wide with no time bound. Confirmed live
 // against a production chat's own state: 14 such rows, oldest 11 days old,
 // one chat alone holding 10 of them.
 func TestRegression_AbandonClosesASubagentWhosePostNeverArrived(t *testing.T) {
@@ -410,10 +400,9 @@ func TestRegression_AbandonClosesASubagentWhosePostNeverArrived(t *testing.T) {
 // invariant the fix above must not break: unlike a tool call, a subagent is
 // deliberately allowed to keep running after the turn that spawned it closes
 // — a CLI that hands work to a background task ends its own turn right there
-// and goes quiet until that work reports back (see turn.go's restateAsyncWork
-// doc, proven end to end by TestRegression_CodexTurnStopWithOpenSubagent_
-// KeepsChatWorking). An ordinary CloseTurn must never treat that as
-// abandonment; only giving up on the chat entirely (Abandon) may.
+// and goes quiet until that work reports back. An ordinary CloseTurn must
+// never treat that as abandonment; only giving up on the chat entirely
+// (Abandon) may.
 func TestCloseTurn_NeverAbandonsASubagentStillRunningPastItsOwnTurn(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.repo.OpenTurn(f.ctx, activity.TurnInput{

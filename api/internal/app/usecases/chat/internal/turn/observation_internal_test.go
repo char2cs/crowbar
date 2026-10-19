@@ -211,7 +211,7 @@ func (a *endedSubagentActivity) OpenNestedSubagent(
 // codex.yaml maps to nested_session_id on tool_post. openNestedSubagent asked
 // only "is it open RIGHT NOW", which a child that just stopped answers false
 // to, so it opened it again; SaveSubagent upserts, clearing ended_at back to
-// NULL, and OpenWork reads that row as live work forever.
+// NULL, and the shelf reads that row as running forever.
 //
 // The predicate has to be "has this chat ever recorded this id", not "is it
 // open": a stopped subagent can never be resurrected.

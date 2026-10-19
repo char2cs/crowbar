@@ -7,7 +7,6 @@ import (
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/fanout"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
@@ -137,15 +136,14 @@ func NewToolIdempotency() *ToolIdempotency { return tools.NewIdempotency() }
 // NewToolMetrics returns an empty per-tool call counter.
 func NewToolMetrics() *ToolMetrics { return tools.NewMetrics() }
 
-// NewTree builds the sidebar forest's tree usecase. work is the chat
-// usecase's own in-flight tracker (see Usecase.Work) — the tree's move and
-// delete verbs refuse over a subtree that is still working, and there is
-// exactly one tracker to ask. workspaces is the tree's read seam onto the
+// NewTree builds the sidebar forest's tree usecase. busy is the chat
+// usecase (Usecase.ChatBusy): the tree's move and delete verbs refuse over a
+// subtree that is still working. workspaces is the tree's read seam onto the
 // workspace layer.
 func NewTree(
 	chats TreeChats,
 	agent TreeAgent,
-	work *inflight.Work,
+	busy TreeBusy,
 	workspaces TreeWorkspaceGitStatus,
 	reaper TreeWorkspaceReaper,
 	holders TreeWorkspaceHolders,
@@ -153,7 +151,7 @@ func NewTree(
 	nodes TreeNodes,
 	opts ...TreeOption,
 ) TreeUsecase {
-	return tree.New(chats, agent, work, workspaces, reaper, holders, folders, nodes, opts...)
+	return tree.New(chats, agent, busy, workspaces, reaper, holders, folders, nodes, opts...)
 }
 
 // TreeOption/TreeRepoAnnouncer/WithTreeRepoAnnouncer re-export the tree's
@@ -167,19 +165,18 @@ func WithTreeRepoAnnouncer(fn TreeRepoAnnouncer) TreeOption {
 	return tree.WithRepoAnnouncer(fn)
 }
 
-// Work exposes the in-flight turn tracker this usecase's own components
-// observe, so the tree usecase built on top of it (see NewTree) can refuse a
-// move or delete over a chat that is currently working. Deliberately not on
-// ChatUsecase: only the composition root wiring the tree usecase needs it.
-func (u *Usecase) Work() *inflight.Work {
-	return u.work
+// TreeBusy is the tree usecase's question of whether a chat is working.
+type TreeBusy = tree.Busy
+
+// ChatBusy reports whether chatID is working, as its ledger folds it.
+func (u *Usecase) ChatBusy(ctx context.Context, chatID string) (bool, error) {
+	return u.runners.ChatBusy(ctx, chatID)
 }
 
 // HasTurns reports whether anything was ever SAID in a chat.
 //
-// Here rather than in one of the five responsibility files for the same reason
-// as Work and Working above: the only caller is the tree usecase built on top
-// of this one, whose boot backfill asks it before adopting a row into a
+// Here rather than in one of the five responsibility files: the only caller
+// is the tree usecase built on top of this one, whose boot backfill asks it before adopting a row into a
 // different kind (see tree.Agent.HasTurns). It is the same "has this chat said
 // anything yet" test NoteThreadLineage already makes, kept to one read of the
 // turn record rather than rendering a log nobody reads.
@@ -192,18 +189,6 @@ func (u *Usecase) HasTurns(
 		return false, err
 	}
 	return len(turns) > 0, nil
-}
-
-// Working reports whether chatID is currently working — the SAME live,
-// process-local answer Work() exposes the tree usecase's guardNotWorking, in
-// the narrow bool shape usecases/workspace's own reparent guard needs. It is
-// exposed here, rather than through inflight.Work directly, so that package
-// (this feature's own turn/runner machinery) never has to be imported by a
-// consumer with no other business depending on it (usecases/workspace may not
-// import usecases/chat/internal/shared/inflight, an internal package).
-func (u *Usecase) Working(chatID string) bool {
-	working, _, _ := u.work.Observe(chatID)
-	return working
 }
 
 // NewChatLineage builds the lineage reader over the chat repository. It is
@@ -224,10 +209,6 @@ type (
 	WorkspaceReader = seam.WorkspaceReader
 	// ChatLineage answers "what does this chat read" at spawn time.
 	ChatLineage = seam.ChatLineage
-	// Stall is a turn the SCREEN says will never finish — a usage limit, a service
-	// outage. It crosses from the detector that recognises it to the ingress that
-	// closes the turn, which is why it is vocabulary rather than either one's.
-	Stall = seam.Stall
 	// ChatFeed is where the usecase publishes the live facts about a chat that
 	// no aggregate projection carries; the hub's owner binds it at sweep start.
 	ChatFeed = seam.ChatFeed

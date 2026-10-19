@@ -91,12 +91,11 @@ type AncestorCwd interface {
 	) (string, bool, error)
 }
 
-// Turns is what the CLI lifecycle needs from the hook ingress: the turn a switch
-// must not decapitate, the startup hooks a fresh runner buffered, and the screen
-// classifiers the terminal-wait sweep runs on.
+// Turns is what the CLI lifecycle needs from the hook ingress: the startup
+// hooks a fresh runner buffered, the records a Stop or switch leaves, and the
+// screen classifiers the terminal-wait sweep runs on.
 //
-// NOTHING here may take the spawn gate, and nothing here does: this side holds it
-// while parked on a turn only the hook side can release.
+// NOTHING here may take the spawn gate: this side holds it.
 type Turns interface {
 	// IngestHook applies one canonical hook or api-transport event, the same
 	// entrypoint the HTTP hook ingress uses — pumpAPIConn (apiconn.go) feeds an
@@ -114,27 +113,9 @@ type Turns interface {
 	// ReplayStartupHook ingests one hook that arrived before the runner row
 	// existed, now that it does.
 	ReplayStartupHook(runnerID string, hook inflight.Hook)
-	// AwaitTurnComplete blocks until the chat has no turn in flight, so a
-	// destructive replacement never kills a CLI mid-answer.
-	AwaitTurnComplete(
-		ctx context.Context,
-		chatID string,
-	) error
-	// ChatWorking reports whether the chat is busy, from the authoritative
-	// process-local mirror rather than the asynchronous projection.
-	ChatWorking(
-		ctx context.Context,
-		chatID string,
-	) (bool, error)
-	// TurnOpen reports whether chatID has a turn or background work a Stop
-	// would cut short, read once runnerID's in-progress hook ingest is done.
-	TurnOpen(
-		ctx context.Context,
-		chatID, runnerID string,
-	) (bool, error)
-	// QueueSteer parks s on runnerID's running turn so the turn's end hook
-	// delivers it. False when no turn is in flight (or one is already parked).
-	QueueSteer(runnerID string, s inflight.Steered) bool
+	// HoldSteer keeps the dispatch text of a prompt about to be steered into
+	// chatID's running turn, for the turn's end hook to deliver.
+	HoldSteer(chatID, requestID, dispatchText string)
 	// RecordStop notes, durably, that a person cut chatID's in-flight turn
 	// short. It always records: the caller decides whether a turn was open,
 	// before tearing anything down. runnerID serialises this against
@@ -165,17 +146,13 @@ type Turns interface {
 		runner engineagents.Runner,
 	) (bool, error)
 
-	// The five seams the terminal-wait detector reads through. They are here
-	// rather than passed separately because they all belong to the hook side, and
-	// splitting them would only make the detector's construction lie about that.
+	// The seams the terminal-wait detector reads through: they belong to the
+	// hook side.
 	termwait.Prompts
 	termwait.Notices
-	termwait.Work
-	termwait.Messages
-	termwait.Idle
-	// CloseStalledTurn ends a turn the screen says will never finish — a usage
-	// limit, a service outage — because no hook will ever report it.
-	CloseStalledTurn(ctx context.Context, stall seam.Stall)
+	// FailTurnOnNotice records runner's running turn failed for a notice on
+	// its screen that ends a turn, which no hook reports.
+	FailTurnOnNotice(ctx context.Context, runner engineagents.Runner, notice engineagents.TerminalNotice)
 }
 
 // Providers is the provider table as the spawn and switch paths consult it: may

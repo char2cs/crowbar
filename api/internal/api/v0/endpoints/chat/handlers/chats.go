@@ -349,7 +349,7 @@ func (h *Handlers) chatSnapshot(
 func snapshotParts(s agentusecase.ChatSnapshot) (domain.Chat, dto.ChatRuntime) {
 	conversation, _ := s.Conversation()
 	return s.Chat, dto.ChatSnapshotRuntime(s.Live, s.Phase, s.Version,
-		s.TerminalWait, s.AttachedSessionID, s.Session, conversation)
+		s.TerminalWait, s.AttachedSessionID, s.Session, conversation, s.Ledger.Busy)
 }
 
 // requireChatInWorkspace loads chatID, 404ing on an unknown id, and holds it to

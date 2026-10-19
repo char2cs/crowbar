@@ -84,14 +84,6 @@ type TurnUsecase interface {
 		chatID string,
 	) bool
 
-	// OpenWork reports whether the chat has a tool call or a subagent still
-	// running. It is the second opinion the stall detector needs before it closes
-	// a turn whose provider went quiet.
-	OpenWork(
-		ctx context.Context,
-		chatID string,
-	) (bool, error)
-
 	// MatchTerminalPrompt asks a provider's descriptor whether a rendered screen
 	// is one of its modal prompts. An unresolvable home or descriptor is silent
 	// rather than an error: it is a detector input, not a command.
@@ -205,12 +197,6 @@ func (u *Usecase) ReadToolPayload(
 // stays a plain read.
 func (u *Usecase) Telemetry(chatID string) (engineagents.Telemetry, bool) {
 	return u.turns.Telemetry(chatID)
-}
-
-// OpenWork reports whether the chat has work in flight, from the authoritative
-// process-local mirror rather than the asynchronous projection.
-func (u *Usecase) OpenWork(ctx context.Context, chatID string) (bool, error) {
-	return u.turns.OpenWork(ctx, chatID)
 }
 
 // MatchTerminalPrompt asks a provider's descriptor whether a rendered screen is

@@ -9,14 +9,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
@@ -343,32 +341,23 @@ func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) 
 	assert.Empty(t, turns, "no top-level turn was ever opened by any of this")
 }
 
-// TestRegression_SpawnAgentCompletionKeepsChatWorkingForTheNestedSubagent is
-// THE BUG live-reported against SubagentShelf: a codex chat ran a real
-// collab_agents subagent, and the live shelf never showed it running at all.
-//
-// handleObservation's HookToolPost case used to call restateAsyncWork BEFORE
-// openNestedSubagent — so the very read meant to notice "something is now
-// open" ran one statement before the write that would have given it
-// something to find. With the PARENT's own turn already closed (codex ends
-// its visible turn the instant it delegates — see observation.go's own
-// comment on this) and nothing else open, that ordering restated
-// Working=false right as the nested subagent started, and nothing ever
-// reopened it: SubagentShelf's live poll had already stopped.
-func TestRegression_SpawnAgentCompletionKeepsChatWorkingForTheNestedSubagent(t *testing.T) {
+// TestRegression_SpawnAgentCompletionOpensTheNestedSubagent is the bug
+// live-reported against SubagentShelf: a codex chat ran a real collab_agents
+// subagent, and the live shelf never showed it running at all.
+func TestRegression_SpawnAgentCompletionOpensTheNestedSubagent(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
 	f.announce(t, runnerID, "thread-main")
 
 	hook(t, f, runnerID, "codex", "user_prompt", map[string]any{"prompt": "spawn a subagent"})
-	require.True(t, f.chat(t, chatID).Working, "precondition: the turn is open")
+	require.True(t, f.busy(t, chatID), "precondition: the turn is open")
 
 	// codex ends its OWN visible turn the instant it delegates — nothing else
 	// is open once this lands.
 	hook(t, f, runnerID, "codex", "turn_stop", map[string]any{
 		"session_id": "thread-main", "last_assistant_message": "Delegating now.",
 	})
-	require.False(t, f.chat(t, chatID).Working,
+	require.False(t, f.busy(t, chatID),
 		"precondition: the parent's own turn genuinely closed, nothing else open yet")
 
 	// The parent's own spawnAgent tool call completes, naming the child
@@ -383,10 +372,6 @@ func TestRegression_SpawnAgentCompletionKeepsChatWorkingForTheNestedSubagent(t *
 			"receiverThreadIds": []any{"thread-child"},
 		},
 	})
-
-	chat := f.chat(t, chatID)
-	require.True(t, chat.Working,
-		"the spinner must turn back on: a nested subagent just opened and is still running")
 
 	subs, err := f.activity.Subagents(f.ctx, chatID)
 	require.NoError(t, err)
@@ -968,7 +953,7 @@ func TestIngestHookDelivery_DuplicatePOSTMutatesLedgerOnce(t *testing.T) {
 	require.Len(t, page.Items, 2)
 	assert.Equal(t, "exactly once", page.Items[0].Text)
 	assert.Equal(t, "one reply", page.Items[1].Text)
-	assert.False(t, f.chat(t, chatID).Working)
+	assert.False(t, f.busy(t, chatID))
 }
 
 func TestIngestHookDelivery_RejectsUUIDReuseWithDifferentPayload(t *testing.T) {
@@ -1060,27 +1045,20 @@ const codexUsageLimitSentence = "" +
 	"https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Aug 22nd, 2026 " +
 	"12:30 PM."
 
-func TestRegression_StalledTurnIsClosedAndTheChatSaysWhy(t *testing.T) {
+func TestRegression_ATurnEndingNoticeFailsTheTurnAndTheChatSaysWhy(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
 	f.announce(t, runnerID, "sess-1")
 	prompt(t, f, runnerID, "codex", "please do the thing")
-	require.True(t, f.chat(t, chatID).Working, "the user's prompt must have opened a turn")
+	require.True(t, f.busy(t, chatID), "the user's prompt must have opened a turn")
 
 	notice, ok := f.usecase.MatchTerminalNotice(f.ctx, "codex", codexUsageLimitScreen)
 	require.True(t, ok, "the shipped codex descriptor must recognise its own usage-limit banner")
 
-	agentusecase.CloseStalledTurn(f.usecase.TurnUsecase, f.ctx, agentusecase.Stall{
-		ChatID:      chatID,
-		WorkspaceID: "ws1",
-		ProviderID:  "codex",
-		RunnerID:    runnerID,
-		SessionID:   "sess-1",
-		Notice:      notice,
-	})
+	agentusecase.FailTurnOnNotice(f.ctx, f.usecase.TurnUsecase, f.runner(t, runnerID), notice)
 	f.wait()
 
-	assert.False(t, f.chat(t, chatID).Working, "the wedged spinner must stop")
+	assert.False(t, f.busy(t, chatID), "the wedged spinner must stop")
 
 	rows, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
 	require.NoError(t, err)
@@ -1099,22 +1077,15 @@ func TestRegression_StalledTurnIsClosedAndTheChatSaysWhy(t *testing.T) {
 	assert.Equal(t, "sess-1", notices[0].SessionID)
 }
 
-// TestRegression_CloseStalledTurnSalvagesTheAlreadyStreamedText is the same gap
-// TestRegression_StopChatSalvagesTheAlreadyStreamedText already proved on StopChat's
-// own door, hit through the stall sweep instead: codex streams part of a reply,
-// then hits its usage limit (codex.yaml's only terminal_notices entry) before its
-// own turn/completed ever arrives. CloseStalledTurn clears Working — the wedged
-// spinner does stop — but unlike AbandonMessage/AbandonMessageForRunner it never
-// looked at the streamed buffer, so the reply already broadcast live over
-// message_delta was simply dropped. The frontend's own live bubble, matched
-// against the ledger by "msg-"+item id, then never finds its row and never
-// stops rendering as still in progress.
-func TestRegression_CloseStalledTurnSalvagesTheAlreadyStreamedText(t *testing.T) {
+// A notice ending the turn keeps the reply already streamed live: codex
+// streams part of a reply, then hits its usage limit before its own
+// turn/completed ever arrives.
+func TestRegression_ATurnEndingNoticeSalvagesTheAlreadyStreamedText(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
 	f.announce(t, runnerID, "sess-1")
 	prompt(t, f, runnerID, "codex", "please do the thing")
-	require.True(t, f.chat(t, chatID).Working, "the user's prompt must have opened a turn")
+	require.True(t, f.busy(t, chatID), "the user's prompt must have opened a turn")
 
 	// Codex streaming its own reply — no `final`/`index`, exactly as its own
 	// descriptor maps message_delta — when the usage-limit banner appears.
@@ -1127,13 +1098,10 @@ func TestRegression_CloseStalledTurnSalvagesTheAlreadyStreamedText(t *testing.T)
 
 	notice, ok := f.usecase.MatchTerminalNotice(f.ctx, "codex", codexUsageLimitScreen)
 	require.True(t, ok)
-	agentusecase.CloseStalledTurn(f.usecase.TurnUsecase, f.ctx, agentusecase.Stall{
-		ChatID: chatID, WorkspaceID: "ws1", ProviderID: "codex",
-		RunnerID: runnerID, SessionID: "sess-1", Notice: notice,
-	})
+	agentusecase.FailTurnOnNotice(f.ctx, f.usecase.TurnUsecase, f.runner(t, runnerID), notice)
 	f.wait()
 
-	assert.False(t, f.chat(t, chatID).Working, "the wedged spinner must stop")
+	assert.False(t, f.busy(t, chatID), "the wedged spinner must stop")
 
 	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
 	require.NoError(t, err)
@@ -1144,22 +1112,19 @@ func TestRegression_CloseStalledTurnSalvagesTheAlreadyStreamedText(t *testing.T)
 		}
 	}
 	require.NotNil(t, salvaged,
-		"THE BUG: text Crowbar already streamed to the client must survive a stall, not disappear")
+		"text Crowbar already streamed to the client must survive the notice, not disappear")
 	assert.Equal(t, "codex", salvaged.ProviderID)
 }
 
-func TestUsecase_CloseStalledTurn_WritesNoNoticeWhenThereWasNoTurnToClose(t *testing.T) {
+func TestUsecase_FailTurnOnNotice_WritesNoNoticeWhenThereWasNoTurnToClose(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
 	f.announce(t, runnerID, "sess-1")
-	require.False(t, f.chat(t, chatID).Working, "no prompt was sent: there is no open turn")
+	require.False(t, f.busy(t, chatID), "no prompt was sent: there is no open turn")
 
 	notice, ok := f.usecase.MatchTerminalNotice(f.ctx, "codex", codexUsageLimitScreen)
 	require.True(t, ok)
-	agentusecase.CloseStalledTurn(f.usecase.TurnUsecase, f.ctx, agentusecase.Stall{
-		ChatID: chatID, WorkspaceID: "ws1", ProviderID: "codex",
-		RunnerID: runnerID, SessionID: "sess-1", Notice: notice,
-	})
+	agentusecase.FailTurnOnNotice(f.ctx, f.usecase.TurnUsecase, f.runner(t, runnerID), notice)
 	f.wait()
 
 	rows, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
@@ -1206,66 +1171,6 @@ func TestUsecase_MatchTerminalNotice_OrdinaryScreenIsNotANotice(t *testing.T) {
 		"› Explain this codebase\n  ⏎ send   ⌃J newline")
 
 	assert.False(t, ok)
-}
-
-func TestUsecase_OpenWork_ReportsAToolCallTheProviderNeverClosed(t *testing.T) {
-	f := newFixture(t)
-	chatID, runnerID := f.spawn(t, "codex")
-	f.announce(t, runnerID, "sess-1")
-	prompt(t, f, runnerID, "codex", "please do the thing")
-
-	open, err := f.usecase.OpenWork(f.ctx, chatID)
-	require.NoError(t, err)
-	require.False(t, open, "nothing has been started yet")
-
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "tool_pre",
-		mustJSON(t, map[string]any{
-			"session_id": "sess-1", "tool_use_id": "tool-1", "tool_name": "Bash",
-			"tool_input": map[string]any{"command": "sleep 600"},
-		})))
-	f.wait()
-
-	open, err = f.usecase.OpenWork(f.ctx, chatID)
-	require.NoError(t, err)
-	assert.True(t, open, "tool_pre arrived and tool_post has not: the CLI is working")
-
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "tool_post",
-		mustJSON(t, map[string]any{
-			"session_id": "sess-1", "tool_use_id": "tool-1", "tool_name": "Bash",
-			"tool_input": map[string]any{"command": "sleep 600"}, "tool_response": "done",
-		})))
-	f.wait()
-
-	open, err = f.usecase.OpenWork(f.ctx, chatID)
-	require.NoError(t, err)
-	assert.False(t, open)
-}
-
-func TestUsecase_OpenWork_ReportsASubagentTheProviderNeverStopped(t *testing.T) {
-	f := newFixture(t)
-	chatID, runnerID := f.spawn(t, "codex")
-	f.announce(t, runnerID, "sess-1")
-	prompt(t, f, runnerID, "codex", "please do the thing")
-
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "subagent_pre",
-		mustJSON(t, map[string]any{
-			"session_id": "sess-1", "agent_id": "sub-1", "agent_type": "explorer",
-		})))
-	f.wait()
-
-	open, err := f.usecase.OpenWork(f.ctx, chatID)
-	require.NoError(t, err)
-	assert.True(t, open)
-
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "subagent_post",
-		mustJSON(t, map[string]any{
-			"session_id": "sess-1", "agent_id": "sub-1", "agent_type": "explorer",
-		})))
-	f.wait()
-
-	open, err = f.usecase.OpenWork(f.ctx, chatID)
-	require.NoError(t, err)
-	assert.False(t, open)
 }
 
 func TestUsecase_MatchTerminalNotice_SurvivesANarrowPane(t *testing.T) {
@@ -1320,18 +1225,6 @@ func (l *orderLog) all() []string {
 	return append([]string(nil), l.seen...)
 }
 
-type orderedChats struct {
-	agentchat.EventStore
-	log *orderLog
-}
-
-func (o orderedChats) AbandonTurn(
-	ctx context.Context, chatID string, now time.Time,
-) (domain.Chat, error) {
-	o.log.note("abandon-turn")
-	return o.EventStore.AbandonTurn(ctx, chatID, now)
-}
-
 type orderedActivity struct {
 	agentactivity.EventStore
 	log *orderLog
@@ -1344,32 +1237,32 @@ func (o orderedActivity) AppendTurn(ctx context.Context, in agentactivity.TurnIn
 	return o.EventStore.AppendTurn(ctx, in)
 }
 
-func TestRegression_StallNoticeIsDurableBeforeTheIdleEdgeIsPublished(t *testing.T) {
+func TestRegression_ANoticeIsDurableBeforeTheTurnFails(t *testing.T) {
 	log := &orderLog{}
-	f := newFixtureUsing(t,
-		func(real agentchat.EventStore) agentchat.EventStore {
-			return orderedChats{EventStore: real, log: log}
-		},
-		"",
+	f := newFixtureUsing(t, nil, "",
 		func(real agentactivity.EventStore) agentactivity.EventStore {
 			return orderedActivity{EventStore: real, log: log}
 		},
 	)
+	f.ledger.Subscribe(func(_ string, rows []ledger.Row, _ ledger.State) {
+		for _, r := range rows {
+			if r.Kind == ledger.KindTurnFailed {
+				log.note("turn-failed")
+			}
+		}
+	})
 	chatID, runnerID := f.spawn(t, "codex")
 	f.announce(t, runnerID, "sess-1")
 	prompt(t, f, runnerID, "codex", "please do the thing")
-	require.True(t, f.chat(t, chatID).Working)
+	require.True(t, f.busy(t, chatID))
 
 	notice, ok := f.usecase.MatchTerminalNotice(f.ctx, "codex", codexUsageLimitScreen)
 	require.True(t, ok)
-	agentusecase.CloseStalledTurn(f.usecase.TurnUsecase, f.ctx, agentusecase.Stall{
-		ChatID: chatID, WorkspaceID: "ws1", ProviderID: "codex",
-		RunnerID: runnerID, SessionID: "sess-1", Notice: notice,
-	})
+	agentusecase.FailTurnOnNotice(f.ctx, f.usecase.TurnUsecase, f.runner(t, runnerID), notice)
 	f.wait()
 
-	assert.Equal(t, []string{"notice-appended", "abandon-turn"}, log.all(),
-		"the explanation must be durable before anything publishes the idle edge")
+	assert.Equal(t, []string{"notice-appended", "turn-failed"}, log.all(),
+		"the explanation must be durable before the turn's end is published")
 }
 
 // ─── from choice_test.go ──────────────────────────────────────────────
@@ -1871,7 +1764,7 @@ func TestRegression_PromptFiredInsideASubagentIsNeverRecordedAsTheUsers(t *testi
 	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 0)
 	require.NoError(t, err)
 	assert.Empty(t, page.Items, "a subagent's prompt is not something the user said")
-	assert.False(t, f.chat(t, chatID).Working, "a subagent's prompt opens no top-level turn")
+	assert.False(t, f.busy(t, chatID), "a subagent's prompt opens no top-level turn")
 }
 
 func TestRegression_TeammateMessageIsRecordedAsHarnessNotUser(t *testing.T) {
@@ -1983,14 +1876,12 @@ func TestRegression_HarnessInjectedPromptStillOpensTheTurn(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
-	require.False(t, f.chat(t, chatID).Working, "a fresh chat is not Working")
+	require.False(t, f.busy(t, chatID), "a fresh chat is not busy")
 
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": taskNotificationPrompt})))
 
-	working := f.chat(t, chatID)
-	assert.True(t, working.Working, "an injected prompt still opens the turn")
-	require.NotNil(t, working.CurrentTurnStarted)
+	assert.True(t, f.busy(t, chatID), "an injected prompt still opens the turn")
 }
 
 func TestRegression_RealUserPromptsWithNoSourceKeyStayTheUsers(t *testing.T) {
@@ -2074,11 +1965,9 @@ func TestRegression_ChatLogDoesNotServeAHarnessTurnAsTheUsers(t *testing.T) {
 
 // ─── from async_work_test.go ──────────────────────────────────────────
 
-// TestSwitchProvider_BackgroundWork_WaitsForAuthoritativeIdle proves a provider
-// switch cannot treat turn_stop as "the CLI is done" when that same hook reports
-// work still running. There is no sleep or projection polling: the switch announces
-// that it is parked, and only the later authoritative zero-level hook releases it.
-func TestSwitchProvider_BackgroundWork_WaitsForAuthoritativeIdle(t *testing.T) {
+// Work a turn_stop reports still running keeps the chat busy, so a switch is
+// refused until a later turn's end restates the level at zero.
+func TestSwitchProvider_BackgroundWork_IsRefusedUntilItEnds(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
@@ -2088,32 +1977,19 @@ func TestSwitchProvider_BackgroundWork_WaitsForAuthoritativeIdle(t *testing.T) {
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
 		stopPayload(t, "Launched.", 1)))
 	f.wait()
-	require.True(t, f.chat(t, chatID).Working, "precondition: async work keeps the chat live")
+	require.True(t, f.busy(t, chatID), "precondition: async work keeps the chat live")
 
-	killed := terminateSignal(f)
-	parked := parkedOnTurn(t)
-	done := make(chan switchResult, 1)
-	go func() {
-		id, err := f.usecase.SwitchProvider(context.Background(), chatID, "codex")
-		done <- switchResult{runnerID: id, err: err}
-	}()
-
-	select {
-	case <-parked:
-	case sess := <-killed:
-		t.Fatalf("the outgoing CLI (%s) was terminated while its background work was live", sess)
-	case got := <-done:
-		t.Fatalf("the switch returned while background work was live: %+v", got)
-	}
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.ErrorIs(t, err, agentusecase.ErrPromptBusy)
 	require.Empty(t, f.term.terminatedIDs(), "background work must keep the outgoing TUI alive")
 
-	// Claude's later status hook restates the level at zero. Only this semantic
-	// transition — not elapsed time and not projection convergence — may release it.
+	prompt(t, f, runnerID, "claude", taskNotificationPrompt)
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
 		stopPayload(t, "The background subagent finished.", 0)))
+	f.wait()
 
-	got := <-done
-	require.NoError(t, got.err)
+	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
 	f.wait()
 	require.Contains(t, f.term.terminatedIDs(), oldTerm)
 }
@@ -2291,18 +2167,16 @@ func TestRegression_TurnStopWithBackgroundSubagent_KeepsChatWorking(t *testing.T
 	f.announce(t, runnerID, "s1")
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "launch a background subagent and wait for it"})))
-	require.True(t, f.chat(t, chatID).Working, "precondition: the turn is open")
+	require.True(t, f.busy(t, chatID), "precondition: the turn is open")
 
 	// claude hands the work off and ends its turn — with one subagent still running.
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
 		stopPayload(t, "Launched. The subagent is running in the background.", 1)))
 	f.wait()
 
-	chat := f.chat(t, chatID)
-	require.True(t, chat.Working,
+	require.True(t, f.busy(t, chatID),
 		"the spinner must KEEP SPINNING: the turn ended but a background subagent is still working")
-	require.Nil(t, chat.CurrentTurnStarted, "the turn itself really did end")
-	require.Equal(t, 1, chat.AsyncWork)
+	require.False(t, running(t, f, chatID), "the turn itself really did end")
 }
 
 // TestRegression_BackgroundSubagentFinishes_StopsChatWorking is the other half, and the
@@ -2322,7 +2196,7 @@ func TestRegression_BackgroundSubagentFinishes_StopsChatWorking(t *testing.T) {
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
 		stopPayload(t, "Launched.", 1)))
 	f.wait()
-	require.True(t, f.chat(t, chatID).Working, "precondition: spinning on the subagent")
+	require.True(t, f.busy(t, chatID), "precondition: spinning on the subagent")
 
 	// The subagent reports back: claude re-invokes itself and ends the turn with nothing left.
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
@@ -2331,9 +2205,7 @@ func TestRegression_BackgroundSubagentFinishes_StopsChatWorking(t *testing.T) {
 		stopPayload(t, "The subagent finished.", 0)))
 	f.wait()
 
-	chat := f.chat(t, chatID)
-	require.False(t, chat.Working, "once the work is done the spinner MUST stop — no stuck-on")
-	require.Equal(t, 0, chat.AsyncWork)
+	require.False(t, f.busy(t, chatID), "once the work is done the spinner MUST stop — no stuck-on")
 }
 
 // TestRegression_ConcurrentBackgroundSubagentsDrain_StopsChatWorking is the traced
@@ -2356,12 +2228,12 @@ func TestRegression_ConcurrentBackgroundSubagentsDrain_StopsChatWorking(t *testi
 		f.wait()
 
 		if outstanding > 0 {
-			require.Truef(t, f.chat(t, chatID).Working,
+			require.Truef(t, f.busy(t, chatID),
 				"%d subagents still running: must keep spinning", outstanding)
 		}
 	}
 
-	require.False(t, f.chat(t, chatID).Working, "drained to zero: the spinner must stop")
+	require.False(t, f.busy(t, chatID), "drained to zero: the spinner must stop")
 }
 
 // TestRegression_InterruptedTurnThenNewPrompt_DoesNotStrandSpinner is the case the
@@ -2386,7 +2258,7 @@ func TestRegression_InterruptedTurnThenNewPrompt_DoesNotStrandSpinner(t *testing
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
 		stopPayload(t, "Launched three.", 3)))
 	f.wait()
-	require.True(t, f.chat(t, chatID).Working, "precondition: spinning on 3 subagents")
+	require.True(t, f.busy(t, chatID), "precondition: spinning on 3 subagents")
 
 	// ...the user hits ESC. NOTHING arrives — that is the whole point; no hook exists.
 	// Then they type again. This is the only edge that can heal it.
@@ -2396,10 +2268,8 @@ func TestRegression_InterruptedTurnThenNewPrompt_DoesNotStrandSpinner(t *testing
 		stopPayload(t, "hello", 0)))
 	f.wait()
 
-	chat := f.chat(t, chatID)
-	require.False(t, chat.Working,
+	require.False(t, f.busy(t, chatID),
 		"an interrupt must not strand the spinner: the next completed turn settles it")
-	require.Equal(t, 0, chat.AsyncWork)
 }
 
 // TestRegression_KilledCLIWithBackgroundWork_DoesNotSpinForever is the stuck-on case that
@@ -2419,8 +2289,8 @@ func TestRegression_KilledCLIWithBackgroundWork_DoesNotSpinForever(t *testing.T)
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
 		stopPayload(t, "Launched.", 1)))
 	f.wait()
-	require.True(t, f.chat(t, chatID).Working, "precondition: spinning on announced work")
-	require.Nil(t, f.chat(t, chatID).CurrentTurnStarted,
+	require.True(t, f.busy(t, chatID), "precondition: spinning on announced work")
+	require.False(t, running(t, f, chatID),
 		"and NOT because a turn is open — the turn closed; only the work keeps it lit")
 
 	// The CLI dies with the daemon. No Stop is coming, ever.
@@ -2428,18 +2298,14 @@ func TestRegression_KilledCLIWithBackgroundWork_DoesNotSpinForever(t *testing.T)
 	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
 	f.wait()
 
-	chat := f.chat(t, chatID)
-	require.False(t, chat.Working,
+	require.False(t, f.busy(t, chatID),
 		"a dead CLI's announced work must not spin the chat forever across a restart")
-	require.Equal(t, 0, chat.AsyncWork)
 }
 
 // TestCodexTurnStop_NeverReportsAsyncWork is the PROVIDER-AGNOSTIC requirement through the
 // live usecase: codex maps no async_work, so even a Stop payload that happens to carry a
 // background_tasks array leaves ev.AsyncWork at 0 — an unmapped field must never be
-// counted. With no tool call or subagent open either (see
-// TestRegression_CodexTurnStopWithOpenSubagent_KeepsChatWorking for that half), turn_stop
-// is simply idle, same as before OpenWork's fallback existed.
+// counted.
 func TestCodexTurnStop_NeverReportsAsyncWork(t *testing.T) {
 	f := newFixture(t)
 
@@ -2451,236 +2317,7 @@ func TestCodexTurnStop_NeverReportsAsyncWork(t *testing.T) {
 		stopPayload(t, "done", 3)))
 	f.wait()
 
-	chat := f.chat(t, chatID)
-	require.False(t, chat.Working, "codex maps no async_work and has no open tool/subagent: idle")
-	require.Equal(t, 0, chat.AsyncWork, "an unmapped field must never be counted")
-}
-
-// TestRegression_CodexTurnStopWithOpenSubagent_KeepsChatWorking is the bug reported live:
-// codex maps no async_work (TestCodexTurnStop_NeverReportsAsyncWork), so a subagent still
-// running when codex's own top-level turn ends has nothing to restate it — the spinner
-// went dark the instant codex sent its first mid-turn answer, even though the subagent it
-// had just delegated to kept working. closeTurnFromStop's OpenWork fallback (the same
-// generic tool/subagent open-close pairing OpenWork already answers termwait's idle check
-// from) is what catches it here, since codex has no self-reported level like claude's
-// background_tasks to restate it with (see stop_turn.go).
-func TestRegression_CodexTurnStopWithOpenSubagent_KeepsChatWorking(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "codex")
-	f.announce(t, runnerID, "sess-1")
-	prompt(t, f, runnerID, "codex", "investigate and delegate to a subagent")
-
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "subagent_pre",
-		mustJSON(t, map[string]any{
-			"session_id": "sess-1", "agent_id": "sub-1", "agent_type": "explorer",
-		})))
-	f.wait()
-
-	// codex's own top-level turn ends — with the subagent it just spawned still running.
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "turn_stop",
-		stopPayloadFor(t, "sess-1", "I'll delegate this to a subagent.", 0)))
-	f.wait()
-
-	chat := f.chat(t, chatID)
-	require.True(t, chat.Working,
-		"the spinner must KEEP SPINNING: codex's turn ended but its own subagent is still working")
-	require.Nil(t, chat.CurrentTurnStarted, "the turn itself really did end")
-
-	// The subagent finishes. Nothing else will ever restate this for codex — closing the
-	// last piece of open work is what must clear it, or the fix would just trade "clears
-	// too early" for "never clears".
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "subagent_post",
-		mustJSON(t, map[string]any{
-			"session_id": "sess-1", "agent_id": "sub-1", "agent_type": "explorer",
-		})))
-	f.wait()
-
-	chat = f.chat(t, chatID)
-	require.False(t, chat.Working, "once the subagent finishes the spinner MUST stop — no stuck-on")
-}
-
-// TestRegression_RestatingAsyncWorkDecidesOnTheLogNotTheProjection is the CHAT half of
-// the same stuck-on spinner, and it is a property rather than a race: whatever the read
-// model happens to be serving, the decision to restate must not come from it.
-//
-// turn_stop's StopTurn is on the async Send path, so the level it records is durable in
-// the log before the projection folds it. A restate landing in that window — a subagent
-// reporting back the instant its parent turn ended, which is the ordinary codex shape —
-// reads AsyncWork as 0, finds the open-work level it just computed is 0 too, and returns
-// as a no-op. Nothing else ever restates the level, so the aggregate stays lit forever.
-// Live the window is microseconds wide; forcing it open is what turns "usually passes"
-// into a property a test can hold. Same law as AbandonTurn's: callers must not pre-check
-// turn state on the read model.
-func TestRegression_RestatingAsyncWorkDecidesOnTheLogNotTheProjection(t *testing.T) {
-	f, chats := newFaultFixture(t)
-
-	chatID, runnerID := f.spawn(t, "codex")
-	f.announce(t, runnerID, "sess-1")
-	prompt(t, f, runnerID, "codex", "investigate and delegate to a subagent")
-
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "subagent_pre",
-		mustJSON(t, map[string]any{
-			"session_id": "sess-1", "agent_id": "sub-1", "agent_type": "explorer",
-		})))
-	f.wait()
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "turn_stop",
-		stopPayloadFor(t, "sess-1", "I'll delegate this to a subagent.", 0)))
-	f.wait()
-	afterStop := f.chat(t, chatID)
-	// Both halves, because Working alone is also true of a turn_stop that never
-	// landed at all — the shape a payload naming the wrong session leaves behind.
-	require.Nil(t, afterStop.CurrentTurnStarted,
-		"precondition: the turn_stop actually closed the turn")
-	require.True(t, afterStop.Working,
-		"precondition: the turn ended with the subagent still running")
-
-	// From here the read model serves the turn state from BEFORE that turn_stop —
-	// the window the async Send path genuinely leaves open.
-	chats.staleAsyncWorkProjection = true
-
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "subagent_post",
-		mustJSON(t, map[string]any{
-			"session_id": "sess-1", "agent_id": "sub-1", "agent_type": "explorer",
-		})))
-	f.wait()
-
-	chat := f.chat(t, chatID)
-	assert.False(t, chat.Working,
-		"the last close must clear the spinner however far behind the projection is")
-	assert.Equal(t, 0, chat.AsyncWork)
-}
-
-// TestRegression_TwoPiecesOfWorkClosingAtOnce_StopsTheSpinner is the same stuck-on
-// spinner as its sibling above, reached the way a real CLI reaches it: a tool call and a
-// subagent finishing at the SAME MOMENT, on two hook deliveries, on two goroutines. Every
-// hook is its own net/http request, so nothing between the wire and the ingest orders two
-// of them — a tool returning as a subagent reports back is an ordinary Tuesday, not a
-// contrived interleaving.
-//
-// Both closes ask the same question ("is anything still open?") and the LAST answer wins
-// the aggregate. The property is that whichever order they land in, the answer standing at
-// the end is the true one: no work is open, so the spinner is off. A restate that decided
-// on a level it read BEFORE its sibling's close — or on a projection that had not folded
-// it — writes "still working" last and strands the chat lit forever.
-func TestRegression_TwoPiecesOfWorkClosingAtOnce_StopsTheSpinner(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "codex")
-	f.announce(t, runnerID, "sess-1")
-	prompt(t, f, runnerID, "codex", "run a command and delegate to a subagent")
-
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "tool_pre",
-		mustJSON(t, map[string]any{
-			"session_id": "sess-1", "tool_use_id": "tool-1", "tool_name": "Bash",
-			"tool_input": map[string]any{"command": "sleep 600"},
-		})))
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "subagent_pre",
-		mustJSON(t, map[string]any{
-			"session_id": "sess-1", "agent_id": "sub-1", "agent_type": "explorer",
-		})))
-	f.wait()
-
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "turn_stop",
-		stopPayloadFor(t, "sess-1", "Working on it.", 0)))
-	f.wait()
-	afterStop := f.chat(t, chatID)
-	// Both halves, because Working alone is also true of a turn_stop that never
-	// landed at all — the shape a payload naming the wrong session leaves behind.
-	require.Nil(t, afterStop.CurrentTurnStarted,
-		"precondition: the turn_stop actually closed the turn")
-	require.True(t, afterStop.Working,
-		"precondition: the turn ended with both the tool and the subagent still open")
-
-	// Payloads are marshalled HERE, on the test's own goroutine: mustJSON reports
-	// through require, and a require failure off the test goroutine is undefined.
-	closes := []struct {
-		kind    string
-		payload []byte
-	}{
-		{"tool_post", mustJSON(t, map[string]any{
-			"session_id": "sess-1", "tool_use_id": "tool-1", "tool_name": "Bash",
-			"tool_input": map[string]any{"command": "sleep 600"}, "tool_response": "done",
-		})},
-		{"subagent_post", mustJSON(t, map[string]any{
-			"session_id": "sess-1", "agent_id": "sub-1", "agent_type": "explorer",
-		})},
-	}
-	// Released together, joined together: the two deliveries genuinely overlap rather
-	// than being one-then-the-other with extra steps.
-	start := make(chan struct{})
-	var wg sync.WaitGroup
-	errs := make([]error, len(closes))
-	for i, c := range closes {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			<-start
-			errs[i] = f.usecase.IngestHook(f.ctx, runnerID, "codex", c.kind, c.payload)
-		}()
-	}
-	close(start)
-	wg.Wait()
-	for i, err := range errs {
-		require.NoError(t, err, "ingesting %s", closes[i].kind)
-	}
-	f.wait()
-
-	chat := f.chat(t, chatID)
-	assert.False(t, chat.Working,
-		"both pieces of work closed: whichever restate wrote last must have said so")
-	assert.Equal(t, 0, chat.AsyncWork)
-}
-
-// subagent_post must read OpenWork after its own close is projected, or the
-// spinner stays lit. Draining two one at a time fails both a stale read (last
-// assertion) and an "always clear it" fix (middle assertion).
-func TestRegression_CodexSubagentsDrainOneAtATime_SpinnerFollowsTheLastOne(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "codex")
-	f.announce(t, runnerID, "sess-1")
-	prompt(t, f, runnerID, "codex", "delegate this to two subagents")
-
-	for _, id := range []string{"sub-1", "sub-2"} {
-		require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "subagent_pre",
-			mustJSON(t, map[string]any{
-				"session_id": "sess-1", "agent_id": id, "agent_type": "explorer",
-			})))
-	}
-	f.wait()
-
-	// codex's own top-level turn ends with both subagents still running.
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "turn_stop",
-		stopPayloadFor(t, "sess-1", "Delegated to two subagents.", 0)))
-	f.wait()
-	require.True(t, f.chat(t, chatID).Working,
-		"precondition: codex's turn ended but both its subagents are still working")
-
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "subagent_post",
-		mustJSON(t, map[string]any{
-			"session_id": "sess-1", "agent_id": "sub-1", "agent_type": "explorer",
-		})))
-	f.wait()
-	require.True(t, f.chat(t, chatID).Working,
-		"one of the two finished — the spinner must KEEP SPINNING for the other")
-
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "subagent_post",
-		mustJSON(t, map[string]any{
-			"session_id": "sess-1", "agent_id": "sub-2", "agent_type": "explorer",
-		})))
-	f.wait()
-	require.False(t, f.chat(t, chatID).Working,
-		"the last subagent finished — the spinner MUST stop, or the provider is done and the UI never says so")
-
-	// The ledger the subagent shelf reads must agree with the spinner: both rows
-	// closed, so the shelf shows nothing running either.
-	subs, err := f.activity.Subagents(f.ctx, chatID)
-	require.NoError(t, err)
-	require.Len(t, subs, 2)
-	for _, s := range subs {
-		assert.NotNil(t, s.EndedAt, "subagent %q must be closed in the ledger", s.ID)
-	}
+	require.False(t, f.busy(t, chatID), "codex maps no async_work: an unmapped field must never be counted")
 }
 
 // thread/compact/start wraps its item pair in its own turn/started..completed,
@@ -2694,7 +2331,8 @@ func TestRegression_CodexCompactionTurnNeverStopsTheChat(t *testing.T) {
 
 	before, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
 	require.NoError(t, err)
-	lastActivityBefore := f.chat(t, chatID).LastActivityAt
+	rowsBefore, err := f.ledger.Read(f.ctx, chatID, 0, 0)
+	require.NoError(t, err)
 
 	// compact_pre: the contextCompaction item/started, in the same shape
 	// codex.yaml's own mapping reads (threadId, item.type, the envelope's
@@ -2720,16 +2358,11 @@ func TestRegression_CodexCompactionTurnNeverStopsTheChat(t *testing.T) {
 		},
 	})
 
-	chat := f.chat(t, chatID)
-	require.False(t, chat.Working, "a compaction round trip must never mark the chat working")
-	require.Nil(t, chat.CurrentTurnStarted, "no assistant turn was ever opened for this")
-	// StopTurn.EmitEvent always stamps LastActivityAt to time.Now(), even when
-	// nothing else about the projected state visibly changes (an idle chat's
-	// Working and CurrentTurnStarted were already false/nil) — this is what
-	// actually distinguishes "the guard skipped closeTurnFromStop entirely"
-	// from "closeTurnFromStop ran and happened to restate the same values".
-	require.Equal(t, lastActivityBefore, chat.LastActivityAt,
-		"the compaction's own turn_stop must not touch the chat at all — StopTurn must never run for it")
+	require.False(t, f.busy(t, chatID), "a compaction round trip must never mark the chat working")
+	rowsAfter, err := f.ledger.Read(f.ctx, chatID, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, rowsAfter, len(rowsBefore),
+		"the compaction's own turn_stop must not touch the chat's turns at all")
 
 	afterCompaction, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
 	require.NoError(t, err)
@@ -2750,8 +2383,7 @@ func TestRegression_CodexCompactionTurnNeverStopsTheChat(t *testing.T) {
 		},
 	})
 
-	chat = f.chat(t, chatID)
-	require.False(t, chat.Working, "the ordinary turn closed normally")
+	require.False(t, f.busy(t, chatID), "the ordinary turn closed normally")
 
 	afterOrdinary, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
 	require.NoError(t, err)
@@ -3012,4 +2644,14 @@ func TestRegression_RealClaudeSubagentSession_SubagentToolCallsCreateNoRows(t *t
 	subs, err := f.activity.Subagents(f.ctx, chatID)
 	require.NoError(t, err)
 	assert.Len(t, subs, 2, "the subagents themselves are still tracked")
+}
+
+// running is the chat's ledger holding a turn open.
+func running(t *testing.T, f testFixture, chatID string) bool {
+	t.Helper()
+	f.wait()
+	st, err := f.ledger.State(f.ctx, chatID)
+	require.NoError(t, err)
+	_, ok := st.RunningTurn()
+	return ok
 }

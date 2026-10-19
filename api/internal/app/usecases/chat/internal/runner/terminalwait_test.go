@@ -54,13 +54,7 @@ func (stubTurns) IngestHook(context.Context, string, string, string, []byte) err
 func (stubTurns) ReplayStartupHook(string, inflight.Hook) {}
 func (stubTurns) ForgetChat(string)                       {}
 
-func (stubTurns) AwaitTurnComplete(context.Context, string) error { return nil }
-
-func (stubTurns) ChatWorking(context.Context, string) (bool, error) { return false, nil }
-
-func (stubTurns) TurnOpen(context.Context, string, string) (bool, error) { return false, nil }
-
-func (stubTurns) QueueSteer(string, inflight.Steered) bool { return false }
+func (stubTurns) HoldSteer(string, string, string) {}
 
 func (stubTurns) RecordStop(context.Context, string, string) error { return nil }
 
@@ -80,24 +74,14 @@ func (stubTurns) MatchTerminalNotice(
 	return engineagents.TerminalNotice{}, false
 }
 
-func (stubTurns) OpenWork(context.Context, string) (bool, error) { return false, nil }
-
-func (stubTurns) UnfinishedSince(string) (time.Time, bool)   { return time.Time{}, false }
-func (stubTurns) ProviderIdleSince(string) (time.Time, bool) { return time.Time{}, false }
-
-func (stubTurns) AbandonMessage(context.Context, string) (bool, error) { return false, nil }
-
-func (stubTurns) AbandonMessageInferredInterrupt(context.Context, string) (bool, error) {
-	return false, nil
-}
-
 func (stubTurns) AbandonMessageForRunner(
 	context.Context, string, engineagents.Runner,
 ) (bool, error) {
 	return false, nil
 }
 
-func (stubTurns) CloseStalledTurn(context.Context, seam.Stall) {}
+func (stubTurns) FailTurnOnNotice(context.Context, engineagents.Runner, engineagents.TerminalNotice) {
+}
 
 // A terminal that cannot render a screen leaves the daemon with NO detector, and
 // every chat must then report the zero verdict rather than panicking on it.
@@ -191,14 +175,14 @@ const liveTrustScreen = `╭─────────────────�
 type liveRig struct {
 	detector termwait.Detector
 	engine   engineterminal.Engine
-	chat     domain.Chat
+	busy     bool
 	pending  []domain.ActivityChoice
 	runners  []engineagents.Runner
 }
 
 func (r *liveRig) AllLive(context.Context) ([]engineagents.Runner, error) { return r.runners, nil }
 
-func (r *liveRig) GetChat(context.Context, string) (domain.Chat, error) { return r.chat, nil }
+func (r *liveRig) ChatBusy(context.Context, string) (bool, error) { return r.busy, nil }
 
 func (r *liveRig) PendingChoices(context.Context, string) ([]domain.ActivityChoice, error) {
 	return r.pending, nil
@@ -233,7 +217,6 @@ func newLiveRig(t *testing.T, screen string) *liveRig {
 
 	rig := &liveRig{
 		engine: engine,
-		chat:   domain.Chat{ID: "chat-live", WorkspaceID: "ws-live"},
 		runners: []engineagents.Runner{{
 			ID:              "runner-live",
 			WorkspaceID:     "ws-live",
@@ -244,7 +227,7 @@ func newLiveRig(t *testing.T, screen string) *liveRig {
 	}
 	rig.detector = termwait.New(termwait.Deps{
 		Runners: rig,
-		Chats:   rig,
+		Busy:    rig,
 		Choices: rig,
 		Screens: engine,
 		Prompts: rig,
@@ -274,7 +257,7 @@ func TestDetector_RealPTY_WorkingChatIsNeverWaiting(t *testing.T) {
 		return w.Waiting
 	})
 
-	rig.chat.Working = true
+	rig.busy = true
 	rig.detector.Sweep(context.Background(), nil)
 
 	assert.False(t, rig.detector.Wait("chat-live").Waiting)

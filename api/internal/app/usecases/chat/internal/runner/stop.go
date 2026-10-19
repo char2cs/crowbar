@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -37,12 +37,9 @@ func (rs *Runners) endRunner(
 	chatID string,
 	gentle bool,
 ) error {
-	// The chat's spawn gate, for the same reason every teardown path takes it: a stop
-	// racing a switch or resume must not terminate a runner the other path is mid-way
-	// through placing. PREEMPTED, not queued for: a switch or resume parked on the
-	// outgoing turn (bounded by minutes) abandons its wait with nothing changed, so
-	// Stop is bounded by the teardown alone (invariant A2). It is never taken on the
-	// hook path, so a CLI still talking as it dies can always reach us.
+	// The chat's spawn gate, preempted rather than queued for: a switch or
+	// resume parked on it abandons its wait with nothing changed, so Stop is
+	// bounded by the teardown alone (invariant A2).
 	release, err := rs.spawns.Preempt(ctx, chatID)
 	if err != nil {
 		return fmt.Errorf("agent: stop chat: %w", err)
@@ -54,47 +51,34 @@ func (rs *Runners) endRunner(
 	if !ok {
 		return nil // already dormant: there is no live CLI to stop
 	}
-	// Mid-turn, an api provider is interrupted in place (its session and
-	// connection survive); otherwise — idle, hooks-only, or an interrupt that
-	// does not land in time — the runner is retired.
 	return rs.stopRunner(ctx, chatID, live, gentle)
 }
 
-// stopRunner ends live's work on chatID — in place when gentle and the
-// provider can interrupt a turn over its api connection, otherwise by retiring
-// it — and records exactly one "stopped" interruption when a turn was open.
-//
-// Whether a turn was open is read BEFORE either teardown, which ends it; the
-// one "stopped" record comes AFTER, once the CLI has stopped, so its divider
-// lands after the last content the CLI produced.
+// stopRunner ends the chat's turn and settles its pending prompts in one
+// commit, records the divider when that stopped a turn, then tells live: an
+// api provider mid-turn is interrupted in place without waiting for it, and
+// otherwise the runner is retired.
 func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Runner, gentle bool) error {
-	open, err := rs.turns.TurnOpen(ctx, chatID, live.ID)
+	stopped := false
+	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		_, stopped = st.RunningTurn()
+		return ledger.Stop(st)
+	})
 	if err != nil {
-		slog.WarnContext(ctx, "agent: stop: read turn state (assuming idle)", "chat_id", chatID, "err", err)
+		return fmt.Errorf("agent: stop chat: %w", err)
 	}
-	var quitErr error
-	if !gentle || !open || !rs.interruptTurn(ctx, live) || !rs.turnEndedAfterInterrupt(ctx, chatID) {
-		if quitErr = rs.quitRunner(ctx, live, domain.AgentExitStopped); quitErr != nil {
-			quitErr = fmt.Errorf("agent: stop chat: %w", quitErr)
+	if stopped {
+		if err := rs.turns.RecordStop(ctx, chatID, live.ID); err != nil {
+			slog.WarnContext(ctx, "agent: stop: record interruption", "chat_id", chatID, "err", err)
 		}
 	}
-	if !open {
-		return quitErr
+	if gentle && stopped && rs.interruptTurn(ctx, live) {
+		return nil
 	}
-	if err := rs.turns.RecordStop(ctx, chatID, live.ID); err != nil {
-		slog.WarnContext(ctx, "agent: stop: record interruption", "chat_id", chatID, "err", err)
+	if err := rs.quitRunner(ctx, live, domain.AgentExitStopped); err != nil {
+		return fmt.Errorf("agent: stop chat: %w", err)
 	}
-	return quitErr
-}
-
-// turnEndedAfterInterrupt waits, bounded, for the chat to go idle once an
-// interrupt was answered. A provider with no live turn answers at once, so the
-// reply alone does not prove the turn Crowbar still counts as open has ended;
-// when it never does, the caller retires the runner.
-func (rs *Runners) turnEndedAfterInterrupt(ctx context.Context, chatID string) bool {
-	waitCtx, cancel := context.WithTimeout(ctx, rs.interruptBound())
-	defer cancel()
-	return rs.turns.AwaitTurnComplete(waitCtx, chatID) == nil
+	return nil
 }
 
 // interruptEvent is the canonical outbound event a provider declares when
@@ -103,24 +87,11 @@ func (rs *Runners) turnEndedAfterInterrupt(ctx context.Context, chatID string) b
 // descriptor is the whole capability check, same as compactStartEvent.
 const interruptEvent = "interrupt"
 
-// defaultInterruptBound is how long Stop waits for an in-place interrupt to
-// land before it retires the runner instead.
-const defaultInterruptBound = 10 * time.Second
-
-func (rs *Runners) interruptBound() time.Duration {
-	if rs.interruptTimeout > 0 {
-		return rs.interruptTimeout
-	}
-	return defaultInterruptBound
-}
-
-// interruptTurn asks a live api-transport connection to cancel its current
-// turn in place, and reports whether it actually did: false for anything that
-// falls back to StopChat's own teardown — no live api driver, a descriptor
-// that declares no interrupt gesture, or one whose gesture isn't reachable
-// over this connection (wire == "prompt", the same refusal Compact makes).
-// That fallback is today's behaviour for every provider, unchanged; this only
-// adds a better path where one now exists.
+// interruptTurn asks a live api connection to cancel its current turn in
+// place, and reports whether it can: false — no api driver, no interrupt
+// gesture, or one not reachable over this connection (wire == "prompt") —
+// falls back to StopChat's retire. The send runs in the background: the
+// turn is already over in the ledger, and nothing waits for the provider.
 func (rs *Runners) interruptTurn(ctx context.Context, live agents.Runner) bool {
 	conn, ok := rs.apiConns.get(live.ID)
 	if !ok {
@@ -142,14 +113,10 @@ func (rs *Runners) interruptTurn(ctx context.Context, live agents.Runner) bool {
 	if !ok || wire == "prompt" {
 		return false
 	}
-	// Bounded: the provider may defer its reply until the turn actually ends,
-	// and a wedged turn must not hold Stop (and the preempted gate) with it.
-	sendCtx, cancel := context.WithTimeout(ctx, rs.interruptBound())
-	defer cancel()
-	if err := conn.driver.Send(sendCtx, interruptEvent, nil); err != nil {
-		slog.WarnContext(ctx, "agent: interrupt turn: send (falling back to a full stop)",
-			"runner_id", live.ID, "err", err)
-		return false
-	}
+	rs.background.run(ctx, func(ctx context.Context) {
+		if err := conn.driver.Send(ctx, interruptEvent, nil); err != nil {
+			slog.WarnContext(ctx, "agent: interrupt turn: send", "runner_id", live.ID, "err", err)
+		}
+	})
 	return true
 }

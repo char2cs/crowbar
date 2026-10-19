@@ -127,20 +127,3 @@ type ChatLineage interface {
 		chatID string,
 	) ([]string, error)
 }
-
-// Stall is a turn the SCREEN says will never finish — a usage limit, a service
-// outage — carried from the detector that recognised it to the ingress that must
-// close the turn.
-//
-// It lives here because it is the one type both sides name: the CLI lifecycle
-// produces it, the hook ingress consumes it, and neither may import the other.
-type Stall struct {
-	ChatID      string
-	WorkspaceID string
-	ProviderID  string
-	RunnerID    string
-	SessionID   string
-
-	// Notice is what the provider's descriptor recognised on the screen.
-	Notice engineagents.TerminalNotice
-}

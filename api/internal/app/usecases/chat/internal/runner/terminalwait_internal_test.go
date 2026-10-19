@@ -8,6 +8,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // TestStartTerminalWaitSweep_DrivesTheDetector is white-box because the thing
@@ -82,4 +83,4 @@ type noTurns struct{ Turns }
 
 func (noTurns) SetFeed(seam.ChatFeed) {}
 
-func (noTurns) CloseStalledTurn(context.Context, seam.Stall) {}
+func (noTurns) FailTurnOnNotice(context.Context, agents.Runner, agents.TerminalNotice) {}

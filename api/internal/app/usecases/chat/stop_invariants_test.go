@@ -43,7 +43,7 @@ func TestInvariantA1_StopMidTurnOnTheRetirePathRecordsExactlyOneStop(t *testing.
 
 	chatID, runnerID := f.spawn(t, "claude")
 	prompt(t, f, runnerID, "claude", "think hard about this")
-	require.True(t, f.chat(t, chatID).Working, "precondition: the chat is mid-turn")
+	require.True(t, f.busy(t, chatID), "precondition: the chat is mid-turn")
 
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
 
@@ -56,7 +56,7 @@ func TestInvariantA1_StopOnAnIdleChatRecordsNoStop(t *testing.T) {
 
 	chatID, runnerID := f.spawn(t, "claude")
 	turn(t, f, runnerID, "claude", "done")
-	require.False(t, f.chat(t, chatID).Working, "precondition: the chat is idle")
+	require.False(t, f.busy(t, chatID), "precondition: the chat is idle")
 
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
 
@@ -75,89 +75,16 @@ func TestInvariantA1_ASecondStopRecordsNothingMore(t *testing.T) {
 	assert.Equal(t, 1, stoppedInterruptions(t, f, chatID))
 }
 
-func TestInvariantA1_AForcedSwitchRecordsExactlyOneStop(t *testing.T) {
-	f := newFixture(t).withSwitchGrace(t, 10*time.Millisecond)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	prompt(t, f, runnerID, "claude", "think hard about this")
-	require.True(t, f.chat(t, chatID).Working, "precondition: the chat is mid-turn")
-
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
-	require.NoError(t, err)
-
-	assert.Equal(t, 1, stoppedInterruptions(t, f, chatID),
-		"forcing the outgoing turn is a Stop, and must say so exactly once")
-}
-
-// Invariant A2: StopChat completes within a bound while a switch is in flight.
-// The switch below parks on a turn that never ends, with an hour's grace
-// period; before the gate became preemptible Stop queued behind it for the
-// whole of that hour.
-func TestInvariantA2_StopPreemptsASwitchParkedOnTheTurn(t *testing.T) {
-	f := newFixture(t).withSwitchGrace(t, time.Hour)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	prompt(t, f, runnerID, "claude", "think hard about this")
-	require.True(t, f.chat(t, chatID).Working, "precondition: the chat is mid-turn")
-
-	parked := parkedOnTurn(t)
-	done := make(chan switchResult, 1)
-	go func() {
-		id, err := f.usecase.SwitchProvider(context.Background(), chatID, "codex")
-		done <- switchResult{runnerID: id, err: err}
-	}()
-	select {
-	case <-parked:
-	case r := <-done:
-		t.Fatalf("the switch returned without parking: %+v", r)
-	}
-
-	stopped := make(chan error, 1)
-	go func() { stopped <- f.usecase.StopChat(f.ctx, chatID) }()
-
-	select {
-	case err := <-stopped:
-		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("StopChat queued behind a parked switch instead of preempting it")
-	}
-
-	got := <-done
-	require.ErrorIs(t, got.err, agentusecase.ErrStopped, "the preempted switch reports that Stop won")
-	assert.Empty(t, got.runnerID)
-
-	_, err := f.liveRunnerFor(t, chatID)
-	require.Error(t, err, "after Stop the chat is dormant: the preempted switch spawned nothing")
-	assert.Equal(t, 1, stoppedInterruptions(t, f, chatID))
-}
-
-// endHooks runs each hook once, from inside the chat store call where a turn
-// closes: stop from StopTurn (a turn_stop), abandon from AbandonTurn (a
-// runner's end; after places it once the abandon commits). read runs from the
-// first GetChat of delivery readBy's ingest, which holds its runner's hook gate.
-type endHooks struct {
+// readHook runs read once, from the first GetChat of delivery readBy's ingest,
+// which holds its runner's hook gate.
+type readHook struct {
 	agentchat.EventStore
-	mu                  sync.Mutex
-	stop, abandon, read func()
-	after               bool
-	readBy              string
+	mu     sync.Mutex
+	read   func()
+	readBy string
 }
 
-func (s *endHooks) arm(slot *func(), hook func()) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	*slot = hook
-}
-
-func (s *endHooks) take(slot *func()) func() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	hook := *slot
-	*slot = nil
-	return hook
-}
-
-func (s *endHooks) GetChat(ctx context.Context, id string) (domain.Chat, error) {
+func (s *readHook) GetChat(ctx context.Context, id string) (domain.Chat, error) {
 	s.mu.Lock()
 	hook := s.read
 	if hook != nil && inflight.DeliveryID(ctx) == s.readBy {
@@ -172,31 +99,10 @@ func (s *endHooks) GetChat(ctx context.Context, id string) (domain.Chat, error) 
 	return s.EventStore.GetChat(ctx, id)
 }
 
-func (s *endHooks) StopTurn(ctx context.Context, chatID string, now time.Time, asyncWork int) (domain.Chat, error) {
-	if hook := s.take(&s.stop); hook != nil {
-		hook()
-	}
-	return s.EventStore.StopTurn(ctx, chatID, now, asyncWork)
-}
-
-func (s *endHooks) AbandonTurn(ctx context.Context, chatID string, now time.Time) (domain.Chat, error) {
-	hook := s.take(&s.abandon)
-	if hook != nil && !s.after {
-		hook()
-	}
-	c, err := s.EventStore.AbandonTurn(ctx, chatID, now)
-	if hook != nil && s.after {
-		hook()
-	}
-	return c, err
-}
-
-func newEndHooksFixture(t *testing.T, store *endHooks) testFixture {
-	t.Helper()
-	return newFixtureUsing(t, func(real agentchat.EventStore) agentchat.EventStore {
-		store.EventStore = real
-		return store
-	}, "")
+func (s *readHook) arm(deliveryID string, hook func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.readBy, s.read = deliveryID, hook
 }
 
 // A CLI acknowledging a prompt as its runner ends — Stop, or the CLI dying on
@@ -204,28 +110,37 @@ func newEndHooksFixture(t *testing.T, store *endHooks) testFixture {
 // later resume, switch and send would wait on it.
 func TestEndingRunner_APromptItAcknowledgesOpensNoTurn(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		after bool
-		end   func(t *testing.T, f testFixture, chatID string, live engineagents.Runner)
+		name string
+		end  func(t *testing.T, f testFixture, chatID string, live engineagents.Runner)
 	}{
-		{"stop, before the abandon", false, stopChat},
-		{"stop, after the abandon", true, stopChat},
-		{"crash, before the abandon", false, crashRunner},
-		{"crash, after the abandon", true, crashRunner},
+		{"while the stop ends it", func(t *testing.T, f testFixture, chatID string, live engineagents.Runner) {
+			t.Helper()
+			var once sync.Once
+			f.term.duringTerminate = func(string) { once.Do(func() { acknowledge(t, f, live.ID) }) }
+			stopChat(t, f, chatID, live)
+		}},
+		{"after the stop", func(t *testing.T, f testFixture, chatID string, live engineagents.Runner) {
+			t.Helper()
+			stopChat(t, f, chatID, live)
+			acknowledge(t, f, live.ID)
+		}},
+		{"before the crash", func(t *testing.T, f testFixture, chatID string, live engineagents.Runner) {
+			t.Helper()
+			acknowledge(t, f, live.ID)
+			crashRunner(t, f, chatID, live)
+		}},
+		{"after the crash", func(t *testing.T, f testFixture, chatID string, live engineagents.Runner) {
+			t.Helper()
+			crashRunner(t, f, chatID, live)
+			acknowledge(t, f, live.ID)
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			store := &endHooks{after: tc.after}
-			f := newEndHooksFixture(t, store)
+			f := newFixture(t)
 			chatID, runnerID := f.spawn(t, "claude")
 			f.announce(t, runnerID, "sid-ending")
 			live, err := f.liveRunnerFor(t, chatID)
 			require.NoError(t, err)
-			store.arm(&store.abandon, func() {
-				ctx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
-				defer cancel()
-				payload := mustJSON(t, map[string]any{"prompt": "step"})
-				assert.NoError(t, f.usecase.IngestHook(ctx, runnerID, "claude", "user_prompt", payload))
-			})
 
 			tc.end(t, f, chatID, live)
 
@@ -234,19 +149,30 @@ func TestEndingRunner_APromptItAcknowledgesOpensNoTurn(t *testing.T) {
 	}
 }
 
+func acknowledge(t *testing.T, f testFixture, runnerID string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
+	defer cancel()
+	payload := mustJSON(t, map[string]any{"prompt": "step"})
+	assert.NoError(t, f.usecase.IngestHook(ctx, runnerID, "claude", "user_prompt", payload))
+}
+
 // A steered prompt the ending runner's last turn_stop carries opens no turn on
-// it either: the stop took it off the turn before the end could refuse it.
+// it either: the end settled it before the turn_stop could deliver it.
 func TestEndingRunner_ASteerItsTurnStopCarriesOpensNoTurn(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		race func(t *testing.T, f testFixture, store *endHooks, deliveryID string, live engineagents.Runner) func()
+		race func(t *testing.T, f testFixture, store *readHook, deliveryID string, live engineagents.Runner) func()
 	}{
 		{"stop", stopWhileTheReplyStreams},
-		{"crash", crashAtTheStop},
+		{"crash", crashBeforeTheStop},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			store := &endHooks{}
-			f := newEndHooksFixture(t, store)
+			store := &readHook{}
+			f := newFixtureUsing(t, func(real agentchat.EventStore) agentchat.EventStore {
+				store.EventStore = real
+				return store
+			}, "").withMessageAwait(t, time.Minute)
 			chatID, runnerID := f.spawn(t, "claude")
 			f.announce(t, runnerID, "sid-steer")
 			prompt(t, f, runnerID, "claude", "think hard about this")
@@ -272,26 +198,31 @@ func TestEndingRunner_ASteerItsTurnStopCarriesOpensNoTurn(t *testing.T) {
 	}
 }
 
-// stopWhileTheReplyStreams stops the chat while the turn_stop waits, out of its
-// hook gate, for its reply to stream: Stop starts once the ingest holds that
-// gate, so after it took the steer, and the stream opens as the end is recorded.
+// stopWhileTheReplyStreams stops the chat once the turn_stop's ingest holds its
+// hook gate; the reply streams only after the stop ended the turn, so the
+// turn_stop ends after it.
 func stopWhileTheReplyStreams(
-	t *testing.T, f testFixture, store *endHooks, deliveryID string, live engineagents.Runner,
+	t *testing.T, f testFixture, store *readHook, deliveryID string, live engineagents.Runner,
 ) func() {
 	t.Helper()
-	agentusecase.SetMessageAwaitTimeout(f.usecase.own, time.Minute)
 	stopped := make(chan error, 1)
-	store.mu.Lock()
-	store.readBy = deliveryID
-	store.mu.Unlock()
-	store.arm(&store.read, func() {
-		go func() { stopped <- f.usecase.StopChat(f.ctx, live.CurrentChatID) }()
+	streamed := make(chan struct{})
+	var once sync.Once
+	f.ledger.Subscribe(func(chatID string, rows []ledger.Row, _ ledger.State) {
+		for _, r := range rows {
+			if chatID == live.CurrentChatID && r.Kind == ledger.KindTurnEnded {
+				once.Do(func() {
+					go func() {
+						defer close(streamed)
+						assert.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "claude", "message_delta",
+							deltaHook(t, "m-done", 0, false, "done")))
+					}()
+				})
+			}
+		}
 	})
-	store.arm(&store.abandon, func() {
-		ctx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
-		defer cancel()
-		assert.NoError(t, f.usecase.IngestHook(ctx, live.ID, "claude", "message_delta",
-			deltaHook(t, "m-done", 0, false, "done")))
+	store.arm(deliveryID, func() {
+		go func() { stopped <- f.usecase.StopChat(f.ctx, live.CurrentChatID) }()
 	})
 	return func() {
 		select {
@@ -300,24 +231,22 @@ func stopWhileTheReplyStreams(
 		case <-time.After(5 * time.Second):
 			t.Fatal("StopChat never returned")
 		}
-		require.Nil(t, store.take(&store.abandon), "the stop's end never reached its abandon")
+		<-streamed
 	}
 }
 
-// crashAtTheStop crashes the CLI inside the turn_stop's StopTurn: after the
-// stop took the steer, before it delivers it.
-func crashAtTheStop(t *testing.T, f testFixture, store *endHooks, _ string, live engineagents.Runner) func() {
+// crashBeforeTheStop crashes the CLI before its turn_stop is ingested.
+func crashBeforeTheStop(t *testing.T, f testFixture, _ *readHook, _ string, live engineagents.Runner) func() {
 	t.Helper()
-	store.arm(&store.stop, func() { crashRunner(t, f, live.CurrentChatID, live) })
-	return func() { require.Nil(t, store.take(&store.stop), "the turn_stop never reached its StopTurn") }
+	crashRunner(t, f, live.CurrentChatID, live)
+	return func() {}
 }
 
 func assertEndedAndResumable(t *testing.T, f testFixture, chatID string) {
 	t.Helper()
 	_, err := f.liveRunnerFor(t, chatID)
 	require.ErrorIs(t, err, agentusecase.ErrNoLiveRunner)
-	assert.False(t, f.chat(t, chatID).Working, "the ended runner's chat is left working")
-	assert.False(t, agentusecase.TurnInFlight(f.usecase.own, chatID), "the ended runner left a turn in flight")
+	assert.False(t, f.busy(t, chatID), "the ended runner's chat is left working")
 	ctx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
 	defer cancel()
 	resumed, err := f.usecase.ResumeChat(ctx, chatID)
@@ -347,7 +276,7 @@ func stopOp(t *testing.T, f testFixture, w *sessionWalk) {
 		t.Fatal("S4: Stop did not return")
 	}
 	if w.rival != "send" {
-		assert.False(t, agentusecase.TurnInFlight(f.usecase.own, w.chatID), "S4: a Stop left a turn open")
+		assert.False(t, f.busy(t, w.chatID), "S4: a Stop left a turn open")
 	}
 }
 
@@ -370,7 +299,8 @@ func assertTurnsStartOnTheLiveRunner(t *testing.T, f testFixture, chatID string,
 			started := decodeRow[ledger.TurnStarted](t, r)
 			assert.Equal(t, live, started.RunnerID, "S6: a turn started off the live runner, after %v", trail)
 		case ledger.KindUserMessage, ledger.KindPromptSettled, ledger.KindSessionBound,
-			ledger.KindSessionLost, ledger.KindMarker: // no runner starts or ends, no turn starts
+			ledger.KindSessionLost, ledger.KindMarker, ledger.KindTurnEnded,
+			ledger.KindTurnFailed: // no runner starts or ends, no turn starts
 		}
 	}
 }

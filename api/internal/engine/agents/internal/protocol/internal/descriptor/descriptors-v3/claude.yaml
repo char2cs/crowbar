@@ -73,7 +73,7 @@ events:
   user_prompt:
     required: [session_id, message]
     in: UserPromptSubmit
-    map: { session_id: session_id, message: prompt, subagent_id: agent_id }
+    map: { session_id: session_id, message: prompt, subagent_id: agent_id, turn_id: prompt_id }
     fixtures: [UserPromptSubmit.json, UserPromptSubmit.Subagent.json, UserPromptSubmit.AgentMessage.json]
 
   turn_stop:
@@ -84,6 +84,7 @@ events:
       message:    last_assistant_message
       async_work: background_tasks
       effort:     effort.level
+      turn_id:    prompt_id
     fixtures: [Stop.json]
 
   turn_failed:
@@ -181,25 +182,12 @@ events:
   # config_injection fires two relay commands for Notification, one per
   # canonical name, and the when: below is what tells the two deliveries apart.
   #
-  # WHY IT EXISTS. Measured wedge, claude chat 7745f69f (2026-09-23), hit twice:
-  # Stop arrived and closed the turn at 22:50:17.302, a PreToolUse for
-  # ScheduleWakeup landed 2.4s later with no turn open (ingest mints a synthetic
-  # turn, restateAsyncWork relights Working), and its PostToolUse NEVER came.
-  # Nothing could recover the chat — providerSaysItIsIdle needed this event,
-  # abandonedMessage is gated on OpenWork which that one running row holds true
-  # forever, and stalled needs a terminal_notices entry claude declares none of
-  # — so the spinner ran until a 2h staleness ceiling swept the row. claude had
-  # said it was done all along: Notification at 22:51:17.440, exactly 60.0s
-  # after the close.
-  #
-  # THE when: IS THE SAFETY MECHANISM, NOT AN OPTIMISATION. Notification ALSO
-  # carries permission prompts. Arming the idle latch on an unfiltered
-  # Notification would have AbandonMessage kill a genuinely live turn ~5s later
-  # (termwait.DefaultIdleQuiet), losing the answer. EQUALITY on the whole
-  # message, never a needle: a permission notice names the tool it wants
-  # ("Claude needs your permission to use Bash") and cannot equal this string,
-  # and a wording change claude makes one day degrades to a MISS — back to the
-  # 2h floor — never to a false arm.
+  # THE when: IS THE SAFETY MECHANISM. Notification ALSO carries permission
+  # prompts, and idle ends the running turn: an unfiltered match would end a
+  # live turn and lose its answer. EQUALITY on the whole message, never a
+  # needle: a permission notice names the tool it wants ("Claude needs your
+  # permission to use Bash") and cannot equal this string, and a wording change
+  # claude makes one day degrades to a MISS, never to a false end.
   #
   # The string itself is provider payload, verbatim: inbound.build sets
   # Interrupt.Detail = ev.Message and notification:'s map: is `message: message`,

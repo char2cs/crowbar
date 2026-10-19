@@ -235,9 +235,6 @@ type broadcastCall struct {
 	chatID      string
 	workspaceID string
 	kind        string
-	// working is the aggregate's folded busy state as of the frame — what the FE's
-	// spinner reads. Captured so a test can assert the SPINNER, not just the kind.
-	working bool
 }
 
 // fakeBroadcaster is a thread-safe Broadcaster double for agentchat frames.
@@ -249,15 +246,10 @@ type fakeBroadcaster struct {
 
 func (f *fakeBroadcaster) BroadcastAgentChatFolder(_, _, _ string) {}
 
-func (f *fakeBroadcaster) BroadcastAgentChat(chatID, workspaceID, kind string, working bool) {
+func (f *fakeBroadcaster) BroadcastAgentChat(chatID, workspaceID, kind string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls = append(f.calls, broadcastCall{
-		chatID:      chatID,
-		workspaceID: workspaceID,
-		kind:        kind,
-		working:     working,
-	})
+	f.calls = append(f.calls, broadcastCall{chatID: chatID, workspaceID: workspaceID, kind: kind})
 }
 
 func (f *fakeBroadcaster) reset() {
@@ -269,7 +261,6 @@ func (f *fakeBroadcaster) reset() {
 // watchAgentChat adapts the repository's announcement seam onto this fake's existing
 // frame recorder, so every assertion in this package keeps its current shape.
 func (f *fakeBroadcaster) watchAgentChat(e agentchat.ChatEvent) {
-	f.BroadcastAgentChat(e.ChatID, e.WorkspaceID, e.Kind, e.Working && !e.Forgotten)
 	f.mu.Lock()
 	fan := f.fanout
 	f.mu.Unlock()
@@ -435,8 +426,7 @@ func (f *fakeWorktreeCreator) calls() []string {
 }
 
 // fakeChatStore wraps a real agentchat.EventStore: a non-nil fail* field fails that
-// one call. It records the chat ids AbandonTurn was called with, since that call is
-// best-effort and a fault there would be invisible.
+// one call.
 type fakeChatStore struct {
 	agentchat.EventStore
 	failGetChat         error
@@ -473,35 +463,6 @@ type fakeChatStore struct {
 	// the property into one a test can actually hold: whatever the projection says,
 	// a decision about placement must not come from it.
 	staleProjection bool
-
-	// staleAsyncWorkProjection is staleProjection's twin for TURN STATE: GetChat
-	// answers with the async-work level the chat had before its last turn_stop
-	// folded, while LoadChat keeps answering from the log.
-	//
-	// It models the same ordinary state for the same reason. StopTurn is
-	// deliberately on the async Send path (see the EventStore doc), so between a
-	// turn_stop returning and its projection folding, the read model genuinely
-	// still reports the level from before it. A restate that compares the open-work
-	// level it just computed against THAT reads 0 == 0, calls itself a no-op, and
-	// leaves the aggregate lit with nothing left to restate it.
-	staleAsyncWorkProjection bool
-
-	// onStopTurn runs INSIDE StopTurn, before the aggregate is written. It is the
-	// only seam that can observe what a client would see the instant the turn-state
-	// change is published, which is what the assistant-message ordering turns on.
-	onStopTurn func()
-}
-
-func (s *fakeChatStore) StopTurn(
-	ctx context.Context,
-	chatID string,
-	now time.Time,
-	asyncWork int,
-) (domain.Chat, error) {
-	if s.onStopTurn != nil {
-		s.onStopTurn()
-	}
-	return s.EventStore.StopTurn(ctx, chatID, now, asyncWork)
 }
 
 func (s *fakeChatStore) SetSelection(
@@ -534,10 +495,6 @@ func (s *fakeChatStore) GetChat(ctx context.Context, id string) (domain.Chat, er
 	}
 	if s.staleProjection {
 		chat.ParentID = ""
-	}
-	if s.staleAsyncWorkProjection {
-		chat.AsyncWork = 0
-		chat.Working = false
 	}
 	return chat, nil
 }
@@ -670,8 +627,8 @@ type testFixture struct {
 	ledger  *ledgerstore.Store
 	// ledgerDB is the database under ledger, for faults no store method offers.
 	ledgerDB *gorm.DB
-	// switchGrace is what every boot of the usecase is given as its SwitchGrace.
-	switchGrace *time.Duration
+	// messageAwait is every boot's MessageAwaitTimeout.
+	messageAwait *time.Duration
 	// boot builds a daemon's usecase over the fixture's durable stores.
 	boot func(*agentusecase.ChatSnapshots) *agentusecase.Usecase
 	// sessions is the session id most recently announce()d per runnerID; a map,
@@ -878,6 +835,15 @@ func (f testFixture) chat(t *testing.T, chatID string) domain.Chat {
 	return c
 }
 
+// busy is the chat's ledger saying a turn or its work is open.
+func (f testFixture) busy(t *testing.T, chatID string) bool {
+	t.Helper()
+	f.wait()
+	st, err := f.ledger.State(f.ctx, chatID)
+	require.NoError(t, err)
+	return st.Busy()
+}
+
 // runner reads a live runner from the supervisor's live table.
 func (f testFixture) runner(t *testing.T, runnerID string) engineagents.Runner {
 	t.Helper()
@@ -1078,6 +1044,7 @@ func newFixtureUsing(
 	snaps.SetPublish(snapFrames.record)
 	fan := agentusecase.NewFanout(snaps)
 	bc := &fakeBroadcaster{fanout: fan}
+	snapFrames.chats = bc
 	realChats, waitChats := newChatStore(t, bc.watchAgentChat)
 	realActivity, waitActivity := newActivityStore(t)
 
@@ -1153,23 +1120,26 @@ func newFixtureUsing(
 	require.NoError(t, err)
 	chatLedger, err := ledgerstore.Open(ledgerDB, time.Now)
 	require.NoError(t, err)
-	switchGrace := new(time.Duration)
+	// closeAssistantTurn's wait only matters against a concurrent delta, which
+	// resolves over its wake channel, never by the clock.
+	messageAwait := new(time.Duration)
+	*messageAwait = time.Millisecond
 	boot := func(snaps *agentusecase.ChatSnapshots) *agentusecase.Usecase {
 		return bootUsecase(t, agentusecase.Deps{
-			SwitchGrace:     *switchGrace,
-			Chats:           usedChats,
-			Activity:        usedActivity,
-			Agents:          engine,
-			Terminal:        term,
-			Workspace:       ws,
-			Worktree:        wt,
-			Lineage:         lineage,
-			ProviderPrefs:   providerPrefs,
-			PermissionPrefs: permissionPrefs,
-			Home:            homeFn,
-			Ledger:          chatLedger,
-			Installed:       probe,
-			Minter:          minter,
+			MessageAwaitTimeout: *messageAwait,
+			Chats:               usedChats,
+			Activity:            usedActivity,
+			Agents:              engine,
+			Terminal:            term,
+			Workspace:           ws,
+			Worktree:            wt,
+			Lineage:             lineage,
+			ProviderPrefs:       providerPrefs,
+			PermissionPrefs:     permissionPrefs,
+			Home:                homeFn,
+			Ledger:              chatLedger,
+			Installed:           probe,
+			Minter:              minter,
 			Tools: agenttools.Deps{
 				Scope:           fixtureWorkspaceLister{},
 				ChatReads:       chatReader,
@@ -1206,16 +1176,16 @@ func newFixtureUsing(
 		snapFrames:    snapFrames,
 		ledger:        chatLedger,
 		ledgerDB:      ledgerDB,
-		switchGrace:   switchGrace,
+		messageAwait:  messageAwait,
 	}
 	return f
 }
 
-// withSwitchGrace is f booted with d as how long a provider switch waits on the
-// outgoing turn before forcing it, as every later restart is too.
-func (f testFixture) withSwitchGrace(t *testing.T, d time.Duration) testFixture {
+// withMessageAwait is f booted with d as how long a turn's end waits for its
+// reply to stream, as every later restart is too.
+func (f testFixture) withMessageAwait(t *testing.T, d time.Duration) testFixture {
 	t.Helper()
-	*f.switchGrace = d
+	*f.messageAwait = d
 	f.restart(t)
 	return f
 }
@@ -1223,9 +1193,6 @@ func (f testFixture) withSwitchGrace(t *testing.T, d time.Duration) testFixture 
 func bootUsecase(tb testing.TB, d agentusecase.Deps) *agentusecase.Usecase {
 	tb.Helper()
 	u := agentusecase.New(d)
-	// closeAssistantTurn's AwaitOpen wait only matters against a concurrent
-	// delta, which resolves over its wake channel, never by the clock.
-	agentusecase.SetMessageAwaitTimeout(u, time.Millisecond)
 	// The supervisor's background work ends before the stores it writes close.
 	tb.Cleanup(u.ShutdownAPIConnections)
 	return u
@@ -1413,12 +1380,18 @@ func newActivityWriteFaultFixture(t *testing.T) (testFixture, *faultWriteActivit
 type snapshotFrames struct {
 	mu     sync.Mutex
 	frames []agentusecase.ChatSnapshotFrame
+	// chats is told every chat frame that names a change ("snapshot" names none).
+	chats *fakeBroadcaster
 }
 
 func (r *snapshotFrames) record(f agentusecase.ChatSnapshotFrame) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.frames = append(r.frames, f)
+	chats := r.chats
+	r.mu.Unlock()
+	if chats != nil && f.RunnerID == "" && f.Kind != "snapshot" {
+		chats.BroadcastAgentChat(f.Snapshot.Chat.ID, f.Snapshot.Chat.WorkspaceID, f.Kind)
+	}
 }
 
 // all returns every frame published, oldest first.

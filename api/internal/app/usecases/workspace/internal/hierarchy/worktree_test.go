@@ -1985,8 +1985,8 @@ func (f *fakeChatObserver) ListChatsByWorkspace(
 	return out, nil
 }
 
-func (f *fakeChatObserver) Working(chatID string) bool {
-	return f.working[chatID]
+func (f *fakeChatObserver) ChatBusy(_ context.Context, chatID string) (bool, error) {
+	return f.working[chatID], nil
 }
 
 // TestReparent_RefusesAWorkingChat pins the Task 11 → Task 16 closure:
@@ -2147,21 +2147,21 @@ func TestDeleteCascade_RejectsLockedRootStatus(t *testing.T) {
 	assert.Empty(t, g.calls)
 }
 
-// The repo's main checkout is served with an owning chat and every worktree
-// verb is chat-keyed, so deleting that owner reached DeleteCascade with the
-// unlocked main checkout as root and `git worktree remove` ran on the repo's
-// own folder.
-func TestRegression_DeleteCascade_RefusesTheDefaultCheckout(t *testing.T) {
-	all := []domain.Workspace{
-		{ID: "root", RepoID: "r", IsDefault: true, Status: domain.WorkspaceStatusNew, Branch: "main", WorktreePath: "/repo", Provisioning: domain.WorkspaceShared},
+// A repo's main checkout and a project's home are served with an owning chat,
+// so deleting that owner reaches DeleteCascade with either as root.
+func TestRegression_DeleteCascade_RefusesTheDefaultCheckoutAndTheHome(t *testing.T) {
+	for want, root := range map[error]domain.Workspace{
+		hierarchy.ErrWorkspaceIsDefault: {ID: "root", RepoID: "r", IsDefault: true, Status: domain.WorkspaceStatusNew, Branch: "main", WorktreePath: "/repo", Provisioning: domain.WorkspaceShared},
+		hierarchy.ErrWorkspaceIsHome:    {ID: "root", Kind: domain.WorkspaceKindHome, Status: domain.WorkspaceStatusNew, WorktreePath: "/home"},
+	} {
+		g := &fakeGit{}
+		ws := &fakeWorkspace{
+			ListFn: func(_ context.Context) ([]domain.Workspace, error) { return []domain.Workspace{root}, nil },
+		}
+		uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+		require.ErrorIs(t, uc.DeleteCascade(context.Background(), "root", domain.KeepWorkAtRisk), want)
+		assert.Empty(t, g.calls)
 	}
-	g := &fakeGit{}
-	ws := &fakeWorkspace{
-		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
-	}
-	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
-	require.ErrorIs(t, uc.DeleteCascade(context.Background(), "root", domain.KeepWorkAtRisk), hierarchy.ErrWorkspaceIsDefault)
-	assert.Empty(t, g.calls)
 }
 
 // TestDeleteCascade_RefusesAWorkingChat closes invariant 9's own "no bypass"

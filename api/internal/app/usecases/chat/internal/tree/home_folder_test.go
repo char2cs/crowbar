@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -39,7 +38,7 @@ func newHomeUsecase(
 	folders := mocks.NewFolderStore()
 	nodes := mocks.NewNodePlacements()
 	gitStatus := mocks.NewAgentWorkspaceGitStatus()
-	uc := tree.New(chats, chats, inflight.NewWork(), gitStatus,
+	uc := tree.New(chats, chats, newBusyChats(), gitStatus,
 		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats), folders, nodes)
 	return chats, folders, nodes, uc
 }
@@ -60,7 +59,7 @@ func newHomeUsecaseWithGitStatus(
 	folders := mocks.NewFolderStore()
 	nodes := mocks.NewNodePlacements()
 	gitStatus := mocks.NewAgentWorkspaceGitStatus()
-	uc := tree.New(chats, chats, inflight.NewWork(), gitStatus,
+	uc := tree.New(chats, chats, newBusyChats(), gitStatus,
 		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats), folders, nodes)
 	return chats, nodes, gitStatus, uc
 }

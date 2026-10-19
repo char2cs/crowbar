@@ -1,7 +1,6 @@
 package inflight_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
@@ -22,24 +21,6 @@ func TestConstructorsReturnIndependentInstances(t *testing.T) {
 		defer release()
 		// A shared gate would deadlock here instead of returning.
 		second.Lock("chat-1")()
-	})
-
-	t.Run("turns", func(t *testing.T) {
-		t.Parallel()
-		first, second := inflight.NewTurns(), inflight.NewTurns()
-		first.Begin(context.Background(), "runner-1", "chat-1")
-		if open := second.Inflight("chat-1"); len(open) != 0 {
-			t.Fatalf("a second registry saw %d turns begun on the first", len(open))
-		}
-	})
-
-	t.Run("work", func(t *testing.T) {
-		t.Parallel()
-		first, second := inflight.NewWork(), inflight.NewWork()
-		first.Set("chat-1", true)
-		if _, known, _ := second.Observe("chat-1"); known {
-			t.Fatal("a second work mirror knew a state only the first was told")
-		}
 	})
 
 	t.Run("hooks", func(t *testing.T) {
@@ -64,13 +45,11 @@ func TestAliasesNameTheConstructedTypes(t *testing.T) {
 	// handed one.
 	var (
 		gate  *inflight.Gate
-		turns *inflight.Turns
-		work  *inflight.Work
 		hooks *inflight.Hooks
 		hook  inflight.Hook
 	)
-	gate, turns, work, hooks = inflight.NewGate(), inflight.NewTurns(), inflight.NewWork(), inflight.NewHooks()
-	if gate == nil || turns == nil || work == nil || hooks == nil {
+	gate, hooks = inflight.NewGate(), inflight.NewHooks()
+	if gate == nil || hooks == nil {
 		t.Fatal("a constructor returned nil")
 	}
 	if hook.Provider != "" || hook.RawPayload != nil {

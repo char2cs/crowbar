@@ -17,7 +17,6 @@ import (
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -72,17 +71,13 @@ var constructorUnsetFields = map[string]string{
 
 // sharedInstances are the pieces of in-flight state that MUST be one instance
 // across the components holding them, listed as the field each component knows
-// them by. The names differ on purpose — a registry the hook side calls `turns`
-// is what the lifecycle side blocks on as `inflightTurns` — so the sharing cannot
-// be inferred from the field name and has to be stated.
+// them by, so the sharing cannot be inferred from the field name and has to be
+// stated.
 //
 // A second instance of any of these does not fail to compile and does not fail a
-// test that exercises one path at a time. It wedges a switch on a turn nothing
-// will ever complete, or puts two CLIs on one chat.
+// test that exercises one path at a time. It puts two CLIs on one chat.
 var sharedInstances = map[string][]string{
-	"the work mirror":     {"conversations.work", "turns.work", "runners.work"},
 	"the spawn gate":      {"conversations.spawns", "runners.spawns"},
-	"the turn registry":   {"turns.turns", "runners.inflightTurns"},
 	"the hook barrier":    {"turns.pendingHooks", "runners.pendingHooks"},
 	"the telemetry store": {"conversations.telemetry", "turns.telemetry"},
 	"the answer desk":     {"answers", "turns.answers", "runners.answers"},
@@ -360,63 +355,6 @@ func gatesHeldBy(component any) map[string]uintptr {
 	return held
 }
 
-// §7.2 — an UNKNOWN work state is never read as idle.
-//
-// The in-memory mirror is authoritative only once something has written to it. A
-// switch asks "is this chat working?" and, if the mirror knows nothing, must fall back
-// to the aggregate rather than assume idle — assuming idle is what killed a CLI still
-// doing background work after its turn ended.
-//
-// This is the decision the ordering in closeTurn exists to protect (work.set runs
-// before the deferred turns.complete). Asserting those two calls' order inside a test
-// would only test the test; this asserts the behaviour that makes the order matter.
-//
-// Inverted (make chatWorking return `false, nil` when the mirror is unknown instead of
-// reading the aggregate): fails with "an unknown work state was read as idle".
-func TestInvariant_AnUnknownWorkStateFallsBackToTheAggregate(t *testing.T) {
-	t.Parallel()
-	work := inflight.NewWork()
-	turns := turn.New(turn.Deps{Chats: workingChats{working: true}, Work: work})
-
-	if _, known, _ := work.Observe("chat-1"); known {
-		t.Fatal("precondition: the mirror must know nothing about this chat")
-	}
-
-	working, err := turns.ChatWorking(t.Context(), "chat-1")
-	if err != nil {
-		t.Fatalf("chatWorking: %v", err)
-	}
-	if !working {
-		t.Fatal("an unknown work state was read as idle; the aggregate says the chat IS " +
-			"working, and a switch trusting this would kill a CLI mid-background-work")
-	}
-
-	// Once the mirror knows, it wins: it is newer than any aggregate read.
-	work.Set("chat-1", false)
-	if working, err := turns.ChatWorking(t.Context(), "chat-1"); err != nil || working {
-		t.Fatalf("a KNOWN mirror state must win over the aggregate, got (%v,%v)", working, err)
-	}
-}
-
-// §7.3 — liveness is row existence: the runner points at the chat, the chat never
-// points back.
-//
-// Two places recording "who is live" is two places that can disagree, and the one that
-// disagrees silently is the one that keeps a dead CLI on screen.
-//
-// Inverted (add a live-runner field to the chat aggregate and assert on it here):
-// there is no second source to read, which is the point.
-func TestInvariant_TheChatCarriesNoLivenessFlagOfItsOwn(t *testing.T) {
-	t.Parallel()
-	// A compile-time statement, deliberately: if someone adds a Live/Running field to
-	// the chat aggregate, this file is where the argument against it lives.
-	work := inflight.NewWork()
-	if _, known, _ := work.Observe("never-seen"); known {
-		t.Fatal("an unseen chat reported a KNOWN work state; liveness must come from " +
-			"the runner row's existence, never from a flag the chat carries")
-	}
-}
-
 // §7.6 — the exactly-once hook ingress is a DECLARED method, never discovered at
 // runtime.
 //
@@ -472,14 +410,3 @@ func (terminalCommanderShape) TerminateGraceful(_ context.Context, _ string) err
 }
 
 func (terminalCommanderShape) SessionLive(_ context.Context, _ string) bool { return false }
-
-// workingChats is the chat store as this file needs it: an aggregate reporting that a
-// chat is working, so the fallback in chatWorking has something to fall back TO.
-type workingChats struct {
-	agentchat.EventStore
-	working bool
-}
-
-func (c workingChats) GetChat(_ context.Context, id string) (domain.Chat, error) {
-	return domain.Chat{ID: id, Working: c.working}, nil
-}

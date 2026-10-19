@@ -64,9 +64,7 @@ events:
 
   # item/started is a SUM TYPE selected by item.type. tool_id specifically is
   # load-bearing: an unresolved id makes toolID() mint a fresh fallback per
-  # call, so tool_pre/tool_post never match and OpenWork reports the chat as
-  # perpetually mid-turn — confirmed live and by
-  # TestUsecase_OpenWork_ReportsAToolCallTheProviderNeverClosed.
+  # call, so tool_pre/tool_post never match and the tool call never closes.
   user_prompt:
     required: [session_id]
     api:
@@ -835,6 +833,7 @@ session:
   # turn/start "thread not found: X", each under -32600, JSON-RPC's generic
   # invalid request. codex writes no rollout until a turn COMPLETES.
   refused: { exit_code: 1, rpc_code: -32600, needles: ["no rollout found for thread id", "thread not found"] }
+  persists: turn_end
 presentation:
   prompt_submit:
     strategy: restart_tui

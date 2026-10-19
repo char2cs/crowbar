@@ -261,7 +261,7 @@ func (u *chatFolderUsecase) placeChat(
 	if mErr := u.checkChatMove(ctx, snapshot, workspaceID, chatID, destination, ownWorktree); mErr != nil {
 		return domain.Chat{}, nil, mErr
 	}
-	if wErr := guardNotWorking(snapshot.subtreeIDs(chatID), u.work); wErr != nil {
+	if wErr := guardNotWorking(ctx, snapshot.subtreeIDs(chatID), u.busy); wErr != nil {
 		return domain.Chat{}, nil, wErr
 	}
 	// Read BEFORE the plan is mutated: this is the only moment the lineage the

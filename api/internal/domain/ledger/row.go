@@ -21,6 +21,8 @@ const (
 	KindMarker        Kind = "marker"
 	KindRunnerStarted Kind = "runner_started"
 	KindRunnerExited  Kind = "runner_exited"
+	KindTurnEnded     Kind = "turn_ended"
+	KindTurnFailed    Kind = "turn_failed"
 )
 
 // ErrMalformedRow is a row the ledger refuses to record.
@@ -76,6 +78,12 @@ func Check(_ State, r Row) error {
 		return checkNamed(r, func(b RunnerStarted) bool { return b.RunnerID != "" && b.Provider != "" })
 	case KindRunnerExited:
 		return checkNamed(r, func(b RunnerExited) bool { return b.RunnerID != "" && b.Reason != "" })
+	case KindTurnEnded:
+		return checkTurnNamed(r, func(b TurnEnded) bool {
+			return b.Status == string(TurnStatusDone) || b.Status == string(TurnStatusInterrupted)
+		})
+	case KindTurnFailed:
+		return checkTurnNamed(r, func(b TurnFailed) bool { return b.Reason != "" })
 	default:
 		return fmt.Errorf("%w: unknown kind %q", ErrMalformedRow, r.Kind)
 	}
@@ -86,6 +94,13 @@ func checkTurnRow[B any](r Row) error {
 		return fmt.Errorf("%w: %s without a turn id", ErrMalformedRow, r.Kind)
 	}
 	return checkBody[B](r)
+}
+
+func checkTurnNamed[B any](r Row, named func(B) bool) error {
+	if r.TurnID == "" {
+		return fmt.Errorf("%w: %s without a turn id", ErrMalformedRow, r.Kind)
+	}
+	return checkNamed(r, named)
 }
 
 func checkBody[B any](r Row) error {

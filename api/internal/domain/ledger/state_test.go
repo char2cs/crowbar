@@ -37,6 +37,7 @@ func TestFold_PromptLifecycle(t *testing.T) {
 	st := ledger.Fold("c1", sequenced(t,
 		crowbarPrompt(t, "r1", "a", "T1"),
 		row(t, ledger.KindTurnStarted, "T1", ledger.TurnStarted{RequestID: "r1", RunnerID: "run-1"}),
+		row(t, ledger.KindTurnEnded, "T1", ledger.TurnEnded{Status: "done"}),
 		crowbarPrompt(t, "r2", "b", "T2"),
 		row(t, ledger.KindPromptSettled, "", ledger.PromptSettled{RequestID: "r2", Reason: ledger.ReasonRunnerExited}),
 	))
@@ -55,7 +56,7 @@ func TestFold_PromptLifecycle(t *testing.T) {
 
 	assert.Empty(t, st.PendingPrompts())
 	assert.False(t, st.HasOpenWork())
-	assert.Equal(t, int64(4), st.Head())
+	assert.Equal(t, int64(5), st.Head())
 	assert.Equal(t, "c1", st.ChatID)
 	_, ok = st.Receipt("never-sent")
 	assert.False(t, ok)

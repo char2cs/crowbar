@@ -38,13 +38,7 @@ func (noopTurns) IngestHook(context.Context, string, string, string, []byte) err
 func (noopTurns) ReplayStartupHook(string, inflight.Hook) {}
 func (noopTurns) ForgetChat(string)                       {}
 
-func (noopTurns) AwaitTurnComplete(context.Context, string) error { return nil }
-
-func (noopTurns) ChatWorking(context.Context, string) (bool, error) { return false, nil }
-
-func (noopTurns) TurnOpen(context.Context, string, string) (bool, error) { return false, nil }
-
-func (noopTurns) QueueSteer(string, inflight.Steered) bool { return false }
+func (noopTurns) HoldSteer(string, string, string) {}
 
 func (noopTurns) RecordStop(context.Context, string, string) error { return nil }
 
@@ -64,24 +58,14 @@ func (noopTurns) MatchTerminalNotice(
 	return engineagents.TerminalNotice{}, false
 }
 
-func (noopTurns) OpenWork(context.Context, string) (bool, error) { return false, nil }
-
-func (noopTurns) UnfinishedSince(string) (time.Time, bool)   { return time.Time{}, false }
-func (noopTurns) ProviderIdleSince(string) (time.Time, bool) { return time.Time{}, false }
-
-func (noopTurns) AbandonMessage(context.Context, string) (bool, error) { return false, nil }
-
-func (noopTurns) AbandonMessageInferredInterrupt(context.Context, string) (bool, error) {
-	return false, nil
-}
-
 func (noopTurns) AbandonMessageForRunner(
 	context.Context, string, engineagents.Runner,
 ) (bool, error) {
 	return false, nil
 }
 
-func (noopTurns) CloseStalledTurn(context.Context, seam.Stall) {}
+func (noopTurns) FailTurnOnNotice(context.Context, engineagents.Runner, engineagents.TerminalNotice) {
+}
 
 func TestApiSocketPath_IsShortAndDeterministic(t *testing.T) {
 	a := apiSocketPath("runner-1")

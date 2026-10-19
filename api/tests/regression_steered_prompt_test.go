@@ -4,6 +4,7 @@ package tests
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -86,13 +87,18 @@ func newSteerFixture(t *testing.T) steerFixture {
 	writeProviderDescriptor(t, h, f.provider, fmt.Sprintf(steerStubDescriptorYAML, f.provider, f.launches))
 	f.imported = importWritableWorkspace(t, h)
 	f.chatID, f.runnerID = createStubChat(t, h, f.imported, f.provider)
+	// The CLI logs its launch on its own schedule; one quit before then never logs.
+	require.Eventually(t, func() bool { return f.launchCount(t) == 1 }, 10*time.Second, 5*time.Millisecond)
 	return f
 }
 
 func (f steerFixture) launchCount(t *testing.T) int {
 	t.Helper()
 	raw, err := os.ReadFile(f.launches)
-	require.NoError(t, err)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0
+	}
+	assert.NoError(t, err)
 	return strings.Count(string(raw), "launched")
 }
 

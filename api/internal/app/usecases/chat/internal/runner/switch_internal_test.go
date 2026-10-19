@@ -7,82 +7,48 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// runnersForDisplace builds the smallest Runners that can run displaceForSwitch:
-// a real live table and in-flight registry, an empty ledger (so the
-// pending-prompt guard passes), and the two answers under test.
-func runnersForDisplace(t *testing.T, working, live bool) *Runners {
+// runnersForDisplace builds the smallest Runners that can run displaceForSwitch
+// on chat-1, with runner r-1 live on it when live is set.
+func runnersForDisplace(t *testing.T, live bool) *Runners {
 	t.Helper()
-	home := t.TempDir()
 	liveTable := newLiveTable()
 	if live {
 		liveTable = liveWith(t, engineagents.Runner{ID: "r-1", CurrentChatID: "chat-1"})
 	}
 	return &Runners{
-		ws:            fakeWSReader{chatsDir: home},
-		ledger:        newTestLedger(t),
-		inflightTurns: inflight.NewTurns(),
-		turns:         stubTurnsForAttach{working: working},
-		live:          liveTable,
+		ws:     fakeWSReader{chatsDir: t.TempDir()},
+		ledger: newTestLedger(t),
+		live:   liveTable,
 	}
 }
 
-// TestRegression_DisplaceForSwitch_DormantChatFlaggedWorking_DoesNotWaitForever is
-// the fix for a chat that could only be abandoned.
-//
-// switchProviderLocked's retry loop asks displaceForSwitch whether to go round
-// again, and a `working` chat answered yes so the outgoing TUI is kept alive until
-// a later hook restates the work level as zero. On a DORMANT chat that wait can
-// never end: there is no CLI to finish the work and none to send the hook. The loop
-// therefore spun forever — about one lap per awaitTurnOrForce deadline — holding
-// the chat's spawn gate, which is a plain mutex with no context on it. Every later
-// resume, prompt and switch on that chat queued behind it and never answered at
-// all, with no access-log line either, because the log is written on completion.
-//
-// ResumeChat enters this same locked path, so the one call whose job is to bring a
-// dormant chat back was the call the stale flag stranded: the client sat on its
-// "Resuming this chat…" spinner — which carries no button — until the user gave up
-// on the chat. A durable `working` outliving its CLI is a REACHABLE state, not a
-// hypothetical: a SIGKILL mid-background-work sends no final stop, and boot
-// reconciliation only heals chats still reachable from a live runner row.
-func TestRegression_DisplaceForSwitch_DormantChatFlaggedWorking_DoesNotWaitForever(t *testing.T) {
-	rs := runnersForDisplace(t, true /* working */, false /* live */)
+// A switch never waits out a running turn, and never forces it: it is refused.
+func TestDisplaceForSwitch_ARunningTurnIsRefusedNotWaitedFor(t *testing.T) {
+	rs := runnersForDisplace(t, true /* live */)
+	started, err := ledger.NewRow(ledger.KindRunnerStarted, "", "", ledger.RunnerStarted{RunnerID: "r-1", Provider: "claude"})
+	require.NoError(t, err)
+	turnRow, err := ledger.NewRow(ledger.KindTurnStarted, "T-1", "", ledger.TurnStarted{RunnerID: "r-1"})
+	require.NoError(t, err)
+	_, _, err = rs.ledger.Append(t.Context(), "chat-1", started, turnRow)
+	require.NoError(t, err)
 
 	retry, err := rs.displaceForSwitch(context.Background(), domain.Chat{ID: "chat-1"})
 
-	require.NoError(t, err)
-	assert.False(t, retry,
-		"a dormant chat's stale working flag must not ask the caller to loop again: "+
-			"nothing can ever clear it, so the retry holds the chat's spawn gate forever "+
-			"and every later resume on that chat blocks with no response at all")
-}
-
-// TestRegression_DisplaceForSwitch_LiveRunnerFlaggedWorking_StillWaits is the
-// regression-of-the-regression-guard. The fix above must not also swallow the real
-// case the retry exists for: a turn_stop that handed work to the background after
-// the first await released its runner-scoped turn. There the CLI is alive, it is
-// genuinely still working, and quitting it there costs the answer — so a LIVE
-// runner must still be waited for exactly as before.
-func TestRegression_DisplaceForSwitch_LiveRunnerFlaggedWorking_StillWaits(t *testing.T) {
-	rs := runnersForDisplace(t, true /* working */, true /* live */)
-
-	retry, err := rs.displaceForSwitch(context.Background(), domain.Chat{ID: "chat-1"})
-
-	require.NoError(t, err)
-	assert.True(t, retry,
-		"a LIVE runner still doing background work must still be waited for — "+
-			"there is a CLI to finish it and a hook coming to say so")
+	require.ErrorIs(t, err, ErrPromptBusy)
+	assert.False(t, retry)
+	_, live := rs.live.byChat("chat-1")
+	assert.True(t, live, "the running CLI is not quit")
 }
 
 // A prompt steered into the turn the switch waited out is waited for too: the
 // switch goes round again to its pending-prompt wait rather than refusing.
 func TestDisplaceForSwitch_APromptSteeredAfterTheWaitsSendsTheSwitchRoundAgain(t *testing.T) {
-	rs := runnersForDisplace(t, false /* working */, true /* live */)
+	rs := runnersForDisplace(t, true /* live */)
 	appendPrompt(t, rs.ledger, "steered", "r-1")
 
 	retry, err := rs.displaceForSwitch(context.Background(), domain.Chat{ID: "chat-1"})
@@ -99,12 +65,11 @@ func TestDisplaceForSwitch_APromptSteeredAfterTheWaitsSendsTheSwitchRoundAgain(t
 func TestRegression_QuitOutgoingCLI_TerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY(t *testing.T) {
 	term := &fakeTermForAttach{}
 	rs := retiring(t, &Runners{
-		attached:      newAttachRegistry(),
-		apiConns:      newAPIConnRegistry(),
-		term:          term,
-		agents:        stubAgentsForInterrupt{},
-		inflightTurns: inflight.NewTurns(),
-		turns:         noopTurns{},
+		attached: newAttachRegistry(),
+		apiConns: newAPIConnRegistry(),
+		term:     term,
+		agents:   stubAgentsForInterrupt{},
+		turns:    noopTurns{},
 	})
 	rs.live.update("runner-1", func(r *engineagents.Runner) { r.TerminalSession = "companion-pty-term" })
 	rs.attached.set("runner-1", attachedView{termSessID: "native-view-term"})

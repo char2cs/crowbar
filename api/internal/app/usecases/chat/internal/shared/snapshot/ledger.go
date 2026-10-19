@@ -14,11 +14,13 @@ type LedgerFacts struct {
 	Current map[string]ledger.Conversation
 	// LastExit is how the chat's last runner ended; nil while one is live.
 	LastExit *ledger.RunnerExit
+	// Busy is whether the chat is working: ledger.State.Busy.
+	Busy bool
 }
 
 // FactsOf is what a ledger State contributes to its chat's snapshot.
 func FactsOf(st ledger.State) LedgerFacts {
-	facts := LedgerFacts{Conversations: st.Conversations(), Current: map[string]ledger.Conversation{}}
+	facts := LedgerFacts{Conversations: st.Conversations(), Current: map[string]ledger.Conversation{}, Busy: st.Busy()}
 	for _, c := range facts.Conversations {
 		facts.Current[c.Provider], _ = st.Conversation(c.Provider)
 	}
@@ -31,21 +33,27 @@ func FactsOf(st ledger.State) LedgerFacts {
 }
 
 // ApplyLedger installs facts published by the chat's ledger writer, bumps the
-// chat's version and emits a snapshot frame when they changed. It runs under
-// that writer, so it never reads the ledger itself.
-func (s *Snapshots) ApplyLedger(ctx context.Context, chatID string, facts LedgerFacts) {
+// chat's version and emits a snapshot frame, of kind when one is named, else
+// when the facts changed. It runs under that writer, so it never reads the
+// ledger itself. It reports whether Busy flipped, and the chat's workspace.
+func (s *Snapshots) ApplyLedger(ctx context.Context, chatID string, facts LedgerFacts, kind string) (bool, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, gone := s.deleted[chatID]; gone {
-		return
+		return false, ""
 	}
 	st := s.stateLocked(chatID)
-	changed := !sameConversations(st.facts.Conversations, facts.Conversations) ||
+	flipped := st.facts.Busy != facts.Busy
+	changed := flipped || !sameConversations(st.facts.Conversations, facts.Conversations) ||
 		!sameExit(st.facts.LastExit, facts.LastExit)
 	st.facts, st.hasFacts = facts, true
-	if changed {
-		s.emitChatLocked(ctx, chatID, KindSnapshot, "")
+	if kind == "" && changed {
+		kind = KindSnapshot
 	}
+	if kind != "" {
+		s.emitChatLocked(ctx, chatID, kind, "")
+	}
+	return flipped, st.chat.WorkspaceID
 }
 
 // Conversation is the chat's conversation with its current provider: the live

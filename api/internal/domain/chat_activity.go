@@ -77,13 +77,9 @@ type ActivityDelta struct {
 
 	SupersededTurnID string `json:"supersededTurnId,omitempty"`
 
-	// Abandoned marks a DeltaTurn/DeltaClose that comes from giving up on this
-	// turn's work entirely (the CLI process is gone, or the turn produced
-	// nothing at all) rather than an ordinary turn_stop. A subagent is
-	// deliberately allowed to keep running past its own turn's close — see
-	// turn.go's restateAsyncWork doc — so only THIS delta may force-close one
-	// still open; an ordinary close must never treat "my own turn ended" as
-	// "the subagent it dispatched to is gone too".
+	// Abandoned marks a DeltaTurn/DeltaClose that gives up on the turn's work
+	// entirely (the CLI is gone) rather than an ordinary turn_stop: only it may
+	// force-close a subagent still open, which may outlive its own turn.
 	Abandoned bool `json:"abandoned,omitempty"`
 	// OmitPlan keeps an intermediate multi-message item from projecting the
 	// provider turn's plan twice. The plan remains on Turn so the immediately

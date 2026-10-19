@@ -3,8 +3,6 @@ package turn
 import (
 	"context"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
-
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -43,20 +41,17 @@ type Conversations interface {
 	) ([]domain.LedgerTurn, error)
 }
 
-// Runners is what a hook needs from the runner lifecycle: the placement half of
-// a session_start, and the refusal of a steered prompt its turn never delivered.
+// Runners is what a hook needs from the runner lifecycle: the runner it names,
+// and the placement half of a session_start.
 //
-// NOTHING here may take the spawn gate. SwitchProvider holds it while parked on a
-// turn only this package can release, so a hook that waited on it would deadlock
-// against the very switch waiting on the hook.
+// NOTHING here may take the spawn gate: a hook must never wait on a
+// user-initiated path.
 type Runners interface {
 	// RunnerByID is the live runner a hook names, also while it is exiting.
 	RunnerByID(runnerID string) (engineagents.Runner, bool)
 	// TurnRunner runs open on the runner a hook names, held against its end,
 	// and reports false without running it once that end is under way.
 	TurnRunner(runnerID string, open func(engineagents.Runner) error) (opened bool, err error)
-	// LiveRunnerForChat is the chat's live runner; an error when it is dormant.
-	LiveRunnerForChat(ctx context.Context, chatID string) (engineagents.Runner, error)
 	// HandleSessionStart applies a CLI's session announcement to the chat it
 	// is on: a /clear or /resume inside the TUI changes the chat's session.
 	HandleSessionStart(
@@ -74,7 +69,4 @@ type Runners interface {
 	// reads it, to decide which surface a per-event surfaces: list is checked
 	// against.
 	ShowingNativeView(runnerID string) bool
-	// RefuseSteered fails a parked prompt the CLI provably never received, so
-	// the client keeps its text and may retry.
-	RefuseSteered(ctx context.Context, s inflight.Steered)
 }

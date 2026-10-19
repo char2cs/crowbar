@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -16,8 +15,8 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// turnHold is a runner held against its end. startTurn needs one, and only
-// openingTurn makes one, so no turn opens on a runner whose end is under way.
+// turnHold is a runner held against its end. Only openingTurn makes one, so
+// no turn opens on a runner whose end is under way.
 type turnHold struct{ runner engineagents.Runner }
 
 // openingTurn runs open on runnerID's runner held against its end, and reports
@@ -29,17 +28,25 @@ func (t *Turns) openingTurn(runnerID string, open func(turnHold) error) (bool, e
 	})
 }
 
-// startTurn marks h's chat working and its turn in flight, the same fact
-// without the read model's lag: a provider switch blocks on the latter
-// (inflight.Turns) so it never quits a CLI that is still answering.
-func (t *Turns) startTurn(ctx context.Context, h turnHold) error {
-	chatID := h.runner.CurrentChatID
-	started, err := t.chats.StartTurn(ctx, chatID, time.Now())
+// startTurn commits the rows decide returns for a turn h's CLI started,
+// after ending the turn it supersedes. A CLI that is not the chat's live
+// runner starts nothing.
+func (t *Turns) startTurn(ctx context.Context, h turnHold, decide func(ledger.State) ([]ledger.Row, error)) error {
+	runnerID := h.runner.ID
+	_, _, err := t.ledger.Do(ctx, h.runner.CurrentChatID, func(st ledger.State) ([]ledger.Row, error) {
+		if live, ok := st.LiveRunner(); !ok || live.RunnerID != runnerID {
+			return nil, nil
+		}
+		rows, err := ledger.EndTurn(st, ledger.TurnStatusDone, ledger.ReasonSuperseded, 0, "")
+		if err != nil {
+			return nil, err
+		}
+		started, err := decide(st)
+		return append(rows, started...), err
+	})
 	if err != nil {
 		return fmt.Errorf("agent: ingest hook: start turn: %w", err)
 	}
-	t.work.Set(chatID, started.Working)
-	t.turns.Begin(ctx, h.runner.ID, chatID)
 	return nil
 }
 
@@ -75,11 +82,13 @@ func (t *Turns) openTurnFromPrompt(
 	// strips exactly that part and hands back whatever real text remains.
 	if remainder, injected := t.agents.ConsumeInjectedPrefix(runner.ID, ev.Message); injected {
 		if remainder == "" {
-			// A bare echo — nothing else was riding this spawn. Drop it from
-			// the ledger and from title derivation, but still open the turn:
-			// the CLI really is working on it, and the workspace's working
-			// overlay must say so.
-			if err := t.startTurn(ctx, h); err != nil {
+			// A bare echo — nothing else was riding this spawn. No user_message
+			// and no title, but the turn runs: the CLI is working on it.
+			started := t.turnStarted(ctx, chat.ID, runner, agent, ev.TurnID)
+			if err := t.startTurn(ctx, h, func(ledger.State) ([]ledger.Row, error) {
+				row, err := ledger.NewRow(ledger.KindTurnStarted, uuid.NewString(), "", started)
+				return []ledger.Row{row}, err
+			}); err != nil {
 				return err
 			}
 			t.openAssistantTurn(ctx, chat, runner)
@@ -110,10 +119,10 @@ func (t *Turns) openTurnFromPrompt(
 		slog.DebugContext(ctx, "agent: ingest hook: user_prompt was injected by the provider's harness",
 			"chat_id", chat.ID, "runner_id", runner.ID, "provider", runner.ProviderID,
 			"kind", injected.Kind, "needle", injected.Needle)
-		if err := t.recordOtherTurn(ctx, chat.ID, runner, ev.TurnID, ledger.OriginHarness, ev.Message); err != nil {
-			return err
-		}
-		if err := t.startTurn(ctx, h); err != nil {
+		started := t.turnStarted(ctx, chat.ID, runner, agent, ev.TurnID)
+		if err := t.startTurn(ctx, h, func(ledger.State) ([]ledger.Row, error) {
+			return otherTurnRows(started, ledger.OriginHarness, ev.Message)
+		}); err != nil {
 			return err
 		}
 		appendErr := t.conversations.AppendRunnerTurn(
@@ -164,14 +173,9 @@ func (t *Turns) recordUserTurn(
 	if err := t.conversations.RenameChat(ctx, chat.ID, deriveTitle(userText), "derived"); err != nil {
 		slog.WarnContext(ctx, "agent: ingest hook: derived title", "err", err, "chat_id", chat.ID)
 	}
-	// A user prompt opens the turn: the read model (and the workspace spinner)
-	// see a live turn.
-	if err := t.startTurn(ctx, h); err != nil {
-		return err
-	}
 	// The hook is the provider's acknowledgement of the prompt Crowbar recorded,
 	// matched on the text the request carried before dispatch rewrote it.
-	requestID, acceptErr := t.acceptPrompt(ctx, chat.ID, runner, ev.TurnID, userText)
+	requestID, acceptErr := t.acceptPrompt(ctx, h, agent, ev.TurnID, userText)
 	// Named by its request, the row is how the client that queued this prompt
 	// recognises it.
 	userCtx := ctx
@@ -198,11 +202,12 @@ func (t *Turns) recordUserTurn(
 // prompt this runner carries when text is that prompt, else for text typed at
 // the CLI. It returns the request id of the prompt accepted, if any.
 func (t *Turns) acceptPrompt(
-	ctx context.Context, chatID string, runner engineagents.Runner, providerTurnID, text string,
+	ctx context.Context, h turnHold, agent engineagents.Agent, providerTurnID, text string,
 ) (string, error) {
 	var accepted string
-	started := t.turnStarted(ctx, chatID, runner, providerTurnID)
-	_, _, err := t.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+	runner := h.runner
+	started := t.turnStarted(ctx, runner.CurrentChatID, runner, agent, providerTurnID)
+	err := t.startTurn(ctx, h, func(st ledger.State) ([]ledger.Row, error) {
 		for _, p := range st.PendingPrompts() {
 			if p.Text != text || (p.RunnerID != "" && p.RunnerID != runner.ID) {
 				continue
@@ -222,27 +227,16 @@ func (t *Turns) acceptPrompt(
 	return accepted, nil
 }
 
-// recordOtherTurn starts a turn nobody sent through Crowbar.
-func (t *Turns) recordOtherTurn(
-	ctx context.Context, chatID string, runner engineagents.Runner, providerTurnID, origin, text string,
-) error {
-	started := t.turnStarted(ctx, chatID, runner, providerTurnID)
-	if _, _, err := t.ledger.Do(ctx, chatID, func(ledger.State) ([]ledger.Row, error) {
-		return otherTurnRows(started, origin, text)
-	}); err != nil {
-		return fmt.Errorf("agent: ingest hook: record %s turn: %w", origin, err)
-	}
-	return nil
-}
-
 // turnStarted is the turn_started body for a turn runner's CLI took on the
 // chat's bound session: the turn that makes that session resumable.
 func (t *Turns) turnStarted(
-	ctx context.Context, chatID string, runner engineagents.Runner, providerTurnID string,
+	ctx context.Context, chatID string, runner engineagents.Runner, agent engineagents.Agent,
+	providerTurnID string,
 ) ledger.TurnStarted {
 	return ledger.TurnStarted{
 		ProviderTurnID: providerTurnID, RunnerID: runner.ID,
 		Provider: runner.ProviderID, SessionID: t.boundSession(ctx, chatID, runner.ProviderID),
+		Persists: agent.SessionPersists(),
 	}
 }
 

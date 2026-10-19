@@ -166,18 +166,14 @@ type TerminalReaper interface {
 }
 
 // ChatWorkObserver answers the two questions guardReparent's working-chat check
-// needs: which chats a workspace owns, and whether one of them is CURRENTLY
-// working. It is the same live, process-local answer
-// usecases/chat/internal/tree's own guardNotWorking already established for the
-// unified Chats-panel tree (Task 11, model spec invariant 5) — reached here
-// through the chat usecase's public door (usecases/chat.Usecase.Working) rather
-// than its internal tree/inflight packages, which this package may not import.
+// needs: which chats a workspace owns, and whether one of them is working —
+// the chat usecase's own answer (usecases/chat.Usecase.ChatBusy).
 type ChatWorkObserver interface {
 	ListChatsByWorkspace(
 		ctx context.Context,
 		workspaceID string,
 	) ([]domain.Chat, error)
-	Working(chatID string) bool
+	ChatBusy(ctx context.Context, chatID string) (bool, error)
 }
 
 type hierarchyUsecase struct {
@@ -1396,17 +1392,9 @@ func (u *hierarchyUsecase) guardReparent(
 	return nil
 }
 
-// guardNotWorking refuses a move over a workspace subtree that owns a
-// currently-working chat (invariant 5), computed with the SAME
-// cascade.Plan-over-subtree mechanism usecases/chat/internal/tree's own
-// guardNotWorking + subtreeIDsOf already established for the unified
-// Chats-panel tree (Task 11) — fed domain.Workspace rows here instead of
-// domain.Chat rows, since the workspace hierarchy is still workspace-shaped;
-// what changed is that each workspace in the subtree now has a resolvable
-// owning chat row to ask (Task 9's taxonomy) rather than nothing at all.
-//
-// A nil chatObserver (no caller has wired one) makes this a no-op, matching
-// every other optional dependency in this file (see TerminalReaper).
+// guardNotWorking refuses a move over a workspace subtree that owns a working
+// chat (invariant 5), walking the subtree with cascade.Plan as the chat tree
+// does. A nil chatObserver makes it a no-op, like TerminalReaper.
 func (u *hierarchyUsecase) guardNotWorking(
 	ctx context.Context,
 	rootID string,
@@ -1441,7 +1429,11 @@ func (u *hierarchyUsecase) anyChatWorkingIn(
 		return false, fmt.Errorf("guard not working: list chats: %w", err)
 	}
 	for _, c := range chats {
-		if u.chatObserver.Working(c.ID) {
+		busy, err := u.chatObserver.ChatBusy(ctx, c.ID)
+		if err != nil {
+			return false, fmt.Errorf("guard not working: %w", err)
+		}
+		if busy {
 			return true, nil
 		}
 	}
@@ -1464,13 +1456,8 @@ func subtreeWorkspaceIDs(
 }
 
 // DeleteCascade erases rootID and every workspace below it. It refuses a
-// LOCKED root, and — by the same guardNotWorking Task 16 gave guardReparent —
-// a subtree that owns a currently-working chat (invariant 5/9: a move and a
-// delete take the same set, and neither may take a working row). Without that
-// second guard this verb was invariant 9's own bypass: it is what the live
-// DELETE .../workspaces/:wsId route and merge --deleteSource call, so a
-// subtree the Chats panel's delete would refuse could be erased whole through
-// the workspace door instead.
+// locked, default or home root, and a subtree that owns a working chat: the
+// workspace route must not erase what the Chats panel's delete would refuse.
 func (u *hierarchyUsecase) DeleteCascade(
 	ctx context.Context,
 	rootID string,
@@ -1492,6 +1479,9 @@ func (u *hierarchyUsecase) DeleteCascade(
 	}
 	if root.IsDefault {
 		return ErrWorkspaceIsDefault
+	}
+	if root.Kind == domain.WorkspaceKindHome {
+		return ErrWorkspaceIsHome
 	}
 	if workingErr := u.guardNotWorking(ctx, rootID); workingErr != nil {
 		return workingErr

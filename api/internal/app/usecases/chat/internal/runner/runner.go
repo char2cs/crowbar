@@ -4,9 +4,8 @@
 //
 // Everything here is USER-INITIATED, which is what separates it from the hook
 // ingress. It may block, it may refuse, and it takes the per-chat spawn gate —
-// the only thing that stops two clicks putting two CLIs on one chat. That is
-// also why nothing on the hook path may call into it through a gated door: a
-// switch holds the gate while parked on a turn only a hook can end.
+// the only thing that stops two clicks putting two CLIs on one chat. Nothing
+// on the hook path may call into it through a gated door.
 //
 // A runner's own PROCESS is the sole authority on its liveness. Nothing here
 // asserts a process is alive or dead that it has not observed; a CLI is ended
@@ -17,7 +16,6 @@ package runner
 
 import (
 	"strings"
-	"time"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
@@ -51,10 +49,6 @@ type Runners struct {
 	// thing that can stop two concurrent switches putting two CLIs on one chat, and
 	// it is NEVER taken on the hook path.
 	spawns *inflight.Gate
-	// inflightTurns is the in-flight-turn registry this type BLOCKS on before it
-	// quits a CLI.
-	inflightTurns *inflight.Turns
-	work          *inflight.Work
 	// pendingHooks is the fork-before-runner-persistence barrier this type installs
 	// before the fork and finishes after runner_started commits.
 	pendingHooks *inflight.Hooks
@@ -99,11 +93,6 @@ type Runners struct {
 	snapshots Snapshotter
 	// background is the supervisor's own follow-up work; Shutdown ends it.
 	background *backgroundWork
-
-	// switchGrace bounds a switch's wait on the outgoing turn; see forceSwitchAfter.
-	switchGrace time.Duration
-	// interruptTimeout overrides Stop's interrupt bound; zero is the default.
-	interruptTimeout time.Duration
 }
 
 // Deps is everything the CLI lifecycle is built over. It is a struct and not an
@@ -123,37 +112,30 @@ type Deps struct {
 	// DaemonSocket is the socket the daemon bound, rendered into the callbacks.
 	DaemonSocket string
 
-	Spawns        *inflight.Gate
-	InflightTurns *inflight.Turns
-	Work          *inflight.Work
-	PendingHooks  *inflight.Hooks
-	Minter        *agenttools.TokenMinter
-	Answers       *answerdesk.Desk
+	Spawns       *inflight.Gate
+	PendingHooks *inflight.Hooks
+	Minter       *agenttools.TokenMinter
+	Answers      *answerdesk.Desk
 
 	Conversations Conversations
 	Providers     Providers
 	// Snapshots is the chat snapshot owner's announce side (optional).
 	Snapshots Snapshotter
-	// SwitchGrace is how long a provider switch waits on the outgoing turn
-	// before forcing it; zero is termwait.DefaultStallQuiet.
-	SwitchGrace time.Duration
 }
 
 // New builds the CLI lifecycle. The hook-ingress port is bound separately, by
 // SetTurns, because the two call each other.
 func New(d Deps) *Runners {
 	return &Runners{
-		chats:         d.Chats,
-		activity:      d.Activity,
-		agents:        d.Agents,
-		term:          d.Terminal,
-		ws:            d.Workspace,
-		ancestorCwd:   d.AncestorCwd,
-		ledger:        d.Ledger,
-		daemonSocket:  d.DaemonSocket,
-		spawns:        d.Spawns,
-		inflightTurns: d.InflightTurns,
-		work:          d.Work,
+		chats:        d.Chats,
+		activity:     d.Activity,
+		agents:       d.Agents,
+		term:         d.Terminal,
+		ws:           d.Workspace,
+		ancestorCwd:  d.AncestorCwd,
+		ledger:       d.Ledger,
+		daemonSocket: d.DaemonSocket,
+		spawns:       d.Spawns,
 		// Owned outright, so built here rather than handed in: the probe limiter is
 		// named by nothing outside this package.
 		catalogs:     catalog.New(),
@@ -167,7 +149,6 @@ func New(d Deps) *Runners {
 		phases:       newPhases(),
 		snapshots:    d.Snapshots,
 		background:   newBackgroundWork(),
-		switchGrace:  d.SwitchGrace,
 
 		conversations: d.Conversations,
 		providers:     d.Providers,
@@ -177,9 +158,8 @@ func New(d Deps) *Runners {
 // SetTurns binds the hook ingress and, with it, builds the terminal-wait
 // detector.
 //
-// The detector is built HERE rather than in New because its ports are spread
-// across both sides — the screen classifiers and the message stream belong to the
-// hook ingress — and it binds them by value. Building it in New would bind nil.
+// The detector is built HERE rather than in New because its screen
+// classifiers belong to the hook ingress, and it binds them by value.
 //
 // It is nil when the terminal seam cannot render a screen, which is the whole of
 // the "no detector" case every reader of termWait guards for.
@@ -191,16 +171,12 @@ func (rs *Runners) SetTurns(turns Turns) {
 	}
 	rs.termWait = termwait.New(termwait.Deps{
 		Runners:  rs,
-		Chats:    rs.chats,
+		Busy:     rs,
 		Choices:  rs.activity,
 		Screens:  screens,
 		Prompts:  turns,
 		Notices:  turns,
-		Work:     turns,
-		OnStall:  turns.CloseStalledTurn,
-		Messages: turns,
-		Liveness: rs,
-		Idle:     turns,
+		OnNotice: turns.FailTurnOnNotice,
 	})
 }
 

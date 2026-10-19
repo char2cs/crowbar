@@ -39,6 +39,10 @@ var ErrWorkspaceLocked = errors.New("workspace is locked")
 // takes it. Handlers map it to HTTP 409.
 var ErrWorkspaceIsDefault = errors.New("workspace is the repository's main checkout")
 
+// ErrWorkspaceIsHome is returned when a cascade delete targets a project's
+// home: only deleting the project takes it. Handlers map it to HTTP 409.
+var ErrWorkspaceIsHome = errors.New("workspace is the project's home")
+
 // ErrBranchWorkspaceExists is returned when a create would produce a second
 // workspace for a branch that a non-deleted workspace already holds in the repo.
 // A branch can be checked out in at most one worktree, so the repo keeps at most

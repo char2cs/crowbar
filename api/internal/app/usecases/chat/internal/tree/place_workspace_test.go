@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -404,7 +403,7 @@ func newWorkspacePlacementUsecase(
 	folders := mocks.NewFolderStore()
 	nodes := mocks.NewNodePlacements()
 	gitStatus := mocks.NewAgentWorkspaceGitStatus()
-	uc := tree.New(chats, chats, inflight.NewWork(), gitStatus,
+	uc := tree.New(chats, chats, newBusyChats(), gitStatus,
 		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats), folders, nodes)
 	return chats, folders, nodes, gitStatus, uc
 }
@@ -415,7 +414,7 @@ func newWorkspacePlacementUsecaseWithWork(
 	t *testing.T,
 ) (
 	*mocks.AgentChatPlacements,
-	*inflight.Work,
+	*busyChats,
 	*mocks.NodePlacements,
 	*mocks.AgentWorkspaceGitStatus,
 	tree.Usecase,
@@ -425,7 +424,7 @@ func newWorkspacePlacementUsecaseWithWork(
 	folders := mocks.NewFolderStore()
 	nodes := mocks.NewNodePlacements()
 	gitStatus := mocks.NewAgentWorkspaceGitStatus()
-	work := inflight.NewWork()
+	work := newBusyChats()
 	uc := tree.New(chats, chats, work, gitStatus,
 		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats), folders, nodes)
 	return chats, work, nodes, gitStatus, uc

@@ -34,10 +34,10 @@ type captureBroadcast struct {
 // watch adapts the repository's announcement seam onto the frame this fixture's
 // assertions already use, so the change is proven against the existing suite.
 func (c *captureBroadcast) watch(e chat.ChatEvent) {
-	c.push(e.ChatID, e.WorkspaceID, e.Kind, e.Working && !e.Forgotten)
+	c.push(e.ChatID, e.WorkspaceID, e.Kind)
 }
 
-func (c *captureBroadcast) push(chatID, workspaceID, kind string, _ bool) {
+func (c *captureBroadcast) push(chatID, workspaceID, kind string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.rows = append(c.rows, chatID+":"+workspaceID+":"+kind)
@@ -133,22 +133,6 @@ func TestAgentChat_GetChat_MissingBridgesToPackageErrNotFound(t *testing.T) {
 // GetByProviderSession lookup that scanned segments are GONE, along with AgentSegment
 // itself. A chat holds no process state: which CLI is on it, and which conversations it
 // has hosted, are chat-ledger rows, covered by the ledger and the chat usecase tests.
-
-func TestAgentChat_StartStopTurn(t *testing.T) {
-	ctx, repo := newRepo(t)
-	now := time.Unix(1, 0).UTC()
-	createChat(t, ctx, repo, "c1", "w1", now)
-
-	started, err := repo.StartTurn(ctx, "c1", now.Add(time.Second))
-	require.NoError(t, err)
-	assert.True(t, started.Working)
-	require.NotNil(t, started.CurrentTurnStarted)
-
-	stopped, err := repo.StopTurn(ctx, "c1", now.Add(2*time.Second), 0)
-	require.NoError(t, err)
-	assert.False(t, stopped.Working)
-	assert.Nil(t, stopped.CurrentTurnStarted)
-}
 
 func TestAgentChat_SetTitle_UserSourceLocksAgainstAgent(t *testing.T) {
 	ctx, repo := newRepo(t)
@@ -288,7 +272,7 @@ func TestAgentChat_ConcurrentCreate_OneWins(t *testing.T) {
 // apperr.ErrUnavailable (→ 503). All classified via errors.Is.
 func TestAgentChat_OccSendErrorDisposition(t *testing.T) {
 	ctx := context.Background()
-	cmd := accmds.StartTurn{ChatID: "c1", Now: time.Unix(1, 0)}
+	cmd := accmds.SetTitle{ChatID: "c1", Title: "t", Source: "user"}
 
 	t.Run("ErrPipelineFailed retried then surfaced", func(t *testing.T) {
 		calls := 0
@@ -523,19 +507,6 @@ func TestGetChat_AReadFailureIsNotAMiss(t *testing.T) {
 // swallowing it — the caller needs the 422, not a silent zero-value Chat.
 func TestAgentChat_MutationsOnUnknownChat_SurfaceTheCommandsValidationError(t *testing.T) {
 	ctx, repo := newRepo(t)
-	now := time.Unix(1, 0).UTC()
-
-	t.Run("StartTurn", func(t *testing.T) {
-		_, err := repo.StartTurn(ctx, "no-such-chat", now)
-		require.Error(t, err)
-		assert.ErrorIs(t, err, asynxModels.ErrValidation)
-	})
-
-	t.Run("StopTurn", func(t *testing.T) {
-		_, err := repo.StopTurn(ctx, "no-such-chat", now, 0)
-		require.Error(t, err)
-		assert.ErrorIs(t, err, asynxModels.ErrValidation)
-	})
 
 	t.Run("SetSelection", func(t *testing.T) {
 		_, err := repo.SetSelection(ctx, "no-such-chat", "claude", "high")

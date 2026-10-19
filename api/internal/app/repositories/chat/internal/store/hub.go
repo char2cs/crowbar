@@ -16,45 +16,14 @@ import (
 // internal/commands/*.go). eventKind strips it to isolate <kind>.
 const eventNamePrefix = "agentchat."
 
-// ChatEvent is one projected agentchat lifecycle event, in repo-owned terms.
-// It carries the bare (chatID, workspaceID, kind, working) facts a lifecycle
-// frame is built from. This is the
-// wire shape the FE consumes as dto.AgentChatEvent (00 agentic-engine spec §7) — a
-// bare id+kind frame plus the owning workspace, not the full aggregate — so a
-// Hub.BroadcastAgentChat-shaped func wires straight through with no adapter.
-//
-// working is the aggregate's OWN folded answer (domain.Chat.Working) as of this
-// event, and it rides along because the alternative is a second implementation of the
-// fold in TypeScript — which is not a hypothetical cost. The FE used to re-derive the
-// spinner from the KIND alone (turn_stopped → idle), so the instant "the turn ended"
-// stopped meaning "the agent is done", the two answers disagreed and the chat row went
-// dark while the aggregate said Working. One fold, computed once, read everywhere.
-//
-// This is NOT the snapshot the spec refuses: it is one derived fact ABOUT the event
-// being announced, not the chat's state for the client to keep in lieu of reading it.
-// workspaceID is carried on every frame and now scopes the WS fan-out per
-// workspace (Task 3): the agent-chat StreamDef filters frames by WorkspaceID
-// against the subscribed :wsId, so a client only sees its own workspace's chats.
-//
-// kind is the <kind> segment of the emitting command's EventName
-// ("agentchat.<kind>.<id>"), so the full lifecycle vocabulary is exactly one
-// term per command:
-//
-//	created         — a fresh chat (SpawnChat / MintChat)
-//	turn_started    — a turn opened (user_prompt hook → Working)
-//	turn_stopped    — a turn closed (turn_stop hook / boot reconcile → idle)
-//	title_set       — the chat title changed (derived / agent / user rename)
-//	deleted         — the chat was hard-deleted (asynx Forget, see OnForget below;
-//	                  NOT emitted via a command's EventName like the other kinds)
-//
-// This is the SINGLE source of agent-chat frames: the usecase no longer
-// broadcasts, so a lifecycle change is exactly one event → exactly one frame.
-
+// ChatEvent is one projected agentchat lifecycle event, in repo-owned terms:
+// the chat, its workspace, and kind, the <kind> segment of the emitting
+// command's EventName ("agentchat.<kind>.<id>"), or "deleted" for a Forget.
+// It is the single source of agent-chat row frames.
 type ChatEvent struct {
 	ChatID      string
 	WorkspaceID string
 	Kind        string
-	Working     bool
 	Forgotten   bool
 	// Chat is the reduced aggregate AS OF this event — the command-side fold,
 	// never the lagging read model — and Version its aggregate version. They
@@ -116,8 +85,7 @@ func (p *hubProjector) emit(e ChatEvent) {
 	p.watch(e)
 }
 
-// onForget announces a hard delete. A forgotten chat is not working: it is not
-// anything. The client drops it.
+// onForget announces a hard delete. The client drops the chat.
 func (p *hubProjector) onForget(evt asynxModels.Event[domain.Chat]) {
 	p.emit(ChatEvent{
 		ChatID:      evt.Aggregate.ID,
@@ -129,12 +97,8 @@ func (p *hubProjector) onForget(evt asynxModels.Event[domain.Chat]) {
 	})
 }
 
-// onEvent broadcasts the (chatID, workspaceID, kind, working) lifecycle frame
-// derived from the event. workspaceID and working both come off the REDUCED
-// aggregate (evt.Aggregate), not the event name/id: neither is encoded in
-// EventName, and Working in particular is the fold's own output as of this event —
-// exactly the value the FE must show, computed by the one authority for it. It
-// never persists — the store projection owns durability.
+// onEvent broadcasts the lifecycle frame derived from the event. workspaceID
+// comes off the reduced aggregate: EventName does not encode it.
 func (p *hubProjector) onEvent(
 	ctx context.Context,
 	evt asynxModels.Event[domain.Chat],
@@ -144,7 +108,6 @@ func (p *hubProjector) onEvent(
 		ChatID:      evt.AggregateID,
 		WorkspaceID: evt.Aggregate.WorkspaceID,
 		Kind:        eventKind(evt.EventName),
-		Working:     evt.Aggregate.Working,
 		Chat:        evt.Aggregate,
 		Version:     evt.Version,
 	})

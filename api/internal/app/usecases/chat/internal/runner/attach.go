@@ -140,9 +140,9 @@ func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string,
 		rs.moveSurface(ctx, chatID, live.ID, engineagents.SurfaceTerminal)
 		return live.TerminalSession, nil
 	}
-	working, err := rs.turns.ChatWorking(ctx, chatID)
+	working, err := rs.ChatBusy(ctx, chatID)
 	if err != nil {
-		return "", fmt.Errorf("agent: switch to terminal: chat working: %w", err)
+		return "", fmt.Errorf("agent: switch to terminal: %w", err)
 	}
 	if working {
 		return "", ErrTurnInProgress
@@ -290,9 +290,9 @@ func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
 		}
 	}
 	// Both teardown paths end the process the user is watching.
-	working, err := rs.turns.ChatWorking(ctx, chatID)
+	working, err := rs.ChatBusy(ctx, chatID)
 	if err != nil {
-		return fmt.Errorf("agent: switch to native: chat working: %w", err)
+		return fmt.Errorf("agent: switch to native: %w", err)
 	}
 	if working {
 		return ErrTurnInProgress

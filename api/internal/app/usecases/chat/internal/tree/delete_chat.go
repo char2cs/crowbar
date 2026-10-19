@@ -37,7 +37,7 @@ func (u *chatFolderUsecase) DeleteChat(
 	if err != nil {
 		return ChatDeletion{}, err
 	}
-	if wErr := guardNotWorking(snapshot.subtreeIDs(chatID), u.work); wErr != nil {
+	if wErr := guardNotWorking(ctx, snapshot.subtreeIDs(chatID), u.busy); wErr != nil {
 		return ChatDeletion{}, wErr
 	}
 	chats, folders := snapshot.subtree(chatID)
@@ -141,7 +141,7 @@ func (u *chatFolderUsecase) planReap(
 		if err != nil {
 			return nil, nil, fmt.Errorf("agent chat folder: delete chat %s: %w", id, err)
 		}
-		if !shared && !u.isDefaultCheckout(ctx, row.WorkspaceID) {
+		if !shared && !u.outlivesItsChats(ctx, row.WorkspaceID) {
 			reap = append(reap, *row)
 			continue
 		}
@@ -176,14 +176,18 @@ func (u *chatFolderUsecase) refuseLoss(
 	return nil
 }
 
-// isDefaultCheckout reports whether wsID is its repo's main checkout.
-func (u *chatFolderUsecase) isDefaultCheckout(
+// outlivesItsChats reports whether wsID is a project's home (it has no repo)
+// or its repo's main checkout: neither is torn down with the chats in it.
+func (u *chatFolderUsecase) outlivesItsChats(
 	ctx context.Context,
 	wsID string,
 ) bool {
 	repoID, err := u.workspaces.RepoOf(ctx, wsID)
-	if err != nil || repoID == "" {
+	if err != nil {
 		return false
+	}
+	if repoID == "" {
+		return true
 	}
 	def, err := u.workspaces.DefaultWorkspaceOf(ctx, repoID)
 	return err == nil && def == wsID

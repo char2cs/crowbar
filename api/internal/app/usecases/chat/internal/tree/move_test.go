@@ -2,22 +2,42 @@ package tree_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// newUsecaseWithWork is newUsecase with the in-flight tracker exposed, for the
-// tests below that need to mark a row working.
+// busyChats is the tree's Busy port as the set of chats marked working.
+type busyChats struct {
+	mu  sync.Mutex
+	ids map[string]bool
+}
+
+func newBusyChats() *busyChats { return &busyChats{ids: map[string]bool{}} }
+
+func (b *busyChats) Set(chatID string, busy bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ids[chatID] = busy
+}
+
+func (b *busyChats) ChatBusy(_ context.Context, chatID string) (bool, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.ids[chatID], nil
+}
+
+// newUsecaseWithWork is newUsecase with the busy set exposed, for the tests
+// below that need to mark a row working.
 func newUsecaseWithWork(
 	t *testing.T,
-) (*mocks.AgentChatPlacements, tree.Usecase, *inflight.Work) {
+) (*mocks.AgentChatPlacements, tree.Usecase, *busyChats) {
 	t.Helper()
 	chats, _, _, uc, work := newUsecaseWithStores(t)
 	return chats, uc, work
@@ -30,7 +50,7 @@ func newUsecaseWithWork(
 // on chats.Rows.
 func newUsecaseWithStores(
 	t *testing.T,
-) (*mocks.AgentChatPlacements, *mocks.FolderStore, *mocks.NodePlacements, tree.Usecase, *inflight.Work) {
+) (*mocks.AgentChatPlacements, *mocks.FolderStore, *mocks.NodePlacements, tree.Usecase, *busyChats) {
 	t.Helper()
 	chats := mocks.NewAgentChatPlacements()
 	folders := mocks.NewFolderStore()
@@ -39,7 +59,7 @@ func newUsecaseWithStores(
 	// AgentChatPlacements.parentOf's own doc) can see a repo-scoped chat's
 	// live Node position too, not just the Chat row's frozen field.
 	chats.Nodes = nodes
-	work := inflight.NewWork()
+	work := newBusyChats()
 	// Every fixture in this file is a single-repo world: workspaceID ("ws-1")
 	// belongs to repoID ("repo-1"), so a folder created/moved under a plain
 	// CHAT parent (which carries workspaceID, not a repo id of its own)
@@ -161,7 +181,7 @@ func TestMove_RefusesBranchToDifferentBranchContext(t *testing.T) {
 	gitStatus := mocks.NewAgentWorkspaceGitStatus()
 	gitStatus.SetRepo("ws-1", repoID)
 	gitStatus.SetRepo("ws-2", repoID)
-	uc2 := tree.New(chats, chats, inflight.NewWork(), gitStatus,
+	uc2 := tree.New(chats, chats, newBusyChats(), gitStatus,
 		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats),
 		mocks.NewFolderStore(), nodes)
 	underBranch1, _, err := uc2.Create(context.Background(), tree.CreateInput{

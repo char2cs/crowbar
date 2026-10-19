@@ -103,7 +103,6 @@ func TestReplayStartupHook_RoutesASessionStartThroughTheRunnerPort(t *testing.T)
 		Home:         func() (string, error) { return home, nil },
 		PendingHooks: inflight.NewHooks(),
 		Telemetry:    telemetry.New(),
-		Work:         inflight.NewWork(),
 	})
 	runners := &recordingRunners{liveOn: claudeLive}
 	turns.SetRunners(runners)
@@ -155,43 +154,13 @@ func TestMatchTerminal_IsSilentForEveryUnresolvableInput(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// ChatWorking falls back to the aggregate while the process-local mirror knows
-// nothing, and the mirror wins the moment it does.
-func TestChatWorking_FallsBackToTheAggregateThenPrefersTheMirror(t *testing.T) {
-	t.Parallel()
-
-	work := inflight.NewWork()
-	turns := turn.New(turn.Deps{Chats: stubChats{working: true}, Work: work})
-
-	working, err := turns.ChatWorking(t.Context(), "chat-1")
-	require.NoError(t, err)
-	assert.True(t, working, "the aggregate says the chat IS working and the mirror knows nothing")
-
-	work.Set("chat-1", false)
-	working, err = turns.ChatWorking(t.Context(), "chat-1")
-	require.NoError(t, err)
-	assert.False(t, working, "a known mirror state is newer than any aggregate read")
-}
-
-// stubChats is the chat aggregate reduced to Working; a working chat's turn is open.
+// stubChats is the chat aggregate reduced to a chat in ws-1.
 type stubChats struct {
 	agentchat.EventStore
-	working bool
 }
 
-func (s stubChats) GetChat(_ context.Context, id string) (domain.Chat, error) {
-	chat := domain.Chat{ID: id, WorkspaceID: "ws-1", Working: s.working}
-	if started := time.Now(); s.working {
-		chat.CurrentTurnStarted = &started
-	}
-	return chat, nil
-}
-
-// RestateAsyncWork answers as StopTurn would (event_store.go).
-func (s stubChats) RestateAsyncWork(
-	_ context.Context, chatID string, _ time.Time, asyncWork int,
-) (domain.Chat, error) {
-	return domain.Chat{ID: chatID, WorkspaceID: "ws-1", Working: asyncWork > 0}, nil
+func (stubChats) GetChat(_ context.Context, id string) (domain.Chat, error) {
+	return domain.Chat{ID: id, WorkspaceID: "ws-1"}, nil
 }
 
 // stubWorkspace roots every path under one temp home.
@@ -216,6 +185,12 @@ type liveOn struct {
 
 func (l liveOn) RunnerByID(id string) (engineagents.Runner, bool) {
 	return engineagents.Runner{ID: id, ProviderID: l.provider, WorkspaceID: "ws-1", CurrentChatID: "chat-1"}, true
+}
+
+// TurnRunner holds the runner open: none of these runners is ending.
+func (l liveOn) TurnRunner(id string, open func(engineagents.Runner) error) (bool, error) {
+	runner, _ := l.RunnerByID(id)
+	return true, open(runner)
 }
 
 // claudeLive and codexLive are a claude and a codex runner on chat-1; codex's
@@ -250,10 +225,25 @@ func codexBoundLedger(t *testing.T, sessionID string) *ledgerstore.Store {
 	return l
 }
 
-// recordingToolActivity records InvokeTool calls and answers OpenWork's own
-// reads (ToolCalls/Subagents, consulted by tool_pre's restateAsyncWork tail)
-// with nothing open, so this fixture has somewhere real to read from instead
-// of panicking on a nil embedded port.
+// codexRunningLedger is codexBoundLedger with a turn running on runner-1.
+func codexRunningLedger(t *testing.T, sessionID string) *ledgerstore.Store {
+	t.Helper()
+	l := codexBoundLedger(t, sessionID)
+	row, err := ledger.NewRow(ledger.KindTurnStarted, "T-1", "", ledger.TurnStarted{RunnerID: "runner-1"})
+	require.NoError(t, err)
+	_, _, err = l.Append(t.Context(), "chat-1", row)
+	require.NoError(t, err)
+	return l
+}
+
+func busy(t *testing.T, l *ledgerstore.Store) bool {
+	t.Helper()
+	st, err := l.State(t.Context(), "chat-1")
+	require.NoError(t, err)
+	return st.Busy()
+}
+
+// recordingToolActivity records InvokeTool calls.
 type recordingToolActivity struct {
 	agentactivity.EventStore
 	mu      sync.Mutex
@@ -271,10 +261,6 @@ func (a *recordingToolActivity) seen() []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return append([]string(nil), a.invoked...)
-}
-
-func (*recordingToolActivity) ToolCalls(context.Context, string, int64, int) ([]domain.ActivityToolCall, error) {
-	return nil, nil
 }
 
 func (*recordingToolActivity) Subagents(context.Context, string) ([]domain.ActivitySubagent, error) {
@@ -296,7 +282,6 @@ func TestIngestHook_AHooksDeliveryOnAnUnboundChatIsRecorded(t *testing.T) {
 		Home:         func() (string, error) { return home, nil },
 		PendingHooks: inflight.NewHooks(),
 		Telemetry:    telemetry.New(),
-		Work:         inflight.NewWork(),
 	})
 	turns.SetRunners(bareRunners{codexLive})
 
@@ -335,7 +320,6 @@ func TestRegression_SurfaceGatedMessageDeltaSkipsChatWhileTheNativeViewIsShowing
 		Home:         func() (string, error) { return home, nil },
 		PendingHooks: inflight.NewHooks(),
 		Telemetry:    telemetry.New(),
-		Work:         inflight.NewWork(),
 	})
 	turns.SetRunners(nativeViewRunners{liveOn: codexLive, showing: true})
 	turns.SetFeed(seam.ChatFeed{MessageDelta: func(string, string, string, string, string, time.Time) { delivered = true }})
@@ -365,7 +349,6 @@ func TestRegression_SurfaceGatedMessageDeltaStillFlowsToChat(t *testing.T) {
 		Home:         func() (string, error) { return home, nil },
 		PendingHooks: inflight.NewHooks(),
 		Telemetry:    telemetry.New(),
-		Work:         inflight.NewWork(),
 	})
 	turns.SetRunners(nativeViewRunners{liveOn: codexLive, showing: false})
 	turns.SetFeed(seam.ChatFeed{MessageDelta: func(string, string, string, string, string, time.Time) { delivered = true }})
@@ -393,9 +376,8 @@ func (s stubSubagentActivity) IsSubagentOpen(context.Context, string, string) (b
 
 // recordingSubagentActivity is stubSubagentActivity's twin for the POSITIVE
 // case: openSessionID IS a subagent this chat already has open, and the
-// nested-routing path's own calls (StopSubagent, and OpenWork's own
-// ToolCalls/Subagents reads) are recorded rather than left to panic on the
-// embedded nil EventStore.
+// nested-routing path's own calls are recorded rather than left to panic on
+// the embedded nil EventStore.
 type recordingSubagentActivity struct {
 	agentactivity.EventStore
 	openSessionID string
@@ -414,12 +396,6 @@ func (r *recordingSubagentActivity) StopSubagent(
 ) error {
 	r.stoppedID, r.stoppedAgentType, r.stoppedMessage = subagentID, agentType, message
 	return nil
-}
-
-func (r *recordingSubagentActivity) ToolCalls(
-	context.Context, string, int64, int,
-) ([]domain.ActivityToolCall, error) {
-	return nil, nil
 }
 
 func (r *recordingSubagentActivity) Subagents(
@@ -443,7 +419,6 @@ func TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn(t *testing.T) 
 		Home:         func() (string, error) { return home, nil },
 		PendingHooks: inflight.NewHooks(),
 		Telemetry:    telemetry.New(),
-		Work:         inflight.NewWork(),
 	})
 	turns.SetRunners(bareRunners{codexLive})
 
@@ -479,7 +454,6 @@ func TestRegression_AChildThreadsTurnStopClosesTheSubagentItBelongsTo(t *testing
 		Home:         func() (string, error) { return home, nil },
 		PendingHooks: inflight.NewHooks(),
 		Telemetry:    telemetry.New(),
-		Work:         inflight.NewWork(),
 	})
 	turns.SetRunners(bareRunners{codexLive})
 
@@ -496,53 +470,38 @@ func TestRegression_AChildThreadsTurnStopClosesTheSubagentItBelongsTo(t *testing
 		"the subagent's own final reply must be captured, not discarded")
 }
 
-// TestRegression_AChildThreadsIdleNeverArmsThisChatsProviderIdleFuse is the
-// other half of the same live capture. The child thread reports
-// thread/status/changed(idle) when ITS turn ends, and recordIdle arms a latch
-// the terminal-wait sweep treats as "the provider says it is done and nothing
-// has closed the turn" — a 5s fuse (termwait.DefaultIdleQuiet) under the user's
-// still-running turn, deliberately gated on neither OpenWork nor the live
-// connection. Only the runner's own thread going idle may arm it.
-//
-// idle is not one of handleNestedObservation's handled kinds even for a
-// chat's own open subagent (this pass records a subagent's tool calls and
-// final reply, not a live idle signal for it), so stubSubagentActivity{open:
-// false} here is enough either way — the point pinned is narrower than
-// "never open": it is "idle specifically must never arm this chat's own
-// fuse," true whether or not the id turns out to belong to a subagent.
-func TestRegression_AChildThreadsIdleNeverArmsThisChatsProviderIdleFuse(t *testing.T) {
+// TestRegression_AChildThreadsIdleNeverEndsThisChatsTurn is the other half of
+// the same live capture: the child thread reports thread/status/changed(idle)
+// when ITS turn ends. Only the runner's own thread going idle ends its turn.
+func TestRegression_AChildThreadsIdleNeverEndsThisChatsTurn(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
-	newTurns := func() *turn.Turns {
+	newTurns := func() (*turn.Turns, *ledgerstore.Store) {
+		l := codexRunningLedger(t, "thread-main")
 		turns := turn.New(turn.Deps{
-			Chats:        stubChats{working: true},
-			Ledger:       codexBoundLedger(t, "thread-main"),
+			Chats:        stubChats{},
+			Ledger:       l,
 			Activity:     stubSubagentActivity{open: false},
 			Agents:       engineagents.New(),
 			Workspace:    stubWorkspace{home: home},
 			Home:         func() (string, error) { return home, nil },
 			PendingHooks: inflight.NewHooks(),
 			Telemetry:    telemetry.New(),
-			Work:         inflight.NewWork(),
 		})
 		turns.SetRunners(bareRunners{codexLive})
-		return turns
+		return turns, l
 	}
 
-	foreign := newTurns()
+	foreign, l := newTurns()
 	require.NoError(t, foreign.IngestHook(t.Context(), "runner-1", "codex", "idle",
 		[]byte(`{"threadId":"thread-child","status":{"type":"idle"}}`)))
-	_, armed := foreign.ProviderIdleSince("chat-1")
-	require.False(t, armed,
-		"a child thread finishing says nothing about the runner's own turn; arming here lets the 5s sweep abandon a live one")
+	require.True(t, busy(t, l), "a child thread finishing says nothing about the runner's own turn")
 
-	own := newTurns()
+	own, l := newTurns()
 	require.NoError(t, own.IngestHook(t.Context(), "runner-1", "codex", "idle",
 		[]byte(`{"threadId":"thread-main","status":{"type":"idle"}}`)))
-	_, armed = own.ProviderIdleSince("chat-1")
-	require.True(t, armed,
-		"the runner's OWN thread going idle must still arm the latch, or the turn nothing ever closes is unreachable again")
+	require.False(t, busy(t, l), "the runner's OWN thread going idle ends its turn")
 }
 
 // TestRegression_AChildThreadIsForeignToTheThreadTheDriverOpened: a fresh codex
@@ -556,28 +515,25 @@ func TestRegression_AChildThreadIsForeignToTheThreadTheDriverOpened(t *testing.T
 	t.Parallel()
 
 	home := t.TempDir()
+	l := codexRunningLedger(t, "thread-main")
 	turns := turn.New(turn.Deps{
-		Chats:        stubChats{working: true},
-		Ledger:       codexBoundLedger(t, "thread-main"),
+		Chats:        stubChats{},
+		Ledger:       l,
 		Activity:     stubSubagentActivity{open: false},
 		Agents:       engineagents.New(),
 		Workspace:    stubWorkspace{home: home},
 		Home:         func() (string, error) { return home, nil },
 		PendingHooks: inflight.NewHooks(),
 		Telemetry:    telemetry.New(),
-		Work:         inflight.NewWork(),
+		// Nothing streams here: a regression must not idle out the default wait.
+		MessageAwaitTimeout: time.Millisecond,
 	})
 	turns.SetRunners(bareRunners{codexLive})
-	// Nothing streams in this fixture, so closeAssistantTurn's delta race has
-	// nothing to wait for — without this a REGRESSION would idle 3s before
-	// failing. The passing path never reaches it.
-	turns.SetMessageAwaitTimeout(0)
 
 	// The runner's own thread speaks first, as it must.
 	require.NoError(t, turns.IngestHook(apiCtx(t), "runner-1", "codex", "idle",
 		[]byte(`{"threadId":"thread-main","status":{"type":"idle"}}`)))
-	_, armed := turns.ProviderIdleSince("chat-1")
-	require.True(t, armed, "the runner acts on its OWN thread's events")
+	require.False(t, busy(t, l), "the runner acts on its OWN thread's events")
 
 	// And only then the subagent codex spawned on the same connection.
 	require.NoError(t, turns.IngestHook(apiCtx(t), "runner-1", "codex", "turn_stop",

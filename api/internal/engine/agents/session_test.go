@@ -60,3 +60,10 @@ func TestSessionAssignArg_IsClaudesAlone(t *testing.T) {
 	_, ok = get(t, "codex").SessionAssignArg()
 	assert.False(t, ok, "codex announces its own thread id")
 }
+
+// codex writes no rollout until a turn completes; claude writes its session
+// as soon as a turn starts.
+func TestSessionPersists_IsWhenTheCLIHasWrittenItsSession(t *testing.T) {
+	assert.Equal(t, "turn_end", get(t, "codex").SessionPersists())
+	assert.Empty(t, get(t, "claude").SessionPersists())
+}

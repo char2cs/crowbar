@@ -21,9 +21,6 @@ type frame struct {
 	chatID      string
 	workspaceID string
 	kind        string
-	// working is the aggregate's folded busy state as of the event — the field the
-	// FE's spinner reads straight off the wire instead of re-deriving from kind.
-	working bool
 }
 
 // captureHub is a WatchFunc double that records every announcement it receives as the
@@ -34,22 +31,21 @@ type captureHub struct {
 	frames []frame
 }
 
-func (h *captureHub) push(chatID, workspaceID, kind string, working bool) {
+func (h *captureHub) push(chatID, workspaceID, kind string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.frames = append(h.frames, frame{
 		chatID:      chatID,
 		workspaceID: workspaceID,
 		kind:        kind,
-		working:     working,
 	})
 }
 
 // watch is the seam the store is now wired with. It reduces a ChatEvent to the same
 // frame the assertions below have always used, so this change is proven against the
-// existing suite rather than a new one. A forgotten chat is never working.
+// existing suite rather than a new one.
 func (h *captureHub) watch(e ChatEvent) {
-	h.push(e.ChatID, e.WorkspaceID, e.Kind, e.Working && !e.Forgotten)
+	h.push(e.ChatID, e.WorkspaceID, e.Kind)
 }
 
 func (h *captureHub) all() []frame {
@@ -96,91 +92,6 @@ func TestHubProjection_EmitsWorkspaceID(t *testing.T) {
 	assert.Equal(t, "ws-42", frames[0].workspaceID)
 }
 
-// TestHubProjection_TurnToggle_BroadcastsStartedThenStopped drives a turn
-// start/stop pair and asserts both lifecycle frames land, in order, with the
-// expected kinds — the "turn toggle" case called out by the task brief.
-func TestHubProjection_TurnToggle_BroadcastsStartedThenStopped(t *testing.T) {
-	ctx, ax, _, h := newProjected(t)
-	_, err := ax.SendWait(ctx, createCmd("c1"))
-	require.NoError(t, err)
-	_, err = ax.SendWait(ctx, accmds.StartTurn{ChatID: "c1", Now: time.Unix(2, 0).UTC()})
-	require.NoError(t, err)
-	_, err = ax.SendWait(ctx, accmds.StopTurn{ChatID: "c1", Now: time.Unix(3, 0).UTC()})
-	require.NoError(t, err)
-
-	frames := h.all()
-	require.Len(t, frames, 3)
-	assert.Equal(t, frame{chatID: "c1", workspaceID: "w1", kind: "created"}, frames[0])
-	// working rides the frame, folded by the aggregate: the FE spinner reads this and
-	// never re-derives it from the kind. A plain StopTurn reports no outstanding async
-	// work, so it lands idle.
-	assert.Equal(t,
-		frame{chatID: "c1", workspaceID: "w1", kind: "turn_started", working: true},
-		frames[1])
-	assert.Equal(t,
-		frame{chatID: "c1", workspaceID: "w1", kind: "turn_stopped", working: false},
-		frames[2])
-}
-
-// TestHubProjection_TurnStoppedWithAsyncWork_BroadcastsStillWorking is THE bug, at the
-// wire: claude hands work to a background subagent and ends its turn right there, so a
-// turn_stopped frame must still say working=true or the chat row goes dark under an
-// agent that is very much alive.
-//
-// It is the one frame in the vocabulary whose kind and whose meaning disagree, which is
-// exactly why the FE must not infer the spinner from the kind — and why this asserts the
-// FIELD, not the kind.
-func TestHubProjection_TurnStoppedWithAsyncWork_BroadcastsStillWorking(t *testing.T) {
-	ctx, ax, _, h := newProjected(t)
-	_, err := ax.SendWait(ctx, createCmd("c1"))
-	require.NoError(t, err)
-	_, err = ax.SendWait(ctx, accmds.StartTurn{ChatID: "c1", Now: time.Unix(2, 0).UTC()})
-	require.NoError(t, err)
-	// The CLI went quiet with 2 units still running — the level it reported on its Stop.
-	_, err = ax.SendWait(ctx, accmds.StopTurn{ChatID: "c1", Now: time.Unix(3, 0).UTC(), AsyncWork: 2})
-	require.NoError(t, err)
-
-	frames := h.all()
-	require.Len(t, frames, 3)
-	assert.Equal(t,
-		frame{chatID: "c1", workspaceID: "w1", kind: "turn_stopped", working: true},
-		frames[2],
-		"a turn that ended with async work outstanding must still broadcast working")
-}
-
-// TestHubProjection_AsyncWorkDrains_BroadcastsIdle is the other half, and the one that
-// keeps the fix honest: the spinner must actually STOP. The next turn_stop restates the
-// level as 0 and the chat goes idle — no counter to unwind, no pairing to get right.
-func TestHubProjection_AsyncWorkDrains_BroadcastsIdle(t *testing.T) {
-	ctx, ax, _, h := newProjected(t)
-	_, err := ax.SendWait(ctx, createCmd("c1"))
-	require.NoError(t, err)
-	_, err = ax.SendWait(ctx, accmds.StartTurn{ChatID: "c1", Now: time.Unix(2, 0).UTC()})
-	require.NoError(t, err)
-	_, err = ax.SendWait(ctx, accmds.StopTurn{ChatID: "c1", Now: time.Unix(3, 0).UTC(), AsyncWork: 2})
-	require.NoError(t, err)
-	// claude is re-invoked when the work reports back, and ends THAT turn with nothing
-	// left outstanding — the trace's [running,running] → [] transition.
-	_, err = ax.SendWait(ctx, accmds.StartTurn{ChatID: "c1", Now: time.Unix(4, 0).UTC()})
-	require.NoError(t, err)
-	_, err = ax.SendWait(ctx, accmds.StopTurn{ChatID: "c1", Now: time.Unix(5, 0).UTC(), AsyncWork: 0})
-	require.NoError(t, err)
-
-	frames := h.all()
-	assert.Equal(t,
-		frame{chatID: "c1", workspaceID: "w1", kind: "turn_stopped", working: false},
-		frames[len(frames)-1],
-		"once the reported level drains to zero the spinner must stop")
-}
-
-// TestHubProjection_ForgetEmitsScopedDeleted proves the HARD-delete path
-// (Task 5, ax.Forget) broadcasts a scoped "deleted" frame carrying the chat's
-// workspace id, so every workspace client drops the chat live even though
-// Forget hard-erases the aggregate (no read-model row survives to answer a
-// later query). Forget itself is the deterministic drain signal: like
-// SendWait, it does not return until every subscriber handler on the forget
-// event — including this hub projection's OnForget — has run, so asserting on
-// h.all() immediately after is safe with no sleep/poll.
 func TestHubProjection_ForgetEmitsScopedDeleted(t *testing.T) {
 	ctx, ax, _, h := newProjected(t)
 	cmd := createCmd("c1")
@@ -243,14 +154,14 @@ func TestHubProjector_OnEvent_EmitsRepoOwnedChatEvent(t *testing.T) {
 
 	p.onEvent(context.Background(), asynxModels.Event[domain.Chat]{
 		AggregateID: "chat-1",
-		EventName:   "agentchat.turn_started.chat-1",
-		Aggregate:   domain.Chat{ID: "chat-1", WorkspaceID: "ws-1", Working: true},
+		EventName:   "agentchat.title_set.chat-1",
+		Aggregate:   domain.Chat{ID: "chat-1", WorkspaceID: "ws-1", Title: "t"},
 	})
 
 	require.Len(t, got, 1)
 	assert.Equal(t, ChatEvent{
-		ChatID: "chat-1", WorkspaceID: "ws-1", Kind: "turn_started", Working: true,
-		Chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1", Working: true},
+		ChatID: "chat-1", WorkspaceID: "ws-1", Kind: "title_set",
+		Chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1", Title: "t"},
 	}, got[0])
 }
 
@@ -259,13 +170,13 @@ func TestHubProjector_OnForget_MarksForgotten(t *testing.T) {
 	p := &hubProjector{watch: func(e ChatEvent) { got = append(got, e) }}
 
 	p.onForget(asynxModels.Event[domain.Chat]{
-		Aggregate: domain.Chat{ID: "chat-9", WorkspaceID: "ws-1", Working: true},
+		Aggregate: domain.Chat{ID: "chat-9", WorkspaceID: "ws-1"},
 	})
 
 	require.Len(t, got, 1)
 	assert.Equal(t, ChatEvent{
 		ChatID: "chat-9", WorkspaceID: "ws-1", Kind: "deleted", Forgotten: true,
-		Chat: domain.Chat{ID: "chat-9", WorkspaceID: "ws-1", Working: true},
+		Chat: domain.Chat{ID: "chat-9", WorkspaceID: "ws-1"},
 	}, got[0])
 }
 

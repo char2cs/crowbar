@@ -85,15 +85,10 @@ func (t *Turns) ReadActivity(
 	if err != nil {
 		return ChatActivity{}, fmt.Errorf("agent: read activity: tool calls: %w", err)
 	}
-	now := time.Now()
-	// Both halves through their staleness nets, so what the shelf draws agrees
-	// with what OpenWork counts — see withStaleToolCallsClosed.
-	calls = withStaleToolCallsClosed(calls, now)
 	subagents, err := t.activity.Subagents(ctx, chatID)
 	if err != nil {
 		return ChatActivity{}, fmt.Errorf("agent: read activity: subagents: %w", err)
 	}
-	subagents = withStaleSubagentsClosed(subagents, now)
 	interruptions, err := t.activity.Interruptions(ctx, chatID)
 	if err != nil {
 		return ChatActivity{}, fmt.Errorf("agent: read activity: interruptions: %w", err)

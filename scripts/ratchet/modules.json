@@ -7,6 +7,7 @@
       "api/internal/api/v0/container.go",
       "api/internal/app/container.go",
       "api/internal/app/repositories/container.go",
+      "api/internal/app/repositories/agent_working.go",
       "api/internal/app/usecases/container.go",
       "api/internal/engine/container.go"
     ],

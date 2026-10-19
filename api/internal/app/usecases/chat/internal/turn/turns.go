@@ -4,12 +4,11 @@
 // so nothing here may refuse one and nothing here may block on a lock a
 // user-initiated path can hold. What it does instead is record — the turn, the
 // tool call, the subagent, the interruption, the streamed message, the telemetry
-// — and keep the two process-local views of "is this chat busy" honest, because
-// the read model behind them is asynchronous and a switch that trusted it would
-// kill a CLI mid-answer.
+// — and decide the turn in the chat's ledger, which alone says it is busy.
 package turn
 
 import (
+	"cmp"
 	"time"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
@@ -33,22 +32,12 @@ type Turns struct {
 	ws        seam.WorkspaceReader
 	home      func() (string, error)
 	ledger    *ledgerstore.Store
-	// work is the authoritative process-local mirror of AgentChat.Working returned
-	// by the turn commands. Unlike the projection, it cannot briefly report idle
-	// after a hook has durably announced background work.
-	work *inflight.Work
-	// turns is the in-flight-turn registry a provider switch BLOCKS on, so it
-	// never quits a CLI mid-answer.
-	turns *inflight.Turns
 	// messages assembles each assistant message from the increments its provider
 	// streams, because the terminating hook carries only the LAST message of a turn.
 	messages *stream.Streams
 	// live holds the streamed text that is shown while it happens and never
 	// recorded — the model's thinking, a running tool's output. See livetext.go.
 	live *liveText
-	// idle latches a provider's own "I am doing nothing" report. It is never
-	// acted on directly — see idle.go.
-	idle *idleLatch
 	// compacting latches which turn id belongs to a compact_start round trip,
 	// so its own turn/completed-shaped close is never misread as an ordinary
 	// reply or failure. See compaction.go.
@@ -73,6 +62,8 @@ type Turns struct {
 	// replies is the stdout a relayed hook must print, when ingesting it
 	// produced one (a steered prompt riding the turn-end hook).
 	replies hookReplies
+	// steers is the dispatch text of each chat's steered prompt.
+	steers steerTexts
 
 	conversations Conversations
 	// runners is reached for the placement half of a hook. Bound after
@@ -109,12 +100,13 @@ type Deps struct {
 	Home      func() (string, error)
 	Ledger    *ledgerstore.Store
 
-	Work          *inflight.Work
-	InflightTurns *inflight.Turns
-	PendingHooks  *inflight.Hooks
-	Answers       *answerdesk.Desk
+	PendingHooks *inflight.Hooks
+	Answers      *answerdesk.Desk
 
 	Conversations Conversations
+	// MessageAwaitTimeout bounds closeAssistantTurn's wait for a message still
+	// streaming when its turn's closing hook arrives; zero is the default.
+	MessageAwaitTimeout time.Duration
 }
 
 // defaultMessageAwaitTimeout bounds closeAssistantTurn's wait for a message
@@ -139,14 +131,11 @@ func New(d Deps) *Turns {
 		ws:        d.Workspace,
 		home:      d.Home,
 		ledger:    d.Ledger,
-		work:      d.Work,
-		turns:     d.InflightTurns,
 		// Owned outright, so built here rather than handed in: the message streams,
 		// the delivery dedup set and the per-runner ingest gate are named by
 		// nothing outside this package.
 		messages:            stream.New(),
 		live:                newLiveText(),
-		idle:                newIdleLatch(),
 		compacting:          newCompactionTurns(),
 		manualCompact:       newManualCompactRequests(),
 		hookDeliveries:      dedup.New(dedup.DefaultTTL, dedup.DefaultMax, nil),
@@ -154,7 +143,7 @@ func New(d Deps) *Turns {
 		pendingHooks:        d.PendingHooks,
 		answers:             d.Answers,
 		choiceFeed:          newChoiceFeed(),
-		messageAwaitTimeout: defaultMessageAwaitTimeout,
+		messageAwaitTimeout: cmp.Or(d.MessageAwaitTimeout, defaultMessageAwaitTimeout),
 
 		conversations: d.Conversations,
 	}
@@ -164,14 +153,19 @@ func New(d Deps) *Turns {
 // through.
 func (t *Turns) SetRunners(runners Runners) { t.runners = runners }
 
-// SetMessageAwaitTimeout overrides how long closeAssistantTurn waits for a
-// still-streaming message before concluding nothing streamed. Test-only
-// surface: production always uses defaultMessageAwaitTimeout.
-func (t *Turns) SetMessageAwaitTimeout(d time.Duration) { t.messageAwaitTimeout = d }
-
 // SetFeed wires the live chat feed. Called at sweep start: a daemon with
 // nobody to publish to records the message when it finishes instead.
 func (t *Turns) SetFeed(feed seam.ChatFeed) { t.feed = feed }
 
 // HookDeliveryCount is how many completed delivery ids the dedup set holds.
 func (t *Turns) HookDeliveryCount() int { return t.hookDeliveries.Len() }
+
+// ForgetChat drops every piece of in-memory turn state held for chatID: the
+// chat is being erased (A7), and none of it may outlive the chat.
+func (t *Turns) ForgetChat(chatID string) {
+	t.live.forget(chatID)
+	t.messages.ForgetChat(chatID)
+	t.compacting.forget(chatID)
+	t.manualCompact.consume(chatID)
+	t.steers.take(chatID)
+}

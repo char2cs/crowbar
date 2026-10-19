@@ -44,7 +44,7 @@ func (rs *Runners) endProcesses(ctx context.Context, runner agents.Runner) (bool
 // a replacement never lands beside it. A PTY-less runner is recorded here: its
 // exit handler needs the gate the caller holds.
 func (rs *Runners) quitRunner(ctx context.Context, runner agents.Runner, cause string) error {
-	exited, ok := rs.markEnding(ctx, runner, cause)
+	exited, ok := rs.markEnding(runner, cause)
 	if !ok {
 		return nil // already gone
 	}
@@ -86,29 +86,24 @@ func (rs *Runners) quitOutgoingCLI(ctx context.Context, chatID string) error {
 	return nil
 }
 
-// markEnding marks runner's end as under way for cause and closes the turn it
-// had, under the chat's turn-start gate: no turn opens on it after. The gate
-// is released before the wait for the exit, whose record takes it again.
-func (rs *Runners) markEnding(
-	ctx context.Context, runner agents.Runner, cause string,
-) (exited <-chan struct{}, ok bool) {
+// markEnding marks runner's end as under way for cause, under the chat's
+// turn-start gate: no turn opens on it after. The gate is released before the
+// wait for the exit, whose record takes it again.
+func (rs *Runners) markEnding(runner agents.Runner, cause string) (exited <-chan struct{}, ok bool) {
 	rs.live.inTurnOrder(runner.CurrentChatID, func() {
 		exited, ok = rs.live.markExiting(runner.ID, cause)
-		rs.inflightTurns.Complete(ctx, runner.ID, cause)
 	})
 	return exited, ok
 }
 
-// claimEnd hands runnerID's exit to its one recorder and closes the turn it
-// had, under the chat's turn-start gate: a turn opened before this is closed
-// here, and none opens after.
-func (rs *Runners) claimEnd(ctx context.Context, runnerID string) (claimed liveEntry, ok bool) {
+// claimEnd hands runnerID's exit to its one recorder, under the chat's
+// turn-start gate: no turn opens on it after.
+func (rs *Runners) claimEnd(runnerID string) (claimed liveEntry, ok bool) {
 	runner, ok := rs.live.byRunner(runnerID)
 	if !ok {
 		return liveEntry{}, false
 	}
 	rs.live.inTurnOrder(runner.CurrentChatID, func() {
-		rs.inflightTurns.Complete(ctx, runnerID, domain.AgentExitExited)
 		claimed, ok = rs.live.claimExit(runnerID)
 	})
 	return claimed, ok

@@ -40,19 +40,19 @@ func TestRegression_Upgrade_BootRecordsTheLegacyOwnerInsteadOfMintingOne(t *test
 	}
 	forker := domain.Chat{
 		ID: uuid.NewString(), Type: domain.ChatTypeChat, WorkspaceID: fork.ID,
-		Title: "Fix login", CreatedAt: now, LastActivityAt: now,
+		Title: "Fix login", CreatedAt: now,
 	}
 	thread := domain.Chat{
 		ID: uuid.NewString(), Type: domain.ChatTypeChat, WorkspaceID: fork.ID,
-		ParentID: forker.ID, CreatedAt: now.Add(-time.Minute), LastActivityAt: now,
+		ParentID: forker.ID, CreatedAt: now.Add(-time.Minute),
 	}
 	conversation := domain.Chat{
 		ID: uuid.NewString(), Type: domain.ChatTypeChat, WorkspaceID: locked.ID,
-		CreatedAt: now.Add(-time.Hour), LastActivityAt: now,
+		CreatedAt: now.Add(-time.Hour),
 	}
 	branchRow := domain.Chat{
 		ID: uuid.NewString(), Type: domain.ChatTypeBranch, WorkspaceID: locked.ID,
-		CreatedAt: now, LastActivityAt: now,
+		CreatedAt: now,
 	}
 	seed := openBaseEra(t, home)
 	seed.workspace(fork)

@@ -64,13 +64,12 @@ func validChatType(t domain.ChatType) bool {
 
 func (c Create) EmitEvent(_ *domain.Chat) domain.Chat {
 	return domain.Chat{
-		ID:             c.ID,
-		WorkspaceID:    c.WorkspaceID,
-		RepoID:         c.RepoID,
-		Type:           c.Type,
-		Surface:        c.Surface,
-		ProviderID:     c.ProviderID,
-		CreatedAt:      c.Now,
-		LastActivityAt: c.Now,
+		ID:          c.ID,
+		WorkspaceID: c.WorkspaceID,
+		RepoID:      c.RepoID,
+		Type:        c.Type,
+		Surface:     c.Surface,
+		ProviderID:  c.ProviderID,
+		CreatedAt:   c.Now,
 	}
 }

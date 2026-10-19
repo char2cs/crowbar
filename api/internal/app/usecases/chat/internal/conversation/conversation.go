@@ -67,7 +67,6 @@ type Conversations struct {
 	// the descriptor catalog a chat's model/effort selection is validated against.
 	home   func() (string, error)
 	ledger *ledgerstore.Store
-	work   *inflight.Work
 	// defaultPermissionLevel resolves the current global default at mint time
 	// — Crowbar's own guarded/trusted/full-auto name, not yet checked against
 	// any provider (a bare-minted chat has none). It's a closure, not a
@@ -96,7 +95,6 @@ type Deps struct {
 	Home      func() (string, error)
 	Ledger    *ledgerstore.Store
 
-	Work   *inflight.Work
 	Spawns *inflight.Gate
 
 	// DefaultPermissionLevel resolves the current global default at the
@@ -117,7 +115,6 @@ func New(d Deps) *Conversations {
 		lineage:   d.Lineage,
 		home:      d.Home,
 		ledger:    d.Ledger,
-		work:      d.Work,
 		spawns:    d.Spawns,
 
 		defaultPermissionLevel: d.DefaultPermissionLevel,
@@ -290,7 +287,7 @@ func (c *Conversations) MintChat(
 	surface string,
 ) (string, error) {
 	chatID := uuid.NewString()
-	created, err := c.chats.Create(ctx, agentchat.CreateInput{
+	_, err := c.chats.Create(ctx, agentchat.CreateInput{
 		ID:          chatID,
 		WorkspaceID: workspaceID,
 		Type:        domain.ChatTypeChat,
@@ -301,7 +298,6 @@ func (c *Conversations) MintChat(
 	if err != nil {
 		return "", fmt.Errorf("agent: mint chat: %w", err)
 	}
-	c.work.Set(chatID, created.Working)
 	c.SeedPermissionLevel(ctx, chatID)
 	return chatID, nil
 }

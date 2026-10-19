@@ -260,24 +260,23 @@ func TestSpawnRunner_ASecondRunnerOnALiveChatIsRefusedBeforeItForks(t *testing.T
 func TestRecordSpawnFailure_ClosesATurnOpenedInTheWindow(t *testing.T) {
 	runner := engineagents.Runner{ID: "runner-1", ProviderID: "claude", CurrentChatID: "chat-1"}
 	rs := &Runners{
-		ledger:        newTestLedger(t),
-		live:          newLiveTable(),
-		inflightTurns: inflight.NewTurns(),
+		ledger: newTestLedger(t),
+		live:   newLiveTable(),
 	}
 	require.NoError(t, rs.live.add(runner))
-	begin := func(r engineagents.Runner) error {
-		rs.inflightTurns.Begin(t.Context(), r.ID, r.CurrentChatID)
-		return nil
-	}
-	opened, err := rs.TurnRunner(runner.ID, begin)
+	started, err := ledger.NewRow(ledger.KindRunnerStarted, "", "", ledger.RunnerStarted{RunnerID: runner.ID, Provider: "claude"})
 	require.NoError(t, err)
-	require.True(t, opened, "precondition: a turn opens on the spawning runner")
+	turn, err := ledger.NewRow(ledger.KindTurnStarted, "T-1", "", ledger.TurnStarted{RunnerID: runner.ID})
+	require.NoError(t, err)
+	_, _, err = rs.ledger.Append(t.Context(), runner.CurrentChatID, started, turn)
+	require.NoError(t, err)
+	require.True(t, chatState(t, rs.ledger).Busy(), "precondition: a turn runs on the spawning runner")
 
 	spawnErr := errors.New("spawn failed")
 	rs.recordSpawnFailure(t.Context(), runner.CurrentChatID, runner.ID, false, &spawnErr)
 
-	assert.Empty(t, rs.inflightTurns.Inflight(runner.CurrentChatID), "the failed spawn left its turn in flight")
-	opened, err = rs.TurnRunner(runner.ID, begin)
+	assert.False(t, chatState(t, rs.ledger).Busy(), "the failed spawn left its turn running")
+	opened, err := rs.TurnRunner(runner.ID, func(engineagents.Runner) error { return nil })
 	require.NoError(t, err)
 	assert.False(t, opened, "a turn opened on a runner whose spawn failed")
 }

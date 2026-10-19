@@ -29,9 +29,9 @@ import (
 // closeTurnFromStop/closeTurnFromFailure keeps a compaction from minting a
 // spurious empty turn_stopped event, or a spurious failure notice if the
 // compaction itself fails, without either side having to know the other
-// exists — the same latch-across-events shape idleLatch already uses.
+// exists.
 //
-// One id per chat, like idleLatch: a chat compacts one round trip at a time,
+// One id per chat: a chat compacts one round trip at a time,
 // and a later arm simply replaces whatever id is still sitting there
 // unconsumed (a compaction whose wrapper turn never closed) rather than
 // leaking a growing set.
@@ -81,11 +81,14 @@ func (c *compactionTurns) arm(chatID, turnID string) {
 // to make room to CARRY ON — and codex maps turn_id from the wrapping envelope,
 // which is that user turn. Arming on it therefore armed the REAL turn's id, and
 // the real turn's own turn/completed was then swallowed as if it were the
-// compaction's. Measured live: nothing closed the turn, and the 5s
-// provider-idle sweep abandoned it five seconds later instead — logged as
-// "closed a turn whose message was cut off", the reply recorded as a partial.
-func (t *Turns) armCompaction(chatID, turnID string) {
-	if len(t.turns.Inflight(chatID)) > 0 {
+// compaction's, and nothing closed the turn.
+func (t *Turns) armCompaction(ctx context.Context, chatID, turnID string) {
+	st, err := t.ledger.State(ctx, chatID)
+	if err != nil {
+		note(ctx, "arm compaction: read ledger", err)
+		return
+	}
+	if _, running := st.RunningTurn(); running {
 		return
 	}
 	t.compacting.arm(chatID, turnID)
@@ -209,5 +212,8 @@ func (t *Turns) settleCompactDelivery(
 	if !ok || wire != "prompt" {
 		return
 	}
-	t.settleCarried(ctx, chat.ID, runner.ID, true, ledger.ReasonProviderBuiltin)
+	_, _, err := t.ledger.Do(ctx, chat.ID, func(st ledger.State) ([]ledger.Row, error) {
+		return ledger.SettleCarried(st, runner.ID, true, ledger.ReasonProviderBuiltin)
+	})
+	note(ctx, "settle compact prompt", err)
 }

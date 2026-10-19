@@ -2,7 +2,6 @@ package turn
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -12,8 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/stream"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-
-	asynxModels "github.com/char2cs/asynx/models"
 )
 
 func (t *Turns) recordMessageDelta(
@@ -123,9 +120,6 @@ func (t *Turns) closeAssistantTurn(
 	// and the answer has superseded them. Nothing durable is dropped here — a live
 	// stream is never recorded (see livetext.go).
 	defer t.live.forget(chat.ID)
-	// Crowbar has now noticed the turn ending, so the provider's own "I am idle"
-	// report has nothing left to reconcile — see idle.go.
-	defer t.idle.clear(chat.ID)
 	diff := t.live.snapshot(chat.ID, DeltaKindDiff, ev.TurnID)
 
 	var lastRecorded string
@@ -209,155 +203,10 @@ func (t *Turns) closeAssistantTurn(
 
 func hookMessageID(ctx context.Context) string { return "hook-" + inflight.RecordID(ctx) }
 
-func (t *Turns) closeTurnFromFailure(
-	ctx context.Context,
-	chat domain.Chat,
-	runner engineagents.Runner,
-	ev engineagents.CanonicalEvent,
-) error {
-	// Same guard closeTurnFromStop makes, for the other half of the sum type:
-	// a FAILED compact_start round trip would otherwise record a spurious
-	// "failed" notice row in the transcript for a turn that was never the
-	// assistant's own. See compaction.go and closeTurnFromStop's own comment.
-	if t.compacting.consume(chat.ID, ev.TurnID) {
-		// Same stale-latch trap closeTurnFromStop guards — see its own comment.
-		t.idle.clear(chat.ID)
-		return nil
-	}
-	appendErr := t.closeAssistantTurn(ctx, chat, runner, ev)
-	defer t.turns.Complete(ctx, runner.ID, inflight.TurnFailed)
-
-	if reason := failureNotice(ev); reason != "" {
-		note(ctx, "record turn failure", t.conversations.RecordTurn(
-			ctx, chat, runner.ProviderID, runner.ID, t.boundSession(ctx, chat.ID, runner.ProviderID),
-			domain.TurnRoleNotice, reason, "",
-		))
-	}
-
-	stopped, err := t.chats.StopTurn(ctx, chat.ID, time.Now(), 0)
-	if err != nil {
-		return fmt.Errorf("agent: ingest hook: stop failed turn: %w", err)
-	}
-	t.work.Set(chat.ID, stopped.Working)
-	return appendErr
-}
-
-func failureNotice(ev engineagents.CanonicalEvent) string {
-	if ev.Failure == nil || ev.Failure.Reason == "" {
-		return ""
-	}
-	if ev.Failure.Detail != "" {
-		return ev.Failure.Reason + ": " + ev.Failure.Detail
-	}
-	return ev.Failure.Reason
-}
-
-// UnfinishedSince reports when the chat's assistant stream last grew, and whether any
-// message is still unterminated. It answers with the NEWEST increment across every
-// unfinished message, not the oldest: one message still advancing means the CLI is
-// alive, so the quiet period the sweep measures must restart on any of them.
-//
-// Thinking and tool output count as growth too. They are never recorded, so they
-// move no message's LastAt — but they are the CLI speaking, and the sweep that
-// consumes this closes turns it believes have gone silent. A provider whose
-// messages are never marked final (codex maps no `final`, so every one of its
-// messages stays unterminated for the whole turn) therefore had a live turn
-// abandoned mid-answer whenever it wrote a paragraph and then reasoned for more
-// than the quiet window with no ledger-open tool call to vouch for it.
-func (t *Turns) UnfinishedSince(chatID string) (time.Time, bool) {
-	unfinished := t.messages.UnfinishedAcrossRunners(chatID)
-	if len(unfinished) == 0 {
-		return time.Time{}, false
-	}
-	newest := unfinished[0].LastAt
-	for _, message := range unfinished[1:] {
-		if message.LastAt.After(newest) {
-			newest = message.LastAt
-		}
-	}
-	if live, ok := t.live.sinceLastDelta(chatID); ok && live.After(newest) {
-		newest = live
-	}
-	return newest, true
-}
-
-func (t *Turns) AbandonMessage(ctx context.Context, chatID string) (bool, error) {
-	chat, err := t.chats.GetChat(ctx, chatID)
-	if err != nil {
-		return false, fmt.Errorf("agent: abandon message: chat: %w", err)
-	}
-	runner, err := t.runners.LiveRunnerForChat(ctx, chatID)
-	if err != nil {
-		return false, nil //nolint:nilerr // absence is an answer, not a failure
-	}
-	recorded, err := t.salvageUnfinished(ctx, chat, runner)
-	if err != nil {
-		return false, err
-	}
-	// The turn is over for every reader, not just the aggregate: a still-open
-	// in-flight record reads "busy" to the next send forever.
-	defer t.turns.Complete(ctx, runner.ID, inflight.TurnAbandoned)
-	defer t.idle.clear(chatID)
-
-	abandoned, err := t.chats.AbandonTurn(ctx, chatID, time.Now())
-	if err != nil {
-		if errors.Is(err, asynxModels.ErrValidation) {
-			t.work.Set(chatID, false)
-			return recorded, nil
-		}
-		return recorded, fmt.Errorf("agent: abandon message: abandon turn: %w", err)
-	}
-	t.work.Set(chatID, abandoned.Working)
-	slog.InfoContext(ctx, "agent: closed a turn whose message was cut off",
-		"chat_id", chatID, "recorded_partial", recorded)
-	return true, nil
-}
-
-// AbandonMessageInferredInterrupt is AbandonMessage, plus a durable record of
-// WHY: the caller is termwait's message-quiet fuse (evaluate.go's
-// abandonedMessage), the one place a hooks/PTY provider's silent, hookless
-// abort — an ESC/Ctrl+C the CLI reports to nobody — is ever caught at all.
-// Nothing on the wire announces that interruption the way a Stop click or a
-// compaction does, so without this the turn closing here would be an
-// invisible timeout rather than a fact the transcript can show.
-//
-// Interrupt/ResolveInterruption run BEFORE the abandon below, same ordering
-// RecordStop uses: the ledger's turn is still open when the fact is
-// recorded, so the interruption anchors to the turn it actually interrupted.
-// Opened and resolved in the same call, back to back, same as RecordStop —
-// there is no later event to close it on.
-func (t *Turns) AbandonMessageInferredInterrupt(ctx context.Context, chatID string) (bool, error) {
-	now := time.Now()
-	id := "interrupt-" + fallbackID()
-	if err := t.activity.Interrupt(
-		ctx, chatID, id, engineagents.InterruptInferred, "", now,
-	); err != nil {
-		return false, fmt.Errorf("agent: abandon message: interrupt: %w", err)
-	}
-	if err := t.activity.ResolveInterruption(
-		ctx, chatID, id, engineagents.InterruptInferred, "", now,
-	); err != nil {
-		return false, fmt.Errorf("agent: abandon message: resolve interruption: %w", err)
-	}
-	return t.AbandonMessage(ctx, chatID)
-}
-
-// AbandonMessageForRunner salvages runner's own already-streamed-but-not-yet-
-// final message before its turn is torn down by something other than the
-// quiet-screen sweep AbandonMessage serves — a user Stop or a provider Switch
-// retiring the CLI mid-answer. It exists because AbandonMessage's own
-// LiveRunnerForChat lookup cannot be reused here: by the time a runner is
-// being retired, displace() has already run, so that lookup answers "nobody"
-// (or, worse, a DIFFERENT runner already spawned in its place) and would
-// salvage nothing, or the wrong runner's buffer. The caller must therefore
-// name the exact runner being retired.
-//
-// Checks Unfinished BEFORE fetching the chat: closeAbandonedTurn calls this on
-// every ordinary runner exit, the overwhelming majority of which streamed
-// nothing and have every reason to have already been purged (a deleted chat,
-// a test double with no chat row at all) — that must stay a silent, free
-// no-op rather than a GetChat call whose failure gets logged on every one of
-// them.
+// AbandonMessageForRunner salvages runner's own streamed but unfinished
+// message before its turn is torn down. The runner is named, not resolved:
+// by then the chat may have none, or another. Unfinished is checked before
+// the chat is read, so the ordinary exit that streamed nothing costs nothing.
 func (t *Turns) AbandonMessageForRunner(
 	ctx context.Context,
 	chatID string,

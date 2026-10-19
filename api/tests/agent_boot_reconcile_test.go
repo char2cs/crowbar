@@ -68,9 +68,7 @@ func bootReconcileFixture(
 	waitForChatFrame(t, frames, created.ID, "turn_started")
 	h.Quiesce()
 
-	working, err := h.app.Usecases.AgentChat.GetChat(context.Background(), created.ID)
-	require.NoError(t, err)
-	require.True(t, working.Working, "precondition: the chat is mid-turn before the restart")
+	require.True(t, chatBusy(t, h, created.ID), "precondition: the chat is mid-turn before the restart")
 
 	return h, homeBase, created.ID, runnerID
 }
@@ -136,11 +134,9 @@ func TestRegression_AgentBootReconcile_DeadCLIProcess_EndsSegment(t *testing.T) 
 	assert.Equal(t, []string{"sess-before-restart"}, post.sessionIDs(),
 		"boot reconcile reaps the RUNNER, never the chat's conversation history")
 
-	reconciled, err := h2.app.Usecases.AgentChat.GetChat(context.Background(), chatID)
-	require.NoError(t, err)
-	assert.False(t, reconciled.Working,
+	assert.False(t, chatBusy(t, h2, chatID),
 		"boot reconcile must close the turn interrupted by the restart: the CLI that would have sent the "+
-			"turn_stop hook no longer exists, so a chat left Working spins forever — and the workspace's "+
+			"turn_stop hook no longer exists, so a chat left working spins forever — and the workspace's "+
 			"whole overlay spins with it")
 }
 
@@ -269,7 +265,7 @@ func TestRegression_AgentBootReconcileEndsTheRunnerACrashedOldDaemonLeft(t *test
 	now := time.Now().UTC()
 	chat := domain.Chat{
 		ID: uuid.NewString(), WorkspaceID: imported.workspaceID, ProviderID: "claude", Title: "mid-turn",
-		CreatedAt: now, LastActivityAt: now, Working: true, CurrentTurnStarted: &now,
+		CreatedAt: now,
 	}
 	seed := openBaseEra(t, home)
 	seed.chat(chat)
@@ -285,9 +281,7 @@ func TestRegression_AgentBootReconcileEndsTheRunnerACrashedOldDaemonLeft(t *test
 	h2 := newHarnessAt(t, home)
 	h2.Quiesce()
 
-	got, err := h2.app.Usecases.AgentChat.GetChat(context.Background(), chat.ID)
-	require.NoError(t, err)
-	assert.False(t, got.Working, "the turn the old daemon died in is closed")
+	assert.False(t, chatBusy(t, h2, chat.ID), "the turn the old daemon died in is closed")
 	assert.Equal(t, "daemon_restart", exitReason(t, h2, imported, chat.ID))
 	ledgerDB := openSQLite(t, filepath.Join(store, ledgerstore.FileName))
 	defer closeSQLite(t, ledgerDB)
@@ -309,4 +303,12 @@ func closeSQLite(t *testing.T, db *gorm.DB) {
 	raw, err := db.DB()
 	require.NoError(t, err)
 	require.NoError(t, raw.Close())
+}
+
+// chatBusy is the chat's snapshot saying a turn or its work is open.
+func chatBusy(t *testing.T, h *harness, chatID string) bool {
+	t.Helper()
+	snap, err := h.app.Usecases.AgentChat.ChatSnapshot(context.Background(), chatID)
+	require.NoError(t, err)
+	return snap.Ledger.Busy
 }

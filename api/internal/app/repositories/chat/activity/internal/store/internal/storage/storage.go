@@ -221,12 +221,9 @@ func (s *Store) AbandonRunningTools(ctx context.Context, chatID string, endedAt 
 // AbandonRunningSubagents closes every subagent this chat has that never
 // closed itself, e.g. its subagent_post was dropped, or the process behind it
 // crashed or was killed mid-run — the subagent's own equivalent of
-// AbandonRunningTools. It returns how many rows it closed so the caller can
-// treat a nonzero count as a leak signal worth logging: unlike a tool call,
-// SubagentRow has no status column, so ended_at IS NULL is the only "still
-// running" a caller (OpenWork, in turn) can ever check, and without this call
-// that row stays that way forever, chat-wide, well past the turn or run that
-// leaked it.
+// AbandonRunningTools. It returns how many rows it closed, a leak worth
+// logging: SubagentRow has no status column, so without this an ended_at IS
+// NULL row reads as running forever.
 func (s *Store) AbandonRunningSubagents(
 	ctx context.Context, chatID string, endedAt *time.Time,
 ) (int64, error) {

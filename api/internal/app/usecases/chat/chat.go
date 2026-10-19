@@ -17,7 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/provider"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
@@ -235,9 +234,6 @@ type Usecase struct {
 	// guarded rather than assumed.
 	tools agenttools.Deps
 
-	// work is the SAME tracker sh.work hands conversations/turns/runners — see
-	// Work in aliases.go.
-	work *inflight.Work
 	// snapshots is the one owner of every chat's versioned snapshot.
 	snapshots *snapshot.Snapshots
 	// feed is the hub, bound at sweep start; ledger commits publish through it.

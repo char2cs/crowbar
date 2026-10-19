@@ -924,10 +924,10 @@ func awaitTurnComplete(
 			if len(assistantReplies(readLedgerTurns(t, h, wsID, chatID), provider)) == 0 {
 				return false, false
 			}
-			chat, err := h.app.Usecases.AgentChat.GetChat(context.Background(), chatID)
+			snap, err := h.app.Usecases.AgentChat.ChatSnapshot(context.Background(), chatID)
 			if err != nil {
 				return false, false
 			}
-			return !chat.Working, !chat.Working
+			return !snap.Ledger.Busy, !snap.Ledger.Busy
 		})
 }

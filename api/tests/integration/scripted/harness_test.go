@@ -294,7 +294,7 @@ func (r *rig) said(chatID string) []string {
 }
 
 func (r *rig) working(chatID string) bool {
-	return r.snapshot(chatID).Chat.Working
+	return r.snapshot(chatID).Ledger.Busy
 }
 
 func (r *rig) choices(chatID string) []domain.ActivityChoice {

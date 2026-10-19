@@ -65,7 +65,7 @@ func TestRegression_Upgrade_AnUnreplayableUntypedChatIsSkippedNotFatal(t *testin
 	legacy := func(title string) domain.Chat {
 		return domain.Chat{
 			ID: uuid.NewString(), WorkspaceID: imported.workspaceID,
-			Title: title, CreatedAt: now, LastActivityAt: now,
+			Title: title, CreatedAt: now,
 		}
 	}
 	broken, healthy := legacy("broken"), legacy("healthy")

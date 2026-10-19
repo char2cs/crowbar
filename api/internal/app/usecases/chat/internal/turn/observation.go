@@ -46,9 +46,7 @@ func (t *Turns) handleObservation(
 			SessionID: t.boundSession(ctx, chat.ID, runner.ProviderID), Steps: steps, Now: now,
 		}))
 	case engineagents.HookIdle:
-		// ARMS a reconcile; closes nothing. This routinely arrives microseconds
-		// BEFORE the turn's own close — see idle.go.
-		t.recordIdle(ctx, chat, runner.ID)
+		t.recordIdle(ctx, chat.ID, runner)
 	case engineagents.HookReasoningDelta:
 		// Live only — see recordLiveText. Nothing durable is written, so a provider
 		// that maps either of these can never corrupt a transcript with them.
@@ -64,19 +62,6 @@ func (t *Turns) handleObservation(
 			Request: ev.Tool.Input, Diff: toolStartDiff(ev.Tool),
 			Now: now,
 		}))
-		// THE REGRESSION. restateAsyncWork used to run only on the completion
-		// side (below, and HookSubagentPost) — reopening Working from whatever
-		// is STILL open once one thing closes. Nothing reopened it when work
-		// STARTS, so a chat closed by a provider's own premature "done" report
-		// (codex: openai/codex#27352, a still-open upstream bug — commentary
-		// like "I'll inspect X, then return Y" followed by task_complete with
-		// no follow-up) stayed dark through the ENTIRE real tool call or
-		// subagent that came after it: Post's own OpenWork check only ever
-		// asks "is anything ELSE still open", which is exactly false the
-		// moment the one thing that just finished was the only thing running.
-		// Confirmed live 2026-09-12: a real `wait` call ran end to end after
-		// the chat had already gone idle, and nothing ever relit it.
-		t.restateAsyncWork(ctx, chat.ID)
 	case engineagents.HookToolPost, engineagents.HookToolFail:
 
 		note(ctx, "tool completed", t.activity.CompleteTool(ctx, agentactivity.ToolResultInput{
@@ -86,35 +71,19 @@ func (t *Turns) handleObservation(
 			Status: toolStatus(ev), Error: ev.Tool.Error,
 			DurationMS: ev.Tool.DurationMS, Now: now,
 		}))
-		// BEFORE restateAsyncWork, not after: a completing spawnAgent tool call
-		// (codex's collab_agents) is exactly the moment a nested subagent opens,
-		// and restateAsyncWork's OpenWork read has to see that new row or it
-		// finds nothing else open, restates Working=false, and the live push
-		// that follows tells the frontend to stop polling — right as the
-		// subagent starts. Confirmed live: a 3-subagent codex run never showed
-		// on SubagentShelf because this ran in the other order. Same ordering
-		// HookSubagentPre/HookSubagentPost already use below for the native
-		// (non-nested) case.
 		t.openNestedSubagent(ctx, chat.ID, ev, now)
-		// Closing the last open tool call after the turn itself already closed is the
-		// other half of closeTurnFromStop's OpenWork fallback: open work may now be
-		// zero too.
-		t.restateAsyncWork(ctx, chat.ID)
 	case engineagents.HookSubagentPre:
 		if ev.Subagent == nil || ev.Subagent.ID == "" {
 			break
 		}
 		note(ctx, "subagent started",
 			t.activity.StartSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, now))
-		// Same regression as HookToolPre, same fix — see its own comment.
-		t.restateAsyncWork(ctx, chat.ID)
 	case engineagents.HookSubagentPost:
 		if ev.Subagent == nil || ev.Subagent.ID == "" {
 			break
 		}
 		note(ctx, "subagent stopped",
 			t.activity.StopSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, "", now))
-		t.restateAsyncWork(ctx, chat.ID)
 	case engineagents.HookNotification, engineagents.HookPermission,
 		engineagents.HookElicitation:
 		t.raiseAsk(ctx, chat, runner, agent, ev, raw, now)
@@ -126,7 +95,7 @@ func (t *Turns) handleObservation(
 		// compaction.go. A hooks-transport compact_pre (claude has none today;
 		// a codex TUI does) maps no turn_id, so this
 		// is a no-op for it.
-		t.armCompaction(chat.ID, ev.TurnID)
+		t.armCompaction(ctx, chat.ID, ev.TurnID)
 		// codex reports no trigger at all, so fall back to Crowbar's own
 		// record of having just asked for this — never overrides a provider
 		// (claude) that DOES report one. See manualCompact.peek's own doc.
@@ -297,8 +266,7 @@ func subagentID(ev engineagents.CanonicalEvent) string {
 // receiverThreadIds[0] (codex.yaml maps it to nested_session_id on tool_post,
 // which is the only form that carries it at all). Asking "is it open" let a
 // child that had just stopped answer false and be opened again, and SaveSubagent
-// upserts, so ended_at went back to NULL and OpenWork read the row as live work
-// forever. Measured live on chat a37942f9 (2026-09-23): three children, each
+// upserts, so ended_at went back to NULL and the row read as live work forever. Measured live on chat a37942f9 (2026-09-23): three children, each
 // stopped and then re-opened within 4ms, chat Working with every turn closed and
 // no tool running. See
 // TestRegression_ANestedSubagentIsNeverReopenedAfterItStopped.

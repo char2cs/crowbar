@@ -6,17 +6,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -37,38 +38,13 @@ const (
 	parentCompleted = `{"threadId":"` + parentThread + `","turn":{"id":"t1","items":[{"type":"agentMessage","text":"the parent is still writing the real answer"}]}}`
 )
 
-// recordingChats records whether the USER's turn was closed. StopTurn is the
-// one call that folds Working back to false, so "was it called" IS the
-// property (A) turns on.
+// recordingChats is the chat record the delegating turn runs on.
 type recordingChats struct {
 	agentchat.EventStore
-	mu      sync.Mutex
-	stopped int
 }
 
 func (c *recordingChats) GetChat(_ context.Context, id string) (domain.Chat, error) {
-	return domain.Chat{ID: id, WorkspaceID: "ws-1", Working: true}, nil
-}
-
-func (c *recordingChats) StopTurn(
-	_ context.Context, chatID string, _ time.Time, _ int,
-) (domain.Chat, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.stopped++
-	return domain.Chat{ID: chatID, WorkspaceID: "ws-1", Working: false}, nil
-}
-
-func (c *recordingChats) RestateAsyncWork(
-	_ context.Context, chatID string, _ time.Time, asyncWork int,
-) (domain.Chat, error) {
-	return domain.Chat{ID: chatID, WorkspaceID: "ws-1", Working: asyncWork > 0}, nil
-}
-
-func (c *recordingChats) stops() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.stopped
+	return domain.Chat{ID: id, WorkspaceID: "ws-1"}, nil
 }
 
 // recordingTranscript is the chat's durable transcript. CloseTurn is the only
@@ -93,12 +69,6 @@ func (a *recordingTranscript) CloseTurn(_ context.Context, in agentactivity.Turn
 	defer a.mu.Unlock()
 	a.recorded = append(a.recorded, in.Text)
 	return nil
-}
-
-func (*recordingTranscript) ToolCalls(
-	context.Context, string, int64, int,
-) ([]domain.ActivityToolCall, error) {
-	return nil, nil
 }
 
 func (*recordingTranscript) Subagents(
@@ -128,56 +98,54 @@ func (quietRunners) ShowingNativeView(string) bool { return false }
 // it on the SAME connection.
 type delegatingTurn struct {
 	turns      *turn.Turns
-	chats      *recordingChats
 	transcript *recordingTranscript
-	work       *inflight.Work
+	ledger     *ledgerstore.Store
 }
 
 func newDelegatingTurn(t *testing.T) delegatingTurn {
 	t.Helper()
 
 	home := t.TempDir()
-	chats := &recordingChats{}
 	transcript := &recordingTranscript{}
-	work := inflight.NewWork()
+	l := codexBoundLedger(t, parentThread)
 	turns := turn.New(turn.Deps{
-		Chats:         chats,
-		Ledger:        codexBoundLedger(t, parentThread),
-		Activity:      transcript,
-		Agents:        engineagents.New(),
-		Workspace:     stubWorkspace{home: home},
-		Home:          func() (string, error) { return home, nil },
-		PendingHooks:  inflight.NewHooks(),
-		InflightTurns: inflight.NewTurns(),
-		Telemetry:     telemetry.New(),
-		Work:          work,
+		Chats:        &recordingChats{},
+		Ledger:       l,
+		Activity:     transcript,
+		Agents:       engineagents.New(),
+		Workspace:    stubWorkspace{home: home},
+		Home:         func() (string, error) { return home, nil },
+		PendingHooks: inflight.NewHooks(),
+		Telemetry:    telemetry.New(),
 	})
 	// The parent thread is the chat's bound session: the driver's own establish
 	// announced it, which is what tells it from the child threads on this connection.
 	turns.SetRunners(quietRunners{codexLive})
 	turns.SetFeed(seam.ChatFeed{MessageDelta: func(string, string, string, string, string, time.Time) {}})
 
-	// The user's turn is running and the chat is lit — the state every
-	// assertion below is about. This is what StartTurn set when the prompt
-	// went out, mirrored the same way openTurnFromPrompt mirrors it.
-	work.Set("chat-1", true)
+	// The user's turn is running on the parent thread: the state every
+	// assertion below is about.
+	started, err := ledger.NewRow(ledger.KindTurnStarted, "T-1", "", ledger.TurnStarted{
+		RunnerID: "runner-1", ProviderTurnID: "t1",
+	})
+	require.NoError(t, err)
+	_, _, err = l.Append(t.Context(), "chat-1", started)
+	require.NoError(t, err)
 
 	// The parent's own stream, opening the message the child's frames below must
 	// not close.
 	require.NoError(t, turns.IngestHook(apiCtx(t), "runner-1", "codex", "message_delta",
 		[]byte(parentDelta)))
 
-	return delegatingTurn{turns: turns, chats: chats, transcript: transcript, work: work}
+	return delegatingTurn{turns: turns, transcript: transcript, ledger: l}
 }
 
-// working reports the chat's live Working flag, read off the same mirror
-// StopTurn writes through (closeTurnFromStop's t.work.Set). No timing: the
-// mirror is set synchronously by the ingest call under test.
+// working is the chat's ledger saying it is busy.
 func (d delegatingTurn) working(t *testing.T) bool {
 	t.Helper()
-	working, known, _ := d.work.Observe("chat-1")
-	require.True(t, known, "the chat's working state must be mirrored at all")
-	return working
+	st, err := d.ledger.State(t.Context(), "chat-1")
+	require.NoError(t, err)
+	return st.Busy()
 }
 
 // TestRegression_AChildThreadsTurnCompletedLeavesTheChatsTurnOpen is defect
@@ -192,10 +160,8 @@ func TestRegression_AChildThreadsTurnCompletedLeavesTheChatsTurnOpen(t *testing.
 		[]byte(childCompleted))
 
 	require.NoError(t, err)
-	assert.Zero(t, d.chats.stops(),
-		"a child thread's turn/completed says nothing about the turn running on the runner's own thread")
 	assert.True(t, d.working(t),
-		"the user's turn is still running and the spinner must still be lit")
+		"a child thread's turn/completed says nothing about the turn running on the runner's own thread")
 }
 
 // TestRegression_AnUnregisteredChildThreadsAnswerNeverEntersTheTranscript is
@@ -223,13 +189,10 @@ func TestRegression_AnUnregisteredChildThreadsAnswerNeverEntersTheTranscript(t *
 			"nor the parent's half-streamed one may be recorded off its turn/completed")
 }
 
-// TestRegression_AChildThreadsIdleNeverArmsTheChatsIdleFuse is the
-// other half of the same capture. The child reports
-// thread/status/changed(idle) when ITS turn ends, and recordIdle arms a latch
-// the terminal-wait sweep treats as "the provider says it is done and nothing
-// has closed the turn" — a 5s fuse (termwait.DefaultIdleQuiet) under the
-// user's still-running turn, gated on neither OpenWork nor the connection.
-func TestRegression_AChildThreadsIdleNeverArmsTheChatsIdleFuse(t *testing.T) {
+// TestRegression_AChildThreadsIdleNeverEndsTheChatsTurn is the other half of
+// the same capture: the child reports thread/status/changed(idle) when ITS
+// turn ends, and an idle report closes the running turn at once.
+func TestRegression_AChildThreadsIdleNeverEndsTheChatsTurn(t *testing.T) {
 	t.Parallel()
 
 	d := newDelegatingTurn(t)
@@ -238,9 +201,7 @@ func TestRegression_AChildThreadsIdleNeverArmsTheChatsIdleFuse(t *testing.T) {
 		[]byte(childIdle))
 
 	require.NoError(t, err)
-	_, armed := d.turns.ProviderIdleSince("chat-1")
-	assert.False(t, armed,
-		"only the runner's OWN thread going idle may arm the fuse under its turn")
+	assert.True(t, d.working(t), "only the runner's OWN thread going idle ends its turn")
 }
 
 // TestTheRunnersOwnTurnStillClosesItsChat is the admitting half all three
@@ -258,7 +219,6 @@ func TestTheRunnersOwnTurnStillClosesItsChat(t *testing.T) {
 		[]byte(parentCompleted))
 
 	require.NoError(t, err)
-	assert.Equal(t, 1, d.chats.stops(), "the runner's own turn/completed closes its turn")
 	assert.Equal(t, []string{"the parent is still writing the real answer"}, d.transcript.transcript(),
 		"and its own answer is what lands in the transcript")
 	assert.False(t, d.working(t), "the spinner goes dark on the runner's own close, not the child's")

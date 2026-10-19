@@ -1,10 +1,12 @@
 package descriptor_test
 
 import (
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/inbound"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
@@ -347,5 +349,28 @@ func TestCheckProtocolVersion_NoRangeAcceptsAnything(t *testing.T) {
 	d := mustParse(t, y)
 	if err := descriptor.CheckProtocolVersion(d, "99.0"); err != nil {
 		t.Fatalf("no declared range must accept any version: %v", err)
+	}
+}
+
+// A claude prompt and the stop that ends its turn both name the turn by its
+// prompt_id, so a stop for an earlier turn is told apart from the running one.
+func TestClaudeDescriptor_NamesTheTurnAPromptAndItsStopBelongTo(t *testing.T) {
+	raw, err := os.ReadFile("descriptors-v3/claude.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := mustParse(t, string(raw))
+	for name, fixture := range map[string]string{"user_prompt": "UserPromptSubmit.json", "turn_stop": "Stop.json"} {
+		payload, err := os.ReadFile(fixtureRoot + "/claude/" + fixture)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ev, err := inbound.Parse(d, name, payload, spec.ChannelHooks)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if ev.TurnID != "3e3c34e9-ed07-455c-b928-31226d8c6df6" {
+			t.Errorf("%s: turn id %q, want the fixture's prompt_id", name, ev.TurnID)
+		}
 	}
 }

@@ -678,7 +678,7 @@ func TestRegression_SubmitPromptWithStagedProvider_RealPromptIsRecordedNotSuppre
 	assert.Contains(t, handoff, "what did I miss?",
 		"a spawn carrying a real prompt is never a bare echo — it belongs in the ledger "+
 			"like any other user turn, injected preamble and all:\n%s", handoff)
-	assert.True(t, f.chat(t, chatID).Working, "the CLI is answering the real prompt: the chat must read as working")
+	assert.True(t, f.busy(t, chatID), "the CLI is answering the real prompt: the chat must read as working")
 }
 
 // The ledger row for a prompt delivered with injected context holds the user's
@@ -1005,87 +1005,34 @@ type switchResult struct {
 	err      error
 }
 
-// TestSwitchProvider_MidTurn_WaitsForTheTurnBeforeQuittingTheOutgoingCLI is the headline
-// regression, and it is a bug the user hit in production:
-//
-//	claude --resume → "No conversation found with session ID: <id>"
-//
-// A switch used to SIGTERM the outgoing CLI the instant it was asked to. A SIGTERM is
-// what it is (rather than a SIGKILL) precisely so the CLI can flush its native
-// transcript on the way out — but a CLI killed MID-TURN never writes a transcript at
-// all. So the in-flight answer was lost, and the conversation the incoming CLI was then
-// told to --resume did not exist.
-//
-// The fix is to let the turn finish first. This test proves it WITHOUT ANY TIMING: the
-// switch runs on its own goroutine and the test blocks on whichever of two REAL signals
-// arrives —
-//
-//	the switch announcing it is parked on the turn (the fix), or
-//	TerminateGraceful being called (the bug, caught in the act, inside the fake).
-//
-// Exactly one of them must arrive, so there is nothing to sleep for and nothing to poll.
-func TestSwitchProvider_MidTurn_WaitsForTheTurnBeforeQuittingTheOutgoingCLI(t *testing.T) {
+// A switch while the turn runs is refused at once: waiting held the chat's spawn
+// gate for as long as the turn lasted, and forcing it lost the answer.
+func TestSwitchProvider_MidTurn_IsRefusedAndTouchesNothing(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
-	oldTerm := f.runner(t, runnerID).TerminalSession
 	f.announce(t, runnerID, "sid-claude-native")
-
-	// The user typed: the CLI is now mid-answer, and this is the state the whole bug
-	// lives in.
 	prompt(t, f, runnerID, "claude", "think hard about this")
-	require.True(t, f.chat(t, chatID).Working, "precondition: the chat is mid-turn")
+	require.True(t, f.busy(t, chatID), "precondition: the chat is mid-turn")
 
-	killed := terminateSignal(f)
-	parked := parkedOnTurn(t)
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 
-	done := make(chan switchResult, 1)
-	go func() {
-		id, err := f.usecase.SwitchProvider(context.Background(), chatID, "codex")
-		done <- switchResult{runnerID: id, err: err}
-	}()
-
-	select {
-	case <-parked:
-	case sess := <-killed:
-		t.Fatalf("the outgoing CLI (%s) was terminated while its turn was still running: "+
-			"its answer is lost and the transcript it never flushed cannot be --resume'd", sess)
-	case r := <-done:
-		t.Fatalf("the switch returned without ever reaching the outgoing CLI: %+v", r)
-	}
-
-	// Still nobody has been killed, and no incoming CLI has been spawned: the switch is
-	// parked, holding its chat's spawn gate. The hook path is NEVER gated, which is what
-	// lets the very next line reach the usecase at all — if it could not, this test would
-	// deadlock, and that deadlock is the one this design has to be safe from.
-	assert.Empty(t, f.term.terminatedIDs(), "nothing may be killed while the turn is in flight")
-	assert.Equal(t, 1, f.term.callCount(), "and no incoming CLI may be spawned yet")
-
-	// The turn completes.
-	turn(t, f, runnerID, "claude", "the answer the user was waiting for")
-
-	got := <-done
-	require.NoError(t, got.err)
+	require.ErrorIs(t, err, agentusecase.ErrPromptBusy)
 	f.wait()
-
-	assert.Contains(t, f.term.terminatedIDs(), oldTerm, "and only THEN is the outgoing CLI quit")
-
+	assert.Empty(t, f.term.terminatedIDs(), "the running CLI is left to finish its turn")
+	assert.Equal(t, 1, f.term.callCount(), "and no incoming CLI is spawned")
 	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
-	assert.Equal(t, got.runnerID, live.ID, "the switch then proceeds")
-	assert.Equal(t, "codex", live.ProviderID)
+	assert.Equal(t, runnerID, live.ID)
 
-	// The other half of the bug: the in-flight answer must not be lost. The ledger is read
-	// AFTER the turn landed in it, so the incoming CLI is handed the reply the outgoing one
-	// was still writing when the user clicked switch.
-	require.Equal(t, 2, f.term.callCount())
-	assert.Contains(t, strings.Join(f.term.calls[1].argv, "\x00"), "the answer the user was waiting for",
-		"the handoff must carry the turn the switch waited for")
+	turn(t, f, runnerID, "claude", "the answer the user was waiting for")
+	switched, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err, "once the turn ends the switch goes ahead")
+	assert.NotEqual(t, runnerID, switched)
 }
 
 // TestSwitchProvider_Idle_SwitchesImmediately: the common case. A chat that is not
-// working has no turn to wait for, so the switch must not park — the happy path pays
-// nothing for the mid-turn guarantee.
+// working has no turn to refuse on.
 func TestSwitchProvider_Idle_SwitchesImmediately(t *testing.T) {
 	f := newFixture(t)
 
@@ -1093,21 +1040,11 @@ func TestSwitchProvider_Idle_SwitchesImmediately(t *testing.T) {
 	oldTerm := f.runner(t, runnerID).TerminalSession
 	prompt(t, f, runnerID, "claude", "a question")
 	turn(t, f, runnerID, "claude", "an answer")
-	require.False(t, f.chat(t, chatID).Working, "precondition: the chat is idle")
+	require.False(t, f.busy(t, chatID), "precondition: the chat is idle")
 
-	parked := parkedOnTurn(t)
-
-	// Straight-line: no goroutine, no signal to wait for. If the switch parked, this call
-	// would never return.
 	newRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.NoError(t, err)
 	f.wait()
-
-	select {
-	case <-parked:
-		t.Fatal("an idle chat has no in-flight turn: the switch must not wait for one")
-	default:
-	}
 
 	assert.Contains(t, f.term.terminatedIDs(), oldTerm)
 	live, err := f.liveRunnerFor(t, chatID)
@@ -1115,271 +1052,9 @@ func TestSwitchProvider_Idle_SwitchesImmediately(t *testing.T) {
 	assert.Equal(t, newRunner, live.ID)
 }
 
-// TestSwitchProvider_MidTurn_ContextCancelled_AbortsWithNothingChanged: the wait is
-// bounded by the CALLER'S CONTEXT and by nothing else — no timeout, no deadline, no
-// clock. If the request goes away, the switch aborts exactly as every other pre-terminate
-// failure aborts it: the outgoing CLI is still alive, still on its chat, still mid-turn,
-// and no incoming CLI was ever spawned. Half-doing it is the one outcome that is not
-// allowed.
-func TestSwitchProvider_MidTurn_ContextCancelled_AbortsWithNothingChanged(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	prompt(t, f, runnerID, "claude", "think hard about this")
-	require.True(t, f.chat(t, chatID).Working, "precondition: the chat is mid-turn")
-
-	ctx, cancel := context.WithCancel(context.Background())
-	killed := terminateSignal(f)
-	parked := parkedOnTurn(t)
-
-	done := make(chan switchResult, 1)
-	go func() {
-		id, err := f.usecase.SwitchProvider(ctx, chatID, "codex")
-		done <- switchResult{runnerID: id, err: err}
-	}()
-
-	select {
-	case <-parked:
-	case sess := <-killed:
-		cancel()
-		t.Fatalf("the outgoing CLI (%s) was terminated mid-turn", sess)
-	case r := <-done:
-		cancel()
-		t.Fatalf("the switch returned without ever reaching the outgoing CLI: %+v", r)
-	}
-
-	cancel()
-
-	got := <-done
-	require.Error(t, got.err)
-	assert.ErrorIs(t, got.err, context.Canceled)
-	assert.Empty(t, got.runnerID)
-
-	f.wait()
-	assert.Empty(t, f.term.terminatedIDs(), "an aborted switch kills nothing")
-	assert.Equal(t, 1, f.term.callCount(), "and spawns nothing")
-
-	live, err := f.liveRunnerFor(t, chatID)
-	require.NoError(t, err)
-	assert.Equal(t, runnerID, live.ID, "the outgoing CLI is still on its chat")
-	assert.True(t, f.chat(t, chatID).Working, "and still mid-turn")
-}
-
-// TestSwitchProvider_MidTurn_OutgoingCLIDies_ReleasesTheSwitch: the turn's completion is
-// not the only way it can END. A CLI that falls over mid-answer never sends its turn_stop
-// hook — so if the wait listened for that hook alone, a switch onto a crashed CLI would
-// hang until the user's request timed out. The PTY's death is the other real signal, and
-// it releases the wait too (the chat is simply dormant by the time we get there).
-func TestSwitchProvider_MidTurn_OutgoingCLIDies_ReleasesTheSwitch(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	oldTerm := f.runner(t, runnerID).TerminalSession
-	prompt(t, f, runnerID, "claude", "think hard about this")
-
-	killed := terminateSignal(f)
-	parked := parkedOnTurn(t)
-
-	done := make(chan switchResult, 1)
-	go func() {
-		id, err := f.usecase.SwitchProvider(context.Background(), chatID, "codex")
-		done <- switchResult{runnerID: id, err: err}
-	}()
-
-	select {
-	case <-parked:
-	case sess := <-killed:
-		t.Fatalf("the outgoing CLI (%s) was terminated mid-turn", sess)
-	case r := <-done:
-		t.Fatalf("the switch returned without ever reaching the outgoing CLI: %+v", r)
-	}
-
-	// The CLI crashes mid-answer.
-	f.term.exit(t, oldTerm)
-
-	got := <-done
-	require.NoError(t, got.err)
-	f.wait()
-
-	live, err := f.liveRunnerFor(t, chatID)
-	require.NoError(t, err)
-	assert.Equal(t, got.runnerID, live.ID)
-	assert.Equal(t, "codex", live.ProviderID, "the switch completes onto the dead CLI's chat")
-	assert.NotEqual(t, runnerID, live.ID)
-}
-
-// TestSwitchProvider_MidTurn_NeverCompletesOrDies_IsForcedAfterTheGracePeriod is the
-// bug the user hit live: they started a chat with one provider and switched to
-// another while the first was still mid-turn, and the switch (and the frontend's
-// "Starting <provider>…" spinner) hung forever. WaitsForTheTurnBefore... and
-// OutgoingCLIDies... above prove the wait releases on the turn's own two real
-// endings (it finishes, or the CLI dies) — this proves it also releases when
-// NEITHER ever happens: no turn_stop, no exit, nothing, ever. That gap is real
-// precisely because AwaitTurnComplete's own reasoning ("a live CLI finishes or
-// dies") never accounted for a CLI that is alive but simply stuck.
-func TestSwitchProvider_MidTurn_NeverCompletesOrDies_IsForcedAfterTheGracePeriod(t *testing.T) {
-	f := newFixture(t).withSwitchGrace(t, 10*time.Millisecond)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	oldTerm := f.runner(t, runnerID).TerminalSession
-	prompt(t, f, runnerID, "claude", "think hard about this")
-	require.True(t, f.chat(t, chatID).Working, "precondition: the chat is mid-turn")
-
-	killed := terminateSignal(f)
-	parked := parkedOnTurn(t)
-
-	done := make(chan switchResult, 1)
-	go func() {
-		id, err := f.usecase.SwitchProvider(context.Background(), chatID, "codex")
-		done <- switchResult{runnerID: id, err: err}
-	}()
-
-	select {
-	case <-parked:
-	case r := <-done:
-		t.Fatalf("the switch returned without ever reaching the outgoing CLI: %+v", r)
-	}
-
-	// The outgoing CLI never sends turn_stop and never dies. Before the fix this
-	// blocked here forever; the grace period above is real, but short, so this
-	// still proves the release with no sleep or poll of its own.
-	sess := <-killed
-	assert.Equal(t, oldTerm, sess, "the stuck outgoing turn is forced the same way an explicit Stop would be")
-
-	got := <-done
-	require.NoError(t, got.err)
-	f.wait()
-
-	live, err := f.liveRunnerFor(t, chatID)
-	require.NoError(t, err)
-	assert.Equal(t, got.runnerID, live.ID)
-	assert.Equal(t, "codex", live.ProviderID, "the switch completes once the stuck turn is forced")
-	assert.NotEqual(t, runnerID, live.ID)
-}
-
-// TestSwitchProvider_MidTurn_ContextCancelled_BeforeTheGracePeriod_StillAbortsCleanly
-// guards the two new failure paths against colliding: a caller whose OWN context is
-// cancelled while the grace period is also armed must still abort with nothing
-// changed, exactly as TestSwitchProvider_MidTurn_ContextCancelled_AbortsWithNothingChanged
-// already requires with no grace period configured at all.
-func TestSwitchProvider_MidTurn_ContextCancelled_BeforeTheGracePeriod_StillAbortsCleanly(t *testing.T) {
-	f := newFixture(t).withSwitchGrace(t, time.Hour)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	prompt(t, f, runnerID, "claude", "think hard about this")
-	require.True(t, f.chat(t, chatID).Working, "precondition: the chat is mid-turn")
-
-	ctx, cancel := context.WithCancel(context.Background())
-	killed := terminateSignal(f)
-	parked := parkedOnTurn(t)
-
-	done := make(chan switchResult, 1)
-	go func() {
-		id, err := f.usecase.SwitchProvider(ctx, chatID, "codex")
-		done <- switchResult{runnerID: id, err: err}
-	}()
-
-	select {
-	case <-parked:
-	case sess := <-killed:
-		cancel()
-		t.Fatalf("the outgoing CLI (%s) was terminated mid-turn", sess)
-	case r := <-done:
-		cancel()
-		t.Fatalf("the switch returned without ever reaching the outgoing CLI: %+v", r)
-	}
-
-	cancel()
-
-	got := <-done
-	require.Error(t, got.err)
-	assert.ErrorIs(t, got.err, context.Canceled)
-	assert.Empty(t, got.runnerID)
-
-	f.wait()
-	assert.Empty(t, f.term.terminatedIDs(), "the caller's own cancellation aborts the switch untouched, not the grace period")
-
-	live, err := f.liveRunnerFor(t, chatID)
-	require.NoError(t, err)
-	assert.Equal(t, runnerID, live.ID, "the outgoing CLI is still on its chat")
-	assert.True(t, f.chat(t, chatID).Working, "and still mid-turn")
-}
-
-// TestSwitchProvider_RepeatedlyStuck_AcrossTwoProviders_KeepsForcingCleanly stresses the
-// exact shape the user asked for: a single chat hopping between providers, more than
-// once, where EACH outgoing CLI in turn is stuck (never completes, never dies). It
-// proves forceOutgoingTurn leaves the chat in a state a SECOND switch can force again
-// cleanly — not just once — and that each force targets the CORRECT runner's terminal
-// session, never a stale one left over from the previous round.
-func TestSwitchProvider_RepeatedlyStuck_AcrossTwoProviders_KeepsForcingCleanly(t *testing.T) {
-	f := newFixture(t).withSwitchGrace(t, 10*time.Millisecond)
-
-	chatID, claudeRunner := f.spawn(t, "claude")
-	claudeTerm := f.runner(t, claudeRunner).TerminalSession
-	prompt(t, f, claudeRunner, "claude", "round one: think hard about this")
-	require.True(t, f.chat(t, chatID).Working, "precondition: mid-turn on claude")
-
-	killed := terminateSignal(f)
-	parked := parkedOnTurn(t)
-	done := make(chan switchResult, 1)
-	go func() {
-		id, err := f.usecase.SwitchProvider(context.Background(), chatID, "codex")
-		done <- switchResult{runnerID: id, err: err}
-	}()
-	select {
-	case <-parked:
-	case r := <-done:
-		t.Fatalf("round one: switch returned without ever reaching the outgoing CLI: %+v", r)
-	}
-	sess := <-killed
-	assert.Equal(t, claudeTerm, sess, "round one forces claude's own terminal, not a stale one")
-	got := <-done
-	require.NoError(t, got.err)
-	f.wait()
-
-	live, err := f.liveRunnerFor(t, chatID)
-	require.NoError(t, err)
-	require.Equal(t, "codex", live.ProviderID, "round one lands on codex")
-	codexRunner := live.ID
-	codexTerm := f.runner(t, codexRunner).TerminalSession
-	require.NotEqual(t, claudeTerm, codexTerm)
-
-	// Round two: codex, the chat's NEW outgoing provider, gets stuck exactly the same
-	// way claude did. Nothing about having already forced one switch may leave the
-	// chat unable to force a second.
-	prompt(t, f, codexRunner, "codex", "round two: think hard about this")
-	require.True(t, f.chat(t, chatID).Working, "precondition: mid-turn on codex")
-
-	killed = terminateSignal(f)
-	parked = parkedOnTurn(t)
-	done = make(chan switchResult, 1)
-	go func() {
-		id, err := f.usecase.SwitchProvider(context.Background(), chatID, "claude")
-		done <- switchResult{runnerID: id, err: err}
-	}()
-	select {
-	case <-parked:
-	case r := <-done:
-		t.Fatalf("round two: switch returned without ever reaching the outgoing CLI: %+v", r)
-	}
-	sess = <-killed
-	assert.Equal(t, codexTerm, sess, "round two forces codex's own terminal, not claude's stale one")
-	got = <-done
-	require.NoError(t, got.err)
-	f.wait()
-
-	live, err = f.liveRunnerFor(t, chatID)
-	require.NoError(t, err)
-	assert.Equal(t, got.runnerID, live.ID)
-	assert.Equal(t, "claude", live.ProviderID, "round two lands back on a fresh claude")
-	assert.NotEqual(t, claudeRunner, live.ID, "a fresh runner, not the one already forced out in round one")
-}
-
-// TestResumeChat_DormantChat_DoesNotWait: ResumeChat shares switchProviderLocked, and a
-// dormant chat has no CLI and therefore no turn anybody could still be running — even
-// though its Working flag may still be set (a chat whose CLI died mid-turn). The revive
-// must not wait for a turn nothing is running.
-func TestResumeChat_DormantChat_DoesNotWait(t *testing.T) {
+// TestResumeChat_DormantChat_IsNotBusy: a CLI that died mid-turn ended its turn
+// with it, so the revive has no running turn to refuse on.
+func TestResumeChat_DormantChat_IsNotBusy(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
@@ -1392,17 +1067,9 @@ func TestResumeChat_DormantChat_DoesNotWait(t *testing.T) {
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
 	f.wait()
 
-	parked := parkedOnTurn(t)
-
 	revived, err := f.usecase.ResumeChat(f.ctx, chatID)
 	require.NoError(t, err)
 	f.wait()
-
-	select {
-	case <-parked:
-		t.Fatal("a dormant chat has nothing running: a revive must never wait for a turn")
-	default:
-	}
 
 	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
@@ -1424,23 +1091,8 @@ func prompt(
 	f.wait()
 }
 
-// terminateSignal reports the id of the FIRST terminal session TerminateGraceful is
-// called with, as it is called. A test blocks on it to catch a kill in the act.
-func terminateSignal(
-	f testFixture,
-) <-chan string {
-	ch := make(chan string, 1)
-	f.term.duringTerminate = func(sessionID string) {
-		select {
-		case ch <- sessionID:
-		default:
-		}
-	}
-	return ch
-}
-
 // A /clear mid-turn moves the chat onto a new session; nothing else will close
-// the old session's turn, so the change does, or Working stays true and the
+// the old session's turn, so the change does, or the chat stays busy and the
 // workspace spins forever.
 func TestRegression_ClearMidTurn_ClosesTheOldSessionsTurn(t *testing.T) {
 	f := newFixture(t)
@@ -1450,16 +1102,15 @@ func TestRegression_ClearMidTurn_ClosesTheOldSessionsTurn(t *testing.T) {
 
 	// The user typed, and then hit /clear before the answer came back.
 	prompt(t, f, runnerID, "claude", "think hard about this")
-	require.True(t, f.chat(t, left).Working, "precondition: the chat is mid-turn")
+	require.True(t, f.busy(t, left), "precondition: the chat is mid-turn")
 
 	f.announce(t, runnerID, "sid-after-clear") // /clear: the chat moves onto a new session
 	f.wait()
 
 	require.Equal(t, left, f.runner(t, runnerID).CurrentChatID, "precondition: a /clear keeps the chat")
-	assert.False(t, f.chat(t, left).Working,
+	assert.False(t, f.busy(t, left),
 		"the turn the old session left open must close: its turn_stop names a session the "+
 			"chat is no longer on, so nothing else will ever close it")
-	assert.Nil(t, f.chat(t, left).CurrentTurnStarted, "a closed turn must clear CurrentTurnStarted")
 }
 
 // ─── from race_test.go ────────────────────────────────────────────────
@@ -2039,7 +1690,7 @@ func TestStartupHookBarrier_ReplaysPromptThatFiresBeforeRunnerPersistence(t *tes
 	require.Len(t, page.Items, 1)
 	assert.Equal(t, "user", page.Items[0].Role)
 	assert.Equal(t, message, page.Items[0].Text)
-	assert.True(t, f.chat(t, chatID).Working)
+	assert.True(t, f.busy(t, chatID))
 }
 
 // A switch parked on a prompt another window queued destroys nothing while it
@@ -2599,14 +2250,14 @@ func TestRegression_ChatMidTurnAtShutdown_DoesNotSpinForever(t *testing.T) {
 	f.announce(t, runnerID, "s1")
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "a long-running task the daemon died in the middle of"})))
-	require.True(t, f.chat(t, chatID).Working, "precondition: the chat is mid-turn")
+	require.True(t, f.busy(t, chatID), "precondition: the chat is mid-turn")
 
 	f.restart(t)
 
 	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
 	f.wait()
 
-	assert.False(t, f.chat(t, chatID).Working,
+	assert.False(t, f.busy(t, chatID),
 		"a chat that was mid-turn when the daemon died must not spin forever")
 }
 
@@ -2674,7 +2325,7 @@ func TestStopChat_TerminatesTheCLI_LeavesChatDormantAndResumable(t *testing.T) {
 	// And it is mid-answer when the user closes the tab — the state whose spinner the
 	// close must clear.
 	prompt(t, f, runnerID, "claude", "and one more thing")
-	require.True(t, f.chat(t, chatID).Working, "precondition: the chat is mid-turn")
+	require.True(t, f.busy(t, chatID), "precondition: the chat is mid-turn")
 
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
 	f.wait()
@@ -2686,9 +2337,9 @@ func TestStopChat_TerminatesTheCLI_LeavesChatDormantAndResumable(t *testing.T) {
 	_, err := f.liveRunnerFor(t, chatID)
 	require.ErrorIs(t, err, agentusecase.ErrNoLiveRunner, "after close the chat has no live runner")
 
-	// (3) the chat still EXISTS, and its Working spinner was cleared (the aborted turn).
-	stopped := f.chat(t, chatID)
-	assert.False(t, stopped.Working, "closing mid-turn must clear the spinner, not leave it spinning forever")
+	// (3) the chat still EXISTS, and its spinner was cleared (the aborted turn).
+	assert.NotEmpty(t, f.chat(t, chatID).ID)
+	assert.False(t, f.busy(t, chatID), "closing mid-turn must clear the spinner, not leave it spinning forever")
 
 	// (4) its bound conversation is retained — this is what makes it resumable.
 	assert.Equal(t, "sid-claude-native", f.conversation(t, chatID, "claude").SessionID,
@@ -2717,33 +2368,21 @@ func TestStopChat_TerminatesTheCLI_LeavesChatDormantAndResumable(t *testing.T) {
 }
 
 // TestStopChat_AbortsInFlightTurn_DoesNotWait is the user's explicit choice made testable:
-// "close = stop immediately". Unlike SwitchProvider, StopChat must NOT wait for the
-// in-flight turn — it terminates the CLI mid-answer and clears the spinner right away.
-// The proof is a NEGATIVE (the close never parks on the turn), taken at a moment the test
-// knows the close has run: a straight-line call that returns.
+// "close = stop immediately". StopChat terminates the CLI mid-answer and clears the
+// spinner right away; a straight-line call that returns is the proof.
 func TestStopChat_AbortsInFlightTurn_DoesNotWait(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
 	oldTerm := f.runner(t, runnerID).TerminalSession
 	prompt(t, f, runnerID, "claude", "think hard about this")
-	require.True(t, f.chat(t, chatID).Working, "precondition: the chat is mid-turn")
+	require.True(t, f.busy(t, chatID), "precondition: the chat is mid-turn")
 
-	parked := parkedOnTurn(t)
-
-	// Straight-line: no goroutine. A switch would PARK here (waiting for the turn) and
-	// this call would never return; a close aborts the turn and returns immediately.
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
 	f.wait()
 
-	select {
-	case <-parked:
-		t.Fatal("close = stop immediately: StopChat must never wait for the in-flight turn")
-	default:
-	}
-
 	assert.Contains(t, f.term.terminateRequestIDs(), oldTerm, "the mid-turn CLI is terminated — the abort is intended")
-	assert.False(t, f.chat(t, chatID).Working, "the aborted turn's spinner is cleared at once")
+	assert.False(t, f.busy(t, chatID), "the aborted turn's spinner is cleared at once")
 }
 
 // TestStopChat_AlreadyDormant_IsNilNoop: a chat whose CLI is already gone has nothing to
@@ -3098,6 +2737,7 @@ func TestIngestHook_TurnStopAppendsAssistantTurn(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
+	prompt(t, f, runnerID, "claude", "do the thing")
 	f.bc.reset()
 
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
@@ -3107,8 +2747,7 @@ func TestIngestHook_TurnStopAppendsAssistantTurn(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, handoff, "assistant (claude): done thing")
 
-	// turn_stop closes the turn (StopTurn → agentchat.turn_stopped); the ledger append
-	// itself emits no aggregate event, so exactly one frame lands.
+	// turn_stop ends the turn; recording the answer emits no frame of its own.
 	assert.Equal(t, []string{"turn_stopped"}, f.bcKinds(t))
 }
 
@@ -3127,9 +2766,9 @@ func TestIngestHook_UserPromptAppendsUserTurn(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, handoff, "user: please do the thing")
 
-	// The derived-title SetTitle (title_set) then StartTurn (turn_started) each emit
-	// exactly one frame, in that order; the ledger append emits none.
-	assert.Equal(t, []string{"title_set", "turn_started"}, f.bcKinds(t))
+	// The derived title (the chat record) and the turn's start (the ledger)
+	// each emit exactly one frame.
+	assert.ElementsMatch(t, []string{"title_set", "turn_started"}, f.bcKinds(t))
 }
 
 // TestIngestHook_TurnStop_EmptyMessage_AppendsNoLedgerTurnButStillClosesTurn: an empty
@@ -3138,6 +2777,7 @@ func TestIngestHook_TurnStop_EmptyMessage_AppendsNoLedgerTurnButStillClosesTurn(
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
+	prompt(t, f, runnerID, "claude", "ask")
 	f.bc.reset()
 
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
@@ -3147,7 +2787,7 @@ func TestIngestHook_TurnStop_EmptyMessage_AppendsNoLedgerTurnButStillClosesTurn(
 
 	handoff, err := f.usecase.AssembleHandoff(f.ctx, chatID)
 	require.NoError(t, err)
-	assert.Empty(t, handoff, "an empty assistant message must append no ledger turn")
+	assert.NotContains(t, handoff, "assistant (claude)", "an empty assistant message must append no ledger turn")
 }
 
 // TestIngestHook_UserPromptOpensTurn_TurnStopClosesTurn: the hooks drive the chat's
@@ -3156,19 +2796,15 @@ func TestIngestHook_UserPromptOpensTurn_TurnStopClosesTurn(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
-	require.False(t, f.chat(t, chatID).Working, "a fresh chat is not Working")
+	require.False(t, f.busy(t, chatID), "a fresh chat is not busy")
 
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "start working"})))
-	working := f.chat(t, chatID)
-	assert.True(t, working.Working, "a user_prompt must open the turn (Working==true)")
-	require.NotNil(t, working.CurrentTurnStarted, "an open turn must record CurrentTurnStarted")
+	assert.True(t, f.busy(t, chatID), "a user_prompt must open the turn")
 
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
 		mustJSON(t, map[string]any{"last_assistant_message": "done"})))
-	idle := f.chat(t, chatID)
-	assert.False(t, idle.Working, "a turn_stop must close the turn (Working==false)")
-	assert.Nil(t, idle.CurrentTurnStarted, "a closed turn must clear CurrentTurnStarted")
+	assert.False(t, f.busy(t, chatID), "a turn_stop must close the turn")
 }
 
 func TestIngestHook_UnknownRunner_IsIgnored(t *testing.T) {
@@ -3241,11 +2877,11 @@ func TestOnExit_MidTurn_ClosesTheTurn(t *testing.T) {
 	chatID, runnerID := f.spawn(t, "claude")
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "do work"})))
-	require.True(t, f.chat(t, chatID).Working, "precondition: the turn is open")
+	require.True(t, f.busy(t, chatID), "precondition: the turn is open")
 
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
 
-	assert.False(t, f.chat(t, chatID).Working, "a dead CLI cannot still be mid-turn")
+	assert.False(t, f.busy(t, chatID), "a dead CLI cannot still be mid-turn")
 }
 
 // TestOnExit_AfterSwitch_DoesNotCloseTheIncomingRunnersTurn: a provider switch starts
@@ -3263,13 +2899,13 @@ func TestOnExit_AfterSwitch_DoesNotCloseTheIncomingRunnersTurn(t *testing.T) {
 
 	require.NoError(t, f.usecase.IngestHook(f.ctx, newRunner, "codex", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "the new CLI is working"})))
-	require.True(t, f.chat(t, chatID).Working, "precondition: the INCOMING runner has an open turn")
+	require.True(t, f.busy(t, chatID), "precondition: the INCOMING runner has an open turn")
 
 	// The outgoing CLI finally dies.
 	f.term.exit(t, oldTerm)
 	f.wait()
 
-	assert.True(t, f.chat(t, chatID).Working,
+	assert.True(t, f.busy(t, chatID),
 		"the outgoing runner's exit must not close the incoming runner's turn")
 	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
@@ -3297,12 +2933,14 @@ func TestBroadcast_ChatAndRunnerFramesAreDistinct(t *testing.T) {
 	f.announce(t, runnerID, "s2") // /clear: the chat moves onto a new session
 	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID))
 
-	assert.Equal(t, []string{
+	// The chat record and the ledger are two feeds, so only each one's own
+	// frames are ordered.
+	assert.ElementsMatch(t, []string{
 		"created",              // SpawnChat
 		"permission_level_set", // SpawnChat: seeded from the global default
 		"title_set",            // user_prompt: derived title
-		"turn_started",         // user_prompt: StartTurn
-		"turn_stopped",         // turn_stop: StopTurn
+		"turn_started",         // user_prompt: the turn starts
+		"turn_stopped",         // turn_stop: the turn ends
 		"deleted",              // PurgeChat (asynx Forget's OnForget)
 	}, f.bcKinds(t))
 
@@ -3522,30 +3160,33 @@ func TestSpawnChat_MissingCLI_PropagatesCommandNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "claude", "and it must name the provider the UI has to report")
 }
 
-// The answer is in the ledger before StopTurn publishes Working=false: the chat
-// view reads the ledger once on that edge and then stops, so a later append
-// would strand the reply.
-func TestRegression_TurnStop_AssistantMessageIsDurableBeforeTurnStateIsPublished(t *testing.T) {
-	f, cs := newFaultFixture(t)
+// The answer is recorded before the turn's end is: the chat view reads the
+// record once on that edge, so a later append would strand the reply.
+func TestRegression_TurnStop_AssistantMessageIsDurableBeforeTheTurnEnds(t *testing.T) {
+	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "ask"})))
 	f.wait()
 
-	var ledgerAtPublish string
-	cs.onStopTurn = func() {
-		handoff, err := f.usecase.AssembleHandoff(f.ctx, chatID)
-		require.NoError(t, err)
-		ledgerAtPublish = handoff
-	}
+	var atEnd string
+	var readErr error
+	f.ledger.Subscribe(func(id string, rows []ledger.Row, _ ledger.State) {
+		for _, r := range rows {
+			if id == chatID && r.Kind == ledger.KindTurnEnded {
+				atEnd, readErr = f.usecase.AssembleHandoff(f.ctx, chatID)
+			}
+		}
+	})
 
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
 		mustJSON(t, map[string]any{"last_assistant_message": "the answer"})))
 	f.wait()
 
-	assert.Contains(t, ledgerAtPublish, "assistant (claude): the answer",
-		"the assistant message must be readable BEFORE the turn-state change is published, "+
+	require.NoError(t, readErr)
+	assert.Contains(t, atEnd, "assistant (claude): the answer",
+		"the assistant message must be readable BEFORE the turn ends, "+
 			"or a client that reads once on that edge and stops polling never sees the reply")
 }
 
@@ -3564,9 +3205,7 @@ func TestRegression_TurnStop_EmptyMessageStillClosesTheTurn(t *testing.T) {
 		mustJSON(t, map[string]any{})))
 	f.wait()
 
-	chat, err := f.usecase.GetChat(f.ctx, chatID)
-	require.NoError(t, err)
-	assert.False(t, chat.Working, "an empty turn_stop must still close the turn")
+	assert.False(t, f.busy(t, chatID), "an empty turn_stop must still close the turn")
 }
 
 func TestListChatsByWorkspace_ReturnsOnlyThatWorkspacesChats(t *testing.T) {
@@ -3928,7 +3567,7 @@ func TestRegression_SubmitPromptWithStagedProviderAndInvalidModel_SwitchStaysCom
 	live, liveErr := f.liveRunnerFor(t, chatID)
 	require.NoError(t, liveErr)
 	t.Logf("after invalid-model SubmitPrompt with a staged switch: err=%v liveProvider=%s working=%v",
-		err, live.ProviderID, f.chat(t, chatID).Working)
+		err, live.ProviderID, f.busy(t, chatID))
 	assert.Equal(t, "codex", live.ProviderID,
 		"a switch committed by a call whose OWN selection step then fails should not silently "+
 			"strand the chat on the new provider with no prompt delivered and no way back but another switch")
@@ -4451,8 +4090,7 @@ func checkSessionInvariants(t *testing.T, f testFixture, w *sessionWalk, trail [
 	if _, ok := w.live(f); !ok {
 		assert.NotEmpty(t, agentusecase.ChatSession(f.usecase.RunnerUsecase, w.chatID).ExitReason,
 			"S2, after %v", trail)
-		assert.False(t, f.chat(t, w.chatID).Working, "S3, after %v", trail)
-		assert.False(t, agentusecase.TurnInFlight(f.usecase.own, w.chatID), "S3 in flight, after %v", trail)
+		assert.False(t, f.busy(t, w.chatID), "S3, after %v", trail)
 	}
 	assertTurnsStartOnTheLiveRunner(t, f, w.chatID, trail)
 }
@@ -4478,7 +4116,7 @@ func sessionOpNamed(name string) sessionOp {
 func TestSessionInvariants_HoldWhenIntentsRace(t *testing.T) {
 	for seed := uint64(1); seed <= 10; seed++ {
 		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
-			f := newFixture(t).withSwitchGrace(t, 10*time.Millisecond)
+			f := newFixture(t)
 			rng := rand.New(rand.NewPCG(seed, seed))
 			w := &sessionWalk{provider: "claude"}
 			var runnerID string
@@ -4531,7 +4169,7 @@ func TestSessionInvariants_AStopAfterADeliveredSendEndsItsRunnerAndSaysWhy(t *te
 	_, err = f.liveRunnerFor(t, chatID)
 	require.ErrorIs(t, err, agentusecase.ErrNoLiveRunner)
 	assert.Equal(t, domain.AgentExitStopped, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
-	assert.False(t, f.chat(t, chatID).Working)
+	assert.False(t, f.busy(t, chatID))
 }
 
 // The session invariants hold under any interleaving of what users, CLIs and
@@ -4540,7 +4178,7 @@ func TestSessionInvariants_AStopAfterADeliveredSendEndsItsRunnerAndSaysWhy(t *te
 func TestSessionInvariants_HoldUnderRandomInterleavings(t *testing.T) {
 	for seed := uint64(1); seed <= 10; seed++ {
 		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
-			f := newFixture(t).withSwitchGrace(t, 10*time.Millisecond)
+			f := newFixture(t)
 			rng := rand.New(rand.NewPCG(seed, seed))
 			w := &sessionWalk{provider: "claude"}
 			w.chatID, _ = f.spawn(t, w.provider)

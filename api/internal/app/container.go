@@ -336,7 +336,7 @@ func chatSnapshotEvent(f agentusecase.ChatSnapshotFrame) dto.AgentChatEvent {
 	}
 	conversation, _ := s.Conversation()
 	chat := dto.AgentChatDTOFrom(s.Chat, dto.ChatSnapshotRuntime(s.Live, s.Phase, s.Version,
-		s.TerminalWait, s.AttachedSessionID, s.Session, conversation), nil)
+		s.TerminalWait, s.AttachedSessionID, s.Session, conversation, s.Ledger.Busy), nil)
 	ev.Chat = &chat
 	return ev
 }

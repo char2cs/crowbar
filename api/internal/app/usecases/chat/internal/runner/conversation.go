@@ -86,14 +86,10 @@ func (rs *Runners) announce(ctx context.Context, chatID, providerID, sessionID s
 // chat will ever close or acknowledge them.
 func (rs *Runners) leaveSession(ctx context.Context, runner engineagents.Runner) {
 	chatID := runner.CurrentChatID
-	rs.inflightTurns.Complete(ctx, runner.ID, domain.AgentExitMoved)
 	rs.settlePrompts(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		return ledger.SettleCarried(st, runner.ID, false, ledger.ReasonNotAcknowledged)
+		return ledger.Leave(st, runner.ID)
 	})
-	rs.salvageStreamed(ctx, chatID, runner)
-	if err := rs.abandonTurn(ctx, chatID); err != nil {
-		slog.WarnContext(ctx, "agent: leave session: close its turn", "chat_id", chatID, "err", err)
-	}
+	rs.closeAbandonedTurn(ctx, chatID, runner)
 }
 
 // sessionOrigin is told the session an api connection's own driver opened or

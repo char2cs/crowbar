@@ -181,7 +181,7 @@ func TestRegression_DeleteChatMidTurn_DoesNotResurrectTheChat(t *testing.T) {
 	chatID, runnerID := f.spawn(t, "claude")
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "working on it"})))
-	require.True(t, f.chat(t, chatID).Working, "precondition: the chat is mid-turn when it is deleted")
+	require.True(t, f.busy(t, chatID), "precondition: the chat is mid-turn when it is deleted")
 
 	termSess := f.runner(t, runnerID).TerminalSession
 	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID))
@@ -919,7 +919,7 @@ func TestResumeClaude_InjectedPointer_StillOpensTheTurn(t *testing.T) {
 		mustJSON(t, map[string]any{"prompt": injected, "session_id": "sid-claude"})))
 	f.wait()
 
-	assert.True(t, f.chat(t, chatID).Working, "the CLI is answering the gap: the chat must read as working")
+	assert.True(t, f.busy(t, chatID), "the CLI is answering the gap: the chat must read as working")
 }
 
 // TestResumeClaude_UserRetypesThePointer_IsRecorded: the suppression is one-shot and
@@ -2061,7 +2061,7 @@ func TestSwitchProvider_MidTurn_ClosesTheOutgoingTurn(t *testing.T) {
 	require.NoError(t, <-hookDone)
 	f.wait()
 
-	assert.False(t, f.chat(t, chatID).Working,
+	assert.False(t, f.busy(t, chatID),
 		"the killed CLI's turn is over: it will never send a turn_stop")
 
 	// The incoming CLI can still open its own turn, and the outgoing one's belated PTY
@@ -2069,11 +2069,11 @@ func TestSwitchProvider_MidTurn_ClosesTheOutgoingTurn(t *testing.T) {
 	f.term.duringTerminate = nil
 	require.NoError(t, f.usecase.IngestHook(f.ctx, incoming, "codex", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "the new CLI is working"})))
-	require.True(t, f.chat(t, chatID).Working)
+	require.True(t, f.busy(t, chatID))
 
 	f.term.exit(t, "term-1")
 	f.wait()
-	assert.True(t, f.chat(t, chatID).Working,
+	assert.True(t, f.busy(t, chatID),
 		"the outgoing runner's exit must not close the incoming runner's turn")
 }
 

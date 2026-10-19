@@ -117,7 +117,6 @@ func newFixture(t *testing.T, lineage stubLineage) fixture {
 		Lineage:   lineage,
 		Home:      func() (string, error) { return home, nil },
 		Ledger:    chatLedger,
-		Work:      inflight.NewWork(),
 		Spawns:    inflight.NewGate(),
 
 		DefaultPermissionLevel: func(context.Context) (string, error) { return "guarded", nil },
@@ -188,7 +187,6 @@ func TestMintChat_CreatesAReadableDormantChat(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "ws-1", chat.WorkspaceID)
 	assert.Empty(t, chat.Title)
-	assert.False(t, chat.Working)
 }
 
 // TestRegression_MintChat_RecordsTheProviderItIsBornOn pins the durable write
@@ -540,7 +538,6 @@ func TestMintChat_SeedsThePermissionLevelFromTheCurrentGlobalDefault(t *testing.
 		Workspace: stubWorkspace{home: home, worktree: filepath.Join(home, "projects", "p1", "slug", "branch", "worktree")},
 		Lineage:   stubLineage{},
 		Home:      func() (string, error) { return home, nil },
-		Work:      inflight.NewWork(),
 		Spawns:    inflight.NewGate(),
 
 		DefaultPermissionLevel: func(context.Context) (string, error) { return "trusted", nil },
@@ -590,7 +587,6 @@ func TestMintChat_TheSeededFieldIsAFrozenSnapshotButChatSelectionTracksTheLiveDe
 		Workspace: stubWorkspace{home: home, worktree: filepath.Join(home, "projects", "p1", "slug", "branch", "worktree")},
 		Lineage:   stubLineage{},
 		Home:      func() (string, error) { return home, nil },
-		Work:      inflight.NewWork(),
 		Spawns:    inflight.NewGate(),
 
 		DefaultPermissionLevel: func(context.Context) (string, error) { return current, nil },

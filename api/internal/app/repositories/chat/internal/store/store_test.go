@@ -51,10 +51,8 @@ func newStore(
 	return ctx, st, ax
 }
 
-// openChat drives a chat through Create -> StartTurn -> SetTitle so the read model
-// holds a chat with real folded state to assert on. There is no segment lifecycle to
-// drive any more: a chat holds no process state at all (AgentSegment is deleted), so
-// the multi-event history a projection test needs is now turn state and a title.
+// openChat drives a chat through Create -> SetSelection -> SetTitle so the read
+// model holds a chat with real folded state to assert on.
 func openChat(
 	t *testing.T,
 	ctx context.Context,
@@ -67,7 +65,7 @@ func openChat(
 	})
 	require.NoError(t, err)
 
-	_, err = ax.SendWait(ctx, acCmds.StartTurn{ChatID: chatID, Now: time.Unix(2, 0).UTC()})
+	_, err = ax.SendWait(ctx, acCmds.SetSelection{ChatID: chatID, Model: "m1", Effort: "high"})
 	require.NoError(t, err)
 
 	_, err = ax.SendWait(ctx, acCmds.SetTitle{ChatID: chatID, Title: "title-" + chatID, Source: "user"})
@@ -83,8 +81,7 @@ func TestStore_GetChatReflectsFoldedState(t *testing.T) {
 	assert.Equal(t, "w1", got.WorkspaceID)
 	assert.Equal(t, "title-c1", got.Title)
 	assert.True(t, got.TitleLocked)
-	assert.True(t, got.Working, "the read model reflects every folded event, not just the last")
-	require.NotNil(t, got.CurrentTurnStarted)
+	assert.Equal(t, "m1", got.Model, "the read model reflects every folded event, not just the last")
 }
 
 func TestStore_GetChatMissingReturnsErrNotFound(t *testing.T) {
@@ -136,7 +133,7 @@ func TestStore_ReadRebuildsWhenModelEmptyButLogNonEmpty(t *testing.T) {
 	rebuilt, err := st.GetChat(ctx, "c1")
 	require.NoError(t, err)
 	assert.Equal(t, "title-c1", rebuilt.Title, "GetChat must Replay the id back from the event log")
-	assert.True(t, rebuilt.Working)
+	assert.Equal(t, "m1", rebuilt.Model)
 }
 
 // TestStore_GetChat_SelfHealsOnPerIDMiss proves the keyed GetChat's

@@ -22,13 +22,26 @@ func boundTestLedger(t *testing.T, provider, sessionID string) *ledgerstore.Stor
 	return l
 }
 
-// turnedTestLedger is boundTestLedger after a turn on the session.
+// turnedTestLedger is boundTestLedger after a finished turn on the session.
 func turnedTestLedger(t *testing.T, provider, sessionID string) *ledgerstore.Store {
 	t.Helper()
 	l := boundTestLedger(t, provider, sessionID)
 	row, err := ledger.NewRow(ledger.KindTurnStarted, "T-turned", "", ledger.TurnStarted{
 		Provider: provider, SessionID: sessionID,
 	})
+	require.NoError(t, err)
+	ended, err := ledger.NewRow(ledger.KindTurnEnded, "T-turned", "", ledger.TurnEnded{Status: string(ledger.TurnStatusDone)})
+	require.NoError(t, err)
+	_, _, err = l.Append(t.Context(), "chat-1", row, ended)
+	require.NoError(t, err)
+	return l
+}
+
+// runningTestLedger is a ledger whose chat-1 is running a turn.
+func runningTestLedger(t *testing.T) *ledgerstore.Store {
+	t.Helper()
+	l := newTestLedger(t)
+	row, err := ledger.NewRow(ledger.KindTurnStarted, "T-running", "", ledger.TurnStarted{RunnerID: "runner-1"})
 	require.NoError(t, err)
 	_, _, err = l.Append(t.Context(), "chat-1", row)
 	require.NoError(t, err)

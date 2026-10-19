@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
@@ -76,12 +75,10 @@ type Container struct {
 	mu       sync.Mutex
 	inflight map[string]int
 
-	// agentWorking maps a workspace id to the set of its agent chats currently
-	// mid-turn (00 agentic-engine spec §7.4). It is the agent-turn counterpart to
-	// inflight: enrichFrame ORs it into the derived Working overlay, and the
-	// registerAgentWorkingProjection folds turn_started/turn_stopped/forget into
-	// it and re-broadcasts the affected workspace. Guarded by mu.
-	agentWorking map[string]map[string]struct{}
+	// agentWorking maps a workspace id to its busy agent chats; agentBroadcasts
+	// is each workspace's rebroadcast worker (agent_working.go). Guarded by mu.
+	agentWorking    map[string]map[string]struct{}
+	agentBroadcasts map[string]bool
 
 	// drainWG tracks every post-commit reactor goroutine wireCallbacks registered
 	// (the async delete reactor, and — once wired — the reconcile-on-open tasks) so
@@ -132,8 +129,8 @@ func New(
 ) (*Container, error) {
 	c := &Container{
 		hub: h, git: git, inflight: map[string]int{},
-		agentWorking: map[string]map[string]struct{}{},
-		axWorkspace:  axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat,
+		agentWorking: map[string]map[string]struct{}{}, agentBroadcasts: map[string]bool{},
+		axWorkspace: axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat,
 		axAgentActivity: axAgentActivity,
 		axNode:          axNode,
 	}
@@ -177,8 +174,8 @@ func New(
 		return nil, fmt.Errorf("repositories: agent chat event store: %w", err)
 	}
 	c.AgentChat = agentChat
-	if err := c.registerAgentWorkingProjection(); err != nil {
-		return nil, fmt.Errorf("repositories: agent working projection: %w", err)
+	if _, err := axAgentChat.OnForget(c.forgetAgentWorking); err != nil {
+		return nil, fmt.Errorf("repositories: agent working overlay: %w", err)
 	}
 
 	// agentactivity: the conversation record, over its OWN event log, snapshot
@@ -618,144 +615,6 @@ func (c *Container) rebroadcast(
 		return
 	}
 	c.broadcastWorkspace(ctx, ws)
-}
-
-// registerAgentWorkingProjection subscribes a THIRD projection on axAgentChat
-// (alongside the store + hub projections built in NewEventSourced): it re-derives
-// the per-workspace Working overlay from agent live-state events (00 §7.4), and a
-// Forget of a working chat clears it too (so a delete never wedges the spinner on).
-// Each transition re-broadcasts the affected workspace through the same enrichFrame
-// path the inflight overlay uses, so the FE spinner on the workspace tree + context
-// pill + tiles tracks live agent activity. The in-memory set is authoritative (not a
-// read-model query), so it never races the store projection.
-//
-// The overlay MIRRORS the aggregate's own Working (evt.Aggregate.Working) rather than
-// re-deriving "busy" from the event kind. The fold — a turn being open OR async work
-// being in flight (domain.Chat.Working) — then lives in exactly ONE place, the
-// write side, and this cannot drift from what the chat row and REST reads report. It is
-// also why turn_stopped is NOT read as "idle" here: a chat waiting on a background task
-// ends its turn but stays Working, and this reads that Working straight off the event.
-// The two kinds listed are the only ones that can CHANGE it; every other agentchat event
-// (created, title_set, ...) leaves it alone and must not cost a rebroadcast — see
-// setAgentTurn on why a needless one is expensive.
-//
-// The closing event always arrives. A chat's turn is opened and closed by its hooks, and
-// each turn_stop restates the async-work level; the ONE case where the closing hook never
-// comes — the CLI dying — is covered by the runner-exit reconcile
-// (the agent runner concern's reconcileRunnerExit → closeAbandonedTurn), which issues an AbandonTurn
-// that closes the turn AND zeroes the async-work level, since neither can outlive the
-// process that announced them.
-//
-// Boot note (in-memory overlay, empty on restart): agentWorking starts EMPTY on daemon
-// boot, so a chat that was mid-turn when the daemon stopped shows idle until its next
-// turn_started. Showing idle is the TRUTHFUL answer — every agent PTY dies with the
-// daemon, so nothing is running — but note the chat AGGREGATE can still read Working=true
-// until something closes that turn, so this overlay and a REST read of the chat can
-// disagree until the runner boot reconcile lands (the next task in this series). It is
-// consistent with the FE chat-row working map's accepted default-idle-on-load.
-func (c *Container) registerAgentWorkingProjection() error {
-	if _, err := c.axAgentChat.Subscribe(asynx.Topic("agentchat.*"),
-		func(ctx context.Context, evt asynxModels.Event[domain.Chat]) {
-			wsID := evt.Aggregate.WorkspaceID
-			if wsID == "" {
-				return
-			}
-			var flipped bool
-			switch agentEventKind(evt.EventName) {
-			case "turn_started", "turn_stopped":
-				flipped = c.setAgentTurn(wsID, evt.AggregateID, evt.Aggregate.Working)
-			default:
-				return
-			}
-			if flipped {
-				c.rebroadcast(ctx, wsID)
-			}
-		}); err != nil {
-		return fmt.Errorf("subscribe: %w", err)
-	}
-	if _, err := c.axAgentChat.OnForget(
-		func(ctx context.Context, evt asynxModels.Event[domain.Chat]) {
-			wsID := evt.Aggregate.WorkspaceID
-			if wsID == "" {
-				return
-			}
-			if c.setAgentTurn(wsID, evt.AggregateID, false) {
-				c.rebroadcast(ctx, wsID)
-			}
-		},
-	); err != nil {
-		return fmt.Errorf("onforget: %w", err)
-	}
-	return nil
-}
-
-// setAgentTurn adds/removes chatID from the workspace's mid-turn set under mu and
-// reports whether the set's EMPTINESS flipped (empty↔non-empty) — i.e. whether the
-// workspace's Working overlay actually changed value.
-//
-// Only that transition may trigger a rebroadcast. Working is a single bool derived
-// from `len(set) > 0`, so a second chat starting a turn in a workspace that is
-// already working, or the first of two concurrent chats stopping, changes NOTHING
-// observable — yet rebroadcasting anyway is far from free: broadcastWorkspace →
-// enrichFrame → eligibilityFor runs ListWorkspacesInRepo AND git.WouldMergeConflicts,
-// a git subprocess (one branch-tip read, then a `git merge-tree --write-tree` per unseen pair) taken under the per-clone git
-// mutex. Firing that on every turn_started/turn_stopped made N concurrently-working
-// chats in one workspace cost 2N git subprocesses per round on the shared lock —
-// the exact contention shape behind this repo's history of git-mutex hangs.
-//
-// The transition is computed while holding mu; the caller rebroadcasts only AFTER
-// this returns, so the (potentially slow, git-touching) broadcast still never runs
-// under the lock.
-func (c *Container) setAgentTurn(wsID, chatID string, working bool) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	before := len(c.agentWorking[wsID]) > 0
-	if working {
-		c.addAgentTurn(wsID, chatID)
-	} else {
-		c.clearAgentTurn(wsID, chatID)
-	}
-	return before != (len(c.agentWorking[wsID]) > 0)
-}
-
-// addAgentTurn marks chatID mid-turn in wsID's set. Callers hold mu.
-func (c *Container) addAgentTurn(wsID, chatID string) {
-	set := c.agentWorking[wsID]
-	if set == nil {
-		set = map[string]struct{}{}
-		c.agentWorking[wsID] = set
-	}
-	set[chatID] = struct{}{}
-}
-
-// clearAgentTurn drops chatID from wsID's set, pruning the set once it empties so
-// the map cannot grow without bound across a long-lived daemon. Callers hold mu.
-func (c *Container) clearAgentTurn(wsID, chatID string) {
-	set := c.agentWorking[wsID]
-	if set == nil {
-		return
-	}
-	delete(set, chatID)
-	if len(set) == 0 {
-		delete(c.agentWorking, wsID)
-	}
-}
-
-// agentWorkingFor reports whether the workspace has any agent chat mid-turn.
-func (c *Container) agentWorkingFor(wsID string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return len(c.agentWorking[wsID]) > 0
-}
-
-// agentEventKind extracts <kind> from an agentchat EventName ("agentchat.<kind>.<id>").
-func agentEventKind(eventName string) string {
-	rest := strings.TrimPrefix(eventName, "agentchat.")
-	kind, _, found := strings.Cut(rest, ".")
-	if !found {
-		return rest
-	}
-	return kind
 }
 
 // eligibilityFor resolves the merge-eligibility overlay (incl. the predicted

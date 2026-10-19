@@ -1,9 +1,7 @@
 package chat_test
 
 import (
-	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,21 +31,20 @@ func TestSnapshot_ASpawnedChatIsLiveAndAFrameSaysSo(t *testing.T) {
 	assert.Equal(t, runnerID, last.Live.ID)
 }
 
-// Working is the aggregate's own fold carried on the event — not the read
-// model, which may not have caught up when the frame is built.
-func TestSnapshot_WorkingFollowsTheTurnAndVersionsOnlyGrow(t *testing.T) {
+// Busy is the ledger's fold as of the frame.
+func TestSnapshot_BusyFollowsTheTurnAndVersionsOnlyGrow(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 
 	prompt(t, f, runnerID, "claude", "think hard")
 	busy, err := f.usecase.ChatSnapshot(f.ctx, chatID)
 	require.NoError(t, err)
-	assert.True(t, busy.Chat.Working)
+	assert.True(t, busy.Ledger.Busy)
 
 	turn(t, f, runnerID, "claude", "done")
 	idle, err := f.usecase.ChatSnapshot(f.ctx, chatID)
 	require.NoError(t, err)
-	assert.False(t, idle.Chat.Working)
+	assert.False(t, idle.Ledger.Busy)
 	assert.Greater(t, idle.Version, busy.Version)
 
 	var last int64
@@ -78,34 +75,24 @@ func TestSnapshot_StopEndsDormant(t *testing.T) {
 	last := frames[len(frames)-1].Snapshot
 	assert.Nil(t, last.Live)
 	assert.Equal(t, agentusecase.ChatPhaseDormant, last.Phase)
-	assert.False(t, last.Chat.Working)
+	assert.False(t, last.Ledger.Busy)
 }
 
-// A switch parked on the outgoing turn reports "switching" while it waits —
-// the pane renders the phase, it does not infer it.
+// A switch parked on an unacknowledged prompt reports "switching" while it
+// waits — the pane renders the phase, it does not infer it.
 func TestSnapshot_AParkedSwitchReportsSwitching(t *testing.T) {
-	f := newFixture(t).withSwitchGrace(t, time.Hour)
-	chatID, runnerID := f.spawn(t, "claude")
-	prompt(t, f, runnerID, "claude", "think hard")
-
-	parked := parkedOnTurn(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		_, err := f.usecase.SwitchProvider(ctx, chatID, "codex")
-		done <- err
-	}()
-	<-parked
+	f, chatID, carrier, done := switchParkedOnAPendingPrompt(t)
 
 	snap, err := f.usecase.ChatSnapshot(f.ctx, chatID)
 	require.NoError(t, err)
 	assert.Equal(t, agentusecase.ChatPhaseSwitching, snap.Phase)
 
-	cancel()
-	<-done
+	require.NoError(t, f.usecase.IngestHook(f.ctx, carrier, "claude", "idle", mustJSON(t,
+		map[string]any{"message": "Claude is waiting for your input"})))
+	require.NoError(t, awaitSwitch(t, done).err)
 	after, err := f.usecase.ChatSnapshot(f.ctx, chatID)
 	require.NoError(t, err)
-	assert.Equal(t, agentusecase.ChatPhaseLive, after.Phase, "an abandoned switch leaves the chat as it was")
+	assert.Equal(t, agentusecase.ChatPhaseLive, after.Phase, "the switch that went ahead leaves the chat live")
 	assert.Greater(t, after.Version, snap.Version)
 }
 

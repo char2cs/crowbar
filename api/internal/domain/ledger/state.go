@@ -19,6 +19,9 @@ type State struct {
 	hasLive  bool
 	lastExit RunnerExit // the newest runner_exited, while hasExit
 	hasExit  bool
+
+	turn    turnState // the newest main-scope turn, while hasTurn
+	hasTurn bool
 }
 
 // Fold replays rows, in seq order, into chatID's State.
@@ -42,8 +45,12 @@ func (s *State) Apply(r Row) {
 	case KindTurnStarted:
 		if body, err := DecodeBody[TurnStarted](r); err == nil {
 			s.advance(body.RequestID, func(p *Prompt) { p.Status = PromptStatusDelivered })
-			s.markTurned(body.Provider, body.SessionID)
+			s.applyTurnStarted(r, body)
 		}
+	case KindTurnEnded:
+		s.applyTurnEnded(r)
+	case KindTurnFailed:
+		s.applyTurnFailed(r)
 	case KindPromptSettled:
 		if body, err := DecodeBody[PromptSettled](r); err == nil {
 			s.advance(body.RequestID, func(p *Prompt) {
@@ -104,8 +111,11 @@ func (s State) Clone() State {
 func (s State) Head() int64 { return s.head }
 
 // HasOpenWork reports whether something in the chat is still unfinished: a
-// prompt awaiting the provider, or a runner that has not exited.
-func (s State) HasOpenWork() bool { return len(s.pending) > 0 || s.hasLive }
+// prompt awaiting the provider, a running turn, or a runner that has not exited.
+func (s State) HasOpenWork() bool {
+	_, running := s.RunningTurn()
+	return len(s.pending) > 0 || running || s.hasLive
+}
 
 // PendingPrompts are the crowbar prompts not yet acknowledged, oldest first.
 func (s State) PendingPrompts() []Prompt {

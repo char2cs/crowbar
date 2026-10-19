@@ -24,6 +24,7 @@ func TestValidate_TheSessionRulesRefuseAnUnusableSession(t *testing.T) {
 		"refused exit 0":    {refused("0", `["gone"]`), "session.refused_exit", "session.refused"},
 		"no needles":        {refused("1", `[]`), "session.refused_needles", "session.refused"},
 		"an empty needle":   {refused("1", `[""]`), "session.refused_needles", "session.refused"},
+		"unknown persists":  {"session:\n  persists: turn_middle\n", "session.persists", "session.persists"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -33,6 +34,19 @@ func TestValidate_TheSessionRulesRefuseAnUnusableSession(t *testing.T) {
 			assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
 			assert.Positive(t, f.Line)
 		})
+	}
+}
+
+func TestValidate_AnAPIProvidersRefusalNamesItsRPCCode(t *testing.T) {
+	api := "id: api\nspawn:\n  cmd: api\n  interactive_required: true\nruntime:\n  transport: api\n" +
+		"  api: { protocol: jsonrpc2, serve: [api, serve] }\n"
+	f := findingFor(t, descriptorcheck.Validate([]byte(api+refused("1", `["gone"]`))), "session.refused_rpc")
+	assert.Equal(t, "session.refused", f.Path)
+	assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
+
+	withCode := "session:\n  resume: { arg: \"--resume {id}\" }\n  refused: { exit_code: 1, rpc_code: -32600, needles: [gone] }\n"
+	for _, f := range descriptorcheck.Validate([]byte(api + withCode)).Findings {
+		assert.NotEqual(t, "session.refused_rpc", f.Rule)
 	}
 }
 

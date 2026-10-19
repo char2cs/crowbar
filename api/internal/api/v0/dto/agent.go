@@ -53,6 +53,8 @@ type ChatRuntime struct {
 	// orders every answer about this chat, and the lifecycle phase it is in.
 	Version int64
 	Phase   string
+	// Working is the chat's ledger saying it is busy.
+	Working bool
 }
 
 // ChatSnapshotRuntime assembles the runtime half of a chat snapshot.
@@ -64,8 +66,10 @@ func ChatSnapshotRuntime(
 	attachedSessionID string,
 	session domain.AgentSession,
 	conversation ledger.Conversation,
+	working bool,
 ) ChatRuntime {
 	return ChatRuntime{
+		Working:           working,
 		LiveRunner:        live,
 		TerminalWait:      wait,
 		AttachedSessionID: attachedSessionID,
@@ -115,10 +119,7 @@ func agentConversationDTOFrom(c ledger.Conversation) *AgentConversationDTO {
 // AgentTerminalWaitDTO says a chat's CLI is blocked on a prompt Crowbar has no
 // channel to answer, so the only way past it is the terminal.
 //
-// It is the COMPLEMENT of AgentChoiceDTO. A choice is a prompt that reached
-// Crowbar over a hook and can be answered in the chat; this is one that did not
-// and cannot, which used to render as nothing at all — no spinner, no message, no
-// error, a pane that looked dead over a live process.
+// It is the COMPLEMENT of AgentChoiceDTO, a prompt answerable in the chat.
 //
 // Kind is Crowbar's own name for the prompt, and it is OMITTED whenever the daemon
 // recognised only that something is up. A client with no kind says exactly that
@@ -181,9 +182,8 @@ type AgentChatDTO struct {
 	// bring back. Empty only on a chat no runner has ever been placed on.
 	ActiveProviderID string `json:"activeProviderId"`
 
-	// Working is the chat aggregate's folded busy answer. It is included in the
-	// snapshot as well as lifecycle frames so reconnect can reseed truth without
-	// guessing from the last event kind.
+	// Working is the chat's ledger saying it is busy. It rides the snapshot so
+	// reconnect can reseed truth without guessing from the last event kind.
 	Working bool `json:"working"`
 
 	// TerminalWait is present exactly while this chat's CLI is blocked on a
@@ -280,7 +280,7 @@ func AgentChatDTOFrom(
 		Type:             c.Type,
 		Surface:          c.Surface,
 		ActiveProviderID: activeProviderID(c, rt),
-		Working:          c.Working,
+		Working:          rt.Working,
 		ParentID:         c.ParentID,
 		Order:            c.Order,
 		Model:            c.Model,

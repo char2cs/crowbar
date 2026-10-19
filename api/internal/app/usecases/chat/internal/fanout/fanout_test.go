@@ -32,26 +32,25 @@ func owner(t *testing.T) (*snapshot.Snapshots, *[]snapshot.Frame) {
 	return s, &frames
 }
 
-// A chat event reaches the owner with the aggregate it carried: the frame's
-// working is the command-side fold, not a re-read.
+// A chat event reaches the owner with the aggregate it carried, not a re-read.
 func TestFanout_ChatEventBecomesASnapshotFrame(t *testing.T) {
 	s, frames := owner(t)
 	fanout.New(s).ChatWatch()(agentchat.ChatEvent{
-		ChatID: "chat-1", WorkspaceID: "ws-1", Kind: "turn_started", Working: true,
-		Chat: domain.Chat{WorkspaceID: "ws-1", Working: true}, Version: 3,
+		ChatID: "chat-1", WorkspaceID: "ws-1", Kind: "title_set",
+		Chat: domain.Chat{WorkspaceID: "ws-1", Title: "t"}, Version: 3,
 	})
 
 	require.Len(t, *frames, 1)
 	f := (*frames)[0]
-	assert.Equal(t, "turn_started", f.Kind)
+	assert.Equal(t, "title_set", f.Kind)
 	assert.Equal(t, "chat-1", f.Snapshot.Chat.ID)
-	assert.True(t, f.Snapshot.Chat.Working)
+	assert.Equal(t, "t", f.Snapshot.Chat.Title)
 }
 
 func TestFanout_ForgottenChatIsADeleteFrame(t *testing.T) {
 	s, frames := owner(t)
 	fanout.New(s).ChatWatch()(agentchat.ChatEvent{
-		ChatID: "chat-9", WorkspaceID: "ws-1", Kind: "deleted", Working: true, Forgotten: true,
+		ChatID: "chat-9", WorkspaceID: "ws-1", Kind: "deleted", Forgotten: true,
 	})
 
 	require.Len(t, *frames, 1)

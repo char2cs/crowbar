@@ -116,7 +116,7 @@ func TestSnapshots_EveryChangeCarriesALargerVersion(t *testing.T) {
 
 	first, err := s.Get(ctx, "c1")
 	require.NoError(t, err)
-	s.ApplyChat(ctx, domain.Chat{ID: "c1", Working: true}, 2, "turn_started", false)
+	s.ApplyChat(ctx, domain.Chat{ID: "c1", Title: "t"}, 2, "title_set", false)
 	started := rec.last(t).Snapshot
 	rt.place(liveR1)
 	s.ApplyRunner(ctx, "c1", "r1", "started")
@@ -124,7 +124,7 @@ func TestSnapshots_EveryChangeCarriesALargerVersion(t *testing.T) {
 
 	assert.Greater(t, started.Version, first.Version)
 	assert.Greater(t, placed.Version, started.Version)
-	assert.True(t, placed.Chat.Working, "the chat half comes from the chat event, not re-read")
+	assert.Equal(t, "t", placed.Chat.Title, "the chat half comes from the chat event, not re-read")
 	require.NotNil(t, placed.Live)
 	assert.Equal(t, "r1", placed.Live.ID)
 
@@ -133,20 +133,19 @@ func TestSnapshots_EveryChangeCarriesALargerVersion(t *testing.T) {
 	assert.Equal(t, placed.Version, again.Version, "a read never advances the version")
 }
 
-// The root of the "dead pane over a live CLI" class: a frame must never
-// describe a chat older than an event already announced. The chat's working
-// flag is the command-side fold carried on the event, so a read model that has
-// not caught up cannot put an older answer under a newer version.
+// A frame must never describe a chat older than an event already announced:
+// a read model that has not caught up cannot put an older answer under a newer
+// version.
 func TestSnapshots_AFrameNeverLagsTheEventItAnnounces(t *testing.T) {
 	ctx := context.Background()
-	rd := &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", Working: false}}}
+	rd := &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", Title: "old"}}}
 	s, rec, _ := newOwner(t, rd)
 
-	s.ApplyChat(ctx, domain.Chat{ID: "c1", Working: true}, 5, "turn_started", false)
-	assert.True(t, rec.last(t).Snapshot.Chat.Working)
+	s.ApplyChat(ctx, domain.Chat{ID: "c1", Title: "new"}, 5, "title_set", false)
+	assert.Equal(t, "new", rec.last(t).Snapshot.Chat.Title)
 
-	s.ApplyChat(ctx, domain.Chat{ID: "c1", Working: false}, 4, "late", false)
-	assert.True(t, rec.last(t).Snapshot.Chat.Working, "an older aggregate version never overwrites a newer one")
+	s.ApplyChat(ctx, domain.Chat{ID: "c1", Title: "old"}, 4, "late", false)
+	assert.Equal(t, "new", rec.last(t).Snapshot.Chat.Title, "an older aggregate version never overwrites a newer one")
 }
 
 // A runner's start and exit reach its chat under their own kinds, naming the
@@ -215,7 +214,8 @@ func TestSnapshots_AnEventLandingAfterTheDeleteDoesNotResurrectTheChat(t *testin
 	s.ApplyChat(ctx, domain.Chat{ID: "c1"}, 3, "deleted", true)
 	deleted := len(rec.frames)
 
-	s.ApplyChat(ctx, domain.Chat{ID: "c1", Working: false}, 2, "turn_stopped", false)
+	s.ApplyChat(ctx, domain.Chat{ID: "c1"}, 2, "title_set", false)
+	s.ApplyLedger(ctx, "c1", snapshot.LedgerFacts{}, "turn_stopped")
 	s.ApplyRunner(ctx, "c1", "r1", "exited")
 	s.Touch(ctx, "c1")
 

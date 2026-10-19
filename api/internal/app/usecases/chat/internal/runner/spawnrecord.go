@@ -24,7 +24,7 @@ import (
 func (rs *Runners) recordRunner(ctx context.Context, r engineagents.Runner, resumeID string, create bool) error {
 	chatID, now := r.CurrentChatID, time.Now()
 	if create {
-		created, err := rs.chats.Create(ctx, agentchat.CreateInput{
+		_, err := rs.chats.Create(ctx, agentchat.CreateInput{
 			ID:          chatID,
 			WorkspaceID: r.WorkspaceID,
 			Type:        domain.ChatTypeChat,
@@ -35,7 +35,6 @@ func (rs *Runners) recordRunner(ctx context.Context, r engineagents.Runner, resu
 			return rs.teardownAfterPersistFailure(ctx, chatID, r.ID, r.TerminalSession,
 				fmt.Errorf("agent: spawn runner: create chat: %w", err))
 		}
-		rs.work.Set(chatID, created.Working)
 		rs.seedPermissionLevel(ctx, chatID)
 	}
 	rs.live.update(r.ID, func(live *engineagents.Runner) {
@@ -76,7 +75,7 @@ func (rs *Runners) recordSpawnFailure(ctx context.Context, chatID, runnerID stri
 		return
 	}
 	// Claimed first, under the turn-start gate: a turn a hook opened on it closes.
-	rs.claimEnd(ctx, runnerID)
+	rs.claimEnd(runnerID)
 	rs.live.remove(runnerID)
 	if create || errors.Is(*err, context.Canceled) {
 		return

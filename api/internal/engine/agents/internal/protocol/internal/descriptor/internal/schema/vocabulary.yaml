@@ -28,17 +28,15 @@ events:
     direction: in
     required: []
     # subagent_id set means the prompt was fired INSIDE a subagent: not the user's.
-    optional: [session_id, message, subagent_id]
+    # turn_id names the turn, so a late close of another turn is told apart.
+    optional: [session_id, message, subagent_id, turn_id]
 
   turn_stop:
     direction: in
     required: [message]
-    # turn_id is OPTIONAL and unused by Go's own field-by-field reads — it
-    # exists so a provider whose turn-closing wire event is a sum type (codex:
-    # turn/completed also wraps a compact_start round trip, with no other
-    # field distinguishing the two — confirmed live, see codex.yaml's
-    # compact_pre) can correlate against a turn armed by a DIFFERENT
-    # canonical event and be skipped instead of misread as an ordinary reply.
+    # turn_id names the turn this closes: a close naming another turn is late
+    # and closes nothing. It also lets a compaction's own turn envelope (codex:
+    # turn/completed wraps a compact_start round trip) be skipped.
     optional: [session_id, async_work, effort, turn_id, turn_status]
     extras: [status_map]
 

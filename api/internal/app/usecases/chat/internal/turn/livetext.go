@@ -43,7 +43,6 @@ const (
 type liveText struct {
 	mu     sync.Mutex
 	byChat map[string]map[string]map[string]*textBlock
-	lastAt map[string]time.Time
 }
 
 type textBlock struct {
@@ -53,7 +52,6 @@ type textBlock struct {
 func newLiveText() *liveText {
 	return &liveText{
 		byChat: make(map[string]map[string]map[string]*textBlock),
-		lastAt: make(map[string]time.Time),
 	}
 }
 
@@ -64,8 +62,6 @@ func (b *liveText) observe(chatID, kind, blockID string, index int, text string)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-
-	b.lastAt[chatID] = time.Now()
 
 	kinds, ok := b.byChat[chatID]
 	if !ok {
@@ -115,7 +111,6 @@ func (b *liveText) replace(chatID, kind, blockID, text string) string {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.lastAt[chatID] = time.Now()
 	kinds := b.byChat[chatID]
 	if kinds == nil {
 		kinds = make(map[string]map[string]*textBlock)
@@ -172,7 +167,6 @@ func (b *liveText) forget(chatID string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	delete(b.byChat, chatID)
-	delete(b.lastAt, chatID)
 }
 
 func (t *Turns) recordLiveReplacement(
@@ -189,23 +183,6 @@ func (t *Turns) recordLiveReplacement(
 	}
 	text := t.live.replace(chat.ID, kind, blockID, ev.Delta.Text)
 	t.feed.MessageDelta(chat.ID, chat.WorkspaceID, blockID, text, kind, time.Time{})
-}
-
-// sinceLastDelta reports when this chat last produced ANY live text — thinking,
-// a running tool's output, or a complete diff snapshot.
-//
-// It exists for the quiet sweep, which asks "has the CLI gone silent?" and could
-// only see the answer stream. Reasoning and tool output never touch a message's
-// LastAt (nothing here is durable), so a provider that streams a paragraph and
-// then thinks for a minute read as dead at 30s and had its live turn abandoned.
-func (b *liveText) sinceLastDelta(chatID string) (time.Time, bool) {
-	if b == nil {
-		return time.Time{}, false
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	at, ok := b.lastAt[chatID]
-	return at, ok
 }
 
 // recordLiveText publishes one non-answer text stream as it arrives.

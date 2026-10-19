@@ -59,16 +59,25 @@ func (s *State) applyRunnerExited(r Row) {
 	s.hasExit = true
 }
 
-// Exit is a runner's end as rows: its runner_exited, then a settle, for
-// settleReason, of every prompt it still carried.
-func Exit(st State, e RunnerExited, settleReason string) ([]Row, error) {
+// Exit is a runner's end as rows: the turn it was running interrupted, its
+// runner_exited, then a settle of every prompt it still carried, both for
+// reason.
+func Exit(st State, e RunnerExited, reason string) ([]Row, error) {
+	var rows []Row
+	if t, ok := st.RunningTurn(); ok && t.RunnerID == e.RunnerID {
+		ended, err := EndTurn(st, TurnStatusInterrupted, reason, 0, "")
+		if err != nil {
+			return nil, err
+		}
+		rows = ended
+	}
 	row, err := NewRow(KindRunnerExited, "", "", e)
 	if err != nil {
 		return nil, err
 	}
-	settled, err := SettleCarried(st, e.RunnerID, false, settleReason)
+	settled, err := SettleCarried(st, e.RunnerID, false, reason)
 	if err != nil {
 		return nil, err
 	}
-	return append([]Row{row}, settled...), nil
+	return append(append(rows, row), settled...), nil
 }

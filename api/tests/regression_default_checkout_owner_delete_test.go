@@ -55,3 +55,30 @@ func TestRegression_DeletingTheDefaultCheckoutOwnerKeepsTheCheckout(t *testing.T
 		assert.NoError(t, err, "the main checkout directory must still exist")
 	}
 }
+
+// A project's home has no repo, so it is no repo's default checkout; deleting
+// the only chat it holds must still leave the project its home.
+func TestRegression_DeletingAHomesOnlyChatKeepsTheHome(t *testing.T) {
+	h := newHarness(t)
+	projectID := createProjectForHome(t, h)
+	homeBase := "/v0/projects/" + projectID + "/home"
+	var home workspaceDTO
+	h.get(homeBase, &home)
+	require.NotEmpty(t, home.LocalPath)
+	h.Quiesce()
+	var chats []agentChatDTO
+	h.get(homeBase+"/chats", &chats)
+	require.Len(t, chats, 1, "precondition: the home holds exactly one chat")
+
+	resp := h.raw(http.MethodDelete, homeBase+"/chats/"+chats[0].ID, nil, http.StatusAccepted)
+	require.NoError(t, resp.Body.Close())
+	h.QuiesceReactors()
+	h.Quiesce()
+
+	var after workspaceDTO
+	h.get(homeBase, &after)
+	assert.Equal(t, home.ID, after.ID, "the project still has its home")
+	assert.NotEqual(t, "deleted", after.Status)
+	_, err := os.Stat(home.LocalPath)
+	assert.NoError(t, err, "the home directory must still exist")
+}

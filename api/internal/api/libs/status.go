@@ -248,6 +248,7 @@ var conflictSentinels = []error{
 	workspace.ErrParentLocked,
 	workspace.ErrWorkspaceLocked,
 	workspace.ErrWorkspaceIsDefault,
+	workspace.ErrWorkspaceIsHome,
 	workspace.ErrParentUnprovisioned,
 	project.ErrRepoAlreadyImported,
 	workspace.ErrRebaseNonLeaf,

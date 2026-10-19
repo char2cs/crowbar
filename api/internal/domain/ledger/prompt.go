@@ -44,6 +44,8 @@ type TurnStarted struct {
 	RunnerID       string `json:"runnerId,omitempty"`
 	Provider       string `json:"provider,omitempty"`
 	SessionID      string `json:"sessionId,omitempty"`
+	// Persists is when the provider's CLI writes the session: PersistsTurnStart or PersistsTurnEnd.
+	Persists string `json:"persists,omitempty"`
 }
 
 // PromptSettled is the body of a prompt_settled row: a crowbar prompt ended

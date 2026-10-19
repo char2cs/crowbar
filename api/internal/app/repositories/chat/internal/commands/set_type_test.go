@@ -31,7 +31,6 @@ func TestSetType_PreservesEverythingButTheKind(t *testing.T) {
 		TitleLocked:     true,
 		Order:           5,
 		PermissionLevel: "guarded",
-		LedgerCursor:    12,
 	}
 	updated := commands.SetType{ID: "chat-1", Type: domain.ChatTypeBranch}.EmitEvent(chat)
 
@@ -43,7 +42,6 @@ func TestSetType_PreservesEverythingButTheKind(t *testing.T) {
 	assert.True(t, updated.TitleLocked)
 	assert.Equal(t, 5, updated.Order)
 	assert.Equal(t, "guarded", updated.PermissionLevel)
-	assert.Equal(t, 12, updated.LedgerCursor)
 }
 
 func TestSetType_Validate_RefusesAChatThatDoesNotExist(t *testing.T) {

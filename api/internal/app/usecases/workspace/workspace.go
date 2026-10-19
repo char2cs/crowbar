@@ -39,9 +39,7 @@ type (
 var WithTerminalReaper = hierarchy.WithTerminalReaper
 
 // WithNodes wires the Node surface every workspace this usecase creates mints
-// its own position row through — see hierarchy.WithNodes for the full
-// contract, including why it degrades gracefully rather than failing the
-// create when unwired.
+// its own position row through; see hierarchy.WithNodes.
 var WithNodes = hierarchy.WithNodes
 
 // The hierarchy usecase's sentinel errors, re-exported here for the same
@@ -54,6 +52,7 @@ var (
 	ErrSelfParent                   = hierarchy.ErrSelfParent
 	ErrWorkspaceLocked              = hierarchy.ErrWorkspaceLocked
 	ErrWorkspaceIsDefault           = hierarchy.ErrWorkspaceIsDefault
+	ErrWorkspaceIsHome              = hierarchy.ErrWorkspaceIsHome
 	ErrBranchWorkspaceExists        = hierarchy.ErrBranchWorkspaceExists
 	ErrParentUnprovisioned          = hierarchy.ErrParentUnprovisioned
 	ErrRenameUnmanagedWorkspace     = hierarchy.ErrRenameUnmanagedWorkspace

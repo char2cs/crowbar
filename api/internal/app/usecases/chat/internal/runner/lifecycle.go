@@ -8,8 +8,6 @@ import (
 	"log/slog"
 	"time"
 
-	asynxModels "github.com/char2cs/asynx/models"
-
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
@@ -24,19 +22,22 @@ const (
 	frameExited  = "exited"
 )
 
-// closeAbandonedTurn closes the turn runner left open on chatID. An error
-// means the turn may still be open, so the caller must not record the exit:
-// the ledger then keeps the runner live, and the next boot closes both.
+// closeAbandonedTurn closes, in the conversation record, the turn runner left
+// open on chatID: its streamed text is kept and its open tool calls end. The
+// ledger closes the turn itself in the runner's exit commit.
 func (rs *Runners) closeAbandonedTurn(
 	ctx context.Context,
 	chatID string,
 	runner agents.Runner,
-) error {
+) {
 	if chatID == "" {
-		return nil
+		return
 	}
 	rs.salvageStreamed(ctx, chatID, runner)
-	return rs.abandonTurn(ctx, chatID)
+	if err := rs.activity.Abandon(ctx, chatID, time.Now()); err != nil {
+		slog.WarnContext(ctx, "agent: close abandoned turn: conversation record (best-effort, continuing)",
+			"chat_id", chatID, "runner_id", runner.ID, "err", err)
+	}
 }
 
 func (rs *Runners) salvageStreamed(ctx context.Context, chatID string, runner agents.Runner) {
@@ -47,25 +48,6 @@ func (rs *Runners) salvageStreamed(ctx context.Context, chatID string, runner ag
 		slog.WarnContext(ctx, "agent: close abandoned turn: salvage streamed message (best-effort, continuing)",
 			"chat_id", chatID, "runner_id", runner.ID, "err", err)
 	}
-}
-
-// abandonTurn closes chatID's open turn, whatever its CLI last reported. The
-// conversation record goes first, or its open tool calls render as running.
-func (rs *Runners) abandonTurn(ctx context.Context, chatID string) error {
-	var errs []error
-	if err := rs.activity.Abandon(ctx, chatID, time.Now()); err != nil {
-		errs = append(errs, fmt.Errorf("agent: abandon conversation record: %w", err))
-	}
-	abandoned, err := rs.chats.AbandonTurn(ctx, chatID, time.Now())
-	switch {
-	case err == nil:
-		rs.work.Set(chatID, abandoned.Working)
-	case errors.Is(err, asynxModels.ErrValidation), errors.Is(err, agentchat.ErrNotFound):
-		rs.work.Set(chatID, false) // no turn is open
-	default:
-		errs = append(errs, fmt.Errorf("agent: abandon turn: %w", err))
-	}
-	return errors.Join(errs...)
 }
 
 // ReconcileRunnersOnBoot ends, as daemon_restart, every runner the ledger
@@ -126,9 +108,7 @@ func (rs *Runners) reconcileBootRunner(ctx context.Context, chatID string) error
 	}
 	runner := agents.Runner{ID: dead.RunnerID, ProviderID: dead.Provider, CurrentChatID: chatID}
 	rs.reapCrashOrphanRunnerTmp(ctx, runner)
-	if err := rs.closeAbandonedTurn(ctx, chatID, runner); err != nil {
-		return fmt.Errorf("agent: boot reconcile: chat %s: %w", chatID, err)
-	}
+	rs.closeAbandonedTurn(ctx, chatID, runner)
 	_, _, err = rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
 		if live, ok := st.LiveRunner(); !ok || live.RunnerID != dead.RunnerID {
 			return nil, nil
@@ -151,15 +131,15 @@ func (rs *Runners) Shutdown() {
 	rs.apiConns.closeAll()
 }
 
-// reconcileRunnerExit records that runnerID's process is gone: its turn is
-// closed, then one ledger commit names why and settles what it carried, then
-// the chat is freed. The first exit signal to claim the runner records it.
+// reconcileRunnerExit records that runnerID's process is gone: one ledger
+// commit ends its turn, names why and settles what it carried, then the chat
+// is freed. The first exit signal to claim the runner records it.
 func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
 	ctx = context.WithoutCancel(ctx)
 	rs.agents.ForgetRunner(runnerID)
 	rs.surfaces.drop(runnerID)
 	rs.answers.ReleaseRunner(ctx, runnerID)
-	entry, ok := rs.claimEnd(ctx, runnerID)
+	entry, ok := rs.claimEnd(runnerID)
 	if !ok {
 		return
 	}
@@ -169,12 +149,7 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
 	}
 	chatID := entry.runner.CurrentChatID
 	defer rs.announceRunner(ctx, chatID, runnerID, frameExited)
-	if err := rs.closeAbandonedTurn(ctx, chatID, entry.runner); err != nil {
-		slog.ErrorContext(ctx, "agent: close the turn of an ended runner; the next boot records its exit",
-			"chat_id", chatID, "runner_id", runnerID, "err", err)
-		rs.settleCarriedPrompts(ctx, chatID, runnerID)
-		return
-	}
+	rs.closeAbandonedTurn(ctx, chatID, entry.runner)
 	reason := cmp.Or(entry.cause, domain.AgentExitExited)
 	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
 		return ledger.Exit(st, ledger.RunnerExited{RunnerID: runnerID, Reason: reason, ExitCode: entry.code},
@@ -228,8 +203,6 @@ func (rs *Runners) RetireChatRunners(
 				"chat_id", chatID, "runner_id", live.ID, "err", err)
 		}
 	}
-	rs.work.Forget(chatID)
-	rs.inflightTurns.Forget(chatID)
 	if rs.turns != nil {
 		rs.turns.ForgetChat(chatID)
 	}

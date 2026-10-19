@@ -39,14 +39,13 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 type chatFolderUsecase struct {
 	chats      Chats
 	agent      Agent
-	work       *inflight.Work
+	busy       Busy
 	workspaces WorkspaceGitStatus
 	reaper     WorkspaceReaper
 	holders    WorkspaceHolders
@@ -82,10 +81,8 @@ func WithRepoAnnouncer(fn RepoAnnouncer) Option {
 // usecase is the only thing that knows how to erase one, mint one, or start a
 // CLI on one.
 //
-// work is the SAME in-flight tracker the agent usecase's own turn and runner
-// components observe, not a second one: a move or delete refuses over the
-// subtree it takes by asking it directly, so the answer can never lag behind
-// what a hook just announced.
+// busy answers from each chat's ledger whether it is working: a move or
+// delete refuses over a subtree that is.
 //
 // workspaces is the tree's read seam onto the workspace layer; reaper is
 // DeleteChat's, and it is REQUIRED rather than optional for the reason
@@ -105,7 +102,7 @@ func WithRepoAnnouncer(fn RepoAnnouncer) Option {
 func New(
 	chats Chats,
 	agent Agent,
-	work *inflight.Work,
+	busy Busy,
 	workspaces WorkspaceGitStatus,
 	reaper WorkspaceReaper,
 	holders WorkspaceHolders,
@@ -116,7 +113,7 @@ func New(
 	u := &chatFolderUsecase{
 		chats:      chats,
 		agent:      agent,
-		work:       work,
+		busy:       busy,
 		workspaces: workspaces,
 		reaper:     reaper,
 		holders:    holders,
@@ -403,7 +400,7 @@ func (u *chatFolderUsecase) Move(
 	if mErr := u.checkFolderMove(ctx, snapshot, f.RepoID, f.ID, destination); mErr != nil {
 		return domain.Chat{}, nil, mErr
 	}
-	if wErr := guardNotWorking(snapshot.subtreeIDs(f.ID), u.work); wErr != nil {
+	if wErr := guardNotWorking(ctx, snapshot.subtreeIDs(f.ID), u.busy); wErr != nil {
 		return domain.Chat{}, nil, wErr
 	}
 	u.replace(snapshot, f.ID, current.ParentID, destination, in.Order, false)
@@ -435,7 +432,7 @@ func (u *chatFolderUsecase) Delete(
 	if err != nil {
 		return nil, err
 	}
-	if wErr := guardNotWorking(snapshot.subtreeIDs(f.ID), u.work); wErr != nil {
+	if wErr := guardNotWorking(ctx, snapshot.subtreeIDs(f.ID), u.busy); wErr != nil {
 		return nil, wErr
 	}
 	if err := u.folders.Delete(ctx, f.ID); err != nil {

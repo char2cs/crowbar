@@ -36,8 +36,25 @@ func sessionRules(doc document, d *spec.Descriptor) []Finding {
 			"a refused resume is never recognised: a chat keeps a session the CLI cannot load",
 			"declare session.refused (exit_code, needles) with the line the CLI prints when it cannot resume"))
 	}
+	if s.Persists != "" && s.Persists != "turn_start" && s.Persists != "turn_end" {
+		out = append(out, doc.finding("session.persists", SeverityError, "session.persists",
+			"session.persists is "+s.Persists, `write "turn_start" or "turn_end": when the CLI has written a session it can resume`))
+	}
+	return append(out, refusalRules(doc, d)...)
+}
+
+// refusalRules check that a refused resume is recognised on the channel the
+// provider speaks.
+func refusalRules(doc document, d *spec.Descriptor) []Finding {
+	s := d.Session
 	if s.Refused == nil {
-		return out
+		return nil
+	}
+	var out []Finding
+	if d.Runtime.Transport == string(spec.ChannelAPI) && s.Refused.RPCCode == 0 {
+		out = append(out, doc.finding("session.refused_rpc", SeverityError, "session.refused",
+			"an api provider's refused resume names no rpc_code: a refusal over the connection is never recognised",
+			"set session.refused.rpc_code to the JSON-RPC error code the server answers a lost session with"))
 	}
 	if s.Refused.ExitCode == 0 {
 		out = append(out, doc.finding("session.refused_exit", SeverityError, "session.refused",

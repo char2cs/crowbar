@@ -129,11 +129,8 @@ func (p *Projector) applyTurn(ctx context.Context, delta *domain.ActivityDelta) 
 // abandonRunningSubagents is gated on delta.Abandoned, unlike
 // AbandonRunningTools above: a subagent is deliberately allowed to keep
 // running past its OWN turn's ordinary close (codex hands off and ends its
-// turn right there — see turn.go's restateAsyncWork doc, proven by
-// TestRegression_CodexTurnStopWithOpenSubagent_KeepsChatWorking). Only a
-// delta that gives up on the turn's work entirely — the CLI process is gone,
-// or it produced nothing — may treat a still-open subagent as abandoned
-// rather than legitimately in flight.
+// turn right there). Only a delta that gives up on the turn's work entirely
+// may treat a still-open subagent as abandoned.
 func (p *Projector) abandonRunningSubagents(ctx context.Context, delta *domain.ActivityDelta) error {
 	if !delta.Abandoned {
 		return nil
@@ -145,10 +142,8 @@ func (p *Projector) abandonRunningSubagents(ctx context.Context, delta *domain.A
 	if closed == 0 {
 		return nil
 	}
-	// A leak: a subagent still open when the CHAT is given up on entirely means
-	// its subagent_post never arrived — crashed, killed mid-run, or dropped —
-	// and without this call OpenWork would have seen it as open forever, chat-
-	// wide, well past this turn. See AbandonRunningSubagents' own doc.
+	// A subagent still open when the chat is given up on never sent its
+	// subagent_post: crashed, killed mid-run, or dropped.
 	slog.WarnContext(ctx, "agentactivity projection: closed subagent(s) their own turn never heard finish",
 		"chat_id", delta.Turn.ChatID, "turn_id", delta.Turn.ID, "count", closed)
 	return nil

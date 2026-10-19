@@ -30,10 +30,10 @@ func (rs *Runners) SwitchProvider(
 // wiring either caller to SwitchProvider instead compiles and deadlocks that
 // goroutine on its own gate forever.
 //
-// park is the gate's park context: the two waits below park on it, so a Stop
-// that preempts the gate abandons them with nothing destroyed (ErrStopped).
-// Everything after the waits runs on ctx and is bounded, so a preemption never
-// leaves a switch half-done.
+// park is the gate's park context: the pending-prompt wait parks on it, so a
+// Stop that preempts the gate abandons it with nothing destroyed (ErrStopped).
+// Everything after the wait runs on ctx, so a preemption never leaves a switch
+// half-done.
 func (rs *Runners) switchProviderLocked(
 	ctx context.Context,
 	park context.Context,
@@ -59,9 +59,13 @@ func (rs *Runners) switchProviderLocked(
 		if err != nil {
 			return "", fmt.Errorf("agent: switch provider: chat: %w", err)
 		}
+		// A running turn refuses the switch: quitting the CLI would cost its answer.
+		if err := rs.requireNotBusy(ctx, chatID); err != nil {
+			return "", err
+		}
 		// A prompt the provider has not acknowledged yet would be lost with the CLI
 		// carrying it, so the switch waits until the ledger records its turn or its
-		// settle — the same state as a turn in flight one moment earlier.
+		// settle.
 		if err := rs.awaitNoPendingPrompt(park, chatID); err != nil {
 			return "", parkErr(park, err)
 		}
@@ -86,22 +90,6 @@ func (rs *Runners) switchProviderLocked(
 		if err != nil {
 			return "", fmt.Errorf("agent: switch provider: resolve descriptor: %w", err)
 		}
-		// FINISH THE TURN FIRST. The user can click Switch while the agent is mid-answer, and
-		// quitting it there costs the answer twice over: the reply in flight is never written,
-		// and — because a CLI killed mid-turn never flushes its native transcript at all — the
-		// conversation the next `--resume` names does not exist. That is not a theory; it is
-		// the "No conversation found with session ID" the user reported (see awaitTurnComplete).
-		//
-		// It runs BEFORE every read below, so a switch that is parked is holding nothing but its
-		// chat's spawn gate: no aggregate read in progress, no db connection, no half-assembled
-		// handoff to go stale while it waits. And it runs before the terminate, so the handoff
-		// assembled below contains the turn we waited for.
-		//
-		// Bounded, not open-ended: see awaitTurnOrForce.
-		if err := rs.awaitTurnOrForce(ctx, park, chatID); err != nil {
-			return "", parkErr(park, err)
-		}
-
 		launch, err := rs.planLaunch(ctx, chatID, d)
 		if err != nil {
 			return "", fmt.Errorf("agent: switch provider: %w", err)
@@ -217,8 +205,8 @@ func (rs *Runners) endIdleOutgoing(ctx context.Context, chat domain.Chat) (retry
 	return retry, err
 }
 
-// outgoingBusy reports whether chat has work its outgoing CLI must finish
-// before the switch may quit it.
+// outgoingBusy reports whether a prompt pending since the first checks must
+// be waited for, and refuses a turn that began since.
 func (rs *Runners) outgoingBusy(
 	ctx context.Context,
 	chat domain.Chat,
@@ -227,44 +215,45 @@ func (rs *Runners) outgoingBusy(
 	if err != nil {
 		return false, fmt.Errorf("agent: switch provider: %w", err)
 	}
-	if len(st.PendingPrompts()) > 0 || len(rs.inflightTurns.Inflight(chat.ID)) > 0 {
-		// A prompt was steered or began after the waits. Wait for it, then rebuild
-		// the handoff from the now-newer record before trying again.
+	if len(st.PendingPrompts()) > 0 {
 		return true, nil
 	}
-	working, err := rs.turns.ChatWorking(ctx, chat.ID)
-	if err != nil {
-		return false, fmt.Errorf("agent: switch provider: final chat work check: %w", err)
-	}
-	if working {
-		// A turn_stop may have handed work to the background after the first await
-		// released its runner-scoped turn. Keep the outgoing TUI alive until a later
-		// hook authoritatively restates the async-work level as zero.
-		//
-		// ONLY WHILE THERE IS ONE TO KEEP ALIVE. On a DORMANT chat this wait is
-		// unsatisfiable by construction: there is no CLI left to finish the work and
-		// none to send the hook that would restate it, so the caller's `continue`
-		// spins forever — roughly one lap per awaitTurnOrForce deadline, holding this
-		// chat's spawn gate the entire time. That gate is a plain mutex with no
-		// context on it, so every later resume, prompt and switch on the chat queues
-		// behind the loop and never answers at all: no response, and no access-log
-		// line either, because the log is written on completion.
-		//
-		// ResumeChat enters here for exactly this shape — a dormant chat whose
-		// durable `working` outlived the CLI that set it (a SIGKILL mid-background
-		// work sends no final stop; see closeAbandonedTurn). So the stale flag
-		// stranded the one call whose whole job is to bring that chat back, and the
-		// pane that called it sat on its "Resuming this chat…" spinner until the user
-		// abandoned the chat. A dormant chat's stale flag is not a reason to wait; it
-		// is the thing the resume is here to clear.
-		if _, live := rs.live.byChat(chat.ID); live {
-			return true, nil
-		}
-		slog.WarnContext(ctx,
-			"agent: switch provider: dormant chat still flagged working; proceeding rather than waiting for a hook that cannot arrive",
-			"chat_id", chat.ID)
+	if st.Busy() {
+		return false, ErrPromptBusy
 	}
 	return false, nil
+}
+
+// WaitingForPendingPromptLog is logged the instant a switch parks on a prompt
+// the provider has not acknowledged, so a test can block on a real signal.
+const WaitingForPendingPromptLog = "agent: switch provider: waiting for the pending prompt"
+
+// awaitNoPendingPrompt parks until the chat holds no prompt the provider has
+// yet to acknowledge: quitting the CLI carrying one would lose it. Only the
+// ledger's next commit to the chat, or the end of park, releases it.
+func (rs *Runners) awaitNoPendingPrompt(park context.Context, chatID string) error {
+	logged := false
+	for {
+		if _, err := rs.settleOrphanedPrompts(park, chatID); err != nil {
+			return fmt.Errorf("agent: switch provider: %w", err)
+		}
+		st, changed, err := rs.ledger.Watch(park, chatID)
+		if err != nil {
+			return fmt.Errorf("agent: switch provider: watch ledger: %w", err)
+		}
+		if len(st.PendingPrompts()) == 0 {
+			return nil
+		}
+		if !logged {
+			slog.InfoContext(park, WaitingForPendingPromptLog, "chat_id", chatID)
+			logged = true
+		}
+		select {
+		case <-changed:
+		case <-park.Done():
+			return fmt.Errorf("agent: switch provider: waiting for the pending prompt: %w", park.Err())
+		}
+	}
 }
 
 // leftAt is where the gap handed to a resumed sessionID starts: its last turn

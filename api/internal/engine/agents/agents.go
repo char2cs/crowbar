@@ -125,9 +125,8 @@ type Agent interface {
 	PromptSteps(resume bool) ([]InjectStep, error)
 
 	// PromptLeadingSigils is presentation.prompt_submit.leading_sigils: the
-	// characters this CLI reads as a control gesture rather than as text when
-	// one of them opens a message, and the escape that makes one text again.
-	// Empty chars for a provider that declares none.
+	// characters that open a control gesture rather than text, and the escape
+	// that makes one text again. Empty chars when none are declared.
 	PromptLeadingSigils() (chars []string, escape string)
 
 	// PromptSteer renders text as the turn-end hook stdout that delivers it
@@ -141,6 +140,8 @@ type Agent interface {
 	SessionAssignArg() (string, bool)
 	// RefusedResume is the line by which the CLI refused a resume, even wrapped.
 	RefusedResume(exitCode int, output string) (line string, refused bool)
+	// SessionPersists is session.persists: "turn_start" (or "") or "turn_end".
+	SessionPersists() string
 
 	// ParseHook turns one raw provider payload into a canonical event, reading
 	// the field map channel selects: the channel-scoped block the delivery
@@ -166,12 +167,9 @@ type Agent interface {
 	// capability: a provider that declares the event cannot be asked to do it.
 	OutboundCall(canonical string, values map[string]string) (wire string, payload map[string]string, ok bool)
 
-	// StartAPIConn dials this provider's API socket (already resolved by the
-	// caller — the same TemplateCtx machinery SpawnPlan uses expands {socket})
-	// and completes its declared handshake. Returns ErrAPITransportNotDeclared
-	// for a hooks-only descriptor — never (nil, nil). origin (nil-able) is told
-	// which sessions the connection goes on to produce itself — see
-	// APISessionOrigin.
+	// StartAPIConn dials this provider's resolved API socket and completes its
+	// declared handshake; ErrAPITransportNotDeclared for a hooks-only descriptor,
+	// never (nil, nil). origin (nil-able) learns the sessions the conn produces.
 	StartAPIConn(ctx context.Context, socketPath string, origin APISessionOrigin) (*APIConn, error)
 
 	// APIServeArgv and APIAttachArgv are runtime.api.serve / .attach, already

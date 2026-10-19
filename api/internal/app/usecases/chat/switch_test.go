@@ -16,22 +16,29 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// TestRegression_SwitchInsideTheUnacknowledgedPromptWindowWaitsRatherThanRefusing
-// is the 409 reproduced twice on 2026-09-23: a switch sent between SubmitPrompt's
-// 200 and the provider's user_prompt hook, while Working still read false. The
-// switch waits for the ledger to acknowledge the prompt, then carries it over.
-func TestRegression_SwitchInsideTheUnacknowledgedPromptWindowWaitsRatherThanRefusing(t *testing.T) {
+// TestRegression_SwitchInsideTheUnacknowledgedPromptWindowWaitsForTheAnswer is
+// the 409 reproduced twice on 2026-09-23: a switch sent between SubmitPrompt's 200
+// and the provider's user_prompt hook, while the chat still read idle. The switch
+// waits for the ledger to decide the prompt: acknowledged, it opened a turn, and a
+// switch while a turn runs is refused.
+func TestRegression_SwitchInsideTheUnacknowledgedPromptWindowWaitsForTheAnswer(t *testing.T) {
 	f, chatID, carrier, done := switchParkedOnAPendingPrompt(t)
 
 	prompt(t, f, carrier, "claude", "reply with only: SEED")
-	turn(t, f, carrier, "claude", "SEED")
 
 	got := awaitSwitch(t, done)
-	require.NoError(t, got.err, "the switch completes once the prompt it waited for is acknowledged")
-	assertSwitchedToCodex(t, f, chatID, got.runnerID)
+	require.ErrorIs(t, got.err, agentusecase.ErrPromptBusy, "the acknowledged prompt's turn is running")
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, carrier, live.ID)
+
+	turn(t, f, carrier, "claude", "SEED")
+	switched, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
+	assertSwitchedToCodex(t, f, chatID, switched)
 	incoming := f.term.calls[f.term.callCount()-1]
 	assert.Contains(t, strings.Join(incoming.argv, "\x00"), "SEED",
-		"the handoff carries the turn the switch waited for")
+		"the handoff carries the turn that ran")
 }
 
 // A prompt the provider goes idle without taking is settled, and the settle
@@ -75,7 +82,7 @@ func switchParkedOnAPendingPrompt(t *testing.T) (testFixture, string, string, <-
 	require.NoError(t, err)
 	require.True(t, agentusecase.HasPendingPrompt(f.usecase.RunnerUsecase, f.ctx, chatID),
 		"precondition: the prompt is recorded and unacknowledged")
-	require.False(t, f.chat(t, chatID).Working, "precondition: Working is set by the hook that has not arrived")
+	require.False(t, f.busy(t, chatID), "precondition: Working is set by the hook that has not arrived")
 	carrier, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
 
@@ -113,12 +120,6 @@ func assertSwitchedToCodex(t *testing.T, f testFixture, chatID, switched string)
 	require.NoError(t, err)
 	assert.Equal(t, switched, live.ID)
 	assert.Equal(t, "codex", live.ProviderID)
-}
-
-// parkedOnTurn is closed the moment a switch parks on an in-flight turn.
-func parkedOnTurn(t *testing.T) <-chan struct{} {
-	t.Helper()
-	return parkedOn(t, agentusecase.WaitingForTurnLog)
 }
 
 // parkedOn is closed when the usecase logs message, which it does immediately
