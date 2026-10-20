@@ -30,6 +30,7 @@ func TestRegression_CodexToolCallsCarryATargetAndAResult(t *testing.T) {
 		wantTarget string
 		wantResult string
 		wantDurMS  int
+		wantServer string
 	}{
 		{
 			variant: "commandExecution",
@@ -49,12 +50,12 @@ func TestRegression_CodexToolCallsCarryATargetAndAResult(t *testing.T) {
 			wantName: "fileChange", wantTarget: "/w/main.go",
 		},
 		{
-			// An MCP call's NAME is the tool; the server is the target.
+			// An MCP call's NAME is the tool and the server is its own field, not a target.
 			variant: "mcpToolCall",
 			raw: `{"item":{"type":"mcpToolCall","id":"m1","server":"crowbar","tool":"get_chat_log",
 			       "status":"completed","arguments":{},"result":{"content":[]},"durationMs":88},
 			       "threadId":"t","turnId":"tn"}`,
-			wantName: "get_chat_log", wantTarget: "crowbar", wantDurMS: 88,
+			wantName: "get_chat_log", wantServer: "crowbar", wantDurMS: 88,
 		},
 		{
 			variant: "webSearch",
@@ -72,6 +73,7 @@ func TestRegression_CodexToolCallsCarryATargetAndAResult(t *testing.T) {
 			assert.Equal(t, tc.wantName, ev.Tool.Name)
 			assert.Equal(t, tc.wantTarget, ev.Tool.Target,
 				"an unmapped target renders the tool as a bare type name")
+			assert.Equal(t, tc.wantServer, ev.Tool.MCPServer)
 			assert.Equal(t, tc.wantDurMS, ev.Tool.DurationMS)
 			if tc.wantResult != "" {
 				assert.Equal(t, tc.wantResult, string(ev.Tool.Result))

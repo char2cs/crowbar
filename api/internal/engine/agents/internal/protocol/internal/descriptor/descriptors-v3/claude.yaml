@@ -109,7 +109,10 @@ events:
       text:       delta
 
   tool_pre:
-    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute, Grep: search, Glob: search, WebFetch: fetch, WebSearch: search }
+    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute,
+      Grep: search, Glob: search, WebFetch: fetch, WebSearch: search, Agent: subagent, Task: subagent,
+      TaskCreate: plan, TaskUpdate: plan, TaskList: plan, TaskGet: plan, ToolSearch: meta,
+      SubagentHandback: meta, AskUserQuestion: ask }
     required: [session_id, tool_id, tool_name]
     in: PreToolUse
     map:
@@ -118,14 +121,22 @@ events:
       tool_id:     tool_use_id
       tool_name:   tool_name
       tool_kind:   tool_name
-      tool_target: { first_present: [tool_input.file_path, tool_input.command, tool_input.url, tool_input.pattern] }
+      tool_target: { first_present: [tool_input.file_path, tool_input.notebook_path, tool_input.command,
+                                     tool_input.url, tool_input.pattern, tool_input.query, tool_input.taskId] }
+      tool_title:  { first_present: [tool_input.description, tool_input.subject] }
+      mcp_server:  mcp_server.name
+      mcp_tool:    { from: tool_name, pattern: '^mcp__.+?__(?P<v>.+)$' }
       tool_input:  tool_input
       edit_before: tool_input.old_string
       edit_after:  { first_present: [tool_input.new_string, tool_input.content] }
-    fixtures: [PreToolUse.json, PreToolUse.Edit.json, PreToolUse.Subagent.json]
+    fixtures: [PreToolUse.json, PreToolUse.Edit.json, PreToolUse.Subagent.json, PreToolUse.Bash.json,
+               PreToolUse.mcp.json, PreToolUse.TaskUpdate.json]
 
   tool_post:
-    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute, Grep: search, Glob: search, WebFetch: fetch, WebSearch: search }
+    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute,
+      Grep: search, Glob: search, WebFetch: fetch, WebSearch: search, Agent: subagent, Task: subagent,
+      TaskCreate: plan, TaskUpdate: plan, TaskList: plan, TaskGet: plan, ToolSearch: meta,
+      SubagentHandback: meta, AskUserQuestion: ask }
     required: [session_id, tool_id, tool_name]
     in: PostToolUse
     map:
@@ -134,18 +145,27 @@ events:
       tool_id:     tool_use_id
       tool_name:   tool_name
       tool_kind:   tool_name
-      tool_target: { first_present: [tool_input.file_path, tool_input.command, tool_input.url, tool_input.pattern] }
+      tool_target: { first_present: [tool_input.file_path, tool_input.notebook_path, tool_input.command,
+                                     tool_input.url, tool_input.pattern, tool_input.query, tool_input.taskId] }
+      tool_title:  { first_present: [tool_input.description, tool_input.subject] }
+      mcp_server:  mcp_server.name
+      mcp_tool:    { from: tool_name, pattern: '^mcp__.+?__(?P<v>.+)$' }
       tool_input:  tool_input
       tool_result: tool_response
       duration_ms: duration_ms
     patch: { items: tool_response.structuredPatch, old_start: oldStart, new_start: newStart, lines: lines }
-    fixtures: [PostToolUse.json, PostToolUse.Edit.json, PostToolUse.Subagent.json]
+    fixtures: [PostToolUse.json, PostToolUse.Edit.json, PostToolUse.Subagent.json, PostToolUse.Bash.json,
+               PostToolUse.mcp.json]
 
   # Fires INSTEAD OF PostToolUse, not alongside it — mapping only tool_post
   # leaves a failed tool open until the turn-close sweep abandons it.
   tool_fail:
-    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute, Grep: search, Glob: search, WebFetch: fetch, WebSearch: search }
+    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute,
+      Grep: search, Glob: search, WebFetch: fetch, WebSearch: search, Agent: subagent, Task: subagent,
+      TaskCreate: plan, TaskUpdate: plan, TaskList: plan, TaskGet: plan, ToolSearch: meta,
+      SubagentHandback: meta, AskUserQuestion: ask }
     required: [session_id, tool_id, tool_name]
+    # No fixture: the replay would need a recorded subagent failure for subagent_id.
     unverified: true
     in: PostToolUseFailure
     map:
@@ -154,11 +174,16 @@ events:
       tool_id:     tool_use_id
       tool_name:   tool_name
       tool_kind:   tool_name
-      tool_target: { first_present: [tool_input.file_path, tool_input.command, tool_input.url, tool_input.pattern] }
+      tool_target: { first_present: [tool_input.file_path, tool_input.notebook_path, tool_input.command,
+                                     tool_input.url, tool_input.pattern, tool_input.query, tool_input.taskId] }
+      tool_title:  { first_present: [tool_input.description, tool_input.subject] }
+      mcp_server:  mcp_server.name
+      mcp_tool:    { from: tool_name, pattern: '^mcp__.+?__(?P<v>.+)$' }
       tool_input:  tool_input
       tool_result: { first_present: [tool_response, error] }
       tool_error:  error
       duration_ms: duration_ms
+      interrupted: is_interrupt
 
   subagent_pre:
     required: [session_id, subagent_id]
@@ -234,8 +259,10 @@ events:
       message:                tool_name
       prompt_id:              prompt_id
       tool_name:              tool_name
-      tool_target:            { first_present: [tool_input.file_path, tool_input.command, tool_input.url, tool_input.pattern] }
-      tool_input:              tool_input
+      tool_target:            { first_present: [tool_input.file_path, tool_input.notebook_path, tool_input.command,
+                                                tool_input.url, tool_input.pattern, tool_input.query, tool_input.taskId] }
+      tool_input:             tool_input
+      mcp_server:             mcp_server.name
       suggestions:            permission_suggestions
       # claude's own machine name for a broader grant, never shown as itself.
       suggestion_type:        type

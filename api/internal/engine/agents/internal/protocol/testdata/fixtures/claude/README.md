@@ -103,3 +103,12 @@ scrubbed as above. A subagent's own tool hooks carry `agent_id`/`agent_type`;
 the main agent's never do. The harness hands a subagent's report back through
 UserPromptSubmit wrapped in `<agent-message from=...>` — no `source` field
 distinguishes it from a human prompt.
+
+## Tool and MCP captures (claude 2.1.302, 2026-10-16)
+
+`PreToolUse.{Bash,mcp,TaskUpdate}.json` and `PostToolUse.{Bash,mcp}.json` are VERBATIM from
+interactive sessions that called Bash, an MCP server's tool and the task tools. Scrubbed as
+above, plus `session_id`/`prompt_id` replaced by placeholders and the owner name in
+`ls -la` output by `user`. A PostToolUseFailure and a PermissionRequest were captured in the
+same runs but are not replayed here: both events map row-level and subagent paths no single
+capture can resolve, so v3_test.go carries the trimmed payload it needs instead.

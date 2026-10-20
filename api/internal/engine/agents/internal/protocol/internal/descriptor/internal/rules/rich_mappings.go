@@ -13,6 +13,7 @@ func (richMappings) Name() string { return "rich event mappings" }
 func (richMappings) Check(d *spec.Descriptor) error {
 	kinds := map[string]struct{}{
 		"read": {}, "edit": {}, "execute": {}, "search": {}, "fetch": {}, "other": {},
+		"mcp": {}, "subagent": {}, "plan": {}, "meta": {}, "ask": {},
 	}
 	statuses := map[string]struct{}{
 		"pending": {}, "active": {}, "running": {}, "completed": {}, "ok": {},

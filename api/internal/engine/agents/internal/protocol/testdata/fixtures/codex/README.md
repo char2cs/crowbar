@@ -36,8 +36,9 @@ capture exists; it is a genuine codex Stop hook payload all the same, from the
 CLI's own internal memory-consolidation session). Only the paths were already
 shortened, by that test file's own author.
 
-No recorded hooks-transport payload exists for PreToolUse, PostToolUse,
-PreCompact, or PostCompact — tool_pre/tool_post/compact_pre/compact_post's own
+`PreToolUse.json`, `PreToolUse.mcp.json` and `PreToolUse.spawnAgent.json` are VERBATIM
+codex 0.158.0 captures (a shell command, an MCP call, a spawned agent). No recorded
+hooks-transport payload exists for PostToolUse, PreCompact, or PostCompact — their own
 `hooks:` blocks in codex.yaml are UNVERIFIED against real traffic; their field
 names are carried over unchanged from the pre-channel-split `||` fallback
 terms. Capturing them needs a real `codex` CLI driven through an actual tool
@@ -65,3 +66,10 @@ recorded "method") so the fix is proven against the real captures here, not
 skipped. See spec.ChannelBlock.ByWire's doc comment, and apidriver_test.go's
 TestStart_ByWireOverlayNamesTheToolOnThePermissionCard for the live,
 over-the-wire proof.
+
+## Tool captures (codex 0.158.0, 2026-10-16)
+
+`item_completed.commandExecution.read.json`, `item_completed.commandExecutionFailed.json`,
+`item_started.mcpToolCall.json` and `item_completed.mcpToolCall.json` are live app-server
+captures, paths mapped to `/ws`, thread and turn ids replaced by placeholders. The
+`-schema` twins stay until a live failed MCP call and a live web search are captured.

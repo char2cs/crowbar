@@ -163,13 +163,11 @@ events:
   # shape every other tool call already has. See subagent_pre below for what this
   # does NOT cover.
   #
-  # tool_target is what the transcript actually renders (`name · target`); with it
-  # unmapped every codex tool call read as the bare word "commandExecution". Each
-  # variant keeps its target in its own field, hence the first_present chain:
-  #   commandExecution -> command       fileChange  -> changes[0].path
-  #   webSearch        -> query         mcpToolCall -> server (its tool is the NAME)
-  #   collabAgentToolCall -> the prompt handed to spawnAgent, or (wait/closeAgent/
-  #     sendInput/resumeAgent, which carry no prompt) the receiving thread's id.
+  # tool_target is what the transcript renders (`name · target`); each variant keeps it in
+  # its own field, hence the first_present chain: commandExecution -> its first command
+  # action's command (the shell wrapper stripped, and that action's type is the kind),
+  # else the raw command line; webSearch -> query, fileChange -> changes[0].path.
+  # A spawn's prompt is its title.
   # changes[0] is an INDEX selector: FileUpdateChange.kind is an object
   # ({"type":"update"}), so no [field=value] selector can address that list.
   # receiverThreadIds[0] is the same INDEX selector, for the same reason: the list
@@ -185,7 +183,8 @@ events:
   # does, but no fixture of either exists to prove it — see tool_post below,
   # where the same field IS proven.
   tool_pre:
-    kind_map: { commandExecution: execute, fileChange: edit, mcpToolCall: other, webSearch: search, dynamicToolCall: other, collabAgentToolCall: other }
+    kind_map: { read: read, listFiles: search, search: search, unknown: execute, commandExecution: execute,
+      fileChange: edit, mcpToolCall: mcp, webSearch: search, dynamicToolCall: other, collabAgentToolCall: subagent }
     locations: { items: item.changes, path: path }
     diff_files: { items: item.changes, path: path, diff: diff }
     required: [session_id, tool_id, tool_name]
@@ -197,28 +196,31 @@ events:
         session_id:  threadId
         tool_id:     item.id
         tool_name:   { first_present: [item.tool, item.type] }
-        tool_kind:   item.type
-        tool_target: { first_present: [item.command, item.query, item.server, "item.changes[0].path", item.prompt, "item.receiverThreadIds[0]"] }
+        tool_kind:   { first_present: ["item.commandActions[0].type", item.type] }
+        tool_target: { first_present: ["item.commandActions[0].command", item.query, "item.changes[0].path", item.command] }
+        tool_title:  { first_present: [item.prompt] }
+        mcp_server:  item.server
+        mcp_tool:    item.tool
         tool_input:  item
       fixtures:
         - item_started.commandExecution.json
         - item_started.collabAgentToolCall.json
         - item_started.fileChange-schema.json
+        - item_started.mcpToolCall.json
         - item_started.mcpToolCall-schema.json
         - item_started.webSearch-schema.json
-    # hooks.PreToolUse is wired unconditionally (config_injection below), so
-    # this channel genuinely fires, but no recorded PreToolUse payload exists
-    # in this repo — field names carried over unchanged from the pre-
-    # migration `|| tool_input.file_path` fallback; UNVERIFIED against real
-    # traffic.
+    # hooks.PreToolUse is wired unconditionally (config_injection below). Its tool_name
+    # for an MCP call is mcp__<server>__<tool> with no server field of its own.
     hooks:
-      unverified: true
       in: PreToolUse
       map:
         session_id:  session_id
         tool_id:     tool_use_id
         tool_name:   tool_name
-        tool_target: tool_input.file_path
+        tool_target: { first_present: [tool_input.command, tool_input.file_path] }
+        tool_title:  tool_input.message
+        mcp_tool:    { from: tool_name, pattern: '^mcp__.+?__(?P<v>.+)$' }
+      fixtures: [PreToolUse.json, PreToolUse.mcp.json, PreToolUse.spawnAgent.json]
 
   # tool_result was `item.content`, which exists on NO codex item — every tool
   # call completed with an empty result. The real output field differs per
@@ -241,7 +243,8 @@ events:
   # a child's OWN turn_stop is what CLOSES it, not this field going away (it
   # never does: closeAgent's own completion still names the same id).
   tool_post:
-    kind_map: { commandExecution: execute, fileChange: edit, mcpToolCall: other, webSearch: search, dynamicToolCall: other, collabAgentToolCall: other }
+    kind_map: { read: read, listFiles: search, search: search, unknown: execute, commandExecution: execute,
+      fileChange: edit, mcpToolCall: mcp, webSearch: search, dynamicToolCall: other, collabAgentToolCall: subagent }
     status_map: { completed: ok, failed: error, declined: declined }
     locations: { items: item.changes, path: path }
     diff_files: { items: item.changes, path: path, diff: diff }
@@ -254,17 +257,23 @@ events:
         session_id:        threadId
         tool_id:           item.id
         tool_name:         { first_present: [item.tool, item.type] }
-        tool_kind:         item.type
-        tool_target:       { first_present: [item.command, item.query, item.server, "item.changes[0].path", item.prompt, "item.receiverThreadIds[0]"] }
+        tool_kind:         { first_present: ["item.commandActions[0].type", item.type] }
+        tool_target:       { first_present: ["item.commandActions[0].command", item.query, "item.changes[0].path", item.command] }
+        tool_title:        { first_present: [item.prompt] }
+        mcp_server:        item.server
+        mcp_tool:          item.tool
+        exit_code:         item.exitCode
         tool_result:       { first_present: [item.aggregatedOutput, item.result, item.changes, item.agentsStates] }
         tool_status:       item.status
         duration_ms:       item.durationMs
         nested_session_id: item.receiverThreadIds[0]
       fixtures:
         - item_completed.commandExecution.json
+        - item_completed.commandExecution.read.json
         - item_completed.collabAgentToolCall.json
         - item_completed.collabAgentToolCall.wait.json
         - item_completed.fileChange-schema.json
+        - item_completed.mcpToolCall.json
         - item_completed.mcpToolCall-schema.json
         - item_completed.webSearch-schema.json
     # Same fixture gap as tool_pre — hooks.PostToolUse is wired
@@ -293,7 +302,8 @@ events:
   # NO hooks: block — same reason as turn_failed: PostToolUse always names
   # canonical tool_post, never tool_fail.
   tool_fail:
-    kind_map: { commandExecution: execute, fileChange: edit, mcpToolCall: other, webSearch: search, dynamicToolCall: other, collabAgentToolCall: other }
+    kind_map: { read: read, listFiles: search, search: search, unknown: execute, commandExecution: execute,
+      fileChange: edit, mcpToolCall: mcp, webSearch: search, dynamicToolCall: other, collabAgentToolCall: subagent }
     status_map: { failed: error, declined: declined }
     locations: { items: item.changes, path: path }
     diff_files: { items: item.changes, path: path, diff: diff }
@@ -307,8 +317,11 @@ events:
         session_id:  threadId
         tool_id:     item.id
         tool_name:   { first_present: [item.tool, item.type] }
-        tool_kind:   item.type
-        tool_target: { first_present: [item.command, item.query, item.server, "item.changes[0].path", item.prompt, "item.receiverThreadIds[0]"] }
+        tool_kind:   { first_present: ["item.commandActions[0].type", item.type] }
+        tool_target: { first_present: ["item.commandActions[0].command", item.query, "item.changes[0].path", item.command] }
+        mcp_server:  item.server
+        mcp_tool:    item.tool
+        exit_code:   item.exitCode
         tool_result: { first_present: [item.aggregatedOutput, item.result, item.changes, item.agentsStates] }
         # collabAgentToolCall carries no .error field at all (confirmed live and
         # against the published schema) — item.status ("failed") is the only text
@@ -323,6 +336,7 @@ events:
         # own sweep reclaims it with the rest of the turn — see StartSubagent's
         # call site in turn/observation.go.
       fixtures:
+        - item_completed.commandExecutionFailed.json
         - item_completed.commandExecutionFailed-schema.json
         - item_completed.mcpToolCallFailed-schema.json
 

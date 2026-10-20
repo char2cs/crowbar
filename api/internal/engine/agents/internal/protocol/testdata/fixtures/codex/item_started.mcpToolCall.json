@@ -1,0 +1,26 @@
+{
+  "method": "item/started",
+  "params": {
+    "item": {
+      "type": "mcpToolCall",
+      "id": "exec-52c6b5d3-f38c-47aa-bc80-044776532a11",
+      "server": "echo",
+      "tool": "shout",
+      "status": "inProgress",
+      "arguments": {
+        "text": "hi"
+      },
+      "appContext": null,
+      "mcpAppUi": null,
+      "pluginId": null,
+      "readOnlyHint": null,
+      "result": null,
+      "error": null,
+      "durationMs": null
+    },
+    "threadId": "019fb000-0000-7000-8000-000000000001",
+    "turnId": "019fb000-0000-7000-8000-000000000002",
+    "startedAtMs": 1792205291945
+  },
+  "emittedAtMs": 1792205291947
+}

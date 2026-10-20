@@ -88,60 +88,24 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channe
 	if err != nil {
 		return models.CanonicalEvent{}, err
 	}
-	// The ownership guard (RequiredPayloadFields, e.g. codex's transcript_path)
-	// exists for HTTP-delivered hook payloads: any process on the machine can
-	// POST one, so Crowbar must confirm it actually names THIS CLI's own
-	// conversation before trusting it.
-	//
-	// THE TRAP (pre-channel-split): the guard used to be skipped whenever
-	// TransportFor(canonical) == "api", on the reasoning that an api-transport
-	// event structurally never carries a hooks-only field. That reasoning
-	// breaks for a DUAL-SHAPE event (codex's session_start/user_prompt/
-	// turn_stop, which inherit the api default but are still ALSO fired
-	// hooks-shaped by codex's own internal memory-consolidation session) — the
-	// skip was keyed on the event's STATIC declared transport, not on whether
-	// THIS delivery is actually hooks-shaped, so it let the memory session's
-	// payload through unchecked and reintroduced the chat-theft bug this guard
-	// exists for.
-	//
-	// channel is now the fix, directly: it is the ACTUAL delivery channel
-	// (caller-supplied, derived from where the bytes physically arrived — see
-	// turn/ingest.go's channelFor — never inferred from the payload or the
-	// event's declared transport). The guard is skipped ONLY for ChannelAPI —
-	// the one channel that structurally cannot be forged (a private jsonrpc2
-	// connection Crowbar itself dialed to the child process, not an HTTP
-	// surface anything on the machine can POST to) — and runs for hooks and
-	// for any channel this switch does not yet know about, fail-closed.
+	// The ownership guard confirms an HTTP-delivered payload names THIS CLI's own
+	// conversation, since any local process can POST one. Only the api channel, a
+	// private connection Crowbar dialled itself, is exempt; every other channel is checked.
 	if channel != spec.ChannelAPI {
 		if field, ok := ownsConversation(d, decoded); !ok {
 			return models.CanonicalEvent{}, &ForeignConversationError{Field: field}
 		}
 	}
-	// EventFieldsFor, not EventFields: a channel-scoped event's field map
-	// lives in its api:/hooks: block, selected by the channel THIS delivery
-	// actually arrived on — never inferred from the payload's own shape, and
-	// never from the event's static Transport (see the design spec's chat-
-	// theft account). A legacy event answers the same regardless of channel.
+	// The field map is the block of the channel THIS delivery arrived on, never
+	// inferred from the payload's shape or the event's static transport.
 	fields, declared := d.EventFieldsFor(canonical, channel)
 	if !declared {
 		return models.CanonicalEvent{}, fmt.Errorf(
 			"%w: %q on %q (channel %q)", ErrUndeclaredEvent, canonical, d.ID, channel)
 	}
-	// when: — the sum-type discriminator, applied on EVERY channel.
-	//
-	// BEFORE required:, deliberately: a delivery that is a different variant of
-	// the same wire event has no obligation to carry the fields THIS variant
-	// declares required, so checking required: first would report a missing
-	// field where the real answer is "not this event".
-	//
-	// This is what lets one wire hook mean two canonical events. claude's
-	// Notification carries both "I am waiting for your input" (its only
-	// authoritative idle report) and a permission prompt; settings.json fires
-	// one relay command per canonical name, so BOTH arrive, and only the
-	// descriptor's own when: can tell them apart. Arming idle off an unfiltered
-	// Notification would abandon a genuinely live turn seconds later — the
-	// discriminator is the safety mechanism, not an optimisation. See
-	// spec.Descriptor.EventWhenFor.
+	// when: selects which deliveries of one wire hook this event accepts, so it runs
+	// before required: (a different variant owes this one no fields). It is what keeps
+	// a hook carrying both an idle report and a prompt from ending a live turn.
 	if when := d.EventWhenFor(canonical, channel); len(when) > 0 &&
 		!mapping.Match(decoded, when) {
 		return models.CanonicalEvent{}, &VariantMismatchError{
@@ -315,9 +279,14 @@ func buildTool(fields spec.FieldMap, statusMap, kindMap map[string]string, locat
 		status = mapped
 	}
 	kind := mapping.String(decoded, fields["tool_kind"])
-	if mapped, ok := kindMap[kind]; ok {
+	if mapped, ok := mapping.LookupKind(kindMap, kind); ok {
 		kind = mapped
 	}
+	var exitCode *int
+	if code, ok := mapping.Int(decoded, fields["exit_code"]); ok {
+		exitCode = &code
+	}
+	interrupted, _ := mapping.Bool(decoded, fields["interrupted"])
 	return &models.ToolEvent{
 		ID:        mapping.String(decoded, fields["tool_id"]),
 		Name:      mapping.String(decoded, fields["tool_name"]),
@@ -325,6 +294,12 @@ func buildTool(fields spec.FieldMap, statusMap, kindMap map[string]string, locat
 		Locations: buildLocations(locations, decoded),
 		Target:    mapping.String(decoded, fields["tool_target"]),
 		Input:     mapping.JSON(decoded, fields["tool_input"]),
+
+		Title:       mapping.String(decoded, fields["tool_title"]),
+		MCPServer:   mapping.String(decoded, fields["mcp_server"]),
+		MCPTool:     mapping.String(decoded, fields["mcp_tool"]),
+		ExitCode:    exitCode,
+		Interrupted: interrupted,
 
 		EditBefore: mapping.String(decoded, fields["edit_before"]),
 		EditAfter:  mapping.String(decoded, fields["edit_after"]),

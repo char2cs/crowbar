@@ -71,7 +71,6 @@
   "api/internal/core/terminal/terminal_test.go": 1165,
   "api/internal/engine/agents/agents.go": 697,
   "api/internal/engine/agents/agents_test.go": 1744,
-  "api/internal/engine/agents/internal/mapping/mapping_test.go": 503,
   "api/internal/engine/agents/internal/protocol/internal/apidriver/apidriver.go": 521,
   "api/internal/engine/agents/internal/protocol/internal/apidriver/apidriver_test.go": 992,
   "api/internal/engine/agents/internal/protocol/internal/descriptor/fixture_test.go": 508,

@@ -39,6 +39,14 @@ func permissionChoice(
 	if !declaresChoice(fields) {
 		return nil
 	}
+	prompt := toolChoice(fields, decoded)
+	prompt.ToolTarget = mapping.String(decoded, fields["tool_target"])
+	prompt.ToolInput = mapping.JSON(decoded, fields["tool_input"])
+	prompt.MCPServer = mapping.String(decoded, fields["mcp_server"])
+	return prompt
+}
+
+func toolChoice(fields spec.FieldMap, decoded map[string]any) *models.ChoicePrompt {
 	promptID := mapping.String(decoded, fields["prompt_id"])
 	toolName := mapping.String(decoded, fields["tool_name"])
 
@@ -133,9 +141,8 @@ func suggestionOptions(fields spec.FieldMap, decoded map[string]any) []models.Ch
 }
 
 // suggestionLabel reads a LITERAL display string out of the descriptor, not a
-// payload path: suggestion_label.* maps a provider's own machine name for a
-// broader grant straight to English text the field map carries verbatim (see
-// claude.yaml's own suggestion_label.* entries).
+// payload path: suggestion_label.* maps a provider's machine name for a broader
+// grant to the English text the field map carries verbatim.
 func suggestionLabel(fields spec.FieldMap, suggestion map[string]any) string {
 	kind := mapping.String(suggestion, fields["suggestion_type"])
 	if kind != "" {
@@ -161,11 +168,12 @@ func elicitationChoice(
 	message string,
 ) *models.ChoicePrompt {
 	return &models.ChoicePrompt{
-		Kind:     models.ChoiceElicitation,
-		Title:    mapping.String(decoded, fields["mcp_server"]),
-		Question: message,
-		Mode:     mapping.String(decoded, fields["mode"]),
-		Schema:   boundedSchema(decoded, fields["schema"]),
+		Kind:      models.ChoiceElicitation,
+		Title:     mapping.String(decoded, fields["mcp_server"]),
+		MCPServer: mapping.String(decoded, fields["mcp_server"]),
+		Question:  message,
+		Mode:      mapping.String(decoded, fields["mode"]),
+		Schema:    boundedSchema(decoded, fields["schema"]),
 	}
 }
 

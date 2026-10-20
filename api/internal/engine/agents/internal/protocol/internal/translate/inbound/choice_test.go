@@ -89,6 +89,25 @@ func TestParse_PermissionCarriesTheWholePrompt(t *testing.T) {
 	assert.Empty(t, ev.Choice.Questions, "a permission asks nothing beyond may-I")
 }
 
+func TestParse_PermissionNamesTheCallItIsAskedAbout(t *testing.T) {
+	fields := fieldMap(permissionMap())
+	fields["tool_target"] = []string{"tool_input.file_path", "tool_input.command"}
+	fields["mcp_server"] = []string{"mcp_server.name"}
+	d := descriptorWithFields(spec.HookPermission, fields)
+
+	bash, err := parse(d, spec.HookPermission, []byte(permissionPayload))
+	require.NoError(t, err)
+	assert.Equal(t, "touch PROOF", bash.Choice.ToolTarget)
+	assert.JSONEq(t, `{"command":"touch PROOF","description":"Create proof control file"}`, string(bash.Choice.ToolInput))
+	assert.Empty(t, bash.Choice.MCPServer)
+
+	mcp, err := parse(d, spec.HookPermission, []byte(
+		`{"tool_name":"mcp__echo__shout","tool_input":{"text":"hi"},"mcp_server":{"name":"echo","source":"dynamic"}}`))
+	require.NoError(t, err)
+	assert.Equal(t, "echo", mcp.Choice.MCPServer)
+	assert.JSONEq(t, `{"text":"hi"}`, string(mcp.Choice.ToolInput))
+}
+
 func TestRegression_ASuggestionIsNeverLabelledWithARawProviderTypeName(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookPermission: permissionMap()})
 
@@ -313,6 +332,29 @@ func TestParse_ToolFailCarriesTheErrorAndDuration(t *testing.T) {
 	assert.Equal(t, 42, ev.Tool.DurationMS)
 	assert.Equal(t, "exit status 1", string(ev.Tool.Result),
 		"the result alternation falls through to error when there is no response")
+}
+
+func TestParse_ToolCarriesTitleServerToolAndExit(t *testing.T) {
+	d := descriptorWithFields(spec.HookToolPost, spec.FieldMap{
+		"tool_title": {"description"}, "mcp_server": {"server"}, "mcp_tool": {"tool"},
+		"exit_code": {"exit"}, "interrupted": {"cut"},
+	})
+
+	ev, err := parse(d, spec.HookToolPost,
+		[]byte(`{"description":"List files","server":"echo","tool":"shout","exit":0,"cut":true}`))
+
+	require.NoError(t, err)
+	assert.Equal(t, "List files", ev.Tool.Title)
+	assert.Equal(t, "echo", ev.Tool.MCPServer)
+	assert.Equal(t, "shout", ev.Tool.MCPTool)
+	require.NotNil(t, ev.Tool.ExitCode, "an exit code of 0 is reported, not absent")
+	assert.Zero(t, *ev.Tool.ExitCode)
+	assert.True(t, ev.Tool.Interrupted)
+
+	bare, err := parse(d, spec.HookToolPost, []byte(`{"server":"echo"}`))
+	require.NoError(t, err)
+	assert.Nil(t, bare.Tool.ExitCode, "a payload with no exit code leaves it absent")
+	assert.False(t, bare.Tool.Interrupted)
 }
 
 func TestParse_ToolResultAlternationPrefersTheResponse(t *testing.T) {

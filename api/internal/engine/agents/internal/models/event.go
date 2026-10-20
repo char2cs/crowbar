@@ -5,16 +5,9 @@ type CanonicalEvent struct {
 	SessionID string
 	Message   string
 
-	// TurnID is the provider's own turn identifier, when its descriptor maps
-	// one. Most canonical events never need it — a chat has one open turn at
-	// a time, so Kind plus SessionID is enough to place the effect. It exists
-	// for the case that assumption breaks: codex's turn/completed is a sum
-	// type that ALSO wraps a compact_start round trip, with nothing else on
-	// the frame telling that apart from an ordinary reply (confirmed live —
-	// a genuinely interrupted turn and a genuine turn with no final message
-	// produce the IDENTICAL shape). compact_pre maps turn_id to arm a latch
-	// keyed by it; turn_stop and turn_failed map turn_id to consult and
-	// consume that latch before acting. See turn/compaction.go.
+	// TurnID is the provider's own turn identifier, when its descriptor maps one.
+	// A turn-close that also wraps a compaction round trip is told apart from an
+	// ordinary reply only by the id compact_pre armed (the turn package's compaction latch).
 	TurnID string
 
 	// TurnStatus is the provider-reported terminal state when its completion
@@ -87,6 +80,15 @@ type ToolEvent struct {
 	Result []byte
 	Status string
 
+	// Title is the agent's own one-line description of the call.
+	Title string
+	// MCPServer and MCPTool name the server and tool of a call into one.
+	MCPServer string
+	MCPTool   string
+	// ExitCode is a command's exit status; nil when the payload carries none, so 0 is an answer.
+	ExitCode    *int
+	Interrupted bool
+
 	// EditBefore/EditAfter are the text an edit replaced and its replacement,
 	// when the descriptor maps them; a new file has an empty EditBefore.
 	EditBefore string
@@ -100,13 +102,8 @@ type ToolEvent struct {
 	Error      string
 	DurationMS int
 
-	// NestedSessionID names a SECOND conversation this tool call's own
-	// completion references — a whole other turn/item stream riding the same
-	// connection, not a flat sibling id (codex's collabAgentToolCall: the
-	// spawned agent's own thread id, present on spawnAgent/wait/closeAgent's
-	// completion once the provider has minted or is addressing it). Empty for
-	// every tool call that names no such thing. See turn/ingest.go's
-	// nested-session routing for what Go does with it.
+	// NestedSessionID names a second conversation this call's completion refers to
+	// (the agent it spawned or addressed); empty otherwise. The turn package routes it.
 	NestedSessionID string
 }
 
@@ -193,6 +190,12 @@ type ChoicePrompt struct {
 	Questions []PromptQuestion
 
 	Schema []byte
+
+	// ToolTarget, ToolInput and MCPServer say which call a tool question or
+	// permission is about, so it can be matched to that call's row.
+	ToolTarget string
+	ToolInput  []byte
+	MCPServer  string
 }
 
 type PromptQuestion struct {

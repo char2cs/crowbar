@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
@@ -197,4 +198,54 @@ events:
       tool_name: { first_present: not_a_list }
 `), &d)
 	assert.Error(t, err)
+}
+
+func TestPatternTransform_ExtractsGroupV(t *testing.T) {
+	var d spec.Descriptor
+	require.NoError(t, yaml.Unmarshal([]byte(`
+events:
+  tool_pre:
+    in: PreToolUse
+    map:
+      mcp_tool: { from: tool_name, pattern: '^mcp__.+?__(?P<v>.+)$' }
+`), &d))
+	paths := d.Events["tool_pre"].Map["mcp_tool"]
+
+	assert.Equal(t, "shout", mapping.String(map[string]any{"tool_name": "mcp__echo__shout"}, paths))
+	assert.Equal(t, "a__b", mapping.String(map[string]any{"tool_name": "mcp__srv__a__b"}, paths),
+		"the server is the shortest segment; the rest belongs to the tool")
+	assert.False(t, mapping.Present(map[string]any{"tool_name": "Bash"}, paths),
+		"a name the pattern does not match yields nothing, not the whole name")
+}
+
+func TestEventSpec_MapRejectsAPatternWithoutGroupV(t *testing.T) {
+	for name, pattern := range map[string]string{
+		"no group v":     `^mcp__(.+)$`,
+		"invalid syntax": `^mcp__(?P<v>.+`,
+	} {
+		var d spec.Descriptor
+		err := yaml.Unmarshal([]byte(`
+events:
+  tool_pre:
+    in: PreToolUse
+    map:
+      mcp_tool: { from: tool_name, pattern: '`+pattern+`' }
+`), &d)
+		require.Error(t, err, name)
+		assert.Contains(t, err.Error(), "mcp_tool", name)
+	}
+}
+
+func TestEventSpec_MapAcceptsJoin(t *testing.T) {
+	var d spec.Descriptor
+	require.NoError(t, yaml.Unmarshal([]byte(`
+events:
+  tool_pre:
+    in: item/started
+    map:
+      tool_kind: { join: [item.type, item.tool] }
+`), &d))
+
+	doc := map[string]any{"item": map[string]any{"type": "collabAgentToolCall", "tool": "wait"}}
+	assert.Equal(t, "collabAgentToolCall/wait", mapping.String(doc, d.Events["tool_pre"].Map["tool_kind"]))
 }

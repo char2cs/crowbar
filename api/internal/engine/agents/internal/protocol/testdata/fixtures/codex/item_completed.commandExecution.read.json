@@ -1,0 +1,31 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "commandExecution",
+      "id": "exec-39696427-d3c0-4914-aa36-e77eac206455",
+      "pluginId": null,
+      "scriptPath": null,
+      "command": "/bin/zsh -lc 'cat notes.txt'",
+      "cwd": "/ws",
+      "processId": "89379",
+      "source": "unifiedExecStartup",
+      "status": "completed",
+      "commandActions": [
+        {
+          "type": "read",
+          "command": "cat notes.txt",
+          "name": "notes.txt",
+          "path": "/ws/notes.txt"
+        }
+      ],
+      "aggregatedOutput": "alpha\nbeta\ngamma\n",
+      "exitCode": 0,
+      "durationMs": 0
+    },
+    "threadId": "019fb000-0000-7000-8000-000000000001",
+    "turnId": "019fb000-0000-7000-8000-000000000002",
+    "completedAtMs": 1792205284372
+  },
+  "emittedAtMs": 1792205284377
+}

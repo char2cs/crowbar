@@ -57,9 +57,7 @@ func TestString_NoBranchesIsEmpty(t *testing.T) {
 	}
 }
 
-// v2 overloaded comma as alternation, which made a comma-bearing key
-// unaddressable. There is no operator embedded in the path string at all any
-// more — a literal comma in a key is just part of the (single) path.
+// A comma is part of the path, never an alternation operator.
 func TestString_CommaIsNotAnOperator(t *testing.T) {
 	d := map[string]any{"a,b": "kept"}
 	if got := mapping.String(d, p("a,b")); got != "kept" {
@@ -67,8 +65,7 @@ func TestString_CommaIsNotAnOperator(t *testing.T) {
 	}
 }
 
-// A dotted CANONICAL name on the left is not a path; but a dotted key in the payload
-// must still resolve whole-key-first, or telemetry's own shapes break.
+// A dotted payload key resolves whole-key-first.
 func TestString_WholeKeyWinsOverSegmentWalk(t *testing.T) {
 	d := map[string]any{
 		"a.b": "whole",
@@ -122,8 +119,7 @@ func TestMatch_MatchesAnyValueInTheSet(t *testing.T) {
 	}
 }
 
-// An event with no when: applies unconditionally — otherwise every existing mapping
-// would stop firing the day when: was introduced.
+// An event with no when: applies unconditionally.
 func TestMatch_EmptyWhenMatchesEverything(t *testing.T) {
 	if !mapping.Match(doc(), nil) {
 		t.Fatal("no when: means unconditional")
@@ -140,20 +136,14 @@ func TestMatch_AllClausesMustHold(t *testing.T) {
 	}
 }
 
-// A missing path in a when: clause must not match, or a variant selector silently
-// applies to every payload that lacks the discriminator.
+// A missing discriminator must not match, or a selector applies to every payload.
 func TestMatch_MissingDiscriminatorDoesNotMatch(t *testing.T) {
 	if mapping.Match(doc(), map[string][]string{"absent.field": {"anything"}}) {
 		t.Fatal("a missing discriminator must not match")
 	}
 }
 
-// --- array selection -------------------------------------------------------
-//
-// Real provider payloads put the interesting value inside a list. Codex's final
-// agent message is turn.items[type=agentMessage].text, and its user message text is
-// item.content[type=text].text. Without selection those are unmappable and the
-// provider needs Go.
+// --- array selection ---
 
 func arrayDoc() map[string]any {
 	return map[string]any{
@@ -173,26 +163,15 @@ func arrayDoc() map[string]any {
 }
 
 func TestString_SelectsFromAnArrayByField(t *testing.T) {
-	if got := mapping.String(arrayDoc(), p("turn.items[type=agentMessage].text")); got != "OK" {
-		t.Fatalf("got %q, want OK", got)
-	}
-}
-
-func TestString_ArraySelectionTakesTheFirstMatch(t *testing.T) {
-	if got := mapping.String(arrayDoc(), p("turn.items[type=reasoning].text")); got != "thinking" {
-		t.Fatalf("got %q, want thinking", got)
-	}
-}
-
-func TestString_ArraySelectionWithNoMatchIsEmpty(t *testing.T) {
-	if got := mapping.String(arrayDoc(), p("turn.items[type=nothingLikeThis].text")); got != "" {
-		t.Fatalf("got %q, want empty", got)
-	}
-}
-
-func TestString_ArraySelectionOnAnEmptyListIsEmpty(t *testing.T) {
-	if got := mapping.String(arrayDoc(), p("empty.items[type=x].y")); got != "" {
-		t.Fatalf("got %q, want empty", got)
+	for path, want := range map[string]string{
+		"turn.items[type=agentMessage].text":    "OK",
+		"turn.items[type=reasoning].text":       "thinking",
+		"turn.items[type=nothingLikeThis].text": "",
+		"empty.items[type=x].y":                 "",
+	} {
+		if got := mapping.String(arrayDoc(), p(path)); got != want {
+			t.Errorf("%s: got %q, want %q", path, got, want)
+		}
 	}
 }
 
@@ -211,7 +190,7 @@ func TestString_ABracketedKeyIsStillAddressable(t *testing.T) {
 	}
 }
 
-// --- coverage of the numeric and object accessors --------------------------
+// --- numeric and object accessors ---
 
 func TestFloat_AcceptsEveryNumericShapeAPayloadCanCarry(t *testing.T) {
 	d := map[string]any{
@@ -286,12 +265,9 @@ func TestObject_ReturnsANestedObjectOrNil(t *testing.T) {
 	}
 }
 
-// --- coverage of the selector grammar's malformed shapes --------------------
+// --- malformed selector shapes ---
 
-// A bracketed segment with no `=` and a non-numeric body is now a dynamic-key
-// selector (see the dynamic-key tests above) rather than a plain key — but
-// `arr` here is an array, not an object, so the map lookup a dynamic key
-// performs still fails closed to empty.
+// A dynamic-key selector over an array fails closed to empty.
 func TestString_ASelectorSegmentWithNoEqualsOverAnArrayIsEmpty(t *testing.T) {
 	d := map[string]any{"arr": []any{map[string]any{"a": "1"}}}
 	if got := mapping.String(d, p("arr[novalue]")); got != "" {
@@ -306,8 +282,7 @@ func TestString_ASelectorSegmentWithAnEmptyFieldIsAPlainKey(t *testing.T) {
 	}
 }
 
-// selectFrom must fail closed, not panic, when the path segment BEFORE the
-// selector does not resolve to a list at all.
+// A selector over a non-list fails closed.
 func TestString_ArraySelectionOnANonArrayIsEmpty(t *testing.T) {
 	d := map[string]any{"obj": "not a list"}
 	if got := mapping.String(d, p("obj[type=foo]")); got != "" {
@@ -315,8 +290,7 @@ func TestString_ArraySelectionOnANonArrayIsEmpty(t *testing.T) {
 	}
 }
 
-// An element of the list that is not itself an object must be skipped, not
-// mistaken for a match or a panic — real payloads mix shapes inside one array.
+// A non-object list element is skipped, not matched.
 func TestString_ArraySelectionSkipsNonObjectElements(t *testing.T) {
 	d := map[string]any{
 		"items": []any{"not an object", map[string]any{"type": "foo", "val": "kept"}},
@@ -326,10 +300,9 @@ func TestString_ArraySelectionSkipsNonObjectElements(t *testing.T) {
 	}
 }
 
-// --- coverage of the JSON and Objects accessors' failure branches ----------
+// --- JSON and Objects failure branches ---
 
-// A present-but-EMPTY string leaf renders as no bytes at all, distinct from a
-// leaf holding the literal two-byte string `""`.
+// An empty string leaf renders as no bytes, not as quotes.
 func TestJSON_AnEmptyStringLeafIsNilNotEmptyQuotes(t *testing.T) {
 	d := map[string]any{"s": ""}
 	if got := mapping.JSON(d, p("s")); got != nil {
@@ -337,10 +310,7 @@ func TestJSON_AnEmptyStringLeafIsNilNotEmptyQuotes(t *testing.T) {
 	}
 }
 
-// A leaf holding a value json.Marshal cannot encode (a channel, here — a
-// shape resolve() never produces from real JSON, but the accessor still must
-// not panic on it) must fail closed to nil rather than propagating the
-// encoding error nowhere the caller could see it.
+// A value json.Marshal cannot encode fails closed to nil.
 func TestJSON_AnUnmarshalableLeafIsNil(t *testing.T) {
 	d := map[string]any{"bad": make(chan int)}
 	if got := mapping.JSON(d, p("bad")); got != nil {
@@ -348,8 +318,7 @@ func TestJSON_AnUnmarshalableLeafIsNil(t *testing.T) {
 	}
 }
 
-// Objects on a leaf that resolves but is not an array must yield nil, the
-// same "fail closed" contract as a missing path.
+// Objects on a non-array leaf is nil, like a missing path.
 func TestObjects_ANonArrayLeafIsNilNotAPanic(t *testing.T) {
 	d := map[string]any{"notarray": "text"}
 	if got := mapping.Objects(d, p("notarray")); got != nil {
@@ -371,10 +340,8 @@ func TestIsEmpty_OnlyNilAndEmptyStringCountAsEmpty(t *testing.T) {
 	}
 }
 
-// A list whose interesting element is positional, not findable by a field=value
-// match. codex's fileChange.changes is exactly this: its `kind` is an OBJECT
-// ({"type":"update"}), so `changes[kind=update]` can never match and the first
-// changed path is otherwise unaddressable.
+// A list element addressable only by position: `kind` is an object, so no
+// field=value selector can match it.
 func changesDoc() map[string]any {
 	var d map[string]any
 	_ = json.Unmarshal([]byte(`{"item":{"changes":[
@@ -413,33 +380,19 @@ func TestString_SelectsANestedFieldOfAnIndexedElement(t *testing.T) {
 	}
 }
 
-func TestPresent_TrueForAnExplicitNull(t *testing.T) {
-	d := map[string]any{"transcript_path": nil}
-	if !mapping.Present(d, p("transcript_path")) {
+func TestPresent_SeparatesNullAndOrdinaryValuesFromAnAbsentKey(t *testing.T) {
+	if !mapping.Present(map[string]any{"transcript_path": nil}, p("transcript_path")) {
 		t.Fatal("a JSON null is a present key, not an absent one")
 	}
-}
-
-func TestPresent_FalseWhenTheKeyIsEntirelyAbsent(t *testing.T) {
 	if mapping.Present(map[string]any{}, p("transcript_path")) {
-		t.Fatal("a key the payload never carries at all must not read as present")
+		t.Fatal("a key the payload never carries must not read as present")
 	}
-}
-
-func TestPresent_TrueForAnOrdinaryValue(t *testing.T) {
 	if !mapping.Present(doc(), p("session_id")) {
-		t.Fatal("a present, non-empty value must read as present")
+		t.Fatal("a non-empty value must read as present")
 	}
 }
 
-// --- dynamic-key (map) selection ---------------------------------------
-//
-// A list's interesting element is findable by a field=value match or a fixed
-// index; a MAP's interesting entry is sometimes findable only by a key the
-// payload itself names in a sibling field, not a literal the descriptor
-// could ever spell out. codex's collabAgentToolCall(wait) is exactly this:
-// item.agentsStates is a status/message map keyed by a spawned thread's id,
-// and that same id is the item's own item.receiverThreadIds[0].
+// --- dynamic-key (map) selection: the key is named by a sibling field ---
 
 func collabDoc() map[string]any {
 	return map[string]any{
@@ -468,29 +421,16 @@ func TestString_DynamicKeySelectionReachesANestedField(t *testing.T) {
 	}
 }
 
-func TestString_DynamicKeySelectionWithNoMatchingEntryIsEmpty(t *testing.T) {
-	d := map[string]any{
-		"item": map[string]any{
-			"childId": "missing-thread",
-			"states":  map[string]any{"thread-1": map[string]any{"status": "completed"}},
-		},
-	}
-	if got := mapping.String(d, p("item.states[childId].status")); got != "" {
-		t.Fatalf("got %q, want empty: no entry under the resolved key", got)
-	}
-}
-
-func TestString_DynamicKeySelectionOnANonObjectTargetIsEmpty(t *testing.T) {
-	d := map[string]any{"item": map[string]any{"childId": "x", "states": []any{"not a map"}}}
-	if got := mapping.String(d, p("item.states[childId].status")); got != "" {
-		t.Fatalf("got %q, want empty: a dynamic-key selector over a non-object must not resolve", got)
-	}
-}
-
-func TestString_DynamicKeySelectionWithAnUnresolvedKeyPathIsEmpty(t *testing.T) {
-	d := map[string]any{"item": map[string]any{"states": map[string]any{"x": "y"}}}
-	if got := mapping.String(d, p("item.states[missingSibling].value")); got != "" {
-		t.Fatalf("got %q, want empty: the key path itself never resolved", got)
+func TestString_DynamicKeySelectionThatCannotResolveIsEmpty(t *testing.T) {
+	for name, item := range map[string]map[string]any{
+		"no entry under the key": {"childId": "gone", "states": map[string]any{"t1": map[string]any{"status": "ok"}}},
+		"a non-object target":    {"childId": "x", "states": []any{"not a map"}},
+		"an unresolved key path": {"states": map[string]any{"x": "y"}},
+	} {
+		d := map[string]any{"item": item}
+		if got := mapping.String(d, p("item.states[childId].status")); got != "" {
+			t.Errorf("%s: got %q, want empty", name, got)
+		}
 	}
 }
 
@@ -499,5 +439,49 @@ func TestString_DynamicKeySelectorComposesWithAlternation(t *testing.T) {
 		"item.agentsStates[missing].status", "item.agentsStates[receiverThreadIds[0]].message"))
 	if got != "done" {
 		t.Fatalf("got %q, want the fallback branch to resolve", got)
+	}
+}
+
+// --- transforms: pattern and join ---
+
+func TestString_PatternBranchFallsThroughWhenItDoesNotMatch(t *testing.T) {
+	branch, err := mapping.Pattern("name", `^mcp__.+?__(?P<v>.+)$`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := map[string]any{"name": "Bash", "other": "kept"}
+	if got := mapping.String(d, p(branch, "other")); got != "kept" {
+		t.Fatalf("got %q, want the next branch: a pattern that does not match is absent", got)
+	}
+}
+
+func TestKindMap_JoinKey(t *testing.T) {
+	kinds := map[string]string{
+		"commandExecution":               "execute",
+		"collabAgentToolCall":            "other",
+		"collabAgentToolCall/spawnAgent": "subagent",
+		"collabAgentToolCall/wait":       "meta",
+	}
+	key := func(item map[string]any) string {
+		return mapping.String(map[string]any{"item": item}, p(mapping.Join("item.type", "item.tool")))
+	}
+	if got := key(map[string]any{"type": "collabAgentToolCall", "tool": "wait"}); got != "collabAgentToolCall/wait" {
+		t.Fatalf("join = %q, want the values joined with /", got)
+	}
+	if got := key(map[string]any{"type": "commandExecution"}); got != "commandExecution" {
+		t.Fatalf("join = %q, want a missing part left out", got)
+	}
+	for key, want := range map[string]string{
+		"collabAgentToolCall/spawnAgent": "subagent",
+		"collabAgentToolCall/wait":       "meta",
+		"collabAgentToolCall/closeAgent": "other",
+		"commandExecution":               "execute",
+	} {
+		if got, ok := mapping.LookupKind(kinds, key); !ok || got != want {
+			t.Errorf("LookupKind(%q) = (%q,%v), want %q", key, got, ok, want)
+		}
+	}
+	if got, ok := mapping.LookupKind(kinds, "webSearch/x"); ok {
+		t.Fatalf("LookupKind of an unmapped key = %q, want none", got)
 	}
 }

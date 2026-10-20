@@ -1,46 +1,111 @@
 // Package mapping is the one path grammar a descriptor writes.
 //
-// It replaces two independent resolvers — internal/payload's walk and
-// internal/catalog/internal/adapters' selectPath — with a single implementation, so a
-// descriptor author learns one syntax and a bug is fixed in one place.
+// A path is dot-separated. Every accessor takes a LIST of paths, an alternation: the
+// first branch resolving to a present, non-empty value wins. A single-path caller
+// passes a one-element list.
 //
-// A path is dot-separated. Every accessor here takes a LIST of paths — an
-// alternation: the first branch resolving to a present, non-empty value wins. A
-// single-path caller passes a one-element list. There is no string-joined spelling of
-// alternation any more (see docs/plans/2026-09-22-descriptor-channel-split.md P5): the
-// caller carries real branches in, never a `||`-joined expression, so there is nothing
-// for this package to split apart or get wrong.
-//
-// Every accessor is total: a missing path yields the zero value, never a panic. That
-// is deliberate — a descriptor mapping a field a given payload does not carry is the
-// normal case, not an error.
+// Every accessor is total: a missing path yields the zero value, never a panic, because
+// a descriptor mapping a field a payload does not carry is the normal case.
 package mapping
 
 import (
 	"encoding/json"
+	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// resolve reads paths against doc.
-//
-// The non-empty rule belongs to ALTERNATION only. A single path returns whatever it
-// found, present-but-empty included — Scalar must be able to say "the field is there
-// and it is the empty string", which is how the resolver this replaces behaved and
-// what its callers depend on. Applying the rule to single paths made an empty leaf
-// indistinguishable from a missing one.
-//
-// Across branches, the first non-empty wins; if every branch that exists is empty, the
-// first PRESENT one is returned, so presence still survives.
+// patternGroup names the capture group a pattern branch keeps.
+const patternGroup = "v"
+
+// A branch is a path read as is, or through one transform. Pattern and Join build the
+// transform spellings as one string, so they travel in the same []string as a path.
+const (
+	patternSep = "\x00"
+	joinSep    = "\x01"
+)
+
+// Pattern is the branch that keeps the (?P<v>...) group of pattern matched against the
+// string at from. A value that is no string, or that pattern does not match, is absent.
+func Pattern(from, pattern string) (string, error) {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return "", fmt.Errorf("pattern %q: %w", pattern, err)
+	}
+	if re.SubexpIndex(patternGroup) < 0 {
+		return "", fmt.Errorf("pattern %q: no (?P<%s>...) group", pattern, patternGroup)
+	}
+	return from + patternSep + pattern, nil
+}
+
+// Join is the branch whose value is the present values of paths joined with "/".
+func Join(paths ...string) string { return strings.Join(paths, joinSep) }
+
+// LookupKind finds key in kinds, else in each shorter key that drops its last "/part":
+// a composite key refines a plain one instead of replacing it.
+func LookupKind(kinds map[string]string, key string) (string, bool) {
+	for {
+		if kind, ok := kinds[key]; ok {
+			return kind, true
+		}
+		cut := strings.LastIndexByte(key, '/')
+		if cut < 0 {
+			return "", false
+		}
+		key = key[:cut]
+	}
+}
+
+func read(doc map[string]any, branch string) (any, bool) {
+	if from, pattern, found := strings.Cut(branch, patternSep); found {
+		v, ok := walk(doc, strings.TrimSpace(from))
+		return capture(v, ok, pattern)
+	}
+	if strings.Contains(branch, joinSep) {
+		return joined(doc, strings.Split(branch, joinSep))
+	}
+	return walk(doc, strings.TrimSpace(branch))
+}
+
+func capture(v any, ok bool, pattern string) (any, bool) {
+	text, isString := v.(string)
+	re, err := regexp.Compile(pattern)
+	if !ok || !isString || err != nil {
+		return nil, false
+	}
+	match := re.FindStringSubmatch(text)
+	if match == nil {
+		return nil, false
+	}
+	return match[re.SubexpIndex(patternGroup)], true
+}
+
+func joined(doc map[string]any, paths []string) (any, bool) {
+	parts := make([]string, 0, len(paths))
+	for _, path := range paths {
+		v, _ := walk(doc, strings.TrimSpace(path))
+		if text, ok := scalarOf(v); ok && text != "" {
+			parts = append(parts, text)
+		}
+	}
+	if len(parts) == 0 {
+		return nil, false
+	}
+	return strings.Join(parts, "/"), true
+}
+
+// resolve reads paths against doc. Only alternation skips empty values: the first
+// non-empty branch wins, else the first present one, so a lone path keeps "present but empty".
 func resolve(doc map[string]any, paths []string) (any, bool) {
 	if len(paths) == 1 {
-		return walk(doc, strings.TrimSpace(paths[0]))
+		return read(doc, paths[0])
 	}
 	var firstPresent any
 	var found bool
 	for _, branch := range paths {
-		v, ok := walk(doc, strings.TrimSpace(branch))
+		v, ok := read(doc, branch)
 		if !ok {
 			continue
 		}
@@ -61,8 +126,8 @@ func resolve(doc map[string]any, paths []string) (any, bool) {
 //
 // A segment of the form `name[field=value]` SELECTS from a list: the first element
 // whose field equals value. Real provider payloads put the interesting value inside a
-// list (codex's final message is turn.items[type=agentMessage].text), and without
-// selection those are unmappable and the provider needs Go.
+// list (turn.items[type=agentMessage].text), and without selection those are
+// unmappable and the provider needs Go.
 func walk(doc map[string]any, path string) (any, bool) {
 	if path == "" {
 		return nil, false
@@ -117,18 +182,12 @@ const indexField = ""
 //	name[N]            — the Nth LIST element, zero-based
 //	name[keypath]      — the MAP entry at the key keypath resolves to
 //
-// The index form exists because a list's interesting element is not always
-// findable by a scalar field match: codex's fileChange.changes carries its
-// `kind` as an OBJECT ({"type":"update"}), so no field=value selector can
-// address it and the changed path would otherwise be unmappable.
+// The index form addresses a list element no scalar field match can find, such
+// as changes whose `kind` is an object.
 //
-// The keypath form exists for a MAP keyed by a value only the payload itself
-// knows: codex's collabAgentToolCall(wait) result carries agentsStates, a
-// status/message map keyed by a spawned thread's id, with that same id
-// available as a sibling field on the same item
-// (item.agentsStates[receiverThreadIds[0]]). keypath is resolved with
-// selectByKey, against the object name is itself a field of — not against
-// name's own value, which is the map being indexed.
+// The keypath form addresses a MAP keyed by a value the payload names in a
+// sibling field (item.states[childIds[0]]); keypath resolves against the object
+// name is a field of, not against the map being indexed.
 //
 // A segment matching none of the three shapes is a plain key.
 func parseSelector(seg string) (name, field, want string, dynamic, ok bool) {

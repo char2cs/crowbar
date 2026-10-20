@@ -1,6 +1,7 @@
 package descriptor_test
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/inbound"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
@@ -154,12 +156,8 @@ func TestParseV3_PerEventTransportOverridesTheRuntimeDefault(t *testing.T) {
 	}
 }
 
-// channelSplitTooPre is the design spec's own tool_pre example (docs/plans/
-// 2026-09-22-descriptor-channel-split.md, 2.1), REPLACING minimalV3's own
-// legacy-form tool_pre — proving a channel-scoped event coexists with the
-// OTHER legacy flat-form events in the same descriptor (session_start,
-// turn_stop, permission, compact_start), which is exactly what P2 promises
-// ("legacy events keep working unchanged").
+// channelSplitTooPre replaces minimalV3's legacy tool_pre: a channel-scoped event
+// must coexist with the other legacy flat-form events in one descriptor.
 const channelSplitTooPre = `  tool_pre:
     required: [session_id, tool_id, tool_name]
     api:
@@ -247,9 +245,7 @@ func TestParseV3_RejectsAChannelBlockEventDeclaringNoWireName(t *testing.T) {
 	}
 }
 
-// legacyPermission is minimalV3's own flat permission event, replaced below by
-// its channel-split counterpart the same way channelSplitTooPre replaces
-// legacyToolPre.
+// legacyPermission is minimalV3's flat permission event; channelSplitPermission replaces it.
 const legacyPermission = `  permission:
     ask: approval/request
     timeout_seconds: 270
@@ -257,10 +253,8 @@ const legacyPermission = `  permission:
     reply: { allow: '{"decision":"approved"}', deny: '{"decision":"denied"}' }
 `
 
-// channelSplitPermission mirrors codex.yaml's own migrated permission shape
-// (docs/plans/2026-09-22-descriptor-channel-split.md P2b): an ASK-direction
-// event, channel-split, reply: staying flat on the event (see ChannelBlock's
-// own doc comment on why it is not per-block).
+// channelSplitPermission is an ask event split by channel, reply: staying flat on
+// the event (see ChannelBlock).
 const channelSplitPermission = `  permission:
     required: [session_id, tool_name]
     timeout_seconds: 270
@@ -300,9 +294,7 @@ func TestParseV3_AskChannelBlockEventParsesAlongsideLegacyEvents(t *testing.T) {
 	}
 }
 
-// The whole point of the split, for an ask event too: AnswerFor must resolve
-// the reply channel from the channel-scoped shape exactly as it did for the
-// flat one.
+// AnswerFor resolves the reply from the channel-scoped shape as it does from the flat one.
 func TestParseV3_AnAskChannelSplitEventIsAnswerable(t *testing.T) {
 	d := mustParse(t, withChannelSplitAskEvent(minimalV3))
 
@@ -374,11 +366,7 @@ func TestCheckProtocolVersion_NoRangeAcceptsAnything(t *testing.T) {
 // A claude prompt and the stop that ends its turn both name the turn by its
 // prompt_id, so a stop for an earlier turn is told apart from the running one.
 func TestClaudeDescriptor_NamesTheTurnAPromptAndItsStopBelongTo(t *testing.T) {
-	raw, err := os.ReadFile("descriptors-v3/claude.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	d := mustParse(t, string(raw))
+	d := loadDescriptor(t, "claude")
 	for name, fixture := range map[string]string{"user_prompt": "UserPromptSubmit.json", "turn_stop": "Stop.json"} {
 		payload, err := os.ReadFile(fixtureRoot + "/claude/" + fixture)
 		if err != nil {
@@ -392,4 +380,121 @@ func TestClaudeDescriptor_NamesTheTurnAPromptAndItsStopBelongTo(t *testing.T) {
 			t.Errorf("%s: turn id %q, want the fixture's prompt_id", name, ev.TurnID)
 		}
 	}
+}
+
+func loadDescriptor(t *testing.T, id string) *spec.Descriptor {
+	t.Helper()
+	raw, err := os.ReadFile("descriptors-v3/" + id + ".yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mustParse(t, string(raw))
+}
+
+func parseRaw(t *testing.T, d *spec.Descriptor, event string, raw []byte, ch spec.Channel) *models.ToolEvent {
+	t.Helper()
+	ev, err := inbound.Parse(d, event, raw, ch)
+	if err != nil || ev.Tool == nil {
+		t.Fatalf("%s: tool %v, err %v", event, ev.Tool, err)
+	}
+	return ev.Tool
+}
+
+// parseRecorded unwraps an api frame to its params, as the transport hands it over.
+func parseRecorded(t *testing.T, d *spec.Descriptor, event, file string, ch spec.Channel) *models.ToolEvent {
+	t.Helper()
+	raw, err := os.ReadFile(fixtureRoot + "/" + d.ID + "/" + file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch == spec.ChannelAPI {
+		var frame struct{ Params json.RawMessage }
+		if err := json.Unmarshal(raw, &frame); err != nil {
+			t.Fatal(err)
+		}
+		raw = frame.Params
+	}
+	return parseRaw(t, d, event, raw, ch)
+}
+
+func expectEq[T comparable](t *testing.T, what string, got, want T) {
+	t.Helper()
+	if got != want {
+		t.Errorf("%s = %v, want %v", what, got, want)
+	}
+}
+
+func TestClaudeDescriptor_MapsMCPServerToolAndTitle(t *testing.T) {
+	d := loadDescriptor(t, "claude")
+	for event, file := range map[string]string{"tool_pre": "PreToolUse.mcp.json", "tool_post": "PostToolUse.mcp.json"} {
+		tool := parseRecorded(t, d, event, file, spec.ChannelHooks)
+		expectEq(t, event+" server", tool.MCPServer, "echo")
+		expectEq(t, event+" tool", tool.MCPTool, "shout")
+		expectEq(t, event+" name", tool.Name, "mcp__echo__shout")
+	}
+}
+
+func TestClaudeDescriptor_MapsBashDescriptionAsTitle(t *testing.T) {
+	d := loadDescriptor(t, "claude")
+	const title = "List files in working directory with details"
+	for _, tc := range []struct{ event, file, title, target, kind string }{
+		{"tool_pre", "PreToolUse.Bash.json", title, "ls -la", "execute"},
+		{"tool_post", "PostToolUse.Bash.json", title, "ls -la", "execute"},
+		{"tool_pre", "PreToolUse.TaskUpdate.json", "", "1", "plan"},
+	} {
+		tool := parseRecorded(t, d, tc.event, tc.file, spec.ChannelHooks)
+		expectEq(t, tc.file+" title", tool.Title, tc.title)
+		expectEq(t, tc.file+" target", tool.Target, tc.target)
+		expectEq(t, tc.file+" kind", tool.Kind, tc.kind)
+		expectEq(t, tc.file+" server and tool", tool.MCPServer+tool.MCPTool, "")
+	}
+}
+
+// bashFailure is a claude 2.1.302 PostToolUseFailure, envelope trimmed; not replayed (no recorded subagent failure).
+const bashFailure = `{"session_id":"s1","hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"cat does-not-exist.txt","description":"Attempt to print a missing file"},"tool_use_id":"toolu_01DQe9RP5NHcSiLciwSXoWiC","error":"Exit code 1\ncat: does-not-exist.txt: No such file or directory","is_interrupt":false,"duration_ms":30}`
+
+func TestClaudeDescriptor_ToolFailCarriesInterrupt(t *testing.T) {
+	d := loadDescriptor(t, "claude")
+	failed := parseRaw(t, d, "tool_fail", []byte(bashFailure), spec.ChannelHooks)
+	expectEq(t, "title", failed.Title, "Attempt to print a missing file")
+	expectEq(t, "interrupted", failed.Interrupted, false)
+
+	cut := strings.Replace(bashFailure, `"is_interrupt":false`, `"is_interrupt":true`, 1)
+	expectEq(t, "interrupted", parseRaw(t, d, "tool_fail", []byte(cut), spec.ChannelHooks).Interrupted, true)
+}
+
+func TestCodexDescriptor_CommandActionsGiveKindTargetAndExitCode(t *testing.T) {
+	d := loadDescriptor(t, "codex")
+	for _, tc := range []struct {
+		event, file, kind, target string
+		exit                      int
+	}{
+		{"tool_post", "item_completed.commandExecution.read.json", "read", "cat notes.txt", 0},
+		{"tool_post", "item_completed.commandExecution.json", "search", "ls -la", 0},
+		{"tool_fail", "item_completed.commandExecutionFailed.json", "read", "cat does-not-exist.txt", 1},
+	} {
+		tool := parseRecorded(t, d, tc.event, tc.file, spec.ChannelAPI)
+		expectEq(t, tc.file+" kind", tool.Kind, tc.kind)
+		expectEq(t, tc.file+" target", tool.Target, tc.target)
+		if tool.ExitCode == nil || *tool.ExitCode != tc.exit {
+			t.Errorf("%s exit code = %v, want %d", tc.file, tool.ExitCode, tc.exit)
+		}
+	}
+}
+
+func TestCodexDescriptor_MapsMCPServerToolAndSpawnTitle(t *testing.T) {
+	d := loadDescriptor(t, "codex")
+	api := parseRecorded(t, d, "tool_pre", "item_started.mcpToolCall.json", spec.ChannelAPI)
+	expectEq(t, "api server", api.MCPServer, "echo")
+	expectEq(t, "api tool", api.MCPTool, "shout")
+	expectEq(t, "api kind", api.Kind, "mcp")
+
+	hook := parseRecorded(t, d, "tool_pre", "PreToolUse.mcp.json", spec.ChannelHooks)
+	expectEq(t, "hooks tool", hook.MCPTool, "shout")
+	expectEq(t, "hooks server", hook.MCPServer, "")
+
+	spawn := parseRecorded(t, d, "tool_pre", "PreToolUse.spawnAgent.json", spec.ChannelHooks)
+	expectEq(t, "hooks title", spawn.Title, "Run exactly: wc -l notes.txt. Return the command output.")
+	bash := parseRecorded(t, d, "tool_pre", "PreToolUse.json", spec.ChannelHooks)
+	expectEq(t, "hooks target", bash.Target, "cat notes.txt")
 }
