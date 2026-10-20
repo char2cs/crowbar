@@ -10,8 +10,8 @@ import (
 const maxNoticeRows = 8
 
 // MatchNotice is the first notice d declares whose anchor opens a raw row of
-// screen with its needle after it, and the provider's own sentence from that
-// row. Past the anchor, text compares squeezed, so a wrapped needle matches.
+// screen at its first column with its needle after it, and the provider's own
+// sentence from that row. Past the anchor, text compares squeezed and may wrap.
 func MatchNotice(d *spec.Descriptor, screen string) (models.TerminalNotice, bool) {
 	if d == nil || screen == "" {
 		return models.TerminalNotice{}, false
@@ -25,13 +25,14 @@ func MatchNotice(d *spec.Descriptor, screen string) (models.TerminalNotice, bool
 	return models.TerminalNotice{}, false
 }
 
-// anchored is the text of the first row anchor opens whose needle follows it.
+// anchored is the text of the first row anchor opens whose needle follows it;
+// an indented row is a quote, as codex indents prompt and reply continuations.
 func anchored(rows []string, anchor, needle string) (string, bool) {
 	if anchor == "" || needle == "" {
 		return "", false
 	}
 	for i, row := range rows {
-		if !strings.HasPrefix(strings.TrimSpace(row), anchor) {
+		if !strings.HasPrefix(row, anchor) {
 			continue
 		}
 		text := capture(rows, i)

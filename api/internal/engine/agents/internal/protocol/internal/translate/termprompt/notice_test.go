@@ -123,7 +123,8 @@ func TestMatchNotice_FirstDeclaredMatchWins(t *testing.T) {
 }
 
 // Model output or a prompt echo quoting the banner is not the banner, even
-// opening with its sentence: only a row the declared anchor opens is.
+// opening with its sentence or its glyph: only a row the declared anchor opens
+// at its first column is.
 func TestMatchNotice_AQuoteOfTheBannerIsNotTheBanner(t *testing.T) {
 	for _, screen := range []string{
 		"• The docs say You've hit your usage limit when credits run out.",
@@ -131,11 +132,16 @@ func TestMatchNotice_AQuoteOfTheBannerIsNotTheBanner(t *testing.T) {
 		"• You've hit your usage limit, so I stopped there.",
 		"› You've hit your usage limit — what now?\n  ⏎ send",
 		"You've hit your usage limit.",
+		"› codex said this, why?\n  ■ You've hit your usage limit. Upgrade to Pro\n  ⏎ send",
+		"• It printed:\n  ■ You've hit your usage limit. Upgrade to Pro",
 	} {
 		_, ok := termprompt.MatchNotice(noticing(), screen)
 
 		assert.False(t, ok, screen)
 	}
+
+	_, ok := termprompt.MatchNotice(noticing(), "› codex said this, why?\n\n■ You've hit your usage limit. Upgrade to Pro")
+	assert.True(t, ok, "the banner at the first column still matches")
 }
 
 func TestMatchNotice_OrdinaryScreenMatchesNothing(t *testing.T) {
