@@ -40,9 +40,9 @@ type Capabilities struct {
 	TerminalPrompts bool
 
 	// Compaction reports whether Crowbar can ASK this provider to compact its
-	// context. Key-presence on the descriptor's compact_start event: claude injects
-	// its slash command, codex would call thread/compact/start, and a provider that
-	// declares neither gets no compact control in the UI.
+	// context. Key-presence on the descriptor's compact_start event, whether it
+	// rides the prompt wire or an api method; a provider that declares neither
+	// gets no compact control in the UI.
 	Compaction bool
 
 	// Hotswap is RuntimeSpec.Hotswap, carried through unchanged: whether both of
@@ -59,10 +59,9 @@ type Capabilities struct {
 
 	// TerminalStartHere is design spec 2.5's `surfaces.terminal.start_here`:
 	// whether a brand-new chat may be launched DIRECTLY onto the terminal
-	// surface, as opposed to reached only by switching to it after spawn
-	// (codex's idle-only handoff). False whenever the descriptor declares no
-	// terminal surface at all, regardless of HasTerminal — absence, not a
-	// disabled control.
+	// surface, as opposed to reached only by switching to it after spawn.
+	// False whenever the descriptor declares no terminal surface at all,
+	// regardless of HasTerminal — absence, not a disabled control.
 	TerminalStartHere bool
 
 	Observes []string

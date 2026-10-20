@@ -224,7 +224,7 @@ func closePTY(ptmx *os.File) {
 // a clean-exit SIGTERM via the terminateSignal seam — a PID-level action,
 // never a PTY write, so the C-invariant (no keystrokes are ever synthesized
 // to an app) holds — then waits up to grace for the process to exit on its
-// own. A well-behaved CLI (e.g. Claude Code) gets the chance to flush state
+// own. A well-behaved CLI gets the chance to flush state
 // on a clean exit that an unconditional SIGKILL denies it. If the process is
 // still alive once grace elapses (or there was no live process/signal to
 // send), Terminate falls back to Kill's unconditional hard kill, so a caller

@@ -8,8 +8,8 @@ import "strconv"
 // C1 String Terminator (0x9C) as an OSC terminator. 0x9C is ALSO a valid UTF-8 continuation
 // byte (the sparkle "✳" U+2733 = E2 9C B3), so when a UTF-8 title carrying that byte reaches
 // x/vt's OSC-string parser it EXITS the OSC after "\xe2", drops to ground, and PRINTS the
-// leftover title bytes (" Claude Code") into the grid as visible cells at the cursor. A
-// Claude spinner re-sets its title constantly, so "Claude Code" gets stamped across the grid;
+// leftover title bytes (" spinner text") into the grid as visible cells at the cursor. A
+// spinner that re-sets its title constantly stamps that text across the grid;
 // our serialize then faithfully reproduces that corruption on re-attach.
 //
 // We already capture the title ourselves, UTF-8-transparently, via the escan scanner

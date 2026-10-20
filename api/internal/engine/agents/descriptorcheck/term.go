@@ -145,8 +145,8 @@ func (t *term) exited(d time.Duration) (bool, int) {
 	}
 }
 
-// close kills the whole process group: a CLI launched through a shim (codex's
-// node wrapper) leaves its real binary behind otherwise.
+// close kills the whole process group: a CLI launched through a shim (a node
+// wrapper script) leaves its real binary behind otherwise.
 func (t *term) close() {
 	if t.cmd.Process != nil {
 		_ = syscall.Kill(-t.cmd.Process.Pid, syscall.SIGKILL)

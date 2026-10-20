@@ -1,5 +1,5 @@
 // Package hookserver is the daemon's loopback listener for the vendor CLIs that
-// post their hooks themselves (Claude's native HTTP hooks) instead of running a
+// post their hooks themselves (native HTTP hook delivery) instead of running a
 // relay process per event.
 //
 // It serves exactly one route — the runner-keyed hook route — and nothing else of

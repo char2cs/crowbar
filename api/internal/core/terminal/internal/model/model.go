@@ -132,7 +132,7 @@ type Serializer interface {
 }
 
 // ThemeAware is an optional interface a TerminalModel may also implement to accept the
-// host's terminal light/dark theme, so a foreground app (Claude Code's `auto` theme,
+// host's terminal light/dark theme, so a foreground app (a CLI's `auto` theme,
 // vim, delta, …) can detect and follow it. It is kept off the core TerminalModel surface
 // — and read via a guarded type assertion, like ModelHealth — so alternate backends and
 // test fakes need not implement it.

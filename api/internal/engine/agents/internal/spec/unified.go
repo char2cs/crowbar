@@ -46,7 +46,7 @@ func (d *Descriptor) EventFieldsFor(canonical string, channel Channel) (FieldMap
 // say which. A hook relay already carries the canonical name, so the hooks
 // channel had nothing to resolve — and that quietly made one wire hook mean
 // exactly ONE canonical event. A provider whose single hook carries two
-// different facts (claude's Notification: an idle report, or a permission
+// different facts (an idle report, or a permission
 // prompt) needs the same discriminator on the hooks channel, where it selects
 // which deliveries of that hook a canonical event ACCEPTS rather than which
 // event a method resolves to. Enforced at hook-parse time (translate/inbound/
@@ -144,7 +144,7 @@ func (d *Descriptor) DeclaredEvents() []string {
 // budget, and where a filled-in form is written.
 //
 // An event marked `answerable: false` reports false here: the prompt is visible but a
-// decision would reach nobody, which is the case for codex permissions.
+// decision would reach nobody, e.g. when a provider cannot relay permission replies.
 //
 // AnyWireEvent's direction, not the flat e.Ask: a channel-split ask event (see
 // ChannelBlock) names its wire method inside api:/hooks:, not at the event's

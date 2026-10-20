@@ -13,10 +13,9 @@ type SurfaceSpec struct {
 	Channel Channel `yaml:"channel"`
 
 	// StartHere is whether a brand-new chat may be launched DIRECTLY onto
-	// this surface, rather than reached only by switching to it after spawn
-	// (codex's idle-only SwitchToTerminal, runner/attach.go). Defaults false
-	// on absence — the same conservative direction as Hotswap/Compaction/
-	// every other capability key.
+	// this surface, rather than reached only by switching to it after spawn.
+	// Defaults false on absence — the same conservative direction as Hotswap/
+	// Compaction/every other capability key.
 	StartHere bool `yaml:"start_here"`
 }
 

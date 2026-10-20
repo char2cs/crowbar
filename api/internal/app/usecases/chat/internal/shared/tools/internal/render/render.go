@@ -82,7 +82,7 @@ const (
 )
 
 // ChatTurn is one recorded conversation turn: the speaker it is attributed to
-// ("user", "assistant (claude)") and what was said.
+// ("user", "assistant (<provider id>)") and what was said.
 //
 // Speaker is already rendered rather than a role/provider pair because the
 // attribution wording is the ledger's — it is what has been written into every

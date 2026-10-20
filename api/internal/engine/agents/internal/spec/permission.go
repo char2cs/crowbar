@@ -14,9 +14,8 @@ type PermissionSpec struct {
 // to get there." Apply is spawn args, exactly like ModelSpec/EffortSpec's
 // own Apply. Vars is the same fact under names the descriptor itself picks
 // ({permission.<key>}), for a transport that renders a request tree instead
-// of an argv — codex's api-transport thread/start send: needs its sandbox
-// and approval values as data, not as a flag, and Go must not know sandbox
-// or approvalPolicy are Codex's own words for them.
+// of an argv — a request that needs its sandbox and approval values as data,
+// not as a flag — and Go must not know what the provider calls them.
 type PermissionLevelSpec struct {
 	Apply []InjectStep      `yaml:"apply"`
 	Vars  map[string]string `yaml:"vars"`

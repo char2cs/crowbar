@@ -10,7 +10,7 @@ import (
 
 // ptyEnv returns the process environment augmented with the terminal capability
 // vars that a GUI-launched daemon won't inherit from any shell session. Without
-// TERM, readline-based programs (bash, zsh, Claude Code, etc.) fall back to
+// TERM, readline-based programs (bash, zsh, a full-screen CLI, etc.) fall back to
 // dumb-terminal mode and disable history navigation and line editing.
 func ptyEnv() []string {
 	base := os.Environ()
@@ -124,7 +124,7 @@ func withTerminalDefaults(env []string) []string {
 	// terminal was fixed and agent chats were not.
 	//
 	// With no locale, CoreFoundation falls back to __CF_USER_TEXT_ENCODING, whose
-	// script code is 0 (Mac OS Roman) on a default macOS account. Claude Code copies
+	// script code is 0 (Mac OS Roman) on a default macOS account. A CLI that copies
 	// via BOTH OSC 52 and a spawned pbcopy; we drop OSC 52 (finishOSC routes only
 	// codes 0/1/2, and the frontend parses only OSC 7), so pbcopy's value is what
 	// lands — and it reads the CLI's UTF-8 bytes as Mac Roman. "—" reaches the

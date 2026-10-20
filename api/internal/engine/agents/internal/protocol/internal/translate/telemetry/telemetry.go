@@ -48,9 +48,8 @@ func ParseCallback(d *spec.Descriptor, raw []byte, now time.Time) (models.Teleme
 // ordinary inbound EVENT — `events.telemetry`, with the same canonical fact names
 // in its `map:` and its windows in the event's `rate_limits:` extra. Only the v2
 // block was ever read, so a v3-only provider's telemetry was parsed with no
-// mapping at all and reported ErrUnsupported on every report: codex has mapped
-// thread/tokenUsage/updated correctly since the mixed-transport work and none of
-// it ever reached the context gauge.
+// mapping at all and reported ErrUnsupported on every report: a provider that
+// mapped its usage notification correctly still never reached the context gauge.
 //
 // The v2 block wins where both exist, so a descriptor mid-migration keeps the
 // behaviour it already had.

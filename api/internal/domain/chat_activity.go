@@ -106,7 +106,7 @@ type ActivityTurn struct {
 	// earlier-sent turn a HIGHER Seq and sort it after the later one.
 	DisplayOrder int64 `json:"displayOrder"`
 	// ItemIndex is this message's position within its own turn — always 0,
-	// except a provider (Codex) that splits one turn's reply across several
+	// except a provider that splits one turn's reply across several
 	// message items, each persisted separately but sharing one DisplayOrder.
 	ItemIndex  int    `json:"itemIndex"`
 	Role       string `json:"role"`

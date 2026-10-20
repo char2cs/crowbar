@@ -1,9 +1,9 @@
 // Package mcp implements the Model Context Protocol revision 2025-11-25 —
-// the revision both vendor CLIs Crowbar drives actually speak (claude 2.1.220
-// and codex 0.139.0 both pin it). The 2026-07-28 revision is deliberately NOT
-// implemented here: it removes the initialize handshake, replaces
-// server-initiated requests with Multi Round-Trip Requests and requires
-// server/discover, none of which any client Crowbar targets can use yet.
+// the revision the vendor CLIs Crowbar drives actually speak (they all pin it).
+// The 2026-07-28 revision is deliberately NOT implemented here: it removes the
+// initialize handshake, replaces server-initiated requests with Multi
+// Round-Trip Requests and requires server/discover, none of which any client
+// Crowbar targets can use yet.
 //
 // This package knows nothing about Crowbar. It speaks protocol and delegates
 // every tool decision to a ToolSet.

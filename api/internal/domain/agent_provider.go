@@ -50,8 +50,7 @@ type AgentProvider struct {
 	// onto this provider's terminal surface (design spec 2.5's
 	// `surfaces.terminal.start_here`), as opposed to reached only by
 	// switching to it after spawn. False whenever HasTerminal is false, and
-	// may be false even when HasTerminal is true (codex: has a terminal,
-	// idle-only handoff, never a launch target).
+	// may be false even when HasTerminal is true.
 	TerminalStartHere bool
 
 	ModelSelect  bool

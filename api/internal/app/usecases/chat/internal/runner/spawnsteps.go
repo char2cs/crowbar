@@ -8,8 +8,8 @@ import (
 
 // buildSpawnSteps assembles the ordered InjectStep list a PTY spawn renders:
 // resumeSteps first, then selection and context, then finalSteps — positional
-// user prompts are final by contract (codex's resume id must precede the
-// message; claude's variadic --mcp-config must already be terminated).
+// user prompts are final by contract (a resume id must precede the
+// message; a variadic flag must already be terminated).
 //
 // A spawn whose api connection came up never runs this argv (it adopts the
 // connection, or a hotswap attach replaces it), so no second writer can arise.
@@ -35,7 +35,7 @@ func buildSpawnSteps(
 // mergeLeadingPositional folds a single bare positional context step directly
 // into a bare positional message step, when both are exactly that shape.
 //
-// Confirmed live: claude's switch-then-send resumes with the "while you were
+// Confirmed live: a switch-then-send resumes with the "while you were
 // away" gap riding its own bare positional (resume_context_inject), and the
 // user's actual message riding a SEPARATE positional right after its own "--"
 // guard (prompt_submit.resume). A CLI built to take ONE positional query
@@ -49,7 +49,7 @@ func buildSpawnSteps(
 // Matched purely on InjectStep's generic Verb/Args shape — a bare
 // "positional" pass_arg with no "arg" key — never on provider-specific
 // string content, so any descriptor hitting this exact shape gets the same
-// fix, not just claude's.
+// fix, not just one provider's.
 func mergeLeadingPositional(
 	context, final []engineagents.InjectStep,
 ) ([]engineagents.InjectStep, bool) {
@@ -104,7 +104,7 @@ func argString(v any) string {
 // comment for why this rides a separate channel from EstablishSession's own
 // "context" value. Empty whenever inject's own gate says there is nothing to
 // hand over, or this spawn isn't a resume at all: a fresh establish already
-// carries tctx.Context as thread/start's developerInstructions.
+// carries tctx.Context in its start request.
 func resumeContextFor(resuming, inject bool, tctx engineagents.TemplateCtx) string {
 	if resuming && inject {
 		return tctx.Context

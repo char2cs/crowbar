@@ -202,7 +202,7 @@ func (m *vtModel) clearDefaultColor(
 }
 
 // SetDefaultColors sets the host terminal's default background/foreground — the colours an
-// OSC 11 / OSC 10 QUERY answers with — so a querying foreground app (Claude Code's `auto`
+// OSC 11 / OSC 10 QUERY answers with — so a querying foreground app (a CLI's `auto`
 // theme, etc.) detects Crowbar's light/dark theme. It routes through the emulator's
 // SetDefault*Color, which set ONLY the query-answer defaults (emu.defaultBg/defaultFg) and
 // fire no callback — so this NEVER sets shadow.bgSet/fgSet and the serializer never re-emits

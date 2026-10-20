@@ -44,8 +44,7 @@ type AgentProviderDTO struct {
 	// TerminalStartHere is domain.AgentProvider.TerminalStartHere — whether a
 	// brand-new chat may be launched DIRECTLY onto this provider's terminal
 	// surface (design spec 2.5). False whenever HasTerminal is false, and may
-	// be false even when it is true (codex: has a terminal, idle-only
-	// handoff, never a launch target).
+	// be false even when it is true.
 	TerminalStartHere bool     `json:"terminalStartHere"`
 	ModelSelect       bool     `json:"modelSelect"`
 	EffortSelect      bool     `json:"effortSelect"`

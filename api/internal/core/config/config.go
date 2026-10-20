@@ -59,7 +59,7 @@ type Prompts struct {
 	// capped to the most recent turns of that gap; see RecentHandoffWindow.
 	HandoffResumeWrapper string `yaml:"handoff_resume_wrapper"`
 	// HandoffPointer is the SHORT message handed to a provider that can only be
-	// reached through a USER MESSAGE (a resumed codex ignores every config channel).
+	// reached through a USER MESSAGE (one that ignores every config channel on resume).
 	// It points the provider at its OWN get_chat_log MCP tool ({chat_id}, {gap_turns})
 	// rather than carrying the transcript itself, which would dump the whole
 	// handed-off exchange into the chat.

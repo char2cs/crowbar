@@ -25,8 +25,8 @@ const (
 // block declares at most one of them (checked at load, descriptor.
 // checkChannelSplit), matching which direction the CANONICAL event is. Reply
 // stays on the event, not per block: both of a real dual-shape ask's channels
-// answer through the same decision vocabulary (confirmed for codex's own
-// permission — see codex.yaml's own comment on its reply: block), and
+// answer through the same decision vocabulary (confirmed for a shipped
+// provider's permission — see its descriptor's reply: block), and
 // AnswerFor/RenderAnswer have no channel input to select a per-block one with.
 type ChannelBlock struct {
 	In       WireRef  `yaml:"in"`
@@ -43,9 +43,8 @@ type ChannelBlock struct {
 	// ByWire is keyed by ONE of this block's own Ask/In wire names, and its
 	// value is literal synthetic payload fields to inject before map:
 	// resolves — the generic primitive design spec F1 asks for: a provider
-	// that NAMESPACES one canonical fact across several wire methods (codex's
-	// permission answers to item/commandExecution/requestApproval for a
-	// command and item/fileChange/requestApproval for a patch, with no
+	// that NAMESPACES one canonical fact across several wire methods (one method
+	// for a command's permission, another for a patch's, with no
 	// payload field of its own saying which) can derive a field from WHICH
 	// wire name actually matched, without Go ever learning either name. The
 	// transport that resolves the wire method (apidriver.translateLoop) is

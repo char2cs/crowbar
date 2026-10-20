@@ -18,13 +18,12 @@ const wireRefField = "in/ask/out"
 // YAML list (`ask: [a, b]`); Names/Name/Has/Empty read either shape identically.
 //
 // Multiple names exist because the canonical vocabulary is CLOSED: a provider cannot
-// answer a namespaced wire method by inventing a Crowbar event per namespace. Codex
-// asks for tool approval under item/commandExecution/requestApproval for a command
-// and item/fileChange/requestApproval for a patch — one canonical `permission` fact,
-// two wire names. A descriptor naming only one of them leaves the other matching
-// nothing at all: no prompt is raised, no reply is ever sent, and the CLI blocks on
-// an answer that cannot arrive until its approval budget expires (measured live
-// against codex-cli 0.149.1 — a turn sat waitingOnApproval indefinitely).
+// answer a namespaced wire method by inventing a Crowbar event per namespace. A
+// provider may ask for tool approval under one wire name for a command and another
+// for a patch — one canonical `permission` fact, two wire names. A descriptor naming
+// only one of them leaves the other matching nothing at all: no prompt is raised, no
+// reply is ever sent, and the CLI blocks on an answer that cannot arrive until its
+// approval budget expires.
 //
 // Every event that has exactly one wire name still declares it as the plain string
 // it always was; WireRef carries it as a one-element list.

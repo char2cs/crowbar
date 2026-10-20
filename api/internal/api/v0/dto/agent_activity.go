@@ -23,10 +23,10 @@ type AgentMessageDTO struct {
 	Role       string `json:"role"`
 	ProviderID string `json:"providerId"`
 	Text       string `json:"text"`
-	// Effort is the reasoning effort the provider itself reported for this turn
-	// (claude's turn_stop carries effort.level), which is NOT the same fact as the
-	// chat's requested selection: it is what the CLI says it actually used. Absent
-	// when the provider reported none, and never inferred from the request.
+	// Effort is the reasoning effort the provider itself reported for this turn.
+	// It is NOT the same fact as the chat's requested selection: it is what the CLI
+	// says it actually used. Absent when the provider reported none, and never
+	// inferred from the request.
 	Effort string    `json:"effort,omitempty"`
 	At     time.Time `json:"at"`
 }
@@ -262,9 +262,9 @@ type AgentHookAnswerDTO struct {
 // AgentChoiceQuestionDTO is ONE question inside a prompt, with the options that
 // answer it.
 //
-// Multi is per question and not per prompt because the provider says so: claude
-// carries multiSelect on each entry of its questions array, so one prompt can ask
-// "pick one" and "pick any" at the same time.
+// Multi is per question and not per prompt because the descriptor maps a
+// per-question multi flag, so one prompt can ask "pick one" and "pick any" at
+// the same time.
 type AgentChoiceQuestionDTO struct {
 	// ID is stable within its prompt. A client groups its picks by it; the answer
 	// endpoint takes them back as ONE FLAT list of option ids.

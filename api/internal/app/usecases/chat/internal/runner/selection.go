@@ -9,12 +9,11 @@ import engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 // provider's own default", but a provider SWITCH is not a mint — it reads
 // the chat's raw stored fields, which still carry the OUTGOING provider's
 // choice. Left unclamped, that model string reaches this provider's spawn
-// argv verbatim: confirmed live, switching a chat from codex (model
-// gpt-5.4-mini) to claude spawned claude with --model gpt-5.4-mini, which
-// claude rejects outright as model_not_found — while the switch's OWN
-// divider claims the new selection is the target provider's default,
-// because that marker is recorded from a separate, later call that never
-// reaches the CLI already spawned (and already dead) by then.
+// argv verbatim: switching a chat from one provider to another spawned the
+// new CLI with the old provider's model id, which it rejects outright — while
+// the switch's OWN divider claims the new selection is the target provider's
+// default, because that marker is recorded from a separate, later call that
+// never reaches the CLI already spawned (and already dead) by then.
 //
 // Clearing to "" reads as "this provider's own default", exactly like a
 // fresh mint — and, like PermissionLevel, is never written back: the

@@ -93,7 +93,7 @@ type Option func(*spawnParams)
 //
 // That ordering is the whole point, and it is why this is a constructor option rather than
 // a post-construction call. A vendor CLI that detects light/dark by querying the background
-// (codex 0.146.0, Claude Code's `auto`) asks within milliseconds of exec, and Session.SetTheme
+// (e.g. an `auto` theme) asks within milliseconds of exec, and Session.SetTheme
 // cannot beat it: the process is already running by the time any caller holds the *Session.
 // Seeding here closes the window by construction instead of narrowing it — the model is
 // already answering with the truth before it can be asked.
@@ -237,7 +237,7 @@ func (s *Session) spawn(
 }
 
 // NewCommand spawns an explicit argv (not a login shell) under a PTY. Used by the
-// agentic engine to launch vendor CLIs (claude/codex) with descriptor-built args
+// agentic engine to launch vendor CLIs with descriptor-built args
 // and env. The joined argv is stored as the display "shell".
 func NewCommand(
 	ctx context.Context,

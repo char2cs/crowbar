@@ -60,7 +60,7 @@ type Session struct {
 	shell     string
 	profileID string
 	// command marks a session spawned via NewCommand — an explicit-argv agentic vendor
-	// CLI (claude/codex), as opposed to a login shell. It is set exactly once in
+	// CLI, as opposed to a login shell. It is set exactly once in
 	// NewCommand before any goroutine starts and never mutated again, so reading it
 	// without s.mu is race-safe. A command session can never survive Suspend's PTY
 	// teardown+restore (restore would exec.Command the joined argv string as a bogus

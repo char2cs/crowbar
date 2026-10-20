@@ -9,13 +9,13 @@ import "github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 // Three shapes, and the answer follows the mechanism rather than any provider
 // name:
 //
-//   - telemetry.callback is a payload the hook relay POSTs (claude wires it as
-//     a statusLine command), so it is the HOOKS channel by construction.
+//   - telemetry.callback is a payload the hook relay POSTs (a provider wires it as
+//     a status command), so it is the HOOKS channel by construction.
 //   - telemetry.probe is a command CROWBAR runs, so it belongs to no channel
 //     and reaches a chat on any surface — "" says exactly that.
 //   - an `events.telemetry` entry is an ordinary inbound event, and its
-//     transport is the channel that carries it (codex: thread/tokenUsage/
-//     updated over the api transport).
+//     transport is the channel that carries it (e.g. a usage
+//     notification over the api transport).
 func (a *agent) TelemetryChannel() string {
 	if t := a.spec.Telemetry; t != nil {
 		if t.Callback != nil {

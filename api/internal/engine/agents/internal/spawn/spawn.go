@@ -42,7 +42,7 @@ func Plan(
 
 // PrependArgs puts d.Spawn.Args at the front of plan.Argv — the flags any
 // interactive invocation of the provider's own executable needs (e.g.
-// codex's --dangerously-bypass-hook-trust), regardless of which entry point
+// a hook-trust bypass flag), regardless of which entry point
 // is building the plan. Plan uses this for the primary spawn; the api
 // package's attach path (an interactive TUI in every way that matters here)
 // must use it too, or an attached CLI never gets flags the primary spawn

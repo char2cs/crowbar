@@ -131,8 +131,8 @@ type Chat struct {
 	// one was never switched, so it has no provider_switched marker either:
 	// both sources are empty and the resolvers answered "" — an absence the
 	// frontend read as "this chat never ran" and resolved by starting the
-	// FIRST ENABLED provider on it. That silently converted dormant codex
-	// chats to claude, transcript and all, on nothing but a sidebar click.
+	// FIRST ENABLED provider on it. That silently converted a dormant chat to
+	// another provider, transcript and all, on nothing but a sidebar click.
 	// Chats minted before this field carry "" and keep falling back to the
 	// projections exactly as they always did.
 	ProviderID string `json:"providerId,omitempty"`

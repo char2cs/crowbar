@@ -7,7 +7,7 @@ import (
 // The tool surface is BOUNDED: every list a tool renders is capped, and every
 // cap states in the rendered text what it left out and how to reach it.
 //
-// The budget these numbers are drawn against is ONE codex turn. codex does not
+// The budget these numbers are drawn against is ONE turn of a CLI that does not
 // defer MCP tool schemas, so all eight tools' descriptions and schemas are
 // resident on every turn before a single result is read — which is why the tool
 // ceiling exists at all, and why a result has to be small enough to sit beside

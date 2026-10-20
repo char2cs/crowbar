@@ -32,11 +32,11 @@ func (r *Registry) SetInjected(runnerID string, docs ...string) {
 //
 // Containment, not equality: what actually reaches the CLI as a positional
 // prompt is the DESCRIPTOR's own template rendering of the doc Go computed —
-// claude's resume pointer wraps it in <system-reminder> tags Go never
-// mentions, and codex's does not. Go registers the bare doc it composed; the
-// wire text a hook echoes back is whatever the provider's own template made
-// of it. An equality check here would treat every such wrapping as a foreign
-// message and start recording the injected handoff as the user's own turn.
+// a resume pointer may wrap it in tags Go never mentions. Go registers the
+// bare doc it composed; the wire text a hook echoes back is whatever the
+// provider's own template made of it. An equality check here would treat
+// every such wrapping as a foreign message and start recording the injected
+// handoff as the user's own turn.
 //
 // A bare echo (nothing else was riding the same spawn) returns an empty
 // remainder — the caller's existing "this is not something the user said"
@@ -66,8 +66,8 @@ func (r *Registry) ConsumePrefix(runnerID, text string) (remainder string, found
 			continue
 		}
 		r.injected[runnerID] = append(docs[:i:i], docs[i+1:]...)
-		// Whatever the descriptor's own template wrapped the doc in (claude's
-		// <system-reminder> tags, say) sits between the doc's own end and
+		// Whatever the descriptor's own template wrapped the doc in (some
+		// wrapper tags, say) sits between the doc's own end and
 		// mergeLeadingPositional's separator — Go never learns that
 		// wrapping's shape, so this locates the ONE separator it DID choose,
 		// searched only after the doc's match (never before it, and never

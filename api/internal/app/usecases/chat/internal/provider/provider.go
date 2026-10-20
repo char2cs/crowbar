@@ -92,7 +92,7 @@ type Providers struct {
 	// must not depend on any workspace.
 	home func() (string, error)
 	// installed is the install probe (defaults to Agent.Installed); injectable so
-	// provider-resolution tests never depend on the host having claude/codex.
+	// provider-resolution tests never depend on which vendor CLIs the host has installed.
 	installed func(a engineagents.Agent) bool
 	// prefs is the global priority+enabled table read by ResolveProviders and
 	// rewritten by ReplaceProviderPreferences. It is keyed by provider id; a

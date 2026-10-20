@@ -27,10 +27,10 @@ type hostThemeReq struct {
 // This is the half of theme propagation the per-session channel structurally cannot cover.
 // A vendor CLI is exec'd by the daemon at session-creation time, so it is already running —
 // and, if it detects light/dark by querying the background, has usually already asked —
-// before any client can attach and push a theme down the session's socket. Claude Code
-// survived that ordering only because it also subscribes to DEC 2031 and re-queries when the
-// late push notifies it; codex 0.146.0 has no 2031 support, so the answer it got at birth was
-// final. This endpoint is what makes that first answer correct.
+// before any client can attach and push a theme down the session's socket. A CLI that
+// also subscribes to DEC 2031 re-queries when the late push notifies it; one without
+// 2031 support keeps its birth answer for good. This endpoint is what makes that first
+// answer correct.
 //
 // It is idempotent and unconditional — the frontend pushes at boot and on every theme change,
 // and the newest push simply wins.

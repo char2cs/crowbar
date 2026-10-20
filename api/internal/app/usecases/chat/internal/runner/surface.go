@@ -97,7 +97,7 @@ func (rs *Runners) apiTransportForSurface(
 // own stored surface, and moved by SwitchToTerminal/SwitchToNative.
 //
 // It exists because the read is PER EVENT: surfaceGated (turn/ingest.go) asks
-// it for every streamed delta codex declares surfaces: on, and the read-model
+// it for every streamed delta a descriptor gates with surfaces:, and the read-model
 // hit that would otherwise cost is the same one the descriptor cache exists
 // to avoid — measured at over a millisecond a call, enough to make live
 // streaming visibly stall.

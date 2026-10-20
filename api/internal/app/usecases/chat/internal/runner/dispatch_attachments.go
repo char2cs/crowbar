@@ -47,15 +47,10 @@ func findAttachmentRefs(chatID, text string) []attachmentRef {
 // LedgerTurn.Text stays the durable logical reference forever; only this
 // dispatch-time copy changes.
 //
-// No copy step exists here on purpose: both Claude and Codex, at every
-// permission level Crowbar offers (guarded/manual through full-auto/auto for
-// Claude, workspace-write for Codex), read an arbitrary absolute path outside
-// their own worktree with no escalation and no prompt — confirmed live
-// against the running daemon, not assumed. Materializing a scratch copy
-// INSIDE the worktree used to seem like the only way to guarantee a
-// readable path, but it bought nothing a real permission boundary needed and
-// cost every attachment-bearing turn an untracked directory sitting in the
-// user's own git worktree for as long as the turn ran.
+// No copy step exists here on purpose: both shipped CLIs, at every permission
+// level Crowbar offers, read an absolute path outside their worktree with no
+// prompt, and a scratch copy inside the worktree would only leave an
+// untracked directory in the user's git tree.
 //
 // A reference to a file no longer in the durable store (deleted out of band)
 // is left unrewritten: the CLI then hits a plain "no such file" reading a

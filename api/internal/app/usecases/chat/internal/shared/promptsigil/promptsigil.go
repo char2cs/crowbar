@@ -5,7 +5,7 @@
 // shipped ones open a shell mode on `!`. Crowbar writes an image attachment as
 // `![alt](chats/<chatID>/attachments/<file>)`, so something attached before
 // anything was typed puts that character at the front of the message with
-// nobody having typed it. Measured on codex-cli 0.149.1: such a message was
+// nobody having typed it. Measured on a shipped CLI: such a message was
 // RUN as `[screenshot.png](/…/shot.png)` and never reached the model — and,
 // because no prompt event ever fired, never became a ledger turn either. It
 // simply vanished.

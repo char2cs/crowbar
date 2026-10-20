@@ -71,7 +71,7 @@ type Engine interface {
 
 	// CreateCommand spawns an explicit argv+env as a registered session (streamable
 	// over the terminal WS), skipping profile resolution. Used by the agentic
-	// engine to launch vendor CLIs (claude/codex) with descriptor-built argv/env.
+	// engine to launch vendor CLIs with descriptor-built argv/env.
 	// onExit, if non-nil, is invoked exactly once — after the session is fully
 	// reaped (natural PTY exit or an explicit Kill) — with how the process ended.
 	// It is never called for a session that is merely suspended/detached.
@@ -125,7 +125,7 @@ type Engine interface {
 	// sends a clean-exit SIGTERM — a PID-level action, never a PTY write —
 	// and waits up to an internal grace window before falling back to a hard
 	// Kill if the process hasn't exited on its own. Used by provider switches
-	// so a well-behaved CLI (e.g. Claude Code) gets the chance to flush its
+	// so a well-behaved CLI gets the chance to flush its
 	// native transcript on a clean exit — a hard SIGKILL can lose the
 	// outgoing CLI's last pre-switch turn.
 	TerminateGraceful(
