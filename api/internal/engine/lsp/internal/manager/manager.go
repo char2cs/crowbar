@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"sync"
@@ -272,7 +273,7 @@ func (m *manager) getOrSpawn(
 	// Re-check after the lock gap: another goroutine may have raced us.
 	if existing, ok := m.pool[key]; ok {
 		m.mu.Unlock()
-		_ = srv.Close()
+		closeServer(srv)
 		existing.refs++
 		return existing.srv, nil
 	}
@@ -317,8 +318,7 @@ func (m *manager) spawnAndWire(
 	initCtx, cancel := context.WithTimeout(context.Background(), initializeTimeout)
 	defer cancel()
 	if err := srv.Initialize(initCtx, worktreePath); err != nil {
-		_ = srv.Close()
-		return nil, fmt.Errorf("lsp manager: initialize %s: %w", spec.Command, err)
+		return nil, errors.Join(fmt.Errorf("lsp manager: initialize %s: %w", spec.Command, err), srv.Close())
 	}
 	return srv, nil
 }
@@ -385,7 +385,7 @@ func (m *manager) Release(
 	cb := m.onRelEmpty
 	m.mu.Unlock()
 
-	_ = srv.Close()
+	closeServer(srv)
 	if empty && cb != nil {
 		cb(wsID)
 	}
@@ -415,7 +415,7 @@ func (m *manager) onServerExit(
 	cb := m.onRelEmpty
 	m.mu.Unlock()
 
-	_ = srv.Close()
+	closeServer(srv)
 	if empty && cb != nil {
 		cb(wsID)
 	}
@@ -441,7 +441,7 @@ func (m *manager) ReleaseWorkspace(
 	m.mu.Unlock()
 
 	for _, srv := range srvs {
-		_ = srv.Close()
+		closeServer(srv)
 	}
 	if len(srvs) > 0 && cb != nil {
 		cb(wsID)
@@ -469,6 +469,14 @@ func (m *manager) Shutdown(
 	m.mu.Unlock()
 
 	for _, e := range pool {
-		_ = e.srv.Close()
+		closeServer(e.srv)
+	}
+}
+
+// closeServer tears down a server nobody awaits; a failing teardown is logged
+// because there is no caller to return it to.
+func closeServer(srv server.Server) {
+	if err := srv.Close(); err != nil {
+		slog.Warn("lsp manager: close server", "err", err)
 	}
 }

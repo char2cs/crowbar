@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -94,7 +95,9 @@ func (r recorder) close(ctx context.Context) {
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 	defer cancel()
-	_ = r.server.Shutdown(ctx)
+	if err := r.server.Shutdown(ctx); err != nil {
+		slog.WarnContext(ctx, "descriptorcheck: stop the hook recorder", "err", err)
+	}
 }
 
 // records is every completed hook, oldest first.

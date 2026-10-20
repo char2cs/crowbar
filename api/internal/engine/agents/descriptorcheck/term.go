@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"regexp"
@@ -97,15 +98,23 @@ func (t *term) pump() {
 // take answers the queries in one chunk of output and keeps it.
 func (t *term) take(chunk []byte) {
 	if bytes.Contains(chunk, cursorQuery) {
-		_, _ = t.ptmx.Write([]byte("\x1b[1;1R"))
+		t.reply("\x1b[1;1R")
 	}
 	if bytes.Contains(chunk, deviceQuery) {
-		_, _ = t.ptmx.Write([]byte("\x1b[?1;2c"))
+		t.reply("\x1b[?1;2c")
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.out.Len() < maxTermOutput {
 		t.out.Write(chunk)
+	}
+}
+
+// reply answers a terminal query. The pump has no caller to return a failure
+// to, and its next read ends it once the CLI is gone.
+func (t *term) reply(answer string) {
+	if _, err := t.ptmx.Write([]byte(answer)); err != nil {
+		slog.Warn("descriptorcheck: answer a terminal query", "err", err)
 	}
 }
 
@@ -148,14 +157,27 @@ func (t *term) exited(d time.Duration) (bool, int) {
 // close kills the whole process group: a CLI launched through a shim (a node
 // wrapper script) leaves its real binary behind otherwise.
 func (t *term) close() {
-	if t.cmd.Process != nil {
-		_ = syscall.Kill(-t.cmd.Process.Pid, syscall.SIGKILL)
+	if err := killGroup(t.cmd); err != nil {
+		slog.Warn("descriptorcheck: kill the CLI", "err", err)
 	}
 	select {
 	case <-t.done:
 	case <-time.After(5 * time.Second):
 	}
-	_ = t.ptmx.Close()
+	if err := t.ptmx.Close(); err != nil {
+		slog.Warn("descriptorcheck: close the terminal", "err", err)
+	}
+}
+
+// killGroup SIGKILLs cmd's whole process group; a group already gone is done.
+func killGroup(cmd *exec.Cmd) error {
+	if cmd.Process == nil {
+		return nil
+	}
+	if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return fmt.Errorf("kill process group: %w", err)
+	}
+	return nil
 }
 
 func exitCode(err error) int {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -181,7 +182,7 @@ func TestAttemptRefresh_LifecycleCancelledMidProbeDoesNotWriteTheDiskCache(t *te
 // t.TempDir()'s cleanup can race that still-running write.
 func TestRefresh_SeedsSynchronouslyFromDisk(t *testing.T) {
 	home := t.TempDir()
-	writeDiscoverCache(home, "probe", []Model{{ID: "cached-1", Efforts: []string{"low"}}})
+	require.NoError(t, writeDiscoverCache(home, "probe", []Model{{ID: "cached-1", Efforts: []string{"low"}}}))
 
 	c := NewCache(context.Background())
 	started := make(chan struct{})
@@ -203,6 +204,15 @@ func TestRefresh_SeedsSynchronouslyFromDisk(t *testing.T) {
 	}
 }
 
+// A home that cannot hold the cache (here, a regular file where the cache
+// directory belongs) is reported to the caller instead of vanishing.
+func TestWriteDiscoverCache_AnUnwritableHomeIsAnError(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	require.NoError(t, os.WriteFile(home, nil, 0o600))
+
+	assert.Error(t, writeDiscoverCache(home, "probe", []Model{{ID: "m"}}))
+}
+
 // TestRefresh_FailedProbeKeepsTheDiskSeededCatalogue proves a FAILED live
 // probe never empties the catalogue the synchronous disk seed just served —
 // the same "never blank a resolved catalogue" contract
@@ -210,7 +220,7 @@ func TestRefresh_SeedsSynchronouslyFromDisk(t *testing.T) {
 // in-memory seed, here for a disk-seeded one.
 func TestRefresh_FailedProbeKeepsTheDiskSeededCatalogue(t *testing.T) {
 	home := t.TempDir()
-	writeDiscoverCache(home, "probe", []Model{{ID: "cached-1"}})
+	require.NoError(t, writeDiscoverCache(home, "probe", []Model{{ID: "cached-1"}}))
 
 	c := NewCache(context.Background())
 	probed := make(chan struct{})

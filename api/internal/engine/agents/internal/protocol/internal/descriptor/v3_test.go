@@ -1,6 +1,7 @@
 package descriptor_test
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -108,6 +109,21 @@ func TestParseV3_RejectsADirectionMismatch(t *testing.T) {
 	bad := strings.Replace(minimalV3, "    out: thread/compact/start", "    in: thread/compact/start", 1)
 	if _, err := descriptor.ParseV3([]byte(bad)); err == nil {
 		t.Fatal("an out-event declared with in: must be rejected")
+	}
+}
+
+// The glyph error names the descriptor by re-reading its id; when that read
+// fails too, the failure travels with the glyph rather than vanishing.
+func TestParseV3_AnUnreadableIDIsReportedBesideTheGlyphError(t *testing.T) {
+	bad := strings.Replace(minimalV3, "id: acme", "id: [acme]", 1)
+	bad = strings.Replace(bad, "map: { session_id: thread.id }", "map: { session_id: thread.id || thread.sid }", 1)
+	_, err := descriptor.ParseV3([]byte(bad))
+	var glyph *spec.AlternationGlyphError
+	if !errors.As(err, &glyph) {
+		t.Fatalf("want the alternation glyph error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "cannot unmarshal") {
+		t.Fatalf("the failed id read must be reported with it, got: %v", err)
 	}
 }
 

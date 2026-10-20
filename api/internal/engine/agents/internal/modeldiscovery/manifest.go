@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -109,7 +110,9 @@ func mergeFetchedManifest(
 	// Never regress the disk cache: only overwrite it when the fetch is at
 	// least as fresh as what is already there.
 	if cachePath != "" && (!diskOK || !doc.updatedAt.Before(diskDoc.updatedAt)) {
-		_ = writeManifestCache(cachePath, raw)
+		if err := writeManifestCache(cachePath, raw); err != nil {
+			slog.Warn("modeldiscovery: manifest cache not saved", "path", cachePath, "err", err)
+		}
 	}
 	return best
 }

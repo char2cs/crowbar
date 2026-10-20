@@ -24,11 +24,10 @@ func ParseV3(raw []byte) (*spec.Descriptor, error) {
 	if err := yaml.Unmarshal(raw, &d); err != nil {
 		var glyph *spec.AlternationGlyphError
 		if errors.As(err, &glyph) {
-			// id: precedes events: in the document, but decode order is not a
-			// guarantee worth leaning on — a bare best-effort re-read of just
-			// the id field names the descriptor even if the strict decode
-			// above never got that far.
-			return nil, fmt.Errorf("descriptor %q: %w", probeID(raw), glyph)
+			// Decode order is no guarantee that id: was read before the glyph
+			// failed it, so a bare re-read of the id names the descriptor.
+			id, idErr := probeID(raw)
+			return nil, errors.Join(fmt.Errorf("descriptor %q: %w", id, glyph), idErr)
 		}
 		return nil, fmt.Errorf("descriptor: parse: %w", err)
 	}
@@ -113,14 +112,16 @@ func wrapPresence(m map[string]string) map[string][]string {
 	return out
 }
 
-// probeID best-effort reads just the top-level id: field out of raw, for an error
-// that must name the descriptor even though the strict typed decode already failed.
-func probeID(raw []byte) string {
+// probeID reads just the top-level id: field out of raw, for an error that must
+// name the descriptor even though the strict typed decode already failed.
+func probeID(raw []byte) (string, error) {
 	var probe struct {
 		ID string `yaml:"id"`
 	}
-	_ = yaml.Unmarshal(raw, &probe)
-	return probe.ID
+	if err := yaml.Unmarshal(raw, &probe); err != nil {
+		return "", fmt.Errorf("descriptor: read id: %w", err)
+	}
+	return probe.ID, nil
 }
 
 // checkChannelSplit refuses an event that mixes the legacy flat form

@@ -4,6 +4,7 @@ package kit
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,7 +22,7 @@ import (
 const procTagEnv = "CROWBAR_TEST_PROC_TAG"
 
 // procReapBound is how long a teardown may take to see its processes exit
-// (codex's app-server is asked to stop gracefully, then waited on).
+// (a server child is asked to stop gracefully, then waited on).
 const procReapBound = 10 * time.Second
 
 // RequireNoLeakedProcesses fails tb if any process started during it — child,
@@ -47,7 +48,9 @@ func RequireNoLeakedProcesses(tb testing.TB) {
 		descs := make([]string, 0, len(leaked))
 		for _, pid := range leaked {
 			descs = append(descs, describe(pid))
-			_ = syscall.Kill(pid, syscall.SIGKILL)
+			if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+				tb.Errorf("kill leaked pid %d: %v", pid, err)
+			}
 		}
 		tb.Errorf("leaked (now killed):\n%s", strings.Join(descs, "\n"))
 	})

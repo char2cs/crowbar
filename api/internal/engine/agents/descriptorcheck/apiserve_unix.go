@@ -4,6 +4,8 @@ package descriptorcheck
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -30,10 +32,7 @@ func (l *live) apiServe(ctx context.Context) Step {
 	if err != nil {
 		return fail("api_serve", "start: "+err.Error())
 	}
-	defer func() {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		_ = cmd.Wait()
-	}()
+	defer endServe(cmd)
 
 	ctx, cancel := context.WithTimeout(ctx, l.opts.ServeWindow)
 	defer cancel()
@@ -41,6 +40,20 @@ func (l *live) apiServe(ctx context.Context) Step {
 	if err != nil {
 		return fail("api_serve", err.Error())
 	}
-	_ = conn.Close()
+	if err := conn.Close(); err != nil {
+		return fail("api_serve", "close: "+err.Error())
+	}
 	return pass("api_serve", l.d.Runtime.API.Handshake["call"]+" answered over the stdio of "+strings.Join(argv, " "))
+}
+
+// endServe kills serve's process group and reaps it. Nobody awaits this, so a
+// failure is logged; serve dying of the kill is the expected exit status.
+func endServe(cmd *exec.Cmd) {
+	if err := killGroup(cmd); err != nil {
+		slog.Warn("descriptorcheck: kill serve", "err", err)
+	}
+	var exitErr *exec.ExitError
+	if err := cmd.Wait(); err != nil && !errors.As(err, &exitErr) {
+		slog.Warn("descriptorcheck: reap serve", "err", err)
+	}
 }

@@ -34,7 +34,7 @@ func Dial(
 		nil,
 	)
 	if resp != nil {
-		_ = resp.Body.Close()
+		require.NoError(t, resp.Body.Close())
 	}
 	require.NoError(
 		t,

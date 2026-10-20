@@ -114,15 +114,16 @@ func tempHome(
 	dir, err := os.MkdirTemp("", "kitenv-")
 	require.NoError(t, err, "kit: create temp home")
 	t.Cleanup(func() {
+		var err error
 		for i := 0; i < 50; i++ {
-			if err := os.RemoveAll(dir); err == nil {
+			if err = os.RemoveAll(dir); err == nil {
 				return
 			}
 			runtime.Gosched()
 		}
 		// Best-effort: a residual handle from a detached write may still hold a
 		// file; the OS reaps the temp tree. Do not fail the test on cleanup.
-		_ = os.RemoveAll(dir)
+		t.Logf("kit: remove temp home: %v", err)
 	})
 	return dir
 }
@@ -268,7 +269,7 @@ func (e *Env) Close(
 		e.app.Close()
 		e.engine.Close()
 		e.releaseStores(t, "Close")
-		_ = e.listener.Close()
+		e.closeListener(t, "Close")
 	})
 }
 
@@ -283,12 +284,12 @@ func (e *Env) CloseCrashing(
 ) {
 	t.Helper()
 	e.closeOnce.Do(func() {
-		_ = e.server.Close() // abrupt: drop the listener + active conns, no drain.
+		e.closeAbruptly(t) // drop the listener + active conns, no drain.
 		e.v0c.Close()
 		e.app.Close() // release realtime FDs (watchers/LSP) — not a data drain.
 		e.engine.Close()
 		e.releaseStores(t, "CloseCrashing")
-		_ = e.listener.Close()
+		e.closeListener(t, "CloseCrashing")
 	})
 }
 
@@ -318,7 +319,7 @@ func (e *Env) CloseWithoutKilling(
 		e.app.Close()
 		// Deliberately NOT e.engine.Close(): leave PTY/LSP children running.
 		e.releaseStores(t, "CloseWithoutKilling")
-		_ = e.listener.Close()
+		e.closeListener(t, "CloseWithoutKilling")
 	})
 }
 
@@ -351,12 +352,10 @@ func (e *Env) ShutdownTerminal() {
 // projectID/repoID params are retained for call-site stability; the path is
 // keyed solely by wsID.
 func (e *Env) WorktreePath(
-	projectID string,
-	repoID string,
+	_ string,
+	_ string,
 	wsID string,
 ) string {
-	_ = projectID
-	_ = repoID
 	ws, err := e.app.Repositories.Workspace.Get(context.Background(), wsID)
 	if err != nil {
 		panic(fmt.Sprintf("kit: WorktreePath: get workspace %q: %v", wsID, err))

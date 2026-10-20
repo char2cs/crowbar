@@ -5,6 +5,7 @@ package descriptorcheck
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -92,7 +93,9 @@ func (l *live) close(ctx context.Context) {
 	if l.svc != nil {
 		l.svc.Close()
 	}
-	_ = os.RemoveAll(l.scratch)
+	if err := os.RemoveAll(l.scratch); err != nil {
+		slog.WarnContext(ctx, "descriptorcheck: remove the scratch dir", "dir", l.scratch, "err", err)
+	}
 }
 
 // templateCtx is what the runner fills for a spawn, with the recorder as both the

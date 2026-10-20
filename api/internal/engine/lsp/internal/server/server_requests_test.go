@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -106,6 +107,30 @@ func TestServer_ApplyEditOutsideACommandIsRefused(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(fake.reply(t)["result"], &result))
 	assert.False(t, result.Applied)
+}
+
+func TestServerRequests_AMalformedParamsIsAnError(t *testing.T) {
+	_, fake := newTestServer(t)
+
+	for i, method := range []string{"workspace/applyEdit", "workspace/configuration"} {
+		fake.send(t, fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":%q,"params":"not an object"}`, 20+i, method))
+		r := fake.reply(t)
+		assert.NotContains(t, r, "result", method)
+		assert.Contains(t, string(r["error"]), "-32602", method)
+	}
+}
+
+func TestServer_HandshakeRejectsMalformedCapabilities(t *testing.T) {
+	srv, fake := newTestServer(t)
+
+	done := make(chan error, 1)
+	go func() { done <- srv.Initialize(context.Background(), "/repo") }()
+	req := <-fake.gotReq
+	fake.respond(req.ID, map[string]any{"capabilities": map[string]any{
+		"executeCommandProvider": map[string]any{"commands": "gopls.tidy"},
+	}})
+
+	require.ErrorContains(t, <-done, "capabilities")
 }
 
 func TestServer_HandshakeRecordsServerFeaturesAndSendsInitOptions(t *testing.T) {

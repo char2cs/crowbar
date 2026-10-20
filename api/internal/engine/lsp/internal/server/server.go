@@ -230,10 +230,9 @@ func (s *server) handshake(
 	if err != nil {
 		return fmt.Errorf("initialize: %w", err)
 	}
-	features := featuresFromInitialize(result)
-	s.mu.Lock()
-	s.features = features
-	s.mu.Unlock()
+	if err := s.recordFeatures(result); err != nil {
+		return err
+	}
 	return s.Notify(ctx, "initialized", map[string]any{})
 }
 
@@ -490,7 +489,7 @@ func (s *server) swapTransport(
 
 	failWaiters(waiters, ErrReplaced)
 	if old != nil {
-		_ = old.Close()
+		closeLogged("close replaced transport", old)
 	}
 	go s.readLoop(transport, reader)
 }

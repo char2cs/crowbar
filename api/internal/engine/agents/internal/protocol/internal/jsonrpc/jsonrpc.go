@@ -17,6 +17,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -152,7 +154,10 @@ func (c *Conn) route(line []byte) bool {
 	if c.mailbox.push(Frame{ID: f.ID, Method: f.Method, Params: f.Params}) {
 		return true
 	}
-	_ = c.stdio.Close() // overflowed: the consumer is wedged
+	// Overflowed: the consumer is wedged. Nobody awaits this close, so it is logged.
+	if err := c.stdio.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+		slog.Warn("jsonrpc: close after mailbox overflow", "err", err)
+	}
 	return false
 }
 

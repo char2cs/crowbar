@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/migrations"
@@ -60,5 +61,27 @@ func (e *Env) releaseStores(
 	}
 	if err := e.session.Close(); err != nil {
 		t.Logf("kit.Env.%s: home: %v", teardown, err)
+	}
+}
+
+// closeListener closes the socket listener. The server's own shutdown has
+// normally closed it already, which is not a failure.
+func (e *Env) closeListener(
+	t *testing.T,
+	teardown string,
+) {
+	t.Helper()
+	if err := e.listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		t.Logf("kit.Env.%s: listener: %v", teardown, err)
+	}
+}
+
+// closeAbruptly drops the server's listener and active connections with no drain.
+func (e *Env) closeAbruptly(
+	t *testing.T,
+) {
+	t.Helper()
+	if err := e.server.Close(); err != nil {
+		t.Logf("kit.Env.CloseCrashing: server close: %v", err)
 	}
 }

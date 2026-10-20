@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -268,7 +269,9 @@ func (c *Cache) attemptRefresh(d *spec.Descriptor, home string) {
 		return
 	}
 	c.store(d.ID, found, fp)
-	writeDiscoverCache(home, d.ID, found)
+	if err := writeDiscoverCache(home, d.ID, found); err != nil {
+		slog.Warn("modeldiscovery: discover cache not saved", "provider", d.ID, "err", err)
+	}
 }
 
 // RefreshManifest resolves id's model.manifest: catalogue — the manifest
@@ -426,22 +429,25 @@ func discoverCachePath(home, id string) string {
 }
 
 // writeDiscoverCache persists a successful probe's catalogue to disk so the
-// next cold start has something to seed from. Best-effort: a write failure
-// (missing home, read-only fs) only costs the NEXT cold start its synchronous
-// seed, never this one's already-cached result.
-func writeDiscoverCache(home, id string, found []Model) {
+// next cold start has something to seed from. A failure (missing home,
+// read-only fs) only costs the NEXT cold start its synchronous seed, never
+// this one's already-cached result, so the caller logs it.
+func writeDiscoverCache(home, id string, found []Model) error {
 	if home == "" {
-		return
+		return nil
 	}
 	raw, err := json.Marshal(found)
 	if err != nil {
-		return
+		return fmt.Errorf("modeldiscovery: encode discover cache: %w", err)
 	}
 	path := discoverCachePath(home, id)
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return
+		return fmt.Errorf("modeldiscovery: discover cache dir: %w", err)
 	}
-	_ = os.WriteFile(path, raw, 0o644) //nolint:gosec // cache file, not a secret
+	if err := os.WriteFile(path, raw, 0o644); err != nil { //nolint:gosec // cache file, not a secret
+		return fmt.Errorf("modeldiscovery: write discover cache: %w", err)
+	}
+	return nil
 }
 
 // fingerprint identifies the CLI binary a discover: command would run —

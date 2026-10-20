@@ -87,12 +87,10 @@ func Start(
 	if _, err := conn.Call(ctx, call, map[string]any{
 		"clientInfo": map[string]string{"name": "crowbar", "title": "Crowbar", "version": "0.0.0"},
 	}); err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("apidriver: %s handshake: %w", d.ID, err)
+		return nil, errors.Join(fmt.Errorf("apidriver: %s handshake: %w", d.ID, err), conn.Close())
 	}
 	if err := conn.Notify("initialized", map[string]any{}); err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("apidriver: %s initialized: %w", d.ID, err)
+		return nil, errors.Join(fmt.Errorf("apidriver: %s initialized: %w", d.ID, err), conn.Close())
 	}
 
 	drv := &Driver{

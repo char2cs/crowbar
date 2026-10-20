@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func runsOnly(names ...string) func(string) bool {
@@ -26,7 +27,8 @@ func TestClientCodeActions_KeepsOnlyWhatTheEditorCanDo(t *testing.T) {
 		{"title":"Edit+server","edit":{"changes":{}},"command":{"title":"t","command":"gopls.tidy"}},
 		{"title":"Nothing"}
 	]`)
-	got := ClientCodeActions("/w", raw, runsOnly("gopls.tidy"))
+	got, err := ClientCodeActions("/w", raw, runsOnly("gopls.tidy"))
+	require.NoError(t, err)
 	assert.JSONEq(t, `[
 		{"title":"Tidy","command":"gopls.tidy","arguments":[]},
 		{"title":"Edit+client","edit":{"changes":{"a.go":[]}}},
@@ -36,6 +38,19 @@ func TestClientCodeActions_KeepsOnlyWhatTheEditorCanDo(t *testing.T) {
 
 func TestClientLenses_PassesThroughWhatDoesNotDecode(t *testing.T) {
 	for _, raw := range []string{`null`, `"x"`, `42`} {
-		assert.Equal(t, raw, string(ClientLenses(json.RawMessage(raw), runsOnly())))
+		got, err := ClientLenses(json.RawMessage(raw), runsOnly())
+		require.NoError(t, err)
+		assert.Equal(t, raw, string(got))
 	}
+}
+
+func TestConvertCommands_AMalformedArgumentIsAnError(t *testing.T) {
+	_, err := ClientCodeActions("/w", json.RawMessage(`[{"title":"x","command":{"title":"t","command":7}}]`), runsOnly())
+	require.Error(t, err)
+
+	_, err = ClientLenses(json.RawMessage(`[{"command":{"title":"t","command":7}}]`), runsOnly())
+	require.Error(t, err)
+
+	_, err = ClientLenses(json.RawMessage(`{"command":{"title":5,"command":"x"}}`), runsOnly())
+	require.Error(t, err)
 }

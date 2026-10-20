@@ -3,14 +3,22 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
+	"slices"
+	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/protocol"
 )
 
-// errMethodNotFound is JSON-RPC's code for a request the client cannot serve.
-const errMethodNotFound = -32601
+const (
+	// errMethodNotFound is JSON-RPC's code for a request the client cannot serve.
+	errMethodNotFound = -32601
+	// errInvalidParams is JSON-RPC's code for params the client cannot decode.
+	errInvalidParams = -32602
+)
 
 // answer replies to a request the server sent to the client. A server blocks on
 // these (gopls waits on workspace/applyEdit before answering the command that
@@ -24,53 +32,62 @@ func (s *server) answer(
 	params json.RawMessage,
 ) {
 	reply := protocol.Reply{JSONRPC: "2.0", ID: id, Result: json.RawMessage("null")}
+	var paramsErr error
 	switch method {
 	case "workspace/applyEdit":
-		reply.Result = s.collectEdit(params)
+		reply.Result, paramsErr = s.collectEdit(params)
 	case "workspace/configuration":
-		reply.Result = emptyConfiguration(params)
+		reply.Result, paramsErr = emptyConfiguration(params)
 	case "client/registerCapability", "client/unregisterCapability",
 		"window/workDoneProgress/create", "window/showMessageRequest":
 	default:
 		reply.Result = nil
 		reply.Error = &protocol.RPCError{Code: errMethodNotFound, Message: "unsupported: " + method}
 	}
-	safego.Go("lsp.server.answer", func() { _ = s.write(reply) })
+	if paramsErr != nil {
+		reply.Result = nil
+		reply.Error = &protocol.RPCError{Code: errInvalidParams, Message: paramsErr.Error()}
+	}
+	safego.Go("lsp.server.answer", func() {
+		if err := s.write(reply); err != nil && !errors.Is(err, ErrClosed) {
+			slog.Warn("lsp: answer server request", "method", method, "err", err)
+		}
+	})
 }
 
 // collectEdit hands a workspace/applyEdit to the command that is running, so
 // the editor applies it; with no command running there is nobody to apply it.
 func (s *server) collectEdit(
 	params json.RawMessage,
-) json.RawMessage {
+) (json.RawMessage, error) {
 	var p struct {
 		Edit json.RawMessage `json:"edit"`
 	}
-	_ = json.Unmarshal(params, &p)
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("workspace/applyEdit params: %w", err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.commandEdits == nil || len(p.Edit) == 0 {
-		return json.RawMessage(`{"applied":false,"failureReason":"no command is running"}`)
+		return json.RawMessage(`{"applied":false,"failureReason":"no command is running"}`), nil
 	}
 	*s.commandEdits = append(*s.commandEdits, p.Edit)
-	return json.RawMessage(`{"applied":true}`)
+	return json.RawMessage(`{"applied":true}`), nil
 }
 
 // emptyConfiguration answers workspace/configuration with one null per item:
 // "no client-side setting", so the server keeps its defaults.
 func emptyConfiguration(
 	params json.RawMessage,
-) json.RawMessage {
+) (json.RawMessage, error) {
 	var p struct {
 		Items []json.RawMessage `json:"items"`
 	}
-	_ = json.Unmarshal(params, &p)
-	out := make([]any, len(p.Items))
-	raw, err := json.Marshal(out)
-	if err != nil {
-		return json.RawMessage("[]")
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("workspace/configuration params: %w", err)
 	}
-	return raw
+	nulls := strings.Join(slices.Repeat([]string{"null"}, len(p.Items)), ",")
+	return json.RawMessage("[" + nulls + "]"), nil
 }
 
 func (s *server) ExecuteCommand(

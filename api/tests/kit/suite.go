@@ -3,6 +3,7 @@
 package kit
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"testing"
@@ -51,7 +52,9 @@ func run(
 	code := m.Run()
 	removeFakeCLI()
 	if cleanup != "" {
-		_ = os.RemoveAll(cleanup)
+		if err := os.RemoveAll(cleanup); err != nil {
+			fmt.Fprintf(os.Stderr, "kit: remove the isolated crowbar home: %v\n", err)
+		}
 	}
 	return code
 }

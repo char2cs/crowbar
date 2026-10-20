@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/semtok"
 )
@@ -89,22 +90,40 @@ type serverFeatures struct {
 
 func featuresFromInitialize(
 	result json.RawMessage,
-) serverFeatures {
+) (serverFeatures, error) {
 	var res struct {
 		Capabilities json.RawMessage `json:"capabilities"`
 	}
 	if err := json.Unmarshal(result, &res); err != nil {
-		return serverFeatures{}
+		return serverFeatures{}, fmt.Errorf("initialize result: %w", err)
 	}
 	var caps struct {
 		ExecuteCommand struct {
 			Commands []string `json:"commands"`
 		} `json:"executeCommandProvider"`
 	}
-	_ = json.Unmarshal(res.Capabilities, &caps)
+	if len(res.Capabilities) > 0 {
+		if err := json.Unmarshal(res.Capabilities, &caps); err != nil {
+			return serverFeatures{}, fmt.Errorf("initialize capabilities: %w", err)
+		}
+	}
 	commands := make(map[string]bool, len(caps.ExecuteCommand.Commands))
 	for _, c := range caps.ExecuteCommand.Commands {
 		commands[c] = true
 	}
-	return serverFeatures{semTok: semtok.FromCapabilities(res.Capabilities), commands: commands}
+	return serverFeatures{semTok: semtok.FromCapabilities(res.Capabilities), commands: commands}, nil
+}
+
+// recordFeatures keeps what the initialize result declares for the session.
+func (s *server) recordFeatures(
+	result json.RawMessage,
+) error {
+	features, err := featuresFromInitialize(result)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.features = features
+	s.mu.Unlock()
+	return nil
 }
