@@ -1,17 +1,24 @@
-import { describe, expect, it, vi } from 'vitest'
-import { createActiveEditorRegistry } from '@/features/editor/lib/active-editor-context'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ActiveEditorRegistry } from '@/features/editor/lib/active-editor-context'
 
 const ctx = (uri: string, paneId = 'p1') => ({ paneId, uri, filePath: uri })
 
-describe('createActiveEditorRegistry', () => {
+// The registry is a window singleton; a fresh module instance per test isolates it.
+let freshRegistry: ActiveEditorRegistry
+beforeEach(async () => {
+  vi.resetModules()
+  freshRegistry = (await import('@/features/editor/lib/active-editor-context')).activeEditors
+})
+
+describe('activeEditors', () => {
   it('set then get returns the latest context for a pane', () => {
-    const r = createActiveEditorRegistry()
+    const r = freshRegistry
     r.set('p1', ctx('crowbar://editor/a'))
     expect(r.get('p1')?.uri).toBe('crowbar://editor/a')
   })
 
   it('subscribe fires immediately with current context, then on every change', () => {
-    const r = createActiveEditorRegistry()
+    const r = freshRegistry
     r.set('p1', ctx('crowbar://editor/a'))
     const cb = vi.fn()
     r.subscribe('p1', cb)
@@ -23,7 +30,7 @@ describe('createActiveEditorRegistry', () => {
   })
 
   it('does NOT refire when set with the same uri (de-dupe)', () => {
-    const r = createActiveEditorRegistry()
+    const r = freshRegistry
     r.set('p1', ctx('crowbar://editor/a'))
     const cb = vi.fn()
     r.subscribe('p1', cb) // 1 (immediate)
@@ -32,7 +39,7 @@ describe('createActiveEditorRegistry', () => {
   })
 
   it('isolates panes: a change to p2 does not call p1 subscribers', () => {
-    const r = createActiveEditorRegistry()
+    const r = freshRegistry
     const cb1 = vi.fn()
     r.subscribe('p1', cb1) // 1 (immediate, undefined)
     r.set('p2', ctx('crowbar://editor/x', 'p2'))
@@ -40,7 +47,7 @@ describe('createActiveEditorRegistry', () => {
   })
 
   it('unsubscribe stops further calls', () => {
-    const r = createActiveEditorRegistry()
+    const r = freshRegistry
     const cb = vi.fn()
     const off = r.subscribe('p1', cb) // 1 (immediate undefined)
     off()
@@ -49,7 +56,7 @@ describe('createActiveEditorRegistry', () => {
   })
 
   it('clear(paneId) notifies subscribers with undefined and drops state', () => {
-    const r = createActiveEditorRegistry()
+    const r = freshRegistry
     r.set('p1', ctx('crowbar://editor/a'))
     const cb = vi.fn()
     r.subscribe('p1', cb) // 1 immediate
@@ -63,7 +70,7 @@ describe('createActiveEditorRegistry', () => {
   // and never re-notified satellites, crashing on the next read. The dedup must
   // therefore compare model identity too.
   it('RE-notifies when set with a NEW model for the SAME uri (model-identity dedup)', () => {
-    const r = createActiveEditorRegistry()
+    const r = freshRegistry
     const m1 = { id: 'model-1' }
     const m2 = { id: 'model-2' }
     r.set('p1', { ...ctx('crowbar://editor/a'), model: m1 })
@@ -78,7 +85,7 @@ describe('createActiveEditorRegistry', () => {
   })
 
   it('still de-dupes when set with the SAME uri AND the SAME model', () => {
-    const r = createActiveEditorRegistry()
+    const r = freshRegistry
     const model = { id: 'model-1' }
     r.set('p1', { ...ctx('crowbar://editor/a'), model })
     const cb = vi.fn()
@@ -88,7 +95,7 @@ describe('createActiveEditorRegistry', () => {
   })
 
   it('clearIfActive(paneId, uri) clears only when the current uri matches', () => {
-    const r = createActiveEditorRegistry()
+    const r = freshRegistry
     r.set('p1', ctx('crowbar://editor/a'))
     const cb = vi.fn()
     r.subscribe('p1', cb) // 1 immediate
@@ -106,7 +113,7 @@ describe('createActiveEditorRegistry', () => {
   })
 
   it('clearIfActive is a no-op for an unknown pane', () => {
-    const r = createActiveEditorRegistry()
+    const r = freshRegistry
     expect(() => r.clearIfActive('nope', 'crowbar://editor/a')).not.toThrow()
   })
 })

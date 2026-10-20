@@ -4,7 +4,7 @@ import { render, act, cleanup } from '@testing-library/react'
 // Hoisted spies so the vi.mock factories (hoisted above imports) can capture them.
 // `events` records unmount/destroy interleaving: components living over the store
 // (Monaco panes, terminal slots) must be UNMOUNTED before the store is destroyed.
-const { hydrateSpy, destroySpy, events, registry, pinned, rendering, layoutMounts, ambientSeen } =
+const { hydrateSpy, destroySpy, events, registry, rendering, layoutMounts, ambientSeen } =
   vi.hoisted(() => {
     const events = [] as string[]
     const registry = new Map<string, { wsId: string }>()
@@ -15,8 +15,6 @@ const { hydrateSpy, destroySpy, events, registry, pinned, rendering, layoutMount
       layoutMounts: { current: 0 },
       /** The ambient store (by workspace id) each pane-tree render saw. */
       ambientSeen: [] as Array<string | undefined>,
-      /** Workspaces whose editor is still mounted into a pane (canEvict false). */
-      pinned: new Set<string>(),
       /** Set while a WorkspaceView renders, to catch a mint in the render path. */
       rendering: { current: false, mintedWhileRendering: 0 },
       hydrateSpy: vi.fn<(wsId: string) => void>(),
@@ -61,7 +59,6 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
     return registry.get(wsId)
   },
   getWorkspaceStore: (wsId: string) => registry.get(wsId),
-  canEvictWorkspace: (wsId: string) => !pinned.has(wsId),
   setActiveWorkspaceId: () => {},
 }))
 
@@ -113,7 +110,6 @@ beforeEach(() => {
   destroySpy.mockClear()
   events.length = 0
   registry.clear()
-  pinned.clear()
   rendering.mintedWhileRendering = 0
   layoutMounts.current = 0
   ambientSeen.length = 0
@@ -165,22 +161,6 @@ describe('WorkspaceHost — sole owner of the registry (C5, C6)', () => {
     render(<WorkspaceHost activeWsId="a" paneWsIds={many} />)
     expect(mountedSlots()).toEqual(['a', ...many].sort())
     expect(registry.size).toBe(mountedSlots().length)
-  })
-
-  it('keeps a workspace whose editor is still mounted instead of destroying it — no zombie store', () => {
-    pinned.add('a')
-    const { rerender } = render(<WorkspaceHost activeWsId="a" />)
-    rerender(<WorkspaceHost activeWsId="b" />)
-    // Not evictable: still mounted, still registered, never destroyed.
-    expect(destroySpy).not.toHaveBeenCalledWith('a')
-    expect(mountedSlots()).toEqual(['a', 'b'])
-    expect([...registry.keys()].sort()).toEqual(['a', 'b'])
-
-    // Once its editor lets go, the next reconcile evicts it for real.
-    pinned.delete('a')
-    rerender(<WorkspaceHost activeWsId="b" viewWsIds={[]} paneWsIds={['b']} />)
-    expect(destroySpy).toHaveBeenCalledWith('a')
-    expect([...registry.keys()]).toEqual(['b'])
   })
 })
 

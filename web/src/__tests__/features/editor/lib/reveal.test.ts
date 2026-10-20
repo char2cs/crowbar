@@ -15,16 +15,8 @@ vi.mock('@/lib/api/documents', async (importOriginal) => ({
   }),
 }))
 
-import { createActiveEditorRegistry } from '@/features/editor/lib/active-editor-context'
-const registry = createActiveEditorRegistry()
-vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import('@/features/workspace/stores/workspace-store-registry')
-  >()),
-  getWorkspaceStore: () => ({ activeEditorRegistry: registry }),
-  getActiveWorkspaceStore: () => null,
-}))
-
+import { activeEditors } from '@/features/editor/lib/active-editor-context'
+import { fileUri } from '@/features/editor/lib/editor-uri'
 import { revealInEditor } from '@/features/editor/lib/reveal'
 import {
   resetWindowPaneStoreForTests,
@@ -50,14 +42,14 @@ function openBuffer(path: string): string {
 }
 
 /** Publish "the pane now shows `path`", the way the editor controller does. */
-function showInPane(paneId: string, path: string, editor: unknown) {
-  registry.set(paneId, { paneId, uri: `crowbar://editor/ws-1/${path}`, filePath: path, editor })
+function showInPane(paneId: string, path: string, editor: unknown, workspaceId = 'ws-1') {
+  activeEditors.set(paneId, { paneId, uri: fileUri(workspaceId, path), filePath: path, editor })
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
   resetWindowPaneStoreForTests()
-  registry.clear(windowPaneStore.getState().activePaneId)
+  activeEditors.clear(windowPaneStore.getState().activePaneId)
 })
 
 describe('revealInEditor', () => {
@@ -109,6 +101,20 @@ describe('revealInEditor', () => {
 
     expect(await pending).toBe(editor)
     expect(readDisk).not.toHaveBeenCalled()
+  })
+
+  it('waits while the pane shows another workspace’s file at the same path', async () => {
+    openBuffer('src/lib/target.ts')
+    const paneId = windowPaneStore.getState().activePaneId
+    const sibling = fakeEditor()
+    const target = fakeEditor()
+    showInPane(paneId, 'src/lib/target.ts', sibling, 'ws-2')
+
+    const pending = revealInEditor({ workspaceId: 'ws-1', path: 'src/lib/target.ts' })
+    showInPane(paneId, 'src/lib/target.ts', target)
+
+    expect(await pending).toBe(target)
+    expect(sibling.focus).not.toHaveBeenCalled()
   })
 
   it('gives up (null) when the pane moves to another tab before the target shows', async () => {

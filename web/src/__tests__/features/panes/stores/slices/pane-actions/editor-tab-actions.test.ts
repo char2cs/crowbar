@@ -224,17 +224,17 @@ describe('activateEditorTabInPane only activates a tab the pane holds (I4)', () 
   })
 })
 
-describe('editorManager model release (C1)', () => {
+describe('editor model release (C1)', () => {
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  async function storeWithManager() {
+  async function storeWithHost() {
     const closeBuffer = vi.fn()
-    const registry = await import('@/features/workspace/stores/workspace-store-registry')
-    vi.spyOn(registry, 'getWorkspaceStore').mockReturnValue({
-      editorManager: { closeBuffer },
-    } as unknown as ReturnType<typeof registry.getWorkspaceStore>)
+    const host = await import('@/features/editor/host/editor-host')
+    vi.spyOn(host, 'getEditorHost').mockReturnValue({
+      manager: { closeBuffer },
+    } as unknown as ReturnType<typeof host.getEditorHost>)
     const store = withBuffers([
       { id: 'tab-ed', type: 'editor', path: '/src/a.ts', workspaceId: 'ws-test' },
     ])
@@ -242,14 +242,14 @@ describe('editorManager model release (C1)', () => {
   }
 
   it('removeEditorTabFromPane releases the model for that pane (paneId + fileUri)', async () => {
-    const { store, closeBuffer } = await storeWithManager()
+    const { store, closeBuffer } = await storeWithHost()
     store.getState().paneActions.addEditorTabToPane(ROOT_PANE_ID, editorTab('tab-ed'))
     store.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, 'tab-ed')
     expect(closeBuffer).toHaveBeenCalledWith(ROOT_PANE_ID, fileUri('ws-test', '/src/a.ts'))
   })
 
   it('does not release for a pane that never held the tab', async () => {
-    const { store, closeBuffer } = await storeWithManager()
+    const { store, closeBuffer } = await storeWithHost()
     store.getState().paneActions.removeEditorTabFromPane(BOTTOM_PANE_ID, 'tab-ed')
     expect(closeBuffer).not.toHaveBeenCalled()
   })

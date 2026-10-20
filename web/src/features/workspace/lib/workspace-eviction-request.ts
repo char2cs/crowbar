@@ -12,8 +12,7 @@ const listeners = new Set<EvictionListener>()
  * the opposite case: the user ended it, its chats' vendor CLIs have been
  * stopped, and nothing is coming back to it. Aging it out over the next
  * several minutes would keep a whole live workspace (its chats stream, LSP,
- * terminal transports, file watcher, Monaco registry) resident for a surface
- * the user closed.
+ * terminal transports, file watcher) resident for a surface the user closed.
  *
  * This is deliberately a REQUEST, not a `destroyWorkspaceStore` call. Only
  * `WorkspaceHost` may destroy a store it mounted, and only once React has

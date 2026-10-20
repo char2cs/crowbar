@@ -24,7 +24,7 @@ import type {
 import { extensionRegistry } from '@/extensions/registry/extension-registry'
 import { readDocumentFromDisk, workspaceRef } from '@/lib/api/documents'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { getEditorHost } from '@/features/editor/host/editor-host'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
 import { toast } from '@/features/window/stores/toast-store'
 import { fileUri, uriToFsPath, uriToWorkspaceId } from '../lib/editor-uri'
@@ -184,9 +184,7 @@ function toCodeAction(
 const peekModels = new Set<Monaco.editor.ITextModel>()
 
 function isHeld(model: Monaco.editor.ITextModel): boolean {
-  const uri = model.uri.toString()
-  const wsId = uriToWorkspaceId(uri)
-  if (wsId && getWorkspaceStore(wsId)?.modelRegistry?.get(uri)) return true
+  if (getEditorHost()?.models.get(model.uri.toString())) return true
   return monacoEditor.getEditors().some((e) => e.getModel() === model)
 }
 

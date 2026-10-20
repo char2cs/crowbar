@@ -26,7 +26,7 @@
 // this superset — using the smaller set would leave those 8 modules as a
 // stray lazy chunk whose contributions/actions miss early-constructed widgets.
 // This module is statically imported by both editor surfaces AND by
-// `monaco-adapters.ts` (the armEditor dynamic-import target), so the chain
+// `monaco-adapters.ts` (the editor host's dynamic import), so the chain
 // registers before ANY widget construction on every path; only the
 // per-LANGUAGE contributions stay deferred.
 import 'monaco-editor/esm/vs/editor/edcore.main.js'

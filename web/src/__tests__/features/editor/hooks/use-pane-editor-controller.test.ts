@@ -7,10 +7,7 @@ import {
   type ControlledEditor,
   type PaneEditorControllerDeps,
 } from '@/features/editor/hooks/use-pane-editor-controller'
-import {
-  createActiveEditorRegistry,
-  type ActiveEditorRegistry,
-} from '@/features/editor/lib/active-editor-context'
+import type { ActiveEditorRegistry } from '@/features/editor/lib/active-editor-context'
 import type { PaneSwitchManager } from '@/features/editor/lib/pane-editor-controller'
 import { fileUri } from '@/features/editor/lib/editor-uri'
 
@@ -57,8 +54,15 @@ function makeEditor() {
   return editor
 }
 
+// The registry is a window singleton; a fresh module instance per test isolates it.
+let freshRegistry: ActiveEditorRegistry
+beforeEach(async () => {
+  vi.resetModules()
+  freshRegistry = (await import('@/features/editor/lib/active-editor-context')).activeEditors
+})
+
 function makeDeps(store: ReturnType<typeof makeStore>, editor: ReturnType<typeof makeEditor>) {
-  const registry: ActiveEditorRegistry = createActiveEditorRegistry()
+  const registry = freshRegistry
   const manager: PaneSwitchManager = {
     showBuffer: vi.fn(),
     getRawEditor: vi.fn(() => editor),
@@ -181,92 +185,17 @@ describe('usePaneEditorController', () => {
     expect(calls.some((c) => c[0] === 'typed-into-A' && c[1] === 'b')).toBe(false)
   })
 
-  // Regression: EditorPane falls back to the AMBIENT workspace's manager when
-  // a buffer's own workspace has no store yet, then re-resolves to the real
-  // one once it exists (see the hook's own doc). Before `managerKey`, this
-  // effect mounted once against whichever manager was ambient at the very
-  // first render and never again — the real manager never learned about the
-  // container at all, so the pane rendered a permanently empty
-  // `.editor-container`. Live-reported: opening the same file from two chats
-  // in different workspaces left one pane blank.
-  it('re-mounts onto the new manager when managerKey changes (ambient -> real workspace)', () => {
+  it('does NOT re-mount when a re-render hands it fresh callbacks', () => {
     const store = makeStore()
-    const editorA = makeEditor()
-    const editorB = makeEditor()
-    const { deps: depsA, manager: managerA } = makeDeps(store, editorA)
-    const { deps: depsB, manager: managerB } = makeDeps(store, editorB)
+    const { deps, manager } = makeDeps(store, makeEditor())
     const containerRef = createRef<HTMLElement>()
     ;(containerRef as { current: HTMLElement }).current = document.createElement('div')
-
-    const view = renderHook(
-      ({ deps, managerKey }) => usePaneEditorController('p1', containerRef, deps, managerKey),
-      { initialProps: { deps: depsA, managerKey: 'ambient-ws' } },
-    )
-
-    expect(depsA.mountPane).toHaveBeenCalledTimes(1)
-    expect(managerA.showBuffer).toHaveBeenCalledWith('p1', fileUri('w1', '/a.ts'))
-    expect(depsA.registry.get('p1')?.filePath).toBe('/a.ts')
-
-    // The buffer's own workspace store now exists — EditorPane re-resolves to
-    // its real manager for the SAME pane.
-    view.rerender({ deps: depsB, managerKey: 'real-ws' })
-
-    expect(depsA.unmountPane).toHaveBeenCalledTimes(1) // torn down off the old manager
-    expect(depsB.mountPane).toHaveBeenCalledTimes(1) // mounted onto the new one
-    expect(managerB.showBuffer).toHaveBeenCalledWith('p1', fileUri('w1', '/a.ts'))
-    expect(depsB.registry.get('p1')?.filePath).toBe('/a.ts')
-  })
-
-  // Regression: `destroyWorkspaceStore` disposes a workspace's `EditorManager`
-  // and drops the store from the registry on a workspace switch; the next
-  // caller lazily creates a FRESH store (fresh `EditorManager`) for the SAME
-  // workspace id. A workspace-id STRING can't tell these two manager instances
-  // apart, so keying on it (as this hook originally did) never re-ran the
-  // mount effect — the container stayed registered on the disposed manager,
-  // which had already thrown its retained widget away, and the pane rendered
-  // a permanently empty `.editor-container` even though it was never
-  // unmounted. Keying on the manager REFERENCE itself (what callers must pass
-  // now) catches this because the two instances are never `Object.is`-equal,
-  // even when every other identifier (workspace id, paneId) is unchanged.
-  it('re-mounts when the manager instance is replaced even though no id changed', () => {
-    const store = makeStore()
-    const editorOld = makeEditor()
-    const editorNew = makeEditor()
-    const { deps: depsOld, manager: managerOld } = makeDeps(store, editorOld)
-    const { deps: depsNew, manager: managerNew } = makeDeps(store, editorNew)
-    const containerRef = createRef<HTMLElement>()
-    ;(containerRef as { current: HTMLElement }).current = document.createElement('div')
-
-    const view = renderHook(
-      ({ deps, managerKey }) => usePaneEditorController('p1', containerRef, deps, managerKey),
-      { initialProps: { deps: depsOld, managerKey: managerOld } },
-    )
-    expect(depsOld.mountPane).toHaveBeenCalledTimes(1)
-
-    // Workspace store torn down and recreated for the same workspace id —
-    // a brand new EditorManager instance, same conceptual "workspace".
-    view.rerender({ deps: depsNew, managerKey: managerNew })
-
-    expect(depsOld.unmountPane).toHaveBeenCalledTimes(1)
-    expect(depsNew.mountPane).toHaveBeenCalledTimes(1)
-    expect(managerNew.showBuffer).toHaveBeenCalledWith('p1', fileUri('w1', '/a.ts'))
-    expect(depsNew.registry.get('p1')?.filePath).toBe('/a.ts')
-  })
-
-  it('does NOT re-mount when managerKey stays the same across unrelated re-renders', () => {
-    const store = makeStore()
-    const editor = makeEditor()
-    const { deps, manager } = makeDeps(store, editor)
-    const containerRef = createRef<HTMLElement>()
-    ;(containerRef as { current: HTMLElement }).current = document.createElement('div')
-
-    const view = renderHook(
-      ({ deps, managerKey }) => usePaneEditorController('p1', containerRef, deps, managerKey),
-      { initialProps: { deps, managerKey: 'ws-1' } },
-    )
+    const view = renderHook((d) => usePaneEditorController('p1', containerRef, d), {
+      initialProps: deps,
+    })
     expect(deps.mountPane).toHaveBeenCalledTimes(1)
 
-    view.rerender({ deps, managerKey: 'ws-1' })
+    view.rerender({ ...deps, onContentChange: vi.fn(), syncCursorAndSelection: vi.fn() })
 
     expect(deps.unmountPane).not.toHaveBeenCalled()
     expect(deps.mountPane).toHaveBeenCalledTimes(1)

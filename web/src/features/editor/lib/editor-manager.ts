@@ -112,16 +112,6 @@ export class EditorManager {
   getEditor(paneId: string): IEditorLike | undefined {
     return this.panes.get(paneId)?.editor
   }
-  /**
-   * Does ANY pane currently have a retained widget mounted onto this
-   * workspace's manager? Used by `destroyWorkspaceStore` to veto evicting
-   * this workspace's store while that's true — see its own doc for the
-   * blank-editor bug this guards against (the store going unreachable via
-   * `getWorkspaceStore` out from under a still-mounted widget).
-   */
-  hasMountedPanes(): boolean {
-    return this.panes.size > 0
-  }
   /** The underlying monaco standalone editor for a pane, for the React controller
    *  to apply `updateOptions` and attach listeners. Cast at the call site. */
   getRawEditor(paneId: string): unknown {
@@ -129,18 +119,5 @@ export class EditorManager {
   }
   layoutPane(paneId: string): void {
     this.panes.get(paneId)?.editor.layout()
-  }
-  /**
-   * Lay out every mounted pane's editor. Used by staged reactivation (Task 39):
-   * on a compositor-preserved reveal the ResizeObserver may not fire (the DOM
-   * stayed laid out while hidden), so the host runs one deferred, post-first-frame
-   * layout to correct any drift accrued while off-screen.
-   */
-  layoutAll(): void {
-    for (const id of this.panes.keys()) this.layoutPane(id)
-  }
-  disposeAll(): void {
-    for (const id of [...this.panes.keys()]) this.unmountPane(id)
-    this.registry.disposeAll()
   }
 }

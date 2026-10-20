@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { activeEditors } from '@/features/editor/lib/active-editor-context'
+import { fileUri } from '@/features/editor/lib/editor-uri'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
@@ -25,13 +27,6 @@ vi.mock('@/lib/api/documents', async (importOriginal) => ({
     text: await readDisk(ref.workspaceId, ref.path),
   }),
 }))
-vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import('@/features/workspace/stores/workspace-store-registry')
-  >()),
-  getWorkspaceStore: () => store,
-  getActiveWorkspaceStore: () => store,
-}))
 
 /**
  * Stand-in for the editor controller: whenever the root pane activates an
@@ -48,9 +43,9 @@ function publishShownBuffer() {
   const state = windowPaneStore.getState()
   const active = state.buffers.find((b) => b.id === state.panes[ROOT_PANE_ID]?.activeEditorTabId)
   if (!active?.path) return
-  store.activeEditorRegistry.set(ROOT_PANE_ID, {
+  activeEditors.set(ROOT_PANE_ID, {
     paneId: ROOT_PANE_ID,
-    uri: `crowbar://editor/${active.workspaceId}/${active.path}`,
+    uri: fileUri(active.workspaceId, active.path),
     filePath: active.path,
     editor,
   })

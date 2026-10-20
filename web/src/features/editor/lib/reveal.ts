@@ -12,11 +12,8 @@ import type * as Monaco from 'monaco-editor'
 import { readDocument, workspaceRef } from '@/lib/api/documents'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent } from '@/features/panes/types/pane-content'
-import {
-  getActiveWorkspaceStore,
-  getWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
-import type { ActiveEditorRegistry } from './active-editor-context'
+import { activeEditors } from './active-editor-context'
+import { fileUri } from './editor-uri'
 
 type CodeEditor = Monaco.editor.ICodeEditor
 
@@ -55,12 +52,6 @@ function showBufferInPane(bufferId: string): string {
   return state.activePaneId
 }
 
-function registriesFor(workspaceId: string): ActiveEditorRegistry[] {
-  const own = getWorkspaceStore(workspaceId)?.activeEditorRegistry
-  const active = getActiveWorkspaceStore()?.activeEditorRegistry
-  return [own, active].filter((r, i, all): r is ActiveEditorRegistry => !!r && all.indexOf(r) === i)
-}
-
 /**
  * Resolves with the pane's editor once it shows `path`, or null if the pane
  * moves to another tab (or the buffer closes) first. No timeout: the pane
@@ -92,13 +83,13 @@ function editorReadyFor(
         state.panes[paneId]?.activeEditorTabId !== bufferId
       )
     }
-    for (const registry of registriesFor(workspaceId)) {
-      own(
-        registry.subscribe(paneId, (ctx) => {
-          if (ctx?.filePath === path && ctx.editor) settle(ctx.editor as CodeEditor)
-        }),
-      )
-    }
+    // By uri, not path: one window registry sees every workspace's files.
+    const uri = fileUri(workspaceId, path)
+    own(
+      activeEditors.subscribe(paneId, (ctx) => {
+        if (ctx?.uri === uri && ctx.editor) settle(ctx.editor as CodeEditor)
+      }),
+    )
     if (abandoned()) settle(null)
     own(windowPaneStore.subscribe(() => abandoned() && settle(null)))
   })

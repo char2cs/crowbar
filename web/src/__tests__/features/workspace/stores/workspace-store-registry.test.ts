@@ -5,47 +5,12 @@ import {
   destroyWorkspaceStore,
   getAllActiveWorkspaceIds,
   setActiveWorkspaceId,
-  canEvictWorkspace,
   getActiveWorkspaceId,
   subscribeWorkspaceStores,
   subscribeChatWorking,
   readChatWorking,
 } from '@/features/workspace/stores/workspace-store-registry'
 import { setChatWorking, writeChat } from '@/__tests__/__fixtures__/agent-chat'
-
-// Mock the IDB-backed persistence so a real destroyWorkspaceStore call (which
-// dynamically imports window-pane-store.ts for its buffer-scoped teardown)
-// doesn't need a real IndexedDB write path.
-vi.mock('@/lib/persistence/workspace-layout', () => ({
-  saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
-}))
-// Fake Monaco adapters so armEditor() (dynamically imported by both
-// WorkspaceStore itself and destroyWorkspaceStore's teardown) never touches
-// real monaco-editor — same fakes editor-pane-workspace-scope.test.tsx uses.
-vi.mock('@/features/editor/lib/monaco-adapters', () => ({
-  EDITOR_CREATE_OPTIONS: {},
-  langForUri: () => 'plaintext',
-  realModelApi: () => ({
-    createModel: (value: string, _lang: string, uri: string) => ({
-      uri,
-      dispose: () => {},
-      getValue: () => value,
-      setValueIfChanged: () => {},
-    }),
-    getModel: () => null,
-  }),
-  realEditorApi: () => ({
-    create: () => ({
-      setModel: () => {},
-      getModel: () => null,
-      saveViewState: () => null,
-      restoreViewState: () => {},
-      layout: () => {},
-      dispose: () => {},
-      raw: () => null,
-    }),
-  }),
-}))
 
 afterEach(() => {
   getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
@@ -87,13 +52,8 @@ describe('workspace-store-registry', () => {
     expect(ids).toContain('ws-2')
   })
 
-  // Fix round 1 (I3): getWorkspaceStore must NEVER mint a store for a
-  // workspace nobody registered — editorManagerFor (pane-slice.ts/
-  // buffer-slice.ts) uses this to resolve a buffer's Monaco manager by
-  // workspaceId, and a buffer can outlive its owning workspace's eviction.
-  // The old getOrCreateWorkspaceStore-based lookup would silently
-  // re-register (and leak, for the rest of the session) a store
-  // WorkspaceHost never mounted and will never destroy.
+  // getWorkspaceStore never mints a store: a buffer can outlive its
+  // workspace's eviction, and a store minted for its id would leak.
   it('getWorkspaceStore returns undefined for an unregistered workspace, without creating one', () => {
     expect(getWorkspaceStore('ws-never-registered')).toBeUndefined()
     expect(getAllActiveWorkspaceIds()).not.toContain('ws-never-registered')
@@ -108,31 +68,6 @@ describe('workspace-store-registry', () => {
     getOrCreateWorkspaceStore('ws-evicted')
     destroyWorkspaceStore('ws-evicted')
     expect(getWorkspaceStore('ws-evicted')).toBeUndefined()
-  })
-
-  // Regression: planRetention (keep-alive-policy.ts) evicts purely off
-  // hasViewChat/RETENTION_CAP — it has no notion of "a pane's editor tab
-  // still needs this workspace" — so destroyWorkspaceStore can be called
-  // for a workspace whose EditorManager still has a widget mounted into a
-  // real pane. The disposeAll() gate below already protected the manager's
-  // OWN resources in that case, but registry.delete(wsId) ran regardless,
-  // making the store unreachable via getWorkspaceStore anyway — the next
-  // render of that pane's EditorSurface saw "no store" and fell back to the
-  // ambient workspace, remounting the retained widget onto the WRONG
-  // manager and landing on a silently empty model. Live-reported as a
-  // blank editor pane with no console error and no repro steps.
-  // The host asks BEFORE letting go (canEvict), so a destroy is never vetoed
-  // after the fact — that left a zombie store registered.
-  it('a workspace whose EditorManager still has a mounted pane cannot be evicted', async () => {
-    const store = getOrCreateWorkspaceStore('ws-mounted-pane')
-    await store.armEditor()
-    store.editorManager!.mountPane('pane-1', document.createElement('div'))
-    expect(canEvictWorkspace('ws-mounted-pane')).toBe(false)
-
-    store.editorManager!.unmountPane('pane-1')
-    expect(canEvictWorkspace('ws-mounted-pane')).toBe(true)
-    destroyWorkspaceStore('ws-mounted-pane')
-    expect(getWorkspaceStore('ws-mounted-pane')).toBeUndefined()
   })
 
   describe('registry change notifications', () => {

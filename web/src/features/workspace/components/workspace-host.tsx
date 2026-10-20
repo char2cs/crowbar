@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { markEnd, markStart } from '@/lib/perf/instrumentation'
 import {
-  canEvictWorkspace,
   destroyWorkspaceStore,
   getOrCreateWorkspaceStore,
   getWorkspaceStore,
@@ -47,12 +46,11 @@ const ID_DELIM = '\u0000'
  * the subtree down.
  *
  * THE SINGLE LIFECYCLE OWNER of the workspace-store registry: reconcile (a
- * layout effect) is the only place a store is minted (`mount`), `canEvict`
- * is asked before a workspace is let go, and the post-commit effect is the
- * only place one is destroyed. Rendering never touches the registry (C6); the
- * slots rendered are exactly the retention plan's (C5 — no force-mount
- * outside it); and the active-workspace id is written here,
- * in the same effect, so every reader agrees within the commit (C4).
+ * layout effect) is the only place a store is minted (`mount`), and the
+ * post-commit effect is the only place one is destroyed. Rendering never
+ * touches the registry (C6); the slots rendered are exactly the retention
+ * plan's (C5 — no force-mount outside it); and the active-workspace id is
+ * written here, in the same effect, so every reader agrees within the commit (C4).
  */
 export function WorkspaceHost({
   activeWsId,
@@ -203,12 +201,6 @@ export function WorkspaceHost({
     )
     const retain = [...plan.retain]
     for (const id of plan.evict) {
-      // An editor still mounted into a pane: keep it rather than destroy a
-      // store out from under it (canEvict before, never a veto after).
-      if (!canEvictWorkspace(id)) {
-        retain.push(id)
-        continue
-      }
       map.delete(id)
       pendingDestroyRef.current.push(id)
     }
@@ -237,8 +229,8 @@ export function WorkspaceHost({
   // Retention exists to keep a workspace warm for a switch BACK; a workspace
   // whose last view the user just closed is the opposite case, and aging it
   // out over the keep-alive window would hold its whole live surface (chats
-  // stream, LSP, terminal transports, file watcher, Monaco registry) resident
-  // for something nobody can see.
+  // stream, LSP, terminal transports, file watcher) resident for something
+  // nobody can see.
   //
   // The request is honoured through the SAME unmount-then-destroy path an
   // ordinary eviction takes — dropped from the retention map, queued for the

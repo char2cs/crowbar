@@ -24,7 +24,7 @@ import type {
   ActiveEditorRegistry,
 } from '@/features/editor/lib/active-editor-context'
 import type { EditorManager } from '@/features/editor/lib/editor-manager'
-import { fileUri } from '@/features/editor/lib/editor-uri'
+import { uriToWorkspaceId } from '@/features/editor/lib/editor-uri'
 import { shouldReconcileModelFromStore } from '@/features/editor/lib/pane-editor-controller'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent, type PaneContent } from '@/features/panes/types/pane-content'
@@ -36,16 +36,8 @@ import { useLspDocumentSync } from './use-lsp-document-sync'
 type StandaloneEditor = Monaco.editor.IStandaloneCodeEditor
 
 export interface PaneEditorSatelliteDeps {
-  /**
-   * The active-editor registry and Monaco manager for the BUFFER'S OWN
-   * workspace — the values EditorSurface resolved from its `workspaceId`
-   * prop, not the ambient (pane chat's) workspace: a pane can hold a chat
-   * from one workspace and a file from another.
-   */
   registry: ActiveEditorRegistry
-  editorManager: EditorManager
-  /** Same workspace as `editorManager` — half of the model uri. */
-  workspaceId: string
+  manager: EditorManager
   readOnly?: boolean
   scrollable?: boolean
   isActiveSurface?: boolean
@@ -60,16 +52,18 @@ export interface PaneEditorSatelliteDeps {
 interface BoundEditor {
   editor: StandaloneEditor | null
   model: Monaco.editor.ITextModel | null
+  uri: string
   filePath: string
 }
 
-const UNBOUND: BoundEditor = { editor: null, model: null, filePath: '' }
+const UNBOUND: BoundEditor = { editor: null, model: null, uri: '', filePath: '' }
 
 function toBound(ctx: ActiveEditorContext | undefined): BoundEditor {
   if (!ctx) return UNBOUND
   return {
     editor: (ctx.editor as StandaloneEditor | undefined) ?? null,
     model: (ctx.model as Monaco.editor.ITextModel | undefined) ?? null,
+    uri: ctx.uri,
     filePath: ctx.filePath,
   }
 }
@@ -86,8 +80,7 @@ function activeEditorBuffer(
 export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatelliteDeps): void {
   const {
     registry,
-    editorManager,
-    workspaceId,
+    manager,
     readOnly = false,
     scrollable = true,
     isActiveSurface = true,
@@ -96,7 +89,9 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
 
   const [bound, setBound] = useState<BoundEditor>(() => toBound(registry.get(paneId)))
   useEffect(() => registry.subscribe(paneId, (ctx) => setBound(toBound(ctx))), [paneId, registry])
-  const { editor, model, filePath } = bound
+  const { editor, model, uri, filePath } = bound
+  // The model uri names the buffer's own workspace, whatever pane shows it.
+  const workspaceId = uriToWorkspaceId(uri) ?? ''
 
   const languageOverride = useStore(
     windowPaneStore,
@@ -129,7 +124,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
       if (model.isDisposed() || model.getValue() === content) return
       const selection = editor.getSelection()
       if (externalApplyRef) externalApplyRef.current = content
-      editorManager.applyExternalEdit(paneId, fileUri(workspaceId, filePath), content)
+      manager.applyExternalEdit(paneId, uri, content)
       if (selection) editor.setSelection(selection)
     }
     // On (re)bind the store is authoritative only for a CLEAN buffer: a dirty
@@ -143,7 +138,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
       previous = buffer.content
       apply(buffer.content)
     })
-  }, [editor, model, filePath, editorManager, externalApplyRef, paneId, workspaceId])
+  }, [editor, model, uri, filePath, manager, externalApplyRef, paneId])
 
   // ── Focus the editor when it shows a new model on the active surface ──────
   useEffect(() => {

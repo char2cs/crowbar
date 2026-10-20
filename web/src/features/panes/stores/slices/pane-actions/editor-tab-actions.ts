@@ -1,7 +1,7 @@
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { fileUri } from '@/features/editor/lib/editor-uri'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
-import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { getEditorHost } from '@/features/editor/host/editor-host'
 import { removePane } from '@/features/panes/lib/view-ops'
 import { focusPane, homeOf, layoutOf, touchPane } from '@/features/panes/lib/view-state'
 import { isPaneEmpty } from '@/features/panes/lib/view-selectors'
@@ -62,15 +62,11 @@ export function placeTab(
 
 /** The editor tabs a pane holds beside its chat. */
 export function createEditorTabActions(set: PaneSet, get: PaneGet): EditorTabActions {
-  // Never CREATE a workspace store just to reach its editor manager — a
-  // buffer can outlive its workspace, and a store created here would leak.
+  // No host means Monaco never loaded, so no pane holds a model to release.
   const releaseEditorTabModel = (paneId: string, tabId: string) => {
     const buf = get().buffers?.find((b) => b.id === tabId)
     if (!buf || !isEditorContent(buf) || !buf.path) return
-    getWorkspaceStore(buf.workspaceId)?.editorManager?.closeBuffer(
-      paneId,
-      fileUri(buf.workspaceId, buf.path),
-    )
+    getEditorHost()?.manager.closeBuffer(paneId, fileUri(buf.workspaceId, buf.path))
   }
 
   return {

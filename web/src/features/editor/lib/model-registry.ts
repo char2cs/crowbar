@@ -17,7 +17,7 @@ interface Entry {
   refs: number
 }
 
-/** Per-workspace registry of Monaco text models keyed by file URI.
+/** The window's Monaco text models, keyed by file URI (which names the workspace).
  *  Same file in two panes => same model => live sync + shared undo. */
 export class ModelRegistry {
   private entries = new Map<string, Entry>()
@@ -51,9 +51,5 @@ export class ModelRegistry {
 
   get(uri: string): IModelLike | null {
     return this.entries.get(uri)?.model ?? null
-  }
-  disposeAll(): void {
-    for (const e of this.entries.values()) e.model.dispose()
-    this.entries.clear()
   }
 }

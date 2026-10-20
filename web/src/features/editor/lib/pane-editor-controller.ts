@@ -32,17 +32,8 @@ export interface ActiveBufferInfo {
   /** Filesystem path — half of the stable model key (`fileUri(workspaceId,
    *  filePath)`). */
   filePath: string
-  /**
-   * The workspace whose EditorManager/ModelRegistry is CURRENTLY hosting
-   * this pane's widget — the caller's own resolved workspace id, not
-   * necessarily the buffer's intrinsic `workspaceId` (they briefly differ
-   * during the ambient-workspace-fallback window; see EditorPane's own
-   * doc). Must always agree with whichever workspace's `armEditor()`
-   * closure will be asked for this uri's content, or the model gets created
-   * with someone else's (or no) text. Also the other half of the model-uri
-   * key — see fileUri's own doc for the cross-workspace collision this
-   * scoping fixes.
-   */
+  /** The buffer's own workspace — the other half of the model uri, so two
+   *  workspaces' files at the same path never share a model. */
   workspaceId: string
 }
 

@@ -68,7 +68,6 @@ const EXHAUSTIVE_DEPS_BASELINE = ['src/features/agent/transcript/agent-transcrip
 const UNDESCRIBED_DIRECTIVE_BASELINE = [
   'src/__tests__/features/terminal/hooks/use-terminal-connection.test.ts',
   'src/features/agent/transcript/plate/chat-fresh-text-plugin.tsx',
-  'src/features/editor/hooks/use-pane-editor-controller.ts',
   'src/features/panes/components/pane-sash.tsx',
   'src/features/tabs/hooks/use-pane-top-row-edges.ts',
   'src/features/terminal/hooks/use-terminal-connection.ts',

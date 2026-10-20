@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   applyActiveBuffer,
   shouldReconcileModelFromStore,
   type PaneSwitchManager,
 } from '@/features/editor/lib/pane-editor-controller'
-import { createActiveEditorRegistry } from '@/features/editor/lib/active-editor-context'
+import type { ActiveEditorRegistry } from '@/features/editor/lib/active-editor-context'
 import { fileUri } from '@/features/editor/lib/editor-uri'
 
 /** Fake manager: one model per uri it has been shown; getRawEditor exposes the
@@ -25,10 +25,17 @@ function fakeManager() {
   return manager
 }
 
+// The registry is a window singleton; a fresh module instance per test isolates it.
+let freshRegistry: ActiveEditorRegistry
+beforeEach(async () => {
+  vi.resetModules()
+  freshRegistry = (await import('@/features/editor/lib/active-editor-context')).activeEditors
+})
+
 describe('applyActiveBuffer', () => {
   it('calls showBuffer(paneId, fileUri(path)) and publishes context to the registry', () => {
     const manager = fakeManager()
-    const registry = createActiveEditorRegistry()
+    const registry = freshRegistry
     const setSpy = vi.spyOn(registry, 'set')
 
     const ctx = applyActiveBuffer({ manager, registry }, 'p1', {
@@ -51,7 +58,7 @@ describe('applyActiveBuffer', () => {
 
   it('is a no-op when the buffer is null', () => {
     const manager = fakeManager()
-    const registry = createActiveEditorRegistry()
+    const registry = freshRegistry
     const setSpy = vi.spyOn(registry, 'set')
 
     const ctx = applyActiveBuffer({ manager, registry }, 'p1', null)
@@ -63,7 +70,7 @@ describe('applyActiveBuffer', () => {
 
   it('switching to the SAME buffer does not re-notify subscribers', () => {
     const manager = fakeManager()
-    const registry = createActiveEditorRegistry()
+    const registry = freshRegistry
     applyActiveBuffer({ manager, registry }, 'p1', {
       bufferId: 'b-a',
       filePath: '/a.ts',
@@ -84,7 +91,7 @@ describe('applyActiveBuffer', () => {
   })
 
   it('returns undefined (and does not publish) when no raw editor/model is available', () => {
-    const registry = createActiveEditorRegistry()
+    const registry = freshRegistry
     const setSpy = vi.spyOn(registry, 'set')
     const manager: PaneSwitchManager = {
       showBuffer: vi.fn(),

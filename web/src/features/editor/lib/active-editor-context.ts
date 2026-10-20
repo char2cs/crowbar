@@ -41,7 +41,7 @@ interface PaneState {
   listeners: Set<Listener>
 }
 
-export function createActiveEditorRegistry(): ActiveEditorRegistry {
+function createActiveEditorRegistry(): ActiveEditorRegistry {
   const panes = new Map<string, PaneState>()
 
   function getOrCreate(paneId: string): PaneState {
@@ -98,3 +98,6 @@ export function createActiveEditorRegistry(): ActiveEditorRegistry {
     },
   }
 }
+
+/** The window's one registry: every pane publishes here, whatever workspace it shows. */
+export const activeEditors: ActiveEditorRegistry = createActiveEditorRegistry()

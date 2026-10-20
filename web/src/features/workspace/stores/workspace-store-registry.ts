@@ -1,8 +1,6 @@
 import { createWorkspaceStore, type WorkspaceStore } from './workspace-store'
 import { loadFromLocalStorage } from './workspace-persistence'
-import { isEditorContent } from '@/features/panes/types/pane-content'
 import { bindActiveWorkspaceId } from '@/lib/workspace-scope'
-import { bestEffort } from '@/lib/best-effort'
 
 const registry = new Map<string, WorkspaceStore>()
 
@@ -65,15 +63,9 @@ export function getActiveWorkspaceId(): string | null {
 
 /**
  * A registered workspace store, or `undefined` if none exists — never
- * creates one. Task 26 fix round 1 (I3): `editorManagerFor(workspaceId)`
- * (pane-slice.ts/buffer-slice.ts) resolves a buffer's per-workspace Monaco
- * manager by id, and a buffer can outlive its owning workspace's eviction
- * (buffers are window-level now, panes/tabs can still reference one whose
- * workspace was already destroyed). Looking that id up with
- * `getOrCreateWorkspaceStore` would silently re-register a store
- * `WorkspaceHost` never mounted and will never destroy — a real per-session
- * leak. Callers that only want to read an existing store, never mint one,
- * must use this instead.
+ * creates one. A buffer can outlive its workspace's eviction, and minting a
+ * store for its id would register one `WorkspaceHost` never mounted and will
+ * never destroy.
  */
 export function getWorkspaceStore(wsId: string): WorkspaceStore | undefined {
   return registry.get(wsId)
@@ -267,38 +259,7 @@ export function isChatWorking(chatId: string): boolean {
   return false
 }
 
-/**
- * Whether `wsId`'s store may be destroyed now. Its EditorManager still having
- * a Monaco widget mounted into a real pane means a pane is showing one of its
- * editors: destroying it would strand that widget on a dead manager. The host
- * asks this BEFORE evicting and keeps the workspace instead, so a destroy is
- * never vetoed after the host already let go — which used to leave a zombie
- * store registered that the next mount picked back up, spinner and all.
- */
-export function canEvictWorkspace(wsId: string): boolean {
-  return !registry.get(wsId)?.editorManager?.hasMountedPanes()
-}
-
 export function destroyWorkspaceStore(wsId: string): void {
-  const store = registry.get(wsId)
-  if (store) {
-    // Every buffer that exists is listed by some pane (invariant C2): one of
-    // this workspace's is on screen and keeps its resources, which are freed
-    // when its last pane lets go (buffer-release.ts) — not here. What this
-    // store alone owns is the Monaco model registry, disposed once none of
-    // its editor buffers survive. Dynamic import avoids a registry ↔
-    // window-pane-store cycle.
-    bestEffort(
-      import('@/features/panes/stores/window-pane-store').then(({ windowPaneStore }) => {
-        const survives = windowPaneStore
-          .getState()
-          .buffers.some((b) => b.workspaceId === wsId && isEditorContent(b))
-        if (!survives) store.editorManager?.disposeAll()
-      }),
-      'dispose editor models',
-    )
-  }
-
   registry.delete(wsId)
   // After the delete, so a watcher re-binding on this signal sees the store
   // already gone rather than re-attaching to the one being torn down.
