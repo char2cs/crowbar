@@ -14,6 +14,7 @@ import (
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // refusedS1 is a CLI's exit on refusing to resume session S1.
@@ -64,12 +65,15 @@ func (r *refusingTerm) refuseAll() {
 	}
 }
 
-// reviveConversations is the record of a claude chat with no lineage,
+// reviveConversations is the record of a chat on provider with no lineage,
 // selection or gap to hand over.
-type reviveConversations struct{ stubConversationsForSpawn }
+type reviveConversations struct {
+	stubConversationsForSpawn
+	provider string
+}
 
-func (reviveConversations) ChatProviderID(context.Context, string) (string, error) {
-	return "claude", nil
+func (c reviveConversations) ChatProviderID(context.Context, string) (string, error) {
+	return c.provider, nil
 }
 
 func (reviveConversations) AssembleConversation(context.Context, string, bool, time.Time) (string, error) {
@@ -92,39 +96,72 @@ func (reviveActivity) HasTurnAtOrAfter(context.Context, string, string, time.Tim
 	return false, nil
 }
 
-// A send to a dormant chat launches one CLI, carrying the prompt. When that
-// CLI refuses the session, its refusal settles the prompt and loses the
-// session once, whether it lands before the launch answers or after.
-func TestSubmitPromptWithSwitch_ARefusedReviveSettlesThePromptItCarried(t *testing.T) {
-	for name, early := range map[string]bool{"before the launch answers": true, "after it answers": false} {
-		t.Run(name, func(t *testing.T) {
-			h := newSpawnHarness(t, "")
-			term := &refusingTerm{early: early}
-			h.rs.term = term
-			h.rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: h.chatID, WorkspaceID: "ws-1", ProviderID: "claude"}}
-			h.rs.conversations, h.rs.activity = reviveConversations{}, reviveActivity{}
-			h.rs.ledger = turnedTestLedger(t, "claude", "S1")
-			requestID := uuid.NewString()
+// recordedSwitches keeps the switches a send records.
+type recordedSwitches struct {
+	noopTurns
+	to *[]string
+}
 
-			_, _ = h.rs.SubmitPromptWithSwitch(t.Context(), h.chatID, "hello", requestID, "", nil)
-			term.refuseAll()
+func (r recordedSwitches) RecordChatSwitch(_ context.Context, _, kind, detail string) error {
+	*r.to = append(*r.to, kind+":"+detail)
+	return nil
+}
 
-			assert.Equal(t, 1, term.callCount(), "the send launches one CLI")
-			argv := term.lastCall().argv
-			assert.Equal(t, "S1", argv[slices.Index(argv, "--resume")+1], "%v", argv)
-			assert.Contains(t, argv, "hello", "the CLI it launches carries the prompt")
-			p := promptReceipt(t, h.rs.ledger, requestID)
-			assert.Equal(t, ledger.PromptStatusSettled, p.Status)
-			assert.Equal(t, ledger.ReasonSessionLost, p.Reason)
-			assert.False(t, p.Consumed)
-			st := chatState(t, h.rs.ledger)
-			exit, _ := st.LastExit()
-			assert.Equal(t, domain.AgentExitResumeFailed, exit.Reason)
-			c, _ := st.Conversation("claude")
-			assert.Equal(t, ledger.ConversationLost, c.State)
-			rows, err := h.rs.ledger.Read(t.Context(), h.chatID, 0, 0)
-			require.NoError(t, err)
-			assert.Equal(t, 1, countKind(rows, ledger.KindSessionLost))
-		})
+// A send launches one CLI, carrying the prompt: the dormant chat's provider,
+// or the provider staged with it in place of the chat's CLI. When that CLI
+// refuses the session, its refusal settles the prompt and loses the session
+// once, whether it lands before the launch answers or after.
+func TestSubmitPromptWithSwitch_ARefusedResumeSettlesThePromptItsOneLaunchCarried(t *testing.T) {
+	scenarios := map[string]struct {
+		current, staged string
+		live            bool
+	}{
+		"a dormant chat":                      {current: "claude"},
+		"a dormant chat with a staged switch": {current: "codex", staged: "claude"},
+		"a live chat with a staged switch":    {current: "codex", staged: "claude", live: true},
+	}
+	for name, sc := range scenarios {
+		for order, early := range map[string]bool{"before the launch answers": true, "after it answers": false} {
+			t.Run(name+", "+order, func(t *testing.T) {
+				h := newSpawnHarness(t, "")
+				term := &refusingTerm{}
+				var switched []string
+				h.rs.term, h.rs.turns = term, recordedSwitches{to: &switched}
+				h.rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: h.chatID, WorkspaceID: "ws-1", ProviderID: sc.current}}
+				h.rs.conversations, h.rs.activity = reviveConversations{provider: sc.current}, reviveActivity{}
+				h.rs.ledger = turnedTestLedger(t, "claude", "S1")
+				if sc.live {
+					_, err := h.rs.spawnRunner(t.Context(), h.chatID, "ws-1", sc.current, spawnInput{}, false)
+					require.NoError(t, err)
+				}
+				term.early = early
+				launched := term.callCount()
+				requestID := uuid.NewString()
+
+				_, _ = h.rs.SubmitPromptWithSwitch(t.Context(), h.chatID, "hello", requestID, sc.staged, nil)
+				term.refuseAll()
+
+				assert.Equal(t, 1, term.callCount()-launched, "the send launches one CLI")
+				argv := term.lastCall().argv
+				assert.Equal(t, "S1", argv[slices.Index(argv, "--resume")+1], "%v", argv)
+				assert.Contains(t, argv, "hello", "the CLI it launches carries the prompt")
+				p := promptReceipt(t, h.rs.ledger, requestID)
+				assert.Equal(t, ledger.PromptStatusSettled, p.Status)
+				assert.Equal(t, ledger.ReasonSessionLost, p.Reason)
+				assert.False(t, p.Consumed)
+				st := chatState(t, h.rs.ledger)
+				exit, _ := st.LastExit()
+				assert.Equal(t, domain.AgentExitResumeFailed, exit.Reason)
+				c, _ := st.Conversation("claude")
+				assert.Equal(t, ledger.ConversationLost, c.State)
+				rows, err := h.rs.ledger.Read(t.Context(), h.chatID, 0, 0)
+				require.NoError(t, err)
+				assert.Equal(t, 1, countKind(rows, ledger.KindSessionLost))
+				if sc.staged != "" && !early {
+					assert.Equal(t, []string{engineagents.InterruptProviderSwitched + ":claude"}, switched,
+						"the switch is recorded once its launch runs")
+				}
+			})
+		}
 	}
 }

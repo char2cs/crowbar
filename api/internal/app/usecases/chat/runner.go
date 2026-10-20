@@ -352,8 +352,8 @@ func (u *Usecase) SwitchProvider(
 // once per client request id.
 //
 // A non-empty provider that differs from the chat's CURRENT one is switched
-// to FIRST — the same switch a standalone POST .../switch would run, staged
-// here instead. This is what lets the composer hold a picked provider
+// to by the send itself: its one launch carries the prompt, and is recorded
+// as the switch. This is what lets the composer hold a picked provider
 // (picking a model under a different section) as pure local state: the
 // picker never calls SwitchProvider itself any more, so a row click never
 // tears down the live CLI on its own — only the next actual send does. A

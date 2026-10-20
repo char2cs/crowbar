@@ -9,19 +9,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// stubLiveRunnerForSelection answers only LiveRunnerForChat; every other
-// Runners method panics if reached.
-type stubLiveRunnerForSelection struct {
-	Runners
-	runner engineagents.Runner
-}
-
-func (s stubLiveRunnerForSelection) LiveRunnerForChat(
-	context.Context, string,
-) (engineagents.Runner, error) {
-	return s.runner, nil
-}
-
 // fakeSelectionAgent mirrors the runner package's own fixture of the same
 // name — answers only Models/Efforts/Capabilities/ID, everything else
 // panics via the embedded nil interface.
@@ -54,16 +41,15 @@ func (s stubAgentsForSelection) Get(
 
 func conversationsForSelectionTest(agent engineagents.Agent) *Conversations {
 	return &Conversations{
-		runners: stubLiveRunnerForSelection{runner: engineagents.Runner{ID: "r1", ProviderID: "fake-provider"}},
-		agents:  stubAgentsForSelection{agent: agent},
-		home:    func() (string, error) { return "/home", nil },
+		agents: stubAgentsForSelection{agent: agent},
+		home:   func() (string, error) { return "/home", nil },
 	}
 }
 
 func TestValidateSelection_AcceptsAModelTheResolvedCatalogueDeclares(t *testing.T) {
 	c := conversationsForSelectionTest(fakeSelectionAgent{models: []string{"opus"}, efforts: []string{"low"}})
 
-	err := c.validateSelection(context.Background(), "chat-1", "opus", "low")
+	err := c.validateSelection(context.Background(), "fake-provider", "opus", "low")
 
 	require.NoError(t, err)
 }
@@ -71,7 +57,7 @@ func TestValidateSelection_AcceptsAModelTheResolvedCatalogueDeclares(t *testing.
 func TestValidateSelection_RejectsAModelAResolvedCatalogueOmits(t *testing.T) {
 	c := conversationsForSelectionTest(fakeSelectionAgent{models: []string{"opus"}})
 
-	err := c.validateSelection(context.Background(), "chat-1", "not-a-real-model", "")
+	err := c.validateSelection(context.Background(), "fake-provider", "not-a-real-model", "")
 
 	require.Error(t, err)
 }
@@ -81,7 +67,7 @@ func TestValidateSelection_RejectsAModelAResolvedCatalogueOmits(t *testing.T) {
 func TestValidateSelection_AnUnresolvedDiscoveryAcceptsAnyModel(t *testing.T) {
 	c := conversationsForSelectionTest(fakeSelectionAgent{discovered: true})
 
-	err := c.validateSelection(context.Background(), "chat-1", "gpt-6-astra", "ultra")
+	err := c.validateSelection(context.Background(), "fake-provider", "gpt-6-astra", "ultra")
 
 	require.NoError(t, err)
 }
@@ -89,7 +75,7 @@ func TestValidateSelection_AnUnresolvedDiscoveryAcceptsAnyModel(t *testing.T) {
 func TestValidateSelection_AStaticEmptyCatalogueStillRejects(t *testing.T) {
 	c := conversationsForSelectionTest(fakeSelectionAgent{discovered: false})
 
-	err := c.validateSelection(context.Background(), "chat-1", "anything", "")
+	err := c.validateSelection(context.Background(), "fake-provider", "anything", "")
 
 	require.Error(t, err, "no catalogue at all (not discovery-backed) must keep rejecting, same as before")
 }

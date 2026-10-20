@@ -31,9 +31,8 @@ func (rs *Runners) SubmitPrompt(
 }
 
 // submitPromptLocked is SubmitPrompt's body, split out so
-// SubmitPromptWithSwitch (promptswitch.go) can run it as the TAIL of its own
-// single hold of the chat — a staged provider switch and selection commit,
-// then this. See that file's own doc for why.
+// SubmitPromptWithSwitch (promptswitch.go) runs it in its own single hold of
+// the chat, with the staged selection and switch as its admit.
 //
 // admit (nil for none) runs once the request is known to be new — a resend of
 // a recorded prompt answers from the ledger and must never spawn or mutate

@@ -600,12 +600,11 @@ func TestRegression_SubmitPromptWithStagedProvider_DeliverySpawnCarriesTheGap(t 
 	require.NoError(t, err)
 	assert.Equal(t, "claude", live.ProviderID)
 
-	// spawn 0: initial claude. spawn 1: switch to codex. spawn 2: SubmitPrompt's
-	// internal SwitchProvider back to claude (the silent resume, displaced before
-	// it can answer). spawn 3: SubmitPrompt's own replacement spawn — the one
-	// that actually carries "what did I miss?" and is what claude answers from.
-	require.Equal(t, 4, f.term.callCount())
-	argv := f.term.calls[3].argv
+	// spawn 0: initial claude. spawn 1: switch to codex. spawn 2: the send's one
+	// launch back onto claude, carrying "what did I miss?" — never a silent
+	// switch spawn displaced by a second one that carries it.
+	require.Equal(t, 3, f.term.callCount())
+	argv := f.term.calls[2].argv
 
 	assert.Equal(t, "sid-claude-native", argAfter(t, argv, "--resume"),
 		"the delivery spawn must resume claude's own conversation, not start a blank one")
@@ -614,8 +613,7 @@ func TestRegression_SubmitPromptWithStagedProvider_DeliverySpawnCarriesTheGap(t 
 	assert.Contains(t, joined, "what did I miss?",
 		"the delivery spawn must carry the user's actual prompt: argv was %v", argv)
 	assert.Contains(t, joined, "codex spoke while claude was away",
-		"the delivery spawn — not just the switch's own throwaway silent resume — "+
-			"must carry the gap claude missed while away: argv was %v", argv)
+		"the delivery spawn must carry the gap claude missed while away: argv was %v", argv)
 	assert.NotContains(t, joined, "claude ledger content",
 		"a provider resumed into its own conversation must not be re-fed its own earlier turns")
 

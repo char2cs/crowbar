@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -211,6 +212,32 @@ func TestSpawnRunner_AFailedRespawnRecordsSpawnFailedAndSettlesWhatItCarried(t *
 	assert.Equal(t, ledger.ReasonDeliveryFailed, p.Reason)
 	_, live := rs.RunnerByID("runner-1")
 	assert.False(t, live, "a failed spawn leaves nothing in the live table")
+}
+
+// A carried prompt whose push finds the session gone loses the session, as a
+// refused establish does: the spawn ends resume_failed, never spawn_failed.
+func TestSpawnRunner_ACarriedPushThatFindsTheSessionGoneLosesIt(t *testing.T) {
+	h := newSpawnHarness(t, engineagents.SurfaceChat)
+	require.NoError(t, os.MkdirAll(filepath.Join(h.home, "descriptors"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(h.home, "descriptors", apiLoseProvider+".yaml"),
+		[]byte(apiLoseTestDescriptor), 0o600))
+	h.rs.ledger = turnedTestLedger(t, apiLoseProvider, "S1")
+	appendPrompt(t, h.rs.ledger, "req-1", "runner-1")
+	conn, _ := apiLoseConn(t, h.rs, refusedResume)
+	serve := exec.CommandContext(t.Context(), "sleep", "30")
+	require.NoError(t, serve.Start())
+	conn.serve, conn.tctx = reapServe(serve), engineagents.TemplateCtx{Session: "S1"}
+
+	_, err := h.rs.spawnRunner(t.Context(), h.chatID, "ws-1", apiLoseProvider,
+		spawnInput{runnerID: "runner-1", promptMessage: "hi"}, false)
+
+	require.ErrorIs(t, err, ErrSpawnPromptUndeliverable)
+	st := chatState(t, h.rs.ledger)
+	c, _ := st.Conversation(apiLoseProvider)
+	assert.Equal(t, ledger.ConversationLost, c.State)
+	assert.Equal(t, ledger.ReasonSessionLost, promptReceipt(t, h.rs.ledger, "req-1").Reason)
+	exit, _ := st.LastExit()
+	assert.Equal(t, domain.AgentExitResumeFailed, exit.Reason)
 }
 
 // A chat holds one CLI: a spawn onto a chat whose runner is live is refused

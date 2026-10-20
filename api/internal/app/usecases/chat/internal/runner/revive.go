@@ -10,7 +10,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // reviveForDelivery starts a dormant chat's provider carrying requestID: the
@@ -27,28 +26,27 @@ func (rs *Runners) reviveForDelivery(
 		return domain.AgentPromptSubmission{}, true, fmt.Errorf("agent: submit prompt: revive: %w", err)
 	}
 	defer rs.enterPhase(ctx, chat.ID, snapshot.PhaseStarting)()
-	submission, err := rs.startCarrying(ctx, h, chat, providerID, requestID, text)
+	delivery, err := rs.planCarrying(ctx, chat, providerID)
+	if err != nil {
+		return domain.AgentPromptSubmission{}, true, err
+	}
+	submission, err := rs.launchCarrying(ctx, h, chat, requestID, text, delivery)
 	return submission, true, err
 }
 
-// startCarrying refuses a disabled provider or a working chat before the
-// prompt is recorded, then launches providerID's CLI carrying it.
-func (rs *Runners) startCarrying(
-	ctx context.Context, h *hold, chat domain.Chat, providerID, requestID, text string,
-) (domain.AgentPromptSubmission, error) {
+// planCarrying refuses a disabled provider or a working chat before anything
+// is recorded, then plans providerID's launch in place of the chat's CLI, if any.
+func (rs *Runners) planCarrying(ctx context.Context, chat domain.Chat, providerID string) (promptDelivery, error) {
 	if err := rs.providers.RequireProviderEnabled(ctx, providerID); err != nil {
-		return domain.AgentPromptSubmission{}, err
+		return promptDelivery{}, err
 	}
 	if err := rs.requireNotBusy(ctx, chat.ID); err != nil {
-		return domain.AgentPromptSubmission{}, err
+		return promptDelivery{}, err
 	}
 	descriptor, _, err := rs.promptAgent(ctx, chat, providerID)
 	if err != nil {
-		return domain.AgentPromptSubmission{}, err
+		return promptDelivery{}, err
 	}
-	delivery, err := rs.resolvePromptDelivery(ctx, chat.ID, providerID, engineagents.Runner{}, descriptor)
-	if err != nil {
-		return domain.AgentPromptSubmission{}, err
-	}
-	return rs.launchCarrying(ctx, h, chat, requestID, text, delivery)
+	live, _ := rs.live.byChat(chat.ID)
+	return rs.resolvePromptDelivery(ctx, chat.ID, providerID, live, descriptor)
 }

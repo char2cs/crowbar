@@ -54,13 +54,9 @@ func carriedSelection(
 // The terminal-session id it returns is "" in the second case, which is what
 // its runner_started row then records.
 //
-// It is also the single door every spawn's PROMPT goes through, and the two
-// branches carry it differently: the PTY carries it in the argv the
-// descriptor's prompt_submit steps rendered it into, and an adopted
-// connection has no argv at all, so it must dispatch the text itself. That is
-// why req.promptMessage exists as a field rather than living only inside
-// argv — the adopt branch used to fork nothing, throw the whole rendered plan
-// away and report success, which silently dropped a user's message.
+// It is also the single door every spawn's PROMPT goes through: a PTY running
+// the rendered plan carries it in argv, and a connection that is the runner,
+// or that an attach argv replaced the plan with, must dispatch the text itself.
 //
 // The SELECTION is the same invariant one field over, and the branch that
 // runs is what reports which carrier took it — so nothing downstream can
@@ -71,16 +67,16 @@ func (rs *Runners) forkOrAdopt(
 	if rs.apiConnIsTheRunner(req, attachArgv) {
 		return "", req.apiSelection, rs.adoptAPIConn(ctx, req)
 	}
-	// An attach argv REPLACES the rendered spawn plan wholesale
-	// (pointPlanAtAttach), so a forked PTY carries the selection in its own
-	// argv only when it is running that plan. When it is attaching, the live
-	// connection it attaches to is the carrier.
-	carried := req.argvSelection
-	if len(attachArgv) > 0 {
-		carried = req.apiSelection
-	}
 	termSessID, err := rs.forkCLI(ctx, req)
-	return termSessID, carried, err
+	if err != nil || len(attachArgv) == 0 {
+		return termSessID, req.argvSelection, err
+	}
+	// pointPlanAtAttach replaced the rendered plan wholesale: the connection
+	// the PTY attaches to carries the selection and the prompt.
+	if err := rs.carryPromptOverAPIConn(ctx, req); err != nil {
+		return "", req.apiSelection, rs.teardownForked(ctx, req.chatID, req.runnerID, termSessID, err)
+	}
+	return termSessID, req.apiSelection, nil
 }
 
 // adoptAPIConn is forkCLI for a spawn with no PTY: it arms the same exit
@@ -101,11 +97,12 @@ func (rs *Runners) adoptAPIConn(ctx context.Context, req forkRequest) error {
 }
 
 // carryPromptOverAPIConn delivers a prompt-bearing spawn's message down the
-// connection this runner adopted instead of forking a PTY — the only carrier
-// such a runner has (its rendered argv, prompt and all, is never run).
+// connection that is its only carrier (its rendered argv, prompt and all, is
+// never run).
 //
 // A failure FAILS THE SPAWN: there is no other carrier, and the caller settles
-// the prompt rather than report a runner healthy with the user's message nowhere.
+// the prompt rather than report a runner healthy with the user's message
+// nowhere. A session gone under the push is lost, as a refused establish is.
 func (rs *Runners) carryPromptOverAPIConn(ctx context.Context, req forkRequest) error {
 	if req.promptMessage == "" {
 		return nil
@@ -120,6 +117,8 @@ func (rs *Runners) carryPromptOverAPIConn(ctx context.Context, req forkRequest) 
 	if _, _, err := rs.pushPromptOverAPI(
 		ctx, req.runnerID, conn.tctx.Session, conn.tctx.Cwd, req.promptMessage,
 	); err != nil {
+		carrier := engineagents.Runner{ID: req.runnerID, ProviderID: req.providerID}
+		rs.loseAPISession(ctx, req.chatID, carrier, conn.tctx.Session, err)
 		return fmt.Errorf("%w: %w", ErrSpawnPromptUndeliverable, err)
 	}
 	return nil

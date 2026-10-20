@@ -386,20 +386,19 @@ type forkRequest struct {
 	resume resumeWatch
 }
 
-func (rs *Runners) teardownAfterPersistFailure(
+// teardownForked ends the CLI a spawn forked before it failed, and returns cause.
+func (rs *Runners) teardownForked(
 	ctx context.Context,
 	chatID, runnerID, termSessID string,
 	cause error,
 ) error {
 	if err := rs.term.TerminateGraceful(ctx, termSessID); err != nil &&
 		!errors.Is(err, engineterminal.ErrSessionNotFound) {
-		slog.WarnContext(ctx, "agent: spawn runner: teardown after persist failure",
+		slog.WarnContext(ctx, "agent: spawn runner: teardown of a failed spawn",
 			"chat_id", chatID, "runner_id", runnerID, "terminal_session_id", termSessID, "err", err)
 	}
-	// applyAPITransport runs before this point in spawnRunner and can have
-	// already established a live serve process by the time persistence fails —
-	// that process has no PTY of its own to fall with the one just terminated
-	// above (see quitOutgoingCLI's comment), so it leaks unless dropped here too.
+	// The serve process applyAPITransport started has no PTY of its own to
+	// fall with the one just terminated, so it leaks unless dropped here too.
 	rs.apiConns.drop(runnerID)
 	return cause
 }

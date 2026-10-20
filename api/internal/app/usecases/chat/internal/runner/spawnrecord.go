@@ -33,7 +33,7 @@ func (rs *Runners) recordRunner(ctx context.Context, r engineagents.Runner, resu
 			Now:         now,
 		})
 		if err != nil {
-			return rs.teardownAfterPersistFailure(ctx, chatID, r.ID, r.TerminalSession,
+			return rs.teardownForked(ctx, chatID, r.ID, r.TerminalSession,
 				fmt.Errorf("agent: spawn runner: create chat: %w", err))
 		}
 		rs.seedPermissionLevel(ctx, chatID)
@@ -53,7 +53,7 @@ func (rs *Runners) recordRunner(ctx context.Context, r engineagents.Runner, resu
 		_, _, err = rs.ledger.Append(ctx, chatID, row)
 	}
 	if err != nil {
-		return rs.teardownAfterPersistFailure(ctx, chatID, r.ID, r.TerminalSession,
+		return rs.teardownForked(ctx, chatID, r.ID, r.TerminalSession,
 			fmt.Errorf("agent: spawn runner: record runner: %w", err))
 	}
 	exitedEarly := rs.live.markStarted(r.ID)
@@ -73,8 +73,9 @@ func (rs *Runners) recordRunner(ctx context.Context, r engineagents.Runner, resu
 }
 
 // recordSpawnFailure frees the chat of a spawn that put no CLI on it and, for an
-// existing chat, records spawn_failed. A CLI that died during startup recorded
-// its own exit; a preempted spawn is the preempting Stop's to record.
+// existing chat, records spawn_failed, or resume_failed when its provider no
+// longer had the session. A CLI that died during startup recorded its own
+// exit; a preempted spawn is the preempting Stop's to record.
 func (rs *Runners) recordSpawnFailure(ctx context.Context, chatID, runnerID string, create bool, err *error) {
 	if *err == nil || errors.Is(*err, ErrProviderExitedDuringStartup) {
 		return
@@ -88,15 +89,17 @@ func (rs *Runners) recordSpawnFailure(ctx context.Context, chatID, runnerID stri
 	if _, live := rs.live.byChat(chatID); live {
 		return
 	}
+	reason := domain.AgentExitSpawnFailed
+	if errors.Is(*err, engineagents.ErrAPISessionLost) {
+		reason = domain.AgentExitResumeFailed
+	}
 	_, _, recErr := rs.ledger.Do(context.WithoutCancel(ctx), chatID, func(st ledger.State) ([]ledger.Row, error) {
-		return ledger.Exit(st, ledger.RunnerExited{RunnerID: runnerID, Reason: domain.AgentExitSpawnFailed},
-			ledger.ReasonDeliveryFailed)
+		return ledger.Exit(st, ledger.RunnerExited{RunnerID: runnerID, Reason: reason}, ledger.ReasonDeliveryFailed)
 	})
 	if recErr != nil {
 		slog.ErrorContext(ctx, "agent: record a failed spawn", "chat_id", chatID, "runner_id", runnerID, "err", recErr)
 	}
-	slog.InfoContext(ctx, "agent: runner ended", "component", "runner", "chat", chatID,
-		"reason", domain.AgentExitSpawnFailed)
+	slog.InfoContext(ctx, "agent: runner ended", "component", "runner", "chat", chatID, "reason", reason)
 	rs.announceRunner(ctx, chatID, runnerID, frameExited)
 }
 

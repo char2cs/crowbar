@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -301,6 +302,7 @@ func TestHelperServe(t *testing.T) {
 		if len(req.ID) == 0 {
 			continue
 		}
+		logAsked(t, req.Method)
 		resp := map[string]any{"id": req.ID, "result": map[string]any{"thread": map[string]any{"id": "T1"}}}
 		if mode == "refuse" && req.Method == "thread/resume" {
 			resp = map[string]any{"id": req.ID, "error": refusedResume["thread/resume"]["error"]}
@@ -312,6 +314,41 @@ func TestHelperServe(t *testing.T) {
 			os.Exit(0)
 		}
 	}
+}
+
+// helperServeAsked names a file the helper serve appends each call it is asked
+// to before it answers, so a test reads what reached the provider.
+const helperServeAsked = "CROWBAR_TEST_SERVE_ASKED"
+
+func logAsked(t *testing.T, method string) {
+	t.Helper()
+	path := os.Getenv(helperServeAsked)
+	if path == "" {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	require.NoError(t, err)
+	_, err = fmt.Fprintln(f, method)
+	require.NoError(t, errors.Join(err, f.Close()))
+}
+
+// An attaching spawn runs its attach argv in place of the plan, prompt and
+// all: the connection it attaches to carries the prompt.
+func TestSpawnRunner_AnAttachingSpawnDeliversItsPromptOverTheConnection(t *testing.T) {
+	h := helperServeSpawn(t, "answer", true)
+	asked := filepath.Join(t.TempDir(), "asked")
+	t.Setenv(helperServeAsked, asked)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test",
+		spawnInput{runnerID: "runner-1", promptMessage: "hi"}, false)
+	require.NoError(t, err)
+
+	require.Len(t, h.term.created, 1, "the attach view forked")
+	calls, err := os.ReadFile(asked)
+	require.NoError(t, err)
+	assert.Contains(t, strings.Fields(string(calls)), "turn/start")
 }
 
 // refusedResumeSpawn spawns a runner whose api resume the provider refuses:

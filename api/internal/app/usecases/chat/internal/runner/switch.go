@@ -165,14 +165,20 @@ func (rs *Runners) switchProviderLocked(
 		// provider, so "unknown" means a row minted before that field and nothing
 		// else.
 		if previousProviderID != targetProviderID {
-			if err := rs.turns.RecordChatSwitch(
-				ctx, chatID, engineagents.InterruptProviderSwitched, targetProviderID,
-			); err != nil {
-				slog.WarnContext(ctx, "agent: switch provider: record chat switch (best-effort, continuing)",
-					"chat_id", chatID, "err", err)
-			}
+			rs.recordProviderSwitch(ctx, chatID, targetProviderID)
 		}
 		return runnerID, nil
+	}
+}
+
+// recordProviderSwitch notes that chatID now runs providerID. Best-effort: the
+// switch has committed, and its record never fails it.
+func (rs *Runners) recordProviderSwitch(ctx context.Context, chatID, providerID string) {
+	if err := rs.turns.RecordChatSwitch(
+		ctx, chatID, engineagents.InterruptProviderSwitched, providerID,
+	); err != nil {
+		slog.WarnContext(ctx, "agent: switch provider: record chat switch (best-effort, continuing)",
+			"chat_id", chatID, "err", err)
 	}
 }
 

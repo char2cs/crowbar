@@ -76,6 +76,7 @@ func (l sessionLaunch) steps(d engineagents.Agent) ([]engineagents.InjectStep, e
 type promptDelivery struct {
 	provider    string // the provider the carrier launches as
 	outgoing    string // the chat's CLI the carrier replaces, "" on a dormant chat
+	switching   bool   // the carrier changes the chat's provider
 	promptSteps []engineagents.InjectStep
 	launch      sessionLaunch
 	// conversation and contextResuming hand the record over to a launch whose
@@ -164,7 +165,8 @@ func (rs *Runners) liveTurned(ctx context.Context, chatID, providerID string, li
 }
 
 // launchCarrying launches the CLI that carries requestID, recorded as its
-// carrier before anything is touched, once the CLI it replaces has quit.
+// carrier before anything is touched, once the CLI it replaces has quit. A
+// switch is recorded once that CLI runs.
 func (rs *Runners) launchCarrying(
 	ctx context.Context, h *hold, chat domain.Chat, requestID, text string, delivery promptDelivery,
 ) (domain.AgentPromptSubmission, error) {
@@ -183,6 +185,9 @@ func (rs *Runners) launchCarrying(
 	}, false)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, rs.failPrompt(ctx, chat.ID, requestID, spawnFailure(ctx, err))
+	}
+	if delivery.switching {
+		rs.recordProviderSwitch(ctx, chat.ID, delivery.provider)
 	}
 	return rs.commitPromptSpawn(ctx, chat.ID, requestID, runnerID)
 }
