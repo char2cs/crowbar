@@ -276,3 +276,76 @@ func TestDiffEmitter_ProgramHardBreakNotJoined(t *testing.T) {
 	assert.Contains(t, frame, wrapTestURL[36:])
 	assert.NotContains(t, frame, wrapTestURL)
 }
+
+// A chain goes out as one flow from its first row: CUP, EL 0 (clearing that row's wrap bit), each
+// head padded to the last column, the tail trimmed then EL 0. A lone row keeps the plain form.
+func TestDiffEmitter_ChainWrittenAsOneFlow(t *testing.T) {
+	m, _ := newTestModel(t, 20, 6)
+	m.Write([]byte(strings.Repeat("x", 25)))
+	e := NewDiffEmitter()
+	e.Prime(m)
+	x20 := strings.Repeat("x", 20)
+
+	frames := []struct {
+		name, chunk, want string
+	}{
+		{name: "an edited tail", chunk: "\x1b[2;1Hab", want: "\x1b[1;1H\x1b[K" + x20 + "abxxx\x1b[K\x1b[2;3H"},
+		{name: "autowrap turned off", chunk: "\x1b[?7l", want: "\x1b[?7l"},
+		{
+			name:  "a chain under the client's ?7l is bracketed",
+			chunk: "\x1b[2;1Hcd",
+			want:  "\x1b[?7h\x1b[1;1H\x1b[K" + x20 + "cdxxx\x1b[K\x1b[?7l\x1b[2;3H",
+		},
+		{name: "a lone row is not", chunk: "\x1b[4;1Hlone", want: "\x1b[4;1H\x1b[Klone\x1b[4;5H"},
+	}
+	for _, f := range frames {
+		m.Write([]byte(f.chunk))
+		data, needKeyframe := e.Emit(m)
+		require.False(t, needKeyframe, f.name)
+		require.Equal(t, f.want, string(data), f.name)
+	}
+}
+
+// A wrap bit that changes under unchanged cells is written once; the client then holds it.
+func TestDiffEmitter_WrapFlagFlipEmitsOnce(t *testing.T) {
+	m, _ := newTestModel(t, 20, 6)
+	m.Write([]byte(strings.Repeat("x", 20) + "\r\nyyy"))
+	e := NewDiffEmitter()
+	e.Prime(m)
+
+	m.Write([]byte("\x1b[1;1H" + strings.Repeat("x", 20) + "yyy"))
+	data, _ := e.Emit(m)
+	require.Equal(t, "\x1b[1;1H\x1b[K"+strings.Repeat("x", 20)+"yyy\x1b[K\x1b[2;4H", string(data))
+	data, _ = e.Emit(m)
+	require.Empty(t, data, "the client already holds the flag")
+}
+
+// A chain whose flow crosses the bottom of a primed scroll region lifts the region for the flow and
+// restores it, so the client's autowrap moves down a row instead of scrolling the region.
+func TestDiffEmitter_ChainLiftsTheScrollRegionItCrosses(t *testing.T) {
+	m, _ := newTestModel(t, 20, 6)
+	m.Write([]byte("\r\n\r\n\r\n" + strings.Repeat("x", 25) + "\x1b[1;4r"))
+	e := NewDiffEmitter()
+	e.Prime(m)
+
+	frames := []struct {
+		name, chunk, want string
+	}{
+		{
+			name:  "a chain across the region's bottom",
+			chunk: "\x1b[5;3HZ",
+			want:  "\x1b[;r\x1b[4;1H\x1b[K" + strings.Repeat("x", 20) + "xxZxx\x1b[K\x1b[1;4r\x1b[5;4H",
+		},
+		{
+			name:  "a chain inside the region",
+			chunk: "\x1b[1;1H" + strings.Repeat("y", 25),
+			want:  "\x1b[1;1H\x1b[K" + strings.Repeat("y", 20) + "yyyyy\x1b[K\x1b[2;6H",
+		},
+	}
+	for _, f := range frames {
+		m.Write([]byte(f.chunk))
+		data, needKeyframe := e.Emit(m)
+		require.False(t, needKeyframe, f.name)
+		require.Equal(t, f.want, string(data), f.name)
+	}
+}

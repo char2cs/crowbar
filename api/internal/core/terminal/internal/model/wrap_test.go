@@ -145,6 +145,29 @@ func TestAppendChainRow(t *testing.T) {
 	})
 }
 
+func TestChainEnd(t *testing.T) {
+	tests := []struct {
+		name, bytes string
+		y, want     int
+	}{
+		{name: "a plain row ends its own chain", bytes: "a\r\nb", y: 0, want: 0},
+		{name: "a head runs to its last continuation", bytes: strings.Repeat("x", 50), y: 0, want: 2},
+		{name: "a chain may start at a continuation", bytes: strings.Repeat("x", 50), y: 1, want: 2},
+		{name: "a hard break ends a chain", bytes: strings.Repeat("x", 25) + "\r\n" + strings.Repeat("y", 25), y: 0, want: 1},
+		{name: "the chain after a hard break", bytes: strings.Repeat("x", 25) + "\r\n" + strings.Repeat("y", 25), y: 2, want: 3},
+		{name: "a chain stops at the last row", bytes: "\r\n\r\n\r\n\r\n" + strings.Repeat("x", 25), y: 4, want: 5},
+		{name: "the top row continuing the scrollback", bytes: strings.Repeat("x", 140), y: 0, want: 5},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _ := New(20, 6, 100)
+			t.Cleanup(m.Close)
+			m.Write([]byte(tc.bytes))
+			require.Equal(t, tc.want, chainEnd(asVT(t, m).emu, tc.y, 6))
+		})
+	}
+}
+
 // assertSameCells compares content and style cell by cell, grid then scrollback. A scrollback
 // line reports as a row above the grid: -1 is the newest.
 func assertSameCells(

@@ -47,7 +47,7 @@ func (c *clientSim) apply(data []byte, keyframe bool) {
 // gridString renders a model's visible grid plus cursor/alt-screen state as
 // plain text for equality assertions. Content-level conformance only; SGR
 // conformance is covered by the serializer's own tests since both paths share
-// encodeLine.
+// appendChainRow.
 func gridString(m TerminalModel) string {
 	vm := m.(*vtModel)
 	cols, rows := vm.emu.Width(), vm.emu.Height()
@@ -85,6 +85,13 @@ func conformanceStep(t *testing.T, m TerminalModel, e *DiffEmitter, ser Serializ
 	}
 	require.Equal(t, gridString(m), gridString(sim.m),
 		"client grid diverged from model after chunk %q", string(chunk))
+	want, got := wrapFlags(t, m), wrapFlags(t, sim.m)
+	if asVT(t, m).emu.IsAltScreen() {
+		// An alternate-screen keyframe carries no history, so only the grid's flags compare there.
+		want, _, _ = strings.Cut(want, " | ")
+		got, _, _ = strings.Cut(got, " | ")
+	}
+	require.Equal(t, want, got, "client wrap flags diverged from model after chunk %q", string(chunk))
 	return needKeyframe
 }
 
@@ -125,6 +132,16 @@ func TestConformance_ScriptedScenarios(t *testing.T) {
 			"\x1b]0;third-title\x07",
 			"\x1b[?25h", // show cursor
 		},
+		// Soft wraps: a URL growing across emits, a head ending in a printed space, a flag-only flip
+		// each way (identical cells), a 3-row chain edited in its middle, a flagged row rewritten
+		// under ?7l and as ?7h returns, and a chain crossing the bottom of a primed scroll region.
+		{"see " + wrapTestURL[:20], wrapTestURL[20:]},
+		{"0123456789012345678 abc", "\x1b[2;2HZ"},
+		{strings.Repeat("x", 20) + "\r\nyyy", "\x1b[1;1H" + strings.Repeat("x", 20) + "yyy"},
+		{strings.Repeat("x", 25), "\x1b[2;1H\x1b[2Kxxxxx"},
+		{strings.Repeat("0123456789", 5), "\x1b[2;5HZ"},
+		{strings.Repeat("x", 25), "\x1b[?7l", "\x1b[2;1Habc", "\x1b[?7h\x1b[2;1Hdef"},
+		{"\r\n\r\n\r\n" + strings.Repeat("x", 25) + "\x1b[1;4r", "\x1b[5;3HZ"},
 	}
 	for i, chunks := range scenarios {
 		t.Run(fmt.Sprintf("scenario-%d", i), func(t *testing.T) {

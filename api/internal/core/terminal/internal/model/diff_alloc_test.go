@@ -2,6 +2,7 @@ package model
 
 import (
 	"runtime"
+	"strings"
 	"testing"
 	"unsafe"
 
@@ -152,4 +153,25 @@ func TestEmit_ScrollingDoesNotReallocateViewportRows(t *testing.T) {
 			"has the scroll invalidation marker regressed to nil?)", perScroll, ceiling)
 	}
 	t.Logf("bytes allocated per scrolled line: %.0f (ceiling %.0f)", perScroll, ceiling)
+}
+
+// Holding chains costs a no-change Emit nothing extra: the dirty check walks them in place.
+func TestEmit_NoChangeWithChainsAllocatesNoMore(t *testing.T) {
+	allocs := func(content string) float64 {
+		m, _ := newTestModel(t, 80, 24)
+		m.Write([]byte(content))
+		e := NewDiffEmitter()
+		e.Prime(m)
+		if data, _ := e.Emit(m); len(data) > 0 {
+			t.Fatalf("a no-change Emit wrote %q", data)
+		}
+		return testing.AllocsPerRun(100, func() { e.Emit(m) })
+	}
+	plain := allocs("hello")
+	// One chain of 30 rows on a 24-row grid: every row continues the one above, the top one history.
+	chained := allocs(strings.Repeat("x", 80*30))
+	if chained > plain {
+		t.Errorf("a no-change Emit allocates %.0f times holding chains, %.0f without", chained, plain)
+	}
+	t.Logf("no-change Emit allocations: %.0f with chains, %.0f without", chained, plain)
 }

@@ -178,7 +178,7 @@ cursor and modes, with the D2 unproven-against-`xterm.js` caveat in force.
 Hand-rolled line diff adopted (diff.go) over ultraviolet's renderer:
 uv's diff/render pipeline is a TUI *presenter* (owns cursor state, assumes it
 is the only writer, renders to an io.Writer with its own frame lifecycle);
-constraining its output to our emit contract (absolute CUP per dirty row, pen
-reset per row via encodeLine, no cursor-state ownership) would mean fighting
-the library. The hand-rolled diff is ~120 lines and reuses the serializer's
-encodeGridRow/encodeLine, so both emission paths share one cell renderer.
+constraining its output to our emit contract (absolute CUP per dirty chain of
+soft-wrapped rows, pen reset per row, no cursor-state ownership) would mean
+fighting the library. The hand-rolled diff reuses the serializer's row encoder
+(appendChainRow), so both emission paths share one cell renderer and one wrap rule.

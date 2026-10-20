@@ -254,3 +254,21 @@ func modesEqual(a, b map[int]bool) bool {
 	}
 	return true
 }
+
+// clientAutowrapOff reports DECAWM as the client last received it (absent is on): the rows are
+// written before the chrome delta that may change it, and a chain needs autowrap to flow.
+func (e *DiffEmitter) clientAutowrapOff() bool {
+	on, ok := e.chrome.modes[7]
+	return ok && !on
+}
+
+// regionEndsInside reports whether the client's scroll region ends above the last of rows y0..end:
+// autowrap off its bottom margin scrolls the region instead of moving down, so a chain's flow
+// lifts the region (DECSTBM homes the cursor, which the cursor delta re-addresses).
+func (e *DiffEmitter) regionEndsInside(
+	y0 int,
+	end int,
+) bool {
+	bottom := e.chrome.scrollBottom - 1
+	return e.chrome.scrollRegionSet && y0 <= bottom && bottom < end
+}

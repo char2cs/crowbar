@@ -45,8 +45,10 @@ type DiffEmitter struct {
 	// scrollbackNewStart) recovers the true new-line boundary across rotation.
 	scrollbackTail uint64
 	lastGrid       [][]uv.Cell
-	lastCursor     uv.Position
-	chrome         chromeBase
+	// lastWrapped is each grid row's wrap bit as the client holds it.
+	lastWrapped []bool
+	lastCursor  uv.Position
+	chrome      chromeBase
 }
 
 // rotationScanLimit bounds how far back scrollbackNewStart scans for the
@@ -80,6 +82,10 @@ func (e *DiffEmitter) Prime(m TerminalModel) {
 	}
 	e.lastCursor = vm.emu.CursorPosition()
 	e.lastGrid = snapshotGrid(vm.emu, e.cols, e.rows)
+	e.lastWrapped = make([]bool, e.rows)
+	for y := range e.lastWrapped {
+		e.lastWrapped[y] = vm.emu.RowWrapped(y)
+	}
 	e.chrome = captureChrome(&vm.shadow)
 	e.valid = true
 }
@@ -158,7 +164,7 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 	}
 
 	var b bytes.Buffer
-	e.writeScrollbackDelta(&b, vm, sbStart, sbLen, rows)
+	e.writeScrollbackDelta(&b, vm.emu, sbStart, sbLen, cols, rows)
 	dirty := e.writeScreenDiff(&b, vm, cols, rows)
 	e.writeCursorDelta(&b, vm, dirty)
 	e.writeChromeDelta(&b, sh)
@@ -267,37 +273,74 @@ func EmitterGridBytes(cols, rows int) int64 {
 // left trashed by design; Emit invalidates the row cache on any scrollback
 // growth, so the screen diff that follows repaints the full viewport. Primary
 // buffer only; the alt screen has no scrollback.
+//
+// A batch ends where a chain does (scrollbackBatch), so the client's autowrap rebuilds each wrap
+// bit; a top row continuing the last line is written after it before the scroll, so it stays on
+// the client's top row holding its flag.
 func (e *DiffEmitter) writeScrollbackDelta(
 	b *bytes.Buffer,
-	vm *vtModel,
+	emu emulator,
 	start int,
 	sbLen int,
+	cols int,
 	rows int,
 ) {
 	if e.alt || start >= sbLen {
 		return
 	}
-	for base := start; base < sbLen; base += rows {
-		batch := sbLen - base
-		if batch > rows {
-			batch = rows
-		}
-		for j := 0; j < batch; j++ {
-			line := vm.emu.ScrollbackLine(base + j)
-			b.WriteString(cup(j+1, 1))
-			b.WriteString(ansi.EraseLineRight)
-			b.WriteString(encodeLine(line, len(line), true))
-		}
+	wrapOff := e.clientAutowrapOff()
+	if wrapOff {
+		b.WriteString(ansi.SetModeAutoWrap)
+	}
+	held, top := e.lastWrapped[0], false
+	for base := start; base < sbLen; {
+		n := scrollbackBatch(emu, base, sbLen, rows)
+		top = base+n == sbLen && n < rows && emu.RowWrapped(0)
+		e.writeBatch(b, emu, base, n, cols, held, top)
 		b.WriteString(cup(rows, 1))
-		for j := 0; j < batch; j++ {
+		for j := 0; j < n; j++ {
 			b.WriteString("\r\n")
 		}
+		base, held = base+n, false
 	}
+	if wrapOff {
+		b.WriteString(ansi.ResetModeAutoWrap)
+	}
+	e.lastWrapped[0] = top
 }
 
-// writeScreenDiff rewrites every changed grid row in place (CUP + encoded row,
-// pen reset per row via encodeLine's contract) and updates the diff base.
-// Returns whether anything was written.
+// writeBatch paints committed lines base..base+n-1 from the top row. A line that continues the one
+// above it follows that padded head with no address; the first line keeps the flag its client row
+// holds only when held says so. With top, the viewport's top row follows the last line.
+func (e *DiffEmitter) writeBatch(
+	b *bytes.Buffer,
+	emu emulator,
+	base, n, cols int,
+	held, top bool,
+) {
+	for j := 0; j < n; j++ {
+		i := base + j
+		wrapped := emu.ScrollbackRowWrapped(i) && (j > 0 || held)
+		if j == 0 || !wrapped {
+			b.WriteString(cup(j+1, 1))
+		}
+		if !wrapped {
+			b.WriteString(ansi.EraseLineRight)
+		}
+		next := j+1 < n && emu.ScrollbackRowWrapped(i+1) || j+1 == n && top
+		b.Write(appendChainRow(b.AvailableBuffer(), emu.ScrollbackLine(i), cols, wrapped, next, ""))
+	}
+	if !top {
+		return
+	}
+	row := snapshotRowInto(emu, e.lastGrid[0], cols, 0)
+	b.Write(appendChainRow(b.AvailableBuffer(), row, cols, true, false, ""))
+	e.lastGrid[0] = row[:0] // still the forced-rewrite marker Emit set
+}
+
+// writeScreenDiff rewrites every chain of grid rows holding a changed row or
+// wrap bit (writeChain) and updates the diff base. Returns whether anything was
+// written.
 func (e *DiffEmitter) writeScreenDiff(
 	b *bytes.Buffer,
 	vm *vtModel,
@@ -305,19 +348,63 @@ func (e *DiffEmitter) writeScreenDiff(
 	rows int,
 ) bool {
 	dirty := false
-	for y := 0; y < rows; y++ {
-		if rowEqualsGrid(vm.emu, e.lastGrid[y], cols, y) {
+	for y, end := 0, 0; y < rows; y = end + 1 {
+		end = chainEnd(vm.emu, y, rows)
+		if e.chainClean(vm.emu, y, end, cols) {
 			continue
 		}
 		dirty = true
-		b.WriteString(cup(y+1, 1)) // row y+1, col 1 (1-based)
-		b.WriteString(ansi.EraseLineRight)
-		// Snapshot first, then encode the snapshot: both read the same emulator
-		// row, so one materialisation serves the wire and the diff base.
-		e.lastGrid[y] = snapshotRowInto(vm.emu, e.lastGrid[y], cols, y)
-		b.WriteString(encodeLine(e.lastGrid[y], cols, true))
+		e.writeChain(b, vm.emu, y, end, cols)
 	}
 	return dirty
+}
+
+func (e *DiffEmitter) chainClean(
+	emu emulator,
+	y0, end, cols int,
+) bool {
+	for y := y0; y <= end; y++ {
+		if emu.RowWrapped(y) != e.lastWrapped[y] || !rowEqualsGrid(emu, e.lastGrid[y], cols, y) {
+			return false
+		}
+	}
+	return true
+}
+
+// writeChain writes rows y0..end as one flow from column 1 of y0 (pen reset per row via
+// appendChainRow), so the client's autowrap sets each continuation's flag. EL0 at column 0 clears
+// y0's flag, except on a top row continuing the scrollback: the client holds that flag.
+func (e *DiffEmitter) writeChain(
+	b *bytes.Buffer,
+	emu emulator,
+	y0, end, cols int,
+) {
+	held := y0 == 0 && emu.RowWrapped(0)
+	wrapOff := end > y0 && e.clientAutowrapOff()
+	if wrapOff {
+		b.WriteString(ansi.SetModeAutoWrap)
+	}
+	lift := e.regionEndsInside(y0, end)
+	if lift {
+		b.WriteString(ansi.SetTopBottomMargins(0, 0))
+	}
+	b.Grow((end - y0 + 1) * cols) // a head writes every column: one growth, not one per row
+	b.WriteString(cup(y0+1, 1))
+	if !held {
+		b.WriteString(ansi.EraseLineRight)
+	}
+	for y := y0; y <= end; y++ {
+		// Snapshot first, then encode the snapshot: one materialisation serves the wire and the base.
+		e.lastGrid[y] = snapshotRowInto(emu, e.lastGrid[y], cols, y)
+		b.Write(appendChainRow(b.AvailableBuffer(), e.lastGrid[y], cols, emu.RowWrapped(y), emu.RowWrapped(y+1), ""))
+		e.lastWrapped[y] = emu.RowWrapped(y) && (y > y0 || e.lastWrapped[y])
+	}
+	if lift {
+		b.WriteString(ansi.SetTopBottomMargins(e.chrome.scrollTop, e.chrome.scrollBottom))
+	}
+	if wrapOff {
+		b.WriteString(ansi.ResetModeAutoWrap)
+	}
 }
 
 // writeCursorDelta repositions the client cursor to the model's position when

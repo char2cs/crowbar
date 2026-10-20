@@ -117,7 +117,7 @@ func TestDiffEmitter_CursorStyleChangeForwarded(t *testing.T) {
 	m, _ := newTestModel(t, 10, 3)
 	e := NewDiffEmitter()
 	e.Prime(m)
-	vm := m.(*vtModel)
+	vm := asVT(t, m)
 	vm.shadow.cursorShapeSet = true
 	vm.shadow.cursorShape = vt.CursorBar
 	vm.shadow.cursorBlink = true
@@ -130,7 +130,7 @@ func TestDiffEmitter_DefaultColorChangeForwarded(t *testing.T) {
 	m, _ := newTestModel(t, 10, 3)
 	e := NewDiffEmitter()
 	e.Prime(m)
-	vm := m.(*vtModel)
+	vm := asVT(t, m)
 	vm.shadow.setDefaultColor(0, color.RGBA{R: 0xff, A: 0xff})
 	data, need := e.Emit(m)
 	require.False(t, need)
@@ -158,7 +158,7 @@ func TestDiffEmitter_DefaultColorChangeForwarded(t *testing.T) {
 func TestDiffEmitter_ForegroundColorResetForwarded(t *testing.T) {
 	m, _ := newTestModel(t, 10, 3)
 	e := NewDiffEmitter()
-	vm := m.(*vtModel)
+	vm := asVT(t, m)
 	vm.shadow.setDefaultColor(0, color.RGBA{R: 0xff, A: 0xff})
 	e.Prime(m)
 
@@ -171,7 +171,7 @@ func TestDiffEmitter_ForegroundColorResetForwarded(t *testing.T) {
 func TestDiffEmitter_BackgroundColorResetForwarded(t *testing.T) {
 	m, _ := newTestModel(t, 10, 3)
 	e := NewDiffEmitter()
-	vm := m.(*vtModel)
+	vm := asVT(t, m)
 	vm.shadow.setDefaultColor(1, color.RGBA{G: 0xff, A: 0xff})
 	e.Prime(m)
 
@@ -184,7 +184,7 @@ func TestDiffEmitter_BackgroundColorResetForwarded(t *testing.T) {
 func TestDiffEmitter_CursorColorResetForwarded(t *testing.T) {
 	m, _ := newTestModel(t, 10, 3)
 	e := NewDiffEmitter()
-	vm := m.(*vtModel)
+	vm := asVT(t, m)
 	vm.shadow.setDefaultColor(2, color.RGBA{B: 0xff, A: 0xff})
 	e.Prime(m)
 
@@ -196,7 +196,7 @@ func TestDiffEmitter_CursorColorResetForwarded(t *testing.T) {
 
 func TestDiffEmitter_CursorShapeResetForwarded(t *testing.T) {
 	m, _ := newTestModel(t, 10, 3)
-	vm := m.(*vtModel)
+	vm := asVT(t, m)
 	vm.shadow.cursorShapeSet = true
 	vm.shadow.cursorShape = vt.CursorBar
 	vm.shadow.cursorBlink = true
