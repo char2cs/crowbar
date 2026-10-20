@@ -773,6 +773,8 @@ func TestRouteAudit_NoWorkspaceScopedGroupRoutes(t *testing.T) {
 	const ws = repo + "/workspaces/:wsId"
 	deleted := []string{
 		"GET " + ws + "/files/tree",
+		"GET " + ws + "/files/content",
+		"PUT " + ws + "/files/content",
 		"POST " + ws + "/files",
 		"PATCH " + ws + "/files",
 		"DELETE " + ws + "/files",
@@ -834,16 +836,14 @@ func TestRouteAudit_NoWorkspaceScopedGroupRoutes(t *testing.T) {
 		"GET " + ws + "/identity",
 		"GET " + ws + "/provider",
 	}
-	require.Len(t, deleted, 61, "the seven groups' :wsId routes with a chat-keyed twin; all must be checked")
+	require.Len(t, deleted, 63, "the seven groups mounted sixty-three :wsId routes; all must be checked")
 	for _, r := range deleted {
 		_, ok := got[r]
 		assert.Falsef(t, ok, "deleted workspace-scoped group route is still registered: %s", r)
 	}
 
-	// The chat-keyed replacement every one of those was retired in favour of
-	// is already asserted live by TestRouteAudit_AllSpecRoutesRegistered
-	// (specRoutes() lists only the chat-scoped shape now). What this test adds
-	// is proof the OLD shape is gone, not just that the new one exists.
+	// Each one's replacement (chat-keyed, or /v0/documents/content for file
+	// content) is asserted live by TestRouteAudit_AllSpecRoutesRegistered.
 
 	// Threads' own workspace-scoped prefix survives permanently (spec §4.4).
 	for _, r := range []string{

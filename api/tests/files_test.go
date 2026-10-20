@@ -107,20 +107,38 @@ func TestRegression_HostDocumentRefusedOverTCP(t *testing.T) {
 	abs := filepath.Join(t.TempDir(), "secret.md")
 	require.NoError(t, os.WriteFile(abs, []byte("secret\n"), 0o600))
 
-	read := h.raw(http.MethodGet, documentsContent+"?path="+url.QueryEscape(abs), nil, http.StatusForbidden)
-	assert.Equal(t, "host_document_requires_local_transport", refusalCode(t, read))
-	write := h.raw(http.MethodPut, documentsContent, map[string]string{"path": abs, "content": "x"}, http.StatusForbidden)
-	assert.Equal(t, "host_document_requires_local_transport", refusalCode(t, write))
+	read := refusal(t, h, http.MethodGet, documentsContent+"?path="+url.QueryEscape(abs), nil)
+	assert.Equal(t, "host_document_requires_local_transport", read)
+	write := refusal(t, h, http.MethodPut, documentsContent, map[string]string{"path": abs, "content": "x"})
+	assert.Equal(t, "host_document_requires_local_transport", write)
 
 	got, err := os.ReadFile(abs)
 	require.NoError(t, err)
 	assert.Equal(t, "secret\n", string(got))
 }
 
-// refusalCode decodes the error envelope's machine-readable code and closes the body.
-func refusalCode(t *testing.T, resp *http.Response) string {
+// TestRegression_DanglingSymlinkWriteRefused proves a save never creates the
+// file a dangling link in a worktree names: a cloned repo can ship one that
+// points anywhere outside it.
+func TestRegression_DanglingSymlinkWriteRefused(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	planted := filepath.Join(t.TempDir(), "planted.md")
+	require.NoError(t, os.Symlink(planted, filepath.Join(workspaceWorktree(t, h, imported), "notes.md")))
+
+	h.mutationError(http.MethodPut, documentsContent, map[string]string{
+		"workspaceId": imported.workspaceID, "path": "notes.md", "content": "x",
+	}, http.StatusBadRequest)
+	_, err := os.Lstat(planted)
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+// refusal makes a request the daemon must refuse with 403 and answers the error
+// envelope's machine-readable code.
+func refusal(t *testing.T, h *harness, method string, path string, body any) string {
 	t.Helper()
-	defer func() { _ = resp.Body.Close() }()
+	resp := h.raw(method, path, body, http.StatusForbidden)
+	defer func() { require.NoError(t, resp.Body.Close()) }()
 	var env struct {
 		Code string `json:"code"`
 	}

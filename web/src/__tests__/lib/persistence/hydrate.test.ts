@@ -5,7 +5,7 @@ const readFileMock = vi.fn<(wsId: string, path: string) => Promise<string>>()
 vi.mock('@/lib/api/documents', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api/documents')>()),
   readDocument: async (ref: Ref) => ({ ref, text: await readFileMock(ref.workspaceId, ref.path) }),
-  readDocumentText: (ref: Ref) => readFileMock(ref.workspaceId, ref.path).catch(() => null),
+  readDocumentFromDisk: (ref: Ref) => readFileMock(ref.workspaceId, ref.path).catch(() => null),
 }))
 
 // The daemon's chat listings, for placing a restored member the cache does not know.

@@ -50,6 +50,7 @@ import (
 //     (a workspace-relative fs path that is absolute or traverses outside the
 //     workspace root via ".." or a symlink — the fs engine containment guard),
 //     safepath.ErrNotAbsolute (a host path that is not absolute and clean),
+//     safepath.ErrDanglingSymlink (a write through a link to nothing),
 //     apperr.ErrInvalidArgument (an unsafe/invalid git operand or reset mode
 //     rejected at the usecase boundary before it can reach the git engine —
 //     see the git write validator), fs.ErrInvalid (an invalid fs-engine
@@ -212,6 +213,7 @@ func isBadRequest(
 		errors.Is(err, enginesearch.ErrPathOutsideWorkspace) ||
 		errors.Is(err, safepath.ErrPathEscapesWorkspace) ||
 		errors.Is(err, safepath.ErrNotAbsolute) ||
+		errors.Is(err, safepath.ErrDanglingSymlink) ||
 		errors.Is(err, apperr.ErrInvalidArgument) ||
 		errors.Is(err, fs.ErrInvalid) ||
 		errors.Is(err, agentusecase.ErrTreeNameRequired) ||

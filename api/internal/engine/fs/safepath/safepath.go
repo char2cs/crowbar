@@ -30,6 +30,10 @@ var ErrPathEscapesWorkspace = errors.New("path escapes the workspace")
 // is not absolute and clean: only a path the usecase resolved reaches the disk.
 var ErrNotAbsolute = errors.New("path is not absolute")
 
+// ErrDanglingSymlink is returned for a write through a symlink whose target does
+// not exist: creating it could put a file anywhere the link points.
+var ErrDanglingSymlink = errors.New("symlink target does not exist")
+
 // ErrFileTooLarge is returned by the content reader when a file exceeds the
 // maxReadBytes cap (25 MiB). The api libs error mapper maps it to HTTP 413
 // Request Entity Too Large (hardening finding R16).
@@ -122,6 +126,109 @@ func Canonical(
 		return clean
 	}
 	return filepath.Join(canon, strings.TrimPrefix(clean, ancestor))
+}
+
+// Locate walks path's ancestors from the deepest up to the first that is, by
+// file identity, the directory of one or more roots. It answers those roots'
+// indexes and the rest of path below that directory, each existing name spelled
+// as the directory spells it. Identity sees through every alias a spelling has:
+// symlinks, firmlinks and case. A root that does not exist matches nothing.
+func Locate(
+	path string,
+	roots []string,
+) ([]int, string) {
+	infos := statAll(roots)
+	dir := filepath.Clean(path)
+	var below []string
+	for {
+		if hits := sameAs(dir, infos); len(hits) > 0 {
+			return hits, spell(dir, below)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return nil, ""
+		}
+		below = append([]string{filepath.Base(dir)}, below...)
+		dir = parent
+	}
+}
+
+func statAll(
+	paths []string,
+) []os.FileInfo {
+	infos := make([]os.FileInfo, len(paths))
+	for i, p := range paths {
+		if fi, err := os.Stat(p); err == nil {
+			infos[i] = fi
+		}
+	}
+	return infos
+}
+
+// sameAs answers the indexes of the infos that are dir itself.
+func sameAs(
+	dir string,
+	infos []os.FileInfo,
+) []int {
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return nil
+	}
+	var hits []int
+	for i, info := range infos {
+		if info != nil && os.SameFile(fi, info) {
+			hits = append(hits, i)
+		}
+	}
+	return hits
+}
+
+// spell joins names under dir, each as dir's own entry spells it.
+func spell(
+	dir string,
+	names []string,
+) string {
+	spelled := make([]string, len(names))
+	for i, name := range names {
+		spelled[i] = entryName(dir, name)
+		dir = filepath.Join(dir, spelled[i])
+	}
+	return filepath.Join(spelled...)
+}
+
+// entryName is the name of dir's entry that name reaches on a case-insensitive
+// volume; name itself when it is spelled so or reaches nothing.
+func entryName(
+	dir string,
+	name string,
+) string {
+	want, err := os.Lstat(filepath.Join(dir, name))
+	if err != nil {
+		return name
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return name
+	}
+	for _, e := range entries {
+		if e.Name() == name {
+			return name
+		}
+	}
+	for _, e := range entries {
+		if strings.EqualFold(e.Name(), name) && sameEntry(filepath.Join(dir, e.Name()), want) {
+			return e.Name()
+		}
+	}
+	return name
+}
+
+func sameEntry(
+	path string,
+	want os.FileInfo,
+) bool {
+	got, err := os.Lstat(path)
+	return err == nil && os.SameFile(got, want)
 }
 
 func existingAncestor(

@@ -22,7 +22,7 @@ import type {
   TextEdit,
 } from 'vscode-languageserver-types'
 import { extensionRegistry } from '@/extensions/registry/extension-registry'
-import { readDocumentText, workspaceRef } from '@/lib/api/documents'
+import { readDocumentFromDisk, workspaceRef } from '@/lib/api/documents'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
@@ -63,11 +63,8 @@ function modelFor(wsId: string, path: string): Monaco.editor.ITextModel | null {
   return monacoEditor.getModel(Uri.parse(fileUri(wsId, path)))
 }
 
-/**
- * Split a workspace edit into Monaco edits for files that have a model (so
- * they land in the editor's undo stack) and the rest, which is applied to the
- * buffers/disk directly.
- */
+// Split a workspace edit into Monaco edits for files with a model (so they land
+// in the undo stack) and the rest, applied to the buffers/disk directly.
 function splitWorkspaceEdit(
   wsId: string,
   edit: DaemonWorkspaceEdit | null,
@@ -206,7 +203,9 @@ async function ensurePreviewModels(wsId: string, paths: string[]): Promise<void>
         .getState()
         .buffers.find((b) => b.type === 'editor' && b.path === path && b.workspaceId === wsId)
       const text =
-        open && 'content' in open ? open.content : await readDocumentText(workspaceRef(wsId, path))
+        open && 'content' in open
+          ? open.content
+          : await readDocumentFromDisk(workspaceRef(wsId, path))
       if (text === null || modelFor(wsId, path)) return
       peekModels.add(monacoEditor.createModel(text, langForUri(uri), Uri.parse(uri)))
     }),

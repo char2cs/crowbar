@@ -148,3 +148,44 @@ func TestCanonical_ResolvesSymlinkedParentOfNewFile(
 	assert.Equal(t, want, safepath.Canonical(filepath.Join(link, "new", "file.md")))
 	assert.Equal(t, want, safepath.Canonical(filepath.Join(dir, "new", "..", "new", "file.md")))
 }
+
+// TestLocate_MatchesByFileIdentity verifies the walk compares directories, not
+// spellings: a path through a symlinked alias of a root is under that root, the
+// nearest root wins, and every root that is that directory is reported.
+func TestLocate_MatchesByFileIdentity(
+	t *testing.T,
+) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on windows")
+	}
+	parent := t.TempDir()
+	wt := filepath.Join(parent, "wt")
+	require.NoError(t, os.Mkdir(wt, 0o700))
+	alias := filepath.Join(t.TempDir(), "alias")
+	require.NoError(t, os.Symlink(wt, alias))
+	roots := []string{parent, "", filepath.Join(parent, "gone"), wt, wt}
+
+	hits, rel := safepath.Locate(filepath.Join(alias, "src", "a.md"), roots)
+	assert.Equal(t, []int{3, 4}, hits)
+	assert.Equal(t, filepath.Join("src", "a.md"), rel)
+
+	hits, _ = safepath.Locate(filepath.Join(t.TempDir(), "a.md"), roots)
+	assert.Empty(t, hits, "a path under no root is located nowhere")
+}
+
+// TestLocate_SpellsTheRestAsOnDisk verifies one file has one spelling on a
+// case-insensitive volume, whatever case the caller typed.
+func TestLocate_SpellsTheRestAsOnDisk(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "src"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "src", "a.md"), nil, 0o600))
+	shouted := filepath.Join(root, "SRC", "A.md")
+	if _, err := os.Stat(shouted); err != nil {
+		t.Skip("case-sensitive volume")
+	}
+
+	_, rel := safepath.Locate(shouted, []string{root})
+	assert.Equal(t, filepath.Join("src", "a.md"), rel)
+}

@@ -13,9 +13,23 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
+
+// newDocumentUsecase builds the usecase over a real daemon home, whose state
+// directory the guard compares paths against by file identity.
+func newDocumentUsecase(
+	t *testing.T,
+) (*mocks.FsEngine, *mocks.WorkspaceSyncer, file.Usecase, string) {
+	t.Helper()
+	home := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(home, "state"), 0o700))
+	fs := mocks.NewFsEngine()
+	syncer := mocks.NewWorkspaceSyncer()
+	return fs, syncer, file.New(fs, syncer, func() (string, error) { return home, nil }), home
+}
 
 // withRows makes rows the syncer's whole workspace list, each also readable by id.
 func withRows(
@@ -52,28 +66,43 @@ func workspaceRef(
 	return domain.DocumentRef{Authority: domain.DocumentAuthorityWorkspace, WorkspaceID: wsID, Path: path}
 }
 
-func TestReadDocument_LongestWorktreePrefixWins(t *testing.T) {
-	fs, syncer, uc := newFileUsecase(t)
+// mkdir makes the directory parts joined under base and answers its path.
+func mkdir(
+	t *testing.T,
+	base string,
+	parts ...string,
+) string {
+	t.Helper()
+	dir := filepath.Join(append([]string{base}, parts...)...)
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	return dir
+}
+
+func TestReadDocument_NearestWorktreeWins(t *testing.T) {
+	fs, syncer, uc, _ := newDocumentUsecase(t)
+	p := t.TempDir()
+	wt := mkdir(t, p, "repo", "wt")
 	withRows(syncer,
-		domain.Workspace{ID: "home", Kind: domain.WorkspaceKindHome, WorktreePath: "/p"},
-		domain.Workspace{ID: "w1", WorktreePath: "/p/repo/wt"},
+		domain.Workspace{ID: "home", Kind: domain.WorkspaceKindHome, WorktreePath: p},
+		domain.Workspace{ID: "w1", WorktreePath: wt},
 	)
 	got := recordReads(fs)
 
-	doc, err := uc.ReadDocument(context.Background(), domain.DocumentRef{Path: "/p/repo/wt/src/a.go"}, domain.TransportRemote)
+	doc, err := uc.ReadDocument(context.Background(), domain.DocumentRef{Path: filepath.Join(wt, "src", "a.go")}, domain.TransportRemote)
 
 	require.NoError(t, err)
 	assert.Equal(t, workspaceRef("w1", "src/a.go"), doc.DocumentRef)
-	assert.Equal(t, [2]string{"/p/repo/wt", "src/a.go"}, *got)
+	assert.Equal(t, [2]string{wt, "src/a.go"}, *got)
 	assert.Equal(t, "hi", doc.Content)
 }
 
 func TestReadDocument_HomeWorkspaceRowMatches(t *testing.T) {
-	fs, syncer, uc := newFileUsecase(t)
-	withRows(syncer, domain.Workspace{ID: "home", Kind: domain.WorkspaceKindHome, WorktreePath: "/p"})
+	fs, syncer, uc, _ := newDocumentUsecase(t)
+	p := t.TempDir()
+	withRows(syncer, domain.Workspace{ID: "home", Kind: domain.WorkspaceKindHome, WorktreePath: p})
 	recordReads(fs)
 
-	doc, err := uc.ReadDocument(context.Background(), domain.DocumentRef{Path: "/p/notes.md"}, domain.TransportRemote)
+	doc, err := uc.ReadDocument(context.Background(), domain.DocumentRef{Path: filepath.Join(p, "notes.md")}, domain.TransportRemote)
 
 	require.NoError(t, err)
 	assert.Equal(t, workspaceRef("home", "notes.md"), doc.DocumentRef)
@@ -83,21 +112,22 @@ func TestReadDocument_HomeWorkspaceRowMatches(t *testing.T) {
 // project imported in place has its home and its repo at one path, and the
 // file belongs to the repo whatever order the rows list in.
 func TestReadDocument_RepoRowBeatsTheProjectHomeAtTheSamePath(t *testing.T) {
-	fs, syncer, uc := newFileUsecase(t)
+	fs, syncer, uc, _ := newDocumentUsecase(t)
+	p := t.TempDir()
 	withRows(syncer,
-		domain.Workspace{ID: "a-home", Kind: domain.WorkspaceKindHome, WorktreePath: "/p"},
-		domain.Workspace{ID: "b-repo", WorktreePath: "/p"},
+		domain.Workspace{ID: "a-home", Kind: domain.WorkspaceKindHome, WorktreePath: p},
+		domain.Workspace{ID: "b-repo", WorktreePath: p},
 	)
 	recordReads(fs)
 
-	doc, err := uc.ReadDocument(context.Background(), domain.DocumentRef{Path: "/p/a.md"}, domain.TransportRemote)
+	doc, err := uc.ReadDocument(context.Background(), domain.DocumentRef{Path: filepath.Join(p, "a.md")}, domain.TransportRemote)
 
 	require.NoError(t, err)
 	assert.Equal(t, workspaceRef("b-repo", "a.md"), doc.DocumentRef)
 }
 
 func TestReadDocument_PlaceholderRowsClaimNothing(t *testing.T) {
-	fs, syncer, uc := newFileUsecase(t)
+	fs, syncer, uc, _ := newDocumentUsecase(t)
 	withRows(syncer, domain.Workspace{ID: "ph", Status: domain.WorkspaceStatusLocked})
 	fs.ReadHostContentFn = func(absPath string) (domain.FileContent, error) {
 		return domain.FileContent{Content: absPath}, nil
@@ -113,7 +143,7 @@ func TestReadDocument_SymlinkIntoWorktreeIsTheWorkspaceDocument(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink semantics differ on windows")
 	}
-	fs, syncer, uc := newFileUsecase(t)
+	fs, syncer, uc, _ := newDocumentUsecase(t)
 	wt := t.TempDir()
 	link := filepath.Join(t.TempDir(), "wt-link")
 	require.NoError(t, os.Symlink(wt, link))
@@ -126,23 +156,59 @@ func TestReadDocument_SymlinkIntoWorktreeIsTheWorkspaceDocument(t *testing.T) {
 	assert.Equal(t, workspaceRef("w1", "a.md"), doc.DocumentRef)
 }
 
-// TestReadDocument_FoldsCaseOnDarwin pins one identity per file on the default
-// case-insensitive APFS: a differently cased path into a worktree is still the
-// workspace document there, and stays a distinct host path elsewhere.
-func TestReadDocument_FoldsCaseOnDarwin(t *testing.T) {
-	fs, syncer, uc := newFileUsecase(t)
-	withRows(syncer, domain.Workspace{ID: "w1", WorktreePath: "/repo/wt"})
+// TestReadDocument_SpellsThePathAsOnDisk pins one identity per file on a
+// case-insensitive volume: another casing of a worktree file is that file,
+// spelled as the tree spells it.
+func TestReadDocument_SpellsThePathAsOnDisk(t *testing.T) {
+	fs, syncer, uc, _ := newDocumentUsecase(t)
+	p := t.TempDir()
+	wt := mkdir(t, p, "repo", "wt")
+	require.NoError(t, os.WriteFile(filepath.Join(wt, "a.md"), nil, 0o600))
+	shouted := filepath.Join(p, "Repo", "WT", "A.md")
+	if _, err := os.Stat(shouted); err != nil {
+		t.Skip("case-sensitive volume")
+	}
+	withRows(syncer, domain.Workspace{ID: "w1", WorktreePath: wt})
 	recordReads(fs)
-	fs.ReadHostContentFn = func(string) (domain.FileContent, error) { return domain.FileContent{}, nil }
 
-	doc, err := uc.ReadDocument(context.Background(), domain.DocumentRef{Path: "/Repo/WT/A.md"}, domain.TransportLocal)
+	doc, err := uc.ReadDocument(context.Background(), domain.DocumentRef{Path: shouted}, domain.TransportRemote)
 
 	require.NoError(t, err)
-	if runtime.GOOS == "darwin" {
-		assert.Equal(t, workspaceRef("w1", "A.md"), doc.DocumentRef)
-		return
+	assert.Equal(t, workspaceRef("w1", "a.md"), doc.DocumentRef)
+}
+
+// TestDocument_FirmlinkAliasHasTheOneIdentity pins the alias symlink resolution
+// leaves alone: on darwin /System/Volumes/Data<path> is <path> itself, so the
+// state stays refused and a worktree file keeps its lock and its resync.
+func TestDocument_FirmlinkAliasHasTheOneIdentity(t *testing.T) {
+	fs, syncer, uc, home := newDocumentUsecase(t)
+	wt := t.TempDir()
+	alias := func(p string) string {
+		canon, err := filepath.EvalSymlinks(p)
+		require.NoError(t, err)
+		return "/System/Volumes/Data" + canon
 	}
-	assert.Equal(t, domain.DocumentAuthorityHost, doc.Authority)
+	if _, err := os.Stat(alias(wt)); err != nil {
+		t.Skip("no /System/Volumes/Data firmlink to the temp dir on this host")
+	}
+	ctx := context.Background()
+	state := domain.DocumentRef{Path: filepath.Join(alias(home), "state", "global.db")}
+	_, err := uc.ReadDocument(ctx, state, domain.TransportLocal)
+	require.ErrorIs(t, err, apperr.ErrDaemonStateDocument)
+	_, err = uc.WriteDocument(ctx, state, "x", "", domain.TransportLocal, time.Now())
+	require.ErrorIs(t, err, apperr.ErrDaemonStateDocument)
+
+	doc := domain.DocumentRef{Path: filepath.Join(alias(wt), "a.md")}
+	withRows(syncer, domain.Workspace{ID: "w1", WorktreePath: wt, Status: domain.WorkspaceStatusLocked})
+	_, err = uc.WriteDocument(ctx, doc, "x", "", domain.TransportLocal, time.Now())
+	require.ErrorIs(t, err, apperr.ErrLocked)
+
+	withRows(syncer, domain.Workspace{ID: "w1", WorktreePath: wt})
+	fs.WriteContentFn = func(_, _, _, _ string) error { return nil }
+	ref, err := uc.WriteDocument(ctx, doc, "x", "", domain.TransportLocal, time.Now())
+	require.NoError(t, err)
+	assert.Equal(t, workspaceRef("w1", "a.md"), ref)
+	assert.Equal(t, "w1", syncer.SyncedID)
 }
 
 func TestDocument_RelativePathWithoutWorkspaceIsABadRequest(t *testing.T) {
@@ -156,7 +222,7 @@ func TestDocument_RelativePathWithoutWorkspaceIsABadRequest(t *testing.T) {
 }
 
 func TestReadDocument_HostNeedsTheLocalTransport(t *testing.T) {
-	fs, syncer, uc := newFileUsecase(t)
+	fs, syncer, uc, _ := newDocumentUsecase(t)
 	withRows(syncer)
 	var read string
 	fs.ReadHostContentFn = func(absPath string) (domain.FileContent, error) {
@@ -179,7 +245,7 @@ func TestReadDocument_HostNeedsTheLocalTransport(t *testing.T) {
 }
 
 func TestWriteDocument_HostNeedsTheLocalTransportAndNeverResyncs(t *testing.T) {
-	fs, syncer, uc := newFileUsecase(t)
+	fs, syncer, uc, _ := newDocumentUsecase(t)
 	withRows(syncer)
 	var wrote []string
 	fs.WriteHostContentFn = func(absPath, content, encoding string) error {
@@ -200,14 +266,32 @@ func TestWriteDocument_HostNeedsTheLocalTransportAndNeverResyncs(t *testing.T) {
 }
 
 func TestDocument_DaemonStateIsRefusedEvenLocally(t *testing.T) {
-	_, syncer, uc := newFileUsecase(t)
-	withRows(syncer, domain.Workspace{ID: "home", Kind: domain.WorkspaceKindHome, WorktreePath: testHome})
+	_, syncer, uc, home := newDocumentUsecase(t)
+	withRows(syncer, domain.Workspace{ID: "home", Kind: domain.WorkspaceKindHome, WorktreePath: home})
 	ctx := context.Background()
-	target := domain.DocumentRef{Path: filepath.Join(testHome, "state", "global.db")}
+	target := domain.DocumentRef{Path: filepath.Join(home, "state", "global.db")}
 
 	_, err := uc.ReadDocument(ctx, target, domain.TransportLocal)
 	require.ErrorIs(t, err, apperr.ErrDaemonStateDocument)
 	_, err = uc.WriteDocument(ctx, target, "x", "", domain.TransportLocal, time.Now())
+	require.ErrorIs(t, err, apperr.ErrDaemonStateDocument)
+}
+
+// TestDocument_DanglingLinkInStateIsRefused pins the guard on a path no
+// symlink resolution spells canonically: a dangling link inside state, reached
+// through an alias of the home.
+func TestDocument_DanglingLinkInStateIsRefused(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on windows")
+	}
+	_, syncer, uc, home := newDocumentUsecase(t)
+	withRows(syncer)
+	require.NoError(t, os.Symlink(filepath.Join(t.TempDir(), "gone"), filepath.Join(home, "state", "global.db-journal")))
+	alias := filepath.Join(t.TempDir(), "home")
+	require.NoError(t, os.Symlink(home, alias))
+	target := domain.DocumentRef{Path: filepath.Join(alias, "state", "global.db-journal")}
+
+	_, err := uc.WriteDocument(context.Background(), target, "x", "", domain.TransportLocal, time.Now())
 	require.ErrorIs(t, err, apperr.ErrDaemonStateDocument)
 }
 

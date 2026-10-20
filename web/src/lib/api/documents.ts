@@ -45,8 +45,8 @@ export async function readDocument(target: DocumentTarget): Promise<DocumentRead
   return { ref: toRef(doc), text: decodeFileContent(doc) }
 }
 
-/** The document's text, or null when it cannot be read. */
-export function readDocumentText(target: DocumentTarget): Promise<string | null> {
+/** The document's text as saved on disk, or null when it cannot be read. */
+export function readDocumentFromDisk(target: DocumentTarget): Promise<string | null> {
   return readDocument(target)
     .then((doc) => doc.text)
     .catch(() => null)

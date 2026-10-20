@@ -3,8 +3,6 @@ package file_test
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -34,15 +32,9 @@ func newFileUsecase(
 	file.Usecase,
 ) {
 	t.Helper()
-	fs := mocks.NewFsEngine()
-	syncer := mocks.NewWorkspaceSyncer()
-	uc := file.New(fs, syncer, func() (string, error) { return testHome, nil })
+	fs, syncer, uc, _ := newDocumentUsecase(t)
 	return fs, syncer, uc
 }
-
-// testHome is the daemon home whose state the usecase under test guards; a home
-// must live under the temp dir in a test binary.
-var testHome = filepath.Join(os.TempDir(), "crowbar-test-home")
 
 func TestFileUsecase_Tree_PassesThrough(t *testing.T) {
 	fs, syncer, uc := newFileUsecase(t)

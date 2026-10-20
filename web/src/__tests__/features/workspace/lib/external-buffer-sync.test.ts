@@ -8,7 +8,7 @@ import {
 const readDiskMock = vi.fn<(wsId: string, path: string) => Promise<string | null>>()
 vi.mock('@/lib/api/documents', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api/documents')>()),
-  readDocumentText: (ref: { workspaceId: string; path: string }) =>
+  readDocumentFromDisk: (ref: { workspaceId: string; path: string }) =>
     readDiskMock(ref.workspaceId, ref.path),
 }))
 

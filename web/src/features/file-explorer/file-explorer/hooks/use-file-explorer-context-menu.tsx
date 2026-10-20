@@ -254,7 +254,7 @@ export function useFileExplorerContextMenu({
                 onClick: () => onStartInlineEditing(dirTargetPath, true),
               },
             ]),
-        ...(onUploadFile && !isLocked
+        ...(onUploadFile && workspaceId && !isLocked
           ? [
               {
                 id: 'upload-file',
@@ -332,9 +332,9 @@ export function useFileExplorerContextMenu({
     } else {
       const fileName = getBaseName(contextMenu.path, '')
       // Env-template items create a sibling .env file — a mutation, so hidden on
-      // a locked workspace.
+      // a locked workspace and without one.
       const canCreateEnvTemplate =
-        !isLocked && isEnvFileName(fileName) && Boolean(onCreateNewFileInDirectory)
+        Boolean(workspaceId && onCreateNewFileInDirectory) && !isLocked && isEnvFileName(fileName)
 
       items.push(
         {

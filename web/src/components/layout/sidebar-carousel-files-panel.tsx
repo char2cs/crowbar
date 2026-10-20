@@ -30,10 +30,12 @@ export function SidebarCarouselFilesPanel() {
   const isLoading = useWorkspaceStoreById(wsId, isFileTreeLoading)
   const setFiles = useWorkspaceStoreById(wsId, (s) => s.fileTreeActions.setFiles)
   const handlers = useMemo(() => createFileTreeHandlers(wsId, store), [wsId, store])
-  const handleUploadFile = useCallback(
-    (directoryPath: string) => {
-      if (workspaceId) void pickAndUploadFiles(workspaceId, directoryPath)
-    },
+  // Upload is offered only with a workspace to write into.
+  const handleUploadFile = useMemo(
+    () =>
+      workspaceId
+        ? (directoryPath: string) => void pickAndUploadFiles(workspaceId, directoryPath)
+        : undefined,
     [workspaceId],
   )
   // The explorer click names the pane it opens into (C8): the on-screen pane

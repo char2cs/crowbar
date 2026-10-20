@@ -9,7 +9,7 @@ import { ApiError, apiFetch } from '@/lib/api'
 import {
   HOST_DOCUMENT_TRANSPORT_CODE,
   readDocument,
-  readDocumentText,
+  readDocumentFromDisk,
   workspaceRef,
   writeDocument,
   type DocumentRef,
@@ -59,14 +59,14 @@ describe('readDocument', () => {
   })
 })
 
-describe('readDocumentText', () => {
+describe('readDocumentFromDisk', () => {
   it('answers the text, or null when the read fails', async () => {
     fetchMock
       .mockResolvedValueOnce({ ...WS_REF, content: 'x' })
       .mockRejectedValueOnce(new Error('gone'))
 
-    expect(await readDocumentText(workspaceRef('w1', 'src/a.ts'))).toBe('x')
-    expect(await readDocumentText(workspaceRef('w1', 'src/a.ts'))).toBeNull()
+    expect(await readDocumentFromDisk(workspaceRef('w1', 'src/a.ts'))).toBe('x')
+    expect(await readDocumentFromDisk(workspaceRef('w1', 'src/a.ts'))).toBeNull()
   })
 })
 

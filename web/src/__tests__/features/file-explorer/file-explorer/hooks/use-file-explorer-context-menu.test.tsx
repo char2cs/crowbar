@@ -12,7 +12,7 @@ const ROOT = '/root'
 // join that Reveal in Finder and Copy Path perform.
 function baseOptions() {
   return {
-    workspaceId: 'ws-1',
+    workspaceId: 'ws-1' as string | null,
     rootFolderPath: ROOT,
     isLocked: false,
     onFileSelect: vi.fn(),
@@ -198,6 +198,12 @@ describe('useFileExplorerContextMenu — locked workspace gating', () => {
     expect(dir.labels).toContain('Upload File')
     expect(dir.labels).toContain('New File')
     expect(dir.labels).toContain('New Folder')
+  })
+
+  it('offers no Upload or env-template item without a workspace to write to', () => {
+    const none = { ...baseOptions(), workspaceId: null }
+    expect(openMenu(none, 'api', true).labels).not.toContain('Upload File')
+    expect(openMenu(none, '.env', false).labels).not.toContain('Create .env.example')
   })
 
   it('defaults to unlocked when isLocked is omitted', () => {

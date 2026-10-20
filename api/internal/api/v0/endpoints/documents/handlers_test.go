@@ -202,13 +202,18 @@ func TestWrite_PassesTheBodyAndAnswersTheResolvedRef(t *testing.T) {
 	assert.Equal(t, [2]string{"AA==", "base64"}, docs.body)
 }
 
-func TestHostRefusal_CarriesTheTransportCode(t *testing.T) {
-	docs := &recordingDocuments{err: apperr.ErrHostDocumentNeedsLocalTransport}
-	srv := httptest.NewServer(newRouter(docs))
-	t.Cleanup(srv.Close)
+// TestRefusals_CarryTheirCodes pins the codes a client tells refusals apart by,
+// rather than by message text.
+func TestRefusals_CarryTheirCodes(t *testing.T) {
+	for err, code := range map[error]string{
+		apperr.ErrHostDocumentNeedsLocalTransport: documents.HostDocumentRequiresLocalTransport,
+		apperr.ErrDaemonStateDocument:             documents.DaemonStateDocument,
+	} {
+		srv := httptest.NewServer(newRouter(&recordingDocuments{err: err}))
+		status, env := send(t, srv.Client(), http.MethodGet, srv.URL+"/v0/documents/content?path=%2Fx", "")
+		srv.Close()
 
-	status, env := send(t, srv.Client(), http.MethodGet, srv.URL+"/v0/documents/content?path=%2Fx", "")
-
-	assert.Equal(t, http.StatusForbidden, status)
-	assert.Equal(t, documents.HostDocumentRequiresLocalTransport, env.Code)
+		assert.Equal(t, http.StatusForbidden, status, code)
+		assert.Equal(t, code, env.Code)
+	}
 }

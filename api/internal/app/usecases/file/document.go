@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
@@ -13,10 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 )
-
-// foldCase matches worktree prefixes case-insensitively where the default
-// filesystem is, so one file never gets two identities.
-const foldCase = runtime.GOOS == "darwin"
 
 // ReadDocument reads a document. A host document is read only for a request
 // that came over the local socket.
@@ -84,8 +78,9 @@ func (u *fileUsecase) WriteDocument(
 }
 
 // resolveDocument names the one authority for target. An absolute path inside
-// a worktree is that workspace's document; anywhere else it is a host document
-// in its canonical spelling, served only over the local transport.
+// a worktree, by file identity, is that workspace's document; anywhere else it
+// is a host document in its canonical spelling, served only over the local
+// transport.
 func (u *fileUsecase) resolveDocument(
 	ctx context.Context,
 	target domain.DocumentRef,
@@ -114,8 +109,9 @@ func (u *fileUsecase) resolveDocument(
 	return domain.DocumentRef{Authority: domain.DocumentAuthorityHost, Path: canon}, nil
 }
 
-// refuseDaemonState refuses a path under the daemon's state directory: a save
-// there would corrupt the live databases, and a read of them has no use.
+// refuseDaemonState refuses a path inside the daemon's state directory, by file
+// identity: a save there would corrupt the live databases, and a read of them
+// has no use.
 func (u *fileUsecase) refuseDaemonState(
 	canon string,
 ) error {
@@ -127,73 +123,31 @@ func (u *fileUsecase) refuseDaemonState(
 	if err != nil {
 		return fmt.Errorf("file: document: crowbar home: %w", err)
 	}
-	if _, inside := relUnder(safepath.Canonical(h.State()), canon); inside {
+	if hits, _ := safepath.Locate(canon, []string{h.State()}); len(hits) > 0 {
 		return fmt.Errorf("file: document %s: %w", canon, apperr.ErrDaemonStateDocument)
 	}
 	return nil
 }
 
-// owningWorkspace picks the row whose worktree holds canon most closely. A
-// project imported in place has its home and its repo at one path: the repo
-// row wins that tie.
+// owningWorkspace picks the row whose worktree is canon's nearest ancestor by
+// file identity. A project imported in place has its home and its repo in one
+// directory: the repo row wins that tie.
 func owningWorkspace(
 	rows []domain.Workspace,
 	canon string,
 ) (domain.Workspace, string, bool) {
-	var best domain.Workspace
-	var bestRoot, bestRel string
-	found := false
-	for _, row := range rows {
-		if row.WorktreePath == "" {
-			continue
+	roots := make([]string, len(rows))
+	for i, row := range rows {
+		roots[i] = row.WorktreePath
+	}
+	hits, rel := safepath.Locate(canon, roots)
+	if len(hits) == 0 {
+		return domain.Workspace{}, "", false
+	}
+	for _, i := range hits {
+		if rows[i].Kind != domain.WorkspaceKindHome {
+			return rows[i], rel, true
 		}
-		root := safepath.Canonical(row.WorktreePath)
-		rel, inside := relUnder(root, canon)
-		if !inside || (found && !beats(row, root, best, bestRoot)) {
-			continue
-		}
-		best, bestRoot, bestRel, found = row, root, rel, true
 	}
-	return best, bestRel, found
-}
-
-func beats(
-	row domain.Workspace,
-	root string,
-	best domain.Workspace,
-	bestRoot string,
-) bool {
-	if len(root) != len(bestRoot) {
-		return len(root) > len(bestRoot)
-	}
-	return row.Kind != domain.WorkspaceKindHome && best.Kind == domain.WorkspaceKindHome
-}
-
-// relUnder reports whether path is root or below it, on a separator boundary,
-// and returns the rest relative to root.
-func relUnder(
-	root string,
-	path string,
-) (string, bool) {
-	if root == "" || len(path) < len(root) || !samePrefix(path[:len(root)], root) {
-		return "", false
-	}
-	rest := path[len(root):]
-	if rest == "" || strings.HasSuffix(root, string(filepath.Separator)) {
-		return rest, true
-	}
-	if rest[0] != filepath.Separator {
-		return "", false
-	}
-	return rest[1:], true
-}
-
-func samePrefix(
-	a string,
-	b string,
-) bool {
-	if foldCase {
-		return strings.EqualFold(a, b)
-	}
-	return a == b
+	return rows[hits[0]], rel, true
 }

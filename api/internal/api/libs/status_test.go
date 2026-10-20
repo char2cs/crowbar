@@ -204,6 +204,11 @@ func TestStatusAndMessageMapping(t *testing.T) {
 			status: http.StatusBadRequest,
 		},
 		{
+			name:   "write through a dangling symlink",
+			err:    safepath.ErrDanglingSymlink,
+			status: http.StatusBadRequest,
+		},
+		{
 			name:   "file too large",
 			err:    safepath.ErrFileTooLarge,
 			status: http.StatusRequestEntityTooLarge,

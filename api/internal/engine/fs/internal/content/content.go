@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"unicode/utf8"
@@ -190,7 +191,8 @@ func requireAbs(
 // Two properties of os.WriteFile are preserved so the atomic upgrade is not a
 // silent regression:
 //   - A symlinked target is written THROUGH (its target updated, the link kept).
-//     The temp+rename would otherwise replace the link with a regular file.
+//     The temp+rename would otherwise replace the link with a regular file. A
+//     dangling link is refused: its target is never created (writeThrough).
 //   - An existing file's permission bits are carried onto the replacement, so
 //     saving an executable script does not strip its +x. os.WriteFile kept them
 //     because O_TRUNC never chmods an existing file; a fresh inode would not.
@@ -199,7 +201,7 @@ func writeAtomic(
 	data []byte,
 ) (err error) {
 	if fi, err := os.Lstat(full); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-		return os.WriteFile(full, data, 0o600)
+		return writeThrough(full, data)
 	}
 
 	perm := os.FileMode(0o600)
@@ -230,6 +232,23 @@ func writeAtomic(
 		return err
 	}
 	return os.Rename(tmpName, full)
+}
+
+// writeThrough writes data into the existing file link names, never creating
+// it: a dangling link can point into the daemon's state or out of the worktree.
+func writeThrough(
+	link string,
+	data []byte,
+) error {
+	f, err := os.OpenFile(link, os.O_WRONLY|os.O_TRUNC, 0) //nolint:gosec // G304: link is safepath-resolved or an absolute path the file usecase resolved
+	if errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("%w: %s", safepath.ErrDanglingSymlink, link)
+	}
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	return errors.Join(err, f.Close())
 }
 
 // decodeContent turns a write payload into the exact bytes to persist. A

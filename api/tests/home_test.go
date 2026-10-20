@@ -207,7 +207,7 @@ func TestRegression_HomeFilesRenameContract(t *testing.T) {
 	}
 	h.get(docURL(homeID, "RENAMED.md"), &after)
 	assert.Equal(t, before.Content, after.Content, "rename must preserve content at the new path")
-	h.raw(http.MethodGet, docURL(homeID, "README.md"), nil, http.StatusNotFound).Body.Close()
+	require.NoError(t, h.raw(http.MethodGet, docURL(homeID, "README.md"), nil, http.StatusNotFound).Body.Close())
 
 	// The retired {oldPath, newPath} shape leaves `path` unbound → 400.
 	h.raw(http.MethodPatch, homeBase+"/files",

@@ -14,9 +14,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// HostDocumentRequiresLocalTransport is the error code of a host document
-// refused because the request did not come over the local socket.
-const HostDocumentRequiresLocalTransport = "host_document_requires_local_transport"
+// The error codes a client tells the document refusals apart by.
+const (
+	// HostDocumentRequiresLocalTransport refuses a host document asked for off
+	// the local socket.
+	HostDocumentRequiresLocalTransport = "host_document_requires_local_transport"
+	// DaemonStateDocument refuses a path inside the daemon's state directory.
+	DaemonStateDocument = "daemon_state_document"
+)
 
 // Documents is the file usecase surface the handlers need.
 type Documents interface {
@@ -114,9 +119,12 @@ func documentError(
 	err error,
 ) {
 	status, msg := libs.StatusAndMessage(err)
-	if errors.Is(err, apperr.ErrHostDocumentNeedsLocalTransport) {
+	switch {
+	case errors.Is(err, apperr.ErrHostDocumentNeedsLocalTransport):
 		libs.WriteErrCode(ctx, status, HostDocumentRequiresLocalTransport, msg)
-		return
+	case errors.Is(err, apperr.ErrDaemonStateDocument):
+		libs.WriteErrCode(ctx, status, DaemonStateDocument, msg)
+	default:
+		libs.WriteErr(ctx, status, msg)
 	}
-	libs.WriteErr(ctx, status, msg)
 }

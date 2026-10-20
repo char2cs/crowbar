@@ -50,9 +50,8 @@ func TestRead_MissingFile(
 	require.Error(t, err)
 }
 
-// TestRead_LargeTextFile verifies that a genuinely all-text file larger than the
-// old 8 KiB sample window is still returned as text (the whole-buffer scan does
-// not mis-flag clean UTF-8 as binary).
+// TestRead_LargeTextFile verifies clean UTF-8 past the old 8 KiB sample window
+// is still returned as text.
 func TestRead_LargeTextFile(
 	t *testing.T,
 ) {
@@ -81,13 +80,9 @@ func TestRegression_Read_NullBytePastSampleWindowIsBinary(
 	assert.Equal(t, "base64", fc.Encoding, "NUL anywhere in the file is binary")
 }
 
-// TestRegression_Read_InvalidUTF8PastSampleWindowIsByteFaithful pins the
-// silent-corruption fix. A file whose first 8 KiB is clean UTF-8 but which holds
-// an invalid byte later (0xE9 — a lone Latin-1 'é') was classed as text and
-// returned as a Go string; gin's encoding/json marshaller then rewrote the
-// invalid byte to U+FFFD, so the client got corrupted content and a save
-// persisted it. The whole-buffer scan now flags it as binary, and the base64
-// payload decodes back to the EXACT original bytes.
+// TestRegression_Read_InvalidUTF8PastSampleWindowIsByteFaithful pins that an
+// invalid byte past the first 8 KiB makes the file binary: as text, JSON would
+// rewrite it to U+FFFD and a save would persist the corruption.
 func TestRegression_Read_InvalidUTF8PastSampleWindowIsByteFaithful(
 	t *testing.T,
 ) {
@@ -136,14 +131,9 @@ func TestRead_DirectoryPath(
 	require.Error(t, err)
 }
 
-// TestRegression_Read_RejectsFileThatGrowsPastCapAfterStat pins the
-// TOCTOU guard readFile's doc comment describes: Stat can only see a file's
-// size at one instant, so the actual read is independently bounded by
-// LimitReader(cap+1) — a file that grows between Stat and the read must still
-// be rejected rather than silently truncated or accepted. A FIFO makes this
-// deterministic without a real race: Stat reports a pipe's size as 0 (always
-// under the injected cap), and opening one end blocks until the other end
-// opens, so the writer goroutine's ordering relative to the read never matters.
+// TestRegression_Read_RejectsFileThatGrowsPastCapAfterStat pins the LimitReader
+// cap behind Stat. A FIFO stats as size 0 and blocks open until the writer is
+// there, so the growth is deterministic without a race.
 func TestRegression_Read_RejectsFileThatGrowsPastCapAfterStat(
 	t *testing.T,
 ) {
@@ -320,11 +310,9 @@ func TestRegression_Write_LeavesNoTempCruft(
 	assert.Equal(t, []string{"file.txt"}, names, "no .tmp-* temp file may survive a successful write")
 }
 
-// TestRegression_Write_PreservesOriginalAndTempOnFailure verifies the atomic
-// write's failure guarantee: when the rename-over target cannot be replaced
-// (here the destination is an existing directory), the write fails, the original
-// tree is untouched, and no temp cruft is left behind. os.WriteFile's O_TRUNC
-// path could not offer this — it destroyed the target before writing.
+// TestRegression_Write_PreservesOriginalAndTempOnFailure verifies a failed
+// rename-over (the target is a directory) leaves the original untouched and no
+// temp behind, which os.WriteFile's O_TRUNC could not.
 func TestRegression_Write_PreservesOriginalAndTempOnFailure(
 	t *testing.T,
 ) {
@@ -350,10 +338,8 @@ func TestRegression_Write_PreservesOriginalAndTempOnFailure(
 	}
 }
 
-// TestRegression_Write_PreservesExecutableBit verifies the atomic write carries
-// an existing file's permission bits onto the replacement. Saving an executable
-// script (0o755) must not silently strip its +x — the temp+rename creates a fresh
-// inode, so the mode has to be copied across (os.WriteFile kept it implicitly).
+// TestRegression_Write_PreservesExecutableBit verifies the replacement inode
+// keeps an existing file's mode, so saving a script does not strip its +x.
 func TestRegression_Write_PreservesExecutableBit(
 	t *testing.T,
 ) {
@@ -375,10 +361,8 @@ func TestRegression_Write_PreservesExecutableBit(
 	assert.Equal(t, "#!/bin/sh\necho bye\n", string(data))
 }
 
-// TestRegression_Write_ThroughSymlinkKeepsLink verifies a save to a symlinked
-// path (whose target is inside the workspace) writes THROUGH the link, updating
-// the target and leaving the symlink in place — rather than replacing the link
-// with a regular file as a naive temp+rename would.
+// TestRegression_Write_ThroughSymlinkKeepsLink verifies a save to a live link
+// updates its target and keeps the link, where temp+rename would replace it.
 func TestRegression_Write_ThroughSymlinkKeepsLink(
 	t *testing.T,
 ) {
@@ -401,11 +385,27 @@ func TestRegression_Write_ThroughSymlinkKeepsLink(
 	assert.Equal(t, "new", string(target), "write must go through the link to its target")
 }
 
-// TestRegression_ContentRead_RejectsOversizeFile verifies that content.Read
-// rejects files above the cap with ErrFileTooLarge and that files below the
-// cap are still returned correctly (hardening finding R16).
-// A 4-byte cap is injected via content.ReadWithCap so no 25 MiB file needs to
-// exist on disk.
+// TestRegression_Write_RefusesADanglingSymlink verifies a save never creates the
+// file a dangling link names: it may point anywhere, into the daemon's state or
+// out of the worktree.
+func TestRegression_Write_RefusesADanglingSymlink(
+	t *testing.T,
+) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on windows")
+	}
+	root := t.TempDir()
+	planted := filepath.Join(t.TempDir(), "planted")
+	require.NoError(t, os.Symlink(planted, filepath.Join(root, "link")))
+
+	require.ErrorIs(t, content.Write(root, "link", "x", ""), safepath.ErrDanglingSymlink)
+	require.ErrorIs(t, content.WriteAbs(filepath.Join(root, "link"), "x", ""), safepath.ErrDanglingSymlink)
+	_, err := os.Lstat(planted)
+	assert.ErrorIs(t, err, os.ErrNotExist, "no write may create the link's target")
+}
+
+// TestRegression_ContentRead_RejectsOversizeFile verifies the cap (finding R16)
+// through an injected 4-byte one, so no 25 MiB file has to exist.
 func TestRegression_ContentRead_RejectsOversizeFile(
 	t *testing.T,
 ) {
