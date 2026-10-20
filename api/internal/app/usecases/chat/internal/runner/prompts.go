@@ -37,12 +37,12 @@ func (rs *Runners) SubmitPrompt(
 //
 // admit (nil for none) runs once the request is known to be new — a resend of
 // a recorded prompt answers from the ledger and must never spawn or mutate
-// anything.
+// anything. handled says admit delivered the prompt itself.
 func (rs *Runners) submitPromptLocked(
 	ctx context.Context,
 	h *hold,
 	chatID, text, clientRequestID string,
-	admit func() error,
+	admit func(chat domain.Chat, requestID string) (domain.AgentPromptSubmission, bool, error),
 ) (domain.AgentPromptSubmission, error) {
 	clientRequestID, err := normalisePromptRequest(text, clientRequestID)
 	if err != nil {
@@ -61,8 +61,8 @@ func (rs *Runners) submitPromptLocked(
 		return result, err
 	}
 	if admit != nil {
-		if err := admit(); err != nil {
-			return domain.AgentPromptSubmission{}, err
+		if submission, handled, err := admit(chat, clientRequestID); handled || err != nil {
+			return submission, err
 		}
 	}
 
@@ -87,29 +87,11 @@ func (rs *Runners) submitPromptLocked(
 		return submission, pushErr
 	}
 
-	delivery, err := rs.resolvePromptDelivery(ctx, chat.ID, live, descriptor)
+	delivery, err := rs.resolvePromptDelivery(ctx, chat.ID, live.ProviderID, live, descriptor)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, err
 	}
-
-	replacementRunnerID := uuid.NewString()
-	if err := rs.recordPrompt(
-		ctx, chat.ID, clientRequestID, text, "", ledger.DeliveryRestart, replacementRunnerID, nil,
-	); err != nil {
-		return domain.AgentPromptSubmission{}, err
-	}
-	if err := rs.displaceForPrompt(ctx, h, chatID, clientRequestID, live.ID); err != nil {
-		return domain.AgentPromptSubmission{}, rs.failPrompt(ctx, chat.ID, clientRequestID, err)
-	}
-
-	runnerID, err := rs.spawnRunner(ctx, chatID, chat.WorkspaceID, live.ProviderID, spawnInput{
-		runnerID: replacementRunnerID, launch: &delivery.launch, finalSteps: delivery.promptSteps,
-		conversation: delivery.conversation, resuming: delivery.contextResuming, promptMessage: text,
-	}, false)
-	if err != nil {
-		return domain.AgentPromptSubmission{}, rs.failPrompt(ctx, chat.ID, clientRequestID, spawnFailure(ctx, err))
-	}
-	return rs.commitPromptSpawn(ctx, chat.ID, clientRequestID, runnerID)
+	return rs.launchCarrying(ctx, h, chat, clientRequestID, text, delivery)
 }
 
 // spawnFailure is what a failed replacement spawn tells the client: only a CLI
@@ -309,29 +291,6 @@ func (rs *Runners) submitPromptOverAPI(
 	}
 	submission, err := rs.commitPromptSpawn(ctx, chat.ID, clientRequestID, live.ID)
 	return submission, true, err
-}
-
-func (rs *Runners) promptTarget(
-	ctx context.Context,
-	chat domain.Chat,
-) (engineagents.Runner, engineagents.Agent, string, error) {
-	live, ok := rs.live.byChat(chat.ID)
-	if !ok {
-		return engineagents.Runner{}, nil, "", ErrPromptSessionUnavailable
-	}
-	cwdWorkspaceID, err := rs.cwdWorkspaceID(ctx, chat.ID, chat.WorkspaceID)
-	if err != nil {
-		return engineagents.Runner{}, nil, "", err
-	}
-	crowbarHome, _, _, worktree, err := rs.ws.WorktreeDir(ctx, cwdWorkspaceID)
-	if err != nil {
-		return engineagents.Runner{}, nil, "", fmt.Errorf("agent: submit prompt: worktree dir: %w", err)
-	}
-	descriptor, err := rs.agents.Get(ctx, crowbarHome, live.ProviderID)
-	if err != nil {
-		return engineagents.Runner{}, nil, "", fmt.Errorf("agent: submit prompt: resolve descriptor: %w", err)
-	}
-	return live, descriptor, worktree, nil
 }
 
 // displaceForPrompt quits the chat's idle runner outside the chat's lock, then

@@ -9,25 +9,46 @@ import (
 	"fmt"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
+	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// reviveForDelivery puts a CLI on chatID if it has none. Its waits park on h,
-// so a Stop abandons this revive cleanly.
-func (rs *Runners) reviveForDelivery(ctx context.Context, h *hold, chatID string) error {
-	_, live, err := rs.settledRunner(h)
+// reviveForDelivery starts a dormant chat's provider carrying requestID: the
+// one CLI the send launches is its carrier, so a refusal of the session settles
+// it. handled=false leaves a live chat to the ordinary delivery.
+func (rs *Runners) reviveForDelivery(
+	ctx context.Context, h *hold, chat domain.Chat, requestID, text string,
+) (domain.AgentPromptSubmission, bool, error) {
+	if _, live := rs.live.byChat(chat.ID); live {
+		return domain.AgentPromptSubmission{}, false, nil
+	}
+	providerID, err := rs.lastActiveProviderID(ctx, chat.ID)
 	if err != nil {
-		return fmt.Errorf("agent: submit prompt: %w", err)
+		return domain.AgentPromptSubmission{}, true, fmt.Errorf("agent: submit prompt: revive: %w", err)
 	}
-	if live {
-		return nil
+	defer rs.enterPhase(ctx, chat.ID, snapshot.PhaseStarting)()
+	submission, err := rs.startCarrying(ctx, h, chat, providerID, requestID, text)
+	return submission, true, err
+}
+
+// startCarrying refuses a disabled provider or a working chat before the
+// prompt is recorded, then launches providerID's CLI carrying it.
+func (rs *Runners) startCarrying(
+	ctx context.Context, h *hold, chat domain.Chat, providerID, requestID, text string,
+) (domain.AgentPromptSubmission, error) {
+	if err := rs.providers.RequireProviderEnabled(ctx, providerID); err != nil {
+		return domain.AgentPromptSubmission{}, err
 	}
-	providerID, err := rs.lastActiveProviderID(ctx, chatID)
+	if err := rs.requireNotBusy(ctx, chat.ID); err != nil {
+		return domain.AgentPromptSubmission{}, err
+	}
+	descriptor, _, err := rs.promptAgent(ctx, chat, providerID)
 	if err != nil {
-		return fmt.Errorf("agent: submit prompt: revive: %w", err)
+		return domain.AgentPromptSubmission{}, err
 	}
-	defer rs.enterPhase(ctx, chatID, snapshot.PhaseStarting)()
-	if _, err := rs.switchProviderLocked(ctx, h, chatID, providerID); err != nil {
-		return fmt.Errorf("agent: submit prompt: revive: %w", err)
+	delivery, err := rs.resolvePromptDelivery(ctx, chat.ID, providerID, engineagents.Runner{}, descriptor)
+	if err != nil {
+		return domain.AgentPromptSubmission{}, err
 	}
-	return nil
+	return rs.launchCarrying(ctx, h, chat, requestID, text, delivery)
 }

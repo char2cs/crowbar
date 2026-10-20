@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -70,25 +71,24 @@ func (l sessionLaunch) steps(d engineagents.Agent) ([]engineagents.InjectStep, e
 	return sessionArgSteps(arg, bound.SessionID), nil
 }
 
-// promptDelivery is what SubmitPrompt needs to restart a CLI carrying a
+// promptDelivery is what SubmitPrompt needs to launch a CLI carrying a
 // message: the InjectSteps to render, and the session those steps continue.
 type promptDelivery struct {
+	provider    string // the provider the carrier launches as
+	outgoing    string // the chat's CLI the carrier replaces, "" on a dormant chat
 	promptSteps []engineagents.InjectStep
 	launch      sessionLaunch
-	// conversation and contextResuming carry a handoff for a restart whose
-	// LIVE runner (the one being displaced to deliver this message) has never
-	// itself turned — its first delivery, whether that runner is brand new to
-	// the chat or was just spawned by a provider switch and displaced before
-	// it got to answer. Both stay empty/false on every other path, where the
-	// mechanical resuming above is already the right content signal too — see
-	// resolvePromptDelivery.
+	// conversation and contextResuming hand the record over to a launch whose
+	// outgoing runner never turned, or that has none (resolvePromptDelivery).
 	conversation    string
 	contextResuming bool
 }
 
+// resolvePromptDelivery plans the launch of providerID's CLI carrying a
+// prompt; live is the chat's CLI it replaces, zero on a dormant chat.
 func (rs *Runners) resolvePromptDelivery(
 	ctx context.Context,
-	chatID string,
+	chatID, providerID string,
 	live engineagents.Runner,
 	descriptor engineagents.Agent,
 ) (promptDelivery, error) {
@@ -113,27 +113,22 @@ func (rs *Runners) resolvePromptDelivery(
 	// own; the gap since its last turn is what it lacks. Whether THIS restart owes
 	// that handoff is liveTurned's question below.
 	everTurned := resuming
-	leftAt, err := rs.leftAt(ctx, chatID, live.ProviderID, nativeSessionID)
+	leftAt, err := rs.leftAt(ctx, chatID, providerID, nativeSessionID)
 	if err != nil {
 		return promptDelivery{}, err
 	}
 
-	// liveTurned is the question that actually decides whether THIS restart
-	// owes a handoff: has the runner being displaced right now itself ever
-	// turned, since it was spawned. A runner that has is mid-conversation on
-	// its own native transcript, which --resume already restores in full. A
-	// runner that has not — a switch's silent resume, or a dormant chat's
-	// revive spawn, neither ever given a chance to answer before being
-	// displaced here — has nothing of its own on the wire, so this restart is
-	// really that spawn's first delivery and must carry what one would have:
-	// the gap since leftAt when the session has prior history (everTurned),
-	// or the conversation so far when it has none at all.
-	liveTurned, err := rs.activity.HasTurnAtOrAfter(ctx, chatID, live.ProviderID, live.StartedAt)
+	// The launch owes the handoff unless the runner it displaces turned since it
+	// started: that one is on its own transcript, which --resume restores, while
+	// one that never answered, or none at all, has nothing of its own on the wire.
+	liveTurned, err := rs.liveTurned(ctx, chatID, providerID, live)
 	if err != nil {
-		return promptDelivery{}, fmt.Errorf("agent: submit prompt: check live runner history: %w", err)
+		return promptDelivery{}, err
 	}
 
-	out := promptDelivery{promptSteps: promptSteps, launch: launch, contextResuming: resuming}
+	out := promptDelivery{
+		provider: providerID, outgoing: live.ID, promptSteps: promptSteps, launch: launch, contextResuming: resuming,
+	}
 	if !liveTurned && !launch.lost {
 		conversation, err := rs.conversations.AssembleConversation(ctx, chatID, everTurned, leftAt)
 		if err != nil {
@@ -153,6 +148,74 @@ func (rs *Runners) resolvePromptDelivery(
 		return promptDelivery{}, ErrPromptUnsupported
 	}
 	return out, nil
+}
+
+// liveTurned reports whether live, the CLI a delivery replaces, has turned
+// since it started; a dormant chat has none.
+func (rs *Runners) liveTurned(ctx context.Context, chatID, providerID string, live engineagents.Runner) (bool, error) {
+	if live.ID == "" {
+		return false, nil
+	}
+	turned, err := rs.activity.HasTurnAtOrAfter(ctx, chatID, providerID, live.StartedAt)
+	if err != nil {
+		return false, fmt.Errorf("agent: submit prompt: check live runner history: %w", err)
+	}
+	return turned, nil
+}
+
+// launchCarrying launches the CLI that carries requestID, recorded as its
+// carrier before anything is touched, once the CLI it replaces has quit.
+func (rs *Runners) launchCarrying(
+	ctx context.Context, h *hold, chat domain.Chat, requestID, text string, delivery promptDelivery,
+) (domain.AgentPromptSubmission, error) {
+	carrier := uuid.NewString()
+	if err := rs.recordPrompt(ctx, chat.ID, requestID, text, "", ledger.DeliveryRestart, carrier, nil); err != nil {
+		return domain.AgentPromptSubmission{}, err
+	}
+	if delivery.outgoing != "" {
+		if err := rs.displaceForPrompt(ctx, h, chat.ID, requestID, delivery.outgoing); err != nil {
+			return domain.AgentPromptSubmission{}, rs.failPrompt(ctx, chat.ID, requestID, err)
+		}
+	}
+	runnerID, err := rs.spawnRunner(ctx, chat.ID, chat.WorkspaceID, delivery.provider, spawnInput{
+		runnerID: carrier, launch: &delivery.launch, finalSteps: delivery.promptSteps,
+		conversation: delivery.conversation, resuming: delivery.contextResuming, promptMessage: text,
+	}, false)
+	if err != nil {
+		return domain.AgentPromptSubmission{}, rs.failPrompt(ctx, chat.ID, requestID, spawnFailure(ctx, err))
+	}
+	return rs.commitPromptSpawn(ctx, chat.ID, requestID, runnerID)
+}
+
+func (rs *Runners) promptTarget(
+	ctx context.Context,
+	chat domain.Chat,
+) (engineagents.Runner, engineagents.Agent, string, error) {
+	live, ok := rs.live.byChat(chat.ID)
+	if !ok {
+		return engineagents.Runner{}, nil, "", ErrPromptSessionUnavailable
+	}
+	descriptor, worktree, err := rs.promptAgent(ctx, chat, live.ProviderID)
+	return live, descriptor, worktree, err
+}
+
+// promptAgent is providerID's descriptor and the worktree chat's CLI runs in.
+func (rs *Runners) promptAgent(
+	ctx context.Context, chat domain.Chat, providerID string,
+) (engineagents.Agent, string, error) {
+	cwdWorkspaceID, err := rs.cwdWorkspaceID(ctx, chat.ID, chat.WorkspaceID)
+	if err != nil {
+		return nil, "", err
+	}
+	crowbarHome, _, _, worktree, err := rs.ws.WorktreeDir(ctx, cwdWorkspaceID)
+	if err != nil {
+		return nil, "", fmt.Errorf("agent: submit prompt: worktree dir: %w", err)
+	}
+	descriptor, err := rs.agents.Get(ctx, crowbarHome, providerID)
+	if err != nil {
+		return nil, "", fmt.Errorf("agent: submit prompt: resolve descriptor: %w", err)
+	}
+	return descriptor, worktree, nil
 }
 
 func (rs *Runners) RequirePromptRestart(

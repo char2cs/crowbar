@@ -74,12 +74,12 @@ func (rs *Runners) SubmitPromptWithSwitch(
 
 	// Admission runs once the request is known to be new: a replayed or busy
 	// send must leave the chat's selection exactly as it found it.
-	admit := func() error {
+	admit := func(chat domain.Chat, requestID string) (domain.AgentPromptSubmission, bool, error) {
 		if err := rs.commitStagedSelection(ctx, chatID, selection); err != nil {
-			return err
+			return domain.AgentPromptSubmission{}, true, err
 		}
 		// Send is the only intent: a dormant chat is revived here, never by a client.
-		return rs.reviveForDelivery(ctx, h, chatID)
+		return rs.reviveForDelivery(ctx, h, chat, requestID, text)
 	}
 	return rs.submitPromptLocked(ctx, h, chatID, text, clientRequestID, admit)
 }
