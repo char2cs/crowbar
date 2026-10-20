@@ -86,11 +86,10 @@ func (c TemplateCtx) HookURL() string {
 }
 
 // HookCurl is the curl command a CLI that can only run a command (a status
-// line, a hook entry) posts its stdin through. The runner token is in the config
-// file the descriptor writes there, not on the command line: argv is visible to
-// every process of the user.
+// line, a hook entry) posts its stdin through. The token sits in the config
+// file, not argv; --fail makes a refused post exit non-zero instead of passing.
 func (c TemplateCtx) HookCurl() string {
-	return "curl --silent --show-error --config " + shellWord(filepath.Join(c.Tmp, "hook.curl"))
+	return "curl --fail --silent --show-error --config " + shellWord(filepath.Join(c.Tmp, "hook.curl"))
 }
 
 func (c TemplateCtx) ScopeFlags() string {

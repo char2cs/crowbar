@@ -104,7 +104,7 @@ func TestReplacer_ExpandsTheHookURL(t *testing.T) {
 func TestHookCurl_ReadsItsCredentialFromAFileNotArgv(t *testing.T) {
 	c := TemplateCtx{Tmp: "/var/folders/Jo Smith/T/run-1", RunnerToken: "secret-token"}
 	got := c.Replacer().Replace("{hook_curl}")
-	want := "curl --silent --show-error --config '/var/folders/Jo Smith/T/run-1/hook.curl'"
+	want := "curl --fail --silent --show-error --config '/var/folders/Jo Smith/T/run-1/hook.curl'"
 	if got != want {
 		t.Fatalf("{hook_curl} expanded to %q, want %q", got, want)
 	}

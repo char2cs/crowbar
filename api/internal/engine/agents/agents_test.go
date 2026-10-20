@@ -603,7 +603,7 @@ func TestShippedCodex_HooksPostThroughCurlReadingTheTokenFromAFile(t *testing.T)
 	require.NoError(t, err)
 
 	argv := strings.Join(plan.Argv, " ")
-	assert.Contains(t, argv, `hooks.PreToolUse=[{hooks=[{type="command",command="curl --silent --show-error --config `)
+	assert.Contains(t, argv, `hooks.PreToolUse=[{hooks=[{type="command",command="curl --fail --silent --show-error --config `)
 	assert.Contains(t, argv, "/chats/runners/SEG/hooks/codex/tool_pre")
 	for _, arg := range plan.Argv {
 		if strings.HasPrefix(arg, "hooks.") {
