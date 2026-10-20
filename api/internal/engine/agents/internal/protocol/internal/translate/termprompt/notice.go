@@ -26,7 +26,7 @@ func MatchNotice(d *spec.Descriptor, screen string) (models.TerminalNotice, bool
 }
 
 // anchored is the text of the first row anchor opens whose needle follows it;
-// an indented row is a quote, as codex indents prompt and reply continuations.
+// an indented row is a quote: agents indent prompt and reply continuations.
 func anchored(rows []string, anchor, needle string) (string, bool) {
 	if anchor == "" || needle == "" {
 		return "", false
