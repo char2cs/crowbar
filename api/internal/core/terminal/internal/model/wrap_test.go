@@ -37,6 +37,11 @@ func TestSerialize_RoundTripPreservesWrapFlags(t *testing.T) {
 	// x/vt trims the printed space off the stored head, so only padding re-joins the line.
 	spaceHead := "0123456789012345678 abc"
 	blankCont := strings.Repeat("x", 20) + " " // the space alone wraps onto the next row
+	// Four history lines put the head on the client's bottom row, so the wrap into the red cell
+	// scrolls there and fills the new row with the pen's background; the model wrapped in place.
+	redCont := "1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n8\r\n9\x1b[H" + strings.Repeat("x", 20) + "\x1b[41mAB\x1b[m"
+	fullCont := strings.Repeat("x", 20) + strings.Repeat("y", 20) // the continuation ends at the last column
+	wideCont := strings.Repeat("x", 20) + strings.Repeat("y", 18) + "日"
 	tests := []struct {
 		name, bytes string
 		flags       string
@@ -49,6 +54,9 @@ func TestSerialize_RoundTripPreservesWrapFlags(t *testing.T) {
 		{name: "a blank continuation", bytes: blankCont + "\r\nnext", flags: "grid F T F F F | scrollback"},
 		{name: "a styled URL", bytes: "\x1b[4;34m" + url + "\x1b[m", flags: "grid F T T T F | scrollback"},
 		{name: "the alternate screen", bytes: "\x1b[?1049h" + url, flags: "grid F T T T F | scrollback"},
+		{name: "a coloured continuation the client reaches by a scroll", bytes: redCont, flags: "grid F T F F F | scrollback F F F F"},
+		{name: "a continuation that fills its row", bytes: fullCont + "\r\nz", flags: "grid F T F F F | scrollback"},
+		{name: "a continuation ending in a wide glyph at the last column", bytes: wideCont + "\r\nz", flags: "grid F T F F F | scrollback"},
 		{
 			name:  "chains deep in the scrollback",
 			bytes: strings.Join([]string{url, hardBreak, chain3, blankCont, spaceHead, url}, "\r\n"),
@@ -105,11 +113,12 @@ func TestPadToCols(t *testing.T) {
 	})
 }
 
-// TestEncodeChainRow pins the one row rule every writer shares: a head runs to the last column
-// with no break, a continuation keeps a cell, anything else is trimmed and then broken.
-func TestEncodeChainRow(t *testing.T) {
+// TestAppendChainRow pins the one row rule every writer shares: a head runs to the last column
+// with no break; a continuation keeps a cell and erases what it leaves short; the rest is trimmed.
+func TestAppendChainRow(t *testing.T) {
 	ab := []uv.Cell{{Content: "a", Width: 1}, {Content: "b", Width: 1}}
 	blank := []uv.Cell{uv.EmptyCell, uv.EmptyCell}
+	wide := []uv.Cell{{Content: "a", Width: 1}, {Content: "b", Width: 1}, {Content: "日", Width: 2}, {}}
 	tests := []struct {
 		name                 string
 		cells                []uv.Cell
@@ -117,16 +126,23 @@ func TestEncodeChainRow(t *testing.T) {
 		want                 string
 	}{
 		{name: "a head is padded and unbroken", cells: ab, nextWrapped: true, want: "ab  "},
-		{name: "a tail is trimmed and broken", cells: append(ab, blank...), wrapped: true, want: "ab|"},
-		{name: "a blank continuation keeps one cell", cells: blank, wrapped: true, want: " |"},
-		{name: "a blank row is empty", cells: blank, want: "|"},
 		{name: "a blank head is padded", cells: nil, nextWrapped: true, want: "    "},
+		{name: "a row is trimmed and broken", cells: append(ab, blank...), want: "ab|"},
+		{name: "a blank row is only the break", cells: blank, want: "|"},
+		{name: "a short continuation erases the rest", cells: append(ab, blank...), wrapped: true, want: "ab\x1b[K|"},
+		{name: "a blank continuation keeps one cell", cells: blank, wrapped: true, want: " \x1b[K|"},
+		{name: "a continuation at the last column erases nothing", cells: append(ab, ab...), wrapped: true, want: "abab|"},
+		{name: "a wide glyph that reaches the last column erases nothing", cells: wide, wrapped: true, want: "ab日|"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, encodeChainRow(tc.cells, 4, tc.wrapped, tc.nextWrapped, "|"))
+			require.Equal(t, tc.want, string(appendChainRow(nil, tc.cells, 4, tc.wrapped, tc.nextWrapped, "|")))
 		})
 	}
+
+	t.Run("appends to what dst holds", func(t *testing.T) {
+		require.Equal(t, "\x1b[1;1Hab", string(appendChainRow([]byte("\x1b[1;1H"), ab, 4, false, false, "")))
+	})
 }
 
 // assertSameCells compares content and style cell by cell, grid then scrollback. A scrollback

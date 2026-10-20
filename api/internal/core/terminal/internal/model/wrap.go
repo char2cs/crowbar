@@ -1,25 +1,36 @@
 package model
 
-import uv "github.com/charmbracelet/ultraviolet"
+import (
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
+)
 
-// encodeChainRow encodes one row so the client rebuilds its wrap bit. A head (nextWrapped) runs
+// appendChainRow appends one row so the client rebuilds its wrap bit. A head (nextWrapped) runs
 // untrimmed to the last column with no brk, so the client autowraps onto the next row; any other
-// row is trimmed and followed by brk, and a continuation (wrapped) keeps at least one cell.
-func encodeChainRow(
+// row is trimmed and followed by brk. A writer that addresses rows itself passes brk "".
+func appendChainRow(
+	dst []byte,
 	cells []uv.Cell,
 	cols int,
 	wrapped, nextWrapped bool,
 	brk string,
-) string {
+) []byte {
 	if nextWrapped {
 		head := padToCols(cells, cols)
-		return encodeLine(head, len(head), false)
+		dst, _ = appendLine(dst, head, len(head), false)
+		return dst
 	}
-	row := encodeLine(cells, len(cells), true)
-	if row == "" && wrapped {
-		row = " " // the client wraps only when a cell lands on the row
+	dst, end := appendLine(dst, cells, len(cells), true)
+	if wrapped && end == 0 {
+		dst, end = append(dst, ' '), 1 // the client wraps only when a cell lands on the row
 	}
-	return row + brk
+	// The wrap onto a continuation may scroll the client and fill the row with the pen's
+	// background, so a short one erases the rest; EL0 at x>0 keeps the wrap bit in xterm.js and
+	// x/vt. At the last column the wrap is pending, and x/vt's EL0 would erase that cell.
+	if wrapped && end < cols {
+		dst = append(dst, ansi.EraseLineRight...)
+	}
+	return append(dst, brk...)
 }
 
 // padToCols extends cells with blanks to cols: x/vt trims a scrollback line's trailing blanks,

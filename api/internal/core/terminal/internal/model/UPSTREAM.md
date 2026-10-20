@@ -81,8 +81,8 @@ foundation ships, and which gates are deferred vs. accepted, with eyes open.*
 - The alternate screen keeps no scrollback, and DECSTBM and DECSLRM clamp their margins to the
   screen, as xterm does.
 
-Delete the copy (and the `replace` in `api/go.mod`) once a tagged upstream exposes a per-row wrap
-bit and has the margin clamps.
+Delete the copy (and the `replace` in `api/go.mod`) once a tagged upstream has every behaviour
+listed above.
 
 ### D1a — parse-panic recovery discards scrollback CONTENT **ACCEPTED RESIDUAL**
 
@@ -130,6 +130,17 @@ emulator and catches encoder regressions, but it is structurally incapable of pr
 equivalence to the actual `xterm.js` client. Its own header says so; it must **not** be
 presented as the oracle. The `xterm.js` `SerializeAddon` harness is tracked as a deferred
 P1/P3 deliverable.
+
+Known `x/vt`-vs-`xterm.js` divergences the self-fixpoint cannot see (found with the wrap bit, not
+patched):
+
+- A wide glyph that exactly fills the last two columns leaves no pending wrap in `x/vt` (`utf8.go`
+  sets `atPhantom` only from the last column), so the next character overwrites its second half;
+  `xterm.js` wraps that character onto the next row.
+- A wide glyph that does not fit the last column is dropped by `x/vt`; `xterm.js` wraps it early
+  and leaves the last cell empty.
+- EL 0 at a pending wrap erases the last cell and cancels the wrap in `x/vt`; `xterm.js` erases
+  nothing and keeps the wrap. The serializer never sends EL 0 there.
 
 ## Blocking exit checklist before this package is wired or shipped
 

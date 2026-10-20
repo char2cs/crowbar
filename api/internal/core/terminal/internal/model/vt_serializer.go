@@ -90,6 +90,7 @@ func writeContent(
 	rows int,
 ) {
 	emu := vm.emu
+	var line []byte // reused: one row's bytes at a time
 	if !alt {
 		n := emu.ScrollbackLen()
 		for i := 0; i < n; i++ {
@@ -97,7 +98,8 @@ func writeContent(
 			if i == n-1 {
 				next = emu.RowWrapped(0)
 			}
-			b.WriteString(encodeChainRow(emu.ScrollbackLine(i), cols, emu.ScrollbackRowWrapped(i), next, "\r\n"))
+			line = appendChainRow(line[:0], emu.ScrollbackLine(i), cols, emu.ScrollbackRowWrapped(i), next, "\r\n")
+			b.Write(line)
 		}
 	}
 	var scratch []uv.Cell
@@ -107,7 +109,8 @@ func writeContent(
 			brk = ""
 		}
 		scratch = snapshotRowInto(emu, scratch, cols, y)
-		b.WriteString(encodeChainRow(scratch, cols, emu.RowWrapped(y), emu.RowWrapped(y+1), brk))
+		line = appendChainRow(line[:0], scratch, cols, emu.RowWrapped(y), emu.RowWrapped(y+1), brk)
+		b.Write(line)
 	}
 }
 
@@ -227,14 +230,25 @@ func encodeGridRow(
 	return encodeLine(snapshotRowInto(emu, nil, cols, y), cols, true)
 }
 
-// encodeLine renders cells (up to width columns) into SGR-run-length ANSI, trimming
-// trailing blank cells when trim is set and resetting the pen at the row's end so style
-// never bleeds across the following line break.
+// encodeLine renders cells (up to width columns) into SGR-run-length ANSI; see appendLine.
 func encodeLine(
 	cells []uv.Cell,
 	width int,
 	trim bool,
 ) string {
+	line, _ := appendLine(nil, cells, width, trim)
+	return string(line)
+}
+
+// appendLine appends cells (up to width columns) as SGR-run-length ANSI, trimming trailing
+// blank cells when trim is set and resetting the pen at the row's end so style never bleeds
+// across the following line break. It also returns the column after the last cell written.
+func appendLine(
+	dst []byte,
+	cells []uv.Cell,
+	width int,
+	trim bool,
+) ([]byte, int) {
 	if width > len(cells) {
 		width = len(cells)
 	}
@@ -247,25 +261,25 @@ func encodeLine(
 			}
 		}
 	}
-	var b strings.Builder
 	var cur uv.Style
-	for i := 0; i < last; i++ {
-		c := cells[i]
-		b.WriteString(uv.StyleDiff(&cur, &c.Style))
+	i := 0
+	for ; i < last; i++ {
+		c := &cells[i]
+		dst = append(dst, uv.StyleDiff(&cur, &c.Style)...)
 		cur = c.Style
-		content := c.Content
-		if content == "" {
-			content = " "
+		if c.Content == "" {
+			dst = append(dst, ' ')
+		} else {
+			dst = append(dst, c.Content...)
 		}
-		b.WriteString(content)
 		if c.Width > 1 {
 			i += c.Width - 1
 		}
 	}
 	if !cur.IsZero() {
-		b.WriteString(ansi.ResetStyle)
+		dst = append(dst, ansi.ResetStyle...)
 	}
-	return b.String()
+	return dst, i
 }
 
 func cellBlank(
