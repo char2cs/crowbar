@@ -11,14 +11,16 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-func (t *Turns) handleTelemetry(
+// RecordTelemetry records a usage report runner sent over its hook channel. It
+// is no conversation event, so it is never run through the ownership guard.
+func (t *Turns) RecordTelemetry(
 	ctx context.Context,
 	runner engineagents.Runner,
 	agent engineagents.Agent,
 	raw []byte,
 ) error {
-	chat, ok, err := t.chatForRunner(ctx, runner)
-	if err != nil || !ok {
+	chat, err := t.chatForRunner(ctx, runner)
+	if err != nil {
 		return err
 	}
 	report, err := agent.ParseTelemetry(raw, time.Now())

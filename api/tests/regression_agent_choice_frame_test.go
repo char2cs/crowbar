@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 )
@@ -29,19 +28,18 @@ func newChoiceFrameChat(t *testing.T, descriptor string) choiceFrameChat {
 	writeProviderDescriptor(t, h, "answerstub", descriptor)
 	imported := importWritableWorkspace(t, h)
 	chatID, runnerID := createStubChat(t, h, imported, "answerstub")
-	postAnswerStubHook(t, h, repoBase(imported), runnerID, "", "user_prompt", `{"prompt":"go"}`)
+	postAnswerStubHook(t, h, repoBase(imported), runnerID, "user_prompt", `{"prompt":"go"}`)
 	h.Quiesce()
 	return choiceFrameChat{h: h, imported: imported, chatID: chatID, runnerID: runnerID}
 }
 
-func (c choiceFrameChat) ask(t *testing.T, promptID string) (deliveryID, choiceID string) {
+func (c choiceFrameChat) ask(t *testing.T, promptID string) (choiceID string) {
 	t.Helper()
-	deliveryID = uuid.NewString()
-	ack := postAnswerStubHook(t, c.h, repoBase(c.imported), c.runnerID, deliveryID, "permission",
+	ack := postAnswerStubHook(t, c.h, repoBase(c.imported), c.runnerID, "permission",
 		`{"session_id":"s1","prompt_id":"`+promptID+`","tool_name":"Bash",`+
 			`"tool_input":{"command":"touch `+promptID+`"}}`)
 	require.NotNil(t, ack.Await)
-	return deliveryID, ack.Await.ChoiceID
+	return ack.Await.ChoiceID
 }
 
 func (c choiceFrameChat) dial() *websocket.Conn {
@@ -107,7 +105,7 @@ func TestRegression_AChoiceOpensAndClearsOverTheChatSocket(t *testing.T) {
 	c := newChoiceFrameChat(t, answerStubProviderDescriptorYAML)
 	conn := c.dial()
 
-	_, choiceID := c.ask(t, "p1")
+	choiceID := c.ask(t, "p1")
 	frame := readUntil(t, conn, c.choiceFrame(func(choices []map[string]any) bool {
 		return len(choices) == 1 && choices[0]["id"] == choiceID &&
 			choices[0]["pending"] == true && choices[0]["answerable"] == true
@@ -120,7 +118,7 @@ func TestRegression_AChoiceOpensAndClearsOverTheChatSocket(t *testing.T) {
 
 func TestRegression_AChoiceOpenedBeforeASocketConnectedIsReplayedToIt(t *testing.T) {
 	c := newChoiceFrameChat(t, answerStubProviderDescriptorYAML)
-	_, choiceID := c.ask(t, "p1")
+	choiceID := c.ask(t, "p1")
 	c.h.Quiesce()
 
 	late := c.dial()
@@ -133,8 +131,8 @@ func TestRegression_SeveralChoicesRideOneFrameAndEachAnswerShrinksIt(t *testing.
 	c := newChoiceFrameChat(t, answerStubProviderDescriptorYAML)
 	conn := c.dial()
 
-	_, first := c.ask(t, "p1")
-	_, second := c.ask(t, "p2")
+	first := c.ask(t, "p1")
+	second := c.ask(t, "p2")
 	readUntil(t, conn, c.choiceFrame(func(choices []map[string]any) bool {
 		return len(choices) == 2
 	}))
@@ -151,14 +149,14 @@ func TestRegression_AChoiceWhoseRelayExpiredIsPushedAsUnanswerable(t *testing.T)
 	c := newChoiceFrameChat(t, descriptor)
 	conn := c.dial()
 
-	deliveryID, choiceID := c.ask(t, "p1")
+	choiceID := c.ask(t, "p1")
 	readUntil(t, conn, c.choiceFrame(func(choices []map[string]any) bool {
 		return len(choices) == 1 && choices[0]["answerable"] == true
 	}))
 
 	// The relay waits out its budget and is released with nobody having answered.
 	c.h.post("/v0/projects/"+c.imported.projectID+"/repos/"+c.imported.repoID+"/chats/hooks/await",
-		map[string]string{"delivery_id": deliveryID}, http.StatusOK, nil)
+		map[string]string{"ask_id": choiceID}, http.StatusOK, nil)
 	readUntil(t, conn, c.choiceFrame(func(choices []map[string]any) bool {
 		return len(choices) == 1 && choices[0]["id"] == choiceID &&
 			choices[0]["pending"] == true && choices[0]["answerable"] == false

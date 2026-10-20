@@ -30,15 +30,15 @@ const featurePath = "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 // know each other either — see rule 2 below.
 const sharedTier = "internal/shared"
 
-// components are the four halves of the chat surface: the record, the hook
-// ingress, the CLI lifecycle and the provider table.
+// components are the parts of the chat surface: the record, the hook ingress,
+// the turn record it places hooks on, the CLI lifecycle and the provider table.
 //
 // They are peers, and the whole point of the decomposition is that they do not know
 // about each other. They call each other constantly — a purge retires CLIs, a hook
 // moves a runner, a switch waits on a turn — and every one of those calls goes
 // through an interface the CALLER declares, wired by New. An import between two of
 // them would put the cycle back and take the orchestrator's reason to exist with it.
-var components = []string{"conversation", "turn", "runner", "provider"}
+var components = []string{"conversation", "ingress", "turn", "runner", "provider"}
 
 // TestLayering_TheOnlyThingThatCrossesIsSharedVocabulary is the rule that makes the
 // decomposition real rather than cosmetic. In one sentence:
@@ -56,9 +56,9 @@ var components = []string{"conversation", "turn", "runner", "provider"}
 //
 // Inverted and OBSERVED to fail: adding `_ ".../internal/turn"` to
 // internal/runner/runner.go fails with "internal/runner must not import
-// internal/turn", and adding `_ ".../internal/shared/inflight"` to
+// internal/turn", and adding `_ ".../internal/shared/answerdesk"` to
 // internal/shared/telemetry/telemetry.go fails with "internal/shared/telemetry must
-// not import internal/shared/inflight".
+// not import internal/shared/answerdesk".
 //
 // The third clause could not be observed the same way, and cannot be: every package
 // under internal/ is reachable from the face, so an import back to it is an import

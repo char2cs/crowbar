@@ -27,12 +27,10 @@ func deliver(
 	payload map[string]any,
 ) string {
 	t.Helper()
-	deliveryID := uuid.NewString()
-	require.NoError(t, f.usecase.IngestHookDelivery(
-		f.ctx, deliveryID, runnerID, provider, kind, mustJSON(t, payload),
-	))
+	reply, err := f.usecase.placeHook(f.ctx, engineagents.ChannelHooks, runnerID, provider, kind, mustJSON(t, payload))
+	require.NoError(t, err)
 	f.wait()
-	return deliveryID
+	return reply.Ask
 }
 
 func askUserQuestionPermission() map[string]any {
@@ -95,22 +93,22 @@ func blockedPermission(
 	f testFixture,
 	chatID, runnerID string,
 	payload map[string]any,
-) (deliveryID string, choice domain.ActivityChoice) {
+) (ask string, choice domain.ActivityChoice) {
 	t.Helper()
 	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
-	deliveryID = deliver(t, f, runnerID, "claude", engineagents.HookPermission, payload)
+	ask = deliver(t, f, runnerID, "claude", engineagents.HookPermission, payload)
 
 	pending := pendingChoices(t, f, chatID)
 	require.Len(t, pending, 1)
-	return deliveryID, pending[0]
+	return ask, pending[0]
 }
 
-func await(f testFixture, deliveryID string) <-chan string {
+func await(f testFixture, ask string) <-chan string {
 	out := make(chan string, 1)
 	parked := make(chan struct{})
 	go func() {
 		close(parked)
-		answer, err := f.usecase.AwaitAnswer(f.ctx, deliveryID)
+		answer, err := f.usecase.AwaitAnswer(f.ctx, ask)
 		if err != nil {
 			out <- "ERR: " + err.Error()
 			return
@@ -124,14 +122,14 @@ func await(f testFixture, deliveryID string) <-chan string {
 func TestAnswer_APermissionIsAnsweredFromCrowbarAndReachesTheCLI(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+	ask, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
-	pending, waiting := f.usecase.PendingAnswer(deliveryID)
+	pending, waiting := f.usecase.PendingAnswer(ask)
 	require.True(t, waiting, "a claude permission must hold its relay open")
 	assert.Equal(t, choice.ID, pending.ChoiceID)
 	assert.Positive(t, pending.Wait, "the relay is given a finite budget, never an open one")
 
-	printed := await(f, deliveryID)
+	printed := await(f, ask)
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil))
 	f.wait()
 
@@ -153,14 +151,14 @@ func TestAnswer_APermissionIsAnsweredFromCrowbarAndReachesTheCLI(t *testing.T) {
 func TestAnswer_AHumanAnswerAlsoResolvesThePermissionsOwnInterruption(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+	ask, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
 	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
 	require.NoError(t, err)
 	require.Len(t, all.Interruptions, 1, "the permission must have opened its own interruption")
 	require.Nil(t, all.Interruptions[0].ResolvedAt, "precondition: still open before the answer")
 
-	printed := await(f, deliveryID)
+	printed := await(f, ask)
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil))
 	f.wait()
 	<-printed
@@ -187,7 +185,7 @@ func TestAnswer_AHumanAnswerAlsoResolvesThePermissionsOwnInterruption(t *testing
 func TestAnswer_AnAnsweredQuestionAlsoResolvesItsOwnInterruption(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, askUserQuestionPermission())
+	ask, choice := blockedPermission(t, f, chatID, runnerID, askUserQuestionPermission())
 	require.Equal(t, domain.ChoiceKindQuestion, choice.Kind)
 
 	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
@@ -195,7 +193,7 @@ func TestAnswer_AnAnsweredQuestionAlsoResolvesItsOwnInterruption(t *testing.T) {
 	require.Len(t, all.Interruptions, 1, "the question must have opened its own interruption")
 	require.Nil(t, all.Interruptions[0].ResolvedAt, "precondition: still open before the answer")
 
-	printed := await(f, deliveryID)
+	printed := await(f, ask)
 	require.NoError(t, f.usecase.AnswerChoice(
 		f.ctx, chatID, choice.ID, []string{pick(t, choice, 0, 1)}, "", nil,
 	))
@@ -213,9 +211,9 @@ func TestAnswer_AnAnsweredQuestionAlsoResolvesItsOwnInterruption(t *testing.T) {
 func TestAnswer_ADenyCarriesTheHumansReasonToTheCLI(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+	ask, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
-	printed := await(f, deliveryID)
+	printed := await(f, ask)
 	require.NoError(t, f.usecase.AnswerChoice(
 		f.ctx, chatID, choice.ID, []string{"deny"}, "not on this branch", nil,
 	))
@@ -230,12 +228,12 @@ func TestAnswer_ADenyCarriesTheHumansReasonToTheCLI(t *testing.T) {
 func TestAnswer_AQuestionIsAnsweredByEchoingTheToolInputWithThePick(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, askUserQuestionPermission())
+	ask, choice := blockedPermission(t, f, chatID, runnerID, askUserQuestionPermission())
 	require.Equal(t, domain.ChoiceKindQuestion, choice.Kind)
 	require.Len(t, choice.Questions, 1)
 	require.Len(t, choice.Questions[0].Options, 2)
 
-	printed := await(f, deliveryID)
+	printed := await(f, ask)
 	require.NoError(t, f.usecase.AnswerChoice(
 		f.ctx, chatID, choice.ID, []string{pick(t, choice, 0, 1)}, "", nil,
 	))
@@ -271,13 +269,12 @@ func TestRegression_AProviderWithNoAnswerChannelHoldsNoRelay(t *testing.T) {
 	_, runnerID := f.spawn(t, "codex")
 
 	hook(t, f, runnerID, "codex", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
-	deliveryID := deliver(t, f, runnerID, "codex", engineagents.HookToolPre, map[string]any{
+	ask := deliver(t, f, runnerID, "codex", engineagents.HookToolPre, map[string]any{
 		"tool_use_id": "tool-1", "tool_name": "shell",
 		"tool_input": map[string]any{"command": "touch PROOF"},
 	})
 
-	_, waiting := f.usecase.PendingAnswer(deliveryID)
-	assert.False(t, waiting, "a provider with no answer channel for this event must never block its relay")
+	assert.Empty(t, ask, "a provider with no answer channel for this event must never block its relay")
 }
 
 // TestRegression_ACodexPermissionIsAnsweredFromCrowbarAndReachesTheCLI is the
@@ -293,18 +290,18 @@ func TestRegression_ACodexPermissionIsAnsweredFromCrowbarAndReachesTheCLI(t *tes
 	chatID, runnerID := f.spawn(t, "codex")
 
 	hook(t, f, runnerID, "codex", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
-	deliveryID := deliver(t, f, runnerID, "codex", engineagents.HookPermission, map[string]any{
+	ask := deliver(t, f, runnerID, "codex", engineagents.HookPermission, map[string]any{
 		"tool_name":  "Bash",
 		"tool_input": map[string]any{"command": "touch PROOF"},
 	})
 
 	pending := pendingChoices(t, f, chatID)
 	require.Len(t, pending, 1)
-	_, waiting := f.usecase.PendingAnswer(deliveryID)
+	_, waiting := f.usecase.PendingAnswer(ask)
 	assert.True(t, waiting, "a codex permission must hold its relay open")
 	assert.Contains(t, f.usecase.AnswerableChoiceIDs(chatID, pending), pending[0].ID)
 
-	printed := await(f, deliveryID)
+	printed := await(f, ask)
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, pending[0].ID, []string{"allow"}, "", nil))
 	f.wait()
 
@@ -317,13 +314,12 @@ func TestRegression_AnOrdinaryHookNeverHoldsItsRelay(t *testing.T) {
 	_, runnerID := f.spawn(t, "claude")
 
 	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
-	deliveryID := deliver(t, f, runnerID, "claude", engineagents.HookToolPre, map[string]any{
+	ask := deliver(t, f, runnerID, "claude", engineagents.HookToolPre, map[string]any{
 		"tool_use_id": "tool-1", "tool_name": "Bash",
 		"tool_input": map[string]any{"command": "ls"},
 	})
 
-	_, waiting := f.usecase.PendingAnswer(deliveryID)
-	assert.False(t, waiting,
+	assert.Empty(t, ask,
 		"tool_pre fires for EVERY call; holding it would stall work nobody was asked about")
 }
 
@@ -334,20 +330,19 @@ func TestAnswer_AnOversizedPayloadIsObservedButNotHeld(t *testing.T) {
 	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
 	payload := permissionPayload()
 	payload["tool_input"] = map[string]any{"command": strings.Repeat("x", 200<<10)}
-	deliveryID := deliver(t, f, runnerID, "claude", engineagents.HookPermission, payload)
+	ask := deliver(t, f, runnerID, "claude", engineagents.HookPermission, payload)
 
 	require.Len(t, pendingChoices(t, f, chatID), 1)
-	_, waiting := f.usecase.PendingAnswer(deliveryID)
-	assert.False(t, waiting)
+	assert.Empty(t, ask)
 }
 
 func TestAnswer_AbandonClearsAPromptDecidedAtTheTerminal(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	deliveryID, _ := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+	ask, _ := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
-	printed := await(f, deliveryID)
-	require.NoError(t, f.usecase.AbandonAnswer(f.ctx, deliveryID))
+	printed := await(f, ask)
+	require.NoError(t, f.usecase.AbandonAnswer(f.ctx, ask))
 	f.wait()
 
 	assert.Empty(t, <-printed, "a prompt decided elsewhere prints NOTHING")
@@ -363,16 +358,16 @@ func TestAnswer_AbandonOfAnUnknownDeliveryIsANoOp(t *testing.T) {
 func TestAnswer_ADeadRunnerReleasesEveryRelayAndClearsItsPrompts(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	deliveryID, _ := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+	ask, _ := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
-	printed := await(f, deliveryID)
+	printed := await(f, ask)
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
 	f.wait()
 
 	assert.Empty(t, <-printed, "an orphaned relay is released with no verdict")
 	assert.Empty(t, pendingChoices(t, f, chatID),
 		"a question asked by a process that no longer exists must not stay pending")
-	_, waiting := f.usecase.PendingAnswer(deliveryID)
+	_, waiting := f.usecase.PendingAnswer(ask)
 	assert.False(t, waiting)
 }
 
@@ -436,9 +431,9 @@ func TestAnswer_RefusesAnUnknownChatOrPrompt(t *testing.T) {
 func TestAnswer_ASecondAnswerToOnePromptIsRefused(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+	ask, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
-	printed := await(f, deliveryID)
+	printed := await(f, ask)
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil))
 	f.wait()
 	<-printed
@@ -450,18 +445,18 @@ func TestAnswer_ASecondAnswerToOnePromptIsRefused(t *testing.T) {
 func TestAnswer_ARelayThatDisconnectsFreesItsPrompt(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+	ask, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
 	ctx, cancel := context.WithCancel(f.ctx)
 	done := make(chan error, 1)
 	go func() {
-		_, err := f.usecase.AwaitAnswer(ctx, deliveryID)
+		_, err := f.usecase.AwaitAnswer(ctx, ask)
 		done <- err
 	}()
 	cancel()
 	require.Error(t, <-done)
 
-	_, waiting := f.usecase.PendingAnswer(deliveryID)
+	_, waiting := f.usecase.PendingAnswer(ask)
 	assert.False(t, waiting)
 	err := f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil)
 	require.ErrorIs(t, err, apperr.ErrConflict)
@@ -497,7 +492,7 @@ func TestAnswer_AnElicitationIsAnsweredWithAVerbAndAForm(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
-	deliveryID := deliver(t, f, runnerID, "claude", engineagents.HookElicitation, map[string]any{
+	ask := deliver(t, f, runnerID, "claude", engineagents.HookElicitation, map[string]any{
 		"mcp_server_name": "spike", "mode": "form",
 		"message":          "do you prefer A or B?",
 		"requested_schema": map[string]any{"type": "object"},
@@ -507,7 +502,7 @@ func TestAnswer_AnElicitationIsAnsweredWithAVerbAndAForm(t *testing.T) {
 	require.Len(t, pending, 1)
 	require.Empty(t, pending[0].Options, "an elicitation offers a schema, not options")
 
-	printed := await(f, deliveryID)
+	printed := await(f, ask)
 	require.NoError(t, f.usecase.AnswerChoice(
 		f.ctx, chatID, pending[0].ID, []string{"accept"}, "", []byte(`{"choice":"B"}`),
 	))
@@ -525,11 +520,11 @@ func TestAnswer_AMultiSelectQuestionCarriesEveryPickedLabel(t *testing.T) {
 	payload := askUserQuestionPermission()
 	questions, _ := payload["tool_input"].(map[string]any)["questions"].([]any)
 	questions[0].(map[string]any)["multiSelect"] = true
-	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, payload)
+	ask, choice := blockedPermission(t, f, chatID, runnerID, payload)
 	require.Len(t, choice.Questions, 1)
 	require.True(t, choice.Questions[0].Multi)
 
-	printed := await(f, deliveryID)
+	printed := await(f, ask)
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID,
 		[]string{pick(t, choice, 0, 0), pick(t, choice, 0, 1)}, "", nil))
 	f.wait()
@@ -602,40 +597,40 @@ func TestAnswer_AFailedPendingReadIsAnError(t *testing.T) {
 func TestAnswer_AnUnrecordableDecisionIsNotHandedToTheRelay(t *testing.T) {
 	f, faults := newActivityWriteFaultFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+	ask, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
 	faults.writeErr = errors.New("log is full")
 	err := f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil)
 	require.Error(t, err)
 
-	_, stillWaiting := f.usecase.PendingAnswer(deliveryID)
+	_, stillWaiting := f.usecase.PendingAnswer(ask)
 	assert.True(t, stillWaiting, "the relay must not have been told anything")
 }
 
 func TestAnswer_ADeadRunnerReleasesItsRelaysEvenIfTheRecordCannotBeWritten(t *testing.T) {
 	f, faults := newActivityWriteFaultFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	deliveryID, _ := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+	ask, _ := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
-	printed := await(f, deliveryID)
+	printed := await(f, ask)
 	faults.writeErr = errors.New("log is full")
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
 	f.wait()
 
 	assert.Empty(t, <-printed)
-	_, waiting := f.usecase.PendingAnswer(deliveryID)
+	_, waiting := f.usecase.PendingAnswer(ask)
 	assert.False(t, waiting)
 }
 
 func TestRegression_MultiQuestionAskUserQuestionIsFullyAnswerable(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, threeQuestionPermission())
+	ask, choice := blockedPermission(t, f, chatID, runnerID, threeQuestionPermission())
 
 	require.Equal(t, domain.ChoiceKindQuestion, choice.Kind)
 	require.Len(t, choice.Questions, 3, "three questions asked is three questions offered")
 
-	printed := await(f, deliveryID)
+	printed := await(f, ask)
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{
 		pick(t, choice, 0, 0),
 		pick(t, choice, 1, 0), pick(t, choice, 1, 2),
@@ -672,7 +667,7 @@ func TestRegression_MultiQuestionAskUserQuestionIsFullyAnswerable(t *testing.T) 
 func TestRegression_APartialAnswerToAMultiQuestionPromptIsRefused(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, threeQuestionPermission())
+	ask, choice := blockedPermission(t, f, chatID, runnerID, threeQuestionPermission())
 
 	err := f.usecase.AnswerChoice(
 		f.ctx, chatID, choice.ID, []string{pick(t, choice, 0, 0)}, "", nil,
@@ -685,10 +680,10 @@ func TestRegression_APartialAnswerToAMultiQuestionPromptIsRefused(t *testing.T) 
 	require.ErrorIs(t, err, apperr.ErrInvalidArgument, "two of three is not an answer either")
 
 	assert.Len(t, pendingChoices(t, f, chatID), 1)
-	_, stillWaiting := f.usecase.PendingAnswer(deliveryID)
+	_, stillWaiting := f.usecase.PendingAnswer(ask)
 	assert.True(t, stillWaiting)
 
-	printed := await(f, deliveryID)
+	printed := await(f, ask)
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{
 		pick(t, choice, 0, 0), pick(t, choice, 1, 1), pick(t, choice, 2, 0),
 	}, "", nil))
@@ -712,7 +707,7 @@ func TestAnswer_RefusesTwoPicksOnASingleSelectQuestion(t *testing.T) {
 func TestAnswer_AQuestionWithNoTextOfItsOwnIsNotGivenAnInventedKey(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, map[string]any{
+	ask, choice := blockedPermission(t, f, chatID, runnerID, map[string]any{
 		"prompt_id": "nk", "tool_name": "AskUserQuestion",
 		"tool_input": map[string]any{"questions": []any{
 			map[string]any{"options": []any{map[string]any{"label": "A"}}},
@@ -724,7 +719,7 @@ func TestAnswer_AQuestionWithNoTextOfItsOwnIsNotGivenAnInventedKey(t *testing.T)
 	})
 	require.Len(t, choice.Questions, 2)
 
-	printed := await(f, deliveryID)
+	printed := await(f, ask)
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID,
 		[]string{pick(t, choice, 0, 0), pick(t, choice, 1, 0)}, "", nil))
 	f.wait()
@@ -740,17 +735,17 @@ const allowedStdout = `{"hookSpecificOutput":{"hookEventName":"PermissionRequest
 func TestRegression_AVerdictDecidedBeforeTheRelayAsksIsStillDelivered(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+	ask, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil))
 	f.wait()
 
-	answer, err := f.usecase.AwaitAnswer(f.ctx, deliveryID)
+	answer, err := f.usecase.AwaitAnswer(f.ctx, ask)
 	require.NoError(t, err)
 	assert.JSONEq(t, allowedStdout, string(answer.Stdout),
 		"a relay that asked after the decision must still be handed it")
 
-	second, err := f.usecase.AwaitAnswer(f.ctx, deliveryID)
+	second, err := f.usecase.AwaitAnswer(f.ctx, ask)
 	require.NoError(t, err)
 	assert.Empty(t, second.Stdout, "a claimed verdict is gone")
 
@@ -769,7 +764,7 @@ func TestAnswer_AnAnswerRacingTheRelaysArrivalReachesItEitherWay(t *testing.T) {
 	for i := range 8 {
 		payload := permissionPayload()
 		payload["tool_input"] = map[string]any{"command": fmt.Sprintf("touch PROOF-%d", i)}
-		deliveryID := deliver(t, f, runnerID, "claude", engineagents.HookPermission, payload)
+		ask := deliver(t, f, runnerID, "claude", engineagents.HookPermission, payload)
 		pending := pendingChoices(t, f, chatID)
 		require.Len(t, pending, 1)
 
@@ -780,7 +775,7 @@ func TestAnswer_AnAnswerRacingTheRelaysArrivalReachesItEitherWay(t *testing.T) {
 		go func() {
 			defer racers.Done()
 			<-start
-			answer, err := f.usecase.AwaitAnswer(f.ctx, deliveryID)
+			answer, err := f.usecase.AwaitAnswer(f.ctx, ask)
 			assert.NoError(t, err)
 			printed <- string(answer.Stdout)
 		}()
@@ -803,16 +798,16 @@ func TestAnswer_AnAnswerRacingTheRelaysArrivalReachesItEitherWay(t *testing.T) {
 func TestAnswer_ADeadRunnerSweepsAVerdictNoRelayCollected(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+	ask, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil))
 	f.wait()
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
 	f.wait()
 
-	_, waiting := f.usecase.PendingAnswer(deliveryID)
-	assert.False(t, waiting, "a dead CLI's uncollected verdict is swept off byDelivery")
-	answer, err := f.usecase.AwaitAnswer(f.ctx, deliveryID)
+	_, waiting := f.usecase.PendingAnswer(ask)
+	assert.False(t, waiting, "a dead CLI's uncollected verdict is swept off the desk")
+	answer, err := f.usecase.AwaitAnswer(f.ctx, ask)
 	require.NoError(t, err)
 	assert.Empty(t, answer.Stdout)
 
@@ -826,11 +821,11 @@ func TestAnswer_ADeadRunnerSweepsAVerdictNoRelayCollected(t *testing.T) {
 func TestAnswer_AbandonAfterAnAnswerDoesNotRewriteTheRecord(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
-	deliveryID, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+	ask, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil))
 	f.wait()
-	require.NoError(t, f.usecase.AbandonAnswer(f.ctx, deliveryID))
+	require.NoError(t, f.usecase.AbandonAnswer(f.ctx, ask))
 	f.wait()
 
 	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
@@ -838,7 +833,7 @@ func TestAnswer_AbandonAfterAnAnswerDoesNotRewriteTheRecord(t *testing.T) {
 	require.Len(t, all.Choices, 1)
 	assert.Equal(t, domain.ChoiceResolutionAnswered, all.Choices[0].Resolution)
 
-	answer, err := f.usecase.AwaitAnswer(f.ctx, deliveryID)
+	answer, err := f.usecase.AwaitAnswer(f.ctx, ask)
 	require.NoError(t, err)
 	assert.Empty(t, answer.Stdout, "the relay that reported its own death collects nothing")
 }

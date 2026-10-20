@@ -20,31 +20,31 @@ import (
 // holds no durable store of its own beyond the activity ledger it records the
 // verdict in.
 type AnswerUsecase interface {
-	// PendingAnswer reports the prompt a hook delivery is parked on, and how long
-	// the relay may wait for a person before it must print nothing and let the
+	// PendingAnswer reports the prompt the relay held on askID is parked on, and
+	// how long it may wait for a person before it must print nothing and let the
 	// provider fall back to its own UI.
 	PendingAnswer(
-		deliveryID string,
+		askID string,
 	) (PendingAnswer, bool)
 
-	// AwaitAnswer blocks the relay of deliveryID until a person answers, its
+	// AwaitAnswer blocks the relay held on askID until a person answers, its
 	// declared budget expires, or ctx is cancelled. It returns the stdout the
 	// relay must print — empty when nobody answered in time, which is the signal
 	// to leave the prompt to the provider's own UI.
 	//
-	// A verdict is claimed by EXACTLY ONE relay: a retried delivery that arrives
-	// after the answer was already claimed gets nothing rather than replaying it.
+	// A verdict is claimed by EXACTLY ONE relay: one that arrives after the
+	// answer was already claimed gets nothing rather than replaying it.
 	AwaitAnswer(
 		ctx context.Context,
-		deliveryID string,
+		askID string,
 	) (HookAnswer, error)
 
-	// AbandonAnswer retires the relay of deliveryID without printing. When no
+	// AbandonAnswer retires the relay held on askID without printing. When no
 	// verdict had been reached it also closes the ledger's question as proceeded,
 	// because the provider is about to resolve the prompt through its own UI.
 	AbandonAnswer(
 		ctx context.Context,
-		deliveryID string,
+		askID string,
 	) error
 
 	// AnswerChoice decides a pending prompt from Crowbar: it renders the picked
@@ -100,30 +100,30 @@ type HookAnswer = answerdesk.HookAnswer
 // describes a live hook process holding a live provider gate open, so one that
 // survived a restart would be a promise to a process that no longer exists.
 
-// PendingAnswer reports the prompt a hook delivery is parked on, and how long the
-// relay may wait for a person before it must print nothing.
+// PendingAnswer reports the prompt the relay held on askID is parked on, and how
+// long it may wait for a person before it must print nothing.
 func (u *Usecase) PendingAnswer(
-	deliveryID string,
+	askID string,
 ) (PendingAnswer, bool) {
-	return u.answers.Pending(deliveryID)
+	return u.answers.Pending(askID)
 }
 
-// AwaitAnswer blocks the relay of deliveryID until a person answers, its declared
+// AwaitAnswer blocks the relay held on askID until a person answers, its declared
 // budget expires, or ctx is cancelled. A verdict is claimed by exactly one relay.
 func (u *Usecase) AwaitAnswer(
 	ctx context.Context,
-	deliveryID string,
+	askID string,
 ) (HookAnswer, error) {
-	return u.answers.Await(ctx, deliveryID)
+	return u.answers.Await(ctx, askID)
 }
 
-// AbandonAnswer retires the relay of deliveryID without printing, closing the
+// AbandonAnswer retires the relay held on askID without printing, closing the
 // ledger's question as proceeded when nobody had decided it.
 func (u *Usecase) AbandonAnswer(
 	ctx context.Context,
-	deliveryID string,
+	askID string,
 ) error {
-	u.answers.Abandon(ctx, deliveryID)
+	u.answers.Abandon(ctx, askID)
 	return nil
 }
 

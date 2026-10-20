@@ -59,18 +59,18 @@ func (h *Handlers) AnswerChoice(ctx *gin.Context) {
 
 func (h *Handlers) AwaitHookAnswer(ctx *gin.Context) {
 	var body struct {
-		DeliveryID string `json:"delivery_id"`
+		AskID string `json:"ask_id"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
-	if body.DeliveryID == "" {
-		libs.WriteErr(ctx, http.StatusBadRequest, "delivery_id is required")
+	if body.AskID == "" {
+		libs.WriteErr(ctx, http.StatusBadRequest, "ask_id is required")
 		return
 	}
 
-	answer, err := h.answers.AwaitAnswer(ctx.Request.Context(), body.DeliveryID)
+	answer, err := h.answers.AwaitAnswer(ctx.Request.Context(), body.AskID)
 	if err != nil {
 		if errors.Is(err, ctx.Request.Context().Err()) {
 			libs.WriteQueryOK(ctx, dto.AgentHookAnswerDTO{})
@@ -85,17 +85,17 @@ func (h *Handlers) AwaitHookAnswer(ctx *gin.Context) {
 
 func (h *Handlers) AbandonHookAnswer(ctx *gin.Context) {
 	var body struct {
-		DeliveryID string `json:"delivery_id"`
+		AskID string `json:"ask_id"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
-	if body.DeliveryID == "" {
-		libs.WriteErr(ctx, http.StatusBadRequest, "delivery_id is required")
+	if body.AskID == "" {
+		libs.WriteErr(ctx, http.StatusBadRequest, "ask_id is required")
 		return
 	}
-	if err := h.answers.AbandonAnswer(ctx.Request.Context(), body.DeliveryID); err != nil {
+	if err := h.answers.AbandonAnswer(ctx.Request.Context(), body.AskID); err != nil {
 		status, message := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, message)
 		return

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -11,7 +12,6 @@ import (
 )
 
 type hookEnvelope struct {
-	DeliveryID string `json:"delivery_id"`
 	SegmentID  string `json:"segment_id"`
 	Provider   string `json:"provider"`
 	Event      string `json:"event"`
@@ -23,11 +23,8 @@ type hookEnvelope struct {
 }
 
 // hookDeliveryAttempts and hookDeliveryRetryDelay bound a SHORT, in-process
-// retry — not a durability mechanism. It exists only to absorb one specific,
-// measured transient: a hook firing before the runner row it targets is
-// queryable yet (see barriers_test.go's SessionStart race). Production
-// self-heals that race within ~1s; three attempts a few hundred ms apart
-// covers it without ever writing the event to disk.
+// retry — not a durability mechanism — of a daemon that failed (5xx, or no
+// answer). A 4xx is the daemon's verdict on the hook, recorded once, and final.
 //
 // This used to be a disk-backed spool drained by a daemon-lifetime background
 // loop, globally shared across every runner on the machine. That queue had no
@@ -60,10 +57,19 @@ func deliverHookEnvelope(
 		if len(msg) > 512 {
 			msg = msg[:512]
 		}
-		return nil, fmt.Errorf("hook daemon returned HTTP %d: %s", status, msg)
+		err := fmt.Errorf("hook daemon returned HTTP %d: %s", status, msg)
+		if status >= http.StatusBadRequest && status < http.StatusInternalServerError {
+			return nil, refusal{err}
+		}
+		return nil, err
 	}
 	return body, nil
 }
+
+// refusal is a hook the daemon answered 4xx: retrying it records it again.
+type refusal struct{ error }
+
+func (r refusal) Unwrap() error { return r.error }
 
 // deliverHookEnvelopeWithRetry attempts delivery up to hookDeliveryAttempts
 // times, reusing the SAME *ipc.Client (and so the same pooled connection)
@@ -85,8 +91,8 @@ func deliverHookEnvelopeWithRetry(
 			}
 		}
 		body, err := deliverHookEnvelope(ctx, client, envelope)
-		if err == nil {
-			return body, nil
+		if err == nil || errors.As(err, new(refusal)) {
+			return body, err
 		}
 		lastErr = err
 	}

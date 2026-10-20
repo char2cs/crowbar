@@ -18,6 +18,8 @@ import (
 type fakeDaemon struct {
 	mu    sync.Mutex
 	paths []string
+	// asks is the ask_id each await and abandon named, in order.
+	asks []string
 
 	ack string
 
@@ -47,8 +49,15 @@ func newFakeDaemon(t *testing.T) (*fakeDaemon, string) {
 }
 
 func (d *fakeDaemon) serve(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		AskID string `json:"ask_id"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
 	d.mu.Lock()
 	d.paths = append(d.paths, r.URL.Path)
+	if hasSuffix(r.URL.Path, "/hooks/await") || hasSuffix(r.URL.Path, "/hooks/abandon") {
+		d.asks = append(d.asks, body.AskID)
+	}
 	ack, answer, held := d.ack, d.answer, d.held
 	d.mu.Unlock()
 
@@ -141,6 +150,9 @@ func TestRunHook_PrintsTheDaemonsVerdictVerbatim(t *testing.T) {
 
 	assert.Equal(t, verdict+"\n", out.String())
 	assert.True(t, daemon.reached("/hooks/await"))
+	daemon.mu.Lock()
+	defer daemon.mu.Unlock()
+	assert.Equal(t, []string{"c1"}, daemon.asks, "the relay waits on the ask the daemon named")
 }
 
 func TestRunHook_APromptResolvedElsewherePrintsNothing(t *testing.T) {
@@ -180,12 +192,10 @@ func TestRegression_ASignalledRelayReportsAndExitsWithoutPrinting(t *testing.T) 
 	daemon.mu.Unlock()
 
 	signals := make(chan os.Signal, 1)
-	envelope := hookEnvelope{
-		DeliveryID: "delivery-1", Project: "p", Repo: "r", Workspace: "w",
-	}
+	envelope := hookEnvelope{Project: "p", Repo: "r", Workspace: "w"}
 	var out bytes.Buffer
 	done := make(chan error, 1)
-	go func() { done <- awaitHookAnswerOn(envelope, host, 30_000, &out, signals) }()
+	go func() { done <- awaitHookAnswerOn(envelope, "ask-1", host, 30_000, &out, signals) }()
 
 	<-daemon.awaiting
 	signals <- syscall.SIGTERM
@@ -194,6 +204,9 @@ func TestRegression_ASignalledRelayReportsAndExitsWithoutPrinting(t *testing.T) 
 	assert.Empty(t, out.String(), "a relay that was killed must print NOTHING")
 	assert.True(t, daemon.reached("/hooks/abandon"),
 		"the chat must be told this prompt was decided elsewhere")
+	daemon.mu.Lock()
+	defer daemon.mu.Unlock()
+	assert.Equal(t, []string{"ask-1", "ask-1"}, daemon.asks, "the await and the abandon both name the ask")
 }
 
 func TestAwaitHookAnswer_ADaemonThatVanishesMidWaitPrintsNothing(t *testing.T) {
@@ -201,7 +214,7 @@ func TestAwaitHookAnswer_ADaemonThatVanishesMidWaitPrintsNothing(t *testing.T) {
 	dead := "unix://" + filepath.Join(shortSocketDir(t), "gone.sock")
 
 	var out bytes.Buffer
-	err := awaitHookAnswerOn(hookEnvelope{DeliveryID: "d1"}, dead, 5_000, &out, nil)
+	err := awaitHookAnswerOn(hookEnvelope{}, "a1", dead, 5_000, &out, nil)
 
 	require.Error(t, err)
 	assert.Empty(t, out.String())
@@ -217,7 +230,7 @@ func TestAwaitHookAnswer_ARefusedWaitIsNotADecision(t *testing.T) {
 		daemon.mu.Unlock()
 
 		var out bytes.Buffer
-		_ = awaitHookAnswerOn(hookEnvelope{DeliveryID: "d1"}, host, 5_000, &out, nil)
+		_ = awaitHookAnswerOn(hookEnvelope{}, "a1", host, 5_000, &out, nil)
 		assert.Empty(t, out.String())
 	}
 }
@@ -234,11 +247,12 @@ func TestAwaitDirective_OnlyAPositiveBudgetHoldsTheRelay(t *testing.T) {
 		{name: "no await", body: `{"success":true,"data":{}}`},
 		{name: "zero budget", body: awaitAck(0)},
 		{name: "negative budget", body: awaitAck(-1)},
+		{name: "no ask", body: `{"success":true,"data":{"await":{"waitMs":1000}}}`},
 		{name: "a real directive", body: awaitAck(1_000), want: true},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, waiting := awaitDirective([]byte(tc.body))
+			_, _, waiting := awaitDirective([]byte(tc.body))
 			assert.Equal(t, tc.want, waiting)
 		})
 	}
@@ -249,7 +263,7 @@ func TestAwaitHookAnswer_AZeroBudgetReturnsWithoutCallingTheDaemon(t *testing.T)
 	daemon, host := newFakeDaemon(t)
 
 	var out bytes.Buffer
-	require.NoError(t, awaitHookAnswerOn(hookEnvelope{DeliveryID: "d1"}, host, 0, &out, nil))
+	require.NoError(t, awaitHookAnswerOn(hookEnvelope{}, "a1", host, 0, &out, nil))
 
 	assert.False(t, daemon.reached("/hooks/await"))
 	assert.Empty(t, out.String())
@@ -262,10 +276,10 @@ func TestAwaitHookAnswer_TrapsTheProcessSignal(t *testing.T) {
 	daemon.held = make(chan struct{})
 	daemon.mu.Unlock()
 
-	envelope := hookEnvelope{DeliveryID: "d1", Project: "p", Repo: "r", Workspace: "w"}
+	envelope := hookEnvelope{Project: "p", Repo: "r", Workspace: "w"}
 	var out bytes.Buffer
 	done := make(chan error, 1)
-	go func() { done <- awaitHookAnswer(envelope, host, 30_000, &out) }()
+	go func() { done <- awaitHookAnswer(envelope, "a1", host, 30_000, &out) }()
 
 	<-daemon.awaiting
 	require.NoError(t, syscall.Kill(syscall.Getpid(), syscall.SIGTERM))

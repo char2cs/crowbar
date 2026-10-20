@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -12,36 +13,21 @@ import (
 // closing, tool calls, subagents, interruptions, streamed assistant messages
 // and provider telemetry.
 //
-// IT NEVER TAKES A SPAWN GATE. A hook must never block and must never fail — by
-// the time it arrives the CLI has already acted — and the switch path parks on
-// an in-flight turn with no timeout, releasable only from here. A path through
-// this type that waited on the spawn gate would deadlock the CLI against its own
-// hook and wedge every hook after it (see inflight.Gate and awaitTurnComplete).
+// A hook is recorded under its chat's lock and answered only once its rows are
+// in; what cannot be placed is refused and dead-lettered. A held ask waits
+// with the lock released, so it never holds up the chat's other hooks.
 type TurnUsecase interface {
-	// IngestHook applies one canonical hook event from a runner's CLI. It buffers
-	// the event instead when the runner's row is still being persisted, so a
-	// provider that fires the instant its PTY starts cannot overtake its own
-	// session_start.
-	IngestHook(
+	// Hook places one hook a runner's CLI sent over channel, and returns once
+	// its rows are committed. Reply.Ask names the ask the sender is held on.
+	Hook(
 		ctx context.Context,
-		runnerID string,
-		provider string,
-		canonicalEvent string,
-		rawPayload []byte,
-	) error
+		runnerID, provider, event string,
+		raw []byte,
+		channel engineagents.Channel,
+	) (HookReply, error)
 
-	// IngestHookDelivery is the idempotent ingress for one RELAYED hook: it
-	// skips a delivery id whose effects already ran (a relay retry), buffers it
-	// if the runner is still starting, runs its effects, then marks the id done
-	// in a bounded in-memory TTL set.
-	IngestHookDelivery(
-		ctx context.Context, deliveryID, runnerID, provider, canonicalEvent string,
-		rawPayload []byte,
-	) error
-
-	// TakeHookReply is the stdout the relay of deliveryID must print, when
-	// ingesting it produced one.
-	TakeHookReply(deliveryID string) (string, bool)
+	// DeadLetterCount is how many hooks were refused and kept for inspection.
+	DeadLetterCount(ctx context.Context) (int, error)
 
 	// ReadActivity pages a chat's tool calls and returns its subagents,
 	// interruptions and choices alongside them.
@@ -126,34 +112,28 @@ type ChatActivity = turn.ChatActivity
 // ChoiceSet is one chat's pending prompts and which of them are answerable.
 type ChoiceSet = turn.ChoiceSet
 
+// HookReply is what a placed hook's sender is answered with.
+type HookReply = ingress.Reply
+
 // The turn: what the vendor CLI did, and what it is blocked on.
 //
 // Everything here is driven by a hook, and a hook is a fait accompli — by the
-// time one arrives the CLI has already acted. So none of it refuses, and none of
-// it blocks on a lock a user-initiated path can hold.
+// time one arrives the CLI has already acted. A user-initiated path holds the
+// chat's lock only while it decides, so a hook waits on it briefly at most.
 
-// IngestHook applies one canonical hook event that carries no delivery id.
-func (u *Usecase) IngestHook(
+// Hook places one hook through the ingress.
+func (u *Usecase) Hook(
 	ctx context.Context,
-	runnerID, provider, canonicalEvent string,
-	rawPayload []byte,
-) error {
-	return u.turns.IngestHook(ctx, runnerID, provider, canonicalEvent, rawPayload)
+	runnerID, provider, event string,
+	raw []byte,
+	channel engineagents.Channel,
+) (HookReply, error) {
+	return u.ingress.Hook(ctx, runnerID, provider, event, raw, channel)
 }
 
-// IngestHookDelivery is the idempotent ingress for one relayed hook.
-func (u *Usecase) IngestHookDelivery(
-	ctx context.Context, deliveryID, runnerID, provider, canonicalEvent string,
-	rawPayload []byte,
-) error {
-	return u.turns.IngestHookDelivery(
-		ctx, deliveryID, runnerID, provider, canonicalEvent, rawPayload,
-	)
-}
-
-// TakeHookReply is the stdout the relay of deliveryID must print, if any.
-func (u *Usecase) TakeHookReply(deliveryID string) (string, bool) {
-	return u.turns.TakeHookReply(deliveryID)
+// DeadLetterCount is how many hooks the ingress refused and kept.
+func (u *Usecase) DeadLetterCount(ctx context.Context) (int, error) {
+	return u.ledger.DeadLetterCount(ctx)
 }
 
 // ReadActivity returns one page of the chat's tool calls, subagents,

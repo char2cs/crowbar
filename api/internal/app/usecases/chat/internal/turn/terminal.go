@@ -13,11 +13,11 @@ import (
 
 // FailTurnOnNotice ends what a notice on runner's screen ends, which no hook
 // reports: its running turn fails, or the prompts it carries settle unconsumed.
-// Runner's hook gate is held so no hook ends that work between check and record.
+// The caller holds the chat's lock, so no hook ends that work between check
+// and record.
 func (t *Turns) FailTurnOnNotice(ctx context.Context, runner engineagents.Runner, notice engineagents.TerminalNotice) {
-	defer t.hookGates.Lock(runner.ID)()
-	chat, ok, err := t.chatForRunner(ctx, runner)
-	if err != nil || !ok {
+	chat, err := t.chatForRunner(ctx, runner)
+	if err != nil {
 		return
 	}
 	st, err := t.ledger.State(ctx, chat.ID)
@@ -33,7 +33,7 @@ func (t *Turns) FailTurnOnNotice(ctx context.Context, runner engineagents.Runner
 	note(ctx, "terminal notice: abandon conversation record", t.activity.Abandon(ctx, chat.ID, time.Now()))
 	if notice.Text != "" {
 		note(ctx, "terminal notice: record notice", t.conversations.RecordTurn(
-			ctx, chat, runner.ProviderID, runner.ID, t.boundSession(ctx, chat.ID, runner.ProviderID),
+			ctx, chat, "", runner.ProviderID, runner.ID, t.boundSession(ctx, chat.ID, runner.ProviderID),
 			domain.TurnRoleNotice, notice.Text, "",
 		))
 	}

@@ -12,11 +12,10 @@ import (
 // RunnerUsecase owns the vendor CLI: starting one on a chat, replacing it,
 // resuming it, stopping it, and delivering a React-authored prompt to it.
 //
-// Every path in here that starts or ends a CLI on a chat holds that chat's
-// spawn gate, which is the only thing that can stop two concurrent switches
-// putting two CLIs on one chat (see inflight.Gate). The gate is NEVER taken on the
-// hook path, and the destructive paths park on the in-flight turn instead of
-// decapitating it.
+// Every path in here that starts or ends a CLI on a chat decides under that
+// chat's lock, the one its hooks are recorded under: the only thing that can
+// stop two concurrent switches putting two CLIs on one chat. Every wait on a
+// CLI runs with the lock released, so the CLI's own hooks are never held up.
 type RunnerUsecase interface {
 	// SpawnChat mints a chat and starts a CLI on it in one act, returning both
 	// ids. A refused spawn takes the half-created chat with it.
@@ -281,8 +280,8 @@ func CatalogErrorCode(err error) string {
 }
 
 // The vendor CLI's lifecycle. Everything here is USER-INITIATED, which is what
-// separates it from the hook ingress: it may block, it may refuse, and it takes
-// the per-chat spawn gate — the only thing that stops two clicks putting two CLIs
+// separates it from the hook ingress: it may block, it may refuse, and it decides
+// under the chat's lock — the only thing that stops two clicks putting two CLIs
 // on one chat.
 
 // SpawnChat mints a chat and starts a provider CLI on it in one step.
@@ -375,8 +374,8 @@ func (u *Usecase) SwitchProvider(
 // domain.Chat.Model documents. Only nil means "nothing staged".
 //
 // The whole sequence — switch, selection, delivery — runs under ONE hold of
-// the chat's spawn gate (Runners.SubmitPromptWithSwitch), not three separate
-// ones: see that method's own doc for the race a gap between them opened.
+// the chat (Runners.SubmitPromptWithSwitch), not three separate ones: see that
+// method's own doc for the race a gap between them opened.
 func (u *Usecase) SubmitPrompt(
 	ctx context.Context,
 	chatID, text, clientRequestID, provider string,

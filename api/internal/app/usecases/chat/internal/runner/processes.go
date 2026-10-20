@@ -55,27 +55,36 @@ func (rs *Runners) quitRunner(ctx context.Context, runner agents.Runner, cause s
 	}
 }
 
-// retire marks runner ending and ends its processes without awaiting the exit:
-// a PTY's exit callback records it; a PTY-less runner's is recorded here, under
-// the caller's gate. The channel closes on that record; nil if runner was gone.
+// retire marks runner ending and ends its processes without awaiting the exit.
+// The channel closes on the exit's record; nil if runner was gone.
 func (rs *Runners) retire(ctx context.Context, runner agents.Runner, cause string) (<-chan struct{}, error) {
 	exited, ok := rs.markEnding(runner, cause)
 	if !ok {
 		return nil, nil
 	}
-	ptyExits, err := rs.endProcesses(ctx, runner)
-	if err != nil {
-		rs.live.keepLive(runner.ID)
+	if err := rs.endMarked(ctx, runner); err != nil {
 		return nil, err
-	}
-	if !ptyExits {
-		rs.reconcileRunnerExit(ctx, runner.ID)
 	}
 	return exited, nil
 }
 
+// endMarked ends the processes of runner, already marked ending: a PTY's exit
+// callback records the exit, and a PTY-less runner's is recorded here. A
+// terminate that fails takes the end back: the process still runs.
+func (rs *Runners) endMarked(ctx context.Context, runner agents.Runner) error {
+	ptyExits, err := rs.endProcesses(ctx, runner)
+	if err != nil {
+		rs.live.keepLive(runner.ID)
+		return err
+	}
+	if !ptyExits {
+		rs.reconcileRunnerExit(ctx, runner.ID)
+	}
+	return nil
+}
+
 // markOutgoingEnding marks chatID's runner ending once its chat was found
-// idle. The caller holds the chat's turn-start gate.
+// idle. The caller runs it in the runner's turn order.
 func (rs *Runners) markOutgoingEnding(chatID string) {
 	if live, ok := rs.live.byChat(chatID); ok {
 		rs.live.markExiting(live.ID, domain.AgentExitDisplaced)
@@ -96,9 +105,8 @@ func (rs *Runners) quitOutgoingCLI(ctx context.Context, chatID string) error {
 	return nil
 }
 
-// markEnding marks runner's end as under way for cause, under the chat's
-// turn-start gate: no turn opens on it after. The gate is released before the
-// wait for the exit, whose record takes it again.
+// markEnding marks runner's end as under way for cause, in its turn order: no
+// turn opens on it after.
 func (rs *Runners) markEnding(runner agents.Runner, cause string) (exited <-chan struct{}, ok bool) {
 	rs.live.inTurnOrder(runner.CurrentChatID, func() {
 		exited, ok = rs.live.markExiting(runner.ID, cause)
@@ -106,8 +114,8 @@ func (rs *Runners) markEnding(runner agents.Runner, cause string) (exited <-chan
 	return exited, ok
 }
 
-// claimEnd hands runnerID's exit to its one recorder, under the chat's
-// turn-start gate: no turn opens on it after.
+// claimEnd hands runnerID's exit to its one recorder, in its turn order: no
+// turn opens on it after.
 func (rs *Runners) claimEnd(runnerID string) (claimed liveEntry, ok bool) {
 	runner, ok := rs.live.byRunner(runnerID)
 	if !ok {

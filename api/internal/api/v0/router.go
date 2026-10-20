@@ -65,7 +65,7 @@ func (c *Container) Register(
 	rg.Use(rejectEmptyPathParams())
 
 	// Top-level, non-entity-scoped routes stay on rg (outside /projects).
-	health.Register(rg)
+	health.Register(rg, c.app.Usecases.AgentTurn)
 	system.Register(rg)
 	if c.logs != nil {
 		console.Register(rg, c.logs)

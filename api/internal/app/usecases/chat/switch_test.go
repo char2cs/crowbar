@@ -57,7 +57,7 @@ func TestRegression_ASwitchParkedOnAPromptGoesAheadOnceThePromptSettles(t *testi
 	assert.Equal(t, ledger.ReasonNotAcknowledged, prompts[0].Reason)
 }
 
-// Stop, which preempts the spawn gate, is the one thing besides the ledger that
+// Stop, which cancels the chat's parked waits, is the one thing besides the ledger that
 // ends the wait, and it starts and kills nothing on the switch's behalf.
 func TestRegression_StopCancelsASwitchParkedOnAPendingPrompt(t *testing.T) {
 	f, chatID, _, done := switchParkedOnAPendingPrompt(t)

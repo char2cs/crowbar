@@ -19,7 +19,6 @@ import (
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/conversation"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -62,6 +61,8 @@ func (r *retiredRunners) RetireChatRunners(_ context.Context, chatID string) {
 	defer r.mu.Unlock()
 	r.seen = append(r.seen, chatID)
 }
+
+func (*retiredRunners) HoldChat(string) func() { return func() {} }
 
 func (r *retiredRunners) all() []string {
 	r.mu.Lock()
@@ -117,7 +118,6 @@ func newFixture(t *testing.T, lineage stubLineage) fixture {
 		Lineage:   lineage,
 		Home:      func() (string, error) { return home, nil },
 		Ledger:    chatLedger,
-		Spawns:    inflight.NewGate(),
 
 		DefaultPermissionLevel: func(context.Context) (string, error) { return "guarded", nil },
 	})
@@ -472,7 +472,7 @@ func TestNoteThreadLineage_AppendsTheNoteToAChatAlreadyUnderWay(t *testing.T) {
 	chat, err := f.conversations.GetChat(t.Context(), chatID)
 	require.NoError(t, err)
 	require.NoError(t, f.conversations.RecordTurn(
-		t.Context(), chat, "claude", "runner-1", "session-1", "user", "hello", "",
+		t.Context(), chat, "", "claude", "runner-1", "session-1", "user", "hello", "",
 	))
 	f.settle()
 
@@ -510,7 +510,7 @@ func TestNotePromotion_AppendsTheNoteToAChatAlreadyUnderWay(t *testing.T) {
 	chat, err := f.conversations.GetChat(t.Context(), chatID)
 	require.NoError(t, err)
 	require.NoError(t, f.conversations.RecordTurn(
-		t.Context(), chat, "claude", "runner-1", "session-1", "user", "hello", "",
+		t.Context(), chat, "", "claude", "runner-1", "session-1", "user", "hello", "",
 	))
 	f.settle()
 
@@ -538,7 +538,6 @@ func TestMintChat_SeedsThePermissionLevelFromTheCurrentGlobalDefault(t *testing.
 		Workspace: stubWorkspace{home: home, worktree: filepath.Join(home, "projects", "p1", "slug", "branch", "worktree")},
 		Lineage:   stubLineage{},
 		Home:      func() (string, error) { return home, nil },
-		Spawns:    inflight.NewGate(),
 
 		DefaultPermissionLevel: func(context.Context) (string, error) { return "trusted", nil },
 	})
@@ -587,7 +586,6 @@ func TestMintChat_TheSeededFieldIsAFrozenSnapshotButChatSelectionTracksTheLiveDe
 		Workspace: stubWorkspace{home: home, worktree: filepath.Join(home, "projects", "p1", "slug", "branch", "worktree")},
 		Lineage:   stubLineage{},
 		Home:      func() (string, error) { return home, nil },
-		Spawns:    inflight.NewGate(),
 
 		DefaultPermissionLevel: func(context.Context) (string, error) { return current, nil },
 	})

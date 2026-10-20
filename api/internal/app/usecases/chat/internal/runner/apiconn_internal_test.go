@@ -3,6 +3,8 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -16,28 +18,24 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // noopTurns satisfies the Turns port with the cheapest possible answers —
-// nothing here is exercised by this file's tests beyond IngestHook, which
-// spyTurns overrides. Mirrors runner_test's own stubTurns, duplicated here
-// because that one lives in the external runner_test package.
+// nothing here is exercised by this file's tests beyond Hook, which spyTurns
+// overrides. Mirrors runner_test's own stubTurns, duplicated here because that
+// one lives in the external runner_test package.
 type noopTurns struct{}
 
-func (noopTurns) IngestHook(context.Context, string, string, string, []byte) error {
-	return nil
+func (noopTurns) Hook(context.Context, string, string, string, []byte) (string, error) {
+	return "", nil
 }
 
-func (noopTurns) ReplayStartupHook(string, inflight.Hook) {}
-func (noopTurns) ForgetChat(string)                       {}
+func (noopTurns) ForgetChat(string) {}
 
-func (noopTurns) HoldSteer(string, string, string) {}
-
-func (noopTurns) RecordStop(context.Context, string, string) error { return nil }
+func (noopTurns) RecordStop(context.Context, string) error { return nil }
 
 func (noopTurns) RecordChatSwitch(context.Context, string, string, string) error { return nil }
 
@@ -273,38 +271,38 @@ func apiTransportTestAgent(t *testing.T) engineagents.Agent {
 	return a
 }
 
-// spyTurns records every IngestHook call and the delivery id it carried. Like the
-// real holdForAnswer, it holds a delivery's answer slot before IngestHook returns,
-// so the test's Resolve cannot race awaitAndReply's Await.
+// spyTurns records every event the pump places. Like the real ingress, it
+// holds a permission's ask before Hook returns, so the test's Resolve cannot
+// race awaitAndReply's Await; failFirst refuses the first event placed.
 type spyTurns struct {
 	noopTurns
-	answers *answerdesk.Desk
+	answers   *answerdesk.Desk
+	failFirst bool
 
 	mu    sync.Mutex
 	calls []spyCall
 }
 
 type spyCall struct {
-	runnerID, provider, canonical, deliveryID string
-	raw                                       []byte
+	runnerID, provider, canonical, ask string
+	raw                                []byte
 }
 
-func (s *spyTurns) IngestHook(
-	ctx context.Context, runnerID, provider, canonical string, raw []byte,
-) error {
-	deliveryID := inflight.DeliveryID(ctx)
+func (s *spyTurns) Hook(
+	_ context.Context, runnerID, provider, canonical string, raw []byte,
+) (string, error) {
 	s.mu.Lock()
-	s.calls = append(s.calls, spyCall{
-		runnerID: runnerID, provider: provider, canonical: canonical,
-		deliveryID: deliveryID, raw: raw,
-	})
-	s.mu.Unlock()
-	if deliveryID != "" && s.answers != nil {
-		s.answers.Hold(deliveryID, answerdesk.Prompt{
-			ChoiceID: "choice-" + deliveryID, ChatID: "chat-1", RunnerID: runnerID,
-		})
+	defer s.mu.Unlock()
+	call := spyCall{runnerID: runnerID, provider: provider, canonical: canonical, raw: raw}
+	if canonical == engineagents.HookPermission && s.answers != nil {
+		call.ask = fmt.Sprintf("ask-%d", len(s.calls))
+		s.answers.Hold(answerdesk.Prompt{ChoiceID: call.ask, ChatID: "chat-1", RunnerID: runnerID})
 	}
-	return nil
+	s.calls = append(s.calls, call)
+	if s.failFirst && len(s.calls) == 1 {
+		return "", errors.New("unrecorded")
+	}
+	return call.ask, nil
 }
 
 // snapshot returns a race-free copy of the calls recorded so far.
@@ -349,10 +347,10 @@ func TestPumpAPIConn_RoutesOnlyAPITransportEventsAndDropsHooksDeclaredOnes(t *te
 	assert.Equal(t, "turn_stop", calls[0].canonical)
 	assert.Equal(t, "runner-1", calls[0].runnerID)
 	assert.Equal(t, "api-test", calls[0].provider)
-	assert.Empty(t, calls[0].deliveryID, "a plain notification carries no delivery id")
+	assert.Empty(t, calls[0].ask, "a plain notification holds no ask")
 }
 
-func TestPumpAPIConn_AskEventCarriesADeliveryIDAndRepliesOverTheConnection(t *testing.T) {
+func TestPumpAPIConn_AnAskIsAnsweredOverTheConnection(t *testing.T) {
 	replySeen := make(chan string, 1)
 	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
 		ask, _ := json.Marshal(map[string]any{
@@ -385,12 +383,11 @@ func TestPumpAPIConn_AskEventCarriesADeliveryIDAndRepliesOverTheConnection(t *te
 	require.Eventually(t, func() bool { return len(spy.snapshot()) == 1 }, 3*time.Second, 10*time.Millisecond)
 	call := spy.snapshot()[0]
 	assert.Equal(t, "permission", call.canonical)
-	require.NotEmpty(t, call.deliveryID, "an ask event must carry a delivery id so holdForAnswer can park it")
+	require.NotEmpty(t, call.ask, "an ask event is held on its ask so the pump can await it")
 
-	// The slot was already held synchronously inside IngestHook (spyTurns), the
-	// same ordering the real turn package's holdForAnswer guarantees. Simulate a
-	// human deciding it.
-	slot, held := answers.ByChoiceID("choice-" + call.deliveryID)
+	// The slot was already held synchronously inside Hook (spyTurns), the same
+	// ordering the real ingress guarantees. Simulate a human deciding it.
+	slot, held := answers.ByChoiceID(call.ask)
 	require.True(t, held)
 	answers.Resolve(slot, []byte(`{"decision":"approved"}`))
 
@@ -446,7 +443,7 @@ func TestPumpAPIConn_AnAskNobodyAnswersIsRefused(t *testing.T) {
 // §7-A: the pump used to Await a permission answer inline, so every event the
 // provider sent after an unanswered ask — deltas, turn_stop, the next ask —
 // sat behind a human's decision, and once the driver's buffers filled an
-// interrupt hung holding the spawn gate. The answer is awaited on its own
+// interrupt hung holding the chat. The answer is awaited on its own
 // goroutine; the pump keeps draining.
 func TestPumpAPIConn_AnUnansweredAskDoesNotBlockLaterEvents(t *testing.T) {
 	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
@@ -475,4 +472,29 @@ func TestPumpAPIConn_AnUnansweredAskDoesNotBlockLaterEvents(t *testing.T) {
 	require.Eventually(t, func() bool { return len(spy.snapshot()) == 2 }, 3*time.Second, 10*time.Millisecond,
 		"the turn_stop behind an unanswered permission ask must still be ingested")
 	assert.Equal(t, "turn_stop", spy.snapshot()[1].canonical)
+}
+
+// An event the ingress could not place is already dead-lettered: the pump goes
+// on placing the ones behind it.
+func TestPumpAPIConn_KeepsPlacingAfterAnEventIsRefused(t *testing.T) {
+	turnCompleted := []byte(`{"method":"turn/completed","params":{"threadId":"t1","turn":{"items":[]}}}`)
+	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
+		require.NoError(t, conn.Write(turnCompleted))
+		require.NoError(t, conn.Write(turnCompleted))
+		_, _ = conn.Read()
+	})
+
+	agent := apiTransportTestAgent(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
+	require.NoError(t, err)
+	defer func() { _ = apiConn.Close() }()
+
+	spy := &spyTurns{failFirst: true}
+	rs := &Runners{turns: spy, live: newLiveTable()}
+	rs.pumpAPIConn("runner-1", "api-test", agent, &apiconn{driver: apiConn, ctx: ctx})
+
+	require.Eventually(t, func() bool { return len(spy.snapshot()) == 2 }, 3*time.Second, 10*time.Millisecond,
+		"the event behind a refused one must still be placed")
 }

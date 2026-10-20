@@ -21,34 +21,35 @@ import (
 //
 // True means ev has been fully handled (routed into the subagent's own
 // nested activity or silently dropped as an unsupported kind for it) and the
-// caller must not fall through to its own "foreign conversation" drop.
+// caller must not treat it as foreign; ask is what an ask it raised is held on.
 func (t *Turns) routeNestedSubagentEvent(
 	ctx context.Context,
 	runner engineagents.Runner,
 	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
 	raw []byte,
-) (bool, error) {
+) (routed bool, ask string, err error) {
 	if runner.CurrentChatID == "" || ev.SessionID == "" {
-		return false, nil
+		return false, "", nil
 	}
 	open, err := t.activity.IsSubagentOpen(ctx, runner.CurrentChatID, ev.SessionID)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: nested-session routing: check open subagent", "err", err)
-		return false, nil
+		return false, "", nil
 	}
 	if !open {
-		return false, nil
+		return false, "", nil
 	}
-	return true, t.handleNestedObservation(ctx, runner, agent, ev.SessionID, ev, raw)
+	ask, err = t.handleNestedObservation(ctx, runner, agent, ev.SessionID, ev, raw)
+	return true, ask, err
 }
 
 // handleNestedObservation records ev into subagentID's own nested activity
-// instead of chatID's top-level turn — the durable slice of a codex-shaped
-// child thread's own turn/item stream: its own tool calls, its own final reply
-// text on close, and any ask the person must answer, which goes through the
-// same path as a top-level ask. Other kinds (live deltas, idle, plan,
-// reasoning...) are silently dropped like any unmapped event.
+// instead of chatID's top-level turn — the durable slice of a child
+// conversation's own stream: its own tool calls, its own final reply text on
+// close, and any ask the person must answer, which goes through the same path
+// as a top-level ask. Other kinds (live deltas, idle, plan, reasoning...) are
+// silently dropped like any unmapped event.
 func (t *Turns) handleNestedObservation(
 	ctx context.Context,
 	runner engineagents.Runner,
@@ -56,16 +57,16 @@ func (t *Turns) handleNestedObservation(
 	subagentID string,
 	ev engineagents.CanonicalEvent,
 	raw []byte,
-) error {
+) (string, error) {
 	chatID := runner.CurrentChatID
 	now := time.Now()
 	switch ev.Kind {
 	case engineagents.HookPermission, engineagents.HookElicitation:
-		chat, ok, err := t.chatForRunner(ctx, runner)
-		if err != nil || !ok {
-			return err
+		chat, err := t.chatForRunner(ctx, runner)
+		if err != nil {
+			return "", err
 		}
-		t.raiseAsk(ctx, chat, runner, agent, ev, raw, now)
+		return t.raiseAsk(ctx, chat, runner, agent, ev, raw, now), nil
 	case engineagents.HookTurnStop, engineagents.HookTurnFailed:
 		note(ctx, "nested subagent turn closed",
 			t.activity.StopSubagent(ctx, chatID, subagentID, "", ev.Message, now))
@@ -85,7 +86,7 @@ func (t *Turns) handleNestedObservation(
 				Status: toolStatus(ev), Error: ev.Tool.Error, DurationMS: ev.Tool.DurationMS, Now: now,
 			}))
 	}
-	return nil
+	return "", nil
 }
 
 // routeSubagentTool drops a tool call the payload attributes to a subagent: only

@@ -205,23 +205,3 @@ func TestStreams_UnfinishedAcrossRunnersSeesEveryRunnersOwnUnfinishedMessage(t *
 
 	require.Len(t, unfinished, 2, "sees both runners' unfinished messages, unlike Unfinished(chatID, oneRunnerID)")
 }
-
-func TestStreams_AwaitOpen_ReturnsImmediatelyWhenAlreadyOpen(t *testing.T) {
-	s := stream.New()
-	s.Observe("c", "r", "t", "m", 0, true, false, "already streaming", mnow)
-
-	// A timeout long enough to fail the test if AwaitOpen actually waited on
-	// it instead of returning the already-open message straight away.
-	open := s.AwaitOpen("c", "r", time.Minute)
-
-	require.Len(t, open, 1)
-	assert.Equal(t, "already streaming", open[0].Text)
-}
-
-func TestStreams_AwaitOpen_GivesUpAfterTheTimeoutWhenNothingArrives(t *testing.T) {
-	s := stream.New()
-
-	open := s.AwaitOpen("c", "r", 5*time.Millisecond)
-
-	assert.Empty(t, open, "nothing ever streamed for this runner, so the wait must still end and report empty")
-}

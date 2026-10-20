@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -112,7 +112,7 @@ func TestSpawnRunner_SpawnPlanFailure_ReturnsTheBuildError(t *testing.T) {
 		conversations: stubConversationsForSpawn{},
 		ledger:        newTestLedger(t),
 		live:          newLiveTable(),
-		pendingHooks:  inflight.NewHooks(),
+		chatLock:      newTestLock(), parks: newParks(),
 	}
 
 	_, err := rs.spawnRunner(context.Background(), "chat-1", "ws-1", "boom-test",
@@ -173,36 +173,11 @@ runtime:
     delivery: http
 `
 
-func TestSpawnRunner_PendingHooksRegisterFailure_ReturnsTheBarrierError(t *testing.T) {
-	home := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o755))
-	require.NoError(t, os.WriteFile(
-		filepath.Join(home, "descriptors", "ok-test.yaml"), []byte(okHooksDescriptor), 0o600))
+// unforkable is a terminal no CLI forks on.
+type unforkable struct{ blindTerminal }
 
-	worktree := filepath.Join(home, "worktree")
-	chatsDir := filepath.Join(home, "chats")
-
-	pendingHooks := inflight.NewHooks()
-	// Pre-claim the runner id spawnRunner is about to use, so forkCLI's own
-	// Register call fails exactly the way a genuine duplicate registration
-	// would.
-	require.NoError(t, pendingHooks.Register("runner-1"))
-
-	rs := &Runners{
-		agents:        engineagents.New(),
-		ws:            stubWorkspaceForSpawn{home: home, worktree: worktree, chatsDir: chatsDir},
-		providers:     stubProvidersForSpawn{},
-		conversations: stubConversationsForSpawn{},
-		ledger:        newTestLedger(t),
-		live:          newLiveTable(),
-		pendingHooks:  pendingHooks,
-	}
-
-	_, err := rs.spawnRunner(context.Background(), "chat-1", "ws-1", "ok-test",
-		spawnInput{runnerID: "runner-1", promptMessage: "hello"}, true)
-
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "install hook startup barrier")
+func (unforkable) CreateCommand(context.Context, string, string, []string, []string, func(engineterminal.Exit)) (string, error) {
+	return "", errors.New("boom: the CLI would not fork")
 }
 
 // A respawn that puts no CLI on an existing chat is recorded as spawn_failed,
@@ -212,8 +187,6 @@ func TestSpawnRunner_AFailedRespawnRecordsSpawnFailedAndSettlesWhatItCarried(t *
 	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o755))
 	require.NoError(t, os.WriteFile(
 		filepath.Join(home, "descriptors", "ok-test.yaml"), []byte(okHooksDescriptor), 0o600))
-	pendingHooks := inflight.NewHooks()
-	require.NoError(t, pendingHooks.Register("runner-1"))
 	rs := &Runners{
 		agents:        engineagents.New(),
 		ws:            stubWorkspaceForSpawn{home: home, worktree: filepath.Join(home, "worktree"), chatsDir: filepath.Join(home, "chats")},
@@ -222,7 +195,7 @@ func TestSpawnRunner_AFailedRespawnRecordsSpawnFailedAndSettlesWhatItCarried(t *
 		chats:         stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}},
 		ledger:        newTestLedger(t),
 		live:          newLiveTable(),
-		pendingHooks:  pendingHooks,
+		term:          unforkable{},
 	}
 	appendPrompt(t, rs.ledger, "req-1", "runner-1")
 

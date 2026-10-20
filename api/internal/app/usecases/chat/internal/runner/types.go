@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -62,8 +61,8 @@ type Conversations interface {
 		chatID string,
 		minting bool,
 	) (string, error)
-	// PurgeLocked erases a chat whose caller ALREADY holds its spawn gate. A spawn
-	// that fails discards the chat it minted, from inside that gate.
+	// PurgeLocked erases a chat whose caller ALREADY holds its lock. A spawn
+	// that fails discards the chat it minted, from inside that hold.
 	PurgeLocked(
 		ctx context.Context,
 		chatID string,
@@ -91,40 +90,22 @@ type AncestorCwd interface {
 	) (string, bool, error)
 }
 
-// Turns is what the CLI lifecycle needs from the hook ingress: the startup
-// hooks a fresh runner buffered, the records a Stop or switch leaves, and the
-// screen classifiers the terminal-wait sweep runs on.
+// Turns is what the CLI lifecycle needs from the hook side: the one door an
+// api connection's events come in through, the records a Stop or switch
+// leaves, and the screen classifiers the terminal-wait sweep runs on.
 //
-// NOTHING here may take the spawn gate: this side holds it.
+// NOTHING here may take the chat's lock except Hook, which this side never
+// calls under it.
 type Turns interface {
-	// IngestHook applies one canonical hook or api-transport event, the same
-	// entrypoint the HTTP hook ingress uses — pumpAPIConn (apiconn.go) feeds an
-	// api-transport connection's resolved events through here too, so ownership,
-	// activity and the answer desk need no transport-specific branch.
-	IngestHook(
-		ctx context.Context,
-		runnerID string,
-		provider string,
-		canonicalEvent string,
-		rawPayload []byte,
-	) error
+	// Hook places one event an api connection resolved, as the hook ingress
+	// places every hook, and returns the ask its answer is held on.
+	Hook(ctx context.Context, runnerID, provider, event string, raw []byte) (ask string, err error)
 	// ForgetChat drops every piece of in-memory turn state held for chatID.
 	ForgetChat(chatID string)
-	// ReplayStartupHook ingests one hook that arrived before the runner row
-	// existed, now that it does.
-	ReplayStartupHook(runnerID string, hook inflight.Hook)
-	// HoldSteer keeps the dispatch text of a prompt about to be steered into
-	// chatID's running turn, for the turn's end hook to deliver.
-	HoldSteer(chatID, requestID, dispatchText string)
 	// RecordStop notes, durably, that a person cut chatID's in-flight turn
 	// short. It always records: the caller decides whether a turn was open,
-	// before tearing anything down. runnerID serialises this against
-	// that runner's own in-flight hook ingestion — see the implementation's
-	// doc for why.
-	RecordStop(
-		ctx context.Context,
-		chatID, runnerID string,
-	) error
+	// under the chat's lock, before tearing anything down.
+	RecordStop(ctx context.Context, chatID string) error
 	// RecordChatSwitch notes, durably, that Crowbar itself changed chatID's
 	// provider, model or effort. kind is one of
 	// InterruptProviderSwitched/InterruptModelChanged/InterruptEffortChanged

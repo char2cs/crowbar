@@ -1,6 +1,6 @@
 // Package runner (file apiconn.go) is the api-transport half of spawning a
 // provider: start `serve` as a background process, complete the handshake, pump
-// its resolved events into the same ingest entrypoint hooks use, and answer any
+// its resolved events through the same door hooks use, and answer any
 // permission it asks from Crowbar's own chat.
 //
 // This file reaches the API transport ONLY through engineagents.Agent
@@ -12,8 +12,6 @@ package runner
 
 import (
 	"context"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
@@ -21,7 +19,6 @@ import (
 	"sync/atomic"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -34,7 +31,7 @@ type apiconn struct {
 	// goroutine outlives that request by design — the provider's reply to THIS
 	// message can arrive minutes after the spawn (or prompt) HTTP call already
 	// returned — and a request-scoped ctx is cancelled the instant that call
-	// completes, silently failing every IngestHook call after with "context
+	// completes, silently failing every placed event after with "context
 	// canceled" and making the reply vanish. cancel is called from drop, the
 	// same place serve is killed, so nothing outlives the connection either.
 	ctx    context.Context
@@ -65,7 +62,7 @@ func (c *apiconn) lostReason() string {
 
 // apiConnRegistry is the per-runner registry pumpAPIConn's ingest loop and
 // onRunnerExit's teardown look up by runnerID. In memory only, like every other
-// live-process registry in this package (answerdesk's Desk, pendingHooks) — it
+// live-process registry in this package (answerdesk's Desk) — it
 // describes a live connection to a live process, so it cannot survive a restart
 // and must not try to.
 type apiConnRegistry struct {
@@ -282,9 +279,10 @@ func pointPlanAtAttach(plan *engineagents.SpawnPlan, attachArgv []string) {
 	plan.Argv = attachArgv[1:]
 }
 
-// pumpAPIConn forwards every canonical event this connection's driver resolves
-// into the same ingest entrypoint the hook relay uses. It runs on the
-// connection's own ctx (never a request's) until the driver closes its events.
+// pumpAPIConn places every canonical event this connection's driver resolves
+// through the same door the hook relay uses. It runs on the connection's own
+// ctx (never a request's) until the driver closes its events, and an event it
+// cannot place never stops the ones behind it.
 func (rs *Runners) pumpAPIConn(
 	runnerID, providerID string, agent engineagents.Agent, conn *apiconn,
 ) {
@@ -292,28 +290,19 @@ func (rs *Runners) pumpAPIConn(
 	go func() {
 		defer rs.onAPIConnLost(ctx, conn, runnerID)
 		for ev := range conn.driver.Events() {
-			evCtx := inflight.WithAPITransport(ctx)
-			if ev.AskID != nil {
-				// The synthetic delivery id scopes the ask's answer-desk slot the
-				// way an HTTP relay's delivery id does.
-				evCtx = inflight.WithDeliveryID(evCtx, apiAskDeliveryID(runnerID, ev.AskID))
-			}
-			if err := rs.turns.IngestHook(evCtx, runnerID, providerID, ev.Canonical, ev.Raw); err != nil {
-				slog.WarnContext(ctx, "agent: api transport: ingest", "err", err,
+			ask, err := rs.turns.Hook(ctx, runnerID, providerID, ev.Canonical, ev.Raw)
+			if err != nil {
+				slog.WarnContext(ctx, "agent: api transport: place event", "err", err,
 					"runner_id", runnerID, "event", ev.Canonical)
 				continue
 			}
 			if ev.AskID != nil {
 				// Off the pump: a human's decision can take minutes, and every
 				// event behind the ask must keep flowing.
-				go rs.awaitAndReply(ctx, runnerID, agent, ev, conn)
+				go rs.awaitAndReply(ctx, runnerID, agent, ev, conn, ask)
 			}
 		}
 	}()
-}
-
-func apiAskDeliveryID(runnerID string, askID json.RawMessage) string {
-	return runnerID + ":" + hex.EncodeToString(askID)
 }
 
 // HasLiveAPIConnection reports whether runnerID's channel right now is an api
@@ -330,9 +319,9 @@ func (rs *Runners) HasLiveAPIConnection(runnerID string) bool {
 // would hold its turn open forever. On an expired budget the descriptor's own
 // refusal is sent instead.
 func (rs *Runners) awaitAndReply(
-	ctx context.Context, runnerID string, agent engineagents.Agent, ev engineagents.APIEvent, conn *apiconn,
+	ctx context.Context, runnerID string, agent engineagents.Agent, ev engineagents.APIEvent, conn *apiconn, ask string,
 ) {
-	answer, err := rs.answers.Await(ctx, apiAskDeliveryID(runnerID, ev.AskID))
+	answer, err := rs.answers.Await(ctx, ask)
 	if err != nil {
 		return // the connection is closing: the provider's ask dies with it
 	}

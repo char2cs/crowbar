@@ -11,7 +11,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -49,14 +48,13 @@ func (screenReadingCommander) Screen(string, uint64) (string, uint64, bool) {
 // Nothing here is exercised; SetTurns only has to be able to bind it.
 type stubTurns struct{}
 
-func (stubTurns) IngestHook(context.Context, string, string, string, []byte) error { return nil }
+func (stubTurns) Hook(context.Context, string, string, string, []byte) (string, error) {
+	return "", nil
+}
 
-func (stubTurns) ReplayStartupHook(string, inflight.Hook) {}
-func (stubTurns) ForgetChat(string)                       {}
+func (stubTurns) ForgetChat(string) {}
 
-func (stubTurns) HoldSteer(string, string, string) {}
-
-func (stubTurns) RecordStop(context.Context, string, string) error { return nil }
+func (stubTurns) RecordStop(context.Context, string) error { return nil }
 
 func (stubTurns) RecordChatSwitch(context.Context, string, string, string) error { return nil }
 

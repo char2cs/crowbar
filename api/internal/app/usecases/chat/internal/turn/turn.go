@@ -9,7 +9,6 @@ import (
 	"time"
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -47,29 +46,31 @@ func openTurnID(chatID, runnerID string) string {
 	return "open-" + chatID + "-" + runnerID
 }
 
+// handleTurn records a turn's start or end. A turn's end may owe its sender
+// the stdout that carries a steered prompt into the same process.
 func (t *Turns) handleTurn(
 	ctx context.Context,
 	runner engineagents.Runner,
 	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
-) error {
-	chat, ok, err := t.chatForRunner(ctx, runner)
-	if err != nil || !ok {
-		return err
+) ([]byte, error) {
+	chat, err := t.chatForRunner(ctx, runner)
+	if err != nil {
+		return nil, err
 	}
 
 	switch ev.Kind {
-	case "user_prompt":
+	case engineagents.HookUserPrompt:
 		_, err := t.openingTurn(runner.ID, func(h turnHold) error {
 			return t.openTurnFromPrompt(ctx, chat, h, agent, ev)
 		})
-		return err
-	case "turn_stop":
+		return nil, err
+	case engineagents.HookTurnStop:
 		return t.closeTurnFromStop(ctx, chat, runner, agent, ev)
 	case engineagents.HookTurnFailed:
-		return t.closeTurnFromFailure(ctx, chat, runner, ev)
+		return nil, t.closeTurnFromFailure(ctx, chat, runner, ev)
 	}
-	return nil
+	return nil, nil
 }
 
 // stopStatus is how a turn_stop's provider status ended its turn: anything but
@@ -87,16 +88,16 @@ func (t *Turns) closeTurnFromStop(
 	runner engineagents.Runner,
 	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
-) error {
+) ([]byte, error) {
 	// A compaction's own turn envelope closing is not an assistant reply.
 	if t.compacting.consume(chat.ID, ev.TurnID) {
-		return nil
+		return nil, nil
 	}
 	// The answer is recorded before anyone is told the turn ended: a client
 	// reads the record once on that edge.
 	appendErr := t.closeAssistantTurn(ctx, chat, runner, ev)
 	var steered *ledger.Prompt
-	var reply string
+	var reply []byte
 	steerTurn := t.turnStarted(ctx, chat.ID, runner, agent, "")
 	end := func(held bool) error {
 		_, _, err := t.ledger.Do(ctx, chat.ID, func(st ledger.State) ([]ledger.Row, error) {
@@ -109,7 +110,7 @@ func (t *Turns) closeTurnFromStop(
 			if err != nil || !closes || !ok {
 				return rows, err
 			}
-			stdout, deliverable := t.steerReply(ctx, chat.ID, p, agent)
+			stdout, deliverable := steerReply(ctx, p, agent)
 			if !held || !deliverable || !startsOn(st, runner.ID) {
 				settled, err := settleSteer(st, runner.ID, ledger.ReasonDeliveryFailed)
 				return append(rows, settled...), err
@@ -128,13 +129,13 @@ func (t *Turns) closeTurnFromStop(
 		err = end(false)
 	}
 	if err != nil {
-		return fmt.Errorf("agent: ingest hook: end turn: %w", err)
+		return nil, fmt.Errorf("agent: ingest hook: end turn: %w", err)
 	}
-	if steered != nil {
-		t.replies.put(inflight.DeliveryID(ctx), reply)
-		t.recordSteered(ctx, chat, runner, *steered)
+	if steered == nil {
+		return nil, appendErr
 	}
-	return appendErr
+	t.recordSteered(ctx, chat, runner, *steered)
+	return reply, appendErr
 }
 
 func (t *Turns) closeTurnFromFailure(
@@ -149,7 +150,7 @@ func (t *Turns) closeTurnFromFailure(
 	appendErr := t.closeAssistantTurn(ctx, chat, runner, ev)
 	if reason := failureNotice(ev); reason != "" {
 		note(ctx, "record turn failure", t.conversations.RecordTurn(
-			ctx, chat, runner.ProviderID, runner.ID, t.boundSession(ctx, chat.ID, runner.ProviderID),
+			ctx, chat, "", runner.ProviderID, runner.ID, t.boundSession(ctx, chat.ID, runner.ProviderID),
 			domain.TurnRoleNotice, reason, "",
 		))
 	}
@@ -193,7 +194,7 @@ func failureNotice(ev engineagents.CanonicalEvent) string {
 // its steer undelivered, any other end late. With no turn, a hooks CLI's report
 // means the prompts it carried were never taken; an api connection's, nothing.
 func (t *Turns) recordIdle(ctx context.Context, chatID string, runner engineagents.Runner) {
-	api := inflight.FromAPITransport(ctx)
+	api := hookChannel(ctx) == engineagents.ChannelAPI
 	_, _, err := t.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
 		ended, closes, err := ledger.EndTurnOf(st, runner.ID, "", ledger.TurnEnded{
 			Status: string(ledger.TurnStatusDone), Reason: ledger.ReasonProviderIdle,
@@ -217,10 +218,9 @@ func (t *Turns) recordIdle(ctx context.Context, chatID string, runner engineagen
 	note(ctx, "provider idle", err)
 }
 
-// RecordStop records the divider for a turn a person stopped. It holds
-// runnerID's hook gate, so it never lands inside a hook's ingest.
-func (t *Turns) RecordStop(ctx context.Context, chatID, runnerID string) error {
-	defer t.hookGates.Lock(runnerID)()
+// RecordStop records the divider for a turn a person stopped. The caller holds
+// the chat's lock, so it never lands inside a hook's ingest.
+func (t *Turns) RecordStop(ctx context.Context, chatID string) error {
 	now := time.Now()
 	id := "interrupt-" + fallbackID()
 	if err := t.activity.Interrupt(

@@ -32,53 +32,68 @@ func (rs *Runners) CloseChat(
 }
 
 // endRunner is the one owner of what a Stop or Close records: stopRunner.
+// Waits parked on the chat are cancelled rather than queued behind, so Stop
+// is bounded by the teardown alone (invariant A2); an end already under way is
+// waited out, with the chat's lock released.
 func (rs *Runners) endRunner(
 	ctx context.Context,
 	chatID string,
 	gentle bool,
 ) error {
-	// The chat's spawn gate, preempted rather than queued for: a switch or
-	// resume parked on it abandons its wait with nothing changed, so Stop is
-	// bounded by the teardown alone (invariant A2).
-	release, err := rs.spawns.Preempt(ctx, chatID)
-	if err != nil {
-		return fmt.Errorf("agent: stop chat: %w", err)
-	}
-	defer release()
+	defer rs.parks.preempt(chatID)()
 	defer rs.enterPhase(ctx, chatID, snapshot.PhaseStopping)()
-
-	live, ok := rs.live.byChat(chatID)
-	if !ok {
-		return nil // already dormant: there is no live CLI to stop
+	for {
+		unlock := rs.chatLock.Lock(chatID)
+		v, ok := rs.live.view(chatID)
+		if !ok {
+			unlock()
+			return nil // already dormant: there is no live CLI to stop
+		}
+		if v.exiting {
+			unlock()
+			select {
+			case <-v.exited:
+				continue
+			case <-ctx.Done():
+				return fmt.Errorf("agent: stop chat: %w", ctx.Err())
+			}
+		}
+		retiring, err := rs.stopRunner(ctx, chatID, v.runner, gentle)
+		unlock()
+		if err != nil || !retiring {
+			return err
+		}
+		// Outside the lock: the CLI's own hooks on the way down need it.
+		if err := rs.endMarked(ctx, v.runner); err != nil {
+			return fmt.Errorf("agent: stop chat: %w", err)
+		}
+		return nil
 	}
-	return rs.stopRunner(ctx, chatID, live, gentle)
 }
 
 // stopRunner ends the chat's turn and settles its pending prompts in one
-// commit, records the divider when that stopped a turn, then tells live and
-// returns without waiting for it: an api provider mid-turn is interrupted in
-// place, and otherwise the runner is told to quit, its exit recorded by its own.
-func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Runner, gentle bool) error {
+// commit, records the divider when that stopped a turn, then tells live: an
+// api provider mid-turn is interrupted in place, and otherwise the runner is
+// marked ending (retiring) for the caller to end, its exit recorded by its own.
+func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Runner, gentle bool) (bool, error) {
 	stopped := false
 	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
 		_, stopped = st.RunningTurn()
 		return ledger.Stop(st)
 	})
 	if err != nil {
-		return fmt.Errorf("agent: stop chat: %w", err)
+		return false, fmt.Errorf("agent: stop chat: %w", err)
 	}
 	if stopped {
-		if err := rs.turns.RecordStop(ctx, chatID, live.ID); err != nil {
+		if err := rs.turns.RecordStop(ctx, chatID); err != nil {
 			slog.WarnContext(ctx, "agent: stop: record interruption", "chat_id", chatID, "err", err)
 		}
 	}
 	if gentle && stopped && rs.interruptTurn(ctx, live) {
-		return nil
+		return false, nil
 	}
-	if _, err := rs.retire(ctx, live, domain.AgentExitStopped); err != nil {
-		return fmt.Errorf("agent: stop chat: %w", err)
-	}
-	return nil
+	_, retiring := rs.markEnding(live, domain.AgentExitStopped)
+	return retiring, nil
 }
 
 // interruptEvent is the canonical outbound event a provider declares when

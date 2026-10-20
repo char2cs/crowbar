@@ -1904,7 +1904,7 @@ func TestSubmitPrompt_AnUnreadableSelectionRefusesTheDelivery(t *testing.T) {
 // history. That row is a live trap — a later announcement of the id conflicts with a
 // chat that does not exist.
 //
-// The announcement must be DROPPED, and the CLI killed again: it has nowhere to write.
+// The announcement must be REFUSED, and the CLI killed: it has nowhere to write.
 func TestRegression_SessionStartAfterItsChatWasDeleted_IsDroppedNotRecorded(t *testing.T) {
 	f := newFixture(t)
 
@@ -1914,7 +1914,7 @@ func TestRegression_SessionStartAfterItsChatWasDeleted_IsDroppedNotRecorded(t *t
 	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID))
 
 	// The CLI is still alive (SIGTERM has not landed yet) and announces its conversation.
-	f.announce(t, runnerID, "s-late")
+	lateHook(t, f, runnerID, "", "session_start", map[string]any{"session_id": "s-late"})
 
 	assert.Empty(t, f.chatForSession(t, "claude", "s-late"),
 		"a conversation must never be recorded against a chat that has been deleted")
@@ -1948,7 +1948,7 @@ func TestRegression_LateSessionAnnouncement_DoesNotStealTheChatFromTheIncomingCL
 	f.wait()
 
 	// t3: the outgoing CLI, still dying, finally reports the conversation it came up in.
-	f.announce(t, outgoing, "s-late")
+	lateHook(t, f, outgoing, "", "session_start", map[string]any{"session_id": "s-late"})
 
 	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
@@ -2089,9 +2089,8 @@ func TestRegression_HookFromAPurgedChatsRunner_NeverTouchesTheChatModel(t *testi
 
 	cs.failGetChat = errors.New("boom: the chat model must not be consulted for nowhere")
 
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
-		mustJSON(t, map[string]any{"last_assistant_message": "a dying CLI's last words"})),
-		"a hook from a runner that is placed nowhere must resolve to nowhere, without a lookup")
+	// Placed nowhere, it resolves to nowhere, without a lookup.
+	lateHook(t, f, runnerID, "claude", "turn_stop", map[string]any{"last_assistant_message": "a dying CLI's last words"})
 }
 
 // TestRegression_APurgedChatKeepsNoRowOfItsRunnersExit: the purge records its

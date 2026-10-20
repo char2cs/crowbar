@@ -15,7 +15,7 @@ type Snapshotter interface {
 }
 
 // phases is the lifecycle operation each chat is in the middle of, set by the
-// operation holding the chat's spawn gate. Absent means none: the chat's phase
+// user-initiated operation holding the chat. Absent means none: the chat's phase
 // is then derived from placement (live or dormant) by the snapshot owner.
 type phases struct {
 	mu     sync.Mutex
@@ -34,10 +34,9 @@ func (rs *Runners) Phase(chatID string) string {
 	return rs.phases.byChat[chatID]
 }
 
-// enterPhase marks chatID as being in phase for the duration of a gated
-// operation, announces it, and returns the func that ends it (and announces
-// that). Nested entries are not a thing: the spawn gate admits one operation
-// per chat at a time.
+// enterPhase marks chatID as being in phase for the duration of an operation
+// holding the chat, announces it, and returns the func that ends it (and
+// announces that).
 func (rs *Runners) enterPhase(ctx context.Context, chatID, phase string) func() {
 	if rs.phases == nil {
 		return func() {}

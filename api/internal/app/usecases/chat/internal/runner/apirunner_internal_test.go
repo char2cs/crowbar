@@ -17,7 +17,6 @@ import (
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -123,10 +122,10 @@ func newSpawnHarness(t *testing.T, surface string) *spawnHarness {
 			live:          newLiveTable(),
 			snapshots:     lifecycle,
 			term:          term,
-			pendingHooks:  inflight.NewHooks(),
-			apiConns:      newAPIConnRegistry(),
-			attached:      newAttachRegistry(),
-			surfaces:      newSurfaceRegistry(),
+			chatLock:      newTestLock(), parks: newParks(),
+			apiConns: newAPIConnRegistry(),
+			attached: newAttachRegistry(),
+			surfaces: newSurfaceRegistry(),
 			// Everything reconcileRunnerExit touches on its way through a
 			// runner's death — the real registries, so the exit path under
 			// test is the production one and not a nil-guarded shortcut.
@@ -260,12 +259,12 @@ func ptylessRunners(t *testing.T) (*Runners, *spyLifecycle) {
 	t.Helper()
 	lifecycle := newSpyLifecycle()
 	return &Runners{
-		live:       liveWith(t, engineagents.Runner{ID: "runner-1", ProviderID: "codex", CurrentChatID: "chat-1"}),
-		snapshots:  lifecycle,
-		apiConns:   newAPIConnRegistry(),
-		attached:   newAttachRegistry(),
-		surfaces:   newSurfaceRegistry(),
-		spawns:     inflight.NewGate(),
+		live:      liveWith(t, engineagents.Runner{ID: "runner-1", ProviderID: "codex", CurrentChatID: "chat-1"}),
+		snapshots: lifecycle,
+		apiConns:  newAPIConnRegistry(),
+		attached:  newAttachRegistry(),
+		surfaces:  newSurfaceRegistry(),
+		chatLock:  newTestLock(), parks: newParks(),
 		agents:     engineagents.New(),
 		answers:    answerdesk.New(answerdesk.DefaultRetention, nil),
 		turns:      noopTurns{},
@@ -293,7 +292,8 @@ func settled(rs *Runners, lifecycle *spyLifecycle) (string, bool) {
 func TestRegression_ANativeViewTornDownForGoodExitsThePTYLessRunner(t *testing.T) {
 	rs, lifecycle := ptylessRunners(t)
 
-	// endProcesses' own order: forget the view first, then kill it.
+	// An end's own order: mark the runner ending, forget the view, then kill it.
+	rs.live.markExiting("runner-1", domain.AgentExitDisplaced)
 	rs.attached.drop("runner-1")
 	rs.onAttachExit("chat-1", "runner-1")(engineterminal.Exit{})
 
@@ -305,31 +305,30 @@ func TestRegression_ANativeViewTornDownForGoodExitsThePTYLessRunner(t *testing.T
 	}
 }
 
-// The same teardown against a runner that still HAS its own PTY must change
-// nothing: that PTY is the liveness authority, and its own exit callback is
-// what ends the runner.
-func TestOnAttachExit_ARunnerWithItsOwnPTYIsLeftToThatPTY(t *testing.T) {
-	rs, lifecycle := ptylessRunners(t)
-	rs.live.update("runner-1", func(r *engineagents.Runner) { r.TerminalSession = "term-1" })
+// A view's exit leaves the runner when something else keeps it: its own PTY
+// (the liveness authority), a re-established connection, or a detach, which
+// ends nothing and re-establishes what replaces the view.
+func TestOnAttachExit_LeavesARunnerSomethingElseKeeps(t *testing.T) {
+	ending := func(rs *Runners) { rs.live.markExiting("runner-1", domain.AgentExitDisplaced) }
+	for name, keep := range map[string]func(*Runners){
+		"its own PTY": func(rs *Runners) {
+			ending(rs)
+			rs.live.update("runner-1", func(r *engineagents.Runner) { r.TerminalSession = "term-1" })
+		},
+		"a re-established connection": func(rs *Runners) { ending(rs); rs.apiConns.set("runner-1", &apiconn{}) },
+		"a detach":                    func(*Runners) {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rs, lifecycle := ptylessRunners(t)
+			keep(rs)
 
-	rs.attached.drop("runner-1")
-	rs.onAttachExit("chat-1", "runner-1")(engineterminal.Exit{})
+			rs.attached.drop("runner-1")
+			rs.onAttachExit("chat-1", "runner-1")(engineterminal.Exit{})
 
-	exited, ok := settled(rs, lifecycle)
-	assert.False(t, ok, "runner %s was exited while its own PTY is still the authority on that", exited)
-}
-
-// A re-established connection is a process again, so the view it replaced
-// dying must not end the runner.
-func TestOnAttachExit_AReestablishedConnectionKeepsThePTYLessRunnerAlive(t *testing.T) {
-	rs, lifecycle := ptylessRunners(t)
-	rs.apiConns.set("runner-1", &apiconn{})
-
-	rs.attached.drop("runner-1")
-	rs.onAttachExit("chat-1", "runner-1")(engineterminal.Exit{})
-
-	exited, ok := settled(rs, lifecycle)
-	assert.False(t, ok, "runner %s was exited while its api connection is live", exited)
+			exited, ok := settled(rs, lifecycle)
+			assert.False(t, ok, "runner %s was exited while %s keeps it", exited, name)
+		})
+	}
 }
 
 // carrierTestDescriptor is api transport (a spawn whose connection comes up

@@ -154,21 +154,10 @@ func (stubUsecase) SpawnChat(
 	return "chat-1", "seg-1", nil
 }
 
-func (stubUsecase) IngestHook(
-	_ context.Context,
-	_ string,
-	_ string,
-	_ string,
-	_ []byte,
-) error {
-	return nil
-}
-
-func (stubUsecase) IngestHookDelivery(
-	_ context.Context, _, _, _, _ string,
-	_ []byte,
-) error {
-	return nil
+func (stubUsecase) Hook(
+	context.Context, string, string, string, []byte, engineagents.Channel,
+) (agentusecase.HookReply, error) {
+	return agentusecase.HookReply{}, nil
 }
 
 func (stubUsecase) ListChatsByWorkspace(
@@ -532,8 +521,6 @@ func (stubUsecase) ReadActivity(
 ) (agentusecase.ChatActivity, error) {
 	return agentusecase.ChatActivity{}, nil
 }
-
-func (stubUsecase) TakeHookReply(string) (string, bool) { return "", false }
 
 func (stubUsecase) ReadToolPayload(context.Context, string, string, string) ([]byte, error) {
 	return nil, nil

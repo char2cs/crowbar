@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -28,30 +27,41 @@ func shortSocketDir(t *testing.T) string {
 	return dir
 }
 
+// serveHooks serves handler on a fresh unix socket for the rest of the test and
+// returns the host a hook relay dials.
+func serveHooks(t *testing.T, handler http.HandlerFunc) string {
+	t.Helper()
+	sock := filepath.Join(shortSocketDir(t), "h.sock")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", sock)
+	require.NoError(t, err)
+	srv := &http.Server{Handler: handler, ReadHeaderTimeout: time.Second}
+	served := make(chan error, 1)
+	go func() { served <- srv.Serve(ln) }()
+	t.Cleanup(func() {
+		require.NoError(t, srv.Close())
+		require.ErrorIs(t, <-served, http.ErrServerClosed)
+	})
+	return "unix://" + sock
+}
+
 func TestRunHook_ForwardsSegmentProviderAndRawPayload(t *testing.T) {
 	t.Setenv("CROWBAR_HOME", t.TempDir())
-	sock := filepath.Join(shortSocketDir(t), "h.sock")
-	ln, err := net.Listen("unix", sock)
-	require.NoError(t, err)
-	defer ln.Close()
 
 	var mu sync.Mutex
 	var gotPath string
 	var got map[string]any
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	host := serveHooks(t, func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		gotPath = r.URL.RequestURI()
 		_ = json.NewDecoder(r.Body).Decode(&got)
 		mu.Unlock()
 		w.WriteHeader(http.StatusAccepted)
-	})}
-	go srv.Serve(ln)
-	defer srv.Close()
+	})
 
-	err = runHook(hookRun{
+	err := runHook(hookRun{
 		Event: "turn_stop", Segment: "seg-42", Provider: "claude",
 		Project: "p1", Repo: "r1", Workspace: "w1",
-		Payload: []byte(`{"session_id":"abc"}`), Host: "unix://" + sock, Out: io.Discard,
+		Payload: []byte(`{"session_id":"abc"}`), Host: host, Out: io.Discard,
 	})
 	require.NoError(t, err)
 
@@ -62,27 +72,20 @@ func TestRunHook_ForwardsSegmentProviderAndRawPayload(t *testing.T) {
 	require.Equal(t, "claude", got["provider"])
 	require.Equal(t, "turn_stop", got["event"])
 	require.Equal(t, `{"session_id":"abc"}`, got["payload_raw"])
-	require.NotEmpty(t, got["delivery_id"])
 }
 
 func TestRunHook_PrintsTheReplyTheDaemonAnswersWith(t *testing.T) {
 	t.Setenv("CROWBAR_HOME", t.TempDir())
-	sock := filepath.Join(shortSocketDir(t), "h.sock")
-	var lc net.ListenConfig
-	ln, err := lc.Listen(context.Background(), "unix", sock)
-	require.NoError(t, err)
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	host := serveHooks(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = io.WriteString(w, `{"data":{"reply":"{\"decision\":\"block\"}"}}`)
-	}), ReadHeaderTimeout: time.Minute}
-	go func() { _ = srv.Serve(ln) }()
-	t.Cleanup(func() { _ = srv.Close() })
+	})
 
 	var out strings.Builder
-	err = runHook(hookRun{
+	err := runHook(hookRun{
 		Event: "turn_stop", Segment: "seg-42", Provider: "claude",
 		Project: "p1", Repo: "r1", Workspace: "w1",
-		Payload: []byte(`{}`), Host: "unix://" + sock, Out: &out,
+		Payload: []byte(`{}`), Host: host, Out: &out,
 	})
 
 	require.NoError(t, err)
@@ -101,47 +104,49 @@ func TestNewHookCmd_HomeFlagOverridesEnv(t *testing.T) {
 	}
 }
 
-// TestRunHook_RetriesTransientFailureWithSameDeliveryID covers the race
-// barriers_test.go documents: a hook can fire before the runner row it
-// targets is queryable yet, failing once for reasons that clear a moment
-// later. runHook must retry in-process, a few times, reusing one delivery id
-// — not drop the event, and not hand it to any on-disk queue.
-func TestRunHook_RetriesTransientFailureWithSameDeliveryID(t *testing.T) {
+// TestRunHook_RetriesATransientFailure: a daemon that fails for a reason that
+// clears a moment later gets the hook again, in-process, a few times — the
+// event is not dropped, and not handed to any on-disk queue.
+func TestRunHook_RetriesATransientFailure(t *testing.T) {
 	t.Setenv("CROWBAR_HOME", t.TempDir())
-	sock := filepath.Join(shortSocketDir(t), "h.sock")
-	ln, err := net.Listen("unix", sock)
-	require.NoError(t, err)
-	defer ln.Close()
 
-	var mu sync.Mutex
-	var deliveries []string
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var got map[string]any
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&got))
-		mu.Lock()
-		deliveries = append(deliveries, got["delivery_id"].(string))
-		attempt := len(deliveries)
-		mu.Unlock()
-		if attempt < 2 {
+	var attempts atomic.Int64
+	host := serveHooks(t, func(w http.ResponseWriter, r *http.Request) {
+		if attempts.Add(1) < 2 {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
-	})}
-	go srv.Serve(ln)
-	defer srv.Close()
+	})
 
-	err = runHook(hookRun{
+	err := runHook(hookRun{
 		Event: "user_prompt", Segment: "seg-1", Provider: "codex",
 		Project: "p", Repo: "r", Workspace: "w",
-		Payload: []byte(`{"prompt":"keep me"}`), Host: "unix://" + sock, Out: io.Discard,
+		Payload: []byte(`{"prompt":"keep me"}`), Host: host, Out: io.Discard,
 	})
 	require.NoError(t, err, "a retry that eventually succeeds must not surface as a hook error")
+	require.Equal(t, int64(2), attempts.Load())
+}
 
-	mu.Lock()
-	defer mu.Unlock()
-	require.Len(t, deliveries, 2)
-	require.Equal(t, deliveries[0], deliveries[1], "every retry must reuse the original delivery id")
+// TestRunHook_ARefusalIsNotRetried: a 4xx is the daemon's verdict on the hook
+// (an unknown runner, an unmappable payload), recorded once; sending it again
+// would only record it again.
+func TestRunHook_ARefusalIsNotRetried(t *testing.T) {
+	t.Setenv("CROWBAR_HOME", t.TempDir())
+
+	var attempts atomic.Int64
+	host := serveHooks(t, func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.WriteHeader(http.StatusUnprocessableEntity)
+	})
+
+	err := runHook(hookRun{
+		Event: "user_prompt", Segment: "seg-1", Provider: "codex",
+		Project: "p", Repo: "r", Workspace: "w",
+		Payload: []byte(`{}`), Host: host, Out: io.Discard,
+	})
+	require.Error(t, err)
+	require.Equal(t, int64(1), attempts.Load())
 }
 
 // TestRunHook_GivesUpAfterExhaustingRetries asserts the OTHER half of "never
@@ -151,23 +156,17 @@ func TestRunHook_RetriesTransientFailureWithSameDeliveryID(t *testing.T) {
 // later.
 func TestRunHook_GivesUpAfterExhaustingRetries(t *testing.T) {
 	t.Setenv("CROWBAR_HOME", t.TempDir())
-	sock := filepath.Join(shortSocketDir(t), "h.sock")
-	ln, err := net.Listen("unix", sock)
-	require.NoError(t, err)
-	defer ln.Close()
 
 	var attempts atomic.Int64
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	host := serveHooks(t, func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)
 		w.WriteHeader(http.StatusServiceUnavailable)
-	})}
-	go srv.Serve(ln)
-	defer srv.Close()
+	})
 
-	err = runHook(hookRun{
+	err := runHook(hookRun{
 		Event: "user_prompt", Segment: "seg-1", Provider: "codex",
 		Project: "p", Repo: "r", Workspace: "w",
-		Payload: []byte(`{"prompt":"drop me"}`), Host: "unix://" + sock, Out: io.Discard,
+		Payload: []byte(`{"prompt":"drop me"}`), Host: host, Out: io.Discard,
 	})
 	require.Error(t, err)
 	require.Equal(t, int64(hookDeliveryAttempts), attempts.Load())

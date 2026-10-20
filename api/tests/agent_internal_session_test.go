@@ -127,7 +127,7 @@ const (
 // rather than against the drop itself — so a regression that finds a NEW way to let
 // an internal session through fails here too.
 //
-// NO TIMING. POST /chats/hooks runs IngestHook synchronously, so a dropped hook has
+// NO TIMING. POST /chats/hooks places the hook synchronously, so a dropped hook has
 // finished being dropped by the time its 202 returns; h.Quiesce is the
 // read-your-writes barrier (asynx WaitPublish) before the plain REST reads. The
 // negative assertions are then made STRICT by a real signal: a genuine turn is

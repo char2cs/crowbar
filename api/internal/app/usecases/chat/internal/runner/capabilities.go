@@ -23,9 +23,8 @@ import (
 //
 // It matters because the report store is DURABLE: a chat that earned one on a
 // surface whose channel carries usage, and then moved to one that does not,
-// went on serving that same number forever. Measured for codex, whose usage
-// is an app-server notification and appears in no recorded hooks payload —
-// see TestRegression_CodexReportsNoUsageOnItsHooksChannel.
+// went on serving that same number forever: a provider whose usage arrives
+// only on its api channel reports none on its hooks channel.
 //
 // Any resolution failure answers TRUE. This gate exists to hide a number that
 // cannot be true, never to hide one that can: a chat whose descriptor or
@@ -44,7 +43,7 @@ func (rs *Runners) TelemetryOnChatSurface(ctx context.Context, chatID string) bo
 // OWN terminal. It is Crowbar's native-chat affordance, not a provider
 // capability the TUI is missing: on that surface the user types the
 // provider's own gesture themselves, and Crowbar has no business drawing a
-// second control for it. Provider-independent — claude included.
+// second control for it. Provider-independent.
 //
 // No server-side READ counterpart, deliberately: the rule is the SURFACE and
 // nothing else, the client already has it on every chat DTO, and a round trip

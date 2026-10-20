@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -32,6 +32,24 @@ func hook(t *testing.T, f testFixture, runnerID, provider, kind string, payload 
 	f.wait()
 }
 
+// refusedHook is a hook runnerID's descriptor cannot map: the ingress refuses it
+// as unprocessable and records nothing of it but a marker.
+func refusedHook(t *testing.T, f testFixture, runnerID, provider, kind string, payload map[string]any) {
+	t.Helper()
+	err := f.usecase.IngestHook(f.ctx, runnerID, provider, kind, mustJSON(t, payload))
+	require.ErrorIs(t, err, apperr.ErrUnprocessable)
+	f.wait()
+}
+
+// lateHook is a hook from a CLI that is no runner any more (exited, displaced, or
+// its chat purged): the ingress refuses it as unknown and records nothing.
+func lateHook(t *testing.T, f testFixture, runnerID, provider, kind string, payload map[string]any) {
+	t.Helper()
+	err := f.usecase.IngestHook(f.ctx, runnerID, provider, kind, mustJSON(t, payload))
+	require.ErrorIs(t, err, apperr.ErrNotFound)
+	f.wait()
+}
+
 // exchange is a whole turn on runnerID's CLI: the prompt that starts it on the
 // chat's bound session, which makes that session resumable, then the reply.
 func exchange(t *testing.T, f testFixture, runnerID, provider, reply string) {
@@ -40,17 +58,14 @@ func exchange(t *testing.T, f testFixture, runnerID, provider, reply string) {
 	turn(t, f, runnerID, provider, reply)
 }
 
-// hookAPI is hook() delivered on an API-marked ctx — inflight.WithAPITransport,
-// the SAME marker pumpAPIConn's own IngestHook calls carry in production (see
-// ingest.go's channelFor). Use it for a payload shaped the way a provider's
-// api: channel block actually maps it (codex's threadId/item.*/turn.* — see
-// codex.yaml) rather than hook()'s hooks-shaped default; delivering an
-// api-shaped payload through hook() instead resolves against the wrong
-// channel block (or no block at all) and silently drops or misparses it.
+// hookAPI is hook() placed on the api channel, as the runner's api connection
+// places it. Use it for a payload shaped the way a provider's api: channel block
+// maps it (codex's threadId/item.*/turn.* — see codex.yaml); through hook() it
+// resolves against the hooks block and is misparsed or refused.
 func hookAPI(t *testing.T, f testFixture, runnerID, provider, kind string, payload map[string]any) {
 	t.Helper()
-	require.NoError(t, f.usecase.IngestHook(
-		inflight.WithAPITransport(f.ctx), runnerID, provider, kind, mustJSON(t, payload)))
+	_, err := f.usecase.placeHook(f.ctx, engineagents.ChannelAPI, runnerID, provider, kind, mustJSON(t, payload))
+	require.NoError(t, err)
 	f.wait()
 }
 
@@ -227,8 +242,8 @@ func TestObservation_AnonymousSubagentStopsDoNotCreatePhantomRows(t *testing.T) 
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 
-	hook(t, f, runnerID, "claude", engineagents.HookSubagentPost, map[string]any{"agent_type": ""})
-	hook(t, f, runnerID, "claude", engineagents.HookSubagentPost, map[string]any{"agent_type": ""})
+	refusedHook(t, f, runnerID, "claude", engineagents.HookSubagentPost, map[string]any{"agent_type": ""})
+	refusedHook(t, f, runnerID, "claude", engineagents.HookSubagentPost, map[string]any{"agent_type": ""})
 
 	subs, err := f.activity.Subagents(f.ctx, chatID)
 	require.NoError(t, err)
@@ -528,15 +543,13 @@ func TestObservation_SessionEndRecordsNothingOfItsOwn(t *testing.T) {
 	assert.Len(t, after, len(before))
 }
 
-func TestObservation_AnUndeclaredEventIsDroppedNotFailed(t *testing.T) {
+func TestObservation_AnUndeclaredEventIsRefusedNotRecorded(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
 
-	err := f.usecase.IngestHook(f.ctx, runnerID, "codex", engineagents.HookNotification,
-		mustJSON(t, map[string]any{"transcript_path": "/rollouts/x", "message": "hi"}))
-	f.wait()
+	refusedHook(t, f, runnerID, "codex", engineagents.HookNotification,
+		map[string]any{"transcript_path": "/rollouts/x", "message": "hi"})
 
-	require.NoError(t, err)
 	ints, listErr := f.activity.Interruptions(f.ctx, chatID)
 	require.NoError(t, listErr)
 	assert.Empty(t, ints)
@@ -722,7 +735,7 @@ func TestObservation_AToolPreWithNoIDIsRejectedNotRecorded(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 
-	hook(t, f, runnerID, "claude", engineagents.HookToolPre, map[string]any{"tool_name": "Bash"})
+	refusedHook(t, f, runnerID, "claude", engineagents.HookToolPre, map[string]any{"tool_name": "Bash"})
 
 	calls, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
 	require.NoError(t, err)
@@ -767,7 +780,7 @@ func TestObservation_ARecordFailureNeverBreaksTheHook(t *testing.T) {
 	}
 }
 
-func TestObservation_AHookFromARunnerPlacedNowhereIsDropped(t *testing.T) {
+func TestObservation_AHookFromARunnerPlacedNowhereIsRefused(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID))
@@ -775,7 +788,7 @@ func TestObservation_AHookFromARunnerPlacedNowhereIsDropped(t *testing.T) {
 	err := f.usecase.IngestHook(f.ctx, runnerID, "claude", engineagents.HookToolPre,
 		mustJSON(t, map[string]any{"tool_use_id": "t1", "tool_name": "Bash"}))
 
-	assert.NoError(t, err)
+	assert.ErrorIs(t, err, apperr.ErrNotFound)
 }
 
 func TestRegression_ADeadCLIDoesNotLeaveItsToolsRunningForever(t *testing.T) {
@@ -928,79 +941,15 @@ func TestReadToolPayload_RefusesAChatThatDoesNotExist(t *testing.T) {
 
 // ─── from hook_delivery_test.go ───────────────────────────────────────
 
-func TestIngestHookDelivery_DuplicatePOSTMutatesLedgerOnce(t *testing.T) {
-	f := newFixture(t)
-	chatID, runnerID := f.spawn(t, "codex")
-	userDelivery := uuid.NewString()
-	userPayload := mustJSON(t, map[string]any{"prompt": "exactly once"})
-
-	for range 2 {
-		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, userDelivery, runnerID, "codex", "user_prompt", userPayload,
-		))
-	}
-	stopDelivery := uuid.NewString()
-	stopPayload := mustJSON(t, map[string]any{"last_assistant_message": "one reply"})
-	for range 2 {
-		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, stopDelivery, runnerID, "codex", "turn_stop", stopPayload,
-		))
-	}
-	f.wait()
-
-	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
-	require.NoError(t, err)
-	require.Len(t, page.Items, 2)
-	assert.Equal(t, "exactly once", page.Items[0].Text)
-	assert.Equal(t, "one reply", page.Items[1].Text)
-	assert.False(t, f.busy(t, chatID))
-}
-
-func TestIngestHookDelivery_RejectsUUIDReuseWithDifferentPayload(t *testing.T) {
-	f := newFixture(t)
-	_, runnerID := f.spawn(t, "codex")
-	deliveryID := uuid.NewString()
-	require.NoError(t, f.usecase.IngestHookDelivery(
-		f.ctx, deliveryID, runnerID, "codex", "user_prompt",
-		mustJSON(t, map[string]any{"prompt": "first"}),
-	))
-
-	err := f.usecase.IngestHookDelivery(
-		f.ctx, deliveryID, runnerID, "codex", "user_prompt",
-		mustJSON(t, map[string]any{"prompt": "different"}),
-	)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "different payload")
-}
-
-func TestRegression_IngestHookDelivery_ARetriedDeliveryIDRunsItsEffectsOnce(t *testing.T) {
-	f := newFixture(t)
-	chatID, runnerID := f.spawn(t, "claude")
-	deliveryID := uuid.NewString()
-	payload := mustJSON(t, map[string]any{"last_assistant_message": "the reply"})
-
-	for range 3 {
-		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, deliveryID, runnerID, "claude", "turn_stop", payload,
-		))
-	}
-	f.wait()
-
-	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
-	require.NoError(t, err)
-	require.Len(t, turns, 1)
-	assert.Equal(t, "the reply", turns[0].Text)
-}
-
-func TestIngestHookDelivery_DistinctDeliveryIDsAreDistinctTurns(t *testing.T) {
+// Two hooks with the same words are two turns: a hook is never taken for a
+// retry of the last one.
+func TestHook_TwoIdenticalTurnEndsAreTwoTurns(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	payload := mustJSON(t, map[string]any{"last_assistant_message": "same words"})
 
 	for range 2 {
-		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, uuid.NewString(), runnerID, "claude", "turn_stop", payload,
-		))
+		require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop", payload))
 	}
 	f.wait()
 
@@ -1009,25 +958,48 @@ func TestIngestHookDelivery_DistinctDeliveryIDsAreDistinctTurns(t *testing.T) {
 	assert.Len(t, turns, 2)
 }
 
-func TestIngestHookDelivery_RefusesADeliveryIDThatIsNotACanonicalUUID(t *testing.T) {
+// A hook from a runner the daemon does not hold is refused and kept as a dead
+// letter, so a CLI that outlived its runner is visible rather than silent.
+func TestHook_AnUnknownRunnerIsRefusedAndDeadLettered(t *testing.T) {
 	f := newFixture(t)
-	_, runnerID := f.spawn(t, "claude")
 
-	for _, id := range []string{"", "not-a-uuid", "  " + uuid.NewString(), strings.ToUpper(uuid.NewString())} {
-		err := f.usecase.IngestHookDelivery(
-			f.ctx, id, runnerID, "claude", "turn_stop", mustJSON(t, map[string]any{}),
-		)
-		assert.Error(t, err, "delivery id %q", id)
-	}
+	lateHook(t, f, uuid.NewString(), "claude", "session_start", map[string]any{"session_id": "sid-1"})
+
+	assert.Empty(t, f.bc.snapshot())
+	assert.Empty(t, f.runnerKinds(t), "a hook must never resurrect a runner we do not know")
+	count, err := f.usecase.DeadLetterCount(f.ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
 }
 
-func TestIngestHookDelivery_AnUnknownRunnerIsDropped(t *testing.T) {
+// Once the PTY is gone the runner is gone, and a late hook from it changes
+// nothing. (Liveness has exactly one source: the process.)
+func TestHook_AnExitedRunnersHookIsRefused(t *testing.T) {
 	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
+	f.wait()
+	f.bc.reset()
 
-	err := f.usecase.IngestHookDelivery(f.ctx, uuid.NewString(), uuid.NewString(),
-		"claude", "turn_stop", mustJSON(t, map[string]any{"last_assistant_message": "x"}))
+	lateHook(t, f, runnerID, "claude", "user_prompt", map[string]any{"prompt": "a ghost speaks"})
 
-	assert.NoError(t, err)
+	assert.Empty(t, f.bcKinds(t))
+	handoff, err := f.usecase.AssembleHandoff(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.Empty(t, handoff, "a dead runner's hook must not write to the ledger")
+}
+
+// An event the descriptor does not declare is refused, and the chat's transcript
+// marks where it was lost.
+func TestHook_AnUnmappedEventIsRefusedWithAMarker(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+
+	refusedHook(t, f, runnerID, "claude", "not_a_real_hook", map[string]any{})
+
+	markers := f.markers(t, chatID)
+	require.Len(t, markers, 1)
+	assert.True(t, strings.HasPrefix(markers[0], ledger.MarkerDeadLetter+":not_a_real_hook: "), markers[0])
 }
 
 // ─── from turn_stall_test.go ──────────────────────────────────────────
@@ -1520,11 +1492,9 @@ func TestObservation_ACodexChatObservesNoNotification(t *testing.T) {
 	chatID, runnerID := f.spawn(t, "codex")
 	hook(t, f, runnerID, "codex", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
 
-	err := f.usecase.IngestHook(f.ctx, runnerID, "codex", engineagents.HookNotification,
-		mustJSON(t, map[string]any{"message": "needs your attention"}))
-	f.wait()
+	refusedHook(t, f, runnerID, "codex", engineagents.HookNotification,
+		map[string]any{"message": "needs your attention"})
 
-	require.NoError(t, err, "an unmapped kind is dropped, never failed")
 	assert.Empty(t, pendingChoices(t, f, chatID))
 	interruptions, listErr := f.activity.Interruptions(f.ctx, chatID)
 	require.NoError(t, listErr)
@@ -2023,12 +1993,13 @@ func TestRegression_InterruptedTurnGraduallyFinishingIsNotMisattributedToTheNext
 	f.wait()
 
 	// Claude's text — still gracefully finishing — arrives LATE, after Codex
-	// has already closed its own turn on the same chat.
-	require.NoError(t, f.usecase.IngestHook(f.ctx, claudeRunnerID, "claude", "turn_stop",
+	// has already closed its own turn on the same chat: its runner is gone.
+	err = f.usecase.IngestHook(f.ctx, claudeRunnerID, "claude", "turn_stop",
 		mustJSON(t, map[string]any{
 			"session_id":             "s1",
 			"last_assistant_message": "Valve Software: The Reluctant Giant",
-		})))
+		}))
+	require.ErrorIs(t, err, apperr.ErrNotFound)
 	f.wait()
 
 	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)

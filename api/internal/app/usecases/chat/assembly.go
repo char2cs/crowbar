@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"time"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
@@ -10,11 +9,11 @@ import (
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/conversation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/defaultlevel"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/manifestfetch"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/provider"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
@@ -28,9 +27,9 @@ import (
 // and writes, the engine it resolves providers through, the seams onto the rest
 // of the daemon, and the agent-facing tool surface.
 //
-// What is NOT here is any of the shared in-flight state — the gates, the hook
-// barrier. New builds those, and a caller must not be able to supply them: a
-// second instance of any one doubles a CLI in production.
+// What is NOT here is any of the shared in-flight state — the chat locks, the
+// answer desk. New builds those, and a caller must not be able to supply them:
+// a second instance of either doubles a CLI in production.
 type Deps struct {
 	Chats    agentchat.EventStore
 	Activity agentactivity.EventStore
@@ -90,9 +89,6 @@ type Deps struct {
 	// to the fanout. Nil builds a private one (tests), fed by nothing until a
 	// test wires the fanout over Snapshots().
 	Snapshots *snapshot.Snapshots
-	// MessageAwaitTimeout bounds how long a turn's end waits for a message
-	// still streaming; zero is the default.
-	MessageAwaitTimeout time.Duration
 	// AgentWorking is told when a chat's busy answer flips, for its
 	// workspace's working overlay.
 	AgentWorking func(ctx context.Context, wsID, chatID string, working bool)
@@ -111,14 +107,10 @@ type Deps struct {
 // every process it could have been describing.
 type shared struct {
 	telemetry *telemetry.Store
-	// spawns serialises the USER-INITIATED spawn paths per chat. It is the only
-	// thing that can stop two concurrent switches putting two CLIs on one chat, and
-	// it is NEVER taken on the hook path.
-	spawns *inflight.Gate
-	// pendingHooks is the fork-before-runner-persistence barrier: the spawn path
-	// installs it before the fork and finishes it once the runner row exists, and
-	// the ingest path buffers into it meanwhile.
-	pendingHooks *inflight.Hooks
+	// locks is one lock per chat: every hook of the chat records under it, and
+	// every user-initiated path decides under it. It is the only thing that can
+	// stop two concurrent switches putting two CLIs on one chat.
+	locks *ingress.Locks
 	// answers is the desk of relays parked on a human decision.
 	answers *answerdesk.Desk
 }
@@ -130,9 +122,8 @@ func New(d Deps) *Usecase {
 	// justification as the other startup-only Background() reads in this
 	// codebase (e.g. container.go's sweepTargets).
 	sh := shared{
-		telemetry:    telemetry.NewDurable(context.Background(), d.ChatTelemetry),
-		spawns:       inflight.NewGate(),
-		pendingHooks: inflight.NewHooks(),
+		telemetry: telemetry.NewDurable(context.Background(), d.ChatTelemetry),
+		locks:     ingress.NewLocks(),
 		answers: answerdesk.New(
 			answerdesk.DefaultRetention, d.Activity, answerdesk.WithChange(d.ChoiceWatch.Notify),
 		),
@@ -148,6 +139,7 @@ func New(d Deps) *Usecase {
 		folders:   d.Folders,
 		nodes:     d.Nodes,
 		repoRoots: d.RepoRoots,
+		ledger:    d.Ledger,
 	}
 	// The tool surface's self-ports, filled in here because the usecase does
 	// not exist when the caller builds the Deps.
@@ -223,23 +215,20 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Lineage:   d.Lineage,
 		Home:      d.Home,
 		Ledger:    d.Ledger,
-		Spawns:    sh.spawns,
 
 		DefaultPermissionLevel: u.DefaultPermissionLevel,
 	})
 	u.turns = turn.New(turn.Deps{
-		Chats:        d.Chats,
-		Activity:     d.Activity,
-		Telemetry:    sh.telemetry,
-		Agents:       d.Agents,
-		Workspace:    d.Workspace,
-		Home:         d.Home,
-		Ledger:       d.Ledger,
-		PendingHooks: sh.pendingHooks,
-		Answers:      sh.answers,
+		Chats:     d.Chats,
+		Activity:  d.Activity,
+		Telemetry: sh.telemetry,
+		Agents:    d.Agents,
+		Workspace: d.Workspace,
+		Home:      d.Home,
+		Ledger:    d.Ledger,
+		Answers:   sh.answers,
 
-		Conversations:       u.conversations,
-		MessageAwaitTimeout: d.MessageAwaitTimeout,
+		Conversations: u.conversations,
 	})
 	d.ChoiceWatch.bind(u.turns.PublishChoices)
 	u.runners = runner.New(runner.Deps{
@@ -251,13 +240,15 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		AncestorCwd:   cwdResolver{chats: d.Chats, folders: d.Folders, nodes: d.Nodes, roots: d.RepoRoots},
 		Ledger:        d.Ledger,
 		DaemonSocket:  d.DaemonSocket,
-		Spawns:        sh.spawns,
-		PendingHooks:  sh.pendingHooks,
+		ChatLock:      sh.locks,
 		Minter:        d.Minter,
 		Answers:       sh.answers,
 		Conversations: u.conversations,
 		Providers:     u.providers,
 		Snapshots:     u.snapshots,
+	})
+	u.ingress = ingress.New(ingress.Deps{
+		Runners: u.runners, Descriptors: u.turns, Turns: u.turns, Ledger: d.Ledger, Locks: sh.locks,
 	})
 	// The edges that can only close once both sides exist: a purge retires the
 	// CLI on the chat (and a failed spawn discards the chat it minted), a hook
@@ -265,7 +256,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	// reads screens through the hook ingress's own classifiers.
 	u.conversations.SetRunners(u.runners)
 	u.turns.SetRunners(u.runners)
-	u.runners.SetTurns(u.turns)
+	u.runners.SetTurns(runnerTurns{Turns: u.turns, ingress: u.ingress})
 	// Subscribers run under the chat's ledger writer: they read snapshots only
 	// through Held, which never reads the ledger.
 	d.Ledger.Subscribe(func(chatID string, rows []ledger.Row, st ledger.State) {
@@ -276,6 +267,20 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		}
 	})
 	d.Ledger.Subscribe(u.publishLedgerRows)
+}
+
+// runnerTurns is the hook side as the runner lifecycle sees it: the turns, and
+// the ingress its api connections place their events through.
+type runnerTurns struct {
+	*turn.Turns
+	ingress *ingress.Ingress
+}
+
+// Hook places one event an api connection resolved, and returns the ask its
+// answer is held on.
+func (t runnerTurns) Hook(ctx context.Context, runnerID, provider, event string, raw []byte) (string, error) {
+	reply, err := t.ingress.Hook(ctx, runnerID, provider, event, raw, engineagents.ChannelAPI)
+	return reply.Ask, err
 }
 
 // turnKind is the chat frame kind the batch's last row that moved the chat's

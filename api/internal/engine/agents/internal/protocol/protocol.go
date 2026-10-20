@@ -35,6 +35,7 @@ var (
 	ErrInvalidDescriptor    = descriptor.ErrInvalid
 	ErrUndeclaredEvent      = inbound.ErrUndeclaredEvent
 	ErrForeignPayload       = inbound.ErrForeignConversation
+	ErrVariantMismatch      = inbound.ErrVariantMismatch
 	ErrRequiredFieldMissing = inbound.ErrRequiredFieldMissing
 	ErrUnsupportedFormat    = inbound.ErrUnsupportedFormat
 	ErrNotAnswerable        = answer.ErrNotAnswerable

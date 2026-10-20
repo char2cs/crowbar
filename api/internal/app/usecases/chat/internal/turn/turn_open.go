@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/promptsigil"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -77,7 +76,7 @@ func (t *Turns) openTurnFromPrompt(
 	// Crowbar spawned, so the only thing left to classify here is content.
 	//
 	// Crowbar's own context document coming back at us: a provider whose only
-	// resume channel is a user message (codex) fires user_prompt with the very
+	// resume channel is a user message fires user_prompt with the very
 	// handoff we injected — or, whenever a switch resumed an already-turned
 	// session while ALSO delivering a real prompt, with that handoff merged
 	// directly ahead of the real message in the SAME positional argv token
@@ -133,7 +132,7 @@ func (t *Turns) openTurnFromPrompt(
 			return err
 		}
 		appendErr := t.conversations.AppendRunnerTurn(
-			ctx, chat, runner.ProviderID, runner.ID, t.boundSession(ctx, chat.ID, runner.ProviderID),
+			ctx, chat, "", runner.ProviderID, runner.ID, t.boundSession(ctx, chat.ID, runner.ProviderID),
 			domain.TurnRoleHarness, ev.Message,
 		)
 		t.openAssistantTurn(ctx, chat, runner)
@@ -185,12 +184,8 @@ func (t *Turns) recordUserTurn(
 	requestID, acceptErr := t.acceptPrompt(ctx, h, agent, ev.TurnID, userText)
 	// Named by its request, the row is how the client that queued this prompt
 	// recognises it.
-	userCtx := ctx
-	if requestID != "" {
-		userCtx = inflight.WithRecordID(ctx, requestID)
-	}
 	appendErr := t.conversations.AppendRunnerTurn(
-		userCtx, chat, runner.ProviderID, runner.ID, t.boundSession(ctx, chat.ID, runner.ProviderID),
+		ctx, chat, requestID, runner.ProviderID, runner.ID, t.boundSession(ctx, chat.ID, runner.ProviderID),
 		domain.TurnRoleUser, userText,
 	)
 	// The reply this prompt is about to produce, opened NOW so the tool calls,

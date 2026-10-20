@@ -115,15 +115,12 @@ var ErrTurnInProgress = fmt.Errorf("agent: provider cannot hand a live turn to i
 //
 // A dormant chat only records the move; its next start lands there.
 func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string, error) {
-	park, release, err := rs.spawns.Acquire(ctx, chatID)
-	if err != nil {
-		return "", err
-	}
-	defer release()
+	h := rs.acquire(ctx, chatID)
+	defer h.release()
 
-	live, ok, err := rs.awaitDormant(park, chatID)
+	live, ok, err := rs.settledRunner(h)
 	if err != nil {
-		return "", parkErr(park, fmt.Errorf("agent: switch to terminal: %w", err))
+		return "", fmt.Errorf("agent: switch to terminal: %w", err)
 	}
 	if !ok {
 		return "", rs.moveDormantSurface(ctx, chatID, engineagents.SurfaceTerminal)
@@ -157,7 +154,7 @@ func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string,
 	if !conn.agent.SurfaceStartHere(engineagents.SurfaceTerminal) {
 		return "", ErrNoNativeTerminal
 	}
-	return rs.respawnOnSurface(ctx, park, chatID, live.ProviderID, engineagents.SurfaceTerminal)
+	return rs.respawnOnSurface(ctx, h, chatID, live.ProviderID, engineagents.SurfaceTerminal)
 }
 
 // attachPlan is an api runner's native view: the chat's bound session resumed
@@ -214,13 +211,13 @@ func (rs *Runners) attachNativeView(
 // (switchProviderLocked to the same provider), resuming the chat's bound
 // session. The surface is recorded first because the spawn reads it.
 func (rs *Runners) respawnOnSurface(
-	ctx, park context.Context, chatID, providerID, surface string,
+	ctx context.Context, h *hold, chatID, providerID, surface string,
 ) (string, error) {
 	defer rs.enterPhase(ctx, chatID, snapshot.PhaseSwitching)()
 	if _, err := rs.chats.SetSurface(ctx, chatID, surface); err != nil {
 		return "", fmt.Errorf("agent: move chat to %s: record surface: %w", surface, err)
 	}
-	runnerID, err := rs.switchProviderLocked(ctx, park, chatID, providerID)
+	runnerID, err := rs.switchProviderLocked(ctx, h, chatID, providerID)
 	if err != nil {
 		return "", err
 	}
@@ -266,15 +263,12 @@ func (rs *Runners) moveSurface(ctx context.Context, chatID, runnerID, surface st
 // on the chat surface on the chat's session. A dormant chat only records the
 // move. Idempotent.
 func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
-	park, release, err := rs.spawns.Acquire(ctx, chatID)
-	if err != nil {
-		return err
-	}
-	defer release()
+	h := rs.acquire(ctx, chatID)
+	defer h.release()
 
-	live, ok, err := rs.awaitDormant(park, chatID)
+	live, ok, err := rs.settledRunner(h)
 	if err != nil {
-		return parkErr(park, fmt.Errorf("agent: switch to native: %w", err))
+		return fmt.Errorf("agent: switch to native: %w", err)
 	}
 	if !ok {
 		return rs.moveDormantSurface(ctx, chatID, engineagents.SurfaceChat)
@@ -298,10 +292,9 @@ func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
 		return ErrTurnInProgress
 	}
 	if attachedView {
-		rs.detachNativeView(ctx, chatID, live, view)
-		return nil
+		return rs.detachNativeView(ctx, h, live, view)
 	}
-	_, err = rs.respawnOnSurface(ctx, park, chatID, live.ProviderID, engineagents.SurfaceChat)
+	_, err = rs.respawnOnSurface(ctx, h, chatID, live.ProviderID, engineagents.SurfaceChat)
 	return err
 }
 
@@ -321,31 +314,41 @@ func (rs *Runners) moveSharedProcessSurface(
 	return true, nil
 }
 
-// detachNativeView reverses attachNativeView: the view's PTY is torn down and
-// the api connection re-established over the same session (EstablishSession
-// resumes a known session id).
+// detachNativeView reverses attachNativeView: the view's PTY is torn down, its
+// exit waited for outside the chat's lock, and the api connection re-established
+// over the same session (EstablishSession resumes a known session id).
 func (rs *Runners) detachNativeView(
-	ctx context.Context, chatID string, live engineagents.Runner, view attachedView,
-) {
+	ctx context.Context, h *hold, live engineagents.Runner, view attachedView,
+) error {
+	chatID := live.CurrentChatID
 	rs.attached.drop(live.ID)
 	rs.touch(ctx, chatID)
 
-	if err := rs.term.TerminateGraceful(ctx, view.termSessID); err != nil &&
-		!errors.Is(err, engineterminal.ErrSessionNotFound) {
-		slog.WarnContext(ctx, "agent: switch to native: terminate native view (best-effort, continuing)",
-			"runner_id", live.ID, "terminal_session_id", view.termSessID, "err", err)
+	if err := h.outside(func(context.Context) error {
+		err := rs.term.TerminateGraceful(ctx, view.termSessID)
+		if err != nil && !errors.Is(err, engineterminal.ErrSessionNotFound) {
+			slog.WarnContext(ctx, "agent: switch to native: terminate native view (best-effort, continuing)",
+				"runner_id", live.ID, "terminal_session_id", view.termSessID, "err", err)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if current, ok := rs.live.unending(live.ID); !ok || current.CurrentChatID != chatID {
+		return nil // ended while the view went down: nothing is left to re-establish
 	}
 	// No resume context: this switches views on one live session; the spawn's
 	// original context would only be replayed on every toggle.
 	_ = rs.applyAPITransport(ctx, live.ID, live.ProviderID, view.agent, view.tctx, "")
 	// A runner without a PTY of its own has just swapped processes again: the
 	// re-established connection is its process, and if none came back it has
-	// none. Still under the spawn gate, so the view's exit callback cannot race.
-	//nolint:contextcheck // the exit outlives the request; its values (gate holds, delivery ids) must not reach it.
+	// none.
+	//nolint:contextcheck // the exit outlives the request; its values must not reach it.
 	if live.TerminalSession == "" && !rs.watchAPIConnExit(live.ID, view.tctx.CrowbarHome, view.tctx.Tmp) {
 		rs.exitProcesslessRunner(ctx, live.ID)
 	}
 	rs.moveSurface(ctx, chatID, live.ID, engineagents.SurfaceChat)
+	return nil
 }
 
 // onAttachExit runs when the native-view PTY exits on its own — the user
@@ -355,9 +358,7 @@ func (rs *Runners) detachNativeView(
 // connection.
 //
 // Off the caller: the terminal engine runs this inside TerminateGraceful, and
-// every deliberate teardown (SwitchToNative, Stop, retire) calls that while
-// holding the chat's spawn gate — taking the gate here, in line, deadlocked
-// the chat for good.
+// a deliberate teardown may hold the chat's lock while it calls that.
 func (rs *Runners) onAttachExit(chatID, runnerID string) func(engineterminal.Exit) {
 	return func(engineterminal.Exit) {
 		rs.background.run(context.Background(), func(ctx context.Context) {
@@ -368,16 +369,13 @@ func (rs *Runners) onAttachExit(chatID, runnerID string) func(engineterminal.Exi
 				}
 				return // SwitchToNative already settled what this runner is now
 			}
-			// Torn down deliberately by something that replaces it with NOTHING —
-			// retire, or a provider switch. For a runner with no PTY of its own
-			// this view was its last process, and nothing else would ever carry
-			// its row away.
-			_, release, err := rs.spawns.Acquire(ctx, chatID)
-			if err != nil {
-				return
+			// Torn down deliberately by an end (retire, a provider switch), which
+			// marks the runner ending first: for a runner with no PTY of its own
+			// this view was its last process. A detach marks nothing; it re-establishes.
+			defer rs.chatLock.Lock(chatID)()
+			if _, unended := rs.live.unending(runnerID); !unended {
+				rs.exitProcesslessRunner(ctx, runnerID)
 			}
-			defer release()
-			rs.exitProcesslessRunner(ctx, runnerID)
 		})
 	}
 }

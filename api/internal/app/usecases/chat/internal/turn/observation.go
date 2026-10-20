@@ -6,23 +6,26 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
+// handleObservation records what happened inside a turn, and returns the ask
+// a permission or elicitation was held on, if one was.
 func (t *Turns) handleObservation(
 	ctx context.Context,
 	runner engineagents.Runner,
 	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
 	raw []byte,
-) error {
-	chat, ok, err := t.chatForRunner(ctx, runner)
-	if err != nil || !ok {
-		return err
+) (string, error) {
+	chat, err := t.chatForRunner(ctx, runner)
+	if err != nil {
+		return "", err
 	}
 	now := time.Now()
 
@@ -86,25 +89,20 @@ func (t *Turns) handleObservation(
 			t.activity.StopSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, "", now))
 	case engineagents.HookNotification, engineagents.HookPermission,
 		engineagents.HookElicitation:
-		t.raiseAsk(ctx, chat, runner, agent, ev, raw, now)
+		return t.raiseAsk(ctx, chat, runner, agent, ev, raw, now), nil
 	case engineagents.HookCompactPre:
-		// Arm BEFORE anything else below: codex's own compact_start round trip
-		// (api transport) wraps its contextCompaction item/started..completed in
-		// a turn/started..completed pair too, riding the exact wire event
-		// turn_stop/turn_failed already consume unconditionally — see
-		// compaction.go. A hooks-transport compact_pre (claude has none today;
-		// a codex TUI does) maps no turn_id, so this
-		// is a no-op for it.
+		// Armed first: a compaction's own turn envelope can ride the same
+		// events turn_stop/turn_failed consume (compaction.go). A compact_pre
+		// that maps no turn_id arms nothing.
 		t.armCompaction(ctx, chat.ID, ev.TurnID)
-		// codex reports no trigger at all, so fall back to Crowbar's own
-		// record of having just asked for this — never overrides a provider
-		// (claude) that DOES report one. See manualCompact.peek's own doc.
+		// A provider that reports no trigger falls back to Crowbar's own record
+		// of having asked for this; one that reports it is never overridden.
 		detail := ev.Interrupt.Detail
 		if detail == "" && t.manualCompact.peek(chat.ID) {
 			detail = "manual"
 		}
 		note(ctx, "interrupted", t.activity.Interrupt(
-			ctx, chat.ID, interruptionID(ctx, chat.ID, ev), ev.Interrupt.Kind, detail, now,
+			ctx, chat.ID, interruptionID(chat.ID, ev), ev.Interrupt.Kind, detail, now,
 		))
 		// Neither ever confirms via a user_prompt hook, so no turn is ever open
 		// when this fires — Interrupt's own idle-chat handling (commands/
@@ -134,7 +132,7 @@ func (t *Turns) handleObservation(
 			detail = "manual"
 		}
 		note(ctx, "interruption resolved", t.activity.ResolveInterruption(
-			ctx, chat.ID, interruptionID(ctx, chat.ID, ev), ev.Interrupt.Kind, detail, now,
+			ctx, chat.ID, interruptionID(chat.ID, ev), ev.Interrupt.Kind, detail, now,
 		))
 		// Settled already by compact_pre in the ordinary (idle-chat) case —
 		// this is the defensive twin for the day compaction happens mid-turn
@@ -144,7 +142,7 @@ func (t *Turns) handleObservation(
 			t.feed.Compaction(chat.ID, chat.WorkspaceID, false)
 		}
 	}
-	return nil
+	return "", nil
 }
 
 func toolLocations(ev engineagents.CanonicalEvent) []domain.ActivityToolLocation {
@@ -158,20 +156,13 @@ func toolLocations(ev engineagents.CanonicalEvent) []domain.ActivityToolLocation
 	return out
 }
 
-// choiceID falls back to inflight.RecordID, not fallbackID, when the
-// provider gives no PromptID to build promptCorrelationKey from (codex's own
-// permission payload never does — see vocabulary.yaml's `permission` entry).
-// RecordID keys on the SAME hook delivery id the answer-relay itself
-// correlates by, so a redelivered ask (a dropped connection retried, a
-// buffered hook replayed) mints the identical choiceID both times instead of
-// a fresh one nobody can ever resolve against — the same idempotency
-// RecordID already gives every durable turn/message record for the same
-// reason (see inflight.RecordID's own doc).
-func choiceID(ctx context.Context, chatID string, prompt *engineagents.ChoicePrompt) string {
+// choiceID is the id a choice is opened and its ask held under: derived from
+// the provider's own prompt id when it gives one, fresh otherwise.
+func choiceID(chatID string, prompt *engineagents.ChoicePrompt) string {
 	if key := promptCorrelationKey(chatID, prompt); key != "" {
 		return "choice-" + key
 	}
-	return "choice-" + inflight.RecordID(ctx)
+	return "choice-" + uuid.NewString()
 }
 
 // promptCorrelationKey is the "chatID-promptID-toolName" suffix choiceID and
@@ -260,16 +251,10 @@ func subagentID(ev engineagents.CanonicalEvent) string {
 // agent it spawned or is addressing). A no-op for every ordinary tool call,
 // which maps no such field.
 //
-// EVER RECORDED, not "open right now". A provider names the same child on every
-// collab call it makes about it, not just the spawn — codex's `wait` completes
-// BECAUSE the child finished and still carries that child in
-// receiverThreadIds[0] (codex.yaml maps it to nested_session_id on tool_post,
-// which is the only form that carries it at all). Asking "is it open" let a
-// child that had just stopped answer false and be opened again, and SaveSubagent
-// upserts, so ended_at went back to NULL and the row read as live work forever. Measured live on chat a37942f9 (2026-09-23): three children, each
-// stopped and then re-opened within 4ms, chat Working with every turn closed and
-// no tool running. See
-// TestRegression_ANestedSubagentIsNeverReopenedAfterItStopped.
+// EVER RECORDED, not "open right now": a provider names the same child on every
+// call it makes about it, including the one that completes because the child
+// finished. Reopening it would read a stopped child as live work forever
+// (TestRegression_ANestedSubagentIsNeverReopenedAfterItStopped).
 //
 // OpenNestedSubagent, not StartSubagent: Go never learns why a tool call
 // named this id, only that one did, but StartSubagent's own ensureTurn is
@@ -298,19 +283,10 @@ func (t *Turns) openNestedSubagent(
 		t.activity.OpenNestedSubagent(ctx, chatID, ev.Tool.NestedSessionID, now))
 }
 
-// interruptionID falls back to inflight.RecordID for the same redelivery
-// reason choiceID does — see that function's own doc.
-//
-// Compaction is keyed by ev.TurnID, not just chatID+kind: codex's compact_pre
-// (item/started) and compact_post (item/completed) both map turn_id from the
-// SAME wrapping turn/started..turn/completed envelope (codex.yaml), so a pair
-// still agrees on one id and compact_post still resolves what compact_pre
-// opened. Without the turn id, every compaction a chat ever has shared the
-// identical row key and each new one silently overwrote the last one's
-// transcript position and manual/automatic label — confirmed live. claude's
-// own PreCompact/PostCompact map no turn_id at all (claude.yaml), so this
-// falls back to the old fixed shape for it, unchanged.
-func interruptionID(ctx context.Context, chatID string, ev engineagents.CanonicalEvent) string {
+// interruptionID is the id an interruption is opened under. A compaction is
+// keyed by its turn id when the descriptor maps one, so compact_pre and
+// compact_post agree on one row and a later compaction never overwrites it.
+func interruptionID(chatID string, ev engineagents.CanonicalEvent) string {
 	kind := ""
 	if ev.Interrupt != nil {
 		kind = ev.Interrupt.Kind
@@ -326,7 +302,7 @@ func interruptionID(ctx context.Context, chatID string, ev engineagents.Canonica
 			return "interrupt-" + key
 		}
 	}
-	return "interrupt-" + inflight.RecordID(ctx)
+	return "interrupt-" + uuid.NewString()
 }
 
 var (
@@ -355,15 +331,13 @@ func itoa(v int64) string {
 	return string(buf[i:])
 }
 
-// holdForAnswer parks the hook relay carrying this prompt on the answer desk, so
-// Crowbar's UI can decide it for the person instead of leaving them to the
-// provider's own terminal prompt.
+// holdForAnswer parks this prompt on the answer desk under choiceID, so
+// Crowbar's UI can decide it for the person, and returns the ask its sender's
+// answer is held on.
 //
-// It is silent — not an error — for every reason a prompt may be unanswerable
-// from Crowbar: an un-journalled ingress has no relay to park, a provider that
-// declares no answer format for the event cannot be answered at all, and a
-// payload too large to hold is left to the provider. In each case the CLI's own
-// UI still works.
+// It is silent — "" and no error — for every reason a prompt may be
+// unanswerable from Crowbar: a provider that declares no answer format for the
+// event, or a payload too large to hold, is left to the CLI's own UI.
 func (t *Turns) holdForAnswer(
 	ctx context.Context,
 	chat domain.Chat,
@@ -372,32 +346,26 @@ func (t *Turns) holdForAnswer(
 	ev engineagents.CanonicalEvent,
 	choiceID string,
 	raw []byte,
-) {
-	deliveryID := inflight.DeliveryID(ctx)
-	if deliveryID == "" || choiceID == "" {
-		return
+) string {
+	if choiceID == "" {
+		return ""
 	}
-	// Handed over to the provider's own view: the relay IS the CLI's gate, and
-	// holding it keeps the CLI from drawing the prompt on the surface the user
-	// is actually looking at. Measured live on codex — the TUI sat on "Action
-	// Required" with nothing on screen for the whole 270s budget, and the card
-	// that holds the question renders only on the chat surface, which a
-	// non-hotswap provider cannot reach mid-turn. Not parking is not refusing to
-	// answer: the relay exits with no decision, exactly as an expired budget
-	// already leaves it, and the CLI asks in its own UI.
+	// Handed over to the provider's own view: holding the relay keeps the CLI
+	// from drawing the prompt on the surface the user is looking at, and the
+	// card that answers it renders only on the chat surface.
 	if t.runners.ShowingNativeView(runner.ID) {
-		return
+		return ""
 	}
 	capability, answerable := agent.AnswerCapability(ev.Kind)
 	if !answerable {
-		return
+		return ""
 	}
 	if len(raw) > answerdesk.MaxPayloadBytes {
 		slog.DebugContext(ctx, "agent: answer: prompt payload too large to answer",
 			"chat_id", chat.ID, "event", ev.Kind, "bytes", len(raw))
-		return
+		return ""
 	}
-	t.answers.Hold(deliveryID, answerdesk.Prompt{
+	t.answers.Hold(answerdesk.Prompt{
 		ChoiceID: choiceID,
 		ChatID:   chat.ID,
 		RunnerID: runner.ID,
@@ -405,4 +373,5 @@ func (t *Turns) holdForAnswer(
 		Raw:      append([]byte(nil), raw...),
 		Keys:     capability,
 	})
+	return choiceID
 }

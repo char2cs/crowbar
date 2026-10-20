@@ -84,13 +84,11 @@ func Wait(declared time.Duration) time.Duration {
 	}
 }
 
-// Desk holds every relay parked on a decision, indexed both ways: by the delivery
-// that is blocked (so the relay can find its own verdict) and by the choice the
-// user sees (so the UI can answer it).
+// Desk holds every relay parked on a decision, by the id of the ask it is
+// parked on: the relay finds its verdict by it, and the UI answers it by it.
 type Desk struct {
-	mu         sync.Mutex
-	byChoice   map[string]*Slot
-	byDelivery map[string]*Slot
+	mu    sync.Mutex
+	slots map[string]*Slot
 
 	retention time.Duration
 	ledger    Ledger
@@ -113,10 +111,9 @@ func WithChange(changed func(chatID string)) Option {
 // records nothing, which is what a test that only exercises the desk wants.
 func New(retention time.Duration, ledger Ledger, opts ...Option) *Desk {
 	d := &Desk{
-		byChoice:   map[string]*Slot{},
-		byDelivery: map[string]*Slot{},
-		retention:  retention,
-		ledger:     ledger,
+		slots:     map[string]*Slot{},
+		retention: retention,
+		ledger:    ledger,
 	}
 	for _, opt := range opts {
 		opt(d)
@@ -130,49 +127,42 @@ func (d *Desk) announce(chatID string) {
 	}
 }
 
-// Hold parks a relay on a prompt and returns the slot now holding it.
-//
-// A retried delivery gets the slot it already had. A prompt re-asked under a NEW
-// delivery displaces the relay already holding it — that relay is released
-// unanswered, because the CLI has plainly stopped waiting on it.
-func (d *Desk) Hold(deliveryID string, prompt Prompt) *Slot {
+// Hold parks a relay on prompt, keyed by its ask id, and returns the slot now
+// holding it. A prompt asked again displaces the relay already holding it,
+// which is released unanswered: the CLI has plainly stopped waiting on it.
+func (d *Desk) Hold(prompt Prompt) *Slot {
 	slot := &Slot{Prompt: prompt, done: make(chan struct{})}
 
 	defer d.announce(prompt.ChatID)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.dropExpiredLocked()
-	if existing, held := d.byDelivery[deliveryID]; held {
-		return existing
-	}
-	if stale, held := d.byChoice[prompt.ChoiceID]; held {
+	if stale, held := d.slots[prompt.ChoiceID]; held {
 		d.forgetLocked(stale)
 		stale.settle(nil)
 	}
-	d.byDelivery[deliveryID] = slot
-	d.byChoice[prompt.ChoiceID] = slot
+	d.slots[prompt.ChoiceID] = slot
 	return slot
 }
 
-// Pending reports the prompt a delivery is parked on and how long its relay may
+// Pending reports the prompt askID is parked on and how long its relay may
 // wait.
-func (d *Desk) Pending(deliveryID string) (PendingAnswer, bool) {
-	slot, held := d.byDeliveryID(deliveryID)
+func (d *Desk) Pending(askID string) (PendingAnswer, bool) {
+	slot, held := d.held(askID)
 	if !held {
 		return PendingAnswer{}, false
 	}
 	return PendingAnswer{ChoiceID: slot.ChoiceID, Wait: Wait(slot.Keys.Wait)}, true
 }
 
-// Await blocks the relay of deliveryID until a person answers, its declared
+// Await blocks the relay held on askID until a person answers, its declared
 // budget expires, or ctx is cancelled. It returns the stdout the relay must
 // print — empty when nobody answered in time.
 //
-// A verdict is claimed by EXACTLY ONE relay: a retried delivery arriving after
-// the answer was claimed gets nothing rather than replaying it into a CLI that
-// has already acted on it.
-func (d *Desk) Await(ctx context.Context, deliveryID string) (HookAnswer, error) {
-	slot, held := d.byDeliveryID(deliveryID)
+// A verdict is claimed by EXACTLY ONE relay: one arriving after the answer was
+// claimed gets nothing rather than replaying it into a CLI that already acted.
+func (d *Desk) Await(ctx context.Context, askID string) (HookAnswer, error) {
+	slot, held := d.held(askID)
 	if !held {
 		return HookAnswer{}, nil
 	}
@@ -212,19 +202,23 @@ func (d *Desk) AnswerableIDs(chatID string, choices []domain.ActivityChoice) []s
 	return out
 }
 
-// ByChoiceID returns the relay holding a choice open, if one still is.
+// ByChoiceID returns the relay holding a choice open, while it is undecided.
 func (d *Desk) ByChoiceID(choiceID string) (*Slot, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	slot, ok := d.byChoice[choiceID]
-	return slot, ok
+	slot, ok := d.slots[choiceID]
+	if !ok || !slot.decidedAt.IsZero() {
+		return nil, false
+	}
+	return slot, true
 }
 
-func (d *Desk) byDeliveryID(deliveryID string) (*Slot, bool) {
+// held is the slot askID is parked on, decided or not.
+func (d *Desk) held(askID string) (*Slot, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.dropExpiredLocked()
-	slot, ok := d.byDelivery[deliveryID]
+	slot, ok := d.slots[askID]
 	return slot, ok
 }
 
@@ -235,11 +229,8 @@ func (d *Desk) Resolve(slot *Slot, stdout []byte) {
 	defer d.announce(slot.ChatID)
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if slot.spent {
+	if slot.spent || !slot.decidedAt.IsZero() {
 		return
-	}
-	if held, ok := d.byChoice[slot.ChoiceID]; ok && held == slot {
-		delete(d.byChoice, slot.ChoiceID)
 	}
 	slot.decidedAt = time.Now()
 	slot.reap = time.AfterFunc(d.retention, d.dropExpired)
@@ -365,13 +356,8 @@ func (d *Desk) claimableLocked(slot *Slot) bool {
 }
 
 func (d *Desk) forgetLocked(slot *Slot) {
-	for id, held := range d.byDelivery {
-		if held == slot {
-			delete(d.byDelivery, id)
-		}
-	}
-	if held, ok := d.byChoice[slot.ChoiceID]; ok && held == slot {
-		delete(d.byChoice, slot.ChoiceID)
+	if held, ok := d.slots[slot.ChoiceID]; ok && held == slot {
+		delete(d.slots, slot.ChoiceID)
 	}
 	slot.spent = true
 	if slot.reap != nil {
@@ -381,45 +367,33 @@ func (d *Desk) forgetLocked(slot *Slot) {
 }
 
 func (d *Desk) dropExpiredLocked() {
-	var stale []*Slot
-	for _, slot := range d.byDelivery {
+	for _, slot := range d.slots {
 		if !slot.decidedAt.IsZero() && time.Since(slot.decidedAt) >= d.retention {
-			stale = append(stale, slot)
+			d.forgetLocked(slot)
 		}
-	}
-	for _, slot := range stale {
-		d.forgetLocked(slot)
 	}
 }
 
-// slotsOfLocked collects every slot owned by one runner. It walks BOTH indexes:
-// a slot whose verdict has landed is gone from byChoice but still on byDelivery
-// waiting to be claimed, and a runner's death must free that one too.
+// slotsOfLocked collects every slot owned by one runner, decided or not: a
+// runner's death frees a verdict still waiting to be claimed too.
 func (d *Desk) slotsOfLocked(runnerID string) []*Slot {
-	owned := map[*Slot]bool{}
-	for _, slot := range d.byChoice {
-		owned[slot] = slot.RunnerID == runnerID
-	}
-	for _, slot := range d.byDelivery {
-		owned[slot] = slot.RunnerID == runnerID
-	}
-	slots := make([]*Slot, 0, len(owned))
-	for slot, mine := range owned {
-		if mine {
+	var slots []*Slot
+	for _, slot := range d.slots {
+		if slot.RunnerID == runnerID {
 			slots = append(slots, slot)
 		}
 	}
 	return slots
 }
 
-// Abandon retires the relay of deliveryID without printing anything, and closes
-// its ledger question as proceeded: the provider is about to resolve the prompt
-// through its own UI.
+// Abandon retires the relay held on askID without printing anything, and
+// closes its ledger question as proceeded: the provider is about to resolve the
+// prompt through its own UI.
 //
 // Nothing is written when the relay had already been answered — the question was
-// decided, not proceeded past — or when no relay was holding the delivery at all.
-func (d *Desk) Abandon(ctx context.Context, deliveryID string) {
-	slot, held := d.byDeliveryID(deliveryID)
+// decided, not proceeded past — or when no relay was holding the ask at all.
+func (d *Desk) Abandon(ctx context.Context, askID string) {
+	slot, held := d.held(askID)
 	if !held {
 		return
 	}

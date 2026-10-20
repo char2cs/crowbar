@@ -7,7 +7,6 @@ import (
 	"context"
 	"sync"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -15,17 +14,19 @@ type liveTable struct {
 	mu      sync.Mutex
 	chats   map[string]*liveEntry
 	runners map[string]*liveEntry
-	// turnStarts orders a turn opening on a chat's runner against its end: an
-	// end marked under it closes every turn opened before, and none opens after.
-	// Only inTurnOrder takes it.
-	turnStarts *inflight.Gate
 }
 
 type liveEntry struct {
 	runner engineagents.Runner
+	// turnOrder orders a turn opening on this runner against its end: an end
+	// marked under it closes every turn opened before, and none opens after.
+	// Only inTurnOrder takes it.
+	turnOrder *sync.Mutex
 	// started is set once its runner_started row has committed; until then
 	// the runner is a spawn in progress, which no reader outside it is shown.
 	started bool
+	// exitedEarly is set by a process exit before started: the spawn records it.
+	exitedEarly bool
 	// exiting is set once the runner's end is asked for or under way; its
 	// hooks still resolve until remove.
 	exiting bool
@@ -45,7 +46,7 @@ type liveView struct {
 
 func newLiveTable() *liveTable {
 	return &liveTable{
-		chats: map[string]*liveEntry{}, runners: map[string]*liveEntry{}, turnStarts: inflight.NewGate(),
+		chats: map[string]*liveEntry{}, runners: map[string]*liveEntry{},
 	}
 }
 
@@ -56,7 +57,7 @@ func (t *liveTable) add(r engineagents.Runner) error {
 	if _, taken := t.chats[r.CurrentChatID]; taken {
 		return ErrChatHasLiveRunner
 	}
-	e := &liveEntry{runner: r, exited: make(chan struct{})}
+	e := &liveEntry{runner: r, turnOrder: &sync.Mutex{}, exited: make(chan struct{})}
 	t.chats[r.CurrentChatID], t.runners[r.ID] = e, e
 	return nil
 }
@@ -87,10 +88,17 @@ func (t *liveTable) byRunner(runnerID string) (engineagents.Runner, bool) {
 	return engineagents.Runner{}, false
 }
 
-// inTurnOrder runs fn under chatID's turn-start gate: a turn opens on the
-// chat's runner (TurnRunner), or that runner's end is marked, inside one.
+// inTurnOrder runs fn under the turn order of chatID's runner: a turn opens on
+// it (TurnRunner), or its end is marked, inside one. A chat with no runner has
+// nothing to order.
 func (t *liveTable) inTurnOrder(chatID string, fn func()) {
-	defer t.turnStarts.Lock(chatID)()
+	t.mu.Lock()
+	e, ok := t.chats[chatID]
+	t.mu.Unlock()
+	if ok {
+		e.turnOrder.Lock()
+		defer e.turnOrder.Unlock()
+	}
 	fn()
 }
 
@@ -116,13 +124,31 @@ func (t *liveTable) update(runnerID string, change func(*engineagents.Runner)) (
 	return e.runner, true
 }
 
-// markStarted records that runnerID's runner_started row has committed.
-func (t *liveTable) markStarted(runnerID string) {
+// markStarted records that runnerID's runner_started row has committed, and
+// reports whether its process had already exited: that exit is the spawn's to
+// record.
+func (t *liveTable) markStarted(runnerID string) (exitedEarly bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if e, ok := t.runners[runnerID]; ok {
-		e.started = true
+	e, ok := t.runners[runnerID]
+	if !ok {
+		return false
 	}
+	e.started = true
+	return e.exitedEarly
+}
+
+// exitBeforeStart reports whether runnerID's process exited while its spawn is
+// still under way, and marks it so for markStarted.
+func (t *liveTable) exitBeforeStart(runnerID string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	e, ok := t.runners[runnerID]
+	if !ok || e.started {
+		return false
+	}
+	e.exitedEarly = true
+	return true
 }
 
 // markExiting notes cause and marks runnerID's end as under way, and returns

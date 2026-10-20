@@ -82,7 +82,7 @@ func (s *State) applyUserMessage(r Row) {
 		s.receipts = map[string]Prompt{}
 	}
 	s.receipts[body.RequestID] = Prompt{
-		RequestID: body.RequestID, TurnID: r.TurnID, Text: body.Text,
+		RequestID: body.RequestID, TurnID: r.TurnID, Text: body.Text, Dispatch: body.Dispatch,
 		Delivery: body.Delivery, RunnerID: body.RunnerID, Status: PromptStatusPending, At: r.At,
 	}
 	s.pending = append(s.pending, body.RequestID)

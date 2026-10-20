@@ -84,21 +84,16 @@ func (rs *Runners) forkOrAdopt(
 }
 
 // adoptAPIConn is forkCLI for a spawn with no PTY: it arms the same exit
-// reconcile against the `serve` process instead of a terminal session. The
-// startup barrier spawnRunner opened before the connection holds every event
-// the connection delivers until runner_started commits.
+// reconcile against the `serve` process instead of a terminal session. Every
+// event the connection delivers waits on the chat's lock, which the spawn
+// holds until runner_started commits.
 func (rs *Runners) adoptAPIConn(ctx context.Context, req forkRequest) error {
-	//nolint:contextcheck // the exit outlives the request; its values (gate holds, delivery ids) must not reach it.
+	//nolint:contextcheck // the exit outlives the request; its values must not reach it.
 	if !rs.watchAPIConnExit(req.runnerID, req.crowbarHome, req.tmpDir) {
-		rs.pendingHooks.Discard(req.runnerID)
 		rs.abandonAdoptedSpawn(ctx, req)
 		return fmt.Errorf("agent: spawn runner: api connection vanished before its exit could be watched")
 	}
-	// AFTER the barrier, never before: the reply to this starts arriving
-	// immediately, over the same ingest the hook relay uses, and runner_started
-	// has not committed yet.
 	if err := rs.carryPromptOverAPIConn(ctx, req); err != nil {
-		rs.pendingHooks.Discard(req.runnerID)
 		rs.abandonAdoptedSpawn(ctx, req)
 		return err
 	}
@@ -165,10 +160,10 @@ func (rs *Runners) runnerHasAnotherProcess(runnerID string) bool {
 // exitProcesslessRunner reconciles a runner that has just lost its last
 // process — the reconcile a dead PTY drives for every other runner.
 //
-// The CALLER serialises: every path that reaches this holds the chat's spawn
-// gate, because the question "is anything else driving this runner" is only
+// The CALLER serialises: every path that reaches this holds the chat's lock,
+// because the question "is anything else driving this runner" is only
 // answerable once whatever is mid-teardown (or mid-re-establish) has
-// finished. Taking the gate here instead would deadlock SwitchToNative, which
+// finished. Taking the lock here instead would deadlock SwitchToNative, which
 // holds it across exactly that window.
 func (rs *Runners) exitProcesslessRunner(ctx context.Context, runnerID string) {
 	// The exit is reconciled in full even if the request that noticed it ends.

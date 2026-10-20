@@ -17,27 +17,37 @@ import (
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// apiCtx marks ctx as carrying a delivery over the live api connection —
-// inflight.WithAPITransport, the SAME marker pumpAPIConn's own IngestHook
-// calls carry in production (see ingest.go's channelFor) — for a test feeding
-// an api-shaped codex payload (threadId/turn.*/item.*) through IngestHook
-// directly, rather than a genuine hooks-relay POST.
-func apiCtx(t *testing.T) context.Context {
+// placeHook places one hook from runner-1 through the real ingress over turns,
+// the door every channel's hooks come in through, with live naming the runner.
+func placeHook(
+	t *testing.T, turns *turn.Turns, live liveOn, channel engineagents.Channel, event string, raw []byte,
+) (ingress.Reply, error) {
 	t.Helper()
-	return inflight.WithAPITransport(t.Context())
+	in := ingress.New(ingress.Deps{
+		Runners: live, Descriptors: turns, Turns: turns, Ledger: discardLedger{}, Locks: ingress.NewLocks(),
+	})
+	return in.Hook(t.Context(), "runner-1", live.provider, event, raw, channel)
 }
+
+// discardLedger takes an unplaced hook's marker and dead letter and keeps neither.
+type discardLedger struct{}
+
+func (discardLedger) Append(context.Context, string, ...ledger.Row) ([]ledger.Row, ledger.State, error) {
+	return nil, ledger.State{}, nil
+}
+
+func (discardLedger) DeadLetter(context.Context, ledgerstore.DeadLetter) error { return nil }
 
 // recordingRunners is the CLI lifecycle as a hook sees it: three calls, and
 // nothing else. A hook may reach the lifecycle only through this port, and never
-// through one of its gated doors — a switch holds the spawn gate while parked on
-// a turn only this side can release.
+// through one of its locking doors — the hook already holds the chat's lock.
 type recordingRunners struct {
 	liveOn
 
@@ -62,57 +72,28 @@ func (r *recordingRunners) seen() []string {
 	return append([]string(nil), r.sessions...)
 }
 
-// A hook that arrives before its runner row exists must be BUFFERED, not
-// ingested: ingesting it would read a runner that is not there yet and drop the
-// event on the floor.
-func TestIngestHook_BuffersWhileTheRunnerIsStartingAndReplaysAfter(t *testing.T) {
-	t.Parallel()
-
-	pending := inflight.NewHooks()
-	turns := turn.New(turn.Deps{
-		PendingHooks: pending,
-		Telemetry:    telemetry.New(),
-	})
-	runners := &recordingRunners{}
-	turns.SetRunners(runners)
-
-	require.NoError(t, pending.Register("runner-1"))
-	require.NoError(t, turns.IngestHook(t.Context(), "runner-1", "claude", "session_start", []byte(`{}`)),
-		"a buffered hook is absorbed, never refused: by the time it arrives the CLI has already acted")
-	assert.Empty(t, runners.seen(), "nothing may be applied while the runner row does not exist")
-
-	var replayed []inflight.Hook
-	pending.Finish("runner-1", func(h inflight.Hook) { replayed = append(replayed, h) })
-
-	require.Len(t, replayed, 1)
-	assert.Equal(t, "session_start", replayed[0].CanonicalEvent)
-}
-
 // Placement is the lifecycle's job: a /clear or /resume inside the TUI moves the
 // runner and Crowbar is told after the fact. The hook side decides only that a
 // move happened.
-func TestReplayStartupHook_RoutesASessionStartThroughTheRunnerPort(t *testing.T) {
+func TestSessionStart_RoutesThroughTheRunnerPort(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
 	turns := turn.New(turn.Deps{
-		Ledger:       emptyLedger(t),
-		Chats:        stubChats{},
-		Agents:       engineagents.New(),
-		Workspace:    stubWorkspace{home: home},
-		Home:         func() (string, error) { return home, nil },
-		PendingHooks: inflight.NewHooks(),
-		Telemetry:    telemetry.New(),
+		Ledger:    emptyLedger(t),
+		Chats:     stubChats{},
+		Agents:    engineagents.New(),
+		Workspace: stubWorkspace{home: home},
+		Home:      func() (string, error) { return home, nil },
+		Telemetry: telemetry.New(),
 	})
 	runners := &recordingRunners{liveOn: claudeLive}
 	turns.SetRunners(runners)
 
-	turns.ReplayStartupHook("runner-1", inflight.Hook{
-		Provider:       "claude",
-		CanonicalEvent: "session_start",
-		RawPayload:     []byte(`{"session_id":"s-1","transcript_path":"/tmp/t.jsonl"}`),
-	})
+	_, err := placeHook(t, turns, claudeLive, engineagents.ChannelHooks, "session_start",
+		[]byte(`{"session_id":"s-1","transcript_path":"/tmp/t.jsonl"}`))
 
+	require.NoError(t, err)
 	assert.Equal(t, []string{"runner-1"}, runners.seen())
 }
 
@@ -274,18 +255,17 @@ func TestIngestHook_AHooksDeliveryOnAnUnboundChatIsRecorded(t *testing.T) {
 	home := t.TempDir()
 	activity := &recordingToolActivity{}
 	turns := turn.New(turn.Deps{
-		Ledger:       emptyLedger(t),
-		Chats:        stubChats{},
-		Activity:     activity,
-		Agents:       engineagents.New(),
-		Workspace:    stubWorkspace{home: home},
-		Home:         func() (string, error) { return home, nil },
-		PendingHooks: inflight.NewHooks(),
-		Telemetry:    telemetry.New(),
+		Ledger:    emptyLedger(t),
+		Chats:     stubChats{},
+		Activity:  activity,
+		Agents:    engineagents.New(),
+		Workspace: stubWorkspace{home: home},
+		Home:      func() (string, error) { return home, nil },
+		Telemetry: telemetry.New(),
 	})
 	turns.SetRunners(bareRunners{codexLive})
 
-	err := turns.IngestHook(t.Context(), "runner-1", "codex", "tool_pre",
+	_, err := placeHook(t, turns, codexLive, engineagents.ChannelHooks, "tool_pre",
 		[]byte(`{"session_id":"s1","tool_use_id":"tool-1","tool_name":"Bash","tool_input":{"command":"echo hi"}}`))
 
 	require.NoError(t, err)
@@ -313,18 +293,17 @@ func TestRegression_SurfaceGatedMessageDeltaSkipsChatWhileTheNativeViewIsShowing
 	home := t.TempDir()
 	var delivered bool
 	turns := turn.New(turn.Deps{
-		Ledger:       emptyLedger(t),
-		Chats:        stubChats{},
-		Agents:       engineagents.New(),
-		Workspace:    stubWorkspace{home: home},
-		Home:         func() (string, error) { return home, nil },
-		PendingHooks: inflight.NewHooks(),
-		Telemetry:    telemetry.New(),
+		Ledger:    emptyLedger(t),
+		Chats:     stubChats{},
+		Agents:    engineagents.New(),
+		Workspace: stubWorkspace{home: home},
+		Home:      func() (string, error) { return home, nil },
+		Telemetry: telemetry.New(),
 	})
 	turns.SetRunners(nativeViewRunners{liveOn: codexLive, showing: true})
 	turns.SetFeed(seam.ChatFeed{MessageDelta: func(string, string, string, string, string, time.Time) { delivered = true }})
 
-	err := turns.IngestHook(t.Context(), "runner-1", "codex", "message_delta",
+	_, err := placeHook(t, turns, codexLive, engineagents.ChannelHooks, "message_delta",
 		[]byte(`{"threadId":"s1","itemId":"m1","delta":"hi","turnId":"t1"}`))
 
 	require.NoError(t, err)
@@ -342,18 +321,17 @@ func TestRegression_SurfaceGatedMessageDeltaStillFlowsToChat(t *testing.T) {
 	home := t.TempDir()
 	var delivered bool
 	turns := turn.New(turn.Deps{
-		Ledger:       emptyLedger(t),
-		Chats:        stubChats{},
-		Agents:       engineagents.New(),
-		Workspace:    stubWorkspace{home: home},
-		Home:         func() (string, error) { return home, nil },
-		PendingHooks: inflight.NewHooks(),
-		Telemetry:    telemetry.New(),
+		Ledger:    emptyLedger(t),
+		Chats:     stubChats{},
+		Agents:    engineagents.New(),
+		Workspace: stubWorkspace{home: home},
+		Home:      func() (string, error) { return home, nil },
+		Telemetry: telemetry.New(),
 	})
 	turns.SetRunners(nativeViewRunners{liveOn: codexLive, showing: false})
 	turns.SetFeed(seam.ChatFeed{MessageDelta: func(string, string, string, string, string, time.Time) { delivered = true }})
 
-	err := turns.IngestHook(t.Context(), "runner-1", "codex", "message_delta",
+	_, err := placeHook(t, turns, codexLive, engineagents.ChannelHooks, "message_delta",
 		[]byte(`{"threadId":"s1","itemId":"m1","delta":"hi","turnId":"t1"}`))
 
 	require.NoError(t, err)
@@ -412,20 +390,19 @@ func TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn(t *testing.T) 
 
 	home := t.TempDir()
 	turns := turn.New(turn.Deps{
-		Ledger:       codexBoundLedger(t, "thread-main"),
-		Activity:     stubSubagentActivity{open: false},
-		Agents:       engineagents.New(),
-		Workspace:    stubWorkspace{home: home},
-		Home:         func() (string, error) { return home, nil },
-		PendingHooks: inflight.NewHooks(),
-		Telemetry:    telemetry.New(),
+		Ledger:    codexBoundLedger(t, "thread-main"),
+		Activity:  stubSubagentActivity{open: false},
+		Agents:    engineagents.New(),
+		Workspace: stubWorkspace{home: home},
+		Home:      func() (string, error) { return home, nil },
+		Telemetry: telemetry.New(),
 	})
 	turns.SetRunners(bareRunners{codexLive})
 
 	// api-shaped (threadId): a child thread's own turn/completed arrives over
 	// the SAME live api connection as the runner's own thread (see this
 	// test's own doc comment), never over the hooks relay.
-	err := turns.IngestHook(apiCtx(t), "runner-1", "codex", "turn_stop",
+	_, err := placeHook(t, turns, codexLive, engineagents.ChannelAPI, "turn_stop",
 		[]byte(`{"threadId":"thread-child","turn":{"items":[{"type":"agentMessage","text":"the sub-agent's answer"}]}}`))
 
 	require.NoError(t, err,
@@ -446,21 +423,20 @@ func TestRegression_AChildThreadsTurnStopClosesTheSubagentItBelongsTo(t *testing
 	home := t.TempDir()
 	activity := &recordingSubagentActivity{openSessionID: "thread-child"}
 	turns := turn.New(turn.Deps{
-		Ledger:       codexBoundLedger(t, "thread-main"),
-		Activity:     activity,
-		Chats:        stubChats{},
-		Agents:       engineagents.New(),
-		Workspace:    stubWorkspace{home: home},
-		Home:         func() (string, error) { return home, nil },
-		PendingHooks: inflight.NewHooks(),
-		Telemetry:    telemetry.New(),
+		Ledger:    codexBoundLedger(t, "thread-main"),
+		Activity:  activity,
+		Chats:     stubChats{},
+		Agents:    engineagents.New(),
+		Workspace: stubWorkspace{home: home},
+		Home:      func() (string, error) { return home, nil },
+		Telemetry: telemetry.New(),
 	})
 	turns.SetRunners(bareRunners{codexLive})
 
 	// api-shaped (threadId/turn.items[type=agentMessage].text): the same
 	// live-connection shape as the sibling test above — a child thread's own
 	// turn_stop never arrives over the hooks relay.
-	err := turns.IngestHook(apiCtx(t), "runner-1", "codex", "turn_stop",
+	_, err := placeHook(t, turns, codexLive, engineagents.ChannelAPI, "turn_stop",
 		[]byte(`{"threadId":"thread-child","turn":{"items":[{"type":"agentMessage","text":"the sub-agent's answer"}]}}`))
 
 	require.NoError(t, err)
@@ -483,22 +459,19 @@ func TestRegression_AChildThreadIsForeignToTheThreadTheDriverOpened(t *testing.T
 	home := t.TempDir()
 	l := codexRunningLedger(t, "thread-main")
 	turns := turn.New(turn.Deps{
-		Chats:        stubChats{},
-		Ledger:       l,
-		Activity:     stubSubagentActivity{open: false},
-		Agents:       engineagents.New(),
-		Workspace:    stubWorkspace{home: home},
-		Home:         func() (string, error) { return home, nil },
-		PendingHooks: inflight.NewHooks(),
-		Telemetry:    telemetry.New(),
-		// Nothing streams here: a regression must not idle out the default wait.
-		MessageAwaitTimeout: time.Millisecond,
+		Chats:     stubChats{},
+		Ledger:    l,
+		Activity:  stubSubagentActivity{open: false},
+		Agents:    engineagents.New(),
+		Workspace: stubWorkspace{home: home},
+		Home:      func() (string, error) { return home, nil },
+		Telemetry: telemetry.New(),
 	})
 	turns.SetRunners(bareRunners{codexLive})
 
-	require.NoError(t, turns.IngestHook(apiCtx(t), "runner-1", "codex", "turn_stop",
-		[]byte(`{"threadId":"thread-child","turn":{"items":[{"type":"agentMessage","text":"seed"}]}}`)),
-		"the subagent's own reply must never be recorded as this chat's assistant message")
+	_, err := placeHook(t, turns, codexLive, engineagents.ChannelAPI, "turn_stop",
+		[]byte(`{"threadId":"thread-child","turn":{"items":[{"type":"agentMessage","text":"seed"}]}}`))
+	require.NoError(t, err, "the subagent's own reply must never be recorded as this chat's assistant message")
 	assert.True(t, busy(t, l), "and its turn/completed leaves the chat's turn running")
 }
 
@@ -514,8 +487,9 @@ func TestTurnStop_ALateEndIsWrittenAndRestatesBackgroundWork(t *testing.T) {
 	turns := claudeTurns(t, l)
 	stop := func(tasks string) {
 		t.Helper()
-		require.NoError(t, turns.IngestHook(t.Context(), "runner-1", "claude", "turn_stop",
-			[]byte(`{"session_id":"s-1","last_assistant_message":"","background_tasks":[`+tasks+`]}`)))
+		_, err := placeHook(t, turns, claudeLive, engineagents.ChannelHooks, "turn_stop",
+			[]byte(`{"session_id":"s-1","last_assistant_message":"","background_tasks":[`+tasks+`]}`))
+		require.NoError(t, err)
 	}
 
 	stop(`{"id":"b1","type":"subagent","status":"running"}`)

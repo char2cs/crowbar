@@ -3,6 +3,7 @@
 package tests
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -109,8 +110,11 @@ func TestRegression_HooksDeliveryOfAChannelSplitAskEventCannotReadAPIShapedField
 	// outright (RequiredFieldError) rather than raising a card under a
 	// fallback identity — strictly stronger than before: nothing
 	// attacker-controlled reaches the choice desk at all, not even a
-	// nameless card.
-	post("permission", `{"threadId":"attacker-thread","reason":"attacker reason","tool":"ATTACKER-TOOL-LEAKED"}`)
+	// nameless card. The relay is told so: 422.
+	_ = h.raw(http.MethodPost, repoBase(ws)+"/chats/hooks", map[string]string{
+		"segment_id": runnerID, "provider": "channelsplitpermstub", "event": "permission",
+		"payload_raw": `{"threadId":"attacker-thread","reason":"attacker reason","tool":"ATTACKER-TOOL-LEAKED"}`,
+	}, http.StatusUnprocessableEntity).Body.Close()
 	h.Quiesce()
 
 	choices = permissionChannelSplitChoices(t, h, ws, chatID)

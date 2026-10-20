@@ -48,8 +48,10 @@ func (rs *Runners) submitPromptSteered(
 	if err != nil {
 		return domain.AgentPromptSubmission{}, true, fmt.Errorf("agent: submit prompt: materialize attachments: %w", err)
 	}
-	rs.turns.HoldSteer(chat.ID, clientRequestID, dispatchText)
-	err = rs.recordPrompt(ctx, chat.ID, clientRequestID, text, ledger.DeliverySteer, live.ID, requireTurnOn(live.ID))
+	// The dispatch text rides on the row: the turn's end hook hands the CLI
+	// what the ledger holds, so a failed commit leaves nothing behind.
+	err = rs.recordPrompt(ctx, chat.ID, clientRequestID, text, dispatchText, ledger.DeliverySteer, live.ID,
+		requireTurnOn(live.ID))
 	if errors.Is(err, errNoTurnToSteer) {
 		return domain.AgentPromptSubmission{}, false, nil
 	}

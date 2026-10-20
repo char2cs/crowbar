@@ -10,7 +10,6 @@ import (
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -47,7 +46,7 @@ func TestPlanUpdate_KeepsTheLivePushAndRecordsCanonicalSteps(t *testing.T) {
 	runner := engineagents.Runner{ID: "runner-1", ProviderID: "provider", CurrentChatID: "chat-1"}
 	announce(t, turns, "provider", "session-1")
 
-	err := turns.handleObservation(t.Context(), runner, nil, engineagents.CanonicalEvent{
+	_, err := turns.handleObservation(t.Context(), runner, nil, engineagents.CanonicalEvent{
 		Kind: engineagents.HookPlanUpdate, Plan: eventSteps,
 	}, nil)
 
@@ -74,8 +73,8 @@ func TestPlanUpdate_KeepsTheLivePushAndRecordsCanonicalSteps(t *testing.T) {
 // compact_pre/compact_post pair — see codex.yaml) must now mint different
 // ids.
 func TestRegression_SeparateCompactionsGetDistinctInterruptionIDs(t *testing.T) {
-	first := interruptionID(t.Context(), "chat1", compactionEvent("turn-1"))
-	second := interruptionID(t.Context(), "chat1", compactionEvent("turn-2"))
+	first := interruptionID("chat1", compactionEvent("turn-1"))
+	second := interruptionID("chat1", compactionEvent("turn-2"))
 
 	assert.NotEqual(t, first, second,
 		"two separate compaction rounds must not collide onto the same interruption row")
@@ -87,8 +86,8 @@ func TestRegression_SeparateCompactionsGetDistinctInterruptionIDs(t *testing.T) 
 // envelope — codex.yaml), and compact_post's ResolveInterruption call must
 // still land on the row compact_pre's Interrupt call opened.
 func TestRegression_SameCompactionRoundKeepsOneInterruptionID(t *testing.T) {
-	pre := interruptionID(t.Context(), "chat1", compactionEvent("turn-1"))
-	post := interruptionID(t.Context(), "chat1", compactionEvent("turn-1"))
+	pre := interruptionID("chat1", compactionEvent("turn-1"))
+	post := interruptionID("chat1", compactionEvent("turn-1"))
 
 	assert.Equal(t, pre, post,
 		"compact_pre and compact_post of the same round must agree on one id so post resolves what pre opened")
@@ -101,7 +100,7 @@ func TestRegression_SameCompactionRoundKeepsOneInterruptionID(t *testing.T) {
 // it, and pre/post must still agree with each other (claude has one
 // compaction in flight at a time, same as before this fix).
 func TestInterruptionID_CompactionWithNoTurnIDFallsBackToTheFixedShape(t *testing.T) {
-	id := interruptionID(t.Context(), "chat1", compactionEvent(""))
+	id := interruptionID("chat1", compactionEvent(""))
 
 	assert.Equal(t, "interrupt-chat1-compaction", id)
 }
@@ -133,9 +132,8 @@ func heldForAnswer(t *testing.T, native bool) bool {
 	turns := New(Deps{Answers: desk})
 	turns.SetRunners(surfaceRunners{native: native})
 
-	const deliveryID = "delivery-1"
-	turns.holdForAnswer(
-		inflight.WithDeliveryID(t.Context(), deliveryID),
+	ask := turns.holdForAnswer(
+		t.Context(),
 		domain.Chat{ID: "chat-1"},
 		engineagents.Runner{ID: "runner-1"},
 		answerableAgent{},
@@ -144,8 +142,8 @@ func heldForAnswer(t *testing.T, native bool) bool {
 		[]byte(`{"tool_name":"shell"}`),
 	)
 
-	_, held := desk.Pending(deliveryID)
-	return held
+	_, held := desk.Pending("choice-1")
+	return held && ask == "choice-1"
 }
 
 // TestRegression_NativeViewLeavesThePromptToTheCLI pins the bug reported live

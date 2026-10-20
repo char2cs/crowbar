@@ -83,7 +83,7 @@ func TestPublishChoices_AnAnswerabilityChangeAloneIsAnnounced(t *testing.T) {
 	}})
 
 	turns.PublishChoices("chat-1")
-	desk.Hold("delivery-1", answerdesk.Prompt{ChoiceID: "choice-a", ChatID: "chat-1"})
+	desk.Hold(answerdesk.Prompt{ChoiceID: "choice-a", ChatID: "chat-1"})
 	turns.PublishChoices("chat-1")
 
 	assert.Equal(t, [][]string{{}, {"choice-a"}}, answerable)

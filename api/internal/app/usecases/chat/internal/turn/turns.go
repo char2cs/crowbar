@@ -1,29 +1,24 @@
-// Package turn is the vendor CLI's hook ingress and everything it writes.
+// Package turn records what a vendor CLI's hooks report.
 //
-// A hook is a fait accompli: by the time one arrives the CLI has already acted,
-// so nothing here may refuse one and nothing here may block on a lock a
-// user-initiated path can hold. What it does instead is record — the turn, the
-// tool call, the subagent, the interruption, the streamed message, the telemetry
-// — and decide the turn in the chat's ledger, which alone says it is busy.
+// A hook is a fait accompli: by the time one arrives the CLI has already acted.
+// What this package does is record it — the turn, the tool call, the subagent,
+// the interruption, the streamed message, the telemetry — and decide the turn in
+// the chat's ledger, which alone says it is busy. The ingress calls it under the
+// chat's lock, so nothing here waits on anything another hook delivers.
 package turn
 
 import (
-	"cmp"
-	"time"
-
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/dedup"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/stream"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Turns is the hook ingress.
+// Turns records hooks.
 type Turns struct {
 	chats     agentchat.EventStore
 	activity  agentactivity.EventStore
@@ -39,31 +34,15 @@ type Turns struct {
 	// recorded — the model's thinking, a running tool's output. See livetext.go.
 	live *liveText
 	// compacting latches which turn id belongs to a compact_start round trip,
-	// so its own turn/completed-shaped close is never misread as an ordinary
+	// so its own turn-end-shaped close is never misread as an ordinary
 	// reply or failure. See compaction.go.
 	compacting *compactionTurns
 	// manualCompact latches which chat's next compaction was asked for by
 	// Crowbar itself, for a provider whose own wire event never says so. See
 	// compaction.go.
 	manualCompact *manualCompactRequests
-	// pendingHooks is the fork-before-runner-persistence barrier: hooks that arrive
-	// before the runner row exists are buffered into it and replayed after.
-	pendingHooks *inflight.Hooks
-	// hookDeliveries absorbs Crowbar relay retries before any turn state or
-	// ledger mutation: a bounded, in-memory TTL set of completed delivery ids.
-	// The relay's retry is short and in-process (cmd/crowbar/hook_delivery.go),
-	// so nothing here needs to outlive the daemon — and nothing here fsyncs.
-	hookDeliveries *dedup.Set
-	// hookGates serialises one runner's hook ingestion. It is held across the WHOLE
-	// ingest — dedupe, replay buffering, effects, completion.
-	hookGates *inflight.Gate
 	// answers is the desk a provider prompt parks a blocked hook relay on.
 	answers *answerdesk.Desk
-	// replies is the stdout a relayed hook must print, when ingesting it
-	// produced one (a steered prompt riding the turn-end hook).
-	replies hookReplies
-	// steers is the dispatch text of each chat's steered prompt.
-	steers steerTexts
 
 	conversations Conversations
 	// runners is reached for the placement half of a hook. Bound after
@@ -79,18 +58,11 @@ type Turns struct {
 	feed seam.ChatFeed
 	// choiceFeed dedups what PublishChoices pushes.
 	choiceFeed *choiceFeed
-
-	// messageAwaitTimeout bounds how long closeAssistantTurn will wait on
-	// stream.Streams.AwaitOpen before concluding nothing streamed. It is a
-	// self-releasing channel wait, not a lock another path can hold — it never
-	// risks the deadlock the package doc warns against.
-	messageAwaitTimeout time.Duration
 }
 
-// Deps is everything the hook ingress is built over. It is a struct and not an
-// argument list because the shared in-flight state is built once, elsewhere, and
-// handed here — an ordered list of sixteen pointers is a place to swap two of them
-// silently.
+// Deps is everything Turns is built over. It is a struct and not an argument
+// list because the shared in-flight state is built once, elsewhere, and handed
+// here — an ordered list of pointers is a place to swap two of them silently.
 type Deps struct {
 	Chats     agentchat.EventStore
 	Activity  agentactivity.EventStore
@@ -100,28 +72,13 @@ type Deps struct {
 	Home      func() (string, error)
 	Ledger    *ledgerstore.Store
 
-	PendingHooks *inflight.Hooks
-	Answers      *answerdesk.Desk
+	Answers *answerdesk.Desk
 
 	Conversations Conversations
-	// MessageAwaitTimeout bounds closeAssistantTurn's wait for a message still
-	// streaming when its turn's closing hook arrives; zero is the default.
-	MessageAwaitTimeout time.Duration
 }
 
-// defaultMessageAwaitTimeout bounds closeAssistantTurn's wait for a message
-// that may still be streaming when its turn's own closing hook arrives. Each
-// hook is its own CLI-spawned subprocess, so the real gap being covered is not
-// network jitter but subprocess scheduling latency under load — measured live
-// exceeding 500ms with just two chats running concurrently (the hook handler
-// itself blocked ~530ms, timed out, and the real delta still landed moments
-// later under its own id). 3s gives real headroom against that, and this path
-// is only ever reached on the rare turn actually racing — never on the
-// ordinary one, which already finds its message Open and returns immediately.
-const defaultMessageAwaitTimeout = 3 * time.Second
-
-// New builds the hook ingress. The runner port is bound separately, by
-// SetRunners, because the two call each other.
+// New builds Turns. The runner port is bound separately, by SetRunners,
+// because the two call each other.
 func New(d Deps) *Turns {
 	return &Turns{
 		chats:     d.Chats,
@@ -131,19 +88,14 @@ func New(d Deps) *Turns {
 		ws:        d.Workspace,
 		home:      d.Home,
 		ledger:    d.Ledger,
-		// Owned outright, so built here rather than handed in: the message streams,
-		// the delivery dedup set and the per-runner ingest gate are named by
-		// nothing outside this package.
-		messages:            stream.New(),
-		live:                newLiveText(),
-		compacting:          newCompactionTurns(),
-		manualCompact:       newManualCompactRequests(),
-		hookDeliveries:      dedup.New(dedup.DefaultTTL, dedup.DefaultMax, nil),
-		hookGates:           inflight.NewGate(),
-		pendingHooks:        d.PendingHooks,
-		answers:             d.Answers,
-		choiceFeed:          newChoiceFeed(),
-		messageAwaitTimeout: cmp.Or(d.MessageAwaitTimeout, defaultMessageAwaitTimeout),
+		// Owned outright, so built here rather than handed in: nothing outside
+		// this package names the message streams.
+		messages:      stream.New(),
+		live:          newLiveText(),
+		compacting:    newCompactionTurns(),
+		manualCompact: newManualCompactRequests(),
+		answers:       d.Answers,
+		choiceFeed:    newChoiceFeed(),
 
 		conversations: d.Conversations,
 	}
@@ -157,9 +109,6 @@ func (t *Turns) SetRunners(runners Runners) { t.runners = runners }
 // nobody to publish to records the message when it finishes instead.
 func (t *Turns) SetFeed(feed seam.ChatFeed) { t.feed = feed }
 
-// HookDeliveryCount is how many completed delivery ids the dedup set holds.
-func (t *Turns) HookDeliveryCount() int { return t.hookDeliveries.Len() }
-
 // ForgetChat drops every piece of in-memory turn state held for chatID: the
 // chat is being erased (A7), and none of it may outlive the chat.
 func (t *Turns) ForgetChat(chatID string) {
@@ -167,5 +116,4 @@ func (t *Turns) ForgetChat(chatID string) {
 	t.messages.ForgetChat(chatID)
 	t.compacting.forget(chatID)
 	t.manualCompact.consume(chatID)
-	t.steers.take(chatID)
 }

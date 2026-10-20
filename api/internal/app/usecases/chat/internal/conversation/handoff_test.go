@@ -47,7 +47,7 @@ func recordNumberedTurns(t *testing.T, f fixture, chat domain.Chat, prefix strin
 	t.Helper()
 	for i := 0; i < n; i++ {
 		require.NoError(t, f.conversations.RecordTurn(
-			t.Context(), chat, "claude", "runner-1", "session-1", "user",
+			t.Context(), chat, "", "claude", "runner-1", "session-1", "user",
 			fmt.Sprintf("%s-%d", prefix, i), "",
 		))
 	}

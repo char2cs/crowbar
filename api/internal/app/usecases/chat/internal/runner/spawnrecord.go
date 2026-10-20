@@ -20,7 +20,8 @@ import (
 
 // recordRunner commits r, already forked and in the live table, as the chat's
 // runner. Launch* is what the process was actually launched with: nothing can
-// ask it later.
+// ask it later. A process that died before this row committed has its exit
+// recorded after it, and the spawn refused.
 func (rs *Runners) recordRunner(ctx context.Context, r engineagents.Runner, resumeID string, create bool) error {
 	chatID, now := r.CurrentChatID, time.Now()
 	if create {
@@ -55,7 +56,7 @@ func (rs *Runners) recordRunner(ctx context.Context, r engineagents.Runner, resu
 		return rs.teardownAfterPersistFailure(ctx, chatID, r.ID, r.TerminalSession,
 			fmt.Errorf("agent: spawn runner: record runner: %w", err))
 	}
-	rs.live.markStarted(r.ID)
+	exitedEarly := rs.live.markStarted(r.ID)
 	slog.InfoContext(ctx, "agent: runner launched", "component", "runner", "chat", chatID)
 	if rs.termWait != nil {
 		rs.termWait.Wake() // the sweep parks while no runner is live
@@ -64,6 +65,10 @@ func (rs *Runners) recordRunner(ctx context.Context, r engineagents.Runner, resu
 		rs.recordChatProvider(ctx, chatID, r.ProviderID)
 	}
 	rs.announceRunner(ctx, chatID, r.ID, frameStarted)
+	if exitedEarly {
+		rs.reconcileRunnerExit(context.WithoutCancel(ctx), r.ID)
+		return ErrProviderExitedDuringStartup
+	}
 	return nil
 }
 
@@ -74,7 +79,7 @@ func (rs *Runners) recordSpawnFailure(ctx context.Context, chatID, runnerID stri
 	if *err == nil || errors.Is(*err, ErrProviderExitedDuringStartup) {
 		return
 	}
-	// Claimed first, under the turn-start gate, so no hook opens a turn on it after.
+	// Claimed first, in turn order, so no hook opens a turn on it after.
 	rs.claimEnd(runnerID)
 	rs.live.remove(runnerID)
 	if create || errors.Is(*err, context.Canceled) {

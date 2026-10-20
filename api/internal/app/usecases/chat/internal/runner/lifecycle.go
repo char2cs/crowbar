@@ -171,8 +171,8 @@ func (rs *Runners) onRunnerExit(home, runnerID, tmpDir string, resume resumeWatc
 		rs.apiConns.drop(runnerID)
 		rs.live.noteExitCode(runnerID, exit.Code)
 		// A process that died before its runner_started committed is recorded by
-		// spawnRunner, once the hooks it emitted have been replayed in order.
-		if rs.pendingHooks.MarkExited(runnerID) {
+		// its spawn, after that row.
+		if rs.live.exitBeforeStart(runnerID) {
 			return
 		}
 		rs.reconcileRunnerExit(ctx, runnerID)
@@ -192,13 +192,17 @@ func reapRunnerDir(
 }
 
 // RetireChatRunners ends chatID's runner and forgets everything held in
-// memory for the chat: it is being erased (A7).
+// memory for the chat: it is being erased (A7). The caller holds the chat's
+// lock, so the exit is recorded and the runner forgotten before its processes
+// end: what it reports on the way down finds no runner and never waits.
 func (rs *Runners) RetireChatRunners(
 	ctx context.Context,
 	chatID string,
 ) {
 	if live, ok := rs.live.byChat(chatID); ok {
-		if err := rs.quitRunner(ctx, live, domain.AgentExitDisplaced); err != nil {
+		rs.markEnding(live, domain.AgentExitDisplaced)
+		rs.reconcileRunnerExit(ctx, live.ID)
+		if _, err := rs.endProcesses(ctx, live); err != nil {
 			slog.WarnContext(ctx, "agent: retire the chat's runner (best-effort, continuing)",
 				"chat_id", chatID, "runner_id", live.ID, "err", err)
 		}

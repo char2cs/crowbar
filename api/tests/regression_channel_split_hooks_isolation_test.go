@@ -3,6 +3,7 @@
 package tests
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -120,9 +121,12 @@ func TestRegression_HooksDeliveryOfAChannelSplitEventCannotReadAPIShapedFields(t
 	// delivery is REJECTED outright (RequiredFieldError) rather than
 	// recorded under a fallback identity — strictly stronger than before:
 	// nothing attacker-controlled reaches the ledger AT ALL, not even a
-	// nameless placeholder row.
-	post("tool_pre", `{"threadId":"attacker-thread","item":{"type":"commandExecution",`+
-		`"id":"attacker-tool-id","command":"ATTACKER-COMMAND-LEAKED"}}`)
+	// nameless placeholder row. The relay is told so: 422.
+	_ = h.raw(http.MethodPost, repoBase(ws)+"/chats/hooks", map[string]string{
+		"segment_id": runnerID, "provider": "channelsplitstub", "event": "tool_pre",
+		"payload_raw": `{"threadId":"attacker-thread","item":{"type":"commandExecution",` +
+			`"id":"attacker-tool-id","command":"ATTACKER-COMMAND-LEAKED"}}`,
+	}, http.StatusUnprocessableEntity).Body.Close()
 	h.Quiesce()
 
 	calls = channelSplitActivity(t, h, ws, chatID)

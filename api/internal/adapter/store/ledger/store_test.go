@@ -294,7 +294,7 @@ func TestStore_OpenChatsListsOnlyChatsWithOpenWork(t *testing.T) {
 
 	open, err := s.OpenChats(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"c1"}, open)
+	assert.Equal(t, []string{"c1", "c3"}, open, "a pending prompt and a running turn are open; a settled prompt is not")
 }
 
 func TestStore_ForgetErasesAChat(t *testing.T) {
@@ -450,4 +450,29 @@ func TestStore_ReportsAClosedDatabase(t *testing.T) {
 
 	_, err = ledgerstore.Open(db, clock)
 	require.Error(t, err)
+}
+
+func TestStore_DeadLettersKeepThePayloadTruncatedAt64KiB(t *testing.T) {
+	db := openDB(t, filepath.Join(t.TempDir(), ledgerstore.FileName))
+	s, err := ledgerstore.Open(db, clock)
+	require.NoError(t, err)
+	payload := make([]byte, 70000)
+
+	require.NoError(t, s.DeadLetter(t.Context(), ledgerstore.DeadLetter{
+		RunnerID: "r1", Provider: "p", Event: "tool_pre", Reason: "unknown_runner", Payload: payload,
+	}))
+
+	var stored struct {
+		Length    int
+		Truncated bool
+		ChatID    string
+	}
+	require.NoError(t, db.Raw(`SELECT length(payload) AS length, truncated, chat_id FROM ledger_dead_letters`).
+		Scan(&stored).Error)
+	assert.Equal(t, 65536, stored.Length)
+	assert.True(t, stored.Truncated)
+	assert.Empty(t, stored.ChatID, "a runner Crowbar does not know names no chat")
+	count, err := s.DeadLetterCount(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
 }

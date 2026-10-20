@@ -12,7 +12,6 @@ import (
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -50,9 +49,16 @@ func (a *stopActivity) recorded() []string {
 
 // realStopTurns is the real hook ingress over a recording activity ledger, so
 // whether RecordStop fires is decided by production code.
-func realStopTurns() (*turn.Turns, *stopActivity) {
+func realStopTurns() (stopTurns, *stopActivity) {
 	activity := &stopActivity{}
-	return turn.New(turn.Deps{Activity: activity}), activity
+	return stopTurns{turn.New(turn.Deps{Activity: activity})}, activity
+}
+
+// stopTurns is the real turn package with no api connection placing events.
+type stopTurns struct{ *turn.Turns }
+
+func (stopTurns) Hook(context.Context, string, string, string, []byte) (string, error) {
+	return "", nil
 }
 
 // interruptRunner is runner-1, live on chat-1 over interrupt-test.
@@ -139,8 +145,8 @@ func TestStopChat_EndsTheTurnThenInterruptsWithoutWaiting(t *testing.T) {
 		apiConns: newAPIConnRegistry(),
 		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
 		agents:   stubAgentsForInterrupt{agent: interruptTestAgent(t)},
-		spawns:   inflight.NewGate(),
-		turns:    turns,
+		chatLock: newTestLock(), parks: newParks(),
+		turns: turns,
 	})
 	runnerStarted(t, rs, true)
 	rs.apiConns.set("runner-1", interruptServer(t, asked, release))
@@ -164,9 +170,9 @@ func TestRegression_StopChatOnAnIdleChatActuallyRetires(t *testing.T) {
 		attached: newAttachRegistry(),
 		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
 		agents:   stubAgentsForInterrupt{agent: interruptTestAgent(t)},
-		spawns:   inflight.NewGate(),
-		turns:    turns,
-		term:     &fakeTermForAttach{},
+		chatLock: newTestLock(), parks: newParks(),
+		turns: turns,
+		term:  &fakeTermForAttach{},
 	})
 	runnerStarted(t, rs, false)
 	rs.apiConns.set("runner-1", interruptServer(t, asked, nil))
@@ -193,9 +199,9 @@ func TestRegression_CloseChatRetiresARunnerMidTurnEvenWhenTheProviderCanInterrup
 		attached: newAttachRegistry(),
 		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
 		agents:   stubAgentsForInterrupt{agent: interruptTestAgent(t)},
-		spawns:   inflight.NewGate(),
-		turns:    turns,
-		term:     &fakeTermForAttach{},
+		chatLock: newTestLock(), parks: newParks(),
+		turns: turns,
+		term:  &fakeTermForAttach{},
 	})
 	runnerStarted(t, rs, true)
 	rs.apiConns.set("runner-1", interruptServer(t, asked, nil))
@@ -216,9 +222,9 @@ func TestRegression_CloseChatRetiresEvenWhenTheRequestIsAbandoned(t *testing.T) 
 		attached: newAttachRegistry(),
 		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
 		agents:   stubAgentsForInterrupt{},
-		spawns:   inflight.NewGate(),
-		turns:    turns,
-		term:     &fakeTermForAttach{},
+		chatLock: newTestLock(), parks: newParks(),
+		turns: turns,
+		term:  &fakeTermForAttach{},
 	})
 	runnerStarted(t, rs, false)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -242,9 +248,9 @@ func TestStopChat_RetiresWithoutWaitingForTheCLIToExit(t *testing.T) {
 		attached: newAttachRegistry(),
 		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
 		agents:   stubAgentsForInterrupt{},
-		spawns:   inflight.NewGate(),
-		turns:    turns,
-		term:     &quittingTerm{},
+		chatLock: newTestLock(), parks: newParks(),
+		turns: turns,
+		term:  &quittingTerm{},
 	})
 	pty := interruptRunner
 	pty.TerminalSession = "pty-1"

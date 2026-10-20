@@ -429,21 +429,10 @@ func (configurableListGetUsecase) SpawnChat(
 	return "", "", nil
 }
 
-func (configurableListGetUsecase) IngestHook(
-	_ context.Context,
-	_ string,
-	_ string,
-	_ string,
-	_ []byte,
-) error {
-	return nil
-}
-
-func (configurableListGetUsecase) IngestHookDelivery(
-	_ context.Context, _, _, _, _ string,
-	_ []byte,
-) error {
-	return nil
+func (configurableListGetUsecase) Hook(
+	context.Context, string, string, string, []byte, engineagents.Channel,
+) (agentusecase.HookReply, error) {
+	return agentusecase.HookReply{}, nil
 }
 
 func (u *configurableListGetUsecase) ListChatsByWorkspace(
@@ -1459,8 +1448,6 @@ func (configurableListGetUsecase) ReadActivity(
 ) (agentusecase.ChatActivity, error) {
 	return agentusecase.ChatActivity{}, nil
 }
-
-func (configurableListGetUsecase) TakeHookReply(string) (string, bool) { return "", false }
 
 func (configurableListGetUsecase) ReadToolPayload(
 	context.Context, string, string, string,

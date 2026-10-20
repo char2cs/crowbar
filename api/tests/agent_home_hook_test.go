@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -66,6 +67,21 @@ func TestRegression_AgentHomeCallbacksReachDaemon(t *testing.T) {
 		map[string]string{"title": "Derived home title"}, http.StatusAccepted)
 	_ = resp.Body.Close()
 	waitForChatFrame(t, frames, created.ID, "title_set")
+}
+
+// A relayed hook naming no live runner is refused and dead-lettered on the home
+// mount as on the repo one: no hook is acknowledged that nothing recorded.
+func TestRegression_AHomeHookFromAnUnknownRunnerIsRefused(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+	imported := importProject(t, h)
+	homeBase := "/v0/projects/" + imported.projectID + "/home"
+	before := chatDeadLetters(t, h)
+
+	_ = h.raw(http.MethodPost, homeBase+"/chats/hooks", map[string]string{
+		"segment_id": "no-such-runner", "provider": "livestub", "event": "user_prompt", "payload_raw": `{"prompt":"hi"}`,
+	}, http.StatusNotFound).Body.Close()
+	assert.Equal(t, before+1, chatDeadLetters(t, h))
 }
 
 // postHomeHook forwards a raw hook payload to the project-home agent hooks

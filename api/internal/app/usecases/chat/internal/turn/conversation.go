@@ -15,19 +15,30 @@ import (
 type hookSessionKey struct{}
 
 // hookSession is the chat's bound session with one provider, as the hook being
-// ingested read it.
-type hookSession struct{ chatID, provider, sessionID string }
+// ingested read it, and the channel that hook arrived on.
+type hookSession struct {
+	chatID, provider, sessionID string
+	channel                     engineagents.Channel
+}
 
 // withHookSession reads runner's chat's bound session once for the hook being
 // ingested: the identity filter judges against it and everything the hook
 // records names it.
-func (t *Turns) withHookSession(ctx context.Context, runner engineagents.Runner) (context.Context, string, error) {
+func (t *Turns) withHookSession(
+	ctx context.Context, runner engineagents.Runner, channel engineagents.Channel,
+) (context.Context, string, error) {
 	sessionID, err := t.readBoundSession(ctx, runner.CurrentChatID, runner.ProviderID)
 	if err != nil {
 		return ctx, "", fmt.Errorf("agent: ingest hook: %w", err)
 	}
-	return context.WithValue(ctx, hookSessionKey{}, hookSession{runner.CurrentChatID, runner.ProviderID, sessionID}),
-		sessionID, nil
+	h := hookSession{chatID: runner.CurrentChatID, provider: runner.ProviderID, sessionID: sessionID, channel: channel}
+	return context.WithValue(ctx, hookSessionKey{}, h), sessionID, nil
+}
+
+// hookChannel is the channel the hook being ingested arrived on; "" outside one.
+func hookChannel(ctx context.Context) engineagents.Channel {
+	h, _ := ctx.Value(hookSessionKey{}).(hookSession)
+	return h.channel
 }
 
 // namesAnotherConversation reports whether ev names a session other than the

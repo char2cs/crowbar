@@ -1,25 +1,13 @@
 package turn
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
-
-// The delivery's channel — never the event's static declaration — picks the
-// descriptor block a payload is parsed with.
-func TestChannelFor_APITransportCtxSelectsTheAPIChannel(t *testing.T) {
-	assert.Equal(t, engineagents.ChannelAPI, channelFor(inflight.WithAPITransport(context.Background())))
-}
-
-func TestChannelFor_APlainCtxSelectsTheHooksChannel(t *testing.T) {
-	assert.Equal(t, engineagents.ChannelHooks, channelFor(context.Background()))
-}
 
 func descriptorFor(t *testing.T, provider string) engineagents.Agent {
 	t.Helper()

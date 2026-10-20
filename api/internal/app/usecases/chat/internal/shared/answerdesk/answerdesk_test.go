@@ -20,9 +20,7 @@ func fixture(wait time.Duration) (*answerdesk.Desk, *answerdesk.Slot) {
 	return fixtureRetaining(wait, answerdesk.DefaultRetention)
 }
 
-// recordingLedger is the conversation record the desk writes each outcome back
-// to. Nothing else in these tests needs a store, so it is the whole of the
-// production shape: two calls, each remembered.
+// recordingLedger remembers each outcome the desk writes back.
 type recordingLedger struct {
 	mu                    sync.Mutex
 	resolved              []resolution
@@ -69,7 +67,7 @@ func (l *recordingLedger) allResolvedInterruptions() []string {
 func withLedger(wait time.Duration) (*answerdesk.Desk, *answerdesk.Slot, *recordingLedger) {
 	ledger := &recordingLedger{}
 	d := answerdesk.New(answerdesk.DefaultRetention, ledger)
-	slot := d.Hold("delivery-1", answerdesk.Prompt{
+	slot := d.Hold(answerdesk.Prompt{
 		ChoiceID: "choice-1",
 		ChatID:   "chat-1",
 		RunnerID: "runner-1",
@@ -81,7 +79,7 @@ func withLedger(wait time.Duration) (*answerdesk.Desk, *answerdesk.Slot, *record
 
 func fixtureRetaining(wait, retention time.Duration) (*answerdesk.Desk, *answerdesk.Slot) {
 	d := answerdesk.New(retention, nil)
-	slot := d.Hold("delivery-1", answerdesk.Prompt{
+	slot := d.Hold(answerdesk.Prompt{
 		ChoiceID: "choice-1",
 		ChatID:   "chat-1",
 		RunnerID: "runner-1",
@@ -96,11 +94,11 @@ func TestAwait_TheBudgetExpiringPrintsNothingAndFreesTheSlot(t *testing.T) {
 
 	d, _ := fixture(time.Millisecond)
 
-	answer, err := d.Await(context.Background(), "delivery-1")
+	answer, err := d.Await(context.Background(), "choice-1")
 
 	require.NoError(t, err)
 	assert.Empty(t, answer.Stdout)
-	_, waiting := d.Pending("delivery-1")
+	_, waiting := d.Pending("choice-1")
 	assert.False(t, waiting, "an expired wait must not leave a slot an answer could reach")
 }
 
@@ -111,15 +109,15 @@ func TestAwait_ACancelledRelayIsFreedAndReportsTheCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	answer, err := d.Await(ctx, "delivery-1")
+	answer, err := d.Await(ctx, "choice-1")
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Empty(t, answer.Stdout)
-	_, waiting := d.Pending("delivery-1")
+	_, waiting := d.Pending("choice-1")
 	assert.False(t, waiting, "a cancelled relay must not leave its slot on the desk")
 }
 
-func TestAwait_ADeliveryNobodyIsHoldingReturnsNothing(t *testing.T) {
+func TestAwait_AnAskNobodyIsHoldingReturnsNothing(t *testing.T) {
 	t.Parallel()
 
 	d := answerdesk.New(answerdesk.DefaultRetention, nil)
@@ -144,23 +142,11 @@ func TestPending_ReportsTheChoiceAndTheClampedBudget(t *testing.T) {
 
 	d, _ := fixture(time.Hour)
 
-	pending, held := d.Pending("delivery-1")
+	pending, held := d.Pending("choice-1")
 
 	require.True(t, held)
 	assert.Equal(t, "choice-1", pending.ChoiceID)
 	assert.Equal(t, 15*time.Minute, pending.Wait, "the relay is told the clamped budget, not the declared one")
-}
-
-func TestHold_ARetriedDeliveryKeepsItsOriginalSlot(t *testing.T) {
-	t.Parallel()
-
-	d, first := fixture(time.Minute)
-
-	again := d.Hold("delivery-1", answerdesk.Prompt{
-		ChoiceID: "choice-1", ChatID: "chat-1", RunnerID: "runner-1",
-	})
-
-	assert.Same(t, first, again)
 }
 
 func TestHold_ReopeningAPromptReleasesTheRelayAlreadyHoldingIt(t *testing.T) {
@@ -168,7 +154,7 @@ func TestHold_ReopeningAPromptReleasesTheRelayAlreadyHoldingIt(t *testing.T) {
 
 	d, stale := fixture(time.Minute)
 
-	fresh := d.Hold("delivery-2", answerdesk.Prompt{
+	fresh := d.Hold(answerdesk.Prompt{
 		ChoiceID: "choice-1", ChatID: "chat-1", RunnerID: "runner-1",
 	})
 
@@ -176,10 +162,29 @@ func TestHold_ReopeningAPromptReleasesTheRelayAlreadyHoldingIt(t *testing.T) {
 	held, ok := d.ByChoiceID("choice-1")
 	require.True(t, ok)
 	assert.Same(t, fresh, held)
+	d.Resolve(stale, []byte("allow"))
+	_, stillOpen := d.ByChoiceID("choice-1")
+	assert.True(t, stillOpen, "a verdict on the displaced relay answers nothing")
+}
 
-	answer, err := d.Await(context.Background(), "delivery-1")
-	require.NoError(t, err)
-	assert.Empty(t, answer.Stdout, "the displaced relay prints nothing")
+func TestDesk_AnAnswerReleasesTheRelayHeldOnThatAsk(t *testing.T) {
+	t.Parallel()
+
+	d, slot := fixture(time.Minute)
+	other := d.Hold(answerdesk.Prompt{ChoiceID: "choice-2", ChatID: "chat-1", RunnerID: "runner-1"})
+	relayed := make(chan answerdesk.HookAnswer, 1)
+	go func() {
+		answer, err := d.Await(context.Background(), "choice-1")
+		assert.NoError(t, err)
+		relayed <- answer
+	}()
+
+	d.Resolve(slot, []byte("allow"))
+
+	assert.Equal(t, "allow", string((<-relayed).Stdout))
+	held, ok := d.ByChoiceID("choice-2")
+	require.True(t, ok, "the other ask is still open")
+	assert.Same(t, other, held)
 }
 
 // One verdict, whatever the callers do. A second Resolve on a settled slot must
@@ -193,7 +198,7 @@ func TestResolve_SettlesOnce(t *testing.T) {
 	d.Resolve(slot, []byte("second"))
 
 	<-slot.Settled()
-	answer, err := d.Await(context.Background(), "delivery-1")
+	answer, err := d.Await(context.Background(), "choice-1")
 	require.NoError(t, err)
 	assert.Equal(t, "first", string(answer.Stdout))
 }
@@ -202,7 +207,7 @@ func TestReleaseRunner_FreesOnlyThatRunnersRelays(t *testing.T) {
 	t.Parallel()
 
 	d, mine := fixture(time.Minute)
-	theirs := d.Hold("delivery-2", answerdesk.Prompt{
+	theirs := d.Hold(answerdesk.Prompt{
 		ChoiceID: "choice-2", ChatID: "chat-2", RunnerID: "runner-2",
 	})
 
@@ -233,7 +238,7 @@ func TestReleaseRunner_DoesNotReportAnAlreadyDecidedRelay(t *testing.T) {
 	released := d.ReleaseRunner(context.Background(), "runner-1")
 
 	assert.Empty(t, released, "a decided relay is not an abandoned one")
-	_, waiting := d.Pending("delivery-1")
+	_, waiting := d.Pending("choice-1")
 	assert.False(t, waiting, "but its slot is still freed")
 }
 
@@ -244,15 +249,15 @@ func TestResolve_AVerdictIsRetainedForARelayThatHasNotAskedYet(t *testing.T) {
 
 	d.Resolve(slot, []byte("allow"))
 
-	_, waiting := d.Pending("delivery-1")
+	_, waiting := d.Pending("choice-1")
 	require.True(t, waiting, "the decision waits on the desk for its relay")
 	_, answerable := d.ByChoiceID("choice-1")
 	assert.False(t, answerable, "while the prompt stops being answerable at once")
 
-	answer, err := d.Await(context.Background(), "delivery-1")
+	answer, err := d.Await(context.Background(), "choice-1")
 	require.NoError(t, err)
 	assert.Equal(t, "allow", string(answer.Stdout))
-	_, stillWaiting := d.Pending("delivery-1")
+	_, stillWaiting := d.Pending("choice-1")
 	assert.False(t, stillWaiting, "and a claimed verdict is gone")
 }
 
@@ -263,11 +268,11 @@ func TestResolve_AnUnclaimedVerdictDoesNotOutliveItsRetention(t *testing.T) {
 
 	d.Resolve(slot, []byte("allow"))
 
-	answer, err := d.Await(context.Background(), "delivery-1")
+	answer, err := d.Await(context.Background(), "choice-1")
 	require.NoError(t, err)
 	assert.Empty(t, answer.Stdout, "an expired verdict is not handed to a relay that came back late")
 
-	_, waiting := d.Pending("delivery-1")
+	_, waiting := d.Pending("choice-1")
 	assert.False(t, waiting, "and the reaper frees it on a desk nothing else ever touches")
 }
 
@@ -279,7 +284,7 @@ func TestResolve_IgnoresASlotThatHasLeftTheDesk(t *testing.T) {
 
 	d.Resolve(slot, []byte("allow"))
 
-	_, waiting := d.Pending("delivery-1")
+	_, waiting := d.Pending("choice-1")
 	assert.False(t, waiting, "resolving a spent slot put it back on the desk")
 }
 
@@ -288,9 +293,9 @@ func TestAbandon_ReportsTheQuestionToCloseWhenNobodyDecided(t *testing.T) {
 
 	d, _ := fixture(time.Minute)
 
-	d.Abandon(context.Background(), "delivery-1")
+	d.Abandon(context.Background(), "choice-1")
 
-	_, waiting := d.Pending("delivery-1")
+	_, waiting := d.Pending("choice-1")
 	assert.False(t, waiting)
 }
 
@@ -300,12 +305,12 @@ func TestAbandon_ClosesNothingWhenTheVerdictWasAlreadyIn(t *testing.T) {
 	d, slot, ledger := withLedger(time.Minute)
 	d.Resolve(slot, []byte("allow"))
 
-	d.Abandon(context.Background(), "delivery-1")
+	d.Abandon(context.Background(), "choice-1")
 
 	assert.Empty(t, ledger.all(), "the question was decided, not proceeded past")
 }
 
-func TestAbandon_IsSilentForADeliveryNobodyIsHolding(t *testing.T) {
+func TestAbandon_IsSilentForAnAskNobodyIsHolding(t *testing.T) {
 	t.Parallel()
 
 	ledger := &recordingLedger{}
@@ -320,7 +325,7 @@ func TestAnswerableIDs_KeepsOnlyTheChoicesThisChatStillHolds(t *testing.T) {
 	t.Parallel()
 
 	d, _ := fixture(time.Minute)
-	d.Hold("delivery-2", answerdesk.Prompt{ChoiceID: "choice-2", ChatID: "chat-2", RunnerID: "runner-2"})
+	d.Hold(answerdesk.Prompt{ChoiceID: "choice-2", ChatID: "chat-2", RunnerID: "runner-2"})
 
 	ids := d.AnswerableIDs("chat-1", choices("choice-1", "choice-2", "choice-3"))
 
@@ -337,7 +342,7 @@ func TestAnswerableIDs_IsEmptyRatherThanNilForNoChoices(t *testing.T) {
 }
 
 // Four relays and one verdict. Exactly one prints it, and no interleaving loses
-// it — the property the whole two-index, claim-once design exists for.
+// it — the property the claim-once design exists for.
 func TestAwait_AVerdictIsClaimedByExactlyOneOfManyRacingRelays(t *testing.T) {
 	t.Parallel()
 
@@ -351,7 +356,7 @@ func TestAwait_AVerdictIsClaimedByExactlyOneOfManyRacingRelays(t *testing.T) {
 			go func() {
 				defer relays.Done()
 				<-start
-				answer, err := d.Await(context.Background(), "delivery-1")
+				answer, err := d.Await(context.Background(), "choice-1")
 				assert.NoError(t, err)
 				if len(answer.Stdout) > 0 {
 					printed.Add(1)
@@ -372,14 +377,12 @@ func TestAwait_AVerdictIsClaimedByExactlyOneOfManyRacingRelays(t *testing.T) {
 	}
 }
 
-// The desk owns the outcome write because it is the only thing that knows WHICH
-// outcome a relay reached. These three pin the three verdicts apart.
 func TestLedger_AbandonClosesTheQuestionAsProceeded(t *testing.T) {
 	t.Parallel()
 
 	d, _, ledger := withLedger(time.Minute)
 
-	d.Abandon(context.Background(), "delivery-1")
+	d.Abandon(context.Background(), "choice-1")
 
 	require.Equal(t, []resolution{{"chat-1", "choice-1", domain.ChoiceResolutionProceeded}}, ledger.all(),
 		"an undecided prompt is being resolved by the provider's own UI")
@@ -401,20 +404,14 @@ func TestLedger_ReleaseRunnerClosesTheQuestionAsAbandoned(t *testing.T) {
 			"left open, it keeps counting against MaxOpenPerTurn for the rest of the turn")
 }
 
-// TestLedger_AnAbandonedNonPermissionPromptNeverTouchesAnInterruption proves
-// record's interruption resolve is scoped to Event == HookPermission —
-// production elicitation choices pair under the identical id scheme (see
-// PermissionInterruptionID's own doc comment), but resolving one from here
-// is out of scope regardless, the same way answers.go's human-answer path
-// scopes itself. This fixture's own elicitation slot never has a matching
-// interruption opened at all, so a wrongly-unscoped resolve here would name
-// one nothing ever created.
+// Only a permission prompt closes a paired interruption; an elicitation's
+// interruption is never guessed from its choice id.
 func TestLedger_AnAbandonedNonPermissionPromptNeverTouchesAnInterruption(t *testing.T) {
 	t.Parallel()
 
 	ledger := &recordingLedger{}
 	d := answerdesk.New(answerdesk.DefaultRetention, ledger)
-	d.Hold("delivery-1", answerdesk.Prompt{
+	d.Hold(answerdesk.Prompt{
 		ChoiceID: "choice-1", ChatID: "chat-1", RunnerID: "runner-1",
 		Event: engineagents.HookElicitation,
 		Keys:  engineagents.AnswerCapability{Wait: time.Minute, Keys: []string{"accept"}},
@@ -439,31 +436,28 @@ func TestLedger_AnsweredRelaysAreNotClosedAgainByADeadRunner(t *testing.T) {
 	assert.Empty(t, ledger.all(), "a decided relay was answered, not abandoned")
 }
 
-// A ledger that refuses must not strand the relay: it has already been released,
-// and refusing to admit that would leave the CLI blocked on a person who can no
-// longer answer.
+// A ledger that refuses must not strand the relay it already released.
 func TestLedger_AFailedWriteStillReleasesTheRelay(t *testing.T) {
 	t.Parallel()
 
 	ledger := &recordingLedger{err: errors.New("store is down")}
 	d := answerdesk.New(answerdesk.DefaultRetention, ledger)
-	slot := d.Hold("delivery-1", answerdesk.Prompt{ChoiceID: "choice-1", ChatID: "chat-1", RunnerID: "runner-1"})
+	slot := d.Hold(answerdesk.Prompt{ChoiceID: "choice-1", ChatID: "chat-1", RunnerID: "runner-1"})
 
-	d.Abandon(context.Background(), "delivery-1")
+	d.Abandon(context.Background(), "choice-1")
 
 	<-slot.Settled()
-	_, waiting := d.Pending("delivery-1")
+	_, waiting := d.Pending("choice-1")
 	assert.False(t, waiting)
 }
 
-// A desk with no ledger records nothing and refuses nothing. It is the shape a
-// caller that only wants the parking behaviour gets.
+// A desk with no ledger records nothing and refuses nothing.
 func TestLedger_NilLedgerIsSilent(t *testing.T) {
 	t.Parallel()
 
 	d, _ := fixture(time.Minute)
 
-	d.Abandon(context.Background(), "delivery-1")
+	d.Abandon(context.Background(), "choice-1")
 	d.ReleaseRunner(context.Background(), "runner-1")
 }
 
@@ -478,9 +472,9 @@ func TestWithChange_AnnouncesEachMoveOfTheAnswerableSetAfterTheLockIsReleased(t 
 		announced = append(announced, chatID)
 	}))
 
-	slot := d.Hold("delivery-1", answerdesk.Prompt{ChoiceID: "choice-1", ChatID: "chat-1"})
+	slot := d.Hold(answerdesk.Prompt{ChoiceID: "choice-1", ChatID: "chat-1"})
 	d.Resolve(slot, []byte("allow"))
-	other := d.Hold("delivery-2", answerdesk.Prompt{ChoiceID: "choice-2", ChatID: "chat-2"})
+	other := d.Hold(answerdesk.Prompt{ChoiceID: "choice-2", ChatID: "chat-2"})
 	d.Discard(other)
 
 	assert.Equal(t, []string{"chat-1", "chat-1", "chat-2", "chat-2"}, announced)
@@ -493,14 +487,14 @@ func TestWithChange_AReleasedRelayAndADeadRunnerAreAnnounced(t *testing.T) {
 	d := answerdesk.New(answerdesk.DefaultRetention, nil, answerdesk.WithChange(func(chatID string) {
 		announced = append(announced, chatID)
 	}))
-	d.Hold("delivery-1", answerdesk.Prompt{
+	d.Hold(answerdesk.Prompt{
 		ChoiceID: "choice-1", ChatID: "chat-1", RunnerID: "runner-1",
 		Keys: engineagents.AnswerCapability{Wait: time.Millisecond},
 	})
-	d.Hold("delivery-2", answerdesk.Prompt{ChoiceID: "choice-2", ChatID: "chat-2", RunnerID: "runner-2"})
+	d.Hold(answerdesk.Prompt{ChoiceID: "choice-2", ChatID: "chat-2", RunnerID: "runner-2"})
 	announced = nil
 
-	_, err := d.Await(context.Background(), "delivery-1")
+	_, err := d.Await(context.Background(), "choice-1")
 	require.NoError(t, err)
 	d.ReleaseRunner(context.Background(), "runner-2")
 

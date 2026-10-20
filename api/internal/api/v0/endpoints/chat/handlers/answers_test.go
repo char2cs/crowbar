@@ -84,11 +84,12 @@ func TestAnswerChoice_RejectsAnEmptyOrMalformedDecision(t *testing.T) {
 
 func TestHooks_AnAnswerablePromptTellsTheRelayToWait(t *testing.T) {
 	uc := &fakeAgentUsecase{
+		hookAsk:       "c1",
 		pendingAwait:  true,
 		pendingAnswer: agentusecase.PendingAnswer{ChoiceID: "c1", Wait: 270 * time.Second},
 	}
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks",
-		[]byte(`{"delivery_id":"d1","segment_id":"seg","provider":"claude",`+
+		[]byte(`{"segment_id":"seg","provider":"claude",`+
 			`"event":"permission","payload_raw":"{}"}`))
 
 	newChatHandlers(uc).Hooks(ctx)
@@ -110,7 +111,7 @@ func TestHooks_AnAnswerablePromptTellsTheRelayToWait(t *testing.T) {
 func TestRegression_HooksKeepsTheBare202WhenNothingIsAnswerable(t *testing.T) {
 	uc := &fakeAgentUsecase{}
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks",
-		[]byte(`{"delivery_id":"d1","segment_id":"seg","provider":"codex",`+
+		[]byte(`{"segment_id":"seg","provider":"codex",`+
 			`"event":"permission","payload_raw":"{}"}`))
 
 	newChatHandlers(uc).Hooks(ctx)
@@ -124,19 +125,19 @@ func TestAwaitHookAnswer_ServesTheRenderedVerdict(t *testing.T) {
 		Stdout: []byte(`{"hookSpecificOutput":{"hookEventName":"PermissionRequest"}}`),
 	}}
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/await",
-		[]byte(`{"delivery_id":"d1"}`))
+		[]byte(`{"ask_id":"c1"}`))
 
 	newChatHandlers(uc).AwaitHookAnswer(ctx)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, []string{"d1"}, uc.awaitCalls)
+	require.Equal(t, []string{"c1"}, uc.awaitCalls)
 	assert.Contains(t, rec.Body.String(), "hookSpecificOutput")
 }
 
 func TestAwaitHookAnswer_NoDecisionIsStillA200(t *testing.T) {
 	uc := &fakeAgentUsecase{}
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/await",
-		[]byte(`{"delivery_id":"d1"}`))
+		[]byte(`{"ask_id":"c1"}`))
 
 	newChatHandlers(uc).AwaitHookAnswer(ctx)
 
@@ -144,8 +145,8 @@ func TestAwaitHookAnswer_NoDecisionIsStillA200(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), `"stdout":""`)
 }
 
-func TestAwaitHookAnswer_RejectsARequestWithNoDelivery(t *testing.T) {
-	for _, body := range []string{"{", `{}`, `{"delivery_id":""}`} {
+func TestAwaitHookAnswer_RejectsARequestWithNoAsk(t *testing.T) {
+	for _, body := range []string{"{", `{}`, `{"ask_id":""}`} {
 		uc := &fakeAgentUsecase{}
 		ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/await", []byte(body))
 
@@ -159,16 +160,16 @@ func TestAwaitHookAnswer_RejectsARequestWithNoDelivery(t *testing.T) {
 func TestAbandonHookAnswer_ReportsAndAcknowledges(t *testing.T) {
 	uc := &fakeAgentUsecase{}
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/abandon",
-		[]byte(`{"delivery_id":"d1"}`))
+		[]byte(`{"ask_id":"c1"}`))
 
 	newChatHandlers(uc).AbandonHookAnswer(ctx)
 
 	require.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Equal(t, []string{"d1"}, uc.abandonCalls)
+	assert.Equal(t, []string{"c1"}, uc.abandonCalls)
 }
 
-func TestAbandonHookAnswer_RejectsARequestWithNoDelivery(t *testing.T) {
-	for _, body := range []string{"{", `{"delivery_id":""}`} {
+func TestAbandonHookAnswer_RejectsARequestWithNoAsk(t *testing.T) {
+	for _, body := range []string{"{", `{"ask_id":""}`} {
 		uc := &fakeAgentUsecase{}
 		ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/abandon", []byte(body))
 
@@ -182,7 +183,7 @@ func TestAbandonHookAnswer_RejectsARequestWithNoDelivery(t *testing.T) {
 func TestAbandonHookAnswer_SurfacesAFailure(t *testing.T) {
 	uc := &fakeAgentUsecase{abandonErr: apperr.ErrUnavailable}
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/abandon",
-		[]byte(`{"delivery_id":"d1"}`))
+		[]byte(`{"ask_id":"c1"}`))
 
 	newChatHandlers(uc).AbandonHookAnswer(ctx)
 
@@ -192,7 +193,7 @@ func TestAbandonHookAnswer_SurfacesAFailure(t *testing.T) {
 func TestAwaitHookAnswer_SurfacesAFailure(t *testing.T) {
 	uc := &fakeAgentUsecase{awaitErr: apperr.ErrUnavailable}
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/await",
-		[]byte(`{"delivery_id":"d1"}`))
+		[]byte(`{"ask_id":"c1"}`))
 
 	newChatHandlers(uc).AwaitHookAnswer(ctx)
 

@@ -22,6 +22,10 @@ var (
 
 	ErrForeignConversation = protocol.ErrForeignPayload
 
+	// ErrHookVariantMismatch is a delivery a declared when: filter routed to
+	// another variant of the same wire hook.
+	ErrHookVariantMismatch = protocol.ErrVariantMismatch
+
 	ErrRequiredFieldMissing = protocol.ErrRequiredFieldMissing
 
 	ErrTelemetryUnsupported = protocol.ErrTelemetryUnsupported

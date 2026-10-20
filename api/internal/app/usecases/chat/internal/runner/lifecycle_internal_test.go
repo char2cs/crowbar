@@ -14,7 +14,6 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -253,7 +252,7 @@ func TestShutdown_EveryRunnerEndsAsADaemonRestart(t *testing.T) {
 		ledger: newTestLedger(t), chats: stubChatsForSpawn{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}}, activity: stubActivityForSpawn{},
 		turns: noopTurns{}, agents: stubAgentsForInterrupt{}, surfaces: newSurfaceRegistry(),
 		answers:  answerdesk.New(answerdesk.DefaultRetention, nil),
-		apiConns: newAPIConnRegistry(), pendingHooks: inflight.NewHooks(), background: newBackgroundWork(),
+		apiConns: newAPIConnRegistry(), chatLock: newTestLock(), parks: newParks(), background: newBackgroundWork(),
 	}
 	chatIDs := []string{"chat-a", "chat-b"}
 	for _, chatID := range chatIDs {

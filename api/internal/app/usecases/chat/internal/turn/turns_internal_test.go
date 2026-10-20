@@ -89,7 +89,6 @@ func TestTurns_ForgetChatDropsEveryPerChatEntry(t *testing.T) {
 	turns.messages.Observe("c1", "r1", "t1", "m1", 0, false, false, "partial", time.Unix(100, 0))
 	turns.compacting.arm("c1", "turn-compact")
 	turns.manualCompact.arm("c1")
-	turns.HoldSteer("c1", "req-1", "steer text")
 
 	turns.ForgetChat("c1")
 
@@ -97,7 +96,6 @@ func TestTurns_ForgetChatDropsEveryPerChatEntry(t *testing.T) {
 	assert.Empty(t, turns.messages.Unfinished("c1", "r1"))
 	assert.False(t, turns.compacting.consume("c1", "turn-compact"))
 	assert.False(t, turns.manualCompact.peek("c1"))
-	assert.Equal(t, steerText{}, turns.steers.take("c1"))
 }
 
 func newTurnLedger(t *testing.T) *ledgerstore.Store {

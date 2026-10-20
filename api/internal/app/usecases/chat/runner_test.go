@@ -1651,10 +1651,13 @@ func TestSubmitPrompt_AlreadyTurnedNativeSessionStaysOnTheCheapPath(t *testing.T
 		"an already-turned session must not be re-handed a handoff on every follow-up")
 }
 
-func TestStartupHookBarrier_ReplaysPromptThatFiresBeforeRunnerPersistence(t *testing.T) {
+// A hook the CLI sends before its spawn records runner_started waits on the
+// chat's lock, and is recorded on the runner once runner_started is.
+func TestSpawn_AHookFromBeforeRunnerStartedIsRecordedAfterIt(t *testing.T) {
 	f := newFixture(t)
 	message := "provider fired before runner persistence"
 	var earlyRunnerID string
+	placed := make(chan error, 1)
 	f.term.duringForkCall = func(call commandCall) {
 		earlyRunnerID = segmentIDFromCommand(t, call.argv)
 		early, ok := f.usecase.own.RunnerByID(earlyRunnerID)
@@ -1663,12 +1666,14 @@ func TestStartupHookBarrier_ReplaysPromptThatFiresBeforeRunnerPersistence(t *tes
 		require.NoError(t, err)
 		_, recorded := st.LiveRunner()
 		require.False(t, recorded, "precondition: the fork callback runs before runner_started commits")
-		require.NoError(t, f.usecase.IngestHook(f.ctx, earlyRunnerID, "codex", "user_prompt",
-			mustJSON(t, map[string]any{"prompt": message})))
+		payload := mustJSON(t, map[string]any{"prompt": message})
+		go func() { placed <- f.usecase.IngestHook(f.ctx, earlyRunnerID, "codex", "user_prompt", payload) }()
 	}
 
 	chatID, runnerID := f.spawn(t, "codex")
 	f.term.duringForkCall = nil
+	require.NoError(t, <-placed)
+	f.wait()
 	assert.Equal(t, runnerID, earlyRunnerID)
 	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
 	require.NoError(t, err)
@@ -2699,13 +2704,13 @@ func TestIngestHook_SessionStart_SameConversationIsANoop(t *testing.T) {
 	assert.Equal(t, chatID, f.runner(t, runnerID).CurrentChatID)
 }
 
-func TestIngestHook_SessionStart_EmptySessionID_IsIgnored(t *testing.T) {
+func TestIngestHook_SessionStart_EmptySessionID_IsRefused(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
 	f.snapFrames.reset()
 
-	f.announce(t, runnerID, "")
+	refusedHook(t, f, runnerID, "", "session_start", map[string]any{"session_id": ""})
 
 	assert.Empty(t, f.runnerKinds(t), "an announcement with no conversation id is not an event")
 	assert.Equal(t, chatID, f.runner(t, runnerID).CurrentChatID)
@@ -2789,45 +2794,6 @@ func TestIngestHook_UserPromptOpensTurn_TurnStopClosesTurn(t *testing.T) {
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
 		mustJSON(t, map[string]any{"last_assistant_message": "done"})))
 	assert.False(t, f.busy(t, chatID), "a turn_stop must close the turn")
-}
-
-func TestIngestHook_UnknownRunner_IsIgnored(t *testing.T) {
-	f := newFixture(t)
-
-	require.NoError(t, f.usecase.IngestHook(f.ctx, "does-not-exist", "claude", "session_start",
-		mustJSON(t, map[string]any{"session_id": "sid-1"})))
-	assert.Empty(t, f.bc.snapshot())
-	assert.Empty(t, f.runnerKinds(t), "a hook must never resurrect a runner we do not know")
-}
-
-// TestIngestHook_ExitedRunner_IsIgnored: once the PTY is gone the runner is gone, and a
-// late hook from it changes nothing. (Liveness has exactly one source: the process.)
-func TestIngestHook_ExitedRunner_IsIgnored(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
-	f.wait()
-	f.bc.reset()
-	f.snapFrames.reset()
-
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
-		mustJSON(t, map[string]any{"prompt": "a ghost speaks"})))
-
-	assert.Empty(t, f.bcKinds(t))
-	handoff, err := f.usecase.AssembleHandoff(f.ctx, chatID)
-	require.NoError(t, err)
-	assert.Empty(t, handoff, "a dead runner's hook must not write to the ledger")
-}
-
-func TestIngestHook_UnmappedCanonicalEvent_ReturnsNil(t *testing.T) {
-	f := newFixture(t)
-
-	_, runnerID := f.spawn(t, "claude")
-	f.bc.reset()
-
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "not_a_real_hook", mustJSON(t, map[string]any{})))
-	assert.Empty(t, f.bcKinds(t), "an unmapped hook issues no command and so emits no frame")
 }
 
 // ---------------------------------------------------------------------------
@@ -3080,7 +3046,7 @@ func TestIngestHook_ChatLookupFailure_ReturnsWrappedError(t *testing.T) {
 	err := f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "hi"}))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "ingest hook: chat")
+	assert.Contains(t, err.Error(), "hook: chat")
 }
 
 // ---------------------------------------------------------------------------
@@ -3408,8 +3374,8 @@ func TestRegression_ReasoningStreamsLiveAndIsNeverRecorded(t *testing.T) {
 
 	think := func(index int, text string) {
 		t.Helper()
-		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, uuid.NewString(), runnerID, "codex", "reasoning_delta",
+		require.NoError(t, f.usecase.IngestHook(
+			f.ctx, runnerID, "codex", "reasoning_delta",
 			mustJSON(t, map[string]any{
 				"threadId": "sess-1", "turnId": "turn-1", "itemId": "rs_1",
 				"summaryIndex": index, "delta": text,
@@ -3452,8 +3418,8 @@ func TestStartTerminalWaitSweep_PushesEveryDeltaAsTheMessageSoFar(t *testing.T) 
 
 	post := func(index int, final bool, text string) {
 		t.Helper()
-		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, uuid.NewString(), runnerID, "claude", "message_delta",
+		require.NoError(t, f.usecase.IngestHook(
+			f.ctx, runnerID, "claude", "message_delta",
 			deltaHook(t, "msg-one", index, final, text),
 		))
 	}
@@ -4145,7 +4111,7 @@ func TestSessionInvariants_HoldWhenIntentsRace(t *testing.T) {
 }
 
 // The send|stop interleaving the race walk hits: the send holds the chat's
-// spawn gate until it has delivered, so a racing Stop takes the chat only after
+// lock until it has delivered, so a racing Stop takes the chat only after
 // it — and ends the runner the send was delivered to, saying why.
 func TestSessionInvariants_AStopAfterADeliveredSendEndsItsRunnerAndSaysWhy(t *testing.T) {
 	f := newFixture(t)

@@ -22,24 +22,22 @@ func (rs *Runners) SubmitPrompt(
 	ctx context.Context,
 	chatID, text, clientRequestID string,
 ) (domain.AgentPromptSubmission, error) {
-	_, release, err := rs.spawns.Acquire(ctx, chatID)
-	if err != nil {
-		return domain.AgentPromptSubmission{}, err
-	}
-	defer release()
-	return rs.submitPromptLocked(ctx, chatID, text, clientRequestID, nil)
+	h := rs.acquire(ctx, chatID)
+	defer h.release()
+	return rs.submitPromptLocked(ctx, h, chatID, text, clientRequestID, nil)
 }
 
 // submitPromptLocked is SubmitPrompt's body, split out so
 // SubmitPromptWithSwitch (promptswitch.go) can run it as the TAIL of its own
-// single gate hold — a staged provider switch and selection commit, then this,
-// never releasing the gate in between. See that file's own doc for why.
+// single hold of the chat — a staged provider switch and selection commit,
+// then this. See that file's own doc for why.
 //
 // admit (nil for none) runs once the request is known to be new — a resend of
 // a recorded prompt answers from the ledger and must never spawn or mutate
 // anything.
 func (rs *Runners) submitPromptLocked(
 	ctx context.Context,
+	h *hold,
 	chatID, text, clientRequestID string,
 	admit func() error,
 ) (domain.AgentPromptSubmission, error) {
@@ -50,6 +48,11 @@ func (rs *Runners) submitPromptLocked(
 	chat, err := rs.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, fmt.Errorf("agent: submit prompt: chat: %w", err)
+	}
+	// Never decided against a runner whose end is under way: that end's owner
+	// may be about to put its own prompt on the chat.
+	if _, _, err := rs.settledRunner(h); err != nil {
+		return domain.AgentPromptSubmission{}, fmt.Errorf("agent: submit prompt: %w", err)
 	}
 	if result, done, err := rs.replayPriorPrompt(ctx, chat.ID, clientRequestID, text); done {
 		return result, err
@@ -88,11 +91,11 @@ func (rs *Runners) submitPromptLocked(
 
 	replacementRunnerID := uuid.NewString()
 	if err := rs.recordPrompt(
-		ctx, chat.ID, clientRequestID, text, ledger.DeliveryRestart, replacementRunnerID, nil,
+		ctx, chat.ID, clientRequestID, text, "", ledger.DeliveryRestart, replacementRunnerID, nil,
 	); err != nil {
 		return domain.AgentPromptSubmission{}, err
 	}
-	if err := rs.displaceForPrompt(ctx, chatID, live.ID); err != nil {
+	if err := rs.displaceForPrompt(ctx, h, chatID, clientRequestID, live.ID); err != nil {
 		return domain.AgentPromptSubmission{}, rs.failPrompt(ctx, chat.ID, clientRequestID, err)
 	}
 
@@ -190,10 +193,11 @@ func priorPrompt(st ledger.State, requestID, text string) (ledger.Prompt, bool, 
 }
 
 // recordPrompt appends requestID's user_message before any CLI is touched: the
-// prompt exists, and is owed an outcome, from this commit on. carrier is the
-// runner that will deliver it; admit, when set, refuses the record.
+// prompt exists, and is owed an outcome, from this commit on. dispatch is the
+// text the CLI is handed when it is not text; carrier is the runner that will
+// deliver it; admit, when set, refuses the record.
 func (rs *Runners) recordPrompt(
-	ctx context.Context, chatID, requestID, text, delivery, carrier string, admit func(ledger.State) error,
+	ctx context.Context, chatID, requestID, text, dispatch, delivery, carrier string, admit func(ledger.State) error,
 ) error {
 	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
 		if admit != nil {
@@ -207,8 +211,12 @@ func (rs *Runners) recordPrompt(
 			}
 			return nil, err
 		}
+		if dispatch == text {
+			dispatch = ""
+		}
 		row, err := ledger.NewRow(ledger.KindUserMessage, uuid.NewString(), "", ledger.UserMessage{
 			RequestID: requestID, Text: text, Origin: ledger.OriginCrowbar, Delivery: delivery, RunnerID: carrier,
+			Dispatch: dispatch,
 		})
 		return []ledger.Row{row}, err
 	})
@@ -250,7 +258,7 @@ func (rs *Runners) settlePrompts(ctx context.Context, chatID string, decide func
 // here instead: pushing it over the stale connection would silently keep
 // running the OLD model/effort forever, since nothing on this fast path ever
 // re-examines the launch argv a running process was started with — confirmed
-// live, this exact gap is why a codex model/effort switch never reached the
+// live, this exact gap is why a model/effort switch never reached the
 // CLI. handled=false means either no live api connection (every hooks-only
 // provider, and a mixed-transport one whose serve process never came up) or
 // a selection change this connection cannot carry; either way the caller
@@ -282,7 +290,7 @@ func (rs *Runners) submitPromptOverAPI(
 	if err != nil {
 		return domain.AgentPromptSubmission{}, true, fmt.Errorf("agent: submit prompt: materialize attachments: %w", err)
 	}
-	if err := rs.recordPrompt(ctx, chat.ID, clientRequestID, text, ledger.DeliveryAPI, live.ID, nil); err != nil {
+	if err := rs.recordPrompt(ctx, chat.ID, clientRequestID, text, "", ledger.DeliveryAPI, live.ID, nil); err != nil {
 		return domain.AgentPromptSubmission{}, true, err
 	}
 	session, err := rs.boundSession(ctx, chat.ID, live.ProviderID)
@@ -323,18 +331,33 @@ func (rs *Runners) promptTarget(
 	return live, descriptor, worktree, nil
 }
 
+// displaceForPrompt quits the chat's idle runner outside the chat's lock, then
+// refuses the replacement unless requestID is still the chat's to deliver and
+// nothing took the chat meanwhile.
 func (rs *Runners) displaceForPrompt(
 	ctx context.Context,
-	chatID, liveRunnerID string,
+	h *hold,
+	chatID, requestID, liveRunnerID string,
 ) error {
 	if err := rs.endIdleForPrompt(ctx, chatID, liveRunnerID); err != nil {
 		return err
 	}
-	return rs.quitOutgoingCLI(ctx, chatID)
+	if err := h.outside(func(context.Context) error { return rs.quitOutgoingCLI(ctx, chatID) }); err != nil {
+		return err
+	}
+	st, err := rs.ledger.State(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agent: submit prompt: %w", err)
+	}
+	p, _ := st.Receipt(requestID)
+	if _, taken := rs.live.byChat(chatID); taken || p.Status != ledger.PromptStatusPending {
+		return ErrPromptBusy
+	}
+	return nil
 }
 
-// endIdleForPrompt refuses a busy chat and marks its idle runner ending, under
-// the chat's turn-start gate: no turn opens on it before the quit.
+// endIdleForPrompt refuses a busy chat and marks its idle runner ending, in
+// its turn order: no turn opens on it before the quit.
 func (rs *Runners) endIdleForPrompt(ctx context.Context, chatID, liveRunnerID string) (err error) {
 	rs.live.inTurnOrder(chatID, func() {
 		if err = rs.requirePromptIdle(ctx, chatID, liveRunnerID); err == nil {

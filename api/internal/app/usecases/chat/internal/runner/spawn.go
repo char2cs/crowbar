@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/promptsigil"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
@@ -24,11 +23,8 @@ func (rs *Runners) SpawnChat(
 	providerID string,
 ) (chatID, runnerID string, err error) {
 	chatID = uuid.NewString()
-	_, release, err := rs.spawns.Acquire(ctx, chatID)
-	if err != nil {
-		return "", "", err
-	}
-	defer release()
+	h := rs.acquire(ctx, chatID)
+	defer h.release()
 
 	runnerID, err = rs.spawnRunner(ctx, chatID, workspaceID, providerID, spawnInput{}, true)
 	if err != nil {
@@ -42,11 +38,8 @@ func (rs *Runners) StartRunner(
 	chatID string,
 	providerID string,
 ) (string, error) {
-	_, release, err := rs.spawns.Acquire(ctx, chatID)
-	if err != nil {
-		return "", err
-	}
-	defer release()
+	h := rs.acquire(ctx, chatID)
+	defer h.release()
 
 	chat, err := rs.chats.GetChat(ctx, chatID)
 	if err != nil {
@@ -120,9 +113,8 @@ func (rs *Runners) spawnRunner(
 
 	// The tool surface is switched off by rendering a descriptor that does not
 	// declare one, rather than by filtering steps at the injection site: WHERE those
-	// steps land is the descriptor's business (claude's --mcp-config is variadic and
-	// needs the --settings pair immediately behind it), and this function has no
-	// business knowing that.
+	// steps land is the descriptor's business (a variadic flag may need its pair
+	// immediately behind it), and this function has no business knowing that.
 	descriptor = descriptor.WithTools(pre.mcpOn)
 
 	// Never the chat's own raw stored intent directly — see
@@ -150,7 +142,7 @@ func (rs *Runners) spawnRunner(
 	})
 
 	// Register the injected document BEFORE the CLI can run: a provider whose only
-	// resume channel is a user message (codex) fires its user-prompt hook with this
+	// resume channel is a user message fires its user-prompt hook with this
 	// exact text the moment it starts, and that echo must never be recorded as a
 	// ledger turn — that is what made handoffs nest inside themselves.
 	//
@@ -175,19 +167,13 @@ func (rs *Runners) spawnRunner(
 	}
 
 	// The chat's one entry, claimed before any process exists: a second
-	// spawn is refused here, never after it has forked.
+	// spawn is refused here, never after it has forked. Whatever the process
+	// reports before runner_started commits waits on the chat's lock, held here.
 	if err := rs.live.add(engineagents.Runner{
 		ID: runnerID, WorkspaceID: workspaceID, ProviderID: providerID, CurrentChatID: chatID,
 	}); err != nil {
 		rs.agents.ForgetRunner(runnerID)
 		return "", err
-	}
-	// The startup barrier opens before anything can report: an api connection
-	// announces its session the moment it is established, long before the
-	// runner_started row exists, and that announcement is what makes it resumable.
-	if err := rs.pendingHooks.Register(runnerID); err != nil {
-		rs.agents.ForgetRunner(runnerID)
-		return "", fmt.Errorf("agent: spawn runner: install hook startup barrier: %w", err)
 	}
 	// The surface this process lands on, recorded before anything can ask
 	// (ShowingNativeView reads it).
@@ -216,7 +202,7 @@ func (rs *Runners) spawnRunner(
 	// binpath.Resolve, never the bare descriptor cmd: the PTY exec's argv[0] through
 	// exec.Command, which resolves a bare name against the DAEMON's PATH — plan.Env is
 	// ignored for the lookup. A launchd-started .app daemon has a minimal PATH that
-	// misses ~/.local/bin, where claude and codex install, so a bare name made every
+	// misses ~/.local/bin, where vendor CLIs install, so a bare name made every
 	// spawn die with "executable file not found in $PATH". An unresolvable cmd passes
 	// through unchanged, preserving that error for a CLI that genuinely is not installed.
 	termSessID, carried, err := rs.forkOrAdopt(ctx, forkRequest{
@@ -248,18 +234,10 @@ func (rs *Runners) spawnRunner(
 		CurrentChatID: chatID, LaunchModel: carried.Model, LaunchEffort: carried.Effort,
 		LaunchPermissionLevel: carried.PermissionLevel,
 	}, launch.resumeID, create); err != nil {
-		rs.pendingHooks.Discard(runnerID)
-		rs.agents.ForgetRunner(runnerID)
+		if !errors.Is(err, ErrProviderExitedDuringStartup) {
+			rs.agents.ForgetRunner(runnerID)
+		}
 		return "", err
-	}
-	// The barrier stays up through replay, so no later hook overtakes a buffered
-	// one; a CLI that died before runner_started has its exit recorded only after.
-	exitedDuringStartup := rs.pendingHooks.Finish(runnerID, func(hook inflight.Hook) {
-		rs.turns.ReplayStartupHook(runnerID, hook)
-	})
-	if exitedDuringStartup {
-		rs.reconcileRunnerExit(context.Background(), runnerID)
-		return "", ErrProviderExitedDuringStartup
 	}
 	return runnerID, nil
 }
@@ -267,7 +245,6 @@ func (rs *Runners) spawnRunner(
 // abandonUnforked forgets what a spawn set up before it forked anything.
 func (rs *Runners) abandonUnforked(runnerID string) {
 	rs.apiConns.drop(runnerID)
-	rs.pendingHooks.Discard(runnerID)
 	rs.agents.ForgetRunner(runnerID)
 }
 
@@ -275,13 +252,12 @@ func (rs *Runners) forkCLI(
 	ctx context.Context,
 	req forkRequest,
 ) (string, error) {
-	//nolint:contextcheck // the exit outlives the request; its values (gate holds, delivery ids) must not reach it.
+	//nolint:contextcheck // the exit outlives the request; its values must not reach it.
 	termSessID, err := rs.term.CreateCommand(ctx, req.chatID, req.worktree, req.argv, req.env,
 		rs.onRunnerExit(req.crowbarHome, req.runnerID, req.tmpDir, req.resume))
 	if err == nil {
 		return termSessID, nil
 	}
-	rs.pendingHooks.Discard(req.runnerID)
 	rs.agents.ForgetRunner(req.runnerID)
 	reapRunnerDir(ctx, req.crowbarHome, req.tmpDir)
 

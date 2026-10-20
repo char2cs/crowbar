@@ -12,19 +12,20 @@ import (
 //
 // It is declared here, by the consumer, so the two never import each other.
 type Conversations interface {
-	// RecordTurn appends one turn to the chat's conversation record, keyed by the
-	// hook delivery so a relay retry is absorbed rather than duplicated.
+	// RecordTurn appends one turn to the chat's conversation record under
+	// turnID, a fresh id when it is "".
 	RecordTurn(
 		ctx context.Context,
 		chat domain.Chat,
-		providerID, runnerID, sessionID string,
+		turnID, providerID, runnerID, sessionID string,
 		role, text, effort string,
 	) error
-	// AppendRunnerTurn records a turn and refreshes the chat's activity clock.
+	// AppendRunnerTurn records a turn as RecordTurn does and refreshes the
+	// chat's activity clock.
 	AppendRunnerTurn(
 		ctx context.Context,
 		chat domain.Chat,
-		providerID, runnerID, sessionID string,
+		turnID, providerID, runnerID, sessionID string,
 		role, text string,
 	) error
 	// RenameChat retitles under the user > agent > derived precedence. A hook only
@@ -44,8 +45,7 @@ type Conversations interface {
 // Runners is what a hook needs from the runner lifecycle: the runner it names,
 // and the placement half of a session_start.
 //
-// NOTHING here may take the spawn gate: a hook must never wait on a
-// user-initiated path.
+// NOTHING here may take the chat's lock: a hook is recorded under it already.
 type Runners interface {
 	// RunnerByID is the live runner a hook names, also while it is exiting.
 	RunnerByID(runnerID string) (engineagents.Runner, bool)

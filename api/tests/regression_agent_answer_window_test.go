@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -80,11 +79,10 @@ func TestRegression_AnAnswerInTheAckAwaitWindowStillReachesTheRelay(t *testing.T
 	segID := getAgentChat(t, h, base, created.ID).LiveRunnerID
 	require.NotEmpty(t, segID)
 
-	postAnswerStubHook(t, h, base, segID, "", "user_prompt", `{"prompt":"go"}`)
+	postAnswerStubHook(t, h, base, segID, "user_prompt", `{"prompt":"go"}`)
 	h.Quiesce()
 
-	deliveryID := uuid.NewString()
-	ack := postAnswerStubHook(t, h, base, segID, deliveryID, "permission",
+	ack := postAnswerStubHook(t, h, base, segID, "permission",
 		`{"session_id":"s1","prompt_id":"p1","tool_name":"Bash",`+
 			`"tool_input":{"command":"touch PROOF"}}`)
 	require.NotNil(t, ack.Await, "a prompt this provider can be told the answer to holds its relay")
@@ -117,7 +115,7 @@ func TestRegression_AnAnswerInTheAckAwaitWindowStillReachesTheRelay(t *testing.T
 	var answer struct {
 		Stdout string `json:"stdout"`
 	}
-	h.post(base+"/chats/hooks/await", map[string]string{"delivery_id": deliveryID},
+	h.post(base+"/chats/hooks/await", map[string]string{"ask_id": ack.Await.ChoiceID},
 		http.StatusOK, &answer)
 	assert.JSONEq(t, `{"decision":{"behavior":"allow"}}`, answer.Stdout,
 		"the CLI must receive the bytes Crowbar's record says it was given")
@@ -125,7 +123,7 @@ func TestRegression_AnAnswerInTheAckAwaitWindowStillReachesTheRelay(t *testing.T
 	var second struct {
 		Stdout string `json:"stdout"`
 	}
-	h.post(base+"/chats/hooks/await", map[string]string{"delivery_id": deliveryID},
+	h.post(base+"/chats/hooks/await", map[string]string{"ask_id": ack.Await.ChoiceID},
 		http.StatusOK, &second)
 	assert.Empty(t, second.Stdout, "a claimed verdict is gone")
 }
@@ -140,11 +138,10 @@ type answerStubAck struct {
 func postAnswerStubHook(
 	t *testing.T,
 	h *harness,
-	base, segID, deliveryID, event, payloadRaw string,
+	base, segID, event, payloadRaw string,
 ) answerStubAck {
 	t.Helper()
 	resp := h.raw(http.MethodPost, base+"/chats/hooks", map[string]string{
-		"delivery_id": deliveryID,
 		"segment_id":  segID,
 		"provider":    "answerstub",
 		"event":       event,

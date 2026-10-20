@@ -15,7 +15,6 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
@@ -77,15 +76,16 @@ var constructorUnsetFields = map[string]string{
 // A second instance of any of these does not fail to compile and does not fail a
 // test that exercises one path at a time. It puts two CLIs on one chat.
 var sharedInstances = map[string][]string{
-	"the spawn gate":      {"conversations.spawns", "runners.spawns"},
-	"the hook barrier":    {"turns.pendingHooks", "runners.pendingHooks"},
+	// A hook and a user-initiated spawn on one chat are ordered by this one lock;
+	// a second would let a hook land inside the decision it contradicts.
+	"the chat locks":      {"ingress.locks", "runners.chatLock"},
 	"the telemetry store": {"conversations.telemetry", "turns.telemetry"},
 	"the answer desk":     {"answers", "turns.answers", "runners.answers"},
 	"the chat record":     {"conversations", "turns.conversations", "runners.conversations"},
 	"the provider table":  {"providers", "runners.providers"},
-	"the CLI lifecycle":   {"runners", "conversations.runners", "turns.runners"},
-	"the hook ingress":    {"turns", "runners.turns"},
-	"the chat ledger":     {"conversations.ledger", "turns.ledger", "runners.ledger"},
+	"the CLI lifecycle":   {"runners", "conversations.runners", "turns.runners", "ingress.runners"},
+	"the turn record":     {"turns", "ingress.turns", "ingress.descriptors"},
+	"the chat ledger":     {"ledger", "conversations.ledger", "turns.ledger", "runners.ledger", "ingress.ledger"},
 }
 
 var nilableKinds = map[reflect.Kind]bool{
@@ -169,6 +169,7 @@ func walkable(u *Usecase) map[string]any {
 		"turns":         u.turns,
 		"runners":       u.runners,
 		"providers":     u.providers,
+		"ingress":       u.ingress,
 	}
 }
 
@@ -303,80 +304,6 @@ func TestNew_WiresTheToolSurfaceBackToTheUsecase(t *testing.T) {
 //
 // Each test was verified to FAIL when its invariant was inverted; the inversion and
 // the message it produces are recorded in the comment above it.
-
-// §7.1 — the hook ingress is never GIVEN the spawn gate.
-//
-// A hook must never block and must never fail: by the time it arrives the CLI has
-// already acted. If ingest could take that gate, a SwitchProvider holding it while it
-// parks waiting for the turn to finish would deadlock the CLI that is trying to report
-// that very turn.
-//
-// This used to be asserted by watching a goroutine not block, which proves something
-// about the goroutine and nothing about production. Since the decomposition it is
-// STRUCTURAL: New hands the spawn gate to the chat record and to the CLI lifecycle,
-// and to nothing else, so the hook ingress cannot take a lock it was never given.
-//
-// Inverted (add Spawns to turn.Deps and pass sh.spawns to it): fails with "the hook
-// ingress was handed the spawn gate".
-func TestInvariant_TheHookIngressIsNeverGivenTheSpawnGate(t *testing.T) {
-	t.Parallel()
-	u := newWiringFixture(t)
-
-	spawnGate := fieldPointer(t, u, "runners.spawns")
-	if spawnGate != fieldPointer(t, u, "conversations.spawns") {
-		t.Fatal("precondition: the two paths that DO take the spawn gate must share one")
-	}
-
-	for name, held := range gatesHeldBy(u.turns) {
-		if held == spawnGate {
-			t.Fatalf("the hook ingress was handed the spawn gate as %q: a switch holding "+
-				"it would deadlock the CLI trying to report the very turn the switch is "+
-				"waiting for", name)
-		}
-	}
-}
-
-// gatesHeldBy collects every per-chat gate a component holds, by field name. The
-// ingress legitimately holds two of them (the turn-start interlock and the
-// per-runner hook gate); what it must never hold is the spawn gate.
-func gatesHeldBy(component any) map[string]uintptr {
-	held := map[string]uintptr{}
-	fields := reflect.ValueOf(component).Elem()
-	for i := range fields.NumField() {
-		field := fields.Field(i)
-		if field.Kind() != reflect.Pointer || field.IsNil() {
-			continue
-		}
-		if field.Type() != reflect.TypeFor[*inflight.Gate]() {
-			continue
-		}
-		held[fields.Type().Field(i).Name] = field.Pointer()
-	}
-	return held
-}
-
-// §7.6 — the exactly-once hook ingress is a DECLARED method, never discovered at
-// runtime.
-//
-// It used to be found with a `, ok` type assertion. A port that only MIGHT carry it is
-// a port a mis-wire drops silently: every hook takes the un-journalled path, every
-// relay retry applies twice, and nothing fails until a user sees the same turn twice.
-//
-// Inverted (remove IngestHookDelivery from the TurnUsecase interface, or stop the
-// concrete type implementing it): this file stops compiling, which is the entire point
-// — the guarantee is a compile error, not a test failure.
-func TestInvariant_TheExactlyOnceHookIngressIsCompileTimeWired(t *testing.T) {
-	t.Parallel()
-	// The concrete type the container builds must satisfy the port INCLUDING the
-	// journalled ingress. If this ever needs a type assertion to be true, the
-	// invariant is already broken.
-	var _ interface {
-		IngestHookDelivery(
-			ctx context.Context, deliveryID, runnerID, provider, canonicalEvent string,
-			rawPayload []byte,
-		) error
-	} = (*Usecase)(nil)
-}
 
 // §7.4 — a runner is ended with SIGTERM, never SIGKILL.
 //

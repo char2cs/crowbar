@@ -123,32 +123,14 @@ type ChatUsecase interface {
 // TurnUsecase is the vendor CLI's hook ingress and the record it writes: what
 // the agent DID, and what it is blocked on.
 type TurnUsecase interface {
-	// IngestHook applies one canonical hook event that carries no delivery id —
-	// the daemon's own replay, and any forwarder predating the relay journal.
-	IngestHook(
+	// Hook places one hook, over channel, and answers once its rows are
+	// committed. A hook it cannot place is refused (404, 422) and dead-lettered.
+	Hook(
 		ctx context.Context,
-		runnerID string,
-		provider string,
-		event string,
-		rawPayload []byte,
-	) error
-
-	// IngestHookDelivery is the idempotent ingress: the relay mints one delivery
-	// id and reuses it on its short in-process retry, and this path turns those
-	// retries into ONE semantic hook (an in-memory TTL dedup set — no disk).
-	//
-	// It is declared here rather than discovered at runtime on purpose. A port
-	// that only MIGHT carry it is a port a mis-wire silently falls off — every
-	// hook takes the un-deduplicated path and every retry applies its effects twice
-	// — and nothing fails until a user sees the same turn twice in production.
-	IngestHookDelivery(
-		ctx context.Context, deliveryID, runnerID, provider, canonicalEvent string,
-		rawPayload []byte,
-	) error
-
-	// TakeHookReply is the stdout the relay of deliveryID must print, when
-	// ingesting it produced one — a prompt riding the turn-end hook.
-	TakeHookReply(deliveryID string) (string, bool)
+		runnerID, provider, event string,
+		raw []byte,
+		channel engineagents.Channel,
+	) (agentusecase.HookReply, error)
 
 	// ReadActivity is what the agent DID: tool calls, subagents, interruptions.
 	ReadActivity(
@@ -336,15 +318,15 @@ type AnswerUsecase interface {
 		content []byte,
 	) error
 
-	// PendingAnswer reports whether the relay that just delivered deliveryID must
-	// stay alive waiting for a human, and how long the daemon will hold it.
-	PendingAnswer(deliveryID string) (agentusecase.PendingAnswer, bool)
+	// PendingAnswer reports whether the relay held on askID must stay alive
+	// waiting for a human, and how long the daemon will hold it.
+	PendingAnswer(askID string) (agentusecase.PendingAnswer, bool)
 
 	// AwaitAnswer blocks that relay until its prompt is decided, the budget expires,
 	// or the request is cancelled. Only the first carries bytes to print.
 	AwaitAnswer(
 		ctx context.Context,
-		deliveryID string,
+		askID string,
 	) (agentusecase.HookAnswer, error)
 
 	// AbandonAnswer is the relay reporting that its prompt was decided somewhere
@@ -353,7 +335,7 @@ type AnswerUsecase interface {
 	// asking.
 	AbandonAnswer(
 		ctx context.Context,
-		deliveryID string,
+		askID string,
 	) error
 
 	// SetChatPermissionLevel overrides chatID's trust dial for the rest of its
@@ -541,9 +523,7 @@ type Handlers struct {
 // tree usecase, and the chat-folder broadcast seam.
 //
 // The concerns arrive one per parameter rather than behind one port so that
-// every capability a route needs is a field the compiler can check: a hook
-// ingress that is merely PROBABLY there is a hook ingress a mis-wire drops
-// silently (see TurnUsecase.IngestHookDelivery).
+// every capability a route needs is a field the compiler can check.
 //
 // A nil broadcast degrades to a no-op so the handler never panics when wired
 // without a hub (tests). A nil tree usecase does NOT degrade: every route that

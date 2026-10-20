@@ -8,7 +8,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"github.com/char2cs/crowbar/api/internal/core/ipc"
@@ -115,7 +114,6 @@ type hookRun struct {
 // is exactly the behaviour of a machine with no Crowbar on it.
 func runHook(run hookRun) error {
 	envelope := hookEnvelope{
-		DeliveryID: uuid.NewString(),
 		SegmentID:  run.Segment,
 		Provider:   run.Provider,
 		Event:      run.Event,
@@ -137,11 +135,11 @@ func runHook(run hookRun) error {
 		_, err := io.WriteString(run.Out, reply+"\n")
 		return err
 	}
-	wait, waiting := awaitDirective(ack)
+	askID, wait, waiting := awaitDirective(ack)
 	if !waiting {
 		return nil
 	}
-	return awaitHookAnswer(envelope, run.Host, wait, run.Out)
+	return awaitHookAnswer(envelope, askID, run.Host, wait, run.Out)
 }
 
 // replyDirective reads the stdout the daemon wants printed for this hook, if any.
@@ -163,16 +161,16 @@ func replyDirective(body []byte) string {
 // A body that cannot be decoded is NOT an instruction to wait. An older daemon,
 // a proxy, an empty 202 — every one of them lands on "exit now", which is the
 // behaviour every hook had before this channel existed.
-func awaitDirective(body []byte) (waitMS int64, waiting bool) {
+func awaitDirective(body []byte) (askID string, waitMS int64, waiting bool) {
 	if len(body) == 0 {
-		return 0, false
+		return "", 0, false
 	}
 	var ack hookAck
 	if err := json.Unmarshal(body, &ack); err != nil {
-		return 0, false
+		return "", 0, false
 	}
-	if ack.Data.Await == nil || ack.Data.Await.WaitMS <= 0 {
-		return 0, false
+	if ack.Data.Await == nil || ack.Data.Await.WaitMS <= 0 || ack.Data.Await.ChoiceID == "" {
+		return "", 0, false
 	}
-	return ack.Data.Await.WaitMS, true
+	return ack.Data.Await.ChoiceID, ack.Data.Await.WaitMS, true
 }

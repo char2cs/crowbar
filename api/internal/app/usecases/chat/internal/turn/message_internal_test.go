@@ -5,12 +5,10 @@ import (
 	"log/slog"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/stream"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -72,53 +70,6 @@ func (r *recordingActivity) CloseTurn(_ context.Context, in agentactivity.TurnIn
 	}
 	r.turns[in.TurnID] = in
 	return nil
-}
-
-// TestRegression_ATurnStopThatBeatsItsOwnFinalDeltaDoesNotMintADuplicateMessage
-// is the bug reported live 2026-08-29: a fresh Claude reply rendered as two
-// back-to-back assistant rows holding nearly the same paragraph, confirmed via
-// the live DOM (two distinct, fully-persisted sequence numbers) and the
-// daemon's own state (turnId msg-hook-<record-id> alongside turnId
-// msg-<streamed-id>).
-//
-// Root cause: closeAssistantTurn treated "nothing open YET" as "nothing ever
-// streamed" and minted its own hook-<record-id> message from the turn-closing
-// hook's text, while the REAL streamed message — assembled from message_delta,
-// its own independently delivered hook, with no ordering guarantee against
-// turn_stop's delivery — was still in flight and landed moments later under
-// its own id. Two hooks, two deliveries, no total order between them: this is
-// provider- and transport-agnostic, not a Claude- or hooks-specific quirk.
-func TestRegression_ATurnStopThatBeatsItsOwnFinalDeltaDoesNotMintADuplicateMessage(t *testing.T) {
-	activity := &recordingActivity{}
-	turns := &Turns{ledger: newTurnLedger(t), messages: stream.New(), activity: activity, messageAwaitTimeout: 2 * time.Second}
-
-	chat := domain.Chat{ID: "c"}
-	runner := engineagents.Runner{ID: "runner-1", ProviderID: "claude"}
-	const finalText = "the bicycle traces its origins to early 19th-century Europe"
-
-	go func() {
-		// The real delta, still in flight when turn_stop is processed — the
-		// exact shape confirmed live: MessageDisplay landing after Stop.
-		turns.recordMessageDelta(context.Background(), chat, runner, engineagents.CanonicalEvent{
-			Kind: "message_delta",
-			Delta: &engineagents.MessageDelta{
-				TurnID: "t", MessageID: "m1", Index: 0, Sequenced: true,
-				Final: true, Text: finalText,
-			},
-		})
-	}()
-
-	err := turns.closeAssistantTurn(context.Background(), chat, runner, engineagents.CanonicalEvent{
-		Kind: "turn_stop", Message: finalText,
-	})
-	require.NoError(t, err)
-
-	activity.mu.Lock()
-	defer activity.mu.Unlock()
-	require.Len(t, activity.turns, 1, "exactly one distinct message id must be recorded for this turn")
-	_, gotStreamedID := activity.turns["msg-m1"]
-	require.True(t, gotStreamedID,
-		"the STREAMED message's own id must win — never a synthesized hook-<record-id> fallback racing ahead of it")
 }
 
 // TestRegression_ATerminatingHookThatUnderreportsTextNeverTruncatesTheStream
@@ -223,49 +174,6 @@ func TestCloseAssistantTurn_PersistsTheFinalDiffSnapshot(t *testing.T) {
 	got, ok := activity.turns[assistantTurnID("message-1")]
 	require.True(t, ok)
 	require.Equal(t, diff, got.Diff)
-}
-
-// The same race over the relay: both hooks are ingested under their runner's
-// hook gate, so a turn_stop that waits for the delta while holding the gate
-// can only time out and record the reply twice, once under each id.
-func TestRegression_ATurnStopWaitingUnderTheHookGateLetsItsOwnDeltaIn(t *testing.T) {
-	activity := &recordingActivity{}
-	turns := &Turns{
-		ledger: newTurnLedger(t), messages: stream.New(), activity: activity, hookGates: inflight.NewGate(),
-		messageAwaitTimeout: 5 * time.Second,
-	}
-
-	chat := domain.Chat{ID: "c"}
-	runner := engineagents.Runner{ID: "runner-1", ProviderID: "claude"}
-	const finalText = "the reply"
-
-	ctx, release := turns.holdHookGate(context.Background(), runner.ID)
-	delivered := make(chan struct{})
-	go func() {
-		defer close(delivered)
-		_, unlock := turns.holdHookGate(context.Background(), runner.ID)
-		defer unlock()
-		turns.recordMessageDelta(context.Background(), chat, runner, engineagents.CanonicalEvent{
-			Kind: "message_delta",
-			Delta: &engineagents.MessageDelta{
-				TurnID: "t", MessageID: "m1", Index: 0, Sequenced: true, Final: true, Text: finalText,
-			},
-		})
-	}()
-
-	started := time.Now()
-	err := turns.closeAssistantTurn(ctx, chat, runner, engineagents.CanonicalEvent{
-		Kind: "turn_stop", Message: finalText,
-	})
-	release()
-	require.NoError(t, err)
-	<-delivered
-
-	require.Less(t, time.Since(started), turns.messageAwaitTimeout, "the wait ended on the delta, not the clock")
-	activity.mu.Lock()
-	defer activity.mu.Unlock()
-	require.Len(t, activity.turns, 1, "one reply, one row")
-	require.Contains(t, activity.turns, "msg-m1")
 }
 
 func TestLiveTextReplaceOverwritesThePreviousCompleteDocument(t *testing.T) {

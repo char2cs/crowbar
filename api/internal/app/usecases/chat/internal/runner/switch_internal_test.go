@@ -21,9 +21,11 @@ func runnersForDisplace(t *testing.T, live bool) *Runners {
 		liveTable = liveWith(t, engineagents.Runner{ID: "r-1", CurrentChatID: "chat-1"})
 	}
 	return &Runners{
-		ws:     fakeWSReader{chatsDir: t.TempDir()},
-		ledger: newTestLedger(t),
-		live:   liveTable,
+		ws:       fakeWSReader{chatsDir: t.TempDir()},
+		ledger:   newTestLedger(t),
+		live:     liveTable,
+		chatLock: newTestLock(),
+		parks:    newParks(),
 	}
 }
 
@@ -37,7 +39,9 @@ func TestDisplaceForSwitch_ARunningTurnIsRefusedNotWaitedFor(t *testing.T) {
 	_, _, err = rs.ledger.Append(t.Context(), "chat-1", started, turnRow)
 	require.NoError(t, err)
 
-	retry, err := rs.displaceForSwitch(context.Background(), domain.Chat{ID: "chat-1"})
+	h := rs.acquire(t.Context(), "chat-1")
+	defer h.release()
+	retry, err := rs.displaceForSwitch(t.Context(), h, domain.Chat{ID: "chat-1"})
 
 	require.ErrorIs(t, err, ErrPromptBusy)
 	assert.False(t, retry)
@@ -51,7 +55,9 @@ func TestDisplaceForSwitch_APromptSteeredAfterTheWaitsSendsTheSwitchRoundAgain(t
 	rs := runnersForDisplace(t, true /* live */)
 	appendPrompt(t, rs.ledger, "steered", "r-1")
 
-	retry, err := rs.displaceForSwitch(context.Background(), domain.Chat{ID: "chat-1"})
+	h := rs.acquire(t.Context(), "chat-1")
+	defer h.release()
+	retry, err := rs.displaceForSwitch(t.Context(), h, domain.Chat{ID: "chat-1"})
 
 	require.NoError(t, err)
 	assert.True(t, retry)

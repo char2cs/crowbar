@@ -25,7 +25,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
@@ -50,6 +49,9 @@ type Runners interface {
 		ctx context.Context,
 		chatID string,
 	)
+	// HoldChat cancels the chat's parked user-initiated waits and takes its
+	// lock: a purge never queues behind a wait on a chat that is going away.
+	HoldChat(chatID string) (release func())
 }
 
 // Conversations is the chat record.
@@ -73,10 +75,6 @@ type Conversations struct {
 	// direct usecase reference, the same way home is a closure — this
 	// package must not import the chat usecase package it lives inside of.
 	defaultPermissionLevel func(ctx context.Context) (string, error)
-	// spawns is the per-chat gate the USER-INITIATED spawn paths share. PurgeChat
-	// takes it for the same reason they do — a delete racing a switch would
-	// otherwise start a CLI onto a chat that has just been forgotten.
-	spawns *inflight.Gate
 	// runners is the runner lifecycle: the live runner a read names, and the
 	// retirement a hard delete owes the processes on the chat. It is bound AFTER construction
 	// because the two sides are built together and neither can name the other
@@ -94,8 +92,6 @@ type Deps struct {
 	Lineage   seam.ChatLineage
 	Home      func() (string, error)
 	Ledger    *ledgerstore.Store
-
-	Spawns *inflight.Gate
 
 	// DefaultPermissionLevel resolves the current global default at the
 	// moment a chat is minted. It's a closure, not a direct usecase
@@ -115,7 +111,6 @@ func New(d Deps) *Conversations {
 		lineage:   d.Lineage,
 		home:      d.Home,
 		ledger:    d.Ledger,
-		spawns:    d.Spawns,
 
 		defaultPermissionLevel: d.DefaultPermissionLevel,
 	}
@@ -174,25 +169,16 @@ func (c *Conversations) PurgeChat(
 	ctx context.Context,
 	chatID string,
 ) error {
-	// The chat's spawn gate, for the same reason the spawn paths take it: a delete racing a
-	// switch would otherwise Start a CLI onto a chat that has just been Forgotten. That
-	// self-heals (the runner's first hook finds no chat and retires it), but only after
-	// spawning a real process and leaving its tmp dir behind. Serialising is a line.
-	// Preempt, like StopChat: a delete must not queue behind a switch parked on
-	// the turn of a chat that is going away.
-	release, err := c.spawns.Preempt(ctx, chatID)
-	if err != nil {
-		return err
-	}
-	defer release()
-
+	// The chat's lock, as the spawn paths take it: a delete racing a switch would
+	// otherwise start a CLI onto a chat that has just been forgotten, and a hook
+	// would record onto it.
+	defer c.runners.HoldChat(chatID)()
 	return c.PurgeLocked(ctx, chatID)
 }
 
-// The caller already holds chatID's spawn gate: PurgeChat above takes it, and
-// the spawn path reaches this from INSIDE it (the runner lifecycle's discardSpawnedChat).
-// inflight.Gate is not reentrant, so wiring either caller to PurgeChat instead
-// compiles and deadlocks that goroutine on its own gate forever.
+// The caller already holds chatID's lock: PurgeChat above takes it, and the
+// spawn path reaches this from INSIDE its hold (discardSpawnedChat). The lock
+// is not reentrant, so wiring either caller to PurgeChat instead deadlocks.
 func (c *Conversations) PurgeLocked(
 	ctx context.Context,
 	chatID string,

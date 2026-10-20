@@ -3,9 +3,9 @@
 // it, and delivering a Crowbar-authored prompt into it.
 //
 // Everything here is USER-INITIATED, which is what separates it from the hook
-// ingress. It may block, it may refuse, and it takes the per-chat spawn gate —
-// the only thing that stops two clicks putting two CLIs on one chat. Nothing
-// on the hook path may call into it through a gated door.
+// ingress. It may block, it may refuse, and it holds the chat's lock while it
+// decides — the lock every hook of the chat is recorded under (chatlock.go).
+// Nothing on the hook path may call into it through a locking door.
 //
 // A runner's own PROCESS is the sole authority on its liveness. Nothing here
 // asserts a process is alive or dead that it has not observed; a CLI is ended
@@ -15,6 +15,7 @@
 package runner
 
 import (
+	"context"
 	"strings"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
@@ -23,7 +24,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/catalog"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -45,13 +45,10 @@ type Runners struct {
 	// daemonSocket is the socket the daemon bound, rendered into every callback's
 	// scope flags so none derives one of its own.
 	daemonSocket string
-	// spawns serialises the USER-INITIATED spawn paths per chat. It is the only
-	// thing that can stop two concurrent switches putting two CLIs on one chat, and
-	// it is NEVER taken on the hook path.
-	spawns *inflight.Gate
-	// pendingHooks is the fork-before-runner-persistence barrier this type installs
-	// before the fork and finishes after runner_started commits.
-	pendingHooks *inflight.Hooks
+	// chatLock is the chat's lock a user-initiated path decides under; parks are
+	// the waits it sits in outside it, which a stop cancels.
+	chatLock ChatLock
+	parks    *parks
 	// catalogs owns only cancellation for in-flight deterministic probes. Results
 	// are deliberately never cached.
 	catalogs *catalog.Runs
@@ -97,7 +94,7 @@ type Runners struct {
 
 // Deps is everything the CLI lifecycle is built over. It is a struct and not an
 // argument list for the same reason turn.Deps is: the shared in-flight state is
-// built once, elsewhere, and an ordered list of seventeen pointers is a place to
+// built once, elsewhere, and an ordered list of pointers is a place to
 // swap two of them silently.
 type Deps struct {
 	Chats     agentchat.EventStore
@@ -112,10 +109,10 @@ type Deps struct {
 	// DaemonSocket is the socket the daemon bound, rendered into the callbacks.
 	DaemonSocket string
 
-	Spawns       *inflight.Gate
-	PendingHooks *inflight.Hooks
-	Minter       *agenttools.TokenMinter
-	Answers      *answerdesk.Desk
+	// ChatLock is the lock the hook ingress records each chat's hooks under.
+	ChatLock ChatLock
+	Minter   *agenttools.TokenMinter
+	Answers  *answerdesk.Desk
 
 	Conversations Conversations
 	Providers     Providers
@@ -135,20 +132,20 @@ func New(d Deps) *Runners {
 		ancestorCwd:  d.AncestorCwd,
 		ledger:       d.Ledger,
 		daemonSocket: d.DaemonSocket,
-		spawns:       d.Spawns,
+		chatLock:     d.ChatLock,
+		parks:        newParks(),
 		// Owned outright, so built here rather than handed in: the probe limiter is
 		// named by nothing outside this package.
-		catalogs:     catalog.New(),
-		pendingHooks: d.PendingHooks,
-		minter:       d.Minter,
-		answers:      d.Answers,
-		apiConns:     newAPIConnRegistry(),
-		attached:     newAttachRegistry(),
-		surfaces:     newSurfaceRegistry(),
-		live:         newLiveTable(),
-		phases:       newPhases(),
-		snapshots:    d.Snapshots,
-		background:   newBackgroundWork(),
+		catalogs:   catalog.New(),
+		minter:     d.Minter,
+		answers:    d.Answers,
+		apiConns:   newAPIConnRegistry(),
+		attached:   newAttachRegistry(),
+		surfaces:   newSurfaceRegistry(),
+		live:       newLiveTable(),
+		phases:     newPhases(),
+		snapshots:  d.Snapshots,
+		background: newBackgroundWork(),
 
 		conversations: d.Conversations,
 		providers:     d.Providers,
@@ -176,8 +173,15 @@ func (rs *Runners) SetTurns(turns Turns) {
 		Screens:  screens,
 		Prompts:  turns,
 		Notices:  turns,
-		OnNotice: turns.FailTurnOnNotice,
+		OnNotice: rs.failTurnOnNotice,
 	})
+}
+
+// failTurnOnNotice records what a notice on runner's screen ends, under the
+// chat's lock so no hook ends that work between its check and its record.
+func (rs *Runners) failTurnOnNotice(ctx context.Context, runner engineagents.Runner, notice engineagents.TerminalNotice) {
+	defer rs.chatLock.Lock(runner.CurrentChatID)()
+	rs.turns.FailTurnOnNotice(ctx, runner, notice)
 }
 
 // composeContext joins the non-empty sections of a spawn's {context} in the order

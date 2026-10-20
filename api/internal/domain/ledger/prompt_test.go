@@ -12,14 +12,14 @@ import (
 func TestReceipt_CarriesWhatTheUserMessageRecorded(t *testing.T) {
 	msg := row(t, ledger.KindUserMessage, "T1", ledger.UserMessage{
 		RequestID: "r1", Text: "hello", Origin: ledger.OriginCrowbar,
-		Delivery: ledger.DeliverySteer, RunnerID: "run-1",
+		Delivery: ledger.DeliverySteer, RunnerID: "run-1", Dispatch: "hello, escaped",
 	})
 	st := ledger.Fold("c1", sequenced(t, msg))
 
 	got, ok := st.Receipt("r1")
 	require.True(t, ok)
 	assert.Equal(t, ledger.Prompt{
-		RequestID: "r1", TurnID: "T1", Text: "hello", Delivery: "steer", RunnerID: "run-1",
+		RequestID: "r1", TurnID: "T1", Text: "hello", Dispatch: "hello, escaped", Delivery: "steer", RunnerID: "run-1",
 		Status: ledger.PromptStatusPending, At: msg.At,
 	}, got)
 }

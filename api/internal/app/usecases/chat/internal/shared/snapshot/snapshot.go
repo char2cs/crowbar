@@ -35,7 +35,7 @@ import (
 )
 
 // Phases a chat is in. Live and dormant are derived from the live runner; the other
-// three are set by the lifecycle operation holding the chat's spawn gate.
+// three are set by the lifecycle operation holding the chat.
 const (
 	PhaseDormant   = "dormant"
 	PhaseStarting  = "starting"

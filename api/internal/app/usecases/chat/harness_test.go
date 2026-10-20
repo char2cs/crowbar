@@ -554,17 +554,18 @@ type harnessUsecase struct {
 	snaps *agentusecase.ChatSnapshots
 }
 
-// IngestHook delivers a hook as the runner's CLI sends it: every hook names a
-// session, and one whose payload names none names the CLI's own.
+// IngestHook places a hook as the runner's CLI sends it over its hooks relay.
 func (h *harnessUsecase) IngestHook(ctx context.Context, runnerID, provider, kind string, payload []byte) error {
-	return h.TurnUsecase.IngestHook(ctx, runnerID, provider, kind, h.onItsSession(runnerID, payload))
+	_, err := h.placeHook(ctx, engineagents.ChannelHooks, runnerID, provider, kind, payload)
+	return err
 }
 
-// IngestHookDelivery is IngestHook for a relayed hook.
-func (h *harnessUsecase) IngestHookDelivery(
-	ctx context.Context, deliveryID, runnerID, provider, kind string, payload []byte,
-) error {
-	return h.TurnUsecase.IngestHookDelivery(ctx, deliveryID, runnerID, provider, kind, h.onItsSession(runnerID, payload))
+// placeHook places a hook on channel: every hook names a session, and one whose
+// payload names none names the CLI's own.
+func (h *harnessUsecase) placeHook(
+	ctx context.Context, channel engineagents.Channel, runnerID, provider, kind string, payload []byte,
+) (agentusecase.HookReply, error) {
+	return h.Hook(ctx, runnerID, provider, kind, h.onItsSession(runnerID, payload), channel)
 }
 
 func (h *harnessUsecase) onItsSession(runnerID string, payload []byte) []byte {
@@ -627,8 +628,6 @@ type testFixture struct {
 	ledger  *ledgerstore.Store
 	// ledgerDB is the database under ledger, for faults no store method offers.
 	ledgerDB *gorm.DB
-	// messageAwait is every boot's MessageAwaitTimeout.
-	messageAwait *time.Duration
 	// boot builds a daemon's usecase over the fixture's durable stores.
 	boot func(*agentusecase.ChatSnapshots) *agentusecase.Usecase
 	// sessions is the session id most recently announce()d per runnerID; a map,
@@ -1120,26 +1119,21 @@ func newFixtureUsing(
 	require.NoError(t, err)
 	chatLedger, err := ledgerstore.Open(ledgerDB, time.Now)
 	require.NoError(t, err)
-	// closeAssistantTurn's wait only matters against a concurrent delta, which
-	// resolves over its wake channel, never by the clock.
-	messageAwait := new(time.Duration)
-	*messageAwait = time.Millisecond
 	boot := func(snaps *agentusecase.ChatSnapshots) *agentusecase.Usecase {
 		return bootUsecase(t, agentusecase.Deps{
-			MessageAwaitTimeout: *messageAwait,
-			Chats:               usedChats,
-			Activity:            usedActivity,
-			Agents:              engine,
-			Terminal:            term,
-			Workspace:           ws,
-			Worktree:            wt,
-			Lineage:             lineage,
-			ProviderPrefs:       providerPrefs,
-			PermissionPrefs:     permissionPrefs,
-			Home:                homeFn,
-			Ledger:              chatLedger,
-			Installed:           probe,
-			Minter:              minter,
+			Chats:           usedChats,
+			Activity:        usedActivity,
+			Agents:          engine,
+			Terminal:        term,
+			Workspace:       ws,
+			Worktree:        wt,
+			Lineage:         lineage,
+			ProviderPrefs:   providerPrefs,
+			PermissionPrefs: permissionPrefs,
+			Home:            homeFn,
+			Ledger:          chatLedger,
+			Installed:       probe,
+			Minter:          minter,
 			Tools: agenttools.Deps{
 				Scope:           fixtureWorkspaceLister{},
 				ChatReads:       chatReader,
@@ -1176,17 +1170,7 @@ func newFixtureUsing(
 		snapFrames:    snapFrames,
 		ledger:        chatLedger,
 		ledgerDB:      ledgerDB,
-		messageAwait:  messageAwait,
 	}
-	return f
-}
-
-// withMessageAwait is f booted with d as how long a turn's end waits for its
-// reply to stream, as every later restart is too.
-func (f testFixture) withMessageAwait(t *testing.T, d time.Duration) testFixture {
-	t.Helper()
-	*f.messageAwait = d
-	f.restart(t)
 	return f
 }
 

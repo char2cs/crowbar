@@ -38,19 +38,19 @@ type hookAnswer struct {
 
 func awaitHookAnswer(
 	envelope hookEnvelope,
-	host string,
+	askID, host string,
 	waitMS int64,
 	out io.Writer,
 ) error {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	defer signal.Stop(signals)
-	return awaitHookAnswerOn(envelope, host, waitMS, out, signals)
+	return awaitHookAnswerOn(envelope, askID, host, waitMS, out, signals)
 }
 
 func awaitHookAnswerOn(
 	envelope hookEnvelope,
-	host string,
+	askID, host string,
 	waitMS int64,
 	out io.Writer,
 	signals <-chan os.Signal,
@@ -72,7 +72,7 @@ func awaitHookAnswerOn(
 	}
 	done := make(chan result, 1)
 	go func() {
-		stdout, pollErr := pollHookAnswer(ctx, client, envelope)
+		stdout, pollErr := pollHookAnswer(ctx, client, envelope, askID)
 		done <- result{stdout: stdout, err: pollErr}
 	}()
 
@@ -80,7 +80,7 @@ func awaitHookAnswerOn(
 	case <-signals:
 
 		cancel()
-		reportAbandoned(envelope, host)
+		reportAbandoned(envelope, askID, host)
 		return nil
 	case r := <-done:
 		if r.err != nil {
@@ -98,11 +98,12 @@ func pollHookAnswer(
 	ctx context.Context,
 	client *ipc.Client,
 	envelope hookEnvelope,
+	askID string,
 ) (string, error) {
 	status, body, err := client.PostJSON(
 		ctx,
 		scopedAgentPath(envelope.Project, envelope.Repo, envelope.Workspace, "/hooks/await"),
-		map[string]string{"delivery_id": envelope.DeliveryID},
+		map[string]string{"ask_id": askID},
 	)
 	if err != nil {
 		return "", err
@@ -121,7 +122,7 @@ func pollHookAnswer(
 	return answer.Data.Stdout, nil
 }
 
-func reportAbandoned(envelope hookEnvelope, host string) {
+func reportAbandoned(envelope hookEnvelope, askID, host string) {
 	client, err := ipc.NewClientWithTimeout(host, abandonBudget)
 	if err != nil {
 		return
@@ -131,6 +132,6 @@ func reportAbandoned(envelope hookEnvelope, host string) {
 	_, _, _ = client.PostJSON(
 		ctx,
 		scopedAgentPath(envelope.Project, envelope.Repo, envelope.Workspace, "/hooks/abandon"),
-		map[string]string{"delivery_id": envelope.DeliveryID},
+		map[string]string{"ask_id": askID},
 	)
 }

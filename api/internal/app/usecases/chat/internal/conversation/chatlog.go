@@ -1,14 +1,16 @@
 package conversation
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -22,10 +24,12 @@ const (
 	maxMessagePageLimit     = 200
 )
 
+// RecordTurn appends one turn under turnID, a fresh id when it is "": a turn
+// named by its prompt's request is how the client that sent it recognises it.
 func (c *Conversations) RecordTurn(
 	ctx context.Context,
 	chat domain.Chat,
-	providerID, runnerID, sessionID string,
+	turnID, providerID, runnerID, sessionID string,
 	role, text, effort string,
 ) error {
 	if text == "" {
@@ -33,7 +37,7 @@ func (c *Conversations) RecordTurn(
 	}
 	return c.activity.AppendTurn(ctx, agentactivity.TurnInput{
 		ChatID:     chat.ID,
-		TurnID:     inflight.RecordID(ctx),
+		TurnID:     cmp.Or(turnID, uuid.NewString()),
 		Role:       role,
 		ProviderID: providerID,
 		RunnerID:   runnerID,
@@ -206,16 +210,16 @@ func (c *Conversations) appendTurn(
 	providerID string,
 	role, text string,
 ) error {
-	return c.AppendRunnerTurn(ctx, chat, providerID, "", "", role, text)
+	return c.AppendRunnerTurn(ctx, chat, "", providerID, "", "", role, text)
 }
 
 func (c *Conversations) AppendRunnerTurn(
 	ctx context.Context,
 	chat domain.Chat,
-	providerID, runnerID, sessionID string,
+	turnID, providerID, runnerID, sessionID string,
 	role, text string,
 ) error {
-	if err := c.RecordTurn(ctx, chat, providerID, runnerID, sessionID, role, text, ""); err != nil {
+	if err := c.RecordTurn(ctx, chat, turnID, providerID, runnerID, sessionID, role, text, ""); err != nil {
 		return fmt.Errorf("agent: append turn: %w", err)
 	}
 	return nil

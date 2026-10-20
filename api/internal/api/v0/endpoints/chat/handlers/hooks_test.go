@@ -35,7 +35,7 @@ func newTestContext(
 
 // TestHooks_DecodesAndDispatches proves Hooks decodes the
 // {segment_id, provider, event, payload_raw} body and forwards the decoded
-// values verbatim to IngestHook, writing a bare 202 on success
+// values verbatim to Hook, writing a bare 202 on success
 // (fail-fast/good-path-async, 00 §4).
 func TestHooks_DecodesAndDispatches(
 	t *testing.T,
@@ -74,7 +74,7 @@ func TestHooks_BadJSON(
 	assert.Empty(t, uc.ingestCalls)
 }
 
-// TestHooks_UsecaseError proves an IngestHook failure surfaces as a mapped
+// TestHooks_UsecaseError proves a Hook failure surfaces as a mapped
 // error response rather than a 202.
 func TestHooks_UsecaseError(
 	t *testing.T,
@@ -94,10 +94,11 @@ func TestHooks_UsecaseError(
 // its call so tests can assert forwarding, and each returns a canned
 // error/value so tests can exercise the handlers' error branches.
 type fakeAgentUsecase struct {
-	// hookReply is the stdout the daemon wants a hook to print; validToken is the
-	// one runner token VerifyRunnerToken accepts; awaitStarted, when set, makes
-	// AwaitAnswer block until its request is cancelled.
+	// hookReply is the stdout the daemon wants a hook to print and hookAsk the
+	// ask it held; validToken is the one runner token VerifyRunnerToken accepts;
+	// awaitStarted, when set, makes AwaitAnswer block until its request is cancelled.
 	hookReply    string
+	hookAsk      string
 	validToken   string
 	verifyCalls  [][2]string
 	awaitStarted chan struct{}
@@ -276,27 +277,11 @@ type dispatchMCPCall struct {
 	message  []byte
 }
 
-func (f *fakeAgentUsecase) IngestHook(
-	_ context.Context,
-	segID string,
-	provider string,
-	event string,
-	raw []byte,
-) error {
+func (f *fakeAgentUsecase) Hook(
+	_ context.Context, segID, provider, event string, raw []byte, _ engineagents.Channel,
+) (agentusecase.HookReply, error) {
 	f.ingestCalls = append(f.ingestCalls, ingestCall{segID: segID, provider: provider, event: event, raw: raw})
-	return f.ingestErr
-}
-
-// IngestHookDelivery is the journalled ingress. The handler picks it by whether
-// the hook carries a delivery id, so this double records into the SAME log as
-// IngestHook: a test asserts what was forwarded, never which of the two ran.
-func (f *fakeAgentUsecase) IngestHookDelivery(
-	_ context.Context, _ string,
-	segID, provider, event string,
-	raw []byte,
-) error {
-	f.ingestCalls = append(f.ingestCalls, ingestCall{segID: segID, provider: provider, event: event, raw: raw})
-	return f.ingestErr
+	return agentusecase.HookReply{Body: []byte(f.hookReply), Ask: f.hookAsk}, f.ingestErr
 }
 
 func (f *fakeAgentUsecase) ListChatsByWorkspace(
@@ -598,10 +583,6 @@ func (f *fakeAgentUsecase) ReadActivity(
 	return f.activity, f.activityErr
 }
 
-func (f *fakeAgentUsecase) TakeHookReply(string) (string, bool) {
-	return f.hookReply, f.hookReply != ""
-}
-
 func (f *fakeAgentUsecase) VerifyRunnerToken(runnerID, token string) bool {
 	f.verifyCalls = append(f.verifyCalls, [2]string{runnerID, token})
 	return token == f.validToken && token != ""
@@ -644,9 +625,9 @@ func (f *fakeAgentUsecase) PendingAnswer(string) (agentusecase.PendingAnswer, bo
 }
 
 func (f *fakeAgentUsecase) AwaitAnswer(
-	ctx context.Context, deliveryID string,
+	ctx context.Context, askID string,
 ) (agentusecase.HookAnswer, error) {
-	f.awaitCalls = append(f.awaitCalls, deliveryID)
+	f.awaitCalls = append(f.awaitCalls, askID)
 	if f.awaitStarted != nil {
 		close(f.awaitStarted)
 		<-ctx.Done()
@@ -655,8 +636,8 @@ func (f *fakeAgentUsecase) AwaitAnswer(
 	return f.awaitAnswer, f.awaitErr
 }
 
-func (f *fakeAgentUsecase) AbandonAnswer(_ context.Context, deliveryID string) error {
-	f.abandonCalls = append(f.abandonCalls, deliveryID)
+func (f *fakeAgentUsecase) AbandonAnswer(_ context.Context, askID string) error {
+	f.abandonCalls = append(f.abandonCalls, askID)
 	return f.abandonErr
 }
 
@@ -754,7 +735,7 @@ func TestHTTPHook_RejectsAnUnauthenticatedCaller(t *testing.T) {
 
 		assert.Equal(t, http.StatusUnauthorized, rec.Code, "token %q", token)
 	}
-	assert.Empty(t, uc.ingestCalls, "an unauthenticated hook must never reach the journal")
+	assert.Empty(t, uc.ingestCalls, "an unauthenticated hook must never reach the ingress")
 }
 
 func TestHTTPHook_IngestErrorIsMapped(t *testing.T) {
@@ -782,6 +763,7 @@ func TestHTTPHook_ReturnsTheDaemonsReplyAsTheBody(t *testing.T) {
 func TestHTTPHook_HoldsTheRequestOpenUntilAHumanDecides(t *testing.T) {
 	uc := &fakeAgentUsecase{
 		validToken:   "tok",
+		hookAsk:      "ask-1",
 		pendingAwait: true,
 		awaitAnswer:  agentusecase.HookAnswer{Stdout: []byte(`{"behavior":"allow"}`)},
 	}
@@ -792,14 +774,14 @@ func TestHTTPHook_HoldsTheRequestOpenUntilAHumanDecides(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.JSONEq(t, `{"behavior":"allow"}`, rec.Body.String())
-	assert.Len(t, uc.awaitCalls, 1, "the daemon waits itself; the CLI never polls")
+	assert.Equal(t, []string{"ask-1"}, uc.awaitCalls, "the daemon waits on the ask itself; the CLI never polls")
 	assert.Empty(t, uc.abandonCalls)
 }
 
 // The CLI closing its request is how an HTTP hook learns the human decided in
 // the terminal instead: the prompt must stop being shown in the chat.
 func TestHTTPHook_AbandonsThePromptWhenTheCLIHangsUp(t *testing.T) {
-	uc := &fakeAgentUsecase{validToken: "tok", pendingAwait: true, awaitStarted: make(chan struct{})}
+	uc := &fakeAgentUsecase{validToken: "tok", hookAsk: "ask-1", pendingAwait: true, awaitStarted: make(chan struct{})}
 	h := newChatHandlers(uc)
 	ctx, _ := newHTTPHookContext(t, "tok", []byte(`{}`))
 	cancelled, cancel := context.WithCancel(ctx.Request.Context())
@@ -815,5 +797,5 @@ func TestHTTPHook_AbandonsThePromptWhenTheCLIHangsUp(t *testing.T) {
 	<-done
 
 	require.Len(t, uc.abandonCalls, 1)
-	assert.Equal(t, uc.awaitCalls[0], uc.abandonCalls[0], "the abandoned delivery is the one being awaited")
+	assert.Equal(t, []string{"ask-1"}, uc.abandonCalls, "the abandoned ask is the one being awaited")
 }

@@ -13,7 +13,6 @@ import (
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
@@ -93,11 +92,11 @@ func (a *recordingTranscript) busyAtClose() []bool {
 // quietConversations takes every turn the conversation record is handed.
 type quietConversations struct{ turn.Conversations }
 
-func (quietConversations) RecordTurn(context.Context, domain.Chat, string, string, string, string, string, string) error {
+func (quietConversations) RecordTurn(context.Context, domain.Chat, string, string, string, string, string, string, string) error {
 	return nil
 }
 
-func (quietConversations) AppendRunnerTurn(context.Context, domain.Chat, string, string, string, string, string) error {
+func (quietConversations) AppendRunnerTurn(context.Context, domain.Chat, string, string, string, string, string, string) error {
 	return nil
 }
 
@@ -149,10 +148,7 @@ func newDelegatingTurn(t *testing.T) delegatingTurn {
 		Agents:        engineagents.New(),
 		Workspace:     stubWorkspace{home: home},
 		Home:          func() (string, error) { return home, nil },
-		PendingHooks:  inflight.NewHooks(),
 		Telemetry:     telemetry.New(),
-		// Only the parent's first answer streams: a later one must not idle out the default wait.
-		MessageAwaitTimeout: time.Millisecond,
 	})
 	// The parent thread is the chat's bound session: the driver's own establish
 	// announced it, which is what tells it from the child threads on this connection.
@@ -170,8 +166,8 @@ func newDelegatingTurn(t *testing.T) delegatingTurn {
 
 	// The parent's own stream, opening the message the child's frames below must
 	// not close.
-	require.NoError(t, turns.IngestHook(apiCtx(t), "runner-1", "codex", "message_delta",
-		[]byte(parentDelta)))
+	_, err = placeHook(t, turns, codexLive, engineagents.ChannelAPI, "message_delta", []byte(parentDelta))
+	require.NoError(t, err)
 
 	return delegatingTurn{turns: turns, transcript: transcript, ledger: l, home: home}
 }
@@ -184,7 +180,8 @@ func (d delegatingTurn) deliverDeclared(t *testing.T, events ...[2]string) {
 	require.NoError(t, err)
 	for _, ev := range events {
 		if slices.Contains(codex.Capabilities().Observes, ev[0]) {
-			require.NoError(t, d.turns.IngestHook(apiCtx(t), "runner-1", "codex", ev[0], []byte(ev[1])))
+			_, err := placeHook(t, d.turns, codexLive, engineagents.ChannelAPI, ev[0], []byte(ev[1]))
+			require.NoError(t, err)
 		}
 	}
 }
@@ -205,7 +202,7 @@ func TestRegression_AChildThreadsTurnCompletedLeavesTheChatsTurnOpen(t *testing.
 
 	d := newDelegatingTurn(t)
 
-	err := d.turns.IngestHook(apiCtx(t), "runner-1", "codex", "turn_stop",
+	_, err := placeHook(t, d.turns, codexLive, engineagents.ChannelAPI, "turn_stop",
 		[]byte(childCompleted))
 
 	require.NoError(t, err)
@@ -229,7 +226,7 @@ func TestRegression_AnUnregisteredChildThreadsAnswerNeverEntersTheTranscript(t *
 
 	d := newDelegatingTurn(t)
 
-	err := d.turns.IngestHook(apiCtx(t), "runner-1", "codex", "turn_stop",
+	_, err := placeHook(t, d.turns, codexLive, engineagents.ChannelAPI, "turn_stop",
 		[]byte(childCompleted))
 
 	require.NoError(t, err)
@@ -301,7 +298,7 @@ func TestTheRunnersOwnTurnStillClosesItsChat(t *testing.T) {
 
 	d := newDelegatingTurn(t)
 
-	err := d.turns.IngestHook(apiCtx(t), "runner-1", "codex", "turn_stop",
+	_, err := placeHook(t, d.turns, codexLive, engineagents.ChannelAPI, "turn_stop",
 		[]byte(parentCompleted))
 
 	require.NoError(t, err)

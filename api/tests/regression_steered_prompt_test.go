@@ -101,13 +101,13 @@ func (f steerFixture) launchCount(t *testing.T) int {
 	return strings.Count(string(raw), "launched")
 }
 
-// hook relays one provider hook with a delivery id and returns the daemon's
-// reply directive, the stdout the relay prints for it.
+// hook relays one provider hook and returns the daemon's reply directive, the
+// stdout the relay prints for it.
 func (f steerFixture) hook(t *testing.T, event, payload string) string {
 	t.Helper()
 	resp := f.h.raw(http.MethodPost, repoBase(f.imported)+"/chats/hooks", map[string]string{
 		"segment_id": f.runnerID, "provider": f.provider, "event": event,
-		"payload_raw": payload, "delivery_id": uuid.NewString(),
+		"payload_raw": payload,
 	}, http.StatusAccepted)
 	defer func() { _ = resp.Body.Close() }()
 	var ack struct {

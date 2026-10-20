@@ -4,7 +4,6 @@ import (
 	"context"
 	"sync"
 	"testing"
-	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -23,7 +22,7 @@ type noticeRecords struct {
 	notices []string
 }
 
-func (n *noticeRecords) RecordTurn(_ context.Context, _ domain.Chat, _, _, _, _, text, _ string) error {
+func (n *noticeRecords) RecordTurn(_ context.Context, _ domain.Chat, _, _, _, _, _, text, _ string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.notices = append(n.notices, text)
@@ -40,33 +39,21 @@ type abandonActivity struct{ agentactivity.EventStore }
 
 func (abandonActivity) Abandon(context.Context, string, time.Time) error { return nil }
 
-// A hook that ends the turn while a notice waits on the runner's hook gate
-// leaves the notice no turn to fail, and nothing to explain.
-func TestFailTurnOnNotice_AnEndWhileItWaitsLeavesNothingToFail(t *testing.T) {
+// A notice after a hook ended the turn has no turn to fail, and nothing to explain.
+func TestFailTurnOnNotice_AnEndedTurnLeavesNothingToFail(t *testing.T) {
 	l := newTurnLedger(t)
 	appendTurnRows(t, l, turnRow(t, "runner-1"))
 	notices := &noticeRecords{}
 	turns := New(Deps{Ledger: l, Chats: raceChats{}, Activity: abandonActivity{}, Conversations: notices})
 	runner := engineagents.Runner{ID: "runner-1", ProviderID: "codex", CurrentChatID: "chat-1"}
+	st, err := l.State(t.Context(), "chat-1")
+	require.NoError(t, err)
+	ended, err := ledger.EndTurn(st, ledger.TurnStatusDone, "")
+	require.NoError(t, err)
+	appendTurnRows(t, l, ended...)
 
-	synctest.Test(t, func(t *testing.T) {
-		release := turns.hookGates.Lock(runner.ID)
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			turns.FailTurnOnNotice(context.Background(), runner,
-				engineagents.TerminalNotice{Kind: "usage_limit", Text: "You've hit your usage limit"})
-		}()
-		synctest.Wait()
-
-		st, err := l.State(t.Context(), "chat-1")
-		require.NoError(t, err)
-		ended, err := ledger.EndTurn(st, ledger.TurnStatusDone, "")
-		require.NoError(t, err)
-		appendTurnRows(t, l, ended...)
-		release()
-		<-done
-	})
+	turns.FailTurnOnNotice(context.Background(), runner,
+		engineagents.TerminalNotice{Kind: "usage_limit", Text: "You've hit your usage limit"})
 
 	rows, err := l.Read(t.Context(), "chat-1", 0, 0)
 	require.NoError(t, err)

@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -16,27 +15,22 @@ func (rs *Runners) SwitchProvider(
 	chatID string,
 	targetProviderID string,
 ) (string, error) {
-	park, release, err := rs.spawns.Acquire(ctx, chatID)
-	if err != nil {
-		return "", err
-	}
-	defer release()
+	h := rs.acquire(ctx, chatID)
+	defer h.release()
 	defer rs.enterPhase(ctx, chatID, rs.replacementPhase(chatID))()
-	return rs.switchProviderLocked(ctx, park, chatID, targetProviderID)
+	return rs.switchProviderLocked(ctx, h, chatID, targetProviderID)
 }
 
-// The caller already holds chatID's spawn gate: SwitchProvider above takes it,
-// and ResumeChat reaches this from inside its own. inflight.Gate is not reentrant, so
-// wiring either caller to SwitchProvider instead compiles and deadlocks that
-// goroutine on its own gate forever.
+// The caller already holds chatID through h: SwitchProvider above takes it,
+// and ResumeChat reaches this from inside its own. The chat's lock is not
+// reentrant, so wiring either caller to SwitchProvider instead deadlocks.
 //
-// park is the gate's park context: the pending-prompt wait parks on it, so a
-// Stop that preempts the gate abandons it with nothing destroyed (ErrStopped).
-// Everything after the wait runs on ctx, so a preemption never leaves a switch
-// half-done.
+// Every wait (a pending prompt, the outgoing CLI's exit) runs outside the lock
+// and parks on h, so a Stop abandons it (ErrStopped); after one, the switch
+// decides again from the top.
 func (rs *Runners) switchProviderLocked(
 	ctx context.Context,
-	park context.Context,
+	h *hold,
 	chatID string,
 	targetProviderID string,
 ) (string, error) {
@@ -55,6 +49,9 @@ func (rs *Runners) switchProviderLocked(
 	// chat's very first spawn.
 	previousProviderID, _ := rs.conversations.ChatProviderID(ctx, chatID)
 	for {
+		if _, _, err := rs.settledRunner(h); err != nil {
+			return "", fmt.Errorf("agent: switch provider: %w", err)
+		}
 		chat, err := rs.chats.GetChat(ctx, chatID)
 		if err != nil {
 			return "", fmt.Errorf("agent: switch provider: chat: %w", err)
@@ -66,8 +63,12 @@ func (rs *Runners) switchProviderLocked(
 		// A prompt the provider has not acknowledged yet would be lost with the CLI
 		// carrying it, so the switch waits until the ledger records its turn or its
 		// settle.
-		if err := rs.awaitNoPendingPrompt(park, chatID); err != nil {
-			return "", parkErr(park, err)
+		waited, err := rs.waitOutPendingPrompt(ctx, h, chatID)
+		if err != nil {
+			return "", err
+		}
+		if waited {
+			continue
 		}
 		// Resolve the target while the outgoing CLI is still alive. A missing or
 		// malformed provider descriptor is a deterministic planning failure, not a
@@ -132,7 +133,7 @@ func (rs *Runners) switchProviderLocked(
 			gapTurns = len(gap)
 		}
 
-		retry, err := rs.displaceForSwitch(ctx, chat)
+		retry, err := rs.displaceForSwitch(ctx, h, chat)
 		if err != nil {
 			return "", err
 		}
@@ -172,30 +173,41 @@ func (rs *Runners) switchProviderLocked(
 	}
 }
 
-// parkErr reports a wait abandoned because Stop preempted the gate as
-// ErrStopped, and passes every other failure through.
-func parkErr(park context.Context, err error) error {
-	if inflight.Preempted(park) {
-		return ErrStopped
-	}
-	return err
-}
-
-// displaceForSwitch quits the outgoing CLI once the chat is idle, or asks the
-// caller to wait and try again.
+// displaceForSwitch marks the outgoing CLI ending once the chat is idle and
+// quits it outside the chat's lock, then asks the caller to decide again; with
+// no CLI on the chat it reports nothing to wait for.
 func (rs *Runners) displaceForSwitch(
 	ctx context.Context,
+	h *hold,
 	chat domain.Chat,
 ) (bool, error) {
+	if _, live := rs.live.byChat(chat.ID); !live {
+		return false, nil
+	}
 	if retry, err := rs.endIdleOutgoing(ctx, chat); retry || err != nil {
 		return retry, err
 	}
-	return false, rs.quitOutgoingCLI(ctx, chat.ID)
+	err := h.outside(func(context.Context) error { return rs.quitOutgoingCLI(ctx, chat.ID) })
+	return err == nil, err
 }
 
-// endIdleOutgoing is the switch's final idle check, under the chat's
-// turn-start gate. Once it passes the outgoing runner is marked ending, so no
-// turn opens on it before the quit.
+// waitOutPendingPrompt waits, outside the chat's lock, while chatID holds a
+// prompt its provider has yet to acknowledge (once those whose carrier left the
+// chat are settled); waited says the caller must decide again.
+func (rs *Runners) waitOutPendingPrompt(ctx context.Context, h *hold, chatID string) (waited bool, err error) {
+	st, err := rs.settleOrphanedPrompts(ctx, chatID)
+	if err != nil {
+		return false, fmt.Errorf("agent: switch provider: %w", err)
+	}
+	if len(st.PendingPrompts()) == 0 {
+		return false, nil
+	}
+	return true, h.outside(func(park context.Context) error { return rs.awaitNoPendingPrompt(park, chatID) })
+}
+
+// endIdleOutgoing is the switch's final idle check, in the outgoing runner's
+// turn order. Once it passes the runner is marked ending, so no turn opens on
+// it before the quit.
 func (rs *Runners) endIdleOutgoing(ctx context.Context, chat domain.Chat) (retry bool, err error) {
 	rs.live.inTurnOrder(chat.ID, func() {
 		if retry, err = rs.outgoingBusy(ctx, chat); !retry && err == nil {

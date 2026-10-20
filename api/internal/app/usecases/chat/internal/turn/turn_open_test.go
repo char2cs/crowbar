@@ -3,12 +3,10 @@ package turn_test
 import (
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -28,7 +26,6 @@ func claudeTurns(t *testing.T, l *ledgerstore.Store) *turn.Turns {
 		Agents:        engineagents.New(),
 		Workspace:     stubWorkspace{home: home},
 		Home:          func() (string, error) { return home, nil },
-		PendingHooks:  inflight.NewHooks(),
 		Telemetry:     telemetry.New(),
 	})
 	turns.SetRunners(quietRunners{claudeLive})
@@ -73,8 +70,9 @@ func TestStartTurn_APromptOffTheLiveRunnerWritesNothing(t *testing.T) {
 			_, before, err := l.Append(t.Context(), "chat-1", rows...)
 			require.NoError(t, err)
 
-			require.NoError(t, claudeTurns(t, l).IngestHook(t.Context(), "runner-1", "claude", "user_prompt",
-				[]byte(`{"session_id":"s-1","prompt":"typed at the CLI"}`)))
+			_, err = placeHook(t, claudeTurns(t, l), claudeLive, engineagents.ChannelHooks, "user_prompt",
+				[]byte(`{"session_id":"s-1","prompt":"typed at the CLI"}`))
+			require.NoError(t, err)
 
 			assert.Equal(t, before.Head(), chatState(t, l).Head(), "a runner that is not live writes no rows")
 		})
@@ -98,8 +96,9 @@ func TestStartTurn_ASteerOffTheLiveRunnerIsRefused(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	require.NoError(t, claudeTurns(t, l).IngestHookDelivery(t.Context(), uuid.NewString(), "runner-1", "claude",
-		"turn_stop", []byte(`{"session_id":"s-1","last_assistant_message":""}`)))
+	_, err = placeHook(t, claudeTurns(t, l), claudeLive, engineagents.ChannelHooks,
+		"turn_stop", []byte(`{"session_id":"s-1","last_assistant_message":""}`))
+	require.NoError(t, err)
 
 	st := chatState(t, l)
 	assert.False(t, st.Busy(), "the steer opened no turn on a runner that is not live")

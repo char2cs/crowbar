@@ -34,6 +34,9 @@ type UserMessage struct {
 	Delivery  string `json:"delivery,omitempty"` // crowbar origin only
 	// RunnerID is the CLI carrying a crowbar prompt: only its exit strands it.
 	RunnerID string `json:"runnerId,omitempty"`
+	// Dispatch is the text the CLI is handed, when it is not Text: attachments
+	// resolved and leading sigils escaped. A steered prompt is delivered from it.
+	Dispatch string `json:"dispatch,omitempty"`
 }
 
 // TurnStarted is the body of a turn_started row: the provider took the turn,
@@ -67,11 +70,11 @@ const (
 
 // Prompt is one crowbar prompt as the ledger has folded it.
 type Prompt struct {
-	RequestID, TurnID, Text, Delivery, RunnerID string
-	Status                                      PromptStatus
-	Consumed                                    bool
-	Reason                                      string
-	At                                          time.Time
+	RequestID, TurnID, Text, Dispatch, Delivery, RunnerID string
+	Status                                                PromptStatus
+	Consumed                                              bool
+	Reason                                                string
+	At                                                    time.Time
 }
 
 // Settle is a prompt_settled row for every pending prompt match selects.

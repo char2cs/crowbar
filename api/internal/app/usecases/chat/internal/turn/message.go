@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
+
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/stream"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -83,28 +83,6 @@ func (t *Turns) recordAssistantMessage(
 
 func assistantTurnID(messageID string) string { return "msg-" + messageID }
 
-// awaitStreamed is Open, except that "nothing open YET" is not the same fact
-// as "nothing ever streamed" when the closing hook actually carries text:
-// the increments that assemble this exact message are their own,
-// independently delivered hook (message_delta), with no ordering guarantee
-// against the turn-closing hook that just arrived — a race confirmed live
-// 2026-08-29 (a fresh Claude reply, persisted twice: once under
-// closeAssistantTurn's fallback synthesized id, once under the streamed
-// message's own id that landed moments later). Waiting here — briefly,
-// bounded, on a channel nothing else holds — is what tells "the increment is
-// still in flight" apart from "there truly was none." A no-op, with no wait,
-// whenever something is already open or the hook reports no text at all.
-func (t *Turns) awaitStreamed(ctx context.Context, chatID, runnerID, hookText string) []stream.Message {
-	streamed := t.messages.Open(chatID, runnerID)
-	if len(streamed) > 0 || hookText == "" {
-		return streamed
-	}
-	stepOutOfHookGate(ctx, func() {
-		streamed = t.messages.AwaitOpen(chatID, runnerID, t.messageAwaitTimeout)
-	})
-	return streamed
-}
-
 func (t *Turns) closeAssistantTurn(
 	ctx context.Context,
 	chat domain.Chat,
@@ -114,7 +92,7 @@ func (t *Turns) closeAssistantTurn(
 	// Runner-scoped: a DIFFERENT runner's still-open message (an interrupted
 	// turn, still gracefully finishing after a provider switch) must never
 	// be swept up and recorded under THIS runner's provider.
-	streamed := t.awaitStreamed(ctx, chat.ID, runner.ID, ev.Message)
+	streamed := t.messages.Open(chat.ID, runner.ID)
 	defer t.messages.Forget(chat.ID, runner.ID)
 	// The thinking and the tool output belonged to the turn that is now ending,
 	// and the answer has superseded them. Nothing durable is dropped here — a live
@@ -145,17 +123,9 @@ func (t *Turns) closeAssistantTurn(
 					"chat_id", chat.ID, "message_id", message.ID,
 					"streamed_bytes", len(text), "hook_bytes", len(ev.Message))
 			}
-			// The hook's own report can legitimately be the fuller answer — a
-			// delta race can drop increments (see awaitStreamed's own doc
-			// comment) — but it can also be a truncated SUBSET of what was
-			// actually streamed and already shown to the user: confirmed live
-			// 2026-09-01, a full multi-paragraph reply closed under a Stop
-			// hook that reported only its last paragraph, silently deleting
-			// the rest from the persisted transcript. Never let a SHORTER
-			// hook report overwrite text the user already saw — prefer
-			// whichever is longer, the same "don't discard visible content"
-			// rule AbandonMessageForRunner already applies to a torn-down
-			// turn.
+			// The hook's report can be the fuller answer (a dropped increment)
+			// or a truncated subset of what was already shown: never let a
+			// shorter report overwrite text the user saw.
 			if len(ev.Message) > len(text) {
 				text = ev.Message
 			}
@@ -181,16 +151,10 @@ func (t *Turns) closeAssistantTurn(
 		lastRecorded = text
 	}
 
-	// lastRecorded != ev.Message is NOT the right test any more: keeping the
-	// longer streamed text over a shorter hook report (above) means the two
-	// can legitimately differ even though the stream's own content was
-	// already recorded in full — that used to be impossible, because a
-	// mismatch always meant text got overwritten to ev.Message before being
-	// recorded. This fallback exists for the one case that still means
-	// "nothing of the hook's content made it in": nothing streamed at all.
+	// Only when nothing streamed at all is the hook's own text the answer.
 	if ev.Message != "" && lastRecorded == "" {
 		return t.recordAssistantMessage(
-			ctx, chat, runner, hookMessageID(ctx), ev.Message, ev.Effort, false, status, diff, time.Time{},
+			ctx, chat, runner, "hook-"+uuid.NewString(), ev.Message, ev.Effort, false, status, diff, time.Time{},
 		)
 	}
 	if lastRecorded == "" {
@@ -200,8 +164,6 @@ func (t *Turns) closeAssistantTurn(
 	}
 	return nil
 }
-
-func hookMessageID(ctx context.Context) string { return "hook-" + inflight.RecordID(ctx) }
 
 // AbandonMessageForRunner salvages runner's own streamed but unfinished
 // message before its turn is torn down. The runner is named, not resolved:

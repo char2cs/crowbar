@@ -23,7 +23,7 @@ func announce(t *testing.T, turns *Turns, provider, sessionID string) {
 
 func foreign(t *testing.T, turns *Turns, runner engineagents.Runner, kind, sessionID string) bool {
 	t.Helper()
-	_, bound, err := turns.withHookSession(t.Context(), runner)
+	_, bound, err := turns.withHookSession(t.Context(), runner, engineagents.ChannelHooks)
 	require.NoError(t, err)
 	return namesAnotherConversation(bound, engineagents.CanonicalEvent{Kind: kind, SessionID: sessionID})
 }
@@ -69,7 +69,7 @@ func TestWithHookSession_ALedgerReadErrorIsReturned(t *testing.T) {
 	require.NoError(t, sqlDB.Close())
 	runner := engineagents.Runner{ID: "runner-1", CurrentChatID: "chat-1", ProviderID: "p1"}
 
-	_, _, err = (&Turns{ledger: l}).withHookSession(t.Context(), runner)
+	_, _, err = (&Turns{ledger: l}).withHookSession(t.Context(), runner, engineagents.ChannelHooks)
 	require.Error(t, err)
 }
 
@@ -80,7 +80,7 @@ func TestBoundSession_AnswersFromTheHooksOwnRead(t *testing.T) {
 	turns := &Turns{ledger: newTurnLedger(t)}
 	runner := engineagents.Runner{ID: "runner-1", CurrentChatID: "chat-1", ProviderID: "p1"}
 	announce(t, turns, "p1", "S1")
-	ctx, bound, err := turns.withHookSession(t.Context(), runner)
+	ctx, bound, err := turns.withHookSession(t.Context(), runner, engineagents.ChannelHooks)
 	require.NoError(t, err)
 	announce(t, turns, "p1", "S2")
 

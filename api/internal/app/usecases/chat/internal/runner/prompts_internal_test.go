@@ -127,7 +127,7 @@ func TestRegression_CommitPromptSpawn_APTYLessRunnerIsNotAMissingIdentity(t *tes
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	h.seedLiveAPIConn(t, "runner-1")
 	require.NoError(t, h.rs.live.add(engineagents.Runner{ID: "runner-1", ProviderID: "codex", CurrentChatID: "chat-1"}))
-	require.NoError(t, h.rs.recordPrompt(t.Context(), "chat-1", "req-1", "hello", ledger.DeliveryAPI, "runner-1", nil))
+	require.NoError(t, h.rs.recordPrompt(t.Context(), "chat-1", "req-1", "hello", "", ledger.DeliveryAPI, "runner-1", nil))
 
 	got, err := h.rs.commitPromptSpawn(t.Context(), "chat-1", "req-1", "runner-1")
 	require.NoError(t, err, "a runner whose api connection IS its process has a delivery identity")
@@ -142,7 +142,7 @@ func TestRegression_CommitPromptSpawn_APTYLessRunnerIsNotAMissingIdentity(t *tes
 func TestCommitPromptSpawn_ARunnerWithNeitherPTYNorConnectionIsStillRefused(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	require.NoError(t, h.rs.live.add(engineagents.Runner{ID: "runner-1", ProviderID: "codex", CurrentChatID: "chat-1"}))
-	require.NoError(t, h.rs.recordPrompt(t.Context(), "chat-1", "req-1", "hello", ledger.DeliveryRestart, "runner-1", nil))
+	require.NoError(t, h.rs.recordPrompt(t.Context(), "chat-1", "req-1", "hello", "", ledger.DeliveryRestart, "runner-1", nil))
 
 	_, err := h.rs.commitPromptSpawn(t.Context(), "chat-1", "req-1", "runner-1")
 	require.ErrorIs(t, err, ErrPromptOutcomeUnknown)

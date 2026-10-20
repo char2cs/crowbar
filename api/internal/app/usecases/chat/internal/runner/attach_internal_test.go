@@ -13,7 +13,6 @@ import (
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -138,7 +137,7 @@ func attachTestAgent(t *testing.T) engineagents.Agent {
 
 func TestSwitchToTerminal_ReturnsErrNoNativeTerminal_WhenNoLiveAPIConn(t *testing.T) {
 	rs := &Runners{
-		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
 		// surfaces/chats: the two switch calls now MOVE the chat's current
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
@@ -155,7 +154,7 @@ func TestSwitchToTerminal_ReturnsErrNoNativeTerminal_WhenNoLiveAPIConn(t *testin
 // the failure that error means everywhere else.
 func TestSwitchToTerminal_IsIdempotentOnceAlreadyAttached(t *testing.T) {
 	rs := &Runners{
-		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
 		// surfaces/chats: the two switch calls now MOVE the chat's current
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
@@ -178,7 +177,7 @@ func TestSwitchToTerminal_ReturnsErrTurnInProgress_WhenWorking(t *testing.T) {
 	defer apiConn.Close()
 
 	rs := &Runners{
-		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
 		// surfaces/chats: the two switch calls now MOVE the chat's current
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
@@ -212,7 +211,7 @@ func TestSwitchToTerminal_ForksTheAttachProcessAndDropsTheAPIConnection(t *testi
 
 	term := &fakeTermForAttach{}
 	rs := &Runners{
-		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
 		// surfaces/chats: the two switch calls now MOVE the chat's current
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
@@ -271,7 +270,7 @@ func TestRegression_SwitchToTerminalForksWithTheProcessEnvironment(t *testing.T)
 
 	term := &fakeTermForAttach{}
 	rs := &Runners{
-		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
 		// surfaces/chats: the two switch calls now MOVE the chat's current
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
@@ -318,7 +317,7 @@ func switchToTerminalOnTheBoundSession(t *testing.T, l *ledgerstore.Store, attac
 
 	term := &fakeTermForAttach{}
 	rs := &Runners{
-		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
 		// surfaces/chats: the two switch calls now MOVE the chat's current
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
@@ -347,7 +346,7 @@ func switchToTerminalOnTheBoundSession(t *testing.T, l *ledgerstore.Store, attac
 
 func TestSwitchToNative_IsANoop_WhenNothingAttached(t *testing.T) {
 	rs := &Runners{
-		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
 		// surfaces/chats: the two switch calls now MOVE the chat's current
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
@@ -374,7 +373,7 @@ func TestSwitchToNative_TerminatesAndReestablishes(t *testing.T) {
 	agent := attachTestAgent(t)
 	term := &fakeTermForAttach{}
 	rs := &Runners{
-		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
 		// surfaces/chats: the two switch calls now MOVE the chat's current
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
@@ -412,7 +411,7 @@ func TestSwitchToNative_TerminatesAndReestablishes(t *testing.T) {
 func TestRegression_SwitchToNativeRefusesWhileTheAttachedViewIsWorking(t *testing.T) {
 	term := &fakeTermForAttach{}
 	rs := &Runners{
-		attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
 		live:   liveWith(t, engineagents.Runner{ID: "runner-1", CurrentChatID: "chat-1"}),
 		turns:  noopTurns{},
@@ -512,7 +511,7 @@ func switchSurfaceFixture(t *testing.T) (*Runners, *spySurfaceChats) {
 	chats := newSpySurfaceChats()
 	rs := &Runners{
 		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(),
-		surfaces: newSurfaceRegistry(), spawns: inflight.NewGate(),
+		surfaces: newSurfaceRegistry(), chatLock: newTestLock(), parks: newParks(),
 		live:  liveWith(t, engineagents.Runner{ID: "runner-1", ProviderID: "attach-test", CurrentChatID: "chat-1"}),
 		turns: noopTurns{},
 

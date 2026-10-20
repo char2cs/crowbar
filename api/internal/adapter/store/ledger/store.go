@@ -273,3 +273,42 @@ func claimSession(tx *gorm.DB, chatID string, r ledger.Row) error {
 	}
 	return nil
 }
+
+// maxDeadLetterPayload bounds what one dead letter keeps of its hook's payload.
+const maxDeadLetterPayload = 64 << 10
+
+// DeadLetter is a hook the ingress could not place: who sent it, what it was,
+// why it was refused, and its payload.
+type DeadLetter struct {
+	ChatID, RunnerID, Provider, Event, Reason string
+	Payload                                   []byte
+}
+
+// DeadLetter records d, keeping at most 64 KiB of its payload.
+func (s *Store) DeadLetter(ctx context.Context, d DeadLetter) error {
+	payload, truncated := d.Payload, false
+	if len(payload) > maxDeadLetterPayload {
+		payload, truncated = payload[:maxDeadLetterPayload], true
+	}
+	if payload == nil {
+		payload = []byte{}
+	}
+	err := s.db.WithContext(ctx).Exec(
+		`INSERT INTO ledger_dead_letters (at, chat_id, runner_id, provider, event, reason, payload, truncated)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.clock().UnixMicro(), d.ChatID, d.RunnerID, d.Provider, d.Event, d.Reason, payload, truncated,
+	).Error
+	if err != nil {
+		return fmt.Errorf("ledger: dead letter: %w", err)
+	}
+	return nil
+}
+
+// DeadLetterCount is how many dead letters are recorded.
+func (s *Store) DeadLetterCount(ctx context.Context) (int, error) {
+	var n int
+	if err := s.db.WithContext(ctx).Raw(`SELECT count(*) FROM ledger_dead_letters`).Scan(&n).Error; err != nil {
+		return 0, fmt.Errorf("ledger: dead letter count: %w", err)
+	}
+	return n, nil
+}

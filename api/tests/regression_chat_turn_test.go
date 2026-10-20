@@ -3,7 +3,11 @@
 package tests
 
 import (
+	"context"
+	"fmt"
 	"net/http"
+	"strings"
+	"sync"
 	"syscall"
 	"testing"
 
@@ -152,4 +156,107 @@ func TestRegression_Symptom4_ASwitchWhileATurnRunsIsRefusedNotForced(t *testing.
 		map[string]string{"provider": "quietstub"}, http.StatusConflict).Body.Close()
 	require.NoError(t, syscall.Kill(c.launch.PID, 0), "the running CLI was not killed")
 	assert.True(t, c.working(t))
+}
+
+// chatDeadLetters is the daemon's count of hooks the ingress could not place.
+func chatDeadLetters(t *testing.T, h *harness) int {
+	t.Helper()
+	var health struct {
+		ChatDeadLetters *int `json:"chatDeadLetters"`
+	}
+	h.get("/v0/health", &health)
+	require.NotNil(t, health.ChatDeadLetters, "the health route reports the dead-letter count")
+	return *health.ChatDeadLetters
+}
+
+// hookStatus posts payload as l's CLI and returns the status, -1 when the
+// request never got one: it runs off the test goroutine.
+func hookStatus(l kit.Launch, base, event, payload string) int {
+	url := fmt.Sprintf("%s/chats/runners/%s/hooks/claude/%s", base, l.RunnerID, event)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, strings.NewReader(payload))
+	if err != nil {
+		return -1
+	}
+	req.Header.Set("X-Crowbar-Runner-Token", l.Token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return -1
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode
+}
+
+func TestRegression_ConcurrentHooksForOneChatAllLand(t *testing.T) {
+	c := newTurnChat(t, newHarness(t))
+	c.startTurn(t, c.launch, "A")
+	session := argAfter(c.launch.Argv, "--session-id")
+	base := c.h.url + repoBase(c.imported)
+
+	codes := make(chan int, 40)
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tool := fmt.Sprintf(`{"session_id":%q,"tool_use_id":"tool-%d","tool_name":"Bash",`+
+				`"tool_input":{"command":"ls"}}`, session, i)
+			for _, event := range []string{"tool_pre", "tool_post"} {
+				codes <- hookStatus(c.launch, base, event, tool)
+			}
+		}()
+	}
+	wg.Wait()
+	close(codes)
+	for code := range codes {
+		assert.Equal(t, http.StatusOK, code)
+	}
+
+	var activity struct {
+		ToolCalls []struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"toolCalls"`
+	}
+	c.h.get(repoBase(c.imported)+"/chats/"+c.chatID+"/activity", &activity)
+	require.Len(t, activity.ToolCalls, 20, "every tool call landed")
+	for _, call := range activity.ToolCalls {
+		assert.Equal(t, "ok", call.Status, call.ID)
+	}
+}
+
+func TestRegression_HooksAfterChatDeleteAreRefusedNotResurrected(t *testing.T) {
+	c := newTurnChat(t, newHarness(t))
+	_ = c.h.raw(http.MethodDelete, repoBase(c.imported)+"/chats/"+c.chatID, nil, http.StatusAccepted).Body.Close()
+	c.h.QuiesceReactors()
+
+	payload := fmt.Sprintf(`{"session_id":%q,"tool_use_id":"late","tool_name":"Bash"}`,
+		argAfter(c.launch.Argv, "--session-id"))
+	resp := c.launch.PostHook(t, c.h.url+repoBase(c.imported), "claude", "tool_pre", []byte(payload)) //nolint:bodyclose // PostHook closes the body and returns a buffered copy
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode, "a deleted chat's runner is unknown")
+	assert.GreaterOrEqual(t, chatDeadLetters(t, c.h), 1, "and its hook is dead-lettered")
+	_ = c.h.raw(http.MethodGet, repoBase(c.imported)+"/chats/"+c.chatID, nil, http.StatusNotFound).Body.Close()
+}
+
+func TestRegression_AnUnmappableHookIsRefusedVisibly(t *testing.T) {
+	c := newTurnChat(t, newHarness(t))
+	before := chatDeadLetters(t, c.h)
+
+	resp := c.launch.PostHook(t, c.h.url+repoBase(c.imported), "claude", "user_prompt", []byte(`{"session_id":"s"}`)) //nolint:bodyclose // PostHook closes the body and returns a buffered copy
+	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode, "a prompt hook without its prompt")
+	assert.Equal(t, before+1, chatDeadLetters(t, c.h))
+}
+
+func TestRegression_AHookRepliesOnlyAfterItsRowsAreReadable(t *testing.T) {
+	c := newTurnChat(t, newHarness(t))
+	c.hook(t, c.launch, "user_prompt", map[string]any{"prompt": "readable on the reply", "prompt_id": "R"})
+
+	var page struct {
+		Items []recordedMessage `json:"items"`
+	}
+	c.h.get(repoBase(c.imported)+"/chats/"+c.chatID+"/messages?limit=200", &page)
+	texts := make([]string, 0, len(page.Items))
+	for _, m := range page.Items {
+		texts = append(texts, m.Text)
+	}
+	assert.Contains(t, texts, "readable on the reply")
 }

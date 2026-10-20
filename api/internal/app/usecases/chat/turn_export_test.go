@@ -15,12 +15,6 @@ func usecaseOf(u TurnUsecase) *Usecase {
 	return uc
 }
 
-// HookDeliveryCount reports how many completed delivery ids the ingress's
-// in-memory dedup set holds.
-func HookDeliveryCount(u TurnUsecase) int {
-	return usecaseOf(u).turns.HookDeliveryCount()
-}
-
 // FailTurnOnNotice runs what the terminal-wait sweep does once a runner's
 // screen shows a notice that ends its turn.
 func FailTurnOnNotice(

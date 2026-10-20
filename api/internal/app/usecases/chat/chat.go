@@ -9,10 +9,12 @@ import (
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/conversation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/defaultlevel"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/manifestfetch"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/provider"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
@@ -244,6 +246,10 @@ type Usecase struct {
 	conversations *conversation.Conversations
 	turns         *turn.Turns
 	runners       *runner.Runners
+	// ingress is the one door every hook comes in through, over turns.
+	ingress *ingress.Ingress
+	// ledger is read here only for the count of hooks the ingress refused.
+	ledger        *ledgerstore.Store
 	providers     *provider.Providers
 	defaultLevel  *defaultlevel.DefaultLevel
 	manifestFetch *manifestfetch.ManifestFetch

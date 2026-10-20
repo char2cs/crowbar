@@ -11,8 +11,8 @@ import (
 )
 
 // raiseAsk records a permission or elicitation the person must answer and holds
-// its relay for them. It is the one path for every such ask, whichever
-// conversation of the chat raised it.
+// its relay for them, returning the ask it is held on. It is the one path for
+// every such ask, whichever conversation of the chat raised it.
 func (t *Turns) raiseAsk(
 	ctx context.Context,
 	chat domain.Chat,
@@ -21,22 +21,22 @@ func (t *Turns) raiseAsk(
 	ev engineagents.CanonicalEvent,
 	raw []byte,
 	now time.Time,
-) {
+) string {
 	// Minted ONCE and shared: two draws on an empty PromptID would pair a
 	// choice with an interruption that was never opened.
 	cid := ""
 	if ev.Choice != nil {
-		cid = choiceID(ctx, chat.ID, ev.Choice)
+		cid = choiceID(chat.ID, ev.Choice)
 	}
 	iid := answerdesk.PermissionInterruptionID(cid)
 	if iid == "" {
-		iid = interruptionID(ctx, chat.ID, ev)
+		iid = interruptionID(chat.ID, ev)
 	}
 	note(ctx, "interrupted", t.activity.Interrupt(
 		ctx, chat.ID, iid, ev.Interrupt.Kind, ev.Interrupt.Detail, now,
 	))
 
-	t.openChoice(ctx, chat, runner, agent, ev, cid, raw, now)
+	return t.openChoice(ctx, chat, runner, agent, ev, cid, raw, now)
 }
 
 func (t *Turns) openChoice(
@@ -48,9 +48,9 @@ func (t *Turns) openChoice(
 	id string,
 	raw []byte,
 	now time.Time,
-) {
+) string {
 	if ev.Choice == nil {
-		return
+		return ""
 	}
 	chatID := chat.ID
 	// A choice never durably opened in the ledger must never be held for a
@@ -76,8 +76,8 @@ func (t *Turns) openChoice(
 		Now:       now,
 	}); err != nil {
 		note(ctx, "choice opened", err)
-		return
+		return ""
 	}
 
-	t.holdForAnswer(ctx, chat, runner, agent, ev, id, raw)
+	return t.holdForAnswer(ctx, chat, runner, agent, ev, id, raw)
 }

@@ -13,8 +13,9 @@ import (
 // SubmitPromptWithSwitch is the combined "switch, stage a selection, then
 // send" a real composer click performs in one gesture — Usecase.SubmitPrompt's
 // own entry point, now delegated here so the whole sequence runs under ONE
-// rs.spawns.Lock(chatID) hold, the same Lock-once-call-the-locked-form shape
-// SwitchProvider itself already uses.
+// hold of the chat, the same hold-once-call-the-locked-form shape
+// SwitchProvider itself already uses. Its waits release the chat's lock, and
+// every decision after one is taken again.
 //
 // Before this existed, Usecase.SubmitPrompt ran the switch (a full
 // SwitchProvider call — its own Lock, fully released on return) and the
@@ -45,11 +46,8 @@ func (rs *Runners) SubmitPromptWithSwitch(
 	chatID, text, clientRequestID, provider string,
 	selection *domain.ChatSelection,
 ) (domain.AgentPromptSubmission, error) {
-	park, release, err := rs.spawns.Acquire(ctx, chatID)
-	if err != nil {
-		return domain.AgentPromptSubmission{}, err
-	}
-	defer release()
+	h := rs.acquire(ctx, chatID)
+	defer h.release()
 
 	switching := false
 	if provider != "" {
@@ -66,7 +64,7 @@ func (rs *Runners) SubmitPromptWithSwitch(
 
 	if switching {
 		defer rs.enterPhase(ctx, chatID, rs.replacementPhase(chatID))()
-		if _, err := rs.switchProviderLocked(ctx, park, chatID, provider); err != nil {
+		if _, err := rs.switchProviderLocked(ctx, h, chatID, provider); err != nil {
 			return domain.AgentPromptSubmission{}, err
 		}
 	}
@@ -78,12 +76,9 @@ func (rs *Runners) SubmitPromptWithSwitch(
 			return err
 		}
 		// Send is the only intent: a dormant chat is revived here, never by a client.
-		if err := rs.reviveForDelivery(ctx, park, chatID); err != nil {
-			return parkErr(park, err)
-		}
-		return nil
+		return rs.reviveForDelivery(ctx, h, chatID)
 	}
-	return rs.submitPromptLocked(ctx, chatID, text, clientRequestID, admit)
+	return rs.submitPromptLocked(ctx, h, chatID, text, clientRequestID, admit)
 }
 
 // commitStagedSelection commits a staged pick only for a chat that will take
@@ -107,7 +102,7 @@ func (rs *Runners) commitStagedSelection(
 }
 
 // SetChatSelection is the standalone PATCH .../selection route's entry
-// point — gated by the SAME rs.spawns hold every other mutating path on this
+// point — under the SAME hold of the chat every other mutating path on this
 // interface takes (SwitchProvider, StopChat, SwitchToTerminal, SwitchToNative,
 // SubmitPromptWithSwitch), so it can never interleave its own read-before /
 // write / record-diff trio with one of THEIRS. Before this existed, the
@@ -120,11 +115,7 @@ func (rs *Runners) commitStagedSelection(
 // TestRegression_SetChatSelection_ConcurrentStandaloneAndStagedNeverLogAStaleChange
 // (chat_test.go) for the property this closes off.
 func (rs *Runners) SetChatSelection(ctx context.Context, chatID, model, effort string) error {
-	_, release, err := rs.spawns.Acquire(ctx, chatID)
-	if err != nil {
-		return err
-	}
-	defer release()
+	defer rs.acquire(ctx, chatID).release()
 	return rs.setChatSelectionLocked(ctx, chatID, model, effort)
 }
 

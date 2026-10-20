@@ -92,19 +92,13 @@ type Streams struct {
 	byChat map[string]map[string]*buffer
 
 	order map[string][]string
-
-	// waiters holds one channel per caller currently blocked in AwaitOpen,
-	// keyed by chatID+"\x00"+runnerID, woken the instant that runner's next
-	// message starts.
-	waiters map[string][]chan struct{}
 }
 
 // New returns an empty set of per-chat message streams.
 func New() *Streams {
 	return &Streams{
-		byChat:  make(map[string]map[string]*buffer),
-		order:   make(map[string][]string),
-		waiters: make(map[string][]chan struct{}),
+		byChat: make(map[string]map[string]*buffer),
+		order:  make(map[string][]string),
 	}
 }
 
@@ -171,19 +165,7 @@ func (s *Streams) bufferLocked(
 	messages[messageID] = buffer
 	s.order[chatID] = append(s.order[chatID], messageID)
 	s.evictLocked(chatID)
-	s.wakeLocked(chatID, runnerID)
 	return buffer
-}
-
-// wakeLocked releases every AwaitOpen caller parked on this runner's chat: a
-// new message just started, so whatever they were waiting to learn is now
-// answerable from Open.
-func (s *Streams) wakeLocked(chatID, runnerID string) {
-	key := chatID + "\x00" + runnerID
-	for _, ch := range s.waiters[key] {
-		close(ch)
-	}
-	delete(s.waiters, key)
 }
 
 // Open returns a frozen copy of every message THIS RUNNER still has open on
@@ -199,52 +181,6 @@ func (s *Streams) Open(chatID, runnerID string) []Message {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.openLocked(chatID, runnerID)
-}
-
-// AwaitOpen is Open, except that when THIS RUNNER has nothing open yet it
-// waits up to timeout for a message to start before giving up. It exists for
-// the race between the hook that reports a turn's final text and the
-// increments that assemble that SAME message: each canonical event is its own
-// independently delivered hook, with no ordering guarantee against a
-// different event's delivery, so "the turn-closing hook arrived first" and
-// "nothing was ever streamed" are indistinguishable without briefly waiting
-// for the alternative to resolve itself. Returns immediately, with no wait,
-// whenever something is already open.
-func (s *Streams) AwaitOpen(chatID, runnerID string, timeout time.Duration) []Message {
-	s.mu.Lock()
-	if open := s.openLocked(chatID, runnerID); len(open) > 0 {
-		s.mu.Unlock()
-		return open
-	}
-	key := chatID + "\x00" + runnerID
-	woken := make(chan struct{})
-	s.waiters[key] = append(s.waiters[key], woken)
-	s.mu.Unlock()
-
-	select {
-	case <-woken:
-	case <-time.After(timeout):
-		s.mu.Lock()
-		s.removeWaiterLocked(key, woken)
-		s.mu.Unlock()
-	}
-	return s.Open(chatID, runnerID)
-}
-
-// removeWaiterLocked drops one timed-out waiter so a runner whose messages
-// never stream (a hooks-only provider that reports everything in the
-// terminating hook) does not accumulate one dead channel per turn forever.
-func (s *Streams) removeWaiterLocked(key string, ch chan struct{}) {
-	list := s.waiters[key]
-	for i, c := range list {
-		if c == ch {
-			s.waiters[key] = append(list[:i], list[i+1:]...)
-			break
-		}
-	}
-	if len(s.waiters[key]) == 0 {
-		delete(s.waiters, key)
-	}
 }
 
 func (s *Streams) openLocked(chatID, runnerID string) []Message {
@@ -302,7 +238,7 @@ func appendUnfinished(
 
 // IndexOf returns messageID's position in THIS RUNNER's arrival order within
 // the chat — its ItemIndex within the turn, for giving several persisted
-// messages from one turn (a Codex reply split across several items)
+// messages from one turn (a reply split across several items)
 // distinct, orderable positions while they share one DisplayOrder (see
 // domain.ActivityTurn). Filtered by runner for the same reason Open is: two
 // runners' messages sharing one chat-wide arrival list must never be

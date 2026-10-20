@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -346,7 +345,7 @@ func helperServeSpawn(t *testing.T, mode string, attach bool) *spawnHarness {
 	}
 	installDescriptor(t, h.home, doc)
 	h.rs.ledger = turnedTestLedger(t, "carrier-test", "S1")
-	h.rs.spawns = inflight.NewGate()
+	h.rs.chatLock, h.rs.parks = newTestLock(), newParks()
 	return h
 }
 
