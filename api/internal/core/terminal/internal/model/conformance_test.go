@@ -87,9 +87,10 @@ func conformanceStep(t *testing.T, m TerminalModel, e *DiffEmitter, ser Serializ
 		"client grid diverged from model after chunk %q", string(chunk))
 	want, got := wrapFlags(t, m), wrapFlags(t, sim.m)
 	if asVT(t, m).emu.IsAltScreen() {
-		// An alternate-screen keyframe carries no history, so only the grid's flags compare there.
-		want, _, _ = strings.Cut(want, " | ")
-		got, _, _ = strings.Cut(got, " | ")
+		// An alternate-screen keyframe carries no history: the client holds none while the model
+		// still reports its primary scrollback.
+		grid, _, _ := strings.Cut(want, " | ")
+		want = grid + " | scrollback"
 	}
 	require.Equal(t, want, got, "client wrap flags diverged from model after chunk %q", string(chunk))
 	return needKeyframe
@@ -132,16 +133,17 @@ func TestConformance_ScriptedScenarios(t *testing.T) {
 			"\x1b]0;third-title\x07",
 			"\x1b[?25h", // show cursor
 		},
-		// Soft wraps: a URL growing across emits, a head ending in a printed space, a flag-only flip
-		// each way (identical cells), a 3-row chain edited in its middle, a flagged row rewritten
-		// under ?7l and as ?7h returns, and a chain crossing the bottom of a primed scroll region.
+		// Soft wraps: a URL growing across emits, a head ending in a printed space (tail then head
+		// edited), a flag-only flip each way (identical cells), a 3-row chain edited in its middle, a
+		// flagged row rewritten under ?7l and as ?7h returns, and a chain crossing the bottom of a
+		// primed scroll region (head then tail edited).
 		{"see " + wrapTestURL[:20], wrapTestURL[20:]},
-		{"0123456789012345678 abc", "\x1b[2;2HZ"},
+		{"0123456789012345678 abc", "\x1b[2;2HZ", "\x1b[1;1HZ"},
 		{strings.Repeat("x", 20) + "\r\nyyy", "\x1b[1;1H" + strings.Repeat("x", 20) + "yyy"},
 		{strings.Repeat("x", 25), "\x1b[2;1H\x1b[2Kxxxxx"},
 		{strings.Repeat("0123456789", 5), "\x1b[2;5HZ"},
 		{strings.Repeat("x", 25), "\x1b[?7l", "\x1b[2;1Habc", "\x1b[?7h\x1b[2;1Hdef"},
-		{"\r\n\r\n\r\n" + strings.Repeat("x", 25) + "\x1b[1;4r", "\x1b[5;3HZ"},
+		{"\r\n\r\n\r\n" + strings.Repeat("x", 25) + "\x1b[1;4r", "\x1b[4;3HZ", "\x1b[5;3HZ"},
 	}
 	for i, chunks := range scenarios {
 		t.Run(fmt.Sprintf("scenario-%d", i), func(t *testing.T) {

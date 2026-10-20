@@ -277,8 +277,9 @@ func TestDiffEmitter_ProgramHardBreakNotJoined(t *testing.T) {
 	assert.NotContains(t, frame, wrapTestURL)
 }
 
-// A chain goes out as one flow from its first row: CUP, EL 0 (clearing that row's wrap bit), each
-// head padded to the last column, the tail trimmed then EL 0. A lone row keeps the plain form.
+// A dirty chain goes out as one flow: CUP, EL 0 on a head (clearing its wrap bit), each head padded
+// to the last column, the tail trimmed then EL 0. A continuation the client holds starts the flow
+// with no EL; a lone row keeps the plain form.
 func TestDiffEmitter_ChainWrittenAsOneFlow(t *testing.T) {
 	m, _ := newTestModel(t, 20, 6)
 	m.Write([]byte(strings.Repeat("x", 25)))
@@ -289,14 +290,16 @@ func TestDiffEmitter_ChainWrittenAsOneFlow(t *testing.T) {
 	frames := []struct {
 		name, chunk, want string
 	}{
-		{name: "an edited tail", chunk: "\x1b[2;1Hab", want: "\x1b[1;1H\x1b[K" + x20 + "abxxx\x1b[K\x1b[2;3H"},
+		{name: "an edited head", chunk: "\x1b[1;1Hab", want: "\x1b[1;1H\x1b[Kab" + x20[2:] + "xxxxx\x1b[K\x1b[1;3H"},
+		{name: "an edited tail", chunk: "\x1b[2;1Hcd", want: "\x1b[2;1Hcdxxx\x1b[K\x1b[2;3H"},
 		{name: "autowrap turned off", chunk: "\x1b[?7l", want: "\x1b[?7l"},
 		{
 			name:  "a chain under the client's ?7l is bracketed",
-			chunk: "\x1b[2;1Hcd",
-			want:  "\x1b[?7h\x1b[1;1H\x1b[K" + x20 + "cdxxx\x1b[K\x1b[?7l\x1b[2;3H",
+			chunk: "\x1b[1;1Hef",
+			want:  "\x1b[?7h\x1b[1;1H\x1b[Kef" + x20[2:] + "cdxxx\x1b[K\x1b[?7l\x1b[1;3H",
 		},
-		{name: "a lone row is not", chunk: "\x1b[4;1Hlone", want: "\x1b[4;1H\x1b[Klone\x1b[4;5H"},
+		{name: "a tail alone is not", chunk: "\x1b[2;1Hgh", want: "\x1b[2;1Hghxxx\x1b[K\x1b[2;3H"},
+		{name: "nor is a lone row", chunk: "\x1b[4;1Hlone", want: "\x1b[4;1H\x1b[Klone\x1b[4;5H"},
 	}
 	for _, f := range frames {
 		m.Write([]byte(f.chunk))
@@ -333,13 +336,41 @@ func TestDiffEmitter_ChainLiftsTheScrollRegionItCrosses(t *testing.T) {
 	}{
 		{
 			name:  "a chain across the region's bottom",
-			chunk: "\x1b[5;3HZ",
-			want:  "\x1b[;r\x1b[4;1H\x1b[K" + strings.Repeat("x", 20) + "xxZxx\x1b[K\x1b[1;4r\x1b[5;4H",
+			chunk: "\x1b[4;3HZ",
+			want:  "\x1b[;r\x1b[4;1H\x1b[KxxZ" + strings.Repeat("x", 17) + "xxxxx\x1b[K\x1b[1;4r\x1b[4;4H",
 		},
+		{name: "a tail below the region's bottom", chunk: "\x1b[5;3HZ", want: "\x1b[5;1HxxZxx\x1b[K\x1b[5;4H"},
 		{
 			name:  "a chain inside the region",
 			chunk: "\x1b[1;1H" + strings.Repeat("y", 25),
 			want:  "\x1b[1;1H\x1b[K" + strings.Repeat("y", 20) + "yyyyy\x1b[K\x1b[2;6H",
+		},
+	}
+	for _, f := range frames {
+		m.Write([]byte(f.chunk))
+		data, needKeyframe := e.Emit(m)
+		require.False(t, needKeyframe, f.name)
+		require.Equal(t, f.want, string(data), f.name)
+	}
+}
+
+// A chain is rewritten from its first changed row when the client already holds that row's wrap
+// bit: the unchanged rows above it cost no bytes, so a keystroke in a long line stays one row.
+func TestDiffEmitter_ChainRewrittenFromItsFirstChangedRow(t *testing.T) {
+	m, _ := newTestModel(t, 20, 6)
+	m.Write([]byte(strings.Repeat("x", 110))) // one chain over all six rows, ten cells on the last
+	e := NewDiffEmitter()
+	e.Prime(m)
+	x20 := strings.Repeat("x", 20)
+
+	frames := []struct {
+		name, chunk, want string
+	}{
+		{name: "a key typed at the end of a screen-tall chain", chunk: "y", want: "\x1b[6;1Hxxxxxxxxxxy\x1b[K\x1b[6;12H"},
+		{
+			name:  "an edit in a middle row",
+			chunk: "\x1b[3;5HZ",
+			want:  "\x1b[3;1HxxxxZ" + strings.Repeat("x", 15) + x20 + x20 + "xxxxxxxxxxy\x1b[K\x1b[3;6H",
 		},
 	}
 	for _, f := range frames {

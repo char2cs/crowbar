@@ -339,8 +339,8 @@ func (e *DiffEmitter) writeBatch(
 }
 
 // writeScreenDiff rewrites every chain of grid rows holding a changed row or
-// wrap bit (writeChain) and updates the diff base. Returns whether anything was
-// written.
+// wrap bit, from the row flowStart picks to the chain's end (writeChain), and
+// updates the diff base. Returns whether anything was written.
 func (e *DiffEmitter) writeScreenDiff(
 	b *bytes.Buffer,
 	vm *vtModel,
@@ -350,36 +350,42 @@ func (e *DiffEmitter) writeScreenDiff(
 	dirty := false
 	for y, end := 0, 0; y < rows; y = end + 1 {
 		end = chainEnd(vm.emu, y, rows)
-		if e.chainClean(vm.emu, y, end, cols) {
+		from := e.flowStart(vm.emu, y, end, cols)
+		if from > end {
 			continue
 		}
 		dirty = true
-		e.writeChain(b, vm.emu, y, end, cols)
+		e.writeChain(b, vm.emu, from, end, cols)
 	}
 	return dirty
 }
 
-func (e *DiffEmitter) chainClean(
+// flowStart returns end+1 for a clean chain, else the row its rewrite starts on: the first changed
+// row when the client holds that row's wrap bit, or the chain's first row, whose flow sets the bit.
+func (e *DiffEmitter) flowStart(
 	emu emulator,
 	y0, end, cols int,
-) bool {
+) int {
 	for y := y0; y <= end; y++ {
-		if emu.RowWrapped(y) != e.lastWrapped[y] || !rowEqualsGrid(emu, e.lastGrid[y], cols, y) {
-			return false
+		if emu.RowWrapped(y) != e.lastWrapped[y] {
+			return y0
+		}
+		if !rowEqualsGrid(emu, e.lastGrid[y], cols, y) {
+			return y
 		}
 	}
-	return true
+	return end + 1
 }
 
 // writeChain writes rows y0..end as one flow from column 1 of y0 (pen reset per row via
-// appendChainRow), so the client's autowrap sets each continuation's flag. EL0 at column 0 clears
-// y0's flag, except on a top row continuing the scrollback: the client holds that flag.
+// appendChainRow), so the client's autowrap sets the flag of every row below y0. EL0 at column 0
+// clears a head's flag; a continuation is written without it, keeping the flag the client holds.
 func (e *DiffEmitter) writeChain(
 	b *bytes.Buffer,
 	emu emulator,
 	y0, end, cols int,
 ) {
-	held := y0 == 0 && emu.RowWrapped(0)
+	continuation := emu.RowWrapped(y0)
 	wrapOff := end > y0 && e.clientAutowrapOff()
 	if wrapOff {
 		b.WriteString(ansi.SetModeAutoWrap)
@@ -390,7 +396,7 @@ func (e *DiffEmitter) writeChain(
 	}
 	b.Grow((end - y0 + 1) * cols) // a head writes every column: one growth, not one per row
 	b.WriteString(cup(y0+1, 1))
-	if !held {
+	if !continuation {
 		b.WriteString(ansi.EraseLineRight)
 	}
 	for y := y0; y <= end; y++ {

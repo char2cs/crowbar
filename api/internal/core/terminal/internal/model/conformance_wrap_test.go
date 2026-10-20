@@ -1,6 +1,8 @@
 package model
 
 import (
+	"fmt"
+	"math/rand"
 	"strings"
 	"testing"
 
@@ -152,5 +154,142 @@ func TestConformance_WrappedChainOnOneRow(t *testing.T) {
 	require.Equal(t, gridString(m), gridString(sim.m))
 	require.Equal(t, scrollbackStrings(m), scrollbackStrings(sim.m))
 	require.Equal(t, "grid T | scrollback F F T", wrapFlags(t, m), "test setup")
+	// The client's row 0 never gains its flag, so every Emit rewrites it while it continues a line.
 	require.Equal(t, "grid F | scrollback F F F", wrapFlags(t, sim.m))
+}
+
+// A seeded random walk on small viewports. After every Emit the client's cells and scrollback equal
+// the model's and a second Emit writes nothing; the wrap bits equal the model's until a line spans
+// more rows than the viewport, which a batch must cut.
+func TestConformance_RandomizedWrapWalk(t *testing.T) {
+	steps, wrappedChecks := 0, 0
+	for seed := int64(1); seed <= 400; seed++ {
+		n, w := walkWraps(t, seed)
+		steps, wrappedChecks = steps+n, wrappedChecks+w
+	}
+	require.NotZero(t, wrappedChecks, "test setup: the walk compares wrap bits while lines wrap")
+	t.Logf("%d steps, %d wrap-bit comparisons with a wrapped line", steps, wrappedChecks)
+}
+
+// walkWraps runs one seed's 60 steps and returns them with how many compared a set wrap bit.
+func walkWraps(
+	t *testing.T,
+	seed int64,
+) (steps, wrappedChecks int) {
+	t.Helper()
+	rng := rand.New(rand.NewSource(seed))
+	cols, rows := 5+rng.Intn(10), 3+rng.Intn(5)
+	m, ser := New(cols, rows, 1000)
+	defer m.Close()
+	sim := newClientSim(t, cols, rows, 1000)
+	defer func() { sim.m.Close() }()
+	e := NewDiffEmitter()
+	var chunks []string
+	flags := true
+	for ; steps < 60; steps++ {
+		chunks = append(chunks, wrapWalkChunk(rng, cols, rows))
+		where := fmt.Sprintf("seed %d at %dx%d after %q", seed, cols, rows, chunks)
+		m.Write([]byte(chunks[steps]))
+		data, needKeyframe := e.Emit(m)
+		if needKeyframe {
+			sim.apply(ser.Serialize(m), true)
+			e.Prime(m)
+		} else if len(data) > 0 {
+			sim.apply(data, false)
+		}
+		require.Equal(t, gridString(m), gridString(sim.m), where)
+		require.Equal(t, scrollbackStrings(m), scrollbackStrings(sim.m), where)
+		again, needKeyframe := e.Emit(m)
+		require.False(t, needKeyframe, where)
+		require.Empty(t, string(again), "a second Emit rewrites nothing: %s", where)
+		flags = flags && longestLine(t, m) <= rows
+		if !flags {
+			continue
+		}
+		require.Equal(t, wrapFlags(t, m), wrapFlags(t, sim.m), where)
+		if strings.Contains(wrapFlags(t, m), "T") {
+			wrappedChecks++
+		}
+	}
+	return steps, wrappedChecks
+}
+
+// wrapWalkChunk returns one step: mostly text long enough to wrap, else a line break, an edit or
+// erase anywhere, an autowrap flip, a line insert or delete, a scroll, a scroll region, or a burst.
+func wrapWalkChunk(
+	rng *rand.Rand,
+	cols int,
+	rows int,
+) string {
+	pick := func(s ...string) string { return s[rng.Intn(len(s))] }
+	row := fmt.Sprintf("\x1b[%d;1H", 1+rng.Intn(rows))
+	switch rng.Intn(16) {
+	case 0, 1, 2, 3:
+		return walkText(rng, cols*(rows-2))
+	case 4, 5:
+		return "\r\n" + walkText(rng, cols*(rows-2))
+	case 6:
+		return "\r\n"
+	case 7, 8:
+		return fmt.Sprintf("\x1b[%d;%dH", 1+rng.Intn(rows), 1+rng.Intn(cols)) + walkText(rng, cols)
+	case 9:
+		return fmt.Sprintf("\x1b[%d;%dH", rows, 1+rng.Intn(cols)) + walkText(rng, 2*cols)
+	case 10:
+		return pick("\x1b[K", "\x1b[1K", "\x1b[2K", row+"\x1b[K", row+"\x1b[2K", row+"\x1b[J")
+	case 11:
+		return pick("\x1b[?7l", "\x1b[?7h")
+	case 12:
+		return row + pick("\x1b[L", "\x1b[M", "\x1b[2L", "\x1b[2M")
+	case 13:
+		return pick("\x1b[S", "\x1b[T", "\x1bM")
+	case 14:
+		return pick(fmt.Sprintf("\x1b[%d;%dr", 1+rng.Intn(2), rows-1-rng.Intn(2)), "\x1b[r")
+	default:
+		return walkBurst(rng, cols, rows)
+	}
+}
+
+// walkBurst commits several lines, each long enough to wrap, in one chunk.
+func walkBurst(
+	rng *rand.Rand,
+	cols int,
+	rows int,
+) string {
+	var b strings.Builder
+	for n := 2 + rng.Intn(rows+2); n > 0; n-- {
+		b.WriteString("\r\n" + walkText(rng, cols*(rows-2)))
+	}
+	return b.String()
+}
+
+// walkText returns up to n letters with an occasional space, so a head may end in a printed blank.
+func walkText(
+	rng *rand.Rand,
+	n int,
+) string {
+	text := make([]byte, 1+rng.Intn(n))
+	for i := range text {
+		text[i] = "abcdefghijklmnopqrstuvwxyz        "[rng.Intn(30)]
+	}
+	return string(text)
+}
+
+// longestLine returns the most rows one line spans, across the scrollback and the grid.
+func longestLine(
+	t *testing.T,
+	m TerminalModel,
+) int {
+	t.Helper()
+	emu := asVT(t, m).emu
+	sb := emu.ScrollbackLen()
+	longest, run := 0, 0
+	for i := 0; i < sb+emu.Height(); i++ {
+		wrapped := i < sb && emu.ScrollbackRowWrapped(i) || i >= sb && emu.RowWrapped(i-sb)
+		if !wrapped {
+			run = 0
+		}
+		run++
+		longest = max(longest, run)
+	}
+	return longest
 }

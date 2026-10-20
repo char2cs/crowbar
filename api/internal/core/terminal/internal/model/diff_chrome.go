@@ -14,9 +14,9 @@ import (
 // covers everything else a client-side terminal tracks statefully: DEC
 // private modes, the window title, cursor visibility/style and the app-set
 // default colours. Scroll region and origin mode (DECOM, mode 6) are tracked
-// here too, but ONLY to detect their change in Emit's keyframe guard — the
-// diff emitter's absolute CUPs are not valid once either is active, so a
-// change to either forces a keyframe rather than a diff (see Emit).
+// here too: a change to either forces a keyframe in Emit, because the diff's
+// absolute CUPs assume them fixed; a chain flowing past the region's bottom
+// margin reads them to lift the region and restore it (regionEndsInside).
 type chromeBase struct {
 	modes           map[int]bool
 	title           string
