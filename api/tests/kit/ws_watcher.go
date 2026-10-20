@@ -33,14 +33,18 @@ func Dial(
 		rawURL,
 		nil,
 	)
-	if resp != nil {
-		require.NoError(t, resp.Body.Close())
-	}
 	require.NoError(
 		t,
 		err,
 	)
-	t.Cleanup(func() { _ = conn.Close() })
+	if resp != nil {
+		require.NoError(t, resp.Body.Close())
+	}
+	t.Cleanup(func() {
+		if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			t.Logf("kit: close websocket: %v", err)
+		}
+	})
 	return &WSWatcher{conn: conn}
 }
 

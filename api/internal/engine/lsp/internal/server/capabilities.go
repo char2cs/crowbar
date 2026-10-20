@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/semtok"
 )
@@ -104,7 +105,9 @@ func featuresFromInitialize(
 	}
 	if len(res.Capabilities) > 0 {
 		if err := json.Unmarshal(res.Capabilities, &caps); err != nil {
-			return serverFeatures{}, fmt.Errorf("initialize capabilities: %w", err)
+			// Only code actions and lenses use the commands: the server still starts.
+			slog.Warn("lsp: executeCommandProvider unreadable; offering no commands", "err", err)
+			caps.ExecuteCommand.Commands = nil
 		}
 	}
 	commands := make(map[string]bool, len(caps.ExecuteCommand.Commands))

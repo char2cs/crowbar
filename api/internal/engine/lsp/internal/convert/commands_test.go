@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func runsOnly(names ...string) func(string) bool {
@@ -27,8 +26,7 @@ func TestClientCodeActions_KeepsOnlyWhatTheEditorCanDo(t *testing.T) {
 		{"title":"Edit+server","edit":{"changes":{}},"command":{"title":"t","command":"gopls.tidy"}},
 		{"title":"Nothing"}
 	]`)
-	got, err := ClientCodeActions("/w", raw, runsOnly("gopls.tidy"))
-	require.NoError(t, err)
+	got := ClientCodeActions("/w", raw, runsOnly("gopls.tidy"))
 	assert.JSONEq(t, `[
 		{"title":"Tidy","command":"gopls.tidy","arguments":[]},
 		{"title":"Edit+client","edit":{"changes":{"a.go":[]}}},
@@ -38,19 +36,25 @@ func TestClientCodeActions_KeepsOnlyWhatTheEditorCanDo(t *testing.T) {
 
 func TestClientLenses_PassesThroughWhatDoesNotDecode(t *testing.T) {
 	for _, raw := range []string{`null`, `"x"`, `42`} {
-		got, err := ClientLenses(json.RawMessage(raw), runsOnly())
-		require.NoError(t, err)
-		assert.Equal(t, raw, string(got))
+		assert.Equal(t, raw, string(ClientLenses(json.RawMessage(raw), runsOnly())))
 	}
 }
 
-func TestConvertCommands_AMalformedArgumentIsAnError(t *testing.T) {
-	_, err := ClientCodeActions("/w", json.RawMessage(`[{"title":"x","command":{"title":"t","command":7}}]`), runsOnly())
-	require.Error(t, err)
+func TestConvertCommands_AMalformedCommandIsDroppedAndTheRestKept(t *testing.T) {
+	actions := ClientCodeActions("/w", json.RawMessage(`[
+		{"title":"Bad","command":{"title":"t","command":7}},
+		{"title":"Bare","command":7},
+		{"title":"Tidy","command":{"title":"t","command":"gopls.tidy"}}
+	]`), runsOnly("gopls.tidy"))
+	assert.JSONEq(t, `[{"title":"Tidy","command":{"title":"t","command":"gopls.tidy"}}]`, string(actions))
 
-	_, err = ClientLenses(json.RawMessage(`[{"command":{"title":"t","command":7}}]`), runsOnly())
-	require.Error(t, err)
+	lenses := ClientLenses(json.RawMessage(`[
+		{"range":{"a":1},"command":{"title":"t","command":7}},
+		{"range":{"a":2},"command":{"title":5,"command":"x"}},
+		{"range":{"a":3},"command":{"title":"run","command":"gopls.test"}}
+	]`), runsOnly("gopls.test"))
+	assert.JSONEq(t, `[{"range":{"a":3},"command":{"title":"run","command":"gopls.test"}}]`, string(lenses))
 
-	_, err = ClientLenses(json.RawMessage(`{"command":{"title":5,"command":"x"}}`), runsOnly())
-	require.Error(t, err)
+	resolved := ClientLenses(json.RawMessage(`{"range":{},"command":{"title":"t","command":7}}`), runsOnly())
+	assert.JSONEq(t, `null`, string(resolved))
 }

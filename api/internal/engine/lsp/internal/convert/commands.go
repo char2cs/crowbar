@@ -3,34 +3,36 @@ package convert
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 )
 
 // ClientCodeActions shapes a textDocument/codeAction result for the editor:
 // every workspace edit names workspace-relative files, and only commands the
 // server itself runs (canRun) survive — a bare command it cannot run is
 // dropped, and an action's unrunnable command is stripped, keeping its edit.
-// A result that does not decode is passed through unchanged; a command that
-// does not decode is an error.
+// A result that does not decode is passed through unchanged; an entry whose
+// command does not decode is dropped and logged, the rest are kept.
 func ClientCodeActions(
 	worktreePath string,
 	raw json.RawMessage,
 	canRun func(string) bool,
-) (json.RawMessage, error) {
+) json.RawMessage {
 	var actions []map[string]json.RawMessage
 	if !decodes(raw, &actions) {
-		return raw, nil
+		return raw
 	}
 	kept := make([]map[string]json.RawMessage, 0, len(actions))
 	for _, action := range actions {
 		keep, err := clientCodeAction(worktreePath, action, canRun)
 		if err != nil {
-			return nil, err
+			slog.Warn("lsp: code action dropped", "entry", entryName(action), "err", err)
+			continue
 		}
 		if keep {
 			kept = append(kept, action)
 		}
 	}
-	return marshalOr(kept, raw), nil
+	return marshalOr(kept, raw)
 }
 
 // clientCodeAction rewrites one Command | CodeAction in place and reports
@@ -76,28 +78,33 @@ func dropUnrunnable(
 // codeLens/resolve result (one lens) for the editor: a lens whose command the
 // server cannot run keeps its title but loses the command, so the editor
 // shows it as a label rather than a button that fails. A result that does not
-// decode is passed through unchanged; a command that does not decode is an error.
+// decode is passed through unchanged; a lens whose command does not decode is
+// dropped and logged, the rest are kept (a resolved lens becomes null).
 func ClientLenses(
 	raw json.RawMessage,
 	canRun func(string) bool,
-) (json.RawMessage, error) {
+) json.RawMessage {
 	var lenses []map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &lenses); err == nil {
+		kept := lenses[:0] // in place: a null result stays null, an empty one empty
 		for _, lens := range lenses {
 			if err := clientLens(lens, canRun); err != nil {
-				return nil, err
+				slog.Warn("lsp: code lens dropped", "entry", entryName(lens), "err", err)
+				continue
 			}
+			kept = append(kept, lens)
 		}
-		return marshalOr(lenses, raw), nil
+		return marshalOr(kept, raw)
 	}
 	var lens map[string]json.RawMessage
 	if !decodes(raw, &lens) || lens == nil {
-		return raw, nil
+		return raw
 	}
 	if err := clientLens(lens, canRun); err != nil {
-		return nil, err
+		slog.Warn("lsp: code lens dropped", "entry", entryName(lens), "err", err)
+		return json.RawMessage("null")
 	}
-	return marshalOr(lens, raw), nil
+	return marshalOr(lens, raw)
 }
 
 func clientLens(
@@ -133,6 +140,14 @@ func commandName(
 		return "", fmt.Errorf("convert: command identifier: %w", err)
 	}
 	return cmd.Command, nil
+}
+
+// entryName names a dropped entry in the log: its title, or a lens's range.
+func entryName(entry map[string]json.RawMessage) string {
+	if title, ok := entry["title"]; ok {
+		return string(title)
+	}
+	return string(entry["range"])
 }
 
 // decodes reports whether raw has v's shape: a result of another shape is not

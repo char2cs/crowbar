@@ -452,7 +452,7 @@ func (e *engine) CodeAction(
 ) (json.RawMessage, error) {
 	params := convert.CodeActionParams(absFilePath(worktreePath, filePath), rng, diagnostics)
 	return e.commandRequest(ctx, wsID, worktreePath, filePath, "textDocument/codeAction", params,
-		func(raw json.RawMessage, canRun func(string) bool) (json.RawMessage, error) {
+		func(raw json.RawMessage, canRun func(string) bool) json.RawMessage {
 			return convert.ClientCodeActions(worktreePath, raw, canRun)
 		})
 }

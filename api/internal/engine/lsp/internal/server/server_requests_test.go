@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -113,24 +114,45 @@ func TestServerRequests_AMalformedParamsIsAnError(t *testing.T) {
 	_, fake := newTestServer(t)
 
 	for i, method := range []string{"workspace/applyEdit", "workspace/configuration"} {
-		fake.send(t, fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":%q,"params":"not an object"}`, 20+i, method))
+		id := 20 + i
+		fake.send(t, fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":%q,"params":"not an object"}`, id, method))
 		r := fake.reply(t)
+		assert.JSONEq(t, strconv.Itoa(id), string(r["id"]), method)
 		assert.NotContains(t, r, "result", method)
 		assert.Contains(t, string(r["error"]), "-32602", method)
 	}
 }
 
-func TestServer_HandshakeRejectsMalformedCapabilities(t *testing.T) {
+// executeCommandProvider only filters code actions and lenses; a server that
+// declares it oddly still serves every other feature, with no commands.
+func TestServer_HandshakeWithAnOddExecuteCommandProviderStartsWithNoCommands(t *testing.T) {
 	srv, fake := newTestServer(t)
 
 	done := make(chan error, 1)
 	go func() { done <- srv.Initialize(context.Background(), "/repo") }()
 	req := <-fake.gotReq
 	fake.respond(req.ID, map[string]any{"capabilities": map[string]any{
+		"semanticTokensProvider": map[string]any{
+			"legend": map[string]any{"tokenTypes": []string{"type"}, "tokenModifiers": []string{}},
+			"full":   true,
+		},
 		"executeCommandProvider": map[string]any{"commands": "gopls.tidy"},
 	}})
 
-	require.ErrorContains(t, <-done, "capabilities")
+	require.NoError(t, <-done)
+	assert.False(t, srv.CanExecute("gopls.tidy"))
+	assert.True(t, srv.SemanticTokens().Full())
+}
+
+func TestServer_HandshakeRejectsAnUndecodableResult(t *testing.T) {
+	srv, fake := newTestServer(t)
+
+	done := make(chan error, 1)
+	go func() { done <- srv.Initialize(context.Background(), "/repo") }()
+	req := <-fake.gotReq
+	fake.respond(req.ID, "not an object")
+
+	require.ErrorContains(t, <-done, "initialize result")
 }
 
 func TestServer_HandshakeRecordsServerFeaturesAndSendsInitOptions(t *testing.T) {

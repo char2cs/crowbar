@@ -428,10 +428,9 @@ func discoverCachePath(home, id string) string {
 	return filepath.Join(home, discoverCacheSubdir, id+".json")
 }
 
-// writeDiscoverCache persists a successful probe's catalogue to disk so the
-// next cold start has something to seed from. A failure (missing home,
-// read-only fs) only costs the NEXT cold start its synchronous seed, never
-// this one's already-cached result, so the caller logs it.
+// writeDiscoverCache persists a successful probe's catalogue so the next cold
+// start has something to seed from. A failure only costs that seed, never this
+// run's cached result, so the caller logs it.
 func writeDiscoverCache(home, id string, found []Model) error {
 	if home == "" {
 		return nil

@@ -51,7 +51,7 @@ func (e *engine) commandRequest(
 	filePath string,
 	method string,
 	params any,
-	toClient func(raw json.RawMessage, canRun func(string) bool) (json.RawMessage, error),
+	toClient func(raw json.RawMessage, canRun func(string) bool) json.RawMessage,
 ) (json.RawMessage, error) {
 	var out json.RawMessage
 	_, err := e.serve(ctx, wsID, worktreePath, filePath, func(reqCtx context.Context, srv server.Server) error {
@@ -59,8 +59,8 @@ func (e *engine) commandRequest(
 		if err != nil || len(raw) == 0 {
 			return err
 		}
-		out, err = toClient(raw, srv.CanExecute)
-		return err
+		out = toClient(raw, srv.CanExecute)
+		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("lsp: %s: %w", method, err)

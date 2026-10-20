@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/inbound"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
@@ -122,7 +124,8 @@ func TestParseV3_AnUnreadableIDIsReportedBesideTheGlyphError(t *testing.T) {
 	if !errors.As(err, &glyph) {
 		t.Fatalf("want the alternation glyph error, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "cannot unmarshal") {
+	var typeErr *yaml.TypeError
+	if !errors.As(err, &typeErr) {
 		t.Fatalf("the failed id read must be reported with it, got: %v", err)
 	}
 }

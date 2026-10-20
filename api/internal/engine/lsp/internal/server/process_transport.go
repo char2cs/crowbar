@@ -102,9 +102,8 @@ func unexpectedExit(waitErr error, deliberate bool) error {
 }
 
 // Close kills the process and the pipes, then blocks until the reaper has
-// finished cmd.Wait() so cmd.ProcessState is set on return. It is idempotent and
-// suppresses the onExit callback (the teardown is deliberate, not a crash). Only
-// the first call reports a failure to close or kill.
+// finished cmd.Wait(). It is idempotent, suppresses onExit (the teardown is
+// deliberate, not a crash), and only its first call reports a close failure.
 func (t *processTransport) Close() error {
 	var err error
 	t.closeOnce.Do(func() {
