@@ -13,18 +13,8 @@ vi.mock('@/lib/api', async () => {
 })
 
 import { apiFetch, ApiError } from '@/lib/api'
-import {
-  exists,
-  readDirectory,
-  readFile,
-  readWorkspaceFile,
-  writeWorkspaceFile,
-} from '@/features/file-system/controllers/platform'
-import {
-  setWorkspaceScope,
-  recordWorkspaceScope,
-  __resetWorkspaceScopesForTest,
-} from '@/lib/workspace-scope'
+import { exists, readDirectory } from '@/features/file-system/controllers/platform'
+import { setWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 
 const mockFetch = apiFetch as ReturnType<typeof vi.fn>
 
@@ -108,51 +98,5 @@ describe('exists', () => {
   it('propagates a non-404 failure rather than reporting "does not exist"', async () => {
     mockFetch.mockRejectedValue(new ApiError('boom', 500))
     await expect(exists('docs/a.md')).rejects.toThrow('boom')
-  })
-})
-
-describe('writeWorkspaceFile', () => {
-  // Task 26 / Critical 1: writeFile's implicit filesBase() -> the ACTIVE
-  // workspace is exactly the hazard writeWorkspaceFile exists to avoid for a
-  // caller that already knows which workspace a write belongs to (Save/
-  // Save All/autosave, LSP-rename — see editor-app-store.test.ts for the
-  // full integration proof). getActiveWorkspaceId is mocked to a fixed
-  // 'ws-1' at the top of this file; ws-2 is deliberately a DIFFERENT,
-  // non-active workspace here, to prove the explicit wsId argument wins.
-  it('writes to the EXPLICIT workspace passed, ignoring the active one', async () => {
-    recordWorkspaceScope({ projectId: 'p1', repoId: 'r2', wsId: 'ws-2', owningChatId: 'chat-2' })
-    mockFetch.mockResolvedValue({})
-
-    await writeWorkspaceFile('ws-2', 'a.ts', 'content for ws-2')
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      '/v0/chats/chat-2/files/content',
-      expect.objectContaining({
-        method: 'PUT',
-        body: JSON.stringify({ path: 'a.ts', content: 'content for ws-2' }),
-      }),
-    )
-    // Never touched the active workspace's own URL.
-    expect(mockFetch).not.toHaveBeenCalledWith(
-      expect.stringContaining('/chats/chat-1/'),
-      expect.anything(),
-    )
-  })
-})
-
-describe('base64 content decoding', () => {
-  it('readWorkspaceFile decodes a base64 payload', async () => {
-    mockFetch.mockResolvedValue({ content: btoa('\u0000binary\u00ff'), encoding: 'base64' })
-    await expect(readWorkspaceFile('ws-1', 'a.bin')).resolves.toBe('\u0000binary\u00ff')
-  })
-
-  it('readWorkspaceFile returns UTF-8 payloads untouched', async () => {
-    mockFetch.mockResolvedValue({ content: 'plain text' })
-    await expect(readWorkspaceFile('ws-1', 'a.ts')).resolves.toBe('plain text')
-  })
-
-  it('readFile decodes a base64 payload', async () => {
-    mockFetch.mockResolvedValue({ content: btoa('\u0000binary\u00ff'), encoding: 'base64' })
-    await expect(readFile('a.bin')).resolves.toBe('\u0000binary\u00ff')
   })
 })

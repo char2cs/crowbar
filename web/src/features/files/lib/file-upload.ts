@@ -1,6 +1,6 @@
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { workspaceRef, writeDocument } from '@/lib/api/documents'
 import { joinPath } from '@/utils/path-helpers'
-import { createFileNode, writeFileContent } from './file-tree-api'
+import { createFileNode } from './file-tree-api'
 
 // Present the OS file picker and return the chosen File objects. Resolves to an
 // empty array when the user cancels. The <input> is not attached to the DOM —
@@ -38,14 +38,11 @@ export function readFileAsBase64(file: Blob): Promise<string> {
   })
 }
 
-// Upload picked files into `directoryPath` (workspace-relative; '' is the root)
-// via the daemon's create + write-content endpoints. Files are sent base64
-// (encoding: 'base64') so their exact bytes land on disk — text and binary
-// alike survive intact. Returns the workspace-relative paths that were written.
-export async function pickAndUploadFiles(directoryPath: string): Promise<string[]> {
-  const wsId = getActiveWorkspaceId()
-  if (!wsId) return []
-
+// Upload picked files into `directoryPath` (relative to workspace `wsId`; '' is
+// the root) via the daemon's create and document-write endpoints. Files are sent
+// base64 so their exact bytes land on disk — text and binary alike survive
+// intact. Returns the workspace-relative paths that were written.
+export async function pickAndUploadFiles(wsId: string, directoryPath: string): Promise<string[]> {
   const files = await pickFiles()
   const written: string[] = []
   for (const file of files) {
@@ -53,7 +50,7 @@ export async function pickAndUploadFiles(directoryPath: string): Promise<string[
     const content = await readFileAsBase64(file)
     const dest = directoryPath ? joinPath(directoryPath, file.name) : file.name
     await createFileNode(wsId, dest, 'file')
-    await writeFileContent(wsId, dest, content, 'base64')
+    await writeDocument(workspaceRef(wsId, dest), content, { encoding: 'base64' })
     written.push(dest)
   }
   return written

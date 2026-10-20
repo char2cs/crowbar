@@ -67,7 +67,7 @@ func TestRegression_AllReadEndpointsUseEnvelope(t *testing.T) {
 		repoBase + "/chats",
 		repoBase + "/chats/" + imported.chatID,
 		base + "/files/tree",
-		base + "/files/content?path=README.md",
+		docURL(imported.workspaceID, "README.md"),
 		base + "/git/status",
 		base + "/git/log?limit=10&skip=0",
 		base + "/git/branches",

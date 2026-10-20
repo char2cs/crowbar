@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { readWorkspaceFile } = vi.hoisted(() => ({ readWorkspaceFile: vi.fn() }))
-vi.mock('@/features/file-system/controllers/platform', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/file-system/controllers/platform')>()),
-  readWorkspaceFile,
+const { readDisk } = vi.hoisted(() => ({ readDisk: vi.fn() }))
+vi.mock('@/lib/api/documents', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/documents')>()),
+  readDocument: async (ref: { workspaceId: string; path: string }) => ({
+    ref,
+    text: await readDisk(ref.workspaceId, ref.path),
+  }),
 }))
 
 import { reloadBufferFromDisk } from '@/features/editor/lib/reload-buffer'
@@ -45,24 +48,24 @@ beforeEach(() => {
 describe('reloadBufferFromDisk (P0-9)', () => {
   it('reloads a clean buffer from disk without asking', async () => {
     const id = openBuffer('old')
-    readWorkspaceFile.mockResolvedValue('disk')
+    readDisk.mockResolvedValue('disk')
     const confirm = vi.fn(() => true)
 
     expect(await reloadBufferFromDisk(id, confirm)).toBe('reloaded')
 
     expect(confirm).not.toHaveBeenCalled()
-    expect(readWorkspaceFile).toHaveBeenCalledWith('ws-1', 'src/a.ts')
+    expect(readDisk).toHaveBeenCalledWith('ws-1', 'src/a.ts')
     expect(buffer(id)).toMatchObject({ content: 'disk', savedContent: 'disk', isDirty: false })
   })
 
   it('never marks unsaved edits as saved: a declined prompt keeps them dirty', async () => {
     const id = openBuffer('old')
     edit(id, 'unsaved edit')
-    readWorkspaceFile.mockResolvedValue('disk')
+    readDisk.mockResolvedValue('disk')
 
     expect(await reloadBufferFromDisk(id, () => false)).toBe('kept')
 
-    expect(readWorkspaceFile).not.toHaveBeenCalled()
+    expect(readDisk).not.toHaveBeenCalled()
     expect(buffer(id)).toMatchObject({
       content: 'unsaved edit',
       savedContent: 'old',
@@ -73,7 +76,7 @@ describe('reloadBufferFromDisk (P0-9)', () => {
   it('a confirmed reload of a dirty buffer takes the disk content', async () => {
     const id = openBuffer('old')
     edit(id, 'unsaved edit')
-    readWorkspaceFile.mockResolvedValue('disk')
+    readDisk.mockResolvedValue('disk')
 
     expect(await reloadBufferFromDisk(id, () => true)).toBe('reloaded')
 
@@ -83,7 +86,7 @@ describe('reloadBufferFromDisk (P0-9)', () => {
   it('does not overwrite edits typed while the disk read was in flight', async () => {
     const id = openBuffer('old')
     let finish: (text: string) => void = () => {}
-    readWorkspaceFile.mockImplementation(() => new Promise<string>((r) => (finish = r)))
+    readDisk.mockImplementation(() => new Promise<string>((r) => (finish = r)))
 
     const pending = reloadBufferFromDisk(id, () => true)
     edit(id, 'typed meanwhile')

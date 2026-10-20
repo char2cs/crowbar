@@ -111,8 +111,6 @@ func specRoutes() []string {
 		// the flat chat prefix is the only surface left; the old
 		// .../workspaces/:wsId/files/... twin is gone.
 		"GET " + chat + "/files/tree",
-		"GET " + chat + "/files/content",
-		"PUT " + chat + "/files/content",
 		"POST " + chat + "/files",
 		"PATCH " + chat + "/files",
 		"DELETE " + chat + "/files",
@@ -488,6 +486,9 @@ func extraRoutes() []string {
 		// reads the truth on its first frame — the per-session push cannot cover that,
 		// since the process is already running by the time a client can attach.
 		"PUT /v0/settings/terminal/theme",
+		// One document read/write by ref: a workspace's file or a host file.
+		"GET /v0/documents/content",
+		"PUT /v0/documents/content",
 		// Repo-home-as-workspace surface: the special non-git default workspace is
 		// navigable like a workspace but git-less, exposing its own files,
 		// terminals, and review-thread subtrees under /projects/:projectId/home
@@ -495,8 +496,6 @@ func extraRoutes() []string {
 		// tree + terminals, but no git operations).
 		"GET " + home,
 		"GET " + home + "/files/tree",
-		"GET " + home + "/files/content",
-		"PUT " + home + "/files/content",
 		"POST " + home + "/files",
 		"PATCH " + home + "/files",
 		"DELETE " + home + "/files",
@@ -774,8 +773,6 @@ func TestRouteAudit_NoWorkspaceScopedGroupRoutes(t *testing.T) {
 	const ws = repo + "/workspaces/:wsId"
 	deleted := []string{
 		"GET " + ws + "/files/tree",
-		"GET " + ws + "/files/content",
-		"PUT " + ws + "/files/content",
 		"POST " + ws + "/files",
 		"PATCH " + ws + "/files",
 		"DELETE " + ws + "/files",
@@ -837,7 +834,7 @@ func TestRouteAudit_NoWorkspaceScopedGroupRoutes(t *testing.T) {
 		"GET " + ws + "/identity",
 		"GET " + ws + "/provider",
 	}
-	require.Len(t, deleted, 63, "the seven groups mounted sixty-three :wsId routes; all must be checked")
+	require.Len(t, deleted, 61, "the seven groups' :wsId routes with a chat-keyed twin; all must be checked")
 	for _, r := range deleted {
 		_, ok := got[r]
 		assert.Falsef(t, ok, "deleted workspace-scoped group route is still registered: %s", r)

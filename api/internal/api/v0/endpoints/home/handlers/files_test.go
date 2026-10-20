@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	fileusecase "github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -31,21 +30,6 @@ func (m *mockFiles) Tree(
 	args := m.Called(ctx, wsID, dirPath, provider)
 	nodes, _ := args.Get(0).([]domain.FileNode)
 	return nodes, args.Error(1)
-}
-
-func (m *mockFiles) ReadContent(
-	ctx context.Context, wsID, filePath string,
-) (domain.FileContent, error) {
-	args := m.Called(ctx, wsID, filePath)
-	content, _ := args.Get(0).(domain.FileContent)
-	return content, args.Error(1)
-}
-
-func (m *mockFiles) WriteContent(
-	ctx context.Context, wsID, filePath, content, encoding string, now time.Time,
-) error {
-	args := m.Called(ctx, wsID, filePath, content, encoding, now)
-	return args.Error(0)
 }
 
 func (m *mockFiles) CreateFile(
@@ -171,164 +155,6 @@ func TestFileTree_NilNodes_ReturnsEmptyArray(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
 	require.NotNil(t, env.Data)
 	require.Empty(t, env.Data)
-}
-
-// ── FileContent ─────────────────────────────────────────────────────────
-
-func TestFileContent_Returns200WithContent(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-
-	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
-	files := &mockFiles{}
-	files.On("ReadContent", mock.Anything, "ws-1", "a.txt").
-		Return(domain.FileContent{Content: "hello"}, nil)
-
-	h := handlers.New(reader, files, stubWork{})
-	r.GET("/projects/:projectId/home/files/content", h.FileContent)
-
-	rec := doReq(r, http.MethodGet, "/projects/proj-1/home/files/content?path=a.txt", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var env struct {
-		Data domain.FileContent `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
-	require.Equal(t, "hello", env.Data.Content)
-	files.AssertExpectations(t)
-}
-
-func TestFileContent_MissingPath_Returns400(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-
-	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
-	h := handlers.New(reader, &mockFiles{}, stubWork{})
-	r.GET("/projects/:projectId/home/files/content", h.FileContent)
-
-	rec := doReq(r, http.MethodGet, "/projects/proj-1/home/files/content", nil)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestFileContent_NotFound_Returns404(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-
-	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
-	files := &mockFiles{}
-	files.On("ReadContent", mock.Anything, "ws-1", "missing.txt").
-		Return(domain.FileContent{}, apperr.ErrNotFound)
-
-	h := handlers.New(reader, files, stubWork{})
-	r.GET("/projects/:projectId/home/files/content", h.FileContent)
-
-	rec := doReq(r, http.MethodGet, "/projects/proj-1/home/files/content?path=missing.txt", nil)
-	require.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestFileContent_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-
-	reader := &mockHomeReader{}
-	reader.On("GetHomeForProject", mock.Anything, "proj-x").
-		Return(domain.Workspace{}, errors.New("storage down"))
-	files := &mockFiles{}
-
-	h := handlers.New(reader, files, stubWork{})
-	r.GET("/projects/:projectId/home/files/content", h.FileContent)
-
-	rec := doReq(r, http.MethodGet, "/projects/proj-x/home/files/content?path=a.txt", nil)
-	require.Equal(t, http.StatusInternalServerError, rec.Code)
-	files.AssertNotCalled(t, "ReadContent", mock.Anything, mock.Anything, mock.Anything)
-}
-
-// ── SaveFileContent ─────────────────────────────────────────────────────
-
-func TestSaveFileContent_Returns200(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-
-	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
-	files := &mockFiles{}
-	files.On("WriteContent", mock.Anything, "ws-1", "a.txt", "new body", "", mock.AnythingOfType("time.Time")).
-		Return(nil)
-
-	h := handlers.New(reader, files, stubWork{})
-	r.PUT("/projects/:projectId/home/files/content", h.SaveFileContent)
-
-	rec := doReq(r, http.MethodPut, "/projects/proj-1/home/files/content", map[string]any{
-		"path": "a.txt", "content": "new body",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-	files.AssertExpectations(t)
-}
-
-func TestSaveFileContent_BadJSON_Returns400(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-
-	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
-	h := handlers.New(reader, &mockFiles{}, stubWork{})
-	r.PUT("/projects/:projectId/home/files/content", h.SaveFileContent)
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/projects/proj-1/home/files/content", bytes.NewReader([]byte("{not json")))
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestSaveFileContent_MissingPath_Returns400(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-
-	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
-	h := handlers.New(reader, &mockFiles{}, stubWork{})
-	r.PUT("/projects/:projectId/home/files/content", h.SaveFileContent)
-
-	rec := doReq(r, http.MethodPut, "/projects/proj-1/home/files/content", map[string]any{"content": "x"})
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-// TestSaveFileContent_WorkspaceResolutionFails_NoUsecaseCall proves
-// SaveFileContent aborts on a failed resolveHome before ever binding the body
-// or calling WriteContent.
-func TestSaveFileContent_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-
-	reader := &mockHomeReader{}
-	reader.On("GetHomeForProject", mock.Anything, "proj-x").
-		Return(domain.Workspace{}, errors.New("storage down"))
-	files := &mockFiles{}
-
-	h := handlers.New(reader, files, stubWork{})
-	r.PUT("/projects/:projectId/home/files/content", h.SaveFileContent)
-
-	rec := doReq(r, http.MethodPut, "/projects/proj-x/home/files/content", map[string]any{
-		"path": "a.txt", "content": "x",
-	})
-	require.Equal(t, http.StatusInternalServerError, rec.Code)
-	files.AssertNotCalled(t, "WriteContent", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
-}
-
-func TestSaveFileContent_UsecaseError_Returns500(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-
-	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
-	files := &mockFiles{}
-	files.On("WriteContent", mock.Anything, "ws-1", "a.txt", "x", "", mock.AnythingOfType("time.Time")).
-		Return(errors.New("disk full"))
-
-	h := handlers.New(reader, files, stubWork{})
-	r.PUT("/projects/:projectId/home/files/content", h.SaveFileContent)
-
-	rec := doReq(r, http.MethodPut, "/projects/proj-1/home/files/content", map[string]any{
-		"path": "a.txt", "content": "x",
-	})
-	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 // ── CreateFile ──────────────────────────────────────────────────────────

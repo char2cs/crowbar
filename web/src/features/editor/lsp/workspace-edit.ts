@@ -150,9 +150,9 @@ async function readEditableSource(
   filePath: string,
   workspaceId: string,
 ): Promise<{ bufferId: string | null; content: string }> {
-  const [{ windowPaneStore }, { readWorkspaceFile }] = await Promise.all([
+  const [{ windowPaneStore }, { readDocument, workspaceRef }] = await Promise.all([
     import('@/features/panes/stores/window-pane-store'),
-    import('@/features/file-system/controllers/platform'),
+    import('@/lib/api/documents'),
   ])
   const buffers = windowPaneStore.getState().buffers
   // Task 26: buffers are window-level — a sibling worktree can hold a
@@ -170,7 +170,8 @@ async function readEditableSource(
     return { bufferId: openBuffer.id, content: openBuffer.content }
   }
 
-  return { bufferId: null, content: await readWorkspaceFile(workspaceId, filePath) }
+  const { text } = await readDocument(workspaceRef(workspaceId, filePath))
+  return { bufferId: null, content: text }
 }
 
 async function writeEditableSource(
@@ -179,11 +180,12 @@ async function writeEditableSource(
   content: string,
   workspaceId: string,
 ) {
-  const [{ windowPaneStore }, { isEditorContent }, { writeWorkspaceFile }] = await Promise.all([
-    import('@/features/panes/stores/window-pane-store'),
-    import('@/features/panes/types/pane-content'),
-    import('@/features/file-system/controllers/platform'),
-  ])
+  const [{ windowPaneStore }, { isEditorContent }, { writeDocument, workspaceRef }] =
+    await Promise.all([
+      import('@/features/panes/stores/window-pane-store'),
+      import('@/features/panes/types/pane-content'),
+      import('@/lib/api/documents'),
+    ])
 
   if (bufferId) {
     windowPaneStore.setState((state) => ({
@@ -199,7 +201,7 @@ async function writeEditableSource(
   // Write to the edit's OWN workspace, never whichever one is merely active
   // — a rename triggered from a background/hidden pane must not land in the
   // wrong worktree.
-  await writeWorkspaceFile(workspaceId, filePath, content)
+  await writeDocument(workspaceRef(workspaceId, filePath), content)
 }
 
 export async function applyWorkspaceEdit(

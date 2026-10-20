@@ -37,6 +37,19 @@ type Engine interface {
 		encoding string,
 	) error
 
+	// ReadHostContent reads a file by absolute, clean host path. The caller
+	// decides the path may be served; the engine only enforces the cap.
+	ReadHostContent(
+		absPath string,
+	) (domain.FileContent, error)
+
+	// WriteHostContent writes a file by absolute, clean host path.
+	WriteHostContent(
+		absPath string,
+		content string,
+		encoding string,
+	) error
+
 	// CreateFile creates an empty file (05 §4).
 	CreateFile(
 		repoPath string,
@@ -113,6 +126,20 @@ func (e *fsEngine) WriteContent(
 	encoding string,
 ) error {
 	return content.Write(repoPath, filePath, c, encoding)
+}
+
+func (e *fsEngine) ReadHostContent(
+	absPath string,
+) (domain.FileContent, error) {
+	return content.ReadAbs(absPath)
+}
+
+func (e *fsEngine) WriteHostContent(
+	absPath string,
+	c string,
+	encoding string,
+) error {
+	return content.WriteAbs(absPath, c, encoding)
 }
 
 func (e *fsEngine) CreateFile(

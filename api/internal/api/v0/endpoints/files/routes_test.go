@@ -33,25 +33,6 @@ func (stubFiles) Tree(
 	return nil, nil
 }
 
-func (stubFiles) ReadContent(
-	_ context.Context,
-	_ string,
-	_ string,
-) (domain.FileContent, error) {
-	return domain.FileContent{}, nil
-}
-
-func (stubFiles) WriteContent(
-	_ context.Context,
-	_ string,
-	_ string,
-	_ string,
-	_ string,
-	_ time.Time,
-) error {
-	return nil
-}
-
 func (stubFiles) CreateFile(
 	_ context.Context,
 	_ string,
@@ -117,8 +98,6 @@ func filesSurface() []struct {
 		path   string
 	}{
 		{http.MethodGet, "/tree"},
-		{http.MethodGet, "/content"},
-		{http.MethodPut, "/content"},
 		{http.MethodPost, ""},
 		{http.MethodPost, "/copy"},
 		{http.MethodPatch, ""},

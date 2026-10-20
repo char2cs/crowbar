@@ -86,6 +86,16 @@ func TestWriteContent_CreatesParentDirs(t *testing.T) {
 	assert.Equal(t, "hello\n", string(got))
 }
 
+func TestHostContent_RoundTripsAnAbsolutePath(t *testing.T) {
+	abs := filepath.Join(t.TempDir(), "host", "notes.md")
+
+	require.NoError(t, fs.New().WriteHostContent(abs, "host\n", ""))
+	fc, err := fs.New().ReadHostContent(abs)
+
+	require.NoError(t, err)
+	assert.Equal(t, "host\n", fc.Content)
+}
+
 func TestCreateFile_CreatesEmptyFile(t *testing.T) {
 	dir := initDir(t)
 

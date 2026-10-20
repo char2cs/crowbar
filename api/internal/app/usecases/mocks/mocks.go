@@ -109,21 +109,11 @@ type RepositoryStore struct {
 	// FindByKeyErr, when set, fails FindByKey only — separate from FindErr so a
 	// test can fail the single-row lookup without also breaking FindAll/FindWhere.
 	FindByKeyErr error
-	// SaveErrForID, when set for a given repo id, fails only that Save call —
-	// separate from SaveErr so a test can fail one row's write (e.g. a sibling
-	// renumbered by a densify pass) while another row's write in the same
-	// operation still succeeds.
-	SaveErrForID map[string]error
 	// FindByKeyFn, when set, overrides the default lookup entirely — used when a
 	// test needs to distinguish repeat FindByKey calls for the SAME id (e.g. the
 	// load at the top of an update vs. the re-fetch after its Save) rather than
 	// failing every call alike.
 	FindByKeyFn func(id string) (*domain.Repository, error)
-	// FindWhereFn, when set, overrides the default scoped query entirely — used
-	// when a test needs one FindWhere call (e.g. densifying the ORIGIN project
-	// after a cross-project repo move) to fail while another (the destination
-	// project) succeeds, which a single blanket FindErr cannot express.
-	FindWhereFn func(match domain.Repository) ([]domain.Repository, error)
 	// Nodes, when set, gets a repo Node row for every NEW repo saved — the
 	// row importOneRepo mints alongside it in production, so a seeded repo is
 	// never Node-less (all placement lives on the Node model).
@@ -144,9 +134,6 @@ func (s *RepositoryStore) Save(
 ) error {
 	if s.SaveErr != nil {
 		return s.SaveErr
-	}
-	if err := s.SaveErrForID[item.ID]; err != nil {
-		return err
 	}
 	for i := range s.Saved {
 		if s.Saved[i].ID == item.ID {
@@ -213,9 +200,6 @@ func (s *RepositoryStore) FindWhere(
 	ctx context.Context,
 	match domain.Repository,
 ) ([]domain.Repository, error) {
-	if s.FindWhereFn != nil {
-		return s.FindWhereFn(match)
-	}
 	if s.FindErr != nil {
 		return nil, s.FindErr
 	}
@@ -273,8 +257,7 @@ type NodePlacements struct {
 	// that id's SetOrder/SetPlacement call — separate from OrderErr/PlaceErr so
 	// a test can fail one sibling's renumber write (e.g. densifying the
 	// ORIGIN project after a cross-project repo move) while another row's
-	// write in the same operation still succeeds, mirroring
-	// RepositoryStore.SaveErrForID.
+	// write in the same operation still succeeds.
 	OrderErrForID map[string]error
 	PlaceErrForID map[string]error
 	Placed        []NodePlacementWrite
@@ -1189,13 +1172,15 @@ func (s *WorkspaceSyncer) ResolveConflicts(
 type FsEngine struct {
 	TreeFn func(repoPath, dirPath string, provider file.FileStatusProvider) ([]domain.FileNode, error)
 
-	ReadContentFn  func(repoPath, filePath string) (domain.FileContent, error)
-	WriteContentFn func(repoPath, filePath, content, encoding string) error
-	CreateFileFn   func(repoPath, filePath string) error
-	CreateDirFn    func(repoPath, dirPath string) error
-	CopyFn         func(repoPath, sourcePath, destPath string) error
-	RenameFn       func(repoPath, oldPath, newPath string) error
-	DeleteFn       func(repoPath, filePath string) error
+	ReadContentFn      func(repoPath, filePath string) (domain.FileContent, error)
+	WriteContentFn     func(repoPath, filePath, content, encoding string) error
+	ReadHostContentFn  func(absPath string) (domain.FileContent, error)
+	WriteHostContentFn func(absPath, content, encoding string) error
+	CreateFileFn       func(repoPath, filePath string) error
+	CreateDirFn        func(repoPath, dirPath string) error
+	CopyFn             func(repoPath, sourcePath, destPath string) error
+	RenameFn           func(repoPath, oldPath, newPath string) error
+	DeleteFn           func(repoPath, filePath string) error
 }
 
 // NewFsEngine returns an empty FsEngine.
@@ -1225,6 +1210,20 @@ func (e *FsEngine) WriteContent(
 	encoding string,
 ) error {
 	return e.WriteContentFn(repoPath, filePath, content, encoding)
+}
+
+func (e *FsEngine) ReadHostContent(
+	absPath string,
+) (domain.FileContent, error) {
+	return e.ReadHostContentFn(absPath)
+}
+
+func (e *FsEngine) WriteHostContent(
+	absPath string,
+	content string,
+	encoding string,
+) error {
+	return e.WriteHostContentFn(absPath, content, encoding)
 }
 
 func (e *FsEngine) CreateFile(

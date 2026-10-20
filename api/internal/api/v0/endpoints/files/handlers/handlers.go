@@ -1,5 +1,5 @@
 // Package handlers holds the gin handlers backing the files endpoint: tree
-// listing, content read/write, create, rename, and delete.
+// listing, create, copy, rename, and delete.
 package handlers
 
 import (
@@ -22,24 +22,6 @@ type Files interface {
 		dirPath string,
 		provider fileusecase.FileStatusProvider,
 	) ([]domain.FileNode, error)
-
-	// ReadContent reads a file in a workspace.
-	ReadContent(
-		ctx context.Context,
-		wsID string,
-		filePath string,
-	) (domain.FileContent, error)
-
-	// WriteContent writes a file and resyncs the working tree. encoding is
-	// "base64" for a byte-faithful binary payload or "" / "utf8" for raw UTF-8.
-	WriteContent(
-		ctx context.Context,
-		wsID string,
-		filePath string,
-		content string,
-		encoding string,
-		now time.Time,
-	) error
 
 	// CreateFile creates a file and resyncs the working tree.
 	CreateFile(

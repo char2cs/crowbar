@@ -26,10 +26,9 @@ func TestGit_StatusDiffStageCommit(t *testing.T) {
 	imported := importWritableWorkspace(t, h)
 	base := wsBase(imported)
 
-	var saved struct {
-		ID string `json:"id"`
-	}
-	h.put(base+"/files/content", map[string]string{"path": "README.md", "content": "hello\nworld\n"}, &saved)
+	h.put(documentsContent, map[string]string{
+		"workspaceId": imported.workspaceID, "path": "README.md", "content": "hello\nworld\n",
+	}, nil)
 
 	var status gitStatusDTO
 	h.get(base+"/git/status", &status)

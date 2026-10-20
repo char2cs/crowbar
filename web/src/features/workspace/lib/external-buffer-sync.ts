@@ -1,4 +1,4 @@
-import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
+import { readDocumentText, workspaceRef } from '@/lib/api/documents'
 import { useFileWatcherStore } from '@/features/file-system/controllers/file-watcher-store'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { toast } from '@/features/window/stores/toast-store'
@@ -45,7 +45,7 @@ export async function syncBufferWithDisk(workspaceId: string, path: string): Pro
     // diverged from the baseline we last wrote; if they match, this is our own
     // write echoing back, not an external edit. Mirrors the restore-path guard
     // in hydrate.ts (diskContent === savedContent).
-    const disk = await readWorkspaceFile(workspaceId, path).catch(() => null)
+    const disk = await readDocumentText(workspaceRef(workspaceId, path))
     if (disk === null) return
 
     // Re-read at apply time: the user may have edited/closed the buffer, or a
@@ -79,7 +79,7 @@ export async function syncBufferWithDisk(workspaceId: string, path: string): Pro
   // async flows (FS events, restore reconciliation) that can complete after
   // the user switched workspaces, and the same relative path in a sibling
   // worktree holds different content.
-  const content = await readWorkspaceFile(workspaceId, path).catch(() => null)
+  const content = await readDocumentText(workspaceRef(workspaceId, path))
   if (content === null) return
 
   // Re-check at apply time: the user may have started editing (or closed the

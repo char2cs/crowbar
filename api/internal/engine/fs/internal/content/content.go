@@ -33,6 +33,20 @@ func Read(
 	return readWithCap(repoPath, filePath, maxReadBytes)
 }
 
+// ReadAbs reads a host file by absolute, clean path under the same cap as Read.
+func ReadAbs(
+	abs string,
+) (domain.FileContent, error) {
+	if err := requireAbs(abs); err != nil {
+		return domain.FileContent{}, fmt.Errorf("content: read %s: %w", abs, err)
+	}
+	fc, err := readFile(abs, maxReadBytes)
+	if err != nil {
+		return domain.FileContent{}, fmt.Errorf("content: read %s: %w", abs, err)
+	}
+	return fc, nil
+}
+
 // readWithCap is the internal implementation of Read with an injectable cap so
 // tests can exercise the size-rejection path without creating a 25 MiB file.
 func readWithCap(
@@ -44,22 +58,31 @@ func readWithCap(
 	if err != nil {
 		return domain.FileContent{}, fmt.Errorf("content: read %s: %w", filePath, err)
 	}
+	fc, err := readFile(full, cap)
+	if err != nil {
+		return domain.FileContent{}, fmt.Errorf("content: read %s: %w", filePath, err)
+	}
+	return fc, nil
+}
 
-	// Stat first for a fast rejection; io.LimitReader below provides the
-	// hard cap in case the file grows between Stat and the actual read.
+// readFile reads full, which the caller has already confined, rejecting
+// anything over cap. Stat gives a fast rejection; LimitReader is the hard cap
+// in case the file grows between Stat and the read.
+func readFile(
+	full string,
+	cap int64,
+) (domain.FileContent, error) {
 	info, err := os.Stat(full)
 	if err != nil {
-		return domain.FileContent{}, fmt.Errorf("content: read %s: %w", filePath, err)
+		return domain.FileContent{}, err
 	}
 	if info.Size() > cap {
-		return domain.FileContent{}, fmt.Errorf("content: read %s: %w", filePath, ErrFileTooLarge)
+		return domain.FileContent{}, ErrFileTooLarge
 	}
 
-	// full is the output of safepath.Resolve, which confines the path to
-	// repoPath and rejects traversal, so it is not attacker-controllable.
-	f, err := os.Open(full) //nolint:gosec // G304: full is validated by safepath.Resolve (confined to repoPath)
+	f, err := os.Open(full) //nolint:gosec // G304: full is safepath-resolved or an absolute path the file usecase resolved
 	if err != nil {
-		return domain.FileContent{}, fmt.Errorf("content: read %s: %w", filePath, err)
+		return domain.FileContent{}, err
 	}
 	defer f.Close() //nolint:errcheck // read-only handle: a close error cannot lose data
 
@@ -67,10 +90,10 @@ func readWithCap(
 	// cap between Stat and Open; reject it with ErrFileTooLarge.
 	data, err := io.ReadAll(io.LimitReader(f, cap+1))
 	if err != nil {
-		return domain.FileContent{}, fmt.Errorf("content: read %s: %w", filePath, err)
+		return domain.FileContent{}, err
 	}
 	if int64(len(data)) > cap {
-		return domain.FileContent{}, fmt.Errorf("content: read %s: %w", filePath, ErrFileTooLarge)
+		return domain.FileContent{}, ErrFileTooLarge
 	}
 
 	if isBinary(data) {
@@ -103,11 +126,47 @@ func Write(
 	if err != nil {
 		return fmt.Errorf("content: write %s: %w", filePath, err)
 	}
-	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
-		return fmt.Errorf("content: mkdirall %s: %w", filePath, err)
-	}
-	if err := writeAtomic(full, data); err != nil {
+	if err := writeFile(full, data); err != nil {
 		return fmt.Errorf("content: write %s: %w", filePath, err)
+	}
+	return nil
+}
+
+// WriteAbs writes a host file by absolute, clean path, exactly as Write does.
+func WriteAbs(
+	abs string,
+	content string,
+	encoding string,
+) error {
+	if err := requireAbs(abs); err != nil {
+		return fmt.Errorf("content: write %s: %w", abs, err)
+	}
+	data, err := decodeContent(content, encoding)
+	if err != nil {
+		return fmt.Errorf("content: write %s: %w", abs, err)
+	}
+	if err := writeFile(abs, data); err != nil {
+		return fmt.Errorf("content: write %s: %w", abs, err)
+	}
+	return nil
+}
+
+// writeFile creates full's parent directories and writes data atomically.
+func writeFile(
+	full string,
+	data []byte,
+) error {
+	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+		return fmt.Errorf("mkdirall: %w", err)
+	}
+	return writeAtomic(full, data)
+}
+
+func requireAbs(
+	abs string,
+) error {
+	if !filepath.IsAbs(abs) || filepath.Clean(abs) != abs {
+		return safepath.ErrNotAbsolute
 	}
 	return nil
 }

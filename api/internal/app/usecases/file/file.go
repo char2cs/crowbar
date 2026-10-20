@@ -10,13 +10,17 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// WorkspaceSyncer is the workspace surface the file and git usecases use to
-// resolve a worktree path and trigger a working-tree resync after a mutation.
+// WorkspaceSyncer is the workspace surface the file usecase uses to resolve a
+// worktree path, find the worktree holding an absolute path, and trigger a
+// working-tree resync after a mutation.
 type WorkspaceSyncer interface {
 	Get(
 		ctx context.Context,
 		id string,
 	) (domain.Workspace, error)
+	List(
+		ctx context.Context,
+	) ([]domain.Workspace, error)
 	SyncWorkingTreeState(
 		ctx context.Context,
 		id string,
@@ -46,6 +50,14 @@ type FsEngine interface {
 	WriteContent(
 		repoPath string,
 		filePath string,
+		content string,
+		encoding string,
+	) error
+	ReadHostContent(
+		absPath string,
+	) (domain.FileContent, error)
+	WriteHostContent(
+		absPath string,
 		content string,
 		encoding string,
 	) error
@@ -84,24 +96,25 @@ type Usecase interface {
 		provider FileStatusProvider,
 	) ([]domain.FileNode, error)
 
-	// ReadContent reads a file in a workspace.
-	ReadContent(
+	// ReadDocument reads the document target names: a workspace-relative path,
+	// or an absolute path resolved to the worktree holding it or to the host.
+	ReadDocument(
 		ctx context.Context,
-		wsID string,
-		filePath string,
-	) (domain.FileContent, error)
+		target domain.DocumentRef,
+		transport domain.Transport,
+	) (domain.Document, error)
 
-	// WriteContent writes a file and resyncs the working tree. encoding is
-	// "base64" for a byte-faithful binary payload (e.g. a file upload) or
-	// "" / "utf8" for raw UTF-8 text.
-	WriteContent(
+	// WriteDocument writes the document target names and returns the ref it
+	// resolved to. encoding is "base64" for a byte-faithful binary payload (e.g.
+	// a file upload) or "" / "utf8" for raw UTF-8 text.
+	WriteDocument(
 		ctx context.Context,
-		wsID string,
-		filePath string,
+		target domain.DocumentRef,
 		content string,
 		encoding string,
+		transport domain.Transport,
 		now time.Time,
-	) error
+	) (domain.DocumentRef, error)
 
 	// CreateFile creates a file and resyncs the working tree.
 	CreateFile(
@@ -149,18 +162,22 @@ type Usecase interface {
 }
 
 type fileUsecase struct {
-	fs     FsEngine
-	syncer WorkspaceSyncer
+	fs          FsEngine
+	syncer      WorkspaceSyncer
+	crowbarHome func() (string, error)
 }
 
-// New builds a Usecase from the fs engine and the workspace syncer.
+// New builds a Usecase from the fs engine, the workspace syncer and the
+// daemon's home, whose state directory is never served as a document.
 func New(
 	fs FsEngine,
 	syncer WorkspaceSyncer,
+	crowbarHome func() (string, error),
 ) Usecase {
 	return &fileUsecase{
-		fs:     fs,
-		syncer: syncer,
+		fs:          fs,
+		syncer:      syncer,
+		crowbarHome: crowbarHome,
 	}
 }
 
@@ -180,42 +197,6 @@ func (u *fileUsecase) Tree(
 		return nil, fmt.Errorf("file: tree: %w", err)
 	}
 	return nodes, nil
-}
-
-// ReadContent reads a file in a workspace.
-func (u *fileUsecase) ReadContent(
-	ctx context.Context,
-	wsID string,
-	filePath string,
-) (domain.FileContent, error) {
-	repoPath, err := u.repoPath(ctx, wsID)
-	if err != nil {
-		return domain.FileContent{}, err
-	}
-	content, err := u.fs.ReadContent(repoPath, filePath)
-	if err != nil {
-		return domain.FileContent{}, fmt.Errorf("file: read content: %w", err)
-	}
-	return content, nil
-}
-
-// WriteContent writes a file and resyncs the working tree.
-func (u *fileUsecase) WriteContent(
-	ctx context.Context,
-	wsID string,
-	filePath string,
-	content string,
-	encoding string,
-	now time.Time,
-) error {
-	repoPath, err := u.writePath(ctx, wsID)
-	if err != nil {
-		return err
-	}
-	if err := u.fs.WriteContent(repoPath, filePath, content, encoding); err != nil {
-		return fmt.Errorf("file: write content: %w", err)
-	}
-	return u.resync(ctx, wsID, now)
 }
 
 // CreateFile creates a file and resyncs the working tree.

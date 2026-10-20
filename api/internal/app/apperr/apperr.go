@@ -60,3 +60,12 @@ var ErrBadGateway = errors.New("apperr: bad gateway")
 // It is the sentinel for a dependency that is present but did not work — a CLI
 // that starts and dies on the spot — as opposed to one that is missing outright.
 var ErrFailedDependency = errors.New("apperr: failed dependency")
+
+// ErrHostDocumentNeedsLocalTransport signals a read or write of a file outside
+// every workspace by a request that did not arrive on the local socket. It maps
+// to HTTP 403: the file is only the local user's to open.
+var ErrHostDocumentNeedsLocalTransport = errors.New("apperr: a host document is served only over the local socket")
+
+// ErrDaemonStateDocument signals a document open or save under the daemon's own
+// state directory, whose live databases a save would corrupt. It maps to 403.
+var ErrDaemonStateDocument = errors.New("apperr: the daemon's own state cannot be opened as a document")

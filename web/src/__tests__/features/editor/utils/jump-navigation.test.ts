@@ -17,9 +17,13 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOri
   // panes/buffers come from windowPaneStore (not mocked).
   getActiveWorkspaceStore: () => store,
 }))
-const readWorkspaceFile = vi.fn(async (_wsId: string, _path: string) => 'reopened content')
-vi.mock('@/features/file-system/controllers/platform', () => ({
-  readWorkspaceFile: (wsId: string, path: string) => readWorkspaceFile(wsId, path),
+const readDisk = vi.fn(async (_wsId: string, _path: string) => 'reopened content')
+vi.mock('@/lib/api/documents', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/documents')>()),
+  readDocument: async (ref: { workspaceId: string; path: string }) => ({
+    ref,
+    text: await readDisk(ref.workspaceId, ref.path),
+  }),
 }))
 vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOriginal) => ({
   ...(await importOriginal<
@@ -139,10 +143,10 @@ describe('navigateToJumpEntry', () => {
   it('reads from the entry’s own workspace, not whichever is active later', async () => {
     // Linked worktrees of one repo share relative paths, so a late resolve can
     // load a sibling checkout's content into the buffer.
-    readWorkspaceFile.mockClear()
+    readDisk.mockClear()
     await navigateToJumpEntry(entryFor('gone', '/b.ts'))
 
-    expect(readWorkspaceFile).toHaveBeenCalledWith('w1', '/b.ts')
+    expect(readDisk).toHaveBeenCalledWith('w1', '/b.ts')
   })
 
   // The jump list is a process-GLOBAL singleton that survives a workspace
@@ -156,12 +160,12 @@ describe('navigateToJumpEntry', () => {
     const fromW1 = entryFor('gone', '/src/app.ts', 'w1')
     // ...but the user has since switched to the sibling worktree w2.
     store = createWorkspaceStore('w2')
-    readWorkspaceFile.mockClear()
+    readDisk.mockClear()
 
     const ok = await navigateToJumpEntry(fromW1)
 
     expect(ok).toBe(false)
-    expect(readWorkspaceFile).not.toHaveBeenCalled()
+    expect(readDisk).not.toHaveBeenCalled()
     expect(windowPaneStore.getState().buffers).toHaveLength(0)
   })
 
@@ -178,25 +182,25 @@ describe('navigateToJumpEntry', () => {
   })
 
   it('still navigates when the entry names the workspace that is active', async () => {
-    readWorkspaceFile.mockClear()
+    readDisk.mockClear()
     const ok = await navigateToJumpEntry(entryFor('gone', '/b.ts', 'w1'))
 
     expect(ok).toBe(true)
-    expect(readWorkspaceFile).toHaveBeenCalledWith('w1', '/b.ts')
+    expect(readDisk).toHaveBeenCalledWith('w1', '/b.ts')
   })
 
   // Pre-production graceful fallback: entries persisted (or recorded by a code
   // path not yet updated) without a workspaceId must still work rather than
   // being dropped — an unstamped entry names no workspace to disagree with.
   it('accepts a legacy entry that carries no workspaceId', async () => {
-    readWorkspaceFile.mockClear()
+    readDisk.mockClear()
     const legacy = entryFor('gone', '/b.ts') as Partial<ReturnType<typeof entryFor>>
     delete legacy.workspaceId
 
     const ok = await navigateToJumpEntry(legacy as ReturnType<typeof entryFor>)
 
     expect(ok).toBe(true)
-    expect(readWorkspaceFile).toHaveBeenCalledWith('w1', '/b.ts')
+    expect(readDisk).toHaveBeenCalledWith('w1', '/b.ts')
   })
 })
 
@@ -248,7 +252,7 @@ describe('navigateToJumpEntry — the Back/Forward handshake survives a reopen',
     const jump = useJumpListStore.getState().actions
     jump.pushEntry(entryFor('buf-a', '/a.ts'))
     const back = jump.goBack(entryFor('buf-b', '/b.ts'))!
-    readWorkspaceFile.mockRejectedValueOnce(new Error('ENOENT'))
+    readDisk.mockRejectedValueOnce(new Error('ENOENT'))
 
     const ok = await navigateToJumpEntry(back)
 

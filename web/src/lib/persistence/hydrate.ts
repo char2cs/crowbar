@@ -19,7 +19,7 @@ import {
   type PaneContent,
 } from '@/features/panes/types/pane-content'
 import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
-import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
+import { readDocument, workspaceRef } from '@/lib/api/documents'
 import { fetchHomeChats, fetchRepoChats, fetchRepos, isNotFoundError } from '@/lib/api'
 import { loadSidebarUI } from './sidebar-ui'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -237,11 +237,11 @@ async function reconcileRestoredBuffers(
       // requires one for 'editor'); skip defensively if that ever breaks.
       if (!buffer.path) return
       // Read from the hydrating workspace explicitly: hydration can still be
-      // in flight when the user switches workspaces, and the active-workspace
-      // readFile would then load the sibling worktree's file into this store.
+      // in flight when the user switches workspaces, and an active-workspace
+      // read would then load the sibling worktree's file into this store.
       let diskContent: string | null
       try {
-        diskContent = await readWorkspaceFile(workspaceId, buffer.path)
+        diskContent = (await readDocument(workspaceRef(workspaceId, buffer.path))).text
       } catch (err) {
         // BUG-001: a 404 means the file is gone (e.g. its worktree was
         // deleted). Mark a clean buffer terminally so the pane shows a "file

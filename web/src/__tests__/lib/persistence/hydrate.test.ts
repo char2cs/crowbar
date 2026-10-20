@@ -1,11 +1,12 @@
 import { vi } from 'vitest'
 
+type Ref = { workspaceId: string; path: string }
 const readFileMock = vi.fn<(wsId: string, path: string) => Promise<string>>()
-vi.mock('@/features/file-system/controllers/platform', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/features/file-system/controllers/platform')>()
-  return { ...actual, readWorkspaceFile: (wsId: string, path: string) => readFileMock(wsId, path) }
-})
+vi.mock('@/lib/api/documents', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/documents')>()),
+  readDocument: async (ref: Ref) => ({ ref, text: await readFileMock(ref.workspaceId, ref.path) }),
+  readDocumentText: (ref: Ref) => readFileMock(ref.workspaceId, ref.path).catch(() => null),
+}))
 
 // The daemon's chat listings, for placing a restored member the cache does not know.
 const fetchHomeChatsMock = vi.fn<(projectId: string) => Promise<ChatDTO[]>>()
@@ -143,10 +144,8 @@ describe('hydrateWorkspace', () => {
     destroyWorkspaceStore('ws-test')
   })
 
-  // Task 26: hydrateWorkspace no longer returns `layout` — pane/buffer layout
-  // is window-level now and restored once at boot by hydrateWindowPaneLayout
-  // (see the describe block below); this is left with editorStates only
-  // (still workspace+buffer keyed, untouched by the hoist).
+  // Pane/buffer layout is window-level and restored once at boot by
+  // hydrateWindowPaneLayout (see below); hydrateWorkspace keeps editorStates.
   it('returns empty editor states when IDB is empty', async () => {
     const result = await hydrateWorkspace('missing-ws')
     expect(result.editorStates).toEqual([])

@@ -413,30 +413,30 @@ export const createBufferSlice: StateCreator<
           workspaceId: entry.workspaceId,
         })
         // The history entry carries no content; load it from disk and fill the
-        // buffer in place. Dynamic import avoids a slice → platform-controller
-        // cycle. Skip the fill if the user already typed into the empty buffer.
+        // buffer in place. Dynamic import keeps the API client out of the
+        // slice's static graph. Skip the fill if the user already typed into
+        // the empty buffer.
         // Read from the CLOSED buffer's own workspace (not necessarily the
         // active one — the active workspace can change while the read is in
         // flight, and the same relative path in a sibling worktree holds
         // different content).
         bestEffort(
-          import('@/features/file-system/controllers/platform').then(
-            async ({ readWorkspaceFile }) => {
-              try {
-                const content = await readWorkspaceFile(entry.workspaceId, entry.path)
-                set((state) => {
-                  const buf = state.buffers.find((b) => b.id === id)
-                  if (buf && buf.type === 'editor' && buf.content === '') {
-                    buf.content = content
-                    buf.savedContent = content
-                    buf.isDirty = false
-                  }
-                })
-              } catch {
-                // File no longer exists — leave the empty buffer; saving will recreate it.
-              }
-            },
-          ),
+          import('@/lib/api/documents').then(async ({ readDocument, workspaceRef }) => {
+            try {
+              const doc = await readDocument(workspaceRef(entry.workspaceId, entry.path))
+              const content = doc.text
+              set((state) => {
+                const buf = state.buffers.find((b) => b.id === id)
+                if (buf && buf.type === 'editor' && buf.content === '') {
+                  buf.content = content
+                  buf.savedContent = content
+                  buf.isDirty = false
+                }
+              })
+            } catch {
+              // File no longer exists — leave the empty buffer; saving will recreate it.
+            }
+          }),
           'refill reopened buffer',
         )
       },

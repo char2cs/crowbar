@@ -5,6 +5,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/console"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/documents"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git"
@@ -209,6 +210,9 @@ func (c *Container) Register(
 		c.app.Usecases.File,
 		c.files.Handle,
 	)
+	// A document's content is read and written by ref on the flat /v0 group:
+	// a host file outside every worktree has no chat or workspace to scope by.
+	documents.Register(rg, c.app.Usecases.File)
 	// Git is the first of spec §4.2's SHARED bucket to move (§8 step 4): one
 	// worktree, one answer, and every chat holding it sees the same writes. It
 	// mounts on the flat chat prefix alone now — the old workspace-scoped mount

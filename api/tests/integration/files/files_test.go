@@ -6,11 +6,15 @@ import (
 	"bytes"
 	"encoding/base64"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/suite"
 
+	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -47,6 +51,20 @@ func (s *FilesSuite) base() string {
 	return "/v0/chats/" + s.chatID
 }
 
+// documentsContent is the one document read/write route.
+const documentsContent = "/v0/documents/content"
+
+// doc addresses one of the writable child's files on the document route.
+func (s *FilesSuite) doc(path string) string {
+	return documentsContent + "?" + url.Values{"workspace": {s.wsID}, "path": {path}}.Encode()
+}
+
+// save writes one of the writable child's files through the document route.
+func (s *FilesSuite) save(path string, body map[string]any) *http.Response {
+	body["workspaceId"], body["path"] = s.wsID, path
+	return s.Env.PUT(s.T(), documentsContent, body)
+}
+
 // TestFilesSuite is the testify suite entry point for FilesSuite.
 func TestFilesSuite(
 	t *testing.T,
@@ -77,10 +95,10 @@ func (s *FilesSuite) TestFiles_treeReturnsRootEntries() {
 	s.Assert().Contains(nodeNames(nodes), "hello.txt")
 }
 
-// TestFiles_readContentReturnsFileBytes verifies ReadContent returns the
+// TestFiles_readContentReturnsFileBytes verifies the document read returns the
 // exact bytes committed to the repo.
 func (s *FilesSuite) TestFiles_readContentReturnsFileBytes() {
-	resp := s.Env.GET(s.T(), s.base()+"/files/content?path=hello.txt")
+	resp := s.Env.GET(s.T(), s.doc("hello.txt"))
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 
 	var content map[string]any
@@ -88,17 +106,14 @@ func (s *FilesSuite) TestFiles_readContentReturnsFileBytes() {
 	s.Assert().Equal("hello world\n", content["content"])
 }
 
-// TestFiles_writeContentMutatesAndResyncs verifies WriteContent persists to
+// TestFiles_writeContentMutatesAndResyncs verifies a document write persists to
 // disk and triggers a SyncWorkingTreeState so git sees the dirty file.
 func (s *FilesSuite) TestFiles_writeContentMutatesAndResyncs() {
-	resp := s.Env.PUT(s.T(), s.base()+"/files/content", map[string]any{
-		"path":    "hello.txt",
-		"content": "updated content\n",
-	})
+	resp := s.save("hello.txt", map[string]any{"content": "updated content\n"})
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	resp.Body.Close()
 
-	resp = s.Env.GET(s.T(), s.base()+"/files/content?path=hello.txt")
+	resp = s.Env.GET(s.T(), s.doc("hello.txt"))
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 
 	var content map[string]any
@@ -191,16 +206,12 @@ func (s *FilesSuite) TestRegression_Files_BinaryReadIsByteFaithfulThroughJSON() 
 	encoded := base64.StdEncoding.EncodeToString(original)
 
 	// Write byte-faithfully via the base64 encoding.
-	resp := s.Env.PUT(s.T(), s.base()+"/files/content", map[string]any{
-		"path":     "assets/late.bin",
-		"content":  encoded,
-		"encoding": "base64",
-	})
+	resp := s.save("assets/late.bin", map[string]any{"content": encoded, "encoding": "base64"})
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	resp.Body.Close()
 
 	// Read it back: must be base64, and decode to the exact original bytes.
-	resp = s.Env.GET(s.T(), s.base()+"/files/content?path=assets/late.bin")
+	resp = s.Env.GET(s.T(), s.doc("assets/late.bin"))
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 
 	var content map[string]any
@@ -217,7 +228,7 @@ func (s *FilesSuite) TestRegression_Files_BinaryReadIsByteFaithfulThroughJSON() 
 // drag-drop move, so the guard protects every collision path at once.
 func (s *FilesSuite) TestRegression_Files_RenameRefusesToClobber() {
 	writeText := func(path, body string) {
-		resp := s.Env.PUT(s.T(), s.base()+"/files/content", map[string]any{"path": path, "content": body})
+		resp := s.save(path, map[string]any{"content": body})
 		kit.RequireStatus(s.T(), resp, http.StatusOK)
 		resp.Body.Close()
 	}
@@ -229,7 +240,7 @@ func (s *FilesSuite) TestRegression_Files_RenameRefusesToClobber() {
 	resp.Body.Close()
 
 	// The occupant survived untouched.
-	resp = s.Env.GET(s.T(), s.base()+"/files/content?path=dst.txt")
+	resp = s.Env.GET(s.T(), s.doc("dst.txt"))
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	var content map[string]any
 	kit.DecodeEnvData(s.T(), resp, &content)
@@ -244,9 +255,7 @@ func (s *FilesSuite) TestRegression_Files_CopyBinaryByteFaithful() {
 	original := []byte{0x89, 0x50, 0x4E, 0x47, 0x00, 0xFF, 0xFE, 0x00, 0x01}
 	encoded := base64.StdEncoding.EncodeToString(original)
 
-	resp := s.Env.PUT(s.T(), s.base()+"/files/content", map[string]any{
-		"path": "logo.png", "content": encoded, "encoding": "base64",
-	})
+	resp := s.save("logo.png", map[string]any{"content": encoded, "encoding": "base64"})
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	resp.Body.Close()
 
@@ -256,7 +265,7 @@ func (s *FilesSuite) TestRegression_Files_CopyBinaryByteFaithful() {
 	kit.RequireStatus(s.T(), resp, http.StatusCreated)
 	resp.Body.Close()
 
-	resp = s.Env.GET(s.T(), s.base()+"/files/content?path=logo%20copy.png")
+	resp = s.Env.GET(s.T(), s.doc("logo copy.png"))
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	var content map[string]any
 	kit.DecodeEnvData(s.T(), resp, &content)
@@ -287,4 +296,51 @@ func (s *FilesSuite) TestFiles_hubBroadcastReachesFilesWatcher() {
 		return wsID == s.wsID
 	})
 	s.Assert().Equal(s.wsID, msg["wsId"])
+}
+
+// TestRegression_OpenFileOutsideWorkspace proves a file outside every worktree
+// is a host document the local socket reads and writes.
+func (s *FilesSuite) TestRegression_OpenFileOutsideWorkspace() {
+	dir, err := os.MkdirTemp("", "host-doc")
+	s.Require().NoError(err)
+	s.T().Cleanup(func() { _ = os.RemoveAll(dir) })
+	abs := filepath.Join(dir, "outside.md")
+	s.Require().NoError(os.WriteFile(abs, []byte("outside\n"), 0o600))
+
+	resp := s.Env.GET(s.T(), documentsContent+"?path="+url.QueryEscape(abs))
+	kit.RequireStatus(s.T(), resp, http.StatusOK)
+	var doc map[string]any
+	kit.DecodeEnvData(s.T(), resp, &doc)
+	s.Assert().Equal("host", doc["authority"])
+	s.Assert().Equal(safepath.Canonical(abs), doc["path"])
+	s.Assert().Equal("outside\n", doc["content"])
+
+	resp = s.Env.PUT(s.T(), documentsContent, map[string]any{"path": abs, "content": "edited\n"})
+	kit.RequireStatus(s.T(), resp, http.StatusOK)
+	resp.Body.Close()
+	got, err := os.ReadFile(abs)
+	s.Require().NoError(err)
+	s.Assert().Equal("edited\n", string(got))
+}
+
+// TestRegression_AbsolutePathInsideWorktreeIsWorkspaceDocument proves an
+// absolute path into a worktree, directly or through a symlink, names the
+// workspace document rather than a second host copy of the same file.
+func (s *FilesSuite) TestRegression_AbsolutePathInsideWorktreeIsWorkspaceDocument() {
+	wt := s.Env.WorktreePath(s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	dir, err := os.MkdirTemp("", "wt-link")
+	s.Require().NoError(err)
+	s.T().Cleanup(func() { _ = os.RemoveAll(dir) })
+	link := filepath.Join(dir, "wt-link")
+	s.Require().NoError(os.Symlink(wt, link))
+
+	for _, abs := range []string{filepath.Join(wt, "hello.txt"), filepath.Join(link, "hello.txt")} {
+		resp := s.Env.GET(s.T(), documentsContent+"?path="+url.QueryEscape(abs))
+		kit.RequireStatus(s.T(), resp, http.StatusOK)
+		var doc map[string]any
+		kit.DecodeEnvData(s.T(), resp, &doc)
+		s.Assert().Equal("workspace", doc["authority"], abs)
+		s.Assert().Equal(s.wsID, doc["workspaceId"], abs)
+		s.Assert().Equal("hello.txt", doc["path"], abs)
+	}
 }

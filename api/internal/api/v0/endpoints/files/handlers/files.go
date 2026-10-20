@@ -34,60 +34,6 @@ func (h *Handlers) Tree(
 	libs.WriteQueryOK(ctx, nodes)
 }
 
-// ReadContent handles GET /v0/chats/:chatId/files/content
-func (h *Handlers) ReadContent(
-	ctx *gin.Context,
-) {
-	rctx := ctx.Request.Context()
-
-	wsID := h.workspaceID(ctx)
-	filePath := ctx.Query("path")
-
-	if filePath == "" {
-		libs.WriteErr(ctx, http.StatusBadRequest, "path is required")
-		return
-	}
-
-	content, err := h.files.ReadContent(rctx, wsID, filePath)
-	if err != nil {
-		fileError(ctx, err)
-		return
-	}
-
-	libs.WriteQueryOK(ctx, content)
-}
-
-// SaveContent handles PUT /v0/chats/:chatId/files/content
-func (h *Handlers) SaveContent(
-	ctx *gin.Context,
-) {
-	rctx := ctx.Request.Context()
-
-	wsID := h.workspaceID(ctx)
-
-	var body struct {
-		Path     string `json:"path"`
-		Content  string `json:"content"`
-		Encoding string `json:"encoding"`
-	}
-	if err := ctx.ShouldBindJSON(&body); err != nil {
-		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	if body.Path == "" {
-		libs.WriteErr(ctx, http.StatusBadRequest, "path is required")
-		return
-	}
-
-	if err := h.files.WriteContent(rctx, wsID, body.Path, body.Content, body.Encoding, time.Now()); err != nil {
-		fileError(ctx, err)
-		return
-	}
-
-	libs.WriteMutationOK(ctx, http.StatusOK, body.Path)
-}
-
 // Create handles POST /v0/chats/:chatId/files
 func (h *Handlers) Create(
 	ctx *gin.Context,

@@ -72,8 +72,6 @@ func Register(
 	home.GET("", h.Get)
 
 	home.GET("/files/tree", h.FileTree)
-	home.GET("/files/content", h.FileContent)
-	home.PUT("/files/content", h.SaveFileContent)
 	home.POST("/files", h.CreateFile)
 	home.POST("/files/copy", h.CopyFile)
 	home.PATCH("/files", h.RenameFile)

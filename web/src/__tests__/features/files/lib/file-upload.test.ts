@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { readFileAsBase64 } from '@/features/files/lib/file-upload'
 
-// Uploads go through readFileAsBase64 → writeFileContent(..., 'base64') so the
-// exact bytes reach the daemon. This pins the byte-faithful half: bytes that are
+// Uploads go through readFileAsBase64 → writeDocument(..., { encoding: 'base64' })
+// so the exact bytes reach the daemon. This pins the byte-faithful half: bytes that are
 // invalid UTF-8 and contain NULs must survive the encode (file.text() would have
 // mangled them, which was the corruption this fixes).
 describe('readFileAsBase64', () => {

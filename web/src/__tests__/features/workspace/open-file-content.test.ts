@@ -8,24 +8,20 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/features/window/stores/toast-store'
 import { openFileContent } from '@/features/workspace/lib/open-file-content'
-import { setWorkspaceScope } from '@/lib/workspace-scope'
 
 beforeEach(() => {
   vi.clearAllMocks()
-  // The content route is addressed through the chat holding the worktree;
-  // record a scope carrying one for the test wsId.
-  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'chat-1' })
 })
 
 describe('openFileContent', () => {
-  it('fetches the chat-scoped content route and opens a buffer', async () => {
+  it('reads the workspace document and opens a buffer', async () => {
     ;(apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue({ content: 'hello world' })
     const openContent = vi.fn()
     await openFileContent('ws-1', 'web/vite.config.ts', { openContent } as never, {
       preview: false,
     })
     expect(apiFetch).toHaveBeenCalledWith(
-      '/v0/chats/chat-1/files/content?path=web%2Fvite.config.ts',
+      '/v0/documents/content?workspace=ws-1&path=web%2Fvite.config.ts',
     )
     expect(openContent).toHaveBeenCalledWith(
       expect.objectContaining({

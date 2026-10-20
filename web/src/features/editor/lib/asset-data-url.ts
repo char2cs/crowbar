@@ -42,7 +42,7 @@ export function isImagePath(path: string): boolean {
   return mimeForPath(path)?.startsWith('image/') ?? false
 }
 
-/** `bytes` as returned by readWorkspaceFile (latin1 for binary files). */
+/** `bytes` as a document read returns them (latin1 for binary files). */
 export function toDataUrl(mime: string, bytes: string): string {
   return TEXT_MIME.test(mime)
     ? `data:${mime};charset=utf-8,${encodeURIComponent(bytes)}`

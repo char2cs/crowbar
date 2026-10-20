@@ -36,14 +36,6 @@ func (s *stubFiles) Tree(_ context.Context, _, _ string, _ fileusecase.FileStatu
 	return []domain.FileNode{}, nil
 }
 
-func (s *stubFiles) ReadContent(_ context.Context, _, _ string) (domain.FileContent, error) {
-	return domain.FileContent{}, nil
-}
-
-func (s *stubFiles) WriteContent(_ context.Context, _, _, _, _ string, _ time.Time) error {
-	return nil
-}
-
 func (s *stubFiles) CreateFile(_ context.Context, _, _ string, _ time.Time) error {
 	return nil
 }

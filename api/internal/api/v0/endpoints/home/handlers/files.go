@@ -29,51 +29,6 @@ func (h *Handlers) FileTree(c *gin.Context) {
 	libs.WriteQueryOK(c, nodes)
 }
 
-// FileContent handles GET /v0/projects/:projectId/home/files/content.
-func (h *Handlers) FileContent(c *gin.Context) {
-	ws, ok := h.resolveHome(c)
-	if !ok {
-		return
-	}
-	filePath := c.Query("path")
-	if filePath == "" {
-		libs.WriteErr(c, http.StatusBadRequest, "path is required")
-		return
-	}
-	content, err := h.files.ReadContent(c.Request.Context(), ws.ID, filePath)
-	if err != nil {
-		homeFileError(c, err)
-		return
-	}
-	libs.WriteQueryOK(c, content)
-}
-
-// SaveFileContent handles PUT /v0/projects/:projectId/home/files/content.
-func (h *Handlers) SaveFileContent(c *gin.Context) {
-	ws, ok := h.resolveHome(c)
-	if !ok {
-		return
-	}
-	var body struct {
-		Path     string `json:"path"`
-		Content  string `json:"content"`
-		Encoding string `json:"encoding"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, err.Error())
-		return
-	}
-	if body.Path == "" {
-		libs.WriteErr(c, http.StatusBadRequest, "path is required")
-		return
-	}
-	if err := h.files.WriteContent(c.Request.Context(), ws.ID, body.Path, body.Content, body.Encoding, time.Now()); err != nil {
-		homeFileError(c, err)
-		return
-	}
-	libs.WriteMutationOK(c, http.StatusOK, body.Path)
-}
-
 // CreateFile handles POST /v0/projects/:projectId/home/files.
 func (h *Handlers) CreateFile(c *gin.Context) {
 	ws, ok := h.resolveHome(c)

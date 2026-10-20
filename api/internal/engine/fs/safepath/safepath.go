@@ -26,6 +26,10 @@ import (
 // 400 Bad Request.
 var ErrPathEscapesWorkspace = errors.New("path escapes the workspace")
 
+// ErrNotAbsolute is returned by the host-path reader and writer for a path that
+// is not absolute and clean: only a path the usecase resolved reaches the disk.
+var ErrNotAbsolute = errors.New("path is not absolute")
+
 // ErrFileTooLarge is returned by the content reader when a file exceeds the
 // maxReadBytes cap (25 MiB). The api libs error mapper maps it to HTTP 413
 // Request Entity Too Large (hardening finding R16).
@@ -100,6 +104,24 @@ func checkSymlinkContainment(
 	}
 
 	return nil
+}
+
+// Canonical is the one spelling of an absolute path: symlinks in its deepest
+// existing ancestor resolved, the not-yet-existing rest appended, so a file has
+// the same identity before and after it is created.
+func Canonical(
+	path string,
+) string {
+	clean := filepath.Clean(path)
+	ancestor := existingAncestor(clean)
+	if ancestor == "" {
+		return clean
+	}
+	canon, err := filepath.EvalSymlinks(ancestor)
+	if err != nil {
+		return clean
+	}
+	return filepath.Join(canon, strings.TrimPrefix(clean, ancestor))
 }
 
 func existingAncestor(

@@ -9,7 +9,7 @@
  * be active — the wrong file on a slow switch, the wrong line on a large one.
  */
 import type * as Monaco from 'monaco-editor'
-import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
+import { readDocument, workspaceRef } from '@/lib/api/documents'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import {
@@ -132,7 +132,8 @@ export async function revealInEditor(target: RevealTarget): Promise<CodeEditor |
   if (!bufferId) {
     // Read through the target's own workspace: sibling worktrees share
     // relative paths with different content.
-    const content = await readWorkspaceFile(target.workspaceId, target.path)
+    const doc = await readDocument(workspaceRef(target.workspaceId, target.path))
+    const content = doc.text
     bufferId =
       findEditorBufferId(target.workspaceId, target.path) ??
       windowPaneStore.getState().bufferActions.openContent({

@@ -4,6 +4,7 @@ package files_test
 
 import (
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,7 +15,7 @@ import (
 )
 
 // HomeFilesSuite exercises the project-level home workspace's file surface
-// (/v0/projects/:projectId/home/files/...). The home workspace is rooted at the
+// (/v0/projects/:projectId/home/files/... and its documents). The home workspace is rooted at the
 // PROJECT directory, which — unlike every repo workspace — is deliberately NOT a
 // git repository (a project is a folder that CONTAINS repos). Every test here
 // therefore registers a project on a plain, non-git temp dir.
@@ -22,6 +23,7 @@ type HomeFilesSuite struct {
 	kit.IntegrationSuite
 	projectID   string
 	projectPath string
+	homeID      string
 }
 
 func (s *HomeFilesSuite) SetupTest() {
@@ -31,6 +33,12 @@ func (s *HomeFilesSuite) SetupTest() {
 	// workspace and mask the bug.
 	s.projectPath = s.T().TempDir()
 	s.projectID = s.Env.RegisterProject(s.T(), "home-files", s.projectPath)
+	resp := s.Env.GET(s.T(), s.base())
+	kit.RequireStatus(s.T(), resp, http.StatusOK)
+	var home map[string]any
+	kit.DecodeEnvData(s.T(), resp, &home)
+	s.homeID, _ = home["id"].(string)
+	s.Require().NotEmpty(s.homeID, "the home endpoint must name its workspace")
 }
 
 // TestHomeFilesSuite is the testify suite entry point for HomeFilesSuite.
@@ -55,14 +63,15 @@ func (s *HomeFilesSuite) TestRegression_HomeSaveFileContent_NonGitProjectDir() {
 		os.WriteFile(filepath.Join(s.projectPath, "NOTES.md"), []byte("# before\n"), 0o600),
 	)
 
-	resp := s.Env.PUT(s.T(), s.base()+"/files/content", map[string]any{
-		"path":    "NOTES.md",
-		"content": "# after\n",
+	resp := s.Env.PUT(s.T(), documentsContent, map[string]any{
+		"workspaceId": s.homeID,
+		"path":        "NOTES.md",
+		"content":     "# after\n",
 	})
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	resp.Body.Close()
 
-	resp = s.Env.GET(s.T(), s.base()+"/files/content?path=NOTES.md")
+	resp = s.Env.GET(s.T(), documentsContent+"?"+url.Values{"workspace": {s.homeID}, "path": {"NOTES.md"}}.Encode())
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	var content map[string]any
 	kit.DecodeEnvData(s.T(), resp, &content)

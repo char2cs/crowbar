@@ -33,6 +33,18 @@ func createProjectForHome(t *testing.T, h *harness) string {
 	return id
 }
 
+// homeWorkspaceID reads the id of the project's home workspace, the id its
+// documents are addressed by.
+func homeWorkspaceID(t *testing.T, h *harness, projectID string) string {
+	t.Helper()
+	var home struct {
+		ID string `json:"id"`
+	}
+	h.get("/v0/projects/"+projectID+"/home", &home)
+	require.NotEmpty(t, home.ID, "the home endpoint must name its workspace")
+	return home.ID
+}
+
 // TestRegression_HomeEndpointReachable proves that GET /v0/projects/:id/home
 // returns 200 with a workspace DTO whose kind is "home". This guards the router
 // wiring: if the home package is not mounted under projectScoped the endpoint
@@ -122,7 +134,9 @@ func TestRegression_HomeHasNoGitSurface(t *testing.T) {
 // not, so Duplicate in the home explorer 404'd every time (Task 34).
 func TestRegression_HomeFilesCopy(t *testing.T) {
 	h := newHarness(t)
-	homeBase := "/v0/projects/" + createProjectForHome(t, h) + "/home"
+	projectID := createProjectForHome(t, h)
+	homeBase := "/v0/projects/" + projectID + "/home"
+	homeID := homeWorkspaceID(t, h, projectID)
 
 	var copied struct {
 		ID string `json:"id"`
@@ -135,8 +149,8 @@ func TestRegression_HomeFilesCopy(t *testing.T) {
 	var original, dup struct {
 		Content string `json:"content"`
 	}
-	h.get(homeBase+"/files/content?path=README.md", &original)
-	h.get(homeBase+"/files/content?path=README+copy.md", &dup)
+	h.get(docURL(homeID, "README.md"), &original)
+	h.get(docURL(homeID, "README copy.md"), &dup)
 	assert.Equal(t, original.Content, dup.Content,
 		"home copy must reproduce the source content byte-for-byte")
 }
@@ -171,12 +185,14 @@ func TestRegression_HomeFilesCopyConflictAndMissingSource(t *testing.T) {
 // {oldPath, newPath} shape now 400s.
 func TestRegression_HomeFilesRenameContract(t *testing.T) {
 	h := newHarness(t)
-	homeBase := "/v0/projects/" + createProjectForHome(t, h) + "/home"
+	projectID := createProjectForHome(t, h)
+	homeBase := "/v0/projects/" + projectID + "/home"
+	homeID := homeWorkspaceID(t, h, projectID)
 
 	var before struct {
 		Content string `json:"content"`
 	}
-	h.get(homeBase+"/files/content?path=README.md", &before)
+	h.get(docURL(homeID, "README.md"), &before)
 
 	var renamed struct {
 		ID string `json:"id"`
@@ -189,9 +205,9 @@ func TestRegression_HomeFilesRenameContract(t *testing.T) {
 	var after struct {
 		Content string `json:"content"`
 	}
-	h.get(homeBase+"/files/content?path=RENAMED.md", &after)
+	h.get(docURL(homeID, "RENAMED.md"), &after)
 	assert.Equal(t, before.Content, after.Content, "rename must preserve content at the new path")
-	h.raw(http.MethodGet, homeBase+"/files/content?path=README.md", nil, http.StatusNotFound).Body.Close()
+	h.raw(http.MethodGet, docURL(homeID, "README.md"), nil, http.StatusNotFound).Body.Close()
 
 	// The retired {oldPath, newPath} shape leaves `path` unbound → 400.
 	h.raw(http.MethodPatch, homeBase+"/files",

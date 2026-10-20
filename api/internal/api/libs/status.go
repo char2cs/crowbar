@@ -49,6 +49,7 @@ import (
 //     enginesearch.ErrPathOutsideWorkspace, safepath.ErrPathEscapesWorkspace
 //     (a workspace-relative fs path that is absolute or traverses outside the
 //     workspace root via ".." or a symlink — the fs engine containment guard),
+//     safepath.ErrNotAbsolute (a host path that is not absolute and clean),
 //     apperr.ErrInvalidArgument (an unsafe/invalid git operand or reset mode
 //     rejected at the usecase boundary before it can reach the git engine —
 //     see the git write validator), fs.ErrInvalid (an invalid fs-engine
@@ -59,7 +60,9 @@ import (
 //     rejected because the file exceeds the 25 MiB cap; hardening R16).
 //   - 403 Forbidden       — enginegit.ErrAuthFailed (remote rejected the
 //     supplied credentials on push/pull/fetch; a forbidden-style auth failure,
-//     not a transport outage).
+//     not a transport outage), apperr.ErrHostDocumentNeedsLocalTransport (a
+//     file outside every workspace asked for off the local socket) and
+//     apperr.ErrDaemonStateDocument (a document under the daemon's own state).
 //   - 424 Failed Dependency — engineterminal.ErrCommandNotFound (the vendor CLI
 //     a spawn needs — claude, codex — is not installed on this machine or is not
 //     executable) and apperr.ErrFailedDependency (a CLI that IS installed but
@@ -125,7 +128,9 @@ func StatusAndMessage(
 		return http.StatusRequestEntityTooLarge, err.Error()
 	}
 
-	if errors.Is(err, enginegit.ErrAuthFailed) {
+	if errors.Is(err, enginegit.ErrAuthFailed) ||
+		errors.Is(err, apperr.ErrHostDocumentNeedsLocalTransport) ||
+		errors.Is(err, apperr.ErrDaemonStateDocument) {
 		return http.StatusForbidden, err.Error()
 	}
 
@@ -206,6 +211,7 @@ func isBadRequest(
 	return errors.Is(err, enginesearch.ErrBadPattern) ||
 		errors.Is(err, enginesearch.ErrPathOutsideWorkspace) ||
 		errors.Is(err, safepath.ErrPathEscapesWorkspace) ||
+		errors.Is(err, safepath.ErrNotAbsolute) ||
 		errors.Is(err, apperr.ErrInvalidArgument) ||
 		errors.Is(err, fs.ErrInvalid) ||
 		errors.Is(err, agentusecase.ErrTreeNameRequired) ||

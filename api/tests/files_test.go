@@ -4,7 +4,9 @@ package tests
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +14,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// documentRef is the resolved ref the document route answers a write with.
+type documentRef struct {
+	Authority   string `json:"authority"`
+	WorkspaceID string `json:"workspaceId"`
+	Path        string `json:"path"`
+}
 
 // TestFiles_TreeSaveReadBack proves the file read/write round trip over a real
 // worktree: the tree lists the committed README, a save writes new content, and a
@@ -26,16 +35,16 @@ func TestFiles_TreeSaveReadBack(t *testing.T) {
 	require.NotEmpty(t, tree, "tree must list the committed README")
 
 	const content = "package main\n\nfunc main() {}\n"
-	var saved struct {
-		ID string `json:"id"`
-	}
-	h.put(base+"/files/content", map[string]string{"path": "main.go", "content": content}, &saved)
-	assert.Equal(t, "main.go", saved.ID)
+	var saved documentRef
+	h.put(documentsContent, map[string]string{
+		"workspaceId": imported.workspaceID, "path": "main.go", "content": content,
+	}, &saved)
+	assert.Equal(t, documentRef{Authority: "workspace", WorkspaceID: imported.workspaceID, Path: "main.go"}, saved)
 
 	var read struct {
 		Content string `json:"content"`
 	}
-	h.get(base+"/files/content?path=main.go", &read)
+	h.get(docURL(imported.workspaceID, "main.go"), &read)
 	assert.Equal(t, content, read.Content)
 }
 
@@ -67,8 +76,8 @@ func TestFiles_CreateRenameDelete(t *testing.T) {
 
 // TestFiles_LockedWorkspaceRejectsWrite proves the locked-workspace guard on the
 // file write path: the adopted "main" workspace is locked (a default protected
-// branch), so reads still succeed (200) while a file create is rejected with 409
-// (04 §5, 05 §3/§4).
+// branch), so reads still succeed (200) while a file create or a document save
+// is rejected with 409 (04 §5, 05 §3/§4).
 func TestFiles_LockedWorkspaceRejectsWrite(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
@@ -81,10 +90,42 @@ func TestFiles_LockedWorkspaceRejectsWrite(t *testing.T) {
 	var read struct {
 		Content string `json:"content"`
 	}
-	h.get(base+"/files/content?path=README.md", &read)
+	h.get(docURL(imported.workspaceID, "README.md"), &read)
 	assert.Equal(t, "hello\n", read.Content)
 
 	h.postError(base+"/files", map[string]string{"path": "a.txt", "type": "file"}, http.StatusConflict)
+	h.mutationError(http.MethodPut, documentsContent, map[string]string{
+		"workspaceId": imported.workspaceID, "path": "README.md", "content": "x",
+	}, http.StatusConflict)
+}
+
+// TestRegression_HostDocumentRefusedOverTCP proves a file outside every
+// workspace is served only to a request that arrived on the local socket: over
+// TCP the read and the write are refused with the code, and the file is untouched.
+func TestRegression_HostDocumentRefusedOverTCP(t *testing.T) {
+	h := newHarness(t)
+	abs := filepath.Join(t.TempDir(), "secret.md")
+	require.NoError(t, os.WriteFile(abs, []byte("secret\n"), 0o600))
+
+	read := h.raw(http.MethodGet, documentsContent+"?path="+url.QueryEscape(abs), nil, http.StatusForbidden)
+	assert.Equal(t, "host_document_requires_local_transport", refusalCode(t, read))
+	write := h.raw(http.MethodPut, documentsContent, map[string]string{"path": abs, "content": "x"}, http.StatusForbidden)
+	assert.Equal(t, "host_document_requires_local_transport", refusalCode(t, write))
+
+	got, err := os.ReadFile(abs)
+	require.NoError(t, err)
+	assert.Equal(t, "secret\n", string(got))
+}
+
+// refusalCode decodes the error envelope's machine-readable code and closes the body.
+func refusalCode(t *testing.T, resp *http.Response) string {
+	t.Helper()
+	defer func() { _ = resp.Body.Close() }()
+	var env struct {
+		Code string `json:"code"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&env))
+	return env.Code
 }
 
 // workspaceWorktree resolves the on-disk worktree of the imported child
@@ -143,18 +184,14 @@ func TestFiles_CopyBinaryByteFaithful(t *testing.T) {
 func TestRegression_BinaryUploadByteFaithful(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
-	base := wsBase(imported)
 	worktree := workspaceWorktree(t, h, imported)
 
 	binary := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0xFF, 0xFE, 0x01, 0x80}
 	encoded := base64.StdEncoding.EncodeToString(binary)
 
-	var saved struct {
-		ID string `json:"id"`
-	}
-	h.put(base+"/files/content",
-		map[string]string{"path": "upload.bin", "content": encoded, "encoding": "base64"},
-		&saved)
+	h.put(documentsContent, map[string]string{
+		"workspaceId": imported.workspaceID, "path": "upload.bin", "content": encoded, "encoding": "base64",
+	}, nil)
 
 	got, err := os.ReadFile(filepath.Join(worktree, "upload.bin"))
 	require.NoError(t, err)
@@ -165,18 +202,15 @@ func TestRegression_BinaryUploadByteFaithful(t *testing.T) {
 		Content  string `json:"content"`
 		Encoding string `json:"encoding"`
 	}
-	h.get(base+"/files/content?path=upload.bin", &read)
+	h.get(docURL(imported.workspaceID, "upload.bin"), &read)
 	assert.Equal(t, "base64", read.Encoding)
 	assert.Equal(t, encoded, read.Content)
 
 	// A plain-text PUT with no encoding still writes UTF-8 unchanged (the
 	// default path is untouched by the new field).
-	var textSaved struct {
-		ID string `json:"id"`
-	}
-	h.put(base+"/files/content",
-		map[string]string{"path": "note.txt", "content": "héllo\n"},
-		&textSaved)
+	h.put(documentsContent, map[string]string{
+		"workspaceId": imported.workspaceID, "path": "note.txt", "content": "héllo\n",
+	}, nil)
 	text, err := os.ReadFile(filepath.Join(worktree, "note.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, "héllo\n", string(text))
@@ -195,10 +229,9 @@ func TestFiles_CopyDirectoryRecursiveAndConflicts(t *testing.T) {
 		ID string `json:"id"`
 	}
 	h.post(base+"/files", map[string]string{"path": "src/nested", "type": "dir"}, http.StatusCreated, &created)
-	var saved struct {
-		ID string `json:"id"`
-	}
-	h.put(base+"/files/content", map[string]string{"path": "src/nested/a.txt", "content": "deep"}, &saved)
+	h.put(documentsContent, map[string]string{
+		"workspaceId": imported.workspaceID, "path": "src/nested/a.txt", "content": "deep",
+	}, nil)
 
 	var copied struct {
 		ID string `json:"id"`
@@ -210,7 +243,7 @@ func TestFiles_CopyDirectoryRecursiveAndConflicts(t *testing.T) {
 	var read struct {
 		Content string `json:"content"`
 	}
-	h.get(base+"/files/content?path=src+copy%2Fnested%2Fa.txt", &read)
+	h.get(docURL(imported.workspaceID, "src copy/nested/a.txt"), &read)
 	assert.Equal(t, "deep", read.Content)
 
 	h.postError(base+"/files/copy", map[string]string{"sourcePath": "src", "destPath": "src copy"},

@@ -5,9 +5,11 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 
-const readWorkspaceFileMock = vi.fn<(wsId: string, path: string) => Promise<string>>()
-vi.mock('@/features/file-system/controllers/platform', () => ({
-  readWorkspaceFile: (wsId: string, path: string) => readWorkspaceFileMock(wsId, path),
+const readDiskMock = vi.fn<(wsId: string, path: string) => Promise<string | null>>()
+vi.mock('@/lib/api/documents', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/documents')>()),
+  readDocumentText: (ref: { workspaceId: string; path: string }) =>
+    readDiskMock(ref.workspaceId, ref.path),
 }))
 
 const toastWarning = vi.fn()
@@ -59,7 +61,7 @@ function getBuffer(id = 'buf-1'): EditorContent {
 }
 
 beforeEach(() => {
-  readWorkspaceFileMock.mockReset()
+  readDiskMock.mockReset()
   toastWarning.mockReset()
   useFileWatcherStore.setState({ pendingSaves: new Set() })
 })
@@ -67,7 +69,7 @@ beforeEach(() => {
 describe('syncBufferWithDisk', () => {
   it('reloads a clean buffer from disk (content and savedContent)', async () => {
     seedBuffers([makeBuffer()])
-    readWorkspaceFileMock.mockResolvedValue('restored content')
+    readDiskMock.mockResolvedValue('restored content')
 
     await syncBufferWithDisk('ws-1', 'README.md')
 
@@ -75,7 +77,7 @@ describe('syncBufferWithDisk', () => {
     // The read targets the buffer's own workspace, never the active one —
     // an active-workspace read would load a sibling worktree's file after a
     // mid-flight workspace switch.
-    expect(readWorkspaceFileMock).toHaveBeenCalledWith('ws-1', 'README.md')
+    expect(readDiskMock).toHaveBeenCalledWith('ws-1', 'README.md')
     expect(buf.content).toBe('restored content')
     expect(buf.savedContent).toBe('restored content')
     expect(buf.isDirty).toBe(false)
@@ -86,12 +88,12 @@ describe('syncBufferWithDisk', () => {
   it('keeps a dirty buffer intact, flags the conflict and toasts once', async () => {
     seedBuffers([makeBuffer({ content: 'user edits', savedContent: 'old content', isDirty: true })])
     // A genuine external edit: disk diverges from the baseline we last wrote.
-    readWorkspaceFileMock.mockResolvedValue('someone else wrote this')
+    readDiskMock.mockResolvedValue('someone else wrote this')
 
     await syncBufferWithDisk('ws-1', 'README.md')
 
     const buf = getBuffer()
-    expect(readWorkspaceFileMock).toHaveBeenCalledWith('ws-1', 'README.md')
+    expect(readDiskMock).toHaveBeenCalledWith('ws-1', 'README.md')
     expect(buf.content).toBe('user edits')
     expect(buf.isDirty).toBe(true)
     expect(buf.hasExternalChange).toBe(true)
@@ -100,10 +102,10 @@ describe('syncBufferWithDisk', () => {
 
     // A second external change while already flagged must not re-toast (and must
     // not even hit the disk — the hasExternalChange guard returns first).
-    readWorkspaceFileMock.mockClear()
+    readDiskMock.mockClear()
     await syncBufferWithDisk('ws-1', 'README.md')
     expect(toastWarning).toHaveBeenCalledTimes(1)
-    expect(readWorkspaceFileMock).not.toHaveBeenCalled()
+    expect(readDiskMock).not.toHaveBeenCalled()
   })
 
   it('does not toast when a dirty buffer matches disk (own-write echo)', async () => {
@@ -118,12 +120,12 @@ describe('syncBufferWithDisk', () => {
         isDirty: true,
       }),
     ])
-    readWorkspaceFileMock.mockResolvedValue('autosaved value') // disk === savedContent
+    readDiskMock.mockResolvedValue('autosaved value') // disk === savedContent
 
     await syncBufferWithDisk('ws-1', 'README.md')
 
     const buf = getBuffer()
-    expect(readWorkspaceFileMock).toHaveBeenCalledWith('ws-1', 'README.md')
+    expect(readDiskMock).toHaveBeenCalledWith('ws-1', 'README.md')
     expect(toastWarning).not.toHaveBeenCalled()
     expect(buf.hasExternalChange).toBeFalsy()
     // The in-flight unsaved edits are left untouched.
@@ -137,12 +139,12 @@ describe('syncBufferWithDisk', () => {
 
     await syncBufferWithDisk('ws-1', 'README.md')
 
-    expect(readWorkspaceFileMock).not.toHaveBeenCalled()
+    expect(readDiskMock).not.toHaveBeenCalled()
     expect(getBuffer().content).toBe('old content')
     expect(useFileWatcherStore.getState().pendingSaves.has('README.md')).toBe(false)
 
     // The next external event for the same path is no longer suppressed.
-    readWorkspaceFileMock.mockResolvedValue('external write')
+    readDiskMock.mockResolvedValue('external write')
     await syncBufferWithDisk('ws-1', 'README.md')
     expect(getBuffer().content).toBe('external write')
   })
@@ -152,14 +154,14 @@ describe('syncBufferWithDisk', () => {
 
     await syncBufferWithDisk('ws-1', 'README.md')
 
-    expect(readWorkspaceFileMock).not.toHaveBeenCalled()
+    expect(readDiskMock).not.toHaveBeenCalled()
     expect(toastWarning).not.toHaveBeenCalled()
   })
 
   it('does not clobber edits made while the disk read was in flight', async () => {
     seedBuffers([makeBuffer()])
     let resolveRead: (v: string) => void = () => {}
-    readWorkspaceFileMock.mockReturnValue(
+    readDiskMock.mockReturnValue(
       new Promise<string>((r) => {
         resolveRead = r
       }),
@@ -181,7 +183,7 @@ describe('syncBufferWithDisk', () => {
 
   it('survives a failed disk read without touching the buffer', async () => {
     seedBuffers([makeBuffer()])
-    readWorkspaceFileMock.mockRejectedValue(new Error('boom'))
+    readDiskMock.mockResolvedValue(null)
 
     await syncBufferWithDisk('ws-1', 'README.md')
 

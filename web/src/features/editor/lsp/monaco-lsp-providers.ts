@@ -22,7 +22,7 @@ import type {
   TextEdit,
 } from 'vscode-languageserver-types'
 import { extensionRegistry } from '@/extensions/registry/extension-registry'
-import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
+import { readDocumentText, workspaceRef } from '@/lib/api/documents'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
@@ -206,9 +206,7 @@ async function ensurePreviewModels(wsId: string, paths: string[]): Promise<void>
         .getState()
         .buffers.find((b) => b.type === 'editor' && b.path === path && b.workspaceId === wsId)
       const text =
-        open && 'content' in open
-          ? open.content
-          : await readWorkspaceFile(wsId, path).catch(() => null)
+        open && 'content' in open ? open.content : await readDocumentText(workspaceRef(wsId, path))
       if (text === null || modelFor(wsId, path)) return
       peekModels.add(monacoEditor.createModel(text, langForUri(uri), Uri.parse(uri)))
     }),

@@ -14,7 +14,7 @@
  *    own-write echo suppression).
  */
 import { useFileWatcherStore } from '@/features/file-system/controllers/file-watcher-store'
-import { writeWorkspaceFile } from '@/features/file-system/controllers/platform'
+import { workspaceRef, writeDocument } from '@/lib/api/documents'
 import { clearBlame } from '@/features/git/stores/git-blame-store'
 import { requestGitRefresh } from '@/features/git/stores/git-refresh'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -118,7 +118,7 @@ async function saveAsUntitled(buffer: PathedBuffer): Promise<boolean> {
   const content = buffer.content
   // Buffers are window-level — write to THIS buffer's own workspace, never the
   // merely-active one.
-  await writeWorkspaceFile(buffer.workspaceId, target, content)
+  await writeDocument(workspaceRef(buffer.workspaceId, target), content)
   patchEditorBuffer(buffer.id, (b) => ({
     ...b,
     path: target,
@@ -172,7 +172,7 @@ async function writeToDisk(
   const written = buffer.content
   try {
     useFileWatcherStore.getState().markPendingSave(path)
-    await writeWorkspaceFile(workspaceId, path, written)
+    await writeDocument(workspaceRef(workspaceId, path), written)
   } catch (error) {
     console.error('Error saving file:', error)
     reportSaveError(error)

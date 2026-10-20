@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react'
-import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
+import { readDocument, workspaceRef } from '@/lib/api/documents'
 import {
   isImagePath,
   isSelfLoading,
@@ -16,13 +16,13 @@ import {
  * keep their raw src.
  */
 export interface MarkdownAssetInfo {
-  /** Workspace id the file belongs to (for `readWorkspaceFile`, or a `resolve`
+  /** Workspace id the file belongs to (for its document reads, or a `resolve`
    *  override that needs it). */
   wsId: string
   /** The file's own directory, workspace-relative ('' = workspace root).
    *  Unused when `resolve` is set. */
   fileDir: string
-  /** Override the default fileDir-relative `readWorkspaceFile` resolution.
+  /** Override the default fileDir-relative document read.
    *  When present, `loadLocalImage` calls this directly with the raw `src`
    *  instead — the chat asset context (`chat-asset-resolver.ts`) uses this to
    *  route through the attachment-serving endpoint, since a chat-attachment
@@ -42,7 +42,7 @@ export { resolveAssetPath }
  * Load a local image referenced from a markdown file as a `data:` URL the
  * webview can render, or `null` if it can't/shouldn't be resolved (remote URL,
  * non-image, unknown workspace, or a read error). Reads through the same
- * workspace file API the editor already uses; binary files come back as a
+ * document API the editor already uses; binary files come back as a
  * latin1 byte string (base64-decoded by the daemon layer), which re-encodes to
  * base64 cleanly. SVG is text, so it's passed through utf8 instead.
  */
@@ -58,7 +58,7 @@ export async function loadLocalImage(
   if (!mime || !isImagePath(path)) return null
 
   try {
-    return toDataUrl(mime, await readWorkspaceFile(asset.wsId, path))
+    return toDataUrl(mime, (await readDocument(workspaceRef(asset.wsId, path))).text)
   } catch {
     return null
   }

@@ -78,9 +78,10 @@ func (s *LifecycleSuite) TestLifecycle_SyncClearsLastError() {
 	wsID, chatID := s.Env.CreateWorkspaceWithChat(t, imported.ProjectID, imported.RepoID, "feature/lifecycle-sync", "")
 	chatBase := "/v0/chats/" + chatID
 
-	saveResp := s.Env.PUT(t, chatBase+"/files/content", map[string]any{
-		"path":    "a.txt",
-		"content": "aaa\n",
+	saveResp := s.Env.PUT(t, "/v0/documents/content", map[string]any{
+		"workspaceId": wsID,
+		"path":        "a.txt",
+		"content":     "aaa\n",
 	})
 	kit.RequireStatus(t, saveResp, http.StatusOK)
 	saveResp.Body.Close()
@@ -188,12 +189,13 @@ func (s *LifecycleSuite) TestLifecycle_GitStageCommitChangesStatus() {
 	t := s.T()
 
 	imported := s.Env.ImportRepo(t, "git-status", "")
-	_, chatID := s.Env.CreateWorkspaceWithChat(t, imported.ProjectID, imported.RepoID, "feature/lifecycle-git", "")
+	wsID, chatID := s.Env.CreateWorkspaceWithChat(t, imported.ProjectID, imported.RepoID, "feature/lifecycle-git", "")
 	chatBase := "/v0/chats/" + chatID
 
-	saveResp := s.Env.PUT(t, chatBase+"/files/content", map[string]any{
-		"path":    "hello.txt",
-		"content": "Hello, world!\n",
+	saveResp := s.Env.PUT(t, "/v0/documents/content", map[string]any{
+		"workspaceId": wsID,
+		"path":        "hello.txt",
+		"content":     "Hello, world!\n",
 	})
 	kit.RequireStatus(t, saveResp, http.StatusOK)
 	saveResp.Body.Close()

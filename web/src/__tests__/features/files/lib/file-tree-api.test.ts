@@ -15,7 +15,6 @@ import {
   createFileNode,
   renameFileNode,
   deleteFileNode,
-  writeFileContent,
 } from '@/features/files/lib/file-tree-api'
 
 beforeEach(() => {
@@ -54,22 +53,6 @@ describe('file-tree-api mutations', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: 'gone.ts' }),
     })
-  })
-
-  it('writeFileContent PUTs {path, content} as UTF-8 by default (no encoding field)', async () => {
-    await writeFileContent('ws1', 'a.ts', 'hi')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/chats/chat-for-ws1/files/content', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: 'a.ts', content: 'hi' }),
-    })
-  })
-
-  it('writeFileContent includes encoding:"base64" for byte-faithful binary writes', async () => {
-    await writeFileContent('ws1', 'img.png', 'iVBORw==', 'base64')
-    expect(apiFetch.mock.calls[0][1].body).toBe(
-      JSON.stringify({ path: 'img.png', content: 'iVBORw==', encoding: 'base64' }),
-    )
   })
 })
 

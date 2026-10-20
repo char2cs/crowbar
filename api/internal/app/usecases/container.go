@@ -200,10 +200,7 @@ func New(
 		// creation — 2026-09-08 sidebar-placement-unification Task 7.
 		workspace.WithNodes(repos.Node),
 	)
-	fileUsecase := file.New(
-		newFsEngineAdapter(engines.FS),
-		workspaceUsecase,
-	)
+	fileUsecase := file.New(newFsEngineAdapter(engines.FS), workspaceUsecase, crowbarHome)
 	gitUsecase := git.New(
 		engines.Git,
 		workspaceUsecase,

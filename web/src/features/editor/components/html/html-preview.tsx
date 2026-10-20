@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
-import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
+import { readDocument, workspaceRef } from '@/lib/api/documents'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { hasTextContent } from '@/features/panes/types/pane-content'
 import { mimeForPath, resolveAssetPath, toDataUrl } from '@/features/editor/lib/asset-data-url'
@@ -33,7 +33,7 @@ export function HtmlPreview() {
   const [iframeContent, setIframeContent] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Local assets are read through the files API of the file's own workspace
+  // Local assets are read as documents of the file's own workspace
   // and inlined; the latest edit wins over a slower earlier build.
   useEffect(() => {
     let cancelled = false
@@ -42,7 +42,7 @@ export function HtmlPreview() {
       const path = resolveAssetPath(fileDir, reference)
       const mime = mimeForPath(path)
       if (!workspaceId || !mime) return null
-      return toDataUrl(mime, await readWorkspaceFile(workspaceId, path))
+      return toDataUrl(mime, (await readDocument(workspaceRef(workspaceId, path))).text)
     }
     void buildHtmlPreviewDocument(sourceContent, loadAsset).then((doc) => {
       if (!cancelled) setIframeContent(doc)

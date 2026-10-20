@@ -189,6 +189,21 @@ func TestStatusAndMessageMapping(t *testing.T) {
 			status: http.StatusForbidden,
 		},
 		{
+			name:   "host document off the local socket",
+			err:    apperr.ErrHostDocumentNeedsLocalTransport,
+			status: http.StatusForbidden,
+		},
+		{
+			name:   "daemon state as a document",
+			err:    apperr.ErrDaemonStateDocument,
+			status: http.StatusForbidden,
+		},
+		{
+			name:   "host path not absolute",
+			err:    safepath.ErrNotAbsolute,
+			status: http.StatusBadRequest,
+		},
+		{
 			name:   "file too large",
 			err:    safepath.ErrFileTooLarge,
 			status: http.StatusRequestEntityTooLarge,

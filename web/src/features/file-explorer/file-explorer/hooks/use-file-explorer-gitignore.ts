@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { readFile } from '@/features/file-system/controllers/platform'
+import { readDocument, workspaceRef } from '@/lib/api/documents'
 import {
   createFileTreeGitIgnoreRules,
   isPathGitIgnoredByFileTreeRules,
@@ -14,6 +14,7 @@ interface UseFileExplorerGitignoreResult {
 }
 
 export function useFileExplorerGitignore(
+  workspaceId: string | null,
   rootFolderPath: string | undefined,
   gitIgnoreFileReferences: GitIgnoreFileReference[],
   getWorkspaceRootForPath: (path: string) => string | undefined,
@@ -24,7 +25,7 @@ export function useFileExplorerGitignore(
     let cancelled = false
 
     const loadGitignore = async () => {
-      if (!rootFolderPath) {
+      if (!rootFolderPath || !workspaceId) {
         setGitIgnoreRules(null)
         return
       }
@@ -34,7 +35,7 @@ export function useFileExplorerGitignore(
           try {
             return {
               ...file,
-              content: await readFile(file.path),
+              content: (await readDocument(workspaceRef(workspaceId, file.path))).text,
             }
           } catch {
             return null
@@ -57,7 +58,7 @@ export function useFileExplorerGitignore(
     return () => {
       cancelled = true
     }
-  }, [gitIgnoreFileReferences, rootFolderPath])
+  }, [gitIgnoreFileReferences, rootFolderPath, workspaceId])
 
   const isGitIgnored = useCallback(
     (fullPath: string, isDir: boolean): boolean => {

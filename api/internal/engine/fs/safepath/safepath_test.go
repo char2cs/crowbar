@@ -130,3 +130,21 @@ func TestResolve_AllowsNewFileUnderHonestParent(
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(root, "does/not/exist/yet.txt"), got)
 }
+
+// TestCanonical_ResolvesSymlinkedParentOfNewFile verifies a file that does not
+// exist yet gets the same spelling through a symlinked parent as through its
+// real directory, so one file has one identity before and after it is created.
+func TestCanonical_ResolvesSymlinkedParentOfNewFile(
+	t *testing.T,
+) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on windows")
+	}
+	dir := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	require.NoError(t, os.Symlink(dir, link))
+
+	want := filepath.Join(safepath.Canonical(dir), "new", "file.md")
+	assert.Equal(t, want, safepath.Canonical(filepath.Join(link, "new", "file.md")))
+	assert.Equal(t, want, safepath.Canonical(filepath.Join(dir, "new", "..", "new", "file.md")))
+}

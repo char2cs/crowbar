@@ -1,4 +1,4 @@
-import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
+import { readDocument, workspaceRef } from '@/lib/api/documents'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { cancelAutosave, findEditorBuffer, type PathedBuffer } from './buffer-save'
@@ -26,7 +26,7 @@ export async function reloadBufferFromDisk(
   const seen = buffer.content
   let disk: string
   try {
-    disk = await readWorkspaceFile(buffer.workspaceId, buffer.path)
+    disk = (await readDocument(workspaceRef(buffer.workspaceId, buffer.path))).text
   } catch {
     return 'failed'
   }

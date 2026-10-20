@@ -43,16 +43,15 @@ func Register(
 	mount(chatScoped, "/files", h, filesWS)
 }
 
-// mount registers the 8-route files surface under prefix on rg.
+// mount registers the 6-route files surface under prefix on rg. A file's
+// content is read and written through /v0/documents/content.
 func mount(
 	rg *gin.RouterGroup,
 	prefix string,
 	h *filehandlers.Handlers,
 	filesWS gin.HandlerFunc,
 ) {
-	rg.GET(prefix+"/content", h.ReadContent)
 	rg.GET(prefix+"/tree", h.Tree)
-	rg.PUT(prefix+"/content", h.SaveContent)
 	rg.POST(prefix, h.Create)
 	rg.POST(prefix+"/copy", h.Copy)
 	rg.PATCH(prefix, h.Rename)

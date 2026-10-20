@@ -21,7 +21,7 @@ import {
 } from '@phosphor-icons/react'
 import { useCallback, useMemo, useState } from 'react'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { readFile as readTextFile, writeFile } from '@/features/file-system/controllers/platform'
+import { readDocument, workspaceRef, writeDocument } from '@/lib/api/documents'
 import {
   buildEnvTemplateContent,
   ENV_TEMPLATE_TARGETS,
@@ -138,7 +138,7 @@ export function useFileExplorerContextMenu({
 
   const createEnvTemplateFile = useCallback(
     async (sourcePath: string, targetFileName: string, options?: { overwrite?: boolean }) => {
-      if (!onCreateNewFileInDirectory) return
+      if (!onCreateNewFileInDirectory || !workspaceId) return
 
       const directoryPath = getDirName(sourcePath)
       const targetPath = joinPath(directoryPath, targetFileName)
@@ -151,7 +151,7 @@ export function useFileExplorerContextMenu({
 
         let targetExists = false
         try {
-          await readTextFile(targetPath)
+          await readDocument(workspaceRef(workspaceId, targetPath))
           targetExists = true
           if (!options?.overwrite) {
             setEnvOverwriteDialog({ sourcePath, targetFileName })
@@ -161,34 +161,30 @@ export function useFileExplorerContextMenu({
           /* intentionally ignored */
         }
 
-        const sourceContent = await readTextFile(sourcePath)
+        const { text: sourceContent } = await readDocument(workspaceRef(workspaceId, sourcePath))
         const templateContent = buildEnvTemplateContent(sourceContent)
         const createdPath = targetExists
           ? targetPath
           : (await Promise.resolve(onCreateNewFileInDirectory(directoryPath, targetFileName))) ||
             targetPath
 
-        await writeFile(createdPath, templateContent)
+        await writeDocument(workspaceRef(workspaceId, createdPath), templateContent)
 
-        if (workspaceId) {
-          // Task 26: buffers are window-level — scope by workspaceId too, or
-          // a sibling worktree's buffer at the same relative path could get
-          // this content instead.
-          const createdBuffer = windowPaneStore
-            .getState()
-            .buffers.find(
-              (buffer) => buffer.path === createdPath && buffer.workspaceId === workspaceId,
-            )
-          if (createdBuffer) {
-            windowPaneStore.setState((state) => ({
-              ...state,
-              buffers: state.buffers.map((b) =>
-                b.id === createdBuffer.id && 'content' in b
-                  ? { ...b, content: templateContent }
-                  : b,
-              ),
-            }))
-          }
+        // Task 26: buffers are window-level — scope by workspaceId too, or a
+        // sibling worktree's buffer at the same relative path could get this
+        // content instead.
+        const createdBuffer = windowPaneStore
+          .getState()
+          .buffers.find(
+            (buffer) => buffer.path === createdPath && buffer.workspaceId === workspaceId,
+          )
+        if (createdBuffer) {
+          windowPaneStore.setState((state) => ({
+            ...state,
+            buffers: state.buffers.map((b) =>
+              b.id === createdBuffer.id && 'content' in b ? { ...b, content: templateContent } : b,
+            ),
+          }))
         }
 
         onRefreshDirectory?.(directoryPath)

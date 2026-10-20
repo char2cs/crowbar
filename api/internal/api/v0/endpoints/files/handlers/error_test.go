@@ -19,12 +19,6 @@ func (e errFiles) Tree(_ context.Context, _, _ string, _ file.FileStatusProvider
 	return nil, e.err
 }
 
-func (e errFiles) ReadContent(_ context.Context, _, _ string) (domain.FileContent, error) {
-	return domain.FileContent{}, e.err
-}
-
-func (e errFiles) WriteContent(_ context.Context, _, _, _, _ string, _ time.Time) error { return e.err }
-
 func (e errFiles) CreateFile(_ context.Context, _, _ string, _ time.Time) error { return e.err }
 
 func (e errFiles) CreateDir(_ context.Context, _, _ string, _ time.Time) error { return e.err }
@@ -41,9 +35,6 @@ func TestFileHandlers_ErrorPaths(
 	r := newRouter(errFiles{err: errors.New("boom")})
 
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, "/v0/workspaces/ws1/files/tree", nil).Code)
-	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, "/v0/workspaces/ws1/files/content?path=a.go", nil).Code)
-	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPut, "/v0/workspaces/ws1/files/content",
-		map[string]any{"path": "a.go", "content": "hi"}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, "/v0/workspaces/ws1/files",
 		map[string]any{"path": "new.go", "type": "file"}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, "/v0/workspaces/ws1/files/copy",
@@ -58,7 +49,7 @@ func TestFileHandlers_NotFoundError(
 ) {
 	r := newRouter(errFiles{err: errors.New("file not found")})
 
-	assert.Equal(t, http.StatusNotFound, do(r, http.MethodGet, "/v0/workspaces/ws1/files/content?path=missing.go", nil).Code)
+	assert.Equal(t, http.StatusNotFound, do(r, http.MethodGet, "/v0/workspaces/ws1/files/tree?path=missing", nil).Code)
 }
 
 // TestFileHandlers_Create_DirectoryError proves a CreateDir failure is mapped

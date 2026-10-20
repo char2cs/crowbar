@@ -6,10 +6,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // file on a slow switch, wrong line on a large one. reveal() waits for the
 // pane's editor to show the target model, however long that takes.
 
-const { readWorkspaceFile } = vi.hoisted(() => ({ readWorkspaceFile: vi.fn() }))
-vi.mock('@/features/file-system/controllers/platform', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/file-system/controllers/platform')>()),
-  readWorkspaceFile,
+const { readDisk } = vi.hoisted(() => ({ readDisk: vi.fn() }))
+vi.mock('@/lib/api/documents', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/documents')>()),
+  readDocument: async (ref: { workspaceId: string; path: string }) => ({
+    ref,
+    text: await readDisk(ref.workspaceId, ref.path),
+  }),
 }))
 
 import { createActiveEditorRegistry } from '@/features/editor/lib/active-editor-context'
@@ -60,7 +63,7 @@ beforeEach(() => {
 describe('revealInEditor', () => {
   it('opens a closed file and places the cursor only once the editor shows it', async () => {
     openBuffer('src/app.ts')
-    readWorkspaceFile.mockResolvedValue('target text')
+    readDisk.mockResolvedValue('target text')
     const paneId = windowPaneStore.getState().activePaneId
     const editor = fakeEditor()
 
@@ -69,7 +72,7 @@ describe('revealInEditor', () => {
       path: 'src/lib/target.ts',
       position: { line: 1200, character: 4 },
     })
-    await vi.waitFor(() => expect(readWorkspaceFile).toHaveBeenCalled())
+    await vi.waitFor(() => expect(readDisk).toHaveBeenCalled())
     // The pane still shows the previous file: nothing may be placed yet.
     showInPane(paneId, 'src/app.ts', editor)
     expect(editor.setSelection).not.toHaveBeenCalled()
@@ -82,7 +85,7 @@ describe('revealInEditor', () => {
     showInPane(paneId, 'src/lib/target.ts', editor)
 
     expect(await pending).toBe(editor)
-    expect(readWorkspaceFile).toHaveBeenCalledWith('ws-1', 'src/lib/target.ts')
+    expect(readDisk).toHaveBeenCalledWith('ws-1', 'src/lib/target.ts')
     expect(editor.setSelection).toHaveBeenCalledWith({
       startLineNumber: 1201,
       startColumn: 5,
@@ -105,7 +108,7 @@ describe('revealInEditor', () => {
     showInPane(paneId, 'src/lib/target.ts', editor)
 
     expect(await pending).toBe(editor)
-    expect(readWorkspaceFile).not.toHaveBeenCalled()
+    expect(readDisk).not.toHaveBeenCalled()
   })
 
   it('gives up (null) when the pane moves to another tab before the target shows', async () => {
@@ -124,7 +127,7 @@ describe('revealInEditor', () => {
   })
 
   it('propagates a failed read so the caller can tell the user', async () => {
-    readWorkspaceFile.mockRejectedValue(new Error('path escapes the workspace'))
+    readDisk.mockRejectedValue(new Error('path escapes the workspace'))
 
     await expect(revealInEditor({ workspaceId: 'ws-1', path: 'src/missing.ts' })).rejects.toThrow(
       'path escapes the workspace',

@@ -1,12 +1,10 @@
 /**
- * The daemon's file-content payload (`GET .../files/content`).
+ * The daemon's file-content payload (`GET /v0/documents/content`).
  *
  * `encoding` is `'base64'` for a file the fs engine classified as BINARY
  * (engine/fs/internal/content: `isBinary(data)` → base64) and is omitted for
  * UTF-8 text. Every reader of that route must go through {@link decodeFileContent}
- * — a reader that ignores the field renders base64 gibberish as source, which is
- * exactly what `readWorkspaceFile` did while `openFileContent` decoded correctly.
- * One decode, one place, so the two paths cannot drift apart again.
+ * — a reader that ignores the field renders base64 gibberish as source.
  */
 export interface FileContentPayload {
   content: string

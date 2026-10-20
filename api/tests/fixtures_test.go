@@ -5,6 +5,7 @@ package tests
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -514,17 +515,15 @@ func threadsBase(
 		"/workspaces/" + imported.workspaceID
 }
 
-// chatVerbBase returns the repo-scoped prefix the worktree LIFECYCLE VERBS hang
-// off (lock, sync, merge-into-parent, reparent, rebase-onto-parent,
-// retry-provision, detach-holder, PATCH branch) plus the chat row itself. Unlike
-// the shared leaves above these did NOT go flat: they stayed under the repo
-// group, keyed by chat id (endpoints/worktree/routes.go).
-func chatVerbBase(
-	imported importedRepo,
+// documentsContent is the one document read/write route.
+const documentsContent = "/v0/documents/content"
+
+// docURL addresses a workspace file on the document route.
+func docURL(
+	wsID string,
+	path string,
 ) string {
-	return "/v0/projects/" + imported.projectID +
-		"/repos/" + imported.repoID +
-		"/chats/" + imported.chatID
+	return documentsContent + "?" + url.Values{"workspace": {wsID}, "path": {path}}.Encode()
 }
 
 func writeFile(

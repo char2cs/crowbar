@@ -5,7 +5,10 @@ import type { FileEntry } from '@/features/file-system/types/app'
 
 vi.mock('@/features/file-system/controllers/platform', () => ({
   readDirectory: vi.fn(async () => []),
-  readFile: vi.fn(async () => ''),
+}))
+vi.mock('@/lib/api/documents', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/documents')>()),
+  readDocument: vi.fn(async (ref: unknown) => ({ ref, text: '' })),
 }))
 
 const files: FileEntry[] = [

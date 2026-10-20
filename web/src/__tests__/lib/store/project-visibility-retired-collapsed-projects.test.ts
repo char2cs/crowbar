@@ -9,7 +9,6 @@ import { useProjectDataStore, useProjectStore } from '@/lib/store/projects'
 import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
 import type { Project } from '@/lib/types'
 
-vi.mock('@/features/file-system/controllers/platform', () => ({ readWorkspaceFile: vi.fn() }))
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId: () => null,
   getHomeOwningChatId: () => null,
