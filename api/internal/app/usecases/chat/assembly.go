@@ -278,14 +278,13 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	d.Ledger.Subscribe(u.publishLedgerRows)
 }
 
-// turnKind is the chat frame kind a batch's last row about the chat's newest
-// turn announces: a turn started, or one stopped; "" for a batch with none. A
-// row about any other turn is late and announces nothing.
+// turnKind is the chat frame kind the batch's last row that moved the chat's
+// newest turn announces: a turn started, or one stopped; "" for a batch with
+// none. A late row moved nothing and announces nothing.
 func turnKind(rows []ledger.Row, st ledger.State) string {
 	kind := ""
-	last, _ := st.LastTurn()
 	for _, r := range rows {
-		if r.Scope != "" || r.TurnID != last.ID {
+		if !st.MovedTurn(r) {
 			continue
 		}
 		if r.Kind == ledger.KindTurnStarted {

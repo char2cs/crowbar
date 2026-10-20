@@ -28,7 +28,7 @@ func noticing() *spec.Descriptor {
 	return &spec.Descriptor{
 		ID: "codex",
 		TerminalNotices: []spec.TerminalNoticeSpec{
-			{Kind: spec.TerminalNoticeUsageLimit, Needle: "You've hit your usage limit", EndsTurn: true},
+			{Kind: spec.TerminalNoticeUsageLimit, Anchor: "■", Needle: "You've hit your usage limit", EndsTurn: true},
 		},
 	}
 }
@@ -57,7 +57,7 @@ func TestMatchNotice_StopsAtTheBlankRow(t *testing.T) {
 }
 
 func TestMatchNotice_BoundsTheCapture(t *testing.T) {
-	rows := []string{"You've hit your usage limit."}
+	rows := []string{"■ You've hit your usage limit."}
 	for i := 0; i < 40; i++ {
 		rows = append(rows, "filler row that never goes blank")
 	}
@@ -70,12 +70,12 @@ func TestMatchNotice_BoundsTheCapture(t *testing.T) {
 }
 
 func TestMatchNotice_CaptureRunsToTheBottomOfTheScreen(t *testing.T) {
-	screen := "You've hit your usage limit.\nTry again later."
+	screen := "■ You've hit your usage limit.\nTry again later."
 
 	got, ok := termprompt.MatchNotice(noticing(), screen)
 
 	require.True(t, ok)
-	assert.Equal(t, "You've hit your usage limit. Try again later.", got.Text)
+	assert.Equal(t, "■ You've hit your usage limit. Try again later.", got.Text)
 }
 
 func TestMatchNotice_SurvivesANarrowPane(t *testing.T) {
@@ -97,7 +97,7 @@ func TestMatchNotice_EndsTurnIsCarriedNotAssumed(t *testing.T) {
 	informational := &spec.Descriptor{
 		ID: "codex",
 		TerminalNotices: []spec.TerminalNoticeSpec{
-			{Kind: spec.TerminalNoticeUsageLimit, Needle: "You've hit your usage limit"},
+			{Kind: spec.TerminalNoticeUsageLimit, Anchor: "■", Needle: "You've hit your usage limit"},
 		},
 	}
 
@@ -111,8 +111,8 @@ func TestMatchNotice_FirstDeclaredMatchWins(t *testing.T) {
 	two := &spec.Descriptor{
 		ID: "codex",
 		TerminalNotices: []spec.TerminalNoticeSpec{
-			{Kind: spec.TerminalNoticeUsageLimit, Needle: "You've hit your usage limit", EndsTurn: true},
-			{Kind: spec.TerminalNoticeUsageLimit, Needle: "You've hit"},
+			{Kind: spec.TerminalNoticeUsageLimit, Anchor: "■", Needle: "You've hit your usage limit", EndsTurn: true},
+			{Kind: spec.TerminalNoticeUsageLimit, Anchor: "■", Needle: "You've hit"},
 		},
 	}
 
@@ -122,12 +122,15 @@ func TestMatchNotice_FirstDeclaredMatchWins(t *testing.T) {
 	assert.Equal(t, "You've hit your usage limit", got.Needle)
 }
 
-// Model output or a prompt echo quoting the banner is not the banner: only a
-// row the needle opens is.
-func TestMatchNotice_AQuoteInsideARowIsNotTheBanner(t *testing.T) {
+// Model output or a prompt echo quoting the banner is not the banner, even
+// opening with its sentence: only a row the declared anchor opens is.
+func TestMatchNotice_AQuoteOfTheBannerIsNotTheBanner(t *testing.T) {
 	for _, screen := range []string{
 		"• The docs say You've hit your usage limit when credits run out.",
 		"› why does codex print You've hit your usage limit?\n  ⏎ send",
+		"• You've hit your usage limit, so I stopped there.",
+		"› You've hit your usage limit — what now?\n  ⏎ send",
+		"You've hit your usage limit.",
 	} {
 		_, ok := termprompt.MatchNotice(noticing(), screen)
 
@@ -150,13 +153,18 @@ func TestMatchNotice_NilDescriptorAndEmptyScreenAreSafe(t *testing.T) {
 
 	_, ok = termprompt.MatchNotice(noticing(), "··· ─── ⏎")
 	assert.False(t, ok)
+
+	unanchored := noticing()
+	unanchored.TerminalNotices[0].Anchor = ""
+	_, ok = termprompt.MatchNotice(unanchored, codexUsageLimitScreen)
+	assert.False(t, ok, "a notice with no anchor matches nothing")
 }
 
 func TestMatchNotice_PunctuationOnlyNeedleIsIgnored(t *testing.T) {
 	junk := &spec.Descriptor{
 		ID: "codex",
 		TerminalNotices: []spec.TerminalNoticeSpec{
-			{Kind: spec.TerminalNoticeUsageLimit, Needle: "··· ⏎", EndsTurn: true},
+			{Kind: spec.TerminalNoticeUsageLimit, Anchor: "■", Needle: "··· ⏎", EndsTurn: true},
 		},
 	}
 

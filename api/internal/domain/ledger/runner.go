@@ -65,7 +65,7 @@ func (s *State) applyRunnerExited(r Row) {
 func Exit(st State, e RunnerExited, reason string) ([]Row, error) {
 	var rows []Row
 	if t, ok := st.RunningTurn(); ok && t.RunnerID == e.RunnerID {
-		ended, err := EndTurn(st, TurnStatusInterrupted, reason, 0, "")
+		ended, err := EndTurn(st, TurnStatusInterrupted, reason)
 		if err != nil {
 			return nil, err
 		}

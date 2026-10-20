@@ -143,13 +143,13 @@ func TestEndTurnOf_AnEndThatClosesNothingIsALateRow(t *testing.T) {
 		started(t, "r1"),
 		row(t, ledger.KindTurnStarted, "T1", ledger.TurnStarted{RunnerID: "r1", ProviderTurnID: "p1"}),
 	))
-	r, closes, err := ledger.EndTurnOf(running, "r1", "p1", ledger.TurnEnded{Status: "done", AsyncWork: 1})
+	r, closes, err := ledger.EndTurnOf(running, "r1", "p1", ledger.TurnEnded{Status: "done", AsyncWork: new(1)})
 	require.NoError(t, err)
 	assert.True(t, closes)
 	assert.Equal(t, "T1", r.TurnID)
 	body, err := ledger.DecodeBody[ledger.TurnEnded](r)
 	require.NoError(t, err)
-	assert.Equal(t, ledger.TurnEnded{Status: "done", RunnerID: "r1", AsyncWork: 1}, body)
+	assert.Equal(t, ledger.TurnEnded{Status: "done", RunnerID: "r1", AsyncWork: new(1)}, body)
 
 	for name, by := range map[string][2]string{
 		"another runner's end":       {"r0", ""},
@@ -187,18 +187,18 @@ func TestEndTurnOf_AnEndThatClosesNothingIsALateRow(t *testing.T) {
 	assert.Equal(t, "T1", r.TurnID)
 }
 
-// The background-work clause reads the live runner's last end, late or not:
-// a late restatement clears it, and a dead runner's late end changes nothing.
+// The background-work clause reads the live runner's last restatement, late or
+// not: a late one clears it, and another runner's late end changes nothing.
 func TestFold_ALateEndRestatesTheLiveRunnersBackgroundWork(t *testing.T) {
 	st := ledger.Fold("c1", sequenced(t,
 		started(t, "r1"),
 		turnStarted(t, "T1", "r1"),
-		turnEnded(t, "T1", ledger.TurnEnded{Status: "done", RunnerID: "r1", AsyncWork: 2}),
+		turnEnded(t, "T1", ledger.TurnEnded{Status: "done", RunnerID: "r1", AsyncWork: new(2)}),
 	))
 	require.True(t, st.Busy())
 
 	apply := func(runnerID string, seq int64) {
-		r, closes, err := ledger.EndTurnOf(st, runnerID, "", ledger.TurnEnded{Status: "done"})
+		r, closes, err := ledger.EndTurnOf(st, runnerID, "", ledger.TurnEnded{Status: "done", AsyncWork: new(0)})
 		require.NoError(t, err)
 		require.False(t, closes)
 		r.Seq = seq
@@ -212,11 +212,42 @@ func TestFold_ALateEndRestatesTheLiveRunnersBackgroundWork(t *testing.T) {
 	assert.False(t, running)
 }
 
+// A failed turn restates no background work, so a usage limit never leaves
+// the chat refusing prompts on work an earlier turn left.
+func TestFold_AFailedTurnRestatesNoBackgroundWork(t *testing.T) {
+	st := ledger.Fold("c1", sequenced(t,
+		started(t, "r1"),
+		turnStarted(t, "T1", "r1"),
+		turnEnded(t, "T1", ledger.TurnEnded{Status: "done", RunnerID: "r1", AsyncWork: new(1)}),
+		turnStarted(t, "T2", "r1"),
+		row(t, ledger.KindTurnFailed, "T2", ledger.TurnFailed{Reason: "usage_limit"}),
+	))
+
+	assert.False(t, st.Busy())
+}
+
+// A Stop ends its runner's claim to background work: the runner is being
+// retired, so its late end restating some keeps nothing busy.
+func TestFold_AStoppedRunnersLateEndRestatesNothing(t *testing.T) {
+	st := ledger.Fold("c1", sequenced(t, started(t, "r1"), turnStarted(t, "T1", "r1")))
+	stop, err := ledger.Stop(st)
+	require.NoError(t, err)
+	late, closes, err := ledger.EndTurnOf(st, "r1", "", ledger.TurnEnded{Status: "done", AsyncWork: new(1)})
+	require.NoError(t, err)
+	require.True(t, closes, "precondition: it is about the turn the Stop closed")
+	for i, r := range append(stop, late) {
+		r.Seq = int64(3 + i)
+		st.Apply(r)
+	}
+
+	assert.False(t, st.Busy())
+}
+
 func TestFold_AsyncWorkKeepsTheChatBusyOnlyWhileARunnerLives(t *testing.T) {
 	st := ledger.Fold("c1", sequenced(t,
 		started(t, "r1"),
 		turnStarted(t, "T1", "r1"),
-		turnEnded(t, "T1", ledger.TurnEnded{Status: "done", RunnerID: "r1", AsyncWork: 1}),
+		turnEnded(t, "T1", ledger.TurnEnded{Status: "done", RunnerID: "r1", AsyncWork: new(1)}),
 	))
 	_, running := st.RunningTurn()
 	assert.False(t, running)
@@ -235,21 +266,19 @@ func TestFold_AsyncWorkKeepsTheChatBusyOnlyWhileARunnerLives(t *testing.T) {
 
 func TestEndTurn_ClosesOnlyARunningTurn(t *testing.T) {
 	idle := ledger.Fold("c1", nil)
-	rows, err := ledger.EndTurn(idle, ledger.TurnStatusDone, ledger.ReasonProviderIdle, 0, "")
+	rows, err := ledger.EndTurn(idle, ledger.TurnStatusDone, ledger.ReasonProviderIdle)
 	require.NoError(t, err)
 	assert.Empty(t, rows)
 
 	st := ledger.Fold("c1", sequenced(t, turnStarted(t, "T1", "run-1")))
-	rows, err = ledger.EndTurn(st, ledger.TurnStatusInterrupted, ledger.ReasonStopped, 3, "high")
+	rows, err = ledger.EndTurn(st, ledger.TurnStatusInterrupted, ledger.ReasonStopped)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, ledger.KindTurnEnded, rows[0].Kind)
 	assert.Equal(t, "T1", rows[0].TurnID)
 	body, err := ledger.DecodeBody[ledger.TurnEnded](rows[0])
 	require.NoError(t, err)
-	assert.Equal(t, ledger.TurnEnded{
-		Status: "interrupted", Reason: "stopped", RunnerID: "run-1", AsyncWork: 3, Effort: "high",
-	}, body)
+	assert.Equal(t, ledger.TurnEnded{Status: "interrupted", Reason: "stopped", RunnerID: "run-1"}, body)
 
 	r, closes, err := ledger.FailTurnOf(st, "run-1", "", ledger.TurnFailed{Reason: "usage_limit", Detail: "limit reached"})
 	require.NoError(t, err)

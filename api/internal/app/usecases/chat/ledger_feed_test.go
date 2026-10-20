@@ -191,6 +191,29 @@ func appendWithin(t *testing.T, f testFixture, chatID string, rows ...ledger.Row
 	}
 }
 
+// The provider's idle after its turn_stop names the turn that stop closed: it
+// is written late and announces no second turn_stopped.
+func TestLedgerFeed_AnIdleAfterTheTurnStopAnnouncesNothing(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	hook := func(event string, payload map[string]any) {
+		t.Helper()
+		require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", event, mustJSON(t, payload)))
+		f.wait()
+	}
+	hook("user_prompt", map[string]any{"prompt": "one", "prompt_id": "A"})
+	hook("turn_stop", map[string]any{"last_assistant_message": "", "prompt_id": "A"})
+	written := len(ledgerRows(t, f, chatID))
+	f.bc.reset()
+
+	hook("idle", map[string]any{"message": "Claude is waiting for your input"})
+
+	assert.Empty(t, f.bcKinds(t))
+	rows := ledgerRows(t, f, chatID)
+	require.Len(t, rows, written+1, "the idle is written")
+	assert.Equal(t, ledger.KindTurnEnded, rows[written].Kind)
+}
+
 // A stop naming a turn that already ended is written late, and announces no
 // turn edge: a client clears the running turn's live stream on one.
 func TestLedgerFeed_ALateTurnStopAnnouncesNothing(t *testing.T) {

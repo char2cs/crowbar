@@ -1027,10 +1027,14 @@ terminal_prompts:
 # the runner-exit reconcile never fires and the turn stays open indefinitely
 # — `ends_turn: true` is the fix. Only the first line is declared; URLs and
 # reset time are account-specific and captured verbatim off the screen.
+# The anchor is that capture's leading glyph on the raw row ("■ You've hit
+# your usage limit. Upgrade to Pro (…), visit"): a reply or a prompt echo
+# opening with the sentence carries a "•" or "›" there instead.
 #
 # NO idle needle: codex's composer placeholder rotates between sessions and
 # its busy indicator was never measured.
 terminal_notices:
   - kind: usage_limit
+    anchor: "■"
     needle: "You've hit your usage limit"
     ends_turn: true

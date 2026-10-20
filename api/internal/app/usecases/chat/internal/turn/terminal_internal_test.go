@@ -61,7 +61,7 @@ func TestFailTurnOnNotice_AnEndWhileItWaitsLeavesNothingToFail(t *testing.T) {
 
 		st, err := l.State(t.Context(), "chat-1")
 		require.NoError(t, err)
-		ended, err := ledger.EndTurn(st, ledger.TurnStatusDone, "", 0, "")
+		ended, err := ledger.EndTurn(st, ledger.TurnStatusDone, "")
 		require.NoError(t, err)
 		appendTurnRows(t, l, ended...)
 		release()

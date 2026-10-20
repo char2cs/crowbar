@@ -55,10 +55,9 @@ func (rs *Runners) quitRunner(ctx context.Context, runner agents.Runner, cause s
 	}
 }
 
-// retire marks runner ending for cause and ends its processes, without waiting
-// for its exit: a PTY's own exit callback records it, and a PTY-less runner is
-// recorded here, as its exit handler needs the gate the caller holds. The
-// channel closes once the exit is recorded; nil when runner was already gone.
+// retire marks runner ending and ends its processes without awaiting the exit:
+// a PTY's exit callback records it; a PTY-less runner's is recorded here, under
+// the caller's gate. The channel closes on that record; nil if runner was gone.
 func (rs *Runners) retire(ctx context.Context, runner agents.Runner, cause string) (<-chan struct{}, error) {
 	exited, ok := rs.markEnding(runner, cause)
 	if !ok {

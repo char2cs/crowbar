@@ -105,3 +105,25 @@ func TestAwaitDormant_WaitsOutAnExitingRunnerOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, live, "the chat is dormant once the exiting runner is gone")
 }
+
+// Once a runner's end is under way no turn opens on it, though its hooks still
+// resolve it: nothing would close that turn.
+func TestTurnRunner_AnEndingRunnerOpensNoTurn(t *testing.T) {
+	rs := &Runners{live: liveWith(t, engineagents.Runner{ID: "r1", CurrentChatID: "chat-1"})}
+	opened := 0
+	open := func(engineagents.Runner) error { opened++; return nil }
+	ok, err := rs.TurnRunner("r1", open)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, 1, opened, "precondition: a live runner opens its turn")
+
+	_, ending := rs.live.markExiting("r1", "stopped")
+	require.True(t, ending)
+	ok, err = rs.TurnRunner("r1", open)
+
+	require.NoError(t, err)
+	assert.False(t, ok)
+	assert.Equal(t, 1, opened, "open never runs on an ending runner")
+	_, resolves := rs.RunnerByID("r1")
+	assert.True(t, resolves, "its hooks still find it")
+}

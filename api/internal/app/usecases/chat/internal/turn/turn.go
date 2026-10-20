@@ -102,7 +102,7 @@ func (t *Turns) closeTurnFromStop(
 		_, _, err := t.ledger.Do(ctx, chat.ID, func(st ledger.State) ([]ledger.Row, error) {
 			steered = nil
 			ended, closes, err := ledger.EndTurnOf(st, runner.ID, ev.TurnID, ledger.TurnEnded{
-				Status: string(stopStatus(ev.TurnStatus)), AsyncWork: ev.AsyncWork, Effort: ev.Effort,
+				Status: string(stopStatus(ev.TurnStatus)), AsyncWork: &ev.AsyncWork, Effort: ev.Effort,
 			})
 			rows := []ledger.Row{ended}
 			p, ok := pendingSteer(st, runner.ID)
@@ -189,10 +189,9 @@ func failureNotice(ev engineagents.CanonicalEvent) string {
 	return ev.Failure.Reason
 }
 
-// recordIdle is the provider saying it is doing nothing: the turn runner was
-// running is over, and its steer undelivered; any other end is late. With no
-// turn running, a hooks CLI's report means the prompts it carried were never
-// taken; an api connection's says nothing more.
+// recordIdle is the provider saying it is idle: runner's running turn is over,
+// its steer undelivered, any other end late. With no turn, a hooks CLI's report
+// means the prompts it carried were never taken; an api connection's, nothing.
 func (t *Turns) recordIdle(ctx context.Context, chatID string, runner engineagents.Runner) {
 	api := inflight.FromAPITransport(ctx)
 	_, _, err := t.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {

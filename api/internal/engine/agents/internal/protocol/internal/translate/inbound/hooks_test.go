@@ -715,8 +715,8 @@ func TestParse_AskChannelSelectsItsOwnBlock(t *testing.T) {
 // is waiting for the human, and nothing at all when the same hook carries a
 // permission prompt. Two relay commands deliver it twice under two canonical
 // names, and the `when:` below is the only thing that can tell the two deliveries
-// apart. Without it the permission copy would arm the idle latch and
-// AbandonMessage would kill a live turn five seconds later.
+// apart. Without it the permission copy would read as an idle report and end
+// a live turn.
 
 // idleVariantDescriptor is the two-events-one-wire-hook shape: `idle` is gated
 // on a discriminator, `notification` takes every delivery of the same hook.

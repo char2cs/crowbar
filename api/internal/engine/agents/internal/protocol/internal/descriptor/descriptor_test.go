@@ -317,6 +317,7 @@ func TestResolve_ShippedCodexDeclaresItsMeasuredNotice(t *testing.T) {
 
 	require.Len(t, d.TerminalNotices, 1)
 	assert.Equal(t, spec.TerminalNoticeUsageLimit, d.TerminalNotices[0].Kind)
+	assert.Equal(t, "■", d.TerminalNotices[0].Anchor)
 	assert.Equal(t, "You've hit your usage limit", d.TerminalNotices[0].Needle)
 	assert.True(t, d.TerminalNotices[0].EndsTurn)
 }

@@ -11,10 +11,9 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// FailTurnOnNotice ends what a notice on runner's screen ends — a usage limit,
-// an outage — which no hook reports: the turn it runs fails, or with none
-// running, the prompts it carries settle unconsumed. It holds runner's hook
-// gate, so no hook ends that work between its check and its record.
+// FailTurnOnNotice ends what a notice on runner's screen ends, which no hook
+// reports: its running turn fails, or the prompts it carries settle unconsumed.
+// Runner's hook gate is held so no hook ends that work between check and record.
 func (t *Turns) FailTurnOnNotice(ctx context.Context, runner engineagents.Runner, notice engineagents.TerminalNotice) {
 	defer t.hookGates.Lock(runner.ID)()
 	chat, ok, err := t.chatForRunner(ctx, runner)

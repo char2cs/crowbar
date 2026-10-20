@@ -50,10 +50,12 @@ func (s TurnStatus) Next(to TurnStatus) (TurnStatus, bool) {
 // TurnEnded is the body of a turn_ended row: the turn is over, done or
 // interrupted, and Reason says what closed it when the provider did not.
 type TurnEnded struct {
-	Status    string `json:"status"` // "done" | "interrupted"
-	Reason    string `json:"reason,omitempty"`
-	RunnerID  string `json:"runnerId,omitempty"`  // whose end it is
-	AsyncWork int    `json:"asyncWork,omitempty"` // deleted in T9
+	Status   string `json:"status"` // "done" | "interrupted"
+	Reason   string `json:"reason,omitempty"`
+	RunnerID string `json:"runnerId,omitempty"` // whose end it is
+	// AsyncWork is the background work the provider's own turn end restated;
+	// nil on every other end, which says nothing of it. Deleted in T9.
+	AsyncWork *int   `json:"asyncWork,omitempty"`
 	Effort    string `json:"effort,omitempty"`
 }
 
@@ -77,16 +79,20 @@ func (t Turn) Names(providerTurnID string) bool {
 	return providerTurnID == "" || t.ProviderTurnID == "" || providerTurnID == t.ProviderTurnID
 }
 
-// turnState is the newest turn plus what its end still decides.
+// turnState is the newest turn plus what its end still decides, and the seqs
+// of the rows that started and closed it.
 type turnState struct {
 	Turn
 	provider, sessionID, persists string
+	startSeq, closeSeq            int64
 }
 
-// background is the background work a runner's last turn end restated.
+// background is the background work a runner last restated. A Stop ends the
+// runner's claim to any until it starts another turn.
 type background struct {
 	runnerID  string
 	asyncWork int
+	stopped   bool
 }
 
 // RunningTurn is the chat's main-scope turn while it runs.
@@ -103,7 +109,7 @@ func (s State) LastTurn() (Turn, bool) {
 }
 
 // Busy reports whether the chat is working: a main-scope turn runs, or the
-// live runner's last turn end, late or not, restated background work (T9
+// live runner's last restatement, late or not, left background work (T9
 // replaces that second clause with live subagents).
 func (s State) Busy() bool {
 	if _, ok := s.RunningTurn(); ok {
@@ -118,6 +124,13 @@ func (s State) startsTurn(r Row) bool {
 	return r.Scope != "" || !s.hasTurn || (s.turn.Status != TurnStatusRunning && s.turn.ID != r.TurnID)
 }
 
+// MovedTurn reports whether r started or closed the chat's newest turn; a
+// late row moved nothing.
+func (s State) MovedTurn(r Row) bool {
+	return s.hasTurn && r.Scope == "" && r.TurnID == s.turn.ID &&
+		(r.Seq == s.turn.startSeq || r.Seq == s.turn.closeSeq)
+}
+
 func (s *State) applyTurnStarted(r Row, body TurnStarted) {
 	if body.Persists != PersistsTurnEnd {
 		s.markTurned(body.Provider, body.SessionID)
@@ -130,20 +143,27 @@ func (s *State) applyTurnStarted(r Row, body TurnStarted) {
 			ID: r.TurnID, ProviderTurnID: body.ProviderTurnID, RunnerID: body.RunnerID,
 			RequestID: body.RequestID, Status: TurnStatusRunning, StartedAt: r.At,
 		},
-		provider: body.Provider, sessionID: body.SessionID, persists: body.Persists,
+		provider: body.Provider, sessionID: body.SessionID, persists: body.Persists, startSeq: r.Seq,
 	}
 	s.hasTurn = true
+	if s.bg.runnerID == body.RunnerID {
+		s.bg.stopped = false
+	}
 }
 
-// applyTurnEnded closes the running turn it names; any other close is late,
-// though the live runner's end restates its background work either way.
+// applyTurnEnded closes the running turn it names; any other close is late.
+// Either way a Stop ends its runner's claim to background work, and a
+// provider's own end restates it.
 func (s *State) applyTurnEnded(r Row) {
 	body, err := DecodeBody[TurnEnded](r)
 	if err != nil || r.Scope != "" {
 		return
 	}
-	if s.hasLive && body.RunnerID == s.live.RunnerID {
-		s.bg = background{runnerID: body.RunnerID, asyncWork: max(body.AsyncWork, 0)}
+	switch {
+	case body.Reason == ReasonStopped && s.hasLive && body.RunnerID == s.live.RunnerID:
+		s.bg = background{runnerID: body.RunnerID, stopped: true}
+	case body.AsyncWork != nil:
+		s.restate(body.RunnerID, *body.AsyncWork)
 	}
 	if !s.hasTurn || s.turn.ID != r.TurnID {
 		return
@@ -153,28 +173,40 @@ func (s *State) applyTurnEnded(r Row) {
 	if !ok || to == TurnStatusFailed {
 		return
 	}
-	s.turn.Status = next
+	s.turn.Status, s.turn.closeSeq = next, r.Seq
 	if next == TurnStatusDone && s.turn.persists == PersistsTurnEnd {
 		s.markTurned(s.turn.provider, s.turn.sessionID)
 	}
 }
 
+// applyTurnFailed fails the running turn it names. A failed turn restates no
+// background work, so a failure never leaves the chat refusing prompts on it.
 func (s *State) applyTurnFailed(r Row) {
 	if _, err := DecodeBody[TurnFailed](r); err != nil || r.Scope != "" || !s.hasTurn || s.turn.ID != r.TurnID {
 		return
 	}
-	s.turn.Status, _ = s.turn.Status.Next(TurnStatusFailed)
+	s.restate(s.turn.RunnerID, 0)
+	if next, ok := s.turn.Status.Next(TurnStatusFailed); ok {
+		s.turn.Status, s.turn.closeSeq = next, r.Seq
+	}
+}
+
+// restate records runnerID's background work, when it is the live runner and
+// no Stop ended its claim.
+func (s *State) restate(runnerID string, asyncWork int) {
+	if !s.hasLive || s.live.RunnerID != runnerID || (s.bg.stopped && s.bg.runnerID == runnerID) {
+		return
+	}
+	s.bg = background{runnerID: runnerID, asyncWork: max(asyncWork, 0)}
 }
 
 // EndTurn is the turn_ended row for the running turn; none when no turn runs.
-func EndTurn(st State, status TurnStatus, reason string, asyncWork int, effort string) ([]Row, error) {
+func EndTurn(st State, status TurnStatus, reason string) ([]Row, error) {
 	t, ok := st.RunningTurn()
 	if !ok {
 		return nil, nil
 	}
-	r, err := NewRow(KindTurnEnded, t.ID, "", TurnEnded{
-		Status: string(status), Reason: reason, RunnerID: t.RunnerID, AsyncWork: asyncWork, Effort: effort,
-	})
+	r, err := NewRow(KindTurnEnded, t.ID, "", TurnEnded{Status: string(status), Reason: reason, RunnerID: t.RunnerID})
 	return []Row{r}, err
 }
 
@@ -207,7 +239,7 @@ func (s State) turnOf(runnerID, providerTurnID string) (string, bool) {
 // Stop is a user's Stop as rows: the running turn interrupted, and every
 // pending prompt settled unconsumed, both for ReasonStopped.
 func Stop(st State) ([]Row, error) {
-	rows, err := EndTurn(st, TurnStatusInterrupted, ReasonStopped, 0, "")
+	rows, err := EndTurn(st, TurnStatusInterrupted, ReasonStopped)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +253,7 @@ func Stop(st State) ([]Row, error) {
 func Leave(st State, runnerID string) ([]Row, error) {
 	var rows []Row
 	if t, ok := st.RunningTurn(); ok && t.RunnerID == runnerID {
-		ended, err := EndTurn(st, TurnStatusInterrupted, MarkerSessionChanged, 0, "")
+		ended, err := EndTurn(st, TurnStatusInterrupted, MarkerSessionChanged)
 		if err != nil {
 			return nil, err
 		}

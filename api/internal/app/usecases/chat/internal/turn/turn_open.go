@@ -37,7 +37,7 @@ func (t *Turns) startTurn(ctx context.Context, h turnHold, decide func(ledger.St
 		if !startsOn(st, runnerID) {
 			return nil, nil
 		}
-		rows, err := ledger.EndTurn(st, ledger.TurnStatusDone, ledger.ReasonSuperseded, 0, "")
+		rows, err := ledger.EndTurn(st, ledger.TurnStatusDone, ledger.ReasonSuperseded)
 		if err != nil {
 			return nil, err
 		}

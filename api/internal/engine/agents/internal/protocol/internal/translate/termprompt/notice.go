@@ -2,7 +2,6 @@ package termprompt
 
 import (
 	"strings"
-	"unicode"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
@@ -10,70 +9,37 @@ import (
 
 const maxNoticeRows = 8
 
-// MatchNotice is the first notice d declares whose needle opens a row of
-// screen, never one quoted inside a row, with the provider's own sentence from
-// that row. Rows compare squeezed, so a needle a narrow pane wrapped matches.
+// MatchNotice is the first notice d declares whose anchor opens a raw row of
+// screen with its needle after it, and the provider's own sentence from that
+// row. Past the anchor, text compares squeezed, so a wrapped needle matches.
 func MatchNotice(d *spec.Descriptor, screen string) (models.TerminalNotice, bool) {
-	if d == nil || len(d.TerminalNotices) == 0 || screen == "" {
+	if d == nil || screen == "" {
 		return models.TerminalNotice{}, false
 	}
 	rows := strings.Split(screen, "\n")
-	haystack, rowOf := squeezeRows(rows)
-	if haystack == "" {
-		return models.TerminalNotice{}, false
-	}
-
 	for _, n := range d.TerminalNotices {
-		needle := squeeze(n.Needle)
-		if needle == "" {
-			continue
+		if text, ok := anchored(rows, n.Anchor, squeeze(n.Needle)); ok {
+			return models.TerminalNotice{Kind: n.Kind, Needle: n.Needle, Text: text, EndsTurn: n.EndsTurn}, true
 		}
-		at, ok := opensARow(haystack, rowOf, needle)
-		if !ok {
-			continue
-		}
-		return models.TerminalNotice{
-			Kind:     n.Kind,
-			Needle:   n.Needle,
-			Text:     capture(rows, rowOf[at]),
-			EndsTurn: n.EndsTurn,
-		}, true
 	}
 	return models.TerminalNotice{}, false
 }
 
-// opensARow is the offset in haystack where needle begins a row's text.
-func opensARow(haystack string, rowOf []int, needle string) (int, bool) {
-	for from := 0; from < len(haystack); {
-		i := strings.Index(haystack[from:], needle)
-		if i < 0 {
-			return 0, false
-		}
-		at := from + i
-		if at == 0 || rowOf[at-1] != rowOf[at] {
-			return at, true
-		}
-		from = at + 1
+// anchored is the text of the first row anchor opens whose needle follows it.
+func anchored(rows []string, anchor, needle string) (string, bool) {
+	if anchor == "" || needle == "" {
+		return "", false
 	}
-	return 0, false
-}
-
-func squeezeRows(rows []string) (string, []int) {
-	var b strings.Builder
-	rowOf := make([]int, 0, len(rows)*8)
 	for i, row := range rows {
-		for _, r := range row {
-			if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
-				continue
-			}
-			before := b.Len()
-			b.WriteRune(unicode.ToLower(r))
-			for n := b.Len() - before; n > 0; n-- {
-				rowOf = append(rowOf, i)
-			}
+		if !strings.HasPrefix(strings.TrimSpace(row), anchor) {
+			continue
+		}
+		text := capture(rows, i)
+		if strings.HasPrefix(squeeze(strings.TrimPrefix(text, anchor)), needle) {
+			return text, true
 		}
 	}
-	return b.String(), rowOf
+	return "", false
 }
 
 func capture(rows []string, start int) string {

@@ -70,6 +70,24 @@ func TestRecordIdle_LeavesAnotherRunnersTurnRunning(t *testing.T) {
 	assert.NotEqual(t, "T-runner-2", rows[0].TurnID)
 }
 
+// Idle says nothing of background work: the turn_stop before it restated it.
+func TestRecordIdle_NeverRestatesBackgroundWork(t *testing.T) {
+	l := newTurnLedger(t)
+	live, err := ledger.NewRow(ledger.KindRunnerStarted, "", "", ledger.RunnerStarted{RunnerID: "runner-1", Provider: "claude"})
+	require.NoError(t, err)
+	ended, err := ledger.NewRow(ledger.KindTurnEnded, "T-runner-1", "",
+		ledger.TurnEnded{Status: "done", RunnerID: "runner-1", AsyncWork: new(1)})
+	require.NoError(t, err)
+	appendTurnRows(t, l, live, turnRow(t, "runner-1"), ended)
+	turns := New(Deps{Ledger: l})
+
+	turns.recordIdle(t.Context(), "chat-1", engineagents.Runner{ID: "runner-1"})
+
+	st, err := l.State(t.Context(), "chat-1")
+	require.NoError(t, err)
+	assert.True(t, st.Busy(), "the background work the turn_stop restated still runs")
+}
+
 // A provider that says it is idle before any turn started never took the
 // prompt its CLI carries.
 func TestRecordIdle_SettlesTheCarriedPromptWhenNoTurnStarted(t *testing.T) {
