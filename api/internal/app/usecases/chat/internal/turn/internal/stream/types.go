@@ -13,7 +13,10 @@ import "time"
 // that grew in between leaves RecordedText ahead of what was persisted and the tail
 // is dropped as already-recorded.
 type Message struct {
-	ID           string
+	ID string
+	// Reply is the reply its turn closed on, when the message is that reply
+	// streamed late; zero when the message is its own.
+	Reply        Answer
 	RunnerID     string
 	TurnID       string
 	Text         string

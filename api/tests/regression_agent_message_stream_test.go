@@ -4,6 +4,7 @@ package tests
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -435,12 +436,18 @@ func TestRegression_AStreamedReplyIsNotRecordedTwice(t *testing.T) {
 
 // The bug of 2026-08-29: a turn_stop that beat its own final delta recorded the
 // reply twice, once from each hook. The late delta joins the reply its turn_stop
-// recorded, and the fuller text wins.
+// recorded, the fuller text wins, and it streams under the id it is recorded by:
+// the client drops a live bubble only once a row of that id confirms it.
 func TestRegression_AFinalDeltaAfterItsTurnStopJoinsTheReply(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
 	imported := importWritableWorkspace(t, h)
+	conn := h.dial(repoBase(imported) + "/chats/ws")
 	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
+	frame := func(kind string) func(map[string]any) bool {
+		return func(m map[string]any) bool { return m["chatId"] == chatID && m["kind"] == kind }
+	}
+	readUntil(t, conn, frame("created"))
 
 	post := func(event, payload string) {
 		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
@@ -449,10 +456,16 @@ func TestRegression_AFinalDeltaAfterItsTurnStopJoinsTheReply(t *testing.T) {
 	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
 	post("turn_stop", `{"session_id":"sess-1","last_assistant_message":"SAID"}`)
 	post("message_delta", delta("msg-one", 0, true, "SAID IN FULL"))
+	live, _ := readUntil(t, conn, frame("message_delta"))["message"].(map[string]any)
 	h.Quiesce()
 
-	assert.Equal(t, []string{"SAID IN FULL"},
-		assistantTexts(readRecordedMessages(t, h, imported, chatID)))
+	recorded := readRecordedMessages(t, h, imported, chatID)
+	assert.Equal(t, []string{"SAID IN FULL"}, assistantTexts(recorded))
+	for _, m := range recorded {
+		if m.Role == "assistant" {
+			assert.Equal(t, m.TurnID, fmt.Sprintf("msg-%v", live["id"]), "the live bubble's id is the recorded reply's")
+		}
+	}
 }
 
 func TestRegression_CrowbarDeclaresNoProviderTranscript(t *testing.T) {

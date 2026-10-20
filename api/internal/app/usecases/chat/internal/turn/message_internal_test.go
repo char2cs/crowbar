@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -251,8 +252,128 @@ func TestRegression_AReplyIsRecordedOnceWhicheverOfItsHooksLandsFirst(t *testing
 	}
 }
 
+// lateReply is a turn closed on reply by its hook, nothing streamed yet, and
+// the ids every later delta is shown under.
+func lateReply(t *testing.T, reply string) (*Turns, *recordingActivity, *[]string) {
+	t.Helper()
+	activity := &recordingActivity{}
+	turns := &Turns{ledger: newTurnLedger(t), messages: stream.New(), activity: activity, live: newLiveText()}
+	live := &[]string{}
+	turns.feed.MessageDelta = func(_, _, id, _, _ string, _ time.Time) { *live = append(*live, id) }
+	stop := engineagents.CanonicalEvent{Kind: "turn_stop", Message: reply}
+	require.NoError(t, turns.closeAssistantTurn(t.Context(), domain.Chat{ID: "c"}, lateRunner, stop))
+	return turns, activity, live
+}
+
+var lateRunner = engineagents.Runner{ID: "runner-1", ProviderID: "claude"}
+
+// A late delta that joins its turn's reply is shown under that reply's id from
+// its first increment: the client drops a live bubble once a row of its id lands.
+func TestRecordMessageDelta_ALateDeltaThatJoinsItsReplyIsShownUnderItsID(t *testing.T) {
+	const reply = "the bicycle traces its origins to early 19th-century Europe"
+	turns, activity, live := lateReply(t, reply)
+	head := finalDelta("m1", reply[:11])
+	head.Delta.Final = false
+	tail := finalDelta("m1", reply[11:])
+	tail.Delta.Index = 1
+
+	require.NoError(t, turns.recordMessageDelta(t.Context(), domain.Chat{ID: "c"}, lateRunner, head))
+	require.NoError(t, turns.recordMessageDelta(t.Context(), domain.Chat{ID: "c"}, lateRunner, tail))
+
+	recorded := slices.Collect(maps.Keys(activity.texts()))
+	require.Len(t, recorded, 1, "one reply")
+	require.Len(t, *live, 2)
+	for _, id := range *live {
+		assert.Equal(t, recorded[0], assistantTurnID(id))
+	}
+}
+
+// A late delta joins its turn's reply only as that reply streamed late: a
+// subagent's message, or another text, is its own message under its own id.
+func TestRecordMessageDelta_ALateDeltaJoinsOnlyItsOwnReply(t *testing.T) {
+	const reply = "the bicycle traces its origins to early 19th-century Europe"
+	subagent := finalDelta("m1", reply)
+	subagent.Subagent = &engineagents.SubagentEvent{ID: "a1"}
+	for name, late := range map[string]engineagents.CanonicalEvent{
+		"a subagent's": subagent,
+		"another text": finalDelta("m1", "an answer to another prompt"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			turns, activity, live := lateReply(t, reply)
+
+			require.NoError(t, turns.recordMessageDelta(t.Context(), domain.Chat{ID: "c"}, lateRunner, late))
+
+			assert.Equal(t, []string{"m1"}, *live)
+			texts := activity.texts()
+			assert.Len(t, texts, 2, "the reply its turn closed on is left as it was")
+			assert.Equal(t, late.Delta.Text, texts[assistantTurnID("m1")])
+		})
+	}
+}
+
+// A late stream whose head read as the reply but whose words turn out another's
+// is its own message: a join never crosses messages.
+func TestRecordMessageDelta_ALateStreamThatTurnsOutAnotherMessageIsItsOwn(t *testing.T) {
+	const reply = "the bicycle traces its origins to early 19th-century Europe"
+	turns, activity, _ := lateReply(t, reply)
+	head := finalDelta("m1", "the ")
+	head.Delta.Final = false
+	tail := finalDelta("m1", "cat sat on the mat")
+	tail.Delta.Index = 1
+
+	require.NoError(t, turns.recordMessageDelta(t.Context(), domain.Chat{ID: "c"}, lateRunner, head))
+	require.NoError(t, turns.recordMessageDelta(t.Context(), domain.Chat{ID: "c"}, lateRunner, tail))
+
+	assert.Equal(t, []string{reply, "the cat sat on the mat"}, activity.replies())
+}
+
+// A late stream no final delta finished is recorded, when its runner ends or its
+// next turn closes, as the reply it was shown as: never a second copy of it.
+func TestRecordMessageDelta_AnUnfinishedLateStreamJoinsItsReply(t *testing.T) {
+	const reply = "the bicycle traces its origins to early 19th-century Europe"
+	head := finalDelta("m1", "the bicycle traces its")
+	head.Delta.Final = false
+	for name, tc := range map[string]struct {
+		end  func(*Turns) error
+		want []string
+	}{
+		"its runner ends": {func(turns *Turns) error {
+			_, err := turns.AbandonMessageForRunner(t.Context(), "c", lateRunner)
+			return err
+		}, []string{reply}},
+		"its next turn closes": {func(turns *Turns) error {
+			next := engineagents.CanonicalEvent{Kind: "turn_stop", Message: "the next reply"}
+			return turns.closeAssistantTurn(t.Context(), domain.Chat{ID: "c"}, lateRunner, next)
+		}, []string{reply, "the next reply"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			turns, activity, _ := lateReply(t, reply)
+			turns.chats = raceChats{}
+			require.NoError(t, turns.recordMessageDelta(t.Context(), domain.Chat{ID: "c"}, lateRunner, head))
+
+			require.NoError(t, tc.end(turns))
+
+			assert.Equal(t, tc.want, activity.replies())
+		})
+	}
+}
+
+// The reply a runner's turn closed on lives as long as the runner: its end
+// drops it, so nothing is kept for a runner that is gone.
+func TestAbandonMessageForRunner_DropsTheReplyItsLastTurnClosedOn(t *testing.T) {
+	turns, _, _ := lateReply(t, "a reply only its hook carried")
+	_, held := turns.messages.Answer("c", lateRunner.ID)
+	require.True(t, held, "precondition: the hook-only reply is held for a late delta")
+
+	_, err := turns.AbandonMessageForRunner(t.Context(), "c", lateRunner)
+
+	require.NoError(t, err)
+	_, held = turns.messages.Answer("c", lateRunner.ID)
+	assert.False(t, held)
+}
+
 // A reply's late final delta joins its turn only: once the chat has moved to
-// another turn, it is recorded as its own message.
+// another turn, even the same words are its own message.
 func TestRecordMessageDelta_ADeltaAfterTheNextTurnStartedIsItsOwnMessage(t *testing.T) {
 	activity := &recordingActivity{}
 	ledgerStore := newTurnLedger(t)
@@ -260,14 +381,14 @@ func TestRecordMessageDelta_ADeltaAfterTheNextTurnStartedIsItsOwnMessage(t *test
 	chat := domain.Chat{ID: "chat-1"}
 	runner := engineagents.Runner{ID: "runner-1", ProviderID: "claude"}
 	appendTurnRows(t, ledgerStore, turnRow(t, "runner-1"))
-	require.NoError(t, turns.closeAssistantTurn(t.Context(), chat, runner, engineagents.CanonicalEvent{Kind: "turn_stop", Message: "FIRST"}))
+	require.NoError(t, turns.closeAssistantTurn(t.Context(), chat, runner, engineagents.CanonicalEvent{Kind: "turn_stop", Message: "SAID"}))
 	ended, err := ledger.NewRow(ledger.KindTurnEnded, "T-runner-1", "", ledger.TurnEnded{Status: "done", RunnerID: "runner-1"})
 	require.NoError(t, err)
 	appendTurnRows(t, ledgerStore, ended, turnRow(t, "runner-2"))
 
-	require.NoError(t, turns.recordMessageDelta(t.Context(), chat, runner, finalDelta("m2", "SECOND")))
+	require.NoError(t, turns.recordMessageDelta(t.Context(), chat, runner, finalDelta("m2", "SAID AGAIN")))
 
-	assert.Equal(t, []string{"FIRST", "SECOND"}, activity.replies())
+	assert.Equal(t, []string{"SAID", "SAID AGAIN"}, activity.replies())
 }
 
 func TestLiveTextReplaceOverwritesThePreviousCompleteDocument(t *testing.T) {

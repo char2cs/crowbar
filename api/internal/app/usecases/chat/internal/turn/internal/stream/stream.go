@@ -17,7 +17,8 @@ import (
 const MaxOpenPerChat = 64
 
 type buffer struct {
-	ID string
+	ID    string
+	reply Answer
 
 	// RunnerID is fixed at creation — the runner whose deltas started this
 	// message. Never re-derived from "whichever runner is calling right
@@ -73,6 +74,7 @@ func (b *buffer) Complete() bool {
 func (b *buffer) snapshot() Message {
 	return Message{
 		ID:           b.ID,
+		Reply:        b.reply,
 		RunnerID:     b.RunnerID,
 		TurnID:       b.TurnID,
 		Text:         b.Text(),
@@ -85,16 +87,15 @@ func (b *buffer) snapshot() Message {
 }
 
 // Streams holds every assistant message still being assembled, per chat. It is
-// bounded: a chat keeps at most MaxOpenPerChat open messages and the oldest is
-// evicted, so a CLI that streams without ever terminating cannot grow it without
-// limit.
+// bounded: a chat keeps at most MaxOpenPerChat open messages, the oldest evicted,
+// and a reply a turn closed on is kept no longer than its runner lives.
 type Streams struct {
 	mu     sync.Mutex
 	byChat map[string]map[string]*buffer
 
 	order map[string][]string
 	// answers is, per chat and runner, the reply its last turn closed on while
-	// no message had streamed, until a message of that runner is recorded.
+	// no message had streamed, until a message of it is recorded or it ends.
 	answers map[string]map[string]Answer
 }
 
@@ -150,6 +151,17 @@ func (s *Streams) Observe(
 	}
 	buffer.LastAt = now
 	return buffer.snapshot(), true
+}
+
+// Continue opens messageID as the late stream of reply: it is shown under that
+// reply's id from its first increment. A message already open keeps its id.
+func (s *Streams) Continue(chatID, runnerID, turnID, messageID string, reply Answer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.byChat[chatID][messageID]; ok {
+		return
+	}
+	s.bufferLocked(chatID, runnerID, turnID, messageID).reply = reply
 }
 
 func (s *Streams) bufferLocked(
@@ -275,7 +287,7 @@ func (s *Streams) MarkRecorded(chatID, messageID, text string) {
 	defer s.mu.Unlock()
 	if buffer, ok := s.byChat[chatID][messageID]; ok {
 		buffer.recordedText = text
-		delete(s.answers[chatID], buffer.RunnerID)
+		s.dropAnswerLocked(chatID, buffer.RunnerID)
 	}
 }
 
@@ -307,7 +319,7 @@ func (s *Streams) Joined(chatID, messageID string) {
 	if !ok {
 		return
 	}
-	delete(s.answers[chatID], buffer.RunnerID)
+	s.dropAnswerLocked(chatID, buffer.RunnerID)
 	delete(s.byChat[chatID], messageID)
 	s.order[chatID] = slices.DeleteFunc(s.order[chatID], func(id string) bool { return id == messageID })
 }
@@ -320,6 +332,10 @@ func (s *Streams) Joined(chatID, messageID string) {
 func (s *Streams) Forget(chatID, runnerID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.forgetLocked(chatID, runnerID)
+}
+
+func (s *Streams) forgetLocked(chatID, runnerID string) {
 	messages := s.byChat[chatID]
 	ids := s.order[chatID]
 	kept := make([]string, 0, len(ids))
@@ -341,6 +357,22 @@ func (s *Streams) Forget(chatID, runnerID string) {
 		delete(s.order, chatID)
 	} else {
 		s.order[chatID] = kept
+	}
+}
+
+// Retire drops everything runnerID holds on chatID, its open messages and the
+// reply its last turn closed on: the runner has ended or left that session.
+func (s *Streams) Retire(chatID, runnerID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.forgetLocked(chatID, runnerID)
+	s.dropAnswerLocked(chatID, runnerID)
+}
+
+func (s *Streams) dropAnswerLocked(chatID, runnerID string) {
+	delete(s.answers[chatID], runnerID)
+	if len(s.answers[chatID]) == 0 {
+		delete(s.answers, chatID)
 	}
 }
 

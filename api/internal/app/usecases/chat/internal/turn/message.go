@@ -1,9 +1,11 @@
 package turn
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,6 +25,9 @@ func (t *Turns) recordMessageDelta(
 	if ev.Delta == nil {
 		return nil
 	}
+	if err := t.continueReply(ctx, chat.ID, runner.ID, ev); err != nil {
+		return err
+	}
 	message, ok := t.messages.Observe(
 		chat.ID, runner.ID, ev.Delta.TurnID, ev.Delta.MessageID,
 		ev.Delta.Index, ev.Delta.Sequenced, ev.Delta.Final, ev.Delta.Text, time.Now(),
@@ -34,21 +39,19 @@ func (t *Turns) recordMessageDelta(
 	if t.feed.MessageDelta != nil {
 		// The empty kind is the ANSWER — the stream that existed before there was
 		// more than one, and the only one that is ever recorded.
-		t.feed.MessageDelta(chat.ID, chat.WorkspaceID, message.ID, message.Text, "", message.FirstAt)
+		// A reply's late stream is shown under the reply's id, which its row confirms.
+		shown := cmp.Or(message.Reply.MessageID, message.ID)
+		t.feed.MessageDelta(chat.ID, chat.WorkspaceID, shown, message.Text, "", message.FirstAt)
 	}
 	// Hook processes race, so the closing increment can land before an earlier
 	// one: record once whole. The turn close records whatever is still partial.
 	if !message.Final || !message.Complete || message.Text == message.RecordedText {
 		return nil
 	}
-	answer, joins, err := t.answeredTurn(ctx, chat.ID, runner.ID, ev.Delta.TurnID)
-	if err != nil {
-		return err
+	if sameReply(message.Reply, message.Text) {
+		return t.joinAnswer(ctx, chat, runner, message.Reply, message)
 	}
-	if joins {
-		return t.joinAnswer(ctx, chat, runner, answer, message)
-	}
-	err = t.recordAssistantMessage(ctx, chat, runner, message.ID, message.Text, "", true, "completed", "", message.FirstAt)
+	err := t.recordAssistantMessage(ctx, chat, runner, message.ID, message.Text, "", true, "completed", "", message.FirstAt)
 	if err != nil {
 		return err
 	}
@@ -56,20 +59,43 @@ func (t *Turns) recordMessageDelta(
 	return nil
 }
 
-// answeredTurn is the reply runnerID's turn closed on, when a final message of
-// that same turn lands after it: the chat has started no turn since, and the
-// message names no other.
-func (t *Turns) answeredTurn(ctx context.Context, chatID, runnerID, providerTurnID string) (stream.Answer, bool, error) {
+// continueReply decides, before the message is first shown, whether ev opens the
+// late stream of the reply its runner's turn closed on. Continue keeps the first
+// decision: a message already open is never re-decided.
+func (t *Turns) continueReply(ctx context.Context, chatID, runnerID string, ev engineagents.CanonicalEvent) error {
+	d := ev.Delta
 	answer, ok := t.messages.Answer(chatID, runnerID)
-	if !ok {
-		return stream.Answer{}, false, nil
+	if !ok || d.MessageID == "" || ev.Subagent != nil || !sameReply(answer, d.Text) {
+		return nil
 	}
 	st, err := t.ledger.State(ctx, chatID)
 	if err != nil {
-		return stream.Answer{}, false, fmt.Errorf("agent: record streamed message: read ledger: %w", err)
+		return fmt.Errorf("agent: record streamed message: read ledger: %w", err)
 	}
-	last, has := st.LastTurn()
-	return answer, has == answer.HasTurn && last.ID == answer.TurnID && last.Names(providerTurnID), nil
+	if last, has := st.LastTurn(); has == answer.HasTurn && last.ID == answer.TurnID && last.Names(d.TurnID) {
+		t.messages.Continue(chatID, runnerID, d.TurnID, d.MessageID, answer)
+	}
+	return nil
+}
+
+// sameReply is whether text, as far as it has come, reads as reply: one is a
+// prefix of the other. A late stream whose words turn out another's is its own.
+func sameReply(reply stream.Answer, text string) bool {
+	if reply.MessageID == "" {
+		return false
+	}
+	return strings.HasPrefix(reply.Text, text) || strings.HasPrefix(text, reply.Text)
+}
+
+// recordUnfinished records a message its own final delta did not finish, as
+// that delta would have: a reply's late stream joins the reply.
+func (t *Turns) recordUnfinished(
+	ctx context.Context, chat domain.Chat, runner engineagents.Runner, message stream.Message, status string,
+) error {
+	if sameReply(message.Reply, message.Text) {
+		return t.joinAnswer(ctx, chat, runner, message.Reply, message)
+	}
+	return t.recordAssistantMessage(ctx, chat, runner, message.ID, message.Text, "", false, status, "", message.FirstAt)
 }
 
 // joinAnswer records message as the reply its turn closed on, under that reply's
@@ -138,13 +164,17 @@ func (t *Turns) closeAssistantTurn(
 	// Runner-scoped: a DIFFERENT runner's still-open message (an interrupted
 	// turn, still gracefully finishing after a provider switch) must never
 	// be swept up and recorded under THIS runner's provider.
-	streamed := t.messages.Open(chat.ID, runner.ID)
+	open := t.messages.Open(chat.ID, runner.ID)
 	defer t.messages.Forget(chat.ID, runner.ID)
 	// The thinking and the tool output belonged to the turn that is now ending,
 	// and the answer has superseded them. Nothing durable is dropped here — a live
 	// stream is never recorded (see livetext.go).
 	defer t.live.forget(chat.ID)
 	diff := t.live.snapshot(chat.ID, DeltaKindDiff, ev.TurnID)
+	streamed, err := t.closeLateReplies(ctx, chat, runner, open)
+	if err != nil {
+		return err
+	}
 
 	var lastRecorded string
 	status := "completed"
@@ -211,6 +241,27 @@ func (t *Turns) closeAssistantTurn(
 	return nil
 }
 
+// closeLateReplies records the late streams of replies earlier closes recorded:
+// they belong to those turns, not this one. It returns the turn's own messages.
+func (t *Turns) closeLateReplies(
+	ctx context.Context, chat domain.Chat, runner engineagents.Runner, open []stream.Message,
+) ([]stream.Message, error) {
+	own := open[:0]
+	for _, message := range open {
+		if message.Reply.MessageID == "" {
+			own = append(own, message)
+			continue
+		}
+		if message.Text == "" || message.Text == message.RecordedText {
+			continue
+		}
+		if err := t.recordUnfinished(ctx, chat, runner, message, "completed"); err != nil {
+			return nil, fmt.Errorf("agent: ingest hook: close turn: %w", err)
+		}
+	}
+	return own, nil
+}
+
 // answerFromHook records the closing hook's own text as its turn's reply. The
 // turn's final message can land after its close: it joins this reply then.
 func (t *Turns) answerFromHook(ctx context.Context, chat domain.Chat, runner engineagents.Runner, answer stream.Answer) error {
@@ -239,6 +290,9 @@ func (t *Turns) AbandonMessageForRunner(
 	chatID string,
 	runner engineagents.Runner,
 ) (bool, error) {
+	// The runner is ending, or leaving its session: what it streamed or answered
+	// there is never this chat's to join again.
+	defer t.messages.Retire(chatID, runner.ID)
 	if len(t.messages.Unfinished(chatID, runner.ID)) == 0 {
 		return false, nil
 	}
@@ -265,7 +319,7 @@ func (t *Turns) salvageUnfinished(
 		if text == "" || text == message.RecordedText {
 			continue
 		}
-		if err := t.recordAssistantMessage(ctx, chat, runner, message.ID, text, "", false, "interrupted", "", message.FirstAt); err != nil {
+		if err := t.recordUnfinished(ctx, chat, runner, message, "interrupted"); err != nil {
 			return recorded, err
 		}
 		t.messages.MarkRecorded(chat.ID, message.ID, text)
