@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/inbound"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
@@ -62,7 +63,7 @@ func TestParse_PermissionCarriesTheWholePrompt(t *testing.T) {
 	// other test sharing permissionMap() does not care, so it stays out of the
 	// shared single-path map.
 	fields := fieldMap(permissionMap())
-	fields["suggestion_description"] = []string{"mode", "destination"}
+	fields["suggestion_description"] = mapping.Paths("mode", "destination")
 	d := descriptorWithFields(spec.HookPermission, fields)
 
 	ev, err := parse(d, spec.HookPermission, []byte(permissionPayload))
@@ -91,8 +92,8 @@ func TestParse_PermissionCarriesTheWholePrompt(t *testing.T) {
 
 func TestParse_PermissionNamesTheCallItIsAskedAbout(t *testing.T) {
 	fields := fieldMap(permissionMap())
-	fields["tool_target"] = []string{"tool_input.file_path", "tool_input.command"}
-	fields["mcp_server"] = []string{"mcp_server.name"}
+	fields["tool_target"] = mapping.Paths("tool_input.file_path", "tool_input.command")
+	fields["mcp_server"] = mapping.Paths("mcp_server.name")
 	d := descriptorWithFields(spec.HookPermission, fields)
 
 	bash, err := parse(d, spec.HookPermission, []byte(permissionPayload))
@@ -316,9 +317,9 @@ func TestParse_AnOversizedSchemaIsDroppedNotTruncated(t *testing.T) {
 
 func TestParse_ToolFailCarriesTheErrorAndDuration(t *testing.T) {
 	d := descriptorWithFields(spec.HookToolFail, spec.FieldMap{
-		"tool_id": {"tool_use_id"}, "tool_name": {"tool_name"},
-		"tool_result": {"tool_response", "error"}, "tool_error": {"error"},
-		"duration_ms": {"duration_ms"},
+		"tool_id": mapping.Paths("tool_use_id"), "tool_name": mapping.Paths("tool_name"),
+		"tool_result": mapping.Paths("tool_response", "error"), "tool_error": mapping.Paths("error"),
+		"duration_ms": mapping.Paths("duration_ms"),
 	})
 	raw := []byte(`{"tool_use_id":"t1","tool_name":"Bash","error":"exit status 1",
 	  "is_interrupt":false,"duration_ms":42}`)
@@ -336,8 +337,8 @@ func TestParse_ToolFailCarriesTheErrorAndDuration(t *testing.T) {
 
 func TestParse_ToolCarriesTitleServerToolAndExit(t *testing.T) {
 	d := descriptorWithFields(spec.HookToolPost, spec.FieldMap{
-		"tool_title": {"description"}, "mcp_server": {"server"}, "mcp_tool": {"tool"},
-		"exit_code": {"exit"}, "interrupted": {"cut"},
+		"tool_title": mapping.Paths("description"), "mcp_server": mapping.Paths("server"), "mcp_tool": mapping.Paths("tool"),
+		"exit_code": mapping.Paths("exit"), "interrupted": mapping.Paths("cut"),
 	})
 
 	ev, err := parse(d, spec.HookToolPost,
@@ -359,7 +360,7 @@ func TestParse_ToolCarriesTitleServerToolAndExit(t *testing.T) {
 
 func TestParse_ToolResultAlternationPrefersTheResponse(t *testing.T) {
 	d := descriptorWithFields(spec.HookToolFail, spec.FieldMap{
-		"tool_result": {"tool_response", "error"}, "tool_error": {"error"},
+		"tool_result": mapping.Paths("tool_response", "error"), "tool_error": mapping.Paths("error"),
 	})
 
 	ev, err := parse(d, spec.HookToolFail,

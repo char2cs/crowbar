@@ -3,6 +3,7 @@ package descriptor
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -63,7 +64,7 @@ func ParseV3(raw []byte) (*spec.Descriptor, error) {
 			// that happens to run first.
 			maps[name] = mergedChannelFields(e)
 		default:
-			maps[name] = e.Map
+			maps[name] = presence(e.Map)
 		}
 	}
 	if err := vocab.Validate(d.ID, maps); err != nil {
@@ -88,14 +89,20 @@ func ParseV3(raw []byte) (*spec.Descriptor, error) {
 func mergedChannelFields(e spec.EventSpec) map[string][]string {
 	out := map[string][]string{}
 	if e.API != nil {
-		for k, v := range e.API.Map {
-			out[k] = v
-		}
+		maps.Copy(out, presence(e.API.Map))
 	}
 	if e.Hooks != nil {
-		for k, v := range e.Hooks.Map {
-			out[k] = v
-		}
+		maps.Copy(out, presence(e.Hooks.Map))
+	}
+	return out
+}
+
+// presence reduces a field table to what the vocabulary check reads: which canonical
+// fields are mapped, and to how many alternatives.
+func presence(fields spec.FieldMap) map[string][]string {
+	out := make(map[string][]string, len(fields))
+	for k, v := range fields {
+		out[k] = make([]string, len(v))
 	}
 	return out
 }

@@ -20,7 +20,7 @@ events:
     map: { session_id: thread.id }
 `), &d))
 
-	assert.Equal(t, []string{"thread.id"}, d.Events["session_start"].Map["session_id"])
+	assert.Equal(t, mapping.Paths("thread.id"), d.Events["session_start"].Map["session_id"])
 }
 
 func TestEventSpec_MapAcceptsFirstPresent(t *testing.T) {
@@ -33,7 +33,7 @@ events:
       tool_name: { first_present: [item.tool, item.type] }
 `), &d))
 
-	assert.Equal(t, []string{"item.tool", "item.type"}, d.Events["tool_pre"].Map["tool_name"])
+	assert.Equal(t, mapping.Paths("item.tool", "item.type"), d.Events["tool_pre"].Map["tool_name"])
 }
 
 func TestEventSpec_WhenAcceptsAPlainValue(t *testing.T) {
@@ -248,4 +248,36 @@ events:
 
 	doc := map[string]any{"item": map[string]any{"type": "collabAgentToolCall", "tool": "wait"}}
 	assert.Equal(t, "collabAgentToolCall/wait", mapping.String(doc, d.Events["tool_pre"].Map["tool_kind"]))
+}
+
+func TestEventSpec_FirstPresentAcceptsATransformItem(t *testing.T) {
+	var d spec.Descriptor
+	require.NoError(t, yaml.Unmarshal([]byte(`
+events:
+  tool_pre:
+    in: PreToolUse
+    map:
+      tool_target: { first_present: [ { from: tool_input.command, pattern: '^edit (?P<v>\S+)' }, tool_input.command ] }
+`), &d))
+	paths := d.Events["tool_pre"].Map["tool_target"]
+	doc := func(command string) map[string]any {
+		return map[string]any{"tool_input": map[string]any{"command": command}}
+	}
+
+	assert.Equal(t, "a.go", mapping.String(doc("edit a.go now"), paths), "the transform wins when it matches")
+	assert.Equal(t, "ls -la", mapping.String(doc("ls -la"), paths), "else the next item answers")
+}
+
+func TestEventSpec_FirstPresentRejectsATransformItemWithoutGroupV(t *testing.T) {
+	var d spec.Descriptor
+	err := yaml.Unmarshal([]byte(`
+events:
+  tool_pre:
+    in: PreToolUse
+    map:
+      tool_target: { first_present: [ { from: tool_input.command, pattern: '^edit (.+)' }, tool_input.command ] }
+`), &d)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tool_target")
 }

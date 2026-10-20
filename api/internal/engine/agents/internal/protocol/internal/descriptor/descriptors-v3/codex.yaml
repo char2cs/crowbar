@@ -210,17 +210,20 @@ events:
         - item_started.mcpToolCall-schema.json
         - item_started.webSearch-schema.json
     # hooks.PreToolUse is wired unconditionally (config_injection below). Its tool_name
-    # for an MCP call is mcp__<server>__<tool> with no server field of its own.
+    # for an MCP call is mcp__<server>__<tool> with no server field of its own, and a patch's
+    # command is the whole patch, so its target is the first file path in it.
     hooks:
       in: PreToolUse
       map:
         session_id:  session_id
         tool_id:     tool_use_id
         tool_name:   tool_name
-        tool_target: { first_present: [tool_input.command, tool_input.file_path] }
+        tool_target: { first_present: [
+          { from: tool_input.command, pattern: '^\s*\*\*\* Begin Patch\n\*\*\* (?:Add|Update|Delete) File: (?P<v>[^\n]+)' },
+          tool_input.command, tool_input.file_path ] }
         tool_title:  tool_input.message
         mcp_tool:    { from: tool_name, pattern: '^mcp__.+?__(?P<v>.+)$' }
-      fixtures: [PreToolUse.json, PreToolUse.mcp.json, PreToolUse.spawnAgent.json]
+      fixtures: [PreToolUse.json, PreToolUse.mcp.json, PreToolUse.spawnAgent.json, PreToolUse.applyPatch.json]
 
   # tool_result was `item.content`, which exists on NO codex item — every tool
   # call completed with an empty result. The real output field differs per
@@ -319,6 +322,7 @@ events:
         tool_name:   { first_present: [item.tool, item.type] }
         tool_kind:   { first_present: ["item.commandActions[0].type", item.type] }
         tool_target: { first_present: ["item.commandActions[0].command", item.query, "item.changes[0].path", item.command] }
+        tool_title:  { first_present: [item.prompt] }
         mcp_server:  item.server
         mcp_tool:    item.tool
         exit_code:   item.exitCode
@@ -338,6 +342,7 @@ events:
       fixtures:
         - item_completed.commandExecutionFailed.json
         - item_completed.commandExecutionFailed-schema.json
+        - item_completed.collabAgentToolCallFailed-schema.json
         - item_completed.mcpToolCallFailed-schema.json
 
   # No index: this delta stream is already arrival-ordered.

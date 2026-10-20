@@ -147,10 +147,10 @@ func ownsConversation(d *spec.Descriptor, decoded map[string]any) (string, bool)
 		// field at all (a genuine api-transport delivery of a dual-shape
 		// event) is not evidence of anything and must not be rejected — see
 		// Parse's own doc on why this replaced a transport-wide skip.
-		if !mapping.Present(decoded, []string{field}) {
+		if !mapping.Present(decoded, mapping.Paths(field)) {
 			continue
 		}
-		if mapping.String(decoded, []string{field}) == "" {
+		if mapping.String(decoded, mapping.Paths(field)) == "" {
 			return field, false
 		}
 	}
@@ -253,14 +253,14 @@ func buildPlan(steps *spec.StepsSpec, decoded map[string]any) []models.PlanStep 
 	if steps == nil || steps.Items == "" {
 		return nil
 	}
-	rows := mapping.Objects(decoded, []string{steps.Items})
+	rows := mapping.Objects(decoded, mapping.Paths(steps.Items))
 	out := make([]models.PlanStep, 0, len(rows))
 	for _, row := range rows {
-		text := mapping.String(row, []string{steps.Text})
+		text := mapping.String(row, mapping.Paths(steps.Text))
 		if text == "" {
 			continue
 		}
-		status := mapping.String(row, []string{steps.Status})
+		status := mapping.String(row, mapping.Paths(steps.Status))
 		if mapped, ok := steps.StatusMap[status]; ok {
 			status = mapped
 		}
@@ -319,9 +319,9 @@ func buildDiffFiles(files *spec.DiffFilesSpec, decoded map[string]any) string {
 		return ""
 	}
 	var out strings.Builder
-	for _, row := range mapping.Objects(decoded, []string{files.Items}) {
-		path := strings.TrimLeft(mapping.String(row, []string{files.Path}), "/")
-		diff := mapping.String(row, []string{files.Diff})
+	for _, row := range mapping.Objects(decoded, mapping.Paths(files.Items)) {
+		path := strings.TrimLeft(mapping.String(row, mapping.Paths(files.Path)), "/")
+		diff := mapping.String(row, mapping.Paths(files.Diff))
 		if path == "" || diff == "" {
 			continue
 		}
@@ -344,10 +344,10 @@ func buildPatch(patch *spec.PatchSpec, decoded map[string]any) []models.PatchHun
 		return nil
 	}
 	var out []models.PatchHunk
-	for _, row := range mapping.Objects(decoded, []string{patch.Items}) {
-		oldStart, _ := mapping.Int(row, []string{patch.OldStart})
-		newStart, _ := mapping.Int(row, []string{patch.NewStart})
-		lines := mapping.Strings(row, []string{patch.Lines})
+	for _, row := range mapping.Objects(decoded, mapping.Paths(patch.Items)) {
+		oldStart, _ := mapping.Int(row, mapping.Paths(patch.OldStart))
+		newStart, _ := mapping.Int(row, mapping.Paths(patch.NewStart))
+		lines := mapping.Strings(row, mapping.Paths(patch.Lines))
 		if len(lines) == 0 {
 			continue
 		}
@@ -360,14 +360,14 @@ func buildLocations(specification *spec.LocationsSpec, decoded map[string]any) [
 	if specification == nil || specification.Items == "" || specification.Path == "" {
 		return nil
 	}
-	rows := mapping.Objects(decoded, []string{specification.Items})
+	rows := mapping.Objects(decoded, mapping.Paths(specification.Items))
 	out := make([]models.ToolLocation, 0, len(rows))
 	for _, row := range rows {
-		path := mapping.String(row, []string{specification.Path})
+		path := mapping.String(row, mapping.Paths(specification.Path))
 		if path == "" {
 			continue
 		}
-		line, _ := mapping.Int(row, []string{specification.Line})
+		line, _ := mapping.Int(row, mapping.Paths(specification.Line))
 		out = append(out, models.ToolLocation{Path: path, Line: line})
 	}
 	return out

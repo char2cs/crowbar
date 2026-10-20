@@ -3,6 +3,7 @@ package spec_test
 import (
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
@@ -18,7 +19,7 @@ func v3() *spec.Descriptor {
 			},
 		},
 		Events: map[string]spec.EventSpec{
-			"session_start": {In: spec.WireRef{"SessionStart"}, Map: spec.FieldMap{"session_id": {"session_id"}}},
+			"session_start": {In: spec.WireRef{"SessionStart"}, Map: spec.FieldMap{"session_id": mapping.Paths("session_id")}},
 			"permission": {
 				Ask: spec.WireRef{"PermissionRequest"}, TimeoutSeconds: 270, AnswersInto: "answers",
 				Reply: map[string]string{"allow": "{}"},
@@ -32,7 +33,7 @@ func v3() *spec.Descriptor {
 func TestEventFields_ReadsTheEventTable(t *testing.T) {
 	d := v3()
 	f, ok := d.EventFields("session_start")
-	if !ok || len(f["session_id"]) != 1 || f["session_id"][0] != "session_id" {
+	if !ok || f["session_id"].Literal() != "session_id" {
 		t.Errorf("EventFields = (%v,%v)", f, ok)
 	}
 	if _, ok := d.EventFields("never_declared"); ok {

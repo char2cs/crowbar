@@ -70,14 +70,13 @@ func (t *EventTable) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-// FieldMap is an event's map: block: canonical field name to its alternative source
-// paths, in declared order — first path PRESENT in the payload wins. A plain scalar
-// value is a one-path list; `{first_present: [a, b, c]}` spells more than one;
-// `{from: p, pattern: re}` and `{join: [a, b]}` are one computed branch (see mapping).
-type FieldMap map[string][]string
+// FieldMap is an event's map: block: canonical field name to its alternative branches, the
+// first one PRESENT in the payload winning. A branch is a path or a transform
+// (`{from: p, pattern: re}`, `{join: [a, b]}`); `{first_present: [...]}` lists several.
+type FieldMap map[string]mapping.Expr
 
 func (m *FieldMap) UnmarshalYAML(node *yaml.Node) error {
-	decoded, err := decodeExprMap(node, firstPresentOperator)
+	decoded, err := decodeTable(node, decodeBranches)
 	if err != nil {
 		return fmt.Errorf("spec: map: %w", err)
 	}
@@ -91,7 +90,7 @@ func (m *FieldMap) UnmarshalYAML(node *yaml.Node) error {
 type WhenMap map[string][]string
 
 func (m *WhenMap) UnmarshalYAML(node *yaml.Node) error {
-	decoded, err := decodeExprMap(node, anyOfOperator)
+	decoded, err := decodeTable(node, decodeValues)
 	if err != nil {
 		return fmt.Errorf("spec: when: %w", err)
 	}
@@ -99,14 +98,15 @@ func (m *WhenMap) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-func decodeExprMap(node *yaml.Node, operator string) (map[string][]string, error) {
+// decodeTable decodes a mapping of field name to expression; a bad field's error names it.
+func decodeTable[V any](node *yaml.Node, decode func(*yaml.Node, string) (V, error)) (map[string]V, error) {
 	if node.Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("want a mapping, got %v", node.Kind)
 	}
-	out := make(map[string][]string, len(node.Content)/2)
+	out := make(map[string]V, len(node.Content)/2)
 	for i := 0; i+1 < len(node.Content); i += 2 {
 		key := node.Content[i].Value
-		paths, err := decodeExpr(node.Content[i+1], operator, key)
+		v, err := decode(node.Content[i+1], key)
 		if err != nil {
 			var glyph *AlternationGlyphError
 			if errors.As(err, &glyph) {
@@ -114,54 +114,108 @@ func decodeExprMap(node *yaml.Node, operator string) (map[string][]string, error
 			}
 			return nil, fmt.Errorf("%q: %w", key, err)
 		}
-		out[key] = paths
+		out[key] = v
 	}
 	return out, nil
 }
 
-// decodeExpr accepts a plain path/value scalar or the one operator mapping this
-// block admits. Anything else — a sequence, a document, the wrong operator name —
-// is a descriptor bug and fails the load rather than silently mapping to nothing. A
-// scalar spelling `||` is not "anything else" — that would silently map to a path
-// that never resolves — so it gets its own named error.
-func decodeExpr(node *yaml.Node, operator, field string) ([]string, error) {
+// decodeValues accepts a plain value scalar or the one any_of mapping. Anything else is
+// a descriptor bug and fails the load; a scalar spelling `||` gets its own named error
+// because it would otherwise silently map to a value that never matches.
+func decodeValues(node *yaml.Node, field string) ([]string, error) {
 	switch node.Kind { //nolint:exhaustive // default rejects every other node kind with the same error.
 	case yaml.ScalarNode:
-		var s string
-		if err := node.Decode(&s); err != nil {
+		s, err := decodeScalar(node, field)
+		return []string{s}, err
+	case yaml.MappingNode:
+		list, err := operatorList(node, anyOfOperator)
+		if err != nil {
 			return nil, err
 		}
-		if strings.Contains(s, "||") {
-			return nil, &AlternationGlyphError{Field: field, Value: s}
+		var values []string
+		if err := list.Decode(&values); err != nil {
+			return nil, fmt.Errorf("%s: value must be a list of paths: %w", anyOfOperator, err)
 		}
-		return []string{s}, nil
-	case yaml.MappingNode:
-		return decodeOperator(node, operator, field)
+		if len(values) == 0 {
+			return nil, fmt.Errorf("%s: must name at least one path", anyOfOperator)
+		}
+		return values, rejectGlyph(values, field)
 	default:
-		return nil, fmt.Errorf("want a string or {%s: [...]}, got %v", operator, node.Kind)
+		return nil, fmt.Errorf("want a string or {%s: [...]}, got %v", anyOfOperator, node.Kind)
 	}
 }
 
-func decodeOperator(node *yaml.Node, operator, field string) ([]string, error) {
-	if operator == firstPresentOperator {
+// decodeBranches accepts a plain path, one transform, or the first_present list of either.
+func decodeBranches(node *yaml.Node, field string) (mapping.Expr, error) {
+	switch node.Kind { //nolint:exhaustive // default rejects every other node kind with the same error.
+	case yaml.ScalarNode:
+		branch, err := decodeBranch(node, field)
+		return mapping.Expr{branch}, err
+	case yaml.MappingNode:
 		if branch, ok, err := decodeTransform(node, field); ok {
-			return []string{branch}, err
+			return mapping.Expr{branch}, err
 		}
+		list, err := operatorList(node, firstPresentOperator)
+		if err != nil {
+			return nil, err
+		}
+		return decodeBranchList(list, field)
+	default:
+		return nil, fmt.Errorf("want a string or {%s: [...]}, got %v", firstPresentOperator, node.Kind)
 	}
+}
+
+func decodeBranchList(list *yaml.Node, field string) (mapping.Expr, error) {
+	if list.Kind != yaml.SequenceNode {
+		return nil, fmt.Errorf("%s: value must be a list of paths or transforms", firstPresentOperator)
+	}
+	if len(list.Content) == 0 {
+		return nil, fmt.Errorf("%s: must name at least one path", firstPresentOperator)
+	}
+	out := make(mapping.Expr, len(list.Content))
+	for i, item := range list.Content {
+		branch, err := decodeBranch(item, field)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = branch
+	}
+	return out, nil
+}
+
+// decodeBranch reads one alternative: a path scalar or a transform mapping.
+func decodeBranch(node *yaml.Node, field string) (mapping.Branch, error) {
+	if node.Kind == yaml.ScalarNode {
+		path, err := decodeScalar(node, field)
+		return mapping.Path(path), err
+	}
+	branch, ok, err := decodeTransform(node, field)
+	if !ok && err == nil {
+		err = errors.New("an alternative is a path, {from, pattern} or {join: [...]}")
+	}
+	return branch, err
+}
+
+func decodeScalar(node *yaml.Node, field string) (string, error) {
+	var s string
+	if err := node.Decode(&s); err != nil {
+		return "", err
+	}
+	if strings.Contains(s, "||") {
+		return "", &AlternationGlyphError{Field: field, Value: s}
+	}
+	return s, nil
+}
+
+// operatorList checks node is a mapping of exactly the one operator and returns its list.
+func operatorList(node *yaml.Node, operator string) (*yaml.Node, error) {
 	if len(node.Content) != 2 {
 		return nil, fmt.Errorf("an operator mapping needs exactly one key, got %d", len(node.Content)/2)
 	}
 	if key := node.Content[0].Value; key != operator {
 		return nil, fmt.Errorf("unknown operator %q, want %q", key, operator)
 	}
-	var paths []string
-	if err := node.Content[1].Decode(&paths); err != nil {
-		return nil, fmt.Errorf("%s: value must be a list of paths: %w", operator, err)
-	}
-	if len(paths) == 0 {
-		return nil, fmt.Errorf("%s: must name at least one path", operator)
-	}
-	return paths, rejectGlyph(paths, field)
+	return node.Content[1], nil
 }
 
 func rejectGlyph(paths []string, field string) error {
@@ -175,7 +229,7 @@ func rejectGlyph(paths []string, field string) error {
 
 // decodeTransform reads the two spellings that compute a value instead of naming a
 // path; ok is false for any other mapping.
-func decodeTransform(node *yaml.Node, field string) (branch string, ok bool, err error) {
+func decodeTransform(node *yaml.Node, field string) (branch mapping.Branch, ok bool, err error) {
 	keys := make(map[string]*yaml.Node, len(node.Content)/2)
 	for i := 0; i+1 < len(node.Content); i += 2 {
 		keys[node.Content[i].Value] = node.Content[i+1]
@@ -188,30 +242,30 @@ func decodeTransform(node *yaml.Node, field string) (branch string, ok bool, err
 		branch, err = decodeJoin(keys["join"], field)
 		return branch, true, err
 	}
-	return "", false, nil
+	return mapping.Branch{}, false, nil
 }
 
-func decodePattern(from, pattern *yaml.Node, field string) (string, error) {
+func decodePattern(from, pattern *yaml.Node, field string) (mapping.Branch, error) {
 	var path, re string
 	if err := from.Decode(&path); err != nil {
-		return "", fmt.Errorf("from: %w", err)
+		return mapping.Branch{}, fmt.Errorf("from: %w", err)
 	}
 	if err := pattern.Decode(&re); err != nil {
-		return "", fmt.Errorf("pattern: %w", err)
+		return mapping.Branch{}, fmt.Errorf("pattern: %w", err)
 	}
 	if err := rejectGlyph([]string{path}, field); err != nil {
-		return "", err
+		return mapping.Branch{}, err
 	}
 	return mapping.Pattern(path, re)
 }
 
-func decodeJoin(node *yaml.Node, field string) (string, error) {
+func decodeJoin(node *yaml.Node, field string) (mapping.Branch, error) {
 	var paths []string
 	if err := node.Decode(&paths); err != nil {
-		return "", fmt.Errorf("join: value must be a list of paths: %w", err)
+		return mapping.Branch{}, fmt.Errorf("join: value must be a list of paths: %w", err)
 	}
 	if len(paths) == 0 {
-		return "", errors.New("join: must name at least one path")
+		return mapping.Branch{}, errors.New("join: must name at least one path")
 	}
 	return mapping.Join(paths...), rejectGlyph(paths, field)
 }

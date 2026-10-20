@@ -151,9 +151,9 @@ func TestResolve_ChannelScopedEventUsesItsOwnAPIBlock(t *testing.T) {
 			API: &spec.ChannelBlock{
 				In:   spec.WireRef{"item/started"},
 				When: spec.WhenMap{"item.type": {"commandExecution", "fileChange"}},
-				Map:  spec.FieldMap{"tool_id": {"item.id"}},
+				Map:  spec.FieldMap{"tool_id": mapping.Paths("item.id")},
 			},
-			Hooks: &spec.ChannelBlock{In: spec.WireRef{"PreToolUse"}, Map: spec.FieldMap{"tool_id": {"tool_use_id"}}},
+			Hooks: &spec.ChannelBlock{In: spec.WireRef{"PreToolUse"}, Map: spec.FieldMap{"tool_id": mapping.Paths("tool_use_id")}},
 		},
 	}}
 
@@ -184,8 +184,8 @@ func TestResolve_ChannelScopedEventUsesItsOwnAPIBlock(t *testing.T) {
 func TestResolve_AskChannelScopedEventUsesItsOwnAPIBlock(t *testing.T) {
 	d := &spec.Descriptor{Events: map[string]spec.EventSpec{
 		"permission": {
-			API:   &spec.ChannelBlock{Ask: spec.WireRef{"approval/request"}, Map: spec.FieldMap{"tool_name": {"tool"}}},
-			Hooks: &spec.ChannelBlock{Ask: spec.WireRef{"PermissionRequest"}, Map: spec.FieldMap{"tool_name": {"tool_name"}}},
+			API:   &spec.ChannelBlock{Ask: spec.WireRef{"approval/request"}, Map: spec.FieldMap{"tool_name": mapping.Paths("tool")}},
+			Hooks: &spec.ChannelBlock{Ask: spec.WireRef{"PermissionRequest"}, Map: spec.FieldMap{"tool_name": mapping.Paths("tool_name")}},
 		},
 	}}
 

@@ -24,7 +24,7 @@ func doc() map[string]any {
 	}
 }
 
-func p(paths ...string) []string { return paths }
+func p(paths ...string) mapping.Expr { return mapping.Paths(paths...) }
 
 func TestString_WalksADottedPath(t *testing.T) {
 	if got := mapping.String(doc(), p("turn.lastAgentMessage")); got != "done" {
@@ -439,49 +439,5 @@ func TestString_DynamicKeySelectorComposesWithAlternation(t *testing.T) {
 		"item.agentsStates[missing].status", "item.agentsStates[receiverThreadIds[0]].message"))
 	if got != "done" {
 		t.Fatalf("got %q, want the fallback branch to resolve", got)
-	}
-}
-
-// --- transforms: pattern and join ---
-
-func TestString_PatternBranchFallsThroughWhenItDoesNotMatch(t *testing.T) {
-	branch, err := mapping.Pattern("name", `^mcp__.+?__(?P<v>.+)$`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	d := map[string]any{"name": "Bash", "other": "kept"}
-	if got := mapping.String(d, p(branch, "other")); got != "kept" {
-		t.Fatalf("got %q, want the next branch: a pattern that does not match is absent", got)
-	}
-}
-
-func TestKindMap_JoinKey(t *testing.T) {
-	kinds := map[string]string{
-		"commandExecution":               "execute",
-		"collabAgentToolCall":            "other",
-		"collabAgentToolCall/spawnAgent": "subagent",
-		"collabAgentToolCall/wait":       "meta",
-	}
-	key := func(item map[string]any) string {
-		return mapping.String(map[string]any{"item": item}, p(mapping.Join("item.type", "item.tool")))
-	}
-	if got := key(map[string]any{"type": "collabAgentToolCall", "tool": "wait"}); got != "collabAgentToolCall/wait" {
-		t.Fatalf("join = %q, want the values joined with /", got)
-	}
-	if got := key(map[string]any{"type": "commandExecution"}); got != "commandExecution" {
-		t.Fatalf("join = %q, want a missing part left out", got)
-	}
-	for key, want := range map[string]string{
-		"collabAgentToolCall/spawnAgent": "subagent",
-		"collabAgentToolCall/wait":       "meta",
-		"collabAgentToolCall/closeAgent": "other",
-		"commandExecution":               "execute",
-	} {
-		if got, ok := mapping.LookupKind(kinds, key); !ok || got != want {
-			t.Errorf("LookupKind(%q) = (%q,%v), want %q", key, got, ok, want)
-		}
-	}
-	if got, ok := mapping.LookupKind(kinds, "webSearch/x"); ok {
-		t.Fatalf("LookupKind of an unmapped key = %q, want none", got)
 	}
 }

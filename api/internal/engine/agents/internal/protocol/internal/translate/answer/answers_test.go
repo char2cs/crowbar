@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/answer"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
@@ -22,7 +23,7 @@ func answering() *spec.Descriptor {
 				Ask:            spec.WireRef{"PermissionRequest"},
 				TimeoutSeconds: 270,
 				AnswersInto:    "answers",
-				Map:            spec.FieldMap{"tool_name": {"tool_name"}, "tool_input": {"tool_input"}},
+				Map:            spec.FieldMap{"tool_name": mapping.Paths("tool_name"), "tool_input": mapping.Paths("tool_input")},
 				Reply: map[string]string{
 					"allow": `{"hookSpecificOutput":{"hookEventName":"PermissionRequest",` +
 						`"decision":{"behavior":"allow"}}}`,
@@ -243,7 +244,7 @@ func TestRegression_APayloadCannotSmuggleItsOwnPlaceholder(t *testing.T) {
 
 func TestRender_AnswerWithNoDeclaredToolInputPathCarriesOnlyThePicks(t *testing.T) {
 	d := answering()
-	setEventMap(d, "permission", spec.FieldMap{"tool_name": {"tool_name"}})
+	setEventMap(d, "permission", spec.FieldMap{"tool_name": mapping.Paths("tool_name")})
 	out, err := answer.Render(d, "permission", askUserQuestionPayload(),
 		models.AnswerDecision{Key: "answer", Answers: map[string]any{"q": "a"}})
 	require.NoError(t, err)

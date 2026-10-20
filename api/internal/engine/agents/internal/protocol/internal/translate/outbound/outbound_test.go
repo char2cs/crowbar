@@ -3,6 +3,7 @@ package outbound_test
 import (
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/outbound"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
@@ -17,7 +18,7 @@ func desc() *spec.Descriptor {
 				Out:  spec.WireRef{"turn/start"},
 				Send: map[string]string{"threadId": "{session_id}", "input": "{text}"},
 			},
-			"session_start": {In: spec.WireRef{"SessionStart"}, Map: spec.FieldMap{"session_id": {"session_id"}}},
+			"session_start": {In: spec.WireRef{"SessionStart"}, Map: spec.FieldMap{"session_id": mapping.Paths("session_id")}},
 		},
 	}
 }

@@ -36,8 +36,9 @@ capture exists; it is a genuine codex Stop hook payload all the same, from the
 CLI's own internal memory-consolidation session). Only the paths were already
 shortened, by that test file's own author.
 
-`PreToolUse.json`, `PreToolUse.mcp.json` and `PreToolUse.spawnAgent.json` are VERBATIM
-codex 0.158.0 captures (a shell command, an MCP call, a spawned agent). No recorded
+`PreToolUse.json`, `PreToolUse.mcp.json`, `PreToolUse.spawnAgent.json` and
+`PreToolUse.applyPatch.json` are VERBATIM codex 0.158.0 captures (a shell command, an MCP
+call, a spawned agent, a patch). No recorded
 hooks-transport payload exists for PostToolUse, PreCompact, or PostCompact — their own
 `hooks:` blocks in codex.yaml are UNVERIFIED against real traffic; their field
 names are carried over unchanged from the pre-channel-split `||` fallback
@@ -73,3 +74,6 @@ over-the-wire proof.
 `item_started.mcpToolCall.json` and `item_completed.mcpToolCall.json` are live app-server
 captures, paths mapped to `/ws`, thread and turn ids replaced by placeholders. The
 `-schema` twins stay until a live failed MCP call and a live web search are captured.
+
+`item_completed.collabAgentToolCallFailed-schema.json` is the live spawn completion with only
+`status` set to `failed` (a CollabAgentToolCallStatus value); no failed spawn was recorded.

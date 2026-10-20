@@ -156,10 +156,7 @@ func suggestionLabel(fields spec.FieldMap, suggestion map[string]any) string {
 // literal reads a FieldMap entry as the single literal value it declares,
 // never as a payload path — see suggestionLabel's own doc.
 func literal(fields spec.FieldMap, key string) string {
-	if v := fields[key]; len(v) > 0 {
-		return v[0]
-	}
-	return ""
+	return fields[key].Literal()
 }
 
 func elicitationChoice(
@@ -177,7 +174,7 @@ func elicitationChoice(
 	}
 }
 
-func boundedSchema(decoded map[string]any, paths []string) []byte {
+func boundedSchema(decoded map[string]any, paths mapping.Expr) []byte {
 	data := mapping.JSON(decoded, paths)
 	if len(data) > maxChoiceSchemaBytes {
 		return nil

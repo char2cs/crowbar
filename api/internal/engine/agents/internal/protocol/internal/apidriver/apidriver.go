@@ -466,7 +466,7 @@ func (drv *Driver) runSteps(ctx context.Context, steps []spec.CallStep, values m
 			return fmt.Errorf("apidriver: %s: %s: parse response: %w", drv.d.ID, step.Call, err)
 		}
 		for field, path := range step.Capture {
-			if v, ok := mapping.Scalar(decoded, []string{path}); ok {
+			if v, ok := mapping.Scalar(decoded, mapping.Paths(path)); ok {
 				values[field] = v
 				drv.mu.Lock()
 				drv.remembered[field] = v

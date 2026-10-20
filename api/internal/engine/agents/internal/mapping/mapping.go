@@ -1,8 +1,7 @@
 // Package mapping is the one path grammar a descriptor writes.
 //
-// A path is dot-separated. Every accessor takes a LIST of paths, an alternation: the
-// first branch resolving to a present, non-empty value wins. A single-path caller
-// passes a one-element list.
+// A path is dot-separated. Every accessor takes an Expr, an alternation of branches: the
+// first resolving to a present, non-empty value wins. A single-path caller passes one.
 //
 // Every accessor is total: a missing path yields the zero value, never a panic, because
 // a descriptor mapping a field a payload does not carry is the normal case.
@@ -10,102 +9,21 @@ package mapping
 
 import (
 	"encoding/json"
-	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// patternGroup names the capture group a pattern branch keeps.
-const patternGroup = "v"
-
-// A branch is a path read as is, or through one transform. Pattern and Join build the
-// transform spellings as one string, so they travel in the same []string as a path.
-const (
-	patternSep = "\x00"
-	joinSep    = "\x01"
-)
-
-// Pattern is the branch that keeps the (?P<v>...) group of pattern matched against the
-// string at from. A value that is no string, or that pattern does not match, is absent.
-func Pattern(from, pattern string) (string, error) {
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		return "", fmt.Errorf("pattern %q: %w", pattern, err)
-	}
-	if re.SubexpIndex(patternGroup) < 0 {
-		return "", fmt.Errorf("pattern %q: no (?P<%s>...) group", pattern, patternGroup)
-	}
-	return from + patternSep + pattern, nil
-}
-
-// Join is the branch whose value is the present values of paths joined with "/".
-func Join(paths ...string) string { return strings.Join(paths, joinSep) }
-
-// LookupKind finds key in kinds, else in each shorter key that drops its last "/part":
-// a composite key refines a plain one instead of replacing it.
-func LookupKind(kinds map[string]string, key string) (string, bool) {
-	for {
-		if kind, ok := kinds[key]; ok {
-			return kind, true
-		}
-		cut := strings.LastIndexByte(key, '/')
-		if cut < 0 {
-			return "", false
-		}
-		key = key[:cut]
-	}
-}
-
-func read(doc map[string]any, branch string) (any, bool) {
-	if from, pattern, found := strings.Cut(branch, patternSep); found {
-		v, ok := walk(doc, strings.TrimSpace(from))
-		return capture(v, ok, pattern)
-	}
-	if strings.Contains(branch, joinSep) {
-		return joined(doc, strings.Split(branch, joinSep))
-	}
-	return walk(doc, strings.TrimSpace(branch))
-}
-
-func capture(v any, ok bool, pattern string) (any, bool) {
-	text, isString := v.(string)
-	re, err := regexp.Compile(pattern)
-	if !ok || !isString || err != nil {
-		return nil, false
-	}
-	match := re.FindStringSubmatch(text)
-	if match == nil {
-		return nil, false
-	}
-	return match[re.SubexpIndex(patternGroup)], true
-}
-
-func joined(doc map[string]any, paths []string) (any, bool) {
-	parts := make([]string, 0, len(paths))
-	for _, path := range paths {
-		v, _ := walk(doc, strings.TrimSpace(path))
-		if text, ok := scalarOf(v); ok && text != "" {
-			parts = append(parts, text)
-		}
-	}
-	if len(parts) == 0 {
-		return nil, false
-	}
-	return strings.Join(parts, "/"), true
-}
-
 // resolve reads paths against doc. Only alternation skips empty values: the first
 // non-empty branch wins, else the first present one, so a lone path keeps "present but empty".
-func resolve(doc map[string]any, paths []string) (any, bool) {
+func resolve(doc map[string]any, paths Expr) (any, bool) {
 	if len(paths) == 1 {
-		return read(doc, paths[0])
+		return paths[0].read(doc)
 	}
 	var firstPresent any
 	var found bool
 	for _, branch := range paths {
-		v, ok := read(doc, branch)
+		v, ok := branch.read(doc)
 		if !ok {
 			continue
 		}
@@ -126,7 +44,7 @@ func resolve(doc map[string]any, paths []string) (any, bool) {
 //
 // A segment of the form `name[field=value]` SELECTS from a list: the first element
 // whose field equals value. Real provider payloads put the interesting value inside a
-// list (turn.items[type=agentMessage].text), and without selection those are
+// list (turn.items[type=message].text), and without selection those are
 // unmappable and the provider needs Go.
 func walk(doc map[string]any, path string) (any, bool) {
 	if path == "" {
@@ -276,12 +194,12 @@ func isEmpty(v any) bool {
 // carries the concept and it is empty" (a hooks payload naming no
 // conversation) — String and the other scalar accessors collapse both into
 // the same zero value, which is exactly the distinction that check needs.
-func Present(doc map[string]any, paths []string) bool {
+func Present(doc map[string]any, paths Expr) bool {
 	_, ok := resolve(doc, paths)
 	return ok
 }
 
-func String(doc map[string]any, paths []string) string {
+func String(doc map[string]any, paths Expr) string {
 	v, ok := resolve(doc, paths)
 	if !ok {
 		return ""
@@ -293,7 +211,7 @@ func String(doc map[string]any, paths []string) string {
 	return s
 }
 
-func Count(doc map[string]any, paths []string) int {
+func Count(doc map[string]any, paths Expr) int {
 	v, ok := resolve(doc, paths)
 	if !ok {
 		return 0
@@ -305,7 +223,7 @@ func Count(doc map[string]any, paths []string) int {
 	return len(arr)
 }
 
-func Int(doc map[string]any, paths []string) (int, bool) {
+func Int(doc map[string]any, paths Expr) (int, bool) {
 	f, ok := Float(doc, paths)
 	if !ok {
 		return 0, false
@@ -315,7 +233,7 @@ func Int(doc map[string]any, paths []string) (int, bool) {
 
 // Float accepts every numeric shape a decoded payload can carry. JSON numbers arrive
 // as float64, but a re-encoded or hand-built map can hold any of these.
-func Float(doc map[string]any, paths []string) (float64, bool) {
+func Float(doc map[string]any, paths Expr) (float64, bool) {
 	v, ok := resolve(doc, paths)
 	if !ok {
 		return 0, false
@@ -342,7 +260,7 @@ func Float(doc map[string]any, paths []string) (float64, bool) {
 
 // Bool reads a boolean leaf. isEmpty counts only nil and "" as empty, so a `false`
 // here is an answer and alternation does not skip past it.
-func Bool(doc map[string]any, paths []string) (bool, bool) {
+func Bool(doc map[string]any, paths Expr) (bool, bool) {
 	v, ok := resolve(doc, paths)
 	if !ok {
 		return false, false
@@ -351,7 +269,7 @@ func Bool(doc map[string]any, paths []string) (bool, bool) {
 	return b, isBool
 }
 
-func Time(doc map[string]any, paths []string) (time.Time, bool) {
+func Time(doc map[string]any, paths Expr) (time.Time, bool) {
 	raw := String(doc, paths)
 	if raw == "" {
 		return time.Time{}, false
@@ -364,7 +282,7 @@ func Time(doc map[string]any, paths []string) (time.Time, bool) {
 }
 
 // JSON returns a leaf as raw bytes: a string leaf verbatim, anything else marshalled.
-func JSON(doc map[string]any, paths []string) []byte {
+func JSON(doc map[string]any, paths Expr) []byte {
 	v, ok := resolve(doc, paths)
 	if !ok || v == nil {
 		return nil
@@ -382,7 +300,7 @@ func JSON(doc map[string]any, paths []string) []byte {
 	return data
 }
 
-func Objects(doc map[string]any, paths []string) []map[string]any {
+func Objects(doc map[string]any, paths Expr) []map[string]any {
 	v, ok := resolve(doc, paths)
 	if !ok {
 		return nil
@@ -401,7 +319,7 @@ func Objects(doc map[string]any, paths []string) []map[string]any {
 }
 
 // Strings reads an array of strings; non-string elements are skipped.
-func Strings(doc map[string]any, paths []string) []string {
+func Strings(doc map[string]any, paths Expr) []string {
 	v, ok := resolve(doc, paths)
 	if !ok {
 		return nil
@@ -419,7 +337,7 @@ func Strings(doc map[string]any, paths []string) []string {
 	return out
 }
 
-func Object(doc map[string]any, paths []string) map[string]any {
+func Object(doc map[string]any, paths Expr) map[string]any {
 	v, ok := resolve(doc, paths)
 	if !ok {
 		return nil
@@ -433,7 +351,7 @@ func Object(doc map[string]any, paths []string) map[string]any {
 
 // Scalar renders any scalar leaf as text, which is what a catalog row or a template
 // substitution needs.
-func Scalar(doc map[string]any, paths []string) (string, bool) {
+func Scalar(doc map[string]any, paths Expr) (string, bool) {
 	v, ok := resolve(doc, paths)
 	if !ok {
 		return "", false
@@ -474,7 +392,7 @@ func scalarOf(v any) (string, bool) {
 // apply to payloads that lack the discriminator.
 func Match(doc map[string]any, when map[string][]string) bool {
 	for path, want := range when {
-		got, ok := Scalar(doc, []string{path})
+		got, ok := Scalar(doc, Paths(path))
 		if !ok || !inSet(got, want) {
 			return false
 		}

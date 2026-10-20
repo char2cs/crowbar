@@ -157,7 +157,7 @@ func ParseProbe(d *spec.Descriptor, raw []byte, now time.Time) (models.Telemetry
 func wrapFields(m map[string]string) spec.FieldMap {
 	out := make(spec.FieldMap, len(m))
 	for k, v := range m {
-		out[k] = []string{v}
+		out[k] = mapping.Paths(v)
 	}
 	return out
 }
@@ -222,10 +222,10 @@ func mapRateLimits(windows []spec.TelemetryRateLimitMap, decoded map[string]any)
 	out := make([]models.RateLimitWindow, 0, len(windows))
 	for _, w := range windows {
 		window := models.RateLimitWindow{ID: w.ID, Label: w.Label}
-		if pct, ok := mapping.Float(decoded, []string{w.UsedPercent}); ok {
+		if pct, ok := mapping.Float(decoded, mapping.Paths(w.UsedPercent)); ok {
 			window.UsedPercent = &pct
 		}
-		if at, ok := mapping.Time(decoded, []string{w.ResetsAt}); ok {
+		if at, ok := mapping.Time(decoded, mapping.Paths(w.ResetsAt)); ok {
 			window.ResetsAt = &at
 		}
 

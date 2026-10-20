@@ -106,9 +106,13 @@ distinguishes it from a human prompt.
 
 ## Tool and MCP captures (claude 2.1.302, 2026-10-16)
 
-`PreToolUse.{Bash,mcp,TaskUpdate}.json` and `PostToolUse.{Bash,mcp}.json` are VERBATIM from
-interactive sessions that called Bash, an MCP server's tool and the task tools. Scrubbed as
-above, plus `session_id`/`prompt_id` replaced by placeholders and the owner name in
-`ls -la` output by `user`. A PostToolUseFailure and a PermissionRequest were captured in the
-same runs but are not replayed here: both events map row-level and subagent paths no single
-capture can resolve, so v3_test.go carries the trimmed payload it needs instead.
+`PreToolUse.{Bash,mcp,TaskUpdate}.json`, `PostToolUse.{Bash,mcp}.json` and
+`PermissionRequest.{mcp,Edit}.json` are VERBATIM from interactive sessions that called Bash,
+an MCP server's tool, the task tools and an Edit. Scrubbed as above, plus
+`session_id`/`prompt_id` replaced by placeholders and the owner name in `ls -la` output by
+`user`. The replay skips the permission field families that resolve against a suggestion,
+question or option sub-object (see fixture_test.go); choice_test.go covers those.
+
+A PostToolUseFailure was captured in the same run but is not replayed: it leaves `subagent_id`,
+`mcp_server` and `mcp_tool` unresolved, so `tool_fail` stays unverified until a subagent
+failure and a failed MCP call are recorded. v3_claude_test.go carries the capture verbatim.

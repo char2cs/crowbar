@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor/internal/rules"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
@@ -16,8 +17,8 @@ func valid() *spec.Descriptor {
 	d.Spawn.InteractiveRequired = true
 	d.Runtime.Hooks.Format = "json"
 	d.Events = map[string]spec.EventSpec{
-		spec.HookSessionStart: {In: spec.WireRef{"SessionStart"}, Map: spec.FieldMap{"session_id": {"session_id"}}},
-		spec.HookTurnStop:     {In: spec.WireRef{"Stop"}, Map: spec.FieldMap{"message": {"last"}}},
+		spec.HookSessionStart: {In: spec.WireRef{"SessionStart"}, Map: spec.FieldMap{"session_id": mapping.Paths("session_id")}},
+		spec.HookTurnStop:     {In: spec.WireRef{"Stop"}, Map: spec.FieldMap{"message": mapping.Paths("last")}},
 	}
 	return d
 }
@@ -1081,12 +1082,9 @@ func TestApply_RejectsATerminalSurfaceWhenTheDescriptorStructurallyHasNone(t *te
 	assert.Contains(t, err.Error(), "no terminal")
 }
 
-// An api-CHANNEL terminal is the api transport's own attached view, and the
-// only argv that renders it (runtime.api.attach) names a {session_id} that
-// does not exist until a session has been established. Without hotswap
-// nothing renders it at spawn at all (apiconn.go's applyAPITransport gate) —
-// it is reached only by SwitchToTerminal, which needs a completed turn. So
-// that one combination cannot serve a brand-new chat.
+// An api-channel terminal's only argv (runtime.api.attach) names a {session_id} that does
+// not exist until a session is established, and without hotswap nothing renders it at spawn,
+// so that one combination cannot serve a brand-new chat.
 func TestApply_RejectsTerminalStartHereOnAnAPIChannelWithoutHotswap(t *testing.T) {
 	d := valid()
 	d.Runtime.Transport = "api"

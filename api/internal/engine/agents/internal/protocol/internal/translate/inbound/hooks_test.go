@@ -6,14 +6,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/inbound"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// descriptor builds a probe descriptor from a single-path field map per event —
-// every test in this file but one needs no more than one source path per
-// canonical field. fieldMap does the []string lift.
+// descriptor builds a probe descriptor from a single-path field map per event; fieldMap
+// lifts each path into an Expr.
 func descriptor(events map[string]map[string]string, require_ ...string) *spec.Descriptor {
 	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{}}
 	d.Runtime.Hooks.Format = "json"
@@ -27,7 +27,7 @@ func descriptor(events map[string]map[string]string, require_ ...string) *spec.D
 func fieldMap(fields map[string]string) spec.FieldMap {
 	out := make(spec.FieldMap, len(fields))
 	for k, v := range fields {
-		out[k] = []string{v}
+		out[k] = mapping.Paths(v)
 	}
 	return out
 }
@@ -44,11 +44,8 @@ func descriptorWithFields(canonical string, fields spec.FieldMap, require_ ...st
 	return d
 }
 
-// parse is inbound.Parse pinned to the hooks channel. Every descriptor this
-// file builds is LEGACY form (no channel blocks — see descriptor() above),
-// so which channel is named does not change the result; the part of Parse
-// that actually depends on channel is covered on its own below by
-// TestParse_ChannelSelectsItsOwnBlock and its neighbours.
+// parse is inbound.Parse pinned to the hooks channel; the descriptors here have no channel
+// blocks, so the channel changes nothing (TestParse_ChannelSelectsItsOwnBlock covers it).
 func parse(d *spec.Descriptor, canonical string, raw []byte) (models.CanonicalEvent, error) {
 	return inbound.Parse(d, canonical, raw, spec.ChannelHooks)
 }
@@ -71,8 +68,8 @@ func TestParse_MapsDescriptorDeclaredTurnStatus(t *testing.T) {
 		spec.HookTurnStop: {
 			In: spec.WireRef{"turn/completed"},
 			Map: spec.FieldMap{
-				"turn_id":     {"turn.id"},
-				"turn_status": {"turn.status"},
+				"turn_id":     mapping.Paths("turn.id"),
+				"turn_status": mapping.Paths("turn.status"),
 			},
 			StatusMap: map[string]string{"completed": "completed", "cancelled": "interrupted"},
 		},
@@ -93,7 +90,7 @@ func TestParse_RequiredFieldMissingIsAHardError(t *testing.T) {
 		spec.HookUserPrompt: {
 			Required: []string{"session_id", "message"},
 			In:       spec.WireRef{spec.HookUserPrompt},
-			Map:      spec.FieldMap{"session_id": {"session_id"}, "message": {"prompt"}},
+			Map:      spec.FieldMap{"session_id": mapping.Paths("session_id"), "message": mapping.Paths("prompt")},
 		},
 	}}
 	d.Runtime.Hooks.Format = "json"
@@ -115,7 +112,7 @@ func TestParse_RequiredFieldPresentButEmptyIsStillAHardError(t *testing.T) {
 		spec.HookUserPrompt: {
 			Required: []string{"session_id"},
 			In:       spec.WireRef{spec.HookUserPrompt},
-			Map:      spec.FieldMap{"session_id": {"session_id"}},
+			Map:      spec.FieldMap{"session_id": mapping.Paths("session_id")},
 		},
 	}}
 	d.Runtime.Hooks.Format = "json"
@@ -133,7 +130,7 @@ func TestParse_EveryRequiredFieldPresentSucceeds(t *testing.T) {
 		spec.HookUserPrompt: {
 			Required: []string{"session_id", "message"},
 			In:       spec.WireRef{spec.HookUserPrompt},
-			Map:      spec.FieldMap{"session_id": {"session_id"}, "message": {"prompt"}},
+			Map:      spec.FieldMap{"session_id": mapping.Paths("session_id"), "message": mapping.Paths("prompt")},
 		},
 	}}
 	d.Runtime.Hooks.Format = "json"
@@ -420,7 +417,7 @@ func TestParse_ToolTargetTakesTheFirstMappedPathThatHasAValue(t *testing.T) {
 		spec.HookToolPre: {
 			In: spec.WireRef{spec.HookToolPre},
 			Map: spec.FieldMap{
-				"tool_target": {"tool_input.file_path", "tool_input.command", "tool_input.url"},
+				"tool_target": mapping.Paths("tool_input.file_path", "tool_input.command", "tool_input.url"),
 			},
 		},
 	}}
@@ -522,13 +519,13 @@ func channelSplitDescriptor() *spec.Descriptor {
 				In:   spec.WireRef{"item/started"},
 				When: spec.WhenMap{"item.type": {"commandExecution", "fileChange"}},
 				Map: spec.FieldMap{
-					"session_id": {"threadId"}, "tool_id": {"item.id"}, "tool_name": {"item.type"},
+					"session_id": mapping.Paths("threadId"), "tool_id": mapping.Paths("item.id"), "tool_name": mapping.Paths("item.type"),
 				},
 			},
 			Hooks: &spec.ChannelBlock{
 				In: spec.WireRef{"PreToolUse"},
 				Map: spec.FieldMap{
-					"session_id": {"session_id"}, "tool_id": {"tool_use_id"}, "tool_name": {"tool_name"},
+					"session_id": mapping.Paths("session_id"), "tool_id": mapping.Paths("tool_use_id"), "tool_name": mapping.Paths("tool_name"),
 				},
 			},
 		},
@@ -628,13 +625,13 @@ func permissionChannelSplitDescriptor() *spec.Descriptor {
 			API: &spec.ChannelBlock{
 				Ask: spec.WireRef{"approval/request"},
 				Map: spec.FieldMap{
-					"session_id": {"threadId"}, "message": {"reason"}, "tool_name": {"tool"},
+					"session_id": mapping.Paths("threadId"), "message": mapping.Paths("reason"), "tool_name": mapping.Paths("tool"),
 				},
 			},
 			Hooks: &spec.ChannelBlock{
 				Ask: spec.WireRef{"PermissionRequest"},
 				Map: spec.FieldMap{
-					"session_id": {"session_id"}, "message": {"message"}, "tool_name": {"tool_name"},
+					"session_id": mapping.Paths("session_id"), "message": mapping.Paths("message"), "tool_name": mapping.Paths("tool_name"),
 				},
 			},
 			Reply: map[string]string{"allow": `{"decision":"accept"}`},
@@ -725,11 +722,11 @@ func idleVariantDescriptor() *spec.Descriptor {
 		spec.HookIdle: {
 			In:   spec.WireRef{"Notification"},
 			When: spec.WhenMap{"message": {"waiting for input"}},
-			Map:  spec.FieldMap{"session_id": {"session_id"}},
+			Map:  spec.FieldMap{"session_id": mapping.Paths("session_id")},
 		},
 		spec.HookNotification: {
 			In:  spec.WireRef{"Notification"},
-			Map: spec.FieldMap{"session_id": {"session_id"}, "message": {"message"}},
+			Map: spec.FieldMap{"session_id": mapping.Paths("session_id"), "message": mapping.Paths("message")},
 		},
 	}}
 	d.Runtime.Hooks.Format = "json"
@@ -795,7 +792,7 @@ func TestParse_TheDiscriminatorIsCheckedBeforeRequiredFields(t *testing.T) {
 			Required: []string{"session_id"},
 			In:       spec.WireRef{"Notification"},
 			When:     spec.WhenMap{"message": {"waiting for input"}},
-			Map:      spec.FieldMap{"session_id": {"session_id"}},
+			Map:      spec.FieldMap{"session_id": mapping.Paths("session_id")},
 		},
 	}}
 	d.Runtime.Hooks.Format = "json"
@@ -816,12 +813,12 @@ func TestParse_AChannelScopedEventReadsItsOwnBlocksWhen(t *testing.T) {
 			Hooks: &spec.ChannelBlock{
 				In:   spec.WireRef{"Notification"},
 				When: spec.WhenMap{"message": {"hooks-idle"}},
-				Map:  spec.FieldMap{"session_id": {"session_id"}},
+				Map:  spec.FieldMap{"session_id": mapping.Paths("session_id")},
 			},
 			API: &spec.ChannelBlock{
 				In:   spec.WireRef{"status/changed"},
 				When: spec.WhenMap{"status": {"idle"}},
-				Map:  spec.FieldMap{"session_id": {"threadId"}},
+				Map:  spec.FieldMap{"session_id": mapping.Paths("threadId")},
 			},
 		},
 	}}

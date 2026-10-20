@@ -165,7 +165,8 @@ events:
       TaskCreate: plan, TaskUpdate: plan, TaskList: plan, TaskGet: plan, ToolSearch: meta,
       SubagentHandback: meta, AskUserQuestion: ask }
     required: [session_id, tool_id, tool_name]
-    # No fixture: the replay would need a recorded subagent failure for subagent_id.
+    # No fixture: the real failure leaves subagent_id, mcp_server and mcp_tool unresolved; the
+    # replay would need a recorded subagent failure and a failed MCP call.
     unverified: true
     in: PostToolUseFailure
     map:
@@ -250,7 +251,7 @@ events:
   # would open the same prompt twice.
   permission:
     required: [session_id, tool_name]
-    unverified: true
+    fixtures: [PermissionRequest.mcp.json, PermissionRequest.Edit.json]
     ask: PermissionRequest
     timeout_seconds: 270
     answers_into: answers
