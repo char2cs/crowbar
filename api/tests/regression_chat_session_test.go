@@ -68,7 +68,7 @@ func completeTurn(t *testing.T, h *harness, l kit.Launch, hookBase, provider, se
 	t.Helper()
 	postSessionHook(t, l, hookBase, provider, "session_start", map[string]any{"session_id": session, "source": "startup"})
 	postSessionHook(t, l, hookBase, provider, "user_prompt", map[string]any{"session_id": session, "prompt": prompt})
-	// Claude sends MessageDisplay before Stop; a Stop with text and no open message waits.
+	// As the CLI reports a reply live: streamed as a final delta, then its Stop.
 	postSessionHook(t, l, hookBase, provider, "message_delta", map[string]any{
 		"session_id": session, "turn_id": uuid.NewString(), "message_id": uuid.NewString(),
 		"index": 0, "final": true, "delta": "ok",

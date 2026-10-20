@@ -128,8 +128,8 @@ func newHarness(t *testing.T) *harness {
 
 	router := gin.New()
 	// Installed BEFORE Register so it wraps the hook route: it fires once the hook
-	// handler chain has fully returned, which is the moment IngestHook's effects
-	// (the reducer's committed outcome, the ledger turn on disk) are all readable.
+	// handler chain has fully returned, which is the moment what the hook ingress
+	// recorded is committed and readable.
 	hooks := newHookBarrier()
 	router.Use(hooks.middleware())
 	// Installed BEFORE Register for the same reason, and it additionally has to see
@@ -308,7 +308,7 @@ func chatSessionIDs(t *testing.T, h *harness, chatID string) []string {
 // the daemon's core/terminal spawns a real `claude` with the descriptor-built
 // argv/env, claude's SessionStart hook runs `crowbar hook session_start`, which
 // POSTs over the daemon's unix socket to /v0/chats/hooks, which runs
-// IngestHook -> the reducer, and the active segment gets bound with a
+// the hook ingress, and the chat's conversation gets bound with a
 // non-empty ProviderSessionID — the full Go integration path, end to end.
 func TestAgent_ClaudeSpawnAndDetect(t *testing.T) {
 	requireCLI(t, "claude")
@@ -332,7 +332,7 @@ func TestAgent_ClaudeSpawnAndDetect(t *testing.T) {
 	require.NotEmpty(t, providerSessionID,
 		"claude's SessionStart hook never reached /v0/chats/hooks to bind a provider conversation; this means "+
 			"either claude never started in the PTY, its SessionStart hook never fired, `crowbar hook` could not "+
-			"reach the unix socket, or IngestHook/the reducer did not persist the outcome — runner observed: %+v",
+			"reach the unix socket, or the hook ingress did not record the outcome — runner observed: %+v",
 		runner)
 
 	// The runner SpawnChat created is still the one placed on the chat: a bind stays
@@ -416,7 +416,7 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 	require.NotEmpty(t, codexProviderSessionID,
 		"codex's SessionStart hook never reached /v0/chats/hooks to bind a conversation to the switched-to "+
 			"runner; this means either codex never started in the new PTY, its SessionStart hook never fired, "+
-			"`crowbar hook` could not reach the unix socket, or IngestHook/the reducer did not persist the "+
+			"`crowbar hook` could not reach the unix socket, or the hook ingress did not record the "+
 			"outcome — runner observed: %+v", codexRunner)
 
 	require.Equal(t, "codex", codexRunner.ProviderID, "the switched-to runner must be codex")

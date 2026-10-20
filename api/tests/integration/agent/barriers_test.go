@@ -32,14 +32,9 @@ const backstop = 5 * time.Minute
 // after the handler chain for POST .../chats/hooks has returned.
 //
 // "After" is the whole point, and it is why this is middleware rather than a hub
-// subscription. When the handler returns, IngestHook has already run to
-// completion on that goroutine: the reducer's outcome is committed (runner
-// commands are asynx SendWait) and any ledger turn is physically written to disk
-// — appendTurn is a synchronous file write inside IngestHook. So a test woken by
-// this edge can immediately READ the thing the hook produced, with no second race
-// to lose. A hub event would be the wrong seam: the hub is broadcast from inside
-// the fold, so a turn_stopped frame is emitted BEFORE the ledger append it
-// announces, and a test that read the ledger on it would race the write.
+// subscription. When the handler returns, the hook ingress has committed what
+// the hook recorded, or refused it, so a test woken by this edge can READ it at
+// once. A hub frame can be broadcast before the write it announces.
 type hookBarrier struct {
 	sig *kit.Signal
 }
@@ -840,11 +835,8 @@ func announcedSession(h *harness, r agents.Runner) string {
 // awaitAssistantReply blocks until the ledger holds an assistant turn from
 // provider whose text contains want, and returns every assistant turn seen.
 //
-// The signal is the CLI's own Stop hook: it POSTs, IngestHook writes the turn to
-// disk, and the handler returns — so by the time this predicate re-runs, the
-// .turn file is there to be read. That ordering is why the barrier is the
-// completed HTTP request and not the hub's turn_stopped frame, which is broadcast
-// from inside the fold, BEFORE the append it announces.
+// The signal is the CLI's own Stop hook: by the time its request returns, the
+// ingress has committed the reply, so the predicate re-run on it reads it.
 func awaitAssistantReply(
 	t *testing.T,
 	h *harness,

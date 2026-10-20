@@ -20,10 +20,9 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// TestAgent_CodexTurnAppendsLedger is codex's counterpart to
-// TestIngestHook_TurnStop_AppendsLedgerEntry (internal/app/usecases/chat/
-// agent_test.go), which only ever fires IngestHook with a SYNTHETIC transcript
-// file and a "claude"-tagged segment. It has never been proven that a REAL
+// TestAgent_CodexTurnAppendsLedger is codex's counterpart to the usecase's
+// in-process turn_stop tests (internal/app/usecases/chat/turn_test.go), which
+// only ever place a SYNTHETIC hook on a "claude" runner. It has never been proven that a REAL
 // codex turn_stop hook (codex's own `crowbar hook turn_stop` shelling out from
 // its own hooks.json, per the codex.yaml descriptor) reaches the daemon over
 // the unix socket and produces a real ledger entry from codex's own rollout
@@ -70,7 +69,7 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 	require.NotEmpty(t, providerSessionID,
 		"codex's SessionStart hook never reached /v0/chats/hooks to bind a conversation; this means either "+
 			"codex never started in the PTY, its SessionStart hook never fired, `crowbar hook` could not reach "+
-			"the unix socket, or IngestHook/the reducer did not persist the outcome — runner observed: %+v", runner)
+			"the unix socket, or the hook ingress did not record the outcome — runner observed: %+v", runner)
 
 	// AssembleHandoff's rendered blob goes non-empty as soon as ANY ledger turn
 	// exists for this chat — including the codex-tagged USER turn its OWN

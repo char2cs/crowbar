@@ -232,7 +232,8 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 // The hook command runs INSIDE the CLI's own process tree, on its turn. A non-2xx
 // (or a hang, or a stderr splat) is something the CLI has to deal with mid-turn, and
 // a listener that breaks the thing it is listening to is worse than no listener —
-// which is why every drop in IngestHook returns nil rather than an error (spec §4.7).
+// which is why the ingress acknowledges another conversation's hook and keeps it as
+// a dead letter, rather than refusing it (spec §4.7).
 func TestRegression_InternalSessionHooksAreDroppedNotFailed(t *testing.T) {
 	h := newHarness(t)
 	writeMemStubProviderDescriptor(t, h)
