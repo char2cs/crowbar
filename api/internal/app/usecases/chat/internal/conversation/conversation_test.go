@@ -42,7 +42,7 @@ type fixture struct {
 }
 
 // retiredRunners is the runner lifecycle with no CLI live: a purge owes the
-// processes on the chat retirement, which it records.
+// processes on the chat retirement, which it records with the chat's hold.
 type retiredRunners struct {
 	mu   sync.Mutex
 	seen []string
@@ -56,13 +56,20 @@ func (*retiredRunners) LiveRunnerForChat(context.Context, string) (engineagents.
 	return engineagents.Runner{}, errors.New("dormant")
 }
 
-func (r *retiredRunners) RetireChatRunners(_ context.Context, chatID string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.seen = append(r.seen, chatID)
+func (r *retiredRunners) RetireChatRunners(_ context.Context, chatID string) func() {
+	r.note("retire " + chatID)
+	return func() { r.note("end " + chatID) }
 }
 
-func (*retiredRunners) HoldChat(string) func() { return func() {} }
+func (r *retiredRunners) HoldChat(_ context.Context, chatID string) (func(), error) {
+	return func() { r.note("release " + chatID) }, nil
+}
+
+func (r *retiredRunners) note(what string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.seen = append(r.seen, what)
+}
 
 func (r *retiredRunners) all() []string {
 	r.mu.Lock()
@@ -349,8 +356,8 @@ func TestPurgeChat_ErasesTheChatAndRetiresItsRunnersThroughThePort(t *testing.T)
 	require.NoError(t, err)
 	assert.Empty(t, rows, "a purged chat leaves no ledger row behind")
 
-	assert.Equal(t, []string{chatID}, f.retired.all(),
-		"the CLIs on a purged chat must be retired, and only through the port")
+	assert.Equal(t, []string{"retire " + chatID, "release " + chatID, "end " + chatID}, f.retired.all(),
+		"the CLIs on a purged chat are retired through the port, their processes ended once the chat is let go")
 	_, err = f.conversations.GetChat(t.Context(), chatID)
 	require.Error(t, err, "a purged chat is gone from every read, including a direct get by id")
 }
@@ -363,7 +370,7 @@ func TestPurgeChat_OfAnUnknownChatFails(t *testing.T) {
 	err := f.conversations.PurgeChat(t.Context(), "never-minted")
 
 	require.Error(t, err)
-	assert.Empty(t, f.retired.all(), "nothing was retired for a chat that never existed")
+	assert.Equal(t, []string{"release never-minted"}, f.retired.all(), "nothing was retired for a chat that never existed")
 }
 
 func TestAncestors_AnswersThroughTheLineagePort(t *testing.T) {
@@ -551,26 +558,9 @@ func TestMintChat_SeedsThePermissionLevelFromTheCurrentGlobalDefault(t *testing.
 	assert.Equal(t, "trusted", chat.PermissionLevel)
 }
 
-// TestMintChat_TheSeededFieldIsAFrozenSnapshotButChatSelectionTracksTheLiveDefault
-// used to be named (and assert) the opposite:
-// "...DoesNotRetroactivelyChangeAnAlreadyOpenChat" — proving only that
-// GetChat's raw chat.PermissionLevel field stays frozen at whatever the
-// default was on mint day. That assertion is still literally true and is
-// KEPT below, but the test's old name and comment claimed it as the whole
-// behavioural guarantee, which is now wrong: it described only the display
-// snapshot, never what a chat actually spawns under.
-//
-// The real, reported bug was exactly this conflation — a user's EXISTING
-// chats never followed a changed global default, because the only place
-// that mattered (ChatSelection, read at every spawn) used to return this
-// same frozen field unconditionally. The fix (selection.go) makes
-// chat.PermissionLevel a mint-time DISPLAY value only; ChatSelection now
-// re-resolves the CURRENT global default for any chat that was never
-// EXPLICITLY pinned via SetChatPermissionLevel (PermissionLevelExplicit
-// stays false for a plain mint). Renamed and extended, per this repo's own
-// rule against silently rewriting a spec to match code, to assert BOTH
-// halves side by side: the stored field is a snapshot, the resolved
-// selection is live.
+// A chat's stored level is the display snapshot taken at mint; a chat never
+// explicitly pinned spawns under the CURRENT global default, which its
+// selection resolves at every spawn.
 func TestMintChat_TheSeededFieldIsAFrozenSnapshotButChatSelectionTracksTheLiveDefault(t *testing.T) {
 	t.Parallel()
 	chats, waitChats := newChatStore(t)

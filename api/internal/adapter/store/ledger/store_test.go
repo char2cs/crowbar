@@ -472,7 +472,22 @@ func TestStore_DeadLettersKeepThePayloadTruncatedAt64KiB(t *testing.T) {
 	assert.Equal(t, 65536, stored.Length)
 	assert.True(t, stored.Truncated)
 	assert.Empty(t, stored.ChatID, "a runner Crowbar does not know names no chat")
-	count, err := s.DeadLetterCount(t.Context())
+}
+
+// Dead letters are counted by why they were kept, and go with their chat.
+func TestStore_DeadLettersAreCountedByReasonAndForgottenWithTheirChat(t *testing.T) {
+	s, err := ledgerstore.Open(openDB(t, filepath.Join(t.TempDir(), ledgerstore.FileName)), clock)
 	require.NoError(t, err)
-	assert.Equal(t, 1, count)
+	for _, d := range []ledgerstore.DeadLetter{{ChatID: "c1", Reason: "a"}, {ChatID: "c1", Reason: "b"}, {ChatID: "c2", Reason: "a"}} {
+		require.NoError(t, s.DeadLetter(t.Context(), d))
+	}
+
+	require.NoError(t, s.Forget(t.Context(), "c1"))
+
+	count, err := s.DeadLetterCount(t.Context(), "a", "b")
+	require.NoError(t, err)
+	assert.Equal(t, 1, count, "c2's alone are left")
+	count, err = s.DeadLetterCount(t.Context(), "b")
+	require.NoError(t, err)
+	assert.Zero(t, count)
 }

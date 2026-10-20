@@ -8,12 +8,14 @@ package runner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 )
 
-// ChatLock serialises one chat's hooks and its user-initiated paths.
+// ChatLock serialises one chat's hooks and its user-initiated paths. A waiter
+// gives up when its ctx ends.
 type ChatLock interface {
-	Lock(chatID string) (unlock func())
+	Lock(ctx context.Context, chatID string) (unlock func(), err error)
 }
 
 // errPreempted is the cause a parked wait is cancelled with by a stop.
@@ -106,10 +108,16 @@ type hold struct {
 	close  func()
 }
 
-// acquire opens a park on chatID and takes the chat's lock.
-func (rs *Runners) acquire(ctx context.Context, chatID string) *hold {
+// acquire opens a park on chatID and takes the chat's lock on it: a stop under
+// way, or one that begins while this path queues, turns it away (ErrStopped).
+func (rs *Runners) acquire(ctx context.Context, chatID string) (*hold, error) {
 	park, closePark := rs.parks.open(ctx, chatID)
-	return &hold{lock: rs.chatLock, chatID: chatID, park: park, unlock: rs.chatLock.Lock(chatID), close: closePark}
+	unlock, err := rs.chatLock.Lock(park, chatID)
+	if err != nil {
+		closePark()
+		return nil, parkErr(park, err)
+	}
+	return &hold{lock: rs.chatLock, chatID: chatID, park: park, unlock: unlock, close: closePark}, nil
 }
 
 // release lets go of the chat.
@@ -120,15 +128,17 @@ func (h *hold) release() {
 
 // outside runs wait on the park with the chat's lock released, and takes the
 // lock back after. Whatever the caller decided before is stale: it decides
-// again from what it reads now.
+// again from what it reads now. On an error the hold may no longer hold the
+// lock, and the caller returns.
 func (h *hold) outside(wait func(park context.Context) error) error {
 	h.unlock()
+	h.unlock = func() {}
 	err := wait(h.park)
-	h.unlock = h.lock.Lock(h.chatID)
 	if err == nil {
-		err = h.park.Err()
+		h.unlock, err = h.lock.Lock(h.park, h.chatID)
 	}
 	if err != nil {
+		h.unlock = func() {}
 		return parkErr(h.park, err)
 	}
 	return nil
@@ -136,11 +146,15 @@ func (h *hold) outside(wait func(park context.Context) error) error {
 
 // HoldChat preempts chatID's parked waits and takes its lock, for a path that
 // must not interleave with a spawn and never waits under it.
-func (rs *Runners) HoldChat(chatID string) (release func()) {
+func (rs *Runners) HoldChat(ctx context.Context, chatID string) (release func(), err error) {
 	stopping := rs.parks.preempt(chatID)
-	unlock := rs.chatLock.Lock(chatID)
+	unlock, err := rs.chatLock.Lock(ctx, chatID)
+	if err != nil {
+		stopping()
+		return nil, fmt.Errorf("agent: hold chat: %w", err)
+	}
 	return func() {
 		unlock()
 		stopping()
-	}
+	}, nil
 }

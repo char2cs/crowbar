@@ -85,7 +85,7 @@ var sharedInstances = map[string][]string{
 	"the provider table":  {"providers", "runners.providers"},
 	"the CLI lifecycle":   {"runners", "conversations.runners", "turns.runners", "ingress.runners"},
 	"the turn record":     {"turns", "ingress.turns", "ingress.descriptors"},
-	"the chat ledger":     {"ledger", "conversations.ledger", "turns.ledger", "runners.ledger", "ingress.ledger"},
+	"the chat ledger":     {"conversations.ledger", "turns.ledger", "runners.ledger", "ingress.ledger"},
 }
 
 var nilableKinds = map[reflect.Kind]bool{

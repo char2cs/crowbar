@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -164,6 +165,42 @@ func TestHoldForAnswer_ParksTheRelayWhenCrowbarIsTheSurface(t *testing.T) {
 		"a chat Crowbar is driving must still park the relay so its card can answer")
 }
 
+// unopenableChoiceActivity records an ask's interruption and refuses its choice.
+type unopenableChoiceActivity struct {
+	agentactivity.EventStore
+	refused error
+}
+
+func (unopenableChoiceActivity) Interrupt(context.Context, string, string, string, string, time.Time) error {
+	return nil
+}
+
+func (a unopenableChoiceActivity) OpenChoice(context.Context, agentactivity.ChoiceInput) error {
+	return a.refused
+}
+
+// An ask whose choice the record refuses is an error, and is never held: an
+// answer would act on a choice the record does not have.
+func TestRaiseAsk_AChoiceTheRecordRefusesIsAnErrorAndHoldsNothing(t *testing.T) {
+	desk := answerdesk.New(answerdesk.DefaultRetention, nil)
+	activity := unopenableChoiceActivity{refused: errors.New("log is full")}
+	turns := New(Deps{Answers: desk, Activity: activity})
+	turns.SetRunners(surfaceRunners{})
+	ev := engineagents.CanonicalEvent{
+		Kind:      engineagents.HookPermission,
+		Interrupt: &engineagents.InterruptEvent{Kind: engineagents.InterruptPermission},
+		Choice:    &engineagents.ChoicePrompt{PromptID: "p-1", ToolName: "shell"},
+	}
+
+	ask, err := turns.raiseAsk(t.Context(), domain.Chat{ID: "chat-1"}, engineagents.Runner{ID: "runner-1"},
+		answerableAgent{}, ev, []byte(`{"tool_name":"shell"}`), time.Now())
+
+	require.ErrorIs(t, err, activity.refused)
+	assert.Empty(t, ask)
+	_, held := desk.Pending("choice-chat-1-p-1-shell")
+	assert.False(t, held)
+}
+
 // endedSubagentActivity holds ONE subagent that already ran and stopped, and
 // answers both reads openNestedSubagent can make about it: it is not open, and
 // it is on the chat's record with a real EndedAt. Every OpenNestedSubagent call
@@ -218,10 +255,11 @@ func TestRegression_ANestedSubagentIsNeverReopenedAfterItStopped(t *testing.T) {
 	activity := &endedSubagentActivity{id: childID, endedAt: time.Unix(10_000_000, 0)}
 	turns := New(Deps{Activity: activity})
 
-	turns.openNestedSubagent(t.Context(), "chat-1", engineagents.CanonicalEvent{
+	err := turns.openNestedSubagent(t.Context(), "chat-1", engineagents.CanonicalEvent{
 		Tool: &engineagents.ToolEvent{NestedSessionID: childID},
 	}, time.Unix(10_000_060, 0))
 
+	require.NoError(t, err)
 	assert.Empty(t, activity.opened,
 		"a collab tool completion naming a child that already stopped must never re-open it")
 }
@@ -256,10 +294,11 @@ func TestOpenNestedSubagent_OpensAnIdTheChatHasNeverSeen(t *testing.T) {
 	activity := &unknownSubagentActivity{}
 	turns := New(Deps{Activity: activity})
 
-	turns.openNestedSubagent(t.Context(), "chat-1", engineagents.CanonicalEvent{
+	err := turns.openNestedSubagent(t.Context(), "chat-1", engineagents.CanonicalEvent{
 		Tool: &engineagents.ToolEvent{NestedSessionID: "child-1"},
 	}, time.Unix(10_000_000, 0))
 
+	require.NoError(t, err)
 	assert.Equal(t, []string{"child-1"}, activity.opened,
 		"the first completion naming a brand-new child must still open it")
 }

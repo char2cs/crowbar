@@ -43,15 +43,16 @@ type Runners interface {
 	RunnerByID(runnerID string) (engineagents.Runner, bool)
 	// LiveRunnerForChat is the chat's live runner; an error when it is dormant.
 	LiveRunnerForChat(ctx context.Context, chatID string) (engineagents.Runner, error)
-	// RetireChatRunners quits the CLI on the chat. It is best-effort: a chat is
-	// erased whether or not its processes could be reached.
+	// RetireChatRunners records the end of the CLI on the chat, under its lock,
+	// and returns the end of its processes, run once the lock is let go. It is
+	// best-effort: a chat is erased whether or not its processes are reached.
 	RetireChatRunners(
 		ctx context.Context,
 		chatID string,
-	)
+	) (end func())
 	// HoldChat cancels the chat's parked user-initiated waits and takes its
 	// lock: a purge never queues behind a wait on a chat that is going away.
-	HoldChat(chatID string) (release func())
+	HoldChat(ctx context.Context, chatID string) (release func(), err error)
 }
 
 // Conversations is the chat record.
@@ -172,22 +173,34 @@ func (c *Conversations) PurgeChat(
 	// The chat's lock, as the spawn paths take it: a delete racing a switch would
 	// otherwise start a CLI onto a chat that has just been forgotten, and a hook
 	// would record onto it.
-	defer c.runners.HoldChat(chatID)()
-	return c.PurgeLocked(ctx, chatID)
+	release, err := c.runners.HoldChat(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agent: purge chat: %w", err)
+	}
+	end, err := c.PurgeLocked(ctx, chatID)
+	release()
+	end()
+	return err
 }
 
 // The caller already holds chatID's lock: PurgeChat above takes it, and the
 // spawn path reaches this from INSIDE its hold (discardSpawnedChat). The lock
 // is not reentrant, so wiring either caller to PurgeChat instead deadlocks.
+// end ends the chat's processes; the caller runs it once it lets the lock go.
 func (c *Conversations) PurgeLocked(
 	ctx context.Context,
 	chatID string,
-) error {
+) (end func(), err error) {
 	if _, err := c.chats.GetChat(ctx, chatID); err != nil {
-		return fmt.Errorf("agent: purge chat: get: %w", err)
+		return func() {}, fmt.Errorf("agent: purge chat: get: %w", err)
 	}
 	// Retire first, so the chat's feed still carries its runner's exit.
-	c.runners.RetireChatRunners(ctx, chatID)
+	end = c.runners.RetireChatRunners(ctx, chatID)
+	return end, c.forget(ctx, chatID)
+}
+
+// forget erases chatID's record, conversation, ledger and directory.
+func (c *Conversations) forget(ctx context.Context, chatID string) error {
 	if err := c.chats.Forget(ctx, chatID); err != nil {
 		return fmt.Errorf("agent: purge chat: forget: %w", err)
 	}

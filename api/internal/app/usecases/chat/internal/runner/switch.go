@@ -15,7 +15,10 @@ func (rs *Runners) SwitchProvider(
 	chatID string,
 	targetProviderID string,
 ) (string, error) {
-	h := rs.acquire(ctx, chatID)
+	h, err := rs.acquire(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: switch provider: %w", err)
+	}
 	defer h.release()
 	defer rs.enterPhase(ctx, chatID, rs.replacementPhase(chatID))()
 	return rs.switchProviderLocked(ctx, h, chatID, targetProviderID)

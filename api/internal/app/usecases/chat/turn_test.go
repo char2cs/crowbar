@@ -32,6 +32,14 @@ func hook(t *testing.T, f testFixture, runnerID, provider, kind string, payload 
 	f.wait()
 }
 
+// deadLetters is how many hooks the ingress has refused.
+func deadLetters(t *testing.T, f testFixture) int {
+	t.Helper()
+	n, err := f.usecase.DeadLetterCount(f.ctx)
+	require.NoError(t, err)
+	return n
+}
+
 // refusedHook is a hook runnerID's descriptor cannot map: the ingress refuses it
 // as unprocessable and records nothing of it but a marker.
 func refusedHook(t *testing.T, f testFixture, runnerID, provider, kind string, payload map[string]any) {
@@ -757,10 +765,13 @@ func TestObservation_AToolCompletionWithNoStatusReadsAsOK(t *testing.T) {
 	assert.Equal(t, domain.ToolStatusOK, calls[0].Status)
 }
 
-func TestObservation_ARecordFailureNeverBreaksTheHook(t *testing.T) {
+// An observation the record refuses is refused to its sender and kept as a dead
+// letter: a hook is never acknowledged with nothing written.
+func TestObservation_AnUnrecordableObservationIsRefusedAndDeadLettered(t *testing.T) {
 	f, activity := newActivityWriteFaultFixture(t)
 	_, runnerID := f.spawn(t, "claude")
 	activity.writeErr = errors.New("record unavailable")
+	letters := deadLetters(t, f)
 
 	for _, tc := range []struct {
 		kind    string
@@ -776,7 +787,9 @@ func TestObservation_ARecordFailureNeverBreaksTheHook(t *testing.T) {
 		{engineagents.HookCompactPost, map[string]any{"trigger": "auto"}},
 	} {
 		err := f.usecase.IngestHook(f.ctx, runnerID, "claude", tc.kind, mustJSON(t, tc.payload))
-		assert.NoError(t, err, tc.kind)
+		require.ErrorIs(t, err, activity.writeErr, tc.kind)
+		letters++
+		assert.Equal(t, letters, deadLetters(t, f), tc.kind)
 	}
 }
 
@@ -967,9 +980,7 @@ func TestHook_AnUnknownRunnerIsRefusedAndDeadLettered(t *testing.T) {
 
 	assert.Empty(t, f.bc.snapshot())
 	assert.Empty(t, f.runnerKinds(t), "a hook must never resurrect a runner we do not know")
-	count, err := f.usecase.DeadLetterCount(f.ctx)
-	require.NoError(t, err)
-	assert.Equal(t, 1, count)
+	assert.Equal(t, 1, deadLetters(t, f))
 }
 
 // Once the PTY is gone the runner is gone, and a late hook from it changes
@@ -1641,19 +1652,6 @@ func TestRegression_AnInterruptedToolIsFailedNotAbandoned(t *testing.T) {
 	assert.Equal(t, domain.ToolStatusError, after[0].Status)
 	assert.NotEqual(t, domain.ToolStatusAbandoned, after[0].Status,
 		"the turn-close sweep must find nothing left to abandon")
-}
-
-func TestObservation_AFailedChoiceWriteDoesNotFailTheHook(t *testing.T) {
-	f, faults := newActivityWriteFaultFixture(t)
-	_, runnerID := f.spawn(t, "claude")
-	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
-	faults.writeErr = errors.New("record unavailable")
-
-	err := f.usecase.IngestHook(f.ctx, runnerID, "claude", engineagents.HookPermission,
-		mustJSON(t, permissionPayload()))
-	f.wait()
-
-	assert.NoError(t, err)
 }
 
 func TestReadPendingChoices_RefusesAChatThatDoesNotExist(t *testing.T) {

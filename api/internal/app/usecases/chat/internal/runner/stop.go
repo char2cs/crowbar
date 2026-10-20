@@ -43,7 +43,10 @@ func (rs *Runners) endRunner(
 	defer rs.parks.preempt(chatID)()
 	defer rs.enterPhase(ctx, chatID, snapshot.PhaseStopping)()
 	for {
-		unlock := rs.chatLock.Lock(chatID)
+		unlock, err := rs.chatLock.Lock(ctx, chatID)
+		if err != nil {
+			return fmt.Errorf("agent: stop chat: %w", err)
+		}
 		v, ok := rs.live.view(chatID)
 		if !ok {
 			unlock()

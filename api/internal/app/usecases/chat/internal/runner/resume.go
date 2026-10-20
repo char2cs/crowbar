@@ -14,7 +14,10 @@ func (rs *Runners) ResumeChat(
 	ctx context.Context,
 	chatID string,
 ) (string, error) {
-	h := rs.acquire(ctx, chatID)
+	h, err := rs.acquire(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: resume chat: %w", err)
+	}
 	defer h.release()
 
 	live, ok, err := rs.settledRunner(h)

@@ -41,7 +41,7 @@ func TestRecordIdle_EndsTheRunnersRunningTurn(t *testing.T) {
 	appendTurnRows(t, l, turnRow(t, "runner-1"), carriedPrompt(t, "steer-1", "runner-1", ledger.DeliverySteer))
 	turns := New(Deps{Ledger: l})
 
-	turns.recordIdle(t.Context(), "chat-1", engineagents.Runner{ID: "runner-1"})
+	require.NoError(t, turns.recordIdle(t.Context(), "chat-1", engineagents.Runner{ID: "runner-1"}))
 
 	st, err := l.State(t.Context(), "chat-1")
 	require.NoError(t, err)
@@ -58,7 +58,7 @@ func TestRecordIdle_LeavesAnotherRunnersTurnRunning(t *testing.T) {
 	appendTurnRows(t, l, turnRow(t, "runner-2"))
 	turns := New(Deps{Ledger: l})
 
-	turns.recordIdle(t.Context(), "chat-1", engineagents.Runner{ID: "runner-1"})
+	require.NoError(t, turns.recordIdle(t.Context(), "chat-1", engineagents.Runner{ID: "runner-1"}))
 
 	st, err := l.State(t.Context(), "chat-1")
 	require.NoError(t, err)
@@ -81,7 +81,7 @@ func TestRecordIdle_NeverRestatesBackgroundWork(t *testing.T) {
 	appendTurnRows(t, l, live, turnRow(t, "runner-1"), ended)
 	turns := New(Deps{Ledger: l})
 
-	turns.recordIdle(t.Context(), "chat-1", engineagents.Runner{ID: "runner-1"})
+	require.NoError(t, turns.recordIdle(t.Context(), "chat-1", engineagents.Runner{ID: "runner-1"}))
 
 	st, err := l.State(t.Context(), "chat-1")
 	require.NoError(t, err)
@@ -95,7 +95,7 @@ func TestRecordIdle_SettlesTheCarriedPromptWhenNoTurnStarted(t *testing.T) {
 	appendTurnRows(t, l, carriedPrompt(t, "req-1", "runner-1", ledger.DeliveryRestart))
 	turns := New(Deps{Ledger: l})
 
-	turns.recordIdle(t.Context(), "chat-1", engineagents.Runner{ID: "runner-1"})
+	require.NoError(t, turns.recordIdle(t.Context(), "chat-1", engineagents.Runner{ID: "runner-1"}))
 
 	st, err := l.State(t.Context(), "chat-1")
 	require.NoError(t, err)

@@ -61,12 +61,13 @@ type Conversations interface {
 		chatID string,
 		minting bool,
 	) (string, error)
-	// PurgeLocked erases a chat whose caller ALREADY holds its lock. A spawn
-	// that fails discards the chat it minted, from inside that hold.
+	// PurgeLocked erases a chat whose caller ALREADY holds its lock, and
+	// returns the end of its processes. A spawn that fails discards the chat it
+	// minted, from inside that hold.
 	PurgeLocked(
 		ctx context.Context,
 		chatID string,
-	) error
+	) (end func(), err error)
 	// SeedPermissionLevel durably writes the current global default onto a
 	// freshly created chat — see Conversations.MintChat's own use of this,
 	// which SpawnChat and moveToNewChat mirror since neither can call

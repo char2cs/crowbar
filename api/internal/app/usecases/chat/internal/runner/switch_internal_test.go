@@ -39,7 +39,7 @@ func TestDisplaceForSwitch_ARunningTurnIsRefusedNotWaitedFor(t *testing.T) {
 	_, _, err = rs.ledger.Append(t.Context(), "chat-1", started, turnRow)
 	require.NoError(t, err)
 
-	h := rs.acquire(t.Context(), "chat-1")
+	h := held(t, rs)
 	defer h.release()
 	retry, err := rs.displaceForSwitch(t.Context(), h, domain.Chat{ID: "chat-1"})
 
@@ -55,7 +55,7 @@ func TestDisplaceForSwitch_APromptSteeredAfterTheWaitsSendsTheSwitchRoundAgain(t
 	rs := runnersForDisplace(t, true /* live */)
 	appendPrompt(t, rs.ledger, "steered", "r-1")
 
-	h := rs.acquire(t.Context(), "chat-1")
+	h := held(t, rs)
 	defer h.release()
 	retry, err := rs.displaceForSwitch(t.Context(), h, domain.Chat{ID: "chat-1"})
 

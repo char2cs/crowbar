@@ -2,7 +2,9 @@ package chat_test
 
 import (
 	"context"
+	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
+	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -124,30 +127,30 @@ func TestEndingRunner_APromptItAcknowledgesOpensNoTurn(t *testing.T) {
 		{"while the stop ends it", func(t *testing.T, f testFixture, _ *readHook, live engineagents.Runner) {
 			t.Helper()
 			var once sync.Once
-			f.term.duringTerminate = func(string) { once.Do(func() { acknowledge(t, f, live.ID, "") }) }
+			f.term.duringTerminate = func(string) { once.Do(func() { acknowledge(t, f, live.ID, "", nil) }) }
 			stopChat(t, f, live.CurrentChatID, live)
 		}},
 		{"after the stop", func(t *testing.T, f testFixture, _ *readHook, live engineagents.Runner) {
 			t.Helper()
 			stopChat(t, f, live.CurrentChatID, live)
-			acknowledge(t, f, live.ID, "")
+			acknowledge(t, f, live.ID, "", apperr.ErrNotFound)
 		}},
 		{"while it is ingested, the CLI dies", func(t *testing.T, f testFixture, store *readHook, live engineagents.Runner) {
 			t.Helper()
 			mark := uuid.NewString()
 			store.arm(mark, func() { crashRunner(t, f, live.CurrentChatID, live) })
-			acknowledge(t, f, live.ID, mark)
+			acknowledge(t, f, live.ID, mark, nil)
 		}},
 		{"once the CLI's death is recorded", func(t *testing.T, f testFixture, _ *readHook, live engineagents.Runner) {
 			t.Helper()
-			acked := onceExitRecorded(t, f, live, func() { acknowledge(t, f, live.ID, "") })
+			acked := onceExitRecorded(t, f, live, func() { acknowledge(t, f, live.ID, "", nil) })
 			crashRunner(t, f, live.CurrentChatID, live)
 			finished(t, acked, "the acknowledgement")
 		}},
 		{"after the crash", func(t *testing.T, f testFixture, _ *readHook, live engineagents.Runner) {
 			t.Helper()
 			crashRunner(t, f, live.CurrentChatID, live)
-			acknowledge(t, f, live.ID, "")
+			acknowledge(t, f, live.ID, "", apperr.ErrNotFound)
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -168,28 +171,33 @@ func TestEndingRunner_APromptItAcknowledgesOpensNoTurn(t *testing.T) {
 	}
 }
 
-// acknowledge places runnerID's user_prompt as the hook marked mark. A runner
-// already off the live table refuses it.
-func acknowledge(t *testing.T, f testFixture, runnerID, mark string) {
+// acknowledge places runnerID's user_prompt as the hook marked mark, and checks
+// it gets want: a runner already off the live table refuses it.
+func acknowledge(t *testing.T, f testFixture, runnerID, mark string, want error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(marked(f.ctx, mark), 5*time.Second)
 	defer cancel()
 	payload := mustJSON(t, map[string]any{"prompt": "step"})
-	if err := f.usecase.IngestHook(ctx, runnerID, "claude", "user_prompt", payload); err != nil {
-		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	err := f.usecase.IngestHook(ctx, runnerID, "claude", "user_prompt", payload)
+	if want == nil {
+		assert.NoError(t, err, "a runner still on the live table takes the hook")
+		return
 	}
+	assert.ErrorIs(t, err, want)
 }
 
-// A steered prompt the ending runner's last turn_stop carries opens no turn on
-// it either: the end settled it before the turn_stop could deliver it.
+// A steered prompt the ending runner's last turn_stop carries leaves no turn
+// open on it: a crash settles it before the turn_stop could deliver it, and a
+// Stop queued behind that turn_stop ends the turn it delivered.
 func TestEndingRunner_ASteerItsTurnStopCarriesOpensNoTurn(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		race func(t *testing.T, f testFixture, store *readHook, mark string, live engineagents.Runner, stop func())
-		said string
+		want ledger.PromptStatus
 	}{
-		{"crash", crashWhileTheStopIsIngested, ""},
-		{"crash recorded", stopOnceTheCrashIsRecorded, ""},
+		{"stop", stopWhileTheTurnStopHoldsTheChat, ledger.PromptStatusDelivered},
+		{"crash", crashWhileTheStopIsIngested, ledger.PromptStatusSettled},
+		{"crash recorded", stopOnceTheCrashIsRecorded, ledger.PromptStatusSettled},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &readHook{}
@@ -211,14 +219,68 @@ func TestEndingRunner_ASteerItsTurnStopCarriesOpensNoTurn(t *testing.T) {
 				ctx, cancel := context.WithTimeout(marked(f.ctx, mark), 5*time.Second)
 				defer cancel()
 				assert.NoError(t, f.usecase.IngestHook(ctx, runnerID, "claude", "turn_stop",
-					mustJSON(t, map[string]any{"last_assistant_message": tc.said})))
+					mustJSON(t, map[string]any{"last_assistant_message": ""})))
 			})
 
-			assert.Equal(t, ledger.PromptStatusSettled, receipt(t, f, chatID, requestID).Status,
-				"a steer its ending runner never took is refused, so the client keeps its text")
+			assert.Equal(t, tc.want, receipt(t, f, chatID, requestID).Status,
+				"only a steer its runner took is delivered; the client keeps any other's text")
 			assertEndedAndResumable(t, f, chatID)
 		})
 	}
+}
+
+// refusedReplies refuses the assistant replies the record closes once armed.
+type refusedReplies struct {
+	agentactivity.EventStore
+	armed atomic.Bool
+}
+
+var errReplyRefused = errors.New("boom: reply refused")
+
+func (r *refusedReplies) CloseTurn(ctx context.Context, in agentactivity.TurnInput) error {
+	if r.armed.Load() {
+		return errReplyRefused
+	}
+	return r.EventStore.CloseTurn(ctx, in)
+}
+
+// A turn end whose reply the record refused is refused to its CLI, so the steer
+// it would carry is never handed over: it settles, for its client to keep.
+func TestSteer_ATurnEndRefusedToItsCLICarriesNoSteer(t *testing.T) {
+	replies := &refusedReplies{}
+	f := newFixtureUsing(t, nil, "", func(real agentactivity.EventStore) agentactivity.EventStore {
+		replies.EventStore = real
+		return replies
+	})
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-steer")
+	prompt(t, f, runnerID, "claude", "think hard about this")
+	requestID := uuid.NewString()
+	steered, err := f.usecase.SubmitPrompt(f.ctx, chatID, "and this too", requestID, "", nil)
+	require.NoError(t, err)
+	require.Equal(t, runnerID, steered.RunnerID, "precondition: the prompt is steered into the running turn")
+	replies.armed.Store(true)
+
+	err = f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
+		mustJSON(t, map[string]any{"last_assistant_message": "done"}))
+
+	require.ErrorIs(t, err, errReplyRefused)
+	got := receipt(t, f, chatID, requestID)
+	assert.Equal(t, ledger.PromptStatusSettled, got.Status)
+	assert.Equal(t, ledger.ReasonDeliveryFailed, got.Reason)
+	assert.False(t, f.busy(t, chatID), "no turn opened for a steer its CLI never got")
+}
+
+// stopWhileTheTurnStopHoldsTheChat stops the chat once the turn_stop holds its
+// lock: the Stop queues behind it, so the steer is handed over first.
+func stopWhileTheTurnStopHoldsTheChat(
+	t *testing.T, f testFixture, store *readHook, mark string, live engineagents.Runner, stop func(),
+) {
+	t.Helper()
+	stopped := make(chan error, 1)
+	store.arm(mark, func() { go func() { stopped <- f.usecase.StopChat(f.ctx, live.CurrentChatID) }() })
+	stop()
+	require.NoError(t, <-stopped)
 }
 
 // crashWhileTheStopIsIngested crashes the CLI once the turn_stop holds its

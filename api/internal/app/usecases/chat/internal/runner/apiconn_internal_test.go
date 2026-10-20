@@ -23,10 +23,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// noopTurns satisfies the Turns port with the cheapest possible answers —
-// nothing here is exercised by this file's tests beyond Hook, which spyTurns
-// overrides. Mirrors runner_test's own stubTurns, duplicated here because that
-// one lives in the external runner_test package.
+// noopTurns is the Turns port doing nothing; spyTurns overrides its Hook.
 type noopTurns struct{}
 
 func (noopTurns) Hook(context.Context, string, string, string, []byte) (string, error) {
@@ -41,21 +38,15 @@ func (noopTurns) RecordChatSwitch(context.Context, string, string, string) error
 
 func (noopTurns) SetFeed(seam.ChatFeed) {}
 
-func (noopTurns) MatchTerminalPrompt(
-	context.Context, string, string,
-) (engineagents.TerminalPrompt, bool) {
+func (noopTurns) MatchTerminalPrompt(context.Context, string, string) (engineagents.TerminalPrompt, bool) {
 	return engineagents.TerminalPrompt{}, false
 }
 
-func (noopTurns) MatchTerminalNotice(
-	context.Context, string, string,
-) (engineagents.TerminalNotice, bool) {
+func (noopTurns) MatchTerminalNotice(context.Context, string, string) (engineagents.TerminalNotice, bool) {
 	return engineagents.TerminalNotice{}, false
 }
 
-func (noopTurns) AbandonMessageForRunner(
-	context.Context, string, engineagents.Runner,
-) (bool, error) {
+func (noopTurns) AbandonMessageForRunner(context.Context, string, engineagents.Runner) (bool, error) {
 	return false, nil
 }
 
@@ -385,8 +376,7 @@ func TestPumpAPIConn_AnAskIsAnsweredOverTheConnection(t *testing.T) {
 	assert.Equal(t, "permission", call.canonical)
 	require.NotEmpty(t, call.ask, "an ask event is held on its ask so the pump can await it")
 
-	// The slot was already held synchronously inside Hook (spyTurns), the same
-	// ordering the real ingress guarantees. Simulate a human deciding it.
+	// Held inside Hook (spyTurns), as the real ingress does: a human decides it.
 	slot, held := answers.ByChoiceID(call.ask)
 	require.True(t, held)
 	answers.Resolve(slot, []byte(`{"decision":"approved"}`))
@@ -400,51 +390,57 @@ func TestPumpAPIConn_AnAskIsAnsweredOverTheConnection(t *testing.T) {
 }
 
 // An api provider has no TUI to fall back to: an ask nobody answers from
-// Crowbar gets the descriptor's refusal, never silence that holds its turn.
+// Crowbar, or one the ingress refused, gets the descriptor's refusal, never
+// silence that holds its turn.
 func TestPumpAPIConn_AnAskNobodyAnswersIsRefused(t *testing.T) {
-	replySeen := make(chan string, 1)
-	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
-		ask, _ := json.Marshal(map[string]any{
-			"id": 9, "method": "acme/tool/requestApproval",
-			"params": map[string]string{"tool": "shell"},
+	for name, tc := range map[string]struct {
+		turns  *spyTurns
+		reason string
+	}{
+		"held by nobody":         {turns: &spyTurns{}, reason: "No answer from Crowbar in time."},
+		"refused by the ingress": {turns: &spyTurns{failFirst: true}, reason: "Crowbar could not record this request."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			replySeen := make(chan string, 1)
+			stdio := fakeServe(t, func(conn *testutil.LinePeer) {
+				ask, _ := json.Marshal(map[string]any{
+					"id": 9, "method": "acme/tool/requestApproval", "params": map[string]string{"tool": "shell"},
+				})
+				require.NoError(t, conn.Write(ask))
+				raw, err := conn.Read()
+				if err != nil {
+					return
+				}
+				var reply struct {
+					Result json.RawMessage `json:"result"`
+				}
+				require.NoError(t, json.Unmarshal(raw, &reply))
+				replySeen <- string(reply.Result)
+				_, _ = conn.Read()
+			})
+			agent := apiTransportTestAgent(t)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
+			require.NoError(t, err)
+			defer func() { _ = apiConn.Close() }()
+
+			rs := &Runners{turns: tc.turns, answers: answerdesk.New(answerdesk.DefaultRetention, nil), live: newLiveTable()}
+			rs.pumpAPIConn("runner-1", "api-test", agent, &apiconn{driver: apiConn, ctx: ctx})
+
+			select {
+			case reply := <-replySeen:
+				assert.JSONEq(t, fmt.Sprintf(`{"decision":"denied","message":%q}`, tc.reason), reply)
+			case <-ctx.Done():
+				t.Fatal("an unanswered ask must be refused, not left open")
+			}
 		})
-		require.NoError(t, conn.Write(ask))
-		raw, err := conn.Read()
-		if err != nil {
-			return
-		}
-		var reply struct {
-			Result json.RawMessage `json:"result"`
-		}
-		require.NoError(t, json.Unmarshal(raw, &reply))
-		replySeen <- string(reply.Result)
-		_, _ = conn.Read()
-	})
-
-	agent := apiTransportTestAgent(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
-	require.NoError(t, err)
-	defer func() { _ = apiConn.Close() }()
-
-	// No slot is held: the ask reached nobody who could answer it.
-	rs := &Runners{turns: &spyTurns{}, answers: answerdesk.New(answerdesk.DefaultRetention, nil), live: newLiveTable()}
-	rs.pumpAPIConn("runner-1", "api-test", agent, &apiconn{driver: apiConn, ctx: ctx})
-
-	select {
-	case reply := <-replySeen:
-		assert.JSONEq(t, `{"decision":"denied","message":"No answer from Crowbar in time."}`, reply)
-	case <-ctx.Done():
-		t.Fatal("an unanswered ask must be refused, not left open")
 	}
 }
 
-// §7-A: the pump used to Await a permission answer inline, so every event the
-// provider sent after an unanswered ask — deltas, turn_stop, the next ask —
-// sat behind a human's decision, and once the driver's buffers filled an
-// interrupt hung holding the chat. The answer is awaited on its own
-// goroutine; the pump keeps draining.
+// An ask is awaited off the pump: every event behind it (deltas, turn_stop, the
+// next ask) keeps flowing while a human decides, and an interrupt never hangs
+// behind the driver's full buffers.
 func TestPumpAPIConn_AnUnansweredAskDoesNotBlockLaterEvents(t *testing.T) {
 	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
 		ask, _ := json.Marshal(map[string]any{

@@ -282,7 +282,8 @@ func pointPlanAtAttach(plan *engineagents.SpawnPlan, attachArgv []string) {
 // pumpAPIConn places every canonical event this connection's driver resolves
 // through the same door the hook relay uses. It runs on the connection's own
 // ctx (never a request's) until the driver closes its events, and an event it
-// cannot place never stops the ones behind it.
+// cannot place never stops the ones behind it; an ask it could not place is
+// refused at once.
 func (rs *Runners) pumpAPIConn(
 	runnerID, providerID string, agent engineagents.Agent, conn *apiconn,
 ) {
@@ -294,6 +295,9 @@ func (rs *Runners) pumpAPIConn(
 			if err != nil {
 				slog.WarnContext(ctx, "agent: api transport: place event", "err", err,
 					"runner_id", runnerID, "event", ev.Canonical)
+				if ev.AskID != nil {
+					rs.refuseAsk(ctx, runnerID, agent, ev, conn, "Crowbar could not record this request.")
+				}
 				continue
 			}
 			if ev.AskID != nil {
@@ -325,15 +329,25 @@ func (rs *Runners) awaitAndReply(
 	if err != nil {
 		return // the connection is closing: the provider's ask dies with it
 	}
-	reply := answer.Stdout
-	if len(reply) == 0 {
-		reply, err = agent.RenderAnswer(ev.Canonical, ev.Raw, engineagents.AnswerDecision{
-			Key: answerdesk.RefusalKey(ev.Canonical), Reason: "No answer from Crowbar in time.",
-		})
-		if err != nil {
-			slog.WarnContext(ctx, "agent: api transport: render refusal", "err", err, "runner_id", runnerID)
-			return
-		}
+	if len(answer.Stdout) == 0 {
+		rs.refuseAsk(ctx, runnerID, agent, ev, conn, "No answer from Crowbar in time.")
+		return
+	}
+	if err := conn.driver.Reply(ev.AskID, answer.Stdout); err != nil {
+		slog.WarnContext(ctx, "agent: api transport: write reply", "err", err, "runner_id", runnerID)
+	}
+}
+
+// refuseAsk answers ev with its descriptor's refusal, for reason.
+func (rs *Runners) refuseAsk(
+	ctx context.Context, runnerID string, agent engineagents.Agent, ev engineagents.APIEvent, conn *apiconn, reason string,
+) {
+	reply, err := agent.RenderAnswer(ev.Canonical, ev.Raw, engineagents.AnswerDecision{
+		Key: answerdesk.RefusalKey(ev.Canonical), Reason: reason,
+	})
+	if err != nil {
+		slog.WarnContext(ctx, "agent: api transport: render refusal", "err", err, "runner_id", runnerID)
+		return
 	}
 	if err := conn.driver.Reply(ev.AskID, reply); err != nil {
 		slog.WarnContext(ctx, "agent: api transport: write reply", "err", err, "runner_id", runnerID)

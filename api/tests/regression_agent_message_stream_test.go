@@ -433,6 +433,28 @@ func TestRegression_AStreamedReplyIsNotRecordedTwice(t *testing.T) {
 		assistantTexts(readRecordedMessages(t, h, imported, chatID)))
 }
 
+// The bug of 2026-08-29: a turn_stop that beat its own final delta recorded the
+// reply twice, once from each hook. The late delta joins the reply its turn_stop
+// recorded, and the fuller text wins.
+func TestRegression_AFinalDeltaAfterItsTurnStopJoinsTheReply(t *testing.T) {
+	h := newHarness(t)
+	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
+	imported := importWritableWorkspace(t, h)
+	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
+
+	post := func(event, payload string) {
+		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
+	}
+	post("session_start", `{"session_id":"sess-1"}`)
+	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
+	post("turn_stop", `{"session_id":"sess-1","last_assistant_message":"SAID"}`)
+	post("message_delta", delta("msg-one", 0, true, "SAID IN FULL"))
+	h.Quiesce()
+
+	assert.Equal(t, []string{"SAID IN FULL"},
+		assistantTexts(readRecordedMessages(t, h, imported, chatID)))
+}
+
 func TestRegression_CrowbarDeclaresNoProviderTranscript(t *testing.T) {
 	_, thisFile, _, ok := runtime.Caller(0)
 	require.True(t, ok)

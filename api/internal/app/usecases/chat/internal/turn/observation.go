@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -15,7 +16,8 @@ import (
 )
 
 // handleObservation records what happened inside a turn, and returns the ask
-// a permission or elicitation was held on, if one was.
+// a permission or elicitation was held on, if one was. A write that failed is
+// its error: the hook is refused, never acknowledged with nothing written.
 func (t *Turns) handleObservation(
 	ctx context.Context,
 	runner engineagents.Runner,
@@ -31,25 +33,11 @@ func (t *Turns) handleObservation(
 
 	switch ev.Kind {
 	case engineagents.HookMessageDelta:
-
-		t.recordMessageDelta(ctx, chat, runner, ev)
+		return "", t.recordMessageDelta(ctx, chat, runner, ev)
 	case engineagents.HookPlanUpdate:
-		// Restated wholesale: keep the existing live push and also retain the
-		// latest canonical snapshot on the open activity turn so it survives the
-		// turn closing, daemon restarts, reloads, and paged activity reads.
-		if t.feed.Plan != nil && len(ev.Plan) > 0 {
-			t.feed.Plan(chat.ID, chat.WorkspaceID, ev.Plan)
-		}
-		steps := make([]domain.ActivityPlanStep, 0, len(ev.Plan))
-		for _, step := range ev.Plan {
-			steps = append(steps, domain.ActivityPlanStep{Text: step.Text, Status: step.Status})
-		}
-		note(ctx, "plan updated", t.activity.UpdatePlan(ctx, agentactivity.PlanInput{
-			ChatID: chat.ID, ProviderID: runner.ProviderID, RunnerID: runner.ID,
-			SessionID: t.boundSession(ctx, chat.ID, runner.ProviderID), Steps: steps, Now: now,
-		}))
+		return "", t.recordPlan(ctx, chat, runner, ev, now)
 	case engineagents.HookIdle:
-		t.recordIdle(ctx, chat.ID, runner)
+		return "", t.recordIdle(ctx, chat.ID, runner)
 	case engineagents.HookReasoningDelta:
 		// Live only — see recordLiveText. Nothing durable is written, so a provider
 		// that maps either of these can never corrupt a transcript with them.
@@ -58,91 +46,70 @@ func (t *Turns) handleObservation(
 		t.recordLiveText(chat, ev, DeltaKindToolOutput)
 	case engineagents.HookDiffUpdate:
 		t.recordLiveReplacement(chat, ev, DeltaKindDiff)
-	case engineagents.HookToolPre:
-		note(ctx, "tool invoked", t.activity.InvokeTool(ctx, agentactivity.ToolInput{
-			ChatID: chat.ID, ToolID: toolID(ev), Name: ev.Tool.Name, Kind: ev.Tool.Kind,
+	case engineagents.HookToolPre, engineagents.HookToolPost, engineagents.HookToolFail:
+		return "", t.recordTool(ctx, chat.ID, ev, now)
+	case engineagents.HookSubagentPre, engineagents.HookSubagentPost:
+		return "", t.recordSubagent(ctx, chat.ID, ev, now)
+	case engineagents.HookNotification, engineagents.HookPermission,
+		engineagents.HookElicitation:
+		return t.raiseAsk(ctx, chat, runner, agent, ev, raw, now)
+	case engineagents.HookCompactPre:
+		return "", t.recordCompactionStart(ctx, chat, runner, agent, ev, now)
+	case engineagents.HookCompactPost:
+		return "", t.recordCompactionEnd(ctx, chat, runner, agent, ev, now)
+	}
+	return "", nil
+}
+
+// recordPlan pushes the restated plan live and keeps it on the open turn, so it
+// survives the turn closing, a restart and a paged read.
+func (t *Turns) recordPlan(
+	ctx context.Context, chat domain.Chat, runner engineagents.Runner, ev engineagents.CanonicalEvent, now time.Time,
+) error {
+	if t.feed.Plan != nil && len(ev.Plan) > 0 {
+		t.feed.Plan(chat.ID, chat.WorkspaceID, ev.Plan)
+	}
+	steps := make([]domain.ActivityPlanStep, 0, len(ev.Plan))
+	for _, step := range ev.Plan {
+		steps = append(steps, domain.ActivityPlanStep{Text: step.Text, Status: step.Status})
+	}
+	return wrote("plan updated", t.activity.UpdatePlan(ctx, agentactivity.PlanInput{
+		ChatID: chat.ID, ProviderID: runner.ProviderID, RunnerID: runner.ID,
+		SessionID: t.boundSession(ctx, chat.ID, runner.ProviderID), Steps: steps, Now: now,
+	}))
+}
+
+func (t *Turns) recordTool(ctx context.Context, chatID string, ev engineagents.CanonicalEvent, now time.Time) error {
+	if ev.Kind == engineagents.HookToolPre {
+		return wrote("tool invoked", t.activity.InvokeTool(ctx, agentactivity.ToolInput{
+			ChatID: chatID, ToolID: toolID(ev), Name: ev.Tool.Name, Kind: ev.Tool.Kind,
 			Locations: toolLocations(ev), Target: ev.Tool.Target,
 			Request: ev.Tool.Input, Diff: toolStartDiff(ev.Tool),
 			Now: now,
 		}))
-	case engineagents.HookToolPost, engineagents.HookToolFail:
-
-		note(ctx, "tool completed", t.activity.CompleteTool(ctx, agentactivity.ToolResultInput{
-			ChatID: chat.ID, ToolID: toolID(ev), Name: ev.Tool.Name, Kind: ev.Tool.Kind,
-			Locations: toolLocations(ev), Target: ev.Tool.Target,
-			Result: ev.Tool.Result, Diff: toolResultDiff(ev.Tool),
-			Status: toolStatus(ev), Error: ev.Tool.Error,
-			DurationMS: ev.Tool.DurationMS, Now: now,
-		}))
-		t.openNestedSubagent(ctx, chat.ID, ev, now)
-	case engineagents.HookSubagentPre:
-		if ev.Subagent == nil || ev.Subagent.ID == "" {
-			break
-		}
-		note(ctx, "subagent started",
-			t.activity.StartSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, now))
-	case engineagents.HookSubagentPost:
-		if ev.Subagent == nil || ev.Subagent.ID == "" {
-			break
-		}
-		note(ctx, "subagent stopped",
-			t.activity.StopSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, "", now))
-	case engineagents.HookNotification, engineagents.HookPermission,
-		engineagents.HookElicitation:
-		return t.raiseAsk(ctx, chat, runner, agent, ev, raw, now), nil
-	case engineagents.HookCompactPre:
-		// Armed first: a compaction's own turn envelope can ride the same
-		// events turn_stop/turn_failed consume (compaction.go). A compact_pre
-		// that maps no turn_id arms nothing.
-		t.armCompaction(ctx, chat.ID, ev.TurnID)
-		// A provider that reports no trigger falls back to Crowbar's own record
-		// of having asked for this; one that reports it is never overridden.
-		detail := ev.Interrupt.Detail
-		if detail == "" && t.manualCompact.peek(chat.ID) {
-			detail = "manual"
-		}
-		note(ctx, "interrupted", t.activity.Interrupt(
-			ctx, chat.ID, interruptionID(chat.ID, ev), ev.Interrupt.Kind, detail, now,
-		))
-		// Neither ever confirms via a user_prompt hook, so no turn is ever open
-		// when this fires — Interrupt's own idle-chat handling (commands/
-		// interrupt.go) has ALREADY resolved the record above regardless of
-		// whether compact_post goes on to arrive (it does not reliably, over
-		// hooks-transport). settleCompactDelivery only settles the pending
-		// prompt delivery when THIS compaction is genuinely what was
-		// dispatched as one — see its own doc for why that gate is load-
-		// bearing, not optional.
-		t.settleCompactDelivery(ctx, chat, runner, agent)
-		// The ledger record above is already resolved by the time any reader
-		// sees it (same idle-chat shortcut), so it can never drive a LIVE
-		// "Compacting…" indicator. This direct push is the only signal that
-		// can. compact_post is not reliable, so the receiving client is
-		// responsible for a bounded self-heal rather than waiting forever —
-		// see use-workspace-agent-chats-stream.ts.
-		if t.feed.Compaction != nil {
-			t.feed.Compaction(chat.ID, chat.WorkspaceID, true)
-		}
-	case engineagents.HookCompactPost:
-		// SAME fallback as compact_pre, and NOT redundant with it: this event's
-		// own ResolveInterruption call REBUILDS the interruption from scratch
-		// (see manualCompact.peek's doc) and would otherwise clobber "manual"
-		// back to empty moments after compact_pre set it — live-confirmed.
-		detail := ev.Interrupt.Detail
-		if detail == "" && t.manualCompact.consume(chat.ID) {
-			detail = "manual"
-		}
-		note(ctx, "interruption resolved", t.activity.ResolveInterruption(
-			ctx, chat.ID, interruptionID(chat.ID, ev), ev.Interrupt.Kind, detail, now,
-		))
-		// Settled already by compact_pre in the ordinary (idle-chat) case —
-		// this is the defensive twin for the day compaction happens mid-turn
-		// and compact_pre's Interrupt call found the chat genuinely busy.
-		t.settleCompactDelivery(ctx, chat, runner, agent)
-		if t.feed.Compaction != nil {
-			t.feed.Compaction(chat.ID, chat.WorkspaceID, false)
-		}
 	}
-	return "", nil
+	if err := t.activity.CompleteTool(ctx, agentactivity.ToolResultInput{
+		ChatID: chatID, ToolID: toolID(ev), Name: ev.Tool.Name, Kind: ev.Tool.Kind,
+		Locations: toolLocations(ev), Target: ev.Tool.Target,
+		Result: ev.Tool.Result, Diff: toolResultDiff(ev.Tool),
+		Status: toolStatus(ev), Error: ev.Tool.Error,
+		DurationMS: ev.Tool.DurationMS, Now: now,
+	}); err != nil {
+		return wrote("tool completed", err)
+	}
+	return t.openNestedSubagent(ctx, chatID, ev, now)
+}
+
+func (t *Turns) recordSubagent(ctx context.Context, chatID string, ev engineagents.CanonicalEvent, now time.Time) error {
+	if ev.Subagent == nil || ev.Subagent.ID == "" {
+		return nil
+	}
+	if ev.Kind == engineagents.HookSubagentPre {
+		return wrote("subagent started",
+			t.activity.StartSubagent(ctx, chatID, subagentID(ev), ev.Subagent.AgentType, now))
+	}
+	return wrote("subagent stopped",
+		t.activity.StopSubagent(ctx, chatID, subagentID(ev), ev.Subagent.AgentType, "", now))
 }
 
 func toolLocations(ev engineagents.CanonicalEvent) []domain.ActivityToolLocation {
@@ -216,6 +183,14 @@ func note(
 	slog.WarnContext(ctx, "agent: observation: "+what, "err", err)
 }
 
+// wrote is err, the failed write of what a hook recorded, with its context.
+func wrote(what string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("agent: hook: %s: %w", what, err)
+}
+
 func toolID(ev engineagents.CanonicalEvent) string {
 	if ev.Tool != nil && ev.Tool.ID != "" {
 		return ev.Tool.ID
@@ -265,21 +240,20 @@ func (t *Turns) openNestedSubagent(
 	chatID string,
 	ev engineagents.CanonicalEvent,
 	now time.Time,
-) {
+) error {
 	if ev.Tool == nil || ev.Tool.NestedSessionID == "" {
-		return
+		return nil
 	}
 	known, err := t.activity.Subagents(ctx, chatID)
 	if err != nil {
-		slog.WarnContext(ctx, "agent: nested subagent: check already recorded", "err", err)
-		return
+		return fmt.Errorf("agent: hook: nested subagent: check already recorded: %w", err)
 	}
 	for _, s := range known {
 		if s.ID == ev.Tool.NestedSessionID {
-			return
+			return nil
 		}
 	}
-	note(ctx, "nested subagent opened",
+	return wrote("nested subagent opened",
 		t.activity.OpenNestedSubagent(ctx, chatID, ev.Tool.NestedSessionID, now))
 }
 

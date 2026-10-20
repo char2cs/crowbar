@@ -48,8 +48,8 @@ func (t *Turns) routeNestedSubagentEvent(
 // instead of chatID's top-level turn — the durable slice of a child
 // conversation's own stream: its own tool calls, its own final reply text on
 // close, and any ask the person must answer, which goes through the same path
-// as a top-level ask. Other kinds (live deltas, idle, plan, reasoning...) are
-// silently dropped like any unmapped event.
+// as a top-level ask. Other kinds (live deltas, idle, plan, reasoning...) are a
+// filter: a child conversation's live stream is not part of the chat's record.
 func (t *Turns) handleNestedObservation(
 	ctx context.Context,
 	runner engineagents.Runner,
@@ -66,19 +66,19 @@ func (t *Turns) handleNestedObservation(
 		if err != nil {
 			return "", err
 		}
-		return t.raiseAsk(ctx, chat, runner, agent, ev, raw, now), nil
+		return t.raiseAsk(ctx, chat, runner, agent, ev, raw, now)
 	case engineagents.HookTurnStop, engineagents.HookTurnFailed:
-		note(ctx, "nested subagent turn closed",
+		return "", wrote("nested subagent turn closed",
 			t.activity.StopSubagent(ctx, chatID, subagentID, "", ev.Message, now))
 	case engineagents.HookToolPre:
-		note(ctx, "nested subagent tool invoked", t.activity.InvokeSubagentTool(ctx,
+		return "", wrote("nested subagent tool invoked", t.activity.InvokeSubagentTool(ctx,
 			agentactivity.SubagentToolInput{
 				ChatID: chatID, SubagentID: subagentID, ToolID: toolID(ev),
 				Name: ev.Tool.Name, Kind: ev.Tool.Kind, Locations: toolLocations(ev),
 				Target: ev.Tool.Target, Request: ev.Tool.Input, Now: now,
 			}))
 	case engineagents.HookToolPost, engineagents.HookToolFail:
-		note(ctx, "nested subagent tool completed", t.activity.CompleteSubagentTool(ctx,
+		return "", wrote("nested subagent tool completed", t.activity.CompleteSubagentTool(ctx,
 			agentactivity.SubagentToolResultInput{
 				ChatID: chatID, SubagentID: subagentID, ToolID: toolID(ev),
 				Name: ev.Tool.Name, Kind: ev.Tool.Kind, Locations: toolLocations(ev),

@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
@@ -26,7 +27,8 @@ type TurnUsecase interface {
 		channel engineagents.Channel,
 	) (HookReply, error)
 
-	// DeadLetterCount is how many hooks were refused and kept for inspection.
+	// DeadLetterCount is how many hooks were refused to their senders and kept
+	// for inspection.
 	DeadLetterCount(ctx context.Context) (int, error)
 
 	// ReadActivity pages a chat's tool calls and returns its subagents,
@@ -133,7 +135,11 @@ func (u *Usecase) Hook(
 
 // DeadLetterCount is how many hooks the ingress refused and kept.
 func (u *Usecase) DeadLetterCount(ctx context.Context) (int, error) {
-	return u.ledger.DeadLetterCount(ctx)
+	n, err := u.ingress.Refusals(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("agent: dead letter count: %w", err)
+	}
+	return n, nil
 }
 
 // ReadActivity returns one page of the chat's tool calls, subagents,

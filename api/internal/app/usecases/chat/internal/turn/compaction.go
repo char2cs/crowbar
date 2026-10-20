@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -207,13 +208,64 @@ func (t *Turns) settleCompactDelivery(
 	chat domain.Chat,
 	runner engineagents.Runner,
 	agent engineagents.Agent,
-) {
+) error {
 	wire, _, ok := agent.OutboundCall("compact_start", nil)
 	if !ok || wire != "prompt" {
-		return
+		return nil
 	}
 	_, _, err := t.ledger.Do(ctx, chat.ID, func(st ledger.State) ([]ledger.Row, error) {
 		return ledger.SettleCarried(st, runner.ID, true, ledger.ReasonProviderBuiltin)
 	})
-	note(ctx, "settle compact prompt", err)
+	return wrote("settle compact prompt", err)
+}
+
+// recordCompactionStart opens a compaction's divider. Its turn envelope is armed
+// first: that envelope's own stop is no reply (see compactionTurns).
+func (t *Turns) recordCompactionStart(
+	ctx context.Context, chat domain.Chat, runner engineagents.Runner, agent engineagents.Agent,
+	ev engineagents.CanonicalEvent, now time.Time,
+) error {
+	t.armCompaction(ctx, chat.ID, ev.TurnID)
+	// A provider that reports no trigger falls back to Crowbar's own record of
+	// having asked for this; one that reports it is never overridden.
+	detail := ev.Interrupt.Detail
+	if detail == "" && t.manualCompact.peek(chat.ID) {
+		detail = "manual"
+	}
+	err := t.activity.Interrupt(ctx, chat.ID, interruptionID(chat.ID, ev), ev.Interrupt.Kind, detail, now)
+	if err != nil {
+		return wrote("interrupted", err)
+	}
+	if err := t.settleCompactDelivery(ctx, chat, runner, agent); err != nil {
+		return err
+	}
+	// The divider is resolved as soon as it is written on an idle chat, so only
+	// this push can show a live "Compacting…"; the client bounds its own wait.
+	if t.feed.Compaction != nil {
+		t.feed.Compaction(chat.ID, chat.WorkspaceID, true)
+	}
+	return nil
+}
+
+// recordCompactionEnd resolves the divider. Resolving rebuilds it from this
+// event's detail, so the manual fallback is applied here too (see peek).
+func (t *Turns) recordCompactionEnd(
+	ctx context.Context, chat domain.Chat, runner engineagents.Runner, agent engineagents.Agent,
+	ev engineagents.CanonicalEvent, now time.Time,
+) error {
+	detail := ev.Interrupt.Detail
+	if detail == "" && t.manualCompact.consume(chat.ID) {
+		detail = "manual"
+	}
+	err := t.activity.ResolveInterruption(ctx, chat.ID, interruptionID(chat.ID, ev), ev.Interrupt.Kind, detail, now)
+	if err != nil {
+		return wrote("interruption resolved", err)
+	}
+	if err := t.settleCompactDelivery(ctx, chat, runner, agent); err != nil {
+		return err
+	}
+	if t.feed.Compaction != nil {
+		t.feed.Compaction(chat.ID, chat.WorkspaceID, false)
+	}
+	return nil
 }

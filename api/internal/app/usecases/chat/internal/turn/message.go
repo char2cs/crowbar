@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/stream"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -18,16 +19,16 @@ func (t *Turns) recordMessageDelta(
 	chat domain.Chat,
 	runner engineagents.Runner,
 	ev engineagents.CanonicalEvent,
-) {
+) error {
 	if ev.Delta == nil {
-		return
+		return nil
 	}
 	message, ok := t.messages.Observe(
 		chat.ID, runner.ID, ev.Delta.TurnID, ev.Delta.MessageID,
 		ev.Delta.Index, ev.Delta.Sequenced, ev.Delta.Final, ev.Delta.Text, time.Now(),
 	)
 	if !ok {
-		return
+		return nil
 	}
 
 	if t.feed.MessageDelta != nil {
@@ -38,11 +39,56 @@ func (t *Turns) recordMessageDelta(
 	// Hook processes race, so the closing increment can land before an earlier
 	// one: record once whole. The turn close records whatever is still partial.
 	if !message.Final || !message.Complete || message.Text == message.RecordedText {
-		return
+		return nil
 	}
-	note(ctx, "record streamed message",
-		t.recordAssistantMessage(ctx, chat, runner, message.ID, message.Text, "", true, "completed", "", message.FirstAt))
+	answer, joins, err := t.answeredTurn(ctx, chat.ID, runner.ID, ev.Delta.TurnID)
+	if err != nil {
+		return err
+	}
+	if joins {
+		return t.joinAnswer(ctx, chat, runner, answer, message)
+	}
+	err = t.recordAssistantMessage(ctx, chat, runner, message.ID, message.Text, "", true, "completed", "", message.FirstAt)
+	if err != nil {
+		return err
+	}
 	t.messages.MarkRecorded(chat.ID, message.ID, message.Text)
+	return nil
+}
+
+// answeredTurn is the reply runnerID's turn closed on, when a final message of
+// that same turn lands after it: the chat has started no turn since, and the
+// message names no other.
+func (t *Turns) answeredTurn(ctx context.Context, chatID, runnerID, providerTurnID string) (stream.Answer, bool, error) {
+	answer, ok := t.messages.Answer(chatID, runnerID)
+	if !ok {
+		return stream.Answer{}, false, nil
+	}
+	st, err := t.ledger.State(ctx, chatID)
+	if err != nil {
+		return stream.Answer{}, false, fmt.Errorf("agent: record streamed message: read ledger: %w", err)
+	}
+	last, has := st.LastTurn()
+	return answer, has == answer.HasTurn && last.ID == answer.TurnID && last.Names(providerTurnID), nil
+}
+
+// joinAnswer records message as the reply its turn closed on, under that reply's
+// id, keeping the fuller text of the two.
+func (t *Turns) joinAnswer(
+	ctx context.Context, chat domain.Chat, runner engineagents.Runner, answer stream.Answer, message stream.Message,
+) error {
+	text := message.Text
+	if len(answer.Text) > len(text) {
+		text = answer.Text
+	}
+	err := t.recordAssistantMessage(
+		ctx, chat, runner, answer.MessageID, text, answer.Effort, false, answer.Status, answer.Diff, message.FirstAt,
+	)
+	if err != nil {
+		return err
+	}
+	t.messages.Joined(chat.ID, message.ID)
+	return nil
 }
 
 func (t *Turns) recordAssistantMessage(
@@ -153,15 +199,34 @@ func (t *Turns) closeAssistantTurn(
 
 	// Only when nothing streamed at all is the hook's own text the answer.
 	if ev.Message != "" && lastRecorded == "" {
-		return t.recordAssistantMessage(
-			ctx, chat, runner, "hook-"+uuid.NewString(), ev.Message, ev.Effort, false, status, diff, time.Time{},
-		)
+		return t.answerFromHook(ctx, chat, runner, stream.Answer{
+			MessageID: "hook-" + uuid.NewString(), Text: ev.Message, Effort: ev.Effort, Status: status, Diff: diff,
+		})
 	}
 	if lastRecorded == "" {
 		if err := t.activity.Abandon(ctx, chat.ID, time.Now()); err != nil {
 			return fmt.Errorf("agent: ingest hook: close empty turn: %w", err)
 		}
 	}
+	return nil
+}
+
+// answerFromHook records the closing hook's own text as its turn's reply. The
+// turn's final message can land after its close: it joins this reply then.
+func (t *Turns) answerFromHook(ctx context.Context, chat domain.Chat, runner engineagents.Runner, answer stream.Answer) error {
+	st, err := t.ledger.State(ctx, chat.ID)
+	if err != nil {
+		return fmt.Errorf("agent: ingest hook: close turn: read ledger: %w", err)
+	}
+	last, has := st.LastTurn()
+	answer.TurnID, answer.HasTurn = last.ID, has
+	err = t.recordAssistantMessage(
+		ctx, chat, runner, answer.MessageID, answer.Text, answer.Effort, false, answer.Status, answer.Diff, time.Time{},
+	)
+	if err != nil {
+		return err
+	}
+	t.messages.Answered(chat.ID, runner.ID, answer)
 	return nil
 }
 

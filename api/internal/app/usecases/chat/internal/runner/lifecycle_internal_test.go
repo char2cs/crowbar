@@ -86,7 +86,7 @@ func TestRegression_RetireTerminatesTheAttachedNativeViewNotJustTheStaleCompanio
 	rs.live.update("runner-1", func(r *agents.Runner) { r.TerminalSession = "companion-pty-term" })
 	rs.attached.set("runner-1", attachedView{termSessID: "native-view-term"})
 
-	rs.RetireChatRunners(context.Background(), "chat-1")
+	rs.RetireChatRunners(context.Background(), "chat-1")()
 
 	assert.Contains(t, term.terminated, "companion-pty-term",
 		"the original companion PTY is still a real process and must still be torn down")

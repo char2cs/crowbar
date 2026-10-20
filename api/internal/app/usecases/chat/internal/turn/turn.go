@@ -3,6 +3,7 @@ package turn
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -99,7 +100,8 @@ func (t *Turns) closeTurnFromStop(
 	var steered *ledger.Prompt
 	var reply []byte
 	steerTurn := t.turnStarted(ctx, chat.ID, runner, agent, "")
-	end := func(held bool) error {
+	// A reply that was not recorded refuses this hook, and the steer with it.
+	end := func(deliver bool) error {
 		_, _, err := t.ledger.Do(ctx, chat.ID, func(st ledger.State) ([]ledger.Row, error) {
 			steered = nil
 			ended, closes, err := ledger.EndTurnOf(st, runner.ID, ev.TurnID, ledger.TurnEnded{
@@ -111,7 +113,7 @@ func (t *Turns) closeTurnFromStop(
 				return rows, err
 			}
 			stdout, deliverable := steerReply(ctx, p, agent)
-			if !held || !deliverable || !startsOn(st, runner.ID) {
+			if !deliver || !deliverable || !startsOn(st, runner.ID) {
 				settled, err := settleSteer(st, runner.ID, ledger.ReasonDeliveryFailed)
 				return append(rows, settled...), err
 			}
@@ -124,7 +126,7 @@ func (t *Turns) closeTurnFromStop(
 	}
 	// Held against the runner's end, so the steered prompt's turn never opens
 	// on a CLI that is going away.
-	opened, err := t.openingTurn(runner.ID, func(turnHold) error { return end(true) })
+	opened, err := t.openingTurn(runner.ID, func(turnHold) error { return end(appendErr == nil) })
 	if !opened {
 		err = end(false)
 	}
@@ -149,10 +151,10 @@ func (t *Turns) closeTurnFromFailure(
 	}
 	appendErr := t.closeAssistantTurn(ctx, chat, runner, ev)
 	if reason := failureNotice(ev); reason != "" {
-		note(ctx, "record turn failure", t.conversations.RecordTurn(
+		appendErr = errors.Join(appendErr, wrote("record turn failure", t.conversations.RecordTurn(
 			ctx, chat, "", runner.ProviderID, runner.ID, t.boundSession(ctx, chat.ID, runner.ProviderID),
 			domain.TurnRoleNotice, reason, "",
-		))
+		)))
 	}
 	reason, detail := ledger.ReasonTurnFailed, ""
 	if ev.Failure != nil {
@@ -193,7 +195,7 @@ func failureNotice(ev engineagents.CanonicalEvent) string {
 // recordIdle is the provider saying it is idle: runner's running turn is over,
 // its steer undelivered, any other end late. With no turn, a hooks CLI's report
 // means the prompts it carried were never taken; an api connection's, nothing.
-func (t *Turns) recordIdle(ctx context.Context, chatID string, runner engineagents.Runner) {
+func (t *Turns) recordIdle(ctx context.Context, chatID string, runner engineagents.Runner) error {
 	api := hookChannel(ctx) == engineagents.ChannelAPI
 	_, _, err := t.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
 		ended, closes, err := ledger.EndTurnOf(st, runner.ID, "", ledger.TurnEnded{
@@ -215,7 +217,7 @@ func (t *Turns) recordIdle(ctx context.Context, chatID string, runner engineagen
 		}, false, ledger.ReasonNotAcknowledged)
 		return append(rows, settled...), err
 	})
-	note(ctx, "provider idle", err)
+	return wrote("provider idle", err)
 }
 
 // RecordStop records the divider for a turn a person stopped. The caller holds

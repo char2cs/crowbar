@@ -3,9 +3,9 @@ package turn
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -25,8 +25,7 @@ func (t *Turns) RecordTelemetry(
 	}
 	report, err := agent.ParseTelemetry(raw, time.Now())
 	if err != nil {
-		slog.DebugContext(ctx, "agent: telemetry: parse", "err", err, "provider", runner.ProviderID)
-		return nil
+		return fmt.Errorf("agent: telemetry: %w: %w", apperr.ErrUnprocessable, err)
 	}
 	if report.Empty() {
 		return nil

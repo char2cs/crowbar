@@ -22,7 +22,10 @@ func (rs *Runners) SubmitPrompt(
 	ctx context.Context,
 	chatID, text, clientRequestID string,
 ) (domain.AgentPromptSubmission, error) {
-	h := rs.acquire(ctx, chatID)
+	h, err := rs.acquire(ctx, chatID)
+	if err != nil {
+		return domain.AgentPromptSubmission{}, fmt.Errorf("agent: submit prompt: %w", err)
+	}
 	defer h.release()
 	return rs.submitPromptLocked(ctx, h, chatID, text, clientRequestID, nil)
 }

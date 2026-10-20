@@ -12,6 +12,7 @@ import (
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -41,8 +42,9 @@ type Descriptors interface {
 	Descriptor(ctx context.Context, runner engineagents.Runner) (engineagents.Agent, error)
 }
 
-// Turns records one hook on its runner's chat. Dispatch returns once the
-// hook's rows are committed, with the stdout and the ask its sender is owed.
+// Turns records one hook on its runner's chat. Dispatch returns nil once the
+// hook's rows are committed, or for a kind it filters by design; a write that
+// failed is its error, and a hook it keeps nothing of is seam.ErrHookNotRecorded.
 type Turns interface {
 	RecordTelemetry(ctx context.Context, runner engineagents.Runner, agent engineagents.Agent, raw []byte) error
 	Dispatch(
@@ -55,6 +57,7 @@ type Turns interface {
 type Ledger interface {
 	Append(ctx context.Context, chatID string, rows ...ledger.Row) ([]ledger.Row, ledger.State, error)
 	DeadLetter(ctx context.Context, d ledgerstore.DeadLetter) error
+	DeadLetterCount(ctx context.Context, reasons ...string) (int, error)
 }
 
 // Deps is everything the ingress is built over.
@@ -83,9 +86,6 @@ func New(d Deps) *Ingress {
 	}
 }
 
-// Lock serialises one chat's hooks and its user-initiated spawns.
-func (i *Ingress) Lock(chatID string) (unlock func()) { return i.locks.Lock(chatID) }
-
 // Hook places one hook from runnerID. It returns once the hook's rows are
 // committed; an ask's answer is held by the caller, never under the chat's lock.
 func (i *Ingress) Hook(
@@ -97,8 +97,7 @@ func (i *Ingress) Hook(
 	h := hook{runnerID: runnerID, provider: provider, event: event, raw: raw}
 	runner, ok := i.runners.RunnerByID(runnerID)
 	if !ok {
-		i.deadLetter(ctx, h, "", reasonUnknownRunner)
-		return Reply{}, ErrUnknownRunner
+		return Reply{}, i.refuse(ctx, h, "", reasonUnknownRunner, ErrUnknownRunner)
 	}
 	chatID := runner.CurrentChatID
 	if provider != "" && provider != runner.ProviderID {
@@ -107,8 +106,7 @@ func (i *Ingress) Hook(
 	}
 	agent, err := i.descriptors.Descriptor(ctx, runner)
 	if err != nil {
-		i.deadLetter(ctx, h, chatID, reasonUnrecorded)
-		return Reply{}, fmt.Errorf("ingress: resolve descriptor: %w", err)
+		return Reply{}, i.refuse(ctx, h, chatID, reasonNoDescriptor, fmt.Errorf("ingress: resolve descriptor: %w", err))
 	}
 	if event == engineagents.HookTelemetry {
 		return Reply{}, i.record(ctx, h, chatID, func(r engineagents.Runner) error {
@@ -120,8 +118,7 @@ func (i *Ingress) Hook(
 	case errors.Is(err, engineagents.ErrHookVariantMismatch):
 		return Reply{}, nil // a declared filter: another variant of the same wire hook
 	case errors.Is(err, engineagents.ErrForeignConversation):
-		i.deadLetter(ctx, h, chatID, reasonForeign)
-		return Reply{}, nil
+		return Reply{}, i.deadLetter(ctx, h, chatID, reasonForeign)
 	case err != nil:
 		return Reply{}, i.unmappable(ctx, h, chatID, err)
 	}
@@ -137,30 +134,34 @@ func (i *Ingress) Hook(
 	return reply, nil
 }
 
-// record runs dispatch under chatID's lock, on the runner as the table holds it
+// record runs write under chatID's lock, on the runner as the table holds it
 // once the lock is taken: a purge takes a chat's runner off the table under it.
+// What write could not record is dead-lettered.
 func (i *Ingress) record(
 	ctx context.Context, h hook, chatID string,
-	dispatch func(engineagents.Runner) error,
+	write func(engineagents.Runner) error,
 ) error {
-	unlock := i.locks.Lock(chatID)
+	unlock, err := i.locks.Lock(ctx, chatID)
+	if err != nil {
+		return i.refuse(ctx, h, chatID, reasonSenderGone, fmt.Errorf("ingress: %s: %w", h.event, err))
+	}
 	defer unlock()
 	runner, ok := i.runners.RunnerByID(h.runnerID)
 	if !ok {
-		i.deadLetter(ctx, h, chatID, reasonUnknownRunner)
-		return ErrUnknownRunner
+		return i.refuse(ctx, h, chatID, reasonUnknownRunner, ErrUnknownRunner)
 	}
-	err := dispatch(runner)
+	err = write(runner)
 	switch {
 	case err == nil:
 		return nil
 	case errors.Is(err, engineagents.ErrForeignConversation):
-		i.deadLetter(ctx, h, chatID, reasonForeign)
-		return nil
+		return i.deadLetter(ctx, h, chatID, reasonForeign)
+	case errors.Is(err, seam.ErrHookNotRecorded):
+		return i.deadLetter(ctx, h, chatID, reasonNotRecorded)
+	case errors.Is(err, apperr.ErrUnprocessable):
+		return i.refuse(ctx, h, chatID, reasonUnmappable, fmt.Errorf("%w: %s: %w", ErrUnmappable, h.event, err))
 	case errors.Is(err, apperr.ErrNotFound):
-		i.deadLetter(ctx, h, chatID, reasonUnknownChat)
-	default:
-		i.deadLetter(ctx, h, chatID, reasonUnrecorded)
+		return i.refuse(ctx, h, chatID, reasonUnknownChat, fmt.Errorf("ingress: %s: %w", h.event, err))
 	}
-	return fmt.Errorf("ingress: %s: %w", h.event, err)
+	return i.refuse(ctx, h, chatID, reasonWriteFailed, fmt.Errorf("ingress: %s: %w", h.event, err))
 }

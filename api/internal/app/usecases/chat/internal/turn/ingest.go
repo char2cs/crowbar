@@ -8,6 +8,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -57,11 +58,15 @@ func (t *Turns) Dispatch(
 		return nil, ask, err
 	}
 	if routeSubagentTool(ev) {
-		return nil, "", nil
+		return nil, "", nil // a filter: the chat's log holds its main agent's tool calls
 	}
 	switch ev.Kind {
 	case engineagents.HookSessionStart:
 		return nil, "", t.runners.HandleSessionStart(ctx, runner, ev)
+	case engineagents.HookSessionEnd:
+		// A filter: a runner's end is recorded from its process exit, which runs
+		// whether or not this hook fired.
+		return nil, "", nil
 	case engineagents.HookUserPrompt, engineagents.HookTurnStop, engineagents.HookTurnFailed:
 		reply, err := t.handleTurn(ctx, runner, agent, ev)
 		return reply, "", err
@@ -76,9 +81,7 @@ func (t *Turns) Dispatch(
 		ask, err := t.handleObservation(ctx, runner, agent, ev, raw)
 		return nil, ask, err
 	}
-	// session_end and anything else declared but unhandled: a runner's end is
-	// observed by its process exit, which runs whether or not a hook fired.
-	return nil, "", nil
+	return nil, "", fmt.Errorf("agent: hook: %s: %w", ev.Kind, seam.ErrHookNotRecorded)
 }
 
 // surfaceGated reports whether canonical opts OUT of the surface currently in

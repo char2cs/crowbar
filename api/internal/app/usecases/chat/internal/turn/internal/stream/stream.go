@@ -4,6 +4,7 @@
 package stream
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -92,13 +93,17 @@ type Streams struct {
 	byChat map[string]map[string]*buffer
 
 	order map[string][]string
+	// answers is, per chat and runner, the reply its last turn closed on while
+	// no message had streamed, until a message of that runner is recorded.
+	answers map[string]map[string]Answer
 }
 
 // New returns an empty set of per-chat message streams.
 func New() *Streams {
 	return &Streams{
-		byChat: make(map[string]map[string]*buffer),
-		order:  make(map[string][]string),
+		byChat:  make(map[string]map[string]*buffer),
+		order:   make(map[string][]string),
+		answers: make(map[string]map[string]Answer),
 	}
 }
 
@@ -263,13 +268,48 @@ func (s *Streams) IndexOf(chatID, runnerID, messageID string) int {
 }
 
 // MarkRecorded records the exact text that was persisted for a message, so a
-// later append only writes the tail that grew after it.
+// later append only writes the tail that grew after it. Its runner's turn is
+// answered by it now, not by a reply recorded before.
 func (s *Streams) MarkRecorded(chatID, messageID, text string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if buffer, ok := s.byChat[chatID][messageID]; ok {
 		buffer.recordedText = text
+		delete(s.answers[chatID], buffer.RunnerID)
 	}
+}
+
+// Answered notes the reply runnerID's turn on chatID closed on with no message
+// streamed. Forget keeps it: it outlives the turn's close.
+func (s *Streams) Answered(chatID, runnerID string, a Answer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.answers[chatID] == nil {
+		s.answers[chatID] = make(map[string]Answer)
+	}
+	s.answers[chatID][runnerID] = a
+}
+
+// Answer is the reply runnerID's last turn on chatID closed on, while no message
+// of that runner has been recorded since.
+func (s *Streams) Answer(chatID, runnerID string) (Answer, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.answers[chatID][runnerID]
+	return a, ok
+}
+
+// Joined drops messageID, recorded as the reply its runner's turn closed on.
+func (s *Streams) Joined(chatID, messageID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	buffer, ok := s.byChat[chatID][messageID]
+	if !ok {
+		return
+	}
+	delete(s.answers[chatID], buffer.RunnerID)
+	delete(s.byChat[chatID], messageID)
+	s.order[chatID] = slices.DeleteFunc(s.order[chatID], func(id string) bool { return id == messageID })
 }
 
 // Forget drops every message THIS RUNNER has open on the chat. A turn that
@@ -311,6 +351,7 @@ func (s *Streams) ForgetChat(chatID string) {
 	defer s.mu.Unlock()
 	delete(s.byChat, chatID)
 	delete(s.order, chatID)
+	delete(s.answers, chatID)
 }
 
 func (s *Streams) evictLocked(chatID string) {

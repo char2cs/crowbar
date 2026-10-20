@@ -17,12 +17,17 @@ package seam
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
+
+// ErrHookNotRecorded is a hook the turns acknowledge and deliberately record
+// nothing of: the ingress keeps it as a dead letter.
+var ErrHookNotRecorded = errors.New("agent: hook acknowledged, not recorded")
 
 // ChatFeed is where the chat usecase publishes the LIVE facts about a
 // conversation that no aggregate projection carries: each is derived from a

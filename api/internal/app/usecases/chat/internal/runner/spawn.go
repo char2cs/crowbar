@@ -23,7 +23,10 @@ func (rs *Runners) SpawnChat(
 	providerID string,
 ) (chatID, runnerID string, err error) {
 	chatID = uuid.NewString()
-	h := rs.acquire(ctx, chatID)
+	h, err := rs.acquire(ctx, chatID)
+	if err != nil {
+		return "", "", fmt.Errorf("agent: spawn chat: %w", err)
+	}
 	defer h.release()
 
 	runnerID, err = rs.spawnRunner(ctx, chatID, workspaceID, providerID, spawnInput{}, true)
@@ -38,7 +41,10 @@ func (rs *Runners) StartRunner(
 	chatID string,
 	providerID string,
 ) (string, error) {
-	h := rs.acquire(ctx, chatID)
+	h, err := rs.acquire(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: start runner: %w", err)
+	}
 	defer h.release()
 
 	chat, err := rs.chats.GetChat(ctx, chatID)
@@ -54,10 +60,12 @@ func (rs *Runners) discardSpawnedChat(
 	chatID string,
 	cause error,
 ) error {
-	if err := rs.conversations.PurgeLocked(ctx, chatID); err != nil && !errors.Is(err, agentchat.ErrNotFound) {
+	end, err := rs.conversations.PurgeLocked(ctx, chatID)
+	if err != nil && !errors.Is(err, agentchat.ErrNotFound) {
 		slog.WarnContext(ctx, "agent: discard chat of a refused spawn (best-effort, reporting the spawn failure)",
 			"chat_id", chatID, "err", err)
 	}
+	end() // still in the spawn's hold: a refused spawn's CLI never outlives it
 	return cause
 }
 

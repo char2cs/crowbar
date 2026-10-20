@@ -130,7 +130,8 @@ func (s *Store) Watch(ctx context.Context, chatID string) (ledger.State, <-chan 
 	return cur.Clone(), w.changed, nil
 }
 
-// Forget erases chatID's rows, head and sessions, as a purged chat must leave nothing.
+// Forget erases chatID's rows, head, sessions and dead letters, as a purged chat
+// must leave nothing.
 func (s *Store) Forget(ctx context.Context, chatID string) error {
 	w := s.writer(chatID)
 	w.mu.Lock()
@@ -144,6 +145,9 @@ func (s *Store) Forget(ctx context.Context, chatID string) error {
 		}
 		if err := tx.Exec(`DELETE FROM chat_ledger_sessions WHERE chat_id = ?`, chatID).Error; err != nil {
 			return fmt.Errorf("sessions: %w", err)
+		}
+		if err := tx.Exec(`DELETE FROM ledger_dead_letters WHERE chat_id = ?`, chatID).Error; err != nil {
+			return fmt.Errorf("dead letters: %w", err)
 		}
 		return nil
 	})
@@ -304,10 +308,11 @@ func (s *Store) DeadLetter(ctx context.Context, d DeadLetter) error {
 	return nil
 }
 
-// DeadLetterCount is how many dead letters are recorded.
-func (s *Store) DeadLetterCount(ctx context.Context) (int, error) {
+// DeadLetterCount is how many dead letters were kept for one of reasons.
+func (s *Store) DeadLetterCount(ctx context.Context, reasons ...string) (int, error) {
 	var n int
-	if err := s.db.WithContext(ctx).Raw(`SELECT count(*) FROM ledger_dead_letters`).Scan(&n).Error; err != nil {
+	err := s.db.WithContext(ctx).Raw(`SELECT count(*) FROM ledger_dead_letters WHERE reason IN ?`, reasons).Scan(&n).Error
+	if err != nil {
 		return 0, fmt.Errorf("ledger: dead letter count: %w", err)
 	}
 	return n, nil

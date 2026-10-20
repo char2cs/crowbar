@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"testing/synctest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -102,6 +104,8 @@ func (l *fakeLedger) Append(_ context.Context, chatID string, rows ...ledger.Row
 	return rows, ledger.State{}, nil
 }
 
+func (*fakeLedger) DeadLetterCount(context.Context, ...string) (int, error) { return 0, nil }
+
 func (l *fakeLedger) DeadLetter(_ context.Context, d ledgerstore.DeadLetter) error {
 	if l.failLetters != nil {
 		return l.failLetters
@@ -115,6 +119,7 @@ type fixture struct {
 	descriptors *fakeDescriptors
 	turns       *fakeTurns
 	ledger      *fakeLedger
+	locks       *Locks
 	ingress     *Ingress
 }
 
@@ -126,11 +131,20 @@ func newFixture() fixture {
 		descriptors: &fakeDescriptors{},
 		turns:       &fakeTurns{},
 		ledger:      &fakeLedger{appended: map[string][]ledger.Row{}},
+		locks:       NewLocks(),
 	}
 	f.ingress = New(Deps{
-		Runners: f.runners, Descriptors: f.descriptors, Turns: f.turns, Ledger: f.ledger, Locks: NewLocks(),
+		Runners: f.runners, Descriptors: f.descriptors, Turns: f.turns, Ledger: f.ledger, Locks: f.locks,
 	})
 	return f
+}
+
+// hold takes chat-1's lock as a user-initiated path would.
+func (f fixture) hold(t *testing.T) func() {
+	t.Helper()
+	unlock, err := f.locks.Lock(t.Context(), "chat-1")
+	require.NoError(t, err)
+	return unlock
 }
 
 func (f fixture) reasons() []string {
@@ -204,38 +218,63 @@ func TestHook_AnAskIsHeldOnItsAskID(t *testing.T) {
 	assert.Equal(t, Reply{Ask: "choice-1"}, reply)
 	require.Len(t, f.turns.dispatched, 1)
 	assert.Equal(t, engineagents.ChannelAPI, f.turns.dispatched[0].channel)
-	f.ingress.Lock("chat-1")() // the hold is the sender's, never under the chat's lock
+	f.hold(t)() // the hold is the sender's, never under the chat's lock
 }
 
 func TestHook_DispatchRunsUnderTheChatsLock(t *testing.T) {
-	f := newFixture()
-	f.turns.reply = []byte("steer")
-	held := false
-	f.turns.during = func() {
+	synctest.Test(t, func(t *testing.T) {
+		f := newFixture()
+		f.turns.reply = []byte("steer")
 		acquired := make(chan struct{})
-		go func() {
-			defer f.ingress.Lock("chat-1")()
-			close(acquired)
-		}()
-		select {
-		case <-acquired:
-		default:
-			held = true
+		heldWhileDispatching := false
+		f.turns.during = func() {
+			go func() {
+				if unlock, err := f.locks.Lock(context.Background(), "chat-1"); err == nil {
+					unlock()
+				}
+				close(acquired)
+			}()
+			synctest.Wait()
+			heldWhileDispatching = !isClosed(acquired)
 		}
-	}
 
-	reply, err := f.ingress.Hook(t.Context(), "runner-1", "p", "turn_stop", []byte(`{}`), engineagents.ChannelHooks)
+		reply, err := f.ingress.Hook(t.Context(), "runner-1", "p", "turn_stop", []byte(`{}`), engineagents.ChannelHooks)
 
-	require.NoError(t, err)
-	assert.True(t, held, "nothing else holds the chat while a hook records")
-	assert.Equal(t, Reply{Body: []byte("steer")}, reply)
-	assert.Empty(t, f.ledger.letters, "a placed hook is no dead letter")
+		require.NoError(t, err)
+		assert.True(t, heldWhileDispatching, "nothing else holds the chat while a hook records")
+		<-acquired
+		assert.Equal(t, Reply{Body: []byte("steer")}, reply)
+		assert.Empty(t, f.ledger.letters, "a placed hook is no dead letter")
+	})
+}
+
+// A sender that gives up while the chat is held is not recorded later: its
+// hook is dead-lettered.
+func TestHook_ASenderThatGivesUpWaitingForTheChatIsDeadLettered(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		f := newFixture()
+		unlock := f.hold(t)
+		defer unlock()
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() {
+			_, err := f.ingress.Hook(ctx, "runner-1", "p", "tool_pre", []byte(`{}`), engineagents.ChannelHooks)
+			done <- err
+		}()
+		synctest.Wait()
+
+		cancel()
+
+		require.ErrorIs(t, <-done, context.Canceled)
+		assert.Empty(t, f.turns.dispatched)
+		assert.Equal(t, []string{reasonSenderGone}, f.reasons())
+	})
 }
 
 func TestHook_ARunnerRemovedWhileTheHookWaitedIsUnknown(t *testing.T) {
 	f := newFixture()
 	f.descriptors.resolved = make(chan struct{})
-	unlock := f.ingress.Lock("chat-1")
+	unlock := f.hold(t)
 	done := make(chan error, 1)
 	go func() {
 		_, err := f.ingress.Hook(t.Context(), "runner-1", "p", "tool_pre", []byte(`{}`), engineagents.ChannelHooks)
@@ -270,7 +309,7 @@ func TestHook_AHookThatCouldNotBeRecordedIsRefusedAndDeadLettered(t *testing.T) 
 	}{
 		"its descriptor cannot be resolved": {
 			set:    func(f fixture) { f.descriptors.err = errors.New("no descriptor") },
-			reason: reasonUnrecorded,
+			reason: reasonNoDescriptor,
 		},
 		"its chat is gone": {
 			set:    func(f fixture) { f.turns.err = fmt.Errorf("chat: %w", apperr.ErrNotFound) },
@@ -278,7 +317,11 @@ func TestHook_AHookThatCouldNotBeRecordedIsRefusedAndDeadLettered(t *testing.T) 
 		},
 		"its rows did not commit": {
 			set:    func(f fixture) { f.turns.err = errors.New("ledger write failed") },
-			reason: reasonUnrecorded,
+			reason: reasonWriteFailed,
+		},
+		"its telemetry cannot be parsed": {
+			set:    func(f fixture) { f.turns.err = fmt.Errorf("telemetry: %w", apperr.ErrUnprocessable) },
+			reason: reasonUnmappable, want: ErrUnmappable,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -306,4 +349,55 @@ func TestHook_TelemetryIsRecordedUnderTheChatsLockWithoutParsing(t *testing.T) {
 	assert.Equal(t, Reply{}, reply)
 	assert.Equal(t, 1, f.turns.telemetry)
 	assert.Empty(t, f.ledger.letters)
+}
+
+// A hook acknowledged without rows is answered as placed only once its dead
+// letter is kept.
+func TestHook_AnAcknowledgedHookIsDeadLetteredOrRefused(t *testing.T) {
+	for name, tc := range map[string]struct {
+		set    func(f fixture)
+		reason string
+	}{
+		"foreign to the chat": {
+			set:    func(f fixture) { f.descriptors.agent.err = engineagents.ErrForeignConversation },
+			reason: reasonForeign,
+		},
+		"recorded nowhere by design": {
+			set:    func(f fixture) { f.turns.err = fmt.Errorf("unhandled: %w", seam.ErrHookNotRecorded) },
+			reason: reasonNotRecorded,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture()
+			tc.set(f)
+			_, err := f.ingress.Hook(t.Context(), "runner-1", "p", "user_prompt", []byte(`{}`), engineagents.ChannelHooks)
+			require.NoError(t, err)
+			assert.Equal(t, []string{tc.reason}, f.reasons())
+
+			f.ledger.failLetters = errors.New("disk full")
+			_, err = f.ingress.Hook(t.Context(), "runner-1", "p", "user_prompt", []byte(`{}`), engineagents.ChannelHooks)
+			require.Error(t, err, "nothing kept, so nothing is acknowledged")
+		})
+	}
+}
+
+// The marker an unmappable hook leaves is written on the runner's chat only
+// while the table still holds the runner, once the chat's lock is taken.
+func TestHook_AnUnmappableHookFromARunnerRemovedMeanwhileMarksNothing(t *testing.T) {
+	f := newFixture()
+	f.descriptors.agent.err = fmt.Errorf("message: %w", engineagents.ErrRequiredFieldMissing)
+	f.descriptors.resolved = make(chan struct{})
+	unlock := f.hold(t)
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.ingress.Hook(t.Context(), "runner-1", "p", "user_prompt", []byte(`{}`), engineagents.ChannelHooks)
+		done <- err
+	}()
+	<-f.descriptors.resolved
+	f.runners.remove("runner-1") // a purge takes its runner off the table under the chat's lock
+	unlock()
+
+	require.ErrorIs(t, <-done, ErrUnknownRunner)
+	assert.Empty(t, f.ledger.appended["chat-1"], "a purged chat gets no marker")
+	assert.Equal(t, []string{reasonUnknownRunner}, f.reasons())
 }

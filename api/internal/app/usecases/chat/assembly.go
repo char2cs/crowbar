@@ -139,7 +139,6 @@ func New(d Deps) *Usecase {
 		folders:   d.Folders,
 		nodes:     d.Nodes,
 		repoRoots: d.RepoRoots,
-		ledger:    d.Ledger,
 	}
 	// The tool surface's self-ports, filled in here because the usecase does
 	// not exist when the caller builds the Deps.

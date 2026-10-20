@@ -26,3 +26,13 @@ type Message struct {
 	FirstAt time.Time
 	LastAt  time.Time
 }
+
+// Answer is a turn's reply recorded from the hook that closed it, no message of
+// it having streamed yet: a final message of that turn landing later joins it.
+type Answer struct {
+	MessageID, Text, Effort, Status, Diff string
+	// TurnID is the chat's newest turn when the reply was recorded; HasTurn is
+	// false when the chat had none.
+	TurnID  string
+	HasTurn bool
+}

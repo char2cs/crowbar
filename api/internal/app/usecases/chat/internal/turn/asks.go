@@ -21,7 +21,7 @@ func (t *Turns) raiseAsk(
 	ev engineagents.CanonicalEvent,
 	raw []byte,
 	now time.Time,
-) string {
+) (string, error) {
 	// Minted ONCE and shared: two draws on an empty PromptID would pair a
 	// choice with an interruption that was never opened.
 	cid := ""
@@ -32,10 +32,9 @@ func (t *Turns) raiseAsk(
 	if iid == "" {
 		iid = interruptionID(chat.ID, ev)
 	}
-	note(ctx, "interrupted", t.activity.Interrupt(
-		ctx, chat.ID, iid, ev.Interrupt.Kind, ev.Interrupt.Detail, now,
-	))
-
+	if err := t.activity.Interrupt(ctx, chat.ID, iid, ev.Interrupt.Kind, ev.Interrupt.Detail, now); err != nil {
+		return "", wrote("interrupted", err)
+	}
 	return t.openChoice(ctx, chat, runner, agent, ev, cid, raw, now)
 }
 
@@ -48,17 +47,13 @@ func (t *Turns) openChoice(
 	id string,
 	raw []byte,
 	now time.Time,
-) string {
+) (string, error) {
 	if ev.Choice == nil {
-		return ""
+		return "", nil
 	}
 	chatID := chat.ID
-	// A choice never durably opened in the ledger must never be held for a
-	// human or auto-approved: both paths would act on a choice the ledger
-	// never recorded, and the provider's own AnswerChoice call would reject
-	// it as no longer pending. Falling through here leaves the CLI's own
-	// native prompt as the only path, same as holdForAnswer's own silent
-	// fallback for every other unanswerable-from-Crowbar reason.
+	// A choice the record refused is never held: an answer would act on a choice
+	// it does not have. The hook is refused, which leaves the CLI its own prompt.
 	if err := t.activity.OpenChoice(ctx, agentactivity.ChoiceInput{
 		ChatID:   chatID,
 		ChoiceID: id,
@@ -75,9 +70,7 @@ func (t *Turns) openChoice(
 		Schema:    string(ev.Choice.Schema),
 		Now:       now,
 	}); err != nil {
-		note(ctx, "choice opened", err)
-		return ""
+		return "", wrote("choice opened", err)
 	}
-
-	return t.holdForAnswer(ctx, chat, runner, agent, ev, id, raw)
+	return t.holdForAnswer(ctx, chat, runner, agent, ev, id, raw), nil
 }

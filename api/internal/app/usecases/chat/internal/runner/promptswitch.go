@@ -46,7 +46,10 @@ func (rs *Runners) SubmitPromptWithSwitch(
 	chatID, text, clientRequestID, provider string,
 	selection *domain.ChatSelection,
 ) (domain.AgentPromptSubmission, error) {
-	h := rs.acquire(ctx, chatID)
+	h, err := rs.acquire(ctx, chatID)
+	if err != nil {
+		return domain.AgentPromptSubmission{}, fmt.Errorf("agent: submit prompt: %w", err)
+	}
 	defer h.release()
 
 	switching := false
@@ -115,7 +118,11 @@ func (rs *Runners) commitStagedSelection(
 // TestRegression_SetChatSelection_ConcurrentStandaloneAndStagedNeverLogAStaleChange
 // (chat_test.go) for the property this closes off.
 func (rs *Runners) SetChatSelection(ctx context.Context, chatID, model, effort string) error {
-	defer rs.acquire(ctx, chatID).release()
+	h, err := rs.acquire(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agent: set chat selection: %w", err)
+	}
+	defer h.release()
 	return rs.setChatSelectionLocked(ctx, chatID, model, effort)
 }
 

@@ -191,24 +191,28 @@ func reapRunnerDir(
 	}
 }
 
-// RetireChatRunners ends chatID's runner and forgets everything held in
-// memory for the chat: it is being erased (A7). The caller holds the chat's
-// lock, so the exit is recorded and the runner forgotten before its processes
-// end: what it reports on the way down finds no runner and never waits.
+// RetireChatRunners records the end of chatID's runner and forgets everything
+// held in memory for the chat: it is being erased (A7). The caller holds the
+// chat's lock and runs end once it has let go: a hook the CLI sends on the way
+// down, already queued for the chat, never holds up its own terminate.
 func (rs *Runners) RetireChatRunners(
 	ctx context.Context,
 	chatID string,
-) {
-	if live, ok := rs.live.byChat(chatID); ok {
-		rs.markEnding(live, domain.AgentExitDisplaced)
-		rs.reconcileRunnerExit(ctx, live.ID)
+) (end func()) {
+	if rs.turns != nil {
+		defer rs.turns.ForgetChat(chatID)
+	}
+	live, ok := rs.live.byChat(chatID)
+	if !ok {
+		return func() {}
+	}
+	rs.markEnding(live, domain.AgentExitDisplaced)
+	rs.reconcileRunnerExit(ctx, live.ID)
+	return func() {
 		if _, err := rs.endProcesses(ctx, live); err != nil {
 			slog.WarnContext(ctx, "agent: retire the chat's runner (best-effort, continuing)",
 				"chat_id", chatID, "runner_id", live.ID, "err", err)
 		}
-	}
-	if rs.turns != nil {
-		rs.turns.ForgetChat(chatID)
 	}
 }
 

@@ -272,3 +272,42 @@ func TestStopChat_RetiresWithoutWaitingForTheCLIToExit(t *testing.T) {
 	rs.reconcileRunnerExit(t.Context(), "runner-1") // the PTY's exit callback
 	assert.Equal(t, domain.AgentExitStopped, retiredAs(t, rs))
 }
+
+// orderTurns notes, in order, a Stop's divider among the hooks of its chat.
+type orderTurns struct {
+	noopTurns
+	order *[]string
+}
+
+func (o orderTurns) RecordStop(context.Context, string) error {
+	*o.order = append(*o.order, "stop")
+	return nil
+}
+
+// The bug of 2026-09-12: a Stop's divider written while a hook of the chat was
+// mid-record anchored to state that hook was about to supersede. Stop records
+// under the chat's lock, after the hook; proven as a -race data race on order.
+func TestRegression_StopChatRecordsAfterAHookHoldingTheChat(t *testing.T) {
+	asked, release := make(chan struct{}), make(chan struct{})
+	defer close(release)
+	var order []string
+	rs := retiring(t, &Runners{
+		apiConns: newAPIConnRegistry(),
+		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
+		agents:   stubAgentsForInterrupt{agent: interruptTestAgent(t)},
+		chatLock: newTestLock(), parks: newParks(),
+		turns: orderTurns{order: &order},
+	})
+	runnerStarted(t, rs, true)
+	rs.apiConns.set("runner-1", interruptServer(t, asked, release))
+	unlock, err := rs.chatLock.Lock(t.Context(), "chat-1") // a hook mid-record
+	require.NoError(t, err)
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- rs.StopChat(t.Context(), "chat-1") }()
+	order = append(order, "hook")
+	unlock()
+
+	require.NoError(t, <-stopped)
+	assert.Equal(t, []string{"hook", "stop"}, order)
+}

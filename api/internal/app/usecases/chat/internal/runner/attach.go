@@ -23,11 +23,9 @@ type attachedView struct {
 	tctx       engineagents.TemplateCtx
 }
 
-// attachRegistry is in memory only, exactly like apiConnRegistry: it names a
-// live process, not a fact to persist. A daemon restart mid-attach drops back
-// to native chat — harmless, since the provider's own session lives in ITS
-// rollout, untouched either way — the same reasoning apiConnRegistry's own
-// doc comment gives for not surviving a restart.
+// attachRegistry is in memory only, like apiConnRegistry: it names a live
+// process, not a fact to persist. A restart mid-attach drops back to the chat,
+// harmless: the provider keeps its own session either way.
 type attachRegistry struct {
 	mu    sync.Mutex
 	byRun map[string]attachedView
@@ -115,7 +113,10 @@ var ErrTurnInProgress = fmt.Errorf("agent: provider cannot hand a live turn to i
 //
 // A dormant chat only records the move; its next start lands there.
 func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string, error) {
-	h := rs.acquire(ctx, chatID)
+	h, err := rs.acquire(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: switch to terminal: %w", err)
+	}
 	defer h.release()
 
 	live, ok, err := rs.settledRunner(h)
@@ -263,7 +264,10 @@ func (rs *Runners) moveSurface(ctx context.Context, chatID, runnerID, surface st
 // on the chat surface on the chat's session. A dormant chat only records the
 // move. Idempotent.
 func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
-	h := rs.acquire(ctx, chatID)
+	h, err := rs.acquire(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agent: switch to native: %w", err)
+	}
 	defer h.release()
 
 	live, ok, err := rs.settledRunner(h)
@@ -372,7 +376,12 @@ func (rs *Runners) onAttachExit(chatID, runnerID string) func(engineterminal.Exi
 			// Torn down deliberately by an end (retire, a provider switch), which
 			// marks the runner ending first: for a runner with no PTY of its own
 			// this view was its last process. A detach marks nothing; it re-establishes.
-			defer rs.chatLock.Lock(chatID)()
+			unlock, err := rs.chatLock.Lock(ctx, chatID)
+			if err != nil {
+				slog.ErrorContext(ctx, "agent: native view exited: hold the chat", "chat_id", chatID, "err", err)
+				return
+			}
+			defer unlock()
 			if _, unended := rs.live.unending(runnerID); !unended {
 				rs.exitProcesslessRunner(ctx, runnerID)
 			}

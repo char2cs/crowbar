@@ -39,6 +39,8 @@ func placeHook(
 // discardLedger takes an unplaced hook's marker and dead letter and keeps neither.
 type discardLedger struct{}
 
+func (discardLedger) DeadLetterCount(context.Context, ...string) (int, error) { return 0, nil }
+
 func (discardLedger) Append(context.Context, string, ...ledger.Row) ([]ledger.Row, ledger.State, error) {
 	return nil, ledger.State{}, nil
 }
@@ -281,12 +283,9 @@ type nativeViewRunners struct {
 
 func (r nativeViewRunners) ShowingNativeView(string) bool { return r.showing }
 
-// TestRegression_SurfaceGatedMessageDeltaSkipsChatWhileTheNativeViewIsShowing
-// proves design spec P6b tag 2 end to end: codex.yaml declares message_delta
-// surfaces: [chat], so while ShowingNativeView is true (the user is looking
-// at codex's own terminal) this delivery must never reach the chat fan-out —
-// wiring the callback and asserting it was never called is what tells "gated
-// off" apart from "nothing happened to stream" in the assertion below.
+// A message_delta the descriptor declares for the chat surface only never
+// reaches the chat fan-out while the native view is showing; the wired callback
+// tells "gated off" apart from "nothing streamed".
 func TestRegression_SurfaceGatedMessageDeltaSkipsChatWhileTheNativeViewIsShowing(t *testing.T) {
 	t.Parallel()
 
@@ -338,11 +337,8 @@ func TestRegression_SurfaceGatedMessageDeltaStillFlowsToChat(t *testing.T) {
 	assert.True(t, delivered, "chat is the surface in front of the user, so a chat-gated event must flow")
 }
 
-// stubSubagentActivity answers IsSubagentOpen and nothing else — every other
-// EventStore method embeds agentactivity.EventStore and panics if reached,
-// same convention as liveAPIRunners above: a test wiring this with open:false
-// is asserting a chat that never opened a subagent still safely drops (never
-// crashes on, never misroutes) a session it does not recognize.
+// stubSubagentActivity answers IsSubagentOpen and nothing else: every other
+// method panics if reached, so open:false asserts an unknown session is dropped.
 type stubSubagentActivity struct {
 	agentactivity.EventStore
 	open bool

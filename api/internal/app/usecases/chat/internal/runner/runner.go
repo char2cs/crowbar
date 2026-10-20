@@ -16,6 +16,7 @@ package runner
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
@@ -180,7 +181,12 @@ func (rs *Runners) SetTurns(turns Turns) {
 // failTurnOnNotice records what a notice on runner's screen ends, under the
 // chat's lock so no hook ends that work between its check and its record.
 func (rs *Runners) failTurnOnNotice(ctx context.Context, runner engineagents.Runner, notice engineagents.TerminalNotice) {
-	defer rs.chatLock.Lock(runner.CurrentChatID)()
+	unlock, err := rs.chatLock.Lock(ctx, runner.CurrentChatID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: notice: hold the chat", "runner_id", runner.ID, "err", err)
+		return
+	}
+	defer unlock()
 	rs.turns.FailTurnOnNotice(ctx, runner, notice)
 }
 
