@@ -5,9 +5,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/asynx"
+	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
@@ -105,4 +108,27 @@ func newTurnLedger(t *testing.T) *ledgerstore.Store {
 	l, err := ledgerstore.Open(db, time.Now)
 	require.NoError(t, err)
 	return l
+}
+
+// newActivityTurns is Turns over the real ledger and activity aggregate, with
+// the wait that settles the activity's read model.
+func newActivityTurns(t *testing.T) (*Turns, agentactivity.EventStore, func()) {
+	t.Helper()
+	es, err := eventsqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	ax, err := asynx.New[domain.ChatActivity]().
+		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	activity, err := agentactivity.NewEventSourced(ax, es, db, t.TempDir(), nil)
+	require.NoError(t, err)
+	turns := &Turns{
+		ledger: newTurnLedger(t), messages: stream.New(), activity: activity, live: newLiveText(), chats: raceChats{},
+	}
+	return turns, activity, ax.WaitPublish
 }

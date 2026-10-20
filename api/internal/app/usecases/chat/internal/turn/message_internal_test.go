@@ -327,35 +327,95 @@ func TestRecordMessageDelta_ALateStreamThatTurnsOutAnotherMessageIsItsOwn(t *tes
 	assert.Equal(t, []string{reply, "the cat sat on the mat"}, activity.replies())
 }
 
-// A late stream no final delta finished is recorded, when its runner ends or its
-// next turn closes, as the reply it was shown as: never a second copy of it.
-func TestRecordMessageDelta_AnUnfinishedLateStreamJoinsItsReply(t *testing.T) {
+// A reply's late stream left unfinished never records the reply into the next
+// turn: the reply keeps its place and its text, and owns none of that turn's tools.
+func TestCloseAssistantTurn_AnOldReplyIsNeverRecordedIntoTheNextTurn(t *testing.T) {
 	const reply = "the bicycle traces its origins to early 19th-century Europe"
-	head := finalDelta("m1", "the bicycle traces its")
-	head.Delta.Final = false
-	for name, tc := range map[string]struct {
-		end  func(*Turns) error
-		want []string
-	}{
-		"its runner ends": {func(turns *Turns) error {
-			_, err := turns.AbandonMessageForRunner(t.Context(), "c", lateRunner)
-			return err
-		}, []string{reply}},
-		"its next turn closes": {func(turns *Turns) error {
-			next := engineagents.CanonicalEvent{Kind: "turn_stop", Message: "the next reply"}
-			return turns.closeAssistantTurn(t.Context(), domain.Chat{ID: "c"}, lateRunner, next)
-		}, []string{reply, "the next reply"}},
+	for name, late := range map[string]string{
+		"a late stream that adds nothing": reply[:22],
+		"a late stream past the reply":    reply + ", and spread from there",
 	} {
 		t.Run(name, func(t *testing.T) {
-			turns, activity, _ := lateReply(t, reply)
-			turns.chats = raceChats{}
-			require.NoError(t, turns.recordMessageDelta(t.Context(), domain.Chat{ID: "c"}, lateRunner, head))
+			turns, activity, settle := newActivityTurns(t)
+			first := lateStreamAfterAReply(t, turns, reply, late)
+			settle()
+			before := activityTurn(t, activity, first)
 
-			require.NoError(t, tc.end(turns))
+			ended, err := ledger.NewRow(ledger.KindTurnEnded, "T-runner-1", "", ledger.TurnEnded{Status: "done", RunnerID: lateRunner.ID})
+			require.NoError(t, err)
+			next, err := ledger.NewRow(ledger.KindTurnStarted, "T-2", "", ledger.TurnStarted{RunnerID: lateRunner.ID})
+			require.NoError(t, err)
+			appendTurnRows(t, turns.ledger, ended, next)
+			turns.openAssistantTurn(t.Context(), lateChat, lateRunner)
+			require.NoError(t, activity.InvokeTool(t.Context(), agentactivity.ToolInput{ChatID: lateChat.ID, ToolID: "tool-2", Name: "Read", Now: time.Now()}))
+			stop := engineagents.CanonicalEvent{Kind: "turn_stop", Message: "the next reply"}
+			require.NoError(t, turns.closeAssistantTurn(t.Context(), lateChat, lateRunner, stop))
+			settle()
 
-			assert.Equal(t, tc.want, activity.replies())
+			after := activityTurn(t, activity, first)
+			assert.Equal(t, before.DisplayOrder, after.DisplayOrder)
+			assert.Equal(t, reply, after.Text, "the turn's recorded answer stands")
+			tools, err := activity.ToolCalls(t.Context(), lateChat.ID, 0, 10)
+			require.NoError(t, err)
+			require.Len(t, tools, 1)
+			assert.Equal(t, activityTurnByText(t, activity, "the next reply").ID, tools[0].TurnID)
 		})
 	}
+}
+
+// A late stream that adds nothing to its reply writes nothing when its runner
+// ends: the reply keeps its place, and no second row is made of it.
+func TestAbandonMessageForRunner_ALateStreamThatAddsNothingLeavesItsReplyInPlace(t *testing.T) {
+	const reply = "the bicycle traces its origins to early 19th-century Europe"
+	turns, activity, settle := newActivityTurns(t)
+	first := lateStreamAfterAReply(t, turns, reply, reply[:22])
+	settle()
+	before := activityTurn(t, activity, first)
+
+	_, err := turns.AbandonMessageForRunner(t.Context(), lateChat.ID, lateRunner)
+	require.NoError(t, err)
+	settle()
+
+	assert.Equal(t, before.DisplayOrder, activityTurn(t, activity, first).DisplayOrder)
+	all, err := activity.TurnsSince(t.Context(), lateChat.ID, time.Time{})
+	require.NoError(t, err)
+	assert.Len(t, all, 1)
+}
+
+var lateChat = domain.Chat{ID: "chat-1"}
+
+// lateStreamAfterAReply runs a turn that closes on reply, nothing streamed, then
+// opens late as that reply's unfinished late stream. It returns the reply's row id.
+func lateStreamAfterAReply(t *testing.T, turns *Turns, reply, late string) string {
+	t.Helper()
+	appendTurnRows(t, turns.ledger, turnRow(t, lateRunner.ID))
+	turns.openAssistantTurn(t.Context(), lateChat, lateRunner)
+	stop := engineagents.CanonicalEvent{Kind: "turn_stop", Message: reply}
+	require.NoError(t, turns.closeAssistantTurn(t.Context(), lateChat, lateRunner, stop))
+	answer, ok := turns.messages.Answer(lateChat.ID, lateRunner.ID)
+	require.True(t, ok)
+	head := finalDelta("m1", late)
+	head.Delta.Final = false
+	require.NoError(t, turns.recordMessageDelta(t.Context(), lateChat, lateRunner, head))
+	return assistantTurnID(answer.MessageID)
+}
+
+func activityTurn(t *testing.T, activity agentactivity.EventStore, id string) domain.ActivityTurn {
+	t.Helper()
+	all, err := activity.TurnsSince(t.Context(), lateChat.ID, time.Time{})
+	require.NoError(t, err)
+	i := slices.IndexFunc(all, func(turn domain.ActivityTurn) bool { return turn.ID == id })
+	require.GreaterOrEqual(t, i, 0, "no activity turn %s", id)
+	return all[i]
+}
+
+func activityTurnByText(t *testing.T, activity agentactivity.EventStore, text string) domain.ActivityTurn {
+	t.Helper()
+	all, err := activity.TurnsSince(t.Context(), lateChat.ID, time.Time{})
+	require.NoError(t, err)
+	i := slices.IndexFunc(all, func(turn domain.ActivityTurn) bool { return turn.Text == text })
+	require.GreaterOrEqual(t, i, 0, "no activity turn reads %q", text)
+	return all[i]
 }
 
 // The reply a runner's turn closed on lives as long as the runner: its end

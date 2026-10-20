@@ -13,6 +13,7 @@ import (
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/stream"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -68,14 +69,22 @@ func (t *Turns) continueReply(ctx context.Context, chatID, runnerID string, ev e
 	if !ok || d.MessageID == "" || ev.Subagent != nil || !sameReply(answer, d.Text) {
 		return nil
 	}
-	st, err := t.ledger.State(ctx, chatID)
-	if err != nil {
-		return fmt.Errorf("agent: record streamed message: read ledger: %w", err)
-	}
-	if last, has := st.LastTurn(); has == answer.HasTurn && last.ID == answer.TurnID && last.Names(d.TurnID) {
+	last, still, err := t.answersLastTurn(ctx, chatID, answer)
+	if err == nil && still && last.Names(d.TurnID) {
 		t.messages.Continue(chatID, runnerID, d.TurnID, d.MessageID, answer)
 	}
-	return nil
+	return err
+}
+
+// answersLastTurn is chatID's last ledger turn, and whether it is still the turn
+// answer closed.
+func (t *Turns) answersLastTurn(ctx context.Context, chatID string, answer stream.Answer) (ledger.Turn, bool, error) {
+	st, err := t.ledger.State(ctx, chatID)
+	if err != nil {
+		return ledger.Turn{}, false, fmt.Errorf("agent: record streamed message: read ledger: %w", err)
+	}
+	last, has := st.LastTurn()
+	return last, has == answer.HasTurn && last.ID == answer.TurnID, nil
 }
 
 // sameReply is whether text, as far as it has come, reads as reply: one is a
@@ -98,23 +107,33 @@ func (t *Turns) recordUnfinished(
 	return t.recordAssistantMessage(ctx, chat, runner, message.ID, message.Text, "", false, status, "", message.FirstAt)
 }
 
-// joinAnswer records message as the reply its turn closed on, under that reply's
-// id, keeping the fuller text of the two.
+// joinAnswer joins message to the reply its turn closed on: a message that adds
+// no text to the reply writes nothing.
 func (t *Turns) joinAnswer(
 	ctx context.Context, chat domain.Chat, runner engineagents.Runner, answer stream.Answer, message stream.Message,
 ) error {
-	text := message.Text
-	if len(answer.Text) > len(text) {
-		text = answer.Text
-	}
-	err := t.recordAssistantMessage(
-		ctx, chat, runner, answer.MessageID, text, answer.Effort, false, answer.Status, answer.Diff, message.FirstAt,
-	)
-	if err != nil {
-		return err
+	if len(message.Text) > len(answer.Text) {
+		if err := t.writeJoin(ctx, chat, runner, answer, message); err != nil {
+			return err
+		}
 	}
 	t.messages.Joined(chat.ID, message.ID)
 	return nil
+}
+
+// writeJoin writes message's fuller text onto its reply's row, only while that
+// reply's turn is the chat's last: a close inside the next turn would hand the
+// old row that turn's place, plan and tools. The recorded answer stands then.
+func (t *Turns) writeJoin(
+	ctx context.Context, chat domain.Chat, runner engineagents.Runner, answer stream.Answer, message stream.Message,
+) error {
+	_, still, err := t.answersLastTurn(ctx, chat.ID, answer)
+	if err != nil || !still {
+		return err
+	}
+	return t.recordAssistantMessage(
+		ctx, chat, runner, answer.MessageID, message.Text, answer.Effort, false, answer.Status, answer.Diff, message.FirstAt,
+	)
 }
 
 func (t *Turns) recordAssistantMessage(
@@ -241,21 +260,19 @@ func (t *Turns) closeAssistantTurn(
 	return nil
 }
 
-// closeLateReplies records the late streams of replies earlier closes recorded:
-// they belong to those turns, not this one. It returns the turn's own messages.
+// closeLateReplies joins the late streams of replies earlier closes recorded:
+// they belong to those turns, not this one. It returns the turn's own messages,
+// among them a late stream whose words turned out another message's.
 func (t *Turns) closeLateReplies(
 	ctx context.Context, chat domain.Chat, runner engineagents.Runner, open []stream.Message,
 ) ([]stream.Message, error) {
 	own := open[:0]
 	for _, message := range open {
-		if message.Reply.MessageID == "" {
+		if !sameReply(message.Reply, message.Text) {
 			own = append(own, message)
 			continue
 		}
-		if message.Text == "" || message.Text == message.RecordedText {
-			continue
-		}
-		if err := t.recordUnfinished(ctx, chat, runner, message, "completed"); err != nil {
+		if err := t.joinAnswer(ctx, chat, runner, message.Reply, message); err != nil {
 			return nil, fmt.Errorf("agent: ingest hook: close turn: %w", err)
 		}
 	}
