@@ -95,13 +95,11 @@ func TestHooks_UsecaseError(
 // error/value so tests can exercise the handlers' error branches.
 type fakeAgentUsecase struct {
 	// hookReply is the stdout the daemon wants a hook to print and hookAsk the
-	// ask it held; validToken is the one runner token VerifyRunnerToken accepts;
-	// awaitStarted, when set, makes AwaitAnswer block until its request is cancelled.
-	hookReply    string
-	hookAsk      string
-	validToken   string
-	verifyCalls  [][2]string
-	awaitStarted chan struct{}
+	// ask it held; validToken is the one runner token VerifyRunnerToken accepts.
+	hookReply   string
+	hookAsk     string
+	validToken  string
+	verifyCalls [][2]string
 
 	ingestCalls []ingestCall
 	ingestErr   error
@@ -215,7 +213,6 @@ type fakeAgentUsecase struct {
 	awaitErr      error
 	awaitCalls    []string
 	abandonCalls  []string
-	abandonErr    error
 	telemetry     engineagents.Telemetry
 	telemetryOK   bool
 	// telemetryOffSurface makes TelemetryOnChatSurface answer false — the
@@ -625,20 +622,14 @@ func (f *fakeAgentUsecase) PendingAnswer(string) (agentusecase.PendingAnswer, bo
 }
 
 func (f *fakeAgentUsecase) AwaitAnswer(
-	ctx context.Context, askID string,
+	_ context.Context, askID string,
 ) (agentusecase.HookAnswer, error) {
 	f.awaitCalls = append(f.awaitCalls, askID)
-	if f.awaitStarted != nil {
-		close(f.awaitStarted)
-		<-ctx.Done()
-		return agentusecase.HookAnswer{}, ctx.Err()
-	}
 	return f.awaitAnswer, f.awaitErr
 }
 
-func (f *fakeAgentUsecase) AbandonAnswer(_ context.Context, askID string) error {
+func (f *fakeAgentUsecase) AbandonAnswer(_ context.Context, askID string) {
 	f.abandonCalls = append(f.abandonCalls, askID)
-	return f.abandonErr
 }
 
 func (f *fakeAgentUsecase) SetChatPermissionLevel(
@@ -776,26 +767,4 @@ func TestHTTPHook_HoldsTheRequestOpenUntilAHumanDecides(t *testing.T) {
 	assert.JSONEq(t, `{"behavior":"allow"}`, rec.Body.String())
 	assert.Equal(t, []string{"ask-1"}, uc.awaitCalls, "the daemon waits on the ask itself; the CLI never polls")
 	assert.Empty(t, uc.abandonCalls)
-}
-
-// The CLI closing its request is how an HTTP hook learns the human decided in
-// the terminal instead: the prompt must stop being shown in the chat.
-func TestHTTPHook_AbandonsThePromptWhenTheCLIHangsUp(t *testing.T) {
-	uc := &fakeAgentUsecase{validToken: "tok", hookAsk: "ask-1", pendingAwait: true, awaitStarted: make(chan struct{})}
-	h := newChatHandlers(uc)
-	ctx, _ := newHTTPHookContext(t, "tok", []byte(`{}`))
-	cancelled, cancel := context.WithCancel(ctx.Request.Context())
-	ctx.Request = ctx.Request.WithContext(cancelled)
-	done := make(chan struct{})
-
-	go func() {
-		defer close(done)
-		h.HTTPHook(ctx)
-	}()
-	<-uc.awaitStarted
-	cancel()
-	<-done
-
-	require.Len(t, uc.abandonCalls, 1)
-	assert.Equal(t, []string{"ask-1"}, uc.abandonCalls, "the abandoned ask is the one being awaited")
 }

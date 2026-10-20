@@ -180,16 +180,6 @@ func TestAbandonHookAnswer_RejectsARequestWithNoAsk(t *testing.T) {
 	}
 }
 
-func TestAbandonHookAnswer_SurfacesAFailure(t *testing.T) {
-	uc := &fakeAgentUsecase{abandonErr: apperr.ErrUnavailable}
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/abandon",
-		[]byte(`{"ask_id":"c1"}`))
-
-	newChatHandlers(uc).AbandonHookAnswer(ctx)
-
-	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
-}
-
 func TestAwaitHookAnswer_SurfacesAFailure(t *testing.T) {
 	uc := &fakeAgentUsecase{awaitErr: apperr.ErrUnavailable}
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/await",

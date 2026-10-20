@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -115,7 +114,6 @@ func (h *Handlers) holdForAnswer(
 	answer, err := h.answers.AwaitAnswer(rctx, askID)
 	if err != nil {
 		if errors.Is(err, rctx.Err()) {
-			_ = h.answers.AbandonAnswer(context.WithoutCancel(rctx), askID)
 			return
 		}
 		status, msg := libs.StatusAndMessage(err)

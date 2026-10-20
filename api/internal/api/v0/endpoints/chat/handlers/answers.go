@@ -95,10 +95,6 @@ func (h *Handlers) AbandonHookAnswer(ctx *gin.Context) {
 		libs.WriteErr(ctx, http.StatusBadRequest, "ask_id is required")
 		return
 	}
-	if err := h.answers.AbandonAnswer(ctx.Request.Context(), body.AskID); err != nil {
-		status, message := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, message)
-		return
-	}
+	h.answers.AbandonAnswer(ctx.Request.Context(), body.AskID)
 	libs.WriteAccepted(ctx)
 }

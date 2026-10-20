@@ -336,7 +336,7 @@ type AnswerUsecase interface {
 	AbandonAnswer(
 		ctx context.Context,
 		askID string,
-	) error
+	)
 
 	// SetChatPermissionLevel overrides chatID's trust dial for the rest of its
 	// lifetime, independent of the global default (see

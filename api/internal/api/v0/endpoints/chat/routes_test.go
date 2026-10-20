@@ -554,7 +554,7 @@ func (stubUsecase) AwaitAnswer(context.Context, string) (agentusecase.HookAnswer
 	return agentusecase.HookAnswer{}, nil
 }
 
-func (stubUsecase) AbandonAnswer(context.Context, string) error { return nil }
+func (stubUsecase) AbandonAnswer(context.Context, string) {}
 
 func (stubUsecase) SetChatPermissionLevel(
 	context.Context, string, string,

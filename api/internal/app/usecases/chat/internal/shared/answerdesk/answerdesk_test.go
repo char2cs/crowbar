@@ -91,7 +91,6 @@ func fixtureRetaining(wait, retention time.Duration) (*answerdesk.Desk, *answerd
 
 func TestAwait_TheBudgetExpiringPrintsNothingAndFreesTheSlot(t *testing.T) {
 	t.Parallel()
-
 	d, _ := fixture(time.Millisecond)
 
 	answer, err := d.Await(context.Background(), "choice-1")
@@ -102,24 +101,24 @@ func TestAwait_TheBudgetExpiringPrintsNothingAndFreesTheSlot(t *testing.T) {
 	assert.False(t, waiting, "an expired wait must not leave a slot an answer could reach")
 }
 
-func TestAwait_ACancelledRelayIsFreedAndReportsTheCancellation(t *testing.T) {
+// A relay that stops waiting leaves its ask to be retired: abandoned, its
+// question is closed as proceeded past, as the CLI now asks it itself.
+func TestAwait_ACancelledRelayLeavesItsAskToItsAbandon(t *testing.T) {
 	t.Parallel()
-
-	d, _ := fixture(time.Hour)
+	d, _, ledger := withLedger(time.Hour)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	answer, err := d.Await(ctx, "choice-1")
+	d.Abandon(context.Background(), "choice-1")
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Empty(t, answer.Stdout)
-	_, waiting := d.Pending("choice-1")
-	assert.False(t, waiting, "a cancelled relay must not leave its slot on the desk")
+	assert.Equal(t, []resolution{{"chat-1", "choice-1", domain.ChoiceResolutionProceeded}}, ledger.all())
 }
 
 func TestAwait_AnAskNobodyIsHoldingReturnsNothing(t *testing.T) {
 	t.Parallel()
-
 	d := answerdesk.New(answerdesk.DefaultRetention, nil)
 
 	answer, err := d.Await(context.Background(), "never-held")

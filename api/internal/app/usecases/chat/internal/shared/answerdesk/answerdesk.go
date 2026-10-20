@@ -53,16 +53,8 @@ const (
 )
 
 // PermissionInterruptionID derives a choice's paired interruption id from the
-// choice id alone, by a prefix swap — both are minted from the exact same
-// key in turn/observation.go's handleObservation, the one place the pair is
-// actually opened, for every choice kind (tool_permission, AskUserQuestion,
-// elicitation alike). Every caller that only ever sees the choice id — the
-// human answer path (chat.Usecase.AnswerChoice) and this desk's own record,
-// both a package away from where the pair was opened — derives the same
-// interrupt id from it rather than re-deriving or guessing one; each then
-// scopes itself to the choice kinds it actually means to resolve (see their
-// own doc comments), since deriving a well-formed id here says nothing about
-// whether resolving it is that caller's to do.
+// choice id alone, by a prefix swap: the pair is minted from one key wherever
+// an ask is raised, so a caller holding only the choice id never guesses.
 func PermissionInterruptionID(choiceID string) string {
 	const prefix = "choice-"
 	if !strings.HasPrefix(choiceID, prefix) {
@@ -157,7 +149,8 @@ func (d *Desk) Pending(askID string) (PendingAnswer, bool) {
 
 // Await blocks the relay held on askID until a person answers, its declared
 // budget expires, or ctx is cancelled. It returns the stdout the relay must
-// print — empty when nobody answered in time.
+// print — empty when nobody answered in time. A relay that stops waiting leaves
+// its ask held, for Abandon or its runner's release to retire.
 //
 // A verdict is claimed by EXACTLY ONE relay: one arriving after the answer was
 // claimed gets nothing rather than replaying it into a CLI that already acted.
@@ -184,7 +177,6 @@ func (d *Desk) Await(ctx context.Context, askID string) (HookAnswer, error) {
 		d.release(slot)
 		return HookAnswer{}, nil
 	case <-ctx.Done():
-		d.release(slot)
 		return HookAnswer{}, ctx.Err()
 	}
 }
@@ -288,13 +280,9 @@ func (d *Desk) releaseRunner(runnerID string) []*Slot {
 // because a write failed would leave the CLI blocked on a person who can no
 // longer answer.
 //
-// A permission-sourced slot (Event == HookPermission — the same hook both a
-// plain tool_permission choice and an AskUserQuestion arrive on) also closes
-// its paired interruption here: released without an answer is still decided,
-// and leaving that interruption open until turn-close would keep counting it
-// against domain.MaxOpenPerTurn for the rest of the turn, same as an
-// answered one left unresolved would. Best-effort, same as the choice write
-// above — the banner is cosmetic.
+// A slot raised on the permission hook (a tool's permission, or a question a
+// tool asks) also closes its paired interruption: one left open counts against
+// domain.MaxOpenPerTurn for the rest of the turn. Best-effort: it is cosmetic.
 func (d *Desk) record(
 	ctx context.Context,
 	slot *Slot,

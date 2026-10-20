@@ -45,7 +45,7 @@ type AnswerUsecase interface {
 	AbandonAnswer(
 		ctx context.Context,
 		askID string,
-	) error
+	)
 
 	// AnswerChoice decides a pending prompt from Crowbar: it renders the picked
 	// options into the provider's own answer format and hands that to the relay
@@ -109,12 +109,17 @@ func (u *Usecase) PendingAnswer(
 }
 
 // AwaitAnswer blocks the relay held on askID until a person answers, its declared
-// budget expires, or ctx is cancelled. A verdict is claimed by exactly one relay.
+// budget expires, or ctx is cancelled. A verdict is claimed by exactly one relay,
+// and a relay that hangs up abandons its ask: its CLI is asking it itself.
 func (u *Usecase) AwaitAnswer(
 	ctx context.Context,
 	askID string,
 ) (HookAnswer, error) {
-	return u.answers.Await(ctx, askID)
+	answer, err := u.answers.Await(ctx, askID)
+	if err != nil && ctx.Err() != nil {
+		u.answers.Abandon(context.WithoutCancel(ctx), askID)
+	}
+	return answer, err
 }
 
 // AbandonAnswer retires the relay held on askID without printing, closing the
@@ -122,9 +127,8 @@ func (u *Usecase) AwaitAnswer(
 func (u *Usecase) AbandonAnswer(
 	ctx context.Context,
 	askID string,
-) error {
+) {
 	u.answers.Abandon(ctx, askID)
-	return nil
 }
 
 // AnswerChoice decides a pending prompt from Crowbar: it renders the picked
@@ -181,16 +185,9 @@ func (u *Usecase) AnswerChoice(
 	if err := u.activity.AnswerChoice(ctx, chatID, choiceID, optionIDs, false, time.Now()); err != nil {
 		return fmt.Errorf("agent: answer choice: %w", err)
 	}
-	// Scoped by the HOOK the relay arrived on, not the choice's own kind:
-	// AskUserQuestion arrives on HookPermission too (a tool call, not a
-	// separate event) and shares the exact same interruption id scheme, so
-	// answering one must close it here same as a plain tool_permission
-	// choice does. An elicitation's own interruption pairs under this same
-	// scheme too — handleObservation mints it the identical way — but this
-	// scope (HookPermission-only) leaves it unresolved by an answer: a
-	// pre-existing gap, unrelated to any pairing defect, that this chain
-	// never set out to close. answerdesk.Desk.record scopes itself the
-	// identical way, for the identical reason.
+	// Scoped by the hook the relay arrived on, not the choice's kind: a question
+	// a tool asks arrives on the permission hook too. An elicitation's paired
+	// interruption is left to its turn's close; answerdesk.Desk.record agrees.
 	if slot.Event == engineagents.HookPermission {
 		u.resolvePermissionInterruption(ctx, chatID, choiceID)
 	}

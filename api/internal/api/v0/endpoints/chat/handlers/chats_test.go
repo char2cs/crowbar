@@ -1483,7 +1483,7 @@ func (configurableListGetUsecase) AwaitAnswer(
 	return agentusecase.HookAnswer{}, nil
 }
 
-func (configurableListGetUsecase) AbandonAnswer(context.Context, string) error { return nil }
+func (configurableListGetUsecase) AbandonAnswer(context.Context, string) {}
 
 func (configurableListGetUsecase) SetChatPermissionLevel(
 	context.Context, string, string,

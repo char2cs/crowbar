@@ -342,7 +342,7 @@ func TestAnswer_AbandonClearsAPromptDecidedAtTheTerminal(t *testing.T) {
 	ask, _ := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
 	printed := await(f, ask)
-	require.NoError(t, f.usecase.AbandonAnswer(f.ctx, ask))
+	f.usecase.AbandonAnswer(f.ctx, ask)
 	f.wait()
 
 	assert.Empty(t, <-printed, "a prompt decided elsewhere prints NOTHING")
@@ -352,7 +352,7 @@ func TestAnswer_AbandonClearsAPromptDecidedAtTheTerminal(t *testing.T) {
 
 func TestAnswer_AbandonOfAnUnknownDeliveryIsANoOp(t *testing.T) {
 	f := newFixture(t)
-	require.NoError(t, f.usecase.AbandonAnswer(f.ctx, uuid.NewString()))
+	f.usecase.AbandonAnswer(f.ctx, uuid.NewString())
 }
 
 func TestAnswer_ADeadRunnerReleasesEveryRelayAndClearsItsPrompts(t *testing.T) {
@@ -448,17 +448,15 @@ func TestAnswer_ARelayThatDisconnectsFreesItsPrompt(t *testing.T) {
 	ask, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
 	ctx, cancel := context.WithCancel(f.ctx)
-	done := make(chan error, 1)
-	go func() {
-		_, err := f.usecase.AwaitAnswer(ctx, ask)
-		done <- err
-	}()
 	cancel()
-	require.Error(t, <-done)
+	_, err := f.usecase.AwaitAnswer(ctx, ask)
+	require.ErrorIs(t, err, context.Canceled)
+	f.wait()
 
 	_, waiting := f.usecase.PendingAnswer(ask)
 	assert.False(t, waiting)
-	err := f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil)
+	assert.Empty(t, pendingChoices(t, f, chatID), "its CLI asks the prompt itself now")
+	err = f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil)
 	require.ErrorIs(t, err, apperr.ErrConflict)
 }
 
@@ -825,7 +823,7 @@ func TestAnswer_AbandonAfterAnAnswerDoesNotRewriteTheRecord(t *testing.T) {
 
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil))
 	f.wait()
-	require.NoError(t, f.usecase.AbandonAnswer(f.ctx, ask))
+	f.usecase.AbandonAnswer(f.ctx, ask)
 	f.wait()
 
 	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
