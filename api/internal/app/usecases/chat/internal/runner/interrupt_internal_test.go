@@ -143,19 +143,23 @@ func TestInterruptTurn_SendsTheInterruptAndReturnsTrue(t *testing.T) {
 	defer func() { _ = apiConn.Close() }()
 
 	rs := &Runners{
-		apiConns: newAPIConnRegistry(),
-		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
-		agents:   stubAgentsForInterrupt{agent: agent},
+		apiConns:   newAPIConnRegistry(),
+		ws:         stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
+		agents:     stubAgentsForInterrupt{agent: agent},
+		background: newBackgroundWork(),
 	}
 	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
 	live := engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "interrupt-test"}
 
 	require.True(t, rs.interruptTurn(ctx, live))
+	// The send runs in the background; closing the connection under it would
+	// break the fake server's reply.
+	rs.background.wg.Wait()
 
 	select {
 	case got := <-received:
 		require.Contains(t, got, "turn/interrupt:")
-	case <-time.After(3 * time.Second):
+	default:
 		t.Fatal("the socket never received turn/interrupt")
 	}
 }
