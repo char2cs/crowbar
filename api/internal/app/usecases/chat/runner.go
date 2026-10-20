@@ -348,34 +348,9 @@ func (u *Usecase) SwitchProvider(
 	return u.runners.SwitchProvider(ctx, chatID, targetProviderID)
 }
 
-// SubmitPrompt delivers a Crowbar-authored prompt into the chat's CLI, at most
-// once per client request id.
-//
-// A non-empty provider that differs from the chat's CURRENT one is switched
-// to by the send itself: its one launch carries the prompt, and is recorded
-// as the switch. This is what lets the composer hold a picked provider
-// (picking a model under a different section) as pure local state: the
-// picker never calls SwitchProvider itself any more, so a row click never
-// tears down the live CLI on its own — only the next actual send does. A
-// provider equal to the chat's current one, or left empty, never switches at
-// all — an idle resend must not pay for a switch it never asked for.
-//
-// A non-nil selection commits the chat's sticky model/effort NEXT — same
-// validation the standalone PATCH .../selection route runs, so a bad value
-// still 400s here exactly as it would there, before anything is sent to the
-// CLI and, critically, before the provider switch above is even attempted —
-// see Runners.SubmitPromptWithSwitch's own doc for why validating first
-// (rather than switching, THEN discovering the pick was bad) matters. This is
-// what lets the composer hold a picked model/effort as pure local state and
-// never write it anywhere until the user actually sends.
-//
-// A selection whose BOTH halves are "" is a real pick, not silence: it clears
-// the chat back to the provider's own default, the same distinct fact
-// domain.Chat.Model documents. Only nil means "nothing staged".
-//
-// The whole sequence — switch, selection, delivery — runs under ONE hold of
-// the chat (Runners.SubmitPromptWithSwitch), not three separate ones: see that
-// method's own doc for the race a gap between them opened.
+// SubmitPrompt delivers a prompt at most once per client request id, in one hold
+// of the chat. A staged provider unlike the chat's is switched to by the send's
+// one launch; a non-nil selection, validated first, rides the send.
 func (u *Usecase) SubmitPrompt(
 	ctx context.Context,
 	chatID, text, clientRequestID, provider string,

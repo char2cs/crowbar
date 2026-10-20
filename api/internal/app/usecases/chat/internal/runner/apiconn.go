@@ -13,6 +13,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"sync"
@@ -190,22 +191,24 @@ func (rs *Runners) startAPIConn(
 }
 
 // applyAPITransport connects an api-transport descriptor and establishes its
-// session first, so a hotswap attach argv (returned for the PTY) names the session
-// prompts act on. Any failure leaves the spawn to run over hooks alone.
+// session first, so a hotswap attach argv names the session prompts act on. It
+// returns the provider's refusal of that session; any other failure degrades to hooks.
 func (rs *Runners) applyAPITransport(
 	ctx context.Context,
 	runnerID, providerID string,
 	agent engineagents.Agent,
 	tctx engineagents.TemplateCtx,
 	resumeContext string,
-) []string {
+) ([]string, error) {
 	conn, ok := rs.startAPIConn(ctx, runnerID, agent, tctx)
 	if !ok {
-		return nil
+		return nil, nil
 	}
-	if tctx.Session, ok = rs.establishAPISession(ctx, conn, runnerID, providerID, tctx); !ok {
-		return nil
+	session, err := rs.establishAPISession(ctx, conn, runnerID, providerID, tctx)
+	if err != nil {
+		return nil, refusedSession(err)
 	}
+	tctx.Session = session
 	// The only channel that reaches an already-resumed session with the gap
 	// (the resume call's own send: has nowhere to put it). Best effort: a failed
 	// inject leaves the resumed session running without the gap, not unresumed.
@@ -232,7 +235,16 @@ func (rs *Runners) applyAPITransport(
 		}
 	}
 	rs.pumpAPIConn(runnerID, providerID, agent, conn)
-	return attach
+	return attach, nil
+}
+
+// refusedSession is err when it is the provider refusing the session; any other
+// establish failure is nil, leaving the spawn to hooks.
+func refusedSession(err error) error {
+	if errors.Is(err, engineagents.ErrAPISessionLost) {
+		return err
+	}
+	return nil
 }
 
 // establishAPISession opens or resumes tctx's session on conn. A session the
@@ -242,7 +254,7 @@ func (rs *Runners) establishAPISession(
 	conn *apiconn,
 	runnerID, providerID string,
 	tctx engineagents.TemplateCtx,
-) (string, bool) {
+) (string, error) {
 	values := map[string]string{
 		"session_id": tctx.Session,
 		"cwd":        tctx.Cwd,
@@ -263,9 +275,9 @@ func (rs *Runners) establishAPISession(
 			rs.noteRefusedRunner(tctx.ChatID, runnerID)
 		}
 		rs.apiConns.drop(runnerID)
-		return "", false
+		return "", fmt.Errorf("agent: api transport: establish session: %w", err)
 	}
-	return established["session_id"], true
+	return established["session_id"], nil
 }
 
 // pointPlanAtAttach redirects a spawn plan's PTY at applyAPITransport's attach

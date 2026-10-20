@@ -8,30 +8,42 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// reviveForDelivery starts a dormant chat's provider carrying requestID: the
-// one CLI the send launches is its carrier, so a refusal of the session settles
-// it. handled=false leaves a live chat to the ordinary delivery.
-func (rs *Runners) reviveForDelivery(
-	ctx context.Context, h *hold, chat domain.Chat, requestID, text string,
-) (domain.AgentPromptSubmission, bool, error) {
+// deliveryLaunch is the provider a send launches itself: the one staged with it
+// when that is not the chat's own, else a dormant chat's. launches=false leaves
+// a live chat's CLI to the ordinary delivery.
+func (rs *Runners) deliveryLaunch(ctx context.Context, chat domain.Chat, staged string) (string, bool, error) {
+	if staged != "" {
+		current, err := rs.conversations.ChatProviderID(ctx, chat.ID)
+		if err != nil || staged != current {
+			return staged, err == nil, err
+		}
+	}
 	if _, live := rs.live.byChat(chat.ID); live {
-		return domain.AgentPromptSubmission{}, false, nil
+		return "", false, nil
 	}
 	providerID, err := rs.lastActiveProviderID(ctx, chat.ID)
 	if err != nil {
-		return domain.AgentPromptSubmission{}, true, fmt.Errorf("agent: submit prompt: revive: %w", err)
+		return "", false, fmt.Errorf("agent: submit prompt: revive: %w", err)
 	}
-	defer rs.enterPhase(ctx, chat.ID, snapshot.PhaseStarting)()
+	return providerID, true, nil
+}
+
+// launchForDelivery launches providerID carrying requestID and the pick staged
+// with it, in place of the chat's CLI if it has one: the send's one launch.
+func (rs *Runners) launchForDelivery(
+	ctx context.Context, h *hold, chat domain.Chat, providerID, requestID, text string,
+	selection *domain.ChatSelection,
+) (domain.AgentPromptSubmission, error) {
+	defer rs.enterPhase(ctx, chat.ID, rs.replacementPhase(chat.ID))()
 	delivery, err := rs.planCarrying(ctx, chat, providerID)
 	if err != nil {
-		return domain.AgentPromptSubmission{}, true, err
+		return domain.AgentPromptSubmission{}, err
 	}
-	submission, err := rs.launchCarrying(ctx, h, chat, requestID, text, delivery)
-	return submission, true, err
+	delivery.selection = selection
+	return rs.launchCarrying(ctx, h, chat, requestID, text, delivery)
 }
 
 // planCarrying refuses a disabled provider or a working chat before anything

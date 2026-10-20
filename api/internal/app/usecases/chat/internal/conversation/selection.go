@@ -8,12 +8,9 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// SetChatSelection pins what chatID's next CLI, providerID's, launches with,
-// refusing a value providerID does not declare.
 func (c *Conversations) SetChatSelection(
 	ctx context.Context,
 	chatID string,
-	providerID string,
 	model string,
 	effort string,
 ) error {
@@ -21,7 +18,7 @@ func (c *Conversations) SetChatSelection(
 		return fmt.Errorf("agent: set chat selection: chat: %w", err)
 	}
 	if model != "" || effort != "" {
-		if err := c.validateSelection(ctx, providerID, model, effort); err != nil {
+		if err := c.validateSelection(ctx, chatID, model, effort); err != nil {
 			return err
 		}
 	}
@@ -33,11 +30,11 @@ func (c *Conversations) SetChatSelection(
 
 func (c *Conversations) validateSelection(
 	ctx context.Context,
-	providerID string,
+	chatID string,
 	model string,
 	effort string,
 ) error {
-	agent, err := c.providerAgent(ctx, providerID)
+	agent, err := c.chatAgent(ctx, chatID)
 	if err != nil {
 		return err
 	}
@@ -86,13 +83,6 @@ func (c *Conversations) chatAgent(
 	if err != nil {
 		return nil, err
 	}
-	return c.providerAgent(ctx, providerID)
-}
-
-func (c *Conversations) providerAgent(
-	ctx context.Context,
-	providerID string,
-) (engineagents.Agent, error) {
 	home, err := c.home()
 	if err != nil {
 		return nil, fmt.Errorf("agent: chat agent: home: %w", err)

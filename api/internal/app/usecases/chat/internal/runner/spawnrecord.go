@@ -22,7 +22,9 @@ import (
 // runner. Launch* is what the process was actually launched with: nothing can
 // ask it later. A process that died before this row committed has its exit
 // recorded after it, and the spawn refused.
-func (rs *Runners) recordRunner(ctx context.Context, r engineagents.Runner, resumeID string, create bool) error {
+func (rs *Runners) recordRunner(
+	ctx context.Context, r engineagents.Runner, resumeID string, create bool, staged *domain.ChatSelection,
+) error {
 	chatID, now := r.CurrentChatID, time.Now()
 	if create {
 		_, err := rs.chats.Create(ctx, agentchat.CreateInput{
@@ -64,6 +66,7 @@ func (rs *Runners) recordRunner(ctx context.Context, r engineagents.Runner, resu
 	if !create {
 		rs.recordChatProvider(ctx, chatID, r.ProviderID)
 	}
+	rs.commitCarriedSelection(ctx, chatID, staged)
 	rs.announceRunner(ctx, chatID, r.ID, frameStarted)
 	if exitedEarly {
 		rs.reconcileRunnerExit(context.WithoutCancel(ctx), r.ID)
@@ -73,9 +76,8 @@ func (rs *Runners) recordRunner(ctx context.Context, r engineagents.Runner, resu
 }
 
 // recordSpawnFailure frees the chat of a spawn that put no CLI on it and, for an
-// existing chat, records spawn_failed, or resume_failed when its provider no
-// longer had the session. A CLI that died during startup recorded its own
-// exit; a preempted spawn is the preempting Stop's to record.
+// existing chat, records spawn_failed, or resume_failed for a refused session;
+// a CLI that died in startup, or a preempted spawn, is recorded elsewhere.
 func (rs *Runners) recordSpawnFailure(ctx context.Context, chatID, runnerID string, create bool, err *error) {
 	if *err == nil || errors.Is(*err, ErrProviderExitedDuringStartup) {
 		return
@@ -103,9 +105,9 @@ func (rs *Runners) recordSpawnFailure(ctx context.Context, chatID, runnerID stri
 	rs.announceRunner(ctx, chatID, runnerID, frameExited)
 }
 
-// recordChatProvider restates the chat's own durable vendor to the CLI just
-// started on it, after runner_started commits: a failed spawn claims nothing.
-// Best-effort; ErrValidation is the ordinary answer of a same-provider respawn.
+// recordChatProvider moves the chat's own durable vendor to the CLI just started
+// on it, after runner_started commits, and records the switch where it moved: a
+// failed spawn claims nothing. ErrValidation is a same-provider respawn.
 func (rs *Runners) recordChatProvider(
 	ctx context.Context,
 	chatID, providerID string,
@@ -113,10 +115,30 @@ func (rs *Runners) recordChatProvider(
 	if providerID == "" {
 		return
 	}
-	if _, err := rs.chats.SetProvider(ctx, chatID, providerID); err != nil &&
-		!errors.Is(err, asynxModels.ErrValidation) {
+	_, err := rs.chats.SetProvider(ctx, chatID, providerID)
+	if errors.Is(err, asynxModels.ErrValidation) {
+		return
+	}
+	if err != nil {
 		slog.WarnContext(ctx, "agent: record the chat's own provider (best-effort, continuing)",
 			"chat_id", chatID, "provider", providerID, "err", err)
+		return
+	}
+	if err := rs.turns.RecordChatSwitch(ctx, chatID, engineagents.InterruptProviderSwitched, providerID); err != nil {
+		slog.WarnContext(ctx, "agent: record a provider switch (best-effort, continuing)",
+			"chat_id", chatID, "err", err)
+	}
+}
+
+// commitCarriedSelection makes the pick a launch carried the chat's own, with
+// its dividers, once its runner_started committed; nil means it carried none.
+func (rs *Runners) commitCarriedSelection(ctx context.Context, chatID string, staged *domain.ChatSelection) {
+	if staged == nil {
+		return
+	}
+	if err := rs.setChatSelectionLocked(ctx, chatID, staged.Model, staged.Effort); err != nil {
+		slog.WarnContext(ctx, "agent: commit the carried selection (best-effort, continuing)",
+			"chat_id", chatID, "err", err)
 	}
 }
 

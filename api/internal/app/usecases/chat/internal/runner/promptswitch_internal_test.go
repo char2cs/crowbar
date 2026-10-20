@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
@@ -65,4 +67,49 @@ func TestValidateSelectionForProvider_AStaticEmptyCatalogueStillRejects(t *testi
 	err := rs.validateSelectionForProvider(context.Background(), "chat-1", "some-provider", "anything", "")
 
 	require.Error(t, err, "no catalogue at all (not discovery-backed) must keep rejecting, same as before")
+}
+
+// stagedConversations is reviveConversations keeping the picks a send commits.
+type stagedConversations struct {
+	reviveConversations
+	committed *[]string
+}
+
+func (c stagedConversations) SetChatSelection(_ context.Context, _, model, effort string) error {
+	*c.committed = append(*c.committed, model+"/"+effort)
+	return nil
+}
+
+// A pick staged with a switch rides the switch's launch, and is the chat's,
+// dividers and all, once that launch runs: a failed one leaves the chat as it was.
+func TestSubmitPromptWithSwitch_AStagedPickIsTheChatsOnceItsLaunchRuns(t *testing.T) {
+	for name, runs := range map[string]bool{"the launch runs": true, "the launch fails": false} {
+		t.Run(name, func(t *testing.T) {
+			h := newSpawnHarness(t, "")
+			installDescriptor(t, h.home, selectionCarrierDescriptor)
+			var committed, switched []string
+			h.rs.turns, h.rs.activity = recordedSwitches{to: &switched}, reviveActivity{}
+			h.rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: h.chatID, WorkspaceID: "ws-1", ProviderID: "claude"}}
+			h.rs.conversations = stagedConversations{reviveConversations{provider: "claude"}, &committed}
+			if !runs {
+				h.rs.term = unforkable{}
+			}
+
+			_, err := h.rs.SubmitPromptWithSwitch(t.Context(), h.chatID, "hello", uuid.NewString(),
+				"carrier-test", &domain.ChatSelection{Model: "deep"})
+
+			if !runs {
+				require.Error(t, err)
+				assert.Empty(t, committed, "the chat keeps its own pick")
+				assert.Empty(t, switched, "and no divider records a switch that never ran")
+				return
+			}
+			require.NoError(t, err)
+			assert.Contains(t, h.term.lastCall().argv, "deep", "the launch carries the staged pick")
+			assert.Equal(t, []string{"deep/"}, committed)
+			assert.Equal(t, []string{
+				engineagents.InterruptProviderSwitched + ":carrier-test", engineagents.InterruptModelChanged + ":deep",
+			}, switched)
+		})
+	}
 }

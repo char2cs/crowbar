@@ -30,13 +30,9 @@ func (rs *Runners) SubmitPrompt(
 	return rs.submitPromptLocked(ctx, h, chatID, text, clientRequestID, nil)
 }
 
-// submitPromptLocked is SubmitPrompt's body, split out so
-// SubmitPromptWithSwitch (promptswitch.go) runs it in its own single hold of
-// the chat, with the staged selection and switch as its admit.
-//
-// admit (nil for none) runs once the request is known to be new — a resend of
-// a recorded prompt answers from the ledger and must never spawn or mutate
-// anything. handled says admit delivered the prompt itself.
+// submitPromptLocked is SubmitPrompt's body under h. admit, if set, runs once the
+// request is known to be new (a resend answers from the ledger and changes
+// nothing); handled says admit delivered the prompt itself.
 func (rs *Runners) submitPromptLocked(
 	ctx context.Context,
 	h *hold,

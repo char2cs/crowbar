@@ -14,6 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/promptsigil"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -80,7 +81,7 @@ func (rs *Runners) spawnRunner(
 ) (_ string, err error) {
 	runnerID := newRunnerID(in.runnerID)
 	defer rs.recordSpawnFailure(ctx, chatID, runnerID, create, &err)
-	pre, err := rs.spawnPreflight(ctx, chatID, providerID, create)
+	pre, err := rs.spawnPreflight(ctx, chatID, providerID, create, in.selection)
 	if err != nil {
 		return "", err
 	}
@@ -189,9 +190,14 @@ func (rs *Runners) spawnRunner(
 	// The api connection comes up (or not) BEFORE the PTY plan is rendered:
 	// when it does, the runner is that connection and the plan never runs;
 	// when it does not, the session runs over the PTY's hooks alone.
-	attachArgv := rs.apiTransportForSurface(
+	attachArgv, refused := rs.apiTransportForSurface(
 		ctx, runnerID, providerID, descriptor, tctx, resumeContextFor(in.resuming, inject, tctx), pre.surface,
 	)
+	if refused != nil && in.promptMessage != "" {
+		// The plan resumes the session the provider just refused.
+		rs.abandonUnforked(runnerID)
+		return "", fmt.Errorf("%w: %w", ErrSpawnPromptUndeliverable, refused)
+	}
 	steps := buildSpawnSteps(
 		descriptor, in.resuming, inject, sel, sessionSteps, in.finalSteps,
 	)
@@ -241,7 +247,7 @@ func (rs *Runners) spawnRunner(
 		ID: runnerID, WorkspaceID: workspaceID, ProviderID: providerID, TerminalSession: termSessID,
 		CurrentChatID: chatID, LaunchModel: carried.Model, LaunchEffort: carried.Effort,
 		LaunchPermissionLevel: carried.PermissionLevel,
-	}, launch.resumeID, create); err != nil {
+	}, launch.resumeID, create, in.selection); err != nil {
 		if !errors.Is(err, ErrProviderExitedDuringStartup) {
 			rs.agents.ForgetRunner(runnerID)
 		}
@@ -266,7 +272,7 @@ func (rs *Runners) forkCLI(
 	if err == nil {
 		return termSessID, nil
 	}
-	rs.agents.ForgetRunner(req.runnerID)
+	rs.abandonUnforked(req.runnerID)
 	reapRunnerDir(ctx, req.crowbarHome, req.tmpDir)
 
 	// A CLI that is not installed is the ONE spawn failure the user can act on, so
@@ -327,6 +333,7 @@ func (rs *Runners) spawnPreflight(
 	ctx context.Context,
 	chatID, providerID string,
 	create bool,
+	staged *domain.ChatSelection,
 ) (spawnPreflight, error) {
 	// This is the ONE seam every vendor CLI is launched through, which makes it the
 	// only place a disabled provider can actually be stopped.
@@ -350,6 +357,9 @@ func (rs *Runners) spawnPreflight(
 	sel, err := rs.conversations.ChatSelection(ctx, chatID, create)
 	if err != nil {
 		return spawnPreflight{}, err
+	}
+	if staged != nil {
+		sel.Model, sel.Effort = staged.Model, staged.Effort
 	}
 	surface, err := rs.storedSurface(ctx, chatID, create)
 	if err != nil {

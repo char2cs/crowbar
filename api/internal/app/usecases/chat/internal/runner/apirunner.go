@@ -49,18 +49,9 @@ func carriedSelection(
 	return carried
 }
 
-// forkOrAdopt starts whatever this spawn actually needs: the descriptor's
-// PTY, or nothing at all when the api connection is already the whole runner.
-// The terminal-session id it returns is "" in the second case, which is what
-// its runner_started row then records.
-//
-// It is also the single door every spawn's PROMPT goes through: a PTY running
-// the rendered plan carries it in argv, and a connection that is the runner,
-// or that an attach argv replaced the plan with, must dispatch the text itself.
-//
-// The SELECTION is the same invariant one field over, and the branch that
-// runs is what reports which carrier took it — so nothing downstream can
-// record a model/effort the process never received.
+// forkOrAdopt forks the PTY a spawn needs, or none when its connection is the
+// whole runner, and returns which carrier took the selection: a PTY running the
+// plan carries prompt and pick in argv, while a connection must dispatch them.
 func (rs *Runners) forkOrAdopt(
 	ctx context.Context, req forkRequest, attachArgv []string,
 ) (string, engineagents.Selection, error) {
@@ -96,13 +87,9 @@ func (rs *Runners) adoptAPIConn(ctx context.Context, req forkRequest) error {
 	return nil
 }
 
-// carryPromptOverAPIConn delivers a prompt-bearing spawn's message down the
-// connection that is its only carrier (its rendered argv, prompt and all, is
-// never run).
-//
-// A failure FAILS THE SPAWN: there is no other carrier, and the caller settles
-// the prompt rather than report a runner healthy with the user's message
-// nowhere. A session gone under the push is lost, as a refused establish is.
+// carryPromptOverAPIConn pushes a spawn's prompt down the connection that is its
+// only carrier. A failure fails the spawn, so the prompt is settled; a session
+// gone under the push is lost, as a refused establish is.
 func (rs *Runners) carryPromptOverAPIConn(ctx context.Context, req forkRequest) error {
 	if req.promptMessage == "" {
 		return nil

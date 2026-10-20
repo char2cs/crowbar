@@ -3,10 +3,12 @@ package runner
 import (
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -132,4 +134,27 @@ func TestLaunchSession_AProviderThatTakesNoIDLaunchesFreshUnlessItTurned(t *test
 	resumed, err := launchSession(chatState(t, turnedTestLedger(t, "codex", "X1")), codex)
 	require.NoError(t, err)
 	assert.Equal(t, sessionLaunch{resumeID: "X1"}, resumed)
+}
+
+// A launch that displaces a CLI is planned once that CLI has quit: its refusal
+// on the way out lost the session the launch would otherwise resume.
+func TestSubmitPrompt_ALaunchIsPlannedOnceTheCLIItDisplacesHasQuit(t *testing.T) {
+	h := newSpawnHarness(t, "")
+	term := &refusingTerm{}
+	h.rs.term = term
+	h.rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: h.chatID, WorkspaceID: "ws-1", ProviderID: "claude"}}
+	h.rs.conversations, h.rs.activity = reviveConversations{provider: "claude"}, reviveActivity{}
+	h.rs.ledger = turnedTestLedger(t, "claude", "S1")
+	_, err := h.rs.spawnRunner(t.Context(), h.chatID, "ws-1", "claude", spawnInput{}, false)
+	require.NoError(t, err)
+	requestID := uuid.NewString()
+
+	_, err = h.rs.SubmitPrompt(t.Context(), h.chatID, "hello", requestID)
+
+	require.NoError(t, err)
+	require.Equal(t, 2, term.callCount(), "the send launches one CLI")
+	argv := term.lastCall().argv
+	assert.NotContains(t, argv, "--resume", "the session the displaced CLI refused is not resumed")
+	assert.Contains(t, argv, "hello")
+	assert.Equal(t, ledger.PromptStatusPending, promptReceipt(t, h.rs.ledger, requestID).Status)
 }

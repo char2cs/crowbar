@@ -342,8 +342,9 @@ func (rs *Runners) detachNativeView(
 		return nil // ended while the view went down: nothing is left to re-establish
 	}
 	// No resume context: this switches views on one live session; the spawn's
-	// original context would only be replayed on every toggle.
-	_ = rs.applyAPITransport(ctx, live.ID, live.ProviderID, view.agent, view.tctx, "")
+	// original context would only be replayed on every toggle. A refusal has
+	// already lost the session.
+	_, _ = rs.applyAPITransport(ctx, live.ID, live.ProviderID, view.agent, view.tctx, "")
 	// A runner without a PTY of its own has just swapped processes again: the
 	// re-established connection is its process, and if none came back it has
 	// none.

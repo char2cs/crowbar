@@ -11,6 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/config"
 	"github.com/char2cs/crowbar/api/internal/core/hookserver"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -31,6 +32,9 @@ type spawnInput struct {
 	gapTurns      int
 	resuming      bool // the content signal: is the handoff a gap or the whole conversation
 	promptMessage string
+	// selection is a pick staged with the prompt, launched in place of the
+	// chat's own and made the chat's once the launch runs; nil stages none.
+	selection *domain.ChatSelection
 }
 
 // spawnLaunch is the spawn's session decision and the argv steps carrying it.

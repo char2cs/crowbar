@@ -7,7 +7,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -238,6 +240,49 @@ func TestSpawnRunner_ACarriedPushThatFindsTheSessionGoneLosesIt(t *testing.T) {
 	assert.Equal(t, ledger.ReasonSessionLost, promptReceipt(t, h.rs.ledger, "req-1").Reason)
 	exit, _ := st.LastExit()
 	assert.Equal(t, domain.AgentExitResumeFailed, exit.Reason)
+	rows, err := h.rs.ledger.Read(t.Context(), h.chatID, 0, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 1, countKind(rows, ledger.KindSessionLost))
+	assert.False(t, h.rs.HasLiveAPIConnection("runner-1"), "the connection is dropped")
+}
+
+// A send whose launch finds its session refused by the connection forks
+// nothing: its plan resumes that session, and the prompt it carried is settled.
+func TestSubmitPrompt_ALaunchWhoseSessionTheConnectionRefusesForksNothing(t *testing.T) {
+	h := helperServeSpawn(t, "refuse", false)
+	asked := filepath.Join(t.TempDir(), "asked")
+	t.Setenv(helperServeAsked, asked)
+	h.rs.chats = stubChatsForSpawn{chat: domain.Chat{
+		ID: h.chatID, WorkspaceID: "ws-1", ProviderID: "carrier-test", Surface: engineagents.SurfaceChat,
+	}}
+	h.rs.conversations, h.rs.activity = reviveConversations{provider: "carrier-test"}, reviveActivity{}
+	requestID := uuid.NewString()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	_, err := h.rs.SubmitPromptWithSwitch(ctx, h.chatID, "hello", requestID, "", nil)
+
+	require.ErrorIs(t, err, ErrPromptOutcomeUnknown)
+	assert.Empty(t, h.term.created, "no PTY forks to resume the refused session")
+	assert.Equal(t, []string{"initialize", "thread/resume"}, askedCalls(t, asked), "one CLI was launched")
+	assert.Equal(t, ledger.ReasonSessionLost, promptReceipt(t, h.rs.ledger, requestID).Reason)
+	assert.Equal(t, domain.AgentExitResumeFailed, endedAs(t, h))
+	rows, err := h.rs.ledger.Read(t.Context(), h.chatID, 0, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 1, countKind(rows, ledger.KindSessionLost))
+}
+
+// An attaching spawn whose view cannot fork leaves no connection behind.
+func TestSpawnRunner_AnAttachingSpawnThatCannotForkDropsItsConnection(t *testing.T) {
+	h := helperServeSpawn(t, "answer", true)
+	h.rs.term = unforkable{}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"}, false)
+
+	require.Error(t, err)
+	assert.False(t, h.rs.HasLiveAPIConnection("runner-1"), "the serve it would have attached to is dropped")
 }
 
 // A chat holds one CLI: a spawn onto a chat whose runner is live is refused

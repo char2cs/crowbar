@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 func (rs *Runners) SwitchProvider(
@@ -45,12 +44,6 @@ func (rs *Runners) switchProviderLocked(
 	if err := rs.providers.RequireProviderEnabled(ctx, targetProviderID); err != nil {
 		return "", err
 	}
-	// Read BEFORE anything is torn down, purely to know whether this switch is
-	// actually a CHANGE — a resolve failure (a chat no provider has ever run on)
-	// means "unknown", not "none", so it is treated the same as "no change" and
-	// simply skips the marker rather than risk a false-positive divider on a
-	// chat's very first spawn.
-	previousProviderID, _ := rs.conversations.ChatProviderID(ctx, chatID)
 	for {
 		if _, _, err := rs.settledRunner(h); err != nil {
 			return "", fmt.Errorf("agent: switch provider: %w", err)
@@ -144,41 +137,9 @@ func (rs *Runners) switchProviderLocked(
 			continue
 		}
 
-		runnerID, err := rs.spawnRunner(ctx, chatID, chat.WorkspaceID, targetProviderID, spawnInput{
+		return rs.spawnRunner(ctx, chatID, chat.WorkspaceID, targetProviderID, spawnInput{
 			launch: &launch, conversation: conversation, gapTurns: gapTurns, resuming: resuming,
 		}, false)
-		if err != nil {
-			return "", err
-		}
-		// Best-effort, after the switch has actually committed: a failed switch
-		// changed nothing, and this is Crowbar's own doing, never something to fail
-		// the switch itself over. Only recorded when the provider actually changed
-		// — resuming into the same provider it was already on is not a switch.
-		//
-		// An UNKNOWN previous provider is recorded too, and used not to be. That
-		// exemption is what made a real conversion invisible: the chats it fired
-		// for were exactly the ones nothing else could name either, so the
-		// conversion left no divider in the transcript and no interruption for
-		// the next resolver to read. It no longer risks a divider on a chat's
-		// first spawn, because no first spawn comes through here — StartRunner
-		// and SpawnChat do — and every chat those mint now carries its own
-		// provider, so "unknown" means a row minted before that field and nothing
-		// else.
-		if previousProviderID != targetProviderID {
-			rs.recordProviderSwitch(ctx, chatID, targetProviderID)
-		}
-		return runnerID, nil
-	}
-}
-
-// recordProviderSwitch notes that chatID now runs providerID. Best-effort: the
-// switch has committed, and its record never fails it.
-func (rs *Runners) recordProviderSwitch(ctx context.Context, chatID, providerID string) {
-	if err := rs.turns.RecordChatSwitch(
-		ctx, chatID, engineagents.InterruptProviderSwitched, providerID,
-	); err != nil {
-		slog.WarnContext(ctx, "agent: switch provider: record chat switch (best-effort, continuing)",
-			"chat_id", chatID, "err", err)
 	}
 }
 

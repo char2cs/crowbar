@@ -107,10 +107,9 @@ func (r recordedSwitches) RecordChatSwitch(_ context.Context, _, kind, detail st
 	return nil
 }
 
-// A send launches one CLI, carrying the prompt: the dormant chat's provider,
-// or the provider staged with it in place of the chat's CLI. When that CLI
-// refuses the session, its refusal settles the prompt and loses the session
-// once, whether it lands before the launch answers or after.
+// A send launches one CLI carrying the prompt: the dormant chat's provider or
+// the one staged with it. That CLI's refusal of the session, before the launch
+// answers or after, settles the prompt and loses the session once.
 func TestSubmitPromptWithSwitch_ARefusedResumeSettlesThePromptItsOneLaunchCarried(t *testing.T) {
 	scenarios := map[string]struct {
 		current, staged string
@@ -138,9 +137,15 @@ func TestSubmitPromptWithSwitch_ARefusedResumeSettlesThePromptItsOneLaunchCarrie
 				launched := term.callCount()
 				requestID := uuid.NewString()
 
-				_, _ = h.rs.SubmitPromptWithSwitch(t.Context(), h.chatID, "hello", requestID, sc.staged, nil)
+				submission, err := h.rs.SubmitPromptWithSwitch(t.Context(), h.chatID, "hello", requestID, sc.staged, nil)
 				term.refuseAll()
 
+				if early {
+					require.ErrorIs(t, err, ErrPromptOutcomeUnknown)
+				} else {
+					require.NoError(t, err)
+					assert.NotEmpty(t, submission.RunnerID)
+				}
 				assert.Equal(t, 1, term.callCount()-launched, "the send launches one CLI")
 				argv := term.lastCall().argv
 				assert.Equal(t, "S1", argv[slices.Index(argv, "--resume")+1], "%v", argv)
@@ -157,10 +162,11 @@ func TestSubmitPromptWithSwitch_ARefusedResumeSettlesThePromptItsOneLaunchCarrie
 				rows, err := h.rs.ledger.Read(t.Context(), h.chatID, 0, 0)
 				require.NoError(t, err)
 				assert.Equal(t, 1, countKind(rows, ledger.KindSessionLost))
-				if sc.staged != "" && !early {
-					assert.Equal(t, []string{engineagents.InterruptProviderSwitched + ":claude"}, switched,
-						"the switch is recorded once its launch runs")
+				var divider []string
+				if sc.staged != "" {
+					divider = []string{engineagents.InterruptProviderSwitched + ":claude"}
 				}
+				assert.Equal(t, divider, switched, "the switch is recorded where the chat's provider moves")
 			})
 		}
 	}

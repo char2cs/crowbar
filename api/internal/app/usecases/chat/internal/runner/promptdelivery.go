@@ -74,9 +74,10 @@ func (l sessionLaunch) steps(d engineagents.Agent) ([]engineagents.InjectStep, e
 // promptDelivery is what SubmitPrompt needs to launch a CLI carrying a
 // message: the InjectSteps to render, and the session those steps continue.
 type promptDelivery struct {
-	provider    string // the provider the carrier launches as
-	outgoing    string // the chat's CLI the carrier replaces, "" on a dormant chat
-	switching   bool   // the carrier changes the chat's provider
+	provider    string                // the provider the carrier launches as
+	descriptor  engineagents.Agent    // the carrier's descriptor
+	outgoing    engineagents.Runner   // the chat's CLI the carrier replaces, zero on a dormant chat
+	selection   *domain.ChatSelection // the pick staged with the prompt, nil for none
 	promptSteps []engineagents.InjectStep
 	launch      sessionLaunch
 	// conversation and contextResuming hand the record over to a launch whose
@@ -112,25 +113,26 @@ func (rs *Runners) resolvePromptDelivery(
 
 	// Only a session that turned is resumed, so a resumed one has history of its
 	// own; the gap since its last turn is what it lacks. Whether THIS restart owes
-	// that handoff is liveTurned's question below.
+	// that handoff is turnedSinceOutgoing's question below.
 	everTurned := resuming
 	leftAt, err := rs.leftAt(ctx, chatID, providerID, nativeSessionID)
 	if err != nil {
 		return promptDelivery{}, err
 	}
 
-	// The launch owes the handoff unless the runner it displaces turned since it
-	// started: that one is on its own transcript, which --resume restores, while
-	// one that never answered, or none at all, has nothing of its own on the wire.
-	liveTurned, err := rs.liveTurned(ctx, chatID, providerID, live)
+	// The launch owes the handoff unless providerID turned since the CLI it
+	// displaces started: that turn is on its own transcript, which its resume
+	// restores, while with no turn, or no CLI, nothing of its own is on the wire.
+	turned, err := rs.turnedSinceOutgoing(ctx, chatID, providerID, live)
 	if err != nil {
 		return promptDelivery{}, err
 	}
 
 	out := promptDelivery{
-		provider: providerID, outgoing: live.ID, promptSteps: promptSteps, launch: launch, contextResuming: resuming,
+		provider: providerID, descriptor: descriptor, outgoing: live, promptSteps: promptSteps,
+		launch: launch, contextResuming: resuming,
 	}
-	if !liveTurned && !launch.lost {
+	if !turned && !launch.lost {
 		conversation, err := rs.conversations.AssembleConversation(ctx, chatID, everTurned, leftAt)
 		if err != nil {
 			return promptDelivery{}, fmt.Errorf("agent: submit prompt: assemble handoff: %w", err)
@@ -151,22 +153,23 @@ func (rs *Runners) resolvePromptDelivery(
 	return out, nil
 }
 
-// liveTurned reports whether live, the CLI a delivery replaces, has turned
-// since it started; a dormant chat has none.
-func (rs *Runners) liveTurned(ctx context.Context, chatID, providerID string, live engineagents.Runner) (bool, error) {
-	if live.ID == "" {
+// turnedSinceOutgoing reports whether providerID has turned on the chat since
+// outgoing, the CLI a delivery replaces, started; a dormant chat has none.
+func (rs *Runners) turnedSinceOutgoing(
+	ctx context.Context, chatID, providerID string, outgoing engineagents.Runner,
+) (bool, error) {
+	if outgoing.ID == "" {
 		return false, nil
 	}
-	turned, err := rs.activity.HasTurnAtOrAfter(ctx, chatID, providerID, live.StartedAt)
+	turned, err := rs.activity.HasTurnAtOrAfter(ctx, chatID, providerID, outgoing.StartedAt)
 	if err != nil {
 		return false, fmt.Errorf("agent: submit prompt: check live runner history: %w", err)
 	}
 	return turned, nil
 }
 
-// launchCarrying launches the CLI that carries requestID, recorded as its
-// carrier before anything is touched, once the CLI it replaces has quit. A
-// switch is recorded once that CLI runs.
+// launchCarrying launches the CLI that carries requestID and the pick staged
+// with it, recorded as its carrier before anything is touched.
 func (rs *Runners) launchCarrying(
 	ctx context.Context, h *hold, chat domain.Chat, requestID, text string, delivery promptDelivery,
 ) (domain.AgentPromptSubmission, error) {
@@ -174,22 +177,35 @@ func (rs *Runners) launchCarrying(
 	if err := rs.recordPrompt(ctx, chat.ID, requestID, text, "", ledger.DeliveryRestart, carrier, nil); err != nil {
 		return domain.AgentPromptSubmission{}, err
 	}
-	if delivery.outgoing != "" {
-		if err := rs.displaceForPrompt(ctx, h, chat.ID, requestID, delivery.outgoing); err != nil {
-			return domain.AgentPromptSubmission{}, rs.failPrompt(ctx, chat.ID, requestID, err)
-		}
+	delivery, err := rs.displaceForDelivery(ctx, h, chat.ID, requestID, delivery)
+	if err != nil {
+		return domain.AgentPromptSubmission{}, rs.failPrompt(ctx, chat.ID, requestID, err)
 	}
 	runnerID, err := rs.spawnRunner(ctx, chat.ID, chat.WorkspaceID, delivery.provider, spawnInput{
 		runnerID: carrier, launch: &delivery.launch, finalSteps: delivery.promptSteps,
 		conversation: delivery.conversation, resuming: delivery.contextResuming, promptMessage: text,
+		selection: delivery.selection,
 	}, false)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, rs.failPrompt(ctx, chat.ID, requestID, spawnFailure(ctx, err))
 	}
-	if delivery.switching {
-		rs.recordProviderSwitch(ctx, chat.ID, delivery.provider)
-	}
 	return rs.commitPromptSpawn(ctx, chat.ID, requestID, runnerID)
+}
+
+// displaceForDelivery quits the CLI d replaces, if any, then plans the launch
+// again: that CLI's exit may have lost the session the plan resumed.
+func (rs *Runners) displaceForDelivery(
+	ctx context.Context, h *hold, chatID, requestID string, d promptDelivery,
+) (promptDelivery, error) {
+	if d.outgoing.ID == "" {
+		return d, nil
+	}
+	if err := rs.displaceForPrompt(ctx, h, chatID, requestID, d.outgoing.ID); err != nil {
+		return d, err
+	}
+	replanned, err := rs.resolvePromptDelivery(ctx, chatID, d.provider, d.outgoing, d.descriptor)
+	replanned.selection = d.selection
+	return replanned, err
 }
 
 func (rs *Runners) promptTarget(

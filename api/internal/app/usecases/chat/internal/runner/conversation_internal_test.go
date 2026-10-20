@@ -207,9 +207,9 @@ func TestSessionOrigin_TheSessionAConnectionOpensIsBound(t *testing.T) {
 		"thread/start": {"result": map[string]any{"thread": map[string]any{"id": "thr-1"}}},
 	})
 
-	session, ok := rs.establishAPISession(t.Context(), conn, "runner-1", apiLoseProvider,
+	session, err := rs.establishAPISession(t.Context(), conn, "runner-1", apiLoseProvider,
 		engineagents.TemplateCtx{ChatID: "chat-1"})
-	require.True(t, ok)
+	require.NoError(t, err)
 	assert.Equal(t, "thr-1", session)
 	c, _ := chatState(t, rs.ledger).Conversation(apiLoseProvider)
 	assert.Equal(t, ledger.ConversationBound, c.State)
@@ -222,9 +222,9 @@ func TestEstablishAPISession_ARefusedResumeLosesTheSession(t *testing.T) {
 	appendPrompt(t, rs.ledger, "req-1", "runner-1")
 	conn, asked := apiLoseConn(t, rs, refusedResume)
 
-	_, ok := rs.establishAPISession(t.Context(), conn, "runner-1", apiLoseProvider,
+	_, err := rs.establishAPISession(t.Context(), conn, "runner-1", apiLoseProvider,
 		engineagents.TemplateCtx{ChatID: "chat-1", Session: "S1"})
-	require.False(t, ok)
+	require.ErrorIs(t, err, engineagents.ErrAPISessionLost)
 	assertSessionLost(t, rs, asked)
 }
 
@@ -264,6 +264,11 @@ session:
   resume: { arg: "resume {id}" }
   refused: { rpc_code: -32600, needles: ["no rollout found for thread id"] }
   persists: turn_start
+presentation:
+  prompt_submit:
+    strategy: restart_tui
+    fresh: [{ pass_arg: { positional: "{message}" } }]
+    resume: [{ pass_arg: { positional: "{message}" } }]
 runtime:
   transport: api
   api:
@@ -293,6 +298,9 @@ func TestHelperServe(t *testing.T) {
 		var req struct {
 			ID     json.RawMessage `json:"id"`
 			Method string          `json:"method"`
+			Params struct {
+				Text string `json:"text"`
+			} `json:"params"`
 		}
 		// Exits rather than returns: the test binary's own verdict would land
 		// on stdout, which is the connection.
@@ -302,7 +310,7 @@ func TestHelperServe(t *testing.T) {
 		if len(req.ID) == 0 {
 			continue
 		}
-		logAsked(t, req.Method)
+		logAsked(t, strings.TrimSpace(req.Method+" "+req.Params.Text))
 		resp := map[string]any{"id": req.ID, "result": map[string]any{"thread": map[string]any{"id": "T1"}}}
 		if mode == "refuse" && req.Method == "thread/resume" {
 			resp = map[string]any{"id": req.ID, "error": refusedResume["thread/resume"]["error"]}
@@ -316,11 +324,11 @@ func TestHelperServe(t *testing.T) {
 	}
 }
 
-// helperServeAsked names a file the helper serve appends each call it is asked
-// to before it answers, so a test reads what reached the provider.
+// helperServeAsked names a file the helper serve appends each call it is asked,
+// with the text it carries, before it answers: what reached the provider.
 const helperServeAsked = "CROWBAR_TEST_SERVE_ASKED"
 
-func logAsked(t *testing.T, method string) {
+func logAsked(t *testing.T, call string) {
 	t.Helper()
 	path := os.Getenv(helperServeAsked)
 	if path == "" {
@@ -328,27 +336,16 @@ func logAsked(t *testing.T, method string) {
 	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	require.NoError(t, err)
-	_, err = fmt.Fprintln(f, method)
+	_, err = fmt.Fprintln(f, call)
 	require.NoError(t, errors.Join(err, f.Close()))
 }
 
-// An attaching spawn runs its attach argv in place of the plan, prompt and
-// all: the connection it attaches to carries the prompt.
-func TestSpawnRunner_AnAttachingSpawnDeliversItsPromptOverTheConnection(t *testing.T) {
-	h := helperServeSpawn(t, "answer", true)
-	asked := filepath.Join(t.TempDir(), "asked")
-	t.Setenv(helperServeAsked, asked)
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-
-	_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test",
-		spawnInput{runnerID: "runner-1", promptMessage: "hi"}, false)
+// askedCalls reads the calls the helper serve logged to path.
+func askedCalls(t *testing.T, path string) []string {
+	t.Helper()
+	calls, err := os.ReadFile(path)
 	require.NoError(t, err)
-
-	require.Len(t, h.term.created, 1, "the attach view forked")
-	calls, err := os.ReadFile(asked)
-	require.NoError(t, err)
-	assert.Contains(t, strings.Fields(string(calls)), "turn/start")
+	return strings.Split(strings.TrimSpace(string(calls)), "\n")
 }
 
 // refusedResumeSpawn spawns a runner whose api resume the provider refuses:

@@ -81,9 +81,9 @@ func (rs *Runners) apiTransportForSurface(
 	tctx engineagents.TemplateCtx,
 	resumeContext string,
 	storedSurface string,
-) []string {
+) ([]string, error) {
 	if !apiTransportDrivesSurface(descriptor, surfaceForSpawn(descriptor, storedSurface)) {
-		return nil
+		return nil, nil
 	}
 	return rs.applyAPITransport(ctx, runnerID, providerID, descriptor, tctx, resumeContext)
 }

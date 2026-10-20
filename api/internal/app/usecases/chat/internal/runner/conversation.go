@@ -161,8 +161,7 @@ func (rs *Runners) loseSession(ctx context.Context, chatID, providerID, sessionI
 }
 
 // noteRefusedRunner notes resume_failed on a started runner whose connection
-// was its only process. A refusal during a spawn is not why its runner ends:
-// the spawn forks the PTY next, or fails as spawn_failed.
+// was its only process. A refusal during a spawn is the spawn's to record.
 func (rs *Runners) noteRefusedRunner(chatID, runnerID string) {
 	if v, ok := rs.live.view(chatID); ok && v.runner.ID == runnerID && v.started && v.runner.TerminalSession == "" {
 		rs.live.noteCause(runnerID, domain.AgentExitResumeFailed)

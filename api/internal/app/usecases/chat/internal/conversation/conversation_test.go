@@ -431,7 +431,7 @@ func TestSetChatSelection_RefusesAModelNoProviderDeclares(t *testing.T) {
 	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 
-	err = f.conversations.SetChatSelection(t.Context(), chatID, "claude", "a-model-nobody-ships", "")
+	err = f.conversations.SetChatSelection(t.Context(), chatID, "a-model-nobody-ships", "")
 
 	require.Error(t, err)
 }
@@ -443,7 +443,7 @@ func TestSetChatSelection_ClearingBackToTheProviderDefaultIsAllowed(t *testing.T
 	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 
-	require.NoError(t, f.conversations.SetChatSelection(t.Context(), chatID, "claude", "", ""))
+	require.NoError(t, f.conversations.SetChatSelection(t.Context(), chatID, "", ""))
 	f.settle()
 
 	chat, err := f.conversations.GetChat(t.Context(), chatID)
