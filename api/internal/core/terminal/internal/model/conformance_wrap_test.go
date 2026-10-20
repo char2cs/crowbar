@@ -158,9 +158,9 @@ func TestConformance_WrappedChainOnOneRow(t *testing.T) {
 	require.Equal(t, "grid F | scrollback F F F", wrapFlags(t, sim.m))
 }
 
-// A seeded random walk on small viewports. After every Emit the client's cells and scrollback equal
-// the model's and a second Emit writes nothing; the wrap bits equal the model's until a line spans
-// more rows than the viewport, which a batch must cut.
+// A seeded random walk on small viewports. After every Emit the client's cells, scrollback and grid
+// wrap bits equal the model's and a second Emit writes nothing; the scrollback's wrap bits equal the
+// model's until a line spans more rows than the viewport, which a batch must cut.
 func TestConformance_RandomizedWrapWalk(t *testing.T) {
 	steps, wrappedChecks := 0, 0
 	for seed := int64(1); seed <= 400; seed++ {
@@ -185,7 +185,7 @@ func walkWraps(
 	defer func() { sim.m.Close() }()
 	e := NewDiffEmitter()
 	var chunks []string
-	flags := true
+	exactHistory := true
 	for ; steps < 60; steps++ {
 		chunks = append(chunks, wrapWalkChunk(rng, cols, rows))
 		where := fmt.Sprintf("seed %d at %dx%d after %q", seed, cols, rows, chunks)
@@ -202,12 +202,14 @@ func walkWraps(
 		again, needKeyframe := e.Emit(m)
 		require.False(t, needKeyframe, where)
 		require.Empty(t, string(again), "a second Emit rewrites nothing: %s", where)
-		flags = flags && longestLine(t, m) <= rows
-		if !flags {
-			continue
+		exactHistory = exactHistory && longestLine(t, m) <= rows
+		want, got := wrapFlags(t, m), wrapFlags(t, sim.m)
+		if !exactHistory {
+			want, _, _ = strings.Cut(want, " | ")
+			got, _, _ = strings.Cut(got, " | ")
 		}
-		require.Equal(t, wrapFlags(t, m), wrapFlags(t, sim.m), where)
-		if strings.Contains(wrapFlags(t, m), "T") {
+		require.Equal(t, want, got, where)
+		if strings.Contains(want, "T") {
 			wrappedChecks++
 		}
 	}
