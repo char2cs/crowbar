@@ -191,10 +191,9 @@ func reapRunnerDir(
 	}
 }
 
-// RetireChatRunners records the end of chatID's runner and forgets everything
-// held in memory for the chat: it is being erased (A7). The caller holds the
-// chat's lock and runs end once it has let go: a hook the CLI sends on the way
-// down, already queued for the chat, never holds up its own terminate.
+// RetireChatRunners records the end of chatID's runner and forgets the chat's
+// memory: it is being erased. The caller runs end after letting the lock go, so
+// a hook queued for the chat on the way down never holds up its terminate.
 func (rs *Runners) RetireChatRunners(
 	ctx context.Context,
 	chatID string,

@@ -183,10 +183,9 @@ func (c *Conversations) PurgeChat(
 	return err
 }
 
-// The caller already holds chatID's lock: PurgeChat above takes it, and the
-// spawn path reaches this from INSIDE its hold (discardSpawnedChat). The lock
-// is not reentrant, so wiring either caller to PurgeChat instead deadlocks.
-// end ends the chat's processes; the caller runs it once it lets the lock go.
+// PurgeLocked is PurgeChat for a caller already holding chatID's lock (the
+// spawn path does): the lock is not reentrant. The caller runs end, which ends
+// the chat's processes, once it lets the lock go.
 func (c *Conversations) PurgeLocked(
 	ctx context.Context,
 	chatID string,
