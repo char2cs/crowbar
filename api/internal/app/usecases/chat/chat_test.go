@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -2036,20 +2037,20 @@ func TestRegression_InvalidSwitchTarget_PreservesTheOutgoingRunner(t *testing.T)
 	assert.Empty(t, f.term.terminatedIDs())
 }
 
-// TestSwitchProvider_MidTurn_ClosesTheOutgoingTurn is the same rule on the SUCCESS path:
-// the outgoing CLI is displaced with a turn open (the prompt that landed while it was being
-// killed — see the regression above), so that turn is over: nobody will ever send its
+// The same rule on the success path: the outgoing CLI is displaced with a turn open (a
+// prompt landed while it was killed), so that turn is over — nothing will send its
 // turn_stop. The incoming CLI's own turns are unaffected.
 func TestSwitchProvider_MidTurn_ClosesTheOutgoingTurn(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, outgoing := f.spawn(t, "claude")
+	var once sync.Once
 	hookDone := make(chan error, 1)
 	f.term.duringTerminate = func(string) {
-		go func() {
+		once.Do(func() {
 			hookDone <- f.usecase.IngestHook(f.ctx, outgoing, "claude", "user_prompt",
 				mustJSON(t, map[string]any{"prompt": "working"}))
-		}()
+		})
 	}
 
 	incoming, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
@@ -2060,8 +2061,7 @@ func TestSwitchProvider_MidTurn_ClosesTheOutgoingTurn(t *testing.T) {
 	assert.False(t, f.busy(t, chatID),
 		"the killed CLI's turn is over: it will never send a turn_stop")
 
-	// The incoming CLI can still open its own turn, and the outgoing one's belated PTY
-	// death must not close it.
+	// The incoming CLI opens its own turn; the outgoing one's late PTY death must not close it.
 	f.term.duringTerminate = nil
 	require.NoError(t, f.usecase.IngestHook(f.ctx, incoming, "codex", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "the new CLI is working"})))
