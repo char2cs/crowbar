@@ -70,6 +70,8 @@ runtime:
   transport: api
   api:
     protocol: jsonrpc2
+    delivery: stdio
+    format: ndjson
     serve: [surfaceless, serve]
     handshake: { call: initialize }
 surfaces:

@@ -114,6 +114,8 @@ runtime:
   transport: api
   api:
     protocol: jsonrpc2
+    delivery: stdio
+    format: ndjson
     serve: [acme, serve]
     handshake: { call: initialize }
 `

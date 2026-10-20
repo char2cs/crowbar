@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -23,6 +22,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // stubChatsForSpawn answers the one read a create=false spawn makes of the
@@ -364,6 +364,8 @@ runtime:
   transport: api
   api:
     protocol: jsonrpc2
+    delivery: stdio
+    format: ndjson
     serve: [acme, serve]
     handshake: { call: initialize }
 session: { resume: { arg: "resume {id}" }, persists: turn_start }
@@ -393,18 +395,18 @@ func installDescriptor(t *testing.T, home, body string) engineagents.Agent {
 	return a
 }
 
-// seedAdoptableAPIConn registers exactly what a successful applyAPITransport
+// seedAdoptableAPIConn registers on runner-1 what a successful applyAPITransport
 // leaves behind: a REAL driver (over an in-process server, so no vendor
 // subprocess is forked) whose session has already been ESTABLISHED, with the
 // confirmed id written back into tctx the way applyAPITransport writes it —
 // plus a real background process for watchExit to arm against.
 func (h *spawnHarness) seedAdoptableAPIConn(
-	t *testing.T, runnerID, sockPath string, agent engineagents.Agent,
+	t *testing.T, stdio engineagents.APIStdio, agent engineagents.Agent,
 ) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	driver, err := agent.StartAPIConn(ctx, sockPath, nil)
+	driver, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = driver.Close() })
 	established, err := driver.EstablishSession(ctx, "prompt", map[string]string{"cwd": "/work"})
@@ -414,7 +416,7 @@ func (h *spawnHarness) seedAdoptableAPIConn(
 	cmd := exec.Command("sleep", "30")
 	require.NoError(t, cmd.Start())
 	t.Cleanup(func() { _ = cmd.Process.Kill() })
-	h.rs.apiConns.set(runnerID, &apiconn{
+	h.rs.apiConns.set("runner-1", &apiconn{
 		serve: reapServe(cmd), driver: driver, ctx: ctx, cancel: cancel, agent: agent,
 		tctx: engineagents.TemplateCtx{Session: established["session_id"], Cwd: "/work"},
 	})
@@ -424,17 +426,13 @@ func (h *spawnHarness) seedAdoptableAPIConn(
 // makes — the session establish, then the turn — publishing the turn's text so
 // a test can block on the REAL wire signal rather than on a timer. refuse makes
 // it reject the turn the way a CLI that cannot take one does.
-func promptDispatchServer(t *testing.T, received chan<- string, refuse bool) string {
+func promptDispatchServer(t *testing.T, received chan<- string, refuse bool) engineagents.APIStdio {
 	t.Helper()
-	return fakeWSServer(t, func(conn *websocket.Conn) {
+	return fakeServe(t, func(conn *testutil.LinePeer) {
 		for {
 			// A read that fails means the client closed: return quietly and let
 			// the test's own wait report it, rather than failing from this
 			// goroutine with a teardown-shaped error.
-			_, msg, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
 			var req struct {
 				ID     json.RawMessage `json:"id"`
 				Method string          `json:"method"`
@@ -442,7 +440,10 @@ func promptDispatchServer(t *testing.T, received chan<- string, refuse bool) str
 					Text string `json:"text"`
 				} `json:"params"`
 			}
-			if json.Unmarshal(msg, &req) != nil || len(req.ID) == 0 {
+			if conn.ReadJSON(&req) != nil {
+				return
+			}
+			if len(req.ID) == 0 {
 				continue
 			}
 			body := map[string]any{"id": req.ID, "result": map[string]any{}}
@@ -456,8 +457,7 @@ func promptDispatchServer(t *testing.T, received chan<- string, refuse bool) str
 					body["error"] = map[string]any{"code": 1, "message": "boom: the CLI refused the turn"}
 				}
 			}
-			resp, _ := json.Marshal(body)
-			if conn.WriteMessage(websocket.TextMessage, resp) != nil {
+			if conn.WriteJSON(body) != nil {
 				return
 			}
 		}
@@ -473,11 +473,11 @@ func promptDispatchServer(t *testing.T, received chan<- string, refuse bool) str
 // success. The connection it adopts instead is the only carrier that exists.
 func TestRegression_AnAdoptedPTYLessSpawnStillDeliversThePromptItCarries(t *testing.T) {
 	received := make(chan string, 1)
-	sockPath := promptDispatchServer(t, received, false)
+	stdio := promptDispatchServer(t, received, false)
 
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	agent := installCarrierDescriptor(t, h.home)
-	h.seedAdoptableAPIConn(t, "runner-1", sockPath, agent)
+	h.seedAdoptableAPIConn(t, stdio, agent)
 	promptSteps, err := agent.PromptSteps(false)
 	require.NoError(t, err)
 
@@ -503,11 +503,11 @@ func TestRegression_AnAdoptedPTYLessSpawnStillDeliversThePromptItCarries(t *test
 // the shape this whole change exists to make unreachable.
 func TestRegression_AnAdoptedSpawnThatCannotDeliverItsPromptFailsTheSpawn(t *testing.T) {
 	received := make(chan string, 1)
-	sockPath := promptDispatchServer(t, received, true)
+	stdio := promptDispatchServer(t, received, true)
 
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	agent := installCarrierDescriptor(t, h.home)
-	h.seedAdoptableAPIConn(t, "runner-1", sockPath, agent)
+	h.seedAdoptableAPIConn(t, stdio, agent)
 	promptSteps, err := agent.PromptSteps(false)
 	require.NoError(t, err)
 
@@ -582,12 +582,12 @@ func (s selectionConversations) ChatSelection(
 // api connection and the streaming it carries.
 func TestRegression_ASpawnWithAChosenModelKeepsItsAPIConnection(t *testing.T) {
 	received := make(chan string, 1)
-	sockPath := promptDispatchServer(t, received, false)
+	stdio := promptDispatchServer(t, received, false)
 
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	agent := installDescriptor(t, h.home, selectionCarrierDescriptor)
 	h.rs.conversations = selectionConversations{sel: engineagents.Selection{Model: "deep", Effort: "high"}}
-	h.seedAdoptableAPIConn(t, "runner-1", sockPath, agent)
+	h.seedAdoptableAPIConn(t, stdio, agent)
 
 	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test",
 		spawnInput{runnerID: "runner-1"}, false)
@@ -604,12 +604,12 @@ func TestRegression_ASpawnWithAChosenModelKeepsItsAPIConnection(t *testing.T) {
 // carrier received is what makes a revert permanent rather than wrong once.
 func TestRegression_ASelectionIsRecordedOnTheCarrierThatActuallyTookIt(t *testing.T) {
 	received := make(chan string, 1)
-	sockPath := promptDispatchServer(t, received, false)
+	stdio := promptDispatchServer(t, received, false)
 
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	agent := installDescriptor(t, h.home, selectionCarrierDescriptor)
 	h.rs.conversations = selectionConversations{sel: engineagents.Selection{Model: "deep", Effort: "high"}}
-	h.seedAdoptableAPIConn(t, "runner-1", sockPath, agent)
+	h.seedAdoptableAPIConn(t, stdio, agent)
 
 	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test",
 		spawnInput{runnerID: "runner-1"}, false)
@@ -650,12 +650,12 @@ func TestSpawnRunner_TheForkedPTYCarriesTheSelectionWhenNoConnectionCameUp(t *te
 // the streaming loss this reverses.
 func TestRegression_ASelectionCarryingSpawnStillDeliversItsPromptOverTheConnection(t *testing.T) {
 	received := make(chan string, 1)
-	sockPath := promptDispatchServer(t, received, false)
+	stdio := promptDispatchServer(t, received, false)
 
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	agent := installDescriptor(t, h.home, selectionCarrierDescriptor)
 	h.rs.conversations = selectionConversations{sel: engineagents.Selection{Model: "deep"}}
-	h.seedAdoptableAPIConn(t, "runner-1", sockPath, agent)
+	h.seedAdoptableAPIConn(t, stdio, agent)
 	promptSteps, err := agent.PromptSteps(false)
 	require.NoError(t, err)
 
@@ -699,11 +699,11 @@ func TestCarriedSelection_ReportsOnlyTheFieldsTheCarrierRenders(t *testing.T) {
 // chat that chose nothing changes.
 func TestSpawnRunner_ASpawnWithNoSelectionStillAdoptsItsConnection(t *testing.T) {
 	received := make(chan string, 1)
-	sockPath := promptDispatchServer(t, received, false)
+	stdio := promptDispatchServer(t, received, false)
 
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	agent := installDescriptor(t, h.home, selectionCarrierDescriptor)
-	h.seedAdoptableAPIConn(t, "runner-1", sockPath, agent)
+	h.seedAdoptableAPIConn(t, stdio, agent)
 
 	_, err := h.rs.spawnRunner(context.Background(), h.chatID, "ws-1", "carrier-test",
 		spawnInput{runnerID: "runner-1"}, false)

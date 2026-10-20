@@ -3,32 +3,27 @@
 package scripted_test
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
 
-	"github.com/gorilla/websocket"
-
+	"github.com/char2cs/crowbar/api/internal/testutil"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// runCodex is codex: `app-server --listen unix://…` speaks JSON-RPC over a
-// websocket (the chat surface); anything else is the TUI, reporting over the
-// -c hooks wiring (the terminal surface).
+// runCodex is codex: `app-server` speaks JSON-RPC over its own stdio, one
+// message per line (the chat surface); anything else is the TUI, reporting
+// over the -c hooks wiring (the terminal surface).
 func runCodex(args []string) int {
 	switch {
 	case hasArg(args, "--version"):
 		say("codex-cli 0.156.1\n")
 		return 0
 	case len(args) > 0 && args[0] == "app-server":
-		return serveCodex(strings.TrimPrefix(argAfter(args, "--listen"), "unix://"))
+		return serveCodex()
 	case len(args) > 1 && args[0] == "debug":
 		say(`{"models":[]}` + "\n")
 		return 0
@@ -57,29 +52,16 @@ func codexResumeID(args []string) string {
 	return ""
 }
 
-func serveCodex(socket string) int {
+// serveCodex answers on its stdio until its stdin closes, then exits 0.
+func serveCodex() int {
 	record("codex", "start", map[string]any{"argv": os.Args[1:], "serve": true})
-	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "unix", socket)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	upgrader := websocket.Upgrader{}
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		(&appServer{conn: conn, calls: map[int64]chan json.RawMessage{}}).serve()
-	})}
-	_ = srv.Serve(ln)
+	(&appServer{conn: testutil.NewLinePeer(os.Stdin, os.Stdout), calls: map[int64]chan json.RawMessage{}}).serve()
 	return 0
 }
 
-// appServer is one client connection to the fake app-server.
+// appServer is the fake app-server's one connection: its own stdio.
 type appServer struct {
-	conn    *websocket.Conn
-	writeMu sync.Mutex
+	conn    *testutil.LinePeer
 	nextID  atomic.Int64
 	callsMu sync.Mutex
 	calls   map[int64]chan json.RawMessage
@@ -98,7 +80,7 @@ type rpcFrame struct {
 
 func (a *appServer) serve() {
 	for {
-		_, raw, err := a.conn.ReadMessage()
+		raw, err := a.conn.Read()
 		if err != nil {
 			return
 		}
@@ -117,8 +99,6 @@ func (a *appServer) serve() {
 }
 
 func (a *appServer) send(v any) {
-	a.writeMu.Lock()
-	defer a.writeMu.Unlock()
 	_ = a.conn.WriteJSON(v)
 }
 
@@ -268,7 +248,7 @@ func (a *appServer) step(threadID, turnID string, i int, st step, stop chan stru
 		os.Exit(3)
 	case st.Drop:
 		record("codex", "drop", nil)
-		_ = a.conn.Close()
+		_ = os.Stdout.Close()
 		hang()
 	case st.Idle:
 		a.notify("thread/status/changed", map[string]any{"threadId": threadID, "status": map[string]any{"type": "idle"}})

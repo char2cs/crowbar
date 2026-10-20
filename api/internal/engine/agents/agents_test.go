@@ -16,6 +16,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 func get(t *testing.T, id string) agents.Agent {
@@ -223,7 +224,7 @@ func TestAgent_ContextStepsDifferBetweenFreshAndResume(t *testing.T) {
 // TestAgent_Codex_ResumeContextStepsIsEmpty: codex's resume-context delivery does
 // NOT ride ContextSteps at all — a resumed codex thread is entirely owned by the
 // api connection (apiOwnsResume, chat/internal/runner/prompts.go), which delivers
-// the identical {context} document over its own live socket (InjectAt "context",
+// the identical {context} document over its own live connection (InjectAt "context",
 // apiconn.go) instead of any CLI argv. codex.yaml declaring no
 // resume_context_inject is that fact made explicit, not an oversight — asserted
 // here so a reintroduced stanza (unreachable dead weight; spawn.go's own
@@ -1270,6 +1271,15 @@ events:
       message: last
 `
 
+// apiRuntime opens an api-transport runtime; a fixture adds its own serve.
+const apiRuntime = `runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    delivery: stdio
+    format: ndjson
+`
+
 func TestCapabilities_HasTerminalIsStructuralNotDeclared(t *testing.T) {
 	home := t.TempDir()
 	writeDescriptor(t, home, "hooks-transport", `
@@ -1293,11 +1303,7 @@ id: api-no-attach
 spawn:
   cmd: api-cli
   interactive_required: true
-`+v3EventsBlock+`
-runtime:
-  transport: api
-  api:
-    protocol: jsonrpc2
+`+v3EventsBlock+apiRuntime+`
     serve: [api-cli, serve]
     handshake: { call: initialize }
 `)
@@ -1311,11 +1317,7 @@ id: api-with-attach
 spawn:
   cmd: api-cli
   interactive_required: true
-`+v3EventsBlock+`
-runtime:
-  transport: api
-  api:
-    protocol: jsonrpc2
+`+v3EventsBlock+apiRuntime+`
     serve: [api-cli, serve]
     attach: [api-cli, --remote]
     handshake: { call: initialize }
@@ -1326,9 +1328,11 @@ runtime:
 }
 
 func TestAgent_StartAPIConnRefusesAHooksTransportDescriptor(t *testing.T) {
-	claude := get(t, "claude")
-	_, err := claude.StartAPIConn(context.Background(), "/nonexistent.sock", nil)
+	in, out, _ := testutil.StdioPipe(t)
+	_, err := get(t, "claude").StartAPIConn(t.Context(), agents.APIStdio{In: in, Out: out}, nil)
 	assert.ErrorIs(t, err, agents.ErrAPITransportNotDeclared)
+	_, err = in.Write([]byte("{}\n"))
+	assert.ErrorIs(t, err, os.ErrClosed, "a refused start closes the stdio it was handed")
 }
 
 func TestAgent_APIServeAndAttachArgvAreAbsentForAHooksOnlyDescriptor(t *testing.T) {
@@ -1346,25 +1350,21 @@ id: api-transport
 spawn:
   cmd: acme
   interactive_required: true
-`+v3EventsBlock+`
-runtime:
-  transport: api
-  api:
-    protocol: jsonrpc2
-    serve:  [acme, app-server, --listen, "unix://{socket}"]
-    attach: [acme, --remote, "unix://{socket}"]
+`+v3EventsBlock+apiRuntime+`
+    serve:  [acme, app-server, --cwd, "{cwd}"]
+    attach: [acme, resume, "{session_id}"]
     handshake: { call: initialize }
 `)
 	a, err := agents.New().Get(context.Background(), home, "api-transport")
 	require.NoError(t, err)
 
-	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{Socket: "/tmp/s.sock"})
+	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{Cwd: "/work"})
 	require.True(t, ok)
-	assert.Equal(t, []string{"acme", "app-server", "--listen", "unix:///tmp/s.sock"}, serveArgv)
+	assert.Equal(t, []string{"acme", "app-server", "--cwd", "/work"}, serveArgv)
 
-	attachArgv, ok := a.APIAttachArgv(agents.TemplateCtx{Socket: "/tmp/s.sock"})
+	attachArgv, ok := a.APIAttachArgv(agents.TemplateCtx{Session: "sess-1"})
 	require.True(t, ok)
-	assert.Equal(t, []string{"acme", "--remote", "unix:///tmp/s.sock"}, attachArgv)
+	assert.Equal(t, []string{"acme", "resume", "sess-1"}, attachArgv)
 }
 
 // TestAgent_APIAttachArgvCarriesConfigInjection pins the sibling gap: the
@@ -1380,12 +1380,8 @@ id: api-attach-hooks
 spawn:
   cmd: acme
   interactive_required: true
-`+v3EventsBlock+`
-runtime:
-  transport: api
-  api:
-    protocol: jsonrpc2
-    serve:  [acme, app-server, --listen, "unix://{socket}"]
+`+v3EventsBlock+apiRuntime+`
+    serve:  [acme, app-server]
     attach: [acme, resume, "{session_id}"]
     handshake: { call: initialize }
 config_injection:
@@ -1395,7 +1391,7 @@ config_injection:
 	require.NoError(t, err)
 
 	attachArgv, ok := a.APIAttachArgv(agents.TemplateCtx{
-		Socket: "/tmp/s.sock", Session: "sess-1", Segid: "seg-1", CrowbarHook: "/bin/crowbar",
+		Session: "sess-1", Segid: "seg-1", CrowbarHook: "/bin/crowbar",
 	})
 	require.True(t, ok)
 	assert.Equal(t, []string{
@@ -1425,19 +1421,15 @@ spawn:
   interactive_required: true
   args:
     - "--trust-workaround"
-`+v3EventsBlock+`
-runtime:
-  transport: api
-  api:
-    protocol: jsonrpc2
-    serve:  [acme, app-server, --listen, "unix://{socket}"]
+`+v3EventsBlock+apiRuntime+`
+    serve:  [acme, app-server]
     attach: [acme, resume, "{session_id}"]
     handshake: { call: initialize }
 `)
 	a, err := agents.New().Get(context.Background(), home, "api-attach-spawn-args")
 	require.NoError(t, err)
 
-	attachArgv, ok := a.APIAttachArgv(agents.TemplateCtx{Socket: "/tmp/s.sock", Session: "sess-1"})
+	attachArgv, ok := a.APIAttachArgv(agents.TemplateCtx{Session: "sess-1"})
 	require.True(t, ok)
 	assert.Equal(t, []string{"acme", "--trust-workaround", "resume", "sess-1"}, attachArgv,
 		"spawn.args must land right after the executable, before the attach subcommand's own args")
@@ -1445,9 +1437,9 @@ runtime:
 	// serve is a genuinely different subcommand (app-server, not an
 	// interactive TUI) — spawn.args are interactive-only flags and must NOT
 	// leak onto it.
-	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{Socket: "/tmp/s.sock"})
+	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{})
 	require.True(t, ok)
-	assert.Equal(t, []string{"acme", "app-server", "--listen", "unix:///tmp/s.sock"}, serveArgv,
+	assert.Equal(t, []string{"acme", "app-server"}, serveArgv,
 		"spawn.args are interactive-TUI-only and must not appear on the serve argv")
 }
 
@@ -1465,12 +1457,8 @@ id: api-mcp
 spawn:
   cmd: acme
   interactive_required: true
-`+v3EventsBlock+`
-runtime:
-  transport: api
-  api:
-    protocol: jsonrpc2
-    serve:  [acme, app-server, --listen, "unix://{socket}"]
+`+v3EventsBlock+apiRuntime+`
+    serve:  [acme, app-server]
     handshake: { call: initialize }
 mcp_injection:
   - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.command="{crowbar}"' }
@@ -1480,11 +1468,11 @@ mcp_injection:
 	require.NoError(t, err)
 
 	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{
-		Socket: "/tmp/s.sock", Segid: "seg-1", CrowbarHook: "/bin/crowbar",
+		Segid: "seg-1", CrowbarHook: "/bin/crowbar",
 	})
 	require.True(t, ok)
 	assert.Equal(t, []string{
-		"acme", "app-server", "--listen", "unix:///tmp/s.sock",
+		"acme", "app-server",
 		"-c", `mcp_servers.crowbar.command="/bin/crowbar"`,
 		"-c", `mcp_servers.crowbar.args=["mcp","--segment","seg-1"]`,
 	}, serveArgv, "the serve process must carry the SAME crowbar MCP registration a hooks-attached CLI gets")
@@ -1492,7 +1480,7 @@ mcp_injection:
 
 func TestAgent_Codex_ServeProcessReportsOverOneChannel(t *testing.T) {
 	a := get(t, "codex")
-	ctx := agents.TemplateCtx{Socket: "/tmp/s.sock", Cwd: `/work/tree "a"`, CrowbarHook: "/bin/crowbar", Tmp: t.TempDir()}
+	ctx := agents.TemplateCtx{Cwd: `/work/tree "a"`, CrowbarHook: "/bin/crowbar", Tmp: t.TempDir()}
 
 	serveArgv, ok := a.APIServeArgv(ctx)
 	require.True(t, ok)
@@ -1518,12 +1506,8 @@ id: api-selection
 spawn:
   cmd: acme
   interactive_required: true
-`+v3EventsBlock+`
-runtime:
-  transport: api
-  api:
-    protocol: jsonrpc2
-    serve:  [acme, app-server, --listen, "unix://{socket}"]
+`+v3EventsBlock+apiRuntime+`
+    serve:  [acme, app-server]
     handshake: { call: initialize }
 model:
   available: [fast, deep]
@@ -1544,11 +1528,11 @@ effort:
 	require.NoError(t, err)
 
 	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{
-		Socket: "/tmp/s.sock", Model: "deep", Effort: "high",
+		Model: "deep", Effort: "high",
 	})
 	require.True(t, ok)
 	assert.Equal(t, []string{
-		"acme", "app-server", "--listen", "unix:///tmp/s.sock",
+		"acme", "app-server",
 		"-c", `model="deep"`,
 		"-c", `reasoning="high"`,
 	}, serveArgv)
@@ -1566,12 +1550,8 @@ id: api-selection-empty
 spawn:
   cmd: acme
   interactive_required: true
-`+v3EventsBlock+`
-runtime:
-  transport: api
-  api:
-    protocol: jsonrpc2
-    serve:  [acme, app-server, --listen, "unix://{socket}"]
+`+v3EventsBlock+apiRuntime+`
+    serve:  [acme, app-server]
     handshake: { call: initialize }
 model:
   available: [fast, deep]
@@ -1584,9 +1564,9 @@ model:
 	a, err := agents.New().Get(context.Background(), home, "api-selection-empty")
 	require.NoError(t, err)
 
-	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{Socket: "/tmp/s.sock"})
+	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{})
 	require.True(t, ok)
-	assert.Equal(t, []string{"acme", "app-server", "--listen", "unix:///tmp/s.sock"}, serveArgv)
+	assert.Equal(t, []string{"acme", "app-server"}, serveArgv)
 }
 
 // TestRegression_ACodexChatsChosenModelReachesItsServeProcess is the reported
@@ -1602,7 +1582,7 @@ model:
 // second copy of the TUI's own.
 func TestRegression_ACodexChatsChosenModelReachesItsServeProcess(t *testing.T) {
 	serveArgv, ok := get(t, "codex").APIServeArgv(agents.TemplateCtx{
-		Socket: "/tmp/s.sock", Model: "gpt-5.4-codex", Effort: "high",
+		Model: "gpt-5.4-codex", Effort: "high",
 	})
 
 	require.True(t, ok)
@@ -1637,7 +1617,9 @@ runtime:
   hotswap: true
   api:
     protocol: jsonrpc2
-    serve: [acme, app-server, --listen, "unix://{socket}"]
+    delivery: stdio
+    format: ndjson
+    serve: [acme, app-server]
     handshake: { call: initialize }
   hooks:
     format: json

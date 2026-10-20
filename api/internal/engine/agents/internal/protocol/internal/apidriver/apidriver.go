@@ -1,7 +1,7 @@
-// Package apidriver drives one provider's API transport connection: dial,
-// handshake, receive loop, and reply — the pieces protocol/protocol.go exposes so
-// the runner usecase (which already holds the Turns/answerdesk references this
-// needs to feed) never has to know wsrpc or dispatch exist.
+// Package apidriver drives one provider's API transport connection: handshake,
+// receive loop, and reply — the pieces protocol/protocol.go exposes so the
+// runner usecase (which already holds the Turns/answerdesk references this
+// needs to feed) never has to know jsonrpc or dispatch exist.
 package apidriver
 
 import (
@@ -16,8 +16,8 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/dispatch"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/jsonrpc"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/outbound"
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/wsrpc"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
@@ -40,7 +40,7 @@ type SessionOrigin func() func(sessionID string)
 var ErrSessionLost = errors.New("apidriver: the provider no longer has the session")
 
 type Driver struct {
-	conn   *wsrpc.Conn
+	conn   *jsonrpc.Conn
 	d      *spec.Descriptor
 	out    chan Event
 	origin SessionOrigin
@@ -69,24 +69,21 @@ type Driver struct {
 	birth       map[string]string
 }
 
-// Start dials socketPath, runs the descriptor's declared handshake call, sends
-// `initialized` (mirroring the sequence codex's own fixture-capture script uses),
-// and starts translating inbound frames into canonical Events.
+// Start speaks over serve's stdio, runs the descriptor's declared handshake
+// call, sends `initialized`, and starts translating inbound frames into
+// canonical Events. The answered handshake is serve being ready; on any
+// failure stdio is closed.
 //
 // origin may be nil for a caller that does not care which sessions this
 // connection produced itself — see SessionOrigin for who does.
 func Start(
-	ctx context.Context, d *spec.Descriptor, socketPath string, origin SessionOrigin,
+	ctx context.Context, d *spec.Descriptor, stdio jsonrpc.Stdio, origin SessionOrigin,
 ) (*Driver, error) {
-	conn, err := wsrpc.Dial(ctx, socketPath)
-	if err != nil {
-		return nil, err
-	}
 	call := d.Runtime.API.Handshake["call"]
 	if call == "" {
-		_ = conn.Close()
-		return nil, fmt.Errorf("apidriver: descriptor %s declares no handshake call", d.ID)
+		return nil, errors.Join(fmt.Errorf("apidriver: descriptor %s declares no handshake call", d.ID), stdio.Close())
 	}
+	conn := jsonrpc.New(stdio)
 	if _, err := conn.Call(ctx, call, map[string]any{
 		"clientInfo": map[string]string{"name": "crowbar", "title": "Crowbar", "version": "0.0.0"},
 	}); err != nil {
@@ -188,10 +185,9 @@ func (drv *Driver) Reply(askID json.RawMessage, rendered []byte) error {
 // resolving it through the SAME outbound.Resolve the hooks transport's
 // injection-based sends use, merged over every value this connection has ever
 // remembered (so interrupt's turnId is there without the caller supplying it),
-// then calling it over the socket and waiting for the reply — confirmed live
-// that codex's own turn/interrupt is a request needing a real response, not a
-// fire-and-forget notification: a malformed one comes back a JSON-RPC error,
-// not silence. For an event that must first establish a session before
+// then calling it over the connection and waiting for the reply — an
+// interrupt is a request needing a real response, not a fire-and-forget
+// notification: a malformed one comes back a JSON-RPC error, not silence. For an event that must first establish a session before
 // acting, see Dispatch instead — Send's flat {field: "{value}"} template
 // cannot express a typed/nested payload or a response value feeding a later
 // call.
@@ -289,7 +285,7 @@ func (drv *Driver) markEstablished(out map[string]string) {
 // session we named: the descriptor's session.refused code AND one of its lines,
 // since a code alone is often the protocol's generic "invalid request".
 func (drv *Driver) sessionLost(err error) bool {
-	var callErr *wsrpc.CallError
+	var callErr *jsonrpc.CallError
 	r := drv.d.Session.Refused
 	if !errors.As(err, &callErr) || r == nil || r.RPCCode == 0 || callErr.Code != r.RPCCode {
 		return false

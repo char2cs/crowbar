@@ -38,6 +38,7 @@ func All() []Rule {
 		terminalNotices{},
 		injectedPrompts{},
 		surfaces{},
+		apiDelivery{},
 		eventSurfaces{},
 		richMappings{},
 	}

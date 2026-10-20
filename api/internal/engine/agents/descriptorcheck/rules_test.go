@@ -50,7 +50,7 @@ func TestValidate_TheSessionRulesRefuseAnUnusableSession(t *testing.T) {
 
 func TestValidate_AnAPIProvidersRefusalNamesItsRPCCode(t *testing.T) {
 	api := "id: api\nspawn:\n  cmd: api\n  interactive_required: true\nruntime:\n  transport: api\n" +
-		"  api: { protocol: jsonrpc2, serve: [api, serve] }\n"
+		"  api: { protocol: jsonrpc2, delivery: stdio, format: ndjson, serve: [api, serve] }\n"
 	f := findingFor(t, descriptorcheck.Validate([]byte(api+refused("1", `["gone"]`))), "session.refused_rpc")
 	assert.Equal(t, "session.refused", f.Path)
 	assert.Equal(t, descriptorcheck.SeverityError, f.Severity)

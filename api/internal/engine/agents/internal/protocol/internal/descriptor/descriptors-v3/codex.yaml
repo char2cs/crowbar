@@ -27,7 +27,11 @@ runtime:
   transport: api
   api:
     protocol: jsonrpc2
-    serve:  [codex, app-server, --listen, "unix://{socket}"]
+    # app-server's default --listen stdio://: one message per line on stdout,
+    # logs on stderr, and it exits 0 once its stdin closes (0.163.0).
+    delivery: stdio
+    format: ndjson
+    serve:  [codex, app-server]
     # Never rendered at spawn (see applyAPITransport's Hotswap gate); only
     # SwitchToTerminal forks this, and only once idle.
     attach: [codex, resume, "{session_id}"]

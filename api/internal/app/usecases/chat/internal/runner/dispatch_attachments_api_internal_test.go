@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -19,6 +18,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 type fakeWSReader struct{ chatsDir, worktree string }
@@ -108,6 +108,8 @@ runtime:
   transport: api
   api:
     protocol: jsonrpc2
+    delivery: stdio
+    format: ndjson
     serve: [acme, serve]
     handshake: { call: initialize }
 `
@@ -138,8 +140,8 @@ func TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing(t *testing.T)
 	require.NoError(t, err)
 
 	received := make(chan string, 1)
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, msg, err := conn.ReadMessage() // turn/start
+	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
+		msg, err := conn.Read() // turn/start
 		require.NoError(t, err)
 		var req struct {
 			ID     json.RawMessage `json:"id"`
@@ -153,14 +155,14 @@ func TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing(t *testing.T)
 		require.NoError(t, json.Unmarshal(req.Params, &params))
 		received <- params.Text
 		resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{}})
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
-		_, _, _ = conn.ReadMessage() // block until the client closes
+		require.NoError(t, conn.Write(resp))
+		_, _ = conn.Read() // block until the client closes
 	})
 
 	agent := apiPushAttachmentTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 	defer apiConn.Close()
 
@@ -209,8 +211,8 @@ func TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_SettlesThePro
 	require.NoError(t, err)
 
 	received := make(chan string, 1)
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, msg, err := conn.ReadMessage() // turn/start
+	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
+		msg, err := conn.Read() // turn/start
 		require.NoError(t, err)
 		var req struct {
 			ID     json.RawMessage `json:"id"`
@@ -227,14 +229,14 @@ func TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_SettlesThePro
 			"id":    req.ID,
 			"error": map[string]any{"code": 1, "message": "boom: the CLI refused turn/start"},
 		})
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
-		_, _, _ = conn.ReadMessage() // block until the client closes
+		require.NoError(t, conn.Write(resp))
+		_, _ = conn.Read() // block until the client closes
 	})
 
 	agent := apiPushAttachmentTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 	defer apiConn.Close()
 

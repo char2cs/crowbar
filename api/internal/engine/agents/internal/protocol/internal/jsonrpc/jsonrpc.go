@@ -1,37 +1,53 @@
-// Package wsrpc is a WebSocket-framed JSON-RPC2 client over a unix socket.
+// Package jsonrpc is a JSON-RPC2 client over a child process's stdio, one
+// message per line (ndjson).
 //
-// codex's `app-server --listen unix://PATH` speaks an HTTP-Upgrade WebSocket
-// over the socket, not raw newline-delimited JSON (verified on 0.146.0).
-//
-// It knows nothing about Crowbar's descriptors, canonical events, or codex's own
-// method names — that translation is protocol/internal/apidriver's job.
+// It knows nothing about Crowbar's descriptors, canonical events, or any
+// provider's method names — that translation is protocol/internal/apidriver's job.
 //
 // Nothing here blocks the read loop (sessions spec §2.4): responses to our own
 // calls are routed inline, notifications go to a bounded mailbox (mailbox.go),
 // every write has a deadline and every call a timeout.
-package wsrpc
+package jsonrpc
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
-	"net/http"
+	"io"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
 
 const (
-	// writeTimeout bounds one frame write: a peer that stops reading must not
+	// writeTimeout bounds one message write: a peer that stops reading must not
 	// hold every caller's write lock forever.
 	writeTimeout = 10 * time.Second
 	// defaultCallTimeout bounds a Call whose ctx carries no deadline.
 	defaultCallTimeout = 60 * time.Second
 )
+
+// Stdio is a child's stdin and stdout as its parent holds them. Both exist
+// before the child does, so nothing written to In can arrive too early.
+type Stdio struct {
+	In  Input
+	Out io.ReadCloser
+}
+
+// Input is the child's stdin: a write deadline keeps a child that stopped
+// reading from wedging every writer.
+type Input interface {
+	io.WriteCloser
+	SetWriteDeadline(t time.Time) error
+}
+
+// Close ends both pipes: the child reads EOF, and our reader stops.
+func (s Stdio) Close() error {
+	return errors.Join(s.In.Close(), s.Out.Close())
+}
 
 // Frame is one inbound message that carries a method: either a plain
 // notification (ID nil) or a server-initiated request this connection's owner
@@ -45,9 +61,9 @@ type Frame struct {
 
 // Conn is one client connection.
 type Conn struct {
-	ws *websocket.Conn
+	stdio Stdio
 
-	wmu sync.Mutex // serialises writes: gorilla/websocket allows one writer
+	wmu sync.Mutex // serialises writes: one message per line, never interleaved
 
 	nextID  int64
 	pmu     sync.Mutex
@@ -61,7 +77,7 @@ type Conn struct {
 	callTimeout time.Duration
 }
 
-// Option configures a Conn at Dial.
+// Option configures a Conn at New.
 type Option func(*Conn)
 
 type wireFrame struct {
@@ -87,29 +103,14 @@ type CallError struct {
 }
 
 func (e *CallError) Error() string {
-	return fmt.Sprintf("wsrpc: %s: %s (code %d)", e.Method, e.Message, e.Code)
+	return fmt.Sprintf("jsonrpc: %s: %s (code %d)", e.Method, e.Message, e.Code)
 }
 
-// Dial performs the WebSocket handshake over a unix socket at socketPath. No
-// compression extension is offered: codex rejects one it does not recognise.
-func Dial(ctx context.Context, socketPath string, opts ...Option) (*Conn, error) {
-	dialer := websocket.Dialer{
-		NetDialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(ctx, "unix", socketPath)
-		},
-		HandshakeTimeout: 10 * time.Second,
-	}
-	// The URL's host/scheme are ignored by NetDialContext.
-	ws, resp, err := dialer.DialContext(ctx, "ws://unix/", http.Header{})
-	if resp != nil {
-		defer func() { _ = resp.Body.Close() }()
-	}
-	if err != nil {
-		return nil, fmt.Errorf("wsrpc: dial %s: %w", socketPath, err)
-	}
+// New speaks JSON-RPC over stdio until either side closes it. The child is
+// ready when it answers a Call; nothing here waits for it before that.
+func New(stdio Stdio, opts ...Option) *Conn {
 	c := &Conn{
-		ws:          ws,
+		stdio:       stdio,
 		pending:     make(map[int64]chan wireFrame),
 		mailbox:     newMailbox(),
 		closed:      make(chan struct{}),
@@ -120,30 +121,39 @@ func Dial(ctx context.Context, socketPath string, opts ...Option) (*Conn, error)
 	}
 	go c.readLoop()
 	go c.mailbox.deliver()
-	return c, nil
+	return c
 }
 
 func (c *Conn) readLoop() {
 	defer c.teardown()
+	lines := bufio.NewReader(c.stdio.Out)
 	for {
-		_, data, err := c.ws.ReadMessage()
+		line, err := lines.ReadBytes('\n')
+		if !c.route(bytes.TrimSpace(line)) {
+			return
+		}
 		if err != nil {
 			c.mailbox.finish()
 			return
 		}
-		var f wireFrame
-		if err := json.Unmarshal(data, &f); err != nil {
-			continue // a malformed frame is dropped, never fatal to the connection
-		}
-		if f.Method == "" && f.ID != nil {
-			c.dispatchResponse(f)
-			continue
-		}
-		if !c.mailbox.push(Frame{ID: f.ID, Method: f.Method, Params: f.Params}) {
-			_ = c.ws.Close() // overflowed: the consumer is wedged
-			return
-		}
 	}
+}
+
+// route handles one line, reporting false once the connection must close.
+func (c *Conn) route(line []byte) bool {
+	var f wireFrame
+	if len(line) == 0 || json.Unmarshal(line, &f) != nil {
+		return true // a blank or malformed line is dropped, never fatal to the connection
+	}
+	if f.Method == "" && f.ID != nil {
+		c.dispatchResponse(f)
+		return true
+	}
+	if c.mailbox.push(Frame{ID: f.ID, Method: f.Method, Params: f.Params}) {
+		return true
+	}
+	_ = c.stdio.Close() // overflowed: the consumer is wedged
+	return false
 }
 
 // dispatchResponse routes a reply to OUR OWN earlier Call to the goroutine
@@ -186,23 +196,23 @@ func (c *Conn) Call(ctx context.Context, method string, params any) (json.RawMes
 		defer cancel()
 	}
 	id := atomic.AddInt64(&c.nextID, 1)
-	req, err := encode(struct {
+	req, err := json.Marshal(struct {
 		JSONRPC string `json:"jsonrpc"`
 		ID      int64  `json:"id"`
 		Method  string `json:"method"`
 		Params  any    `json:"params"`
 	}{"2.0", id, method, params})
 	if err != nil {
-		return nil, fmt.Errorf("wsrpc: marshal params for %s: %w", method, err)
+		return nil, fmt.Errorf("jsonrpc: marshal params for %s: %w", method, err)
 	}
 
 	ch := make(chan wireFrame, 1)
 	if !c.register(id, ch) {
-		return nil, errors.New("wsrpc: connection closed")
+		return nil, errors.New("jsonrpc: connection closed")
 	}
 	if err := c.write(req); err != nil {
 		c.unregister(id)
-		return nil, fmt.Errorf("wsrpc: write %s: %w", method, err)
+		return nil, fmt.Errorf("jsonrpc: write %s: %w", method, err)
 	}
 	return c.await(ctx, method, id, ch)
 }
@@ -237,14 +247,14 @@ func (c *Conn) await(ctx context.Context, method string, id int64, ch chan wireF
 		case f := <-ch:
 			return callResult(method, f)
 		default:
-			return nil, fmt.Errorf("wsrpc: %s: %w", method, ctx.Err())
+			return nil, fmt.Errorf("jsonrpc: %s: %w", method, ctx.Err())
 		}
 	case <-c.closed:
 		select {
 		case f := <-ch:
 			return callResult(method, f)
 		default:
-			return nil, errors.New("wsrpc: connection closed")
+			return nil, errors.New("jsonrpc: connection closed")
 		}
 	}
 }
@@ -259,13 +269,13 @@ func callResult(method string, f wireFrame) (json.RawMessage, error) {
 
 // Notify sends a JSON-RPC notification (no id, no reply expected).
 func (c *Conn) Notify(method string, params any) error {
-	msg, err := encode(struct {
+	msg, err := json.Marshal(struct {
 		JSONRPC string `json:"jsonrpc"`
 		Method  string `json:"method"`
 		Params  any    `json:"params"`
 	}{"2.0", method, params})
 	if err != nil {
-		return fmt.Errorf("wsrpc: marshal params for %s: %w", method, err)
+		return fmt.Errorf("jsonrpc: marshal params for %s: %w", method, err)
 	}
 	return c.write(msg)
 }
@@ -273,35 +283,35 @@ func (c *Conn) Notify(method string, params any) error {
 // Reply answers a server-initiated ask (a Frame with a non-nil ID) with a
 // JSON-RPC response frame carrying result verbatim.
 func (c *Conn) Reply(id, result json.RawMessage) error {
-	msg, err := encode(struct {
+	msg, err := json.Marshal(struct {
 		JSONRPC string          `json:"jsonrpc"`
 		ID      json.RawMessage `json:"id"`
 		Result  json.RawMessage `json:"result"`
 	}{"2.0", id, result})
 	if err != nil {
-		return fmt.Errorf("wsrpc: marshal reply: %w", err)
+		return fmt.Errorf("jsonrpc: marshal reply: %w", err)
 	}
 	return c.write(msg)
 }
 
+// write sends msg as one line; json.Marshal never emits a raw newline.
 func (c *Conn) write(msg []byte) error {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
-	if err := c.ws.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
-		return err
+	if err := c.stdio.In.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
+		return fmt.Errorf("jsonrpc: write deadline: %w", err)
 	}
-	return c.ws.WriteMessage(websocket.TextMessage, msg)
-}
-
-func encode(v any) ([]byte, error) {
-	return json.Marshal(v)
+	if _, err := c.stdio.In.Write(append(msg, '\n')); err != nil {
+		return fmt.Errorf("jsonrpc: write: %w", err)
+	}
+	return nil
 }
 
 // Close tears down the connection, unblocks every pending Call with an error
 // and drops whatever the mailbox still held. Idempotent.
 func (c *Conn) Close() error {
 	c.mailbox.abandon()
-	err := c.ws.Close()
+	err := c.stdio.Close()
 	c.teardown()
 	return err
 }

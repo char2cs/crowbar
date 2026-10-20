@@ -167,10 +167,10 @@ type Agent interface {
 	// capability: a provider that declares the event cannot be asked to do it.
 	OutboundCall(canonical string, values map[string]string) (wire string, payload map[string]string, ok bool)
 
-	// StartAPIConn dials this provider's resolved API socket and completes its
-	// declared handshake; ErrAPITransportNotDeclared for a hooks-only descriptor,
-	// never (nil, nil). origin (nil-able) learns the sessions the conn produces.
-	StartAPIConn(ctx context.Context, socketPath string, origin APISessionOrigin) (*APIConn, error)
+	// StartAPIConn completes the declared handshake over serve's stdio, closing
+	// it on any error; ErrAPITransportNotDeclared for a hooks-only descriptor.
+	// origin (nil-able) learns the sessions the conn produces.
+	StartAPIConn(ctx context.Context, stdio APIStdio, origin APISessionOrigin) (*APIConn, error)
 
 	// APIServeArgv and APIAttachArgv are runtime.api.serve / .attach, already
 	// template-expanded against ctx, mirroring PromptSteps's (x, bool) shape: ok
@@ -599,12 +599,12 @@ func (a *agent) ProbeTelemetry(
 }
 
 func (a *agent) StartAPIConn(
-	ctx context.Context, socketPath string, origin APISessionOrigin,
+	ctx context.Context, stdio APIStdio, origin APISessionOrigin,
 ) (*APIConn, error) {
 	if a.spec.Runtime.Transport != "api" && !hasAPIEventOverride(a.spec) {
-		return nil, errAPITransportNotDeclared
+		return nil, errors.Join(errAPITransportNotDeclared, stdio.Close())
 	}
-	return protocol.StartAPIDriver(ctx, a.spec, socketPath, origin)
+	return protocol.StartAPIDriver(ctx, a.spec, stdio, origin)
 }
 
 // APIServeArgv is the api-transport `serve` argv: MCP + session config (never

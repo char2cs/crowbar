@@ -31,7 +31,7 @@ type apiconn struct {
 	driver *engineagents.APIConn
 	// ctx/cancel are the connection's OWN lifetime, deliberately NOT derived
 	// from whatever request's ctx happened to trigger the spawn. pumpAPIConn's
-	// goroutine outlives that request by design — codex's reply to THIS
+	// goroutine outlives that request by design — the provider's reply to THIS
 	// message can arrive minutes after the spawn (or prompt) HTTP call already
 	// returned — and a request-scoped ctx is cancelled the instant that call
 	// completes, silently failing every IngestHook call after with "context
@@ -147,10 +147,10 @@ func (r *apiConnRegistry) closeAll() {
 }
 
 // startAPIConn starts nothing and returns ok=false for a hooks-transport
-// descriptor. For an api-transport one, it forks `serve`, waits for the socket
-// to exist, and hands the connection to protocol.StartAPIDriver (via
-// engineagents.Agent.StartAPIConn — see this file's own package doc comment for
-// why that indirection is required, not optional).
+// descriptor. For an api-transport one, it forks `serve` and hands its stdio to
+// protocol.StartAPIDriver (via engineagents.Agent.StartAPIConn — see this
+// file's own package doc comment for why that indirection is required, not
+// optional). Serve is ready when it answers the handshake, and not before.
 //
 // A failure at any step degrades to ok=false rather than an error: the caller
 // (spawnRunner) must still succeed over hooks alone. Design spec §2.2b: "Failure
@@ -162,12 +162,11 @@ func (rs *Runners) startAPIConn(
 	tctx engineagents.TemplateCtx,
 ) (*apiconn, bool) {
 	// Test-only escape hatch, mirroring crowbarHookPath's CROWBAR_HOOK_BIN
-	// override below: a unit test's descriptor is the REAL codex.yaml, and a
-	// developer machine with codex actually installed would otherwise fork a
-	// genuine `codex app-server` subprocess as a side effect of any test that
-	// spawns a "codex" runner — slow, leaks processes, and makes test behavior
-	// depend on what happens to be on the local PATH. CI (no codex installed)
-	// already degrades this way for free; this makes every environment agree.
+	// override below: a unit test may spawn a SHIPPED descriptor, and a machine
+	// with that provider's CLI installed would otherwise fork its real serve as
+	// a side effect — slow, leaks processes, and makes test behavior depend on
+	// what happens to be on the local PATH. CI (no CLI installed) already
+	// degrades this way for free; this makes every environment agree.
 	if os.Getenv("CROWBAR_DISABLE_API_TRANSPORT") != "" {
 		return nil, false
 	}
@@ -175,30 +174,13 @@ func (rs *Runners) startAPIConn(
 	if !ok {
 		return nil, false
 	}
-	// A previous connection for this SAME runner id (SwitchToNative re-establishes
-	// on live.ID, never a fresh one) can have left its socket file behind: drop's
-	// SIGKILL gives the old `serve` no chance to unlink what it was listening on.
-	// Left in place, that stale file satisfies waitForSocket's mere existence
-	// check the instant this fork starts, racing the handshake below against a
-	// corpse instead of the process just started — confirmed live as "connection
-	// refused" on a socket path that very much exists. Removing it first
-	// guarantees the file waitForSocket blocks on is always this call's OWN
-	// process binding, never a leftover one. A path with nothing there (the
-	// common case, a runner id's first connection) is a silent no-op.
-	_ = os.Remove(tctx.Socket)
-	serve, err := forkServeProcess(serveArgv)
+	serve, stdio, err := forkServeProcess(serveArgv)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: api transport: start serve", "err", err, "runner_id", runnerID)
 		return nil, false
 	}
-	if err := waitForSocket(ctx, tctx.Socket, serve.exited); err != nil {
-		slog.WarnContext(ctx, "agent: api transport: serve never opened its socket",
-			"err", err, "runner_id", runnerID)
-		serve.kill()
-		return nil, false
-	}
 	//nolint:contextcheck // the driver announces long after this request; its values must not reach the binding.
-	driver, err := agent.StartAPIConn(ctx, tctx.Socket, rs.sessionOrigin(tctx.ChatID, agent.ID()))
+	driver, err := agent.StartAPIConn(ctx, stdio, rs.sessionOrigin(tctx.ChatID, agent.ID()))
 	if err != nil {
 		slog.WarnContext(ctx, "agent: api transport: handshake", "err", err, "runner_id", runnerID)
 		serve.kill()
@@ -240,12 +222,11 @@ func (rs *Runners) applyAPITransport(
 	}
 	conn.agent, conn.tctx = agent, tctx
 
-	// Auto-attaching at spawn is only correct for a HOTSWAP provider: it means
-	// the attached view is meant to be there for the whole session, the way
-	// claude's hooks-transport PTY already is. A provider that declares attach
-	// WITHOUT hotswap wants it on demand only, once idle — attaching here,
-	// before any turn has run, is exactly the request that fails live against
-	// codex (its rollout is not flushed yet) — so that case is left to
+	// Auto-attaching at spawn is only correct for a HOTSWAP provider: its
+	// attached view is meant to be there for the whole session, the way a
+	// hooks-transport PTY already is. A provider that declares attach WITHOUT
+	// hotswap wants it on demand only, once idle — before any turn has run, its
+	// session may not exist to attach to yet — so that case is left to
 	// SwitchToTerminal (attach.go), never rendered eagerly.
 	var attach []string
 	if agent.Capabilities().Hotswap {
@@ -325,7 +306,7 @@ func (rs *Runners) pumpAPIConn(
 			if ev.AskID != nil {
 				// Off the pump: a human's decision can take minutes, and every
 				// event behind the ask must keep flowing.
-				go rs.awaitAndReplyOverSocket(ctx, runnerID, agent, ev, conn)
+				go rs.awaitAndReply(ctx, runnerID, agent, ev, conn)
 			}
 		}
 	}()
@@ -343,12 +324,12 @@ func (rs *Runners) HasLiveAPIConnection(runnerID string) bool {
 	return ok
 }
 
-// awaitAndReplyOverSocket is the api channel's hook relay: it waits on the
+// awaitAndReply is the api channel's hook relay: it waits on the
 // answer desk and writes the verdict back. Every ask gets a reply — an api
 // provider has no TUI of its own to fall back to, so an ask left unanswered
 // would hold its turn open forever. On an expired budget the descriptor's own
 // refusal is sent instead.
-func (rs *Runners) awaitAndReplyOverSocket(
+func (rs *Runners) awaitAndReply(
 	ctx context.Context, runnerID string, agent engineagents.Agent, ev engineagents.APIEvent, conn *apiconn,
 ) {
 	answer, err := rs.answers.Await(ctx, apiAskDeliveryID(runnerID, ev.AskID))

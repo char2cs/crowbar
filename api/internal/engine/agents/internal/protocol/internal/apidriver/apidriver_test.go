@@ -1,24 +1,32 @@
 package apidriver_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"net"
-	"net/http"
-	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/apidriver"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/jsonrpc"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
+
+// fixtureLine is a recorded frame as serve sends it: one line, no indent.
+func fixtureLine(t *testing.T, name string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile("../../testdata/fixtures/codex/" + name)
+	require.NoError(t, err)
+	var line bytes.Buffer
+	require.NoError(t, json.Compact(&line, raw))
+	return line.Bytes()
+}
 
 func loadCodexAPIDescriptor(t *testing.T) *spec.Descriptor {
 	t.Helper()
@@ -29,65 +37,44 @@ func loadCodexAPIDescriptor(t *testing.T) *spec.Descriptor {
 	return d
 }
 
-// fakeCodexServer replays a scripted sequence of frames after completing the
-// initialize handshake exactly as the real app-server does — see wsrpc's own
-// tests for the base handshake plumbing; this adds the initialized notification
-// step apidriver.Start performs before handing back a Driver.
-func fakeCodexServer(t *testing.T, afterInit func(*websocket.Conn)) string {
+// fakeCodexServer is serve on the far end of a stdio pipe: it answers the
+// initialize handshake as the real app-server does, reads the initialized
+// notification apidriver.Start sends, then hands the child's end to afterInit.
+func fakeCodexServer(t *testing.T, afterInit func(*testutil.LinePeer)) jsonrpc.Stdio {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "apidriver")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	sockPath := filepath.Join(dir, "s.sock")
-	ln, err := net.Listen("unix", sockPath)
-	require.NoError(t, err)
-
-	upgrader := websocket.Upgrader{}
-	srv := &httptest.Server{
-		Listener: ln,
-		Config: &http.Server{
-			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				conn, err := upgrader.Upgrade(w, r, nil)
-				require.NoError(t, err)
-				defer conn.Close()
-
-				_, msg, err := conn.ReadMessage() // initialize
-				require.NoError(t, err)
-				var req struct {
-					ID json.RawMessage `json:"id"`
-				}
-				require.NoError(t, json.Unmarshal(msg, &req))
-				resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]string{}})
-				require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
-
-				_, _, err = conn.ReadMessage() // initialized notification, discarded
-				require.NoError(t, err)
-
-				afterInit(conn)
-			}),
-		},
-	}
-	srv.Start()
-	t.Cleanup(func() {
-		srv.Close()
-		_ = os.Remove(sockPath)
-	})
-	return sockPath
+	in, out, peer := testutil.StdioPipe(t)
+	go func() {
+		msg, err := peer.Read() // initialize; a failed read is the client hanging up
+		if err != nil {
+			return
+		}
+		var req struct {
+			ID json.RawMessage `json:"id"`
+		}
+		if !assert.NoError(t, json.Unmarshal(msg, &req)) ||
+			!assert.NoError(t, peer.WriteJSON(map[string]any{"id": req.ID, "result": map[string]string{}})) {
+			return
+		}
+		if _, err := peer.Read(); err != nil { // initialized notification, discarded
+			return
+		}
+		afterInit(peer)
+	}()
+	return jsonrpc.Stdio{In: in, Out: out}
 }
 
 func TestStart_HandshakeThenDeliversCanonicalEvents(t *testing.T) {
-	turnCompleted, err := os.ReadFile("../../testdata/fixtures/codex/turn_completed.json")
-	require.NoError(t, err)
+	turnCompleted := fixtureLine(t, "turn_completed.json")
 
-	sockPath := fakeCodexServer(t, func(conn *websocket.Conn) {
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, turnCompleted))
-		_, _, _ = conn.ReadMessage() // block until the client closes
+	stdio := fakeCodexServer(t, func(conn *testutil.LinePeer) {
+		require.NoError(t, conn.Write(turnCompleted))
+		_, _ = conn.Read() // block until the client closes
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -102,27 +89,22 @@ func TestStart_HandshakeThenDeliversCanonicalEvents(t *testing.T) {
 }
 
 func TestStart_AsksCarryAReplyChannel(t *testing.T) {
-	sockPath := fakeCodexServer(t, func(conn *websocket.Conn) {
-		ask, _ := json.Marshal(map[string]any{
+	replies := make(chan []byte, 1)
+	stdio := fakeCodexServer(t, func(conn *testutil.LinePeer) {
+		var msg []byte // left nil by a failed write or read, which fails the test's unmarshal
+		if assert.NoError(t, conn.WriteJSON(map[string]any{
 			"id": 7, "method": "item/commandExecution/requestApproval",
 			"params": map[string]string{"command": "curl https://example.com"},
-		})
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, ask))
-		_, msg, err := conn.ReadMessage()
-		require.NoError(t, err)
-		var reply struct {
-			ID     int             `json:"id"`
-			Result json.RawMessage `json:"result"`
+		})) {
+			msg, _ = conn.Read()
 		}
-		require.NoError(t, json.Unmarshal(msg, &reply))
-		require.Equal(t, 7, reply.ID)
-		require.JSONEq(t, `{"decision":"accept"}`, string(reply.Result))
+		replies <- msg
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -130,6 +112,10 @@ func TestStart_AsksCarryAReplyChannel(t *testing.T) {
 	require.Equal(t, "permission", ev.Canonical)
 	require.NotNil(t, ev.AskID)
 	require.NoError(t, drv.Reply(ev.AskID, []byte(`{"decision":"accept"}`)))
+	var reply map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(<-replies, &reply), "serve reads the reply as one line")
+	require.Equal(t, "7", string(reply["id"]))
+	require.JSONEq(t, `{"decision":"accept"}`, string(reply["result"]))
 }
 
 // TestStart_ByWireOverlayNamesTheToolOnThePermissionCard is F1 of the
@@ -147,7 +133,7 @@ func TestStart_ByWireOverlayNamesTheToolOnThePermissionCard(t *testing.T) {
 		"item/fileChange/requestApproval":       "fileChange",
 	} {
 		t.Run(wire, func(t *testing.T) {
-			sockPath := fakeCodexServer(t, func(conn *websocket.Conn) {
+			stdio := fakeCodexServer(t, func(conn *testutil.LinePeer) {
 				ask, _ := json.Marshal(map[string]any{
 					"id": 7, "method": wire,
 					// Neither real payload carries `tool` or `params` — see
@@ -155,14 +141,14 @@ func TestStart_ByWireOverlayNamesTheToolOnThePermissionCard(t *testing.T) {
 					// real captures share.
 					"params": map[string]string{"reason": "why"},
 				})
-				require.NoError(t, conn.WriteMessage(websocket.TextMessage, ask))
-				_, _, _ = conn.ReadMessage() // block until the client replies/closes
+				require.NoError(t, conn.Write(ask))
+				_, _ = conn.Read() // block until the client replies/closes
 			})
 
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			d := loadCodexAPIDescriptor(t)
-			drv, err := apidriver.Start(ctx, d, sockPath, nil)
+			drv, err := apidriver.Start(ctx, d, stdio, nil)
 			require.NoError(t, err)
 			defer drv.Close()
 
@@ -179,22 +165,21 @@ func TestStart_ByWireOverlayNamesTheToolOnThePermissionCard(t *testing.T) {
 }
 
 func TestStart_MalformedParamsAreDroppedNotFatal(t *testing.T) {
-	turnCompleted, err := os.ReadFile("../../testdata/fixtures/codex/turn_completed.json")
-	require.NoError(t, err)
+	turnCompleted := fixtureLine(t, "turn_completed.json")
 
-	sockPath := fakeCodexServer(t, func(conn *websocket.Conn) {
+	stdio := fakeCodexServer(t, func(conn *testutil.LinePeer) {
 		// A frame whose params is not a JSON object at all — must be skipped,
 		// not crash the translate loop, and the NEXT valid frame must still land.
 		bad, _ := json.Marshal(map[string]any{"method": "turn/completed", "params": "not-an-object"})
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, bad))
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, turnCompleted))
-		_, _, _ = conn.ReadMessage()
+		require.NoError(t, conn.Write(bad))
+		require.NoError(t, conn.Write(turnCompleted))
+		_, _ = conn.Read()
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -221,12 +206,12 @@ type scriptedCall struct {
 // scriptedServer replays call/response pairs in order, verifying each
 // incoming request's method matches the script and recording its raw params
 // for the test to inspect afterward.
-func scriptedServer(t *testing.T, script []scriptedCall) (sockPath string, seenParams *[]string) {
+func scriptedServer(t *testing.T, script []scriptedCall) (stdio jsonrpc.Stdio, seenParams *[]string) {
 	t.Helper()
 	seen := make([]string, 0, len(script))
-	sockPath = fakeCodexServer(t, func(conn *websocket.Conn) {
+	stdio = fakeCodexServer(t, func(conn *testutil.LinePeer) {
 		for _, step := range script {
-			_, msg, err := conn.ReadMessage()
+			msg, err := conn.Read()
 			require.NoError(t, err)
 			var req struct {
 				ID     json.RawMessage `json:"id"`
@@ -243,22 +228,22 @@ func scriptedServer(t *testing.T, script []scriptedCall) (sockPath string, seenP
 				}}
 			}
 			resp, _ := json.Marshal(body)
-			require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
+			require.NoError(t, conn.Write(resp))
 		}
-		_, _, _ = conn.ReadMessage() // block until the client closes
+		_, _ = conn.Read() // block until the client closes
 	})
-	return sockPath, &seen
+	return stdio, &seen
 }
 
 func TestEstablishSession_NoKnownSessionRunsFreshAndCapturesTheNewID(t *testing.T) {
-	sockPath, seen := scriptedServer(t, []scriptedCall{
+	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-123"}}`},
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -283,14 +268,14 @@ func TestEstablishSession_NoKnownSessionRunsFreshAndCapturesTheNewID(t *testing.
 // not a test fixture, so a future edit that renames or removes the
 // developerInstructions field breaks this test rather than shipping silently.
 func TestRegression_EstablishSessionFreshCarriesTheHandoffAsDeveloperInstructions(t *testing.T) {
-	sockPath, seen := scriptedServer(t, []scriptedCall{
+	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-123"}}`},
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -303,14 +288,14 @@ func TestRegression_EstablishSessionFreshCarriesTheHandoffAsDeveloperInstruction
 }
 
 func TestEstablishSession_KnownSessionRunsResumeNotFresh(t *testing.T) {
-	sockPath, seen := scriptedServer(t, []scriptedCall{
+	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/resume", result: `{"thread":{"id":"known-1"},"cwd":"/work","model":"m","modelProvider":"p","sandbox":{"type":"workspaceWrite"},"approvalPolicy":"on-request","approvalsReviewer":"user"}`},
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -324,14 +309,14 @@ func TestEstablishSession_KnownSessionRunsResumeNotFresh(t *testing.T) {
 // resumes would otherwise keep the sandbox the thread was created with after
 // the chat's level changed.
 func TestRegression_EstablishSessionResumeAlsoCarriesTheCurrentPermissionLevel(t *testing.T) {
-	sockPath, seen := scriptedServer(t, []scriptedCall{
+	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/resume", result: `{"thread":{"id":"known-1"},"cwd":"/work","model":"m","modelProvider":"p","sandbox":{"type":"dangerFullAccess"},"approvalPolicy":"never","approvalsReviewer":"user"}`},
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -346,14 +331,14 @@ func TestRegression_EstablishSessionResumeAlsoCarriesTheCurrentPermissionLevel(t
 }
 
 func TestEstablishSession_SecondCallOnAnEstablishedConnectionIsANoop(t *testing.T) {
-	sockPath, seen := scriptedServer(t, []scriptedCall{
+	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-1"}}`},
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -362,7 +347,7 @@ func TestEstablishSession_SecondCallOnAnEstablishedConnectionIsANoop(t *testing.
 
 	// A second call — as a later message on the SAME connection would make —
 	// must not call thread/start (or anything else) again: the script only
-	// declared one call, and scriptedServer's ReadMessage would block forever
+	// declared one call, and scriptedServer's Read would block forever
 	// (failing the test's own deadline) if a second request arrived.
 	out, err := drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "t-1", "cwd": "/work"})
 	require.NoError(t, err)
@@ -381,14 +366,14 @@ func TestEstablishSession_SecondCallOnAnEstablishedConnectionIsANoop(t *testing.
 // session_id="" and codex refused it outright ("invalid thread id: ... found 0"),
 // permanently uncertain-ing every later prompt to that runner too. Confirmed live.
 func TestRegression_EstablishSessionAlreadyEstablished_BlankCallerSessionIDFallsBackToRemembered(t *testing.T) {
-	sockPath, _ := scriptedServer(t, []scriptedCall{
+	stdio, _ := scriptedServer(t, []scriptedCall{
 		{method: "thread/resume", result: `{"thread":{"id":"t-resumed"}}`},
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -403,7 +388,7 @@ func TestRegression_EstablishSessionAlreadyEstablished_BlankCallerSessionIDFalls
 }
 
 func TestDispatch_SendsTheStructuredActionPayloadAfterEstablishing(t *testing.T) {
-	sockPath, seen := scriptedServer(t, []scriptedCall{
+	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-9"}}`},
 		{method: "turn/start", result: `{"turn":{"id":"turn-1","status":"inProgress"}}`},
 	})
@@ -411,7 +396,7 @@ func TestDispatch_SendsTheStructuredActionPayloadAfterEstablishing(t *testing.T)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -438,7 +423,7 @@ func TestDispatch_SendsTheStructuredActionPayloadAfterEstablishing(t *testing.T)
 // The connection is the authority on which thread it has open: a caller's
 // stale session id must not steer a later turn away from it.
 func TestRegression_DispatchOnAnEstablishedConnectionUsesTheThreadItOpened(t *testing.T) {
-	sockPath, seen := scriptedServer(t, []scriptedCall{
+	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-new"}}`},
 		{method: "turn/start", result: `{"turn":{"id":"turn-1"}}`},
 	})
@@ -446,7 +431,7 @@ func TestRegression_DispatchOnAnEstablishedConnectionUsesTheThreadItOpened(t *te
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = drv.Close() })
 
@@ -461,7 +446,7 @@ func TestRegression_DispatchOnAnEstablishedConnectionUsesTheThreadItOpened(t *te
 }
 
 func TestDispatch_ASecondMessageOnAnEstablishedConnectionSkipsStraightToAction(t *testing.T) {
-	sockPath, seen := scriptedServer(t, []scriptedCall{
+	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-9"}}`},
 		{method: "turn/start", result: `{"turn":{"id":"turn-1"}}`},
 		{method: "turn/start", result: `{"turn":{"id":"turn-2"}}`},
@@ -470,7 +455,7 @@ func TestDispatch_ASecondMessageOnAnEstablishedConnectionSkipsStraightToAction(t
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -500,10 +485,11 @@ events:
 	d, err := descriptor.ParseV3(raw)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_, err = apidriver.Start(ctx, d, "/nonexistent.sock", nil)
+	in, out, _ := testutil.StdioPipe(t)
+	_, err = apidriver.Start(t.Context(), d, jsonrpc.Stdio{In: in, Out: out}, nil)
 	require.Error(t, err)
+	_, err = in.Write([]byte("{}\n"))
+	require.ErrorIs(t, err, os.ErrClosed, "a refused start closes the stdio it was handed")
 }
 
 // TestSend_MergesValuesRememberedFromEarlierCaptures reproduces the codex
@@ -513,7 +499,7 @@ events:
 // supplies to Send itself. Send must source both from what this connection has
 // already remembered.
 func TestSend_MergesValuesRememberedFromEarlierCaptures(t *testing.T) {
-	sockPath, seen := scriptedServer(t, []scriptedCall{
+	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-9"}}`},
 		{method: "turn/start", result: `{"turn":{"id":"turn-1"}}`},
 		{method: "turn/interrupt", result: `{}`},
@@ -522,7 +508,7 @@ func TestSend_MergesValuesRememberedFromEarlierCaptures(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -554,9 +540,9 @@ func TestRegression_InterruptRacingANewTurnStart_MustNotSendTheStalePreviousTurn
 	turn2StartSeen := make(chan struct{})
 	interruptParams := make(chan string, 1)
 
-	sockPath := fakeCodexServer(t, func(conn *websocket.Conn) {
+	stdio := fakeCodexServer(t, func(conn *testutil.LinePeer) {
 		readReq := func() (id json.RawMessage, method, params string) {
-			_, msg, err := conn.ReadMessage()
+			msg, err := conn.Read()
 			require.NoError(t, err)
 			var req struct {
 				ID     json.RawMessage `json:"id"`
@@ -568,7 +554,7 @@ func TestRegression_InterruptRacingANewTurnStart_MustNotSendTheStalePreviousTurn
 		}
 		respond := func(id json.RawMessage, result string) {
 			resp, _ := json.Marshal(map[string]any{"id": id, "result": json.RawMessage(result)})
-			require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
+			require.NoError(t, conn.Write(resp))
 		}
 
 		id, method, _ := readReq() // thread/start
@@ -593,13 +579,13 @@ func TestRegression_InterruptRacingANewTurnStart_MustNotSendTheStalePreviousTurn
 		respond(idI, `{}`)
 
 		respond(id2, `{"turn":{"id":"turn-2"}}`)
-		_, _, _ = conn.ReadMessage() // block until the client closes
+		_, _ = conn.Read() // block until the client closes
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -643,31 +629,31 @@ func TestRegression_InterruptRacingANewTurnStart_MustNotSendTheStalePreviousTurn
 // error, not silence, and Send has to surface that rather than reporting
 // success on a call the server actually rejected.
 func TestSend_PropagatesAJSONRPCErrorFromTheReply(t *testing.T) {
-	sockPath := fakeCodexServer(t, func(conn *websocket.Conn) {
-		_, msg, err := conn.ReadMessage() // thread/start
+	stdio := fakeCodexServer(t, func(conn *testutil.LinePeer) {
+		msg, err := conn.Read() // thread/start
 		require.NoError(t, err)
 		var req struct {
 			ID json.RawMessage `json:"id"`
 		}
 		require.NoError(t, json.Unmarshal(msg, &req))
 		resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{"thread": map[string]string{"id": "t-9"}}})
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
+		require.NoError(t, conn.Write(resp))
 
-		_, msg, err = conn.ReadMessage() // interrupt
+		msg, err = conn.Read() // interrupt
 		require.NoError(t, err)
 		require.NoError(t, json.Unmarshal(msg, &req))
 		errResp, _ := json.Marshal(map[string]any{
 			"id":    req.ID,
 			"error": map[string]any{"code": -32600, "message": "missing field `turnId`"},
 		})
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, errResp))
-		_, _, _ = conn.ReadMessage() // block until the client closes
+		require.NoError(t, conn.Write(errResp))
+		_, _ = conn.Read() // block until the client closes
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -683,7 +669,7 @@ func TestSend_PropagatesAJSONRPCErrorFromTheReply(t *testing.T) {
 // the session this connection resumed. The exact item shape is pinned: a wrong
 // role is accepted and silently discarded.
 func TestInjectAt_RunsTheDeclaredContextStepAfterResume(t *testing.T) {
-	sockPath, seen := scriptedServer(t, []scriptedCall{
+	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/resume", result: `{"thread":{"id":"sid-1"}}`},
 		{method: "thread/inject_items", result: `{}`},
 	})
@@ -691,7 +677,7 @@ func TestInjectAt_RunsTheDeclaredContextStepAfterResume(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -731,12 +717,12 @@ func TestInjectAt_RunsTheDeclaredContextStepAfterResume(t *testing.T) {
 // anything — the same declarative-capability shape ContextSteps already has for
 // a provider with no use for a given moment.
 func TestInjectAt_UndeclaredMomentIsANoop(t *testing.T) {
-	sockPath, seen := scriptedServer(t, nil)
+	stdio, seen := scriptedServer(t, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -756,7 +742,7 @@ const (
 // A resume the provider refuses by a declared code is the session lost: the
 // caller is told so, and the driver never opens another thread in its place.
 func TestRegression_LostSessionOnResumeIsReportedNotReplaced(t *testing.T) {
-	sockPath, seen := scriptedServer(t, []scriptedCall{
+	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/resume", errCode: lostSessionCode, errMessage: lostOnResumeMessage},
 	})
 
@@ -764,7 +750,7 @@ func TestRegression_LostSessionOnResumeIsReportedNotReplaced(t *testing.T) {
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
 	origins := &recordedOrigins{}
-	drv, err := apidriver.Start(ctx, d, sockPath, origins.claim)
+	drv, err := apidriver.Start(ctx, d, stdio, origins.claim)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -783,10 +769,10 @@ func TestEstablishSession_ARefusalNeedsTheDeclaredCodeAndLine(t *testing.T) {
 		"the line under another code":  {method: "thread/resume", errCode: -32603, errMessage: lostOnResumeMessage},
 	} {
 		t.Run(name, func(t *testing.T) {
-			sockPath, _ := scriptedServer(t, []scriptedCall{refusal})
+			stdio, _ := scriptedServer(t, []scriptedCall{refusal})
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			drv, err := apidriver.Start(ctx, loadCodexAPIDescriptor(t), sockPath, nil)
+			drv, err := apidriver.Start(ctx, loadCodexAPIDescriptor(t), stdio, nil)
 			require.NoError(t, err)
 			defer func() { _ = drv.Close() }()
 
@@ -834,7 +820,7 @@ func establishAtSpawn(t *testing.T, ctx context.Context, drv *apidriver.Driver) 
 // memory, which thread/resume is for: an action refused that way re-enters the
 // same thread rather than losing it.
 func TestRegression_LostSessionOnTurnStartReentersTheSameConversation(t *testing.T) {
-	sockPath, seen := scriptedServer(t, []scriptedCall{
+	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-1"}}`},
 		{method: "turn/start", errCode: lostSessionCode, errMessage: lostOnTurnStartError},
 		{method: "thread/resume", result: `{"thread":{"id":"t-1"}}`},
@@ -845,7 +831,7 @@ func TestRegression_LostSessionOnTurnStartReentersTheSameConversation(t *testing
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
 	origins := &recordedOrigins{}
-	drv, err := apidriver.Start(ctx, d, sockPath, origins.claim)
+	drv, err := apidriver.Start(ctx, d, stdio, origins.claim)
 	require.NoError(t, err)
 	defer drv.Close()
 	establishAtSpawn(t, ctx, drv)
@@ -876,7 +862,7 @@ func TestRegression_LostSessionOnTurnStartReentersTheSameConversation(t *testing
 // A thread the provider refuses on its own resume path too is lost: the
 // prompt fails with ErrSessionLost rather than landing in a new thread.
 func TestRegression_LostSessionIsLostOnceResumeAlsoRefusesIt(t *testing.T) {
-	sockPath, seen := scriptedServer(t, []scriptedCall{
+	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-1"}}`},
 		{method: "turn/start", errCode: lostSessionCode, errMessage: lostOnTurnStartError},
 		{method: "thread/resume", errCode: lostSessionCode, errMessage: lostOnResumeMessage},
@@ -886,7 +872,7 @@ func TestRegression_LostSessionIsLostOnceResumeAlsoRefusesIt(t *testing.T) {
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
 	origins := &recordedOrigins{}
-	drv, err := apidriver.Start(ctx, d, sockPath, origins.claim)
+	drv, err := apidriver.Start(ctx, d, stdio, origins.claim)
 	require.NoError(t, err)
 	defer drv.Close()
 	establishAtSpawn(t, ctx, drv)
@@ -905,7 +891,7 @@ func TestRegression_LostSessionIsLostOnceResumeAlsoRefusesIt(t *testing.T) {
 // protocol failure still surfaces as an error instead of silently abandoning a
 // perfectly live session and starting a new one behind the user's back.
 func TestRegression_UndeclaredErrorCodeIsStillFatal(t *testing.T) {
-	sockPath, seen := scriptedServer(t, []scriptedCall{
+	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-1"}}`},
 		{method: "turn/start", errCode: -32602, errMessage: "invalid params"},
 	})
@@ -913,7 +899,7 @@ func TestRegression_UndeclaredErrorCodeIsStillFatal(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -927,9 +913,9 @@ func TestRegression_UndeclaredErrorCodeIsStillFatal(t *testing.T) {
 }
 
 // The thread a fresh establish mints is reported: the chat binds it, and the
-// hook ingress tells it from the child threads pushed down the same websocket.
+// hook ingress tells it from the child threads pushed down the same connection.
 func TestRegression_EstablishSessionFreshReportsTheSessionItMinted(t *testing.T) {
-	sockPath, _ := scriptedServer(t, []scriptedCall{
+	stdio, _ := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-minted"}}`},
 	})
 
@@ -937,7 +923,7 @@ func TestRegression_EstablishSessionFreshReportsTheSessionItMinted(t *testing.T)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
 	origins := &recordedOrigins{}
-	drv, err := apidriver.Start(ctx, d, sockPath, origins.claim)
+	drv, err := apidriver.Start(ctx, d, stdio, origins.claim)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -958,7 +944,7 @@ func TestRegression_EstablishSessionFreshReportsTheSessionItMinted(t *testing.T)
 // Resume's own steps declare no capture — session_id survives only because it
 // went IN non-empty — which is why this asserts the id and not just the count.
 func TestEstablishSession_ResumeReportsTheSessionItEntered(t *testing.T) {
-	sockPath, _ := scriptedServer(t, []scriptedCall{
+	stdio, _ := scriptedServer(t, []scriptedCall{
 		{method: "thread/resume", result: `{"thread":{"id":"known-1"}}`},
 	})
 
@@ -966,7 +952,7 @@ func TestEstablishSession_ResumeReportsTheSessionItEntered(t *testing.T) {
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
 	origins := &recordedOrigins{}
-	drv, err := apidriver.Start(ctx, d, sockPath, origins.claim)
+	drv, err := apidriver.Start(ctx, d, stdio, origins.claim)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -980,7 +966,7 @@ func TestEstablishSession_ResumeReportsTheSessionItEntered(t *testing.T) {
 // The short-circuit on an established connection enters no session, so it
 // reports none.
 func TestEstablishSession_AnAlreadyEstablishedConnectionOpensNoClaim(t *testing.T) {
-	sockPath, seen := scriptedServer(t, []scriptedCall{
+	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-1"}}`},
 	})
 
@@ -988,7 +974,7 @@ func TestEstablishSession_AnAlreadyEstablishedConnectionOpensNoClaim(t *testing.
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
 	origins := &recordedOrigins{}
-	drv, err := apidriver.Start(ctx, d, sockPath, origins.claim)
+	drv, err := apidriver.Start(ctx, d, stdio, origins.claim)
 	require.NoError(t, err)
 	defer drv.Close()
 

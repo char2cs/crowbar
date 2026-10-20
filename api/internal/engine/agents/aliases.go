@@ -66,6 +66,8 @@ type (
 	// APISessionOrigin is how the runner layer learns every session a
 	// connection opens or enters — see protocol's own alias.
 	APISessionOrigin = protocol.APISessionOrigin
+	// APIStdio is serve's stdin and stdout, as StartServe opens them.
+	APIStdio = protocol.APIStdio
 )
 
 const (

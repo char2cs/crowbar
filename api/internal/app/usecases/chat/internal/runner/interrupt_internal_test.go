@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // stubWorkspaceForInterrupt answers only WorktreeDir — the one call
@@ -70,6 +70,8 @@ runtime:
   transport: api
   api:
     protocol: jsonrpc2
+    delivery: stdio
+    format: ndjson
     serve: [acme, serve]
     handshake: { call: initialize }
 `
@@ -94,12 +96,12 @@ func TestInterruptTurn_ReturnsFalse_WhenNoLiveAPIConn(t *testing.T) {
 
 func TestInterruptTurn_ReturnsFalse_WhenDescriptorDeclaresNoInterrupt(t *testing.T) {
 	agent := apiTransportTestAgent(t) // the shared fixture: no interrupt: event
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, _, _ = conn.ReadMessage() // block; no call should ever arrive
+	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
+		_, _ = conn.Read() // block; no call should ever arrive
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 	defer func() { _ = apiConn.Close() }()
 
@@ -120,8 +122,8 @@ func TestInterruptTurn_ReturnsFalse_WhenDescriptorDeclaresNoInterrupt(t *testing
 // codex shape (threadId + turnId) confirmed live against codex-cli 0.149.1.
 func TestInterruptTurn_SendsTheInterruptAndReturnsTrue(t *testing.T) {
 	received := make(chan string, 1)
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, msg, err := conn.ReadMessage() // turn/interrupt
+	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
+		msg, err := conn.Read() // turn/interrupt
 		require.NoError(t, err)
 		var req struct {
 			ID     json.RawMessage `json:"id"`
@@ -131,14 +133,14 @@ func TestInterruptTurn_SendsTheInterruptAndReturnsTrue(t *testing.T) {
 		require.NoError(t, json.Unmarshal(msg, &req))
 		received <- req.Method + ":" + string(req.Params)
 		resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{}})
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
-		_, _, _ = conn.ReadMessage() // block until the client closes
+		require.NoError(t, conn.Write(resp))
+		_, _ = conn.Read() // block until the client closes
 	})
 
 	agent := interruptTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 	defer func() { _ = apiConn.Close() }()
 
@@ -160,7 +162,7 @@ func TestInterruptTurn_SendsTheInterruptAndReturnsTrue(t *testing.T) {
 	case got := <-received:
 		require.Contains(t, got, "turn/interrupt:")
 	default:
-		t.Fatal("the socket never received turn/interrupt")
+		t.Fatal("serve never received turn/interrupt")
 	}
 }
 
@@ -168,15 +170,15 @@ func TestInterruptTurn_SendsTheInterruptAndReturnsTrue(t *testing.T) {
 // Stop: the turn already ended in the ledger, so nothing waits for the reply.
 func TestInterruptTurn_NeverWaitsForTheProvidersAnswer(t *testing.T) {
 	received := make(chan struct{})
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, _, _ = conn.ReadMessage() // the interrupt, never answered
+	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
+		_, _ = conn.Read() // the interrupt, never answered
 		close(received)
-		_, _, _ = conn.ReadMessage()
+		_, _ = conn.Read()
 	})
 	agent := interruptTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 	defer func() { _ = apiConn.Close() }()
 

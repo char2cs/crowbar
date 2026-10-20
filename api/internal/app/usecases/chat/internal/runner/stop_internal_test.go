@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -18,6 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // stopActivity records the stopped interruptions RecordStop writes — the only
@@ -106,8 +106,8 @@ func retiredAs(t *testing.T, rs *Runners) string {
 // only once release closes, as codex does once the turn truly ends.
 func interruptServer(t *testing.T, asked chan<- struct{}, release <-chan struct{}) *apiconn {
 	t.Helper()
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, msg, err := conn.ReadMessage()
+	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
+		msg, err := conn.Read()
 		if err != nil {
 			return
 		}
@@ -118,12 +118,12 @@ func interruptServer(t *testing.T, asked chan<- struct{}, release <-chan struct{
 		require.NoError(t, json.Unmarshal(msg, &req))
 		<-release
 		resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{}})
-		_ = conn.WriteMessage(websocket.TextMessage, resp)
-		_, _, _ = conn.ReadMessage()
+		_ = conn.Write(resp)
+		_, _ = conn.Read()
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
-	driver, err := interruptTestAgent(t).StartAPIConn(ctx, sockPath, nil)
+	driver, err := interruptTestAgent(t).StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = driver.Close() })
 	return &apiconn{driver: driver, ctx: ctx}

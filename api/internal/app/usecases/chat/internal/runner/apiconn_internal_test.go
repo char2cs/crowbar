@@ -3,19 +3,15 @@ package runner
 import (
 	"context"
 	"encoding/json"
-	"net"
-	"net/http"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -23,6 +19,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // noopTurns satisfies the Turns port with the cheapest possible answers —
@@ -65,98 +62,6 @@ func (noopTurns) AbandonMessageForRunner(
 }
 
 func (noopTurns) FailTurnOnNotice(context.Context, engineagents.Runner, engineagents.TerminalNotice) {
-}
-
-func TestApiSocketPath_IsShortAndDeterministic(t *testing.T) {
-	a := apiSocketPath("runner-1")
-	b := apiSocketPath("runner-1")
-	c := apiSocketPath("runner-2")
-
-	assert.Equal(t, a, b, "the same runner id must derive the same path")
-	assert.NotEqual(t, a, c)
-	assert.LessOrEqual(t, len(a), 104, "macOS's sun_path is a hard 104 bytes")
-}
-
-func TestWaitForSocket_DetectsTheSocketAppearing(t *testing.T) {
-	// A SHORT path, NOT t.TempDir(): that nests under this test's own (long)
-	// function name, and macOS's sun_path is a hard 104 bytes — net.Listen fails
-	// silently in the background goroutine below if it overflows, and this test
-	// then times out waiting for a socket that was never created.
-	dir, err := os.MkdirTemp("", "waitforsocket")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	sockPath := filepath.Join(dir, "s.sock")
-
-	listening := make(chan error, 1)
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		ln, err := net.Listen("unix", sockPath)
-		listening <- err
-		if err == nil {
-			defer ln.Close()
-			time.Sleep(200 * time.Millisecond)
-		}
-	}()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	assert.NoError(t, waitForSocket(ctx, sockPath, nil))
-	require.NoError(t, <-listening, "the test's own background listener must have bound cleanly")
-}
-
-func TestWaitForSocket_RespectsContextCancellation(t *testing.T) {
-	dir := t.TempDir()
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	assert.Error(t, waitForSocket(ctx, filepath.Join(dir, "never.sock"), nil))
-}
-
-func TestForkServeProcess_StartsARealProcess(t *testing.T) {
-	serve, err := forkServeProcess([]string{"sleep", "5"})
-	require.NoError(t, err)
-	require.NotNil(t, serve.cmd.Process)
-	defer serve.kill()
-
-	// The process is genuinely running, not merely constructed.
-	assert.NoError(t, serve.cmd.Process.Signal(os.Interrupt))
-}
-
-// codex's `serve` is a node wrapper around the real binary: killing only the
-// wrapper orphaned the app-server it had started, which ran on forever.
-func TestForkServeProcess_KillEndsWhatTheProcessStarted(t *testing.T) {
-	pidFile := filepath.Join(t.TempDir(), "grandchild.pid")
-	serve, err := forkServeProcess([]string{"sh", "-c", "sleep 60 & echo $! > " + pidFile + "; wait"})
-	require.NoError(t, err)
-	var grandchild int
-	require.Eventually(t, func() bool {
-		raw, err := os.ReadFile(pidFile)
-		if err != nil || !strings.HasSuffix(string(raw), "\n") {
-			return false
-		}
-		grandchild, err = strconv.Atoi(strings.TrimSpace(string(raw)))
-		return err == nil
-	}, 5*time.Second, 10*time.Millisecond)
-
-	serve.kill()
-
-	require.Eventually(t, func() bool { return !processRunning(grandchild) },
-		5*time.Second, 20*time.Millisecond, "the serve process's own child outlived it")
-}
-
-// processRunning reports whether pid exists and is not a zombie awaiting reap.
-func processRunning(pid int) bool {
-	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
-	if err != nil {
-		return syscall.Kill(pid, 0) == nil
-	}
-	s := string(stat)
-	fields := strings.Fields(s[strings.LastIndexByte(s, ')')+1:])
-	return len(fields) > 0 && fields[0] != "Z"
-}
-
-func TestForkServeProcess_EmptyArgvIsAnError(t *testing.T) {
-	_, err := forkServeProcess(nil)
-	assert.Error(t, err)
 }
 
 func TestAPIConnRegistry_DropKillsTheProcessAndClosesTheDriver(t *testing.T) {
@@ -232,36 +137,93 @@ func TestAPIConnRegistry_CloseAllKillsEveryLiveProcess(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// fakeWSServer starts an in-process WebSocket server on a unix socket, exactly
-// mirroring wsrpc/apidriver's own test helpers — used here to build a REAL
-// *engineagents.APIConn (via agent.StartAPIConn) without forking a subprocess,
-// so pumpAPIConn's own routing logic can be tested in isolation from
-// startAPIConn's process-management half.
-func fakeWSServer(t *testing.T, afterInit func(*websocket.Conn)) string {
-	t.Helper()
-	dir, err := os.MkdirTemp("", "apiconn")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	sockPath := filepath.Join(dir, "s.sock")
-	ln, err := net.Listen("unix", sockPath)
-	require.NoError(t, err)
+// helperServeGate names a FIFO the helper serve opens before it reads a word:
+// the open proves serve is alive, and the test's close lets it answer.
+const helperServeGate = "CROWBAR_TEST_SERVE_GATE"
 
-	upgrader := websocket.Upgrader{}
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		require.NoError(t, err)
-		_, msg, err := conn.ReadMessage() // initialize
-		require.NoError(t, err)
+func awaitServeGate(t *testing.T) {
+	t.Helper()
+	gate := os.Getenv(helperServeGate)
+	if gate == "" {
+		return
+	}
+	f, err := os.Open(gate)
+	require.NoError(t, err)
+	_, err = f.Read(make([]byte, 1))
+	require.ErrorIs(t, err, io.EOF)
+	require.NoError(t, f.Close())
+}
+
+// Serve is ready when it answers the handshake: one that is alive but silent
+// has given its runner neither a connection nor a PTY.
+func TestStartAPIConn_ServeIsReadyOnlyOnceItAnswers(t *testing.T) {
+	h := helperServeSpawn(t, "answer", false)
+	gate := filepath.Join(t.TempDir(), "gate")
+	require.NoError(t, syscall.Mkfifo(gate, 0o600))
+	t.Setenv(helperServeGate, gate)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	spawned := make(chan error, 1)
+	go func() {
+		_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"}, false)
+		spawned <- err
+	}()
+	opened := make(chan *os.File, 1)
+	go func() {
+		f, err := os.OpenFile(gate, os.O_WRONLY, 0) // returns once serve opens its end
+		if assert.NoError(t, err) {
+			opened <- f
+		}
+	}()
+	select {
+	case release := <-opened:
+		assert.False(t, h.rs.HasLiveAPIConnection("runner-1"), "a silent serve was taken as ready")
+		require.NoError(t, release.Close())
+	case err := <-spawned:
+		t.Fatalf("the spawn went on before its serve answered: %v", err)
+	case <-ctx.Done():
+		t.Fatal("serve never started")
+	}
+
+	require.NoError(t, <-spawned)
+	assert.True(t, h.rs.HasLiveAPIConnection("runner-1"))
+	assert.Empty(t, h.term.created, "the answered connection is the runner")
+}
+
+// A serve that ends without answering was never ready: its end is seen at
+// once, and the spawn goes on over its PTY.
+func TestStartAPIConn_AServeThatEndsUnansweredIsNotReady(t *testing.T) {
+	h := helperServeSpawn(t, "exit", false)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"}, false)
+
+	require.NoError(t, err)
+	require.NoError(t, ctx.Err(), "serve's end went unseen until the spawn's bound")
+	assert.False(t, h.rs.HasLiveAPIConnection("runner-1"))
+	assert.Len(t, h.term.created, 1, "the spawn went on over its PTY")
+}
+
+// fakeServe is serve on the far end of a stdio pipe, answering the handshake
+// as a real one does: a REAL *engineagents.APIConn (via agent.StartAPIConn)
+// without forking a process, so pumpAPIConn's own routing is tested apart from
+// startAPIConn's process half. afterInit then holds the child's end.
+func fakeServe(t *testing.T, afterInit func(*testutil.LinePeer)) engineagents.APIStdio {
+	t.Helper()
+	in, out, peer := testutil.StdioPipe(t)
+	go func() {
 		var req struct{ ID json.RawMessage }
-		require.NoError(t, json.Unmarshal(msg, &req))
-		resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]string{}})
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
-		_, _, _ = conn.ReadMessage() // initialized notification
-		afterInit(conn)
-	})}
-	go func() { _ = srv.Serve(ln) }()
-	t.Cleanup(func() { _ = srv.Close(); _ = os.Remove(sockPath) })
-	return sockPath
+		if peer.ReadJSON(&req) != nil || // initialize; a failed read is the client hanging up
+			!assert.NoError(t, peer.WriteJSON(map[string]any{"id": req.ID, "result": map[string]string{}})) {
+			return
+		}
+		if _, err := peer.Read(); err == nil && afterInit != nil { // initialized notification
+			afterInit(peer)
+		}
+	}()
+	return engineagents.APIStdio{In: in, Out: out}
 }
 
 const apiTransportTestDescriptor = `
@@ -293,6 +255,8 @@ runtime:
   transport: api
   api:
     protocol: jsonrpc2
+    delivery: stdio
+    format: ndjson
     serve: [acme, serve]
     handshake: { call: initialize }
 `
@@ -310,7 +274,7 @@ func apiTransportTestAgent(t *testing.T) engineagents.Agent {
 
 // spyTurns records every IngestHook call and the delivery id it carried. Like the
 // real holdForAnswer, it holds a delivery's answer slot before IngestHook returns,
-// so the test's Resolve cannot race awaitAndReplyOverSocket's Await.
+// so the test's Resolve cannot race awaitAndReply's Await.
 type spyTurns struct {
 	noopTurns
 	answers *answerdesk.Desk
@@ -356,15 +320,15 @@ func TestPumpAPIConn_RoutesOnlyAPITransportEventsAndDropsHooksDeclaredOnes(t *te
 	// would be double-applied.
 	subagentStart := []byte(`{"method":"SubagentStart","params":{"session_id":"s1","agent_id":"a1","agent_type":"reviewer"}}`)
 
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, turnCompleted))
-		_, _, _ = conn.ReadMessage() // block until the client closes
+	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
+		require.NoError(t, conn.Write(turnCompleted))
+		_, _ = conn.Read() // block until the client closes
 	})
 
 	agent := apiTransportTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 	defer func() { _ = apiConn.Close() }()
 
@@ -387,15 +351,15 @@ func TestPumpAPIConn_RoutesOnlyAPITransportEventsAndDropsHooksDeclaredOnes(t *te
 	assert.Empty(t, calls[0].deliveryID, "a plain notification carries no delivery id")
 }
 
-func TestPumpAPIConn_AskEventCarriesADeliveryIDAndRepliesOverTheSocket(t *testing.T) {
+func TestPumpAPIConn_AskEventCarriesADeliveryIDAndRepliesOverTheConnection(t *testing.T) {
 	replySeen := make(chan string, 1)
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
+	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
 		ask, _ := json.Marshal(map[string]any{
 			"id": 7, "method": "acme/tool/requestApproval",
 			"params": map[string]string{"tool": "shell"},
 		})
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, ask))
-		_, msg, err := conn.ReadMessage()
+		require.NoError(t, conn.Write(ask))
+		msg, err := conn.Read()
 		require.NoError(t, err)
 		var reply struct {
 			Result json.RawMessage `json:"result"`
@@ -407,7 +371,7 @@ func TestPumpAPIConn_AskEventCarriesADeliveryIDAndRepliesOverTheSocket(t *testin
 	agent := apiTransportTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 	defer func() { _ = apiConn.Close() }()
 
@@ -433,7 +397,7 @@ func TestPumpAPIConn_AskEventCarriesADeliveryIDAndRepliesOverTheSocket(t *testin
 	case reply := <-replySeen:
 		assert.JSONEq(t, `{"decision":"approved"}`, reply)
 	case <-time.After(3 * time.Second):
-		t.Fatal("the socket never received a reply")
+		t.Fatal("serve never received a reply")
 	}
 }
 
@@ -441,13 +405,13 @@ func TestPumpAPIConn_AskEventCarriesADeliveryIDAndRepliesOverTheSocket(t *testin
 // Crowbar gets the descriptor's refusal, never silence that holds its turn.
 func TestPumpAPIConn_AnAskNobodyAnswersIsRefused(t *testing.T) {
 	replySeen := make(chan string, 1)
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
+	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
 		ask, _ := json.Marshal(map[string]any{
 			"id": 9, "method": "acme/tool/requestApproval",
 			"params": map[string]string{"tool": "shell"},
 		})
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, ask))
-		_, raw, err := conn.ReadMessage()
+		require.NoError(t, conn.Write(ask))
+		raw, err := conn.Read()
 		if err != nil {
 			return
 		}
@@ -456,13 +420,13 @@ func TestPumpAPIConn_AnAskNobodyAnswersIsRefused(t *testing.T) {
 		}
 		require.NoError(t, json.Unmarshal(raw, &reply))
 		replySeen <- string(reply.Result)
-		_, _, _ = conn.ReadMessage()
+		_, _ = conn.Read()
 	})
 
 	agent := apiTransportTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 	defer func() { _ = apiConn.Close() }()
 
@@ -484,21 +448,21 @@ func TestPumpAPIConn_AnAskNobodyAnswersIsRefused(t *testing.T) {
 // interrupt hung holding the spawn gate. The answer is awaited on its own
 // goroutine; the pump keeps draining.
 func TestPumpAPIConn_AnUnansweredAskDoesNotBlockLaterEvents(t *testing.T) {
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
+	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
 		ask, _ := json.Marshal(map[string]any{
 			"id": 11, "method": "acme/tool/requestApproval",
 			"params": map[string]string{"tool": "shell"},
 		})
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, ask))
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage,
+		require.NoError(t, conn.Write(ask))
+		require.NoError(t, conn.Write(
 			[]byte(`{"method":"turn/completed","params":{"threadId":"t1","turn":{"items":[]}}}`)))
-		_, _, _ = conn.ReadMessage()
+		_, _ = conn.Read()
 	})
 
 	agent := apiTransportTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 	defer func() { _ = apiConn.Close() }()
 

@@ -4,7 +4,9 @@ runtime:
   transport: api
   api:
     protocol: jsonrpc2
-    serve: [BIN, app-server, --listen, "unix://{socket}"]
+    delivery: stdio
+    format: ndjson
+    serve: [BIN, app-server]
     handshake: { call: initialize }
 spawn:
   cmd: BIN

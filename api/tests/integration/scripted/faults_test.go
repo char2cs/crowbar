@@ -122,7 +122,7 @@ func TestScripted_SlowHook(t *testing.T) {
 	}
 }
 
-// A dropped api socket ends its runner with a reason; the next message
+// A dropped api connection ends its runner with a reason; the next message
 // re-establishes the conversation.
 func TestScripted_SocketDrop(t *testing.T) {
 	r := newRig(t)

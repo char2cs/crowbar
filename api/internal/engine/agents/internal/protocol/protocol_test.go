@@ -3,21 +3,17 @@ package protocol_test
 import (
 	"context"
 	"encoding/json"
-	"net"
-	"net/http"
-	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 func loadCodexAPIDescriptor(t *testing.T) *spec.Descriptor {
@@ -35,64 +31,37 @@ type scriptedCall struct {
 	result string
 }
 
-// scriptedServer completes the api-transport handshake exactly as
-// apidriver.Start expects, then replays script's call/response pairs in
-// order, recording each call's raw params so a test can assert on the actual
-// wire payload APIConn's facade produced.
-func scriptedServer(t *testing.T, script []scriptedCall) (sockPath string, seenParams *[]string) {
+// scriptedServer is serve on the far end of a stdio pipe: it completes the
+// api-transport handshake exactly as apidriver.Start expects, then replays
+// script's call/response pairs in order, recording each call's raw params so a
+// test can assert on the actual wire payload APIConn's facade produced.
+func scriptedServer(t *testing.T, script []scriptedCall) (stdio protocol.APIStdio, seenParams *[]string) {
 	t.Helper()
 	seen := make([]string, 0, len(script))
-	dir, err := os.MkdirTemp("", "protocolfacade")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	sock := filepath.Join(dir, "s.sock")
-	ln, err := net.Listen("unix", sock)
-	require.NoError(t, err)
-
-	upgrader := websocket.Upgrader{}
-	srv := &httptest.Server{
-		Listener: ln,
-		Config: &http.Server{
-			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				conn, err := upgrader.Upgrade(w, r, nil)
-				require.NoError(t, err)
-				defer conn.Close()
-
-				_, msg, err := conn.ReadMessage() // initialize
-				require.NoError(t, err)
-				var initReq struct {
-					ID json.RawMessage `json:"id"`
-				}
-				require.NoError(t, json.Unmarshal(msg, &initReq))
-				resp, _ := json.Marshal(map[string]any{"id": initReq.ID, "result": map[string]string{}})
-				require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
-				_, _, err = conn.ReadMessage() // initialized notification, discarded
-				require.NoError(t, err)
-
-				for _, step := range script {
-					_, msg, err := conn.ReadMessage()
-					require.NoError(t, err)
-					var req struct {
-						ID     json.RawMessage `json:"id"`
-						Method string          `json:"method"`
-						Params json.RawMessage `json:"params"`
-					}
-					require.NoError(t, json.Unmarshal(msg, &req))
-					require.Equal(t, step.method, req.Method, "unexpected call reaching the wire")
-					seen = append(seen, string(req.Params))
-					resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": json.RawMessage(step.result)})
-					require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
-				}
-				_, _, _ = conn.ReadMessage() // block until the client closes
-			}),
-		},
-	}
-	srv.Start()
-	t.Cleanup(func() {
-		srv.Close()
-		_ = os.Remove(sock)
-	})
-	return sock, &seen
+	in, out, peer := testutil.StdioPipe(t)
+	go func() {
+		for i := -2; i < len(script); i++ {
+			var req struct {
+				ID     json.RawMessage `json:"id"`
+				Method string          `json:"method"`
+				Params json.RawMessage `json:"params"`
+			}
+			if peer.ReadJSON(&req) != nil { // the client hung up; the test sees that on its own side
+				return
+			}
+			if i == -1 { // the initialized notification
+				continue
+			}
+			result := json.RawMessage(`{}`)
+			if i >= 0 {
+				assert.Equal(t, script[i].method, req.Method, "unexpected call reaching the wire")
+				seen = append(seen, string(req.Params))
+				result = json.RawMessage(script[i].result)
+			}
+			assert.NoError(t, peer.WriteJSON(map[string]any{"id": req.ID, "result": result}))
+		}
+	}()
+	return protocol.APIStdio{In: in, Out: out}, &seen
 }
 
 // TestAPIConn_FacadeForwardsEveryCallThroughToTheUnderlyingDriver pins that
@@ -104,7 +73,7 @@ func scriptedServer(t *testing.T, script []scriptedCall) (sockPath string, seenP
 // swapped method on APIConn's own EstablishSession/Dispatch/InjectAt would
 // ship silently.
 func TestAPIConn_FacadeForwardsEveryCallThroughToTheUnderlyingDriver(t *testing.T) {
-	sockPath, seen := scriptedServer(t, []scriptedCall{
+	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/resume", result: `{"thread":{"id":"sid-1"}}`},
 		{method: "thread/inject_items", result: `{}`},
 		{method: "turn/start", result: `{"turn":{"id":"turn-1"}}`},
@@ -114,7 +83,7 @@ func TestAPIConn_FacadeForwardsEveryCallThroughToTheUnderlyingDriver(t *testing.
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
 
-	conn, err := protocol.StartAPIDriver(ctx, d, sockPath, nil)
+	conn, err := protocol.StartAPIDriver(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -140,13 +109,13 @@ func TestAPIConn_FacadeForwardsEveryCallThroughToTheUnderlyingDriver(t *testing.
 // no-wire-call contract for an undeclared inject moment survives being
 // reached through APIConn rather than the driver directly.
 func TestAPIConn_InjectAtUndeclaredMomentIsANoopThroughTheFacade(t *testing.T) {
-	sockPath, seen := scriptedServer(t, nil)
+	stdio, seen := scriptedServer(t, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
 
-	conn, err := protocol.StartAPIDriver(ctx, d, sockPath, nil)
+	conn, err := protocol.StartAPIDriver(ctx, d, stdio, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -157,13 +126,13 @@ func TestAPIConn_InjectAtUndeclaredMomentIsANoopThroughTheFacade(t *testing.T) {
 
 // TestStartAPIDriver_PropagatesTheUnderlyingStartFailure pins the error path:
 // StartAPIDriver must hand back (nil, err) rather than a half-built
-// connection when the underlying handshake cannot even begin.
+// connection when serve hangs up before it answers the handshake.
 func TestStartAPIDriver_PropagatesTheUnderlyingStartFailure(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+	in, out, peer := testutil.StdioPipe(t)
+	require.NoError(t, peer.Close())
 	d := loadCodexAPIDescriptor(t)
 
-	conn, err := protocol.StartAPIDriver(ctx, d, "/nonexistent.sock", nil)
+	conn, err := protocol.StartAPIDriver(t.Context(), d, protocol.APIStdio{In: in, Out: out}, nil)
 
 	require.Error(t, err)
 	assert.Nil(t, conn)

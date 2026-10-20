@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // compactAPITestDescriptor mirrors interruptTestDescriptor's shape (same
@@ -43,6 +43,8 @@ runtime:
   transport: api
   api:
     protocol: jsonrpc2
+    delivery: stdio
+    format: ndjson
     serve: [acme, serve]
     handshake: { call: initialize }
 `
@@ -91,8 +93,8 @@ func (s stubConversationsForCompact) ChatProviderID(context.Context, string) (st
 // to actually observe outside of codex's own automatic compaction.
 func TestCompact_APITransport_SendsThreadCompactStart(t *testing.T) {
 	received := make(chan string, 1)
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, msg, err := conn.ReadMessage() // thread/compact/start
+	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
+		msg, err := conn.Read() // thread/compact/start
 		require.NoError(t, err)
 		var req struct {
 			ID     json.RawMessage `json:"id"`
@@ -102,14 +104,14 @@ func TestCompact_APITransport_SendsThreadCompactStart(t *testing.T) {
 		require.NoError(t, json.Unmarshal(msg, &req))
 		received <- req.Method + ":" + string(req.Params)
 		resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{}})
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
-		_, _, _ = conn.ReadMessage() // block until the client closes
+		require.NoError(t, conn.Write(resp))
+		_, _ = conn.Read() // block until the client closes
 	})
 
 	agent := compactAPITestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 	defer apiConn.Close()
 
@@ -129,7 +131,7 @@ func TestCompact_APITransport_SendsThreadCompactStart(t *testing.T) {
 	case got := <-received:
 		require.Contains(t, got, "thread/compact/start:")
 	case <-time.After(3 * time.Second):
-		t.Fatal("the socket never received thread/compact/start")
+		t.Fatal("serve never received thread/compact/start")
 	}
 }
 

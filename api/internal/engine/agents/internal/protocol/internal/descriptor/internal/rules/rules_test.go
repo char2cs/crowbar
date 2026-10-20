@@ -615,8 +615,8 @@ func TestSelection_AcceptsBothBlocksAndTheirAbsence(t *testing.T) {
 func withAPITransport(d *spec.Descriptor) *spec.Descriptor {
 	d.Runtime.Transport = "api"
 	d.Runtime.API = spec.APISpec{
-		Protocol: "jsonrpc2",
-		Serve:    []string{"probe", "app-server", "--listen", "unix://{socket}"},
+		Protocol: "jsonrpc2", Delivery: spec.APIDeliveryStdio, Format: spec.APIFormatNDJSON,
+		Serve: []string{"probe", "app-server"},
 	}
 	return d
 }

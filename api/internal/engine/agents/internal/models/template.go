@@ -53,12 +53,6 @@ type TemplateCtx struct {
 	// and a path derived from --home can differ from the one it bound.
 	DaemonSocket string
 
-	// Socket is the unix socket path an api-transport provider's `serve` and
-	// `attach` argv template against ({socket} in codex.yaml's
-	// runtime.api.serve/.attach). Short-lived, per-runner, and NEVER under a
-	// Crowbar worktree — macOS's sun_path is a hard 104 bytes.
-	Socket string
-
 	// Session is the session/thread id an api-transport provider's live
 	// connection has established ({session_id} in codex.yaml's
 	// runtime.api.attach) — set only AFTER EstablishSession has run, so
@@ -172,7 +166,6 @@ func (c TemplateCtx) pairs() []string {
 		"{project_id}", c.ProjectID,
 		"{repo_id}", c.RepoID,
 		"{workspace_id}", c.WorkspaceID,
-		"{socket}", c.Socket,
 		"{session_id}", c.Session,
 	}
 }

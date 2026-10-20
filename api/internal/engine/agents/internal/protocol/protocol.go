@@ -19,6 +19,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/apidriver"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/jsonrpc"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/answer"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/inbound"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/outbound"
@@ -203,6 +204,9 @@ type APIEvent = apidriver.Event
 // see apidriver.SessionOrigin.
 type APISessionOrigin = apidriver.SessionOrigin
 
+// APIStdio is serve's stdin and stdout, the pipes its api connection speaks on.
+type APIStdio = jsonrpc.Stdio
+
 // APIConn wraps *apidriver.Driver so a caller outside this package's own
 // internal/ boundary (agents.go, one layer up) can hold and call it without
 // ever naming the apidriver package — Go's internal/ visibility is per
@@ -218,7 +222,7 @@ func (c *APIConn) Reply(askID json.RawMessage, rendered []byte) error {
 func (c *APIConn) Close() error { return c.drv.Close() }
 
 // Overflowed reports whether the connection closed because its consumer fell
-// too far behind (see wsrpc's mailbox).
+// too far behind (see jsonrpc's mailbox).
 func (c *APIConn) Overflowed() bool { return c.drv.Overflowed() }
 
 // EstablishSession runs canonical's Fresh-or-Resume steps on this connection,
@@ -251,14 +255,14 @@ func (c *APIConn) InjectAt(ctx context.Context, at string, values map[string]str
 	return c.drv.InjectAt(ctx, at, values)
 }
 
-// StartAPIDriver dials a provider's API socket, completes its declared
-// handshake, and returns a connection translating inbound frames into canonical
-// events — see apidriver's own doc comment for why this is the one new thing
-// this façade exposes for mixed transport.
+// StartAPIDriver completes a provider's declared handshake over serve's stdio
+// and returns a connection translating inbound frames into canonical events —
+// see apidriver's own doc comment for why this is the one new thing this
+// façade exposes for mixed transport.
 func StartAPIDriver(
-	ctx context.Context, d *spec.Descriptor, socketPath string, origin APISessionOrigin,
+	ctx context.Context, d *spec.Descriptor, stdio APIStdio, origin APISessionOrigin,
 ) (*APIConn, error) {
-	drv, err := apidriver.Start(ctx, d, socketPath, origin)
+	drv, err := apidriver.Start(ctx, d, stdio, origin)
 	if err != nil {
 		return nil, err
 	}

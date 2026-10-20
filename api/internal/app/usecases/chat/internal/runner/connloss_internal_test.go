@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -15,6 +14,7 @@ import (
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // A connection that dies on its own is dropped, keeping why on itself: it names
@@ -22,12 +22,12 @@ import (
 func TestOnAPIConnLost_KeepsWhyOnTheConnectionAndDropsIt(t *testing.T) {
 	// Hang up as soon as the handshake is done: the driver's Events() channel
 	// closes, which is exactly what a dead `serve` process looks like from here.
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) { _ = conn.Close() })
+	stdio := fakeServe(t, func(conn *testutil.LinePeer) { _ = conn.Close() })
 
 	agent := apiTransportTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 
 	rs := &Runners{turns: &spyTurns{}, apiConns: newAPIConnRegistry(), live: newLiveTable()}
@@ -51,13 +51,13 @@ func TestOnAPIConnLost_KeepsWhyOnTheConnectionAndDropsIt(t *testing.T) {
 // the registry has already forgotten.
 func TestPumpAPIConn_ADeliberateTeardownIsNotTreatedAsALostConnection(t *testing.T) {
 	released := make(chan struct{})
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
+	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
 		<-released
 		_ = conn.Close()
 	})
 
 	agent := apiTransportTestAgent(t)
-	apiConn, err := agent.StartAPIConn(context.Background(), sockPath, nil)
+	apiConn, err := agent.StartAPIConn(context.Background(), stdio, nil)
 	require.NoError(t, err)
 
 	rs := &Runners{turns: &spyTurns{}, apiConns: newAPIConnRegistry(), live: newLiveTable()}
@@ -166,7 +166,7 @@ func (seedingConversations) SeedPermissionLevel(context.Context, string) {}
 // A connection lost before its spawn forked the PTY is not why that runner
 // ends: it ends as the user's Stop.
 func TestSpawnRunner_AConnectionLostBeforeThePTYForkIsNoExitCause(t *testing.T) {
-	h := helperServeSpawn(t, "drop-after thread/resume", true, "runner-1")
+	h := helperServeSpawn(t, "drop-after thread/resume", true)
 	h.rs.term = forkAfterLoss{h.term, afterLoss{conns: h.rs.apiConns, runnerID: "runner-1"}}
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -191,7 +191,7 @@ func TestSpawnRunner_AnAdoptedConnectionLostDuringStartupEndsItsRunner(t *testin
 		"its serve crashes":  {"answer", true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			h := helperServeSpawn(t, tc.mode, false, "runner-1")
+			h := helperServeSpawn(t, tc.mode, false)
 			h.rs.chats = createAfterLoss{
 				stubChatsForSpawn{chat: domain.Chat{ID: h.chatID}},
 				afterLoss{conns: h.rs.apiConns, runnerID: "runner-1", crash: tc.crash},
@@ -217,7 +217,7 @@ func TestSpawnRunner_AnAdoptedConnectionLostDuringStartupEndsItsRunner(t *testin
 // A started runner whose connection is its process ends as connection_lost
 // when its serve crashes mid-turn.
 func TestSpawnRunner_APTYLessRunnerWhoseServeCrashesEndsAsALostConnection(t *testing.T) {
-	h := helperServeSpawn(t, "answer", false, "runner-1")
+	h := helperServeSpawn(t, "answer", false)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"}, false)

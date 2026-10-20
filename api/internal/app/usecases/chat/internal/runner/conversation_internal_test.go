@@ -5,16 +5,14 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"maps"
-	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -23,6 +21,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // A session another chat holds stays that chat's: announcing it here records a
@@ -124,6 +123,8 @@ runtime:
   transport: api
   api:
     protocol: jsonrpc2
+    delivery: stdio
+    format: ndjson
     serve: [acme, serve]
     handshake: { call: initialize }
 `
@@ -145,7 +146,7 @@ func apiLoseConn(t *testing.T, rs *Runners, replies map[string]map[string]any) (
 	require.NoError(t, err)
 
 	asked := make(chan string, 16)
-	sock := fakeWSServer(t, func(conn *websocket.Conn) {
+	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
 		defer close(asked)
 		for {
 			var req struct {
@@ -166,7 +167,7 @@ func apiLoseConn(t *testing.T, rs *Runners, replies map[string]map[string]any) (
 			}
 		}
 	})
-	driver, err := agent.StartAPIConn(t.Context(), sock, rs.sessionOrigin("chat-1", apiLoseProvider))
+	driver, err := agent.StartAPIConn(t.Context(), stdio, rs.sessionOrigin("chat-1", apiLoseProvider))
 	require.NoError(t, err)
 	conn := &apiconn{driver: driver, ctx: t.Context()}
 	rs.apiConns.set("runner-1", conn)
@@ -267,59 +268,58 @@ runtime:
   transport: api
   api:
     protocol: jsonrpc2
-    serve: [%q, "-test.run=^TestHelperServe$", "--", "{socket}"]
+    delivery: stdio
+    format: ndjson
+    serve: [%q, "-test.run=^TestHelperServe$", "--", "serve"]
     handshake: { call: initialize }
 `
 
 // TestHelperServe is not a test: it is the `serve` a helperServeDescriptor spawn
 // forks, and returns at once anywhere else. Mode "refuse" refuses every resume;
 // "drop-after <method>" hangs up once it has answered that call, and lives on;
-// any other mode answers every call until the process is killed.
+// "exit" ends unanswered; any other mode answers every call until stdin closes.
 func TestHelperServe(t *testing.T) {
 	mode := os.Getenv(helperServeMode)
 	if mode == "" || flag.NArg() != 1 {
 		return
 	}
+	if mode == "exit" {
+		os.Exit(0)
+	}
+	awaitServeGate(t)
+	serve := testutil.NewLinePeer(os.Stdin, os.Stdout)
 	dropAfter, drops := strings.CutPrefix(mode, "drop-after ")
-	// Moved into place once listening: waitForSocket takes the path's existence
-	// as ready, and a bound socket refuses until it listens.
-	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", flag.Arg(0)+".bind")
-	require.NoError(t, err)
-	require.NoError(t, os.Rename(flag.Arg(0)+".bind", flag.Arg(0)))
-	upgrader := websocket.Upgrader{}
-	require.Error(t, http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
+	for {
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
 		}
-		for {
-			var req struct {
-				ID     json.RawMessage `json:"id"`
-				Method string          `json:"method"`
-			}
-			if conn.ReadJSON(&req) != nil {
-				return
-			}
-			if len(req.ID) == 0 {
-				continue
-			}
-			resp := map[string]any{"id": req.ID, "result": map[string]any{"thread": map[string]any{"id": "T1"}}}
-			if mode == "refuse" && req.Method == "thread/resume" {
-				resp = map[string]any{"id": req.ID, "error": refusedResume["thread/resume"]["error"]}
-			}
-			if conn.WriteJSON(resp) != nil || drops && req.Method == dropAfter {
-				_ = conn.Close()
-				return
-			}
+		// Exits rather than returns: the test binary's own verdict would land
+		// on stdout, which is the connection.
+		if serve.ReadJSON(&req) != nil {
+			os.Exit(0)
 		}
-	})))
+		if len(req.ID) == 0 {
+			continue
+		}
+		resp := map[string]any{"id": req.ID, "result": map[string]any{"thread": map[string]any{"id": "T1"}}}
+		if mode == "refuse" && req.Method == "thread/resume" {
+			resp = map[string]any{"id": req.ID, "error": refusedResume["thread/resume"]["error"]}
+		}
+		require.NoError(t, serve.WriteJSON(resp))
+		if drops && req.Method == dropAfter {
+			require.NoError(t, os.Stdout.Close())
+			_, _ = io.Copy(io.Discard, os.Stdin)
+			os.Exit(0)
+		}
+	}
 }
 
 // refusedResumeSpawn spawns a runner whose api resume the provider refuses:
 // the session is lost and the spawn goes on over its PTY.
 func refusedResumeSpawn(t *testing.T) (*spawnHarness, string) {
 	t.Helper()
-	h := helperServeSpawn(t, "refuse", false, "runner-refused-resume")
+	h := helperServeSpawn(t, "refuse", false)
 
 	runnerID, err := h.rs.spawnRunner(t.Context(), h.chatID, "ws-1", "carrier-test",
 		spawnInput{runnerID: "runner-refused-resume"}, false)
@@ -332,9 +332,9 @@ func refusedResumeSpawn(t *testing.T) (*spawnHarness, string) {
 
 const helperServeMode = "CROWBAR_TEST_SERVE"
 
-// helperServeSpawn readies h to spawn runnerID on a turned carrier-test chat
+// helperServeSpawn readies h to spawn a runner on a turned carrier-test chat
 // whose serve runs as mode; attach makes the provider hotswap, so a PTY forks.
-func helperServeSpawn(t *testing.T, mode string, attach bool, runnerID string) *spawnHarness {
+func helperServeSpawn(t *testing.T, mode string, attach bool) *spawnHarness {
 	t.Helper()
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	t.Setenv("CROWBAR_DISABLE_API_TRANSPORT", "")
@@ -347,7 +347,6 @@ func helperServeSpawn(t *testing.T, mode string, attach bool, runnerID string) *
 	installDescriptor(t, h.home, doc)
 	h.rs.ledger = turnedTestLedger(t, "carrier-test", "S1")
 	h.rs.spawns = inflight.NewGate()
-	t.Cleanup(func() { _ = os.Remove(apiSocketPath(runnerID)) })
 	return h
 }
 

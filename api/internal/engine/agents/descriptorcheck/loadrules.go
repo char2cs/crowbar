@@ -33,6 +33,7 @@ var loadRules = map[string]loadRule{
 	"terminal_notices":      {"terminal_notices", "each terminal notice needs a needle and a known kind"},
 	"injected_prompts":      {"injected_prompts", "each injected prompt needs a valid match"},
 	"surfaces":              {"surfaces", "surfaces must name a channel the runtime declares"},
+	"api_delivery":          {"runtime.api", "a serve speaks over its own stdio: declare delivery: stdio and format: ndjson"},
 	"event_surfaces":        {"events", "an event's surfaces must be ones the descriptor declares"},
 }
 

@@ -4,7 +4,7 @@
 // both built-in descriptors, with the vendor CLIs replaced by a scripted
 // emulator of their real wire (fake_*_test.go): the shipped claude.yaml and
 // codex.yaml, a real daemon, real PTYs, the real `crowbar hook` relay over the
-// daemon's unix socket and a real app-server websocket. No credentials and no
+// daemon's unix socket and a real app-server over its stdio. No credentials and no
 // network — every healthy and faulty behaviour is declared per test.
 package scripted_test
 

@@ -1,4 +1,4 @@
-package wsrpc
+package jsonrpc
 
 import "sync"
 

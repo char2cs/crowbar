@@ -33,6 +33,10 @@ type RuntimeSpec struct {
 
 type APISpec struct {
 	Protocol string `yaml:"protocol"`
+	// Delivery and Format are how Protocol reaches serve: the only pair is
+	// stdio + ndjson, one message per line on serve's own stdin and stdout.
+	Delivery string `yaml:"delivery"`
+	Format   string `yaml:"format"`
 	// Serve starts the server Crowbar speaks to.
 	Serve []string `yaml:"serve"`
 	// Attach points a TUI at the SAME conversation, so one session yields both the
@@ -40,6 +44,11 @@ type APISpec struct {
 	Attach    []string          `yaml:"attach"`
 	Handshake map[string]string `yaml:"handshake"`
 }
+
+const (
+	APIDeliveryStdio = "stdio"
+	APIFormatNDJSON  = "ndjson"
+)
 
 type HooksWire struct {
 	Format   string `yaml:"format"`

@@ -23,7 +23,7 @@ func TestForkServeProcess_DiesWithTheDaemon(t *testing.T) {
 		t.Skip("parent-death signaling is Linux-specific; other platforms use explicit runner teardown")
 	}
 	if pidFile := os.Getenv(servePIDFileEnv); pidFile != "" {
-		serve, err := forkServeProcess([]string{"sleep", "60"})
+		serve, _, err := forkServeProcess([]string{"sleep", "60"})
 		if err != nil {
 			os.Exit(2)
 		}

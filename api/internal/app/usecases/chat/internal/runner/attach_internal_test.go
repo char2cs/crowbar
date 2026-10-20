@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
@@ -117,7 +116,9 @@ runtime:
   transport: api
   api:
     protocol: jsonrpc2
-    serve:  [acme, app-server, --listen, "unix://{socket}"]
+    delivery: stdio
+    format: ndjson
+    serve:  [acme, app-server]
     attach: [acme, resume, "{session_id}"]
     handshake: { call: initialize }
 config_injection:
@@ -168,13 +169,11 @@ func TestSwitchToTerminal_IsIdempotentOnceAlreadyAttached(t *testing.T) {
 }
 
 func TestSwitchToTerminal_ReturnsErrTurnInProgress_WhenWorking(t *testing.T) {
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, _, _ = conn.ReadMessage()
-	})
+	stdio := fakeServe(t, nil)
 	agent := attachTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 	defer apiConn.Close()
 
@@ -189,7 +188,7 @@ func TestSwitchToTerminal_ReturnsErrTurnInProgress_WhenWorking(t *testing.T) {
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
-		tctx: engineagents.TemplateCtx{Socket: sockPath, Session: "sess-1", Cwd: "/work"},
+		tctx: engineagents.TemplateCtx{Session: "sess-1", Cwd: "/work"},
 	})
 
 	_, err = rs.SwitchToTerminal(context.Background(), "chat-1")
@@ -203,13 +202,11 @@ func TestSwitchToTerminal_ReturnsErrTurnInProgress_WhenWorking(t *testing.T) {
 // SAME config_injection hooks wiring a normal spawn gets) is forked as a real
 // terminal session, and the runner is recorded as attached.
 func TestSwitchToTerminal_ForksTheAttachProcessAndDropsTheAPIConnection(t *testing.T) {
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, _, _ = conn.ReadMessage()
-	})
+	stdio := fakeServe(t, nil)
 	agent := attachTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 	defer apiConn.Close()
 
@@ -226,7 +223,7 @@ func TestSwitchToTerminal_ForksTheAttachProcessAndDropsTheAPIConnection(t *testi
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
-		tctx: engineagents.TemplateCtx{Socket: sockPath, Session: "sess-1", Cwd: "/work", Segid: "seg-1", CrowbarHook: "/bin/crowbar"},
+		tctx: engineagents.TemplateCtx{Session: "sess-1", Cwd: "/work", Segid: "seg-1", CrowbarHook: "/bin/crowbar"},
 	})
 
 	termSessID, err := rs.SwitchToTerminal(context.Background(), "chat-1")
@@ -264,13 +261,11 @@ func TestSwitchToTerminal_ForksTheAttachProcessAndDropsTheAPIConnection(t *testi
 // nothing at all: the exact failure APIAttachArgv's doc says it exists to
 // prevent.
 func TestRegression_SwitchToTerminalForksWithTheProcessEnvironment(t *testing.T) {
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, _, _ = conn.ReadMessage()
-	})
+	stdio := fakeServe(t, nil)
 	agent := attachTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 	defer apiConn.Close()
 
@@ -287,7 +282,7 @@ func TestRegression_SwitchToTerminalForksWithTheProcessEnvironment(t *testing.T)
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
-		tctx: engineagents.TemplateCtx{Socket: sockPath, Session: "sess-1", Cwd: "/work", Segid: "seg-1", CrowbarHook: "/bin/crowbar"},
+		tctx: engineagents.TemplateCtx{Session: "sess-1", Cwd: "/work", Segid: "seg-1", CrowbarHook: "/bin/crowbar"},
 	})
 
 	_, err = rs.SwitchToTerminal(context.Background(), "chat-1")
@@ -313,13 +308,11 @@ func TestRegression_SwitchToTerminal_ChecksTheBoundSession_NotStaleAPIConnSessio
 
 func switchToTerminalOnTheBoundSession(t *testing.T, l *ledgerstore.Store, attached bool) {
 	t.Helper()
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, _, _ = conn.ReadMessage()
-	})
+	stdio := fakeServe(t, nil)
 	agent := attachTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 	defer apiConn.Close()
 
@@ -337,7 +330,7 @@ func switchToTerminalOnTheBoundSession(t *testing.T, l *ledgerstore.Store, attac
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
 		// tctx.Session deliberately differs from the bound session.
-		tctx: engineagents.TemplateCtx{Socket: sockPath, Session: "stale-conn-sess", Cwd: "/work", Segid: "seg-1", CrowbarHook: "/bin/crowbar"},
+		tctx: engineagents.TemplateCtx{Session: "stale-conn-sess", Cwd: "/work", Segid: "seg-1", CrowbarHook: "/bin/crowbar"},
 	})
 
 	termSessID, err := rs.SwitchToTerminal(context.Background(), "chat-1")
@@ -508,11 +501,11 @@ func TestRegression_SwitchToNativeWritesTheChatsCurrentSurface(t *testing.T) {
 // server, a completed turn on the runner's own session, and an idle chat.
 func switchSurfaceFixture(t *testing.T) (*Runners, *spySurfaceChats) {
 	t.Helper()
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) { _, _, _ = conn.ReadMessage() })
+	stdio := fakeServe(t, nil)
 	agent := attachTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = apiConn.Close() })
 
@@ -532,7 +525,7 @@ func switchSurfaceFixture(t *testing.T) (*Runners, *spySurfaceChats) {
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
-		tctx: engineagents.TemplateCtx{Socket: sockPath, Session: "sess-1", Cwd: "/work"},
+		tctx: engineagents.TemplateCtx{Session: "sess-1", Cwd: "/work"},
 	})
 	return rs, chats
 }
