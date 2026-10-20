@@ -74,6 +74,3 @@ over-the-wire proof.
 `item_started.mcpToolCall.json` and `item_completed.mcpToolCall.json` are live app-server
 captures, paths mapped to `/ws`, thread and turn ids replaced by placeholders. The
 `-schema` twins stay until a live failed MCP call and a live web search are captured.
-
-`item_completed.collabAgentToolCallFailed-schema.json` is the live spawn completion with only
-`status` set to `failed` (a CollabAgentToolCallStatus value); no failed spawn was recorded.

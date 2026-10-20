@@ -35,11 +35,13 @@ func TestCodexDescriptor_MapsMCPServerToolAndSpawnTitle(t *testing.T) {
 	hook := parseRecorded(t, d, "tool_pre", "PreToolUse.mcp.json", spec.ChannelHooks)
 	expectEq(t, "hooks tool", hook.MCPTool, "shout")
 	expectEq(t, "hooks server", hook.MCPServer, "")
+	expectEq(t, "hooks kind", hook.Kind, "mcp")
 
 	spawn := parseRecorded(t, d, "tool_pre", "PreToolUse.spawnAgent.json", spec.ChannelHooks)
 	expectEq(t, "hooks title", spawn.Title, "Run exactly: wc -l notes.txt. Return the command output.")
 	bash := parseRecorded(t, d, "tool_pre", "PreToolUse.json", spec.ChannelHooks)
 	expectEq(t, "hooks target", bash.Target, "cat notes.txt")
+	expectEq(t, "hooks kind of a shell call", bash.Kind, "")
 }
 
 func TestCodexDescriptor_ApplyPatchTargetIsItsFirstFilePath(t *testing.T) {

@@ -16,6 +16,7 @@ func TestClaudeDescriptor_MapsMCPServerToolAndTitle(t *testing.T) {
 		expectEq(t, event+" server", tool.MCPServer, "echo")
 		expectEq(t, event+" tool", tool.MCPTool, "shout")
 		expectEq(t, event+" name", tool.Name, "mcp__echo__shout")
+		expectEq(t, event+" kind", tool.Kind, "mcp")
 	}
 }
 

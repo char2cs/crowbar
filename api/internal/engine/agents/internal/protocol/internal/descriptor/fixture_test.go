@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -64,7 +65,7 @@ func TestV3Descriptors_ResolveAgainstRecordedTraffic(t *testing.T) {
 					channel = spec.ChannelHooks
 				}
 				checkedEvents += checkEventAgainstFixtures(
-					t, d.ID, channel, name, wire, ev.When, ev.Map, ev.Unverified, nil)
+					t, d.ID, channel, name, wire, ev.When, ev.Map, ev.Unverified, nil, nil)
 			}
 		})
 	}
@@ -92,7 +93,7 @@ func checkChannelBlockEvent(t *testing.T, d *spec.Descriptor, name string, ev sp
 		}
 		checked += checkEventAgainstFixtures(
 			t, d.ID, ch, name+"/"+string(ch), wire, ev.WhenFor(ch), fields,
-			block.Unverified, block.ByWire)
+			block.Unverified, block.UnverifiedFields, block.ByWire)
 	}
 	return checked
 }
@@ -102,7 +103,7 @@ func checkChannelBlockEvent(t *testing.T, d *spec.Descriptor, name string, ev sp
 func TestCheckEventAgainstFixtures_UnverifiedOptOutLogsRatherThanFails(t *testing.T) {
 	passed := t.Run("probe", func(t *testing.T) {
 		checkEventAgainstFixtures(t, "probe", spec.ChannelHooks, "never_recorded",
-			spec.WireRef{"NoSuchWireEventAnywhere"}, nil, spec.FieldMap{"x": mapping.Paths("y")}, true, nil)
+			spec.WireRef{"NoSuchWireEventAnywhere"}, nil, spec.FieldMap{"x": mapping.Paths("y")}, true, nil, nil)
 	})
 	if !passed {
 		t.Fatal("unverified: true must not fail the suite")
@@ -112,7 +113,8 @@ func TestCheckEventAgainstFixtures_UnverifiedOptOutLogsRatherThanFails(t *testin
 // checkEventAgainstFixtures asserts every field of fields resolves against at least one
 // recorded fixture of wire that matches when; it returns 1 if a fixture was exercised.
 // A declared block with ZERO recorded payloads fails unless it says unverified: true
-// (design spec 2.4); byWire is applied to each fixture as the runtime applies it.
+// (design spec 2.4); byWire is applied to each fixture as the runtime applies it. A field in
+// unproven is logged while it resolves nowhere, and fails the day it does.
 func checkEventAgainstFixtures(
 	t *testing.T,
 	provider string,
@@ -122,6 +124,7 @@ func checkEventAgainstFixtures(
 	when spec.WhenMap,
 	fields spec.FieldMap,
 	unverified bool,
+	unproven []string,
 	byWire map[string]map[string]string,
 ) int {
 	t.Helper()
@@ -158,14 +161,16 @@ func checkEventAgainstFixtures(
 			provider, label, len(docs), wire, when)
 		return 0
 	}
-	assertFieldsResolve(t, provider, label, fields, matched)
+	assertFieldsResolve(t, provider, label, fields, matched, unproven)
 	return 1
 }
 
 // assertFieldsResolve requires every mapped field to resolve against AT LEAST ONE of the
 // payloads its event matches, not all: the variants of a sum type genuinely differ, and
 // demanding every branch in every variant would push authors to stop mapping real fields.
-func assertFieldsResolve(t *testing.T, provider, name string, fields spec.FieldMap, docs []fixtureDoc) {
+func assertFieldsResolve(
+	t *testing.T, provider, name string, fields spec.FieldMap, docs []fixtureDoc, unproven []string,
+) {
 	t.Helper()
 	for field, paths := range fields {
 		if len(paths) == 0 || isSubObjectField(field) {
@@ -180,9 +185,19 @@ func assertFieldsResolve(t *testing.T, provider, name string, fields spec.FieldM
 				break
 			}
 		}
-		if !resolved {
+		switch isUnproven := slices.Contains(unproven, field); {
+		case resolved && isUnproven:
+			t.Errorf("%s/%s: %q resolves now; drop it from unverified_fields", provider, name, field)
+		case !resolved && isUnproven:
+			t.Logf("%s/%s: %q resolves against no recording — declared in unverified_fields", provider, name, field)
+		case !resolved:
 			t.Errorf("%s/%s: %q resolved to nothing against any recorded "+
 				"payload (tried %s)", provider, name, field, strings.Join(tried, ", "))
+		}
+	}
+	for _, field := range unproven {
+		if _, mapped := fields[field]; !mapped {
+			t.Errorf("%s/%s: unverified_fields names %q, which this block does not map", provider, name, field)
 		}
 	}
 }

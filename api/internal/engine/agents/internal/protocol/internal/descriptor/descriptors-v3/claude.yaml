@@ -120,7 +120,7 @@ events:
       subagent_id: agent_id
       tool_id:     tool_use_id
       tool_name:   tool_name
-      tool_kind:   tool_name
+      tool_kind:   { first_present: [ { from: tool_name, pattern: '^(?P<v>mcp)__' }, tool_name ] }
       tool_target: { first_present: [tool_input.file_path, tool_input.notebook_path, tool_input.command,
                                      tool_input.url, tool_input.pattern, tool_input.query, tool_input.taskId] }
       tool_title:  { first_present: [tool_input.description, tool_input.subject] }
@@ -144,7 +144,7 @@ events:
       subagent_id: agent_id
       tool_id:     tool_use_id
       tool_name:   tool_name
-      tool_kind:   tool_name
+      tool_kind:   { first_present: [ { from: tool_name, pattern: '^(?P<v>mcp)__' }, tool_name ] }
       tool_target: { first_present: [tool_input.file_path, tool_input.notebook_path, tool_input.command,
                                      tool_input.url, tool_input.pattern, tool_input.query, tool_input.taskId] }
       tool_title:  { first_present: [tool_input.description, tool_input.subject] }
@@ -174,7 +174,7 @@ events:
       subagent_id: agent_id
       tool_id:     tool_use_id
       tool_name:   tool_name
-      tool_kind:   tool_name
+      tool_kind:   { first_present: [ { from: tool_name, pattern: '^(?P<v>mcp)__' }, tool_name ] }
       tool_target: { first_present: [tool_input.file_path, tool_input.notebook_path, tool_input.command,
                                      tool_input.url, tool_input.pattern, tool_input.query, tool_input.taskId] }
       tool_title:  { first_present: [tool_input.description, tool_input.subject] }

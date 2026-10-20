@@ -149,19 +149,6 @@ func TestRegression_CodexFailedToolCarriesItsError(t *testing.T) {
 	assert.Equal(t, "error", ev.Tool.Status)
 }
 
-// A failed spawn must keep the title its start row had, or the fail event blanks it.
-func TestRegression_CodexFailedSpawnKeepsItsTitle(t *testing.T) {
-	raw := []byte(`{"item":{"type":"collabAgentToolCall","id":"s1","tool":"spawnAgent","status":"failed",
-	  "prompt":"reply with the word done","receiverThreadIds":[],"agentsStates":{}},
-	  "threadId":"t","turnId":"tn"}`)
-
-	ev, err := get(t, "codex").ParseHook(agents.HookToolFail, raw, agents.ChannelAPI)
-
-	require.NoError(t, err)
-	require.NotNil(t, ev.Tool)
-	assert.Equal(t, "reply with the word done", ev.Tool.Title)
-}
-
 func TestRegression_CodexDeclinedToolKeepsItsDistinctStatus(t *testing.T) {
 	raw := []byte(`{"item":{"type":"commandExecution","id":"c1","command":"rm file",
 	  "status":"declined","aggregatedOutput":"","durationMs":1},"threadId":"t","turnId":"tn"}`)

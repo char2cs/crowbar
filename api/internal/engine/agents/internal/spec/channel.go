@@ -40,6 +40,9 @@ type ChannelBlock struct {
 	// invented or silently skipped. See EventSpec.Unverified for the legacy
 	// flat form's own counterpart.
 	Unverified bool `yaml:"unverified"`
+	// UnverifiedFields names mapped fields of a block that HAS recordings but none
+	// resolves them yet: the replay logs those, and fails once one starts to resolve.
+	UnverifiedFields []string `yaml:"unverified_fields"`
 	// ByWire is keyed by ONE of this block's own Ask/In wire names, and its
 	// value is literal synthetic payload fields to inject before map:
 	// resolves — the generic primitive design spec F1 asks for: a provider
