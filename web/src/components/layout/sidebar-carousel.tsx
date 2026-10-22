@@ -243,7 +243,7 @@ export function SidebarCarousel({ sidebarHeight, railRef, onHeightChange }: Side
           data-testid="carousel-head"
           className={cn(
             'relative grid h-9 shrink-0 grid-cols-[1fr_auto_1fr] items-center px-1',
-            !cardFolded && 'border-t',
+            !cardFolded && 'shadow-[inset_0_1px_0_var(--border)]',
           )}
         >
           {/* Paints behind the label and buttons; never affects their layout. */}
