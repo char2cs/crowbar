@@ -1,6 +1,7 @@
 import { Outlet } from '@tanstack/react-router'
 import { WorkspaceHost } from '@/features/workspace/components/workspace-host'
 import { ErrorBoundary } from '@/components/error-boundary'
+import { ViewTabsRow } from '@/features/tabs/components/view-tabs-row'
 import { getKnownHomeWorkspaceIds } from '@/features/workspace/lib/home-workspace-resolver'
 
 /**
@@ -25,6 +26,7 @@ export function IdeShellWorkspaceContent({
     // zone this div used to be (Task 22 deleted that dwell-to-remove gesture
     // along with `editor-removal-overlay.tsx`).
     <div className="relative z-[1] flex h-full min-w-0 flex-col bg-transparent">
+      <ViewTabsRow />
       <ErrorBoundary>
         {/* WorkspaceHost stays mounted for the whole IDE session — including on
             the project-home route. Unmounting the host on every home visit

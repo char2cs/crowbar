@@ -1,7 +1,7 @@
 import type { useNavigate } from '@tanstack/react-router'
 import { openChatRoute } from '@/components/layout/open-actions'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import type { Repo } from '@/lib/store/sidebar'
 
@@ -32,7 +32,7 @@ export function closeRecent(viewId: string): void {
   windowPaneStore.getState().paneActions.closeView(viewId)
 }
 
-/** A group member's × — closes that one chat; the rest of the group stays. */
+/** One chat's ×: closes just that chat; the rest of its group stays. */
 export function closeRecentChat(chatId: string): void {
   const { panes, paneActions } = windowPaneStore.getState()
   const paneId = chatPaneIndex(panes).get(chatId)

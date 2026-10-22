@@ -62,7 +62,7 @@ export const ROW_ACTIVE =
   'active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
 
 // Plain flat tokens, deliberately with NO CossUI top-highlight — that glossy
-// treatment (ROW_ACTIVE above, and recents-band.tsx's own group-hover
+// treatment (ROW_ACTIVE above, and view-row.tsx's own group-hover
 // treatment) is reserved for a row that IS the showing/selected surface, or a
 // grouped Recents SET being hovered as one unit. An ordinary tree row and its
 // own plain hover, and a merely has-a-view tree row, are neither of those —
@@ -80,7 +80,7 @@ export const ROW_INACTIVE = 'border-transparent text-foreground hover:bg-sidebar
 
 // A row that HAS a view (open, somewhere) but is not the one on screen right
 // now — the tree's own version of the middle state Recents itself marks with
-// `hasView`'s greyed label (recents-band.tsx draws no SET shell ground for
+// `hasView`'s greyed label (view-row.tsx draws no SET shell ground for
 // this state either — that file's own doc on why a dormant/parked SET
 // matches a solo one, with no fill of its own). The tree never draws
 // ROW_ACTIVE (sidebar-row.tsx's own doc: that surface "moved to Recents"), so

@@ -64,9 +64,6 @@ function renderScroller(rowsForProject: (projectId: string) => SidebarRow[] = ()
       onOpen={vi.fn()}
       onTrash={vi.fn()}
       onCreate={vi.fn()}
-      onFocusRecent={vi.fn()}
-      onCloseRecent={vi.fn()}
-      onCloseChatRecent={vi.fn()}
       onDrop={vi.fn()}
       onPaneDrop={vi.fn()}
       onTrashProject={vi.fn()}

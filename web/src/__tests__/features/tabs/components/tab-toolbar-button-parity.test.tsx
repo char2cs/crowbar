@@ -73,7 +73,9 @@ describe('tab bar toolbar button parity', () => {
     const hidden = withoutMirror(screen.getByRole('button', { name: 'Show sidebar' }))
     unmount()
 
-    render(<SidebarProjectHeader />)
+    render(
+      <SidebarProjectHeader projects={[]} onSelectProject={() => {}} onAddProject={() => {}} />,
+    )
     const shown = withoutMirror(screen.getByRole('button', { name: /sidebar$/i }))
 
     expect(diff(hidden, shown)).toEqual([[], []])

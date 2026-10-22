@@ -52,7 +52,7 @@ async function applyStagedIcon(projectId: string, staged: StagedIcon): Promise<v
 /**
  * Zen Browser's "Create a Space" sheet (spec: same name+icon row, a
  * folder-picker row standing in for its Profile row, no theme row), reached
- * only via the `+` mark in SidebarFooter — it replaces SpaceScroller
+ * only via the `+` mark in SidebarProjectHeader — it replaces SpaceScroller
  * entirely rather than joining its scroll-snap track, so the touchpad swipe
  * between real spaces never lands here by accident.
  *

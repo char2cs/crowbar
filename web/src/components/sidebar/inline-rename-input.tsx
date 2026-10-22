@@ -40,7 +40,7 @@ export function InlineRenameInput({
     input.select()
     // The editor does not always mount where the gesture happened: a rename
     // started from a Recents row draws on that row's TREE copy instead
-    // (`inlineRenameDisabled`, recents-band.tsx), and the context menu can
+    // (`inlineRenameDisabled`, view-row.tsx), and the context menu can
     // rename a row the shared scroller has scrolled away from. focus() alone
     // leaves the caret in an input that is off-screen.
     input.scrollIntoView({ block: 'nearest' })

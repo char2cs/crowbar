@@ -22,7 +22,7 @@ interface SidebarTreeProps {
   onTrash: (id: string) => void
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
   /** The panel's own scroll container — what an edge-held drag scrolls
-   *  (Task 21). Shared with `RecentsBand`, since the two sit in one scroll
+   *  (Task 21). Shared with the Recents row, since the two sit in one scroll
    *  region per space. */
   scrollRef: React.RefObject<HTMLElement | null>
   onDrop: (subjects: SidebarRowType[], target: SidebarRowType, mode: DropMode) => void
@@ -34,7 +34,7 @@ interface SidebarTreeProps {
  * recursion, not a component — calling a hook inside it would violate the
  * rules of hooks (a varying call count/order as the tree's shape changes
  * across renders). This is the real component `renderRow` defers to instead,
- * mirroring `recents-band.tsx`'s `RecentsMemberRow`: it subscribes this ONE
+ * mirroring `view-row.tsx`'s `RecentsMemberRow`: it subscribes this ONE
  * row to the two LIVE facts `rows-from-repo.ts` deliberately refuses to seed —
  * pane membership and turn state — and overrides the inert `hasView: false` /
  * `working: false` every row arrives with from that pure bridge.

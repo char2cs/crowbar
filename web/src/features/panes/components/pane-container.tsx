@@ -18,6 +18,7 @@ import { PANE_DROP_ATTR } from '@/components/sidebar/hooks/use-sidebar-drag'
 import { SplitDropOverlay } from './split-drop-overlay'
 import { PaneSash } from './pane-sash'
 import { PaneAccentRing } from './pane-accent-ring'
+import { PaneHandle } from './pane-handle'
 import { ChatHeaderSlotProvider } from '@/features/agent/hooks/chat-header-slot'
 import { PaneChatView } from './pane-chat-view'
 import { PaneEditorViewContent } from './pane-editor-view-content'
@@ -201,7 +202,7 @@ export function PaneContainer({
           // control inside keeps its own role.
           role="presentation"
           className={cn(
-            'relative flex h-full w-full flex-col overflow-hidden',
+            'group/pane relative flex h-full w-full flex-col overflow-hidden',
             // File drags only: tab drags get the SplitDropOverlay zone instead.
             drop.isDragOver &&
               !drop.isTabDragOver &&
@@ -235,6 +236,7 @@ export function PaneContainer({
             className="relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden bg-pane-chrome-bg transition-colors duration-150"
             style={paneContentStyle}
           >
+            <PaneHandle pane={pane} />
             {/* A header spans the whole pane only when one surface fills it; it
             reads the chat's own workspace (a no-op wrap for a chatless pane). */}
             {showTopLevelHeader && (

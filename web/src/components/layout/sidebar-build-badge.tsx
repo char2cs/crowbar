@@ -63,6 +63,13 @@ function useResolvedBuildInfo(): BuildInfo | null {
   return previewInfo(override)
 }
 
+/** The light-theme nightly band is a sky photo: everything drawn on it goes white. */
+export function useOnNightlySky(): boolean {
+  const info = useResolvedBuildInfo()
+  const isDark = useIsDarkMode()
+  return info?.channel === 'nightly' && !isDark
+}
+
 function formatTimestamp(iso?: string): string {
   if (!iso) return ''
   const d = new Date(iso)
@@ -130,57 +137,17 @@ const PHOTO = {
     src: skyUrl,
     base: '#7fa8dc',
     wash: 'rgba(196, 220, 248, 0.45)',
-    scrim: '26, 56, 118',
-    scrimPeak: 0.74,
     crop: { right: 0, top: -104 },
   },
   dark: {
     src: nightUrl,
     base: 'transparent',
     wash: 'transparent',
-    scrim: '10, 10, 14',
-    scrimPeak: 0.8,
     crop: { left: 0, top: -60 },
   },
 } as const
 
-// Smoothstep-sampled ramp from `from`% to `to`% (0 -> peak): a plain two-stop gradient
-// shows a visible crease where it starts; eased samples read as one continuous melt.
-function easedStops(
-  color: (a: number) => string,
-  from: number,
-  to: number,
-  peak = 1,
-  falling = false,
-): string {
-  const steps = 8
-  return Array.from({ length: steps + 1 }, (_, i) => {
-    const t = i / steps
-    const e = t * t * (3 - 2 * t)
-    const a = (falling ? 1 - e : e) * peak
-    return `${color(Number(a.toFixed(3)))} ${(from + (to - from) * t).toFixed(1)}%`
-  }).join(', ')
-}
-
-/** Mask: sidebar ground (transparent) at the button side, melting into the photo. */
-function bandFadeMask(toward: 'left' | 'right'): string {
-  return `linear-gradient(to ${toward}, ${easedStops((a) => `rgba(0,0,0,${a})`, 22, 52)})`
-}
-
-// Where the label sits along the band, measured from the button side.
-const LABEL_AT = { start: 60, end: 86 } as const
-
-function bandScrim(isDark: boolean, align: 'start' | 'end'): string {
-  const { scrim, scrimPeak } = PHOTO[isDark ? 'dark' : 'light']
-  const color = (a: number) => `rgba(${scrim},${a})`
-  if (isDark) {
-    return `linear-gradient(to right, ${easedStops(color, 26, 56, scrimPeak)})`
-  }
-  // Light: darken only directly behind the label so the clouds keep their contrast.
-  return `radial-gradient(ellipse 26% 100% at ${LABEL_AT[align]}% 50%, ${color(scrimPeak)} 0%, ${color(scrimPeak)} 55%, ${easedStops(color, 55, 100, scrimPeak, true)})`
-}
-
-function BandPhoto({ isDark, align }: { isDark: boolean; align: 'start' | 'end' }) {
+function BandPhoto({ isDark }: { isDark: boolean }) {
   const { src, wash, crop } = PHOTO[isDark ? 'dark' : 'light']
   return (
     <>
@@ -201,8 +168,6 @@ function BandPhoto({ isDark, align }: { isDark: boolean; align: 'start' | 'end' 
       />
       {/* Pale wash desaturates the photo's deep sky so the clouds stand out. */}
       <div className="absolute inset-0" style={{ background: wash }} />
-      {/* Soft scrim keeps the label legible over the photo. */}
-      <div className="absolute inset-0" style={{ background: bandScrim(isDark, align) }} />
     </>
   )
 }
@@ -212,18 +177,9 @@ function BandPhoto({ isDark, align }: { isDark: boolean; align: 'start' | 'end' 
  * positioned behind the traffic-light reserve, the badge text, and the
  * back/forward/panel-toggle cluster, none of which it changes.
  *
- * `align` is the SAME fact `SidebarBuildBadgeLabel` already takes — which
- * edge of the header the badge TEXT sits against, i.e. the true outer
- * (window-border) edge of this bar. The decorative art (stars/clouds/dev
- * traces) is authored right-biased in its own 256-wide viewBox, and the
- * fade below is authored fading OUT to the right — both correct only for
- * `align="end"` (sidebar on the right, text/window-edge on this bar's own
- * right). For `align="start"` (sidebar on the left, text/window-edge on
- * this bar's own LEFT — the traffic-light side), both are mirrored via a
- * single `scaleX(-1)`: reported live as the graphics landing BEHIND the
- * back/forward/panel-toggle cluster instead of hugging the window's real
- * edge, because this band never accounted for which side that cluster
- * actually ended up on.
+ * `align` is the edge the badge TEXT sits against. The decorative art
+ * (stars/clouds/dev traces) is authored right-biased, so `align="start"`
+ * mirrors it with one `scaleX(-1)`.
  */
 export function SidebarBuildBadgeBand({
   className,
@@ -235,12 +191,6 @@ export function SidebarBuildBadgeBand({
   const info = useResolvedBuildInfo()
   const isDark = useIsDarkMode()
   if (!info || info.channel === 'release') return null
-
-  // linear-gradient(to X, ...) is a PHYSICAL keyword (left/right), not a
-  // logical one — 'start'/'end' would silently fail to parse. `align="end"`
-  // is this app's own left-to-right convention for "the text/window-edge
-  // side is on the right" (see the caller, sidebar-project-header.tsx).
-  const fadeToward = align === 'end' ? 'right' : 'left'
 
   return (
     <div
@@ -256,16 +206,6 @@ export function SidebarBuildBadgeBand({
             info.channel === 'nightly'
               ? PHOTO[isDark ? 'dark' : 'light'].base
               : bandBackground(info.channel, isDark),
-          // Fades OUT toward the button cluster's side, staying fully
-          // opaque at the badge-text/window-edge side — this is the band's
-          // own gradient/pattern fill, not just the decorative art above
-          // it. `linear-gradient(to X, ...)` anchors the LAST color (black,
-          // opaque) at edge X and the FIRST (transparent) at the opposite
-          // edge — X must be the text side (`fadeToward`), not its opposite
-          // (caught live: had these swapped, which faded out the text side
-          // and left the button side solid instead).
-          maskImage: bandFadeMask(fadeToward),
-          WebkitMaskImage: bandFadeMask(fadeToward),
         }}
       >
         {info.channel === 'nightly' && (
@@ -273,7 +213,7 @@ export function SidebarBuildBadgeBand({
             className="pointer-events-none absolute inset-0 overflow-hidden"
             style={align === 'start' ? { transform: 'scaleX(-1)' } : undefined}
           >
-            <BandPhoto isDark={isDark} align={align} />
+            <BandPhoto isDark={isDark} />
           </div>
         )}
       </div>
@@ -299,6 +239,7 @@ export function SidebarBuildBadgeBand({
 export function SidebarBuildBadgeLabel({ align = 'start' }: { align?: 'start' | 'end' }) {
   const info = useResolvedBuildInfo()
   const isDark = useIsDarkMode()
+  const onSky = useOnNightlySky()
   const consoleOpen = useConsoleStore((s) => s.open)
   const toggleConsole = useConsoleStore((s) => s.toggle)
   if (!info) return null
@@ -309,7 +250,6 @@ export function SidebarBuildBadgeLabel({ align = 'start' }: { align?: 'start' | 
   const displayTitle = title === 'nightly' && !isDark ? 'daily' : title
   const subtitle = info.version ?? formatTimestamp(info.timestamp)
   const titleColor = title ? TITLE_COLOR[title][isDark ? 'dark' : 'light'] : undefined
-  const onSky = title === 'nightly' && !isDark
 
   return (
     <button

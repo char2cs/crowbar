@@ -3,36 +3,36 @@
 import { memo } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon } from '@phosphor-icons/react'
 import { SidebarToggleIcon } from '@/components/ui/sidebar-toggle-icon'
-import {
-  SidebarBuildBadgeBand,
-  SidebarBuildBadgeLabel,
-} from '@/components/layout/sidebar-build-badge'
 import { Button } from '@/components/ui/button'
 import { useSidebar } from '@/components/ui/sidebar'
 import { useSettingsStore } from '@/features/settings/store'
 import { useJumpNavigation } from '@/features/tabs/hooks/use-jump-navigation'
 import { IS_MAC } from '@/utils/platform'
 import { cn } from '@/utils/cn'
+import { SidebarSpaceMarks } from './sidebar-space-marks'
+import type { Project } from '@/lib/types'
+
+interface SidebarProjectHeaderProps {
+  projects: Project[]
+  activeProjectId?: string
+  onSelectProject: (id: string) => void
+  onAddProject: () => void
+}
 
 /**
- * Sidebar top bar: a back / forward / sidebar-toggle cluster on the trailing
- * edge, with a `flex-1` spacer holding it off the traffic-light side.
- * Mirrors when the sidebar sits on the right. Back/forward reuse the editor
- * jump navigation.
+ * Sidebar top bar: the space marks beside the traffic lights, then a back /
+ * forward / sidebar-toggle cluster on the trailing edge. Mirrors when the
+ * sidebar sits on the right. Back/forward reuse the editor jump navigation.
+ * Settings lives in the file/git card's head (`SidebarCarousel`).
  *
- * Settings lives in `SidebarFooter` now, pinned to the content-facing edge
- * of the project-marks row — see that file's doc comment.
- *
- * MEMOIZED, and safely so: it takes zero props, so there is nothing a
- * parent re-render could ever change that this wouldn't ALSO pick up on its
- * own via `useSettingsStore`/`useSidebar`/`useJumpNavigation` — those three
- * hooks are what actually decide this bar's output, not `IDEShell`
- * re-rendering. `IDEShell` re-renders on plenty (an active-pane change, a
- * settings-dialog toggle) that has nothing to do with any of the three, and
- * nothing below it is otherwise memoized — see that file's own note on
- * `NavigationHistoryRecorder` for the same lesson learned once already.
+ * MEMOIZED: IDEShell re-renders far more often than these props change.
  */
-export const SidebarProjectHeader = memo(function SidebarProjectHeader() {
+export const SidebarProjectHeader = memo(function SidebarProjectHeader({
+  projects,
+  activeProjectId,
+  onSelectProject,
+  onAddProject,
+}: SidebarProjectHeaderProps) {
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const isRight = sidebarPosition === 'right'
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
@@ -94,20 +94,21 @@ export const SidebarProjectHeader = memo(function SidebarProjectHeader() {
       )}
       data-tauri-drag-region
     >
-      {/* Build-state band paints behind the traffic lights, dead space, and
-          cluster below — it never affects their layout. */}
-      <SidebarBuildBadgeBand className="absolute inset-0 z-0" align={isRight ? 'end' : 'start'} />
       {/* Reserve space for the macOS traffic lights on whichever side is
           top-left (only when the sidebar is on the left). */}
       {IS_MAC && !isRight && <div className="relative z-10 w-[72px] shrink-0" />}
-      {/* Text sits on the true outer edge of this bar, away from the
-          cluster — `justify-start` already lands there when the cluster is
-          on the right; flip to `justify-end` when the parent's row-reverse
-          has flipped the cluster to the left. */}
       <div
-        className={cn('relative z-10 flex min-w-0 flex-1 items-center', isRight && 'justify-end')}
+        className={cn(
+          'relative z-10 flex min-w-0 flex-1 items-center gap-1',
+          isRight && 'flex-row-reverse',
+        )}
       >
-        <SidebarBuildBadgeLabel align={isRight ? 'end' : 'start'} />
+        <SidebarSpaceMarks
+          projects={projects}
+          activeProjectId={activeProjectId}
+          onSelectProject={onSelectProject}
+          onAddProject={onAddProject}
+        />
       </div>
       {cluster}
     </div>

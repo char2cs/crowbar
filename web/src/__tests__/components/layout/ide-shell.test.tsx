@@ -88,15 +88,6 @@ vi.mock('@/components/layout/sidebar-project-header', () => ({
 vi.mock('@/components/layout/sidebar-tree-surface', () => ({
   SidebarTreeSurface: () => <div data-testid="sidebar-tree-surface" />,
 }))
-const { sidebarFooterMock } = vi.hoisted(() => ({
-  sidebarFooterMock: vi.fn(),
-}))
-vi.mock('@/components/layout/sidebar-footer', () => ({
-  SidebarFooter: (props: unknown) => {
-    sidebarFooterMock(props)
-    return <div data-testid="sidebar-footer" />
-  },
-}))
 vi.mock('@/features/settings/components/settings-dialog', () => ({
   default: () => null,
 }))
@@ -144,6 +135,7 @@ vi.mock('@/components/ui/sidebar', () => ({
   SidebarProvider: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="sidebar-provider">{children}</div>
   ),
+  useSidebar: () => ({ open: true, toggleSidebar: vi.fn() }),
 }))
 vi.mock('@/components/error-boundary', () => ({
   ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -203,23 +195,9 @@ describe('IDEShell', () => {
     expect(screen.getByTestId('sidebar-resize-handle')).toBeInTheDocument()
   })
 
-  // The product owner asked the project marks back at the sidebar's true
-  // bottom, below the floating file-explorer card — out of
-  // SidebarProjectHeader's cramped window-chrome row, where an earlier pass
-  // had put them. SidebarProjectHeader now takes no project-related props at
-  // all; SidebarFooter mounts as its own sibling row instead.
-  it('renders SidebarProjectHeader with no project-related props', () => {
+  it('wires SidebarProjectHeader to the project data and handlers', () => {
     render(<IDEShell />)
-    expect(sidebarProjectHeaderMock).toHaveBeenCalledWith({})
-  })
-
-  it('mounts SidebarFooter below the carousel, wired to the same project data and handlers', () => {
-    render(<IDEShell />)
-    const footer = screen.getByTestId('sidebar-footer')
-    const carousel = screen.getByTestId('sidebar-carousel')
-    // DOCUMENT_POSITION_FOLLOWING: the footer comes after the carousel in DOM order.
-    expect(carousel.compareDocumentPosition(footer)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
-    expect(sidebarFooterMock).toHaveBeenCalledWith(
+    expect(sidebarProjectHeaderMock).toHaveBeenCalledWith(
       expect.objectContaining({
         projects: [],
         activeProjectId: undefined,
@@ -234,8 +212,8 @@ describe('IDEShell', () => {
   // form that meant it covered the Cancel button. Hidden entirely while
   // creating a space, not just made to respect a z-index of its own.
   describe('creating a space', () => {
-    function lastFooterProps() {
-      const calls = sidebarFooterMock.mock.calls
+    function lastHeaderProps() {
+      const calls = sidebarProjectHeaderMock.mock.calls
       return calls[calls.length - 1][0] as {
         onAddProject: () => void
         onSelectProject: (id: string) => void
@@ -246,7 +224,7 @@ describe('IDEShell', () => {
       render(<IDEShell />)
       expect(screen.getByTestId('sidebar-carousel')).toBeInTheDocument()
 
-      act(() => lastFooterProps().onAddProject())
+      act(() => lastHeaderProps().onAddProject())
       expect(screen.queryByTestId('sidebar-carousel')).not.toBeInTheDocument()
     })
 
@@ -254,10 +232,10 @@ describe('IDEShell', () => {
     // it, not leave the form stranded behind the newly-routed content.
     it('selecting an existing space closes the create-space form', () => {
       render(<IDEShell />)
-      act(() => lastFooterProps().onAddProject())
+      act(() => lastHeaderProps().onAddProject())
       expect(screen.queryByTestId('sidebar-carousel')).not.toBeInTheDocument()
 
-      act(() => lastFooterProps().onSelectProject('p1'))
+      act(() => lastHeaderProps().onSelectProject('p1'))
       expect(screen.getByTestId('sidebar-carousel')).toBeInTheDocument()
     })
   })
@@ -399,7 +377,7 @@ describe('IDEShell', () => {
 
     it('keeps RemovalTray mounted while the create-space form is open', () => {
       render(<IDEShell />)
-      const calls = sidebarFooterMock.mock.calls
+      const calls = sidebarProjectHeaderMock.mock.calls
       const { onAddProject } = calls[calls.length - 1][0] as { onAddProject: () => void }
 
       act(() => onAddProject())

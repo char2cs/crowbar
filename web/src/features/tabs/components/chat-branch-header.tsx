@@ -73,19 +73,19 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
         if (title !== null) setRenaming(true)
       }}
     >
-      <span data-testid="chat-branch-header-glyph" className={ROW_GLYPH_BOX}>
+      <span data-testid="chat-branch-header-glyph" className={cn(ROW_GLYPH_BOX, 'size-5')}>
         {working ? (
-          <FlickerSpinner className="size-3.5" />
+          <FlickerSpinner className="size-[18px]" />
         ) : isThread ? (
           <ChatsCircle
             data-testid="chat-branch-header-chat-icon"
-            className="size-3.5 text-muted-foreground"
+            className="size-[18px] text-muted-foreground"
             weight="regular"
           />
         ) : (
           <GitBranch
             data-testid="chat-branch-header-branch-icon"
-            className="size-3.5 text-muted-foreground"
+            className="size-[18px] text-muted-foreground"
           />
         )}
       </span>
@@ -124,7 +124,7 @@ function ChatTitle({ title, className }: { title: string | null; className: stri
     <span
       data-testid="chat-branch-header-title"
       data-title-pending={title === null ? 'true' : undefined}
-      className={className}
+      className={cn('font-heading text-[15px] font-normal', className)}
     >
       {title ?? CHAT_TITLE_PENDING_LABEL}
     </span>

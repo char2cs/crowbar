@@ -87,3 +87,16 @@ export function dropLineBox(rect: DropLineRect, position: Exclude<DropMode, 'int
     top: (position === 'before' ? rect.top : rect.bottom) - 1,
   }
 }
+
+/** The line for a side-by-side strip: a vertical hairline on the tab's near edge. */
+export function dropLineBoxX(
+  rect: DropLineRect,
+  position: Exclude<DropMode, 'into'>,
+): DropLineBox & { height: number } {
+  return {
+    left: (position === 'before' ? rect.left : rect.left + rect.width) - 1,
+    top: rect.top + 4,
+    width: 2,
+    height: Math.max(0, rect.bottom - rect.top - 8),
+  }
+}

@@ -1044,6 +1044,15 @@ describe('SIDEBAR_DROP_POLICY', () => {
       expect(SIDEBAR_DROP_POLICY.allowedModes([fromRepo1], fromRepo2)).toEqual(ALL_MODES)
     })
 
+    it('lets a split carrying both a chat and a workspace-owning entry move as one', () => {
+      const owner = makeRow({ id: 'chat-owner', kind: 'branch', workspaceId: 'ws-1' })
+      const plain = makeRow({ id: 'chat-plain', kind: 'chat', workspaceId: 'ws-1' })
+
+      expect(SIDEBAR_DROP_POLICY.allowedModes([owner, plain], recentsRow('chat-other'))).toEqual(
+        ALL_MODES,
+      )
+    })
+
     it('still refuses a folder — a Recents slot names a chat, and a folder names none', () => {
       const folder = makeRow({ id: 'folder-1', kind: 'folder', workspaceId: null })
       expect(SIDEBAR_DROP_POLICY.allowedModes([folder], recentsRow('chat-plain'))).toEqual(NO_MODES)

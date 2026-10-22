@@ -12,7 +12,6 @@ import {
   getHomeOwningChatId,
   getHomeWorkspaceId,
 } from '@/features/workspace/lib/home-workspace-resolver'
-import { focusRecent, closeRecent, closeRecentChat } from '@/components/sidebar/lib/recents-actions'
 import { handleOpen as openSidebarRow } from './open-actions'
 import { handleTrash, handleTrashProject as trashProject } from './trash-actions'
 import { handleCreate as createSidebarRow } from './create-actions'
@@ -190,10 +189,6 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
     (parentId: string, kind: 'workspace' | 'thread') => createSidebarRow(parentId, kind, navigate),
     [navigate],
   )
-  const focusRecentEntry = useCallback(
-    (viewId: string) => focusRecent(viewId, repos, navigate),
-    [repos, navigate],
-  )
   // The row's own X control (sidebar-row.tsx) — the same `handleTrash` the
   // drag-to-trash gesture already calls, just reachable without a drag now.
   // Refuses (a locked branch, a repo home, a workspace the live store no
@@ -216,13 +211,12 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
     if (trashProject(projectId)) return
     toast.error("Can't delete this space — it may already be gone")
   }, [])
-  // The right-click menu listens on an ancestor of every project's panel DOM
-  // (via native `contextmenu` bubbling), not on any one panel — a single
-  // listener here catches a right-click in ANY project's rows.
-  const treeRef = useRef<HTMLDivElement>(null)
+  // The right-click menu and double-click rename listen on the document body,
+  // not on this tree: the view-tab strip draws the same rows outside it.
+  const chromeRef = useRef<HTMLElement | null>(document.body)
 
   return (
-    <div ref={treeRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <ErrorBoundary>
         {creatingSpace ? (
           <CreateSpacePanel onCreate={onCreateSpace} onCancel={onCancelCreateSpace} />
@@ -235,16 +229,13 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
             onOpen={openRow}
             onTrash={onTrash}
             onCreate={createRow}
-            onFocusRecent={focusRecentEntry}
-            onCloseRecent={closeRecent}
-            onCloseChatRecent={closeRecentChat}
             onDrop={performSidebarDrop}
             onPaneDrop={performSidebarPaneDrop}
             onTrashProject={handleTrashProject}
           />
         )}
       </ErrorBoundary>
-      <SidebarTreeChrome treeRef={treeRef} rows={allRows} repos={repos} />
+      <SidebarTreeChrome treeRef={chromeRef} rows={allRows} repos={repos} />
     </div>
   )
 })
