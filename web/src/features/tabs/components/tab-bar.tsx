@@ -364,10 +364,11 @@ const TabBar = ({
   // The tab-bar sidebar-toggle is only a fallback for reopening a collapsed
   // sidebar (when open, the sidebar header owns the toggle). It appears on the
   // window-edge pane matching the configured sidebar side.
+  // `isAtTopEdge`: with the view-tab strip above the panes, the strip owns the toggle.
   const showReopenToggleLeft =
-    !sidebarOpen && !isBottomPane && sidebarPosition === 'left' && isAtLeftEdge
+    !sidebarOpen && !isBottomPane && sidebarPosition === 'left' && isAtLeftEdge && isAtTopEdge
   const showReopenToggleRight =
-    !sidebarOpen && !isBottomPane && sidebarPosition === 'right' && isAtRightEdge
+    !sidebarOpen && !isBottomPane && sidebarPosition === 'right' && isAtRightEdge && isAtTopEdge
 
   const getBufferDisplayName = useBufferDisplayName({ buffers, rootFolderPath })
 

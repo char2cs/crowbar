@@ -154,9 +154,6 @@ describe('SpaceScroller', () => {
         onOpen={vi.fn()}
         onTrash={vi.fn()}
         onCreate={vi.fn()}
-        onFocusRecent={vi.fn()}
-        onCloseRecent={vi.fn()}
-        onCloseChatRecent={vi.fn()}
         onDrop={onDrop}
         onPaneDrop={onPaneDrop}
         onTrashProject={vi.fn()}
@@ -179,9 +176,6 @@ describe('SpaceScroller', () => {
         onOpen={vi.fn()}
         onTrash={vi.fn()}
         onCreate={vi.fn()}
-        onFocusRecent={vi.fn()}
-        onCloseRecent={vi.fn()}
-        onCloseChatRecent={vi.fn()}
         onDrop={onDrop}
         onPaneDrop={onPaneDrop}
         onTrashProject={vi.fn()}
@@ -214,9 +208,6 @@ describe('SpaceScroller', () => {
         onOpen={vi.fn()}
         onTrash={vi.fn()}
         onCreate={vi.fn()}
-        onFocusRecent={vi.fn()}
-        onCloseRecent={vi.fn()}
-        onCloseChatRecent={vi.fn()}
         onDrop={onDrop}
         onPaneDrop={onPaneDrop}
         onTrashProject={vi.fn()}
@@ -250,9 +241,6 @@ describe('SpaceScroller', () => {
         onOpen={vi.fn()}
         onTrash={vi.fn()}
         onCreate={vi.fn()}
-        onFocusRecent={vi.fn()}
-        onCloseRecent={vi.fn()}
-        onCloseChatRecent={vi.fn()}
         onDrop={onDrop}
         onPaneDrop={onPaneDrop}
         onTrashProject={vi.fn()}
@@ -280,9 +268,6 @@ describe('SpaceScroller', () => {
         onOpen={vi.fn()}
         onTrash={vi.fn()}
         onCreate={vi.fn()}
-        onFocusRecent={vi.fn()}
-        onCloseRecent={vi.fn()}
-        onCloseChatRecent={vi.fn()}
         onDrop={onDrop}
         onPaneDrop={onPaneDrop}
         onTrashProject={vi.fn()}
@@ -310,9 +295,6 @@ describe('SpaceScroller', () => {
       onOpen: vi.fn(),
       onTrash: vi.fn(),
       onCreate: vi.fn(),
-      onFocusRecent: vi.fn(),
-      onCloseRecent: vi.fn(),
-      onCloseChatRecent: vi.fn(),
       onDrop,
       onPaneDrop,
       onTrashProject: vi.fn(),
@@ -359,9 +341,6 @@ describe('SpaceScroller', () => {
         onOpen={onOpen}
         onTrash={vi.fn()}
         onCreate={onCreate}
-        onFocusRecent={vi.fn()}
-        onCloseRecent={vi.fn()}
-        onCloseChatRecent={vi.fn()}
         onDrop={onDrop}
         onPaneDrop={onPaneDrop}
         onTrashProject={vi.fn()}
@@ -379,63 +358,6 @@ describe('SpaceScroller', () => {
 
     fireEvent.click(screen.getByRole('button', { name: `Thread ${row.label}` }))
     expect(onCreate).toHaveBeenCalledWith('row-1', 'thread')
-  })
-
-  it("renders each project's RecentsBand below its SidebarTree, in the same scroll region", () => {
-    const projects = [makeProject('p1')]
-    const row = makeRow('row-1', 'Fix the thing')
-    windowPaneStore.getState().paneActions.openChat('chat-1', { projectId: 'p1' })
-    render(
-      <SpaceScroller
-        projects={projects}
-        activeProjectId="p1"
-        onActiveProjectChange={vi.fn()}
-        rowsForProject={() => [row]}
-        onOpen={vi.fn()}
-        onTrash={vi.fn()}
-        onCreate={vi.fn()}
-        onFocusRecent={vi.fn()}
-        onCloseRecent={vi.fn()}
-        onCloseChatRecent={vi.fn()}
-        onDrop={onDrop}
-        onPaneDrop={onPaneDrop}
-        onTrashProject={vi.fn()}
-      />,
-    )
-    const panel = screen.getByTestId('space-panel')
-    const tree = screen.getByText('Fix the thing')
-    const band = screen.getByTestId('recents-band')
-    // Same scroll region (one `ScrollArea` per panel, not two) — both the
-    // tree row and the band live under the one panel.
-    expect(panel.contains(tree)).toBe(true)
-    expect(panel.contains(band)).toBe(true)
-    // Recents renders BELOW the tree, per spec §2's layout.
-    expect(tree.compareDocumentPosition(band) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  })
-
-  it("each project's band draws only that project's rows", () => {
-    windowPaneStore.getState().paneActions.openChat('chat-1', { projectId: 'p1' })
-    const projects = [makeProject('p1'), makeProject('p2')]
-    render(
-      <SpaceScroller
-        projects={projects}
-        activeProjectId="p1"
-        onActiveProjectChange={vi.fn()}
-        rowsForProject={() => []}
-        onOpen={vi.fn()}
-        onTrash={vi.fn()}
-        onCreate={vi.fn()}
-        onFocusRecent={vi.fn()}
-        onCloseRecent={vi.fn()}
-        onCloseChatRecent={vi.fn()}
-        onDrop={onDrop}
-        onPaneDrop={onPaneDrop}
-        onTrashProject={vi.fn()}
-      />,
-    )
-    const [p1Panel, p2Panel] = screen.getAllByTestId('space-panel')
-    expect(within(p1Panel).queryByTestId('recents-band')).toBeInTheDocument()
-    expect(within(p2Panel).queryByTestId('recents-band')).not.toBeInTheDocument()
   })
 
   // Spec §6: "the tree keeps a bottom inset the height of the card." An
@@ -460,9 +382,6 @@ describe('SpaceScroller', () => {
         onOpen={vi.fn()}
         onTrash={vi.fn()}
         onCreate={vi.fn()}
-        onFocusRecent={vi.fn()}
-        onCloseRecent={vi.fn()}
-        onCloseChatRecent={vi.fn()}
         onDrop={onDrop}
         onPaneDrop={onPaneDrop}
         onTrashProject={vi.fn()}
@@ -479,28 +398,6 @@ describe('SpaceScroller', () => {
     for (const content of screen.getAllByTestId('space-scroll-content')) {
       expect(content).not.toHaveStyle({ paddingBottom: 'var(--card-bottom-inset, 0px)' })
     }
-  })
-
-  it('renders nothing extra for a project with no recents entries', () => {
-    const projects = [makeProject('p1')]
-    render(
-      <SpaceScroller
-        projects={projects}
-        activeProjectId="p1"
-        onActiveProjectChange={vi.fn()}
-        rowsForProject={() => []}
-        onOpen={vi.fn()}
-        onTrash={vi.fn()}
-        onCreate={vi.fn()}
-        onFocusRecent={vi.fn()}
-        onCloseRecent={vi.fn()}
-        onCloseChatRecent={vi.fn()}
-        onDrop={onDrop}
-        onPaneDrop={onPaneDrop}
-        onTrashProject={vi.fn()}
-      />,
-    )
-    expect(screen.queryByTestId('recents-band')).not.toBeInTheDocument()
   })
 
   // Spec §4: the space header IS the panel's first element, and it is what
@@ -528,9 +425,6 @@ describe('SpaceScroller', () => {
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={vi.fn()}
-          onFocusRecent={vi.fn()}
-          onCloseRecent={vi.fn()}
-          onCloseChatRecent={vi.fn()}
           onDrop={onDrop}
           onPaneDrop={onPaneDrop}
           onTrashProject={overrides.onTrashProject ?? vi.fn()}
@@ -553,18 +447,14 @@ describe('SpaceScroller', () => {
       ).toBeTruthy()
     })
 
-    // "Clicking the header folds the space: the tree goes, Recents stays."
-    it('folding hides the tree and keeps Recents', () => {
+    it('folding hides the tree', () => {
       renderScroller()
       expect(screen.getAllByText('Fix the thing')).toHaveLength(2)
-      expect(screen.getAllByTestId('recents-band')).toHaveLength(2)
 
       fireEvent.click(foldToggle(screen.getAllByTestId('space-header-row')[0]))
 
       // p1's tree is gone; p2's header was not clicked, so its own tree stays.
       expect(screen.queryAllByText('Fix the thing')).toHaveLength(1)
-      // ...and Recents survives the fold, in both.
-      expect(screen.getAllByTestId('recents-band')).toHaveLength(2)
     })
 
     it('folds only the space whose header was clicked', () => {
@@ -627,9 +517,6 @@ describe('SpaceScroller', () => {
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={onCreate}
-          onFocusRecent={vi.fn()}
-          onCloseRecent={vi.fn()}
-          onCloseChatRecent={vi.fn()}
           onDrop={onDrop}
           onPaneDrop={onPaneDrop}
           onTrashProject={vi.fn()}
@@ -663,9 +550,6 @@ describe('SpaceScroller', () => {
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={vi.fn()}
-          onFocusRecent={vi.fn()}
-          onCloseRecent={vi.fn()}
-          onCloseChatRecent={vi.fn()}
           onDrop={onDrop}
           onPaneDrop={onPaneDrop}
           onTrashProject={vi.fn()}
@@ -781,9 +665,6 @@ describe('SpaceScroller', () => {
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={vi.fn()}
-          onFocusRecent={vi.fn()}
-          onCloseRecent={vi.fn()}
-          onCloseChatRecent={vi.fn()}
           onDrop={onDrop}
           onPaneDrop={onPaneDrop}
           onTrashProject={vi.fn()}
@@ -858,9 +739,6 @@ describe('SpaceScroller', () => {
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={vi.fn()}
-          onFocusRecent={vi.fn()}
-          onCloseRecent={vi.fn()}
-          onCloseChatRecent={vi.fn()}
           onDrop={onDrop}
           onPaneDrop={onPaneDrop}
           onTrashProject={vi.fn()}
@@ -929,9 +807,6 @@ describe('SpaceScroller', () => {
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={vi.fn()}
-          onFocusRecent={vi.fn()}
-          onCloseRecent={vi.fn()}
-          onCloseChatRecent={vi.fn()}
           onDrop={onDrop}
           onPaneDrop={onPaneDrop}
           onTrashProject={vi.fn()}
@@ -1009,9 +884,6 @@ describe('SpaceScroller', () => {
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={vi.fn()}
-          onFocusRecent={vi.fn()}
-          onCloseRecent={vi.fn()}
-          onCloseChatRecent={vi.fn()}
           onDrop={onDrop}
           onPaneDrop={onPaneDrop}
           onTrashProject={vi.fn()}
@@ -1044,9 +916,6 @@ describe('SpaceScroller', () => {
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={vi.fn()}
-          onFocusRecent={vi.fn()}
-          onCloseRecent={vi.fn()}
-          onCloseChatRecent={vi.fn()}
           onDrop={onDrop}
           onPaneDrop={onPaneDrop}
           onTrashProject={vi.fn()}
@@ -1072,9 +941,6 @@ describe('SpaceScroller', () => {
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={vi.fn()}
-          onFocusRecent={vi.fn()}
-          onCloseRecent={vi.fn()}
-          onCloseChatRecent={vi.fn()}
           onDrop={onDrop}
           onPaneDrop={onPaneDrop}
           onTrashProject={vi.fn()}
@@ -1084,62 +950,6 @@ describe('SpaceScroller', () => {
       expect(getWorkspaceScope('home-ws-1')).toEqual(
         expect.objectContaining({ projectId: 'p1', repoId: '' }),
       )
-    })
-  })
-
-  // REGRESSION (live-reported: "rows on recents cannot be reorder"): a
-  // reorder that writes only `viewOrder` must re-render the band.
-  describe('the dragged Recents order (spec §8.1)', () => {
-    function renderBand() {
-      useHomeTreeStore.setState({
-        trees: {
-          p1: {
-            chats: [
-              { id: 'chat-a', repoId: '', workspaceId: 'home-ws-1', title: 'Chat A', order: 0 },
-              { id: 'chat-b', repoId: '', workspaceId: 'home-ws-1', title: 'Chat B', order: 1 },
-            ],
-            folders: [],
-          },
-        },
-      })
-      render(
-        <SpaceScroller
-          projects={[makeProject('p1')]}
-          activeProjectId="p1"
-          onActiveProjectChange={vi.fn()}
-          rowsForProject={() => []}
-          onOpen={vi.fn()}
-          onTrash={vi.fn()}
-          onCreate={vi.fn()}
-          onFocusRecent={vi.fn()}
-          onCloseRecent={vi.fn()}
-          onCloseChatRecent={vi.fn()}
-          onDrop={onDrop}
-          onPaneDrop={onPaneDrop}
-          onTrashProject={vi.fn()}
-        />,
-      )
-    }
-
-    const bandOrder = () =>
-      [...screen.getByTestId('recents-band').querySelectorAll('[data-testid^="recents-row-"]')].map(
-        (el) => el.getAttribute('data-testid'),
-      )
-
-    it('re-renders the band when a reorder writes viewOrder, with no other state changing', () => {
-      resetWindowPaneStoreForTests()
-      const { paneActions } = windowPaneStore.getState()
-      paneActions.openChat('chat-a', { projectId: 'p1' })
-      paneActions.openChat('chat-b', { projectId: 'p1' })
-      renderBand()
-      expect(bandOrder()).toEqual(['recents-row-chat-a', 'recents-row-chat-b'])
-
-      const [first, second] = windowPaneStore.getState().viewOrder
-      act(() => {
-        windowPaneStore.getState().paneActions.reorderView(second, first, 'before')
-      })
-
-      expect(bandOrder()).toEqual(['recents-row-chat-b', 'recents-row-chat-a'])
     })
   })
 })

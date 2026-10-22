@@ -2,6 +2,7 @@ import React from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { SidebarCarousel } from '@/components/layout/sidebar-carousel'
+import { useUIState } from '@/features/window/stores/ui-state-store'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import {
   publishFocusedWorkspaceContext,
@@ -87,6 +88,7 @@ vi.mock('@phosphor-icons/react', () => ({
       'data-size': size,
       'data-weight': weight,
     }),
+  GearIcon: () => React.createElement('svg', { 'data-icon': 'gear' }),
   CaretDown: ({ className, ...rest }: { className?: string }) =>
     React.createElement('svg', { 'data-icon': 'caret-down', className, ...rest }),
 }))
@@ -251,22 +253,18 @@ describe('SidebarCarousel', () => {
         expect(screen.getByTestId('carousel-head')).toHaveClass('h-9')
       })
 
-      it('the tabs track spans the row so the icons center in the leftover space, not against the fold toggle', () => {
+      it('the buttons sit centered between the build label and the fold toggle', () => {
         render(<SidebarCarousel />)
-        const list = screen.getByTestId('tabs-list')
-        expect(list).toHaveClass('flex-1')
-        expect(list).toHaveClass('justify-center')
+        expect(screen.getByTestId('carousel-head')).toHaveClass('grid-cols-[1fr_auto_1fr]')
+        expect(screen.getByTestId('tabs-list')).toContainElement(
+          screen.getByTestId('settings-button'),
+        )
       })
 
-      // Without this the tabs track only centers in the space left of the
-      // fold toggle, which reads as shifted left of the row's true middle —
-      // a phantom spacer matching the toggle's own icon-sm width balances it.
-      it('a phantom spacer on the left matches the fold toggle icon-sm width, centering the icons on the row', () => {
+      it('Settings sits in the head and opens the settings dialog', () => {
         render(<SidebarCarousel />)
-        const head = screen.getByTestId('carousel-head')
-        const spacer = head.querySelector('[aria-hidden="true"].size-8')
-        expect(spacer).not.toBeNull()
-        expect(spacer).toHaveClass('sm:size-7')
+        fireEvent.click(screen.getByTestId('settings-button'))
+        expect(useUIState.getState().isSettingsOpen).toBe(true)
       })
     })
   })

@@ -7,7 +7,6 @@ import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-histo
 import { SidebarCarousel } from './sidebar-carousel'
 import { RemovalTray } from './removal-tray'
 import { SidebarTreeSurface } from './sidebar-tree-surface'
-import { SidebarFooter } from './sidebar-footer'
 import { useSpaceSwitcherKeyboard } from '@/features/keymaps/hooks/use-space-switcher-keyboard'
 import {
   useProjectStore,
@@ -130,7 +129,7 @@ function IdeShellBody() {
     projectPath,
   )
   // The tree's only entry point for a SECOND space (spec §3 ruling): a
-  // trailing `+` mark alongside the space marks in SidebarFooter. Swaps
+  // trailing `+` mark alongside the space marks in SidebarProjectHeader. Swaps
   // SpaceScroller for CreateSpacePanel in place (sidebar-tree-surface.tsx)
   // rather than opening a modal — Zen's own "Create a Space" sheet lives in
   // the sidebar itself. Lifted here, alongside `allProjects`, so both the
@@ -150,7 +149,7 @@ function IdeShellBody() {
   //
   // useCallback'd (stable across renders unless `navigate` itself changes —
   // TanStack Router's own hook already returns a stable reference) so the
-  // memoized SidebarTreeSurface/SidebarFooter below don't see a fresh prop
+  // memoized SidebarTreeSurface/SidebarProjectHeader below don't see a fresh prop
   // identity, and therefore don't re-render, on an IDEShell render this
   // handler had no part in.
   const handleSelectProject = useCallback(
@@ -161,7 +160,7 @@ function IdeShellBody() {
     [navigate],
   )
   // Same reason as `handleSelectProject` above — stable identities so
-  // memoized SidebarTreeSurface/SidebarFooter can actually skip a render
+  // memoized SidebarTreeSurface/SidebarProjectHeader can actually skip a render
   // that doesn't touch space-creation state, instead of always seeing a
   // fresh inline-arrow prop.
   const handleCancelCreateSpace = useCallback(() => setCreatingSpace(false), [])
@@ -197,12 +196,7 @@ function IdeShellBody() {
   // third of the sidebar's height" and "height is kept as a proportion of
   // the rail"). Measured here, not inside SidebarCarousel, because the rail
   // IS this column. `sidebarRailRef` sits on the whole sidebar column
-  // (header/tree/floating card/footer/toasts) and stays the
-  // height-measurement target even though SidebarFooter now sits below the
-  // card as a true flow sibling — the card's own bottom anchor resolves
-  // against a narrower `relative flex-1` wrapper around just the tree +
-  // carousel instead (see sidebarContent below), so the footer's height
-  // never eats into the card's own.
+  // (header/tree/floating card/toasts).
   const sidebarRailRef = useRef<HTMLDivElement>(null)
   const sidebarRailHeight = useMeasuredHeight(sidebarRailRef)
   // The tree's own bottom inset (spec §6) no longer flows through React
@@ -241,21 +235,22 @@ function IdeShellBody() {
   // SidebarPeek is a wrapper, not a branch: it renders in every state and only
   // restyles itself, so hiding the sidebar never rebuilds the subtree below it.
   //
-  // The project marks (SidebarFooter) mount here as their own row, below the
-  // tree/card area and above the toast overlay — the sidebar's true last
-  // content element — per the product owner's explicit placement call, not
-  // squeezed into SidebarProjectHeader's window-chrome row any more. The tree
-  // and the floating card are wrapped in their own `relative flex-1` box so
-  // the card's `absolute`/`bottom-2` anchor (sidebar-carousel.tsx) resolves
-  // against THAT box's bottom edge, right above the footer, rather than
-  // against `sidebarRailRef`'s — which now extends past the footer too.
+  // The tree and the floating card sit in their own `relative flex-1` box so
+  // the card's `absolute bottom-0` anchor resolves against the rail's bottom.
   const sidebarContent = (
     <SidebarPeek hidden={!sidebarOpen} side={sidebarSide} width={preferredWidth}>
       <div
         ref={sidebarRailRef}
         className="relative flex h-full min-h-0 flex-col overflow-hidden bg-transparent select-none"
       >
-        {!hasNavScreen && <SidebarProjectHeader />}
+        {!hasNavScreen && (
+          <SidebarProjectHeader
+            projects={allProjects}
+            activeProjectId={activeProjectIdFromRoute}
+            onSelectProject={handleSelectProject}
+            onAddProject={handleAddProject}
+          />
+        )}
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           {!hasNavScreen && (
             <SidebarTreeSurface
@@ -293,12 +288,6 @@ function IdeShellBody() {
             never counted, and no DELETE was ever sent. It cannot be gated on
             anything. */}
         <RemovalTray />
-        <SidebarFooter
-          projects={allProjects}
-          activeProjectId={activeProjectIdFromRoute}
-          onSelectProject={handleSelectProject}
-          onAddProject={handleAddProject}
-        />
         <SidebarToastOverlay sidebarOpen={sidebarOpen} sidebarSide={sidebarSide} />
       </div>
     </SidebarPeek>

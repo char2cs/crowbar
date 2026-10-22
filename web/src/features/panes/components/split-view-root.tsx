@@ -15,6 +15,7 @@ import { PaneBoundary } from './pane-boundary'
 import { ROOT_PANE_POSITION } from '../types/pane'
 import { getFirstLeafId } from '../utils/pane-layout'
 import { useMountedViews } from '../hooks/use-mounted-views'
+import { useProjectViewIds } from '../hooks/use-project-view-ids'
 
 /** Module-level so the object identities are stable across renders — inline
  *  literals would hand every view's wrapper a new `style` prop every render. */
@@ -59,9 +60,11 @@ export function SplitViewRoot() {
   }, [exitPaneFullscreen, fullscreenPane, fullscreenPaneId])
 
   const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible)
+  // With the view-tab strip above, the panes are no longer at the window's top.
+  const hasViewStrip = useProjectViewIds().length > 0
   const rootPosition = useMemo(
-    () => ({ ...ROOT_PANE_POSITION, atBottom: !isBottomPaneVisible }),
-    [isBottomPaneVisible],
+    () => ({ ...ROOT_PANE_POSITION, atTop: !hasViewStrip, atBottom: !isBottomPaneVisible }),
+    [hasViewStrip, isBottomPaneVisible],
   )
 
   const titleBarHeight = IS_MAC ? 44 : 28

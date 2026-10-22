@@ -1,7 +1,9 @@
-import { act } from 'react'
+import { act, useRef } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
-import { RecentsBand } from '@/components/sidebar/recents-band'
+import { RecentsViewRow } from '@/components/sidebar/view-row'
+import { useSidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
+import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import {
@@ -86,16 +88,45 @@ const actions = () => windowPaneStore.getState().paneActions
 const paneOf = (chatId: string) => chatPaneIndex(windowPaneStore.getState().panes).get(chatId)!
 const viewOf = (chatId: string) => windowPaneStore.getState().panes[paneOf(chatId)].viewId!
 
-function renderBand(overrides: Partial<Parameters<typeof RecentsBand>[0]> = {}) {
+interface BandProps {
+  viewIds: readonly string[]
+  onFocus: (viewId: string) => void
+  onClose: (viewId: string) => void
+}
+
+function Band({ viewIds, onFocus, onClose }: BandProps) {
+  const rows = useRef(new Map<string, SidebarRowType>())
+  const drag = useSidebarDrag({
+    ...DRAG_PROPS,
+    subjectsFor: (rowId) => {
+      const row = rows.current.get(rowId)
+      return row ? [row] : []
+    },
+  })
+  return (
+    <div>
+      {viewIds.map((viewId) => (
+        <RecentsViewRow
+          key={viewId}
+          viewId={viewId}
+          onFocus={onFocus}
+          onClose={onClose}
+          drag={drag}
+          registerRow={(row) => rows.current.set(row.id, row)}
+        />
+      ))}
+    </div>
+  )
+}
+
+function renderBand(overrides: Partial<BandProps> = {}) {
   const props = {
     viewIds: windowPaneStore.getState().viewOrder,
     onFocus: vi.fn(),
     onClose: vi.fn(),
-    onCloseChat: vi.fn(),
-    ...DRAG_PROPS,
     ...overrides,
   }
-  return { ...render(<RecentsBand {...props} />), props }
+  return { ...render(<Band {...props} />), props }
 }
 
 function classesOf(el: Element): string[] {
@@ -109,12 +140,7 @@ function groupAndSolo() {
   actions().openChat('chat-3', { workspaceId: 'ws-1' })
 }
 
-describe('RecentsBand', () => {
-  it('renders nothing when there are no rows', () => {
-    const { container } = renderBand({ viewIds: [] })
-    expect(container).toBeEmptyDOMElement()
-  })
-
+describe('RecentsViewRow', () => {
   it('one row per view: a group draws as one shell around its members', () => {
     groupAndSolo()
     renderBand()
@@ -139,29 +165,30 @@ describe('RecentsBand', () => {
   it("a solo row's × closes its view, never labelled as a delete", () => {
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
     const { props } = renderBand()
-    const close = screen.getByRole('button', { name: 'Close Chat One' })
+    const close = screen.getByRole('button', { name: 'Close view' })
     expect(close.getAttribute('aria-label')).not.toMatch(/delete/i)
     close.click()
     expect(props.onClose).toHaveBeenCalledWith(viewOf('chat-1'))
   })
 
-  it("a group member's × closes just that chat", () => {
+  it('a split has one ×, which closes the whole view', () => {
     groupAndSolo()
     const { props } = renderBand()
-    screen.getByRole('button', { name: 'Close Chat Two' }).click()
-    expect(props.onCloseChat).toHaveBeenCalledWith('chat-2')
-    expect(props.onClose).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Close Chat Two' })).not.toBeInTheDocument()
+    const shell = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
+    within(shell).getByRole('button', { name: 'Close view' }).click()
+    expect(props.onClose).toHaveBeenCalledWith(viewOf('chat-1'))
   })
 
   it('every row has a close control — a working one included', () => {
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
     stores.current.get('ws-1')!.working = { 'chat-1': true }
     renderBand()
-    expect(screen.getByRole('button', { name: 'Close Chat One' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Close view' })).toBeInTheDocument()
     expect(document.querySelector('[data-flicker-spinner]')).toBeInTheDocument()
   })
 
-  it('only the showing view wears ROW_ACTIVE; an off-screen group takes no ground', () => {
+  it('only the showing view is painted; an off-screen group takes no ground', () => {
     groupAndSolo()
     renderBand()
     const group = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
@@ -183,35 +210,18 @@ describe('RecentsBand', () => {
     ).toBeNull()
   })
 
-  it('a lone showing row takes over the row margin once, at a tree row’s height', () => {
-    actions().openChat('chat-1', { workspaceId: 'ws-1' })
-    renderBand()
-    const rowWrapper = screen.getByTestId('recents-row-chat-1')
-    const shellWrapper = rowWrapper.parentElement!
-    const treeitem = rowWrapper.querySelector('[role="treeitem"]')!
-    expect(classesOf(shellWrapper)).toEqual(expect.arrayContaining(['mx-1.5', 'my-0.5', 'h-9']))
-    expect(classesOf(shellWrapper)).not.toContain('p-0.5')
-    expect(classesOf(treeitem)).toEqual(expect.arrayContaining(['mx-0', 'my-0']))
-  })
-
-  it("group members give up h-9 for h-8 to fit the shell's padding", () => {
+  it('every tab is one h-9 shell with no margin of its own on the row', () => {
     groupAndSolo()
     renderBand()
-    for (const rowId of ['recents-row-chat-1', 'recents-row-chat-2']) {
-      const treeitem = within(screen.getByTestId(rowId)).getByRole('treeitem')
-      expect(classesOf(treeitem)).toContain('h-8')
-      expect(classesOf(treeitem)).not.toContain('h-9')
+    const solo = screen.getByTestId('recents-row-chat-3').parentElement!
+    const group = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
+    for (const shell of [solo, group]) {
+      expect(classesOf(shell)).toEqual(expect.arrayContaining(['mx-0.5', 'h-9', 'rounded-full']))
     }
-  })
-
-  it('a group shell keeps its gutter, flex row, and one hover surface', () => {
-    groupAndSolo()
-    renderBand()
-    const shell = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
-    expect(classesOf(shell)).toEqual(
-      expect.arrayContaining(['mx-1.5', 'my-0.5', 'flex', 'gap-0.5', 'p-0.5', 'rounded-lg']),
-    )
-    expect(shell.className).toMatch(/group-hover:bg-sidebar-element-hover/)
+    for (const rowId of ['recents-row-chat-1', 'recents-row-chat-2', 'recents-row-chat-3']) {
+      const treeitem = within(screen.getByTestId(rowId)).getByRole('treeitem')
+      expect(classesOf(treeitem)).toEqual(expect.arrayContaining(['h-8', 'mx-0', 'my-0']))
+    }
   })
 
   it('an untitled chat renders the UNTITLED_CHAT_LABEL fallback', () => {
@@ -270,7 +280,7 @@ describe('RecentsBand', () => {
       unknownChat()
       const { props } = renderBand()
       expect(screen.getByTestId('recents-row-chat-9')).toBeInTheDocument()
-      screen.getByRole('button', { name: 'Close Loading…' }).click()
+      screen.getByRole('button', { name: 'Close view' }).click()
       expect(props.onClose).toHaveBeenCalledWith(viewOf('chat-9'))
     })
   })

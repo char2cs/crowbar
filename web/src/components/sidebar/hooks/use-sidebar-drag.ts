@@ -6,7 +6,7 @@ import {
   type GhostRows,
   type GrabOffset,
 } from '@/components/layout/drag-ghost'
-import { dropLineBox } from '@/components/layout/drop-indicator'
+import { dropLineBox, dropLineBoxX } from '@/components/layout/drop-indicator'
 import { createEdgeScroller, type EdgeScroller } from '@/components/layout/edge-scroll'
 import {
   anyModeAllowed,
@@ -28,7 +28,7 @@ import { toast } from '@/features/window/stores/toast-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 /**
- * One drag arm for the whole unified sidebar — `SidebarTree` and `RecentsBand`
+ * One drag arm for the whole unified sidebar — `SidebarTree` and the Recents row
  * both bind through this instead of each carrying its own copy (the two files
  * this replaces: `workspace-tree-context.tsx`'s drag half and
  * `use-agent-chats-drag.ts`). `SIDEBAR_DROP_POLICY` (Task 20) is the one
@@ -72,7 +72,7 @@ export interface RowDragExtra {
   path?: string
   expanded?: boolean
   hasChildren?: boolean
-  /** Published only by `RecentsBand` (see `recents-band.tsx`'s own
+  /** Published only by the Recents row (see `view-row.tsx`'s own
    *  `drag.dragProps(row, { inRecents: true })`) — the one fact a hit test
    *  needs that a tree row and a Recents row disagree on: spec §8.1's
    *  table gives "middle of a Recents entry" and "above/below a Recents
@@ -237,9 +237,12 @@ function paintDropLine(el: HTMLDivElement | null, hit: Hit): void {
     el.style.display = 'none'
     return
   }
-  const box = dropLineBox(hit.rect, hit.row.mode)
+  const box =
+    hit.axis === 'x' ? dropLineBoxX(hit.rect, hit.row.mode) : dropLineBox(hit.rect, hit.row.mode)
   el.style.display = 'block'
   if (el.dataset.dropIndicator !== hit.row.mode) el.dataset.dropIndicator = hit.row.mode
+  const height = 'height' in box ? `${box.height}px` : ''
+  if (el.style.height !== height) el.style.height = height
   const left = `${box.left}px`
   const top = `${box.top}px`
   const width = `${box.width}px`
@@ -318,7 +321,7 @@ export interface UseSidebarDragOptions {
    *  own selection resolution; this hook does not maintain one of its own. */
   subjectsFor: (rowId: string) => SidebarRow[]
   /** Commit a drop onto another row. `targetInRecents` is true when the row
-   *  the pointer released over lives in a `RecentsBand`, not a tree — spec
+   *  the pointer released over lives in a the Recents row, not a tree — spec
    *  §8.1's table gives that geometry a different meaning ("into that view,
    *  opened" / "it moves to that slot") than the same drop over a tree row
    *  ("make it a thread of this chat"), and `target: SidebarRow` alone

@@ -156,7 +156,7 @@ export function resolveOwnerOfChat(
 /**
  * The icon-relevant subset of `SidebarRow` — what `RowGlyph` (sidebar-row.tsx)
  * actually reads to pick a glyph. `chatIconIndex` (below) is the one producer;
- * named here so `recents-band.tsx` can spread it onto its own hand-built row
+ * named here so `view-row.tsx` can spread it onto its own hand-built row
  * without repeating the field list.
  */
 export type ChatIconFields = Pick<
@@ -210,7 +210,7 @@ function workspaceIconFields(
  * (`resolveOwnerChats`/`resolveOwnerOfChat`) and `Workspace` fields this
  * file's own tree walk draws its glyph from, reused rather than re-derived.
  *
- * `recents-band.tsx` (via `recents-for-project.ts`) reads this instead of
+ * `view-row.tsx` (via `recents-for-project.ts`) reads this instead of
  * hand-building a row that can only ever guess `kind: 'chat'` — Recents had
  * no ownership data of its own, so a chat that owns a workspace always fell
  * back to the generic `ChatsCircle` bubble glyph there, even though the

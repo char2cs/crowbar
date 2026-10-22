@@ -28,6 +28,20 @@ vi.mock('@/features/settings/store', () => ({
 }))
 
 import { SidebarProjectHeader } from '@/components/layout/sidebar-project-header'
+import type { Project } from '@/lib/types'
+
+const project = (id: string): Project => ({
+  id,
+  name: id,
+  path: `/repos/${id}`,
+  lastActivity: new Date('2026-08-28T00:00:00Z'),
+})
+const headerProps = {
+  projects: [project('p1'), project('p2')],
+  activeProjectId: 'p1',
+  onSelectProject: vi.fn(),
+  onAddProject: vi.fn(),
+}
 
 beforeEach(() => {
   sidebarPosition = 'left'
@@ -39,20 +53,20 @@ beforeEach(() => {
 
 describe('SidebarProjectHeader', () => {
   it('renders toggle, back, and forward', () => {
-    render(<SidebarProjectHeader />)
+    render(<SidebarProjectHeader {...headerProps} />)
     expect(screen.getByRole('button', { name: /sidebar/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /go back/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /go forward/i })).toBeTruthy()
   })
 
   it('toggles the sidebar', async () => {
-    render(<SidebarProjectHeader />)
+    render(<SidebarProjectHeader {...headerProps} />)
     await userEvent.click(screen.getByRole('button', { name: /sidebar/i }))
     expect(toggleSidebar).toHaveBeenCalledOnce()
   })
 
   it('disables forward when canGoForward is false and runs back when enabled', async () => {
-    render(<SidebarProjectHeader />)
+    render(<SidebarProjectHeader {...headerProps} />)
     expect(screen.getByRole('button', { name: /go forward/i })).toBeDisabled()
     await userEvent.click(screen.getByRole('button', { name: /go back/i }))
     expect(jump.handleJumpBack).toHaveBeenCalledOnce()
@@ -60,23 +74,20 @@ describe('SidebarProjectHeader', () => {
 
   it('mirrors the layout when the sidebar is on the right', () => {
     sidebarPosition = 'right'
-    const { container } = render(<SidebarProjectHeader />)
+    const { container } = render(<SidebarProjectHeader {...headerProps} />)
     const root = container.firstChild as HTMLElement
     expect(root.className).toContain('flex-row-reverse')
     // Traffic-light spacer is only reserved when the sidebar is on the left.
     expect(container.querySelector('.w-\\[52px\\]')).toBeNull()
   })
 
-  // task-10 (sidebar-restyle-recovery-batch2): the project-marks cluster
-  // moved out of this window-chrome row entirely, to SidebarFooter — the
-  // sidebar's own true last element, below the floating file-explorer card.
-  // This component takes no project-related props any more; it degrades to
-  // exactly its pre-marks shape (a bare `flex-1` spacer between the toggle
-  // and the back/forward/settings cluster).
-  it('renders no project marks in the window-chrome row', () => {
-    render(<SidebarProjectHeader />)
-    expect(screen.queryAllByTestId('space-mark')).toHaveLength(0)
-    expect(screen.queryByTestId('add-project-mark')).not.toBeInTheDocument()
+  it('renders the space marks in the window-chrome row and forwards selection', async () => {
+    const onSelectProject = vi.fn()
+    render(<SidebarProjectHeader {...headerProps} onSelectProject={onSelectProject} />)
+    const marks = screen.getAllByTestId('space-mark')
+    expect(marks).toHaveLength(2)
+    await userEvent.click(marks[1])
+    expect(onSelectProject).toHaveBeenCalledWith('p2')
   })
 
   // Regression: this component is `memo`'d specifically because it takes
@@ -86,13 +97,13 @@ describe('SidebarProjectHeader', () => {
   // proxy for how many times this component's function body actually ran —
   // if memoization regressed (e.g. the export stopped being wrapped in
   // `memo`), a parent re-render would call it again and this would catch it.
-  it('does not re-render when an unrelated parent re-render happens (memoized, zero props)', async () => {
+  it('does not re-render when an unrelated parent re-render happens (memoized)', async () => {
     function Harness() {
       const [, forceRerender] = useState(0)
       return (
         <div>
           <button onClick={() => forceRerender((n) => n + 1)}>bump</button>
-          <SidebarProjectHeader />
+          <SidebarProjectHeader {...headerProps} />
         </div>
       )
     }

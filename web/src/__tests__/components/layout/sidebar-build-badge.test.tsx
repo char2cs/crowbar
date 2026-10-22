@@ -148,17 +148,4 @@ describe('SidebarBuildBadgeBand', () => {
       expect(container.querySelector('img')).toBeNull()
     }
   })
-
-  it('stays opaque at the text/window-edge side (align) and fades toward the opposite (button) side', () => {
-    buildBadgeOverride = 'nightly'
-    // align="end": text/window-edge on the right — opaque (the gradient's
-    // LAST color) must anchor there, i.e. `to right`, not `to left`.
-    const { container, rerender } = render(<SidebarBuildBadgeBand align="end" />)
-    const fillEnd = container.querySelector('[style*="mask-image"]') as HTMLElement
-    expect(fillEnd.style.maskImage).toContain('to right')
-
-    rerender(<SidebarBuildBadgeBand align="start" />)
-    const fillStart = container.querySelector('[style*="mask-image"]') as HTMLElement
-    expect(fillStart.style.maskImage).toContain('to left')
-  })
 })

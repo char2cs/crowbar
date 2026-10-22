@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useStore } from 'zustand'
 import { useNavigate } from '@tanstack/react-router'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SidebarTree } from './sidebar-tree'
 import { SpaceHeader } from './space-header'
-import { RecentsBand } from './recents-band'
 import { CARD_BOTTOM_INSET_VAR } from '@/components/layout/sidebar-card-height'
 import { findScrollParent } from '@/components/layout/edge-scroll'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
@@ -24,8 +22,6 @@ import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { attachRemovalState, renderedHiddenIds } from '@/components/layout/removal-plan'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { selectProjectViewIds } from '@/features/panes/lib/view-selectors'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarPaneZone } from '@/components/sidebar/hooks/use-sidebar-drag'
@@ -42,10 +38,6 @@ interface SpaceScrollerProps {
   onOpen: (id: string) => void
   onTrash: (id: string) => void
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
-  onFocusRecent: (viewId: string) => void
-  onCloseRecent: (viewId: string) => void
-  /** A group member's own ×: closes that one chat, never the group. */
-  onCloseChatRecent: (chatId: string) => void
   onDrop: (subjects: SidebarRow[], target: SidebarRow, mode: DropMode) => void
   onPaneDrop: (subjects: SidebarRow[], paneId: string, zone: SidebarPaneZone) => void
   /** Spec §9's project-level trash, the one verb the space header's overflow
@@ -60,9 +52,6 @@ interface SpacePanelProps {
   onOpen: (id: string) => void
   onTrash: (id: string) => void
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
-  onFocusRecent: (viewId: string) => void
-  onCloseRecent: (viewId: string) => void
-  onCloseChatRecent: (chatId: string) => void
   onDrop: (subjects: SidebarRow[], target: SidebarRow, mode: DropMode) => void
   onPaneDrop: (subjects: SidebarRow[], paneId: string, zone: SidebarPaneZone) => void
   onTrashProject: (projectId: string) => void
@@ -74,9 +63,6 @@ function SpacePanel({
   onOpen,
   onTrash,
   onCreate,
-  onFocusRecent,
-  onCloseRecent,
-  onCloseChatRecent,
   onDrop,
   onPaneDrop,
   onTrashProject,
@@ -194,22 +180,16 @@ function SpacePanel({
     rowRepoId,
   )
   const navigate = useNavigate()
-  // The tree and Recents sit in ONE shared scroll region (spec §2) and both
-  // take `useSidebarDrag` (Task 21) — each resolves its own edge-scroll
-  // target off this ref, which points at the actual overflow element
-  // (`ScrollAreaPrimitive.Viewport`), not the plain content div a naive ref
-  // here would otherwise land on.
+  // `useSidebarDrag` resolves its edge-scroll target off this ref, which
+  // points at the actual overflow element (`ScrollAreaPrimitive.Viewport`),
+  // not the plain content div a naive ref here would otherwise land on.
   const contentRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<HTMLElement | null>(null)
   useEffect(() => {
     viewportRef.current = findScrollParent(contentRef.current)
   })
-  const viewIds = useStore(windowPaneStore, (s) => selectProjectViewIds(s, projectId))
 
-  // Spec §4: "clicking the header folds the space: the tree goes, Recents
-  // stays. That is the point of folding — to see nothing but what is up in
-  // this project. They share one scroller, so the fold hides the ROWS, not
-  // the scroller." Local per-panel state, not persisted: nothing in the spec
+  // Clicking the header folds the space: the tree goes. Local per-panel state, not persisted: nothing in the spec
   // asks a fold to survive a reload, and each project's panel is its own
   // component instance (keyed by project id), so "per space" is free.
   const [folded, setFolded] = useState(false)
@@ -284,15 +264,6 @@ function SpacePanel({
               onPaneDrop={onPaneDrop}
             />
           )}
-          <RecentsBand
-            viewIds={viewIds}
-            onFocus={onFocusRecent}
-            onClose={onCloseRecent}
-            onCloseChat={onCloseChatRecent}
-            scrollRef={viewportRef}
-            onDrop={onDrop}
-            onPaneDrop={onPaneDrop}
-          />
         </div>
       </ScrollArea>
       {/* The clearance itself (spec §6: "the tree keeps a bottom inset the
@@ -304,7 +275,7 @@ function SpacePanel({
           into "overflowing," showing a scrollbar nothing about the visible
           rows justified. A `shrink-0` sibling shrinks the ScrollArea's own
           box instead, so the browser's real overflow check only ever sees
-          genuine row/Recents content — same visual clearance, correct
+          genuine row content — same visual clearance, correct
           overflow math. Reads `--card-bottom-inset` straight off the CSS
           cascade rather than a prop for the same reason the content div
           used to: that variable is written directly onto the shared rail
@@ -327,9 +298,7 @@ function SpacePanel({
  * project" with "which card tab" into one component would conflate two
  * different numbers.
  *
- * Each panel is ONE scroll region (spec §2's "the tree and Recents are one
- * scrolling group, not two stacked panels") holding a project's `SidebarTree`
- * followed by its own `RecentsBand`.
+ * Each panel is ONE scroll region holding a project's `SidebarTree`.
  */
 export function SpaceScroller({
   projects,
@@ -339,9 +308,6 @@ export function SpaceScroller({
   onOpen,
   onTrash,
   onCreate,
-  onFocusRecent,
-  onCloseRecent,
-  onCloseChatRecent,
   onDrop,
   onPaneDrop,
   onTrashProject,
@@ -466,9 +432,6 @@ export function SpaceScroller({
           onOpen={onOpen}
           onTrash={onTrash}
           onCreate={onCreate}
-          onFocusRecent={onFocusRecent}
-          onCloseRecent={onCloseRecent}
-          onCloseChatRecent={onCloseChatRecent}
           onDrop={onDrop}
           onPaneDrop={onPaneDrop}
           onTrashProject={onTrashProject}

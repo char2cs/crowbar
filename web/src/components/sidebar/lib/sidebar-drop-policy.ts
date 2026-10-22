@@ -216,7 +216,9 @@ export function allowedModes(subjects: readonly SidebarRow[], target: DropTarget
   // A mixed-kind selection is not a thing the sidebar can express; refuse
   // rather than guess which class wins (carried over from both old policies).
   const kind = subjects[0].kind
-  if (subjects.some((s) => s.kind !== kind)) return NO_MODES
+  // Not for a Recents target: there every subject is a chat, whatever glyph
+  // (`chat` or `branch`) its row wears, and a split carries both.
+  if (!target.inRecents && subjects.some((s) => s.kind !== kind)) return NO_MODES
 
   // A RECENTS row is not a tree row, and none of the scope rules below apply
   // to it: the band is the project's view switcher, its order is local
@@ -231,7 +233,7 @@ export function allowedModes(subjects: readonly SidebarRow[], target: DropTarget
   // middle opens into that view, above/below moves the slot. A folder (or an
   // unwired `workflow` row) names no chat, so it still refuses.
   if (target.inRecents) {
-    return kind === 'chat' || kind === 'branch' ? ALL_MODES : NO_MODES
+    return subjects.every((s) => s.kind === 'chat' || s.kind === 'branch') ? ALL_MODES : NO_MODES
   }
 
   // One `getState()` per drag frame, shared by every branch below — see
