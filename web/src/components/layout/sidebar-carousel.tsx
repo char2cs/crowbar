@@ -192,6 +192,44 @@ export function SidebarCarousel({ sidebarHeight, railRef, onHeightChange }: Side
         />
       )}
       <NavStack>
+        {/* The card is a drawer anchored to the rail's bottom: this head is its footer and the panels above it open upward, so the caret points down while open and up while folded. */}
+        {/* `RemovalTray` used to mount here. It must not: this card is
+            unmounted whenever the stage is empty or a space is being created
+            (ide-shell.tsx's gate), and the tray owns the ONLY commit clock —
+            measured live, a held row drained its hairline and no DELETE was
+            ever sent. It mounts in the rail itself now. */}
+        {/* The body (spec §6.4): folding "drops everything under [the head]" —
+            `hidden` (display:none), never a conditional unmount. Both
+            Files and Git panels stay mounted the whole time regardless of
+            fold (spec §6.2), the same dormancy the pane's own chat/terminal
+            surfaces use (agent-chat-pane.tsx) — unmounting here would lose
+            each panel's scroll position and re-trigger FileExplorerTree's/
+            GitPanel's measured init logic on every unfold. Hidden during a
+            live row drag too (`cardFolded`), same as everything else the
+            fold touches — the card giving its space back is the whole
+            point (see `rowDragging`'s own doc above). */}
+        <div
+          ref={containerRef}
+          onScroll={handleScroll}
+          onWheel={armUserGesture}
+          onTouchStart={armUserGesture}
+          data-sidebar-carousel=""
+          className={cn(
+            'flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+            cardFolded ? 'hidden' : 'flex',
+          )}
+        >
+          {/* Files panel */}
+          <SidebarCarouselFilesPanel />
+
+          {/* Git panel */}
+          <div
+            data-testid="carousel-panel"
+            className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden"
+          >
+            <GitPanel />
+          </div>
+        </div>
         {/* The head (spec §6.1): underline variant, icon only, no labels, no
             divider. justify-start overrides the base tabs list's w-fit
             justify-center; the fold caret sits after the tabs at `ml-auto`,
@@ -203,7 +241,10 @@ export function SidebarCarousel({ sidebarHeight, railRef, onHeightChange }: Side
             folded card, not one row among many). Matched, not guessed. */}
         <div
           data-testid="carousel-head"
-          className="relative grid h-9 shrink-0 grid-cols-[1fr_auto_1fr] items-center px-1"
+          className={cn(
+            'relative grid h-9 shrink-0 grid-cols-[1fr_auto_1fr] items-center px-1',
+            !cardFolded && 'border-t',
+          )}
         >
           {/* Paints behind the label and buttons; never affects their layout. */}
           <SidebarBuildBadgeBand className="absolute inset-0 z-0" align="start" />
@@ -282,43 +323,6 @@ export function SidebarCarousel({ sidebarHeight, railRef, onHeightChange }: Side
               className={cn('transition-transform', cardFolded && 'rotate-180')}
             />
           </Button>
-        </div>
-        {/* `RemovalTray` used to mount here. It must not: this card is
-            unmounted whenever the stage is empty or a space is being created
-            (ide-shell.tsx's gate), and the tray owns the ONLY commit clock —
-            measured live, a held row drained its hairline and no DELETE was
-            ever sent. It mounts in the rail itself now. */}
-        {/* The body (spec §6.4): folding "drops everything under [the head]" —
-            `hidden` (display:none), never a conditional unmount. Both
-            Files and Git panels stay mounted the whole time regardless of
-            fold (spec §6.2), the same dormancy the pane's own chat/terminal
-            surfaces use (agent-chat-pane.tsx) — unmounting here would lose
-            each panel's scroll position and re-trigger FileExplorerTree's/
-            GitPanel's measured init logic on every unfold. Hidden during a
-            live row drag too (`cardFolded`), same as everything else the
-            fold touches — the card giving its space back is the whole
-            point (see `rowDragging`'s own doc above). */}
-        <div
-          ref={containerRef}
-          onScroll={handleScroll}
-          onWheel={armUserGesture}
-          onTouchStart={armUserGesture}
-          data-sidebar-carousel=""
-          className={cn(
-            'flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
-            cardFolded ? 'hidden' : 'flex',
-          )}
-        >
-          {/* Files panel */}
-          <SidebarCarouselFilesPanel />
-
-          {/* Git panel */}
-          <div
-            data-testid="carousel-panel"
-            className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden"
-          >
-            <GitPanel />
-          </div>
         </div>
       </NavStack>
     </div>
