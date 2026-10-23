@@ -21,7 +21,6 @@ import { useSettingsStore } from '@/features/settings/store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
 import { ConnectionIndicator } from './connection-indicator'
-import { FpsOverlay } from './fps-overlay'
 import { DetachHolderModal } from './detach-holder-modal'
 import { PlaceholderToastWatcher } from './placeholder-toast-watcher'
 import { SidebarToastOverlay } from './sidebar-toast-overlay'
@@ -334,7 +333,6 @@ function IdeShellBody() {
       />
       <FontStyleInjector />
       <ConnectionIndicator />
-      <FpsOverlay />
       <DetachHolderModal />
       <PlaceholderToastWatcher />
       <NavigationHistoryRecorder />
@@ -358,7 +356,7 @@ function IdeShellBody() {
  * rendered fibers and 78fps, against 120fps idle.
  *
  * Isolating it here leaves the subscription — and its React-effect timing,
- * which `navigateToJumpEntry`'s retarget handshake depends on (the marker is
+ * which the jump list's retarget handshake depends on (the marker is
  * moved onto the reopened buffer's brand-new id AFTER the pane-store write
  * that reveals it, so a recorder running synchronously with that write would
  * record the jump as a fresh navigation and truncate the forward branch) —

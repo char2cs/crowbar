@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
+import { useHasViewStrip } from '@/features/panes/hooks/use-project-view-ids'
 
 // See the `isAtTopEdge` check's own doc below for why this isn't 10.
 // Exported: `useMacTrafficLightSync` re-runs the identical "is this row the
@@ -24,9 +25,11 @@ interface UsePaneTopRowEdgesResult {
  *
  * `deps` re-runs the check for a position-only layout change a
  * `ResizeObserver` (SIZE changes only) would miss — e.g. the sidebar
- * flipping side, which shifts a pane without resizing it.
+ * flipping side, which shifts a pane without resizing it. The view strip
+ * opening or closing above the panes is such a change, so it is always a dep.
  */
 export function usePaneTopRowEdges(deps: unknown[] = []): UsePaneTopRowEdgesResult {
+  const hasViewStrip = useHasViewStrip()
   const rowRef = useRef<HTMLDivElement>(null)
   const measuredRef = useRef(false)
   const [isAtLeftEdge, setIsAtLeftEdge] = useState(false)
@@ -68,7 +71,7 @@ export function usePaneTopRowEdges(deps: unknown[] = []): UsePaneTopRowEdgesResu
       window.removeEventListener('resize', check)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps)
+  }, [...deps, hasViewStrip])
 
   return { rowRef, isAtLeftEdge, isAtRightEdge, isAtTopEdge }
 }

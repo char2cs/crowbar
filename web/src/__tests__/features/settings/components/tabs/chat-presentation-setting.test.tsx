@@ -62,9 +62,9 @@ describe('Chat By Default', () => {
     expect(toggle()).toBeInTheDocument()
   })
 
-  it('is on before the user has touched it', () => {
+  it('is off before the user has touched it', () => {
     render(<ChatPresentationSetting />)
-    expect(toggle()).toHaveAttribute('aria-checked', 'true')
+    expect(toggle()).toHaveAttribute('aria-checked', 'false')
   })
 
   it('says plainly that it only picks the surface you land on', () => {
@@ -73,20 +73,20 @@ describe('Chat By Default', () => {
     expect(screen.getByText(/both surfaces stay in every chat/i)).toBeInTheDocument()
   })
 
-  it('turns off, and the chat then lands on Terminal', async () => {
+  it('turns on, and the chat then lands on Chat', async () => {
     const user = userEvent.setup()
     render(<ChatPresentationSetting />)
 
     await user.click(toggle())
 
-    expect(toggle()).toHaveAttribute('aria-checked', 'false')
-    expect(useSettingsStore.getState().settings.chatIsDefaultPresentation).toBe(false)
-    expect(getDefaultChatPresentation()).toBe('terminal')
+    expect(toggle()).toHaveAttribute('aria-checked', 'true')
+    expect(useSettingsStore.getState().settings.chatIsDefaultPresentation).toBe(true)
+    expect(getDefaultChatPresentation()).toBe('chat')
   })
 
-  // Off is a preference, not a removal: the control is still there, still says
-  // what it does, and one more click puts Chat back in front.
-  it('keeps Chat one click away once it is off', async () => {
+  // On is a preference, not a removal: the control is still there, still says
+  // what it does, and one more click puts Terminal back in front.
+  it('keeps Terminal one click away once it is on', async () => {
     const user = userEvent.setup()
     render(<ChatPresentationSetting />)
 
@@ -96,8 +96,8 @@ describe('Chat By Default', () => {
     expect(screen.getByText(/both surfaces stay in every chat/i)).toBeInTheDocument()
 
     await user.click(toggle())
-    expect(toggle()).toHaveAttribute('aria-checked', 'true')
-    expect(getDefaultChatPresentation()).toBe('chat')
+    expect(toggle()).toHaveAttribute('aria-checked', 'false')
+    expect(getDefaultChatPresentation()).toBe('terminal')
   })
 
   it('offers a reset once it differs from the default, and not before', async () => {
@@ -114,7 +114,7 @@ describe('Chat By Default', () => {
     expect(reset()).toBeEnabled()
 
     await user.click(reset())
-    expect(toggle()).toHaveAttribute('aria-checked', 'true')
-    expect(getDefaultChatPresentation()).toBe('chat')
+    expect(toggle()).toHaveAttribute('aria-checked', 'false')
+    expect(getDefaultChatPresentation()).toBe('terminal')
   })
 })

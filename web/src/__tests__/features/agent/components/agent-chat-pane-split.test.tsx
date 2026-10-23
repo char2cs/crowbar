@@ -239,7 +239,10 @@ beforeEach(() => {
   getChatFn.mockReset()
   getChatFn.mockImplementation(() => Promise.resolve({ ...liveChat(), conversations: [] }))
   useTerminalStore.setState({ sessions: new Map() })
-  useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() })
+  // These cases are about the Chat surface, so they land on it.
+  useSettingsStore.setState({
+    settings: { ...getDefaultSettingsSnapshot(), chatIsDefaultPresentation: true },
+  })
   localStorage.clear()
   setActiveWorkspaceId('w1')
 })

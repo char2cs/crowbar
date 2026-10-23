@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { setTrafficLightPosition } from '@/lib/crowbar-bridge'
+import { TRAFFIC_LIGHT_Y_PX } from '@/lib/chrome-metrics'
 import { IS_MAC } from '@/utils/platform'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { EDGE_THRESHOLD } from './use-pane-top-row-edges'
@@ -10,7 +11,7 @@ import { EDGE_THRESHOLD } from './use-pane-top-row-edges'
 // just "leave it alone" — so a value moved at runtime by a PRIOR
 // sidebar-right session never drifts and sticks after switching back.
 const STATIC_X = 12
-const STATIC_Y = 23
+const STATIC_Y = TRAFFIC_LIGHT_Y_PX
 
 /** The one pane-top-row actually sitting at the window's physical top-left
  *  corner right now, or null if none is (empty stage, still loading). Same

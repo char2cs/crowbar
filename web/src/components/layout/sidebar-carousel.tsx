@@ -1,20 +1,16 @@
 import { useLayoutEffect, useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
-import { CaretDown, GearIcon } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { NavStack } from './nav-stack'
-import {
-  SidebarBuildBadgeBand,
-  SidebarBuildBadgeLabel,
-  useOnNightlySky,
-} from './sidebar-build-badge'
-import { Button } from '@/components/ui/button'
+import { CarouselHead } from './sidebar-carousel-head'
 import { GitPanel } from '@/features/git/components/git-panel'
 import { SidebarCarouselFilesPanel } from './sidebar-carousel-files-panel'
 import { useCardResizeDrag } from './use-card-resize-drag'
+import { useRowDragging, useSidebarReveal } from './use-sidebar-reveal'
 import { useCarouselScrollSync } from './use-carousel-scroll-sync'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { useUIState } from '@/features/window/stores/ui-state-store'
+import { useSettingsStore } from '@/features/settings/store'
+import { buildSidebarCardStyle, SIDEBAR_CARD_GAP } from '@/features/panes/utils/pane-border'
 import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
 import { CARD_BOTTOM_INSET_VAR, loadCardHeightFraction } from './sidebar-card-height'
 import {
@@ -53,7 +49,15 @@ interface SidebarCarouselProps {
   onHeightChange?: (heightPx: number) => void
 }
 
+// How much of the card stays on screen at the window's edge while auto-hidden.
+const PEEK_SLIVER_PX = 10
+// The invisible strip along the window edge that also summons it: wider than the
+// sliver, so the pointer only has to come near.
+const PEEK_GRACE_PX = 40
+
 export function SidebarCarousel({ sidebarHeight, railRef, onHeightChange }: SidebarCarouselProps) {
+  const sidebarSide = useSettingsStore((s) => s.settings.sidebarPosition)
+  const autoHide = useSettingsStore((s) => s.settings.sidebarMode) === 'auto-hide'
   const activeTab = useSidebarStore((s) => s.activeTab)
   const setActiveTab = useSidebarStore((s) => s.setActiveTab)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -74,7 +78,6 @@ export function SidebarCarousel({ sidebarHeight, railRef, onHeightChange }: Side
   // resize, nothing in §6.4 asks a fold to survive a reload. This mirrors
   // space-scroller.tsx's own `SpacePanel` fold precedent exactly (its
   // `folded` state, same reasoning, a different surface).
-  const headInk = useOnNightlySky() ? 'text-white' : 'text-muted-foreground'
   const [folded, setFolded] = useState(false)
 
   // Reported live as "can't parent a chat into a folder": a row/folder near
@@ -94,18 +97,14 @@ export function SidebarCarousel({ sidebarHeight, railRef, onHeightChange }: Side
   // (set by use-sidebar-drag.ts for the life of any row drag) instead of a
   // click. Not persisted, same reasoning as `folded` above; restores itself
   // the instant the drag ends.
-  const [rowDragging, setRowDragging] = useState(false)
-  useEffect(() => {
-    const read = () => document.documentElement.hasAttribute('data-row-dragging')
-    setRowDragging(read())
-    const observer = new MutationObserver(() => setRowDragging(read()))
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['data-row-dragging'],
-    })
-    return () => observer.disconnect()
-  }, [])
-  const cardFolded = folded || rowDragging
+  const rowDragging = useRowDragging()
+  const { focusInEditor, pointerSummoned, summon, peekZoneRef } = useSidebarReveal({
+    autoHide,
+    cardRef,
+  })
+
+  // Auto-hidden, the card overlays the tree: there is nothing to give back by folding.
+  const cardFolded = !autoHide && (folded || rowDragging) && !focusInEditor
 
   // The RESTING value (mount, sidebarHeight resize, or the recompute a
   // completed drag's committed `heightFraction` triggers) — never fired
@@ -126,9 +125,11 @@ export function SidebarCarousel({ sidebarHeight, railRef, onHeightChange }: Side
   // rows region, instead of reserving a third of the rail's height
   // regardless of what the card is currently showing.
   useLayoutEffect(() => {
-    const height = cardRef.current?.getBoundingClientRect().height ?? 0
-    railRef?.current?.style.setProperty(CARD_BOTTOM_INSET_VAR, `${height}px`)
-  }, [cardHeightPx, cardFolded, railRef])
+    // Auto-hidden, the card overlays the tree instead of taking room from it.
+    const height = autoHide ? 0 : (cardRef.current?.getBoundingClientRect().height ?? 0)
+    const inset = autoHide ? 0 : height + SIDEBAR_CARD_GAP
+    railRef?.current?.style.setProperty(CARD_BOTTOM_INSET_VAR, `${inset}px`)
+  }, [cardHeightPx, cardFolded, railRef, autoHide])
 
   // Pointer-drag resize from the top 6px hot zone (spec §6) — see
   // `use-card-resize-drag.ts`'s own doc for the full drag/commit mechanism.
@@ -163,20 +164,49 @@ export function SidebarCarousel({ sidebarHeight, railRef, onHeightChange }: Side
   )
 
   return (
-    // Floats over the tree (spec §6), full width with only a top hairline and
-    // no fill, so the translucent sidebar shows through. Bottom is flush: the
-    // tree's `--card-bottom-inset` is measured off this card's real height, so
-    // any gap would let the last row peek out beneath it.
-    <div
-      ref={cardRef}
-      data-testid="carousel-card"
-      // This box's own `absolute` already makes it a positioning ancestor,
-      // so the drag-to-trash overlay below (`absolute inset-0`) covers
-      // exactly this box without needing a separate `relative`.
-      className="absolute inset-x-0 bottom-0 z-10 flex flex-col overflow-hidden border-t"
-      style={cardHeightPx != null && !cardFolded ? { height: `${cardHeightPx}px` } : undefined}
-    >
-      {/* Top 6px hot zone (spec §6) — matches pane-sash.tsx's own
+    <>
+      {autoHide && (
+        <div
+          aria-hidden="true"
+          ref={peekZoneRef}
+          data-testid="carousel-peek-zone"
+          onPointerEnter={summon}
+          className={cn('absolute bottom-0 z-[9]', sidebarSide === 'left' ? 'left-0' : 'right-0')}
+          style={{
+            width: PEEK_GRACE_PX,
+            height:
+              cardHeightPx != null && !cardFolded ? cardHeightPx + PEEK_GRACE_PX : PEEK_GRACE_PX,
+          }}
+        />
+      )}
+      {/* Floats over the tree (spec §6) as a pane: flush on the window's edge and
+        bottom, so the tree's `--card-bottom-inset` (this card's height plus its
+        top gap) is all the room the rows have to leave. */}
+      <div
+        ref={cardRef}
+        data-testid="carousel-card"
+        data-mode={autoHide ? 'auto-hide' : 'docked'}
+        data-reveal={(autoHide && (focusInEditor || pointerSummoned)) || undefined}
+        onPointerEnter={autoHide ? summon : undefined}
+        // This box's own `absolute` already makes it a positioning ancestor,
+        // so the drag-to-trash overlay below (`absolute inset-0`) covers
+        // exactly this box without needing a separate `relative`.
+        className={cn(
+          'absolute inset-x-0 bottom-0 z-10 flex flex-col overflow-hidden bg-pane-chrome-bg',
+          autoHide &&
+            'group backdrop-blur-xl transition-transform duration-200 ease-out focus-within:translate-x-0 data-[reveal=true]:translate-x-0',
+          autoHide &&
+            (sidebarSide === 'left'
+              ? '-translate-x-[calc(100%-var(--peek-sliver))]'
+              : 'translate-x-[calc(100%-var(--peek-sliver))]'),
+        )}
+        style={{
+          ...buildSidebarCardStyle(sidebarSide),
+          ['--peek-sliver' as string]: `${PEEK_SLIVER_PX}px`,
+          ...(cardHeightPx != null && !cardFolded ? { height: `${cardHeightPx}px` } : {}),
+        }}
+      >
+        {/* Top 6px hot zone (spec §6) — matches pane-sash.tsx's own
           `h-1.5`/`w-1.5` literally rather than a new value. Lands on the
           card's own top edge (already drawn by its rounded corners/border),
           not a separate visible sash. Hidden while folded (manually or by a
@@ -184,21 +214,32 @@ export function SidebarCarousel({ sidebarHeight, railRef, onHeightChange }: Side
           isn't showing, and the card's own height then collapses to the
           head's (point 4, spec §6.4) rather than reserving the
           last-dragged height. */}
-      {!cardFolded && (
-        <div
-          data-testid="carousel-resize-handle"
-          onPointerDown={handleResizePointerDown}
-          className="absolute inset-x-0 top-0 z-10 h-1.5 cursor-row-resize touch-none"
-        />
-      )}
-      <NavStack>
-        {/* The card is a drawer anchored to the rail's bottom: this head is its footer and the panels above it open upward, so the caret points down while open and up while folded. */}
-        {/* `RemovalTray` used to mount here. It must not: this card is
+        {autoHide && (
+          // The part of the card that stays on screen: a grip on the window's edge.
+          <div
+            aria-hidden="true"
+            data-testid="carousel-peek-grip"
+            className={cn(
+              'pointer-events-none absolute top-1/2 h-12 w-[3px] -translate-y-1/2 rounded-full bg-foreground/30 transition-opacity group-focus-within:opacity-0 group-data-[reveal=true]:opacity-0',
+              sidebarSide === 'left' ? 'right-[2px]' : 'left-[2px]',
+            )}
+          />
+        )}
+        {!cardFolded && (
+          <div
+            data-testid="carousel-resize-handle"
+            onPointerDown={handleResizePointerDown}
+            className="absolute inset-x-0 top-0 z-10 h-1.5 cursor-row-resize touch-none"
+          />
+        )}
+        <NavStack>
+          {/* The card is a drawer anchored to the rail's bottom: this head is its footer and the panels above it open upward, so the caret points down while open and up while folded. */}
+          {/* `RemovalTray` used to mount here. It must not: this card is
             unmounted whenever the stage is empty or a space is being created
             (ide-shell.tsx's gate), and the tray owns the ONLY commit clock —
             measured live, a held row drained its hairline and no DELETE was
             ever sent. It mounts in the rail itself now. */}
-        {/* The body (spec §6.4): folding "drops everything under [the head]" —
+          {/* The body (spec §6.4): folding "drops everything under [the head]" —
             `hidden` (display:none), never a conditional unmount. Both
             Files and Git panels stay mounted the whole time regardless of
             fold (spec §6.2), the same dormancy the pane's own chat/terminal
@@ -208,123 +249,39 @@ export function SidebarCarousel({ sidebarHeight, railRef, onHeightChange }: Side
             live row drag too (`cardFolded`), same as everything else the
             fold touches — the card giving its space back is the whole
             point (see `rowDragging`'s own doc above). */}
-        <div
-          ref={containerRef}
-          onScroll={handleScroll}
-          onWheel={armUserGesture}
-          onTouchStart={armUserGesture}
-          data-sidebar-carousel=""
-          className={cn(
-            'flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
-            cardFolded ? 'hidden' : 'flex',
-          )}
-        >
-          {/* Files panel */}
-          <SidebarCarouselFilesPanel />
-
-          {/* Git panel */}
           <div
-            data-testid="carousel-panel"
-            className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden"
-          >
-            <GitPanel />
-          </div>
-        </div>
-        {/* The head (spec §6.1): underline variant, icon only, no labels, no
-            divider. justify-start overrides the base tabs list's w-fit
-            justify-center; the fold caret sits after the tabs at `ml-auto`,
-            on the same head row. */}
-        {/* px-1 (4px), not px-2: the row's own height (h-9) already leaves
-            exactly 4px of vertical clearance around a size-7 icon-sm control
-            (36 - 28 = 8, halved) — px-2 (8px) horizontally doubled that,
-            reading as lopsided once this row is the WHOLE visible thing (a
-            folded card, not one row among many). Matched, not guessed. */}
-        <div
-          data-testid="carousel-head"
-          className={cn(
-            'relative grid h-9 shrink-0 grid-cols-[1fr_auto_1fr] items-center px-1',
-            !cardFolded && 'shadow-[inset_0_1px_0_var(--border)]',
-          )}
-        >
-          {/* Paints behind the label and buttons; never affects their layout. */}
-          <SidebarBuildBadgeBand className="absolute inset-0 z-0" align="start" />
-          {/* Build channel + version, left of the centered buttons. */}
-          <div className="relative z-10 flex min-w-0 justify-start pl-2">
-            <SidebarBuildBadgeLabel />
-          </div>
-          {/* Files/Git are plain ghost Buttons, not the Tabs primitive — the
-              exact same component/tokens as the fold toggle, Settings, and
-              the space marks in the header (icon-sm, rounded-sm, text-muted-foreground,
-              hover:bg-sidebar-element-hover). "Selected" reuses the space
-              mark's own idiom (opacity-60 when not current) instead of a
-              border/shadow/underline of its own. */}
-          <div
-            data-testid="tabs-list"
-            className="relative z-10 flex items-center justify-center gap-1"
-          >
-            {visibleHeadTabs.map(({ tab, label, Icon }) => {
-              const isActive = activeTab === tab
-              return (
-                <Button
-                  key={tab}
-                  variant="ghost"
-                  size="icon-sm"
-                  data-testid={`carousel-head-tab-${tab}`}
-                  aria-label={label}
-                  aria-pressed={isActive}
-                  onClick={() => setActiveTab(tab)}
-                  tooltip={label}
-                  tooltipSide="bottom"
-                  className={cn(
-                    'shrink-0 rounded-sm hover:bg-sidebar-element-hover',
-                    headInk,
-                    !isActive && 'opacity-60',
-                  )}
-                >
-                  <Icon size={16} weight="regular" />
-                </Button>
-              )
-            })}
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              data-testid="settings-button"
-              aria-label="Settings"
-              tooltip="Settings"
-              tooltipSide="bottom"
-              onClick={() => useUIState.getState().openSettingsDialog()}
-              className={cn('shrink-0 rounded-sm hover:bg-sidebar-element-hover', headInk)}
-            >
-              <GearIcon size={16} />
-            </Button>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            data-testid="carousel-fold-toggle"
-            // `aria-pressed`/`onClick` stay tied to the REAL toggle only —
-            // a drag-fold is not a click and must never be recorded as one.
-            aria-pressed={folded}
-            aria-label={folded ? 'Expand file explorer' : 'Collapse file explorer'}
-            tooltip={folded ? 'Expand file explorer' : 'Collapse file explorer'}
-            tooltipSide="bottom"
-            onClick={() => setFolded((f) => !f)}
+            ref={containerRef}
+            onScroll={handleScroll}
+            onWheel={armUserGesture}
+            onTouchStart={armUserGesture}
+            data-sidebar-carousel=""
             className={cn(
-              'relative z-10 shrink-0 justify-self-end rounded-sm hover:bg-sidebar-element-hover',
-              headInk,
+              'flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+              cardFolded ? 'hidden' : 'flex',
             )}
           >
-            <CaretDown
-              aria-hidden="true"
-              data-testid="carousel-fold-caret"
-              // The VISUAL follows whichever fold is actually showing — a
-              // live row drag reads the same as the user's own toggle here,
-              // this control included.
-              className={cn('transition-transform', cardFolded && 'rotate-180')}
-            />
-          </Button>
-        </div>
-      </NavStack>
-    </div>
+            {/* Files panel */}
+            <SidebarCarouselFilesPanel />
+
+            {/* Git panel */}
+            <div
+              data-testid="carousel-panel"
+              className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden"
+            >
+              <GitPanel />
+            </div>
+          </div>
+          <CarouselHead
+            tabs={visibleHeadTabs}
+            activeTab={activeTab}
+            onSelectTab={setActiveTab}
+            showFold={!autoHide}
+            folded={folded}
+            cardFolded={cardFolded}
+            onToggleFold={() => setFolded((f) => !f)}
+          />
+        </NavStack>
+      </div>
+    </>
   )
 }

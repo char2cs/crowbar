@@ -210,13 +210,13 @@ describe('RecentsViewRow', () => {
     ).toBeNull()
   })
 
-  it('every tab is one h-9 shell with no margin of its own on the row', () => {
+  it('every tab is one h-8 shell with no margin of its own on the row', () => {
     groupAndSolo()
     renderBand()
     const solo = screen.getByTestId('recents-row-chat-3').parentElement!
     const group = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
     for (const shell of [solo, group]) {
-      expect(classesOf(shell)).toEqual(expect.arrayContaining(['mx-0.5', 'h-9', 'rounded-full']))
+      expect(classesOf(shell)).toEqual(expect.arrayContaining(['mx-0.5', 'h-8', 'rounded-full']))
     }
     for (const rowId of ['recents-row-chat-1', 'recents-row-chat-2', 'recents-row-chat-3']) {
       const treeitem = within(screen.getByTestId(rowId)).getByRole('treeitem')

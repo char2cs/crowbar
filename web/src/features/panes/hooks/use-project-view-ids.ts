@@ -11,3 +11,8 @@ export function useProjectViewIds(): readonly string[] {
     s.activeProjectId ? selectProjectViewIds(s, s.activeProjectId) : NO_VIEWS,
   )
 }
+
+/** Whether the view-tab strip is drawn above the panes, pushing them off the window's top. */
+export function useHasViewStrip(): boolean {
+  return useProjectViewIds().length > 0
+}

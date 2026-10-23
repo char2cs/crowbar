@@ -9,6 +9,8 @@ export interface Settings {
   // General
   autoSave: boolean
   sidebarPosition: 'left' | 'right'
+  /** `auto-hide` keeps only a sliver of the file explorer at the window's edge until hovered. */
+  sidebarMode: 'docked' | 'auto-hide'
   // Editor
   fontFamily: string
   fontSize: number
@@ -70,7 +72,7 @@ export interface Settings {
   // Features
   coreFeatures: CoreFeaturesState
   // Advanced
-  showFpsOverlay: boolean
+  showBuildReadout: boolean
   /** Sidebar-header build indicator. 'auto' detects dev/nightly/beta/release from the build; any other value forces that state for QA, and 'off' hides it. */
   buildBadgeOverride: 'auto' | 'off' | BuildChannel
   // Other

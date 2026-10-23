@@ -1,6 +1,6 @@
 import { type CSSProperties, type ReactNode, useEffect, useState } from 'react'
 import { cn } from '@/utils/cn'
-import { IS_MAC } from '@/utils/platform'
+import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
 
 /** Gap between the peeked card and the window edges (Tailwind `inset-2`). */
 const PEEK_MARGIN_PX = 8
@@ -17,7 +17,7 @@ const PEEK_MARGIN_PX = 8
  */
 const EDGE_TRIGGER_PX = 6
 /** Top chrome band — never summon from behind the traffic lights / drag region. */
-const CHROME_BAND_PX = IS_MAC ? 44 : 34
+const CHROME_BAND_PX = CHROME_ROW_HEIGHT_PX
 /** Clears the bottom corner-resize zone, which is wider than the edge band. */
 const BOTTOM_SAFE_PX = 16
 

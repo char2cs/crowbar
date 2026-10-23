@@ -9,6 +9,7 @@ import {
 } from '@/features/settings/lib/ui-font-size'
 import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
 import NumberInput from '@/components/ui/number-input'
+import { Switch } from '@/components/ui/switch'
 import Section, { SettingRow } from '../settings-section'
 import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
 import {
@@ -26,6 +27,11 @@ const THEME_MODE_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: 'system', label: 'Sync with System' },
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
+]
+
+const SIDEBAR_MODE_OPTIONS: { value: 'docked' | 'auto-hide'; label: string }[] = [
+  { value: 'docked', label: 'Docked' },
+  { value: 'auto-hide', label: 'Auto-hide' },
 ]
 
 const SIDEBAR_POSITION_OPTIONS: { value: 'left' | 'right'; label: string }[] = [
@@ -233,6 +239,42 @@ export const AppearanceSettings = () => {
               ))}
             </SelectContent>
           </Select>
+        </SettingRow>
+        <SettingRow
+          label="File Explorer"
+          description="Auto-hide keeps a sliver at the window edge and slides the explorer in on hover"
+          onReset={() => updateSetting('sidebarMode', getDefaultSetting('sidebarMode'))}
+          canReset={settings.sidebarMode !== getDefaultSetting('sidebarMode')}
+        >
+          <Select
+            value={settings.sidebarMode}
+            onValueChange={(value) => {
+              if (value) updateSetting('sidebarMode', value as 'docked' | 'auto-hide')
+            }}
+          >
+            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.compact}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SIDEBAR_MODE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </SettingRow>
+        <SettingRow
+          label="Build readout"
+          description="Show the build channel, time and frame rate in the sidebar header"
+          onReset={() => updateSetting('showBuildReadout', getDefaultSetting('showBuildReadout'))}
+          canReset={settings.showBuildReadout !== getDefaultSetting('showBuildReadout')}
+        >
+          <Switch
+            checked={settings.showBuildReadout}
+            onChange={(checked) => updateSetting('showBuildReadout', checked)}
+            size="sm"
+          />
         </SettingRow>
       </Section>
     </div>

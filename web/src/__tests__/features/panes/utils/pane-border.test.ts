@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   buildInnerViewStyle,
   buildPaneContentStyle,
+  buildSidebarCardStyle,
   isWindowEdge,
 } from '@/features/panes/utils/pane-border'
 import type { PanePosition } from '@/features/panes/types/pane'
@@ -218,7 +219,7 @@ describe('buildPaneContentStyle — gutter (§7.4)', () => {
   it('single pane: header-icon inset above (atTop), flush against the (open) sidebar and the window', () => {
     const s = buildPaneContentStyle(full, sidebar, false)
     expect(s.marginLeft).toBe('0') // chrome side — sits flush against the sidebar, no gap
-    expect(s.marginTop).toBe('8px') // atTop — matches the header row's icon inset (macOS: (44-28)/2)
+    expect(s.marginTop).toBe('7px') // atTop — matches the header row's icon inset (macOS: (42-28)/2)
     expect(s.marginRight).toBe('0') // window edge — gives it up
     expect(s.marginBottom).toBe('0') // window edge — gives it up
   })
@@ -283,6 +284,38 @@ describe('buildInnerViewStyle', () => {
       const s = buildInnerViewStyle(facing)
       expect(s.borderTopLeftRadius).toBe('0')
       expect(s.borderTopRightRadius).toBe('0')
+      expect(s.borderBottomLeftRadius).toBe('0')
+      expect(s.borderBottomRightRadius).toBe('0')
+    }
+  })
+})
+
+describe('buildSidebarCardStyle', () => {
+  it('sidebar on the left: rounded, bordered and inset only on its right, flat against the window', () => {
+    const s = buildSidebarCardStyle('left')
+    expect(s.borderRight).toBe('1px solid var(--border)')
+    expect(s.borderLeft).toBe('none')
+    expect(s.borderTopRightRadius).toBe('var(--radius-lg)')
+    expect(s.borderTopLeftRadius).toBe('0')
+    expect(s.marginRight).toBe('6px')
+    expect(s.marginLeft).toBe('0')
+  })
+
+  it('sidebar on the right: mirrored', () => {
+    const s = buildSidebarCardStyle('right')
+    expect(s.borderLeft).toBe('1px solid var(--border)')
+    expect(s.borderRight).toBe('none')
+    expect(s.borderTopLeftRadius).toBe('var(--radius-lg)')
+    expect(s.borderTopRightRadius).toBe('0')
+    expect(s.marginLeft).toBe('6px')
+    expect(s.marginRight).toBe('0')
+  })
+
+  it('is flush against the window bottom on both sides', () => {
+    for (const side of ['left', 'right'] as const) {
+      const s = buildSidebarCardStyle(side)
+      expect(s.borderBottom).toBe('none')
+      expect(s.marginBottom).toBe('0')
       expect(s.borderBottomLeftRadius).toBe('0')
       expect(s.borderBottomRightRadius).toBe('0')
     }
