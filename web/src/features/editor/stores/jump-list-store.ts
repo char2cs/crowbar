@@ -3,7 +3,7 @@ import { immer } from 'zustand/middleware/immer'
 import { createWithEqualityFn } from 'zustand/traditional'
 import { createSelectors } from '@/utils/zustand-selectors'
 
-export interface JumpListEntry {
+interface JumpListEntry {
   bufferId: string
   /**
    * The workspace this entry was recorded in.
@@ -13,8 +13,8 @@ export interface JumpListEntry {
    * paths with different content, so an entry that does not name its own
    * workspace is ambiguous: resolving it against whatever is active at
    * navigation time opens a sibling checkout's file under the right tab title.
-   * `navigateToJumpEntry` refuses any entry whose workspace is not the active
-   * one rather than guessing.
+   * Navigation refuses any entry whose workspace is not the active one rather
+   * than guessing.
    */
   workspaceId: string
   filePath: string

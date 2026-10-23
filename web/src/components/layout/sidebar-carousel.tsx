@@ -1,17 +1,16 @@
 import { useLayoutEffect, useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
-import { CaretDown, GearIcon } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { NavStack } from './nav-stack'
-import { Button } from '@/components/ui/button'
+import { CarouselHead } from './sidebar-carousel-head'
 import { GitPanel } from '@/features/git/components/git-panel'
 import { SidebarCarouselFilesPanel } from './sidebar-carousel-files-panel'
 import { useCardResizeDrag } from './use-card-resize-drag'
+import { useRowDragging, useSidebarReveal } from './use-sidebar-reveal'
 import { useCarouselScrollSync } from './use-carousel-scroll-sync'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useSettingsStore } from '@/features/settings/store'
 import { buildSidebarCardStyle, SIDEBAR_CARD_GAP } from '@/features/panes/utils/pane-border'
-import { useUIState } from '@/features/window/stores/ui-state-store'
 import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
 import { CARD_BOTTOM_INSET_VAR, loadCardHeightFraction } from './sidebar-card-height'
 import {
@@ -98,58 +97,11 @@ export function SidebarCarousel({ sidebarHeight, railRef, onHeightChange }: Side
   // (set by use-sidebar-drag.ts for the life of any row drag) instead of a
   // click. Not persisted, same reasoning as `folded` above; restores itself
   // the instant the drag ends.
-  const [rowDragging, setRowDragging] = useState(false)
-  useEffect(() => {
-    const read = () => document.documentElement.hasAttribute('data-row-dragging')
-    setRowDragging(read())
-    const observer = new MutationObserver(() => setRowDragging(read()))
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['data-row-dragging'],
-    })
-    return () => observer.disconnect()
-  }, [])
-  // The explorer comes out (auto-hidden) or unfolds (docked) while the keyboard
-  // is in the editing surface (Monaco, a pane's editor view) and goes shy again
-  // when focus moves to a chat or anything else.
-  const [focusInEditor, setFocusInEditor] = useState(false)
-  // A settings dialog takes focus and the pointer away from the card without the
-  // user having left it: whichever state it was in stays put until it closes.
-  const settingsOpen = useUIState((s) => s.isSettingsOpen)
-  // Pointer-summoned, and sticky: leaving the window from the card's own spot
-  // keeps it out; the next pointer move over anything else sends it back.
-  const [pointerSummoned, setPointerSummoned] = useState(false)
-  const peekZoneRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!autoHide || !pointerSummoned || settingsOpen) return
-    const onMove = (event: PointerEvent) => {
-      const target = event.target
-      const own = (el: HTMLElement | null) =>
-        el !== null && target instanceof Node && el.contains(target)
-      if (own(cardRef.current) || own(peekZoneRef.current)) return
-      // A resize drag runs ahead of the card, so the pointer is briefly outside it.
-      if (document.documentElement.hasAttribute('data-pane-resizing')) return
-      setPointerSummoned(false)
-    }
-    document.addEventListener('pointermove', onMove, true)
-    return () => document.removeEventListener('pointermove', onMove, true)
-  }, [autoHide, pointerSummoned, settingsOpen])
-  useEffect(() => {
-    if (settingsOpen) return
-    const inEditor = (target: EventTarget | null) =>
-      target instanceof Element && target.closest('[data-editor-view]') !== null
-    const onFocusIn = (event: FocusEvent) => setFocusInEditor(inEditor(event.target))
-    const onFocusOut = (event: FocusEvent) => {
-      if (event.relatedTarget === null && document.hasFocus()) setFocusInEditor(false)
-    }
-    setFocusInEditor(inEditor(document.activeElement))
-    document.addEventListener('focusin', onFocusIn)
-    document.addEventListener('focusout', onFocusOut)
-    return () => {
-      document.removeEventListener('focusin', onFocusIn)
-      document.removeEventListener('focusout', onFocusOut)
-    }
-  }, [settingsOpen])
+  const rowDragging = useRowDragging()
+  const { focusInEditor, pointerSummoned, summon, peekZoneRef } = useSidebarReveal({
+    autoHide,
+    cardRef,
+  })
 
   // Auto-hidden, the card overlays the tree: there is nothing to give back by folding.
   const cardFolded = !autoHide && (folded || rowDragging) && !focusInEditor
@@ -218,7 +170,7 @@ export function SidebarCarousel({ sidebarHeight, railRef, onHeightChange }: Side
           aria-hidden="true"
           ref={peekZoneRef}
           data-testid="carousel-peek-zone"
-          onPointerEnter={() => setPointerSummoned(true)}
+          onPointerEnter={summon}
           className={cn('absolute bottom-0 z-[9]', sidebarSide === 'left' ? 'left-0' : 'right-0')}
           style={{
             width: PEEK_GRACE_PX,
@@ -235,7 +187,7 @@ export function SidebarCarousel({ sidebarHeight, railRef, onHeightChange }: Side
         data-testid="carousel-card"
         data-mode={autoHide ? 'auto-hide' : 'docked'}
         data-reveal={(autoHide && (focusInEditor || pointerSummoned)) || undefined}
-        onPointerEnter={autoHide ? () => setPointerSummoned(true) : undefined}
+        onPointerEnter={autoHide ? summon : undefined}
         // This box's own `absolute` already makes it a positioning ancestor,
         // so the drag-to-trash overlay below (`absolute inset-0`) covers
         // exactly this box without needing a separate `relative`.
@@ -319,93 +271,15 @@ export function SidebarCarousel({ sidebarHeight, railRef, onHeightChange }: Side
               <GitPanel />
             </div>
           </div>
-          {/* The head (spec §6.1): underline variant, icon only, no labels, no
-            divider. justify-start overrides the base tabs list's w-fit
-            justify-center; the fold caret sits after the tabs at `ml-auto`,
-            on the same head row. */}
-          {/* px-1 (4px), not px-2: the row's own height (h-9) already leaves
-            exactly 4px of vertical clearance around a size-7 icon-sm control
-            (36 - 28 = 8, halved) — px-2 (8px) horizontally doubled that,
-            reading as lopsided once this row is the WHOLE visible thing (a
-            folded card, not one row among many). Matched, not guessed. */}
-          <div
-            data-testid="carousel-head"
-            className={cn('relative grid h-9 shrink-0 grid-cols-[1fr_auto_1fr] items-center px-1')}
-          >
-            {/* Files/Git are plain ghost Buttons, not the Tabs primitive — the
-              exact same component/tokens as the fold toggle, Settings, and
-              the space marks in the header (icon-sm, rounded-sm, text-muted-foreground,
-              hover:bg-sidebar-element-hover). "Selected" reuses the space
-              mark's own idiom (opacity-60 when not current) instead of a
-              border/shadow/underline of its own. */}
-            <div
-              data-testid="tabs-list"
-              className="relative z-10 col-start-2 flex items-center justify-center gap-1"
-            >
-              {visibleHeadTabs.map(({ tab, label, Icon }) => {
-                const isActive = activeTab === tab
-                return (
-                  <Button
-                    key={tab}
-                    variant="ghost"
-                    size="icon-sm"
-                    data-testid={`carousel-head-tab-${tab}`}
-                    aria-label={label}
-                    aria-pressed={isActive}
-                    onClick={() => setActiveTab(tab)}
-                    tooltip={label}
-                    tooltipSide="bottom"
-                    className={cn(
-                      'shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover',
-                      !isActive && 'opacity-60',
-                    )}
-                  >
-                    <Icon size={16} weight="regular" />
-                  </Button>
-                )
-              })}
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                data-testid="settings-button"
-                aria-label="Settings"
-                tooltip="Settings"
-                tooltipSide="bottom"
-                onClick={() => useUIState.getState().openSettingsDialog()}
-                className={
-                  'shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover'
-                }
-              >
-                <GearIcon size={16} />
-              </Button>
-            </div>
-            {!autoHide && (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                data-testid="carousel-fold-toggle"
-                // `aria-pressed`/`onClick` stay tied to the REAL toggle only —
-                // a drag-fold is not a click and must never be recorded as one.
-                aria-pressed={folded}
-                aria-label={folded ? 'Expand file explorer' : 'Collapse file explorer'}
-                tooltip={folded ? 'Expand file explorer' : 'Collapse file explorer'}
-                tooltipSide="bottom"
-                onClick={() => setFolded((f) => !f)}
-                className={cn(
-                  'relative z-10 shrink-0 justify-self-end rounded-sm text-muted-foreground hover:bg-sidebar-element-hover',
-                )}
-              >
-                <CaretDown
-                  aria-hidden="true"
-                  data-testid="carousel-fold-caret"
-                  // The VISUAL follows whichever fold is actually showing — a
-                  // live row drag reads the same as the user's own toggle here,
-                  // this control included.
-                  className={cn('transition-transform', cardFolded && 'rotate-180')}
-                />
-              </Button>
-            )}
-          </div>
+          <CarouselHead
+            tabs={visibleHeadTabs}
+            activeTab={activeTab}
+            onSelectTab={setActiveTab}
+            showFold={!autoHide}
+            folded={folded}
+            cardFolded={cardFolded}
+            onToggleFold={() => setFolded((f) => !f)}
+          />
         </NavStack>
       </div>
     </>

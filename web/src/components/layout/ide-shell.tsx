@@ -356,7 +356,7 @@ function IdeShellBody() {
  * rendered fibers and 78fps, against 120fps idle.
  *
  * Isolating it here leaves the subscription — and its React-effect timing,
- * which `navigateToJumpEntry`'s retarget handshake depends on (the marker is
+ * which the jump list's retarget handshake depends on (the marker is
  * moved onto the reopened buffer's brand-new id AFTER the pane-store write
  * that reveals it, so a recorder running synchronously with that write would
  * record the jump as a fresh navigation and truncate the forward branch) —
