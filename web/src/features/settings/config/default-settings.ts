@@ -17,6 +17,7 @@ export const defaultSettings: Settings = {
   // General
   autoSave: false,
   sidebarPosition: 'left',
+  sidebarMode: 'docked',
   // Editor
   fontFamily: DEFAULT_MONO_FONT_FAMILY,
   fontSize: DEFAULT_CODE_FONT_SIZE,
@@ -44,7 +45,7 @@ export const defaultSettings: Settings = {
   uiFontSize: UI_FONT_SIZE_DEFAULT,
   headingFontFamily: DEFAULT_HEADING_FONT_FAMILY,
   // Agents
-  chatIsDefaultPresentation: true,
+  chatIsDefaultPresentation: false,
   chatSplitPresentationEnabled: false,
   // Theme
   theme: 'crowbar',
@@ -67,7 +68,7 @@ export const defaultSettings: Settings = {
     breadcrumbs: true,
   },
   // Advanced
-  showFpsOverlay: false,
+  showBuildReadout: true,
   buildBadgeOverride: 'auto',
   // Other
   maxOpenTabs: 100,

@@ -21,7 +21,6 @@ import { useSettingsStore } from '@/features/settings/store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
 import { ConnectionIndicator } from './connection-indicator'
-import { FpsOverlay } from './fps-overlay'
 import { DetachHolderModal } from './detach-holder-modal'
 import { PlaceholderToastWatcher } from './placeholder-toast-watcher'
 import { SidebarToastOverlay } from './sidebar-toast-overlay'
@@ -334,7 +333,6 @@ function IdeShellBody() {
       />
       <FontStyleInjector />
       <ConnectionIndicator />
-      <FpsOverlay />
       <DetachHolderModal />
       <PlaceholderToastWatcher />
       <NavigationHistoryRecorder />

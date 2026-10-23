@@ -9,6 +9,7 @@ import { useSidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
 import { DragGhost, DragGhostRows } from '@/components/layout/drag-ghost'
 import { DropIndicator } from '@/components/layout/drop-indicator'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
+import { BuildReadout } from '@/components/layout/build-readout'
 import { useProjectViewIds } from '@/features/panes/hooks/use-project-view-ids'
 import { viewMembers } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -18,8 +19,8 @@ import { usePaneTopRowEdges } from '../hooks/use-pane-top-row-edges'
 import { PaneTopRow } from './pane-top-row'
 import TabNavigationButtons from './tab-navigation-buttons'
 
-// Every tab is one sidebar row wide, a split included.
-const ROW_WIDTH_PX = 224
+// Every tab is this wide, a split included.
+const ROW_WIDTH_PX = 176
 
 /**
  * The sidebar's Recents rows laid out across the top: one per view of the
@@ -32,10 +33,7 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
   const viewIds = useProjectViewIds()
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
-  const { rowRef, isAtLeftEdge, isAtRightEdge, isAtTopEdge } = usePaneTopRowEdges([
-    sidebarPosition,
-    viewIds.length > 0,
-  ])
+  const { rowRef, isAtLeftEdge, isAtRightEdge, isAtTopEdge } = usePaneTopRowEdges([sidebarPosition])
   const scrollRef = useRef<HTMLDivElement>(null)
   const rowsRef = useRef(new Map<string, { row: SidebarRowType; viewId: string }>())
   const registerRow = (row: SidebarRowType, viewId: string) => {
@@ -59,9 +57,8 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
 
   if (viewIds.length === 0) return null
 
-  // Centred on the tabs beside it, which hang from the row's top padding.
   const toggle = (
-    <div className="flex h-9 shrink-0 items-center">
+    <div className="flex h-8 shrink-0 items-center">
       <TabNavigationButtons
         isBottomPane={false}
         sidebarOpen={sidebarOpen}
@@ -76,7 +73,7 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
       isBottomPane={false}
       isAtLeftEdge={isAtLeftEdge}
       isAtTopEdge={isAtTopEdge}
-      className="h-11 items-start bg-transparent pb-0 pr-2 pt-1"
+      className="bg-transparent py-0 pr-2"
     >
       {!sidebarOpen && sidebarPosition === 'left' && isAtLeftEdge && toggle}
       <div
@@ -99,6 +96,7 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
         ))}
       </div>
       {!sidebarOpen && sidebarPosition === 'right' && isAtRightEdge && toggle}
+      {(sidebarPosition === 'left' || !sidebarOpen) && <BuildReadout className="right-3" />}
       {drag.dragging && <DropIndicator ref={drag.attachDropLine} />}
       {drag.ghostRows && (
         <DragGhost ref={drag.ghostRef} origin={drag.ghostOrigin}>

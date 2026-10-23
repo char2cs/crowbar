@@ -1,7 +1,8 @@
 import React from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest'
 import { SidebarCarousel } from '@/components/layout/sidebar-carousel'
+import { useSettingsStore } from '@/features/settings/store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import {
@@ -343,6 +344,159 @@ describe('SidebarCarousel', () => {
       expect(screen.getByTestId('carousel-card')).toHaveStyle({ height: '300px' })
     })
 
+    describe('as a pane', () => {
+      function setSetting(patch: {
+        sidebarMode?: 'docked' | 'auto-hide'
+        sidebarPosition?: 'left' | 'right'
+      }) {
+        act(() => {
+          useSettingsStore.setState((state) => {
+            Object.assign(state.settings, patch)
+          })
+        })
+      }
+      beforeEach(() => useUIState.getState().setIsSettingsOpen(false))
+      afterEach(() => setSetting({ sidebarMode: 'docked', sidebarPosition: 'left' }))
+
+      it('is rounded on the side facing the panes and flat against the window', () => {
+        setSetting({ sidebarPosition: 'left' })
+        const { unmount } = render(<SidebarCarousel />)
+        expect(screen.getByTestId('carousel-card')).toHaveStyle({
+          borderTopRightRadius: 'var(--radius-lg)',
+          borderTopLeftRadius: '0',
+        })
+        unmount()
+
+        setSetting({ sidebarPosition: 'right' })
+        render(<SidebarCarousel />)
+        expect(screen.getByTestId('carousel-card')).toHaveStyle({
+          borderTopLeftRadius: 'var(--radius-lg)',
+          borderTopRightRadius: '0',
+        })
+      })
+
+      it('auto-hidden, a grace zone along the window edge also summons it; docked has none', () => {
+        setSetting({ sidebarMode: 'docked' })
+        const { unmount } = render(<SidebarCarousel />)
+        expect(screen.queryByTestId('carousel-peek-zone')).toBeNull()
+        unmount()
+
+        setSetting({ sidebarMode: 'auto-hide', sidebarPosition: 'right' })
+        render(<SidebarCarousel />)
+        const zone = screen.getByTestId('carousel-peek-zone')
+        const sliver = parseFloat(
+          screen.getByTestId('carousel-card').style.getPropertyValue('--peek-sliver'),
+        )
+        expect(parseFloat(zone.style.width)).toBeGreaterThan(sliver)
+      })
+
+      it('auto-hidden, comes out while focus is in an editor view and goes shy when it leaves', () => {
+        setSetting({ sidebarMode: 'auto-hide' })
+        render(
+          <>
+            <div data-editor-view="">
+              <textarea data-testid="editor-input" />
+            </div>
+            <textarea data-testid="chat-input" />
+            <SidebarCarousel />
+          </>,
+        )
+        const card = screen.getByTestId('carousel-card')
+        expect(card).not.toHaveAttribute('data-reveal')
+
+        act(() => screen.getByTestId('editor-input').focus())
+        expect(card).toHaveAttribute('data-reveal', 'true')
+
+        act(() => screen.getByTestId('chat-input').focus())
+        expect(card).not.toHaveAttribute('data-reveal')
+      })
+
+      it('auto-hidden, stays out when the pointer leaves the window from its spot, and goes shy on the next move elsewhere', () => {
+        setSetting({ sidebarMode: 'auto-hide' })
+        render(
+          <>
+            <div data-testid="elsewhere" />
+            <SidebarCarousel />
+          </>,
+        )
+        const card = screen.getByTestId('carousel-card')
+
+        fireEvent.pointerEnter(screen.getByTestId('carousel-peek-zone'))
+        expect(card).toHaveAttribute('data-reveal', 'true')
+
+        // Out of the window: no pointer event lands on another element.
+        fireEvent.pointerLeave(screen.getByTestId('carousel-peek-zone'), { relatedTarget: null })
+        expect(card).toHaveAttribute('data-reveal', 'true')
+
+        fireEvent.pointerMove(card)
+        expect(card).toHaveAttribute('data-reveal', 'true')
+
+        fireEvent.pointerMove(screen.getByTestId('elsewhere'))
+        expect(card).not.toHaveAttribute('data-reveal')
+      })
+
+      it('auto-hidden, stays as it was while the settings dialog is open', () => {
+        setSetting({ sidebarMode: 'auto-hide' })
+        render(
+          <>
+            <div data-testid="elsewhere" />
+            <SidebarCarousel />
+          </>,
+        )
+        const card = screen.getByTestId('carousel-card')
+        fireEvent.pointerEnter(screen.getByTestId('carousel-peek-zone'))
+
+        act(() => useUIState.getState().openSettingsDialog())
+        fireEvent.pointerMove(screen.getByTestId('elsewhere'))
+        expect(card).toHaveAttribute('data-reveal', 'true')
+
+        act(() => useUIState.getState().setIsSettingsOpen(false))
+        fireEvent.pointerMove(screen.getByTestId('elsewhere'))
+        expect(card).not.toHaveAttribute('data-reveal')
+      })
+
+      it('auto-hidden, has no fold toggle and stays out while its height is being dragged', () => {
+        setSetting({ sidebarMode: 'docked' })
+        const { unmount } = render(<SidebarCarousel />)
+        expect(screen.getByTestId('carousel-fold-toggle')).toBeInTheDocument()
+        unmount()
+
+        setSetting({ sidebarMode: 'auto-hide' })
+        render(
+          <>
+            <div data-testid="elsewhere" />
+            <SidebarCarousel />
+          </>,
+        )
+        expect(screen.queryByTestId('carousel-fold-toggle')).toBeNull()
+
+        const card = screen.getByTestId('carousel-card')
+        fireEvent.pointerEnter(screen.getByTestId('carousel-peek-zone'))
+        document.documentElement.setAttribute('data-pane-resizing', '1')
+        fireEvent.pointerMove(screen.getByTestId('elsewhere'))
+        expect(card).toHaveAttribute('data-reveal', 'true')
+
+        document.documentElement.removeAttribute('data-pane-resizing')
+        fireEvent.pointerMove(screen.getByTestId('elsewhere'))
+        expect(card).not.toHaveAttribute('data-reveal')
+      })
+
+      it('docked, reserves its room in the tree; auto-hidden, reserves none', () => {
+        const rail = document.createElement('div')
+        const railRef = { current: rail }
+        setSetting({ sidebarMode: 'docked' })
+        const { unmount } = render(<SidebarCarousel railRef={railRef} />)
+        expect(screen.getByTestId('carousel-card')).toHaveAttribute('data-mode', 'docked')
+        expect(rail.style.getPropertyValue('--card-bottom-inset')).toBe('6px')
+        unmount()
+
+        setSetting({ sidebarMode: 'auto-hide' })
+        render(<SidebarCarousel railRef={railRef} />)
+        expect(screen.getByTestId('carousel-card')).toHaveAttribute('data-mode', 'auto-hide')
+        expect(rail.style.getPropertyValue('--card-bottom-inset')).toBe('0px')
+      })
+    })
+
     it('the resize handle is the top 6px', () => {
       render(<SidebarCarousel />)
       const handle = screen.getByTestId('carousel-resize-handle')
@@ -351,7 +505,7 @@ describe('SidebarCarousel', () => {
 
     it('renders with no explicit height before the rail has been measured', () => {
       render(<SidebarCarousel />)
-      expect(screen.getByTestId('carousel-card')).not.toHaveAttribute('style')
+      expect(screen.getByTestId('carousel-card').style.height).toBe('')
     })
 
     it('reports its own height so an ancestor can inset the tree by the same amount', () => {
@@ -555,6 +709,26 @@ describe('SidebarCarousel', () => {
       expect(caret()).toHaveClass('rotate-180')
     })
 
+    it('a folded card unfolds while focus is in an editor view and folds again when it leaves', () => {
+      render(
+        <>
+          <div data-editor-view="">
+            <textarea data-testid="editor-input" />
+          </div>
+          <textarea data-testid="chat-input" />
+          <SidebarCarousel />
+        </>,
+      )
+      fireEvent.click(foldToggle())
+      expect(carousel()).toHaveClass('hidden')
+
+      act(() => screen.getByTestId('editor-input').focus())
+      expect(carousel()).not.toHaveClass('hidden')
+
+      act(() => screen.getByTestId('chat-input').focus())
+      expect(carousel()).toHaveClass('hidden')
+    })
+
     it('keeps both panels mounted while folded — not unmounted', () => {
       render(<SidebarCarousel />)
       fireEvent.click(foldToggle())
@@ -672,13 +846,13 @@ describe('SidebarCarousel', () => {
       try {
         const railRef = { current: document.createElement('div') }
         render(<SidebarCarousel sidebarHeight={900} railRef={railRef} />)
-        expect(railRef.current.style.getPropertyValue('--card-bottom-inset')).toBe('300px')
+        expect(railRef.current.style.getPropertyValue('--card-bottom-inset')).toBe('306px')
 
         fireEvent.click(foldToggle())
-        expect(railRef.current.style.getPropertyValue('--card-bottom-inset')).toBe('40px')
+        expect(railRef.current.style.getPropertyValue('--card-bottom-inset')).toBe('46px')
 
         fireEvent.click(foldToggle())
-        expect(railRef.current.style.getPropertyValue('--card-bottom-inset')).toBe('300px')
+        expect(railRef.current.style.getPropertyValue('--card-bottom-inset')).toBe('306px')
       } finally {
         HTMLElement.prototype.getBoundingClientRect = original
       }

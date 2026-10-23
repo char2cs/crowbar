@@ -4,7 +4,6 @@ import { getBuildInfo } from '@/lib/build-info'
 import Section, { SettingRow } from '../settings-section'
 import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
 import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
 import { useSettingsStore, getDefaultSetting } from '@/features/settings/store'
 import type { Settings } from '@/features/settings/types/settings'
 import { downloadSettingsFile } from '@/features/settings/lib/settings-download'
@@ -58,33 +57,6 @@ async function handleReset() {
 
   await useSettingsStore.getState().resetToDefaults()
   toast.success('Settings reset', 'All settings have been restored to their defaults.')
-}
-
-// Persisted diagnostic overlays. Split out of DeveloperSettings so each stays
-// small and readable; both rows drive `useSettingsStore` directly.
-function PerformanceSection() {
-  const showFpsOverlay = useSettingsStore((s) => s.settings.showFpsOverlay)
-  const updateSetting = useSettingsStore((s) => s.updateSetting)
-
-  return (
-    <Section
-      title="Performance"
-      description="Diagnostic overlays that appear on top of the editor. Persisted across restarts."
-    >
-      <SettingRow
-        label="FPS overlay"
-        description="Show a live frame-rate counter in the bottom-right corner — fps, worst frame time, and drop count per 500ms window."
-        onReset={() => updateSetting('showFpsOverlay', getDefaultSetting('showFpsOverlay'))}
-        canReset={showFpsOverlay !== getDefaultSetting('showFpsOverlay')}
-      >
-        <Switch
-          checked={showFpsOverlay}
-          onChange={(checked) => updateSetting('showFpsOverlay', checked)}
-          size="sm"
-        />
-      </SettingRow>
-    </Section>
-  )
 }
 
 const BUILD_BADGE_OPTIONS: { value: Settings['buildBadgeOverride']; label: string }[] = [
@@ -171,8 +143,6 @@ export function DeveloperSettings() {
 
   return (
     <div className="space-y-4">
-      <PerformanceSection />
-
       <BuildBadgeSection />
 
       <ChatSplitViewSetting />

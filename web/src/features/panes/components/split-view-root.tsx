@@ -1,5 +1,4 @@
 import { useEffect, useMemo } from 'react'
-import { IS_MAC } from '@/utils/platform'
 import {
   useViews,
   useStageLayout,
@@ -15,7 +14,8 @@ import { PaneBoundary } from './pane-boundary'
 import { ROOT_PANE_POSITION } from '../types/pane'
 import { getFirstLeafId } from '../utils/pane-layout'
 import { useMountedViews } from '../hooks/use-mounted-views'
-import { useProjectViewIds } from '../hooks/use-project-view-ids'
+import { useHasViewStrip } from '../hooks/use-project-view-ids'
+import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
 
 /** Module-level so the object identities are stable across renders — inline
  *  literals would hand every view's wrapper a new `style` prop every render. */
@@ -61,13 +61,13 @@ export function SplitViewRoot() {
 
   const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible)
   // With the view-tab strip above, the panes are no longer at the window's top.
-  const hasViewStrip = useProjectViewIds().length > 0
+  const hasViewStrip = useHasViewStrip()
   const rootPosition = useMemo(
     () => ({ ...ROOT_PANE_POSITION, atTop: !hasViewStrip, atBottom: !isBottomPaneVisible }),
     [hasViewStrip, isBottomPaneVisible],
   )
 
-  const titleBarHeight = IS_MAC ? 44 : 28
+  const titleBarHeight = CHROME_ROW_HEIGHT_PX
   const footerHeight = 32
 
   return (

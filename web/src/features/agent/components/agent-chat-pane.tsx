@@ -34,13 +34,13 @@ import {
 } from '@/features/agent/hooks/use-chat-presentation'
 import { PaneSash } from '@/features/panes/components/pane-sash'
 import { cn } from '@/lib/utils'
-import { IS_MAC } from '@/utils/platform'
 import {
   AgentReturnToChatNotice,
   AgentTerminalWaitBanner,
 } from '@/features/agent/components/agent-terminal-wait-banner'
 import { AgentChatView, type AgentChatViewHandle } from '@/features/agent/chat/agent-chat-view'
 import { AgentTerminalSurface } from '@/features/agent/terminal/agent-terminal-surface'
+import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
 
 // ── The split view's geometry ─────────────────────────────────────────────
 //
@@ -100,7 +100,7 @@ interface AgentChatPaneProps {
 // constant with (features/panes/utils/pane-border.ts and
 // components/layout/sidebar-peek.tsx each keep their own copy of the same
 // platform fact rather than reach across features for it).
-const HEADER_ROW_HEIGHT_PX = IS_MAC ? 44 : 34
+const HEADER_ROW_HEIGHT_PX = CHROME_ROW_HEIGHT_PX
 
 // Mirrors features/tabs/components/pane-top-row.tsx's CHAT_BLUR_EXTRA_PX
 // (56) added to this file's own HEADER_ROW_HEIGHT_PX — the FULL vertical

@@ -158,17 +158,6 @@ html[data-pane-resizing] .agent-chat .dissolve-layer {
   -webkit-mask-image: none !important;
 }
 
-/* The sidebar band's grain is an feTurbulence SVG that WebKit re-renders on every frame
-   of a pane drag (86fps -> 114fps measured). A rasterised copy of the same tile stands in
-   for the span of the drag only, so resting pixels are untouched. */
-html[data-pane-resizing] [data-band-grain] {
-  background-image: image-set(
-    url('./assets/band-grain.png') 1x,
-    url('./assets/band-grain@2x.png') 2x
-  ) !important;
-  background-size: 200px 200px !important;
-}
-
 /* Nothing is selectable while a row is in the air.
    The `selectstart` listener (armed on pointerdown, workspace-tree-context.tsx)
    is the primary guard and cancels the selection at its source; this is the
