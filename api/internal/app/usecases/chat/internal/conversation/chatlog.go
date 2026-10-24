@@ -1,7 +1,6 @@
 package conversation
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"strings"
@@ -10,10 +9,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
 // The message page bounds ReadMessages serves under: a caller that asks for
@@ -24,152 +22,13 @@ const (
 	maxMessagePageLimit     = 200
 )
 
-// RecordTurn appends one turn under turnID, a fresh id when it is "": a turn
-// named by its prompt's request is how the client that sent it recognises it.
-func (c *Conversations) RecordTurn(
-	ctx context.Context,
-	chat domain.Chat,
-	turnID, providerID, runnerID, sessionID string,
-	role, text, effort string,
-) error {
-	if text == "" {
-		return nil
-	}
-	return c.activity.AppendTurn(ctx, agentactivity.TurnInput{
-		ChatID:     chat.ID,
-		TurnID:     cmp.Or(turnID, uuid.NewString()),
-		Role:       role,
-		ProviderID: providerID,
-		RunnerID:   runnerID,
-		SessionID:  sessionID,
-		Text:       text,
-		Effort:     effort,
-		Now:        time.Now(),
-	})
-}
-
+// ChatTurns is every message of the chat, in the order it is shown.
 func (c *Conversations) ChatTurns(ctx context.Context, chatID string) ([]domain.LedgerTurn, error) {
-	rows, err := c.activity.Turns(ctx, chatID, 0, 0, 0)
+	turns, err := c.transcript.ChatTurns(ctx, chatID)
 	if err != nil {
 		return nil, fmt.Errorf("agent: chat turns: %w", err)
 	}
-	return c.toChatTurns(ctx, rows), nil
-}
-
-func (c *Conversations) toChatTurns(ctx context.Context, rows []domain.ActivityTurn) []domain.LedgerTurn {
-	out := make([]domain.LedgerTurn, 0, len(rows))
-	// An older ledger may have recorded provider-injected text as a user turn.
-	// Use that provider's descriptor to classify it on read, so messages,
-	// chat logs and handoffs agree without baking wire text into this layer.
-	home := ""
-	if c.home != nil && c.agents != nil {
-		if resolved, err := c.home(); err == nil {
-			home = resolved
-		}
-	}
-	providers := make(map[string]engineagents.Agent)
-	seen := make(map[string]bool)
-	for _, r := range rows {
-		out = append(out, domain.LedgerTurn{
-			ID:        r.ID,
-			Role:      c.chatTurnRole(ctx, home, r, providers, seen),
-			Provider:  r.ProviderID,
-			RunnerID:  r.RunnerID,
-			SessionID: r.SessionID,
-			Text:      r.Text,
-			Effort:    r.Effort,
-			At:        r.StartedAt,
-		})
-	}
-	return out
-}
-
-func (c *Conversations) chatTurnRole(
-	ctx context.Context,
-	home string,
-	r domain.ActivityTurn,
-	providers map[string]engineagents.Agent,
-	seen map[string]bool,
-) string {
-	if r.Role != domain.TurnRoleUser || home == "" || r.ProviderID == "" {
-		return r.Role
-	}
-	if !seen[r.ProviderID] {
-		providers[r.ProviderID], _ = c.agents.Get(ctx, home, r.ProviderID)
-		seen[r.ProviderID] = true
-	}
-	if _, injected := engineagents.MatchInjectedPrompt(providers[r.ProviderID], r.Text); injected {
-		return domain.TurnRoleHarness
-	}
-	return r.Role
-}
-
-func (c *Conversations) chatPage(
-	ctx context.Context,
-	chatID string,
-	after, before, limit int,
-) (domain.LedgerPage, error) {
-	if after > 0 && before > 0 {
-		return domain.LedgerPage{}, fmt.Errorf(
-			"agent: chat page: after and before are mutually exclusive: %w", apperr.ErrInvalidArgument,
-		)
-	}
-	if limit <= 0 {
-		return domain.LedgerPage{}, fmt.Errorf(
-			"agent: chat page: limit must be positive: %w", apperr.ErrInvalidArgument,
-		)
-	}
-
-	if after > 0 {
-		rows, err := c.activity.Turns(ctx, chatID, int64(after), 0, limit+1)
-		return c.trimFront(ctx, rows, limit, err)
-	}
-	rows, err := c.activity.TurnsBefore(ctx, chatID, int64(before), limit+1)
-	return c.trimBack(ctx, rows, limit, err)
-}
-
-// trimFront and trimBack turn a limit+1 read into a page plus the has-more flag.
-//
-// Both read one row PAST the limit and drop it: that extra row is the only honest
-// answer to "is there more", and asking the store for a count instead would be a
-// second query racing the first. They differ only in which end the extra row
-// arrives at — forward paging overshoots at the tail, backward paging at the head.
-func (c *Conversations) trimFront(ctx context.Context, rows []domain.ActivityTurn, limit int, err error) (domain.LedgerPage, error) {
-	if err != nil {
-		return domain.LedgerPage{}, fmt.Errorf("agent: chat page: %w", err)
-	}
-	if hasMore := len(rows) > limit; hasMore {
-		return c.page(ctx, rows[:limit], true), nil
-	}
-	return c.page(ctx, rows, false), nil
-}
-
-func (c *Conversations) trimBack(ctx context.Context, rows []domain.ActivityTurn, limit int, err error) (domain.LedgerPage, error) {
-	if err != nil {
-		return domain.LedgerPage{}, fmt.Errorf("agent: chat page: %w", err)
-	}
-	if hasMore := len(rows) > limit; hasMore {
-		return c.page(ctx, rows[len(rows)-limit:], true), nil
-	}
-	return c.page(ctx, rows, false), nil
-}
-
-func (c *Conversations) page(ctx context.Context, rows []domain.ActivityTurn, hasMore bool) domain.LedgerPage {
-	out := domain.LedgerPage{HasMore: hasMore, Items: make([]domain.LedgerMessage, 0, len(rows))}
-	turns := c.toChatTurns(ctx, rows)
-	for i, t := range turns {
-		out.Items = append(out.Items, domain.LedgerMessage{
-			Sequence:     int(rows[i].Seq),
-			DisplayOrder: rows[i].DisplayOrder,
-			ItemIndex:    rows[i].ItemIndex,
-			LedgerTurn:   t,
-		})
-	}
-	if len(out.Items) > 0 {
-		out.OldestCursor = out.Items[0].Sequence
-		out.Cursor = out.Items[len(out.Items)-1].Sequence
-	}
-	return out
+	return turns, nil
 }
 
 func (c *Conversations) renderConversation(
@@ -177,25 +36,23 @@ func (c *Conversations) renderConversation(
 	chatID string,
 	cut time.Time,
 ) ([]byte, error) {
-	var (
-		rows []domain.ActivityTurn
-		err  error
-	)
-	if cut.IsZero() {
-		rows, err = c.activity.Turns(ctx, chatID, 0, 0, 0)
-	} else {
-		rows, err = c.activity.TurnsSince(ctx, chatID, cut)
-	}
+	turns, err := c.ChatTurns(ctx, chatID)
 	if err != nil {
 		return nil, fmt.Errorf("agent: render conversation: %w", err)
+	}
+	since := turns[:0:0]
+	for _, t := range turns {
+		if t.At.After(cut) {
+			since = append(since, t)
+		}
 	}
 	// Capped to the same "recent" window get_chat_log itself pages against: a
 	// handoff is injected cold into the next provider's context on every switch,
 	// so an ever-growing chat must not mean an ever-growing preamble.
-	kept, note := agenttools.RecentHandoffWindow(chatID, rows)
+	kept, note := agenttools.RecentHandoffWindow(chatID, since)
 	var b strings.Builder
 	b.WriteString(note)
-	for _, t := range c.toChatTurns(ctx, kept) {
+	for _, t := range kept {
 		b.WriteString(speaker(t))
 		b.WriteString(": ")
 		b.WriteString(t.Text)
@@ -204,23 +61,16 @@ func (c *Conversations) renderConversation(
 	return []byte(b.String()), nil
 }
 
-func (c *Conversations) appendTurn(
-	ctx context.Context,
-	chat domain.Chat,
-	providerID string,
-	role, text string,
-) error {
-	return c.AppendRunnerTurn(ctx, chat, "", providerID, "", "", role, text)
-}
-
-func (c *Conversations) AppendRunnerTurn(
-	ctx context.Context,
-	chat domain.Chat,
-	turnID, providerID, runnerID, sessionID string,
-	role, text string,
-) error {
-	if err := c.RecordTurn(ctx, chat, turnID, providerID, runnerID, sessionID, role, text, ""); err != nil {
-		return fmt.Errorf("agent: append turn: %w", err)
+// appendNote adds text to the chat's conversation as a note from Crowbar, for
+// the agent to read.
+func (c *Conversations) appendNote(ctx context.Context, chatID, text string) error {
+	row, err := ledger.NewRow(ledger.KindUserMessage, uuid.NewString(), "",
+		ledger.UserMessage{Text: text, Origin: ledger.OriginNote})
+	if err != nil {
+		return fmt.Errorf("agent: append note: %w", err)
+	}
+	if _, _, err := c.ledger.Append(ctx, chatID, row); err != nil {
+		return fmt.Errorf("agent: append note: %w", err)
 	}
 	return nil
 }
@@ -242,7 +92,7 @@ func (c *Conversations) ReadMessages(
 	if _, err := c.chats.GetChat(ctx, chatID); err != nil {
 		return domain.LedgerPage{}, fmt.Errorf("agent: read messages: chat: %w", err)
 	}
-	page, err := c.chatPage(ctx, chatID, after, before, limit)
+	page, err := c.transcript.Messages(ctx, chatID, after, before, limit)
 	if err != nil {
 		return domain.LedgerPage{}, fmt.Errorf("agent: read messages: %w", err)
 	}

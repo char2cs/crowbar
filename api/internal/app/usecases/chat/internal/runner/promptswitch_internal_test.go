@@ -10,6 +10,7 @@ import (
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -93,8 +94,7 @@ func TestSubmitPromptWithSwitch_AStagedPickIsTheChatsOnceItsLaunchRuns(t *testin
 		t.Run(name, func(t *testing.T) {
 			h := newSpawnHarness(t, "")
 			installDescriptor(t, h.home, selectionCarrierDescriptor)
-			var committed, switched []string
-			h.rs.turns, h.rs.activity = recordedSwitches{to: &switched}, reviveActivity{}
+			var committed []string
 			h.rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: h.chatID, WorkspaceID: "ws-1", ProviderID: "claude"}}
 			h.rs.conversations = stagedConversations{reviveConversations: reviveConversations{provider: "claude"}, committed: &committed}
 			if !runs {
@@ -107,15 +107,15 @@ func TestSubmitPromptWithSwitch_AStagedPickIsTheChatsOnceItsLaunchRuns(t *testin
 			if !runs {
 				require.Error(t, err)
 				assert.Empty(t, committed, "the chat keeps its own pick")
-				assert.Empty(t, switched, "and no divider records a switch that never ran")
+				assert.Empty(t, dividers(t, h.rs.ledger, h.chatID), "and no divider records a switch that never ran")
 				return
 			}
 			require.NoError(t, err)
 			assert.Contains(t, h.term.lastCall().argv, "deep", "the launch carries the staged pick")
 			assert.Equal(t, []string{"deep/"}, committed)
 			assert.Equal(t, []string{
-				engineagents.InterruptProviderSwitched + ":carrier-test", engineagents.InterruptModelChanged + ":deep",
-			}, switched)
+				ledger.MarkerProviderSwitched + ":carrier-test", ledger.MarkerModelChanged + ":deep",
+			}, dividers(t, h.rs.ledger, h.chatID))
 		})
 	}
 }
@@ -125,8 +125,7 @@ func TestSubmitPromptWithSwitch_AStagedPickIsTheChatsOnceItsLaunchRuns(t *testin
 func TestSubmitPromptWithSwitch_ARevivesUnchangedPickCommitsNothing(t *testing.T) {
 	h := newSpawnHarness(t, "")
 	installDescriptor(t, h.home, selectionCarrierDescriptor)
-	var committed, switched []string
-	h.rs.turns, h.rs.activity = recordedSwitches{to: &switched}, reviveActivity{}
+	var committed []string
 	h.rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: h.chatID, WorkspaceID: "ws-1", ProviderID: "carrier-test"}}
 	h.rs.conversations = stagedConversations{
 		reviveConversations: reviveConversations{provider: "carrier-test"}, committed: &committed,
@@ -139,5 +138,5 @@ func TestSubmitPromptWithSwitch_ARevivesUnchangedPickCommitsNothing(t *testing.T
 	require.NoError(t, err)
 	assert.Contains(t, h.term.lastCall().argv, "deep", "the revive runs the chat's pick")
 	assert.Empty(t, committed, "an unchanged pick is not written again")
-	assert.Empty(t, switched)
+	assert.Empty(t, dividers(t, h.rs.ledger, h.chatID))
 }

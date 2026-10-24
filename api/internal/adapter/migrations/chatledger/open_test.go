@@ -49,7 +49,7 @@ func TestOpenLegacy_ReadsWithoutWriting(t *testing.T) {
 	before := dirListing(t, dir)
 	require.NotContains(t, before, RunnerDB+"-wal", "the writer checkpointed on close")
 
-	db, ok, err := openLegacy(path, false)
+	db, ok, err := openLegacy(path)
 	require.NoError(t, err)
 	require.True(t, ok)
 	var provider string
@@ -74,7 +74,7 @@ func TestOpenLegacy_ReadsRowsStillInTheWAL(t *testing.T) {
 	require.NoError(t, err)
 	require.Positive(t, wal.Size(), "the row must still be in the WAL for this test to mean anything")
 
-	db, ok, err := openLegacy(path, false)
+	db, ok, err := openLegacy(path)
 	require.NoError(t, err)
 	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
@@ -83,38 +83,10 @@ func TestOpenLegacy_ReadsRowsStillInTheWAL(t *testing.T) {
 	assert.Equal(t, "codex", provider)
 }
 
-// A database this daemon still writes can checkpoint its WAL to nothing just
-// before the read opens it; opened immutable, the read misses every later commit.
-func TestOpenLegacy_ADatabaseStillWrittenSeesLaterCommits(t *testing.T) {
-	path := filepath.Join(t.TempDir(), ActivityDB)
-	w := writable(t, path, InterruptionsDDL)
-	t.Cleanup(func() { require.NoError(t, w.Close()) })
-	_, err := w.ExecContext(t.Context(), "PRAGMA wal_checkpoint(TRUNCATE)")
-	require.NoError(t, err)
-	wal, err := os.Stat(path + "-wal")
-	require.NoError(t, err)
-	require.Zero(t, wal.Size(), "the WAL must be empty for this test to mean anything")
-
-	db, ok, err := openLegacy(path, true)
-	require.NoError(t, err)
-	require.True(t, ok)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	count := func() (n int) {
-		require.NoError(t, db.QueryRowContext(t.Context(), "SELECT count(*) FROM agent_interruptions").Scan(&n))
-		return n
-	}
-	require.Zero(t, count())
-	_, err = w.ExecContext(t.Context(), "INSERT INTO agent_interruptions (key, chat_id, kind, detail) VALUES ('k1', 'c1', ?, 'codex')",
-		providerSwitched)
-	require.NoError(t, err)
-
-	assert.Equal(t, 1, count())
-}
-
 func TestOpenLegacy_AMissingFileIsEmptyAndStaysMissing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), RunnerDB)
 
-	db, ok, err := openLegacy(path, false)
+	db, ok, err := openLegacy(path)
 
 	require.NoError(t, err)
 	assert.False(t, ok)

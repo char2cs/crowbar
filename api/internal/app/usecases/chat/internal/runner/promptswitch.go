@@ -3,10 +3,10 @@ package runner
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -125,9 +125,8 @@ func (rs *Runners) holdsSelection(ctx context.Context, chatID string, selection 
 	return err == nil && current.Model == selection.Model && current.Effort == selection.Effort
 }
 
-// setChatSelectionLocked commits model/effort and records a divider for each
-// half that changed. It repeats Usecase.recordSelectionChange (turn.go), which
-// hangs off the Usecase, where Runners cannot reach it.
+// setChatSelectionLocked commits model/effort and records a divider for
+// whichever of the two actually changed.
 func (rs *Runners) setChatSelectionLocked(
 	ctx context.Context,
 	chatID, model, effort string,
@@ -140,20 +139,10 @@ func (rs *Runners) setChatSelectionLocked(
 		return nil
 	}
 	if model != before.Model {
-		if err := rs.turns.RecordChatSwitch(
-			ctx, chatID, engineagents.InterruptModelChanged, model,
-		); err != nil {
-			slog.WarnContext(ctx, "agent: submit prompt: record model change (best-effort, continuing)",
-				"chat_id", chatID, "err", err)
-		}
+		rs.divide(ctx, chatID, ledger.MarkerModelChanged, model)
 	}
 	if effort != before.Effort {
-		if err := rs.turns.RecordChatSwitch(
-			ctx, chatID, engineagents.InterruptEffortChanged, effort,
-		); err != nil {
-			slog.WarnContext(ctx, "agent: submit prompt: record effort change (best-effort, continuing)",
-				"chat_id", chatID, "err", err)
-		}
+		rs.divide(ctx, chatID, ledger.MarkerEffortChanged, effort)
 	}
 	return nil
 }

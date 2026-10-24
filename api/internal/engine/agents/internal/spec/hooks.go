@@ -41,4 +41,7 @@ const (
 
 	// HookDiffUpdate is the newest complete unified diff for the current turn.
 	HookDiffUpdate = "diff_update"
+
+	// HookMessageComplete is the whole text of one finished assistant message.
+	HookMessageComplete = "message_complete"
 )

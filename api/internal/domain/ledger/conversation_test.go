@@ -46,7 +46,9 @@ func decodeRows(t *testing.T, rows []ledger.Row) []string {
 			require.NoError(t, err)
 			out = append(out, "marker "+m.Kind+" "+m.Detail)
 		case ledger.KindUserMessage, ledger.KindTurnStarted, ledger.KindPromptSettled, ledger.KindSessionLost,
-			ledger.KindRunnerStarted, ledger.KindRunnerExited, ledger.KindTurnEnded, ledger.KindTurnFailed:
+			ledger.KindRunnerStarted, ledger.KindRunnerExited, ledger.KindTurnEnded, ledger.KindTurnFailed,
+			ledger.KindAssistantText, ledger.KindReasoning, ledger.KindToolCall, ledger.KindAsk,
+			ledger.KindAskResolved, ledger.KindSubagent, ledger.KindPlan:
 			out = append(out, string(r.Kind))
 		}
 	}

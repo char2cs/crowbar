@@ -21,7 +21,6 @@ import (
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/catalog"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
@@ -32,11 +31,12 @@ import (
 
 // Runners is the CLI lifecycle.
 type Runners struct {
-	chats    agentchat.EventStore
-	activity agentactivity.EventStore
-	agents   engineagents.Agents
-	term     seam.TerminalCommander
-	ws       seam.WorkspaceReader
+	chats agentchat.EventStore
+	// choices are the questions each chat's CLI waits on, for the screen sweep.
+	choices termwait.Choices
+	agents  engineagents.Agents
+	term    seam.TerminalCommander
+	ws      seam.WorkspaceReader
 	// ancestorCwd resolves a bubble's cwd through the tree usecase's ancestor
 	// walk — see AncestorCwd's own doc for why this is declared here rather
 	// than imported directly.
@@ -94,12 +94,12 @@ type Runners struct {
 }
 
 // Deps is everything the CLI lifecycle is built over. It is a struct and not an
-// argument list for the same reason turn.Deps is: the shared in-flight state is
-// built once, elsewhere, and an ordered list of pointers is a place to
-// swap two of them silently.
+// argument list because the shared in-flight state is built once, elsewhere,
+// and an ordered list of pointers is a place to swap two of them silently.
 type Deps struct {
-	Chats     agentchat.EventStore
-	Activity  agentactivity.EventStore
+	Chats agentchat.EventStore
+	// Choices are the questions each chat's CLI waits on.
+	Choices   termwait.Choices
 	Agents    engineagents.Agents
 	Terminal  seam.TerminalCommander
 	Workspace seam.WorkspaceReader
@@ -126,7 +126,7 @@ type Deps struct {
 func New(d Deps) *Runners {
 	return &Runners{
 		chats:        d.Chats,
-		activity:     d.Activity,
+		choices:      d.Choices,
 		agents:       d.Agents,
 		term:         d.Terminal,
 		ws:           d.Workspace,
@@ -170,7 +170,7 @@ func (rs *Runners) SetTurns(turns Turns) {
 	rs.termWait = termwait.New(termwait.Deps{
 		Runners:  rs,
 		Work:     rs,
-		Choices:  rs.activity,
+		Choices:  rs.choices,
 		Screens:  screens,
 		Prompts:  turns,
 		Notices:  turns,

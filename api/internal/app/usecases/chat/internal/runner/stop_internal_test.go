@@ -3,62 +3,36 @@ package runner
 import (
 	"context"
 	"encoding/json"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// stopActivity records the stopped interruptions RecordStop writes — the only
-// part of the activity ledger a Stop touches — and panics on anything else.
-type stopActivity struct {
-	agentactivity.EventStore
-
-	mu      sync.Mutex
-	stopped []string
-}
-
-func (a *stopActivity) Interrupt(_ context.Context, chatID, _, kind, _ string, _ time.Time) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if kind == engineagents.InterruptStopped {
-		a.stopped = append(a.stopped, chatID)
+// stopsRecorded is the chat of each stopped divider chat-1's ledger holds.
+func stopsRecorded(t *testing.T, rs *Runners) []string {
+	t.Helper()
+	rows, err := rs.ledger.Read(t.Context(), "chat-1", 0, 0)
+	require.NoError(t, err)
+	var out []string
+	for _, r := range rows {
+		if r.Kind != ledger.KindMarker {
+			continue
+		}
+		body, err := ledger.DecodeBody[ledger.Marker](r)
+		require.NoError(t, err)
+		if body.Kind == ledger.MarkerStopped {
+			out = append(out, "chat-1")
+		}
 	}
-	return nil
-}
-
-func (a *stopActivity) ResolveInterruption(context.Context, string, string, string, string, time.Time) error {
-	return nil
-}
-
-func (a *stopActivity) recorded() []string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return append([]string(nil), a.stopped...)
-}
-
-// realStopTurns is the real hook ingress over a recording activity ledger, so
-// whether RecordStop fires is decided by production code.
-func realStopTurns() (stopTurns, *stopActivity) {
-	activity := &stopActivity{}
-	return stopTurns{turn.New(turn.Deps{Activity: activity})}, activity
-}
-
-// stopTurns is the real turn package with no api connection placing events.
-type stopTurns struct{ *turn.Turns }
-
-func (stopTurns) Hook(context.Context, string, string, string, []byte) (string, error) {
-	return "", nil
+	return out
 }
 
 // interruptRunner is runner-1, live on chat-1 over interrupt-test.
@@ -71,7 +45,6 @@ func retiring(t *testing.T, rs *Runners) *Runners {
 	rs.live = liveWith(t, interruptRunner)
 	rs.surfaces = newSurfaceRegistry()
 	rs.answers = answerdesk.New(answerdesk.DefaultRetention, nil)
-	rs.activity = stubActivityForSpawn{}
 	rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}}
 	if rs.ledger == nil {
 		rs.ledger = newTestLedger(t)
@@ -140,13 +113,12 @@ func interruptServer(t *testing.T, asked chan<- struct{}, release <-chan struct{
 func TestStopChat_EndsTheTurnThenInterruptsWithoutWaiting(t *testing.T) {
 	asked, release := make(chan struct{}), make(chan struct{})
 	defer close(release)
-	turns, activity := realStopTurns()
 	rs := retiring(t, &Runners{
 		apiConns: newAPIConnRegistry(),
 		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
 		agents:   stubAgentsForInterrupt{agent: interruptTestAgent(t)},
 		chatLock: newTestLock(), parks: newParks(),
-		turns: turns,
+		turns: noopTurns{},
 	})
 	runnerStarted(t, rs, true)
 	rs.apiConns.set("runner-1", interruptServer(t, asked, release))
@@ -155,7 +127,7 @@ func TestStopChat_EndsTheTurnThenInterruptsWithoutWaiting(t *testing.T) {
 
 	st := chatState(t, rs.ledger)
 	assert.False(t, st.Busy(), "Stop ends the turn before it returns")
-	assert.Equal(t, []string{"chat-1"}, activity.recorded())
+	assert.Equal(t, []string{"chat-1"}, stopsRecorded(t, rs))
 	<-asked
 	assert.Empty(t, retiredAs(t, rs), "an interruptible provider keeps its CLI")
 }
@@ -164,14 +136,13 @@ func TestStopChat_EndsTheTurnThenInterruptsWithoutWaiting(t *testing.T) {
 // interrupt on an idle chat, so Stop retires its runner.
 func TestRegression_StopChatOnAnIdleChatActuallyRetires(t *testing.T) {
 	asked := make(chan struct{})
-	turns, activity := realStopTurns()
 	rs := retiring(t, &Runners{
 		apiConns: newAPIConnRegistry(),
 		attached: newAttachRegistry(),
 		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
 		agents:   stubAgentsForInterrupt{agent: interruptTestAgent(t)},
 		chatLock: newTestLock(), parks: newParks(),
-		turns: turns,
+		turns: noopTurns{},
 		term:  &fakeTermForAttach{},
 	})
 	runnerStarted(t, rs, false)
@@ -186,21 +157,20 @@ func TestRegression_StopChatOnAnIdleChatActuallyRetires(t *testing.T) {
 	}
 	assert.Equal(t, domain.AgentExitStopped, retiredAs(t, rs),
 		"an idle chat's runner must actually be retired on close, not left running forever")
-	assert.Empty(t, activity.recorded(), "closing an idle chat interrupts nothing")
+	assert.Empty(t, stopsRecorded(t, rs), "closing an idle chat interrupts nothing")
 }
 
 // Closing a view ends the chat's session, even mid-turn on a provider that
 // could interrupt in place: nothing on screen would watch the CLI.
 func TestRegression_CloseChatRetiresARunnerMidTurnEvenWhenTheProviderCanInterrupt(t *testing.T) {
 	asked := make(chan struct{})
-	turns, activity := realStopTurns()
 	rs := retiring(t, &Runners{
 		apiConns: newAPIConnRegistry(),
 		attached: newAttachRegistry(),
 		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
 		agents:   stubAgentsForInterrupt{agent: interruptTestAgent(t)},
 		chatLock: newTestLock(), parks: newParks(),
-		turns: turns,
+		turns: noopTurns{},
 		term:  &fakeTermForAttach{},
 	})
 	runnerStarted(t, rs, true)
@@ -209,21 +179,20 @@ func TestRegression_CloseChatRetiresARunnerMidTurnEvenWhenTheProviderCanInterrup
 	require.NoError(t, rs.CloseChat(t.Context(), "chat-1"))
 
 	assert.Equal(t, domain.AgentExitStopped, retiredAs(t, rs), "a closed chat's runner must be retired, not interrupted in place")
-	assert.Equal(t, []string{"chat-1"}, activity.recorded(), "the turn it cut short still gets its Stopped divider")
+	assert.Equal(t, []string{"chat-1"}, stopsRecorded(t, rs), "the turn it cut short still gets its Stopped divider")
 	assert.False(t, chatState(t, rs.ledger).Busy())
 }
 
 // A close whose HTTP request is abandoned (the app quit, the socket dropped)
 // must still retire the runner: nothing else knows the view is gone.
 func TestRegression_CloseChatRetiresEvenWhenTheRequestIsAbandoned(t *testing.T) {
-	turns, _ := realStopTurns()
 	rs := retiring(t, &Runners{
 		apiConns: newAPIConnRegistry(),
 		attached: newAttachRegistry(),
 		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
 		agents:   stubAgentsForInterrupt{},
 		chatLock: newTestLock(), parks: newParks(),
-		turns: turns,
+		turns: noopTurns{},
 		term:  &fakeTermForAttach{},
 	})
 	runnerStarted(t, rs, false)
@@ -242,14 +211,13 @@ func (*quittingTerm) TerminateGraceful(context.Context, string) error { return n
 // Stop on a provider that cannot interrupt tells its CLI to quit and returns
 // without waiting: the CLI's own exit records the end.
 func TestStopChat_RetiresWithoutWaitingForTheCLIToExit(t *testing.T) {
-	turns, activity := realStopTurns()
 	rs := retiring(t, &Runners{
 		apiConns: newAPIConnRegistry(),
 		attached: newAttachRegistry(),
 		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
 		agents:   stubAgentsForInterrupt{},
 		chatLock: newTestLock(), parks: newParks(),
-		turns: turns,
+		turns: noopTurns{},
 		term:  &quittingTerm{},
 	})
 	pty := interruptRunner
@@ -266,37 +234,25 @@ func TestStopChat_RetiresWithoutWaitingForTheCLIToExit(t *testing.T) {
 		t.Fatal("Stop waited for the CLI to exit")
 	}
 	assert.False(t, chatState(t, rs.ledger).Busy(), "the turn ended before Stop returned")
-	assert.Equal(t, []string{"chat-1"}, activity.recorded())
+	assert.Equal(t, []string{"chat-1"}, stopsRecorded(t, rs))
 	assert.Empty(t, retiredAs(t, rs), "the CLI's exit is its own to record")
 
 	rs.reconcileRunnerExit(t.Context(), "runner-1") // the PTY's exit callback
 	assert.Equal(t, domain.AgentExitStopped, retiredAs(t, rs))
 }
 
-// orderTurns notes, in order, a Stop's divider among the hooks of its chat.
-type orderTurns struct {
-	noopTurns
-	order *[]string
-}
-
-func (o orderTurns) RecordStop(context.Context, string) error {
-	*o.order = append(*o.order, "stop")
-	return nil
-}
-
 // The bug of 2026-09-12: a Stop's divider written while a hook of the chat was
 // mid-record anchored to state that hook was about to supersede. Stop records
-// under the chat's lock, after the hook; proven as a -race data race on order.
+// under the chat's lock, so its divider follows the hook's row.
 func TestRegression_StopChatRecordsAfterAHookHoldingTheChat(t *testing.T) {
 	asked, release := make(chan struct{}), make(chan struct{})
 	defer close(release)
-	var order []string
 	rs := retiring(t, &Runners{
 		apiConns: newAPIConnRegistry(),
 		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
 		agents:   stubAgentsForInterrupt{agent: interruptTestAgent(t)},
 		chatLock: newTestLock(), parks: newParks(),
-		turns: orderTurns{order: &order},
+		turns: noopTurns{},
 	})
 	runnerStarted(t, rs, true)
 	rs.apiConns.set("runner-1", interruptServer(t, asked, release))
@@ -305,9 +261,19 @@ func TestRegression_StopChatRecordsAfterAHookHoldingTheChat(t *testing.T) {
 
 	stopped := make(chan error, 1)
 	go func() { stopped <- rs.StopChat(t.Context(), "chat-1") }()
-	order = append(order, "hook")
+	hook, err := ledger.NewRow(ledger.KindAssistantText, "T-1", "", ledger.AssistantText{MessageID: "m1", Text: "said"})
+	require.NoError(t, err)
+	_, _, err = rs.ledger.Append(t.Context(), "chat-1", hook)
+	require.NoError(t, err)
 	unlock()
 
 	require.NoError(t, <-stopped)
-	assert.Equal(t, []string{"hook", "stop"}, order)
+	rows, err := rs.ledger.Read(t.Context(), "chat-1", 0, 0)
+	require.NoError(t, err)
+	kinds := make([]ledger.Kind, 0, len(rows))
+	for _, r := range rows {
+		kinds = append(kinds, r.Kind)
+	}
+	assert.Equal(t, ledger.KindMarker, kinds[len(kinds)-1], "the divider is the last row")
+	assert.Contains(t, kinds[:len(kinds)-1], ledger.KindAssistantText, "the hook's row precedes it")
 }

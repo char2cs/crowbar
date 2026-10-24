@@ -15,15 +15,6 @@ const (
 	TurnRoleNotice = "notice"
 )
 
-func KnownTurnRole(role string) bool {
-	switch role {
-	case TurnRoleUser, TurnRoleAssistant, TurnRoleHarness, TurnRoleNotice:
-		return true
-	default:
-		return false
-	}
-}
-
 const (
 	ToolStatusRunning   = "running"
 	ToolStatusOK        = "ok"
@@ -31,67 +22,6 @@ const (
 	ToolStatusDeclined  = "declined"
 	ToolStatusAbandoned = "abandoned"
 )
-
-const MaxOpenPerTurn = 64
-
-type ChatActivity struct {
-	ChatID string `json:"chatId"`
-
-	Seq int64 `json:"seq"`
-
-	Turn *ActivityTurn `json:"turn,omitempty"`
-
-	// OpenTurnOrders reserves each RUNNER's next DisplayOrder independently of
-	// Turn, which is a single pointer — a second runner opening a turn
-	// replaces it wholesale, so an earlier turn's own placeholder (and
-	// whatever DisplayOrder it reserved) would otherwise be gone by the time
-	// that earlier turn, gracefully stopping in the background, actually
-	// closes. Keyed by RunnerID, never wiped by OpenTurn/CloseTurn the way
-	// Tools/Subagents/etc. are — only ever set (on open) or consumed and
-	// removed (on the matching close).
-	OpenTurnOrders map[string]int64 `json:"openTurnOrders,omitempty"`
-
-	Tools         map[string]ActivityToolCall     `json:"tools,omitempty"`
-	Subagents     map[string]ActivitySubagent     `json:"subagents,omitempty"`
-	Interruptions map[string]ActivityInterruption `json:"interruptions,omitempty"`
-
-	Choices map[string]ActivityChoice `json:"choices,omitempty"`
-
-	Last *ActivityDelta `json:"last,omitempty"`
-}
-
-const (
-	DeltaOpen  = "open"
-	DeltaClose = "close"
-
-	DeltaTurn         = "turn"
-	DeltaTool         = "tool"
-	DeltaSubagent     = "subagent"
-	DeltaInterruption = "interruption"
-	DeltaChoice       = "choice"
-)
-
-type ActivityDelta struct {
-	Phase string `json:"phase"`
-	Kind  string `json:"kind"`
-
-	SupersededTurnID string `json:"supersededTurnId,omitempty"`
-
-	// Abandoned marks a DeltaTurn/DeltaClose that gives up on the turn's work
-	// entirely (the CLI is gone) rather than an ordinary turn_stop: only it may
-	// force-close a subagent still open, which may outlive its own turn.
-	Abandoned bool `json:"abandoned,omitempty"`
-	// OmitPlan keeps an intermediate multi-message item from projecting the
-	// provider turn's plan twice. The plan remains on Turn so the immediately
-	// following reopen can carry it to the final item.
-	OmitPlan bool `json:"omitPlan,omitempty"`
-
-	Turn         *ActivityTurn         `json:"turn,omitempty"`
-	Tool         *ActivityToolCall     `json:"tool,omitempty"`
-	Subagent     *ActivitySubagent     `json:"subagent,omitempty"`
-	Interruption *ActivityInterruption `json:"interruption,omitempty"`
-	Choice       *ActivityChoice       `json:"choice,omitempty"`
-}
 
 type ActivityTurn struct {
 	ID     string `json:"id"`
@@ -194,13 +124,8 @@ type ActivitySubagent struct {
 	StartedAt time.Time  `json:"startedAt"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
 
-	// Messages is the subagent's OWN reply history, in arrival order — a
-	// nested conversation can run more than one turn of its own (a provider
-	// whose collab-agent tool supports sendInput/resumeAgent, say), so this
-	// is a stream, not a single overwritten string. Appended to only by a
-	// ROUTED child turn closing (see turn/ingest.go's nested-session
-	// routing); never by anything at the top level, which has no way to
-	// observe a nested conversation's own replies at all otherwise.
+	// Messages is the subagent's own replies, in the order said: a nested
+	// conversation can run more than one turn of its own.
 	Messages []ActivitySubagentMessage `json:"messages,omitempty"`
 }
 
@@ -229,10 +154,6 @@ type ActivityInterruption struct {
 	Detail       string     `json:"detail,omitempty"`
 	At           time.Time  `json:"at"`
 	ResolvedAt   *time.Time `json:"resolvedAt,omitempty"`
-}
-
-func (a ChatActivity) OpenCount() int {
-	return len(a.Tools) + len(a.Subagents) + len(a.Interruptions) + len(a.Choices)
 }
 
 const (

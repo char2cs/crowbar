@@ -11,9 +11,9 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -54,11 +54,9 @@ func (stubTurns) Hook(context.Context, string, string, string, []byte) (string, 
 
 func (stubTurns) ForgetChat(string) {}
 
-func (stubTurns) RecordStop(context.Context, string) error { return nil }
+func (stubTurns) ExitRows(ledger.State, string, string) ([]ledger.Row, error) { return nil, nil }
 
-func (stubTurns) RecordChatSwitch(context.Context, string, string, string) error { return nil }
-
-func (stubTurns) SetFeed(seam.ChatFeed) {}
+func (stubTurns) Retire(string, string) {}
 
 func (stubTurns) MatchTerminalPrompt(
 	context.Context, string, string,
@@ -70,12 +68,6 @@ func (stubTurns) MatchTerminalNotice(
 	context.Context, string, string,
 ) (engineagents.TerminalNotice, bool) {
 	return engineagents.TerminalNotice{}, false
-}
-
-func (stubTurns) AbandonMessageForRunner(
-	context.Context, string, engineagents.Runner,
-) (bool, error) {
-	return false, nil
 }
 
 func (stubTurns) FailTurnOnNotice(context.Context, engineagents.Runner, engineagents.TerminalNotice) {
@@ -92,7 +84,7 @@ func TestTerminalWait_WithoutADetectorIsNotWaiting(t *testing.T) {
 	assert.False(t, rs.TerminalWait("any-chat").Waiting)
 
 	// And the sweep is a no-op rather than a nil dereference.
-	rs.StartTerminalWaitSweep(t.Context(), seam.ChatFeed{})
+	rs.StartTerminalWaitSweep(t.Context())
 }
 
 // A terminal that CAN render a screen gets a detector, built by SetTurns because
@@ -105,57 +97,6 @@ func TestTerminalWait_ReadsThroughTheDetector(t *testing.T) {
 
 	assert.Equal(t, domain.AgentTerminalWait{}, rs.TerminalWait("chat-1"),
 		"a chat the sweep has never visited is not waiting")
-}
-
-// StartTerminalWaitSweep wires the publish callbacks BEFORE it checks for a
-// detector. A daemon with no detector still streams assistant messages to its
-// chat UI, and dropping messageDelta on that path is invisible until a user
-// watches a message that never grows.
-func TestStartTerminalWaitSweep_WiresMessageDeltaEvenWithNoDetector(t *testing.T) {
-	t.Parallel()
-
-	turns := &deltaRecordingTurns{}
-	rs := runner.New(runner.Deps{Terminal: plainCommander{}})
-	rs.SetTurns(turns)
-
-	rs.StartTerminalWaitSweep(t.Context(), seam.ChatFeed{MessageDelta: func(_, _, _, _, _ string, _ time.Time) {}})
-
-	require.True(t, turns.wired, "a daemon with no detector still has messages to stream")
-}
-
-type deltaRecordingTurns struct {
-	stubTurns
-	wired bool
-}
-
-func (d *deltaRecordingTurns) SetFeed(feed seam.ChatFeed) {
-	d.wired = feed.MessageDelta != nil
-}
-
-// StartTerminalWaitSweep wires compactionStatus BEFORE it checks for a
-// detector too, for the same reason messageDelta is: a daemon with no
-// detector still needs to tell its chat UI a compaction is in progress, and
-// dropping the wiring on that path is invisible until a user watches a
-// compaction that never shows.
-func TestStartTerminalWaitSweep_WiresCompactionStatusEvenWithNoDetector(t *testing.T) {
-	t.Parallel()
-
-	turns := &compactionRecordingTurns{}
-	rs := runner.New(runner.Deps{Terminal: plainCommander{}})
-	rs.SetTurns(turns)
-
-	rs.StartTerminalWaitSweep(t.Context(), seam.ChatFeed{Compaction: func(_, _ string, _ bool) {}})
-
-	require.True(t, turns.wired, "a daemon with no detector still has compaction status to publish")
-}
-
-type compactionRecordingTurns struct {
-	stubTurns
-	wired bool
-}
-
-func (c *compactionRecordingTurns) SetFeed(feed seam.ChatFeed) {
-	c.wired = feed.Compaction != nil
 }
 
 // ─── from termwait_live_test.go (real PTY) ────────────────────

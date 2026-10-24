@@ -10,6 +10,7 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxstore "github.com/char2cs/asynx/store"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -17,9 +18,9 @@ import (
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/conversation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/transcript"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -34,11 +35,12 @@ import (
 type fixture struct {
 	conversations *conversation.Conversations
 	chats         agentchat.EventStore
-	activity      agentactivity.EventStore
 	retired       *retiredRunners
 	ledger        *ledgerstore.Store
+	blobs         *ledgerstore.Blobs
 	home          string
 	settle        func()
+	defaultLevel  *string // the global permission level a chat is minted under
 }
 
 // retiredRunners is the runner lifecycle with no CLI live: a purge owes the
@@ -106,39 +108,72 @@ func newFixture(t *testing.T, lineage stubLineage) fixture {
 	t.Helper()
 
 	chats, waitChats := newChatStore(t)
-	activity, waitActivity := newActivityStore(t)
 
 	home := t.TempDir()
 	worktree := filepath.Join(home, "projects", "p1", "slug", "branch", "worktree")
 	retired := &retiredRunners{}
-	db, err := storesqlite.OpenDB(":memory:")
+	chatLedger, projector := newLedger(t)
+	blobs, err := ledgerstore.OpenBlobs(t.TempDir())
 	require.NoError(t, err)
-	chatLedger, err := ledgerstore.Open(db, time.Now)
-	require.NoError(t, err)
+	level := "guarded"
 
 	conversations := conversation.New(conversation.Deps{
-		Chats:     chats,
-		Activity:  activity,
-		Telemetry: telemetry.New(),
-		Agents:    engineagents.New(),
-		Workspace: stubWorkspace{home: home, worktree: worktree},
-		Lineage:   lineage,
-		Home:      func() (string, error) { return home, nil },
-		Ledger:    chatLedger,
+		Chats:      chats,
+		Transcript: projector,
+		Blobs:      blobs,
+		Telemetry:  telemetry.New(),
+		Agents:     engineagents.New(),
+		Workspace:  stubWorkspace{home: home, worktree: worktree},
+		Lineage:    lineage,
+		Home:       func() (string, error) { return home, nil },
+		Ledger:     chatLedger,
 
-		DefaultPermissionLevel: func(context.Context) (string, error) { return "guarded", nil },
+		DefaultPermissionLevel: func(context.Context) (string, error) { return level, nil },
 	})
 	conversations.SetRunners(retired)
 
 	return fixture{
 		conversations: conversations,
 		chats:         chats,
-		activity:      activity,
 		retired:       retired,
 		ledger:        chatLedger,
+		blobs:         blobs,
 		home:          home,
-		settle:        func() { waitChats(); waitActivity() },
+		settle:        waitChats,
+		defaultLevel:  &level,
 	}
+}
+
+// newLedger is a ledger whose clock ticks a millisecond a commit, so rows are
+// ordered in time as in sequence, and the transcript it publishes to.
+func newLedger(t *testing.T) (*ledgerstore.Store, *transcript.Projector) {
+	t.Helper()
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	var mu sync.Mutex
+	now := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	chatLedger, err := ledgerstore.Open(db, func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		now = now.Add(time.Millisecond)
+		return now
+	})
+	require.NoError(t, err)
+	projector := transcript.New(chatLedger)
+	chatLedger.Subscribe(func(chatID string, rows []ledger.Row, _ ledger.State) { projector.Apply(chatID, rows) })
+	return chatLedger, projector
+}
+
+// say records text as a person's prompt the CLI took, opening its turn.
+func say(t *testing.T, f fixture, chatID, text string) {
+	t.Helper()
+	turnID := uuid.NewString()
+	prompt, err := ledger.NewRow(ledger.KindUserMessage, turnID, "", ledger.UserMessage{Text: text, Origin: ledger.OriginProvider})
+	require.NoError(t, err)
+	started, err := ledger.NewRow(ledger.KindTurnStarted, turnID, "", ledger.TurnStarted{Provider: "claude", RunnerID: "runner-1"})
+	require.NoError(t, err)
+	_, _, err = f.ledger.Append(t.Context(), chatID, prompt, started)
+	require.NoError(t, err)
 }
 
 func newChatStore(t *testing.T) (agentchat.EventStore, func()) {
@@ -156,25 +191,6 @@ func newChatStore(t *testing.T) (agentchat.EventStore, func()) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	repo, err := agentchat.NewEventSourced(ax, es, db, nil)
-	require.NoError(t, err)
-	return repo, ax.WaitPublish
-}
-
-func newActivityStore(t *testing.T) (agentactivity.EventStore, func()) {
-	t.Helper()
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	ax, err := asynx.New[domain.ChatActivity]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-	repo, err := agentactivity.NewEventSourced(ax, es, db, t.TempDir(), nil)
 	require.NoError(t, err)
 	return repo, ax.WaitPublish
 }
@@ -362,6 +378,40 @@ func TestPurgeChat_ErasesTheChatAndRetiresItsRunnersThroughThePort(t *testing.T)
 	require.Error(t, err, "a purged chat is gone from every read, including a direct get by id")
 }
 
+// A purged chat's tool payloads go with its rows, except one another chat's
+// rows still name.
+func TestPurgeChat_DeletesThePayloadsOnlyItsRowsName(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t, stubLineage{})
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
+	require.NoError(t, err)
+	f.settle()
+	own, err := f.blobs.Put([]byte("only this chat's output"))
+	require.NoError(t, err)
+	shared, err := f.blobs.Put([]byte("output two chats name"))
+	require.NoError(t, err)
+	call := func(chat, toolID, ref string) {
+		row, err := ledger.NewRow(ledger.KindToolCall, "T1", "", ledger.ToolCall{
+			ToolID: toolID, Phase: ledger.ToolPost, Status: domain.ToolStatusOK, ResultRef: ref,
+		})
+		require.NoError(t, err)
+		_, _, err = f.ledger.Append(t.Context(), chat, row)
+		require.NoError(t, err)
+	}
+	call(chatID, "tool-1", own)
+	call(chatID, "tool-2", shared)
+	call("other-chat", "tool-3", shared)
+
+	require.NoError(t, f.conversations.PurgeChat(t.Context(), chatID))
+
+	_, err = f.blobs.Get(own)
+	require.Error(t, err, "a payload only the purged chat named is erased with it")
+	kept, err := f.blobs.Get(shared)
+	require.NoError(t, err, "a payload another chat still names survives")
+	assert.Equal(t, "output two chats name", string(kept))
+}
+
 func TestPurgeChat_OfAnUnknownChatFails(t *testing.T) {
 	t.Parallel()
 
@@ -384,7 +434,7 @@ func TestAncestors_AnswersThroughTheLineagePort(t *testing.T) {
 	assert.Equal(t, []string{"parent", "grandparent"}, got)
 }
 
-func TestReadMessages_RefusesTwoCursorsAtOnce(t *testing.T) {
+func TestReadMessages_RefusesAPageItCannotServe(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
@@ -392,19 +442,8 @@ func TestReadMessages_RefusesTwoCursorsAtOnce(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = f.conversations.ReadMessages(t.Context(), chatID, 5, 5, 10)
-
 	require.Error(t, err, "after and before are mutually exclusive")
-}
-
-func TestReadMessages_RefusesAnOversizedPage(t *testing.T) {
-	t.Parallel()
-
-	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
-	require.NoError(t, err)
-
 	_, err = f.conversations.ReadMessages(t.Context(), chatID, 0, 0, 10_000)
-
 	require.Error(t, err, "a caller must not be able to pull a whole conversation in one response")
 }
 
@@ -476,12 +515,7 @@ func TestNoteThreadLineage_AppendsTheNoteToAChatAlreadyUnderWay(t *testing.T) {
 	f := newFixture(t, stubLineage{})
 	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
-	chat, err := f.conversations.GetChat(t.Context(), chatID)
-	require.NoError(t, err)
-	require.NoError(t, f.conversations.RecordTurn(
-		t.Context(), chat, "", "claude", "runner-1", "session-1", "user", "hello", "",
-	))
-	f.settle()
+	say(t, f, chatID, "hello")
 
 	require.NoError(t, f.conversations.NoteThreadLineage(t.Context(), chatID, []string{"parent-1"}))
 	f.settle()
@@ -514,12 +548,7 @@ func TestNotePromotion_AppendsTheNoteToAChatAlreadyUnderWay(t *testing.T) {
 	f := newFixture(t, stubLineage{})
 	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
-	chat, err := f.conversations.GetChat(t.Context(), chatID)
-	require.NoError(t, err)
-	require.NoError(t, f.conversations.RecordTurn(
-		t.Context(), chat, "", "claude", "runner-1", "session-1", "user", "hello", "",
-	))
-	f.settle()
+	say(t, f, chatID, "hello")
 
 	require.NoError(t, f.conversations.NotePromotion(t.Context(), chatID))
 	f.settle()
@@ -533,27 +562,14 @@ func TestNotePromotion_AppendsTheNoteToAChatAlreadyUnderWay(t *testing.T) {
 
 func TestMintChat_SeedsThePermissionLevelFromTheCurrentGlobalDefault(t *testing.T) {
 	t.Parallel()
-	chats, waitChats := newChatStore(t)
-	activity, _ := newActivityStore(t)
-	home := t.TempDir()
+	f := newFixture(t, stubLineage{})
+	*f.defaultLevel = "trusted"
 
-	conversations := conversation.New(conversation.Deps{
-		Chats:     chats,
-		Activity:  activity,
-		Telemetry: telemetry.New(),
-		Agents:    engineagents.New(),
-		Workspace: stubWorkspace{home: home, worktree: filepath.Join(home, "projects", "p1", "slug", "branch", "worktree")},
-		Lineage:   stubLineage{},
-		Home:      func() (string, error) { return home, nil },
-
-		DefaultPermissionLevel: func(context.Context) (string, error) { return "trusted", nil },
-	})
-
-	chatID, err := conversations.MintChat(t.Context(), "ws-1", "", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
-	waitChats()
+	f.settle()
 
-	chat, err := conversations.GetChat(t.Context(), chatID)
+	chat, err := f.conversations.GetChat(t.Context(), chatID)
 	require.NoError(t, err)
 	assert.Equal(t, "trusted", chat.PermissionLevel)
 }
@@ -563,32 +579,18 @@ func TestMintChat_SeedsThePermissionLevelFromTheCurrentGlobalDefault(t *testing.
 // selection resolves at every spawn.
 func TestMintChat_TheSeededFieldIsAFrozenSnapshotButChatSelectionTracksTheLiveDefault(t *testing.T) {
 	t.Parallel()
-	chats, waitChats := newChatStore(t)
-	activity, _ := newActivityStore(t)
-	home := t.TempDir()
-	current := "guarded"
-
-	conversations := conversation.New(conversation.Deps{
-		Chats:     chats,
-		Activity:  activity,
-		Telemetry: telemetry.New(),
-		Agents:    engineagents.New(),
-		Workspace: stubWorkspace{home: home, worktree: filepath.Join(home, "projects", "p1", "slug", "branch", "worktree")},
-		Lineage:   stubLineage{},
-		Home:      func() (string, error) { return home, nil },
-
-		DefaultPermissionLevel: func(context.Context) (string, error) { return current, nil },
-	})
+	f := newFixture(t, stubLineage{})
+	conversations := f.conversations
 
 	chatID, err := conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
-	waitChats()
+	f.settle()
 	chat, err := conversations.GetChat(t.Context(), chatID)
 	require.NoError(t, err)
 	require.Equal(t, "guarded", chat.PermissionLevel)
 	require.False(t, chat.PermissionLevelExplicit, "a plain mint is never an explicit pick")
 
-	current = "full-auto" // the global default changes AFTER this chat was minted
+	*f.defaultLevel = "full-auto" // the global default changes AFTER this chat was minted
 
 	chat, err = conversations.GetChat(t.Context(), chatID)
 	require.NoError(t, err)
@@ -602,9 +604,7 @@ func TestMintChat_TheSeededFieldIsAFrozenSnapshotButChatSelectionTracksTheLiveDe
 			"default, not the value frozen in the field above — this is the actual fix")
 }
 
-// title reads the chat's projected title, settling the read model first. The
-// projection is asynchronous by design — the turn commands are on asynx's async
-// Send path — so a read taken without settling is racing the write, not testing it.
+// title reads the chat's projected title once its read model has settled.
 func title(t *testing.T, f fixture, chatID string) string {
 	t.Helper()
 	f.settle()

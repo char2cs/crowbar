@@ -20,5 +20,5 @@ func usecaseOf(u TurnUsecase) *Usecase {
 func FailTurnOnNotice(
 	ctx context.Context, u TurnUsecase, runner engineagents.Runner, notice engineagents.TerminalNotice,
 ) {
-	usecaseOf(u).turns.FailTurnOnNotice(ctx, runner, notice)
+	usecaseOf(u).recorder.FailTurnOnNotice(ctx, runner, notice)
 }

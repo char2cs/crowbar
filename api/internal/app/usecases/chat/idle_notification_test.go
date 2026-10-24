@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -63,7 +64,7 @@ func TestRegression_APermissionNotificationNeverEndsClaudesTurn(t *testing.T) {
 	ints, err := f.activity.Interruptions(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, ints, 1)
-	assert.Equal(t, engineagents.InterruptNotification, ints[0].Kind)
+	assert.Equal(t, ledger.MarkerNotification, ints[0].Kind)
 	assert.Equal(t, permissionNotice, ints[0].Detail)
 }
 
@@ -81,6 +82,6 @@ func TestRegression_TheIdleNoticeIsStillRecordedAsAnInterruption(t *testing.T) {
 	ints, err := f.activity.Interruptions(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, ints, 1, "the idle reading must not duplicate or replace the notification row")
-	assert.Equal(t, engineagents.InterruptNotification, ints[0].Kind)
+	assert.Equal(t, ledger.MarkerNotification, ints[0].Kind)
 	assert.Equal(t, idleNotice, ints[0].Detail)
 }

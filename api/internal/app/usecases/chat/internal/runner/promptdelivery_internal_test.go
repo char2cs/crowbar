@@ -143,7 +143,7 @@ func TestSubmitPrompt_ALaunchIsPlannedOnceTheCLIItDisplacesHasQuit(t *testing.T)
 	term := &refusingTerm{}
 	h.rs.term = term
 	h.rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: h.chatID, WorkspaceID: "ws-1", ProviderID: "claude"}}
-	h.rs.conversations, h.rs.activity = reviveConversations{provider: "claude"}, reviveActivity{}
+	h.rs.conversations = reviveConversations{provider: "claude"}
 	h.rs.ledger = turnedTestLedger(t, "claude", "S1")
 	_, err := h.rs.spawnRunner(t.Context(), h.chatID, "ws-1", "claude", spawnInput{}, false)
 	require.NoError(t, err)

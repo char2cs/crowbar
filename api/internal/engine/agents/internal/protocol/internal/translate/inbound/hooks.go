@@ -214,6 +214,10 @@ func build(
 		// streamed text belonging to one item. Only ev.Kind tells them apart, and
 		// only the consumer acts on that difference.
 		ev.Delta = buildDelta(fields, decoded)
+	case spec.HookMessageComplete:
+		ev.Complete = &models.MessageComplete{
+			TurnID: ev.TurnID, MessageID: get("message_id"), Text: get("text"), Phase: get("phase"),
+		}
 	case spec.HookPlanUpdate:
 		ev.Plan = buildPlan(steps, decoded)
 	case spec.HookTurnFailed:

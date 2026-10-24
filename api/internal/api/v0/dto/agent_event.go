@@ -196,11 +196,8 @@ const AgentChatKindPlan = "plan"
 const AgentChatKindTelemetry = "telemetry"
 
 // AgentChatKindCompactionStarted and AgentChatKindCompactionStopped announce
-// the live compact_pre/compact_post edge — the one fact on this feed that
-// cannot ride the ledger's own event log, because the ledger's interruption
-// record for a compaction is born already resolved (see
-// hub.BroadcastAgentChatCompaction's doc comment). Two kinds, no extra
-// payload, same shape as turn_started/turn_stopped: the kind IS the answer.
+// the live compact_pre/compact_post edge. Two kinds, no extra payload, same
+// shape as turn_started/turn_stopped: the kind IS the answer.
 const (
 	AgentChatKindCompactionStarted = "compaction_started"
 	AgentChatKindCompactionStopped = "compaction_stopped"

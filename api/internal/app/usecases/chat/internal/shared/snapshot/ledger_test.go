@@ -94,6 +94,32 @@ func TestSnapshots_AChatWithoutFactsReadsItsLedgerWithTheLockReleased(t *testing
 	require.Error(t, err)
 }
 
+// A commit landing as the fill's writer is released, whose publication drops
+// the chat's entry, never leaves the fill's older facts behind.
+func TestSnapshots_NoStaleFillOutlivesAPublication(t *testing.T) {
+	ctx := context.Background()
+	c1 := domain.Chat{ID: "c1", ProviderID: "p1"}
+	rd := &reader{chats: map[string]domain.Chat{"c1": c1}}
+	s, _, _ := newOwner(t, rd)
+	head := boundTo(t, [2]string{"p1", "S1"})
+	rd.ledger = func(string) (ledger.State, error) { return head, nil }
+	rd.released = func() {
+		rd.released = nil
+		head = boundTo(t, [2]string{"p1", "S1"}, [2]string{"p1", "S2"})
+		delete(rd.chats, "c1") // the publication's own read of the chat fails
+		s.ApplyLedger(ctx, "c1", snapshot.FactsOf(head), "")
+		rd.chats["c1"] = c1
+	}
+
+	_, err := s.Get(ctx, "c1")
+	require.NoError(t, err)
+
+	got, err := s.Get(ctx, "c1")
+	require.NoError(t, err)
+	c, _ := got.Conversation()
+	assert.Equal(t, "S2", c.SessionID)
+}
+
 // Held is what a ledger subscriber reads under the chat's writer: the ledger is
 // never read, so it cannot wait on that writer.
 func TestSnapshots_HeldNeverReadsTheLedger(t *testing.T) {

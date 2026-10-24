@@ -17,10 +17,10 @@ const compactStartEvent = "compact_start"
 // Compact asks the chat's CLI to compact its own context.
 //
 // Crowbar does not compact anything itself — it cannot, the context belongs to the
-// provider. It sends the provider's own declared gesture: claude has no API for it and
-// declares the /compact slash command over the prompt transport; codex declares
-// thread/compact/start over the api transport. A provider that declares neither
-// cannot be asked, and says so with ErrNotFound rather than silently doing nothing.
+// provider. It sends the gesture the provider's descriptor declares: a slash
+// command over the prompt transport, or a call over its api transport. A provider
+// that declares neither cannot be asked, and says so with ErrNotFound rather than
+// silently doing nothing.
 //
 // It is offered on CROWBAR'S OWN CHAT ONLY. On the provider's terminal the
 // user types the provider's own gesture themselves, and a second control for
@@ -82,10 +82,9 @@ func (rs *Runners) Compact(ctx context.Context, chatID string) error {
 		return nil
 	}
 
-	// Any other wire is an api-transport call (codex: thread/compact/start),
-	// driven over this chat's already-live connection exactly the way
-	// interruptTurn drives turn/interrupt — a fresh dial has no session to
-	// compact. A chat with no live api connection (still spawning, running
+	// Any other wire is an api-transport call, driven over this chat's
+	// already-live connection exactly the way interruptTurn drives its
+	// interrupt — a fresh dial has no session to compact. A chat with no live api connection (still spawning, running
 	// over hooks-only, or between runners) cannot be asked yet.
 	live, _ := rs.live.byChat(chatID) // dormant: no id, so no connection
 	conn, ok := rs.apiConns.get(live.ID)

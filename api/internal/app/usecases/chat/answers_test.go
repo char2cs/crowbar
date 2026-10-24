@@ -15,6 +15,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -581,23 +582,12 @@ func TestAnswer_AnUnreadableWorkspaceFailsTheAnswerRatherThanGuessing(t *testing
 	require.Error(t, err)
 }
 
-func TestAnswer_AFailedPendingReadIsAnError(t *testing.T) {
-	f, faults := newActivityFaultFixture(t)
-	chatID, runnerID := f.spawn(t, "claude")
-	_, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
-
-	faults.choicesErr = errors.New("read blew up")
-	err := f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil)
-	require.Error(t, err)
-	assert.NotErrorIs(t, err, apperr.ErrConflict)
-}
-
 func TestAnswer_AnUnrecordableDecisionIsNotHandedToTheRelay(t *testing.T) {
-	f, faults := newActivityWriteFaultFixture(t)
+	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	ask, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
-	faults.writeErr = errors.New("log is full")
+	f.refuseRows(t, ledger.KindAskResolved)
 	err := f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil)
 	require.Error(t, err)
 
@@ -606,12 +596,12 @@ func TestAnswer_AnUnrecordableDecisionIsNotHandedToTheRelay(t *testing.T) {
 }
 
 func TestAnswer_ADeadRunnerReleasesItsRelaysEvenIfTheRecordCannotBeWritten(t *testing.T) {
-	f, faults := newActivityWriteFaultFixture(t)
+	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	ask, _ := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
 	printed := await(f, ask)
-	faults.writeErr = errors.New("log is full")
+	f.refuseRows(t, ledger.KindAskResolved, ledger.KindRunnerExited)
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
 	f.wait()
 

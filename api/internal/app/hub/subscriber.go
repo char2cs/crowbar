@@ -79,10 +79,8 @@ type Subscriber interface {
 		workspaceID string,
 		report agents.Telemetry,
 	)
-	// PushAgentChatCompaction receives the live compact_pre/compact_post edge —
-	// a fact the ledger's own interruption record cannot carry live (see
-	// hub.BroadcastAgentChatCompaction's own doc comment). active is the whole
-	// answer both ways round: true on compact_pre, false on compact_post.
+	// PushAgentChatCompaction receives the live compact_pre/compact_post edge:
+	// active is true on compact_pre, false on compact_post.
 	PushAgentChatCompaction(
 		chatID string,
 		workspaceID string,

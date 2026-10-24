@@ -44,6 +44,7 @@ type (
 	Selection        = models.Selection
 
 	MessageDelta     = models.MessageDelta
+	MessageComplete  = models.MessageComplete
 	PlanStep         = models.PlanStep
 	TurnFailure      = models.TurnFailure
 	SlashCatalog     = models.SlashCatalog
@@ -105,18 +106,7 @@ const (
 	HookToolOutputDelta = spec.HookToolOutputDelta
 	HookPlanUpdate      = spec.HookPlanUpdate
 	HookDiffUpdate      = spec.HookDiffUpdate
-)
-
-const (
-	InterruptPermission       = models.InterruptPermission
-	InterruptNotification     = models.InterruptNotification
-	InterruptElicitation      = models.InterruptElicitation
-	InterruptCompaction       = models.InterruptCompaction
-	InterruptStopped          = models.InterruptStopped
-	InterruptProviderSwitched = models.InterruptProviderSwitched
-	InterruptModelChanged     = models.InterruptModelChanged
-	InterruptEffortChanged    = models.InterruptEffortChanged
-	InterruptInferred         = models.InterruptInferred
+	HookMessageComplete = spec.HookMessageComplete
 )
 
 const (

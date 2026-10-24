@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -21,54 +22,55 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// spyAbandonMessageForRunner records every call, so a test can assert the
-// salvage ran (or didn't) without caring what the turn package does with it
-// — that behaviour has its own tests one package over (turn/message_internal_test.go).
-type spyAbandonMessageForRunner struct {
+// spyExitTurns streams text for every runner whose end it is asked about, and
+// notes each runner retired.
+type spyExitTurns struct {
 	noopTurns
-	calls []abandonCall
+	asked, retired []string
 }
 
-type abandonCall struct {
-	chatID string
-	runner agents.Runner
+func (s *spyExitTurns) ExitRows(_ ledger.State, chatID, runnerID string) ([]ledger.Row, error) {
+	s.asked = append(s.asked, chatID+"/"+runnerID)
+	row, err := ledger.NewRow(ledger.KindAssistantText, "T-"+chatID, "", ledger.AssistantText{
+		MessageID: "m-" + runnerID, Index: ledger.IndexComplete, Text: "streamed by " + runnerID,
+	})
+	return []ledger.Row{row}, err
 }
 
-func (s *spyAbandonMessageForRunner) AbandonMessageForRunner(
-	_ context.Context, chatID string, runner agents.Runner,
-) (bool, error) {
-	s.calls = append(s.calls, abandonCall{chatID, runner})
-	return true, nil
+func (s *spyExitTurns) Retire(chatID, runnerID string) {
+	s.retired = append(s.retired, chatID+"/"+runnerID)
 }
 
-// A dead runner's turn is closed with what it already streamed: its own
-// stream is salvaged, never another runner's.
-func TestCloseAbandonedTurn_SalvagesTheRunnersOwnStream(t *testing.T) {
-	outgoing := agents.Runner{ID: "runner-old"}
-	spy := &spyAbandonMessageForRunner{}
+// A dead runner's own streamed text commits with its exit, never another
+// runner's, and its buffer is dropped once that commit holds it.
+func TestReconcileRunnerExit_RecordsWhatTheRunnerStreamedWithItsExit(t *testing.T) {
+	spy := &spyExitTurns{}
 	rs := &Runners{
-		turns:    spy,
-		activity: stubActivityForSpawn{},
-		chats:    stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}},
+		live:   liveWith(t, agents.Runner{ID: "runner-1", CurrentChatID: "chat-1"}),
+		ledger: newTestLedger(t), chats: stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}},
+		turns: spy, agents: stubAgentsForInterrupt{}, surfaces: newSurfaceRegistry(),
+		answers: answerdesk.New(answerdesk.DefaultRetention, nil),
 	}
+	appendStarted(t, rs.ledger, "chat-1", "runner-1")
+	appendTurn(t, rs.ledger, "chat-1", "runner-1")
 
-	rs.closeAbandonedTurn(context.Background(), "chat-1", outgoing)
+	rs.reconcileRunnerExit(t.Context(), "runner-1")
 
-	require.Len(t, spy.calls, 1, "the outgoing runner's own stream must be salvaged")
-	assert.Equal(t, "chat-1", spy.calls[0].chatID)
-	assert.Equal(t, outgoing, spy.calls[0].runner)
-}
-
-// TestCloseAbandonedTurn_EmptyChatID_SalvagesNothing pins the existing no-op
-// guard this fix left untouched: a runner that was never on a chat at all
-// (vacated == "") has nothing to salvage.
-func TestCloseAbandonedTurn_EmptyChatID_SalvagesNothing(t *testing.T) {
-	spy := &spyAbandonMessageForRunner{}
-	rs := &Runners{turns: spy}
-
-	rs.closeAbandonedTurn(context.Background(), "", agents.Runner{ID: "runner-old"})
-
-	assert.Empty(t, spy.calls, "an empty chatID names nothing to salvage")
+	assert.Equal(t, []string{"chat-1/runner-1"}, spy.asked, "only the dead runner's own stream is salvaged")
+	assert.Equal(t, []string{"chat-1/runner-1"}, spy.retired)
+	rows, err := rs.ledger.Read(t.Context(), "chat-1", 0, 0)
+	require.NoError(t, err)
+	kinds := make([]ledger.Kind, 0, len(rows))
+	for _, r := range rows {
+		kinds = append(kinds, r.Kind)
+	}
+	salvaged := slices.Index(kinds, ledger.KindAssistantText)
+	require.GreaterOrEqual(t, salvaged, 0, "the streamed text is a row")
+	assert.Less(t, salvaged, slices.Index(kinds, ledger.KindRunnerExited), "it is recorded before the exit that ends it")
+	assert.Equal(t, 2, salvaged, "it opens the exit's commit, after the runner and its turn")
+	body, err := ledger.DecodeBody[ledger.AssistantText](rows[salvaged])
+	require.NoError(t, err)
+	assert.Equal(t, "streamed by runner-1", body.Text)
 }
 
 // TestRegression_RetireTerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY:
@@ -102,7 +104,7 @@ func TestRegression_RetireTerminatesTheAttachedNativeViewNotJustTheStaleCompanio
 func TestReconcileRunnerExit_SettlesOnlyThePromptsTheExitingRunnerCarried(t *testing.T) {
 	rs := retiring(t, &Runners{
 		agents: stubAgentsForInterrupt{},
-		turns:  &spyAbandonMessageForRunner{},
+		turns:  noopTurns{},
 	})
 	appendPrompt(t, rs.ledger, "req-old", "runner-1")
 	appendPrompt(t, rs.ledger, "req-new", "runner-new")
@@ -180,7 +182,7 @@ func TestReconcileRunnersOnBoot_OneChatsFailureLeavesTheOthersReconciled(t *test
 		WHEN NEW.kind = 'runner_exited' AND NEW.chat_id = 'chat-a' BEGIN SELECT RAISE(ABORT, 'boom'); END`).Error)
 	home := t.TempDir()
 	rs := &Runners{
-		ledger: l, chats: stubChatsForSpawn{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}}, activity: stubActivityForSpawn{}, turns: noopTurns{},
+		ledger: l, chats: stubChatsForSpawn{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}}, turns: noopTurns{},
 		ws: stubWorkspaceForSpawn{home: home, worktree: home, chatsDir: home},
 	}
 	for _, chatID := range []string{"chat-a", "chat-b", "chat-c"} {
@@ -219,8 +221,8 @@ func TestAdoptLegacyRunners_TheBootEndsWhatACrashedOldDaemonLeftRunning(t *testi
 	home := t.TempDir()
 	rs := &Runners{
 		ledger: newTestLedger(t), chats: purgedChats{stubChatsForSpawn: stubChatsForSpawn{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}}, gone: "chat-purged"},
-		activity: stubActivityForSpawn{}, turns: noopTurns{},
-		ws: stubWorkspaceForSpawn{home: home, worktree: home, chatsDir: home},
+		turns: noopTurns{},
+		ws:    stubWorkspaceForSpawn{home: home, worktree: home, chatsDir: home},
 	}
 	legacy := []agents.Runner{
 		{ID: "runner-1", ProviderID: "claude", CurrentChatID: "chat-1"},
@@ -249,7 +251,7 @@ func TestShutdown_EveryRunnerEndsAsADaemonRestart(t *testing.T) {
 	rs := &Runners{
 		live: liveWith(t, agents.Runner{ID: "runner-a", CurrentChatID: "chat-a"},
 			agents.Runner{ID: "runner-b", CurrentChatID: "chat-b"}),
-		ledger: newTestLedger(t), chats: stubChatsForSpawn{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}}, activity: stubActivityForSpawn{},
+		ledger: newTestLedger(t), chats: stubChatsForSpawn{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}},
 		turns: noopTurns{}, agents: stubAgentsForInterrupt{}, surfaces: newSurfaceRegistry(),
 		answers:  answerdesk.New(answerdesk.DefaultRetention, nil),
 		apiConns: newAPIConnRegistry(), chatLock: newTestLock(), parks: newParks(), background: newBackgroundWork(),

@@ -208,15 +208,8 @@ func (h *Hub) BroadcastAgentChatTelemetry(
 }
 
 // BroadcastAgentChatCompaction fans the live compact_pre/compact_post edge out
-// on the same workspace-scoped feed as every other fact about a conversation.
-//
-// Fed directly by the hook ingress rather than by an aggregate projection, for
-// the same reason BroadcastAgentChatTerminalWait is: the ledger's own record of
-// this fact is born already resolved (a /compact never opens a tracked turn,
-// so commands.Interrupt's idle-chat handling resolves it in the same event
-// that creates it — see turn.Turns.compactionStatus's doc comment), so no
-// aggregate event log can emit a live "started" edge for it. active is the
-// whole answer, both ways round, same as TerminalWait's presence/absence.
+// on the same workspace-scoped feed as every other fact about a conversation,
+// as the ledger records its compaction markers. active is the whole answer.
 func (h *Hub) BroadcastAgentChatCompaction(
 	chatID string,
 	workspaceID string,

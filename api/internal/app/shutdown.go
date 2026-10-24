@@ -68,7 +68,6 @@ func (c *Container) Shutdown(
 		c.axWorkspace.Shutdown(ctx),
 		c.axReviewThread.Shutdown(ctx),
 		c.axAgentChat.Shutdown(ctx),
-		c.axAgentActivity.Shutdown(ctx),
 		c.axNode.Shutdown(ctx),
 	)
 }
@@ -168,7 +167,6 @@ func (c *Container) stopBackgroundWorkers(
 	_ = c.axWorkspace.Shutdown(ctx)
 	_ = c.axReviewThread.Shutdown(ctx)
 	_ = c.axAgentChat.Shutdown(ctx)
-	_ = c.axAgentActivity.Shutdown(ctx)
 	_ = c.axNode.Shutdown(ctx)
 }
 

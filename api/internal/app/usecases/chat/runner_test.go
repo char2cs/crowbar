@@ -193,7 +193,7 @@ func TestSwitchProvider_RecordsAProviderSwitchedInterruption(t *testing.T) {
 	ints, err := f.activity.Interruptions(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, ints, 1)
-	assert.Equal(t, agents.InterruptProviderSwitched, ints[0].Kind)
+	assert.Equal(t, ledger.MarkerProviderSwitched, ints[0].Kind)
 	assert.Equal(t, "codex", ints[0].Detail)
 	assert.NotNil(t, ints[0].ResolvedAt, "Crowbar's own doing: opened and resolved together")
 }
@@ -1524,11 +1524,12 @@ func TestSubmitPrompt_MatchingLateHookFromOutgoingRunnerDoesNotConfirmNewDispatc
 	message := "same text"
 
 	hookDone := make(chan error, 1)
+	var once sync.Once
 	f.term.duringTerminate = func(string) {
-		go func() {
+		once.Do(func() {
 			hookDone <- f.usecase.IngestHook(f.ctx, outgoingID, "codex", "user_prompt",
 				mustJSON(t, map[string]any{"prompt": message, "session_id": "old-session"}))
-		}()
+		})
 	}
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, uuid.NewString(), "", nil)
 	require.NoError(t, err)
@@ -3119,8 +3120,8 @@ func TestSpawnChat_MissingCLI_PropagatesCommandNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "claude", "and it must name the provider the UI has to report")
 }
 
-// The answer is recorded before the turn's end is: the chat view reads the
-// record once on that edge, so a later append would strand the reply.
+// The answer is recorded with the turn's end, ahead of it: the chat view reads
+// the record once on that edge, so a later append would strand the reply.
 func TestRegression_TurnStop_AssistantMessageIsDurableBeforeTheTurnEnds(t *testing.T) {
 	f := newFixture(t)
 
@@ -3129,13 +3130,10 @@ func TestRegression_TurnStop_AssistantMessageIsDurableBeforeTheTurnEnds(t *testi
 		mustJSON(t, map[string]any{"prompt": "ask"})))
 	f.wait()
 
-	var atEnd string
-	var readErr error
+	var atEnd []ledger.Row
 	f.ledger.Subscribe(func(id string, rows []ledger.Row, _ ledger.State) {
-		for _, r := range rows {
-			if id == chatID && r.Kind == ledger.KindTurnEnded {
-				atEnd, readErr = f.usecase.AssembleHandoff(f.ctx, chatID)
-			}
+		if end := slices.IndexFunc(rows, func(r ledger.Row) bool { return r.Kind == ledger.KindTurnEnded }); id == chatID && end >= 0 {
+			atEnd = rows[:end]
 		}
 	})
 
@@ -3143,10 +3141,11 @@ func TestRegression_TurnStop_AssistantMessageIsDurableBeforeTheTurnEnds(t *testi
 		mustJSON(t, map[string]any{"last_assistant_message": "the answer"})))
 	f.wait()
 
-	require.NoError(t, readErr)
-	assert.Contains(t, atEnd, "assistant (claude): the answer",
-		"the assistant message must be readable BEFORE the turn ends, "+
-			"or a client that reads once on that edge and stops polling never sees the reply")
+	said := slices.IndexFunc(atEnd, func(r ledger.Row) bool { return r.Kind == ledger.KindAssistantText })
+	require.GreaterOrEqual(t, said, 0, "the reply must ride the commit that ends the turn, ahead of its end")
+	body, err := ledger.DecodeBody[ledger.AssistantText](atEnd[said])
+	require.NoError(t, err)
+	assert.Equal(t, "the answer", body.Text)
 }
 
 // TestRegression_TurnStop_EmptyMessageStillClosesTheTurn guards the invariant the old
@@ -3410,6 +3409,8 @@ func TestRegression_ReasoningStreamsLiveAndIsNeverRecorded(t *testing.T) {
 func TestStartTerminalWaitSweep_PushesEveryDeltaAsTheMessageSoFar(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "say it"})))
 
 	deltas := &deltaCallbackRecorder{}
 	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{MessageDelta: deltas.record})
@@ -3438,14 +3439,11 @@ func TestStartTerminalWaitSweep_PushesEveryDeltaAsTheMessageSoFar(t *testing.T) 
 			"the provider's own message identity is how a client tells a growing message from the next one")
 	}
 
-	// The partials exist ONLY on this callback. Nothing durable ever held "THE "
-	// or "THE MESSAGE ", so a build that stopped calling it would leave the pane
-	// with nothing to show until the turn ended — and the ledger below would
-	// still read exactly the same.
+	// The partials exist ONLY on this callback; the record holds the whole message.
 	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
 	require.NoError(t, err)
-	require.Len(t, page.Items, 1)
-	assert.Equal(t, "THE MESSAGE SO FAR", page.Items[0].Text)
+	require.Len(t, page.Items, 2, "the prompt, then the reply")
+	assert.Equal(t, "THE MESSAGE SO FAR", page.Items[1].Text)
 }
 
 // Two concurrent sends, each staging its own provider on one chat, never
@@ -3691,7 +3689,7 @@ func TestRegression_SwitchingBackToTheChatsOwnProviderKeepsRecordingTheMarker(t 
 	ints, err := f.activity.Interruptions(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, ints, 1, "a real conversion must leave a breadcrumb even with nothing bound")
-	assert.Equal(t, agents.InterruptProviderSwitched, ints[0].Kind)
+	assert.Equal(t, ledger.MarkerProviderSwitched, ints[0].Kind)
 	assert.Equal(t, "claude", ints[0].Detail)
 	assert.Equal(t, "claude", f.chat(t, chatID).ProviderID,
 		"and the chat's own durable choice moves with the switch the user asked for")
@@ -3723,7 +3721,7 @@ func TestRegression_SwitchProvider_ConvertingAChatWithNoResolvableProviderStillL
 	ints, err := f.activity.Interruptions(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, ints, 1, "a conversion with an unknown starting point is still a conversion")
-	assert.Equal(t, agents.InterruptProviderSwitched, ints[0].Kind)
+	assert.Equal(t, ledger.MarkerProviderSwitched, ints[0].Kind)
 	assert.Equal(t, "claude", ints[0].Detail)
 }
 
@@ -3961,8 +3959,10 @@ var sessionOps = []sessionOp{
 		assert.True(t, ok || endsRunner(w.rival), "S5: a delivered send left the chat with no runner")
 		// The CLI takes what it is sent; a switch parked on the prompt waits for that.
 		if ok && live.ID == sub.RunnerID {
-			payload := mustJSON(t, map[string]any{"prompt": "step"})
-			assert.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, live.ProviderID, "user_prompt", payload))
+			err := f.usecase.IngestHook(f.ctx, live.ID, live.ProviderID, "user_prompt", mustJSON(t, map[string]any{"prompt": "step"}))
+			if !endsRunner(w.rival) || !errors.Is(err, apperr.ErrNotFound) { // a rival stop may take the runner first
+				assert.NoError(t, err)
+			}
 		}
 	}},
 	{"stop", stopOp},

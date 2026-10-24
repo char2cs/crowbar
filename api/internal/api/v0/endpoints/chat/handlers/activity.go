@@ -9,7 +9,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -204,7 +204,7 @@ func (h *Handlers) ToolPayload(ctx *gin.Context) {
 	payload, err := h.turns.ReadToolPayload(
 		ctx.Request.Context(), chat.ID, ctx.Param("toolId"), side,
 	)
-	if errors.Is(err, agentactivity.ErrNotFound) {
+	if errors.Is(err, agentusecase.ErrToolPayloadGone) {
 		libs.WriteErr(ctx, http.StatusNotFound, "payload is no longer available")
 		return
 	}

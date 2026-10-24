@@ -255,7 +255,7 @@ func TestSubmitPrompt_ALaunchWhoseSessionTheConnectionRefusesForksNothing(t *tes
 	h.rs.chats = stubChatsForSpawn{chat: domain.Chat{
 		ID: h.chatID, WorkspaceID: "ws-1", ProviderID: "carrier-test", Surface: engineagents.SurfaceChat,
 	}}
-	h.rs.conversations, h.rs.activity = reviveConversations{provider: "carrier-test"}, reviveActivity{}
+	h.rs.conversations = reviveConversations{provider: "carrier-test"}
 	requestID := uuid.NewString()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()

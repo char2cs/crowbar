@@ -57,6 +57,12 @@ func (s *State) applyRunnerExited(r Row) {
 	}
 	s.lastExit = RunnerExit{RunnerID: body.RunnerID, Reason: body.Reason, ExitCode: body.ExitCode, At: r.At}
 	s.hasExit = true
+	// What the gone process was asking or running, nothing will answer or close.
+	s.abandonAsks(func(PendingAsk) bool { return true })
+	for id, sc := range s.keys.scopes {
+		sc.stopped = true
+		s.keys.scopes[id] = sc
+	}
 }
 
 // Exit is a runner's end as rows: the turn it was running interrupted, its

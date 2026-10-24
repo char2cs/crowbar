@@ -96,7 +96,7 @@ func (rs *Runners) apiTransportForSurface(
 // same breath by every path that writes it: seeded at spawn from the chat's
 // own stored surface, and moved by SwitchToTerminal/SwitchToNative.
 //
-// It exists because the read is PER EVENT: surfaceGated (turn/ingest.go) asks
+// It exists because the read is PER EVENT: surfaceGated (ingress/ingest.go) asks
 // it for every streamed delta a descriptor gates with surfaces:, and the read-model
 // hit that would otherwise cost is the same one the descriptor cache exists
 // to avoid — measured at over a millisecond a call, enough to make live

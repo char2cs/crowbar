@@ -8,22 +8,21 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
-	"path/filepath"
 
 	glebarez "github.com/glebarez/sqlite"
 )
 
 // openLegacy opens the database at path for reading only; a missing file is
 // empty input. immutable=1 creates no -wal or -shm but cannot see a WAL, so a
-// database still written, or with a non-empty WAL beside it, opens mode=ro.
-func openLegacy(path string, written bool) (*sql.DB, bool, error) {
+// database with a non-empty WAL beside it opens mode=ro.
+func openLegacy(path string) (*sql.DB, bool, error) {
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		return nil, false, nil
 	} else if err != nil {
 		return nil, false, fmt.Errorf("chatledger: open %s: %w", path, err)
 	}
 	query := "immutable=1"
-	if wal, err := os.Stat(path + "-wal"); written || err == nil && wal.Size() > 0 {
+	if wal, err := os.Stat(path + "-wal"); err == nil && wal.Size() > 0 {
 		query = "mode=ro"
 	}
 	dsn := url.URL{Scheme: "file", Path: path, RawQuery: query}
@@ -39,7 +38,7 @@ func openLegacy(path string, written bool) (*sql.DB, bool, error) {
 func queryLegacy(
 	ctx context.Context, path, table string, scan func(*sql.Rows) error, query string, args ...any,
 ) (err error) {
-	db, ok, err := openLegacy(path, filepath.Base(path) == ActivityDB)
+	db, ok, err := openLegacy(path)
 	if err != nil || !ok {
 		return err
 	}

@@ -1,9 +1,7 @@
 package chat_test
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -274,6 +271,7 @@ func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) 
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
 	f.announce(t, runnerID, "thread-main")
+	hook(t, f, runnerID, "codex", "user_prompt", map[string]any{"prompt": "delegate"})
 
 	// The PARENT thread's own spawnAgent tool call completes, naming the
 	// child thread it just created (item.receiverThreadIds[0]) — this is
@@ -361,7 +359,7 @@ func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) 
 	// point of ROUTING instead of bleeding through.
 	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
 	require.NoError(t, err)
-	assert.Empty(t, turns, "no top-level turn was ever opened by any of this")
+	require.Len(t, turns, 1, "only the prompt: the child's reply is the subagent's")
 }
 
 // TestRegression_SpawnAgentCompletionOpensTheNestedSubagent is the bug
@@ -486,8 +484,8 @@ func TestObservation_InterruptionsAreRecordedForEachKind(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, ints, 2)
 	kinds := []string{ints[0].Kind, ints[1].Kind}
-	assert.Contains(t, kinds, engineagents.InterruptNotification)
-	assert.Contains(t, kinds, engineagents.InterruptPermission)
+	assert.Contains(t, kinds, ledger.MarkerNotification)
+	assert.Contains(t, kinds, engineagents.HookPermission)
 }
 
 func TestObservation_ACompactionOpensAndResolvesTheSameRecord(t *testing.T) {
@@ -500,7 +498,7 @@ func TestObservation_ACompactionOpensAndResolvesTheSameRecord(t *testing.T) {
 	ints, err := f.activity.Interruptions(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, ints, 1)
-	assert.Equal(t, engineagents.InterruptCompaction, ints[0].Kind)
+	assert.Equal(t, "compaction", ints[0].Kind)
 	assert.NotNil(t, ints[0].ResolvedAt)
 }
 
@@ -768,9 +766,9 @@ func TestObservation_AToolCompletionWithNoStatusReadsAsOK(t *testing.T) {
 // An observation the record refuses is refused to its sender and kept as a dead
 // letter: a hook is never acknowledged with nothing written.
 func TestObservation_AnUnrecordableObservationIsRefusedAndDeadLettered(t *testing.T) {
-	f, activity := newActivityWriteFaultFixture(t)
+	f := newFixture(t)
 	_, runnerID := f.spawn(t, "claude")
-	activity.writeErr = errors.New("record unavailable")
+	f.refuseRows(t, ledger.KindToolCall, ledger.KindSubagent, ledger.KindMarker, ledger.KindAsk)
 	letters := deadLetters(t, f)
 
 	for _, tc := range []struct {
@@ -784,10 +782,9 @@ func TestObservation_AnUnrecordableObservationIsRefusedAndDeadLettered(t *testin
 		{engineagents.HookNotification, map[string]any{"message": "blocked"}},
 		{engineagents.HookPermission, map[string]any{"tool_name": "Bash"}},
 		{engineagents.HookCompactPre, map[string]any{"trigger": "auto"}},
-		{engineagents.HookCompactPost, map[string]any{"trigger": "auto"}},
 	} {
 		err := f.usecase.IngestHook(f.ctx, runnerID, "claude", tc.kind, mustJSON(t, tc.payload))
-		require.ErrorIs(t, err, activity.writeErr, tc.kind)
+		require.ErrorContains(t, err, "log is full", tc.kind)
 		letters++
 		assert.Equal(t, letters, deadLetters(t, f), tc.kind)
 	}
@@ -925,7 +922,7 @@ func TestReadToolPayload_IsScopedToTheChatThatOwnsTheToolCall(t *testing.T) {
 	otherChat, _ := f.spawn(t, "claude")
 
 	_, err := f.usecase.ReadToolPayload(f.ctx, otherChat, "t1", "request")
-	assert.ErrorIs(t, err, agentactivity.ErrNotFound)
+	require.ErrorIs(t, err, agentusecase.ErrToolPayloadGone)
 
 	_, err = f.usecase.ReadToolPayload(f.ctx, ownerChat, "t1", "request")
 	assert.NoError(t, err)
@@ -938,10 +935,10 @@ func TestReadToolPayload_MissingToolOrSideIsNotFound(t *testing.T) {
 		map[string]any{"tool_use_id": "t1", "tool_name": "Bash"})
 
 	_, err := f.usecase.ReadToolPayload(f.ctx, chatID, "no-such-tool", "request")
-	assert.ErrorIs(t, err, agentactivity.ErrNotFound)
+	require.ErrorIs(t, err, agentusecase.ErrToolPayloadGone)
 
 	_, err = f.usecase.ReadToolPayload(f.ctx, chatID, "t1", "request")
-	assert.ErrorIs(t, err, agentactivity.ErrNotFound)
+	assert.ErrorIs(t, err, agentusecase.ErrToolPayloadGone)
 }
 
 func TestReadToolPayload_RefusesAChatThatDoesNotExist(t *testing.T) {
@@ -1208,29 +1205,13 @@ func (l *orderLog) all() []string {
 	return append([]string(nil), l.seen...)
 }
 
-type orderedActivity struct {
-	agentactivity.EventStore
-	log *orderLog
-}
-
-func (o orderedActivity) AppendTurn(ctx context.Context, in agentactivity.TurnInput) error {
-	if in.Role == domain.TurnRoleNotice {
-		o.log.note("notice-appended")
-	}
-	return o.EventStore.AppendTurn(ctx, in)
-}
-
 func TestRegression_ANoticeIsDurableBeforeTheTurnFails(t *testing.T) {
 	log := &orderLog{}
-	f := newFixtureUsing(t, nil, "",
-		func(real agentactivity.EventStore) agentactivity.EventStore {
-			return orderedActivity{EventStore: real, log: log}
-		},
-	)
+	f := newFixture(t)
 	f.ledger.Subscribe(func(_ string, rows []ledger.Row, _ ledger.State) {
 		for _, r := range rows {
-			if r.Kind == ledger.KindTurnFailed {
-				log.note("turn-failed")
+			if body, err := ledger.DecodeBody[ledger.TurnFailed](r); err == nil && r.Kind == ledger.KindTurnFailed {
+				log.note("turn-failed: " + body.Detail)
 			}
 		}
 	})
@@ -1244,8 +1225,8 @@ func TestRegression_ANoticeIsDurableBeforeTheTurnFails(t *testing.T) {
 	agentusecase.FailTurnOnNotice(f.ctx, f.usecase.TurnUsecase, f.runner(t, runnerID), notice)
 	f.wait()
 
-	assert.Equal(t, []string{"notice-appended", "turn-failed"}, log.all(),
-		"the explanation must be durable before the turn's end is published")
+	assert.Equal(t, []string{"turn-failed: " + notice.Text}, log.all(),
+		"the explanation is durable in the very row that ends the turn")
 }
 
 // ─── from choice_test.go ──────────────────────────────────────────────
@@ -1475,7 +1456,7 @@ func TestObservation_AnElicitationIsRecordedAsAnInterruptionAndAPrompt(t *testin
 	ints, err := f.activity.Interruptions(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, ints, 1)
-	assert.Equal(t, engineagents.InterruptElicitation, ints[0].Kind)
+	assert.Equal(t, engineagents.HookElicitation, ints[0].Kind)
 
 	got := pendingChoices(t, f, chatID)
 	require.Len(t, got, 1)
@@ -1570,7 +1551,7 @@ func TestObservation_ACodexElicitationIsRecordedAsAnInterruptionAndAPrompt(t *te
 	ints, err := f.activity.Interruptions(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, ints, 1)
-	assert.Equal(t, engineagents.InterruptElicitation, ints[0].Kind)
+	assert.Equal(t, engineagents.HookElicitation, ints[0].Kind)
 
 	got := pendingChoices(t, f, chatID)
 	require.Len(t, got, 1)
@@ -1658,26 +1639,6 @@ func TestReadPendingChoices_RefusesAChatThatDoesNotExist(t *testing.T) {
 	f := newFixture(t)
 
 	_, err := f.usecase.ReadPendingChoices(f.ctx, "no-such-chat")
-
-	assert.Error(t, err)
-}
-
-func TestReadPendingChoices_PropagatesAReadModelFailure(t *testing.T) {
-	f, activity := newActivityFaultFixture(t)
-	chatID, _ := f.spawn(t, "claude")
-	activity.choicesErr = errors.New("read model unavailable")
-
-	_, err := f.usecase.ReadPendingChoices(f.ctx, chatID)
-
-	assert.Error(t, err)
-}
-
-func TestReadActivity_PropagatesAPromptReadFailure(t *testing.T) {
-	f, activity := newActivityFaultFixture(t)
-	chatID, _ := f.spawn(t, "claude")
-	activity.choicesErr = errors.New("read model unavailable")
-
-	_, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
 
 	assert.Error(t, err)
 }
@@ -2330,8 +2291,9 @@ func TestRegression_CodexCompactionTurnNeverStopsTheChat(t *testing.T) {
 	require.False(t, f.busy(t, chatID), "a compaction round trip must never mark the chat working")
 	rowsAfter, err := f.ledger.Read(f.ctx, chatID, 0, 0)
 	require.NoError(t, err)
-	require.Len(t, rowsAfter, len(rowsBefore),
-		"the compaction's own turn_stop must not touch the chat's turns at all")
+	for _, r := range rowsAfter[len(rowsBefore):] {
+		require.Equal(t, ledger.KindMarker, r.Kind, "the compaction's own turn_stop must not touch the chat's turns at all")
+	}
 
 	afterCompaction, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
 	require.NoError(t, err)
@@ -2596,19 +2558,20 @@ func TestRegression_RealClaudeSubagentSession_OnlyTheHumansWordsAreUserRows(t *t
 	assert.Equal(t, 2, harness, "each subagent hand-back is kept, as the harness's words")
 }
 
-func TestRegression_RealClaudeSubagentSession_SubagentToolCallsCreateNoRows(t *testing.T) {
+func TestRegression_RealClaudeSubagentSession_SubagentToolCallsAreItsOwn(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	replayRealClaudeSession(t, f, runnerID)
 
 	calls, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
 	require.NoError(t, err)
-	var names []string
+	names := map[string][]string{}
 	for _, c := range calls {
-		assert.Empty(t, c.SubagentID, "a subagent's tool call must not be recorded at all")
-		names = append(names, c.Name)
+		names[c.SubagentID] = append(names[c.SubagentID], c.Name)
 	}
-	assert.Equal(t, []string{"Agent", "Agent"}, names, "only the main agent's own tool calls remain")
+	assert.Equal(t, []string{"Agent", "Agent"}, names[""], "the main agent's own tool calls")
+	assert.Equal(t, []string{"Read", "Bash", "SubagentHandback"}, names["a3edc502687d15840"],
+		"a subagent's tool calls are recorded under its scope, never the main agent's")
 
 	subs, err := f.activity.Subagents(f.ctx, chatID)
 	require.NoError(t, err)

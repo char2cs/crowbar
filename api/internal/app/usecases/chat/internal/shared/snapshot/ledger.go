@@ -67,8 +67,8 @@ func (snap Snapshot) Conversation() (ledger.Conversation, bool) {
 	return c, ok
 }
 
-// preloadLedger reads the facts of every chat in chatIDs that has none, with
-// the owner's lock released, and installs each unless publication beat it.
+// preloadLedger fills the facts of every chat in chatIDs that has none under
+// the chat's ledger writer, so no publication lands between read and install.
 func (s *Snapshots) preloadLedger(ctx context.Context, chatIDs []string) error {
 	s.mu.Lock()
 	reader := s.reader
@@ -84,11 +84,13 @@ func (s *Snapshots) preloadLedger(ctx context.Context, chatIDs []string) error {
 		return nil
 	}
 	for _, chatID := range missing {
-		st, err := reader.LedgerState(ctx, chatID)
+		err := reader.ViewLedger(ctx, chatID, func(st ledger.State) error {
+			s.installFacts(chatID, FactsOf(st))
+			return nil
+		})
 		if err != nil {
 			return err
 		}
-		s.installFacts(chatID, FactsOf(st))
 	}
 	return nil
 }

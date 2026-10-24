@@ -5,8 +5,11 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -44,7 +47,41 @@ func main() {
 	if code := refuseResume(dir, rec.Argv); code != 0 {
 		os.Exit(code)
 	}
-	os.Exit(echoUntilStopped(stop))
+	code := echoUntilStopped(stop)
+	if code == exitStopped {
+		postOnQuit(dir, rec)
+	}
+	os.Exit(code)
+}
+
+// exitStopped is the code a CLI told to quit exits with.
+const exitStopped = 143
+
+// postOnQuit posts the hook a test left for this runner's quit, if any, and
+// waits for its answer: the hook lands before the process is gone.
+func postOnQuit(dir string, rec launch) {
+	raw, err := os.ReadFile(filepath.Join(dir, "onquit-"+rec.RunnerID+".json")) //nolint:gosec // G304: dir is the harness-set capture dir
+	if err != nil {
+		return
+	}
+	var hook struct {
+		URL  string `json:"url"`
+		Body string `json:"body"`
+	}
+	if json.Unmarshal(raw, &hook) != nil {
+		return
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, hook.URL, bytes.NewReader([]byte(hook.Body)))
+	if err != nil {
+		return
+	}
+	req.Header.Set("X-Crowbar-Runner-Token", rec.Token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec // G704: a URL the test harness wrote
+	if err != nil {
+		return
+	}
+	_ = resp.Body.Close()
 }
 
 // refuseResume prints the canned refusal and returns 1 when this launch resumes a
@@ -110,6 +147,6 @@ func echoUntilStopped(stop <-chan os.Signal) int {
 	case <-copied: // EOF, or the read error a closed PTY gives: stdin is gone either way
 		return 0
 	case <-stop:
-		return 143
+		return exitStopped
 	}
 }

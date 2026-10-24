@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,7 +20,6 @@ import (
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
@@ -606,9 +606,10 @@ type testFixture struct {
 	wt     *fakeWorktreeCreator
 	// homeErr faults the crowbar-home resolver (Home), independent of ws.err —
 	// see its construction in newFixtureUsing.
-	homeErr  *error
-	engine   engineagents.Agents
-	activity agentactivity.EventStore
+	homeErr *error
+	engine  engineagents.Agents
+	// activity reads each chat's record through the usecase, as its clients do.
+	activity activityReads
 	// providerPrefs is the real sqlite preference store the usecase resolves
 	// providers against; setPrefs writes into it. connected is the injected install
 	// probe's answer keyed by provider id; setConnected rewrites it. Both let the
@@ -966,29 +967,39 @@ func newChatStore(
 	return repo, ax.WaitPublish
 }
 
-// newActivityStore builds the REAL conversation record over an in-memory event
-// log, read model and content directory. The fixture uses the real thing rather
-// than a stub because the record is what every turn assertion in this package
-// reads back, and a stub would let the write path and the read path agree with
-// each other while both were wrong.
-func newActivityStore(tb testing.TB) (agentactivity.EventStore, func()) {
-	tb.Helper()
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(tb, err)
-	ax, err := asynx.New[domain.ChatActivity]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(tb, err)
-	tb.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+// activityReads reads a chat's record the way its clients do: through the
+// usecase's projection of the chat's ledger, every page at once.
+type activityReads struct {
+	u     *harnessUsecase
+	blobs *ledgerstore.Blobs
+}
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(tb, err)
+func (a activityReads) read(ctx context.Context, chatID string) (agentusecase.ChatActivity, error) {
+	return a.u.ReadActivity(ctx, chatID, 0, 0)
+}
 
-	repo, err := agentactivity.NewEventSourced(ax, es, db, tb.TempDir(), nil)
-	require.NoError(tb, err)
-	return repo, ax.WaitPublish
+func (a activityReads) Turns(ctx context.Context, chatID string, _, _ int64, _ int) ([]domain.ActivityTurn, error) {
+	act, err := a.read(ctx, chatID)
+	return act.Turns, err
+}
+
+func (a activityReads) ToolCalls(ctx context.Context, chatID string, _ int64, _ int) ([]domain.ActivityToolCall, error) {
+	act, err := a.read(ctx, chatID)
+	return act.ToolCalls, err
+}
+
+func (a activityReads) Subagents(ctx context.Context, chatID string) ([]domain.ActivitySubagent, error) {
+	act, err := a.read(ctx, chatID)
+	return act.Subagents, err
+}
+
+func (a activityReads) Interruptions(ctx context.Context, chatID string) ([]domain.ActivityInterruption, error) {
+	act, err := a.read(ctx, chatID)
+	return act.Interruptions, err
+}
+
+func (a activityReads) Payload(_ context.Context, ref string) ([]byte, error) {
+	return a.blobs.Get(ref)
 }
 
 func newFixture(tb testing.TB) testFixture {
@@ -1024,7 +1035,6 @@ func newFixtureUsing(
 	t testing.TB,
 	wrapChats func(agentchat.EventStore) agentchat.EventStore,
 	permissionDefault string,
-	wrapActivity ...func(agentactivity.EventStore) agentactivity.EventStore,
 ) testFixture {
 	t.Helper()
 	t.Setenv("CROWBAR_HOOK_BIN", "/fake/bin/crowbar")
@@ -1045,15 +1055,10 @@ func newFixtureUsing(
 	bc := &fakeBroadcaster{fanout: fan}
 	snapFrames.chats = bc
 	realChats, waitChats := newChatStore(t, bc.watchAgentChat)
-	realActivity, waitActivity := newActivityStore(t)
 
 	usedChats := realChats
 	if wrapChats != nil {
 		usedChats = wrapChats(realChats)
-	}
-	usedActivity := realActivity
-	for _, wrap := range wrapActivity {
-		usedActivity = wrap(usedActivity)
 	}
 
 	term := &fakeCommander{}
@@ -1119,10 +1124,12 @@ func newFixtureUsing(
 	require.NoError(t, err)
 	chatLedger, err := ledgerstore.Open(ledgerDB, time.Now)
 	require.NoError(t, err)
+	blobs, err := ledgerstore.OpenBlobs(t.TempDir())
+	require.NoError(t, err)
 	boot := func(snaps *agentusecase.ChatSnapshots) *agentusecase.Usecase {
 		return bootUsecase(t, agentusecase.Deps{
 			Chats:           usedChats,
-			Activity:        usedActivity,
+			Blobs:           blobs,
 			Agents:          engine,
 			Terminal:        term,
 			Workspace:       ws,
@@ -1148,19 +1155,20 @@ func newFixtureUsing(
 	}
 	u := boot(snaps)
 	sessions := map[string]string{}
+	harness := newHarnessUsecase(u, snaps, chatLedger, sessions)
 	f := testFixture{
 		ctx:           context.Background(),
-		usecase:       newHarnessUsecase(u, snaps, chatLedger, sessions),
+		usecase:       harness,
 		boot:          boot,
 		chats:         realChats,
-		waitFn:        func() { waitChats(); waitActivity() },
+		waitFn:        waitChats,
 		term:          term,
 		bc:            bc,
 		ws:            ws,
 		wt:            wt,
 		homeErr:       homeErr,
 		engine:        engine,
-		activity:      realActivity,
+		activity:      activityReads{u: harness, blobs: blobs},
 		providerPrefs: providerPrefs,
 		connected:     connected,
 		minter:        minter,
@@ -1229,135 +1237,16 @@ func indexOf(ss []string, target string) int {
 	return -1
 }
 
-// faultActivity wraps the real conversation record so a test can arm a read
-// failure. Only reads are faulted: the write paths in this package are already
-// covered by the real store, and a fake that intercepted them would let the
-// write path and the read path agree with each other while both were wrong.
-type faultActivity struct {
-	agentactivity.EventStore
-	turnsErr   error
-	choicesErr error
-}
-
-func (f *faultActivity) Choices(
-	ctx context.Context, chatID string,
-) ([]domain.ActivityChoice, error) {
-	if f.choicesErr != nil {
-		return nil, f.choicesErr
-	}
-	return f.EventStore.Choices(ctx, chatID)
-}
-
-func (f *faultActivity) PendingChoices(
-	ctx context.Context, chatID string,
-) ([]domain.ActivityChoice, error) {
-	if f.choicesErr != nil {
-		return nil, f.choicesErr
-	}
-	return f.EventStore.PendingChoices(ctx, chatID)
-}
-
-func (f *faultActivity) Turns(
-	ctx context.Context, chatID string, after, before int64, limit int,
-) ([]domain.ActivityTurn, error) {
-	if f.turnsErr != nil {
-		return nil, f.turnsErr
-	}
-	return f.EventStore.Turns(ctx, chatID, after, before, limit)
-}
-
-// newActivityFaultFixture builds a fixture whose usecase READS the conversation
-// record through an armable wrapper.
-func newActivityFaultFixture(t *testing.T) (testFixture, *faultActivity) {
+// refuseRows makes the ledger refuse every row of kinds, as a full disk
+// refuses a write.
+func (f testFixture) refuseRows(t *testing.T, kinds ...ledger.Kind) {
 	t.Helper()
-	fa := &faultActivity{}
-	f := newFixtureUsing(t, nil, "", func(real agentactivity.EventStore) agentactivity.EventStore {
-		fa.EventStore = real
-		return fa
-	})
-	return f, fa
-}
-
-// faultWriteActivity fails every WRITE, so the observation path can be asserted
-// to degrade rather than to break the vendor CLI's turn.
-type faultWriteActivity struct {
-	agentactivity.EventStore
-	writeErr error
-}
-
-func (f *faultWriteActivity) InvokeTool(ctx context.Context, in agentactivity.ToolInput) error {
-	if f.writeErr != nil {
-		return f.writeErr
+	quoted := make([]string, 0, len(kinds))
+	for _, k := range kinds {
+		quoted = append(quoted, "'"+string(k)+"'")
 	}
-	return f.EventStore.InvokeTool(ctx, in)
-}
-
-func (f *faultWriteActivity) CompleteTool(ctx context.Context, in agentactivity.ToolResultInput) error {
-	if f.writeErr != nil {
-		return f.writeErr
-	}
-	return f.EventStore.CompleteTool(ctx, in)
-}
-
-func (f *faultWriteActivity) StartSubagent(ctx context.Context, chatID, id, agentType string, now time.Time) error {
-	if f.writeErr != nil {
-		return f.writeErr
-	}
-	return f.EventStore.StartSubagent(ctx, chatID, id, agentType, now)
-}
-
-func (f *faultWriteActivity) StopSubagent(ctx context.Context, chatID, id, agentType, message string, now time.Time) error {
-	if f.writeErr != nil {
-		return f.writeErr
-	}
-	return f.EventStore.StopSubagent(ctx, chatID, id, agentType, message, now)
-}
-
-func (f *faultWriteActivity) Interrupt(ctx context.Context, chatID, id, kind, detail string, now time.Time) error {
-	if f.writeErr != nil {
-		return f.writeErr
-	}
-	return f.EventStore.Interrupt(ctx, chatID, id, kind, detail, now)
-}
-
-func (f *faultWriteActivity) ResolveInterruption(ctx context.Context, chatID, id, kind, detail string, now time.Time) error {
-	if f.writeErr != nil {
-		return f.writeErr
-	}
-	return f.EventStore.ResolveInterruption(ctx, chatID, id, kind, detail, now)
-}
-
-func (f *faultWriteActivity) OpenChoice(ctx context.Context, in agentactivity.ChoiceInput) error {
-	if f.writeErr != nil {
-		return f.writeErr
-	}
-	return f.EventStore.OpenChoice(ctx, in)
-}
-
-func (f *faultWriteActivity) ResolveChoice(ctx context.Context, chatID, choiceID, resolution string, now time.Time) error {
-	if f.writeErr != nil {
-		return f.writeErr
-	}
-	return f.EventStore.ResolveChoice(ctx, chatID, choiceID, resolution, now)
-}
-
-func (f *faultWriteActivity) AnswerChoice(
-	ctx context.Context, chatID, choiceID string, optionIDs []string, auto bool, now time.Time,
-) error {
-	if f.writeErr != nil {
-		return f.writeErr
-	}
-	return f.EventStore.AnswerChoice(ctx, chatID, choiceID, optionIDs, auto, now)
-}
-
-func newActivityWriteFaultFixture(t *testing.T) (testFixture, *faultWriteActivity) {
-	t.Helper()
-	fa := &faultWriteActivity{}
-	f := newFixtureUsing(t, nil, "", func(real agentactivity.EventStore) agentactivity.EventStore {
-		fa.EventStore = real
-		return fa
-	})
-	return f, fa
+	require.NoError(t, f.ledgerDB.Exec(`CREATE TRIGGER refuse_rows BEFORE INSERT ON chat_ledger
+		WHEN NEW.kind IN (`+strings.Join(quoted, ",")+`) BEGIN SELECT RAISE(ABORT, 'log is full'); END`).Error)
 }
 
 // snapshotFrames records every frame the chat snapshot owner publishes.

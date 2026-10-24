@@ -7,6 +7,7 @@ const (
 	OriginCrowbar  = "crowbar"  // a prompt Crowbar delivered for its user
 	OriginProvider = "provider" // text typed into the CLI itself
 	OriginHarness  = "harness"  // the provider's own harness speaking as the user
+	OriginNote     = "note"     // a note Crowbar adds to the conversation for the agent to read
 )
 
 // How Crowbar hands a prompt to the CLI.
@@ -30,7 +31,7 @@ const (
 type UserMessage struct {
 	RequestID string `json:"requestId,omitempty"`
 	Text      string `json:"text"`
-	Origin    string `json:"origin"`             // OriginCrowbar | OriginProvider | OriginHarness
+	Origin    string `json:"origin"`             // one of the Origin kinds
 	Delivery  string `json:"delivery,omitempty"` // crowbar origin only
 	// RunnerID is the CLI carrying a crowbar prompt: only its exit strands it.
 	RunnerID string `json:"runnerId,omitempty"`

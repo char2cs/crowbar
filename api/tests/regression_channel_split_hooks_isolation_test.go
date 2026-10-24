@@ -73,8 +73,8 @@ func channelSplitActivity(t *testing.T, h *harness, ws importedRepo, chatID stri
 // proven at the black-box HTTP level against a descriptor using the SAME
 // api:/hooks: shape codex.yaml itself now ships for tool_pre (that plan's P3).
 //
-// POST /chats/hooks always delivers on the HOOKS channel — turn/ingest.go's
-// channelFor: "an HTTP hook relay POST marks nothing, so the zero value here
+// POST /chats/hooks always delivers on the HOOKS channel — the hook handler's
+// choice: "an HTTP hook relay POST marks nothing, so the zero value here
 // is hooks" — regardless of what shape the BODY happens to carry. So a
 // payload shaped for the OTHER channel (api: threadId/item.*, exactly what a
 // real item/started notification carries) posted to this endpoint is exactly

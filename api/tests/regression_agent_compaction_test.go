@@ -46,8 +46,8 @@ runtime:
 `
 
 // TestRegression_CompactPreAndPostPushLiveOverTheSocket is the integration
-// counterpart of internal/turn's TestObservation_CompactionPushesTheLiveEdgeDirectly
-// (white-box, package turn): this drives the real compact_pre/compact_post
+// counterpart of the chat usecase's TestObservation_CompactionPushesTheLiveEdgeDirectly
+// (white-box): this drives the real compact_pre/compact_post
 // HOOK POST the CLI's own PreCompact/PostCompact fire, over the real WS the
 // transcript's WorkingLine actually subscribes to, and asserts on the wire
 // frame kinds (compaction_started/compaction_stopped) rather than an

@@ -2,30 +2,74 @@ package chat
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
+	repoattachments "github.com/char2cs/crowbar/api/internal/app/repositories/chat/attachments"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 )
 
-type (
-	UploadAttachmentInput = turn.UploadAttachmentInput
-	StoredAttachment      = turn.StoredAttachment
-)
+// UploadAttachmentInput is one attachment's identity and bytes, already
+// extracted from whichever of the handler's two ingestion shapes the request
+// used — see chat/handlers.UploadAttachment.
+type UploadAttachmentInput struct {
+	// ID is the client-supplied shortid (nanoid); the backend never mints one
+	// (design spec: it may need to match an Excalidraw fence-tag id).
+	ID           string
+	OriginalName string
+	Data         []byte
+}
+
+// StoredAttachment is what a successful upload becomes: the durable logical
+// reference the caller writes back into the message's markdown text, plus
+// metadata a file card renders without a second fetch.
+type StoredAttachment struct {
+	Ref         string
+	FileName    string
+	Size        int
+	ContentType string
+}
 
 // UploadAttachment stores one attachment into chatID's durable attachment
-// store and returns the logical reference to write back into the message.
+// directory and returns the logical reference the frontend encodes into
+// ![]()/[]().
 func (u *Usecase) UploadAttachment(
 	ctx context.Context,
 	chatID string,
 	in UploadAttachmentInput,
 ) (StoredAttachment, error) {
-	return u.turns.UploadAttachment(ctx, chatID, in)
+	chat, err := u.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return StoredAttachment{}, fmt.Errorf("agent: upload attachment: chat: %w", err)
+	}
+	chatsDir, err := u.ws.AgentChatsDir(ctx, chat.WorkspaceID)
+	if err != nil {
+		return StoredAttachment{}, fmt.Errorf("agent: upload attachment: chats dir: %w", err)
+	}
+	dir := worktreepath.AttachmentsDir(chatsDir, chatID)
+	fileName, contentType, err := repoattachments.Store(dir, in.ID, in.OriginalName, in.Data)
+	if err != nil {
+		return StoredAttachment{}, fmt.Errorf("agent: upload attachment: %w", err)
+	}
+	return StoredAttachment{
+		Ref: "chats/" + chatID + "/attachments/" + fileName, FileName: fileName,
+		Size: len(in.Data), ContentType: contentType,
+	}, nil
 }
 
 // ReadAttachment resolves chatID's stored attachment fileName to bytes and a
-// sniffed content type.
+// sniffed content type, or repoattachments.ErrNotFound.
 func (u *Usecase) ReadAttachment(
 	ctx context.Context,
 	chatID, fileName string,
 ) ([]byte, string, error) {
-	return u.turns.ReadAttachment(ctx, chatID, fileName)
+	chat, err := u.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return nil, "", fmt.Errorf("agent: read attachment: chat: %w", err)
+	}
+	chatsDir, err := u.ws.AgentChatsDir(ctx, chat.WorkspaceID)
+	if err != nil {
+		return nil, "", fmt.Errorf("agent: read attachment: chats dir: %w", err)
+	}
+	dir := worktreepath.AttachmentsDir(chatsDir, chatID)
+	return repoattachments.Read(dir, fileName)
 }

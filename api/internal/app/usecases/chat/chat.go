@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/conversation"
@@ -20,7 +20,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/transcript"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -205,11 +205,15 @@ var _ ChatUsecase = (*Usecase)(nil)
 type Usecase struct {
 	// The stores and seams the answer path reads directly. Everything else this
 	// type needs, it needs only long enough to build a component out of it.
-	chats    agentchat.EventStore
-	activity agentactivity.EventStore
-	agents   engineagents.Agents
-	ws       WorkspaceReader
-	worktree WorktreeCreator
+	chats  agentchat.EventStore
+	agents engineagents.Agents
+	// ledger is every chat's record, and blobs the tool payloads its rows name.
+	ledger *ledgerstore.Store
+	blobs  *ledgerstore.Blobs
+	// transcript is the ledger in the read shapes the clients speak.
+	transcript *transcript.Projector
+	ws         WorkspaceReader
+	worktree   WorktreeCreator
 	// folders/nodes are the Folder+Node ports 2026-09-08
 	// sidebar-placement-unification Task 8's own review fix round added:
 	// own_worktree.go/promote.go/repo_scope.go/cwd_resolver.go all walk the
@@ -239,13 +243,16 @@ type Usecase struct {
 	snapshots *snapshot.Snapshots
 	// feed is the hub, bound at sweep start; ledger commits publish through it.
 	feed atomic.Pointer[ChatFeed]
+	// choiceFeed dedups the question frames each chat is sent.
+	choiceFeed choiceFeed
 
 	// The five components. Each owns one responsibility, and the delegating
 	// methods in this file and the other five are the whole of what reaches them.
 	conversations *conversation.Conversations
-	turns         *turn.Turns
-	runners       *runner.Runners
-	// ingress is the one door every hook comes in through, over turns.
+	// recorder decides and records the rows of every hook the ingress places.
+	recorder *ingress.Recorder
+	runners  *runner.Runners
+	// ingress is the one door every hook comes in through, over the recorder.
 	ingress       *ingress.Ingress
 	providers     *provider.Providers
 	defaultLevel  *defaultlevel.DefaultLevel

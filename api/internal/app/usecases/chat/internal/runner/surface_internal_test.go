@@ -97,7 +97,7 @@ func TestSurfaceForSpawn_FallsBackWhenTheProviderDeclaresNoSuchLandingSurface(t 
 
 // TestRegression_ATerminalBornChatIsShowingItsNativeView is the collision the
 // surface-birth work left behind: THREE notions of "which surface" that could
-// disagree. surfaceGated (turn/ingest.go) derives the surface from
+// disagree. surfaceGated (ingress/ingest.go) derives the surface from
 // ShowingNativeView, which was true only for a chat that SWITCHED to the TUI
 // — so a chat BORN there read `chat` while the user was looking at its
 // terminal, and every event the descriptor gates to [chat] would have been

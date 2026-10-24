@@ -264,6 +264,18 @@ func (l Launch) Kill(tb testing.TB) {
 	require.NoError(tb, proc.Signal(syscall.SIGTERM))
 }
 
+// OnQuit makes l's CLI post payload as event once it is told to quit, before
+// it exits: what a real CLI flushes on its way down.
+func (l Launch) OnQuit(tb testing.TB, f FakeProvider, baseURL, provider, event string, payload []byte) {
+	tb.Helper()
+	raw, err := json.Marshal(map[string]string{
+		"url":  fmt.Sprintf("%s/chats/runners/%s/hooks/%s/%s", baseURL, l.RunnerID, provider, event),
+		"body": string(payload),
+	})
+	require.NoError(tb, err)
+	require.NoError(tb, os.WriteFile(filepath.Join(f.Dir, "onquit-"+l.RunnerID+".json"), raw, 0o600))
+}
+
 // PostHook posts payload to <baseURL>/chats/runners/<runner>/hooks/<provider>/<event>
 // with the runner token. baseURL is the server URL plus the repo or home route
 // prefix. The body is read and closed, then kept readable on the response.

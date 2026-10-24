@@ -225,7 +225,7 @@ func New(
 		engines.Git,
 		nowFunc,
 	)
-	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, workspaceUsecase, announceRepo, o.chatSnapshots, o.choiceWatch)
+	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, workspaceUsecase, announceRepo, o.chatSnapshots)
 	if err != nil {
 		return nil, err
 	}
@@ -331,14 +331,6 @@ type Option func(*options)
 
 type options struct {
 	chatSnapshots *agentusecase.ChatSnapshots
-	choiceWatch   *agentusecase.ChoiceWatch
-}
-
-// WithChoiceWatch hands the chat usecase the watch the composition root also gave
-// the activity repository, so a prompt that opens or resolves reaches the chat
-// feed.
-func WithChoiceWatch(w *agentusecase.ChoiceWatch) Option {
-	return func(o *options) { o.choiceWatch = w }
 }
 
 // WithChatSnapshots hands the chat usecase the snapshot owner the composition
@@ -358,7 +350,6 @@ func newAgentWiring(
 	workspaceUsecase workspace.Usecase,
 	announceRepo agentusecase.TreeRepoAnnouncer,
 	chatSnapshots *agentusecase.ChatSnapshots,
-	choiceWatch *agentusecase.ChoiceWatch,
 ) (agentWiring, error) {
 	wsReader := &agentWorkspaceReader{
 		workspaces:  repos.Workspace,
@@ -392,8 +383,8 @@ func newAgentWiring(
 	}
 	chat := agentusecase.New(agentusecase.Deps{
 		Chats:                   repos.AgentChat,
-		Activity:                repos.AgentActivity,
 		Ledger:                  repos.ChatLedger,
+		Blobs:                   repos.ChatBlobs,
 		Agents:                  engines.Agents,
 		Terminal:                engines.Terminal,
 		Workspace:               wsReader,
@@ -407,10 +398,9 @@ func newAgentWiring(
 		DaemonSocket:            engines.DaemonSocket,
 		// Installed is left nil: the usecase defaults to Agent.Installed, the real
 		// install probe. Only tests inject a stub to isolate from the host PATH.
-		Minter:      minter,
-		Tools:       toolDeps,
-		Snapshots:   chatSnapshots,
-		ChoiceWatch: choiceWatch,
+		Minter:    minter,
+		Tools:     toolDeps,
+		Snapshots: chatSnapshots,
 		// Folders/Nodes let the ancestor walks see past a Folder-only ancestor.
 		Folders:      gormStores.Folders,
 		Nodes:        repos.Node,

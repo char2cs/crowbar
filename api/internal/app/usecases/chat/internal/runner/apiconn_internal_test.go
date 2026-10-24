@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
@@ -32,11 +32,9 @@ func (noopTurns) Hook(context.Context, string, string, string, []byte) (string, 
 
 func (noopTurns) ForgetChat(string) {}
 
-func (noopTurns) RecordStop(context.Context, string) error { return nil }
+func (noopTurns) ExitRows(ledger.State, string, string) ([]ledger.Row, error) { return nil, nil }
 
-func (noopTurns) RecordChatSwitch(context.Context, string, string, string) error { return nil }
-
-func (noopTurns) SetFeed(seam.ChatFeed) {}
+func (noopTurns) Retire(string, string) {}
 
 func (noopTurns) MatchTerminalPrompt(context.Context, string, string) (engineagents.TerminalPrompt, bool) {
 	return engineagents.TerminalPrompt{}, false
@@ -44,10 +42,6 @@ func (noopTurns) MatchTerminalPrompt(context.Context, string, string) (engineage
 
 func (noopTurns) MatchTerminalNotice(context.Context, string, string) (engineagents.TerminalNotice, bool) {
 	return engineagents.TerminalNotice{}, false
-}
-
-func (noopTurns) AbandonMessageForRunner(context.Context, string, engineagents.Runner) (bool, error) {
-	return false, nil
 }
 
 func (noopTurns) FailTurnOnNotice(context.Context, engineagents.Runner, engineagents.TerminalNotice) {

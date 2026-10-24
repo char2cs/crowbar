@@ -418,7 +418,7 @@ func (u *Usecase) Compact(ctx context.Context, chatID string) error {
 	// A person just asked for this, from the ONE place that fact is knowable.
 	// Armed even though the call below can still fail validation — see
 	// manualCompactRequests' own doc for why that's an acceptable tradeoff.
-	u.turns.ArmManualCompaction(chatID)
+	u.recorder.ArmManualCompaction(chatID)
 	return u.runners.Compact(ctx, chatID)
 }
 
@@ -460,5 +460,6 @@ func (u *Usecase) TerminalWait(chatID string) domain.AgentTerminalWait {
 // the hub owns.
 func (u *Usecase) StartTerminalWaitSweep(ctx context.Context, feed ChatFeed) {
 	u.feed.Store(&feed)
-	u.runners.StartTerminalWaitSweep(ctx, feed)
+	u.recorder.SetFeed(feed)
+	u.runners.StartTerminalWaitSweep(ctx)
 }

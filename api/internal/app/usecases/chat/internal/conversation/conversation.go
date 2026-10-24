@@ -24,7 +24,6 @@ import (
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
@@ -55,12 +54,21 @@ type Runners interface {
 	HoldChat(ctx context.Context, chatID string) (release func(), err error)
 }
 
+// Transcript is the chat's ledger in the read shapes its clients speak.
+type Transcript interface {
+	Messages(ctx context.Context, chatID string, after, before, limit int) (domain.LedgerPage, error)
+	ChatTurns(ctx context.Context, chatID string) ([]domain.LedgerTurn, error)
+	Forget(chatID string)
+}
+
 // Conversations is the chat record.
 type Conversations struct {
 	chats agentchat.EventStore
-	// activity is the conversation record: turns, tool calls, subagents and
-	// interruptions. Every read this type serves comes off it.
-	activity  agentactivity.EventStore
+	// transcript is the ledger in the read shapes: every read of what the chat
+	// said comes off it.
+	transcript Transcript
+	// blobs are the tool payloads the chat's rows name.
+	blobs     *ledgerstore.Blobs
 	telemetry *telemetry.Store
 	agents    engineagents.Agents
 	ws        seam.WorkspaceReader
@@ -85,14 +93,15 @@ type Conversations struct {
 
 // Deps is everything the chat record is built over.
 type Deps struct {
-	Chats     agentchat.EventStore
-	Activity  agentactivity.EventStore
-	Telemetry *telemetry.Store
-	Agents    engineagents.Agents
-	Workspace seam.WorkspaceReader
-	Lineage   seam.ChatLineage
-	Home      func() (string, error)
-	Ledger    *ledgerstore.Store
+	Chats      agentchat.EventStore
+	Transcript Transcript
+	Blobs      *ledgerstore.Blobs
+	Telemetry  *telemetry.Store
+	Agents     engineagents.Agents
+	Workspace  seam.WorkspaceReader
+	Lineage    seam.ChatLineage
+	Home       func() (string, error)
+	Ledger     *ledgerstore.Store
 
 	// DefaultPermissionLevel resolves the current global default at the
 	// moment a chat is minted. It's a closure, not a direct usecase
@@ -104,14 +113,15 @@ type Deps struct {
 // New builds the chat record. The runner port is bound separately, by SetRunners.
 func New(d Deps) *Conversations {
 	return &Conversations{
-		chats:     d.Chats,
-		activity:  d.Activity,
-		telemetry: d.Telemetry,
-		agents:    d.Agents,
-		ws:        d.Workspace,
-		lineage:   d.Lineage,
-		home:      d.Home,
-		ledger:    d.Ledger,
+		chats:      d.Chats,
+		transcript: d.Transcript,
+		blobs:      d.Blobs,
+		telemetry:  d.Telemetry,
+		agents:     d.Agents,
+		ws:         d.Workspace,
+		lineage:    d.Lineage,
+		home:       d.Home,
+		ledger:     d.Ledger,
 
 		defaultPermissionLevel: d.DefaultPermissionLevel,
 	}
@@ -198,25 +208,39 @@ func (c *Conversations) PurgeLocked(
 	return end, c.forget(ctx, chatID)
 }
 
+// forgetLedger erases chatID's rows, then every payload they named that no
+// other chat's rows name. Best-effort: a payload left behind is disk, not text
+// anyone can still reach.
+func (c *Conversations) forgetLedger(ctx context.Context, chatID string) {
+	refs, err := c.ledger.BlobRefs(ctx, chatID)
+	if err != nil {
+		slog.ErrorContext(ctx, "agent: purge chat: list payloads (best-effort, continuing)", "chat_id", chatID, "err", err)
+	}
+	if err := c.ledger.Forget(ctx, chatID); err != nil {
+		slog.ErrorContext(ctx, "agent: purge chat: forget ledger (best-effort, continuing)", "chat_id", chatID, "err", err)
+	}
+	c.transcript.Forget(chatID)
+	for _, ref := range refs {
+		if inUse, err := c.ledger.RefInUse(ctx, ref); err != nil || inUse {
+			continue
+		}
+		if err := c.blobs.Delete(ref); err != nil {
+			slog.WarnContext(ctx, "agent: purge chat: delete payload (best-effort, continuing)", "chat_id", chatID, "err", err)
+		}
+	}
+}
+
 // forget erases chatID's record, conversation, ledger and directory.
 func (c *Conversations) forget(ctx context.Context, chatID string) error {
 	if err := c.chats.Forget(ctx, chatID); err != nil {
 		return fmt.Errorf("agent: purge chat: forget: %w", err)
 	}
 
-	// Drop the conversation record and its telemetry. The record outlives the
-	// process and nothing else removes it, so a hard delete that skipped it would
-	// leave the chat's plaintext readable after the user asked for it to be gone.
-	if err := c.activity.Forget(ctx, chatID); err != nil {
-		slog.ErrorContext(ctx, "agent: purge chat: forget conversation record (best-effort, continuing)",
-			"chat_id", chatID, "err", err)
-	}
+	// Drop the conversation and its telemetry. The ledger outlives the process
+	// and nothing else removes it, so a hard delete that skipped it would leave
+	// the chat's plaintext readable after the user asked for it to be gone.
 	c.telemetry.Forget(ctx, chatID)
-
-	if err := c.ledger.Forget(ctx, chatID); err != nil {
-		slog.ErrorContext(ctx, "agent: purge chat: forget ledger (best-effort, continuing)",
-			"chat_id", chatID, "err", err)
-	}
+	c.forgetLedger(ctx, chatID)
 
 	// Reap the chat's on-disk footprint now the aggregate is gone. The conversation
 	// itself no longer lives here — it is in the record dropped above — but a chat
@@ -343,10 +367,8 @@ func (c *Conversations) NoteThreadLineage(
 	if len(turns) == 0 {
 		return nil
 	}
-	return c.appendTurn(ctx, chat, lineageNoteProvider, "user", lineageNoteText(ancestors))
+	return c.appendNote(ctx, chat.ID, lineageNoteText(ancestors))
 }
-
-const lineageNoteProvider = "crowbar"
 
 func lineageNoteText(
 	ancestors []string,
@@ -382,7 +404,7 @@ func (c *Conversations) NotePromotion(
 	if len(turns) == 0 {
 		return nil
 	}
-	return c.appendTurn(ctx, chat, lineageNoteProvider, "user", promotionNoteText())
+	return c.appendNote(ctx, chat.ID, promotionNoteText())
 }
 
 func promotionNoteText() string {

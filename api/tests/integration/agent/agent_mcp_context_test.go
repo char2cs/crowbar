@@ -44,10 +44,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -221,9 +221,9 @@ const (
 	siblingLogMarker = "RETRY-CEILING-7731"
 )
 
-// siblingLogTurns is the conversation seeded into the sibling chat's activity
-// record. It goes in through the repository command the production turn hooks send,
-// so the fixture cannot drift from the shape the reader expects.
+// siblingLogTurns is the conversation seeded into the sibling chat's ledger, as
+// the rows the production hooks write, so the fixture cannot drift from the
+// shape the reader expects.
 var siblingLogTurns = []struct {
 	role     string
 	provider string
@@ -300,13 +300,12 @@ func contextFixture(
 	return caller.ID, child.ID, chatID
 }
 
-// seedSiblingChat creates a titled chat on ws and writes a conversation into the
-// activity record, then reads it back THROUGH THE PRODUCTION READER — the same
+// seedSiblingChat creates a titled chat on ws and writes a conversation into its
+// ledger, then reads it back THROUGH THE PRODUCTION READER — the same
 // Agent.ReadChatLog that get_chat_log serves from.
 //
-// The turns go in through agentactivity.AppendTurn, which is the SAME command the
-// usecase's own recordTurn sends when a provider's turn hook lands, so the fixture
-// cannot drift from the shape the reader expects. It is the write side only: what
+// The turns go in as the ledger rows a provider's hooks are recorded as, so the
+// fixture cannot drift from the shape the reader expects. It is the write side only: what
 // the model has to cross to reach these turns is the whole MCP path — resolve the
 // caller's credentials, walk to the child workspace, name that chat's id — and none
 // of it is short-circuited by seeding at the repository.
@@ -334,19 +333,28 @@ func seedSiblingChat(
 		h.app.Usecases.AgentChat.RenameChat(ctx, chatID, siblingChatTitle, "user"),
 		"title the sibling chat")
 
-	at := time.Now().UTC().Add(-time.Hour)
+	turnID := ""
 	for i, turn := range siblingLogTurns {
-		require.NoError(t, h.app.Repositories.AgentActivity.AppendTurn(ctx, agentactivity.TurnInput{
-			ChatID:     chatID,
-			TurnID:     uuid.NewString(),
-			Role:       turn.role,
-			ProviderID: turn.provider,
-			Text:       turn.text,
-			Now:        at.Add(time.Duration(i) * time.Minute),
-		}), "append the sibling chat's turn %d", i)
+		var rows []ledger.Row
+		if turn.role == domain.TurnRoleUser {
+			turnID = uuid.NewString()
+			rows = []ledger.Row{
+				ledgerRow(t, ledger.KindUserMessage, turnID, ledger.UserMessage{Text: turn.text, Origin: ledger.OriginProvider}),
+				ledgerRow(t, ledger.KindTurnStarted, turnID, ledger.TurnStarted{Provider: turn.provider}),
+			}
+		} else {
+			rows = []ledger.Row{
+				ledgerRow(t, ledger.KindAssistantText, turnID, ledger.AssistantText{
+					MessageID: ledger.ReplyID(turnID), Index: ledger.IndexComplete, Text: turn.text,
+				}),
+				ledgerRow(t, ledger.KindTurnEnded, turnID, ledger.TurnEnded{Status: string(ledger.TurnStatusDone)}),
+			}
+		}
+		_, _, err := h.app.Repositories.ChatLedger.Append(ctx, chatID, rows...)
+		require.NoError(t, err, "append the sibling chat's turn %d", i)
 	}
-	// The turn projection is an async send; the barrier is the repository's own, so
-	// the read-back below waits on a real signal rather than on a clock.
+	// The chat's projection is an async send; the barrier is the repository's own,
+	// so the read-back below waits on a real signal rather than on a clock.
 	h.app.Repositories.WaitQuiescent()
 
 	turns, err := h.app.Usecases.AgentChat.ReadChatLog(ctx, chatID)
@@ -356,6 +364,13 @@ func seedSiblingChat(
 	require.Contains(t, renderChatLog(turns), siblingLogMarker,
 		"the marker the traffic assertion hunts for must be in what get_chat_log's own reader serves")
 	return chatID
+}
+
+func ledgerRow(t *testing.T, kind ledger.Kind, turnID string, body any) ledger.Row {
+	t.Helper()
+	row, err := ledger.NewRow(kind, turnID, "", body)
+	require.NoError(t, err)
+	return row
 }
 
 // renderChatLog flattens what ReadChatLog returns into one string, which is all the

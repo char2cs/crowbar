@@ -364,6 +364,23 @@ events:
       text:       delta
       turn_id:    turnId
 
+  # An agentMessage item's completion carries its whole text: the message's
+  # record, whatever of its delta stream arrived.
+  message_complete:
+    required: [message_id, text]
+    api:
+      in: item/completed
+      when:
+        item.type: { any_of: [agentMessage] }
+      map:
+        session_id: threadId
+        turn_id:    turnId
+        message_id: item.id
+        text:       item.text
+        phase:      item.phase
+      fixtures:
+        - item_completed.agentMessage-schema.json
+
   # Codex spends most of a hard turn HERE and emits nothing else while it does
   # (captured live, codex-cli 0.149.1: item/started type reasoning, then
   # summaryPartAdded, then a run of summaryTextDelta, then item/completed). With

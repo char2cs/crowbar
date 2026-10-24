@@ -118,3 +118,22 @@ func TestAgent_CodexObservesMessageDeltaOverAPITransport(t *testing.T) {
 	require.NotNil(t, ev.Delta)
 	assert.Equal(t, "partial text", ev.Delta.Text)
 }
+
+func TestAgent_ParseHookMapsACompletedMessageWhole(t *testing.T) {
+	raw := `{"item":{"type":"agentMessage","id":"msg_1","text":"The whole reply.","phase":"final_answer"},
+	  "threadId":"t","turnId":"tn"}`
+	ev, err := get(t, "codex").ParseHook(agents.HookMessageComplete, []byte(raw), agents.ChannelAPI)
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Complete)
+	assert.Equal(t, agents.MessageComplete{
+		TurnID: "tn", MessageID: "msg_1", Text: "The whole reply.", Phase: "final_answer",
+	}, *ev.Complete)
+}
+
+func TestAgent_ParseHookTellsACompletedMessageFromACompletedTool(t *testing.T) {
+	raw := `{"item":{"type":"commandExecution","id":"c1","status":"completed"},"threadId":"t","turnId":"tn"}`
+	_, err := get(t, "codex").ParseHook(agents.HookMessageComplete, []byte(raw), agents.ChannelAPI)
+
+	require.ErrorIs(t, err, agents.ErrHookVariantMismatch)
+}

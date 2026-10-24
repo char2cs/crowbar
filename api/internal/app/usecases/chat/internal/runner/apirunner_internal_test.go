@@ -16,7 +16,6 @@ import (
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -44,14 +43,6 @@ func (s stubChatsForSpawn) SetProvider(_ context.Context, _, providerID string) 
 	}
 	return s.chat, nil
 }
-
-// stubActivityForSpawn answers the one write closeAbandonedTurn makes of the
-// conversation record.
-type stubActivityForSpawn struct {
-	agentactivity.EventStore
-}
-
-func (stubActivityForSpawn) Abandon(context.Context, string, time.Time) error { return nil }
 
 // spyLifecycle hears what the runner lifecycle announces, so a test blocks on
 // a runner_started or runner_exited commit rather than on a timer.
@@ -127,10 +118,9 @@ func newSpawnHarness(t *testing.T, surface string) *spawnHarness {
 			attached: newAttachRegistry(),
 			surfaces: newSurfaceRegistry(),
 			// The real registries a runner's death reconciles through.
-			answers:  answerdesk.New(answerdesk.DefaultRetention, nil),
-			turns:    noopTurns{},
-			activity: stubActivityForSpawn{},
-			ledger:   newTestLedger(t),
+			answers: answerdesk.New(answerdesk.DefaultRetention, nil),
+			turns:   noopTurns{},
+			ledger:  newTestLedger(t),
 		},
 		term: term, lifecycle: lifecycle, home: home, chatID: "chat-1",
 	}
@@ -263,7 +253,6 @@ func ptylessRunners(t *testing.T) (*Runners, *spyLifecycle) {
 		agents:     engineagents.New(),
 		answers:    answerdesk.New(answerdesk.DefaultRetention, nil),
 		turns:      noopTurns{},
-		activity:   stubActivityForSpawn{},
 		chats:      stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}},
 		ledger:     newTestLedger(t),
 		background: newBackgroundWork(),

@@ -5,9 +5,9 @@ type CanonicalEvent struct {
 	SessionID string
 	Message   string
 
-	// TurnID is the provider's own turn identifier, when its descriptor maps one.
-	// A turn-close that also wraps a compaction round trip is told apart from an
-	// ordinary reply only by the id compact_pre armed (the turn package's compaction latch).
+	// TurnID is the provider's own turn identifier, when its descriptor maps
+	// one: a turn end can belong to a compaction's own turn, and only the id
+	// tells it apart from a reply.
 	TurnID string
 
 	// TurnStatus is the provider-reported terminal state when its completion
@@ -27,6 +27,9 @@ type CanonicalEvent struct {
 	Interrupt *InterruptEvent
 
 	Delta *MessageDelta
+
+	// Complete is the whole text of one finished message.
+	Complete *MessageComplete
 
 	Failure *TurnFailure
 
@@ -54,6 +57,14 @@ type MessageDelta struct {
 	Final bool
 
 	Text string
+}
+
+// MessageComplete is one finished assistant message, whole.
+type MessageComplete struct {
+	TurnID    string
+	MessageID string
+	Text      string
+	Phase     string
 }
 
 type TurnFailure struct {
@@ -102,8 +113,8 @@ type ToolEvent struct {
 	Error      string
 	DurationMS int
 
-	// NestedSessionID names a second conversation this call's completion refers to
-	// (the agent it spawned or addressed); empty otherwise. The turn package routes it.
+	// NestedSessionID names a second conversation this call opened or
+	// addresses, riding the same connection; its events are routed to it.
 	NestedSessionID string
 }
 
@@ -122,29 +133,6 @@ const (
 	InterruptNotification = "notification"
 	InterruptElicitation  = "elicitation"
 	InterruptCompaction   = "compaction"
-	// InterruptStopped is Crowbar's own doing, not a provider hook: recorded when
-	// a person cuts an in-flight turn short, so the transcript can draw the same
-	// kind of durable, sequence-anchored divider a compaction gets instead of a
-	// client-side guess about what it just clicked.
-	InterruptStopped = "stopped"
-	// InterruptProviderSwitched, InterruptModelChanged and InterruptEffortChanged
-	// are ALSO Crowbar's own doing, same as InterruptStopped: nothing a provider
-	// reports, recorded the instant Crowbar itself commits to a provider switch or
-	// a model/effort selection change, so the transcript can mark it with the same
-	// durable, sequence-anchored divider. Detail carries the new value (the target
-	// provider id, model id, or effort level).
-	InterruptProviderSwitched = "provider_switched"
-	InterruptModelChanged     = "model_changed"
-	InterruptEffortChanged    = "effort_changed"
-	// InterruptInferred is ALSO Crowbar's own doing, not a provider hook — but
-	// unlike the three above, it is not something Crowbar decided: it is
-	// Crowbar's own INFERENCE that a turn was interrupted, drawn from silence
-	// rather than observed directly. Recorded when a fuse elsewhere in the
-	// hook ingress (the message-quiet timeout an assistant reply stopped
-	// growing under, with nothing else open to explain why) decides a turn
-	// is never going to close on its own — the only trace a CLI's own
-	// hookless abort (an ESC/Ctrl+C it reports to nobody) leaves behind.
-	InterruptInferred = "inferred"
 )
 
 type InterruptEvent struct {

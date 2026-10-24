@@ -114,6 +114,19 @@ func (s *Store) State(ctx context.Context, chatID string) (ledger.State, error) 
 	return cur.Clone(), nil
 }
 
+// View runs fn on chatID's State under the chat's writer, so no commit lands
+// while it runs. fn may Read the chat's rows; it must never Do, Append or View.
+func (s *Store) View(ctx context.Context, chatID string, fn func(ledger.State) error) error {
+	w := s.writer(chatID)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	cur, err := s.load(ctx, chatID, w)
+	if err != nil {
+		return err
+	}
+	return fn(cur.Clone())
+}
+
 // Watch is chatID's current State and a channel closed by the chat's next
 // commit, read together so no commit between them can be missed.
 func (s *Store) Watch(ctx context.Context, chatID string) (ledger.State, <-chan struct{}, error) {

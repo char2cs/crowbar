@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
-	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // refusedS1 is a CLI's exit on refusing to resume session S1.
@@ -80,31 +80,24 @@ func (reviveConversations) AssembleConversation(context.Context, string, bool, t
 	return "", nil
 }
 
-// reviveActivity is a conversation record with nothing in it since the
-// session's last turn.
-type reviveActivity struct{ stubActivityForSpawn }
-
-func (reviveActivity) LastTurnForSession(context.Context, string, string, string) (time.Time, bool, error) {
-	return time.Time{}, false, nil
-}
-
-func (reviveActivity) TurnsSince(context.Context, string, time.Time) ([]domain.ActivityTurn, error) {
+func (reviveConversations) ChatTurns(context.Context, string) ([]domain.LedgerTurn, error) {
 	return nil, nil
 }
 
-func (reviveActivity) HasTurnAtOrAfter(context.Context, string, string, time.Time) (bool, error) {
-	return false, nil
-}
-
-// recordedSwitches keeps the switches a send records.
-type recordedSwitches struct {
-	noopTurns
-	to *[]string
-}
-
-func (r recordedSwitches) RecordChatSwitch(_ context.Context, _, kind, detail string) error {
-	*r.to = append(*r.to, kind+":"+detail)
-	return nil
+// dividers are the dividers chatID's ledger holds, as kind:detail.
+func dividers(t *testing.T, l *ledgerstore.Store, chatID string) []string {
+	t.Helper()
+	rows, err := l.Read(t.Context(), chatID, 0, 0)
+	require.NoError(t, err)
+	var out []string
+	for _, r := range rows {
+		if r.Kind == ledger.KindMarker {
+			body, err := ledger.DecodeBody[ledger.Marker](r)
+			require.NoError(t, err)
+			out = append(out, body.Kind+":"+body.Detail)
+		}
+	}
+	return out
 }
 
 // A send launches one CLI carrying the prompt: the dormant chat's provider or
@@ -124,10 +117,9 @@ func TestSubmitPromptWithSwitch_ARefusedResumeSettlesThePromptItsOneLaunchCarrie
 			t.Run(name+", "+order, func(t *testing.T) {
 				h := newSpawnHarness(t, "")
 				term := &refusingTerm{}
-				var switched []string
-				h.rs.term, h.rs.turns = term, recordedSwitches{to: &switched}
+				h.rs.term = term
 				h.rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: h.chatID, WorkspaceID: "ws-1", ProviderID: sc.current}}
-				h.rs.conversations, h.rs.activity = reviveConversations{provider: sc.current}, reviveActivity{}
+				h.rs.conversations = reviveConversations{provider: sc.current}
 				h.rs.ledger = turnedTestLedger(t, "claude", "S1")
 				if sc.live {
 					_, err := h.rs.spawnRunner(t.Context(), h.chatID, "ws-1", sc.current, spawnInput{}, false)
@@ -164,9 +156,9 @@ func TestSubmitPromptWithSwitch_ARefusedResumeSettlesThePromptItsOneLaunchCarrie
 				assert.Equal(t, 1, countKind(rows, ledger.KindSessionLost))
 				var divider []string
 				if sc.staged != "" {
-					divider = []string{engineagents.InterruptProviderSwitched + ":claude"}
+					divider = []string{ledger.MarkerProviderSwitched + ":claude"}
 				}
-				assert.Equal(t, divider, switched, "the switch is recorded where the chat's provider moves")
+				assert.Equal(t, divider, dividers(t, h.rs.ledger, h.chatID), "the switch is recorded where the chat's provider moves")
 			})
 		}
 	}

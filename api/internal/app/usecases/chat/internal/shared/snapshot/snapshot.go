@@ -67,9 +67,9 @@ type Snapshot struct {
 // touched since boot.
 type Reader interface {
 	GetChat(ctx context.Context, chatID string) (domain.Chat, error)
-	// LedgerState is never called under the owner's lock: the ledger writer
-	// publishes into the owner, so the lock order is writer → owner.
-	LedgerState(ctx context.Context, chatID string) (ledger.State, error)
+	// ViewLedger runs fn on the chat's ledger State under its writer. It is
+	// never called under the owner's lock: the writer publishes into the owner.
+	ViewLedger(ctx context.Context, chatID string, fn func(ledger.State) error) error
 }
 
 // Runtime is the in-memory process state joined onto a snapshot. Its

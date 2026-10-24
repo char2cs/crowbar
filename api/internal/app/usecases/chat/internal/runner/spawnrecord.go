@@ -124,10 +124,7 @@ func (rs *Runners) recordChatProvider(
 			"chat_id", chatID, "provider", providerID, "err", err)
 		return
 	}
-	if err := rs.turns.RecordChatSwitch(ctx, chatID, engineagents.InterruptProviderSwitched, providerID); err != nil {
-		slog.WarnContext(ctx, "agent: record a provider switch (best-effort, continuing)",
-			"chat_id", chatID, "err", err)
-	}
+	rs.divide(ctx, chatID, ledger.MarkerProviderSwitched, providerID)
 }
 
 // commitCarriedSelection makes the pick a launch carried the chat's own, with

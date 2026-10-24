@@ -130,8 +130,8 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 //
 // It reads through Agent.ReadMessages, the same reader the Chat pane's message
 // endpoint serves from. It used to read the flat-file ledger directory at
-// <workspaceRoot>/chats/<chatID>/ledger; that store was replaced by the
-// agentactivity aggregate and NOTHING writes those files any more, so the old
+// <workspaceRoot>/chats/<chatID>/ledger; that store was replaced and NOTHING
+// writes those files any more, so the old
 // body silently returned nil for every chat — which made every assertion built on
 // it either vacuously empty or a five-minute backstop expiry. The lesson is the
 // same one that broke this package's compile: nothing behind the integration tag

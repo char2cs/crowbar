@@ -57,6 +57,8 @@ type TurnEnded struct {
 	// nil on every other end, which says nothing of it. Deleted in T9.
 	AsyncWork *int   `json:"asyncWork,omitempty"`
 	Effort    string `json:"effort,omitempty"`
+	// Diff is the provider's last whole diff of the turn's changes.
+	Diff string `json:"diff,omitempty"`
 }
 
 // TurnFailed is the body of a turn_failed row: the provider could not finish
@@ -146,6 +148,7 @@ func (s *State) applyTurnStarted(r Row, body TurnStarted) {
 		provider: body.Provider, sessionID: body.SessionID, persists: body.Persists, startSeq: r.Seq,
 	}
 	s.hasTurn = true
+	s.keys.openTurn(r.TurnID, body.ProviderTurnID, body.RunnerID)
 	if s.bg.runnerID == body.RunnerID {
 		s.bg.stopped = false
 	}
@@ -174,6 +177,7 @@ func (s *State) applyTurnEnded(r Row) {
 		return
 	}
 	s.turn.Status, s.turn.closeSeq = next, r.Seq
+	s.abandonAsks(func(a PendingAsk) bool { return a.TurnID == r.TurnID })
 	if next == TurnStatusDone && s.turn.persists == PersistsTurnEnd {
 		s.markTurned(s.turn.provider, s.turn.sessionID)
 	}
@@ -188,6 +192,7 @@ func (s *State) applyTurnFailed(r Row) {
 	s.restate(s.turn.RunnerID, 0)
 	if next, ok := s.turn.Status.Next(TurnStatusFailed); ok {
 		s.turn.Status, s.turn.closeSeq = next, r.Seq
+		s.abandonAsks(func(a PendingAsk) bool { return a.TurnID == r.TurnID })
 	}
 }
 

@@ -21,6 +21,7 @@ func main() {
 	chatID := flag.String("chat-id", "", "chat ID to use (default: generated)")
 	turns := flag.Int("turns", 20, "number of user/assistant turn pairs")
 	toolCalls := flag.Int("tool-calls", 5, "finished tool calls per assistant turn")
+	provider := flag.String("provider", "", "provider the chat runs on (default: the first registered descriptor)")
 	flag.Parse()
 
 	if *workspaceID == "" {
@@ -30,6 +31,7 @@ func main() {
 	got, err := run(context.Background(), seedOptions{
 		WorkspaceID:      *workspaceID,
 		ChatID:           *chatID,
+		ProviderID:       *provider,
 		Turns:            *turns,
 		ToolCallsPerTurn: *toolCalls,
 	})

@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -89,8 +89,9 @@ type AncestorCwd interface {
 }
 
 // Turns is what the CLI lifecycle needs from the hook side: the one door an
-// api connection's events come in through, the records a Stop or switch
-// leaves, and the screen classifiers the terminal-wait sweep runs on.
+// api connection's events come in through, what a runner's exit records of
+// the text it streamed, and the screen classifiers the terminal-wait sweep
+// runs on.
 //
 // NOTHING here may take the chat's lock except Hook, which this side never
 // calls under it.
@@ -100,30 +101,11 @@ type Turns interface {
 	Hook(ctx context.Context, runnerID, provider, event string, raw []byte) (ask string, err error)
 	// ForgetChat drops every piece of in-memory turn state held for chatID.
 	ForgetChat(chatID string)
-	// RecordStop notes, durably, that a person cut chatID's in-flight turn
-	// short. It always records: the caller decides whether a turn was open,
-	// under the chat's lock, before tearing anything down.
-	RecordStop(ctx context.Context, chatID string) error
-	// RecordChatSwitch notes, durably, that Crowbar itself changed chatID's
-	// provider, model or effort. kind is one of
-	// InterruptProviderSwitched/InterruptModelChanged/InterruptEffortChanged
-	// (engine/agents); detail is the new value. The caller is the one that
-	// knows whether the value actually changed — this always records.
-	RecordChatSwitch(
-		ctx context.Context,
-		chatID, kind, detail string,
-	) error
-	// SetFeed wires the live chat feed at sweep start.
-	SetFeed(feed seam.ChatFeed)
-	// AbandonMessageForRunner salvages runner's own already-streamed-but-not-
-	// yet-final message before closeAbandonedTurn tears its turn down — see
-	// its own doc comment for why the runner must be named explicitly rather
-	// than re-resolved.
-	AbandonMessageForRunner(
-		ctx context.Context,
-		chatID string,
-		runner engineagents.Runner,
-	) (bool, error)
+	// ExitRows are the rows a runner's end records of the answers it streamed
+	// that no row holds; they commit with the end, and Retire follows.
+	ExitRows(st ledger.State, chatID, runnerID string) ([]ledger.Row, error)
+	// Retire drops runnerID's streamed text on chatID once its end is recorded.
+	Retire(chatID, runnerID string)
 
 	// The seams the terminal-wait detector reads through: they belong to the
 	// hook side.

@@ -2,9 +2,7 @@ package chat_test
 
 import (
 	"context"
-	"errors"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,7 +12,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -34,7 +31,7 @@ func stoppedInterruptions(t *testing.T, f testFixture, chatID string) int {
 	require.NoError(t, err)
 	n := 0
 	for _, in := range ints {
-		if in.Kind == engineagents.InterruptStopped {
+		if in.Kind == ledger.MarkerStopped {
 			n++
 		}
 	}
@@ -229,29 +226,11 @@ func TestEndingRunner_ASteerItsTurnStopCarriesOpensNoTurn(t *testing.T) {
 	}
 }
 
-// refusedReplies refuses the assistant replies the record closes once armed.
-type refusedReplies struct {
-	agentactivity.EventStore
-	armed atomic.Bool
-}
-
-var errReplyRefused = errors.New("boom: reply refused")
-
-func (r *refusedReplies) CloseTurn(ctx context.Context, in agentactivity.TurnInput) error {
-	if r.armed.Load() {
-		return errReplyRefused
-	}
-	return r.EventStore.CloseTurn(ctx, in)
-}
-
-// A turn end whose reply the record refused is refused to its CLI, so the steer
-// it would carry is never handed over: it settles, for its client to keep.
-func TestSteer_ATurnEndRefusedToItsCLICarriesNoSteer(t *testing.T) {
-	replies := &refusedReplies{}
-	f := newFixtureUsing(t, nil, "", func(real agentactivity.EventStore) agentactivity.EventStore {
-		replies.EventStore = real
-		return replies
-	})
+// A turn end the ledger refuses is refused to its CLI, so the steer it would
+// carry is never handed over: it stays pending on the runner, and no turn
+// opens for it.
+func TestSteer_ATurnEndTheLedgerRefusesHandsOverNoSteer(t *testing.T) {
+	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	f.announce(t, runnerID, "sid-steer")
 	prompt(t, f, runnerID, "claude", "think hard about this")
@@ -259,16 +238,19 @@ func TestSteer_ATurnEndRefusedToItsCLICarriesNoSteer(t *testing.T) {
 	steered, err := f.usecase.SubmitPrompt(f.ctx, chatID, "and this too", requestID, "", nil)
 	require.NoError(t, err)
 	require.Equal(t, runnerID, steered.RunnerID, "precondition: the prompt is steered into the running turn")
-	replies.armed.Store(true)
+	f.refuseRows(t, ledger.KindTurnEnded)
 
 	err = f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
 		mustJSON(t, map[string]any{"last_assistant_message": "done"}))
 
-	require.ErrorIs(t, err, errReplyRefused)
+	require.ErrorContains(t, err, "log is full")
 	got := receipt(t, f, chatID, requestID)
-	assert.Equal(t, ledger.PromptStatusSettled, got.Status)
-	assert.Equal(t, ledger.ReasonDeliveryFailed, got.Reason)
-	assert.False(t, f.busy(t, chatID), "no turn opened for a steer its CLI never got")
+	assert.Equal(t, ledger.PromptStatusPending, got.Status, "the steer was never handed over")
+	for _, r := range ledgerRows(t, f, chatID) {
+		if r.Kind == ledger.KindTurnStarted {
+			assert.NotEqual(t, got.TurnID, r.TurnID, "no turn opened for the steer")
+		}
+	}
 }
 
 // stopWhileTheTurnStopHoldsTheChat stops the chat once the turn_stop holds its
@@ -403,8 +385,9 @@ func assertTurnsStartOnTheLiveRunner(t *testing.T, f testFixture, chatID string,
 			started := decodeRow[ledger.TurnStarted](t, r)
 			assert.Equal(t, live, started.RunnerID, "S6: a turn started off the live runner, after %v", trail)
 		case ledger.KindUserMessage, ledger.KindPromptSettled, ledger.KindSessionBound,
-			ledger.KindSessionLost, ledger.KindMarker, ledger.KindTurnEnded,
-			ledger.KindTurnFailed: // no runner starts or ends, no turn starts
+			ledger.KindSessionLost, ledger.KindMarker, ledger.KindTurnEnded, ledger.KindTurnFailed,
+			ledger.KindAssistantText, ledger.KindReasoning, ledger.KindToolCall, ledger.KindAsk,
+			ledger.KindAskResolved, ledger.KindSubagent, ledger.KindPlan: // no runner starts or ends, no turn starts
 		}
 	}
 }

@@ -73,8 +73,8 @@ func permissionChannelSplitChoices(t *testing.T, h *harness, ws importedRepo, ch
 // own ASK-direction counterpart — the exact gap P3's own report on permission
 // flagged: "ChannelBlock only carries in: ... so a dual-shape ASK event has
 // no channel-block spelling yet" (codex.yaml, since replaced). POST
-// /chats/hooks always delivers on the HOOKS channel (turn/ingest.go's
-// channelFor), regardless of what shape the BODY happens to carry, so a
+// /chats/hooks always delivers on the HOOKS channel (the hook handler's
+// choice), regardless of what shape the BODY happens to carry, so a
 // payload shaped for the api: block posted here is exactly the foreign-shape
 // delivery the channel split exists to refuse.
 func TestRegression_HooksDeliveryOfAChannelSplitAskEventCannotReadAPIShapedFields(t *testing.T) {

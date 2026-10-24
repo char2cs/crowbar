@@ -122,11 +122,11 @@ func (rs *Runners) switchProviderLocked(
 		// whole conversation this CLI was already handed once.
 		gapTurns := 0
 		if resuming {
-			gap, gapErr := rs.activity.TurnsSince(ctx, chatID, leftAt)
+			turns, gapErr := rs.conversations.ChatTurns(ctx, chatID)
 			if gapErr != nil {
 				return "", fmt.Errorf("agent: switch provider: measure handoff gap: %w", gapErr)
 			}
-			gapTurns = len(gap)
+			gapTurns = len(turnsAfter(turns, leftAt))
 		}
 
 		retry, err := rs.displaceForSwitch(ctx, h, chat)
@@ -239,15 +239,32 @@ func (rs *Runners) awaitNoPendingPrompt(park context.Context, chatID string) err
 }
 
 // leftAt is where the gap handed to a resumed sessionID starts: its last turn
-// in the activity record the gap is rendered from, so the cut and the gap share
-// one clock. Zero, the whole record, when nothing is resumed.
+// in the transcript the gap is rendered from, so the cut and the gap share one
+// clock. Zero, the whole record, when nothing is resumed.
 func (rs *Runners) leftAt(ctx context.Context, chatID, providerID, sessionID string) (time.Time, error) {
 	if sessionID == "" {
 		return time.Time{}, nil
 	}
-	at, _, err := rs.activity.LastTurnForSession(ctx, chatID, providerID, sessionID)
+	turns, err := rs.conversations.ChatTurns(ctx, chatID)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("agent: last turn on the session: %w", err)
 	}
+	var at time.Time
+	for _, t := range turns {
+		if t.Provider == providerID && t.SessionID == sessionID && t.At.After(at) {
+			at = t.At
+		}
+	}
 	return at, nil
+}
+
+// turnsAfter are the turns said after cut.
+func turnsAfter(turns []domain.LedgerTurn, cut time.Time) []domain.LedgerTurn {
+	var out []domain.LedgerTurn
+	for _, t := range turns {
+		if t.At.After(cut) {
+			out = append(out, t)
+		}
+	}
+	return out
 }

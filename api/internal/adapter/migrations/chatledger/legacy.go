@@ -1,6 +1,5 @@
 // Package chatledger reads what the pre-ledger daemon recorded about a chat,
-// for the upgrade steps that restate it. Only agent_interruptions is still
-// written, by the activity store this daemon keeps open.
+// for the upgrade steps that restate it. Nothing writes these tables any more.
 package chatledger
 
 import "time"

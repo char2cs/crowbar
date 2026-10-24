@@ -12,32 +12,17 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Ledger is the conversation record a prompt's outcome is written back to. The
-// desk owns that write because it is the only thing that knows WHICH outcome a
-// relay reached: answered, proceeded past, or abandoned with its runner.
+// Ledger closes an ask with the outcome its relay reached: proceeded past, or
+// abandoned with its runner. The desk owns that write because it alone knows
+// which one a relay reached.
 type Ledger interface {
-	ResolveChoice(
-		ctx context.Context,
-		chatID, choiceID, resolution string,
-		now time.Time,
-	) error
-	// ResolveInterruption closes the notification banner a permission choice
-	// opened alongside it (see record's own doc comment) — required so a
-	// relay released without an answer doesn't leave that banner counting
-	// against the turn's domain.MaxOpenPerTurn for the rest of the turn.
-	ResolveInterruption(
-		ctx context.Context,
-		chatID, id, kind, detail string,
-		now time.Time,
-	) error
+	ResolveAsk(ctx context.Context, chatID, askID, resolution string) error
 }
 
 const (
@@ -51,17 +36,6 @@ const (
 	// poll; past it the answer is stale and the provider has moved on.
 	DefaultRetention = time.Minute
 )
-
-// PermissionInterruptionID derives a choice's paired interruption id from the
-// choice id alone, by a prefix swap: the pair is minted from one key wherever
-// an ask is raised, so a caller holding only the choice id never guesses.
-func PermissionInterruptionID(choiceID string) string {
-	const prefix = "choice-"
-	if !strings.HasPrefix(choiceID, prefix) {
-		return ""
-	}
-	return "interrupt-" + strings.TrimPrefix(choiceID, prefix)
-}
 
 // Wait clamps a provider's declared answer budget: absent or negative falls back,
 // absurd is capped, anything sane is honoured.
@@ -279,10 +253,6 @@ func (d *Desk) releaseRunner(runnerID string) []*Slot {
 // returned: the relay has already been released, and refusing to admit that
 // because a write failed would leave the CLI blocked on a person who can no
 // longer answer.
-//
-// A slot raised on the permission hook (a tool's permission, or a question a
-// tool asks) also closes its paired interruption: one left open counts against
-// domain.MaxOpenPerTurn for the rest of the turn. Best-effort: it is cosmetic.
 func (d *Desk) record(
 	ctx context.Context,
 	slot *Slot,
@@ -292,21 +262,9 @@ func (d *Desk) record(
 	if d.ledger == nil {
 		return
 	}
-	err := d.ledger.ResolveChoice(ctx, slot.ChatID, slot.ChoiceID, resolution, time.Now())
+	err := d.ledger.ResolveAsk(ctx, slot.ChatID, slot.ChoiceID, resolution)
 	if err != nil && !errors.Is(err, context.Canceled) {
-		slog.WarnContext(ctx, what,
-			"chat_id", slot.ChatID, "choice_id", slot.ChoiceID, "err", err)
-	}
-	if slot.Event != engineagents.HookPermission {
-		return
-	}
-	if id := PermissionInterruptionID(slot.ChoiceID); id != "" {
-		if err := d.ledger.ResolveInterruption(
-			ctx, slot.ChatID, id, engineagents.InterruptPermission, "", time.Now(),
-		); err != nil && !errors.Is(err, context.Canceled) {
-			slog.WarnContext(ctx, what+": interruption",
-				"chat_id", slot.ChatID, "choice_id", slot.ChoiceID, "err", err)
-		}
+		slog.WarnContext(ctx, what, "chat_id", slot.ChatID, "choice_id", slot.ChoiceID, "err", err)
 	}
 }
 

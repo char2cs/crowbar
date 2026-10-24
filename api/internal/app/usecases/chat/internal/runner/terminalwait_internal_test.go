@@ -27,7 +27,7 @@ func TestStartTerminalWaitSweep_DrivesTheDetector(t *testing.T) {
 	rs.turns = noTurns{}
 	rs.termWait = sweepRecorder{swept: swept}
 
-	rs.StartTerminalWaitSweep(t.Context(), seam.ChatFeed{})
+	rs.StartTerminalWaitSweep(t.Context())
 
 	<-swept
 }

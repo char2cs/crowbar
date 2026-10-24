@@ -6,7 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/conversation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/defaultlevel"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
@@ -17,7 +16,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/transcript"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -32,7 +31,6 @@ import (
 // a second instance of either doubles a CLI in production.
 type Deps struct {
 	Chats    agentchat.EventStore
-	Activity agentactivity.EventStore
 	Agents   engineagents.Agents
 	Terminal TerminalCommander
 	// Workspace resolves the on-disk locations one workspace's agent work happens
@@ -71,6 +69,8 @@ type Deps struct {
 	Home func() (string, error)
 	// Ledger is every chat's ledger; a prompt is a row there before any CLI sees it.
 	Ledger *ledgerstore.Store
+	// Blobs holds the tool payloads the ledger's rows name.
+	Blobs *ledgerstore.Blobs
 	// DaemonSocket is the unix socket the daemon bound, handed to every callback a
 	// spawned CLI runs; empty over TCP.
 	DaemonSocket string
@@ -81,10 +81,6 @@ type Deps struct {
 	// exactly ONE per daemon: a runner's token must be minted by the same secret
 	// that verifies it.
 	Minter *agenttools.TokenMinter
-	// ChoiceWatch carries "this chat's pending prompts changed" from the activity
-	// ledger, which is built first, to the usecase's publisher. Nil is a daemon
-	// that announces none (tests).
-	ChoiceWatch *ChoiceWatch
 	// Snapshots is the chat snapshot owner the composition root built and fed
 	// to the fanout. Nil builds a private one (tests), fed by nothing until a
 	// test wires the fanout over Snapshots().
@@ -121,25 +117,27 @@ func New(d Deps) *Usecase {
 	// daemon boot, before there is a request context to carry — same
 	// justification as the other startup-only Background() reads in this
 	// codebase (e.g. container.go's sweepTargets).
+	u := &Usecase{
+		chats:      d.Chats,
+		ledger:     d.Ledger,
+		blobs:      d.Blobs,
+		transcript: transcript.New(d.Ledger),
+		agents:     d.Agents,
+		ws:         d.Workspace,
+		worktree:   d.Worktree,
+		tools:      d.Tools,
+		folders:    d.Folders,
+		nodes:      d.Nodes,
+		repoRoots:  d.RepoRoots,
+	}
 	sh := shared{
 		telemetry: telemetry.NewDurable(context.Background(), d.ChatTelemetry),
 		locks:     ingress.NewLocks(),
 		answers: answerdesk.New(
-			answerdesk.DefaultRetention, d.Activity, answerdesk.WithChange(d.ChoiceWatch.Notify),
+			answerdesk.DefaultRetention, askResolver{ledger: d.Ledger}, answerdesk.WithChange(u.announceChoices),
 		),
 	}
-	u := &Usecase{
-		chats:     d.Chats,
-		activity:  d.Activity,
-		agents:    d.Agents,
-		ws:        d.Workspace,
-		worktree:  d.Worktree,
-		answers:   sh.answers,
-		tools:     d.Tools,
-		folders:   d.Folders,
-		nodes:     d.Nodes,
-		repoRoots: d.RepoRoots,
-	}
+	u.answers = sh.answers
 	// The tool surface's self-ports, filled in here because the usecase does
 	// not exist when the caller builds the Deps.
 	u.tools.Chats = u
@@ -169,8 +167,8 @@ type snapshotReader struct {
 	ledger *ledgerstore.Store
 }
 
-func (r snapshotReader) LedgerState(ctx context.Context, chatID string) (ledger.State, error) {
-	return r.ledger.State(ctx, chatID)
+func (r snapshotReader) ViewLedger(ctx context.Context, chatID string, fn func(ledger.State) error) error {
+	return r.ledger.View(ctx, chatID, fn)
 }
 
 func (r snapshotReader) GetChat(ctx context.Context, chatID string) (domain.Chat, error) {
@@ -206,33 +204,25 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		})
 	}
 	u.conversations = conversation.New(conversation.Deps{
-		Chats:     d.Chats,
-		Activity:  d.Activity,
-		Telemetry: sh.telemetry,
-		Agents:    d.Agents,
-		Workspace: d.Workspace,
-		Lineage:   d.Lineage,
-		Home:      d.Home,
-		Ledger:    d.Ledger,
+		Chats:      d.Chats,
+		Transcript: u.transcript,
+		Blobs:      d.Blobs,
+		Telemetry:  sh.telemetry,
+		Agents:     d.Agents,
+		Workspace:  d.Workspace,
+		Lineage:    d.Lineage,
+		Home:       d.Home,
+		Ledger:     d.Ledger,
 
 		DefaultPermissionLevel: u.DefaultPermissionLevel,
 	})
-	u.turns = turn.New(turn.Deps{
-		Chats:     d.Chats,
-		Activity:  d.Activity,
-		Telemetry: sh.telemetry,
-		Agents:    d.Agents,
-		Workspace: d.Workspace,
-		Home:      d.Home,
-		Ledger:    d.Ledger,
-		Answers:   sh.answers,
-
-		Conversations: u.conversations,
+	u.recorder = ingress.NewRecorder(ingress.RecorderDeps{
+		Chats: d.Chats, Agents: d.Agents, Workspace: d.Workspace, Home: d.Home, Ledger: d.Ledger,
+		Blobs: d.Blobs, Telemetry: sh.telemetry, Answers: sh.answers, Titles: u.conversations,
 	})
-	d.ChoiceWatch.bind(u.turns.PublishChoices)
 	u.runners = runner.New(runner.Deps{
 		Chats:         d.Chats,
-		Activity:      d.Activity,
+		Choices:       u.transcript,
 		Agents:        d.Agents,
 		Terminal:      d.Terminal,
 		Workspace:     d.Workspace,
@@ -247,15 +237,15 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Snapshots:     u.snapshots,
 	})
 	u.ingress = ingress.New(ingress.Deps{
-		Runners: u.runners, Descriptors: u.turns, Turns: u.turns, Ledger: d.Ledger, Locks: sh.locks,
+		Runners: u.runners, Descriptors: u.recorder, Turns: u.recorder, Ledger: d.Ledger, Locks: sh.locks,
 	})
 	// The edges that can only close once both sides exist: a purge retires the
 	// CLI on the chat (and a failed spawn discards the chat it minted), a hook
 	// resolves its runner through the live table, and the terminal-wait detector
 	// reads screens through the hook ingress's own classifiers.
 	u.conversations.SetRunners(u.runners)
-	u.turns.SetRunners(u.runners)
-	u.runners.SetTurns(runnerTurns{Turns: u.turns, ingress: u.ingress})
+	u.recorder.SetRunners(u.runners)
+	u.runners.SetTurns(runnerTurns{Recorder: u.recorder, ingress: u.ingress})
 	// Subscribers run under the chat's ledger writer: they read snapshots only
 	// through Held, which never reads the ledger.
 	d.Ledger.Subscribe(func(chatID string, rows []ledger.Row, st ledger.State) {
@@ -268,10 +258,10 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	d.Ledger.Subscribe(u.publishLedgerRows)
 }
 
-// runnerTurns is the hook side as the runner lifecycle sees it: the turns, and
-// the ingress its api connections place their events through.
+// runnerTurns is the hook side as the runner lifecycle sees it: the recorder,
+// and the ingress its api connections place their events through.
 type runnerTurns struct {
-	*turn.Turns
+	*ingress.Recorder
 	ingress *ingress.Ingress
 }
 

@@ -18,15 +18,27 @@ import (
 
 type reader struct {
 	chats map[string]domain.Chat
-	// ledger answers LedgerState; nil reads every chat's ledger as empty.
+	// ledger answers ViewLedger; nil reads every chat's ledger as empty.
 	ledger func(chatID string) (ledger.State, error)
+	// released runs as ViewLedger releases the chat's writer.
+	released func()
 }
 
-func (r *reader) LedgerState(_ context.Context, chatID string) (ledger.State, error) {
-	if r.ledger == nil {
-		return ledger.State{ChatID: chatID}, nil
+func (r *reader) ViewLedger(_ context.Context, chatID string, fn func(ledger.State) error) error {
+	st := ledger.State{ChatID: chatID}
+	if r.ledger != nil {
+		var err error
+		if st, err = r.ledger(chatID); err != nil {
+			return err
+		}
 	}
-	return r.ledger(chatID)
+	if err := fn(st); err != nil {
+		return err
+	}
+	if r.released != nil {
+		r.released()
+	}
+	return nil
 }
 
 func (r *reader) GetChat(_ context.Context, id string) (domain.Chat, error) {

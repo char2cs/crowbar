@@ -81,16 +81,17 @@ func (rs *Runners) endRunner(
 func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Runner, gentle bool) (bool, error) {
 	stopped := false
 	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		_, stopped = st.RunningTurn()
-		return ledger.Stop(st)
+		turn, running := st.RunningTurn()
+		stopped = running
+		rows, err := ledger.Stop(st)
+		if err != nil || !running {
+			return rows, err
+		}
+		divider, err := ledger.NewRow(ledger.KindMarker, turn.ID, "", ledger.Marker{Kind: ledger.MarkerStopped})
+		return append(rows, divider), err
 	})
 	if err != nil {
 		return false, fmt.Errorf("agent: stop chat: %w", err)
-	}
-	if stopped {
-		if err := rs.turns.RecordStop(ctx, chatID); err != nil {
-			slog.WarnContext(ctx, "agent: stop: record interruption", "chat_id", chatID, "err", err)
-		}
 	}
 	if gentle && stopped && rs.interruptTurn(ctx, live) {
 		return false, nil
@@ -137,4 +138,17 @@ func (rs *Runners) interruptTurn(ctx context.Context, live agents.Runner) bool {
 		}
 	})
 	return true
+}
+
+// divide records a divider of Crowbar's own doing on chatID: a provider,
+// model or effort it changed to detail. Best-effort: the change is made, and
+// a divider that failed to record must never undo it.
+func (rs *Runners) divide(ctx context.Context, chatID, kind, detail string) {
+	row, err := ledger.NewRow(ledger.KindMarker, "", "", ledger.Marker{Kind: kind, Detail: detail})
+	if err == nil {
+		_, _, err = rs.ledger.Append(context.WithoutCancel(ctx), chatID, row)
+	}
+	if err != nil {
+		slog.WarnContext(ctx, "agent: record divider (best-effort, continuing)", "chat_id", chatID, "kind", kind, "err", err)
+	}
 }

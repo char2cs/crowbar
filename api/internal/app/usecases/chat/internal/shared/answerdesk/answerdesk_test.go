@@ -22,46 +22,24 @@ func fixture(wait time.Duration) (*answerdesk.Desk, *answerdesk.Slot) {
 
 // recordingLedger remembers each outcome the desk writes back.
 type recordingLedger struct {
-	mu                    sync.Mutex
-	resolved              []resolution
-	resolvedInterruptions []string
-	err                   error
+	mu       sync.Mutex
+	resolved []resolution
+	err      error
 }
 
 type resolution struct{ chatID, choiceID, verdict string }
 
-func (l *recordingLedger) ResolveChoice(
-	_ context.Context,
-	chatID, choiceID, verdict string,
-	_ time.Time,
-) error {
+func (l *recordingLedger) ResolveAsk(_ context.Context, chatID, askID, verdict string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.resolved = append(l.resolved, resolution{chatID, choiceID, verdict})
+	l.resolved = append(l.resolved, resolution{chatID, askID, verdict})
 	return l.err
-}
-
-func (l *recordingLedger) ResolveInterruption(
-	_ context.Context,
-	_, id, _, _ string,
-	_ time.Time,
-) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.resolvedInterruptions = append(l.resolvedInterruptions, id)
-	return nil
 }
 
 func (l *recordingLedger) all() []resolution {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return append([]resolution(nil), l.resolved...)
-}
-
-func (l *recordingLedger) allResolvedInterruptions() []string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return append([]string(nil), l.resolvedInterruptions...)
 }
 
 func withLedger(wait time.Duration) (*answerdesk.Desk, *answerdesk.Slot, *recordingLedger) {
@@ -385,9 +363,6 @@ func TestLedger_AbandonClosesTheQuestionAsProceeded(t *testing.T) {
 
 	require.Equal(t, []resolution{{"chat-1", "choice-1", domain.ChoiceResolutionProceeded}}, ledger.all(),
 		"an undecided prompt is being resolved by the provider's own UI")
-	assert.Equal(t, []string{"interrupt-1"}, ledger.allResolvedInterruptions(),
-		"a permission choice resolved elsewhere must also close its own interruption banner — "+
-			"left open, it keeps counting against MaxOpenPerTurn for the rest of the turn")
 }
 
 func TestLedger_ReleaseRunnerClosesTheQuestionAsAbandoned(t *testing.T) {
@@ -398,30 +373,6 @@ func TestLedger_ReleaseRunnerClosesTheQuestionAsAbandoned(t *testing.T) {
 	d.ReleaseRunner(context.Background(), "runner-1")
 
 	require.Equal(t, []resolution{{"chat-1", "choice-1", domain.ChoiceResolutionAbandoned}}, ledger.all())
-	assert.Equal(t, []string{"interrupt-1"}, ledger.allResolvedInterruptions(),
-		"a dead runner's own permission choice must also close its interruption banner — "+
-			"left open, it keeps counting against MaxOpenPerTurn for the rest of the turn")
-}
-
-// Only a permission prompt closes a paired interruption; an elicitation's
-// interruption is never guessed from its choice id.
-func TestLedger_AnAbandonedNonPermissionPromptNeverTouchesAnInterruption(t *testing.T) {
-	t.Parallel()
-
-	ledger := &recordingLedger{}
-	d := answerdesk.New(answerdesk.DefaultRetention, ledger)
-	d.Hold(answerdesk.Prompt{
-		ChoiceID: "choice-1", ChatID: "chat-1", RunnerID: "runner-1",
-		Event: engineagents.HookElicitation,
-		Keys:  engineagents.AnswerCapability{Wait: time.Minute, Keys: []string{"accept"}},
-	})
-
-	d.ReleaseRunner(context.Background(), "runner-1")
-
-	require.Equal(t, []resolution{{"chat-1", "choice-1", domain.ChoiceResolutionAbandoned}}, ledger.all())
-	assert.Empty(t, ledger.allResolvedInterruptions(),
-		"an elicitation's own interruption has a different kind and id scheme — "+
-			"record must never guess one for it")
 }
 
 func TestLedger_AnsweredRelaysAreNotClosedAgainByADeadRunner(t *testing.T) {

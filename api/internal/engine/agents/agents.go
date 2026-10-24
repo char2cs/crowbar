@@ -214,7 +214,7 @@ type service struct {
 
 	resolved sync.Mutex
 	// descriptors caches Get's answer per (homeDir, id), because Get sits on
-	// the hottest path in the daemon: ingestResolvedHook (turn/ingest.go)
+	// the hottest path in the daemon: the hook recorder (ingress/ingest.go)
 	// calls it once per ingested hook, including once per streamed delta —
 	// several times a SECOND on a fast-streaming provider. protocol.Resolve
 	// itself is deliberately always-fresh (reads and re-validates the YAML on

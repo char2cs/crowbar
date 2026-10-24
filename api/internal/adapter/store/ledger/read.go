@@ -70,5 +70,42 @@ func (s *Store) SessionOwner(ctx context.Context, provider, sessionID string) (c
 	return owners[0], true, nil
 }
 
+// BlobRefs are the payload refs chatID's tool calls carry.
+func (s *Store) BlobRefs(ctx context.Context, chatID string) ([]string, error) {
+	rows, err := s.Read(ctx, chatID, 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	var refs []string
+	for _, r := range rows {
+		if r.Kind != ledger.KindToolCall {
+			continue
+		}
+		body, err := ledger.DecodeBody[ledger.ToolCall](r)
+		if err != nil {
+			continue
+		}
+		for _, ref := range []string{body.InputRef, body.ResultRef} {
+			if ref != "" {
+				refs = append(refs, ref)
+			}
+		}
+	}
+	return refs, nil
+}
+
+// RefInUse reports whether any chat's tool call still carries ref.
+func (s *Store) RefInUse(ctx context.Context, ref string) (bool, error) {
+	var n int64
+	err := s.db.WithContext(ctx).Raw(
+		`SELECT COUNT(*) FROM chat_ledger WHERE kind = ? AND instr(body, ?) > 0`,
+		string(ledger.KindToolCall), `"`+ref+`"`,
+	).Scan(&n).Error
+	if err != nil {
+		return false, fmt.Errorf("ledger: ref in use %s: %w", ref, err)
+	}
+	return n > 0, nil
+}
+
 // fromMicros is the time a stored at column names, as the store stamped it.
 func fromMicros(us int64) time.Time { return time.UnixMicro(us).UTC() }

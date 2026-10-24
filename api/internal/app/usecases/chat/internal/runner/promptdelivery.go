@@ -155,16 +155,18 @@ func (rs *Runners) resolvePromptDelivery(
 
 // turnedSinceOutgoing reports whether providerID has turned on the chat since
 // outgoing, the CLI a delivery replaces, started; a dormant chat has none.
+// Outgoing is the one CLI live since, so only its own turns count.
 func (rs *Runners) turnedSinceOutgoing(
 	ctx context.Context, chatID, providerID string, outgoing engineagents.Runner,
 ) (bool, error) {
-	if outgoing.ID == "" {
+	if outgoing.ID == "" || outgoing.ProviderID != providerID {
 		return false, nil
 	}
-	turned, err := rs.activity.HasTurnAtOrAfter(ctx, chatID, providerID, outgoing.StartedAt)
+	st, err := rs.ledger.State(ctx, chatID)
 	if err != nil {
 		return false, fmt.Errorf("agent: submit prompt: check live runner history: %w", err)
 	}
+	_, turned := st.RunnerTurn(outgoing.ID)
 	return turned, nil
 }
 

@@ -65,12 +65,10 @@ func newContainerDeps(
 		newTestAsynx[domain.ReviewThread](t, adapters.ReviewThreadES()),
 		newTestAsynx[domain.Workspace](t, adapters.WorkspaceES()),
 		newTestAsynx[domain.Chat](t, adapters.AgentChatES()),
-		newTestAsynx[domain.ChatActivity](t, adapters.AgentActivityES()),
 		newTestAsynx[domain.Node](t, adapters.NodeES()),
 		nil, // git conflict-checker not exercised by this test
 		noChatWatch,
 		noNodeWatch,
-		nil,
 		nil,
 	)
 	require.NoError(t, err)

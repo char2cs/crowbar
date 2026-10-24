@@ -3,11 +3,10 @@
 // message — images, PDFs, and anything too large or too binary to inline in
 // the message text itself (chat attachments design spec).
 //
-// It is the storage half of a handler -> usecase -> storage layering that
-// mirrors agentactivity's own Payload seam (ReadToolPayload -> EventStore.Payload
-// -> content store): chat/handlers owns the HTTP ingestion shapes, the chat
-// usecase resolves WHICH directory a chat's attachments live in, and this
-// package owns what happens once both bytes and a destination are known.
+// It is the storage half of a handler -> usecase -> storage layering:
+// chat/handlers owns the HTTP ingestion shapes, the chat usecase resolves WHICH
+// directory a chat's attachments live in, and this package owns what happens
+// once both bytes and a destination are known.
 package attachments
 
 import (

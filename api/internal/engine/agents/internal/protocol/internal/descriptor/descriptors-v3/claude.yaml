@@ -49,7 +49,7 @@ runtime:
 #
 # idle is NOT among them any more: claude has no live status stream, but it does
 # send one authoritative idle report — see the idle: event below.
-not_emitted: [reasoning_delta, tool_output_delta, plan_update, diff_update]
+not_emitted: [reasoning_delta, tool_output_delta, plan_update, diff_update, message_complete]
 
 # Both faces are live from the instant the process spawns (hotswap: true
 # above) — the terminal PTY IS claude, chat is the same hooks stream read

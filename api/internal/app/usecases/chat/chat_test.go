@@ -24,6 +24,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -314,7 +315,7 @@ func TestPurgeChat_ReapsChatDirOnDisk(t *testing.T) {
 
 	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID))
 
-	after, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	after, err := f.ledger.Read(f.ctx, chatID, 0, 0)
 	require.NoError(t, err)
 	assert.Empty(t, after, "purge must drop the chat's conversation record")
 
@@ -635,10 +636,7 @@ func TestNoteThreadLineage_IsNotAttributedToAnyProvider(t *testing.T) {
 	require.NoError(t, f.usecase.NoteThreadLineage(f.ctx, chatID, []string{"parent-1"}))
 	f.wait()
 
-	_, found, err := f.activity.LastTurnForSession(f.ctx, chatID, "claude", "sid-claude")
-	require.NoError(t, err)
-	assert.False(t, found, "a Crowbar note is not a claude turn")
-	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.NoError(t, err)
 	f.wait()
 	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
@@ -739,20 +737,6 @@ func TestNoteThreadLineage_SaysNothingInAChatThatHasNotSpoken(t *testing.T) {
 	turns, err := f.usecase.ReadChatLog(f.ctx, chatID)
 	require.NoError(t, err)
 	assert.Empty(t, turns, "a chat with no history has no move to date")
-}
-
-// A record that cannot be READ is not an empty one, so it must not be treated as
-// the "nothing to date" case — the note would be silently dropped for a chat that
-// has a whole history.
-func TestNoteThreadLineage_SurfacesAnUnreadableRecord(t *testing.T) {
-	f, activity := newActivityFaultFixture(t)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	turn(t, f, runnerID, "claude", "something was said here")
-	activity.turnsErr = errors.New("record unreadable")
-
-	require.ErrorContains(t,
-		f.usecase.NoteThreadLineage(f.ctx, chatID, []string{"parent-1"}), "record unreadable")
 }
 
 // The same regression one layer up, through the REAL spawn: a chat that is
@@ -1117,13 +1101,13 @@ func TestSetChatSelection_RecordsChatSwitchInterruptions(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, ints, 2)
 		kinds := []string{ints[0].Kind, ints[1].Kind}
-		assert.Contains(t, kinds, engineagents.InterruptModelChanged)
-		assert.Contains(t, kinds, engineagents.InterruptEffortChanged)
+		assert.Contains(t, kinds, ledger.MarkerModelChanged)
+		assert.Contains(t, kinds, ledger.MarkerEffortChanged)
 		for _, i := range ints {
-			if i.Kind == engineagents.InterruptModelChanged {
+			if i.Kind == ledger.MarkerModelChanged {
 				assert.Equal(t, "opus", i.Detail)
 			}
-			if i.Kind == engineagents.InterruptEffortChanged {
+			if i.Kind == ledger.MarkerEffortChanged {
 				assert.Equal(t, "high", i.Detail)
 			}
 			assert.NotNil(t, i.ResolvedAt, "Crowbar's own doing: opened and resolved together")
@@ -1148,7 +1132,7 @@ func TestSetChatSelection_RecordsChatSwitchInterruptions(t *testing.T) {
 		ints, err := f.activity.Interruptions(f.ctx, chatID)
 		require.NoError(t, err)
 		require.Len(t, ints, 3)
-		assert.Equal(t, engineagents.InterruptEffortChanged, ints[2].Kind)
+		assert.Equal(t, ledger.MarkerEffortChanged, ints[2].Kind)
 		assert.Equal(t, "low", ints[2].Detail)
 	})
 }
@@ -1228,7 +1212,7 @@ func TestRegression_SetChatSelection_ConcurrentStandaloneAndStagedNeverLogAStale
 	var lastModelDetail string
 	found := false
 	for _, i := range ints {
-		if i.Kind == engineagents.InterruptModelChanged {
+		if i.Kind == ledger.MarkerModelChanged {
 			lastModelDetail = i.Detail
 			found = true
 		}
@@ -1390,7 +1374,7 @@ func TestSubmitPrompt_StagedProviderSwitchesBeforeDelivering(t *testing.T) {
 	ints, err := f.activity.Interruptions(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, ints, 1)
-	assert.Equal(t, engineagents.InterruptProviderSwitched, ints[0].Kind)
+	assert.Equal(t, ledger.MarkerProviderSwitched, ints[0].Kind)
 	assert.Equal(t, "codex", ints[0].Detail)
 }
 
@@ -1654,8 +1638,8 @@ func TestRegression_SubmitPrompt_ReplayingAStagedSelectionStaysAtMostOnce(t *tes
 	require.NoError(t, err)
 	changes := 0
 	for _, interruption := range ints {
-		if interruption.Kind == engineagents.InterruptModelChanged ||
-			interruption.Kind == engineagents.InterruptEffortChanged {
+		if interruption.Kind == ledger.MarkerModelChanged ||
+			interruption.Kind == ledger.MarkerEffortChanged {
 			changes++
 		}
 	}

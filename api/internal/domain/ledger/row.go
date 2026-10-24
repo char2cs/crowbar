@@ -23,6 +23,13 @@ const (
 	KindRunnerExited  Kind = "runner_exited"
 	KindTurnEnded     Kind = "turn_ended"
 	KindTurnFailed    Kind = "turn_failed"
+	KindAssistantText Kind = "assistant_text"
+	KindReasoning     Kind = "reasoning"
+	KindToolCall      Kind = "tool_call"
+	KindAsk           Kind = "ask"
+	KindAskResolved   Kind = "ask_resolved"
+	KindSubagent      Kind = "subagent"
+	KindPlan          Kind = "plan"
 )
 
 // ErrMalformedRow is a row the ledger refuses to record.
@@ -57,36 +64,63 @@ func DecodeBody[B any](r Row) (B, error) {
 	return body, nil
 }
 
+// checks refuse a malformed row of their kind.
+var checks = map[Kind]func(Row) error{
+	KindUserMessage:   func(r Row) error { return checkTurnNamed(r, func(UserMessage) bool { return true }) },
+	KindTurnStarted:   func(r Row) error { return checkTurnNamed(r, func(TurnStarted) bool { return true }) },
+	KindPromptSettled: checkBody[PromptSettled],
+	KindSessionBound:  checkSessionBound,
+	KindSessionLost: func(r Row) error {
+		return checkNamed(r, func(b SessionLost) bool { return b.Provider != "" && b.SessionID != "" })
+	},
+	KindMarker: func(r Row) error { return checkNamed(r, func(b Marker) bool { return b.Kind != "" }) },
+	KindRunnerStarted: func(r Row) error {
+		return checkNamed(r, func(b RunnerStarted) bool { return b.RunnerID != "" && b.Provider != "" })
+	},
+	KindRunnerExited: func(r Row) error {
+		return checkNamed(r, func(b RunnerExited) bool { return b.RunnerID != "" && b.Reason != "" })
+	},
+	KindTurnEnded: func(r Row) error {
+		return checkTurnNamed(r, func(b TurnEnded) bool {
+			return b.Status == string(TurnStatusDone) || b.Status == string(TurnStatusInterrupted)
+		})
+	},
+	KindTurnFailed: func(r Row) error { return checkTurnNamed(r, func(b TurnFailed) bool { return b.Reason != "" }) },
+	KindAssistantText: func(r Row) error {
+		return checkTurnNamed(r, func(b AssistantText) bool { return b.MessageID != "" && b.Index >= IndexComplete })
+	},
+	KindReasoning: func(r Row) error { return checkTurnNamed(r, func(b Reasoning) bool { return b.Text != "" }) },
+	KindToolCall: func(r Row) error {
+		return checkNamed(r, func(b ToolCall) bool {
+			return b.ToolID != "" && (b.Phase == ToolPre || b.Phase == ToolPost || b.Phase == ToolFail)
+		})
+	},
+	KindAsk: func(r Row) error { return checkNamed(r, func(b Ask) bool { return b.AskID != "" && b.Event != "" }) },
+	KindAskResolved: func(r Row) error {
+		return checkNamed(r, func(b AskResolved) bool {
+			return b.AskID != "" && (b.Resolution == ResolutionAnswered ||
+				b.Resolution == ResolutionProceeded || b.Resolution == ResolutionAbandoned)
+		})
+	},
+	KindSubagent: func(r Row) error {
+		return checkNamed(r, func(b Subagent) bool {
+			return r.Scope != "" && (b.Phase == SubagentStart || b.Phase == SubagentStop)
+		})
+	},
+	KindPlan: func(r Row) error {
+		return checkNamed(r, func(b Plan) bool { return b.Op == PlanReplace || b.Op == PlanUpsert })
+	},
+}
+
 // Check refuses only malformed rows: an unknown kind, a turn-scoped kind
 // without a turn, an undecodable body. A row the State has moved past is
 // late, not malformed, and Apply ignores it.
 func Check(_ State, r Row) error {
-	switch r.Kind {
-	case KindUserMessage:
-		return checkTurnNamed(r, func(UserMessage) bool { return true })
-	case KindTurnStarted:
-		return checkTurnNamed(r, func(TurnStarted) bool { return true })
-	case KindPromptSettled:
-		return checkBody[PromptSettled](r)
-	case KindSessionBound:
-		return checkSessionBound(r)
-	case KindSessionLost:
-		return checkNamed(r, func(b SessionLost) bool { return b.Provider != "" && b.SessionID != "" })
-	case KindMarker:
-		return checkNamed(r, func(b Marker) bool { return b.Kind != "" })
-	case KindRunnerStarted:
-		return checkNamed(r, func(b RunnerStarted) bool { return b.RunnerID != "" && b.Provider != "" })
-	case KindRunnerExited:
-		return checkNamed(r, func(b RunnerExited) bool { return b.RunnerID != "" && b.Reason != "" })
-	case KindTurnEnded:
-		return checkTurnNamed(r, func(b TurnEnded) bool {
-			return b.Status == string(TurnStatusDone) || b.Status == string(TurnStatusInterrupted)
-		})
-	case KindTurnFailed:
-		return checkTurnNamed(r, func(b TurnFailed) bool { return b.Reason != "" })
-	default:
+	check, ok := checks[r.Kind]
+	if !ok {
 		return fmt.Errorf("%w: unknown kind %q", ErrMalformedRow, r.Kind)
 	}
+	return check(r)
 }
 
 func checkTurnNamed[B any](r Row, named func(B) bool) error {

@@ -3,12 +3,12 @@ package chat
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	"time"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -17,7 +17,7 @@ import (
 // deciding for it.
 //
 // Its whole state is a desk of live relays (see answerDesk), which is why it
-// holds no durable store of its own beyond the activity ledger it records the
+// holds no durable store of its own beyond the chat's ledger it records the
 // verdict in.
 type AnswerUsecase interface {
 	// PendingAnswer reports the prompt the relay held on askID is parked on, and
@@ -182,40 +182,33 @@ func (u *Usecase) AnswerChoice(
 		return fmt.Errorf("agent: answer choice: render: %w", err)
 	}
 
-	if err := u.activity.AnswerChoice(ctx, chatID, choiceID, optionIDs, false, time.Now()); err != nil {
+	answered := false
+	_, _, err = u.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		rows, err := ledger.ResolveAsk(st, choiceID, ledger.ResolutionAnswered, optionIDs)
+		answered = len(rows) > 0
+		return rows, err
+	})
+	if err != nil {
 		return fmt.Errorf("agent: answer choice: %w", err)
 	}
-	// Scoped by the hook the relay arrived on, not the choice's kind: a question
-	// a tool asks arrives on the permission hook too. An elicitation's paired
-	// interruption is left to its turn's close; answerdesk.Desk.record agrees.
-	if slot.Event == engineagents.HookPermission {
-		u.resolvePermissionInterruption(ctx, chatID, choiceID)
+	if !answered {
+		return fmt.Errorf("%w: this prompt is no longer pending", apperr.ErrConflict)
 	}
 	u.answers.Resolve(slot, stdout)
 	return nil
 }
 
-// resolvePermissionInterruption mirrors turn.Turns' own auto-approve path
-// (see its doc comment): closes the notification banner a permission choice
-// opened, so a long turn's human-decided prompts don't count against
-// MaxOpenPerTurn any longer than the choice itself does. Best-effort — the
-// banner is cosmetic, and a failure here must never turn a successful
-// decision into an error the person answering never asked for.
-func (u *Usecase) resolvePermissionInterruption(
-	ctx context.Context,
-	chatID string,
-	choiceID string,
-) {
-	id := answerdesk.PermissionInterruptionID(choiceID)
-	if id == "" {
-		return
+// askResolver closes an ask with the outcome its relay reached.
+type askResolver struct{ ledger *ledgerstore.Store }
+
+func (r askResolver) ResolveAsk(ctx context.Context, chatID, askID, resolution string) error {
+	_, _, err := r.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		return ledger.ResolveAsk(st, askID, resolution, nil)
+	})
+	if err != nil {
+		return fmt.Errorf("agent: resolve ask: %w", err)
 	}
-	if err := u.activity.ResolveInterruption(
-		ctx, chatID, id, engineagents.InterruptPermission, "", time.Now(),
-	); err != nil {
-		slog.WarnContext(ctx, "agent: answer choice: permission interruption resolved",
-			"err", err, "choice_id", choiceID)
-	}
+	return nil
 }
 
 // pendingChoice finds the still-open question by id. A prompt the CLI has already
@@ -226,7 +219,7 @@ func (u *Usecase) pendingChoice(
 	chatID string,
 	choiceID string,
 ) (domain.ActivityChoice, bool, error) {
-	choices, err := u.activity.PendingChoices(ctx, chatID)
+	choices, err := u.transcript.PendingChoices(ctx, chatID)
 	if err != nil {
 		return domain.ActivityChoice{}, false, fmt.Errorf("agent: answer choice: pending: %w", err)
 	}

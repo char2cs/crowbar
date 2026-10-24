@@ -23,35 +23,14 @@ func handoffCap(t *testing.T) int {
 	return len(kept)
 }
 
-// waitForClockTick blocks until real time.Now() has strictly advanced past its
-// current instant — a real signal (the clock itself), never a guessed sleep
-// duration. Needed wherever a gap boundary is a strict `>` against wall time
-// (TurnsSince): two turns recorded back-to-back against the real sqlite-backed
-// activity store can otherwise land on the identical instant, and the second
-// is silently excluded from "since" rather than by RecentHandoffWindow's own
-// cap — exactly the false positive a gap test here must not be exposed to.
-func waitForClockTick(t *testing.T) {
-	t.Helper()
-	start := time.Now()
-	for time.Now().Equal(start) {
-		if time.Since(start) > 2*time.Second {
-			t.Fatal("real clock never advanced")
-		}
-	}
-}
-
 // recordNumberedTurns appends n user turns with distinguishable text
 // (prefix-0, prefix-1, ...) so a trimmed handoff can be checked for exactly
 // which ones survived the cap.
 func recordNumberedTurns(t *testing.T, f fixture, chat domain.Chat, prefix string, n int) {
 	t.Helper()
 	for i := 0; i < n; i++ {
-		require.NoError(t, f.conversations.RecordTurn(
-			t.Context(), chat, "", "claude", "runner-1", "session-1", "user",
-			fmt.Sprintf("%s-%d", prefix, i), "",
-		))
+		say(t, f, chat.ID, fmt.Sprintf("%s-%d", prefix, i))
 	}
-	f.settle()
 }
 
 // A gap under the cap must render exactly as it did before this cap existed:
@@ -115,11 +94,6 @@ func TestAssembleConversation_ResumeGapOverTheCapKeepsOnlyTheMostRecentOfTheGap(
 	turnsBefore, err := f.conversations.ChatTurns(t.Context(), chatID)
 	require.NoError(t, err)
 	leftAt := turnsBefore[len(turnsBefore)-1].At
-
-	// Without a real tick between them, the first gap turn below can land on
-	// the identical wall-clock instant as leftAt and be silently excluded from
-	// the gap by TurnsSince's own strict `>` filter — see waitForClockTick.
-	waitForClockTick(t)
 
 	total := handoffCap(t) + 5
 	recordNumberedTurns(t, f, chat, "gap", total)

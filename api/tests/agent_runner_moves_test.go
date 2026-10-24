@@ -195,14 +195,14 @@ func requireChatHoldsText(
 	msg string,
 ) {
 	t.Helper()
-	turns, err := h.app.Repositories.AgentActivity.Turns(context.Background(), chatID, 0, 0, 0)
+	rows, err := h.app.Repositories.ChatLedger.Read(context.Background(), chatID, 0, 0)
 	require.NoError(t, err)
-	for _, turn := range turns {
-		if strings.Contains(turn.Text, text) {
+	for _, row := range rows {
+		if strings.Contains(string(row.Body), text) {
 			return
 		}
 	}
-	t.Fatalf("%s: no turn of chat %s carries %q (%d turns recorded)", msg, chatID, text, len(turns))
+	t.Fatalf("%s: no row of chat %s carries %q (%d rows recorded)", msg, chatID, text, len(rows))
 }
 
 func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
@@ -277,9 +277,9 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 
 	// Crowbar's OWN footprint IS reaped — so the assertion above is a real confinement
 	// claim (the purge ran, removed what is Crowbar's, and stopped), not a vacuous one.
-	turns, err := h.app.Repositories.AgentActivity.Turns(ctx, doomed, 0, 0, 0)
+	rows, err := h.app.Repositories.ChatLedger.Read(ctx, doomed, 0, 0)
 	require.NoError(t, err)
-	assert.Empty(t, turns,
+	assert.Empty(t, rows,
 		"the chat's conversation record must be reaped with the chat: a hard delete that leaves what was "+
 			"said readable under .crowbar has not deleted anything the user cares about")
 	gone := h.raw(http.MethodGet, base+"/chats/"+doomed, nil, http.StatusNotFound)

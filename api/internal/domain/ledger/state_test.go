@@ -225,3 +225,22 @@ func TestFold_ASessionLossOnlyLosesTheBoundSession(t *testing.T) {
 	again, _ := clone.Conversation("p1")
 	assert.Equal(t, ledger.ConversationBound, again.State, "a clone must not see rows applied to its original")
 }
+
+func TestState_KeysOutlastOnlyTheTwoNewestTurns(t *testing.T) {
+	st := ledger.Fold("c1", sequenced(t,
+		turnStart(t, "T1"), toolCall(t, "", "tool-1", ledger.ToolPre, "Bash"), text(t, "T1", "m", 0, true, "x"),
+		ended(t, "T1"), turnStart(t, "T2"), ended(t, "T2"),
+	))
+	assert.True(t, st.HasToolPhase("", "tool-1", ledger.ToolPre), "the turn before the newest is kept")
+	turn, ok := st.ProviderTurn("p-T1")
+	require.True(t, ok)
+	assert.Equal(t, "T1", turn)
+
+	st.Apply(ledger.Row{Seq: 7, Kind: ledger.KindTurnStarted, TurnID: "T3", Body: turnStart(t, "T3").Body})
+	assert.False(t, st.HasToolPhase("", "tool-1", ledger.ToolPre))
+	assert.False(t, st.HasChunk("", "m", 0))
+	_, ok = st.ProviderTurn("p-T1")
+	assert.False(t, ok)
+	_, ok = st.ProviderTurn("")
+	assert.False(t, ok, "no id names no turn")
+}

@@ -14,7 +14,6 @@ import (
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
@@ -25,8 +24,6 @@ import (
 // ─── from wiring_internal_test.go ─────────────────────────────────────
 
 type wiringChats struct{ agentchat.EventStore }
-
-type wiringActivity struct{ agentactivity.EventStore }
 
 type wiringWorkspace struct{ WorkspaceReader }
 
@@ -62,11 +59,7 @@ func (screenReadingCommander) Screen(string, uint64) (string, uint64, bool) {
 // field must come back non-nil, so a field added to any of them is guarded the day
 // it is added; anything added here has to carry the reason it is legitimately nil
 // after construction.
-var constructorUnsetFields = map[string]string{
-	"turns.feed": "wired by StartTerminalWaitSweep, not New: it publishes through " +
-		"the hub, a layer above this one, and a daemon with nobody to publish to " +
-		"records the message when it finishes instead (internal/turn/turns.go).",
-}
+var constructorUnsetFields = map[string]string{}
 
 // sharedInstances are the pieces of in-flight state that MUST be one instance
 // across the components holding them, listed as the field each component knows
@@ -79,13 +72,16 @@ var sharedInstances = map[string][]string{
 	// A hook and a user-initiated spawn on one chat are ordered by this one lock;
 	// a second would let a hook land inside the decision it contradicts.
 	"the chat locks":      {"ingress.locks", "runners.chatLock"},
-	"the telemetry store": {"conversations.telemetry", "turns.telemetry"},
-	"the answer desk":     {"answers", "turns.answers", "runners.answers"},
-	"the chat record":     {"conversations", "turns.conversations", "runners.conversations"},
+	"the telemetry store": {"conversations.telemetry", "recorder.telemetry"},
+	"the answer desk":     {"answers", "recorder.answers", "runners.answers"},
+	"the chat record":     {"conversations", "recorder.titles", "runners.conversations"},
 	"the provider table":  {"providers", "runners.providers"},
-	"the CLI lifecycle":   {"runners", "conversations.runners", "turns.runners", "ingress.runners"},
-	"the turn record":     {"turns", "ingress.turns", "ingress.descriptors"},
-	"the chat ledger":     {"conversations.ledger", "turns.ledger", "runners.ledger", "ingress.ledger"},
+	"the CLI lifecycle":   {"runners", "conversations.runners", "recorder.runners", "ingress.runners"},
+	"the turn record":     {"recorder", "ingress.turns", "ingress.descriptors"},
+	"the chat ledger":     {"ledger", "conversations.ledger", "recorder.ledger", "runners.ledger", "ingress.ledger"},
+	// A second projector would answer reads from rows the publication never reached.
+	"the transcript":    {"transcript", "conversations.transcript", "runners.choices"},
+	"the payload store": {"blobs", "conversations.blobs", "recorder.blobs"},
 }
 
 var nilableKinds = map[reflect.Kind]bool{
@@ -116,9 +112,11 @@ func newWiringFixture(t *testing.T) *Usecase {
 	require.NoError(t, err)
 	chatLedger, err := ledgerstore.Open(db, time.Now)
 	require.NoError(t, err)
+	blobs, err := ledgerstore.OpenBlobs(t.TempDir())
+	require.NoError(t, err)
 	return New(Deps{
 		Chats:         wiringChats{},
-		Activity:      wiringActivity{},
+		Blobs:         blobs,
 		Agents:        agentsEngine,
 		Terminal:      screenReadingCommander{},
 		Workspace:     wiringWorkspace{},
@@ -166,7 +164,7 @@ func walkable(u *Usecase) map[string]any {
 	return map[string]any{
 		"":              u,
 		"conversations": u.conversations,
-		"turns":         u.turns,
+		"recorder":      u.recorder,
 		"runners":       u.runners,
 		"providers":     u.providers,
 		"ingress":       u.ingress,

@@ -49,12 +49,6 @@ type Container struct {
 	axWorkspace    asynx.Asynx[domain.Workspace]
 	axReviewThread asynx.Asynx[domain.ReviewThread]
 	axAgentChat    asynx.Asynx[domain.Chat]
-	// axAgentActivity is the conversation record's own per-type singleton. It is
-	// separate from axAgentChat because their write rates differ by orders of
-	// magnitude: a chat emits a handful of events, its activity emits hundreds per
-	// turn, and sharing one single-writer event log would put a sidebar repaint
-	// behind a tool-call storm.
-	axAgentActivity asynx.Asynx[domain.ChatActivity]
 	// axNode is the Node position aggregate's own per-type singleton
 	// (2026-09-08 sidebar-placement-unification): the ONE entity that will own
 	// every sidebar row's ParentID/Order. This wiring is purely additive —
@@ -96,13 +90,6 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx agent chat: %w", err)
 	}
-	axAgentActivity, err := newAsynx[domain.ChatActivity](
-		adapters.AgentActivityES(), adapters.AgentActivitySS(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("app container: agent activity asynx: %w", err)
-	}
-
 	axNode, err := newAxNode(adapters)
 	if err != nil {
 		return nil, err
@@ -115,17 +102,14 @@ func New(
 
 	h := hub.NewHub()
 	chatSnapshots := newChatSnapshots(h)
-	choiceWatch := agentusecase.NewChoiceWatch()
 	repos, err := newRepositoriesContainer(
 		ctx,
 		adapters,
 		h,
 		chatSnapshots,
-		choiceWatch,
 		axReviewThread,
 		axWorkspace,
 		axAgentChat,
-		axAgentActivity,
 		axNode,
 		engines,
 	)
@@ -142,7 +126,6 @@ func New(
 		announceHomeRow(h, chatSnapshots),
 		announceRepoPlacement(h, gormStores.Repositories),
 		usecases.WithChatSnapshots(chatSnapshots),
-		usecases.WithChoiceWatch(choiceWatch),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("app: usecases: %w", err)
@@ -152,17 +135,16 @@ func New(
 	// repositories.Container.PurgeChat.
 	repos.PurgeChat = ucs.AgentChat.PurgeChat
 	c := &Container{
-		Hub:             h,
-		Repositories:    repos,
-		GORM:            gormStores,
-		Usecases:        ucs,
-		crowbarHome:     crowbarHome,
-		engines:         engines,
-		axWorkspace:     axWorkspace,
-		axReviewThread:  axReviewThread,
-		axAgentChat:     axAgentChat,
-		axAgentActivity: axAgentActivity,
-		axNode:          axNode,
+		Hub:            h,
+		Repositories:   repos,
+		GORM:           gormStores,
+		Usecases:       ucs,
+		crowbarHome:    crowbarHome,
+		engines:        engines,
+		axWorkspace:    axWorkspace,
+		axReviewThread: axReviewThread,
+		axAgentChat:    axAgentChat,
+		axNode:         axNode,
 	}
 
 	if err := startBootSweep(ctx, repos); err != nil {
@@ -262,11 +244,9 @@ func newRepositoriesContainer(
 	adapters *adapter.Container,
 	h *hub.Hub,
 	chatSnapshots *agentusecase.ChatSnapshots,
-	choiceWatch *agentusecase.ChoiceWatch,
 	axReviewThread asynx.Asynx[domain.ReviewThread],
 	axWorkspace asynx.Asynx[domain.Workspace],
 	axAgentChat asynx.Asynx[domain.Chat],
-	axAgentActivity asynx.Asynx[domain.ChatActivity],
 	axNode asynx.Asynx[domain.Node],
 	engines *engine.Container,
 ) (*repositories.Container, error) {
@@ -278,12 +258,10 @@ func newRepositoriesContainer(
 		axReviewThread,
 		axWorkspace,
 		axAgentChat,
-		axAgentActivity,
 		axNode,
 		engines.Git,
 		agentFanout.ChatWatch(),
 		nil,
-		choiceWatch.Notify,
 		func(string) { h.BroadcastPlacementChanged() },
 	)
 	if err != nil {

@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -376,7 +375,7 @@ func TestToolPayload_RefusesAnUnknownSide(t *testing.T) {
 }
 
 func TestToolPayload_ASweptPayloadIsNotFound(t *testing.T) {
-	uc := &fakeAgentUsecase{payloadErr: agentactivity.ErrNotFound}
+	uc := &fakeAgentUsecase{payloadErr: agentusecase.ErrToolPayloadGone}
 	ctx, rec := scoped(t, "/activity/tool-1/payload?side=request")
 	ctx.Params = append(ctx.Params, gin.Param{Key: "toolId", Value: "tool-1"})
 	newChatHandlers(inWorkspace(uc)).ToolPayload(ctx)

@@ -87,9 +87,14 @@ func (rs *Runners) announce(ctx context.Context, chatID, providerID, sessionID s
 func (rs *Runners) leaveSession(ctx context.Context, runner engineagents.Runner) {
 	chatID := runner.CurrentChatID
 	rs.settlePrompts(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		return ledger.Leave(st, runner.ID)
+		salvaged, err := rs.turns.ExitRows(st, chatID, runner.ID)
+		if err != nil {
+			return nil, err
+		}
+		left, err := ledger.Leave(st, runner.ID)
+		return append(salvaged, left...), err
 	})
-	rs.closeAbandonedTurn(ctx, chatID, runner)
+	rs.turns.Retire(chatID, runner.ID)
 }
 
 // sessionOrigin is told the session an api connection's own driver opened or

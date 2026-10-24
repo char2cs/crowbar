@@ -172,6 +172,14 @@ events:
     optional: [session_id, turn_id, message]
     extras: [steps]
 
+  # The whole text of one finished assistant message: its record, however much
+  # of its stream arrived. phase is the provider's own word for what the message
+  # is (an answer, a commentary).
+  message_complete:
+    direction: in
+    required: [message_id, text]
+    optional: [session_id, turn_id, phase]
+
   # The newest complete unified diff for the current turn. It is a wholesale
   # replacement, not an append-only delta.
   diff_update:

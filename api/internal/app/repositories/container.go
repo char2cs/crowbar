@@ -17,7 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
@@ -36,17 +35,15 @@ type Container struct {
 	// live on axAgentChat and the agent usecase sends every AgentChat mutation
 	// through it (the gorm-backed store was retired in the Task 10 cutover).
 	AgentChat agentchat.EventStore
-	// AgentActivity is the conversation record: turns, tool calls, subagents and
-	// interruptions, in their own aggregate with their own read model. It replaced
-	// the flat-file ledger, which could represent none of those.
-	AgentActivity agentactivity.EventStore
 	// Node is the position aggregate: the one owner of every sidebar row's
 	// ParentID/Order, at every tree level.
 	Node node.EventStore
 	// ChatLedger is each chat's append-only ledger, one writer per chat.
 	ChatLedger *ledgerstore.Store
-	hub        hub.WebSocketHub
-	git        wsusecase.MergeConflictBatchChecker
+	// ChatBlobs holds the tool payloads the ledger's rows name.
+	ChatBlobs *ledgerstore.Blobs
+	hub       hub.WebSocketHub
+	git       wsusecase.MergeConflictBatchChecker
 	// PurgeChat hard-deletes one chat and everything it owns — its aggregate, the
 	// CLIs on it, its conversation record and telemetry, its conversation history
 	// and its ledger directory. It is the chat usecase's own PurgeChat, the SAME
@@ -58,15 +55,14 @@ type Container struct {
 	// container. The cascade REFUSES to run without it rather than purging
 	// half a chat.
 	PurgeChat func(ctx context.Context, chatID string) error
-	// axWorkspace/axReviewThread/axAgentChat/axAgentActivity/axNode are the per-type asynx
+	// axWorkspace/axReviewThread/axAgentChat/axNode are the per-type asynx
 	// instances, retained so WaitQuiescent can drain their dispatch queues +
 	// projection handlers — the deterministic read-your-writes barrier for tests (no
 	// polling, no timeouts).
-	axWorkspace     asynx.Asynx[domain.Workspace]
-	axReviewThread  asynx.Asynx[domain.ReviewThread]
-	axAgentChat     asynx.Asynx[domain.Chat]
-	axAgentActivity asynx.Asynx[domain.ChatActivity]
-	axNode          asynx.Asynx[domain.Node]
+	axWorkspace    asynx.Asynx[domain.Workspace]
+	axReviewThread asynx.Asynx[domain.ReviewThread]
+	axAgentChat    asynx.Asynx[domain.Chat]
+	axNode         asynx.Asynx[domain.Node]
 	// inflight counts the background mutations currently running per workspace
 	// id (00 §4 fail-fast/good-path-async). It backs the derived Working overlay:
 	// the API layer brackets each async op with BeginWork/EndWork, and every
@@ -119,20 +115,17 @@ func New(
 	axReviewThread asynx.Asynx[domain.ReviewThread],
 	axWorkspace asynx.Asynx[domain.Workspace],
 	axAgentChat asynx.Asynx[domain.Chat],
-	axAgentActivity asynx.Asynx[domain.ChatActivity],
 	axNode asynx.Asynx[domain.Node],
 	git wsusecase.MergeConflictBatchChecker,
 	chatWatch agentchat.WatchFunc,
 	nodeWatch node.WatchFunc,
-	choiceWatch agentactivity.WatchFunc,
 	placementWatch func(id string),
 ) (*Container, error) {
 	c := &Container{
 		hub: h, git: git, inflight: map[string]int{},
 		agentWorking: map[string]map[string]struct{}{}, agentBroadcasts: map[string]bool{},
 		axWorkspace: axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat,
-		axAgentActivity: axAgentActivity,
-		axNode:          axNode,
+		axNode: axNode,
 	}
 	ws, err := workspace.New(axWorkspace, adapters.WorkspaceES(), adapters.WorkspaceView())
 	if err != nil {
@@ -178,18 +171,6 @@ func New(
 		return nil, fmt.Errorf("repositories: agent working overlay: %w", err)
 	}
 
-	// agentactivity: the conversation record, over its OWN event log, snapshot
-	// store and read model. Its content store lives beside the state directory so
-	// tool payloads are swept by the same retention policy as the rest of it.
-	agentActivity, err := agentactivity.NewEventSourced(
-		axAgentActivity, adapters.AgentActivityES(), adapters.AgentActivityReadDB(),
-		adapters.Home().Content(), choiceWatch,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("repositories: agent activity event store: %w", err)
-	}
-	c.AgentActivity = agentActivity
-
 	nodeStore, err := node.NewEventSourced(
 		axNode, adapters.NodeES(), adapters.NodeReadDB(), nodeWatch,
 		node.WithPlacementWatch(placementWatch),
@@ -200,6 +181,10 @@ func New(
 	c.Node = nodeStore
 	if c.ChatLedger, err = ledgerstore.Open(adapters.ChatLedgerDB(), time.Now); err != nil {
 		return nil, fmt.Errorf("repositories: chat ledger: %w", err)
+	}
+	// Tool payloads live beside the state directory, swept by its retention.
+	if c.ChatBlobs, err = ledgerstore.OpenBlobs(adapters.Home().Content()); err != nil {
+		return nil, fmt.Errorf("repositories: chat payloads: %w", err)
 	}
 
 	// Wire the post-commit cross-aggregate reactions (spec §3.6): the workspace
@@ -224,7 +209,6 @@ func (c *Container) WaitQuiescent() {
 	c.axWorkspace.WaitPublish()
 	c.axReviewThread.WaitPublish()
 	c.axAgentChat.WaitPublish()
-	c.axAgentActivity.WaitPublish()
 	c.axNode.WaitPublish()
 }
 

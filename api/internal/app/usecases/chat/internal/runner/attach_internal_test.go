@@ -377,13 +377,12 @@ func TestSwitchToNative_TerminatesAndReestablishes(t *testing.T) {
 		// surfaces/chats: the two switch calls now MOVE the chat's current
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
-		live:     liveWith(t, engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test", CurrentChatID: "chat-1"}),
-		turns:    noopTurns{},
-		term:     term,
-		agents:   engineagents.New(),
-		answers:  answerdesk.New(answerdesk.DefaultRetention, nil),
-		activity: stubActivityForSpawn{},
-		ledger:   newTestLedger(t),
+		live:    liveWith(t, engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test", CurrentChatID: "chat-1"}),
+		turns:   noopTurns{},
+		term:    term,
+		agents:  engineagents.New(),
+		answers: answerdesk.New(answerdesk.DefaultRetention, nil),
+		ledger:  newTestLedger(t),
 	}
 	// Registered directly, as if SwitchToTerminal had already run and torn the
 	// api connection down — SwitchToNative's own job is reversing that.
@@ -515,12 +514,11 @@ func switchSurfaceFixture(t *testing.T) (*Runners, *spySurfaceChats) {
 		live:  liveWith(t, engineagents.Runner{ID: "runner-1", ProviderID: "attach-test", CurrentChatID: "chat-1"}),
 		turns: noopTurns{},
 
-		term:     &fakeTermForAttach{},
-		chats:    chats,
-		activity: stubActivityForSpawn{},
-		agents:   engineagents.New(),
-		answers:  answerdesk.New(answerdesk.DefaultRetention, nil),
-		ledger:   turnedTestLedger(t, "attach-test", "sess-1"),
+		term:    &fakeTermForAttach{},
+		chats:   chats,
+		agents:  engineagents.New(),
+		answers: answerdesk.New(answerdesk.DefaultRetention, nil),
+		ledger:  turnedTestLedger(t, "attach-test", "sess-1"),
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
