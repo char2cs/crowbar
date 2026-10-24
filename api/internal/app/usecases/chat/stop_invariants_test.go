@@ -189,6 +189,48 @@ func TestEndingRunner_ItsLastWordsAfterItsExitAreInTheTranscript(t *testing.T) {
 	assert.Contains(t, textsOfPage(page.Items), "the last word")
 }
 
+// A tool's and a subagent's reports that land after their runner's exit, while
+// another runner's turn runs, are placed in their own runner's turn.
+func TestEndingRunner_ItsLateToolAndSubagentReportsLandInItsOwnTurn(t *testing.T) {
+	f := newFixture(t)
+	chatID, r1 := f.spawn(t, "claude")
+	f.announce(t, r1, "s1")
+	prompt(t, f, r1, "claude", "go")
+	hook(t, f, r1, "claude", engineagents.HookToolPre, map[string]any{
+		"tool_use_id": "t1", "tool_name": "Bash", "tool_input": map[string]any{"command": "ls"},
+	})
+	hook(t, f, r1, "claude", engineagents.HookSubagentPre, map[string]any{"agent_id": "a1", "agent_type": "explore"})
+	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
+	r2, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
+	f.announce(t, r2, "codex-s1")
+	hook(t, f, r2, "codex", "user_prompt", map[string]any{"prompt": "next"})
+
+	hook(t, f, r1, "claude", engineagents.HookToolPost, map[string]any{
+		"session_id": "s1", "tool_use_id": "t1", "tool_name": "Bash", "tool_response": map[string]any{"stdout": "a.go"},
+	})
+	hook(t, f, r1, "claude", engineagents.HookSubagentPost, map[string]any{"session_id": "s1", "agent_id": "a1", "agent_type": "explore"})
+
+	rows, err := f.ledger.Read(f.ctx, chatID, 0, 0)
+	require.NoError(t, err)
+	turnOf, last := map[string]string{}, map[ledger.Kind]ledger.Row{}
+	for _, r := range rows {
+		last[r.Kind] = r
+		if b, err := ledger.DecodeBody[ledger.TurnStarted](r); err == nil && r.Kind == ledger.KindTurnStarted {
+			turnOf[b.RunnerID] = r.TurnID
+		}
+	}
+	require.NotEqual(t, turnOf[r1], turnOf[r2], "precondition: each runner ran its own turn")
+	call, err := ledger.DecodeBody[ledger.ToolCall](last[ledger.KindToolCall])
+	require.NoError(t, err)
+	assert.Equal(t, ledger.ToolPost, call.Phase)
+	assert.Equal(t, turnOf[r1], last[ledger.KindToolCall].TurnID, "the tool's result is its runner's")
+	sub, err := ledger.DecodeBody[ledger.Subagent](last[ledger.KindSubagent])
+	require.NoError(t, err)
+	assert.Equal(t, ledger.SubagentStop, sub.Phase)
+	assert.Equal(t, turnOf[r1], last[ledger.KindSubagent].TurnID, "the subagent's stop is its runner's")
+}
+
 // acknowledge places runnerID's user_prompt as the hook marked mark: a runner
 // past its exit still takes it.
 func acknowledge(t *testing.T, f testFixture, runnerID, mark string) {

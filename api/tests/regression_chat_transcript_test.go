@@ -152,9 +152,10 @@ func TestRegression_ABackgroundSubagentRunsPastItsTurnsEnd(t *testing.T) {
 
 	c.replayRange(t, 13, 24)
 	assert.Equal(t, map[string]string{
-		"06-SubagentStart.json": "running", "13-PreToolUse.json": "ok", "14-PreToolUse.json": "ok",
-		"21-PreToolUse.json": "running",
-	}, c.backgroundActivity(t, "06-SubagentStart.json", "13-PreToolUse.json", "14-PreToolUse.json", "21-PreToolUse.json"))
+		"05-SubagentStart.json": "running", "06-SubagentStart.json": "running",
+		"13-PreToolUse.json": "ok", "14-PreToolUse.json": "ok", "21-PreToolUse.json": "running",
+	}, c.backgroundActivity(t, "05-SubagentStart.json", "06-SubagentStart.json",
+		"13-PreToolUse.json", "14-PreToolUse.json", "21-PreToolUse.json"))
 }
 
 func TestRegression_Symptom3_TextSaidBeforeAProcessExitsIsKept(t *testing.T) {
