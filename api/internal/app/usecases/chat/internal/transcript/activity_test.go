@@ -144,6 +144,44 @@ func TestProjector_ASubagentOpenWhenItsRunnerExitedReadsStopped(t *testing.T) {
 	require.NotNil(t, b.activity().Subagents[0].EndedAt)
 }
 
+// A turn that ends declaring background work leaves its subagents running:
+// each is over at its own stop or its runner's exit, and a tool of one is
+// abandoned only when that subagent ends with it open.
+func TestProjector_ABackgroundSubagentRunsPastItsTurnsEnd(t *testing.T) {
+	b := newBook(t)
+	b.open("T1", "go")
+	b.add(
+		mk(t, ledger.KindSubagent, "T1", "A", ledger.Subagent{Phase: ledger.SubagentStart}),
+		mk(t, ledger.KindSubagent, "T1", "B", ledger.Subagent{Phase: ledger.SubagentStart}),
+		tool(t, "A", ledger.ToolCall{ToolID: "read", Phase: ledger.ToolPre, Name: "Read"}),
+		mk(t, ledger.KindTurnEnded, "T1", "", ledger.TurnEnded{Status: "done", RunnerID: "run-1", AsyncWork: new(2)}),
+		tool(t, "A", ledger.ToolCall{ToolID: "bash", Phase: ledger.ToolPre, Name: "Bash"}),
+		tool(t, "B", ledger.ToolCall{ToolID: "grep", Phase: ledger.ToolPre, Name: "Grep"}),
+	)
+	status := func() map[string]string {
+		out := map[string]string{}
+		for _, s := range b.activity().Subagents {
+			out[s.ID] = "running"
+			if s.EndedAt != nil {
+				out[s.ID] = "stopped"
+			}
+		}
+		for _, c := range b.activity().ToolCalls {
+			out[c.Name] = c.Status
+		}
+		return out
+	}
+	running := domain.ToolStatusRunning
+	assert.Equal(t, map[string]string{"A": "running", "B": "running", "Read": running, "Bash": running, "Grep": running}, status())
+
+	b.add(mk(t, ledger.KindSubagent, "T1", "A", ledger.Subagent{Phase: ledger.SubagentStop}))
+	abandoned := domain.ToolStatusAbandoned
+	assert.Equal(t, map[string]string{"A": "stopped", "B": "running", "Read": abandoned, "Bash": abandoned, "Grep": running}, status())
+
+	b.add(mk(t, ledger.KindRunnerExited, "", "", ledger.RunnerExited{RunnerID: "run-1", Reason: "exited"}))
+	assert.Equal(t, map[string]string{"A": "stopped", "B": "stopped", "Read": abandoned, "Bash": abandoned, "Grep": abandoned}, status())
+}
+
 func TestProjector_InterruptionsAreTheMarkersAClientDraws(t *testing.T) {
 	b := newBook(t)
 	b.open("T1", "go")

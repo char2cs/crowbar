@@ -143,7 +143,7 @@ func (f *facts) toolCalls() []domain.ActivityToolCall {
 		}
 		if !t.closed {
 			c.Status = domain.ToolStatusRunning
-			if at, over := f.closedBy(t.turnID, t.seq, false); over {
+			if at, over := f.toolEnd(t); over {
 				c.Status, c.EndedAt = domain.ToolStatusAbandoned, &at
 			}
 		}
@@ -173,9 +173,31 @@ func followingMessage(messages []ledger.MessageText, turnID string, seq int64) s
 	return MessageID(messages[at].Key.MessageID)
 }
 
+// toolEnd is when an open tool call is over: when its scope is, the main
+// scope's being its turn's.
+func (f *facts) toolEnd(t *toolFact) (time.Time, bool) {
+	if s, ok := f.scopes[t.key.scope]; ok && t.key.scope != "" {
+		return f.scopeEnd(s)
+	}
+	return f.closedBy(t.turnID, t.seq, false)
+}
+
+// scopeEnd is when subagent s is over: at its stop, else at its turn's end
+// when it opened before an end that declared no background work, else at its
+// runner's exit.
+func (f *facts) scopeEnd(s *scopeFact) (time.Time, bool) {
+	if s.stopped {
+		return s.stopAt, true
+	}
+	t := f.turns[s.turnID]
+	if t != nil && t.ended && t.endSeq > s.seq && !t.async {
+		return t.endAt, true
+	}
+	return f.exitAfter(t, s.seq)
+}
+
 // subagents are the chat's opened subagents by their first row, each with
-// what it said. One whose stop never came is over when its turn or its runner
-// is; one opened after its turn ended outlives that end, as a delegated one does.
+// what it said, and over as scopeEnd says.
 func (f *facts) subagents() []domain.ActivitySubagent {
 	said := map[string][]domain.ActivitySubagentMessage{}
 	for _, m := range f.text.Messages() {
@@ -192,10 +214,7 @@ func (f *facts) subagents() []domain.ActivitySubagent {
 			ID: s.id, TurnID: s.turnID, ChatID: f.chatID, Seq: s.seq, AgentType: s.agentType,
 			StartedAt: s.startAt, Messages: said[s.id],
 		}
-		if s.stopped {
-			at := s.stopAt
-			a.EndedAt = &at
-		} else if at, over := f.closedBy(s.turnID, s.seq, true); over {
+		if at, over := f.scopeEnd(s); over {
 			a.EndedAt = &at
 		}
 		out = append(out, a)

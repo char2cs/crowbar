@@ -23,6 +23,7 @@ type turnFacts struct {
 	startSeq, endSeq int64
 	startAt, endAt   time.Time
 	ended, failed    bool
+	async            bool   // its first end declared background work
 	status           string // the component status its first end gave it
 	effort, diff     string
 	plan             []ledger.PlanItem
@@ -100,6 +101,7 @@ func (f *facts) end(t *turnFacts, r ledger.Row, status string, body ledger.TurnE
 	}
 	if !t.ended {
 		t.ended, t.endSeq, t.endAt, t.status = true, r.Seq, r.At, status
+		t.async = body.AsyncWork != nil && *body.AsyncWork > 0
 	}
 }
 

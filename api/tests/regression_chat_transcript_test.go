@@ -103,6 +103,60 @@ func TestRegression_Symptom3_ASubagentsToolCallsAreRecorded(t *testing.T) {
 		"the subagent's own tool call is recorded under it")
 }
 
+// backgroundActivity is each subagent's state and each tool call's status,
+// by the fixture file that opened it.
+func (c turnChat) backgroundActivity(t *testing.T, files ...string) map[string]string {
+	t.Helper()
+	var activity struct {
+		ToolCalls []struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"toolCalls"`
+		Subagents []struct {
+			ID      string  `json:"id"`
+			EndedAt *string `json:"endedAt"`
+		} `json:"subagents"`
+	}
+	c.h.get(repoBase(c.imported)+"/chats/"+c.chatID+"/activity", &activity)
+	got := map[string]string{}
+	for _, s := range activity.Subagents {
+		got[s.ID] = "running"
+		if s.EndedAt != nil {
+			got[s.ID] = "stopped"
+		}
+	}
+	for _, call := range activity.ToolCalls {
+		got[call.ID] = call.Status
+	}
+	out := map[string]string{}
+	for _, f := range files {
+		field := "tool_use_id"
+		if strings.Contains(f, "Subagent") {
+			field = "agent_id"
+		}
+		out[f] = got[fixtureField(t, f, field)]
+	}
+	return out
+}
+
+// The turn end at 11 restates both subagents as background work: they run past
+// it, with the tools they open after it, until each stops.
+func TestRegression_ABackgroundSubagentRunsPastItsTurnsEnd(t *testing.T) {
+	c := newTurnChat(t, newHarness(t))
+
+	c.replayRange(t, 0, 13)
+	assert.Equal(t, map[string]string{
+		"05-SubagentStart.json": "running", "06-SubagentStart.json": "running",
+		"10-PreToolUse.json": "running", "12-PreToolUse.json": "running",
+	}, c.backgroundActivity(t, "05-SubagentStart.json", "06-SubagentStart.json", "10-PreToolUse.json", "12-PreToolUse.json"))
+
+	c.replayRange(t, 13, 24)
+	assert.Equal(t, map[string]string{
+		"06-SubagentStart.json": "running", "13-PreToolUse.json": "ok", "14-PreToolUse.json": "ok",
+		"21-PreToolUse.json": "running",
+	}, c.backgroundActivity(t, "06-SubagentStart.json", "13-PreToolUse.json", "14-PreToolUse.json", "21-PreToolUse.json"))
+}
+
 func TestRegression_Symptom3_TextSaidBeforeAProcessExitsIsKept(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 	c.startTurn(t, c.launch, "A")
