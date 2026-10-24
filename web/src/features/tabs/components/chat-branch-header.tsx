@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { performRenameChat } from '@/components/sidebar/lib/row-actions'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
+import { RepoIconMark, type RepoIconSource } from '@/components/layout/repo-icon-mark'
 import { formatChangeCount } from '@/components/layout/format-change-count'
 import {
   ROW_GLYPH_BOX,
@@ -69,23 +70,6 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
         if (title !== null) setRenaming(true)
       }}
     >
-      <span data-testid="chat-branch-header-glyph" className={cn(ROW_GLYPH_BOX, 'size-5')}>
-        {working ? (
-          <FlickerSpinner className="size-[18px]" />
-        ) : isThread ? (
-          <ChatsCircle
-            data-testid="chat-branch-header-chat-icon"
-            className="size-[18px] text-muted-foreground"
-            weight="regular"
-          />
-        ) : (
-          <GitBranch
-            data-testid="chat-branch-header-branch-icon"
-            className="size-[18px] text-muted-foreground"
-          />
-        )}
-      </span>
-
       {renaming && title !== null ? (
         <InlineRenameInput
           defaultValue={title}
@@ -97,10 +81,28 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
         />
       ) : workspace?.branch ? (
         <span className="flex min-w-0 flex-1 flex-col justify-center">
-          <ChatTitle title={title} className="truncate" />
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span data-testid="chat-branch-header-glyph" className={cn(ROW_GLYPH_BOX, 'size-5')}>
+              {working ? (
+                <FlickerSpinner className="size-[18px]" />
+              ) : isThread ? (
+                <ChatsCircle
+                  data-testid="chat-branch-header-chat-icon"
+                  className="size-[18px] text-muted-foreground"
+                  weight="regular"
+                />
+              ) : (
+                <GitBranch
+                  data-testid="chat-branch-header-branch-icon"
+                  className="size-[18px] text-muted-foreground"
+                />
+              )}
+            </span>
+            <ChatTitle title={title} className="min-w-0 truncate" />
+          </span>
           <span className={cn(ROW_SUBLABEL, 'flex items-center')}>
             <WorkspaceRoute
-              repoName={repo?.name}
+              repo={repo}
               parentBranch={workspace.parentBranch}
               branch={workspace.branch}
             />
@@ -117,7 +119,25 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
           </span>
         </span>
       ) : (
-        <ChatTitle title={title} className="min-w-0 flex-1 truncate" />
+        <span className="flex min-w-0 flex-1 items-center gap-1.5">
+          <span data-testid="chat-branch-header-glyph" className={cn(ROW_GLYPH_BOX, 'size-5')}>
+            {working ? (
+              <FlickerSpinner className="size-[18px]" />
+            ) : isThread ? (
+              <ChatsCircle
+                data-testid="chat-branch-header-chat-icon"
+                className="size-[18px] text-muted-foreground"
+                weight="regular"
+              />
+            ) : (
+              <GitBranch
+                data-testid="chat-branch-header-branch-icon"
+                className="size-[18px] text-muted-foreground"
+              />
+            )}
+          </span>
+          <ChatTitle title={title} className="min-w-0 truncate" />
+        </span>
       )}
     </div>
   )
@@ -129,20 +149,29 @@ const ROUTE_SEPARATOR = <span className="shrink-0 whitespace-pre"> / </span>
  *  parent's branch (`Workspace.parentBranch`); the leading segments give up
  *  their width first so the branch, the one that names this chat, stays legible. */
 function WorkspaceRoute({
-  repoName,
+  repo,
   parentBranch,
   branch,
 }: {
-  repoName: string | undefined
+  repo: RepoIconSource | null
   parentBranch: string | undefined
   branch: string
 }) {
   const parent = parentBranch && parentBranch !== branch ? parentBranch : null
   return (
     <span data-testid="chat-branch-header-route" className="flex min-w-0 items-center">
-      {repoName && (
+      {repo && (
         <>
-          <span className="min-w-0 shrink-[1000] truncate">{repoName}</span>
+          <span className="flex min-w-0 shrink-[1000] items-center gap-1">
+            {/* Fixed to the route line's 13px so the 16px mark cannot grow the 42px header. */}
+            <span
+              data-testid="chat-branch-header-repo-icon"
+              className="flex h-[13px] shrink-0 items-center"
+            >
+              <RepoIconMark repo={repo} size="sm" />
+            </span>
+            <span className="min-w-0 truncate">{repo.name}</span>
+          </span>
           {ROUTE_SEPARATOR}
         </>
       )}
@@ -152,7 +181,14 @@ function WorkspaceRoute({
           {ROUTE_SEPARATOR}
         </>
       )}
-      <span className="min-w-0 truncate">{branch}</span>
+      <span className="flex min-w-0 items-center gap-1">
+        <GitBranch
+          data-testid="chat-branch-header-route-branch-icon"
+          aria-hidden="true"
+          className="size-3 shrink-0"
+        />
+        <span className="min-w-0 truncate">{branch}</span>
+      </span>
     </span>
   )
 }

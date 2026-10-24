@@ -164,6 +164,27 @@ describe('ChatBranchHeader', () => {
     expect(route).not.toContainElement(screen.getByTestId('chat-branch-header-title'))
   })
 
+  it('puts the chat glyph on the title line, beside the title, not on the route line', () => {
+    renderHeader()
+    const glyph = screen.getByTestId('chat-branch-header-glyph')
+    const title = screen.getByTestId('chat-branch-header-title')
+    expect(glyph.parentElement).toBe(title.parentElement)
+    expect(glyph.nextElementSibling).toBe(title)
+    expect(screen.getByTestId('chat-branch-header-route')).not.toContainElement(glyph)
+  })
+
+  it('leads the repo segment with a repo icon and the branch segment with a branch icon', () => {
+    renderHeader()
+    const route = screen.getByTestId('chat-branch-header-route')
+    const repoIcon = screen.getByTestId('chat-branch-header-repo-icon')
+    const branchIcon = screen.getByTestId('chat-branch-header-route-branch-icon')
+    expect(route).toContainElement(repoIcon)
+    expect(route).toContainElement(branchIcon)
+    expect(route.firstElementChild).toContainElement(repoIcon)
+    expect(route.lastElementChild).toContainElement(branchIcon)
+    expect(route).toHaveTextContent(/^crowbar \/ feature\/pricing-rounding$/)
+  })
+
   it('omits the parent segment for a branch with no parent', () => {
     renderHeader()
     expect(screen.getByTestId('chat-branch-header-route')).toHaveTextContent(

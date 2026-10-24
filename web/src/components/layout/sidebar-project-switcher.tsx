@@ -56,7 +56,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
             ) : (
               <span
                 data-testid="active-project-name"
-                className="min-w-0 truncate font-heading text-[15px] font-normal"
+                className="min-w-0 truncate font-heading text-[19px] leading-6 font-normal tracking-tight"
                 onDoubleClick={() => setRenamingId(active.id)}
               >
                 {active.name}
