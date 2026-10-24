@@ -71,7 +71,7 @@ events:
       # own completion references (a provider's own multi-agent tool
       # reporting the thread id of the agent it just spawned or is
       # addressing) — never a provider's own vocabulary, just an id. See
-      # turn/ingest.go's nested-session routing.
+      # the chat ingress's nested-session routing (ingest.go, nested.go).
       - nested_session_id
       # subagent_id set means a SUBAGENT made this call: the chat log never records it.
       - subagent_id

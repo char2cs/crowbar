@@ -88,13 +88,9 @@ type AncestorCwd interface {
 	) (string, bool, error)
 }
 
-// Turns is what the CLI lifecycle needs from the hook side: the one door an
-// api connection's events come in through, what a runner's exit records of
-// the text it streamed, and the screen classifiers the terminal-wait sweep
-// runs on.
-//
-// NOTHING here may take the chat's lock except Hook, which this side never
-// calls under it.
+// Turns is what the CLI lifecycle needs from the hook side: an api connection's
+// door in, the record of a runner's streamed text at its exit, and the screen
+// classifiers. Only Hook takes the chat's lock, never called under it.
 type Turns interface {
 	// Hook places one event an api connection resolved, as the hook ingress
 	// places every hook, and returns the ask its answer is held on.

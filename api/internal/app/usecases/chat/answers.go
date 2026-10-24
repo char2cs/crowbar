@@ -12,13 +12,9 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// AnswerUsecase is the human-in-the-loop half of a provider prompt: the hook
-// relay that is BLOCKED waiting for a person, and the Crowbar-side act of
-// deciding for it.
-//
-// Its whole state is a desk of live relays (see answerDesk), which is why it
-// holds no durable store of its own beyond the chat's ledger it records the
-// verdict in.
+// AnswerUsecase is the human half of a provider prompt: the relay blocked on a
+// person, and deciding for it. Its state is a desk of live relays; the verdict
+// is recorded in the chat's ledger.
 type AnswerUsecase interface {
 	// PendingAnswer reports the prompt the relay held on askID is parked on, and
 	// how long it may wait for a person before it must print nothing and let the

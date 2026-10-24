@@ -14,9 +14,8 @@ func boundSession(st ledger.State, provider string) string {
 }
 
 // namesAnotherConversation reports whether ev names a session other than the
-// chat's bound one: a nested conversation or an internal session sharing the
-// wire. session_start is the announcement, never judged; an unbound chat
-// judges nothing.
+// chat's bound one, sharing its wire. session_start is the announcement, never
+// judged, and an unbound chat judges nothing.
 func namesAnotherConversation(bound string, ev engineagents.CanonicalEvent) bool {
 	if ev.Kind == engineagents.HookSessionStart || ev.SessionID == "" {
 		return false

@@ -16,10 +16,8 @@ import (
 )
 
 // publishLedgerRows advances the transcript by a commit and tells the chat's
-// clients what it changed: a prompt settled, a compaction's edges, the plan,
-// the messages it settled and the questions the chat waits on. It runs under
-// the chat's ledger writer, so it reads the snapshot through Held: Get may read
-// the ledger, and would wait on that writer.
+// clients what it changed. It runs under the chat's ledger writer, so it reads
+// the snapshot through Held: Get may read the ledger and wait on that writer.
 func (u *Usecase) publishLedgerRows(chatID string, rows []ledger.Row, st ledger.State) {
 	settled := u.transcript.Apply(chatID, rows)
 	feed := u.feed.Load()

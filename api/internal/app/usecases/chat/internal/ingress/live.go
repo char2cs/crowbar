@@ -90,10 +90,9 @@ type live struct {
 
 func newLive() *live { return &live{byChat: map[string]map[liveKey]*liveBlock{}} }
 
-// observe folds d, from runnerID, into its stream and returns the stream's
-// whole text and when it began. An answer's numbered increment takes its
-// index's place, an unnumbered one the next; any other kind's increments
-// append to their index's part.
+// observe folds d, from runnerID, into its stream and returns its whole text
+// and when it began. A numbered answer increment takes its index's place, an
+// unnumbered one the next; other kinds append to their index's part.
 func (l *live) observe(chatID, runnerID string, d LiveDelta, now time.Time) (string, time.Time) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

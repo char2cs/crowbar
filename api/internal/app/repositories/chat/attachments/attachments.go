@@ -1,12 +1,6 @@
-// Package attachments is the durable per-chat attachment store: validating,
-// naming, writing and serving the files a chat's composer sends alongside a
-// message — images, PDFs, and anything too large or too binary to inline in
-// the message text itself (chat attachments design spec).
-//
-// It is the storage half of a handler -> usecase -> storage layering:
-// chat/handlers owns the HTTP ingestion shapes, the chat usecase resolves WHICH
-// directory a chat's attachments live in, and this package owns what happens
-// once both bytes and a destination are known.
+// Package attachments stores the files a chat's composer sends with a message:
+// it validates, names, writes and serves them, once the chat usecase has
+// resolved which directory a chat's attachments live in.
 package attachments
 
 import (

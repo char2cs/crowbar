@@ -9,10 +9,9 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// FailTurnOnNotice ends what a notice on runner's screen ends, which no hook
-// reports: its running turn fails with the notice as its reason, or the
-// prompts it carries settle unconsumed. The caller holds the chat's lock, so
-// no hook ends that work between check and record.
+// FailTurnOnNotice ends what a notice on runner's screen ends and no hook
+// reports: its turn fails with the notice, or its prompts settle unconsumed.
+// The caller holds the chat's lock, so no hook ends that work meanwhile.
 func (r *Recorder) FailTurnOnNotice(ctx context.Context, runner engineagents.Runner, notice engineagents.TerminalNotice) {
 	chat, err := r.chatForRunner(ctx, runner)
 	if err != nil {

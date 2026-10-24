@@ -88,19 +88,9 @@ func (rs *Runners) apiTransportForSurface(
 	return rs.applyAPITransport(ctx, runnerID, providerID, descriptor, tctx, resumeContext)
 }
 
-// surfaceRegistry is the in-process mirror of domain.Chat.Surface, keyed by
-// RUNNER — the CURRENT surface, which is what everything downstream of a
-// spawn actually asks about.
-//
-// The durable field is the truth and this is a copy of it, written in the
-// same breath by every path that writes it: seeded at spawn from the chat's
-// own stored surface, and moved by SwitchToTerminal/SwitchToNative.
-//
-// It exists because the read is PER EVENT: surfaceGated (ingress/ingest.go) asks
-// it for every streamed delta a descriptor gates with surfaces:, and the read-model
-// hit that would otherwise cost is the same one the descriptor cache exists
-// to avoid — measured at over a millisecond a call, enough to make live
-// streaming visibly stall.
+// surfaceRegistry mirrors domain.Chat.Surface per runner, written with it at
+// spawn and on a switch: surfaceGated reads it on every streamed delta, where
+// the read model's millisecond a call would stall live streaming.
 type surfaceRegistry struct {
 	mu    sync.Mutex
 	byRun map[string]string

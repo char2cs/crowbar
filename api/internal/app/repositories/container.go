@@ -56,9 +56,7 @@ type Container struct {
 	// half a chat.
 	PurgeChat func(ctx context.Context, chatID string) error
 	// axWorkspace/axReviewThread/axAgentChat/axNode are the per-type asynx
-	// instances, retained so WaitQuiescent can drain their dispatch queues +
-	// projection handlers — the deterministic read-your-writes barrier for tests (no
-	// polling, no timeouts).
+	// instances WaitQuiescent drains: the read-your-writes barrier for tests.
 	axWorkspace    asynx.Asynx[domain.Workspace]
 	axReviewThread asynx.Asynx[domain.ReviewThread]
 	axAgentChat    asynx.Asynx[domain.Chat]

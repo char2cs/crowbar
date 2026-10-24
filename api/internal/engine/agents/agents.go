@@ -213,23 +213,9 @@ type service struct {
 	acceptOverride func(raw []byte) bool
 
 	resolved sync.Mutex
-	// descriptors caches Get's answer per (homeDir, id), because Get sits on
-	// the hottest path in the daemon: the hook recorder (ingress/ingest.go)
-	// calls it once per ingested hook, including once per streamed delta —
-	// several times a SECOND on a fast-streaming provider. protocol.Resolve
-	// itself is deliberately always-fresh (reads and re-validates the YAML on
-	// every call, so an on-disk override edited mid-development is picked up
-	// at once — see its own tests), and measured at over a millisecond per
-	// call for a shipped descriptor alone. Paying that on every token is what
-	// made an api provider's live streaming view visibly stall while a hooks
-	// provider's (whose deltas arrive far less often) did not: the single goroutine
-	// that folds each event into the ledger (apiconn.go's pumpAPIConn) fell
-	// behind the incoming rate and only caught up once the provider stopped
-	// producing more — confirmed live. Invalidated by Stat'ing the override
-	// path (descriptorCacheEntry's own doc comment), which costs a syscall
-	// but not a read+parse+validate, on every call — so an edited override is
-	// still picked up without a restart, just without paying Resolve's full
-	// cost to notice nothing changed.
+	// descriptors caches Get per (homeDir, id): the hook recorder calls it per
+	// streamed delta, and a full Resolve costs a millisecond. A Stat of the
+	// override path keeps an edited override picked up without a restart.
 	descriptors map[string]descriptorCacheEntry
 
 	// discovery is the shared, provider-keyed cache behind a model.discover

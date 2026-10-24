@@ -37,9 +37,8 @@ type Source struct {
 	Live Unrecorded
 }
 
-// Prompt is a user_prompt's words. Origin is ledger.OriginProvider for words
-// a person typed (the mapper finds the Crowbar prompt they answer),
-// ledger.OriginHarness for the provider's own, and "" for Crowbar's injected
+// Prompt is a user_prompt's words. Origin is OriginProvider for words a person
+// typed, OriginHarness for the provider's own, and "" for Crowbar's injected
 // context alone: a turn starts, and nobody said anything.
 type Prompt struct {
 	Text, Origin string

@@ -47,10 +47,8 @@ type MessageDelta struct {
 	MessageID string
 
 	// Index is the increment's position, meaningful only when Sequenced is
-	// true. A provider whose descriptor maps no index: field (its deltas
-	// arrive on one ordered stream with nothing to number) leaves this zero
-	// on every increment — reading it then would fold every chunk onto the
-	// same slot, so stream.Streams instead assigns arrival order itself.
+	// true: with no index: field mapped every increment reads zero, so the
+	// chat shows such a stream live in arrival order and records no chunk.
 	Index     int
 	Sequenced bool
 

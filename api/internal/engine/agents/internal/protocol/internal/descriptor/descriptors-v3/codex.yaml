@@ -118,7 +118,7 @@ events:
         # so (confirmed live: a compaction's turn/completed is byte-for-byte
         # the same shape — items: [], itemsView: "notLoaded", status:
         # "completed" — as a genuinely interrupted real turn's). See
-        # compact_pre below and turn/compaction.go.
+        # compact_pre below and the chat ingress's compactionEnd.
         turn_id:    turn.id
         turn_status: turn.status
       fixtures: [turn_completed.json]
@@ -241,11 +241,11 @@ events:
   # item_completed.collabAgentToolCall.json and .wait.json: receiverThreadIds[0]
   # is the SAME id agentsStates is keyed by, on both spawnAgent's own
   # completion (agentsStates[id].status: "pendingInit") and wait's
-  # (agentsStates[id].status: "completed"). See turn/ingest.go's nested-session
-  # routing for what opens/keeps-open a subagent from this field, and
-  # turn/observation.go for what a routed child frame does once one is open —
-  # a child's OWN turn_stop is what CLOSES it, not this field going away (it
-  # never does: closeAgent's own completion still names the same id).
+  # (agentsStates[id].status: "completed"). See the chat ingress (ingest.go,
+  # nested.go) for what opens a subagent from this field and what a routed
+  # child frame records once one is open — a child's OWN turn_stop is what
+  # CLOSES it, not this field going away (it never does: closeAgent's own
+  # completion still names the same id).
   tool_post:
     kind_map: { read: read, listFiles: search, search: search, unknown: execute, commandExecution: execute,
       fileChange: edit, mcpToolCall: mcp, webSearch: search, dynamicToolCall: other, collabAgentToolCall: subagent }
@@ -339,9 +339,8 @@ events:
         # NO nested_session_id here either, same reason as tool_pre: no
         # recorded collabAgentToolCall failure exists to prove receiverThreadIds
         # is still populated on this path. A subagent a failed spawnAgent opened
-        # via tool_post before failing stays open until abandonRunningSubagents'
-        # own sweep reclaims it with the rest of the turn — see StartSubagent's
-        # call site in turn/observation.go.
+        # via tool_post before failing stays open until its turn's end or its
+        # runner's exit closes it with the rest of the turn.
       fixtures:
         - item_completed.commandExecutionFailed.json
         - item_completed.commandExecutionFailed-schema.json
@@ -643,9 +642,9 @@ events:
   # live, and confirmed live that NEITHER itemsView nor an empty items list
   # tells it apart from a genuinely interrupted real turn or a real turn
   # that ran a tool and sent no final text (both produce the identical empty
-  # shape). turn_stop/turn_failed's own turn_id mapping plus the latch in
-  # turn/compaction.go is what keeps a compaction from being misread as an
-  # ordinary reply or a failed one.
+  # shape). turn_stop/turn_failed's own turn_id mapping plus the ledger's
+  # compaction marker (the chat ingress's compactionEnd) is what keeps a
+  # compaction from being misread as an ordinary reply or a failed one.
   compact_pre:
     required: [session_id]
     api:
@@ -728,28 +727,25 @@ events:
   # None of this is mapped onto subagent_pre/subagent_post — a
   # StartSubagent/StopSubagent PAIR still cannot express "a whole second
   # thread," and forcing one to would need Go to know collabAgentToolCall's
-  # own vocabulary to decide when to fire each half, which turn/ingest.go and
-  # turn/observation.go deliberately do not. Built instead, all fully
+  # own vocabulary to decide when to fire each half, which the chat ingress
+  # deliberately does not. Built instead, all fully
   # generic (nested_session_id is declared on tool_post above — see its own
   # note for why NOT tool_pre/tool_fail too — with zero codex-vocabulary
   # knowledge in Go):
   #
-  #   - a tool completion naming a nested_session_id Go has not already seen
-  #     open calls OpenNestedSubagent (turn/observation.go's
-  #     openNestedSubagent) — StartSubagent's OWN turn-safe twin, not
-  #     StartSubagent itself: StartSubagent's ensureTurn would silently mint
-  #     a ghost top-level turn the instant this fires after codex's own turn
-  #     has already closed, which it usually has by then;
+  #   - a tool completion naming a nested_session_id opens that conversation
+  #     as a subagent scope of the turn the call ran in (the tool row's
+  #     spawnsScope) — never a new top-level turn, though codex's own turn
+  #     has usually closed by then;
   #   - a frame whose session id names a chat's own currently-open subagent
   #     is ROUTED into that subagent's nested activity instead of being
-  #     dropped as foreign (turn/ingest.go's routeNestedSubagentEvent) or
+  #     dropped as foreign (the chat ingress's nested-session routing) or
   #     bled into the chat's own top-level turn (the bug
   #     TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn guards);
   #   - within that routing, the child's OWN tool_pre/tool_post/tool_fail
-  #     record its own nested tool calls (InvokeSubagentTool/
-  #     CompleteSubagentTool) and its OWN turn_stop/turn_failed closes the
-  #     subagent and records its final reply (StopSubagent) — see
-  #     turn/nested.go's handleNestedObservation.
+  #     record its own nested tool calls in its scope, and its OWN
+  #     turn_stop/turn_failed closes the subagent and records its final
+  #     reply — see the chat ingress's mapNested.
   # Hooks-only (the TUI's PTY): no api: block, so the api driver never
   # resolves them.
   subagent_pre:
@@ -968,7 +964,7 @@ config_injection:
   # Without this, collabAgentToolCall (spawnAgent/wait/closeAgent) never
   # appears at all — the model has no tool to spawn a subagent with, so
   # tool_pre/tool_post's own collabAgentToolCall mapping and the
-  # nested_session_id routing it feeds (turn/nested.go) are permanently
+  # nested_session_id routing it feeds (the chat ingress) are permanently
   # inert. Claude's subagent indicator (SubagentShelf) already works off the
   # same generic activity.subagents feed; this is the one flag that lets
   # codex actually produce the events that feed it too.

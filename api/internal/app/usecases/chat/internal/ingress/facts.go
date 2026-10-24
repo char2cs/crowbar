@@ -325,10 +325,9 @@ func mapPlan(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope 
 	return []ledger.Row{row}, err
 }
 
-// mapCompaction opens and closes a compaction's marker. One that runs as a
-// turn of its own names that turn, whose end is then the compaction's; one
-// inside a running turn names none. A compaction asked for with a prompt
-// spends that prompt: no turn acknowledges it.
+// mapCompaction opens and closes a compaction's marker, naming the turn it runs
+// as, whose end is then the compaction's. One asked for with a prompt spends
+// that prompt: no turn acknowledges it.
 func mapCompaction(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]ledger.Row, error) {
 	open, _ := st.Compaction()
 	detail := ""
