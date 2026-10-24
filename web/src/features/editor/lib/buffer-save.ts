@@ -114,23 +114,27 @@ async function formatBeforeSave(ref: DocumentRef, text: string): Promise<string 
   return documentText(ref)
 }
 
-/** `holder` takes the untitled tab's place, unless both were edited while the write ran. */
-function adoptSavedAs(untitled: PathedBuffer, holder: EditorContent, written: string): void {
+/**
+ * `holder` takes the untitled tab's place, unless both were edited while the
+ * write ran: then the untitled tab keeps its unsaved text and this is false.
+ */
+function adoptSavedAs(untitled: PathedBuffer, holder: EditorContent, written: string): boolean {
   const ref = documentRefOf(holder)
   const typed = documentText(documentRefOf(untitled))
   const late = typed !== null && typed !== written ? typed : null
-  if (documentText(ref) !== savedDocumentText(ref)) {
-    // Edited during the write: the rule for any disk change under unsaved edits.
-    flagExternalChange(ref)
-    // Both moved on: the untitled tab stays, holding its late typing.
-    if (late !== null) return
-  } else {
+  const text = documentText(ref)
+  if (text === written || text === savedDocumentText(ref)) {
     applyExternalText(ref, written, { saved: true })
     // Edits typed into the untitled tab while the write ran stay, unsaved.
     if (late !== null) replaceDocumentText(ref, late)
+  } else {
+    // Edited during the write: the rule for any disk change under unsaved edits.
+    flagExternalChange(ref)
+    if (late !== null) return false
   }
   patchEditorBuffer(holder.id, (b) => ({ ...b, isPreview: false }))
   windowPaneStore.getState().paneActions.replaceEditorTab(untitled.id, holder.id)
+  return true
 }
 
 async function saveAsUntitled(buffer: PathedBuffer, content: string): Promise<boolean> {
@@ -151,12 +155,10 @@ async function saveAsUntitled(buffer: PathedBuffer, content: string): Promise<bo
     reportSaveError(error)
     return false
   }
+  clearBlame(buffer.workspaceId, target)
   // Decided after the write, so an open that landed during it is seen too.
   const holder = findDocumentBuffer(ref)
-  if (holder) {
-    adoptSavedAs(buffer, holder, content)
-    return true
-  }
+  if (holder) return adoptSavedAs(buffer, holder, content)
   markDocumentSaved(documentRefOf(buffer), content)
   patchEditorBuffer(buffer.id, (b) => ({
     ...b,

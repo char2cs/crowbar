@@ -7,11 +7,8 @@ vi.mock('@/lib/api', async () => {
   return { ...actual, apiFetch: vi.fn() }
 })
 
-// Stubbed to a FIXED 'ws-active', standing in for "whichever workspace the
-// route/user is currently looking at" — deliberately different from the
-// buffer's own 'ws-owner' below. A save that resolved its workspace through
-// this would visibly target ws-active instead of crashing on an unset
-// registry pointer, keeping the failure mode the actual corruption scenario.
+// The active workspace is 'ws-active', never the buffers' own 'ws-owner': a save
+// resolving its workspace through the active one would visibly write there.
 vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('@/features/workspace/stores/workspace-store-registry')>()
@@ -44,13 +41,13 @@ import {
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import { onGitRefreshRequested } from '@/features/git/stores/git-refresh'
+import { blameKey, useGitBlameStore } from '@/features/git/stores/git-blame-store'
+import { success } from '@/lib/loadable'
 import { useFileWatcherStore } from '@/features/file-system/controllers/file-watcher-store'
 
 const mockFetch = apiFetch as ReturnType<typeof vi.fn>
 
-/** Open a buffer belonging to `workspaceId` and immediately mark it dirty —
- *  openContent always creates a CLEAN buffer (savedContent === content), so
- *  dirtiness has to be forced after the fact. */
+/** A buffer of `workspaceId`, forced dirty: openContent always opens one clean. */
 function openDirtyBuffer(workspaceId: string | DocumentRef, path: string, content: string): string {
   const doc = typeof workspaceId === 'string' ? workspaceRef(workspaceId, path) : workspaceId
   const id = windowPaneStore.getState().bufferActions.openContent({
@@ -78,15 +75,7 @@ beforeEach(() => {
   resetWindowPaneStoreForTests()
 })
 
-// Task 26 fix round 2 — Critical 1's own committed regression test (fix
-// round 1 shipped this fix with no committed test; a reviewer had to write
-// their own repro to prove it). Reproduces the exact bug: a dirty buffer
-// belonging to workspace A (ws-owner), workspace B (ws-active) is the one
-// currently active/on screen. Before the fix, saveEditorBufferById wrote
-// through a helper that resolved its target via getActiveWorkspaceId() —
-// i.e. B, not the buffer's own A — silently overwriting B's file with A's
-// content. These MUST fail against
-// the pre-fix-round-1 code and pass at HEAD.
+// A dirty buffer of ws-owner while ws-active is on screen: the write must land in ws-owner.
 describe("buffer-save — Critical 1: saves target the BUFFER's own workspace, not the active one", () => {
   it("handleSave writes to the dirty buffer's own workspace", async () => {
     openDirtyBuffer('ws-owner', 'a.ts', 'edited content')
@@ -360,6 +349,7 @@ describe('buffer-save — Save As onto a document that is already open', () => {
     const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
     const after = openIn(ROOT_PANE_ID, B, 'b')
     windowPaneStore.getState().paneActions.activateEditorTabInPane(ROOT_PANE_ID, untitled)
+    useGitBlameStore.setState({ blame: { [blameKey('ws-owner', 'foo.ts')]: success([]) } })
 
     expect(await saveActiveBuffer()).toBe(true)
 
@@ -369,6 +359,7 @@ describe('buffer-save — Save As onto a document that is already open', () => {
     expect(bufferById(target).isDirty).toBe(false)
     expect(tabsOf(ROOT_PANE_ID)).toEqual({ tabs: [before, target, after], active: target })
     expect(bufferById(untitled)).toBeUndefined()
+    expect(useGitBlameStore.getState().blame).toEqual({})
   })
 
   it('refuses a target with unsaved edits and writes nothing', async () => {
@@ -420,6 +411,7 @@ describe('buffer-save — Save As onto a document that is already open', () => {
     expect(holdersOfFoo()).toEqual([target])
     expect(textOf(FOO)).toEqual({ text: 'new text, and more', saved: 'new text' })
     expect(bufferById(target).isDirty).toBe(true)
+    expect(tabsOf(ROOT_PANE_ID)).toEqual({ tabs: [target], active: target })
   })
 
   it('a target edited during the write keeps its edits and is flagged as changed on disk', async () => {
@@ -436,6 +428,19 @@ describe('buffer-save — Save As onto a document that is already open', () => {
     expect(bufferById(untitled)).toBeUndefined()
   })
 
+  it('a target edited to exactly the written text ends clean, with no warning', async () => {
+    const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
+    const warning = vi.spyOn(toast, 'warning')
+    openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+
+    expect(await saveAsDuring(() => replaceDocumentText(FOO, 'new text'))).toBe(true)
+
+    expect(warning).not.toHaveBeenCalled()
+    expect(textOf(FOO)).toEqual({ text: 'new text', saved: 'new text' })
+    expect(bufferById(target)).toMatchObject({ isDirty: false, hasExternalChange: false })
+    expect(tabsOf(ROOT_PANE_ID)).toEqual({ tabs: [target], active: target })
+  })
+
   it('keeps the untitled tab and all its text when both sides moved during the write', async () => {
     const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
     const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
@@ -445,7 +450,7 @@ describe('buffer-save — Save As onto a document that is already open', () => {
       replaceDocumentText(UNTITLED, 'new text, and more')
     })
 
-    expect(saved).toBe(true)
+    expect(saved).toBe(false)
     expect(writesFor('foo.ts')).toEqual(['new text'])
     expect(textOf(FOO)).toEqual({ text: 'their edits', saved: 'old' })
     expect(bufferById(target).hasExternalChange).toBe(true)
