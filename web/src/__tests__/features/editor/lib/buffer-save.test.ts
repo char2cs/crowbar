@@ -318,10 +318,22 @@ describe('buffer-save — Save As onto a document that is already open', () => {
   const FOO = workspaceRef('ws-owner', 'foo.ts')
   const UNTITLED = workspaceRef('ws-owner', 'untitled:Untitled-1')
 
-  function openIn(paneId: string, doc: DocumentRef, content: string, isVirtual = false): string {
-    const name = doc.path
-    const spec = { type: 'editor' as const, doc, name, content, isVirtual }
+  type Flags = { isVirtual?: boolean; isPreview?: boolean }
+  function openIn(paneId: string, doc: DocumentRef, content: string, flags: Flags = {}): string {
+    const spec = { type: 'editor' as const, doc, name: doc.path, content, ...flags }
     return windowPaneStore.getState().bufferActions.openContent(spec, { paneId })
+  }
+
+  /** The next write stays in flight until `finish`; `begun` resolves once it is sent. */
+  function deferredWrite() {
+    let started = () => {}
+    let finish = () => {}
+    const begun = new Promise<void>((resolve) => (started = resolve))
+    mockFetch.mockImplementationOnce(() => {
+      started()
+      return new Promise((resolve) => (finish = () => resolve({})))
+    })
+    return { begun, finish: () => finish() }
   }
 
   function tabsOf(paneId: string) {
@@ -341,12 +353,15 @@ describe('buffer-save — Save As onto a document that is already open', () => {
       vi.fn(() => 'foo.ts'),
     )
   })
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
 
   it('a clean target takes the saved text, and the untitled tab becomes it in place', async () => {
     const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
     const before = openIn(ROOT_PANE_ID, A, 'a')
-    const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', true)
+    const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
     const after = openIn(ROOT_PANE_ID, B, 'b')
     windowPaneStore.getState().paneActions.activateEditorTabInPane(ROOT_PANE_ID, untitled)
 
@@ -363,7 +378,7 @@ describe('buffer-save — Save As onto a document that is already open', () => {
   it('refuses a target with unsaved edits and writes nothing', async () => {
     const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
     replaceDocumentText(FOO, 'their edits')
-    const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', true)
+    const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
     const error = vi.spyOn(toast, 'error')
 
     expect(await saveActiveBuffer()).toBe(false)
@@ -378,12 +393,83 @@ describe('buffer-save — Save As onto a document that is already open', () => {
 
   it('closes the untitled tab and focuses the target when its pane already holds it', async () => {
     const target = openIn(ROOT_PANE_ID, FOO, 'old')
-    openIn(ROOT_PANE_ID, UNTITLED, 'new text', true)
+    openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
 
     expect(await saveActiveBuffer()).toBe(true)
 
     expect(holdersOfFoo()).toEqual([target])
     expect(textOf(FOO)).toEqual({ text: 'new text', saved: 'new text' })
     expect(tabsOf(ROOT_PANE_ID)).toEqual({ tabs: [target], active: target })
+  })
+
+  it('a document opened while the write runs takes the saved text and the untitled tab', async () => {
+    const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+    const write = deferredWrite()
+
+    const save = saveActiveBuffer()
+    await write.begun
+    const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
+    write.finish()
+
+    expect(await save).toBe(true)
+    expect(holdersOfFoo()).toEqual([target])
+    expect(textOf(FOO)).toEqual({ text: 'new text', saved: 'new text' })
+    expect(bufferById(target).isDirty).toBe(false)
+    expect(tabsOf(ROOT_PANE_ID)).toEqual({ tabs: [target], active: target })
+    expect(bufferById(untitled)).toBeUndefined()
+  })
+
+  it('keeps edits typed into the untitled tab while the write runs', async () => {
+    const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
+    openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+    const write = deferredWrite()
+
+    const save = saveActiveBuffer()
+    await write.begun
+    replaceDocumentText(UNTITLED, 'new text, and more')
+    write.finish()
+
+    expect(await save).toBe(true)
+    expect(holdersOfFoo()).toEqual([target])
+    expect(textOf(FOO)).toEqual({ text: 'new text, and more', saved: 'new text' })
+    expect(bufferById(target).isDirty).toBe(true)
+  })
+
+  it('a failed write onto an open document changes nothing and says why', async () => {
+    const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
+    const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+    mockFetch.mockRejectedValueOnce(new Error('disk full'))
+    const error = vi.spyOn(toast, 'error')
+
+    expect(await saveActiveBuffer()).toBe(false)
+
+    expect(error).toHaveBeenCalledWith('Failed to save file', expect.any(String))
+    expect(holdersOfFoo()).toEqual([target])
+    expect(textOf(FOO)).toEqual({ text: 'old', saved: 'old' })
+    expect(textOf(UNTITLED)).toEqual({ text: 'new text', saved: 'new text' })
+    expect(tabsOf(ROOT_PANE_ID)).toEqual({ tabs: [untitled], active: untitled })
+    expect(tabsOf(BOTTOM_PANE_ID)).toEqual({ tabs: [target], active: target })
+  })
+
+  it('a failed new-file Save As says why and keeps the untitled tab', async () => {
+    const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+    mockFetch.mockRejectedValueOnce(new Error('disk full'))
+    const error = vi.spyOn(toast, 'error')
+
+    expect(await saveActiveBuffer()).toBe(false)
+
+    expect(error).toHaveBeenCalledWith('Failed to save file', expect.any(String))
+    expect(bufferById(untitled).path).toBe('untitled:Untitled-1')
+    expect(textOf(UNTITLED)).toEqual({ text: 'new text', saved: 'new text' })
+  })
+
+  it('Save As onto a preview tab leaves it kept, not a preview', async () => {
+    const target = openIn(BOTTOM_PANE_ID, FOO, 'old', { isPreview: true })
+    openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+
+    expect(await saveActiveBuffer()).toBe(true)
+
+    expect(bufferById(target).isPreview).toBe(false)
+    expect(textOf(FOO)).toEqual({ text: 'new text', saved: 'new text' })
   })
 })

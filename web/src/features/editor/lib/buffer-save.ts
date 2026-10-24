@@ -21,6 +21,7 @@ import {
   documentText,
   markDocumentSaved,
   readDocumentText,
+  replaceDocumentText,
   savedDocumentText,
 } from '@/features/editor/documents/document-text'
 import { findDocumentBuffer } from '@/features/editor/documents/open-document'
@@ -112,16 +113,15 @@ async function formatBeforeSave(ref: DocumentRef, text: string): Promise<string 
   return documentText(ref)
 }
 
-/** One document, one buffer: the untitled tab becomes the open document's, which saves `content`. */
-function saveOntoOpenDocument(untitledId: string, open: EditorContent, content: string) {
-  const ref = documentRefOf(open)
-  if (documentText(ref) !== savedDocumentText(ref)) {
-    toast.error(`Save or discard changes in ${open.name} first`)
-    return Promise.resolve(false)
-  }
-  applyExternalText(ref, content, { saved: false })
-  windowPaneStore.getState().paneActions.replaceEditorTab(untitledId, open.id)
-  return saveBuffer(open.id)
+/** One document, one buffer: `holder` takes the written text and the untitled tab's place. */
+function adoptSavedAs(untitled: PathedBuffer, holder: EditorContent, written: string): void {
+  const ref = documentRefOf(holder)
+  const typed = documentText(documentRefOf(untitled))
+  applyExternalText(ref, written, { saved: true })
+  // Edits typed into the untitled tab while the write ran stay, unsaved.
+  if (typed !== null && typed !== written) replaceDocumentText(ref, typed)
+  patchEditorBuffer(holder.id, (b) => ({ ...b, isPreview: false }))
+  windowPaneStore.getState().paneActions.replaceEditorTab(untitled.id, holder.id)
 }
 
 async function saveAsUntitled(buffer: PathedBuffer, content: string): Promise<boolean> {
@@ -131,8 +131,23 @@ async function saveAsUntitled(buffer: PathedBuffer, content: string): Promise<bo
   // merely-active one.
   const ref = workspaceRef(buffer.workspaceId, target)
   const open = findDocumentBuffer(ref)
-  if (open) return saveOntoOpenDocument(buffer.id, open, content)
-  await writeDocument(ref, content)
+  if (open && documentText(ref) !== savedDocumentText(ref)) {
+    toast.error(`Save or discard changes in ${open.name} first`)
+    return false
+  }
+  try {
+    await writeDocument(ref, content)
+  } catch (error) {
+    console.error('Error saving file:', error)
+    reportSaveError(error)
+    return false
+  }
+  // Decided after the write, so an open that landed during it is seen too.
+  const holder = findDocumentBuffer(ref)
+  if (holder) {
+    adoptSavedAs(buffer, holder, content)
+    return true
+  }
   markDocumentSaved(documentRefOf(buffer), content)
   patchEditorBuffer(buffer.id, (b) => ({
     ...b,
