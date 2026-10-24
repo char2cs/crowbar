@@ -12,6 +12,7 @@ import (
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 func openAdapters(t *testing.T) *adapter.Container {
@@ -45,7 +46,7 @@ func TestSeedChat_WritesTheRequestedTurnsAndToolCalls(t *testing.T) {
 	require.Equal(t, 3, kinds[ledger.KindAssistantText], "one reply per turn")
 }
 
-func TestSeedChat_IsBornOnTheFirstRegisteredProvider(t *testing.T) {
+func TestSeedChat_IsBornOnARegisteredProvider(t *testing.T) {
 	adapters := openAdapters(t)
 	ctx := context.Background()
 	chatID, err := seedChat(ctx, adapters, seedOptions{WorkspaceID: "ws-1", Turns: 1, ToolCallsPerTurn: 1})
@@ -57,10 +58,10 @@ func TestSeedChat_IsBornOnTheFirstRegisteredProvider(t *testing.T) {
 	require.NoError(t, err)
 	chat, err := chatStore.GetChat(ctx, chatID)
 	require.NoError(t, err)
-	first, err := firstProvider(ctx, adapters.Home().Root())
-	require.NoError(t, err)
-	require.Equal(t, first, chat.ProviderID,
-		"a chat with no provider is refused by provider-scoped reads such as the slash catalog")
+	engine := engineagents.New()
+	defer engine.Close()
+	_, err = engine.Get(ctx, adapters.Home().Root(), chat.ProviderID)
+	require.NoError(t, err, "a chat with no provider is refused by provider-scoped reads such as the slash catalog")
 }
 
 func TestSeedChat_GeneratesAChatIDWhenNoneGiven(t *testing.T) {

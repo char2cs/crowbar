@@ -1,11 +1,6 @@
-// Package main is a dev-only fixture seeder: it writes a synthetic agent chat
-// (alternating user/assistant turns, each assistant turn closing with N
-// finished tool calls) directly into the same stores the real daemon reads,
-// bypassing the agent runner entirely. Mirrors the throwaway, must-not-ship
-// convention of cmd/crowbar-seed, for a different domain (agent chat turns and
-// tool calls, not git/review fixtures) — see that command's own header comment
-// for the shared convention. Built with `go run -tags noEmbed`; never linked
-// into the shipped binary.
+// Package main is a dev-only seeder that writes a synthetic chat straight into
+// the stores the daemon reads, as cmd/crowbar-seed does for git fixtures.
+// Built with `go run -tags noEmbed`; never linked into the shipped binary.
 package main
 
 import (
@@ -71,10 +66,8 @@ func firstProvider(ctx context.Context, homeDir string) (string, error) {
 	return agents[0].ID(), nil
 }
 
-// seedChat writes opts.Turns alternating user/assistant turns — each
-// assistant turn closing with opts.ToolCallsPerTurn finished tool calls —
-// into the chat store and the chat's ledger. Returns the seeded chat's ID
-// (opts.ChatID if set, else a generated one).
+// seedChat writes opts.Turns turns, each with opts.ToolCallsPerTurn finished
+// tool calls, into the chat store and the chat's ledger, and returns its id.
 func seedChat(ctx context.Context, adapters *adapter.Container, opts seedOptions) (string, error) {
 	chatID := opts.ChatID
 	if chatID == "" {
@@ -149,7 +142,7 @@ func turnRows(chatID, provider string, i, toolCalls int) ([]ledger.Row, error) {
 		toolID := fmt.Sprintf("%s-tool-%d-%d", chatID, i, j)
 		target := fmt.Sprintf("file_%d_%d.go", i, j)
 		errs = append(errs,
-			add(ledger.KindToolCall, ledger.ToolCall{ToolID: toolID, Phase: ledger.ToolPre, Name: "Read", Target: target}),
+			add(ledger.KindToolCall, ledger.ToolCall{ToolID: toolID, Phase: ledger.ToolPre, Name: "read_file", Target: target}),
 			add(ledger.KindToolCall, ledger.ToolCall{
 				ToolID: toolID, Phase: ledger.ToolPost, Status: domain.ToolStatusOK, DurationMS: 50,
 			}))
