@@ -54,6 +54,14 @@ describe('jump list — back/forward over file navigation history', () => {
     expect(actions().canGoForward()).toBe(false)
   })
 
+  it('keeps a nearby line of another workspace’s same-path file as its own entry', () => {
+    actions().pushEntry(at('a', 10))
+    actions().pushEntry({ ...at('a', 12), bufferId: 'buf-a-w2', workspaceId: 'w2' })
+
+    expect(actions().goBack(at('c'))?.workspaceId).toBe('w2')
+    expect(actions().goBack()?.workspaceId).toBe('w1')
+  })
+
   it('truncates the forward branch when navigating somewhere new mid-history', () => {
     visitAthenBthenC()
     actions().goBack(at('c'))

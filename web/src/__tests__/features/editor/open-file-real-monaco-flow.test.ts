@@ -8,15 +8,9 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 
-// REAL-monaco end-to-end guard for the editor host's content path. NO monaco
-// mocks anywhere in this file. Walks the production sequence at store level —
-// the content was fetched before the buffer opened, so:
-//   1. bufferActions.openContent({type:'editor', content}) (sidebar click)
-//   2. loadEditorHost()                                    (EditorPane's host gate)
-//   3. manager.mountPane(paneId, container)                (controller mount)
-//   4. applyActiveBuffer(...)                              (controller applySwitch)
-// and asserts the pane's editor holds a model that CONTAINS the buffer's
-// content, through the real monaco-adapters.
+// Real Monaco, no mocks: the production open sequence at store level (open the
+// buffer, load the host, mount the pane, apply the active buffer) must leave the
+// pane's model holding the buffer's content.
 
 const CONTENT = 'const hello = 42\nexport default hello\n'
 

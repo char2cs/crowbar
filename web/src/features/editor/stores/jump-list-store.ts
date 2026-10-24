@@ -108,7 +108,9 @@ export const useJumpListStore = createSelectors(
             // Check for duplicate (same file and within line threshold)
             const lastEntry = state.entries[state.entries.length - 1]
             if (lastEntry) {
-              const isSameFile = lastEntry.filePath === newEntry.filePath
+              const isSameFile =
+                lastEntry.filePath === newEntry.filePath &&
+                lastEntry.workspaceId === newEntry.workspaceId
               const isNearbyLine =
                 Math.abs(lastEntry.line - newEntry.line) <= DUPLICATE_LINE_THRESHOLD
 

@@ -3,7 +3,7 @@ import { render, act, cleanup } from '@testing-library/react'
 
 // Hoisted spies so the vi.mock factories (hoisted above imports) can capture them.
 // `events` records unmount/destroy interleaving: components living over the store
-// (Monaco panes, terminal slots) must be UNMOUNTED before the store is destroyed.
+// (terminal slots) must be UNMOUNTED before the store is destroyed.
 const { hydrateSpy, destroySpy, events, registry, rendering, layoutMounts, ambientSeen } =
   vi.hoisted(() => {
     const events = [] as string[]
@@ -27,7 +27,7 @@ const { hydrateSpy, destroySpy, events, registry, rendering, layoutMounts, ambie
 
 // Light WorkspaceView stub: mirrors the real hydrate-once-per-mount contract
 // (one hydrate per mount, never on a warm re-activation) without pulling the
-// Monaco/terminal subtree into the test.
+// terminal subtree into the test.
 vi.mock('@/features/workspace/components/workspace-view', async () => {
   const React = await import('react')
   return {
@@ -372,7 +372,7 @@ describe('WorkspaceHost', () => {
     events.length = 0
     rerender(<WorkspaceHost activeWsId="b" />)
 
-    // Monaco panes / terminal slots in A's subtree must be torn down before the
+    // Terminal slots in A's subtree must be torn down before the
     // store they read from is destroyed.
     expect(events).toContain('unmount:a')
     expect(events).toContain('destroy:a')

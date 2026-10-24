@@ -40,7 +40,7 @@ const ID_DELIM = '\u0000'
  * active) or when it no longer exists
  * (closed / deleted — pruned against the sidebar's live workspace set).
  * Destruction is deferred until AFTER the subtree has unmounted: the
- * components living over the store (Monaco panes, terminal slots) must never
+ * components living over the store (terminal slots) must never
  * render against a destroyed store, so reconcile only removes the id from the
  * mounted set and a post-commit effect destroys the store once React has torn
  * the subtree down.
@@ -199,7 +199,6 @@ export function WorkspaceHost({
       [...map].map((wsId) => ({ wsId, hasViewChat: viewIds.has(wsId) || paneIds.has(wsId) })),
       active,
     )
-    const retain = [...plan.retain]
     for (const id of plan.evict) {
       map.delete(id)
       pendingDestroyRef.current.push(id)
@@ -207,12 +206,12 @@ export function WorkspaceHost({
 
     // The one place a store is minted — the registry's keys are the plan.
     setActiveWorkspaceId(active)
-    for (const id of retain) getOrCreateWorkspaceStore(id)
+    for (const id of plan.retain) getOrCreateWorkspaceStore(id)
 
     // Unmount first — the post-commit effect below destroys the pending stores
     // once React has torn their subtrees down. Always a fresh array, so the
     // effect re-fires (and flushes) after every reconcile.
-    setMountedIds(retain)
+    setMountedIds(plan.retain)
   }
 
   // Re-plan whenever the active workspace, the set of existing workspaces, the
@@ -278,7 +277,7 @@ export function WorkspaceHost({
   // DESTROY AFTER UNMOUNT. This effect runs post-commit, after React has torn
   // down the subtrees removed from `mountedIds` (deleted children's cleanup
   // runs before the parent's passive effects for the same commit) — so no
-  // Monaco pane or terminal slot is ever live over a destroyed store. An id
+  // terminal slot is ever live over a destroyed store. An id
   // that was re-activated between eviction and flush is back in the retained
   // map (re-stamped by the later reconcile); its store must survive.
   useEffect(() => {

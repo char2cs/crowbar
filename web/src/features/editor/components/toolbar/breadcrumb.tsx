@@ -59,6 +59,7 @@ export default function Breadcrumb({
             path: buffer.path,
             name: buffer.name,
             type: buffer.type,
+            workspaceId: buffer.workspaceId,
           }
         : null
     }),
@@ -97,40 +98,18 @@ export default function Breadcrumb({
     )
       return
 
-    const previewPath = `${fullActiveBuffer.path}:preview`
-    const previewName = `${fullActiveBuffer.name} (Preview)`
-
-    const isMarkdown = isMarkdownFile()
-    const isHtml = isHtmlFile()
-    const isCsv = isCsvFile()
-
-    const bufferContent = hasTextContent(fullActiveBuffer) ? fullActiveBuffer.content : ''
-
-    if (isMarkdown) {
-      windowPaneStore.getState().bufferActions.openContent({
-        type: 'markdownPreview',
-        path: previewPath,
-        name: previewName,
-        content: bufferContent,
-        sourceFilePath: fullActiveBuffer.path,
-      })
-    } else if (isHtml) {
-      windowPaneStore.getState().bufferActions.openContent({
-        type: 'htmlPreview',
-        path: previewPath,
-        name: previewName,
-        content: bufferContent,
-        sourceFilePath: fullActiveBuffer.path,
-      })
-    } else if (isCsv) {
-      windowPaneStore.getState().bufferActions.openContent({
-        type: 'csvPreview',
-        path: previewPath,
-        name: previewName,
-        content: bufferContent,
-        sourceFilePath: fullActiveBuffer.path,
-      })
+    // The preview belongs to the source file's workspace, whichever one is active.
+    const preview = {
+      path: `${fullActiveBuffer.path}:preview`,
+      name: `${fullActiveBuffer.name} (Preview)`,
+      content: hasTextContent(fullActiveBuffer) ? fullActiveBuffer.content : '',
+      sourceFilePath: fullActiveBuffer.path,
+      workspaceId: fullActiveBuffer.workspaceId,
     }
+    const { openContent } = windowPaneStore.getState().bufferActions
+    if (isMarkdownFile()) openContent({ type: 'markdownPreview', ...preview })
+    else if (isHtmlFile()) openContent({ type: 'htmlPreview', ...preview })
+    else if (isCsvFile()) openContent({ type: 'csvPreview', ...preview })
   }
 
   const filePath = filePathOverride ?? activeBuffer?.path ?? ''
@@ -146,6 +125,7 @@ export default function Breadcrumb({
             onClick={handlePreviewClick}
             variant="ghost"
             className="rounded text-muted-foreground"
+            aria-label="Preview"
             tooltip="Preview"
             tooltipSide="bottom"
             compact
@@ -177,8 +157,12 @@ export default function Breadcrumb({
     <>
       <div className="flex min-h-7 select-none items-center justify-between bg-terniary-bg px-3 py-1">
         <div className="ui-font flex min-w-0 items-center gap-2 text-muted-foreground ui-text-xs">
-          {showPath && showBreadcrumbPath ? (
-            <FilePathBreadcrumb filePath={filePath} interactive={interactive} />
+          {showPath && showBreadcrumbPath && activeBuffer ? (
+            <FilePathBreadcrumb
+              filePath={filePath}
+              workspaceId={activeBuffer.workspaceId}
+              interactive={interactive}
+            />
           ) : null}
           {extensionActions.left.map((action) => (
             <ExtensionToolbarAction key={action.id} action={action} />

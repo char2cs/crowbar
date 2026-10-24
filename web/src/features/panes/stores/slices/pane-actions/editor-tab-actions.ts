@@ -145,6 +145,10 @@ export function createEditorTabActions(set: PaneSet, get: PaneGet): EditorTabAct
         )
         syncSoleEditorTabCloseability(state, toPaneId, paneCanSafelyLoseLastTab(state, toPaneId))
       })
+      // After the set, so the destination already holds the model and it survives.
+      if (!get().panes[fromPaneId]?.editorTabIds.includes(tabId)) {
+        releaseEditorTabModel(fromPaneId, tabId)
+      }
     },
 
     setEditorTabPreview(paneId, tabId) {

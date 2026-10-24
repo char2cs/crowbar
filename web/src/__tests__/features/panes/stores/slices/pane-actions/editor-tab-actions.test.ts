@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
+import type * as Monaco from 'monaco-editor'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { fileUri } from '@/features/editor/lib/editor-uri'
 import { showingLayout } from '@/features/panes/lib/view-state'
@@ -253,4 +254,39 @@ describe('editor model release (C1)', () => {
     store.getState().paneActions.removeEditorTabFromPane(BOTTOM_PANE_ID, 'tab-ed')
     expect(closeBuffer).not.toHaveBeenCalled()
   })
+  it('a moved tab keeps its model, which is disposed once its last holder closes it', async () => {
+    const { loadEditorHost } = await import('@/features/editor/host/editor-host')
+    const { manager, models } = await loadEditorHost()
+    const store = withBuffers([
+      { id: 'tab-ed', type: 'editor', path: '/src/a.ts', workspaceId: 'ws-test' },
+    ])
+    const uri = fileUri('ws-test', '/src/a.ts')
+    const panes = [ROOT_PANE_ID, BOTTOM_PANE_ID]
+    for (const paneId of panes) manager.mountPane(paneId, document.createElement('div'))
+    // What each pane's controller does: show the pane's active tab on every change.
+    const showActive = () => {
+      for (const paneId of panes) {
+        if (store.getState().panes[paneId]?.activeEditorTabId === 'tab-ed') {
+          manager.showBuffer(paneId, uri)
+        }
+      }
+    }
+    showActive()
+    const unsubscribe = store.subscribe(showActive)
+    try {
+      const model = models.get(uri)
+
+      store.getState().paneActions.moveEditorTabToPane('tab-ed', ROOT_PANE_ID, BOTTOM_PANE_ID)
+      expect(models.get(uri)).toBe(model)
+      const shown = manager.getRawEditor(BOTTOM_PANE_ID) as Monaco.editor.ICodeEditor
+      const monacoModel = shown.getModel()!
+
+      store.getState().paneActions.removeEditorTabFromPane(BOTTOM_PANE_ID, 'tab-ed')
+      expect(models.get(uri)).toBeNull()
+      expect(monacoModel.isDisposed()).toBe(true)
+    } finally {
+      unsubscribe()
+      for (const paneId of panes) manager.unmountPane(paneId)
+    }
+  }, 120000)
 })

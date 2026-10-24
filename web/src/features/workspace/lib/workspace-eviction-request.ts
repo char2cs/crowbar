@@ -17,7 +17,7 @@ const listeners = new Set<EvictionListener>()
  * This is deliberately a REQUEST, not a `destroyWorkspaceStore` call. Only
  * `WorkspaceHost` may destroy a store it mounted, and only once React has
  * torn the subtree down — destroying one out from under a mounted
- * `WorkspaceView` is precisely the "no Monaco pane or terminal slot is ever
+ * `WorkspaceView` is precisely the "no terminal slot is ever
  * live over a destroyed store" rule that host's own deferred-destroy effect
  * exists to keep. So the close path asks, and the host does it through the
  * same unmount-then-destroy path an ordinary eviction takes.

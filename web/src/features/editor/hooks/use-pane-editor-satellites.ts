@@ -24,7 +24,7 @@ import type {
   ActiveEditorRegistry,
 } from '@/features/editor/lib/active-editor-context'
 import type { EditorManager } from '@/features/editor/lib/editor-manager'
-import { uriToWorkspaceId } from '@/features/editor/lib/editor-uri'
+import { fileUri, uriToWorkspaceId } from '@/features/editor/lib/editor-uri'
 import { shouldReconcileModelFromStore } from '@/features/editor/lib/pane-editor-controller'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent, type PaneContent } from '@/features/panes/types/pane-content'
@@ -119,7 +119,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
   // Local typing flows model → sink → store, so by the time the store fires
   // the model already holds that text and nothing is applied.
   useEffect(() => {
-    if (!editor || !model || !filePath) return
+    if (!editor || !model || !uri) return
     const apply = (content: string) => {
       if (model.isDisposed() || model.getValue() === content) return
       const selection = editor.getSelection()
@@ -127,18 +127,23 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
       manager.applyExternalEdit(paneId, uri, content)
       if (selection) editor.setSelection(selection)
     }
+    // Matched by uri, not path: another workspace can hold the same relative path.
+    const boundBuffer = (state: Parameters<typeof activeEditorBuffer>[0]) => {
+      const buffer = activeEditorBuffer(state, paneId)
+      return buffer?.path && fileUri(buffer.workspaceId, buffer.path) === uri ? buffer : null
+    }
     // On (re)bind the store is authoritative only for a CLEAN buffer: a dirty
     // one's model is ahead of the store with un-flushed keystrokes (I2).
-    const initial = activeEditorBuffer(windowPaneStore.getState(), paneId)
+    const initial = boundBuffer(windowPaneStore.getState())
     if (initial && shouldReconcileModelFromStore(initial)) apply(initial.content)
     let previous = initial?.content
     return windowPaneStore.subscribe((state) => {
-      const buffer = activeEditorBuffer(state, paneId)
-      if (!buffer || buffer.path !== filePath || buffer.content === previous) return
+      const buffer = boundBuffer(state)
+      if (!buffer || buffer.content === previous) return
       previous = buffer.content
       apply(buffer.content)
     })
-  }, [editor, model, uri, filePath, manager, externalApplyRef, paneId])
+  }, [editor, model, uri, manager, externalApplyRef, paneId])
 
   // ── Focus the editor when it shows a new model on the active surface ──────
   useEffect(() => {

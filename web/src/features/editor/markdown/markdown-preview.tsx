@@ -65,8 +65,11 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
         (activeBufferId ? state.buffers.find((buffer) => buffer.id === activeBufferId) : null)
       const sourceBuffer =
         activeBuffer?.type === 'markdownPreview'
-          ? (state.buffers.find((buffer) => buffer.path === activeBuffer.sourceFilePath) ??
-            activeBuffer)
+          ? (state.buffers.find(
+              (buffer) =>
+                buffer.path === activeBuffer.sourceFilePath &&
+                buffer.workspaceId === activeBuffer.workspaceId,
+            ) ?? activeBuffer)
           : activeBuffer
 
       return {

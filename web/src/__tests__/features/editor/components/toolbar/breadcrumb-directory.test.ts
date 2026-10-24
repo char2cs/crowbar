@@ -1,22 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/features/file-system/controllers/platform', () => ({ readDirectory: vi.fn() }))
+vi.mock('@/features/files/lib/file-tree-api', () => ({ fetchFileTree: vi.fn() }))
 
-import { readDirectory } from '@/features/file-system/controllers/platform'
+import { fetchFileTree } from '@/features/files/lib/file-tree-api'
 import {
   breadcrumbSegmentPath,
   loadDirectoryEntries,
 } from '@/features/editor/components/toolbar/breadcrumb-directory'
 
-const mockReadDirectory = readDirectory as ReturnType<typeof vi.fn>
+const mockFetchFileTree = fetchFileTree as ReturnType<typeof vi.fn>
 
 beforeEach(() => vi.clearAllMocks())
 
 describe('breadcrumbSegmentPath', () => {
-  // rootFolderPath is the WORKSPACE ID, not a filesystem prefix (see
-  // use-workspace-effects: `rootFolderPath: wsId`). Joining it onto the segments
-  // produced `<wsId>/web/src`, which the daemon rejects as a non-existent path —
-  // so the dropdown never opened even once readDirectory was real.
   it('builds a workspace-relative path from the segments alone', () => {
     expect(breadcrumbSegmentPath(['web', 'src', 'a.ts'], 1)).toBe('web/src')
   })
@@ -31,16 +27,16 @@ describe('breadcrumbSegmentPath', () => {
 })
 
 describe('loadDirectoryEntries', () => {
-  it('maps daemon entries onto FileEntry, directories first then name-insensitive', async () => {
-    mockReadDirectory.mockResolvedValue([
-      { name: 'b.ts', path: 'src/b.ts', isDirectory: false, is_dir: false, isFile: true },
-      { name: 'Utils', path: 'src/Utils', isDirectory: true, is_dir: true, isFile: false },
-      { name: 'a.ts', path: 'src/a.ts', isDirectory: false, is_dir: false, isFile: true },
+  it('lists the given workspace, directories first then name-insensitive', async () => {
+    mockFetchFileTree.mockResolvedValue([
+      { name: 'b.ts', path: 'src/b.ts', isDir: false },
+      { name: 'Utils', path: 'src/Utils', isDir: true },
+      { name: 'a.ts', path: 'src/a.ts', isDir: false },
     ])
 
-    const entries = await loadDirectoryEntries('src')
+    const entries = await loadDirectoryEntries('ws-1', 'src')
 
-    expect(mockReadDirectory).toHaveBeenCalledWith('src')
+    expect(mockFetchFileTree).toHaveBeenCalledWith('ws-1', 'src')
     expect(entries).toEqual([
       { name: 'Utils', path: 'src/Utils', isDir: true, children: undefined },
       { name: 'a.ts', path: 'src/a.ts', isDir: false, children: undefined },
@@ -49,7 +45,7 @@ describe('loadDirectoryEntries', () => {
   })
 
   it('propagates a read failure so the caller can report it', async () => {
-    mockReadDirectory.mockRejectedValue(new Error('boom'))
-    await expect(loadDirectoryEntries('src')).rejects.toThrow('boom')
+    mockFetchFileTree.mockRejectedValue(new Error('boom'))
+    await expect(loadDirectoryEntries('ws-1', 'src')).rejects.toThrow('boom')
   })
 })

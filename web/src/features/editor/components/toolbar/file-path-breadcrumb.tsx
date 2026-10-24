@@ -4,25 +4,24 @@ import { useRef, useState } from 'react'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { logger } from '@/features/editor/utils/logger'
 import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { Button } from '@/components/ui/button'
 import { Dropdown, dropdownItemClassName } from '@/components/ui/dropdown'
-import { getRelativePath, normalizePath } from '@/utils/path-helpers'
+import { normalizePath } from '@/utils/path-helpers'
 import { breadcrumbSegmentPath, loadDirectoryEntries } from './breadcrumb-directory'
 import { PathBreadcrumb } from './path-breadcrumb'
 
 interface FilePathBreadcrumbProps {
   filePath: string
+  /** The shown file's own workspace: segments list and open there. */
+  workspaceId: string
   interactive?: boolean
   className?: string
 }
 
-async function handleNavigate(path: string) {
+async function handleNavigate(workspaceId: string, path: string) {
   try {
-    const wsId = getActiveWorkspaceId()
-    if (wsId) await openWorkspaceFile(wsId, path, { preview: true })
+    await openWorkspaceFile(workspaceId, path, { preview: true })
   } catch (error) {
     logger.error('Editor', 'Failed to navigate to path:', path, error)
   }
@@ -30,10 +29,10 @@ async function handleNavigate(path: string) {
 
 export function FilePathBreadcrumb({
   filePath,
+  workspaceId,
   interactive = true,
   className,
 }: FilePathBreadcrumbProps) {
-  const rootFolderPath = useFocusedWorkspaceContextStore((s) => s.workspaceId)
   const [dropdown, setDropdown] = useState<{
     segmentIndex: number
     x: number
@@ -51,13 +50,6 @@ export function FilePathBreadcrumb({
       return [filePath.split('://')[1] || filePath]
     }
 
-    if (rootFolderPath) {
-      const relativePath = getRelativePath(filePath, rootFolderPath)
-      if (relativePath !== filePath) {
-        return normalizePath(relativePath).split('/').filter(Boolean)
-      }
-    }
-
     return normalizePath(filePath).split('/').filter(Boolean)
   }
 
@@ -69,7 +61,7 @@ export function FilePathBreadcrumb({
     const previousPath = dropdown.navigationStack[dropdown.navigationStack.length - 1]
 
     try {
-      const items = await loadDirectoryEntries(previousPath)
+      const items = await loadDirectoryEntries(workspaceId, previousPath)
       setDropdown((prev) =>
         prev
           ? {
@@ -93,7 +85,7 @@ export function FilePathBreadcrumb({
     event.stopPropagation()
 
     if (segmentIndex === segments.length - 1) {
-      await handleNavigate(breadcrumbSegmentPath(segments, segmentIndex))
+      await handleNavigate(workspaceId, breadcrumbSegmentPath(segments, segmentIndex))
       return
     }
 
@@ -105,7 +97,7 @@ export function FilePathBreadcrumb({
     const dirPath = breadcrumbSegmentPath(segments, segmentIndex)
 
     try {
-      const items = await loadDirectoryEntries(dirPath)
+      const items = await loadDirectoryEntries(workspaceId, dirPath)
       const button = buttonRefs.current[segmentIndex]
 
       if (!button) return
@@ -175,7 +167,7 @@ export function FilePathBreadcrumb({
               onClick={async () => {
                 if (item.isDir) {
                   try {
-                    const items = await loadDirectoryEntries(item.path)
+                    const items = await loadDirectoryEntries(workspaceId, item.path)
                     setDropdown((prev) =>
                       prev
                         ? {
@@ -190,7 +182,7 @@ export function FilePathBreadcrumb({
                     logger.error('Editor', 'Failed to load folder contents:', error)
                   }
                 } else {
-                  await handleNavigate(item.path)
+                  await handleNavigate(workspaceId, item.path)
                   setDropdown(null)
                 }
               }}

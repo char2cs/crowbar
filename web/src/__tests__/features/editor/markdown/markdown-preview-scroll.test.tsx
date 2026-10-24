@@ -155,4 +155,17 @@ describe('MarkdownPreview scroll retention', () => {
     const view = renderPreview(store, 'preview-/repo/CHANGELOG.md')
     expect(view.container.innerHTML).toContain('Changelog only heading')
   })
+
+  it('renders its own workspace’s source when another workspace has the same path', () => {
+    const store = setupStore(['/repo/README.md'])
+    const foreign = { ...makeSource('/repo/README.md', '# Foreign heading'), id: 'src-w2' }
+    windowPaneStore.setState((s) => {
+      s.buffers = [{ ...foreign, workspaceId: 'w2' }, ...s.buffers]
+      return s
+    })
+
+    const view = renderPreview(store, 'preview-/repo/README.md')
+    expect(view.container.innerHTML).toContain('Heading 0')
+    expect(view.container.innerHTML).not.toContain('Foreign heading')
+  })
 })

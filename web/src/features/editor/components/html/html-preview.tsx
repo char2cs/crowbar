@@ -18,8 +18,11 @@ export function HtmlPreview() {
         : null
       const sourceBuffer =
         activeBuffer?.type === 'htmlPreview'
-          ? (state.buffers.find((buffer) => buffer.path === activeBuffer.sourceFilePath) ??
-            activeBuffer)
+          ? (state.buffers.find(
+              (buffer) =>
+                buffer.path === activeBuffer.sourceFilePath &&
+                buffer.workspaceId === activeBuffer.workspaceId,
+            ) ?? activeBuffer)
           : activeBuffer
 
       return {

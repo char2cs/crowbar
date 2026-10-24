@@ -12,9 +12,8 @@ let _activeWorkspaceId: string | null = null
 // wsId-keyed callers (files, git, terminal, editor) can resolve the full scope
 // without every signature growing two params. The scope MAP itself lives in the
 // dependency-free `@/lib/workspace-scope` module so those lightweight builders
-// don't import this heavy registry (which pulls in the editor/Monaco graph and
-// timed out their dynamic-import unit tests). We re-export the setter/getter here
-// for callers that already depend on the registry.
+// don't import this registry and the whole workspace-store graph behind it.
+// We re-export the setter/getter here for callers that already depend on it.
 export { setWorkspaceScope, getWorkspaceScope, type WorkspaceScope } from '@/lib/workspace-scope'
 
 /**
