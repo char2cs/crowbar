@@ -85,11 +85,36 @@ func TestState_AsksDoNotOutliveTheirTurnOrTheirRunner(t *testing.T) {
 	for name, end := range ends {
 		t.Run(name, func(t *testing.T) {
 			st := ledger.Fold("c1", sequenced(t,
-				turnStart(t, "T1"), ask(t, ledger.Ask{AskID: "a1"}), end,
+				turnStart(t, "T1"), ask(t, ledger.Ask{AskID: "a1", Answerable: true}), end,
 			))
 			assert.Empty(t, st.PendingAsks())
 		})
 	}
+}
+
+// An end that declared background work leaves a held ask to that work, the only
+// thing that can hold the CLI on it now; a subagent's ask closes with it.
+func TestState_AHeldAskOutlivesAnEndThatDeclaredBackgroundWork(t *testing.T) {
+	st := ledger.Fold("c1", sequenced(t,
+		turnStart(t, "T1"), subagent(t, "A", ledger.SubagentStart),
+		ask(t, ledger.Ask{AskID: "held", Answerable: true}),
+		ask(t, ledger.Ask{AskID: "unheld"}),
+		scoped(t, ledger.KindAsk, "T1", "A", ledger.Ask{AskID: "held-in-A", Event: "permission", Answerable: true}),
+		row(t, ledger.KindTurnEnded, "T1", ledger.TurnEnded{Status: "done", RunnerID: "run-1", AsyncWork: new(1)}),
+	))
+	open := func() []string {
+		var ids []string
+		for _, a := range st.PendingAsks() {
+			ids = append(ids, a.AskID)
+		}
+		return ids
+	}
+	assert.Equal(t, []string{"held", "held-in-A"}, open(), "nothing holds the unheld one")
+
+	stop := subagent(t, "A", ledger.SubagentStop)
+	stop.Seq = 7
+	st.Apply(stop)
+	assert.Equal(t, []string{"held"}, open(), "A's ask closes with A")
 }
 
 func TestCheck_AnAskNeedsAnIDAndAnEvent(t *testing.T) {

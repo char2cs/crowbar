@@ -101,7 +101,7 @@ func (f *facts) end(t *turnFacts, r ledger.Row, status string, body ledger.TurnE
 	}
 	if !t.ended {
 		t.ended, t.endSeq, t.endAt, t.status = true, r.Seq, r.At, status
-		t.async = body.AsyncWork != nil && *body.AsyncWork > 0
+		t.async = body.Async()
 	}
 }
 

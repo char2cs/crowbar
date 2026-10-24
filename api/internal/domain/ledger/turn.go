@@ -61,6 +61,9 @@ type TurnEnded struct {
 	Diff string `json:"diff,omitempty"`
 }
 
+// Async reports whether the end declared background work still running.
+func (e TurnEnded) Async() bool { return e.AsyncWork != nil && *e.AsyncWork > 0 }
+
 // TurnFailed is the body of a turn_failed row: the provider could not finish
 // the turn.
 type TurnFailed struct {
@@ -177,7 +180,7 @@ func (s *State) applyTurnEnded(r Row) {
 		return
 	}
 	s.turn.Status, s.turn.closeSeq = next, r.Seq
-	s.abandonAsks(func(a PendingAsk) bool { return a.TurnID == r.TurnID })
+	s.abandonAsks(func(a PendingAsk) bool { return a.TurnID == r.TurnID && !a.OutlivesEnd(body.Async()) })
 	if next == TurnStatusDone && s.turn.persists == PersistsTurnEnd {
 		s.markTurned(s.turn.provider, s.turn.sessionID)
 	}

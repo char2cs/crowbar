@@ -227,15 +227,16 @@ func mapStop(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 	if rows, ok, err := compactionEnd(st, ev.TurnID); ok || err != nil {
 		return rows, Effects{}, err
 	}
-	ended, closes, err := ledger.EndTurnOf(st, src.RunnerID, ev.TurnID, ledger.TurnEnded{
+	end := ledger.TurnEnded{
 		Status: string(stopStatus(ev.TurnStatus)), AsyncWork: &ev.AsyncWork, Effort: ev.Effort,
 		Diff: lastText(src.Live.Diff, ""),
-	})
+	}
+	ended, closes, err := ledger.EndTurnOf(st, src.RunnerID, ev.TurnID, end)
 	if err != nil {
 		return nil, Effects{}, err
 	}
 	turnID := ended.TurnID
-	rows, err := closingRows(st, turnID, ev.Message, src)
+	rows, err := closingRows(st, turnID, ev.Message, src, end.Async())
 	if err != nil {
 		return nil, Effects{}, err
 	}
@@ -252,7 +253,7 @@ func mapStop(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 // closingRows are what a turn's end records of what it said: the answers
 // streamed with no row of their own, the reply its hook carried, the thought
 // behind it, and every ask nothing will answer now.
-func closingRows(st ledger.State, turnID, reply string, src Source) ([]ledger.Row, error) {
+func closingRows(st ledger.State, turnID, reply string, src Source, async bool) ([]ledger.Row, error) {
 	var rows []ledger.Row
 	last, hasLast := st.LastMessage(turnID)
 	for _, a := range src.Live.Answers {
@@ -285,7 +286,7 @@ func closingRows(st ledger.State, turnID, reply string, src Source) ([]ledger.Ro
 		}
 		rows = append(rows, row)
 	}
-	abandoned, err := abandonAsks(st, turnID)
+	abandoned, err := abandonAsks(st, turnID, async)
 	return append(rows, abandoned...), err
 }
 
@@ -300,11 +301,12 @@ func lastText(texts []liveText, turnID string) string {
 	return out
 }
 
-// abandonAsks close turnID's open asks: its end leaves nothing to answer them.
-func abandonAsks(st ledger.State, turnID string) ([]ledger.Row, error) {
+// abandonAsks close turnID's open asks its end, async or not, leaves nothing
+// to answer.
+func abandonAsks(st ledger.State, turnID string, async bool) ([]ledger.Row, error) {
 	var rows []ledger.Row
 	for _, a := range st.PendingAsks() {
-		if a.TurnID != turnID {
+		if a.TurnID != turnID || a.OutlivesEnd(async) {
 			continue
 		}
 		resolved, err := ledger.ResolveAsk(st, a.AskID, ledger.ResolutionAbandoned, nil)
@@ -333,7 +335,7 @@ func mapFailure(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]
 	if err != nil {
 		return nil, Effects{}, err
 	}
-	rows, err := closingRows(st, failed.TurnID, reply, src)
+	rows, err := closingRows(st, failed.TurnID, reply, src, false)
 	if err != nil {
 		return nil, Effects{}, err
 	}
@@ -359,7 +361,7 @@ func mapIdle(st ledger.State, src Source) ([]ledger.Row, Effects, error) {
 		return nil, Effects{}, err
 	}
 	if closes {
-		rows, err := closingRows(st, ended.TurnID, "", src)
+		rows, err := closingRows(st, ended.TurnID, "", src, false)
 		if err != nil {
 			return nil, Effects{}, err
 		}
@@ -411,7 +413,7 @@ func noticeRows(st ledger.State, runnerID string, notice engineagents.TerminalNo
 	if err != nil || !closes {
 		return nil, err
 	}
-	rows, err := closingRows(st, failed.TurnID, "", Source{Live: live})
+	rows, err := closingRows(st, failed.TurnID, "", Source{Live: live}, false)
 	if err != nil {
 		return nil, err
 	}

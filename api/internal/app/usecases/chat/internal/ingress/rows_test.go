@@ -254,19 +254,44 @@ func TestMap_AReplyWithNothingStreamedIsTheTurnsReply(t *testing.T) {
 	assert.Equal(t, string(ledger.TurnStatusInterrupted), bodyOf[ledger.TurnEnded](t, rows[1]).Status)
 }
 
-func TestMap_ATurnsEndAbandonsItsOpenAsks(t *testing.T) {
-	c := liveChatRows(t)
-	c.typed("go")
-	c.mapped(engineagents.CanonicalEvent{
-		Kind:   engineagents.HookPermission,
-		Choice: &engineagents.ChoicePrompt{Kind: "tool_permission", ToolName: "Bash"},
-	}, hooksSource())
-	require.Len(t, c.st.PendingAsks(), 1)
+// A turn's end abandons its open asks, but one that declared background work
+// leaves a held ask to that work: only it can hold the CLI there now.
+func TestMap_ATurnsEndAbandonsTheAsksNothingElseHolds(t *testing.T) {
+	for name, tc := range map[string]struct {
+		work   int
+		closed []int // of the asks, held then unheld
+	}{
+		"an end with no background work":   {0, []int{0, 1}},
+		"an end declaring background work": {1, []int{1}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := liveChatRows(t)
+			c.typed("go")
+			unheld := hooksSource()
+			unheld.Answerable = false
+			for i, src := range []Source{hooksSource(), unheld} {
+				c.mapped(engineagents.CanonicalEvent{
+					Kind:   engineagents.HookPermission,
+					Choice: &engineagents.ChoicePrompt{Kind: "tool_permission", ToolName: []string{"Bash", "Read"}[i]},
+				}, src)
+			}
+			asks := c.st.PendingAsks()
+			require.Len(t, asks, 2)
 
-	rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop}, hooksSource())
+			rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, AsyncWork: tc.work}, hooksSource())
 
-	require.Equal(t, []ledger.Kind{ledger.KindAskResolved, ledger.KindTurnEnded}, kinds(rows))
-	assert.Equal(t, ledger.ResolutionAbandoned, bodyOf[ledger.AskResolved](t, rows[0]).Resolution)
+			var want, got []string
+			for _, i := range tc.closed {
+				want = append(want, asks[i].AskID)
+			}
+			for _, r := range rows[:len(rows)-1] {
+				require.Equal(t, ledger.KindAskResolved, r.Kind)
+				assert.Equal(t, ledger.ResolutionAbandoned, bodyOf[ledger.AskResolved](t, r).Resolution)
+				got = append(got, bodyOf[ledger.AskResolved](t, r).AskID)
+			}
+			assert.Equal(t, want, got)
+		})
+	}
 }
 
 // A compaction's own turn wraps it like any turn; its end ends the compaction,

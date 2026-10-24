@@ -100,6 +100,46 @@ func TestChoices_AnAskIsAbandonedByItsOwnRunnersExit(t *testing.T) {
 	assert.Empty(t, pending)
 }
 
+// An end that declared background work leaves a held ask to that work, open and
+// answerable as the ledger's state keeps it; a subagent's ask closes with it.
+func TestChoices_AHeldAskOutlivesAnEndThatDeclaredBackgroundWork(t *testing.T) {
+	b := newBook(t)
+	b.open("T1", "go")
+	permission := ledger.Ask{Event: "permission", Kind: domain.ChoiceKindPermission}
+	held, unheld, heldInA := permission, permission, permission
+	held.AskID, held.Answerable = "held", true
+	unheld.AskID = "unheld"
+	heldInA.AskID, heldInA.Answerable = "held-in-A", true
+	b.add(
+		mk(t, ledger.KindSubagent, "T1", "A", ledger.Subagent{Phase: ledger.SubagentStart}),
+		asked(t, held), asked(t, unheld), mk(t, ledger.KindAsk, "T1", "A", heldInA),
+		mk(t, ledger.KindTurnEnded, "T1", "", ledger.TurnEnded{Status: "done", RunnerID: "run-1", AsyncWork: new(1)}),
+	)
+	assert.Equal(t, []string{"held", "held-in-A"}, openChoices(t, b), "nothing holds the unheld one")
+	assert.True(t, b.activity().Choices[0].Answerable)
+
+	b.add(mk(t, ledger.KindSubagent, "T1", "A", ledger.Subagent{Phase: ledger.SubagentStop}))
+	assert.Equal(t, []string{"held"}, openChoices(t, b), "A's ask closes with A")
+}
+
+// openChoices are the ids of the open choices, the transcript's and the state's alike.
+func openChoices(t *testing.T, b *book) []string {
+	t.Helper()
+	ids := func(choices []domain.ActivityChoice) []string {
+		var out []string
+		for _, c := range choices {
+			out = append(out, c.ID)
+		}
+		return out
+	}
+	pending, err := b.p.PendingChoices(t.Context(), chatID)
+	require.NoError(t, err)
+	st, err := b.ledger.State(t.Context(), chatID)
+	require.NoError(t, err)
+	require.Equal(t, ids(transcript.PendingChoicesOf(st)), ids(pending), "the transcript and the state agree")
+	return ids(pending)
+}
+
 // What a publication announces is read from the state alone, under the writer.
 func TestChoices_PendingChoicesOfTheState(t *testing.T) {
 	b := newBook(t)

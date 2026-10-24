@@ -65,6 +65,7 @@ func (s *State) applySubagent(r Row) {
 		sc.started = true
 	case SubagentStop:
 		sc.stopped = true
+		s.abandonAsks(func(a PendingAsk) bool { return a.Scope == r.Scope })
 	}
 	k.scopes[r.Scope] = sc
 }

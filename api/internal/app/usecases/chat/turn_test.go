@@ -171,16 +171,8 @@ func TestRegression_ACompletedEditReplacesItsSnippetDiffWithTheProvidersTrueHunk
 	assert.Equal(t, "--- a/repo/a.go\n+++ b/repo/a.go\n@@ -8,3 +8,3 @@\n before\n-x\n+y\n after\n", calls[0].Diff)
 }
 
-// TestRegression_UserPromptHookRestoresTheDurableAttachmentRef pins the bug a
-// live excalidraw-attachment send surfaced: a user_prompt hook's own message
-// IS the text the CLI actually received, which is the file's real ABSOLUTE
-// path in the durable store (materializeAttachmentsForDispatch's rewrite)
-// whenever the prompt referenced an attachment. Recording that verbatim as
-// the ledger's turn text broke two things at once — the asset-serving
-// endpoint can't resolve a raw filesystem path, so the picture never
-// rendered again, and that local path leaked into what the user reads as
-// their own sent message. The ledger must always hold the logical
-// chats/<chatID>/attachments/<file> reference.
+// The hook's text names the attachment by its absolute store path; the ledger
+// keeps the logical chats/<chatID>/attachments/<file> ref the asset endpoint serves.
 func TestRegression_UserPromptHookRestoresTheDurableAttachmentRef(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -716,17 +708,8 @@ func textsOfPage(items []domain.LedgerMessage) []string {
 	return out
 }
 
-// TestObservation_AToolPreWithNoIDIsRejectedNotRecorded replaces the former
-// "anonymous tool calls do not collide" expectation: claude's real
-// PreToolUse/PostToolUse payloads ALWAYS carry tool_use_id (PreToolUse.json/
-// PostToolUse.json's own fixtures prove it, which is why claude.yaml's
-// tool_pre/tool_post keep tool_id in required: — design spec 2.3), so a
-// PreToolUse hook missing it is a malformed delivery, not a legitimate
-// anonymous call. required: now rejects it outright instead of toolID()
-// silently minting a fresh fallback id per call — which was worse, not
-// better: two genuinely anonymous deliveries of the SAME real call would
-// mint two DIFFERENT ids and its own pre/post pair would never match
-// (codex.yaml's own comment on tool_id being "load-bearing").
+// A tool_pre with no tool id is a malformed delivery that required: rejects:
+// a minted fallback id would give one call's two deliveries two ids.
 func TestObservation_AToolPreWithNoIDIsRejectedNotRecorded(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -1362,6 +1345,28 @@ func TestObservation_APendingChoiceDoesNotSurviveItsTurn(t *testing.T) {
 	assert.Equal(t, domain.ChoiceResolutionAbandoned, all.Choices[0].Resolution)
 }
 
+// Once its turn ended, only the background work that end declared can hold the
+// CLI on an ask: held, it stays a card to answer (held ⇔ answerable).
+func TestObservation_AHeldAskOutlivesAnEndThatDeclaredBackgroundWork(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "s1")
+	prompt(t, f, runnerID, "claude", "go")
+	hook(t, f, runnerID, "claude", engineagents.HookSubagentPre, map[string]any{"agent_id": "a1", "agent_type": "general-purpose"})
+	ask := deliver(t, f, runnerID, "claude", engineagents.HookPermission, permissionPayload())
+	require.NotEmpty(t, ask)
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop", stopPayloadFor(t, "s1", "main done", 1)))
+	f.wait()
+
+	_, held := f.usecase.PendingAnswer(ask)
+	require.True(t, held, "precondition: the desk still holds the CLI")
+	assert.Len(t, pendingChoices(t, f, chatID), 1, "held ⇔ answerable")
+	st, err := f.ledger.State(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.Len(t, st.PendingAsks(), 1, "the chat's frames announce it too")
+}
+
 // Its CLI blocks on a held ask whether or not a turn runs: it is there to answer.
 func TestObservation_APermissionWithNoTurnOpenIsPending(t *testing.T) {
 	f := newFixture(t)
@@ -1454,18 +1459,8 @@ func TestObservation_AnElicitationIsRecordedAsAnInterruptionAndAPrompt(t *testin
 	assert.Contains(t, got[0].Schema, `"enum":["A","B"]`)
 }
 
-// This test has migrated twice as codex's descriptor grew, and each move is the
-// point: it exists to prove the "unmapped kind is DROPPED, never failed"
-// invariant, so it must always name a kind codex genuinely does not declare.
-//
-// It ran "elicitation" until a9ebb6f1 ("merge codex into one mixed-transport
-// descriptor") gave codex a real elicitation: mapping — see
-// TestObservation_ACodexElicitationIsRecordedAsAnInterruptionAndAPrompt. It then
-// ran "tool_fail" until codex gained one of those too (item/completed gated on
-// item.status: failed || declined) — see the positive case directly below.
-//
-// notification is what is left: codex's app-server exposes no notification of
-// that shape at all, which codex.yaml records in place.
+// It proves an unmapped kind is dropped, never failed, so it must name a kind
+// codex genuinely does not declare: notification is what is left.
 func TestObservation_ACodexChatObservesNoNotification(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -2153,16 +2148,8 @@ func TestRegression_ConcurrentBackgroundSubagentsDrain_StopsChatWorking(t *testi
 	require.False(t, f.busy(t, chatID), "drained to zero: the spinner must stop")
 }
 
-// TestRegression_InterruptedTurnThenNewPrompt_DoesNotStrandSpinner is the case the
-// PREVIOUS attempt broke, and it is pre-existing in shape.
-//
-// Traced: an INTERRUPT (ESC) fires NO HOOK AT ALL — not Stop, not Notification, nothing —
-// so the turn it interrupted is never closed by the CLI, and any async work it announced
-// is never retired. The previous attempt counted work_begin/work_end edges, so an
-// interrupt during background work stranded the count at 3 and spun that chat FOREVER.
-//
-// Here the next prompt supersedes both: a new turn zeroes the level, and that turn's own
-// Stop settles it. The spinner comes back to the truth.
+// An interrupt fires no hook, so the CLI never closes the turn it cut: the
+// next prompt's turn supersedes it, and that turn's own Stop settles the level.
 func TestRegression_InterruptedTurnThenNewPrompt_DoesNotStrandSpinner(t *testing.T) {
 	f := newFixture(t)
 

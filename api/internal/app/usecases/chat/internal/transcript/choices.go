@@ -22,12 +22,12 @@ func InterruptionID(askID string) string {
 }
 
 type askFact struct {
-	ask        ledger.Ask
-	turnID     string
-	seq        int64
-	at         time.Time
-	resolved   *ledger.AskResolved
-	resolvedAt time.Time
+	ask           ledger.Ask
+	turnID, scope string
+	seq           int64
+	at            time.Time
+	resolved      *ledger.AskResolved
+	resolvedAt    time.Time
 }
 
 func (f *facts) applyAsk(r ledger.Row) {
@@ -35,7 +35,7 @@ func (f *facts) applyAsk(r ledger.Row) {
 	if err != nil || body.AskID == "" || f.asks[body.AskID] != nil {
 		return
 	}
-	a := &askFact{ask: body, turnID: r.TurnID, seq: r.Seq, at: r.At}
+	a := &askFact{ask: body, turnID: r.TurnID, scope: r.Scope, seq: r.Seq, at: r.At}
 	f.asks[body.AskID] = a
 	f.asked = append(f.asked, a)
 }
@@ -51,16 +51,30 @@ func (f *facts) applyAskResolved(r ledger.Row) {
 }
 
 // askResolution is when and how a's ask closed: by its own row, else
-// abandoned when its turn or its runner ended after it was raised.
+// abandoned at its end.
 func (f *facts) askResolution(a *askFact) (*time.Time, string, []string) {
 	if a.resolved != nil {
 		at := a.resolvedAt
 		return &at, a.resolved.Resolution, a.resolved.OptionIDs
 	}
-	if at, over := f.closedBy(a.turnID, a.seq, true); over {
+	if at, over := f.askEnd(a); over {
 		return &at, ledger.ResolutionAbandoned, nil
 	}
 	return nil, "", nil
+}
+
+// askEnd is when an open ask is over, as the ledger's state closes it: at its
+// subagent's stop, else at its turn's end unless that end leaves it open
+// (ledger.Ask.OutlivesEnd), else at its runner's exit.
+func (f *facts) askEnd(a *askFact) (time.Time, bool) {
+	if s, ok := f.scopes[a.scope]; ok && a.scope != "" && s.stopped && s.stopSeq > a.seq {
+		return s.stopAt, true
+	}
+	t := f.turns[a.turnID]
+	if t != nil && t.ended && t.endSeq > a.seq && !a.ask.OutlivesEnd(t.async) {
+		return t.endAt, true
+	}
+	return f.exitAfter(t, a.seq)
 }
 
 // choices are the chat's asks that offered a choice, one each, by their row.

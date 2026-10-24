@@ -34,6 +34,11 @@ type Ask struct {
 	Answerable bool `json:"answerable"`
 }
 
+// OutlivesEnd reports whether its turn's end leaves a open: an end that declared
+// background work (async) leaves a held ask to that work, the only thing that
+// can hold the CLI on it once its turn is over.
+func (a Ask) OutlivesEnd(async bool) bool { return async && a.Answerable }
+
 // AskResolved is the body of an ask_resolved row.
 type AskResolved struct {
 	AskID      string   `json:"askId"`

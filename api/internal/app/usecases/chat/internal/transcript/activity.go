@@ -34,7 +34,7 @@ type toolFact struct {
 
 type scopeFact struct {
 	id, turnID, agentType string
-	seq                   int64
+	seq, stopSeq          int64
 	startAt, stopAt       time.Time
 	// opened: a start or a spawning tool call named it, not only a stop.
 	opened, stopped bool
@@ -100,7 +100,7 @@ func (f *facts) applySubagent(r ledger.Row) {
 	s.agentType = cmp.Or(s.agentType, body.Type)
 	s.opened = s.opened || body.Phase == ledger.SubagentStart
 	if body.Phase == ledger.SubagentStop && !s.stopped {
-		s.stopped, s.stopAt = true, r.At
+		s.stopped, s.stopSeq, s.stopAt = true, r.Seq, r.At
 	}
 }
 
