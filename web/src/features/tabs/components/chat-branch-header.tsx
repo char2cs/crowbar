@@ -232,7 +232,7 @@ function WorkspaceRoute({
 }
 
 // Shared with the rename input so entering edit mode never changes the text.
-const CHAT_TITLE_TEXT = 'font-heading text-xl leading-5 font-normal tracking-normal'
+const CHAT_TITLE_TEXT = 'font-heading text-[17px] leading-5 font-normal tracking-normal'
 
 /** The name line. A `null` title is the store's gap, drawn as the pending mark
  *  and marked as such, never as a chat that happens to be untitled. */
