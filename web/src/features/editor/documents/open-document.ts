@@ -10,6 +10,7 @@ import {
 import { isTauri } from '@/lib/crowbar-bridge'
 import { openNativeDialog } from '@/lib/native-dialog'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { homeOf } from '@/features/panes/lib/view-state'
 import {
   isEditorContent,
   type EditorContent,
@@ -20,7 +21,7 @@ import { documentName, documentRefOf, sameDocument } from './document-ref'
 
 export interface OpenDocumentOptions {
   preview?: boolean
-  /** The pane a tab lands in when no pane holds the document yet; omitted, the focused one. */
+  /** The pane a tab lands in, unless a pane of its view holds it; omitted, the focused one. */
   paneId?: string
   /** Called with the buffer about to be shown, before anything observes it shown. */
   beforeShow?: (bufferId: string) => void
@@ -42,15 +43,26 @@ export function findDocumentBuffer(ref: DocumentRef): EditorContent | null {
   return documentBufferIn(windowPaneStore.getState().buffers, ref)
 }
 
+/** The view, stage or bottom tray `paneId` lives in, as one comparable key. */
+function viewKeyOf(paneId: string): string | null {
+  const home = homeOf(windowPaneStore.getState(), paneId)
+  return home && (home.kind === 'view' ? `view:${home.viewId}` : home.kind)
+}
+
+// A holder in another view is off screen: the target pane gets its own tab.
 function show(buffer: EditorContent, { paneId, beforeShow }: OpenDocumentOptions): string {
   beforeShow?.(buffer.id)
-  const { panes, paneActions } = windowPaneStore.getState()
-  const holder = Object.values(panes).find((p) => p.editorTabIds.includes(buffer.id))
+  const { panes, paneActions, activePaneId } = windowPaneStore.getState()
+  const target = paneId ?? activePaneId
+  const view = viewKeyOf(target)
+  const holder = Object.values(panes).find(
+    (p) => p.editorTabIds.includes(buffer.id) && view !== null && viewKeyOf(p.id) === view,
+  )
   if (holder) {
     paneActions.setActivePane(holder.id)
     paneActions.activateEditorTabInPane(holder.id, buffer.id)
   } else {
-    paneActions.addEditorTabToPane(paneId ?? windowPaneStore.getState().activePaneId, buffer)
+    paneActions.addEditorTabToPane(target, buffer)
   }
   return buffer.id
 }

@@ -147,10 +147,8 @@ function subtreeRef(doc: DocumentRef, reference: string): DocumentRef | null {
 }
 
 /**
- * The preview of `html` for a document outside every workspace, under a policy
- * that loads nothing but inline styles and data images. Only assets in its own
- * directory's subtree are read, and only those the policy lets render:
- * stylesheets inline as `<style>`, images as `data:` URLs.
+ * A host document's preview under a policy of inline styles and data images: only its own subtree's
+ * stylesheets (as `<style>`) and images (as `data:` URLs) are read.
  */
 export async function buildHostPreviewDocument(
   html: string,

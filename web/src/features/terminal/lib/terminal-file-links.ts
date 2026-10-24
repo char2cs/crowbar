@@ -115,10 +115,8 @@ export function registerTerminalFileLinks(
 }
 
 /**
- * File references open inside Crowbar: relative paths resolve against the
- * session cwd when known, else the root of the terminal's own workspace (none:
- * absolute paths only), and the daemon resolves the absolute path to its
- * workspace's document or a host one.
+ * Links open in Crowbar. A relative path resolves against the session cwd, else
+ * the terminal's own workspace root; a terminal of no workspace opens absolute paths only.
  */
 export function terminalFileLinksFor(
   getSessionId: () => string,

@@ -67,6 +67,7 @@ describe('buildHostPreviewDocument', () => {
     '/site/css/a.css': 'h1{color:red}',
     '/x.css': 'h1{color:blue}',
     '/site/app.js': 'alert(1)',
+    '/site/evil.css': 'h1{}</style><img src=x onerror=alert(1)>',
   }
   const read = vi.fn(async (ref: DocumentRef) => files[ref.path] ?? '')
   const build = (html: string) =>
@@ -82,6 +83,14 @@ describe('buildHostPreviewDocument', () => {
     expect(doc).toContain('<link rel="stylesheet" href="../x.css">')
     expect(doc).toContain('<script src="app.js"></script>')
     expect(read.mock.calls.map(([ref]) => ref.path)).toEqual(['/site/css/a.css'])
+  })
+
+  it('keeps a stylesheet that closes its own element inside it', async () => {
+    const doc = await build('<link rel="stylesheet" href="evil.css">')
+
+    const parsed = new DOMParser().parseFromString(doc, 'text/html')
+    expect(parsed.querySelector('img')).toBeNull()
+    expect(parsed.querySelector('style')?.textContent).toContain('onerror=alert(1)')
   })
 
   it('keeps a stylesheet’s media query', async () => {

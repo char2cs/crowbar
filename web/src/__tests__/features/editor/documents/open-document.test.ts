@@ -32,6 +32,7 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent } from '@/features/panes/types/pane-content'
+import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { toast } from '@/features/window/stores/toast-store'
 
 const host = (path: string): DocumentRef => ({ authority: 'host', path })
@@ -112,6 +113,20 @@ describe('openDocument', () => {
     expect(activePaneId).toBe(holder)
     expect(panes[holder]?.activeEditorTabId).toBe(id)
     expect(panes[other]?.editorTabIds).not.toContain(id)
+  })
+
+  it('a document held in another project’s view opens in the pane it is aimed at', async () => {
+    readDocument.mockImplementation(readsAsHost)
+    const { paneActions } = windowPaneStore.getState()
+    const paneOf = (chatId: string) => chatPaneIndex(windowPaneStore.getState().panes).get(chatId)!
+    paneActions.openChat('c1', { workspaceId: 'ws-a', projectId: 'p1' })
+    const held = await openDocument({ absolutePath: '/x/a.md' }, { paneId: paneOf('c1') })
+    paneActions.openChat('c2', { workspaceId: 'ws-b', projectId: 'p2' })
+    paneActions.setActiveProject('p2')
+
+    expect(await openDocument({ absolutePath: '/x/a.md' }, { paneId: paneOf('c2') })).toBe(held)
+
+    expect(windowPaneStore.getState().panes[paneOf('c2')]?.editorTabIds).toContain(held)
   })
 
   it('a refused host read says why and opens nothing', async () => {

@@ -212,9 +212,9 @@ export function useFileExplorerDragDrop(
       const elementUnder = document.elementFromPoint(e.clientX, e.clientY)
       const isOverPane = elementUnder?.closest('[data-pane-container]') !== null
       const isOverFileTree = elementUnder?.closest('.file-tree-container') !== null
-      // Dropped on a pane (not in the file tree): the file opens as a tab of
-      // THAT pane — named explicitly, whatever has focus. A file never gets a
-      // pane of its own, so the zone is not consulted.
+      // Dropped on a pane (not in the file tree): the file opens in THAT pane,
+      // whatever has focus, unless a pane of its view already shows it. A file
+      // never gets a pane of its own, so the zone is not consulted.
       if (isOverPane && !isOverFileTree && draggedItem && !draggedItem.isDir) {
         const { paneId } = resolveDropTarget({ x: e.clientX, y: e.clientY })
         if (paneId && workspaceId) {
