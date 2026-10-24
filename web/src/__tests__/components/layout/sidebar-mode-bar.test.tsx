@@ -1,7 +1,20 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('@/lib/persistence/workspace-layout', () => ({
+  saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
+}))
+vi.mock('@/features/panes/lib/release-closed-chat', () => ({
+  releaseClosedChat: vi.fn(async () => {}),
+}))
+
 import { SidebarModeBar } from '@/components/layout/sidebar-mode-bar'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import { useIdeShellWorkspaceRetention } from '@/components/layout/use-ide-shell-workspace-retention'
+import {
+  resetWindowPaneStoreForTests,
+  windowPaneStore,
+} from '@/features/panes/stores/window-pane-store'
+import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import {
   EMPTY_FOCUSED_WORKSPACE_CONTEXT,
   publishFocusedWorkspaceContext,
@@ -93,5 +106,75 @@ describe('SidebarModeBar', () => {
       expect(segment('Git')).toHaveAttribute('aria-selected', 'false')
       expect(segment('Chats')).toHaveAttribute('aria-selected', 'true')
     })
+  })
+})
+
+const REPO: Repo = {
+  id: 'r1',
+  projectId: 'p1',
+  name: 'crowbar',
+  avatarLabel: 'C',
+  avatarColor: 'c',
+  localPath: '/repo',
+  workspaces: [],
+  defaultWorkspaceId: 'ws-repo',
+}
+
+interface Route {
+  workspaceId: string | undefined
+  repoId: string | undefined
+  isHomeRoute: boolean
+}
+const HOME_ROUTE: Route = { workspaceId: undefined, repoId: undefined, isHomeRoute: true }
+const REPO_ROUTE: Route = { workspaceId: 'ws-repo', repoId: 'r1', isHomeRoute: false }
+
+/** The shell's real publisher feeding the bar, as ide-shell wires them. */
+function ShellSidebar({ route }: { route: Route }) {
+  useIdeShellWorkspaceRetention(
+    route.workspaceId,
+    'ws-home',
+    'p1',
+    route.repoId,
+    route.isHomeRoute,
+    '/projects/p1',
+    '/projects/p1',
+  )
+  return <SidebarModeBar />
+}
+
+describe('SidebarModeBar on the empty stage', () => {
+  beforeEach(() => {
+    resetWindowPaneStoreForTests()
+    useSidebarStore.setState(getInitialState())
+    useSidebarStore.getState().setRepos([REPO])
+    useSidebarStore.setState({ activeTab: 'files' })
+  })
+
+  it.each([
+    ['project home', HOME_ROUTE],
+    ['a repo workspace', REPO_ROUTE],
+  ])('on %s with nothing open, Files and Git are disabled and Chats is shown', (_, route) => {
+    render(<ShellSidebar route={route} />)
+    expect(screen.getByRole('tablist', { name: 'Sidebar mode' })).toBeInTheDocument()
+    expect(segment('Chats')).toHaveAttribute('aria-disabled', 'false')
+    expect(segment('Files')).toHaveAttribute('aria-disabled', 'true')
+    expect(segment('Git')).toHaveAttribute('aria-disabled', 'true')
+    expect(segment('Chats')).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('closing the last view returns to the empty stage and drops Files', () => {
+    const { paneActions } = windowPaneStore.getState()
+    act(() => paneActions.openChat('chat-1', { workspaceId: 'ws-repo', projectId: 'p1' }))
+    render(<ShellSidebar route={REPO_ROUTE} />)
+    expect(segment('Files')).toHaveAttribute('aria-disabled', 'false')
+    expect(segment('Git')).toHaveAttribute('aria-disabled', 'false')
+    expect(segment('Files')).toHaveAttribute('aria-selected', 'true')
+
+    act(() => paneActions.closePane(windowPaneStore.getState().activePaneId))
+
+    expect(segment('Files')).toHaveAttribute('aria-disabled', 'true')
+    expect(segment('Git')).toHaveAttribute('aria-disabled', 'true')
+    expect(segment('Chats')).toHaveAttribute('aria-selected', 'true')
+    expect(useSidebarStore.getState().activeTab).toBe('files')
   })
 })

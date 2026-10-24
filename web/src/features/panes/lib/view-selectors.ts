@@ -56,6 +56,14 @@ export function isPaneEmpty(pane: Pick<PaneGroup, 'chatId' | 'editorTabIds'> | u
   return pane.chatId === null && pane.editorTabIds.length === 0
 }
 
+/** Focus rests on a pane holding nothing — the empty stage — so no workspace is focused. */
+export function selectIsFocusedPaneEmpty(state: {
+  activePaneId: string
+  panes: Record<string, PaneGroup>
+}): boolean {
+  return isPaneEmpty(state.panes[state.activePaneId])
+}
+
 /** Whether some pane holds `chatId`, off the memoized index. Subscribe per row. */
 export function selectChatHasView(
   state: { panes: Record<string, PaneGroup> },
