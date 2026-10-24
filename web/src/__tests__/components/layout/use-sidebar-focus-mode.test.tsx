@@ -66,14 +66,25 @@ describe('useSidebarFocusMode', () => {
     publishFocusedWorkspaceContext(REPO_CTX)
   })
 
+  it('the first surface focus, like a terminal auto-focusing at startup, keeps the persisted mode', () => {
+    act(() => useSidebarStore.getState().setActiveTab('git'))
+    render(<Shell />)
+    focus('chat composer')
+    expect(mode()).toBe('git')
+    focus('editor')
+    expect(mode()).toBe('files')
+  })
+
   it('focusing an editor surface shows Files', () => {
     render(<Shell />)
+    focus('chat composer')
     focus('editor')
     expect(mode()).toBe('files')
   })
 
   it('focusing a diff surface shows Git when the workspace has a repo', () => {
     render(<Shell />)
+    focus('editor')
     focusDiff()
     expect(mode()).toBe('git')
   })
@@ -81,6 +92,7 @@ describe('useSidebarFocusMode', () => {
   it('a diff surface leaves the mode alone when the workspace has no repo', () => {
     publishFocusedWorkspaceContext(HOME_CTX)
     render(<Shell />)
+    focus('chat composer')
     focus('editor')
     focusDiff()
     expect(mode()).toBe('files')
@@ -98,6 +110,7 @@ describe('useSidebarFocusMode', () => {
 
   it('with panes of different kinds on screen, the focused one decides', () => {
     render(<Shell />)
+    focus('chat composer')
     focus('editor')
     expect(mode()).toBe('files')
     focusDiff()

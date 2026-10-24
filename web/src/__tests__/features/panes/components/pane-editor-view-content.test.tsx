@@ -51,6 +51,17 @@ function Host({ activeTab }: { activeTab: string }) {
 
 const mode = () => useSidebarStore.getState().activeTab
 
+// The first surface focus only seeds the hook; a test crosses from another kind.
+function focusTerminal() {
+  act(() => screen.getByLabelText('terminal input').focus())
+}
+
+function focusEditorWidget() {
+  const widget = document.createElement('textarea')
+  getEditorPortalEntry('p1')!.node.appendChild(widget)
+  act(() => widget.focus())
+}
+
 describe('PaneEditorViewContent sidebar surfaces', () => {
   beforeEach(() => {
     resetWindowPaneStoreForTests()
@@ -71,15 +82,15 @@ describe('PaneEditorViewContent sidebar surfaces', () => {
 
   it('focus in the editor widget shows Files', () => {
     render(<Host activeTab="ed" />)
-    const widget = document.createElement('textarea')
-    getEditorPortalEntry('p1')!.node.appendChild(widget)
-    act(() => widget.focus())
+    focusTerminal()
+    focusEditorWidget()
     expect(mode()).toBe('files')
   })
 
   it('focus in a review diff shows Git', async () => {
     render(<Host activeTab="rev" />)
     const diff = await screen.findByRole('button', { name: 'review file' })
+    focusTerminal()
     act(() => diff.focus())
     expect(mode()).toBe('git')
   })
@@ -87,7 +98,8 @@ describe('PaneEditorViewContent sidebar surfaces', () => {
   it('focus in a terminal shows Chats', () => {
     useSidebarStore.getState().setActiveTab('files')
     render(<Host activeTab="term" />)
-    act(() => screen.getByLabelText('terminal input').focus())
+    focusEditorWidget()
+    focusTerminal()
     expect(mode()).toBe('chats')
   })
 })

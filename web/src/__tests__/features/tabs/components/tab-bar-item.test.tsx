@@ -179,6 +179,8 @@ describe('TabBarItem sidebar surface', () => {
       </>,
     )
     const [editorTab, diffTab] = screen.getAllByRole('tab')
+    // The first surface focus only seeds the hook; the crossings below write.
+    act(() => diffTab.focus())
     act(() => editorTab.focus())
     expect(useSidebarStore.getState().activeTab).toBe('files')
     act(() => diffTab.focus())

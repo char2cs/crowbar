@@ -13,7 +13,9 @@ function surfaceOf(target: EventTarget | null) {
 /**
  * Focus crossing into a different kind of pane surface (editor, diff, chat or
  * terminal) moves the sidebar mode. Unmarked focus (a dialog, the mode bar)
- * is no crossing, so a manual choice holds until the next one.
+ * is no crossing, so a manual choice holds until the next one. The first
+ * surface focus is where focus starts (a terminal auto-focusing at startup),
+ * not a crossing, so the persisted mode survives it.
  */
 export function useSidebarFocusMode(): void {
   useEffect(() => {
@@ -23,8 +25,9 @@ export function useSidebarFocusMode(): void {
     const onFocusIn = (event: FocusEvent) => {
       const surface = surfaceOf(event.target)
       if (!surface || surface.tab === lastKind) return
+      const crossed = lastKind !== null
       lastKind = surface.tab
-      if (!surface.available(useFocusedWorkspaceContextStore.getState())) return
+      if (!crossed || !surface.available(useFocusedWorkspaceContextStore.getState())) return
       useSidebarStore.getState().setActiveTab(surface.tab)
     }
     document.addEventListener('focusin', onFocusIn)

@@ -73,11 +73,16 @@ describe('PaneChatView sidebar surface', () => {
     useSidebarStore.setState({ ...getInitialState(), activeTab: 'files' })
     function FocusMode() {
       useSidebarFocusMode()
-      return null
+      return createElement(
+        'div',
+        { 'data-sidebar-surface': 'files' },
+        createElement('textarea', { 'aria-label': 'editor' }),
+      )
     }
     render(createElement(FocusMode))
     renderView(mod)
 
+    act(() => screen.getByLabelText('editor').focus())
     act(() => screen.getByTestId('chat-surface').focus())
 
     expect(useSidebarStore.getState().activeTab).toBe('chats')
