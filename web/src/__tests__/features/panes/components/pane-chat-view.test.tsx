@@ -1,12 +1,19 @@
 import { createElement } from 'react'
 import { act, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { useSidebarFocusMode } from '@/components/layout/use-sidebar-focus-mode'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 
 vi.mock('@/features/agent/components/agent-chat-pane', () => ({
-  AgentChatPane: () => createElement('textarea', { 'data-testid': 'chat-surface' }),
+  AgentChatPane: () =>
+    createElement(
+      'div',
+      null,
+      createElement('p', null, 'transcript message'),
+      createElement('textarea', { 'data-testid': 'chat-surface' }),
+    ),
 }))
 
 type Module = typeof import('@/features/panes/components/pane-chat-view') &
@@ -67,24 +74,34 @@ describe('PaneChatView chat surface loading', () => {
 })
 
 describe('PaneChatView sidebar surface', () => {
-  it('focus in the chat column shows Chats', async () => {
+  function FocusMode() {
+    useSidebarFocusMode()
+    return createElement(
+      'div',
+      { 'data-sidebar-surface': 'files' },
+      createElement('textarea', { 'aria-label': 'editor' }),
+    )
+  }
+
+  async function renderFromEditor() {
     const mod = await freshModule()
     await mod.preloadAgentChatPane()
     useSidebarStore.setState({ ...getInitialState(), activeTab: 'files' })
-    function FocusMode() {
-      useSidebarFocusMode()
-      return createElement(
-        'div',
-        { 'data-sidebar-surface': 'files' },
-        createElement('textarea', { 'aria-label': 'editor' }),
-      )
-    }
     render(createElement(FocusMode))
     renderView(mod)
-
+    // The first surface focus only seeds the hook; the test crosses from here.
     act(() => screen.getByLabelText('editor').focus())
-    act(() => screen.getByTestId('chat-surface').focus())
+  }
 
+  it('focus in the chat column shows Chats', async () => {
+    await renderFromEditor()
+    act(() => screen.getByTestId('chat-surface').focus())
+    expect(useSidebarStore.getState().activeTab).toBe('chats')
+  })
+
+  it('a click on transcript text with nothing focusable under the pointer shows Chats', async () => {
+    await renderFromEditor()
+    await userEvent.click(screen.getByText('transcript message'))
     expect(useSidebarStore.getState().activeTab).toBe('chats')
   })
 })

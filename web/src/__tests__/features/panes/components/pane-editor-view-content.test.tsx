@@ -1,4 +1,5 @@
 import { act, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PaneEditorViewContent } from '@/features/panes/components/pane-editor-view-content'
 import { getEditorPortalEntry } from '@/features/panes/lib/editor-portal-registry'
@@ -19,6 +20,11 @@ vi.mock('@/features/git/components/branch-review-pane', () => ({
   BranchReviewPane: () => <button type="button">review file</button>,
 }))
 
+// Rendered prose with nothing focusable, like the real read-only preview.
+vi.mock('@/features/editor/markdown/markdown-preview', () => ({
+  MarkdownPreview: () => <p>rendered markdown</p>,
+}))
+
 const BASE = { isPinned: false, workspaceId: 'w1' }
 const EDITOR: PaneContent = {
   ...BASE,
@@ -34,13 +40,21 @@ const EDITOR: PaneContent = {
 }
 const TERMINAL: PaneContent = { ...BASE, id: 'term', type: 'terminal', name: 'zsh', sessionId: 's' }
 const REVIEW: PaneContent = { ...BASE, id: 'rev', type: 'branchReview', name: 'Review', wsId: 'w1' }
+const PREVIEW: PaneContent = {
+  ...BASE,
+  id: 'md',
+  type: 'markdownPreview',
+  name: 'README.md',
+  content: '# hi',
+  sourceFilePath: '/README.md',
+}
 
 function Host({ activeTab }: { activeTab: string }) {
   useSidebarFocusMode()
   return (
     <PaneEditorViewContent
       paneId="p1"
-      editorTabIds={['ed', 'term', 'rev']}
+      editorTabIds={['ed', 'term', 'rev', 'md']}
       activeEditorTabId={activeTab}
       editorViewHidden={false}
       isActivePane
@@ -66,7 +80,7 @@ describe('PaneEditorViewContent sidebar surfaces', () => {
   beforeEach(() => {
     resetWindowPaneStoreForTests()
     windowPaneStore.setState((s) => {
-      s.buffers.push(EDITOR, TERMINAL, REVIEW)
+      s.buffers.push(EDITOR, TERMINAL, REVIEW, PREVIEW)
       return s
     })
     useSidebarStore.setState(getInitialState())
@@ -93,6 +107,14 @@ describe('PaneEditorViewContent sidebar surfaces', () => {
     focusTerminal()
     act(() => diff.focus())
     expect(mode()).toBe('git')
+  })
+
+  it('a click on a preview with nothing focusable under the pointer shows Files', async () => {
+    render(<Host activeTab="md" />)
+    const prose = await screen.findByText('rendered markdown')
+    focusTerminal()
+    await userEvent.click(prose)
+    expect(mode()).toBe('files')
   })
 
   it('focus in a terminal shows Chats', () => {

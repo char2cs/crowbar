@@ -15,3 +15,10 @@ const SURFACE_BY_TYPE: Record<PaneContent['type'], SidebarTab> = {
 export function sidebarSurfaceOf(type: PaneContent['type']): SidebarTab {
   return SURFACE_BY_TYPE[type]
 }
+
+// A pane surface's root props. tabIndex -1: a press with nothing focusable under
+// the pointer (preview prose, transcript text) focuses the root, not the body,
+// so the focusin reaches use-sidebar-focus-mode. Pair it with `outline-none`.
+export function sidebarSurfaceRoot(kind: SidebarTab) {
+  return { 'data-sidebar-surface': kind, tabIndex: -1 } as const
+}
