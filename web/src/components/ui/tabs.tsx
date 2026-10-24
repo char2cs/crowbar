@@ -4,8 +4,6 @@ import { Tabs as TabsPrimitive } from '@base-ui/react/tabs'
 import * as React from 'react'
 import { cn } from '@/lib/utils'
 
-type TabsVariant = 'default' | 'underline'
-
 export function Tabs({ className, ...props }: TabsPrimitive.Root.Props): React.ReactElement {
   return (
     <TabsPrimitive.Root
@@ -17,21 +15,14 @@ export function Tabs({ className, ...props }: TabsPrimitive.Root.Props): React.R
 }
 
 export function TabsList({
-  variant = 'default',
   className,
   children,
   ...props
-}: TabsPrimitive.List.Props & {
-  variant?: TabsVariant
-}): React.ReactElement {
+}: TabsPrimitive.List.Props): React.ReactElement {
   return (
     <TabsPrimitive.List
       className={cn(
-        'relative z-0 flex w-fit items-center justify-center gap-x-0.5 text-muted-foreground',
-        'data-[orientation=vertical]:flex-col',
-        variant === 'default'
-          ? 'rounded-lg bg-muted p-0.5 text-muted-foreground/72'
-          : 'data-[orientation=vertical]:px-1 data-[orientation=horizontal]:py-1 *:data-[slot=tabs-tab]:hover:bg-accent',
+        'relative z-0 flex w-fit items-center justify-center gap-x-0.5 rounded-lg bg-muted p-0.5 text-muted-foreground/72 data-[orientation=vertical]:flex-col',
         className,
       )}
       data-slot="tabs-list"
@@ -39,12 +30,7 @@ export function TabsList({
     >
       {children}
       <TabsPrimitive.Indicator
-        className={cn(
-          'absolute bottom-0 left-0 h-(--active-tab-height) w-(--active-tab-width) translate-x-(--active-tab-left) -translate-y-(--active-tab-bottom) transition-[width,translate] duration-200 ease-in-out',
-          variant === 'underline'
-            ? 'z-10 bg-primary data-[orientation=horizontal]:h-0.5 data-[orientation=vertical]:w-0.5 data-[orientation=vertical]:-translate-x-px data-[orientation=horizontal]:translate-y-px'
-            : '-z-1 rounded-lg border border-background bg-background shadow-xs shadow-black/10 inset-shadow-[0_1px_var(--elevated-highlight)]',
-        )}
+        className="absolute bottom-0 left-0 -z-1 h-(--active-tab-height) w-(--active-tab-width) translate-x-(--active-tab-left) -translate-y-(--active-tab-bottom) rounded-lg border border-background bg-background shadow-xs shadow-black/10 inset-shadow-[0_1px_var(--elevated-highlight)] transition-[width,translate] duration-200 ease-in-out"
         data-slot="tab-indicator"
       />
     </TabsPrimitive.List>

@@ -247,3 +247,71 @@ describe('PaneSash click-only interaction (no drag)', () => {
     expect(onResizeCommit).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('PaneSash leaves the panes on their React-rendered flex-basis', () => {
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-pane-resizing')
+    cleanup()
+    document.body.innerHTML = ''
+  })
+
+  function renderWithRenderedBasis() {
+    const view = renderSash()
+    view.firstPaneRef.current!.style.flexBasis = '50%'
+    view.secondPaneRef.current!.style.flexBasis = '50%'
+    const sash = view.container.querySelector('[data-slot="resizable-handle"]') as HTMLElement
+    return { ...view, sash }
+  }
+
+  it('keeps the rendered percentages when the drag ends where it started', () => {
+    const { sash, firstPaneRef, secondPaneRef, onResizeCommit } = renderWithRenderedBasis()
+
+    fireDragStart(sash)
+    fireDragMove(250)
+    fireDragMove(198)
+    fireDragEnd(198)
+
+    expect(onResizeCommit).toHaveBeenCalledTimes(1)
+    expect(firstPaneRef.current!.style.flexBasis).toBe('50%')
+    expect(secondPaneRef.current!.style.flexBasis).toBe('50%')
+  })
+
+  it('restores the rendered percentages on pointercancel', () => {
+    const { sash, firstPaneRef, secondPaneRef } = renderWithRenderedBasis()
+
+    fireDragStart(sash)
+    fireDragMove(250)
+    window.dispatchEvent(new MouseEvent('pointercancel', { bubbles: true }))
+
+    expect(firstPaneRef.current!.style.flexBasis).toBe('50%')
+    expect(secondPaneRef.current!.style.flexBasis).toBe('50%')
+  })
+
+  it('restores the rendered percentages when unmounted mid-drag', () => {
+    const { sash, firstPaneRef, secondPaneRef, unmount } = renderWithRenderedBasis()
+
+    fireDragStart(sash)
+    fireDragMove(250)
+    unmount()
+
+    expect(firstPaneRef.current!.style.flexBasis).toBe('50%')
+    expect(secondPaneRef.current!.style.flexBasis).toBe('50%')
+  })
+
+  it('lets a changed commit be overwritten by the new rendered percentages', () => {
+    const { sash, firstPaneRef, secondPaneRef, onResizeCommit } = renderWithRenderedBasis()
+    onResizeCommit.mockImplementation(([a, b]: [number, number]) => {
+      firstPaneRef.current!.style.flexBasis = `${a}%`
+      secondPaneRef.current!.style.flexBasis = `${b}%`
+    })
+
+    fireDragStart(sash)
+    fireDragMove(300)
+    fireDragEnd(300)
+
+    const [a, b] = onResizeCommit.mock.calls[0][0] as [number, number]
+    expect(a).toBeGreaterThan(50)
+    expect(firstPaneRef.current!.style.flexBasis).toBe(`${a}%`)
+    expect(secondPaneRef.current!.style.flexBasis).toBe(`${b}%`)
+  })
+})

@@ -54,6 +54,8 @@ type SidebarTreeRowProps = React.ComponentPropsWithoutRef<'button'> & {
   previousDepth?: number
   nextDepth?: number
   containerClassName?: string
+  /** A control beside the row's button, not inside it (nested interactive content is invalid). */
+  leading?: React.ReactNode
 }
 
 /** A {@link TreeRow} wrapped with the indent guides used by the sidebar trees. */
@@ -67,6 +69,7 @@ export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>
       previousDepth = depth,
       nextDepth = depth,
       containerClassName,
+      leading,
       className,
       children,
       ...props
@@ -75,7 +78,7 @@ export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>
   ) {
     return (
       <div
-        className={cn('file-tree-item w-full', containerClassName)}
+        className={cn('file-tree-item w-full', leading && 'flex items-center', containerClassName)}
         data-active={active ? 'true' : undefined}
         data-depth={depth}
       >
@@ -86,12 +89,24 @@ export const SidebarTreeRow = forwardRef<HTMLButtonElement, SidebarTreeRowProps>
           previousDepth={previousDepth}
           nextDepth={nextDepth}
         />
+        {leading && (
+          <div
+            className="relative z-1 flex shrink-0 items-center"
+            style={{ paddingLeft: baseIndent + depth * indentSize + 1 }}
+          >
+            {leading}
+          </div>
+        )}
         <TreeRow
           ref={ref}
-          depth={depth}
+          depth={leading ? 0 : depth}
           indentSize={indentSize}
-          baseIndent={baseIndent}
-          className={cn('h-6 gap-1.5 border border-transparent px-1.5 py-1', className)}
+          baseIndent={leading ? 6 : baseIndent}
+          className={cn(
+            'h-6 gap-1.5 border border-transparent px-1.5 py-1',
+            leading && 'min-w-0 flex-1',
+            className,
+          )}
           {...props}
         >
           {children}

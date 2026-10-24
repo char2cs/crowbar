@@ -36,8 +36,7 @@
    and reduced-motion guidance targets large translations/parallax/zooms,
    not a small continuous rotation. Two hooks, both excluded below:
      - `.animate-spin` — Tailwind's spin utility, covering the shared
-       <Spinner> (components/ui/spinner.tsx), the inline git button spinner
-       (features/git/components/branch-section.tsx) and the OOBE checks
+       <Spinner> (components/ui/spinner.tsx) and the OOBE checks
        (components/oobe/oobe-screen.tsx);
      - `[data-essential-motion]` (self or descendants) — opt-out attribute
        for spinners whose animation class is a Tailwind VARIANT (the toast

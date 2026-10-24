@@ -54,10 +54,7 @@ describe('spinner exemption hooks in the exempted components', () => {
   })
 
   it('inline spinners that rely on the .animate-spin exemption still use the plain class', () => {
-    for (const file of [
-      'features/git/components/branch-section.tsx',
-      'components/oobe/oobe-screen.tsx',
-    ]) {
+    for (const file of ['components/oobe/oobe-screen.tsx']) {
       // The plain utility (not only a variant form) must be present — the
       // class exemption matches `.animate-spin` and nothing else.
       expect(read(file), file).toMatch(/[\s"']animate-spin[\s"']/)

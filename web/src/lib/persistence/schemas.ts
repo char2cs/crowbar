@@ -1,18 +1,12 @@
 import type { DBSchema } from 'idb'
 import type { PaneGroup, LayoutNode, ViewRecord } from '@/features/panes/types/pane'
 import type { PaneContent } from '@/features/panes/types/pane-content'
-import type {
-  ReviewThread,
-  MergeStrategy,
-} from '@/features/workspace/stores/slices/branch-review-slice'
 import type { ChatDTO, ProjectDTO, RepoDTO, WorkspaceDTO, ThreadDTO, FolderDTO } from '@/lib/types'
 
 export interface BranchReviewPersistedState {
   wsId: string
-  description: string
-  mergeStrategy: MergeStrategy
-  threads: ReviewThread[]
-  updatedAt: number
+  /** Reviewed files: path -> the signature the file had when it was marked. */
+  viewed: Record<string, string>
 }
 
 export interface WorkspaceLayout {

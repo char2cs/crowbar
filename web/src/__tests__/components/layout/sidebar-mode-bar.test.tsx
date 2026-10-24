@@ -48,12 +48,12 @@ describe('SidebarModeBar', () => {
     publishFocusedWorkspaceContext(REPO_CTX)
   })
 
-  it('holds Chats, Files and Git, in that order', () => {
+  it('holds Chats, Files and Changes, in that order', () => {
     render(<SidebarModeBar />)
     expect(screen.getAllByRole('tab').map((t) => t.getAttribute('aria-label'))).toEqual([
       'Chats',
       'Files',
-      'Git',
+      'Changes',
     ])
   })
 
@@ -67,14 +67,14 @@ describe('SidebarModeBar', () => {
     render(<SidebarModeBar />)
     expect(segment('Chats')).toHaveAttribute('aria-selected', 'true')
     expect(segment('Files')).toHaveAttribute('aria-selected', 'false')
-    expect(segment('Git')).toHaveAttribute('aria-selected', 'false')
+    expect(segment('Changes')).toHaveAttribute('aria-selected', 'false')
   })
 
   it('selecting a segment writes the mode to the store', () => {
     render(<SidebarModeBar />)
-    fireEvent.click(segment('Git'))
+    fireEvent.click(segment('Changes'))
     expect(useSidebarStore.getState().activeTab).toBe('git')
-    expect(segment('Git')).toHaveAttribute('aria-selected', 'true')
+    expect(segment('Changes')).toHaveAttribute('aria-selected', 'true')
     expect(segment('Chats')).toHaveAttribute('aria-selected', 'false')
   })
 
@@ -82,9 +82,9 @@ describe('SidebarModeBar', () => {
     it('Git is disabled for a workspace with no repo, and cannot be selected', () => {
       publishFocusedWorkspaceContext(HOME_CTX)
       render(<SidebarModeBar />)
-      expect(segment('Git')).toHaveAttribute('aria-disabled', 'true')
+      expect(segment('Changes')).toHaveAttribute('aria-disabled', 'true')
       expect(segment('Files')).toHaveAttribute('aria-disabled', 'false')
-      fireEvent.click(segment('Git'))
+      fireEvent.click(segment('Changes'))
       expect(useSidebarStore.getState().activeTab).toBe('chats')
     })
 
@@ -93,17 +93,17 @@ describe('SidebarModeBar', () => {
       render(<SidebarModeBar />)
       expect(segment('Chats')).toHaveAttribute('aria-disabled', 'false')
       expect(segment('Files')).toHaveAttribute('aria-disabled', 'true')
-      expect(segment('Git')).toHaveAttribute('aria-disabled', 'true')
+      expect(segment('Changes')).toHaveAttribute('aria-disabled', 'true')
     })
 
     it('shows Chats as selected once the chosen mode becomes unavailable', () => {
       useSidebarStore.setState({ activeTab: 'git' })
       render(<SidebarModeBar />)
-      expect(segment('Git')).toHaveAttribute('aria-selected', 'true')
+      expect(segment('Changes')).toHaveAttribute('aria-selected', 'true')
 
       act(() => publishFocusedWorkspaceContext(HOME_CTX))
 
-      expect(segment('Git')).toHaveAttribute('aria-selected', 'false')
+      expect(segment('Changes')).toHaveAttribute('aria-selected', 'false')
       expect(segment('Chats')).toHaveAttribute('aria-selected', 'true')
     })
   })
@@ -158,7 +158,7 @@ describe('SidebarModeBar on the empty stage', () => {
     expect(screen.getByRole('tablist', { name: 'Sidebar mode' })).toBeInTheDocument()
     expect(segment('Chats')).toHaveAttribute('aria-disabled', 'false')
     expect(segment('Files')).toHaveAttribute('aria-disabled', 'true')
-    expect(segment('Git')).toHaveAttribute('aria-disabled', 'true')
+    expect(segment('Changes')).toHaveAttribute('aria-disabled', 'true')
     expect(segment('Chats')).toHaveAttribute('aria-selected', 'true')
   })
 
@@ -167,13 +167,13 @@ describe('SidebarModeBar on the empty stage', () => {
     act(() => paneActions.openChat('chat-1', { workspaceId: 'ws-repo', projectId: 'p1' }))
     render(<ShellSidebar route={REPO_ROUTE} />)
     expect(segment('Files')).toHaveAttribute('aria-disabled', 'false')
-    expect(segment('Git')).toHaveAttribute('aria-disabled', 'false')
+    expect(segment('Changes')).toHaveAttribute('aria-disabled', 'false')
     expect(segment('Files')).toHaveAttribute('aria-selected', 'true')
 
     act(() => paneActions.closePane(windowPaneStore.getState().activePaneId))
 
     expect(segment('Files')).toHaveAttribute('aria-disabled', 'true')
-    expect(segment('Git')).toHaveAttribute('aria-disabled', 'true')
+    expect(segment('Changes')).toHaveAttribute('aria-disabled', 'true')
     expect(segment('Chats')).toHaveAttribute('aria-selected', 'true')
     expect(useSidebarStore.getState().activeTab).toBe('files')
   })

@@ -1,4 +1,4 @@
-import type { MouseEvent } from 'react'
+import type { MouseEvent, ReactNode } from 'react'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
 import { Badge } from '@/components/ui/badge'
 import { SIDEBAR_TREE_ICON_SIZE, SidebarTreeRow } from '@/components/ui/sidebar-tree'
@@ -19,6 +19,12 @@ interface GitFileItemProps {
   className?: string
   repoPath?: string
   uncommitted?: boolean
+  /** A selection control rendered beside the row's button, not inside it. */
+  leading?: ReactNode
+  /** Rendered after the diff stats (a status badge). */
+  trailing?: ReactNode
+  /** Dims the name: the file needs no more attention. */
+  dimmed?: boolean
   /**
    * Required, not defaulted: this used to be read from `useSettingsStore` here,
    * which cost one store subscription per row in a tree that can hold hundreds.
@@ -39,6 +45,9 @@ export const GitFileItem = ({
   className,
   repoPath,
   uncommitted,
+  leading,
+  trailing,
+  dimmed = false,
   compactGitStatusBadges,
 }: GitFileItemProps) => {
   const pathParts = file.path.split('/')
@@ -53,6 +62,7 @@ export const GitFileItem = ({
       onClick={onClick}
       onContextMenu={onContextMenu}
       draggable={!!repoPath}
+      leading={leading}
     >
       {showFileIcon && (
         <FileExplorerIcon
@@ -70,7 +80,7 @@ export const GitFileItem = ({
           className={cn(
             'min-w-0 truncate leading-[1.35]',
             showDirectory ? 'shrink-0 basis-auto max-w-[45%]' : 'flex-1',
-            'text-foreground',
+            dimmed ? 'text-muted-foreground' : 'text-foreground',
           )}
         >
           {fileName}
@@ -102,6 +112,7 @@ export const GitFileItem = ({
             )}
           </div>
         )}
+        {trailing}
       </div>
     </SidebarTreeRow>
   )

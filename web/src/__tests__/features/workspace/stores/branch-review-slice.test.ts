@@ -1,4 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest'
+import { IDBFactory } from 'fake-indexeddb'
+import { resetDB } from '@/lib/persistence/idb'
+import {
+  loadBranchReviewViewed,
+  saveBranchReviewViewed,
+} from '@/lib/persistence/branch-review-viewed'
 import { createStore } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import {
@@ -143,5 +149,64 @@ describe('branch-review-slice', () => {
     const threads = store.getState().branchReview.threads
     expect(threads[0].side).toBe('old')
     expect(threads[1].side).toBe('new')
+  })
+})
+
+describe('branch-review-slice viewed files', () => {
+  function makeViewedStore() {
+    return createStore<BranchReviewSlice & { workspaceId: string }>()(
+      immer((set, get) => ({
+        workspaceId: 'ws1',
+        ...createBranchReviewSlice(
+          ...([set, get, {}] as unknown as Parameters<typeof createBranchReviewSlice>),
+        ),
+      })),
+    )
+  }
+
+  beforeEach(() => {
+    globalThis.indexedDB = new IDBFactory()
+    resetDB()
+  })
+
+  it('starts unloaded and empty, and reads nothing until asked', async () => {
+    await saveBranchReviewViewed('ws1', { 'a.ts': 's1' })
+    const store = makeViewedStore()
+    expect(store.getState().viewedLoaded).toBe(false)
+    expect(store.getState().viewedFiles).toEqual({})
+
+    await store.getState().loadBranchReviewViewed()
+    expect(store.getState().viewedLoaded).toBe(true)
+    expect(store.getState().viewedFiles).toEqual({ 'a.ts': 's1' })
+  })
+
+  it('marks and unmarks a batch with one write-through, keeping earlier entries', async () => {
+    await saveBranchReviewViewed('ws1', { 'old.ts': 'o' })
+    const store = makeViewedStore()
+    await store.getState().setFilesViewed(
+      [
+        { path: 'a.ts', signature: 's1' },
+        { path: 'b.ts', signature: 's2' },
+      ],
+      true,
+    )
+    expect(store.getState().viewedFiles).toEqual({ 'old.ts': 'o', 'a.ts': 's1', 'b.ts': 's2' })
+    expect(await loadBranchReviewViewed('ws1')).toEqual(store.getState().viewedFiles)
+
+    await store.getState().setFilesViewed([{ path: 'a.ts', signature: 's1' }], false)
+    expect(store.getState().viewedFiles).toEqual({ 'old.ts': 'o', 'b.ts': 's2' })
+    expect(await loadBranchReviewViewed('ws1')).toEqual({ 'old.ts': 'o', 'b.ts': 's2' })
+  })
+
+  it('does not let a slow concurrent load undo a toggle', async () => {
+    await saveBranchReviewViewed('ws1', { 'a.ts': 's1' })
+    const store = makeViewedStore()
+    const loads = [
+      store.getState().loadBranchReviewViewed(),
+      store.getState().loadBranchReviewViewed(),
+    ]
+    await store.getState().setFilesViewed([{ path: 'a.ts', signature: 's1' }], false)
+    await Promise.all(loads)
+    expect(store.getState().viewedFiles).toEqual({})
   })
 })

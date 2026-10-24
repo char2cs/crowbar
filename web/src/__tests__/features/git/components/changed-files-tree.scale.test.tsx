@@ -1,5 +1,6 @@
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { viewedMapOf } from '@/__tests__/__fixtures__/viewed'
 import { ChangedFilesTree } from '@/features/git/components/changed-files-tree'
 import type { GitDiff } from '@/features/git/types/git-types'
 
@@ -67,6 +68,8 @@ afterEach(() => {
   HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect
 })
 
+const NAV = { viewed: {}, onSetViewed: vi.fn(), openThreadCounts: new Map<string, number>() }
+
 function makeFiles(count: number): GitDiff[] {
   return Array.from({ length: count }, (_, i) => ({
     file_path: `src/pkg${i % 20}/file${i}.ts`,
@@ -82,7 +85,7 @@ function makeFiles(count: number): GitDiff[] {
 
 function countRows(container: HTMLElement) {
   return {
-    // One GitFileItem renders one row; the title attribute carries the path.
+    // One file renders one row; the title attribute carries the path.
     fileRows: container.querySelectorAll('[title^="src/"]').length,
     domNodes: container.querySelectorAll('*').length,
   }
@@ -92,7 +95,12 @@ describe('ChangedFilesTree scale characterisation', () => {
   it('renders a bounded number of rows regardless of file count', () => {
     const fileCount = 500
     const { container } = render(
-      <ChangedFilesTree files={makeFiles(fileCount)} repoPath="/repo" onFileOpen={() => {}} />,
+      <ChangedFilesTree
+        files={makeFiles(fileCount)}
+        repoPath="/repo"
+        onFileOpen={() => {}}
+        {...NAV}
+      />,
     )
 
     const { fileRows, domNodes } = countRows(container)
@@ -112,10 +120,10 @@ describe('ChangedFilesTree scale characterisation', () => {
 
   it('row count does not scale with file count', () => {
     const small = render(
-      <ChangedFilesTree files={makeFiles(100)} repoPath="/repo" onFileOpen={() => {}} />,
+      <ChangedFilesTree files={makeFiles(100)} repoPath="/repo" onFileOpen={() => {}} {...NAV} />,
     )
     const large = render(
-      <ChangedFilesTree files={makeFiles(400)} repoPath="/repo" onFileOpen={() => {}} />,
+      <ChangedFilesTree files={makeFiles(400)} repoPath="/repo" onFileOpen={() => {}} {...NAV} />,
     )
 
     const smallCount = countRows(small.container).fileRows
@@ -126,5 +134,22 @@ describe('ChangedFilesTree scale characterisation', () => {
 
     // 4x the files, the same window. Was exactly 4.0 before virtualisation.
     expect(largeCount / smallCount).toBeLessThan(1.5)
+  })
+
+  it('folds a deep chain into one aggregated row and stays windowed with everything viewed', async () => {
+    const files = Array.from({ length: 450 }, (_, i) => ({
+      ...makeFiles(1)[0],
+      file_path: `mono/a/b/c/file${i}.ts`,
+    }))
+    const viewed = await viewedMapOf(files)
+    const { container } = render(
+      <ChangedFilesTree files={files} onFileOpen={() => {}} {...NAV} viewed={viewed} />,
+    )
+
+    expect(screen.getAllByText('mono/a/b/c')).toHaveLength(1)
+    expect(screen.getByText('450/450')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Mark mono/a/b/c as viewed' })).toBeChecked()
+    // One checkbox per mounted row: the window, not the 450 files.
+    expect(container.querySelectorAll('[role="checkbox"]').length).toBeLessThan(100)
   })
 })

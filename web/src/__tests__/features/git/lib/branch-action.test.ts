@@ -6,15 +6,13 @@ const base = {
   hasParent: true,
   canMergeLocally: true,
   status: 'new',
-  ahead: 0,
-  behind: 0,
 }
 
 describe('resolveBranchAction', () => {
-  it('uncommitted changes → commit (overrides everything, no remote secondary)', () => {
-    expect(
-      resolveBranchAction({ ...base, hasUncommitted: true, ahead: 2, status: 'pr-conflicts' }),
-    ).toEqual({ kind: 'commit', remote: null })
+  it('uncommitted changes → commit (overrides everything)', () => {
+    expect(resolveBranchAction({ ...base, hasUncommitted: true, status: 'pr-conflicts' })).toEqual({
+      kind: 'commit',
+    })
   })
 
   it('conflicts with parent (pr-conflicts) → resolve, ahead of merge/pull-request', () => {
@@ -37,12 +35,5 @@ describe('resolveBranchAction', () => {
 
   it('clean + no parent → sync-only', () => {
     expect(resolveBranchAction({ ...base, hasParent: false }).kind).toBe('sync-only')
-  })
-
-  it('remote secondary: ahead → push, behind → pull, diverged → pull, synced → null (clean only)', () => {
-    expect(resolveBranchAction({ ...base, ahead: 1 }).remote).toBe('push')
-    expect(resolveBranchAction({ ...base, behind: 1 }).remote).toBe('pull')
-    expect(resolveBranchAction({ ...base, ahead: 1, behind: 1 }).remote).toBe('pull')
-    expect(resolveBranchAction(base).remote).toBeNull()
   })
 })

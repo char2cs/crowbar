@@ -73,7 +73,7 @@ describe('SidebarBody', () => {
     const files = screen.getByTestId('panel-files')
     const git = screen.getByTestId('panel-git')
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Git' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Changes' }))
     expect(git).toBeVisible()
     expect(chats).not.toBeVisible()
     expect(files).not.toBeVisible()

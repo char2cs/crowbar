@@ -23,7 +23,6 @@ export function SidebarModeBar({ className }: { className?: string }) {
     <div className={cn('@container flex shrink-0 items-center px-2 py-1.5', className)}>
       <Tabs value={shown} onValueChange={(v) => setActiveTab(v as typeof shown)} className="w-full">
         <TabsList
-          variant="default"
           aria-label="Sidebar mode"
           className="w-full bg-sidebar-element-idle text-foreground/70"
         >
