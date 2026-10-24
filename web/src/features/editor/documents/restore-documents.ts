@@ -5,52 +5,74 @@ import { setDocumentDirty } from '@/features/editor/lib/buffer-save'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent, type EditorContent } from '@/features/panes/types/pane-content'
 import { toast } from '@/features/window/stores/toast-store'
-import {
-  flagExternalChange,
-  setBufferFileMissing,
-} from '@/features/workspace/lib/external-buffer-sync'
+import { flagExternalChange } from '@/features/workspace/lib/external-buffer-sync'
 import { documentRefOf, documentUri } from './document-ref'
 import { clearDraft, loadDrafts, type EditorDraft } from './draft-store'
-import { documentModelOpener, documentRefusal, type OpenDocumentModel } from './open-document'
+import {
+  documentModelOpener,
+  openFailure,
+  setDocumentUnavailable,
+  type OpenDocumentModel,
+} from './open-document'
 
-type Refusals = Map<string, string>
+type Failures = Map<string, string>
 
-const unsaved = (draft: EditorDraft | undefined): draft is EditorDraft =>
-  !!draft && draft.text !== draft.savedText
+/** The draft holds edits that are on neither side: not its base text, and not `disk`. */
+const unsaved = (draft: EditorDraft | undefined, disk?: string | null): draft is EditorDraft =>
+  !!draft && draft.text !== draft.savedText && draft.text !== disk
 
 const stillOpen = (buffer: EditorContent) =>
   windowPaneStore.getState().buffers.some((b) => b.id === buffer.id)
 
-/** Opens one restored buffer's document: its draft over disk, disk alone, or nothing it can show. */
+/** Opens one restored buffer's document: its draft over disk, disk alone, or why it cannot. */
 async function restoreDocument(
   buffer: EditorContent,
   draft: EditorDraft | undefined,
   openModel: OpenDocumentModel,
-  refusals: Refusals,
+  failures: Failures,
 ): Promise<void> {
   const ref = documentRefOf(buffer)
-  if (buffer.isVirtual) {
-    openModel(ref, draft?.text ?? '', draft?.savedText ?? '')
-    return settle(buffer, draft)
-  }
-  let disk: string
-  try {
-    disk = (await readDocument(ref)).text
-  } catch (err) {
-    const refusal = documentRefusal(err)
-    if (refusal) refusals.set(refusal.title, refusal.message)
-    if (!stillOpen(buffer)) return
-    // The draft is the only copy of its edits, so it opens whatever disk says.
-    if (unsaved(draft)) openModel(ref, draft.text, draft.savedText)
-    else if (isNotFoundError(err)) setBufferFileMissing(ref, true)
-    return settle(buffer, draft)
-  }
+  // An untitled document has no file: its draft is all there is.
+  const read = buffer.isVirtual
+    ? { disk: '' }
+    : await readDocument(ref).then(
+        (doc) => ({ disk: doc.text }),
+        (error: unknown) => ({ error }),
+      )
   if (!stillOpen(buffer)) return
-  if (buffer.fileMissing) setBufferFileMissing(ref, false)
-  if (!unsaved(draft)) {
-    openModel(ref, disk)
+  // Decided after the read: a reconcile or a reopen may have opened the document meanwhile.
+  if (getEditorHost()?.documents.has(documentUri(ref))) return adoptDraft(buffer, draft, openModel)
+  if ('error' in read) {
+    const reason = openFailure(ref, read.error)
+    // A missing file is said on its tab alone.
+    if (!isNotFoundError(read.error)) failures.set(reason.title, reason.message)
+    // A draft still opens, being the only copy of its edits.
+    if (!unsaved(draft)) return setDocumentUnavailable(ref, reason)
+  }
+  const disk = 'disk' in read ? read.disk : null
+  setDocumentUnavailable(ref, null)
+  if (!unsaved(draft, disk)) {
+    openModel(ref, disk ?? '')
     return settle(buffer, draft)
   }
+  openModel(ref, draft.text, draft.savedText)
+  settle(buffer, draft)
+  if (disk !== null && disk !== draft.savedText) flagExternalChange(ref)
+}
+
+/** Another opener read disk first: an unsaved draft takes that model's place while it is untouched. */
+function adoptDraft(
+  buffer: EditorContent,
+  draft: EditorDraft | undefined,
+  openModel: OpenDocumentModel,
+): void {
+  const ref = documentRefOf(buffer)
+  const uri = documentUri(ref)
+  const documents = getEditorHost()?.documents
+  const disk = documents?.savedText(uri)
+  if (!unsaved(draft, disk) || documents?.isDirty(uri)) return settle(buffer, draft)
+  // Reopened rather than edited, so a restored draft never arms an autosave.
+  documents?.release(uri)
   openModel(ref, draft.text, draft.savedText)
   settle(buffer, draft)
   if (disk !== draft.savedText) flagExternalChange(ref)
@@ -68,23 +90,27 @@ function settle(buffer: EditorContent, draft: EditorDraft | undefined): void {
 /**
  * Opens the document of every editor buffer the saved layout brought back.
  * A dirty draft wins over disk and is flagged when disk moved under it; a
- * refusal keeps the tab and says why once; drafts of closed buffers go.
+ * failed read keeps the tab and says why; drafts of closed buffers go.
  */
 export async function restoreDocuments(): Promise<void> {
-  const [openModel, drafts] = await Promise.all([documentModelOpener(), loadDrafts()])
-  const refusals: Refusals = new Map()
   const buffers = windowPaneStore
     .getState()
     .buffers.filter((b): b is EditorContent => isEditorContent(b) && !!b.path)
-  const held = new Set<string>()
-  const restores: Promise<void>[] = []
-  for (const buffer of buffers) {
-    const uri = documentUri(documentRefOf(buffer))
-    held.add(uri)
-    if (getEditorHost()?.documents.has(uri)) continue
-    restores.push(restoreDocument(buffer, drafts.get(uri), openModel, refusals))
-  }
-  await Promise.allSettled(restores)
+  const held = new Set(buffers.map((b) => documentUri(documentRefOf(b))))
+  // Monaco loads only for a layout that holds an editor tab.
+  const [openModel, drafts] = await Promise.all([
+    buffers.length > 0 ? documentModelOpener() : null,
+    loadDrafts(),
+  ])
   for (const uri of drafts.keys()) if (!held.has(uri)) clearDraft(uri)
-  for (const [title, message] of refusals) toast.error(title, message)
+  if (!openModel) return
+  const failures: Failures = new Map()
+  const restores = buffers.map((buffer) => {
+    const uri = documentUri(documentRefOf(buffer))
+    const draft = drafts.get(uri)
+    if (getEditorHost()?.documents.has(uri)) return adoptDraft(buffer, draft, openModel)
+    return restoreDocument(buffer, draft, openModel, failures)
+  })
+  await Promise.allSettled(restores)
+  for (const [title, message] of failures) toast.error(title, message)
 }

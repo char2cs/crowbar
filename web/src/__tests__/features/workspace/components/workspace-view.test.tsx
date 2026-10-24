@@ -9,13 +9,6 @@ const { activeEffectsSpy, agentChatsStreamSpy } = vi.hoisted(() => ({
   agentChatsStreamSpy: vi.fn((_wsId: string) => {}),
 }))
 
-// The host hands the view its store; a stable fake is all the view needs.
-const store = { __fakeStore: 'ws-a' } as unknown as WorkspaceStore
-
-vi.mock('@/features/workspace/components/workspace-layout-root', () => ({
-  WorkspaceLayoutRoot: () => <div data-testid="layout-root" />,
-}))
-
 vi.mock('@/features/workspace/stores/hooks/use-workspace-effects', () => ({
   useWorkspaceEffects: (wsId: string, active: boolean) => activeEffectsSpy(wsId, active),
 }))
@@ -24,14 +17,11 @@ vi.mock('@/features/workspace/stores/hooks/use-workspace-agent-chats-stream', ()
   useWorkspaceAgentChatsStream: (wsId: string) => agentChatsStreamSpy(wsId),
 }))
 
-vi.mock('@/features/keymaps/hooks/use-save-keyboard', () => ({ useSaveKeyboard: () => {} }))
-vi.mock('@/features/panes/hooks/use-pane-keyboard', () => ({ usePaneKeyboard: () => {} }))
-vi.mock('@/features/keymaps/hooks/use-sidebar-tab-keyboard', () => ({
-  useSidebarTabKeyboard: () => {},
-}))
-
 import { WorkspaceView } from '@/features/workspace/components/workspace-view'
-import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+
+// The host hands the view its store, and the active view's keyboard hooks read it.
+const store = getOrCreateWorkspaceStore('ws-a')
 
 async function renderView(active: boolean) {
   let result!: ReturnType<typeof render>

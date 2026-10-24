@@ -60,6 +60,12 @@ export function releaseUnreferencedBuffers(state: BufferOwnershipState): PaneCon
   return detached
 }
 
+/** An editor buffer's document closes with it: its model and undo history go. */
+export function releaseDocumentOf(buf: PaneContent): void {
+  if (!isEditorContent(buf) || !buf.path) return
+  getEditorHost()?.documents.release(documentUri(documentRefOf(buf)))
+}
+
 /**
  * Free everything a released buffer held outside the store: a terminal's PTY
  * (terminals never enter the reopen history, so the shell dies here or it
@@ -84,10 +90,9 @@ export function disposeBuffers(released: readonly PaneContent[]): void {
         'kill terminal session',
       )
     }
+    releaseDocumentOf(buf)
     if (isEditorContent(buf) && buf.path) {
-      const uri = documentUri(documentRefOf(buf))
-      getEditorHost()?.documents.release(uri)
-      clearDraft(uri)
+      clearDraft(documentUri(documentRefOf(buf)))
       const { path: filePath, workspaceId } = buf
       bestEffort(
         import('@/features/git/stores/git-blame-store').then(({ clearBlame }) => {

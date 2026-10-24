@@ -11,7 +11,11 @@ import { isTauri } from '@/lib/crowbar-bridge'
 import { openNativeDialog } from '@/lib/native-dialog'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { homeOf } from '@/features/panes/lib/view-state'
-import { isEditorContent, type EditorContent } from '@/features/panes/types/pane-content'
+import {
+  isEditorContent,
+  type DocumentUnavailable,
+  type EditorContent,
+} from '@/features/panes/types/pane-content'
 import { toast } from '@/features/window/stores/toast-store'
 import { getEditorHost, loadEditorHost } from '@/features/editor/host/editor-host'
 import { documentName, documentRefOf, documentUri, sameDocument } from './document-ref'
@@ -76,14 +80,36 @@ export function documentRefusal(error: unknown): { title: string; message: strin
   return null
 }
 
-function reportOpenFailure(target: DocumentTarget, error: unknown): void {
+/** Why reading `target` failed, as the user is told. */
+export function openFailure(target: DocumentTarget, error: unknown): DocumentUnavailable {
   const { path, name } = targetLabel(target)
   const refusal = documentRefusal(error)
   const status = error instanceof ApiError ? error.status : 0
-  if (refusal) toast.error(refusal.title, refusal.message)
-  else if (status === 404) toast.error('File not found', path)
-  else if (status === 413) toast.error('File too large to open', name)
-  else toast.error('Failed to open file', name)
+  if (refusal) return refusal
+  if (status === 404) return { title: 'File not found', message: path }
+  if (status === 413) return { title: 'File too large to open', message: name }
+  return { title: 'Failed to open file', message: name }
+}
+
+function reportOpenFailure(target: DocumentTarget, error: unknown): void {
+  const { title, message } = openFailure(target, error)
+  toast.error(title, message)
+}
+
+/** The tab holding `ref` says why its document could not be loaded; null clears it. */
+export function setDocumentUnavailable(ref: DocumentRef, reason: DocumentUnavailable | null): void {
+  const holder = findDocumentBuffer(ref)
+  const shown = holder?.unavailable
+  if (!holder || (shown?.title === reason?.title && shown?.message === reason?.message)) return
+  const unavailable = reason ?? undefined
+  windowPaneStore.setState((state) => ({
+    buffers: state.buffers.map((b) => (b.id === holder.id ? { ...b, unavailable } : b)),
+  }))
+}
+
+/** A tab whose document failed to load and has no model: opening it again reads it again. */
+function awaitsRetry(buffer: EditorContent): boolean {
+  return !!buffer.unavailable && !getEditorHost()?.documents.has(documentUri(documentRefOf(buffer)))
 }
 
 /** Opens a document's model holding `text`; it is dirty while disk holds other `savedText`. */
@@ -109,16 +135,24 @@ export async function openDocument(
   opts: OpenDocumentOptions = {},
 ): Promise<string | null> {
   const open = 'absolutePath' in target ? null : findDocumentBuffer(target)
-  if (open) return show(open, opts)
+  if (open && !awaitsRetry(open)) return show(open, opts)
   let read, openModel
   try {
     ;[read, openModel] = await Promise.all([readDocument(target), documentModelOpener()])
   } catch (error) {
     reportOpenFailure(target, error)
+    if (open) {
+      setDocumentUnavailable(documentRefOf(open), openFailure(target, error))
+      show(open, opts)
+    }
     return null
   }
   // A concurrent open of the same document, or another spelling of it, may have landed.
   const landed = findDocumentBuffer(read.ref)
+  if (landed && awaitsRetry(landed)) {
+    openModel(read.ref, read.text)
+    setDocumentUnavailable(read.ref, null)
+  }
   if (landed) return show(landed, opts)
   openModel(read.ref, read.text)
   const id = windowPaneStore

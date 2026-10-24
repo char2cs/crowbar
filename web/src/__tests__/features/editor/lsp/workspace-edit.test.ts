@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { readDocument, writeDocument } = vi.hoisted(() => ({
   readDocument: vi.fn(),
@@ -10,9 +10,11 @@ vi.mock('@/lib/api/documents', async (importOriginal) => ({
   writeDocument,
 }))
 
+import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
 import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import { documentText } from '@/features/editor/documents/document-text'
 import { findDocumentBuffer, openDocument } from '@/features/editor/documents/open-document'
+import { loadEditorHost } from '@/features/editor/host/editor-host'
 import { resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 import {
   applyTextEditsToContent,
@@ -115,6 +117,9 @@ describe('workspace edit utilities', () => {
 })
 
 describe('applyWorkspaceEdit', () => {
+  // The documents live in Monaco models: the first load is the slow part, not the tests.
+  beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
+
   const PATH = '/repo/src/a.ts'
   const rename = {
     changes: {

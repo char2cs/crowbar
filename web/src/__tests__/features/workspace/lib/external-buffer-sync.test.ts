@@ -208,16 +208,16 @@ describe('reconcileWorkspaceDocuments', () => {
 
     await reconcileWorkspaceDocuments('ws-1')
 
-    expect(getBuffer().fileMissing).toBe(true)
+    expect(getBuffer().unavailable).toEqual({ title: 'File not found', message: 'README.md' })
   })
 
   it('opens a missing file that came back', async () => {
-    seedTab(README, { fileMissing: true })
+    seedTab(README, { unavailable: { title: 'File not found', message: 'README.md' } })
     readDocumentMock.mockResolvedValue({ ref: README, text: 'back again' })
 
     await reconcileWorkspaceDocuments('ws-1')
 
-    expect(getBuffer().fileMissing).toBe(false)
+    expect(getBuffer().unavailable).toBeUndefined()
     expect(documentText(README)).toBe('back again')
   })
 
@@ -236,7 +236,7 @@ describe('reconcileWorkspaceDocuments', () => {
 
     await reconcileWorkspaceDocuments('ws-1')
 
-    expect(getBuffer().fileMissing).toBeFalsy()
+    expect(getBuffer().unavailable).toBeUndefined()
     expect(documentText(README)).toBe('old content')
     expect(toastError).toHaveBeenCalledTimes(1)
   })

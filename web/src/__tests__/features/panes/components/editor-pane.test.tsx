@@ -94,14 +94,16 @@ describe('EditorPane', () => {
     MONACO_LOAD_MS,
   )
 
-  it('shows "File not found" for a missing buffer', async () => {
+  it('says why a document could not be loaded instead of showing an editor', async () => {
     const id = await open('src/gone.ts')
+    const unavailable = { title: 'Failed to open file', message: 'gone.ts' }
     windowPaneStore.setState((s) => ({
-      buffers: s.buffers.map((b) => (b.id === id ? { ...b, fileMissing: true } : b)),
+      buffers: s.buffers.map((b) => (b.id === id ? { ...b, unavailable } : b)),
     }))
     render(inAmbient(pane(id)))
 
-    expect(screen.getByText('File not found')).toBeInTheDocument()
+    expect(screen.getByText('Failed to open file')).toBeInTheDocument()
+    expect(screen.getByText('gone.ts')).toBeInTheDocument()
     expect(monacoMounted()).toBe(false)
   })
 

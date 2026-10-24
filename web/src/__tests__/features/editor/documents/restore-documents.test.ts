@@ -5,6 +5,13 @@ vi.mock('@/lib/api/documents', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api/documents')>()),
   readDocument,
 }))
+// Counts Monaco loads; the host itself is the real one.
+const { loadEditorHost } = vi.hoisted(() => ({ loadEditorHost: vi.fn() }))
+vi.mock('@/features/editor/host/editor-host', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/editor/host/editor-host')>()
+  loadEditorHost.mockImplementation(actual.loadEditorHost)
+  return { ...actual, loadEditorHost }
+})
 
 import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
 import { ApiError } from '@/lib/api'
@@ -12,15 +19,20 @@ import { HOST_DOCUMENT_TRANSPORT_CODE, workspaceRef, type DocumentRef } from '@/
 import { documentUri } from '@/features/editor/documents/document-ref'
 import { documentText, savedDocumentText } from '@/features/editor/documents/document-text'
 import { clearDraft, loadDrafts, putDrafts } from '@/features/editor/documents/draft-store'
-import { findDocumentBuffer } from '@/features/editor/documents/open-document'
+import {
+  documentModelOpener,
+  findDocumentBuffer,
+  openDocument,
+} from '@/features/editor/documents/open-document'
 import { restoreDocuments } from '@/features/editor/documents/restore-documents'
-import { loadEditorHost } from '@/features/editor/host/editor-host'
+import { saveActiveBuffer } from '@/features/editor/lib/buffer-save'
 import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent, type EditorContent } from '@/features/panes/types/pane-content'
 import { toast } from '@/features/window/stores/toast-store'
+import { reconcileWorkspaceDocuments } from '@/features/workspace/lib/external-buffer-sync'
 
 const A = workspaceRef('ws-restore', 'src/a.ts')
 const UNTITLED = workspaceRef('ws-restore', 'untitled:Untitled')
@@ -110,8 +122,86 @@ describe('restoreDocuments', () => {
 
     await restoreDocuments()
 
-    expect(bufferOf(id).fileMissing).toBe(true)
+    expect(bufferOf(id).unavailable).toEqual({ title: 'File not found', message: 'src/a.ts' })
     expect(documentText(A)).toBeNull()
+    expect(error).not.toHaveBeenCalled()
+  })
+
+  it('a restored document whose read fails keeps its tab, says why, and opens on the next reconcile', async () => {
+    const id = restoredTab(A)
+    readDocument.mockRejectedValue(new ApiError('boom', 500))
+
+    await restoreDocuments()
+
+    expect(bufferOf(id).unavailable).toEqual({ title: 'Failed to open file', message: 'a.ts' })
+    expect(error).toHaveBeenCalledTimes(1)
+    expect(error).toHaveBeenCalledWith('Failed to open file', 'a.ts')
+    expect(documentText(A)).toBeNull()
+
+    readDocument.mockResolvedValue({ ref: A, text: 'disk' })
+    await reconcileWorkspaceDocuments('ws-restore')
+
+    expect(documentText(A)).toBe('disk')
+    expect(bufferOf(id).unavailable).toBeUndefined()
+  })
+
+  it('reopening a document whose restore failed loads it into its tab', async () => {
+    const id = restoredTab(A)
+    readDocument.mockRejectedValue(new ApiError('boom', 500))
+    await restoreDocuments()
+
+    readDocument.mockRejectedValueOnce(new ApiError('big', 413))
+    expect(await openDocument(A)).toBeNull()
+    expect(bufferOf(id).unavailable).toEqual({ title: 'File too large to open', message: 'a.ts' })
+    expect(error).toHaveBeenLastCalledWith('File too large to open', 'a.ts')
+
+    readDocument.mockResolvedValue({ ref: A, text: 'disk' })
+    expect(await openDocument(A)).toBe(id)
+
+    expect(windowPaneStore.getState().buffers).toHaveLength(1)
+    expect(documentText(A)).toBe('disk')
+    expect(bufferOf(id).unavailable).toBeUndefined()
+  })
+
+  it('saving a tab whose restore failed says why and writes nothing', async () => {
+    restoredTab(A)
+    readDocument.mockRejectedValue(new ApiError('boom', 500))
+    await restoreDocuments()
+    error.mockClear()
+
+    expect(await saveActiveBuffer()).toBe(false)
+
+    expect(error).toHaveBeenCalledWith('Failed to open file', 'a.ts')
+  })
+
+  it('keeps a draft when something else opens its document during the read', async () => {
+    const id = restoredTab(A)
+    await putDrafts([draft(A, 'mine', 'disk')])
+    let finishRead!: (read: { ref: DocumentRef; text: string }) => void
+    readDocument.mockReturnValue(new Promise((resolve) => (finishRead = resolve)))
+
+    const restoring = restoreDocuments()
+    await vi.waitFor(() => expect(readDocument).toHaveBeenCalled())
+    ;(await documentModelOpener())(A, 'disk')
+    finishRead({ ref: A, text: 'disk' })
+    await restoring
+
+    expect(documentText(A)).toBe('mine')
+    expect(bufferOf(id).isDirty).toBe(true)
+    expect((await loadDrafts()).get(documentUri(A))?.text).toBe('mine')
+  })
+
+  it('a draft whose edits reached disk opens clean and is dropped', async () => {
+    const id = restoredTab(A)
+    await putDrafts([draft(A, 'saved since', 'before')])
+    readDocument.mockResolvedValue({ ref: A, text: 'saved since' })
+
+    await restoreDocuments()
+
+    expect(documentText(A)).toBe('saved since')
+    expect(bufferOf(id).isDirty).toBe(false)
+    expect(warning).not.toHaveBeenCalled()
+    expect((await loadDrafts()).size).toBe(0)
   })
 
   it('restores an untitled buffer from its draft', async () => {
@@ -125,11 +215,16 @@ describe('restoreDocuments', () => {
     expect(readDocument).not.toHaveBeenCalled()
   })
 
-  it('drops a draft whose buffer is gone', async () => {
+  it('a layout without editor tabs drops its drafts and never loads the editor', async () => {
+    windowPaneStore
+      .getState()
+      .bufferActions.openContent({ type: 'terminal', sessionId: 's', workspaceId: 'ws-restore' })
     await putDrafts([draft(A, 'orphan', 'disk')])
+    loadEditorHost.mockClear()
 
     await restoreDocuments()
 
+    expect(loadEditorHost).not.toHaveBeenCalled()
     expect((await loadDrafts()).size).toBe(0)
   })
 
@@ -143,7 +238,10 @@ describe('restoreDocuments', () => {
     await restoreDocuments()
 
     expect(windowPaneStore.getState().buffers).toHaveLength(2)
-    expect(findDocumentBuffer(a)?.fileMissing).toBeFalsy()
+    expect(findDocumentBuffer(a)?.unavailable).toEqual({
+      title: "Can't open this file here",
+      message: 'Files outside your workspaces open only in the Crowbar desktop app.',
+    })
     expect(documentText(a)).toBeNull()
     expect(documentText(b)).toBe('unsaved')
     expect(findDocumentBuffer(b)?.isDirty).toBe(true)

@@ -2,7 +2,12 @@ import { isNotFoundError } from '@/lib/api'
 import { readDocument, readDocumentFromDisk, type DocumentRef } from '@/lib/api/documents'
 import { documentRefOf, sameDocument } from '@/features/editor/documents/document-ref'
 import { applyExternalText, savedDocumentText } from '@/features/editor/documents/document-text'
-import { documentModelOpener, documentRefusal } from '@/features/editor/documents/open-document'
+import {
+  documentModelOpener,
+  documentRefusal,
+  openFailure,
+  setDocumentUnavailable,
+} from '@/features/editor/documents/open-document'
 import { useFileWatcherStore } from '@/features/file-system/controllers/file-watcher-store'
 import {
   isEditorContent,
@@ -107,27 +112,24 @@ export async function reconcileWorkspaceDocuments(workspaceId: string): Promise<
 async function reconcileDocument(buffer: EditorContent, refusals: Map<string, string>) {
   const ref = documentRefOf(buffer)
   const open = savedDocumentText(ref) !== null
-  // Neither open nor missing: the restore has not reached it yet.
-  if (!open && !buffer.fileMissing) return
+  // Neither open nor failed: the restore has not reached it yet.
+  if (!open && !buffer.unavailable) return
   let disk: string
   try {
     disk = (await readDocument(ref)).text
   } catch (err) {
+    // A tab without its document already says why; it only learns the latest reason.
+    if (!open) return setDocumentUnavailable(ref, openFailure(ref, err))
     const refusal = documentRefusal(err)
     if (refusal) refusals.set(refusal.title, refusal.message)
-    else if (isNotFoundError(err) && !buffer.isDirty) setBufferFileMissing(ref, true)
+    else if (isNotFoundError(err) && !buffer.isDirty)
+      setDocumentUnavailable(ref, openFailure(ref, err))
     return
   }
   if (!open) {
     const openModel = await documentModelOpener()
     if (windowPaneStore.getState().buffers.some(holding(ref))) openModel(ref, disk)
   }
-  if (buffer.fileMissing) setBufferFileMissing(ref, false)
+  setDocumentUnavailable(ref, null)
   if (open && disk !== savedDocumentText(ref)) await syncBufferWithDisk(ref)
-}
-
-export function setBufferFileMissing(ref: DocumentRef, fileMissing: boolean): void {
-  windowPaneStore.setState((state) => ({
-    buffers: state.buffers.map((b) => (holding(ref)(b) ? { ...b, fileMissing } : b)),
-  }))
 }

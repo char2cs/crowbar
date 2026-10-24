@@ -49,6 +49,11 @@ export interface EditorTabBase {
 
 // ── Per-type content definitions ────────────────────────────────────
 
+export interface DocumentUnavailable {
+  title: string
+  message: string
+}
+
 /** A tab on a document; its text lives in the document's Monaco model. */
 export interface EditorContent extends EditorTabBase {
   type: 'editor'
@@ -63,11 +68,10 @@ export interface EditorContent extends EditorTabBase {
    */
   hasExternalChange?: boolean
   /**
-   * The file backing this buffer no longer exists on disk (the content load
-   * 404'd at session restore). Terminal until the file reappears — the pane
-   * renders a "file not found" placeholder and no further loads are retried.
+   * Why the document could not be loaded (its file is gone, or the read failed): the pane
+   * says so instead of showing an editor, and a reconcile or a reopen reads it again.
    */
-  fileMissing?: boolean
+  unavailable?: DocumentUnavailable
   isVirtual: boolean
   language?: string
   languageOverride?: string

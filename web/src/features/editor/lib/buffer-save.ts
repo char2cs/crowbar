@@ -198,8 +198,12 @@ async function writeToDisk(
 ): Promise<boolean> {
   const opened = findEditorBuffer(bufferId)
   if (!opened) return false
+  if (opened.unavailable) {
+    toast.error(opened.unavailable.title, opened.unavailable.message)
+    return false
+  }
   const ref = documentRefOf(opened)
-  // A tab whose document never opened (a missing file) has no text to write.
+  // A tab whose document is still being restored has no text to write yet.
   if (!getEditorHost()?.documents.has(documentUri(ref))) return false
   const text = await readDocumentText(ref)
   const buffer = findEditorBuffer(bufferId)

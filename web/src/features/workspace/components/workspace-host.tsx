@@ -250,8 +250,8 @@ export function WorkspaceHost({
 
   // WARM-SWITCH span (M4 warm). When the active id changes to a workspace that
   // was ALREADY retained (kept mounted + hidden), becoming active is a display
-  // flip + terminal/editor refit — no cold mount, no re-hydrate. WorkspaceView
-  // spans its own COLD mount (hydrate→paint); a warm activation leaves no fresh
+  // flip + terminal/editor refit — no cold mount. WorkspaceView spans its own
+  // COLD mount (mount→first paint); a warm activation leaves no fresh
   // mount to span, so the switch was previously invisible to instrumentation.
   // Bracket it here across one paint so warm switches (the common case, and the
   // whole point of keep-alive) are permanently measurable under the same

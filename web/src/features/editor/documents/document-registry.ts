@@ -96,8 +96,9 @@ export class DocumentRegistry {
     if (!doc) return
     this.docs.delete(uri)
     doc.subscription.dispose()
-    doc.model.dispose()
+    // Told first, so what was attached to the model comes off a live one.
     this.listener.released(uri)
+    doc.model.dispose()
   }
 
   has(uri: string): boolean {

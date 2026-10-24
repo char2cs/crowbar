@@ -190,14 +190,21 @@ describe('splitLegacyEditorContent', () => {
 
   it('moves legacy unsaved buffer text into drafts', () => {
     const { layout, drafts } = splitLegacyEditorContent(
-      legacyLayout({ ...legacyBuffer, path: 'a.ts', content: 'a', savedContent: 'b', tokens: [] }),
+      legacyLayout({
+        ...legacyBuffer,
+        path: 'a.ts',
+        content: 'a',
+        savedContent: 'b',
+        tokens: [],
+        fileMissing: true,
+      }),
     )
 
     expect(drafts).toEqual([
       { uri: documentUri(workspaceRef('w1', 'a.ts')), text: 'a', savedText: 'b', updatedAt: 7 },
     ])
     expect(layout.buffers[0]).toMatchObject({ id: 'e-1', isDirty: true })
-    for (const field of ['content', 'savedContent', 'tokens']) {
+    for (const field of ['content', 'savedContent', 'tokens', 'fileMissing']) {
       expect(layout.buffers[0]).not.toHaveProperty(field)
     }
   })

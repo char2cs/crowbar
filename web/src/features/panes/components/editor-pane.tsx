@@ -53,15 +53,14 @@ export function EditorPane({
     buffer && isEditorContent(buffer) && buffer.path ? documentUri(documentRefOf(buffer)) : null
   const documentOpen = useDocumentOpen(uri)
 
-  // BUG-001: the file backing a restored buffer no longer exists on disk.
-  // Render a terminal placeholder instead of an editor — there is no content
-  // to edit and re-fetching the dead path would only repeat the 404.
-  if (buffer && isEditorContent(buffer) && buffer.fileMissing) {
+  // The document could not be loaded: an empty editor would read as an empty file.
+  if (buffer && isEditorContent(buffer) && buffer.unavailable) {
     return (
       <div className="flex h-full flex-1 flex-col items-center justify-center gap-1 p-8 text-center">
-        <span className="text-sm font-medium text-foreground">File not found</span>
+        <span className="text-sm font-medium text-foreground">{buffer.unavailable.title}</span>
+        <span className="text-xs text-muted-foreground">{buffer.unavailable.message}</span>
         <span className="text-xs text-muted-foreground">
-          {buffer.path} no longer exists on disk. Close this tab, or restore the file to reload it.
+          Open the file again to retry, or close this tab.
         </span>
       </div>
     )

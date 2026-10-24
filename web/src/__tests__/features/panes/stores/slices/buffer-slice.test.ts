@@ -38,10 +38,6 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   deleteChat,
 }))
 
-vi.mock('@/lib/persistence/workspace-layout', () => ({
-  saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
-}))
-
 const editor = (
   path: string,
   { isPreview, workspaceId = 'w1' }: { isPreview?: boolean; workspaceId?: string } = {},

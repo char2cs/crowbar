@@ -6,9 +6,7 @@ import { createPaneSlice } from './slices/pane-slice'
 import { createBufferSlice } from './slices/buffer-slice'
 import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
 import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
-import { isEditorContent } from '@/features/panes/types/pane-content'
-import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
-import { getEditorHost } from '@/features/editor/host/editor-host'
+import { releaseDocumentOf } from '@/features/panes/lib/buffer-release'
 
 export type WindowPaneStore = StoreApi<WindowPaneState>
 
@@ -140,12 +138,8 @@ export const windowPaneStore = createWindowPaneStore()
  * @internal Exported for unit tests.
  */
 export function resetWindowPaneStoreForTests(target: WindowPaneStore = windowPaneStore): void {
-  // The buffers' documents go with them, as closing them would release them.
-  for (const b of target.getState().buffers) {
-    if (isEditorContent(b) && b.path) {
-      getEditorHost()?.documents.release(documentUri(documentRefOf(b)))
-    }
-  }
+  // The buffers go as closing them would, documents included.
+  for (const b of target.getState().buffers) releaseDocumentOf(b)
   const fresh = createWindowPaneStore().getState()
   target.setState({
     panes: fresh.panes,

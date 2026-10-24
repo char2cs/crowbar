@@ -109,11 +109,13 @@ export function splitLegacyEditorContent(layout: WorkspaceLayout): {
       content,
       savedContent,
       tokens: _tokens,
+      fileMissing: _fileMissing,
       ...kept
     } = buffer as EditorContent & {
       content?: unknown
       savedContent?: unknown
       tokens?: unknown
+      fileMissing?: unknown
     }
     if (typeof content !== 'string' || content === savedContent) return kept
     const uri = documentUri(documentRefOf(kept))

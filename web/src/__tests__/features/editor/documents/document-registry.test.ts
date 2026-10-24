@@ -7,7 +7,11 @@ import {
   type DocumentListener,
 } from '@/features/editor/documents/document-registry'
 import { loadEditorHost } from '@/features/editor/host/editor-host'
-import { noteDocumentEdited, setDocumentDirty } from '@/features/editor/lib/buffer-save'
+import {
+  cancelPendingWrites,
+  noteDocumentEdited,
+  setDocumentDirty,
+} from '@/features/editor/lib/buffer-save'
 import { EDITOR_CREATE_OPTIONS, realModelApi } from '@/features/editor/lib/monaco-adapters'
 import {
   resetWindowPaneStoreForTests,
@@ -18,13 +22,13 @@ import { workspaceRef } from '@/lib/api/documents'
 const DOC = workspaceRef('ws-reg', 'src/doc.ts')
 const URI = documentUri(DOC)
 
-/** Records every call, and hands dirty/content to the app's own handlers as the host does. */
+/** Records every call, and hands each to the app's own handler as the host does. */
 function recordingListener() {
   return {
     dirtyChanged: vi.fn(setDocumentDirty),
     contentChanged: vi.fn(noteDocumentEdited),
     opened: vi.fn(),
-    released: vi.fn(),
+    released: vi.fn(cancelPendingWrites),
   } satisfies DocumentListener
 }
 
@@ -131,6 +135,18 @@ describe('DocumentRegistry', () => {
     expect(listener.dirtyChanged).not.toHaveBeenCalled()
     a.dispose()
     b.dispose()
+  })
+
+  it('tells the listener of a release while the model is still alive', () => {
+    documents.open(DOC, 'plaintext', 'x')
+    const model = live()
+    let aliveWhenTold = false
+    listener.released.mockImplementation(() => (aliveWhenTold = !model.isDisposed()))
+
+    documents.release(URI)
+
+    expect(aliveWhenTold).toBe(true)
+    expect(model.isDisposed()).toBe(true)
   })
 
   it(
