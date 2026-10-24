@@ -50,7 +50,7 @@ func (r *Recorder) publishLive(chat domain.Chat, runnerID string, d LiveDelta) {
 	if d.Kind != KindAnswer {
 		startedAt = time.Time{}
 	}
-	if d.Floor != "" && !(len(text) > len(d.Floor) && strings.HasPrefix(text, d.Floor)) {
+	if d.Floor != "" && (len(text) <= len(d.Floor) || !strings.HasPrefix(text, d.Floor)) {
 		text = d.Floor
 	}
 	r.frames.MessageDelta(chat.ID, chat.WorkspaceID, d.ShownAs, text, d.Kind, startedAt)

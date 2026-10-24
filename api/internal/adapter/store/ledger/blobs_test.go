@@ -103,7 +103,7 @@ func TestBlobsCollect_RemovesABlobNoRowNames(t *testing.T) {
 
 	require.NoError(t, s.Collect(ref, inUse(false)))
 	_, err = s.Get(ref)
-	assert.ErrorIs(t, err, ledgerstore.ErrBlobNotFound)
+	require.ErrorIs(t, err, ledgerstore.ErrBlobNotFound)
 	assert.NoError(t, s.Collect(ref, inUse(false)), "a missing blob is a no-op")
 }
 
